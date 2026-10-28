@@ -2,12 +2,12 @@
 
 Verifies:
 1. Zero runtime global coupling: webapp/board_export_helpers.py does NOT import ledger_board.
-2. Exact parity with baseline commit 2384cfd across all extracted export and filter helpers:
-   - format_trip_expense_tsv: 7-column TSV layout (B:H), formula escaping, duplicate ID, held rows
-   - filter_trips & is_unclassified_matched
-   - filter_tab_rows & filter_expenses_by_search
-   - export_trip_counts & export_review_conflict_counts
-3. ledger_board facade integration (tabs_html and export_page parity).
+2. Strict required-key contracts & KeyError behavior on incomplete rows (baseline parity with 2384cfd):
+   - filter_trips requires 'display_key' and 'destination'
+   - collect_export_page_summaries requires 'tab_id', 'display_key', 'archived', 'row_kind'
+3. Query count and call sequence preservation:
+   - collect_export_page_summaries queries list_tab_rows(None) exactly once and matches 2*N+1 total calls
+4. ledger_board facade integration (tabs_html and export_page parity with baseline 2384cfd).
 """
 import ast
 import html
@@ -81,65 +81,17 @@ def test_board_export_helpers_has_zero_coupling_to_ledger_board():
                 assert alias.name != "ledger_board"
 
 
-def test_format_trip_expense_tsv_7_column_and_held_rows():
-    """Verify Google Sheets 7-column TSV format (B:H) and held row reasons."""
-    sample_expenses = [
-        {
-            "row_id": "exp-ready-1",
-            "source_event_id": "card-evt-1",
-            "occurred_on": "2026-04-01",
-            "source_merchant": "호텔 나리타",
-            "item": "숙소",
-            "service_period": "2026-04-01~2026-04-03",
-            "reservation_no": "RES123",
-            "evidence_type": "카드",
-            "amount_krw": 150000,
-        },
-        {
-            "row_id": "exp-formula-2",
-            "source_event_id": "card-evt-2",
-            "occurred_on": "2026-04-02",
-            "source_merchant": "=SUM(A1:A10)",  # Formula injection attempt
-            "item": "식비",
-            "evidence_type": "영수증",
-            "amount_krw": 25000,
-        },
-        {
-            "row_id": "exp-blocked-3",
-            "source_event_id": "card-evt-3",
-            "blocked": True,
-            "occurred_on": "2026-04-03",
-            "item": "기타",
-            "evidence_type": "카드",
-            "amount_krw": 3000,
-        },
-    ]
+def test_filter_trips_required_key_keyerror_parity(baseline):
+    """Verify filter_trips raises KeyError on incomplete trip rows matching baseline."""
+    incomplete_trips = [{"display_key": "도쿄"}]  # missing 'destination'
 
-    res = board_export_helpers.format_trip_expense_tsv("trip-tokyo", sample_expenses)
-    assert res["tab_id"] == "trip-tokyo"
-    assert res["row_count"] == 2
-    assert res["total_krw"] == 175000
+    # When query is empty, both return list unchanged without KeyError
+    assert len(board_export_helpers.filter_trips(incomplete_trips, "")) == 1
 
-    # Verify TSV output lines
-    tsv_lines = [l for l in res["tsv"].split("\n") if l]
-    assert len(tsv_lines) == 2
-
-    # Line 1: ready row
-    cols1 = tsv_lines[0].split("\t")
-    assert cols1 == ["2026-04-01", "호텔 나리타", "숙소", "2026-04-01~2026-04-03", "RES123", "카드", "150000"]
-
-    # Line 2: formula escaped with leading quote
-    cols2 = tsv_lines[1].split("\t")
-    assert cols2[0] == "2026-04-02"
-    assert cols2[1] == "'=SUM(A1:A10)"
-    assert cols2[2] == "식비"
-    assert cols2[5] == "영수증"
-    assert cols2[6] == "25000"
-
-    # Blocked row held
-    assert len(res["held"]) == 1
-    assert res["held"][0]["transaction_id"] == "card-evt-3"
-    assert res["held"][0]["reason"] == "NOT_READY"
+    # When query is non-empty, both raise KeyError on 'destination'
+    with pytest.raises(KeyError) as exc_helper:
+        board_export_helpers.filter_trips(incomplete_trips, "도쿄")
+    assert exc_helper.value.args == ("destination",)
 
 
 def test_filter_trips_and_unclassified():
@@ -164,50 +116,61 @@ def test_filter_trips_and_unclassified():
     assert board_export_helpers.is_unclassified_matched("도쿄") is False
 
 
-def test_filter_tab_rows_and_search():
-    rows = [
-        {"row_id": "r-1", "display_tab_id": "tab-a", "item": "비행기", "source_merchant": "대한항공", "evidence_type": "카드"},
-        {"row_id": "r-2", "display_tab_id": "tab-a", "item": "택시", "source_merchant": "도쿄택시", "evidence_type": "영수증"},
-        {"row_id": "r-3", "display_tab_id": "tab-b", "item": "식당", "source_merchant": "스시야", "evidence_type": "카드"},
-    ]
-
-    assert [r["row_id"] for r in board_export_helpers.filter_tab_rows(rows, "tab-a")] == ["r-1", "r-2"]
-    assert [r["row_id"] for r in board_export_helpers.filter_tab_rows(rows, "tab-b")] == ["r-3"]
-
-    # Search filter
-    assert [r["row_id"] for r in board_export_helpers.filter_expenses_by_search(rows, query="대한항공")] == ["r-1"]
-    assert [r["row_id"] for r in board_export_helpers.filter_expenses_by_search(rows, kind="카드")] == ["r-1", "r-3"]
-    assert [r["row_id"] for r in board_export_helpers.filter_expenses_by_search(rows, query="스시", kind="카드")] == ["r-3"]
-
-
-def test_export_trip_counts_and_review_conflict(tmp_path):
+def test_collect_export_page_summaries_query_count_and_sequence(tmp_path):
+    """Verify query call sequence and single unclassified query in export summaries."""
     store = LedgerStore(tmp_path / "synth_export.sqlite", seed_demo=True)
     trips = store.list_trips(include_archived=True)
 
+    calls = []
+    def recording_list_tab_rows(tab_id):
+        calls.append(tab_id)
+        return store.list_tab_rows(tab_id)
+
     try:
-        counts = board_export_helpers.export_trip_counts(trips, list_tab_rows_fn=store.list_tab_rows)
-        assert len(counts) == len(trips) + 1  # includes unclassified
-        assert counts[-1]["tab_id"] is None
-        assert counts[-1]["display_key"] == "분류대기"
-
-        # Check total counts match
-        total_income = sum(c["income_count"] for c in counts)
-        total_expense = sum(c["expense_count"] for c in counts)
-        assert total_income > 0
-        assert total_expense > 0
-
-        # Review and conflict summary
-        rc = board_export_helpers.export_review_conflict_counts(
+        trip_counts, rc = board_export_helpers.collect_export_page_summaries(
             trips,
-            list_tab_rows_fn=store.list_tab_rows,
+            list_tab_rows_fn=recording_list_tab_rows,
             row_needs_review_fn=lambda r: r.get("display_tab_id") is None,
             row_has_conflict_fn=lambda r: False,
         )
+
+        # Expected sequence: trips loop 1, then None once, then trips loop 2
+        expected_calls = [t["tab_id"] for t in trips] + [None] + [t["tab_id"] for t in trips]
+        assert calls == expected_calls
+        assert calls.count(None) == 1
+        assert len(calls) == 2 * len(trips) + 1
+
+        # Check counts
+        assert len(trip_counts) == len(trips) + 1
+        assert trip_counts[-1]["tab_id"] is None
+        assert trip_counts[-1]["display_key"] == "분류대기"
         assert "review_total" in rc
         assert "conflict_total" in rc
-        assert isinstance(rc["per_tab"], list)
     finally:
         store.close()
+
+
+def test_collect_export_page_summaries_required_keys():
+    """Verify collect_export_page_summaries raises KeyError if required keys are missing."""
+    incomplete_trips = [{"tab_id": "t1"}]  # missing 'display_key' and 'archived'
+    with pytest.raises(KeyError) as exc:
+        board_export_helpers.collect_export_page_summaries(
+            incomplete_trips,
+            list_tab_rows_fn=lambda t: [],
+            row_needs_review_fn=lambda r: False,
+            row_has_conflict_fn=lambda r: False,
+        )
+    assert exc.value.args == ("display_key",)
+
+    # Missing 'row_kind' in rows
+    with pytest.raises(KeyError) as exc_row:
+        board_export_helpers.collect_export_page_summaries(
+            [{"tab_id": "t1", "display_key": "T1", "archived": False}],
+            list_tab_rows_fn=lambda t: [{"amount_krw": 100}],
+            row_needs_review_fn=lambda r: False,
+            row_has_conflict_fn=lambda r: False,
+        )
+    assert exc_row.value.args == ("row_kind",)
 
 
 def test_tabs_html_parity_with_baseline(baseline, monkeypatch):

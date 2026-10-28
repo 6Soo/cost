@@ -2,16 +2,11 @@
 
 Verifies:
 1. Zero runtime global coupling: webapp/board_read_projection.py does NOT import ledger_board.
-2. Exact parity with baseline commit 2384cfd across all extracted read projections:
-   - with_display_amount (None store, unprojected row, partial projected row, fully projected row)
-   - shown_amount & shown_date
-   - persisted_rows & load_persisted_rows
-   - Request-local caching (read_scope) behavior and evaluation order preservation
-   - expense_rows & income_rows (None store fallback to demo rows vs active store)
-   - trip_totals, trip_income_total, trip_expense_total, trip_profit
-   - unclassified_rows & customer_total
-   - income_total (bank-linked exclusion)
-3. ledger_board facade wiring integrity.
+2. Strict required-key contracts & KeyError behavior on incomplete rows (baseline parity with 2384cfd):
+   - shown_date, shown_amount, load_persisted_rows, unclassified_rows, income_total, customer_total
+3. Dynamic dispatch preservation:
+   - ledger_board._load_persisted_rows dispatches to patched ledger_board._with_display_amount
+4. with_display_amount, load_persisted_rows, expense_rows, income_rows, trip_totals parity.
 """
 import ast
 import contextlib
@@ -118,6 +113,65 @@ def test_board_read_projection_has_zero_coupling_to_ledger_board():
                 assert alias.name != "ledger_board"
 
 
+def test_required_key_keyerror_parity_on_incomplete_rows(baseline):
+    """Verify strict required key contracts match baseline 2384cfd on incomplete rows."""
+    incomplete = {}
+
+    # 1. shown_date requires 'occurred_on' if 'display_occurred_on' is absent
+    with pytest.raises(KeyError) as exc_base:
+        baseline["_shown_date"](incomplete)
+    with pytest.raises(KeyError) as exc_helper:
+        board_read_projection.shown_date(incomplete)
+    assert exc_base.value.args == exc_helper.value.args == ("occurred_on",)
+
+    # 2. shown_amount requires 'amount_krw' if 'display_amount_krw' is absent
+    with pytest.raises(KeyError) as exc_base:
+        baseline["_shown_amount"](incomplete)
+    with pytest.raises(KeyError) as exc_helper:
+        board_read_projection.shown_amount(incomplete)
+    assert exc_base.value.args == exc_helper.value.args == ("amount_krw",)
+
+    # 3. unclassified_rows requires 'display_tab_id'
+    old_exp = baseline["EXPENSES"]
+    try:
+        baseline["EXPENSES"] = [{"amount_krw": 100}]
+        with pytest.raises(KeyError) as exc_base:
+            baseline["_unclassified_rows"]()
+        with pytest.raises(KeyError) as exc_helper:
+            board_read_projection.unclassified_rows(expense_rows=[{"amount_krw": 100}])
+        assert exc_base.value.args == exc_helper.value.args == ("display_tab_id",)
+    finally:
+        baseline["EXPENSES"] = old_exp
+
+    # 4. income_total requires 'row_id'
+    with pytest.raises(KeyError) as exc_base:
+        baseline["_income_total"]([{"amount_krw": 100}])
+    with pytest.raises(KeyError) as exc_helper:
+        board_read_projection.income_total([{"amount_krw": 100}], store=None)
+    assert exc_base.value.args == exc_helper.value.args == ("row_id",)
+
+    # 5. customer_total requires 'customer_id', 'display_tab_id', 'amount_krw'
+    old_inc = baseline["INCOMES"]
+    try:
+        baseline["INCOMES"] = [{"amount_krw": 100}]
+        with pytest.raises(KeyError) as exc_base:
+            baseline["customer_total"]("c1", "t1")
+        with pytest.raises(KeyError) as exc_helper:
+            board_read_projection.customer_total("c1", "t1", rows=[{"amount_krw": 100}])
+        assert exc_base.value.args == exc_helper.value.args == ("customer_id",)
+    finally:
+        baseline["INCOMES"] = old_inc
+
+    # 6. load_persisted_rows requires 'row_kind'
+    with pytest.raises(KeyError):
+        board_read_projection.load_persisted_rows(
+            "expense",
+            tab_ids=["t1"],
+            fetch_tab_rows_fn=lambda t: [{"row_id": "r1"}],
+            with_display_amount_fn=lambda rows: rows,
+        )
+
+
 def test_shown_amount_and_date_match_baseline(baseline):
     r1 = {"amount_krw": 12000, "occurred_on": "2026-04-10"}
     r2 = {
@@ -172,9 +226,9 @@ def test_load_persisted_rows_and_caching_match_baseline(baseline, tmp_path):
         # Load through helper
         res_helper = board_read_projection.load_persisted_rows(
             "expense",
-            store=store,
             tab_ids=tab_ids,
             fetch_tab_rows_fn=store.list_tab_rows,
+            with_display_amount_fn=lambda rows: board_read_projection.with_display_amount(rows, store=store),
         )
 
         # Load through baseline
@@ -208,6 +262,26 @@ def test_load_persisted_rows_and_caching_match_baseline(baseline, tmp_path):
             assert r1[0] is not r2[0]
     finally:
         store.close()
+
+
+def test_patched_facade_dynamic_dispatch(tmp_path, monkeypatch):
+    """Verify that ledger_board._load_persisted_rows dispatches to a patched _with_display_amount."""
+    store = LedgerStore(tmp_path / "synth_patch.sqlite", seed_demo=True)
+    monkeypatch.setattr(ledger_board, "_active_store", lambda: store)
+
+    dispatched = {"called": False}
+    def mock_with_display(rows):
+        dispatched["called"] = True
+        for r in rows:
+            r["mock_patched"] = True
+        return rows
+
+    monkeypatch.setattr(ledger_board, "_with_display_amount", mock_with_display)
+
+    with active_read_scope():
+        loaded = ledger_board._load_persisted_rows("expense")
+        assert dispatched["called"] is True
+        assert all(r.get("mock_patched") for r in loaded)
 
 
 def test_expense_and_income_rows_match_baseline(baseline, tmp_path):

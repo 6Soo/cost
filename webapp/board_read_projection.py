@@ -10,12 +10,12 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 def shown_date(row: Dict[str, Any]) -> str:
     """The display date of a row, falling back to occurred_on."""
-    return row.get("display_occurred_on", row.get("occurred_on", ""))
+    return row.get("display_occurred_on", row["occurred_on"])
 
 
 def shown_amount(row: Dict[str, Any]) -> int:
     """The display amount of a row in KRW, falling back to amount_krw."""
-    return row.get("display_amount_krw", row.get("amount_krw", 0))
+    return row.get("display_amount_krw", row["amount_krw"])
 
 
 def with_display_amount(
@@ -39,18 +39,18 @@ def with_display_amount(
 def load_persisted_rows(
     kind: str,
     *,
-    store: Any,
     tab_ids: List[Optional[str]],
     fetch_tab_rows_fn: Callable[[Optional[str]], List[Dict[str, Any]]],
+    with_display_amount_fn: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]],
 ) -> List[Dict[str, Any]]:
     """Load and project saved rows for one kind across all tabs and unclassified."""
     out: List[Dict[str, Any]] = []
     for tab in tab_ids + [None]:
         saved_rows = fetch_tab_rows_fn(tab)
         for saved in saved_rows:
-            if saved.get("row_kind") == kind:
+            if saved["row_kind"] == kind:
                 out.append(dict(saved))
-    return with_display_amount(out, store=store)
+    return with_display_amount_fn(out)
 
 
 def persisted_rows(
@@ -93,12 +93,12 @@ def income_rows(
 
 def trip_income_total(tab_id: str, *, rows: List[Dict[str, Any]]) -> int:
     """Sum of income rows for a trip tab."""
-    return sum(r["amount_krw"] for r in rows if r.get("display_tab_id") == tab_id)
+    return sum(r["amount_krw"] for r in rows if r["display_tab_id"] == tab_id)
 
 
 def trip_expense_total(tab_id: str, *, rows: List[Dict[str, Any]]) -> int:
     """Sum of expense rows for a trip tab."""
-    return sum(r["amount_krw"] for r in rows if r.get("display_tab_id") == tab_id)
+    return sum(r["amount_krw"] for r in rows if r["display_tab_id"] == tab_id)
 
 
 def trip_profit(income_total: int, expense_total: int) -> int:
@@ -136,7 +136,7 @@ def trip_totals(
 
 def unclassified_rows(*, expense_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Filter rows that have no display_tab_id."""
-    return [r for r in expense_rows if r.get("display_tab_id") is None]
+    return [r for r in expense_rows if r["display_tab_id"] is None]
 
 
 def income_total(
@@ -148,7 +148,7 @@ def income_total(
     """Sum of display amounts for non-bank-linked income rows."""
     linked: Set[str] = store.linked_bank_row_ids() if store is not None else set()
     return sum(
-        shown_amount_fn(r) for r in rows if r.get("row_id") not in linked
+        shown_amount_fn(r) for r in rows if r["row_id"] not in linked
     )
 
 
@@ -157,5 +157,5 @@ def customer_total(customer_id: str, tab_id: str, *, rows: List[Dict[str, Any]])
     return sum(
         r["amount_krw"]
         for r in rows
-        if r.get("customer_id") == customer_id and r.get("display_tab_id") == tab_id
+        if r["customer_id"] == customer_id and r["display_tab_id"] == tab_id
     )

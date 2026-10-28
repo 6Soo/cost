@@ -865,11 +865,11 @@ def _load_persisted_rows(kind: str):
     store = _active_store()
     return board_read_projection.load_persisted_rows(
         kind,
-        store=store,
         tab_ids=_all_tab_ids(),
         fetch_tab_rows_fn=lambda tab: read_scope.remember(
             ('persisted_tab_rows', id(store), tab), lambda: store.list_tab_rows(tab)
         ),
+        with_display_amount_fn=_with_display_amount,
     )
 
 
@@ -1841,9 +1841,11 @@ def export_page() -> str:
     # rendered at all in that state rather than showing its empty form.
     review_note = ""
     if _active_store() is not None:
-        trip_counts = board_export_helpers.export_trip_counts(
+        trip_counts, rc_summary = board_export_helpers.collect_export_page_summaries(
             live_trips(include_archived=True),
             list_tab_rows_fn=_active_store().list_tab_rows,
+            row_needs_review_fn=row_needs_review,
+            row_has_conflict_fn=row_has_conflict,
         )
         lines = []
         for tc in trip_counts:
@@ -1859,12 +1861,6 @@ def export_page() -> str:
         # Both are read off the ledger: a row needs a person when it has no trip
         # or no recorded classification basis, and it is in conflict when the
         # row's newest ledger event is a conflict note.
-        rc_summary = board_export_helpers.export_review_conflict_counts(
-            live_trips(include_archived=True),
-            list_tab_rows_fn=_active_store().list_tab_rows,
-            row_needs_review_fn=row_needs_review,
-            row_has_conflict_fn=row_has_conflict,
-        )
         review_note = (
             "<p class='muted'>검토필요 {review}행 · 충돌 {conflict}행"
             "이 포함됩니다. 출력해도 분류는 바뀌지 않습니다."
