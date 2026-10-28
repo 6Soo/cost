@@ -154,7 +154,7 @@ def read_booking_trip_rules() -> dict:
         return {}
     path = Path(configured).expanduser().resolve(strict=False)
     if not path.is_file():
-        return {}
+        raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
     conn = None
     try:
         conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
@@ -162,9 +162,9 @@ def read_booking_trip_rules() -> dict:
         names = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
         if any(not name.startswith("ota_review_") for name in names):
-            return {}
+            raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
         if "ota_review_booking_trips" not in names:
-            return {}
+            raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
         rows = conn.execute(
             "SELECT provider,booking_ref,trip_tab_id,trip_code,basis,revision,status,user,changed_at "
             "FROM ota_review_booking_trips ORDER BY provider,booking_ref")
@@ -172,7 +172,7 @@ def read_booking_trip_rules() -> dict:
                 trip_code=row[3], basis=row[4], revision=int(row[5]), status=row[6],
                 user=row[7], changed_at=row[8]) for row in rows}
     except (OSError, ValueError, TypeError, sqlite3.Error):
-        return {}
+        raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE") from None
     finally:
         if conn is not None:
             conn.close()
@@ -343,6 +343,7 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, is_owner: bool,
              booking_trip_rules: Mapping[tuple[str, str], Mapping[str, Any]] | None = None) -> bool:
     """GET-only API route helper; caller passes an already-held worker snapshot."""
     from urllib.parse import parse_qs
+    from urllib.parse import unquote
     import re
     match = re.fullmatch(r"/api/trips/([^/]+)/flight-bookings", str(getattr(parsed, "path", "")))
     if not match:
@@ -350,7 +351,11 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, is_owner: bool,
     if raw is not None:
         handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
         return True
-    trip_id = match.group(1)
+    try:
+        trip_id = unquote(match.group(1), errors="strict")
+    except UnicodeDecodeError:
+        handler._send_json({"code": "INVALID_TRIP"}, 400)
+        return True
     trips = _board_trips(board)
     trip = next((t for t in trips if str(t.get("tab_id")) == trip_id), None)
     if not trip_read_allowed(is_owner=is_owner, trip=trip, allowed_trip_ids=allowed_trip_ids):
@@ -360,7 +365,11 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, is_owner: bool,
     data = snap.get("data") or {}
     index = data.get("passengers") if snap.get("fresh") else None
     if index is not None:
-        rules = read_booking_trip_rules() if booking_trip_rules is None else booking_trip_rules
+        try:
+            rules = read_booking_trip_rules() if booking_trip_rules is None else booking_trip_rules
+        except ValueError:
+            handler._send_json({"code": "FLIGHT_AUTHORITY_UNAVAILABLE"}, 503)
+            return True
         links = confirmed_booking_card_links(board, index)
         rows = (expense_rows() if callable(expense_rows) else expense_rows
                 if expense_rows else confirmed_card_trip_rows(board, links))

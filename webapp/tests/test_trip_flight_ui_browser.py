@@ -4,6 +4,38 @@ from playwright.sync_api import sync_playwright
 from webapp.trip_flight_ui import render_trip_flights
 
 
+def test_source_change_clears_stale_rows_and_reopening_fetches_a_new_list():
+    from urllib.parse import urlparse, parse_qs
+    html = "<!doctype html><meta charset='utf-8'><body>" + render_trip_flights("trip-A")
+    calls = []
+    def respond(route):
+        query = parse_qs(urlparse(route.request.url).query)
+        if "booking_key" in query:
+            calls.append(query)
+            route.fulfill(status=409, content_type="application/json", body='{"code":"SOURCE_CHANGED"}')
+        else:
+            _respond(route, calls)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route("http://test.local/", lambda route: route.fulfill(
+                status=200, content_type="text/html; charset=utf-8", body=html))
+            page.route("http://test.local/api/trips/trip-A/flight-bookings**", respond)
+            page.goto("http://test.local")
+            page.locator("summary").click()
+            page.get_by_role("button", name="2026-11-07 · SYNTH-PNR").click()
+            page.get_by_text("예약 자료가 갱신됐습니다. 목록을 새로 열어 주세요.").wait_for()
+            assert page.locator(".trip-flight-items li").count() == 0
+            page.locator("summary").click()
+            page.locator("summary").click()
+            page.get_by_role("button", name="2026-11-07 · SYNTH-PNR").wait_for()
+            assert len(calls) == 3
+            assert "cursor" not in calls[-1]
+        finally:
+            browser.close()
+
+
 def test_trip_flight_list_is_lazy_and_detail_uses_text_content():
     html = "<!doctype html><meta charset='utf-8'><body>" + render_trip_flights("trip-A")
     calls = []

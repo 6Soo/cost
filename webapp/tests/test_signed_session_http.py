@@ -176,13 +176,17 @@ class SignedSessionHttpTests(unittest.TestCase):
                 {"departure_airport": "ICN", "arrival_airport": "FUK", "flight_number": "SYN123"}]}],
             "cancellation_status": "NONE", "booking_date_status": "FIRST_RECEIVED",
             "reserved_on": "2026-05-04"}
-        route_store._flight_booking_service = SimpleNamespace(display_context=lambda: (
+        initial_service = SimpleNamespace(display_context=lambda: (
             {"data": {"passengers": {"SYNTH-PNR": evidence}}},
             {"fresh": True, "generation": "synthetic-flight-generation"}))
-        with patch.dict(os.environ, {"WEBLEDGER_OTA_REVIEW_DB": str(self.root / "absent-review.sqlite")}):
+        route_store._flight_booking_service = None
+        with patch.dict(os.environ, {"WEBLEDGER_OTA_REVIEW_DB": ""}), patch(
+                "webapp.flight_booking_index.prewarm", side_effect=lambda target:
+                setattr(target, "_flight_booking_service", initial_service)) as warm:
             path = f"/api/trips/{trip['tab_id']}/flight-bookings"
             status, body, _ = self.request(path, cookie=self.cookie(OWNER))
             self.assertEqual(status, 200, body)
+            self.assertEqual(warm.call_count, 1)
             listing = json.loads(body)
             self.assertEqual(listing["total_bookings"], 1)
             self.assertEqual(listing["items"][0]["assignment_status"], "AUTO_INFERRED")

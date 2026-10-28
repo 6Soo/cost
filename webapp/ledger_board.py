@@ -2398,6 +2398,10 @@ class Handler(BaseHTTPRequestHandler):
 
             def held_flight_snapshot():
                 service = getattr(store, "_flight_booking_service", None) if store is not None else None
+                if service is None and store is not None:
+                    from .flight_booking_index import prewarm
+                    prewarm(store)
+                    service = getattr(store, "_flight_booking_service", None)
                 if service is None:
                     return None
                 current, state = service.display_context()
@@ -3416,6 +3420,10 @@ class Handler(BaseHTTPRequestHandler):
 
             def held_flight_snapshot():
                 service = getattr(store, "_flight_booking_service", None) if store is not None else None
+                if service is None and store is not None:
+                    from .flight_booking_index import prewarm
+                    prewarm(store)
+                    service = getattr(store, "_flight_booking_service", None)
                 if service is None:
                     return None
                 current, state = service.display_context()

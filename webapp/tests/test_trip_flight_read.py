@@ -182,7 +182,8 @@ def test_booking_identity_survives_new_lineage_and_read_store_never_creates(tmp_
     from webapp import trip_flight_read
     path = tmp_path / "absent.sqlite"
     monkeypatch.setattr("webapp.ota_payment_review.review_db_path", lambda: str(path))
-    assert trip_flight_read.read_booking_trip_rules() == {}
+    with pytest.raises(ValueError, match="FLIGHT_AUTHORITY_UNAVAILABLE"):
+        trip_flight_read.read_booking_trip_rules()
     assert not path.exists()
     a = project_trip_bookings({"AB-123": evidence("AB-123")},
         [trip("A", "2026-11-07", "2026-11-10")], source_generation="g1")["bookings"][0]
@@ -250,3 +251,55 @@ def test_api_dispatch_requires_trip_access_fresh_snapshot_and_get():
     handler = Handler()
     assert dispatch(handler, parsed, board=Board(), is_owner=True, raw=b"{}")
     assert handler.response[0] == 405
+
+
+def test_overlapping_periods_need_evidence_except_unique_departure_start():
+    trips = [trip("A", "2026-11-07", "2026-11-10"), trip("B", "2026-11-08", "2026-11-12")]
+    ambiguous = resolve_assignment({"legs": [{"departure_on": "2026-11-09"}]}, trips)
+    assert ambiguous["assignment_status"] == "CONFLICT"
+    assert ambiguous["trip_tab_id"] == ""
+    boundary = resolve_assignment({"legs": [{"departure_on": "2026-11-08"}]}, trips)
+    assert boundary["trip_tab_id"] == "B"
+
+
+def test_invalid_archived_and_disabled_trips_cannot_cut_open_trip_period():
+    trips = [trip("A", "2026-11-07", ""),
+             {**trip("old", "2026-11-08", "2026-11-11"), "archived": True},
+             {**trip("disabled", "2026-11-08", "2026-11-11"), "enabled": False},
+             trip("bad", "2026-11-08", "invalid"),
+             trip("next", "2026-11-10", "2026-11-15")]
+    result = resolve_assignment({"legs": [{"departure_on": "2026-11-09"}]}, trips)
+    assert result["trip_tab_id"] == "A"
+
+
+def test_opaque_trip_ids_are_url_encoded_then_decoded_before_authorization():
+    from urllib.parse import quote
+    tab = "여행 & A"
+    encoded = quote(tab, safe="")
+    assert f'/api/trips/{encoded}/flight-bookings' in render_flight_section(tab)
+    class Handler:
+        def _send_json(self, body, status=200):
+            self.response = status, body
+    board = SimpleNamespace(live_trips=lambda **kwargs: [trip(tab, "2026-11-07", "2026-11-10")])
+    handler = Handler()
+    dispatch(handler, SimpleNamespace(path=f"/api/trips/{encoded}/flight-bookings", query=""),
+             board=board, is_owner=True, booking_trip_rules={},
+             snapshot={"fresh": True, "generation": "g", "data": {"passengers": {"R": evidence("R")}}})
+    assert handler.response[0] == 200
+    assert handler.response[1]["trip_tab_id"] == tab
+
+
+def test_configured_authority_failure_cannot_silently_replace_manual_choice(tmp_path, monkeypatch):
+    from webapp import trip_flight_read
+    path = tmp_path / "missing-authority.sqlite"
+    monkeypatch.setattr("webapp.ota_payment_review.review_db_path", lambda: str(path))
+    class Handler:
+        def _send_json(self, body, status=200):
+            self.response = status, body
+    board = SimpleNamespace(live_trips=lambda **kwargs: [trip("A", "2026-11-07", "2026-11-10")])
+    handler = Handler()
+    dispatch(handler, SimpleNamespace(path="/api/trips/A/flight-bookings", query=""),
+             board=board, is_owner=True,
+             snapshot={"fresh": True, "generation": "g", "data": {"passengers": {"R": evidence("R")}}})
+    assert handler.response == (503, {"code": "FLIGHT_AUTHORITY_UNAVAILABLE"})
+    assert not path.exists()

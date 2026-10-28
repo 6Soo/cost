@@ -48,3 +48,9 @@ The public UI hook for the participant worker to call after `_is_trip_tab(tab_id
 ## Resume
 
 Participant worker should land `ledger_design.page(..., participant_query=None)` so the already-wired `/board` request can consume its pagination state. Other-provider coverage remains the only source-coverage block. Main merge/deployment belong to supervisor. This worker did not push, create a PR, or deploy.
+
+## Supervisor review corrections
+
+Cold reads now start the existing background worker without synchronous parsing; opaque trip IDs are URL encoded/decoded; missing or invalid configured authority fails closed. Invalid trip periods are excluded before open-period boundaries and ambiguous overlapping trips remain conflicts. Stale UI state resets for retry and concurrent loads are blocked.
+
+Affected read, synthetic browser, and signed HTTP route tests: **24 passed**. `git diff --check` passed. The real ledger UI still requires the participant signature and public hook integration; this branch must not deploy standalone. No live data or deployment was used.

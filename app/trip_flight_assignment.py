@@ -38,7 +38,8 @@ def resolve_assignment(booking: Mapping[str, Any], trips: Sequence[Mapping[str, 
                        user_assignment: Mapping[str, Any] | None = None,
                        authority_trip_ids: Sequence[str] = ()) -> dict[str, Any]:
     """Resolve one booking to at most one trip; never override explicit decisions."""
-    tab_map = {str(t.get("tab_id")): t for t in trips if t.get("tab_id")}
+    trips = _valid_trips(trips)
+    tab_map = {str(t.get("tab_id")): t for t in trips}
     departure = outbound_departure(booking)
     user_trip = str((user_assignment or {}).get("trip_tab_id") or "")
     if user_trip:
@@ -64,25 +65,44 @@ def _infer(departure: str, trips: Sequence[Mapping[str, Any]]) -> dict[str, Any]
     day = _day(departure)
     if day is None:
         return _result("", "UNRESOLVED", "OUTBOUND_DATE_MISSING", departure)
-    ordered = sorted(((t, _day(t.get("start_on") or t.get("starts_on"))) for t in trips),
+    ordered = sorted(((t, _day(t.get("start_on") or t.get("starts_on"))) for t in _valid_trips(trips)),
                      key=lambda pair: pair[1] or date.min)
     candidates = []
     for index, (trip, start) in enumerate(ordered):
         end = _day(trip.get("end_on") or trip.get("ends_on"))
         if end is None:
-            next_start = next((later_start for _, later_start in ordered[index + 1:] if later_start), None)
+            next_start = next((later_start for _, later_start in ordered[index + 1:]
+                               if later_start and start and later_start > start), None)
             if next_start:
-                from datetime import timedelta
-                end = next_start - timedelta(days=1)
+                from app.reconciliation import open_trip_end
+                end = _day(open_trip_end(start.isoformat(), next_start.isoformat()))
         if start and start <= day and (end is None or day <= end):
             candidates.append((trip, start))
     if not candidates:
         return _result("", "UNRESOLVED", "NO_TRIP_CONTAINS_OUTBOUND", departure)
-    latest = max(start for _, start in candidates)
-    winners = [trip for trip, start in candidates if start == latest]
+    winners = ([candidates[0][0]] if len(candidates) == 1 else
+               [trip for trip, start in candidates if start == day])
     if len(winners) != 1:
         return _result("", "CONFLICT", "AMBIGUOUS_OUTBOUND_TRIP", departure)
     return _result(str(winners[0]["tab_id"]), "AUTO_INFERRED", "OUTBOUND_WITHIN_TRIP", departure)
+
+
+def _valid_trips(trips):
+    """Keep canonical, usable travel periods before resolving open boundaries."""
+    valid = []
+    for trip in trips:
+        if (not isinstance(trip, Mapping) or not trip.get("tab_id")
+                or trip.get("deleted") or trip.get("archived")
+                or trip.get("enabled") is False or trip.get("valid") is False
+                or trip.get("conflict") or trip.get("period_conflict")):
+            continue
+        start = _day(trip.get("start_on") or trip.get("starts_on"))
+        raw_end = trip.get("end_on") or trip.get("ends_on")
+        end = _day(raw_end)
+        if not start or (raw_end and not end) or (end and end < start):
+            continue
+        valid.append(trip)
+    return valid
 
 
 def _result(tab_id: str, status: str, basis: str, departure: str, **extra: Any) -> dict[str, Any]:
