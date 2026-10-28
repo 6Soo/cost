@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
 
 DEFAULT_TIMEOUT = 20.0
 # A key we would accept from the owner. Long enough to be a real key, short
@@ -31,17 +30,17 @@ TIMEOUT_MAX = 120.0
 class ConfigError(ValueError):
     """A configuration request was refused. The message is safe to show."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code, message):
         super().__init__(message)
         self.code = code
 
 
-def _looks_secret(text: Any) -> bool:
+def _looks_secret(text):
     return (isinstance(text, str) and len(text) >= 16
             and text.startswith(SECRET_PREFIXES))
 
 
-def redact(value: Any) -> Any:
+def redact(value):
     """Replace anything that looks like a credential, anywhere in a structure.
 
     Used on anything that is about to be logged or returned, so a secret cannot
@@ -65,14 +64,14 @@ def redact(value: Any) -> Any:
     return value
 
 
-def fingerprint(secret: str | None) -> str | None:
+def fingerprint(secret):
     """A non-reversible marker. Not a key, and not usable as one."""
     if not secret:
         return None
     return "sha256:" + hashlib.sha256(secret.encode("utf-8")).hexdigest()[:12]
 
 
-def validate_model(value: Any, field: str = "모델 이름") -> str:
+def _validate_model(value, field):
     text = str(value or "").strip()
     if not text:
         raise ConfigError("INVALID_VALUE", f"{field}이 필요해요")
@@ -83,10 +82,7 @@ def validate_model(value: Any, field: str = "모델 이름") -> str:
     return text
 
 
-_validate_model = validate_model
-
-
-def validate_timeout(value: Any) -> float:
+def _validate_timeout(value):
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -96,10 +92,7 @@ def validate_timeout(value: Any) -> float:
     return number
 
 
-_validate_timeout = validate_timeout
-
-
-def validate_secret(value: Any, field: str = "키") -> str:
+def _validate_secret(value, field):
     if value is None:
         return ""
     if not isinstance(value, str):
@@ -114,9 +107,6 @@ def validate_secret(value: Any, field: str = "키") -> str:
     return text
 
 
-_validate_secret = validate_secret
-
-
 __all__ = [
     "DEFAULT_TIMEOUT",
     "MIN_SECRET_LENGTH",
@@ -129,10 +119,7 @@ __all__ = [
     "_looks_secret",
     "redact",
     "fingerprint",
-    "validate_model",
     "_validate_model",
-    "validate_timeout",
     "_validate_timeout",
-    "validate_secret",
     "_validate_secret",
 ]

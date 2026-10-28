@@ -1,6 +1,10 @@
-"""Pure unit tests for provider_config_schema.
+"""Pure unit tests and AST differential verification for provider_config_schema.
 
 Verifies:
+- Exact parameter signature and required positional argument contract
+- AST differential identity against baseline 1122495
+- Preservation of SecretStore and ProviderConfigService AST in provider_config.py
+- Dynamic module-level dispatch / monkeypatch preservation
 - ConfigError type identity and attributes
 - Credential masking (redact) with synthetic tokens
 - SHA256 non-reversible fingerprinting
@@ -10,7 +14,11 @@ Verifies:
 - Complete symbol identity between provider_config and provider_config_schema
 """
 
+import ast
 import hashlib
+import inspect
+from pathlib import Path
+import subprocess
 import unittest
 
 from webapp import provider_config as pc
@@ -20,6 +28,138 @@ SYN_KEY_SK = "sk-synthetictestkey00123"
 SYN_KEY_AIZA = "AIzaSyntheticTestKey45678"
 SYN_KEY_YA29 = "ya29.SyntheticToken98765"
 SYN_NON_SECRET = "not-a-secret-plain-text"
+
+
+class AstDifferentialTests(unittest.TestCase):
+    """Verifies complete AST equivalence against baseline 1122495."""
+
+    @classmethod
+    def setUpClass(cls):
+        proc = subprocess.run(
+            ["git", "show", "1122495:webapp/provider_config.py"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        cls.baseline_tree = ast.parse(proc.stdout)
+        cls.baseline_defs = {
+            node.name: node
+            for node in cls.baseline_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        }
+
+        schema_src = Path("webapp/provider_config_schema.py").read_text(
+            encoding="utf-8"
+        )
+        cls.schema_tree = ast.parse(schema_src)
+        cls.schema_defs = {
+            node.name: node
+            for node in cls.schema_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        }
+
+        pc_src = Path("webapp/provider_config.py").read_text(encoding="utf-8")
+        cls.pc_tree = ast.parse(pc_src)
+        cls.pc_defs = {
+            node.name: node
+            for node in cls.pc_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        }
+
+    def test_schema_function_and_class_ast_identical(self):
+        extracted_names = [
+            "ConfigError",
+            "_looks_secret",
+            "redact",
+            "fingerprint",
+            "_validate_model",
+            "_validate_timeout",
+            "_validate_secret",
+        ]
+        for name in extracted_names:
+            with self.subTest(definition=name):
+                self.assertIn(name, self.baseline_defs)
+                self.assertIn(name, self.schema_defs)
+                baseline_ast = ast.dump(self.baseline_defs[name])
+                schema_ast = ast.dump(self.schema_defs[name])
+                self.assertEqual(
+                    baseline_ast,
+                    schema_ast,
+                    f"AST divergence detected in extracted definition {name}",
+                )
+
+    def test_retained_classes_ast_identical(self):
+        retained_names = [
+            "SecretStore",
+            "ProviderConfig",
+            "ProviderConfigService",
+        ]
+        for name in retained_names:
+            with self.subTest(cls=name):
+                self.assertIn(name, self.baseline_defs)
+                self.assertIn(name, self.pc_defs)
+                baseline_ast = ast.dump(self.baseline_defs[name])
+                pc_ast = ast.dump(self.pc_defs[name])
+                self.assertEqual(
+                    baseline_ast,
+                    pc_ast,
+                    f"AST divergence detected in retained class {name}",
+                )
+
+
+class SignatureContractTests(unittest.TestCase):
+    def test_validate_model_signature_requires_field(self):
+        sig = inspect.signature(pcs._validate_model)
+        params = list(sig.parameters.values())
+        self.assertEqual(len(params), 2)
+        self.assertEqual(params[0].name, "value")
+        self.assertEqual(params[0].default, inspect.Parameter.empty)
+        self.assertEqual(params[1].name, "field")
+        self.assertEqual(params[1].default, inspect.Parameter.empty)
+
+        with self.assertRaises(TypeError):
+            pcs._validate_model("gemini-1.5-flash")  # missing field
+
+    def test_validate_secret_signature_requires_field(self):
+        sig = inspect.signature(pcs._validate_secret)
+        params = list(sig.parameters.values())
+        self.assertEqual(len(params), 2)
+        self.assertEqual(params[0].name, "value")
+        self.assertEqual(params[0].default, inspect.Parameter.empty)
+        self.assertEqual(params[1].name, "field")
+        self.assertEqual(params[1].default, inspect.Parameter.empty)
+
+        with self.assertRaises(TypeError):
+            pcs._validate_secret("sk-test12345678")  # missing field
+
+    def test_validate_timeout_signature(self):
+        sig = inspect.signature(pcs._validate_timeout)
+        params = list(sig.parameters.values())
+        self.assertEqual(len(params), 1)
+        self.assertEqual(params[0].name, "value")
+        self.assertEqual(params[0].default, inspect.Parameter.empty)
+
+
+class DynamicDispatchMonkeypatchTests(unittest.TestCase):
+    def test_dynamic_timeout_validator_patch(self):
+        orig = pc._validate_timeout
+        try:
+            calls = []
+
+            def custom_timeout(val):
+                calls.append(val)
+                return 42.0
+
+            pc._validate_timeout = custom_timeout
+            store = pc.SecretStore()
+            store.set("test_provider", "timeout", 10.0)
+            config = pc.ProviderConfig(store)
+            res = config._timeout("test_provider")
+            self.assertEqual(res, 42.0)
+            self.assertEqual(calls, [10.0])
+        finally:
+            pc._validate_timeout = orig
 
 
 class ConfigErrorIdentityTests(unittest.TestCase):
@@ -94,7 +234,10 @@ class FingerprintTests(unittest.TestCase):
         fp2 = pcs.fingerprint(SYN_KEY_SK)
         self.assertEqual(fp1, fp2)
         self.assertTrue(fp1.startswith("sha256:"))
-        expected = "sha256:" + hashlib.sha256(SYN_KEY_SK.encode("utf-8")).hexdigest()[:12]
+        expected = (
+            "sha256:"
+            + hashlib.sha256(SYN_KEY_SK.encode("utf-8")).hexdigest()[:12]
+        )
         self.assertEqual(fp1, expected)
         self.assertEqual(len(fp1), 19)
 
@@ -118,17 +261,18 @@ class ModelValidationTests(unittest.TestCase):
         ]
         for name in valid_models:
             with self.subTest(model=name):
-                self.assertEqual(pcs.validate_model(name), name)
                 self.assertEqual(pcs._validate_model(name, "모델"), name)
 
     def test_model_whitespace_strip(self):
-        self.assertEqual(pcs.validate_model("  gemini-pro  "), "gemini-pro")
+        self.assertEqual(
+            pcs._validate_model("  gemini-pro  ", "모델"), "gemini-pro"
+        )
 
     def test_empty_or_missing_model_raises_invalid_value(self):
         for bad in ["", "   ", None]:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_model(bad, "모델")
+                    pcs._validate_model(bad, "모델")
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("필요해요", str(caught.exception))
 
@@ -144,7 +288,7 @@ class ModelValidationTests(unittest.TestCase):
         for bad in bad_models:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_model(bad, "모델")
+                    pcs._validate_model(bad, "모델")
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("형식이 달라요", str(caught.exception))
 
@@ -160,7 +304,6 @@ class TimeoutValidationTests(unittest.TestCase):
         ]
         for raw, expected in cases:
             with self.subTest(raw=raw):
-                self.assertEqual(pcs.validate_timeout(raw), expected)
                 self.assertEqual(pcs._validate_timeout(raw), expected)
 
     def test_out_of_range_timeouts(self):
@@ -168,7 +311,7 @@ class TimeoutValidationTests(unittest.TestCase):
         for bad in out_of_range:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_timeout(bad)
+                    pcs._validate_timeout(bad)
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("허용 범위를 벗어났어요", str(caught.exception))
 
@@ -177,31 +320,30 @@ class TimeoutValidationTests(unittest.TestCase):
         for bad in non_numeric:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_timeout(bad)
+                    pcs._validate_timeout(bad)
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("숫자가 아니에요", str(caught.exception))
 
 
 class SecretValidationTests(unittest.TestCase):
     def test_empty_or_none_returns_empty_string(self):
-        self.assertEqual(pcs.validate_secret(None), "")
-        self.assertEqual(pcs.validate_secret(""), "")
-        self.assertEqual(pcs.validate_secret("   "), "")
+        self.assertEqual(pcs._validate_secret(None, "키"), "")
+        self.assertEqual(pcs._validate_secret("", "키"), "")
+        self.assertEqual(pcs._validate_secret("   ", "키"), "")
 
     def test_valid_secret_length(self):
         key_8 = "12345678"
         key_512 = "k" * 512
         key_padded = "  " + key_8 + "  "
-        self.assertEqual(pcs.validate_secret(key_8), key_8)
-        self.assertEqual(pcs.validate_secret(key_512), key_512)
-        self.assertEqual(pcs.validate_secret(key_padded), key_8)
         self.assertEqual(pcs._validate_secret(key_8, "키"), key_8)
+        self.assertEqual(pcs._validate_secret(key_512, "키"), key_512)
+        self.assertEqual(pcs._validate_secret(key_padded, "키"), key_8)
 
     def test_non_string_secret_raises(self):
         for bad in [12345678, True, ["key"]]:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_secret(bad)
+                    pcs._validate_secret(bad, "키")
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("형식이 달라요", str(caught.exception))
 
@@ -211,7 +353,7 @@ class SecretValidationTests(unittest.TestCase):
         for bad in [too_short, too_long]:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_secret(bad)
+                    pcs._validate_secret(bad, "키")
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("길이가 허용 범위를 벗어났어요", str(caught.exception))
 
@@ -219,7 +361,7 @@ class SecretValidationTests(unittest.TestCase):
         for bad in ["secret\nkey123", "secret\rkey123", "secret\tkey123"]:
             with self.subTest(bad=bad):
                 with self.assertRaises(pcs.ConfigError) as caught:
-                    pcs.validate_secret(bad)
+                    pcs._validate_secret(bad, "키")
                 self.assertEqual(caught.exception.code, "INVALID_VALUE")
                 self.assertIn("허용되지 않은 문자", str(caught.exception))
 
@@ -230,11 +372,8 @@ class ProviderConfigReexportEquivalenceTests(unittest.TestCase):
         self.assertIs(pc.redact, pcs.redact)
         self.assertIs(pc.fingerprint, pcs.fingerprint)
         self.assertIs(pc._looks_secret, pcs._looks_secret)
-        self.assertIs(pc.validate_model, pcs.validate_model)
         self.assertIs(pc._validate_model, pcs._validate_model)
-        self.assertIs(pc.validate_timeout, pcs.validate_timeout)
         self.assertIs(pc._validate_timeout, pcs._validate_timeout)
-        self.assertIs(pc.validate_secret, pcs.validate_secret)
         self.assertIs(pc._validate_secret, pcs._validate_secret)
 
         self.assertEqual(pc.DEFAULT_TIMEOUT, pcs.DEFAULT_TIMEOUT)
