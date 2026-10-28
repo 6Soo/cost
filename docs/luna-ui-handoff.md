@@ -20,4 +20,4 @@ Final targeted runs:
 
 All tests use synthetic fixtures and temporary data. No production/customer source, operational DB, authentication, Google, insurance, push, PR, or deployment used. No full project suite run. `docs/session_handoff.md`, `docs/operations.md`, and `webapp/ledger_board.py` remain untouched.
 
-Follow-up commit: `c1c76b19ac53e6496b5c4f62270b1e934dda4127`. Remaining external acceptance: physical device only.
+Implementation commit: `fd46faeabb3cf90ae7afd3622f8dbf0ed3d40d22`. Remaining external acceptance: physical device only.
