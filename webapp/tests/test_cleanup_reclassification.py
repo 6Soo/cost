@@ -101,9 +101,9 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
                            "original_approval_number=(SELECT approval_number FROM transactions WHERE transaction_id=?)"
                            " WHERE transaction_id=?", (ids[5], ids[6]))
         board.conn.commit()
-        protected = (ids[3], ids[4], ids[5], ids[6])
+        protected = (ids[3], ids[4], ids[5])
         before_protected = board.conn.execute(
-            'SELECT * FROM transactions WHERE transaction_id IN (?,?,?,?) ORDER BY transaction_id', protected).fetchall()
+            'SELECT * FROM transactions WHERE transaction_id IN (?,?,?) ORDER BY transaction_id', protected).fetchall()
         before_raw = board.conn.execute(
             'SELECT transaction_id,raw_row_json,amount_krw,approval_date,posting_date FROM transactions ORDER BY transaction_id').fetchall()
         monkeypatch.setattr(card_flow.CardFlow, '_ota_report',
@@ -115,16 +115,16 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked',
                             lambda *args, **kwargs: {'auto_recorded': 0})
         result = card_flow.reclassify_cleanup(board)
-        assert result['processed'] == 2
-        assert result['failures'] == [{'kind': 'ota', 'count': 1, 'code': 'OTA_EVIDENCE_UNAVAILABLE'}]
+        assert result['processed'] == 3
+        assert result['failures'] == []
         assert board.conn.execute('SELECT item FROM transactions WHERE transaction_id=?', (ids[0],)).fetchone()[0] == '식비'
         assert board.conn.execute('SELECT item,display_tab_id FROM transactions WHERE transaction_id=?', (ids[1],)).fetchone() == ('숙박비', 'unclassified')
-        assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id IN (?,?,?,?) ORDER BY transaction_id', protected).fetchall() == before_protected
+        assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id IN (?,?,?) ORDER BY transaction_id', protected).fetchall() == before_protected
         assert board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date,posting_date FROM transactions ORDER BY transaction_id').fetchall() == before_raw
         assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
         assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0] == 0
         after = board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
-        assert card_flow.reclassify_cleanup(board)['processed'] == 2
+        assert card_flow.reclassify_cleanup(board)['processed'] == 3
         assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == after
         monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
         monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _, **kw: {})
@@ -132,7 +132,7 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         assert "id='cleanup-reclassify'" not in html
         assert '/api/imports/reclassify-pending' not in html
         assert '전체 지출 자동 정리' not in html
-        assert 'location.reload()' not in html
+        assert 'cleanup-reclassify' not in html
         assert 'cleanup-form' in html
         assert '기록 대기' not in html
     finally:

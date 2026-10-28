@@ -623,6 +623,37 @@ class CardFlow:
         return synced
 
     def _classify(self, batch_id, *, transaction_ids=None):
+        from app import StoreError
+        from .card_classification_completion import complete
+        from app.automatic_classification import FIELDS
+        initial = {row['transaction_id']: row for row in self.pipeline.get_batch(batch_id)['rows']}
+        try:
+            result = self._classify_evidence(batch_id, transaction_ids=transaction_ids)
+        except StoreError as exc:
+            if exc.code != 'OTA_EVIDENCE_UNAVAILABLE':
+                raise
+            # Missing booking evidence does not prevent an expense classification.
+            result = self.pipeline.classify_batch(batch_id, trip_resolver=self.retail_trip,
+                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'), transaction_ids=transaction_ids)
+            result['booking_evidence_unavailable'] = True
+        result['completion'] = complete(self, batch_id, transaction_ids)
+        from collections import Counter
+        current = self.pipeline.get_batch(batch_id)['rows']
+        for row in current:
+            before = initial.get(row['transaction_id'])
+            if (before and row['revision'] == before['revision'] + 1
+                    and all((row.get(key) or '') == (before.get(key) or '') for key in FIELDS)):
+                # Repeating the same inference must not invalidate a user's open form.
+                self.board.conn.execute('UPDATE transactions SET revision=? WHERE transaction_id=? AND revision=?',
+                    (before['revision'], row['transaction_id'], row['revision']))
+        if transaction_ids is not None:
+            current = [row for row in current if row['transaction_id'] in transaction_ids]
+        result['counts'] = dict(Counter(row['classification_state'] for row in current))
+        result['needs_review'] = result['counts'].get('needs_review', 0)
+        result['classified'] = result['counts'].get('classified', 0)
+        return result
+
+    def _classify_evidence(self, batch_id, *, transaction_ids=None):
         ota_rules=[]
         blocked_inference_sources=set()
         selected=None if transaction_ids is None else set(transaction_ids)
@@ -2456,62 +2487,10 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
 
 
 def _sync_booked_authority_inferences(flow):
-    """Resolve stale authority-review source rows from their verified ledger trip.
-
-    These rows already have an internal ledger and board projection. The old
-    cleanup query deliberately skipped them, leaving the source transaction in
-    ``needs_review`` forever. Only rows without a review decision, source
-    errors, or holds are eligible. A valid existing ledger trip is checked
-    against the current trip authority before the source classification is
-    updated; ambiguous or invalid rows remain for questions.
-    """
-    from app.db import utc_now
-
-    conn = flow.board.conn
-    rows = conn.execute(
-        "SELECT t.transaction_id,t.item,t.description,t.revision,t.merchant,t.approval_date "
-        "FROM transactions t JOIN ledger_entries l ON l.transaction_id=t.transaction_id "
-        "WHERE t.classification_state='needs_review' AND t.classification_source='authority_review' "
-        "AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')='' "
-        "AND COALESCE(t.duplicate_of,'')='' "
-        "AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id) "
-        "AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
-        "AND COALESCE(l.display_tab_id,'') NOT IN ('','unclassified')"
-    ).fetchall()
-    inferred = 0
-    conflicts = 0
-    from app.provisional_assignment import card_trip_candidates, rank_trip_candidates
-    trips = [dict(trip, trip_id=trip['tab_id']) for trip in flow.board.list_trips()
-             if flow.trip_valid(trip['tab_id'])]
-    for tid, item, description, revision, merchant, approval_date in rows:
-        decision = rank_trip_candidates(
-            card_trip_candidates({'merchant': merchant, 'approval_date': approval_date}, trips),
-            trips=trips)
-        if decision.get('status') != 'CLASSIFIED':
-            conflicts += 1
-            continue
-        basis = ('AUTO_INFERRED: 기존 장부의 검증된 여행 배정과 현재 여행 권위가 일치하여 '
-                 '카드 이용일·가맹점 후보를 재검증했습니다. ' + str(decision.get('basis') or ''))
-        conn.execute(
-            "UPDATE transactions SET classification_state='classified',"
-            " classification_source='inference',classification_basis=?,"
-            " display_tab_id=?,trip_id=?,revision=revision+1 WHERE transaction_id=?",
-            (basis, decision['trip_id'], decision['trip_id'], tid),
-        )
-        conn.execute(
-            "UPDATE ledger_entries SET display_tab_id=?,trip_id=? WHERE transaction_id=?",
-            (decision['trip_id'], decision['trip_id'], tid),
-        )
-        inferred += 1
-    if inferred:
-        flow.sync_ledger_rows()
-    if inferred:
-        conn.execute(
-            "INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)",
-            (utc_now(), 'transaction.authority_inferred', 'bulk',
-             json.dumps({'count': inferred}, ensure_ascii=False, sort_keys=True)),
-        )
-    return inferred, conflicts
+    """Finish legacy source states while preserving valid recorded/manual assignments."""
+    from .card_classification_completion import complete_scope
+    result = complete_scope(flow)
+    return result['to_classify'], 0
 
 
 def assign_existing_local_expenses(flow, *, failures=None):

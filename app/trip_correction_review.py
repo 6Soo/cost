@@ -49,6 +49,7 @@ def propose_from_current_decisions(store, batch_id, transaction_ids, *, protecte
                     "FROM transactions t JOIN import_batch_rows b USING(transaction_id) "
                     "WHERE b.batch_id=? AND t.transaction_id=? AND t.classification_source='user_decision' "
                     "AND t.decided_at IS NOT NULL AND COALESCE(t.trip_id,'')!='' "
+                    "AND COALESCE(t.classification_basis,'') NOT LIKE 'AUTO_TRIP_INFERRED%' "
                     "AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')=''",
                     (batch_id, identity)).fetchone()
                 if row is None or correction_protection_reason(store, identity, row[1]):

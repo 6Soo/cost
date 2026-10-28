@@ -62,10 +62,11 @@ def read_page(flow, batch_id, *, offset=0, state="all", generation=""):
         protection = correction_protection_reason(flow.pipeline.store, row["transaction_id"], row["source_hash"])
         protection = protection or ("OTA_FINANCIAL_HOLD" if row["transaction_id"] in financial_holds else "")
         manual = row["classification_source"] in ("user_decision", "user_exception", "owner_booking")
+        inferred_trip = str(row['classification_basis'] or '').startswith('AUTO_TRIP_INFERRED')
         target = row["trip_id"] or ""
         decision = rank_trip_candidates(card_trip_candidates(row, trips, nets=nets), trips=trips,
                                          financial_hold=bool(protection))
-        if manual:
+        if manual and not inferred_trip:
             decision = dict(decision, status="CLASSIFIED" if target else "MANUAL_UNASSIGNED", trip_id=target,
                             assignment_source="manual",
                             reason="사용자 결정 보호" + (" · 보류 사유 유지" if protection else ""))
@@ -84,7 +85,7 @@ def read_page(flow, batch_id, *, offset=0, state="all", generation=""):
                             reason="아직 저장된 여행 배정 없음 · 후보를 검토해 선택해 주세요")
         row.pop("source_hash")
         row.update(decision=decision, protected=bool(protection),
-                   can_propose=row["classification_source"] == "user_decision" and not protection and target in trip_ids)
+                   can_propose=row["classification_source"] == "user_decision" and not inferred_trip and not protection and target in trip_ids)
         if state == "authority_questions" and decision.get("status") != "CONFLICT_REVIEW":
             continue
         items.append(row)
