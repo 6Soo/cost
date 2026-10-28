@@ -2392,6 +2392,28 @@ class Handler(BaseHTTPRequestHandler):
         session = require_session(self.headers, self._cookies())
         path = parsed.path
 
+        from . import trip_flight_read
+        if trip_flight_read.owns_route(path):
+            store = _active_store()
+
+            def held_flight_snapshot():
+                service = getattr(store, "_flight_booking_service", None) if store is not None else None
+                if service is None and store is not None:
+                    from .flight_booking_index import prewarm
+                    prewarm(store)
+                    service = getattr(store, "_flight_booking_service", None)
+                if service is None:
+                    return None
+                current, state = service.display_context()
+                return dict(current or {}, fresh=bool(state.get("fresh")),
+                            generation=state.get("generation"))
+
+            if trip_flight_read.dispatch(
+                    self, parsed, board=store, is_owner=is_owner_session(session),
+                    allowed_trip_ids=viewer_visible_tabs(session), query=query,
+                    snapshot=held_flight_snapshot):
+                return True
+
         # The access screens answer for both roles.
         if path == "/access/me":
             self._send_json(access_control_render_viewer_status(session, _ACCESS))
@@ -2588,6 +2610,12 @@ class Handler(BaseHTTPRequestHandler):
 
         session = require_session(self.headers, self._cookies())
         path = parsed.path
+        from . import trip_flight_read
+        if trip_flight_read.owns_route(path):
+            if not is_owner_session(session):
+                deny_for_viewer(action=True)
+            self._send_json({"code": "METHOD_NOT_ALLOWED"}, code=405)
+            return True
         # These endpoints own raw file bytes, not JSON or form data. Check
         # capability before dispatch; their upload handlers still enforce CSRF.
         if path in ('/api/receipts/image', '/api/imports'):
@@ -3386,6 +3414,27 @@ class Handler(BaseHTTPRequestHandler):
         if flight_passenger_page.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                           is_owner=_participant_owner_request(), query=query):
             return
+        from . import trip_flight_read
+        if trip_flight_read.owns_route(parsed.path):
+            store = _active_store()
+
+            def held_flight_snapshot():
+                service = getattr(store, "_flight_booking_service", None) if store is not None else None
+                if service is None and store is not None:
+                    from .flight_booking_index import prewarm
+                    prewarm(store)
+                    service = getattr(store, "_flight_booking_service", None)
+                if service is None:
+                    return None
+                current, state = service.display_context()
+                return dict(current or {}, fresh=bool(state.get("fresh")),
+                            generation=state.get("generation"))
+
+            if trip_flight_read.dispatch(
+                    self, parsed, board=store, is_owner=_participant_owner_request(),
+                    allowed_trip_ids=viewer_visible_tabs(getattr(_ROLE_LOCAL, "session", None)),
+                    query=query, snapshot=held_flight_snapshot):
+                return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
             # The owner gate was already decided above for an enforced server.
@@ -3464,7 +3513,8 @@ class Handler(BaseHTTPRequestHandler):
             fragment = ledger_design.page(
                 tab, q, kind, row_id,
                 message=query.get("msg", [""])[0],
-                archived=query.get("arch", [""])[0])
+                archived=query.get("arch", [""])[0],
+                participant_query=query)
             self._send(ledger_design.render(
                 fragment, live_config=live_sync.client_config(
                     live_sync.owner_token(_active_store(), tab), tab, q, kind,

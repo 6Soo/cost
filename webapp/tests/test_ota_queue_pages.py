@@ -64,7 +64,12 @@ class PageBackend:
 def ready_context(rows=None, generation=7):
     index = build_queue_index(rows if rows is not None else route_rows(), generation=generation,
                               snapshot_nonce="opaque-generation-token", signing_key=KEY)
-    return {"index": index, "status": "ready", "generation": generation,
+    summary = {"snapshot_status":"ready", "generation":generation, "fresh":True,
+               "stale":False, "refreshing":False,
+               "input_fingerprint":"a" * 64, "rule_fingerprint":"b" * 64}
+    telemetry = {"input_fingerprint":"a" * 64, "rule_fingerprint":"b" * 64}
+    return {"index": index, "summary":summary, "telemetry":telemetry,
+            "status": "ready", "generation": generation,
             "generated_at": "2026-10-28T01:02:03+00:00", "fresh": True,
             "stale": False, "refreshing": False}
 
@@ -136,6 +141,23 @@ def test_events_get_pages_without_classification_sort_reconcile_or_candidate_cal
     assert set(first["items"][0]["event"]) == {
         "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
         "item", "currency", "amount", "status"}
+    assert first["trace"]["trace_status"] == "complete"
+    assert first["summary_generation"] == first["snapshot"]["generation"] == 7
+    assert first["telemetry_sample"]["stage"] == "page_serialize"
+
+
+@pytest.mark.parametrize("summary_changes,telemetry_changes", [
+    ({"generation": 6}, {}),
+    ({}, {"input_fingerprint": "c" * 64}),
+    ({}, {"rule_fingerprint": "d" * 64}),
+])
+def test_events_route_rejects_summary_lineage_mismatch(summary_changes, telemetry_changes):
+    context = ready_context()
+    context["summary"].update(summary_changes)
+    context["telemetry"].update(telemetry_changes)
+    status, body = dispatch("/api/imports/ota/events?limit=20", PageBackend(context))
+    assert status == 409
+    assert body["code"] == "SNAPSHOT_CHANGED"
 
 
 @pytest.mark.parametrize("query", [
@@ -253,9 +275,13 @@ def test_large_group_member_pages_are_bounded_complete_private_and_generation_bo
 
     class MembersBackend(PageBackend):
         def queue_group_context(self):
-            return {"index":list_index, "status":"ready", "generation":17,
-                    "generated_at":"2026-10-28T00:00:00+00:00", "fresh":True,
-                    "stale":False, "refreshing":False}
+                return {"index":list_index, "status":"ready", "generation":17,
+                        "generated_at":"2026-10-28T00:00:00+00:00", "fresh":True,
+                        "stale":False, "refreshing":False,
+                            "summary":{"snapshot_status":"ready", "generation":17, "fresh":True,
+                                       "stale":False, "refreshing":False,
+                                       "input_fingerprint":"a" * 64, "rule_fingerprint":"b" * 64},
+                        "telemetry":{"input_fingerprint":"a" * 64, "rule_fingerprint":"b" * 64}}
 
         def queue_group_members_context(self, requested_id, generation):
             self.calls.append((requested_id, generation))
