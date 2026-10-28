@@ -45,23 +45,23 @@ h1,h2,p{margin:0}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
  box-shadow:0 0 0 3px rgba(34,102,245,.12);outline:none}
-/* Shared inline states: callers keep their own wording and state transitions. */
-.ui-form{display:grid;gap:12px;min-width:0}
-.ui-form__row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
-.ui-form__field{display:grid;gap:4px;flex:1 1 180px;min-width:0}
-.ui-form__field>label{margin:0;color:var(--mut);font-size:12px}
-.ui-filter{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
-.ui-filter>*{min-width:0;max-width:100%}
-.ui-state{display:flex;align-items:flex-start;gap:8px;min-width:0;padding:10px 12px;border:1px solid var(--line);
+/* Shared components also style their established ledger consumers. */
+.ui-form,.arch-restore{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
+.ui-card,.refund-card{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:var(--paper)}
+.ui-card__heading,.refund-card h2{font-size:16px;line-height:1.5}
+.refund-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:10px 0;border-top:1px solid var(--line)}
+.refund-line span{overflow-wrap:anywhere}.refund-line strong{white-space:nowrap}
+.ui-state,.status{display:flex;align-items:flex-start;gap:8px;min-width:0;padding:10px 12px;border:1px solid var(--line);
  border-radius:8px;background:var(--paper);color:var(--mut);line-height:1.55;overflow-wrap:anywhere}
 .ui-state[hidden]{display:none!important}
-.ui-state--error{color:var(--neg);border-color:color-mix(in srgb,var(--neg) 35%,var(--line));background:color-mix(in srgb,var(--neg) 7%,var(--paper))}
-.ui-state--stale{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 38%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--paper))}
-.ui-state--loading{color:var(--mut)}
-.ui-state[aria-busy=true]::before{content:"";width:14px;height:14px;flex:0 0 14px;margin-top:2px;border:2px solid currentColor;
+.ui-state--error,.status.err,.f-msg.err,.copy-status.err{color:var(--neg);border-color:color-mix(in srgb,var(--neg) 35%,var(--line));background:color-mix(in srgb,var(--neg) 7%,var(--paper))}
+.ui-state--stale,.cleanup-snapshot-stale{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 38%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--paper))}
+.ui-state--loading,.cleanup-snapshot-loading,.copy-status.loading{color:var(--mut)}
+.ui-state[aria-busy=true]::before,.cleanup-snapshot-loading::before{content:"";width:14px;height:14px;display:inline-block;vertical-align:middle;flex:0 0 14px;margin:2px 6px 0 0;border:2px solid currentColor;
  border-right-color:transparent;border-radius:50%;animation:ui-state-spin .8s linear infinite}
 @keyframes ui-state-spin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.ui-state[aria-busy=true]::before{animation:none;border-right-color:currentColor}}
+@media(prefers-reduced-motion:reduce){.ui-state[aria-busy=true]::before,.cleanup-snapshot-loading::before{animation:none;border-right-color:currentColor}}
+@media(max-width:480px){.refund-line{grid-template-columns:minmax(0,1fr)}.refund-line strong{font-size:18px}}
 .synth{display:inline-block;font-size:11.5px;line-height:17px;padding:0 7px;border:1px solid var(--line);
  border-radius:6px;color:var(--mut);margin-left:8px;vertical-align:2px}
 
@@ -216,7 +216,7 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .meta a{color:var(--mut)}
 .act{margin-left:auto;display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap}
 .bar{display:flex;align-items:center;gap:10px;padding:10px 24px;border-bottom:1px solid var(--line);
- flex-wrap:wrap}
+ flex-wrap:wrap;min-width:0}
 #q{height:32px;width:280px;max-width:52vw;border:1px solid var(--line-strong);border-radius:7px;
  padding:0 8px;background:var(--paper)}
 #kind{height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);

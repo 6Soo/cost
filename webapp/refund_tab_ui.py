@@ -15,14 +15,6 @@ import html
 from urllib.parse import quote
 
 
-REFUND_TAB_STYLE = (
-    "<style>.refund-card{border:1px solid var(--line,#d7ded8);border-radius:10px;padding:12px;margin:12px 0}"
-    ".refund-card h2{font-size:16px}.refund-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:10px 0;border-top:1px solid var(--line,#d7ded8)}"
-    ".refund-line span{overflow-wrap:anywhere}.refund-line strong{white-space:nowrap}"
-    "@media(max-width:480px){.refund-line{grid-template-columns:minmax(0,1fr)}.refund-line strong{font-size:18px}}</style>"
-)
-
-
 def assemble_refund_groups(sources, links, *, is_preserved_fn=None):
     """Assemble complete, sorted refund groups outside preserved history periods."""
     grouped = {}
@@ -82,7 +74,8 @@ def render_refund_card(group, saved=None, trip_names=None):
         row = saved.get(source['transaction_id'])
         trip = names.get(row.get('display_tab_id'), '미배정') if row else ''
         rows.append(render_refund_line(source, index, row=row, trip=trip))
-    return f"<section class='refund-card'><h2>{title} · 순액 {money(net)}</h2>{''.join(rows)}</section>"
+    return (f"<section class='ui-card refund-card'><h2 class='ui-card__heading'>{title} · 순액 {money(net)}</h2>"
+            f"{''.join(rows)}</section>")
 
 
 def render_refund_tab(visible, saved=None, trip_names=None):
@@ -93,7 +86,6 @@ def render_refund_tab(visible, saved=None, trip_names=None):
     gross = sum(g[0]['amount_krw'] for g in visible)
     refund = sum(r['amount_krw'] for g in visible for r in g[1:])
     cards = [render_refund_card(group, saved=saved, trip_names=trip_names) for group in visible]
-    return (REFUND_TAB_STYLE +
-            f"<div class='sum tnum'><span>카드 환불 {len(visible)}쌍</span><div>원결제 <b>{money(gross)}</b></div>"
+    return (f"<div class='sum tnum'><span>카드 환불 {len(visible)}쌍</span><div>원결제 <b>{money(gross)}</b></div>"
             f"<div>환불 <b>{money(refund)}</b></div><div>순액 <b>{money(gross + refund)}</b></div></div>"
-            + (''.join(cards) or '<p>환불 쌍이 없습니다.</p>'))
+            + (''.join(cards) or "<p class='ui-state'>환불 쌍이 없습니다.</p>"))
