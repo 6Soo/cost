@@ -417,3 +417,10 @@
 - RF-101 audit/outbox `01017e6`·RF-201 shell `ccb9b54` 실제 커밋과 보고를 회수했다. audit의 self._owns_outbox_id 우회/필터 lock 범위 변경을 발견해 교정 요청했다. shell34검사 보고는 통합 검수 전이다. 카드 작업자는 RF-105 read projection, store는 교정 후 revision/idempotency, UI는 shell/theme 자산 단일 소유 추출을 같은 기존 AGY 세션에서 이어간다.
 - 별도 사용자 UI 작업 세션의 배포 동안 운영 작성권을 양보했고, 완료 보고와 SHA 고정 증거를 인계받았다. 현재 운영은 `b54ca37c068ae8e830220652fe91978821978231`(PR #273), 후속 문서만 PR #275다. 현재 후보 배포 시 이 SHA를 이전 검증 릴리스로 사용한다.
 - PEND-04 실제 실행 목록에서 편집기의 수집 선택 표시와 달리 상태 조회 함수가 실행된 것을 확인했다. 잘못된 BATCH_STARTED 보고를 백필 진전으로 계산하지 않는다. 로컬 반복기를 중지한 후 키보드로 실제 선택을 교정해 수집 실행을 다시 시작했다. 저장2777건에서 후속 증가/완료 여부를 확인해야 하며, 호스트 적재/스케줄 전환은 미실행이다.
+
+### generation 3 shell·board 후속 수락
+
+- 공통 topbar 문자열 제거를 구성요소 조립으로 바꾼 PR #277/main `79cf397` 병합. Supervisor17 passed·shell15/항공권10 문서 byte 동일. 기존 작업자34검사 재사용. 후속 shell/theme CSS·JS 단일 소유 자산 분리는 동일 작업자 진행 중이다.
+- 보드 읽기·출력·규칙대화 추출 PR #278/main `f322e4e` 병합. 필수키/eager KeyError·display 동적 호출·분류대기 조회1회 보존 교정 포함. Supervisor83 passed(65.58초), query 원형 보완 뒤 dialog/selector14 passed. store-isolation·access-control 경계 통과. 기존 Handler/auth/write lifecycle은 유지한다.
+- 환불 탭 `c0dc2fd` 검수에서 money의 int 강제변환·html.escape 입력변환·누락 원결제 skip·required-key 완화를 발견해 미수락했다. 원형 오류/숫자/조회 계약을 교정하도록 기존 카드 작업자에게 전달했다. 운영 배포 후보에는 넣지 않는다. RF-106 flight_booking_index 순수 경계도 같은 작업자가 순차 진행한다.
+- 백필은 실제 읽기 상태2928건/미완료를 확인했다. Aside 일회성 세션 탭 소멸로 반복 실행기가 중단된 것을 확인했고 전용 지속 REPL로 복구 중이다. 운영 원문 적재/스케줄 전환은 여전히 미실행이다.
