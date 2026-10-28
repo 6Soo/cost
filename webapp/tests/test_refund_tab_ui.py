@@ -212,7 +212,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -30000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_full = refund_tab_ui.render_refund_card(g_full)
-    assert "<h2>전액 환불 · 순액 0원</h2>" in card_full
+    assert "<h2 class='ui-card__heading'>전액 환불 · 순액 0원</h2>" in card_full
 
     # 2. Excess refund (net < 0)
     g_excess = [
@@ -220,7 +220,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -30000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_excess = refund_tab_ui.render_refund_card(g_excess)
-    assert "<h2>초과 환불 확인 필요 · 순액 -10,000원</h2>" in card_excess
+    assert "<h2 class='ui-card__heading'>초과 환불 확인 필요 · 순액 -10,000원</h2>" in card_excess
 
     # 3. Partial refund (net > 0)
     g_partial = [
@@ -228,7 +228,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -30000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_partial = refund_tab_ui.render_refund_card(g_partial)
-    assert "<h2>부분 환불 · 순액 20,000원</h2>" in card_partial
+    assert "<h2 class='ui-card__heading'>부분 환불 · 순액 20,000원</h2>" in card_partial
 
     # 4. Inferred group
     g_inferred = [
@@ -236,7 +236,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -15000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_inferred = refund_tab_ui.render_refund_card(g_inferred)
-    assert "<h2>원결제 추론 연결 · 기록 보류 · 환급 완료 아님 · 순액 0원</h2>" in card_inferred
+    assert "<h2 class='ui-card__heading'>원결제 추론 연결 · 기록 보류 · 환급 완료 아님 · 순액 0원</h2>" in card_inferred
 
     # 5. Decimal net amount in card
     g_dec = [
@@ -244,11 +244,11 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": Decimal("-10000.5"), "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_dec = refund_tab_ui.render_refund_card(g_dec)
-    assert "<h2>전액 환불 · 순액 0.0원</h2>" in card_dec
+    assert "<h2 class='ui-card__heading'>전액 환불 · 순액 0.0원</h2>" in card_dec
 
 
 def test_render_refund_summary_and_empty_tab():
-    assert "<p>환불 쌍이 없습니다.</p>" in refund_tab_ui.render_refund_tab([])
+    assert "<p class='ui-state'>환불 쌍이 없습니다.</p>" in refund_tab_ui.render_refund_tab([])
 
     g = [
         {"transaction_id": "o", "amount_krw": 40000, "occurred_on": "2026-10-01", "merchant": "M", "item": "I"},
@@ -259,7 +259,10 @@ def test_render_refund_summary_and_empty_tab():
     assert "원결제 <b>40,000원</b>" in html
     assert "환불 <b>-40,000원</b>" in html
     assert "순액 <b>0원</b>" in html
-    assert "<section class='refund-card'>" in html
+    assert "<section class='ui-card refund-card'>" in html
+    assert "class='ui-card__heading'" in html
+    assert "<style>" not in html
+    assert "class='ui-state'" in refund_tab_ui.render_refund_tab([])
 
 
 def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_path):
@@ -270,7 +273,7 @@ def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_pa
     try:
         base_empty = baseline_refund_tab_ast["render"](empty_store)
         curr_empty = refund_tab.render(empty_store)
-        assert base_empty == curr_empty
+        assert _normalize_refund_ui(base_empty) == _normalize_refund_ui(curr_empty)
         assert baseline_refund_tab_ast["groups"](empty_store) == refund_tab.groups(empty_store) == []
     finally:
         empty_store.close()
@@ -293,9 +296,20 @@ def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_pa
     # Compare render across default, query, and kind
     base_html = baseline_refund_tab_ast["render"](store)
     curr_html = refund_tab.render(store)
-    assert base_html == curr_html
+    assert _normalize_refund_ui(base_html) == _normalize_refund_ui(curr_html)
 
-    assert baseline_refund_tab_ast["render"](store, query="합성항공") == refund_tab.render(store, query="합성항공")
-    assert baseline_refund_tab_ast["render"](store, query="NonExistent") == refund_tab.render(store, query="NonExistent")
-    assert baseline_refund_tab_ast["render"](store, kind="in") == refund_tab.render(store, kind="in")
-    assert baseline_refund_tab_ast["render"](store, kind="out") == refund_tab.render(store, kind="out")
+    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, query="합성항공")) == _normalize_refund_ui(refund_tab.render(store, query="합성항공"))
+    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, query="NonExistent")) == _normalize_refund_ui(refund_tab.render(store, query="NonExistent"))
+    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, kind="in")) == _normalize_refund_ui(refund_tab.render(store, kind="in"))
+    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, kind="out")) == _normalize_refund_ui(refund_tab.render(store, kind="out"))
+
+
+def _normalize_refund_ui(markup):
+    """Ignore only the intentional shared-class and inline-style migration."""
+    import re
+
+    markup = re.sub(r"<style>.*?</style>", "", markup)
+    return (markup.replace(" class='refund-card'", "")
+            .replace(" class='ui-card refund-card'", "")
+            .replace(" class='ui-card__heading'", "")
+            .replace(" class='ui-state'", ""))

@@ -9,6 +9,73 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class SiteShellBrowserTests(LinkBrowserFixture):
+    def test_theme_keyboard_motion_and_responsive_contract(self):
+        page, base = self.prepare_pages(1440)
+        for width in (320, 375, 390, 760, 1024, 1440):
+            with self.subTest(width=width):
+                page.set_viewport_size({'width': width, 'height': 900})
+                page.goto(base + '/board')
+                self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                toggle = page.locator('#site-theme-toggle')
+                self.assertEqual(toggle.count(), 1)
+                before = page.locator('html').get_attribute('data-theme')
+                toggle.focus()
+                page.keyboard.press('Enter')
+                after = page.locator('html').get_attribute('data-theme')
+                self.assertNotEqual(before, after)
+                self.assertEqual(toggle.get_attribute('aria-label'),
+                                 '라이트모드로 전환' if after == 'dark' else '다크모드로 전환')
+                self.assertEqual(page.evaluate('''() => {
+                  const t=document.querySelector('#site-theme-toggle').getBoundingClientRect();
+                  return t.width >= 44 && t.height >= 44;
+                }'''), True)
+                if width == 375:
+                    page.evaluate("""() => {
+                      const p=document.createElement('p');p.id='ui-loading-probe';
+                      p.className='ui-state ui-state--loading';p.setAttribute('aria-busy','true');
+                      p.textContent='합성 로딩';document.body.append(p);
+                    }""")
+                    self.assertEqual(page.locator('#ui-loading-probe').evaluate(
+                        "el => getComputedStyle(el,'::before').animationDuration"), '0.8s')
+                    page.evaluate("document.documentElement.style.zoom='200%'")
+                    self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 375)
+                    page.evaluate("document.documentElement.style.zoom='100%'")
+
+    def test_theme_override_and_reduced_motion(self):
+        page, base = self.prepare_pages(390)
+        page.emulate_media(color_scheme='dark', reduced_motion='reduce')
+        page.goto(base + '/board')
+        self.assertEqual(page.locator('html').get_attribute('data-theme'), 'dark')
+        self.assertEqual(page.evaluate('''() => {
+          const p=document.createElement('p');p.className='ui-state ui-state--loading';
+          p.setAttribute('aria-busy','true');document.body.append(p);
+          return getComputedStyle(p,'::before').animationDuration;
+        }'''), '0s')
+        page.locator('#site-theme-toggle').click()
+        self.assertEqual(page.locator('html').get_attribute('data-theme'), 'light')
+        page.reload()
+        self.assertEqual(page.locator('html').get_attribute('data-theme'), 'light')
+
+    def test_refund_empty_state_uses_shared_tokens_in_both_themes(self):
+        page, base = self.prepare_pages(375)
+        page.emulate_media(color_scheme='light')
+        response = page.goto(base + '/board?tab=refunds')
+        self.assertEqual(response.status, 200)
+        empty = page.locator('#live-rows .ui-state')
+        self.assertEqual(empty.count(), 1)
+        self.assertEqual(empty.inner_text(), '환불 쌍이 없습니다.')
+        light = empty.evaluate('''el => ({background:getComputedStyle(el).backgroundColor,
+          token:getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()})''')
+        self.assertEqual(light['background'], 'rgb(255, 255, 255)')
+        page.evaluate("localStorage.removeItem('cost-theme')")
+        page.emulate_media(color_scheme='dark')
+        page.reload()
+        dark = page.locator('#live-rows .ui-state').evaluate('''el => ({
+          background:getComputedStyle(el).backgroundColor,
+          token:getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()})''')
+        self.assertEqual(dark['background'], 'rgb(30, 41, 59)')
+        self.assertEqual(dark['token'], '#1E293B')
+
     def test_sidebar_appearance_stays_the_same_between_ledger_and_cards(self):
         for width in (390, 1440):
             with self.subTest(width=width):
@@ -19,7 +86,7 @@ class SiteShellBrowserTests(LinkBrowserFixture):
                     appearances.append(page.evaluate('''() => {
                       const selectors=['#nav','#nav .brand','#nav .brand small','#nav .nav-q input',
                         '#nav .work-menu','#nav .work-action[href="/receipts"]','#nav .work-action small',
-                        '#nav .site-links a','#nav .nav-sec','#nav .nv','#nav .nav-ft'];
+                        '#nav .site-links a:not([aria-current=page])','#nav .nav-sec','#nav .nv','#nav .nav-ft'];
                       const props=['fontFamily','fontSize','lineHeight','width','padding','marginTop','marginBottom',
                         'backgroundColor','borderRadius','borderTopWidth','display','minHeight'];
                       return selectors.map(selector=>{const el=document.querySelector(selector);
@@ -51,7 +118,8 @@ class SiteShellBrowserTests(LinkBrowserFixture):
     def test_same_sidebar_on_all_work_screens_at_desktop(self):
         page, base = self.prepare_pages(1440)
         menu = None
-        for path in ('/', '/board', '/import', '/cards', '/receipts', '/google-ledger', '/reserve-links', '/trips', '/access/admin'):
+        # The Google ledger route was deliberately removed; exercise live destinations only.
+        for path in ('/', '/board', '/import', '/cards', '/receipts', '/reserve-links', '/trips', '/access/admin'):
             with self.subTest(path=path):
                 response = page.goto(base + path)
                 self.assertEqual(response.status, 200)
@@ -98,21 +166,21 @@ class SiteShellBrowserTests(LinkBrowserFixture):
     def test_mobile_menu_navigation_and_input_are_usable(self):
         page, base = self.prepare_pages(390)
         page.goto(base + '/cards')
-        page.get_by_label('카드 내역 검색').fill('Synthetic draft')
+        page.get_by_label('여행 검색').fill('Synthetic draft')
         page.get_by_role('button', name='전체 메뉴 열기').click()
         self.assertIn('open', page.locator('#nav').get_attribute('class'))
         page.keyboard.press('Escape')
         self.assertNotIn('open', page.locator('#nav').get_attribute('class'))
-        self.assertEqual(page.get_by_label('카드 내역 검색').input_value(), 'Synthetic draft')
+        self.assertEqual(page.get_by_label('여행 검색').input_value(), 'Synthetic draft')
         page.get_by_role('button', name='전체 메뉴 열기').click()
         page.locator('#nav a[href="/import"]').first.click()
         self.assertEqual(page.url, base + '/import')
         self.assertEqual(page.locator('#nav').count(), 1)
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
         page.get_by_role('button', name='전체 메뉴 열기').click()
-        page.locator('#nav a[href="/cards"]').click()
-        self.assertEqual(page.url, base + '/cards')
-        self.assertEqual(page.locator('#nav a[href="/cards"]').get_attribute('aria-current'), 'page')
+        page.locator('#nav a[href="/cards/all"]').click()
+        self.assertEqual(page.url, base + '/cards/all')
+        self.assertEqual(page.locator('#nav a[href="/cards/all"]').get_attribute('aria-current'), 'page')
         page.goto(base + '/board')
         page.get_by_role('button', name='전체 메뉴 열기').click()
         self.assertIn('open', page.locator('#nav').get_attribute('class'))
