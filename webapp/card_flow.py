@@ -2295,6 +2295,32 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
     if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">'+(total?'이 페이지를 정리했습니다. 다음 항목을 보려면 새로고침해 주세요.':'정리할 지출이 없습니다.')+'</li>';
   }catch(err){button.disabled=false;error.textContent=err.message}
 }));
+document.querySelectorAll('#expense-cleanup .cleanup-refund-action').forEach(button=>button.addEventListener('click',async()=>{
+  const tool=button.closest('.cleanup-refund-tool'),message=tool.querySelector('.cleanup-refund-status');
+  const base='/api/maintenance/refund-pair/'+encodeURIComponent(button.dataset.original);
+  const post=async (action,payload)=>{
+    const response=await fetch(base+'/'+action,{method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+      body:JSON.stringify(payload),cache:'no-store'});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(data.message||data.code||'환불 묶음을 처리하지 못했어요');
+    return data;
+  };
+  button.disabled=true;message.textContent='이 원결제·취소 묶음의 금융 보호 조건을 확인하고 있어요.';
+  try{
+    const preview=await post('preview',{});
+    if(!preview.recordable)throw Error(preview.message||preview.reason||'기록할 수 없는 묶음입니다');
+    message.textContent=preview.members+'건 중 '+preview.to_book+'건 기록 가능 · 순액 '+preview.net_krw.toLocaleString()+'원';
+    if(!window.confirm('원결제·취소 '+preview.members+'건의 순액 '
+         +preview.net_krw.toLocaleString()+'원을 확인했어. 미기록 '
+         +preview.to_book+'건을 함께 장부에 기록할까? 실제 카드사 환급 완료 판단과는 별개야.')){
+      button.disabled=false;return;
+    }
+    const result=await post('apply',{digest:preview.digest,request_id:crypto.randomUUID().replace(/-/g,'')});
+    message.textContent=result.message||'처리했습니다. 목록을 새로 불러옵니다.';
+    window.location.reload();
+  }catch(error){button.disabled=false;message.textContent=error.message||'기록 처리 중 오류가 발생했어요';}
+}));
 })();"""
 
 CARD_REASON = {'booking_evidence_needed': '예약 상품과 이용일을 연결할 원문 근거가 필요합니다',
@@ -3042,6 +3068,17 @@ def render_expense_cleanup(board, csrf, *, page=1):
             amount=amount,
             reason=reason,
             review=review,
+            refund_group_original=(
+                (refund_by_id[tid]['original_id'] if tid in refund_by_id else tid)
+                if ((tid in refund_by_id and not refund_by_id[tid].get('inferred')
+                     and refund_by_id[tid].get('status') == 'full'
+                     and refund_by_id[tid].get('net_krw') == 0)
+                    or (tid in original_refunds and original_refunds[tid]
+                        and all(not link.get('inferred') and link.get('status') == 'full'
+                                and link.get('net_krw') == 0
+                                for _, link in original_refunds[tid])))
+                else ""
+            ),
         )
         items.append(card_cleanup_ui.render_cleanup_card_row(card_row, esc=esc))
     ledger = board.conn.execute(
