@@ -4,17 +4,15 @@ Extracts database query boundaries from webapp.card_flow:
 - refund_merchant_candidates_readonly: 14-day bounded same-card earlier purchases comparison
 - kakao_merchant_inventory_readonly: owner-facing diagnostic inventory grouped by merchant and direction
 
-This module is strictly read-only:
+This module is strictly read-only and independent of UI presentation:
 - NO financial writes or link mutations
 - NO new matching rules or financial decisions
-- Pure SQLite connection execution with narrow merchant_key_fn callback injection
+- Pure SQLite connection execution with required merchant_key_fn callback injection
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any, Callable, Sequence
-
-from .card_evidence_ui import refund_merchant_key as default_merchant_key
+from typing import Any, Callable
 
 
 def _get_connection(db_or_conn: Any):
@@ -26,12 +24,11 @@ def refund_merchant_candidates_readonly(
     conn: Any,
     tid: str,
     *,
+    merchant_key_fn: Callable[[object], str],
     max_rows: int = 10,
-    merchant_key_fn: Callable[[object], str] | None = None,
 ) -> tuple[tuple | None, list[tuple], int]:
     """Read-only Kakao taxi alias evidence; same card, bounded time, no auto-link."""
     c = _get_connection(conn)
-    key_fn = default_merchant_key if merchant_key_fn is None else merchant_key_fn
 
     refund = c.execute(
         "SELECT issuer,card_tail,merchant,COALESCE(NULLIF(approval_date,''),posting_date),amount_krw,approval_number,"
@@ -40,7 +37,7 @@ def refund_merchant_candidates_readonly(
     if not refund:
         return None, [], 0
     issuer, tail, merchant, approval_day, amount, approval, original = refund
-    key = key_fn(merchant)
+    key = merchant_key_fn(merchant)
     if not (issuer and tail and approval_day and key):
         return refund, [], 0
     try:
@@ -66,7 +63,7 @@ def refund_merchant_candidates_readonly(
     # Still a read-only review candidate: it never triggers a financial link.
     candidates = [
         row for row in rows
-        if key_fn(row[2]) == key
+        if merchant_key_fn(row[2]) == key
         or (original and row[5] and str(original).strip() == str(row[5]).strip())
     ]
     def rank(row):
@@ -82,14 +79,13 @@ def refund_merchant_candidates_readonly(
 def kakao_merchant_inventory_readonly(
     conn: Any,
     *,
-    merchant_key_fn: Callable[[object], str] | None = None,
+    merchant_key_fn: Callable[[object], str],
 ) -> list[dict[str, Any]]:
     """All currently stored Kakao-labeled rows, grouped without personal/card IDs.
 
     This is an owner-facing diagnostic inventory, NOT a matching or rule table.
     """
     c = _get_connection(conn)
-    key_fn = default_merchant_key if merchant_key_fn is None else merchant_key_fn
 
     rows = c.execute(
         "SELECT merchant,transaction_direction,COUNT(*) FROM transactions "
@@ -98,5 +94,5 @@ def kakao_merchant_inventory_readonly(
         "GROUP BY merchant,transaction_direction ORDER BY merchant,transaction_direction"
     ).fetchall()
     return [{"merchant": name, "direction": direction, "count": int(count),
-             "family": key_fn(name)}
+             "family": merchant_key_fn(name)}
             for name, direction, count in rows]
