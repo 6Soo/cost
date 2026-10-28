@@ -43,6 +43,9 @@ def context(tmp_path, monkeypatch):
     monkeypatch.setattr(CardFlow, "ota_group_holds", lambda *a: {})
     monkeypatch.setattr(CardFlow, "_already_projected", lambda *a, **kw: False)
     monkeypatch.setattr(CardFlow, "_projection_index", lambda *a: {})
+    monkeypatch.setattr(card_flow, "_ota_entries_by_card", lambda *a, **kw:
+                        {"__snapshot_status__": {"fresh": False, "status": "refreshing"}})
+    monkeypatch.setattr(ledger_board, "live_trips", lambda **kw: [])
     flow = CardFlow(board)
     original_batch = flow.pipeline.receive(
         (HEADER + "국민,1234,domestic,purchase,AGODA_NICE-Agoda,625280,,,625280,2026-09-22,2026-09-23,A100,,매입\n"
