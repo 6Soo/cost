@@ -26,3 +26,8 @@ Base implementation commit: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`
 `python tools/benchmark_provisional_assignment.py` — **10k: 0.061179s; 100k: 0.621966s**, synthetic only.
 
 No customer originals, production DB, Google, credentials, or real insurance accessed. No payment solver, financial linkage, or operational writes changed. No push/PR/deploy performed.
+## Follow-up verification — 2026-10-28
+
+Commit: pending. The latest correction filters malformed/disabled/conflicted trips before choosing the next trip boundary, so invalid starts cannot truncate a valid open period or raise in `open_trip_end`. Canonical period date flags are honored. Correction evidence must have distinct transaction_id + revision pairs and pass duplicate/conflict exclusions. Approval requires current authoritative trips and returns only an inactive, transaction-level suggestion: the existing `app.rules` intentionally forbids merchant-wide trip assignment. These helpers do not authenticate external authority or grant execution/write permission.
+
+Targeted command: `python -m pytest tests/card_pipeline/test_provisional_assignment.py tests/card_pipeline/test_ota_inference.py -q` — 35 passed before final period-flag addition; rerun required.

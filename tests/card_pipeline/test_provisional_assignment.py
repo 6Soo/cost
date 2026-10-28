@@ -75,14 +75,30 @@ def test_disabled_invalid_and_conflicted_trips_are_not_candidates():
                                 trips=trips)["status"] == "UNASSIGNED_NO_VALID_TRIP"
 
 
+def test_invalid_trip_start_does_not_break_or_truncate_valid_open_trip():
+    trips = [{"trip_id": "valid-open", "starts_on": "2026-08-01", "ends_on": None},
+             {"trip_id": "invalid-date", "starts_on": "2026-99-99", "ends_on": None},
+             {"trip_id": "disabled", "starts_on": "2026-08-05", "ends_on": None,
+              "enabled": False},
+             {"trip_id": "valid-next", "starts_on": "2026-08-10", "ends_on": "2026-08-12"}]
+    periods = canonical_trip_periods(trips)
+    assert set(periods) == {"valid-open", "valid-next"}
+    assert periods["valid-open"]["ends_on"] == "2026-08-09"
+
+
 def test_correction_patterns_stay_inactive_until_owner_approves_exact_scope():
     rows = [dict(owner_approved=True, merchant_normalized="example inn", trip_id="A",
-                 service_start="2026-08-01", service_end="2026-08-03") for _ in range(2)]
+                 service_start="2026-08-01", service_end="2026-08-03",
+                 transaction_id=f"tx-{n}", revision=n) for n in range(2)]
     proposal = propose_correction_pattern(rows)
     assert proposal["status"] == "PENDING_OWNER_APPROVAL" and proposal["active"] is False
     with pytest.raises(ValueError, match="OWNER_APPROVAL_REQUIRED"):
         approve_correction_pattern(proposal, approved_by="")
-    approved = approve_correction_pattern(proposal, approved_by="synthetic-owner")
-    assert approved["active"] is True
+    with pytest.raises(ValueError, match="TRIP_NOT_AUTHORITATIVE"):
+        approve_correction_pattern(proposal, approved_by="synthetic-owner")
+    approved = approve_correction_pattern(proposal, approved_by="synthetic-owner", trips=TRIPS)
+    assert approved["active"] is False
+    assert approved["status"] == "OWNER_APPROVED_SUGGESTION"
     assert approved["scope"] == proposal["scope"]
     assert propose_correction_pattern([rows[0]])["status"] == "NO_PROPOSAL"
+    assert propose_correction_pattern([rows[0], dict(rows[0])])["status"] == "NO_PROPOSAL"
