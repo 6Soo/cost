@@ -28,6 +28,11 @@
       "tests": ["tests/test_sync_runtime_requirements.py", "webapp/tests/test_platform_start.py", "webapp/tests/test_ops_safety.py"]
     },
     {
+      "name": "targeted-verification-gate",
+      "paths": ["tools/run_targeted_checks.py", "tests/test_run_targeted_checks.py"],
+      "tests": ["tests/test_run_targeted_checks.py"]
+    },
+    {
       "name": "financial-core",
       "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py"],
       "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
