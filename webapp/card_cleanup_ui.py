@@ -153,7 +153,7 @@ def render_cleanup_snapshot_note(
         "loading": "예약 근거를 불러오고 있습니다.",
         "refreshing": "예약 근거 갱신 중 · 최신 근거 확인이 필요합니다.",
         "error": "예약 근거 입력 오류 · 자료를 읽지 못했습니다. 잠시 뒤 다시 확인해 주세요.",
-    }.get(str(snapshot_context.get("status") or ""), "")
+    }.get(snapshot_context.get("status"), "")
     if not snapshot_message:
         return ""
     return "<p class='cleanup-protected' role='status'>" + esc(snapshot_message) + "</p>"
