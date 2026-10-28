@@ -2,6 +2,10 @@
 
 처음에는 이 문서, [현재 상태](session_handoff.md), [작업 지침](../AGENTS.md)만 읽는다. 배포가 필요한 작업은 [운영 기록](operations.md)을 추가로 확인하고, 아래 표에서 해당 주제의 명세만 연다.
 
+## 최신 개발 현황 확인
+
+[2026-10-28 18:30 기준 구현현황·명세 차이 감사](specs/implementation-status-audit-20261028.md)는 GitHub 병합과 실제 운영 배포를 구분한다. 최신 실행 큐 자체는 [현재 상태](session_handoff.md), 제품 정책은 [오너 확정 결정](specs/owner-product-decisions-20261028.md)를 따른다. 완료한 하위 추출을 전체 리팩토링 완료로 보고하거나 별도 SPEC_ONLY를 이미 실행 중이라고 해석하지 않는다.
+
 ## 문서의 역할
 
 | 구분 | 정본 |
