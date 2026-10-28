@@ -1,91 +1,247 @@
 {
   "schema": "cost-test-impact-map-v1",
-  "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
+  "safe_fallback_tests": [
+    "tests/card_pipeline/test_partial_refund.py",
+    "tests/card_pipeline/test_ota_exact_gate.py",
+    "webapp/tests/test_priority_trip_assignment.py",
+    "webapp/tests/test_access_control_phase7.py",
+    "tests/card_pipeline/test_google_tsv.py"
+  ],
   "groups": [
     {
       "name": "financial-core",
-      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
+      "paths": [
+        "app/db.py",
+        "app/ledger.py",
+        "app/classify.py",
+        "app/reconciliation.py",
+        "app/partial_refund.py",
+        "app/decisions.py",
+        "webapp/refund_tab.py"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_partial_refund.py",
+        "tests/card_pipeline/test_pipeline.py",
+        "webapp/tests/test_refund_group_commit.py"
+      ]
     },
     {
       "name": "google-readonly",
-      "paths": ["app/google_*.py", "webapp/google_*.py", "webapp/live_sync.py"],
-      "tests": ["tests/card_pipeline/test_google_tsv.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_google_viewer_http.py"]
+      "paths": [
+        "app/google_*.py",
+        "webapp/google_*.py",
+        "webapp/live_sync.py"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_google_tsv.py",
+        "webapp/tests/test_google_ledger_page.py",
+        "webapp/tests/test_google_viewer_http.py"
+      ]
     },
     {
       "name": "authentication",
-      "paths": ["webapp/access_control.py", "webapp/ledger_board.py", "webapp/ops.py", "run_candidate.py"],
-      "tests": ["webapp/tests/test_access_control_phase7.py", "webapp/tests/test_income_card_boundary.py"]
+      "paths": [
+        "webapp/access_control.py",
+        "webapp/ledger_board.py",
+        "webapp/ops.py",
+        "run_candidate.py"
+      ],
+      "tests": [
+        "webapp/tests/test_access_control_phase7.py",
+        "webapp/tests/test_income_card_boundary.py"
+      ]
     },
     {
       "name": "mail-collection",
-      "paths": ["app/mail_collect.py", "app/toyoko_mail.py", "app/booking_evidence.py"],
-      "tests": ["tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_toyoko_mail.py"]
+      "paths": [
+        "app/mail_collect.py",
+        "app/toyoko_mail.py",
+        "app/booking_evidence.py"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_mail_collect.py",
+        "tests/card_pipeline/test_toyoko_mail.py"
+      ]
     },
     {
       "name": "core-safety-net",
-      "paths": ["app/*.py", "webapp/*.py", "ledger/domain/*.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"]
+      "paths": [
+        "app/*.py",
+        "webapp/*.py",
+        "ledger/domain/*.py"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_partial_refund.py",
+        "tests/card_pipeline/test_ota_exact_gate.py",
+        "webapp/tests/test_priority_trip_assignment.py",
+        "webapp/tests/test_access_control_phase7.py",
+        "tests/card_pipeline/test_google_tsv.py"
+      ]
     },
     {
       "name": "card-flow",
-      "paths": ["webapp/card_flow.py", "webapp/card_actions.py", "webapp/ledger_store.py",
-                "webapp/tests/test_card_flow*.py"],
-      "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py"]
+      "paths": [
+        "webapp/card_flow.py",
+        "webapp/card_actions.py",
+        "webapp/ledger_store.py",
+        "webapp/tests/test_card_flow*.py"
+      ],
+      "tests": [
+        "webapp/tests/test_card_flow.py",
+        "webapp/tests/test_card_flow_browser.py"
+      ]
     },
     {
       "name": "ota-reconciliation",
-      "paths": ["app/ota_*.py", "webapp/ota_*.py", "tests/card_pipeline/test_ota*.py",
-                "webapp/tests/test_ota*.py"],
-      "tests": ["tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ota_payment_review.py", "webapp/tests/test_ota_payment_review_browser.py"]
+      "paths": [
+        "app/ota_*.py",
+        "webapp/ota_*.py",
+        "tests/card_pipeline/test_ota*.py",
+        "webapp/tests/test_ota*.py"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_ota_payments.py",
+        "webapp/tests/test_ota_payment_review.py",
+        "webapp/tests/test_ota_payment_review_browser.py"
+      ]
     },
     {
       "name": "passenger-linking",
-      "paths": ["app/flight_passenger_*.py", "app/reservation_authority.py", "webapp/flight_passenger_page.py",
-                "webapp/tests/test_flight_passenger_page.py"],
-      "tests": ["webapp/tests/test_flight_passenger_page.py"]
+      "paths": [
+        "app/flight_passenger_*.py",
+        "app/reservation_authority.py",
+        "webapp/flight_passenger_page.py",
+        "webapp/tests/test_flight_passenger_page.py"
+      ],
+      "tests": [
+        "webapp/tests/test_flight_passenger_page.py"
+      ]
     },
     {
       "name": "card-import",
-      "paths": ["app/import_card.py", "app/card_*.py", "webapp/card_import*.py",
-                "webapp/tests/test_card_import.py", "tests/card_pipeline/test_pipeline.py"],
-      "tests": ["webapp/tests/test_card_import.py", "tests/card_pipeline/test_pipeline.py"]
+      "paths": [
+        "app/import_card.py",
+        "app/card_*.py",
+        "webapp/card_import*.py",
+        "webapp/tests/test_card_import.py",
+        "tests/card_pipeline/test_pipeline.py"
+      ],
+      "tests": [
+        "webapp/tests/test_card_import.py",
+        "tests/card_pipeline/test_pipeline.py"
+      ]
     },
     {
       "name": "ledger-store-boundaries",
-      "paths": ["webapp/ledger_store*.py", "webapp/tests/test_ledger_store*.py"],
-      "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_income_card_boundary.py", "webapp/tests/test_refund_group_commit.py"]
+      "paths": [
+        "webapp/ledger_store*.py",
+        "webapp/tests/test_ledger_store*.py"
+      ],
+      "tests": [
+        "webapp/tests/test_ledger_store.py",
+        "webapp/tests/test_income_card_boundary.py",
+        "webapp/tests/test_refund_group_commit.py"
+      ]
     },
     {
       "name": "board-read-boundaries",
-      "paths": ["webapp/ledger_board.py", "webapp/board_*.py", "webapp/tests/test_board_*.py", "tests/test_board_render_helpers.py"],
-      "tests": ["tests/test_board_render_helpers.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py"]
+      "paths": [
+        "webapp/ledger_board.py",
+        "webapp/board_*.py",
+        "webapp/tests/test_board_*.py",
+        "tests/test_board_render_helpers.py"
+      ],
+      "tests": [
+        "tests/test_board_render_helpers.py",
+        "webapp/tests/test_ledger_board.py",
+        "webapp/tests/test_ledger_server_store_isolation.py",
+        "webapp/tests/test_access_control_phase7.py"
+      ]
     },
     {
       "name": "ledger-design-assets",
-      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/static/css/ledger_design.css", "webapp/static/js/ledger_design.js", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py"],
-      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+      "paths": [
+        "webapp/ledger_design*.py",
+        "webapp/ledger_assets.py",
+        "webapp/static/css/ledger_design.css",
+        "webapp/static/js/ledger_design.js",
+        "webapp/tests/test_ledger_design*.py",
+        "webapp/tests/test_ledger_assets*.py"
+      ],
+      "tests": [
+        "webapp/tests/test_ledger_design.py",
+        "webapp/tests/test_ledger_design_assets.py",
+        "webapp/tests/test_ledger_design_state.py",
+        "webapp/tests/test_manual_theme.py",
+        "webapp/tests/test_mobile_topbar_theme_inline.py"
+      ]
     },
     {
       "name": "card-catalog-assets",
-      "paths": ["webapp/card_catalog.py", "webapp/card_catalog_assets.py", "webapp/static/css/card_catalog.css", "webapp/static/js/card_catalog.js", "webapp/tests/test_card_catalog_assets.py"],
-      "tests": ["webapp/tests/test_card_catalog_assets.py", "webapp/tests/test_cards_all_filters.py", "webapp/tests/test_ota_reserve_ui_theme.py"]
+      "paths": [
+        "webapp/card_catalog.py",
+        "webapp/card_catalog_assets.py",
+        "webapp/static/css/card_catalog.css",
+        "webapp/static/js/card_catalog.js",
+        "webapp/tests/test_card_catalog_assets.py"
+      ],
+      "tests": [
+        "webapp/tests/test_card_catalog_assets.py",
+        "webapp/tests/test_cards_all_filters.py",
+        "webapp/tests/test_ota_reserve_ui_theme.py"
+      ]
     },
     {
       "name": "real-review-template",
-      "paths": ["webapp/real_review_ui.py", "webapp/real_review_assets.py", "webapp/static/templates/real_review.html", "webapp/tests/test_real_review_assets.py"],
-      "tests": ["webapp/tests/test_real_review_assets.py", "webapp/tests/test_board_source_preview.py", "webapp/tests/test_review_guidance.py"]
+      "paths": [
+        "webapp/real_review_ui.py",
+        "webapp/real_review_assets.py",
+        "webapp/static/templates/real_review.html",
+        "webapp/tests/test_real_review_assets.py"
+      ],
+      "tests": [
+        "webapp/tests/test_real_review_assets.py",
+        "webapp/tests/test_board_source_preview.py",
+        "webapp/tests/test_review_guidance.py"
+      ]
     },
     {
       "name": "card-evidence-rendering",
-      "paths": ["webapp/card_evidence*.py", "webapp/card_refund_ui.py", "webapp/tests/test_card_evidence*.py", "webapp/tests/test_card_refund_ui*.py"],
-      "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_cleanup_original_refund_status_contract.py", "webapp/tests/test_refund_inference_runtime.py"]
+      "paths": [
+        "webapp/card_evidence*.py",
+        "webapp/card_refund_ui.py",
+        "webapp/tests/test_card_evidence*.py",
+        "webapp/tests/test_card_refund_ui*.py"
+      ],
+      "tests": [
+        "webapp/tests/test_card_flow.py",
+        "webapp/tests/test_cleanup_refund_display.py",
+        "webapp/tests/test_cleanup_original_refund_status_contract.py",
+        "webapp/tests/test_refund_inference_runtime.py"
+      ]
+    },
+    {
+      "name": "card-refund-query",
+      "paths": [
+        "webapp/card_refund_query.py",
+        "webapp/tests/test_card_refund_query.py"
+      ],
+      "tests": [
+        "webapp/tests/test_card_refund_query.py",
+        "webapp/tests/test_cleanup_refund_display.py",
+        "webapp/tests/test_refund_inference_runtime.py"
+      ]
     },
     {
       "name": "test-selection",
-      "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
-                "webapp/tests/test_targeted_test_selector.py"],
-      "tests": ["webapp/tests/test_targeted_test_selector.py"]
+      "paths": [
+        "tools/select_targeted_tests.py",
+        "config/test-impact-map.json",
+        "webapp/tests/test_targeted_test_selector.py"
+      ],
+      "tests": [
+        "webapp/tests/test_targeted_test_selector.py"
+      ]
     }
   ]
 }
