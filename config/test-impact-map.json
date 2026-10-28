@@ -107,6 +107,11 @@
       "tests": ["webapp/tests/test_card_ota_projection.py", "webapp/tests/test_ota_card_evidence_relevance.py", "tests/card_pipeline/test_trip_currency_comparison.py"]
     },
     {
+      "name": "shared-shell-assets",
+      "paths": ["webapp/site_assets.py", "webapp/site_shell.py", "webapp/site_theme.py", "webapp/static/css/site_shell.css", "webapp/static/css/site_theme.css", "webapp/static/js/site_shell.js", "webapp/static/js/site_theme.js", "webapp/tests/test_site_shell_assets.py"],
+      "tests": ["webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_convergence.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+    },
+    {
       "name": "ledger-audit-rules",
       "paths": ["webapp/ledger_store_audit.py", "webapp/tests/test_ledger_store_audit.py"],
       "tests": ["webapp/tests/test_ledger_store_audit.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_income_bank.py", "webapp/tests/test_refund_group_commit.py"]
