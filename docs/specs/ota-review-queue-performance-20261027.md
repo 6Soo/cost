@@ -13,6 +13,8 @@
 
 금융/환불/수동/권한/queue/snapshot 인접409 passed와 별도 PG·수집기·브라우저144 passed/4 subtests를 확인했다. 마지막 국소 보완 검사는 현재 상태에 기록한다. 실제 ready 세대·화면·summary/page p95·보호표는 정상 병합 및 고정 배포 후 검증한다.
 
+후속 운영에서 summary/page/detail GET마다 worker를 깨워 478MB 원본 지문과 카드 원장을 반복 읽는 경로를 확인했다. 일반 읽기는 기존60초 검사 주기를 공유하고 최초 미검사 상태만 즉시 깨운다. 계산 중 읽기는 추가 검사를 예약하지 않는다. 명시 `request_check()`와 쓰기 직전 입력 키 검증은 즉시 실행을 유지한다. 조회 burst·주기 경계·명시 검사·세대 변경·snapshot/action/page/detail 보호89 passed로 확인했다.
+
 ## 1. 확인된 현재 코드
 
 - webapp/ota_payment_review.py::CoreOtaPaymentBackend.snapshot_from은 결과 전체를 순회해 HOLD, 수동 연결 변경, 예약 관계 등 조건별 이벤트를 화면용 holds에 담는다. 정상 MATCHED 전부를 보여주는 구조는 아니다.
