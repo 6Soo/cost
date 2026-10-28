@@ -6,6 +6,8 @@
 
 ## 내용
 
+> **2026-10-28 신규 명세(미구현):** [지출 정리 상태 표시의 실제 필터 버튼화](expense-cleanup-status-filter-actions-20261028.md). 세 상태 칩의 GET 서버 필터, 전체 복귀, 건수·페이지 유지, 저장 후 갱신, protected/기타 검토 정확성, 모바일·키보드 회귀까지 포함. 단순 `<span>`을 `<button>`으로 바꾸는 작업은 미완료로 판정한다.
+
 - [COST 카드 전체 내역 및 웹 UI 디자인 시스템 구현 명세 v1.3](#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)
 - [COST 항공권 예약 확인 — 탑승객 검색·항공권 근거·카드 거래 대조 UI/기능 명세 v1.0](#src-docs-flight-booking-verification-spec-20261026-md)
 - [지출 정리 화면의 스크롤 중 메뉴 접근](#src-docs-expense-cleanup-navigation-spec-md)
