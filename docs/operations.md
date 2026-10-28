@@ -255,3 +255,11 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 전용 Drive readonly ADC를 새 파일로 저장하고 실제 Drive about200/소유자 일치·비공개 폴더 목록을 검증했다. 최초76건은 모두 기존 로컬 원문으로 미리보기 new0/appended0, 전체탐색은 미완료다. 전체 대상3,704건에 대해 클라우드 수집 배치를 순차 재개했다. 기존 자격 증명을 덮지 않았다. 호스트 전달기는70f247e의980 Git blob 일치·전용 실행기의 preview를 확인했으며, 기존 MailCollect 작업/운영 DB/장부는 아직 변경하지 않았다.
 
 백필의 원문별 반복 Drive 검색/manifest 쓰기를 줄이는 보완은 Node24 passed로 검증했다. 원문 설치 후 checkpoint를 묶되 페이지·시간 종료·실패에서 flush하며, 미완료 그룹과 orphan 원문을 재검증한다. 초기76건/261.337초와 실제 개선 배치 측정은 구분한다. 초기 부적절한 비동기 브라우저 runner는 AbortError를 확인해 중지하고, 현재는 한 번에 한 UI 명령/클라우드 실행만 수행한다. Google 원문/프로젝트·폴더ID/자격 증명은 추적하지 않는다.
+
+## 2026-10-28 RF-201 장부 자산 책임 분리 배포
+
+- PR #262, main/운영 SHA `4e537766fa201ff4c2e58e9117efc5162e6e92c7`, 이전 검증 릴리스 `9d5ddd521272acdebb294357d18a763d89ccfc60` 보존. STYLE/SCRIPT를 CSS/JS 파일과 import 시 1회 읽는 소유 모듈로 분리했다. 폰트/OTA 자산 함수와 테마·DOM·palette·렌더 결과는 그대로다.
+- 수집된 검사: 자산5·인접55 passed, 선택기8 passed. Supervisor가 공개 기준 원래 모듈과 STYLE32,235B/SCRIPT21,055B 및 생성 HTML의 정확한 동일성을 확인했다. source-theme4 passed/2 failed는 기준과 같은 실패다. 전체 회귀/브라우저 matrix는 바이트 동등성 때문에 반복하지 않았다.
+- 실제 배포: 984 Git blob 불일치0, 작업/프로세스 SHA와 단일 loopback listener 일치, health/ready200·보호 API401. 보호13표의 내용·스키마 전후 불변. 실제 배포본 Python에서 STYLE/SCRIPT import·해시 smoke 통과. 기존 검증 백업/별도 복원 근거와 이전 릴리스를 재사용했다.
+- 운영 HTML의 Aside 확인은 CDP `DOM.enable` timeout으로 미수락이며 성공으로 계산하지 않는다. 배포 자체의 SHA/health/auth/보호 검사와 구별한다. 운영 DB·금융/여행/Google 결정 쓰기·클라우드 원문 적재·수집 스케줄 전환은 이 배포에서 하지 않았다.
+- 근거: `.local-archive/refactor-parallel-20261028/assets-supervisor-equivalence.json`, `protection-assets-before.json`, `protection-assets-after.json`, 호스트 `release-audit-4e537766fa201ff4c2e58e9117efc5162e6e92c7.json` 및 동일 SHA deploy-evidence. 고객 원문·계정·폴더 ID는 추적 기록에 넣지 않는다.
