@@ -286,6 +286,8 @@ PR #263/#265~#270/#272의 저장소·보드·카드·검토 문서 책임 분리
 535b6dd3178758a5a442eb6a8e7b0d60517a5cb3 재배포 성공:1018 blobs 일치,실행SHA·단일listener·health/ready200·보호API401·보호13표 불변. 이전 b54ca37 복구점 보존. 최초 실패/복귀 기록 유지. IgnoreNew 종료 상태 확인과 준비 대기/실패단계 기록을 보완한 로컬 observed 실행기를 사용했고 호스트 원래 배포기는 미변경. 최초 원인을 확정하지 않는다. 호스트 동일 SHA deploy-evidence 및 .local-archive/refactor-parallel-20261028/protection-before.json/after.json 근거. PR280/281은 이 릴리스 뒤의 검수 병합이며 아직 미포함. 원문/금융/여행/Google 쓰기 없음.
 
 
-## 2026-10-28 generation 5 ?? ???? ?? ??
+## 2026-10-28 generation 5 검수 통합 배포
 
-main/?? 9f6eec7a66be1fae7ee4b8d761c5c4e81d070b1e ?? ?? ??(PR #283/#284/#285 ? ?? #280~#282 ??). ?? ??535b6dd ??. requirements51?HTTP98????66/3subtests?selector8? ?? ?? ??? ?? ???. 1,034 Git blob ??, ??/????SHA???loopback listener?health/ready200?OTA ??API401???13? ?? ??, data guard base ??0/??0. ??? ?? ??/?? ?? ?? ???. ??/??/?? ??/Google ?? ????????? ??. ?? ???????? ?? ? ?? RF ???? ????. ??: ??? ??SHA release-audit/deploy-evidence JSON, .local-archive/refactor-parallel-20261028/protection-before.json/after.json. ??? PR #286 ? PEND-04 ???? ??? ? ??? ???? ???.
+main/운영9f6eec7a66be1fae7ee4b8d761c5c4e81d070b1e 고정 배포 완료(PR #280~#285 포함). 이전 검증535b6dd 보존. requirements51·HTTP98·멱등성66/3subtests·selector8과 기존 개별 동등성 근거 재사용.1,034 Git blob 일치·작업/프로세스SHA·단일loopback listener·health/ready200·OTA 보호API401·보호13표 전후 불변, data guard base 차단0/삭제0. 기존 검증 백업/별도 복원 근거 재사용. 원문/금융/수동 여행/Google 결정 쓰기·마이그레이션 없음. 운영 인증 화면·실기기 수락 및 전체 RF 완료와 구별한다. 호스트 동일SHA release-audit/deploy-evidence와 로컬 protection-before/after.json이 근거다. 항공권 PR #286 이후와 PEND04 실제 클라우드 전환은 이 배포에 미포함이다.
+
+초기 generation5 기록의 새 한글 문구가 PowerShell 기본 파이프에서 ASCII 물음표로 바뀐 것을 발견했다. 기존 문서는 보존됐으며 해당 새 운영 절과 현재 큐를 UTF-8로 복구했다. 코드/금융/원문 데이터 변경과 관련 없는 문서 인코딩 교정이다.

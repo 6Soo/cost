@@ -128,8 +128,8 @@
     },
     {
       "name": "shared-shell-assets",
-      "paths": ["webapp/site_assets.py", "webapp/site_shell.py", "webapp/site_theme.py", "webapp/static/css/site_shell.css", "webapp/static/css/site_theme.css", "webapp/static/js/site_shell.js", "webapp/static/js/site_theme.js", "webapp/tests/test_site_shell_assets.py"],
-      "tests": ["webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_convergence.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+      "paths": ["webapp/site_assets.py", "webapp/site_shell.py", "webapp/site_theme.py", "webapp/static/css/site_shell.css", "webapp/static/css/site_theme.css", "webapp/static/js/site_shell.js", "webapp/static/js/site_theme.js", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_tokens.py"],
+      "tests": ["webapp/tests/test_site_tokens.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_convergence.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
     },
     {
       "name": "ledger-audit-rules",
