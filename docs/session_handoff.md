@@ -1,5 +1,8 @@
 # 현재 상태와 남은 일
 
+> **GitHub 최신 코드 감사(2026-10-28 18:30 KST):** [현재 구현현황·명세 차이·후속 완료 조건](specs/implementation-status-audit-20261028.md). 당시 `main 9c3a88b`에 #288(RF-101 변경 검증), #289(RF-107 provider), #290(RF-201 shell 토큰), #291(PEND-04 배치 수집 보호)이 **병합**됐고 열린 COST PR은 0개였다. **#291은 안전한 대량 배치 코드의 병합일 뿐 실제 원문 적재·메일 작업 전환 완료가 아니다.** 마지막 운영 수락 SHA 기록 `9f6eec7`과 최신 `main`의 차이를 유지한다. 아래 generation5 로컬 작업자/브랜치/테스트 행은 작성 당시 checkpoint로 보존하며 현재 프로세스 상태를 실시간 보증하지 않는다. [제품 오너 D-01~05](specs/owner-product-decisions-20261028.md), PIR/PA/ECF/TF/TI-COST는 **명세 확정·실제 기능 구현 미완료**를 유지한다. 이 문서 PR은 코드/운영 DB/실행 중 작업자를 변경하지 않는다.
+
+
 실행 정본은 [리팩토링 마스터](specs/refactor-master-20261027.md)와 아래 승인 27개 ID다. 과거 ACTIVE/READY 및 별도 SPEC_ONLY를 실행 과제로 되살리지 않는다. 상세 과거 근거는 [보관 기록](history/product-and-handoffs.md#rf-generation5-queue-archive), 배포는 [운영 기록](operations.md)을 참조한다.
 
 - runId: `e0197439-1c34-4348-a14d-7a870c3d69b5`.
