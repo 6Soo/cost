@@ -5,6 +5,8 @@ from app import Pipeline
 from app.classify import classify_transaction
 from .fixtures import make_csv, domestic_row
 import sqlite3
+import pytest
+from unittest.mock import patch
 
 
 TRIPS = [
@@ -142,4 +144,121 @@ def test_owner_approved_corrections_persist_source_exact_rules_in_existing_audit
         assert not other["trip_id"]
     finally:
         conn.close()
-import pytest
+
+
+def _pending_synthetic_correction(pipe):
+    rows = [domestic_row(merchant="SYNTHETIC INN", amount=7100 + n, approval=f"p{n}")
+            for n in range(2)]
+    pipe.receive(make_csv(rows), "synthetic-protection.csv")
+    txs = pipe.store.conn.execute(
+        "SELECT transaction_id,source_hash,merchant_normalized,revision FROM transactions ORDER BY transaction_id"
+    ).fetchall()
+    corrections = []
+    for index, (txid, digest, merchant, revision) in enumerate(txs):
+        pipe.save_decision(txid, revision, item="숙박비", description="합성 교정",
+                           trip_id="trip-a", trip_validator=lambda trip: trip == "trip-a",
+                           request_id=f"synthetic-protection-{index}")
+        current_revision = pipe.store.conn.execute(
+            "SELECT revision FROM transactions WHERE transaction_id=?", (txid,)).fetchone()[0]
+        corrections.append({"transaction_id": txid, "source_hash": digest,
+            "merchant_normalized": merchant, "revision": current_revision, "trip_id": "trip-a",
+            "item": "숙박비", "confidence": "낮음", "basis": "반복 교정",
+            "owner_approved": True})
+    return propose_correction_pattern(corrections), txs
+
+
+@pytest.mark.parametrize("protection", ["user_hold", "refund_pending", "evidence_pending",
+                                         "parse_error", "cancel_direction", "cancel_kind",
+                                         "company_exclusion"])
+def test_approval_rechecks_current_transaction_protection(tmp_path, protection):
+    conn = sqlite3.connect(tmp_path / f"{protection}.sqlite", isolation_level=None)
+    try:
+        pipe = Pipeline(conn)
+        proposal, txs = _pending_synthetic_correction(pipe)
+        txid, digest = txs[0][:2]
+        if protection in ("user_hold", "refund_pending", "evidence_pending"):
+            conn.execute("INSERT INTO transaction_review_holds VALUES (?,?,?,?)",
+                         (txid, digest, protection, "synthetic"))
+        elif protection == "parse_error":
+            conn.execute("UPDATE transactions SET parse_error='synthetic parse error' WHERE transaction_id=?", (txid,))
+        elif protection == "cancel_direction":
+            conn.execute("UPDATE transactions SET transaction_direction='refund' WHERE transaction_id=?", (txid,))
+        elif protection == "cancel_kind":
+            conn.execute("UPDATE transactions SET transaction_kind='refund' WHERE transaction_id=?", (txid,))
+        else:
+            conn.execute("INSERT INTO transaction_company_exclusions VALUES (?,?,?,?,?,?)",
+                         (txid, digest, 1, 1, "synthetic", "2026-10-28T00:00:00Z"))
+        with pytest.raises(ValueError, match="CORRECTION_PROTECTED"):
+            approve_correction_pattern(pipe.store, proposal, approved_by="synthetic-owner",
+                trips=[{"trip_id": "trip-a", "starts_on": "2026-08-01", "ends_on": "2026-08-31"}])
+        assert conn.execute("SELECT COUNT(*) FROM cost_classification_rules").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM change_log WHERE kind='trip_correction_rules.approved'").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_approval_rejects_forged_duplicate_references_even_with_recomputed_proposal_id(tmp_path):
+    conn = sqlite3.connect(tmp_path / "duplicate-ref.sqlite", isolation_level=None)
+    try:
+        pipe = Pipeline(conn)
+        proposal, _ = _pending_synthetic_correction(pipe)
+        for bad_refs in ([proposal["corrections"][0]] * 2,
+                         [proposal["corrections"][0], dict(proposal["corrections"][0], transaction_id="other")]):
+            forged = dict(proposal, corrections=bad_refs)
+            from app.provisional_assignment import _correction_proposal_id
+            forged["id"] = _correction_proposal_id(forged["scope"], bad_refs)
+            with pytest.raises(ValueError, match="INSUFFICIENT_DISTINCT_CORRECTIONS"):
+                approve_correction_pattern(pipe.store, forged, approved_by="synthetic-owner",
+                    trips=[{"trip_id": "trip-a", "starts_on": "2026-08-01", "ends_on": "2026-08-31"}])
+        assert conn.execute("SELECT COUNT(*) FROM cost_classification_rules").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_approval_rechecks_revision_and_manual_correction_after_proposal(tmp_path):
+    conn = sqlite3.connect(tmp_path / "stale-correction.sqlite", isolation_level=None)
+    try:
+        pipe = Pipeline(conn)
+        proposal, txs = _pending_synthetic_correction(pipe)
+        txid = txs[0][0]
+        revision = conn.execute("SELECT revision FROM transactions WHERE transaction_id=?", (txid,)).fetchone()[0]
+        pipe.save_decision(txid, revision, item="교정 변경", description="최신 합성 수동 교정",
+                           trip_id="trip-a", trip_validator=lambda trip: trip == "trip-a",
+                           request_id="synthetic-later-correction")
+        with pytest.raises(ValueError, match="CORRECTION_STALE_OR_PROTECTED"):
+            approve_correction_pattern(pipe.store, proposal, approved_by="synthetic-owner",
+                trips=[{"trip_id": "trip-a", "starts_on": "2026-08-01", "ends_on": "2026-08-31"}])
+        assert conn.execute("SELECT COUNT(*) FROM cost_classification_rules").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_second_rule_failure_rolls_back_rules_and_audit_but_preserves_outer_savepoint(tmp_path):
+    conn = sqlite3.connect(tmp_path / "atomic.sqlite", isolation_level=None)
+    try:
+        pipe = Pipeline(conn)
+        proposal, _ = _pending_synthetic_correction(pipe)
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("INSERT INTO change_log(at,kind,subject,detail_json) VALUES ('now','outer.marker','keep','{}')")
+        from app import rules
+        original = rules.save_rule
+        calls = 0
+
+        def fail_second(store, rule):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("synthetic second rule failure")
+            return original(store, rule)
+
+        with patch("app.rules.save_rule", side_effect=fail_second):
+            with pytest.raises(RuntimeError, match="synthetic second rule failure"):
+                approve_correction_pattern(pipe.store, proposal, approved_by="synthetic-owner",
+                    trips=[{"trip_id": "trip-a", "starts_on": "2026-08-01", "ends_on": "2026-08-31"}])
+        assert conn.in_transaction
+        assert conn.execute("SELECT COUNT(*) FROM cost_classification_rules").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM change_log WHERE kind='rule.created'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM change_log WHERE kind='outer.marker'").fetchone()[0] == 1
+        conn.rollback()
+    finally:
+        conn.close()
