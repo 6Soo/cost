@@ -3,6 +3,16 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "provider-config-schema",
+      "paths": ["webapp/provider_config.py", "webapp/provider_config_schema.py", "webapp/tests/test_provider_config_schema.py", "webapp/tests/test_provider_boundary.py"],
+      "tests": ["webapp/tests/test_provider_config_schema.py", "webapp/tests/test_provider_boundary.py"]
+    },
+    {
+      "name": "ledger-change-validation",
+      "paths": ["webapp/ledger_store_change_validation.py", "webapp/tests/test_ledger_store_change_validation.py"],
+      "tests": ["webapp/tests/test_ledger_store_change_validation.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_income_bank.py", "webapp/tests/test_refund_group_commit.py", "webapp/tests/test_income_card_boundary.py"]
+    },
+    {
       "name": "ledger-idempotency",
       "paths": ["webapp/ledger_store_idempotency.py", "webapp/tests/test_ledger_store_idempotency.py"],
       "tests": ["webapp/tests/test_ledger_store_idempotency.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_income_bank.py", "webapp/tests/test_refund_group_commit.py", "webapp/tests/test_income_card_boundary.py"]
