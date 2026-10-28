@@ -1,5 +1,15 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 PR #310 자동분류 완료·환불쌍 저장 배포
+
+- [PR #310](https://github.com/6Soo/cost/pull/310)을 `b75c37887c354255f0bf877eb8d1e47451c9684d`로 정상 병합·고정 배포했다. 검수 소스 `a1b5af2da158d6016f62c150171a91e78599852c`와 merge tree가 동일하다. 인계의 기존 `8ddee29` 환불쌍 분류 저장·`04a2958` 여행 authority 추론·`68ef66b` 답변 재사용을 함께 main에 통합했다.
+- 분류되면 완료라는 최신 사용자 결정을 금융 명세·진입점·상위 지침에 기록했다. 자동·수동 배정 결과는 `CLASSIFIED`, 출처는 별도 필드다. 잠정 후 확정 요구·완료 분류의 확인 권장 문구를 없앴다. 분류 저장 후 내부 기록의 여행 요건이 부족하면 저장 자체를 409 실패로 반환하던 경로를 성공+별도 기록 보류 사유로 고쳤다. 수동 결정·원본 금액/ID·중복·환불 원자성·권한을 유지한다.
+- 실제 검증: 초기 표적39 passed, 환불/여행/자동 기록62 passed+기존1 failed, 최신 자동 기록/교정21 passed, 결정 API/여행 이동/근거10 passed, OTA 권한/공개자료6 passed, 낮은 신뢰도 browser1 passed. 상속된 cleanup 검사4 passed+기존1 failed. 이 실행들은 일부 겹치며 합산 전체 회귀가 아니다. 최신 브라우저는 분류 완료·추가 교정 확인창 없음·4폭·확대·수동 결정/보류 보존을 확인했다. Python9개 compile·diff·문서 링크 누락0·metadata guard15파일 차단0/삭제0. 국소 변경이므로 전체 회귀는 실행하지 않았다.
+- 기존 실패2개는 변경 전 `68ef66b`에서도 동일 재현했다. `test_refund_group_commit`의 새 요청 ID+이전 digest 재전송 `KeyError: result`, `test_cleanup_reclassification`의 전체 HTML에 `location.reload()`가 없어야 한다는 과거 assertion이다. 통과로 계산하거나 미리보기/금융 보호를 약화하지 않았다.
+- 새 전체 백업·별도 복원 검증 통과, 추적1,092 Git blob 불일치0, task/process SHA 일치·loopback listener1·health/ready200·보호 OTA/환불/신규 trip-review/import API401·보호13표 내용/스키마 전후 동일. Board와 SourceRefresh 모두 Running으로 복귀했다. 직전 검증된 `68ef66b7b58b5733ca5532688fed893bc0cdc0fb`와 복구 근거를 보존했다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-b75c37887c354255f0bf877eb8d1e47451c9684d.json`, 같은 SHA release-audit, `.local-archive/deploy-b75c37887c354255f0bf877eb8d1e47451c9684d/`의 보호 전후·검수·배포본 순수 smoke, `.local-archive/automatic-classification-20261029/baseline-*.txt`. 배포본을 호스트 Python으로 직접 import한 합성 smoke에서 자동/수동 모두 완료·출처 분리·공개 필드 제한을 검증했으며 DB에 접근하지 않았다.
+- 운영 일괄 재처리·36건 개별 저장·신규 업무 규칙 활성화·Google 쓰기·마이그레이션은 실행하지 않았다. 기존 업종·현지 사용 공통 규칙을 재사용한다. Aside에서 인증된 COST 탭이 없어 운영 owner 화면의 실자료 수락은 실행하지 않았으며 합성 browser 수락과 구별한다. 코드/명세/배포 완료를36건 실자료 완료로 확대하지 않는다. 이 후속 운영 기록만으로 재배포·서버 재시작하지 않는다.
+
 ## 2026-10-29 PR #308 환불 묶음 기록 안내 정리 배포
 
 - PR #308을 `9ab2471f91b6b210ac79985a43e507743f5870d9`로 정상 병합하고 운영에 고정 배포했다. 지출 정리 화면의 전액 상쇄 안내 문구를 제거하고 버튼을 `원결제·환불 묶음 기록`으로 정리했다. owner·CSRF·preview digest 재검증·원자 commit 경계는 유지된다.
