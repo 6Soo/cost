@@ -44,51 +44,6 @@ def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
     return _decision("AUTO_PROVISIONAL", str(trip_id), candidate["basis"], [candidate], confidence)
 
 
-def propose_correction_pattern(corrections):
-    """Create an inactive existing-rule-core DTO from distinct owner correction rows."""
-    rows = [dict(row) for row in corrections if row.get("owner_approved") is True
-            and row.get("merchant_normalized") and row.get("trip_id")
-            and row.get("service_start") and row.get("service_end")
-            and row.get("transaction_id") and row.get("revision") is not None
-            and not row.get("duplicate_of") and not row.get("conflict_reason")]
-    unique = {(r["transaction_id"], str(r["revision"])): r for r in rows}
-    rows = list(unique.values())
-    signatures = {(r["merchant_normalized"], r["trip_id"], r["service_start"], r["service_end"])
-                  for r in rows}
-    if len(rows) < 2 or len(signatures) != 1:
-        return {"status": "NO_PROPOSAL", "active": False, "corrections": len(rows)}
-    merchant, trip_id, start, end = next(iter(signatures))
-    return {"status": "PENDING_OWNER_APPROVAL", "active": False, "scope": {
-        "merchant_normalized": merchant, "trip_id": trip_id,
-        "service_start": start, "service_end": end}, "corrections": len(rows)}
-
-
-def approve_correction_pattern(proposal, *, approved_by, trips=()):
-    """Validate owner approval and return a non-executable suggestion for manual review."""
-    if (not approved_by or not isinstance(proposal, dict)
-            or proposal.get("status") != "PENDING_OWNER_APPROVAL"
-            or proposal.get("active") is not False):
-        raise ValueError("OWNER_APPROVAL_REQUIRED")
-    scope = proposal.get("scope") or {}
-    if set(scope) != {"merchant_normalized", "trip_id", "service_start", "service_end"}:
-        raise ValueError("INVALID_CORRECTION_SCOPE")
-    try:
-        start, end = date.fromisoformat(scope["service_start"]), date.fromisoformat(scope["service_end"])
-    except (TypeError, ValueError):
-        raise ValueError("INVALID_CORRECTION_SCOPE") from None
-    if end < start:
-        raise ValueError("INVALID_CORRECTION_SCOPE")
-    trip = canonical_trip_periods(trips).get(scope["trip_id"])
-    if not trip or not _valid_period(trip, {"starts_on": scope["service_start"],
-                                             "ends_on": scope["service_end"]}):
-        raise ValueError("TRIP_NOT_AUTHORITATIVE")
-    # Existing app.rules deliberately rejects merchant rules that assign a trip.
-    # Preserve that boundary; the owner-approved suggestion is not executable.
-    return {"status": "OWNER_APPROVED_SUGGESTION", "active": False,
-            "approved_by": str(approved_by), "scope": dict(scope),
-            "requires_transaction_level_decision": True, "policy_version": POLICY_VERSION}
-
-
 def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None, manual_status=None,
                          financial_hold=False):
     """Validate, deduplicate by trip, then rank candidates without mutating input."""

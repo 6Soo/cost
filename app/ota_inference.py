@@ -3,9 +3,32 @@ import re
 from datetime import date
 
 from app.ota_matching_defaults import load_defaults
+from app.provisional_assignment import ota_service_period_candidate, rank_trip_candidates
 
 BASIS = 'mutually_unique_undated_agoda'
 NOTE = '추론 연결: 카드 끝자리·원문 금액·전체 자료의 일대일 대응과 이용기간 확인. 실제 결제일은 미확인'
+
+
+def provisional_trip_decisions(events, trips, *, manual_decisions=None):
+    """Rank verified OTA service-period trip candidates independently of payment matching."""
+    manual_decisions = manual_decisions or {}
+    result = {}
+    for event in events:
+        identity = str(event.get('ota_event_id') or '')
+        # Only verified reservation periods can create a trip candidate. This
+        # path never modifies payment status, booking links, or settlement IDs.
+        if (not identity or event.get('verified_portal_snapshot') is not True
+                or event.get('reservation_status') not in ('confirmed', 'completed')
+                or event.get('service_period_conflict') or event.get('period_conflict')):
+            continue
+        candidates = ota_service_period_candidate(event, trips)
+        refund = event.get('event_type') == 'refund' or event.get('refund_status') in (
+            'refund_pending', 'refund_requested', 'refunded', 'refund_completed')
+        result[identity] = rank_trip_candidates(
+            candidates, trips=trips,
+            manual_status=manual_decisions.get(identity),
+            financial_hold=refund or event.get('financial_hold') is True)
+    return result
 
 
 def unique_pairs(events, transactions, *, occupied=(), rules=()):
