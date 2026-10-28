@@ -3127,5 +3127,3 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
     except Exception:
         return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "검토 요청을 처리하지 못했습니다.", 503)
     return True
-
-
