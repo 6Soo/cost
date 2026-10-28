@@ -39,8 +39,8 @@
 
 - CODE_WRITTEN: yes.
 - TEST_PASSED: yes; 149 queue/telemetry tests and 95 financial protection tests passed.
-- Actual diff: see the three newly added files above; no pre-existing product file is modified.
+- Actual diff: four added files (`app/ota_queue_telemetry.py`, `tools/benchmark_ota_queue.py`, `tests/test_ota_queue_telemetry.py`, this handoff); no pre-existing product file is modified.
 - Remaining external/ownership boundary: Supervisor wiring for public summary/page/detail read-trace consumption; real database performance measurement is Supervisor-owned. No external permissions or user data is needed for this worker's local scope.
-- Final commit: pending local commit.
+- Final commit: `5550ad6e74240e37b0b2a7dc0ca35dba47ee9b72`.
 - Next commands:
   1. Supervisor integrates the pure trace adapter at the permitted summary/page/detail accessor boundary.
