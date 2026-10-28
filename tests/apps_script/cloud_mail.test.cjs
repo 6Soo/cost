@@ -7,6 +7,15 @@ const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../../cloud-mail/CloudMail.gs'), 'utf8');
 const account = 'owner@example.invalid';
+test('dedicated manifest enables Gmail API while retaining only explicit collection scopes',()=>{
+  const manifest=JSON.parse(fs.readFileSync(path.join(__dirname,'../../cloud-mail/appsscript.json'),'utf8'));
+  assert.deepEqual(manifest.dependencies.enabledAdvancedServices,
+    [{userSymbol:'Gmail',version:'v1',serviceId:'gmail'}]);
+  assert.deepEqual(manifest.oauthScopes.slice().sort(),[
+    'https://www.googleapis.com/auth/gmail.readonly','https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/script.external_request',
+    'https://www.googleapis.com/auth/script.scriptapp'].sort());
+});
 function message(id) {
   return {id, internalDate:'1793138400000', payload:{mimeType:'multipart/alternative',
     headers:[{name:'Authentication-Results', value:'synthetic pass'},
@@ -182,4 +191,13 @@ test('pause removes only this collector trigger and preserves evidence and other
   assert.equal(h.context.pauseCostCloudMail().removed,1);
   assert.equal(h.triggers.length,1);assert.equal(h.triggers[0].getHandlerFunction(),'unrelated-synthetic-handler');
   assert.equal(h.files.get('gmail-a1.json').content,original);
+});
+test('API failure exposes finite status/reason without echoing private Google error text',()=>{
+  const h=harness();
+  assert.throws(()=>h.context.costMailJson_({getResponseCode:()=>403,
+    getContentText:()=>JSON.stringify({error:{message:'synthetic private original',
+      details:[{reason:'SERVICE_DISABLED'}]}})}),/^Error: CLOUD_MAIL_API_HTTP_403_SERVICE_DISABLED$/);
+  assert.throws(()=>h.context.costMailJson_({getResponseCode:()=>403,
+    getContentText:()=>JSON.stringify({error:{message:'synthetic private original',
+      errors:[{reason:'synthetic secret reason'}]}})}),/^Error: CLOUD_MAIL_API_HTTP_403$/);
 });
