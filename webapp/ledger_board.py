@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import board_render_helpers, read_scope, ui_icons
+from . import board_export_helpers, board_learning_dialog, board_read_projection, board_render_helpers, read_scope, ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -835,20 +835,11 @@ def default_board_tab() -> str:
 
 
 def _with_display_amount(rows):
-    if _active_store() is None:
-        return rows
-    for r in rows:
-        if "display_amount_krw" not in r:
-            projected = _active_store().projected(r)
-            r["display_amount_krw"] = projected["display_amount_krw"]
-            r["display_occurred_on"] = projected["display_occurred_on"]
-        elif "display_occurred_on" not in r:
-            r["display_occurred_on"] = _active_store().display_occurred_on(r)
-    return rows
+    return board_read_projection.with_display_amount(rows, store=_active_store())
 
 
 def _shown_date(row) -> str:
-    return row.get("display_occurred_on", row["occurred_on"])
+    return board_read_projection.shown_date(row)
 
 
 def _persisted_rows(kind: str):
@@ -863,52 +854,62 @@ def _persisted_rows(kind: str):
     come from `list_tab_rows`, which also returns the allocation projections and
     the split remainders, so a store that has only allocations still shows them.
     """
-    rows = read_scope.remember(("persisted_rows", kind), lambda: _load_persisted_rows(kind))
-    return [dict(r) for r in rows]
+    return board_read_projection.persisted_rows(
+        kind,
+        remember_fn=read_scope.remember,
+        loader_fn=lambda: _load_persisted_rows(kind),
+    )
 
 
 def _load_persisted_rows(kind: str):
-    out = []
     store = _active_store()
-    for tab in _all_tab_ids() + [None]:
-        saved_rows = read_scope.remember(
-            ('persisted_tab_rows', id(store), tab), lambda: store.list_tab_rows(tab))
-        for saved in saved_rows:
-            if saved["row_kind"] == kind:
-                out.append(dict(saved))
-    return _with_display_amount(out)
+    return board_read_projection.load_persisted_rows(
+        kind,
+        tab_ids=_all_tab_ids(),
+        fetch_tab_rows_fn=lambda tab: read_scope.remember(
+            ('persisted_tab_rows', id(store), tab), lambda: store.list_tab_rows(tab)
+        ),
+        with_display_amount_fn=_with_display_amount,
+    )
 
 
 def _expense_rows():
-    if _active_store() is None:
-        return [dict(r) for r in EXPENSES]
-    return _persisted_rows("expense")
+    return board_read_projection.expense_rows(
+        store=_active_store(),
+        fallback_expenses=EXPENSES,
+        persisted_rows_fn=_persisted_rows,
+    )
 
 
 def _income_rows():
-    if _active_store() is None:
-        return [dict(r) for r in INCOMES]
-    return _persisted_rows("income")
+    return board_read_projection.income_rows(
+        store=_active_store(),
+        fallback_incomes=INCOMES,
+        persisted_rows_fn=_persisted_rows,
+    )
 
 
 def _trip_totals(tab_id: str):
-    if _active_store() is None:
-        return {
-            "income": trip_income_total(tab_id),
-            "expense": trip_expense_total(tab_id),
-            "profit": trip_profit(tab_id),
-        }
-    return _active_store().tab_totals(tab_id)
+    return board_read_projection.trip_totals(
+        tab_id,
+        store=_active_store(),
+        fallback_totals_fn=lambda tid: {
+            "income": trip_income_total(tid),
+            "expense": trip_expense_total(tid),
+            "profit": trip_profit(tid),
+        },
+    )
 
 
 def _unclassified_rows():
-    return [r for r in _expense_rows() if r["display_tab_id"] is None]
+    return board_read_projection.unclassified_rows(expense_rows=_expense_rows())
 
 
 def _income_total(rows) -> int:
-    linked = _active_store().linked_bank_row_ids() if _active_store() is not None else set()
-    return sum(
-        _shown_amount(r) for r in rows if r["row_id"] not in linked
+    return board_read_projection.income_total(
+        rows,
+        store=_active_store(),
+        shown_amount_fn=_shown_amount,
     )
 
 SYNTHETIC_MARK = "합성 자료"
@@ -1102,27 +1103,23 @@ esc = board_render_helpers.esc
 
 
 def trip_income_total(tab_id: str) -> int:
-    return sum(r["amount_krw"] for r in INCOMES if r["display_tab_id"] == tab_id)
+    return board_read_projection.trip_income_total(tab_id, rows=INCOMES)
 
 
 def trip_expense_total(tab_id: str) -> int:
-    return sum(r["amount_krw"] for r in EXPENSES if r["display_tab_id"] == tab_id)
+    return board_read_projection.trip_expense_total(tab_id, rows=EXPENSES)
 
 
 def trip_profit(tab_id: str) -> int:
-    return trip_income_total(tab_id) - trip_expense_total(tab_id)
+    return board_read_projection.trip_profit(trip_income_total(tab_id), trip_expense_total(tab_id))
 
 
 def customer_total(customer_id: str, tab_id: str) -> int:
-    return sum(
-        r["amount_krw"]
-        for r in INCOMES
-        if r["customer_id"] == customer_id and r["display_tab_id"] == tab_id
-    )
+    return board_read_projection.customer_total(customer_id, tab_id, rows=INCOMES)
 
 
 def unclassified_expenses():
-    return [r for r in EXPENSES if r["display_tab_id"] is None]
+    return board_read_projection.unclassified_rows(expense_rows=EXPENSES)
 
 
 def unclassified_total() -> int:
@@ -1227,9 +1224,7 @@ def layout(title: str, body: str) -> str:
 def tabs_html(selected: str, query: str = "") -> str:
     expenses = _expense_rows()
     items = []
-    for t in live_trips():
-        if query and query not in (t["display_key"] + t["destination"]):
-            continue
+    for t in board_export_helpers.filter_trips(live_trips(), query=query):
         cls = "tab sel" if t["tab_id"] == selected else "tab"
         totals = _trip_totals(t["tab_id"])
         items.append(
@@ -1249,7 +1244,7 @@ def tabs_html(selected: str, query: str = "") -> str:
             items.append(f"<div class='muted'>보관된 여행</div>{links}")
     unc = [r for r in expenses if r["display_tab_id"] is None]
     unc_total = sum(_shown_amount(r) for r in unc)
-    if not query or query in "분류대기":
+    if board_export_helpers.is_unclassified_matched(query):
         cls = "tab sel" if selected == "unclassified" else "tab"
         items.append(
             f"<a class='{cls}' href='/board?tab=unclassified'>"
@@ -1401,37 +1396,11 @@ def expense_new_page() -> str:
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
 
 
-def _rule_scope_text(rule: dict) -> str:
-    """The rule in one sentence, so the owner can see how wide it is before applying."""
-    conditions = rule.get("conditions") or {}
-    names = {"merchant_normalized": "가맹점", "card_kind": "카드 구분", "transaction_direction": "거래 방향"}
-    parts = []
-    for field, entry in conditions.items():
-        value = entry.get("value")
-        value = ", ".join(map(str, value)) if isinstance(value, list) else value
-        parts.append(f"{names.get(field, field)} = {value}")
-    optional = rule.get("optional_conditions") or {}
-    if optional.get("amount_range"):
-        parts.append(f"금액 범위 {optional['amount_range']}")
-    if optional.get("date_or_service_period"):
-        parts.append(f"기간 {optional['date_or_service_period']}")
-    effect_names = {"item": "항목", "display_tab_id": "여행 탭", "description_template": "내용"}
-    changes = ", ".join(f"{effect_names.get(k, k)} → {v}" for k, v in (rule.get("effects") or {}).items())
-    text = " · ".join(parts) + (f" ⇒ {changes}" if changes else "")
-    scope = rule.get("scope") or {}
-    if scope.get("trip_id"):
-        text += f" (여행 {scope['trip_id']}, {scope.get('event_year')}년)"
-    if list(conditions) == ["merchant_normalized"]:
-        text += (" — 모든 여행·모든 카드의 같은 가맹점 거래에 해당합니다."
-                 " 같은 가맹점의 기존 카드 분류 규칙이 있으면 미래 입력부터 이 규칙이 그 항목을 대체합니다")
-    return text
+_rule_scope_text = board_learning_dialog.rule_scope_text
 
 
 def _rule_hidden(case_id, request_id, extra=""):
-    return (f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
-            f"<input type='hidden' name='case' value='{esc(case_id)}'>"
-            f"<input type='hidden' name='client_request_id' value='{esc(request_id)}'>"
-            f"{extra}")
+    return board_learning_dialog.rule_hidden(case_id, request_id, csrf_token=CSRF_TOKEN, extra=extra)
 
 
 def rule_dialog_page(case_id: str, query: dict) -> str:
@@ -1440,217 +1409,12 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     The screen only orchestrates existing endpoints. It never writes a row
     itself, and a provider answer is shown as a draft the owner must confirm.
     """
-    from . import ledger_design
-
-    if _active_store() is None:
-        return ledger_design.render(ledger_design.shell(
-            '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
-    state = _active_store().dialog_page_state(case_id)
-    row = _active_store().get_row(state["row_id"]) if state.get("row_id") else None
-    if row is None:
-        return ledger_design.render(ledger_design.shell(
-            '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>대화에 연결된 행이 없어요.</p></div>"))
-    row_id = esc(row["row_id"])
-    dialog = state["dialog_state"]
-    conv = state["conversation"] or {}
-    pending = state["pending_draft"]
-    rule = state["rule"]
-    provider = state["provider"] or {}
-    real_call = bool(provider.get("is_real_call"))
-    mode_label = "AI 연결됨" if real_call else RULE_MODE_LABEL
-    notice = query.get("msg", [""])[0]
-    parts = []
-
-    parts.append(
-        f"<h3>규칙 대화</h3>"
-        f"<p class='muted'>{esc(row.get('item', ''))} · {esc(row.get('description', ''))}</p>"
-        f"<p><span class='synth'>{esc(mode_label)}</span> "
-        f"<span class='muted'>대화 상태: {esc(dialog_state_label(dialog))}"
-        + (f" · 공급자: {esc(conv.get('active_provider') or '-')}"
-           f" · model: {esc(conv.get('active_model_id') or '-')}"
-           f" · 턴 {conv.get('turn_count', 0)}회" if conv else "")
-        + "</span></p>")
-    if notice:
-        parts.append(f"<p class='muted'>{esc(notice)}</p>")
-    if "PREVIEW_STALE" in notice:
-        parts.append(
-            "<p class='muted'>선택한 행이 바뀌었어요. 아래에서 새 미리보기를 다시 받아 주세요."
-            " 일부 행만 적용되지는 않습니다.</p>")
-    if dialog == "closed":
-        parts.append(
-            "<form method='post' action='/api/classification/dialog/resume'>"
-            + _rule_hidden(case_id, f"ui-resume-{case_id}")
-            + "<button class='btn' type='submit'>대화 재개</button></form>")
-        return ledger_design.render(ledger_design.shell(
-            '규칙 대화', tab_id='', heading='규칙 대화',
-            body=(f"<div class='sect'>{''.join(parts)}"
-                  "<p><a href='/board'>목록으로</a></p></div>")))
-
-    if state["should_not_create_rule"]:
-        parts.append(
-            "<p class='muted'>이번 거래만 적용하기로 하셨습니다. 규칙 초안·영향 미리보기·"
-            "적용은 진행하지 않고, 이미 저장한 행 수정은 그대로 유지합니다.</p>")
-
-    # 근거 자유문: 그대로 저장한다
-    parts.append(
-        "<form method='post' action='/api/classification/dialog/note'>"
-        + _rule_hidden(case_id, f"ui-note-{case_id}")
-        + "<p><label>근거 설명 (자유문)</label>"
-        + f"<input name='note' value='{esc(state['note'])}' size='60'></p>"
-        + "<button class='btn' type='submit'>근거 저장</button></form>")
-
-    # 질문
-    for question in state["questions"]:
-        answered = question["answer"] is not None
-        view = question_view(question)
-        if question["question_key"] == "trip_move_reason" and not answered and not question["options"]:
-            parts.append(
-                "<section class='qgroup'><p>" + esc(view["prompt"]) + "</p>"
-                "<form method='post' action='/api/classification/conversation/reasons'>"
-                + _rule_hidden(case_id, f"ui-reasons-{case_id}")
-                + "<button class='btn' type='submit'>AI \uc608\uc0c1 \uc774\uc720 2\uac1c \uc81c\uc548</button></form>"
-                "<form method='post' action='/api/classification/dialog/answer'>"
-                + _rule_hidden(case_id, f"ui-direct-reason-{case_id}",
-                               f"<input type='hidden' name='question_id' value='{esc(question['question_id'])}'>"
-                               f"<input type='hidden' name='expected_row_revision' value='{row.get('revision', 1)}'>"
-                               "<input type='hidden' name='answer' value='__direct__'>")
-                + "<label>\uc9c1\uc811 \uc785\ub825<textarea name='direct_answer' required maxlength='500'></textarea></label>"
-                + "<button class='btn' type='submit'>\uc774\uc720 \uc800\uc7a5</button></form></section>")
-            continue
-        options = "".join(
-            f"<label class='opt'>"
-            f"<input type='radio' name='answer' value='{esc(option['value'])}'"
-            f"{' checked' if question['answer'] == option['value'] else ''}>"
-            f"<span>{esc(option['label'])}</span></label>"
-            for option in view["options"])
-        if answered:
-            parts.append(f"<p class='muted'>답변 완료: {esc(view['answer_label'])}</p>")
-        else:
-            parts.append(
-                f"<form method='post' action='/api/classification/dialog/answer'>"
-                + _rule_hidden(case_id, f"ui-answer-{case_id}-{question['question_key']}",
-                               f"<input type='hidden' name='question_id' value='{esc(question['question_id'])}'>"
-                               f"<input type='hidden' name='expected_row_revision' value='{row.get('revision', 1)}'>")
-                + "<div class='qgroup'>"
-                + f"<p>{esc(view['prompt'])}</p><p>{options}</p>"
-                + ("<label>\uc9c1\uc811 \uc785\ub825<textarea name='direct_answer' maxlength='500'></textarea></label>"
-                   if question["question_key"] == "trip_move_reason" else "")
-                + "<button class='btn' type='submit'>답변 저장</button></div></form>")
-    if not state["open_questions"]:
-        parts.append("<p class='muted'>더 물을 질문이 없어요.</p>")
-
-    if state["should_not_create_rule"]:
-        parts.append(
-            "<form method='post' action='/api/classification/dialog/close'>"
-            + _rule_hidden(case_id, f"ui-close-{case_id}")
-            + "<button class='btn' type='submit'>대화 닫기</button></form>")
-        return ledger_design.render(ledger_design.shell(
-            '규칙 대화', tab_id=row.get('display_tab_id') or '',
-            heading='규칙 대화',
-            body=(f"<div class='sect'>{''.join(parts)}"
-                  f"<p><a href='/row?id={esc(row_id)}'>내용으로 돌아가기</a> · "
-                  "<a href='/board'>목록으로</a></p></div>")))
-
-    # 규칙 초안 요청
-    turn_no = (conv.get("turn_count") or 0) + 1
-    parts.append(
-        "<form method='post' action='/api/classification/conversation/advance'>"
-        + _rule_hidden(case_id, f"ui-turn-{case_id}-{turn_no:02d}")
-        + "<button class='btn' type='submit'>규칙 초안 요청</button></form>")
-    if conv.get("turns"):
-        last = conv["turns"][-1]
-        review = last.get("owner_review")
-        parts.append(
-            f"<p class='muted'>최근 턴 {esc(last['turn_id'])}: "
-            f"{esc(last.get('state_label') or last['state'])}"
-            + (f" · 채택 {esc(last['adopted_provider'])}" if last["adopted_provider"] else "")
-            + (f" · 사유 {esc(reason_label(last['reason_code']))}"
-               if last["reason_code"] else "")
-            + (f" · 전환 {last['switch_count']}회" if last["switch_count"] else "")
-            + (f" · 소유권 확인 대기 ({esc(reason_label(review['reason']))})"
-               if review else "")
-            + "</p>")
-    if pending.get("draft_error"):
-        parts.append(f"<p class='muted'>초안 검증 실패: {esc(pending['draft_error']['message'])}</p>")
-
-    if not rule and dialog != "closed":
-        parts.append(
-            "<p class='muted'>이 거래에서 저장한 수정(항목·여행)을 같은 가맹점 거래에 반복 적용하는 규칙 초안을 만듭니다."
-            " 초안은 아직 아무 행도 바꾸지 않으며, 아래에서 영향 미리보기를 확인한 뒤 직접 적용합니다.</p>"
-            "<form method='post' action='/api/classification/conversation/owner-draft'>"
-            + _rule_hidden(case_id, f"ui-owner-draft-{case_id}")
-            + "<button class='btn' type='submit'>내 수정 내용으로 규칙 초안 만들기</button></form>")
-
-    if pending.get("rule") and not pending.get("confirmed"):
-        parts.append(
-            "<p class='muted'>검증을 통과한 초안이에요. 저장하면 규칙 초안이 되고, 적용은 "
-            "아래에서 범위를 고른 뒤 따로 합니다.</p>"
-            "<form method='post' action='/api/classification/conversation/confirm-draft'>"
-            + _rule_hidden(case_id, f"ui-confirm-{case_id}-{pending.get('turn_id', '')}")
-            + "<button class='btn' type='submit'>초안 저장</button></form>")
-
-    if rule:
-        parts.append(
-            f"<p class='muted'>저장된 규칙 {esc(rule['rule_id'])} · version {rule['version']}"
-            f" · {esc(rule['status'])}</p>"
-            f"<p><b>적용 조건</b> {esc(_rule_scope_text(rule['rule']))}</p>")
-        existing = state.get("last_preview") or {}
-        preview = existing.get("plan") or {}
-        if preview:
-            counts = preview.get("counts", {})
-            amounts = preview.get("amounts", {})
-            rows_html = "".join(
-                f"<tr><td>{esc(c['row_id'])}</td><td>{esc(c['from_tab_id'] or '분류대기')}"
-                f"</td><td>{esc(c['to_tab_id'] or '분류대기')}</td>"
-                f"<td style='text-align:right'>{esc(c['amount_krw'])}</td></tr>"
-                for c in preview.get("candidates", []))
-            excluded_html = "".join(
-                f"<li>{esc(e['row_id'])}: {esc(e['reason'])}</li>"
-                for e in preview.get("excluded", []))
-            parts.append(
-                f"<h4>영향 미리보기 (preview {esc(existing['preview_id'])[:12]}…)</h4>"
-                f"<p class='muted'>포함 {counts.get('included_rows', 0)}건 · 제외 "
-                f"{counts.get('excluded_rows', 0)}건 · 매칭 {counts.get('matched_rows', 0)}건</p>"
-                f"<table class='rules-table'><tr><th>행</th><th>이동 전</th><th>이동 후</th>"
-                f"<th style='text-align:right'>금액</th></tr>{rows_html}</table>"
-                + (f"<ul class='muted'>{excluded_html}</ul>" if excluded_html else "")
-                + "<p class='muted'>합계(전): " + ", ".join(
-                    f"{esc(tab)} {esc(value.get('before'))} → {esc(value.get('after'))}"
-                    for tab, value in amounts.items()) + "</p>")
-        parts.append(
-            "<form method='post' action='/api/classification/rules/preview'>"
-            + _rule_hidden(case_id, f"ui-preview-{case_id}-{turn_no:02d}",
-                           f"<input type='hidden' name='rule_id' value='{esc(rule['rule_id'])}'>")
-            + "<label style='margin-right:12px'><input type='checkbox' name='apply_existing' value='1' checked>"
-            " 기존 행 적용</label>"
-            + "<label><input type='checkbox' name='apply_future' value='1'> 미래 입력 적용</label>"
-            + "<button class='btn' type='submit'>영향 미리보기</button></form>")
-        if preview and existing:
-            selected = ",".join(c["row_id"] for c in preview.get("candidates", []))
-            parts.append(
-                "<form method='post' action='/api/classification/rules/apply'>"
-                + _rule_hidden(case_id, f"ui-apply-{case_id}-{existing['preview_id'][:12]}",
-                               f"<input type='hidden' name='preview_id' value='{esc(existing['preview_id'])}'>"
-                               f"<input type='hidden' name='apply_existing' value='{existing['apply_existing'] and '1' or ''}'>"
-                               f"<input type='hidden' name='apply_future' value='{existing['apply_future'] and '1' or ''}'>"
-                               + (f"<input type='hidden' name='selected_row_ids' value='{esc(selected)}'>" if selected else ""))
-                + "<button class='btn' type='submit'>이 범위로 적용</button></form>")
-    if dialog != "not_started":
-        # Closing a dialog that was never started is refused by the store, so the
-        # control is not offered until there is something to close.
-        parts.append(
-            "<form method='post' action='/api/classification/dialog/close'>"
-            + _rule_hidden(case_id, f"ui-close-{case_id}")
-            + "<button class='btn' type='submit'>대화 닫기</button></form>")
-    body = (f"<div class='sect'>{''.join(parts)}"
-            f"<p class='meta'>행 {row_id} · revision {row.get('revision', 1)}</p>"
-            f"<p><a href='/row?id={row_id}'>내용으로 돌아가기</a> · "
-            "<a href='/board'>목록으로</a></p></div>")
-    return ledger_design.render(ledger_design.shell(
-        '규칙 대화', tab_id=row.get('display_tab_id') or '',
-        heading='규칙 대화', body=body))
+    return board_learning_dialog.rule_dialog_page(
+        case_id,
+        query,
+        store=_active_store(),
+        csrf_token=CSRF_TOKEN,
+    )
 
 
 def trips_page(preview_tab: str = "", role: str = "") -> str:
@@ -1846,46 +1610,39 @@ def export_page() -> str:
     # rendered at all in that state rather than showing its empty form.
     review_note = ""
     if _active_store() is not None:
+        trip_counts, rc_summary = board_export_helpers.collect_export_page_summaries(
+            live_trips(include_archived=True),
+            list_tab_rows_fn=_active_store().list_tab_rows,
+            row_needs_review_fn=row_needs_review,
+            row_has_conflict_fn=row_has_conflict,
+        )
         lines = []
-        for t in live_trips(include_archived=True):
-            rows = _active_store().list_tab_rows(t["tab_id"])
-            inc = sum(1 for r in rows if r["row_kind"] == "income")
-            exp = sum(1 for r in rows if r["row_kind"] == "expense")
-            lines.append(
-                f"<li>{esc(t['display_key'])}: 수입 {inc}행 · 지출 {exp}행"
-                + (" (보관)" if t["archived"] else "") + "</li>")
-        unc = _active_store().list_tab_rows(None)
-        unc_inc = sum(1 for r in unc if r["row_kind"] == "income")
-        unc_exp = sum(1 for r in unc if r["row_kind"] != "income")
-        lines.append(f"<li>분류대기: 수입 {unc_inc}행 · 지출 {unc_exp}행 (출력에 들어가지 않아요)</li>")
+        for tc in trip_counts:
+            if tc["tab_id"] is None:
+                lines.append(f"<li>분류대기: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행 (출력에 들어가지 않아요)</li>")
+            else:
+                lines.append(
+                    f"<li>{esc(tc['display_key'])}: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행"
+                    + (" (보관)" if tc["archived"] else "") + "</li>"
+                )
         counts = f"<ul>{''.join(lines)}</ul>"
         # APP_SPEC 8 asks the dialog to state the 검토필요 and 충돌 row counts.
         # Both are read off the ledger: a row needs a person when it has no trip
         # or no recorded classification basis, and it is in conflict when the
         # row's newest ledger event is a conflict note.
-        review_total = 0
-        conflict_total = 0
-        per_tab = []
-        for t in live_trips(include_archived=True):
-            trows = _active_store().list_tab_rows(t["tab_id"])
-            n_review = sum(1 for r in trows if row_needs_review(r))
-            n_conflict = sum(1 for r in trows if row_has_conflict(r))
-            review_total += n_review
-            conflict_total += n_conflict
-            if n_review or n_conflict:
-                per_tab.append(
-                    f"<li>{esc(t['display_key'])}: 검토필요 {n_review}행"
-                    + (f" · 충돌 {n_conflict}행" if n_conflict else "")
-                    + "</li>")
-        n_unc_review = sum(1 for r in unc if row_needs_review(r))
-        n_unc_conflict = sum(1 for r in unc if row_has_conflict(r))
         review_note = (
             "<p class='muted'>검토필요 {review}행 · 충돌 {conflict}행"
             "이 포함됩니다. 출력해도 분류는 바뀌지 않습니다."
-            "</p>").format(review=review_total + n_unc_review,
-                           conflict=conflict_total + n_unc_conflict)
-        if per_tab:
-            review_note += f"<ul class='muted'>{''.join(per_tab)}</ul>"
+            "</p>").format(review=rc_summary["review_total"],
+                           conflict=rc_summary["conflict_total"])
+        if rc_summary["per_tab"]:
+            per_tab_lis = "".join(
+                f"<li>{esc(pt['display_key'])}: 검토필요 {pt['review_count']}행"
+                + (f" · 충돌 {pt['conflict_count']}행" if pt['conflict_count'] else "")
+                + "</li>"
+                for pt in rc_summary["per_tab"]
+            )
+            review_note += f"<ul class='muted'>{per_tab_lis}</ul>"
         try:
             importing = _active_store().conn.execute(
                 "SELECT 1 FROM card_import_batches "
@@ -1990,7 +1747,7 @@ def import_page() -> str:
 
 
 def _shown_amount(row) -> int:
-    return row.get("display_amount_krw", row["amount_krw"])
+    return board_read_projection.shown_amount(row)
 
 
 def income_table(rows) -> str:

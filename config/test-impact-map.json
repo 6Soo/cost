@@ -58,8 +58,8 @@
     },
     {
       "name": "board-read-boundaries",
-      "paths": ["webapp/ledger_board.py", "webapp/board_*.py", "webapp/tests/test_board_*.py", "tests/test_board_render_helpers.py"],
-      "tests": ["tests/test_board_render_helpers.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py"]
+      "paths": ["webapp/ledger_board.py", "webapp/board_*.py", "webapp/tests/test_board_*.py", "tests/test_board_*.py"],
+      "tests": ["tests/test_board_render_helpers.py", "tests/test_board_read_projection.py", "tests/test_board_export_helpers.py", "tests/test_board_learning_dialog.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py"]
     },
     {
       "name": "ledger-design-assets",
