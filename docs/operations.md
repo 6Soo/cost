@@ -263,3 +263,8 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 - 실제 배포: 984 Git blob 불일치0, 작업/프로세스 SHA와 단일 loopback listener 일치, health/ready200·보호 API401. 보호13표의 내용·스키마 전후 불변. 실제 배포본 Python에서 STYLE/SCRIPT import·해시 smoke 통과. 기존 검증 백업/별도 복원 근거와 이전 릴리스를 재사용했다.
 - 운영 HTML의 Aside 확인은 CDP `DOM.enable` timeout으로 미수락이며 성공으로 계산하지 않는다. 배포 자체의 SHA/health/auth/보호 검사와 구별한다. 운영 DB·금융/여행/Google 결정 쓰기·클라우드 원문 적재·수집 스케줄 전환은 이 배포에서 하지 않았다.
 - 근거: `.local-archive/refactor-parallel-20261028/assets-supervisor-equivalence.json`, `protection-assets-before.json`, `protection-assets-after.json`, 호스트 `release-audit-4e537766fa201ff4c2e58e9117efc5162e6e92c7.json` 및 동일 SHA deploy-evidence. 고객 원문·계정·폴더 ID는 추적 기록에 넣지 않는다.
+
+
+## 2026-10-28 RF 병렬 추출 통합 배포
+
+PR #263/#265~#270/#272의 저장소·보드·카드·검토 문서 책임 분리를 검수 후 Board SHA 22e134b4c98c60a68057b7caa8b14bf9f0b4b24b로 배포했다. 이전 검증 릴리스 4e537766fa201ff4c2e58e9117efc5162e6e92c7 보존. 통합108 passed/3 subtests, 기존 개별 동등성 근거 재사용, guard 차단0/삭제0. 1,009 Git blob 일치·작업/프로세스SHA·단일listener·health/ready200·보호API401·보호13표 불변 확인. 실제 고객 원문 적재·금융/여행/Google 결정 쓰기·마이그레이션 없음. 원격 백필만 재개했으며 수집 전환은 미완료. 근거는 .local-archive/refactor-parallel-20261028/protection-before.json 및 protection-after.json, 호스트의 동일 SHA release-audit/deploy-evidence JSON이다. 운영 화면 수락은 별도 후속 검사다.
