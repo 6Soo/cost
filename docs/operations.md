@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 카드 여행 열 정보 밀도 개선 배포
+
+- [PR #273](https://github.com/6Soo/cost/pull/273), main/운영 SHA `b54ca37c068ae8e830220652fe91978821978231`. 여행 열에는 이름·배정 출처만, 카드 식별은 가맹점 아래, 상태는 금액 아래, 상세는 별도 5번째 열로 분리했다. Luna low 초안 후 usage limit으로 Supervisor가 검수 보완했다. 통합 카드/필터/조회78 passed·인접15 passed·긴 이름/다섯 viewport/두테마/200%/키보드 검사 통과.
+- 1009 Git blob 불일치0·task/process SHA·단일 loopback listener·health/ready200·OTA 기존/summary/events/groups401·보호13표 내용/스키마 전후 동일. 검증된 복구/별도 복원 근거와 직전 `22e134b4c98c60a68057b7caa8b14bf9f0b4b24b` 보존. 첫 배포 preflight는 동시 배포의 prior 변경으로 TASK_MISMATCH에서 쓰기 전 중단, 단일 작성자 조율 뒤 성공했다. 원본/금융/Google/여행 결정 쓰기·마이그레이션은 없다.
+- 배포본의 전체 shell/테마를 포함한 합성 desktop/mobile light/dark 렌더·가로스크롤 후 상세 키보드 focus PASS. 실제 Aside 인증 UI는 AUTH_REQUIRED로 **NOT_ACCEPTED_AUTH_REQUIRED**이며 성공으로 계산하지 않는다. 근거: 호스트 해당 SHA release/deploy audit, 로컬 `.local-archive/card-trip-density-20261028/` 보호 전후·합성 HTML/PNG. 후속 운영 기록은 문서만 변경하므로 테스트·백업·재배포·재시작을 반복하지 않는다.
+
 ## 2026-10-28 미결 근거·반응형 검수와 클라우드 전환 준비
 
 - 코드 `85817d1`은 전용 `cloud-mail/CloudMail.gs`, 명시 scope manifest, Drive 읽기·새 원문만 추가하는 `app/cloud_mail.py`, 분리 배포 준비 도구와 합성 검사를 추가했다. 기존 `apps-script/CloudMail.gs` 사용자 초안의 바이트/미추적 상태는 보존했다. 원문 전체·소유/비공개·SHA-256·부분재개·반복불변·원자적 무덮어쓰기·기존 importer 재시도·타 트리거/스키마/비관련 표 보존을검사했다. Node18 passed, cloud23+기존mail9=32 passed, 실제펼친 긴본문/카드·375/1280·두테마·100/200% CSSzoom·키보드·members409재조회/400오류 최종browser3 passed. UI제품코드/금융solver는 변경하지 않았다.
