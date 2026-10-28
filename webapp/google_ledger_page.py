@@ -232,7 +232,8 @@ def is_unconfirmed_income_row(row: dict) -> bool:
 
 
 def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
-                     participant_limit: int = 20, income_offset: int = 0) -> str:
+                     participant_limit: int = 20, income_offset: int = 0,
+                     participant_search: str = "") -> str:
     """Read-only income for an explicitly linked COST trip, using current grants."""
     from . import ledger_board as board
     if not tab_id or tab_id == 'unclassified':
@@ -305,6 +306,11 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             if not is_unconfirmed_income_row(row)
         ]
         if owner:
+            needle = participant_search.strip().casefold()
+            if needle:
+                visible_rows = [row for row in visible_rows if
+                    needle in str(row.get("name") or "").casefold() or
+                    needle in str(row.get("nickname") or "").casefold()]
             limit = max(1, min(int(participant_limit), 20))
             income_more = len(visible_rows) > income_offset + limit
             visible_rows = visible_rows[income_offset:income_offset + limit]
@@ -314,7 +320,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             limit = len(visible_rows)
         if owner:
             from . import participant_trip_panel
-            participant_trip_panel.attach_row_refs(visible_rows, source=source, sheet=keys[0])
+            visible_rows = participant_trip_panel.attach_row_refs(visible_rows, source=source, sheet=keys[0])
         if owner:
             try:
                 from . import participant_income_page, participant_trip_panel
@@ -334,7 +340,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td>"
             + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'>"
-                + _participant_insurance_cell(row, links_by_ref) + "<button type='button' class='participant-row-connect' aria-label='보험 참가자와 연결'>연결</button></td>")
+                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험가입내역을 열어 연결 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 참가자와 연결'>연결</button></td>")
                if owner else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap

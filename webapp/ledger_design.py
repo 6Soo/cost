@@ -1620,7 +1620,9 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     from . import participant_trip_panel as participant_panel
     participant_controls = (participant_panel.controls_from_query(participant_query or {})
                             if board.current_role() == "owner" else {})
-    google_income_html = trip_income_html(tab_id)
+    google_income_html = trip_income_html(
+        tab_id, income_offset=participant_controls.get("income_offset", 0),
+        participant_search=participant_controls.get("search", ""))
     panel = ""
     if selected:
         panel = panel_part(selected, back=back, error=error, message=message,

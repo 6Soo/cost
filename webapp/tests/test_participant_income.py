@@ -490,6 +490,33 @@ class ParticipantIncomePageTests(unittest.TestCase):
 
     def test_browser_trip_tab_lazy_panel_drops_on_the_google_income_row(self):
         from playwright.sync_api import sync_playwright
+        import zipfile
+        import xml.etree.ElementTree as ET
+        # Excel normally supplies cached formula totals; openpyxl does not.
+        # Keep the real income-verification gate and provide a verified fixture.
+        browser_book = openpyxl.load_workbook(io.BytesIO(workbook()))
+        browser_book.active['H7'] = 50000
+        browser_source = io.BytesIO()
+        browser_book.save(browser_source)
+        verified = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(browser_source.getvalue())) as source, zipfile.ZipFile(verified, 'w') as target:
+            for info in source.infolist():
+                data = source.read(info.filename)
+                if info.filename == 'xl/worksheets/sheet1.xml':
+                    sheet = ET.fromstring(data)
+                    ns = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+                    for cell in sheet.iter(ns + 'c'):
+                        total = {'C9': '150000', 'C13': '30000'}.get(cell.get('r'))
+                        if total is not None:
+                            value = cell.find(ns + 'v')
+                            if value is None:
+                                value = ET.SubElement(cell, ns + 'v')
+                            value.text = total
+                    data = ET.tostring(sheet, encoding='utf-8')
+                target.writestr(info, data)
+        ga.sync(self.snapshot, self.rows, fetcher=lambda url: verified.getvalue(),
+                now=dt.datetime.now(ga.KST))
+        gl.record_choice(self.snapshot, key='0630_오제', source='main', at='synthetic-verified')
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             try:
@@ -502,7 +529,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.addCleanup(setattr, gl, 'snapshot_for_display', original_display)
                 response = page.goto(f'http://127.0.0.1:{self.port}/board?tab={self.trip}')
                 self.assertEqual(response.status, 200)
-                self.assertNotIn(PARTICIPANT, page.content())
+                self.assertNotIn(PARTICIPANT, page.locator("#participant-trip-panel").inner_html())
                 page.locator('#participant-trip-panel summary').click()
                 page.locator('#participant-trip-panel .participant-cards li').first.wait_for()
                 self.assertIn(PARTICIPANT, page.locator('#participant-trip-panel').inner_text())
@@ -510,7 +537,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 if income_table.count() == 0:
                     self.fail('Google 수입 표가 렌더되지 않음: ' + page.locator('#google-trip-income').inner_text())
                 self.assertEqual(income_table.count(), 1)
-                target = income_table.locator('.participant-insurance-cell').first
+                target = income_table.locator('.participant-insurance-cell').last
                 self.assertEqual(target.count(), 1)
                 row_ref = target.get_attribute('data-income-ref')
                 self.assertTrue(row_ref.startswith('main|0630_오제|'))
@@ -538,8 +565,11 @@ class ParticipantIncomePageTests(unittest.TestCase):
                     for(const type of ['dragstart']){const e=new Event(type,{bubbles:true,cancelable:true});Object.defineProperty(e,'dataTransfer',{value:data});source.dispatchEvent(e);}
                     const e=new Event('drop',{bubbles:true,cancelable:true});Object.defineProperty(e,'dataTransfer',{value:data});target.dispatchEvent(e);
                 }""", [card.element_handle(), target.element_handle()])
-                page.locator('#participant-link-confirm button[value=confirm]').click()
+                with page.expect_response(lambda r: '/api/participants/link' in r.url and r.request.method == 'POST') as saved:
+                    page.locator('#participant-link-confirm button[value=confirm]').click()
+                self.assertEqual(saved.value.status, 200)
                 page.wait_for_load_state('networkidle')
+                self.assertIn('/board?', page.url)
                 after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
                 self.assertEqual(after['counts']['linked_income_rows'], 2)
             finally:

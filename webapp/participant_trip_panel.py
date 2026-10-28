@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from urllib.parse import urlencode
 
 
 def _esc(value) -> str:
@@ -20,7 +21,8 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
     """Build a bounded view without changing the reconciler's source state."""
     needle = search.strip().casefold()
     rows = list(state.get("income_rows") or [])
-    people = list((state.get("roster") or {}).get("participants") or [])
+    people = [person for person in (state.get("roster") or {}).get("participants") or []
+              if person.get("active", True) and person.get("state") == "confirmed"]
     if needle:
         rows = [row for row in rows if needle in str(row.get("name") or "").casefold()
                 or needle in str(row.get("nickname") or "").casefold()]
@@ -63,29 +65,23 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     for row in data["rows"]:
         connected = links_by_ref.get(row["ref"], [])
         if connected:
-            label = " · ".join(_esc(item["name"]) for item in connected)
-            state_label = f"✓ {len(connected)}명 연결 · {label} (직접 연결)"
+            label = " · ".join(_esc(item["name"]) + (" (직접 연결)" if item.get("method") == "manual" else " (이름 대조)") for item in connected)
+            state_label = f"✓ {len(connected)}명 연결 · {label}"
         elif not google.get("available"):
             state_label = "확인 필요 · 수입 자료 최신성 확인"
         else:
             state_label = "미연결 · 보험 미가입을 뜻하지 않음"
-        cells = row.get("cells") or {}
-        rows.append(
-        f"<tr data-income-ref='{_esc(row['ref'])}'><td>" + _esc(cells.get("B") or "날짜 미확인") + "</td>"
-            "<td>" + _esc(row.get("name") or row.get("nickname") or "이름 미확인") + "</td>"
-            "<td class='num'>" + _esc(f"{int(row['amount']):,}원" if isinstance(row.get("amount"), int) else "공란") + "</td>"
-            f"<td><span>{state_label}</span>"
-            + ("<div class='participant-link-actions'>" + "".join(
-                f"<form method='post' action='/api/participants/unlink'>"
-                f"<input type='hidden' name='csrf' value='{_esc(csrf)}'>"
-                f"<input type='hidden' name='trip' value='{_esc(state.get('trip_id'))}'>"
-                f"<input type='hidden' name='input_fingerprint' value='{_esc(state.get('input_fingerprint'))}'>"
-                f"<input type='hidden' name='participant_id' value='{_esc(item['participant_id'])}'>"
-                f"<input type='hidden' name='income_ref' value='{_esc(row['ref'])}'>"
-                "<button type='submit'>연결 해제</button></form>" for item in connected) + "</div>" if connected else "")
-            + "</td></tr>")
-    if not rows:
-        rows.append("<tr><td colspan='4'>표시할 수입 행이 없습니다.</td></tr>")
+        actions = "".join(
+            f"<form method='post' action='/api/participants/unlink'>"
+            f"<input type='hidden' name='csrf' value='{_esc(csrf)}'>"
+            f"<input type='hidden' name='trip' value='{_esc(state.get('trip_id'))}'>"
+            f"<input type='hidden' name='input_fingerprint' value='{_esc(state.get('input_fingerprint'))}'>"
+            f"<input type='hidden' name='participant_id' value='{_esc(item['participant_id'])}'>"
+            f"<input type='hidden' name='income_ref' value='{_esc(row['ref'])}'>"
+            f"<button type='submit'>{_esc(item['name'])} 연결 해제</button></form>"
+            for item in connected)
+        rows.append(f"<template class='participant-income-status' data-income-ref='{_esc(row['ref'])}'>"
+                    f"<span>{state_label}</span>{actions}</template>")
     people = []
     for person in data["participants"]:
         person_id = person.get("participant_id") or ""
@@ -104,15 +100,21 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     selector_options = "".join(
         f"<option value='{_esc(person.get('participant_id'))}'>"
         f"{_esc(person.get('display_name'))}</option>"
-        for person in (roster.get("participants") or []))
+        for person in data["participants"])
     search_form = (
         "<form method='get' action='/board' class='participant-trip-search'>"
         f"<input type='hidden' name='tab' value='{trip}'>"
         f"<label>이름 검색 <input type='search' name='participant_q' value='{_esc(search)}' maxlength='80'></label>"
         "<button>검색</button></form>")
-    row_more = (f"<a class='btn' href='/board?tab={trip}&amp;participant_income_offset={income_offset + 20}&amp;participant_q={_esc(search)}'>수입 다음 20건</a>"
+    def page_url(**overrides):
+        query = {"tab": state.get("trip_id"), "participant_q": search,
+                 "participant_income_offset": income_offset,
+                 "participant_offset": participant_offset}
+        query.update(overrides)
+        return _esc("/board?" + urlencode(query))
+    row_more = (f"<a class='btn' href='{page_url(participant_income_offset=income_offset + 20)}'>수입 다음 20건</a>"
                 if data["rows_more"] else "")
-    person_more = (f"<a class='btn' href='/board?tab={trip}&amp;participant_offset={participant_offset + 20}&amp;participant_q={_esc(search)}'>참가자 다음 20명</a>"
+    person_more = (f"<a class='btn' href='{page_url(participant_offset=participant_offset + 20)}'>참가자 다음 20명</a>"
                    if data["participants_more"] else "")
     return (
         "<details class='participant-trip-panel' id='participant-trip-panel' aria-label='보험가입내역'>"
@@ -120,9 +122,8 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         "<h2>보험가입내역</h2>"
         f"<p>{_esc(status)} · 참가 확정 {counts.get('roster_confirmed', 0)}명 · "
         f"수입 연결 {counts.get('linked', 0)}명 · 미연결 수입 {counts.get('unlinked_income_rows', 0)}건</p>"
-        f"{search_form}<div class='participant-income-scroll'><table><caption>수입 · 보험 등록</caption>"
-        "<thead><tr><th>거래일</th><th>입금자/닉네임</th><th>원금액</th><th>보험 등록</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table></div>{row_more}"
+        f"{search_form}{''.join(rows)}{row_more}"
+        "<p role='status' class='participant-write-status'></p>"
         "<h3>확정 참가자 · 수입 연결</h3>"
         f"<ul class='participant-cards' aria-describedby='participant-link-help'>{''.join(people)}</ul>"
         f"{person_more}<p id='participant-link-help'>보험 참가자 카드를 수입 표의 보험 등록 열로 끌어놓을 수 있습니다. 연결을 시작하려면 수입 행의 연결 버튼을 사용해 주세요.</p>"
@@ -170,6 +171,5 @@ def controls_from_query(query: dict) -> dict:
 def attach_row_refs(rows: list[dict], *, source: str, sheet: str) -> list[dict]:
     """Add canonical read identity to display rows (never mutate Google source)."""
     from app.participant_income import income_ref
-    for row in rows:
-        row["participant_income_ref"] = income_ref(source, sheet, row.get("row"))
-    return rows
+    return [dict(row, participant_income_ref=income_ref(source, sheet, row.get("row")))
+            for row in rows]

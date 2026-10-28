@@ -32,7 +32,8 @@ def test_virtual_projection_keeps_source_rows_and_amounts_unchanged():
     html = panel.render(state, csrf="synthetic-csrf")
     after = [(row["ref"], row["amount"], dict(row["cells"])) for row in state["income_rows"]]
     assert after == before
-    assert "<th>보험 등록</th>" in html
+    assert "<table" not in html
+    assert "participant-income-status" in html
     assert "미연결 · 보험 미가입을 뜻하지 않음" in html
     assert "1000원" not in html
 
@@ -60,3 +61,29 @@ def test_row_identity_is_canonical_source_sheet_row():
     rows = [{"row": 9}]
     result = panel.attach_row_refs(rows, source="archive", sheet="synthetic-tab")
     assert result[0]["participant_income_ref"] == "archive|synthetic-tab|9"
+    assert rows == [{"row": 9}]
+
+
+def test_paging_encodes_identity_and_preserves_other_offset():
+    from urllib.parse import urlsplit, parse_qs
+    import html as html_module
+    import re
+    state = sample_state(50)
+    state['trip_id'] = '여행 &/opaque'
+    markup = panel.render(state, income_offset=0, participant_offset=20)
+    hrefs = re.findall("href='([^']+)'", markup)
+    queries = [parse_qs(urlsplit(html_module.unescape(href)).query) for href in hrefs]
+    assert all(query['tab'] == [state['trip_id']] for query in queries)
+    assert any(query['participant_income_offset'] == ['20'] and
+               query['participant_offset'] == ['20'] for query in queries)
+    assert 'person 49' not in markup
+
+
+def test_unconfirmed_or_inactive_roster_entries_are_not_draggable_options():
+    state = sample_state(3)
+    state['roster']['participants'][0]['state'] = 'pending'
+    state['roster']['participants'][1]['active'] = False
+    markup = panel.render(state)
+    assert 'person 0' not in markup
+    assert 'person 1' not in markup
+    assert 'person 2' in markup
