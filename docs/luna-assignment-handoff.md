@@ -1,6 +1,6 @@
 ﻿# Luna assignment handoff — PA scope
 
-Base implementation: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`.
+Base implementation: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`. Latest PA-05 implementation: `3cf62b6d9c6196b731b86d600f0327fb7e9db460`.
 
 ## Acceptance state
 
@@ -13,7 +13,7 @@ Base implementation: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`.
 
 ## Verification
 
-`python -m pytest tests/card_pipeline/test_provisional_assignment.py tests/card_pipeline/test_ota_inference.py tests/card_pipeline/test_history_recovery.py tests/card_pipeline/test_booking_mail.py tests/card_pipeline/test_rule_proposals.py -q` — **110 passed**.
+`python -m pytest tests/card_pipeline/test_provisional_assignment.py tests/card_pipeline/test_ota_inference.py tests/card_pipeline/test_history_recovery.py tests/card_pipeline/test_booking_mail.py tests/card_pipeline/test_rule_proposals.py -q` at `3cf62b6d9c6196b731b86d600f0327fb7e9db460` — **110 passed**.
 
 Earlier synthetic benchmark: 10k 0.061179s; 100k 0.621966s before OTA decision wiring. This is not a production baseline.
 
