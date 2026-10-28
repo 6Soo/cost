@@ -85,7 +85,7 @@ def rule_dialog_page(
     provider = state["provider"] or {}
     real_call = bool(provider.get("is_real_call"))
     mode_label = "AI 연결됨" if real_call else RULE_MODE_LABEL
-    notice = (query or {}).get("msg", [""])[0] if query else ""
+    notice = query.get("msg", [""])[0]
     parts = []
 
     parts.append(
