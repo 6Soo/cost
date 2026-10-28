@@ -274,3 +274,8 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 ## 2026-10-28 RF 병렬 추출 통합 배포
 
 PR #263/#265~#270/#272의 저장소·보드·카드·검토 문서 책임 분리를 검수 후 Board SHA 22e134b4c98c60a68057b7caa8b14bf9f0b4b24b로 배포했다. 이전 검증 릴리스 4e537766fa201ff4c2e58e9117efc5162e6e92c7 보존. 통합108 passed/3 subtests, 기존 개별 동등성 근거 재사용, guard 차단0/삭제0. 1,009 Git blob 일치·작업/프로세스SHA·단일listener·health/ready200·보호API401·보호13표 불변 확인. 실제 고객 원문 적재·금융/여행/Google 결정 쓰기·마이그레이션 없음. 원격 백필만 재개했으며 수집 전환은 미완료. 근거는 .local-archive/refactor-parallel-20261028/protection-before.json 및 protection-after.json, 호스트의 동일 SHA release-audit/deploy-evidence JSON이다. 운영 화면 수락은 별도 후속 검사다.
+
+
+## 2026-10-28 RF 통합 후보 배포 실패와 복귀
+
+후보535b6dd3178758a5a442eb6a8e7b0d60517a5cb3(1018 blobs 일치)는 배포 entrypoint OWNER_UI_ROLLED_BACK으로 종료했다. 이전 검증 b54ca37c068ae8e830220652fe91978821978231 작업 인자·health/ready200 복귀와 보호13표 불변을 확인했다. 성공 배포로 계산하지 않는다. 후보 시작 로그가 없고 포괄 catch로 최초 원인이 감춰져 작업 시작/준비 단계 진단을 진행한다. 원문/금융/여행/Google 쓰기 없음.

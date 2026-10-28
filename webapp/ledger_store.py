@@ -51,6 +51,11 @@ from .ledger_store_records import (
     format_history_entry,
     remainder_display_row,
 )
+from .ledger_store_audit import (
+    canonical_json,
+    owns_outbox_id,
+    source_fact_digest,
+)
 from .ledger_store_allocation_validation import (
     SaveError,
     allocation_request_matches,
@@ -158,7 +163,7 @@ def _utc_now() -> str:
 
 
 def _canonical(value) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return canonical_json(value)
 
 
 def _valid_date(value) -> bool:
@@ -3460,48 +3465,9 @@ class LedgerStore:
         """Send this request's waiting audit events. See `_relay_request_outbox`."""
         self._relay_request_outbox(request_id)
 
-    @staticmethod
-    def _owns_outbox_id(outbox_id, prefix: str) -> bool:
-        """Is this outbox row one of the request's own events?
-
-        Two things had to be established before this was right, and both were
-        wrong at first.
-
-        A `LIKE` pattern built from the request id is not a literal: `_` matches
-        any one character and `%` matches any run of them, so `request_a` claimed
-        `requestXa`'s events. Escaping the pattern would have fixed that pair and
-        left the next one.
-
-        A prefix match alone is not enough either. `request` and `request-child`
-        share a prefix, so `ledger-request-` also matches
-        `ledger-request-child-0`, and relaying another request's backlog under
-        this one is exactly the mistake the scoping exists to prevent.
-
-        So ownership is proved rather than assumed: the row must begin with this
-        request's literal prefix, and the remainder must be the decimal index this
-        store appends. `child-0` is not a decimal index, so a longer request id is
-        not mistaken for this one, and no character of either id is ever a pattern.
-        """
-        if type(outbox_id) is not str or not outbox_id.startswith(prefix):
-            return False
-        tail = outbox_id[len(prefix):]
-        # `isdigit` alone would accept other scripts' digits, so `isascii` is
-        # checked first: the index this store writes is ASCII.
-        return bool(tail) and tail.isascii() and tail.isdigit()
+    _owns_outbox_id = staticmethod(owns_outbox_id)
 
     def _relay_request_outbox(self, request_id: str) -> None:
-        """Resume this request's own audit events, through the existing path.
-
-        A request that committed while the audit ledger was refusing still left
-        events waiting with `relayed=0`. The retry of that request is when they go
-        out — which is what `_replay_pending` does for any other write, so a client
-        that retries gets the audit trail completed rather than a cached answer
-        whose audit event quietly never arrives.
-
-        Only this request's events, and proved as above: an unrelated request's
-        backlog is not this request's to flush, and flushing it would put one
-        request's audit events under another's identity.
-        """
         prefix = "ledger-" + request_id + "-"
         with self._lock:
             rows = self.conn.execute(
@@ -6245,9 +6211,7 @@ def _source_fact_digest(facts: dict) -> str:
     the next apply look like a changed source, and a changed source is not hidden
     by an edit.
     """
-    canonical = json.dumps(facts, ensure_ascii=False, sort_keys=True,
-                           separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return source_fact_digest(facts)
 
 
 def _source_amount(value) -> int:
