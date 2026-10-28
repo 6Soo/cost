@@ -1,5 +1,14 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 숲나들e 본문 기반 예약 대사
+
+- [PR #248](https://github.com/6Soo/cost/pull/248), 코드 `af8c0f7`, main/Board 고정 `3e59cf72b1ad41bbe3f8ea501362d97384fd10f5`. 사용자 최신 지시에 따라 DKIM 부재를 업무 보류로 삼던 표시를 정정했다. 직접 수집한 메일의 시설·객실·이용 시작일·명시 예약번호/금액을 읽으며 발신 인증은 참고 메타데이터다. 퇴실일·실제 결제일을 창작하지 않는다. 시설/주소 지자체·날짜 카드 후보와 기존 검증 여행 후보는 읽기 전용이고 수동 결정·금융 연결·Google 쓰기는 유지한다.
+- 실제 보관47건 로컬 재생: 안내46건 중 시설/객실/시작일45건·주소 지자체26건·여행 후보가 있는 안내4건·카드 후보0건. 금액/번호/퇴실일 명시0건이다. 원문 해시 불변·query_only DB changes0을 확인했다. 고유 예약 수·카드 관계 확정·실제 환급 수락이 아니다. 누락 필드와 남은 미연결은 그대로 표시한다.
+- 검증: forest/toyoko/core/detail85 passed(기존 partial-group1 제외), forest worker/수동 결정 보호/모바일 browser3 passed, 기존 queue browser 포함20 passed, 나머지 toyoko/candidate-read6 passed. 인접 실패3개는 분리 `beb7ca4`에서도 같은 문구 assertion/partial-group HOLD_NO_CARD·WinError32/과거 events-only browser fixture timeout으로 재현했다. 통과로 계산하지 않으며 원인 범위를 확대하지 않았다. compile/diff·staged guard 차단0/삭제0. 전체 회귀·실기기는 국소 읽기 변경이므로 미실행이다.
+- 963 Git blobs 일치·배포 task/프로세스 SHA·단일 loopback listener·health/ready200·비인증 기존/summary/events/groups401·배포 직후 보호13표 내용/스키마 불변을 확인했다. 기존 검증 복구 사본과 이전 `787f00c`를 보존했다. 원문 재적재·수집기 변경·스키마 변경·금융/여행/Google 직접 쓰기는 없다. worker는01:51:57UTC 시작→01:58:34UTC 완료(396.43초),420세대 ready/fresh를 게시했다. 인증 groups/detail46건에서 시작일45·퇴실일 미확인45·여행 후보 안내4·인증 참고46·발신 미검증 문구0·카드 후보/연결0·private 필드 노출0을 확인했다. 실제 `/import` 상세의 본문·시작일·퇴실일 미확인·여행 후보·인증 참고·결제 미확정 표시, 카드미조회1개를 수락했다. 첫 테마 진단의 잘못된 selector0은 수정 진단 `#site-theme-toggle`1개로 구별하며 화면 후 보호13표도 배포 전과 동일하다.
+- 로컬 근거: `forest-reconciliation-preview.json`, `protection-forest-reconcile-before/after-deploy/final.json`, `forest-reconcile-runtime-report.json`, `forest-reconcile-ui-report.json`, `forest-reconcile-theme-report.json`, release/deploy evidence JSON 및 Aside `artifacts/forest-reconcile-20261028/`. 읽기 기능/배포/필수 수락은 COMPLETE이며 카드 실제 관계·환급·귀속 저장 완료로 확대하지 않는다. 최종 기록만 갱신하므로 재배포/서버 재시작은 하지 않는다.
+
+
 ## 2026-10-28 숲나들e 예약 안내 관측 표시
 
 - **최종 READY_UI_ACCEPTED（419세대）:** 실제 `/import`에서 첫20DOM·다음20DOM·페이지 변경·인라인 상세1개·카드 후보 미조회1개·theme1을 확인하고 임시 탭을 닫았다. 숲나들e needs_action/provider=forest API200·총46/첫20개·전원 발신 미검증 표시/RESERVATION_ONLY·금액/결제일/예약번호 없음, detail200·이용기간 미확정·카드 미연결을 수락했다. 미검증 evidence는 보수적으로 needs_action이며 evidence_missing 필터0은 누락이 아니다.419세대 실제 사건/그룹3,794/3,794·축소0이다. 원문·금융/Google 확정·테마 변경·카드 후보 조회는 하지 않았다. 세 번째 정상 계산은400.27초에 완료됐고 후속 동일key/held를 확인했다. 근거는 로컬 final-ui-report/final-forest-report와 post-ui-observation 보호13표 불변이다.
