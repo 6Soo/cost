@@ -87,6 +87,11 @@
       "tests": ["webapp/tests/test_card_refund_query.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_refund_inference_runtime.py"]
     },
     {
+      "name": "card-ota-projection",
+      "paths": ["webapp/card_ota_projection.py", "webapp/tests/test_card_ota_projection.py"],
+      "tests": ["webapp/tests/test_card_ota_projection.py", "webapp/tests/test_ota_card_evidence_relevance.py", "tests/card_pipeline/test_trip_currency_comparison.py"]
+    },
+    {
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
                 "webapp/tests/test_targeted_test_selector.py"],
