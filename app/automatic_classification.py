@@ -166,7 +166,9 @@ def plan(conn, trips, *, nets=None, transaction_ids=None):
                 else:
                     chosen['display_tab_id'] = chosen.get('display_tab_id') or 'unclassified'
             needs_completion = (row['classification_state'] != 'classified' or not row['item']
-                                or (not special and valid and not (row['trip_id'] in valid or row['display_tab_id'] in valid)))
+                                or (not special and valid and not (row['trip_id'] in valid or row['display_tab_id'] in valid))
+                                or (existing_tab and row['display_tab_id'] in (None,'','unclassified')
+                                    and chosen['display_tab_id'] != row['display_tab_id']))
             if not needs_completion:
                 continue
             chosen.update(classification_state='classified', classification_source='inference',

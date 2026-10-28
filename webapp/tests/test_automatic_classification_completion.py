@@ -135,6 +135,16 @@ def test_current_board_trip_precedes_calendar_guess_without_any_manual_marker(se
     assert board.conn.execute('SELECT item,trip_id FROM transactions WHERE transaction_id=?',(tid,)).fetchone() == ('현지경비','B')
 
 
+def test_existing_refund_destination_is_restored_for_already_classified_source(setup):
+    board, _, _, rows = setup
+    tid = rows[0]['transaction_id']
+    board.conn.execute("UPDATE transactions SET item='숙박비',classification_state='classified' WHERE transaction_id=?",(tid,))
+    payload = {'source_event_id':tid,'item':'숙박비','display_tab_id':'refunds'}
+    board.conn.execute("INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,'expense','refunds',1,?)",('card-'+tid,json.dumps(payload)))
+    policy.apply(board.conn,policy.plan(board.conn,TRIPS),TRIPS)
+    assert board.conn.execute('SELECT display_tab_id,trip_id FROM transactions WHERE transaction_id=?',(tid,)).fetchone() == ('refunds','')
+
+
 def test_future_import_completes_even_when_booking_evidence_is_unavailable(setup, monkeypatch):
     board, flow, batch, rows = setup
     board.conn.execute("UPDATE transactions SET merchant='SYNTHETIC AGODA',merchant_normalized='synthetic agoda'")
