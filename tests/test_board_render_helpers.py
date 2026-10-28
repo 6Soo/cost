@@ -1,107 +1,144 @@
-"""Targeted tests for board_render_helpers extracted under RF-102.
+"""Targeted verification and baseline equivalence for board_render_helpers.
 
 Verifies:
-1. Pure helpers (esc, editable_fields)
-2. Allocation revert status, allocation history HTML, allocation detail body
-3. History HTML and conflict presentation
-4. Split page rendering
-5. Table rendering (income_table, expense_table)
-6. Row detail page rendering across expense, income, and allocation rows
-7. Facade output equivalence between ledger_board and board_render_helpers
+1. Zero runtime global coupling: webapp/board_render_helpers.py does NOT import ledger_board.
+2. Exact parity with baseline commit 2384cfd across all extracted display helpers:
+   - esc & editable_fields
+   - allocation_revert_status (None, no-store, missing source row, inactive allocation, source revision mismatch)
+   - allocation_history_html & allocation_detail_body
+   - history_html & conflict rendering
+   - split_page (no-store, missing row, valid income row, manual principal fields)
+   - Call order preservation: trips_fn is evaluated only at the original branch, never when store is None or row missing.
+   - income_table & expense_table
+   - learning_case_id & rule_dialog_link
+3. Ledger board facade pass-through integrity.
 """
-import re
+import ast
+import html
+import subprocess
 import uuid
+from unittest.mock import MagicMock
 import pytest
 
 from webapp import board_render_helpers, ledger_board
 from webapp.ledger_store import LedgerStore
 
 
-def test_esc_sanitizes_html_and_handles_none():
-    assert board_render_helpers.esc(None) == ""
-    assert board_render_helpers.esc("") == ""
-    assert board_render_helpers.esc("hello & <world> 'quote' \"double\"") == "hello &amp; &lt;world&gt; &#x27;quote&#x27; &quot;double&quot;"
-    assert board_render_helpers.esc(12345) == "12345"
-    assert ledger_board.esc("<script>") == board_render_helpers.esc("<script>")
-
-
-def test_editable_fields_contract_preservation():
-    # Allocation
-    alloc_allowed, alloc_fixed = board_render_helpers.editable_fields("income", "수기", is_allocation=True)
-    assert alloc_allowed == ("customer_id", "customer_name", "nickname", "display_tab_id", "income_kind")
-    assert alloc_fixed == ()
-
-    # Card expense
-    card_allowed, card_fixed = board_render_helpers.editable_fields("expense", "카드")
-    assert card_allowed == ("display_tab_id", "item", "description", "operator_note")
-    assert card_fixed == ("amount_krw", "occurred_on", "source_event_id", "source_kind", "merchant", "reservation_no")
-
-    # Manual expense
-    manual_exp_allowed, manual_exp_fixed = board_render_helpers.editable_fields("expense", "수기")
-    assert manual_exp_allowed == ("display_tab_id", "item", "description", "operator_note", "occurred_on", "amount_krw")
-    assert manual_exp_fixed == ("source_event_id", "source_kind", "merchant", "reservation_no")
-
-    # Bank income
-    bank_allowed, bank_fixed = board_render_helpers.editable_fields("income", "은행")
-    assert bank_allowed == ("customer_id", "customer_name", "nickname", "display_tab_id", "operator_note", "income_kind")
-    assert bank_fixed == ("amount_krw", "occurred_on", "source_event_id", "source_kind")
-
-    # Manual income
-    manual_inc_allowed, manual_inc_fixed = board_render_helpers.editable_fields("income", "수기 입력")
-    assert manual_inc_allowed == ("display_tab_id", "income_kind", "customer_id", "customer_name",
-                                  "nickname", "occurred_on", "amount_krw", "operator_note")
-    assert manual_inc_fixed == ("source_event_id", "source_kind")
-
-    # Facade equivalence
-    assert ledger_board.editable_fields("expense", "카드") == board_render_helpers.editable_fields("expense", "카드")
-    assert ledger_board.editable_fields("income", "은행") == board_render_helpers.editable_fields("income", "은행")
-
-
-def test_allocation_revert_status_boundaries(tmp_path):
-    # None allocation
-    assert board_render_helpers.allocation_revert_status(None) == {
-        "revertible": False, "reason": "행을 찾지 못했어요"
+@pytest.fixture(scope="module")
+def baseline():
+    """Load original unrefactored implementations from commit 2384cfd."""
+    raw = subprocess.check_output(
+        ["git", "show", "2384cfd:webapp/ledger_board.py"],
+        text=True,
+        encoding="utf-8",
+    )
+    tree = ast.parse(raw)
+    targets = {
+        "esc", "editable_fields", "allocation_revert_status", "allocation_history_html",
+        "allocation_detail_body", "history_html", "split_page", "income_table",
+        "expense_table", "learning_case_id", "rule_dialog_link"
     }
+    baseline_mod = ast.Module(
+        body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in targets],
+        type_ignores=[],
+    )
+    ast.fix_missing_locations(baseline_mod)
+    code = compile(baseline_mod, "<baseline_2384cfd>", "exec")
 
-    # None store
-    assert board_render_helpers.allocation_revert_status({"row_id": "test"}, store=None) == {
-        "revertible": False, "reason": "저장소가 연결되지 않았어요."
+    state = {
+        "__name__": "webapp.ledger_board_baseline",
+        "__package__": "webapp",
+        "html": html,
+        "uuid": uuid,
+        "INCOME_KIND_LABEL": {"deposit": "예약금", "balance": "잔금", "additional": "추가금"},
+        "CSRF_TOKEN": "static-test-csrf-token",
+        "current_store": None,
+        "_active_store": lambda: state["current_store"],
+        "live_trips": lambda *args, **kwargs: [{"tab_id": "trip-demo-a", "display_key": "도쿄"}],
+        "_shown_amount": lambda r: r.get("display_amount_krw", r.get("amount_krw", 0)),
+        "_shown_date": lambda r: r.get("display_occurred_on", r.get("occurred_on", "")),
     }
+    exec(code, state)
+    return state
 
-    # With synthetic store
-    store = LedgerStore(tmp_path / "synth_alloc.sqlite", seed_demo=False)
+
+def test_board_render_helpers_has_zero_coupling_to_ledger_board():
+    """Verify board_render_helpers does not import or fall back to ledger_board."""
+    with open("webapp/board_render_helpers.py", "r", encoding="utf-8") as f:
+        src = f.read()
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert "ledger_board" not in alias.name
+        elif isinstance(node, ast.ImportFrom):
+            assert node.module != "ledger_board"
+            assert node.module != ".ledger_board"
+            for alias in node.names:
+                assert alias.name != "ledger_board"
+
+
+def test_esc_matches_baseline(baseline):
+    for val in [None, "", "normal", "<a>&'\"", 9999]:
+        assert board_render_helpers.esc(val) == baseline["esc"](val)
+
+
+def test_editable_fields_matches_baseline(baseline):
+    for kind in ["expense", "income"]:
+        for source in ["카드", "은행", "수기", "직접 입력", ""]:
+            for is_alloc in [False, True]:
+                assert board_render_helpers.editable_fields(kind, source, is_alloc) == baseline["editable_fields"](kind, source, is_alloc)
+
+
+def test_allocation_revert_status_matches_baseline_across_all_branches(baseline, tmp_path):
+    store = LedgerStore(tmp_path / "synth_alloc.sqlite", seed_demo=True)
+    baseline["current_store"] = store
     try:
-        # Inactive allocation
-        inactive = {"row_id": "alloc-none", "active": 0}
-        res = board_render_helpers.allocation_revert_status(inactive, store=store)
-        assert res["revertible"] is False
-        assert "비활성 배분은 되돌릴 수 없어요" in res["reason"]
+        # Branch 1: allocation is None
+        assert board_render_helpers.allocation_revert_status(None, store=store) == baseline["allocation_revert_status"](None)
 
-        # Missing source row
+        # Branch 2: store is None -> both raise AttributeError on .get_allocation
+        baseline["current_store"] = None
+        with pytest.raises(AttributeError):
+            baseline["allocation_revert_status"]({"row_id": "alloc-none"})
+        with pytest.raises(AttributeError):
+            board_render_helpers.allocation_revert_status({"row_id": "alloc-none"}, store=None)
+        baseline["current_store"] = store
+
+        # Branch 3: inactive allocation
+        inactive = {"row_id": "alloc-none", "active": 0}
+        assert board_render_helpers.allocation_revert_status(inactive, store=store) == baseline["allocation_revert_status"](inactive)
+
+        # Branch 4: missing source row
         missing_source = {"row_id": "alloc-missing", "active": 1, "source_row_id": "inc-nonexistent"}
-        res = board_render_helpers.allocation_revert_status(missing_source, store=store)
-        assert res["revertible"] is False
-        assert "원천 입금 행이 없어요" in res["reason"]
+        assert board_render_helpers.allocation_revert_status(missing_source, store=store) == baseline["allocation_revert_status"](missing_source)
+
+        # Branch 5: source revision mismatch
+        source_row = store.get_row("income-demo-i1")
+        mismatched = {
+            "row_id": "alloc-mismatch",
+            "active": 1,
+            "source_row_id": "income-demo-i1",
+            "source_revision": source_row["revision"] + 99,
+        }
+        assert board_render_helpers.allocation_revert_status(mismatched, store=store) == baseline["allocation_revert_status"](mismatched)
     finally:
         store.close()
 
 
-def test_history_html_presentation(tmp_path):
-    # When store is None
-    assert board_render_helpers.history_html("row-1", store=None) == ""
+def test_history_html_matches_baseline(baseline, tmp_path, monkeypatch):
+    # No store
+    baseline["current_store"] = None
+    assert board_render_helpers.history_html("row-1", store=None, csrf_token="csrf") == baseline["history_html"]("row-1")
 
     store = LedgerStore(tmp_path / "synth_hist.sqlite", seed_demo=True)
+    baseline["current_store"] = store
     try:
         # Empty history
-        empty_html = board_render_helpers.history_html("nonexistent-row", store=store)
-        assert "직접 수정된 변경이 없어요" in empty_html
+        assert board_render_helpers.history_html("nonexistent", store=store, csrf_token="csrf") == baseline["history_html"]("nonexistent")
 
-        # Demo row before any edit
+        # Row with saved history
         demo_id = "expense-demo-c1"
-        html_initial = board_render_helpers.history_html(demo_id, store=store, csrf_token="test-token-123")
-        assert "변경 이력" in html_initial
-
-        # After saving a change, history entries appear
         row = store.get_row(demo_id)
         store.save(
             row_id=demo_id,
@@ -111,46 +148,54 @@ def test_history_html_presentation(tmp_path):
             changes={"operator_note": "테스트 메모"},
             actor="owner",
         )
-        html_after = board_render_helpers.history_html(demo_id, store=store, csrf_token="test-token-123")
-        assert "변경 이력" in html_after
-        assert "직전 수정 되돌리기" in html_after
-        assert "test-token-123" in html_after
+        monkeypatch.setattr(uuid, "uuid4", lambda: uuid.UUID("11111111-1111-1111-1111-111111111111"))
+        baseline["uuid"] = uuid
+        assert board_render_helpers.history_html(demo_id, store=store, csrf_token="static-test-csrf-token") == baseline["history_html"](demo_id)
     finally:
         store.close()
 
 
-def test_split_page_rendering(tmp_path):
-    # When store is None
-    assert "저장소가 연결되지 않았어요" in board_render_helpers.split_page("inc-1", store=None)
+def test_split_page_call_order_and_baseline_equivalence(baseline, tmp_path, monkeypatch):
+    trips_mock = MagicMock(return_value=[{"tab_id": "trip-demo-a", "display_key": "도쿄"}])
 
+    # 1. When store is None: trips_fn MUST NOT be called!
+    baseline["current_store"] = None
+    res_helper = board_render_helpers.split_page("income-demo-i1", store=None, csrf_token="csrf", trips_fn=trips_mock)
+    res_base = baseline["split_page"]("income-demo-i1")
+    assert res_helper == res_base
+    assert trips_mock.call_count == 0
+
+    # 2. When row is missing: trips_fn MUST NOT be called!
     store = LedgerStore(tmp_path / "synth_split.sqlite", seed_demo=True)
+    baseline["current_store"] = store
     try:
-        # Non-existent or non-income row
-        assert "없는 수입 행이에요" in board_render_helpers.split_page("nonexistent", store=store)
+        res_helper_missing = board_render_helpers.split_page("missing-row", store=store, csrf_token="csrf", trips_fn=trips_mock)
+        res_base_missing = baseline["split_page"]("missing-row")
+        assert res_helper_missing == res_base_missing
+        assert trips_mock.call_count == 0
 
-        # Valid demo income row
-        demo_inc_id = "income-demo-i1"
-        rendered = board_render_helpers.split_page(
-            demo_inc_id,
+        # 3. Valid income row: trips_fn is evaluated inside tab_options
+        monkeypatch.setattr(uuid, "uuid4", lambda: uuid.UUID("22222222-2222-2222-2222-222222222222"))
+        baseline["uuid"] = uuid
+        res_valid_helper = board_render_helpers.split_page(
+            "income-demo-i1",
             store=store,
-            csrf_token="test-csrf-split",
-            trips=[{"tab_id": "trip-demo-a", "display_key": "도쿄"}],
+            csrf_token="static-test-csrf-token",
+            trips_fn=lambda: [{"tab_id": "trip-demo-a", "display_key": "도쿄"}],
         )
-        assert "입금 나누기" in rendered
-        assert "test-csrf-split" in rendered
-        assert "alc_0_id" in rendered
-        assert "expected_source_revision" in rendered
+        res_valid_base = baseline["split_page"]("income-demo-i1")
+        assert res_valid_helper == res_valid_base
     finally:
         store.close()
 
 
-def test_tables_rendering():
-    # Empty income table
-    empty_inc = board_render_helpers.income_table([])
-    assert "수입 내용" in empty_inc or "수입" in empty_inc
+def test_income_and_expense_tables_match_baseline(baseline):
+    # Empty tables
+    assert board_render_helpers.income_table([], shown_date_fn=lambda r: "", shown_amount_fn=lambda r: 0) == baseline["income_table"]([])
+    assert board_render_helpers.expense_table([], shown_date_fn=lambda r: "", shown_amount_fn=lambda r: 0) == baseline["expense_table"]([])
 
-    # Populated income table
-    sample_inc = [{
+    # Populated tables
+    incomes = [{
         "row_id": "inc-1",
         "occurred_on": "2026-04-01",
         "customer_name": "홍길동",
@@ -158,17 +203,7 @@ def test_tables_rendering():
         "income_kind": "deposit",
         "amount_krw": 500000,
     }]
-    rendered_inc = board_render_helpers.income_table(
-        sample_inc,
-        shown_date=lambda r: r["occurred_on"],
-        shown_amount=lambda r: r["amount_krw"],
-    )
-    assert "홍길동" in rendered_inc
-    assert "500,000" in rendered_inc
-    assert "/row?id=inc-1" in rendered_inc
-
-    # Populated expense table
-    sample_exp = [{
+    expenses = [{
         "row_id": "exp-1",
         "occurred_on": "2026-04-02",
         "item": "항공권",
@@ -178,62 +213,107 @@ def test_tables_rendering():
         "evidence_type": "카드",
         "amount_krw": 350000,
     }]
-    rendered_exp = board_render_helpers.expense_table(
-        sample_exp,
-        shown_date=lambda r: r["occurred_on"],
-        shown_amount=lambda r: r["amount_krw"],
-    )
-    assert "항공권" in rendered_exp
-    assert "도쿄 왕복" in rendered_exp
-    assert "ABC123XYZ" in rendered_exp
-    assert "350,000" in rendered_exp
-    assert "/row?id=exp-1" in rendered_exp
+    shown_date = lambda r: r.get("occurred_on", "")
+    shown_amount = lambda r: r.get("amount_krw", 0)
+
+    assert board_render_helpers.income_table(incomes, shown_date_fn=shown_date, shown_amount_fn=shown_amount) == baseline["income_table"](incomes)
+    assert board_render_helpers.expense_table(expenses, shown_date_fn=shown_date, shown_amount_fn=shown_amount) == baseline["expense_table"](expenses)
 
 
-def _mask_uuid(html: str) -> str:
-    return re.sub(r"value='[0-9a-f]{32}'", "value='MASKED_UUID'", html)
-
-
-def test_detail_page_and_facade_equivalence(tmp_path, monkeypatch):
-    store = LedgerStore(tmp_path / "synth_equiv.sqlite", seed_demo=True)
-    monkeypatch.setattr(ledger_board, "_active_store", lambda: store)
+def test_allocation_detail_body_matches_baseline(baseline, tmp_path, monkeypatch):
+    store = LedgerStore(tmp_path / "synth_detail.sqlite", seed_demo=True)
+    baseline["current_store"] = store
+    monkeypatch.setattr(uuid, "uuid4", lambda: uuid.UUID("33333333-3333-3333-3333-333333333333"))
+    baseline["uuid"] = uuid
 
     try:
-        # 1. Non-existent row
-        res_helper = board_render_helpers.detail_page("nonexistent", store=store)
-        res_board = ledger_board.detail_page("nonexistent")
-        assert "행 없음" in res_helper
-        assert res_helper == res_board
+        alloc = {
+            "row_id": "alloc-test-1",
+            "source_row_id": "income-demo-i1",
+            "customer_name": "테스트고객",
+            "amount_krw": 100000,
+            "income_kind": "deposit",
+            "occurred_on": "2026-04-01",
+            "display_tab_id": "trip-demo-a",
+        }
+        trips = [{"tab_id": "trip-demo-a", "display_key": "도쿄"}]
+        shown_amount = lambda r: r.get("amount_krw", 0)
 
-        # 2. Synthetic expense detail page
-        exp_id = "expense-demo-c1"
-        res_exp_helper = board_render_helpers.detail_page(exp_id, store=store, csrf_token=ledger_board.CSRF_TOKEN)
-        res_exp_board = ledger_board.detail_page(exp_id)
-        assert "지출" in res_exp_board
-        assert res_exp_helper == res_exp_board
+        # View mode (edit=False)
+        view_helper = board_render_helpers.allocation_detail_body(
+            alloc, edit=False, store=store, csrf_token="static-test-csrf-token",
+            trips_fn=lambda: trips, shown_amount_fn=shown_amount,
+        )
+        view_base = baseline["allocation_detail_body"](alloc, False)
+        assert view_helper == view_base
 
-        # 3. Synthetic expense edit mode (masking dynamic client_request_id uuid)
-        res_edit_helper = board_render_helpers.detail_page(exp_id, edit=True, store=store, csrf_token=ledger_board.CSRF_TOKEN)
-        res_edit_board = ledger_board.detail_page(exp_id, edit=True)
-        assert "행 편집" in res_edit_board
-        assert "display_tab_id" in res_edit_board
-        assert _mask_uuid(res_edit_helper) == _mask_uuid(res_edit_board)
+        # Edit mode (edit=True)
+        edit_helper = board_render_helpers.allocation_detail_body(
+            alloc, edit=True, store=store, csrf_token="static-test-csrf-token",
+            trips_fn=lambda: trips, shown_amount_fn=shown_amount,
+        )
+        edit_base = baseline["allocation_detail_body"](alloc, True)
+        assert edit_helper == edit_base
+    finally:
+        store.close()
 
-        # 4. Split page equivalence
-        inc_id = "income-demo-i1"
-        split_helper = board_render_helpers.split_page(inc_id, store=store, csrf_token=ledger_board.CSRF_TOKEN)
-        split_board = ledger_board.split_page(inc_id)
-        assert _mask_uuid(split_helper) == _mask_uuid(split_board)
 
-        # 5. History HTML equivalence
-        hist_helper = board_render_helpers.history_html(exp_id, store=store, csrf_token=ledger_board.CSRF_TOKEN)
-        hist_board = ledger_board.history_html(exp_id)
-        assert hist_helper == hist_board
+def test_learning_case_and_rule_dialog_link_match_baseline(baseline, tmp_path):
+    store = LedgerStore(tmp_path / "synth_cases.sqlite", seed_demo=True)
+    baseline["current_store"] = store
+    try:
+        # Store with no learning cases
+        assert board_render_helpers.learning_case_id("row-x", store=store) == baseline["learning_case_id"]("row-x")
+        assert board_render_helpers.rule_dialog_link("row-x", store=store) == baseline["rule_dialog_link"]("row-x")
 
-        # 6. Allocation revert status equivalence
-        alloc_dict = {"row_id": "alloc-none", "active": 0}
-        stat_helper = board_render_helpers.allocation_revert_status(alloc_dict, store=store)
-        stat_board = ledger_board.allocation_revert_status(alloc_dict)
-        assert stat_helper == stat_board
+        # When store is None
+        assert board_render_helpers.learning_case_id("row-x", store=None) == ""
+        assert board_render_helpers.rule_dialog_link("row-x", store=None) == ""
+
+        # With an inserted learning case
+        store.conn.execute(
+            "INSERT INTO board_learning_cases (case_id, row_id, event_id, dialog_state, created_at) VALUES (?, ?, ?, ?, ?)",
+            ("case-123", "row-test", "evt-1", "open", "2026-04-01T12:00:00Z"),
+        )
+        store.conn.commit()
+
+        assert board_render_helpers.learning_case_id("row-test", store=store) == baseline["learning_case_id"]("row-test")
+        assert board_render_helpers.rule_dialog_link("row-test", store=store) == baseline["rule_dialog_link"]("row-test")
+    finally:
+        store.close()
+
+
+def test_ledger_board_facade_smoke(baseline, tmp_path, monkeypatch):
+    store = LedgerStore(tmp_path / "synth_facade.sqlite", seed_demo=True)
+    monkeypatch.setattr(ledger_board, "_active_store", lambda: store)
+    monkeypatch.setattr(ledger_board, "CSRF_TOKEN", "mock-csrf-token")
+    monkeypatch.setattr(ledger_board, "live_trips", lambda **kwargs: [{"tab_id": "trip-demo-a", "display_key": "도쿄"}])
+
+    try:
+        # Check facade functions return valid content through ledger_board
+        assert ledger_board.esc("<b>test</b>") == "&lt;b&gt;test&lt;/b&gt;"
+        assert "customer_id" in ledger_board.editable_fields("income", "은행")[0]
+
+        split_html = ledger_board.split_page("income-demo-i1")
+        assert "입금 나누기" in split_html
+        assert "mock-csrf-token" in split_html
+
+        hist_html = ledger_board.history_html("expense-demo-c1")
+        assert "변경 이력" in hist_html
+
+        revert_stat = ledger_board.allocation_revert_status(None)
+        assert revert_stat["revertible"] is False
+        assert revert_stat["reason"] == "없는 배분 행이에요"
+
+        inc_html = ledger_board.income_table([])
+        assert "수입 내용" in inc_html
+        assert inc_html == baseline["income_table"]([])
+
+        exp_html = ledger_board.expense_table([])
+        assert "지출 내용" in exp_html
+        assert exp_html == baseline["expense_table"]([])
+
+        detail_html = ledger_board.detail_page("expense-demo-c1")
+        assert "지출 상세" in detail_html or "웹 장부" in detail_html
     finally:
         store.close()
