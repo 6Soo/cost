@@ -2054,8 +2054,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     maintenance_paths = ('/maintenance/expense-bulk',
                          '/api/maintenance/expense-bulk/preview',
                          '/api/maintenance/expense-bulk/apply')
+    refund_pair_route = parsed.path.startswith('/api/maintenance/refund-pair/')
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
-                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths):
+                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths
+                            or refund_pair_route):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
@@ -2065,8 +2067,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
     try:
-        from . import expense_bulk_maintenance
+        from . import expense_bulk_maintenance, refund_cleanup_action
         if expense_bulk_maintenance.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
+            return True
+        if refund_cleanup_action.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
             return True
         if parsed.path == '/cards':
             # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
@@ -2290,6 +2294,32 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
     const total=Math.max(0,Number(counter.dataset.total||0)-1);counter.dataset.total=String(total);counter.textContent=total+'건';
     if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">'+(total?'이 페이지를 정리했습니다. 다음 항목을 보려면 새로고침해 주세요.':'정리할 지출이 없습니다.')+'</li>';
   }catch(err){button.disabled=false;error.textContent=err.message}
+}));
+document.querySelectorAll('#expense-cleanup .cleanup-refund-action').forEach(button=>button.addEventListener('click',async()=>{
+  const tool=button.closest('.cleanup-refund-tool'),message=tool.querySelector('.cleanup-refund-status');
+  const base='/api/maintenance/refund-pair/'+encodeURIComponent(button.dataset.original);
+  const post=async (action,payload)=>{
+    const response=await fetch(base+'/'+action,{method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+      body:JSON.stringify(payload),cache:'no-store'});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(data.message||data.code||'환불 묶음을 처리하지 못했어요');
+    return data;
+  };
+  button.disabled=true;message.textContent='이 원결제·취소 묶음의 금융 보호 조건을 확인하고 있어요.';
+  try{
+    const preview=await post('preview',{});
+    if(!preview.recordable)throw Error(preview.message||preview.reason||'기록할 수 없는 묶음입니다');
+    message.textContent=preview.members+'건 중 '+preview.to_book+'건 기록 가능 · 순액 '+preview.net_krw.toLocaleString()+'원';
+    if(!window.confirm('원결제·취소 '+preview.members+'건의 순액 '
+         +preview.net_krw.toLocaleString()+'원을 확인했어. 미기록 '
+         +preview.to_book+'건을 함께 장부에 기록할까? 실제 카드사 환급 완료 판단과는 별개야.')){
+      button.disabled=false;return;
+    }
+    const result=await post('apply',{digest:preview.digest,request_id:crypto.randomUUID().replace(/-/g,'')});
+    message.textContent=result.message||'처리했습니다. 목록을 새로 불러옵니다.';
+    window.location.reload();
+  }catch(error){button.disabled=false;message.textContent=error.message||'기록 처리 중 오류가 발생했어요';}
 }));
 })();"""
 
@@ -2862,6 +2892,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
         original_refunds.setdefault(link['original_id'], []).append((refund_id, link))
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
+    visible_card_ids = {row[0] for row in rows_card}
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -3038,6 +3069,19 @@ def render_expense_cleanup(board, csrf, *, page=1):
             amount=amount,
             reason=reason,
             review=review,
+            refund_group_original=(
+                (refund_by_id[tid]['original_id'] if tid in refund_by_id else tid)
+                if ((tid in refund_by_id
+                     and refund_by_id[tid]['original_id'] not in visible_card_ids
+                     and not refund_by_id[tid].get('inferred')
+                     and refund_by_id[tid].get('status') == 'full'
+                     and refund_by_id[tid].get('net_krw') == 0)
+                    or (tid in original_refunds and original_refunds[tid]
+                        and all(not link.get('inferred') and link.get('status') == 'full'
+                                and link.get('net_krw') == 0
+                                for _, link in original_refunds[tid])))
+                else ""
+            ),
         )
         items.append(card_cleanup_ui.render_cleanup_card_row(card_row, esc=esc))
     ledger = board.conn.execute(
