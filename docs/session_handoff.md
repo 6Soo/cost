@@ -2,11 +2,12 @@
 
 ## 2026-10-28 카드 전체 내역 여행 열 과밀 개선
 
-- **구현·검수 완료 / 배포 대기:** `cards_all.py`의 여행 칸에는 여행명·사용자 확정/추정만 남겼다. 카드 식별은 가맹점 아래, 거래 상태 배지는 금액 아래, 상세 링크는 별도 다섯 번째 열로 옮겼다. 날짜 그룹 colspan도 5다. 금액·여행 매핑·배정·권한·DB/API 쓰기는 변경하지 않았다.
+- **구현·검수·배포 완료 / 인증 UI 미수락:** [PR #273](https://github.com/6Soo/cost/pull/273), 코드 `ee1d4c5`와 최신 main 통합 `b85d483`, main/운영 `b54ca37c068ae8e830220652fe91978821978231`. `cards_all.py`의 여행 칸에는 여행명·사용자 확정/추정만 남겼다. 카드 식별은 가맹점 아래, 거래 상태 배지는 금액 아래, 상세 링크는 별도 다섯 번째 열로 옮겼다. 날짜 그룹 colspan도 5다. 금액·여행 매핑·배정·권한·DB/API 쓰기는 변경하지 않았다.
 - 사용자 지정 `codex/gpt-6-luna` low에게 구현을 위임했다. 초안 뒤 usage limit으로 중단됐으며 Supervisor가 테스트 fixture·접근성 호환성과 검수를 마무리했다. 새 과금/다른 모델 전환은 없다.
-- 검사: 카드/필터/원본 조회 78개 중 최초 76 통과 후 기대값/합성 fixture를 교정했다. 이후 77개 통과 근거와 실패했던 렌더/브라우저 각각 통과를 합쳐 최종 78개 통과. 인접 shell/여행 탐색 15 passed. 브라우저 375/390/759/760/1280px·두 시스템 테마·200% 확대·긴 여행명/가맹점·링크/키보드를 검증했다. 일회성 합성 시각 검수도 desktop/mobile light/dark·가로스크롤 후 상세 focus를 확인했다. 전체 회귀는 읽기 전용 렌더 변경이므로 생략했다.
+- 검사: 최신 main의 기존 저장소 분리와 통합한 뒤 `python -m pytest webapp/tests/test_cards_all.py webapp/tests/test_cards_all_filters.py webapp/tests/test_card_transactions.py -q` **78 passed**. 인접 shell/여행 탐색 15 passed. 브라우저 375/390/759/760/1280px·두 시스템 테마·200% 확대·긴 여행명/가맹점·링크/키보드를 검증했다. 일회성 배포본 합성 시각 검수도 desktop/mobile light/dark·가로스크롤 후 상세 focus를 확인했다. 전체 회귀는 읽기 전용 렌더 변경이므로 생략했다.
 - 근거: 로컬 `.local-archive/card-trip-density-20261028/`의 합성 HTML/PNG·검수 스크립트. 운영 인증 화면은 현재 Aside 세션이 AUTH_REQUIRED라 **NOT_ACCEPTED_AUTH_REQUIRED**이며 인증 우회는 하지 않는다.
-- 다음 단계: 이 작업 브랜치 커밋→PR 정상 병합→Windows 검증 SHA 고정 배포→health/ready·보호 API·13표 불변·배포본 합성 렌더 검사. 기존 사용자 workspace/미추적 파일은 보존한다.
+- 배포: 1009 Git blob 불일치0·task/process SHA 일치·단일 loopback listener·health/ready200·OTA 기존/summary/events/groups401·보호13표 내용/스키마 불변. 검증된 복구/복원 근거를 재사용했고 직전 `22e134b4c98c60a68057b7caa8b14bf9f0b4b24b`를 보존했다. 동시 리팩터링 배포와 충돌한 첫 시도는 TASK_MISMATCH preflight에서 변경 전 중단됐고 단일 작성자 조율 후 정상 반영했다.
+- 남은 항목은 소유자 인증 세션에서 실제 `/cards/all` 열 배치 확인뿐이다. 다음 작업: 로그인된 Aside에서 `/cards/all?year=2026&month=7`를 열어 여행 열에 카드 식별/상태/링크가 없는지 확인한다. 인증 우회·재배포는 필요 없다. 기존 사용자 workspace/미추적 파일은 보존했다.
 
 ## 2026-10-28 제품 오너 추가 결정: 수입-보험 통합·우선 잠정 배정 (SPEC_ONLY)
 
