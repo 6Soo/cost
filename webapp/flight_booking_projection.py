@@ -1,15 +1,13 @@
-"""Pure read projection, normalization, and query helpers for flight bookings.
+"""Pure in-memory read projection, normalization, and query helpers for flight bookings.
 
-Extracted responsibilities from flight booking index:
-- resolve_flight_sources_key: Compute canonical snapshot digest key for mail directories
-- load_cached_passenger_data: Validate and load passenger cache from disk
+Responsibilities:
 - normalize_name_tokens: NFKC-normalized alphanumeric token set for passenger name search
 - project_itinerary_leg: Clean projection of flights, airports, and departure facts
 - project_booking_reservation: Pure DTO for a verified booking reservation with dates and flags
 - query_booking_reservations: Filter, project, sort, and paginate reservations by passenger name
 
-Strictly read-only and in-memory:
-- No database writes, network calls, or direct filesystem collection
+Strictly in-memory and presentation-only:
+- No file IO, database connections, or network access
 - Preserves date priorities (EXPLICIT_LABEL > FIRST_RECEIVED > CONFLICT/UNKNOWN)
 - Preserves cancellation status, conflict status, and source digest lineage
 """
@@ -17,44 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 import unicodedata
-
-
-def resolve_flight_sources_key(sources: Mapping[str, Any], *, parser_version: str | None = None) -> str:
-    """Compute snapshot key for flight mail sources, failing closed if directories missing."""
-    from app import flight_evidence, ota_sources
-    from . import ota_snapshot
-
-    directories = sources.get('mail_directories') or []
-    if not directories or any(not Path(p).exists() for p in directories):
-        raise ValueError('FLIGHT_MAIL_UNAVAILABLE')
-    version = parser_version or flight_evidence.PARSER_VERSION
-    return ota_snapshot.digest({
-        'parser': version,
-        'directories': list(map(str, directories)),
-        'mail': ota_sources.mail_stamps(directories),
-    })
-
-
-def load_cached_passenger_data(
-    cache_path: Path,
-    *,
-    expected_key: str,
-    schema: str,
-    parser_version: str,
-) -> dict[str, Any] | None:
-    """Load cached passenger dictionary if schema, parser version, and source key match."""
-    try:
-        saved = json.loads(cache_path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        return None
-    if (saved.get('schema') == schema and saved.get('key') == expected_key
-            and saved.get('parser') == parser_version
-            and isinstance(saved.get('passengers'), dict)):
-        return saved['passengers']
-    return None
 
 
 def normalize_name_tokens(value: object) -> tuple[str, ...]:

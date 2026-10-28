@@ -327,9 +327,8 @@ more.addEventListener('click',()=>{if(nextOffset!==null&&!more.disabled)loadBook
 
 def _name_key(value):
     """Only normalize spelling and token order, never infer Korean transliteration."""
-    text = unicodedata.normalize('NFKC', str(value or '')).casefold()
-    tokens = [''.join(ch for ch in part if ch.isalnum()) for part in text.replace('/', ' ').replace(',', ' ').split()]
-    return tuple(sorted(token for token in tokens if token))
+    from .flight_booking_projection import normalize_name_tokens
+    return normalize_name_tokens(value)
 
 
 def _confirmed_card_index(board, passenger_index):
@@ -409,54 +408,17 @@ def _confirmed_card_index(board, passenger_index):
 def _name_search(board, name, *, offset=0, revision=None):
     """Search verified original-name tokens without requiring tour ID or full name."""
     from .flight_booking_index import passenger_index_for, source_status
-    query = _name_key(name)
-    if not query:
-        raise ValueError('INVALID_NAME')
-    if type(offset) is not int or offset < 0 or offset > 1000000 or offset and not revision:
-        raise ValueError('INVALID_CURSOR')
+    from .flight_booking_projection import query_booking_reservations
     index = passenger_index_for(board)
     cards = _confirmed_card_index(board, index)
-    results = []
-    fingerprints = []
-    for booking_ref, evidence in index.items():
-        if not isinstance(evidence, dict) or not evidence.get('source_digests'):
-            continue
-        passengers = evidence.get('passengers') or []
-        for person in passengers:
-            if not isinstance(person, dict):
-                continue
-            full_name = ' '.join((str(person.get('surname') or ''), str(person.get('given_name') or ''))).strip()
-            original_name_tokens = _name_key(full_name)
-            if any(token not in original_name_tokens for token in query):
-                continue
-            legs = []
-            for leg in evidence.get('legs') or []:
-                projected = {key: leg.get(key) for key in ('label', 'origin_city', 'destination_city', 'departure_on')}
-                projected['segments'] = [{key: segment.get(key) for key in
-                    ('flight_number', 'departure_airport', 'departure_time', 'arrival_airport', 'arrival_time')}
-                    for segment in leg.get('segments') or []]
-                legs.append(projected)
-            results.append({'booking_ref': str(booking_ref), 'passenger_name': full_name,
-                            'legs': legs, 'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
-                            'conflict': bool(evidence.get('conflict')), 'source_verified': True,
-                            'linked_cards': cards.get(str(booking_ref), []), 'provider': 'trip',
-                            'reserved_on': evidence.get('reserved_on') if evidence.get('booking_date_status') in ('EXPLICIT_LABEL', 'FIRST_RECEIVED') else '',
-                            'booking_card_day': evidence.get('booking_card_day') if evidence.get('booking_date_status') in ('EXPLICIT_LABEL', 'FIRST_RECEIVED') else '',
-                            'booking_date_evidence': evidence.get('booking_date_evidence', []),
-                            'booking_date_status': evidence.get('booking_date_status', 'UNKNOWN')})
-            fingerprints.append((str(booking_ref), evidence.get('digest'), evidence.get('source_digests')))
-            break
-    results.sort(key=lambda row: row['booking_ref'])
-    results.sort(key=lambda row: max((leg.get('departure_on') or '' for leg in row['legs']), default=''), reverse=True)
-    current_revision = hashlib.sha256(json.dumps([sorted(fingerprints), results],
-        sort_keys=True, ensure_ascii=True, default=str).encode()).hexdigest()
-    if revision is not None and revision != current_revision:
-        raise LookupError('SOURCE_CHANGED')
-    end = offset + 100
-    return {'reservations': results[offset:end], 'truncated': len(results) > end,
-            'next_offset': end if len(results) > end else None, 'total': len(results),
-            'revision': current_revision, 'source_status': 'VERIFIED' if any(
-                isinstance(row, dict) and row.get('source_digests') for row in index.values()) else source_status(board)}
+    return query_booking_reservations(
+        index,
+        name,
+        cards=cards,
+        offset=offset,
+        revision=revision,
+        fallback_status=source_status(board),
+    )
 
 
 def _passenger_evidence(board, booking_ref):

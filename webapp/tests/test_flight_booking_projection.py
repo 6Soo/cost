@@ -100,6 +100,29 @@ def _synthetic_index():
     }
 
 
+@pytest.fixture(scope="module")
+def baseline_name_search_fn():
+    """Extract and compile _name_search from public main commit ed48263."""
+    proc = subprocess.run(
+        ["git", "show", "ed48263:webapp/flight_passenger_page.py"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    tree = ast.parse(proc.stdout)
+    func_node = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_name_search"
+    )
+    mod = ast.Module(body=[func_node], type_ignores=[])
+    ast.fix_missing_locations(mod)
+
+    ns: Dict[str, Any] = dict(flight_passenger_page.__dict__)
+    exec(compile(mod, "<baseline_ed48263_name_search>", "exec"), ns)
+    return ns["_name_search"]
+
+
 def test_normalize_name_tokens():
     assert flight_booking_projection.normalize_name_tokens("  Alpha / KIM ") == ("alpha", "kim")
     assert flight_booking_projection.normalize_name_tokens("KIM, ALPHA") == ("alpha", "kim")
@@ -251,36 +274,16 @@ def test_query_booking_reservations_revision_and_source_changed():
         flight_booking_projection.query_booking_reservations(index, "alpha kim", revision="stale-revision")
 
 
-def test_resolve_flight_sources_key_and_cache(tmp_path):
-    # Non-existent directory fails closed
-    with pytest.raises(ValueError, match="FLIGHT_MAIL_UNAVAILABLE"):
-        flight_booking_projection.resolve_flight_sources_key({"mail_directories": ["/non/existent"]})
-
-    mail_dir = tmp_path / "mail"
-    mail_dir.mkdir()
-    key = flight_booking_projection.resolve_flight_sources_key({"mail_directories": [str(mail_dir)]})
-    assert isinstance(key, str) and len(key) == 64
-
-    # Cache reading
-    cache_file = tmp_path / "passengers.json"
-    cache_file.write_text(json.dumps({
-        "schema": "passenger-v1",
-        "key": key,
-        "parser": "parser-v1",
-        "passengers": {"REF1": {"name": "test"}},
-    }), encoding="utf-8")
-
-    loaded = flight_booking_projection.load_cached_passenger_data(
-        cache_file, expected_key=key, schema="passenger-v1", parser_version="parser-v1")
-    assert loaded == {"REF1": {"name": "test"}}
-
-    # Key mismatch returns None
-    assert flight_booking_projection.load_cached_passenger_data(
-        cache_file, expected_key="other-key", schema="passenger-v1", parser_version="parser-v1") is None
+def test_escape_csrf_json_helper():
+    token = flight_passenger_page._escape_csrf_json("csrf</script><script>alert(1)</script>")
+    assert "</script>" not in token
+    assert r"\u003c/script>" in token
+    assert flight_passenger_page._escape_csrf_json("") == '""'
+    assert flight_passenger_page._escape_csrf_json(None) == '""'
 
 
-def test_baseline_equivalence_with_main_ed48263():
-    """Verify that query_booking_reservations produces 1:1 identical output to flight_passenger_page._name_search."""
+def test_baseline_equivalence_with_main_ed48263(baseline_name_search_fn):
+    """Verify that delegated flight_passenger_page._name_search matches ed48263 baseline 1:1."""
     index = _synthetic_index()
     board = SimpleNamespace(
         _flight_booking_service=None,
@@ -288,19 +291,23 @@ def test_baseline_equivalence_with_main_ed48263():
     )
 
     with patch("webapp.flight_booking_index.passenger_index_for", return_value=index), \
-         patch("webapp.flight_passenger_page._confirmed_card_index", return_value={}):
-        baseline_res = flight_passenger_page._name_search(board, "alpha kim")
-        curr_res = flight_booking_projection.query_booking_reservations(index, "alpha kim")
-        assert baseline_res == curr_res
+         patch("webapp.flight_passenger_page._confirmed_card_index", return_value={}), \
+         patch("webapp.flight_booking_index.source_status", return_value="VERIFIED"):
+
+        baseline_res = baseline_name_search_fn(board, "alpha kim")
+        curr_page_res = flight_passenger_page._name_search(board, "alpha kim")
+        curr_proj_res = flight_booking_projection.query_booking_reservations(index, "alpha kim")
+
+        assert baseline_res == curr_page_res
+        assert baseline_res == curr_proj_res
 
         # Test single token match
-        assert flight_passenger_page._name_search(board, "KIM") == flight_booking_projection.query_booking_reservations(index, "KIM")
+        assert baseline_name_search_fn(board, "KIM") == flight_passenger_page._name_search(board, "KIM")
 
         # Test other passenger
-        assert flight_passenger_page._name_search(board, "BETA") == flight_booking_projection.query_booking_reservations(index, "BETA")
+        assert baseline_name_search_fn(board, "BETA") == flight_passenger_page._name_search(board, "BETA")
 
-        # Test facade search_reservations on flight_booking_index
-        with patch.object(flight_booking_index, "passenger_index_for", return_value=index), \
-             patch.object(flight_booking_index, "source_status", return_value="VERIFIED"):
-            facade_res = flight_booking_index.search_reservations(board, "alpha kim")
-            assert facade_res == curr_res
+        # Test empty index
+        with patch("webapp.flight_booking_index.passenger_index_for", return_value={}), \
+             patch("webapp.flight_booking_index.source_status", return_value="UNAVAILABLE"):
+            assert baseline_name_search_fn(board, "KIM") == flight_passenger_page._name_search(board, "KIM")
