@@ -1,4 +1,4 @@
-"""Phase 2 row save store (synthetic working DB only).
+"""Ledger row save store for the host runtime and synthetic test fixtures.
 
 Single write path: one SQLite file holds row projections, revisions,
 idempotency records, and manual overrides. Every save also appends an
@@ -2900,7 +2900,7 @@ class LedgerStore:
             except Exception:
                 return set()
 
-        def _validate_display_tab(target: Any) -> None:
+        def _validate_display_tab(target) -> None:
             from . import ledger_board as board
             from app import quarter_tab
             from app.ledger import REFUND_TAB
