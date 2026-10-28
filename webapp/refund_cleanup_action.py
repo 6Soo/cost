@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 
 from app import StoreError
 
@@ -136,7 +135,7 @@ def dispatch(handler, parsed, *, board, raw=None, csrf=""):
         handler._send_json({"code": exc.code,
                             "message": str(exc)}, 409)
         return True
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError):
         handler._send_json({"code": "INVALID_INPUT",
                             "message": "자료 형식이 올바르지 않습니다."}, 422)
         return True
