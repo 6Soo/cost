@@ -185,7 +185,7 @@ def _valid_date(value) -> bool:
 
 
 def _normalize_create_input(fields: dict) -> dict:
-    return normalize_create_input(fields)
+    return normalize_create_input(fields, canonical_fn=_canonical)
 
 
 # One process-wide run id. Every LedgerStore in this process shares it, so a
@@ -5441,6 +5441,7 @@ class LedgerStore:
             client_request_id,
             valid_date_fn=_valid_date,
             normalize_create_input_fn=_normalize_create_input,
+            canonical_fn=_canonical,
             save_error_cls=SaveError,
         )
         with self._lock:
@@ -5554,6 +5555,7 @@ class LedgerStore:
             client_request_id,
             valid_date_fn=_valid_date,
             normalize_create_input_fn=_normalize_create_input,
+            canonical_fn=_canonical,
             save_error_cls=SaveError,
         )
         with self._lock:

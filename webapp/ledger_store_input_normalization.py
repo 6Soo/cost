@@ -16,12 +16,16 @@ from .ledger_store_audit import canonical_json
 from .ledger_store_change_validation import valid_date
 
 
-def normalize_create_input(fields: dict) -> dict:
+def normalize_create_input(
+    fields: dict,
+    *,
+    canonical_fn: Callable[[Any], str] = canonical_json,
+) -> dict:
     """Normalize fields dict into canonical JSON-roundtripped dictionary.
 
-    Maps None values explicitly and sorts keys canonically.
+    Maps None values explicitly and sorts keys canonically via injected canonical_fn.
     """
-    return json.loads(canonical_json({
+    return json.loads(canonical_fn({
         k: (None if v is None else v) for k, v in (fields or {}).items()
     }))
 
@@ -32,6 +36,7 @@ def validate_direct_income_create_input(
     *,
     valid_date_fn: Callable[[Any], bool] = valid_date,
     normalize_create_input_fn: Callable[[dict], dict] = normalize_create_input,
+    canonical_fn: Callable[[Any], str] = canonical_json,
     save_error_cls: type[Exception] = SaveError,
 ) -> tuple[str, dict]:
     """Validate direct income creation input and produce (row_id, want_input).
@@ -60,7 +65,10 @@ def validate_direct_income_create_input(
         raise save_error_cls("INVALID_VALUE", "요청 ID가 필요해요")
 
     row_id = f"inc-{client_request_id[:16]}"
-    want_input = normalize_create_input_fn(fields)
+    try:
+        want_input = normalize_create_input_fn(fields, canonical_fn=canonical_fn)
+    except TypeError:
+        want_input = normalize_create_input_fn(fields)
     return row_id, want_input
 
 
@@ -96,6 +104,7 @@ def validate_manual_expense_create_input(
     *,
     valid_date_fn: Callable[[Any], bool] = valid_date,
     normalize_create_input_fn: Callable[[dict], dict] = normalize_create_input,
+    canonical_fn: Callable[[Any], str] = canonical_json,
     save_error_cls: type[Exception] = SaveError,
 ) -> tuple[str, dict]:
     """Validate manual expense creation input and produce (row_id, want_input).
@@ -124,7 +133,10 @@ def validate_manual_expense_create_input(
         raise save_error_cls("INVALID_VALUE", "요청 ID가 필요해요")
 
     row_id = f"man-{client_request_id[:16]}"
-    want_input = normalize_create_input_fn(fields)
+    try:
+        want_input = normalize_create_input_fn(fields, canonical_fn=canonical_fn)
+    except TypeError:
+        want_input = normalize_create_input_fn(fields)
     return row_id, want_input
 
 

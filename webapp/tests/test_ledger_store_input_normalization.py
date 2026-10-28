@@ -383,3 +383,51 @@ def test_facade_create_and_idempotency_end_to_end(tmp_path):
     assert exc.value.code == "REQUEST_ID_REUSED"
 
     store.conn.close()
+
+
+def test_canonical_fn_rebinding_and_failure_injection(tmp_path, monkeypatch):
+    """Verify that monkeypatching facade _canonical dynamically alters normalization and preserves failure injection."""
+    calls = []
+
+    def tracking_canonical(val):
+        calls.append(val)
+        import json
+        return json.dumps(val)
+
+    # 1. normalize_create_input with explicit canonical_fn
+    out = normalize_create_input({"foo": "bar"}, canonical_fn=tracking_canonical)
+    assert out == {"foo": "bar"}
+    assert len(calls) == 1
+    assert calls[0] == {"foo": "bar"}
+
+    # 2. Monkeypatch facade _canonical and verify _normalize_create_input delegates to it
+    monkeypatch.setattr(ls_module, "_canonical", tracking_canonical)
+    facade_out = ls_module._normalize_create_input({"baz": 123})
+    assert facade_out == {"baz": 123}
+    assert len(calls) == 2
+    assert calls[1] == {"baz": 123}
+
+    # 3. Failure injection in _canonical raises during create before write transaction
+    db_path = str(tmp_path / "test_store_canonical_fail.db")
+    store = LedgerStore(db_path)
+
+    def failing_canonical(val):
+        raise RuntimeError("injected canonical failure")
+
+    monkeypatch.setattr(ls_module, "_canonical", failing_canonical)
+
+    with pytest.raises(RuntimeError, match="injected canonical failure"):
+        store.create_direct_income(
+            fields={
+                "display_tab_id": "tab-1",
+                "occurred_on": "2026-10-28",
+                "amount_krw": 50000,
+                "income_kind": "deposit",
+            },
+            client_request_id="req-fail-test",
+        )
+
+    # Verify no row was inserted
+    assert store.get_row("inc-req-fail-test") is None
+    store.conn.close()
+
