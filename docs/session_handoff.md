@@ -410,3 +410,10 @@
 - **DEPLOYED**: PR #263/#265/#266/#267/#268/#269/#270/#272의 검수된 분리를 포함한 `22e134b4c98c60a68057b7caa8b14bf9f0b4b24b`로 Board 고정 배포했다. 기존 운영 `4e537766fa201ff4c2e58e9117efc5162e6e92c7`은 복구점으로 보존한다.
 - 1,009 Git blob 불일치0, 실제 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호 API401, 보호13표 내용/스키마 전후 동일. data guard 차단0/삭제0. 위108 passed/3 subtests 및 기존 개별 동등성 근거를 재사용했다. 운영 화면 HTML 수락은 별도 후속 검사 대상이다.
 - RF-103 cleanup 교정 `c2b20f3`과 작업자57 passed를 수신했다. 현재 릴리스에는 미포함이며 실제 diff 검수·통합을 다음 독립 작업으로 이어간다. 기존 AGY 작업자를 그대로 재사용한다.
+### generation 3 후속 회수·교정·운영 작성자 조율
+
+- RF-103 cleanup 교정 수신 후 None/falsey escaping과 snapshot key lookup을 보존해 PR #276으로 병합했다. Supervisor cleanup/refund/OTA27 passed, snapshot lookup 보완 후22 passed, 테스트 선택기8 passed. 작업자57 passed와 공개 baseline HTML 동일성 근거를 재사용했다. 전체 RF-103 완료는 아니다.
+- RF-004 새 schema/allocation/cleanup 모듈의 전용·인접 검사 매핑을 PR #276에 포함했다. 최초 매핑의 존재하지 않는 검사 경로는 실행된 선택기에서 발견해 실제 ledger_store 검사로 교정 후8 passed만 수락했다.
+- RF-101 audit/outbox `01017e6`·RF-201 shell `ccb9b54` 실제 커밋과 보고를 회수했다. audit의 self._owns_outbox_id 우회/필터 lock 범위 변경을 발견해 교정 요청했다. shell34검사 보고는 통합 검수 전이다. 카드 작업자는 RF-105 read projection, store는 교정 후 revision/idempotency, UI는 shell/theme 자산 단일 소유 추출을 같은 기존 AGY 세션에서 이어간다.
+- 별도 사용자 UI 작업 세션의 배포 동안 운영 작성권을 양보했고, 완료 보고와 SHA 고정 증거를 인계받았다. 현재 운영은 `b54ca37c068ae8e830220652fe91978821978231`(PR #273), 후속 문서만 PR #275다. 현재 후보 배포 시 이 SHA를 이전 검증 릴리스로 사용한다.
+- PEND-04 실제 실행 목록에서 편집기의 수집 선택 표시와 달리 상태 조회 함수가 실행된 것을 확인했다. 잘못된 BATCH_STARTED 보고를 백필 진전으로 계산하지 않는다. 로컬 반복기를 중지한 후 키보드로 실제 선택을 교정해 수집 실행을 다시 시작했다. 저장2777건에서 후속 증가/완료 여부를 확인해야 하며, 호스트 적재/스케줄 전환은 미실행이다.
