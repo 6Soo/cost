@@ -28,6 +28,11 @@ def test_route_service_repository_sql_chain_without_literals_or_imports(tmp_path
     assert result['routes'][0]['symbol'] == 'handler'
     assert result['effects'][0]['table'] == 'rows'
     assert result['effects'][0]['owner'] == 'app/repo.py:save'
+    assert result['repositories'] == [{'path': 'app/repo.py', 'symbol': 'save', 'line': 2,
+                                       'status': 'STATIC_CANDIDATE'}]
+    assert result['services'] == [{'path': 'app/service.py', 'symbol': 'run', 'line': 2,
+                                   'status': 'STATIC_CANDIDATE'}]
+    assert result['tables'][0]['table'] == 'rows'
     encoded = json.dumps(result)
     assert 'PRIVATE_SENTINEL' not in encoded
     assert 'SECRET_SENTINEL' not in encoded
@@ -61,6 +66,15 @@ def test_route_tuple_and_unknown_sql_and_effect_locations(tmp_path):
     assert any(e['status'] == 'OPEN_QUESTION' and e['kind'] == 'sql_unknown' for e in result['effects'])
     assert any(e['kind'] == 'external_candidate' for e in result['effects'])
     assert 'SENTINEL' not in json.dumps(result)
+
+
+def test_permission_signals_are_explicitly_unresolved_and_outputs_are_complete(tmp_path):
+    from tools.refactor_call_map import build_map, summary
+    result = build_map(repository(tmp_path, {'webapp/api.py':
+        '@require_owner\ndef handle():\n    pass\n'}))
+    assert result['permission_signals'] == [{'path': 'webapp/api.py', 'symbol': 'handle',
+        'line': 2, 'signals': ['require_owner'], 'status': 'OPEN_QUESTION'}]
+    assert summary(result)['counts']['permission_signals'] == 1
 
 
 def test_invalid_source_reports_location_without_source(tmp_path):

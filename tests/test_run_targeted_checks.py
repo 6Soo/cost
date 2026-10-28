@@ -180,52 +180,54 @@ def test_guard_json_validation_strictness_and_count_mismatch():
 
 def test_selector_validation_empty_and_arbitrary_commands():
     """Verify that empty commands, non-py targets, outside files, or invalid command shapes are rejected."""
+    required = {"unknown_files": [], "document_only_files": [],
+                "fallback_selected": False, "tests_executed": False}
     # 1. Arbitrary / empty command shape [[]]
     with pytest.raises(ValueError, match="SELECTOR_INVALID_COMMAND_SHAPE"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": [[]]}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": [[]]}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
     # 2. Command not starting with sys.executable -m pytest
     with pytest.raises(ValueError, match="SELECTOR_INVALID_COMMAND_SHAPE"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": [["arbitrary", "command"]]}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": [["arbitrary", "command"]]}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
     # 3. Empty targets list
     with pytest.raises(ValueError, match="SELECTOR_EMPTY_TARGETS"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "-q"]]}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "-q"]]}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
     # 4. Target does not end in .py
     with pytest.raises(ValueError, match="SELECTOR_INVALID_TARGET_EXTENSION"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "tests/foo.txt", "-q"]]}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "tests/foo.txt", "-q"]]}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
     # 5. Target does not exist on disk
     with pytest.raises(ValueError, match="SELECTOR_TARGET_NOT_FOUND"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "tests/non_existent_file.py", "-q"]]}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "tests/non_existent_file.py", "-q"]]}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
     # 6. Target escapes repository root
     with pytest.raises(ValueError, match="SELECTOR_TARGET_OUTSIDE_ROOT"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "../outside.py", "-q"]]}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "../outside.py", "-q"]]}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
     # 7. Code changes exist but 0 pytest commands provided
     with pytest.raises(ValueError, match="NO_TARGETS_SELECTED"):
         run_targeted_checks.validate_selector_output(
-            json.dumps({"status": "SELECTED", "pytest_commands": []}),
+            json.dumps({**required, "status": "SELECTED", "pytest_commands": []}),
             returncode=0, has_code_changes=True, root=ROOT
         )
 
@@ -234,7 +236,8 @@ def test_selector_unknown_files_halts_pipeline_without_pass():
     """Verify selector reporting unknown files results in UNKNOWN_IMPACT exit 2."""
     dummy_base = "a" * 40
     dummy_head = "b" * 40
-    selector_unknown = json.dumps({"status": "UNKNOWN_IMPACT", "unknown_files": ["unmapped.py"], "pytest_commands": []})
+    selector_unknown = json.dumps({"status": "UNKNOWN_IMPACT", "unknown_files": ["unmapped.py"],
+        "document_only_files": [], "fallback_selected": True, "tests_executed": False, "pytest_commands": []})
 
     def fake_subprocess_run(cmd, **kwargs):
         assert isinstance(cmd, list)
@@ -260,7 +263,9 @@ def test_data_guard_blocked_files_halts_pipeline():
     dummy_base = "a" * 40
     dummy_head = "b" * 40
     valid_target = "tests/test_run_targeted_checks.py"
-    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": [[sys.executable, "-m", "pytest", valid_target, "-q"]]})
+    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "document_only_files": [],
+        "fallback_selected": False, "tests_executed": False,
+        "pytest_commands": [[sys.executable, "-m", "pytest", valid_target, "-q"]]})
     guard_blocked = json.dumps({"schema_version": 1, "files": [{"path": "secret.csv", "blocked": True}], "blocked_count": 1})
 
     def fake_subprocess_run(cmd, **kwargs):
@@ -301,7 +306,8 @@ def test_guard_schema_version_requires_exact_integer(version):
 def test_selector_code_changes_require_selected_status(status):
     with pytest.raises(ValueError, match="SELECTOR_RC_STATUS_MISMATCH"):
         run_targeted_checks.validate_selector_output(json.dumps({
-            "status": status, "unknown_files": [], "pytest_commands": [
+            "status": status, "unknown_files": [], "document_only_files": [],
+            "fallback_selected": False, "tests_executed": False, "pytest_commands": [
                 [sys.executable, "-m", "pytest", "tests/test_run_targeted_checks.py", "-q"],
             ],
         }), 0, True, ROOT)
@@ -311,10 +317,37 @@ def test_selector_rejects_option_even_when_file_exists(tmp_path):
     (tmp_path / "--override-ini=python_files=test.py").write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match="SELECTOR_INVALID_TARGET"):
         run_targeted_checks.validate_selector_output(json.dumps({
-            "status": "SELECTED", "unknown_files": [], "pytest_commands": [
+            "status": "SELECTED", "unknown_files": [], "document_only_files": [],
+            "fallback_selected": False, "tests_executed": False, "pytest_commands": [
                 [sys.executable, "-m", "pytest", "--override-ini=python_files=test.py", "-q"],
             ],
         }), 0, True, tmp_path)
+
+
+def test_selector_rejects_parent_traversal_and_missing_contract_fields(tmp_path):
+    with pytest.raises(ValueError, match="SELECTOR_TARGET_OUTSIDE_ROOT"):
+        run_targeted_checks.validate_selector_output(json.dumps({
+            "status": "SELECTED", "unknown_files": [], "document_only_files": [],
+            "fallback_selected": False, "tests_executed": False,
+            "pytest_commands": [[sys.executable, "-m", "pytest", "../outside.py", "-q"]],
+        }), 0, True, tmp_path)
+    with pytest.raises(ValueError, match="NO_TARGETS_SELECTED"):
+        run_targeted_checks.validate_selector_output(json.dumps({
+            "status": "SELECTED", "unknown_files": [], "document_only_files": [],
+            "fallback_selected": False, "tests_executed": False,
+            "pytest_commands": [],
+        }), 0, True, tmp_path)
+
+
+def test_selector_map_error_reason_is_mapped_to_fixed_code():
+    with pytest.raises(ValueError, match="SELECTOR_MAP_SCHEMA"):
+        run_targeted_checks.validate_selector_output(json.dumps({
+            "status": "ERROR", "reason": "unsupported impact map schema",
+        }), 2, True, ROOT)
+    with pytest.raises(ValueError, match="SELECTOR_ERROR"):
+        run_targeted_checks.validate_selector_output(json.dumps({
+            "status": "ERROR", "reason": "PRIVATE_REASON_SENTINEL",
+        }), 2, True, ROOT)
 
 
 @pytest.mark.parametrize("case", ["count_mismatch", "empty_command", "missing_git", "raw_base"])
@@ -323,9 +356,11 @@ def test_real_cli_fail_closed_contracts(synthetic_repo, case):
     tools_dir.mkdir()
     cli = tools_dir / "run_targeted_checks.py"
     shutil.copyfile(ROOT / "tools/run_targeted_checks.py", cli)
-    (synthetic_repo / "test_synthetic.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
-    selection = {"status": "SELECTED", "unknown_files": [], "pytest_commands": [
-        [] if case == "empty_command" else [sys.executable, "-m", "pytest", "test_synthetic.py", "-q"],
+    (synthetic_repo / "tests").mkdir()
+    (synthetic_repo / "tests" / "test_synthetic.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+    selection = {"status": "SELECTED", "unknown_files": [], "document_only_files": [],
+        "fallback_selected": False, "tests_executed": False, "pytest_commands": [
+        [] if case == "empty_command" else [sys.executable, "-m", "pytest", "tests/test_synthetic.py", "-q"],
     ]}
     guard = {"schema_version": 1, "files": [{"path": "synthetic.csv", "blocked": True}], "blocked_count": 0}
     for filename, payload in [("select_targeted_tests.py", selection), ("check_tracked_data.py", guard)]:
@@ -362,7 +397,9 @@ def test_subprocess_security_contracts():
     dummy_base = "a" * 40
     dummy_head = "b" * 40
     valid_target = "tests/test_run_targeted_checks.py"
-    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": [[sys.executable, "-m", "pytest", valid_target, "-q"]]})
+    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "document_only_files": [],
+        "fallback_selected": False, "tests_executed": False,
+        "pytest_commands": [[sys.executable, "-m", "pytest", valid_target, "-q"]]})
     guard_ok = json.dumps({"schema_version": 1, "files": [], "blocked_count": 0})
 
     calls = []
@@ -414,8 +451,13 @@ def test_cli_actual_subprocess_preview_json(synthetic_repo):
     config_dir = synthetic_repo / "config"
     config_dir.mkdir()
     (config_dir / "test-impact-map.json").write_text(json.dumps({
-        "schema": "cost-test-impact-map-v1", "groups": [], "safe_fallback_tests": [],
+        "schema": "cost-test-impact-map-v1",
+        "groups": [{"name": "synthetic", "paths": ["known.py"], "tests": ["tests/test_synthetic.py"]}],
+        "safe_fallback_tests": ["tests/test_synthetic.py"],
     }), encoding="utf-8")
+    (synthetic_repo / "unmapped.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (synthetic_repo / "tests").mkdir()
+    (synthetic_repo / "tests" / "test_synthetic.py").write_text("def test_ok(): pass\n", encoding="utf-8")
     run_git(synthetic_repo, "add", ".")
     run_git(synthetic_repo, "commit", "-qm", "unmapped synthetic code")
 
@@ -430,7 +472,7 @@ def test_cli_actual_subprocess_preview_json(synthetic_repo):
     assert proc_unmapped.returncode == 2
     payload_unmapped = json.loads(proc_unmapped.stdout)
     assert payload_unmapped["schema_version"] == 1
-    assert payload_unmapped["status"] == "UNKNOWN_IMPACT"
+    assert payload_unmapped["status"] == "UNKNOWN_IMPACT", payload_unmapped
     assert payload_unmapped["evidence"]["failure_code"] == "SELECTOR_UNKNOWN_FILES"
     assert "planning_read_only_calls" in payload_unmapped
     assert payload_unmapped["executed"] == []

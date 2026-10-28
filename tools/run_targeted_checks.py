@@ -220,6 +220,18 @@ def validate_selector_output(
     if not isinstance(status, str):
         raise ValueError("SELECTOR_MALFORMED")
 
+    if status == "ERROR":
+        reason = data.get("reason")
+        reason_codes = {
+            "unsupported impact map schema": "SELECTOR_MAP_SCHEMA",
+            "impact map groups and safe fallback are required": "SELECTOR_MAP_EMPTY",
+            "invalid impact group": "SELECTOR_MAP_GROUP",
+            "impact group paths and tests are required": "SELECTOR_MAP_GROUP_CONTENT",
+            "invalid impact path pattern": "SELECTOR_MAP_PATTERN",
+            "invalid pytest target": "SELECTOR_MAP_TARGET",
+        }
+        raise ValueError(reason_codes.get(reason, "SELECTOR_ERROR"))
+
     unknown_files = data.get("unknown_files", [])
     if not isinstance(unknown_files, list) or not all(isinstance(x, str) for x in unknown_files):
         raise ValueError("SELECTOR_MALFORMED")
@@ -235,6 +247,11 @@ def validate_selector_output(
 
     if has_code_changes and status != "SELECTED":
         raise ValueError("SELECTOR_RC_STATUS_MISMATCH")
+
+    if (not isinstance(data.get("document_only_files"), list)
+            or not isinstance(data.get("fallback_selected"), bool)
+            or data.get("tests_executed") is not False):
+        raise ValueError("SELECTOR_MALFORMED")
 
     if unknown_files:
         raise ValueError("SELECTOR_UNEXPECTED_UNKNOWN_FILES")
@@ -261,6 +278,8 @@ def validate_selector_output(
                 raise ValueError("SELECTOR_INVALID_TARGET_EXTENSION")
             if target.startswith("-") or "\0" in target:
                 raise ValueError("SELECTOR_INVALID_TARGET")
+            if "\\" in target or Path(target).is_absolute():
+                raise ValueError("SELECTOR_INVALID_TARGET")
             target_path = root / target
             try:
                 resolved = target_path.resolve()
@@ -268,6 +287,8 @@ def validate_selector_output(
                 raise ValueError("SELECTOR_TARGET_NOT_FOUND")
             if not resolved.is_relative_to(root.resolve()):
                 raise ValueError("SELECTOR_TARGET_OUTSIDE_ROOT")
+            if ".." in Path(target).parts:
+                raise ValueError("SELECTOR_INVALID_TARGET")
             if not target_path.is_file():
                 raise ValueError("SELECTOR_TARGET_NOT_FOUND")
         validated_commands.append(cmd)

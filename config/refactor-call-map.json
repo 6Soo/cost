@@ -1,18 +1,22 @@
 ﻿{
   "schema": "rf001-call-map/v1",
   "mode": "static_ast_only",
-  "code_sha": "3afc1d793fc9dd132103b147c40b91b93656821e",
+  "code_sha": "496cbbe9778e002bc4265f28b50da704d28f042c",
   "counts": {
-    "files": 652,
-    "symbols": 9221,
-    "calls": 92991,
+    "files": 691,
+    "symbols": 9557,
+    "calls": 95282,
     "routes": 38,
-    "effects": 6216,
-    "errors": 0
+    "effects": 6321,
+    "errors": 0,
+    "permission_signals": 0,
+    "repositories": 1081,
+    "services": 169,
+    "tables": 2265
   },
   "call_status": {
-    "OPEN_QUESTION": 74099,
-    "STATIC_CANDIDATE": 18892
+    "OPEN_QUESTION": 76087,
+    "STATIC_CANDIDATE": 19195
   },
   "routes": [
     {
@@ -126,13 +130,13 @@
     {
       "path": "webapp/ledger_board.py",
       "symbol": "Handler.do_GET",
-      "line": 3972,
+      "line": 3328,
       "status": "STATIC_CANDIDATE"
     },
     {
       "path": "webapp/ledger_board.py",
       "symbol": "Handler.do_POST",
-      "line": 4365,
+      "line": 3712,
       "status": "STATIC_CANDIDATE"
     },
     {
@@ -253,6 +257,10 @@
     "Only lexical functions, explicit imports, and direct self methods resolve.",
     "Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.",
     "No literal values, SQL text, function bodies or application imports are emitted.",
+    "Permission decorators and names are signals only; no authorization is inferred.",
+    "Repositories and services count matching callable symbols (including tests), not unique components or runtime roles.",
+    "Table rows count SQL findings; the same table can appear multiple times and is not a schema inventory.",
+    "With --limit-output, oversized graph details are omitted; rerun without that flag for the full graph.",
     "Summary omits graph details; rerun without --summary for all locations."
   ]
 }
