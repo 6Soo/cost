@@ -82,6 +82,11 @@
       "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_cleanup_original_refund_status_contract.py", "webapp/tests/test_refund_inference_runtime.py"]
     },
     {
+      "name": "card-refund-query",
+      "paths": ["webapp/card_refund_query.py", "webapp/tests/test_card_refund_query.py"],
+      "tests": ["webapp/tests/test_card_refund_query.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_refund_inference_runtime.py"]
+    },
+    {
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
                 "webapp/tests/test_targeted_test_selector.py"],

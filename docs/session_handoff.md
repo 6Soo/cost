@@ -13,11 +13,11 @@
 
 | 작업 | 단독 작성자 / 파일 소유권 | 상태·완료 기준 |
 | --- | --- | --- |
-| RF-101 저장소 읽기·투영 책임 추출 | `bf74bc49-d0d8-41be-886e-3255dca226fe`, `ledger_store.py`와 새 읽기 모듈·독립 테스트 | IMPLEMENTING. 실제 소비경계 연결, façade/반환값/스키마·쓰기·revision·감사 보존, 표적 검사·커밋 후 Supervisor 검수. 전체 RF-101 완료와 구별한다. |
-| RF-102 보드 읽기·표시 책임 추출 | `98cc885f-5d8c-4c99-8d5e-01ccfe57a6ea`, `ledger_board.py`와 새 투영/표시 모듈·독립 테스트 | IMPLEMENTING. 기존 HTTP/권한/CSRF/session/lock·public 심볼 보존, 실제 호출 연결과 합성 동등성. |
-| RF-201/202 장부 자산 책임 분리 | `995ccfb3-16d8-4dfe-82fd-65ca02fc4091`, `ledger_design.py`와 새 자산 모듈/경로·독립 테스트 | IMPLEMENTING. CSS/JS·생성 HTML/asset bytes·로드 순서 보존. 기존 44px 토큰/단일 theme 재구현 금지. |
-| RF-103 카드 OTA·환불 근거 표시 분리 | `bce73f79-9de8-4f22-8c1e-04ab8ab6efd1`, `card_flow.py`와 새 근거 renderer·독립 테스트 | IMPLEMENTING. 금융 판단과 뷰 분리, 1:N·추론 보류·환급 미완료·escaping·기존 호출 계약 보존. |
-| PEND-04 기존 클라우드 전환 | Supervisor, 기존 all-pending 로컬 실행기 | BACKFILL_RUNNING. 마지막 소스 원격 일치 확인, 819건에서 재개. 전체 탐색→백업/복원·단일 작성자→원문 적재/반복 불변→worker·예약 수집·전달 전환 순서 유지. |
+| RF-101 저장소 읽기·투영 책임 추출 | `bf74bc49-d0d8-41be-886e-3255dca226fe`, `ledger_store.py`와 새 모듈·독립 테스트 | 읽기 PR #263 병합. 스키마 원형 추출599204d 검수 중, 다음 순수 배분 검증 분리 배정. 쓰기·감사 실행 순서 보존. |
+| RF-102 보드 읽기·표시 책임 추출 | `98cc885f-5d8c-4c99-8d5e-01ccfe57a6ea`, `ledger_board.py`와 새 투영/표시 모듈·독립 테스트 | 렌더 헬퍼 PR #267/main091e49a 병합. 최종11검사·통합15검사 통과, Handler/detail_page AST 불변. 다음 읽기 투영 구현 중. |
+| RF-201/202 공통 UI 책임 정리 | `995ccfb3-16d8-4dfe-82fd-65ca02fc4091`, 지정 UI 소유 모듈·독립 테스트 | 장부 자산 PR #262 배포4e53776, 검토 문서 PR #265·카탈로그 PR #266 병합. 다음 기존 theme/shell 중복 소비 정리 배정. |
+| RF-103 카드 OTA·환불 근거 표시 분리 | `bce73f79-9de8-4f22-8c1e-04ab8ab6efd1`, `card_flow.py`와 새 근거/조회/표시 모듈·독립 테스트 | 렌더러 PR #261/main7fbf1b0 병합. 최신 main 통합28 passed. 쿼리8c5d263·OTA 투영053f0cb 검수/통합 중, 다음 순수 목록 마크업 분리 배정. |
+| PEND-04 기존 클라우드 전환 | Supervisor, 기존 all-pending 로컬 실행기 | 마지막 확인2777건, 탭 소멸로 runner 중단. 기존 프로젝트 탭 복구 중. 전체 탐색→백업/복원·단일 작성자→원문 적재/반복 불변→worker·예약 수집·전달 전환 순서 유지. |
 
 통합은 변경 축별 직렬 PR로 수행하고 작업자 구현/테스트·Supervisor 수락·병합·실제 배포를 따로 기록한다. R0/R1 기존 PARTIAL 및 외부 근거 미확인을 완료로 승격하지 않는다. 각 작업 완료 후 마스터의 의존성과 최신 소스를 대조해 다음 준비 항목을 바로 배정한다.
 
@@ -25,7 +25,7 @@
 
 - RF-004 추출 모듈별 기능 검사 매핑은 PR #260, 코드 `52df69d`, main `afedabd`로 병합했다. 선택기8 passed·staged guard 차단0/삭제0. 런타임 변경이 없어 Board 재배포/재시작하지 않았다.
 - RF-201/202 장부 자산 추출은 **TEST_PASSED / SUPERVISOR_REVIEWED**다. 작업자 `958ce31`→`4a94ace`→`73368af`를 검수했고, 미소비 토큰/새 palette·미사용 API·폰트 캐시 동작 변경을 제거했다. 최종은 기존 STYLE/SCRIPT만 import 시 읽는 CSS/JS 파일로 분리한다. Supervisor가 공개 기준 `2384cfd` 모듈을 별도 실행해 STYLE32,235B·SCRIPT21,055B와 생성 HTML의 정확한 동일성을 확인했다(문자 수와 byte 수를 구별). 자산5/인접55 passed 근거를 재사용한다. source-theme 검사4 passed/2 failed는 같은 기준 실패이며, source 파일 읽기 결합만 런타임 상수로 바꾸고 단언은 보존했다. 아직 이 상태를 배포 완료로 보고하지 않는다.
-- RF-103 카드 표시 교정은 빈 dict/필수키/None/불확실성의 원래 계약을 복원한 `38b78ed`까지 검수했고 draft PR #261로 분리했다. 표적45 passed·변경 없는 환불 코어150 passed. Supervisor 추가64 passed+28 subtests/6 failed이며, 실패6개는 기준 `2384cfd`의 원래 card_flow로 같은 ID/원인이 재현됐다. 새 쿼리 추출 `5bbc83a`는 조회→UI 의존과 작업자 전용 baseline SHA를 교정 중이다.
+- RF-103 카드 표시 교정은 빈 dict/필수키/None/불확실성의 원래 계약을 복원한 `38b78ed`까지 검수해 PR #261/main7fbf1b0에 병합했다. 표적45 passed·변경 없는 환불 코어150 passed. Supervisor 추가64 passed+28 subtests/6 failed이며, 실패6개는 기준 `2384cfd`의 원래 card_flow로 같은 ID/원인이 재현됐다. 최신 store/board와 합친 검사28 passed. 쿼리 `8c5d263`은 UI 역의존 제거·공개 baseline 교정을 완료해 순차 통합 중이다.
 - RF-101은 초기 금액 Decimal→int 변환과 동적 메서드 우회를 거부하고 `496fe23` 교정을 받았다. RF-102는 전역 fallback/분기 문구/불필요한 여행 선조회와 원래 동적 호출 보존을 교정 중이다. 이 두 묶음은 아직 Supervisor 최종 수락/병합/배포 전이다.
 - 자산 담당자는 다음 독립 묶음으로 기존 real_review_ui의 정적 문서 분리를, 카드 담당자는 읽기 쿼리 분리를 이어 수행한다. 새로운 금융 정책·보험/여행 항공권 기능은 추가하지 않는다. PEND-04는 브라우저 탭 소멸로 로컬 runner가 멈춘 사실을 확인하고 기존 수집 상태에서 복구했다. 운영 원문 적재·스케줄 전환은 아직 미실행이다.
 
