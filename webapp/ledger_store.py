@@ -63,6 +63,13 @@ from .ledger_store_change_validation import (
     valid_date,
     validate_row_changes,
 )
+from .ledger_store_input_normalization import (
+    build_direct_income_record,
+    build_manual_expense_record,
+    normalize_create_input,
+    validate_direct_income_create_input,
+    validate_manual_expense_create_input,
+)
 from .ledger_store_idempotency import (
     check_revision_conflict,
     match_allocation_save_request,
@@ -178,9 +185,7 @@ def _valid_date(value) -> bool:
 
 
 def _normalize_create_input(fields: dict) -> dict:
-    return json.loads(_canonical({
-        k: (None if v is None else v) for k, v in (fields or {}).items()
-    }))
+    return normalize_create_input(fields, canonical_fn=_canonical)
 
 
 # One process-wide run id. Every LedgerStore in this process shares it, so a
@@ -5431,19 +5436,14 @@ class LedgerStore:
 
     def create_direct_income(self, *, fields: dict, client_request_id: str,
                              actor: str = "owner") -> dict:
-        for key in ("display_tab_id", "occurred_on", "amount_krw", "income_kind"):
-            if key not in fields:
-                raise SaveError("INVALID_VALUE", f"{key}가 필요해요")
-        if fields["income_kind"] not in ("deposit", "balance", "additional"):
-            raise SaveError("INVALID_VALUE", "입금 종류를 골라 주세요")
-        if isinstance(fields["amount_krw"], bool) or not isinstance(fields["amount_krw"], int):
-            raise SaveError("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요")
-        if not _valid_date(str(fields["occurred_on"])):
-            raise SaveError("INVALID_VALUE", "날짜 형식이 달라요")
-        if not client_request_id or not isinstance(client_request_id, str):
-            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
-        row_id = f"inc-{client_request_id[:16]}"
-        want_input = _normalize_create_input(fields)
+        row_id, want_input = validate_direct_income_create_input(
+            fields,
+            client_request_id,
+            valid_date_fn=_valid_date,
+            normalize_create_input_fn=_normalize_create_input,
+            canonical_fn=_canonical,
+            save_error_cls=SaveError,
+        )
         with self._lock:
             self._replay_pending()
             existing = self.conn.execute(
@@ -5457,22 +5457,11 @@ class LedgerStore:
                 raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
             if self.get_row(row_id) is not None:
                 raise SaveError("REQUEST_ID_REUSED", "이미 있는 행이에요")
-            record = {
-                "row_id": row_id, "row_kind": "income",
-                "display_tab_id": fields["display_tab_id"],
-                "revision": 1,
-                "occurred_on": str(fields["occurred_on"]),
-                "customer_id": fields.get("customer_id"),
-                "customer_name": str(fields.get("customer_name") or ""),
-                "nickname": str(fields.get("nickname") or ""),
-                "income_kind": fields["income_kind"],
-                "event_type": "receipt",
-                "amount_krw": fields["amount_krw"],
-                "source_kind": "직접 입력",
-                "source_event_id": row_id,
-                "operator_note": str(fields.get("memo") or ""),
-                "created_by_request": client_request_id,
-            }
+            record = build_direct_income_record(
+                row_id=row_id,
+                fields=fields,
+                client_request_id=client_request_id,
+            )
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
             self._begin_write()
@@ -5561,20 +5550,14 @@ class LedgerStore:
 
     def create_manual_expense(self, *, fields: dict, client_request_id: str,
                               actor: str = "owner") -> dict:
-        for key in ("display_tab_id", "occurred_on", "amount_krw", "item"):
-            if key not in fields:
-                raise SaveError("INVALID_VALUE", f"{key}가 필요해요")
-        # OTA 캐시·포인트 사용분은 지급 수단 대신 증빙 종류(evidence_type)를 쓴다.
-        if not fields.get("evidence_type") and fields.get("pay_method") not in ("현금", "계좌이체"):
-            raise SaveError("INVALID_VALUE", "지급 수단을 현금·계좌이체 중에서 골라 주세요")
-        if isinstance(fields["amount_krw"], bool) or not isinstance(fields["amount_krw"], int):
-            raise SaveError("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요")
-        if not _valid_date(str(fields["occurred_on"])):
-            raise SaveError("INVALID_VALUE", "날짜 형식이 달라요")
-        if not client_request_id or not isinstance(client_request_id, str):
-            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
-        row_id = f"man-{client_request_id[:16]}"
-        want_input = _normalize_create_input(fields)
+        row_id, want_input = validate_manual_expense_create_input(
+            fields,
+            client_request_id,
+            valid_date_fn=_valid_date,
+            normalize_create_input_fn=_normalize_create_input,
+            canonical_fn=_canonical,
+            save_error_cls=SaveError,
+        )
         with self._lock:
             self._replay_pending()
             existing = self.conn.execute(
@@ -5588,25 +5571,11 @@ class LedgerStore:
                 raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
             if self.get_row(row_id) is not None:
                 raise SaveError("REQUEST_ID_REUSED", "이미 있는 행이에요")
-            record = {
-                "row_id": row_id, "row_kind": "expense",
-                "display_tab_id": fields["display_tab_id"],
-                "revision": 1,
-                "occurred_on": str(fields["occurred_on"]),
-                "item": str(fields["item"]),
-                "description": str(fields.get("description") or ""),
-                "service_period": str(fields.get("service_period") or ""),
-                "reservation_no": str(fields.get("reservation_no") or ""),
-                "evidence_type": (str(fields["evidence_type"]) if fields.get("evidence_type")
-                                  else "현금" if fields["pay_method"] == "현금" else "계좌이체"),
-                "amount_krw": fields["amount_krw"],
-                "source_kind": "수기",
-                "source_event_id": row_id,
-                "classification_state": "",
-                "classification_basis": "직접 입력",
-                "operator_note": str(fields.get("memo") or ""),
-                "created_by_request": client_request_id,
-            }
+            record = build_manual_expense_record(
+                row_id=row_id,
+                fields=fields,
+                client_request_id=client_request_id,
+            )
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
             self._begin_write()
