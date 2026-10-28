@@ -1,5 +1,10 @@
 # 현재 상태와 남은 일
 
+## 2026-10-28 Travel INS → COST 보험가입 명단 연동 감사 (SPEC_ONLY)
+
+양쪽 실제 코드 분석 내용을 [보험 명단 수신·운영 DB·여행별 참가자 조회 구현 명세](specs/insurance-participant-integration-20261028.md)에 추가했다. 기존 COST 수신기/참가자 전용 SQLite/owner 전용 `/participants`/Google 수입 대조는 구현됨. Travel INS `tools/payment_pause.py`에서 필수 `confirmation_reference` 누락과 미지원 `owner_attested` 전달로 실제 `finish_registration` 호출이 실패할 수 있는 **미수정 P0 결함**, 웹 `WEBLEDGER_PARTICIPANT_DB`와 로컬 전달기의 파일 동일성 **운영 미확인 P0**, 보험사 확인 후 공통 전달 흐름과 여행별 보험 참가자 표시 **부분 구현/미구현**을 각각 기록했다. 이번 커밋은 문서만 수정한다. 운영 참가자 DB·보험/금융 원본·기존 완료 작업은 변경하지 않고, 테스트·배포·실자료 수락은 수행하지 않았다.
+
+
 ## 2026-10-28 “미결작업 모두 진행” 후속 실행
 
 현재 지시는 미결 항목 전부 진행이다. 이미 끝난 대사 코드를 재실행하지 않고 미연결의 추가 원본 탐색, 미수락 UI 경계, 실제 클라우드 수집 전환 공백을 처리했다. 현재 추가 실행 계약은 [클라우드 전환 절차](specs/cloud-mail-cutover.md)이며 금융/OTA의 기존 보호 계약을 유지한다.
