@@ -611,7 +611,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                      entry["transaction_direction"], entry["source_hash"], now))
                 booked.append(transaction_id)
                 store.log_change("ledger.booked", transaction_id,
-                                 {"batch_id": batch_id, "item": entry["item"],
+                                 {"batch_id": entry.get("source_batch_id", batch_id),
+                                  "item": entry["item"],
                                   "amount_krw": entry["amount_krw"],
                                   "source_hash": entry["source_hash"]})
                 if projection is not None:
