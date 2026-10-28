@@ -35,7 +35,8 @@ def test_query_preserves_always_collected_recipients_and_after_boundary():
     assert query.startswith('after:2026/10/02 (')
     assert 'to:kew2000@hanmail.net OR cc:kew2000@hanmail.net' in query
     assert 'to:kew2000@daum.net OR cc:kew2000@daum.net' in query
-    assert query.endswith('subject:토요코인)')
+    assert 'subject:토요코인 OR (from:nicepg.co.kr ("자연휴양림" OR "휴양시설"))' in query
+    assert query.endswith(')))')
 
 
 def test_collect_keeps_two_day_overlap_and_state_query(tmp_path):

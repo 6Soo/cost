@@ -52,6 +52,7 @@ def test_source_warnings_block_completion_and_are_sanitized(change):
     ({'ota_event_id': 'date', 'status': 'HOLD_DATE_UNKNOWN', 'evidence_status': 'paid_verified'}, 'waiting_source'),
     ({'ota_event_id': 'card', 'status': 'HOLD_NO_CARD', 'evidence_status': 'paid_verified'}, 'waiting_source'),
     ({'ota_event_id': 'reservation', 'status': 'RESERVATION_ONLY', 'evidence_status': 'unknown'}, 'evidence_missing'),
+    ({'ota_event_id': 'forest', 'status': 'RESERVATION_ONLY', 'evidence_status': 'reservation_only'}, 'evidence_missing'),
     ({'ota_event_id': 'amount', 'status': 'HOLD_AMOUNT_UNVERIFIED', 'evidence_status': 'paid_unverified'}, 'evidence_missing'),
     ({'ota_event_id': 'conflict', 'status': 'HOLD_AMOUNT_MISMATCH', 'evidence_status': 'paid_verified'}, 'needs_action'),
     ({'ota_event_id': 'ambiguous', 'status': 'HOLD_AMBIGUOUS', 'evidence_status': 'paid_verified'}, 'needs_action'),

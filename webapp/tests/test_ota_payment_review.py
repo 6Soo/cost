@@ -1272,6 +1272,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                  "2026-09-04", "purchase", 12500, None, None, None) for index in range(2)])
             board_conn.commit()
             events = [{**EVENT, "ota_event_id":f"partial-event-{index}",
+                       "provider": "trip",
                        "booking_ref":f"BOOK-PARTIAL-{index}", "card_last4":"2042",
                        "evidence_status":"paid_verified", "payment_status":"paid",
                        "source_digest":f"partial-source-{index}"} for index in range(3)]

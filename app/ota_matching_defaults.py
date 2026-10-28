@@ -1,5 +1,7 @@
 """버전 관리되는 OTA 대조 기본 설정을 읽는다."""
 
+from contextlib import contextmanager
+import contextvars
 from functools import lru_cache
 import json
 import os
@@ -76,12 +78,19 @@ def load_defaults():
     return value
 
 
-def provider_for_merchant(merchant):
-    """Resolve a merchant descriptor through the shared, versioned OTA aliases."""
-    value = str(merchant or "").casefold()
-    if not value:
-        return None
-    defaults = load_defaults()
+class _ProviderScope:
+    __slots__ = ("defaults_ref", "cache")
+
+    def __init__(self, defaults_ref):
+        self.defaults_ref = defaults_ref
+        self.cache = {}
+
+
+_provider_ctx = contextvars.ContextVar("provider_resolution_ctx", default=None)
+
+
+def _resolve_provider(value, defaults):
+    """Internal resolution using a given defaults dict (not load_defaults())."""
     aliases = []
     for provider, candidates in defaults.get("provider_merchant_aliases", {}).items():
         aliases.extend((str(alias), provider) for alias in candidates)
@@ -92,3 +101,50 @@ def provider_for_merchant(merchant):
         if alias and alias.casefold() in value:
             return provider
     return None
+
+
+@contextmanager
+def provider_resolution_scope():
+    """Fixed-policy reconcile-run scope that caches merchant→provider results.
+
+    Nested scopes reuse the same context; exit resets only when this call
+    created the context. If load_defaults() returns a different object
+    (e.g. after cache_clear), the scope invalidates its cache and holds
+    the new dict strongly to avoid id-reuse problems.
+
+    This is a fixed-policy run scope; callers in the reconcile path do
+    not modify the defaults dict in place (verified by source search).
+    """
+    existing = _provider_ctx.get()
+    if existing is not None:
+        # Nested reuse; yield existing without replacement/reset.
+        yield existing
+        return
+    # A pinned/empty read must retain its early-return behavior even if no
+    # matching policy can be loaded. Resolve policy lazily on the first lookup.
+    scope = _ProviderScope(None)
+    token = _provider_ctx.set(scope)
+    try:
+        yield scope
+    finally:
+        _provider_ctx.reset(token)
+
+
+def provider_for_merchant(merchant):
+    """Resolve a merchant descriptor through the shared, versioned OTA aliases."""
+    value = str(merchant or "").casefold()
+    if not value:
+        return None
+    scope = _provider_ctx.get()
+    if scope is not None:
+        # Invalidate if load_defaults produced a new object (cache_clear etc.)
+        current = load_defaults()
+        if current is not scope.defaults_ref:
+            scope.defaults_ref = current
+            scope.cache.clear()
+        if value in scope.cache:
+            return scope.cache[value]
+        result = _resolve_provider(value, scope.defaults_ref)
+        scope.cache[value] = result
+        return result
+    return _resolve_provider(value, load_defaults())

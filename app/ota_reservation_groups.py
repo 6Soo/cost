@@ -2,7 +2,8 @@
 
 This module does not infer reservation identity from provider/reference text,
 mail lineage, portal database lineage, solver groups, or payment attributes.
-Only a producer-attested, provider-scoped identity with verified evidence
+Only a producer-attested, provider-scoped identity from verified portal
+evidence or an authenticated provider mail's explicit booking binding
 links and no conflict can place events in a shared reservation container.
 Events and their independent payment/status axes are never rewritten.
 
@@ -46,6 +47,14 @@ def _attested_key(event):
     # The producer-only private provenance is the trust channel. A caller
     # supplied public-shaped attestation by itself is never sufficient.
     provenance = event.get("_portal_reservation_provenance")
+    mail_provenance = provenance is None
+    if provenance is None:
+        provenance = event.get('_mail_reservation_provenance')
+        if isinstance(provenance, Mapping) and (
+                provenance.get('kind') != 'authenticated_provider_booking' or
+                provenance.get('booking_ref') != event.get('booking_ref') or
+                provenance.get('source_digest') != event.get('source_digest')):
+            return None, 'invalid_attestation'
     if not isinstance(provenance, Mapping):
         return None, "missing_attestation"
     provider = attestation.get("provider")
@@ -82,6 +91,11 @@ def _attested_key(event):
         return None, "invalid_attestation"
     if len(set(links)) != len(links):
         return None, "invalid_attestation"
+    if mail_provenance:
+        sources = event.get('source_ids')
+        if (type(sources) not in (list, tuple) or any(type(s) is not str for s in sources)
+                or any(link not in sources for link in links)):
+            return None, 'invalid_attestation'
     return (provider, identity), None
 
 

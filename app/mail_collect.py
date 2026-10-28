@@ -20,7 +20,8 @@ def build_query(after: str) -> str:
     senders = ' OR '.join(f'from:{domain}' for domain in SUPPLIER_DOMAINS)
     recipients = ' OR '.join(f'to:{address} OR cc:{address}' for address in ALWAYS_RECIPIENTS)
     # Toyoko Inn sender addresses vary; subject matching is a separate discovery path.
-    return f'after:{after.replace("-", "/")} ({senders} OR {recipients} OR subject:토요코인)'
+    forest_receipts = '(from:nicepg.co.kr ("자연휴양림" OR "휴양시설"))'
+    return f'after:{after.replace("-", "/")} ({senders} OR {recipients} OR subject:토요코인 OR {forest_receipts})'
 
 
 class GmailApi:
