@@ -376,7 +376,7 @@ def test_cli_batch_flags(tmp_path, monkeypatch):
     assert out['batch_offset'] == 0
 
 
-def test_batch_apply_atomic_partial_zero_on_failure(tmp_path, monkeypatch):
+def test_batch_content_validation_failure_installs_no_files(tmp_path, monkeypatch):
     monkeypatch.setattr(cloud_mail, 'sync_unified_store', lambda _: None)
     client = Cloud(('a1', 'b2'))
     # b2 content is corrupted

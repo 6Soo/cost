@@ -53,11 +53,18 @@ def _bounded_content(client, file_id):
 
 
 def sync(client, directory, *, folder_id, expected_account, apply=False, batch_size=None, batch_offset=0):
-    """Validate a private folder's manifest and all new originals before appending.
+    """Validate the complete index and selected new originals before appending.
 
     `client.list_files` must enumerate every page; metadata must contain id, name,
     parents and MIME type. Existing Gmail IDs retain their original local copy,
     including label/history metadata that may differ on a later cloud retrieval.
+
+    Optional batches bound downloads without weakening byte limits. In batch mode
+    ``new`` counts the entire missing set; ``selected`` counts only this call's
+    validated content. Preview offsets page through that set without writing.
+    Apply always starts at offset zero as previously appended IDs leave the set.
+    Installs are atomic per file; a competing writer or importer failure can leave
+    already installed originals, which are preserved for safe retry.
     """
     if not isinstance(folder_id, str) or not _FILE_ID.fullmatch(folder_id) or not expected_account:
         raise CloudMailError("CLOUD_MAIL_CONFIG_INVALID")
