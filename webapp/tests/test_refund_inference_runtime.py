@@ -72,7 +72,7 @@ def test_render_keeps_both_source_rows_and_displays_inference_and_financial_hold
     assert '원결제 추론 연결' in html and '환급 완료 아님' in html
     assert '원결제와 환불을 함께 기록해야 합니다' not in html
     assert '원결제 연결을 확인할 수 없습니다' not in html
-    assert 'OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다.' in html
+    assert 'OTA 예약 연결 상태와 금융 기록은 별개입니다.' in html
     groups = refund_tab.groups(store)
     assert len(groups) == 1 and len(groups[0]) == 2 and groups[0][0]['inferred']
     assert '원결제 추론 연결 · 기록 보류 · 환급 완료 아님' in refund_tab.render(store)
