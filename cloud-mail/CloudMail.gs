@@ -106,6 +106,13 @@ function costMailPrivateFolder_(folder, account) {
   return folder;
 }
 
+/** Keep the editor's first selectable function read-only. */
+function logCostCloudMailStatus() {
+  const status = costCloudMailStatus();
+  console.log(JSON.stringify(status));
+  return status;
+}
+
 function collectCostCloudMail() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) return {status: 'BUSY'};
@@ -258,11 +265,4 @@ function costCloudMailStatus() {
   return {configured: true, folder_id: folderId, manifest_file_id: held.file ? held.file.getId() : null,
     stored: Object.keys(held.data.messages).length, last_complete: held.data.last_complete || null,
     trigger_count: ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === COST_CLOUD_MAIL.handler).length};
-}
-
-/** Log only bounded collector metadata, never mail subjects or bodies. */
-function logCostCloudMailStatus() {
-  const status = costCloudMailStatus();
-  console.log(JSON.stringify(status));
-  return status;
 }

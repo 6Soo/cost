@@ -2,7 +2,7 @@
 
 ## 현재 상태와 영향
 
-기존 Apps Script 프로젝트를 읽기 전용으로 내려받아 대조했다. 운영 프로젝트에는 `CloudMail`이 없고 기존 `GmailIngest.AUTO_DRAIN`은 false다. Windows Gmail 수집은 기존 예약 작업에서 계속 담당한다. 이번 코드는 클라우드 수집기, 별도 배포 패키지, Drive 원문을 COST에 가져오는 읽기/추가 경로를 준비한다. 실제 클라우드 활성화·운영 원문 적재·기존 예약 작업 중지는 아직 하지 않았다.
+기존 Apps Script 프로젝트를 읽기 전용으로 내려받아 대조했다. 운영 프로젝트에는 `CloudMail`이 없고 기존 `GmailIngest.AUTO_DRAIN`은 false다. Windows Gmail 수집은 기존 예약 작업에서 계속 담당한다. 이번 코드는 클라우드 수집기, 별도 배포 패키지, Drive 원문을 COST에 가져오는 읽기/추가 경로를 준비한다. 후속 승인으로 새 전용 프로젝트의 실제 클라우드 수집을 활성화했다. 원문76건·초기전체탐색 미완료·트리거1을 확인했으며 호스트 원문 적재·기존 예약 작업 중지는 아직 하지 않았다.
 
 기존 장부 Apps Script에 새 Drive 권한을 섞지 않도록 **새 전용 standalone 프로젝트**에 배포한다. 기존 `apps-script/CloudMail.gs` 사용자 초안은 원래 미추적 상태와 바이트를 보존하고, 별도 `cloud-mail/CloudMail.gs`에서 보완했다. 패키지에는 이 파일과 `cloud-mail/appsscript.json`만 들어간다. 장부 쓰기 함수·기존 시트 ID·인증 파일은 포함하지 않는다.
 
@@ -49,7 +49,7 @@
 
 실패하면 새 프로젝트의 `pauseCostCloudMail`로 이 수집기 트리거만 중지하고 원문 폴더/파일은 보존한다. 기존 Gmail 수집 작업을 보관한 XML/명령으로 복원한다. 검증되지 않은 전체 DB 덮어쓰기나 원문 삭제는 하지 않는다. 부분 추가 파일은 재시도의 입력이며 새 importer가 기존 파일을 덮지 않는다.
 
-완료는 코드/합성 검사와 구분한다. 새 프로젝트·Google 동의·초기 전체 탐색·실제 새 원문 적재·반복 불변·후속 예약 수집·Drive 전달·기존 로컬 Gmail 직접 수집 중지를 확인해야 `CUTOVER_COMPLETE`다. 현재는 `APPROVED / LIVE_SETUP_IN_PROGRESS`다. 사용자 전환 승인을 받았으며 전용 프로젝트와 Apps Script 동의는 완료했다. 최초 초기화의 Gmail API 403 accessNotConfigured를 확인해 Gmail 고급 서비스를 manifest에 추가하고 업로드/원격 일치를 확인했다. 별도 호스트 Drive 읽기 동의, 초기 전체탐색과 적재·예약수집 수락은 진행 중이며 기존 Windows 수집을 유지한다.
+완료는 코드/합성 검사와 구분한다. 새 프로젝트·Google 동의·초기 전체 탐색·실제 새 원문 적재·반복 불변·후속 예약 수집·Drive 전달·기존 로컬 Gmail 직접 수집 중지를 확인해야 `CUTOVER_COMPLETE`다. 현재는 `PARTIAL / BLOCKED_HOST_DRIVE_CONSENT / BACKFILL_PENDING`이다. 사용자 전환 승인을 받았으며 전용 프로젝트와 Apps Script 동의는 완료했다. 최초 초기화의 Gmail API 403 accessNotConfigured를 확인해 Gmail 고급 서비스를 manifest에 추가하고 업로드/원격 일치를 확인했다. 초기화는 261.337초 정상 완료했고 원문76·last_complete=null·시간당 트리거1이다. 호스트 별도 Drive 읽기 동의는 실제 Google 경고 화면에서 사용자 직접 동의 대기다. 초기 전체탐색·호스트 인증 이후 적재·후속 예약수집 수락을 진행하며 기존 Windows 수집을 유지한다.
 
 ## 2026-10-28 재시작 후 실행 기록
 

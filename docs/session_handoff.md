@@ -13,8 +13,8 @@
 | --- | --- | --- |
 | PEND-01 미연결 근거 복구 | DIAGNOSED / BLOCKED_ORIGINAL_NOT_AVAILABLE | 카카오39취소 중29연결/10미연결, Agoda76중73/3, Trip 카드 취소 전체186중171/15다. 과거 Trip1은 특정 사례 범위이며 전체 취소 수가 아니다. Trip 미연결15중12는 원승인번호가 있지만 DB 원결제0이고 보관 원본8개와 추가 로컬 파일628개의 고유 카드 파일1개에서도 대응 승인 원결제를 찾지 못했다. 나머지 번호 없는 건은 현재 근거/후보가 부족하다. 카드/원문/결정 쓰기0. |
 | PEND-02 확대·키보드·오류 수락 | COMPLETE / TARGETED_ACCEPTED | 새 합성 matrix3 passed. 긴 예약번호/가맹점과 실제 펼친 카드 후보의375/1280·light/dark·100/200% CSS zoom, 키보드 선택/테마 focus, members409의 stale 행 제거와 최신 summary 재조회,400 BAD_CURSOR 표시를 검증했다. 실제 운영Aside의1425px·두테마·100/200%4조건도20행·가로 넘침0·테마1개다. 물리적 모바일 장치 검수는 아니다. |
-| PEND-03 클라우드 수집/가져오기 코드 | IMPLEMENTED / TARGETED_TESTED | 코드 `85817d1`. `cloud-mail/CloudMail.gs` 전용 수집기18 passed, Drive→로컬 무덮어쓰기→기존 통합 importer23 passed와 기존 mail_collect9 passed. 소유자/비공개·digest·원문 전체 보존·부분재개·멱등성·import 재시도·스키마/비관련 표 보호·타 트리거 보존을 확인했다. 사용자 `apps-script/CloudMail.gs`는 원래 바이트/미추적 상태를 복원·보존했다. |
-| PEND-04 실제 클라우드 전환 | APPROVED / IN_PROGRESS | 사용자가 전용 Apps Script·비공개 Drive 폴더·Gmail/Drive 인증·호스트 읽기 인증·검증 백업/복원·원문 적재·스케줄 전환을 승인했다. 전용 프로젝트 생성/Apps Script 동의/소스 업로드 완료. 최초 Gmail 403 accessNotConfigured를 진단하고 Gmail 고급 서비스 manifest를 반영해 원격 소스/manifest 일치를 확인했다. 초기 수집과 별도 호스트 Drive 동의를 진행 중이며 기존 수집 작업은 유지한다. 최종 Google 장부·금융/여행 수동 결정은 쓰지 않는다. |
+| PEND-03 클라우드 수집/가져오기 코드 | COMPLETE / TARGETED_TESTED / COLLECTOR_DEPLOYED | 기존 코드 85817d1과 PR #256 main d37b33c. 수집기20·별도 Drive 인증14 passed, 기존 importer23+mail9/browser3 근거 재사용. 전용 프로젝트의 원격 source/manifest 일치를 확인했다. 기본 수동 실행은 읽기 전용 상태 조회다. 사용자 미추적 초안과 기존 장부 프로젝트를 보존했다. |
+| PEND-04 실제 클라우드 전환 | PARTIAL / BLOCKED_HOST_DRIVE_CONSENT / BACKFILL_PENDING | 전환·인증·원문 적재·스케줄 전환 승인을 받았다. 전용 프로젝트/Apps Script 동의/비공개 원문 폴더/수집 트리거 생성 완료. Gmail API 오류 수정 후 초기화 261.337초 정상 완료, 원문76·last_complete=null·시간당 트리거1 확인. 별도 호스트 Drive 인증은 실제 Google 미확인 앱 동의 화면에서 사용자 직접 동의 대기이며 ADC 미생성이다. 전체 탐색과 호스트 인증이 끝나기 전 원문 적재·스케줄 전환은 하지 않는다. |
 
 - 기존 Apps Script는 `.local-archive/all-pending-20261028/cloud-remote/`에 읽기 복사본만 보존했다. 기존 Google프로젝트·장부·예약작업·운영DB·고객원문은 변경하지 않았다. 보관 카드 원본은 현재 파서로 읽기만 재생했고 출력은 비식별 집계다. 추가파일628개는 중복/비카드 파일을 포함하며628개의 새 카드 원본을 뜻하지 않는다.
 - 카카오10건 중7건은 같은카드/공급자 동액 구매0이고3건의 동액 구매는 기존14일 범위를 벗어난다. Agoda3건은 외화2건에 같은카드/통화/외화금액 원결제0, 원화1건은6구매 경합이다. 이를 금액만으로 확정하지 않으며 원승인번호가 있는Trip12건도 원결제 없는 상태로 확정하지 않는다. 추가 카드 원본 또는 명시 결제 증명이 필요하다.
@@ -22,6 +22,21 @@
 - 실제실행: Node수집기18 passed, Pythoncloud23+기존메일9=32 passed, 최종browser3 passed, compile/diff·stagedguard차단0/삭제0. 기존 금융solver를 바꾸지 않았고 선택형 새 수집경로는 아직 활성화하지 않아 전체 회귀·Board재배포·재시작은 하지 않는다. 기존운영Board는`9d5ddd5`, MailCollect는`e15fd5e`다. 새 코드의 운영 활성화는완료가 아니다.
 - 로컬근거: `.local-archive/all-pending-20261028/refund-evidence-summary.json`, `original-card-recovery-summary.json`, `additional-card-recovery-summary.json`, `responsive-production.json`, `drive-readonly-access.json`, `cloud-release-reviewed/`이다. 원문·개인식별자·인증값·실제계정/프로젝트/폴더ID를 추적문서에 넣지 않는다.
 - 다음정확한행동: 이미 생성한 전용 프로젝트와 승인 상태를 재사용한다. 초기 전체탐색→호스트 Drive 읽기 동의→읽기 미리보기→검증백업/복원·단일작성자→원문적재→보호표/반복불변→후속 예약수집/Drive전달을 수락한 뒤에만 기존 Gmail 직접수집을 중지한다. 프로젝트 재생성·기존 Apps Script 동의 재요청은 하지 않는다.
+
+
+### PEND-04 재시작 후 실제 실행 / 다음 게이트
+
+| 단계 | 상태 / 근거 |
+| --- | --- |
+| 전용 프로젝트·Apps Script 동의·Gmail API 설정 | COMPLETE. 기존 프로젝트 재사용, Gmail 고급 서비스 반영, 원격 소스/manifest 일치. 초기화 실행 정상 완료. |
+| 비공개 Drive 원문·초기 전체탐색 | RUNNING_REMOTE / BACKFILL_PENDING. 상태 조회 원문76·last_complete=null·시간당 트리거1. 전체탐색 완료로 표시하지 않는다. 다음 클라우드 실행은 기존 체크포인트에서 이어간다. |
+| 호스트 별도 Drive 읽기 인증 | BLOCKED_USER_CONSENT. 실제 Google 미확인 앱 화면을 열고 사용자 직접 동의를 요청했다. 기존 Apps Script 동의와 별개다. 인증 도우미는 기존 자격 증명을 덮지 않으며 loopback 8769에서 최대20분 대기한다. |
+| 전체 Drive 미리보기·백업/별도복원·운영 원문 적재·반복불변 | WAITING_FOR_BACKFILL_AND_HOST_AUTH. 아직 미실행. 전체탐색과 host ADC 확인 후 단일작성자·신선한 복구 사본·보호13표 게이트를 적용한다. |
+| 후속 예약 수집·Drive 전달·기존 Gmail 직접수집 중지 | WAITING_FOR_INGEST_ACCEPTANCE. 기존 WebLedger-MailCollect를 유지했다. 최종 Google 장부·금융/여행 수동 결정 쓰기0. |
+
+- 현재 main 구현 PR #256은 d37b33c, 후속 기본 함수 순서 변경은 상태조회 우선으로만 조정했다. Board와 MailCollect 배포/재시작은 하지 않았다. 사용자 미추적5경로와 동시 세션의 SPEC_ONLY 문서를 보존했다.
+- 로컬 실행 근거: cloud-live-deployment-evidence.json, cloud-status-initial.txt 및 Aside 세션의 실행 목록. 원문·계정·프로젝트/폴더 ID·OAuth URL/코드는 추적 기록에 넣지 않는다.
+- 다음 명령: `python .local-archive/all-pending-20261028/verify_cloud_live.py`는 원격 pull 후 소스 비교용이다. 호스트 동의 콜백이 끝나면 전용 ADC 존재/Drive 읽기를 검증하고, 초기 last_complete와 전체 index를 확인한 뒤 본 명세 전환순서 4~6을 이어간다. 인증 도우미 만료 시 기존 자격 증명을 덮지 않고 새 request-file로만 재시작한다.
 
 ## 2026-10-28 신규 여행별 항공권 예약 조회 (SPEC_ONLY)
 
