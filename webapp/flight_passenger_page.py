@@ -407,6 +407,11 @@ def _confirmed_card_index(board, passenger_index):
 
 def _name_search(board, name, *, offset=0, revision=None):
     """Search verified original-name tokens without requiring tour ID or full name."""
+    query = _name_key(name)
+    if not query:
+        raise ValueError('INVALID_NAME')
+    if type(offset) is not int or offset < 0 or offset > 1000000 or offset and not revision:
+        raise ValueError('INVALID_CURSOR')
     from .flight_booking_index import passenger_index_for, source_status
     from .flight_booking_projection import query_booking_reservations
     index = passenger_index_for(board)
@@ -417,7 +422,8 @@ def _name_search(board, name, *, offset=0, revision=None):
         cards=cards,
         offset=offset,
         revision=revision,
-        fallback_status=source_status(board),
+        fallback_status_fn=lambda: source_status(board),
+        name_key_fn=_name_key,
     )
 
 

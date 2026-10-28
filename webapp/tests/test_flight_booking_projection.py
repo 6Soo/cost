@@ -4,10 +4,12 @@ Verifies:
 1. normalize_name_tokens: NFKC normalization, slash/comma splitting, case-folding, sorting.
 2. project_itinerary_leg: Clean projection of flights, airports, times, and missing field handling.
 3. project_booking_reservation: Explicit date priority, FIRST_RECEIVED KST date, CONFLICT/UNKNOWN blanking,
-   cancellation status, and conflict flag preservation.
+   cancellation status, conflict flag, and linked_cards identity preservation.
 4. query_booking_reservations: In-memory filtering, stable departure_on/booking_ref sorting,
    revision calculation, and pagination.
-5. Baseline differential equivalence against flight_passenger_page._name_search on main commit ed48263.
+5. Early validation without IO, lazy source_status evaluation (0 calls when verified),
+   and _name_key dynamic monkeypatch dispatch.
+6. Baseline differential equivalence against flight_passenger_page._name_search on main commit ed48263.
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 from typing import Any, Dict
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -166,7 +168,7 @@ def test_project_itinerary_leg():
     }
 
 
-def test_project_booking_reservation_dates_and_flags():
+def test_project_booking_reservation_dates_flags_and_identity():
     # 1. EXPLICIT_LABEL preserves date
     res_explicit = flight_booking_projection.project_booking_reservation(
         "REF1",
@@ -229,6 +231,13 @@ def test_project_booking_reservation_dates_and_flags():
     assert res_unknown["reserved_on"] == ""
     assert res_unknown["booking_card_day"] == ""
 
+    # 5. linked_cards identity is preserved (no list copy coercion)
+    sample_cards = [{"transaction_id": "tx1", "amount_krw": 50000}]
+    res_cards = flight_booking_projection.project_booking_reservation(
+        "REF5", {}, "KIM", linked_cards=sample_cards
+    )
+    assert res_cards["linked_cards"] is sample_cards
+
 
 def test_query_booking_reservations_filtering_and_sorting():
     index = _synthetic_index()
@@ -272,6 +281,89 @@ def test_query_booking_reservations_revision_and_source_changed():
     # Mismatched revision raises SOURCE_CHANGED
     with pytest.raises(LookupError, match="SOURCE_CHANGED"):
         flight_booking_projection.query_booking_reservations(index, "alpha kim", revision="stale-revision")
+
+
+def test_name_search_pre_validation_zero_io():
+    """INVALID_NAME and INVALID_CURSOR must be raised before any IO or card index lookup."""
+    board = SimpleNamespace(path="board.sqlite")
+    with patch("webapp.flight_booking_index.passenger_index_for") as mock_passenger, \
+         patch("webapp.flight_passenger_page._confirmed_card_index") as mock_cards:
+
+        # 1. Invalid name: raises ValueError, 0 IO calls
+        with pytest.raises(ValueError, match="INVALID_NAME"):
+            flight_passenger_page._name_search(board, "   ")
+        mock_passenger.assert_not_called()
+        mock_cards.assert_not_called()
+
+        # 2. Invalid cursor: raises ValueError, 0 IO calls
+        with pytest.raises(ValueError, match="INVALID_CURSOR"):
+            flight_passenger_page._name_search(board, "KIM", offset=-5)
+        mock_passenger.assert_not_called()
+        mock_cards.assert_not_called()
+
+        with pytest.raises(ValueError, match="INVALID_CURSOR"):
+            flight_passenger_page._name_search(board, "KIM", offset=100, revision=None)
+        mock_passenger.assert_not_called()
+        mock_cards.assert_not_called()
+
+
+def test_lazy_source_status_evaluation_zero_calls_on_verified():
+    """source_status(board) must NOT be called when index already contains verified evidence."""
+    index = _synthetic_index()
+    board = SimpleNamespace(path="board.sqlite")
+
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=index), \
+         patch("webapp.flight_passenger_page._confirmed_card_index", return_value={}), \
+         patch("webapp.flight_booking_index.source_status") as mock_status:
+
+        res = flight_passenger_page._name_search(board, "KIM")
+        assert res["source_status"] == "VERIFIED"
+        mock_status.assert_not_called()  # EXACTLY 0 CALLS
+
+    # When index is unverified, source_status must be called once as fallback
+    empty_index = {"REF": {"passengers": []}}
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=empty_index), \
+         patch("webapp.flight_passenger_page._confirmed_card_index", return_value={}), \
+         patch("webapp.flight_booking_index.source_status", return_value="LOADING") as mock_status:
+
+        res_empty = flight_passenger_page._name_search(board, "KIM")
+        assert res_empty["source_status"] == "LOADING"
+        mock_status.assert_called_once()
+
+
+def test_name_key_monkeypatch_dynamic_dispatch(monkeypatch):
+    """Monkeypatching _name_key on flight_passenger_page must dynamically affect token matching."""
+    index = {
+        "REF-CUSTOM": {
+            "source_digests": ["sha-cust"],
+            "digest": "digest-cust",
+            "passengers": [{"surname": "ALIAS", "given_name": "NAME"}],
+            "legs": [],
+        }
+    }
+    board = SimpleNamespace(path="board.sqlite")
+
+    # Custom normalizer that recognizes a special token
+    def custom_name_key(val):
+        if "special" in str(val).lower():
+            return ("matched_token",)
+        return flight_booking_projection.normalize_name_tokens(val)
+
+    monkeypatch.setattr(flight_passenger_page, "_name_key", custom_name_key)
+
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=index), \
+         patch("webapp.flight_passenger_page._confirmed_card_index", return_value={}):
+
+        # Searching 'special' should match because custom_name_key maps it
+        # and if passenger full_name doesn't map, it won't match, unless passenger also maps
+        res_no = flight_passenger_page._name_search(board, "special")
+        assert res_no["total"] == 0
+
+        # Now passenger has 'special' in surname
+        index["REF-CUSTOM"]["passengers"][0]["surname"] = "SPECIAL_USER"
+        res_yes = flight_passenger_page._name_search(board, "special")
+        assert res_yes["total"] == 1
+        assert res_yes["reservations"][0]["booking_ref"] == "REF-CUSTOM"
 
 
 def test_escape_csrf_json_helper():
