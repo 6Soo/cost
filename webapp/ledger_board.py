@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import board_render_helpers, read_scope, ui_icons
+from . import board_read_projection, board_render_helpers, read_scope, ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -835,20 +835,11 @@ def default_board_tab() -> str:
 
 
 def _with_display_amount(rows):
-    if _active_store() is None:
-        return rows
-    for r in rows:
-        if "display_amount_krw" not in r:
-            projected = _active_store().projected(r)
-            r["display_amount_krw"] = projected["display_amount_krw"]
-            r["display_occurred_on"] = projected["display_occurred_on"]
-        elif "display_occurred_on" not in r:
-            r["display_occurred_on"] = _active_store().display_occurred_on(r)
-    return rows
+    return board_read_projection.with_display_amount(rows, store=_active_store())
 
 
 def _shown_date(row) -> str:
-    return row.get("display_occurred_on", row["occurred_on"])
+    return board_read_projection.shown_date(row)
 
 
 def _persisted_rows(kind: str):
@@ -863,52 +854,62 @@ def _persisted_rows(kind: str):
     come from `list_tab_rows`, which also returns the allocation projections and
     the split remainders, so a store that has only allocations still shows them.
     """
-    rows = read_scope.remember(("persisted_rows", kind), lambda: _load_persisted_rows(kind))
-    return [dict(r) for r in rows]
+    return board_read_projection.persisted_rows(
+        kind,
+        remember_fn=read_scope.remember,
+        loader_fn=lambda: _load_persisted_rows(kind),
+    )
 
 
 def _load_persisted_rows(kind: str):
-    out = []
     store = _active_store()
-    for tab in _all_tab_ids() + [None]:
-        saved_rows = read_scope.remember(
-            ('persisted_tab_rows', id(store), tab), lambda: store.list_tab_rows(tab))
-        for saved in saved_rows:
-            if saved["row_kind"] == kind:
-                out.append(dict(saved))
-    return _with_display_amount(out)
+    return board_read_projection.load_persisted_rows(
+        kind,
+        store=store,
+        tab_ids=_all_tab_ids(),
+        fetch_tab_rows_fn=lambda tab: read_scope.remember(
+            ('persisted_tab_rows', id(store), tab), lambda: store.list_tab_rows(tab)
+        ),
+    )
 
 
 def _expense_rows():
-    if _active_store() is None:
-        return [dict(r) for r in EXPENSES]
-    return _persisted_rows("expense")
+    return board_read_projection.expense_rows(
+        store=_active_store(),
+        fallback_expenses=EXPENSES,
+        persisted_rows_fn=_persisted_rows,
+    )
 
 
 def _income_rows():
-    if _active_store() is None:
-        return [dict(r) for r in INCOMES]
-    return _persisted_rows("income")
+    return board_read_projection.income_rows(
+        store=_active_store(),
+        fallback_incomes=INCOMES,
+        persisted_rows_fn=_persisted_rows,
+    )
 
 
 def _trip_totals(tab_id: str):
-    if _active_store() is None:
-        return {
-            "income": trip_income_total(tab_id),
-            "expense": trip_expense_total(tab_id),
-            "profit": trip_profit(tab_id),
-        }
-    return _active_store().tab_totals(tab_id)
+    return board_read_projection.trip_totals(
+        tab_id,
+        store=_active_store(),
+        fallback_totals_fn=lambda tid: {
+            "income": trip_income_total(tid),
+            "expense": trip_expense_total(tid),
+            "profit": trip_profit(tid),
+        },
+    )
 
 
 def _unclassified_rows():
-    return [r for r in _expense_rows() if r["display_tab_id"] is None]
+    return board_read_projection.unclassified_rows(expense_rows=_expense_rows())
 
 
 def _income_total(rows) -> int:
-    linked = _active_store().linked_bank_row_ids() if _active_store() is not None else set()
-    return sum(
-        _shown_amount(r) for r in rows if r["row_id"] not in linked
+    return board_read_projection.income_total(
+        rows,
+        store=_active_store(),
+        shown_amount_fn=_shown_amount,
     )
 
 SYNTHETIC_MARK = "합성 자료"
@@ -1102,27 +1103,23 @@ esc = board_render_helpers.esc
 
 
 def trip_income_total(tab_id: str) -> int:
-    return sum(r["amount_krw"] for r in INCOMES if r["display_tab_id"] == tab_id)
+    return board_read_projection.trip_income_total(tab_id, rows=INCOMES)
 
 
 def trip_expense_total(tab_id: str) -> int:
-    return sum(r["amount_krw"] for r in EXPENSES if r["display_tab_id"] == tab_id)
+    return board_read_projection.trip_expense_total(tab_id, rows=EXPENSES)
 
 
 def trip_profit(tab_id: str) -> int:
-    return trip_income_total(tab_id) - trip_expense_total(tab_id)
+    return board_read_projection.trip_profit(trip_income_total(tab_id), trip_expense_total(tab_id))
 
 
 def customer_total(customer_id: str, tab_id: str) -> int:
-    return sum(
-        r["amount_krw"]
-        for r in INCOMES
-        if r["customer_id"] == customer_id and r["display_tab_id"] == tab_id
-    )
+    return board_read_projection.customer_total(customer_id, tab_id, rows=INCOMES)
 
 
 def unclassified_expenses():
-    return [r for r in EXPENSES if r["display_tab_id"] is None]
+    return board_read_projection.unclassified_rows(expense_rows=EXPENSES)
 
 
 def unclassified_total() -> int:
@@ -1990,7 +1987,7 @@ def import_page() -> str:
 
 
 def _shown_amount(row) -> int:
-    return row.get("display_amount_krw", row["amount_krw"])
+    return board_read_projection.shown_amount(row)
 
 
 def income_table(rows) -> str:
