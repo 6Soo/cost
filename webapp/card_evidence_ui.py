@@ -10,12 +10,13 @@ This module is strictly read-only and presentation-only:
 - NO database connections or SQL queries
 - NO board objects or module globals passed
 - NO financial matching or transaction classification judgments
-- Pure HTML generation with strict HTML escaping
+- Exact behavioral preservation of legacy defaults, exceptions, and escaping
 """
 from __future__ import annotations
 
 import html
-from typing import Callable, Iterable, Mapping, Sequence
+import re
+from typing import Callable, Iterable, Sequence
 from urllib.parse import urlencode
 
 
@@ -30,7 +31,6 @@ def refund_merchant_key(value: object) -> str:
     Kakao Pay, gift shops, parking, substitute drivers and other services
     cannot be silently grouped with Kakao T taxi authorizations.
     """
-    import re
     compact = re.sub(r"[^0-9a-z가-힣]", "", str(value or "").casefold())
     taxi_prefix = ("카카오t", "카카오택시", "카카오모빌리티택시",
                    "kakaotaxi", "kakaot")
@@ -45,7 +45,7 @@ def refund_merchant_key(value: object) -> str:
 
 
 def render_ota_snapshot_evidence(
-    entry: Mapping[str, object] | None,
+    entry: dict,
     tid: str = "",
     *,
     esc: Callable[[object], str] | None = None,
@@ -57,44 +57,43 @@ def render_ota_snapshot_evidence(
     """
     if esc is None:
         esc = default_esc
-    if not entry or not isinstance(entry, Mapping):
-        return ""
 
-    status = str(entry.get("ota_status") or "")
-    notes = entry.get("ota_notes") or []
-    snap = entry.get("snapshot") or {}
-    fresh = bool(snap.get("fresh", False)) if isinstance(snap, Mapping) else False
-    snap_status = str(snap.get("status", "unknown")) if isinstance(snap, Mapping) else "unknown"
+    status = entry.get('ota_status', '')
+    notes = entry.get('ota_notes', [])
+    snap = entry.get('snapshot', {})
+    fresh = snap.get('fresh', False)
+    snap_status = snap.get('status', 'unknown')
+    # 세대 번호는 내부 진단값이므로 화면 문구에 넣지 않는다.
 
-    lines: list[str] = []
+    lines = []
 
     # OTA 연결 상태 뱃지
-    status_labels: dict[str, tuple[str, str]] = {
-        "EXACT": ("확정 연결", "ok"),
-        "INFERRED": ("추론 연결", "warn"),
-        "GROUP_RECONCILED": ("그룹 대응 (개별 미확정)", "warn"),
-        "USER_CONFIRMED": ("사용자 확정", "ok"),
-        "RESERVATION_INFERRED": ("예약 추론 관계", "idle"),
-        "RESERVATION_CONFIRMED": ("예약 관계 사용자 확인", "ok"),
-        "RESERVATION_NEEDS_REVIEW": ("예약 후보 경합/충돌", "warn"),
-        "RESERVATION_STALE": ("예약 관계 근거 변경", "bad"),
-        "REVIEW_REQUIRED": ("그룹 부분 대응·보류", "bad"),
-        "CANDIDATE": ("후보 존재·미연결", "idle"),
-        "MULTIPLE_CANDIDATES": ("복수 후보·개별 미확정", "warn"),
-        "UNLINKED": ("OTA 결제 연결 없음 · 결제 근거 확인 필요", "idle"),
+    status_labels = {
+        'EXACT': ('확정 연결', 'ok'),
+        'INFERRED': ('추론 연결', 'warn'),
+        'GROUP_RECONCILED': ('그룹 대응 (개별 미확정)', 'warn'),
+        'USER_CONFIRMED': ('사용자 확정', 'ok'),
+        'RESERVATION_INFERRED': ('예약 추론 관계', 'idle'),
+        'RESERVATION_CONFIRMED': ('예약 관계 사용자 확인', 'ok'),
+        'RESERVATION_NEEDS_REVIEW': ('예약 후보 경합/충돌', 'warn'),
+        'RESERVATION_STALE': ('예약 관계 근거 변경', 'bad'),
+        'REVIEW_REQUIRED': ('그룹 부분 대응·보류', 'bad'),
+        'CANDIDATE': ('후보 존재·미연결', 'idle'),
+        'MULTIPLE_CANDIDATES': ('복수 후보·개별 미확정', 'warn'),
+        'UNLINKED': ('OTA 결제 연결 없음 · 결제 근거 확인 필요', 'idle'),
     }
-    label, tone = status_labels.get(status, ("연결 상태 확인 대기", "idle"))
+    label, tone = status_labels.get(status, ('연결 상태 확인 대기', 'idle'))
     lines.append(f"<span class='cleanup-ota-badge cleanup-ota-badge-{tone}'>{esc(label)}</span>")
 
     # 스냅샷 신선도
     if not fresh:
-        if snap_status == "refreshing":
+        if snap_status == 'refreshing':
             lines.append(f"<span class='cleanup-snapshot-refreshing'>{esc('예약 근거 갱신 중...')}</span>")
-        elif snap_status == "stale":
+        elif snap_status == 'stale':
             lines.append(f"<span class='cleanup-snapshot-stale'>{esc('스냅샷 구버전 (갱신 대기)')}</span>")
-        elif snap_status == "error":
+        elif snap_status == 'error':
             lines.append(f"<span class='cleanup-snapshot-error'>{esc('예약 근거 입력 오류')}</span>")
-        elif snap_status == "loading":
+        elif snap_status == 'loading':
             lines.append(f"<span class='cleanup-snapshot-loading'>{esc('스냅샷 로딩 중...')}</span>")
         else:
             lines.append(f"<span class='cleanup-snapshot-stale'>{esc('현재 예약 연결을 확인할 수 없습니다.')}</span>")
@@ -106,42 +105,37 @@ def render_ota_snapshot_evidence(
         lines.append(f"<span class='cleanup-ota-note'>{esc(note)}</span>")
 
     # 보호/보류 상태 추가 정보
-    if status in ("GROUP_RECONCILED", "REVIEW_REQUIRED"):
+    if status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
         lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용')}</span>")
-    elif status in ("RESERVATION_NEEDS_REVIEW", "RESERVATION_STALE"):
+    elif status in ('RESERVATION_NEEDS_REVIEW', 'RESERVATION_STALE'):
         lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 사용자 재확인 필요')}</span>")
 
-    items = "".join(f"<li>{line}</li>" for line in lines)
+    items = ''.join(f"<li>{line}</li>" for line in lines)
     return (f"<details class='cleanup-evidence cleanup-ota-snapshot' open><summary>{esc('OTA 연결 근거')}</summary>"
             f"<ul>{items}</ul></details>")
 
 
 def render_catalog_block(
-    entry: Mapping[str, object] | None,
+    entry: dict,
     *,
     esc: Callable[[object], str] | None = None,
 ) -> str:
     """OTA 예약의 판단에 필요한 줄: 예약번호·상태, 이용기간, 후보 여행, 연결 카드 결제."""
     if esc is None:
         esc = default_esc
-    if not entry or not isinstance(entry, Mapping):
-        return ""
 
-    relation = {"covers": "전체 포함", "overlaps": "일부 겹침", "none": ""}
-    lines = [f"예약 {entry.get('booking_ref', '')} · {entry.get('status') or '상태 미확인'}"]
-    if entry.get("period"):
+    relation = {'covers': '전체 포함', 'overlaps': '일부 겹침', 'none': ''}
+    lines = [f"예약 {entry['booking_ref']} · {entry.get('status') or '상태 미확인'}"]
+    if entry.get('period'):
         lines.append(f"이용 {entry['period']}")
-    raw_candidates = entry.get("candidates") or []
-    candidates = [
-        f"{c.get('display_key') or c.get('tab_id')}({relation.get(str(c.get('relation')), '')})"
-        for c in raw_candidates if isinstance(c, Mapping)
-    ]
+    candidates = [f"{c.get('display_key') or c.get('tab_id')}({relation.get(c.get('relation'), '')})"
+                  for c in entry.get('candidates') or []]
     if candidates:
-        lines.append("후보 여행: " + ", ".join(candidates))
-    cancelled = entry.get("cancelled_matches") or 0
+        lines.append('후보 여행: ' + ', '.join(candidates))
+    cancelled = entry.get('cancelled_matches') or 0
     if cancelled:
-        lines.append(f"취소 결제 {cancelled}건")
-    items = "".join(f"<li>{esc(line)}</li>" for line in lines)
+        lines.append(f'취소 결제 {cancelled}건')
+    items = ''.join(f"<li>{esc(line)}</li>" for line in lines)
     return (f"<details class='cleanup-evidence' open><summary>{esc(entry.get('provider') or 'OTA')} 예약 자료</summary>"
             f"<ul>{items}</ul></details>")
 
@@ -163,12 +157,12 @@ def render_no_booking_evidence(
 
 
 def render_refund_merchant_candidates(
-    refund: Sequence[object] | Mapping[str, object] | None,
-    candidates: Sequence[Sequence[object]],
+    refund: tuple | list | None,
+    candidates: list,
     count: int,
     *,
     existing_ledger_ids: Iterable[str] | None = None,
-    kakao_inventory: Sequence[Mapping[str, object]] | None = None,
+    kakao_inventory: list[dict] | None = None,
     esc: Callable[[object], str] | None = None,
 ) -> str:
     """Show review candidates only. Nothing is saved or automatically linked."""
@@ -177,17 +171,7 @@ def render_refund_merchant_candidates(
     if esc is None:
         esc = default_esc
 
-    if isinstance(refund, Mapping):
-        issuer = refund.get("issuer")
-        tail = refund.get("card_tail")
-        merchant = refund.get("merchant")
-        day = refund.get("approval_date") or refund.get("posting_date")
-        amount = refund.get("amount_krw")
-        approval = refund.get("approval_number")
-        original = refund.get("original_approval_number")
-    else:
-        issuer, tail, merchant, day, amount, approval, original = refund
-
+    issuer, tail, merchant, day, amount, approval, original = refund
     key = refund_merchant_key(merchant)
     header = ("카카오T 택시 가맹점 표기 대조" if key == "카카오택시"
               else "같은 카드·가맹점 원결제 비교")
@@ -205,18 +189,18 @@ def render_refund_merchant_candidates(
                      " 원승인번호와 같은 카드의 정상 원결제가 식별되면 가맹점명이 달라도 확정 연결합니다."
                      " 한 원결제에 취소·환불이 여러 건인 것은 정상이며, 총 환불액과 잔액은 따로 검증합니다.</p>")
         inventory = kakao_inventory or []
-        taxi_count = sum(item.get("count", 0) for item in inventory if item.get("family") == "카카오택시")
-        other_count = sum(item.get("count", 0) for item in inventory if item.get("family") != "카카오택시")
+        taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
+        other_count = sum(item["count"] for item in inventory if item["family"] != "카카오택시")
         parts.append("<details class='cleanup-kakao-inventory'><summary>"
                      f"카카오·유페이 표기 점검 · 택시 {taxi_count}건 / 기타 {other_count}건"
                      "</summary><p class='cleanup-evidence-meta'>현재 저장된 카드 원행의 가맹점 표기를 "
                      "읽기 전용으로 집계합니다. 카카오페이·기타 서비스는 택시 후보에서 분리하며 "
                      "원결제 매칭이나 계좌 출금 증거로 사용하지 않습니다.</p>")
         for item in inventory[:40]:
-            group = "택시 표기" if item.get("family") == "카카오택시" else "별도 서비스"
+            group = "택시 표기" if item["family"] == "카카오택시" else "별도 서비스"
             parts.append(f"<p class='cleanup-evidence-meta'>{esc(group)} · "
-                         f"{esc(item.get('merchant', ''))} · {esc(item.get('direction', ''))} "
-                         f"{item.get('count', 0)}건</p>")
+                         f"{esc(item['merchant'])} · {esc(item['direction'])} "
+                         f"{item['count']}건</p>")
         if len(inventory) > 40:
             parts.append(f"<p class='cleanup-evidence-meta'>표기 {len(inventory)}종 중 "
                          "40종만 펼쳐 보여줍니다. 집계는 전체 원행 기준입니다.</p>")
@@ -265,11 +249,9 @@ def render_refund_evidence(
     """원결제 연결과 실제 기록 상태를 순수 HTML로 렌더링."""
     if esc is None:
         esc = default_esc
-    items = "".join(f"<li>{esc(line)}</li>" for line in lines)
-    return (
-        f"<details class='cleanup-evidence cleanup-refund'><summary>{esc(title)}</summary>"
-        f"<ul>{items}</ul>{comparison_html or ''}</details>"
-    )
+    return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
+            '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul>' +
+            comparison_html + '</details>')
 
 
 def render_booking_email_evidence(
@@ -285,7 +267,7 @@ def render_booking_email_evidence(
     if not entries_described:
         return (f"<p class='cleanup-evidence-none'>같은 금액 {abs(int(amount or 0)):,}원의 예약 메일이 없습니다."
                 f" 메일 {searched_count:,}통을 확인했습니다.</p>")
-    items = "".join("<li>" + "<br>".join(esc(line) for line in desc) + "</li>"
+    items = ''.join('<li>' + '<br>'.join(esc(line) for line in desc) + '</li>'
                     for desc in entries_described)
     return (f"<details class='cleanup-evidence' open><summary>같은 금액의 예약 {len(entries_described)}건</summary>"
             f"<ul>{items}</ul></details>")
