@@ -49,7 +49,7 @@
 
 실패하면 새 프로젝트의 `pauseCostCloudMail`로 이 수집기 트리거만 중지하고 원문 폴더/파일은 보존한다. 기존 Gmail 수집 작업을 보관한 XML/명령으로 복원한다. 검증되지 않은 전체 DB 덮어쓰기나 원문 삭제는 하지 않는다. 부분 추가 파일은 재시도의 입력이며 새 importer가 기존 파일을 덮지 않는다.
 
-완료는 코드/합성 검사와 구분한다. 새 프로젝트·Google 동의·초기 전체 탐색·실제 새 원문 적재·반복 불변·후속 예약 수집·Drive 전달·기존 로컬 Gmail 직접 수집 중지를 확인해야 `CUTOVER_COMPLETE`다. 현재는 `PARTIAL / BLOCKED_HOST_DRIVE_CONSENT / BACKFILL_PENDING`이다. 사용자 전환 승인을 받았으며 전용 프로젝트와 Apps Script 동의는 완료했다. 최초 초기화의 Gmail API 403 accessNotConfigured를 확인해 Gmail 고급 서비스를 manifest에 추가하고 업로드/원격 일치를 확인했다. 초기화는 261.337초 정상 완료했고 원문76·last_complete=null·시간당 트리거1이다. 호스트 별도 Drive 읽기 동의는 실제 Google 경고 화면에서 사용자 직접 동의 대기다. 초기 전체탐색·호스트 인증 이후 적재·후속 예약수집 수락을 진행하며 기존 Windows 수집을 유지한다.
+완료는 코드/합성 검사와 구분한다. 새 프로젝트·Google 동의·초기 전체 탐색·실제 새 원문 적재·반복 불변·후속 예약 수집·Drive 전달·기존 로컬 Gmail 직접 수집 중지를 확인해야 `CUTOVER_COMPLETE`다. 현재는 `APPROVED / BACKFILL_RUNNING`이다. 사용자 전환 승인을 받았으며 전용 프로젝트와 Apps Script 동의는 완료했다. 최초 초기화의 Gmail API 403 accessNotConfigured를 확인해 Gmail 고급 서비스를 manifest에 추가하고 업로드/원격 일치를 확인했다. 초기화는 261.337초 정상 완료했고 원문76·last_complete=null·시간당 트리거1이다. 호스트 별도 Drive 읽기 동의 콜백을 정상 수신해 전용 ADC 저장·실제 Drive 읽기/소유자 검증을 완료했다. 초기 전체탐색·호스트 인증 이후 적재·후속 예약수집 수락을 진행하며 기존 Windows 수집을 유지한다.
 
 ## 2026-10-28 재시작 후 실행 기록
 
@@ -57,3 +57,8 @@
 - 기존 전용 프로젝트를 재사용한다. 최초 403 accessNotConfigured는 [공식 고급 서비스 활성화 절차](https://developers.google.com/apps-script/guides/services/advanced)에 따라 Gmail v1 manifest 의존성으로 수정했다. 명시 scope는 유지했다. 원격 소스/manifest 일치 근거는 Git 제외 로컬 cloud-live-source-verification-resumed.json이다.
 - 호스트 인증 도우미: `python tools/authorize_cloud_mail_drive.py --client-file <기존 installed client> --destination <새 전용 ADC> --account <소유자> --request-file <새 로컬 요청 파일>` 실행 후 Aside에서 `http://127.0.0.1:8769/start`를 연다. Google 동의는 사용자가 직접 완료한다. state 검증·소유자/Drive readonly·offline refresh token을 확인한 뒤 새 파일만 생성하며 기존 자격 증명을 덮지 않는다. 거부·만료는 실제 차단으로 기록하고 같은 실패를 무한 재시도하지 않는다.
 - 재시작 복구 검증: 수집기 20 passed, 별도 인증 14 passed(실제 loopback start/잘못된 콜백/동의 거부 포함), compile·원격 소스 비교 통과. 기존 importer32·browser3 검사는 변경이 없어 앞선 통과 근거를 재사용한다. Board 재시작·전체 회귀는 수행하지 않는다.
+### 호스트 인증 수락과 백필 I/O 보완
+
+호스트 인증의 최초20분 대기는 만료됐고 새 요청에서 사용자 직접 동의·콜백·새 전용 ADC 저장을 완료했다. 기존 인증 파일은 변경하지 않았다. 실제 Drive about200·소유자·비공개 폴더/목록 검증 통과, 최초76건 미리보기는 indexed76/existing76/new0/appended0/enumeration_complete=false다. 전체 Gmail 탐색 대상은3,704건이다. Windows 전달기는 고정SHA70f247e의980 Git blob을 검증해 준비하고 실제 preview를 수락했다. 운영 원문 적재/기존 수집 작업 전환은 전체 탐색 뒤의 백업/복원 게이트까지 대기한다.
+
+실제 초기 처리량은76건/261.337초였다. 원문별 Drive 파일명 검색을 실행당 전체 목록 인덱스1회로 바꾸고, 원문을 먼저 설치한 뒤 체크포인트를10건·페이지/시간 종료·예외에서 저장한다. 재개 시 기존 원문/미완료 그룹의 orphan을 검증하고 새 원문을 덮지 않는다. digest·누락/중복·소유/비공개·전체탐색 watermark 보호를 유지한다. 수집기24 passed는50원문 전체 보존과 검색/저장 수 제한, 그룹 중간 실패/시간 종료의 복구, 중복 이름 차단을 포함한다. 실제 개선 처리량은 배포 후 별도 측정한다.

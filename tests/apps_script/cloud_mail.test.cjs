@@ -27,7 +27,7 @@ function harness({pages=[{messages:[{id:'a1'}]}], held=null, originals={}, failS
   const files=new Map(), calls=[], triggers=[];
   let serial=0, saves=0, released=false, folderCreates=0;
   function file(name,content) {
-    const value={id:'file-'+(++serial),content, getId(){return this.id;},
+    const value={id:'file-'+(++serial),content, getId(){return this.id;},getName:()=>name,
       getBlob(){return {getDataAsString:()=>this.content};},
       setContent(value){if(++saves===failSave)throw Error('SYNTHETIC_SAVE_FAILURE');this.content=value;},
       getSharingAccess:()=> 'private',getEditors:()=>[],getViewers:()=>[],
@@ -38,7 +38,7 @@ function harness({pages=[{messages:[{id:'a1'}]}], held=null, originals={}, failS
   if(held)file('cloud-mail-manifest.json',JSON.stringify(held));
   const props=new Map([['COST_CLOUD_MAIL_FOLDER','folder'],['COST_CLOUD_MAIL_AFTER','2026-04-01'],
     ['COST_CLOUD_MAIL_ACCOUNT',account]]);
-  const folder={getFilesByName(name){const found=files.has(name)?[files.get(name)]:[];return {
+  const folder={getFiles(){const found=[...files.values()];return {hasNext:()=>found.length>0,next:()=>found.shift()};},getFilesByName(name){calls.push({lookup:name});const found=files.has(name)?[files.get(name)]:[];return {
     hasNext:()=>found.length>0,next:()=>found.shift()};},
     createFile(name,content){calls.push({create:name});return file(name,content);},
     getId:()=> 'folder',getSharingAccess:()=>privacy,getEditors:()=>[],getViewers:()=>[],
@@ -70,7 +70,7 @@ function harness({pages=[{messages:[{id:'a1'}]}], held=null, originals={}, failS
   return {context,files,calls,props,triggers,folder,
     run:()=>JSON.parse(JSON.stringify(context.collectCostCloudMail())),
     manifest:()=>JSON.parse(files.get('cloud-mail-manifest.json').content),
-    released:()=>released,folderCreates:()=>folderCreates};
+    released:()=>released,folderCreates:()=>folderCreates,saves:()=>saves};
 }
 function state(extra={}) {return {schema:'cost-cloud-mail-v1',messages:{},query:null,configured_after:'2026-04-01',
   pending:[],nextPageToken:null,query_revision:2,account,...extra};}
@@ -88,6 +88,54 @@ test('all pages preserve full original headers MIME and internal date; repeat is
   assert.equal(h.run().fetched,0);assert.equal(h.files.get('gmail-a1.json').content,contents);
   assert.equal(h.manifest().messages.a1.sha256.length,64);assert.ok(h.released());
   assert.ok(h.calls.filter(c=>c.url).every(c=>c.method==='GET'));
+});
+
+test('a full page bounds Drive searches and checkpoint writes while preserving every original',()=>{
+  const ids=Array.from({length:50},(_,i)=>(i+1).toString(16));
+  const h=harness({pages:[{messages:ids.map(id=>({id}))}]});
+  const result=h.run();assert.equal(result.status,'COMPLETE');assert.equal(result.fetched,50);
+  assert.equal(h.calls.filter(c=>c.lookup).length,1);
+  assert.ok(h.saves()<=8);
+  for(const id of ids){
+    assert.deepEqual(JSON.parse(h.files.get('gmail-'+id+'.json').content),{responses:[message(id)]});
+    assert.equal(h.manifest().messages[id].sha256.length,64);
+  }
+});
+
+test('failure inside a checkpoint group retains originals and resumes remaining IDs exactly once',()=>{
+  const ids=Array.from({length:15},(_,i)=>(i+1).toString(16));
+  const h=harness({pages:[{messages:ids.map(id=>({id}))}],failGet:'a'});
+  assert.throws(()=>h.run(),/SYNTHETIC_MESSAGE_FAILURE/);
+  assert.equal(Object.keys(h.manifest().messages).length,9);
+  assert.deepEqual(h.manifest().pending,ids.slice(9));
+  assert.equal(h.manifest().last_complete,null);
+  const originals=ids.slice(0,9).map(id=>h.files.get('gmail-'+id+'.json'));
+  const fetch=h.context.UrlFetchApp.fetch;
+  h.context.UrlFetchApp.fetch=(url,options)=>url.includes('/messages/a?')?
+    {getResponseCode:()=>200,getContentText:()=>JSON.stringify(message('a'))}:fetch(url,options);
+  assert.equal(h.run().fetched,6);assert.equal(Object.keys(h.manifest().messages).length,15);
+  ids.slice(0,9).forEach((id,i)=>assert.equal(h.files.get('gmail-'+id+'.json'),originals[i]));
+});
+
+test('duplicate names in the directory index fail before reading or creating mail originals',()=>{
+  const h=harness();let held=2;
+  h.folder.getFiles=()=>({hasNext:()=>held>0,next:()=>{held--;return {getName:()=> 'gmail-a1.json'};}});
+  assert.throws(()=>h.run(),/CLOUD_MAIL_DUPLICATE_FILE/);
+  assert.equal(h.files.size,0);assert.ok(!h.calls.some(c=>c.url&&c.url.includes('messages/a1?')));
+});
+
+test('time budget flushes a partial checkpoint group before a later run resumes it',()=>{
+  const ids=Array.from({length:8},(_,i)=>(i+1).toString(16));
+  const h=harness({pages:[{messages:ids.map(id=>({id}))}]});let tick=0;
+  h.context.Date=class extends Date {static now(){return tick++*50000;}};
+  assert.equal(h.run().status,'PARTIAL');
+  const stored=Object.keys(h.manifest().messages).length;
+  assert.ok(stored>0&&stored<8);assert.equal(h.manifest().pending.length,8-stored);
+  assert.equal(h.manifest().last_complete,null);
+  const preserved=ids.slice(0,stored).map(id=>h.files.get('gmail-'+id+'.json'));
+  h.context.Date=Date;assert.equal(h.run().status,'COMPLETE');
+  ids.slice(0,stored).forEach((id,i)=>assert.equal(h.files.get('gmail-'+id+'.json'),preserved[i]));
+  assert.equal(Object.keys(h.manifest().messages).length,8);
 });
 test('failure resumes pending IDs without advancing complete watermark',()=>{
   const h=harness({pages:[{messages:[{id:'a1'},{id:'b2'}]}],failGet:'b2'});
@@ -151,8 +199,8 @@ test('setup rejects wrong identity before changing properties or creating a fold
 test('setup creates exactly one hourly trigger and status does not collect',()=>{
   const h=harness();h.context.setupCostCloudMail({after:'2026-04-01',account});
   h.context.setupCostCloudMail({after:'2026-04-01',account});assert.equal(h.triggers.length,1);
-  const before=h.calls.length;assert.equal(h.context.costCloudMailStatus().stored,1);
-  assert.equal(h.calls.length,before);
+  const before=h.calls.filter(c=>!c.lookup).length;assert.equal(h.context.costCloudMailStatus().stored,1);
+  assert.equal(h.calls.filter(c=>!c.lookup).length,before);
 });
 test('invalid calendar dates cannot create folders or change setup',()=>{
   for(const after of ['2026-02-30','2026-13-01','2026-00-01','not-a-date']){
