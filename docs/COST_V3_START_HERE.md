@@ -24,6 +24,7 @@
 | OTA 대기열 축소·예약 그룹·서버 측 페이지네이션·성능 | [OTA 개선 구현 계약](specs/ota-review-queue-performance-20261027.md) |
 | Google 최종 정본·B:H 열·수입·사본 선택·권한·지출 대응 표시 | [Google 장부](specs/google-ledger.md) |
 | 여행 A→B 교정·사후 AI 질문·승인 규칙·참가자 명단 | [여행 교정·참가자](specs/participants.md) |
+| Travel INS 보험 명단 수신·운영 DB 일치·여행별 참가자 조회·결제 재개 결함 | [보험→COST 참가자 연동 개선 명세](specs/insurance-participant-integration-20261028.md) |
 | 카드 전체 내역·공통 테마·항공권 검색·모바일·아이콘 라이선스 | [화면·항공권·디자인](specs/ui.md) |
 | 비공개 클라우드 Gmail 원문 수집·Drive 가져오기·전환/복구 게이트 | [클라우드 수집 전환](specs/cloud-mail-cutover.md) |
 | 여행별 항공권 목록·연속 여행의 출발 여행 귀속 | [항공권 여행별 조회/귀속 명세](specs/trip-flight-booking-overview-20261028.md) |
