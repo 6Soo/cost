@@ -11,6 +11,7 @@ from app.db import decided_sql
 from app.reconciliation import (GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
                                    handover_days, overlaps_stay, stay_trip)
 
+from . import card_evidence_ui
 from . import read_scope
 from app.partial_refund import read_only_scope as refund_read_only_scope
 
@@ -2478,21 +2479,17 @@ def _evidence_block(index, amount, day):
     """예약 자료 확인이 필요한 거래 옆에 같은 금액의 예약 메일 내용을 그대로 보여 준다. 배정은 하지 않는다."""
     from app import booking_evidence
     from . import ledger_board
-    esc = ledger_board.esc
     found, searched = booking_evidence.find(index, amount, day)
     if not found:
-        return (f"<p class='cleanup-evidence-none'>같은 금액 {abs(int(amount or 0)):,}원의 예약 메일이 없습니다."
-                f" 메일 {searched:,}통을 확인했습니다.</p>")
+        return card_evidence_ui.render_booking_email_evidence([], searched, amount, esc=ledger_board.esc)
     latest = {}
     for entry in found:
         key = tuple(entry['refs']) or (entry['subject'],)
         if key not in latest or entry['sent'] > latest[key]['sent']:
             latest[key] = entry
     entries = sorted(latest.values(), key=lambda e: e['sent'], reverse=True)
-    items = ''.join('<li>' + '<br>'.join(esc(line) for line in booking_evidence.describe(entry)) + '</li>'
-                    for entry in entries)
-    return (f"<details class='cleanup-evidence' open><summary>같은 금액의 예약 {len(entries)}건</summary>"
-            f"<ul>{items}</ul></details>")
+    described = [booking_evidence.describe(entry) for entry in entries]
+    return card_evidence_ui.render_booking_email_evidence(described, searched, amount, esc=ledger_board.esc)
 
 
 def prewarm_booking_evidence(board):
@@ -2734,21 +2731,7 @@ def ota_catalog_summary(entry) -> str:
 def _catalog_block(entry) -> str:
     """OTA 예약의 판단에 필요한 줄: 예약번호·상태, 이용기간, 후보 여행, 연결 카드 결제."""
     from . import ledger_board
-    esc = ledger_board.esc
-    relation = {'covers': '전체 포함', 'overlaps': '일부 겹침', 'none': ''}
-    lines = [f"예약 {entry['booking_ref']} · {entry.get('status') or '상태 미확인'}"]
-    if entry.get('period'):
-        lines.append(f"이용 {entry['period']}")
-    candidates = [f"{c.get('display_key') or c.get('tab_id')}({relation.get(c.get('relation'), '')})"
-                  for c in entry.get('candidates') or []]
-    if candidates:
-        lines.append('후보 여행: ' + ', '.join(candidates))
-    cancelled = entry.get('cancelled_matches') or 0
-    if cancelled:
-        lines.append(f'취소 결제 {cancelled}건')
-    items = ''.join(f"<li>{esc(line)}</li>" for line in lines)
-    return (f"<details class='cleanup-evidence' open><summary>{esc(entry.get('provider') or 'OTA')} 예약 자료</summary>"
-            f"<ul>{items}</ul></details>")
+    return card_evidence_ui.render_catalog_block(entry, esc=ledger_board.esc)
 
 
 def _render_ota_snapshot_evidence(entry: dict, tid: str) -> str:
@@ -2757,81 +2740,10 @@ def _render_ota_snapshot_evidence(entry: dict, tid: str) -> str:
     여행 없음/무효, 원문충돌/중복/환불미완료/수동보류, 준비/기록완료/금융보호 상태 표시.
     """
     from . import ledger_board
-    esc = ledger_board.esc
-
-    status = entry.get('ota_status', '')
-    notes = entry.get('ota_notes', [])
-    snap = entry.get('snapshot', {})
-    fresh = snap.get('fresh', False)
-    snap_status = snap.get('status', 'unknown')
-    # 세대 번호는 내부 진단값이므로 화면 문구에 넣지 않는다.
-
-    lines = []
-
-    # OTA 연결 상태 뱃지
-    status_labels = {
-        'EXACT': ('확정 연결', 'ok'),
-        'INFERRED': ('추론 연결', 'warn'),
-        'GROUP_RECONCILED': ('그룹 대응 (개별 미확정)', 'warn'),
-        'USER_CONFIRMED': ('사용자 확정', 'ok'),
-        'RESERVATION_INFERRED': ('예약 추론 관계', 'idle'),
-        'RESERVATION_CONFIRMED': ('예약 관계 사용자 확인', 'ok'),
-        'RESERVATION_NEEDS_REVIEW': ('예약 후보 경합/충돌', 'warn'),
-        'RESERVATION_STALE': ('예약 관계 근거 변경', 'bad'),
-        'REVIEW_REQUIRED': ('그룹 부분 대응·보류', 'bad'),
-        'CANDIDATE': ('후보 존재·미연결', 'idle'),
-        'MULTIPLE_CANDIDATES': ('복수 후보·개별 미확정', 'warn'),
-        'UNLINKED': ('OTA 결제 연결 없음 · 결제 근거 확인 필요', 'idle'),
-    }
-    label, tone = status_labels.get(status, ('연결 상태 확인 대기', 'idle'))
-    lines.append(f"<span class='cleanup-ota-badge cleanup-ota-badge-{tone}'>{esc(label)}</span>")
-
-    # 스냅샷 신선도
-    if not fresh:
-        if snap_status == 'refreshing':
-            lines.append(f"<span class='cleanup-snapshot-refreshing'>{esc('예약 근거 갱신 중...')}</span>")
-        elif snap_status == 'stale':
-            lines.append(f"<span class='cleanup-snapshot-stale'>{esc('스냅샷 구버전 (갱신 대기)')}</span>")
-        elif snap_status == 'error':
-            lines.append(f"<span class='cleanup-snapshot-error'>{esc('예약 근거 입력 오류')}</span>")
-        elif snap_status == 'loading':
-            lines.append(f"<span class='cleanup-snapshot-loading'>{esc('스냅샷 로딩 중...')}</span>")
-        else:
-            lines.append(f"<span class='cleanup-snapshot-stale'>{esc('현재 예약 연결을 확인할 수 없습니다.')}</span>")
-    else:
-        lines.append(f"<span class='cleanup-snapshot-fresh'>{esc('최신 예약 자료 확인')}</span>")
-
-    # 동일 카드의 후보와 거절 사유를 모두 보존한다.
-    for note in notes:
-        lines.append(f"<span class='cleanup-ota-note'>{esc(note)}</span>")
-
-    # 보호/보류 상태 추가 정보
-    if status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
-        lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용')}</span>")
-    elif status in ('RESERVATION_NEEDS_REVIEW', 'RESERVATION_STALE'):
-        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 사용자 재확인 필요')}</span>")
-
-    items = ''.join(f"<li>{line}</li>" for line in lines)
-    return (f"<details class='cleanup-evidence cleanup-ota-snapshot' open><summary>{esc('OTA 연결 근거')}</summary>"
-            f"<ul>{items}</ul></details>")
+    return card_evidence_ui.render_ota_snapshot_evidence(entry, tid, esc=ledger_board.esc)
 
 
-def _refund_merchant_key(value):
-    """Diagnostic merchant family only. NEVER use as a financial matching key."""
-    import re
-    compact = re.sub(r"[^0-9a-z가-힣]", "", str(value or "").casefold())
-    # Kakao Pay, gift shops, parking, substitute drivers and other services
-    # cannot be silently grouped with Kakao T taxi authorizations.
-    taxi_prefix = ("카카오t", "카카오택시", "카카오모빌리티택시",
-                   "kakaotaxi", "kakaot")
-    if compact.startswith(taxi_prefix) or (
-        compact.startswith("카카오모빌리티") and
-        any(word in compact for word in ("일반택시", "가승인", "선승인", "택시요금"))
-    ):
-        if any(word in compact for word in ("대리", "주차", "바이크", "퀵")):
-            return compact
-        return "카카오택시"
-    return compact
+_refund_merchant_key = card_evidence_ui.refund_merchant_key
 
 
 def _refund_merchant_candidates_readonly(board, tid: str, *, max_rows=10):
@@ -2901,88 +2813,31 @@ def _kakao_merchant_inventory_readonly(board):
 
 def _render_refund_merchant_candidates(board, tid: str) -> str:
     """Show review candidates only. Nothing is saved or automatically linked."""
-    from urllib.parse import urlencode
-    from .ledger_board import esc
+    from . import ledger_board
     refund, candidates, count = _refund_merchant_candidates_readonly(board, tid)
     if not refund:
         return ""
-    issuer, tail, merchant, day, amount, approval, original = refund
-    key = _refund_merchant_key(merchant)
-    header = ("카카오T 택시 가맹점 표기 대조" if key == "카카오택시"
-              else "같은 카드·가맹점 원결제 비교")
-    parts = [
-        f"<details class='cleanup-merchant-compare'><summary>{esc(header)}"
-        f" <span class='cleanup-mini-count'>{count}건</span></summary>",
-        "<p class='cleanup-evidence-meta'>원결제 연결은 미확정 · 같은 카드의 최근 14일 거래를 비교합니다.</p>",
-        f"<p class='cleanup-evidence-meta'>환불 카드 {esc(issuer)} · 끝자리 {esc(tail)}"
-        f" · 승인번호 {esc(approval or '없음')} · 원승인번호 {esc(original or '없음')}</p>"
-    ]
-    if key == "카카오택시":
-        parts.append("<p class='cleanup-evidence-meta'>카카오T 가승인·선승인·일반택시·유페이 표기를"
-                     " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
-                     " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다."
-                     " 원승인번호와 같은 카드의 정상 원결제가 식별되면 가맹점명이 달라도 확정 연결합니다."
-                     " 한 원결제에 취소·환불이 여러 건인 것은 정상이며, 총 환불액과 잔액은 따로 검증합니다.</p>")
-    if key == "카카오택시":
-        inventory = _kakao_merchant_inventory_readonly(board)
-        taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
-        other_count = sum(item["count"] for item in inventory if item["family"] != "카카오택시")
-        parts.append("<details class='cleanup-kakao-inventory'><summary>"
-                     f"카카오·유페이 표기 점검 · 택시 {taxi_count}건 / 기타 {other_count}건"
-                     "</summary><p class='cleanup-evidence-meta'>현재 저장된 카드 원행의 가맹점 표기를 "
-                     "읽기 전용으로 집계합니다. 카카오페이·기타 서비스는 택시 후보에서 분리하며 "
-                     "원결제 매칭이나 계좌 출금 증거로 사용하지 않습니다.</p>")
-        for item in inventory[:40]:
-            group = "택시 표기" if item["family"] == "카카오택시" else "별도 서비스"
-            parts.append(f"<p class='cleanup-evidence-meta'>{esc(group)} · "
-                         f"{esc(item['merchant'])} · {esc(item['direction'])} "
-                         f"{item['count']}건</p>")
-        if len(inventory) > 40:
-            parts.append(f"<p class='cleanup-evidence-meta'>표기 {len(inventory)}종 중 "
-                         "40종만 펼쳐 보여줍니다. 집계는 전체 원행 기준입니다.</p>")
-        parts.append("</details>")
-    if candidates:
-        parts.append("<div class='cleanup-compare-list' role='list'>")
-        ids = [r[0] for r in candidates]
-        existing = set()
-        if ids:
-            marks = ",".join("?" for _ in ids)
-            existing = {row[0] for row in board.conn.execute(
-                "SELECT transaction_id FROM ledger_entries WHERE transaction_id IN (" + marks + ")",
-                ids)}
-        for cid, batch, name, date, gross, number, duplicate, conflict, error in candidates:
-            alias_match = _refund_merchant_key(name) == key
-            flags = ["같은 카드",
-                     "가맹점명 동일" if name == merchant else
-                     "표기 변형" if alias_match else "원승인번호 대조 · 가맹점 불일치",
-                     "금액 일치" if gross == abs(amount or 0) else "금액 차이",
-                     "장부 기록 있음" if cid in existing else "장부 미기록"]
-            if original and number and str(original).strip() == str(number).strip():
-                flags.append("원승인번호 일치 · 확정 연결은 별도 검증")
-            if duplicate or conflict or error:
-                flags.append("중복·원본 오류")
-            link = "/import?" + urlencode({"batch": batch, "transaction": cid})
-            parts.append("<article class='cleanup-compare-row' role='listitem'>"
-                         f"<div class='cleanup-compare-main'><strong>{esc(name)}</strong>"
-                         f"<b>{gross:,}원</b></div>"
-                         f"<p>{esc(str(date))} · 승인 {esc(number or '없음')}</p>"
-                         f"<p class='cleanup-evidence-meta'>{esc(' · '.join(flags))}</p>"
-                         f"<a href='{esc(link)}'>원결제 자료 보기</a></article>")
-        parts.append("</div>")
-        if count > len(candidates):
-            parts.append(f"<p class='cleanup-evidence-meta'>총 {count}건 중 최근·근거 우선"
-                         f" {len(candidates)}건 표시. 전체 거래 검색에서 추가 확인해 주세요.</p>")
-    else:
-        parts.append("<p>최근 14일 내 같은 카드·가맹점 표기 후보가 없습니다."
-                     " 더 오래된 승인과 다른 카드 거래는 전체 거래 검색에서 확인해 주세요.</p>")
-    query = "카카오" if key == "카카오택시" else merchant
-    search = "/import?" + urlencode({"scope": "all", "q": query})
-    parts.append(f"<p><a href='{esc(search)}'>가맹점명으로 전체 카드 거래 검색</a></p></details>")
-    return "<div class='cleanup-refund-candidates'>" + "".join(parts) + "</div>"
+    key = _refund_merchant_key(refund[2])
+    inventory = _kakao_merchant_inventory_readonly(board) if key == "카카오택시" else None
+    existing = set()
+    ids = [r[0] for r in candidates] if candidates else []
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        existing = {row[0] for row in board.conn.execute(
+            "SELECT transaction_id FROM ledger_entries WHERE transaction_id IN (" + marks + ")",
+            ids)}
+    return card_evidence_ui.render_refund_merchant_candidates(
+        refund,
+        candidates,
+        count,
+        existing_ledger_ids=existing,
+        kakao_inventory=inventory,
+        esc=ledger_board.esc,
+    )
 
-def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=None) -> str:
-    """원결제 연결과 실제 기록 상태를 금융 판정 변경 없이 표시한다."""
-    from .ledger_board import esc
+
+def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancellations=None) -> tuple[str, list[str]]:
+    """원결제 연결과 실제 기록 상태를 분석하여 화면 표시용 title과 lines를 반환한다."""
     if link:
         recorded = {r[0] for r in board.conn.execute(
             'SELECT transaction_id FROM ledger_entries WHERE transaction_id IN (?,?)',
@@ -3056,9 +2911,20 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
         candidate = kakao_refund_candidates(board.conn, {tid}).get(tid)
         if candidate:
             lines.append('동일 카드·카카오 포함 가맹점·동액의 원결제 후보 1건이 있습니다. 원승인번호 근거가 없어 금융 연결·상쇄·환급 완료로 확정하지 않습니다.')
+    return title, lines
+
+
+def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=None) -> str:
+    """원결제 연결과 실제 기록 상태를 금융 판정 변경 없이 표시한다."""
+    from . import ledger_board
+    title, lines = _build_refund_evidence_content(board, tid, link, held_cancellations=held_cancellations)
     comparison = _render_refund_merchant_candidates(board, tid) if not link else ''
-    return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
-            '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul>' + comparison + '</details>')
+    return card_evidence_ui.render_refund_evidence(
+        title,
+        lines,
+        comparison_html=comparison,
+        esc=ledger_board.esc,
+    )
 
 
 @read_scope.scoped
@@ -3146,12 +3012,10 @@ def render_expense_cleanup(board, csrf, *, page=1):
             reason = CARD_REASON.get(source) or ('비용 항목을 확인해 주세요' if not item else
                       '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
                       '배정과 거래의 보호 검사 결과를 확인해 주세요')
-            evidence = (
-                ("<p class='cleanup-evidence-none'>이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다. "
-                "예약 확인서에서 예약번호와 이용기간을 확인해 주세요. "
-                "카드 결제일만으로는 여행을 정할 수 없습니다.</p>" if snapshot_context.get('fresh') else
-                 "<p class='cleanup-evidence-none'>현재 예약 자료를 확인할 수 없어 예약 부재 여부를 판단하지 않았습니다.</p>")
-                if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
+            evidence = card_evidence_ui.render_no_booking_evidence(
+                fresh=bool(snapshot_context.get('fresh')),
+                source=source,
+                is_ota=_is_ota_row({'merchant': merchant}),
             )
         # Classification confidence describes a proposal, not a persisted trip.
         # Do not present an old high-confidence basis as an active assignment.
