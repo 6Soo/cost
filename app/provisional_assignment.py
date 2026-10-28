@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from datetime import date
+import hashlib
+import json
+import re
 
 POLICY_VERSION = "provisional-trip-v1"
 MANUAL_STATES = {"USER_CONFIRMED", "MANUAL_UNASSIGNED", "MANUAL_HOLD", "MANUAL_EXCLUDED"}
@@ -42,6 +45,119 @@ def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
     """Build the shared decision DTO after an existing authority resolver validates the trip."""
     candidate = {"trip_id": str(trip_id), "basis": str(basis), "confidence": confidence}
     return _decision("AUTO_PROVISIONAL", str(trip_id), candidate["basis"], [candidate], confidence)
+
+
+def propose_correction_pattern(corrections):
+    """Build an inactive proposal from the latest distinct owner corrections."""
+    latest = {}
+    for raw in corrections:
+        row = dict(raw)
+        identity = str(row.get("transaction_id") or "")
+        try:
+            revision = int(row.get("revision"))
+        except (TypeError, ValueError):
+            continue
+        if not identity:
+            continue
+        if identity not in latest or revision > latest[identity]["revision"]:
+            latest[identity] = {**row, "revision": revision}
+    rows = [r for r in latest.values() if r.get("owner_approved") is True
+            and not r.get("duplicate_of") and not r.get("conflict_reason")
+            and not r.get("financial_hold") and not r.get("excluded")
+            and re.fullmatch(r"[0-9a-f]{64}", str(r.get("source_hash") or ""))
+            and r.get("merchant_normalized") and r.get("trip_id") and r.get("item")]
+    if len({r["source_hash"] for r in rows}) != len(rows):
+        return {"status": "NO_PROPOSAL", "correction_count": 0}
+    signatures = {(r["merchant_normalized"], r["trip_id"], r["item"], r["confidence"], r["basis"])
+                  for r in rows if r.get("confidence") in ("낮음", "중간", "높음") and r.get("basis")}
+    if len(rows) < 2 or len(signatures) != 1:
+        return {"status": "NO_PROPOSAL", "correction_count": len(rows)}
+    merchant, trip_id, item, confidence, basis = next(iter(signatures))
+    correction_refs = [{"transaction_id": r["transaction_id"], "revision": r["revision"],
+                        "source_hash": r["source_hash"]} for r in sorted(rows, key=lambda x: x["transaction_id"])]
+    scope = {"merchant_normalized": merchant, "trip_id": trip_id,
+             "item": item, "confidence": confidence, "basis": basis}
+    proposal_id = _correction_proposal_id(scope, correction_refs)
+    return {"id": proposal_id, "status": "PENDING_OWNER_APPROVAL", "active": False,
+            "scope": scope,
+            "corrections": correction_refs}
+
+
+def approve_correction_pattern(store, proposal, *, approved_by, trips):
+    """Serialize proposal validation and persistence in one transaction."""
+    with store.lock:
+        nested = store.conn.in_transaction
+        store.conn.execute("SAVEPOINT approve_trip_corrections" if nested else "BEGIN IMMEDIATE")
+        try:
+            result = _approve_correction_pattern(store, proposal, approved_by=approved_by, trips=trips)
+            if nested:
+                store.conn.execute("RELEASE SAVEPOINT approve_trip_corrections")
+            else:
+                store.conn.commit()
+            return result
+        except BaseException:
+            if nested:
+                store.conn.execute("ROLLBACK TO SAVEPOINT approve_trip_corrections")
+                store.conn.execute("RELEASE SAVEPOINT approve_trip_corrections")
+            else:
+                store.conn.rollback()
+            raise
+
+
+def _approve_correction_pattern(store, proposal, *, approved_by, trips):
+    """Explicitly persist exact-source inferred rules through the existing rule/audit core."""
+    if (not approved_by or not isinstance(proposal, dict)
+            or proposal.get("status") != "PENDING_OWNER_APPROVAL"
+            or proposal.get("active") is not False
+            or not re.fullmatch(r"trip-correction-proposal-[0-9a-f]{24}", str(proposal.get("id") or ""))):
+        raise ValueError("OWNER_APPROVAL_REQUIRED")
+    scope = proposal.get("scope") or {}
+    expected_id = _correction_proposal_id(scope, proposal.get("corrections") or ())
+    if proposal.get("id") != expected_id:
+        raise ValueError("PROPOSAL_CONTENT_CHANGED")
+    if store.conn.execute("SELECT 1 FROM change_log WHERE kind=? AND subject=? LIMIT 1",
+                          ("trip_correction_rules.approved", proposal["id"])).fetchone():
+        return {"status": "ALREADY_APPROVED", "active": True, "proposal_id": proposal["id"]}
+    trip = canonical_trip_periods(trips).get(str(scope.get("trip_id") or ""))
+    if not trip or not re.fullmatch(r"[^*]{1,160}", str(scope.get("merchant_normalized") or "")):
+        raise ValueError("TRIP_NOT_AUTHORITATIVE")
+    from .rules import normalize_rule, save_rule
+    prepared = []
+    for correction in proposal.get("corrections") or ():
+        txid, digest = str(correction.get("transaction_id") or ""), str(correction.get("source_hash") or "")
+        if not txid or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("INVALID_CORRECTION_SCOPE")
+        row = store.conn.execute(
+            "SELECT merchant_normalized,source_hash,revision,trip_id,item,classification_source,"
+            "duplicate_of,conflict_reason FROM transactions WHERE transaction_id=?", (txid,)).fetchone()
+        if (row is None or row[1] != digest or int(row[2]) != int(correction.get("revision", -1))
+                or row[3] != scope["trip_id"] or row[4] != scope["item"]
+                or row[0] != scope["merchant_normalized"] or row[5] != "user_decision"
+                or row[6] or row[7]):
+            raise ValueError("CORRECTION_STALE_OR_PROTECTED")
+        draft = {"conditions": {"merchant_normalized": row[0]},
+                 "optional": {"source_hash": digest,
+                              "inferred_assignment": {"trip_id": scope["trip_id"],
+                                  "basis": scope["basis"], "confidence": scope["confidence"]}},
+                 "effects": {"item": scope["item"]},
+                 "origin": "owner-approved-trip-correction",
+                 "rule_id": "trip-correction-" + digest[:24],
+                 "note": "Owner-approved transaction-exact trip correction"}
+        prepared.append(normalize_rule(draft))
+    if len(prepared) < 2:
+        raise ValueError("INSUFFICIENT_DISTINCT_CORRECTIONS")
+    store.conn.execute("SAVEPOINT provisional_trip_rules")
+    try:
+        saved = [save_rule(store, rule) for rule in prepared]
+        store.log_change("trip_correction_rules.approved", proposal["id"],
+                         {"approved_by": str(approved_by), "scope": scope, "rules": saved})
+        store.conn.execute("RELEASE SAVEPOINT provisional_trip_rules")
+    except BaseException:
+        store.conn.execute("ROLLBACK TO SAVEPOINT provisional_trip_rules")
+        store.conn.execute("RELEASE SAVEPOINT provisional_trip_rules")
+        raise
+    return {"status": "APPROVED", "active": True, "approved_by": str(approved_by),
+            "proposal_id": proposal["id"], "rules": saved, "scope": dict(scope)}
 
 
 def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None, manual_status=None,
@@ -127,3 +243,9 @@ def _decision(status, trip_id, reason, candidates, confidence="낮음"):
     return {"status": status, "trip_id": trip_id, "reason": reason,
             "confidence": confidence, "candidates": list(candidates),
             "policy_version": POLICY_VERSION}
+
+
+def _correction_proposal_id(scope, corrections):
+    payload = json.dumps([scope, list(corrections)], ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return "trip-correction-proposal-" + hashlib.sha256(payload).hexdigest()[:24]

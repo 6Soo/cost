@@ -1,5 +1,10 @@
 from app.provisional_assignment import (ota_service_period_candidate, rank_trip_candidates,
-                                        canonical_trip_periods)
+                                        canonical_trip_periods, propose_correction_pattern,
+                                        approve_correction_pattern)
+from app import Pipeline
+from app.classify import classify_transaction
+from .fixtures import make_csv, domestic_row
+import sqlite3
 
 
 TRIPS = [
@@ -81,3 +86,60 @@ def test_invalid_trip_start_does_not_break_or_truncate_valid_open_trip():
     periods = canonical_trip_periods(trips)
     assert set(periods) == {"valid-open", "valid-next"}
     assert periods["valid-open"]["ends_on"] == "2026-08-09"
+
+
+def test_owner_approved_corrections_persist_source_exact_rules_in_existing_audit_core(tmp_path):
+    conn = sqlite3.connect(tmp_path / "synthetic.sqlite", isolation_level=None)
+    try:
+        pipe = Pipeline(conn)
+        rows = [domestic_row(merchant="SYNTHETIC HOTEL", amount=5000 + n, approval=f"a{n}")
+                for n in range(2)]
+        batch = pipe.receive(make_csv(rows), "synthetic.csv")["batch_id"]
+        transactions = conn.execute(
+            "SELECT transaction_id,source_hash,merchant_normalized,revision FROM transactions ORDER BY transaction_id"
+        ).fetchall()
+        for index, (txid, _, _, revision) in enumerate(transactions):
+            pipe.save_decision(txid, revision, item="숙박비", description="합성 교정",
+                               trip_id="trip-a", trip_validator=lambda trip: trip == "trip-a",
+                               request_id=f"synthetic-decision-{index}")
+        corrections = []
+        for txid, digest, merchant, revision in conn.execute(
+                "SELECT transaction_id,source_hash,merchant_normalized,revision FROM transactions"):
+            corrections.append({"transaction_id": txid, "source_hash": digest,
+                "merchant_normalized": merchant, "revision": revision, "trip_id": "trip-a",
+                "item": "숙박비", "confidence": "낮음", "basis": "사용자 반복 교정",
+                "owner_approved": True})
+        proposal = propose_correction_pattern(corrections)
+        assert proposal["status"] == "PENDING_OWNER_APPROVAL"
+        # A later revision for the same transaction supersedes that transaction's old correction.
+        assert propose_correction_pattern(corrections + [dict(corrections[0], revision=3,
+                                                               owner_approved=False)])["status"] == "NO_PROPOSAL"
+        with pytest.raises(ValueError, match="OWNER_APPROVAL_REQUIRED"):
+            approve_correction_pattern(pipe.store, proposal, approved_by="", trips=TRIPS)
+        approved = approve_correction_pattern(pipe.store, proposal, approved_by="synthetic-owner",
+             trips=[{"trip_id": "trip-a", "starts_on": "2026-08-01", "ends_on": "2026-08-31"}])
+        assert approved["status"] == "APPROVED" and len(approved["rules"]) == 2
+        assert approve_correction_pattern(pipe.store, proposal, approved_by="synthetic-owner",
+            trips=[{"trip_id": "trip-a", "starts_on": "2026-08-01", "ends_on": "2026-08-31"}])["status"] == "ALREADY_APPROVED"
+        tampered = dict(proposal, scope=dict(proposal["scope"], item="다른 항목"))
+        with pytest.raises(ValueError, match="PROPOSAL_CONTENT_CHANGED"):
+            approve_correction_pattern(pipe.store, tampered, approved_by="synthetic-owner", trips=TRIPS)
+        active = pipe.list_rules()
+        assert len([rule for rule in active if rule["origin"] == "owner-approved-trip-correction"]) == 2
+        assert all(rule["optional"].get("source_hash") and rule["optional"].get("inferred_assignment")
+                   for rule in active if rule["origin"] == "owner-approved-trip-correction")
+        assert conn.execute("SELECT COUNT(*) FROM change_log WHERE kind='trip_correction_rules.approved'").fetchone()[0] == 1
+        first = transactions[0]
+        decision = classify_transaction({"merchant": first[2], "source_hash": first[1],
+             "transaction_direction": "purchase", "transaction_kind": "purchase",
+             "approval_date": "2026-08-02", "amount_krw": 5000}, rules=active,
+             trip_resolver=lambda transaction, hint: "trip-a")
+        assert decision["trip_id"] == "trip-a"
+        other = classify_transaction({"merchant": first[2], "source_hash": "f" * 64,
+             "transaction_direction": "purchase", "transaction_kind": "purchase",
+             "approval_date": "2026-08-02", "amount_krw": 5000}, rules=active,
+             trip_resolver=lambda transaction, hint: "trip-a")
+        assert not other["trip_id"]
+    finally:
+        conn.close()
+import pytest
