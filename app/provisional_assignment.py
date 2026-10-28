@@ -118,15 +118,29 @@ def _approve_correction_pattern(store, proposal, *, approved_by, trips):
     if store.conn.execute("SELECT 1 FROM change_log WHERE kind=? AND subject=? LIMIT 1",
                           ("trip_correction_rules.approved", proposal["id"])).fetchone():
         return {"status": "ALREADY_APPROVED", "active": True, "proposal_id": proposal["id"]}
+    corrections = proposal.get("corrections")
+    if not isinstance(corrections, list) or len(corrections) < 2:
+        raise ValueError("INSUFFICIENT_DISTINCT_CORRECTIONS")
+    txids = [str(row.get("transaction_id") or "") for row in corrections
+             if isinstance(row, dict)]
+    hashes = [str(row.get("source_hash") or "") for row in corrections
+              if isinstance(row, dict)]
+    if (len(txids) != len(corrections) or len(set(txids)) != len(txids)
+            or len(set(hashes)) != len(hashes)):
+        raise ValueError("INSUFFICIENT_DISTINCT_CORRECTIONS")
     trip = canonical_trip_periods(trips).get(str(scope.get("trip_id") or ""))
     if not trip or not re.fullmatch(r"[^*]{1,160}", str(scope.get("merchant_normalized") or "")):
         raise ValueError("TRIP_NOT_AUTHORITATIVE")
     from .rules import normalize_rule, save_rule
     prepared = []
-    for correction in proposal.get("corrections") or ():
+    from .review import correction_protection_reason
+    for correction in corrections:
         txid, digest = str(correction.get("transaction_id") or ""), str(correction.get("source_hash") or "")
         if not txid or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("INVALID_CORRECTION_SCOPE")
+        protected = correction_protection_reason(store, txid, digest)
+        if protected:
+            raise ValueError("CORRECTION_PROTECTED:" + protected)
         row = store.conn.execute(
             "SELECT merchant_normalized,source_hash,revision,trip_id,item,classification_source,"
             "duplicate_of,conflict_reason FROM transactions WHERE transaction_id=?", (txid,)).fetchone()

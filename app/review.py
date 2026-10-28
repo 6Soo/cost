@@ -137,6 +137,37 @@ def _kind_is_cancel(kind: str) -> bool:
     return any(word in str(kind or "").casefold() for word in _CANCEL_KINDS)
 
 
+def correction_protection_reason(store, transaction_id: str, source_hash: str) -> str:
+    """Return the existing review protection reason for a current source row.
+
+    This is shared by correction approval so it uses the same cancellation and
+    review-hold authority as card review rather than reimplementing that policy.
+    """
+    row = store.conn.execute(
+        "SELECT source_hash, parse_error, transaction_direction, transaction_kind, "
+        "duplicate_of, conflict_reason FROM transactions WHERE transaction_id=?",
+        (transaction_id,)).fetchone()
+    if row is None or row[0] != source_hash:
+        return "SOURCE_CHANGED"
+    if row[1]:
+        return "PARSE_ERROR"
+    if row[4] or row[5]:
+        return "DUPLICATE_OR_CONFLICT"
+    if _kind_is_cancel(row[2]) or _kind_is_cancel(row[3]):
+        return "CANCELLATION_OR_REFUND"
+    hold = store.conn.execute(
+        "SELECT kind FROM transaction_review_holds WHERE transaction_id=? AND source_hash=?",
+        (transaction_id, source_hash)).fetchone()
+    if hold:
+        return "REVIEW_HOLD:" + str(hold[0])
+    exclusion = store.conn.execute(
+        "SELECT excluded FROM transaction_company_exclusions "
+        "WHERE transaction_id=? AND source_hash=?", (transaction_id, source_hash)).fetchone()
+    if exclusion and exclusion[0]:
+        return "COMPANY_EXCLUDED"
+    return ""
+
+
 # ------------------------------------------------------------------ receive
 
 def receive(store, content: bytes, filename: str) -> dict:
