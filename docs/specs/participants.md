@@ -4,6 +4,8 @@
 
 [시작 안내](../COST_V3_START_HERE.md) · [현재 상태](../session_handoff.md) · [운영 기록](../operations.md)
 
+> **2026-10-28 현재 연동 감사·개선 요구:** [Travel INS 명단 수신, 참가자 DB 경로 동일성, 여행별 보험 명단 조회 명세](insurance-participant-integration-20261028.md). 기존 14명 수신 이력/합성 대조 통과는 당시 로컬 결과이며, 결제 재개 함수 계약·운영 웹 DB 동일성·여행 탭 UI는 별도 미결이다. 문서 링크만으로 구현 완료를 선언하지 않는다.
+
 ## 내용
 
 - [COST V3 구현 명세 — 추론 우선배정·사후 AI 대화학습·항공권 참가자·N:M 대사·테스트 독립화](#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
