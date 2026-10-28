@@ -24,12 +24,12 @@
 | PEND-01 | blocked | 원결제 또는 명시 결제 증명 부재. 기존 진단 완료, 금융 연결을 창작하지 않는다. 아래 외부 자료 차단 참조. |
 | PEND-02 | complete | 합성 browser3 passed와 운영 Aside 4조건·20행·넘침0의 확대/키보드/오류·재조회 수락. 물리적 모바일 검사는 아니다. |
 | PEND-03 | complete | 클라우드 수집/가져오기 PR #256/d37b33c 및 전용 수집기 배포. 수집20/인증14·importer32/browser3 근거 재사용. 실제 전환은 PEND-04. |
-| PEND-04 | running | bounded batch 코드 PR #291/main9c3a88b와 51개 표적 검사 수락, 원문 적재/작업 전환은 미실행. 최신 read-only Drive manifest는 3,710 stored·48 pending·has_next_page=true·complete=false로 후속 enumeration 진행 중이다. 전체 batch preview는 enumeration 완료 후 재시도한다. 현재 상태 근거 `.local-archive/all-pending-20261028/cloud-backfill-state.json`. |
+| PEND-04 | blocked | 2026-10-28T14:35:59Z 기존 전용 Drive readonly 자격으로 manifest 재확인:3,710 stored/48 pending/has_next_page=true/complete=false. 원격 탐색 미완료로 전체 bounded preview 수락을 진행할 수 없다. 원문 다운로드/원격·로컬 원문/운영DB 쓰기0. 재확인 조건은 pending0·다음페이지없음·query없음·last_complete존재다. 근거 `.local-archive/merge-cleanup-20261028/cloud-manifest-recheck.json`. 코드/51검사 근거를 유지하며 실제 적재/작업전환의 별도 데이터 게이트는 확대하지 않는다. |
 | RF-001 | running | 정적 호출 지도 `config/refactor-call-map.json`·도구 PR #294/main `8e479de` 병합, 경로 영향 매핑 PR #296/main `ba74ab8` 병합. 표적/선택기 18건 통과. RF-001 및 RF-101 통합 101 passed/3 subtests; 전체 gate는 12개 모듈에서 OTA `inferred_link` KeyError 1건으로 실패했고 기준 SHA `355eaea`에서도 같은 assertion 재현. 전체 Route→service→repository→table→external-effect와 권한 수락은 미완료. |
 | RF-002 | pending | 좁은 OTA 읽기 계약은175c3a2에서 이미 채택됨을 확인, 중복 구현하지 않았다. helper 실행 AST 동일·golden/canonical27 passed·입력 불변. 전체 상태 소비 수락은 부분 완료. |
 | RF-003 | running | 기존 tracked-data inventory/guard 재사용. 전체 producer/consumer와 배포 원본 제외 수락은 남음. 기존 자료 삭제/역사 재작성 금지. |
 | RF-004 | running | Windows/Python3.14.7의 실제 pytest collection 5,255건(exit0)과 정적 환경 감사 오류0을 확인했다. 수집은 본문 실행과 구별하며 import/hook 실행 사실을 표시한다. audit의 명시적 --collect는 원문 stdout을 공개하지 않고 요약·해시만 남기며 실패/timeout을 통과로 처리하지 않는다. 표적24 passed. 전체 known-failure 분류와 간접 실DB 의존 감사는 남음. |
-| RF-005 | running | 고정 SHA 배포/복구와 runtime catalog 재사용. 중복 배포 진입점·호스트 의존성 수렴은 부분 완료. |
+| RF-005 | running | 검증된 로컬 배포기를 tools/deploy_verified_release.ps1 공식 진입점으로 이식했다. 기본PREVIEW/명시적Apply, review·blob·이전릴리스·task/process/listener·보호13표·fresh backup/복원·health/auth·안전 rollback을 유지한다. switch하위도구는 기존검증본과byte동일. 새 보호snapshot은실제13표가직전검증과동일(읽기만), 표적27 passed·PowerShell2파일parse통과. 공식진입점의 새SHA실배포 수락은 대기, RF003패키지의 별도 분류범위는 남음. |
 | RF-101 | complete | 입력 정규화 `9930b42`·동적 콜백 교정 `5f0ac83` 포함 PR #294/main `8e479de` 병합. 스토어 정규화·idempotency·audit·allocation·schema·records·change-validation·store·income_bank 및 RF-001 검사 101 passed/3 subtests; 호출 동적 재바인딩·SQL/audit/revision/idempotency 계약을 유지. |
 | RF-102 | complete | 필요한 helper와 façade 분리는 최신 main에 이미 반영되어 있다. main SHA 355eaea 기준 HTTP/render/read/export/dialog 표적 49 passed. 임시 RF102 브랜치와의 유일한 소스 차이인 query fallback은 호출 타입 계약을 불필요하게 넓혀 채택하지 않았고 원본 브랜치는 증거 보존 후 정리한다. |
 | RF-103 | running | 카드 근거·환불 query·OTA 투영·cleanup PR #261/#268/#269/#276 검수/병합/배포. 여행 authority/decision/background 전체 수락은 남음. |
