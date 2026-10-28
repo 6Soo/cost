@@ -25,6 +25,7 @@
 | Google 최종 정본·B:H 열·수입·사본 선택·권한·지출 대응 표시 | [Google 장부](specs/google-ledger.md) |
 | 여행 A→B 교정·사후 AI 질문·승인 규칙·참가자 명단 | [여행 교정·참가자](specs/participants.md) |
 | 카드 전체 내역·공통 테마·항공권 검색·모바일·아이콘 라이선스 | [화면·항공권·디자인](specs/ui.md) |
+| 여행별 항공권 목록·연속 여행의 출발 여행 귀속 | [항공권 여행별 조회/귀속 명세](specs/trip-flight-booking-overview-20261028.md) |
 | 영수증 이미지 추출·검토·모델 전송 경계 | [영수증](specs/receipts.md) |
 | 현재 구성·호스트·스키마 점검 참고 | [구조·플랫폼](specs/platform.md) |
 
