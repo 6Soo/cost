@@ -95,6 +95,11 @@ def test_existing_full_refund_is_actionable_inline_but_get_remains_read_only(con
     assert done["applied"] == 2
     assert set(r[0] for r in board.conn.execute("SELECT transaction_id FROM ledger_entries")) == {original, refund}
     assert board.conn.execute("SELECT SUM(amount_krw) FROM ledger_entries").fetchone()[0] == 0
+    for member in (original, refund):
+        assert board.conn.execute(
+            "SELECT classification_state,classification_source,display_tab_id,trip_id "
+            "FROM transactions WHERE transaction_id=?", (member,)).fetchone() == (
+                "classified", "refund_original", "refunds", "")
     assert board.conn.execute(
         "SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?", (unrelated,)).fetchone()[0] == 0
     again = card_flow.render_expense_cleanup(board, "synthetic-csrf")
