@@ -2380,6 +2380,8 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
 
     flow = flow or CardFlow(board)
     result = {'processed': 0, 'recorded': 0, 'assigned_existing': 0, 'failures': []}
+    result['authority_inferred'] = 0
+    result['authority_conflicts'] = 0
     # 오래 걸리는 예약 원문 해석 중에도 워커가 입력을 확인할 수 있어야 한다.
     # 전체 정리 잠금 안에서 처음 해석하면 최신 연결의 유효 시간이 지나고,
     # 워커는 같은 잠금을 기다려 그 연결을 분류에 전달하지 못한다.
@@ -2446,8 +2448,70 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
                 result['failures'].append({'kind': 'validation', 'count': 1,
                                            'code': getattr(exc, 'code', 'RECORDING_UNAVAILABLE')})
         result['assigned_existing'] = assign_existing_local_expenses(flow, failures=result['failures'])
+        inferred, conflicts = _sync_booked_authority_inferences(flow)
+        result['authority_inferred'] = inferred
+        result['authority_conflicts'] = conflicts
         result['breakdown'] = _cleanup_card_breakdown(board)
     return result
+
+
+def _sync_booked_authority_inferences(flow):
+    """Resolve stale authority-review source rows from their verified ledger trip.
+
+    These rows already have an internal ledger and board projection. The old
+    cleanup query deliberately skipped them, leaving the source transaction in
+    ``needs_review`` forever. Only rows without a review decision, source
+    errors, or holds are eligible. A valid existing ledger trip is checked
+    against the current trip authority before the source classification is
+    updated; ambiguous or invalid rows remain for questions.
+    """
+    from app.db import utc_now
+
+    conn = flow.board.conn
+    rows = conn.execute(
+        "SELECT t.transaction_id,t.item,t.description,t.revision,t.merchant,t.approval_date "
+        "FROM transactions t JOIN ledger_entries l ON l.transaction_id=t.transaction_id "
+        "WHERE t.classification_state='needs_review' AND t.classification_source='authority_review' "
+        "AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')='' "
+        "AND COALESCE(t.duplicate_of,'')='' "
+        "AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id) "
+        "AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
+        "AND COALESCE(l.display_tab_id,'') NOT IN ('','unclassified')"
+    ).fetchall()
+    inferred = 0
+    conflicts = 0
+    from app.provisional_assignment import card_trip_candidates, rank_trip_candidates
+    trips = [dict(trip, trip_id=trip['tab_id']) for trip in flow.board.list_trips()
+             if flow.trip_valid(trip['tab_id'])]
+    for tid, item, description, revision, merchant, approval_date in rows:
+        decision = rank_trip_candidates(
+            card_trip_candidates({'merchant': merchant, 'approval_date': approval_date}, trips),
+            trips=trips)
+        if decision.get('status') != 'AUTO_PROVISIONAL':
+            conflicts += 1
+            continue
+        basis = ('AUTO_INFERRED: 기존 장부의 검증된 여행 배정과 현재 여행 권위가 일치하여 '
+                 '카드 이용일·가맹점 후보를 재검증했습니다. ' + str(decision.get('basis') or ''))
+        conn.execute(
+            "UPDATE transactions SET classification_state='classified',"
+            " classification_source='inference',classification_basis=?,"
+            " display_tab_id=?,trip_id=?,revision=revision+1 WHERE transaction_id=?",
+            (basis, decision['trip_id'], decision['trip_id'], tid),
+        )
+        conn.execute(
+            "UPDATE ledger_entries SET display_tab_id=?,trip_id=? WHERE transaction_id=?",
+            (decision['trip_id'], decision['trip_id'], tid),
+        )
+        inferred += 1
+    if inferred:
+        flow.sync_ledger_rows()
+    if inferred:
+        conn.execute(
+            "INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)",
+            (utc_now(), 'transaction.authority_inferred', 'bulk',
+             json.dumps({'count': inferred}, ensure_ascii=False, sort_keys=True)),
+        )
+    return inferred, conflicts
 
 
 def assign_existing_local_expenses(flow, *, failures=None):
