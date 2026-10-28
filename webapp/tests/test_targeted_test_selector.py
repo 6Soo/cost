@@ -27,7 +27,11 @@ def test_selector_maps_changes_and_marks_unclassified_files_unknown():
 
 
 def test_selector_supports_recursive_globs_and_rejects_unsafe_patterns():
+    assert SELECTOR.path_matches("tools/check.py", "tools/**/check.py")
+    assert SELECTOR.path_matches("tools/deep/nested/check.py", "tools/**/check.py")
     assert SELECTOR.path_matches("webapp/deep/module.py", "webapp/**/*.py")
+    assert SELECTOR.path_matches("webapp/module.py", "webapp/**/*.py")
+    assert SELECTOR.path_matches("legacy_tools/check.py", "*legacy*")
     try:
         SELECTOR.path_matches("anything.py", "../**/*.py")
     except ValueError:

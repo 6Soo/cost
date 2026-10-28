@@ -131,3 +131,21 @@ def test_limit_output_preserves_valid_json_under_utf8_byte_cap():
     encoded = json.dumps(limited, ensure_ascii=False, indent=2).encode('utf-8')
     assert len(encoded) <= 512
     assert json.loads(encoded.decode('utf-8'))['truncated'] is True
+
+
+def test_map_provenance_separates_base_revision_from_dirty_tracked_inputs(tmp_path):
+    from tools.refactor_call_map import build_map
+    root = repository(tmp_path, {'app/safe.py': 'def run(): pass\n'})
+    subprocess.run(['git', '-C', str(root), 'config', 'user.name', 'Synthetic'], check=True)
+    subprocess.run(['git', '-C', str(root), 'config', 'user.email', 'synthetic@example.invalid'], check=True)
+    subprocess.run(['git', '-C', str(root), 'commit', '-qm', 'baseline'], check=True)
+
+    clean = build_map(root)
+    assert clean['base_sha'] == clean['code_sha']
+    assert clean['working_tree_dirty'] is False
+
+    (root / 'app/safe.py').write_text('def changed(): pass\n', encoding='utf-8')
+    dirty = build_map(root)
+    assert dirty['base_sha'] == clean['base_sha']
+    assert dirty['code_sha'] == clean['base_sha']
+    assert dirty['working_tree_dirty'] is True

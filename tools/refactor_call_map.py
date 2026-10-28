@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MiB limit for config artifact
 LIMITATIONS = [
     'Static syntax only; no runtime, authorization, or production-use proof.',
-    'code_sha identifies base HEAD; analysis reads tracked working files, including staged edits.',
+    'base_sha identifies repository HEAD; working_tree_dirty says whether tracked inputs differ from HEAD.',
     'Only tracked Python in runtime_dependency_catalog candidate paths is read.',
     'Route decorators, HTTP tuples and do_METHOD dispatchers are candidates; route literals are omitted.',
     'Only lexical functions, explicit imports, and direct self methods resolve.',
@@ -227,10 +227,16 @@ def build_map(root=ROOT):
               'permission_signals': [], 'repositories': [], 'services': [], 'tables': [],
               'errors': [], 'limitations': LIMITATIONS}
     try:
-        result['code_sha'] = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'],
+        result['base_sha'] = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'],
             capture_output=True, text=True, check=True).stdout.strip()
+        result['code_sha'] = result['base_sha']  # Backward-compatible alias for the base revision.
+        diff = subprocess.run(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=no'],
+            capture_output=True, text=True, check=True).stdout
+        result['working_tree_dirty'] = bool(diff.strip())
     except subprocess.CalledProcessError:
+        result['base_sha'] = None
         result['code_sha'] = None
+        result['working_tree_dirty'] = None
     try:
         paths = sorted(p for p in tracked_paths(root) if p.suffix == '.py')
     except (OSError, subprocess.CalledProcessError):
@@ -341,6 +347,8 @@ def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
         'schema': obj.get('schema', 'rf001-call-map/v1'),
         'mode': obj.get('mode', 'static_ast_only'),
         'code_sha': obj.get('code_sha'),
+        'base_sha': obj.get('base_sha'),
+        'working_tree_dirty': obj.get('working_tree_dirty'),
         'truncated': True,
         'counts': counts,
     }
@@ -355,6 +363,8 @@ def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
     if len(json.dumps(compact, ensure_ascii=False, indent=2).encode('utf-8')) > limit:
         compact = {'schema': compact['schema'], 'mode': compact['mode'],
                    'code_sha': compact['code_sha'], 'truncated': True,
+                   'base_sha': compact.get('base_sha'),
+                   'working_tree_dirty': compact.get('working_tree_dirty'),
                    'counts': counts}
     if len(json.dumps(compact, ensure_ascii=False, indent=2).encode('utf-8')) > limit:
         raise ValueError('output_limit_too_small')
@@ -363,6 +373,7 @@ def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
 
 def summary(result):
     return {'schema': result['schema'], 'mode': result['mode'], 'code_sha': result['code_sha'],
+            'base_sha': result['base_sha'], 'working_tree_dirty': result['working_tree_dirty'],
             'counts': {key: len(result[key]) for key in ('files', 'symbols', 'calls', 'routes', 'effects', 'errors',
                 'permission_signals', 'repositories', 'services', 'tables')},
             'call_status': dict(Counter(c['status'] for c in result['calls'])),

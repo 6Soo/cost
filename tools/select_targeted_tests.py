@@ -35,7 +35,25 @@ def path_matches(path, pattern):
     if "**" not in normalized:
         return fnmatch.fnmatchcase(path, normalized)
     import re
-    expression = "^" + re.escape(normalized).replace(r"\*\*", ".*").replace(r"\*", "[^/]*").replace(r"\?", "[^/]") + "$"
+    expression = "^"
+    index = 0
+    while index < len(normalized):
+        if normalized.startswith("**/", index):
+            expression += "(?:.*/)?"
+            index += 3
+        elif normalized.startswith("**", index):
+            expression += ".*"
+            index += 2
+        elif normalized[index] == "*":
+            expression += "[^/]*"
+            index += 1
+        elif normalized[index] == "?":
+            expression += "[^/]"
+            index += 1
+        else:
+            expression += re.escape(normalized[index])
+            index += 1
+    expression += "$"
     return re.match(expression, path) is not None
 
 

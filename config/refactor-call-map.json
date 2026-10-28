@@ -1,13 +1,15 @@
 ﻿{
   "schema": "rf001-call-map/v1",
   "mode": "static_ast_only",
-  "code_sha": "496cbbe9778e002bc4265f28b50da704d28f042c",
+  "code_sha": "80d50f4e715ecb7e1aed0e442aaa8af5fc1880f1",
+  "base_sha": "80d50f4e715ecb7e1aed0e442aaa8af5fc1880f1",
+  "working_tree_dirty": true,
   "counts": {
     "files": 691,
-    "symbols": 9557,
-    "calls": 95282,
+    "symbols": 9558,
+    "calls": 95304,
     "routes": 38,
-    "effects": 6321,
+    "effects": 6326,
     "errors": 0,
     "permission_signals": 0,
     "repositories": 1081,
@@ -15,8 +17,8 @@
     "tables": 2265
   },
   "call_status": {
-    "OPEN_QUESTION": 76087,
-    "STATIC_CANDIDATE": 19195
+    "OPEN_QUESTION": 76108,
+    "STATIC_CANDIDATE": 19196
   },
   "routes": [
     {
@@ -251,7 +253,7 @@
   "errors": [],
   "limitations": [
     "Static syntax only; no runtime, authorization, or production-use proof.",
-    "code_sha identifies base HEAD; analysis reads tracked working files, including staged edits.",
+    "base_sha identifies repository HEAD; working_tree_dirty says whether tracked inputs differ from HEAD.",
     "Only tracked Python in runtime_dependency_catalog candidate paths is read.",
     "Route decorators, HTTP tuples and do_METHOD dispatchers are candidates; route literals are omitted.",
     "Only lexical functions, explicit imports, and direct self methods resolve.",
