@@ -6,11 +6,20 @@
 
 | ID | 남은 결과와 완료 기준 | 상태/현재 근거 |
 | --- | --- | --- |
-| ALL-01 | 숲나들e 원문 활용 공백과 카드 후보 탈락 해결, 예약 관계 검토/여행 근거를 실제 흐름에 연결 | IMPLEMENTED / TARGETED_TESTED. 공통 휴양림 가맹점 후보, 수동 예약 관계 검토와 환불/점유 보호를 연결했다. NICE 관련3건은 결제2/취소안내1로 파싱하고 복사본 적재3건·재입력 멱등성·6개 원문 저장표 한정·복원 동등성을 검증했다. 운영 적재/수락은 아직 실행 전이다. |
-| ALL-02 | 실제 큐 분류·예약 그룹 효과·상위 보류 사유를 검수하고 안전한 원인 수정 | IMPLEMENTED / TARGETED_TESTED. reservation_only의 오경고를 제거하고 인증 공급자 메일의 유일한 명시 예약 binding을 화면 그룹에 연결했다. 실제 로컬3794사건→3218그룹(576감소), 기존 비숲나들e 금융 이벤트 필드 동일. 실제 worker 세대 검증이 남았다. |
-| ALL-03 | worker/summary/page 실제 병목을 근거로 개선하고 동등성·성능 목표 수락 | IMPLEMENTED / SAMPLE_EQUIVALENT. 정책 alias 반복 생성/정렬을 run scope 캐시로 개선했다. 실제 동결 입력 표본63.1642→22.1710초, 후보/거부/카운트 전체 동일. 정책교체/중첩/예외/thread/async 격리와 수동 조기반환 보호를 검사했다. 전체 worker/API p95는 배포 후 확인한다. |
-| ALL-04 | 기존 카카오/Agoda/Trip·여행 귀속·Toyoko 실제 수락 공백을 대조해 가능한 구현/자료 활용을 완료 | DIAGNOSED / RUNTIME_ACCEPTANCE_PENDING. 카카오 미연결10·Agoda3·Trip1은 원승인번호 미제공이다. Agoda 두 청구가 같은 카드1개를 주장해 서로 유일하지 않고 결제 identity/binding도 없다. 금액만으로 강제 확정하지 않는다. 새 그룹/Toyoko/여행 표시 실제 화면 확인을 이어간다. |
-| ALL-05 | 현재 흐름과 어긋난 인접 검사3개를 현재 계약으로 정리하고 정상 병합·고정배포·보호/화면 수락 | TARGETED_TESTED / RELEASE_PENDING. 오래된 인접 fixture3개를 현 계약으로 교정했다. 금융/환불/수동/권한/queue 인접409 passed, PG/수집/브라우저144 passed+4 subtests, 마지막 국소41 passed. PR/main 고정배포·보호13표·실제 화면 수락 전이다. |
+| ALL-01 | 숲나들e 원문 활용·카드 후보·예약 관계 검토·영수증 연결 | COMPLETE / DEPLOYED / UI_ACCEPTED. PR #250의 NICE 원문3건 적재는 백업·복원 동등성·멱등성·원문6표 한정 변경을 확인했다. 426세대 안내46건 중 후보 안내7건/후보44개·여행 근거4건, 영수증 결제2건 MATCHED_AUTO·취소안내1건 NOT_CARD_CHARGE. 화면 후보5개 표본에서 시설/금액 미확인과 결제 검증 분리를 확인했다. 실제 예약 관계·여행/Google 쓰기는 하지 않았다. |
+| ALL-02 | 실제 큐 분류·예약 그룹·상위 보류 사유 수락 | COMPLETE / RUNTIME_ACCEPTED. 426세대3,799사건→3,222그룹(577개/15.19% 표시 감소), 기존3,794건 금융 판정 동일. needs_action43·waiting_source820·evidence_missing2740·completed196사건이다. 그룹 축소를 보류 해결/실제 환급으로 해석하지 않는다. Trip 그룹2구성원·개별 상세와 private 필드 비노출을 확인했다. |
+| ALL-03 | worker/summary/page 병목 개선·동등성·성능 수락 | COMPLETE / MEASURED. 최종 worker261.89초(이전396.43초 대비33.9% 감소), ready/fresh426. 인증 왕복 각20회 summary p95 134.04ms/842B, groups157.10ms/22,318B, events139.32ms/7,656B. 예비150/300ms·150KB 목표 충족. 조회 burst의 반복 지문 검사를 PR #251로 제한했고 기존 쓰기 직전 최신성 보호는 유지했다. |
+| ALL-04 | 카카오/Agoda/Trip·여행 귀속·Toyoko 수락 공백 해소 | PARTIAL / BLOCKED_EXTERNAL_EVIDENCE（미연결 확정）. 구현·진단·화면 수락은 완료했다. 카카오10·Agoda3·Trip1은 원승인번호 미제공, Agoda는 같은 카드1개에 두 청구가 경합하며 유일한 결제 identity/binding이 없다. 현 자료로 가능한 후보/불확실성을 표시했고 금액만으로 확정하지 않는다. 숲나들e 여행 AUTO_INFERRED/수동 유지·퇴실일 미확인, Toyoko 예약 관계와 결제 검증 분리를 실제 화면에서 확인했다. |
+| ALL-05 | 인접 검사 교정·병합·고정배포·보호/화면 수락 | COMPLETE / DEPLOYED / ACCEPTED. PR #250/#251, 최종 Board `9d5ddd521272acdebb294357d18a763d89ccfc60`, 수집기 `e15fd5e2ab03ebf493cd90b24b3b6eeebfe2281d`. 기존409 passed·144 passed+4 subtests·41 passed 및 후속89 passed 근거를 재사용했다. 968 blobs일치·실행SHA·단일loopback·health/ready200·보호API401·화면 후13표 내용/스키마 불변. 첫/다음20그룹 중복0, 화면6경로·테마1개 수락. |
+
+### 2026-10-28 계정 한도 인계 후 최종 수락
+
+- 이전 Paseo `d398635e-dd3c-4a0b-8d81-3786ab05c951`의 로그와 현재 main을 대조했다. 이미 병합·배포된 코드는 재구현/재배포하지 않았고 이전 에이전트에는 메시지를 보내지 않았다. 실제 작업은 최종 ready 세대의 읽기 검수와 기록 정리다.
+- 최종426세대에서 기존3,794건의 status·transaction_id·reserved_card_ids·allocation_basis·inferred_link·inference_basis·payment_date_verified가 동일하다. 최초423세대의 추가3건은 결제2/비금전취소안내1이며, 이후 정상 수집의 비금전 관측2건이 더해져 최종3,799건이다. 보호13표의 스키마·내용은 화면 수락 후에도 배포 전과 같다.
+- 숲나들e 예약·여행 후보·승인번호 결제·취소안내, Trip 그룹/개별 상세, Toyoko 상세의6개 화면을 실제 Aside로 확인했다. 필터 debounce 이전 펼침/자동 구성원 로드와 경합하던 검수 스크립트 및 Windows 전달 중의 선택자 인용을 교정했으며 제품 코드 변경은 없다. 갱신 중 첫 조회와 실패한 검수 시도는 최종 통과 근거로 계산하지 않았다.
+- 완료 근거는 로컬 `.local-archive/cost-v34-resume-20261028/resume-runtime-report.json`, `resume-financial-comparison.json`, `resume-ui-report.json`, `resume-events-pagination.json`, `protection-resume-after-ui.json` 및 호스트 `deploy-evidence-9d5ddd521272acdebb294357d18a763d89ccfc60.json`이다. 고객 원문/식별자는 Git에 추가하지 않는다.
+- 실행 가능한 승인 구현·배포·읽기 수락은 완료했다. 남은 확정 연결은 위 원승인번호 또는 경합을 해소할 명시 결제 근거가 필요하다. 실제 예약 관계/여행/금융/Google 결정 쓰기는 이번 수락에서 수행하지 않았다. 실기기·200% 전 화면 검수는 이번에 새로 실행하지 않았으며 기존 모바일/합성 검사의 근거와 구분한다.
+- 다음 작업은 새 사용자 요청 또는 위 결제 근거가 들어오면 해당 건의 읽기 진단부터 시작한다. 최종 코드 SHA는 위와 같고 문서 커밋은 별도 정상 PR/main 병합한다. 문서 정리 때문에 테스트·빌드·재배포·재시작하지 않는다. 기존 미추적5경로를 보존했다.
 
 ## 2026-10-28 숲나들e 업무 목적에 따른 재대사 (현재 승인 작업)
 

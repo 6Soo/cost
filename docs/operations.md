@@ -1,5 +1,15 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 전체 대사·성능 최종 운영 수락
+
+- [PR #250](https://github.com/6Soo/cost/pull/250)의 전체 대사 구현과 [PR #251](https://github.com/6Soo/cost/pull/251)의 조회 반복 검사 제한을 병합했다. 최종 Board 고정 SHA는 `9d5ddd521272acdebb294357d18a763d89ccfc60`, 수집기는 `e15fd5e2ab03ebf493cd90b24b3b6eeebfe2281d`다. 968 추적 blobs 일치·task/프로세스 SHA·단일 loopback listener·health/ready200·기존/summary/events/groups 비인증401의 배포 근거를 확인했다. 검증된 복구 사본과 이전 릴리스를 보존했다.
+- NICE 영수증 원문3건은 검증된 백업·별도 복원 동등성·재입력 멱등성·스키마 동일·원문 저장6표 한정 변경으로 적재됐다. 원승인번호/날짜/금액/정상 카드 유일성으로 결제2건이 연결되고 취소 안내1건은 비금전 관측이다. 수집기 인자/일정을 보존했으며 강제 예약 실행은 하지 않았다. 이는 금융·여행·Google 결정 쓰기와 구분된다.
+- 최종426세대 ready/fresh는 worker261.89초로 게시됐다(기존396.43초 대비33.9% 감소). 3,799사건을3,222그룹으로 표시하며577개/15.19% 줄었다. needs_action43·waiting_source820·evidence_missing2740·completed196사건, 경고29다. 최초423세대 이후 정상 수집 비금전2건이 더해졌고 기존3,794건의 금융 판정7필드는 동일하다. 그룹 축소는 보류/기장/실제 환급 해결 건수가 아니다.
+- 인증 브라우저 왕복 각20회에서 summary p95 134.04ms/842B, groups157.10ms/22,318B, events139.32ms/7,656B를 측정했다. 예비 목표 summary150ms·page300ms·150KB를 충족했다. 첫/다음20그룹은 같은426세대·HTTP200·중복0이었다. server-only 또는 실기기 측정으로 확대하지 않는다.
+- 실제 `/import`6경로: 숲나들e 예약 관계 후보5개 표본과 시설/금액 미확인·결제 분리, 여행 AUTO_INFERRED/수동 유지·퇴실일 미확인, 영수증 명시 승인번호와 카드 원행 연결, 취소안내의 실제 환급 분리/금융확정 버튼0, Trip2구성원과 개별 상세, Toyoko 예약 관계/결제 분리를 확인했다. 테마 버튼1개, 공개 forest49건 private 필드 노출0이다. 검수 스크립트의 선택자/필터 debounce 경합은 교정했으며 실패 시도는 통과로 세지 않았다. 화면 후에도 보호13표 내용/스키마는 배포 전과 같다.
+- 기존 표적409 passed, PG/수집/브라우저144 passed+4 subtests, 마지막 국소41 passed, 조회 lifecycle/쓰기 보호89 passed 근거를 재사용했다. 코드 변경 없이 운영 수락과 문서만 정리했으므로 테스트·빌드·재배포·재시작을 반복하지 않았다. 실기기·200% 전 화면 검수는 새로 실행하지 않았다. 카카오10·Agoda3·Trip1의 미제공 원승인번호와 Agoda 카드 경합은 외부 근거가 필요한 잔여이며 금액만으로 확정하지 않았다.
+- 로컬 증거: `.local-archive/cost-v34-resume-20261028/resume-runtime-report.json`, `resume-financial-comparison.json`, `resume-ui-report.json`, `resume-events-pagination.json`, `protection-resume-after-ui.json`, `forest-receipts-production-summary.json`, `mail-collector-receipt-deploy-summary.json`; 호스트 release/deploy evidence. 고객 원문·식별자는 추적 문서에 포함하지 않는다.
+
 ## 2026-10-28 숲나들e 본문 기반 예약 대사
 
 - [PR #248](https://github.com/6Soo/cost/pull/248), 코드 `af8c0f7`, main/Board 고정 `3e59cf72b1ad41bbe3f8ea501362d97384fd10f5`. 사용자 최신 지시에 따라 DKIM 부재를 업무 보류로 삼던 표시를 정정했다. 직접 수집한 메일의 시설·객실·이용 시작일·명시 예약번호/금액을 읽으며 발신 인증은 참고 메타데이터다. 퇴실일·실제 결제일을 창작하지 않는다. 시설/주소 지자체·날짜 카드 후보와 기존 검증 여행 후보는 읽기 전용이고 수동 결정·금융 연결·Google 쓰기는 유지한다.
