@@ -4,15 +4,15 @@
 
 후속 담당은 `a8dba9f3-3e50-4a26-b113-ab754767883e`다. 이전 담당에게 메시지를 보내거나 재개하지 않는다. 잠정 배정 최종 `494761842aa6da982133a8548edc660b9d11b65a`를 최신 main `9c7580d8d12e869dc23dee8f3f822033d28389d2`에 정상 통합했다. 통합본 새 화면·금융 보호 226 passed, 권한·환불·우선배정·OTA 페이지/스냅샷 227 passed, 변경 Python 12개 compile 및 diff 검사 통과. 선택기 미매핑0, metadata guard 차단0/삭제0. 실제 브라우저 검사는 합성 자료를 사용하며 운영 실자료 수락과 구별한다.
 
-현재 운영은 검증된 `61211012a0bbd250ab5e5fa6b629e3af9e672324`다. 다음은 이 통합 PR 정상 병합 → 병합 SHA와 검수 소스 일치 확인 → 기존 Windows 절차의 새 백업·별도 복원 검증 → 고정 SHA 배포 → health/ready·보호 API·보호13표 불변 확인이다. 실제 재배정·일괄 처리·보험 명단 전송·Google 쓰기·마이그레이션은 실행하지 않는다. PA-01 실자료 기준선과 PA-06 실자료 수락은 미측정이다. 기존 여섯 CardFlow 실패는 작업자 기준 `61211012`에서도 같은 node로 재현한 별도 기록이며 통과 수에 포함하지 않는다.
+현재 운영은 PR #302의 검증된 `c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661`다. 정상 병합·검수 소스 일치·새 백업·별도 복원·고정 SHA 배포·health/ready·보호 API·보호13표 불변 확인을 완료했다. 실제 재배정·일괄 처리·보험 명단 전송·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선과 PA-06 실자료 수락은 미측정이다. 기존 여섯 CardFlow 실패는 작업자 기준 `61211012`에서도 같은 node로 재현한 별도 기록이며 통과 수에 포함하지 않는다. 현재 병합·코드 배포 요청은 완료했으며 실자료 수락은 별도 경계로 유지한다.
 
 기존 27개 큐는 과거 수락 경계를 보존한다. 새 managed run은 `07264b89-75e8-4748-9ab5-9f7ae4d3035a`, generation 1이며 checkpoint는 같은 run 디렉터리의 `checkpoint.json`이다. 운영 배포 결과는 아래 후속 기록을 우선한다.
 
 기존 managed run 정본은 [리팩토링 마스터](specs/refactor-master-20261027.md)와 아래 27개 ID다. 이후 사용자가 명시 선택한 명세 대기 기능의 코드 구현·검증 배포 승인은 아래 최신 진행 기록에 추가한다. 과거 ACTIVE/READY 전체를 자동 재실행하지 않는다. 상세 과거 근거는 [보관 기록](history/product-and-handoffs.md#rf-generation5-queue-archive), 배포는 [운영 기록](operations.md)을 참조한다.
 
 - runId: `e0197439-1c34-4348-a14d-7a870c3d69b5`.
-- Supervisor: `3cebc37b-17d7-4b47-9689-a2bf6f50a01c`, generation **5**, workspace `C:/AX/cost`.
-- 운영 확인 SHA: **ad117015a13e6cb440d3fb03d7e5c1a9b66e09a0**. 정상 배포·보호 검사 근거는 아래 최신 진행 기록과 운영 기록을 따른다. 실제 단일 환불 그룹 적용은 owner 인증 대기다.
+- 이전 run Supervisor: `3cebc37b-17d7-4b47-9689-a2bf6f50a01c`, generation **5**. 현 담당은 위 후속 run/generation1이며 workspace는 `C:/AX/cost`다.
+- 운영 확인 SHA: **c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661**. 정상 배포·보호 검사 근거는 아래 최신 진행 기록과 운영 기록을 따른다. 실제 단일 환불 그룹 적용은 owner 인증 대기다.
 - 사용자 작업 사본은 `C:/AX/cost`이며 사용자 미추적 파일·stash와 미수락 결과를 보존한다. 정리·통합 브랜치 근거는 `.local-archive/merge-cleanup-20261028/`에 기록한다.
 
 ## 승인 전체 ID와 실제 수락 경계
@@ -125,3 +125,13 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 이전 GitHub 감사와 후속 확인
 
 [18:30 구현 감사](specs/implementation-status-audit-20261028.md)와 [동일 화면 환불 복구 명세](specs/refund-inline-existing-repair-20261028.md)는 당시 코드·운영 차이를 남긴 기록이다. 이후 PR #297~#300 검수·배포 근거는 위 최신 진행 기록이 대체한다. 기존 거래 자동 소급처리나 단일 환불 그룹 실제 적용은 수행하지 않았으며, 원문 오류·수동 보류·승인번호 미확인 건은 보호한다. [제품 오너 결정](specs/owner-product-decisions-20261028.md)의 미완료 기능은 사용자 후속 명시 승인에 따라 단계별 구현 중이며 전부 완료된 것으로 표시하지 않는다.
+
+## 2026-10-28 PR #302 잠정 여행 배정 검토 배포 완료
+
+[PR #302](https://github.com/6Soo/cost/pull/302)은 `c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661`로 정상 병합·고정 배포했다. owner의 잠정 배정 검토와 20건 페이지, 명시적 보류, 저장된 원본별 교정 제안의 재검증·승인을 추가했다. 수동 결정·환불·원본 보호와 기존 결정 API를 유지한다.
+
+통합 검수는 새 화면/금융 보호 226 passed, 권한/환불/우선배정/OTA 페이지·스냅샷 227 passed다. 변경 Python12개 compile·diff 검사 통과, 선택기 미매핑0, metadata guard 차단0/삭제0. 기존 CardFlow6개 실패는 작업자의 기준61211012 재현 근거를 보존하며 통과 수에 포함하지 않는다. 합성 HTTP/브라우저의 수락을 운영 실자료·실기기 수락으로 표현하지 않는다.
+
+1,084 Git blobs 일치, 새 백업·별도 복원 검증, 작업/프로세스SHA·loopback listener1·health/ready200·보호API401·보호13표 전후 불변을 확인했다. 추가된 trip-review/proposals/hold 경로도 익명401이다. 이전 검증61211012 복구점을 보존했다. 배포 근거는 `D:/WebLedgerHost/releases/deploy-evidence-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661.json`, 로컬 `.local-archive/merge-cleanup-20261028/deploy-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661/`다.
+
+실제 금융/여행 재배정·대량 재처리·명단 전달/보험가입·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선 및 PA-06 실자료 shadow/수락은 미측정으로 남긴다. 단일 환불 그룹 적용의 정상 owner 인증 대기는 유지한다. 최종 확인 시 열린 PR은0개다. 후속 문서만의 병합에는 재배포하지 않는다.
