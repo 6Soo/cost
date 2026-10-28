@@ -137,6 +137,46 @@ def _kind_is_cancel(kind: str) -> bool:
     return any(word in str(kind or "").casefold() for word in _CANCEL_KINDS)
 
 
+def correction_protection_reason(store, transaction_id: str, source_hash: str) -> str:
+    """Return the existing review protection reason for a current source row.
+
+    This is shared by correction approval so it uses the same cancellation and
+    review-hold authority as card review rather than reimplementing that policy.
+    """
+    row = store.conn.execute(
+        "SELECT source_hash, parse_error, transaction_direction, transaction_kind, "
+        "duplicate_of, conflict_reason FROM transactions WHERE transaction_id=?",
+        (transaction_id,)).fetchone()
+    if row is None or row[0] != source_hash:
+        return "SOURCE_CHANGED"
+    if row[1]:
+        return "PARSE_ERROR"
+    if row[4] or row[5]:
+        return "DUPLICATE_OR_CONFLICT"
+    if _kind_is_cancel(row[2]) or _kind_is_cancel(row[3]):
+        return "CANCELLATION_OR_REFUND"
+    hold = store.conn.execute(
+        "SELECT kind FROM transaction_review_holds WHERE transaction_id=? AND source_hash=?",
+        (transaction_id, source_hash)).fetchone()
+    if hold:
+        return "REVIEW_HOLD:" + str(hold[0])
+    exclusion = store.conn.execute(
+        "SELECT excluded FROM transaction_company_exclusions "
+        "WHERE transaction_id=? AND source_hash=?", (transaction_id, source_hash)).fetchone()
+    if exclusion and exclusion[0]:
+        return "COMPANY_EXCLUDED"
+    refund = store.conn.execute(
+        "SELECT 1 FROM transactions original JOIN transactions refund "
+        "ON refund.issuer=original.issuer AND refund.card_tail=original.card_tail "
+        "AND refund.original_approval_number=original.approval_number "
+        "WHERE original.transaction_id=? AND COALESCE(original.approval_number,'')!='' "
+        "AND (refund.transaction_direction IN ('cancellation','refund') OR refund.amount_krw<0) LIMIT 1",
+        (transaction_id,)).fetchone()
+    if refund:
+        return "ORIGINAL_WITH_REFUND"
+    return ""
+
+
 # ------------------------------------------------------------------ receive
 
 def receive(store, content: bytes, filename: str) -> dict:
@@ -616,6 +656,9 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
                  int(bool(reuse_rule)), now))
             # The source columns are not touched here, and cannot be: this
             # statement names item, description, tab, trip and revision only.
+            previous_attribution = store.conn.execute(
+                "SELECT trip_id,classification_source FROM transactions WHERE transaction_id=?",
+                (transaction_id,)).fetchone()
             store.conn.execute(
                 "UPDATE transactions SET item=?, description=?, display_tab_id=?,"
                 " trip_id=?, classification_state='classified',"
@@ -626,6 +669,12 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
             store.log_change("transaction.decided", transaction_id,
                              {"revision": revision, "source_hash": found[1],
                               "item": item, "trip_id": trip})
+            if previous_attribution[1] == 'inference':
+                from .provisional_assignment import POLICY_VERSION
+                store.log_change('trip_assignment.reviewed', transaction_id,
+                    {'revision': revision, 'source_hash': found[1],
+                     'previous_trip_id': previous_attribution[0] or '', 'selected_trip_id': trip,
+                     'changed': (previous_attribution[0] or '') != trip, 'policy_version': POLICY_VERSION})
             if resolve_hold:
                 store.conn.execute('DELETE FROM transaction_review_holds WHERE transaction_id=? AND source_hash=?',
                                    (transaction_id,found[1]))

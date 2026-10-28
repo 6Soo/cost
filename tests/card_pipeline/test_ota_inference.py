@@ -115,3 +115,29 @@ def test_proven_duplicate_copy_does_not_count_as_another_original():
     observation, row = fact(), eligible()
     duplicate = eligible(identity='synthetic-copy', duplicate_of=row['transaction_id'])
     assert ota_inference.unique_pairs([observation], [row, duplicate]) == {observation['ota_event_id']: row}
+
+
+def test_service_period_uses_shared_ranker_without_changing_payment_solver_state():
+    observation = fact()
+    trips = [{'trip_id': 'trip-a', 'starts_on': '2026-08-01', 'ends_on': '2026-08-05'}]
+    before = copy.deepcopy(observation)
+    decision = ota_inference.provisional_trip_decisions([observation], trips)
+    assert decision[observation['ota_event_id']]['status'] == 'AUTO_PROVISIONAL'
+    assert decision[observation['ota_event_id']]['trip_id'] == 'trip-a'
+    assert observation == before
+
+
+def test_service_period_keeps_ties_manual_holds_and_refund_financial_holds_separate():
+    observation = fact()
+    trips = [
+        {'trip_id': 'trip-a', 'starts_on': '2026-08-01', 'ends_on': '2026-08-05'},
+        {'trip_id': 'trip-b', 'starts_on': '2026-08-01', 'ends_on': '2026-08-05'},
+    ]
+    tied = ota_inference.provisional_trip_decisions([observation], trips)[observation['ota_event_id']]
+    assert tied['status'] == 'CONFLICT_REVIEW' and tied['trip_id'] == ''
+    manual = ota_inference.provisional_trip_decisions([observation], trips,
+                                                       manual_decisions={observation['ota_event_id']: 'MANUAL_HOLD'})
+    assert manual[observation['ota_event_id']]['status'] == 'MANUAL_HOLD'
+    refund = dict(observation, refund_status='refund_pending')
+    held = ota_inference.provisional_trip_decisions([refund], trips)[refund['ota_event_id']]
+    assert held['status'] == 'FINANCIAL_HOLD' and held['trip_id'] == ''
