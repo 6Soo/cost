@@ -138,7 +138,8 @@ function collectCostCloudMail() {
     if (profile.emailAddress !== expectedAccount) throw new Error('CLOUD_MAIL_ACCOUNT_MISMATCH');
     const folder = costMailPrivateFolder_(DriveApp.getFolderById(folderId), expectedAccount);
     const held = costMailManifest_(folder, expectedAccount), state = held.data;
-    const files = costMailFileIndex_(folder);
+    const files = costMailFileIndex_(folder), prefetched = new Map();
+    let batchAllowed = true;
     if (state.account && state.account !== expectedAccount) throw new Error('CLOUD_MAIL_ACCOUNT_MISMATCH');
     state.account = expectedAccount;
     // A broader query must backfill from the configured start, including after a
@@ -202,7 +203,33 @@ function collectCostCloudMail() {
               }
             } else {
               if (state.messages[id]) throw new Error('CLOUD_MAIL_ORIGINAL_MISSING');
-              const message = costMailGet_('messages/' + id + '?format=full');
+              if (batchAllowed && !prefetched.has(id)) {
+                const ids = Array.from(new Set(state.pending.slice(0, 10))).filter(candidate =>
+                  !files.has('gmail-' + candidate + '.json') && !state.messages[candidate]);
+                if (ids.some(candidate => typeof candidate !== 'string' || !/^[a-f0-9]+$/i.test(candidate))) {
+                  throw new Error('CLOUD_MAIL_INVALID_ID');
+                }
+                if (ids.length > 1) {
+                  let responses = null;
+                  try {
+                    const token = ScriptApp.getOAuthToken();
+                    responses = UrlFetchApp.fetchAll(ids.map(candidate => ({
+                      url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + candidate + '?format=full',
+                      method: 'get', headers: {Authorization: 'Bearer ' + token},
+                      muteHttpExceptions: true, followRedirects: false,
+                    })));
+                  } catch (_) {batchAllowed = false;}
+                  if (responses !== null) {
+                    if (!Array.isArray(responses) || responses.length !== ids.length) {
+                      throw new Error('CLOUD_MAIL_BATCH_INVALID');
+                    }
+                    ids.forEach((candidate, index) => prefetched.set(candidate, responses[index]));
+                  }
+                }
+              }
+              const message = prefetched.has(id) ? costMailJson_(prefetched.get(id))
+                : costMailGet_('messages/' + id + '?format=full');
+              prefetched.delete(id);
               costMailOriginal_({responses: [message]}, id);
               content = JSON.stringify({responses: [message]});
               file = folder.createFile(name, content, 'application/json');
