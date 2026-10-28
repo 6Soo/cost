@@ -49,7 +49,7 @@ _EVENT_FIELDS = (
     "group_order_snapshot", "candidate_search_status", "candidate_date_status", "candidate_count",
     "candidate_rejected_count", "reservation_link",
     "mail_authentication", "service_period_semantics", "travel_suggestion",
-    "payment_evidence_basis", "cancelled_on", "cancellation_notice_sent_on",
+    "payment_evidence_basis", "cancelled_on", "cancellation_notice_sent_on", "provisional_assignment",
 )
 _CARD_FIELDS = (
     "transaction_id", "issuer", "card_kind", "card_tail", "approval_date",
@@ -80,6 +80,16 @@ def _public_period(value):
     if isinstance(value, dict):
         return {key: value[key] for key in ("starts_on", "ends_on") if key in value}
     return value if isinstance(value, (str, int, float, type(None))) else None
+
+
+def _public_trip_decision(value):
+    if not isinstance(value, dict) or value.get('status') not in {
+            'AUTO_PROVISIONAL', 'USER_CONFIRMED', 'MANUAL_UNASSIGNED', 'MANUAL_HOLD',
+            'MANUAL_EXCLUDED', 'FINANCIAL_HOLD', 'CONFLICT_REVIEW', 'UNASSIGNED_NO_VALID_TRIP'}:
+        return None
+    return {key: str(value.get(key) or '')[:limit] for key, limit in (
+        ('status', 40), ('trip_id', 160), ('trip_name', 160), ('reason', 500),
+        ('confidence', 20), ('policy_version', 60))}
 
 
 def _forest_trip_suggestions(board, events):
@@ -236,6 +246,11 @@ def public_snapshot(snapshot, *, include_cards=False):
         event = {key: source.get(key) for key in _EVENT_FIELDS if key in source}
         event["paid_on"] = event.get("paid_on") or "미확인"
         event["service_period"] = _public_period(event.get("service_period"))
+        decision = _public_trip_decision(source.get('provisional_assignment'))
+        if decision is not None:
+            event['provisional_assignment'] = decision
+        else:
+            event.pop('provisional_assignment', None)
         relation = _public_reservation_link(event.get("reservation_link"))
         if relation:
             event["reservation_link"] = relation
@@ -1329,9 +1344,12 @@ def input_key_for(backend) -> str:
     """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time."""
     from app import ota_sources, flight_evidence
     from app.ota_matching_defaults import load_defaults
+    from app.provisional_assignment import POLICY_VERSION
     store = backend.store
     return ota_snapshot.digest({
         "schema": ota_snapshot.SCHEMA,
+        "provisional_trip_policy": POLICY_VERSION,
+        "trip_authority_rows": backend.board.list_trips() if callable(getattr(backend.board, 'list_trips', None)) else [],
         "sources": ota_sources.source_stamps(backend.sources),
         "transactions": backend._transactions(),
         "review": {"links": _store_value(store, "links", {}),
@@ -1676,12 +1694,46 @@ def _canonical_queue_detail_data(queue_rows, events, results, public, transactio
     return details, frozenset(ambiguous)
 
 
+def _provisional_trip_decisions(backend, events, transactions, results):
+    from app.ota_inference import provisional_trip_decisions
+    from .provisional_trip_review import authoritative_trips
+    from .card_flow import CardFlow
+    if not any(event.get('verified_portal_snapshot') is True or
+               event.get('evidence_kind') == 'authenticated_payment_mail' for event in events):
+        return {}
+    board = getattr(backend, 'board', None)
+    if not callable(getattr(board, 'list_trips', None)):
+        return {}
+    trips = authoritative_trips(CardFlow(board))
+    by_id = {str(row.get('transaction_id')): row for row in transactions}
+    manual = {}
+    for result in results:
+        if result.get('status') not in ('MATCHED_AUTO', 'MATCHED_USER'):
+            continue
+        row = by_id.get(str(result.get('transaction_id'))) or {}
+        if row.get('classification_source') in ('user_decision', 'user_exception'):
+            target = row.get('trip_id') or ''
+            manual[str(result.get('ota_event_id'))] = {
+                'status': 'USER_CONFIRMED' if target else 'MANUAL_UNASSIGNED', 'trip_id': target}
+    decisions = provisional_trip_decisions(events, trips, manual_decisions=manual)
+    names = {trip['trip_id']: trip['display_key'] for trip in trips}
+    return {identity: dict(decision, trip_name=names.get(decision['trip_id'], ''))
+            for identity, decision in decisions.items()}
+
+
 def reconcile_for(backend) -> dict:
     """The full reconciliation through one backend. The caller owns the backend's lifetime."""
     started = time.perf_counter()
     data = backend._data()
     telemetry = list(getattr(backend, "_ota_telemetry_samples", ()))
     events, transactions, links, results = data
+    # Run trip-only inference once in the worker, separate from payment identity.
+    # Event display and detail consume the same generation-held decision.
+    trip_decisions = _provisional_trip_decisions(backend, events, transactions, results)
+    if trip_decisions:
+        events = [dict(event, provisional_assignment=trip_decisions[str(event['ota_event_id'])])
+                  if str(event.get('ota_event_id')) in trip_decisions else event for event in events]
+        data = events, transactions, links, results
     from . import guide_airfare_review
     try:
         guide = guide_airfare_review.evaluate(backend.board, backend.sources.get("mail_directories", []),
@@ -2095,6 +2147,7 @@ def render_import_section(csrf: str) -> str:
         facts.push(['발신 인증 참고',event.mail_authentication]);
         if(event.service_period_semantics==='start_only')facts.push(['이용일 해석','입실일 확인 · 퇴실일 미확인']);
         if(event.travel_suggestion)facts.push(['여행 후보',event.travel_suggestion]);
+        if(event.provisional_assignment)facts.push(['여행 배정', (event.provisional_assignment.trip_name||'여행 검토 필요')+' · '+(event.provisional_assignment.status==='AUTO_PROVISIONAL'?'자동 잠정 · 검토 필요':event.provisional_assignment.status==='USER_CONFIRMED'?'사용자 결정 유지':event.provisional_assignment.reason)+' · 결제·환불 확정과 별도']);
         facts.push(['카드 후보 기준','시설명·지자체 또는 공통 휴양림 가맹점과 메일 발송·이용일 인접(7일) · 공통 가맹점/지자체는 시설 미확인 · 결제 미확정']);
       }}
       if(event.reservation_status==='cancelled')facts.push(['예약 상태','취소됨']);
