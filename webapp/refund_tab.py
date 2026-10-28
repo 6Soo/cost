@@ -4,7 +4,6 @@ import sqlite3
 from app.partial_refund import refund_links
 
 from . import read_scope, refund_tab_ui
-from .history_policy import preserved_periods
 
 
 def groups(store):
@@ -23,6 +22,7 @@ def groups(store):
     sources = {r[0]: dict(transaction_id=r[0], merchant=r[1], amount_krw=r[2],
                           occurred_on=r[3], item=r[4]) for r in records}
     links = refund_links(store.conn, list(sources))
+    from .history_policy import preserved_periods
     return refund_tab_ui.assemble_refund_groups(sources, links, is_preserved_fn=preserved_periods)
 
 
