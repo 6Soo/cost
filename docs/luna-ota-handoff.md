@@ -44,3 +44,9 @@
 - Final commit: `5550ad6e74240e37b0b2a7dc0ca35dba47ee9b72`.
 - Next commands:
   1. Supervisor integrates the pure trace adapter at the permitted summary/page/detail accessor boundary.
+
+## Product wiring review (supersedes initial checkpoint)
+
+The checkpoint commits 8a4a792 and 09343bd connect snapshot telemetry and actual summary/page/detail read traces. Traces keep generation context together and whitelist metadata. Removed fabricated zero-duration summary samples. Memory profiling is explicitly opt-in (`profile_memory=True`); default refreshes never start/stop a global profiler. Opt-in process-wide samples are labelled and preserve an existing profiler.
+
+Latest direct verification: telemetry and summary/page/detail tests **76 passed**; exact/manual payment, reservation identity and financial boundaries **95 passed** after product wiring. No production measurement or SLA acceptance, source reads, operational writes or deployment. Broad RF104/106/107/108/302 requirements remain partial; this delivers measured read traces and the synthetic benchmark only.

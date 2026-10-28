@@ -10,6 +10,37 @@ from app.ota_queue_telemetry import (
 from tools.benchmark_ota_queue import query_plan_probe, run
 
 
+def test_snapshot_memory_profiling_is_explicit_and_does_not_toggle_another_profiler():
+    from unittest.mock import patch
+    from webapp.ota_snapshot import OtaSnapshotService
+    service = OtaSnapshotService(key_fn=lambda: 'synthetic-key',
+        reconcile_fn=lambda: {'public': {}, 'data': {}, 'rule_fingerprint': 'a' * 64}, start=False)
+    with patch('webapp.ota_snapshot.tracemalloc.start') as start, patch(
+            'webapp.ota_snapshot.tracemalloc.stop') as stop:
+        service.check_now()
+    start.assert_not_called()
+    stop.assert_not_called()
+    assert service.view()['telemetry']['memory_peak_bytes'] is None
+    assert service.view()['telemetry']['memory_scope'] == 'not_measured'
+
+
+def test_opt_in_memory_probe_preserves_an_existing_process_profiler():
+    from unittest.mock import patch
+    from webapp.ota_snapshot import OtaSnapshotService
+    service = OtaSnapshotService(key_fn=lambda: 'synthetic-key',
+        reconcile_fn=lambda: {'public': {}, 'data': {}, 'rule_fingerprint': 'a' * 64},
+        start=False, profile_memory=True)
+    with patch('webapp.ota_snapshot.tracemalloc.is_tracing', return_value=True), patch(
+            'webapp.ota_snapshot.tracemalloc.get_traced_memory', return_value=(100, 200)), patch(
+            'webapp.ota_snapshot.tracemalloc.start') as start, patch(
+            'webapp.ota_snapshot.tracemalloc.stop') as stop:
+        service.check_now()
+    start.assert_not_called()
+    stop.assert_not_called()
+    assert service.view()['telemetry']['memory_peak_bytes'] == 200
+    assert service.view()['telemetry']['memory_scope'] == 'process_tracemalloc'
+
+
 def test_stage_adapter_accepts_only_finite_allowlisted_metadata():
     sample = stage_sample("projection", 2.12345, row_count=7, byte_count=91)
     assert sample == {"stage": "projection", "elapsed_ms": 2.123,

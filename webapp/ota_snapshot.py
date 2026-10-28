@@ -109,9 +109,11 @@ def digest(value):
 class OtaSnapshotService:
     def __init__(self, *, key_fn, reconcile_fn, persist_path=None, log_path=None, clock=time.monotonic,
                  check_seconds=CHECK_SECONDS, fresh_seconds=FRESH_SECONDS, retry_seconds=RETRY_SECONDS,
-                 first_wait_seconds=FIRST_WAIT_SECONDS, start=True, on_published=None):
+                 first_wait_seconds=FIRST_WAIT_SECONDS, start=True, on_published=None,
+                 profile_memory=False):
         self._key_fn = key_fn
         self._reconcile_fn = reconcile_fn
+        self._profile_memory = profile_memory is True
         self._persist_path = Path(persist_path) if persist_path else None
         self._log_path = Path(log_path) if log_path else None
         self._clock = clock
@@ -240,8 +242,8 @@ class OtaSnapshotService:
             self._refreshing = True
         self._log("refresh_start", key=key[:12], generation=(current or {}).get("generation", 0))
         started = self._clock()
-        tracing_before = tracemalloc.is_tracing()
-        if not tracing_before:
+        owns_tracing = self._profile_memory and not tracemalloc.is_tracing()
+        if owns_tracing:
             tracemalloc.start()
         try:
             reconcile_started = time.perf_counter()
@@ -250,7 +252,8 @@ class OtaSnapshotService:
             telemetry_samples = append_sample(telemetry_samples, stage_sample(
                 "reconcile", (time.perf_counter() - reconcile_started) * 1000,
                 row_count=len(reconciled.get("queue_page_rows", ())) if type(reconciled) is dict else 0))
-            _, memory_peak_bytes = tracemalloc.get_traced_memory()
+            memory_peak_bytes = (tracemalloc.get_traced_memory()[1]
+                                 if self._profile_memory and tracemalloc.is_tracing() else None)
             with self._lock:
                 next_generation = (self._current or {}).get("generation", 0) + 1
             page_rows = reconciled.get("queue_page_rows") if type(reconciled) is dict else None
@@ -298,10 +301,10 @@ class OtaSnapshotService:
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
             self._log("refresh_failed", key=key[:12], code=type(exc).__name__, message=str(exc)[:200])
-            if not tracing_before:
+            if owns_tracing:
                 tracemalloc.stop()
             return
-        if not tracing_before:
+        if owns_tracing:
             tracemalloc.stop()
         self._log("refresh_done", key=key[:12], seconds=round(self._clock() - started, 2))
         with self._lock:
@@ -336,6 +339,7 @@ class OtaSnapshotService:
                                      if type(reconciled.get("rule_fingerprint")) is str and
                                      len(reconciled.get("rule_fingerprint")) == 64 else None),
                 "memory_peak_bytes": memory_peak_bytes,
+                "memory_scope": "process_tracemalloc" if memory_peak_bytes is not None else "not_measured",
             }
             published["telemetry"]["snapshot_bytes"] = payload_bytes({
                 "generation": generation, "queue_summary": published.get("queue_summary"),
