@@ -55,8 +55,8 @@ function harness({pages=[{messages:[{id:'a1'}]}], held=null, originals={}, failS
         create(){triggers.push({getHandlerFunction:()=>handler});}})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},
       computeDigest:(_,text)=>[...crypto.createHash('sha256').update(text).digest()]},
-    UrlFetchApp:{fetch(url,options){
-      calls.push({url,method:options.method||'GET'});
+    UrlFetchApp:{fetchAll(requests){calls.push({batch:requests.length});return requests.map(request=>this.fetch(request.url,request));},fetch(url,options){
+      calls.push({url,method:(options.method||'GET').toUpperCase()});
       const suffix=url.split('/users/me/')[1];let result;
       if(suffix==='profile')result={emailAddress:accountName};
       else if(suffix.startsWith('messages?')){
@@ -96,10 +96,46 @@ test('a full page bounds Drive searches and checkpoint writes while preserving e
   const result=h.run();assert.equal(result.status,'COMPLETE');assert.equal(result.fetched,50);
   assert.equal(h.calls.filter(c=>c.lookup).length,1);
   assert.ok(h.saves()<=8);
+  assert.deepEqual(h.calls.filter(c=>c.batch).map(c=>c.batch),[10,10,10,10,10]);
   for(const id of ids){
     assert.deepEqual(JSON.parse(h.files.get('gmail-'+id+'.json').content),{responses:[message(id)]});
     assert.equal(h.manifest().messages[id].sha256.length,64);
   }
+});
+
+test('malformed batch counts and wrong response identities cannot install an original',()=>{
+  for(const broken of ['count','identity']){
+    const h=harness({pages:[{messages:[{id:'a1'},{id:'b2'}]}]});
+    h.context.UrlFetchApp.fetchAll=requests=>broken==='count'?[]:requests.map(()=>({
+      getResponseCode:()=>200,getContentText:()=>JSON.stringify(message('ff'))}));
+    assert.throws(()=>h.run(),/CLOUD_MAIL_(BATCH_INVALID|INCOMPLETE_ORIGINAL)/);
+    assert.ok(![...h.files.keys()].some(name=>name.startsWith('gmail-')));
+    assert.equal(h.manifest().last_complete,null);
+  }
+});
+
+test('batch requests stay Gmail readonly and network failure falls back once per execution',()=>{
+  const h=harness({pages:[{messages:[{id:'a1'},{id:'b2'},{id:'c3'}]}]});let attempts=0;
+  h.context.UrlFetchApp.fetchAll=requests=>{
+    attempts++;
+    for(const request of requests){
+      assert.match(request.url,/^https:\/\/gmail\.googleapis\.com\/gmail\/v1\/users\/me\/messages\/[a-f0-9]+\?format=full$/);
+      assert.equal(request.method,'get');assert.equal(request.followRedirects,false);
+      assert.equal(request.muteHttpExceptions,true);
+    }
+    throw Error('SYNTHETIC_BATCH_NETWORK_FAILURE');
+  };
+  assert.equal(h.run().fetched,3);assert.equal(attempts,1);
+});
+
+test('individual batch HTTP failures retain earlier originals without advancing completion',()=>{
+  const h=harness({pages:[{messages:[{id:'a1'},{id:'b2'}]}]});
+  h.context.UrlFetchApp.fetchAll=()=>[
+    {getResponseCode:()=>200,getContentText:()=>JSON.stringify(message('a1'))},
+    {getResponseCode:()=>403,getContentText:()=>JSON.stringify({error:{errors:[{reason:'insufficientPermissions'}]}})}];
+  assert.throws(()=>h.run(),/CLOUD_MAIL_API_HTTP_403_insufficientPermissions/);
+  assert.ok(h.files.has('gmail-a1.json'));assert.ok(!h.files.has('gmail-b2.json'));
+  assert.deepEqual(h.manifest().pending,['b2']);assert.equal(h.manifest().last_complete,null);
 });
 
 test('failure inside a checkpoint group retains originals and resumes remaining IDs exactly once',()=>{
