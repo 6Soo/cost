@@ -16,8 +16,8 @@
 | PEND-01 | blocked | 원결제 또는 명시 결제 증명 부재. 기존 진단 완료, 금융 연결을 창작하지 않는다. 아래 외부 자료 차단 참조. |
 | PEND-02 | complete | 합성 browser3 passed와 운영 Aside 4조건·20행·넘침0의 확대/키보드/오류·재조회 수락. 물리적 모바일 검사는 아니다. |
 | PEND-03 | complete | 클라우드 수집/가져오기 PR #256/d37b33c 및 전용 수집기 배포. 수집20/인증14·importer32/browser3 근거 재사용. 실제 전환은 PEND-04. |
-| PEND-04 | running | 인증과 전체탐색3,704건 완료. 총294,501,933B가 기존100MiB 안전한도를 넘어 한도를 유지한 작은 배치 preview/apply를 합성 구현/검증 중. 원문 적재·작업 전환은 아직 미실행. |
-| RF-001 | waiting_child | 기존 쓰기/간접호출 지도 재사용. 보드 작업자의 자동 연결 지도 과제는 초기화30초 실패 뒤 같은 세션으로 한 번 재시도. 실행/미완료는 실제 상태로 확인한다. |
+| PEND-04 | running | 인증과 전체탐색3,704건 완료. 총294,501,933B가 기존100MiB 안전한도를 넘어 한도를 유지한 선택적 batch_size1..100·preview offset·미완료 batch apply 차단을 구현, Supervisor cloud/mail/selector51 passed. PR 준비. 원문 적재·작업 전환은 아직 미실행. |
+| RF-001 | waiting_child | 기존 쓰기/간접호출 지도 재사용. 보드 작업자는 두 번 초기화 실패/error·activeTurn없음·clean을 확인했다. 실제 미진행 과제를 기존 저장소 작업자에게 이전해 순차 구현한다. |
 | RF-002 | pending | 좁은 OTA 읽기 계약은175c3a2에서 이미 채택됨을 확인, 중복 구현하지 않았다. helper 실행 AST 동일·golden/canonical27 passed·입력 불변. 전체 상태 소비 수락은 부분 완료. |
 | RF-003 | pending | 기존 tracked-data inventory/guard 재사용. 전체 producer/consumer와 배포 원본 제외 수락은 남음. 기존 자료 삭제/역사 재작성 금지. |
 | RF-004 | running | HTTP/idempotency/flight/requirements/change-validation/provider 영향 매핑 보완·선택기8 passed. OS/실DB/known-failure 전체 기준선 수락은 남음. |
@@ -47,8 +47,8 @@
 
 | 실제 child agentId | worktree suffix / 현재 소유권 |
 | --- | --- |
-| `98cc885f-5d8c-4c99-8d5e-01ccfe57a6ea` | `cost-rf102-board`: RF001 tools/refactor_call_map.py·독립검사·비식별 config. 초기화 실패 복구 재시도 결과 확인 필요. |
-| `bf74bc49-d0d8-41be-886e-3255dca226fe` | `cost-rf101-store`: ledger_store·input_normalization·독립검사. d1dfd42 반환/검수 전. |
+| `98cc885f-5d8c-4c99-8d5e-01ccfe57a6ea` | `cost-rf102-board`: 초기화 실패2회·error·activeTurn없음·clean. 새 변경 없음, 재개하지 않고 기존 결과 보존. |
+| `bf74bc49-d0d8-41be-886e-3255dca226fe` | `cost-rf101-store`: normalization d1dfd42의 _canonical 동적 위임 교정 후 RF001 tools/refactor_call_map.py·독립검사·비식별 config로 작성권 이전. |
 | `bce73f79-9de8-4f22-8c1e-04ab8ab6efd1` | `cost-rf103-evidence`: app/cloud_mail.py·합성 검사만으로 PEND04 bounded batch 구현. 원문/운영 실행 금지. |
 | `995ccfb3-16d8-4dfe-82fd-65ca02fc4091` | `cost-rf201-assets`: tools/run_targeted_checks.py·독립검사 fail-open 교정. 기존 UI 결과는 Supervisor 검수/통합. |
 

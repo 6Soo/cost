@@ -198,3 +198,225 @@ def test_drive_failure_does_not_forward_credentials_or_expose_body(status):
     with pytest.raises(cloud_mail.CloudMailError) as caught:
         cloud_mail.DriveClient(Session()).download('a1', max_bytes=100)
     assert 'private token' not in str(caught.value) and response.closed
+
+
+def test_batch_size_and_offset_validation(tmp_path):
+    client = Cloud()
+    # batch_size must be exact int in 1..100
+    for bad_size in (0, 101, -1, '10', True, False, 1.5):
+        with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_CONFIG_INVALID'):
+            run(client, tmp_path, batch_size=bad_size)
+
+    # batch_offset must be non-negative int
+    for bad_offset in (-1, '0', True, False, 1.5):
+        with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_CONFIG_INVALID'):
+            run(client, tmp_path, batch_size=10, batch_offset=bad_offset)
+
+    # offset > 0 rejected when apply=True
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_CONFIG_INVALID'):
+        run(client, tmp_path, apply=True, batch_size=10, batch_offset=1)
+
+    # offset > 0 rejected when batch_size is None
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_CONFIG_INVALID'):
+        run(client, tmp_path, batch_offset=1)
+
+
+def test_default_mode_preserves_exact_legacy_return_structure(tmp_path):
+    result = run(Cloud(), tmp_path)
+    assert set(result.keys()) == {
+        'mode', 'indexed', 'existing', 'new', 'appended', 'download_bytes', 'enumeration_complete'
+    }
+    assert 'selected' not in result
+    assert 'remaining_new' not in result
+    assert 'batch_offset' not in result
+
+
+def test_batch_preview_counts_slicing_and_zero_writes(tmp_path):
+    identities = ('a1', 'b2', 'c3', 'd4', 'e5')
+    client = Cloud(identities)
+
+    # Slice 0: offset 0, size 2 -> a1, b2
+    r0 = run(client, tmp_path, batch_size=2, batch_offset=0)
+    assert r0['mode'] == 'DRY_RUN'
+    assert r0['indexed'] == 5
+    assert r0['existing'] == 0
+    assert r0['new'] == 5
+    assert r0['selected'] == 2
+    assert r0['remaining_new'] == 3
+    assert r0['batch_offset'] == 0
+    assert r0['appended'] == 0
+    assert client.downloaded == ['manifest', 'a1', 'b2']
+    assert list(tmp_path.iterdir()) == []
+
+    # Slice 1: offset 2, size 2 -> c3, d4
+    client.downloaded.clear()
+    r1 = run(client, tmp_path, batch_size=2, batch_offset=2)
+    assert r1['new'] == 5
+    assert r1['selected'] == 2
+    assert r1['remaining_new'] == 1
+    assert r1['batch_offset'] == 2
+    assert client.downloaded == ['manifest', 'c3', 'd4']
+    assert list(tmp_path.iterdir()) == []
+
+    # Slice 2: offset 4, size 2 -> e5 (only 1 item remaining)
+    client.downloaded.clear()
+    r2 = run(client, tmp_path, batch_size=2, batch_offset=4)
+    assert r2['new'] == 5
+    assert r2['selected'] == 1
+    assert r2['remaining_new'] == 0
+    assert r2['batch_offset'] == 4
+    assert client.downloaded == ['manifest', 'e5']
+    assert list(tmp_path.iterdir()) == []
+
+    # Slice 3: offset 6, size 2 -> empty slice past end
+    client.downloaded.clear()
+    r3 = run(client, tmp_path, batch_size=2, batch_offset=6)
+    assert r3['new'] == 5
+    assert r3['selected'] == 0
+    assert r3['remaining_new'] == 0
+    assert r3['batch_offset'] == 6
+    assert client.downloaded == ['manifest']
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_unselected_raw_download_zero(tmp_path):
+    client = Cloud(('a1', 'b2', 'c3'))
+    run(client, tmp_path, batch_size=1, batch_offset=0)
+    assert 'b2' not in client.downloaded
+    assert 'c3' not in client.downloaded
+
+
+def test_metadata_error_outside_slice_fails_before_any_raw_download_or_write(tmp_path):
+    client = Cloud(('a1', 'b2', 'c3'))
+    # Corrupt c3 digest metadata in manifest
+    del client.document['messages']['c3']['sha256']
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_DIGEST_REQUIRED'):
+        run(client, tmp_path, batch_size=1, batch_offset=0)
+    # Manifest was downloaded, but raw a1 was NEVER downloaded because metadata check runs first
+    assert 'a1' not in client.downloaded
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_metadata_target_conflict_outside_slice_fails_before_downloads(tmp_path):
+    client = Cloud(('a1', 'b2', 'c3'))
+    # Local conflict for c3
+    conflict = tmp_path / 'gmail-cloud-c3.json'
+    conflict.write_text('{}', encoding='utf-8')
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_LOCAL_CONFLICT'):
+        run(client, tmp_path, batch_size=1, batch_offset=0)
+    assert 'a1' not in client.downloaded
+
+
+def test_small_byte_budget_fails_single_run_succeeds_in_batches(tmp_path, monkeypatch):
+    client = Cloud(('a1', 'b2'))
+    # Each synthetic original is ~280 bytes. Total is ~560 bytes.
+    # Set byte budget to 400 bytes.
+    monkeypatch.setattr(cloud_mail, '_MAX_TOTAL', 400)
+    monkeypatch.setattr(cloud_mail, 'sync_unified_store', lambda _: None)
+
+    # Single run fails because total_bytes exceeds 400
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_BATCH_TOO_LARGE'):
+        run(client, tmp_path, apply=True)
+    assert list(tmp_path.iterdir()) == []
+
+    # Batch run 1 (size 1, offset 0) succeeds: 1 original ~280 bytes <= 400 bytes
+    b1 = run(client, tmp_path, apply=True, batch_size=1)
+    assert b1['appended'] == 1
+    assert b1['selected'] == 1
+    assert b1['new'] == 2
+    assert b1['remaining_new'] == 1
+    assert len(list(tmp_path.iterdir())) == 1
+
+    # Batch run 2 (size 1, offset 0) picks up the next remaining new message
+    b2 = run(client, tmp_path, apply=True, batch_size=1)
+    assert b2['appended'] == 1
+    assert b2['selected'] == 1
+    assert b2['new'] == 1
+    assert b2['remaining_new'] == 0
+    assert len(list(tmp_path.iterdir())) == 2
+
+
+def test_batch_apply_rejects_incomplete_enumeration_with_zero_writes(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_mail, 'sync_unified_store', lambda _: None)
+    client = Cloud(('a1', 'b2'))
+    client.document['query'] = 'label:unread'
+    client.document['last_complete'] = None
+
+    # Preview succeeds and indicates enumeration_complete=False
+    prev = run(client, tmp_path, batch_size=1, batch_offset=0)
+    assert not prev['enumeration_complete']
+
+    # Default apply contract preserved
+    # But batch apply MUST reject
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+        run(client, tmp_path, apply=True, batch_size=1)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cli_batch_flags(tmp_path, monkeypatch):
+    client = Cloud(('a1', 'b2'))
+    monkeypatch.setattr(cloud_mail, 'DriveClient', lambda: client)
+    args = [
+        '--directory', str(tmp_path),
+        '--folder-id', 'folder',
+        '--account', ACCOUNT,
+        '--batch-size', '1',
+        '--batch-offset', '0',
+    ]
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        ret = cloud_mail.main(args)
+    assert ret == 0
+    out = json.loads(buf.getvalue())
+    assert out['mode'] == 'DRY_RUN'
+    assert out['new'] == 2
+    assert out['selected'] == 1
+    assert out['remaining_new'] == 1
+    assert out['batch_offset'] == 0
+
+
+def test_batch_content_validation_failure_installs_no_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_mail, 'sync_unified_store', lambda _: None)
+    client = Cloud(('a1', 'b2'))
+    # b2 content is corrupted
+    client.data['b2'] += b'corrupted'
+    with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_DIGEST_MISMATCH'):
+        run(client, tmp_path, apply=True, batch_size=2)
+    # Neither a1 nor b2 should be installed on disk
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_batch_retry_preserves_originals_headers_and_db(tmp_path):
+    from app.ota_store import OtaStore
+    from app.ota_mail import load_messages_from
+    directory = tmp_path / 'ota-mail'
+    directory.mkdir()
+    database = tmp_path / 'ota.sqlite'
+    store = OtaStore(database)
+    store.close()
+    (tmp_path / 'ota-sources.json').write_text(json.dumps({
+        'schema_version': 'ota-sources-v1', 'unified_database': str(database)}), encoding='utf-8')
+    client = Cloud(('a1', 'b2'))
+
+    # Batch 1: applies a1
+    res1 = run(client, directory, apply=True, batch_size=1)
+    assert res1['appended'] == 1
+    messages1, _ = load_messages_from([database])
+    assert set(messages1) == {'a1'}
+    assert messages1['a1']['payload']['headers'] == original('a1')['responses'][0]['payload']['headers']
+
+    # Batch 2: applies b2
+    res2 = run(client, directory, apply=True, batch_size=1)
+    assert res2['appended'] == 1
+    messages2, _ = load_messages_from([database])
+    assert set(messages2) == {'a1', 'b2'}
+    assert messages2['b2']['payload']['headers'] == original('b2')['responses'][0]['payload']['headers']
+
+    # Repeat batch apply is no-op, preserves originals and headers
+    res3 = run(client, directory, apply=True, batch_size=1)
+    assert res3['appended'] == 0
+    messages3, _ = load_messages_from([database])
+    assert set(messages3) == {'a1', 'b2'}
+
+
