@@ -28,7 +28,7 @@
 | RF-001 | running | 정적 호출 지도 `config/refactor-call-map.json`·도구 PR #294/main `8e479de` 병합, 경로 영향 매핑 PR #296/main `ba74ab8` 병합. 표적/선택기 18건 통과. RF-001 및 RF-101 통합 101 passed/3 subtests; 전체 gate는 12개 모듈에서 OTA `inferred_link` KeyError 1건으로 실패했고 기준 SHA `355eaea`에서도 같은 assertion 재현. 전체 Route→service→repository→table→external-effect와 권한 수락은 미완료. |
 | RF-002 | pending | 좁은 OTA 읽기 계약은175c3a2에서 이미 채택됨을 확인, 중복 구현하지 않았다. helper 실행 AST 동일·golden/canonical27 passed·입력 불변. 전체 상태 소비 수락은 부분 완료. |
 | RF-003 | running | 기존 tracked-data inventory/guard 재사용. 전체 producer/consumer와 배포 원본 제외 수락은 남음. 기존 자료 삭제/역사 재작성 금지. |
-| RF-004 | running | HTTP/idempotency/flight/requirements/change-validation/provider 영향 매핑 보완·선택기8 passed. OS/실DB/known-failure 전체 기준선 수락은 남음. |
+| RF-004 | running | Windows/Python3.14.7의 실제 pytest collection 5,255건(exit0)과 정적 환경 감사 오류0을 확인했다. 수집은 본문 실행과 구별하며 import/hook 실행 사실을 표시한다. audit의 명시적 --collect는 원문 stdout을 공개하지 않고 요약·해시만 남기며 실패/timeout을 통과로 처리하지 않는다. 표적24 passed. 전체 known-failure 분류와 간접 실DB 의존 감사는 남음. |
 | RF-005 | running | 고정 SHA 배포/복구와 runtime catalog 재사용. 중복 배포 진입점·호스트 의존성 수렴은 부분 완료. |
 | RF-101 | complete | 입력 정규화 `9930b42`·동적 콜백 교정 `5f0ac83` 포함 PR #294/main `8e479de` 병합. 스토어 정규화·idempotency·audit·allocation·schema·records·change-validation·store·income_bank 및 RF-001 검사 101 passed/3 subtests; 호출 동적 재바인딩·SQL/audit/revision/idempotency 계약을 유지. |
 | RF-102 | complete | 필요한 helper와 façade 분리는 최신 main에 이미 반영되어 있다. main SHA 355eaea 기준 HTTP/render/read/export/dialog 표적 49 passed. 임시 RF102 브랜치와의 유일한 소스 차이인 query fallback은 호출 타입 계약을 불필요하게 넓혀 채택하지 않았고 원본 브랜치는 증거 보존 후 정리한다. |
@@ -38,7 +38,7 @@
 | RF-106 | running | 검색 projection PR #286/ab85215 병합. Supervisor71 passed·selector8. query 정규화1회·IO 전 검증·lazy status·linked_cards None/identity·revision 보존. 운영 배포 대기. |
 | RF-107 | running | provider schema/masking PR #289/d1180f1 병합. 필수 signature·ConfigError 동일성·기존 순수/저장소/service AST 동일, Supervisor135 passed/105subtests. 전체 adapter 수렴은 남음. |
 | RF-108 | pending | schema/additive/복원/snapshot 기존 기반 재사용. 쿼리 plan·P95·메모리 측정 후 최적화. 실제 DB migration은 별도 게이트. |
-| RF-109 | running | runtime catalog 정적616후보·8검사 재사용. 활성 호출/인자·guard 분류와 중복 CLI 수렴은 부분 완료. |
+| RF-109 | running | runtime catalog 정적741후보(UNKNOWN379/TEST_FIXTURE359/HISTORICAL3) 확인. tools/cost_audit.py는 기존 환경·runtime·call-map·write-boundary·tracked-data 진단5개의 읽기 전용 공통 진입점이며 기본PREVIEW, 명시적 --run과 고정 인자만 허용한다. writer/collection/임의 인자 차단·종료코드 보존 포함 표적24 passed. 운영 호출·전체 guard 분류와 write CLI 수렴은 남음. |
 | RF-201 | running | 자산 배포, geometry 단일 소유2559ef7 및 실제 CSS zoom/baseline 검사8798569 회수. 작업자 전체4 passed(99.88초), Supervisor 인접20 passed/1 deselected. native/standalone·8폭·양테마·CSS1/2배는 합성 수락이며 실기기 검사가 아니다. PR #290/322ef3f 배포. |
 | RF-202 | running | 공통 셸 조립 PR #277/자산 PR #282 배포. URL/DOM·테마1개 보존. 전체 화면 수락과 구별한다. |
 | RF-203 | running | 검토 문서 PR #265·guidance16검사·template byte 동일성 배포. 전체 폼/지출 컴포넌트 채택 수락은 남음. |

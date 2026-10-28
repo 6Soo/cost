@@ -150,3 +150,39 @@ def test_cli_error_is_nonzero_and_does_not_echo_source(tmp_path):
     )
     assert result.returncode != 0
     assert "SECRET_SOURCE" not in result.stdout + result.stderr
+
+
+def test_real_collection_counts_tests_without_executing_bodies(tmp_path):
+    root = make_repo(tmp_path, {'tests/test_sample.py':
+        "import pytest\n@pytest.mark.parametrize('value',[1,2,3])\n"
+        "def test_body(value):\n    raise AssertionError('BODY_MUST_NOT_RUN')\n"})
+    report = audit_tool.collect_baseline(root)
+    assert report['status'] == 'COLLECTED'
+    assert report['collected'] == 3
+    assert report['exit_code'] == 0
+    assert report['test_bodies_executed'] is False
+    assert report['imports_and_collection_hooks_executed'] is True
+    assert len(report['output_sha256']) == 64
+
+
+def test_failed_collection_never_publishes_import_source_or_false_pass(tmp_path):
+    root = make_repo(tmp_path, {'tests/test_private.py':
+        "raise RuntimeError('PRIVATE_CUSTOMER_SOURCE')\n"})
+    report = audit_tool.collect_baseline(root)
+    assert report['status'] == 'COLLECTION_FAILED'
+    assert report['exit_code'] != 0
+    assert report['tests_executed'] is False
+    import json
+    assert 'PRIVATE_CUSTOMER_SOURCE' not in json.dumps(report)
+    assert str(root) not in json.dumps(report)
+
+
+def test_collection_timeout_is_not_a_pass_and_does_not_echo_partial_output(tmp_path, monkeypatch):
+    root = make_repo(tmp_path, {'tests/test_a.py': 'def test_a(): pass\n'})
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired('pytest', 1, output=b'PRIVATE_PARTIAL_OUTPUT')
+    monkeypatch.setattr(audit_tool.subprocess, 'run', timeout)
+    report = audit_tool.collect_baseline(root, timeout=1)
+    assert report['status'] == 'COLLECTION_TIMEOUT'
+    assert report['collected'] is None
+    assert 'PRIVATE_PARTIAL_OUTPUT' not in str(report)

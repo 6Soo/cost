@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import ast
 import configparser
+import hashlib
 import json
 from pathlib import Path
+import platform
 import re
 import subprocess
 import sys
@@ -301,17 +303,51 @@ def audit(root: Path, runtime: str | None = None) -> dict:
     }
 
 
+def collect_baseline(root: Path, *, timeout: int = 120) -> dict:
+    """Collect in an explicit subprocess. Pytest imports/conftest hooks still run.
+
+    Never publish pytest's raw output: import errors may quote private paths or
+    source lines. A digest binds aggregate evidence to the captured result.
+    """
+    root = root.resolve(strict=True)
+    command = [sys.executable, '-m', 'pytest', '--collect-only', '-q']
+    result = {
+        'schema': 'cost-test-collection-v1',
+        'python_runtime': platform.python_version(),
+        'platform': platform.system(),
+        'test_bodies_executed': False,
+        'imports_and_collection_hooks_executed': True,
+        'tests_executed': False,
+    }
+    try:
+        run = subprocess.run(command, cwd=root, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return dict(result, status='COLLECTION_TIMEOUT', collected=None, exit_code=None)
+    except OSError:
+        return dict(result, status='COLLECTION_UNAVAILABLE', collected=None, exit_code=None)
+    output = run.stdout.decode('utf-8', errors='replace')
+    counts = re.findall(r'(\d+) tests? collected(?:\s|$)', output)
+    count = int(counts[-1]) if counts else None
+    status = 'COLLECTED' if run.returncode == 0 and count is not None else 'COLLECTION_FAILED'
+    return dict(result, status=status, collected=count, exit_code=run.returncode,
+                output_sha256=hashlib.sha256(run.stdout).hexdigest())
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--summary", action="store_true", help="print compact inventory summary")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON (default)")
+    parser.add_argument("--collect", action="store_true", help="explicitly run pytest collection; does not execute test bodies")
     args = parser.parse_args(argv)
     try:
         report = audit(args.root)
     except AuditError as exc:
         print(json.dumps({"errors": [{"path": ".", "reason": str(exc)}]}, separators=(",", ":")), file=sys.stderr)
         return 2
+    if args.collect:
+        report['collection'] = collect_baseline(args.root)
     if args.summary:
         verified = sum(row["status"] == "EVIDENCE_FOUND" for row in report["files"])
         print(f"Python runtime: {report['python_runtime']}")
@@ -321,11 +357,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"Files UNVERIFIED: {len(report['files']) - verified}")
         print(f"File errors: {len(report['errors'])}")
         print("Counts are static definition candidates, not pytest collection or execution.")
+        if args.collect:
+            print(json.dumps(report['collection'], sort_keys=True))
         for error in report["errors"]:
             print(f"ERROR {error['path']} {error['reason']}")
     else:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-    return 2 if report["errors"] else 0
+    return 2 if report["errors"] or args.collect and report['collection']['status'] != 'COLLECTED' else 0
 
 
 if __name__ == "__main__":
