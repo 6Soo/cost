@@ -126,6 +126,15 @@ def test_existing_saved_trip_is_restored_before_any_new_trip_guess(setup):
     assert saved[0:2] == ('기존 항목','B') and 'TRIP_ASSIGNMENT_RESTORED' in saved[2]
 
 
+def test_current_board_trip_precedes_calendar_guess_without_any_manual_marker(setup):
+    board, _, _, rows = setup
+    tid = rows[0]['transaction_id']
+    payload = {'source_event_id':tid,'item':'현지경비','display_tab_id':'B'}
+    board.conn.execute("INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,'expense','B',1,?)",('card-'+tid,json.dumps(payload)))
+    policy.apply(board.conn,policy.plan(board.conn,TRIPS,nets={'A':100}),TRIPS,nets={'A':100})
+    assert board.conn.execute('SELECT item,trip_id FROM transactions WHERE transaction_id=?',(tid,)).fetchone() == ('현지경비','B')
+
+
 def test_future_import_completes_even_when_booking_evidence_is_unavailable(setup, monkeypatch):
     board, flow, batch, rows = setup
     board.conn.execute("UPDATE transactions SET merchant='SYNTHETIC AGODA',merchant_normalized='synthetic agoda'")

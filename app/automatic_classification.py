@@ -137,11 +137,16 @@ def plan(conn, trips, *, nets=None, transaction_ids=None):
                     chosen['classification_source'] = 'inference'
         else:
             recorded = ledger.get(tid) or {}
+            board = boards.get('card-'+tid)
+            if board and not chosen['item']:
+                chosen['item'] = json.loads(board[1]).get('item') or ''
             if recorded.get('item'):
                 chosen['item'] = recorded['item']
             recorded_tab = recorded.get('trip_id') or recorded.get('display_tab_id')
-            if recorded_tab in valid:
-                chosen.update(trip_id=recorded_tab, display_tab_id=recorded_tab)
+            existing_tab = next((value for value in (board[0] if board else '', recorded_tab)
+                                 if value in valid or value == 'refunds'), '')
+            if existing_tab and not (chosen['trip_id'] in valid or chosen['display_tab_id'] in valid):
+                chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab, display_tab_id=existing_tab)
             link = links.get(tid)
             original = resolved.get((link or {}).get('original_id'))
             if link and not link.get('inferred') and original and original.get('item'):
