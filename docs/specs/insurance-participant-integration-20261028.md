@@ -1,5 +1,7 @@
 # COST 보험가입 명단 수신·참가자 대조·여행 탭 조회 개선 명세
 
+> **현재 구현 대조(2026-10-28 18:30):** [구현현황 감사](implementation-status-audit-20261028.md). 로컬 수신 및 owner 전용 대조는 구현됐으나 **실제 운영 웹 참가자 DB=전송 DB 일치 검증, Travel INS 결제 재개 함수 인자 오류 수정, 여행 탭의 보험-수입 통합 UI는 미완료**. 기존 이 문서의 독립 참가자 section 제안보다 [최신 PIR 명세](participant-income-authority-and-drag-link-20261028.md)의 '수입→보험가입내역→지출'이 우선한다.
+
 - 작성일: 2026-10-28
 - 상태: **SPEC_ONLY / CODE_NOT_CHANGED / TEST_NOT_RUN / RUNTIME_DB_NOT_VERIFIED**
 - 협업 원천: `6Soo/travel_ins/docs/insurance-cost-handoff-remediation-20261028.md`
