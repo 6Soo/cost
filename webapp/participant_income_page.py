@@ -20,7 +20,7 @@ from app import participant_income as income
 from app import participant_roster as roster
 from . import google_ledger_page
 
-ROUTES = ("/participants", "/api/participants/state", "/api/participants/link",
+ROUTES = ("/participants", "/api/participants/state", "/api/participants/trip-panel", "/api/participants/link",
           "/api/participants/unlink", "/api/participants/participant")
 WRITE_ROUTES = ("/api/participants/link", "/api/participants/unlink",
                 "/api/participants/participant")
@@ -461,6 +461,15 @@ def dispatch(handler, parsed, *, is_owner: bool, raw=None, csrf: str = "", query
 
     trip_id = str(query.get("trip", [""])[0] or "")
     state = build_state(trip_id)
+    if parsed.path == "/api/participants/trip-panel":
+        from . import participant_trip_panel
+        try:
+            controls = participant_trip_panel.controls_from_query(query)
+            handler._send(participant_trip_panel.render(
+                state, csrf=csrf, **controls))
+        except (TypeError, ValueError):
+            handler._send_json({"code": "INVALID_VALUE", "message": "요청을 확인해 주세요"}, 400)
+        return True
     if parsed.path == "/api/participants/state":
         handler._send_json(state)
         return True
@@ -544,7 +553,10 @@ def _write(store, path: str, trip_id: str, payload: dict) -> dict:
         if decision == income.DECISION_REVIEWED:
             participant_id = ""
         else:
-            _participant_in_trip(state, participant_id)
+            selected = _participant_in_trip(state, participant_id)
+            if selected.get("participant_state") != "confirmed" or not selected.get("active", True):
+                raise income.ReconciliationError("PARTICIPANT_NOT_CONFIRMED",
+                                                 "보험가입 확정 참가자만 연결할 수 있어요")
         expected = _decision_revision(state, participant_id, income_ref)
         result = income.save_decision(store.conn, participant_id=participant_id, income_ref=income_ref,
                                       decision=decision, trip_id=trip_id,

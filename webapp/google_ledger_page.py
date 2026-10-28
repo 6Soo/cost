@@ -231,7 +231,9 @@ def is_unconfirmed_income_row(row: dict) -> bool:
     return not has_date and not has_person
 
 
-def trip_income_html(tab_id: str) -> str:
+def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
+                     participant_limit: int = 20, income_offset: int = 0,
+                     participant_search: str = "") -> str:
     """Read-only income for an explicitly linked COST trip, using current grants."""
     from . import ledger_board as board
     if not tab_id or tab_id == 'unclassified':
@@ -303,12 +305,43 @@ def trip_income_html(tab_id: str) -> str:
             row for row in sorted(detail['income'], key=transaction_date_sort_key)
             if not is_unconfirmed_income_row(row)
         ]
+        if owner:
+            needle = participant_search.strip().casefold()
+            if needle:
+                visible_rows = [row for row in visible_rows if
+                    needle in str(row.get("name") or "").casefold() or
+                    needle in str(row.get("nickname") or "").casefold()]
+            limit = max(1, min(int(participant_limit), 20))
+            income_more = len(visible_rows) > income_offset + limit
+            visible_rows = visible_rows[income_offset:income_offset + limit]
+        else:
+            income_more = False
+            income_offset = 0
+            limit = len(visible_rows)
+        if owner:
+            from . import participant_trip_panel
+            visible_rows = participant_trip_panel.attach_row_refs(visible_rows, source=source, sheet=keys[0])
+        if owner:
+            try:
+                from . import participant_income_page, participant_trip_panel
+                if participant_state is None:
+                    participant_state = None
+                panel_data = (participant_trip_panel.project(participant_state)
+                              if participant_state else {})
+                links_by_ref = panel_data.get("links_by_ref", {})
+            except Exception:
+                links_by_ref = {}
+        else:
+            links_by_ref = {}
         lines = ''.join(
             f"<tr><td class='income-date' title='{esc(row.get('date'))}'>{esc(format_transaction_date(row.get('date')))}</td>"
             f"<td class='income-person'>{esc(str(row.get('name') or '').strip() or row.get('nickname') or '이름 미확인')}</td>"
             + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
                       for field in ('deposit', 'balance', 'extra'))
-            + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
+            + f"<td class='income-total'>{_money(row['amount'])}</td>"
+            + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'>"
+                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험가입내역을 열어 연결 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 참가자와 연결'>연결</button></td>")
+               if owner else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap
 
@@ -317,6 +350,7 @@ def trip_income_html(tab_id: str) -> str:
             f"<td colspan='2' class='income-foot-label'>수입 행 합계 ({len(visible_rows)}건)</td>"
             "<td class='income-breakdown'></td><td class='income-breakdown'></td><td class='income-breakdown'></td>"
             f"<td class='income-total num'>{_money(rows_total)}</td>"
+            + ("<td></td>" if owner else "") +
             "</tr></tfoot>"
         )
         table = ("<div class='google-income-scroll'><table id='income-tbl'>"
@@ -324,8 +358,9 @@ def trip_income_html(tab_id: str) -> str:
                  f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
                  f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
                  "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
-                 f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th></tr></thead>"
-                 f"<tbody>{lines or '<tr><td colspan=\"6\">연결된 장부에 수입내역이 없습니다.</td></tr>'}</tbody>"
+                 f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th>"
+                 + ("<th>보험 등록</th>" if owner else "") + "</tr></thead>"
+                 f"<tbody>{lines or f'<tr><td colspan=\"{7 if owner else 6}\">연결된 장부에 수입내역이 없습니다.</td></tr>'}</tbody>"
                  f"{tfoot}</table></div>")
         figures = (f"<p class='small'>장부 행 합계 {_money(rows_total)} · 장부 집계 "
                    f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
@@ -346,7 +381,9 @@ def trip_income_html(tab_id: str) -> str:
                 f"<div class='income-meta-info'>{time_row}{figures}</div>"
                 f"<div class='income-meta-actions'>{source_link}{participant_link}</div>"
                 f"</div>")
-        body = overall_notice + reasons_p + gap_alert + (table if show_rows else '') + meta
+        more_link = (f"<a class='btn' href='/board?tab={html.escape(quote(tab_id, safe=''), quote=True)}&amp;participant_income_offset={income_offset + limit}'>다음 수입 20건</a>"
+                     if owner and income_more else '')
+        body = overall_notice + reasons_p + gap_alert + (table + more_link if show_rows else '') + meta
         if numeric_gap:
             message = '수입 합계 차이 있음'
         elif show_rows:
@@ -356,6 +393,16 @@ def trip_income_html(tab_id: str) -> str:
         return panel(message, body)
     except (google_authority.SnapshotError, ValueError, OSError):
         return panel('수입 내역을 불러오지 못했습니다. 새로고침해 주세요.')
+
+
+def _participant_insurance_cell(row: dict, links_by_ref: dict) -> str:
+    """Owner-only virtual cell. Google rows remain read-only."""
+    ref = row.get("participant_income_ref") or ""
+    entry = (links_by_ref.get(ref) or [None])[0]
+    state = "미연결 · 보험 미가입을 뜻하지 않음"
+    if entry:
+        state = "✓ 직접 연결 · " + html.escape(str(entry.get("name") or ""))
+    return state
 
 
 def get_trip_income_summary(tab_id: str) -> dict | None:

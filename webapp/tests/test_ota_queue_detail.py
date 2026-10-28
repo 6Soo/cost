@@ -119,12 +119,20 @@ def test_detail_get_is_authenticated_strict_generation_and_allowlisted():
         **source("evt/encoded"), "status": "HOLD_AMBIGUOUS", "reason": "amount_differs",
         "card_candidate_count": 2, "candidate_search": {"candidates": ["secret"]},
     }], "proposals": []})["events"][0]
-    backend = DetailBackend({"event": public_event, "generation": 12, "ambiguous": False})
+    fingerprint = "a" * 64
+    rule_fingerprint = "b" * 64
+    backend = DetailBackend({"event": public_event, "generation": 12, "ambiguous": False,
+        "summary": {"snapshot_status":"ready", "generation":12, "fresh":True,
+                    "stale":False, "refreshing":False,
+                    "input_fingerprint":fingerprint, "rule_fingerprint":rule_fingerprint},
+        "telemetry": {"input_fingerprint":fingerprint, "rule_fingerprint":rule_fingerprint}})
     path = "/api/imports/ota/events/evt%2Fencoded?generation=12"
     status, body = dispatch(path, backend)
     assert status == 200
     assert body["event_id"] == "evt/encoded"
     assert body["generation"] == 12
+    assert body["trace"]["trace_status"] == "complete"
+    assert body["telemetry_sample"]["stage"] == "detail_read"
     assert body["event"]["card_candidate_count"] == 2
     assert "candidate_search" not in json.dumps(body)
     assert "PRIVATE-DIGEST" not in json.dumps(body)
@@ -152,7 +160,13 @@ def test_detail_get_is_authenticated_strict_generation_and_allowlisted():
 
 def test_detail_get_does_not_classify_build_index_scan_snapshot_or_load_cards():
     event = {"ota_event_id": "evt", "status": "HOLD_AMBIGUOUS"}
-    backend = DetailBackend({"event": event, "generation": 3, "ambiguous": False})
+    fingerprint = "a" * 64
+    rule_fingerprint = "b" * 64
+    backend = DetailBackend({"event": event, "generation": 3, "ambiguous": False,
+        "summary": {"snapshot_status":"ready", "generation":3, "fresh":True,
+                    "stale":False, "refreshing":False,
+                    "input_fingerprint":fingerprint, "rule_fingerprint":rule_fingerprint},
+        "telemetry": {"input_fingerprint":fingerprint, "rule_fingerprint":rule_fingerprint}})
     with (mock.patch.object(ota_payment_review, "classify_event", side_effect=AssertionError),
           mock.patch.object(ota_payment_review, "summarize_queue", side_effect=AssertionError),
           mock.patch.object(ota_payment_review, "build_queue_index", side_effect=AssertionError)):
