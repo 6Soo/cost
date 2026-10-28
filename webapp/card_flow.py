@@ -11,6 +11,7 @@ from app.db import decided_sql
 from app.reconciliation import (GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
                                    handover_days, overlaps_stay, stay_trip)
 
+from . import card_cleanup_ui
 from . import card_evidence_ui
 from . import card_ota_projection
 from . import card_refund_query
@@ -2789,8 +2790,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
     trips = sorted((t for t in board.list_trips()
                     if not t.get('deleted') and not t.get('archived') and trip_valid(t['tab_id'])),
                    key=lambda t: t.get('starts_on') or '', reverse=True)
-    options = "<option value=''>여행 선택</option>" + ''.join(
-        f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
+    options = card_cleanup_ui.render_cleanup_trip_options(trips, esc=esc)
     card_total = _cleanup_card_count(board)
     card_breakdown = _cleanup_card_breakdown(board)
     ledger_total = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
@@ -2953,24 +2953,42 @@ def render_expense_cleanup(board, csrf, *, page=1):
             if preview_row and preview_row.get('blocked'):
                 reason += ' ' + finance_label
             # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
-            review = (f"<details class='cleanup-review'><summary>원결제·취소 근거 자세히 보기</summary>{evidence}"
-                      f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
+            review = card_cleanup_ui.render_cleanup_card_review(
+                tid=str(tid),
+                detail=detail,
+                is_cancellation=True,
+                evidence=evidence,
+                esc=esc,
+            )
         elif conflict_reason or parse_error:
-            review = (f"<details class='cleanup-review'><summary>상세 검토</summary>"
-                      f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
-                      f"{esc(conflict_reason or parse_error)}</p>"
-                      f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>")
+            review = card_cleanup_ui.render_cleanup_card_review(
+                tid=str(tid),
+                detail=detail,
+                is_cancellation=False,
+                evidence=evidence,
+                conflict_reason=str(conflict_reason or ''),
+                parse_error=str(parse_error or ''),
+                esc=esc,
+            )
         elif held:
-            review = (f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
-                      "<p class='cleanup-protected'>보류 중 · 여행 변경과 보류 해제는 카드 자료 전체 검토에서 "
-                      "명시적으로 확인해 주세요.</p>"
-                      f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>")
+            review = card_cleanup_ui.render_cleanup_card_review(
+                tid=str(tid),
+                detail=detail,
+                is_cancellation=False,
+                evidence=evidence,
+                held=True,
+                esc=esc,
+            )
         else:
-            review = (f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
-                      f"<p class='cleanup-review-note'>분류 근거 · {esc(reason)}</p>"
-                      f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
-                      f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
-                      "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>")
+            review = card_cleanup_ui.render_cleanup_card_review(
+                tid=str(tid),
+                detail=detail,
+                is_cancellation=False,
+                evidence=evidence,
+                reason=str(reason or ''),
+                item=str(item or ''),
+                esc=esc,
+            )
         if tid not in cancellation_ids and finance_label:
             review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
@@ -2986,111 +3004,63 @@ def render_expense_cleanup(board, csrf, *, page=1):
                 label = '기록 보류'
             elif offset_link.get('status') == 'full':
                 label = '환불 상쇄 확인'
-        items.append(
-            f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
-            f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
-            f" data-current-tab='{esc(current_tab or '')}'>"
-            f"<div class='cleanup-card-head'><h3>카드 거래</h3>"
-            f"<span class='cleanup-badge{' cleanup-badge-protected' if protected else ''}'>{label}</span></div>"
-            f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
-            f"<div class='cleanup-title'><strong>{esc(merchant)}</strong><small>{esc(day or '')} · 카드 결제</small></div></div>"
-            f"<div class='cleanup-amount'>{int(amount or 0):,}원</div>"
-            f"<p class='cleanup-reason'>{esc(reason)}</p>{review}</li>")
+        card_row = card_cleanup_ui.CleanupCardRow(
+            tid=str(tid),
+            batch=str(batch),
+            revision=int(revision),
+            held=bool(held),
+            merchant=str(merchant),
+            current_tab=current_tab,
+            protected=protected,
+            label=label,
+            day=day,
+            amount=amount or 0,
+            reason=reason,
+            review=review,
+        )
+        items.append(card_cleanup_ui.render_cleanup_card_row(card_row, esc=esc))
     ledger = board.conn.execute(
         "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where() +
         " ORDER BY json_extract(b.payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
         (ledger_limit, ledger_offset)).fetchall() if ledger_limit else []
     for row_id, revision, payload in ledger:
         record = json.loads(payload)
-        items.append(
-            f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row_id)}' data-revision='{int(revision)}'>"
-            "<div class='cleanup-card-head'><h3>여행 지정</h3>"
-            "<span class='cleanup-badge'>여행 미배정</span></div>"
-            f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
-            f"<div class='cleanup-title'><strong>{esc(record.get('source_merchant') or record.get('description') or '지출')}</strong>"
-            f"<small>{esc(record.get('occurred_on') or '')} · {esc(record.get('item') or '항목 없음')}</small></div></div>"
-            f"<div class='cleanup-amount'>{int(record.get('amount_krw') or 0):,}원</div>"
-            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
-            "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
-    body = ''.join(items) or '<li class="muted">정리할 지출이 없습니다.</li>'
-    style = ("<style>#expense-cleanup{background:transparent;border:0;padding:0}"
-             "#expense-cleanup .cleanup-breakdown{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px;font-size:13px}"
-             "#expense-cleanup .cleanup-breakdown span{background:var(--shell-hover);border-radius:999px;padding:5px 10px}"
-             "#expense-cleanup .cleanup-list{list-style:none;padding:0;margin:12px 0;display:grid;gap:12px}"
-             "#expense-cleanup .cleanup-row{border:1px solid var(--shell-line);background:var(--shell-paper);border-radius:18px;padding:20px;min-width:0}"
-             "#expense-cleanup .cleanup-card-head{display:flex;align-items:center;justify-content:space-between;"
-             "gap:8px;margin:0 0 12px}"
-             "#expense-cleanup .cleanup-card-head h3{margin:0;font-size:17px}"
-             "#expense-cleanup .cleanup-info{display:flex;align-items:center;gap:12px;min-width:0}"
-             "#expense-cleanup .cleanup-receipt-icon{display:grid;place-items:center;width:46px;height:46px;flex:none;"
-             "border-radius:13px;background:var(--shell-hover);color:var(--shell-muted);font-size:27px}"
-             "#expense-cleanup .cleanup-title{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}"
-             "#expense-cleanup .cleanup-title strong{font-size:17px;overflow-wrap:anywhere}"
-             "#expense-cleanup .cleanup-title small{color:var(--shell-muted)}"
-             "#expense-cleanup .cleanup-badge{font-size:12px;font-weight:700;border-radius:999px;padding:5px 9px;"
-             "background:var(--shell-hover);color:var(--shell-muted);flex:none}"
-             "#expense-cleanup .cleanup-badge-protected{background:var(--shell-warn-bg);color:var(--shell-warn)}"
-             "#expense-cleanup .cleanup-amount{font-size:24px;font-weight:800;margin:14px 0 4px;font-variant-numeric:tabular-nums}"
-             "#expense-cleanup .cleanup-reason{font-size:13px;color:var(--shell-muted);margin:0 0 10px}"
-             "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
-             "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
-             "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
-             "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:var(--shell-danger)}"
-             "#expense-cleanup .cleanup-review{margin-top:14px;border-top:1px solid var(--shell-line)}"
-             "#expense-cleanup .cleanup-review>summary{cursor:pointer;font-weight:700;min-height:44px}"
-             "#expense-cleanup .cleanup-review-note{margin:8px 0 0;color:var(--shell-muted);font-size:13px}"
-             "#expense-cleanup .cleanup-protected{margin:8px 0 0;color:var(--shell-muted)}"
-             "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
-             "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
-             "#expense-cleanup .cleanup-amount{font-size:21px;margin:12px 0 6px;letter-spacing:-.02em}"
-             "#expense-cleanup .cleanup-row{border-radius:12px;padding:16px;box-shadow:none}"
-             "#expense-cleanup .cleanup-card-head{margin-bottom:10px}"
-             "#expense-cleanup .cleanup-card-head h3{font-size:14px;font-weight:700;color:var(--shell-muted)}"
-             "#expense-cleanup .cleanup-title strong{font-size:16px;line-height:1.45}"
-             "#expense-cleanup .cleanup-receipt-icon{width:36px;height:36px;font-size:20px;border-radius:10px}"
-             "#expense-cleanup .cleanup-reason{font-size:12px;line-height:1.6;margin-bottom:6px}"
-             "#expense-cleanup .cleanup-review{margin-top:12px}"
-             "#expense-cleanup .cleanup-review>summary{display:flex;align-items:center;min-height:44px;color:var(--shell-accent);padding:7px 0}"
-             "#expense-cleanup .cleanup-evidence ul{padding-left:16px}"
-             "#expense-cleanup .cleanup-merchant-compare{margin-top:12px;padding:8px 12px;border:1px solid var(--shell-line);border-radius:10px;background:var(--shell-hover)}"
-             "#expense-cleanup .cleanup-merchant-compare>summary{cursor:pointer;min-height:44px;font-size:13px;font-weight:750;display:flex;align-items:center;gap:8px}"
-             "#expense-cleanup .cleanup-mini-count{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:99px;padding:2px 8px;font-size:12px}"
-             "#expense-cleanup .cleanup-evidence-meta{font-size:12px;line-height:1.55;color:var(--shell-muted);margin:7px 0}"
-             "#expense-cleanup .cleanup-compare-list{display:grid;gap:8px;margin:12px 0}"
-             "#expense-cleanup .cleanup-compare-row{border:1px solid var(--shell-line);background:var(--shell-paper);border-radius:9px;padding:12px;min-width:0}"
-             "#expense-cleanup .cleanup-compare-row p{font-size:12px;margin:6px 0;color:var(--shell-muted)}"
-             "#expense-cleanup .cleanup-compare-row a{display:inline-flex;align-items:center;min-height:38px}"
-             "#expense-cleanup .cleanup-compare-main{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px}"
-             "#expense-cleanup .cleanup-compare-main strong{overflow-wrap:anywhere;min-width:0}"
-             "#expense-cleanup .cleanup-compare-main b{white-space:nowrap;font-variant-numeric:tabular-nums}"
-             "#expense-cleanup .cleanup-pages{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--shell-line);padding:12px 0}"
-             "#expense-cleanup .cleanup-pages a{min-height:44px;display:inline-flex;align-items:center;padding:8px 12px;border:1px solid var(--shell-line);border-radius:9px}"
-             "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:var(--shell-muted);margin:6px 0 0}"
-             "@media(max-width:550px){#expense-cleanup .cleanup-row{padding:16px}"
-             "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
-             "}"
-             "</style>")
-    snapshot_message = {'loading': '예약 근거를 불러오고 있습니다.',
-                        'refreshing': '예약 근거 갱신 중 · 최신 근거 확인이 필요합니다.',
-                        'error': '예약 근거 입력 오류 · 자료를 읽지 못했습니다. 잠시 뒤 다시 확인해 주세요.'}.get(snapshot_context.get('status'), '')
-    note = "<p class='cleanup-protected' role='status'>" + esc(snapshot_message) + '</p>' if snapshot_message else ''
-    nav = ''
-    if pages > 1:
-        previous = (f"<a href='/import?cleanup_page={page - 1}'>이전 20건</a>" if page > 1 else '<span>이전 20건</span>')
-        following = (f"<a href='/import?cleanup_page={page + 1}'>다음 20건</a>" if page < pages else '<span>다음 20건</span>')
-        nav = f"<nav class='cleanup-pages'><p class='muted'>{total}건을 20건씩 봅니다 · {page}/{pages}페이지</p>{previous} · {following}</nav>"
-    breakdown = (
-        "<div class='cleanup-breakdown' aria-label='지출 정리 사유별 건수'>"
-        f"<span>항목 미분류 {card_breakdown.get('no_item', 0):,}건</span>"
-        f"<span>여행 미배정 {card_breakdown.get('no_trip', 0) + ledger_total:,}건</span>"
-        f"<span>보류·오류 {card_breakdown.get('protected', 0):,}건</span></div>"
+        ledger_row = card_cleanup_ui.CleanupLedgerRow(
+            row_id=str(row_id),
+            revision=int(revision),
+            merchant_or_desc=str(record.get('source_merchant') or record.get('description') or '지출'),
+            occurred_on=record.get('occurred_on'),
+            item=record.get('item'),
+            amount_krw=record.get('amount_krw') or 0,
+        )
+        items.append(card_cleanup_ui.render_cleanup_ledger_row(ledger_row, esc=esc))
+    body = ''.join(items) or card_cleanup_ui.render_cleanup_empty()
+    note = card_cleanup_ui.render_cleanup_snapshot_note(snapshot_context, esc=esc)
+    nav = card_cleanup_ui.render_cleanup_pagination(page, pages, total)
+    breakdown = card_cleanup_ui.render_cleanup_breakdown(card_breakdown, ledger_total)
+    script_html = CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))
+    return card_cleanup_ui.render_cleanup_section(
+        total=total,
+        breakdown_html=breakdown,
+        note_html=note,
+        options_html=options,
+        body_html=body,
+        nav_html=nav,
+        script_html=script_html,
     )
-    return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-            f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
-            "<p class='muted'>아래 거래의 예약 연결, 여행 배정, 금융 보호 사유를 확인해 주세요. 이 화면을 조회하는 동안 장부를 변경하지 않습니다.</p>"
-            f"<template id='cleanup-trip-options'>{options}</template>"
-            f"<ul class='cleanup-list'>{body}</ul>{nav}"
-            f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")
+
+
+# Presentation facades for expense cleanup UI helpers
+CleanupCardRow = card_cleanup_ui.CleanupCardRow
+CleanupLedgerRow = card_cleanup_ui.CleanupLedgerRow
+render_cleanup_card_review = card_cleanup_ui.render_cleanup_card_review
+render_cleanup_card_row = card_cleanup_ui.render_cleanup_card_row
+render_cleanup_ledger_row = card_cleanup_ui.render_cleanup_ledger_row
+render_cleanup_trip_options = card_cleanup_ui.render_cleanup_trip_options
+render_cleanup_breakdown = card_cleanup_ui.render_cleanup_breakdown
+render_cleanup_snapshot_note = card_cleanup_ui.render_cleanup_snapshot_note
+render_cleanup_pagination = card_cleanup_ui.render_cleanup_pagination
+render_cleanup_section = card_cleanup_ui.render_cleanup_section
 
 
 def page(csrf):
