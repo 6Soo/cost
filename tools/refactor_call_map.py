@@ -11,11 +11,13 @@ from collections import Counter
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 from tools.audit_write_boundaries import analyze_source, dotted
 from tools.runtime_dependency_catalog import tracked_paths
 
 ROOT = Path(__file__).resolve().parents[1]
+MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MiB limit for config artifact
 LIMITATIONS = [
     'Static syntax only; no runtime, authorization, or production-use proof.',
     'code_sha identifies base HEAD; analysis reads tracked working files, including staged edits.',
@@ -24,7 +26,20 @@ LIMITATIONS = [
     'Only lexical functions, explicit imports, and direct self methods resolve.',
     'Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.',
     'No literal values, SQL text, function bodies or application imports are emitted.',
+    'Static candidates are not promoted to actual permissions or active status.',
+    'Output size capped at 1 MiB; full graph requires rerun without --summary.',
 ]
+
+# Known store patterns for dynamic dispatch resolution.
+# Maps variable name / call pattern to the module/class providing the methods.
+STORE_PATTERNS = {
+    '_active_store': 'webapp.ledger_store.LedgerStore',
+    '_ACCESS': 'webapp.access_control.AccessStore',
+    'store': 'webapp.ledger_store.LedgerStore',  # common variable name after _active_store()
+    'board': 'webapp.ledger_store.LedgerStore',  # used in some handlers
+    'access_store': 'webapp.access_control.AccessStore',
+    'card_store': 'webapp.ledger_store.LedgerStore',
+}
 
 
 def module_name(path):
@@ -44,6 +59,7 @@ class Index(ast.NodeVisitor):
         self.calls = []
         self.routes = []
         self.imports = {}
+        self.assignments = {}  # variable -> inferred type/module
 
     def visit_Import(self, node):
         if not self.scope:
@@ -61,6 +77,30 @@ class Index(ast.NodeVisitor):
         for alias in node.names:
             if alias.name != '*':
                 self.imports[alias.asname or alias.name] = '.'.join(filter(None, (base, alias.name)))
+
+    def visit_Assign(self, node):
+        # Track simple assignments: var = _active_store() or var = _ACCESS
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            var_name = node.targets[0].id
+            if isinstance(node.value, ast.Call):
+                func_name = dotted(node.value.func)
+                if func_name in STORE_PATTERNS:
+                    self.assignments[var_name] = STORE_PATTERNS[func_name]
+            elif isinstance(node.value, ast.Name):
+                name = node.value.id
+                if name in STORE_PATTERNS:
+                    self.assignments[var_name] = STORE_PATTERNS[name]
+                elif name in self.assignments:
+                    self.assignments[var_name] = self.assignments[name]
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node):
+        # Track annotated assignments: store: LedgerStore = ...
+        if isinstance(node.target, ast.Name):
+            var_name = node.target.id
+            if node.value:
+                self.visit(node.value)
+        self.generic_visit(node)
 
     def visit_ClassDef(self, node):
         self.scope.append(node.name)
@@ -92,10 +132,13 @@ class Index(ast.NodeVisitor):
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Call(self, node):
-        self.calls.append({'source': f'{self.path}:{self.functions[-1] if self.functions else "<module>"}',
-                           'path': self.path, 'line': node.lineno, 'call': dotted(node.func) or '<dynamic>',
+        call_name = dotted(node.func) or '<dynamic>'
+        source_symbol = self.functions[-1] if self.functions else '<module>'
+        self.calls.append({'source': f'{self.path}:{source_symbol}',
+                           'path': self.path, 'line': node.lineno, 'call': call_name,
                            '_class': self.classes[-1] if self.classes else None,
-                           '_function': self.functions[-1] if self.functions else ''})
+                           '_function': source_symbol,
+                           '_assignments': dict(self.assignments)})
         self.generic_visit(node)
 
     def visit_Tuple(self, node):
@@ -108,6 +151,47 @@ class Index(ast.NodeVisitor):
                 self.routes.append({'path': self.path, 'symbol': name, 'line': node.lineno,
                                     'status': 'STATIC_CANDIDATE'})
         self.generic_visit(node)
+
+
+def resolve_store_method(call_name, assignments, module_paths, symbols):
+    """Resolve store.method() calls using known patterns and assignments."""
+    if '.' not in call_name:
+        return None
+    receiver, method = call_name.split('.', 1)
+    # Check direct assignments
+    if receiver in assignments:
+        store_class = assignments[receiver]
+        # Map store class to module path
+        if store_class == 'webapp.ledger_store.LedgerStore':
+            target_path = 'webapp/ledger_store.py'
+        elif store_class == 'webapp.access_control.AccessStore':
+            target_path = 'webapp/access_control.py'
+        else:
+            return None
+        candidate = f'{target_path}:{store_class.split(".")[-1]}.{method}'
+        if candidate in symbols:
+            return candidate
+    # Check STORE_PATTERNS for direct calls like _active_store().method()
+    if receiver in STORE_PATTERNS:
+        store_class = STORE_PATTERNS[receiver]
+        if store_class == 'webapp.ledger_store.LedgerStore':
+            target_path = 'webapp/ledger_store.py'
+        elif store_class == 'webapp.access_control.AccessStore':
+            target_path = 'webapp/access_control.py'
+        else:
+            return None
+        candidate = f'{target_path}:{store_class.split(".")[-1]}.{method}'
+        if candidate in symbols:
+            return candidate
+    return None
+
+
+def build_repro_command(root, call):
+    """Generate a reproduction command for an OPEN_QUESTION call."""
+    path = call['path']
+    line = call['line']
+    call_name = call['call']
+    return f"python -m tools.audit_write_boundaries {path} --pretty  # line {line}: {call_name}"
 
 
 def build_map(root=ROOT):
@@ -161,11 +245,16 @@ def build_map(root=ROOT):
             name = call['call']
             cls = call.pop('_class')
             function = call.pop('_function')
+            assignments = call.pop('_assignments', {})
             candidates = []
+            # Try store pattern resolution first
+            store_target = resolve_store_method(name, assignments, module_paths, symbols)
+            if store_target:
+                candidates.append(store_target)
+            # Fallback to existing resolution
             if name.startswith('self.') and cls:
                 candidates.append(f'{rel}:{cls}.{name[5:]}')
             elif '.' not in name:
-                # Search lexical function scopes, not class namespaces.
                 scope = function.split('.')[:-1]
                 while scope:
                     if '.'.join(scope) != cls:
@@ -182,11 +271,30 @@ def build_map(root=ROOT):
             call['status'] = 'STATIC_CANDIDATE' if target else 'OPEN_QUESTION'
             if target:
                 call['target'] = target
+            # Add reproduction command for OPEN_QUESTION
+            if call['status'] == 'OPEN_QUESTION':
+                call['repro'] = build_repro_command(root, call)
             result['calls'].append(call)
             if name.split('.')[0] in {'subprocess', 'requests', 'httpx', 'urllib', 'socket', 'smtplib'}:
                 result['effects'].append({'path': rel, 'line': call['line'], 'owner': call['source'],
                     'call': name, 'kind': 'external_candidate', 'status': 'OPEN_QUESTION'})
     return result
+
+
+def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
+    """Truncate JSON output to size limit by removing less critical fields."""
+    import copy
+    obj = copy.deepcopy(obj)
+    # First, try removing calls details (keep counts)
+    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
+        obj['calls'] = [{'status': c['status']} for c in obj['calls']]
+    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
+        obj['symbols'] = [{'path': s['path'], 'symbol': s['symbol']} for s in obj['symbols']]
+    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
+        obj['effects'] = [{'kind': e['kind'], 'status': e['status'], 'table': e.get('table')} for e in obj['effects']]
+    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
+        obj['routes'] = [{'path': r['path'], 'symbol': r['symbol']} for r in obj['routes']]
+    return obj
 
 
 def summary(result):
@@ -201,9 +309,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--summary', action='store_true')
+    parser.add_argument('--limit-output', action='store_true', help='Enforce 1 MiB output limit')
     args = parser.parse_args(argv)
     result = build_map(args.root)
-    print(json.dumps(summary(result) if args.summary else result, ensure_ascii=False, indent=2))
+    if args.limit_output:
+        result = truncate_to_limit(result)
+    output = json.dumps(summary(result) if args.summary else result, ensure_ascii=False, indent=2)
+    if args.limit_output and len(output.encode('utf-8')) > MAX_OUTPUT_BYTES:
+        # Final truncation if still over limit
+        output = output[:MAX_OUTPUT_BYTES] + '\n... [TRUNCATED]'
+    print(output)
     return 2 if result['errors'] else 0
 
 
