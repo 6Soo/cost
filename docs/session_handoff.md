@@ -424,3 +424,9 @@
 - 보드 읽기·출력·규칙대화 추출 PR #278/main `f322e4e` 병합. 필수키/eager KeyError·display 동적 호출·분류대기 조회1회 보존 교정 포함. Supervisor83 passed(65.58초), query 원형 보완 뒤 dialog/selector14 passed. store-isolation·access-control 경계 통과. 기존 Handler/auth/write lifecycle은 유지한다.
 - 환불 탭 `c0dc2fd` 검수에서 money의 int 강제변환·html.escape 입력변환·누락 원결제 skip·required-key 완화를 발견해 미수락했다. 원형 오류/숫자/조회 계약을 교정하도록 기존 카드 작업자에게 전달했다. 운영 배포 후보에는 넣지 않는다. RF-106 flight_booking_index 순수 경계도 같은 작업자가 순차 진행한다.
 - 백필은 실제 읽기 상태2928건/미완료를 확인했다. Aside 일회성 세션 탭 소멸로 반복 실행기가 중단된 것을 확인했고 전용 지속 REPL로 복구 중이다. 운영 원문 적재/스케줄 전환은 여전히 미실행이다.
+### generation 3 배포 실패·안전 복귀와 다음 검수
+
+- 후보 `535b6dd3178758a5a442eb6a8e7b0d60517a5cb3`는1,018 Git blob 일치 후 배포 스크립트에서 **OWNER_UI_ROLLED_BACK**으로 종료했다. 배포 성공으로 계산하지 않는다. 이전 검증 `b54ca37c068ae8e830220652fe91978821978231`의 예약 작업 인자와 health/ready200 복귀, 보호13표 내용/스키마 동일을 확인했다. 후보용 Board 실행 로그가 생성되지 않은 상태이므로 작업 시작/준비 단계 원인을 진단한다. 기존 배포 entrypoint의 포괄 catch 때문에 직접 원인은 아직 미확인이다.
+- 감사 순수 규칙 교정 `c5681dc` 수락: 기존 Store145메서드(쓰기·릴레이·SQL·락 포함)의 AST 불변, owns helper만 동등 위임. Supervisor52 passed/3 subtests와 selector8 passed. `5a9ed5a` 멱등성 후속74검사 보고는 별도 검수 대상이다.
+- 환불 표시 `fbccf6a` 교정과59검사 보고, 공통 셸 자산 `a10ba4c`와22검사 보고를 회수했다. 실제 diff·검증·병합 전이며 전체 RF 완료로 승격하지 않는다. 기존 AGY 작업자4명을 계속 재사용한다.
+- PEND-04 전용 지속 Aside REPL(로컬 exec session10770)에서 실제 collect 함수 선택/실행을 확인했다. 원문2928건 이후 다음 완료 상태를 확인한다. 원격 수집 외 호스트 원문 적재/운영DB/수집작업 전환 쓰기는 아직 하지 않았다.
