@@ -14,14 +14,14 @@
 | PEND-01 미연결 근거 복구 | DIAGNOSED / BLOCKED_ORIGINAL_NOT_AVAILABLE | 카카오39취소 중29연결/10미연결, Agoda76중73/3, Trip 카드 취소 전체186중171/15다. 과거 Trip1은 특정 사례 범위이며 전체 취소 수가 아니다. Trip 미연결15중12는 원승인번호가 있지만 DB 원결제0이고 보관 원본8개와 추가 로컬 파일628개의 고유 카드 파일1개에서도 대응 승인 원결제를 찾지 못했다. 나머지 번호 없는 건은 현재 근거/후보가 부족하다. 카드/원문/결정 쓰기0. |
 | PEND-02 확대·키보드·오류 수락 | COMPLETE / TARGETED_ACCEPTED | 새 합성 matrix3 passed. 긴 예약번호/가맹점과 실제 펼친 카드 후보의375/1280·light/dark·100/200% CSS zoom, 키보드 선택/테마 focus, members409의 stale 행 제거와 최신 summary 재조회,400 BAD_CURSOR 표시를 검증했다. 실제 운영Aside의1425px·두테마·100/200%4조건도20행·가로 넘침0·테마1개다. 물리적 모바일 장치 검수는 아니다. |
 | PEND-03 클라우드 수집/가져오기 코드 | IMPLEMENTED / TARGETED_TESTED | 코드 `85817d1`. `cloud-mail/CloudMail.gs` 전용 수집기18 passed, Drive→로컬 무덮어쓰기→기존 통합 importer23 passed와 기존 mail_collect9 passed. 소유자/비공개·digest·원문 전체 보존·부분재개·멱등성·import 재시도·스키마/비관련 표 보호·타 트리거 보존을 확인했다. 사용자 `apps-script/CloudMail.gs`는 원래 바이트/미추적 상태를 복원·보존했다. |
-| PEND-04 실제 클라우드 전환 | BLOCKED_AUTH_AND_INFRA_APPROVAL | 실제 기존Apps Script에CloudMail없음/기존GmailIngest자동OFF를clasp pull로확인했다. 새 코드는 기존 장부 프로젝트와 분리한 전용 패키지로 준비했다. 새 standalone프로젝트·비공개Drive폴더와Google권한 승인이 필요하다. Windows Drive ADC probe는DefaultCredentialsError였다. 새 인프라/인증·운영 원문 쓰기는AGENTS의 별도 게이트이며 아직 미실행이다. 기존Windows수집을 유지한다. |
+| PEND-04 실제 클라우드 전환 | APPROVED / IN_PROGRESS | 사용자가 전용 Apps Script·비공개 Drive 폴더·Gmail/Drive 인증·호스트 읽기 인증·검증 백업/복원·원문 적재·스케줄 전환을 승인했다. 전용 프로젝트 생성/Apps Script 동의/소스 업로드 완료. 최초 Gmail 403 accessNotConfigured를 진단하고 Gmail 고급 서비스 manifest를 반영해 원격 소스/manifest 일치를 확인했다. 초기 수집과 별도 호스트 Drive 동의를 진행 중이며 기존 수집 작업은 유지한다. 최종 Google 장부·금융/여행 수동 결정은 쓰지 않는다. |
 
 - 기존 Apps Script는 `.local-archive/all-pending-20261028/cloud-remote/`에 읽기 복사본만 보존했다. 기존 Google프로젝트·장부·예약작업·운영DB·고객원문은 변경하지 않았다. 보관 카드 원본은 현재 파서로 읽기만 재생했고 출력은 비식별 집계다. 추가파일628개는 중복/비카드 파일을 포함하며628개의 새 카드 원본을 뜻하지 않는다.
 - 카카오10건 중7건은 같은카드/공급자 동액 구매0이고3건의 동액 구매는 기존14일 범위를 벗어난다. Agoda3건은 외화2건에 같은카드/통화/외화금액 원결제0, 원화1건은6구매 경합이다. 이를 금액만으로 확정하지 않으며 원승인번호가 있는Trip12건도 원결제 없는 상태로 확정하지 않는다. 추가 카드 원본 또는 명시 결제 증명이 필요하다.
 - 위임자의 초기 느슨한 assertion/미실행 경로/409 BAD_CURSOR 결함 주장은 수락하지 않았다. 실제 API는BAD_CURSOR400이며 Supervisor가 새 테스트를 실제구성원조회·오류문구·시간제어 후 재조회·펼친 카드·각테마/viewport/zoom/키보드 경계로 검수 보완해 최종3 passed만 근거로 삼았다. 제품 UI 변경은 없다.
 - 실제실행: Node수집기18 passed, Pythoncloud23+기존메일9=32 passed, 최종browser3 passed, compile/diff·stagedguard차단0/삭제0. 기존 금융solver를 바꾸지 않았고 선택형 새 수집경로는 아직 활성화하지 않아 전체 회귀·Board재배포·재시작은 하지 않는다. 기존운영Board는`9d5ddd5`, MailCollect는`e15fd5e`다. 새 코드의 운영 활성화는완료가 아니다.
 - 로컬근거: `.local-archive/all-pending-20261028/refund-evidence-summary.json`, `original-card-recovery-summary.json`, `additional-card-recovery-summary.json`, `responsive-production.json`, `drive-readonly-access.json`, `cloud-release-reviewed/`이다. 원문·개인식별자·인증값·실제계정/프로젝트/폴더ID를 추적문서에 넣지 않는다.
-- 다음정확한행동: 새 전용 AppsScript/Drive 증거폴더 생성과Google권한·전용Drive읽기ADC 연결을 승인/완료하면 [전환순서](specs/cloud-mail-cutover.md#검토-가능한-배포전환-순서)의 새 빈패키지 생성부터 진행한다. 초기전체탐색→읽기미리보기→검증백업/복원·단일작성자→승인된원문적재→보호표/반복불변→후속예약수집/Drive전달을 모두 수락한 뒤에만 기존Gmail직접수집을중지한다. 외부근거/권한이 없는현재단계에서 할 수 있는 안전한 구현·검수는 완료했다.
+- 다음정확한행동: 이미 생성한 전용 프로젝트와 승인 상태를 재사용한다. 초기 전체탐색→호스트 Drive 읽기 동의→읽기 미리보기→검증백업/복원·단일작성자→원문적재→보호표/반복불변→후속 예약수집/Drive전달을 수락한 뒤에만 기존 Gmail 직접수집을 중지한다. 프로젝트 재생성·기존 Apps Script 동의 재요청은 하지 않는다.
 
 ## 2026-10-28 신규 여행별 항공권 예약 조회 (SPEC_ONLY)
 

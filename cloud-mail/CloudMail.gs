@@ -11,7 +11,22 @@ const COST_CLOUD_MAIL = {
 };
 
 function costMailJson_(response) {
-  if (response.getResponseCode() !== 200) throw new Error('CLOUD_MAIL_API_FAILED');
+  const status = response.getResponseCode();
+  if (status !== 200) {
+    let reason = '';
+    try {
+      const raw = response.getContentText();
+      if (raw.length <= 16384) {
+        const error = JSON.parse(raw).error || {};
+        const reasons = (Array.isArray(error.errors) ? error.errors : []).map(item => item.reason)
+          .concat((Array.isArray(error.details) ? error.details : []).map(item => item.reason));
+        reason = ['accessNotConfigured', 'SERVICE_DISABLED', 'insufficientPermissions',
+          'ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'rateLimitExceeded', 'dailyLimitExceeded']
+          .find(value => reasons.includes(value)) || '';
+      }
+    } catch (_) {}
+    throw new Error('CLOUD_MAIL_API_HTTP_' + status + (reason ? '_' + reason : ''));
+  }
   return JSON.parse(response.getContentText());
 }
 
@@ -243,4 +258,11 @@ function costCloudMailStatus() {
   return {configured: true, folder_id: folderId, manifest_file_id: held.file ? held.file.getId() : null,
     stored: Object.keys(held.data.messages).length, last_complete: held.data.last_complete || null,
     trigger_count: ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === COST_CLOUD_MAIL.handler).length};
+}
+
+/** Log only bounded collector metadata, never mail subjects or bodies. */
+function logCostCloudMailStatus() {
+  const status = costCloudMailStatus();
+  console.log(JSON.stringify(status));
+  return status;
 }

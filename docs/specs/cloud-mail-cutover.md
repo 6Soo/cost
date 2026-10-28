@@ -1,4 +1,4 @@
-﻿# 비공개 클라우드 메일 수집 전환
+# 비공개 클라우드 메일 수집 전환
 
 ## 현재 상태와 영향
 
@@ -49,4 +49,11 @@
 
 실패하면 새 프로젝트의 `pauseCostCloudMail`로 이 수집기 트리거만 중지하고 원문 폴더/파일은 보존한다. 기존 Gmail 수집 작업을 보관한 XML/명령으로 복원한다. 검증되지 않은 전체 DB 덮어쓰기나 원문 삭제는 하지 않는다. 부분 추가 파일은 재시도의 입력이며 새 importer가 기존 파일을 덮지 않는다.
 
-완료는 코드/합성 검사와 구분한다. 새 프로젝트·Google 동의·초기 전체 탐색·실제 새 원문 적재·반복 불변·후속 예약 수집·Drive 전달·기존 로컬 Gmail 직접 수집 중지를 확인해야 `CUTOVER_COMPLETE`다. 현재는 `IMPLEMENTED_TARGETED_TESTED / BLOCKED_AUTH_AND_INFRA_APPROVAL`이다.
+완료는 코드/합성 검사와 구분한다. 새 프로젝트·Google 동의·초기 전체 탐색·실제 새 원문 적재·반복 불변·후속 예약 수집·Drive 전달·기존 로컬 Gmail 직접 수집 중지를 확인해야 `CUTOVER_COMPLETE`다. 현재는 `APPROVED / LIVE_SETUP_IN_PROGRESS`다. 사용자 전환 승인을 받았으며 전용 프로젝트와 Apps Script 동의는 완료했다. 최초 초기화의 Gmail API 403 accessNotConfigured를 확인해 Gmail 고급 서비스를 manifest에 추가하고 업로드/원격 일치를 확인했다. 별도 호스트 Drive 읽기 동의, 초기 전체탐색과 적재·예약수집 수락은 진행 중이며 기존 Windows 수집을 유지한다.
+
+## 2026-10-28 재시작 후 실행 기록
+
+- 사용자 승인 범위: 전용 프로젝트/비공개 원문 폴더 생성, Gmail 읽기/Drive 접근, 별도 호스트 Drive 읽기 인증, 백업·별도 복원 검증, 원문 적재와 수집 스케줄 전환. 최종 Google 장부·금융/여행 수동 결정 쓰기는 제외한다.
+- 기존 전용 프로젝트를 재사용한다. 최초 403 accessNotConfigured는 [공식 고급 서비스 활성화 절차](https://developers.google.com/apps-script/guides/services/advanced)에 따라 Gmail v1 manifest 의존성으로 수정했다. 명시 scope는 유지했다. 원격 소스/manifest 일치 근거는 Git 제외 로컬 cloud-live-source-verification-resumed.json이다.
+- 호스트 인증 도우미: `python tools/authorize_cloud_mail_drive.py --client-file <기존 installed client> --destination <새 전용 ADC> --account <소유자> --request-file <새 로컬 요청 파일>` 실행 후 Aside에서 `http://127.0.0.1:8769/start`를 연다. Google 동의는 사용자가 직접 완료한다. state 검증·소유자/Drive readonly·offline refresh token을 확인한 뒤 새 파일만 생성하며 기존 자격 증명을 덮지 않는다. 거부·만료는 실제 차단으로 기록하고 같은 실패를 무한 재시도하지 않는다.
+- 재시작 복구 검증: 수집기 20 passed, 별도 인증 14 passed(실제 loopback start/잘못된 콜백/동의 거부 포함), compile·원격 소스 비교 통과. 기존 importer32·browser3 검사는 변경이 없어 앞선 통과 근거를 재사용한다. Board 재시작·전체 회귀는 수행하지 않는다.
