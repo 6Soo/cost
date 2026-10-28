@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 PR #308 환불 묶음 기록 안내 정리 배포
+
+- PR #308을 `9ab2471f91b6b210ac79985a43e507743f5870d9`로 정상 병합하고 운영에 고정 배포했다. 지출 정리 화면의 전액 상쇄 안내 문구를 제거하고 버튼을 `원결제·환불 묶음 기록`으로 정리했다. owner·CSRF·preview digest 재검증·원자 commit 경계는 유지된다.
+- 합성 금융 경계 검사 60건 통과, 새 백업·별도 복원 통과, 추적 1,092 blobs 불일치0, task/process SHA·loopback listener1·health/ready200·보호 API401·보호13표 전후 불변을 확인했다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-9ab2471f91b6b210ac79985a43e507743f5870d9.json`이다.
+- 실제 금융·여행·Google 쓰기는 실행하지 않았다. 합성 apply에서 검증된 원결제+환불 2건만 순액 0원으로 기록되고 무관 행은 기록되지 않음을 확인했다.
+
 ## 2026-10-28 카드 여행 열 정보 밀도 개선 배포
 
 - [PR #273](https://github.com/6Soo/cost/pull/273), main/운영 SHA `b54ca37c068ae8e830220652fe91978821978231`. 여행 열에는 이름·배정 출처만, 카드 식별은 가맹점 아래, 상태는 금액 아래, 상세는 별도 5번째 열로 분리했다. Luna low 초안 후 usage limit으로 Supervisor가 검수 보완했다. 통합 카드/필터/조회78 passed·인접15 passed·긴 이름/다섯 viewport/두테마/200%/키보드 검사 통과.

@@ -4,9 +4,9 @@
 
 후속 담당은 `a8dba9f3-3e50-4a26-b113-ab754767883e`다. 이전 담당에게 메시지를 보내거나 재개하지 않는다. 잠정 배정 최종 `494761842aa6da982133a8548edc660b9d11b65a`를 최신 main `9c7580d8d12e869dc23dee8f3f822033d28389d2`에 정상 통합했다. 통합본 새 화면·금융 보호 226 passed, 권한·환불·우선배정·OTA 페이지/스냅샷 227 passed, 변경 Python 12개 compile 및 diff 검사 통과. 선택기 미매핑0, metadata guard 차단0/삭제0. 실제 브라우저 검사는 합성 자료를 사용하며 운영 실자료 수락과 구별한다.
 
-현재 운영은 PR #302의 검증된 `c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661`다. 정상 병합·검수 소스 일치·새 백업·별도 복원·고정 SHA 배포·health/ready·보호 API·보호13표 불변 확인을 완료했다. 실제 재배정·일괄 처리·보험 명단 전송·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선과 PA-06 실자료 수락은 미측정이다. 기존 여섯 CardFlow 실패는 작업자 기준 `61211012`에서도 같은 node로 재현한 별도 기록이며 통과 수에 포함하지 않는다. 현재 병합·코드 배포 요청은 완료했으며 실자료 수락은 별도 경계로 유지한다.
+현재 운영은 PR #308의 검증된 `9ab2471f91b6b210ac79985a43e507743f5870d9`다. 정상 병합·검수 소스 일치·새 백업·별도 복원·고정 SHA 배포·health/ready·보호 API·보호13표 불변 확인을 완료했다. 실제 재배정·일괄 처리·보험 명단 전송·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선과 PA-06 실자료 수락은 미측정이다. 기존 여섯 CardFlow 실패는 작업자 기준 `61211012`에서도 같은 node로 재현한 별도 기록이며 통과 수에 포함하지 않는다. 현재 병합·코드 배포 요청은 완료했으며 실자료 수락은 별도 경계로 유지한다.
 
-기존 27개 큐는 과거 수락 경계를 보존한다. 새 managed run은 `07264b89-75e8-4748-9ab5-9f7ae4d3035a`, generation 1이며 checkpoint는 같은 run 디렉터리의 `checkpoint.json`이다. 운영 배포 결과는 아래 후속 기록을 우선한다.
+기존 27개 큐는 과거 수락 경계를 보존한다. 새 managed run은 `07264b89-75e8-4748-9ab5-9f7ae4d3035a`, generation 2이며 checkpoint는 같은 run 디렉터리의 `checkpoint.json`이다. 운영 배포 결과는 아래 후속 기록을 우선한다.
 
 기존 managed run 정본은 [리팩토링 마스터](specs/refactor-master-20261027.md)와 아래 27개 ID다. 이후 사용자가 명시 선택한 명세 대기 기능의 코드 구현·검증 배포 승인은 아래 최신 진행 기록에 추가한다. 과거 ACTIVE/READY 전체를 자동 재실행하지 않는다. 상세 과거 근거는 [보관 기록](history/product-and-handoffs.md#rf-generation5-queue-archive), 배포는 [운영 기록](operations.md)을 참조한다.
 
@@ -27,7 +27,7 @@
 | PEND-04 | blocked | 2026-10-28T14:35:59Z 기존 전용 Drive readonly 자격으로 manifest 재확인:3,710 stored/48 pending/has_next_page=true/complete=false. 원격 탐색 미완료로 전체 bounded preview 수락을 진행할 수 없다. 원문 다운로드/원격·로컬 원문/운영DB 쓰기0. 재확인 조건은 pending0·다음페이지없음·query없음·last_complete존재다. 근거 `.local-archive/merge-cleanup-20261028/cloud-manifest-recheck.json`. 코드/51검사 근거를 유지하며 실제 적재/작업전환의 별도 데이터 게이트는 확대하지 않는다. |
 | RF-001 | running | 정적 호출 지도 `config/refactor-call-map.json`·도구 PR #294/main `8e479de` 병합, 경로 영향 매핑 PR #296/main `ba74ab8` 병합. 표적/선택기 18건 통과. RF-001 및 RF-101 통합 101 passed/3 subtests; 전체 gate는 12개 모듈에서 OTA `inferred_link` KeyError 1건으로 실패했고 기준 SHA `355eaea`에서도 같은 assertion 재현. 전체 Route→service→repository→table→external-effect와 권한 수락은 미완료. |
 | RF-002 | pending | 좁은 OTA 읽기 계약은175c3a2에서 이미 채택됨을 확인, 중복 구현하지 않았다. helper 실행 AST 동일·golden/canonical27 passed·입력 불변. 전체 상태 소비 수락은 부분 완료. |
-| RF-003 | running | 추적1090경로·승인소스591개·정적참조99건 감사오류0(민감도/활성은미판정). 새 tools/code_release_manifest.py의명시적새ZIP은고정SHA Gitblob만읽어원본/출력/비공개설정/테스트를제외하고기존파일덮기거부. 검증폰트blob·HTML템플릿·ledger코드는유지했다. b34a96a의414파일코드ZIP(676제외),362Python compile·5module격리import통과;runtime_accepted=false로실운영패키지를교체하지않았다. 표적기존30pass·자산교정후10pass·최종경계2pass 근거. 원본삭제/재작성0. 동적의존·전체producer/consumer·실제제한패키지운영수락은남음. |
+| RF-003 | complete | PR #307의 코드 패키지 경계와 PR #308의 화면 문구 제거·검증된 원결제/환불 원자 기록 경로를 병합·배포했다. 60개 합성 환불/정리 검사를 통과했고, 1,092 blobs·health/ready200·보호API401·보호13표 불변을 확인했다. 운영 SHA는 `9ab2471f91b6b210ac79985a43e507743f5870d9`이며 실제 금융/여행/Google 쓰기는 실행하지 않았다.
 | RF-004 | running | Windows/Python3.14.7의 실제 pytest collection 5,255건(exit0)과 정적 환경 감사 오류0을 확인했다. 수집은 본문 실행과 구별하며 import/hook 실행 사실을 표시한다. audit의 명시적 --collect는 원문 stdout을 공개하지 않고 요약·해시만 남기며 실패/timeout을 통과로 처리하지 않는다. 표적24 passed. 전체 known-failure 분류와 간접 실DB 의존 감사는 남음. |
 | RF-005 | complete | PR306의 공식 tools/deploy_verified_release.ps1로 b34a96a를 실제 배포했다. 기본PREVIEW실행0/명시적Apply·review/blob/검증이전릴리스/task/process/listener·fresh backup/별도복원·health/ready200·API401·보호13표불변을 확인했다.1090blobs일치, 이전c1bf76ce복구점보존. switch는 LF정규화외동일, 표적27passed·PS2parse. 호스트4예약task는 기존기동/동기화경로이며 오래된DB전환배포기를호출하지않음을 이름/인자명만으로확인했다. RF003의배포콘텐츠분류는독립미결이다. |
 | RF-101 | complete | 입력 정규화 `9930b42`·동적 콜백 교정 `5f0ac83` 포함 PR #294/main `8e479de` 병합. 스토어 정규화·idempotency·audit·allocation·schema·records·change-validation·store·income_bank 및 RF-001 검사 101 passed/3 subtests; 호출 동적 재바인딩·SQL/audit/revision/idempotency 계약을 유지. |
