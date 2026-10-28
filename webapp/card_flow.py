@@ -2892,6 +2892,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
         original_refunds.setdefault(link['original_id'], []).append((refund_id, link))
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
+    visible_card_ids = {row[0] for row in rows_card}
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -3070,7 +3071,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
             review=review,
             refund_group_original=(
                 (refund_by_id[tid]['original_id'] if tid in refund_by_id else tid)
-                if ((tid in refund_by_id and not refund_by_id[tid].get('inferred')
+                if ((tid in refund_by_id
+                     and refund_by_id[tid]['original_id'] not in visible_card_ids
+                     and not refund_by_id[tid].get('inferred')
                      and refund_by_id[tid].get('status') == 'full'
                      and refund_by_id[tid].get('net_krw') == 0)
                     or (tid in original_refunds and original_refunds[tid]
