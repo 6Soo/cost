@@ -2293,7 +2293,7 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
       body:JSON.stringify({csrf:csrf,expected_revision:Number(item.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
   try{const response=await request;const result=await response.json().catch(()=>({}));
     if(!response.ok)throw Error(result.message||'저장하지 못했어요');
-    const target=new URL(location.href);target.hash='expense-cleanup';location.assign(target.href);
+    location.reload();
   }catch(err){button.disabled=false;error.textContent=err.message}
 }));
 })();"""
@@ -2852,7 +2852,8 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     card_limit = max(0, min(_CLEANUP_PAGE_SIZE, filtered_card_total - card_offset)) if offset < filtered_card_total else 0
     rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset, reason=selected_reason) if card_limit else []
     ledger_offset = max(0, offset - filtered_card_total)
-    ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
+    ledger_limit = (_CLEANUP_PAGE_SIZE - len(rows_card)
+                    if selected_reason in ('all', 'no_trip') else 0)
     items = []
     ota_by_card = _ota_entries_by_card(board, transaction_ids=[row[0] for row in rows_card])
     snapshot_context = ota_by_card.get('__snapshot_status__', {})
