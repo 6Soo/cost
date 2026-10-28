@@ -493,7 +493,7 @@ def preview_digest(result: dict) -> str:
              "service_period": r.get("service_period"),
              "ota_evidence": r.get("ota_evidence"),
              "refund_link": r.get("refund_link"),
-             "source_batch_id": r.get("source_batch_id")}
+             **({"source_batch_id": r["source_batch_id"]} if r.get("source_batch_id") else {})}
             for r in result.get("rows", [])
             if not r.get("blocked")
         ],
