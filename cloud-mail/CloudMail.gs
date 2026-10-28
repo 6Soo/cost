@@ -51,6 +51,16 @@ function costMailUniqueFile_(folder, name) {
   return file;
 }
 
+function costMailFileIndex_(folder) {
+  const files = folder.getFiles(), index = new Map();
+  while (files.hasNext()) {
+    const file = files.next(), name = file.getName();
+    if (index.has(name)) throw new Error('CLOUD_MAIL_DUPLICATE_FILE');
+    index.set(name, file);
+  }
+  return index;
+}
+
 function costMailManifest_(folder, account) {
   const file = costMailUniqueFile_(folder, COST_CLOUD_MAIL.manifest);
   if (file && account) costMailPrivateFolder_(file, account);
@@ -128,6 +138,7 @@ function collectCostCloudMail() {
     if (profile.emailAddress !== expectedAccount) throw new Error('CLOUD_MAIL_ACCOUNT_MISMATCH');
     const folder = costMailPrivateFolder_(DriveApp.getFolderById(folderId), expectedAccount);
     const held = costMailManifest_(folder, expectedAccount), state = held.data;
+    const files = costMailFileIndex_(folder);
     if (state.account && state.account !== expectedAccount) throw new Error('CLOUD_MAIL_ACCOUNT_MISMATCH');
     state.account = expectedAccount;
     // A broader query must backfill from the configured start, including after a
@@ -170,34 +181,47 @@ function collectCostCloudMail() {
         state.nextPageToken = page.nextPageToken || null;
         costMailSave_(folder, held);
       }
-      while (state.pending.length && Date.now() - started < COST_CLOUD_MAIL.budgetMs) {
-        const id = state.pending[0];
-        if (!/^[a-f0-9]+$/i.test(id)) throw new Error('CLOUD_MAIL_INVALID_ID');
-        {
-          const name = 'gmail-' + id + '.json';
-          let file = costMailUniqueFile_(folder, name);
-          let content;
-          if (file) {
-            costMailPrivateFolder_(file, expectedAccount);
-            content = file.getBlob().getDataAsString('UTF-8');
-            costMailOriginal_(JSON.parse(content), id);
-            if (state.messages[id] && (state.messages[id].file_id !== file.getId()
-                || (state.messages[id].sha256 && state.messages[id].sha256 !== costMailDigest_(content)))) {
-              throw new Error('CLOUD_MAIL_ORIGINAL_CONFLICT');
+      // Originals are installed first; orphan recovery verifies any unsaved group.
+      // Flush on group, page, time-budget exit, and failure.
+      let unsaved = 0;
+      try {
+        while (state.pending.length && Date.now() - started < COST_CLOUD_MAIL.budgetMs) {
+          const id = state.pending[0];
+          if (!/^[a-f0-9]+$/i.test(id)) throw new Error('CLOUD_MAIL_INVALID_ID');
+          {
+            const name = 'gmail-' + id + '.json';
+            let file = files.get(name);
+            let content;
+            if (file) {
+              costMailPrivateFolder_(file, expectedAccount);
+              content = file.getBlob().getDataAsString('UTF-8');
+              costMailOriginal_(JSON.parse(content), id);
+              if (state.messages[id] && (state.messages[id].file_id !== file.getId()
+                  || (state.messages[id].sha256 && state.messages[id].sha256 !== costMailDigest_(content)))) {
+                throw new Error('CLOUD_MAIL_ORIGINAL_CONFLICT');
+              }
+            } else {
+              if (state.messages[id]) throw new Error('CLOUD_MAIL_ORIGINAL_MISSING');
+              const message = costMailGet_('messages/' + id + '?format=full');
+              costMailOriginal_({responses: [message]}, id);
+              content = JSON.stringify({responses: [message]});
+              file = folder.createFile(name, content, 'application/json');
+              files.set(name, file);
+              fetched++;
             }
-          } else {
-            if (state.messages[id]) throw new Error('CLOUD_MAIL_ORIGINAL_MISSING');
-            const message = costMailGet_('messages/' + id + '?format=full');
-            costMailOriginal_({responses: [message]}, id);
-            content = JSON.stringify({responses: [message]});
-            file = folder.createFile(name, content, 'application/json');
-            fetched++;
+            state.messages[id] = {file_id: file.getId(), name: name, sha256: costMailDigest_(content)};
           }
-          state.messages[id] = {file_id: file.getId(), name: name, sha256: costMailDigest_(content)};
+          state.pending.shift();
+          if (++unsaved >= 10) {
+            costMailSave_(folder, held);
+            unsaved = 0;
+          }
         }
-        state.pending.shift();
+      } catch (error) {
         costMailSave_(folder, held);
+        throw error;
       }
+      if (unsaved) costMailSave_(folder, held);
       if (!state.pending.length && !state.nextPageToken) {complete = true; break;}
     }
     state.last_run = new Date().toISOString();
