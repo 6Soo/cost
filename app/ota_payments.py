@@ -1122,6 +1122,9 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
     identity = str(event.get("ota_event_id") or "")
     if identity in links:
         return {"status": "USER_PINNED", "candidates": [], "comparisons": 0}
+    if event.get('provider') == 'forest' and event.get('event_type') == 'reservation':
+        from app import forest_mail
+        return forest_mail.search_candidates(event, transactions, max_comparisons=max_comparisons)
     if event.get('provider') == 'toyoko' and event.get('event_type') == 'reservation':
         from app import toyoko_mail
         return toyoko_mail.search_candidates(event, transactions, max_comparisons=max_comparisons)
