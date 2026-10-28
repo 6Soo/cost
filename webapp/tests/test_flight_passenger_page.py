@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlsplit
@@ -133,12 +134,16 @@ def test_handler_wraps_flight_page_with_shared_navigation():
     assert "id='nav'" in rendered and "class='site-links'" in rendered
 
 
-def test_browser_wrapped_flight_page_responsive_theme_and_zoom():
+@pytest.mark.parametrize('renderer,heading,field', [
+    (page._legacy_page, '항공권 참가자 연결', 'booking_ref'),
+    (page._page, '항공권 예약 확인', 'name'),
+])
+def test_browser_wrapped_flight_page_responsive_theme_and_zoom(renderer, heading, field):
     from webapp import site_shell
     from playwright.sync_api import sync_playwright
 
     with patch('webapp.ledger_design.nav_region', return_value=''):
-        document = site_shell.wrap_document(page._legacy_page('csrf-synth'), '/flight-passengers')
+        document = site_shell.wrap_document(renderer('csrf-synth'), '/flight-passengers')
 
     with sync_playwright() as api:
         browser = api.chromium.launch(headless=True)
@@ -146,21 +151,32 @@ def test_browser_wrapped_flight_page_responsive_theme_and_zoom():
             browser_page = browser.new_page(viewport={'width': 375, 'height': 812},
                                             color_scheme='dark')
             browser_page.set_content(document)
-            for width in (375, 390, 759, 760, 1280):
+            for width in (320, 375, 390, 600, 759, 760, 1024, 1440):
                 browser_page.set_viewport_size({'width': width, 'height': 812})
                 assert browser_page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                 assert browser_page.locator('#nav').count() == 1
-                assert browser_page.get_by_role('heading', name='항공권 참가자 연결').is_visible()
+                assert browser_page.get_by_role('heading', name=heading).is_visible()
+                assert browser_page.locator('#site-theme-toggle').count() == 1
             dark = browser_page.locator('#nav').evaluate('(el)=>getComputedStyle(el).backgroundColor')
-            browser_page.emulate_media(color_scheme='light')
+            # Current owner contract is the single manual icon. A system theme
+            # change must not override the chosen theme or create a second toggle.
+            theme = browser_page.locator('#site-theme-toggle')
+            theme.focus()
+            theme.press('Enter')
+            assert browser_page.locator('html').get_attribute('data-theme') == 'light'
             light = browser_page.locator('#nav').evaluate('(el)=>getComputedStyle(el).backgroundColor')
             assert dark != light
+            theme.press('Enter')
+            assert browser_page.locator('html').get_attribute('data-theme') == 'dark'
+            browser_page.emulate_media(color_scheme='light')
+            assert browser_page.locator('html').get_attribute('data-theme') == 'dark'
+            assert browser_page.locator('#nav').evaluate('(el)=>getComputedStyle(el).backgroundColor') == dark
 
             browser_page.set_viewport_size({'width': 640, 'height': 812})
             browser_page.evaluate('document.documentElement.style.zoom="200%"')
             assert browser_page.locator('#nav').count() == 1
-            assert browser_page.get_by_role('heading', name='항공권 참가자 연결').is_visible()
-            booking_ref = browser_page.locator('input[name=booking_ref]')
+            assert browser_page.get_by_role('heading', name=heading).is_visible()
+            booking_ref = browser_page.locator(f'input[name={field}]')
             assert booking_ref.is_visible()
             booking_ref.focus()
             assert booking_ref.evaluate('(el)=>el===document.activeElement')
