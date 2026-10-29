@@ -1678,6 +1678,18 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
         return ""
     kind, row = board.find_row(row_id)
     if row is None:
+        if row_id.startswith('card-') and board.current_role() == 'owner':
+            from . import card_transactions, cards_all
+            import sqlite3
+            path = board._get_card_db_path()
+            try:
+                source = card_transactions.transaction_detail(row_id[5:], db_path=path) if path else None
+            except sqlite3.OperationalError:
+                source = None
+            if source is not None:
+                return ("<aside class='panel'><div class='p-bd'><h2>카드 거래 상세</h2>"
+                        f"{cards_all.card_detail_html(source)}"
+                        "<p><a href='/cards/all'>카드 내역으로 돌아가기</a></p></div></aside>")
         return ("<aside class='panel'><div class='p-bd'>"
                 "<p class='muted'>없는 거래예요</p></div></aside>")
     return _panel_html(row, kind, csrf=board.CSRF_TOKEN,

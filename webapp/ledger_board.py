@@ -3678,7 +3678,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(rule, code=200)
         elif parsed.path.startswith("/api/cards/transactions"):
             from . import card_transactions as _ct
-            if parsed.path == "/api/cards/transactions/day" and current_role() != 'owner':
+            if parsed.path in ("/api/cards/transactions/day", "/api/cards/transactions/detail") and current_role() != 'owner':
                 self._send_json({"code": "OWNER_REQUIRED"}, code=403)
                 return
             try:
@@ -3719,6 +3719,14 @@ class Handler(BaseHTTPRequestHandler):
                 if card_db_path is None and _REQUEST_STORE.get() is _NO_REQUEST_STORE:
                     card_db_path = os.environ.get("WEBLEDGER_DB")
 
+                if parsed.path == "/api/cards/transactions/detail":
+                    from . import cards_all
+                    detail = _ct.transaction_detail(q.get('id', [''])[0], db_path=card_db_path)
+                    if detail is None:
+                        self._send_json({'code': 'NOT_FOUND', 'message': '거래를 찾을 수 없습니다. 목록을 새로 조회해 주세요.'}, code=404)
+                    else:
+                        self._send_json({'html': cards_all.card_detail_html(detail)}, code=200)
+                    return
                 if parsed.path == "/api/cards/transactions/day":
                     try:
                         result = _ct.list_for_day(db_path=card_db_path, day=q.get('date', [None])[0],

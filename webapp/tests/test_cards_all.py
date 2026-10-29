@@ -272,8 +272,9 @@ def test_month_detail_renderer_basic(card_db_path):
     assert '배정된 여행' not in html
     assert 'detail-cell' not in html
     assert "colspan='4'" in html
-    assert "data-detail-href='/board?row=card-TX-A-01'" in html
-    assert "class='card-all-row-link'" in html
+    assert "data-detail-id='TX-A-01'" in html
+    assert "class='card-all-row-toggle'" in html
+    assert "aria-controls='card-detail-TX-A-01'" in html
     # Transaction data
     assert 'MERCURE' in html
     assert 'LAWSON' in html
@@ -283,7 +284,7 @@ def test_month_detail_renderer_basic(card_db_path):
     # Trip display
     assert '사용자 확정' in html or '추정' in html or '미배정' in html
     # Detail link
-    assert 'board?row=card-TX-A-01' in html
+    assert 'board?row=card-TX-A-01' not in html
 
 
 def test_card_history_visual_contract_and_trip_display_names(card_db_path, monkeypatch):
@@ -392,10 +393,9 @@ def test_render_month_rows_time_handling(card_db_path):
     assert '미배정' in html
     # Foreign currency
     assert 'JPY' not in html  # Not in test data
-    # Detail links
-    assert 'board?row=card-TX-01' in html
-    assert 'board?row=card-TX-02' in html
-    assert 'board?row=card-TX-03' in html
+    # Inline detail controls
+    for tid in ('TX-01', 'TX-02', 'TX-03'):
+        assert f"aria-controls='card-detail-{tid}'" in html
 
 
 def test_undated_list_excludes_valid_other_years(card_db_path):
@@ -511,15 +511,15 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator("tr[data-tx-id='TX-A-01'] .use-datetime").get_attribute('title') == '2026-03-05'
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
-                assert page.get_by_role('link', name='상세 보기').count() == 3
+                assert page.locator('.card-all-row-toggle').count() == 3
                 tx_row = page.locator("tr[data-tx-id='TX-A-01']")
                 assert tx_row.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
                 assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '추정 배정'
                 assert tx_row.locator('td.merchant .card-identity').count() == 1
                 assert tx_row.locator('td.amount-cell .card-all-badge').count() >= 1
                 assert tx_row.locator('td.trip .card-identity, td.trip .card-all-badge').count() == 0
-                assert tx_row.get_attribute('data-detail-href') == '/board?row=card-TX-A-01'
-                assert tx_row.locator('.card-all-row-link').get_attribute('href') == '/board?row=card-TX-A-01'
+                assert tx_row.get_attribute('data-detail-id') == 'TX-A-01'
+                assert tx_row.locator('.card-all-row-toggle').get_attribute('aria-expanded') == 'false'
                 assert page.get_by_role('columnheader', name='상세', exact=True).count() == 0
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 assert period.is_visible()
