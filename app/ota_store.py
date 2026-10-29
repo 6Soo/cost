@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS ota_booking_evidence(
  booking_id TEXT REFERENCES ota_bookings(booking_id),revision_id TEXT REFERENCES ota_source_revisions(revision_id),
  entry_key TEXT NOT NULL,evidence_kind TEXT NOT NULL,fact_json TEXT NOT NULL,
  PRIMARY KEY(booking_id,revision_id,entry_key));
+CREATE TABLE IF NOT EXISTS ota_reservation_observations(
+ observation_id TEXT NOT NULL,revision_id TEXT REFERENCES ota_source_revisions(revision_id),
+ entry_key TEXT NOT NULL,provider TEXT NOT NULL,booking_ref TEXT,
+ source_digest TEXT NOT NULL,fact_json TEXT NOT NULL,
+ PRIMARY KEY(observation_id,revision_id,entry_key));
 CREATE TABLE IF NOT EXISTS ota_portal_rows(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
  payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
@@ -166,6 +171,21 @@ def catalog_rows(conn):
         rows.append({'id':row['booking_id'], 'provider':row['provider'], 'booking_number':row['booking_number'],
             'product_type':'unknown', 'label':None, 'service_start_on':None, 'service_end_on':None,
             'status':fact['list_status'], 'trips':[]})
+    available = conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_reservation_observations'").fetchone()
+    if available:
+        seen = set()
+        for row in conn.execute("SELECT o.* FROM ota_reservation_observations o JOIN ota_sources s "
+                "ON s.current_revision=o.revision_id ORDER BY s.ordinal,o.observation_id"):
+            if row['observation_id'] in seen:
+                continue
+            seen.add(row['observation_id'])
+            fact = json.loads(row['fact_json'])
+            period = fact.get('service_period') or {}
+            rows.append(dict(id=row['observation_id'],provider=row['provider'],
+                booking_number=row['observation_id'],supplier_booking_ref=row['booking_ref'],
+                identity_kind='reservation_observation',product_type='lodging',label=fact.get('item'),
+                service_start_on=period.get('starts_on'),service_end_on=period.get('ends_on'),
+                status=fact.get('reservation_status','observed'),trips=[]))
     return rows
 
 
@@ -356,8 +376,9 @@ class OtaStore:
         files['collection'] = json.loads(collection_path.read_text(encoding='utf-8')) if collection_path.is_file() else {}
         with self.atomic():
             source, revision, inserted = self._revision('mail_directory', directory, files)
+            normalized = self.index_reservation_observations(messages, revision)
             if not inserted:
-                return False
+                return bool(normalized)
             for message_id, message in messages.items():
                 core = dict(id=message_id, internal_date=message.get('internal_date'),
                     headers={h['name'].lower(): h['value'] for h in message['payload'].get('headers', [])},
@@ -376,6 +397,30 @@ class OtaStore:
                 fact = self._fact_cache[fact_key]
                 if fact:
                     self._evidence(fact['provider'], fact['booking_ref'], revision, message_id, 'mail', fact)
+        return inserted
+
+    def index_reservation_observations(self, messages, revision):
+        """Add source-specific reservation observations without manufacturing booking numbers."""
+        from app import forest_mail
+        inserted = 0
+        for event in forest_mail.collect(messages):
+            key = forest_mail.catalog_reference(event)
+            source_id, = event['source_ids']
+            inserted += self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
+                'VALUES(?,?,?,?,?,?,?)',(key,revision,source_id.removeprefix('mail:'),event['provider'],
+                event.get('booking_ref'),event['source_digest'],encoded(event))).rowcount
+        return inserted
+
+    def rebuild_reservation_observations(self):
+        """Explicit additive reindex of preserved current mail revisions; raw inputs stay intact."""
+        inserted = 0
+        with self.atomic():
+            for source in self.conn.execute("SELECT current_revision FROM ota_sources WHERE kind='mail_directory' ORDER BY ordinal").fetchall():
+                revision = source['current_revision']
+                entries = _entries(self.conn,revision)
+                messages = {m['id']:m for key,value in entries.items() if key.startswith('gmail') and key.endswith('.json')
+                            for m in value['responses']}
+                inserted += self.index_reservation_observations(messages,revision)
         return inserted
 
     def import_portal(self, path):
@@ -490,5 +535,6 @@ class OtaStore:
 
     def summary(self):
         tables = ('ota_sources', 'ota_source_revisions', 'ota_raw_entries', 'ota_raw_blobs', 'ota_messages',
-                  'ota_bookings', 'ota_booking_evidence', 'ota_portal_rows', 'ota_catalog_rows')
+                  'ota_bookings', 'ota_booking_evidence', 'ota_portal_rows', 'ota_catalog_rows',
+                  'ota_reservation_observations')
         return {table: self.conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in tables}

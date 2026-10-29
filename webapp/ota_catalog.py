@@ -28,7 +28,7 @@ from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
 PAGE_SIZE = 50
 PROVIDERS = {'agoda': 'Agoda', 'trip': 'Trip.com', 'klook': 'Klook', 'booking': 'Booking.com',
-             'toyoko': '토요코인'}
+             'toyoko': '토요코인', 'forest': '숲나들e'}
 STATUSES = {'confirmed': '예약 확정', 'completed': '이용 완료', 'cancelled': '취소',
             'canceled': '취소', 'unknown': '미확인', 'observed': '수집됨', 'upcoming': '예정'}
 PRODUCTS = {'lodging': '숙박', 'flight': '항공', 'rental': '렌터카', 'package': '패키지', 'unknown': '미확인'}
@@ -66,7 +66,7 @@ ERROR_TEXT = {
 }
 
 #: Bump when the index's shape changes, so a saved index from an older release is never read.
-INDEX_VERSION = 4
+INDEX_VERSION = 5
 INDEX_FILE = 'ota-catalog-index.json'
 _INDEX = {'key': None, 'value': None}
 _INDEX_LOCK = threading.Lock()
@@ -332,7 +332,7 @@ def _reservation_card_candidates(flow):
         if not trace.get('reservation_only'):
             continue
         for candidate in trace.get('candidates') or ():
-            found[(event['provider'], event['booking_ref'])].add(candidate['transaction_id'])
+            found[(event['provider'], _catalog_reference(event))].add(candidate['transaction_id'])
     return {key: sorted(ids) for key, ids in found.items()}
 
 
@@ -353,7 +353,7 @@ def _reservation_link_states(flow):
         if relation.get('status') not in ('INFERRED', 'USER_CONFIRMED', 'NEEDS_REVIEW', 'STALE'):
             continue
         event = events.get(str(result.get('ota_event_id') or ''), {})
-        key = (str(event.get('provider') or ''), str(event.get('booking_ref') or ''))
+        key = (str(event.get('provider') or ''), str(_catalog_reference(event) or ''))
         card = cards.get(str(relation.get('transaction_id') or ''), {})
         states[key].append({'status': relation.get('status'),
                             'merchant': card.get('merchant') or card.get('issuer') or '',
@@ -420,7 +420,7 @@ def _canonical(value):
 
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
-_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/ota_catalog_sources_child.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py',
+_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/ota_catalog_sources_child.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py', 'app/forest_mail.py',
                 'app/ota_booking_context.py', 'app/ota_core_projection.py', 'app/toyoko_mail.py',
                 'app/ota_inference.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
@@ -493,11 +493,17 @@ def _signature(board, sources):
     return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()
 
 
+def _catalog_reference(event):
+    from app.forest_mail import catalog_reference
+    return catalog_reference(event)
+
+
 def _rows_from_sources(board, sources, warnings):
     merged = {}
     invalid_provider_bookings = set()
 
-    def add(provider, ref, label='', start='', end='', status='', trips=()):
+    def add(provider, ref, label='', start='', end='', status='', trips=(), *,
+            identity_kind='supplier_booking', supplier_booking_ref=None):
         provider, ref = str(provider or 'unknown').lower(), str(ref or '').strip()
         if not ref:
             return
@@ -508,6 +514,8 @@ def _rows_from_sources(board, sources, warnings):
             invalid_provider_bookings.add((provider, ref))
             return
         row = merged.setdefault((provider, ref), {'provider': provider, 'booking_ref': ref,
+            'identity_kind': identity_kind,
+            'supplier_booking_ref': supplier_booking_ref if identity_kind=='reservation_observation' else ref,
             'labels': set(), 'periods': set(), 'statuses': set(), 'portal_trips': set(), 'ledger_trips': set()})
         if label:
             row['labels'].add(str(label))
@@ -520,7 +528,9 @@ def _rows_from_sources(board, sources, warnings):
     def add_database(records):
         for row in records:
             add(row['provider'], row['booking_number'], row['label'] or PRODUCTS.get(row['product_type'], row['product_type']),
-                row['service_start_on'], row['service_end_on'], row['status'], row['trips'])
+                row['service_start_on'], row['service_end_on'], row['status'], row['trips'],
+                identity_kind=row.get('identity_kind','supplier_booking'),
+                supplier_booking_ref=row.get('supplier_booking_ref'))
 
     if sources.get('missing'):
         warnings.append('등록된 OTA 자료 중 찾을 수 없는 자료가 있습니다.')
@@ -553,8 +563,11 @@ def _rows_from_sources(board, sources, warnings):
         period = event.get('service_period') or {}
         if not isinstance(period, dict):
             period = {}
-        add(event.get('provider'), event.get('booking_ref'), event.get('item'),
-            period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
+        observed = event.get('provider')=='forest' and event.get('event_type')=='reservation'
+        add(event.get('provider'), _catalog_reference(event), event.get('item'),
+            period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'),
+            identity_kind='reservation_observation' if observed else 'supplier_booking',
+            supplier_booking_ref=event.get('booking_ref'))
     if invalid_provider_bookings:
         warnings.append(f'공급자 표기가 잘못된 예약 {len(invalid_provider_bookings)}건은 자동 배정에서 보류했습니다.')
     _join_by_booking_number(merged)
@@ -673,6 +686,8 @@ def _build_index(board, sources):
                                                       'stay': stay, 'candidates': candidates,
                                                       'conflict': len(periods) > 1}, revoked),
             'provider': row['provider'], 'booking_ref': row['booking_ref'],
+            'identity_kind': row.get('identity_kind','supplier_booking'),
+            'supplier_booking_ref': row.get('supplier_booking_ref',row['booking_ref']),
             'label': ' · '.join(sorted(row['labels'])),
             'starts_on': periods[0][0] if periods else '',
             'start_dates': [start for start, _ in periods if start],
@@ -864,6 +879,8 @@ def prewarm(board):
 
 def _public_row(entry):
     return {'provider': entry['provider'], 'booking_ref': entry['booking_ref'], 'label': entry['label'],
+            'booking_ref_display': _booking_ref_display(entry),
+            'identity_kind': entry.get('identity_kind','supplier_booking'),
             'starts_on': entry['starts_on'], 'start_dates': entry['start_dates'], 'period': entry['period'],
             'status': entry['status'], 'conflict': entry['conflict'],
             'reason': entry.get('reason'),
@@ -992,6 +1009,12 @@ def _summary(entry, rule_active):
     return '이용기간과 겹치는 여행이 없어 여행 미배정입니다.'
 
 
+def _booking_ref_display(entry):
+    if entry.get('identity_kind')=='reservation_observation':
+        return entry.get('supplier_booking_ref') or '원문 미제공'
+    return entry.get('booking_ref') or '원문 미제공'
+
+
 def render_html(data, query, *, csrf=''):
     esc = lambda v: html.escape(str(v or ''), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
@@ -1053,7 +1076,7 @@ def render_html(data, query, *, csrf=''):
         body.append('<tr>' + ''.join(f"<td data-label='{label}'>{text}</td>" for label, text in (
             ('이용일', esc(row['period'] or '미확인') + conflict),
             ('OTA', esc(PROVIDERS.get(row['provider'], row['provider']))),
-            ('예약번호', f"<a href='{esc(detail_url(row['provider'], row['booking_ref']))}'>{esc(row['booking_ref'])}</a>"),
+            ('예약번호', f"<a href='{esc(detail_url(row['provider'], row['booking_ref']))}'>{esc(row.get('booking_ref_display', _booking_ref_display(row)))}</a>"),
             ('예약 내용', esc(row['label'] or '미확인')), ('예약 상태', status_cell),
             ('카드 결제', esc(f"{row.get('card_count', 0)}건") +
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
@@ -1196,7 +1219,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
         "<p class='muted'>대사된 카드 결제가 없습니다. 카드 결제 근거가 없으면 여행 배정은 규칙으로만 남고, "
         "카드 결제가 들어오면 그때 적용됩니다.</p>")
     stay_text = (f"{entry['stay'][0]} ~ {entry['stay'][1]}" + (f" · {entry['nights']}박" if entry['nights'] is not None else '')
-                 if entry['stay'] else '미확인')
+                 if entry['stay'] else entry.get('period') or '미확인')
     options = []
     correction_options = []
     selected = rule_record['trip_tab_id'] if rule_active else (entry.get('period_trip') or {}).get('id')
@@ -1258,7 +1281,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
             '<title>OTA 예약 판단</title><style>' + CATALOG_STYLE + OTA_STYLE + '</style></head>'
             "<body><main class='card-catalog ota-detail'>"
             "<p><a href='/ota'>OTA 내역으로</a></p>"
-            f"<h1>{esc(PROVIDERS.get(entry['provider'], entry['provider']))} · {esc(entry['booking_ref'])}</h1>"
+            f"<h1>{esc(PROVIDERS.get(entry['provider'], entry['provider']))} · {esc(_booking_ref_display(entry))}</h1>"
             + (f"<p class='notice' role='status'>{esc(notice_text)}</p>" if notice_text else '')
             + (f"<p role='alert' class='warn'>{esc(message)}</p>" if message else '')
             + "<section><h2>판단</h2>"
