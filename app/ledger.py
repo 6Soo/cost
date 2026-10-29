@@ -540,27 +540,34 @@ def _check_refund_groups(store, rows) -> None:
 def _committed_group_replay(store, payload_sha, current_digest, current):
     """Return a no-op only for an exact request with its post-commit digest."""
     import json
-    row = store.conn.execute(
-        "SELECT response_json FROM requests WHERE scope='commit' AND payload_sha256=?",
-        (payload_sha,)).fetchone()
-    if row is None:
-        return None
-    response = json.loads(row[0])
-    if response.get("replay_post_digest") != current_digest:
-        return None
     ids = {item["transaction_id"] for item in current.get("rows", [])}
-    if not ids or ids != set(response.get("booked", [])):
+    if not ids:
         return None
     if any(item.get("blocked") or not item.get("already_booked")
            for item in current["rows"]):
         return None
-    expected_revisions = response.get("replay_post_revisions", {})
-    if (not expected_revisions
-            or {item["transaction_id"]: item.get("revision") for item in current["rows"]}
-            != expected_revisions):
+    current_revisions = {item["transaction_id"]: item.get("revision")
+                         for item in current["rows"]}
+    current_core = [store.conn.execute(
+        "SELECT item, description, display_tab_id, trip_id, amount_krw, merchant,"
+        "occurred_on, transaction_direction, source_hash FROM ledger_entries "
+        "WHERE transaction_id=?", (item["transaction_id"],)).fetchone()
+                    for item in current["rows"]]
+    if any(row is None for row in current_core):
         return None
-    return dict(response, applied=0, already=len(ids), booked=[],
-                already_booked=sorted(ids))
+    fingerprint = hashlib.sha256(canonical(current_core).encode("utf-8")).hexdigest()
+    rows = store.conn.execute(
+        "SELECT response_json FROM requests WHERE scope='commit' AND payload_sha256=?",
+        (payload_sha,)).fetchall()
+    for (raw,) in rows:
+        response = json.loads(raw)
+        if (response.get("replay_post_digest") == current_digest
+                and set(response.get("booked", [])) == ids
+                and response.get("replay_post_revisions") == current_revisions
+                and response.get("replay_ledger_fingerprint") == fingerprint):
+            return dict(response, applied=0, already=len(ids), booked=[],
+                        already_booked=sorted(ids))
+    return None
 
 
 def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
@@ -751,6 +758,13 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                 replay_post_revisions = {
                     entry["transaction_id"]: entry.get("revision")
                     for entry in post_preview["rows"]}
+                ledger_core = [store.conn.execute(
+                    "SELECT item, description, display_tab_id, trip_id, amount_krw, merchant,"
+                    "occurred_on, transaction_direction, source_hash FROM ledger_entries "
+                    "WHERE transaction_id=?", (entry["transaction_id"],)).fetchone()
+                               for entry in post_preview["rows"]]
+                replay_ledger_fingerprint = hashlib.sha256(
+                    canonical(ledger_core).encode("utf-8")).hexdigest()
             result = {"batch_id": batch_id, "applied": len(booked),
                       "already": len(already), "unresolved": current["unresolved"],
                       "duplicates": current["duplicates"],
@@ -761,6 +775,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
             if replay_post_digest is not None:
                 result["replay_post_digest"] = replay_post_digest
                 result["replay_post_revisions"] = replay_post_revisions
+                result["replay_ledger_fingerprint"] = replay_ledger_fingerprint
             store.remember_request(request_id, "commit", payload_sha, result)
             store.conn.execute("COMMIT")
         except Exception:

@@ -118,6 +118,16 @@ class RefundGroupCommitTests(unittest.TestCase):
         self.assertEqual(payload['code'], 'PREVIEW_STALE')
         self.assertEqual(self.ledger(), (2, 300000))
 
+    def test_replay_fails_closed_after_ledger_amount_changes(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'ledger-amount-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE ledger_entries SET amount_krw=amount_krw+1 WHERE transaction_id=?",
+            (self.original,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'ledger-amount-2'})
+        self.assertEqual(status, 409)
+        self.assertEqual(payload['code'], 'PREVIEW_STALE')
+
     def test_replay_fails_closed_after_user_revision_changes(self):
         digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
         self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'revision-1'})[0], 200)
