@@ -99,7 +99,7 @@ def infer_item(row):
     industry = raw.removeprefix('card-category:') if raw.startswith('card-category:') else ''
     groups = (
         ('주차비', r'주차|parking'), ('주유비', r'주유|충전소|gas station|fuel'),
-        ('통행료', r'통행료|고속도로|toll'), ('항공료', r'항공|airline|airways|aviation'),
+        ('통행료', r'통행료|고속도로|toll'), ('항공료', r'항공|airline|airways|aviation|gotogate|고투게이트'),
         ('렌터카', r'렌터카|렌트카|rent.?a.?car|rent.?car|rent.?lease'),
         ('숙박비', r'숙박|호텔|여관|모텔|펜션|리조트|hotel|inn\b|resort|agoda|booking\.com|airbnb|ryokan'),
         ('식비', r'음식|식당|한식|중식|일식|양식|제과|커피|카페|식음료|국밥|김밥|칼국수|restaurant|cafe|coffee|bakery'),
@@ -120,11 +120,11 @@ def infer_item(row):
     return '기타경비', '업종·용도 단서 부족 · 업무 카드 지출 기본 분류'
 
 
-def infer_trip(row, trips, *, nets=None):
+def infer_trip(row, trips, *, nets=None, reconsider=False):
     """Pick the best real trip, resolving weak ties deterministically and explaining them."""
     valid = canonical_trip_periods(trips)
     for key in ('trip_id', 'display_tab_id'):
-        if row.get(key) in valid:
+        if row.get(key) in valid and not reconsider:
             return row[key], '기존 실제 여행 유지'
     candidates_trips = list(valid.values())
     candidates = card_trip_candidates(row, candidates_trips, nets=nets)
@@ -289,7 +289,15 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                                  if value in valid or value == 'refunds'), '')
             if existing_tab and not (chosen['trip_id'] in valid or chosen['display_tab_id'] in valid):
                 chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab, display_tab_id=existing_tab)
-            if not existing_tab and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase':
+            fact = evidence.get(tid) if reconsider else None
+            valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
+                              and fact.get('trip_id') in valid
+                              and row['transaction_direction'] == 'purchase')
+            airfare_ota = bool(re.search(r'gotogate|고투게이트', str(row.get('merchant') or ''), re.I))
+            residual_with_fact = (valid_fact and row['classification_source'] == 'owner_card_residual')
+            if (residual_with_fact or (airfare_ota and row['classification_source'] == 'owner_card_residual')) and not existing_tab:
+                chosen.update(item=(fact or {}).get('item') or infer_item(dict(chosen,item=''))[0], description='')
+            if not valid_fact and not airfare_ota and not existing_tab and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase':
                 owner_policy = _card3820_owner_policy(chosen, trips)
                 if owner_policy is None:
                     # The explicit rule keeps unreadable dates and foreign
@@ -320,7 +328,6 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                     if chosen['item'] in ('기타경비', '현지경비', '여행경비'):
                         chosen['item'] = specific
                     item_basis = '기존 항목·카드 업종·서비스 용도 재대조'
-            fact = evidence.get(tid) if reconsider else None
             if (fact and fact.get('source_hash') == row['source_hash']
                     and fact.get('trip_id') in valid
                     and chosen.get('display_tab_id') != 'refunds'
@@ -335,7 +342,10 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
             if special:
                 target, trip_basis = chosen.get('trip_id') or '', '환불/분기 비용 기존 배정 유지'
             else:
-                target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets)
+                rerank = (reconsider and not existing_tab and not valid_fact and not link
+                          and row['classification_source'] == 'inference'
+                          and '예약 이용기간' not in (row['classification_basis'] or ''))
+                target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets, reconsider=rerank)
                 if target:
                     chosen.update(trip_id=target, display_tab_id=target)
                     if reconsider:

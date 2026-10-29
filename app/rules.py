@@ -24,6 +24,23 @@ from .db import CODE_INVALID_INPUT, StoreError, canonical, utc_now
 from .normalize import normalize_merchant, to_amount_krw, to_date
 
 
+TRIP_COUNTRIES = {
+    'KR': {'부산','의왕','금오도','호남','군산','화순','영남','경주','통영','황금해안',
+           '변산','양평','제주','세종','길상사','박달고치','함양','한티','해남'},
+    'TW': {'대만'}, 'MN': {'몽골'},
+    'JP': {'에히메','교토','나가센도','아오모리','오사카','알펜루트','북해도',
+           '레분토&리시리','묘코','묘코고원','아키타','오제','야마가타','세토우치',
+           '야마구치','북큐슈','도고','가루이자와','야쿠시마','도쿄','노리쿠라','다테시나','도쿠시마'},
+}
+
+
+def trip_countries(trip):
+    destination = trip.get('destination') or ''
+    if destination == '유럽':
+        return {'AT', 'IT', 'FR'}
+    return {code for code, regions in TRIP_COUNTRIES.items() if destination in regions}
+
+
 def merchant_country(transaction):
     """현지 구매 규칙용 원본 국가다. 통화나 여행 이름으로 국가를 추정하지 않는다."""
     raw = transaction.get('raw_row') or {}

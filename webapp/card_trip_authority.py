@@ -85,7 +85,7 @@ def trip_valid(flow, trip_id, *, google_periods, trip_authority, unchanged_workb
 
 
 def retail_trip(flow, transaction, country, *, google_nets):
-    from app.rules import merchant_country
+    from app.rules import merchant_country, trip_countries
     if isinstance(country,dict):
         if country.get('owner_card3820_singapore'):
             candidates = [t for t in flow.board.list_trips()
@@ -103,21 +103,10 @@ def retail_trip(flow, transaction, country, *, google_nets):
         return ''
     if not hasattr(flow, '_retail_trips'):
         # 명시된 일정의 지역만 사용한다. 새 지역은 자동으로 국가를 만들어 붙이지 않는다.
-        countries = {'KR':{'부산','의왕','금오도','호남','군산','화순','영남','경주',
-                           '통영','황금해안','변산','양평','제주','세종','길상사',
-                           '박달고치','함양','한티','해남'}, 'TW':{'대만'},'MN':{'몽골'},
-                     'JP':{'에히메','교토','나가센도','아오모리','오사카','알펜루트','북해도',
-                           '레분토&리시리','묘코','묘코고원','아키타','오제','야마가타','세토우치',
-                           '야마구치','북큐슈','도고','가루이자와','야쿠시마','도쿄','노리쿠라','다테시나','도쿠시마'}}
         flow._retail_trips = []
         for trip in flow.board.list_trips():
-            location = trip['destination']
-            known_country = next((code for code,regions in countries.items() if location in regions), '')
             if flow.trip_valid(trip['tab_id']):
-                if location=='유럽':
-                    flow._retail_trips.extend((code,trip) for code in ('AT','IT','FR'))
-                elif known_country:
-                    flow._retail_trips.append((known_country,trip))
+                flow._retail_trips.extend((code,trip) for code in trip_countries(trip))
     occurred = transaction['approval_date']
     candidates = [trip for code,trip in flow._retail_trips if code == country
                   and trip['starts_on'] <= occurred <= trip['ends_on']]
