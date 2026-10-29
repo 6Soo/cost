@@ -1713,8 +1713,11 @@ def _provisional_trip_decisions(backend, events, transactions, results):
         row = by_id.get(str(result.get('transaction_id'))) or {}
         if row.get('classification_source') in ('user_decision', 'user_exception'):
             target = row.get('trip_id') or ''
+            inferred = str(row.get('classification_basis') or '').startswith('AUTO_TRIP_INFERRED')
+            if not target or inferred:
+                continue
             manual[str(result.get('ota_event_id'))] = {
-                'status': 'USER_CONFIRMED' if target else 'MANUAL_UNASSIGNED', 'trip_id': target}
+                'status': 'USER_CONFIRMED', 'trip_id': target}
     decisions = provisional_trip_decisions(events, trips, manual_decisions=manual)
     names = {trip['trip_id']: trip['display_key'] for trip in trips}
     return {identity: dict(decision, trip_name=names.get(decision['trip_id'], ''))
