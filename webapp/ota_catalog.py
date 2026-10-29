@@ -556,7 +556,7 @@ def _rows_from_sources(board, sources, warnings):
         add(event.get('provider'), event.get('booking_ref'), event.get('item'),
             period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
     if invalid_provider_bookings:
-        warnings.append(f'공급자 표기가 잘못된 예약 {len(invalid_provider_bookings)}건은 자동 배정에서 보류했습니다. 통합 DB의 원본은 보존됩니다.')
+        warnings.append(f'공급자 표기가 잘못된 예약 {len(invalid_provider_bookings)}건은 자동 배정에서 보류했습니다.')
     _join_by_booking_number(merged)
     _saved_board_links(board, merged)
     return merged
@@ -1233,7 +1233,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
     history_block = (f"<section><h2>배정 변경 이력</h2><table><thead><tr><th>r</th><th>여행</th><th>상태</th>"
                      f"<th>근거</th><th>누가</th><th>언제</th></tr></thead><tbody>{history_rows}</tbody></table></section>"
                      if history else '')
-    rule_text = (f"현재 배정: <strong>{esc(rule_record['trip_code'])}</strong> (r{rule_record['revision']}, "
+    rule_text = (f"현재 배정: <strong>{esc(rule_record['trip_code'])}</strong> ("
                  f"{esc(rule_record['changed_at'])})" if rule_active else
                  ('배정이 해제되어 있습니다.' if rule_record else ('기간으로 정해진 배정이 있습니다. 바꾸려면 아래에서 여행을 고르세요.' if entry.get('period_trip') else '배정된 여행 규칙이 없습니다.')))
     can_revoke = rule_active or bool(entry.get('period_trip'))

@@ -2903,11 +2903,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
                 'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
             }
-            finance_label = ('이미 내부 장부에 기록됨' if preview_row.get('already_booked') else
-                             blocked_labels.get(blocked, '내부 비용 기록 준비 가능' if not blocked else
-                                                '내부 비용 기록 보류: 금융 검토가 필요합니다.'))
+            finance_label = ('장부 기록 완료' if preview_row.get('already_booked') else
+                             blocked_labels.get(blocked, '장부 기록 가능' if not blocked else
+                                                '기록 보류: 금융 검토가 필요합니다.'))
             if not blocked and not preview_row.get('already_booked'):
-                reason += ' · 내부 비용 기록 준비 가능'
+                reason += ' · 장부 기록 가능'
             elif blocked:
                 reason = finance_label
         elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):
@@ -2935,10 +2935,6 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                           f"순액 {example['net_krw']:,}원. OTA 상태는 별도로 확인합니다.")
             elif example.get('status') == 'excess':
                 reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
-            evidence += ("<p class='cleanup-finance-status'>"
-                         + esc("원결제·취소 원행은 각각 보존합니다. OTA 예약 연결 상태와 금융 기록은 별개입니다. "
-                               "실제 장부 기록·환급 완료를 의미하지 않습니다.")
-                         + "</p>")
         # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
             link = refund_by_id.get(tid)

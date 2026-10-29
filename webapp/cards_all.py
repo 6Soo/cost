@@ -562,8 +562,7 @@ def _undated_section(year: int, items: list[dict], count: int, *,
                      expanded: bool, cursor: str | None, has_more: bool,
                      trip_names: dict[str, str] | None = None, filter_state=None) -> str:
     heading = f"<h2>날짜 확인 필요 · {count:,}건</h2>"
-    note = ("<p class='card-all-muted'>유효한 이용일이 없는 저장 원행이에요. "
-            "연도 필터와 상관없이 확인할 수 있어요.</p>")
+    note = "<p class='card-all-muted'>이용일이 없는 거래는 연도와 관계없이 표시합니다.</p>"
     if count == 0:
         return (f"<section class='card-all-undated' aria-labelledby='undated-heading'>"
                 f"<div id='undated-heading'>{heading}</div>"
@@ -796,7 +795,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         "<header class='card-all-hero'>"
         "<div><p class='card-all-eyebrow'>CARD TRANSACTION HISTORY</p>"
         "<p class='card-all-lead'>월별 카드 거래 확인</p>"
-        "<p class='card-all-description'>저장된 원행을 날짜순으로 확인합니다. 원본 카드사 자료와의 완전성 대조는 별도입니다.</p></div>"
+        "</div>"
         "<div class='card-all-summary' aria-label='저장 거래 요약'>"
         f"<div class='card-all-stat'><span class='card-all-stat-label'>{year}년 날짜 확인 거래</span><strong class='card-all-stat-value'>{sum(int(v or 0) for v in months.values()):,}건</strong></div>"
         f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
@@ -808,6 +807,6 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         "</div>" + CARD_ALL_SCRIPT)
     fragment = _design.shell(
         "카드 전체 내역", tab_id="", heading="카드 전체 내역",
-        meta="저장된 카드 거래를 연도와 월로 확인해요. 카드사 원본 대조는 별도 단계예요.",
+        meta="카드 거래를 연도와 월로 확인해요.",
         body=body, home=True)
     return _design.render(fragment, title="카드 전체 내역")

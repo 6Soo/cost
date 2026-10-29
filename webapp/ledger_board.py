@@ -489,8 +489,7 @@ def access_control_render_owner_admin(session, store) -> str:
         f"<ul>{rows}</ul>"
         "<h3>예약 담당자 후보</h3>"
         f"<ul>{people}</ul>"
-        "<p class='muted'>같은 이름이 여럿이면 담당자 ID로 구분해요. "
-        "이 화면은 예약 DB에 배정을 쓰지 않습니다.</p></div>")
+        "</div>")
     return ledger_design.render(ledger_design.shell(
         "계정 관리", tab_id="", heading="계정 관리", body=body))
 
@@ -1466,7 +1465,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         cards.append(
             "<div class='card'>"
             f"<h3>{esc(t['display_key'])} <span class='muted'>{kind}</span></h3>"
-            f"<p class='muted rev-note'>여행 revision {t['revision']}</p>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
@@ -1802,8 +1800,6 @@ def detail_page(row_id: str, edit: bool = False) -> str:
         info = (
             f"<li>원천: {esc(row['source_kind'])} {esc(row['source_event_id'])}</li>"
             f"<li>분류 근거: {esc(row['classification_basis'])}</li>"
-            f"<li>분류 상태: {esc(row['classification_state'])} (표시만 일반 행)</li>"
-            f"<li>여행 revision {esc(str(row.get('revision', 1)))}</li>"
         )
         if edit:
             if _active_store() is None:
