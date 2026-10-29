@@ -1,54 +1,58 @@
-# -*- coding: utf-8 -*-
-"""Safe preflight for CUV-01/02 card parser (PR #349).
+"""Whole-file validation before the web upload performs any writes."""
+import io
+from pathlib import PurePath
+import re
 
-Synthetic / isolated only: no production DB, no real card values,
-no secret write. Checks bytes, header shape, column counts, and
-preserves row/date/amount/currency/merchant/approval/card/cancel
-fields without mutation.
-"""
-from __future__ import annotations
+from .db import StoreError
+from .import_card import parse_card_file, read_cells
 
-import hashlib
-from typing import List, Dict, Any
-
-# Synthetic guard: refuse if called with production paths or real DB env
-_SYNTHETIC_ONLY = True
+MAX_BYTES = 20 * 1024 * 1024
+MAX_ROWS = 50000
 
 
-class PreflightError(Exception):
-    pass
+def masked_text(value):
+    text = str(value or '')
+    text = re.sub(r'(?<!\d)(?:\d[ -]?){12,19}(?!\d)', '[카드번호 숨김]', text)
+    text = re.sub(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', '[이메일 숨김]', text)
+    return text[:240]
 
 
-def safe_preflight(content: bytes, filename: str = "", *,
-                   existing_digest: str | None = None,
-                   synthetic_only: bool = True) -> dict:
-    """Return preflight result dict; raise PreflightError on unsafe input."""
-    if synthetic_only and not _SYNTHETIC_ONLY:
-        raise PreflightError("preflight synthetic guard disabled")
-    if not isinstance(content, bytes):
-        raise PreflightError("content must be bytes")
-    if len(content) == 0:
-        raise PreflightError("empty file")
-    # Secret-leak guard: refuse if content contains patterns like key/secret/token
-    # (synthetic fixtures use safe tokens only; real files must pass external scan)
-    low = content.lower()
-    for token in (b"secret", b"private_key", b"apikey"):
-        if token in low:
-            # Allow synthetic fixtures that embed the word in a safe comment
-            if b"synthetic" not in low and b"test_" not in low:
-                raise PreflightError(f"possible secret token: {token.decode()}")
-    digest = hashlib.sha256(content).hexdigest()
-    # File-duplicate check against a digest registry (synthetic)
-    file_duplicate = (digest == existing_digest) if existing_digest else False
-    return {
-        "digest": digest,
-        "filename": filename,
-        "bytes_len": len(content),
-        "safe": True,
-        "file_duplicate": file_duplicate,
-        "preserved_fields": [
-            "row_index", "approval_date", "approval_number",
-            "merchant", "amount_krw", "currency", "card_mask",
-            "card_kind", "transaction_direction", "cancel_flag",
-        ],
-    }
+def validate_upload(content, filename):
+    if not isinstance(content, bytes) or not content or len(content) > MAX_BYTES:
+        raise StoreError('INVALID_UPLOAD_SIZE', '파일 크기를 확인해 주세요 (최대 20MB)')
+    suffix = PurePath(str(filename).replace('\\', '/')).suffix.lower()
+    if suffix not in {'.xls', '.xlsx', '.csv'}:
+        raise StoreError('INVALID_UPLOAD_TYPE', 'XLS·XLSX·CSV 파일을 선택해 주세요')
+    from .import_card import ParseError
+    try:
+        parsed = parse_card_file(content, filename)
+        fmt, cells = read_cells(content)
+    except ParseError as exc:
+        raise StoreError(exc.code, exc.message) from None
+    if len(parsed.rows) > MAX_ROWS:
+        raise StoreError('UPLOAD_ROW_LIMIT', '거래 50,000행 이하로 나누어 올려 주세요')
+    for row in parsed.rows:
+        if not row.issuer or not row.card_tail:
+            raise StoreError('CARD_ACCOUNT_REQUIRED', '카드사와 마스킹 카드 식별이 필요합니다')
+    # Formula-like strings are never evaluated. Negative amounts are valid data.
+    for values in cells:
+        for value in values:
+            if isinstance(value, str) and (re.match(r'^\s*[=+@]', value)
+                    or re.match(r'^\s*-(?![\d,.]+\s*$)', value)):
+                raise StoreError('UNSAFE_FORMULA', '수식이 포함된 파일은 올릴 수 없습니다')
+    if fmt == 'xlsx':
+        from openpyxl import load_workbook
+        try:
+            wb = load_workbook(io.BytesIO(content), data_only=False, read_only=True)
+            for r in wb[wb.sheetnames[0]].iter_rows(values_only=True):
+                for val in r:
+                    if isinstance(val, str) and (re.match(r'^\s*[=+@]', val)
+                            or re.match(r'^\s*-(?![\d,.]+\s*$)', val)):
+                        raise StoreError('UNSAFE_FORMULA', '수식이 포함된 파일은 올릴 수 없습니다')
+        except StoreError:
+            raise
+        except Exception:
+            pass
+    return parsed, {'format': fmt, 'file_rows': len(cells),
+                    'transaction_rows': len(parsed.rows),
+                    'non_transaction_rows': len(cells) - len({r.row_index for r in parsed.rows})}

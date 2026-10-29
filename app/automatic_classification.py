@@ -23,75 +23,70 @@ def _completion_audit():
             'at': datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')}
 
 
-def _nature_confirmed(row):
+def completion_for_row(row, valid, *, nets=None):
+    """Completion is classification plus a real trip; financial links are separate."""
+    reasons = []
+    trip = row.get('trip_id') or row.get('display_tab_id') or ''
+    source = row.get('classification_source') or ''
+    basis = str(row.get('classification_basis') or '')
+    manual = bool(row.get('decided_at')) or source in {'user_decision', 'user_exception', 'manual'}
+    if row.get('classification_state') != 'classified' or not row.get('item'):
+        reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
     direction = str(row.get('transaction_direction') or '').strip().casefold()
     kind = str(row.get('transaction_kind') or '').strip()
-    return direction in {'purchase', 'cancellation', 'refund'} and bool(kind)
-
-
-def _manual_classification(row):
-    return bool(row.get('decided_at')) or row.get('classification_source') in {
-        'user_decision', 'user_exception', 'manual'}
-
-
-def _provisional(row):
-    basis = str(row.get('classification_basis') or '').casefold()
-    return bool(row.get('provisional_assignment')) or 'provisional' in basis or '잠정' in basis
+    if direction not in {'purchase', 'cancellation', 'refund'} or not kind:
+        if 'TRANSACTION_NATURE_UNCONFIRMED' not in reasons:
+            reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
+    if trip not in valid:
+        reasons.append('TRIP_INVALID_OR_MISSING')
+    provisional = ('provisional' in basis.casefold() or '잠정' in basis
+                   or row.get('provisional_assignment')
+                   or str(row.get('classification_state')).upper() == 'AUTO_PROVISIONAL')
+    if provisional:
+        reasons.append('PROVISIONAL_CLASSIFICATION')
+    if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
+        reasons.append('SOURCE_UNRESOLVED')
+    if not manual:
+        automatic = source in {'inference', 'AUTO_INFERRED'}
+        if automatic:
+            if not (basis.startswith('AUTO_INFERRED') or 'upload_confirmed' in source):
+                reasons.append('AUTO_EVIDENCE_MISSING')
+            if any(marker in basis.casefold() for marker in ('tie', 'conflict', '동률', '충돌')):
+                reasons.append('AUTO_WINNER_TIE_OR_CONFLICT')
+    return {'transaction_id': row['transaction_id'], 'complete': not reasons,
+            'mode': 'manual' if manual else ('auto' if not reasons else 'unresolved'),
+            'blocked_by': reasons}
 
 
 def classification_completion(conn, batch_id, trips, *, nets=None):
-    """Evaluate CUV-04 completion for exactly one upload, without writing.
-
-    A row completes only when its transaction nature is known and its trip is
-    authoritative. Manual decisions are preserved. Automatic completion is
-    allowed only for a single, evidence backed winner; provisional and tied
-    inferences remain incomplete. Cancellation pairing is deliberately not
-    consulted here because pairing is reconciliation, not financial completion.
-    """
+    valid = canonical_trip_periods(trips)
+    c = conn.conn if hasattr(conn, 'conn') else conn
     columns = ('transaction_id', 'transaction_direction', 'transaction_kind',
                'classification_state', 'classification_source', 'classification_basis',
-               'item', 'trip_id', 'display_tab_id', 'decided_at', 'provisional_assignment')
-    rows = [dict(zip(columns, values)) for values in conn.execute(
-        'SELECT ' + ','.join(columns[:-1]) + ',NULL FROM transactions '
+               'item', 'trip_id', 'display_tab_id', 'decided_at')
+    rows = [dict(zip(columns, values)) for values in c.execute(
+        'SELECT ' + ','.join(columns) + ' FROM transactions '
         'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) '
         'ORDER BY transaction_id', (batch_id,))]
-    valid = canonical_trip_periods(trips)
-    results = []
-    for row in rows:
-        trip_id = str(row.get('trip_id') or row.get('display_tab_id') or '')
-        reasons = []
-        manual = _manual_classification(row)
-        if not _nature_confirmed(row):
-            reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
-        if trip_id not in valid:
-            reasons.append('TRIP_INVALID_OR_MISSING')
-        if _provisional(row):
-            reasons.append('PROVISIONAL_CLASSIFICATION')
-        automatic = not manual and row.get('classification_source') in {'inference', 'AUTO_INFERRED'}
-        if automatic and not str(row.get('classification_basis') or '').startswith('AUTO_INFERRED'):
-            reasons.append('AUTO_EVIDENCE_MISSING')
-        if automatic and any(marker in str(row.get('classification_basis') or '').casefold()
-                             for marker in ('tie', 'conflict', '동률', '충돌')):
-            reasons.append('AUTO_WINNER_TIE_OR_CONFLICT')
-        results.append({'transaction_id': row['transaction_id'], 'complete': not reasons,
-                        'mode': 'manual' if manual else ('auto' if automatic else 'unresolved'),
-                        'blocked_by': reasons})
+    results = [completion_for_row(row, valid, nets=nets) for row in rows]
     return {'batch_id': batch_id, 'complete': bool(rows) and all(r['complete'] for r in results),
             'rows': results, 'audit': _completion_audit(),
             'reconciliation': {'status': 'SEPARATE', 'financial_complete': False}}
 
 
 def reconciliation_completion(conn, batch_id):
-    """Return cancellation pairing evidence separately from classification."""
     from .partial_refund import refund_links
     ids = [r[0] for r in conn.execute(
-        'SELECT transaction_id FROM import_batch_rows WHERE batch_id=?', (batch_id,))]
+        "SELECT DISTINCT t.transaction_id FROM import_batch_rows b JOIN transactions t USING(transaction_id) "
+        "WHERE b.batch_id=? AND t.transaction_direction IN ('cancellation','refund')", (batch_id,))]
     links = refund_links(conn, ids)
+    verified = {tid: link for tid, link in links.items()
+                if not link.get('inferred') and link.get('status') != 'excess'}
     return {'batch_id': batch_id,
             'cancellations': [{'transaction_id': tid, 'original_id': link['original_id'],
                                'linked': True, 'status': link.get('status', 'unknown')}
-                              for tid, link in sorted(links.items())],
-            'unlinked_cancellations': [tid for tid in ids if tid not in links],
+                              for tid, link in sorted(verified.items())],
+            'unlinked_cancellations': [tid for tid in ids if tid not in verified],
             'financial_complete': False, 'audit': _completion_audit()}
 
 
