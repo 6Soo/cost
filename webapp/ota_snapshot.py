@@ -21,6 +21,7 @@ from pathlib import Path
 
 from app.ota_queue_paging import build_queue_index
 from app.ota_queue_telemetry import append_sample, fingerprint, payload_bytes, stage_sample, summarize_samples
+from app.request_metrics import measurement as request_measurement, new_request_id
 
 SCHEMA = "ota-snapshot-v1"
 CHECK_SECONDS = 60
@@ -246,11 +247,15 @@ class OtaSnapshotService:
         if owns_tracing:
             tracemalloc.start()
         try:
+            request_id = new_request_id()
+            input_fingerprint = fingerprint(key)
+            generation_before = (current or {}).get("generation", 0)
             reconcile_started = time.perf_counter()
             reconciled = self._reconcile_fn()
+            reconcile_elapsed = (time.perf_counter() - reconcile_started) * 1000
             telemetry_samples = list(reconciled.get("telemetry_samples", ())) if type(reconciled) is dict else []
             telemetry_samples = append_sample(telemetry_samples, stage_sample(
-                "reconcile", (time.perf_counter() - reconcile_started) * 1000,
+                "reconcile", reconcile_elapsed,
                 row_count=len(reconciled.get("queue_page_rows", ())) if type(reconciled) is dict else 0))
             memory_peak_bytes = (tracemalloc.get_traced_memory()[1]
                                  if self._profile_memory and tracemalloc.is_tracing() else None)
@@ -264,9 +269,9 @@ class OtaSnapshotService:
                     page_rows, generation=next_generation,
                     snapshot_nonce=secrets.token_urlsafe(24),
                     signing_key=self._queue_page_signing_key)
+                index_elapsed = (time.perf_counter() - index_started) * 1000
                 telemetry_samples = append_sample(telemetry_samples, stage_sample(
-                    "queue_index_build", (time.perf_counter() - index_started) * 1000,
-                    row_count=len(page_rows)))
+                    "queue_index_build", index_elapsed, row_count=len(page_rows)))
             group_rows = reconciled.get("queue_group_rows") if type(reconciled) is dict else None
             group_index = (build_queue_index(
                 group_rows, generation=next_generation,
@@ -333,13 +338,28 @@ class OtaSnapshotService:
             metrics["query_plan"] = {"kind": "read_only_explain",
                                      "samples": metrics.get("query_plan", {}).get("samples", 0)}
             published["telemetry"] = {
+                "request_id": request_id,
+                "snapshot_generation": generation,
+                "rule_version": (reconciled.get("rule_version")
+                                 if type(reconciled.get("rule_version")) is str and
+                                 len(reconciled.get("rule_version")) <= 64 else None),
                 "stages": metrics,
-                "input_fingerprint": fingerprint(key),
+                "input_fingerprint": input_fingerprint,
                 "rule_fingerprint": (reconciled.get("rule_fingerprint")
                                      if type(reconciled.get("rule_fingerprint")) is str and
                                      len(reconciled.get("rule_fingerprint")) == 64 else None),
                 "memory_peak_bytes": memory_peak_bytes,
                 "memory_scope": "process_tracemalloc" if memory_peak_bytes is not None else "not_measured",
+                "requests": [request_measurement(
+                    "ota_snapshot", "snapshot_compute", reconcile_elapsed,
+                    row_count=len(reconciled.get("queue_page_rows", ()))
+                    if type(reconciled) is dict else 0,
+                    generation=generation_before + 1,
+                    rule_version=(reconciled.get("rule_version")
+                                  if type(reconciled.get("rule_version")) is str and
+                                  len(reconciled.get("rule_version")) <= 64 else None),
+                    data_fingerprint=input_fingerprint, request_id=request_id,
+                    peak_memory_bytes=memory_peak_bytes)]
             }
             published["telemetry"]["snapshot_bytes"] = payload_bytes({
                 "generation": generation, "queue_summary": published.get("queue_summary"),
