@@ -17,6 +17,27 @@ def masked_text(value):
     return text[:240]
 
 
+def _is_unsafe_formula_text(value):
+    """Reject formula-like text while allowing issuer blank placeholders.
+
+    A lone hyphen (with surrounding spaces) is a common empty-cell marker in
+    card exports. Signed numeric values are ordinary data; a minus followed by
+    command/formula text remains blocked.
+    """
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    if text[0] in '=+@':
+        return True
+    if text[0] != '-':
+        return False
+    if re.fullmatch(r'[-\s]+', text):
+        return False
+    return not bool(re.fullmatch(r'-[\d,.]+', text))
+
+
 def validate_upload(content, filename):
     if not isinstance(content, bytes) or not content or len(content) > MAX_BYTES:
         raise StoreError('INVALID_UPLOAD_SIZE', '파일 크기를 확인해 주세요 (최대 20MB)')
@@ -44,8 +65,7 @@ def validate_upload(content, filename):
     # Formula-like strings are never evaluated. Negative amounts are valid data.
     for values in cells:
         for value in values:
-            if isinstance(value, str) and (re.match(r'^\s*[=+@]', value)
-                    or re.match(r'^\s*-(?![\d,.]+\s*$)', value)):
+            if _is_unsafe_formula_text(value):
                 raise StoreError('UNSAFE_FORMULA', '수식이 포함된 파일은 올릴 수 없습니다')
     if fmt == 'xlsx':
         from openpyxl import load_workbook
@@ -54,8 +74,7 @@ def validate_upload(content, filename):
             wb = load_workbook(io.BytesIO(content), data_only=False, read_only=True)
             for r in wb[wb.sheetnames[0]].iter_rows(values_only=True):
                 for val in r:
-                    if isinstance(val, str) and (re.match(r'^\s*[=+@]', val)
-                            or re.match(r'^\s*-(?![\d,.]+\s*$)', val)):
+                    if _is_unsafe_formula_text(val):
                         raise StoreError('UNSAFE_FORMULA', '수식이 포함된 파일은 올릴 수 없습니다')
         except StoreError:
             raise

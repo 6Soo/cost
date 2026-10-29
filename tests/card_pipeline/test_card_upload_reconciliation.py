@@ -95,6 +95,25 @@ def test_preflight_limits_physical_rows_even_when_rows_are_not_transactions(monk
     assert exc.value.code == 'UPLOAD_ROW_LIMIT'
 
 
+@pytest.mark.parametrize('placeholder', ['-', ' - ', '---', ' - - '])
+def test_preflight_accepts_hyphen_blank_placeholders_in_csv_and_xlsx(placeholder):
+    row = domestic_row(merchant='합성', amount=1000, approval='PLACEHOLDER')
+    row[6] = placeholder
+    validate_upload(make_csv([row]), 'placeholder.csv')
+    validate_upload(make_xlsx([row]), 'placeholder.xlsx')
+
+
+@pytest.mark.parametrize('payload', ['-CMD', '-SUM(A1)', '=1+1', '+1+1', '@SUM(A1)'])
+def test_preflight_still_rejects_formula_like_values(payload):
+    row = domestic_row(merchant='합성', amount=1000, approval='FORMULA')
+    row[6] = payload
+    for content, filename in ((make_csv([row]), 'formula.csv'),
+                              (make_xlsx([row]), 'formula.xlsx')):
+        with pytest.raises(StoreError) as exc:
+            validate_upload(content, filename)
+        assert exc.value.code == 'UNSAFE_FORMULA'
+
+
 def test_xlsx_security_scan_failure_stops_before_writes(monkeypatch, pipe):
     import openpyxl
     content = make_xlsx([domestic_row(merchant='합성', amount=1000, approval='12345678')])
