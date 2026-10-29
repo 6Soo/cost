@@ -7,6 +7,7 @@ import json
 from collections import Counter, defaultdict
 
 from app import ota_payments
+from app.reconcile import index_results, same_generation
 
 PROVIDERS = frozenset(('agoda', 'trip', 'booking', 'klook', 'toyoko', 'unknown'))
 EVIDENCE_STATUSES = frozenset(('paid_verified', 'refund_verified', 'scheduled',
@@ -95,7 +96,9 @@ def _candidate_reasons(event, card, rules):
 def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
                           frozen_groups=None, source_diagnostics=None,
                           observation_report=None, run_secret=None,
-                          reconciliation_results=None):
+                          reconciliation_results=None, snapshot_generation=None,
+                          list_generation=None, detail_generation=None,
+                          readiness_generation=None):
     """Build redacted case rows and counts; never mutates inputs or approves links."""
     secret = run_secret or __import__("secrets").token_bytes(32)
     events, cards = list(events or ()), list(cards or ())
@@ -196,9 +199,12 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
 
     reason_counts = Counter(reason for case in cases for reason in case["reasons"])
     providers = Counter(finite(event.get("provider") or "unknown", PROVIDERS) for event in events)
-    result_by_event = {str(row.get("ota_event_id")): row
-                       for row in (reconciliation_results or ())
-                       if row.get("ota_event_id") is not None}
+    generation_inputs = [value for value in (snapshot_generation, list_generation,
+                         detail_generation, readiness_generation) if value is not None]
+    generations_consistent = (not generation_inputs or
+        same_generation(*generation_inputs))
+    result_by_event = (index_results(reconciliation_results)
+                       if generations_consistent else {})
     result_statuses = Counter(finite(row.get("status") or "UNKNOWN", ENGINE_STATUSES)
                               for row in result_by_event.values())
     reconciliation_divergences = []
@@ -251,6 +257,9 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
             for e in events),
         "reconciliation_engine_status_counts": dict(sorted(result_statuses.items())),
         "legacy_engine_divergence_count": len(reconciliation_divergences),
+        "snapshot_generation": (snapshot_generation if type(snapshot_generation) is int
+                                 and snapshot_generation >= 0 else None),
+        "generation_consistent": generations_consistent,
         "user_link_count": len(user_links), "frozen_group_count": len(frozen_groups),
         "source_id_collision_count": sum(len(ids) > 1 for ids in collisions.values()),
         "case_count": len(cases), "reason_counts": dict(sorted(reason_counts.items())),
