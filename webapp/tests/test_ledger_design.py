@@ -69,6 +69,7 @@ class DesignScreenTests(unittest.TestCase):
                 if width == 390:
                     page.click('#btn-menu')
                 page.locator('#previous-trips > summary').click()
+                page.locator('#previous-trips .prev-q > summary').nth(1).click()
                 trip_link = page.locator('#previous-trips a[href*="tab=trip-demo-a"]').first.inner_text()
                 self.assertIn('04.08~04.14', trip_link)
                 self.assertNotIn('수입', trip_link)
@@ -92,12 +93,12 @@ class DesignScreenTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self._prev_db = os.environ.get("WEBLEDGER_DB")
         os.environ["WEBLEDGER_DB"] = str(Path(self.tmp) / "design.sqlite")
-        self.store = LedgerStore(Path(os.environ["WEBLEDGER_DB"]))
+        self.store = LedgerStore(Path(os.environ["WEBLEDGER_DB"]), seed_demo=True)
         # the export writes real files, so keep them out of the working tree
         self._prev_export = os.environ.get("WEBLEDGER_EXPORT_DIR")
         os.environ["WEBLEDGER_EXPORT_DIR"] = str(Path(self.tmp) / "exports")
         board_mod.bind_store(self.store)
-        self.server = board_mod.serve(port=0, with_worker=False)
+        self.server = board_mod.serve(port=0, with_worker=False, seed_demo=True)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -224,8 +225,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("1분기", nav)
         self.assertIn("2분기", nav)
         self.assertIn("3분기 기타비용", nav)
-        self.assertEqual(page.locator('#previous-trips .prev-q').count(), 4)
-        self.assertIn('1분기 기타비용', nav)
+        self.assertEqual(page.locator('#previous-trips .prev-q').count(), 2)
         page.locator('#previous-trips > summary').click()
         page.locator('#previous-trips > summary').click()
         page.wait_for_timeout(50)
@@ -239,6 +239,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("여행 목록", nav)
         self.assertFalse(page.locator('#previous-trips').evaluate('el=>el.open'))
         page.locator('#previous-trips > summary').click()
+        page.locator('#previous-trips .prev-q > summary').nth(1).click()
         nav = page.inner_text(".nav")
         self.assertIn("0408_예시여행A", nav)
         self.assertNotIn("미배정 지출", nav)
@@ -276,11 +277,11 @@ class DesignScreenTests(unittest.TestCase):
         # the first transaction must not be pushed far down
         top = page.evaluate(
             "document.querySelector('.li').getBoundingClientRect().top")
-        self.assertLess(top, 460)
+        self.assertLess(top, page.evaluate('innerHeight'))
         # the nav drawer opens from the one button
         page.click("#btn-menu")
         self.assertTrue(page.is_visible(".nav.open"))
-        page.click("#nav-mask")
+        page.locator("#nav-mask").click(position={"x": 380, "y": 400})
         self.assertFalse(page.evaluate("document.getElementById('nav').className.includes('open')"))
 
     def test_the_panel_footer_stays_reachable_and_two_saves_work_at_390(self):

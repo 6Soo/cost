@@ -22,6 +22,7 @@ import sqlite3
 import threading
 import uuid
 from contextvars import ContextVar
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
@@ -101,16 +102,28 @@ def _get_card_db_path() -> str | None:
 def _store_request_locked(method):
     """Serialize database work after the HTTP request has been parsed."""
     def wrapped(self, *args, **kwargs):
+        from app import request_metrics
         lock = getattr(self.server, "store_lock", None)
         # The liveness probe reads no store, so it must not queue behind a slow page.
         if lock is None or urlparse(self.path).path == "/healthz":
             return method(self, *args, **kwargs)
-        with lock:
-            if getattr(self.server, 'runtime_closing', False):
-                self._send_json({'code': 'SERVER_STOPPING',
-                                 'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
-                return
-            return method(self, *args, **kwargs)
+        token = request_metrics.bind_request_id()
+        try:
+            request_metrics.mark_lock_wait_started()
+            with lock:
+                lock_acquired = time.perf_counter()
+                lock_started = request_metrics.lock_wait_started()
+                waited_ms = max(0.0, (lock_acquired - lock_started) * 1000) if lock_started else 0.0
+                request_metrics.record(request_metrics.measurement(
+                    "db_lock_wait", "db_lock_wait", waited_ms,
+                    request_id=request_metrics.current_request_id()))
+                if getattr(self.server, 'runtime_closing', False):
+                    self._send_json({'code': 'SERVER_STOPPING',
+                                     'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
+                    return
+                return method(self, *args, **kwargs)
+        finally:
+            request_metrics.reset_request_id(token)
 
     wrapped.__name__ = getattr(method, "__name__", "wrapped")
     wrapped.__doc__ = getattr(method, "__doc__", None)
@@ -2163,9 +2176,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, text: str, code: int = 200) -> None:
         from . import site_shell, social_preview
+        from app import request_metrics
+        started = time.perf_counter()
         text = social_preview.decorate(text)
         if not ACCESS_ENFORCEMENT or current_request_session() is not None:
             text = site_shell.wrap_document(text, self.path, status=code)
+        body = text.encode("utf-8")
+        stage = "payload_serialize"
+        request_metrics.record(request_metrics.measurement(
+            "payload_serialize",
+            stage, (time.perf_counter() - started) * 1000,
+            byte_count=len(body), request_id=request_metrics.current_request_id()))
         board_http_shapes.send_html(self, text, code=code)
 
     # ------------------------------------------------- the session cookie
@@ -3459,8 +3480,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/cards/all":
             from . import cards_all
-
-            self._send(cards_all.cards_all_page(query, db_path=_get_card_db_path()))
+            from app import request_metrics
+            search_request = "q" in query and bool(query.get("q", [""])[0])
+            started = time.perf_counter()
+            html_page = cards_all.cards_all_page(query, db_path=_get_card_db_path())
+            if search_request:
+                request_metrics.record(request_metrics.measurement(
+                    "card_search", "card_search", (time.perf_counter() - started) * 1000,
+                    byte_count=len(html_page.encode("utf-8")),
+                    request_id=request_metrics.current_request_id()))
+            else:
+                request_metrics.record(request_metrics.measurement(
+                    "first_render", "first_render", (time.perf_counter() - started) * 1000,
+                    byte_count=len(html_page.encode("utf-8")),
+                    request_id=request_metrics.current_request_id()))
+            self._send(html_page)
             return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)
@@ -3471,6 +3505,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in ("/", "/board"):
             from . import ledger_design
+            from app import request_metrics
 
             # An owner whose operational board is empty is sent to the actual
             # source comparison, because that is the work waiting for them. Only
@@ -3509,16 +3544,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             from . import live_sync
 
+            render_started = time.perf_counter()
             fragment = ledger_design.page(
                 tab, q, kind, row_id,
                 message=query.get("msg", [""])[0],
                 archived=query.get("arch", [""])[0],
                 participant_query=query)
-            self._send(ledger_design.render(
+            rendered = ledger_design.render(
                 fragment, live_config=live_sync.client_config(
                     live_sync.owner_token(_active_store(), tab), tab, q, kind,
                     role="owner",
-                    archived=query.get("arch", [""])[0], selected=row_id)))
+                    archived=query.get("arch", [""])[0], selected=row_id))
+            request_metrics.record(request_metrics.measurement(
+                "first_render", "first_render", (time.perf_counter() - render_started) * 1000,
+                byte_count=len(rendered.encode("utf-8")),
+                request_id=request_metrics.current_request_id()))
+            self._send(rendered)
             return
         if parsed.path == "/api/live/state":
             # Only reachable when no access store is bound: the enforcement branch

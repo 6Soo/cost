@@ -16,7 +16,9 @@ from collections.abc import Mapping
 STAGES = frozenset({"source_parse", "card_read", "solver", "projection",
                     "snapshot_publish", "page_serialize", "summary_read",
                     "detail_read", "query_plan", "memory_peak", "trace_validate",
-                    "reconcile", "snapshot_read", "queue_index_build"})
+                    "reconcile", "snapshot_read", "queue_index_build",
+                    "snapshot_compute", "first_render", "card_search", "google_read",
+                    "db_lock_wait", "payload_serialize"})
 
 
 def payload_bytes(value) -> int:

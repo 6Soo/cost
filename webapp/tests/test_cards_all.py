@@ -13,9 +13,6 @@ from pathlib import Path
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
-# Set up environment before importing
-os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
-
 from webapp import cards_all
 from webapp import card_transactions as ct
 
@@ -57,6 +54,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TEXT NOT NULL
 );
 """
+
+
+@pytest.fixture(autouse=True)
+def require_card_schema_for_test(monkeypatch):
+    """Apply the strict schema contract only while this test is running."""
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'require')
 
 
 @pytest.fixture
@@ -451,6 +454,75 @@ def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
     source = inspect.getsource(Handler)
     assert 'parsed.path == "/cards/all"' in source
     assert 'cards_all.cards_all_page(query, db_path=_get_card_db_path())' in source
+
+
+def test_real_cards_all_handler_records_search_and_render_metrics(card_db_path, monkeypatch):
+    import io
+    import time
+    from types import SimpleNamespace
+    from app import request_metrics
+    from webapp import ledger_board
+
+    server = SimpleNamespace(store_lock=None, card_store=None)
+    handler = object.__new__(ledger_board.Handler)
+    handler.server = server
+    handler.path = "/cards/all?year=2026&q=SYNTHETIC-SEARCH-MARKER"
+    handler.headers = {}
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda status: setattr(handler, "status", status)
+    handler.send_header = lambda key, value: None
+    handler.end_headers = lambda: None
+    monkeypatch.setattr(ledger_board, "_get_card_db_path", lambda: card_db_path)
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", False)
+    before = request_metrics.summary()
+    ledger_board.Handler.do_GET(handler)
+    after = request_metrics.summary()
+    added = {key: value for key, value in after.items()
+             if key not in before or value["samples"] > before[key]["samples"]}
+    assert handler.status == 200
+    assert "SYNTHETIC-SEARCH-MARKER" in handler.wfile.getvalue().decode("utf-8")
+    assert "card_search.card_search" in added
+    assert "payload_serialize.payload_serialize" in added
+    assert added["card_search.card_search"]["samples"] == before.get("card_search.card_search", {}).get("samples", 0) + 1
+    assert after.get("first_render.first_render", {}).get("samples", 0) == before.get("first_render.first_render", {}).get("samples", 0)
+    assert "db_lock_wait.db_lock_wait" not in added  # this test deliberately bypasses the lock decorator
+    assert "SYNTHETIC-SEARCH-MARKER" not in str(added)
+
+
+def test_real_cards_all_initial_render_records_once_and_excludes_send_time(card_db_path, monkeypatch):
+    import io
+    import time
+    from types import SimpleNamespace
+    from app import request_metrics
+    from webapp import ledger_board
+
+    server = SimpleNamespace(store_lock=None, card_store=None)
+    handler = object.__new__(ledger_board.Handler)
+    handler.server = server
+    handler.path = "/cards/all?year=2026"
+    handler.headers = {}
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda status: setattr(handler, "status", status)
+    handler.send_header = lambda key, value: None
+    handler.end_headers = lambda: None
+    monkeypatch.setattr(ledger_board, "_get_card_db_path", lambda: card_db_path)
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", False)
+    from webapp import cards_all
+    original = cards_all.cards_all_page
+
+    def delayed_render(query, *, db_path=None):
+        time.sleep(0.04)
+        return original(query, db_path=db_path)
+
+    monkeypatch.setattr(cards_all, "cards_all_page", delayed_render)
+    before = request_metrics.summary()
+    ledger_board.Handler.do_GET(handler)
+    after = request_metrics.summary()
+    expected = before.get("first_render.first_render", {}).get("samples", 0) + 1
+    assert after["first_render.first_render"]["samples"] == expected
+    assert after["first_render.first_render"]["p50_ms"] >= 35
+    assert after["payload_serialize.payload_serialize"]["samples"] == before.get(
+        "payload_serialize.payload_serialize", {}).get("samples", 0) + 1
 
 
 def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_path):

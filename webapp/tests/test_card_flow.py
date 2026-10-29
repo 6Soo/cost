@@ -698,6 +698,39 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(first[0]['generation'], 1)
         self.assertEqual(calls, [1])
 
+    def test_state_api_reuses_one_snapshot_for_status_and_candidate_projections(self):
+        """The actual state request pins one held result for both OTA read projections."""
+        from types import SimpleNamespace
+        from webapp import ota_payment_review
+
+        trip, batch, row = self.pending_fixture()
+        current = {'generation': 31,
+                   'results': [{'transaction_id': row['transaction_id'],
+                                'status': 'HOLD_AMBIGUOUS',
+                                'candidate_search': {'status': 'CANDIDATES_FOUND',
+                                                     'candidates': [{'transaction_id': row['transaction_id'],
+                                                                     'date_status': 'MATCH'}]}}],
+                   'data': {'events': [], 'transactions': [], 'links': {}, 'results': []}}
+        held_calls = []
+
+        def held():
+            held_calls.append(current['generation'])
+            return current, True
+
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch('webapp.ota_payment_review.snapshot_service',
+                      return_value=SimpleNamespace(held=held)), \
+                patch.object(self.flow, 'preview_metadata', return_value=lambda _entry: {}), \
+                patch.object(self.flow, 'ota_group_holds', return_value={}), \
+                patch.object(CardFlow, 'trip_valid', side_effect=lambda identity: identity == trip):
+            state = self.flow.state(batch)
+
+        assert held_calls == [31]
+        assert state['ota_reconciliation']['generation'] == 31
+        assert state['rows'][0]['ota_snapshot_generation'] == 31
+        assert state['preview']['rows'][0]['ota_snapshot_generation'] == 31
+        assert state['rows'][0]['ota_candidate_notes'] == state['preview']['rows'][0]['ota_candidate_notes']
+
     def test_classification_and_auto_record_share_one_ota_generation(self):
         from types import SimpleNamespace
         from webapp import ota_payment_review
