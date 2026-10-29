@@ -3,10 +3,10 @@
 ## 2026-10-29 최신 요청 — 카드 검색 결과·금액 검색·배치
 
 - 현재 범위는 검색 0건 안내, 금액 검색, 월 선택 없는 즉시 결과, 좁은 화면 필터 배치의 네 항목이다. 과거 금융/환불·전체 미결 큐를 이번 변경에 포함하지 않는다.
-- 구현/표적 검증 COMPLETE, PR/배포 진행 중. 검색어가 있고 월이 없으면 해당 연도의 날짜 있는 거래를 100건씩 표시한다. 0건도 검색어와 결과 영역을 표시한다. 월 선택 상태는 해당 월의 검색 범위를 유지하고 날짜 확인 필요 목록은 기존 별도 경계를 유지한다.
+- 네 요구사항 모두 COMPLETE — [PR #318](https://github.com/6Soo/cost/pull/318), 운영 SHA `0c285e14bb87d4a843d1860159cc2be35ed2aa8a`. 검수 소스 `2989613f9e837c02bd353d19135f1eb79da013d5`와 병합 tree가 동일하다. 검색어가 있고 월이 없으면 해당 연도의 날짜 있는 거래를 100건씩 표시한다. 0건도 검색어와 결과 영역을 표시한다. 월 선택 상태는 해당 월의 검색 범위를 유지하고 날짜 확인 필요 목록은 기존 별도 경계를 유지한다.
 - 원화/외화 금액의 쉼표 유무와 승인번호를 검색하며, 검색 결과도 여행명·미배정 표시·카드 마스킹·필터/커서 보존 규칙을 따른다. 검색창에 금액 검색을 안내하고 모바일 필터를 세로 배치한다.
 - 검증: cards_all_filters/cards_all/card_transactions 81 passed와 신규 browser 선택기 오류 1 failed 후, 페이지 안의 별도 여행 검색창과 구별하도록 선택기를 한정해 해당 browser 1 passed/25 deselected. 합성 Chromium에서 검색 제출→즉시 1건→0건, 긴 여행명, 320/390/760/1280폭과 기존 확대 검사를 확인했다. DB 원행 전후 동일·연도/카드/미배정/페이지 경계 검사를 포함하며 전체 회귀는 범위 밖이다.
-- 기존 브랜치의 미병합 환불 커밋과 미커밋 card_flow/OTA browser 수정·사용자 미추적 파일은 보존한다. 이번 검색 PR에는 포함하지 않는다. 다음은 diff/guard→검색 전용 PR/main 정상 병합→고정SHA 배포·health/ready/보호API·보호13표 수락이다.
+- 기존 브랜치의 미병합 환불 커밋과 미커밋 card_flow/OTA browser 수정·사용자 미추적 파일은 보존한다. 이번 검색 PR에는 포함하지 않는다. diff/compile·metadata guard5파일 차단0/삭제0, 정상 main 병합·고정SHA 배포 완료. 1,107 Git blobs 불일치0, fresh backup/별도 복원, task/processSHA·단일loopback listener·health/ready200·보호API/검색URL401·보호13표 전후 불변, Board/SourceRefresh Running을 확인했다. 배포본/호스트 Python 합성 smoke도 금액/외화/승인번호·즉시/0건·HTML escape·원행 불변 PASS다. 초기 합성 smoke의 임시 SQLite 정리 잠금은 연결 종료를 보완해 해소했다. 실제 owner 인증 화면/물리기기 수락·전체 회귀는 미실행이며 금융/Google 쓰기·재처리·마이그레이션0이다. 근거는 `.local-archive/card-search-20261029/`의 review/runtime-smoke/auth-smoke/protection-before/protection-after/deploy-evidence JSON 및 호스트 동일SHA release-audit/deploy-evidence다. 남은 검색 작업·차단0. 후속 문서만의 병합에는 재배포하지 않는다.
 
 
 ## 2026-10-29 최신 승인 — 이미지의 프로젝트 전체 미결을 Luna low 병렬 구현

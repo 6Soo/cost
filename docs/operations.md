@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 PR #318 카드 검색 즉시 결과·금액 검색 배포
+
+- **COMPLETE:** [PR #318](https://github.com/6Soo/cost/pull/318), 운영 `0c285e14bb87d4a843d1860159cc2be35ed2aa8a`, 검수 소스 `2989613f9e837c02bd353d19135f1eb79da013d5`와 tree 동일. 월 선택 없이 선택 연도 검색 결과를 즉시 표시하고 0건을 명시한다. 원화/외화 금액의 쉼표 유무·승인번호 검색, 결과의 여행명/미배정 표시와 필터/커서 보존, 좁은 화면 필터 배치를 보완했다.
+- **검증:** 카드 조회/필터/렌더 81 passed. 최초 합성 browser의 중복 검색창 선택기 실패를 카드 폼으로 한정해 교정한 뒤 해당 browser 1 passed/25 deselected. 검색 제출·0건·금액·긴 여행명·320/390/760/1280폭 및 기존 확대 경계를 확인했다. compile/diff·guard5파일 차단0/삭제0. 원행 전후 불변·마스킹·연도/필터/페이지 경계를 확인했다. 배포본/호스트 Python의 별도 합성 smoke는 금액/외화/승인번호·즉시/0건·HTML escape·원행 불변 PASS. 초기 smoke 정리 단계의 SQLite 잠금은 연결 종료 후 해소했다.
+- **운영 수락:** 1,107 Git blobs 일치·새 전체 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·OTA/환불 보호API401·검색 URL 2개 비인증401·보호13표 내용/스키마 전후 동일. Board/SourceRefresh Running. 이전 검증 `1beba48bdd4f0aa20999326689d7c766c921c576` 복구점 보존. 금융/여행 재처리·Google 쓰기·마이그레이션0. 실제 owner 인증 화면/물리기기 수락·전체 회귀는 실행하지 않았으며 합성 검사와 구별한다.
+- **근거/보존:** `.local-archive/card-search-20261029/`의 review/runtime-smoke/auth-smoke/protection-before/protection-after/deploy-evidence JSON, 호스트 동일SHA release-audit/deploy-evidence. 기존 미병합 환불 커밋·다른 browser WIP·사용자 미추적 파일은 그대로 보존했고 검색 PR에는 포함하지 않았다. 남은 검색 작업·차단0이며 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-10-29 PR #316 프로젝트 미결 병렬 구현·검증 경계 배포
 
 - **DEPLOYED:** Luna low6명에게 보험/참가자/메일/여행 구조/화면/실패 진단을 위임했다. 429·capacity로 중단한3개 구현과 추가 진단은 Supervisor가 실제 파일을 인계해 수리·검수했다. 미완성 WIP를 그대로 병합하지 않았다. [COST PR #316](https://github.com/6Soo/cost/pull/316) 소스 `a6b73ae5c01403c0ff41ea133bf0a9cec5100b0e`와 운영 `1beba48bdd4f0aa20999326689d7c766c921c576` tree 동일. 별도 [Travel INS PR #10](https://github.com/6Soo/travel_ins/pull/10)은 main `ec2b73300fe1dbe8c62d958282c929ef3bd80f6a`에 병합됐고 실제 pause→실제 등록 함수 경계 합성 검사를 포함20 passed다. 실제 보험 가입/결제/명단 전송은 실행하지 않았다.
