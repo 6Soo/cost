@@ -1,6 +1,6 @@
 """기존 OTA 대사 결과를 코어의 정확 매칭 규칙으로 한 번 더 확인한다.
 
-새로 자동 배정될 수 있는 거래만 검사한다. 장부에 기록된 거래, 보존 거래, 사용자·소유자가 정한 거래는
+새로 자동 배정될 수 있는 거래만 검사한다. 장부에 기록된 거래, 사용자·소유자가 정한 거래는
 건드리지 않는다. 코어 규칙을 통과하지 못한 연결은 자동 배정하지 않고 사유와 함께 미연결로 남긴다.
 """
 import os
@@ -10,7 +10,7 @@ from app import ota_payments
 from app.ota_portal import SCHEDULED_CARD_DATE_EVIDENCE
 
 ENV = 'WEBLEDGER_OTA_EXACT_GATE'
-PROTECTED_SOURCES = ('user_decision', 'user_exception', 'user_completed_period', 'owner_card_residual',
+PROTECTED_SOURCES = ('user_decision', 'user_exception', 'owner_card_residual',
                      'refund_original')
 # 카드 끝자리가 없는 이벤트는 승인된 업체 별칭이 있어야 한다. 제공자 경계는 코어와 공유한다.
 ALIAS_REQUIRED_PROVIDERS = ('agoda', 'booking', 'klook')
@@ -21,12 +21,12 @@ def enabled():
 
 
 def open_transaction_ids(conn):
-    """새 자동 배정 대상이 될 수 있는 거래 ID. 기록된 거래, 보존 거래, 사용자·소유자 결정은 뺀다."""
+    """새 자동 배정 대상이 될 수 있는 거래 ID. 기록된 거래, 사용자·소유자 결정은 뺀다."""
     recorded = {row[0][len('card-'):] for row in conn.execute(
         "SELECT row_id FROM board_rows WHERE row_kind='expense' AND row_id LIKE 'card-%'")}
-    return {str(tid) for tid, state, source in conn.execute(
-        "SELECT transaction_id, classification_state, classification_source FROM transactions")
-        if str(tid) not in recorded and state != 'preserved' and source not in PROTECTED_SOURCES}
+    return {str(tid) for tid, source in conn.execute(
+        "SELECT transaction_id, classification_source FROM transactions")
+        if str(tid) not in recorded and source not in PROTECTED_SOURCES}
 
 
 def _paid_charges(events):

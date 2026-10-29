@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from app.classify import _pattern_for
 from app.db import canonical, decided_sql, utc_now
 
-# 거래가 장부 기록·사용자 결정·정리 완료 기간 보존으로 닫혀 분류가 다시 보지 않는다.
+# 장부 기록·사용자 결정 또는 명시한 조회 기간 밖인 거래의 규칙을 구분한다.
 CLOSED_TRANSACTION = 'closed-transaction'
 # 현지 사용 기본 규칙('*' → 현지경비)과 같은 거래에 같은 항목·여행을 낸다.
 SAME_AS_LOCAL_DEFAULT = 'same-as-local-default'
@@ -44,7 +44,7 @@ def candidates(conn, review_from=''):
             "SELECT source_hash, " + decided_sql('t') + ", EXISTS(SELECT 1 FROM ledger_entries l"
             " WHERE l.transaction_id=t.transaction_id), classification_state,"
             " COALESCE(NULLIF(approval_date,''), posting_date) FROM transactions t"):
-        states[source].add(bool(booked or decided or state == 'preserved' or (review_from and day and day < review_from)))
+        states[source].add(bool(booked or decided or (review_from and day and day < review_from)))
     found = [(r['rule_id'], CLOSED_TRANSACTION, r['origin']) for r in rules
              if r['optional'].get('source_hash') and states.get(r['optional']['source_hash']) == {True}]
     closed = {rule_id for rule_id, _, _ in found}

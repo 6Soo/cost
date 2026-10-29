@@ -14,6 +14,31 @@
 - 10,000행 실제 API dispatch 합성 측정: 최초21.230초(T/N=10,000), 재시도26.783초(E=10,000/N=0), 거래 수10,000 유지. 응답27,457,858바이트(compact JSON), 지속적 수치 진행률/50,000행 성능 보장은 미입증. 동기 처리 중 상태와 완료/오류·안전 재시도를 제공한다. 감사10,000건은0.654초/재실행0.476초·중복 감사0 확인.
 - CUV-07 운영 수락 PARTIAL: 합성 검증은 완료, 운영 read-only·실카드·main 병합·배포는 현재 구현 작업에서 미실행이다. 실제 고객/운영 DB/Google 쓰기·서버 재시작 없음. 현 범위에서 남은 구현 없음. 운영 단계는 별도 범위로 상태를 보존한다.
 
+## 2026-10-29 사용자 지시 P2 카드 재진행·실제 적용
+
+- COMPLETE — 사용자 “p2 재진행”에 따라 6,395건을 다시 점검하고 보호 대상57건을 제외한6,338건에 재검토 경로를 적용했다. [PR #357](https://github.com/6Soo/cost/pull/357), 구현 `7ecf023`, 운영 SHA `3860a822efe3a6f2d6c1349e824b193ac7309a7b`. 이전 classified 상태와 “유효 여행 없음” 사유를 재검토 면제로 쓰지 않는다. 항목/업종/서비스 용도·보관 예약 이용기간을 다시 대조하고, 사용자 결정/기기록 유효 귀속·검증 환불 상속을 우선했다. 근거의 원문·행 ID는 외부 모델이나 Git에 보내지 않았다.
+- 실제 저장5,451건: 정상 결제 여행 미배정1,821→0, 항목 변경70건·여행/표시 귀속 변경2,047건(서로 중복3건), 근거만 갱신3,337건. 기존 자동 출처의 결과가 같으면 rule/card_category 출처를 유지했다. 예약 대조393건·유일 이용기간 근거183건, 그 근거가 있는 귀속 변경40건. 등록 자료 누락/읽기 오류0. 낮은 근거도 최선의 실제 여행으로 완료하고 추론·낮은 신뢰도·날짜 거리를 저장했다. 등록 여행은2026~2027년이며 미배정의2025년 거래1,420건을 포함해 처리했다. 변경 귀속 중 날짜 거리90일 초과670건은 강한 예약 근거가 확인된 실제 여행이라고 주장하지 않는다. 여행 생성·사용자 확인·금융 결제 연결을 창작하지 않았다.
+- 실제 반영은 신선 백업/별도 복원→단일 작성자/서비스 정지→동일 원본/preview digest→복사본 결과/재실행0→원자 저장→사후 불변/재실행0→서비스 복구를 통과했다. 독립 readonly 감사에서 수동 결정/교정 이력이 있는559건의 전체 거래행 불변, 원본/금액/ID·금융 링크/보류/회사 제외/결정/override·스키마·기존 장부 행 수 불변을 확인했다. 새 장부 행·금융 링크·Google/은행 쓰기0. 보호57건은 새로운 사용자 승인 대기로 바꾸지 않았다.
+- 검증: 분류/새P2/환불 원자성/부분환불76 passed, 추가 근거 캐시의 원본 변경 거부1 passed, compile·PowerShell 구문·diff·metadata guard 차단0/삭제0. 초반 읽기 전용 복사본2회는 재생 시 근거 문구가 달라져 실패했고 안정적인 근거 생성으로 교정한 뒤 실제 자료 복사본/운영 재실행0을 통과했다. 실패 단계의 운영 쓰기0. 전체 회귀·실기기·인증 owner 화면 수락은 미실행이다.
+- 코드 배포: 검수 tree=merge tree·1113 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 배포 전후 불변. 이는 뒤의 승인된 분류 쓰기와 구분한다. 자료 반영 후에도 health/ready200·카드/OTA API401·Board/SourceRefresh Running, 전체6395 classified·보호 제외 미분류/정상 결제 미배정0·최종 readonly 쓰기0 확인.
+- 근거: `.local-archive/p2-rerun-20261029/`의 baseline/changes/checkpoint·XML·before/after/audit/runtime-after, `.local-archive/deploy-3860a822efe3a6f2d6c1349e824b193ac7309a7b/`, 호스트 동일SHA release/deploy audit와 `D:/WebLedgerHost/data/backups/card-classification-20261029T223551095/`의 backup-restore/preview/applied/repeat-preview. 원본 복구 사본과 파생 근거 캐시는 호스트 보호 경로에만 보존했다. 기존 공유 workspace·사용자 변경 보존. 현재 P2 재진행의 남은 작업/차단0, 다음 명령 없음. 문서 후속만으로 재검사/재배포/재처리하지 않는다.
+
+## 2026-10-29 보존 분류 상태 제거
+
+- COMPLETE — 사용자 “보존이라는 상태가 필요해? 필요없으면 제거해”에 따라 카드 업무 상태 `preserved`의 생성과 상태별 분류/조회/여행 검토/OTA 대사/취소 정산 제외 조건을 제거했다. [PR #354](https://github.com/6Soo/cost/pull/354), 구현 `a44c38c`, 운영 SHA `3c8c970da271b665feb99a89fad661b7399ef6d7`. 과거 상태와 미배정 사유만으로 일반 추론을 건너뛰지 않는다. 항목/여행은 일반 규칙을 적용하고 화면/전기 미리보기의 명시적 기간 필터는 유지한다. 원본·금액·ID·이력·사용자 결정·중복·환불·보류 보호를 유지한다.
+- 운영 읽기 전용 확인: 전체6,395건 classified, preserved0·user_completed_period 출처0·조회 쓰기0. 변환할 기존 상태가 없어 마이그레이션·운영 재분류·금융/여행/Google 쓰기를 수행하지 않았다. 이번 상태 제거는 과거 개별 거래의 P2 근거 검토나 여행 귀속 재검토 완료를 뜻하지 않는다. 이전 “전체 classified이므로 P2 완료” 설명의 근거 한계를 유지한다.
+- 검증: 초기 분류/과거/OTA/정리71 passed, 신규 조회 회귀 포함 최종 과거/분류54 passed, 추가 legacy/manual 환불3 passed. 인접 여행/카탈로그/규칙/항공/owner60 passed, CardFlow 표적16 passed/3 subtests, pipeline/부분환불/회사비용79 passed, 최종 환불 원자 기록12 passed, 취소 정산/환불UI9 passed. 실행 간 중복은 합산하지 않는다. OTA history 실패1건은 기준f96cd8f에서도 동일 재현했고 통과로 세지 않았다. Python compile·diff·staged metadata guard 차단0/삭제0. 전체 회귀·실기기/인증 owner 화면은 미실행이다.
+- 배포: 검수 tree와 merge tree 동일·1112 Git blobs 불일치0·새 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·보호API/카드 summary/years401·보호13표 불변·Board/SourceRefresh Running. 호스트 venv의 합성 과거/legacy 분류·일반 추론 동일성·기간 필터·원본/금액/ID 불변·장부 쓰기0 확인. 최초 합성 도구의 잘못된 import는 public app.Pipeline으로 교정 후 통과했다. 존재하지 않는 과거 인계의 테스트 파일은 수집 실패로 남기고 실제 환불 검사로 검증했다.
+- 근거: `.local-archive/remove-preserved-20261029/`의 checkpoint/XML/runtime_smoke/card-auth-smoke와 `.local-archive/deploy-3c8c970da271b665feb99a89fad661b7399ef6d7/`, 호스트 동일SHA release-audit/deploy-evidence. 기존 공유 workspace·사용자 변경 보존. 현재 상태 제거 요청의 남은 작업·차단0, 다음 명령 없음. 문서 후속만으로 재검사·재배포·재시작하지 않는다.
+
+## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
+
+- COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.
+- 과거 유효 여행 기간 밖의 보존 거래는 현재/미래 여행으로 억지 배정하지 않고 `등록된 유효 여행 없음 · 비용 항목 분류 완료`로 보존 완료했다. 검증된 원결제의 분류를 상속한 환불 행도 재추론을 건너뛰도록 보호했다.
+- 지출 정리(`_cleanup_card_where`) 조회에서 완료 정책(`complete-card-inference-v1`) 또는 원결제 상속(`refund_original`)으로 완료된 정상 분류 행을 제외했다. 항목 누락·구문 오류·충돌 사유·명시적 사용자 보류(`transaction_review_holds`)가 있는 거래는 정리 목록에 계속 표시한다.
+- 검증: 표적 및 보호 테스트 37 passed (`test_card_cleanup_queries.py`, `test_automatic_classification_completion.py`, `test_refund_group_commit.py`), UI 9 passed (`test_card_cleanup_ui.py`). 실운영 DB(6,395건 전체 `classified`) 조회 검증 결과 정리 대상 카드 3,695→0건, 보류 4건 안전 보존 확인.
+- 배포: 1,112 Git blobs 일치(불일치 0), 새 백업(`operational-20261029T122609435227Z`, `v2-owner-ui-20261029T212558`) 및 복원 검증(`restore-evidence.json`), task/process 고정 SHA 일치, 단일 loopback listener, health/ready 200, 보호 API 401, 보호 13개 테이블 내용/스키마 불변(`protection-after.json`). WebLedger-Board 및 WebLedger-SourceRefresh Running 정상 확인. 이전 검증 릴리스 `160f4cd93301b469183c6c243f98ab2a2ad2effc` 및 복구 사본 보존. 신규 금융/Google/은행 쓰기 0.
+- 근거: `.local-archive/deploy-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb/`의 review.json, gate-before.json, protection-before.json, protection-after.json, deploy-evidence.json 및 `D:/WebLedgerHost/releases/deploy-evidence-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb.json`.
 
 ## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
 

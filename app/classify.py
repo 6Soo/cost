@@ -459,6 +459,8 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
 
     A row a human already decided, or that is already on the ledger, is skipped entirely, which is how
     that classification survives the next upload and the next rule change.
+    ``review_from`` is retained for API compatibility; date windows scope reads
+    and posting previews, never the classification state of an imported row.
     """
     from .db import CODE_NOT_FOUND, StoreError
 
@@ -505,15 +507,6 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
             if decided and not reconcile_booked:
                 counts[state] = counts.get(state, 0) + 1
                 protected += 1
-                continue
-            occurred = approval_date or posting_date
-            if state == 'preserved' or (review_from and occurred and occurred < review_from):
-                counts['preserved'] = counts.get('preserved',0) + 1
-                if state != 'preserved':
-                    store.conn.execute("UPDATE transactions SET classification_state='preserved',"
-                                       "classification_source='user_completed_period',classification_basis=? "
-                                       "WHERE transaction_id=?",
-                                       ('사용자 확인: 정리 완료된 기간은 내부 보존만 합니다',transaction_id))
                 continue
             transaction = {
                 "transaction_id": transaction_id, "issuer": issuer,
