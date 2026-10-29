@@ -29,8 +29,8 @@
     },
     {
       "name": "source-audit-entrypoint",
-      "paths": ["tools/cost_audit.py", "tools/audit_test_environment.py", "tests/test_cost_audit.py", "tests/test_test_environment_audit.py"],
-      "tests": ["tests/test_cost_audit.py", "tests/test_test_environment_audit.py", "tests/test_runtime_dependency_catalog.py"]
+      "paths": ["tools/cost_audit.py", "tools/audit_test_environment.py", "tests/test_cost_audit.py", "tests/test_test_environment_audit.py", "config/ops_entrypoints.json", "tools/runtime_preflight.py"],
+      "tests": ["tests/test_cost_audit.py", "tests/test_test_environment_audit.py", "tests/test_runtime_dependency_catalog.py", "tests/test_runtime_preflight.py"]
     },
     {
       "name": "provisional-trip-review",
