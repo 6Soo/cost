@@ -327,7 +327,7 @@ class DesignScreenTests(unittest.TestCase):
         page.wait_for_function(
             "document.querySelector('.f-msg')"
             "&&document.querySelector('.f-msg').textContent"
-            ".indexOf('revision')>=0")
+            ".indexOf('저장했습니다')>=0")
         self.assertIn("저장했습니다", page.inner_text(".f-msg"))
         self.assertEqual(
             self.store.get_row("expense-demo-c1")["revision"], before + 1)
@@ -354,7 +354,7 @@ class DesignScreenTests(unittest.TestCase):
         page.wait_for_function(
             "document.querySelector('.f-msg')"
             "&&document.querySelector('.f-msg').textContent"
-            ".indexOf('revision')>=0")
+            ".indexOf('저장했습니다')>=0")
         self.assertIn("저장했습니다", page.inner_text(".f-msg"))
         stored = self.store.get_row("expense-demo-c1")
         self.assertEqual(stored["revision"], before + 2)
@@ -385,7 +385,7 @@ class DesignScreenTests(unittest.TestCase):
         page.fill("#f-description", "예시 숙소 정정")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('.f-msg').textContent.indexOf('revision')>=0")
+            "document.querySelector('.f-msg').textContent.indexOf('저장했습니다')>=0")
         self.assertIn("저장했습니다", page.inner_text(".f-msg"))
         stored = self.store.get_row("expense-demo-c1")
         self.assertEqual(stored["description"].replace(" ", ""), "예시숙소정정")
@@ -528,7 +528,7 @@ class DesignScreenTests(unittest.TestCase):
         page.fill("#f-description", "첫 번째 저장")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('.f-msg').textContent.indexOf('revision')>=0")
+            "document.querySelector('.f-msg').textContent.indexOf('저장했습니다')>=0")
         # someone else saves the same row afterwards
         status, _ = self._api("/api/rows/expense-demo-c1/save", {
             "csrf": board_mod.CSRF_TOKEN,
@@ -554,7 +554,7 @@ class DesignScreenTests(unittest.TestCase):
         page.fill("#f-description", "규칙으로 남길 값")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('.f-msg').textContent.indexOf('revision')>=0")
+            "document.querySelector('.f-msg').textContent.indexOf('저장했습니다')>=0")
         page.wait_for_selector("#rule-open:not([hidden])")
         case = self.store.conn.execute(
             "SELECT case_id FROM board_learning_cases WHERE row_id=?",
@@ -565,7 +565,9 @@ class DesignScreenTests(unittest.TestCase):
         body = page.inner_text("body")
         self.assertIn("규칙 대화", body)
         self.assertIn("합성 모드입니다", body)
-        self.assertIn("expense-demo-c1", body)
+        self.assertNotIn("expense-demo-c1", body)
+        self.assertEqual(page.get_by_role('link', name='내용으로 돌아가기').get_attribute('href'),
+                         '/row?id=expense-demo-c1')
         # the way back to the ledger is there from the first screen
         page.click("text=목록으로")
         page.wait_for_load_state()
