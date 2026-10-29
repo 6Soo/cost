@@ -387,6 +387,8 @@ def _period_date(value, year=None, month=None) -> str:
 def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                        trip_names: dict[str, str] | None = None,
                        year: int | None = None, month: int | None = None) -> str:
+    from app.quarter_tab import parse_tab
+
     rows: list[str] = []
     for date_key, entries in _group_by_date(items):
         rows.append(
@@ -407,11 +409,12 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             trip_id = destination if destination not in ('', 'unclassified') else str(item.get('trip_id') or '').strip()
             if trip_id == 'unclassified' or item.get('trip_assignment_valid') is False:
                 trip_id = ''
-            trip_name = (trip_names or {}).get(trip_id, trip_id)
+            quarter = parse_tab(trip_id)
+            trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용" if quarter
+                         else (trip_names or {}).get(trip_id, trip_id))
             source = str(item.get("classification_source") or "").strip()
             if item.get('refund_tab_member'):
-                trip_markup = ("<a class='card-all-link' href='/board?tab=refunds'>취소·환불</a>"
-                               "<span class='card-all-trip-source'>전액 상쇄 · 장부 기록·실제 환급과 별개</span>")
+                trip_markup = "<a class='card-all-link' href='/board?tab=refunds'>취소·환불</a>"
             elif not trip_id:
                 trip_markup = "<span class='card-all-trip-name unassigned'>미배정</span>"
             else:
@@ -451,7 +454,7 @@ def _transactions_table(items: list[dict], label: str, *,
         "<th scope='col'>이용일시</th>"
         "<th scope='col'>가맹점명</th>"
         "<th scope='col' class='amount'>금액</th>"
-        "<th scope='col'>배정된 여행</th>"
+        "<th scope='col'>배정</th>"
         "</tr></thead>"
         f"<tbody>{_render_month_rows(items, trip_names=trip_names, year=year, month=month)}</tbody>"
         "</table></div>")
