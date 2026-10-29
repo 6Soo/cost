@@ -199,12 +199,16 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
 
     reason_counts = Counter(reason for case in cases for reason in case["reasons"])
     providers = Counter(finite(event.get("provider") or "unknown", PROVIDERS) for event in events)
-    generation_inputs = [value for value in (snapshot_generation, list_generation,
-                         detail_generation, readiness_generation) if value is not None]
-    generations_consistent = (not generation_inputs or
+    generation_inputs = (snapshot_generation, list_generation,
+                         detail_generation, readiness_generation)
+    has_generation_evidence = any(value is not None for value in generation_inputs)
+    generations_consistent = (not has_generation_evidence or
+        all(value is not None for value in generation_inputs) and
         same_generation(*generation_inputs))
-    result_by_event = (index_results(reconciliation_results)
-                       if generations_consistent else {})
+    result_by_event = (index_results(reconciliation_results, generation=snapshot_generation)
+                       if generations_consistent and has_generation_evidence else
+                       index_results(reconciliation_results)
+                       if generations_consistent and not isinstance(reconciliation_results, dict) else {})
     result_statuses = Counter(finite(row.get("status") or "UNKNOWN", ENGINE_STATUSES)
                               for row in result_by_event.values())
     reconciliation_divergences = []
