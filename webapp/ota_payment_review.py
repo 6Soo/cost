@@ -50,6 +50,7 @@ _EVENT_FIELDS = (
     "candidate_rejected_count", "reservation_link",
     "mail_authentication", "service_period_semantics", "travel_suggestion",
     "payment_evidence_basis", "cancelled_on", "cancellation_notice_sent_on", "provisional_assignment",
+    "preauthorized_on", "preauthorized_amount_krw",
 )
 _CARD_FIELDS = (
     "transaction_id", "issuer", "card_kind", "card_tail", "approval_date",
@@ -2145,6 +2146,7 @@ def render_import_section(csrf: str) -> str:
       const amountText=event.currency&&event.currency!=='KRW'?`${{event.amount}} ${{event.currency}} (원화 환산 ${{money(event.amount_krw)}})`:money(event.amount??event.amount_krw);
       const evidence=event.evidence_missing?'근거 사라짐':event.evidence_changed?'변경됨':'확인됨';
       const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',label(EVENT_TYPE_LABELS,event.event_type)],['결제일',event.paid_on],[event.event_type==='reservation'?'예약 금액':'결제 금액',amountText],['이용 기간',period],['항목',event.item],['보류 이유',label(REASON_LABELS,event.reason)],['원본 근거',evidence]];
+      if(event.evidence_status==='preauthorized')facts.push(['사전승인',`사전승인액 · 실제 결제 미확인 (${{event.preauthorized_on||'날짜 미확인'}})`]);
       if(event.card_issuer)facts.push(['메일의 결제 카드사',event.card_issuer]);
       if(event.payment_evidence_basis)facts.push(['결제 검증 근거',event.payment_evidence_basis]);
       if(event.cancelled_on)facts.push(['카드 취소 안내일',event.cancelled_on]);

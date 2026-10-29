@@ -16,7 +16,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 8
+PARSER_VERSION = 9
 MATCHER_VERSION = 4
 
 
@@ -89,6 +89,10 @@ def _parse_mail_events(directories):
         event_type = fact.get("event_type", "charge")
         explicit_status = fact.get("evidence_status")
         status = explicit_status or ("paid_verified" if amount not in (None, 0) else "not_card_charge")
+        preauthorized = fact.get('preauthorized_amount_krw')
+        if preauthorized and not amount and not explicit_status:
+            status = 'preauthorized'
+            event_type = 'reservation'
         if fact.get("reservation_status") == "cancelled" and not amount and not explicit_status:
             event_type = "reservation"
         source_id = f"mail:{message_id}"
@@ -99,19 +103,22 @@ def _parse_mail_events(directories):
         card_match = re.search(r"(?:card|카드)(?:\s*(?:ending|ends|끝\s*자리))?\s*[:#-]?\s*(?:\*+|X+)?(\d{4})\b",
                                text, re.I)
         payment_id = fact.get("payment_id") or (payment_match.group(1) if payment_match else None)
-        raw_amount = fact.get("amount", amount)
+        raw_amount = fact.get("amount", amount if amount is not None else preauthorized)
         currency = fact.get("currency", "KRW")
         event = {
             "provider": fact["provider"], "booking_ref": fact["booking_ref"],
             "event_type": event_type, "paid_on": paid_on if status in ("paid_verified", "refund_verified") else None,
             "scheduled_for": fact.get("scheduled_for"),
+            "preauthorized_on": fact.get('preauthorized_on'),
+            "preauthorized_amount_krw": preauthorized,
             "amount": raw_amount, "currency": currency, "amount_krw": amount,
             "card_last4": fact.get("card_last4"), "refund_status": fact.get("refund_status"),
             "item": fact.get("item"), "service_period": fact.get("period"),
             "reservation_status": fact.get("reservation_status"),
             "payment_status": fact.get("payment_status") or
                 ("paid" if status in ("paid_verified", "refund_verified") else
-                 "scheduled" if status == "scheduled" else "unknown"),
+                 "scheduled" if status == "scheduled" else
+                 "preauthorized" if status == "preauthorized" else "unknown"),
             "evidence_status": status, "source_digest": digest, "source_ids": [source_id],
             "identity_source_ids": [source_id],
             "source_digests": [digest],
@@ -1159,6 +1166,9 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
     identity = str(event.get("ota_event_id") or "")
     if identity in links:
         return {"status": "USER_PINNED", "candidates": [], "comparisons": 0}
+    if (event.get('provider') == 'trip' and event.get('event_type') == 'reservation'
+            and event.get('evidence_status') == 'preauthorized'):
+        return _preauthorization_candidates(event, transactions, links, rules, max_comparisons)
     if event.get('provider') == 'forest' and event.get('event_type') == 'reservation':
         from app import forest_mail
         return forest_mail.search_candidates(event, transactions, max_comparisons=max_comparisons)
@@ -1220,6 +1230,37 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
             "rejected": rejected, "rejection_counts": dict(sorted(rejection_counts.items())),
             "date_status": "UNKNOWN" if not event.get("paid_on") else "KNOWN",
             "hard_identity_filter_applied": bool(expected_last4 or event.get("card_issuer"))}
+
+
+def _preauthorization_candidates(event, transactions, links, rules, limit):
+    """Compare a reservation with original card evidence without asserting a charge."""
+    from app.ota_matching_defaults import provider_for_merchant
+    day = event.get('preauthorized_on')
+    if not _valid_iso_day(day):
+        return {'status': 'PAYMENT_STATE_UNVERIFIED', 'candidates': [], 'comparisons': 0}
+    occupied = {str(link.get('transaction_id') if isinstance(link, dict) else link)
+                for link in links.values()}
+    candidates = []
+    comparisons = 0
+    for row in transactions:
+        comparisons += 1
+        if comparisons > limit:
+            return {'status': 'SEARCH_LIMIT_EXCEEDED', 'candidates': [], 'comparisons': comparisons}
+        known_provider = provider_for_merchant(str(row.get('merchant_normalized') or row.get('merchant') or '').casefold())
+        if (row.get('approval_date') != day or _direction(row) != 'purchase'
+                or not row.get('transaction_id') or row.get('duplicate_of')
+                or row.get('parse_error') or row.get('conflict_reason')
+                or row.get('ota_review_held') or str(row['transaction_id']) in occupied
+                or (known_provider and known_provider != event.get('provider'))
+                or not _strict_card_identity(event, row, rules)):
+            continue
+        comparison = compare_payment_amount(dict(event, amount_krw=event.get('preauthorized_amount_krw')), row, [])
+        if comparison['status'] == 'MATCH':
+            candidates.append({'transaction_id': row['transaction_id'], 'date_status': 'MATCH',
+                               'resolution_allowed': False, 'payment_verified': False,
+                               'basis': 'PREAUTHORIZATION_SAME_DAY_EXACT_AMOUNT'})
+    return {'status': 'CANDIDATES_FOUND' if candidates else 'NO_CANDIDATE',
+            'candidates': candidates, 'comparisons': comparisons, 'date_status': 'KNOWN'}
 
 
 def _assign_exact_first(events, options_by_event, *, unavailable=(), excluded_edges=()):
@@ -1741,7 +1782,8 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
         if not _event_is_paid(event):
             if event.get("evidence_status") in ("conflict", "evidence_conflict", "refund_conflict"):
                 status = "HOLD_EVIDENCE_CONFLICT"
-            elif event.get('provider') in ('toyoko', 'forest') and event.get('event_type') == 'reservation':
+            elif (event.get('event_type') == 'reservation' and
+                  (event.get('provider') in ('toyoko', 'forest') or event.get('evidence_status') == 'preauthorized')):
                 status = 'RESERVATION_ONLY'
             else:
                 status = ("PENDING_PAYMENT" if event.get("event_type") == "scheduled_charge" or
