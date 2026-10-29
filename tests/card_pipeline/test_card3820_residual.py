@@ -22,6 +22,29 @@ def test_only_reconciled_residual_purchase_uses_the_quarter_policy():
     assert result['item'] == '기존 확정' and result['trip_id'] == 'trip-existing'
 
 
+def test_ota_residual_hold_can_be_reclassified_when_verified_source_arrives():
+    from app.reconciliation import OTA_MAIL_ORIGIN
+
+    transaction = dict(card_tail='3820', transaction_kind='purchase', transaction_direction='purchase',
+                       merchant='SYNTHETIC GOTOGATE', merchant_normalized='synthetic gotogate',
+                       source_hash='a' * 64, approval_date='2026-10-01', amount_krw=37000)
+    held = classify_transaction(transaction, rules=[], residual_policy=True)
+    assert held['classification_state'] == 'needs_review'
+    assert held['classification_source'] != 'owner_card_residual'
+
+    verified_booking = {
+        'conditions': {'merchant_normalized': 'synthetic gotogate'},
+        'optional': {'source_hash': transaction['source_hash']},
+        'effects': {'item': '항공료', 'description': '합성 예약 증거'},
+        'origin': OTA_MAIL_ORIGIN,
+        'rule_id': 'synthetic-verified-ota',
+    }
+    resolved = classify_transaction(transaction, rules=[verified_booking], residual_policy=True)
+    assert resolved['classification_state'] == 'classified'
+    assert resolved['classification_source'] == 'rule'
+    assert resolved['item'] == '항공료'
+
+
 def test_card_flow_classifies_residual_without_changing_original_or_confirming(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
