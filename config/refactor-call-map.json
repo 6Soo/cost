@@ -1,13 +1,13 @@
 {
   "schema": "rf001-call-map/v1",
   "mode": "static_ast_only",
-  "code_sha": "6310e5dbaa989122e0c9c85aa2dd45d0996e61e7",
-  "base_sha": "6310e5dbaa989122e0c9c85aa2dd45d0996e61e7",
+  "code_sha": "a0eef2b9ab72d40931ada510919e0b6a8471b061",
+  "base_sha": "a0eef2b9ab72d40931ada510919e0b6a8471b061",
   "working_tree_dirty": true,
   "counts": {
     "files": 761,
     "symbols": 10231,
-    "calls": 103387,
+    "calls": 103395,
     "routes": 12,
     "effects": 6941,
     "errors": 0,
@@ -17,8 +17,8 @@
     "tables": 2492
   },
   "call_status": {
-    "OPEN_QUESTION": 82573,
-    "STATIC_CANDIDATE": 20814
+    "OPEN_QUESTION": 82579,
+    "STATIC_CANDIDATE": 20816
   },
   "routes": [
     {

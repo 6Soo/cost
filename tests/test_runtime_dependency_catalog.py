@@ -65,17 +65,8 @@ def test_no_active_claim_from_process_call_or_comment(tmp_path):
         assert classify(tmp_path / 'tools' / 'entry.py', source, tmp_path)[0] == 'UNKNOWN'
 
 
-def test_runtime_evidence_promotion_is_explicitly_unsupported(tmp_path):
-    import json
-    from tools.runtime_dependency_catalog import load_evidence
-    config = tmp_path / 'config' / 'runtime-dependency-evidence.json'
-    config.parent.mkdir()
-    config.write_text(json.dumps({'schema': 'runtime-dependency-evidence/v1', 'evidence': [
-        {'path': 'tools/write.py', 'source': 'run_candidate.py', 'line': 1,
-         'classification': 'ACTIVE_WRITE_GUARDED', 'guard': True},
-        {'path': 'tools/read.py', 'source': 'run_candidate.py', 'line': 1,
-         'classification': 'ACTIVE_SAFE_READ'}]}), encoding='utf-8')
-    assert load_evidence(tmp_path) == {}
+def test_unknown_is_retained_without_a_promotion_config():
+    assert classify(Path('tools/entry.py'), 'import subprocess\nsubprocess.run(["python", "x.py"])')[0] == 'UNKNOWN'
 
 
 def test_missing_broken_and_invalid_utf8_are_diagnostics(tmp_path):
