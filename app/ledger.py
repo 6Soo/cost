@@ -45,8 +45,7 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
         " conflict_reason, parse_error, duplicate_of"
     )
     eligible = (
-        "classification_state!='preserved'"
-        " AND (? IS NULL OR COALESCE(NULLIF(approval_date,''),posting_date)=''"
+        "(? IS NULL OR COALESCE(NULLIF(approval_date,''),posting_date)=''"
         " OR COALESCE(NULLIF(approval_date,''),posting_date)>=?)"
     )
     rows = list(store.conn.execute(
@@ -581,7 +580,8 @@ def _persist_verified_refund_classification(store, entry, transaction_id: str) -
         "SELECT classification_source FROM transactions WHERE transaction_id=?",
         (transaction_id,),
     ).fetchone()
-    if not current or str(current[0] or "").startswith("user_") or current[0] == "preserved":
+    if not current or (str(current[0] or "").startswith("user_")
+                       and current[0] != "user_completed_period"):
         return
     store.conn.execute(
         "UPDATE transactions SET classification_state='classified',"

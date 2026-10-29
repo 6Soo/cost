@@ -40,7 +40,7 @@ def load_context(conn, host):
 
 
 def counts(conn):
-    eligible = (" FROM transactions t WHERE t.classification_state!='preserved' "
+    eligible = (" FROM transactions t WHERE 1=1 "
         "AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')='' "
         "AND COALESCE(t.parse_error,'')='' "
         "AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
@@ -50,11 +50,6 @@ def counts(conn):
         ('unclassified_all_directions', " AND (t.classification_state!='classified' OR COALESCE(t.item,'')='')"),
         ('purchase_without_trip', " AND t.transaction_direction='purchase' AND COALESCE(t.trip_id,'')='' AND COALESCE(t.display_tab_id,'') IN ('','unclassified') AND t.item!='분기 기타비용'"),
         ('automatic_purchase_without_trip', " AND t.transaction_direction='purchase' AND COALESCE(t.trip_id,'')='' AND COALESCE(t.display_tab_id,'') IN ('','unclassified') AND t.item!='분기 기타비용' AND t.decided_at IS NULL AND COALESCE(t.classification_source,'') NOT IN ('user_decision','user_exception','owner_booking') AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id) AND NOT EXISTS(SELECT 1 FROM board_manual_overrides b WHERE b.row_id='card-'||t.transaction_id)"))}
-    result['historical_purchase_without_trip'] = conn.execute(
-        "SELECT COUNT(*) FROM transactions WHERE classification_state='classified' "
-        "AND transaction_direction='purchase' AND COALESCE(trip_id,'')='' "
-        "AND COALESCE(display_tab_id,'') IN ('','unclassified') "
-        "AND COALESCE(classification_basis,'') LIKE '%등록된 유효 여행 없음%'").fetchone()[0]
     return result
 
 
@@ -140,7 +135,7 @@ def main(argv=None):
                     raise ValueError('SOURCE_OR_USER_DATA_CHANGED')
                 if after['unclassified_purchases'] or after['unclassified_all_directions']:
                     raise ValueError('UNCLASSIFIED_CARDS_REMAIN')
-                if trips and after['purchase_without_trip'] > after['historical_purchase_without_trip']:
+                if trips and after['purchase_without_trip']:
                     raise ValueError('UNASSIGNED_CARDS_REMAIN')
                 if policy.plan(target,trips,nets=nets)['summary']['to_classify']:
                     raise ValueError('CLASSIFICATION_REPEAT_NOT_NOOP')

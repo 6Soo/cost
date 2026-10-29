@@ -314,8 +314,7 @@ def batch_catalog(board):
             "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END) AS questions "
             "FROM import_batches b JOIN import_batch_rows x ON x.batch_id=b.batch_id "
             "JOIN transactions t ON t.transaction_id=x.transaction_id "
-            "WHERE t.classification_state!='preserved' "
-            "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
+            "WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?) "
             "GROUP BY b.batch_id ORDER BY questions DESC,b.received_at DESC,b.batch_id",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchall()
@@ -339,8 +338,7 @@ def home_page(board):
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
             "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END),0) "
-            "FROM transactions t WHERE t.classification_state!='preserved' "
-            "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
+            "FROM transactions t WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
     cleanup = cleanup_total(board)
@@ -537,8 +535,8 @@ class CardFlow:
         sources={source for source,identity,merchant in self.board.conn.execute(
             'SELECT t.source_hash,t.transaction_id,t.merchant FROM transactions t '
             'JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
-            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' AND t.classification_state!=? '
-            'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'preserved','',''))
+            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' '
+            'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'',''))
             if (selected is None or identity in selected) and _is_ota_row({'merchant':merchant})}
         from app import StoreError, ota_sources
         import sqlite3
@@ -1083,9 +1081,9 @@ class CardFlow:
         rows = self.board.conn.execute(
             'SELECT t.transaction_id,t.source_hash,t.merchant,t.merchant_normalized,t.card_kind '
             'FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
-            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' AND t.classification_state!=? '
+            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' '
             'AND t.conflict_reason=? AND t.parse_error=? AND t.transaction_direction=?',
-            (batch_id, 'preserved', '', '', 'purchase')).fetchall()
+            (batch_id, '', '', 'purchase')).fetchall()
         rules = []
         for identity, source_hash, merchant, merchant_normalized, card_kind in rows:
             guide = attributed.get(str(identity))
@@ -1692,8 +1690,7 @@ class CardFlow:
         result = self.pipeline.get_batch(batch_id)
         approval_batch = result['summary'].get('status') == 'approval_evidence'
         review_from = os.environ.get('WEBLEDGER_REVIEW_FROM','')
-        result['rows'] = [r for r in result['rows'] if r['classification_state'] != 'preserved'
-                          and (not review_from or not (r['approval_date'] or r['posting_date'])
+        result['rows'] = [r for r in result['rows'] if (not review_from or not (r['approval_date'] or r['posting_date'])
                                or (r['approval_date'] or r['posting_date']) >= review_from)]
         result['summary']['row_count'] = len(result['rows'])
         from collections import Counter
