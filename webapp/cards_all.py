@@ -42,17 +42,17 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-stat-value{font-size:19px;font-variant-numeric:tabular-nums;font-weight:800}
 .card-all-page .card-all-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}
 .card-all-page .card-all-toolbar-title{font-size:16px;font-weight:750;margin:0}
-.card-all-page .card-all-year{display:flex;align-items:center;gap:9px;margin:0;font-size:13px}
-.card-all-page .card-all-year label{font-size:12px;color:var(--ca-muted)}
-.card-all-page .card-all-year select{color:var(--ca-ink);background:var(--ca-paper);font:inherit;font-weight:700;min-height:42px;padding:8px 32px 8px 12px;border:1px solid var(--ca-border);border-radius:9px}
-.card-all-page .card-all-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px}
-.card-all-page .card-month-form{margin:0;min-width:0}
-.card-all-page .card-all-tile{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:13px;width:100%;min-height:94px;text-align:left;padding:15px 16px;border:1px solid var(--ca-border);border-radius:12px;background:var(--ca-paper);color:var(--ca-ink);font:inherit;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s}
-.card-all-page .card-all-tile .month-name{font-size:16px;font-weight:800}
-.card-all-page .card-all-tile .month-count{font-size:12px;font-weight:650;color:var(--ca-muted);font-variant-numeric:tabular-nums}
-.card-all-page .card-all-tile:hover{background:var(--ca-soft);border-color:var(--ca-accent)}
-.card-all-page .card-all-tile[aria-pressed=true]{background:var(--sel,var(--ca-soft));border:2px solid var(--ca-accent);padding:14px 15px;box-shadow:0 0 0 1px var(--ca-accent)}
-.card-all-page .card-all-tile[aria-pressed=true] .month-count{color:var(--ca-ink)}
+
+
+
+
+
+
+
+
+
+
+
 .card-all-page :is(button,a,select):focus-visible{outline:2px solid var(--focus,#2563eb);outline-offset:3px}
 .card-all-page :is(.card-all-detail,.card-all-undated,.card-all-prompt){border:1px solid var(--ca-border);border-radius:14px;background:var(--ca-paper);padding:19px 20px;margin:0 0 16px}
 .card-all-page :is(.card-all-detail,.card-all-undated) h2{margin:0 0 14px;font-size:16px;font-weight:750;line-height:1.5}
@@ -90,10 +90,49 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .detail-cell .card-all-link{margin-top:0}
 .card-all-page .card-all-pagination{margin-top:15px;display:flex;justify-content:center}
 .card-all-page .card-all-pagination a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid var(--ca-border);border-radius:9px;background:var(--ca-soft);text-decoration:none}
-@media(width < 760px){.card-all-page{padding:14px 12px 42px}.card-all-page .card-all-hero{padding:16px}.card-all-page .card-all-summary{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-stat{min-width:0}.card-all-page .card-all-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.card-all-page .card-all-tile{min-height:78px;padding:11px}.card-all-page .card-all-tile[aria-pressed=true]{padding:10px}.card-all-page :is(.card-all-detail,.card-all-undated){padding:13px}.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px}}
-@media(max-width:560px){.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:9px}.card-all-page .card-all-filters>label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}.card-all-page .card-all-filters>label:first-child{display:flex}.card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0}.card-all-page .card-all-filters button{width:100%}.card-all-page .card-all-filters .card-all-link{justify-self:start}}
-@media(max-width:390px){.card-all-page .card-all-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-hero{gap:14px}}
-@media(prefers-reduced-motion:reduce){.card-all-page .card-all-tile{transition:none}}
+.card-all-page .card-all-help{margin:0 0 16px;font-size:12px;color:var(--ca-muted)}
+.card-all-page .card-all-help summary{cursor:pointer;min-height:44px;align-content:center;width:fit-content}
+.card-all-page .card-all-help p{margin:0 0 12px;max-width:80ch}
+@media(width < 760px){.card-all-page{padding:14px 12px 42px}.card-all-page .card-all-hero{padding:16px}.card-all-page .card-all-summary{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-stat{min-width:0}.card-all-page :is(.card-all-detail,.card-all-undated){padding:13px}.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px}}
+@media(max-width:560px){.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:9px}.card-all-page .card-all-filters>label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}.card-all-page .card-all-filters>.card-all-unassigned{display:flex}.card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0}.card-all-page .card-all-filters button{width:100%}.card-all-page .card-all-filters .card-all-link{justify-self:start}}
+@media(max-width:390px){.card-all-page .card-all-hero{gap:14px}}
+@media(max-width:759px){
+.card-all-page .card-all-hero{gap:12px;padding:14px;margin-bottom:14px}
+.card-all-page .card-all-description{font-size:12px}
+.card-all-page .card-all-stat{padding:10px 12px}
+.card-all-page .card-all-toolbar{align-items:center;gap:8px}
+
+.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px;border:1px solid var(--ca-border);border-radius:12px;background:var(--ca-paper);margin-bottom:0}
+.card-all-page .card-all-filters>label{grid-column:1/-1;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:8px;min-width:0}
+.card-all-page .card-all-filters>.card-all-unassigned{display:flex;min-height:44px;width:fit-content;gap:10px}
+.card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
+.card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0;min-height:44px;font-size:16px}
+.card-all-page .card-all-filters button{width:100%;min-height:44px}
+.card-all-page .card-all-filters>.card-all-link{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px}
+.card-all-page .card-all-help{padding:0 4px;margin-bottom:12px}
+.card-all-page .card-all-table-wrap{border:0;border-radius:0;overflow:visible}
+.card-all-page .card-all-table{display:block;min-width:0;width:100%;background:transparent}
+.card-all-page .card-all-table thead{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.card-all-page .card-all-table tbody{display:block}
+.card-all-page .card-all-table tr[data-tx-id]{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'date detail' 'merchant merchant' 'amount amount' 'trip trip';gap:8px 12px;padding:12px 14px;margin-bottom:12px;border:1px solid var(--ca-border);border-radius:12px;background:var(--ca-paper)}
+.card-all-page .card-all-table tr[data-tx-id]>td{min-width:0;max-width:none;width:auto;padding:0;border:0;overflow-wrap:anywhere}
+.card-all-page .card-all-table tr[data-tx-id] .use-datetime{grid-area:date;align-self:center;font-size:12px;white-space:normal}
+.card-all-page .card-all-table tr[data-tx-id] .merchant{grid-area:merchant;font-size:16px;line-height:1.5}
+.card-all-page .card-all-table tr[data-tx-id] .merchant-name{display:block;max-width:none;white-space:normal;overflow:visible;text-overflow:clip}
+.card-all-page .card-all-table tr[data-tx-id] .amount-cell{grid-area:amount;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;padding-top:4px;text-align:left}
+.card-all-page .card-all-table tr[data-tx-id] .amount-cell::before{content:'금액';font-size:12px;color:var(--ca-muted)}
+.card-all-page .card-all-table tr[data-tx-id] .amount{font-size:18px;white-space:normal;overflow-wrap:anywhere;text-align:right;max-width:100%}
+.card-all-page .card-all-table tr[data-tx-id] .card-all-badges{width:100%;justify-content:flex-start}
+.card-all-page .card-all-table tr[data-tx-id] .trip{grid-area:trip;padding-top:10px;border-top:1px solid var(--ca-border)}
+.card-all-page .card-all-table tr[data-tx-id] .trip::before{content:'여행 · 상태';display:block;margin-bottom:4px;font-size:11px;color:var(--ca-muted)}
+.card-all-page .card-all-trip-source{display:block;margin-top:4px}
+.card-all-page .card-all-table tr[data-tx-id] .detail-cell{grid-area:detail;align-self:center;text-align:right}
+.card-all-page .card-all-table tr[data-tx-id] .detail-cell .card-all-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:56px;padding:8px 12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-soft);text-decoration:none}
+.card-all-page .card-all-table tr[data-tx-id] .trip>.card-all-link{display:inline-flex;align-items:center;min-height:44px;margin:0;white-space:normal;font-size:14px}
+.card-all-page .card-all-table .date-group{display:block}
+.card-all-page .card-all-table .date-group th{display:block;padding:8px 2px 10px;border:0;background:transparent;font-size:12px}
+.card-all-page .card-all-pagination a{width:100%;white-space:normal;text-align:center}
+}
 </style>
 """
 
@@ -159,6 +198,13 @@ def _request_params(query_params: dict | None) -> tuple[int, int | None, str | N
     year = _safe_int(_first(query_params, "year", DEFAULT_YEAR), DEFAULT_YEAR,
                      MIN_YEAR, MAX_YEAR)
     month_raw = _first(query_params, "month")
+    period = _first(query_params, 'period')
+    if period is not None:
+        if (not re.fullmatch(r'\d{4}(?:-(?:0[1-9]|1[0-2]))?', str(period))
+                or not MIN_YEAR <= int(str(period)[:4]) <= MAX_YEAR):
+            return DEFAULT_YEAR, None, None, None, False
+        year = _safe_int(str(period)[:4], DEFAULT_YEAR, MIN_YEAR, MAX_YEAR)
+        month_raw = str(period)[5:] or None
     month = None
     if month_raw is not None:
         month = _safe_int(month_raw, None, 1, 12)
@@ -356,13 +402,13 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             status = _status_badges(item)
             status_markup = f"<div class='card-all-badges'>{status}</div>" if status else ""
             rows.append(
-                f"<tr data-tx-id='{_esc(tid)}'>"
-                f"<td class='use-datetime'>{_esc(date_text)}</td>"
-                f"<td class='merchant' title='{_esc(merchant)}'><span class='merchant-name'>{_esc(merchant)}</span>"
+                f"<tr role='row' data-tx-id='{_esc(tid)}'>"
+                f"<td role='cell' class='use-datetime'>{_esc(date_text)}</td>"
+                f"<td role='cell' class='merchant' title='{_esc(merchant)}'><span class='merchant-name'>{_esc(merchant)}</span>"
                 f"<span class='card-identity' aria-label='카드 식별'>{_esc(card_label)}</span></td>"
-                f"<td class='amount-cell'><div class='amount'>{_esc(amount)}</div>{status_markup}</td>"
-                f"<td class='trip'>{trip_markup}</td>"
-                f"<td class='detail-cell'>{link}</td>"
+                f"<td role='cell' class='amount-cell'><div class='amount'>{_esc(amount)}</div>{status_markup}</td>"
+                f"<td role='cell' class='trip'>{trip_markup}</td>"
+                f"<td role='cell' class='detail-cell'>{link}</td>"
                 f"</tr>")
     return "".join(rows)
 
@@ -371,7 +417,7 @@ def _transactions_table(items: list[dict], label: str, *,
                         trip_names: dict[str, str] | None = None) -> str:
     return (
         "<div class='card-all-table-wrap'>"
-        f"<table class='card-all-table' aria-label='{_esc(label)}'>"
+        f"<table role='table' class='card-all-table' aria-label='{_esc(label)}'>"
         "<caption class='sr'>저장된 카드 거래 내역</caption>"
         "<thead><tr>"
         "<th scope='col'>이용일시</th>"
@@ -382,36 +428,6 @@ def _transactions_table(items: list[dict], label: str, *,
         "</tr></thead>"
         f"<tbody>{_render_month_rows(items, trip_names=trip_names)}</tbody>"
         "</table></div>")
-
-
-def _month_grid(year: int, months: dict, selected_month: int | None, *, filter_state=None) -> str:
-    tiles: list[str] = []
-    for month in range(1, 13):
-        try:
-            count = int(months.get(month, 0) or 0)
-        except (TypeError, ValueError):
-            count = 0
-        pressed = selected_month == month
-        hidden = f"<input type='hidden' name='year' value='{year}'>"
-        hidden += _hidden_filters(filter_state)
-        if not pressed:
-            hidden += f"<input type='hidden' name='month' value='{month}'>"
-        label = f"{month}월 {'미배정 ' if (filter_state or {}).get('unassigned') else ''}거래 {count}건"
-        if pressed:
-            label += " (다시 누르면 닫힘)"
-        tiles.append(
-            "<form method='get' action='/cards/all' class='card-month-form'>"
-            f"{hidden}"
-            f"<button type='submit' class='card-all-tile' data-month='{month}' "
-            f"aria-pressed='{'true' if pressed else 'false'}' "
-            f"aria-label='{_esc(label)}'>"
-            f"<span class='month-name'>{month}월</span>"
-            f"<span class='month-count'>{count:,}건</span>"
-            "</button></form>")
-    return (
-        "<div class='card-all-grid' role='group' aria-label='월별 거래 건수'>"
-        + "".join(tiles)
-        + "</div>")
 
 
 def _undated_section(year: int, items: list[dict], count: int, *,
@@ -478,11 +494,13 @@ def _search_detail(year: int, items: list[dict], cursor, has_more: bool,
                    filter_state=None) -> str:
     """Always render a search state, including zero matches."""
     query = str((filter_state or {}).get('q') or '')
+    heading = f'검색 결과 · {total:,}건' if query else f'{year}년 전체 · {total:,}건'
     if not items:
+        message = f'‘{_esc(query)}’ 검색 결과가 없습니다.' if query else '조회 조건에 맞는 카드 거래가 없습니다.'
         return ("<section class='card-all-detail card-all-search-result' "
                 "aria-live='polite' aria-labelledby='search-heading'>"
-                f"<h2 id='search-heading'>검색 결과 · {total:,}건</h2>"
-                f"<p class='card-all-muted'>‘{_esc(query)}’ 검색 결과가 없습니다.</p>"
+                f"<h2 id='search-heading'>{heading}</h2>"
+                f"<p class='card-all-muted'>{message}</p>"
                 "</section>")
     more = ""
     if has_more and cursor:
@@ -493,23 +511,22 @@ def _search_detail(year: int, items: list[dict], cursor, has_more: bool,
                 "</div>")
     return ("<section class='card-all-detail card-all-search-result' "
             "aria-live='polite' aria-labelledby='search-heading'>"
-            f"<h2 id='search-heading'>검색 결과 · {total:,}건</h2>"
+            f"<h2 id='search-heading'>{heading}</h2>"
             f"{_transactions_table(items, '카드 검색 결과', trip_names=trip_names)}{more}"
             "</section>")
 
 
-def _year_form(year: int, years: list[int], *, filter_state=None) -> str:
-    options = "".join(
-        f"<option value='{value}'{' selected' if value == year else ''}>"
-        f"{value}년</option>" for value in years)
-    return (
-        "<form method='get' action='/cards/all' class='card-all-year'>"
-        f"{_hidden_filters(filter_state)}"
-        "<label for='card-all-year'>연도</label>"
-        "<select id='card-all-year' name='year' onchange='this.form.submit()'>"
-        f"{options}</select>"
-        "<noscript><button type='submit' class='card-all-link'>보기</button></noscript>"
-        "</form>")
+def _period_select(year: int, month: int | None, years: list[int]) -> str:
+    selected = f'{year}-{month:02d}' if month else str(year)
+    groups = []
+    for value in sorted(set(years) | {year}, reverse=True):
+        periods = [(str(value), f'{value}년 전체')]
+        periods.extend((f'{value}-{m:02d}', f'{value}년 {m}월') for m in range(1, 13))
+        options = ''.join(f"<option value='{key}'{' selected' if key == selected else ''}>{label}</option>"
+                          for key, label in periods)
+        groups.append(f"<optgroup label='{value}년'>{options}</optgroup>")
+    return ("<label>기간 <select name='period' aria-label='조회 기간' onchange='this.form.requestSubmit()'>"
+            + ''.join(groups) + '</select></label>')
 
 
 def _available_years(db_path: str | None) -> list[int]:
@@ -570,7 +587,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             items = result.get("items") or []
             next_cursor = result.get("cursor")
             has_more = bool(result.get("has_more"))
-        elif filter_state.get('q'):
+        elif not show_undated:
             result = _ct.search_for_year(db_path=card_db_path, year=year,
                                          cursor=cursor, per_page=PAGE_SIZE, **filters)
             search_items = result.get("items") or []
@@ -624,19 +641,19 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         for option in card_options)
     filter_form = (
         "<form method='get' action='/cards/all' class='card-all-filters'>"
-        + _hidden_filters({'year': year, **({'month': selected_month} if selected_month else {}),
-                           **({'undated': '1'} if show_undated else {})})
-        + f"<label><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
+        + _hidden_filters({'undated': '1'} if show_undated else {})
+        + _period_select(year, selected_month, years)
+        + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
         + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
         + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
         + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
         + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
-        + "<p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 전액 상쇄된 취소·환불 묶음은 취소·환불 탭에 표시합니다. 원본 보존은 카드 원행을 변경하지 않고 보관한다는 뜻입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p>")
+        + "<details class='card-all-help'><summary>조회·상태 안내</summary><p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 전액 상쇄된 취소·환불 묶음은 취소·환불 탭에 표시합니다. 원본 보존은 카드 원행을 변경하지 않고 보관한다는 뜻입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p></details>")
 
     if selected_month is not None:
         detail = _month_detail(year, selected_month, items, next_cursor,
                                has_more, month_total, trip_names=trip_names, filter_state=filter_state)
-    elif filter_state.get('q'):
+    elif not show_undated:
         detail = _search_detail(year, search_items, search_next_cursor,
                                 search_has_more, search_total,
                                 trip_names=trip_names, filter_state=filter_state)
@@ -654,11 +671,8 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         f"<div class='card-all-stat'><span class='card-all-stat-label'>{year}년 날짜 확인 거래</span><strong class='card-all-stat-value'>{sum(int(v or 0) for v in months.values()):,}건</strong></div>"
         f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
         "</div></header>"
-        "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회할 월 선택</h2>"
-        f"{_year_form(year, years, filter_state=filter_state)}"
-        "</div>"
+        "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회 조건</h2></div>"
         f"{filter_form}"
-        f"{_month_grid(year, months, selected_month, filter_state=filter_state)}"
         f"{detail}"
         f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)}"
         "</div>")

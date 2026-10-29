@@ -1,0 +1,77 @@
+"""Exercise visible card history layout, touch targets and destination links."""
+import sqlite3
+from contextlib import closing
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+from webapp import cards_all, ledger_board, ledger_design, site_shell
+from webapp.tests.test_cards_all import card_db_path
+
+
+def test_mobile_history_reads_without_horizontal_scrolling(card_db_path, monkeypatch):
+    long_merchant = '합성 숙박 가맹점 ' * 12
+    long_trip = '합성 여행 · 아주 긴 여행 이름과 일정 ' * 5
+    with closing(sqlite3.connect(card_db_path)) as conn, conn:
+        conn.execute("UPDATE transactions SET transaction_direction='purchase', approval_number='SYN100', "
+                     "merchant=?, classification_state='preserved' WHERE transaction_id='TX-A-01'", (long_merchant,))
+        conn.execute("UPDATE transactions SET transaction_direction='cancellation', original_approval_number='SYN100', "
+                     "amount_krw=-150000, foreign_amount='', foreign_currency='KRW', "
+                     "classification_state='preserved' WHERE transaction_id='TX-A-02'")
+    monkeypatch.setattr(cards_all, '_trip_context', lambda: ({'T-C': long_trip}, {'T-C'}))
+    monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
+    monkeypatch.setattr(ledger_board, 'live_trips', lambda **kwargs: [{'tab_id': 'T-C', 'display_key': long_trip}])
+    monkeypatch.setattr(ledger_design, 'nav_region', lambda *args: '')
+    document = site_shell.wrap_document(cards_all.cards_all_page(
+        {'year': ['2026'], 'month': ['3']}, db_path=card_db_path), '/cards/all')
+    output = Path('.local-archive/card-history-mobile-20261029')
+    output.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': 390, 'height': 844})
+            page.route('http://cost.test/cards/all*', lambda route: route.fulfill(
+                status=200, content_type='text/html; charset=utf-8', body=document))
+            page.goto('http://cost.test/cards/all?year=2026&month=3')
+            for theme in ('light', 'dark'):
+                page.emulate_media(color_scheme=theme)
+                for width in (320, 390, 600, 759, 760, 1280):
+                    page.set_viewport_size({'width': width, 'height': 844})
+                    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                    rows = page.locator('tr[data-tx-id]')
+                    assert rows.count() == 3
+                    if width <= 759:
+                        assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
+                        for selector in ('tr[data-tx-id] td', '.card-all-filters input[type=search]',
+                                         '.card-all-filters select', '.card-all-filters button'):
+                            for element in page.locator(selector).all():
+                                box = element.bounding_box()
+                                assert box and box['x'] >= 0 and box['x'] + box['width'] <= width + 1
+                        for link in page.locator('td.detail-cell a, td.trip>a').all():
+                            assert link.bounding_box()['height'] >= 44
+                        assert page.locator('.card-all-filters input[type=search]').evaluate(
+                            '(e)=>parseFloat(getComputedStyle(e).fontSize)>=16')
+                        assert page.locator("tr[data-tx-id='TX-A-01'] .merchant-name").evaluate(
+                            '(e)=>getComputedStyle(e).whiteSpace==="normal" && e.scrollHeight<=e.clientHeight')
+                    else:
+                        assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
+                    if width == 390:
+                        page.screenshot(path=str(output / f'mobile-{theme}.png'), full_page=True)
+                        page.locator("tr[data-tx-id='TX-A-02']").scroll_into_view_if_needed()
+                        page.screenshot(path=str(output / f'mobile-transaction-{theme}.png'))
+            assert page.locator("tr[data-tx-id='TX-A-01'] .merchant-name").inner_text() == long_merchant.strip()
+            assert page.locator("tr[data-tx-id='TX-B-01'] .card-all-trip-name").inner_text() == long_trip.strip()
+            assert page.locator("td.trip a[href='/board?tab=refunds']").count() == 2
+            assert page.locator('.card-all-help').get_attribute('open') is None
+            page.locator('.card-all-help summary').click()
+            assert page.locator('.card-all-help p').is_visible()
+            page.set_viewport_size({'width': 640, 'height': 844})
+            page.evaluate('document.documentElement.style.zoom="200%"')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
+            link = page.locator('td.detail-cell a').first
+            link.focus()
+            assert link.evaluate('(e)=>e===document.activeElement')
+            assert link.get_attribute('href').startswith('/board?row=card-')
+        finally:
+            browser.close()

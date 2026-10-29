@@ -88,14 +88,7 @@ def card_db_path():
     os.unlink(path)
 
 
-def test_month_grid_and_initial_page_are_lazy(card_db_path, monkeypatch):
-    summary = ct.year_summary(db_path=card_db_path, year=2026)
-    grid = cards_all._month_grid(2026, summary['months'], None)
-    assert grid.count("card-all-tile") == 12
-    assert "role='group'" in grid
-    for month in range(1, 13):
-        assert f'{month}월' in grid
-
+def test_period_selector_replaces_month_cards_and_initial_page_is_lazy(card_db_path, monkeypatch):
     def unexpected_undated_query(**kwargs):
         raise AssertionError("초기 화면은 날짜 확인 필요 목록을 조회하면 안 됩니다")
 
@@ -105,6 +98,11 @@ def test_month_grid_and_initial_page_are_lazy(card_db_path, monkeypatch):
     assert "날짜 확인 필요 · 2건" in page
     assert "날짜 확인 필요 목록 보기" in page
     assert "UNKNOWN" not in page
+    assert "name='period'" in page and '2026년 전체' in page
+    assert 'card-all-tile' not in page and 'card-all-grid' not in page
+    assert "name='year'" not in page and "name='month'" not in page
+    for month in range(1, 13):
+        assert f'2026년 {month}월</option>' in page
 
 
 def test_cards_all_page_uses_strict_date_and_undated_api_contract(card_db_path):
@@ -296,7 +294,7 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
         result = cards_all.cards_all_page(
             {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
     assert "id=\"card-all-design\"" in result
-    assert "조회할 월 선택" in result
+    assert "조회 조건" in result
     assert "월별 카드 거래 확인" in result
     assert "카드 전체 내역" in result
     assert "0630_오제" in result
@@ -307,8 +305,8 @@ def test_initial_month_prompt_removed_but_month_selection_remains_accessible(car
     result = cards_all.cards_all_page({'year': ['2026']}, db_path=card_db_path)
     assert '확인할 월을 선택해 줘.' not in result
     assert "class='card-all-prompt'" not in result
-    assert '조회할 월 선택' in result
-    assert 'aria-label=' in result and 'month=' in result
+    assert '조회 조건' in result
+    assert "aria-label='조회 기간'" in result and "value='2026-03'" in result
 
 
 def test_search_without_month_renders_results_immediately(card_db_path):
@@ -470,14 +468,13 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 page.emulate_media(color_scheme='light')
                 expect(page.locator(':root')).to_have_css('--shell-bg', '#F8FAFC')
                 assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
-                march = page.locator("[data-month='3']")
-                march.focus()
-                march.press('Enter')
-                assert page.get_by_role('heading', name='2026년 3월 · 전체 3건').is_visible()
-                assert page.locator("[data-month='3']").get_attribute('aria-pressed') == 'true'
-                page.locator("[data-month='3']").focus()
-                page.locator("[data-month='3']").press('Enter')
-                assert page.locator("[data-month='3']").get_attribute('aria-pressed') == 'false'
+                period = page.get_by_label('조회 기간', exact=True)
+                period.select_option('2026-03')
+                expect(page.get_by_role('heading', name='2026년 3월 · 전체 3건')).to_be_visible()
+                assert period.input_value() == '2026-03'
+                period.select_option('2026')
+                expect(page).to_have_url(re.compile(r'period=2026(?:&|$)'))
+                expect(period).to_have_value('2026')
 
                 page.set_viewport_size({'width': 640, 'height': 812})
                 page.evaluate('document.documentElement.style.zoom="200%"')
@@ -499,10 +496,9 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert tx_row.locator('td.detail-cell a').get_attribute('href') == '/board?row=card-TX-A-01'
                 assert page.get_by_role('columnheader', name='상세').is_visible()
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-                first_month = page.locator("[data-month='1']")
-                assert first_month.is_visible()
-                first_month.focus()
-                assert first_month.evaluate('(el)=>el===document.activeElement')
+                assert period.is_visible()
+                period.focus()
+                assert period.evaluate('(el)=>el===document.activeElement')
                 page.goto('http://cost.test/cards/all?year=2026')
                 page.locator('.card-all-filters input[name=q]').fill('8,420')
                 page.get_by_role('button', name='조회', exact=True).click()
