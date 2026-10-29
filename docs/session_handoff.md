@@ -1,5 +1,12 @@
 # 현재 상태와 남은 일
 
+## 2026-10-29 카드 목록 배정·분기·취소환불 문구 정리
+
+- COMPLETE — [PR #336](https://github.com/6Soo/cost/pull/336), 구현 `e141289640e92409c3a9312c5f11bc991e4247b9`, 운영 SHA `5297a0daee012809f17dfb0d045283284f9b977e`. 카드 목록 열 제목을 `배정`으로 줄였다. 분기 배정은 내부 ID 대신 `2026년 3분기 기타비용`처럼 표시하며 내부 ID/title은 보존한다. 취소·환불 목록의 반복 부연 설명을 제거하고 기존 링크를 유지했다. 앞선 인계의 “quarter는 내부 ID이고 이미 분기로 표시” 설명은 카드 목록의 fallback 경로를 누락했으므로 이 기록으로 교정한다.
+- 정확한 구현 archive의 카드·모바일·환불 목적지 34 passed. 320/390/600/759/760/1280·두 테마·200% 확대·행/환불 링크·원본 불변 검증 포함. merge tree 동일·1110 Git blobs 불일치0·운영 Python의 분기1~4/연도·배정 제목·환불 링크·원본 불변 smoke PASS. 인접 장부 UI 실패6건은 기준 main에서 재현해 범위 밖으로 유지했다. 결합 검사에서 분기 브라우저 임시 DB 정리 실패1건이 있었으나 기준 main 독립 실행에서는 통과했다. 전체 회귀·실제 owner 화면/실기기는 미실행이다.
+- 새 백업/별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호API401·금융/사용자13표 내용/스키마 불변 확인. Board/SourceRefresh Running. 이전 검증 `78cb6ad4a7ead4ecaff39671eb0a32090b4c8021` 보존. 실제 분류/금융/여행/Google 쓰기·마이그레이션·재처리0.
+- 근거: `.local-archive/card-assignment-label-20261029/`의 checkpoint/baseline-failures 및 `.local-archive/deploy-5297a0daee012809f17dfb0d045283284f9b977e/`의 review/runtime-smoke/auth-smoke/protection-before/protection-after/deploy-evidence, 호스트 동일 SHA release-audit/deploy-evidence. 기존 사용자·다른 작업 변경과 미추적 자료 보존. 현재 요청의 남은 구현/배포·차단0, 다음 실행 명령 없음. 후속 문서만으로 테스트·재배포·재시작하지 않는다.
+
 ## 2026-10-29 카드 3820 자동분류 충돌 수정·운영 배포
 
 - COMPLETE — [PR #335](https://github.com/6Soo/cost/pull/335), 수정 `dc2aaf3`, 운영 SHA `78cb6ad4a7ead4ecaff39671eb0a32090b4c8021`. 공통 자동분류에도 기존 3820 정책을 적용한다. 2026-09-19~24 유효한 싱가포르 여행 하나를 우선하고, 나머지 국내 매입은 거래일의 분기 기타비용으로 분류한다. 사용자 결정·완료 행과 해외/날짜 불명/취소·환불 보호를 유지한다.
