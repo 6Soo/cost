@@ -7,6 +7,7 @@ from app.ota_queue_telemetry import (
     build_read_trace, payload_bytes, percentile, safe_snapshot_metadata,
     stage_sample, summarize_samples, timed,
 )
+from app.request_metrics import MetricsWindow, measurement, timed as request_timed
 from tools.benchmark_ota_queue import query_plan_probe, run
 
 
@@ -153,3 +154,44 @@ def test_benchmark_reports_synthetic_scope_bounded_page_and_memory():
     assert "synthetic-event-" not in serialized
     assert "synthetic-card-" not in serialized
     assert "SYN-" not in serialized
+
+
+def test_common_request_metrics_are_bounded_correlated_and_content_free():
+    window = MetricsWindow(limit=2)
+    result, sample = request_timed(
+        "card_search", "card_search", lambda: {"customer": "SENTINEL"},
+        row_count=1, byte_count_fn=payload_bytes, generation=9,
+        rule_version="rules_v2", data_fingerprint="c" * 64,
+        clock=iter((1.0, 1.002)).__next__, metrics=window)
+    assert result["customer"] == "SENTINEL"
+    assert sample["snapshot_generation"] == 9 and len(sample["request_id"]) == 32
+    assert sample["elapsed_ms"] == 2.0 and sample["byte_count"] > 0
+    assert "SENTINEL" not in json.dumps(sample)
+    window.record({**sample, "customer": "SENTINEL"})
+    summary = window.summary()
+    assert summary["card_search.card_search"]["p50_ms"] == 2.0
+    assert "SENTINEL" not in json.dumps(summary)
+
+
+def test_common_request_metrics_reject_unbounded_or_malformed_dimensions():
+    with pytest.raises(ValueError):
+        measurement("customer-name", "card_search", 1)
+    with pytest.raises(ValueError):
+        measurement("card_search", "customer-name", 1)
+    with pytest.raises(ValueError):
+        measurement("card_search", "card_search", 1, data_fingerprint="source text")
+    with pytest.raises(ValueError):
+        measurement("card_search", "card_search", 1, peak_memory_bytes=-1)
+
+
+def test_synthetic_request_benchmark_covers_five_seams_without_fixture_contents():
+    result = run(24, 1)
+    metrics = result["request_metrics"]
+    assert set(metrics) == {
+        "ota_snapshot.snapshot_compute", "first_render.first_render",
+        "card_search.card_search", "google_canonical_read.google_read",
+        "db_lock_wait.db_lock_wait"}
+    assert all(item["p50_ms"] is not None and item["p95_ms"] is not None
+               for item in metrics.values())
+    assert all(item["bytes"] > 0 for item in metrics.values())
+    assert "synthetic-event-" not in json.dumps(metrics)
