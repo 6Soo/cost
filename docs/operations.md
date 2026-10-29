@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 동일일·동액 OTA 연결 배포 및 확인된 두 결제 반영
+
+- [PR #320](https://github.com/6Soo/cost/pull/320), 구현 `2b2ea98`, 검증 main/Windows SHA `f60e1a7225f834445491cab34f846622ec9ba120`. 동일일·동일 통화 정확 금액의 추가 단서 요구를 없애고 명시 충돌/전역 점유/부분 반복 묶음은 보호한다. 사용자 수동 외화 연결은 원문 외화와 카드 원화값을 보존하며 환율/미관측 끝자리를 만들지 않는다. matcher4로 기존 snapshot을 무효화한다.
+- 관련214 passed, snapshot-action/authority32 passed. staged metadata6파일 차단/삭제0. 새 전체 백업·별도 복원,1108 Git blobs 일치, task/processSHA·단일 loopback listener·health/ready200·보호 API401·보호13표 배포 전후 동일. 배포본을 호스트 Python으로 import한 matcher smoke PASS. 코드 배포 단계의 실제 금융 쓰기0이며 이후 사용자 개별 확인 적용과 구별한다.
+- 사용자 확인 두 숙박 거래만 기존 북큐슈 여행/숙박비로 교정·명시 예약 연결·내부 장부에 각1회 기록했다. 복사본에서 기존 스키마/원문/금액/ID/기존 행/범위 밖 표 보존을 검증하고 단일 작성자로 게시했다. 동일 조건2:2의 안정 순서 연결이라는 불확실성을 보존했다. 최종 readonly 확인 및 실제 인증 Aside 카드 화면2건/교정 여행/카드 끝자리 표시를 수락했고 Board/SourceRefresh Running·health/ready를 확인했다. Google 쓰기/실제 은행 환급0.
+- 예약 원문에는 카드사 브랜드만 있고 끝자리가 없어 파서 손실이 아니었다. 최초 복사본의 부수적 테이블 생성과 최초 게시의 journal 전환 잠금은 성공으로 계산하지 않았다. 운영 금융 원복·복사본 재검증 후 기존 journal을 유지하는 최종 게시만 APPLIED_VERIFIED로 기록했다.
+- 근거: 호스트 해당SHA deploy-evidence/release-audit, `D:/WebLedgerHost/data/backups/trip-confirm-20261029T041040263786Z/`의 rehearsal/apply-evidence 및 원본/별도 복원 사본, 로컬 `.local-archive/ota-same-day-amount-20261029/`. 이후 이 문서 전용 변경은 테스트/백업/재배포/재시작하지 않는다.
+
 ## 2026-10-29 PR #318 카드 검색 즉시 결과·금액 검색 배포
 
 - **COMPLETE:** [PR #318](https://github.com/6Soo/cost/pull/318), 운영 `0c285e14bb87d4a843d1860159cc2be35ed2aa8a`, 검수 소스 `2989613f9e837c02bd353d19135f1eb79da013d5`와 tree 동일. 월 선택 없이 선택 연도 검색 결과를 즉시 표시하고 0건을 명시한다. 원화/외화 금액의 쉼표 유무·승인번호 검색, 결과의 여행명/미배정 표시와 필터/커서 보존, 좁은 화면 필터 배치를 보완했다.
