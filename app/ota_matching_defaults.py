@@ -42,9 +42,9 @@ _SAFE_DEFAULTS = {
                    "source": "user-approved-klook-descriptor-2026-10-14"}],
         "booking": [{"alias": "booking.com", "status": "approved", "version": 2,
                      "source": "owner-approved-2026-10-16-booking-descriptor"}],
-    },
-    "gotogate": [{"alias": "이니시스(일반)-고투게이트코리아유", "status": "approved", "version": 1,
+        "gotogate": [{"alias": "이니시스(일반)-고투게이트코리아유", "status": "approved", "version": 1,
                       "source": "owner-provided-card-screenshot-2026-10-30"}],
+    },
     "trip_flight_charge_delta": {
         "enabled": True,
         "item_values": ["항공", "항공권", "flight", "airfare", "항공료"],
