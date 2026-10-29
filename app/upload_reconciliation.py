@@ -123,18 +123,25 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
         with pipeline.store.lock:
             conn.execute('SAVEPOINT upload_completion')
             try:
+                audited = set()
+                for subject, raw in conn.execute(
+                        'SELECT subject,detail_json FROM change_log WHERE kind=?',
+                        ('classification.upload_confirmed',)):
+                    try:
+                        detail = json.loads(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    audited.add((subject, detail.get('version'), detail.get('source'), detail.get('basis'),
+                                 detail.get('trip_id'), detail.get('item')))
                 for tid, previous_source, basis, revision in dict((d[0], d) for d in decisions).values():
                     stable = {'version': 'cuv-v2', 'source': previous_source,
                               'basis': basis, 'trip_id': rows[tid]['trip_id'], 'item': rows[tid]['item']}
-                    prior = any(all(json_value.get(key) == value for key, value in stable.items())
-                        for (raw,) in conn.execute(
-                            'SELECT detail_json FROM change_log WHERE kind=? AND subject=?',
-                            ('classification.upload_confirmed', tid))
-                        for json_value in [json.loads(raw)])
-                    if not prior:
+                    identity = (tid, *(stable[key] for key in ('version', 'source', 'basis', 'trip_id', 'item')))
+                    if identity not in audited:
                         detail = {**stable, 'at': utc_now()}
                         pipeline.store.log_change('classification.upload_confirmed', tid,
                                                   detail)
+                        audited.add(identity)
                 conn.execute('RELEASE SAVEPOINT upload_completion')
             except BaseException:
                 conn.execute('ROLLBACK TO SAVEPOINT upload_completion')

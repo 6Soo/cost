@@ -36,6 +36,12 @@ def test_invalid_trip_and_structured_source_conflict_remain_blocked():
         row(classification_source='inference_conflict'), TRIPS)['blocked_by']
 
 
+def test_missing_booking_evidence_does_not_reopen_saved_classification():
+    assert completion_for_row(row(classification_source='booking_evidence_needed'), TRIPS)['complete']
+    assert 'CLASSIFICATION_SOURCE_CONFLICT' in completion_for_row(
+        row(classification_source='rule_conflict'), TRIPS)['blocked_by']
+
+
 def test_transaction_nature_and_trip_conflict_are_required():
     assert 'TRANSACTION_NATURE_UNCONFIRMED' in completion_for_row(row(transaction_kind=''), TRIPS)['blocked_by']
     assert 'TRIP_ASSIGNMENT_CONFLICT' in completion_for_row(
