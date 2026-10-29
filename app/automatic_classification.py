@@ -43,8 +43,7 @@ def completion_for_row(row, valid, *, nets=None):
         reasons.append('TRIP_ASSIGNMENT_CONFLICT')
     if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
         reasons.append('SOURCE_UNRESOLVED')
-    if source in {'rule_conflict', 'inference_conflict', 'travel_location_hold',
-                  'booking_evidence_needed', 'manual_hold'}:
+    if source in {'rule_conflict', 'inference_conflict', 'travel_location_hold', 'manual_hold'}:
         reasons.append('CLASSIFICATION_SOURCE_CONFLICT')
     return {'transaction_id': row['transaction_id'], 'complete': not reasons,
             'mode': 'manual' if manual else ('auto' if not reasons else 'unresolved'),
