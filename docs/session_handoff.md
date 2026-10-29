@@ -6,6 +6,7 @@
 - 통합 근거: 최종 main 보호 33 passed, R1 47 passed, R2 83 passed, R3 20 passed, R4 72 passed/28 subtests. 기존 미결 통합의 core/cloud/participant 115 passed, 분기/권한/fixture 67 passed/40 subtests, 계측/스냅샷/HTTP 40 passed, 실제 handler/mock Google 4 passed, 설정/UI 14 passed, audit 30 passed. 겹치는 실행을 합산하지 않는다. 원래 viewport 보호와 새 합성 검사가 통과했고 변경 CSS 자산 기준도 5 passed다.
 - 배포 1,154 blobs 불일치0·새 백업/별도 복원·task/process SHA·단일 loopback listener·health/ready200·보호 API401·보호13표 전후 불변. 실제 Aside 인증 카드 화면에서 테마 버튼1개·문서 가로 overflow 없음·내부 분류 코드 비노출을 확인했다. 운영 금융/분류/여행/명단/Google 쓰기·원문 재처리0이며 기존 숲나들e 작업을 재실행하지 않았다. 근거는 통합 worktree `.local-archive/all-pending-luna-20261030/deploy/`와 같은 SHA의 호스트 deploy-evidence다.
 - 남은 수락: PEND-04 실제 원격 manifest는 stored3710/pending48/complete=false라 전환하지 않았다. 참가자 실제 인증 API는200이나 configured=false/complete=false여서 실제 명단 DB·등록 영수증 수락은 미완료다. 원결제 원본 부재·카드 수집/업로드 보류·실기기 수락을 유지한다. R5 감사에서 안전하게 삭제할 제품 코드는 확인되지 않아 삭제하지 않았고, 외부 실행/권한의 UNKNOWN을 근거 없이 활성화하지 않았다. 기존 OTA 예약 검사 2건의 철회 출처·기간/독립 추론 기대는 별도 정책/fixture 검토로 남겨 통과라고 보고하지 않는다. R4의 전면 컨트롤러 축소와 R5의 문서 history 이동 전체가 끝났다고 주장하지 않는다. 실제 근거와 다음 동작은 queue/checkpoint에 기록한다.
+- R4 후속 감사에서 기존 `ota_core_projection`과 `provisional_assignment` 위임을 확인했다. 남은 CardFlow 로직은 신선한 snapshot·예약 배정·메일/포털·선택 카드·기존 장부/보류/수동 결정을 조합하는 orchestration으로, 추가 안전한 중복 삭제는 확인되지 않았다. R5는 금융 명세에서 대체 사실이 명시된 [이전 잠정 귀속 명세](history/provisional-assignment-review-first-20261028.md) 한 건만 history로 이동하고 기존 경로에 호환 안내를 남겼다. 불명확한 제품 코드·다른 명세는 삭제/이동하지 않았다. 이 문서 후속은 재배포 대상이 아니다.
 
 ## 2026-10-29 카드 업로드 전수 대조 CUV 후속 검수
 
