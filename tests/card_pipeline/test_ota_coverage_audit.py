@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.reconcile import trace
+from app.reconcile import index_results, same_generation
 from tools.audit_ota_card_coverage import _canonical_results, main
 
 
@@ -71,6 +72,51 @@ def test_global_matcher_divergence_is_redacted_and_counted():
     assert summary["reconciliation_engine_status_counts"] == {"HOLD_AMBIGUOUS": 1}
     assert "private-event" not in json.dumps(summary)
     assert "private-card" not in json.dumps(summary)
+
+
+@pytest.mark.parametrize("artifacts,expected", [
+    (({"generation": 4}, {"generation": 4}), True),
+    ((4, 4, {"generation": 4}), True),
+    (({"generation": 4}, {"generation": 5}), False),
+    (({"generation": None},), False),
+    ((True,), False),
+    ((), False),
+])
+def test_shared_generation_contract(artifacts, expected):
+    assert same_generation(*artifacts) is expected
+
+
+def test_result_index_rejects_duplicate_ids_and_generation_mismatch():
+    rows = [{"ota_event_id": "one", "status": "MATCHED_AUTO"},
+            {"ota_event_id": "one", "status": "HOLD_AMBIGUOUS"},
+            {"ota_event_id": "two", "status": "NO_RESULT"}]
+    assert index_results(rows) == {"two": rows[2]}
+    assert index_results({"generation": 3, "results": rows}, generation=4) == {}
+    assert index_results({"generation": 3, "results": rows}, generation=3) == {"two": rows[2]}
+
+
+def test_coverage_report_suppresses_cross_generation_solver_comparison():
+    event = {"ota_event_id": "synthetic-event", "evidence_status": "paid_verified"}
+    result = {"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO",
+              "transaction_id": "synthetic-card"}
+    summary, _ = trace.build_coverage_report(events=[event], cards=[],
+        legacy_links={"synthetic-event": "synthetic-card"},
+        reconciliation_results=[result], snapshot_generation=8, list_generation=8,
+        detail_generation=7, readiness_generation=8, run_secret=b"g" * 32)
+    assert summary["generation_consistent"] is False
+    assert summary["snapshot_generation"] == 8
+    assert summary["legacy_engine_divergence_count"] == 1
+    assert summary["reconciliation_engine_status_counts"] == {}
+    assert summary["reconciliation_divergences"][0]["engine_status"] == "NO_RESULT"
+
+
+def test_coverage_report_accepts_same_generation_and_preserves_solver_status():
+    result = {"ota_event_id": "synthetic-event", "status": "HOLD_AMBIGUOUS"}
+    summary, _ = trace.build_coverage_report(events=[{"ota_event_id": "synthetic-event"}], cards=[],
+        reconciliation_results=[result], snapshot_generation=8, list_generation=8,
+        detail_generation=8, readiness_generation=8)
+    assert summary["generation_consistent"] is True
+    assert summary["reconciliation_engine_status_counts"] == {"HOLD_AMBIGUOUS": 1}
 
 
 def test_shadow_engine_only_receives_user_links_as_frozen_decisions(monkeypatch):
