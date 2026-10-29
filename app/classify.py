@@ -266,6 +266,12 @@ def _card3820_residual(transaction: dict, verdict: dict) -> dict:
         day = date.fromisoformat(transaction.get('approval_date') or transaction.get('posting_date') or '')
     except (TypeError, ValueError):
         return verdict
+    # A recognized OTA payment descriptor is not evidence of a non-trip residual.
+    # Keep the transaction available for booking/payment reconciliation instead
+    # of prematurely finalizing it as quarterly miscellaneous expense.
+    from .ota_matching_defaults import provider_for_merchant
+    if provider_for_merchant(transaction.get('merchant_normalized') or transaction.get('merchant')):
+        return verdict
     from .quarter_costs import quarter_of
     year, quarter = quarter_of(day)
     return dict(verdict, classification_state=STATE_CLASSIFIED, classification_source='owner_card_residual',
