@@ -43,8 +43,20 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
         clauses.append('COST_CARD_KEY(issuer,card_kind,card_tail)=?')
         params.append(card)
     if search:
-        clauses.append("(instr(lower(COALESCE(merchant,'')),lower(?))>0 OR instr(lower(COALESCE(description,'')),lower(?))>0 OR instr(lower(COALESCE(item,'')),lower(?))>0)")
-        params.extend([search] * 3)
+        # Keep text search case-insensitive and allow the same field to be
+        # found by either its displayed amount (9,800) or its stored value
+        # (9800).  Amounts are deliberately substring-searchable so a user
+        # can enter a partial amount while investigating a transaction.
+        numeric_search = str(search).replace(",", "") or str(search)
+        clauses.append(
+            "(instr(lower(COALESCE(merchant,'')),lower(?))>0 "
+            "OR instr(lower(COALESCE(description,'')),lower(?))>0 "
+            "OR instr(lower(COALESCE(item,'')),lower(?))>0 "
+            "OR instr(lower(COALESCE(approval_number,'')),lower(?))>0 "
+            "OR instr(CAST(COALESCE(amount_krw,'') AS TEXT),?)>0 "
+            "OR instr(lower(replace(COALESCE(foreign_amount,''),',','')),lower(?))>0)"
+        )
+        params.extend([search] * 4 + [numeric_search, numeric_search])
     return ''.join(' AND (' + clause + ')' for clause in clauses), params
 
 
@@ -367,6 +379,78 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
             "has_more": has_more,
             "cursor": next_cursor
         }
+    finally:
+        conn.close()
+
+
+def search_for_year(db_path: Optional[str] = None, year: int = 2026,
+                    cursor: Optional[str] = None, per_page: int = 100,
+                    **filters) -> Dict[str, Any]:
+    """Search valid dated transactions across every month in ``year``.
+
+    The month view remains the canonical paged view.  This projection exists
+    so a search submitted before choosing a month has an immediate result
+    area, including an explicit zero-result state.
+    """
+    if not isinstance(year, int) or year < 2000 or year > 2100:
+        raise ValueError("invalid year: must be 2000-2100")
+    if not isinstance(per_page, int) or per_page < 1 or per_page > 500:
+        raise ValueError("invalid per_page: must be 1-500")
+
+    conn = _connect(_resolve_card_db_path(db_path))
+    try:
+        params = [str(year)]
+        where = f"{_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ?"
+        extra, filter_params = _filter_clause(**filters)
+        where += extra
+        params.extend(filter_params)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE " + where, params)
+        total = cur.fetchone()[0] or 0
+        if cursor:
+            parts = cursor.split("|", 1)
+            if len(parts) != 2:
+                raise ValueError("invalid cursor format")
+            c_date, c_id = parts
+            if not _valid_use_date(c_date) or not c_id:
+                raise ValueError("invalid cursor date")
+            c_date_only = int(len(c_date) == 10)
+            c_time = c_date[11:] if not c_date_only else ""
+            where += (
+                " AND (substr(approval_date, 1, 10), "
+                "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END, "
+                "substr(approval_date, 12), transaction_id) > (?, ?, ?, ?)"
+            )
+            params.extend([c_date[:10], c_date_only, c_time, c_id])
+        sql = (
+            "SELECT transaction_id, approval_date, approval_number, amount_krw, "
+            "foreign_amount, foreign_currency, merchant, description, classification_state, "
+            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id "
+            "FROM transactions WHERE " + where +
+            " ORDER BY substr(approval_date, 1, 10) ASC, "
+            "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
+            "substr(approval_date, 12) ASC, transaction_id ASC LIMIT ?"
+        )
+        cur.execute(sql, params + [per_page + 1])
+        rows = cur.fetchall()
+        has_more = len(rows) > per_page
+        rows = rows[:per_page]
+        items = []
+        for r in rows:
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer, kind, tail, display_tab = r
+            items.append({
+                "transaction_id": tid, "use_date": adate or "", "approval_date": adate,
+                "approval_number": anumber, "amount_krw": amt, "foreign_amount": famt,
+                "foreign_currency": fcurr, "merchant": merchant, "description": desc,
+                "classification_state": state, "classification_source": src,
+                "trip_id": trip, "display_tab_id": display_tab,
+                **card_identity(issuer, kind, tail), "item": item,
+                "description_raw": raw, "duplicate_of": dup,
+                "conflict_reason": conflict, "revision": rev
+            })
+        next_cursor = f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if items and has_more else None
+        return {"year": year, "items": items, "count": len(items),
+                "total_count": total, "has_more": has_more, "cursor": next_cursor}
     finally:
         conn.close()
 
