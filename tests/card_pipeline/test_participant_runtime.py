@@ -40,6 +40,9 @@ def test_missing_and_wrong_schema_are_blocked_without_creating_anything(tmp_path
     result = verify_paths(empty, empty)
     assert result['status'] == 'blocked' and not result['schema_present']
     assert empty.read_bytes() == before
+    with sqlite3.connect(empty) as connection:
+        connection.executescript('CREATE TABLE roster_batches(wrong TEXT); CREATE TABLE trip_participants(wrong TEXT);')
+    assert verify_paths(empty, empty)['status'] == 'blocked'
 
 
 def test_receipt_requires_actual_recorded_batch_and_matching_counts(tmp_path):
@@ -55,6 +58,7 @@ def test_receipt_requires_actual_recorded_batch_and_matching_counts(tmp_path):
     assert verify_paths(db, db, receipt=receipt)['receipt_matches_recorded_batch']
     wrong = dict(receipt, new_participants=3)
     assert verify_paths(db, db, receipt=wrong)['status'] == 'blocked'
+    assert verify_paths(db, db, receipt=dict(receipt,new_participants=True))['status'] == 'blocked'
     assert verify_paths(db, db, receipt=dict(receipt,batch_id='missing'))['status'] == 'blocked'
     assert db.read_bytes() == before
 

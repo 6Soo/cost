@@ -17,6 +17,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         receipt = json.loads(args.receipt.read_text(encoding='utf-8')) if args.receipt else None
+        if args.receipt and not isinstance(receipt, dict):
+            raise ValueError('PARTICIPANT_RECEIPT_INVALID')
     except (OSError, ValueError, UnicodeError):
         print(json.dumps({'status':'blocked','code':'PARTICIPANT_RECEIPT_INVALID'}))
         return 2

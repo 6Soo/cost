@@ -38,6 +38,11 @@ def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | No
                 tables = {row[0] for row in store.conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'")}
                 result["schema_present"] = "roster_batches" in tables and "trip_participants" in tables
+                if result['schema_present']:
+                    batch_columns = {row[1] for row in store.conn.execute('PRAGMA table_info(roster_batches)')}
+                    person_columns = {row[1] for row in store.conn.execute('PRAGMA table_info(trip_participants)')}
+                    result['schema_present'] = ({'batch_id','roster_id','status','result_json'} <= batch_columns
+                        and {'participant_id','trip_id','state','active'} <= person_columns)
                 if receipt is not None:
                     batch_id = receipt.get('batch_id') if isinstance(receipt, dict) else None
                     recorded = store.conn.execute(
@@ -47,6 +52,8 @@ def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | No
                     fields = ('batch_id','trip_id','google_trip_key','new_participants','reused_participants')
                     result['receipt_matches_recorded_batch'] = bool(
                         recorded and recorded[0] == 'registered' and receipt.get('status') == 'registered'
+                        and all(type(receipt.get(key)) is int and receipt[key] >= 0
+                                for key in ('new_participants','reused_participants'))
                         and all(key in receipt and receipt[key] == stored.get(key) for key in fields))
             finally:
                 store.close()
