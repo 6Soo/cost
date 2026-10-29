@@ -285,7 +285,9 @@ def reconcile(cost_rows, sheet_rows, *, trip_id, source_available=True,
             if len(candidates) == 1:
                 i = candidates[0]
                 row = eligible_sheets[i]
-                if _trip(row) == ct and _core_equal(cost, row):
+                if (_trip(row) == ct and _core_equal(cost, row)
+                        and not _card_conflict(cost, row)
+                        and not _explicit_non_card_conflict(cost, row)):
                     other_owners = occupied.get((key, fingerprint), set()) - {tid}
                     if other_owners:
                         proposed.append(_result(cost, 'REVIEW_CONFLICT', trip_id=target_trip,
@@ -386,6 +388,10 @@ def reconcile(cost_rows, sheet_rows, *, trip_id, source_available=True,
     owners = defaultdict(list)
     for pos, result in enumerate(proposed):
         if result['status'] in ('MATCHED_MANUAL', 'MATCHED_EXISTING'):
+            if occupied.get((result['sheet_row_key'], result['sheet_fingerprint']), set()) - {result['transaction_id']}:
+                proposed[pos] = _result(costs[pos], 'REVIEW_CONFLICT', trip_id=target_trip,
+                                        reason='SHEET_ROW_OCCUPIED_BY_EXISTING_LINK')
+                continue
             owners[result['sheet_row_key']].append(pos)
     for positions in owners.values():
         if len(positions) > 1:

@@ -31,6 +31,15 @@ def save(path, rows, *, revision=0, request="request-1", digest="source-sha"):
                             now="2026-10-29T00:00:00Z")
 
 
+def test_automatic_save_cannot_overwrite_user_correction(tmp_path):
+    path = tmp_path / 'links.json'
+    save(path, [result(user_override=True, link_method='owner_correction')])
+    before = path.read_bytes()
+    with pytest.raises(links.LinkStoreError, match='USER_CORRECTION_PROTECTED'):
+        save(path, [result()], revision=1, request='automatic')
+    assert path.read_bytes() == before
+
+
 def test_save_load_records_scope_stable_key_audit_and_provenance(tmp_path):
     path = tmp_path / "links.json"
     assert links.load_links(path) == {"revision": 0, "links": [], "history": []}

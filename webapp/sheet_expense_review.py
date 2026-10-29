@@ -6,6 +6,7 @@ metadata in the existing local link store; Google sheets are never written.
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import re
 import uuid
@@ -88,6 +89,12 @@ def _filters(query, kind):
 def _selected_expense_rows(trip_id, query, kind):
     from . import ledger_design
     return ledger_design._selected_rows(trip_id, query, kind)[1]
+
+
+def _batch_expense_rows(board, trip_id, batch_id):
+    from app import ledger, quarter_costs
+    return [row for row in ledger.preview(board, batch_id)['rows']
+            if row.get('display_tab_id') == trip_id and not quarter_costs.destination(row)]
 
 
 def _mask_card(value):
@@ -417,6 +424,8 @@ def _post(handler, raw, csrf):
         return
     trip_id = _safe_trip_id(body.get("trip_id"))
     action = body.get("action", "links")
+    scope = body.get('scope', 'all')
+    batch_id = _safe_trip_id(body.get('batch_id'))
     ids = body.get("transaction_ids", [])
     request_id = body.get("request_id")
     expected_revision = body.get("expected_revision")
@@ -426,7 +435,8 @@ def _post(handler, raw, csrf):
     except ValueError:
         _send_error(handler, "INVALID_FILTER", 400)
         return
-    if (not trip_id or action not in ("links", "export") or not isinstance(ids, list)
+    if (not trip_id or action not in ("links", "export") or scope not in ('all', 'board', 'batch')
+            or (scope == 'batch' and not batch_id) or not isinstance(ids, list)
             or (action == "links" and not ids) or len(ids) > PAGE_SIZE
             or any(not isinstance(value, str) or not value.strip() or len(value) > 200 for value in ids)
             or len(set(ids)) != len(ids) or type(expected_revision) is not int or expected_revision < 0
@@ -470,8 +480,9 @@ def _post(handler, raw, csrf):
                 _send_error(handler, "COST_STORE_UNAVAILABLE", 503)
                 return
             try:
-                export_rows = (_selected_expense_rows(trip_id, query, kind)
-                               if query or kind else None)
+                export_rows = (_batch_expense_rows(board, trip_id, batch_id) if scope == 'batch' else
+                               _selected_expense_rows(trip_id, query, kind)
+                               if scope == 'board' or query or kind else None)
             except (ValueError, TypeError):
                 _send_error(handler, "INVALID_FILTER", 400)
                 return
@@ -483,7 +494,7 @@ def _post(handler, raw, csrf):
                             "시트 원본을 다시 확인할 수 없어 TSV를 준비하지 않았습니다")
                 return
             if (fresh.get("source_digest") != preview.get("source_digest")
-                    or (prior_request is None and not (query or kind)
+                    or (prior_request is None and scope == 'all' and not (query or kind)
                         and fresh.get("preview_digest") != expected_preview)):
                 _send_error(handler, "PREVIEW_STALE", 409,
                             "미리보기 이후 원본이 바뀌었습니다. 최신 결과를 다시 열어 주세요")
@@ -493,7 +504,16 @@ def _post(handler, raw, csrf):
                 _send_error(handler, "SOURCE_UNAVAILABLE", 503,
                             "전체 대조 결과를 다시 확인할 수 없어 TSV를 준비하지 않았습니다")
                 return
+            export_context = hashlib.sha256(json.dumps({
+                'trip_id': trip_id, 'query': query, 'kind': kind, 'scope': scope, 'batch_id': batch_id,
+                'cost_rows': full_fresh.get('cost_rows'),
+                'tsv': exported.get('tsv'), 'held': exported.get('held'),
+            }, sort_keys=True, ensure_ascii=False, default=str).encode('utf-8')).hexdigest()
             if prior_request is not None:
+                if prior_request.get('request_context') != export_context:
+                    _send_error(handler, 'LINK_REQUEST_ID_REUSED', 409,
+                                '지출이나 복사 조건이 바뀌었습니다. 최신 대조 결과에서 다시 복사해 주세요')
+                    return
                 if full_fresh.get("source_digest") != prior_request.get("source_digest"):
                     _send_error(handler, "SOURCE_CHANGED", 409,
                                 "원본이 이전 요청 이후 바뀌어 TSV를 준비하지 않았습니다")
@@ -529,7 +549,8 @@ def _post(handler, raw, csrf):
             to_save = _linkable_rows(results)
             if to_save:
                 store.save_links(path, to_save, expected_revision=expected_revision,
-                                 request_id=request_id, source_digest=fresh.get("source_digest"))
+                                 request_id=request_id, source_digest=fresh.get("source_digest"),
+                                 request_context=export_context)
             handler._send_json({"code": "OK", "replayed": False,
                                 "tsv": str(exported.get("tsv") or ""),
                                 "row_count": int(exported.get("row_count") or 0),

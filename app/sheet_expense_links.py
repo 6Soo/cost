@@ -182,7 +182,7 @@ def _atomic_write(path: Path, data: dict) -> None:
         raise LinkStoreError("LINKS_WRITE_FAILED") from None
 
 
-def save_links(path, results, *, expected_revision, request_id, source_digest, now=None) -> dict:
+def save_links(path, results, *, expected_revision, request_id, source_digest, now=None, request_context=None) -> dict:
     """Atomically save verified links with CAS and idempotent request replay."""
     path = Path(path)
     if type(expected_revision) is not int or expected_revision < 0:
@@ -195,10 +195,15 @@ def save_links(path, results, *, expected_revision, request_id, source_digest, n
     normalized = _normalize_results(results, timestamp)
     request_results = [{key: value for key, value in item.items()
                         if key not in ("timestamp", "last_verified")} for item in normalized]
-    payload_digest = hashlib.sha256(_canonical({
+    request_payload = {
         "results": request_results,
         "source_digest": source_digest,
-    }).encode("utf-8")).hexdigest()
+    }
+    if request_context is not None:
+        if not isinstance(request_context, str) or not request_context:
+            raise LinkStoreError('LINK_REQUEST_CONTEXT_INVALID')
+        request_payload['request_context'] = request_context
+    payload_digest = hashlib.sha256(_canonical(request_payload).encode("utf-8")).hexdigest()
 
     with _locked(path):
         data = _read(path)
@@ -219,6 +224,11 @@ def save_links(path, results, *, expected_revision, request_id, source_digest, n
             current_tx = by_transaction.get(candidate["transaction_id"])
             current_sheet = by_sheet_key.get((candidate["trip_id"], candidate["sheet_id"],
                                               candidate["source"], candidate["stable_key"]))
+            if current_tx and current_tx.get('user_override') and (
+                    not candidate.get('user_override')
+                    or candidate.get('link_method') != current_tx.get('link_method')
+                    or candidate.get('sheet_fingerprint') != current_tx.get('sheet_fingerprint')):
+                raise LinkStoreError('USER_CORRECTION_PROTECTED')
             if current_tx and (current_tx.get("trip_id"), current_tx.get("sheet_id"),
                                current_tx.get("source"), current_tx.get("stable_key")) != (
                                    candidate["trip_id"], candidate["sheet_id"], candidate["source"], candidate["stable_key"]):
@@ -252,6 +262,7 @@ def save_links(path, results, *, expected_revision, request_id, source_digest, n
         data["links"] = links
         data["history"].append({"kind": "request", "revision": new_revision,
                                "request_id": request_id, "payload_digest": payload_digest,
-                               "source_digest": source_digest, "at": timestamp})
+                               "source_digest": source_digest, "at": timestamp,
+                               **({'request_context': request_context} if request_context is not None else {})})
         _atomic_write(path, data)
         return data

@@ -206,6 +206,16 @@ def test_single_manual_row_cannot_be_claimed_by_two_cost_rows():
     assert out['counts']['REVIEW_CONFLICT'] == 2
 
 
+def test_composite_match_cannot_claim_row_owned_by_out_of_scope_cost():
+    sheet = manual(approval_number='', issuer='', card_tail='')
+    prior = reconcile([cost()], [sheet], trip_id='trip-a')['results'][0]
+    links = {'cost-1': prior}
+    result = reconcile([cost(transaction_id='cost-2')], [sheet], trip_id='trip-a',
+                       existing_links=links)['results'][0]
+    assert result['status'] == 'REVIEW_CONFLICT'
+    assert result['reason'] == 'SHEET_ROW_OCCUPIED_BY_EXISTING_LINK'
+
+
 def test_source_unavailable_blocks_all_cost_rows():
     out = reconcile([cost(), cost(transaction_id='cost-2')], [],
                     trip_id='trip-a', source_available=False)

@@ -146,9 +146,12 @@ def test_stale_or_unselected_source_fails_closed_for_every_cost_row(sources, mon
 
 def test_user_correction_provenance_is_distinct_from_manual_sheet_match(sources, monkeypatch):
     links = sources.with_name('manual-expense-links.json')
-    links.write_text(json.dumps({'schema': 'manual-expense-links-v1', 'links': {
-        'tx-a': {'trip_id': TRIP_ID, 'user_corrected': True, 'correction_source': 'owner-review'}}}),
-        encoding='utf-8')
+    from app.sheet_expense_links import save_links
+    save_links(links, [{'transaction_id': 'tx-a', 'trip_id': TRIP_ID, 'sheet_id': SHEET_ID,
+                       'source': 'main', 'sheet_row_key': 'synthetic-key',
+                       'sheet_fingerprint': 'synthetic-fingerprint', 'status': 'MATCHED_MANUAL',
+                       'basis': ['synthetic'], 'user_override': True, 'link_method': 'owner-review'}],
+               expected_revision=0, request_id='correction', source_digest='synthetic')
     _engine(monkeypatch, ['MATCHED_MANUAL'])
     result = preview_for_trip(Board(), TRIP_ID, [_cost()])
     item = result['results'][0]

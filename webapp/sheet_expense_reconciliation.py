@@ -32,7 +32,7 @@ def _unavailable(cost_rows, reason, *, trip_id='', revision=None, links_path='')
                for row in rows]
     counts = dict.fromkeys(STATUSES, 0)
     counts['SOURCE_UNAVAILABLE'] = len(results)
-    return {'results': results, 'counts': counts, 'source_available': False,
+    return {'results': results, 'cost_rows': rows, 'counts': counts, 'source_available': False,
             'source_digest': '', 'source_info': {'reason': reason}, 'revision': revision,
             'links_path': links_path, 'preview_digest': _digest((trip_id, reason, results))}
 
@@ -60,22 +60,43 @@ def _cost_preview_rows(store, trip_id):
         preview = ledger.preview(store, batch_id)
         rows.extend(row for row in preview.get('rows', [])
                     if str(row.get('display_tab_id') or '') == str(trip_id))
+    # Include the board's receipt/manual expenses, using the same source IDs as
+    # the card preview so a booked card is represented exactly once.
+    if hasattr(store, 'list_tab_rows'):
+        by_id = {str(row.get('transaction_id') or ''): row for row in rows}
+        for row in store.list_tab_rows(trip_id):
+            if row.get('row_kind') == 'expense' and str(row.get('display_tab_id') or '') == str(trip_id):
+                if hasattr(store, 'projected'):
+                    row = {**row, **store.projected(row)}
+                normalized = _normalize_cost_row(row)
+                prior = by_id.get(normalized['transaction_id'], {})
+                by_id[normalized['transaction_id']] = {**prior, **normalized,
+                    'blocked': prior.get('blocked') or normalized.get('blocked')}
+        rows = list(by_id.values())
     return rows
 
 
+def _normalize_cost_row(row):
+    if row.get('transaction_id'):
+        return dict(row)
+    amount = row.get('display_amount_krw', row.get('amount_krw'))
+    return {**row, 'transaction_id': str(row.get('source_event_id') or row.get('row_id') or ''),
+            'trip_id': row.get('display_tab_id'),
+            'date': row.get('display_occurred_on') or row.get('occurred_on'),
+            'occurred_on': row.get('display_occurred_on') or row.get('occurred_on'),
+            'merchant': row.get('source_merchant') or row.get('description') or '',
+            'booking_ref': row.get('reservation_no') or '', 'amount_krw': amount,
+            'evidence': {'카드': 'card', '영수증': 'receipt'}.get(row.get('evidence_type'), ''),
+            'currency': 'KRW', 'transaction_direction': 'refund' if amount is not None and amount < 0 else 'purchase'}
+
+
 def _load_existing_links(path: Path):
-    try:
-        value = json.loads(path.read_text(encoding='utf-8'))
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError):
-        raise ValueError('LINKS_UNAVAILABLE') from None
-    if not isinstance(value, dict) or value.get('schema') != 'manual-expense-links-v1':
-        raise ValueError('LINKS_UNAVAILABLE')
-    links = value.get('links')
-    if not isinstance(links, dict) or any(not isinstance(row, dict) for row in links.values()):
-        raise ValueError('LINKS_UNAVAILABLE')
-    return links
+    from app.sheet_expense_links import load_links
+    return {row['transaction_id']: {**row, 'sheet_row_key': row['stable_key'],
+                'manual_override': bool(row.get('user_override')),
+                'user_corrected': bool(row.get('user_override')),
+                'correction_source': row.get('link_method') if row.get('user_override') else ''}
+            for row in load_links(path)['links']}
 
 
 def _sheet_rows(rows, *, trip_id, google_key, sheet_id, source):
@@ -111,13 +132,16 @@ def preview_for_trip(board, trip_id, cost_rows=None):
     This function only reads the COST store and local Google snapshots/settings.
     It never writes to Google, the COST ledger, or the link file.
     """
-    costs = list(cost_rows or ())
+    costs = [_normalize_cost_row(row) for row in (cost_rows or ())]
     try:
         store, cost_trip = _store_and_trip(board, trip_id)
         if store is None or cost_trip is None:
             raise ValueError('COST_TRIP_UNAVAILABLE')
         if cost_rows is None:
-            costs = list(_cost_preview_rows(store, trip_id))
+            costs = [_normalize_cost_row(row) for row in _cost_preview_rows(store, trip_id)]
+        ids = [str(row.get('transaction_id') or '') for row in costs]
+        if any(not value for value in ids) or len(ids) != len(set(ids)):
+            raise ValueError('RECONCILIATION_INVALID')
         if not google_ledger_page.enabled():
             raise ValueError('GOOGLE_SOURCE_DISABLED')
         snapshot_path = google_ledger_page.snapshot_path()
@@ -165,10 +189,6 @@ def preview_for_trip(board, trip_id, cost_rows=None):
         links_path = snapshot_path.with_name('manual-expense-links.json')
         existing_links = {key: value for key, value in _load_existing_links(links_path).items()
                           if value.get('trip_id') == str(trip_id)}
-        for row in costs:
-            if row.get('already_booked'):
-                existing_links.setdefault(str(row.get('transaction_id') or ''), {
-                    'status': 'MATCHED_EXISTING', 'trip_id': str(trip_id)})
         from app.sheet_expense_dedup import reconcile
         result = reconcile(costs, sheet_rows, trip_id=str(trip_id), source_available=True,
                            existing_links=existing_links)
@@ -209,7 +229,7 @@ def preview_for_trip(board, trip_id, cost_rows=None):
         payload = {'trip_id': str(trip_id), 'revision': revision,
                    'cost_rows': costs, 'sheet_rows': sheet_rows,
                    'results': result['results'], 'counts': result['counts']}
-        return {**result, 'source_available': True, 'source_digest': source_digest,
+        return {**result, 'cost_rows': costs, 'source_available': True, 'source_digest': source_digest,
                 'source_info': {'trip_key': google_key, 'sheet_id': sheet_id, 'source': source,
                                 'layout': copy_info.get('layout'), 'synced_at': snapshot.get('synced_at')},
                 'revision': revision, 'links_path': str(links_path),
@@ -233,8 +253,8 @@ def preview_for_trip(board, trip_id, cost_rows=None):
 
 def export_for_trip(board, preview_rows, trip_id):
     """Refresh source and matching immediately before producing NEW_EXPENSE TSV rows."""
-    rows = list(preview_rows or ())
-    fresh = preview_for_trip(board, trip_id, cost_rows=rows)
+    fresh = preview_for_trip(board, trip_id, cost_rows=preview_rows)
+    rows = list(fresh.get('cost_rows') or ())
     if not fresh['source_available']:
         return {'tsv': '', 'row_count': 0, 'total_krw': 0, 'held': [],
                 'reconciliation': fresh, 'source_available': False, 'matched': [],
@@ -244,13 +264,23 @@ def export_for_trip(board, preview_rows, trip_id):
                     for result in fresh.get('results', [])}
     allowed = [by_id[tid] for tid, result in result_by_id.items()
                if tid in by_id and result.get('status') == 'NEW_EXPENSE'
-               and not by_id[tid].get('blocked') and not by_id[tid].get('already_booked')
+               and not by_id[tid].get('blocked')
                and not by_id[tid].get('excluded_from_company')]
-    from app.google_tsv_adapter import tsv_for_tab
-    exported = tsv_for_tab(allowed, str(trip_id))
+    from app.google_tsv import expense_tsv
+    exported = {**expense_tsv([{
+        'transaction_id': row['transaction_id'], 'date': row.get('occurred_on') or row.get('date'),
+        'payee': row.get('merchant'), 'category': row.get('item'), 'period': row.get('service_period'),
+        'reservation_no': row.get('booking_ref'), 'evidence': row.get('evidence') or 'card',
+        'amount_krw': row.get('amount_krw'), 'status': 'ready',
+    } for row in allowed], layout='rev'), 'tab_id': str(trip_id)}
     matched = [result for result in fresh['results']
                if result.get('status') in ('MATCHED_MANUAL', 'MATCHED_EXISTING')]
     held = [result for result in fresh['results']
             if result.get('status') not in ('NEW_EXPENSE', 'MATCHED_MANUAL', 'MATCHED_EXISTING')]
-    return {**exported, 'reconciliation': fresh, 'matched': matched,
+    holds = [{'transaction_id': row['transaction_id'], 'reason': row.get('reason') or row['status']}
+             for row in held]
+    holds.extend({'transaction_id': row['transaction_id'], 'reason': row.get('blocked') or 'COMPANY_EXCLUDED'}
+                 for row in rows if row.get('blocked') or row.get('excluded_from_company'))
+    return {**exported, 'held': list(exported.get('held') or []) + holds,
+            'reconciliation': fresh, 'matched': matched,
             'held_results': held, 'source_available': True}

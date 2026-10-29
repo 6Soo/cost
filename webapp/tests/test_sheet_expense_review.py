@@ -48,7 +48,7 @@ class FakeLinks:
     def load_links(self, _path):
         return self.data
 
-    def save_links(self, _path, results, *, expected_revision, request_id, source_digest):
+    def save_links(self, _path, results, *, expected_revision, request_id, source_digest, request_context=None):
         previous = next((event for event in self.data["history"]
                          if event.get("kind") == "request" and event.get("request_id") == request_id), None)
         if previous:
@@ -63,7 +63,7 @@ class FakeLinks:
             self.data["links"].append(after)
             self.data["history"].append({"kind": "link_saved", "after": after})
         self.data["history"].append({"kind": "request", "revision": self.data["revision"], "request_id": request_id,
-                                     "source_digest": source_digest})
+                                     "source_digest": source_digest, "request_context": request_context})
         return self.data
 
 
