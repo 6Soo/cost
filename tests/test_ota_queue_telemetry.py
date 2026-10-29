@@ -42,6 +42,38 @@ def test_opt_in_memory_probe_preserves_an_existing_process_profiler():
     assert service.view()['telemetry']['memory_scope'] == 'process_tracemalloc'
 
 
+@pytest.mark.parametrize("rule_version", ["rules-v1.2", "bad value", None, 7])
+def test_snapshot_metrics_use_published_generation_and_ignore_invalid_optional_rule_version(rule_version):
+    from webapp.ota_snapshot import OtaSnapshotService
+    service = OtaSnapshotService(
+        key_fn=lambda: "synthetic-generation-key",
+        reconcile_fn=lambda: {"public": {}, "data": {}, "rule_version": rule_version,
+                              "rule_fingerprint": "a" * 64}, start=False)
+    service.check_now()
+    telemetry = service.view()["telemetry"]
+    request = telemetry["requests"][0]
+    assert request["snapshot_generation"] == telemetry["snapshot_generation"] == 1
+    assert telemetry["rule_version"] == request["rule_version"] == (
+        rule_version if rule_version == "rules-v1.2" else None)
+
+
+def test_snapshot_metrics_generation_tracks_actual_incremented_publication():
+    from webapp.ota_snapshot import OtaSnapshotService
+    keys = iter(("synthetic-key-1", "synthetic-key-2"))
+    service = OtaSnapshotService(
+        key_fn=lambda: next(keys),
+        reconcile_fn=lambda: {"public": {}, "data": {}, "rule_version": "solver.v2-beta"},
+        start=False)
+    service.check_now()
+    first = service.view()["telemetry"]
+    service.check_now()
+    second = service.view()["telemetry"]
+    assert first["requests"][0]["snapshot_generation"] == 1
+    assert second["requests"][0]["snapshot_generation"] == 2
+    assert second["snapshot_generation"] == 2
+    assert second["requests"][0]["rule_version"] == "solver.v2-beta"
+
+
 def test_stage_adapter_accepts_only_finite_allowlisted_metadata():
     sample = stage_sample("projection", 2.12345, row_count=7, byte_count=91)
     assert sample == {"stage": "projection", "elapsed_ms": 2.123,

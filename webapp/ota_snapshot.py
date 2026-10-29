@@ -249,7 +249,6 @@ class OtaSnapshotService:
         try:
             request_id = new_request_id()
             input_fingerprint = fingerprint(key)
-            generation_before = (current or {}).get("generation", 0)
             reconcile_started = time.perf_counter()
             reconciled = self._reconcile_fn()
             reconcile_elapsed = (time.perf_counter() - reconcile_started) * 1000
@@ -337,12 +336,14 @@ class OtaSnapshotService:
             metrics = summarize_samples(self._telemetry_samples)
             metrics["query_plan"] = {"kind": "read_only_explain",
                                      "samples": metrics.get("query_plan", {}).get("samples", 0)}
+            rule_version = reconciled.get("rule_version")
+            if (type(rule_version) is not str or len(rule_version) > 64 or
+                    not re.fullmatch(r"[A-Za-z0-9_.-]+", rule_version, re.ASCII)):
+                rule_version = None
             published["telemetry"] = {
                 "request_id": request_id,
                 "snapshot_generation": generation,
-                "rule_version": (reconciled.get("rule_version")
-                                 if type(reconciled.get("rule_version")) is str and
-                                 len(reconciled.get("rule_version")) <= 64 else None),
+                "rule_version": rule_version,
                 "stages": metrics,
                 "input_fingerprint": input_fingerprint,
                 "rule_fingerprint": (reconciled.get("rule_fingerprint")
@@ -354,10 +355,8 @@ class OtaSnapshotService:
                     "ota_snapshot", "snapshot_compute", reconcile_elapsed,
                     row_count=len(reconciled.get("queue_page_rows", ()))
                     if type(reconciled) is dict else 0,
-                    generation=generation_before + 1,
-                    rule_version=(reconciled.get("rule_version")
-                                  if type(reconciled.get("rule_version")) is str and
-                                  len(reconciled.get("rule_version")) <= 64 else None),
+                    generation=generation,
+                    rule_version=rule_version,
                     data_fingerprint=input_fingerprint, request_id=request_id,
                     peak_memory_bytes=memory_peak_bytes)]
             }
