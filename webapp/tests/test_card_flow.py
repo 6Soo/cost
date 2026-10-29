@@ -904,7 +904,7 @@ class CardFlowTests(unittest.TestCase):
         batch = self.flow.pipeline.receive(csv_data, 'ota-undated.csv')['batch_id']
         row = self.flow.pipeline.get_batch(batch)['rows'][0]
         source_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
-                               merchant='TRIP.COM', merchant_normalized='trip.com',
+                               merchant='AGODA', merchant_normalized='agoda',
                                approval_date='2026-08-01', amount_krw=30000,
                                card_tail='1234', ota_inference_eligible=True)
         event = ota_event('ota-undated-synthetic', paid_on=None,
@@ -914,6 +914,7 @@ class CardFlowTests(unittest.TestCase):
         self.assertTrue(result['inferred_link'])
         data = {'events':[event], 'transactions':[source_card], 'links':{}, 'results':[result]}
         current = {'generation':91, 'data':data, 'results':[result]}
+        event['card_candidate_count'] = 1
         current['public'] = ota_payment_review.public_snapshot({
             'events': [event], 'cards_by_event': {event['ota_event_id']: [source_card]}, 'proposals': []})
         held_calls = []
@@ -945,8 +946,9 @@ class CardFlowTests(unittest.TestCase):
         reviewed = state['preview']['rows'][0]
         self.assertEqual(ota_view['generation'], reviewed['ota_snapshot_generation'])
         self.assertEqual(ota_view['events'][0]['ota_event_id'], event['ota_event_id'])
-        self.assertEqual(ota_view['cards_by_event'][event['ota_event_id']][0]['transaction_id'],
-                         row['transaction_id'])
+        self.assertEqual(ota_view['cards_by_event'], {})
+        self.assertEqual(ota_view['events'][0]['card_candidate_count'], 1)
+        self.assertEqual(current['data']['transactions'][0], source_card)
         self.assertEqual(reviewed['display_tab_id'], trip)
         self.assertEqual(reviewed['ota_link_status'], 'INFERRED')
         self.assertEqual(reviewed['ota_snapshot_generation'], 91)
