@@ -37,6 +37,7 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
         # Effective display destination precedes the stored trip. A dangling or
         # unverified destination is unassigned even when its ID is nonempty.
         target = "COALESCE(NULLIF(NULLIF(TRIM(display_tab_id),'unclassified'),''),NULLIF(TRIM(trip_id),''),'')"
+        clauses.append(target + " NOT GLOB 'quarter:20[0-9][0-9]:[1-4]'")
         if trips:
             clauses.append(target + ' NOT IN (' + ','.join('?' for _ in trips) + ')')
             params.extend(trips)
