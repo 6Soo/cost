@@ -38,11 +38,13 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
     decisions = []
     for source in parsed.rows:
         day = source.approval_date or source.posting_date
+        valid_date = True
         try:
             month = date.fromisoformat(day).strftime('%Y-%m')
             dates.append(day)
         except (ValueError, TypeError):
             month = 'unknown'
+            valid_date = False
         issuers.add(masked_text(source.issuer))
         bucket = monthly[month]
         counts['T'] += 1
@@ -56,11 +58,16 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
             # File-internal duplicate lines share the first occurrence's transaction in DB.
             tid = next((i for i, r in rows.items()
                         if (source.approval_number and r['approval_number'] == source.approval_number
+                            and r['issuer'] == source.issuer
+                            and r['card_tail'] == source.card_tail
+                            and r['card_kind'] == source.card_kind
+                            and r['approval_date'] == source.approval_date
+                            and r['foreign_currency'] == source.foreign_currency
                             and r['transaction_direction'] == source.transaction_direction
                             and r['amount_krw'] == source.amount_krw)), None)
         row = rows.get(tid, {})
         reasons = []
-        if source.parse_error or not day:
+        if source.parse_error or not valid_date:
             outcome = 'P'
             reasons = [source.parse_error or 'TRANSACTION_DATE_INVALID']
         elif not tid or row.get('conflict_reason') or row.get('duplicate_of'):
@@ -77,9 +84,10 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
                 decisions.append((tid, row['classification_source'], row['classification_basis'], row['revision']))
         counts[outcome] += 1
         bucket[outcome] += 1
-        if tid in seen:
+        if tid and tid in seen:
             duplicate_rows += 1
-        seen.add(tid)
+        if tid:
+            seen.add(tid)
         link = links.get(tid) or {}
         refund_pending = source.transaction_direction in ('refund', 'cancellation') and (
             not link or link.get('inferred') or link.get('status') == 'excess')

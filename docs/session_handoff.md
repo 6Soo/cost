@@ -1,3 +1,8 @@
+## 2026-10-29 카드 업로드 전수 대조 CUV 후속 검수
+
+- 구현·합성검증 완료, 운영 수락은 PARTIAL. 통합 `781c524` 후 카드/발급사/종류·날짜·통화 경계의 중복 대조, 잘못된 날짜/미연결 중복 집계, XLSX 보안검사 실패 중단·자원 종료를 보완했다.
+- 기존 100건 재업로드·70+30건·5,000행/재업로드, 수동 결정/원본 보호·원자 롤백/재시도·환불·OTA exact·권한 검증. 두 실행은 114 passed/1 deselected 및 62 passed이며 후자는 앞서 제외한 권한 검사도 포함한다. 중복 실행을 합산하지 않는다. Chromium 320/390/1280·키보드·HTML 이스케이프·빈 결과·금융 경고 수락.
+- 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
 ## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬

@@ -42,6 +42,7 @@ def validate_upload(content, filename):
                 raise StoreError('UNSAFE_FORMULA', '수식이 포함된 파일은 올릴 수 없습니다')
     if fmt == 'xlsx':
         from openpyxl import load_workbook
+        wb = None
         try:
             wb = load_workbook(io.BytesIO(content), data_only=False, read_only=True)
             for r in wb[wb.sheetnames[0]].iter_rows(values_only=True):
@@ -52,7 +53,10 @@ def validate_upload(content, filename):
         except StoreError:
             raise
         except Exception:
-            pass
+            raise StoreError('INVALID_UPLOAD_CONTENT', '파일 내용을 검증하지 못했습니다') from None
+        finally:
+            if wb is not None:
+                wb.close()
     return parsed, {'format': fmt, 'file_rows': len(cells),
                     'transaction_rows': len(parsed.rows),
                     'non_transaction_rows': len(cells) - len({r.row_index for r in parsed.rows})}

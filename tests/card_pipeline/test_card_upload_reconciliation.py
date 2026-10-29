@@ -75,11 +75,41 @@ def test_preflight_validation_rules():
     assert len(parsed.rows) == 2
 
 
+def test_xlsx_security_scan_failure_stops_before_writes(monkeypatch, pipe):
+    import openpyxl
+    content = make_xlsx([domestic_row(merchant='합성', amount=1000, approval='12345678')])
+    # Populate the existing parser cache before failing the independent formula scan.
+    validate_upload(content, 'scan.xlsx')
+    before = list(pipe.store.conn.iterdump())
+    def broken_scan(*args, **kwargs):
+        raise OSError('synthetic read failure')
+    monkeypatch.setattr(openpyxl, 'load_workbook', broken_scan)
+    with pytest.raises(StoreError) as exc:
+        validate_upload(content, 'scan.xlsx')
+    assert exc.value.code == 'INVALID_UPLOAD_CONTENT'
+    assert list(pipe.store.conn.iterdump()) == before
+
+
+def test_large_file_reconciliation_uses_only_uploaded_rows(pipe):
+    content = make_csv([domestic_row(merchant=f'Synthetic {i}', amount=1000+i,
+                                    approval=str(10000000+i)) for i in range(5000)])
+    parsed, inspection = validate_upload(content, 'large.csv')
+    received = pipe.receive(content, 'large.csv')
+    summary = summarize(pipe, received, parsed, TRIPS, inspection=inspection)
+    assert summary['counts']['T'] == summary['counts']['N'] == 5000
+    assert sum(m['T'] for m in summary['monthly_reconciliation']) == 5000
+    replay = pipe.receive(content, 'large.csv')
+    assert replay['reused'] is True
+    replay_summary = summarize(pipe, replay, parsed, TRIPS, inspection=inspection)
+    assert replay_summary['counts']['N'] == 0
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0] == 5000
+
+
 def test_reupload_idempotency_preserves_existing_and_manual_decisions(pipe):
     """Spec Gate 1: Re-uploading 100 rows -> 0 new rows, manual decisions intact."""
     rows = [
         domestic_row(merchant=f"가맹점_{i}", amount=10000 + i, approval=f"APPR_{i:04d}")
-        for i in range(10)
+        for i in range(100)
     ]
     content = make_xlsx(rows)
     parsed, inspection = validate_upload(content, "card.xlsx")
@@ -87,7 +117,7 @@ def test_reupload_idempotency_preserves_existing_and_manual_decisions(pipe):
     # First upload
     rec1 = pipe.receive(content, "card.xlsx")
     assert rec1["reused"] is False
-    assert rec1["inserted"] == 10
+    assert rec1["inserted"] == 100
 
     # User manually decides 2 rows
     batch1 = pipe.get_batch(rec1["batch_id"])
@@ -117,12 +147,12 @@ def test_reupload_idempotency_preserves_existing_and_manual_decisions(pipe):
     assert rec2["reused"] is True
     summary2 = summarize(pipe, rec2, parsed, TRIPS, inspection=inspection)
 
-    # Verify counts: T=10, E=10, N=0, C=2, U=8, H=0, P=0
-    assert summary2["counts"]["T"] == 10
-    assert summary2["counts"]["E"] == 10
+    # Verify counts over all 100 source rows.
+    assert summary2["counts"]["T"] == 100
+    assert summary2["counts"]["E"] == 100
     assert summary2["counts"]["N"] == 0
     assert summary2["counts"]["C"] == 2
-    assert summary2["counts"]["U"] == 8
+    assert summary2["counts"]["U"] == 98
     assert summary2["counts"]["H"] == 0
     assert summary2["counts"]["P"] == 0
     assert summary2["duplicate_rows"] == 0
@@ -140,7 +170,7 @@ def test_partial_overlap_upload(pipe):
     # First batch: 7 items
     first_rows = [
         domestic_row(merchant=f"기존가맹점_{i}", amount=10000 + i, approval=f"1000{i:04d}")
-        for i in range(7)
+        for i in range(70)
     ]
     content1 = make_xlsx(first_rows)
     pipe.receive(content1, "file1.xlsx")
@@ -148,16 +178,16 @@ def test_partial_overlap_upload(pipe):
     # Second batch: 7 existing items + 3 new items = 10 items
     second_rows = list(first_rows) + [
         domestic_row(merchant=f"신규가맹점_{i}", amount=20000 + i, approval=f"2000{i:04d}")
-        for i in range(3)
+        for i in range(30)
     ]
     content2 = make_xlsx(second_rows)
     parsed2, inspection2 = validate_upload(content2, "file2.xlsx")
     rec2 = pipe.receive(content2, "file2.xlsx")
 
     summary = summarize(pipe, rec2, parsed2, TRIPS, inspection=inspection2)
-    assert summary["counts"]["T"] == 10
-    assert summary["counts"]["E"] == 7
-    assert summary["counts"]["N"] == 3
+    assert summary["counts"]["T"] == 100
+    assert summary["counts"]["E"] == 70
+    assert summary["counts"]["N"] == 30
     assert summary["counts"]["E"] + summary["counts"]["N"] == summary["counts"]["C"] + summary["counts"]["U"]
 
 
@@ -173,6 +203,44 @@ def test_file_internal_duplicates(pipe):
     assert summary["counts"]["N"] == 1
     assert summary["counts"]["E"] == 1
     assert summary["duplicate_rows"] == 1
+
+
+@pytest.mark.parametrize('changed', [
+    {'issuer': '다른합성카드'}, {'card_tail': '5678'},
+    {'card_kind': '체크'}, {'approval_date': '2026-04-10'},
+    {'foreign_currency': 'USD'},
+])
+def test_duplicate_fallback_never_crosses_identity_scope(pipe, changed):
+    from copy import deepcopy
+    from dataclasses import replace
+    content = make_xlsx([domestic_row(merchant='합성', amount=1000, approval='12345678')])
+    parsed, _ = validate_upload(content, 'scope.xlsx')
+    received = pipe.receive(content, 'scope.xlsx')
+    parsed = deepcopy(parsed)
+    assert parsed.rows[0].approval_number
+    # A source occurrence without a batch position may only reuse the same identity.
+    other = replace(parsed.rows[0], row_index=999, **changed)
+    parsed.rows.append(other)
+    summary = summarize(pipe, received, parsed, TRIPS)
+    assert summary['counts']['H'] == 1
+    assert summary['counts']['N'] == 1
+    assert summary['duplicate_rows'] == 0
+
+
+def test_invalid_dates_and_unresolved_rows_are_not_duplicates(pipe):
+    from copy import deepcopy
+    from dataclasses import replace
+    content = make_xlsx([domestic_row(merchant='합성', amount=1000, approval='DATE')])
+    parsed, _ = validate_upload(content, 'dates.xlsx')
+    received = pipe.receive(content, 'dates.xlsx')
+    parsed = deepcopy(parsed)
+    parsed.rows = [replace(parsed.rows[0], row_index=998, approval_date='2026-99-99'),
+                   replace(parsed.rows[0], row_index=999, approval_date='invalid')]
+    summary = summarize(pipe, received, parsed, TRIPS)
+    assert summary['counts']['P'] == 2
+    assert summary['duplicate_rows'] == 0
+    assert summary['status'] == 'incomplete'
+    assert summary['unknown_date_reconciliation'][0]['T'] == 2
 
 
 def test_unlinked_cancellation_financial_reconciliation(pipe):
