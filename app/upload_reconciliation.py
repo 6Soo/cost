@@ -22,6 +22,14 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
     conn = pipeline.store.conn
     batch = received['batch_id']
     rows = {r['transaction_id']: r for r in pipeline.get_batch(batch)['rows']}
+    identity_index = defaultdict(list)
+    for tid, row in rows.items():
+        approval = row.get('approval_number') or ''
+        if approval:
+            key = (row.get('issuer') or '', row.get('card_tail') or '', row.get('card_kind') or '',
+                   row.get('approval_date') or '', row.get('foreign_currency') or '',
+                   row.get('transaction_direction') or '', row.get('amount_krw'), approval)
+            identity_index[key].append(tid)
     positions = defaultdict(list)
     for tid, index in conn.execute(
             'SELECT transaction_id,row_index FROM import_batch_rows WHERE batch_id=? ORDER BY row_index,transaction_id',
@@ -61,16 +69,13 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
         tid = next((i for i in candidates if rows[i]['transaction_direction'] == source.transaction_direction
                     and rows[i]['amount_krw'] == source.amount_krw), None)
         if not tid and not candidates:
-            # File-internal duplicate lines share the first occurrence's transaction in DB.
-            tid = next((i for i, r in rows.items()
-                        if (source.approval_number and r['approval_number'] == source.approval_number
-                            and r['issuer'] == source.issuer
-                            and r['card_tail'] == source.card_tail
-                            and r['card_kind'] == source.card_kind
-                            and r['approval_date'] == source.approval_date
-                            and r['foreign_currency'] == source.foreign_currency
-                            and r['transaction_direction'] == source.transaction_direction
-                            and r['amount_krw'] == source.amount_krw)), None)
+            # File-internal duplicate lines may map to the one unambiguous DB identity.
+            # Never pick arbitrarily when the indexed identity itself collides.
+            key = (source.issuer or '', source.card_tail or '', source.card_kind or '',
+                   source.approval_date or '', source.foreign_currency or '',
+                   source.transaction_direction or '', source.amount_krw, source.approval_number or '')
+            matches = identity_index.get(key, ()) if source.approval_number else ()
+            tid = matches[0] if len(matches) == 1 else None
         row = rows.get(tid, {})
         reasons = []
         if source.parse_error or not valid_date:

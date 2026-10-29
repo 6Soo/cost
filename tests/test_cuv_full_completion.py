@@ -55,6 +55,7 @@ def test_aggregate_buckets_keep_source_partition_and_unknown_date_separate():
             self.posting_date = ''
             self.parse_error = error
             self.issuer = 'synthetic'
+            self.card_kind = 'credit'
             self.transaction_direction = 'purchase'
             self.amount_krw = 100 * index
             self.approval_number = str(index)
@@ -63,15 +64,18 @@ def test_aggregate_buckets_keep_source_partition_and_unknown_date_separate():
             self.foreign_currency = 'KRW'
 
     parsed = ParsedFile('synthetic.csv', 'synthetic', rows=[
-        Source(1, ''), Source(2, 'not-a-date'), Source(3, '', 'SYNTHETIC_PARSE_ERROR')])
+        Source(1, ''), Source(2, 'not-a-date'), Source(3, '', 'SYNTHETIC_PARSE_ERROR'),
+        Source(4, '')])
     received = {'batch_id': 'synthetic-batch', 'filename': 'synthetic.csv', 'reused': False}
     conn.execute("INSERT INTO import_batches(batch_id,filename,content_sha256,content_bytes,byte_size,parser,received_at) VALUES ('synthetic-batch','synthetic.csv','hash',X'',0,'synthetic','now')")
     conn.execute("INSERT INTO import_batch_rows(batch_id, transaction_id, row_index) VALUES ('synthetic-batch','tid',1)")
     conn.execute("INSERT INTO transactions(transaction_id,source_hash,batch_id,issuer,card_tail,card_kind,transaction_direction,transaction_kind,approval_number,original_approval_number,approval_date,posting_date,merchant,merchant_normalized,amount_krw,foreign_amount,foreign_currency,description_raw,row_index,raw_row_json,classification_state,classification_source,classification_basis,item,description,display_tab_id,trip_id,revision,created_at) VALUES ('tid','source','synthetic-batch','synthetic','1234','credit','purchase','승인','1','','','','synthetic','synthetic',100,'','KRW','',1,'{}','classified','inference','AUTO_INFERRED · 낮음 · synthetic','식비','','trip-a','trip-a',1,'now')")
+    conn.execute("INSERT INTO import_batch_rows(batch_id, transaction_id, row_index) VALUES ('synthetic-batch','tid-ambiguous',5)")
+    conn.execute("INSERT INTO transactions(transaction_id,source_hash,batch_id,issuer,card_tail,card_kind,transaction_direction,transaction_kind,approval_number,original_approval_number,approval_date,posting_date,merchant,merchant_normalized,amount_krw,foreign_amount,foreign_currency,description_raw,row_index,raw_row_json,classification_state,classification_source,classification_basis,item,description,display_tab_id,trip_id,revision,created_at) VALUES ('tid-ambiguous','source-2','synthetic-batch','synthetic','1234','credit','purchase','승인','1','','','','synthetic','synthetic',100,'','KRW','',5,'{}','classified','inference','AUTO_INFERRED · 낮음 · synthetic','식비','','trip-a','trip-a',1,'now')")
     summary = summarize(pipeline, received, parsed, [
         {'trip_id': 'trip-a', 'starts_on': '2026-01-01', 'ends_on': '2026-12-31'}])
-    assert summary['counts'] == {'T': 3, 'E': 0, 'N': 1, 'C': 1, 'U': 0, 'H': 0, 'P': 2, 'R': 0}
-    assert summary['unknown_date_reconciliation'][0]['T'] == 3
+    assert summary['counts'] == {'T': 4, 'E': 0, 'N': 1, 'C': 1, 'U': 0, 'H': 1, 'P': 2, 'R': 0}
+    assert summary['unknown_date_reconciliation'][0]['T'] == 4
     assert summary['unknown_date_reconciliation'][0]['P'] == 2
     assert summary['monthly_reconciliation'] == []
     conn.close()
