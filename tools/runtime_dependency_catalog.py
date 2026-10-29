@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, json, re, subprocess
 import ast
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,20 +43,105 @@ def classify(path: Path, text: str, root: Path = ROOT) -> tuple[str, str, float]
         return "UNKNOWN", "Entrypoint-like location; active operational use is not established by name", .4
     return "UNKNOWN", "No reliable runtime-use evidence in this file", .2
 
+def _inside_root(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=True).relative_to(root.resolve(strict=True))
+        return True
+    except (OSError, ValueError):
+        return False
+
+def _repo_rel(value: str) -> bool:
+    candidate = Path(value)
+    return (bool(value) and not candidate.is_absolute() and ".." not in candidate.parts
+            and candidate.as_posix() == value and "\\" not in value)
+
+def _literal_reference(source_path: Path, source_line: int, target_rel: str, root: Path) -> bool:
+    """Require an import or exact tracked script path at the declared source line."""
+    try:
+        lines = source_path.read_text(encoding="utf-8-sig").splitlines()
+        line = lines[source_line - 1]
+    except (OSError, UnicodeError, IndexError):
+        return False
+    if source_path.suffix.lower() == ".py":
+        try:
+            tree = ast.parse("\n" * (source_line - 1) + line)
+        except SyntaxError:
+            tree = None
+        if tree:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    target_module = target_rel[:-3] if target_rel.endswith(".py") else target_rel
+                    if any(target_module == alias.name.replace(".", "/")
+                           for alias in node.names):
+                        return True
+                elif isinstance(node, ast.ImportFrom):
+                    package = list(source_path.parent.relative_to(root).parts)
+                    if node.level:
+                        package = package[:max(0, len(package) - node.level + 1)]
+                    else:
+                        package = []
+                    module_parts = ([node.module] if node.module else [])
+                    module_path = "/".join(package + module_parts)
+                    candidates = {f"{module_path}.py", f"{module_path}/__init__.py"}
+                    if target_rel in candidates:
+                        return True
+                    if any(f"{module_path}/{alias.name}.py" == target_rel
+                           or f"{module_path}/{alias.name}/__init__.py" == target_rel
+                           for alias in node.names if alias.name != "*"):
+                        return True
+    # Script references must be exact repo-relative literals, not arbitrary prose.
+    token_pattern = re.compile(r"(?<![\w.])([\w./\\-]+\.(?:py|ps1|cmd|bat|xml))(?![\w])", re.I)
+    return any(match.group(1).replace("\\", "/").lower() == target_rel.lower()
+               for match in token_pattern.finditer(line))
+
 def load_evidence(root: Path) -> dict:
-    """Load explicit source-location evidence; prose or symbol names never qualify."""
+    """Load only digest-bound, tracked source references with a real invocation edge."""
+    root = root.resolve()
     config = root / "config" / "runtime-dependency-evidence.json"
     try:
-        data = json.loads(config.read_text(encoding="utf-8"))
+        data = json.loads(config.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
-    return {item["path"]: item for item in data.get("evidence", [])
-            if isinstance(item, dict) and isinstance(item.get("path"), str)
-            and isinstance(item.get("line"), int) and item.get("classification") in
-            {"ACTIVE_SAFE_READ", "ACTIVE_WRITE_GUARDED"}
-            and isinstance(item.get("source"), str) and isinstance(item.get("reason"), str)
-            and (item.get("classification") != "ACTIVE_WRITE_GUARDED"
-                 or isinstance(item.get("guard"), str) and bool(item.get("guard")))}
+    if (not isinstance(data, dict) or data.get("schema") != "runtime-dependency-evidence/v1"
+            or not isinstance(data.get("evidence"), list)):
+        return {}
+    try:
+        tracked_result = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                                        check=True, capture_output=True).stdout
+        tracked = {item.decode("utf-8", "surrogateescape").replace("\\", "/")
+                   for item in tracked_result.split(b"\0") if item}
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return {}
+    accepted = {}
+    for item in data["evidence"]:
+        if not isinstance(item, dict):
+            continue
+        target, source = item.get("path"), item.get("source")
+        line, category = item.get("line"), item.get("classification")
+        if (not isinstance(target, str) or not isinstance(source, str)
+                or not _repo_rel(target) or not _repo_rel(source)
+                or not isinstance(line, int) or isinstance(line, bool) or line <= 0
+                or category not in {"ACTIVE_SAFE_READ", "ACTIVE_WRITE_GUARDED"}
+                or not isinstance(item.get("reason"), str) or not item["reason"].strip()
+                or (category == "ACTIVE_WRITE_GUARDED" and item.get("guard") is not True)):
+            continue
+        target_path, source_path = root / target, root / source
+        if (target not in tracked or source not in tracked
+                or not _inside_root(target_path, root) or not _inside_root(source_path, root)
+                or target_path.is_symlink() or source_path.is_symlink()):
+            continue
+        try:
+            target_bytes = target_path.read_bytes()
+            source_bytes = source_path.read_bytes()
+            if (hashlib.sha256(target_bytes).hexdigest() != item.get("target_sha256")
+                    or hashlib.sha256(source_bytes).hexdigest() != item.get("source_sha256")):
+                continue
+        except OSError:
+            continue
+        if not _literal_reference(source_path, line, target, root):
+            continue
+        accepted[target] = item
+    return accepted
 
 def refs(path: Path, text: str, root: Path = ROOT) -> list[dict]:
     out=[]
@@ -133,17 +219,9 @@ def build_catalog(root: Path = ROOT) -> dict:
                 errors.append({"path":rel,"code":"SYNTAX_ERROR","line":exc.lineno})
         category,reason,confidence=classify(path,text,root)
         proof = evidence.get(rel)
-        if proof and proof["line"] <= len(text.splitlines()):
-            source_path = root / proof["source"]
-            if not source_path.is_file() or source_path.is_symlink():
-                proof = None
-            else:
-                source_lines = source_path.read_text(encoding="utf-8-sig").splitlines()
-                if proof["line"] > len(source_lines) or not source_lines[proof["line"] - 1].strip():
-                    proof = None
-        if proof and proof["line"] <= len(text.splitlines()):
+        if proof:
             category = proof["classification"]
-            reason = f"Explicit runtime reference at {proof['source']}:{proof['line']}; {proof['reason']}"
+            reason = f"Digest-bound runtime reference at {proof['source']}:{proof['line']}"
             confidence = .9
         entries.append({"path":rel,"classification":category,"confidence":confidence,"evidence":reason,
                         "references":refs(path,text,root),"dependencies":static_dependencies(path,text,known,root)})

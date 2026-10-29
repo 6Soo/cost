@@ -66,16 +66,20 @@ def test_no_active_claim_from_process_call_or_comment(tmp_path):
 
 
 def test_explicit_runtime_reference_classifies_only_with_existing_source_location(tmp_path):
-    import json, subprocess
+    import hashlib, json, subprocess
     from tools.runtime_dependency_catalog import build_catalog
-    for name, body in {'tools/entry.py': 'pass\n', 'config/runtime-dependency-evidence.json':
-        json.dumps({'schema': 'runtime-dependency-evidence/v1', 'evidence': [
-            {'path': 'tools/entry.py', 'classification': 'ACTIVE_SAFE_READ',
-             'source': 'run_candidate.py', 'line': 1, 'reason': 'fixed launcher imports entry'}]}),
-        'run_candidate.py': 'import tools.entry\n'}.items():
+    bodies = {'tools/entry.py': 'pass\n', 'run_candidate.py': 'import tools.entry\n'}
+    for name, body in bodies.items():
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding='utf-8')
+    hashes = {name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() for name in bodies}
+    config = tmp_path / 'config' / 'runtime-dependency-evidence.json'
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps({'schema': 'runtime-dependency-evidence/v1', 'evidence': [{
+        'path': 'tools/entry.py', 'classification': 'ACTIVE_SAFE_READ',
+        'source': 'run_candidate.py', 'line': 1, 'reason': 'fixed launcher imports entry',
+        'target_sha256': hashes['tools/entry.py'], 'source_sha256': hashes['run_candidate.py']}]}), encoding='utf-8')
     subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
     subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
     result = build_catalog(tmp_path)
@@ -85,16 +89,71 @@ def test_explicit_runtime_reference_classifies_only_with_existing_source_locatio
 
 
 def test_active_write_guarded_requires_explicit_guard(tmp_path):
-    import json
+    import hashlib, json, subprocess
     from tools.runtime_dependency_catalog import load_evidence
     config = tmp_path / 'config' / 'runtime-dependency-evidence.json'
     config.parent.mkdir()
-    config.write_text(json.dumps({'evidence': [
-        {'path': 'tools/a.py', 'classification': 'ACTIVE_WRITE_GUARDED',
-         'source': 'run_candidate.py', 'line': 1, 'reason': 'launcher', 'guard': 'auth+backup'},
-        {'path': 'tools/b.py', 'classification': 'ACTIVE_WRITE_GUARDED',
-         'source': 'run_candidate.py', 'line': 2, 'reason': 'launcher'}]}), encoding='utf-8')
+    contents = {'tools/a.py': 'pass\n', 'run_candidate.py': 'import tools.a\n'}
+    for name, body in contents.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding='utf-8')
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
+    digests = {name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() for name in contents}
+    evidence = {'path': 'tools/a.py', 'source': 'run_candidate.py', 'line': 1,
+        'classification': 'ACTIVE_WRITE_GUARDED', 'reason': 'verified controls', 'guard': True,
+        'target_sha256': digests['tools/a.py'], 'source_sha256': digests['run_candidate.py']}
+    config.write_text(json.dumps({'schema': 'runtime-dependency-evidence/v1',
+        'evidence': [evidence, {**evidence, 'path': 'tools/b.py', 'guard': 'auth+backup'}]}), encoding='utf-8')
     assert set(load_evidence(tmp_path)) == {'tools/a.py'}
+
+
+def test_evidence_fails_closed_for_malformed_paths_lines_and_nonreferences(tmp_path):
+    import hashlib, json, subprocess
+    from tools.runtime_dependency_catalog import load_evidence
+    files = {'tools/entry.py': 'pass\n', 'run_candidate.py': 'print("tools/entry.py")\n'}
+    for name, body in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding='utf-8')
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
+    base = {'path': 'tools/entry.py', 'classification': 'ACTIVE_SAFE_READ',
+            'source': 'run_candidate.py', 'reason': 'claim',
+            'target_sha256': hashlib.sha256(files['tools/entry.py'].encode()).hexdigest(),
+            'source_sha256': hashlib.sha256(files['run_candidate.py'].encode()).hexdigest()}
+    for line in (0, -1, True, 1):
+        config = tmp_path / 'config' / 'runtime-dependency-evidence.json'
+        config.parent.mkdir(exist_ok=True)
+        config.write_text(json.dumps({'schema': 'runtime-dependency-evidence/v1',
+            'evidence': [{**base, 'line': line}]}), encoding='utf-8')
+        assert load_evidence(tmp_path) == {}
+    config.write_text('[]', encoding='utf-8')
+    assert load_evidence(tmp_path) == {}
+    config.write_text(json.dumps({'schema': 'runtime-dependency-evidence/v1',
+        'evidence': [{**base, 'line': 1, 'source': '../outside.py'}]}), encoding='utf-8')
+    assert load_evidence(tmp_path) == {}
+
+
+def test_write_guard_is_not_freeform_and_source_digest_is_binding(tmp_path):
+    import hashlib, json, subprocess
+    from tools.runtime_dependency_catalog import load_evidence
+    bodies = {'tools/write.py': 'pass\n', 'run_candidate.py': 'import tools.write\n'}
+    for name, body in bodies.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding='utf-8')
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
+    config = tmp_path / 'config' / 'runtime-dependency-evidence.json'
+    config.parent.mkdir()
+    config.write_text(json.dumps({'schema': 'runtime-dependency-evidence/v1', 'evidence': [{
+        'path': 'tools/write.py', 'source': 'run_candidate.py', 'line': 1,
+        'classification': 'ACTIVE_WRITE_GUARDED', 'reason': 'verified', 'guard': 'auth and backup',
+        'target_sha256': hashlib.sha256((tmp_path / 'tools/write.py').read_bytes()).hexdigest(),
+        'source_sha256': hashlib.sha256((tmp_path / 'run_candidate.py').read_bytes()).hexdigest()}]}), encoding='utf-8')
+    assert load_evidence(tmp_path) == {}
 
 
 def test_missing_broken_and_invalid_utf8_are_diagnostics(tmp_path):
