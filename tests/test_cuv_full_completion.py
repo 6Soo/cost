@@ -48,6 +48,16 @@ def test_transaction_nature_and_trip_conflict_are_required():
         row(display_tab_id='other-trip'), {**TRIPS, 'other-trip': {'trip_id': 'other-trip'}})['blocked_by']
 
 
+def test_quarter_destination_completes_like_trip_without_becoming_a_trip_id():
+    from app.assignment_status import destination_status, row_destination
+    value = row(trip_id='', display_tab_id='quarter:2026:3')
+    assert row_destination(value, TRIPS)[1] == 'ASSIGNED'
+    assert destination_status('quarter:2026:3', TRIPS) == 'ASSIGNED'
+    assert completion_for_row(value, TRIPS)['complete']
+    assert completion_for_row(row(trip_id='deleted', display_tab_id=''), TRIPS)['complete'] is False
+    assert completion_for_row(row(trip_id='', display_tab_id=''), TRIPS)['complete'] is False
+
+
 def test_aggregate_buckets_keep_source_partition_and_unknown_date_separate():
     assert KEYS == ('T', 'E', 'N', 'C', 'U', 'H', 'P', 'R')
     import sqlite3
