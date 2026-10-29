@@ -58,9 +58,10 @@ def _preview(flow, batch):
     ), holds
 
 
-def test_verified_full_agoda_cross_batch_is_booked_atomically_and_once(tmp_path, monkeypatch):
+@pytest.mark.parametrize('verified', [True, False])
+def test_verified_full_agoda_cross_batch_is_booked_atomically_and_once(tmp_path, monkeypatch, verified):
     monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
-    board, flow, original_batch, refund_batch, original, refund = _separate_batches(tmp_path)
+    board, flow, original_batch, refund_batch, original, refund = _separate_batches(tmp_path, verified=verified)
     try:
         monkeypatch.setattr(flow, "ota_group_holds", lambda: {})
         monkeypatch.setattr(flow, "_already_projected", lambda *a: False)
@@ -113,8 +114,8 @@ def test_cross_batch_preview_without_opt_in_stays_originally_scoped(tmp_path, mo
         board.close()
 
 
-@pytest.mark.parametrize("verified,held", [(False, False), (True, True)])
-def test_inferred_or_manually_held_pairs_never_auto_book(tmp_path, monkeypatch, verified, held):
+@pytest.mark.parametrize("verified,held", [(False, True), (True, True)])
+def test_manually_held_pairs_never_auto_book_with_or_without_reference(tmp_path, monkeypatch, verified, held):
     monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
     board, flow, original_batch, _, original, refund = _separate_batches(
         tmp_path, verified=verified, hold=held,
@@ -122,8 +123,6 @@ def test_inferred_or_manually_held_pairs_never_auto_book(tmp_path, monkeypatch, 
     try:
         monkeypatch.setattr(flow, "ota_group_holds", lambda: {})
         view, holds = _preview(flow, original_batch)
-        if not verified:
-            assert refund not in {row["transaction_id"] for row in view["rows"]}
         assert all(row.get("blocked") for row in view["rows"] if not row.get("already_booked"))
         result = flow.pipeline.commit(
             original_batch, view["digest"], "no-unsafe-post",
@@ -164,10 +163,11 @@ def test_kakao_upay_on_same_card_is_a_review_candidate_not_a_payment_link(tmp_pa
         board.close()
 
 
-def test_cardflow_automatic_record_uses_cross_batch_verified_pair(tmp_path, monkeypatch):
+@pytest.mark.parametrize('verified', [True, False])
+def test_cardflow_automatic_record_uses_cross_batch_verified_pair(tmp_path, monkeypatch, verified):
     """The real CardFlow recording path must not stop after displaying the pair."""
     monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
-    board, flow, original_batch, _, original, refund = _separate_batches(tmp_path)
+    board, flow, original_batch, _, original, refund = _separate_batches(tmp_path, verified=verified)
     try:
         monkeypatch.setattr(flow, "ota_group_holds", lambda: {})
         monkeypatch.setattr(flow, "_already_projected", lambda *a, **kw: False)

@@ -2684,6 +2684,10 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
             title = '원결제 추론 연결 · 장부 기록 보류 (환급 완료 아님)'
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
+                 else '동일 카드·카카오 가맹점·기간·동액 기준 원결제 연결'
+                 if link.get('basis') == 'kakao_same_card_exact_amount'
+                 else '동일 카드·가맹점·이용일·동액 기준 원결제 연결'
+                 if link.get('basis') == 'same_card_merchant_day_exact_amount'
                  else '카카오 포함 가맹점·동일 카드·동액 기준 추론 연결 (정산 확정 아님)'
                  if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
                  else '동일 카드·가맹점·이용일·동액 기준 추론 연결 (정산 확정 아님)'
@@ -2717,7 +2721,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
         elif originals:
             title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
         else:
-            title, lines = '확정 원결제 자료 미확인', ['원승인번호 또는 외화 금액 기준으로 자동 연결된 원결제가 없습니다. 아래 가맹점 검색 결과를 비교해 주세요.']
+            title, lines = '원결제 자료 미확인', ['승인 참조 또는 동일 카드·가맹점·날짜·금액 등의 조건을 충족하는 원결제가 없습니다. 원승인번호는 필수조건이 아닙니다. 아래 가맹점 검색 결과를 비교해 주세요.']
         if row and not str(row[2] or '').strip():
             # A card authorization cancellation is not proof of money returned.
             # Diagnose from the entire same-card statement without writing or
@@ -2735,9 +2739,9 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                     " AND approval_number=(SELECT approval_number FROM transactions WHERE transaction_id=?)",
                     (issuer, tail, tid)).fetchone()[0]
                 if original_matches:
-                    lines.append('취소 승인번호와 같은 구매 승인번호가 발견됐지만, 원승인번호 근거가 없어 자동 확정하지 않았습니다.')
+                    lines.append('취소 승인번호와 같은 구매 승인번호는 있지만, 카드·가맹점·날짜·금액·유일성 조건을 충족하는 연결은 확인되지 않았습니다.')
                 else:
-                    lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다. 동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다.')
+                    lines.append('카드 원본에 원승인번호가 없어 다른 대조 조건을 확인했습니다. 조건을 충족하는 원결제가 없으며 취소 승인번호만으로 연결하지 않습니다.')
             if refund_row and '카카오' in str(refund_merchant or ''):
                 lines.append('카카오T 가승인 해제는 실제 환급 완료와 다릅니다. 원본 결제 참조가 확보되면 자동 재대사됩니다.')
             else:
@@ -2746,7 +2750,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
         from app.partial_refund import kakao_refund_candidates
         candidate = kakao_refund_candidates(board.conn, {tid}).get(tid)
         if candidate:
-            lines.append('동일 카드·카카오 포함 가맹점·동액의 원결제 후보 1건이 있습니다. 원승인번호 근거가 없어 금융 연결·상쇄·환급 완료로 확정하지 않습니다.')
+            lines.append('동일 카드·카카오 가맹점·동액 기준 원결제 연결이 있습니다. 카드 연결과 실제 환급 완료는 별개입니다.')
     return title, lines
 
 

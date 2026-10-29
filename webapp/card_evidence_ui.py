@@ -186,7 +186,7 @@ def render_refund_merchant_candidates(
         parts.append("<p class='cleanup-evidence-meta'>카카오T 가승인·선승인·일반택시·유페이 표기를"
                      " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
                      " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다."
-                     " 원승인번호와 같은 카드의 정상 원결제가 식별되면 가맹점명이 달라도 확정 연결합니다."
+                     " 원승인번호는 필수조건이 아니며 동일 카드·가맹점 계열·기간·동액의 유일 대응도 연결합니다."
                      " 유페이 일반결제는 택시 결제의 후보일 수 있어 보여 주되, 가맹점 동일성이나 실제 환급을 확정하지 않습니다."
                      " 한 원결제에 취소·환불이 여러 건인 것은 정상이며, 총 환불액과 잔액은 따로 검증합니다.</p>")
         inventory = kakao_inventory or []
@@ -238,7 +238,7 @@ def render_refund_merchant_candidates(
     else:
         parts.append("<p>최근 14일 내 같은 카드·가맹점 표기 후보가 없습니다."
                      " 더 오래된 승인과 다른 카드 거래는 전체 거래 검색에서 확인해 주세요."
-                     " 결제중계 가맹점과 원승인번호를 확인하기 전에는 연결을 확정하지 않습니다.</p>")
+                     " 원승인번호는 필수조건이 아니며 카드·가맹점·날짜·금액·유일성으로도 연결합니다.</p>")
     query = "카카오" if key == "카카오택시" else merchant
     search = "/import?" + urlencode({"scope": "all", "q": query})
     parts.append(f"<p><a href='{esc(search)}'>가맹점명으로 전체 카드 거래 검색</a></p></details>")

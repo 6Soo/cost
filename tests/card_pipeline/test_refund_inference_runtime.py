@@ -23,7 +23,8 @@ def test_link_group_and_candidate_share_global_readonly_evidence(scope):
     pair(db)
     before = list(db.iterdump())
     link = refund_links(db, ['synthetic-r'])['synthetic-r']
-    assert link['original_id'] == 'synthetic-p' and link['inferred'] is True
+    assert link['original_id'] == 'synthetic-p' and link['inferred'] is False
+    assert link['matching_source'] == 'automatic'
     assert refund_group(db, 'synthetic-p') == ['synthetic-p', 'synthetic-r']
     assert kakao_refund_candidates(db, {'synthetic-r'}) == {'synthetic-r': link}
     copy = refund_links(db, ['synthetic-r'])
@@ -137,7 +138,7 @@ def test_generic_same_day_exact_amount_has_strict_one_to_one_identity(scope, sce
     links = refund_links(db, ['synthetic-r'])
     assert bool(links) is (scenario == 'unique')
     if links:
-        assert links['synthetic-r']['basis'] == 'same_card_merchant_day_exact_amount_inferred'
+        assert links['synthetic-r']['basis'] == 'same_card_merchant_day_exact_amount'
 
 
 def test_display_cache_observes_another_connection_commit(tmp_path):
