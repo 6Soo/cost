@@ -32,6 +32,7 @@ def card_identity(issuer, kind, last4):
 def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
     clauses, params = [], []
     if unassigned:
+        clauses.append('COST_REFUND_TAB_MEMBER(transaction_id)=0')
         trips = sorted(set(valid_trip_ids or ()))
         # Effective display destination precedes the stored trip. A dangling or
         # unverified destination is unassigned even when its ID is nonempty.
@@ -187,6 +188,17 @@ def _connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
     conn.create_function("COST_VALID_USE_DATE", 1, lambda value: int(_valid_use_date(value)), deterministic=True)
     conn.create_function('COST_CARD_KEY', 3, lambda issuer, kind, tail: card_identity(issuer, kind, tail)['card_key'], deterministic=True)
+    # Resolve the same complete groups as the refund tab once per connection.
+    # This stays lazy for endpoints that do not request destination metadata.
+    members = None
+    def refund_member(transaction_id):
+        nonlocal members
+        if members is None:
+            from types import SimpleNamespace
+            from .refund_tab import groups
+            members = {row['transaction_id'] for group in groups(SimpleNamespace(conn=conn)) for row in group}
+        return int(transaction_id in members)
+    conn.create_function('COST_REFUND_TAB_MEMBER', 1, refund_member)
     return conn
 
 def _get_available_years(conn: sqlite3.Connection) -> List[int]:
@@ -259,7 +271,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         sql = (
             "SELECT transaction_id, approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
-            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id "
+            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id) "
             "FROM transactions WHERE " + where +
             " ORDER BY substr(approval_date, 1, 10) ASC, "
             "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
@@ -271,7 +283,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab,refund_member = r
             items.append({
                 "transaction_id": tid,
                 "use_date": adate or "",
@@ -285,7 +297,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
                 "classification_state": state,
                 "classification_source": src,
                 "trip_id": trip,
-                "display_tab_id": display_tab,
+                "display_tab_id": display_tab, "refund_tab_member": bool(refund_member),
                 **card_identity(issuer, kind, tail),
                 "item": item,
                 "description_raw": raw,
@@ -342,7 +354,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         cur.execute(
             f"SELECT transaction_id, approval_date, approval_number, amount_krw, "
             f"foreign_amount, foreign_currency, merchant, description, classification_state, "
-            f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id "
+            f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id) "
             f"FROM transactions WHERE {where} "
             f"ORDER BY transaction_id ASC LIMIT ?",
             params + [per_page + 1])
@@ -351,7 +363,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab,refund_member = r
             items.append({
                 "transaction_id": tid,
                 "approval_date": adate or "",
@@ -364,7 +376,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
                 "classification_state": state,
                 "classification_source": src,
                 "trip_id": trip,
-                "display_tab_id": display_tab,
+                "display_tab_id": display_tab, "refund_tab_member": bool(refund_member),
                 **card_identity(issuer, kind, tail),
                 "item": item,
                 "description_raw": raw,
@@ -425,7 +437,7 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
         sql = (
             "SELECT transaction_id, approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
-            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id "
+            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id) "
             "FROM transactions WHERE " + where +
             " ORDER BY substr(approval_date, 1, 10) ASC, "
             "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
@@ -437,13 +449,13 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer, kind, tail, display_tab = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer, kind, tail, display_tab, refund_member = r
             items.append({
                 "transaction_id": tid, "use_date": adate or "", "approval_date": adate,
                 "approval_number": anumber, "amount_krw": amt, "foreign_amount": famt,
                 "foreign_currency": fcurr, "merchant": merchant, "description": desc,
                 "classification_state": state, "classification_source": src,
-                "trip_id": trip, "display_tab_id": display_tab,
+                "trip_id": trip, "display_tab_id": display_tab, "refund_tab_member": bool(refund_member),
                 **card_identity(issuer, kind, tail), "item": item,
                 "description_raw": raw, "duplicate_of": dup,
                 "conflict_reason": conflict, "revision": rev

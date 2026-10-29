@@ -338,7 +338,10 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                 trip_id = ''
             trip_name = (trip_names or {}).get(trip_id, trip_id)
             source = str(item.get("classification_source") or "").strip()
-            if not trip_id:
+            if item.get('refund_tab_member'):
+                trip_markup = ("<a class='card-all-link' href='/board?tab=refunds'>취소·환불</a>"
+                               "<span class='card-all-trip-source'>전액 상쇄 · 장부 기록·실제 환급과 별개</span>")
+            elif not trip_id:
                 trip_markup = "<span class='card-all-trip-name unassigned'>미배정</span>"
             else:
                 trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>"
@@ -628,7 +631,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
         + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
         + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
-        + "<p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p>")
+        + "<p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 전액 상쇄된 취소·환불 묶음은 취소·환불 탭에 표시합니다. 원본 보존은 카드 원행을 변경하지 않고 보관한다는 뜻입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p>")
 
     if selected_month is not None:
         detail = _month_detail(year, selected_month, items, next_cursor,

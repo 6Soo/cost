@@ -22,8 +22,9 @@ def groups(store):
     sources = {r[0]: dict(transaction_id=r[0], merchant=r[1], amount_krw=r[2],
                           occurred_on=r[3], item=r[4]) for r in records}
     links = refund_links(store.conn, list(sources))
-    from .history_policy import preserved_periods
-    return refund_tab_ui.assemble_refund_groups(sources, links, is_preserved_fn=preserved_periods)
+    # Preserved history is excluded from new cleanup work, not from this
+    # read-only history tab. Keep every source amount and accounting decision.
+    return refund_tab_ui.assemble_refund_groups(sources, links, is_preserved_fn=lambda periods: False)
 
 
 def member_ids(store):
