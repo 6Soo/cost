@@ -46,7 +46,15 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                     assert rows.first.locator('td').first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '0px'
                     if width <= 759:
                         assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'table-row'
-                        assert all(row.bounding_box()['height'] <= 110 for row in rows.all())
+                        assert all(row.bounding_box()['height'] <= 64 for row in rows.all())
+                        for row in rows.all():
+                            button = row.locator('.card-all-row-toggle').bounding_box()
+                            name = row.locator('.merchant-name').bounding_box()
+                            identity = row.locator('.card-identity').bounding_box()
+                            assert abs(button['height'] - name['height']) <= 1
+                            assert 0 <= identity['y'] - (name['y'] + name['height']) <= 3
+                            tops = [cell.bounding_box()['y'] for cell in row.locator('td').all()]
+                            assert max(tops) - min(tops) <= 1
                         for selector in ('.card-all-table-wrap', '.card-all-filters input[type=search]',
                                          '.card-all-filters select', '.card-all-filters button'):
                             for element in page.locator(selector).all():

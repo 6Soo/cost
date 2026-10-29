@@ -76,7 +76,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .merchant{min-width:0}
 .card-all-page .card-all-table tr[data-detail-id]{cursor:pointer}
 .card-all-page .card-all-table tr[data-detail-id]:focus-within{outline:2px solid var(--focus,#2563eb);outline-offset:-2px;background:var(--ca-soft)}
-.card-all-page .card-all-row-toggle{display:block;width:100%;padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;cursor:pointer;overflow-wrap:anywhere;min-width:0}
+.card-all-page .card-all-row-toggle{display:block;width:100%;height:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;appearance:none;-webkit-appearance:none;background:none;color:inherit;text-align:left;font:inherit;line-height:inherit;cursor:pointer;overflow-wrap:anywhere;min-width:0}
 .card-all-page .card-all-row-toggle:focus-visible{outline:2px solid var(--focus,#2563eb);outline-offset:2px}
 .card-all-page .card-all-expanded td{padding:12px;background:var(--ca-soft)}
 .card-all-page .card-all-expanded[hidden]{display:none}
@@ -132,6 +132,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table-wrap{min-width:0;border-radius:8px;border:1px solid var(--ca-border)}
 .card-all-page .card-all-table{display:table;min-width:0;width:100%;font-size:12px;line-height:1.3}
 .card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:5px 4px}
+.card-all-page .card-all-table tr[data-detail-id]>td{vertical-align:top}
 .card-all-page .card-all-table thead th{font-size:11px;white-space:normal}
 .card-all-page .card-all-table .date-group{display:none}
 .card-all-page .card-all-table .use-datetime{white-space:normal;font-size:11px}
