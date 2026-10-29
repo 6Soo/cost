@@ -298,7 +298,11 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
             airfare_ota = bool(re.search(r'gotogate|고투게이트', str(row.get('merchant') or ''), re.I))
             residual_with_fact = (valid_fact and row['classification_source'] == 'owner_card_residual')
             if (residual_with_fact or (airfare_ota and row['classification_source'] == 'owner_card_residual')) and not existing_tab:
-                chosen.update(item=(fact or {}).get('item') or infer_item(dict(chosen,item=''))[0], description='')
+                # A later verified reservation/payment fact may supersede an
+                # earlier quarter residual. Do not let the residual's generic
+                # item make the trip assignment look like a competing decision.
+                verified_item = fact.get('item') if valid_fact else None
+                chosen.update(item=verified_item or infer_item(dict(chosen,item=''))[0], description='')
             if not valid_fact and not airfare_ota and not existing_tab and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase':
                 owner_policy = _card3820_owner_policy(chosen, trips)
                 if owner_policy is None:
