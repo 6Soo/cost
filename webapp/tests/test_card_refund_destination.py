@@ -47,7 +47,7 @@ def test_refund_destination_matches_tab_and_unassigned_counts(card_db_path, monk
     assert ("href='/board?tab=refunds'" in page) is expected
     assert ('>미배정</span>' in page) is not expected
     if expected:
-        assert '실제 환급과 별개' in page and '원본 보존' in page
+        assert '실제 환급과 별개' in page and '원본 보존' not in page
     with closing(sqlite3.connect(card_db_path)) as conn, conn:
         assert before == conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
         conn.execute("UPDATE transactions SET approval_date='' WHERE transaction_id IN ('TX-A-01','TX-A-02')")
