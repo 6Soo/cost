@@ -1,6 +1,7 @@
 """Shared read-only classification destination and provenance decisions."""
 from __future__ import annotations
 
+import json
 from .quarter_tab import parse_tab
 
 
@@ -19,17 +20,45 @@ def is_quarter_destination(destination):
 
 
 def row_destination(row, valid_trip_ids=()):
-    """Resolve display destination precedence and report its shared status."""
+    """Compatibility tuple; legacy completion callers block any stored-ID conflict."""
+    verdict = row_assignment(row, valid_trip_ids)
+    status = 'UNASSIGNED' if verdict['conflicts'] else verdict['status']
+    return verdict['destination'], status
+
+
+def row_assignment(row, valid_trip_ids=()):
+    """Resolve an effective destination while keeping conflicting IDs separate."""
     display = str(row.get('display_tab_id') or '').strip()
     trip = str(row.get('trip_id') or '').strip()
-    destination = display if display not in ('', 'unclassified') else trip
-    status = destination_status(destination, valid_trip_ids)
-    if (display not in ('', 'unclassified') and trip not in ('', 'unclassified')
-            and display != trip
-            and (destination_status(display, valid_trip_ids) != 'ASSIGNED'
-                 or destination_status(trip, valid_trip_ids) != 'ASSIGNED')):
-        status = 'UNASSIGNED'
-    return destination, status
+    valid = set(valid_trip_ids or ())
+    display_status = destination_status(display, valid)
+    trip_status = destination_status(trip, valid)
+    display_present = display not in ('', 'unclassified')
+    trip_present = trip not in ('', 'unclassified')
+    conflicts = []
+    if display_present and trip_present and display != trip:
+        conflicts.append('DESTINATION_CONFLICT')
+    if display_present and display_status != 'ASSIGNED' and trip_present and trip_status == 'ASSIGNED':
+        conflicts.append('STALE_DISPLAY_DESTINATION')
+    if trip_present and trip_status != 'ASSIGNED' and display_present and display_status == 'ASSIGNED':
+        conflicts.append('STALE_TRIP_DESTINATION')
+    if display_present and display_status == 'ASSIGNED':
+        destination = display
+    elif trip_present and trip_status == 'ASSIGNED':
+        destination = trip
+    else:
+        destination = display if display_present else trip
+    return {'destination': destination,
+            'status': destination_status(destination, valid),
+            'conflicts': conflicts}
+
+
+def sql_assignment_status(display, trip, valid_trip_ids_json):
+    try:
+        valid_trip_ids = json.loads(valid_trip_ids_json or '[]')
+    except (TypeError, ValueError):
+        valid_trip_ids = []
+    return row_assignment({'display_tab_id': display, 'trip_id': trip}, valid_trip_ids)['status']
 
 
 def classification_source_label(source):
