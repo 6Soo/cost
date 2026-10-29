@@ -400,24 +400,8 @@ def _get_trip_display(trip_id, classification_source) -> str:
 
 
 def _classification_source_label(source) -> str:
-    """Render a readable provenance label without exposing internal codes."""
-    value = str(source or '').strip()
-    labels = {
-        'owner_card_residual': '자동 분류 · 카드 잔여 비용 규칙',
-        'owner_booking': '예약 근거 자동 배정',
-        'guide_airfare_evidence': '항공권 자료 근거',
-        'refund_original': '원결제 연결 근거',
-        'manual': '사용자 직접 지정', 'user_decision': '사용자 직접 지정',
-        'user_exception': '사용자 예외 규칙', 'auto_inferred': '자동 추론',
-        'auto': '자동 분류', 'inference': '자동 추론',
-        'rule': '자동 분류 · 등록 규칙', 'pattern': '자동 분류 · 가맹점 규칙',
-        'card_category': '자동 분류 · 카드 항목',
-        'booking_evidence_needed': '예약 근거 확인 필요',
-        'travel_location_hold': '여행 지역 확인 필요',
-        'rule_conflict': '분류 규칙 충돌', 'inference_conflict': '자동 추론 충돌',
-        'previous_decision': '기존 분류 유지',
-    }
-    return labels.get(value, '자동 분류 · 기타 근거' if value else '분류 근거 미확인')
+    from app.assignment_status import classification_source_label
+    return classification_source_label(source)
 
 
 def _status_badges(item: dict) -> str:

@@ -37,7 +37,7 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
         # Effective display destination precedes the stored trip. A dangling or
         # unverified destination is unassigned even when its ID is nonempty.
         target = "COALESCE(NULLIF(NULLIF(TRIM(display_tab_id),'unclassified'),''),NULLIF(TRIM(trip_id),''),'')"
-        clauses.append(target + " NOT GLOB 'quarter:20[0-9][0-9]:[1-4]'")
+        clauses.append('COST_IS_QUARTER_DESTINATION(' + target + ')=0')
         if trips:
             clauses.append(target + ' NOT IN (' + ','.join('?' for _ in trips) + ')')
             params.extend(trips)
@@ -209,6 +209,8 @@ def _connect(db_path: str) -> sqlite3.Connection:
     uri = path.as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
     conn.create_function("COST_VALID_USE_DATE", 1, lambda value: int(_valid_use_date(value)), deterministic=True)
+    from app.assignment_status import is_quarter_destination
+    conn.create_function('COST_IS_QUARTER_DESTINATION', 1, lambda value: int(is_quarter_destination(value)), deterministic=True)
     conn.create_function('COST_CARD_KEY', 3, lambda issuer, kind, tail: card_identity(issuer, kind, tail)['card_key'], deterministic=True)
     # Resolve the same complete groups as the refund tab once per connection.
     # This stays lazy for endpoints that do not request destination metadata.
