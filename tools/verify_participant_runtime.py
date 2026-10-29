@@ -24,7 +24,9 @@ def main() -> int:
         return 2
     result = verify_paths(args.db, args.web_db, receipt=receipt)
     print(json.dumps(result, ensure_ascii=False))
-    return 0 if result["status"] == "ok" and result["schema_present"] else 2
+    # Exit 0 means the configured read-only preflight passed. Registration
+    # acceptance is stronger and is represented separately by status=accepted.
+    return 0 if result["status"] in ("ready_for_receipt_check", "accepted") else 2
 
 
 if __name__ == "__main__":

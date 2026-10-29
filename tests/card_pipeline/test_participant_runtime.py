@@ -86,3 +86,46 @@ def test_cli_mismatch_is_rejected_before_creating_participant_database(tmp_path,
     assert ingest_participant_roster.main() == 2
     assert 'PARTICIPANT_DB_MISMATCH' in capsys.readouterr().out
     assert not destination.exists()
+
+
+def test_runtime_cli_exit_contract_with_and_without_receipt(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    db = tmp_path / 'cli-participant.sqlite'
+    store = roster.ParticipantStore.open(db)
+    receipt = dict(batch_id='cli-batch', trip_id='cli-trip', google_trip_key='cli-key',
+                   new_participants=1, reused_participants=0, status='registered')
+    store.conn.execute(
+        "INSERT INTO roster_batches(batch_id,roster_id,revision,fingerprint,authority,status,result_json,created_at,updated_at) "
+        "VALUES ('cli-batch','cli-roster',1,'synthetic','owner_confirmed_insurance','registered',?,'synthetic','synthetic')",
+        (json.dumps(receipt),))
+    store.close()
+    receipt_path = tmp_path / 'receipt.json'
+    receipt_path.write_text(json.dumps(receipt), encoding='utf-8')
+    env = dict(os.environ, WEBLEDGER_PARTICIPANT_DB=str(db))
+    script = Path(__file__).resolve().parents[2] / 'tools' / 'verify_participant_runtime.py'
+
+    preflight = subprocess.run([sys.executable, str(script), '--db', str(db)],
+                               capture_output=True, text=True, env=env, check=False)
+    assert preflight.returncode == 0
+    assert json.loads(preflight.stdout)['status'] == 'ready_for_receipt_check'
+
+    accepted = subprocess.run([sys.executable, str(script), '--db', str(db), '--receipt', str(receipt_path)],
+                              capture_output=True, text=True, env=env, check=False)
+    assert accepted.returncode == 0
+    assert json.loads(accepted.stdout)['status'] == 'accepted'
+
+    receipt_path.write_text('{malformed', encoding='utf-8')
+    malformed = subprocess.run([sys.executable, str(script), '--db', str(db), '--receipt', str(receipt_path)],
+                               capture_output=True, text=True, env=env, check=False)
+    assert malformed.returncode == 2
+    assert json.loads(malformed.stdout)['code'] == 'PARTICIPANT_RECEIPT_INVALID'
+
+    mismatch = subprocess.run([sys.executable, str(script), '--db', str(db), '--web-db', str(tmp_path / 'other.sqlite')],
+                              capture_output=True, text=True, env=env, check=False)
+    assert mismatch.returncode == 2
+    assert json.loads(mismatch.stdout)['status'] == 'blocked'
