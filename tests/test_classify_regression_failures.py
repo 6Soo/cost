@@ -56,3 +56,25 @@ def test_parameter_names_and_collection_errors_are_never_disclosed():
                              'FAILED tests/test_example.py::test_case[PRIVATE_B]'], exit_code=1)
     assert report['failure_count'] == 2
     assert 'PRIVATE_' not in json.dumps(report)
+
+
+def test_subtest_failures_are_counted_without_disclosing_parameters():
+    report = classify_lines([
+        'SUBFAILED(person=PRIVATE_A) webapp/tests/test_example.py::Case::test_review',
+        'SUBFAILED(person=PRIVATE_B) webapp/tests/test_example.py::Case::test_review',
+        'SUBFAILED(person=PRIVATE_A) webapp/tests/test_example.py::Case::test_review',
+    ], exit_code=1)
+    assert report['failure_count'] == 2
+    assert report['status'] == 'FAILED'
+    assert 'PRIVATE_' not in json.dumps(report)
+
+
+def test_cli_reads_windows_powershell_redirected_log(tmp_path):
+    log = tmp_path / 'powershell.log'
+    log.write_text('FAILED tests/test_x.py::test_a - secret\n1 failed, 2 passed\n', encoding='utf-16')
+    completed = subprocess.run([sys.executable, 'tools/classify_regression_failures.py',
+                                '--input', str(log), '--exit-code', '1'],
+                               capture_output=True, text=True, check=True)
+    report = json.loads(completed.stdout)
+    assert report['failure_count'] == 1 and report['passed'] == 2
+    assert 'secret' not in completed.stdout

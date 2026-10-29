@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Iterable
 
-_FAILED = re.compile(r"^(?:FAILED|ERROR)\s+(?P<nodeid>[^\s]+)")
+_FAILED = re.compile(r"^(?P<kind>FAILED|ERROR|SUBFAILED(?:\([^\r\n]*?\))?)\s+(?P<nodeid>[^\s]+)")
 _PASSED = re.compile(r"\b(?P<count>\d+)\s+passed(?:,|\s|$)")
 _COLLECTED = re.compile(r"collected\s+(?P<count>\d+)\s+items", re.I)
 _SAFE_NODEID = re.compile(r"^(?:tests/|webapp/tests/)[A-Za-z0-9_/]+\.py(?:::[A-Za-z_][A-Za-z0-9_]*)+$")
@@ -50,7 +50,8 @@ def classify_lines(lines: Iterable[str], *, exit_code: int | None = None) -> dic
         if match:
             nodeid = _safe_nodeid(match.group("nodeid"))
             failures.append({"nodeid": nodeid, "category": _category(nodeid),
-                             '_key': hashlib.sha256(match.group('nodeid').encode()).hexdigest()})
+                             '_key': hashlib.sha256((match.group('kind') + ' ' +
+                                                     match.group('nodeid')).encode()).hexdigest()})
             continue
         match = _PASSED.search(line.strip())
         if match:
@@ -99,7 +100,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.input is None:
         raise SystemExit("--input is required; no test command is executed")
     try:
-        lines = args.input.read_text(encoding="utf-8", errors="replace").splitlines()
+        raw = args.input.read_bytes()
+        encoding = 'utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
+        lines = raw.decode(encoding, errors='replace').splitlines()
     except OSError:
         result = {"schema_version": 1, "status": "BLOCKED", "reason": "input_unavailable",
                   "raw_log_included": False}
