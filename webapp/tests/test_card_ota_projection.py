@@ -129,7 +129,8 @@ def _build_complex_synthetic_snapshot():
             "candidate_search": {
                 "candidates": [],
                 "rejected": [
-                    {"transaction_id": "tx2", "reason": "amount_differs"},
+                    {"transaction_id": "tx2", "reason": "amount_differs",
+                     "display_relevant": True},
                 ],
             },
             "reserved_card_ids": ["tx2", "reserved_only_tx"],
