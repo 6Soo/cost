@@ -1,3 +1,12 @@
+## 2026-10-30 미결 병렬 구현 및 카드·OTA 경량화 배포
+
+- 사용자 “나머지 모든 미결사항 다수의 luna low에게 위임구현”과 “새로운 원격 pr 명세를 보고 구현에 추가하라”를 실행했다. Luna low 9명에게 분리 배정했고 [실행 인덱스](specs/all-pending-execution-20261030.md)에 [PR #370 명세](specs/lean-card-ota-core-20261030.md)의 R1~R5를 추가했다. 명세 PR #370 및 구현 [#371](https://github.com/6Soo/cost/pull/371), [#372](https://github.com/6Soo/cost/pull/372), [#373](https://github.com/6Soo/cost/pull/373), [#374](https://github.com/6Soo/cost/pull/374), [#375](https://github.com/6Soo/cost/pull/375)를 정상 병합했다. 기존 #366/#367은 통합 후 닫았다.
+- 운영 SHA `10b95b802c879e83dd93d9030aa333f7f348cf38`, 이전 검증 SHA `d09596d0242416af2889b4a0514abd0509c60561`. 여행·분기 목적지와 저장 ID 충돌을 공유 읽기 판정으로 분리하고 카드 목록/상세·미배정 필터·업로드 완료에 연결했다. 충돌은 완료 차단으로 보존한다. OTA 제외 후보의 관련성은 코어 trace에서 계산해 UI 재판정을 제거했다. 유효하지 않은 OTA fact가 Gotogate 잔여 비용 항목을 덮지 못하게 했으며, 유효 근거 우선 동작과 수동 결정 보존은 기존 기능으로 검증했다.
+- 클라우드 증거의 ID·실제 UTC 날짜·JSON 중복 키, 참가자 preflight/등록 영수증 수락 구분과 CLI 종료 코드, OTA 세대 불일치 보호, 수동 테마/문서 내부 스크롤을 보완했다. 실제 렌더·검색·Google loader·lock 대기 계측은 제한된 메타데이터만 보관한다. 환경 catalog는 정적 54/54 MATCH이며 실제 환경값을 읽지 않는다. R4의 합성 40행 측정에서 fingerprint 관련 조회가 5→3회로 감소했다. 운영 SLA·실 DB 성능 개선으로 해석하지 않는다.
+- 통합 근거: 최종 main 보호 33 passed, R1 47 passed, R2 83 passed, R3 20 passed, R4 72 passed/28 subtests. 기존 미결 통합의 core/cloud/participant 115 passed, 분기/권한/fixture 67 passed/40 subtests, 계측/스냅샷/HTTP 40 passed, 실제 handler/mock Google 4 passed, 설정/UI 14 passed, audit 30 passed. 겹치는 실행을 합산하지 않는다. 원래 viewport 보호와 새 합성 검사가 통과했고 변경 CSS 자산 기준도 5 passed다.
+- 배포 1,154 blobs 불일치0·새 백업/별도 복원·task/process SHA·단일 loopback listener·health/ready200·보호 API401·보호13표 전후 불변. 실제 Aside 인증 카드 화면에서 테마 버튼1개·문서 가로 overflow 없음·내부 분류 코드 비노출을 확인했다. 운영 금융/분류/여행/명단/Google 쓰기·원문 재처리0이며 기존 숲나들e 작업을 재실행하지 않았다. 근거는 통합 worktree `.local-archive/all-pending-luna-20261030/deploy/`와 같은 SHA의 호스트 deploy-evidence다.
+- 남은 수락: PEND-04 실제 원격 manifest는 stored3710/pending48/complete=false라 전환하지 않았다. 참가자 실제 인증 API는200이나 configured=false/complete=false여서 실제 명단 DB·등록 영수증 수락은 미완료다. 원결제 원본 부재·카드 수집/업로드 보류·실기기 수락을 유지한다. R5 감사에서 안전하게 삭제할 제품 코드는 확인되지 않아 삭제하지 않았고, 외부 실행/권한의 UNKNOWN을 근거 없이 활성화하지 않았다. 기존 OTA 예약 검사 2건의 철회 출처·기간/독립 추론 기대는 별도 정책/fixture 검토로 남겨 통과라고 보고하지 않는다. R4의 전면 컨트롤러 축소와 R5의 문서 history 이동 전체가 끝났다고 주장하지 않는다. 실제 근거와 다음 동작은 queue/checkpoint에 기록한다.
+
 ## 2026-10-29 카드 업로드 전수 대조 CUV 후속 검수
 
 - 구현·합성검증 완료, 운영 수락은 PARTIAL. 통합 `781c524` 후 카드/발급사/종류·날짜·통화 경계의 중복 대조, 잘못된 날짜/미연결 중복 집계, XLSX 보안검사 실패 중단·자원 종료를 보완했다.
