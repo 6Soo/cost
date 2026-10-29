@@ -107,6 +107,87 @@ class RefundGroupCommitTests(unittest.TestCase):
         self.assertEqual(payload['code'], 'PREVIEW_STALE')
         self.assertEqual(self.ledger(), (0, 0))
 
+    def test_replay_fails_closed_after_amount_changes(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'amount-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE transactions SET amount_krw=amount_krw+1, revision=revision+1 WHERE transaction_id=?",
+            (self.original,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'amount-2'})
+        self.assertEqual(status, 409)
+        self.assertEqual(payload['code'], 'PREVIEW_STALE')
+        self.assertEqual(self.ledger(), (2, 300000))
+
+    def test_replay_fails_closed_after_ledger_amount_changes(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'ledger-amount-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE ledger_entries SET amount_krw=amount_krw+1 WHERE transaction_id=?",
+            (self.original,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'ledger-amount-2'})
+        self.assertEqual(status, 409)
+        self.assertEqual(payload['code'], 'PREVIEW_STALE')
+
+    def test_replay_fails_closed_after_user_revision_changes(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'revision-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE transactions SET classification_basis='사용자 수정', revision=revision+1 WHERE transaction_id=?",
+            (self.original,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'revision-2'})
+        self.assertEqual(status, 409)
+        self.assertEqual(payload['code'], 'PREVIEW_STALE')
+        self.assertEqual(self.ledger(), (2, 300000))
+
+    def test_several_new_request_ids_replay_the_original_digest(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'many-1'})[0], 200)
+        for index in range(2, 5):
+            status, payload = self.post(self.original, {'digest': digest, 'request_id': f'many-{index}'})
+            self.assertEqual(status, 200)
+            self.assertEqual((payload['result']['applied'], payload['result']['already']), (0, 2))
+        self.assertEqual(self.ledger(), (2, 300000))
+
+    def test_completed_partly_recorded_group_replays_without_new_entries(self):
+        entry = self.flow.pipeline.preview(self.batch, tab_validator=OK, trip_validator=OK,
+                                           group_original=self.original)['rows'][0]
+        self.board.conn.execute(
+            'INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,'
+            'amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            (entry['transaction_id'], self.batch, entry['item'], entry['description'],
+             entry['display_tab_id'], entry['trip_id'], entry['amount_krw'], entry['merchant'],
+             entry['occurred_on'], entry['transaction_direction'], entry['source_hash'], 'synthetic'))
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'partial-1'})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload['result']['applied'], 1)
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'partial-2'})
+        self.assertEqual(status, 200)
+        self.assertEqual((payload['result']['applied'], payload['result']['already']), (0, 2))
+        self.assertEqual(self.ledger(), (2, 300000))
+
+    def test_replay_rejects_a_hold_added_after_success(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'hold-1'})[0], 200)
+        source = self.board.conn.execute('SELECT source_hash FROM transactions WHERE transaction_id=?',
+                                         (self.original,)).fetchone()[0]
+        self.board.conn.execute('INSERT INTO transaction_review_holds VALUES (?,?,?,?)',
+                                (self.original, source, 'user_hold', 'synthetic'))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'hold-2'})
+        self.assertEqual((status, payload['code']), (409, 'PREVIEW_STALE'))
+        self.assertEqual(self.ledger(), (2, 300000))
+
+    def test_replay_rejects_a_new_refund_member_after_success(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'members-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE transactions SET transaction_direction='cancellation',amount_krw=-50000,"
+            "original_approval_number='100',revision=revision+1 WHERE transaction_id=?", (self.other,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'members-2'})
+        self.assertEqual((status, payload['code']), (409, 'PREVIEW_STALE'))
+        self.assertEqual(self.ledger(), (2, 300000))
+
     def test_group_commit_keeps_saved_pair_when_state_refresh_fails(self):
         digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
         body = {'digest': digest, 'request_id': 'group-refresh-failure'}
