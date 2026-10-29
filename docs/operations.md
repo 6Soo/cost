@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 카드 모바일 5항목 — 구분선·폭·원본 상세·펼침·스피너
+
+- 5항목 모두 COMPLETE — [PR #340](https://github.com/6Soo/cost/pull/340), 검증 구현 `78469c2c8102f7726d026faec39fbab08b7fa745`, 운영 SHA `6b63f78b8779c97a6f9066e03d0b26dc9803b721`. 행 구분선을 제거하고 모바일 최소380px/데스크톱560px을 없애 실제 가용 폭에 맞춘다. 긴 내용은 줄바꿈하며 표와 페이지 모두 가로 넘침이 없다. 행/가맹점 버튼은 별도 페이지 이동 대신 바로 아래 상세를 열고 닫는다. 로딩 스피너·실패/지연 안내·재시도·Enter/Space/Escape·aria-expanded/busy·텍스트 선택·기존 환불 링크를 보존했다. 기간/검색 제출 및 일반 링크 이동도 스피너로 표시하며 뒤로가기 복귀 시 해제한다.
+- 장부행 전용 `card-…` 링크 때문에 원본만 있는 거래가 “없는 거래예요”로 표시되던 원인을 수정했다. `/api/cards/transactions/detail?id=…`는 원본 카드 고정 필드를 mode=ro·파라미터 SQL로 읽고 escaped HTML/no-store를 반환한다. 비로그인401·직원403을 원본 조회 전에 적용한다. 기존 장부 URL도 원본이 존재하면 소유자에게 읽기 전용 상세를 보여준다. 원본/금액/배정/분류/환불/Google/스키마는 쓰지 않는다.
+- 정확한 통합 Git archive에서 카드·모바일·원본 상세·환불 목적지·조회 API·실제 HTTP 권한 86 passed, 별도 인접 환불12 passed. 320/390/600/759/760/1280·두 테마·200% 확대·열림 전후 표/페이지 가로 넘침 부재·행 경계0·대기 스피너·실패 후 재시도·원본 전후 dump 동일성·카드 마스킹/HTML escape·원본 전용 과거 URL 수락. 전체 회귀·인증 운영 owner 화면/실기기는 미실행이다.
+- 병합 tree 동일·1111 Git blobs 불일치0·운영 Python 합성 smoke PASS. 별도 환불 세션의 승인된 작업이 종료된 뒤 새 보호 상태를 기록해 순차 배포했다. 새 백업/별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호API 및 상세/카드 URL401·보호13표 내용/스키마 불변, Board/SourceRefresh Running. 이전 검증 릴리스와 복구 사본을 보존했다. 이 UI 작업에서 운영 금융/여행/분류/Google 쓰기·마이그레이션·재처리0이며 별도 세션의 금융 작업과 구분한다.
+- 근거: `.local-archive/card-inline-details-20261029/`의 checkpoint/통합 archive/합성 이미지, `.local-archive/deploy-6b63f78b8779c97a6f9066e03d0b26dc9803b721/`의 review/runtime-smoke/auth-smoke/protection-before/protection-after/deploy-evidence 및 호스트 동일 SHA release-audit/deploy-evidence. 기존 사용자·다른 작업 변경/미추적 파일 보존. 현재 5항목의 남은 작업·차단0, 다음 명령 없음. 후속 문서만으로 검사·재배포·재시작하지 않는다.
+
 ## 2026-10-29 전액상쇄 환불 기록 완료·부분 기기록 보호 교정
 
 - [PR #339](https://github.com/6Soo/cost/pull/339), 구현 `02cb163`, 운영 `8b91aeb622106af38935dce49da4c10bb7ddc37e`. 기존 장부가 있는 묶음 멤버의 파생 existing_ledger 보류가 빠진 쪽까지 막던 문제를 교정했다. 실제 ledger_entries가 있는 멤버만 제외하고 legacy 투영/수동/금융/중복/인증 보호를 유지한다. inline/cross-batch/refund-inference44 passed, merge tree 동일·metadata2파일 차단0/삭제0.
