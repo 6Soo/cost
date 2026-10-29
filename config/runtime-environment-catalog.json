@@ -2,8 +2,8 @@
   "schema": "runtime-environment-catalog-v1",
   "scope": [
     "run_candidate.py",
-    "app/**/*.py",
-    "webapp/**/*.py"
+    "app/**/*.py (excluding tests)",
+    "webapp/**/*.py (excluding tests)"
   ],
   "value_policy": "Names and static source metadata only. Never read process environment values.",
   "entries": [
@@ -13,7 +13,69 @@
       "role": "path:data-root",
       "required": "required for run_candidate; absent is refused",
       "default": "none",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\ops.py:1836",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
+    },
+    {
+      "name": "WEBLEDGER_DATA_DB",
+      "owner": "webapp.ops.DurableConfig.from_env",
+      "role": "path:database-alias",
+      "required": "fallback only when WEBLEDGER_DB is absent",
+      "default": "none; missing both database settings is refused",
+      "status": "confirmed",
+      "evidence": "Static pick call uses this as the fallback environment name for db_path.",
+      "source_refs": "webapp/ops.py:DurableConfig.from_env"
+    },
+    {
+      "name": "WEBLEDGER_DATA_EXPORTS",
+      "owner": "webapp.ops.DurableConfig.from_env",
+      "role": "path:export-output-alias",
+      "required": "fallback only when WEBLEDGER_EXPORT_DIR is absent",
+      "default": "none; missing both export settings is refused",
+      "status": "confirmed",
+      "evidence": "Static pick call uses this as the fallback environment name for export_dir.",
+      "source_refs": "webapp/ops.py:DurableConfig.from_env"
+    },
+    {
+      "name": "WEBLEDGER_EVIDENCE_DIR",
+      "owner": "webapp.ops.DurableConfig.from_env",
+      "role": "path:evidence-root",
+      "required": "required for durable configuration unless fallback alias is set",
+      "default": "none; missing both evidence settings is refused",
+      "status": "confirmed",
+      "evidence": "Static pick call resolves evidence_dir from this name then WEBLEDGER_DATA_EVIDENCE.",
+      "source_refs": "webapp/ops.py:DurableConfig.from_env"
+    },
+    {
+      "name": "WEBLEDGER_DATA_EVIDENCE",
+      "owner": "webapp.ops.DurableConfig.from_env",
+      "role": "path:evidence-root-alias",
+      "required": "fallback only when WEBLEDGER_EVIDENCE_DIR is absent",
+      "default": "none; missing both evidence settings is refused",
+      "status": "confirmed",
+      "evidence": "Static pick call uses this as the fallback environment name for evidence_dir.",
+      "source_refs": "webapp/ops.py:DurableConfig.from_env"
+    },
+    {
+      "name": "WEBLEDGER_SOURCE_DIR",
+      "owner": "webapp.ops.DurableConfig.from_env",
+      "role": "path:source-root",
+      "required": "required for durable configuration unless fallback alias is set",
+      "default": "none; missing both source settings is refused",
+      "status": "confirmed",
+      "evidence": "Static pick call resolves source_dir from this name then WEBLEDGER_DATA_SOURCE.",
+      "source_refs": "webapp/ops.py:DurableConfig.from_env"
+    },
+    {
+      "name": "WEBLEDGER_DATA_SOURCE",
+      "owner": "webapp.ops.DurableConfig.from_env",
+      "role": "path:source-root-alias",
+      "required": "fallback only when WEBLEDGER_SOURCE_DIR is absent",
+      "default": "none; missing both source settings is refused",
+      "status": "confirmed",
+      "evidence": "Static pick call uses this as the fallback environment name for source_dir.",
+      "source_refs": "webapp/ops.py:DurableConfig.from_env"
     },
     {
       "name": "PORT",
@@ -21,7 +83,9 @@
       "role": "limit:bind-port",
       "required": "optional",
       "default": "8751",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "run_candidate.py:163",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_CARD_SCHEMA_POLICY",
@@ -29,7 +93,9 @@
       "role": "feature/schema-policy",
       "required": "optional",
       "default": "create outside production; production entry point sets require",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "app\\db.py:245,287",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_CARD_FLOW",
@@ -37,7 +103,9 @@
       "role": "feature:card-flow",
       "required": "optional",
       "default": "disabled unless value is 1",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\card_flow.py:272",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_DB",
@@ -45,7 +113,9 @@
       "role": "path:database",
       "required": "set by run_candidate after durable config validation",
       "default": "direct board fallback webledger.work.sqlite; forbidden as durable runtime default",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\real_review.py:400",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT",
@@ -53,7 +123,9 @@
       "role": "path:public-snapshot",
       "required": "optional; feature requires paired rows path",
       "default": "disabled when absent",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\ota_catalog.py:477",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_GOOGLE_LEDGER_ROWS",
@@ -61,7 +133,9 @@
       "role": "path:private-rows",
       "required": "optional; feature requires paired snapshot path",
       "default": "disabled when absent",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\google_ledger_page.py:115,103",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_PROVIDER_SECRETS",
@@ -69,7 +143,9 @@
       "role": "secret-reference:path",
       "required": "optional",
       "default": "temporary-directory local store; not a real vault",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\provider_config.py:61,46",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_GOOGLE_CLIENT_ID",
@@ -77,7 +153,9 @@
       "role": "auth:client-id",
       "required": "required with complete OIDC configuration",
       "default": "none",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\google_oidc.py:87",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_GOOGLE_CLIENT_SECRET",
@@ -85,7 +163,9 @@
       "role": "secret:oauth-client",
       "required": "required with complete OIDC configuration",
       "default": "none",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\google_oidc.py:88",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_SESSION_SECRET",
@@ -93,7 +173,9 @@
       "role": "secret:session-signing",
       "required": "required with complete OIDC configuration",
       "default": "none",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\google_oidc.py:89",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_PUBLIC_BASE_URL",
@@ -101,7 +183,9 @@
       "role": "url:public-callback-origin",
       "required": "required with complete OIDC configuration",
       "default": "none",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\ledger_board.py:2942,60",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_OWNER_GOOGLE_SUB",
@@ -109,7 +193,9 @@
       "role": "auth:owner-subject",
       "required": "optional owner bootstrap; no owner means viewer",
       "default": "none",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\google_oidc.py:196,91",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_DEMO_SNAPSHOT",
@@ -117,7 +203,9 @@
       "role": "path:synthetic-demo-data",
       "required": "optional",
       "default": "disabled when absent",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\google_demo_page.py:21,33",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_RECEIPTS_STORE",
@@ -125,15 +213,19 @@
       "role": "path:private-store",
       "required": "optional; production path validated when configured",
       "default": "disabled when absent",
-      "status": "confirmed"
+      "status": "confirmed",
+      "source_refs": "webapp\\receipt_review.py:117,125",
+      "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
     },
     {
       "name": "WEBLEDGER_TRIP_AUTHORITY",
       "owner": "webapp.card_trip_authority / webapp.ota_catalog",
-      "role": "path:authority-config",
+      "role": "path:trip-authority-config",
       "required": "optional",
       "default": "feature unavailable when absent",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "When present, load trip authority JSON; absent means period verification returns false without it.",
+      "source_refs": "webapp/card_trip_authority.py:trip_valid; webapp/ota_catalog.py:_trip_reason"
     },
     {
       "name": "WEBLEDGER_EVIDENCE_ROOT",
@@ -141,55 +233,69 @@
       "role": "path:evidence-root",
       "required": "optional",
       "default": "D:/WebLedgerHost/data/evidence",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional root that source locators must remain under; source fallback is D:/WebLedgerHost/data/evidence.",
+      "source_refs": "webapp/card_trip_authority.py:trip_valid"
     },
     {
       "name": "WEBLEDGER_OTA_MAIL_DIR",
       "owner": "webapp.card_flow / webapp.ota_catalog",
-      "role": "path:mail-source",
+      "role": "path:mail-source-directory",
       "required": "optional",
       "default": "data-directory/ota-mail",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional override; otherwise data-directory/ota-mail.",
+      "source_refs": "webapp/card_flow.py; webapp/ota_catalog.py; webapp/ota_payment_review.py"
     },
     {
       "name": "WEBLEDGER_OTA_SOURCES",
       "owner": "app.ota_sources",
-      "role": "path:source-config",
+      "role": "path:OTA-source-manifest",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional manifest path; absent uses data-directory/ota-sources.json. Explicit missing manifest is an error.",
+      "source_refs": "app/ota_sources.py:manifest_path/read_manifest"
     },
     {
       "name": "WEBLEDGER_OTA_SOURCES_JSON",
       "owner": "webapp.ota_catalog",
-      "role": "config:source-json",
+      "role": "config:OTA-source-map-JSON",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional JSON object; absent falls back to manifest and derived data-directory sources.",
+      "source_refs": "webapp/ota_catalog.py:configured_sources; webapp/ota_payment_review.py:from_host"
     },
     {
       "name": "WEBLEDGER_OTA_REVIEW_DB",
       "owner": "webapp.ota_catalog / webapp.ota_payment_review",
-      "role": "path:review-database",
+      "role": "path:isolated-review-database",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; review UI remains disabled unless an absolute path and isolated mode are both present.",
+      "source_refs": "webapp/ota_payment_review.py:review_db_path/enabled"
     },
     {
       "name": "WEBLEDGER_OTA_REVIEW_MODE",
       "owner": "webapp.ota_payment_review",
-      "role": "feature:review-mode",
+      "role": "feature:OTA-review-mode",
       "required": "optional",
       "default": "isolated unless authority mode configured",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; only exact value isolated enables isolated review mode.",
+      "source_refs": "webapp/ota_payment_review.py:enabled"
     },
     {
       "name": "WEBLEDGER_OTA_AUTHORITY",
       "owner": "webapp.ota_payment_review",
-      "role": "feature:authority-mode",
+      "role": "feature:OTA-authority-mode",
       "required": "optional",
       "default": "isolated",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; exact authority selects authority mode; otherwise enabled review remains isolated.",
+      "source_refs": "webapp/ota_payment_review.py:mode"
     },
     {
       "name": "WEBLEDGER_REVIEW_CONFIG",
@@ -197,7 +303,9 @@
       "role": "path:review-config",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional config path; unset leaves real-review config unconfigured.",
+      "source_refs": "webapp/real_review.py:CONFIG_ENV consumers; webapp/ota_catalog.py"
     },
     {
       "name": "WEBLEDGER_REVIEW_REFRESH_STATUS",
@@ -205,23 +313,29 @@
       "role": "path:refresh-status",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional path for refresh status input/output.",
+      "source_refs": "webapp/real_review.py:refresh-status accessors"
     },
     {
       "name": "WEBLEDGER_REVIEW_FROM",
       "owner": "webapp.card_flow / webapp.history_policy",
-      "role": "policy:review-date",
+      "role": "policy:review-date-boundary",
       "required": "optional",
       "default": "2026-04-01 in history_policy; empty in card flow",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional date string; history policy defaults to 2026-04-01 while card-flow callsites default empty.",
+      "source_refs": "webapp/history_policy.py; webapp/card_flow.py"
     },
     {
       "name": "WEBLEDGER_UNIFIED_DB",
       "owner": "webapp.ledger_store / webapp.real_review",
-      "role": "feature:unified-db",
+      "role": "feature:unified-database",
       "required": "optional",
       "default": "disabled unless value is 1",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; exact value 1 opts into unified database behavior.",
+      "source_refs": "webapp/ledger_store.py; webapp/real_review.py"
     },
     {
       "name": "WEBLEDGER_RULE_LEASE_TTL",
@@ -229,7 +343,9 @@
       "role": "limit:lease-seconds",
       "required": "optional",
       "default": "300",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional numeric float; module default is 300 seconds.",
+      "source_refs": "webapp/ledger_store.py:LEASE_TTL_SECONDS"
     },
     {
       "name": "WEBLEDGER_FLIGHT_PASSENGER_MATCHING",
@@ -237,7 +353,9 @@
       "role": "feature:passenger-matching",
       "required": "optional",
       "default": "disabled unless value is 1",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; exact value 1 enables the passenger review routes.",
+      "source_refs": "webapp/flight_passenger_page.py:enabled"
     },
     {
       "name": "WEBLEDGER_FLIGHT_PASSENGER_DB",
@@ -245,39 +363,49 @@
       "role": "path:passenger-database",
       "required": "optional",
       "default": "disabled when absent",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; only an absolute configured path is accepted; otherwise path is unavailable.",
+      "source_refs": "webapp/flight_passenger_page.py:_db_path"
     },
     {
       "name": "RESERVATION_INTERNAL_BASE_URL",
       "owner": "app.reservation_authority",
-      "role": "url:reservation-api",
+      "role": "url:read-only-reservation-service",
       "required": "optional",
       "default": "configured service URL in source",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional override; defaults to the source constant https://reserve.foresttour.kr; HTTPS required except loopback HTTP.",
+      "source_refs": "app/reservation_authority.py:_base_url"
     },
     {
       "name": "RESERVATION_INTERNAL_API_TOKEN",
       "owner": "app.reservation_authority",
-      "role": "secret:api-token",
+      "role": "secret:reservation-api-token",
       "required": "optional if token file is configured",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional credential value; read only for authorization and never included in public status.",
+      "source_refs": "app/reservation_authority.py:configured_token"
     },
     {
       "name": "RESERVATION_INTERNAL_API_TOKEN_FILE",
       "owner": "app.reservation_authority",
-      "role": "secret-reference:path",
+      "role": "secret-reference:reservation-token-file",
       "required": "optional if token value is configured",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional token-file path; first nonempty line is used; a per-board private token file is also a caller fallback.",
+      "source_refs": "app/reservation_authority.py:configured_token; webapp/guide_airfare_review.py:_token_file"
     },
     {
       "name": "OPENROUTER_API_KEY",
       "owner": "app.opencode_receipt_vision",
-      "role": "secret:provider-key",
+      "role": "secret:provider-api-key",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional credential-presence check; photo transmission additionally requires explicit approval; auth-file fallback is separate.",
+      "source_refs": "app/opencode_receipt_vision.py:inkling_enabled"
     },
     {
       "name": "WEBLEDGER_RECEIPT_INKLING",
@@ -285,15 +413,19 @@
       "role": "feature:external-vision-consent",
       "required": "optional",
       "default": "disabled unless approved",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; exact value approved is required before OpenRouter-backed photo processing.",
+      "source_refs": "app/opencode_receipt_vision.py:inkling_enabled"
     },
     {
       "name": "WEBLEDGER_RECEIPT_VISION",
       "owner": "app.opencode_receipt_vision",
-      "role": "feature:receipt-vision",
+      "role": "feature:local-vision-provider",
       "required": "optional",
       "default": "disabled unless provider selected",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; Windows-only and exact provider selector opencode-muse-free.",
+      "source_refs": "app/opencode_receipt_vision.py:enabled"
     },
     {
       "name": "WEBLEDGER_OPENCODE_EXE",
@@ -301,71 +433,79 @@
       "role": "path:executable",
       "required": "optional",
       "default": "platform discovery",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional executable path; when unset searches PATH then the platform npm-global location.",
+      "source_refs": "app/opencode_receipt_vision.py:_opencode_executable"
     },
     {
       "name": "APPDATA",
       "owner": "app.opencode_receipt_vision",
-      "role": "path:platform-config",
+      "role": "path:platform-application-data",
       "required": "platform-provided optional",
       "default": "platform value",
-      "status": "unknown"
-    },
-    {
-      "name": "XDG_CONFIG_HOME",
-      "owner": "app.opencode_receipt_vision",
-      "role": "path:child-process-config",
-      "required": "set for isolated child process",
-      "default": "temporary isolated directory",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional Windows-provided location used only to locate npm global opencode.cmd.",
+      "source_refs": "app/opencode_receipt_vision.py:_opencode_executable"
     },
     {
       "name": "WEBLEDGER_OTA_MATCHING_DEFAULTS",
       "owner": "app.ota_matching_defaults",
-      "role": "path:matching-defaults",
+      "role": "path:OTA-matching-defaults-override",
       "required": "optional",
       "default": "built-in defaults",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional path used only if the bundled defaults file is absent; schema mismatch raises an error.",
+      "source_refs": "app/ota_matching_defaults.py:load_defaults"
     },
     {
       "name": "WEBLEDGER_AGODA_PORTAL_DB",
       "owner": "app.ota_portal",
-      "role": "path:portal-database",
+      "role": "path:Agoda-portal-database",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional override; otherwise checks data-directory/agoda-portal.sqlite then retained source-tree staging path.",
+      "source_refs": "app/ota_portal.py:evidence_path"
     },
     {
       "name": "WEBLEDGER_GUIDE_AIRPORTS",
       "owner": "webapp.guide_airfare_review",
-      "role": "path:airport-reference",
+      "role": "path:airport-reference-table",
       "required": "optional",
       "default": "none",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional override passed to airport table loader; absent selects its built-in table.",
+      "source_refs": "webapp/guide_airfare_review.py:airport_table"
     },
     {
       "name": "WEBLEDGER_LOCAL_RULE_AI",
       "owner": "app.local_rule_ai",
-      "role": "feature:local-rule-ai",
+      "role": "feature:loopback-rule-interpreter",
       "required": "optional",
       "default": "disabled unless value is 1",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; exact value 1 enables loopback-only interpretation.",
+      "source_refs": "app/local_rule_ai.py:enabled"
     },
     {
       "name": "WEBLEDGER_RECEIPT_OCR",
       "owner": "app.local_receipt_ocr",
-      "role": "feature:receipt-ocr",
+      "role": "feature:Windows-receipt-OCR",
       "required": "optional",
       "default": "disabled unless Windows and provider selected",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional; enabled only on Windows and exact value windows.",
+      "source_refs": "app/local_receipt_ocr.py:enabled"
     },
     {
       "name": "WEBLEDGER_RECEIPT_LEARNING",
       "owner": "app.receipt_learning",
-      "role": "feature:receipt-learning",
+      "role": "path:receipt-learning-notes",
       "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
+      "default": "none; feature/source remains unavailable when unset",
+      "status": "confirmed",
+      "evidence": "Optional JSONL path; absent disables saved lessons.",
+      "source_refs": "app/receipt_learning.py:path/enabled"
     },
     {
       "name": "WEBLEDGER_EXPORT_DIR",
@@ -373,31 +513,19 @@
       "role": "path:export-output",
       "required": "optional",
       "default": "webledger-exports (durable production config refuses relative defaults)",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "Optional override; direct board fallback is webledger-exports; durable production config prefers WEBLEDGER_DATA_EXPORTS and requires absolute path.",
+      "source_refs": "webapp/ledger_board.py:export handler; webapp/ops.py:DurableConfig.from_env"
     },
     {
       "name": "WEBLEDGER_RESERVE_SOURCE",
       "owner": "webapp.reserve_link",
-      "role": "path:source-config",
+      "role": "path:reserve-source-config",
       "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
-    },
-    {
-      "name": "WEBLEDGER_BREAKPOINT_EVIDENCE",
-      "owner": "webapp.ops",
-      "role": "path:breakpoint-evidence",
-      "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
-    },
-    {
-      "name": "WEBLEDGER_FLOW_SHOTS",
-      "owner": "webapp.tests / receipt flow tooling",
-      "role": "path:test-artifact",
-      "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
+      "default": "none; feature/source remains unavailable when unset",
+      "status": "confirmed",
+      "evidence": "Optional path to reserve source snapshot/config; unset leaves the optional source unconfigured.",
+      "source_refs": "webapp/reserve_link.py:CONFIG_ENV consumers"
     },
     {
       "name": "WEBLEDGER_OTA_EXACT_GATE",
@@ -405,31 +533,19 @@
       "role": "feature:exact-gate",
       "required": "optional",
       "default": "enabled unless value is 0",
-      "status": "unknown"
+      "status": "confirmed",
+      "evidence": "app.ota_exact.enabled reads ENV with default 1; only exact 0 disables.",
+      "source_refs": "app/ota_exact.py:enabled"
     },
     {
       "name": "WEBLEDGER_PARTICIPANT_DB",
       "owner": "app.participant_roster",
       "role": "path:participant-database",
       "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
-    },
-    {
-      "name": "WEBLEDGER_RESERVE_TRIP_SYNC",
-      "owner": "webapp.ops",
-      "role": "feature:reserve-trip-sync",
-      "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
-    },
-    {
-      "name": "WEBLEDGER_TEST_SECRET",
-      "owner": "webapp.ops",
-      "role": "secret:test-only",
-      "required": "optional",
-      "default": "unknown",
-      "status": "unknown"
+      "default": "source-root/.local-archive/participant-rosters/participant.sqlite when unset",
+      "status": "confirmed",
+      "evidence": "default_db_path returns the configured Path or this static local archive path.",
+      "source_refs": "app/participant_roster.py:default_db_path"
     }
   ]
 }
