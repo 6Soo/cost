@@ -16,11 +16,11 @@ from app.ota_queue_telemetry import percentile, stage_sample
 
 
 OPERATIONS = frozenset({"ota_snapshot", "first_render", "card_search",
-                        "google_canonical_read", "db_lock_wait"})
+                        "google_canonical_read", "db_lock_wait", "payload_serialize"})
 STAGES = frozenset({"snapshot_compute", "first_render", "card_search",
                     "google_read", "db_lock_wait", "payload_serialize"})
 _REQUEST_ID = ContextVar("cost_request_metrics_id", default=None)
-_REQUEST_TOKENS = ContextVar("cost_request_metrics_tokens", default=())
+_LOCK_WAIT_STARTED = ContextVar("cost_request_metrics_lock_started", default=None)
 _REGISTRY = None
 
 
@@ -34,18 +34,25 @@ def current_request_id() -> str:
     return _REQUEST_ID.get() or new_request_id()
 
 
+def mark_lock_wait_started():
+    return _LOCK_WAIT_STARTED.set(time.perf_counter())
+
+
+def lock_wait_started():
+    return _LOCK_WAIT_STARTED.get()
+
+
 def bind_request_id(value=None):
-    """Bind an opaque request ID for nested measurements; return reset token pair."""
+    """Bind an opaque request ID and lock timer; return reset tokens."""
     request_token = _REQUEST_ID.set(value or new_request_id())
-    tokens = _REQUEST_TOKENS.get()
-    stack_token = _REQUEST_TOKENS.set(tokens + (request_token,))
-    return request_token, stack_token
+    lock_token = _LOCK_WAIT_STARTED.set(None)
+    return request_token, lock_token
 
 
 def reset_request_id(token) -> None:
-    request_token, stack_token = token
+    request_token, lock_token = token
     _REQUEST_ID.reset(request_token)
-    _REQUEST_TOKENS.reset(stack_token)
+    _LOCK_WAIT_STARTED.reset(lock_token)
 
 
 def measurement(operation: str, stage: str, elapsed_ms, *, row_count=None,
