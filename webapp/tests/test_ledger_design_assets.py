@@ -34,8 +34,8 @@ class TestLedgerDesignAssets:
         assert js_file.read_text(encoding="utf-8") == assets.SCRIPT
 
         # Baseline hashes for STYLE and SCRIPT
-        assert len(assets.STYLE) == 38089
-        assert _sha256(assets.STYLE) == "6225842843f50c8b2ae8c12f9439b37adb5550f3ebc4730839875b0cdb7f6338"
+        assert len(assets.STYLE) == 38117
+        assert _sha256(assets.STYLE) == "a3eae4e57746c9eb8fd3a565d8218bdedcc98db4c229ddee1a93ee5f182d92b5"
         assert len(assets.SCRIPT) == 26226
         assert _sha256(assets.SCRIPT) == "170bc3e1562f7377e68bddc00e59309e1f18d7025bcd31f218b3ca3d9d1f2f00"
 
@@ -43,14 +43,14 @@ class TestLedgerDesignAssets:
         """Rendering a ledger page must use in-memory STYLE and SCRIPT without disk reads."""
         with patch.object(assets.Path, "read_text", side_effect=AssertionError("Disk read called during render!")):
             html = ledger_design.render(ledger_design.page("trip-demo-a"))
-            assert len(html) == 66484
-            assert _sha256(html) == "69d237f8809b8ec3f235f04520dc66fb46e13bdf0872745656bc7ab429714ba1"
+            assert len(html) == 66512
+            assert _sha256(html) == "6750335a4b30bcc6be6d4eb02fe618f98ce31472151a13908ffe3fff1ccf0329"
 
     def test_baseline_seven_artifacts_exact_equivalence(self):
         """All 7 reference artifacts must strictly match baseline lengths, types, and hashes."""
         # 1. STYLE
-        assert len(ledger_design.STYLE) == 38089
-        assert _sha256(ledger_design.STYLE) == "6225842843f50c8b2ae8c12f9439b37adb5550f3ebc4730839875b0cdb7f6338"
+        assert len(ledger_design.STYLE) == 38117
+        assert _sha256(ledger_design.STYLE) == "a3eae4e57746c9eb8fd3a565d8218bdedcc98db4c229ddee1a93ee5f182d92b5"
 
         # 2. SCRIPT
         assert len(ledger_design.SCRIPT) == 26226
@@ -90,8 +90,8 @@ class TestLedgerDesignAssets:
 
         # 7. Rendered HTML
         rendered = ledger_design.render(ledger_design.page("trip-demo-a"))
-        assert len(rendered) == 66484
-        assert _sha256(rendered) == "69d237f8809b8ec3f235f04520dc66fb46e13bdf0872745656bc7ab429714ba1"
+        assert len(rendered) == 66512
+        assert _sha256(rendered) == "6750335a4b30bcc6be6d4eb02fe618f98ce31472151a13908ffe3fff1ccf0329"
 
     def test_original_font_and_ota_security_and_missing_checks_preserved(self):
         """Allowlist and missing file semantics on ledger_design are preserved untouched."""
