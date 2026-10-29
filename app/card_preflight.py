@@ -29,11 +29,18 @@ def validate_upload(content, filename):
         fmt, cells = read_cells(content)
     except ParseError as exc:
         raise StoreError(exc.code, exc.message) from None
-    if len(parsed.rows) > MAX_ROWS:
+    # Bound the physical file, not only rows the parser recognized as
+    # transactions. Otherwise a malformed/spacer-heavy file can bypass the
+    # resource limit while still forcing full-file scans.
+    nonempty_rows = sum(1 for values in cells if any(str(v or '').strip() for v in values))
+    non_transaction_rows = len(cells) - len({r.row_index for r in parsed.rows})
+    if (len(parsed.rows) > MAX_ROWS or nonempty_rows - non_transaction_rows > MAX_ROWS
+            or len(cells) > MAX_ROWS + 20):
         raise StoreError('UPLOAD_ROW_LIMIT', '거래 50,000행 이하로 나누어 올려 주세요')
-    for row in parsed.rows:
-        if not row.issuer or not row.card_tail:
-            raise StoreError('CARD_ACCOUNT_REQUIRED', '카드사와 마스킹 카드 식별이 필요합니다')
+    if parsed.channel != 'approval':
+        for row in parsed.rows:
+            if not row.issuer or not row.card_tail:
+                raise StoreError('CARD_ACCOUNT_REQUIRED', '카드사와 마스킹 카드 식별이 필요합니다')
     # Formula-like strings are never evaluated. Negative amounts are valid data.
     for values in cells:
         for value in values:
