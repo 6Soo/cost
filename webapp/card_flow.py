@@ -2054,39 +2054,54 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             handler._send_json({'code':'CSRF_REQUIRED','message':'화면을 다시 열어 주세요'}, 403)
             return True
         if parsed.path == '/api/imports':
+            from .ledger_board import current_role
+            if current_role() != 'owner':
+                handler._send_json({'code':'FORBIDDEN','message':'소유자만 카드 파일을 등록할 수 있습니다.'}, 403)
+                return True
             from app.card_preflight import validate_upload
             filename = unquote(handler.headers.get('X-Filename') or 'card.xlsx')
             source_file, inspection = validate_upload(raw, filename)
             received = flow.pipeline.receive(raw, filename)
-            flow.classify(received['batch_id'])
-            result = flow.state(received['batch_id'])
-            if ota_payment_review.enabled():
-                try:
-                    backend = ota_payment_review.backend_for_request(board, handler, read_only=False)
-                    refresh = getattr(backend, 'refresh_after_import', None)
-                    if refresh:
-                        transaction_ids = [str(row.get('transaction_id') or '')
-                                           for row in result.get('rows', []) if row.get('transaction_id')]
-                        refresh(transaction_ids)
-                    result['ota_refresh_status'] = 'refreshed'
-                except Exception:
-                    result['ota_refresh_status'] = 'unavailable'
-                finally:
-                    closer = getattr(locals().get('backend'), 'close', None)
-                    if closer:
-                        closer()
-            # OTA refresh can make a row recordable after classify's first pass.
-            recorded = flow.auto_record(received['batch_id'])
-            if 'ota_refresh_status' in result:
-                recorded['ota_refresh_status'] = result['ota_refresh_status']
-            if source_file.channel != 'approval':
-                from app.upload_reconciliation import summarize
-                from .card_classification_completion import context
-                with board._lock:
-                    trips, nets = context(flow)
-                    recorded['upload_summary'] = summarize(flow.pipeline, received, source_file,
-                        trips, nets=nets, inspection=inspection)
-            handler._send_json(recorded)
+            try:
+                flow.classify(received['batch_id'])
+                result = flow.state(received['batch_id'])
+                if ota_payment_review.enabled():
+                    backend = None
+                    try:
+                        backend = ota_payment_review.backend_for_request(board, handler, read_only=False)
+                        refresh = getattr(backend, 'refresh_after_import', None)
+                        if refresh:
+                            transaction_ids = [str(row.get('transaction_id') or '')
+                                               for row in result.get('rows', []) if row.get('transaction_id')]
+                            refresh(transaction_ids)
+                        result['ota_refresh_status'] = 'refreshed'
+                    except Exception:
+                        result['ota_refresh_status'] = 'unavailable'
+                    finally:
+                        closer = getattr(backend, 'close', None)
+                        if closer:
+                            closer()
+                # OTA refresh can make a row recordable after classify's first pass.
+                recorded = flow.auto_record(received['batch_id'])
+                if 'ota_refresh_status' in result:
+                    recorded['ota_refresh_status'] = result['ota_refresh_status']
+                if source_file.channel != 'approval':
+                    from app.upload_reconciliation import summarize
+                    from .card_classification_completion import context
+                    with board._lock:
+                        trips, nets = context(flow)
+                        recorded['upload_summary'] = summarize(flow.pipeline, received, source_file,
+                            trips, nets=nets, inspection=inspection)
+            except Exception:
+                # receive() commits the validated source batch before classification and
+                # recording. Report that durable state explicitly so clients can retry
+                # the same bytes; receive() and auto-record are idempotent on that retry.
+                handler._send_json({'code':'UPLOAD_PROCESSING_INCOMPLETE',
+                    'message':'원천 파일은 저장했지만 후속 처리가 완료되지 않았습니다. 같은 파일을 다시 올려 재시도해 주세요.',
+                    'batch_id':received['batch_id'], 'source_rows_persisted':True,
+                    'verification_status':'unavailable', 'retry_same_file':True}, 503)
+            else:
+                handler._send_json(recorded)
             return True
         payload = json.loads(raw.decode('utf-8'))
         if parsed.path == '/api/imports/rules':
