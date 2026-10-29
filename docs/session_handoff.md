@@ -2,6 +2,10 @@
 
 ## 2026-10-29 최신 승인 — 이미지의 프로젝트 전체 미결을 Luna low 병렬 구현
 
+- **최신 검수 체크포인트:** COST PR #316, 구현 `7944826`·`5f8c0c9`·`d1dc436`·`6c3e1cc`·`7f055e8`. 아래 진행 중 표기는 이 체크포인트로 대체한다. 추가 browser session23926은 **30 passed / 11 failed / 18 subtests passed**로 종료했다. 격리 Git archive 기준 `8cfe391`의 카드/OTA browser도 동일 node/subcase **11 failed / 18 passed / 2 subtests passed**(323.72초)이며 shell/assets 12개를 포함하는 현행 묶음과 구별한다. 기존 실패를 pass로 숨기지 않는다. 폐기된 별도 기록 버튼·수동 질문·배치 선택/전체조회·예전 문구와 canonical snapshot 준비 문제는 기존 실패로 기록한다. 금융 보호는 그대로다.
+- 진단 도구는 SUBFAILED별 중복 제거/건수 및 PowerShell UTF-16 redirect를 추가 처리하며 최종 **7 passed**다. 최종 참가자 schema/손상 영수증 검사는5 passed, OTA 검토 API39 passed다. 실제 근거 `.local-archive/wide-pending-20261029/validation.json`, `baseline-browser.txt`, `baseline-browser.xml`.
+- 중단 WIP는 통합본과 구별하는 `refs/archive/20261029/wide-luna-*`로 보존했다. managed workspace6개 모두 clean/보존 참조 확인 후 공식 archive·디렉터리 제거 수락. 실제 증거 `workspace-preservation.json`. COST는 아직 미배포이며 다음은 최종 diff/guard→PR #316 정상 main 병합→검증 SHA 고정 배포다. Travel INS PR #10/main은 이미 병합 완료다. 현재 ready 구현을 실제 보험/명단·메일 전환·전체 리팩토링 완료로 확대하지 않는다.
+
 - 사용자가 미결표를 제시한 뒤 다수 Luna low에게 바로 구현하라고 명시 지시했다. 범위를 자동분류/환불로만 축소하던 해석을 교정한다. 대상은 보험 전달/운영 DB 동일성/참가자·수입 수락 준비, 원결제 외부 근거, 클라우드 메일 전환, 백엔드 구조, 공통 디자인, 실패 원인 정리다. 이미 완료한 기능은 재사용한다. 실제 보험 가입·결제·명단 실전송·Google 쓰기·원문/운영DB 변경은 기존 승인·복원·단일 작성자 경계를 유지한다.
 - Supervisor 브랜치 `feat/wide-pending-integration-20261029`, 기준 main `8cfe391`, 현재 운영 `9b190e9a70511581629f4378290220512358b48c`. 공통 문서·통합·PR·배포·운영 읽기 전용 수락은 Supervisor 단독 소유다. 이전 Luna 작업3개는 완료/공식 보관돼 재생성하지 않았으며, 아래는 새로 승인된 더 넓은 범위의 작업자다.
 
