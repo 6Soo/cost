@@ -30,11 +30,56 @@ def test_review_ui_responsive_theme_zoom_and_keyboard_contract():
         theme_button = page.locator("#site-theme-toggle")
         assert theme_button.count() == 1
         assert theme_button.get_attribute("aria-label") == "다크모드로 전환"
+        page.evaluate("""()=>{
+          const note=document.createElement('p');note.className='confirm-note';note.textContent='Synthetic error';
+          document.querySelector('main').append(note);
+          document.querySelector('#status').className='error';
+        }""")
+
+        def assert_semantic_colors():
+            assert page.locator(".warn").evaluate(
+                "node=>{const probe=document.createElement('span');probe.style.color='var(--shell-warn)';document.body.append(probe);const expected=getComputedStyle(probe).color;probe.remove();return getComputedStyle(node).color===expected}"
+            )
+            assert page.locator(".confirm-note").evaluate(
+                "node=>{const probe=document.createElement('span');probe.style.color='var(--shell-danger)';document.body.append(probe);const expected=getComputedStyle(probe).color;probe.remove();return getComputedStyle(node).color===expected}"
+            )
+            assert page.locator("#status").evaluate(
+                "node=>{const probe=document.createElement('span');probe.style.color='var(--shell-danger)';document.body.append(probe);const expected=getComputedStyle(probe).color;probe.remove();return getComputedStyle(node).color===expected}"
+            )
+
         theme_button.focus()
         page.keyboard.press("Enter")
         assert page.locator("html").get_attribute("data-theme") == "dark"
         page.emulate_media(color_scheme="light")
         assert page.locator("html").get_attribute("data-theme") == "dark"
+        assert page.evaluate("localStorage.getItem('cost-theme')") == "dark"
+        assert_semantic_colors()
+        page.reload()
+        assert page.locator("html").get_attribute("data-theme") == "dark"
+        assert page.evaluate("localStorage.getItem('cost-theme')") == "dark"
+        assert page.locator("[data-theme-icon]:visible").count() == 1
+        page.evaluate("""()=>{
+          const note=document.createElement('p');note.className='confirm-note';note.textContent='Synthetic error';
+          document.querySelector('main').append(note);
+          document.querySelector('#status').className='error';
+        }""")
+        assert_semantic_colors()
+        theme_button = page.locator("#site-theme-toggle")
+        theme_button.focus()
+        page.keyboard.press("Enter")
+        assert page.locator("html").get_attribute("data-theme") == "light"
+        page.emulate_media(color_scheme="dark")
+        assert page.locator("html").get_attribute("data-theme") == "light"
+        assert page.evaluate("localStorage.getItem('cost-theme')") == "light"
+        page.reload()
+        assert page.locator("html").get_attribute("data-theme") == "light"
+        assert page.evaluate("localStorage.getItem('cost-theme')") == "light"
+        page.evaluate("""()=>{
+          const note=document.createElement('p');note.className='confirm-note';note.textContent='Synthetic error';
+          document.querySelector('main').append(note);
+          document.querySelector('#status').className='error';
+        }""")
+        assert_semantic_colors()
         for width in (320, 390, 760, 1440):
             page.set_viewport_size({"width": width, "height": 800})
             for theme in ("light", "dark"):
