@@ -231,6 +231,22 @@ def test_undated_ui_cursor_covers_more_than_500_rows_once(card_db_path):
     assert "-12,345원" in rendered
 
 
+def test_dates_use_selected_period_context_and_preserve_source(card_db_path):
+    for query, expected in (({'period': ['2026']}, '3월 5일 14:30'),
+                            ({'period': ['2026-03']}, '5일 14:30')):
+        page = cards_all.cards_all_page(query, db_path=card_db_path)
+        row = re.search(r"<tr[^>]*data-tx-id='TX-A-02'[^>]*>(.*?)</tr>", page, re.S).group(1)
+        cell = re.search(r"<td[^>]*class='use-datetime'([^>]*)>(.*?)</td>", row, re.S)
+        assert cell.group(2) == expected
+        assert "title='2026-03-05 14:30'" in cell.group(1)
+    assert cards_all._period_date('2025-03-05', 2026, 3) == '2025-03-05'
+    assert cards_all._period_date('2026-04-05', 2026, 3) == '4월 5일'
+    assert cards_all._period_date('invalid', 2026, 3) == ''
+    with sqlite3.connect(card_db_path) as conn:
+        assert conn.execute("SELECT approval_date FROM transactions WHERE transaction_id='TX-A-02'").fetchone()[0] == '2026-03-05T14:30'
+    conn.close()
+
+
 def test_month_detail_renderer_basic(card_db_path):
     """실제 월 상세 렌더러가 날짜 그룹과 거래 행을 표시한다."""
 
@@ -253,9 +269,10 @@ def test_month_detail_renderer_basic(card_db_path):
     assert '가맹점명' in html
     assert '금액' in html
     assert '배정된 여행' in html
-    assert "<th scope='col' class='detail-cell'>상세</th>" in html
-    assert "colspan='5'" in html
-    assert "aria-label='상세 보기'" in html
+    assert 'detail-cell' not in html
+    assert "colspan='4'" in html
+    assert "data-detail-href='/board?row=card-TX-A-01'" in html
+    assert "class='card-all-row-link'" in html
     # Transaction data
     assert 'MERCURE' in html
     assert 'LAWSON' in html
@@ -483,7 +500,8 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator("tr[data-tx-id='TX-A-01']").is_visible()
                 merchant_cell = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")
                 assert merchant_cell.get_attribute('title').endswith(long_merchant.strip())
-                assert '2026-03-05' in page.locator("tr[data-tx-id='TX-A-01']").inner_text()
+                assert page.locator("tr[data-tx-id='TX-A-01'] .use-datetime").inner_text() == '5일'
+                assert page.locator("tr[data-tx-id='TX-A-01'] .use-datetime").get_attribute('title') == '2026-03-05'
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
                 assert page.get_by_role('link', name='상세 보기').count() == 3
@@ -493,8 +511,9 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert tx_row.locator('td.merchant .card-identity').count() == 1
                 assert tx_row.locator('td.amount-cell .card-all-badge').count() >= 1
                 assert tx_row.locator('td.trip .card-identity, td.trip .card-all-badge').count() == 0
-                assert tx_row.locator('td.detail-cell a').get_attribute('href') == '/board?row=card-TX-A-01'
-                assert page.get_by_role('columnheader', name='상세').is_visible()
+                assert tx_row.get_attribute('data-detail-href') == '/board?row=card-TX-A-01'
+                assert tx_row.locator('.card-all-row-link').get_attribute('href') == '/board?row=card-TX-A-01'
+                assert page.get_by_role('columnheader', name='상세', exact=True).count() == 0
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 assert period.is_visible()
                 period.focus()
