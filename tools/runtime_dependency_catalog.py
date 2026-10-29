@@ -42,10 +42,6 @@ def classify(path: Path, text: str, root: Path = ROOT) -> tuple[str, str, float]
         return "UNKNOWN", "Entrypoint-like location; active operational use is not established by name", .4
     return "UNKNOWN", "No reliable runtime-use evidence in this file", .2
 
-def load_evidence(root: Path) -> dict:
-    """Promotion is intentionally unsupported until runtime guards can be proven."""
-    return {}
-
 def refs(path: Path, text: str, root: Path = ROOT) -> list[dict]:
     out=[]
     for n,line in enumerate(text.splitlines(),1):
@@ -104,7 +100,6 @@ def build_catalog(root: Path = ROOT) -> dict:
         return {"schema_version":1,"mode":"static_read_only","entries":[],
                 "errors":[{"code":"GIT_METADATA_ERROR","error_type":type(exc).__name__}],"open_questions":[]}
     known = {p.relative_to(root).as_posix() for p in paths}
-    evidence = load_evidence(root)
     for path in paths:
         rel = path.relative_to(root).as_posix()
         if not path.resolve().is_relative_to(root) or path.is_symlink():

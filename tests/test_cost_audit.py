@@ -44,6 +44,24 @@ def test_run_keeps_child_exit_status_and_uses_no_shell(monkeypatch):
     assert options['shell'] is False and options['cwd'] == cost_audit.ROOT
 
 
+def test_runtime_environment_catalog_has_fixed_preview_and_invocation(tmp_path, monkeypatch, capsys):
+    (tmp_path / 'tools').mkdir()
+    (tmp_path / 'tools' / 'verify_runtime_environment.py').write_text('# synthetic stub\n', encoding='utf-8')
+    monkeypatch.setattr(cost_audit, 'ROOT', tmp_path)
+    assert cost_audit.main(['runtime-environment']) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview['script'] == 'tools/verify_runtime_environment.py'
+    assert preview['executed'] == []
+    calls = []
+    monkeypatch.setattr(cost_audit.subprocess, 'run',
+        lambda argv, **kwargs: calls.append((argv, kwargs)) or SimpleNamespace(returncode=0))
+    assert cost_audit.main(['runtime-environment', '--run']) == 0
+    argv, options = calls[0]
+    assert Path(argv[1]).name == 'verify_runtime_environment.py'
+    assert argv[2:] == []
+    assert options['shell'] is False
+
+
 def test_unavailable_child_fails_closed_without_path_leak(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cost_audit, 'ROOT', tmp_path)
     assert cost_audit.main(['tracked-data', '--run']) == 2
