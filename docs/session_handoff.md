@@ -1,5 +1,14 @@
 # 현재 상태와 남은 일
 
+## 2026-10-29 전액 상쇄 환불 22묶음 실제 기록·부분 기기록 오류 수정
+
+- COMPLETE — 사용자는 읽기 전용 점검 후 실제 수정·운영배포를 지시했다. [PR #339](https://github.com/6Soo/cost/pull/339), 구현 `02cb163`, 운영 SHA `8b91aeb622106af38935dce49da4c10bb7ddc37e`. 검증된 전액상쇄 묶음에서 실제 장부가 있는 행의 파생 `existing_ledger` 보류만 제외한다. 빠진 반대편을 기록하며 장부 없는 legacy 투영·수동/금융 보류·원본/중복/초과환불·인증/CSRF 보호는 유지한다.
+- inline/cross-batch/refund-inference 44 passed. 부분 기기록 양 방향과 legacy 보호 회귀를 포함한다. 새 요청 ID의 검증 성공 재생은 현재 계약대로 `applied=0`/금융행 불변으로 교정했다(종전 테스트 실패는 기준 main 재현). merge tree 동일·metadata2파일 차단0/삭제0·1110 Git blobs 일치. 코드 배포의 새 백업/별도 복원·task/processSHA·단일 loopback listener·health/ready200·보호API401·13표 불변을 확인했다. 전체 회귀/실기기 검사는 국소 서버 경로 변경으로 미실행이다.
+- 실제 기록: 기존 점검의 현재 목록22묶음/46원행만 대상으로 전체 미기록20묶음과 일부 기기록2묶음의 빠진44행을 기존 commit/project 경로로 기록했다. 각 묶음은 원자 기록, 기존 장부행 불변·순액0·원본/금액/ID/사용자 결정·범위 밖 표/보존237묶음·스키마 보존 및 재요청 무쓰기를 확인했다. Google/은행 환급 쓰기는0이며 분류 전면 재처리는 하지 않았다.
+- 새 백업/별도 복원·복사본44행 리허설·단일 작성자·동일 상태/preview digest 일치 후 실제 적용했다. 초기 리허설은 SQLite 자동증가 카운터를 범위 밖 표로 본 검증 오류로 실제 쓰기 전에 중단했고, 승인된 append 표의 카운터 증가만 허용하도록 고쳤다. 수정 후 리허설·실제 검증 모두 통과했다. 당시 서비스는 finally로 정상 복구했으며 실패를 성공으로 계산하지 않았다.
+- 최종 readonly audit `total_changes=0`: 현재 지출정리 카드48→20행, 대상 전액상쇄28행/22묶음은0. 실제 인증 Aside `/import`에서도20건·미분류0·미배정0·보류오류19/기타검토1을 확인했다. 남은20건은 원결제 미연결/별도 금융·예약 보류 등 이번22묶음 밖이며 전체 대기열 완료로 보고하지 않는다. Board/SourceRefresh Running·health/ready 정상 복구.
+- 근거: `.local-archive/refund-zero-audit-20261029/`의 audit/preflight/rehearsal/applied/after/checkpoint, `.local-archive/deploy-8b91aeb622106af38935dce49da4c10bb7ddc37e/`, 호스트 동일 SHA release-audit/deploy-evidence 및 `D:/WebLedgerHost/data/backups/refund-zero-20261029T185028294/`의 backup-restore/rehearsal/applied. 이전 검증5297a0d와 복구 사본 보존. 현재22묶음 승인 범위의 남은 구현/배포/자료반영·차단0, 다음 명령 없음. 후속 문서만으로 재검사/재배포/재시작하지 않는다.
+
 ## 2026-10-29 카드 목록 배정·분기·취소환불 문구 정리
 
 - COMPLETE — [PR #336](https://github.com/6Soo/cost/pull/336), 구현 `e141289640e92409c3a9312c5f11bc991e4247b9`, 운영 SHA `5297a0daee012809f17dfb0d045283284f9b977e`. 카드 목록 열 제목을 `배정`으로 줄였다. 분기 배정은 내부 ID 대신 `2026년 3분기 기타비용`처럼 표시하며 내부 ID/title은 보존한다. 취소·환불 목록의 반복 부연 설명을 제거하고 기존 링크를 유지했다. 앞선 인계의 “quarter는 내부 ID이고 이미 분기로 표시” 설명은 카드 목록의 fallback 경로를 누락했으므로 이 기록으로 교정한다.
