@@ -1,0 +1,118 @@
+"""Revision-bound corrections of automatic classifications and existing projections.
+
+No original, amount, financial link, decision or new ledger entry is written.
+The audit records the actual automatic provenance and the previous values.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from types import SimpleNamespace
+
+from .automatic_classification import FIELDS
+from .db import utc_now
+from .provisional_assignment import canonical_trip_periods
+from .review import correction_protection_reason
+
+
+def _row(conn, table, column, identity):
+    cursor = conn.execute(f'SELECT * FROM {table} WHERE {column}=?', (identity,))
+    values = cursor.fetchone()
+    return dict(zip((d[0] for d in cursor.description), values)) if values else None
+
+
+def preview(conn, corrections, trips):
+    valid = canonical_trip_periods(trips)
+    targets = []
+    seen = set()
+    for correction in corrections:
+        tid = correction['transaction_id']
+        if tid in seen:
+            raise ValueError('DUPLICATE_CORRECTION')
+        seen.add(tid)
+        row = _row(conn, 'transactions', 'transaction_id', tid)
+        if not row or row['source_hash'] != correction['source_hash']:
+            raise ValueError('CORRECTION_SOURCE_CHANGED')
+        if correction_protection_reason(SimpleNamespace(conn=conn),tid,row['source_hash']):
+            raise ValueError('CORRECTION_PROTECTED')
+        if (row['decided_at'] is not None
+                or row['classification_source'] in {'user_decision','user_exception','owner_booking','manual'}
+                or any(row.get(k) for k in ('parse_error','duplicate_of','conflict_reason'))
+                or conn.execute('SELECT 1 FROM review_decisions WHERE transaction_id=?', (tid,)).fetchone()
+                or conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?', (tid,)).fetchone()
+                or conn.execute('SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=? AND excluded=1', (tid,)).fetchone()
+                or conn.execute('SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-'+tid,)).fetchone()):
+            raise ValueError('CORRECTION_PROTECTED')
+        if row['transaction_direction'] != 'purchase':
+            raise ValueError('CORRECTION_REQUIRES_PURCHASE')
+        trip = correction['trip_id']
+        if trip not in valid or not correction['item'] or not correction['basis']:
+            raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
+        ledger = _row(conn, 'ledger_entries', 'transaction_id', tid)
+        board = _row(conn, 'board_rows', 'row_id', 'card-'+tid)
+        if board and board['row_kind'] != 'expense':
+            raise ValueError('CORRECTION_PROJECTION_CONFLICT')
+        targets.append(dict(before=row, ledger=ledger, board=board, correction=dict(correction)))
+    payload = json.dumps([targets, trips], ensure_ascii=False, sort_keys=True, default=str)
+    return dict(digest=hashlib.sha256(payload.encode()).hexdigest(), targets=targets,
+                count=len(targets))
+
+
+def apply(conn, expected, corrections, trips, *, request_id):
+    if not request_id:
+        raise ValueError('CORRECTION_REQUEST_REQUIRED')
+    payload_hash = hashlib.sha256(json.dumps(corrections,sort_keys=True).encode()).hexdigest()
+    nested = conn.in_transaction
+    conn.execute('SAVEPOINT attribution_correction' if nested else 'BEGIN IMMEDIATE')
+    try:
+        previous = conn.execute("SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope='classification_correction'", (request_id,)).fetchone()
+        if previous:
+            if previous[0] != payload_hash:
+                raise ValueError('CORRECTION_REQUEST_CONFLICT')
+            result = dict(json.loads(previous[1]), applied=0, replay=True)
+        else:
+            current = preview(conn,corrections,trips)
+            if current['digest'] != expected['digest']:
+                raise ValueError('CORRECTION_PREVIEW_STALE')
+            for target in current['targets']:
+                old, fix = target['before'], target['correction']
+                tid, trip = old['transaction_id'], fix['trip_id']
+                after = dict(classification_state='classified',classification_source='inference',
+                    classification_basis='P2_CORRECTION · '+fix['basis'],item=fix['item'],
+                    description=fix.get('description',old['description']) or '',display_tab_id=trip,trip_id=trip)
+                conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
+                    ',revision=revision+1 WHERE transaction_id=? AND revision=?',
+                    (*[after[k] for k in FIELDS],tid,old['revision']))
+                if target['ledger']:
+                    conn.execute('UPDATE ledger_entries SET item=?,description=?,display_tab_id=?,trip_id=? WHERE transaction_id=?',
+                        (after['item'],after['description'],trip,trip,tid))
+                if target['board']:
+                    board = target['board']
+                    payload = json.loads(board['payload_json'])
+                    payload.update(item=after['item'],description=after['description'],display_tab_id=trip,
+                                   classification_state='classified',classification_source='inference',
+                                   classification_basis=after['classification_basis'])
+                    if 'revision' in payload:
+                        payload['revision'] = board['revision'] + 1
+                    if 'trip_id' in payload:
+                        payload['trip_id'] = trip
+                    conn.execute('UPDATE board_rows SET display_tab_id=?,payload_json=?,revision=revision+1 WHERE row_id=?',
+                        (trip,json.dumps(payload,ensure_ascii=False,sort_keys=True),'card-'+tid))
+                detail = dict(request_id=request_id,source_hash=old['source_hash'],
+                    previous={k:old[k] for k in FIELDS},after=after,
+                    previous_ledger=target['ledger'],previous_board=target['board'],
+                    source='agent_evidence_review',user_booking_or_refund_confirmation=False)
+                conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
+                    (utc_now(),'card.classification_corrected',tid,json.dumps(detail,ensure_ascii=False,sort_keys=True)))
+            result = dict(applied=current['count'],replay=False)
+            conn.execute('INSERT INTO requests(request_id,scope,payload_sha256,response_json,created_at) VALUES (?,?,?,?,?)',
+                (request_id,'classification_correction',payload_hash,json.dumps(result),utc_now()))
+        conn.execute('RELEASE SAVEPOINT attribution_correction' if nested else 'COMMIT')
+        return result
+    except BaseException:
+        if nested:
+            conn.execute('ROLLBACK TO SAVEPOINT attribution_correction')
+            conn.execute('RELEASE SAVEPOINT attribution_correction')
+        else:
+            conn.rollback()
+        raise
