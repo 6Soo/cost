@@ -1,5 +1,14 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
+
+- COMPLETE — 사용자 “모든 페이지 전체에 있는 이런 내부 문구 모두 삭제”와 직전 모바일 정렬 교정을 이어서 완료했다. [PR #343](https://github.com/6Soo/cost/pull/343)·[PR #347](https://github.com/6Soo/cost/pull/347), 문구 최종 검수 `ab4fa61e76eb220533fa07369b6ab5f35123fa09`, 운영 SHA `160f4cd93301b469183c6c243f98ab2a2ad2effc`.
+- 카드 목록·지출 정리·장부 상세/원천 미리보기·여행·OTA·예약 연결·계정·항공권·영수증·검토 화면의 반복적인 원행/보존/읽기 전용/기장 분리 설명과 revision·digest 안내를 정리했다. 장부 저장 성공은 “저장했습니다”로 표시한다. 거래별 오류/보류·원본 정보·금융 상태·확인/전송 동의·hidden revision 및 동시 수정 보호는 유지한다. 모바일 가맹점 버튼의 공통44px 높이를 해제해 이름과 카드 정보를 붙이고 셀을 위로 정렬한다.
+- 검증 archive: 카드/모바일28 passed(320/390/600/759/760/1280·두 테마·200% 확대·행64px 이하·이름/카드 간격3px 이하·가로 넘침/펼침/스피너). 화면 묶음130 passed/40 subtests, 보호 경계91 passed. 삭제한 설명을 요구하던 source/refund 검사는 새 계약으로 교정했고 source/refund/장부 인접76 passed. 이후 저장 문구/규칙 대화13개 검사는12+모바일 저장1 passed. 실행 간 중복이 있어 전체 합계로 세지 않는다.
+- 기존 실패: 증거UI schema2건·OTA snapshot/정리3건(폭별 subcase 포함5)은 기준 `fa087d3` archive에서도 재현했다. 결합 fixture 순서로 발생한 cleanup/OTA4건은 독립 검사3 passed/2 subtests로 확인했다. 테스트 보호를 완화하지 않았고 기존 실패를 통과로 세지 않는다. 전체 회귀·운영 owner 화면·Safari/실기기 수락은 미실행이다.
+- 배포: 변경 blobs 병합본 일치·1112 Git blobs 불일치0·호스트 Python 합성 원본 상세/이스케이프/마스킹/펼침/스피너/DB불변 PASS. 새 백업·별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호API/카드/상세/규칙 URL401·보호13표 내용/스키마 불변·Board/SourceRefresh Running. 이전 검증 `297a5ef0f0a882314f65c0372492d4886e6e2820`과 복구 사본 보존. 실제 고객 금융/분류/여행/Google 쓰기·마이그레이션0.
+- 근거: `.local-archive/internal-ui-copy-20261029/`의 checkpoint·검증 archive/XML·baseline-output 및 `.local-archive/deploy-160f4cd93301b469183c6c243f98ab2a2ad2effc/`와 호스트 동일 SHA release-audit/deploy-evidence. 기존 workspace 브랜치/사용자 변경/미추적 파일 보존. 현재 승인 범위의 미결·차단0, 다음 명령 없음. 후속 문서만으로 검사·재배포·재시작하지 않는다.
+
 ## 2026-10-29 일반 지출정리20건 완료·환불 확인중19건 보존
 
 - [PR #344](https://github.com/6Soo/cost/pull/344), 구현 `1a552ba`, 운영 `297a5ef0f0a882314f65c0372492d4886e6e2820`. 검토 후 refunds로 분류한 미연결/비영점 취소를 환불 화면의 취소 정산 확인중 목록에 표시한다. 원문·미기록·실제 환급 미확인·보류 사유를 보존하고 기존 전액상쇄 묶음과 중복 표시하지 않는다. settlement/read-only/escaping/refund-tab/inline21 passed·merge tree 동일·metadata2파일 차단/삭제0·1112 blobs 일치.
