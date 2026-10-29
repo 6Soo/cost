@@ -65,7 +65,7 @@ def measurement(operation: str, stage: str, elapsed_ms, *, row_count=None,
     if generation is not None and (type(generation) is not int or generation < 0):
         raise ValueError("generation must be a non-negative integer")
     if rule_version is not None and (type(rule_version) is not str or len(rule_version) > 64 or
-                                     not rule_version.replace("_", "").isalnum()):
+                                     not all(char.isalnum() or char in "_.-" for char in rule_version)):
         raise ValueError("invalid rule version")
     if data_fingerprint is not None and (type(data_fingerprint) is not str or len(data_fingerprint) != 64 or
                                          any(c not in "0123456789abcdef" for c in data_fingerprint)):
