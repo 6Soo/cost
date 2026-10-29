@@ -11,9 +11,15 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
-# Card uploads are capped by card_preflight at 20 MiB. Keep the HTTP layer at
-# the same boundary so valid files are not rejected before whole-file checks.
-MAX_CONTENT_LENGTH: int = 20 * 1024 * 1024
+# Keep ordinary POST bodies at their existing limit. The card upload endpoint
+# has its own matching 20 MiB preflight limit.
+MAX_CONTENT_LENGTH: int = 5 * 1024 * 1024
+MAX_CARD_UPLOAD_CONTENT_LENGTH: int = 20 * 1024 * 1024
+
+
+def max_content_length(path: str) -> int:
+    """Return the request body limit for this exact endpoint path."""
+    return MAX_CARD_UPLOAD_CONTENT_LENGTH if path == "/api/imports" else MAX_CONTENT_LENGTH
 
 # Standard HTTP status mapping for error codes
 STATUS_FOR_CODE: Dict[str, int] = {
