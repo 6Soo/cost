@@ -47,6 +47,21 @@ def test_missing_execution_and_collection_only_are_not_passes():
     assert classify_lines(['2 failed, 3 passed'], exit_code=1)['passed'] == 3
 
 
+def test_pytest_summary_line_without_failure_list_still_reports_failure():
+    report = classify_lines(['2 failed, 3 passed, 1 skipped in 4.2s'], exit_code=0)
+    assert report['status'] == 'FAILED'
+    assert report['passed'] == 3
+    assert report['summary_failed'] == 2
+    assert report['failure_count'] == 0
+
+
+def test_error_and_zero_failure_summaries_are_counted():
+    report = classify_lines(['1 error, 4 passed in 2.0s'], exit_code=0)
+    assert report['status'] == 'FAILED'
+    assert report['summary_errors'] == 1
+    assert classify_lines(['5 passed in 1.0s'], exit_code=0)['status'] == 'PASSED'
+
+
 def test_parameter_names_and_collection_errors_are_never_disclosed():
     report = classify_lines(['ERROR tests/test_example.py::test_case[PRIVATE_PERSON_123] - secret'], exit_code=2)
     assert report['status'] == 'FAILED'

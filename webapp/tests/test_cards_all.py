@@ -13,9 +13,6 @@ from pathlib import Path
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
-# Set up environment before importing
-os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
-
 from webapp import cards_all
 from webapp import card_transactions as ct
 
@@ -57,6 +54,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TEXT NOT NULL
 );
 """
+
+
+@pytest.fixture(autouse=True)
+def require_card_schema_for_test(monkeypatch):
+    """Apply the strict schema contract only while this test is running."""
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'require')
 
 
 @pytest.fixture
