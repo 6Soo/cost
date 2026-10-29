@@ -5,6 +5,16 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-29 카드 업로드 명세 전체 구현 재대조 — Luna low 4명 병렬
+
+- 최신 사용자 지시로 [카드 업로드 전수 대조 명세](specs/card-upload-full-reconciliation-20261029.md)의 구현을 재대조했다. 기존 구현·합성 완료 보고를 새 구현 전체의 종료 근거로 쓰지 않았다. 플러그인이 사용량 한도에 걸린 기존 4명을 successor로 인계했고, 실제 `gpt-6-luna / low` 4명의 구현 결과를 감독자가 검토·추가 교정·통합했다. 기존 사용자 workspace/작업·원본·수동 결정 보존.
+- CUV-01~06 구현·합성 검증 COMPLETE. 파일 물리 행수/계정 식별, owner 업로드 권한, 카드 업로드만20MiB·다른 POST5MiB, 원천 저장 후503의 명시적 재시도, 원천 identity·감사 조회 인덱스, 최신 자동분류 완료, 실제 여행/원본 충돌 보호, 실패50건 페이지와 시스템 오류, 두 테마·모바일·키보드 포커스를 보완했다. 별도 회계 저장소/보고서 테이블/Google 최종 장부 쓰기 없음.
+- 통합 구현 커밋 `1b76cd8`, `98570c6`, `9bdb7fc`, `dc10387`, `26412ff`, `28f332b`, `e0d686b`, `e963c04`, `23a32ca`. [Draft PR #355](https://github.com/6Soo/cost/pull/355)에 기존 브랜치로 통합한다. 문서·기존 정책 검사 교정은 후속 감독자 커밋에 포함한다.
+- 검증: 대상/동시성/원본/수동/OTA exact/부분환불 통합80 passed; 이후 변경분 분류26 passed, API3 passed(이미 측정된10k 제외), 실제 signed HTTP인증1 passed/4 subtests, 최종 UI5 passed. 검사 간 중복이 있어 합산하지 않는다. 근거 `.local-archive/cuv-full-20261029/`의 XML·queue·supervision 및 버전 관리된 합성 측정 기록. 전체 회귀는 광범위 변경이 아니므로 미실행.
+- 10,000행 실제 API dispatch 합성 측정: 최초21.230초(T/N=10,000), 재시도26.783초(E=10,000/N=0), 거래 수10,000 유지. 응답27,457,858바이트(compact JSON), 지속적 수치 진행률/50,000행 성능 보장은 미입증. 동기 처리 중 상태와 완료/오류·안전 재시도를 제공한다. 감사10,000건은0.654초/재실행0.476초·중복 감사0 확인.
+- CUV-07 운영 수락 PARTIAL: 합성 검증은 완료, 운영 read-only·실카드·main 병합·배포는 현재 구현 작업에서 미실행이다. 실제 고객/운영 DB/Google 쓰기·서버 재시작 없음. 현 범위에서 남은 구현 없음. 운영 단계는 별도 범위로 상태를 보존한다.
+
+
 ## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
 
 - COMPLETE — 사용자 “모든 페이지 전체에 있는 이런 내부 문구 모두 삭제”와 직전 모바일 정렬 교정을 이어서 완료했다. [PR #343](https://github.com/6Soo/cost/pull/343)·[PR #347](https://github.com/6Soo/cost/pull/347), 문구 최종 검수 `ab4fa61e76eb220533fa07369b6ab5f35123fa09`, 운영 SHA `160f4cd93301b469183c6c243f98ab2a2ad2effc`.

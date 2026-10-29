@@ -36,11 +36,13 @@ def test_completion_requires_nature_and_authoritative_trip_and_preserves_manual(
     assert by_id['deleted']['blocked_by'] == ['TRIP_INVALID_OR_MISSING']
 
 
-def test_auto_requires_evidence_and_rejects_provisional_or_tie():
+def test_saved_classification_stays_complete_with_uncertainty_in_its_basis():
     db = _db([_row('auto', source='inference', basis='AUTO_INFERRED · high confidence'),
               _row('tie', source='inference', basis='AUTO_INFERRED · tie'),
               _row('provisional', source='inference', basis='AUTO_INFERRED · provisional')])
     result = classification_completion(db, 'batch', TRIP)
     by_id = {row['transaction_id']: row for row in result['rows']}
-    assert [by_id[name]['complete'] for name in ('auto', 'tie', 'provisional')] == [True, False, False]
+    # Current owner policy: uncertainty in a stored classification is evidence,
+    # not another approval state. A real trip and classified nature still count.
+    assert [by_id[name]['complete'] for name in ('auto', 'tie', 'provisional')] == [True, True, True]
     assert result['audit']['source'] and result['audit']['version'] and result['audit']['at']
