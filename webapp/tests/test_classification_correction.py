@@ -127,6 +127,32 @@ def test_verified_ota_review_replaces_saved_quarter_residual_but_keeps_manual_de
                      'WHERE transaction_id=?', (manual['transaction_id'],)).fetchone() == manual_before
 
 
+@pytest.mark.parametrize('fact_changes', [
+    {'source_hash': 'f' * 64, 'trip_id': 'B'},
+    {'source_hash': None, 'trip_id': 'deleted-trip'},
+])
+def test_unverified_ota_fact_cannot_replace_gotogate_residual_item(setup, fact_changes):
+    board, _, _, rows = setup
+    c = board.conn
+    row = rows[0]
+    c.execute("UPDATE transactions SET card_tail='3820',merchant='SYNTHETIC GOTOGATE',"
+              "classification_state='classified',classification_source='owner_card_residual',"
+              "item='분기 기타비용',description='분기 기타비용',display_tab_id='quarter:2026:4',trip_id='' "
+              "WHERE transaction_id=?", (row['transaction_id'],))
+    c.commit()
+    fact = dict(source_hash=row['source_hash'], trip_id='B', item='식비',
+                basis='unverified synthetic fact', status='observed')
+    fact.update(fact_changes)
+    options = dict(transaction_ids=[row['transaction_id']], reconsider=True,
+                   evidence={row['transaction_id']: fact})
+    preview = policy.plan(c, TRIPS, **options)
+    policy.apply(c, preview, TRIPS, **options)
+    saved = c.execute('SELECT item,trip_id,display_tab_id,classification_source FROM transactions '
+                       'WHERE transaction_id=?', (row['transaction_id'],)).fetchone()
+    assert saved[0] == '항공료'
+    assert saved[1:] != ('B', 'B', 'inference')
+
+
 def test_known_airfare_ota_is_not_quarter_expense_when_exact_mail_is_unavailable(setup):
     board,_,_,rows=setup; c=board.conn; tid=rows[0]['transaction_id']
     c.execute("UPDATE transactions SET card_tail='3820',merchant='SYNTHETIC 고투게이트',item='분기 기타비용',display_tab_id='quarter:2026:4',classification_source='owner_card_residual' WHERE transaction_id=?",(tid,))
