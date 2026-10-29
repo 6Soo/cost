@@ -38,15 +38,15 @@ def test_krw_amount_and_day_must_be_exact():
     assert ota_payments.pair_check(charge(), row(approval_date='2026-05-02')) == 'date'
 
 
-def test_booking_without_card_hint_needs_an_approved_merchant_alias():
+def test_booking_without_card_hint_uses_same_day_exact_amount():
     booking = charge(provider='booking', card_last4=None, booking_ref='B2')
     booking_row = row(merchant='BKG*BOOKING.COM HOTEL', merchant_normalized='booking')
-    assert ota_payments.pair_check(booking, booking_row) == 'corroboration'
+    assert ota_payments.pair_check(booking, booking_row) is None
 
 
 def test_trip_without_card_hint_pairs_on_exact_amount_day_and_uniqueness_rules():
     trip = charge(provider='trip', card_last4=None)
-    assert ota_payments.pair_check(trip, row(merchant='임의 가맹점', merchant_normalized='임의 가맹점')) == 'provider'
+    assert ota_payments.pair_check(trip, row(merchant='임의 가맹점', merchant_normalized='임의 가맹점')) is None
     assert ota_payments.pair_check(trip, row(merchant='Trip.com', merchant_normalized='trip.com')) is None
 
 

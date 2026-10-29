@@ -17,7 +17,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 _NO_ALLOCATION_SNAPSHOT = object()
 PARSER_VERSION = 8
-MATCHER_VERSION = 3
+MATCHER_VERSION = 4
 
 
 class OtaSourcesError(ValueError):
@@ -1007,8 +1007,27 @@ def _strict_card_identity(event, row, rules=()):
     return True
 
 
+def _same_day_exact_amount(event, row):
+    """Owner-approved 2026-10-29: date and original-currency amount suffice.
+
+    This supplies missing corroboration only. Known identity conflicts, row
+    flags, global allocation and explicit payment verification remain checked
+    by the caller. Never infer an exchange rate or use a discount/date rule.
+    """
+    paid_on = event.get('paid_on')
+    if not paid_on or row.get('approval_date') != paid_on or not _event_is_paid(event):
+        return False
+    try:
+        date.fromisoformat(paid_on)
+    except (TypeError, ValueError):
+        return False
+    expected_direction = 'refund' if event.get('event_type') == 'refund' else 'purchase'
+    return (_direction(row) == expected_direction and
+            compare_payment_amount(event, row, [])['status'] == 'MATCH')
+
+
 def provider_compatible(event, row, rules=()):
-    """Exclude other OTA brands before comparisons; Trip needs a related descriptor."""
+    """Exclude contradictory OTA brands; an unknown descriptor may use date/amount."""
     from app.ota_matching_defaults import provider_for_merchant
     provider = str(event.get('provider') or '').casefold()
     if provider == 'toyoko':  # Hotel branch/stay matching is a separate contract.
@@ -1019,7 +1038,7 @@ def provider_compatible(event, row, rules=()):
         return False
     if provider == 'trip':
         aliases = load_defaults().get('provider_merchant_aliases', {}).get('trip', ())
-        return (_descriptor_matches(event, row, rules) or
+        return (_same_day_exact_amount(event, row) or _descriptor_matches(event, row, rules) or
                 any(re.search(rf'(?<!\w){re.escape(alias.casefold())}(?!\w)', merchant)
                     for alias in aliases if alias))
     return True
@@ -1039,6 +1058,8 @@ def _has_corroborator(event, row, rules):
                 and _card_amount(row) == _event_amount(event)
                 and bool(event.get('approval_number'))
                 and str(event['approval_number']).strip() == str(row.get('approval_number') or '').strip())
+    if _same_day_exact_amount(event, row):
+        return True
     hint = str(event.get("card_last4") or "")
     card = str(row.get("card_tail") or row.get("card_last4") or "")
     if hint and card == hint:

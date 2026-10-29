@@ -225,10 +225,11 @@ def test_legacy_binding_with_changed_amount_is_rejected():
     assert result['transaction_id'] is None
 
 
-def test_amount_and_date_without_a_second_identity_signal_does_not_auto_match():
+def test_amount_and_date_without_a_second_identity_signal_auto_matches():
     fact = event(card_last4=None, provider='unknown-provider')
     result = match_ota_payment_events([fact], [card(card_tail=None)])[0]
-    assert result['status'] == 'HOLD_NO_CARD'
+    assert result['status'] == 'MATCHED_AUTO'
+    assert result['transaction_id'] == 'card-a'
 
 
 def test_paid_charge_is_preserved_when_later_source_reports_refund():
