@@ -386,6 +386,32 @@ def _format_amount(amount_krw, foreign_amount="", foreign_currency="") -> str:
     return "금액 미확인"
 
 
+def _classification_source_label(source) -> str:
+    """Explain classification provenance without exposing internal identifiers."""
+    labels = {
+        'owner_card_residual': '자동 분류 · 카드 잔여 비용 규칙',
+        'owner_booking': '예약 근거 자동 배정',
+        'manual': '사용자 직접 지정',
+        'user_decision': '사용자 직접 지정',
+        'user_exception': '사용자 예외 규칙',
+        'auto_inferred': '자동 추론',
+        'auto': '자동 분류',
+        'inference': '자동 추론',
+        'rule': '자동 분류 · 등록 규칙',
+        'pattern': '자동 분류 · 가맹점 규칙',
+        'card_category': '자동 분류 · 카드 항목',
+        'guide_airfare_evidence': '항공권 자료 근거',
+        'refund_original': '원결제 연결 근거',
+        'booking_evidence_needed': '예약 근거 확인 필요',
+        'travel_location_hold': '여행 지역 확인 필요',
+        'rule_conflict': '분류 규칙 충돌',
+        'inference_conflict': '자동 추론 충돌',
+        'previous_decision': '기존 분류 유지',
+    }
+    key = str(source or '').strip()
+    return labels.get(key, '자동 분류 · 기타 근거' if key else '분류 근거 미확인')
+
+
 def _get_trip_display(trip_id, classification_source) -> str:
     """현재 유효한 배정과 출처만 표시한다. 확정/추정을 섞지 않는다."""
     trip = str(trip_id or "").strip()
@@ -432,8 +458,7 @@ def card_detail_html(item: dict) -> str:
         destination = '미배정'
     else:
         destination = _trip_context()[0].get(destination, destination)
-    source = {'manual': '수동', 'auto_inferred': '자동 추론', 'auto': '자동'}.get(
-        str(item.get('classification_source') or ''), str(item.get('classification_source') or ''))
+    source = _classification_source_label(item.get('classification_source'))
     fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or '날짜 확인 필요'),
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
@@ -501,7 +526,9 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                     item.get("foreign_currency"))
             destination = str(item.get('display_tab_id') or '').strip()
             trip_id = destination if destination not in ('', 'unclassified') else str(item.get('trip_id') or '').strip()
-            if trip_id == 'unclassified' or item.get('trip_assignment_valid') is False:
+            quarter = parse_tab(trip_id)
+            # Quarter tabs are valid assigned accounting destinations, not missing trips.
+            if trip_id == 'unclassified' or (not quarter and item.get('trip_assignment_valid') is False):
                 trip_id = ''
             quarter = parse_tab(trip_id)
             trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용" if quarter
