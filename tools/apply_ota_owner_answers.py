@@ -65,7 +65,7 @@ def answer_plan(rows):
              ('0722_가루이자와','2026-07-22','2026-07-26')]
     result=[]
     for row in rows:
-        if row['decided'] or row['classification_state']=='preserved' or row['trip_id']:
+        if row['decided'] or row['trip_id']:
             continue
         if not any(x in row['merchant'].upper() for x in ('TRIP.COM','트립닷컴','AGODA','BOOKING')):
             continue

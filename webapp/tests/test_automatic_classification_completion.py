@@ -42,6 +42,50 @@ def test_weak_ties_and_missing_dates_complete_using_only_actual_trips():
     assert policy.infer_trip({}, [])[0] == ''
 
 
+def test_legacy_preserved_state_uses_the_same_inference_as_other_rows(setup):
+    board, _, _, rows = setup
+    board.conn.execute("UPDATE transactions SET classification_state='preserved',approval_date='2025-10-03'")
+    board.conn.commit()
+    preview = policy.plan(board.conn, TRIPS)
+    assert preview['summary']['to_classify'] == len(rows)
+    policy.apply(board.conn, preview, TRIPS)
+    completed = board.conn.execute('SELECT classification_state,item,trip_id,classification_basis FROM transactions').fetchall()
+    expected_trip, _ = policy.infer_trip({'approval_date': '2025-10-03'}, TRIPS)
+    assert expected_trip in {'A', 'B'}
+    assert all(state == 'classified' and item and trip == expected_trip
+               for state, item, trip, basis in completed)
+    assert policy.plan(board.conn, TRIPS)['summary']['to_classify'] == 0
+    assert policy.infer_trip({'classification_state': 'preserved', 'approval_date': '2026-10-03'}, TRIPS)[0] == 'A'
+
+
+def test_legacy_state_does_not_hide_rows_or_change_sources_during_reads(setup):
+    from webapp.card_flow import batch_catalog
+    from webapp.provisional_trip_review import read_page
+    board, flow, batch, rows = setup
+    board.conn.execute("UPDATE transactions SET classification_state='preserved'")
+    board.conn.commit()
+    before = board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+    assert batch_catalog(board)[0]['rows'] == len(rows)
+    assert len(flow.state(batch)['rows']) == len(rows)
+    result = read_page(flow, batch, state='all')
+    assert result['total'] == len(rows)
+    assert before == board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+
+
+@pytest.mark.parametrize('source,expected', [('user_completed_period', 'refund_original'),
+                                           ('user_decision', 'user_decision'),
+                                           ('user_exception', 'user_exception')])
+def test_verified_refund_keeps_manual_sources_but_not_legacy_period_exclusion(setup, source, expected):
+    from app.ledger import _persist_verified_refund_classification
+    board, flow, _, rows = setup
+    tid = rows[0]['transaction_id']
+    board.conn.execute('UPDATE transactions SET classification_source=? WHERE transaction_id=?', (source, tid))
+    entry = dict(transaction_id=tid, item='취소·환불',
+                 refund_link=dict(status='full', net_krw=0, counterpart_id=rows[1]['transaction_id']))
+    _persist_verified_refund_classification(flow.pipeline.store, entry, tid)
+    assert board.conn.execute('SELECT classification_source FROM transactions WHERE transaction_id=?', (tid,)).fetchone()[0] == expected
+
+
 def test_3820_owner_policy_precedes_generic_trip_inference():
     singapore = [dict(trip_id='SG', starts_on='2026-09-19', ends_on='2026-09-24', destination='싱가포르')]
     row = dict(card_tail='3820', transaction_direction='purchase', transaction_kind='purchase',

@@ -1,4 +1,63 @@
+## 2026-10-29 카드 업로드 전수 대조 CUV 후속 검수
+
+- 구현·합성검증 완료, 운영 수락은 PARTIAL. 통합 `781c524` 후 카드/발급사/종류·날짜·통화 경계의 중복 대조, 잘못된 날짜/미연결 중복 집계, XLSX 보안검사 실패 중단·자원 종료를 보완했다.
+- 기존 100건 재업로드·70+30건·5,000행/재업로드, 수동 결정/원본 보호·원자 롤백/재시도·환불·OTA exact·권한 검증. 두 실행은 114 passed/1 deselected 및 62 passed이며 후자는 앞서 제외한 권한 검사도 포함한다. 중복 실행을 합산하지 않는다. Chromium 320/390/1280·키보드·HTML 이스케이프·빈 결과·금융 경고 수락.
+- 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
+
+## 2026-10-29 카드 업로드 전수 대조 운영 수락·배포
+
+- COMPLETE — 사용자 “모든 명세가 구현되었나? 되었다면 운영수락”에 따라 최신 main의 P2 변경을 통합·검증하고 [PR #355](https://github.com/6Soo/cost/pull/355)를 정상 병합했다. 운영 SHA `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`, 직전 검증 릴리스 `3860a822efe3a6f2d6c1349e824b193ac7309a7b` 및 복구 사본 보존. [명세](specs/card-upload-full-reconciliation-20261029.md)의 CUV-01~07 구현·격리/운영 읽기 전용 수락 완료이며 실제 은행 환급·Google 반영 완료와 구분한다.
+- 운영 원본 대조 중 정상 XLSX 2개의 빈칸 `-` 4,120개를 수식으로 오인하는 결함을 발견해 `19f9edb`에서 교정했다. 하이픈 placeholder/음수 숫자를 허용하고 `=`, `+`, `@`, `-CMD` 등 수식 차단·XLSX scan fail-closed를 유지한다. 최신 main 통합 검사117 passed/fixture 의존 실패1은 전역 store fixture 복원으로 수정했고 관련 결합8 passed, placeholder/원천 대조27 passed를 확인했다. 유효한 나머지 통과 근거는 반복하지 않았다.
+- 실카드 검증은 운영 DB mode=ro → 격리 메모리 백업에서 원본8개를 사전검사·동일 파일 재대조했다. 원천 행6,929(E=6,929/N=0/H=0/P=0), 파일 오류0, 복사본 원본/분류/금융 표 불변, 운영 connection total_changes=0. 분류 C=6,026/U=903, 취소 원결제 경고R=112는 실제 데이터 상태이며 금융 완료로 승격하지 않는다. 파일 간 겹침을 포함한 원천 행 집계이므로 고유 거래 수로 보고하지 않는다. 실제 운영 재업로드 POST·분류 재처리·Google/은행 쓰기0.
+- 릴리스1,122 Git blobs 불일치0, 병합 코드 tree 일치·추가14파일 메타데이터 차단0/삭제0·새 백업/별도 복원 PASS. 공식 배포기를 통해 task/process SHA·단일 loopback listener·health/ready200·보호API401, 배포 및 인증 조회 전후 보호13표 불변, Board/SourceRefresh Running을 확인했다.
+- 인증 Aside `/import`의 파일/업로드 컨트롤·50건 페이지/시스템 오류 코드와 저장 자료8개 API200을 확인했다. 익명 `/import`, `/api/imports`, `/api/imports/rules`, POST `/api/imports`는401이다. 모바일·두 테마·키보드/포커스는 최종 합성 브라우저5 passed 근거를 재사용했다. 실기기/Safari와 운영 재업로드·실제 금융 변경은 미실행이다. 대량 응답27.5MB/동기 처리라는 기존 성능 제한은 명세에 보존한다.
+- 근거: 통합 worktree `.local-archive/cuv-operating-20261029/`의 acceptance-checkpoint·real-source-acceptance·review·release-audit·protection-before/after·deploy-evidence·upload-http-smoke·owner-ui-smoke 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-a69c0ae7389789a65d2ed01f3028c0348f52eb1f.json`. root 사용자 변경과 기존 workspace 보존. 해당 운영 수락 범위 남은 구현/배포0. 이 기록 후속은 문서 전용이며 재검사/백업/재배포/재시작하지 않는다.
+
+
+## 2026-10-29 카드 업로드 명세 전체 구현 재대조 — Luna low 4명 병렬
+
+- 최신 사용자 지시로 [카드 업로드 전수 대조 명세](specs/card-upload-full-reconciliation-20261029.md)의 구현을 재대조했다. 기존 구현·합성 완료 보고를 새 구현 전체의 종료 근거로 쓰지 않았다. 플러그인이 사용량 한도에 걸린 기존 4명을 successor로 인계했고, 실제 `gpt-6-luna / low` 4명의 구현 결과를 감독자가 검토·추가 교정·통합했다. 기존 사용자 workspace/작업·원본·수동 결정 보존.
+- CUV-01~06 구현·합성 검증 COMPLETE. 파일 물리 행수/계정 식별, owner 업로드 권한, 카드 업로드만20MiB·다른 POST5MiB, 원천 저장 후503의 명시적 재시도, 원천 identity·감사 조회 인덱스, 최신 자동분류 완료, 실제 여행/원본 충돌 보호, 실패50건 페이지와 시스템 오류, 두 테마·모바일·키보드 포커스를 보완했다. 별도 회계 저장소/보고서 테이블/Google 최종 장부 쓰기 없음.
+- 통합 구현 커밋 `1b76cd8`, `98570c6`, `9bdb7fc`, `dc10387`, `26412ff`, `28f332b`, `e0d686b`, `e963c04`, `23a32ca`. [Draft PR #355](https://github.com/6Soo/cost/pull/355)에 기존 브랜치로 통합한다. 문서·기존 정책 검사 교정은 후속 감독자 커밋에 포함한다.
+- 검증: 대상/동시성/원본/수동/OTA exact/부분환불 통합80 passed; 이후 변경분 분류26 passed, API3 passed(이미 측정된10k 제외), 실제 signed HTTP인증1 passed/4 subtests, 최종 UI5 passed. 검사 간 중복이 있어 합산하지 않는다. 근거 `.local-archive/cuv-full-20261029/`의 XML·queue·supervision 및 버전 관리된 합성 측정 기록. 전체 회귀는 광범위 변경이 아니므로 미실행.
+- 10,000행 실제 API dispatch 합성 측정: 최초21.230초(T/N=10,000), 재시도26.783초(E=10,000/N=0), 거래 수10,000 유지. 응답27,457,858바이트(compact JSON), 지속적 수치 진행률/50,000행 성능 보장은 미입증. 동기 처리 중 상태와 완료/오류·안전 재시도를 제공한다. 감사10,000건은0.654초/재실행0.476초·중복 감사0 확인.
+- CUV-07 운영 수락 PARTIAL: 합성 검증은 완료, 운영 read-only·실카드·main 병합·배포는 현재 구현 작업에서 미실행이다. 실제 고객/운영 DB/Google 쓰기·서버 재시작 없음. 현 범위에서 남은 구현 없음. 운영 단계는 별도 범위로 상태를 보존한다.
+
+## 2026-10-29 국민 매입 원본 수집·REPL 문서화·DB 입력 요청
+
+- 현재 승인 범위는 국민 국내/해외 매입을 DB의 마지막 **이용일2026-10-01부터** 각 화면의 최신 허용일까지 수집하고 **중복 검증 후 운영 DB 가져오기까지**다. 사용자는 Aside Vault 저장 암호를 사용하고 방법도 기록하라고 명시했다. 초기 다운로드/검증까지라는 임시 범위는 최신 인터뷰 답변으로 대체됐다. 승인 내역/하나/기업카드 수집·신규 장부/Google 기록으로 확대하지 않는다.
+- 절차 문서 작성 완료, 전체 경로 검증 미완료: [카드 다운로드 실행 안내](card_downloads.md)에 지속 REPL·현재 계정/탭 탐색·일반 모드 확인·공식 Vault API 단계·실제 실패와 재개 조건·국내/해외 다운로드 이벤트/원본 검증·포맷 간 중복 보호·DB 입력 게이트를 기록했다. 기존 금융 명세가 이 안내를 참조한다. 문서 전용 diff/링크/실제 경로/상태만 검사하며 코드 테스트/빌드/재배포/재시작은 하지 않는다.
+- 수집/DB 입력 WAIT_SUPPORTED_VAULT_REPL: 국민 세션 만료·일반 브라우저·기업 인증서 선택을 확인했다. CLI1.26.1023.1115/데몬1.26.1029.43의 설치 코드에서 CLI REPL은 `incognito:true`를 고정하며 일반 창/저장 설정과 무관하게 `passwordManager`를 제외함을 확인했다. 저장 설정true로 만든 별도 REPL도 API가 없었다. 공개 MCP/CLI에 일반 agent REPL을 직접 선택하는 인자는 확인되지 않았다. 세션 플래그/설치 코드/권한 검사를 변경하지 않았다.
+- 앞선 크레딧 차단 판단 정정: 설치 코드의 공식 `autofillItem` 경로에는 모델 호출이 없다. 일반 agent의 HTTP402 `Insufficient credits`는 모델 호출 실패이며 Vault 과금/암호 불일치/실제 자동입력 실패 증거가 아니다. 기본 계정/모델/Vault 정책은 변경하지 않았고 임시 CLI 세션 표시 설정은 기존false로 복구했다. 설치 코드 정적 분석과 실제 API 호출 성공을 구분한다.
+- readonly 기준선: 국민3675건(국내1861/해외1814), 국내 마지막 이용일10-01/매입일10-02·해외 이용일09-30/매입일10-02. DB 쓰기0. 실제 로그인·조회 상한·다운로드·파싱·중복 검증·DB 가져오기는 미실행이다. 원본이 없으므로 새 백업/서비스 정지/자료 적용을 관성적으로 수행하지 않았다.
+- 재개 조건은 지원되는 일반 세션의 직접 REPL/Vault 연결 또는 기존 승인 범위의 실행 가능한 agent 경로를 실제 확인하는 것이다. 같은402 호출·새 유료 모델/계정 전환·사용자가 거절한 수동 암호 요청을 반복하지 않는다. [실행 안내](card_downloads.md)의 공식 Vault 자동입력부터 재개한다. 정확한 로컬 세션/정적 근거/차단/다음 단계는 `.local-archive/kb-repl-download-20261029/checkpoint.json`에 남긴다. 별도 agent의 운영 배포와 조율했고 현재 DB/host 쓰기0이다. 실제 DB 입력 직전 다시 단일 작성자를 조율한다. 이전 P2 완료 작업은 재실행하지 않는다.
+
+## 2026-10-29 사용자 지시 P2 카드 재진행·실제 적용
+
+- COMPLETE — 사용자 “p2 재진행”에 따라 6,395건을 다시 점검하고 보호 대상57건을 제외한6,338건에 재검토 경로를 적용했다. [PR #357](https://github.com/6Soo/cost/pull/357), 구현 `7ecf023`, 운영 SHA `3860a822efe3a6f2d6c1349e824b193ac7309a7b`. 이전 classified 상태와 “유효 여행 없음” 사유를 재검토 면제로 쓰지 않는다. 항목/업종/서비스 용도·보관 예약 이용기간을 다시 대조하고, 사용자 결정/기기록 유효 귀속·검증 환불 상속을 우선했다. 근거의 원문·행 ID는 외부 모델이나 Git에 보내지 않았다.
+- 실제 저장5,451건: 정상 결제 여행 미배정1,821→0, 항목 변경70건·여행/표시 귀속 변경2,047건(서로 중복3건), 근거만 갱신3,337건. 기존 자동 출처의 결과가 같으면 rule/card_category 출처를 유지했다. 예약 대조393건·유일 이용기간 근거183건, 그 근거가 있는 귀속 변경40건. 등록 자료 누락/읽기 오류0. 낮은 근거도 최선의 실제 여행으로 완료하고 추론·낮은 신뢰도·날짜 거리를 저장했다. 등록 여행은2026~2027년이며 미배정의2025년 거래1,420건을 포함해 처리했다. 변경 귀속 중 날짜 거리90일 초과670건은 강한 예약 근거가 확인된 실제 여행이라고 주장하지 않는다. 여행 생성·사용자 확인·금융 결제 연결을 창작하지 않았다.
+- 실제 반영은 신선 백업/별도 복원→단일 작성자/서비스 정지→동일 원본/preview digest→복사본 결과/재실행0→원자 저장→사후 불변/재실행0→서비스 복구를 통과했다. 독립 readonly 감사에서 수동 결정/교정 이력이 있는559건의 전체 거래행 불변, 원본/금액/ID·금융 링크/보류/회사 제외/결정/override·스키마·기존 장부 행 수 불변을 확인했다. 새 장부 행·금융 링크·Google/은행 쓰기0. 보호57건은 새로운 사용자 승인 대기로 바꾸지 않았다.
+- 검증: 분류/새P2/환불 원자성/부분환불76 passed, 추가 근거 캐시의 원본 변경 거부1 passed, compile·PowerShell 구문·diff·metadata guard 차단0/삭제0. 초반 읽기 전용 복사본2회는 재생 시 근거 문구가 달라져 실패했고 안정적인 근거 생성으로 교정한 뒤 실제 자료 복사본/운영 재실행0을 통과했다. 실패 단계의 운영 쓰기0. 전체 회귀·실기기·인증 owner 화면 수락은 미실행이다.
+- 코드 배포: 검수 tree=merge tree·1113 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 배포 전후 불변. 이는 뒤의 승인된 분류 쓰기와 구분한다. 자료 반영 후에도 health/ready200·카드/OTA API401·Board/SourceRefresh Running, 전체6395 classified·보호 제외 미분류/정상 결제 미배정0·최종 readonly 쓰기0 확인.
+- 근거: `.local-archive/p2-rerun-20261029/`의 baseline/changes/checkpoint·XML·before/after/audit/runtime-after, `.local-archive/deploy-3860a822efe3a6f2d6c1349e824b193ac7309a7b/`, 호스트 동일SHA release/deploy audit와 `D:/WebLedgerHost/data/backups/card-classification-20261029T223551095/`의 backup-restore/preview/applied/repeat-preview. 원본 복구 사본과 파생 근거 캐시는 호스트 보호 경로에만 보존했다. 기존 공유 workspace·사용자 변경 보존. 현재 P2 재진행의 남은 작업/차단0, 다음 명령 없음. 문서 후속만으로 재검사/재배포/재처리하지 않는다.
+
+## 2026-10-29 보존 분류 상태 제거
+
+- COMPLETE — 사용자 “보존이라는 상태가 필요해? 필요없으면 제거해”에 따라 카드 업무 상태 `preserved`의 생성과 상태별 분류/조회/여행 검토/OTA 대사/취소 정산 제외 조건을 제거했다. [PR #354](https://github.com/6Soo/cost/pull/354), 구현 `a44c38c`, 운영 SHA `3c8c970da271b665feb99a89fad661b7399ef6d7`. 과거 상태와 미배정 사유만으로 일반 추론을 건너뛰지 않는다. 항목/여행은 일반 규칙을 적용하고 화면/전기 미리보기의 명시적 기간 필터는 유지한다. 원본·금액·ID·이력·사용자 결정·중복·환불·보류 보호를 유지한다.
+- 운영 읽기 전용 확인: 전체6,395건 classified, preserved0·user_completed_period 출처0·조회 쓰기0. 변환할 기존 상태가 없어 마이그레이션·운영 재분류·금융/여행/Google 쓰기를 수행하지 않았다. 이번 상태 제거는 과거 개별 거래의 P2 근거 검토나 여행 귀속 재검토 완료를 뜻하지 않는다. 이전 “전체 classified이므로 P2 완료” 설명의 근거 한계를 유지한다.
+- 검증: 초기 분류/과거/OTA/정리71 passed, 신규 조회 회귀 포함 최종 과거/분류54 passed, 추가 legacy/manual 환불3 passed. 인접 여행/카탈로그/규칙/항공/owner60 passed, CardFlow 표적16 passed/3 subtests, pipeline/부분환불/회사비용79 passed, 최종 환불 원자 기록12 passed, 취소 정산/환불UI9 passed. 실행 간 중복은 합산하지 않는다. OTA history 실패1건은 기준f96cd8f에서도 동일 재현했고 통과로 세지 않았다. Python compile·diff·staged metadata guard 차단0/삭제0. 전체 회귀·실기기/인증 owner 화면은 미실행이다.
+- 배포: 검수 tree와 merge tree 동일·1112 Git blobs 불일치0·새 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·보호API/카드 summary/years401·보호13표 불변·Board/SourceRefresh Running. 호스트 venv의 합성 과거/legacy 분류·일반 추론 동일성·기간 필터·원본/금액/ID 불변·장부 쓰기0 확인. 최초 합성 도구의 잘못된 import는 public app.Pipeline으로 교정 후 통과했다. 존재하지 않는 과거 인계의 테스트 파일은 수집 실패로 남기고 실제 환불 검사로 검증했다.
+- 근거: `.local-archive/remove-preserved-20261029/`의 checkpoint/XML/runtime_smoke/card-auth-smoke와 `.local-archive/deploy-3c8c970da271b665feb99a89fad661b7399ef6d7/`, 호스트 동일SHA release-audit/deploy-evidence. 기존 공유 workspace·사용자 변경 보존. 현재 상태 제거 요청의 남은 작업·차단0, 다음 명령 없음. 문서 후속만으로 재검사·재배포·재시작하지 않는다.
+
+## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
+
+- COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.
+- 과거 유효 여행 기간 밖의 보존 거래는 현재/미래 여행으로 억지 배정하지 않고 `등록된 유효 여행 없음 · 비용 항목 분류 완료`로 보존 완료했다. 검증된 원결제의 분류를 상속한 환불 행도 재추론을 건너뛰도록 보호했다.
+- 지출 정리(`_cleanup_card_where`) 조회에서 완료 정책(`complete-card-inference-v1`) 또는 원결제 상속(`refund_original`)으로 완료된 정상 분류 행을 제외했다. 항목 누락·구문 오류·충돌 사유·명시적 사용자 보류(`transaction_review_holds`)가 있는 거래는 정리 목록에 계속 표시한다.
+- 검증: 표적 및 보호 테스트 37 passed (`test_card_cleanup_queries.py`, `test_automatic_classification_completion.py`, `test_refund_group_commit.py`), UI 9 passed (`test_card_cleanup_ui.py`). 실운영 DB(6,395건 전체 `classified`) 조회 검증 결과 정리 대상 카드 3,695→0건, 보류 4건 안전 보존 확인.
+- 배포: 1,112 Git blobs 일치(불일치 0), 새 백업(`operational-20261029T122609435227Z`, `v2-owner-ui-20261029T212558`) 및 복원 검증(`restore-evidence.json`), task/process 고정 SHA 일치, 단일 loopback listener, health/ready 200, 보호 API 401, 보호 13개 테이블 내용/스키마 불변(`protection-after.json`). WebLedger-Board 및 WebLedger-SourceRefresh Running 정상 확인. 이전 검증 릴리스 `160f4cd93301b469183c6c243f98ab2a2ad2effc` 및 복구 사본 보존. 신규 금융/Google/은행 쓰기 0.
+- 근거: `.local-archive/deploy-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb/`의 review.json, gate-before.json, protection-before.json, protection-after.json, deploy-evidence.json 및 `D:/WebLedgerHost/releases/deploy-evidence-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb.json`.
 
 ## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
 

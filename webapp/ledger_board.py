@@ -966,7 +966,7 @@ def data_status_mark() -> str:
         parts.append(f"여행 {trip_count}개")
     with store._lock:
         if store.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
-            cards = store.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state!='preserved'").fetchone()[0]
+            cards = store.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
             if cards:
                 parts.append(f"카드 자료 {cards:,}건")
     count = store.visible_row_count()
@@ -3771,7 +3771,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         length = int(self.headers.get("Content-Length") or 0)
-        if length > board_http_shapes.MAX_CONTENT_LENGTH:
+        if length > board_http_shapes.max_content_length(parsed.path):
             self._send_json({"code": "TOO_LARGE", "message": "요청이 너무 커요"}, code=413)
             return
         content_type = self.headers.get("Content-Type") or ""

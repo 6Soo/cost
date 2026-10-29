@@ -1,5 +1,39 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 카드 업로드 전수 대조 운영 수락·배포
+
+- COMPLETE — 사용자 “모든 명세가 구현되었나? 되었다면 운영수락”에 따라 최신 main의 P2 변경을 통합·검증하고 [PR #355](https://github.com/6Soo/cost/pull/355)를 정상 병합했다. 운영 SHA `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`, 직전 검증 릴리스 `3860a822efe3a6f2d6c1349e824b193ac7309a7b` 및 복구 사본 보존. [명세](specs/card-upload-full-reconciliation-20261029.md)의 CUV-01~07 구현·격리/운영 읽기 전용 수락 완료이며 실제 은행 환급·Google 반영 완료와 구분한다.
+- 운영 원본 대조 중 정상 XLSX 2개의 빈칸 `-` 4,120개를 수식으로 오인하는 결함을 발견해 `19f9edb`에서 교정했다. 하이픈 placeholder/음수 숫자를 허용하고 `=`, `+`, `@`, `-CMD` 등 수식 차단·XLSX scan fail-closed를 유지한다. 최신 main 통합 검사117 passed/fixture 의존 실패1은 전역 store fixture 복원으로 수정했고 관련 결합8 passed, placeholder/원천 대조27 passed를 확인했다. 유효한 나머지 통과 근거는 반복하지 않았다.
+- 실카드 검증은 운영 DB mode=ro → 격리 메모리 백업에서 원본8개를 사전검사·동일 파일 재대조했다. 원천 행6,929(E=6,929/N=0/H=0/P=0), 파일 오류0, 복사본 원본/분류/금융 표 불변, 운영 connection total_changes=0. 분류 C=6,026/U=903, 취소 원결제 경고R=112는 실제 데이터 상태이며 금융 완료로 승격하지 않는다. 파일 간 겹침을 포함한 원천 행 집계이므로 고유 거래 수로 보고하지 않는다. 실제 운영 재업로드 POST·분류 재처리·Google/은행 쓰기0.
+- 릴리스1,122 Git blobs 불일치0, 병합 코드 tree 일치·추가14파일 메타데이터 차단0/삭제0·새 백업/별도 복원 PASS. 공식 배포기를 통해 task/process SHA·단일 loopback listener·health/ready200·보호API401, 배포 및 인증 조회 전후 보호13표 불변, Board/SourceRefresh Running을 확인했다.
+- 인증 Aside `/import`의 파일/업로드 컨트롤·50건 페이지/시스템 오류 코드와 저장 자료8개 API200을 확인했다. 익명 `/import`, `/api/imports`, `/api/imports/rules`, POST `/api/imports`는401이다. 모바일·두 테마·키보드/포커스는 최종 합성 브라우저5 passed 근거를 재사용했다. 실기기/Safari와 운영 재업로드·실제 금융 변경은 미실행이다. 대량 응답27.5MB/동기 처리라는 기존 성능 제한은 명세에 보존한다.
+- 근거: 통합 worktree `.local-archive/cuv-operating-20261029/`의 acceptance-checkpoint·real-source-acceptance·review·release-audit·protection-before/after·deploy-evidence·upload-http-smoke·owner-ui-smoke 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-a69c0ae7389789a65d2ed01f3028c0348f52eb1f.json`. root 사용자 변경과 기존 workspace 보존. 해당 운영 수락 범위 남은 구현/배포0. 이 기록 후속은 문서 전용이며 재검사/백업/재배포/재시작하지 않는다.
+
+
+## 2026-10-29 P2 카드 재검토 배포와 실제 분류 반영
+
+- [PR #357](https://github.com/6Soo/cost/pull/357), 구현7ecf023·운영 `3860a822efe3a6f2d6c1349e824b193ac7309a7b`. 명시적 재검토 모드로 이전 완료 자동분류도 예약 이용기간/업종/용도와 대조한다. 원문/ID는 Git/외부 모델에 전송하지 않으며 추론 결과를 사용자 확인으로 기록하지 않는다.
+- 코드 배포: tree동일·1113 Git blobs 불일치0·신선 백업/별도 복원·task/processSHA·단일listener·health/ready200·보호API401·보호13표 불변. 이후 데이터 적용은 사용자의 별도 “p2 재진행” 지시에 따른다. 이전 검증3c8c970 릴리스와 복구 사본 보존.
+- 실제 P2 적용: 전체6395 점검·보호57 유지·5451건 분류/근거 갱신, 정상 결제 미배정1821→0. 항목70·귀속2047 변경(중복3), 근거만3337. 예약 대조393·이용기간 근거183·해당 근거가 있는 귀속 변경40, 자료 누락/오류0. 등록 여행2026~27·기존2025년 미배정1420을 포함하며, 날짜거리90일 초과670건은 낮은 추론으로 표시한다. 예약 결제 연결·실제 환급·사용자 확인을 창작하지 않는다.
+- 신선 백업/별도 복원·단일 작성자·동일 상태/digest 복사본 검증·원자 저장·원본/금융/수동 결정 보호·재실행0·서비스 복구 PASS. 사후 독립 readonly 감사에서 수동/교정 이력559건 전체 거래행·원본/금액/ID·보류/결정/override·금융 링크·스키마·장부 행 수 불변. 신규 장부/금융 링크/Google/은행 쓰기0. 최종6395 classified·보호 제외 미분류/정상 결제 미배정0·readonly쓰기0·health/ready200·카드/OTA API401·Board/SourceRefresh Running.
+- 검증: P2/분류/환불 보호76 passed·추가 캐시 원본 변경 거부1 passed, compile/PowerShell/diff/data guard 통과. 초기 복사본의 재생 근거 불일치는 실패로 기록하고 교정 후 실제 자료에서 통과했다. 전체 회귀/실기기/인증 owner 화면 수락 미실행. `.local-archive/p2-rerun-20261029/`, 동일 SHA 로컬/호스트 deploy evidence 및 `D:/WebLedgerHost/data/backups/card-classification-20261029T223551095/`의 backup-restore/preview/applied/repeat가 근거다. 문서만의 후속으로 재배포/재처리하지 않는다.
+
+## 2026-10-29 보존 분류 상태 제거 배포
+
+- [PR #354](https://github.com/6Soo/cost/pull/354), 구현a44c38c·운영 SHA `3c8c970da271b665feb99a89fad661b7399ef6d7`. 과거 카드에 preserved 상태를 생성하거나 해당 상태로 분류/조회/여행 검토/대사를 제외하지 않는다. 원본/수동 결정/금융 보호와 명시적 조회 기간 필터는 유지한다. 상세 최신 계약은 [금융 명세](specs/finance.md)에 기록했다.
+- 검수 tree=merge tree,1112 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API와 카드 summary/years401·보호13표 내용/스키마 불변·Board/SourceRefresh Running. 호스트 venv 합성 과거/legacy 분류·일반 추론·기간 필터·원본/금액/ID 불변과 장부쓰기0 PASS. 이전 검증f9b71d2 릴리스와 복구 사본 보존.
+- 운영 사전 readonly: classified6395·preserved0·legacy 완료기간 출처0·쓰기0. 운영 마이그레이션/재분류·금융/여행/Google 쓰기0. 상태 제거를 개별 P2 재검토 완료로 표현하지 않는다. 분류/OTA/조회·여행·환불/원자성 표적 근거는 현재 상태와 로컬 checkpoint에 기록했다. OTA history1 실패는 기준f96cd8f에서 재현했고 전체 회귀/실기기/인증 owner 수락은 미실행이다.
+- 근거: `.local-archive/remove-preserved-20261029/`, `.local-archive/deploy-3c8c970da271b665feb99a89fad661b7399ef6d7/`, `D:/WebLedgerHost/releases/deploy-evidence-3c8c970da271b665feb99a89fad661b7399ef6d7.json`. 문서 후속만으로 재배포·재시작하지 않는다.
+
+## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
+
+- COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.
+- 과거 유효 여행 기간 밖의 보존 거래는 현재/미래 여행으로 억지 배정하지 않고 `등록된 유효 여행 없음 · 비용 항목 분류 완료`로 보존 완료했다. 검증된 원결제의 분류를 상속한 환불 행도 재추론을 건너뛰도록 보호했다.
+- 지출 정리(`_cleanup_card_where`) 조회에서 완료 정책(`complete-card-inference-v1`) 또는 원결제 상속(`refund_original`)으로 완료된 정상 분류 행을 제외했다. 항목 누락·구문 오류·충돌 사유·명시적 사용자 보류(`transaction_review_holds`)가 있는 거래는 정리 목록에 계속 표시한다.
+- 검증: 표적 및 보호 테스트 37 passed (`test_card_cleanup_queries.py`, `test_automatic_classification_completion.py`, `test_refund_group_commit.py`), UI 9 passed (`test_card_cleanup_ui.py`). 실운영 DB(6,395건 전체 `classified`) 조회 검증 결과 정리 대상 카드 3,695→0건, 보류 4건 안전 보존 확인.
+- 배포: 1,112 Git blobs 일치(불일치 0), 새 백업(`operational-20261029T122609435227Z`, `v2-owner-ui-20261029T212558`) 및 복원 검증(`restore-evidence.json`), task/process 고정 SHA 일치, 단일 loopback listener, health/ready 200, 보호 API 401, 보호 13개 테이블 내용/스키마 불변(`protection-after.json`). WebLedger-Board 및 WebLedger-SourceRefresh Running 정상 확인. 이전 검증 릴리스 `160f4cd93301b469183c6c243f98ab2a2ad2effc` 및 복구 사본 보존. 신규 금융/Google/은행 쓰기 0.
+- 근거: `.local-archive/deploy-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb/`의 review.json, gate-before.json, protection-before.json, protection-after.json, deploy-evidence.json 및 `D:/WebLedgerHost/releases/deploy-evidence-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb.json`.
+
 ## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
 
 - COMPLETE — 사용자 “모든 페이지 전체에 있는 이런 내부 문구 모두 삭제”와 직전 모바일 정렬 교정을 이어서 완료했다. [PR #343](https://github.com/6Soo/cost/pull/343)·[PR #347](https://github.com/6Soo/cost/pull/347), 문구 최종 검수 `ab4fa61e76eb220533fa07369b6ab5f35123fa09`, 운영 SHA `160f4cd93301b469183c6c243f98ab2a2ad2effc`.
