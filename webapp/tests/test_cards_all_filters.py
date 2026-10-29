@@ -9,6 +9,31 @@ from webapp import card_transactions as ct, cards_all
 from webapp.tests.test_cards_all import card_db_path
 
 
+def test_integrated_period_preserves_search_card_scope_and_legacy_links(card_db_path, monkeypatch):
+    monkeypatch.setattr(cards_all, '_trip_context', lambda: ({}, set()))
+    key = ct.card_identity('CARD', 'credit', '1234')['card_key']
+    query = {'period': ['2026-03'], 'q': ['LAWSON'], 'card': [key], 'unassigned': ['1']}
+    page = cards_all.cards_all_page(query, db_path=card_db_path)
+    assert "data-tx-id='TX-A-02'" in page and "data-tx-id='TX-A-01'" not in page
+    assert "value='2026-03' selected" in page
+    legacy = cards_all.cards_all_page({**query, 'period': ['2026'], 'q': ['5500'], 'card': ['']}, db_path=card_db_path)
+    assert '검색 결과 · 1건' in legacy and "data-tx-id='TX-APR-01'" in legacy
+    assert cards_all._request_params({'period': ['2025-06'], 'year': ['2026'], 'month': ['3']})[:2] == (2025, 6)
+    for invalid in ('2026-13', '2026-00', '1999-03', 'bad', '2026-3'):
+        assert cards_all._request_params({'period': [invalid]})[:2] == (2026, None)
+
+
+def test_year_period_lists_all_months_with_stable_pagination(card_db_path, monkeypatch):
+    monkeypatch.setattr(cards_all, 'PAGE_SIZE', 1)
+    first = cards_all.cards_all_page({'period': ['2026']}, db_path=card_db_path)
+    assert '2026년 전체 · 5건' in first
+    href = re.search(r"href='([^']*cursor=[^']*)'", first).group(1)
+    second = cards_all.cards_all_page(parse_qs(urlsplit(html.unescape(href)).query), db_path=card_db_path)
+    assert '2026년 전체 · 5건' in second
+    assert "data-tx-id='TX-A-02'" in first and "data-tx-id='TX-A-01'" in second
+    assert "data-tx-id='TX-A-02'" not in second
+
+
 def test_unassigned_counts_and_pages_share_valid_trip_and_search_contract(card_db_path):
     filters = dict(unassigned=True, valid_trip_ids={'T-A', 'T-D'})
     summary = ct.year_summary(card_db_path, 2026, **filters)
@@ -109,9 +134,10 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
         if "action='/cards/all'" not in form:
             continue
         assert "name='cursor'" not in form and "name='undated_cursor'" not in form
-    year_form = re.search(r"<form[^>]*class='card-all-year'.*?</form>", page, re.S).group(0)
-    assert "name='unassigned' value='1'" in year_form and key in year_form and 'LAWSON' in year_form
-    assert "name='month'" not in year_form  # Existing year-change behavior remains a month-grid view.
+    period_form = re.search(r"<form[^>]*class='card-all-filters'.*?</form>", page, re.S).group(0)
+    assert "name='unassigned' value='1'" in period_form and key in period_form and 'LAWSON' in period_form
+    assert "value='2026-03' selected" in period_form
+    assert "name='year'" not in period_form and "name='month'" not in period_form
     reset = re.search(r"href='([^']*)'>필터 초기화", page).group(1)
     assert parse_qs(urlsplit(html.unescape(reset)).query) == {'year': ['2026'], 'month': ['3']}
     empty = cards_all.cards_all_page({**query, 'month': ['2']}, db_path=card_db_path)
