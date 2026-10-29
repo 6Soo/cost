@@ -5,6 +5,16 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-30 수기 Google 지출 중복 방지 구현·운영 수락
+
+- COMPLETE — 사용자 “pr열린거 다 구현해”의 [수기 중복 방지 명세](specs/sheet-manual-expense-dedup-20261029.md) SDD-01~07을 [PR #364](https://github.com/6Soo/cost/pull/364)로 구현·정상 병합·고정 배포했다. 운영 SHA `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`, 이전 검증 `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`과 복구 사본 보존. 최신 두 건의 여행/항목 교정 코드·운영값을 보존했다.
+- 여행 화면·카드 업로드의 복사는 최신 Google snapshot과 대조해 신규 지출만 TSV로 준비하고 수기 동일 거래의 연결은 로컬 메타데이터에 원자 저장한다. owner/CSRF·revision/CAS·요청 재시도·행 이동/삭제·점유·사용자 교정·환불·카드/금액/통화 충돌을 보호한다. 분기 기타비용은 기존 경로다. 내부 장부 기록과 Google 반영은 별개다.
+- 합성 통합70 passed, 최신 main 결합47 passed, 최종 카드/여행/HTTP/실제 복사 JavaScript8 passed, UI21 passed와 stale-link replay1 passed, matcher26 passed. 실행 간 중복을 합산하지 않는다. 인접91 passed/5 failed 중 기존 브라우저 fixture의 두 실패 유형은 기준 `e149d82`에서 각각 동일 재현했다. Python/JavaScript 구문·diff·metadata guard 차단0/삭제0. 무관한 전체 회귀는 반복하지 않았다.
+- 운영 DB를 `mode=ro`·`query_only`로 열어 여행61개를 검수했다.47개 원본 검증 가능, 수기 연결 후보121·신규2257·충돌193·원본 확인 불가3446건. 검증되지 않은14개 여행은 SOURCE_NOT_VERIFIED로 복사를 보류한다. 후보 판정이며 실제 Google 입력/환급 완료가 아니다. 운영 DB변경0·Google snapshot 파일 불변·실제 링크 메타데이터 저장0·Google 쓰기0.
+- 배포1137 blobs 일치·새 백업/별도 복원·작업/프로세스SHA·단일loopback·health/ready200·보호13표 전후 불변. 새 대조 화면/API는 익명403. Aside 기존 owner 세션에서 정상 원본 API200·검증 불가 원본503과 화면·요약5개·페이지당50건·다음 페이지·320px overflow0을 확인했다. 실제 복사/링크 저장 POST는 운영에서 실행하지 않았다.
+- PR #349는 #355의 구현·운영수락으로 대체돼 닫았고, #350 명세는 통합됐으며, #353의 오래된 현황은 [최신 현황](specs/card-and-sheet-reconciliation-status-20261029.md)으로 갱신 후 닫았다. 해당 열린 PR 승인 범위의 구현/수락/배포 미결0. 다른 세션의 새 숲나들e 적재 과제는 해당 세션 소유로 구분한다.
+- 근거: 통합 worktree `.local-archive/open-pr-20261029/`의 XML·baseline XML·operating-readonly·review·release-audit·protection-before/after·deploy-evidence·auth-smoke·owner-ui-smoke 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-241cd452abd6c4da4ac59b4f3d534e4e4b2177a6.json`. root 사용자 변경·stash·미추적 자료 보존. 다음 실행 명령 없음. 후속 문서 변경만으로 검사·DB확인·재배포·서버재시작하지 않는다.
+
 ## 2026-10-30 이용일·OTA 분류 교정 및 운영 수락
 
 - 최신 사용자 범위는 카드 업로드 보류와 두 오분류의 근거 확인·교정이다. 국민/하나 수집은 `DEFERRED_BY_USER`로 기록했으며 로그인·업로드를 재개하지 않는다. 과거 전체 큐를 새 작업으로 가져오지 않았다.

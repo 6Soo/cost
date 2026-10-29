@@ -1,7 +1,7 @@
 # COST → Google 지출 장부: 수기 행 중복 방지·연결 명세 V1.0
 
 - 작성: 2026-10-29
-- 상태: IMPLEMENTED / SYNTHETIC_VALIDATED / OPERATING_READONLY_ACCEPTED / DEPLOY_PENDING
+- 상태: IMPLEMENTED / SYNTHETIC_VALIDATED / OPERATING_READONLY_ACCEPTED / DEPLOYED
 - 정본: [finance.md](finance.md), [현재 상태](../session_handoff.md)
 - 목적: COST에서 분류한 지출을 기존 Google 여행별 스프레드시트에 반영할 때 **수기로 이미 기입한 동일 지출을 중복 추가하지 않도록** 한다.
 
