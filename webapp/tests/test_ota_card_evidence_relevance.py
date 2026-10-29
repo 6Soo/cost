@@ -35,7 +35,8 @@ def _snapshot(*, paid_on, approval_date="2026-09-22"):
         "candidate_search": {
             "status": "NO_CANDIDATE",
             "candidates": [],
-            "rejected": [{"transaction_id": card["transaction_id"], "reason": "CURRENCY_MISMATCH"}],
+            "rejected": [{"transaction_id": card["transaction_id"], "reason": "CURRENCY_MISMATCH",
+                          "display_relevant": bool(paid_on and paid_on == card["approval_date"])}],
         },
     }
     return {
@@ -63,7 +64,7 @@ def test_rejected_candidate_on_same_payment_date_remains_visible_for_review():
     assert "625,280원" in notes[0]
 
 
-def test_page_filter_preserves_notes_without_checking_hidden_cards(monkeypatch):
+def test_page_filter_projects_core_trace_without_rechecking_provider_or_hidden_cards(monkeypatch):
     from copy import deepcopy
     from webapp import card_flow
     snapshot = _snapshot(paid_on="2026-09-22")
@@ -71,19 +72,34 @@ def test_page_filter_preserves_notes_without_checking_hidden_cards(monkeypatch):
     hidden = dict(snapshot['data']['transactions'][0], transaction_id='synthetic-hidden')
     snapshot['data']['transactions'].append(hidden)
     result = snapshot['data']['results'][0]
-    result['candidate_search']['rejected'].append({'transaction_id': hidden['transaction_id']})
+    result['candidate_search']['rejected'].append({'transaction_id': hidden['transaction_id'],
+                                                    'display_relevant': True})
     result['reserved_card_ids'] = [visible, hidden['transaction_id']]
     before = deepcopy(snapshot)
     expected = _index_ota_display_candidates(snapshot)[visible]
-    original = __import__('app.ota_payments', fromlist=['provider_compatible']).provider_compatible
     calls = []
-    def compatible(event, card, rules):
-        calls.append(card['transaction_id'])
-        return original(event, card, rules)
-    monkeypatch.setattr('app.ota_payments.provider_compatible', compatible)
+    def forbidden(*_args, **_kwargs):
+        calls.append('rechecked')
+        raise AssertionError('projection must consume core candidate trace')
+    monkeypatch.setattr('app.ota_payments.provider_compatible', forbidden)
     assert _index_ota_display_candidates(snapshot, transaction_ids=[visible]) == {visible: expected}
-    assert calls == [visible]
+    assert calls == []
     calls.clear()
     assert _index_ota_display_candidates(snapshot, transaction_ids=[]) == {}
     assert not calls
     assert snapshot == before
+
+
+def test_core_rejection_visibility_marker_avoids_projection_date_recalculation(monkeypatch):
+    snapshot = _snapshot(paid_on='2026-03-10')
+    rejected = snapshot['data']['results'][0]['candidate_search']['rejected'][0]
+    rejected['display_relevant'] = True
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError('core visibility metadata must be projected as-is')
+
+    monkeypatch.setattr('app.ota_payments._approved_lag_match', forbidden)
+    monkeypatch.setattr('app.ota_payments._foreign_day_lag_match', forbidden)
+    indexed = _index_ota_display_candidates(snapshot)
+    assert 'synthetic-card-625280' in indexed
+    assert '제외' in indexed['synthetic-card-625280'][0]
