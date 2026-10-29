@@ -6,7 +6,8 @@ from app import quarter_costs
 #: The visible states a person sees for a card row, whichever screen shows it.
 GROUP_LABELS = {'review': '확인 필요', 'booked': '기록 완료', 'excluded': '기록 제외'}
 GROUP_OF_STATUS = {'기록 완료': 'booked', '기존 기록': 'booked',
-                   '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
+                   '기록 준비': 'booked', '중복 제외': 'excluded',
+                   '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
 
 
 def next_action(row, preview=None, extra_hold=None):
@@ -28,7 +29,11 @@ def next_action(row, preview=None, extra_hold=None):
         return action('회사 경비 제외', '제외 내역 보기', required=False)
     if row.get('conflict_reason') or row.get('parse_error'):
         return action('원본 확인 필요', '원본 확인', row.get('conflict_reason') or row.get('parse_error'))
-    if preview.get('blocked') == 'refund_inferred' or (preview.get('refund_link') or {}).get('basis', '').endswith('_inferred'):
+    if (preview.get('refund_link') or {}).get('basis', '').endswith('_inferred') and not preview.get('blocked'):
+        return action('기록 준비', '자동 기록 대기',
+                      '동일 카드·동액의 유일한 원결제와 연결되어 자동 기록할 수 있습니다. 실제 환급 완료 여부는 별도입니다.',
+                      required=False, target=href + '#preview')
+    if preview.get('blocked') == 'refund_inferred':
         return action('환불 추론 연결', '환불 근거 확인',
                       preview.get('reason') or '원결제 추론 연결은 별도 근거 검증 전 장부 기록을 보류합니다. 환급 완료 아님.',
                       target=href + '#preview')

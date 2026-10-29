@@ -47,19 +47,19 @@ def context(tmp_path, monkeypatch, request):
 
 
 @pytest.mark.parametrize('automatic', [False, True])
-def test_inferred_links_never_authorize_commit_even_when_both_rows_classified(context, automatic):
+def test_unique_inferred_links_authorize_zero_net_commit(context, automatic):
     store, flow, batch, original, refund = context
     before = list(store.conn.iterdump())
     preview = flow.pipeline.preview(batch, trip_validator=lambda _: True, tab_validator=lambda _: True)
-    assert preview['ready'] == 0
-    assert all(r['blocked'] == 'refund_inferred' for r in preview['rows'])
+    assert preview['ready'] == 2
+    assert all(not r.get('blocked') for r in preview['rows'])
     assert {r['amount_krw'] for r in preview['rows']} == {24600, -24600}
     assert list(store.conn.iterdump()) == before
     result = ledger.commit(flow.pipeline.store, batch, preview['digest'], 'synthetic-commit',
                            trip_validator=lambda _: True, tab_validator=lambda _: True,
                            automatic_record=automatic)
-    assert result['applied'] == 0
-    assert store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
+    assert result['applied'] == 2
+    assert store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 2
 
 
 def test_render_keeps_both_source_rows_and_displays_inference_and_financial_hold(context):
@@ -68,14 +68,14 @@ def test_render_keeps_both_source_rows_and_displays_inference_and_financial_hold
     html = card_flow.render_expense_cleanup(store, 'synthetic-csrf')
     assert html.count(f"data-transaction='{original}'") == 1
     assert html.count(f"data-transaction='{refund}'") == 1
-    assert '환불 추론 연결 · 기록 보류' in html
-    assert '원결제 추론 연결' in html and '환급 완료 아님' in html
+    assert '환불 추론 연결 · 기록 준비' in html
+    assert '원결제 추론 연결' in html and '실제 환급 완료 여부는 별도' in html
     assert '원결제와 환불을 함께 기록해야 합니다' not in html
     assert '원결제 연결을 확인할 수 없습니다' not in html
     assert 'OTA 예약 연결 상태와 금융 기록은 별개입니다.' in html
     groups = refund_tab.groups(store)
     assert len(groups) == 1 and len(groups[0]) == 2 and groups[0][0]['inferred']
-    assert '원결제 추론 연결 · 기록 보류 · 환급 완료 아님' in refund_tab.render(store)
+    assert '원결제 추론 연결 · 기록 준비 · 환급 완료 여부 별도' in refund_tab.render(store)
     assert refund_group(store.conn, original) == [original, refund]
     assert list(store.conn.iterdump()) == before
 
@@ -158,8 +158,8 @@ def test_inferred_link_preserves_existing_ledger_entry_and_does_not_book_counter
     store.conn.commit()
     before = store.conn.execute('SELECT * FROM ledger_entries').fetchall()
     preview = flow.pipeline.preview(batch, trip_validator=lambda _: True, tab_validator=lambda _: True)
-    assert preview['ready'] == 0
+    assert preview['ready'] == 1
     result = ledger.commit(flow.pipeline.store, batch, preview['digest'], 'synthetic-booked',
                            trip_validator=lambda _: True, tab_validator=lambda _: True, automatic_record=True)
-    assert result['applied'] == 0
-    assert store.conn.execute('SELECT * FROM ledger_entries').fetchall() == before
+    assert result['applied'] == 1
+    assert len(store.conn.execute('SELECT * FROM ledger_entries').fetchall()) == len(before) + 1

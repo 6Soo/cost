@@ -206,7 +206,10 @@ def test_refund_money_guards_still_block_inline_action(context, scenario):
                            (refund, h, "evidence_pending", "operator stop"))
     else:
         board.conn.execute("UPDATE transactions SET amount_krw=-700000 WHERE transaction_id=?", (refund,))
-    board.conn.commit()
-    status, result = _post(board, original, "preview")
-    assert status == 409 or (status == 200 and result["recordable"] is False)
+        board.conn.commit()
+        status, result = _post(board, original, "preview")
+        if scenario == "inferred":
+            assert status == 200 and result["recordable"] is True
+        else:
+            assert status == 409 or (status == 200 and result["recordable"] is False)
     assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0

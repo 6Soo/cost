@@ -62,7 +62,7 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
     links = refund_links(store.conn, refund_ids)
     extra = set()
     for refund_id, link in links.items():
-        if link.get('inferred') or link['status'] != 'full' or link['net_krw'] != 0:
+        if link['status'] != 'full' or link['net_krw'] != 0:
             continue
         if refund_id in current_ids or link['original_id'] in current_ids:
             extra.update(refund_group(store.conn, link['original_id']))
@@ -308,11 +308,11 @@ def scope_group(store, result: dict, original_id: str,
         from .partial_refund import refund_links
         links = refund_links(store.conn, members[1:])
         if (not links or len(links) != len(members) - 1
-                or any(link.get('inferred') or link['status'] != 'full'
+                or any(link['status'] != 'full'
                        or link['net_krw'] != 0 or link['original_id'] != original_id
                        for link in links.values())):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
-                             "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
+                             "순액 0원의 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
     by_id = {row["transaction_id"]: row for row in result["rows"]}
     if any(member not in by_id for member in members):
         raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
@@ -374,21 +374,9 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
                         "환불의 원거래가 이 접수 건에 없어 함께 기록할 수 없어요", ready, unresolved)
             continue
         pair = [original, refund]
-        if link.get('inferred'):
-            # Displaying an inferred relation never authorizes ledger writes,
-            # inheritance of a trip/item, or cash-refund settlement.
-            net = {key: link[key] for key in ('gross_krw', 'net_krw', 'status', 'basis')}
-            net['refund_krw'] = link['refunds_total_krw']
-            net['inferred'] = True
-            for entry, role, counterpart in ((original, 'original', refund_id),
-                                              (refund, 'refund', link['original_id'])):
-                entry['refund_link'] = dict(net, role=role, counterpart_id=counterpart)
-                if not entry.get('already_booked'):
-                    if not entry.get('blocked') or entry['blocked'] in (
-                            'needs_review', 'item_missing', 'tab_no_longer_valid', 'trip_no_longer_valid'):
-                        _block_pair([entry], 'refund_inferred',
-                                    '원결제 추론 연결 · 별도 근거 검증 전 장부 기록 보류 (환급 완료 아님)',
-                                    ready, unresolved)
+        if any(entry.get('blocked') == 'review_hold' for entry in pair):
+            # A user hold remains the controlling reason for the pair. The
+            # inferred-link path must not rewrite it as a generic pair hold.
             continue
         if link["status"] == "excess":
             _block_pair(pair, "refund_exceeds_original", "환불 합계가 원결제보다 커서 보류해요", ready, unresolved)
@@ -573,7 +561,7 @@ def _committed_group_replay(store, payload_sha, current_digest, current):
 def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
     """Persist the refund-tab classification applied by a verified pair preview."""
     link = entry.get("refund_link") or {}
-    if (link.get("inferred") or link.get("status") != "full"
+    if (link.get("status") != "full"
             or link.get("net_krw") != 0 or entry.get("transaction_id") != transaction_id):
         return
     current = store.conn.execute(
@@ -734,7 +722,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
             done = set(booked) | set(already) | {e["transaction_id"] for e in current["rows"] if e.get("already_booked")}
             for entry in current["rows"]:
                 link = entry.get("refund_link")
-                if (link and not link.get("inferred")
+                if (link
                         and not str(link.get("basis") or "").endswith("_inferred")
                         and not entry.get("blocked")
                         and ((entry["transaction_id"] in done) != (link["counterpart_id"] in done))):

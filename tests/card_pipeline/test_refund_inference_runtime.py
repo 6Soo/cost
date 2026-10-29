@@ -35,7 +35,7 @@ def test_link_group_and_candidate_share_global_readonly_evidence(scope):
     assert refund_group(db, 'synthetic-p') == ['synthetic-p']
 
 
-@pytest.mark.parametrize('day,linked', [('2026-10-16', True), ('2026-10-17', False),
+@pytest.mark.parametrize('day,linked', [('2026-11-01', True), ('2026-11-02', False),
                                       ('2026-10-01', False)])
 def test_kakao_window_is_inclusive_and_never_matches_future_purchase(scope, day, linked):
     db = database()

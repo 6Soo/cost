@@ -34,7 +34,7 @@ def _member_ids(store):
     from . import ledger_board as board
     saved = {r.get('source_event_id'): r for r in board._expense_rows()}
     return {r['transaction_id'] for group in groups(store)
-            if not group[0].get('inferred') and all(r['transaction_id'] in saved for r in group)
+            if all(r['transaction_id'] in saved for r in group)
             and sum(saved[r['transaction_id']]['amount_krw'] for r in group) == 0
             and len({saved[r['transaction_id']].get('display_tab_id') for r in group}) == 1
             for r in group}

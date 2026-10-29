@@ -29,7 +29,7 @@ def _group_context(board, original_id):
         raise StoreError("REFUND_LINK_NOT_VERIFIED", "검증된 취소·환불 연결이 없습니다")
     links = refund_links(board.conn, members[1:])
     if (len(links) != len(members) - 1
-            or any(link["original_id"] != original_id or link.get("inferred")
+            or any(link["original_id"] != original_id
                    or link.get("status") != "full" or link.get("net_krw") != 0
                    for link in links.values())):
         raise StoreError("REFUND_LINK_NOT_VERIFIED",

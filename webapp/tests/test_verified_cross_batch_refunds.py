@@ -114,7 +114,7 @@ def test_cross_batch_preview_without_opt_in_stays_originally_scoped(tmp_path, mo
 
 
 @pytest.mark.parametrize("verified,held", [(False, False), (True, True)])
-def test_inferred_or_manually_held_pairs_never_auto_book(tmp_path, monkeypatch, verified, held):
+def test_inferred_pairs_auto_book_but_manual_holds_still_block(tmp_path, monkeypatch, verified, held):
     monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
     board, flow, original_batch, _, original, refund = _separate_batches(
         tmp_path, verified=verified, hold=held,
@@ -122,17 +122,19 @@ def test_inferred_or_manually_held_pairs_never_auto_book(tmp_path, monkeypatch, 
     try:
         monkeypatch.setattr(flow, "ota_group_holds", lambda: {})
         view, holds = _preview(flow, original_batch)
-        if not verified:
-            assert refund not in {row["transaction_id"] for row in view["rows"]}
-        assert all(row.get("blocked") for row in view["rows"] if not row.get("already_booked"))
+        if not verified and not held:
+            assert refund in {row["transaction_id"] for row in view["rows"]}
+            assert view["ready"] == 2
+        else:
+            assert all(row.get("blocked") for row in view["rows"] if not row.get("already_booked"))
         result = flow.pipeline.commit(
             original_batch, view["digest"], "no-unsafe-post",
             trip_validator=lambda _: True, tab_validator=lambda _: True,
             additional_holds=holds, automatic_record=True,
             include_verified_full_refunds=True,
         )
-        assert result["applied"] == 0
-        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0
+        assert result["applied"] == (0 if held else 2)
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == (0 if held else 2)
     finally:
         board.close()
 

@@ -1140,7 +1140,9 @@ class CardFlowTests(unittest.TestCase):
         return self.flow.pipeline.get_batch(batch)['rows']
 
     def commit(self, batch, request_id='commit'):
-        return self.flow.pipeline.commit(batch, self.flow.state(batch)['preview']['digest'],
+        preview = self.flow.pipeline.preview(batch, trip_validator=self.flow.trip_valid,
+                                             tab_validator=self.flow.tab_valid)
+        return self.flow.pipeline.commit(batch, preview['digest'],
                                          request_id, projection=self.flow.project,
                                          trip_validator=self.flow.trip_valid,
                                          tab_validator=self.flow.tab_valid)
@@ -1176,11 +1178,11 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(sorted(row['amount_krw'] for row in rows), [-5800, 5800])
         self.assertEqual(len({row['transaction_id'] for row in rows}), 2)
         result = self.commit(batch, 'commit-pair')
-        self.assertEqual((result['applied'], result['already']), (0, 0))
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        self.assertEqual((result['applied'], result['already']), (2, 0))
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 2)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 2)
         preview = self.flow.state(batch)['preview']['rows']
-        self.assertEqual({row['blocked'] for row in preview}, {'refund_inferred'})
+        self.assertTrue(all(not row.get('blocked') for row in preview))
         self.assertEqual({row['classification_state'] for row in preview}, {'classified'})
         self.assertEqual(sorted(row['amount_krw'] for row in preview), [-5800, 5800])
 
@@ -1193,11 +1195,11 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual({row['approval_number'] for row in rows}, {'58001111'})
         self.assertEqual(len({row['transaction_id'] for row in rows}), 4)
         result = self.commit(batch, 'commit-issuers')
-        self.assertEqual((result['applied'], result['already']), (0, 0))
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        self.assertEqual((result['applied'], result['already']), (4, 0))
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 4)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 4)
         preview = self.flow.state(batch)['preview']['rows']
-        self.assertEqual({row['blocked'] for row in preview}, {'refund_inferred'})
+        self.assertTrue(all(not row.get('blocked') for row in preview))
         self.assertEqual({row['classification_state'] for row in preview}, {'classified'})
 
     def test_same_source_hash_with_different_ids_keeps_every_real_transaction(self):

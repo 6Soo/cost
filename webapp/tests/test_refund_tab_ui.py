@@ -236,7 +236,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -15000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_inferred = refund_tab_ui.render_refund_card(g_inferred)
-    assert "<h2 class='ui-card__heading'>원결제 추론 연결 · 기록 보류 · 환급 완료 아님 · 순액 0원</h2>" in card_inferred
+    assert "<h2 class='ui-card__heading'>원결제 추론 연결 · 기록 준비 · 환급 완료 여부 별도 · 순액 0원</h2>" in card_inferred
 
     # 5. Decimal net amount in card
     g_dec = [

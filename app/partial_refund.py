@@ -23,6 +23,8 @@ from pathlib import Path
 
 __all__ = ["count_held_cancellations", "refund_group", "refund_links"]
 
+KAKAO_MAX_DAYS_AFTER_PURCHASE = 30
+
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
 _READ_ANALYSIS = ContextVar('refund_read_analysis', default=None)
@@ -259,7 +261,7 @@ def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
     """Read-only exact-KRW inference with bidirectional global uniqueness.
 
     Identical merchants require the same use date. Kakao taxi spelling variants
-    may use the existing 14-day window. This is an inferred relation only,
+    may use the existing 30-day window. This is an inferred relation only,
     never evidence of an actual cash refund. A purchase must not be consumed by
     approval-number/foreign pairing. All possible edges participate in uniqueness
     checks, including an ambiguous refund and an already consumed original.
@@ -293,7 +295,7 @@ def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
     for refund in refunds:
         rid, issuer, tail, amount, when, merchant, clean, normalized = refund
         matches = [p for p in purchases if p[1:4] == (issuer, tail, amount)
-                   and ((0 <= (when - p[4]).days <= 14
+                   and ((0 <= (when - p[4]).days <= KAKAO_MAX_DAYS_AFTER_PURCHASE
                          and '카카오' in merchant and '카카오' in p[5])
                         or (when == p[4] and normalized == p[7]))]
         for purchase in matches:

@@ -1558,11 +1558,6 @@ class CardFlow:
         for refund, link in verified_links.items():
             if not {refund, link['original_id']} & batch_ids:
                 continue
-            if link.get('inferred'):
-                for member in (refund, link['original_id']):
-                    holds.setdefault(member, {'kind': 'refund_inferred',
-                        'reason': '원결제 추론 연결 · 별도 근거 검증 전 장부 기록 보류 (환급 완료 아님)'})
-                continue
             # A classified full offset belongs in refunds, so an automatic trip
             # request cannot block it. Persisted/manual/financial holds remain.
             if (link['status'] == 'full' and link['original_id'] not in booked_now
@@ -1590,13 +1585,11 @@ class CardFlow:
             if not members & ids:
                 continue
             if include_verified_full_refunds:
-                # A verified, exactly zero-net group may span several source
-                # files. The ledger preview pulls EVERY member and commits
-                # them atomically. Never treat inferred or held groups as safe.
+                # An exact, zero-net group may span several source files. The
+                # ledger preview pulls EVERY member and commits them atomically.
                 refunds_in_group = members & set(refund_ids)
                 trusted_full = bool(refunds_in_group) and all(
                     (rid in verified_links
-                     and not verified_links[rid].get('inferred')
                      and verified_links[rid].get('status') == 'full'
                      and verified_links[rid].get('net_krw') == 0)
                     for rid in refunds_in_group)
@@ -2890,7 +2883,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             blocked_labels = {
                 'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
                 'refund_pair_incomplete': '기록 보류: 원결제와 환불을 함께 확인해야 합니다.',
-                'refund_inferred': '기록 보류: 원결제 추론 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
+                'refund_inferred': '원결제 추론 연결입니다. 실제 환급 완료 여부는 별도로 확인합니다.',
                 'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
                 'review_hold': '기록 보류: ' + str(preview_row.get('reason') or '검토 보류 사유를 확인해 주세요.'),
@@ -2922,8 +2915,8 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             pairs = original_refunds[tid]
             example = pairs[0][1]
             if example.get('inferred'):
-                reason = ('원결제와 취소의 동일 카드·동액 기준 추론 연결. '
-                          '별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.')
+                reason = ('원결제와 취소가 동일 카드·동액 기준으로 유일하게 연결되었습니다. '
+                          '원결제·취소를 함께 장부에 기록할 수 있으며 실제 환급 완료 여부는 별도입니다.')
             elif example.get('status') == 'full':
                 reason = f"원결제와 취소·환불 {example['refund_count']}건의 금액을 함께 확인할 수 있습니다."
             elif example.get('status') == 'partial':
@@ -2943,7 +2936,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             else:
                 status = link.get('status')
                 if link.get('inferred'):
-                    reason = '원결제 추론 연결. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
+                    reason = '원결제 추론 연결. 원결제와 취소를 함께 장부에 기록할 수 있으며 실제 환급 완료 여부는 별도입니다.'
                 elif status == 'full':
                     reason = '취소·환불 금액을 원결제와 함께 기록해야 합니다.'
                 elif status == 'partial':
@@ -3000,7 +2993,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
         if not protected and tid not in cancellation_ids and tid in original_refunds:
             offset_link = original_refunds[tid][0][1]
             if offset_link.get('inferred'):
-                label = '환불 추론 연결 · 기록 보류'
+                label = '환불 추론 연결 · 기록 준비'
             elif preview_row and preview_row.get('blocked'):
                 label = '기록 보류'
             elif offset_link.get('status') == 'full':
@@ -3022,11 +3015,10 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 (refund_by_id[tid]['original_id'] if tid in refund_by_id else tid)
                 if ((tid in refund_by_id
                      and refund_by_id[tid]['original_id'] not in visible_card_ids
-                     and not refund_by_id[tid].get('inferred')
                      and refund_by_id[tid].get('status') == 'full'
                      and refund_by_id[tid].get('net_krw') == 0)
                     or (tid in original_refunds and original_refunds[tid]
-                        and all(not link.get('inferred') and link.get('status') == 'full'
+                        and all(link.get('status') == 'full'
                                 and link.get('net_krw') == 0
                                 for _, link in original_refunds[tid])))
                 else ""
@@ -3170,7 +3162,7 @@ document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{editing=b.dataset.edit;render(model);el('questions').scrollIntoView({block:'start',behavior:'smooth'});el('status').textContent='선택한 거래의 답변을 고쳐 쓸 수 있습니다.'});
 if(el('prevpage'))el('prevpage').onclick=()=>{page=Math.max(0,page-1);render(model)};
 if(el('nextpage'))el('nextpage').onclick=()=>{page=page+1;render(model)};}
-el('upload').onclick=async()=>{const f=el('file').files[0];if(!f)return;const generation=++batchGeneration;invalidateProposal();el('upload').disabled=true;el('status').textContent='파일을 읽고 분류하고 있습니다.';try{const j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)});if(generation!==batchGeneration)return;render(j,true);el('status').textContent='분류가 끝났습니다.'}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}finally{el('upload').disabled=false}};
+el('upload').onclick=async()=>{const f=el('file').files[0];if(!f)return;const generation=++batchGeneration;invalidateProposal();el('upload').disabled=true;el('status').textContent='파일을 읽고 분류하고 있습니다.';try{const j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)});if(generation!==batchGeneration)return;render(j,true);if(cardReviewDetail){cardReviewDetail.open=true;startCardReview();}el('status').textContent='분류가 끝났습니다.'}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}finally{el('upload').disabled=false}};
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(j.rules)renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(j.refresh_required){el('status').textContent='규칙은 저장됐지만 분류 갱신을 확인하지 못했습니다. 규칙을 다시 저장하지 말고 거래를 새로고침해 주세요.';return}try{if(model)render(await call('/api/imports/'+model.batch_id+'/auto-record','{}',{'Content-Type':'application/json'}))}catch(error){if(error.message==='소유자만 자동 반영할 수 있습니다.'){let refreshed=false;try{const updated=await call('/api/imports/'+model.batch_id);render(updated);refreshed=true}catch{}el('status').textContent=refreshed?'규칙은 저장되고 분류도 다시 계산됐습니다. 자동 장부 기록은 소유자만 할 수 있습니다.':'규칙은 저장되고 분류도 다시 계산됐지만 화면을 갱신하지 못했습니다. 자동 장부 기록은 소유자만 할 수 있습니다. 새로고침해서 확인해 주세요.';return}el('status').textContent='규칙은 저장됐습니다. 자동 기록 결과를 확인하지 못했습니다: '+error.message+' 규칙을 다시 저장하지 말고 최신 거래를 확인해 주세요.';return}el('status').textContent='규칙을 저장하고 분류에 적용했습니다. 이미 지정한 답변은 유지됩니다.'}catch(e){el('status').textContent=e.message}};
 el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('ruleform').reset();el('ruleform').elements.merchant.readOnly=false;el('rule_scope').textContent=''};
 function loadCardReviewRules(){call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);}
