@@ -2251,6 +2251,12 @@ def _cleanup_card_where():
     return (
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
         " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
+        " AND NOT (t.classification_state='classified'"
+        " AND COALESCE(t.item,'')!=''"
+        " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+        " AND (COALESCE(t.classification_basis,'') LIKE '%complete-card-inference-v1%'"
+        " OR t.classification_source='refund_original'))"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
