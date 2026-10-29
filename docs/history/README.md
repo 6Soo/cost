@@ -10,6 +10,7 @@
 | 변경별 구현 계획·검토·테스트·화면 감사 | [구현·감사](implementation-and-audits.md) |
 | 2026-10-27까지 실제 배포·운영 검증 전문 | [운영 이력](operations-through-20261027.md) |
 | 은퇴한 OTA-first 정책·실험·옛 실행 계획 | [구형 OTA](ota-legacy.md) |
+| 2026-10-29 계약으로 대체된 잠정 여행 귀속 설계 | [이전 PA-01~06 명세](provisional-assignment-review-first-20261028.md) |
 
 ## 정리 원칙
 
