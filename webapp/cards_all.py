@@ -75,7 +75,9 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .amount-cell .amount{text-align:right;font-weight:750;font-variant-numeric:tabular-nums}
 .card-all-page .card-all-table .amount-cell .card-all-badges{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:3px}
 .card-all-page .card-all-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:13px}
+.card-all-page .card-all-filters>label{display:inline-flex;align-items:center;gap:7px;min-width:0}
 .card-all-page .card-all-filters :is(input[type=search],select){min-height:42px;max-width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper);color:var(--ca-ink);font:inherit}
+.card-all-page .card-all-filters input[type=search]{width:min(360px,100%)}
 .card-all-page .card-all-filters button{min-height:42px;padding:8px 14px;font:inherit}
 .card-all-page .card-all-table .trip{min-width:150px;overflow-wrap:anywhere}
 .card-all-page .card-all-table .detail-cell{width:76px;text-align:center}
@@ -89,6 +91,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-pagination{margin-top:15px;display:flex;justify-content:center}
 .card-all-page .card-all-pagination a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid var(--ca-border);border-radius:9px;background:var(--ca-soft);text-decoration:none}
 @media(width < 760px){.card-all-page{padding:14px 12px 42px}.card-all-page .card-all-hero{padding:16px}.card-all-page .card-all-summary{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-stat{min-width:0}.card-all-page .card-all-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.card-all-page .card-all-tile{min-height:78px;padding:11px}.card-all-page .card-all-tile[aria-pressed=true]{padding:10px}.card-all-page :is(.card-all-detail,.card-all-undated){padding:13px}.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px}}
+@media(max-width:560px){.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:9px}.card-all-page .card-all-filters>label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}.card-all-page .card-all-filters>label:first-child{display:flex}.card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0}.card-all-page .card-all-filters button{width:100%}.card-all-page .card-all-filters .card-all-link{justify-self:start}}
 @media(max-width:390px){.card-all-page .card-all-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-hero{gap:14px}}
 @media(prefers-reduced-motion:reduce){.card-all-page .card-all-tile{transition:none}}
 </style>
@@ -467,6 +470,31 @@ def _month_detail(year: int, month: int, items: list[dict], cursor, has_more: bo
             f"{more}</section>")
 
 
+def _search_detail(year: int, items: list[dict], cursor, has_more: bool,
+                   total: int, *, trip_names: dict[str, str] | None = None,
+                   filter_state=None) -> str:
+    """Always render a search state, including zero matches."""
+    query = str((filter_state or {}).get('q') or '')
+    if not items:
+        return ("<section class='card-all-detail card-all-search-result' "
+                "aria-live='polite' aria-labelledby='search-heading'>"
+                f"<h2 id='search-heading'>검색 결과 · {total:,}건</h2>"
+                f"<p class='card-all-muted'>‘{_esc(query)}’ 검색 결과가 없습니다.</p>"
+                "</section>")
+    more = ""
+    if has_more and cursor:
+        href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year,
+                                           "cursor": cursor})
+        more = ("<div class='card-all-pagination'>"
+                f"<a class='card-all-link' href='{_esc(href)}'>다음 검색 결과 100건 보기</a>"
+                "</div>")
+    return ("<section class='card-all-detail card-all-search-result' "
+            "aria-live='polite' aria-labelledby='search-heading'>"
+            f"<h2 id='search-heading'>검색 결과 · {total:,}건</h2>"
+            f"{_transactions_table(items, '카드 검색 결과', trip_names=trip_names)}{more}"
+            "</section>")
+
+
 def _year_form(year: int, years: list[int], *, filter_state=None) -> str:
     options = "".join(
         f"<option value='{value}'{' selected' if value == year else ''}>"
@@ -524,6 +552,10 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         next_cursor = None
         has_more = False
         month_total = 0
+        search_items: list[dict] = []
+        search_next_cursor = None
+        search_has_more = False
+        search_total = 0
         if selected_month is not None:
             try:
                 month_total = int(months.get(selected_month, 0) or 0)
@@ -535,6 +567,13 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             items = result.get("items") or []
             next_cursor = result.get("cursor")
             has_more = bool(result.get("has_more"))
+        elif filter_state.get('q'):
+            result = _ct.search_for_year(db_path=card_db_path, year=year,
+                                         cursor=cursor, per_page=PAGE_SIZE, **filters)
+            search_items = result.get("items") or []
+            search_next_cursor = result.get("cursor")
+            search_has_more = bool(result.get("has_more"))
+            search_total = int(result.get("total_count", result.get("count", 0)) or 0)
 
         undated_count = int(summary.get("undated_count", 0) or 0)
         undated_items: list[dict] = []
@@ -564,7 +603,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     # This never changes the stored trip_id, the card's classification, or access policy.
     try:
         from . import ledger_board as _board
-        if (items or undated_items) and _board.current_role() == "owner":
+        if (items or search_items or undated_items) and _board.current_role() == "owner":
             trip_names = {
                 str(t.get("tab_id") or ""): str(t.get("display_key") or t.get("tab_id") or "")
                 for t in _board.live_trips(include_archived=True)
@@ -574,7 +613,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         pass
 
     if filters['unassigned']:
-        for item in [*items, *undated_items]:
+        for item in [*items, *search_items, *undated_items]:
             item['trip_assignment_valid'] = False
     selected_card = filter_state.get('card', '')
     options = "<option value=''>전체 카드</option>" + ''.join(
@@ -586,7 +625,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
                            **({'undated': '1'} if show_undated else {})})
         + f"<label><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
         + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
-        + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류'></label>"
+        + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
         + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
         + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
         + "<p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p>")
@@ -594,6 +633,10 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     if selected_month is not None:
         detail = _month_detail(year, selected_month, items, next_cursor,
                                has_more, month_total, trip_names=trip_names, filter_state=filter_state)
+    elif filter_state.get('q'):
+        detail = _search_detail(year, search_items, search_next_cursor,
+                                search_has_more, search_total,
+                                trip_names=trip_names, filter_state=filter_state)
     else:
         detail = ''
 

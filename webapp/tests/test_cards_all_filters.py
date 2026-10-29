@@ -25,6 +25,45 @@ def test_unassigned_counts_and_pages_share_valid_trip_and_search_contract(card_d
     assert ct.list_for_month(card_db_path, 2026, 3, search="%' OR 1=1 --", **filters)['items'] == []
 
 
+def test_search_matches_krw_and_foreign_amounts(card_db_path):
+    assert [row['transaction_id'] for row in ct.list_for_month(
+        card_db_path, 2026, 3, search='8,420')['items']] == ['TX-A-02']
+    assert [row['transaction_id'] for row in ct.list_for_month(
+        card_db_path, 2026, 3, search='820')['items']] == ['TX-A-02']
+    result = ct.search_for_year(card_db_path, 2026, search='5500')
+    assert [row['transaction_id'] for row in result['items']] == ['TX-APR-01']
+    assert result['total_count'] == 1
+    with closing(sqlite3.connect(card_db_path)) as conn, conn:
+        conn.execute("UPDATE transactions SET foreign_amount='1,234.56' WHERE transaction_id='TX-A-02'")
+    assert [row['transaction_id'] for row in ct.search_for_year(
+        card_db_path, 2026, search='1,234.56')['items']] == ['TX-A-02']
+    assert ct.search_for_year(card_db_path, 2026, search=',')['items'] == []
+    assert [row['transaction_id'] for row in ct.search_for_year(
+        card_db_path, 2026, search='A002')['items']] == ['TX-A-02']
+
+
+def test_year_search_pagination_preserves_filters_and_never_writes(card_db_path, monkeypatch):
+    monkeypatch.setattr(cards_all, '_trip_context', lambda: ({}, set()))
+    monkeypatch.setattr(cards_all, 'PAGE_SIZE', 1)
+    key = ct.card_identity('CARD', 'credit', '1234')['card_key']
+    query = {'year': ['2026'], 'q': ['0'], 'card': [key], 'unassigned': ['1']}
+    with closing(sqlite3.connect(card_db_path)) as conn:
+        before = conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+    first = cards_all.cards_all_page(query, db_path=card_db_path)
+    href = re.search(r"href='([^']*cursor=[^']*)'", first).group(1)
+    next_query = parse_qs(urlsplit(html.unescape(href)).query)
+    assert next_query['q'] == ['0'] and next_query['card'] == [key]
+    assert next_query['unassigned'] == ['1'] and 'month' not in next_query
+    second = cards_all.cards_all_page(next_query, db_path=card_db_path)
+    assert '검색 결과 · 2건' in first and '검색 결과 · 2건' in second
+    assert "data-tx-id='TX-A-02'" in first and "data-tx-id='TX-A-01'" in second
+    assert "data-tx-id='TX-A-02'" not in second
+    assert '미배정' in first
+    assert ct.search_for_year(card_db_path, 2026, search='MERCHANT')['items'] == []
+    with closing(sqlite3.connect(card_db_path)) as conn:
+        assert conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
+
+
 def test_valid_display_destination_and_dangling_override_are_counted_consistently(card_db_path):
     with closing(sqlite3.connect(card_db_path)) as conn, conn:
         conn.execute("UPDATE transactions SET display_tab_id='VALID',trip_id='MISSING' WHERE transaction_id='TX-A-01'")

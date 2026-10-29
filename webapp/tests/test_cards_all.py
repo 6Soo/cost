@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Targeted tests for cards_all handler and renderers.
 Tests the card-all page rendering, data contracts, and UI behavior.
 Uses synthetic fixture matching app/db.py schema (transactions).
@@ -311,6 +311,27 @@ def test_initial_month_prompt_removed_but_month_selection_remains_accessible(car
     assert 'aria-label=' in result and 'month=' in result
 
 
+def test_search_without_month_renders_results_immediately(card_db_path):
+    result = cards_all.cards_all_page(
+        {'year': ['2026'], 'q': ['9800']}, db_path=card_db_path)
+    assert "id='search-heading'" in result
+    assert '검색 결과 · 0건' in result
+    assert '9800' in result
+
+    result = cards_all.cards_all_page(
+        {'year': ['2026'], 'q': ['MERCURE']}, db_path=card_db_path)
+    assert '검색 결과 · 1건' in result
+    assert "data-tx-id='TX-A-01'" in result
+
+
+def test_search_zero_results_is_explicit_and_changes_the_page(card_db_path):
+    result = cards_all.cards_all_page(
+        {'year': ['2026'], 'q': ['없는거래-검색-2026']}, db_path=card_db_path)
+    assert '검색 결과 · 0건' in result
+    assert '검색 결과가 없습니다' in result
+    assert '없는거래-검색-2026' in result
+
+
 def test_month_detail_empty_month(card_db_path):
     """Empty month shows appropriate message."""
     html = cards_all._month_detail(2026, 1, [], None, False, 0)
@@ -482,6 +503,24 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert first_month.is_visible()
                 first_month.focus()
                 assert first_month.evaluate('(el)=>el===document.activeElement')
+                page.goto('http://cost.test/cards/all?year=2026')
+                page.locator('.card-all-filters input[name=q]').fill('8,420')
+                page.get_by_role('button', name='조회', exact=True).click()
+                expect(page.locator('#search-heading')).to_have_text('검색 결과 · 1건')
+                assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
+                for width in (320, 390, 760, 1280):
+                    page.set_viewport_size({'width': width, 'height': 812})
+                    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                    for selector in ('.card-all-filters input[name=q]', 'select[name=card]', '.card-all-filters button'):
+                        box = page.locator(selector).bounding_box()
+                        assert box['x'] >= 0 and box['x'] + box['width'] <= width
+                page.locator('.card-all-filters input[name=q]').fill('검색결과없음')
+                page.get_by_role('button', name='조회', exact=True).click()
+                expect(page.locator('#search-heading')).to_have_text('검색 결과 · 0건')
+                expect(page.locator('.card-all-search-result')).to_contain_text('검색결과없음')
+                assert page.locator('tr[data-tx-id]').count() == 0
+                page.goto('http://cost.test/cards/all?year=2026&q=합성')
+                assert page.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
             finally:
                 browser.close()
 
