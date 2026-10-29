@@ -21,7 +21,7 @@ def _bind(monkeypatch, tmp_path):
 
     monkeypatch.setenv('WEBLEDGER_CARD_FLOW', '1')
     board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
-    ledger_board.bind_store(board)
+    monkeypatch.setattr(ledger_board, '_STORE', board)
     monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
     return board
 

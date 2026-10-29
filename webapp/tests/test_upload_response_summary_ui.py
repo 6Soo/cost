@@ -171,7 +171,9 @@ def test_summary_failure_pages_bound_large_dom_and_system_errors_are_distinct():
             browser.close()
 
 
-def test_summary_shell_theme_contrast_mobile_overflow_and_paging_focus():
+def test_summary_shell_theme_contrast_mobile_overflow_and_paging_focus(monkeypatch):
+    from webapp import ledger_board
+    monkeypatch.setattr(ledger_board, '_STORE', None)
     source = SOURCE.read_text(encoding='utf-8')
     script = source[source.index('let uploadFailurePage='):source.index(' function render(j')]
     error_script = source[source.index('function renderUploadSystemError'):
