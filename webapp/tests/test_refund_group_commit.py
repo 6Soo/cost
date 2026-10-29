@@ -107,6 +107,28 @@ class RefundGroupCommitTests(unittest.TestCase):
         self.assertEqual(payload['code'], 'PREVIEW_STALE')
         self.assertEqual(self.ledger(), (0, 0))
 
+    def test_replay_fails_closed_after_amount_changes(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'amount-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE transactions SET amount_krw=amount_krw+1, revision=revision+1 WHERE transaction_id=?",
+            (self.original,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'amount-2'})
+        self.assertEqual(status, 409)
+        self.assertEqual(payload['code'], 'PREVIEW_STALE')
+        self.assertEqual(self.ledger(), (2, 300000))
+
+    def test_replay_fails_closed_after_user_revision_changes(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        self.assertEqual(self.post(self.original, {'digest': digest, 'request_id': 'revision-1'})[0], 200)
+        self.board.conn.execute(
+            "UPDATE transactions SET classification_basis='사용자 수정', revision=revision+1 WHERE transaction_id=?",
+            (self.original,))
+        status, payload = self.post(self.original, {'digest': digest, 'request_id': 'revision-2'})
+        self.assertEqual(status, 409)
+        self.assertEqual(payload['code'], 'PREVIEW_STALE')
+        self.assertEqual(self.ledger(), (2, 300000))
+
     def test_group_commit_keeps_saved_pair_when_state_refresh_fails(self):
         digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
         body = {'digest': digest, 'request_id': 'group-refresh-failure'}

@@ -537,43 +537,30 @@ def _check_refund_groups(store, rows) -> None:
                              "환불 묶음을 모두 함께 기록할 수 없어 기록하지 않았어요. 묶인 거래를 함께 확인해 주세요")
 
 
-def _committed_group_replay(store, batch_id, digest, current):
-    """Return a safe no-op for a previously committed, unchanged group.
-
-    Persisting the verified refund classification advances the preview revision
-    after the ledger rows have been written.  A new transport request may still
-    repeat the original group digest, so accept it only when that digest is a
-    recorded commit and the current group still matches the booked rows.
-    """
+def _committed_group_replay(store, payload_sha, current_digest, current):
+    """Return a no-op only for an exact request with its post-commit digest."""
     import json
-    ids = {row["transaction_id"] for row in current.get("rows", [])}
-    if not ids or any(row.get("blocked") or not row.get("already_booked")
-                      for row in current["rows"]):
+    row = store.conn.execute(
+        "SELECT response_json FROM requests WHERE scope='commit' AND payload_sha256=?",
+        (payload_sha,)).fetchone()
+    if row is None:
         return None
-    historical = store.conn.execute(
-        "SELECT response_json FROM requests WHERE scope='commit'").fetchall()
-    for (raw,) in historical:
-        response = json.loads(raw)
-        if (response.get("batch_id") != batch_id
-                or response.get("digest") != digest
-                or set(response.get("booked", [])) != ids):
-            continue
-        for row in current["rows"]:
-            booked = store.conn.execute(
-                "SELECT item, description, display_tab_id, trip_id, amount_krw,"
-                "merchant, occurred_on, transaction_direction, source_hash "
-                "FROM ledger_entries WHERE transaction_id=?", (row["transaction_id"],)
-            ).fetchone()
-            if booked is None or tuple(row.get(key, "") for key in (
-                    "item", "description", "display_tab_id", "trip_id",
-                    "amount_krw", "merchant", "occurred_on",
-                    "transaction_direction", "source_hash")) != tuple(booked):
-                break
-        else:
-            result = dict(response, applied=0, already=len(ids), booked=[],
-                          already_booked=sorted(ids))
-            return result
-    return None
+    response = json.loads(row[0])
+    if response.get("replay_post_digest") != current_digest:
+        return None
+    ids = {item["transaction_id"] for item in current.get("rows", [])}
+    if not ids or ids != set(response.get("booked", [])):
+        return None
+    if any(item.get("blocked") or not item.get("already_booked")
+           for item in current["rows"]):
+        return None
+    expected_revisions = response.get("replay_post_revisions", {})
+    if (not expected_revisions
+            or {item["transaction_id"]: item.get("revision") for item in current["rows"]}
+            != expected_revisions):
+        return None
+    return dict(response, applied=0, already=len(ids), booked=[],
+                already_booked=sorted(ids))
 
 
 def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
@@ -666,17 +653,24 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                       include_verified_full_refunds=include_verified_full_refunds)
     if current["digest"] != preview_digest_value:
         if group_original is not None:
-            replay = _committed_group_replay(store, batch_id, preview_digest_value, current)
-            if replay is not None:
-                with store.lock:
-                    store.conn.execute("BEGIN IMMEDIATE")
-                    try:
+            with store.lock:
+                store.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    locked = preview(store, batch_id, trip_validator=trip_validator,
+                                     tab_validator=tab_validator, review_from=review_from,
+                                     entry_metadata=entry_metadata, additional_holds=additional_holds,
+                                     group_original=group_original,
+                                     include_verified_full_refunds=include_verified_full_refunds)
+                    replay = _committed_group_replay(store, payload_sha,
+                                                     locked["digest"], locked)
+                    if replay is not None:
                         store.remember_request(request_id, "commit", payload_sha, replay)
                         store.conn.execute("COMMIT")
-                    except Exception:
-                        store.conn.execute("ROLLBACK")
-                        raise
-                return replay
+                        return replay
+                    store.conn.execute("ROLLBACK")
+                except Exception:
+                    store.conn.execute("ROLLBACK")
+                    raise
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")
     if group_original is not None and not current["recordable"]:
@@ -744,6 +738,19 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                                      {"original_id": link["counterpart_id"], "gross_krw": link["gross_krw"],
                                       "refund_krw": link["refund_krw"], "net_krw": link["net_krw"],
                                       "status": link["status"]})
+            replay_post_digest = None
+            replay_post_revisions = None
+            if group_original is not None and booked:
+                post_preview = preview(
+                    store, batch_id, trip_validator=trip_validator,
+                    tab_validator=tab_validator, review_from=review_from,
+                    entry_metadata=entry_metadata, additional_holds=additional_holds,
+                    group_original=group_original,
+                    include_verified_full_refunds=include_verified_full_refunds)
+                replay_post_digest = post_preview["digest"]
+                replay_post_revisions = {
+                    entry["transaction_id"]: entry.get("revision")
+                    for entry in post_preview["rows"]}
             result = {"batch_id": batch_id, "applied": len(booked),
                       "already": len(already), "unresolved": current["unresolved"],
                       "duplicates": current["duplicates"],
@@ -751,6 +758,9 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                       "lost_authority": lost_authority,
                       "booked": booked, "already_booked": already,
                       "digest": preview_digest_value, "committed_at": now}
+            if replay_post_digest is not None:
+                result["replay_post_digest"] = replay_post_digest
+                result["replay_post_revisions"] = replay_post_revisions
             store.remember_request(request_id, "commit", payload_sha, result)
             store.conn.execute("COMMIT")
         except Exception:
