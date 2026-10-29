@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 전액상쇄 환불 기록 완료·부분 기기록 보호 교정
+
+- [PR #339](https://github.com/6Soo/cost/pull/339), 구현 `02cb163`, 운영 `8b91aeb622106af38935dce49da4c10bb7ddc37e`. 기존 장부가 있는 묶음 멤버의 파생 existing_ledger 보류가 빠진 쪽까지 막던 문제를 교정했다. 실제 ledger_entries가 있는 멤버만 제외하고 legacy 투영/수동/금융/중복/인증 보호를 유지한다. inline/cross-batch/refund-inference44 passed, merge tree 동일·metadata2파일 차단0/삭제0.
+- 코드 배포:1110 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일listener·health/ready200·보호API401·13표 불변. 이전5297a0d와 복구 사본 보존. 코드 배포 때 금융 쓰기는0이며 아래 승인된 자료 적용과 구분한다.
+- 실제 적용: 점검된22묶음/46원행에 한정해 빠진44개 ledger_entries와 대응 board_rows/revisions를 기존 guarded commit/project로 추가했다. 전체 미기록20묶음과 일부 기기록2묶음을 완료했다. 기존 장부·원본/금액/ID·수동 결정·범위 밖 표·보존237묶음·스키마 불변, 각 묶음순액0·재요청 무쓰기 검증. Google/은행 쓰기0. 별도 신선 백업·복원·동일 상태/digest의 메모리 리허설 후 단일 작성자로 적용했다.
+- 초기 리허설은 sqlite_sequence 정상 증가를 검증기가 거부해 실제 쓰기 전 중단/서비스 복구했다. 승인된 append 표의 카운터만 단조 증가를 허용하도록 보완한 뒤 리허설·실제 적용을 통과했다. 실제 기록은 묶음별 원자성이고 전체22묶음을 하나의 트랜잭션으로 처리했다고 주장하지 않는다.
+- readonly audit 및 인증 Aside `/import`: 대상28행 제거·카드 지출정리48→20건, 남은20건은 별도 미연결/보류 거래다. Board/SourceRefresh Running·health/ready 정상. 전체 회귀/실기기는 미실행. 근거는 `.local-archive/refund-zero-audit-20261029/`, `.local-archive/deploy-8b91aeb622106af38935dce49da4c10bb7ddc37e/`, 호스트 동일SHA 배포 근거 및 `data/backups/refund-zero-20261029T185028294/`의 복원/리허설/실제 적용 JSON이다. 문서 후속으로 재배포/재시작하지 않는다.
+
 ## 2026-10-29 카드 목록 배정·분기·취소환불 문구 정리
 
 - COMPLETE — [PR #336](https://github.com/6Soo/cost/pull/336), 구현 `e141289640e92409c3a9312c5f11bc991e4247b9`, 운영 SHA `5297a0daee012809f17dfb0d045283284f9b977e`. 카드 목록 열 제목을 `배정`으로 줄였다. 분기 배정은 내부 ID 대신 `2026년 3분기 기타비용`처럼 표시하며 내부 ID/title은 보존한다. 취소·환불 목록의 반복 부연 설명을 제거하고 기존 링크를 유지했다. 앞선 인계의 “quarter는 내부 ID이고 이미 분기로 표시” 설명은 카드 목록의 fallback 경로를 누락했으므로 이 기록으로 교정한다.
