@@ -42,6 +42,33 @@ def test_weak_ties_and_missing_dates_complete_using_only_actual_trips():
     assert policy.infer_trip({}, [])[0] == ''
 
 
+def test_3820_owner_policy_precedes_generic_trip_inference():
+    singapore = [dict(trip_id='SG', starts_on='2026-09-19', ends_on='2026-09-24', destination='싱가포르')]
+    row = dict(card_tail='3820', transaction_direction='purchase', transaction_kind='purchase',
+               amount_krw=37000, approval_date='2026-09-20', merchant='합성 상점')
+    result = policy._card3820_owner_policy(row, singapore)
+    assert result['source'] == 'user_exception'
+    assert result['display_tab_id'] == result['trip_id'] == 'SG'
+    assert result['item'] == '현지경비'
+
+
+def test_3820_owner_policy_uses_quarter_for_remaining_domestic_purchase():
+    row = dict(card_tail='3820', transaction_direction='purchase', transaction_kind='purchase',
+               amount_krw=37000, approval_date='2026-10-01', merchant='합성 상점')
+    result = policy._card3820_owner_policy(row, [])
+    assert result['source'] == 'owner_card_residual'
+    assert result['item'] == '분기 기타비용'
+    assert result['display_tab_id'] == 'quarter:2026:4'
+    assert result['trip_id'] == ''
+
+
+def test_3820_owner_policy_does_not_guess_foreign_or_unreadable_rows():
+    base = dict(card_tail='3820', transaction_direction='purchase', transaction_kind='purchase',
+                amount_krw=37000, approval_date='2026-10-01', merchant='합성 상점')
+    assert policy._card3820_owner_policy(dict(base, foreign_currency='JPY'), []) is None
+    assert policy._card3820_owner_policy(dict(base, approval_date=''), []) is None
+
+
 def test_preview_is_read_only_apply_preserves_manual_holds_raw_data_and_is_idempotent(setup):
     board, flow, batch, rows = setup
     c = board.conn

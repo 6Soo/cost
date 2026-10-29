@@ -6,6 +6,7 @@ import json
 import re
 
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
+from .quarter_costs import quarter_of
 from .rules import merchant_country
 
 POLICY = 'complete-card-inference-v1'
@@ -61,6 +62,54 @@ def infer_trip(row, trips, *, nets=None):
     return '', '등록된 유효 여행 없음 · 비용 항목 분류 완료'
 
 
+def _card3820_owner_policy(row, trips):
+    """Apply the explicit 3820 policy before generic completion inference.
+
+    This mirrors the primary card-classification path: the Singapore exception
+    wins when exactly one matching trip exists; otherwise an eligible domestic
+    purchase goes to its transaction quarter.  Missing dates and foreign
+    location holds stay unresolved so this completion pass cannot invent a
+    travel or quarter assignment.
+    """
+    if row.get('card_tail') != '3820':
+        return None
+    if row.get('transaction_direction') != 'purchase':
+        return None
+    if any(marker in str(row.get('transaction_kind') or '').lower()
+           for marker in ('refund', 'cancel', '취소', '승인')):
+        return None
+    if row.get('parse_error') or type(row.get('amount_krw')) is not int or row['amount_krw'] <= 0:
+        return None
+    day = row.get('approval_date') or row.get('posting_date') or ''
+    try:
+        from datetime import date
+        occurred = date.fromisoformat(day)
+    except (TypeError, ValueError):
+        return None
+
+    valid = canonical_trip_periods(trips)
+    singapore = [trip for trip in valid.values()
+                 if trip.get('destination') == '싱가포르'
+                 and trip.get('starts_on') and trip.get('ends_on')
+                 and trip['starts_on'] <= occurred.isoformat() <= trip['ends_on']]
+    if occurred.isoformat() >= '2026-09-19' and occurred.isoformat() <= '2026-09-24':
+        if len(singapore) == 1:
+            target = singapore[0]['trip_id']
+            return dict(item=row.get('item') or '현지경비', description=row.get('description') or '',
+                        display_tab_id=target, trip_id=target,
+                        basis='사용자 예외: 2026-09-19~2026-09-24 카드 3820 사용내역은 싱가포르 여행에 배정',
+                        source='user_exception')
+        return None
+
+    if row.get('foreign_currency') or merchant_country(row) not in ('', 'KR'):
+        return None
+    year, quarter = quarter_of(occurred)
+    return dict(item='분기 기타비용', description=f'{year}년 {quarter}분기 기타비용',
+                display_tab_id=f'quarter:{year}:{quarter}', trip_id='',
+                basis='사용자 규칙: 기존 대사 후 남은 카드 3820 거래를 분기 기타비용으로 분류',
+                source='owner_card_residual')
+
+
 def _read(conn, selected=None):
     columns = ('transaction_id', 'source_hash', 'issuer', 'card_tail', 'card_kind',
                'transaction_direction', 'transaction_kind', 'approval_number',
@@ -106,6 +155,13 @@ def plan(conn, trips, *, nets=None, transaction_ids=None):
         if tid in holds or tid in excluded or any(row[k] for k in ('parse_error','duplicate_of','conflict_reason')):
             protected += 1
             continue
+        if (row.get('card_tail') == '3820'
+                and (row.get('decided_at') is not None
+                     or row.get('classification_source') in ('user_decision', 'user_exception'))):
+            # The owner policy is intentionally subordinate to an explicit
+            # decision, including a decision whose trip is blank.
+            protected += 1
+            continue
         has_history = (tid in decisions or row['decided_at'] is not None
                   or row['classification_source'] in ('user_decision','user_exception','owner_booking')
                   or 'card-' + tid in overrides)
@@ -147,6 +203,22 @@ def plan(conn, trips, *, nets=None, transaction_ids=None):
                                  if value in valid or value == 'refunds'), '')
             if existing_tab and not (chosen['trip_id'] in valid or chosen['display_tab_id'] in valid):
                 chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab, display_tab_id=existing_tab)
+            if not existing_tab and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase':
+                owner_policy = _card3820_owner_policy(chosen, trips)
+                if owner_policy is None:
+                    # The explicit rule keeps unreadable dates and foreign
+                    # location holds out of generic completion inference.
+                    continue
+                chosen.update({key: owner_policy[key] for key in FIELDS if key in owner_policy})
+                chosen['classification_state'] = 'classified'
+                chosen['classification_source'] = owner_policy['source']
+                chosen['classification_basis'] = owner_policy['basis']
+                values = tuple(chosen.get(k) or '' for k in FIELDS)
+                if values != current:
+                    targets.append({'id': tid, 'values': values, 'revision': row['revision'],
+                                    'has_prior_classification': has_history})
+                    resolved[tid] = chosen
+                continue
             link = links.get(tid)
             original = resolved.get((link or {}).get('original_id'))
             if link and not link.get('inferred') and original and original.get('item'):
