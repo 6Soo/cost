@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
-from .assignment_status import row_destination, destination_status
+from .assignment_status import row_assignment
 from .rules import merchant_country
 
 POLICY = 'complete-card-inference-v1'
@@ -37,12 +37,13 @@ def completion_for_row(row, valid, *, nets=None):
     if direction not in {'purchase', 'cancellation', 'refund'} or not kind:
         if 'TRANSACTION_NATURE_UNCONFIRMED' not in reasons:
             reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
-    destination, assignment = row_destination(row, valid)
-    if assignment != 'ASSIGNED':
+    assignment = row_assignment(row, valid)
+    destination = assignment['destination']
+    if (assignment['status'] != 'ASSIGNED'
+            or any(conflict in assignment['conflicts']
+                   for conflict in ('STALE_DISPLAY_DESTINATION', 'STALE_TRIP_DESTINATION'))):
         reasons.append('TRIP_INVALID_OR_MISSING')
-    if (destination_status(row.get('trip_id'), valid) == 'ASSIGNED'
-            and destination_status(row.get('display_tab_id'), valid) == 'ASSIGNED'
-            and row['trip_id'] != row['display_tab_id']):
+    if assignment['conflicts']:
         reasons.append('TRIP_ASSIGNMENT_CONFLICT')
     if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
         reasons.append('SOURCE_UNRESOLVED')
@@ -299,7 +300,11 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
             airfare_ota = bool(re.search(r'gotogate|고투게이트', str(row.get('merchant') or ''), re.I))
             residual_with_fact = (valid_fact and row['classification_source'] == 'owner_card_residual')
             if (residual_with_fact or (airfare_ota and row['classification_source'] == 'owner_card_residual')) and not existing_tab:
-                chosen.update(item=(fact or {}).get('item') or infer_item(dict(chosen,item=''))[0], description='')
+                # A later verified reservation/payment fact may supersede an
+                # earlier quarter residual. Do not let the residual's generic
+                # item make the trip assignment look like a competing decision.
+                verified_item = fact.get('item') if valid_fact else None
+                chosen.update(item=verified_item or infer_item(dict(chosen,item=''))[0], description='')
             if not valid_fact and not airfare_ota and not existing_tab and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase':
                 owner_policy = _card3820_owner_policy(chosen, trips)
                 if owner_policy is None:
