@@ -12,6 +12,9 @@ Synthetic data only. This module never reads original checkouts or secrets.
 
 from __future__ import annotations
 
+from .site_assets import SHELL_STYLE, THEME_STYLE, THEME_BOOTSTRAP
+from . import site_theme
+
 
 def render_review_ui() -> str:
     """Return the pure static local review screen HTML document."""
@@ -22,11 +25,10 @@ def render_review_ui() -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>로컬 검토 화면</title>
 <style>
-:root { color-scheme: light dark; --ui-bg:#F8FAFC; --ui-paper:#FFFFFF; --ui-ink:#0F172A; --ui-muted:#475569; --ui-line:#CBD5E1; --ui-accent:#166444; --ui-focus:#2266F5; --ui-warn-bg:#FFF7E6; --ui-warn-ink:#7A4B00; --ui-error:#B42318; --ui-ok:#166444; --ui-control:44px; }
-@media (prefers-color-scheme:dark) { :root { --ui-bg:#0F172A; --ui-paper:#1E293B; --ui-ink:#F8FAFC; --ui-muted:#CBD5E1; --ui-line:#475569; --ui-accent:#34D399; --ui-focus:#93C5FD; --ui-warn-bg:#332D20; --ui-warn-ink:#FDE68A; --ui-error:#FDA4AF; --ui-ok:#6EE7B7; } }
+:root { --ui-bg:var(--shell-bg); --ui-paper:var(--shell-paper); --ui-ink:var(--shell-ink); --ui-muted:var(--shell-muted); --ui-line:var(--shell-line); --ui-accent:var(--shell-accent); --ui-focus:var(--shell-focus); --ui-warn-bg:var(--shell-warn-bg); --ui-warn-ink:var(--shell-warn); --ui-error:var(--shell-danger); --ui-ok:var(--shell-accent); --ui-control:var(--shell-control-min,44px); }
 * { box-sizing:border-box; }
 body { max-width:1120px; margin:0 auto; padding:clamp(12px,3vw,24px); background:var(--ui-bg); color:var(--ui-ink); font:400 16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; overflow-wrap:anywhere; }
-header { border-bottom:1px solid var(--ui-line); margin-bottom:16px; padding-bottom:12px; }
+header { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--ui-line); margin-bottom:16px; padding-bottom:12px; }
 h1 { font-size:clamp(1.35rem,3vw,1.65rem); margin:0; }
 .desc { color:var(--ui-muted); }
 #status { min-height:44px; padding:10px 12px; border:1px solid var(--ui-line); border-radius:8px; margin:12px 0; background:var(--ui-paper); }
@@ -59,6 +61,7 @@ table.field-table th, table.field-table td { border:1px solid var(--ui-line); pa
 <body>
 <header>
 <h1>로컬 검토 화면</h1>
+""" + site_theme.BUTTON + """
 </header>
 <main>
 <p class="warn">주의: CSV 파일을 스프레드시트로 열면 수식이 실행될 위험이 있습니다. 안전한 확인용으로는 JSON 파일을 사용하세요.</p>
@@ -341,5 +344,7 @@ document.getElementById("exportBtn").addEventListener("click", exportDecisions);
 loadModel();
 })();
 </script>
+<style id="site-shell-style">""" + SHELL_STYLE + THEME_STYLE + """</style>
+<script>""" + THEME_BOOTSTRAP + """</script>
 </body>
 </html>"""
