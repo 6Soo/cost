@@ -19,7 +19,7 @@ def _identity(path: Path) -> dict:
 
 
 def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | None = None) -> dict:
-    """Compare configured paths and inspect only SQLite metadata, never data."""
+    """Compare paths and schema; optionally compare a saved registration receipt."""
     web_db = web_db or participant_roster.default_db_path()
     cli = _identity(cli_db)
     web = _identity(web_db)
@@ -51,7 +51,8 @@ def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | No
                     stored = json.loads(recorded[1]) if recorded else {}
                     fields = ('batch_id','trip_id','google_trip_key','new_participants','reused_participants')
                     result['receipt_matches_recorded_batch'] = bool(
-                        recorded and recorded[0] == 'registered' and receipt.get('status') == 'registered'
+                        recorded and isinstance(stored, dict)
+                        and recorded[0] == 'registered' and receipt.get('status') == 'registered'
                         and all(type(receipt.get(key)) is int and receipt[key] >= 0
                                 for key in ('new_participants','reused_participants'))
                         and all(key in receipt and receipt[key] == stored.get(key) for key in fields))

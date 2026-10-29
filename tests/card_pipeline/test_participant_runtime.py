@@ -62,6 +62,14 @@ def test_receipt_requires_actual_recorded_batch_and_matching_counts(tmp_path):
     assert verify_paths(db, db, receipt=dict(receipt,batch_id='missing'))['status'] == 'blocked'
     assert db.read_bytes() == before
 
+    # Corrupt JSON shapes must produce a blocked result, not an AttributeError.
+    store = roster.ParticipantStore.open(db)
+    for malformed in ('[]', 'null', '"unexpected"'):
+        store.conn.execute('UPDATE roster_batches SET result_json=?', (malformed,))
+        store.conn.commit()
+        assert verify_paths(db, db, receipt=receipt)['status'] == 'blocked'
+    store.close()
+
 
 def test_cli_mismatch_is_rejected_before_creating_participant_database(tmp_path, monkeypatch, capsys):
     import sys
