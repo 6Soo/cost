@@ -90,7 +90,7 @@ def collect_runtime_status(flow, *, config, authority_path='', review_from='',
     batches=[row[0] for row in board.conn.execute(
         "SELECT b.batch_id FROM import_batches b JOIN import_batch_rows x ON x.batch_id=b.batch_id "
         "JOIN transactions t ON t.transaction_id=x.transaction_id "
-        "WHERE t.classification_state!='preserved' GROUP BY b.batch_id")]
+        "GROUP BY b.batch_id")]
     visible=sum(len(flow.state(batch)['rows']) for batch in batches)
     database=Path(board.path)
     status={

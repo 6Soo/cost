@@ -50,20 +50,6 @@ def infer_trip(row, trips, *, nets=None):
         if row.get(key) in valid:
             return row[key], '기존 실제 여행 유지'
     candidates_trips = list(valid.values())
-    # Historical rows were intentionally preserved before classification was
-    # completed. Do not assign them to a current/future trip when their date
-    # falls outside every authoritative trip period.
-    historical_no_trip = ('등록된 유효 여행 없음' in str(row.get('classification_basis') or ''))
-    if (row.get('classification_state') == 'preserved' or historical_no_trip) and row.get('approval_date'):
-        try:
-            from datetime import date
-            occurred = date.fromisoformat(row['approval_date'])
-            candidates_trips = [trip for trip in candidates_trips
-                                if trip['starts_on'] <= occurred.isoformat() <= trip['ends_on']]
-        except (TypeError, ValueError, KeyError):
-            candidates_trips = []
-        if not candidates_trips:
-            return '', '등록된 유효 여행 없음 · 비용 항목 분류 완료'
     candidates = card_trip_candidates(row, candidates_trips, nets=nets)
     if candidates:
         candidates.sort(key=lambda c: (-c['score'], valid[c['trip_id']]['starts_on'], c['trip_id']))

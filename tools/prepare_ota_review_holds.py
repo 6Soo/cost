@@ -21,7 +21,7 @@ def main():
     cancelled={m['source_hash'] for m in matches if m.get('reservation_status')=='cancelled'}
     plan=[]
     for row in rows:
-        if row['classification_state']=='preserved' or row['trip_id']:continue
+        if row['trip_id']:continue
         if not any(x in row['merchant'].upper() for x in ('TRIP.COM','트립닷컴','AGODA','KLOOK')):continue
         if row['source_hash'] in cancelled:
             kind='cancelled';reason='취소 메일이 확인된 예약입니다. 원결제와 실제 카드 환불을 대조해 정산하며 여행 비용에서는 분리합니다.'

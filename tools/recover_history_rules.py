@@ -168,7 +168,7 @@ def inferred_drafts(rows, flow, mail_matches):
         return m
     result=[]
     for row in rows:
-        if (row['decided'] or row['classification_state']=='preserved' or row['trip_id']
+        if (row['decided'] or row['trip_id']
                 or row['classification_source'] in ('inference','user_exception')
                 or row['parse_error'] or row['conflict_reason'] or row['duplicate_of']
                 or (row['approval_date'] or row['posting_date'])<'2026-04-01'):
@@ -658,7 +658,6 @@ def main():
         rows=current_rows(args.board)
         sources={row['source_hash'] for row in rows
                  if not row['decided']
-                 and row['classification_state']!='preserved'
                  and any(marker in row['merchant'].upper() for marker in
                          ('AGODA','BOOKING','TRIP','KLOOK','AIRBNB','아고다','트립닷컴','클룩','부킹닷컴','에어비앤비'))}
         report['inferred_rules']=[draft for draft in report.get('inferred_rules',[])

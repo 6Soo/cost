@@ -8,8 +8,7 @@ from app.db import decided_sql
 from . import ui_icons
 
 PAGE_SIZE = 50
-STATES = {'needs_review': '확인 필요', 'booked': '기록 완료',
-          'preserved': '기존 보존'}
+STATES = {'needs_review': '확인 필요', 'classified': '분류 완료', 'booked': '기록 완료'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"
 
 from .card_catalog_assets import CATALOG_SCRIPT, CATALOG_STYLE

@@ -1,5 +1,6 @@
-"""완료 기간 보존과 현지 여행 조건을 합성 자료로 검증한다."""
+"""과거 거래의 일반 분류와 현지 여행 조건을 합성 자료로 검증한다."""
 import sqlite3
+import pytest
 from unittest.mock import patch
 
 from app import Pipeline
@@ -77,20 +78,26 @@ def test_currency_and_stale_schedule_cannot_supply_a_location():
     assert not f.retail_trip(transaction,'JP')
 
 
-def test_completed_period_is_kept_internally_and_cannot_be_posted(tmp_path):
+@pytest.mark.parametrize('legacy_state', [False, True])
+def test_old_transactions_are_classified_without_a_preserved_state(tmp_path, legacy_state):
     conn=sqlite3.connect(tmp_path/'cost.sqlite',isolation_level=None)
     try:
         pipe=Pipeline(conn)
         source=make_csv([domestic_row(merchant='OLD',amount=100,approval='1',date='2026-03-31'),
                          domestic_row(merchant='NEW',amount=200,approval='2',date='2026-04-01')])
         batch=pipe.receive(source,'synthetic.csv')['batch_id']
+        if legacy_state:
+            conn.execute("UPDATE transactions SET classification_state='preserved',"
+                         "classification_source='user_completed_period' WHERE approval_date='2026-03-31'")
         original=conn.execute('SELECT transaction_id,source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()
         result=pipe.classify_batch(batch,review_from='2026-04-01')
-        assert result['counts']['preserved']==1
+        assert 'preserved' not in result['counts']
         assert len(pipe.get_batch(batch)['rows'])==2
-        assert len(pipe.preview(batch)['rows'])==1
+        assert len(pipe.preview(batch)['rows'])==2
+        # A date window can scope a preview, but must never change row state.
+        assert len(pipe.preview(batch, review_from='2026-04-01')['rows'])==1
         pipe.classify_batch(batch)
-        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state='preserved'").fetchone()[0]==1
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state='preserved'").fetchone()[0]==0
         assert original==conn.execute('SELECT transaction_id,source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()
         assert conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
     finally:
