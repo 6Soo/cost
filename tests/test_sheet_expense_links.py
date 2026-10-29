@@ -7,6 +7,7 @@ import threading
 import pytest
 
 from app import sheet_expense_links as links
+from app.sheet_expense_dedup import reconcile
 
 
 def result(tx="cost-1", key="row-id-1", **overrides):
@@ -40,9 +41,14 @@ def test_save_load_records_scope_stable_key_audit_and_provenance(tmp_path):
     assert (record["transaction_id"], record["trip_id"], record["sheet_id"], record["source"]) == (
         "cost-1", "trip-2026-01", "sheet-main-42", "main")
     assert record["stable_key"] == "row-id-1"
+    assert record["sheet_row_key"] == "row-id-1"
     assert record["row_number"] == 12
-    assert record["provenance"]["user_override"] is True
-    assert record["provenance"]["link_method"] == "owner_correction"
+    assert record["manual_override"] is True
+    assert record["user_override"] is True
+    assert record["link_source"] == "owner_correction"
+    assert record["link_method"] == "owner_correction"
+    assert record["provenance"]["manual_override"] is True
+    assert record["provenance"]["link_source"] == "owner_correction"
     assert saved["history"][-1]["kind"] == "request"
     assert links.load_links(path) == saved
 
@@ -54,6 +60,20 @@ def test_same_request_replay_is_noop_even_when_clock_differs(tmp_path):
                               source_digest="source-sha", now="2026-10-30T00:00:00Z")
     assert replay == original
     assert replay["revision"] == 1
+
+
+def test_legacy_link_aliases_load_with_engine_canonical_fields(tmp_path):
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps({"revision": 4, "links": [{
+        "transaction_id": "cost-legacy", "trip_id": "trip-a", "sheet_id": "sheet-a",
+        "source": "main", "stable_key": "stable-row", "user_override": True,
+        "link_method": "manual", "status": "MATCHED_MANUAL",
+    }], "history": []}), encoding="utf-8")
+    loaded = links.load_links(path)
+    record = loaded["links"][0]
+    assert record["sheet_row_key"] == record["stable_key"] == "stable-row"
+    assert record["manual_override"] is record["user_override"] is True
+    assert record["link_source"] == record["link_method"] == "manual"
 
 
 def test_request_id_reuse_with_different_payload_and_stale_revision_fail(tmp_path):
@@ -79,6 +99,18 @@ def test_invalid_or_unstable_links_are_rejected_without_write(tmp_path, bad):
     assert links.load_links(path) == {"revision": 0, "links": [], "history": []}
 
 
+@pytest.mark.parametrize("overrides", [
+    {"stable_key": "different-row"},
+    {"manual_override": True, "user_override": False},
+    {"link_source": "manual", "link_method": "automatic_match"},
+])
+def test_canonical_and_legacy_alias_conflicts_are_rejected(tmp_path, overrides):
+    path = tmp_path / "links.json"
+    with pytest.raises(links.LinkStoreError):
+        save(path, [result(**overrides)])
+    assert links.load_links(path)["revision"] == 0
+
+
 def test_neither_transaction_nor_sheet_row_can_be_double_occupied(tmp_path):
     path = tmp_path / "links.json"
     save(path, [result()])
@@ -98,6 +130,20 @@ def test_update_reverified_fingerprint_preserves_history(tmp_path):
     saved_events = [event for event in updated["history"] if event["kind"] == "link_saved"]
     assert saved_events[-1]["before"]["sheet_fingerprint"] == "sha256:synthetic-row-v1"
     assert saved_events[-1]["after"]["sheet_fingerprint"] == "sha256:synthetic-row-v2"
+
+
+def test_automatic_refresh_never_clears_preexisting_manual_override(tmp_path):
+    path = tmp_path / "links.json"
+    save(path, [result(manual_override=True, user_override=True,
+                       link_source="manual", link_method="manual")])
+    refreshed = result(manual_override=False, user_override=False,
+                       link_source="automatic_match", link_method="automatic_match")
+    stored = save(path, [refreshed], revision=1, request="request-2")
+    record = stored["links"][0]
+    assert record["manual_override"] is True
+    assert record["user_override"] is True
+    assert record["link_source"] == "manual"
+    assert record["link_method"] == "manual"
 
 
 def test_failed_atomic_replace_keeps_previous_file_intact(tmp_path, monkeypatch):
@@ -177,6 +223,41 @@ def test_cross_process_lock_and_revision_prevent_double_writer(tmp_path):
     stored = links.load_links(path)
     assert stored["revision"] == 1
     assert len(stored["links"]) == 1
+
+
+def test_engine_save_load_rerun_and_row_move_are_existing_link(tmp_path):
+    path = tmp_path / "engine-links.json"
+    cost = {"transaction_id": "cost-engine-1", "trip_id": "trip-engine",
+            "date": "2026-05-02", "approval_date": "2026-05-02",
+            "merchant": "Cafe North", "item": "식비", "description": "coffee",
+            "amount_krw": 12000, "currency": "KRW", "transaction_direction": "purchase",
+            "card_tail": "1234", "issuer": "Bank A", "approval_number": "AUTH-1"}
+    sheet_row = {"trip_id": "trip-engine", "sheet_id": "sheet-engine", "source": "main",
+                 "row_number": 12, "date": "2026-05-02", "payee": "Cafe North",
+                 "category": "식비", "description": "coffee", "amount_krw": 12000,
+                 "currency": "KRW", "transaction_direction": "purchase",
+                 "card_tail": "1234", "issuer": "Bank A", "approval_number": "AUTH-1"}
+    first = reconcile([cost], [sheet_row], trip_id="trip-engine")["results"][0]
+    assert first["status"] == "MATCHED_MANUAL"
+    saved = save(path, [first])
+    loaded = links.load_links(path)
+    second = reconcile([cost], [sheet_row], trip_id="trip-engine",
+                       existing_links=loaded["links"])["results"][0]
+    assert second["status"] == "MATCHED_EXISTING"
+    assert second["sheet_row_key"] == first["sheet_row_key"]
+    assert second["sheet_fingerprint"] == first["sheet_fingerprint"]
+
+    moved = {**sheet_row, "row_number": 37}
+    after_move = reconcile([cost], [moved], trip_id="trip-engine",
+                           existing_links=loaded["links"])["results"][0]
+    assert after_move["status"] == "MATCHED_EXISTING"
+    assert after_move["row_number"] == 37
+    assert after_move["sheet_row_key"] == first["sheet_row_key"]
+    assert after_move["sheet_fingerprint"] == first["sheet_fingerprint"]
+    updated = links.save_links(path, [after_move], expected_revision=saved["revision"],
+                               request_id="row-moved", source_digest="source-sha",
+                               now="2026-10-30T00:00:00Z")
+    assert updated["links"][0]["row_number"] == 37
 
 
 def _process_save_with_barrier(path, index, barrier, output):

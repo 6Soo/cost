@@ -93,12 +93,29 @@ def _read(path: Path) -> dict:
         if not isinstance(link, dict):
             raise LinkStoreError("LINKS_UNAVAILABLE")
         tx = link.get("transaction_id")
-        key = (link.get("trip_id"), link.get("sheet_id"), link.get("source"), link.get("stable_key"))
+        stable_key = link.get("sheet_row_key", link.get("stable_key"))
+        key = (link.get("trip_id"), link.get("sheet_id"), link.get("source"), stable_key)
         if (not all(isinstance(value, str) and value for value in (tx, *key))
+                or ("sheet_row_key" in link and "stable_key" in link
+                    and link["sheet_row_key"] != link["stable_key"])
+                or ("manual_override" in link and "user_override" in link
+                    and link["manual_override"] != link["user_override"])
+                or ("link_source" in link and "link_method" in link
+                    and link["link_source"] != link["link_method"])
+                or ("manual_override" in link and type(link["manual_override"]) is not bool)
+                or ("user_override" in link and type(link["user_override"]) is not bool)
+                or ("link_source" in link and not isinstance(link["link_source"], str))
+                or ("link_method" in link and not isinstance(link["link_method"], str))
                 or link.get("status") not in _ALLOWED_STATUSES or tx in transactions or key in sheet_keys):
             raise LinkStoreError("LINKS_UNAVAILABLE")
         transactions.add(tx)
         sheet_keys.add(key)
+        link.setdefault("sheet_row_key", link.get("stable_key"))
+        link.setdefault("stable_key", link.get("sheet_row_key"))
+        link.setdefault("manual_override", link.get("user_override", False))
+        link.setdefault("user_override", link.get("manual_override", False))
+        link.setdefault("link_source", link.get("link_method", "manual" if link.get("manual_override") else "automatic_match"))
+        link.setdefault("link_method", link.get("link_source"))
     return data
 
 
@@ -122,7 +139,10 @@ def _normalize_results(results, now: str) -> list[dict]:
             raise LinkStoreError("LINK_STATUS_INVALID")
         transaction_id = result.get("transaction_id")
         trip_id, sheet_id, source = (result.get("trip_id"), result.get("sheet_id"), result.get("source"))
-        stable_key = result.get("stable_key") or result.get("sheet_row_key")
+        stable_key = result.get("sheet_row_key", result.get("stable_key"))
+        if ("sheet_row_key" in result and "stable_key" in result
+                and result["sheet_row_key"] != result["stable_key"]):
+            raise LinkStoreError("LINK_KEY_ALIAS_CONFLICT")
         fingerprint = result.get("sheet_fingerprint")
         basis = result.get("basis")
         if not all(isinstance(value, str) and value.strip() for value in
@@ -132,11 +152,19 @@ def _normalize_results(results, now: str) -> list[dict]:
                 or any(not isinstance(item, str) or not item.strip() for item in basis)):
             raise LinkStoreError("LINK_BASIS_REQUIRED")
         row_number = result.get("row_number")
-        user_override = result.get("user_override", False)
-        link_method = result.get("link_method", "automatic_match")
+        manual_override = result.get("manual_override", result.get("user_override", False))
+        link_source = result.get("link_source", result.get("link_method"))
+        if ("manual_override" in result and "user_override" in result
+                and result["manual_override"] != result["user_override"]):
+            raise LinkStoreError("LINK_OVERRIDE_ALIAS_CONFLICT")
+        if ("link_source" in result and "link_method" in result
+                and result["link_source"] != result["link_method"]):
+            raise LinkStoreError("LINK_SOURCE_ALIAS_CONFLICT")
+        if link_source is None:
+            link_source = "manual" if manual_override else "automatic_match"
         if row_number is not None and (type(row_number) is not int or row_number < 1):
             raise LinkStoreError("LINK_ROW_NUMBER_INVALID")
-        if type(user_override) is not bool or not isinstance(link_method, str) or not link_method.strip():
+        if type(manual_override) is not bool or not isinstance(link_source, str) or not link_source.strip():
             raise LinkStoreError("LINK_PROVENANCE_INVALID")
         if row_number is not None and stable_key == str(row_number):
             raise LinkStoreError("ROW_NUMBER_NOT_STABLE_KEY")
@@ -151,11 +179,14 @@ def _normalize_results(results, now: str) -> list[dict]:
             "sheet_id": sheet_id,
             "source": source,
             "row_number": row_number,
+            "sheet_row_key": stable_key,
             "stable_key": stable_key,
             "sheet_fingerprint": fingerprint,
             "basis": list(basis),
-            "user_override": user_override,
-            "link_method": link_method,
+            "manual_override": manual_override,
+            "user_override": manual_override,
+            "link_source": link_source,
+            "link_method": link_source,
             "timestamp": now,
             "last_verified": now,
             "status": result["status"],
@@ -214,13 +245,13 @@ def save_links(path, results, *, expected_revision, request_id, source_digest, n
         links = list(data["links"])
         by_transaction = {link.get("transaction_id"): link for link in links}
         by_sheet_key = {(link.get("trip_id"), link.get("sheet_id"), link.get("source"),
-                         link.get("stable_key")): link for link in links}
+                         link.get("sheet_row_key", link.get("stable_key"))): link for link in links}
         for candidate in normalized:
             current_tx = by_transaction.get(candidate["transaction_id"])
             current_sheet = by_sheet_key.get((candidate["trip_id"], candidate["sheet_id"],
                                               candidate["source"], candidate["stable_key"]))
             if current_tx and (current_tx.get("trip_id"), current_tx.get("sheet_id"),
-                               current_tx.get("source"), current_tx.get("stable_key")) != (
+                               current_tx.get("source"), current_tx.get("sheet_row_key", current_tx.get("stable_key"))) != (
                                    candidate["trip_id"], candidate["sheet_id"], candidate["source"], candidate["stable_key"]):
                 raise LinkStoreError("TRANSACTION_ALREADY_LINKED")
             if current_sheet and current_sheet.get("transaction_id") != candidate["transaction_id"]:
@@ -229,9 +260,14 @@ def save_links(path, results, *, expected_revision, request_id, source_digest, n
         new_revision = data["revision"] + 1
         for candidate in normalized:
             prior = by_transaction.get(candidate["transaction_id"])
+            if prior and (prior.get("manual_override", prior.get("user_override", False))
+                          or prior.get("link_source", prior.get("link_method")) == "manual"):
+                candidate["manual_override"] = candidate["user_override"] = True
+                candidate["link_source"] = candidate["link_method"] = prior.get(
+                    "link_source", prior.get("link_method", "manual"))
             provenance = {"request_id": request_id, "source_digest": source_digest,
-                          "link_method": candidate["link_method"],
-                          "user_override": candidate["user_override"]}
+                          "link_source": candidate["link_source"],
+                          "manual_override": candidate["manual_override"]}
             record = {**candidate, "revision": new_revision, "provenance": provenance}
             if prior:
                 links[links.index(prior)] = record
@@ -241,13 +277,14 @@ def save_links(path, results, *, expected_revision, request_id, source_digest, n
                 "kind": "link_saved", "revision": new_revision,
                 "transaction_id": candidate["transaction_id"],
                 "trip_id": candidate["trip_id"], "sheet_id": candidate["sheet_id"],
-                "source": candidate["source"], "stable_key": candidate["stable_key"],
+                "source": candidate["source"], "sheet_row_key": candidate["sheet_row_key"],
+                "stable_key": candidate["stable_key"],
                 "before": prior, "after": record,
                 "at": timestamp,
             })
             by_transaction[candidate["transaction_id"]] = record
             by_sheet_key[(candidate["trip_id"], candidate["sheet_id"],
-                          candidate["source"], candidate["stable_key"])] = record
+                          candidate["source"], candidate["sheet_row_key"])] = record
         data["revision"] = new_revision
         data["links"] = links
         data["history"].append({"kind": "request", "revision": new_revision,
