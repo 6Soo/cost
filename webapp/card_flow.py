@@ -1320,9 +1320,17 @@ class CardFlow:
                  'duplicate_of','parse_error','conflict_reason','issuer','approval_number')
         from app import ota_exact
         with self.board._lock:
+            report_columns = ','.join('t.' + column for column in columns)
+            protected_sources = ','.join("'" + source.replace("'", "''") + "'"
+                                         for source in ota_exact.PROTECTED_SOURCES)
             rows=[tuple(row) for row in self.board.conn.execute(
-                'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
-            open_ids=sorted(ota_exact.open_transaction_ids(self.board.conn))
+                'SELECT '+report_columns+',t.classification_source,'
+                'CASE WHEN t.classification_source IN ('+protected_sources+') OR EXISTS('
+                "SELECT 1 FROM board_rows b WHERE b.row_kind='expense' "
+                "AND b.row_id='card-' || t.transaction_id) THEN 0 ELSE 1 END AS _ota_open "
+                'FROM transactions t ORDER BY t.transaction_id').fetchall()]
+            open_ids=sorted(str(row[0]) for row in rows if row[len(columns)+1])
+            rows=[row[:len(columns)] for row in rows]
             inference_excluded_ids = ({row[0] for row in self.board.conn.execute('SELECT transaction_id FROM transaction_review_holds')}
                 if self.board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else set())
         fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()

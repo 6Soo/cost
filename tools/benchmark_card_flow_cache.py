@@ -14,7 +14,6 @@ import sqlite3
 import sys
 import tempfile
 import time
-import tracemalloc
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -45,40 +44,48 @@ def run(*, repeats=7, rows=40):
             "portal_databases": [], "reference_documents": []}), encoding="utf-8")
         old_sources = os.environ.get("WEBLEDGER_OTA_SOURCES")
         old_unified = os.environ.get("WEBLEDGER_UNIFIED_DB")
-        os.environ["WEBLEDGER_OTA_SOURCES"] = str(source_manifest)
-        os.environ["WEBLEDGER_UNIFIED_DB"] = "1"
-
-        from webapp.ledger_store import LedgerStore
-        from webapp.card_flow import CardFlow
-        from app import ota_mail, ota_payments, ota_portal
-        from unittest.mock import patch
-
-        board = LedgerStore(root / "synthetic-ledger.sqlite", seed_demo=False)
+        board = None
+        old_mail_memo = None
+        query_log = []
         query_count = 0
 
         def trace(_statement):
             nonlocal query_count
             query_count += 1
-
-        board.conn.set_trace_callback(trace)
-        flow = CardFlow(board)
-        timings = {"cold": [], "warm": [], "request_memo_cold": [], "request_memo_hit": []}
-        cache_sizes = []
-        report_bytes = 0
-        query_counts = {}
-        stage_calls = {"cold": {}, "warm": {}, "request_memo_cold": {}, "request_memo_hit": {}}
-        counters = {"match_mail": 0, "payment_events": 0, "portal_extend": 0,
-                    "reference_load": 0}
-
-        def counted(name, callback):
-            def invoke(*args, **kwargs):
-                counters[name] += 1
-                return callback(*args, **kwargs)
-            return invoke
+            query_log.append(_statement)
 
         try:
+            os.environ["WEBLEDGER_OTA_SOURCES"] = str(source_manifest)
+            os.environ["WEBLEDGER_UNIFIED_DB"] = "1"
+            from unittest.mock import patch
+            from webapp.ledger_store import LedgerStore
+            from webapp.card_flow import CardFlow
+            from webapp import ota_payment_review
+            from app import ota_exact, ota_mail, ota_payments, ota_portal
+
+            old_mail_memo = dict(ota_mail._MAIL_SIDE_MEMO)
+            board = LedgerStore(root / "synthetic-ledger.sqlite", seed_demo=False)
+            board.conn.set_trace_callback(trace)
+            flow = CardFlow(board)
+            timings = {"cold": [], "warm": [], "request_memo_cold": [], "request_memo_hit": []}
+            cache_sizes = []
+            report_bytes = 0
+            query_counts = {}
+            query_shapes = {}
+            open_ids_equivalent = None
+            stage_calls = {"cold": {}, "warm": {}, "request_memo_cold": {}, "request_memo_hit": {}}
+            counters = {"match_mail": 0, "payment_events": 0, "portal_extend": 0,
+                        "reference_load": 0, "snapshot_service": 0}
+
+            def counted(name, callback):
+                def invoke(*args, **kwargs):
+                    counters[name] += 1
+                    return callback(*args, **kwargs)
+                return invoke
+
             # Add synthetic rows only. Each row has no merchant/customer/source text.
             for index in range(rows):
+                classification_source = "owner_card_residual" if index == 0 else ""
                 board.conn.execute(
                     "INSERT INTO transactions(transaction_id,source_hash,batch_id,issuer,card_tail,card_kind,"
                     "transaction_direction,transaction_kind,approval_number,original_approval_number,approval_date,"
@@ -89,8 +96,25 @@ def run(*, repeats=7, rows=40):
                     (f"tx-{index:04d}", f"hash-{index:04d}", "synthetic-batch", "synthetic", "0000", "domestic",
                      "purchase", "purchase", f"approval-{index:04d}", "", "2026-10-01", "2026-10-02",
                      "synthetic-store", "synthetic-store", 100 + index, "", "KRW", index, "{}", "", "",
-                     "needs_review", "", "", "", "", "", 1, "2026-10-30T00:00:00Z"))
+                     "needs_review", classification_source, "", "", "", "", 1,
+                     "2026-10-30T00:00:00Z"))
+            if rows > 1:
+                board.conn.execute(
+                    "INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) "
+                    "VALUES(?,?,?,?,?)", ("card-tx-0001", "expense", "trip-synthetic", 1, "{}"))
             board.conn.commit()
+            board.conn.set_trace_callback(None)
+            expected_open_ids = sorted(ota_exact.open_transaction_ids(board.conn))
+            protected_sources = ','.join("'" + source.replace("'", "''") + "'"
+                                         for source in ota_exact.PROTECTED_SOURCES)
+            actual_open_ids = [row[0] for row in board.conn.execute(
+                'SELECT t.transaction_id FROM transactions t WHERE '
+                't.classification_source NOT IN ('+protected_sources+') AND NOT EXISTS('
+                "SELECT 1 FROM board_rows b WHERE b.row_kind='expense' "
+                "AND b.row_id='card-' || t.transaction_id) ORDER BY t.transaction_id").fetchall()]
+            open_ids_equivalent = actual_open_ids == expected_open_ids
+            assert open_ids_equivalent
+            board.conn.set_trace_callback(trace)
 
             with ExitStack() as stack:
                 stack.enter_context(patch.object(ota_mail, "match_mail",
@@ -101,6 +125,10 @@ def run(*, repeats=7, rows=40):
                                                    counted("portal_extend", ota_portal.extend_report)))
                 stack.enter_context(patch.object(ota_mail, "load_reference_documents",
                                                    counted("reference_load", ota_mail.load_reference_documents)))
+                stack.enter_context(patch.object(ota_payment_review, "enabled", return_value=False))
+                stack.enter_context(patch.object(
+                    ota_payment_review, "snapshot_service",
+                    counted("snapshot_service", ota_payment_review.snapshot_service)))
 
                 for index in range(repeats):
                     # Clear nested mail memo so each cold pass measures parsing/matching work.
@@ -112,6 +140,7 @@ def run(*, repeats=7, rows=40):
                     report = flow._compute_ota_report()
                     timings["cold"].append((time.perf_counter() - started) * 1000)
                     query_counts["cold"] = query_count - before_queries
+                    query_shapes["cold"] = query_log[before_queries:]
                     stage_calls["cold"] = dict(counters)
                     report_bytes = _report_bytes(report)
                     cache = board._card_review_mail_cache
@@ -124,6 +153,7 @@ def run(*, repeats=7, rows=40):
                     warm = flow._compute_ota_report()
                     timings["warm"].append((time.perf_counter() - started) * 1000)
                     query_counts["warm"] = query_count - before_queries
+                    query_shapes["warm"] = query_log[before_queries:]
                     stage_calls["warm"] = dict(counters)
                     assert warm is report
 
@@ -137,6 +167,7 @@ def run(*, repeats=7, rows=40):
                         first_memo = flow._ota_report()
                         timings["request_memo_cold"].append((time.perf_counter() - started) * 1000)
                         query_counts["request_memo_cold"] = query_count - before_queries
+                        query_shapes["request_memo_cold"] = query_log[before_queries:]
                         stage_calls["request_memo_cold"] = dict(counters)
                         counters.update({key: 0 for key in counters})
                         before_queries = query_count
@@ -144,6 +175,7 @@ def run(*, repeats=7, rows=40):
                         second_memo = flow._ota_report()
                         timings["request_memo_hit"].append((time.perf_counter() - started) * 1000)
                         query_counts["request_memo_hit"] = query_count - before_queries
+                        query_shapes["request_memo_hit"] = query_log[before_queries:]
                         stage_calls["request_memo_hit"] = dict(counters)
                         assert first_memo is not None and second_memo is not None
                         assert _report_bytes(first_memo) == _report_bytes(second_memo)
@@ -151,21 +183,29 @@ def run(*, repeats=7, rows=40):
                         assert board._card_review_mail_cache is not None
 
             return {
-                "scope": "synthetic_only_no_customer_source_access",
+                "scope": "synthetic_only_no_customer_source_access_snapshot_service_disabled",
                 "fixture_rows": rows, "repeats": repeats,
                 "measurement_kind": "actual_card_flow_compute_with_temp_sqlite_and_empty_source_manifest",
                 "cache_report_bytes": {"samples": len(cache_sizes), "max": max(cache_sizes, default=0),
                                        "mean": round(sum(cache_sizes) / len(cache_sizes), 1)},
                 "query_count_per_call": query_counts,
+                "query_shape_counts": {name: {statement: statements.count(statement)
+                                               for statement in sorted(set(statements))}
+                                       for name, statements in query_shapes.items()},
                 "expensive_stage_calls_per_call": stage_calls,
                 "latency_ms": {name: {"p50": percentile(values, 50), "p95": percentile(values, 95),
                                        "samples": len(values)} for name, values in timings.items()},
                 "report_bytes": report_bytes,
-                "optimization_status": "baseline_only_no_code_change",
+                "open_ids_equivalent_to_existing_helper": open_ids_equivalent,
+                "optimization_status": "synthetic_duplicate_query_consolidation",
             }
         finally:
-            board.conn.set_trace_callback(None)
-            board.close()
+            if board is not None:
+                board.conn.set_trace_callback(None)
+                board.close()
+            if old_mail_memo is not None and "ota_mail" in locals():
+                ota_mail._MAIL_SIDE_MEMO.clear()
+                ota_mail._MAIL_SIDE_MEMO.update(old_mail_memo)
             if old_sources is None:
                 os.environ.pop("WEBLEDGER_OTA_SOURCES", None)
             else:
