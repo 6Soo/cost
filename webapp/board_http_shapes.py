@@ -11,8 +11,9 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
-# Maximum allowed Content-Length for request bodies (5MB)
-MAX_CONTENT_LENGTH: int = 5 * 1024 * 1024
+# Card uploads are capped by card_preflight at 20 MiB. Keep the HTTP layer at
+# the same boundary so valid files are not rejected before whole-file checks.
+MAX_CONTENT_LENGTH: int = 20 * 1024 * 1024
 
 # Standard HTTP status mapping for error codes
 STATUS_FOR_CODE: Dict[str, int] = {
