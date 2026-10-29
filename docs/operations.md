@@ -1,5 +1,14 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
+
+- COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.
+- 과거 유효 여행 기간 밖의 보존 거래는 현재/미래 여행으로 억지 배정하지 않고 `등록된 유효 여행 없음 · 비용 항목 분류 완료`로 보존 완료했다. 검증된 원결제의 분류를 상속한 환불 행도 재추론을 건너뛰도록 보호했다.
+- 지출 정리(`_cleanup_card_where`) 조회에서 완료 정책(`complete-card-inference-v1`) 또는 원결제 상속(`refund_original`)으로 완료된 정상 분류 행을 제외했다. 항목 누락·구문 오류·충돌 사유·명시적 사용자 보류(`transaction_review_holds`)가 있는 거래는 정리 목록에 계속 표시한다.
+- 검증: 표적 및 보호 테스트 37 passed (`test_card_cleanup_queries.py`, `test_automatic_classification_completion.py`, `test_refund_group_commit.py`), UI 9 passed (`test_card_cleanup_ui.py`). 실운영 DB(6,395건 전체 `classified`) 조회 검증 결과 정리 대상 카드 3,695→0건, 보류 4건 안전 보존 확인.
+- 배포: 1,112 Git blobs 일치(불일치 0), 새 백업(`operational-20261029T122609435227Z`, `v2-owner-ui-20261029T212558`) 및 복원 검증(`restore-evidence.json`), task/process 고정 SHA 일치, 단일 loopback listener, health/ready 200, 보호 API 401, 보호 13개 테이블 내용/스키마 불변(`protection-after.json`). WebLedger-Board 및 WebLedger-SourceRefresh Running 정상 확인. 이전 검증 릴리스 `160f4cd93301b469183c6c243f98ab2a2ad2effc` 및 복구 사본 보존. 신규 금융/Google/은행 쓰기 0.
+- 근거: `.local-archive/deploy-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb/`의 review.json, gate-before.json, protection-before.json, protection-after.json, deploy-evidence.json 및 `D:/WebLedgerHost/releases/deploy-evidence-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb.json`.
+
 ## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
 
 - COMPLETE — 사용자 “모든 페이지 전체에 있는 이런 내부 문구 모두 삭제”와 직전 모바일 정렬 교정을 이어서 완료했다. [PR #343](https://github.com/6Soo/cost/pull/343)·[PR #347](https://github.com/6Soo/cost/pull/347), 문구 최종 검수 `ab4fa61e76eb220533fa07369b6ab5f35123fa09`, 운영 SHA `160f4cd93301b469183c6c243f98ab2a2ad2effc`.
