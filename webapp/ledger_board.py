@@ -22,6 +22,7 @@ import sqlite3
 import threading
 import uuid
 from contextvars import ContextVar
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
@@ -101,16 +102,26 @@ def _get_card_db_path() -> str | None:
 def _store_request_locked(method):
     """Serialize database work after the HTTP request has been parsed."""
     def wrapped(self, *args, **kwargs):
+        from app import request_metrics
         lock = getattr(self.server, "store_lock", None)
         # The liveness probe reads no store, so it must not queue behind a slow page.
         if lock is None or urlparse(self.path).path == "/healthz":
             return method(self, *args, **kwargs)
-        with lock:
-            if getattr(self.server, 'runtime_closing', False):
-                self._send_json({'code': 'SERVER_STOPPING',
-                                 'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
-                return
-            return method(self, *args, **kwargs)
+        token = request_metrics.bind_request_id()
+        started = time.perf_counter()
+        try:
+            with lock:
+                waited_ms = (time.perf_counter() - started) * 1000
+                request_metrics.record(request_metrics.measurement(
+                    "db_lock_wait", "db_lock_wait", waited_ms,
+                    request_id=request_metrics.current_request_id()))
+                if getattr(self.server, 'runtime_closing', False):
+                    self._send_json({'code': 'SERVER_STOPPING',
+                                     'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
+                    return
+                return method(self, *args, **kwargs)
+        finally:
+            request_metrics.reset_request_id(token)
 
     wrapped.__name__ = getattr(method, "__name__", "wrapped")
     wrapped.__doc__ = getattr(method, "__doc__", None)
@@ -2163,9 +2174,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, text: str, code: int = 200) -> None:
         from . import site_shell, social_preview
+        from app import request_metrics
+        started = time.perf_counter()
         text = social_preview.decorate(text)
         if not ACCESS_ENFORCEMENT or current_request_session() is not None:
             text = site_shell.wrap_document(text, self.path, status=code)
+        body = text.encode("utf-8")
+        stage = "first_render" if urlparse(self.path).path in ("/", "/board", "/cards/all") else "payload_serialize"
+        request_metrics.record(request_metrics.measurement(
+            "first_render" if stage == "first_render" else "ota_snapshot",
+            stage, (time.perf_counter() - started) * 1000,
+            byte_count=len(body), request_id=request_metrics.current_request_id()))
         board_http_shapes.send_html(self, text, code=code)
 
     # ------------------------------------------------- the session cookie
@@ -3459,8 +3478,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/cards/all":
             from . import cards_all
-
-            self._send(cards_all.cards_all_page(query, db_path=_get_card_db_path()))
+            from app import request_metrics
+            search_request = "q" in query and bool(query.get("q", [""])[0])
+            started = __import__('time').perf_counter()
+            html_page = cards_all.cards_all_page(query, db_path=_get_card_db_path())
+            request_metrics.record(request_metrics.measurement(
+                "card_search" if search_request else "first_render",
+                "card_search" if search_request else "first_render",
+                (__import__('time').perf_counter() - started) * 1000,
+                byte_count=len(html_page.encode("utf-8")),
+                request_id=request_metrics.current_request_id()))
+            self._send(html_page)
             return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)

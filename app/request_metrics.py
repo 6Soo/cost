@@ -10,6 +10,7 @@ import secrets
 import time
 from collections import defaultdict
 from threading import Lock
+from contextvars import ContextVar
 
 from app.ota_queue_telemetry import percentile, stage_sample
 
@@ -18,11 +19,33 @@ OPERATIONS = frozenset({"ota_snapshot", "first_render", "card_search",
                         "google_canonical_read", "db_lock_wait"})
 STAGES = frozenset({"snapshot_compute", "first_render", "card_search",
                     "google_read", "db_lock_wait", "payload_serialize"})
+_REQUEST_ID = ContextVar("cost_request_metrics_id", default=None)
+_REQUEST_TOKENS = ContextVar("cost_request_metrics_tokens", default=())
+_REGISTRY = None
 
 
 def new_request_id() -> str:
     """Create a random correlation token that carries no user or transaction ID."""
     return secrets.token_hex(16)
+
+
+def current_request_id() -> str:
+    """Return this request's ID or create one for a standalone measured seam."""
+    return _REQUEST_ID.get() or new_request_id()
+
+
+def bind_request_id(value=None):
+    """Bind an opaque request ID for nested measurements; return reset token pair."""
+    request_token = _REQUEST_ID.set(value or new_request_id())
+    tokens = _REQUEST_TOKENS.get()
+    stack_token = _REQUEST_TOKENS.set(tokens + (request_token,))
+    return request_token, stack_token
+
+
+def reset_request_id(token) -> None:
+    request_token, stack_token = token
+    _REQUEST_ID.reset(request_token)
+    _REQUEST_TOKENS.reset(stack_token)
 
 
 def measurement(operation: str, stage: str, elapsed_ms, *, row_count=None,
@@ -41,7 +64,7 @@ def measurement(operation: str, stage: str, elapsed_ms, *, row_count=None,
                                          any(c not in "0123456789abcdef" for c in data_fingerprint)):
         raise ValueError("invalid data fingerprint")
     if request_id is None:
-        request_id = new_request_id()
+        request_id = current_request_id()
     if type(request_id) is not str or len(request_id) != 32 or any(c not in "0123456789abcdef" for c in request_id):
         raise ValueError("invalid request id")
     if peak_memory_bytes is not None and (type(peak_memory_bytes) is not int or peak_memory_bytes < 0):
@@ -97,7 +120,7 @@ def timed(operation: str, stage: str, callback, *, row_count=None,
           byte_count_fn=None, generation=None, rule_version=None,
           data_fingerprint=None, clock=time.perf_counter, metrics: MetricsWindow | None = None):
     """Measure a call without retaining or logging its result contents."""
-    request_id = new_request_id()
+    request_id = current_request_id()
     started = clock()
     result = callback()
     elapsed = (clock() - started) * 1000
@@ -109,3 +132,15 @@ def timed(operation: str, stage: str, callback, *, row_count=None,
     if metrics is not None:
         metrics.record(item)
     return result, item
+
+
+_REGISTRY = MetricsWindow(limit=4096)
+
+
+def record(item: dict) -> None:
+    """Record one safe event in the process-local bounded metrics window."""
+    _REGISTRY.record(item)
+
+
+def summary() -> dict:
+    return _REGISTRY.summary()

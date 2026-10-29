@@ -453,6 +453,47 @@ def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
     assert 'cards_all.cards_all_page(query, db_path=_get_card_db_path())' in source
 
 
+def test_real_cards_all_handler_records_search_and_render_metrics(card_db_path, monkeypatch):
+    import io
+    from types import SimpleNamespace
+    from app import request_metrics
+    from webapp import ledger_board
+
+    class Response:
+        def __init__(self):
+            self.status = None
+            self.headers = {}
+            self.body = b""
+
+        def send_response(self, status): self.status = status
+        def send_header(self, key, value): self.headers[key] = value
+        def end_headers(self): pass
+        def wfile_write(self, value): self.body += value
+
+    server = SimpleNamespace(store_lock=None, card_store=None)
+    handler = object.__new__(ledger_board.Handler)
+    handler.server = server
+    handler.path = "/cards/all?year=2026&q=SYNTHETIC-SEARCH-MARKER"
+    handler.headers = {}
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda status: setattr(handler, "status", status)
+    handler.send_header = lambda key, value: None
+    handler.end_headers = lambda: None
+    monkeypatch.setattr(ledger_board, "_get_card_db_path", lambda: card_db_path)
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", False)
+    before = request_metrics.summary()
+    ledger_board.Handler.do_GET(handler)
+    after = request_metrics.summary()
+    added = {key: value for key, value in after.items()
+             if key not in before or value["samples"] > before[key]["samples"]}
+    assert handler.status == 200
+    assert "SYNTHETIC-SEARCH-MARKER" in handler.wfile.getvalue().decode("utf-8")
+    assert "card_search.card_search" in added
+    assert "first_render.first_render" in added
+    assert "db_lock_wait.db_lock_wait" not in added  # this test deliberately bypasses the lock decorator
+    assert "SYNTHETIC-SEARCH-MARKER" not in str(added)
+
+
 def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_path):
     from urllib.parse import parse_qs, urlsplit
     from unittest.mock import patch
