@@ -13,6 +13,6 @@ def test_gotogate_3820_does_not_become_quarter_residual():
                transaction_direction="purchase", amount_krw=612714,
                approval_date="2026-10-01",
                merchant="이니시스(일반)-고투게이트코리아유")
-    verdict = dict(classification_source="default", trip_id="", item="기타경비",
+    verdict = dict(classification_source="pattern", trip_id="", item="기타경비",
                    classification_state="classified", classification_basis="")
     assert _card3820_residual(row, verdict) == verdict
