@@ -11,6 +11,14 @@ _NOTICE = re.compile(r'예약\s*(?:완료|취소|안내)|결제\s*(?:완료|기�
 _DAY = r'\d{4}-\d{2}-\d{2}'
 
 
+def catalog_reference(event):
+    """Private row identity, never a supplier booking number or payment claim."""
+    if event.get('provider') != 'forest' or event.get('event_type') != 'reservation':
+        return event.get('booking_ref')
+    identity = str(event.get('ota_event_id') or '')
+    return 'forest-notice:' + identity if identity else None
+
+
 def _facts(text, subject=''):
     # This is the service date in the provider's room-reservation sentence,
     # not the unrelated payment-deadline date elsewhere in the mail.
