@@ -83,6 +83,19 @@ def test_no_get_assignment_and_manual_choice_survives_hold(setup_review):
                                    (rows[2]['transaction_id'],)).fetchone()[0] == ''
 
 
+def test_empty_manual_trip_is_not_presented_as_intentional_unassigned(setup_review):
+    flow, trip, batch, rows = setup_review
+    flow.board.conn.execute(
+        "UPDATE transactions SET classification_source='user_decision', trip_id='', display_tab_id='' "
+        "WHERE transaction_id=?", (rows[2]['transaction_id'],))
+
+    page = review.read_page(flow, batch)
+    row = next(item for item in page['items'] if item['transaction_id'] == rows[2]['transaction_id'])
+
+    assert row['decision']['status'] == 'UNASSIGNED_NO_VALID_TRIP'
+    assert row['decision']['assignment_source'] != 'manual'
+
+
 def test_pending_storage_approval_and_replay_do_not_reclassify_transactions(setup_review):
     flow, trip, batch, rows = setup_review
     store = flow.pipeline.store
