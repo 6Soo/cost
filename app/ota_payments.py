@@ -1207,12 +1207,24 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
         if comparison["status"] != "MATCH":
             reason = comparison["reason"]
             rejection_counts[reason] += 1
-            rejected.append({"transaction_id": row.get("transaction_id"), "reason": reason})
+            paid_on = event.get("paid_on")
+            card_date = row.get("approval_date")
+            display_relevant = False
+            if paid_on and card_date:
+                display_relevant = (paid_on == card_date or
+                                    _approved_lag_match(event, row, rules) or
+                                    _foreign_day_lag_match(event, row))
+            rejected.append({"transaction_id": row.get("transaction_id"), "reason": reason,
+                             "display_relevant": bool(display_relevant)})
             continue
         if not _has_corroborator(event, row, rules):
             rejection_counts["PROVIDER_ALIAS_MISSING"] += 1
             rejected.append({"transaction_id": row.get("transaction_id"),
-                             "reason": "PROVIDER_ALIAS_MISSING"})
+                             "reason": "PROVIDER_ALIAS_MISSING",
+                             "display_relevant": bool(event.get("paid_on") and row.get("approval_date") and
+                                 (event.get("paid_on") == row.get("approval_date") or
+                                  _approved_lag_match(event, row, rules) or
+                                  _foreign_day_lag_match(event, row)))})
             continue
         paid_on = event.get("paid_on")
         if not paid_on:
