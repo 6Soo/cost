@@ -268,7 +268,8 @@ def test_month_detail_renderer_basic(card_db_path):
     assert '이용일시' in html
     assert '가맹점명' in html
     assert '금액' in html
-    assert '배정된 여행' in html
+    assert "<th scope='col'>배정</th>" in html
+    assert '배정된 여행' not in html
     assert 'detail-cell' not in html
     assert "colspan='4'" in html
     assert "data-detail-href='/board?row=card-TX-A-01'" in html
@@ -303,6 +304,12 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
     assert row["trip_id"] == "opaque-tab-1"
     fallback = cards_all._render_month_rows([row])
     assert "opaque-tab-1" in fallback
+
+    quarter_row = dict(row, display_tab_id='quarter:2026:3')
+    quarter_html = cards_all._render_month_rows([quarter_row])
+    assert '>2026년 3분기 기타비용</span>' in quarter_html
+    assert '>quarter:2026:3</span>' not in quarter_html
+    assert quarter_row['display_tab_id'] == 'quarter:2026:3'
 
     with patch("webapp.ledger_board.current_role", return_value="owner"), patch(
         "webapp.ledger_board.live_trips",
