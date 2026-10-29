@@ -42,6 +42,21 @@ def classify(path: Path, text: str, root: Path = ROOT) -> tuple[str, str, float]
         return "UNKNOWN", "Entrypoint-like location; active operational use is not established by name", .4
     return "UNKNOWN", "No reliable runtime-use evidence in this file", .2
 
+def load_evidence(root: Path) -> dict:
+    """Load explicit source-location evidence; prose or symbol names never qualify."""
+    config = root / "config" / "runtime-dependency-evidence.json"
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return {item["path"]: item for item in data.get("evidence", [])
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+            and isinstance(item.get("line"), int) and item.get("classification") in
+            {"ACTIVE_SAFE_READ", "ACTIVE_WRITE_GUARDED"}
+            and isinstance(item.get("source"), str) and isinstance(item.get("reason"), str)
+            and (item.get("classification") != "ACTIVE_WRITE_GUARDED"
+                 or isinstance(item.get("guard"), str) and bool(item.get("guard")))}
+
 def refs(path: Path, text: str, root: Path = ROOT) -> list[dict]:
     out=[]
     for n,line in enumerate(text.splitlines(),1):
@@ -100,6 +115,7 @@ def build_catalog(root: Path = ROOT) -> dict:
         return {"schema_version":1,"mode":"static_read_only","entries":[],
                 "errors":[{"code":"GIT_METADATA_ERROR","error_type":type(exc).__name__}],"open_questions":[]}
     known = {p.relative_to(root).as_posix() for p in paths}
+    evidence = load_evidence(root)
     for path in paths:
         rel = path.relative_to(root).as_posix()
         if not path.resolve().is_relative_to(root) or path.is_symlink():
@@ -116,6 +132,19 @@ def build_catalog(root: Path = ROOT) -> dict:
             except SyntaxError as exc:
                 errors.append({"path":rel,"code":"SYNTAX_ERROR","line":exc.lineno})
         category,reason,confidence=classify(path,text,root)
+        proof = evidence.get(rel)
+        if proof and proof["line"] <= len(text.splitlines()):
+            source_path = root / proof["source"]
+            if not source_path.is_file() or source_path.is_symlink():
+                proof = None
+            else:
+                source_lines = source_path.read_text(encoding="utf-8-sig").splitlines()
+                if proof["line"] > len(source_lines) or not source_lines[proof["line"] - 1].strip():
+                    proof = None
+        if proof and proof["line"] <= len(text.splitlines()):
+            category = proof["classification"]
+            reason = f"Explicit runtime reference at {proof['source']}:{proof['line']}; {proof['reason']}"
+            confidence = .9
         entries.append({"path":rel,"classification":category,"confidence":confidence,"evidence":reason,
                         "references":refs(path,text,root),"dependencies":static_dependencies(path,text,known,root)})
     return {"schema_version":1,"mode":"static_read_only","entries":entries,"errors":errors,"open_questions":[
