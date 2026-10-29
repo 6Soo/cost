@@ -1,7 +1,7 @@
 # 카드 파일 업로드 전수 대조·자동 분류·검증 명세 V1.0
 
 - 확정일: 2026-10-29
-- 상태: IMPLEMENTED / SYNTHETIC_VALIDATED / OPERATING_ACCEPTANCE_NOT_RUN / DEPLOY_NOT_DONE
+- 상태: IMPLEMENTED / SYNTHETIC_VALIDATED / OPERATING_READONLY_ACCEPTED / DEPLOYED
 - 목적: 업로드 파일의 **모든 원천 거래**를 누락 없이 DB에 대조하고 신규 거래를 자동 등록·분류한 뒤, **이번 파일만** 대상으로 분류 완결성을 증명한다.
 - 기존 카드 수집·분류·여행 귀속·환불·감사 엔진 재사용. 별도 회계 정본 생성 금지.
 
@@ -91,4 +91,8 @@ CUV-07 합성 회귀·실제 운영 read-only 검증·별도 배포 수락
 | CUV-03 | COMPLETE | owner/CSRF·경로별 본문 상한·원자 수신·명시적 후속실패·동일 파일 재시도·10,000행 실측 |
 | CUV-04/05 | COMPLETE | 실제 여행/성격·최신 자동완료 계약·구조화 충돌 보호·원천 집계·금융대사 분리·멱등 감사 |
 | CUV-06 | COMPLETE | 실패 상세 페이지·시스템 오류·모바일·light/dark·키보드 포커스 |
-| CUV-07 | 합성 검증 COMPLETE; 운영 수락 NOT RUN | 대상·보호 통합 80 passed, 후속 변경 분류26/API3/HTTP인증1(UI 하위검사4개 포함)/UI5 passed. 실행 간 중복이 있어 합산하지 않는다. 운영 read-only·실카드·main 병합·배포는 미실행. |
+| CUV-07 | 합성·운영 읽기 전용 수락 COMPLETE | 대상·보호 통합 80 passed, 후속 변경 분류26/API3/HTTP인증1(UI 하위검사4개 포함)/UI5 passed. 실행 간 중복이 있어 합산하지 않는다. 운영 read-only·실카드 격리 원본 대조·main 병합·고정 SHA 배포 완료. 실제 운영 재업로드/자료 재분류/Google 쓰기는 미실행. |
+
+## 운영 수락 (2026-10-29)
+
+사용자 운영 수락 지시에 따라 PR #355를 정상 병합하고 `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`를 배포했다. 실제 운영 원본의 빈칸 하이픈을 수식으로 오인하던 결함을 교정했다. 운영 DB를 읽기 전용으로 열어 격리 메모리에서 원본8개·6,929원천 행을 재대조했으며 N/H/P=0, 파일 오류0, 원본/분류/금융 불변을 확인했다. C=6,026/U=903/R=112는 원천 행의 실제 분류/금융 상태로 보존한다. 보호13표·새 백업/복원·task/process SHA·health/ready·권한·인증 화면 수락 근거는 [운영 기록](../operations.md)에 있다. 실제 운영 재업로드 POST나 금융·Google 자료 변경은 수행하지 않았다.
