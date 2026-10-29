@@ -1,7 +1,7 @@
 """Quarter expense buckets are assigned accounting destinations."""
 import sqlite3
 
-from app.assignment_status import row_assignment, sql_assignment_status
+from app.assignment_status import assignment_conflict_label, row_assignment, sql_assignment_status
 from app.automatic_classification import completion_for_row
 from webapp.card_transactions import _filter_clause
 from webapp.cards_all import _render_month_rows, card_detail_html
@@ -89,4 +89,20 @@ def test_card_row_and_detail_use_effective_quarter_but_show_stale_trip_conflict(
     assert '2026년 3분기 기타비용' in html
     assert 'card-all-trip-name unassigned' not in html
     assert '2026년 3분기 기타비용' in detail
-    assert 'STALE_TRIP_DESTINATION' in detail
+    assert '저장된 여행 배정을 확인해야 합니다' in detail
+    assert 'STALE_TRIP_DESTINATION' not in detail
+
+
+def test_legacy_card_row_fallback_keeps_trip_id_without_trip_name_context():
+    row = {'transaction_id': 'legacy-trip', 'approval_date': '2026-06-30',
+           'trip_id': 'opaque-trip-id', 'merchant': '상점', 'amount_krw': 1}
+    html = _render_month_rows([row])
+    assert 'opaque-trip-id' in html
+    assert 'card-all-trip-name unassigned' not in html
+
+
+def test_unknown_assignment_conflicts_do_not_leak_internal_identifiers():
+    label = assignment_conflict_label(['DESTINATION_CONFLICT', 'new_internal_reason'])
+    assert 'DESTINATION_CONFLICT' not in label
+    assert 'new_internal_reason' not in label
+    assert '여행 배정 값이 서로 다릅니다' in label

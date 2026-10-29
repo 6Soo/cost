@@ -80,3 +80,12 @@ def classification_source_label(source):
         'previous_decision': '기존 분류 유지',
     }
     return labels.get(value, '자동 분류 · 기타 근거' if value else '분류 근거 미확인')
+
+
+def assignment_conflict_label(reasons):
+    labels = {
+        'DESTINATION_CONFLICT': '여행 배정 값이 서로 다릅니다',
+        'STALE_DISPLAY_DESTINATION': '화면 배정 목적지를 확인해야 합니다',
+        'STALE_TRIP_DESTINATION': '저장된 여행 배정을 확인해야 합니다',
+    }
+    return ' · '.join(labels.get(str(reason), '배정 충돌 확인 필요') for reason in reasons or ())
