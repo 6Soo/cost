@@ -515,3 +515,10 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - [PR #332](https://github.com/6Soo/cost/pull/332)를 `dccd3af6d12a52a3f9eb50a647979527ac5cc1f7`로 고정 배포했다. 검수5587129와 merge tree 동일,1110 blobs 불일치0. 원승인번호 없이도 같은 발급사·카드·가맹점·이용일·동액의 상호 유일 대응과 기존 카카오 계열/기간 대조를 연결 완료로 인정한다. 자동 출처·근거를 표시하고 원본 오류·중복·경합·점유·초과환불·수동 보류·묶음 원자성·재기록 보호를 유지한다. 수동 보류 사유가 묶음 보류 사유로 덮이지 않도록 보존했다.
 - 표적242 passed(핵심144·환불UI/owner/원자성/cross-batch89·CardFlow3·카드 목적지6), compile/diff 및 metadata guard 차단0/삭제0. baseline 비교2건·inline stale 기대1건은 기준d753f45에서 동일 실패했고 통과로 세지 않았다. 전체 회귀·실제 owner 인증 화면 수락은 미실행이다.
 - 새 전체 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·OTA/환불 보호API401·보호13표 내용/스키마 불변. 호스트 Python 배포본에서 원승인번호 없는 대응·조회 원본 불변·합성 원자 기록 smoke PASS. 이전 검증de2aada와 복구 사본 보존. 실제 분류/기장/여행/Google/은행 환급 쓰기·재처리·스키마 변경0. 근거는 `.local-archive/refund-reference-optional-20261029/`, `.local-archive/deploy-dccd3af6d12a52a3f9eb50a647979527ac5cc1f7/`, 호스트 동일SHA release-audit/deploy-evidence다. 후속 문서만으로 재배포·재시작하지 않는다.
+
+## 2026-10-30 카드 이용일·OTA 근거 교정
+
+- [PR #361](https://github.com/6Soo/cost/pull/361)·[PR #362](https://github.com/6Soo/cost/pull/362), 운영 SHA `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`. 현지 사용은 명시 국가와 이용일 거리를 지역명보다 먼저 평가하고 예약 이용기간/항공권 OTA 용도를 3820 잔여 분기 분류보다 앞세운다. 기존 수동 결정·원결제 환불·금융 보호는 유지한다.
+- 두 행의 실제 교정은 별도 소수 교정 경계에서 source/revision/digest 및 단일 DB 트랜잭션을 검증하고 기존 거래/장부/화면 귀속을 함께 수정했다. 변경 전 값과 에이전트 근거를 기록했다. 실시간 Gmail의 결제/확정·같은 주문 PDF 영수증 확인을 사용자 확인으로 위장하지 않는다. 원본·금액·날짜·ID·범위 밖 행·기존 수동/금융/이력·스키마 불변, 새 장부행/금융 링크/Google 쓰기 0, 재요청 무쓰기 PASS. 사본 검증의 첫 카운터 오탐은 실제 적용 전에 교정했으며 실패를 통과로 세지 않는다.
+- 결합 99 passed·호스트 합성 3 PASS. 배포본 1,126 blobs 일치·새 백업/별도 복원·task/process SHA·listener 1·health/ready 200·보호 API 401·보호 13표 코드 배포 전후 불변. 이후 인증 Aside 카드 상세 GET 2건으로 귀속/항목 표시 수락. Board/SourceRefresh Running. 전체 회귀·실기기는 미실행이다.
+- 근거는 `.local-archive/classification-correction-20261030/`와 호스트 `D:/WebLedgerHost/releases/deploy-evidence-bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21.json`이다. 이전 검증 `a69c0ae7389789a65d2ed01f3028c0348f52eb1f` 복구점을 보존했다. 카드 수집/업로드는 사용자 요청으로 보류했다. 후속 문서 변경만으로 재배포/재시작하지 않는다.
