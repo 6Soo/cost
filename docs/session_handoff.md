@@ -4,7 +4,8 @@
 
 - 사용자 지시: 원승인번호는 취소·환불 쌍의 필수조건이 아니다. 동일 발급사·카드·가맹점·이용일·동액의 상호 유일 대응과 기존 카카오 계열/14일·외화 대응을 연결 완료로 인정한다. 자동 출처와 대조 근거를 표시하고 원승인번호 부재만으로 기록을 막지 않는다.
 - 구현: 원화 유일 대응의 `inferred` 보류를 해제하고 승인번호와 독립된 대조 근거를 표시한다. 수동 보류 사유가 묶음 보류로 덮이지 않도록 보존한다. 원본·중복·후보 경합·점유·초과환불·불완전 묶음·원자 기록·재기록 보호를 유지한다. 양수 원행 없는 미매입 취소는 연결하지 않는다.
-- 표적 검증·병합·배포 진행 중. 실제 고객 DB 분류/기장·Google/은행 환급 쓰기는 범위 밖이며 수행하지 않는다. 근거는 로컬 `.local-archive/refund-reference-optional-20261029/`에 기록한다. 기존 UI 병렬 작업은 별도 공간에서 보존한다.
+- COMPLETE — [PR #332](https://github.com/6Soo/cost/pull/332), 운영 SHA `dccd3af6d12a52a3f9eb50a647979527ac5cc1f7`. 검수 소스 `558712946f499a0b12a7523acd0d4faae15cdcbf`와 merge tree 동일. 핵심144·환불 UI/원자성/owner/cross-batch89·CardFlow3·카드 목적지6, 서로 다른 표적242 passed. 기존 baseline 비교2건 및 inline stale 기대1건은 기준d753f45에서도 실패해 제외했다. 전체 회귀·실제 owner 화면 수락은 미실행이다.
+- 배포:1110 Git blobs 불일치0·새 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·보호API401·금융/사용자13표 내용/스키마 불변. 호스트 Python 배포본의 원승인번호 없는 유일 대응·조회 원본 불변·합성 원자 기록 smoke PASS. 이전 검증de2aada와 복구 사본을 보존한다. 실제 고객 DB 분류/기장·Google/은행 환급 쓰기·대량 재처리·스키마 변경0. 근거는 `.local-archive/refund-reference-optional-20261029/`와 `.local-archive/deploy-dccd3af6d12a52a3f9eb50a647979527ac5cc1f7/`, 호스트 동일SHA deploy-evidence/release-audit다. 구현/배포 남은 작업·차단0이며 후속 문서만으로 재배포·재시작하지 않는다. 다른 UI 병렬 변경은 보존했다.
 
 ## 2026-10-29 최신 요청 — 카드 행 상세·배지 제거·날짜와 폭 압축
 
