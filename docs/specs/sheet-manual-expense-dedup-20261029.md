@@ -1,9 +1,17 @@
 # COST → Google 지출 장부: 수기 행 중복 방지·연결 명세 V1.0
 
 - 작성: 2026-10-29
-- 상태: PRODUCT_SPEC_APPROVED / SPEC_ONLY / CODE_NOT_CHANGED / TEST_NOT_RUN / OPERATIONS_NOT_VERIFIED
+- 상태: IMPLEMENTED / SYNTHETIC_VALIDATED / OPERATING_READONLY_ACCEPTED / DEPLOY_PENDING
 - 정본: [finance.md](finance.md), [현재 상태](../session_handoff.md)
 - 목적: COST에서 분류한 지출을 기존 Google 여행별 스프레드시트에 반영할 때 **수기로 이미 기입한 동일 지출을 중복 추가하지 않도록** 한다.
+
+## 2026-10-30 구현·검증
+
+기존 Google snapshot/여행 매핑, 카드 preview와 장부 행, 7열 TSV를 재사용한다. 순수 매칭은 `app/sheet_expense_dedup.py`, 연결 메타데이터는 `app/sheet_expense_links.py`, 읽기 투영과 복사 제한은 `webapp/sheet_expense_reconciliation.py`, owner 화면/API는 `webapp/sheet_expense_review.py`에 있다. 여행 화면·카드 업로드의 복사 버튼은 최신 대조 후 신규 지출만 복사하고 자동 연결 메타데이터를 원자 저장한다. 분기 기타비용은 기존 경로를 유지한다.
+
+행 번호 대신 fingerprint·원천 ID를 재검증하며 기존 사용자 교정·점유 행·환불·금액·통화·카드 충돌을 보호한다. 시트 접근/검증 실패와 COST 내용·필터 변경 후 동일 요청 재시도는 안전 보류한다. 내부 장부 기록만으로 Google에 이미 기록됐다고 간주하지 않는다.
+
+운영 읽기 전용 검수에서 여행61개 중47개 원본 검증 가능, 수기 연결 후보121건을 확인했다. 검증 불가14개 여행은 보류하며, 실제 연결 저장·Google 쓰기는 하지 않았다. DB `mode=ro`·`query_only`·변경0과 Google snapshot 파일 불변을 확인했다. 배포 완료 여부와 검사 근거는 [현재 상태](../session_handoff.md)와 [운영 기록](../operations.md)의 최신 절을 따른다.
 
 ## 1. 사용자 확정 결정
 

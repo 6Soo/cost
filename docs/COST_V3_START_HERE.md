@@ -31,6 +31,7 @@
 | 저장소 전면 리팩토링·디자인 통일·파일 감사·단계별 검증 | [전면 리팩토링 마스터](specs/refactor-master-20261027.md) · [전체 추적 파일 인벤토리](specs/refactor-file-inventory-20261027.tsv) |
 | OTA 대기열 축소·예약 그룹·서버 측 페이지네이션·성능 | [OTA 개선 구현 계약](specs/ota-review-queue-performance-20261027.md) |
 | Google 최종 정본·B:H 열·수입·사본 선택·권한·지출 대응 표시 | [Google 장부](specs/google-ledger.md) |
+| 수기 Google 지출 중복 방지·연결·안전 복사 | [수기 중복 방지](specs/sheet-manual-expense-dedup-20261029.md) · [구현 현황](specs/card-and-sheet-reconciliation-status-20261029.md) |
 | 여행 A→B 교정·사후 AI 질문·승인 규칙·참가자 명단 | [여행 교정·참가자](specs/participants.md) |
 | Travel INS 보험 명단 수신·운영 DB 일치·여행별 참가자 조회·결제 재개 결함 | [보험→COST 참가자 연동 개선 명세](specs/insurance-participant-integration-20261028.md) |
 | 카드 전체 내역·공통 테마·항공권 검색·모바일·아이콘 라이선스 | [화면·항공권·디자인](specs/ui.md) |

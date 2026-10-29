@@ -121,6 +121,28 @@ def test_source_changes_between_export_and_final_check_return_no_tsv(integrated,
     assert not integrated[2].with_name('manual-expense-links.json').exists()
 
 
+def test_display_trip_wins_and_explicit_manual_card_conflict_is_protected(integrated):
+    _, costs, snapshot = integrated
+    costs[0]['trip_id'] = 'older-import-trip'
+    assert _preview()['counts']['MATCHED_MANUAL'] == 1
+    path = ga._rows_file(snapshot.with_name('google-rows.json'), 'generation-a')
+    document = json.loads(path.read_text(encoding='utf-8'))
+    document['sources']['main']['trips'][GOOGLE_KEY]['expense'][0]['cells']['G'] = 'card ****9999'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    preview = _preview()
+    assert preview['counts']['MATCHED_MANUAL'] == 0
+    assert preview['counts']['REVIEW_CONFLICT'] == 1
+
+
+def test_card_preview_is_enriched_with_original_card_facts(integrated):
+    board, costs, _ = integrated
+    board.conn.execute('CREATE TABLE transactions(transaction_id TEXT,issuer TEXT,card_tail TEXT,approval_number TEXT)')
+    board.conn.execute('INSERT INTO transactions VALUES(?,?,?,?)', ('tx-a', 'issuer', '1234', 'approval-a'))
+    for key in ('issuer', 'card_tail', 'approval_number'):
+        costs[0].pop(key)
+    assert _preview()['results'][0]['card'] == '•••• 1234'
+
+
 def test_real_http_owner_csrf_and_viewer_boundary(sources, tmp_path, monkeypatch):
     store = LedgerStore(tmp_path / 'http.sqlite')
     access = access_control.attach_to_ledger_store(store)

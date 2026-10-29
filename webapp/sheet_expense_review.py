@@ -458,6 +458,16 @@ def _post(handler, raw, csrf):
         if action == "links":
             replay = _find_replay(store, path, request_id, ids)
             if replay is not None:
+                _, saved_rows = _saved_request(store, path, request_id)
+                current_rows = {row.get('transaction_id'): row for row in preview.get('results', [])}
+                if any(not (current_rows.get(saved.get('transaction_id')) or {}).get('status')
+                           in ('MATCHED_MANUAL', 'MATCHED_EXISTING')
+                       or current_rows[saved['transaction_id']].get('sheet_row_key') != saved.get('stable_key')
+                       or current_rows[saved['transaction_id']].get('sheet_fingerprint') != saved.get('sheet_fingerprint')
+                       for saved in saved_rows):
+                    _send_error(handler, 'LINK_CHANGED', 409,
+                                '이전 연결을 최신 원본에서 확인하지 못했습니다. 대조 결과를 다시 열어 주세요')
+                    return
                 handler._send_json({"code": "OK", "replayed": True,
                                     "message": "이전 요청이 이미 처리되었습니다"})
                 return

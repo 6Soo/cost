@@ -78,7 +78,7 @@ def _cost_preview_rows(store, trip_id):
 
 def _normalize_cost_row(row):
     if row.get('transaction_id'):
-        return dict(row)
+        return {**row, 'trip_id': row.get('display_tab_id') or row.get('trip_id')}
     amount = row.get('display_amount_krw', row.get('amount_krw'))
     return {**row, 'transaction_id': str(row.get('source_event_id') or row.get('row_id') or ''),
             'trip_id': row.get('display_tab_id'),
@@ -88,6 +88,27 @@ def _normalize_cost_row(row):
             'booking_ref': row.get('reservation_no') or '', 'amount_krw': amount,
             'evidence': {'카드': 'card', '영수증': 'receipt'}.get(row.get('evidence_type'), ''),
             'currency': 'KRW', 'transaction_direction': 'refund' if amount is not None and amount < 0 else 'purchase'}
+
+
+def _enrich_card_facts(store, costs):
+    missing = [row['transaction_id'] for row in costs
+               if (row.get('source_hash') or row.get('evidence') == 'card' or row.get('already_booked'))
+               and not all(key in row for key in ('issuer', 'card_tail', 'approval_number'))]
+    facts = {}
+    for start in range(0, len(missing), 500):
+        ids = missing[start:start + 500]
+        marks = ','.join('?' for _ in ids)
+        for tid, issuer, tail, approval in store.conn.execute(
+                f'SELECT transaction_id,issuer,card_tail,approval_number FROM transactions WHERE transaction_id IN ({marks})', ids):
+            facts[tid] = {'issuer': issuer, 'card_tail': tail, 'approval_number': approval}
+    return [{**row, **facts.get(row['transaction_id'], {})} for row in costs]
+
+
+def _card_tail(evidence):
+    # Only explicit card labels followed by a masked or four-digit tail are
+    # identity clues; arbitrary reservation/date digits are never card IDs.
+    match = re.search(r'(?:카드|card)\s*[:(\- ]*[*xX•\- ]*(\d{4})(?!\d)', str(evidence or ''), re.I)
+    return match.group(1) if match else None
 
 
 def _load_existing_links(path: Path):
@@ -115,7 +136,7 @@ def _sheet_rows(rows, *, trip_id, google_key, sheet_id, source):
         projected.append({
             'trip_id': trip_id, 'sheet_id': sheet_id, 'source': source,
             'row_number': number, 'stable_id': None, 'transaction_id': None,
-            'approval_number': None, 'card_tail': None, 'issuer': None,
+            'approval_number': None, 'card_tail': _card_tail(row.get('evidence')), 'issuer': None,
             'date': row.get('date') or '', 'payee': row.get('payee') or '',
             'category': row.get('category') or '', 'description': row.get('category') or '',
             'amount_krw': row.get('amount'), 'currency': 'KRW',
@@ -142,6 +163,7 @@ def preview_for_trip(board, trip_id, cost_rows=None):
         ids = [str(row.get('transaction_id') or '') for row in costs]
         if any(not value for value in ids) or len(ids) != len(set(ids)):
             raise ValueError('RECONCILIATION_INVALID')
+        costs = _enrich_card_facts(store, costs)
         if not google_ledger_page.enabled():
             raise ValueError('GOOGLE_SOURCE_DISABLED')
         snapshot_path = google_ledger_page.snapshot_path()
