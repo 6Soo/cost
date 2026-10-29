@@ -191,3 +191,14 @@ def test_legacy_source_completion_keeps_valid_recorded_trip_and_projection_uncha
     assert c.execute('SELECT classification_state,trip_id FROM transactions WHERE transaction_id=?',(tid,)).fetchone() == ('classified',trip)
     assert ledger == c.execute('SELECT * FROM ledger_entries').fetchall()
     assert projection == c.execute('SELECT * FROM board_rows').fetchall()
+
+
+def test_historic_cancellation_with_empty_destination_stays_in_refunds(setup):
+    board, flow, _, rows = setup
+    c = board.conn
+    tid = rows[0]['transaction_id']
+    flow.pipeline.save_decision(tid, rows[0]['revision'], item='?숇컯鍮?', display_tab_id='unclassified',
+                                tab_validator=lambda _: True, request_id='synthetic-refund-history')
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',trip_id='',display_tab_id='unclassified' WHERE transaction_id=?", (tid,))
+    policy.apply(c, policy.plan(c, TRIPS), TRIPS)
+    assert c.execute('SELECT classification_state,display_tab_id,trip_id FROM transactions WHERE transaction_id=?', (tid,)).fetchone() == ('classified', 'refunds', '')

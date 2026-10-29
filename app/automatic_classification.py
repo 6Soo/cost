@@ -119,7 +119,10 @@ def plan(conn, trips, *, nets=None, transaction_ids=None):
                 chosen['item'], _ = infer_item(chosen)
             chosen['classification_state'] = 'classified'
             empty_trip = (not row['trip_id'] and row['display_tab_id'] in (None,'','unclassified'))
-            if empty_trip and chosen['item'] != '분기 기타비용':
+            refund_row = row['transaction_direction'] in ('refund', 'cancellation')
+            if empty_trip and refund_row:
+                chosen.update(display_tab_id='refunds', trip_id='', classification_basis='REFUND_DESTINATION_RESTORED')
+            elif empty_trip and chosen['item'] != '분기 기타비용':
                 recorded = ledger.get(tid) or {}
                 board = boards.get('card-'+tid)
                 candidates = [board[0] if board else '', decisions.get(tid),
@@ -234,3 +237,5 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None):
         else:
             conn.rollback()
         raise
+
+\n
