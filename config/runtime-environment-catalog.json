@@ -1,0 +1,435 @@
+{
+  "schema": "runtime-environment-catalog-v1",
+  "scope": [
+    "run_candidate.py",
+    "app/**/*.py",
+    "webapp/**/*.py"
+  ],
+  "value_policy": "Names and static source metadata only. Never read process environment values.",
+  "entries": [
+    {
+      "name": "WEBLEDGER_DATA_ROOT",
+      "owner": "run_candidate.py / webapp.ops",
+      "role": "path:data-root",
+      "required": "required for run_candidate; absent is refused",
+      "default": "none",
+      "status": "confirmed"
+    },
+    {
+      "name": "PORT",
+      "owner": "run_candidate.py",
+      "role": "limit:bind-port",
+      "required": "optional",
+      "default": "8751",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_CARD_SCHEMA_POLICY",
+      "owner": "run_candidate.py / app.db",
+      "role": "feature/schema-policy",
+      "required": "optional",
+      "default": "create outside production; production entry point sets require",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_CARD_FLOW",
+      "owner": "run_candidate.py / webapp.card_flow",
+      "role": "feature:card-flow",
+      "required": "optional",
+      "default": "disabled unless value is 1",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_DB",
+      "owner": "run_candidate.py / webapp",
+      "role": "path:database",
+      "required": "set by run_candidate after durable config validation",
+      "default": "direct board fallback webledger.work.sqlite; forbidden as durable runtime default",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT",
+      "owner": "webapp.google_ledger_page / app.google_authority",
+      "role": "path:public-snapshot",
+      "required": "optional; feature requires paired rows path",
+      "default": "disabled when absent",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_GOOGLE_LEDGER_ROWS",
+      "owner": "webapp.google_ledger_page / app.google_authority",
+      "role": "path:private-rows",
+      "required": "optional; feature requires paired snapshot path",
+      "default": "disabled when absent",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_PROVIDER_SECRETS",
+      "owner": "webapp.provider_config",
+      "role": "secret-reference:path",
+      "required": "optional",
+      "default": "temporary-directory local store; not a real vault",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_GOOGLE_CLIENT_ID",
+      "owner": "webapp.google_oidc",
+      "role": "auth:client-id",
+      "required": "required with complete OIDC configuration",
+      "default": "none",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_GOOGLE_CLIENT_SECRET",
+      "owner": "webapp.google_oidc",
+      "role": "secret:oauth-client",
+      "required": "required with complete OIDC configuration",
+      "default": "none",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_SESSION_SECRET",
+      "owner": "webapp.google_oidc",
+      "role": "secret:session-signing",
+      "required": "required with complete OIDC configuration",
+      "default": "none",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_PUBLIC_BASE_URL",
+      "owner": "webapp.google_oidc",
+      "role": "url:public-callback-origin",
+      "required": "required with complete OIDC configuration",
+      "default": "none",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_OWNER_GOOGLE_SUB",
+      "owner": "webapp.google_oidc",
+      "role": "auth:owner-subject",
+      "required": "optional owner bootstrap; no owner means viewer",
+      "default": "none",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_DEMO_SNAPSHOT",
+      "owner": "webapp.google_demo_page",
+      "role": "path:synthetic-demo-data",
+      "required": "optional",
+      "default": "disabled when absent",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_RECEIPTS_STORE",
+      "owner": "webapp.receipt_review / run_candidate.py",
+      "role": "path:private-store",
+      "required": "optional; production path validated when configured",
+      "default": "disabled when absent",
+      "status": "confirmed"
+    },
+    {
+      "name": "WEBLEDGER_TRIP_AUTHORITY",
+      "owner": "webapp.card_trip_authority / webapp.ota_catalog",
+      "role": "path:authority-config",
+      "required": "optional",
+      "default": "feature unavailable when absent",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_EVIDENCE_ROOT",
+      "owner": "webapp.card_trip_authority",
+      "role": "path:evidence-root",
+      "required": "optional",
+      "default": "D:/WebLedgerHost/data/evidence",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_MAIL_DIR",
+      "owner": "webapp.card_flow / webapp.ota_catalog",
+      "role": "path:mail-source",
+      "required": "optional",
+      "default": "data-directory/ota-mail",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_SOURCES",
+      "owner": "app.ota_sources",
+      "role": "path:source-config",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_SOURCES_JSON",
+      "owner": "webapp.ota_catalog",
+      "role": "config:source-json",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_REVIEW_DB",
+      "owner": "webapp.ota_catalog / webapp.ota_payment_review",
+      "role": "path:review-database",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_REVIEW_MODE",
+      "owner": "webapp.ota_payment_review",
+      "role": "feature:review-mode",
+      "required": "optional",
+      "default": "isolated unless authority mode configured",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_AUTHORITY",
+      "owner": "webapp.ota_payment_review",
+      "role": "feature:authority-mode",
+      "required": "optional",
+      "default": "isolated",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_REVIEW_CONFIG",
+      "owner": "webapp.real_review / webapp.ota_catalog",
+      "role": "path:review-config",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_REVIEW_REFRESH_STATUS",
+      "owner": "webapp.real_review",
+      "role": "path:refresh-status",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_REVIEW_FROM",
+      "owner": "webapp.card_flow / webapp.history_policy",
+      "role": "policy:review-date",
+      "required": "optional",
+      "default": "2026-04-01 in history_policy; empty in card flow",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_UNIFIED_DB",
+      "owner": "webapp.ledger_store / webapp.real_review",
+      "role": "feature:unified-db",
+      "required": "optional",
+      "default": "disabled unless value is 1",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RULE_LEASE_TTL",
+      "owner": "webapp.ledger_store",
+      "role": "limit:lease-seconds",
+      "required": "optional",
+      "default": "300",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_FLIGHT_PASSENGER_MATCHING",
+      "owner": "webapp.flight_passenger_page",
+      "role": "feature:passenger-matching",
+      "required": "optional",
+      "default": "disabled unless value is 1",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_FLIGHT_PASSENGER_DB",
+      "owner": "webapp.flight_passenger_page",
+      "role": "path:passenger-database",
+      "required": "optional",
+      "default": "disabled when absent",
+      "status": "unknown"
+    },
+    {
+      "name": "RESERVATION_INTERNAL_BASE_URL",
+      "owner": "app.reservation_authority",
+      "role": "url:reservation-api",
+      "required": "optional",
+      "default": "configured service URL in source",
+      "status": "unknown"
+    },
+    {
+      "name": "RESERVATION_INTERNAL_API_TOKEN",
+      "owner": "app.reservation_authority",
+      "role": "secret:api-token",
+      "required": "optional if token file is configured",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "RESERVATION_INTERNAL_API_TOKEN_FILE",
+      "owner": "app.reservation_authority",
+      "role": "secret-reference:path",
+      "required": "optional if token value is configured",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "OPENROUTER_API_KEY",
+      "owner": "app.opencode_receipt_vision",
+      "role": "secret:provider-key",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RECEIPT_INKLING",
+      "owner": "app.opencode_receipt_vision",
+      "role": "feature:external-vision-consent",
+      "required": "optional",
+      "default": "disabled unless approved",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RECEIPT_VISION",
+      "owner": "app.opencode_receipt_vision",
+      "role": "feature:receipt-vision",
+      "required": "optional",
+      "default": "disabled unless provider selected",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OPENCODE_EXE",
+      "owner": "app.opencode_receipt_vision",
+      "role": "path:executable",
+      "required": "optional",
+      "default": "platform discovery",
+      "status": "unknown"
+    },
+    {
+      "name": "APPDATA",
+      "owner": "app.opencode_receipt_vision",
+      "role": "path:platform-config",
+      "required": "platform-provided optional",
+      "default": "platform value",
+      "status": "unknown"
+    },
+    {
+      "name": "XDG_CONFIG_HOME",
+      "owner": "app.opencode_receipt_vision",
+      "role": "path:child-process-config",
+      "required": "set for isolated child process",
+      "default": "temporary isolated directory",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_MATCHING_DEFAULTS",
+      "owner": "app.ota_matching_defaults",
+      "role": "path:matching-defaults",
+      "required": "optional",
+      "default": "built-in defaults",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_AGODA_PORTAL_DB",
+      "owner": "app.ota_portal",
+      "role": "path:portal-database",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_GUIDE_AIRPORTS",
+      "owner": "webapp.guide_airfare_review",
+      "role": "path:airport-reference",
+      "required": "optional",
+      "default": "none",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_LOCAL_RULE_AI",
+      "owner": "app.local_rule_ai",
+      "role": "feature:local-rule-ai",
+      "required": "optional",
+      "default": "disabled unless value is 1",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RECEIPT_OCR",
+      "owner": "app.local_receipt_ocr",
+      "role": "feature:receipt-ocr",
+      "required": "optional",
+      "default": "disabled unless Windows and provider selected",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RECEIPT_LEARNING",
+      "owner": "app.receipt_learning",
+      "role": "feature:receipt-learning",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_EXPORT_DIR",
+      "owner": "webapp.ledger_board",
+      "role": "path:export-output",
+      "required": "optional",
+      "default": "webledger-exports (durable production config refuses relative defaults)",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RESERVE_SOURCE",
+      "owner": "webapp.reserve_link",
+      "role": "path:source-config",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_BREAKPOINT_EVIDENCE",
+      "owner": "webapp.ops",
+      "role": "path:breakpoint-evidence",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_FLOW_SHOTS",
+      "owner": "webapp.tests / receipt flow tooling",
+      "role": "path:test-artifact",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_OTA_EXACT_GATE",
+      "owner": "app.ota_exact",
+      "role": "feature:exact-gate",
+      "required": "optional",
+      "default": "enabled unless value is 0",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_PARTICIPANT_DB",
+      "owner": "app.participant_roster",
+      "role": "path:participant-database",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_RESERVE_TRIP_SYNC",
+      "owner": "webapp.ops",
+      "role": "feature:reserve-trip-sync",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    },
+    {
+      "name": "WEBLEDGER_TEST_SECRET",
+      "owner": "webapp.ops",
+      "role": "secret:test-only",
+      "required": "optional",
+      "default": "unknown",
+      "status": "unknown"
+    }
+  ]
+}
