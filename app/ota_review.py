@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -19,6 +20,20 @@ from app.ota_payments import (
 
 def _dump(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def _has_payment_amount(event):
+    """A manual confirmation can use an explicit foreign amount without inventing KRW."""
+    currency = str(event.get('currency') or '').upper()
+    if currency == 'KRW':
+        return _event_amount(event) is not None
+    if not currency or not currency.isascii() or not re.fullmatch(r'[A-Z]{3}', currency):
+        return False
+    try:
+        amount = Decimal(str(event.get('amount')).replace(',', ''))
+        return amount.is_finite() and amount > 0
+    except (InvalidOperation, TypeError, ValueError):
+        return False
 
 
 def _narrow(conditions):
@@ -598,7 +613,7 @@ class OtaReviewStore:
         current = self._preview_value(event, transaction)
         if current["preview_digest"] != preview_digest:
             raise ValueError("STALE_PREVIEW")
-        if not _event_is_paid(event) or _event_amount(event) is None:
+        if not _event_is_paid(event) or not _has_payment_amount(event):
             raise ValueError("VERIFIED_PAYMENT_REQUIRED")
         if event.get("event_type") == "refund" and event.get("refund_status") not in ("refunded", "refund_completed"):
             raise ValueError("EXPLICIT_REFUND_VERIFICATION_REQUIRED")
