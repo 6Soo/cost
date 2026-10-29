@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 수기 Google 지출 중복 방지 배포·읽기 전용 수락
+
+- COMPLETE — [PR #364](https://github.com/6Soo/cost/pull/364), 운영 SHA `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`. 여행/업로드 복사 전에 수기 지출 대조와 원자 연결·revision/멱등 재검증을 적용했다. 사용자 교정·원본/환불/카드/금액/통화·점유 보호를 유지하며 Google 최종 장부 자동 쓰기는 금지한다. 직전 검증 `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`과 두 건의 운영 교정값 보존.
+- 1137 blobs 불일치0·새 백업/별도 복원·작업/프로세스SHA·단일loopback listener·health/ready200·보호API401·보호13표 전후 불변. 새 대조 경로의 익명403을 확인했다. 운영 분류/금융/여행/연결 메타데이터/Google 쓰기0.
+- 운영 읽기 전용61여행 중47개 원본 검증 가능·수기 연결 후보121건, 검증 불가14개 여행은 복사 보류. DB변경0·Google snapshot 불변. 실제 owner API200/원본검증불가503·요약5개·50행 페이지·320px overflow0을 Aside CLI로 확인했다. 자동 동일성 판정과 실제 연결 저장·Google 입력은 구분하며 운영 POST를 실행해 시험하지 않았다.
+- 표적 검사 통합70/main47/최종 카드·여행·HTTP·복사JS8/UI21/replay1/matcher26 passed는 서로 중복된다. 인접91 passed/5 failed의 두 실패 유형은 기존 기준 `e149d82`에서 동일 재현했고 통과로 계산하지 않았다. metadata guard 차단0/삭제0, 구문·diff 통과. 전체 회귀·실제 Google 쓰기는 미실행이다.
+- 근거: 통합 `.local-archive/open-pr-20261029/`와 호스트 동일SHA release-audit/deploy-evidence. 운영 작성권을 별도 숲나들e 작업자에게 해제 통보했다. 이후 완료 문서만으로 재배포·DB검사·재시작을 반복하지 않는다.
+
 ## 2026-10-29 카드 업로드 전수 대조 운영 수락·배포
 
 - COMPLETE — 사용자 “모든 명세가 구현되었나? 되었다면 운영수락”에 따라 최신 main의 P2 변경을 통합·검증하고 [PR #355](https://github.com/6Soo/cost/pull/355)를 정상 병합했다. 운영 SHA `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`, 직전 검증 릴리스 `3860a822efe3a6f2d6c1349e824b193ac7309a7b` 및 복구 사본 보존. [명세](specs/card-upload-full-reconciliation-20261029.md)의 CUV-01~07 구현·격리/운영 읽기 전용 수락 완료이며 실제 은행 환급·Google 반영 완료와 구분한다.
