@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 미결 구현·PR370 단계 통합 배포
+
+- 정상 병합 PR #371~#375의 최종 운영 SHA는 `10b95b802c879e83dd93d9030aa333f7f348cf38`이다. 이전 검증 릴리스 `d09596d0242416af2889b4a0514abd0509c60561`을 보존했다. [현재 상태](session_handoff.md)와 [실행 인덱스](specs/all-pending-execution-20261030.md)에 구현·부분 수락을 구분했다.
+- Git 고정 릴리스 1,154 blobs 불일치0, 새 운영 백업/별도 복원, task/process SHA 일치, 단일 loopback listener, health/ready200, 보호 API401, 보호13표 배포 전후 불변 PASS. `D:/WebLedgerHost/releases/deploy-evidence-10b95b802c879e83dd93d9030aa333f7f348cf38.json` 및 통합 worktree `.local-archive/all-pending-luna-20261030/deploy/`에 근거를 보관했다. Board/SourceRefresh 정상 복구. 금융 적용·원문 재처리·Google 쓰기는 실행하지 않았다.
+- Aside 인증 `/cards/all`에서 단일 수동 테마·문서 가로 overflow 없음·내부 분류 코드 비노출을 확인했다. 참가자 상태 API200, configured=false/complete=false는 준비된 실제 명단 저장소가 없다는 미완료 근거다. 클라우드 manifest pending48/complete=false로 전환하지 않았다. 카드 다운로드/업로드 보류와 실제 금융/보험/실기기 수락 경계를 유지했다.
+- 문서 후속은 재배포·DB 확인·서비스 재시작을 요구하지 않는다. 합성 query 감소 5→3회는 실제 운영 SLA가 아니며, R5 제품 삭제와 전면 컨트롤러 축소·문서 history 정리를 완료로 표시하지 않는다.
+
 ## 2026-10-30 숲나들e 정규 관측 적재·수집 코드 전환
 
 - [PR #368](https://github.com/6Soo/cost/pull/368)을 정상 병합하고 `d09596d0242416af2889b4a0514abd0509c60561`을 고정 배포했다. 이전 검증 릴리스 `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`과 복구 사본을 보존한다. 코드 배포, 운영 관측 적재, MailCollect 전환을 별도 검증했다.
@@ -539,9 +546,3 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 두 행의 실제 교정은 별도 소수 교정 경계에서 source/revision/digest 및 단일 DB 트랜잭션을 검증하고 기존 거래/장부/화면 귀속을 함께 수정했다. 변경 전 값과 에이전트 근거를 기록했다. 실시간 Gmail의 결제/확정·같은 주문 PDF 영수증 확인을 사용자 확인으로 위장하지 않는다. 원본·금액·날짜·ID·범위 밖 행·기존 수동/금융/이력·스키마 불변, 새 장부행/금융 링크/Google 쓰기 0, 재요청 무쓰기 PASS. 사본 검증의 첫 카운터 오탐은 실제 적용 전에 교정했으며 실패를 통과로 세지 않는다.
 - 결합 99 passed·호스트 합성 3 PASS. 배포본 1,126 blobs 일치·새 백업/별도 복원·task/process SHA·listener 1·health/ready 200·보호 API 401·보호 13표 코드 배포 전후 불변. 이후 인증 Aside 카드 상세 GET 2건으로 귀속/항목 표시 수락. Board/SourceRefresh Running. 전체 회귀·실기기는 미실행이다.
 - 근거는 `.local-archive/classification-correction-20261030/`와 호스트 `D:/WebLedgerHost/releases/deploy-evidence-bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21.json`이다. 이전 검증 `a69c0ae7389789a65d2ed01f3028c0348f52eb1f` 복구점을 보존했다. 카드 수집/업로드는 사용자 요청으로 보류했다. 후속 문서 변경만으로 재배포/재시작하지 않는다.
-## 2026-10-30 미결 구현·PR370 단계 통합 배포
-
-- 정상 병합 PR #371~#375의 최종 운영 SHA는 `10b95b802c879e83dd93d9030aa333f7f348cf38`이다. 이전 검증 릴리스 `d09596d0242416af2889b4a0514abd0509c60561`을 보존했다. [현재 상태](session_handoff.md)와 [실행 인덱스](specs/all-pending-execution-20261030.md)에 구현·부분 수락을 구분했다.
-- Git 고정 릴리스 1,154 blobs 불일치0, 새 운영 백업/별도 복원, task/process SHA 일치, 단일 loopback listener, health/ready200, 보호 API401, 보호13표 배포 전후 불변 PASS. `D:/WebLedgerHost/releases/deploy-evidence-10b95b802c879e83dd93d9030aa333f7f348cf38.json` 및 통합 worktree `.local-archive/all-pending-luna-20261030/deploy/`에 근거를 보관했다. Board/SourceRefresh 정상 복구. 금융 적용·원문 재처리·Google 쓰기는 실행하지 않았다.
-- Aside 인증 `/cards/all`에서 단일 수동 테마·문서 가로 overflow 없음·내부 분류 코드 비노출을 확인했다. 참가자 상태 API200, configured=false/complete=false는 준비된 실제 명단 저장소가 없다는 미완료 근거다. 클라우드 manifest pending48/complete=false로 전환하지 않았다. 카드 다운로드/업로드 보류와 실제 금융/보험/실기기 수락 경계를 유지했다.
-- 문서 후속은 재배포·DB 확인·서비스 재시작을 요구하지 않는다. 합성 query 감소 5→3회는 실제 운영 SLA가 아니며, R5 제품 삭제와 전면 컨트롤러 축소·문서 history 정리를 완료로 표시하지 않는다.
