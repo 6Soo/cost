@@ -28,7 +28,6 @@ def completion_for_row(row, valid, *, nets=None):
     reasons = []
     trip = row.get('trip_id') or row.get('display_tab_id') or ''
     source = row.get('classification_source') or ''
-    basis = str(row.get('classification_basis') or '')
     manual = bool(row.get('decided_at')) or source in {'user_decision', 'user_exception', 'manual'}
     if row.get('classification_state') != 'classified' or not row.get('item'):
         reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
@@ -42,20 +41,11 @@ def completion_for_row(row, valid, *, nets=None):
     if (row.get('trip_id') in valid and row.get('display_tab_id') in valid
             and row['trip_id'] != row['display_tab_id']):
         reasons.append('TRIP_ASSIGNMENT_CONFLICT')
-    provisional = ('provisional' in basis.casefold() or '잠정' in basis
-                   or row.get('provisional_assignment')
-                   or str(row.get('classification_state')).upper() == 'AUTO_PROVISIONAL')
-    if provisional:
-        reasons.append('PROVISIONAL_CLASSIFICATION')
     if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
         reasons.append('SOURCE_UNRESOLVED')
-    if not manual:
-        automatic = source in {'inference', 'AUTO_INFERRED', 'upload_confirmed'}
-        if automatic:
-            if not (basis.startswith('AUTO_INFERRED') or 'upload_confirmed' in source):
-                reasons.append('AUTO_EVIDENCE_MISSING')
-            if any(marker in basis.casefold() for marker in ('tie', 'conflict', '동률', '충돌')):
-                reasons.append('AUTO_WINNER_TIE_OR_CONFLICT')
+    if source in {'rule_conflict', 'inference_conflict', 'travel_location_hold',
+                  'booking_evidence_needed', 'manual_hold'}:
+        reasons.append('CLASSIFICATION_SOURCE_CONFLICT')
     return {'transaction_id': row['transaction_id'], 'complete': not reasons,
             'mode': 'manual' if manual else ('auto' if not reasons else 'unresolved'),
             'blocked_by': reasons}

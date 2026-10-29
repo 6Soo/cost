@@ -23,13 +23,17 @@ def test_low_confidence_supported_auto_assignment_completes_and_manual_lock_is_r
     assert completion_for_row(manual, TRIPS)['mode'] == 'manual'
 
 
-def test_provisional_missing_trip_conflict_and_invalid_source_do_not_complete():
-    assert 'PROVISIONAL_CLASSIFICATION' in completion_for_row(
-        row(classification_basis='AUTO_PROVISIONAL · trip-a'), TRIPS)['blocked_by']
+def test_saved_classification_is_not_reopened_by_candidate_wording():
+    for basis in ('AUTO_PROVISIONAL · trip-a', 'AUTO_INFERRED · 동률 후보',
+                  'AUTO_INFERRED · 충돌 후보', 'AUTO_INFERRED · 낮은 신뢰도'):
+        assert completion_for_row(row(classification_basis=basis), TRIPS)['complete']
+
+
+def test_invalid_trip_and_structured_source_conflict_remain_blocked():
     assert 'TRIP_INVALID_OR_MISSING' in completion_for_row(row(trip_id='deleted'), TRIPS)['blocked_by']
-    assert 'AUTO_WINNER_TIE_OR_CONFLICT' in completion_for_row(
-        row(classification_basis='AUTO_INFERRED · 동률 후보'), TRIPS)['blocked_by']
     assert 'SOURCE_UNRESOLVED' in completion_for_row(row(conflict_reason='ambiguous'), TRIPS)['blocked_by']
+    assert 'CLASSIFICATION_SOURCE_CONFLICT' in completion_for_row(
+        row(classification_source='inference_conflict'), TRIPS)['blocked_by']
 
 
 def test_transaction_nature_and_trip_conflict_are_required():
