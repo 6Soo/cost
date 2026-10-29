@@ -1,5 +1,14 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 PR #314 Luna low 병렬 구현·환불 재전송·분류 완료 표시
+
+- **COMPLETE:** 사용자 지정 `codex/gpt-6-luna`·`low` 작업자3명에게 환불 재전송·추론 경로·화면 표시를 분리 위임하고 Supervisor가 실제 diff 검수·추가 보호 수정·통합·배포를 맡았다. [PR #314](https://github.com/6Soo/cost/pull/314) 검수 소스 `cf3670606107c61a08e1e1232c35a3f23fcfbb73`와 운영 고정 `9b190e9a70511581629f4378290220512358b48c`의 tree 동일. 추론 작업자의 모든 취소를 환불 탭으로 보내는 변경은 검수에서 거부하고 완전 철회(diff0)했다. 완료된 추론 엔진을 재구현하거나 실제 카드 분류를 다시 실행하지 않았다.
+- **수정:** 환불쌍 내부 기록 성공 후 같은 digest/새 요청ID 재전송이 잘못 실패하던 기존 baseline 결함을 해결했다. 잠금 안에서 정확한 성공 요청 범위·성공 직후 미리보기·전체 멤버 revision·실제 장부 fingerprint를 재검증한 경우만 applied0으로 반환한다. 부분 기기록 묶음을 완성한 뒤의 반복도 지원한다. 원본/장부 금액·사용자 결정·묶음 멤버 변경·명시 보류·임의 digest는 차단한다. 과거 성공 증명 없는 응답을 추정으로 허용하지 않는다.
+- **화면:** 빈 여행 이력을 사용자 미배정 의도로 표시하지 않는다. 정상 환불 탭은 분류 완료이고 환불 선택값·미배정 필터도 일치한다. 금융/사용자 보류는 별도로 표시하고 교정/금융 쓰기 보호를 유지한다. 자동 추론 여행을 수동 교정 출처·규칙 학습 근거로 취급하지 않는다. OTA 읽기 전용 투영도 같은 출처 규칙을 적용하며 실제 수동 여행·금융 exact/manual link는 보존한다.
+- **검증:** 통합 환불/부분환불/화면54 passed, 인접 자동기록/환불표시30 passed, 최종 화면/OTA출처17 passed(합성 browser 포함), OTA 권한/수동연결4 passed/35 deselected, 실제 수동 여행을 다른 후보보다 우선하는 강화 검사3 passed. 실행 간 중복이 있어 합산 전체 회귀가 아니다. 변경 Python6개·호스트 Python 런타임3개 compile, diff/문서 링크, 데이터 guard8파일 차단0/삭제0, 선택기 미매핑0. 영향이 없는 전체 회귀는 반복하지 않았다.
+- **운영 수락:**1,098 Git blobs 불일치0·fresh 전체 백업/별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호13표 내용/스키마 전후 동일. trip-review GET와 환불그룹 commit POST를 포함한 보호API는 비인증401. Board/SourceRefresh 모두 Running. 직전 검증 `a1b1dcaf21d5398ed3519a402191d0129173a6f7` 복구점과 새 백업/복원 사본 보존. 금융 재처리·Google 쓰기·마이그레이션 미실행.
+- **증거/정리:** 호스트 같은 SHA의 release-audit/deploy-evidence, 로컬 `.local-archive/deploy-9b190e9a70511581629f4378290220512358b48c/`와 `.local-archive/luna-followups-20261029/validation.json`. 최종 커밋·clean·stash/사용 참조 확인 후 생성한 managed workspace3개를 공식 보관했고 디렉터리 제거까지 확인했다. 결과는 `refs/archive/20261029/luna-*`로 보존했고 사용자 workspace·미추적 파일·기존 stash는 그대로다. 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-10-29 PR #312 미분류 카드 자동추론과 203건 재분석·실제 적용
 
 - **코드·배포 COMPLETE:** [PR #312](https://github.com/6Soo/cost/pull/312), 운영 고정 `a1b1dcaf21d5398ed3519a402191d0129173a6f7`, 검수 소스 `f11b447e8970934985bf4f953801edc078762d71`와 merge tree 동일. 업종→서비스 용도→현지경비/기타경비 공통 규칙과 실제 여행의 최선 후보·동률 해소를 마지막 분류 단계로 연결했다. OTA 자료 읽기 실패도 비용 미분류로 남기지 않으며 미래 업로드에 같은 코드를 사용한다. 확정 단계를 추가하지 않는다.
