@@ -1006,34 +1006,21 @@ def _google_match_annotations(tab_id, rows):
     if board.current_role() != 'owner' or not tab_id or tab_id == 'unclassified' or not rows:
         return {}
     try:
-        from . import google_ledger_page as google
-        if not google.enabled():
-            return {}
-        path = google.snapshot_path()
-        mapping = google.load_mapping(path)
-        keys = [key for key, linked in mapping.items() if linked == tab_id]
-        if len(keys) != 1:
-            return {}
-        snapshot, private_rows = google.google_authority.load_consistent(path, google.rows_path())
-        payload = google.owner_payload(google.snapshot_for_display(snapshot), google.load_choices(path))
-        trips = [trip for trip in payload.get('trips', []) if trip.get('key') == keys[0]]
-        if len(trips) != 1:
-            return {}
-        trip = trips[0]
-        source = trip.get('chosen_source')
-        source_state = (payload.get('sources') or {}).get(source) or {}
-        copy = (trip.get('copies') or {}).get(source) or {}
-        if (source not in ('main', 'archive') or source_state.get('status') != 'ok'
-                or source_state.get('stale') or copy.get('layout') != 'rev'
-                or not (copy.get('expense') or {}).get('verified')
-                or set(trip.get('review') or []) & google.OWNER_CHOICE_BLOCKERS):
-            return {}
-        detail = google.owner_rows(private_rows, keys[0], source)
-        if detail is None:
-            return {}
-        matches = _google_expense_matches(detail.get('expense') or [], rows)
-        return {rows[index].get('row_id'): value for index, value in matches.items()
-                if rows[index].get('row_id')}
+        from .sheet_expense_reconciliation import preview_for_trip
+        result = preview_for_trip(board._active_store(), tab_id, cost_rows=rows)
+        by_id = {item['transaction_id']: item for item in result.get('results', [])}
+        labels = {'MATCHED_MANUAL': '이미 수기로 기록됨 · 새 행 추가 안 함',
+                  'MATCHED_EXISTING': '기존 연결 확인 · 새 행 추가 안 함',
+                  'REVIEW_CONFLICT': '중복 가능성 확인 필요',
+                  'SOURCE_UNAVAILABLE': '시트 확인 불가 · 복사 보류'}
+        annotations = {}
+        for row in rows:
+            item = by_id.get(str(row.get('source_event_id') or row.get('row_id') or ''))
+            if item and item.get('status') in labels:
+                annotations[row['row_id']] = {
+                    'multiple': item['status'] == 'REVIEW_CONFLICT',
+                    'reasons': item.get('basis') or [], 'label': labels[item['status']]}
+        return annotations
     except (SnapshotError, AttributeError, KeyError, OSError, TypeError, ValueError):
         return {}
 
@@ -1059,7 +1046,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
         match_description = ''
         match_class = ''
         if match:
-            label = ('복수 후보 확인 필요' if match['multiple'] else
+            label = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                      '금액+' + '+'.join(match['reasons']))
             hint_id = 'google-match-' + str(rid)
             match_class = ' class="google-match-candidate"'
@@ -1154,7 +1141,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             cls += ' google-match-candidate'
         match_hint = ''
         if match:
-            reason = ('복수 후보 확인 필요' if match['multiple'] else
+            reason = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                       '금액+' + '+'.join(match['reasons']))
             match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
                           f"{board.esc(reason)}</span>")
@@ -1501,7 +1488,8 @@ def tsv_for_trip_expenses(tab_id: str, query: str = "", kind: str = "") -> dict:
     if not _is_trip_tab(tab_id):
         raise ValueError("INVALID_TRIP_TAB")
     _, expenses, _, _ = _selected_rows(tab_id, query, kind)
-    return _trip_expense_tsv(tab_id, expenses)
+    from .sheet_expense_reconciliation import export_for_trip
+    return export_for_trip(board._active_store(), expenses, tab_id)
 
 
 def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
@@ -1532,10 +1520,11 @@ def _trip_copy_html(tab_id: str, expenses: list) -> str:
     return (
         f"<section class='trip-copy-wrap' aria-label='지출내용 복사'>"
         f"<div class='trip-copy-box'>"
-        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}'>"
+        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'>"
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
         f"</button>"
-        f"<span class='trip-copy-desc'>현재 표시된 지출을 Google 7열(B:H)로 복사합니다 ({count}건 · {_money(total)}{held})</span>"
+        f"<span class='trip-copy-desc'>수기 지출과 대조 후 신규 지출만 복사합니다 (대조 대상 {count}건 · {_money(total)}{held})</span>"
+        f"<a class='btn' href='/google-ledger/expense-reconciliation?trip={urllib.parse.quote(tab_id, safe='')}'>수기 지출 대조</a>"
         f"<span class='copy-status' id='copy-status' role='status' aria-live='polite'></span>"
         f"</div>"
         f"</section>"

@@ -3380,6 +3380,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         resolve_role(self.headers, self._cookies())
         from . import google_ledger_page as _gl
+        from . import sheet_expense_review
+        if sheet_expense_review.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
+            return
         if _gl.owns_route(parsed.path):
             # Decided here, for every access setting: with enforcement off the caller is nobody, so the
             # Google routes answer 403 rather than falling through to the owner's board.
@@ -3797,6 +3800,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # The write gates below read the session this request resolved, never a leftover from another one.
         resolve_role(self.headers, self._cookies())
+        from . import sheet_expense_review
+        if sheet_expense_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
+            return
         from . import rule_review
         from . import card_flow as _card_flow_switch
         if _card_flow_switch.enabled() and rule_review.owns_route(parsed.path):

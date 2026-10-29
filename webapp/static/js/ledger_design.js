@@ -492,7 +492,16 @@ document.addEventListener('keydown',function(e){
     var filters=new URLSearchParams(location.search);
     var params=new URLSearchParams();
     ['q','kind'].forEach(function(key){if(filters.has(key)) params.set(key,filters.get(key));});
-    var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv?'+params.toString());
+     var check=await fetch('/api/google-ledger/expense-reconciliation?trip='+encodeURIComponent(tab));
+     var preview=await check.json();
+     if(!check.ok||!preview.source_available) throw new Error(preview.message||'Google 원본을 확인하지 못했습니다. 동기화 후 다시 복사해 주세요.');
+     var res=await fetch('/api/google-ledger/expense-reconciliation',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':btn.getAttribute('data-csrf')||''},
+      body:JSON.stringify({action:'export',scope:'board',trip_id:tab,expected_revision:preview.links_revision,
+       preview_digest:preview.preview_digest,request_id:'export:'+crypto.randomUUID(),
+       query:filters.get('q')||'',kind:filters.get('kind')||''})
+     });
     if(!res.ok){
      var errJson=await res.json().catch(function(){return {};});
      throw new Error(errJson.message||('복사 요청 실패 ('+res.status+')'));
