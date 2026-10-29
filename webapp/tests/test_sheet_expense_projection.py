@@ -238,6 +238,32 @@ def test_adc_recheck_uses_only_configured_authenticated_fetcher(sources, monkeyp
     assert len(called) == 1 and SHEET_ID in called[0]
 
 
+def test_archive_selection_rechecks_archive_without_cross_source_fallback(sources, monkeypatch):
+    archive_id = ga.SPREADSHEET_IDS['archive']
+    snapshot = json.loads(sources.read_text(encoding='utf-8'))
+    trip = snapshot['trips'][0]
+    trip['canonical_source'] = 'archive'
+    trip['copies']['archive'] = {**trip['copies']['main'], 'sheet': archive_id}
+    trip['copies']['main'] = None
+    sources.write_text(json.dumps(snapshot), encoding='utf-8')
+    rows_path = sources.with_name('google-rows.json')
+    rows = _rows_doc()
+    rows['sources']['main']['trips'] = {}
+    rows['sources']['archive']['trips'] = {GOOGLE_KEY: rows['sources']['main']['trips'].get(GOOGLE_KEY) or {
+        'income': [], 'expense': [{'row': 12, 'cells': {
+            'B': '2026-10-10', 'C': 'Synthetic Cafe', 'D': 'Food', 'E': '', 'F': '', 'G': 'Card'},
+            'amount': 12000}]}}
+    ga._rows_file(rows_path, 'generation-a').write_text(
+        json.dumps(rows), encoding='utf-8')
+    requested = []
+    monkeypatch.setattr(ga, '_download', lambda url, **kwargs: requested.append(url) or b'archive')
+    monkeypatch.setattr(ga, 'parse_workbook', lambda data, rollover: [_live_tab()])
+    result = export_for_trip(Board(), [_cost()], TRIP_ID)
+    assert result['source_available'] is True
+    assert len(requested) == 1 and archive_id in requested[0]
+    assert ga.SPREADSHEET_IDS['main'] not in requested[0]
+
+
 def test_normalize_board_expenses_preserves_receipt_and_stable_source_identity():
     rows = normalize_cost_rows(None, [dict(_cost(), transaction_id='', source_event_id='event-a',
         row_id='row-a', evidence_type='receipt', display_amount_krw=-20,

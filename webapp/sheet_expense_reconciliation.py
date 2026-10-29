@@ -269,6 +269,7 @@ def export_for_trip(board, preview_rows, trip_id):
         return {'tsv': '', 'row_count': 0, 'total_krw': 0, 'held': held,
                 'reconciliation': _public_preview(fresh), 'source_available': False, 'matched': [],
                 'held_results': held}
+    rows = list(fresh.get('_cost_rows') or ())
     from app.google_authority import EXPORT_URL, SPREADSHEET_IDS, parse_workbook, SourceError
     from app.sheet_expense_dedup import _fingerprint
     source = fresh['source_info']['source']
@@ -315,7 +316,6 @@ def export_for_trip(board, preview_rows, trip_id):
         return {'tsv': '', 'row_count': 0, 'total_krw': 0, 'held': held,
                 'reconciliation': unavailable, 'source_available': False, 'matched': [],
                 'held_results': held}
-    rows = list(fresh.get('_cost_rows') or ())
     # Preserve duplicate IDs/multiplicity so the TSV adapter can reject them.
     by_id = {}
     for row in rows:
