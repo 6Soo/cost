@@ -1,5 +1,13 @@
 # 현재 상태와 남은 일
 
+## 2026-10-29 보존 분류 상태 제거
+
+- COMPLETE — 사용자 “보존이라는 상태가 필요해? 필요없으면 제거해”에 따라 카드 업무 상태 `preserved`의 생성과 상태별 분류/조회/여행 검토/OTA 대사/취소 정산 제외 조건을 제거했다. [PR #354](https://github.com/6Soo/cost/pull/354), 구현 `a44c38c`, 운영 SHA `3c8c970da271b665feb99a89fad661b7399ef6d7`. 과거 상태와 미배정 사유만으로 일반 추론을 건너뛰지 않는다. 항목/여행은 일반 규칙을 적용하고 화면/전기 미리보기의 명시적 기간 필터는 유지한다. 원본·금액·ID·이력·사용자 결정·중복·환불·보류 보호를 유지한다.
+- 운영 읽기 전용 확인: 전체6,395건 classified, preserved0·user_completed_period 출처0·조회 쓰기0. 변환할 기존 상태가 없어 마이그레이션·운영 재분류·금융/여행/Google 쓰기를 수행하지 않았다. 이번 상태 제거는 과거 개별 거래의 P2 근거 검토나 여행 귀속 재검토 완료를 뜻하지 않는다. 이전 “전체 classified이므로 P2 완료” 설명의 근거 한계를 유지한다.
+- 검증: 초기 분류/과거/OTA/정리71 passed, 신규 조회 회귀 포함 최종 과거/분류54 passed, 추가 legacy/manual 환불3 passed. 인접 여행/카탈로그/규칙/항공/owner60 passed, CardFlow 표적16 passed/3 subtests, pipeline/부분환불/회사비용79 passed, 최종 환불 원자 기록12 passed, 취소 정산/환불UI9 passed. 실행 간 중복은 합산하지 않는다. OTA history 실패1건은 기준f96cd8f에서도 동일 재현했고 통과로 세지 않았다. Python compile·diff·staged metadata guard 차단0/삭제0. 전체 회귀·실기기/인증 owner 화면은 미실행이다.
+- 배포: 검수 tree와 merge tree 동일·1112 Git blobs 불일치0·새 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·보호API/카드 summary/years401·보호13표 불변·Board/SourceRefresh Running. 호스트 venv의 합성 과거/legacy 분류·일반 추론 동일성·기간 필터·원본/금액/ID 불변·장부 쓰기0 확인. 최초 합성 도구의 잘못된 import는 public app.Pipeline으로 교정 후 통과했다. 존재하지 않는 과거 인계의 테스트 파일은 수집 실패로 남기고 실제 환불 검사로 검증했다.
+- 근거: `.local-archive/remove-preserved-20261029/`의 checkpoint/XML/runtime_smoke/card-auth-smoke와 `.local-archive/deploy-3c8c970da271b665feb99a89fad661b7399ef6d7/`, 호스트 동일SHA release-audit/deploy-evidence. 기존 공유 workspace·사용자 변경 보존. 현재 상태 제거 요청의 남은 작업·차단0, 다음 명령 없음. 문서 후속만으로 재검사·재배포·재시작하지 않는다.
+
 ## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
 
 - COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.

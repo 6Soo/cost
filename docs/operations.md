@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 보존 분류 상태 제거 배포
+
+- [PR #354](https://github.com/6Soo/cost/pull/354), 구현a44c38c·운영 SHA `3c8c970da271b665feb99a89fad661b7399ef6d7`. 과거 카드에 preserved 상태를 생성하거나 해당 상태로 분류/조회/여행 검토/대사를 제외하지 않는다. 원본/수동 결정/금융 보호와 명시적 조회 기간 필터는 유지한다. 상세 최신 계약은 [금융 명세](specs/finance.md)에 기록했다.
+- 검수 tree=merge tree,1112 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API와 카드 summary/years401·보호13표 내용/스키마 불변·Board/SourceRefresh Running. 호스트 venv 합성 과거/legacy 분류·일반 추론·기간 필터·원본/금액/ID 불변과 장부쓰기0 PASS. 이전 검증f9b71d2 릴리스와 복구 사본 보존.
+- 운영 사전 readonly: classified6395·preserved0·legacy 완료기간 출처0·쓰기0. 운영 마이그레이션/재분류·금융/여행/Google 쓰기0. 상태 제거를 개별 P2 재검토 완료로 표현하지 않는다. 분류/OTA/조회·여행·환불/원자성 표적 근거는 현재 상태와 로컬 checkpoint에 기록했다. OTA history1 실패는 기준f96cd8f에서 재현했고 전체 회귀/실기기/인증 owner 수락은 미실행이다.
+- 근거: `.local-archive/remove-preserved-20261029/`, `.local-archive/deploy-3c8c970da271b665feb99a89fad661b7399ef6d7/`, `D:/WebLedgerHost/releases/deploy-evidence-3c8c970da271b665feb99a89fad661b7399ef6d7.json`. 문서 후속만으로 재배포·재시작하지 않는다.
+
 ## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
 
 - COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.
