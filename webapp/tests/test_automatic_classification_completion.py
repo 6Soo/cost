@@ -42,6 +42,20 @@ def test_weak_ties_and_missing_dates_complete_using_only_actual_trips():
     assert policy.infer_trip({}, [])[0] == ''
 
 
+def test_preserved_history_does_not_borrow_a_different_year_trip(setup):
+    board, _, _, rows = setup
+    board.conn.execute("UPDATE transactions SET classification_state='preserved',approval_date='2025-10-03'")
+    board.conn.commit()
+    preview = policy.plan(board.conn, TRIPS)
+    assert preview['summary']['to_classify'] == len(rows)
+    policy.apply(board.conn, preview, TRIPS)
+    completed = board.conn.execute('SELECT classification_state,item,trip_id,classification_basis FROM transactions').fetchall()
+    assert all(state == 'classified' and item and not trip and '등록된 유효 여행 없음' in basis
+               for state, item, trip, basis in completed)
+    assert policy.plan(board.conn, TRIPS)['summary']['to_classify'] == 0
+    assert policy.infer_trip({'classification_state': 'preserved', 'approval_date': '2026-10-03'}, TRIPS)[0] == 'A'
+
+
 def test_3820_owner_policy_precedes_generic_trip_inference():
     singapore = [dict(trip_id='SG', starts_on='2026-09-19', ends_on='2026-09-24', destination='싱가포르')]
     row = dict(card_tail='3820', transaction_direction='purchase', transaction_kind='purchase',
