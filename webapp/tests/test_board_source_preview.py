@@ -188,7 +188,7 @@ class MatchingTests(BoardBase):
         markup = self.preview()
         self.assertIn("실제 원천 자료", markup)
         self.assertIn("입금과 지출", markup)
-        self.assertIn("저장된 장부 합계와 별도로", markup)
+        self.assertNotIn("저장된 장부 합계와 별도로", markup)
 
     def test_the_review_link_carries_the_exact_sheet(self):
         self.use_service(FakeService([
