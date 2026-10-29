@@ -1,5 +1,14 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 PR #316 프로젝트 미결 병렬 구현·검증 경계 배포
+
+- **DEPLOYED:** Luna low6명에게 보험/참가자/메일/여행 구조/화면/실패 진단을 위임했다. 429·capacity로 중단한3개 구현과 추가 진단은 Supervisor가 실제 파일을 인계해 수리·검수했다. 미완성 WIP를 그대로 병합하지 않았다. [COST PR #316](https://github.com/6Soo/cost/pull/316) 소스 `a6b73ae5c01403c0ff41ea133bf0a9cec5100b0e`와 운영 `1beba48bdd4f0aa20999326689d7c766c921c576` tree 동일. 별도 [Travel INS PR #10](https://github.com/6Soo/travel_ins/pull/10)은 main `ec2b73300fe1dbe8c62d958282c929ef3bd80f6a`에 병합됐고 실제 pause→실제 등록 함수 경계 합성 검사를 포함20 passed다. 실제 보험 가입/결제/명단 전송은 실행하지 않았다.
+- **변경:** readonly 참가자 DB 경로/파일 identity/schema/등록 영수증 대조와 명시 웹DB 불일치 선차단, 수집 미완료 시 batch/일반 apply 차단, digest/coverage/건수 기반 오프라인 전환 preview를 구현했다. preview는 운영 전환을 승인하지 않는다. 여행권위·소매·숙박3메서드 추출은 실행 AST동일성과 기존 동적 callback을 보존한다. OTA 공통 토큰·44px·좁은폭·포커스를 적용했다. 진단 도구는 parameter/subtest 원문을 감추고 PowerShell UTF-16 로그를 읽으며 collection-only/기존 실패를 pass로 숨기지 않는다.
+- **검증:** 참가자/수입/패널66 passed, 금융/환불/정확OTA/권한105 passed, CardFlow/OTA96 passed+28subtests, 여행/자동분류23 passed, cloud/진단41 passed, runtime/entrypoint33 passed, OTA API39 passed,4폭·2테마·2배율 합성 디자인4 passed, 최종 참가자5 passed/진단7 passed. 중복이 있어 합산 전체 회귀가 아니다. 추가 shell/assets/카드/OTA browser는30 passed/11 failed/18subtests이며 격리 기준8cfe391에서도 동일11 실패node/subcase를 재현했다. 폐기된 추가 기록/수동질문·배치/문구 기대와 canonical snapshot 준비 문제를 별도 실패로 기록했다. 제품 금융 보호는 완화하지 않았다. guard19파일 차단0/삭제0·미매핑0·Python compile·diff검사 통과.
+- **운영 수락:**1,107 Git blobs 일치, 새 전체 백업·별도 복원, task/process SHA, 단일 loopback listener, health/ready200, 참가자 state/trip-panel·OTA groups/summary 등 비인증 보호API401,13표 내용·스키마 전후 동일. Board/SourceRefresh Running. 직전 검증 `9b190e9a70511581629f4378290220512358b48c` 복구점 보존. 실제 분류/금융 재처리·마이그레이션·Google 쓰기0.
+- **미완료/재개 조건:** manifest readonly 재확인 `2026-10-29T01:58:27Z`는3,710 stored/48 pending/has_next_page=true다. pending0·다음페이지 없음·query없음·last_complete 존재 후에만 전환 자료 gate 재개. 보험 전달 구성의 참가DB가 없어 DB 동일성/실등록 영수증·운영 참가자/수입 화면 수락은 미완료다. 외부 원결제 증빙 부족 거래·전체 리팩토링/전체 화면 수락/전체 회귀도 이번 배포만으로 완료하지 않는다.
+- **증거:** `.local-archive/wide-pending-20261029/validation.json`·baseline-browser.txt/xml·cloud-manifest-recheck.json·participant-*.json, `.local-archive/deploy-1beba48bdd4f0aa20999326689d7c766c921c576/`의 review/protection-before/protection-after/deploy-evidence/affected-path-smoke JSON, 호스트 같은SHA release-audit/deploy-evidence. 작업자6개 managed workspace는 clean·보존ref 확인 후 공식 archive/디렉터리 제거했고 사용자 미추적 자료·stash는 보존했다. 문서 후속만으로 재배포/DB 확인/서버 재시작하지 않는다.
+
 ## 2026-10-29 PR #314 Luna low 병렬 구현·환불 재전송·분류 완료 표시
 
 - **COMPLETE:** 사용자 지정 `codex/gpt-6-luna`·`low` 작업자3명에게 환불 재전송·추론 경로·화면 표시를 분리 위임하고 Supervisor가 실제 diff 검수·추가 보호 수정·통합·배포를 맡았다. [PR #314](https://github.com/6Soo/cost/pull/314) 검수 소스 `cf3670606107c61a08e1e1232c35a3f23fcfbb73`와 운영 고정 `9b190e9a70511581629f4378290220512358b48c`의 tree 동일. 추론 작업자의 모든 취소를 환불 탭으로 보내는 변경은 검수에서 거부하고 완전 철회(diff0)했다. 완료된 추론 엔진을 재구현하거나 실제 카드 분류를 다시 실행하지 않았다.
