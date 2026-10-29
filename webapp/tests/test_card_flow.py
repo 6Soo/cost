@@ -605,18 +605,20 @@ class CardFlowTests(unittest.TestCase):
         (Path(self.tmp.name)/'ota-sources.json').write_text(json.dumps({
             'schema_version':'ota-sources-v1', 'mail_directories':[str(mail_dir)],
             'portal_databases':[]}), encoding='utf-8')
-        report = {
-            'matches':[{'transaction_id':row['transaction_id'], 'source_hash':row['source_hash'],
-                        'reservation_status':'confirmed'}],
-            'type_only_candidates':[], 'unmatched_transactions':[],
-        }
-        with patch('app.ota_mail.match_mail', return_value=report) as matcher:
-            first = self.flow.review_mail_evidence([row])
-            second = self.flow.review_mail_evidence([row])
+        report = {'matches': [], 'type_only_candidates': [], 'rules': [],
+                  'unmatched_transactions': [{'source_hash': row['source_hash'],
+                                             'reason': 'no_core_event'}]}
+        with patch.object(self.flow, '_compute_ota_report', return_value=report) as matcher:
+            with self.flow._ota_request_scope():
+                first = self.flow.review_mail_evidence([row])
+                second = self.flow.review_mail_evidence([row])
+            self.assertEqual(matcher.call_count, 1)
+            with self.flow._ota_request_scope():
+                self.assertEqual(self.flow.review_mail_evidence([row]), first)
         self.assertEqual(first, {row['source_hash']:{'mail_link_absent':True,
                                                     'link_diagnosis':'no_core_event'}})
         self.assertEqual(second, first)
-        self.assertEqual(matcher.call_count, 1)
+        self.assertEqual(matcher.call_count, 2)
 
     def test_worker_managed_card_page_does_not_parse_all_mail_under_request_lock(self):
         row = {'merchant': 'AGODA', 'source_hash': 'synthetic-source'}
@@ -625,7 +627,7 @@ class CardFlowTests(unittest.TestCase):
             evidence = self.flow.review_mail_evidence([row])
         self.assertEqual(evidence, {'synthetic-source': {'source_diagnostic': 'snapshot_managed'}})
         labels = _review_evidence_labels(row, evidence['synthetic-source'])
-        self.assertTrue(any('OTA 검토' in label for label in labels))
+        self.assertEqual(labels, ['예약 근거는 이 거래의 상세 근거에서 바로 확인할 수 있습니다'])
 
     def test_ota_resolution_statuses_come_from_one_fresh_snapshot(self):
         current = {'generation': 9, 'results': [
@@ -846,7 +848,8 @@ class CardFlowTests(unittest.TestCase):
         current = {'generation': 73, 'results': [result], 'data': {
             'events': [event], 'transactions': [row], 'links': {}, 'results': [result]}}
         current['public'] = ota_payment_review.public_snapshot({
-            'events': [event], 'cards_by_event': {'ota-synthetic': [row]}, 'proposals': []})
+            'events': [dict(event, card_candidate_count=1)],
+            'cards_by_event': {'ota-synthetic': [row]}, 'proposals': []})
         service = SimpleNamespace(held=lambda: (current, True))
         backend = SimpleNamespace(
             store=SimpleNamespace(group_pins=lambda: []), close=lambda: None,
@@ -875,8 +878,9 @@ class CardFlowTests(unittest.TestCase):
                                   if item['ota_event_id'] == 'ota-synthetic')
             self.assertEqual(ota_view['generation'], card['ota_snapshot_generation'])
             self.assertEqual(ota_event_view['paid_on'], current['public']['events'][0]['paid_on'])
-            self.assertEqual(ota_view['cards_by_event']['ota-synthetic'][0]['transaction_id'],
-                             row['transaction_id'])
+            self.assertEqual(ota_view['cards_by_event'], {})
+            self.assertEqual(ota_event_view['card_candidate_count'], 1)
+            self.assertEqual(current['data']['transactions'][0]['transaction_id'], row['transaction_id'])
             self.assertEqual(card['ota_link_status'], 'INFERRED')
             self.assertEqual(card['ota_snapshot_generation'], 73)
             self.assertEqual(card['display_tab_id'], trip)
@@ -897,14 +901,14 @@ class CardFlowTests(unittest.TestCase):
         from webapp import ota_payment_review
         header, source_line = CARD.splitlines(keepends=True)
         fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
-        fields[4], fields[5], fields[8] = 'TRIP.COM', '30000', '30000'
+        fields[4], fields[5], fields[8] = 'AGODA', '30000', '30000'
         csv_data = header + (','.join(fields) + '\n').encode('utf-8')
         trip = self.board.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
                                       destination='Synthetic stay trip', client_request_id='ota-inferred-trip')['tab_id']
         batch = self.flow.pipeline.receive(csv_data, 'ota-undated.csv')['batch_id']
         row = self.flow.pipeline.get_batch(batch)['rows'][0]
         source_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
-                               merchant='TRIP.COM', merchant_normalized='trip.com',
+                               merchant='AGODA', merchant_normalized='agoda',
                                approval_date='2026-08-01', amount_krw=30000,
                                card_tail='1234', ota_inference_eligible=True)
         event = ota_event('ota-undated-synthetic', paid_on=None,
@@ -915,7 +919,8 @@ class CardFlowTests(unittest.TestCase):
         data = {'events':[event], 'transactions':[source_card], 'links':{}, 'results':[result]}
         current = {'generation':91, 'data':data, 'results':[result]}
         current['public'] = ota_payment_review.public_snapshot({
-            'events': [event], 'cards_by_event': {event['ota_event_id']: [source_card]}, 'proposals': []})
+            'events': [dict(event, card_candidate_count=1)],
+            'cards_by_event': {event['ota_event_id']: [source_card]}, 'proposals': []})
         held_calls = []
         service = SimpleNamespace(held=lambda: (held_calls.append(91) or current, True))
         backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None,
@@ -945,8 +950,9 @@ class CardFlowTests(unittest.TestCase):
         reviewed = state['preview']['rows'][0]
         self.assertEqual(ota_view['generation'], reviewed['ota_snapshot_generation'])
         self.assertEqual(ota_view['events'][0]['ota_event_id'], event['ota_event_id'])
-        self.assertEqual(ota_view['cards_by_event'][event['ota_event_id']][0]['transaction_id'],
-                         row['transaction_id'])
+        self.assertEqual(ota_view['cards_by_event'], {})
+        self.assertEqual(ota_view['events'][0]['card_candidate_count'], 1)
+        self.assertEqual(current['data']['transactions'][0]['transaction_id'], row['transaction_id'])
         self.assertEqual(reviewed['display_tab_id'], trip)
         self.assertEqual(reviewed['ota_link_status'], 'INFERRED')
         self.assertEqual(reviewed['ota_snapshot_generation'], 91)
@@ -1164,17 +1170,19 @@ class CardFlowTests(unittest.TestCase):
         return dict(row, item='합성 비용', description='', display_tab_id='', trip_id='',
                     occurred_on=row['approval_date'], now='synthetic-now')
 
-    def test_same_approval_purchase_and_cancellation_both_reach_the_board(self):
+    def test_same_approval_purchase_and_cancellation_stay_distinct_under_financial_hold(self):
         batch = self.flow.pipeline.receive(PAIR, 'synthetic-pair.csv')['batch_id']
         rows = self.confirm_all(batch)
         self.assertEqual(sorted(row['amount_krw'] for row in rows), [-5800, 5800])
         self.assertEqual(len({row['transaction_id'] for row in rows}), 2)
-        self.assertEqual(self.commit(batch, 'commit-pair')['applied'], 2)
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 2)
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 2)
-        amounts = sorted(self.board_payload('card-' + row['transaction_id'])['amount_krw']
-                         for row in rows)
-        self.assertEqual(amounts, [-5800, 5800])
+        result = self.commit(batch, 'commit-pair')
+        self.assertEqual((result['applied'], result['already']), (0, 0))
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        preview = self.flow.state(batch)['preview']['rows']
+        self.assertEqual({row['blocked'] for row in preview}, {'refund_inferred'})
+        self.assertEqual({row['classification_state'] for row in preview}, {'classified'})
+        self.assertEqual(sorted(row['amount_krw'] for row in preview), [-5800, 5800])
 
     def test_same_card_and_approval_from_another_issuer_is_a_separate_transaction(self):
         batch = self.flow.pipeline.receive(
@@ -1184,8 +1192,13 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual({row['issuer'] for row in rows}, {'국민', '하나'})
         self.assertEqual({row['approval_number'] for row in rows}, {'58001111'})
         self.assertEqual(len({row['transaction_id'] for row in rows}), 4)
-        self.assertEqual(self.commit(batch, 'commit-issuers')['applied'], 4)
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 4)
+        result = self.commit(batch, 'commit-issuers')
+        self.assertEqual((result['applied'], result['already']), (0, 0))
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        preview = self.flow.state(batch)['preview']['rows']
+        self.assertEqual({row['blocked'] for row in preview}, {'refund_inferred'})
+        self.assertEqual({row['classification_state'] for row in preview}, {'classified'})
 
     def test_same_source_hash_with_different_ids_keeps_every_real_transaction(self):
         line = _no_approval_line(9100)

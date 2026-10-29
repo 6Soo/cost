@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.participant_roster import (  # noqa: E402
     ParticipantStore,
     RosterError,
+    default_db_path,
     mapping_resolver,
     register_roster,
 )
@@ -32,14 +33,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--batch-dir', type=Path, required=True,
                         help='manifest.json과 participants.json이 있는 배치 폴더')
-    parser.add_argument('--db', type=Path, required=True,
+    parser.add_argument('--db', type=Path, default=None,
                         help='참가 저장소 파일 (.local-archive 아래여야 합니다)')
+    parser.add_argument('--expected-web-db', type=Path,
+                        help='별도로 검증한 운영 웹 참가 DB 경로. 다르면 쓰기 전에 거부합니다')
     parser.add_argument('--mapping', type=Path,
                         help='google-tab-mapping.json 경로. 없으면 여행 연결을 보류합니다')
     parser.add_argument('--report', type=Path, help='결과를 저장할 JSON 경로')
     args = parser.parse_args()
 
-    destination = args.db.resolve()
+    destination = (args.db or default_db_path()).resolve()
+    if args.expected_web_db is not None and destination != args.expected_web_db.resolve():
+        print(json.dumps({'status': 'rejected', 'code': 'PARTICIPANT_DB_MISMATCH'}))
+        return 2
     archive = Path(__file__).resolve().parents[1] / '.local-archive'
     if archive.resolve() not in destination.parents:
         parser.error('참가 저장소는 저장소의 .local-archive 아래에 지정해야 합니다')

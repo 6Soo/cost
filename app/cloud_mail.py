@@ -45,6 +45,18 @@ def _original(content, message_id):
         raise CloudMailError("CLOUD_MAIL_ORIGINAL_INVALID")
 
 
+def _enumeration_complete(manifest):
+    """Completion watermarks never override a pending query or another page."""
+    watermark = manifest.get('last_complete')
+    if manifest.get('query') is not None or not isinstance(watermark, str) or not watermark.strip():
+        return False
+    pending = manifest.get('pending', [])
+    if pending not in ([], None):
+        return False
+    return (all(manifest.get(key) in (None, '') for key in ('nextPageToken', 'next_page_token'))
+            and manifest.get('has_next_page', False) is False)
+
+
 def _bounded_content(client, file_id):
     content = client.download(file_id, max_bytes=_MAX_BYTES)
     if not isinstance(content, bytes) or not content or len(content) > _MAX_BYTES:
@@ -132,11 +144,8 @@ def sync(client, directory, *, folder_id, expected_account, apply=False, batch_s
             raise CloudMailError("CLOUD_MAIL_LOCAL_CONFLICT")
         new_candidates.append((message_id, file, digest, target))
 
-    enumeration_complete = (
-        manifest.get("query") is None
-        and isinstance(manifest.get("last_complete"), str)
-    )
-    if apply and batch_size is not None and not enumeration_complete:
+    enumeration_complete = _enumeration_complete(manifest)
+    if apply and not enumeration_complete:
         raise CloudMailError("CLOUD_MAIL_ENUMERATION_INCOMPLETE")
 
     total_new = len(new_candidates)

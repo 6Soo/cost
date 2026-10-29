@@ -8,6 +8,12 @@
     "preflight_reads_secret_values": false
   },
   "entrypoints": [
+    {"path": "tools/verify_participant_runtime.py", "guard": "read_only",
+     "required_options": ["--db"], "default": "configured_paths_only_no_process_acceptance"},
+    {"path": "tools/verify_cloud_cutover_readiness.py", "guard": "read_only",
+     "required_options": ["--evidence"], "default": "offline_preview_no_cutover_authorization"},
+    {"path": "tools/classify_regression_failures.py", "guard": "read_only",
+     "required_options": ["--input"], "default": "log_summary_no_tests_executed"},
     {"path": "tools/verify_lightweight_runtime.py", "guard": "read_only",
      "cli": {"default": "legacy_live_read_only", "options": ["--live", "--preflight"]},
      "canonical": true,
