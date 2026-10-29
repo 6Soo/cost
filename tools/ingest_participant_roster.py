@@ -37,6 +37,8 @@ def main():
     parser.add_argument('--mapping', type=Path,
                         help='google-tab-mapping.json 경로. 없으면 여행 연결을 보류합니다')
     parser.add_argument('--report', type=Path, help='결과를 저장할 JSON 경로')
+    parser.add_argument('--apply', action='store_true',
+                        help='검증 후 참가 저장소에 기록합니다. 기본은 preview/read-only입니다')
     args = parser.parse_args()
 
     destination = args.db.resolve()
@@ -45,6 +47,13 @@ def main():
         parser.error('참가 저장소는 저장소의 .local-archive 아래에 지정해야 합니다')
     if not args.batch_dir.is_dir():
         parser.error('배치 폴더가 없습니다')
+
+    if not args.apply:
+        # Preview deliberately does not open/create SQLite. The batch parser and
+        # runtime identity checks are separate read-only operations.
+        print(json.dumps({'status': 'preview', 'db': str(destination),
+                          'would_write': True}, ensure_ascii=False))
+        return 0
 
     store = ParticipantStore.open(destination)
     try:
