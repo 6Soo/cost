@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 카드 3820 공통 자동분류 정책 배포
+
+- [PR #335](https://github.com/6Soo/cost/pull/335), 수정 `dc2aaf3`, 운영 SHA `78cb6ad4a7ead4ecaff39671eb0a32090b4c8021`. 공통 자동분류에 기존 싱가포르 기간 예외와 국내 잔여 매입의 거래일 기준 분기 기타비용 정책을 적용했다. 사용자 결정·완료 행·해외/날짜 불명·취소/환불 보호를 유지한다.
+- 정확한 Git archive의 자동분류 완료·3820 표적38 passed, 호스트 Python 합성5검사 PASS(2025년 거래의2025년4분기 포함). 호스트 pytest 부재로 개발 Python에서 archive를 검사했다. 초기 stdin 한국어 전달 실패는 UTF-8 파일 실행으로 해결했다. 기존 인접34 passed 재사용, 전체 회귀/실제 owner UI/실자료 재분류는 미실행이다.
+- 1110 blobs 일치·새 전체 백업/별도 복원·작업/프로세스SHA·단일loopback listener·health/ready200·OTA/환불/2025 카드 조회 보호401·13표 내용/스키마 동일. Board/SourceRefresh Running. 이전 검증 `dccd3af6d12a52a3f9eb50a647979527ac5cc1f7`과 복구 사본 보존. 실제 분류/금융/여행/Google 쓰기·마이그레이션·대량 재처리0.
+- 근거: `.local-archive/card3820-deployment-20261029/`, `.local-archive/deploy-78cb6ad4a7ead4ecaff39671eb0a32090b4c8021/`, 호스트 동일SHA release-audit/deploy-evidence. 기존 사용자 변경 보존. 후속 문서 변경으로 재배포/DB 확인/재시작하지 않는다.
+
 ## 2026-10-29 카드 행 이동·날짜/폭 압축 배포
 
 - [PR #331](https://github.com/6Soo/cost/pull/331), 운영 SHA `de2aada07320de57aee6935c7617f6d3102f017a`, 검수 소스 `4e8588a58eb262a2206fd5a7ce13a1bfe48f5292`와 tree 동일. ‘원본 보존’ 배지와 상세 열을 제거하고 행 셀 클릭으로 기존 상세 URL을 연다. 네이티브 가맹점 링크의 키보드/새 탭/JavaScript 없는 탐색·환불 링크 독립 동작·텍스트 선택 보호를 유지한다. 모바일4열·최소380px·셀5/4px이며 연도 선택 `3월 5일`, 월 선택 `5일`과 시간·원본 날짜/title을 표시한다.

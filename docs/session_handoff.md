@@ -1,5 +1,12 @@
 # 현재 상태와 남은 일
 
+## 2026-10-29 카드 3820 자동분류 충돌 수정·운영 배포
+
+- COMPLETE — [PR #335](https://github.com/6Soo/cost/pull/335), 수정 `dc2aaf3`, 운영 SHA `78cb6ad4a7ead4ecaff39671eb0a32090b4c8021`. 공통 자동분류에도 기존 3820 정책을 적용한다. 2026-09-19~24 유효한 싱가포르 여행 하나를 우선하고, 나머지 국내 매입은 거래일의 분기 기타비용으로 분류한다. 사용자 결정·완료 행과 해외/날짜 불명/취소·환불 보호를 유지한다.
+- 정확한 배포 archive에서 자동분류 완료·3820 Singapore/residual/reconcile 38 passed. 운영 Python 합성 smoke 5개 PASS(2025년 거래→2025년 4분기 포함). 운영 venv에는 pytest가 없어 개발 Python으로 archive를 검사했다. 최초 stdin smoke는 PowerShell 한국어 전달 손실로 실패했으며 UTF-8 파일 실행으로 교정했다. 이전 인접 34 passed 근거는 재사용했고 전체 회귀·실제 owner UI·실자료 재분류는 미실행이다.
+- 1110 Git blobs 불일치0·새 백업/별도 복원·task/process 고정 SHA·단일 loopback listener·health/ready200·OTA/환불/2025 카드 조회 비인증401·보호13표 내용/스키마 불변. Board/SourceRefresh Running. 이전 검증 `dccd3af6d12a52a3f9eb50a647979527ac5cc1f7`과 복구 사본 보존. 실제 분류/여행/금융/Google 쓰기·마이그레이션·대량 재처리0.
+- 근거: `.local-archive/card3820-deployment-20261029/`의 checkpoint/runtime-smoke/auth-smoke, `.local-archive/deploy-78cb6ad4a7ead4ecaff39671eb0a32090b4c8021/`와 호스트 동일 SHA release-audit/deploy-evidence. 기존 사용자 변경·미추적 파일 보존. 현재 요청의 남은 구현/배포·차단0이며 다음 명령은 없다. 후속 문서만으로 검사·재배포·재시작하지 않는다.
+
 ## 2026-10-29 최신 요청 — 원승인번호 없는 취소·환불 쌍 인정
 
 - 사용자 지시: 원승인번호는 취소·환불 쌍의 필수조건이 아니다. 동일 발급사·카드·가맹점·이용일·동액의 상호 유일 대응과 기존 카카오 계열/14일·외화 대응을 연결 완료로 인정한다. 자동 출처와 대조 근거를 표시하고 원승인번호 부재만으로 기록을 막지 않는다.
