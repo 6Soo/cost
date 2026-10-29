@@ -194,9 +194,7 @@ def render_refund_merchant_candidates(
         other_count = sum(item["count"] for item in inventory if item["family"] != "카카오택시")
         parts.append("<details class='cleanup-kakao-inventory'><summary>"
                      f"카카오·유페이 표기 점검 · 택시 {taxi_count}건 / 기타 {other_count}건"
-                     "</summary><p class='cleanup-evidence-meta'>현재 저장된 카드 원행의 가맹점 표기를 "
-                     "읽기 전용으로 집계합니다. 카카오페이·기타 서비스는 택시 후보에서 분리하며 "
-                     "원결제 매칭이나 계좌 출금 증거로 사용하지 않습니다.</p>")
+                     "</summary>")
         for item in inventory[:40]:
             group = "택시 표기" if item["family"] == "카카오택시" else "별도 서비스"
             parts.append(f"<p class='cleanup-evidence-meta'>{esc(group)} · "

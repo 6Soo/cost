@@ -77,7 +77,7 @@ def test_render_keeps_sources_and_displays_accepted_pair_without_reference(conte
     assert '원승인번호 기준 원결제 확정 연결' not in html
     assert '원결제와 환불을 함께 기록해야 합니다' not in html
     assert '원결제 연결을 확인할 수 없습니다' not in html
-    assert 'OTA 예약 연결 상태와 금융 기록은 별개입니다.' in html
+    assert 'OTA 예약 연결 상태와 금융 기록은 별개입니다.' not in html
     groups = refund_tab.groups(store)
     assert len(groups) == 1 and len(groups[0]) == 2 and not groups[0][0]['inferred']
     assert '전액 환불' in refund_tab.render(store)

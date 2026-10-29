@@ -304,7 +304,7 @@ document.addEventListener('click',function(e){
       var link=document.getElementById('rule-open');
       if(link) link.href='/rules?case='+encodeURIComponent(body.learning_case_id);
      }
-      say(slot,'저장했습니다 (revision '+body.revision+')',false);
+      say(slot,'저장했습니다',false);
       clearDirty(form);
       // The row's own identity did not change, so the position beside the walking
       // buttons and the one selected row are read again from the live DOM.

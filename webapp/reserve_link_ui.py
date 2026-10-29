@@ -197,11 +197,6 @@ function renderPlan(payload) {
       "원천 식별자 " + text(counts.source_identifiers || 0) + "개 중 연결 "
       + text(counts.resolved_transactions || 0) + "개, 미연결 "
       + text(counts.unlinked_identifiers || 0) + "개");
-  add(summary, "p", "note",
-      "원본 revision " + text(payload.binding.source_revision)
-      + " · 원본 digest " + text(payload.binding.source_digest).slice(0, 16)
-      + "… · 연결 버전 " + text(payload.link_version)
-      + " · 연결 revision " + text(payload.link_revision));
 
   var box = el("linkBox");
   clear(box);

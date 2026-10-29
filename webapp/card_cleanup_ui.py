@@ -300,7 +300,6 @@ def render_cleanup_section(
         + "<section id='expense-cleanup' aria-label='정리할 지출'>"
         f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>"
         f"{breakdown_html}{note_html}"
-        "<p class='muted'>아래 거래의 예약 연결, 여행 배정, 금융 보호 사유를 확인해 주세요. 이 화면을 조회하는 동안 장부를 변경하지 않습니다.</p>"
         f"<template id='cleanup-trip-options'>{options_html}</template>"
         f"<ul class='cleanup-list'>{body_html}</ul>{nav_html}"
         f"<script>{script_html}</script></section>"

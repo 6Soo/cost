@@ -54,7 +54,6 @@ table.field-table th, table.field-table td { border: 1px solid #999999; padding:
 <body>
 <header>
 <h1>로컬 검토 화면</h1>
-<p class="desc">이 화면은 로컬 전용 읽기 전용 검토 도구입니다. 모든 행을 확인하고 결정 보류, 거부, 승인 중 하나를 고른 뒤 내보내기를 누르세요.</p>
 </header>
 <main>
 <p class="warn">주의: CSV 파일을 스프레드시트로 열면 수식이 실행될 위험이 있습니다. 안전한 확인용으로는 JSON 파일을 사용하세요.</p>
