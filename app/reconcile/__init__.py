@@ -33,6 +33,8 @@ def index_results(results, *, generation=None):
         rows = results.get("results")
         if generation is not None and not same_generation(generation, result_generation):
             return {}
+        if generation is None and (type(result_generation) is not int or result_generation < 0):
+            return {}
     else:
         rows = results
     if not isinstance(rows, (list, tuple)):
