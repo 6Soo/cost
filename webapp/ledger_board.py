@@ -3771,7 +3771,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         length = int(self.headers.get("Content-Length") or 0)
-        if length > board_http_shapes.MAX_CONTENT_LENGTH:
+        if length > board_http_shapes.max_content_length(parsed.path):
             self._send_json({"code": "TOO_LARGE", "message": "요청이 너무 커요"}, code=413)
             return
         content_type = self.headers.get("Content-Type") or ""

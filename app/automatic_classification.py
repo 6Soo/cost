@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
@@ -12,6 +13,82 @@ from .rules import merchant_country
 POLICY = 'complete-card-inference-v1'
 FIELDS = ('classification_state', 'classification_source', 'classification_basis',
           'item', 'description', 'display_tab_id', 'trip_id')
+COMPLETION_SOURCE = 'cost.classification_completion'
+COMPLETION_VERSION = 'cuv-04-cuv-05-v1'
+
+
+def _completion_audit():
+    """Return explicit provenance for a read-only completion decision."""
+    return {'source': COMPLETION_SOURCE, 'version': COMPLETION_VERSION,
+            'at': datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')}
+
+
+def completion_for_row(row, valid, *, nets=None):
+    """Completion is classification plus a real trip; financial links are separate."""
+    reasons = []
+    trip = row.get('trip_id') or row.get('display_tab_id') or ''
+    source = row.get('classification_source') or ''
+    manual = bool(row.get('decided_at')) or source in {'user_decision', 'user_exception', 'manual'}
+    if row.get('classification_state') != 'classified' or not row.get('item'):
+        reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
+    direction = str(row.get('transaction_direction') or '').strip().casefold()
+    kind = str(row.get('transaction_kind') or '').strip()
+    if direction not in {'purchase', 'cancellation', 'refund'} or not kind:
+        if 'TRANSACTION_NATURE_UNCONFIRMED' not in reasons:
+            reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
+    if trip not in valid:
+        reasons.append('TRIP_INVALID_OR_MISSING')
+    if (row.get('trip_id') in valid and row.get('display_tab_id') in valid
+            and row['trip_id'] != row['display_tab_id']):
+        reasons.append('TRIP_ASSIGNMENT_CONFLICT')
+    if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
+        reasons.append('SOURCE_UNRESOLVED')
+    if source in {'rule_conflict', 'inference_conflict', 'travel_location_hold', 'manual_hold'}:
+        reasons.append('CLASSIFICATION_SOURCE_CONFLICT')
+    return {'transaction_id': row['transaction_id'], 'complete': not reasons,
+            'mode': 'manual' if manual else ('auto' if not reasons else 'unresolved'),
+            'blocked_by': reasons}
+
+
+def classification_completion(conn, batch_id, trips, *, nets=None):
+    valid = canonical_trip_periods(trips)
+    c = conn.conn if hasattr(conn, 'conn') else conn
+    columns = ('transaction_id', 'transaction_direction', 'transaction_kind',
+               'classification_state', 'classification_source', 'classification_basis',
+               'item', 'trip_id', 'display_tab_id', 'decided_at')
+    rows = [dict(zip(columns, values)) for values in c.execute(
+        'SELECT ' + ','.join(columns) + ' FROM transactions '
+        'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) '
+        'ORDER BY transaction_id', (batch_id,))]
+    available = {column[1] for column in c.execute('PRAGMA table_info(transactions)')}
+    optional = [field for field in ('parse_error', 'conflict_reason', 'duplicate_of') if field in available]
+    if optional and rows:
+        extra = {row[0]: dict(zip(optional, row[1:])) for row in c.execute(
+            'SELECT transaction_id,' + ','.join(optional) + ' FROM transactions '
+            'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)',
+            (batch_id,))}
+        for row in rows:
+            row.update(extra.get(row['transaction_id'], {}))
+    results = [completion_for_row(row, valid, nets=nets) for row in rows]
+    return {'batch_id': batch_id, 'complete': bool(rows) and all(r['complete'] for r in results),
+            'rows': results, 'audit': _completion_audit(),
+            'reconciliation': {'status': 'SEPARATE', 'financial_complete': False}}
+
+
+def reconciliation_completion(conn, batch_id):
+    from .partial_refund import refund_links
+    ids = [r[0] for r in conn.execute(
+        "SELECT DISTINCT t.transaction_id FROM import_batch_rows b JOIN transactions t USING(transaction_id) "
+        "WHERE b.batch_id=? AND t.transaction_direction IN ('cancellation','refund')", (batch_id,))]
+    links = refund_links(conn, ids)
+    verified = {tid: link for tid, link in links.items()
+                if not link.get('inferred') and link.get('status') != 'excess'}
+    return {'batch_id': batch_id,
+            'cancellations': [{'transaction_id': tid, 'original_id': link['original_id'],
+                               'linked': True, 'status': link.get('status', 'unknown')}
+                              for tid, link in sorted(verified.items())],
+            'unlinked_cancellations': [tid for tid in ids if tid not in verified],
+            'financial_complete': False, 'audit': _completion_audit()}
 
 
 def infer_item(row):
