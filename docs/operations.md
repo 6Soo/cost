@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 연월 통합·모바일 압축 표 최종 배포
+
+- [PR #329](https://github.com/6Soo/cost/pull/329), 운영 SHA `537aa3bca7cec79debad4db92d67e94baa6934e6`, 검수 소스 `6f581aa3dd12e2a1797e24c8243068def6f77ae3`와 tree 동일. 최신 사용자 교정대로 모바일도 기존 표 방식이며, 560px 최소 폭·6/8px 셀 여백·12px 글자·두 줄 이름·원문/title 보존·표 내부 스크롤로 압축한다. 월별 카드 제거·연월 선택 하나·즉시 연도/월 조회·필터/커서 호환은 PR #328에서 유지한다.
+- 카드/필터/환불 목적지/모바일42 passed, Chromium320/390/600/759/760/1280·두 테마·200% 확대·키보드에 따른 표 스크롤·행 높이110px 이하·원문/title·부호/통화·환불 링크·페이지 가로 넘침 부재 확인. compile/diff·metadata guard4파일 차단0/삭제0. 실제 인증 owner 화면/실기기·전체 회귀는 미실행이다.
+- 1110 Git blobs 불일치0, 새 전체 백업·별도 복원, task/processSHA·단일loopback listener·health/ready200·보호 API/연월 조회401·보호13표 내용/스키마 불변·Board/SourceRefresh Running을 확인했다. 배포본/호스트 Python의 압축 표 CSS·단일 연월 선택·연도/월 조회·월 타일 부재·환불 링크·원행 불변 합성 smoke PASS. 실제 금융/분류/여행/Google 쓰기·재처리·마이그레이션0.
+- 직전 PR #328/`b933bdd84cf79d6c64e6f1d5093bc8b648865c7a`의 세로 카드 배포도 백업/복원·보호 불변으로 완료됐지만 최신 표 요청 수락과 구별한다. b933bdd와 복구 사본을 보존했다. 최종 근거는 호스트 동일 SHA release-audit/deploy-evidence, `.local-archive/deploy-537aa3bca7cec79debad4db92d67e94baa6934e6/` 및 `.local-archive/card-history-compact-table-20261029/`다. 문서 후속 병합에 검사·재배포·재시작을 반복하지 않는다.
+
 ## 2026-10-29 동일일·동액 OTA 연결 배포 및 확인된 두 결제 반영
 
 - [PR #320](https://github.com/6Soo/cost/pull/320), 구현 `2b2ea98`, 검증 main/Windows SHA `f60e1a7225f834445491cab34f846622ec9ba120`. 동일일·동일 통화 정확 금액의 추가 단서 요구를 없애고 명시 충돌/전역 점유/부분 반복 묶음은 보호한다. 사용자 수동 외화 연결은 원문 외화와 카드 원화값을 보존하며 환율/미관측 끝자리를 만들지 않는다. matcher4로 기존 snapshot을 무효화한다.

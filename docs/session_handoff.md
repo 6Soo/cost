@@ -3,11 +3,12 @@
 ## 2026-10-29 최신 요청 — 카드 모바일 UI·연월 선택 통합
 
 - 현재 승인 범위는 카드 전체 내역 모바일 개선과 누락됐던 월별 카드 제거·연월 선택 통합이다. 최신 교정은 **단일 거래 카드가 아닌 이전 표 방식 유지·내용 압축·간격 축소**다. 월 타일 유지와 모바일 세로 카드 검사는 이번 사용자 지시로 대체한다.
-- IMPLEMENTED_TESTED / DEPLOY_PENDING: 월별 카드와 별도 연도 폼을 제거하고 단일 조회 기간 선택에 `2026년 전체 / 2026년 1월 …`을 제공한다. 기간 변경/검색 제출 시 카드·검색어·미배정 조건을 함께 보낸다. 연도 전체도 검색어 없이100건씩 즉시 조회하며 기존 year/month 링크·커서와 조회 API를 유지한다. 결과는 조회 조건 바로 아래에 나온다.
+- COMPLETE — [PR #329](https://github.com/6Soo/cost/pull/329), 운영 SHA `537aa3bca7cec79debad4db92d67e94baa6934e6`, 검수 소스 `6f581aa3dd12e2a1797e24c8243068def6f77ae3`와 merge tree 동일. 월별 카드와 별도 연도 폼을 제거하고 단일 조회 기간 선택에 `2026년 전체 / 2026년 1월 …`을 제공한다. 기간 변경/검색 제출 시 카드·검색어·미배정 조건을 함께 보낸다. 연도 전체도 검색어 없이100건씩 즉시 조회하며 기존 year/month 링크·커서와 조회 API를 유지한다. 결과는 조회 조건 바로 아래에 나온다.
 - 759px 이하도 실제 표/행/열 헤더를 유지한다. 최소 폭560px·셀 여백6/8px·글자12px·간격1.35, 이름 두 줄 압축·원문/title 보존·중복 날짜 그룹 숨김·표 내부 가로 스크롤을 적용했다. 부호/통화·여행/취소환불 상태·상세 링크와 검색/선택 입력16px·접이식 안내를 유지한다.
 - 최신 표 구현의 카드/필터/환불 목적지/모바일42 passed. 실제 Chromium에서320/390/600/759/760/1280폭·두 테마·200% 확대·키보드 포커스에 의한 표 스크롤·긴 이름/title·환불 링크·행 높이110px 이하·페이지 가로 넘침 부재를 검증했다. 최종 합성 PNG는 `.local-archive/card-history-compact-table-20261029/`에 보존한다. 실제 인증 화면/실기기·전체 회귀는 미실행이다.
 - 중간 릴리스 PR #328/`b933bdd84cf79d6c64e6f1d5093bc8b648865c7a`는 새 백업/별도 복원·1110 blobs 일치·health/ready200·보호API401·보호13표 불변으로 배포됐지만, 세로 카드이므로 최신 표 요청의 완료로 계산하지 않는다. 현재 표 구현을 검증 후 후속 배포한다.
-- 다음: diff/guard/compile → PR 정상 main 병합 → 검증된 SHA 고정 배포·health/ready·보호 API·금융/사용자13표 불변·배포본 영향 smoke. 실제 DB/분류/여행/금융/Google 쓰기·재처리·스키마 변경은 범위 밖이며 기존 사용자 변경 파일을 보존한다.
+- 최종 배포 수락:1110 Git blobs 불일치0·새 전체 백업/별도 복원·task/process SHA·단일 loopback listener·health/ready200·OTA/환불/연월 조회 URL 보호401·금융/사용자13표 내용/스키마 불변. 호스트 Python으로 실제 배포본의 압축 표 CSS·단일 연월 선택·연도/월 목록·월 타일 부재·환불 링크·원행 불변 합성 smoke PASS. Board/SourceRefresh Running. 이전 검증b933bdd 복구점과 백업 보존.
+- 근거는 `.local-archive/deploy-537aa3bca7cec79debad4db92d67e94baa6934e6/`의 review/protection-before/protection-after/deploy-evidence, `.local-archive/card-history-compact-table-20261029/`의 checkpoint/runtime-smoke/auth-smoke와 호스트 동일 SHA release-audit/deploy-evidence다. 실제 DB/분류/여행/금융/Google 쓰기·재처리·스키마 변경0, 기존 사용자 변경 보존. 남은 구현/배포 작업·차단0. 후속 기록은 문서만 변경하므로 검사/배포/재시작을 반복하지 않는다.
 
 ## 2026-10-29 최신 승인 — 원본 보존·취소/환불 표시 교정
 
