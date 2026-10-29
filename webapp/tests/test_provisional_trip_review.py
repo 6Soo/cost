@@ -96,6 +96,31 @@ def test_empty_manual_trip_is_not_presented_as_intentional_unassigned(setup_revi
     assert row['decision']['assignment_source'] != 'manual'
 
 
+def test_refund_bucket_and_financial_hold_keep_classification_complete(setup_review, monkeypatch):
+    flow, trip, batch, rows = setup_review
+    refund_id = rows[2]['transaction_id']
+    held_id = rows[3]['transaction_id']
+    flow.board.conn.execute(
+        "UPDATE transactions SET display_tab_id='refunds', trip_id='', classification_state='classified', item='취소·환불' "
+        "WHERE transaction_id=?", (refund_id,))
+    flow.board.conn.execute(
+        "UPDATE transactions SET trip_id=?, display_tab_id=?, classification_state='classified', item='교통비' "
+        "WHERE transaction_id=?", (trip, trip, held_id))
+    monkeypatch.setattr(flow, 'ota_group_holds', lambda: {held_id})
+
+    page = review.read_page(flow, batch)
+    indexed = {item['transaction_id']: item for item in page['items']}
+    if held_id not in indexed:
+        indexed.update({item['transaction_id']: item
+                        for item in review.read_page(flow, batch, offset=20)['items']})
+
+    refund = indexed[refund_id]['decision']
+    held = indexed[held_id]['decision']
+    assert refund['status'] == 'CLASSIFIED' and refund['trip_id'] == ''
+    assert held['status'] == 'CLASSIFIED' and held['financial_hold']
+    assert indexed[held_id]['protected']
+
+
 def test_pending_storage_approval_and_replay_do_not_reclassify_transactions(setup_review):
     flow, trip, batch, rows = setup_review
     store = flow.pipeline.store
@@ -322,7 +347,7 @@ def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, mo
                 identity = row.get_attribute('data-transaction')
                 page.once('dialog', lambda dialog: dialog.accept())
                 row.get_by_role('button', name='검토 보류', exact=True).click()
-                page.wait_for_function("[...document.querySelectorAll('[data-trip-items] li')].some(n=>n.textContent.includes('보류 · 참고 후보'))")
+                page.wait_for_function("[...document.querySelectorAll('[data-trip-items] li')].some(n=>n.textContent.includes('분류 완료'))")
                 assert board.conn.execute('SELECT kind FROM transaction_review_holds WHERE transaction_id=?',
                                            (identity,)).fetchone()[0] == 'user_hold'
                 form = root.locator('[data-trip-items] li form').filter(
