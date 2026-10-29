@@ -537,6 +537,45 @@ def _check_refund_groups(store, rows) -> None:
                              "환불 묶음을 모두 함께 기록할 수 없어 기록하지 않았어요. 묶인 거래를 함께 확인해 주세요")
 
 
+def _committed_group_replay(store, batch_id, digest, current):
+    """Return a safe no-op for a previously committed, unchanged group.
+
+    Persisting the verified refund classification advances the preview revision
+    after the ledger rows have been written.  A new transport request may still
+    repeat the original group digest, so accept it only when that digest is a
+    recorded commit and the current group still matches the booked rows.
+    """
+    import json
+    ids = {row["transaction_id"] for row in current.get("rows", [])}
+    if not ids or any(row.get("blocked") or not row.get("already_booked")
+                      for row in current["rows"]):
+        return None
+    historical = store.conn.execute(
+        "SELECT response_json FROM requests WHERE scope='commit'").fetchall()
+    for (raw,) in historical:
+        response = json.loads(raw)
+        if (response.get("batch_id") != batch_id
+                or response.get("digest") != digest
+                or set(response.get("booked", [])) != ids):
+            continue
+        for row in current["rows"]:
+            booked = store.conn.execute(
+                "SELECT item, description, display_tab_id, trip_id, amount_krw,"
+                "merchant, occurred_on, transaction_direction, source_hash "
+                "FROM ledger_entries WHERE transaction_id=?", (row["transaction_id"],)
+            ).fetchone()
+            if booked is None or tuple(row.get(key, "") for key in (
+                    "item", "description", "display_tab_id", "trip_id",
+                    "amount_krw", "merchant", "occurred_on",
+                    "transaction_direction", "source_hash")) != tuple(booked):
+                break
+        else:
+            result = dict(response, applied=0, already=len(ids), booked=[],
+                          already_booked=sorted(ids))
+            return result
+    return None
+
+
 def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
     """Persist the refund-tab classification applied by a verified pair preview."""
     link = entry.get("refund_link") or {}
@@ -626,6 +665,18 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                       group_original=group_original,
                       include_verified_full_refunds=include_verified_full_refunds)
     if current["digest"] != preview_digest_value:
+        if group_original is not None:
+            replay = _committed_group_replay(store, batch_id, preview_digest_value, current)
+            if replay is not None:
+                with store.lock:
+                    store.conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        store.remember_request(request_id, "commit", payload_sha, replay)
+                        store.conn.execute("COMMIT")
+                    except Exception:
+                        store.conn.execute("ROLLBACK")
+                        raise
+                return replay
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")
     if group_original is not None and not current["recordable"]:
