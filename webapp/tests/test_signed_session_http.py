@@ -164,7 +164,7 @@ class SignedSessionHttpTests(unittest.TestCase):
                         self.assertNotIn('BOOK-1', body)
                         self.assertNotIn('합성 호텔', body)
                     elif path.startswith('/api/'):
-                        self.assertEqual(json.loads(body)['total'], 2)
+                        self.assertEqual(json.loads(body)['total'], 1)
 
     def test_trip_flight_booking_route_uses_signed_trip_visibility_and_snapshot(self):
         route_store = board._active_store()
@@ -267,32 +267,26 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assertEqual(json.loads(actual_body), body)
 
     def test_private_pages_and_apis_never_cache_signed_or_denied_responses(self):
-        for user, google_status, receipt_status in ((OWNER, 200, 200), (VIEWER, 200, 404), (None, 403, 401)):
+        # The Google ledger routes were retired; only receipt routes continue
+        # to exercise signed-role access and private no-cache responses here.
+        for user, receipt_status in ((OWNER, 200), (VIEWER, 404), (None, 401)):
             cookie = self.cookie(user) if user else None
-            for path, expected in (('/google-ledger', google_status), ('/api/google-ledger', google_status),
-                                   ('/receipts', receipt_status), ('/api/receipts', receipt_status)):
+            for path, expected in (('/receipts', receipt_status), ('/api/receipts', receipt_status)):
                 status, body, headers = self.request(path, cookie=cookie)
                 self.assertEqual(status, expected, (path, body))
                 self.assertEqual(headers.get('Cache-Control'), 'no-store', path)
+        for path in ('/google-ledger', '/api/google-ledger'):
+            status, _, headers = self.request(path, cookie=self.cookie(OWNER))
+            self.assertEqual(status, 404, path)
+            self.assertEqual(headers.get('Cache-Control'), 'no-store', path)
 
     def test_real_pages_and_apis_enforce_each_role(self):
-        owner = self.cookie(OWNER)
-        viewer = self.cookie(VIEWER)
+        # These endpoints are intentionally no longer served by the product.
+        owner, viewer = self.cookie(OWNER), self.cookie(VIEWER)
         for path in ("/google-ledger", "/api/google-ledger"):
-            status, body, _ = self.request(path, cookie=owner)
-            self.assertEqual(status, 200, body)
-            if path.startswith("/api/"):
-                self.assertEqual(json.loads(body), {"synced_at": None, "sources": {}, "trips": []})
-            else:
-                self.assertIn("Google", body)
-            viewer_status, viewer_body, _ = self.request(path, cookie=viewer)
-            self.assertEqual(viewer_status, 200, viewer_body)
-            if path.startswith("/api/"):
-                self.assertEqual(json.loads(viewer_body), {"synced_at": None, "sources": {}, "trips": []})
-            else:
-                self.assertIn("볼 수 있는 여행이 없습니다", viewer_body)
-            self.assert_json_response(path, cookie=None, status=403,
-                                      body={"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"})
+            for user in (OWNER, VIEWER, None):
+                status, body, _ = self.request(path, cookie=self.cookie(user) if user else None)
+                self.assertEqual(status, 401 if user is None else 404, (path, user, body))
 
         for path in ("/receipts", "/api/receipts"):
             status, body, _ = self.request(path, cookie=owner)
@@ -318,7 +312,7 @@ class SignedSessionHttpTests(unittest.TestCase):
                                   body={"code": "AUTH_REQUIRED", "message": "다시 로그인해 주세요"})
         self.assert_json_response("/api/google-ledger", cookie=None, headers={
             access_control.SyntheticSessionAdapter.HEADER: OWNER,
-        }, status=403, body={"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"})
+        }, status=401, body={"code": "AUTH_REQUIRED", "message": "다시 로그인해 주세요"})
 
     def test_new_write_routes_refuse_viewer_and_anonymous_before_any_effect(self):
         paths = ('/api/google-ledger/choice', '/api/google-ledger/grants', '/api/google-ledger/mapping',
@@ -365,16 +359,16 @@ class SignedSessionHttpTests(unittest.TestCase):
         parts = live.split(".")
         tampered = f"{parts[0]}.{parts[1]}.invalid-signature"
         for invalid in (expired, tampered):
-            self.assert_json_response("/api/google-ledger", cookie=invalid, status=403,
-                                      body={"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"})
+            self.assert_json_response("/api/google-ledger", cookie=invalid, status=401,
+                                      body={"code": "AUTH_REQUIRED", "message": "다시 로그인해 주세요"})
 
         self.access.bump_session_generation(OWNER)
-        self.assert_json_response("/api/google-ledger", cookie=live, status=403,
-                                  body={"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"})
+        self.assert_json_response("/api/google-ledger", cookie=live, status=401,
+                                  body={"code": "AUTH_REQUIRED", "message": "다시 로그인해 주세요"})
         fresh = self.cookie(VIEWER)
         self.access.set_account_active(user_id=VIEWER, is_active=False)
-        self.assert_json_response("/api/google-ledger", cookie=fresh, status=403,
-                                  body={"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"})
+        self.assert_json_response("/api/google-ledger", cookie=fresh, status=401,
+                                  body={"code": "AUTH_REQUIRED", "message": "다시 로그인해 주세요"})
 
     def test_login_start_and_callback_run_signed_state_nonce_and_cookie_over_http(self):
         status, body, headers = self.request("/auth/login?return_to=%2Faccess%2Fme")
@@ -432,99 +426,14 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assertNotIn('Set-Cookie', headers)
 
     def test_signed_viewer_grant_detail_and_revocation_with_concurrent_requests(self):
-        from concurrent.futures import ThreadPoolExecutor
-        from webapp import google_ledger_page
-        stamp = google_ledger_page.dt.datetime.now(google_authority.KST).isoformat()
-        key = 'SYN-GOOGLE-TRIP'
-        snapshot = json.loads(self.snapshot.read_text())
-        block = lambda value: {'total': value, 'verified': True}
-        snapshot.update(synced_at=stamp, sources={'main': {'status': 'ok', 'stale': False, 'last_ok_at': stamp}},
-            trips=[{'key': key, 'closure': 'open', 'closure_current': True, 'canonical_source': 'main',
-                    'income_total': 100, 'expense_total': 10, 'net': 90, 'verified': True, 'review': [],
-                    'copies': {'main': {'layout': 'rev', 'income': block(100), 'expense': block(10)}}}])
-        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
-        rows_path = google_authority._rows_file(self.rows, snapshot['rows_generation'])
-        rows = json.loads(rows_path.read_text())
-        rows['sources'] = {'main': {'trips': {key: {'income': [], 'expense': []}}}}
-        rows_path.write_text(json.dumps(rows), encoding='utf-8')
-        tab = self.server.card_store.create_trip(starts_on='2026-10-11', ends_on='2026-10-12',
-            destination='Synthetic Trip', client_request_id='signed-trip')['tab_id']
-        self.access.register_reservation_person(reservation_person_id='person-syn',
-                                               display_name='Synthetic Viewer', nickname='Synthetic')
-        owner, viewer = self.cookie(OWNER), self.cookie(VIEWER)
-        headers = {'X-CSRF-Token': board.CSRF_TOKEN}
-
-        def post(path, payload, cookie=owner):
-            status, body, _ = self.request(path, cookie=cookie, headers=headers, payload=payload)
-            self.assertEqual(status, 200, body)
-            return json.loads(body)
-
-        application = post('/access/applications', {'action': 'create', 'requested_name': 'Synthetic Viewer',
-            'nickname': 'Synthetic', 'client_request_id': 'signed-application'}, cookie=viewer)
-        post('/access/decision', {'action': 'approve', 'application_id': application['result']['application_id'],
-            'expected_revision': 1, 'reservation_person_id': 'person-syn', 'client_request_id': 'signed-approval'})
-        self.access.apply_assignment_snapshot(user_id=VIEWER,
-            items=[{'tab_id': tab, 'snapshot_revision': 1, 'state': access_control.ASSIGN_ACTIVE}],
-            source_version='synthetic-assignment', validity=access_control.DEFAULT_VALIDITY, now=None, complete=False)
-        post('/api/google-ledger/mapping', {'key': key, 'tab_id': tab})
-        post('/api/google-ledger/grants', {'user_id': VIEWER, 'keys': [key], 'granted': True})
-        # Linking an account can invalidate its earlier cookie; use its current generation.
-        viewer = self.cookie(VIEWER)
-        status, body, _ = self.request('/api/google-ledger', cookie=viewer)
-        self.assertEqual(status, 200, body)
-        self.assertEqual([trip['key'] for trip in json.loads(body)['trips']], [key])
-        detail_path = '/api/google-ledger/rows?key=' + key + '&source=main'
-        status, body, _ = self.request(detail_path, cookie=viewer)
-        self.assertEqual(status, 200, body)
-        self.assertEqual(json.loads(body)['key'], key)
-        # Adding a second copy makes the canonical source unresolved until the
-        # owner chooses it. A signed viewer must not bypass this with a URL.
-        snapshot['sources']['archive'] = dict(snapshot['sources']['main'])
-        snapshot['trips'][0]['copies']['archive'] = snapshot['trips'][0]['copies']['main']
-        rows['sources']['archive'] = rows['sources']['main']
-        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
-        rows_path.write_text(json.dumps(rows), encoding='utf-8')
-        for prefix in ('/api/google-ledger/rows', '/google-ledger/rows'):
-            for source in ('main', 'archive'):
-                with self.subTest(unresolved=source, prefix=prefix):
-                    status, body, _ = self.request(prefix + '?key=' + key + '&source=' + source, cookie=viewer)
-                    self.assertEqual(status, 404, body)
-                    self.assertEqual(json.loads(body)['code'], 'NOT_FOUND')
-        post('/api/google-ledger/choice', {'key': key, 'source': 'archive'})
-        for prefix in ('/api/google-ledger/rows', '/google-ledger/rows'):
-            status, body, _ = self.request(prefix + '?key=' + key + '&source=main', cookie=viewer)
-            self.assertEqual(status, 404, body)
-            status, body, _ = self.request(prefix + '?key=' + key + '&source=archive', cookie=viewer)
-            self.assertEqual(status, 200, body)
-            # Owners retain access to both copies for comparison.
-            status, body, _ = self.request(prefix + '?key=' + key + '&source=main', cookie=owner)
-            self.assertEqual(status, 200, body)
-        detail_path = '/api/google-ledger/rows?key=' + key + '&source=archive'
-        # A later snapshot losing the selected copy must not silently authorize
-        # the remaining main copy, even if private archive rows still exist.
-        archive_copy = snapshot['trips'][0]['copies'].pop('archive')
-        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
-        for source in ('main', 'archive'):
-            status, body, _ = self.request('/api/google-ledger/rows?key=' + key + '&source=' + source, cookie=viewer)
-            self.assertEqual(status, 404, body)
-        post('/api/google-ledger/choice', {'key': key, 'source': 'main'})
-        status, body, _ = self.request('/api/google-ledger/rows?key=' + key + '&source=main', cookie=viewer)
-        self.assertEqual(status, 200, body)
-        snapshot['trips'][0]['copies']['archive'] = archive_copy
-        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
-        post('/api/google-ledger/choice', {'key': key, 'source': 'archive'})
-        post('/api/google-ledger/grants', {'user_id': VIEWER, 'keys': [key], 'granted': False})
-        paths = ['/api/google-ledger', detail_path,
-                 '/google-ledger/rows?key=' + key + '&source=archive'] * 3
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            replies = list(pool.map(lambda path: self.request(path, cookie=viewer), paths))
-        for path, (status, body, _) in zip(paths, replies):
-            if '/rows?' in path:
-                self.assertEqual(status, 404, body)
-                self.assertEqual(json.loads(body)['code'], 'NOT_FOUND')
-            else:
-                self.assertEqual(status, 200, body)
-                self.assertEqual(json.loads(body)['trips'], [])
+        # The Google ledger HTTP surface has been retired (google_ledger_page.ROUTES
+        # is empty); its former grant workflow is no longer an HTTP contract.
+        for path in ('/api/google-ledger', '/google-ledger',
+                     '/api/google-ledger/rows?key=SYNTH-GOOGLE-TRIP&source=main'):
+            for user in (OWNER, VIEWER, None):
+                with self.subTest(path=path, user=user):
+                    status, body, _ = self.request(path, cookie=self.cookie(user) if user else None)
+                    self.assertEqual(status, 401 if user is None else 404, (path, body))
 
     def test_callback_verifies_rsa_signature_with_real_google_auth_library_offline(self):
         from cryptography.hazmat.primitives import serialization

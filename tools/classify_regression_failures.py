@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Iterable
 
 _FAILED = re.compile(r"^(?P<kind>FAILED|ERROR|SUBFAILED(?:\([^\r\n]*?\))?)\s+(?P<nodeid>[^\s]+)")
-_SUMMARY_PART = re.compile(r"(?P<count>\d+)\s+(?P<kind>failed|passed|skipped|errors?)\b", re.I)
+_SUMMARY = re.compile(
+    r"^\s*(?:(?P<failed>\d+)\s+failed)?\s*,?\s*"
+    r"(?:(?P<errors>\d+)\s+errors?)?\s*,?\s*"
+    r"(?:(?P<passed>\d+)\s+passed)?\s*,?\s*"
+    r"(?:(?P<skipped>\d+)\s+skipped)?\s*,?\s*"
+    r"(?:(?P<deselected>\d+)\s+deselected)?\s*"
+    r"(?:in\s+[0-9.]+s)?\s*$", re.I)
 _COLLECTED = re.compile(r"collected\s+(?P<count>\d+)\s+items?", re.I)
 _SAFE_NODEID = re.compile(r"^(?:tests/|webapp/tests/)[A-Za-z0-9_/]+\.py(?:::[A-Za-z_][A-Za-z0-9_]*)+$")
 
@@ -56,12 +62,12 @@ def classify_lines(lines: Iterable[str], *, exit_code: int | None = None) -> dic
         match = _COLLECTED.search(line)
         if match:
             collected = int(match.group("count"))
-        summary_parts = {match.group("kind").casefold(): int(match.group("count"))
-                         for match in _SUMMARY_PART.finditer(line)}
-        if summary_parts:
-            passed = summary_parts.get("passed", 0)
-            summary_failed = summary_parts.get("failed", 0)
-            summary_errors = summary_parts.get("error", summary_parts.get("errors", 0))
+        summary = _SUMMARY.fullmatch(line)
+        if summary and any(summary.group(name) is not None
+                           for name in ("failed", "errors", "passed", "skipped")):
+            passed = int(summary.group("passed") or 0)
+            summary_failed = int(summary.group("failed") or 0)
+            summary_errors = int(summary.group("errors") or 0)
     # Preserve order while avoiding duplicate report entries.
     unique = []
     seen = set()

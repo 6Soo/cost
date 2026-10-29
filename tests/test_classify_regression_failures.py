@@ -62,6 +62,16 @@ def test_error_and_zero_failure_summaries_are_counted():
     assert classify_lines(['5 passed in 1.0s'], exit_code=0)['status'] == 'PASSED'
 
 
+def test_traceback_noise_cannot_override_a_pytest_failure_summary():
+    report = classify_lines([
+        '2 failed, 3 passed in 4.2s',
+        'E   AssertionError: expected text containing "1 passed"',
+    ], exit_code=0)
+    assert report['status'] == 'FAILED'
+    assert report['summary_failed'] == 2
+    assert report['passed'] == 3
+
+
 def test_parameter_names_and_collection_errors_are_never_disclosed():
     report = classify_lines(['ERROR tests/test_example.py::test_case[PRIVATE_PERSON_123] - secret'], exit_code=2)
     assert report['status'] == 'FAILED'

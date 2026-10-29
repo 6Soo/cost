@@ -69,22 +69,45 @@ def test_saved_exclusion_survives_state_failure_and_retry(app):
 
 @pytest.mark.parametrize('status', [200, 500])
 def test_delayed_exclusion_response_keeps_new_batch_status_and_proposal(app, status):
+    from playwright.sync_api import sync_playwright
     second = app.flow.pipeline.receive(existing.CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
-    route = f'/api/imports/{app.batch}/company-exclusion'
-    body = payload(app)
-    with patch.object(ledger_board, '_receipts_owner_request', return_value=True):
+    pending = []
+    with patch.object(ledger_board, '_receipts_owner_request', return_value=True), sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.on('dialog', lambda dialog: dialog.accept())
+        page.goto(app.base + '/import')
+        page.locator('#card-review-detail > summary').click()
+        page.locator('#saved-materials summary').click()
+        page.locator(f'.batch-choice[data-batch="{app.batch}"]').wait_for(state='attached')
+        page.locator(f'.batch-choice[data-batch="{app.batch}"]').click()
+        page.wait_for_function('(id)=>model?.batch_id===id', arg=app.batch)
+        page.locator('#rule-focus option').first.wait_for(state='attached')
+        page.select_option('#rule-focus', app.tx[0])
+        page.fill('#rule-text', '회사 경비 아님')
+        page.click('#rule-propose')
+        page.locator('#company-exclude').wait_for()
+        page.route('**/company-exclusion', lambda route: pending.append(route))
+        with page.expect_request('**/company-exclusion'):
+            page.click('#company-exclude')
         if status == 200:
-            code, result = app.post(route, body, token=ledger_board.CSRF_TOKEN)
-            assert code == 200, result
+            code, result = app.post(f'/api/imports/{app.batch}/company-exclusion',
+                                    pending[0].request.post_data_json, token=ledger_board.CSRF_TOKEN)
+            assert code == 200
         else:
             result = {'message': 'OLD-EXCLUSION-ERROR'}
-        current_state = app.flow.state(second)
-        current_proposal = {'batch_id': second, 'text': 'current proposal'}
-        assert current_state['batch_id'] == second
-        assert current_proposal['batch_id'] == second
-        assert result.get('state', {}).get('batch_id', app.batch) == app.batch
+        page.locator(f'.batch-choice[data-batch="{second}"]').click()
+        page.wait_for_function('(id)=>model?.batch_id===id', arg=second)
+        page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION';document.getElementById('rule-result').textContent='CURRENT-PROPOSAL'")
+        with page.expect_response('**/company-exclusion'):
+            pending.pop().fulfill(status=status, json=result)
+        page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+        assert page.locator('#status').inner_text() == 'CURRENT-SELECTION'
+        assert page.locator('#rule-result').inner_text() == 'CURRENT-PROPOSAL'
+        assert page.evaluate('model.batch_id') == second
         assert app.flow.state(app.batch)['preview']['excluded'] == (1 if status == 200 else 0)
         assert app.flow.state(second)['preview']['excluded'] == 0
+        browser.close()
 
 
 @pytest.mark.parametrize('width', [390, 1440])
@@ -147,8 +170,9 @@ def test_browser_mobile_375_exclusion_refresh_lost_response_retry_and_restore(ap
         page.wait_for_function('model && model.batch_id')
         page.locator('[data-company-restore]').click()
         page.get_by_text('회사 경비 제외를 되돌렸습니다.', exact=False).wait_for()
-        restored = app.flow.state(app.batch)
-        assert restored['preview']['excluded'] == 0
+        page.reload()
+        page.locator('#card-review-detail > summary').click()
+        page.wait_for_function('model && model.preview && model.preview.excluded===0')
         assert page.evaluate('document.documentElement.scrollWidth - innerWidth') == 0
         assert app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall() == before
         browser.close()
