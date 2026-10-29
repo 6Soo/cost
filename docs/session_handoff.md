@@ -5,6 +5,14 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-30 숲나들e 일반 OTA 목록·정규 적재
+
+- COMPLETE — 사용자 “숲나들e도 ota 공급자로 db에 정상 적재되고있나?”에 이은 “구현해” 범위를 [PR #368](https://github.com/6Soo/cost/pull/368)로 구현·정상 병합·고정 배포했다. 운영 SHA `d09596d0242416af2889b4a0514abd0509c60561`, 이전 검증 `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6` 보존. [계약](specs/ota.md#2026-10-30-숲나들e-예약-관측의-정규-적재ota-목록).
+- 기존에는 원문/예약 근거는 보관됐으나 일반 OTA 정규 예약 목록에는 없었다. 별도 관측 표에46건을 적재하고 일반 공급자 목록/상세에 포함했다. 현재 기간/일자 미확인16건(수집됨12·취소4), 과거30건 보존. 번호 없는 안내는 `원문 미제공`, 종료일 없는 안내는 미확인으로 표시하며 실제 예약번호·체크아웃을 창작하지 않는다. 같은 알림의 원문/적재 이중 노출과 서로 다른 알림의 후보 혼합을 막았다.
+- 최종96 passed/2 subtests, 실제 사본 리허설·새 백업/별도 복원·원자 운영 적재 PASS. 원래 전 표/기존 관측 보존·재실행 쓰기0·금융 링크 추가0. 배포1,140 blobs 일치·task/process SHA·health/ready200·보호API401·보호13표 불변. 운영 읽기 검증은 DB쓰기0이며 수집 작업의 실행파일/인수/트리거/권한/설정과 원래 활성 상태를 보존하고 WorkingDirectory만 검증 릴리스로 전환했다. 새 메일 수집은 수동 실행하지 않았다.
+- Aside 인증 API/일반 목록16개 고유 키·상세200·번호/종료일 미확인·내부 키 비노출을 확인했다. 기존 공급자 표기 오류7건 보류 경고는 남는다. 배포 후 중앙 금융 대사는 갱신을 마쳐 generation505·ready/fresh로 전환됐다. 목록의 이전 대조 대기 경고는 갱신 중인 캐시와 구분하며 이 적재를 금융 연결/환급/기장 완료로 보고하지 않는다. 전체 회귀/실기기 검사는 영향 밖이라 미실행.
+- 근거: root `.local-archive/forest-provider-audit-20261030/`의 checkpoint·final-targeted.xml·rehearsal·applied·live-acceptance·mail-task-transition·auth-smoke와 `.local-archive/deploy-d09596d0242416af2889b4a0514abd0509c60561/`. 카드 업로드는 계속 사용자 보류이며 Google/금융/장부/수동/여행 귀속·기존 두 건 교정은 변경하지 않았다. 후속 문서는 재배포/재시작하지 않는다.
+
 ## 2026-10-30 수기 Google 지출 중복 방지 구현·운영 수락
 
 - COMPLETE — 사용자 “pr열린거 다 구현해”의 [수기 중복 방지 명세](specs/sheet-manual-expense-dedup-20261029.md) SDD-01~07을 [PR #364](https://github.com/6Soo/cost/pull/364)로 구현·정상 병합·고정 배포했다. 운영 SHA `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`, 이전 검증 `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`과 복구 사본 보존. 최신 두 건의 여행/항목 교정 코드·운영값을 보존했다.

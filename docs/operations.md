@@ -1,5 +1,14 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 숲나들e 정규 관측 적재·수집 코드 전환
+
+- [PR #368](https://github.com/6Soo/cost/pull/368)을 정상 병합하고 `d09596d0242416af2889b4a0514abd0509c60561`을 고정 배포했다. 이전 검증 릴리스 `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`과 복구 사본을 보존한다. 코드 배포, 운영 관측 적재, MailCollect 전환을 별도 검증했다.
+- 최종 표적 검사96 passed/2 subtests, 병합 tree 일치·1,140 blobs 불일치0. 새 전체 백업/별도 복원·task/process SHA·단일loopback·health/ready200·보호API401·보호13표 배포 전후 불변을 확인했다. 무관한 전체 회귀는 반복하지 않았다.
+- 실제 원본 사본 리허설 후 운영 원본을 잠근 상태에서 새 백업·별도 복원과 전 표 digest 동등성을 검사하고 관측 표 추가/46행 append만 원자 적용했다. 원래 전 표·기존 관측 보존, 재실행 추가 쓰기0, 새 금융 링크0. 원문 번호 없는46건에 공급자 예약번호를 만들지 않았으며 원문은 그대로다.
+- `WebLedger-MailCollect`가 idle임을 확인하고 일시 비활성화한 뒤 보호 작업을 직렬 실행했다. 실행파일/인수를 유지하고 WorkingDirectory만 위 고정 릴리스로 바꾼 후 기존 활성 상태를 복구했다. 실제 새 메일 수집을 수동 실행하지 않았다. SourceRefresh 경로 변경0. 카드 업로드는 사용자 지시로 계속 보류한다.
+- 운영 읽기 수락: 정규 관측46·현재 일반 목록16(수집됨12/취소4)·과거30보존·가짜 공급자 번호0·조회 DB쓰기0. 수집 task XML의 트리거/권한/설정 동일. Aside owner 목록/API16개 고유 키·상세200·`원문 미제공`/종료일 미확인·내부 키 비노출을 확인했다. 목록 인덱스 ready. 중앙 카드/예약 대사는 generation505·ready/fresh·stale=false로 갱신 완료했다. 목록의 이전 대조 대기 경고는 새 대사 세대에 맞춰 인덱스가 갱신되는 동안의 캐시 표시이며 공급자 표기 오류7건 경고는 유지한다. 금융 대사의 추가 확정/Google 반영은 실행하지 않았다.
+- 근거: root `.local-archive/forest-provider-audit-20261030/`의 final-targeted.xml·rehearsal.json·applied.json·mail-task-before/after.xml·mail-task-transition.json, `.local-archive/deploy-d09596d0242416af2889b4a0514abd0509c60561/` 및 호스트 같은 SHA deploy-evidence. 금융/장부/수동/여행·두 건의 기존 교정·Google쓰기금지를 보존했다. 후속 문서만으로 재배포/재시작하지 않는다.
+
 ## 2026-10-30 수기 Google 지출 중복 방지 배포·읽기 전용 수락
 
 - COMPLETE — [PR #364](https://github.com/6Soo/cost/pull/364), 운영 SHA `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`. 여행/업로드 복사 전에 수기 지출 대조와 원자 연결·revision/멱등 재검증을 적용했다. 사용자 교정·원본/환불/카드/금액/통화·점유 보호를 유지하며 Google 최종 장부 자동 쓰기는 금지한다. 직전 검증 `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`과 두 건의 운영 교정값 보존.
