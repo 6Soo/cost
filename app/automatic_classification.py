@@ -39,6 +39,9 @@ def completion_for_row(row, valid, *, nets=None):
             reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
     if trip not in valid:
         reasons.append('TRIP_INVALID_OR_MISSING')
+    if (row.get('trip_id') in valid and row.get('display_tab_id') in valid
+            and row['trip_id'] != row['display_tab_id']):
+        reasons.append('TRIP_ASSIGNMENT_CONFLICT')
     provisional = ('provisional' in basis.casefold() or '잠정' in basis
                    or row.get('provisional_assignment')
                    or str(row.get('classification_state')).upper() == 'AUTO_PROVISIONAL')
@@ -47,7 +50,7 @@ def completion_for_row(row, valid, *, nets=None):
     if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
         reasons.append('SOURCE_UNRESOLVED')
     if not manual:
-        automatic = source in {'inference', 'AUTO_INFERRED'}
+        automatic = source in {'inference', 'AUTO_INFERRED', 'upload_confirmed'}
         if automatic:
             if not (basis.startswith('AUTO_INFERRED') or 'upload_confirmed' in source):
                 reasons.append('AUTO_EVIDENCE_MISSING')
@@ -68,6 +71,15 @@ def classification_completion(conn, batch_id, trips, *, nets=None):
         'SELECT ' + ','.join(columns) + ' FROM transactions '
         'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) '
         'ORDER BY transaction_id', (batch_id,))]
+    available = {column[1] for column in c.execute('PRAGMA table_info(transactions)')}
+    optional = [field for field in ('parse_error', 'conflict_reason', 'duplicate_of') if field in available]
+    if optional and rows:
+        extra = {row[0]: dict(zip(optional, row[1:])) for row in c.execute(
+            'SELECT transaction_id,' + ','.join(optional) + ' FROM transactions '
+            'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)',
+            (batch_id,))}
+        for row in rows:
+            row.update(extra.get(row['transaction_id'], {}))
     results = [completion_for_row(row, valid, nets=nets) for row in rows]
     return {'batch_id': batch_id, 'complete': bool(rows) and all(r['complete'] for r in results),
             'rows': results, 'audit': _completion_audit(),

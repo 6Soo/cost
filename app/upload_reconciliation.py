@@ -1,11 +1,12 @@
 """Ephemeral source-row reconciliation over the existing transaction store."""
 from collections import defaultdict
 from datetime import date
+import json
 from urllib.parse import quote
 
 from .automatic_classification import completion_for_row
 from .card_preflight import masked_text
-from .db import canonical, utc_now
+from .db import utc_now
 from .partial_refund import refund_links
 from .provisional_assignment import canonical_trip_periods
 
@@ -39,12 +40,17 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
     for source in parsed.rows:
         day = source.approval_date or source.posting_date
         valid_date = True
+        has_date = bool(day)
         try:
-            month = date.fromisoformat(day).strftime('%Y-%m')
-            dates.append(day)
+            if not has_date:
+                raise TypeError('TRANSACTION_DATE_UNKNOWN')
+            parsed_day = date.fromisoformat(day)
+            month = parsed_day.strftime('%Y-%m')
+            dates.append(parsed_day.isoformat())
         except (ValueError, TypeError):
             month = 'unknown'
-            valid_date = False
+            # Missing dates are an aggregate bucket, not a parsing failure.
+            valid_date = not has_date
         issuers.add(masked_text(source.issuer))
         bucket = monthly[month]
         counts['T'] += 1
@@ -113,11 +119,15 @@ def summarize(pipeline, received, parsed, trips, *, nets=None, inspection=None):
             conn.execute('SAVEPOINT upload_completion')
             try:
                 for tid, previous_source, basis, revision in dict((d[0], d) for d in decisions).values():
-                    detail = {'version': 'cuv-v1', 'source': previous_source,
+                    stable = {'version': 'cuv-v2', 'source': previous_source,
                               'basis': basis, 'trip_id': rows[tid]['trip_id'], 'item': rows[tid]['item']}
-                    prior = conn.execute('SELECT 1 FROM change_log WHERE kind=? AND subject=? AND detail_json=?',
-                        ('classification.upload_confirmed', tid, canonical(detail))).fetchone()
+                    prior = any(all(json_value.get(key) == value for key, value in stable.items())
+                        for (raw,) in conn.execute(
+                            'SELECT detail_json FROM change_log WHERE kind=? AND subject=?',
+                            ('classification.upload_confirmed', tid))
+                        for json_value in [json.loads(raw)])
                     if not prior:
+                        detail = {**stable, 'at': utc_now()}
                         pipeline.store.log_change('classification.upload_confirmed', tid,
                                                   detail)
                 conn.execute('RELEASE SAVEPOINT upload_completion')
