@@ -5,6 +5,16 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-30 이용일·OTA 분류 교정 및 운영 수락
+
+- 최신 사용자 범위는 카드 업로드 보류와 두 오분류의 근거 확인·교정이다. 국민/하나 수집은 `DEFERRED_BY_USER`로 기록했으며 로그인·업로드를 재개하지 않는다. 과거 전체 큐를 새 작업으로 가져오지 않았다.
+- COMPLETE — [PR #361](https://github.com/6Soo/cost/pull/361) 공급자 인식과 [PR #362](https://github.com/6Soo/cost/pull/362) 날짜/국가·예약 근거 우선 및 소수 자동분류 교정 경계를 검수·정상 병합했다. 운영 SHA `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`.
+- 실제 두 건은 한 DB 트랜잭션으로 거래·기존 장부·화면 행의 귀속을 함께 교정했다. 10월 국내 부산 사용은 5월 동명 여행에서 날짜/국가에 맞는 `1002_영남` 최선 후보로 추론 배정했다. Gotogate는 실제 Gmail 결제·확정 메일과 같은 주문의 첨부 영수증에서 이용기간을 확인해 `1103_아오모리` 항공료로 교정했다. 사용자의 개별 예약/환급 확인으로 기록하지 않았고 새 예약/카드 금융 링크를 만들지 않았다.
+- 보관 메일 3,355건에 관련 언급 7건이 있었으나 해당 결제 근거는 찾지 못했다. 현재 Gmail에서 관련 결제·확정 메일을 찾았으며 영수증의 원화 합계와 왕복 이용기간을 대조했다. 보관 수집 범위의 누락을 메일 부재로 단정하지 않는다. 새로운 원문/첨부는 Git에 포함하지 않았고 전체 OTA 원천 적재를 실행하지 않았다.
+- 검증: 결합 99 passed(공급자/교정/멱등성/부분실패 원복/P2/권위/3820/환불 경계), 배포본 호스트 Python 합성 3 PASS. 운영 사본 리허설과 실제 쓰기에서 전 표의 원본·금액·날짜·ID·기존 수동/금융/이력·범위 밖 행/스키마 불변을 확인했다. 새 장부행/Google/금융링크 쓰기 0, 재요청 추가 쓰기 0. 최초 사본 검증은 허용된 감사 append의 SQLite 카운터를 범위 밖 변경으로 취급해 거부됐고 실제 적용 없이 카운터 검증 범위를 교정한 후 통과했다.
+- 배포 수락: 1,126 blobs 불일치 0·새 백업/별도 복원·task/process SHA·단일 listener·health/ready 200·보호 API 401·보호 13표 배포 전후 불변. 이후 실제 Aside 인증 카드 상세 GET 두 건 200·새 여행 표시·항공료·분기 표시 제거를 확인했다. Board/SourceRefresh Running. 전체 회귀/실기기 검사는 미실행이며 모든 과거 카드의 재분류를 완료했다고 확대하지 않는다.
+- 근거: `.local-archive/classification-correction-20261030/`의 체크포인트·사본 미리보기·적용·XML, `.local-archive/deploy-bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21/` 및 호스트 같은 SHA deploy-evidence. 운영 작성 점유를 감독자 Cost V67에 해제 통지했다. 현재 승인된 두 건/코드의 남은 작업 0. 후속 문서는 검사/배포/재시작을 반복하지 않는다.
+
 ## 2026-10-29 카드 업로드 전수 대조 운영 수락·배포
 
 - COMPLETE — 사용자 “모든 명세가 구현되었나? 되었다면 운영수락”에 따라 최신 main의 P2 변경을 통합·검증하고 [PR #355](https://github.com/6Soo/cost/pull/355)를 정상 병합했다. 운영 SHA `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`, 직전 검증 릴리스 `3860a822efe3a6f2d6c1349e824b193ac7309a7b` 및 복구 사본 보존. [명세](specs/card-upload-full-reconciliation-20261029.md)의 CUV-01~07 구현·격리/운영 읽기 전용 수락 완료이며 실제 은행 환급·Google 반영 완료와 구분한다.
