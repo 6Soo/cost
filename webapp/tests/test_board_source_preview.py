@@ -412,9 +412,9 @@ class EncodingAndPlacementTests(BoardBase):
         self.use_service(FakeService([
             source_row(self.sheet, 8, date="2026-05-01", amount="120000")]))
         markup = self.preview()
-        self.assertIn("원천 자료입니다", markup)
-        self.assertIn("저장된 장부 합계와 별도로", markup)
-        self.assertIn("검토에서 차이를 확인하세요", markup)
+        self.assertIn("실제 원천 자료", markup)
+        self.assertNotIn("저장된 장부 합계와 별도로", markup)
+        self.assertNotIn("검토에서 차이를 확인하세요", markup)
         self.assertNotIn("아직 반영되지 않은", markup)
         self.assertNotIn("반영되지 않은", markup)
 
