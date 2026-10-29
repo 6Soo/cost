@@ -194,12 +194,12 @@ def test_unconfirmed_group_cannot_commit_and_requires_token(context, monkeypatch
     assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("scenario", ["inferred", "manual_hold", "over_refund"])
+@pytest.mark.parametrize("scenario", ["unmatched", "manual_hold", "over_refund"])
 def test_refund_money_guards_still_block_inline_action(context, scenario):
     board, original, refund, unrelated = context
-    if scenario == "inferred":
+    if scenario == "unmatched":
         board.conn.execute(
-            "UPDATE transactions SET original_approval_number='' WHERE transaction_id=?", (refund,))
+            "UPDATE transactions SET original_approval_number='',approval_date=date(approval_date,'+1 day') WHERE transaction_id=?", (refund,))
     elif scenario == "manual_hold":
         h = board.conn.execute("SELECT source_hash FROM transactions WHERE transaction_id=?", (refund,)).fetchone()[0]
         board.conn.execute("INSERT INTO transaction_review_holds VALUES (?,?,?,?)",

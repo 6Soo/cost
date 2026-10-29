@@ -2,8 +2,8 @@
 """Derive refund-to-original links from raw card fields. Nothing here writes.
 
 A cancellation row names the approval it cancels in `original_approval_number`.
-The link exists only when exactly one purchase has that approval number on the
-same issuer and card. Overseas statements carry no approval numbers, so a
+That reference identifies a link when exactly one purchase has that approval
+number on the same issuer and card; it is not a prerequisite. Overseas statements carry no approval numbers, so a
 cancellation without one is paired by merchant, card, foreign currency and foreign
 amount instead (config/refund-pairing.json). Identical rows pair in date order, one
 purchase for one cancellation; a cancellation left over stays unpaired. The KRW
@@ -230,7 +230,7 @@ def _foreign_links(conn, taken, requested=None) -> dict:
 def kakao_refund_candidates(conn, requested=None) -> dict:
     """Compatibility view of the same inference used by links, groups and UI."""
     return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items()
-            if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
+            if link.get('basis') == 'kakao_same_card_exact_amount'
             and (requested is None or tid in requested)}
 
 
@@ -252,15 +252,16 @@ def _kakao_merchant_family(merchant):
 def _kakao_amount_links(conn, taken, requested=None, *, occupied_refunds=()):
     return {tid: link for tid, link in _amount_inferred_links(
         conn, taken, requested, occupied_refunds=occupied_refunds).items()
-        if link['basis'] == 'kakao_same_card_exact_amount_inferred'}
+        if link['basis'] == 'kakao_same_card_exact_amount'}
 
 
 def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
-    """Read-only exact-KRW inference with bidirectional global uniqueness.
+    """Accepted exact-KRW pairing with bidirectional global uniqueness.
 
     Identical merchants require the same use date. Kakao taxi spelling variants
-    may use the existing 14-day window. This is an inferred relation only,
-    never evidence of an actual cash refund. A purchase must not be consumed by
+    may use the existing 14-day window. An original approval reference is not
+    required for this pairing; it is never proof of an actual cash refund.
+    A purchase must not be consumed by
     approval-number/foreign pairing. All possible edges participate in uniqueness
     checks, including an ambiguous refund and an already consumed original.
     A conflicted source cannot make its clean competitor look unique.
@@ -316,7 +317,8 @@ def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
             'original_id': original_id, 'gross_krw': gross, 'refund_krw': -gross,
             'refunds_total_krw': -gross, 'net_krw': 0,
             'status': 'full', 'refund_count': 1,
-            'basis': basis, 'inferred': True,
+            'basis': basis.removesuffix('_inferred'),
+            'matching_source': 'automatic', 'inferred': False,
         }
     return links
 

@@ -400,7 +400,8 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
             source, target = original, refund
         # 이미 기록된 쪽의 "기록됨" 표시는 보류가 아니다. 빠진 쪽만 보류 여부를 본다.
         if original.get("blocked") and not original.get("already_booked"):
-            _block_pair([refund], "refund_pair_incomplete", "원거래가 보류 중이라 환불도 함께 보류해요", ready, unresolved)
+            if not refund.get('blocked') or refund['blocked'] in _PAIR_UNBLOCKABLE:
+                _block_pair([refund], "refund_pair_incomplete", "원거래가 보류 중이라 환불도 함께 보류해요", ready, unresolved)
             continue
         if refund.get("blocked") and refund["blocked"] not in _PAIR_UNBLOCKABLE and not refund.get("already_booked"):
             _block_pair([original], "refund_pair_incomplete", "환불 거래가 보류 중이라 원거래도 함께 보류해요", ready, unresolved)

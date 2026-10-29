@@ -36,7 +36,7 @@ def test_unique_kakao_names_differ_auto_pair_readonly():
     before=list(db.iterdump())
     link=_kakao_amount_links(db,set(),{"cancel"})["cancel"]
     assert link["original_id"]=="pay"
-    assert link["basis"]=="kakao_same_card_exact_amount_inferred"
+    assert link["basis"]=="kakao_same_card_exact_amount"
     assert link["net_krw"]==0 and link["refund_count"]==1
     assert refund_group(db,"pay")==["pay","cancel"]
     assert refund_links(db,["cancel"])["cancel"]["original_id"]=="pay"
