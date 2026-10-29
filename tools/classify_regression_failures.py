@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Iterable
 
 _FAILED = re.compile(r"^(?P<kind>FAILED|ERROR|SUBFAILED(?:\([^\r\n]*?\))?)\s+(?P<nodeid>[^\s]+)")
-_PASSED = re.compile(r"\b(?P<count>\d+)\s+passed(?:,|\s|$)")
-_COLLECTED = re.compile(r"collected\s+(?P<count>\d+)\s+items", re.I)
+_SUMMARY_PART = re.compile(r"(?P<count>\d+)\s+(?P<kind>failed|passed|skipped|errors?)\b", re.I)
+_COLLECTED = re.compile(r"collected\s+(?P<count>\d+)\s+items?", re.I)
 _SAFE_NODEID = re.compile(r"^(?:tests/|webapp/tests/)[A-Za-z0-9_/]+\.py(?:::[A-Za-z_][A-Za-z0-9_]*)+$")
 
 CATEGORIES = {
@@ -43,7 +43,7 @@ def _category(nodeid: str) -> str:
 
 def classify_lines(lines: Iterable[str], *, exit_code: int | None = None) -> dict:
     failures: list[dict[str, str]] = []
-    passed = collected = None
+    passed = collected = summary_failed = summary_errors = None
     for raw in lines:
         line = raw.rstrip("\r\n")
         match = _FAILED.match(line)
@@ -53,12 +53,15 @@ def classify_lines(lines: Iterable[str], *, exit_code: int | None = None) -> dic
                              '_key': hashlib.sha256((match.group('kind') + ' ' +
                                                      match.group('nodeid')).encode()).hexdigest()})
             continue
-        match = _PASSED.search(line.strip())
-        if match:
-            passed = int(match.group("count"))
         match = _COLLECTED.search(line)
         if match:
             collected = int(match.group("count"))
+        summary_parts = {match.group("kind").casefold(): int(match.group("count"))
+                         for match in _SUMMARY_PART.finditer(line)}
+        if summary_parts:
+            passed = summary_parts.get("passed", 0)
+            summary_failed = summary_parts.get("failed", 0)
+            summary_errors = summary_parts.get("error", summary_parts.get("errors", 0))
     # Preserve order while avoiding duplicate report entries.
     unique = []
     seen = set()
@@ -72,7 +75,7 @@ def classify_lines(lines: Iterable[str], *, exit_code: int | None = None) -> dic
         categories[item["category"]] = categories.get(item["category"], 0) + 1
     return {
         "schema_version": 1,
-        "status": ("FAILED" if exit_code not in (None, 0) or unique else
+        "status": ("FAILED" if exit_code not in (None, 0) or unique or summary_failed or summary_errors else
                    "UNVERIFIED" if exit_code is None else
                    "PASSED" if passed is not None else
                    "COLLECTION_ONLY" if collected is not None else "UNVERIFIED"),
@@ -82,6 +85,8 @@ def classify_lines(lines: Iterable[str], *, exit_code: int | None = None) -> dic
         "categories": categories,
         "passed": passed,
         "collected": collected,
+        "summary_failed": summary_failed,
+        "summary_errors": summary_errors,
         "known_failures_are_not_passes": True,
         "raw_log_included": False,
     }
