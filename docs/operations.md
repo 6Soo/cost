@@ -1,5 +1,15 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 카드 업로드 전수 대조 운영 수락·배포
+
+- COMPLETE — 사용자 “모든 명세가 구현되었나? 되었다면 운영수락”에 따라 최신 main의 P2 변경을 통합·검증하고 [PR #355](https://github.com/6Soo/cost/pull/355)를 정상 병합했다. 운영 SHA `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`, 직전 검증 릴리스 `3860a822efe3a6f2d6c1349e824b193ac7309a7b` 및 복구 사본 보존. [명세](specs/card-upload-full-reconciliation-20261029.md)의 CUV-01~07 구현·격리/운영 읽기 전용 수락 완료이며 실제 은행 환급·Google 반영 완료와 구분한다.
+- 운영 원본 대조 중 정상 XLSX 2개의 빈칸 `-` 4,120개를 수식으로 오인하는 결함을 발견해 `19f9edb`에서 교정했다. 하이픈 placeholder/음수 숫자를 허용하고 `=`, `+`, `@`, `-CMD` 등 수식 차단·XLSX scan fail-closed를 유지한다. 최신 main 통합 검사117 passed/fixture 의존 실패1은 전역 store fixture 복원으로 수정했고 관련 결합8 passed, placeholder/원천 대조27 passed를 확인했다. 유효한 나머지 통과 근거는 반복하지 않았다.
+- 실카드 검증은 운영 DB mode=ro → 격리 메모리 백업에서 원본8개를 사전검사·동일 파일 재대조했다. 원천 행6,929(E=6,929/N=0/H=0/P=0), 파일 오류0, 복사본 원본/분류/금융 표 불변, 운영 connection total_changes=0. 분류 C=6,026/U=903, 취소 원결제 경고R=112는 실제 데이터 상태이며 금융 완료로 승격하지 않는다. 파일 간 겹침을 포함한 원천 행 집계이므로 고유 거래 수로 보고하지 않는다. 실제 운영 재업로드 POST·분류 재처리·Google/은행 쓰기0.
+- 릴리스1,122 Git blobs 불일치0, 병합 코드 tree 일치·추가14파일 메타데이터 차단0/삭제0·새 백업/별도 복원 PASS. 공식 배포기를 통해 task/process SHA·단일 loopback listener·health/ready200·보호API401, 배포 및 인증 조회 전후 보호13표 불변, Board/SourceRefresh Running을 확인했다.
+- 인증 Aside `/import`의 파일/업로드 컨트롤·50건 페이지/시스템 오류 코드와 저장 자료8개 API200을 확인했다. 익명 `/import`, `/api/imports`, `/api/imports/rules`, POST `/api/imports`는401이다. 모바일·두 테마·키보드/포커스는 최종 합성 브라우저5 passed 근거를 재사용했다. 실기기/Safari와 운영 재업로드·실제 금융 변경은 미실행이다. 대량 응답27.5MB/동기 처리라는 기존 성능 제한은 명세에 보존한다.
+- 근거: 통합 worktree `.local-archive/cuv-operating-20261029/`의 acceptance-checkpoint·real-source-acceptance·review·release-audit·protection-before/after·deploy-evidence·upload-http-smoke·owner-ui-smoke 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-a69c0ae7389789a65d2ed01f3028c0348f52eb1f.json`. root 사용자 변경과 기존 workspace 보존. 해당 운영 수락 범위 남은 구현/배포0. 이 기록 후속은 문서 전용이며 재검사/백업/재배포/재시작하지 않는다.
+
+
 ## 2026-10-29 P2 카드 재검토 배포와 실제 분류 반영
 
 - [PR #357](https://github.com/6Soo/cost/pull/357), 구현7ecf023·운영 `3860a822efe3a6f2d6c1349e824b193ac7309a7b`. 명시적 재검토 모드로 이전 완료 자동분류도 예약 이용기간/업종/용도와 대조한다. 원문/ID는 Git/외부 모델에 전송하지 않으며 추론 결과를 사용자 확인으로 기록하지 않는다.
