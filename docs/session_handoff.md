@@ -9,9 +9,10 @@
 ## 2026-10-29 최신 요청 — 카드 행 상세·배지 제거·날짜와 폭 압축
 
 - 현재 범위는 ‘원본 보존’ 표시 제거, 상세 버튼/열 제거 후 행 클릭으로 상세 이동, 셀 간격과 전체 폭 축소, 선택 기간과 중복되는 날짜 제거다. 날짜는 연도 조회 `3월 5일`, 월 조회 `5일`이며 시간은 붙이고 원본/title은 유지한다. 이전 원본 보존 배지·상세 열 유지 검사는 대체한다.
-- IMPLEMENTED / VALIDATION_PENDING: 표4열·고정 열 폭·모바일 최소380px·셀5/4px, 중복 날짜 접두사 생략을 적용했다. 행의 날짜/금액/여행 셀 클릭은 기존 상세 URL로 이동하며 가맹점 이름의 실제 링크로 키보드/새 탭/JavaScript 없는 탐색을 유지한다. 환불 링크는 독립 동작하고 텍스트 선택 중에는 행 이동을 하지 않는다. 원본 보존은 내부 상태 그대로이며 배지만 제거한다.
-- 작업 사본의 카드/필터/환불 목적지/브라우저42 passed와 신규 날짜 표시1 passed. 날짜 추가 검사에서 새 의존성을 사용하지 않도록 표준 re로 교정했다. 최종 검증은 동시 편집 중인 별도 금융 파일을 포함하지 않은 커밋 archive에서 같은43개를 실행한다. 실제 DB/분류/금융/여행/Google 쓰기·스키마 변경0. 기존 사용자/다른 작업 변경은 커밋에서 제외한다.
-- 다음: 표적 커밋 archive 검증 → PR 정상 main 병합 → 고정SHA 배포·health/ready·보호 API·보호13표 불변·배포본 합성 smoke → SHA/근거 기록. 운영 기준은 직전 검증 `537aa3bca7cec79debad4db92d67e94baa6934e6`이며 오래된 과제는 재개하지 않는다.
+- COMPLETE — [PR #331](https://github.com/6Soo/cost/pull/331), 운영 `de2aada07320de57aee6935c7617f6d3102f017a`, 검수 소스 `4e8588a58eb262a2206fd5a7ce13a1bfe48f5292`와 merge tree 동일. 표4열·고정 열 폭·모바일 최소380px·셀5/4px, 중복 날짜 접두사 생략을 적용했다. 행의 날짜/금액/여행 셀 클릭은 기존 상세 URL로 이동하며 가맹점 이름의 실제 링크로 키보드/새 탭/JavaScript 없는 탐색을 유지한다. 환불 링크는 독립 동작하고 텍스트 선택 중에는 행 이동을 하지 않는다. 원본 보존은 내부 상태 그대로이며 배지만 제거한다.
+- 최종 커밋 Git archive에서 카드/필터/환불 목적지/브라우저43 passed(동시 편집 중인 별도 금융 변경 제외).320/390/600/759/760/1280·두 테마·200% 확대·행 클릭/키보드·환불 독립 링크·텍스트 선택·날짜/title·원본 날짜 불변·표 폭 검증. 초기 신규 날짜 검사 의존성은 표준 re로 교정했다. compile/diff·metadata6파일 차단0/삭제0. 실제 인증 owner 화면/실기기·전체 회귀는 미실행이다.
+- 1110 Git blobs 불일치0·새 전체 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호 API/연월/상세/환불URL401·금융/사용자13표 내용/스키마 불변. 배포본/호스트 Python의 단일 연월·4열/380px·배지/상세 열 부재·행 링크/스크립트·한국어 날짜/title·환불 링크·원행 불변 합성 smoke PASS. Board/SourceRefresh Running. 이전 검증 `537aa3bca7cec79debad4db92d67e94baa6934e6` 및 복구 사본 보존.
+- 근거는 `.local-archive/card-row-navigation-20261029/`의 checkpoint/validation-source/runtime-smoke/auth-smoke와 합성 이미지·검증 archive, `.local-archive/deploy-de2aada07320de57aee6935c7617f6d3102f017a/`의 review/protection-before/protection-after/deploy-evidence, 호스트 동일 SHA release-audit/deploy-evidence다. 실제 DB/분류/금융/여행/Google 쓰기·스키마 변경0. 기존 사용자/다른 작업 변경 보존, 남은 구현/배포 작업·차단0. 후속 문서만의 변경에 검사/배포/재시작을 반복하지 않는다.
 
 ## 2026-10-29 최신 요청 — 카드 모바일 UI·연월 선택 통합
 

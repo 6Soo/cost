@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 카드 행 이동·날짜/폭 압축 배포
+
+- [PR #331](https://github.com/6Soo/cost/pull/331), 운영 SHA `de2aada07320de57aee6935c7617f6d3102f017a`, 검수 소스 `4e8588a58eb262a2206fd5a7ce13a1bfe48f5292`와 tree 동일. ‘원본 보존’ 배지와 상세 열을 제거하고 행 셀 클릭으로 기존 상세 URL을 연다. 네이티브 가맹점 링크의 키보드/새 탭/JavaScript 없는 탐색·환불 링크 독립 동작·텍스트 선택 보호를 유지한다. 모바일4열·최소380px·셀5/4px이며 연도 선택 `3월 5일`, 월 선택 `5일`과 시간·원본 날짜/title을 표시한다.
+- 별도 금융 작업의 동시 변경을 포함하지 않은 정확한 커밋 archive에서 카드/필터/환불 목적지/브라우저43 passed.320~1280 여섯 폭·두 테마·200% 확대·행 클릭·키보드·독립 환불 링크·선택 보호·날짜/title·원행 불변·표 폭/페이지 넘침을 검증했다. 초기 날짜 검사 의존성은 표준 re로 교정, compile/diff·metadata6파일 차단0/삭제0. 전체 회귀·실제 인증 owner UI/실기기는 미실행이다.
+- 1110 Git blobs 일치·새 전체 백업/별도 복원·task/processSHA·단일 loopback listener·health/ready200·보호 API/연월/상세/환불URL401·보호13표 내용/스키마 불변. 호스트 Python에서 실제 배포본의 단일 기간·4열/380px·배지/상세 열 부재·행 링크/스크립트·한국어 날짜/title·환불 링크·원행 불변 합성 smoke PASS. Board/SourceRefresh Running, 직전537aa3b 및 복구 사본 보존. 금융/분류/여행/Google 쓰기·스키마 변경·재처리0.
+- 근거: `.local-archive/card-row-navigation-20261029/`, `.local-archive/deploy-de2aada07320de57aee6935c7617f6d3102f017a/` 및 호스트 동일 SHA release-audit/deploy-evidence. 후속 문서만의 변경은 검사·DB 확인·재배포·재시작하지 않는다.
+
 ## 2026-10-29 연월 통합·모바일 압축 표 최종 배포
 
 - [PR #329](https://github.com/6Soo/cost/pull/329), 운영 SHA `537aa3bca7cec79debad4db92d67e94baa6934e6`, 검수 소스 `6f581aa3dd12e2a1797e24c8243068def6f77ae3`와 tree 동일. 최신 사용자 교정대로 모바일도 기존 표 방식이며, 560px 최소 폭·6/8px 셀 여백·12px 글자·두 줄 이름·원문/title 보존·표 내부 스크롤로 압축한다. 월별 카드 제거·연월 선택 하나·즉시 연도/월 조회·필터/커서 호환은 PR #328에서 유지한다.
