@@ -9,10 +9,13 @@ def test_runtime_identity_is_fail_closed_and_read_only(tmp_path, monkeypatch):
     monkeypatch.setenv("WEBLEDGER_PARTICIPANT_DB", str(db))
     before = db.stat().st_mtime_ns
     result = verify_paths(db)
-    assert result["status"] == "ok"
+    assert result["status"] == "ready_for_receipt_check"
+    assert result["code"] == "REGISTRATION_RECEIPT_REQUIRED"
     assert result["checks"]["same_file_identity"]
     assert result["schema_present"]
     assert result["write_performed"] is False
+    assert str(db) not in str(result)
+    assert "'file_id':" not in str(result)
     assert db.stat().st_mtime_ns == before
 
 
@@ -55,7 +58,10 @@ def test_receipt_requires_actual_recorded_batch_and_matching_counts(tmp_path):
                        (json.dumps(receipt),))
     store.close()
     before = db.read_bytes()
-    assert verify_paths(db, db, receipt=receipt)['receipt_matches_recorded_batch']
+    accepted = verify_paths(db, db, receipt=receipt)
+    assert accepted['receipt_matches_recorded_batch']
+    assert accepted['status'] == 'accepted'
+    assert accepted['code'] == 'DB_AND_RECEIPT_MATCH'
     wrong = dict(receipt, new_participants=3)
     assert verify_paths(db, db, receipt=wrong)['status'] == 'blocked'
     assert verify_paths(db, db, receipt=dict(receipt,new_participants=True))['status'] == 'blocked'
