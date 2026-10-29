@@ -428,3 +428,9 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 카드 표적88 passed, 환불/원자 기록 보호24 passed. 결합 수집 시 카드 검사 모듈의 schema=require 환경 설정이 환불 fixture 초기화를 막았으며 별도 pytest 프로세스에서 통과했다. compile/diff·metadata guard 차단0/삭제0. 전체 회귀·실제 owner 인증 화면/실기기는 미실행이다.
 - 1,109 blobs 불일치0, 새 전체 백업·별도 복원, task/process SHA·단일 loopback listener·health/ready200·보호 API401·금융/사용자13표 내용/스키마 불변을 확인했다. 호스트 Python으로 배포본의 보존 기간 전액 상쇄 그룹·카드 링크·검색·미배정 필터/건수·원행 불변 합성 smoke PASS. 이전 검증 `9db468d42333979862b961fa26c822eb66260257`와 복구 사본 보존. 금융/분류/여행/Google 쓰기·마이그레이션·재처리0.
 - 근거: 호스트 동일 SHA release-audit/deploy-evidence, `.local-archive/deploy-558c55e445902ebf0cc7e9031f88bd25e88794f8/`의 검수/보호 전후/배포 evidence 및 `.local-archive/card-refund-destination-20261029/`의 checkpoint/runtime-smoke/auth-smoke. 후속 기록은 문서만 바꾸므로 재배포·재시작을 하지 않는다.
+
+## 2026-10-29 원승인번호 없는 취소·환불 쌍 인정 배포
+
+- [PR #332](https://github.com/6Soo/cost/pull/332)를 `dccd3af6d12a52a3f9eb50a647979527ac5cc1f7`로 고정 배포했다. 검수5587129와 merge tree 동일,1110 blobs 불일치0. 원승인번호 없이도 같은 발급사·카드·가맹점·이용일·동액의 상호 유일 대응과 기존 카카오 계열/기간 대조를 연결 완료로 인정한다. 자동 출처·근거를 표시하고 원본 오류·중복·경합·점유·초과환불·수동 보류·묶음 원자성·재기록 보호를 유지한다. 수동 보류 사유가 묶음 보류 사유로 덮이지 않도록 보존했다.
+- 표적242 passed(핵심144·환불UI/owner/원자성/cross-batch89·CardFlow3·카드 목적지6), compile/diff 및 metadata guard 차단0/삭제0. baseline 비교2건·inline stale 기대1건은 기준d753f45에서 동일 실패했고 통과로 세지 않았다. 전체 회귀·실제 owner 인증 화면 수락은 미실행이다.
+- 새 전체 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·OTA/환불 보호API401·보호13표 내용/스키마 불변. 호스트 Python 배포본에서 원승인번호 없는 대응·조회 원본 불변·합성 원자 기록 smoke PASS. 이전 검증de2aada와 복구 사본 보존. 실제 분류/기장/여행/Google/은행 환급 쓰기·재처리·스키마 변경0. 근거는 `.local-archive/refund-reference-optional-20261029/`, `.local-archive/deploy-dccd3af6d12a52a3f9eb50a647979527ac5cc1f7/`, 호스트 동일SHA release-audit/deploy-evidence다. 후속 문서만으로 재배포·재시작하지 않는다.
