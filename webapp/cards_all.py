@@ -426,7 +426,7 @@ def _detail_href(transaction_id) -> str:
 
 def card_detail_html(item: dict) -> str:
     """Escaped source facts; a ledger row is not required and nothing is written."""
-    from app.assignment_status import row_assignment
+    from app.assignment_status import assignment_conflict_label, row_assignment
     from app.quarter_tab import parse_tab
     assignment = row_assignment(item, _trip_context()[0].keys())
     destination = assignment['destination']
@@ -444,7 +444,7 @@ def card_detail_html(item: dict) -> str:
               ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
               ('원본 충돌', item.get('conflict_reason')),
-              ('배정 충돌', ', '.join(assignment['conflicts']))]
+              ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
     return "<dl class='card-detail-fields'>" + ''.join(
         f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>'
 
@@ -506,6 +506,10 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                     item.get("foreign_amount"),
                                     item.get("foreign_currency"))
             assignment = row_assignment(item, (trip_names or {}).keys())
+            # Legacy callers without trip metadata historically displayed stored IDs.
+            # Keep that readable fallback; production card pages pass validated names.
+            if trip_names is None and assignment['destination'] and not parse_tab(assignment['destination']):
+                assignment['status'] = 'ASSIGNED'
             trip_id = assignment['destination']
             quarter = parse_tab(trip_id)
             if assignment['status'] != 'ASSIGNED' or (not quarter and item.get('trip_assignment_valid') is False):
