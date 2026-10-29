@@ -426,10 +426,10 @@ def _detail_href(transaction_id) -> str:
 
 def card_detail_html(item: dict) -> str:
     """Escaped source facts; a ledger row is not required and nothing is written."""
+    from app.assignment_status import row_assignment
     from app.quarter_tab import parse_tab
-    destination = str(item.get('display_tab_id') or '').strip()
-    if destination in ('', 'unclassified'):
-        destination = str(item.get('trip_id') or '').strip()
+    assignment = row_assignment(item, _trip_context()[0].keys())
+    destination = assignment['destination']
     quarter = parse_tab(destination)
     if quarter:
         destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용'
@@ -443,7 +443,8 @@ def card_detail_html(item: dict) -> str:
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
               ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
-              ('원본 충돌', item.get('conflict_reason'))]
+              ('원본 충돌', item.get('conflict_reason')),
+              ('배정 충돌', ', '.join(assignment['conflicts']))]
     return "<dl class='card-detail-fields'>" + ''.join(
         f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>'
 
@@ -485,6 +486,7 @@ def _period_date(value, year=None, month=None) -> str:
 def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                        trip_names: dict[str, str] | None = None,
                        year: int | None = None, month: int | None = None) -> str:
+    from app.assignment_status import row_assignment
     from app.quarter_tab import parse_tab
 
     rows: list[str] = []
@@ -503,10 +505,10 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             amount = _format_amount(item.get("amount_krw"),
                                     item.get("foreign_amount"),
                                     item.get("foreign_currency"))
-            destination = str(item.get('display_tab_id') or '').strip()
-            trip_id = destination if destination not in ('', 'unclassified') else str(item.get('trip_id') or '').strip()
+            assignment = row_assignment(item, (trip_names or {}).keys())
+            trip_id = assignment['destination']
             quarter = parse_tab(trip_id)
-            if trip_id == 'unclassified' or (not quarter and item.get('trip_assignment_valid') is False):
+            if assignment['status'] != 'ASSIGNED' or (not quarter and item.get('trip_assignment_valid') is False):
                 trip_id = ''
             quarter = parse_tab(trip_id)
             trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용" if quarter
