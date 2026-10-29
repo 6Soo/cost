@@ -454,7 +454,7 @@ def card_detail_html(item: dict) -> str:
         destination = str(item.get('trip_id') or '').strip()
     quarter = parse_tab(destination)
     if quarter:
-        destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용'
+        destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용 · 여행 미귀속'
     elif destination in ('', 'unclassified'):
         destination = '미배정'
     else:
@@ -533,7 +533,7 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             if trip_id == 'unclassified' or (not quarter and item.get('trip_assignment_valid') is False):
                 trip_id = ''
             quarter = parse_tab(trip_id)
-            trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용" if quarter
+            trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용 · 여행 미귀속" if quarter
                          else (trip_names or {}).get(trip_id, trip_id))
             source = str(item.get("classification_source") or "").strip()
             if item.get('refund_tab_member'):
