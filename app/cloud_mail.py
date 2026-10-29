@@ -37,6 +37,17 @@ def _original(content, message_id):
     messages = data.get("responses") if isinstance(data, dict) else None
     if not isinstance(messages, list) or len(messages) != 1 or not isinstance(messages[0], dict):
         raise CloudMailError("CLOUD_MAIL_ORIGINAL_INVALID")
+
+
+def _enumeration_complete(manifest):
+    """Return the completion watermark, accepting old manifests without state keys."""
+    if manifest.get("query") is not None or not isinstance(manifest.get("last_complete"), str):
+        return False
+    pending = manifest.get("pending", [])
+    if pending not in ([], None):
+        return False
+    next_token = manifest.get("nextPageToken", manifest.get("next_page_token"))
+    return next_token in (None, "") and manifest.get("has_next_page", False) is False
     message = messages[0]
     payload = message.get("payload")
     if (message.get("id") != message_id or not str(message.get("internalDate") or "").isdigit()
@@ -132,10 +143,7 @@ def sync(client, directory, *, folder_id, expected_account, apply=False, batch_s
             raise CloudMailError("CLOUD_MAIL_LOCAL_CONFLICT")
         new_candidates.append((message_id, file, digest, target))
 
-    enumeration_complete = (
-        manifest.get("query") is None
-        and isinstance(manifest.get("last_complete"), str)
-    )
+    enumeration_complete = _enumeration_complete(manifest)
     if apply and batch_size is not None and not enumeration_complete:
         raise CloudMailError("CLOUD_MAIL_ENUMERATION_INCOMPLETE")
 

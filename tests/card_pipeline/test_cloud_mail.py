@@ -353,6 +353,31 @@ def test_batch_apply_rejects_incomplete_enumeration_with_zero_writes(tmp_path, m
     assert list(tmp_path.iterdir()) == []
 
 
+def test_batch_apply_rejects_pending_or_next_page_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_mail, 'sync_unified_store', lambda _: None)
+    for key, value in (('pending', ['a1']), ('nextPageToken', 'next'), ('has_next_page', True)):
+        client = Cloud(('a1', 'b2'))
+        client.document[key] = value
+        with pytest.raises(cloud_mail.CloudMailError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+            run(client, tmp_path, apply=True, batch_size=1)
+        assert list(tmp_path.iterdir()) == []
+
+
+def test_readiness_cli_verifies_whole_manifest_batches_and_counts(tmp_path):
+    from tools.verify_cloud_cutover_readiness import verify, ReadinessError
+    client = Cloud(('a1', 'b2'))
+    ids = ['a1', 'b2']
+    evidence = {'manifest': client.document, 'batches': [
+        {'sha256': '0' * 64, 'ids': ids, 'coverage': {'complete': True, 'count': 2}}],
+        'existing': 0, 'new': 2, 'indexed': 2}
+    import hashlib
+    evidence['batch_coverage_sha256'] = hashlib.sha256('\n'.join(ids).encode()).hexdigest()
+    assert verify(evidence)['status'] == 'READY'
+    evidence['manifest']['pending'] = ['a1']
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_PENDING'):
+        verify(evidence)
+
+
 def test_cli_batch_flags(tmp_path, monkeypatch):
     client = Cloud(('a1', 'b2'))
     monkeypatch.setattr(cloud_mail, 'DriveClient', lambda: client)
@@ -418,5 +443,4 @@ def test_batch_retry_preserves_originals_headers_and_db(tmp_path):
     assert res3['appended'] == 0
     messages3, _ = load_messages_from([database])
     assert set(messages3) == {'a1', 'b2'}
-
 
