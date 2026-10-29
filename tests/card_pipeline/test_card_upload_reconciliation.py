@@ -75,6 +75,26 @@ def test_preflight_validation_rules():
     assert len(parsed.rows) == 2
 
 
+def test_preflight_rejects_unidentifiable_card_account():
+    headers = list(DOMESTIC_HEADERS)
+    row = domestic_row(merchant='합성', amount=1000, approval='NO_ACCOUNT')
+    row[0] = ''
+    content = make_csv([row], headers=headers)
+    with pytest.raises(StoreError) as exc:
+        validate_upload(content, 'missing-account.csv')
+    assert exc.value.code == 'CARD_ACCOUNT_REQUIRED'
+
+
+def test_preflight_limits_physical_rows_even_when_rows_are_not_transactions(monkeypatch):
+    import app.card_preflight as preflight
+    content = make_csv([domestic_row(merchant='합성', amount=1000, approval='ROW_LIMIT'),
+                        ['unrecognized', 'non-transaction']])
+    monkeypatch.setattr(preflight, 'MAX_ROWS', 1)
+    with pytest.raises(StoreError) as exc:
+        validate_upload(content, 'row-limit.csv')
+    assert exc.value.code == 'UPLOAD_ROW_LIMIT'
+
+
 def test_xlsx_security_scan_failure_stops_before_writes(monkeypatch, pipe):
     import openpyxl
     content = make_xlsx([domestic_row(merchant='합성', amount=1000, approval='12345678')])
