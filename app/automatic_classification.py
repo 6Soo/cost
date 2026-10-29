@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
+from .assignment_status import row_assignment
 from .rules import merchant_country
 
 POLICY = 'complete-card-inference-v1'
@@ -24,9 +25,8 @@ def _completion_audit():
 
 
 def completion_for_row(row, valid, *, nets=None):
-    """Completion is classification plus a real trip; financial links are separate."""
+    """Completion requires classification and a valid destination, free of conflicts."""
     reasons = []
-    trip = row.get('trip_id') or row.get('display_tab_id') or ''
     source = row.get('classification_source') or ''
     manual = bool(row.get('decided_at')) or source in {'user_decision', 'user_exception', 'manual'}
     if row.get('classification_state') != 'classified' or not row.get('item'):
@@ -36,10 +36,12 @@ def completion_for_row(row, valid, *, nets=None):
     if direction not in {'purchase', 'cancellation', 'refund'} or not kind:
         if 'TRANSACTION_NATURE_UNCONFIRMED' not in reasons:
             reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
-    if trip not in valid:
+    assignment = row_assignment(row, valid)
+    if (assignment['status'] != 'ASSIGNED'
+            or any(conflict in assignment['conflicts']
+                   for conflict in ('STALE_DISPLAY_DESTINATION', 'STALE_TRIP_DESTINATION'))):
         reasons.append('TRIP_INVALID_OR_MISSING')
-    if (row.get('trip_id') in valid and row.get('display_tab_id') in valid
-            and row['trip_id'] != row['display_tab_id']):
+    if assignment['conflicts']:
         reasons.append('TRIP_ASSIGNMENT_CONFLICT')
     if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
         reasons.append('SOURCE_UNRESOLVED')

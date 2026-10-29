@@ -34,13 +34,8 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
     if unassigned:
         clauses.append('COST_REFUND_TAB_MEMBER(transaction_id)=0')
         trips = sorted(set(valid_trip_ids or ()))
-        # Effective display destination precedes the stored trip. A dangling or
-        # unverified destination is unassigned even when its ID is nonempty.
-        target = "COALESCE(NULLIF(NULLIF(TRIM(display_tab_id),'unclassified'),''),NULLIF(TRIM(trip_id),''),'')"
-        clauses.append(target + " NOT GLOB 'quarter:20[0-9][0-9]:[1-4]'")
-        if trips:
-            clauses.append(target + ' NOT IN (' + ','.join('?' for _ in trips) + ')')
-            params.extend(trips)
+        clauses.append("COST_ASSIGNMENT_STATUS(display_tab_id,trip_id,?)='UNASSIGNED'")
+        params.append(json.dumps(trips, ensure_ascii=True))
     if card:
         clauses.append('COST_CARD_KEY(issuer,card_kind,card_tail)=?')
         params.append(card)
@@ -209,6 +204,8 @@ def _connect(db_path: str) -> sqlite3.Connection:
     uri = path.as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
     conn.create_function("COST_VALID_USE_DATE", 1, lambda value: int(_valid_use_date(value)), deterministic=True)
+    from app.assignment_status import sql_assignment_status
+    conn.create_function('COST_ASSIGNMENT_STATUS', 3, sql_assignment_status, deterministic=True)
     conn.create_function('COST_CARD_KEY', 3, lambda issuer, kind, tail: card_identity(issuer, kind, tail)['card_key'], deterministic=True)
     # Resolve the same complete groups as the refund tab once per connection.
     # This stays lazy for endpoints that do not request destination metadata.

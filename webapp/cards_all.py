@@ -400,24 +400,8 @@ def _get_trip_display(trip_id, classification_source) -> str:
 
 
 def _classification_source_label(source) -> str:
-    """Render a readable provenance label without exposing internal codes."""
-    value = str(source or '').strip()
-    labels = {
-        'owner_card_residual': '자동 분류 · 카드 잔여 비용 규칙',
-        'owner_booking': '예약 근거 자동 배정',
-        'guide_airfare_evidence': '항공권 자료 근거',
-        'refund_original': '원결제 연결 근거',
-        'manual': '사용자 직접 지정', 'user_decision': '사용자 직접 지정',
-        'user_exception': '사용자 예외 규칙', 'auto_inferred': '자동 추론',
-        'auto': '자동 분류', 'inference': '자동 추론',
-        'rule': '자동 분류 · 등록 규칙', 'pattern': '자동 분류 · 가맹점 규칙',
-        'card_category': '자동 분류 · 카드 항목',
-        'booking_evidence_needed': '예약 근거 확인 필요',
-        'travel_location_hold': '여행 지역 확인 필요',
-        'rule_conflict': '분류 규칙 충돌', 'inference_conflict': '자동 추론 충돌',
-        'previous_decision': '기존 분류 유지',
-    }
-    return labels.get(value, '자동 분류 · 기타 근거' if value else '분류 근거 미확인')
+    from app.assignment_status import classification_source_label
+    return classification_source_label(source)
 
 
 def _status_badges(item: dict) -> str:
@@ -442,10 +426,10 @@ def _detail_href(transaction_id) -> str:
 
 def card_detail_html(item: dict) -> str:
     """Escaped source facts; a ledger row is not required and nothing is written."""
+    from app.assignment_status import assignment_conflict_label, row_assignment
     from app.quarter_tab import parse_tab
-    destination = str(item.get('display_tab_id') or '').strip()
-    if destination in ('', 'unclassified'):
-        destination = str(item.get('trip_id') or '').strip()
+    assignment = row_assignment(item, _trip_context()[0].keys())
+    destination = assignment['destination']
     quarter = parse_tab(destination)
     if quarter:
         destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용'
@@ -459,7 +443,8 @@ def card_detail_html(item: dict) -> str:
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
               ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
-              ('원본 충돌', item.get('conflict_reason'))]
+              ('원본 충돌', item.get('conflict_reason')),
+              ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
     return "<dl class='card-detail-fields'>" + ''.join(
         f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>'
 
@@ -501,6 +486,7 @@ def _period_date(value, year=None, month=None) -> str:
 def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                        trip_names: dict[str, str] | None = None,
                        year: int | None = None, month: int | None = None) -> str:
+    from app.assignment_status import row_assignment
     from app.quarter_tab import parse_tab
 
     rows: list[str] = []
@@ -519,10 +505,14 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             amount = _format_amount(item.get("amount_krw"),
                                     item.get("foreign_amount"),
                                     item.get("foreign_currency"))
-            destination = str(item.get('display_tab_id') or '').strip()
-            trip_id = destination if destination not in ('', 'unclassified') else str(item.get('trip_id') or '').strip()
+            assignment = row_assignment(item, (trip_names or {}).keys())
+            # Legacy callers without trip metadata historically displayed stored IDs.
+            # Keep that readable fallback; production card pages pass validated names.
+            if trip_names is None and assignment['destination'] and not parse_tab(assignment['destination']):
+                assignment['status'] = 'ASSIGNED'
+            trip_id = assignment['destination']
             quarter = parse_tab(trip_id)
-            if trip_id == 'unclassified' or (not quarter and item.get('trip_assignment_valid') is False):
+            if assignment['status'] != 'ASSIGNED' or (not quarter and item.get('trip_assignment_valid') is False):
                 trip_id = ''
             quarter = parse_tab(trip_id)
             trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용" if quarter
