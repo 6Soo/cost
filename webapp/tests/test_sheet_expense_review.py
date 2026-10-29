@@ -195,6 +195,19 @@ def test_same_request_retry_is_idempotent_after_source_preview_changes(route_env
     assert len(links.saved) == 1
 
 
+def test_link_retry_refuses_a_saved_row_that_no_longer_matches(route_env):
+    preview, links = route_env
+    body = _post_body(preview)
+    first = FakeHandler('POST')
+    review.dispatch(first, SimpleNamespace(path=review.API_PATH), raw=body, csrf='csrf-synthetic')
+    assert first.response[0] == 200
+    preview['results'][0]['status'] = 'REVIEW_CONFLICT'
+    replay = FakeHandler('POST')
+    review.dispatch(replay, SimpleNamespace(path=review.API_PATH), raw=body, csrf='csrf-synthetic')
+    assert replay.response[0] == 409 and replay.response[1]['code'] == 'LINK_CHANGED'
+    assert len(links.saved) == 1
+
+
 def _exported(preview):
     return {"source_available": True, "tsv": "2026-10-20\tSynthetic Cafe\t식비\t\t\t카드\t12000\n",
             "row_count": 1, "total_krw": 12000, "reconciliation": preview}
