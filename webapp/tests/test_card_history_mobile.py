@@ -9,7 +9,7 @@ from webapp import cards_all, ledger_board, ledger_design, site_shell
 from webapp.tests.test_cards_all import card_db_path
 
 
-def test_mobile_history_reads_without_horizontal_scrolling(card_db_path, monkeypatch):
+def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path, monkeypatch):
     long_merchant = '합성 숙박 가맹점 ' * 12
     long_trip = '합성 여행 · 아주 긴 여행 이름과 일정 ' * 5
     with closing(sqlite3.connect(card_db_path)) as conn, conn:
@@ -24,7 +24,7 @@ def test_mobile_history_reads_without_horizontal_scrolling(card_db_path, monkeyp
     monkeypatch.setattr(ledger_design, 'nav_region', lambda *args: '')
     document = site_shell.wrap_document(cards_all.cards_all_page(
         {'year': ['2026'], 'month': ['3']}, db_path=card_db_path), '/cards/all')
-    output = Path('.local-archive/card-history-mobile-20261029')
+    output = Path('.local-archive/card-history-compact-table-20261029')
     output.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -41,18 +41,22 @@ def test_mobile_history_reads_without_horizontal_scrolling(card_db_path, monkeyp
                     rows = page.locator('tr[data-tx-id]')
                     assert rows.count() == 3
                     if width <= 759:
-                        assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-                        for selector in ('tr[data-tx-id] td', '.card-all-filters input[type=search]',
+                        if width <= 390:
+                            assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth>e.clientWidth')
+                        assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'table-row'
+                        assert all(row.bounding_box()['height'] <= 110 for row in rows.all())
+                        for selector in ('.card-all-table-wrap', '.card-all-filters input[type=search]',
                                          '.card-all-filters select', '.card-all-filters button'):
                             for element in page.locator(selector).all():
                                 box = element.bounding_box()
                                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= width + 1
                         for link in page.locator('td.detail-cell a, td.trip>a').all():
-                            assert link.bounding_box()['height'] >= 44
+                            assert link.bounding_box()['height'] >= 32
                         assert page.locator('.card-all-filters input[type=search]').evaluate(
                             '(e)=>parseFloat(getComputedStyle(e).fontSize)>=16')
-                        assert page.locator("tr[data-tx-id='TX-A-01'] .merchant-name").evaluate(
-                            '(e)=>getComputedStyle(e).whiteSpace==="normal" && e.scrollHeight<=e.clientHeight')
+                        merchant = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")
+                        assert merchant.get_attribute('title') == long_merchant.strip()
+                        assert page.locator("tr[data-tx-id='TX-B-01'] td.trip").get_attribute('title').strip() == long_trip.strip()
                     else:
                         assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
                     if width == 390:
@@ -68,10 +72,11 @@ def test_mobile_history_reads_without_horizontal_scrolling(card_db_path, monkeyp
             page.set_viewport_size({'width': 640, 'height': 844})
             page.evaluate('document.documentElement.style.zoom="200%"')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
+            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
             link = page.locator('td.detail-cell a').first
             link.focus()
             assert link.evaluate('(e)=>e===document.activeElement')
             assert link.get_attribute('href').startswith('/board?row=card-')
+            assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollLeft>0')
         finally:
             browser.close()

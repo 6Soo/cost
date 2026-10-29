@@ -102,35 +102,32 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-stat{padding:10px 12px}
 .card-all-page .card-all-toolbar{align-items:center;gap:8px}
 
-.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px;border:1px solid var(--ca-border);border-radius:12px;background:var(--ca-paper);margin-bottom:0}
+.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:10px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper);margin-bottom:0}
 .card-all-page .card-all-filters>label{grid-column:1/-1;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:8px;min-width:0}
-.card-all-page .card-all-filters>.card-all-unassigned{display:flex;min-height:44px;width:fit-content;gap:10px}
+.card-all-page .card-all-filters>.card-all-unassigned{display:flex;min-height:32px;width:fit-content;gap:10px}
 .card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
 .card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0;min-height:44px;font-size:16px}
 .card-all-page .card-all-filters button{width:100%;min-height:44px}
 .card-all-page .card-all-filters>.card-all-link{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px}
 .card-all-page .card-all-help{padding:0 4px;margin-bottom:12px}
-.card-all-page .card-all-table-wrap{border:0;border-radius:0;overflow:visible}
-.card-all-page .card-all-table{display:block;min-width:0;width:100%;background:transparent}
-.card-all-page .card-all-table thead{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.card-all-page .card-all-table tbody{display:block}
-.card-all-page .card-all-table tr[data-tx-id]{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'date detail' 'merchant merchant' 'amount amount' 'trip trip';gap:8px 12px;padding:12px 14px;margin-bottom:12px;border:1px solid var(--ca-border);border-radius:12px;background:var(--ca-paper)}
-.card-all-page .card-all-table tr[data-tx-id]>td{min-width:0;max-width:none;width:auto;padding:0;border:0;overflow-wrap:anywhere}
-.card-all-page .card-all-table tr[data-tx-id] .use-datetime{grid-area:date;align-self:center;font-size:12px;white-space:normal}
-.card-all-page .card-all-table tr[data-tx-id] .merchant{grid-area:merchant;font-size:16px;line-height:1.5}
-.card-all-page .card-all-table tr[data-tx-id] .merchant-name{display:block;max-width:none;white-space:normal;overflow:visible;text-overflow:clip}
-.card-all-page .card-all-table tr[data-tx-id] .amount-cell{grid-area:amount;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;padding-top:4px;text-align:left}
-.card-all-page .card-all-table tr[data-tx-id] .amount-cell::before{content:'금액';font-size:12px;color:var(--ca-muted)}
-.card-all-page .card-all-table tr[data-tx-id] .amount{font-size:18px;white-space:normal;overflow-wrap:anywhere;text-align:right;max-width:100%}
-.card-all-page .card-all-table tr[data-tx-id] .card-all-badges{width:100%;justify-content:flex-start}
-.card-all-page .card-all-table tr[data-tx-id] .trip{grid-area:trip;padding-top:10px;border-top:1px solid var(--ca-border)}
-.card-all-page .card-all-table tr[data-tx-id] .trip::before{content:'여행 · 상태';display:block;margin-bottom:4px;font-size:11px;color:var(--ca-muted)}
-.card-all-page .card-all-trip-source{display:block;margin-top:4px}
-.card-all-page .card-all-table tr[data-tx-id] .detail-cell{grid-area:detail;align-self:center;text-align:right}
-.card-all-page .card-all-table tr[data-tx-id] .detail-cell .card-all-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:56px;padding:8px 12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-soft);text-decoration:none}
-.card-all-page .card-all-table tr[data-tx-id] .trip>.card-all-link{display:inline-flex;align-items:center;min-height:44px;margin:0;white-space:normal;font-size:14px}
-.card-all-page .card-all-table .date-group{display:block}
-.card-all-page .card-all-table .date-group th{display:block;padding:8px 2px 10px;border:0;background:transparent;font-size:12px}
+/* Keep table columns at every width; scroll only the table on narrow screens. */
+.card-all-page .card-all-table-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--ca-border)}
+.card-all-page .card-all-table{display:table;min-width:560px;width:100%;font-size:12px;line-height:1.35}
+.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:6px 8px}
+.card-all-page .card-all-table thead th{font-size:11px;white-space:nowrap}
+.card-all-page .card-all-table .date-group{display:none}
+.card-all-page .card-all-table .use-datetime{width:82px;white-space:normal;font-size:11px}
+.card-all-page .card-all-table .merchant{min-width:130px;max-width:165px;font-size:12px}
+.card-all-page .card-all-table .merchant-name,.card-all-page .card-all-table .card-all-trip-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere}
+.card-all-page .card-identity{margin-top:2px;font-size:10px;line-height:1.3}
+.card-all-page .card-all-table .amount-cell{min-width:100px}
+.card-all-page .card-all-table .amount{font-size:13px;white-space:nowrap}
+.card-all-page .card-all-table .trip{min-width:125px;max-width:160px}
+.card-all-page .card-all-trip-source{display:block;margin-top:2px;font-size:10px;line-height:1.3}
+.card-all-page .card-all-badge{margin-top:3px;padding:1px 4px;font-size:10px}
+.card-all-page .card-all-table .detail-cell{width:48px}
+.card-all-page .card-all-table .card-all-link{font-size:12px;margin-top:0;align-items:center;min-height:32px}
+.card-all-page .card-all-table .detail-cell .card-all-link{justify-content:center;min-width:32px}
 .card-all-page .card-all-pagination a{width:100%;white-space:normal;text-align:center}
 }
 </style>
@@ -407,7 +404,7 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                 f"<td role='cell' class='merchant' title='{_esc(merchant)}'><span class='merchant-name'>{_esc(merchant)}</span>"
                 f"<span class='card-identity' aria-label='카드 식별'>{_esc(card_label)}</span></td>"
                 f"<td role='cell' class='amount-cell'><div class='amount'>{_esc(amount)}</div>{status_markup}</td>"
-                f"<td role='cell' class='trip'>{trip_markup}</td>"
+                f"<td role='cell' class='trip' title='{_esc(trip_name)}'>{trip_markup}</td>"
                 f"<td role='cell' class='detail-cell'>{link}</td>"
                 f"</tr>")
     return "".join(rows)
