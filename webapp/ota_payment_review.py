@@ -2086,7 +2086,7 @@ def render_import_section(csrf: str) -> str:
 @media(max-width:550px){{#ota-review{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:minmax(0,1fr)}}#ota-review .ota-actions button{{width:100%}}#ota-review #ota-queue-controls{{grid-template-columns:1fr}}}}
 
 /* 2026-10-27: use the same semantic shell tokens as expense cleanup. */
-#ota-review{{--ota-bg:var(--shell-paper,var(--paper,#fff));--ota-ink:var(--shell-ink,var(--ink,#18212c));--ota-muted:var(--shell-muted,var(--mut,#64748b));--ota-line:var(--shell-line,var(--line,#dce3dd));--ota-hover:var(--shell-hover,var(--hover,#edf2ee));--ota-warn:var(--shell-warn,#e5a146);--ota-warn-bg:var(--shell-warn-bg,var(--ota-hover));color:var(--ota-ink);border:1px solid var(--ota-line);border-radius:16px;background:var(--ota-bg);padding:20px;margin:20px 0}}
+#ota-review{{--ota-bg:var(--shell-paper,var(--paper,#fff));--ota-ink:var(--shell-ink,var(--ink,#18212c));--ota-muted:var(--shell-muted,var(--mut,#64748b));--ota-line:var(--shell-line,var(--line,#dce3dd));--ota-hover:var(--shell-hover,var(--hover,#edf2ee));--ota-warn:var(--shell-warn,#e5a146);--ota-warn-bg:var(--shell-warn-bg,var(--ota-hover));--ota-radius:var(--ui-radius,12px);--ota-control:var(--shell-control-min,44px);color:var(--ota-ink);border:1px solid var(--ota-line);border-radius:var(--ota-radius);background:var(--ota-bg);padding:clamp(12px,2vw,20px);margin:clamp(14px,2vw,20px) 0}}
 #ota-review .ota-title{{font-size:18px;line-height:1.45;font-weight:750;margin-bottom:12px;color:var(--ota-ink)}}
 #ota-review{{min-width:0;overflow-wrap:anywhere}}
 #ota-review .ota-event h3{{flex-wrap:wrap}}
@@ -2111,13 +2111,17 @@ def render_import_section(csrf: str) -> str:
 #ota-review .ota-blocked{{background:var(--ota-warn-bg);color:var(--ota-warn)}}
 #ota-review .ota-ok{{background:var(--ota-hover);color:var(--shell-accent,#1c7a52)}}
 #ota-review .ota-preview{{background:var(--ota-hover)}}
-#ota-review button,#ota-review select,#ota-review input:not([type=radio]):not([type=checkbox]){{border-color:var(--ota-line);background:var(--ota-bg);color:var(--ota-ink);border-radius:9px;min-height:44px}}
+#ota-review button,#ota-review select,#ota-review input:not([type=radio]):not([type=checkbox]){{border-color:var(--ota-line);background:var(--ota-bg);color:var(--ota-ink);border-radius:9px;min-height:var(--ota-control);max-width:100%}}
 #ota-review button.ota-primary{{background:var(--shell-accent,#1c7a52);border-color:var(--shell-accent,#1c7a52);color:#fff}}
 #ota-review button:focus-visible,#ota-review summary:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
 #ota-review .ota-actions{{gap:10px;margin-top:12px}}
 #ota-review h4[role=button]{{min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;cursor:pointer}}
 #ota-review h4[role=button]:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
 @media(width < 760px){{#ota-review{{padding:12px;margin:14px 0}}#ota-review .ota-event,#ota-review .ota-card-row{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:1fr}}#ota-review .ota-actions button{{width:100%}}#ota-review #ota-queue-controls{{grid-template-columns:1fr}}}}
+@media(width < 420px){{#ota-review{{padding:10px;border-radius:var(--ota-radius)}}#ota-review .ota-title{{font-size:16px}}#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{padding:10px}}#ota-review .ota-page-nav{{width:100%}}#ota-review #ota-page-nav button,#ota-review #ota-proposals-panel>button{{flex:1 1 0}}}}
+#ota-review :where(button,input,select,summary):focus-visible{{outline:2px solid var(--shell-focus,#2266F5);outline-offset:2px}}
+#ota-review :where(input,select){{min-width:0}}
+#ota-review .ota-actions,#ota-review #ota-page-nav{{min-width:0;overflow-wrap:anywhere}}
 </style>
 <script>
 (()=>{{

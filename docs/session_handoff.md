@@ -1,5 +1,23 @@
 # 현재 상태와 남은 일
 
+## 2026-10-29 최신 승인 — 이미지의 프로젝트 전체 미결을 Luna low 병렬 구현
+
+- 사용자가 미결표를 제시한 뒤 다수 Luna low에게 바로 구현하라고 명시 지시했다. 범위를 자동분류/환불로만 축소하던 해석을 교정한다. 대상은 보험 전달/운영 DB 동일성/참가자·수입 수락 준비, 원결제 외부 근거, 클라우드 메일 전환, 백엔드 구조, 공통 디자인, 실패 원인 정리다. 이미 완료한 기능은 재사용한다. 실제 보험 가입·결제·명단 실전송·Google 쓰기·원문/운영DB 변경은 기존 승인·복원·단일 작성자 경계를 유지한다.
+- Supervisor 브랜치 `feat/wide-pending-integration-20261029`, 기준 main `8cfe391`, 현재 운영 `9b190e9a70511581629f4378290220512358b48c`. 공통 문서·통합·PR·배포·운영 읽기 전용 수락은 Supervisor 단독 소유다. 이전 Luna 작업3개는 완료/공식 보관돼 재생성하지 않았으며, 아래는 새로 승인된 더 넓은 범위의 작업자다.
+
+| 미결 / 기존 참조 | 실제 담당 | 상태·다음 검증 |
+| --- | --- | --- |
+| 보험 결제 재개→COST 계약 / COST-INS-02 | Travel INS `77ca711a-d0bc-4aac-a35e-a79697ab5544`, `wide-luna-insurance-20261029` | 코드/합성검증/병합 COMPLETE. 실제 pause→실제 finish_registration 경계 포함20 passed, PR #10 운영 작업 사본 main `ec2b73300fe1dbe8c62d958282c929ef3bd80f6a`. 실제 가입/전송0. |
+| 웹/CLI 참가자 DB 동일성·참가자/수입 / COST-INS-01/03/05·PIR | COST `0f8fa7db-b66b-47a5-b132-843b665326a3`→Supervisor | 429 retry limit로 중단한 미완성 파일을 인계받아 기존 CLI를 깨뜨리는 기본 preview 변경은 불수락했다. 웹/CLI resolver 공유·명시 웹DB 불일치 차단·readonly schema/file identity/등록 영수증 대조를 구현, 참가자/수입/패널66 passed. 현재 Travel INS 구성의 참가DB 파일 부재를 실제 readonly 확인했고 COST archive/TravelINS local/호스트 data의 참가/roster SQLite 이름 탐색도0건이다. 과거14명 이력을 현재 운영 수락으로 인정하지 않는다. Aside openTab URL빈값·후속snapshot page null로 운영 화면 미수락. |
+| 원결제 외부 근거 / PEND-01 | Supervisor | 실제 원본/명시 결제 증거가 없는 금융 연결은 창작 금지. 기존 진단 근거 재사용, 별도 외부 자료 경계 유지. 여행/항목 분류 완료와 구별. |
+| 전체 메일 수집·전환 / PEND-04 | COST `59bcb9e4-d3d3-4b00-a4f8-8b393c61c00d`→Supervisor | 429 후 인계. 끊긴 원문 검증 본문을 복구하고 pending/페이지/빈 watermark가 있으면 batch/일반 apply 모두 거부한다. 전체 coverage/실제 manifest-entry digest/count 검증 CLI는 PREVIEW_VERIFIED일 뿐 운영 전환 승인이 아니다. 최신 readonly manifest `2026-10-29T01:25:29Z`:3,710 stored/48 pending/has_next_page=true/complete=false. 실제 원문 다운로드·쓰기·스케줄 전환0. 재확인 조건 pending0/다음페이지없음/query없음/last_complete존재. |
+| 백엔드 구조 / RF-103의 여행 authority 경계 | COST `9ec3fe54-5fd2-4533-b394-66fd13857554`→Supervisor | 429 후 인계. 남은 self 참조 오류를 고치고 여행권위/소매/숙박3메서드를 별도 service로 추출, facade·기존 동적 callback 유지. 정규화 실행본문 AST3개 동일, 여행/자동분류23 passed. 전체 결정/worker/HTTP 수락과 구별한다. |
+| 모바일·데스크톱 공통 디자인 / RF-201~205 | COST `c506be38-ddbe-4fa1-b729-ebebd4f14f1f`→Supervisor | `4f756a50` OTA 공통 토큰/44px/좁은폭/포커스 채택을 검수하고 중복 rule 제거. 실제 Chromium 합성4검사에서320/390/760/1440·light/dark·zoom1/2·키보드 수락. 추가 기존 shell/카드/OTA browser 묶음은 아래 실제 실행 세션으로 확인 중. 물리기기·실제 인증 화면 수락과 구별한다. |
+| 실패 원인 정리 / RF-004 | COST `34abb032-959e-4998-8d15-cbdd9af81fac`→Supervisor | `aaa1ca0e`·`1ca4586`를 검수했다. 추가 실행은 모델 capacity로 중단돼 인계. 빈/collection-only 증거를 pass로 보고하던 parser와 parameter-ID 노출/건수 축소를 수정했다. 실제 CardFlow6 실패는 잘못된 제공자 fixture·요약API 전체카드 기대·request scope 캐시·금융증명 없는 취소/낡은 문구였으며 제품 금융 보호를 유지해 교정했다. CardFlow/OTA96 passed+28subtests, parser5 passed. 전체5천검사 실행/모든 known-failure 완료를 주장하지 않는다. |
+
+- 결과 알림을 받아 실제 최종 파일·diff·표적 검사·원본/금융/권한 보호를 검수하고, 독립 ready 항목을 직렬 통합·정상 PR/main·검증 SHA 배포까지 이어간다. 완료·미검증·외부 의존·진짜 승인 필요를 각각 기록한다. 이전 자동분류 완료 보고는 프로젝트 전체 미결 완료가 아니다. 사용자의 기존 미추적 파일·stash·원래 workspace를 보존한다.
+- 추가 실제 검사: 초기통합61 passed(인계 후 오류 복구), 최종 참가자66 passed, cloud/진단41 passed, entrypoint/검증gate33 passed, 환불/정확OTA/권한105 passed. 실행별 중복이 있어 합산하지 않는다. 신규 런타임9개 compile·AST3개 동일·staged guard16파일 차단0/삭제0. 현재 추가 browser 프로세스 session23926 진행 중이며 결과 전 통과로 보고하지 않는다. 최신 증거는 `.local-archive/wide-pending-20261029/`의 cloud-manifest-recheck·participant-default/configured-paths·participant-database-discovery 및 AST 검사다. 아직 COST 묶음은 미커밋/미배포이며 다음은 browser 결과 검수→guard/compile/link→commit/PR/main/고정 배포다.
+
 ## 2026-10-29 최신 요청 — Luna low 병렬 구현·통합
 
 - 사용자가 다수 Luna low 구현 위임과 주 에이전트의 지휘를 명시 지시했다. 최신 자동분류/환불쌍 범위의 실제 미결을 확인해 수정하며 과거 RF 전체를 자동 재실행하지 않는다. PR #312의 실제 분류 적용 완료는 유지한다.

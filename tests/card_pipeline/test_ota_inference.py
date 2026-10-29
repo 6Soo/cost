@@ -122,7 +122,7 @@ def test_service_period_uses_shared_ranker_without_changing_payment_solver_state
     trips = [{'trip_id': 'trip-a', 'starts_on': '2026-08-01', 'ends_on': '2026-08-05'}]
     before = copy.deepcopy(observation)
     decision = ota_inference.provisional_trip_decisions([observation], trips)
-    assert decision[observation['ota_event_id']]['status'] == 'AUTO_PROVISIONAL'
+    assert decision[observation['ota_event_id']]['status'] == 'CLASSIFIED'
     assert decision[observation['ota_event_id']]['trip_id'] == 'trip-a'
     assert observation == before
 
