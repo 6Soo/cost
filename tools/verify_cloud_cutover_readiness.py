@@ -7,6 +7,7 @@ manifest and independently checks every bounded batch's digest and coverage.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import re
@@ -50,6 +51,16 @@ def _unique_object(pairs):
     return result
 
 
+def _valid_utc_timestamp(value):
+    if not isinstance(value, str) or not UTC_TIMESTAMP.fullmatch(value):
+        return False
+    try:
+        datetime.fromisoformat(value[:-1] + '+00:00')
+    except ValueError:
+        return False
+    return True
+
+
 def verify(bundle):
     if not isinstance(bundle, dict):
         raise ReadinessError("CLOUD_MAIL_READINESS_INPUT_INVALID")
@@ -65,8 +76,7 @@ def verify(bundle):
     if manifest.get("pending", []) not in ([], None):
         raise ReadinessError("CLOUD_MAIL_PENDING")
     watermark = manifest.get("last_complete")
-    if (manifest.get("query") is not None or not isinstance(watermark, str)
-            or not UTC_TIMESTAMP.fullmatch(watermark)):
+    if manifest.get("query") is not None or not _valid_utc_timestamp(watermark):
         raise ReadinessError("CLOUD_MAIL_ENUMERATION_INCOMPLETE")
     if any(manifest.get(key) not in (None, '') for key in ('nextPageToken', 'next_page_token')):
         raise ReadinessError("CLOUD_MAIL_HAS_NEXT_PAGE")

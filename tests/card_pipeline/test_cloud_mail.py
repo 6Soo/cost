@@ -403,6 +403,25 @@ def test_readiness_rejects_invalid_watermark_and_message_identity():
         verify(evidence)
 
 
+@pytest.mark.parametrize('watermark', [
+    '', '2026-99-99T00:00:00Z', '2026-10-30T25:61:61Z',
+    '2026-10-30T00:00:00', '2026-10-30T00:00:00+00:00',
+])
+def test_readiness_rejects_nonexistent_or_non_utc_watermarks(watermark):
+    from tools.verify_cloud_cutover_readiness import verify, ReadinessError, batch_digest
+    client = Cloud(('a1', 'b2'))
+    ids = ['a1', 'b2']
+    evidence = {'manifest': client.document, 'batches': [
+        {'sha256': batch_digest(client.document['messages'], ids), 'ids': ids,
+         'coverage': {'complete': True, 'count': 2}}],
+        'existing': 0, 'new': 2, 'indexed': 2}
+    import hashlib
+    evidence['batch_coverage_sha256'] = hashlib.sha256('\n'.join(ids).encode()).hexdigest()
+    client.document['last_complete'] = watermark
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+        verify(evidence)
+
+
 def test_readiness_file_rejects_duplicate_json_keys(tmp_path):
     from tools.verify_cloud_cutover_readiness import _read, ReadinessError
     path = tmp_path / 'evidence.json'
