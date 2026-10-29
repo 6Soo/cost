@@ -65,6 +65,38 @@ def test_no_active_claim_from_process_call_or_comment(tmp_path):
         assert classify(tmp_path / 'tools' / 'entry.py', source, tmp_path)[0] == 'UNKNOWN'
 
 
+def test_explicit_runtime_reference_classifies_only_with_existing_source_location(tmp_path):
+    import json, subprocess
+    from tools.runtime_dependency_catalog import build_catalog
+    for name, body in {'tools/entry.py': 'pass\n', 'config/runtime-dependency-evidence.json':
+        json.dumps({'schema': 'runtime-dependency-evidence/v1', 'evidence': [
+            {'path': 'tools/entry.py', 'classification': 'ACTIVE_SAFE_READ',
+             'source': 'run_candidate.py', 'line': 1, 'reason': 'fixed launcher imports entry'}]}),
+        'run_candidate.py': 'import tools.entry\n'}.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding='utf-8')
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tmp_path, check=True)
+    result = build_catalog(tmp_path)
+    entry = next(row for row in result['entries'] if row['path'] == 'tools/entry.py')
+    assert entry['classification'] == 'ACTIVE_SAFE_READ'
+    assert 'run_candidate.py:1' in entry['evidence']
+
+
+def test_active_write_guarded_requires_explicit_guard(tmp_path):
+    import json
+    from tools.runtime_dependency_catalog import load_evidence
+    config = tmp_path / 'config' / 'runtime-dependency-evidence.json'
+    config.parent.mkdir()
+    config.write_text(json.dumps({'evidence': [
+        {'path': 'tools/a.py', 'classification': 'ACTIVE_WRITE_GUARDED',
+         'source': 'run_candidate.py', 'line': 1, 'reason': 'launcher', 'guard': 'auth+backup'},
+        {'path': 'tools/b.py', 'classification': 'ACTIVE_WRITE_GUARDED',
+         'source': 'run_candidate.py', 'line': 2, 'reason': 'launcher'}]}), encoding='utf-8')
+    assert set(load_evidence(tmp_path)) == {'tools/a.py'}
+
+
 def test_missing_broken_and_invalid_utf8_are_diagnostics(tmp_path):
     import subprocess
     subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)

@@ -27,8 +27,9 @@ LIMITATIONS = [
     'Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.',
     'No literal values, SQL text, function bodies or application imports are emitted.',
     'Permission decorators and names are signals only; no authorization is inferred.',
-    'Repositories and services count matching callable symbols (including tests), not unique components or runtime roles.',
-    'Table rows count SQL findings; the same table can appear multiple times and is not a schema inventory.',
+    'Route inventory excludes tests and tools; only application source dispatch candidates are listed.',
+    'Permission checks are lexical guard calls and decorator signals; they do not prove authorization enforcement.',
+    'Table rows count user-table SQL findings; the same table can appear multiple times and is not a schema inventory.',
     'With --limit-output, oversized graph details are omitted; rerun without that flag for the full graph.',
 ]
 
@@ -49,6 +50,11 @@ def module_name(path):
     if parts[-1] == '__init__':
         parts.pop()
     return '.'.join(parts)
+
+
+def is_product_source(path: str) -> bool:
+    parts = path.replace('\\', '/').lower().split('/')
+    return 'tests' not in parts and parts[0] != 'tools'
 
 
 class Index(ast.NodeVisitor):
@@ -131,12 +137,12 @@ class Index(ast.NodeVisitor):
         symbol = '.'.join(self.scope)
         self.nodes.append({'path': self.path, 'symbol': symbol, 'line': node.lineno,
                            'end_line': node.end_lineno})
-        if node.name in {'do_GET', 'do_POST', 'do_PUT', 'do_PATCH', 'do_DELETE', 'do_HEAD', 'do_OPTIONS'}:
+        if node.name in {'do_GET', 'do_POST', 'do_PUT', 'do_PATCH', 'do_DELETE', 'do_HEAD', 'do_OPTIONS'} and is_product_source(self.path):
             self.routes.append({'path': self.path, 'symbol': symbol, 'line': node.lineno,
                                 'status': 'STATIC_CANDIDATE'})
         for decorator in node.decorator_list:
             name = dotted(decorator.func if isinstance(decorator, ast.Call) else decorator)
-            if name.split('.')[-1] in {'get', 'post', 'put', 'patch', 'delete', 'route'}:
+            if name.split('.')[-1] in {'get', 'post', 'put', 'patch', 'delete', 'route'} and is_product_source(self.path):
                 self.routes.append({'path': self.path, 'symbol': symbol, 'line': decorator.lineno,
                                     'status': 'STATIC_CANDIDATE'})
         signal_names = ('login', 'owner', 'csrf', 'auth', 'permission', 'access', 'require_')
@@ -146,6 +152,7 @@ class Index(ast.NodeVisitor):
         if signals:
             self.permission_signals.append({'path': self.path, 'symbol': symbol,
                 'line': node.lineno, 'signals': signals, 'status': 'OPEN_QUESTION'})
+        # Record explicit guard calls in route/handler bodies as call-site evidence.
         self.functions.append(symbol)
         for statement in node.body:
             self.visit(statement)
@@ -281,9 +288,10 @@ def build_map(root=ROOT):
             owners = [n for n in index.nodes if n['line'] <= finding['line'] <= n['end_line']]
             owner = max(owners, key=lambda n: n['line'])['symbol'] if owners else '<module>'
             result['effects'].append(dict(finding, path=rel, owner=f'{rel}:{owner}'))
-            if finding.get('table'):
+            table_name = finding.get('table')
+            if table_name and not table_name.lower().startswith('sqlite_'):
                 result['tables'].append({'path': rel, 'line': finding['line'],
-                    'owner': f'{rel}:{owner}', 'table': finding['table'],
+                    'owner': f'{rel}:{owner}', 'table': table_name,
                     'verb': finding.get('verb'), 'status': finding['status']})
     symbols = {f"{n['path']}:{n['symbol']}" for n in result['symbols']}
     for rel, index in indexes.items():
@@ -322,6 +330,13 @@ def build_map(root=ROOT):
             if call['status'] == 'OPEN_QUESTION':
                 call['repro'] = build_repro_command(root, call)
             result['calls'].append(call)
+            guard_name = name.split('.')[-1].lower()
+            if (is_product_source(rel) and
+                    (guard_name.startswith(('require_', 'check_', 'verify_')) or
+                     guard_name in {'require_session', 'require_login', 'authorize'})):
+                result['permission_signals'].append({'path': rel, 'symbol': function,
+                    'line': call['line'], 'signals': [name], 'status': 'OPEN_QUESTION',
+                    'evidence_kind': 'guard_call'})
             if name.split('.')[0] in {'subprocess', 'requests', 'httpx', 'urllib', 'socket', 'smtplib'}:
                 result['effects'].append({'path': rel, 'line': call['line'], 'owner': call['source'],
                     'call': name, 'kind': 'external_candidate', 'status': 'OPEN_QUESTION'})

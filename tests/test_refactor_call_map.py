@@ -92,6 +92,29 @@ def test_http_dispatch_methods_are_entrypoints_even_without_decorators(tmp_path)
     assert any(c.get('target') == 'webapp/api.py:Handler.service' for c in result['calls'])
 
 
+def test_routes_exclude_test_and_tool_servers_and_record_guard_calls(tmp_path):
+    from tools.refactor_call_map import build_map
+    result = build_map(repository(tmp_path, {
+        'webapp/api.py': 'class Handler:\n    def do_POST(self):\n        require_session()\n',
+        'tools/preview.py': 'class Handler:\n    def do_GET(self): pass\n',
+        'tests/test_http.py': 'class Handler:\n    def do_GET(self): pass\n',
+        'webapp/tests/test_http.py': 'class Handler:\n    def do_GET(self): pass\n',
+    }))
+    assert [route['path'] for route in result['routes']] == ['webapp/api.py']
+    assert any(signal.get('evidence_kind') == 'guard_call'
+               and signal['signals'] == ['require_session']
+               for signal in result['permission_signals'])
+
+
+def test_sqlite_internal_tables_are_not_reported_as_application_tables(tmp_path):
+    from tools.refactor_call_map import build_map
+    result = build_map(repository(tmp_path, {'app/repo.py':
+        'def save(conn):\n'
+        '    conn.execute("CREATE TABLE sqlite_sequence (x)")\n'
+        '    conn.execute("INSERT INTO ledger_rows VALUES (1)")\n'}))
+    assert [item['table'] for item in result['tables']] == ['ledger_rows']
+
+
 def test_store_assignment_in_one_function_does_not_resolve_another_function(tmp_path):
     from tools.refactor_call_map import build_map
     root = repository(tmp_path, {
