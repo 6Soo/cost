@@ -5,7 +5,7 @@ from webapp.cards_all import _render_month_rows, card_detail_html
 
 def test_unassigned_filter_excludes_quarter_buckets():
     where, params = _filter_clause(unassigned=True, valid_trip_ids=['trip-1'])
-    assert "NOT GLOB 'quarter:20[0-9][0-9]:[1-4]'" in where
+    assert 'COST_IS_QUARTER_DESTINATION(' in where
     assert 'trip-1' in params
 
 

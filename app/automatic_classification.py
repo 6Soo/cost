@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
+from .assignment_status import row_destination, destination_status
 from .rules import merchant_country
 
 POLICY = 'complete-card-inference-v1'
@@ -36,9 +37,11 @@ def completion_for_row(row, valid, *, nets=None):
     if direction not in {'purchase', 'cancellation', 'refund'} or not kind:
         if 'TRANSACTION_NATURE_UNCONFIRMED' not in reasons:
             reasons.append('TRANSACTION_NATURE_UNCONFIRMED')
-    if trip not in valid:
+    destination, assignment = row_destination(row, valid)
+    if assignment != 'ASSIGNED':
         reasons.append('TRIP_INVALID_OR_MISSING')
-    if (row.get('trip_id') in valid and row.get('display_tab_id') in valid
+    if (destination_status(row.get('trip_id'), valid) == 'ASSIGNED'
+            and destination_status(row.get('display_tab_id'), valid) == 'ASSIGNED'
             and row['trip_id'] != row['display_tab_id']):
         reasons.append('TRIP_ASSIGNMENT_CONFLICT')
     if any(row.get(k) for k in ('parse_error', 'conflict_reason', 'duplicate_of')):
