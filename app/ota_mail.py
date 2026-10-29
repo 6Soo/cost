@@ -313,14 +313,17 @@ def extract_mail(message):
         elif re.search(r'입장권|입장료|미술관|박물관',subject):
             item = '입장료'
     paid_on = sent_day(message, headers)
-    if paid_on is None:
+    if paid_on is None and not cancelled:
         return None
     paid = set()
+    preauthorized = set()
     if provider=='trip' and ('결제 완료 안내' in subject or item=='숙박비'):
         if item=='숙박비' and not re.search('온라인 사전 결제',text):
-            return None
-        paid = {int(n.replace(',','')) for n in re.findall(
-            r'총\s*금액\s*(?:온라인\s*사전\s*결제\s*)?([0-9][0-9,]*)\s*원',text)}
+            preauthorized = {int(n.replace(',','')) for n in re.findall(
+                r'(?:총\s*금액\s*)?사전\s*승인(?:\s*금액)?\s*[:：]?\s*([0-9][0-9,]*)\s*원',text)}
+        else:
+            paid = {int(n.replace(',','')) for n in re.findall(
+                r'총\s*금액\s*(?:온라인\s*사전\s*결제\s*)?([0-9][0-9,]*)\s*원',text)}
         if '결제 완료 안내' in subject and re.search(r'총\s*금액\s*[0-9,]+\s*원\s*운임',text):
             item = '항공료'
     elif provider=='klook' and '예약내역 안내' in subject:
@@ -339,7 +342,9 @@ def extract_mail(message):
     digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
     return dict(provider=provider,booking_ref=next(iter(refs)),item=item,
                 paid_amount_krw=next(iter(paid)) if len(paid)==1 else None,
-                paid_on=paid_on.isoformat(),period=period,source_sha256=digest,
+                paid_on=paid_on.isoformat() if paid_on else None,period=period,source_sha256=digest,
+                preauthorized_amount_krw=next(iter(preauthorized)) if len(preauthorized)==1 else None,
+                preauthorized_on=paid_on.isoformat() if paid_on and preauthorized else None,
                 reservation_status='cancelled' if cancelled else 'confirmed' if confirmation else 'observed',
                 message_id=message['id'],ignored_zero_cost_guides=sorted(set(ignored_guides)))
 

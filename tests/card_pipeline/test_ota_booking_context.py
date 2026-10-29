@@ -97,3 +97,65 @@ def test_refund_instructions_are_not_an_actual_refund_request(tmp_path):
                    '환불을 요청하려면 고객센터에 연락하세요', subject='결제 완료 안내')
     event = next(e for e in load(tmp_path, [paid]) if e['event_type'] == 'charge')
     assert event.get('refund_status') != 'refund_pending'
+
+
+def preauthorization():
+    return message('예약 번호: 1111222233334444\n체크인: 2026-11-07\n체크아웃: 2026-11-08\n'
+                   '총 금액\n사전 승인\n230,106원', subject='예약 확정 안내', identity='preauth')
+
+
+def test_trip_preauthorization_retains_booking_without_claiming_payment(tmp_path):
+    from app.ota_payments import search_card_candidates, _event_is_paid
+    from app.ota_mail import extract_mail
+    fact = extract_mail(preauthorization())
+    assert fact['paid_amount_krw'] is None
+    event = load(tmp_path, [preauthorization()])[0]
+    assert event['event_type'] == 'reservation'
+    assert event['evidence_status'] == event['payment_status'] == 'preauthorized'
+    assert event['preauthorized_amount_krw'] == event['amount'] == 230106
+    assert event['preauthorized_on'] == '2026-05-01' and event['paid_on'] is None
+    assert event['service_period'] == {'starts_on': '2026-11-07', 'ends_on': '2026-11-08'}
+    assert event['payment_event_id'] is None and not _event_is_paid(event)
+    rows = [card('one', amount_krw=230106, approval_date='2026-05-01')]
+    trace = search_card_candidates(event, rows)
+    assert trace['candidates'][0]['transaction_id'] == 'one'
+    assert trace['candidates'][0]['payment_verified'] is False
+    assert trace['candidates'][0]['resolution_allowed'] is False
+    result = match_ota_payment_events([event], rows)[0]
+    assert result['status'] == 'RESERVATION_ONLY' and result['transaction_id'] is None
+
+
+def test_preauthorization_candidates_preserve_card_protections_and_exact_date(tmp_path):
+    from app.ota_payments import search_card_candidates
+    event = load(tmp_path, [preauthorization()])[0]
+    base = card(amount_krw=230106, approval_date='2026-05-01')
+    changes = [{'duplicate_of':'original'}, {'parse_error':'bad'}, {'conflict_reason':'hold'},
+               {'approval_date':'2026-05-02'}, {'amount_krw':230107}, {'ota_review_held':True},
+               {'merchant':'AGODA','merchant_normalized':'agoda'}, {'transaction_direction':'refund'}]
+    rows = [dict(base, **changeset, transaction_id='bad-'+str(i)) for i,changeset in enumerate(changes)]
+    rows += [dict(base, transaction_id='occupied'), dict(base, transaction_id='free')]
+    trace = search_card_candidates(event, rows, existing_links={'other':{'transaction_id':'occupied'}})
+    assert [c['transaction_id'] for c in trace['candidates']] == ['free']
+    assert search_card_candidates(event, rows, max_comparisons=1)['status'] == 'SEARCH_LIMIT_EXCEEDED'
+    assert search_card_candidates(dict(event, card_last4='9999'), rows)['candidates'] == []
+
+
+def test_cancelled_trip_with_invalid_received_date_retains_cancellation_and_refund_request(tmp_path):
+    cancellation = message('예약 번호: 1111222233334444\n환불을 요청했습니다 230,106원',
+                           subject='예약 취소가 완료되었습니다', identity='cancel')
+    cancellation['internal_date'] = '0'
+    events = load(tmp_path, [preauthorization(), cancellation])
+    assert len(events) == 2
+    assert all(e['reservation_status'] == 'cancelled' and e['refund_status'] == 'refund_pending' for e in events)
+    assert all(e['payment_status'] != 'paid' and e['event_type'] != 'refund' for e in events)
+    assert next(e for e in events if e['source_ids'] == ['mail:cancel'])['paid_on'] is None
+
+
+def test_lodging_without_online_payment_or_unambiguous_preauthorization_stays_unpaid(tmp_path):
+    mail = preauthorization()
+    mail['payload']['body']['content'] += '\n사전 승인 230,107원'
+    event = load(tmp_path, [mail])[0]
+    assert event['preauthorized_amount_krw'] is None and event['amount'] is None
+    assert event['payment_status'] != 'paid'
+    mail['payload']['headers'][-1]['value'] = 'dkim=fail'
+    assert load(tmp_path, [mail]) == []

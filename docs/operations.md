@@ -400,3 +400,7 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 1,084 Git blobs 일치, 새 백업·별도 복원 검증, 작업/프로세스SHA·loopback listener1·health/ready200·보호API401·보호13표 전후 불변을 확인했다. 추가된 trip-review/proposals/hold 경로도 익명401이다. 이전 검증61211012 복구점을 보존했다. 배포 근거는 `D:/WebLedgerHost/releases/deploy-evidence-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661.json`, 로컬 `.local-archive/merge-cleanup-20261028/deploy-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661/`다.
 
 실제 금융/여행 재배정·대량 재처리·명단 전달/보험가입·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선 및 PA-06 실자료 shadow/수락은 미측정으로 남긴다. 단일 환불 그룹 적용의 정상 owner 인증 대기는 유지한다. 최종 확인 시 열린 PR은0개다. 후속 문서만의 병합에는 재배포하지 않는다.
+# 2026-10-29 아오모리 일정 변경 통합
+
+- 사용자 지시와 Google 원본 metadata/제목 읽기로1103_아오모리,2026-11-03~08을 확정했다. 이전1104 여행의 장부18건6,425,040원·화면15행을 현재 여행으로 이동하고 이전 여행은 보관했다. 검토 중 취소 숙박 카드1건의 여행도 수동 교정했다. 여행/금액/카드 원본/기존 이력 삭제·Google 쓰기·은행 환급 확정은 없다.
+- 새 백업 및 별도 복원 동일성, 의도적 실패 전체 롤백, 복사본 rehearsal 후 운영 작성자를 정지하고 단일 SQLite 트랜잭션으로 적용. 스키마·범위 밖 데이터·금액/원본/ID·과거 감사/교정 이력 보존, 감사 체인/integrity PASS. 실제 runtime health/ready200·Board/SourceRefresh Running. 근거 `D:/WebLedgerHost/data/backups/aomori-merge-20261029T042712496764Z/` 및 로컬 `.local-archive/aomori-merge-20261029/`. 코드 배포와 구별한다.
