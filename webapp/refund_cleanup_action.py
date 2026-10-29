@@ -44,15 +44,6 @@ def _group_context(board, original_id):
         raise StoreError("REFUND_SOURCE_NOT_FOUND", "원결제 카드 파일 출처가 없습니다")
     flow = CardFlow(board)
     holds = flow.automatic_holds(batch[0], include_verified_full_refunds=True)
-    # A real ledger entry is already protected by the core's UNIQUE/idempotency
-    # checks. Its projection must not stop the missing side of this verified
-    # group. Keep legacy projections without a ledger entry and every other
-    # automatic hold; persisted/manual holds are re-read by ledger.preview.
-    booked = {row[0] for row in board.conn.execute(
-        'SELECT transaction_id FROM ledger_entries')}
-    holds = {tid: hold for tid, hold in holds.items()
-             if not (tid in members and tid in booked
-                     and hold.get('kind') == 'existing_ledger')}
     options = dict(
         trip_validator=flow.trip_valid,
         tab_validator=flow.tab_valid,

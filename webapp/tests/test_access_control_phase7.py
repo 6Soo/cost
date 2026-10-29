@@ -693,6 +693,18 @@ class AccessStoreTests(unittest.TestCase):
             status, _ = self.api(path, user=OWNER)
             self.assertEqual(status, 200, path)
 
+    def test_card_source_detail_is_owner_only_before_source_query(self):
+        from unittest.mock import patch
+        from webapp import card_transactions
+        self.seed_accounts()
+        path = '/api/cards/transactions/detail?id=SYNTHETIC'
+        with patch.object(card_transactions, 'transaction_detail', return_value=None) as query:
+            self.assertEqual(self.api(path)[0], 401)
+            self.assertEqual(self.api_json(path, user=V1)[0], 403)
+            query.assert_not_called()
+            self.assertEqual(self.api_json(path, user=OWNER)[0], 404)
+            query.assert_called_once()
+
     def test_a_viewer_cannot_create_look_up_or_download_a_workbook(self):
         self.seed_accounts()
         self.link(V1, "rp-1", "xlsx-1")

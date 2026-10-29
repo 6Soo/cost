@@ -58,13 +58,13 @@ CARD_ALL_STYLE = """
 .card-all-page :is(.card-all-detail,.card-all-undated) h2{margin:0 0 14px;font-size:16px;font-weight:750;line-height:1.5}
 .card-all-page .card-all-prompt{color:var(--ca-muted);font-size:13px}
 .card-all-page .card-all-muted{font-size:12px;line-height:1.6;color:var(--ca-muted)}
-.card-all-page .card-all-table-wrap{width:100%;overflow-x:auto;overscroll-behavior-inline:contain;border-radius:10px;border:1px solid var(--ca-border)}
-.card-all-page .card-all-table{table-layout:fixed;border-collapse:separate;border-spacing:0;width:100%;min-width:560px;background:var(--ca-paper);font-size:13px;line-height:1.4}
+.card-all-page .card-all-table-wrap{width:100%;min-width:0;border-radius:10px;border:1px solid var(--ca-border)}
+.card-all-page .card-all-table{table-layout:fixed;border-collapse:separate;border-spacing:0;width:100%;min-width:0;background:var(--ca-paper);font-size:13px;line-height:1.4}
 .card-all-page .card-all-table .date-column{width:17%}
 .card-all-page .card-all-table .merchant-column{width:32%}
 .card-all-page .card-all-table .amount-column{width:24%}
 .card-all-page .card-all-table .trip-column{width:27%}
-.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:7px 6px;text-align:left;vertical-align:middle;border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:7px 6px;text-align:left;vertical-align:middle;border:0;overflow-wrap:anywhere}
 .card-all-page .card-all-table thead th{position:sticky;top:0;background:var(--ca-soft);color:var(--ca-muted);font-size:12px;font-weight:700;z-index:1}
 .card-all-page .card-all-table .date-group th{padding:9px 14px;background:var(--ca-soft);color:var(--ca-ink);font-size:12px;font-weight:750}
 .card-all-page .card-all-table tbody tr:not(.date-group):hover{background:var(--ca-soft)}
@@ -74,10 +74,22 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .use-datetime{font-variant-numeric:tabular-nums;white-space:normal;color:var(--ca-muted)}
 .card-all-page .card-all-table .merchant{font-weight:700;overflow-wrap:anywhere}
 .card-all-page .card-all-table .merchant{min-width:0}
-.card-all-page .card-all-table tr[data-detail-href]{cursor:pointer}
-.card-all-page .card-all-table tr[data-detail-href]:focus-within{outline:2px solid var(--focus,#2563eb);outline-offset:-2px;background:var(--ca-soft)}
-.card-all-page .card-all-row-link{display:block;color:inherit;text-decoration:none;overflow-wrap:anywhere}
-.card-all-page .card-all-row-link:focus-visible{outline:none}
+.card-all-page .card-all-table tr[data-detail-id]{cursor:pointer}
+.card-all-page .card-all-table tr[data-detail-id]:focus-within{outline:2px solid var(--focus,#2563eb);outline-offset:-2px;background:var(--ca-soft)}
+.card-all-page .card-all-row-toggle{display:block;width:100%;padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;cursor:pointer;overflow-wrap:anywhere;min-width:0}
+.card-all-page .card-all-row-toggle:focus-visible{outline:2px solid var(--focus,#2563eb);outline-offset:2px}
+.card-all-page .card-all-expanded td{padding:12px;background:var(--ca-soft)}
+.card-all-page .card-all-expanded[hidden]{display:none}
+.card-all-page .card-all-expanded-content{min-width:0;overflow-wrap:anywhere}
+.card-detail-fields{display:grid;grid-template-columns:minmax(60px,auto) minmax(0,1fr);gap:8px 12px;margin:0;font-size:12px;line-height:1.5}
+.card-detail-fields dt{color:var(--mut,#64748b)}
+.card-detail-fields dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.card-all-page .card-all-loading{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ca-muted)}
+.card-all-spinner{display:inline-block;width:18px;height:18px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:card-all-spin .7s linear infinite;flex-shrink:0}
+@keyframes card-all-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.card-all-spinner{animation-duration:1.8s}}
+.card-all-page .card-all-page-loading{position:fixed;inset:0;z-index:1000;background:var(--ca-paper);opacity:.94;display:flex;align-items:center;justify-content:center;gap:10px}
+.card-all-page .card-all-page-loading[hidden]{display:none}
 .card-all-page .card-identity{display:block;font-size:12px;line-height:1.5;font-weight:500;color:var(--ca-muted);margin-top:4px}
 .card-all-page .card-all-table .amount-cell{text-align:right}
 .card-all-page .card-all-table .amount-cell .amount{text-align:right;font-weight:750;font-variant-numeric:tabular-nums}
@@ -93,7 +105,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-trip-source{display:inline-flex;margin-top:4px;font-size:11px;line-height:1.5;color:var(--ca-muted)}
 .card-all-page .card-all-badge{display:inline-flex;margin:5px 0 0;padding:2px 7px;border-radius:6px;border:1px solid var(--ca-border);background:var(--ca-soft);font-size:11px;color:var(--ca-ink)}
 .card-all-page .card-all-link{color:var(--ca-accent);font-weight:750;font-size:12px;text-decoration:underline;text-underline-offset:3px}
-.card-all-page .card-all-table .card-all-link{display:inline-flex;white-space:nowrap;margin-top:6px}
+.card-all-page .card-all-table .card-all-link{display:inline-flex;white-space:normal;overflow-wrap:anywhere;margin-top:6px}
 .card-all-page .card-all-pagination{margin-top:15px;display:flex;justify-content:center}
 .card-all-page .card-all-pagination a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid var(--ca-border);border-radius:9px;background:var(--ca-soft);text-decoration:none}
 .card-all-page .card-all-help{margin:0 0 16px;font-size:12px;color:var(--ca-muted)}
@@ -116,11 +128,11 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-filters button{width:100%;min-height:44px}
 .card-all-page .card-all-filters>.card-all-link{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px}
 .card-all-page .card-all-help{padding:0 4px;margin-bottom:12px}
-/* Keep table columns at every width; scroll only the table on narrow screens. */
-.card-all-page .card-all-table-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--ca-border)}
-.card-all-page .card-all-table{display:table;min-width:380px;width:100%;font-size:12px;line-height:1.3}
+/* Fixed column proportions fit the available width, including 320px screens. */
+.card-all-page .card-all-table-wrap{min-width:0;border-radius:8px;border:1px solid var(--ca-border)}
+.card-all-page .card-all-table{display:table;min-width:0;width:100%;font-size:12px;line-height:1.3}
 .card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:5px 4px}
-.card-all-page .card-all-table thead th{font-size:11px;white-space:nowrap}
+.card-all-page .card-all-table thead th{font-size:11px;white-space:normal}
 .card-all-page .card-all-table .date-group{display:none}
 .card-all-page .card-all-table .use-datetime{white-space:normal;font-size:11px}
 .card-all-page .card-all-table .merchant{min-width:0;font-size:12px}
@@ -139,12 +151,68 @@ CARD_ALL_STYLE = """
 
 CARD_ALL_SCRIPT = """
 <script>
-document.addEventListener('click', function(event) {
+document.addEventListener('click', async function(event) {
     if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const target = event.target instanceof Element ? event.target : event.target.parentElement;
-    const row = target && target.closest('.card-all-table tr[data-detail-href]');
-    if (!row || target.closest('a,button,input,select,textarea,summary') || window.getSelection().toString()) return;
-    window.location.assign(row.dataset.detailHref);
+    const row = target && target.closest('.card-all-table tr[data-detail-id]');
+    if (!row || window.getSelection().toString()) return;
+    if (target.closest('a,input,select,textarea,summary') || (target.closest('button') && !target.closest('.card-all-row-toggle'))) return;
+    const toggle = row.querySelector('.card-all-row-toggle');
+    const detail = document.getElementById(toggle.getAttribute('aria-controls'));
+    detail.hidden = !detail.hidden;
+    toggle.setAttribute('aria-expanded', String(!detail.hidden));
+    if (detail.hidden || detail.dataset.loaded || detail.dataset.loading) return;
+    const content = detail.querySelector('.card-all-expanded-content');
+    detail.dataset.loading = 'true';
+    content.setAttribute('aria-busy', 'true');
+    content.innerHTML = '<div class="card-all-loading" role="status"><span class="card-all-spinner" aria-hidden="true"></span>거래를 불러오는 중</div>';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let failureMessage = '거래를 불러오지 못했습니다. 닫았다 다시 열어 주세요.';
+    try {
+        const response = await fetch('/api/cards/transactions/detail?' + new URLSearchParams({id:row.dataset.detailId}),
+                                     {credentials:'same-origin',cache:'no-store',signal:controller.signal});
+        if (!response.ok) {
+            failureMessage = response.status === 401 || response.status === 403 ? '로그인 상태를 확인한 뒤 다시 열어 주세요.' :
+                             response.status === 404 ? '거래를 찾을 수 없습니다. 목록을 새로 조회해 주세요.' : failureMessage;
+            throw new Error();
+        }
+        const data = await response.json();
+        if (typeof data.html !== 'string') throw new Error();
+        content.innerHTML = data.html;
+        detail.dataset.loaded = 'true';
+    } catch (error) {
+        content.textContent = error.name === 'AbortError' ? '응답이 지연되고 있습니다. 닫았다 다시 열어 주세요.' : failureMessage;
+    } finally {
+        clearTimeout(timer);
+        delete detail.dataset.loading;
+        content.removeAttribute('aria-busy');
+    }
+});
+document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape') return;
+    const row = event.target.closest('.card-all-table tr');
+    if (!row) return;
+    const detail = row.classList.contains('card-all-expanded') ? row : row.nextElementSibling;
+    if (!detail || !detail.classList.contains('card-all-expanded') || detail.hidden) return;
+    detail.hidden = true;
+    const toggle = detail.previousElementSibling.querySelector('.card-all-row-toggle');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.focus();
+});
+document.addEventListener('submit', function(event) {
+    if (!event.target.matches('.card-all-filters')) return;
+    document.querySelector('.card-all-page-loading').hidden = false;
+});
+document.addEventListener('click', function(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest('.card-all-page a[href]');
+    if (link && link.origin === location.origin && !link.target && !link.hasAttribute('download'))
+        document.querySelector('.card-all-page-loading').hidden = false;
+});
+window.addEventListener('pageshow', function() {
+    const loading = document.querySelector('.card-all-page-loading');
+    if (loading) loading.hidden = true;
 });
 </script>
 """
@@ -350,6 +418,31 @@ def _detail_href(transaction_id) -> str:
     return "/board?" + urlencode({"row": f"card-{tid}"})
 
 
+def card_detail_html(item: dict) -> str:
+    """Escaped source facts; a ledger row is not required and nothing is written."""
+    from app.quarter_tab import parse_tab
+    destination = str(item.get('display_tab_id') or '').strip()
+    if destination in ('', 'unclassified'):
+        destination = str(item.get('trip_id') or '').strip()
+    quarter = parse_tab(destination)
+    if quarter:
+        destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용'
+    elif destination in ('', 'unclassified'):
+        destination = '미배정'
+    else:
+        destination = _trip_context()[0].get(destination, destination)
+    source = {'manual': '수동', 'auto_inferred': '자동 추론', 'auto': '자동'}.get(
+        str(item.get('classification_source') or ''), str(item.get('classification_source') or ''))
+    fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or '날짜 확인 필요'),
+              ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
+              ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
+              ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
+              ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
+              ('원본 충돌', item.get('conflict_reason'))]
+    return "<dl class='card-detail-fields'>" + ''.join(
+        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>'
+
+
 def _group_by_date(items: list[dict]) -> list[tuple[str, list[tuple[str, str, dict]]]]:
     """날짜 오름차순, 같은 날짜는 시간 있는 거래 먼저, 그다음 안정 ID 순."""
     grouped: dict[str, list[tuple[str, str, dict]]] = {}
@@ -423,12 +516,13 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                 if source in ("manual", "auto_inferred"):
                     label = "사용자 확정" if source == "manual" else "추정 배정"
                     trip_markup += f"<span class='card-all-trip-source'>{label}</span>"
-            href = _detail_href(tid) if include_detail_link else ""
+            detail_id = 'card-detail-' + tid
             merchant_markup = f"<span class='merchant-name'>{_esc(merchant)}</span>"
-            row_attrs = f" data-detail-href='{_esc(href)}'" if href else ''
-            if href:
-                merchant_markup = (f"<a class='card-all-row-link' href='{_esc(href)}' "
-                                   f"aria-label='{_esc(merchant)} 상세 보기'>{merchant_markup}</a>")
+            row_attrs = f" data-detail-id='{_esc(tid)}'" if tid and include_detail_link else ''
+            if row_attrs:
+                merchant_markup = (f"<button type='button' class='card-all-row-toggle' aria-expanded='false' "
+                                   f"aria-controls='{_esc(detail_id)}' aria-label='{_esc(merchant)} 상세 보기'>"
+                                   f"{merchant_markup}</button>")
             status = _status_badges(item)
             status_markup = f"<div class='card-all-badges'>{status}</div>" if status else ""
             rows.append(
@@ -439,6 +533,9 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                 f"<td role='cell' class='amount-cell'><div class='amount'>{_esc(amount)}</div>{status_markup}</td>"
                 f"<td role='cell' class='trip' title='{_esc(trip_name)}'>{trip_markup}</td>"
                 f"</tr>")
+            if row_attrs:
+                rows.append(f"<tr class='card-all-expanded' id='{_esc(detail_id)}' hidden>"
+                            "<td colspan='4'><div class='card-all-expanded-content' aria-live='polite'></div></td></tr>")
     return "".join(rows)
 
 
@@ -693,6 +790,8 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     body = (
         CARD_ALL_STYLE
         + "<div class='card-all-page'>"
+        "<div class='card-all-page-loading' role='status' hidden>"
+        "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
         "<header class='card-all-hero'>"
         "<div><p class='card-all-eyebrow'>CARD TRANSACTION HISTORY</p>"
         "<p class='card-all-lead'>월별 카드 거래 확인</p>"

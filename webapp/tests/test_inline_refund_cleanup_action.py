@@ -124,39 +124,6 @@ def test_inline_apply_retry_is_idempotent(context):
     ).fetchone() == (2, 0)
 
 
-@pytest.mark.parametrize('booked_side', ['original', 'refund'])
-def test_inline_completes_only_missing_side_of_recorded_group(context, monkeypatch, booked_side):
-    board, original, refund, unrelated = context
-    recorded = original if booked_side == 'original' else refund
-    board.conn.execute(
-        "INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,"
-        "amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) "
-        "SELECT transaction_id,(SELECT MIN(batch_id) FROM import_batch_rows WHERE transaction_id=t.transaction_id),"
-        "item,'','refunds','',amount_krw,merchant,approval_date,transaction_direction,source_hash,'synthetic' "
-        "FROM transactions t WHERE transaction_id=?", (recorded,))
-    existing = board.conn.execute('SELECT * FROM ledger_entries WHERE transaction_id=?', (recorded,)).fetchone()
-    monkeypatch.setattr(CardFlow, '_already_projected',
-                        lambda self, source, entry, *a: entry['transaction_id'] == recorded)
-    status, preview = _post(board, original, 'preview')
-    assert status == 200 and preview['recordable'] is True
-    assert preview['to_book'] == 1 and preview['already_booked'] == 1
-    status, applied = _post(board, original, 'apply',
-                            {'digest': preview['digest'], 'request_id': 'complete-missing-side-' + booked_side})
-    assert status == 200 and applied['applied'] == 1
-    assert board.conn.execute('SELECT * FROM ledger_entries WHERE transaction_id=?', (recorded,)).fetchone() == existing
-    assert board.conn.execute('SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries').fetchone() == (2, 0)
-    assert board.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (unrelated,)).fetchone() is None
-
-
-def test_inline_keeps_legacy_projection_without_ledger_blocked(context, monkeypatch):
-    board, original, refund, _ = context
-    monkeypatch.setattr(CardFlow, '_already_projected',
-                        lambda self, source, entry, *a: entry['transaction_id'] == original)
-    status, preview = _post(board, original, 'preview')
-    assert status == 200 and not preview['recordable']
-    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
-
-
 def test_inline_apply_same_request_id_with_changed_digest_conflicts(context):
     board, original, _, _ = context
     _, preview = _post(board, original, "preview")
@@ -168,21 +135,19 @@ def test_inline_apply_same_request_id_with_changed_digest_conflicts(context):
     assert result["code"] == "REQUEST_ID_REUSED"
 
 
-def test_inline_apply_new_request_id_replays_without_duplicate_financial_writes(context):
+def test_inline_apply_new_request_id_with_old_digest_is_stale(context):
     board, original, _, _ = context
     _, preview = _post(board, original, "preview")
     assert _post(
         board, original, "apply",
         {"digest": preview["digest"], "request_id": "owner-first-request-002"},
     )[0] == 200
-    tables = ('ledger_entries', 'transactions', 'board_rows', 'board_revisions')
-    before = {table: board.conn.execute('SELECT * FROM ' + table).fetchall() for table in tables}
     status, result = _post(
         board, original, "apply",
         {"digest": preview["digest"], "request_id": "owner-new-request-003"},
     )
-    assert status == 200 and result['applied'] == 0
-    assert {table: board.conn.execute('SELECT * FROM ' + table).fetchall() for table in tables} == before
+    assert status == 409
+    assert result["code"] == "PREVIEW_STALE"
 
 
 def test_inline_apply_rolls_back_partial_write_failure(context, monkeypatch):

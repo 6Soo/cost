@@ -178,6 +178,27 @@ def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
         "장부 DB일 수 있으므로 카드 거래 조회용으로 사용하지 않습니다."
     )
 
+def transaction_detail(transaction_id: str, db_path=None):
+    """Read one source row, including cards that have never become ledger rows."""
+    if not isinstance(transaction_id, str) or not transaction_id.strip() or len(transaction_id) > 256:
+        raise ValueError('invalid transaction id')
+    fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
+              'foreign_amount', 'foreign_currency', 'merchant', 'description',
+              'classification_state', 'classification_source', 'trip_id', 'display_tab_id',
+              'item', 'duplicate_of', 'conflict_reason', 'issuer', 'card_kind', 'card_tail')
+    conn = _connect(_resolve_card_db_path(db_path))
+    try:
+        row = conn.execute('SELECT ' + ','.join(fields) + ' FROM transactions WHERE transaction_id=?',
+                           (transaction_id,)).fetchone()
+        if row is None:
+            return None
+        result = dict(zip(fields, row))
+        result.update(card_identity(result.pop('issuer'), result.pop('card_kind'), result.pop('card_tail')))
+        return result
+    finally:
+        conn.close()
+
+
 def _connect(db_path: str) -> sqlite3.Connection:
     """Open database in read-only mode using SQLite URI.
 
