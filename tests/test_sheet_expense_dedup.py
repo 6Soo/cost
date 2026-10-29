@@ -78,6 +78,67 @@ def test_approval_number_does_not_cross_card_identity():
     assert result['status'] == 'REVIEW_CONFLICT'
 
 
+def test_unrelated_same_day_row_does_not_block_strong_unique_match():
+    unrelated = manual(approval_number='AUTH-OTHER', payee='Different Shop',
+                       row_number=13)
+    result = reconcile([cost()], [manual(), unrelated], trip_id='trip-a')['results'][0]
+    assert result['status'] == 'MATCHED_MANUAL'
+    assert result['basis'] == ['approval_number']
+
+
+def test_occurred_on_aliases_sheet_date_on_valid_calendar_day():
+    result = reconcile([cost(approval_number='', date='', occurred_on='2026-05-02')],
+                       [manual(approval_number='')], trip_id='trip-a')['results'][0]
+    assert result['status'] == 'MATCHED_MANUAL'
+
+
+def test_invalid_dates_do_not_count_as_date_identity():
+    result = reconcile([cost(approval_number='', date='2026-99-99', approval_date='')],
+                       [manual(approval_number='', date='2026-99-99')],
+                       trip_id='trip-a')['results'][0]
+    assert result['status'] == 'REVIEW_CONFLICT'
+
+
+def test_stable_id_does_not_override_explicit_card_conflict():
+    row = manual(transaction_id='cost-1', stable_id='cost-1', card_tail='9999')
+    result = reconcile([cost()], [row], trip_id='trip-a')['results'][0]
+    assert result['status'] == 'REVIEW_CONFLICT'
+
+
+def test_explicit_cash_or_points_evidence_cannot_match_card_cost():
+    for evidence in ('cash', 'points', '합산 결제', '분할 결제'):
+        result = reconcile([cost()], [manual(evidence=evidence)],
+                           trip_id='trip-a')['results'][0]
+        assert result['status'] == 'REVIEW_CONFLICT'
+    both_marked = reconcile([cost(evidence='cash')], [manual(evidence='cash')],
+                            trip_id='trip-a')['results'][0]
+    assert both_marked['status'] == 'REVIEW_CONFLICT'
+
+
+def test_unrelated_same_day_expense_does_not_block_composite_match():
+    result = reconcile([cost(approval_number='')],
+                       [manual(approval_number=''),
+                        manual(approval_number='', payee='Other merchant',
+                               row_number=13, source='second')],
+                       trip_id='trip-a')['results'][0]
+    assert result['status'] == 'MATCHED_MANUAL'
+
+
+def test_existing_link_index_blocks_row_occupied_outside_cost_subset():
+    sheet = manual(stable_id='sheet-row-occupied')
+    first = reconcile([cost()], [sheet], trip_id='trip-a')['results'][0]
+    links = {
+        'other-cost-not-in-this-batch': {
+            'sheet_row_key': first['sheet_row_key'],
+            'sheet_fingerprint': first['sheet_fingerprint'],
+        }
+    }
+    result = reconcile([cost()], [sheet], trip_id='trip-a',
+                        existing_links=links)['results'][0]
+    assert result['status'] == 'REVIEW_CONFLICT'
+    assert result['reason'] == 'SHEET_ROW_OCCUPIED_BY_EXISTING_LINK'
+
+
 def test_result_contains_full_trip_sheet_source_boundary_and_override_provenance():
     matched = reconcile([cost()], [manual()], trip_id='trip-a',
                         source_metadata={'sheet_id': 'sheet-a', 'source': 'read-snapshot'})['results'][0]
