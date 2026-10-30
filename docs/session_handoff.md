@@ -1,3 +1,13 @@
+## 2026-10-30 최신 완료 — 지출 대조 안내·기본 정렬·보험 후보 보완
+
+- 사용자 세 요청을 [PR389](https://github.com/6Soo/cost/pull/389)·[PR390](https://github.com/6Soo/cost/pull/390)으로 병합하고 운영 `5ef006edb00a1b955520a07023e6c3fd7eb005bd`에 고정 배포했다. [현재 실행 명세](specs/ledger-sort-insurance-followup-20261030.md). 이전509392e1의 상단 대조 요약/하단 상시 그룹 목록은 최신 요청에 따라 제거했다. 상태 버튼 클릭 때만 닫기/Escape 가능한 상세 창을 연다. 열린 상태에서899px로 줄였을 때 숨은modal이 남는 재현 실패도 PR390에서 교정해 모바일 전환 시 닫힌다.
+- PC 지출 기본 순서는 건수 일치→부분 일치→미기록이며 각 일치 단계 안에서 첫 실제 Google 원본 행 번호순이다. 반복 금액 그룹의 원행을 임의1:1로 연결하지 않고 동률은 기존 순서를 보존한다. 검색·live fragment도 같은 표시 기준이며 복사/TSV 입력 순서·수입·원본·금액·금융 링크는 불변이다.
+- 보험159행 중52행은 첫 글자/연속별표3개/끝 글자 형태다. 연속 가림 길이를 고정3글자로 비교하던 누락을 길이 미확인 후보로 보완했고, 기간 추정 범위 밖의 검증된 여행 후보를 별도로 표시한다. 명시적 여행 연결/선택은 검색 범위를 넓히지 않는다. PR389의 실제 읽기 전용·기존 Aside 인증 화면/API에서 단일 일치41 유지, 검토 후보20→70, 미일치98→48을 확인했다. 길이/여행 범위가 불확실한 후보를 동일인·가입·수령·단일 확정으로 승격하지 않는다.
+- 표적78 passed 및 반응형 후속8 passed: 계산·원천/권한·signed HTTP·실제 Google 행 번호 보존·정렬/검색/새로고침·복사 순서 경계·Chromium899/900·보험320/390/760/1280·상세 창 열기/닫기. 실행이 겹쳐 합산하지 않는다. 최초 신규 합성 fixture의 occurred_on 누락1건은 보완하고 전체 표적 집합으로 재검증했다. 전체 회귀·실기기는 미실행이다.
+- 1180 Git blobs 일치·검수/병합tree 동일·신선한 전체 백업/격리 복원·task/process SHA·단일loopback listener·health/ready200·보호API401·보호13표 전후 불변. 직전 PR389 운영c2b4531e의 실제 인증 지출/보험 화면·API 수락은 변경 없는 경로에 재사용했다. 최종 SHA 화면은 Aside Page.navigate/Page.enable 시간 초과 후 Aside 미실행 오류로 재수락하지 못했다. 반응형 변경은 합성8검사 근거다. 후속 PowerShell ready 요청도 한 번 시간 초과했으나 직접 curl loopback 재확인은 health/ready 모두200(각 약3ms)이었다. 원인은 미확정이며 재시작/롤백은 하지 않았다. 실제 금융/명단/Google/원본 쓰기0.
+- PR390 최초 배포는 전체 백업 검증 실패로 중단·이전c2b4531e 복구 및health/ready200·보호13표 불변을 확인했다. 별도 무결성 및 작성자 중지 상태의 동일 전체 검증20 state checks/격리 복원은 통과했고, 보호 조건을 낮추지 않고 정상 배포를 재실행해 수락했다. 첫 실패를 성공으로 바꾸지 않으며 근본 원인은 미확정이다. `deployment-recovery.json`·`controlled-backup-result.json` 근거를 보존한다.
+- 근거는 `.local-archive/ledger-sort-insurance-20261030/`의 progress·verified.xml·responsive.xml·diagnostic.json·live-smoke.json 및 `.local-archive/deploy-5ef006edb00a1b955520a07023e6c3fd7eb005bd/`다. 완료 임시 공간은 결과 커밋 보존 후 공식 archive하고 실제 결과를final.json에 기록한다. 기본 작업 사본의 기존 변경·stash·외부자료 대기·카드 수집/업로드 보류·Google 자동 쓰기 금지는 유지한다. 후속 문서만으로 재배포/재시작하지 않는다.
+
 ## 2026-10-30 최신 완료 — 열린 PR 개발·배포·작업공간 정리
 
 - **GEMN-01~05·카드 UI·진단 도구 구현/병합/배포 COMPLETE:** [PR384](https://github.com/6Soo/cost/pull/384) 명세, [PR385](https://github.com/6Soo/cost/pull/385) 카드 원래 변경, [PR386](https://github.com/6Soo/cost/pull/386) 검증 통합, [PR387](https://github.com/6Soo/cost/pull/387) 실제 수락 후속. 운영 SHA `509392e1558e3df1c31ccdbd2dfe676f5498051b`; 첫 배포28853255의 비교 불가 요약/상세 버튼 문제를 최종 보완했다. [현재 실행 범위](specs/open-pr-development-execution-20261030.md).

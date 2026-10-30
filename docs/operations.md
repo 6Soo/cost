@@ -572,3 +572,10 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - PR384/385/386/387 정상 병합, 최종 운영 `509392e1558e3df1c31ccdbd2dfe676f5498051b`(이전 검증28853255). GEMN74·카드32·최종 후속25검사 통과; 인접56통과/10실패는 기준fc1e2022와 동일 실패로 구분했다. 원천 비교 불가를0건으로 취급하거나 상세 없는 버튼을 표시하던 실제 화면 문제를 보완했다.
 - 1179 Git blobs 일치·검수/병합tree 동일·새 백업/격리 복원·task/process SHA·listener1·health/ready200·보호API401·보호13표 전후 불변. 실제 기존 Aside 인증 화면에서 정상 그룹 상세 열기와 미검증 원천 확인 불가/트리거0 수락. 운영 금융/Google/명단/원본 쓰기0.
 - 근거: `.local-archive/open-pr-development-20261030/`와 `.local-archive/deploy-509392e1558e3df1c31ccdbd2dfe676f5498051b/`, 호스트 같은SHA deploy-evidence. OpenRouter free 오류 초안은 보존/감독자 검증, ANUS 결과는 통합. 실기기·전체 회귀·외부자료 대기는 미완료로 유지한다. 이 후속 문서 변경만으로 재배포·재시작하지 않는다.
+
+
+## 2026-10-30 대조 안내·Google 행 기본 정렬·보험 후보 수정
+
+- PR389/390 운영 `5ef006edb00a1b955520a07023e6c3fd7eb005bd`(이전 검증c2b4531e). 상단/하단 반복 안내와 상시 그룹 목록 제거·상태 클릭 상세 창, PC 일치/부분/미기록 및 첫 Google 행 기준 안정 정렬. 열린 상세 창의 모바일 전환 시 숨은modal 차단도 재현/교정했다. 복사 순서/원본/금융/수입 불변.
+- 연속 가림 문자 길이 미확인 후보와 기간 추정 밖 다른 여행 후보를 구분했다. 실제159행의 단일41 유지·검토70·미일치48. PR389 기존 Aside 화면/API·owner/no-store·지출 정렬/상세 창 수락 재사용. 최종SHA 실제 화면 재수락은 Aside 미실행으로 대기이며 합성 반응형8검사는 통과. 표적78 passed·후속8 passed(겹침 합산 안 함).1180 blobs 일치·새 백업/격리 복원·고정task/process SHA·health/ready200·보호API401·보호13표 불변.
+- `.local-archive/ledger-sort-insurance-20261030/` 및 `.local-archive/deploy-5ef006edb00a1b955520a07023e6c3fd7eb005bd/`·호스트 동일SHA 근거. 금융/명단/Google/원본 쓰기0, 실기기/전체 회귀 미실행. 후속 문서만으로 재배포/재시작하지 않는다.
