@@ -69,7 +69,7 @@ def build_state(board, trip_id, cost_rows=None):
     if not trip_id or str(trip_id) == 'unclassified':
         return _state_unavailable(trip_id, 'COST_TRIP_UNAVAILABLE')
     try:
-        store, cost_trip = sheet_expense_reconciliation._store_and_trip(board, str(trip_id))
+        store, cost_trip = sheet_expense_reconciliation._store_and_trip(board, str(trip_id), True)
         if store is None or cost_trip is None:
             raise ValueError('COST_TRIP_UNAVAILABLE')
         raw_costs = (list(cost_rows) if cost_rows is not None else
