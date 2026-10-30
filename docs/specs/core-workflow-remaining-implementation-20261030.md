@@ -1,6 +1,6 @@
 # COST 본질적 업무 완성: 잔여 구현·운영 수락 작업 (2026-10-30)
 
-> 상태: **실행 명세만 추가. 코드 구현·운영 데이터 변경·배포 없음.**
+> Status: **PR395 CODE_COMPLETE / MERGED / DEPLOYED; actual acceptance and external gates are tracked below.**
 >
 > 핵심 목표: 카드·OTA·현지 영수증 원본 → 안전한 중복/취소/환불 대사 → 실제 여행·분기 귀속 → 사용자 검토 → Google B:H 수기 복사 → Google 정본 읽기에서 반영·마감 확인.
 >
@@ -91,3 +91,18 @@
 각 CORE 작업에 **현재 근거 / 구현 변경 / 테스트 / PR·병합 / 운영 배포 / 실제 데이터 수락 / 보류 사유 / 다음 실행자**를 별도로 기록한다. `SPEC_ONLY`, `CODE_COMPLETE`, `MERGED`, `DEPLOYED`, `READONLY_ACCEPTED`, `WAIT_USER_APPROVAL`, `WAIT_EXTERNAL_EVIDENCE`를 혼용하지 않는다. 문서 작성은 기능 완료가 아니다.
 
 **비범위:** Google API 자동 쓰기, 모든 카드 무승인 재수집, 임의 OTA 결제 확정, 외부 증거 없는 보험 가입 확정, 개인카드 상환 자동 상계, 대규모 마이크로서비스화, 새 대시보드만을 위한 중복 저장 구조.
+
+## 2026-10-30 execution evidence and exact recheck triggers
+
+Runtime58cfa0aa0949a1ad2d83ad691a64c9d7abae5b5e. See [current status](../session_handoff.md) latest CORE record and local `.local-archive/core-workflow-20261030/` for test/deployment/readonly evidence. Implementation is distinct from actual source acceptance.
+
+| Task | Verified implementation/current evidence | Outstanding gate, owner and recheck trigger |
+| --- | --- | --- |
+| CORE-01 | Existing import code audited;8 source blobs, fingerprint mismatch0 | WAIT_USER_APPROVAL: user resumes collection/upload; assigned operator starts with allowed interval counts/fingerprint/duplicate preflight |
+| CORE-02 | Existing solver readonly audit, scoped provider reuse and refund/manual-link protections verified | READONLY_ACCEPTED for audit; WAIT_EXTERNAL_EVIDENCE for unresolved payments. Recheck existing review path when original payment proof arrives; no invented links |
+| CORE-03 | Existing GEMN reused for62 trips:47 comparable/15 unavailable; synthetic copy alone stays pending, subsequent canonical manual-paste fixture suppresses duplicate export | WAIT_EXTERNAL_EVIDENCE: user manually pastes approved1-2 trips and canonical read refreshes; operator then verifies readonly reflection |
+| CORE-04 | CODE_COMPLETE/DEPLOYED/READONLY_ACCEPTED: collapsed7 paths, current archive closure/unknown handling, synthetic and actual logged-in UI accepted | Independent implementation/read work complete. Actual closure changes need current normal reads of both Google sources |
+| CORE-05 | Existing HOLD reasons/uncertain splitting/corporate-card duplication protections already implemented and targeted tests pass; no duplicate state added | WAIT_EXTERNAL_EVIDENCE: approved receipt image and actual store available through authorized input path; then existing input/review/copy acceptance |
+| CORE-06 | CODE_COMPLETE/DEPLOYED: reuse unchanged private generation, preserve previous distinct generation and partial-failure source | WAIT_USER_APPROVAL: scheduled job still old4b4d10fb/latest result1; separate schedule-switch approval before newSHA reader/recovery/main-archive movement acceptance. Board deploy does not activate that job |
+| CORE-07 | Deployment13-table/health/ready/API protection and actual logged-in trip UI accepted;5 cards GETs200/1527-2042ms | WAIT_EXTERNAL_EVIDENCE: no connected ADB devices; Safari/Android physical tests, real paste and production p95/internal-phase acceptance remain open. Recheck when devices/representative actual samples are available |
+| CORE-08 | Existing masked candidate guard and unavailable-roster/15 Google income row readonly protections verified | WAIT_EXTERNAL_EVIDENCE: configured=false, participant DB/registration receipt absent. Actual authorized DB/receipt and separately approved integration path must exist before operator reruns existing diagnostics; candidates do not prove identity/registration |
