@@ -411,6 +411,36 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertEqual(after["counts"]["reviewed_income_rows"], 1)
         self.assertNotIn('INCOME_UNCLASSIFIED', after["completion"]["blocked_by"])
 
+    def test_missing_roster_preserves_readable_google_rows_and_refuses_writes(self):
+        missing = Path(self._dir.name) / 'not-created.sqlite'
+        with patch.dict(os.environ, {'WEBLEDGER_PARTICIPANT_DB': str(missing)}):
+            status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+            state = json.loads(body)
+            self.assertEqual(status, 200)
+            self.assertFalse(state['configured'])
+            self.assertGreater(len(state['income_rows']), 0)
+            self.assertEqual(len(state['income_rows']), len(state['unlinked_income']))
+            self.assertFalse(state['completion']['complete'])
+            status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+            self.assertIn('id="site-shell-style"', body)
+            self.assertIn(PARTICIPANT, body)
+            self.assertNotIn('STORE_UNAVAILABLE', body)
+            status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+                'trip':self.trip, 'income_ref':state['income_rows'][0]['ref'],
+                'participant_id':'invented', 'input_fingerprint':''})
+            self.assertEqual(status, 503)
+            self.assertEqual(json.loads(body)['code'], 'STORE_UNAVAILABLE')
+            self.assertFalse(missing.exists())
+
+    def test_missing_name_index_matches_known_rows_without_declaring_absence(self):
+        from webapp import participant_income_page
+        with patch.object(gl, 'owner_income_names', return_value=None):
+            state = participant_income_page.build_state(self.trip)
+        self.assertTrue(state['google']['available'])
+        self.assertFalse(state['google']['name_index_complete'])
+        self.assertGreater(state['counts']['linked_income_rows'], 0)
+        self.assertFalse(state['completion']['complete'])
+
     def test_a_trip_with_one_copy_is_connected_without_a_choice(self):
         # 보관본에 같은 탭이 없으면 이 여행은 메인 한 사본뿐이다.
         main = workbook()

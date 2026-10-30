@@ -166,6 +166,34 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-table .card-all-link{min-height:44px;margin-top:0}
  .card-all-page .card-all-row-toggle{min-height:44px}
 }
+
+/* Mobile history is a two-line transaction list, not a squeezed four-column table. */
+@media(max-width:759px){
+ .card-all-page .card-all-table-wrap{width:100%;overflow:visible}
+ .card-all-page .card-all-table,
+ .card-all-page .card-all-table tbody{display:block;width:100%;table-layout:auto}
+ .card-all-page .card-all-table colgroup,
+ .card-all-page .card-all-table thead{display:none}
+ .card-all-page .card-all-table tbody tr.date-group{display:block;margin:10px 0 0;border:0}
+ .card-all-page .card-all-table tbody tr.date-group th{display:block;padding:7px 2px 5px;border:0;background:transparent;font-size:12px;font-weight:700;color:var(--ca-muted);text-align:left}
+ .card-all-page .card-all-table tbody tr[data-tx-id]{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,46%);grid-template-areas:"merchant amount" "merchant trip";column-gap:12px;align-items:start;width:100%;min-height:44px;padding:6px 2px;border-bottom:1px solid var(--ca-border)}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>td{display:block;padding:0;border:0;min-width:0;vertical-align:initial}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>.use-datetime{display:none}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>.merchant{grid-area:merchant;font-size:13px;font-weight:700;line-height:1.35;overflow-wrap:anywhere}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>.amount-cell{grid-area:amount;text-align:right;align-self:start}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>.trip{grid-area:trip;align-self:end;text-align:right;font-size:11px;max-width:145px}
+ .card-all-page .card-all-table .card-all-row-toggle{min-height:0}
+ .card-all-page .card-all-table .merchant-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
+ .card-all-page .card-all-table .card-identity{display:block;margin-top:5px;font-size:11px;line-height:1.3;font-weight:400}
+ .card-all-page .card-all-table .amount-cell .amount{font-size:14px;font-weight:750;white-space:normal;overflow-wrap:anywhere}
+ .card-all-page .card-all-table .card-all-trip-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.35;font-weight:600}
+ .card-all-page .card-all-table .card-all-trip-source{display:none}
+ .card-all-page .card-all-table .card-all-badges{max-width:135px}
+ .card-all-page .card-all-table tbody tr.card-all-expanded:not([hidden]){display:block;width:100%;border-bottom:1px solid var(--ca-border)}
+ .card-all-page .card-all-table tbody tr.card-all-expanded>td{display:block;width:100%;padding:10px 4px}
+ .card-all-page .card-all-table tbody tr.card-all-expanded[hidden]{display:none}
+}
+
 </style>
 """
 
