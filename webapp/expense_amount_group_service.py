@@ -61,6 +61,7 @@ def build_state(board, trip_id, cost_rows=None):
         snapshot, all_rows = google_authority.load_consistent(
             snapshot_path, google_ledger_page.rows_path())
         snapshot = google_ledger_page.snapshot_for_display(snapshot)
+        last_success_at = snapshot.get('synced_at')
         mapping = google_ledger_page.load_mapping(snapshot_path)
         keys = [key for key, mapped_trip in mapping.items()
                 if str(mapped_trip) == str(trip_id)]
@@ -78,6 +79,7 @@ def build_state(board, trip_id, cost_rows=None):
         if source not in ('main', 'archive'):
             raise ValueError('SOURCE_NOT_SELECTED')
         source_info = (resolved.get('sources') or {}).get(source) or {}
+        last_success_at = source_info.get('last_ok_at') or last_success_at
         copy_info = (trip.get('copies') or {}).get(source) or {}
         if (source_info.get('status') != 'ok' or source_info.get('stale')
                 or copy_info.get('layout') != 'rev'
@@ -106,7 +108,7 @@ def build_state(board, trip_id, cost_rows=None):
         costs = []
         for raw in raw_costs:
             row = dict(raw)
-            row_id = str(row.get('row_id') or '')
+            row_id = str(row.get('row_id') or row.get('transaction_id') or row.get('source_event_id') or '')
             source_id = str(row.get('source_event_id') or row.get('transaction_id') or row_id)
             if not row_id or not source_id:
                 raise ValueError('RECONCILIATION_INVALID')
@@ -144,12 +146,15 @@ def build_state(board, trip_id, cost_rows=None):
             raise ValueError('RECONCILIATION_INVALID')
         by_cost = state.get('by_cost_id')
         expected_ids = {row['row_id'] for row in costs}
-        raw_ids = {str(row.get('row_id') or '') for row in raw_costs}
         if not isinstance(by_cost, dict) or not expected_ids.issubset(by_cost):
             raise ValueError('RECONCILIATION_INVALID')
-        if not set(by_cost).issubset(raw_ids):
+        if not set(by_cost).issubset(expected_ids):
             raise ValueError('RECONCILIATION_INVALID')
         return state
     except Exception as error:
-        reason = str(error) if isinstance(error, ValueError) else 'SOURCE_UNAVAILABLE'
+        codes = {'AMOUNT_UNCERTAIN', 'COST_TRIP_UNAVAILABLE', 'GOOGLE_SOURCE_DISABLED',
+                 'TRIP_MAPPING_UNAVAILABLE', 'GOOGLE_TRIP_UNAVAILABLE', 'SOURCE_NOT_SELECTED',
+                 'SOURCE_NOT_VERIFIED', 'SOURCE_FINGERPRINT_MISMATCH', 'SHEET_ROWS_UNAVAILABLE',
+                 'RECONCILIATION_INVALID', 'INVALID_OR_UNCERTAIN_ROW'}
+        reason = str(error) if isinstance(error, ValueError) and str(error) in codes else 'SOURCE_UNAVAILABLE'
         return _state_unavailable(trip_id, reason, locals().get('last_success_at'))

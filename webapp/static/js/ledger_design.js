@@ -255,6 +255,14 @@ document.addEventListener('click',function(e){
   // A control inside a row form belongs to that form. Opening the panel there
   // would swallow the click and the control would do nothing.
   if(e.target.closest('form')) return;
+  var groupButton=e.target.closest('[data-gemn-group]');
+  if(groupButton){
+   e.preventDefault();
+   var groupDetail=document.getElementById(groupButton.getAttribute('data-gemn-group'));
+   if(groupDetail){groupDetail.open=true;var groupSummary=groupDetail.querySelector('summary');
+    if(groupSummary){groupSummary.focus();groupSummary.scrollIntoView({block:'nearest'});}}
+   return;
+  }
   var row=e.target.closest('tr[data-id]');
   if(row){e.preventDefault();openPanel(row.dataset.id);return;}
   var item=e.target.closest('.li[data-id]');

@@ -28,6 +28,23 @@ _STATUS = {
 }
 
 
+def _reason_label(reason):
+    return {
+        'AMOUNT_UNCERTAIN': '금액 또는 통화를 확인할 수 없습니다.',
+        'INVALID_OR_UNCERTAIN_ROW': '일부 원행의 금액·통화·식별 정보가 불확실합니다.',
+        'TRIP_MAPPING_UNAVAILABLE': '이 여행과 Google 장부의 연결을 확인해 주세요.',
+        'SOURCE_NOT_VERIFIED': 'Google 지출 자료가 검증되지 않았거나 오래됐습니다.',
+        'SOURCE_FINGERPRINT_MISMATCH': 'Google 지출 자료가 바뀌어 다시 확인해야 합니다.',
+        'SOURCE_NOT_SELECTED': '대조할 Google 장부를 선택해 주세요.',
+        'GOOGLE_SOURCE_DISABLED': 'Google 지출 자료가 연결되지 않았습니다.',
+        'GOOGLE_TRIP_UNAVAILABLE': '이 여행의 Google 장부를 찾을 수 없습니다.',
+        'COST_TRIP_UNAVAILABLE': '대조할 실제 여행을 확인할 수 없습니다.',
+        'SHEET_ROWS_UNAVAILABLE': 'Google 지출 행을 확인할 수 없습니다.',
+        'RECONCILIATION_INVALID': '지출 자료를 안전하게 대조할 수 없습니다.',
+        'SOURCE_UNAVAILABLE': 'Google 자료를 확인할 수 없습니다.',
+    }.get(str(reason), str(reason or 'Google 자료를 확인할 수 없습니다.'))
+
+
 def status_cell(annotation: Mapping[str, object] | None) -> str:
     """Return a semantic table cell; counts indicate a group, not row identity."""
     annotation = annotation or {}
@@ -66,7 +83,7 @@ def render_summary(state: Mapping[str, object]) -> str:
     reason = state.get("reason")
     last_success = state.get("last_success_at")
     if not available:
-        note = f"비교 불가 · {_esc(reason or 'Google 자료를 확인할 수 없습니다.')}"
+        note = f"비교 불가 · {_esc(_reason_label(reason))}"
     else:
         note = "Google 지출 스냅샷 기준"
         if reason:
@@ -98,7 +115,7 @@ def render_groups(state: Mapping[str, object]) -> str:
         groups = []
     output = ["<div class='gemn-desktop gemn-groups' aria-label='금액 그룹 대조 상세'>"]
     if state.get("available") is not True:
-        reason = state.get("reason") or "Google 자료를 확인할 수 없어 금액 그룹을 비교하지 않았습니다."
+        reason = _reason_label(state.get("reason"))
         output.append(f"<p role='status'>{_esc(reason)}</p></div>")
         return "".join(output)
     for group in groups:
@@ -141,17 +158,18 @@ def styles() -> str:
             ".gemn-desktop,th.gemn-desktop,td.gemn-desktop{display:none!important}"
             ".gemn-group summary{display:none!important}"
             ".gemn-status-button{font:inherit;color:inherit;background:transparent;border:0;padding:4px;cursor:pointer}"
-            ".gemn-summary,.gemn-groups{color:var(--shell-text);background:var(--shell-paper);"
+            ".gemn-summary,.gemn-groups{color:var(--shell-ink,var(--ink,#17212b));background:var(--shell-paper);"
             "border:1px solid var(--shell-line);border-radius:8px;padding:10px;margin:8px 0}"
             ".gemn-summary{gap:10px 16px;flex-wrap:wrap;align-items:center;font-size:13px}"
             ".gemn-summary .gemn-note,.gemn-summary .gemn-disclaimer{color:var(--shell-muted)}"
             ".gemn-group{border-top:1px solid var(--shell-line);padding:8px 0}"
             ".gemn-group summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:700}"
             ".gemn-group ul{margin:4px 0;padding-left:22px}.gemn-group li{overflow-wrap:anywhere;margin:3px 0}"
-            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-accent,#1C7A52)}"
+            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--gemn-success,#1C7A52)}"
             ".gemn-partial{color:var(--shell-warn,#B54708)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted,#475569)}"
             ".gemn-count{font-variant-numeric:tabular-nums}"
             "@media(min-width:900px){th.gemn-desktop.gemn-desktop,td.gemn-desktop.gemn-desktop{display:table-cell!important}"
+            "col.gemn-column{display:table-column!important;width:170px}"
             ".gemn-summary.gemn-desktop.gemn-desktop{display:flex!important}"
             "div.gemn-groups.gemn-groups.gemn-desktop{display:block!important}.gemn-group summary{display:flex!important}}"
             "</style>")
