@@ -198,7 +198,9 @@ def test_unavailable_never_green_no_mutation():
 def test_summary_counts_all_statuses():
     """Summary reflects all group statuses correctly across mixed groups."""
     out = run(
-        [cost("c1"), cost("c2"), cost("c3", -50000)],  # 3 cost rows
-        [google("g1"), google("g2"), google("g3", trip_id="trip-b")]  # 2 cost-match + 1 diff trip
+        [cost("c1"), cost("c2"), cost("c3", -50000)],
+        [google("g1"), google("g2"), google("g3", amount=7000)]
     )
-    # Should have groups for: matched (2:2), unrecorded (1:0), google_only (0
+    assert out['summary'] == {'matched': 1, 'partial': 0, 'unrecorded': 1,
+                              'google_only': 1, 'unavailable': 0}
+    assert out['available'] is True
