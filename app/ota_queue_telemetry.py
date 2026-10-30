@@ -18,7 +18,8 @@ STAGES = frozenset({"source_parse", "card_read", "solver", "projection",
                     "detail_read", "query_plan", "memory_peak", "trace_validate",
                     "reconcile", "snapshot_read", "queue_index_build",
                     "snapshot_compute", "first_render", "card_search", "google_read",
-                    "db_lock_wait", "payload_serialize"})
+                    "db_lock_wait", "payload_serialize", "db_connect",
+                    "card_query", "trip_labels", "card_render"})
 
 
 def payload_bytes(value) -> int:

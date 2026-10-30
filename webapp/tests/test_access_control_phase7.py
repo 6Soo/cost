@@ -680,6 +680,25 @@ class AccessStoreTests(unittest.TestCase):
         status, _ = self.api("/rules?case=app-x", user=V1)
         self.assertEqual(status, 403)
 
+    def test_request_metrics_are_owner_only_and_aggregate_only(self):
+        from unittest.mock import patch
+        from app import request_metrics
+        self.seed_accounts()
+        path = '/api/maintenance/request-metrics'
+        with patch.object(request_metrics, 'summary', return_value={}) as summary:
+            status, _ = self.api(path)
+            self.assertEqual(status, 401)
+            status, _ = self.api(path, user=V1)
+            self.assertEqual(status, 403)
+            summary.assert_not_called()
+            before = list(self.store.conn.iterdump())
+            status, body = self.api_json(path, user=OWNER)
+            self.assertEqual(status, 200)
+            self.assertEqual(body['metrics'], {})
+            self.assertEqual(body['scope'], 'bounded_process_window')
+            summary.assert_called_once_with()
+            self.assertEqual(list(self.store.conn.iterdump()), before)
+
     def test_card_history_page_and_api_are_owner_only(self):
         self.seed_accounts()
         self.store.conn.execute(

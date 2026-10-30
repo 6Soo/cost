@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from . import card_transactions as _ct
 from . import ledger_design as _design
 from . import ui_icons
+from app import request_metrics
 
 DEFAULT_YEAR = 2026
 MIN_YEAR = 2000
@@ -737,6 +738,12 @@ def _error_page(message: str) -> str:
 
 
 def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
+    operation = 'card_search' if _first(query_params, 'q', '') else 'first_render'
+    with request_metrics.card_scope(operation):
+        return _cards_all_page(query_params, db_path=db_path)
+
+
+def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     """카드 전체 내역 페이지를 그린다. 읽기만 수행한다."""
     year, selected_month, cursor, undated_cursor, show_undated = _request_params(query_params)
     filter_state = _filter_state(query_params)
@@ -804,67 +811,69 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     except (ValueError, TypeError):
         return _error_page("조회 조건을 확인하지 못했어요.")
 
-    # Only an already-authorized owner page resolves ledger display labels.
-    # This never changes the stored trip_id, the card's classification, or access policy.
-    try:
-        from . import ledger_board as _board
-        if (items or search_items or undated_items) and _board.current_role() == "owner":
-            trip_names = {
-                str(t.get("tab_id") or ""): str(t.get("display_key") or t.get("tab_id") or "")
-                for t in _board.live_trips(include_archived=True)
-                if isinstance(t, dict) and t.get("tab_id")
-            }
-    except (RuntimeError, AttributeError, TypeError):
-        pass
+    with request_metrics.card_phase('trip_labels'):
+        # Only an already-authorized owner page resolves ledger display labels.
+        # This never changes the stored trip_id, the card's classification, or access policy.
+        try:
+            from . import ledger_board as _board
+            if (items or search_items or undated_items) and _board.current_role() == "owner":
+                trip_names = {
+                    str(t.get("tab_id") or ""): str(t.get("display_key") or t.get("tab_id") or "")
+                    for t in _board.live_trips(include_archived=True)
+                    if isinstance(t, dict) and t.get("tab_id")
+                }
+        except (RuntimeError, AttributeError, TypeError):
+            pass
 
     if filters['unassigned']:
         for item in [*items, *search_items, *undated_items]:
             item['trip_assignment_valid'] = False
-    selected_card = filter_state.get('card', '')
-    options = "<option value=''>전체 카드</option>" + ''.join(
-        f"<option value='{_esc(option['card_key'])}'{' selected' if option['card_key'] == selected_card else ''}>{_esc(option['card_label'])}</option>"
-        for option in card_options)
-    filter_form = (
-        "<form method='get' action='/cards/all' class='card-all-filters'>"
-        + _hidden_filters({'undated': '1'} if show_undated else {})
-        + _period_select(year, selected_month, years)
-        + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
-        + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
-        + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
-        + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
-        + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
-        + "<details class='card-all-help'><summary>조회·상태 안내</summary><p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 전액 상쇄된 취소·환불 묶음은 취소·환불 탭에 표시합니다. 행을 누르면 해당 거래 상세로 이동합니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p></details>")
+    with request_metrics.card_phase('card_render'):
+        selected_card = filter_state.get('card', '')
+        options = "<option value=''>전체 카드</option>" + ''.join(
+            f"<option value='{_esc(option['card_key'])}'{' selected' if option['card_key'] == selected_card else ''}>{_esc(option['card_label'])}</option>"
+            for option in card_options)
+        filter_form = (
+            "<form method='get' action='/cards/all' class='card-all-filters'>"
+            + _hidden_filters({'undated': '1'} if show_undated else {})
+            + _period_select(year, selected_month, years)
+            + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
+            + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
+            + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
+            + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
+            + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
+            + "<details class='card-all-help'><summary>조회·상태 안내</summary><p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 전액 상쇄된 취소·환불 묶음은 취소·환불 탭에 표시합니다. 행을 누르면 해당 거래 상세로 이동합니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p></details>")
 
-    if selected_month is not None:
-        detail = _month_detail(year, selected_month, items, next_cursor,
-                               has_more, month_total, trip_names=trip_names, filter_state=filter_state)
-    elif not show_undated:
-        detail = _search_detail(year, search_items, search_next_cursor,
-                                search_has_more, search_total,
-                                trip_names=trip_names, filter_state=filter_state)
-    else:
-        detail = ''
+        if selected_month is not None:
+            detail = _month_detail(year, selected_month, items, next_cursor,
+                                   has_more, month_total, trip_names=trip_names, filter_state=filter_state)
+        elif not show_undated:
+            detail = _search_detail(year, search_items, search_next_cursor,
+                                    search_has_more, search_total,
+                                    trip_names=trip_names, filter_state=filter_state)
+        else:
+            detail = ''
 
-    body = (
-        CARD_ALL_STYLE
-        + "<div class='card-all-page'>"
-        "<div class='card-all-page-loading' role='status' hidden>"
-        "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
-        "<header class='card-all-hero'>"
-        "<div><p class='card-all-eyebrow'>CARD TRANSACTION HISTORY</p>"
-        "<p class='card-all-lead'>월별 카드 거래 확인</p>"
-        "</div>"
-        "<div class='card-all-summary' aria-label='저장 거래 요약'>"
-        f"<div class='card-all-stat'><span class='card-all-stat-label'>{year}년 날짜 확인 거래</span><strong class='card-all-stat-value'>{sum(int(v or 0) for v in months.values()):,}건</strong></div>"
-        f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
-        "</div></header>"
-        "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회 조건</h2></div>"
-        f"{filter_form}"
-        f"{detail}"
-        f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)}"
-        "</div>" + CARD_ALL_SCRIPT)
-    fragment = _design.shell(
-        "카드 전체 내역", tab_id="", heading="카드 전체 내역",
-        meta="카드 거래를 연도와 월로 확인해요.",
-        body=body, home=True)
-    return _design.render(fragment, title="카드 전체 내역")
+        body = (
+            CARD_ALL_STYLE
+            + "<div class='card-all-page'>"
+            "<div class='card-all-page-loading' role='status' hidden>"
+            "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
+            "<header class='card-all-hero'>"
+            "<div><p class='card-all-eyebrow'>CARD TRANSACTION HISTORY</p>"
+            "<p class='card-all-lead'>월별 카드 거래 확인</p>"
+            "</div>"
+            "<div class='card-all-summary' aria-label='저장 거래 요약'>"
+            f"<div class='card-all-stat'><span class='card-all-stat-label'>{year}년 날짜 확인 거래</span><strong class='card-all-stat-value'>{sum(int(v or 0) for v in months.values()):,}건</strong></div>"
+            f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
+            "</div></header>"
+            "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회 조건</h2></div>"
+            f"{filter_form}"
+            f"{detail}"
+            f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)}"
+            "</div>" + CARD_ALL_SCRIPT)
+        fragment = _design.shell(
+            "카드 전체 내역", tab_id="", heading="카드 전체 내역",
+            meta="카드 거래를 연도와 월로 확인해요.",
+            body=body, home=True)
+        return _design.render(fragment, title="카드 전체 내역")
