@@ -1,6 +1,6 @@
 # 여행 지출표 ↔ Google 지출 장부 금액 그룹 M:N 대조 UI (2026-10-30)
 
-- 상태: **COMPLETE_DEPLOYED / PR386·387, 운영509392e1·실제 로그인 화면 수락 완료**. 현재 실행은 [열린 PR 구현 실행](open-pr-development-execution-20261030.md)과 현재 상태의 최신 기록을 따른다.
+- 상태: **COMPLETE_DEPLOYED / PR389·390, 운영5ef006ed**. 실제 로그인 화면은 PR389에서 수락했고, PR390 반응형 교정은 합성8검사 통과·최종SHA 실제 화면 재수락은 Aside 미실행으로 대기다. 최신 실행은 [정렬·보험 후보 보완](ledger-sort-insurance-followup-20261030.md)과 현재 상태의 최신 기록을 따른다.
 - 우선순위: P1, PC 전용 가시화
 - 정본: Google 여행별 지출 영역. COST는 읽기 전용 대조·표시만 하며 Google 쓰기 금지.
 - 관련 문서: `docs/specs/google-ledger.md`, `docs/specs/finance.md`, `docs/specs/lean-card-ota-core-20261030.md`.
