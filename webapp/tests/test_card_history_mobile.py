@@ -43,16 +43,17 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                     assert page.locator('thead th').count() == 4
                     assert page.locator('.detail-cell, .preserved').count() == 0
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-                    assert rows.first.locator('td').first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '0px'
+                    assert rows.first.locator('td').first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '1px'
                     if width <= 759:
                         assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'table-row'
-                        assert all(row.bounding_box()['height'] <= 64 for row in rows.all())
+                        assert all(row.bounding_box()['height'] <= 80 for row in rows.all())
                         for row in rows.all():
                             button = row.locator('.card-all-row-toggle').bounding_box()
                             name = row.locator('.merchant-name').bounding_box()
                             identity = row.locator('.card-identity').bounding_box()
-                            assert abs(button['height'] - name['height']) <= 1
-                            assert 0 <= identity['y'] - (name['y'] + name['height']) <= 3
+                            assert button['height'] >= 44
+                            assert button['height'] >= name['height']
+                            assert 0 <= identity['y'] - (name['y'] + name['height']) <= 28
                             tops = [cell.bounding_box()['y'] for cell in row.locator('td').all()]
                             assert max(tops) - min(tops) <= 1
                         for selector in ('.card-all-table-wrap', '.card-all-filters input[type=search]',
@@ -61,7 +62,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                                 box = element.bounding_box()
                                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= width + 1
                         for link in page.locator('td.trip>a').all():
-                            assert link.bounding_box()['height'] >= 32
+                            assert link.bounding_box()['height'] >= 44
                         assert page.locator('.card-all-filters input[type=search]').evaluate(
                             '(e)=>parseFloat(getComputedStyle(e).fontSize)>=16')
                         merchant = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")

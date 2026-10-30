@@ -111,41 +111,60 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-help{margin:0 0 16px;font-size:12px;color:var(--ca-muted)}
 .card-all-page .card-all-help summary{cursor:pointer;min-height:44px;align-content:center;width:fit-content}
 .card-all-page .card-all-help p{margin:0 0 12px;max-width:80ch}
-@media(width < 760px){.card-all-page{padding:14px 12px 42px}.card-all-page .card-all-hero{padding:16px}.card-all-page .card-all-summary{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-stat{min-width:0}.card-all-page :is(.card-all-detail,.card-all-undated){padding:13px}.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px}}
-@media(max-width:560px){.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:9px}.card-all-page .card-all-filters>label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}.card-all-page .card-all-filters>.card-all-unassigned{display:flex}.card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0}.card-all-page .card-all-filters button{width:100%}.card-all-page .card-all-filters .card-all-link{justify-self:start}}
-@media(max-width:390px){.card-all-page .card-all-hero{gap:14px}}
+/* Compact, flat card-history layout: one content plane with clear row separators. */
+.card-all-page{padding:14px 18px 40px}
+.card-all-page .card-all-hero{border:0;border-radius:0;background:transparent;padding:0 0 12px;margin:0 0 12px;border-bottom:1px solid var(--ca-border);gap:12px}
+.card-all-page .card-all-eyebrow{display:none}
+.card-all-page .card-all-lead{font-size:15px}
+.card-all-page .card-all-summary{display:flex;gap:18px;align-items:baseline}
+.card-all-page .card-all-stat{display:flex;gap:7px;align-items:baseline;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
+.card-all-page .card-all-stat-value{font-size:15px}
+.card-all-page .card-all-toolbar{display:none}
+.card-all-page .card-all-filters{margin:0 0 8px;gap:8px;padding:0;border:0;background:transparent}
+.card-all-page .card-all-filters :is(input[type=search],select){min-height:42px;padding:6px 9px}
+.card-all-page .card-all-filters button{min-height:44px}
+.card-all-page .card-all-help{margin:0 0 10px}
+.card-all-page .card-all-help summary{min-height:44px}
+.card-all-page :is(.card-all-detail,.card-all-undated){border:0;border-radius:0;background:transparent;padding:0;margin:0 0 20px}
+.card-all-page :is(.card-all-detail,.card-all-undated) h2{font-size:16px;margin:8px 0 10px}
+.card-all-page .card-all-table-wrap{border:0;border-radius:0;overflow:visible}
+.card-all-page .card-all-table{background:transparent}
+.card-all-page .card-all-table thead th{background:transparent;border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table tbody tr:not(.date-group):not(.card-all-expanded)>td{border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table .date-group th{background:transparent;border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px 8px}
+.card-all-page .card-all-table .card-all-expanded td{background:var(--ca-soft)}
 @media(max-width:759px){
-.card-all-page .card-all-hero{gap:12px;padding:14px;margin-bottom:14px}
-.card-all-page .card-all-description{font-size:12px}
-.card-all-page .card-all-stat{padding:10px 12px}
-.card-all-page .card-all-toolbar{align-items:center;gap:8px}
-
-.card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:10px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper);margin-bottom:0}
-.card-all-page .card-all-filters>label{grid-column:1/-1;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:8px;min-width:0}
-.card-all-page .card-all-filters>.card-all-unassigned{display:flex;min-height:32px;width:fit-content;gap:10px}
-.card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
-.card-all-page .card-all-filters :is(input[type=search],select){width:100%;min-width:0;min-height:44px;font-size:16px}
-.card-all-page .card-all-filters button{width:100%;min-height:44px}
-.card-all-page .card-all-filters>.card-all-link{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px}
-.card-all-page .card-all-help{padding:0 4px;margin-bottom:12px}
-/* Fixed column proportions fit the available width, including 320px screens. */
-.card-all-page .card-all-table-wrap{min-width:0;border-radius:8px;border:1px solid var(--ca-border)}
-.card-all-page .card-all-table{display:table;min-width:0;width:100%;font-size:12px;line-height:1.3}
-.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:5px 4px}
-.card-all-page .card-all-table tr[data-detail-id]>td{vertical-align:top}
-.card-all-page .card-all-table thead th{font-size:11px;white-space:normal}
-.card-all-page .card-all-table .date-group{display:none}
-.card-all-page .card-all-table .use-datetime{white-space:normal;font-size:11px}
-.card-all-page .card-all-table .merchant{min-width:0;font-size:12px}
-.card-all-page .card-all-table .merchant-name,.card-all-page .card-all-table .card-all-trip-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere}
-.card-all-page .card-identity{margin-top:2px;font-size:10px;line-height:1.3}
-.card-all-page .card-all-table .amount-cell{min-width:0}
-.card-all-page .card-all-table .amount{font-size:13px;white-space:normal}
-.card-all-page .card-all-table .trip{min-width:0}
-.card-all-page .card-all-trip-source{display:block;margin-top:2px;font-size:10px;line-height:1.3}
-.card-all-page .card-all-badge{margin-top:3px;padding:1px 4px;font-size:10px}
-.card-all-page .card-all-table .card-all-link{font-size:12px;margin-top:0;align-items:center;min-height:32px}
-.card-all-page .card-all-pagination a{width:100%;white-space:normal;text-align:center}
+ .card-all-page{padding:8px 10px 30px}
+ .card-all-page .card-all-hero{padding:0 0 8px;margin:0 0 10px;gap:6px}
+ .card-all-page .card-all-lead{font-size:13px}
+ .card-all-page .card-all-summary{width:auto;display:flex;gap:10px;flex-wrap:wrap}
+ .card-all-page .card-all-stat{display:flex;gap:4px;padding:0}
+ .card-all-page .card-all-stat-label{font-size:10px}
+ .card-all-page .card-all-stat-value{font-size:12px}
+ .card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0;border:0;border-radius:0;background:transparent;margin:0 0 5px}
+ .card-all-page .card-all-filters>label{grid-column:auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;font-size:11px}
+ .card-all-page .card-all-filters>label:has(input[type=search]){grid-column:1/-1}
+ .card-all-page .card-all-filters>.card-all-unassigned{grid-column:1/-1;display:flex;flex-direction:row;align-items:center;min-height:44px;font-size:12px}
+ .card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
+ .card-all-page .card-all-filters :is(input[type=search],select){min-height:44px;font-size:16px;padding:5px 8px}
+ .card-all-page .card-all-filters button,.card-all-page .card-all-filters>.card-all-link{grid-column:auto;width:100%;min-height:44px;padding:5px 8px}
+ .card-all-page .card-all-filters>.card-all-link{display:flex;align-items:center;justify-content:center}
+ .card-all-page .card-all-help{padding:0;margin:0 0 8px}
+ .card-all-page .card-all-detail,.card-all-page .card-all-undated{padding:0;margin:0 0 14px}
+ .card-all-page :is(.card-all-detail,.card-all-undated) h2{font-size:15px;margin:6px 0 8px}
+ .card-all-page .card-all-table-wrap{border:0;border-radius:0}
+ .card-all-page .card-all-table{font-size:12px}
+ .card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:8px 4px}
+ .card-all-page .card-all-table .date-column{width:14%}
+ .card-all-page .card-all-table .merchant-column{width:36%}
+ .card-all-page .card-all-table .amount-column{width:25%}
+ .card-all-page .card-all-table .trip-column{width:25%}
+ .card-all-page .card-all-table .merchant-name{font-size:12px;line-height:1.35}
+ .card-all-page .card-identity{font-size:10px;margin-top:2px}
+ .card-all-page .card-all-table .amount{font-size:12px}
+ .card-all-page .card-all-table .card-all-link{min-height:44px;margin-top:0}
+ .card-all-page .card-all-row-toggle{min-height:44px}
 }
 </style>
 """
