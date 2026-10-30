@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import html
-from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation
 
 ROUTES = ("/participants/insurance-match", "/api/participants/insurance-match")
 PAGE_PATH = ROUTES[0]
@@ -29,8 +29,11 @@ def _amount(value) -> str:
     if value is None or value == "":
         return "금액 미기재"
     try:
-        return f"{int(value):,}원"
-    except (TypeError, ValueError):
+        number = Decimal(str(value))
+        if not number.is_finite():
+            return _escape(value)
+        return f"{number:,}원"
+    except (InvalidOperation, TypeError, ValueError):
         return _escape(value)
 
 
@@ -49,9 +52,11 @@ def render_page(state: dict, *, query=None) -> str:
         ("ambiguous", "후보 여러 건"), ("unmatched", "일치 없음"),
         ("no_visible_letters", "보이는 글자 없음")))
     options = ["<option value=''>전체 계약</option>"]
-    for contract in contracts:
+    for index, contract in enumerate(contracts, start=1):
         key = str(contract.get("contract_key") or "")
-        label = f"{contract.get('travel_start') or ''}–{contract.get('travel_end') or ''} · {key}"
+        row_count = len(contract.get("rows") or [])
+        label = (f"{contract.get('travel_start') or '기간 미기재'}–"
+                 f"{contract.get('travel_end') or '기간 미기재'} · 계약 {index} · {row_count}건")
         options.append(f"<option value='{_escape(key)}'{ ' selected' if key == selected_contract else ''}>{_escape(label)}</option>")
     trips = {}
     for contract in contracts:
@@ -96,10 +101,16 @@ def render_page(state: dict, *, query=None) -> str:
                  f"<button type='button' class='prev' aria-label='이전 페이지'>이전</button>"
                  f"<span aria-live='polite'>1 / {pages} · 전체 {len(rows)}건</span>"
                  f"<button type='button' class='next' aria-label='다음 페이지'>다음</button></nav>")
+        raw_insurance_status = contract.get("insurance_status")
+        insurance_status = ("가입 완료 또는 기간 종료(조회 자료)"
+                            if raw_insurance_status == "completed_or_expired"
+                            else "상태 확인 필요")
+        scope_label = contract.get("scope_label")
         cards.append(
             f"<section class='contract' data-contract='{contract_id}'><h2>보험 계약 · 여행 기간 "
             f"{_escape(contract.get('travel_start'))}–{_escape(contract.get('travel_end'))}</h2>"
-            f"<p>상태: {_escape(contract.get('insurance_status') or '확인 필요')} · 전체 {len(rows)}건</p>"
+            f"<p>상태: {insurance_status} · 전체 {len(rows)}건</p>"
+            f"{('<p>' + _escape(scope_label) + '</p>') if scope_label else ''}"
             f"{pager}<div class='table-wrap'><table><caption>가림 이름과 기존 수입 이름 글자 대조</caption>"
             f"<thead><tr><th scope='col'>보험 명단 가림 이름</th><th scope='col'>대조 상태</th>"
             f"<th scope='col'>수입 후보</th><th scope='col'>기존 수입 기록</th></tr></thead>"
@@ -109,6 +120,9 @@ def render_page(state: dict, *, query=None) -> str:
         error = (f"<div class='error' role='status'><strong>{_escape(status)}</strong> · "
                  f"{_escape(state.get('message') or '자료 상태를 확인해 주세요')}"
                  f" · 상태 코드 {_escape(state.get('code') or 'UNKNOWN')}</div>")
+        freshness = state.get("inputs_freshness")
+        if freshness:
+            error += f"<p class='error'>자료 최신성: {_escape(freshness)}</p>"
     body = ("<main class='content'><h1>보험 명단 · 수입 글자 대조</h1>"
             "<p class='notice'>보험 명단의 가려진 글자와 기존 수입 기록의 이름을 비교한 결과입니다. "
             "글자 대조는 보험 가입 완료나 현금 수령을 확인하지 않습니다. 후보 살펴보기는 이 화면에서만 동작합니다.</p>"

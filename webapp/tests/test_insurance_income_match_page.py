@@ -39,6 +39,26 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
         self.assertIn("글자 대조는 보험 가입 완료", document)
         self.assertIn("candidate-choice", document)
         self.assertIn("50", document)
+        self.assertIn("가입 완료 또는 기간 종료(조회 자료)", document)
+        self.assertNotIn("completed_or_expired", document)
+        self.assertNotIn(">contract-syn<", document)
+        self.assertIn("value='contract-syn'", document)
+
+    def test_amount_keeps_fraction_and_negative_sign(self):
+        self.assertEqual(page._amount("1234.50"), "1,234.50원")
+        self.assertEqual(page._amount("-1234.5"), "-1,234.5원")
+        self.assertEqual(page._amount(None), "금액 미기재")
+        self.assertEqual(page._amount("0"), "0원")
+
+    def test_contract_scope_and_unavailable_freshness_are_shown_safely(self):
+        payload = state()
+        payload["contracts"][0]["scope_label"] = "연결된 여행 기간 자료"
+        doc = page.render_page(payload)
+        self.assertIn("연결된 여행 기간 자료", doc)
+        payload.update(available=False, code="STALE", message="다시 동기화 필요",
+                       inputs_freshness="오래된 자료 <확인>")
+        doc = page.render_page(payload)
+        self.assertIn("자료 최신성: 오래된 자료 &lt;확인&gt;", doc)
 
     def test_all_rows_are_accounted_for_by_bounded_pagination(self):
         rows = [{"review_row_id": f"r{i}", "masked_name": f"이*{i}",
@@ -72,6 +92,13 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
         self.assertEqual(received, [{"query": query}])
         self.assertEqual(handler.sent[0][0], "json")
         self.assertNotIn("/private/", repr(handler.sent[0][1]))
+
+    def test_loader_exception_does_not_leak_exception_path(self):
+        handler = Handler()
+        page.dispatch(handler, urlsplit(page.ROUTES[1]), is_owner=True,
+                      state_loader=lambda **kw: (_ for _ in ()).throw(OSError("C:/private/source.pdf")))
+        self.assertNotIn("source.pdf", repr(handler.sent[0][1]))
+        self.assertEqual(handler.sent[0][1]["code"], "SOURCE_UNAVAILABLE")
 
 
 if __name__ == "__main__":
