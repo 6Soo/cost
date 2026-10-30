@@ -35,16 +35,11 @@ def test_amount_parser_accepts_exact_signed_integer_only():
             raise AssertionError(f'accepted uncertain amount: {value!r}')
 
 
-def test_build_uses_all_authorized_rows_and_does_not_use_legacy_match_results(monkeypatch):
+def test_build_uses_whole_rows_with_board_ids_and_ignores_legacy_results(monkeypatch):
     captured = {}
     preview = {
         'source_available': True,
-        'cost_rows': [
-            {'transaction_id': 'c1', 'display_tab_id': 'trip-a', 'amount_krw': 500,
-             'currency': 'KRW', 'source_identity': 'source-1'},
-            {'transaction_id': 'c2', 'display_tab_id': 'trip-a', 'amount_krw': 500,
-             'currency': 'KRW', 'source_identity': 'source-2'},
-        ],
+        'cost_rows': [],
         'sheet_rows': [
             {'sheet_row_key': 'g1', 'amount_krw': 500, 'currency': 'KRW'},
             {'sheet_row_key': 'g2', 'amount_krw': 500, 'currency': 'KRW'},
@@ -61,9 +56,10 @@ def test_build_uses_all_authorized_rows_and_does_not_use_legacy_match_results(mo
                 'groups': [{'group_id': 'trip-a:500', 'trip_id': 'trip-a',
                             'amount_krw': 500, 'status': 'matched', 'cost_count': 2,
                             'google_count': 2, 'candidate_count': 4,
-                            'cost_rows': ['c1', 'c2'], 'google_rows': ['g1', 'g2']}],
-                'by_cost_id': {'c1': {'group_id': 'trip-a:500', 'status': 'matched'},
-                               'c2': {'group_id': 'trip-a:500', 'status': 'matched'}},
+                            'cost_rows': ['board-row-1', 'board-row-2'],
+                            'google_rows': ['g1', 'g2']}],
+                'by_cost_id': {'board-row-1': {'group_id': 'trip-a:500', 'status': 'matched'},
+                               'board-row-2': {'group_id': 'trip-a:500', 'status': 'matched'}},
                 'summary': {'matched': 1, 'partial': 0, 'unrecorded': 0,
                             'google_only': 0, 'unavailable': 0}}
 
@@ -73,8 +69,16 @@ def test_build_uses_all_authorized_rows_and_does_not_use_legacy_match_results(mo
     core.reconcile_expense_amount_groups = reconcile
     monkeypatch.setitem(sys.modules, 'app.expense_amount_groups', core)
     board = SimpleNamespace(current_role=lambda: 'owner')
-    state = service.build_state(board, 'trip-a', cost_rows=[])
+    whole = [
+        {'row_id': 'board-row-1', 'source_event_id': 'event-1',
+         'display_tab_id': 'trip-a', 'display_amount_krw': 500, 'currency': 'KRW'},
+        {'row_id': 'board-row-2', 'source_event_id': 'event-2',
+         'display_tab_id': 'trip-a', 'display_amount_krw': 500, 'currency': 'KRW'},
+    ]
+    state = service.build_state(board, 'trip-a', cost_rows=whole)
     assert len(captured['costs']) == 2
+    assert [row['row_id'] for row in captured['costs']] == ['board-row-1', 'board-row-2']
+    assert [row['source_identity'] for row in captured['costs']] == ['event-1', 'event-2']
     assert len(captured['google']) == 2
     assert captured['kwargs']['available'] is True
     assert state['groups'][0]['candidate_count'] == 4
