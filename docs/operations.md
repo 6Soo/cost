@@ -565,3 +565,10 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 두 행의 실제 교정은 별도 소수 교정 경계에서 source/revision/digest 및 단일 DB 트랜잭션을 검증하고 기존 거래/장부/화면 귀속을 함께 수정했다. 변경 전 값과 에이전트 근거를 기록했다. 실시간 Gmail의 결제/확정·같은 주문 PDF 영수증 확인을 사용자 확인으로 위장하지 않는다. 원본·금액·날짜·ID·범위 밖 행·기존 수동/금융/이력·스키마 불변, 새 장부행/금융 링크/Google 쓰기 0, 재요청 무쓰기 PASS. 사본 검증의 첫 카운터 오탐은 실제 적용 전에 교정했으며 실패를 통과로 세지 않는다.
 - 결합 99 passed·호스트 합성 3 PASS. 배포본 1,126 blobs 일치·새 백업/별도 복원·task/process SHA·listener 1·health/ready 200·보호 API 401·보호 13표 코드 배포 전후 불변. 이후 인증 Aside 카드 상세 GET 2건으로 귀속/항목 표시 수락. Board/SourceRefresh Running. 전체 회귀·실기기는 미실행이다.
 - 근거는 `.local-archive/classification-correction-20261030/`와 호스트 `D:/WebLedgerHost/releases/deploy-evidence-bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21.json`이다. 이전 검증 `a69c0ae7389789a65d2ed01f3028c0348f52eb1f` 복구점을 보존했다. 카드 수집/업로드는 사용자 요청으로 보류했다. 후속 문서 변경만으로 재배포/재시작하지 않는다.
+
+
+## 2026-10-30 여행 지출 금액 그룹·카드 화면·진단 입력 제한 배포
+
+- PR384/385/386/387 정상 병합, 최종 운영 `509392e1558e3df1c31ccdbd2dfe676f5498051b`(이전 검증28853255). GEMN74·카드32·최종 후속25검사 통과; 인접56통과/10실패는 기준fc1e2022와 동일 실패로 구분했다. 원천 비교 불가를0건으로 취급하거나 상세 없는 버튼을 표시하던 실제 화면 문제를 보완했다.
+- 1179 Git blobs 일치·검수/병합tree 동일·새 백업/격리 복원·task/process SHA·listener1·health/ready200·보호API401·보호13표 전후 불변. 실제 기존 Aside 인증 화면에서 정상 그룹 상세 열기와 미검증 원천 확인 불가/트리거0 수락. 운영 금융/Google/명단/원본 쓰기0.
+- 근거: `.local-archive/open-pr-development-20261030/`와 `.local-archive/deploy-509392e1558e3df1c31ccdbd2dfe676f5498051b/`, 호스트 같은SHA deploy-evidence. OpenRouter free 오류 초안은 보존/감독자 검증, ANUS 결과는 통합. 실기기·전체 회귀·외부자료 대기는 미완료로 유지한다. 이 후속 문서 변경만으로 재배포·재시작하지 않는다.
