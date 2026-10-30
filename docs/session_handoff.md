@@ -1,11 +1,12 @@
-## 2026-10-30 최신 승인 — 열린 PR 전체 미구현 개발 병렬 구현
+## 2026-10-30 최신 완료 — 열린 PR 개발·배포·작업공간 정리
 
-- 사용자 지시에 따라 열린 COST PR384(명세)·385(카드 UI)를 확인하고 실제 미구현 GEMN-01~05와 검증이 빠진 UI를 구현한다. [실행 인덱스](specs/open-pr-development-execution-20261030.md). PR384는 정상 병합했고, 통합 브랜치에는 PR385 원래 커밋과 접근성 보완 결과를 함께 포함했다.
-- 실제 위임: Codex Luna low4개(코어·원천·PC 화면·카드 UI), ANUS free auto1개, 활성 Anus 경로의 OpenRouter Free Models Router1개. 유료 동명 모델로 대체하지 않았다. OpenRouter의 실제 무료 하위 모델은 provider finish_reason:error로 종료했고 남은 테스트 초안을 감독자가 수정·검증했다. ANUS의 잔여 도구/개발 감사는 진행 중이며 완료로 계산하지 않는다.
-- 구현·검수 완료, 병합·고정 배포 진행 중: 실제 여행+signed KRW 금액으로 M:N 그룹을 계산하며 동일 금액 반복 결제를 각각 보존한다. 같은 원본의 명시적 projection만 합치고 원본/통화/금액 충돌은 비교 불가다.900px 이상 장부 지출에 상태 열·그룹 원행 상세를 표시하고899px 이하는 숨긴다. 검색·live fragment의 그룹 건수는 전체 여행 기준이다. 수입·복사/TSV·기존 SDD1:1·원본·금융/수동 링크는 변경하지 않는다.
-- 현재 실제 검증: GEMN74 passed(계산·실제 코어/원천·원천 오류/세대·원본 alias·PC 경계·실제 signed HTTP·전체 여행/검색·그룹 클릭/새로고침). 카드 worker32 passed(320/390/759/760/1280·두 테마·200%·44px/16px·상세/필터). 인접 보호56 passed, 기존 실패10개는 정확한 기준 `fc1e2022` archive에서도 동일 node로 재현했다. 실패를 pass로 세지 않고 전체 회귀/실기기 수락을 주장하지 않는다.
-- 실제 host-local query_only preview: 지출이 있는45여행 중39대조 가능,6은 원천 미검증으로 비교 불가. 가능한 범위에서 일치497·부분20·미기록1044·Google전용334그룹이다. 이는 운영 signed HTTP 수락과 별개이며 새 금융 사실/복사 완료를 뜻하지 않는다. 실제 운영/Google/명단/원본 쓰기0.
-- 근거: `C:/AX/cost/.local-archive/open-pr-development-20261030/`의 queue·gemn-final.xml·initial-integration.xml·protection.xml·baseline-protection.xml·baseline-comparison.json·readonly-preview.json. 통합 workspace `wks_a8cde23592aa8fd3`. 기존 사용자 작업 사본·stash와 카드 수집/업로드 중지를 보존한다. 다음은 정상 PR/main·고정 배포·최소 운영 smoke 및 실제 작업자 결과 반영/공식 정리다.
+- **GEMN-01~05·카드 UI·진단 도구 구현/병합/배포 COMPLETE:** [PR384](https://github.com/6Soo/cost/pull/384) 명세, [PR385](https://github.com/6Soo/cost/pull/385) 카드 원래 변경, [PR386](https://github.com/6Soo/cost/pull/386) 검증 통합, [PR387](https://github.com/6Soo/cost/pull/387) 실제 수락 후속. 운영 SHA `509392e1558e3df1c31ccdbd2dfe676f5498051b`; 첫 배포28853255의 비교 불가 요약/상세 버튼 문제를 최종 보완했다. [현재 실행 범위](specs/open-pr-development-execution-20261030.md).
+- 실제 위임은 Luna low4개·ANUS free auto1개·OpenRouter free1개다. Luna 결과를 검수·통합했고 ANUS의 진단 영수증100KiB/배포 마커1KiB 제한은 읽는 동안 적용하며 초과 입력을 실패 처리한다. OpenRouter free 제공자 오류 후 남은 합성 테스트 초안을 보존해 감독자가 수정·검증했다. 유료 모델 대체나 작업자 운영 자료 접근은 없었다.
+- 같은 실제 여행+signed 정수 KRW로 M:N 그룹을 계산한다. 반복 거래는 보존하고 같은 원본 projection만 검증 후 합친다.900px 이상 상태 열·양측 원행 목록을 표시하며899px 이하는 숨긴다. 검색과 관계없이 전체 여행 기준으로 집계한다. 비교 불가에는 확인 불가 문구·이유·마지막 성공 시각을 표시하고 작동하지 않는 상세 버튼을 만들지 않는다. Google·수입·복사/TSV·원본/금융/수동 연결 쓰기0.
+- 검증은 GEMN74 passed, 카드32 passed, 최종 후속25 passed다. 서로 겹치는 실행을 합산하지 않는다. 인접 보호56 passed/10 failed 중10개는 기준fc1e2022에서도 동일 node 실패이며 통과에 포함하지 않는다. 전체 회귀·실기기는 미실행이다. 실제 로그인 Aside에서 정상 원천 요약(일치31·부분1·미기록5·Google전용13)과 상세 열림, 미검증 원천의 확인 불가 문구/상세 트리거0을 수락했다.
+- 최종 릴리스1179 blobs 불일치0·새 전체 백업/별도 복원·task/process 고정 SHA·단일loopback listener·health/ready200·보호API401·보호13표 불변. 근거는 `.local-archive/open-pr-development-20261030/`의 queue·gemn-final.xml·followup.xml·baseline-comparison.json·live-smoke-final.json과 `.local-archive/deploy-509392e1558e3df1c31ccdbd2dfe676f5498051b/`다.
+- 완료 작업자6개는 커밋 보존 후 공식 archive·디렉터리 제거했다. 통합 공간도 최종 문서 병합 후 같은 절차로 정리하며 결과는 로컬final.json에 남긴다. 사용자 기본 작업 사본38개 변경·stash는 보존한다. 이전 빈 폴더 Windows 점유는 활성workspace가 아니며 점유 해제 때만 재점검한다.
+- Travel INS [PR2](https://github.com/6Soo/travel_ins/pull/2)는 현재main의e97138fa가 폐기한 웹앱/클라우드 구성을 되살리는 오래된 변경이라 병합·재배포하지 않았다. 실제 외부 자료·참가DB/영수증·원결제 증거·메일 전환·실기기 대기는 기존 `.local-archive/remaining-acceptance-20261030/final.json`대로 유지한다. 과거 미구현 표기를 새 개발로 재실행하지 않는다. 카드 수집/업로드 보류·Google 최종 장부 자동 쓰기 금지를 유지한다.
 
 ## 2026-10-30 최신 완료 — 마스킹 명단 수입 대조·임시 작업 정리
 
