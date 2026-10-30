@@ -25,7 +25,7 @@ class Handler:
     command = "GET"
     def __init__(self): self.sent = []
     def _send_json(self, body, status=200): self.sent.append(("json", body, status))
-    def _send(self, body): self.sent.append(("html", body, 200))
+    def _send(self, body, status=200): self.sent.append(("html", body, status))
 
 
 class InsuranceIncomeMatchPageTests(unittest.TestCase):
@@ -99,6 +99,13 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
                       state_loader=lambda **kw: (_ for _ in ()).throw(OSError("C:/private/source.pdf")))
         self.assertNotIn("source.pdf", repr(handler.sent[0][1]))
         self.assertEqual(handler.sent[0][1]["code"], "SOURCE_UNAVAILABLE")
+
+    def test_html_error_status_matches_api_status(self):
+        for code, expected in (("INVALID_FILTER", 400), ("SOURCE_UNAVAILABLE", 503)):
+            handler = Handler()
+            page.dispatch(handler, urlsplit(page.PAGE_PATH), is_owner=True,
+                          state_loader=lambda **kw: {"available": False, "code": code})
+            self.assertEqual(handler.sent[0][2], expected)
 
 
 if __name__ == "__main__":

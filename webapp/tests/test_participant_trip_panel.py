@@ -72,7 +72,8 @@ def test_paging_encodes_identity_and_preserves_other_offset():
     state['trip_id'] = '여행 &/opaque'
     markup = panel.render(state, income_offset=0, participant_offset=20)
     hrefs = re.findall("href='([^']+)'", markup)
-    queries = [parse_qs(urlsplit(html_module.unescape(href)).query) for href in hrefs]
+    queries = [parse_qs(urlsplit(html_module.unescape(href)).query) for href in hrefs
+               if urlsplit(html_module.unescape(href)).path == '/board']
     assert all(query['tab'] == [state['trip_id']] for query in queries)
     assert any(query['participant_income_offset'] == ['20'] and
                query['participant_offset'] == ['20'] for query in queries)

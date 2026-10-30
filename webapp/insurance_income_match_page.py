@@ -14,6 +14,7 @@ STATE_LABELS = {
     "ambiguous": "후보 여러 건",
     "unmatched": "일치 없음",
     "no_visible_letters": "보이는 글자 없음",
+    "source_unavailable": "수입 자료 확인 필요",
 }
 
 
@@ -45,16 +46,17 @@ def render_page(state: dict, *, query=None) -> str:
     visible = [c for c in contracts if (not selected_contract or c.get("contract_key") == selected_contract)
                and (not selected_trip or any(str(t.get("trip_id") or "") == selected_trip
                                              for t in c.get("trip_options") or []))]
-    status = "대조 완료" if state.get("available") and state.get("code") == "OK" else "대조 자료를 사용할 수 없음"
+    status = ("대조 완료" if state.get("available") and state.get("code") == "OK" else
+              "일부 수입 자료 확인 필요" if state.get("available") else "대조 자료를 사용할 수 없음")
     summary_counts = state.get("counts") or {}
     summary = " · ".join(f"{label} {int(summary_counts.get(key, 0) or 0)}건" for key, label in (
         ("contracts", "계약"), ("rows", "명단 행"), ("matched", "글자 일치"),
         ("ambiguous", "후보 여러 건"), ("unmatched", "일치 없음"),
-        ("no_visible_letters", "보이는 글자 없음")))
+        ("no_visible_letters", "보이는 글자 없음"), ("source_unavailable", "수입 자료 확인 필요")))
     options = ["<option value=''>전체 계약</option>"]
-    for index, contract in enumerate(contracts, start=1):
+    for index, contract in enumerate(state.get('contract_options', contracts), start=1):
         key = str(contract.get("contract_key") or "")
-        row_count = len(contract.get("rows") or [])
+        row_count = contract.get('row_count', len(contract.get("rows") or []))
         label = (f"{contract.get('travel_start') or '기간 미기재'}–"
                  f"{contract.get('travel_end') or '기간 미기재'} · 계약 {index} · {row_count}건")
         options.append(f"<option value='{_escape(key)}'{ ' selected' if key == selected_contract else ''}>{_escape(label)}</option>")
@@ -140,16 +142,16 @@ def render_page(state: dict, *, query=None) -> str:
             "pager.querySelector('.prev').addEventListener('click',function(){page=Math.max(0,page-1);show()});"
             "pager.querySelector('.next').addEventListener('click',function(){page++;show()});show();"
             "section.querySelectorAll('.candidate-choice').forEach(function(select){select.addEventListener('change',function(){"
-            "section.querySelectorAll('.candidate-panel').forEach(function(panel){panel.hidden=panel.dataset.candidate!==select.value})})})"
+            "select.closest('tr').querySelectorAll('.candidate-panel').forEach(function(panel){panel.hidden=panel.dataset.candidate!==select.value})})})"
             "})})();</script>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>보험 명단 · 수입 글자 대조</title>"
-            "<style>.content{max-width:1180px;margin:auto;padding:1rem}.notice,.error,.summary{padding:.8rem;border-radius:.5rem;background:var(--surface,#f2f4f7)}"
-            ".error{background:#fff1f0}.filters{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0}.filters label{display:grid;gap:.3rem}"
+            "<style>.content{max-width:1180px;margin:auto;padding:1rem}.notice,.error,.summary{padding:.8rem;border-radius:.5rem;background:var(--shell-paper)}"
+            ".error{background:var(--shell-warn-bg,var(--shell-paper))}.filters{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0}.filters label{display:grid;gap:.3rem;min-width:0;max-width:100%}.filters select{min-width:0;max-width:100%}"
             ".contract{margin:2rem 0}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:760px}"
-            "th,td{border:1px solid #888;padding:.65rem;text-align:left;vertical-align:top;overflow-wrap:anywhere}"
+            "th,td{border:1px solid var(--shell-line);padding:.65rem;text-align:left;vertical-align:top;overflow-wrap:anywhere}"
             ".match-detail{margin:.3rem 0}.pager{display:flex;gap:.75rem;align-items:center;margin:.75rem 0}"
-            "button,select{font:inherit;padding:.4rem}.state{font-weight:600}@media(max-width:640px){.content{padding:.65rem}}</style>"
+            "button,select{font:inherit;padding:.4rem;min-height:44px}button:focus-visible,select:focus-visible{outline:2px solid var(--shell-focus);outline-offset:2px}.state{font-weight:600}@media(max-width:640px){.content{padding:.65rem}}</style>"
             f"</head><body>{body}</body></html>")
 
 
@@ -173,10 +175,9 @@ def dispatch(handler, parsed, *, is_owner: bool, query=None, raw=None, csrf: str
         state = {"available": False, "code": "SOURCE_UNAVAILABLE",
                  "message": "보험 명단 또는 수입 자료를 불러올 수 없습니다", "counts": {}, "contracts": []}
     if parsed.path == ROUTES[1]:
-        handler._send_json(state, 200 if state.get("available") and state.get("code") == "OK" else 503)
+        handler._send_json(state, 200 if state.get("available") else 400 if state.get('code') == 'INVALID_FILTER' else 503)
     else:
-        from . import site_shell
         document = render_page(state, query=query)
-        handler._send(site_shell.wrap_document(document, parsed.path,
-                                                status=200 if state.get("available") else 503))
+        handler._send(document, 200 if state.get("available") else
+                      400 if state.get('code') == 'INVALID_FILTER' else 503)
     return True

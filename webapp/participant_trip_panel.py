@@ -49,8 +49,10 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
 def render(state: dict, *, csrf: str = "", income_offset: int = 0,
            participant_offset: int = 0, search: str = "") -> str:
     """Render names only after the caller has established owner access."""
+    match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
+    match_link = f"<p><a href='{_esc(match_href)}'>가림 이름과 수입 글자 대조</a></p>"
     if not state.get("configured"):
-        return "<section class='participant-trip-panel'><h2>보험가입내역</h2><p>참가 저장소를 확인할 수 없습니다.</p></section>"
+        return "<section class='participant-trip-panel'><h2>보험가입내역</h2>" + match_link + "<p>참가 저장소를 확인할 수 없습니다.</p></section>"
     data = project(state, income_offset=income_offset,
                    participant_offset=participant_offset, search=search)
     google = state.get("google") or {}
@@ -119,7 +121,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     return (
         "<details class='participant-trip-panel' id='participant-trip-panel' aria-label='보험가입내역'>"
         "<summary>보험가입내역 · 확정 참가자·수입 연결</summary><div class='participant-trip-content'>"
-        "<h2>보험가입내역</h2>"
+        "<h2>보험가입내역</h2>" + match_link +
         f"<p>{_esc(status)} · 참가 확정 {counts.get('roster_confirmed', 0)}명 · "
         f"수입 연결 {counts.get('linked', 0)}명 · 미연결 수입 {counts.get('unlinked_income_rows', 0)}건</p>"
         f"{search_form}{''.join(rows)}{row_more}"
