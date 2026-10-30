@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from webapp import expense_amount_group_service as service
 
 
@@ -36,12 +38,13 @@ def test_amount_parser_accepts_exact_signed_integer_only():
             raise AssertionError(f'accepted uncertain amount: {value!r}')
 
 
-def test_build_loads_whole_rows_preserves_board_ids_and_detail(monkeypatch):
+@pytest.mark.parametrize('archived', [False, True])
+def test_build_loads_whole_rows_preserves_board_ids_and_detail(monkeypatch, archived):
     captured = {}
-    board = SimpleNamespace(current_role=lambda: 'owner', list_trips=lambda: [
-        {'tab_id': 'trip-a'}], store=SimpleNamespace(conn=SimpleNamespace(execute=lambda *a: [])))
-    monkeypatch.setattr(service.sheet_expense_reconciliation, '_store_and_trip',
-                        lambda *args: (SimpleNamespace(), {'tab_id': 'trip-a'}))
+    trip = {'tab_id': 'trip-a', 'archived': archived}
+    board = SimpleNamespace(current_role=lambda: 'owner',
+        list_trips=lambda include_archived=False: [trip] if include_archived or not archived else [],
+        store=SimpleNamespace(conn=SimpleNamespace(execute=lambda *a: [])))
     monkeypatch.setattr(service.sheet_expense_reconciliation, '_cost_preview_rows',
                         lambda *args: [
                             {'row_id': 'board-row-1', 'source_event_id': 'event-1',

@@ -37,14 +37,14 @@ def _unavailable(cost_rows, reason, *, trip_id='', revision=None, links_path='')
             'links_path': links_path, 'preview_digest': _digest((trip_id, reason, results))}
 
 
-def _store_and_trip(board, trip_id):
+def _store_and_trip(board, trip_id, include_archived=False):
     store = getattr(board, 'store', None) or board
     if not hasattr(store, 'conn') or not hasattr(store.conn, 'execute'):
         return None, None
     trips_fn = getattr(board, 'list_trips', None) or getattr(store, 'list_trips', None)
     if not callable(trips_fn):
         return None, None
-    trips = trips_fn()
+    trips = trips_fn(include_archived=True) if include_archived else trips_fn()
     matches = [trip for trip in trips if str(trip.get('tab_id') or trip.get('trip_id') or '') == str(trip_id)]
     if len(matches) != 1 or matches[0].get('deleted'):
         return store, None
