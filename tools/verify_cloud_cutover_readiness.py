@@ -82,6 +82,9 @@ def verify(bundle):
         raise ReadinessError("CLOUD_MAIL_HAS_NEXT_PAGE")
     if manifest.get("has_next_page", False) is not False:
         raise ReadinessError("CLOUD_MAIL_HAS_NEXT_PAGE")
+    stored = manifest.get("stored")
+    if stored is not None and (type(stored) is not int or stored < 0 or stored != len(messages)):
+        raise ReadinessError("CLOUD_MAIL_STORED_COUNT_MISMATCH")
     batches = bundle.get("batches")
     if not isinstance(batches, list) or not batches:
         raise ReadinessError("CLOUD_MAIL_BATCH_EVIDENCE_REQUIRED")
@@ -115,6 +118,8 @@ def verify(bundle):
         raise ReadinessError("CLOUD_MAIL_COUNTS_INVALID")
     if indexed != len(messages) or indexed != existing + new:
         raise ReadinessError("CLOUD_MAIL_COUNTS_INVALID")
+    if stored is not None and indexed != stored:
+        raise ReadinessError("CLOUD_MAIL_STORED_COUNT_MISMATCH")
     return {"status": "PREVIEW_VERIFIED", "indexed": indexed, "batches": len(batches),
             "pending": 0, "has_next_page": False, 'operational_cutover_allowed': False,
             'remaining_gate': 'fresh live manifest, content preview, writer pause and verified backup/restore'}

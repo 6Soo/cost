@@ -531,6 +531,7 @@ class CardFlow:
     def _classify_evidence(self, batch_id, *, transaction_ids=None):
         ota_rules=[]
         blocked_inference_sources=set()
+        from app.classify import OWNER_BOOKING_ORIGIN
         selected=None if transaction_ids is None else set(transaction_ids)
         sources={source for source,identity,merchant in self.board.conn.execute(
             'SELECT t.source_hash,t.transaction_id,t.merchant FROM transactions t '
@@ -603,10 +604,12 @@ class CardFlow:
                     blocked_inference_sources.add(source)
             # 이용기간으로 정해진 예약 배정은 같은 원본에 다른 제안이 없을 때만 적용한다.
             taken = {rule['optional'].get('source_hash') for rule in ota_rules}
-            # 과거 장부에서 복원한 추론은 예약 메일보다 약하므로 예약 이용기간 배정을 막지 않는다.
+            # 저장된 추론은 검증된 예약 이용기간보다 약하므로 기간 근거가 이를 대체할 수 있다.
             taken |= {rule['optional'].get('source_hash') for rule in self.pipeline.list_rules()
                       if rule.get('optional', {}).get('inferred_assignment')
-                      and not str(rule.get('origin') or '').startswith('history-recovery')}
+                      and rule.get('origin') != OWNER_BOOKING_ORIGIN
+                      and not str(rule.get('origin') or '').startswith('history-recovery')
+                      and rule.get('optional', {}).get('source_hash') not in blocked_inference_sources}
             ota_rules += self._booking_period_assignments(report, sources, taken)
         taken = {rule['optional'].get('source_hash') for rule in ota_rules}
         candidate_sources = {source for source, in self.board.conn.execute(
@@ -618,16 +621,29 @@ class CardFlow:
         ota_rules += self._evidence_period_assignments(batch_id, sources, taken, selected)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
-        taken = {rule.get('optional', {}).get('source_hash') for rule in
-                 ota_rules + board_rules + self.pipeline.list_rules()
-                 if rule.get('optional', {}).get('inferred_assignment')
-                 or rule.get('optional', {}).get('booking_period')}
+        active_owner_sources = {rule['optional'].get('source_hash') for rule in ota_rules
+                                if rule.get('origin') == OWNER_BOOKING_ORIGIN}
+        stale_owner_sources = {rule.get('optional', {}).get('source_hash')
+                               for rule in self.pipeline.list_rules()
+                               if rule.get('origin') == OWNER_BOOKING_ORIGIN
+                               and rule.get('optional', {}).get('source_hash') not in active_owner_sources}
+        taken = set()
+        for rule in ota_rules + board_rules + self.pipeline.list_rules():
+            optional = rule.get('optional', {})
+            if not (optional.get('inferred_assignment') or optional.get('booking_period')):
+                continue
+            if (rule.get('origin') == OWNER_BOOKING_ORIGIN
+                    and optional.get('source_hash') not in active_owner_sources):
+                continue
+            taken.add(optional.get('source_hash'))
         ota_rules += self._fallback_trip_assignments(batch_id, taken, selected, blocked_inference_sources)
         if ota_rules or blocked_inference_sources or board_rules:
             from app.classify import classify_batch
             active=[rule for rule in self.pipeline.list_rules() if not
-                    (rule.get('optional',{}).get('inferred_assignment')
-                     and rule['optional'].get('source_hash') in blocked_inference_sources)]
+                    ((rule.get('optional',{}).get('inferred_assignment')
+                      and rule['optional'].get('source_hash') in blocked_inference_sources)
+                     or (rule.get('origin') == OWNER_BOOKING_ORIGIN
+                         and rule.get('optional', {}).get('source_hash') in stale_owner_sources))]
             active, board_rules = self._board_rules_supersede(active, board_rules)
             return classify_batch(self.pipeline.store,batch_id,
                 rules=active+board_rules+ota_rules,trip_resolver=self.retail_trip,
