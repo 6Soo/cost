@@ -26,6 +26,9 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         self.env.start()
         self.board = LedgerStore(root / 'board.sqlite', seed_demo=False)
         self.flow = CardFlow(self.board)
+        snapshot = patch.object(self.flow, '_held_ota_snapshot', lambda: (None, False))
+        snapshot.start()
+        self.addCleanup(snapshot.stop)
         self.board.conn.execute("INSERT INTO trip_tabs(tab_id,display_key,starts_on,ends_on) VALUES "
                                 "('trip-x','1001_합성','2026-09-30','2026-10-05')")
         self.board.conn.commit()
@@ -42,7 +45,7 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         patcher = patch.object(CardFlow, '_ota_report', lambda self: report)
         patcher.start()
         self.addCleanup(patcher.stop)
-        valid = patch.object(CardFlow, 'trip_valid', lambda self, tab: tab == 'trip-x')
+        valid = patch.object(CardFlow, 'trip_valid', lambda self, tab: tab in ('trip-x', 'trip-y'))
         valid.start()
         self.addCleanup(valid.stop)
 
@@ -69,7 +72,11 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         store.revoke_booking_trip(provider='trip', booking_ref='B9', expected_revision=1, user='owner')
         store.close()
         self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
-        self.assertNotEqual(self._row()[2], 'trip-x')
+        state, source, tab, trip, item = self._row()
+        # Revocation removes owner provenance. The ordinary date inference may
+        # independently select the same actual trip.
+        self.assertEqual((state, source, tab, trip), ('classified', 'inference', 'trip-x', 'trip-x'))
+        self.assertTrue(item)
 
     def test_an_unverified_trip_is_not_applied_and_says_why(self):
         store = OtaReviewStore(self.review_db)
@@ -87,6 +94,14 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         state, source, tab, item = self._row()[0], self._row()[1], self._row()[2], self._row()[4]
         self.assertEqual((state, source, tab, item), ('classified', 'inference', 'trip-x', '숙박비'))
 
+    def test_unverified_service_period_does_not_override_card_date_inference(self):
+        entry = {'provider': 'trip', 'booking_ref': 'B9', 'period_trip': None}
+        with patch.object(ota_catalog, '_index', lambda board, sources: {'entries': [entry]}), \
+                patch.object(ota_catalog, 'configured_sources', lambda board: {}):
+            self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
+        state, source, tab = self._row()[0], self._row()[1], self._row()[2]
+        self.assertEqual((state, source, tab), ('classified', 'inference', 'trip-x'))
+
     def _inference_with_stay(self, starts_on, ends_on):
         from app.normalize import normalize_merchant
         from app.reconciliation import OWNER_AUTHORIZED_INFERENCE_ORIGIN
@@ -98,17 +113,27 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         report = {'matches': [{
             'transaction_id': self.transaction_id, 'source_hash': self.source_hash, 'merchant': 'TRIP.COM',
             'provider': 'trip', 'booking_ref': 'B9', 'item': '숙박비', 'direction': 'purchase',
-            'reservation_status': 'observed', 'period_conflict': False,
-            'period': {'starts_on': starts_on, 'ends_on': ends_on}}],
+            'reservation_status': 'confirmed', 'period_conflict': False,
+            'period': {'starts_on': starts_on, 'ends_on': ends_on},
+            'source_digests': ['verified-synthetic-digest']}],
             'rules': [], 'type_only_candidates': [], 'unmatched_transactions': []}
-        with patch.object(CardFlow, '_ota_report', lambda self: report):
+        period_trip_id = 'trip-y' if starts_on == '2026-11-10' else 'trip-x'
+        catalog_entry = {'provider': 'trip', 'booking_ref': 'B9', 'period_trip': {
+            'id': period_trip_id, 'name': '서비스 기간 여행', 'source': 'period',
+            'source_digest': 'verified-synthetic-digest'}}
+        with patch.object(CardFlow, '_ota_report', lambda self: report), \
+                patch.object(ota_catalog, '_index', lambda board, sources: {'entries': [catalog_entry]}), \
+                patch.object(ota_catalog, 'configured_sources', lambda board: {}):
             self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
         return self._row()[3]
 
-    def test_an_inference_to_a_trip_outside_an_unconfirmed_stay_is_not_applied(self):
-        self.assertEqual(self._inference_with_stay('2026-11-10', '2026-11-12'), '')
+    def test_verified_service_period_beats_card_date_and_rejects_mismatched_saved_inference(self):
+        self.board.conn.execute("INSERT INTO trip_tabs(tab_id,display_key,starts_on,ends_on) VALUES "
+                                "('trip-y','1110_합성','2026-11-10','2026-11-15')")
+        self.board.conn.commit()
+        self.assertEqual(self._inference_with_stay('2026-11-10', '2026-11-12'), 'trip-y')
 
-    def test_an_inference_to_a_trip_the_unconfirmed_stay_overlaps_still_applies(self):
+    def test_saved_inference_is_kept_when_verified_service_period_overlaps_that_trip(self):
         self.assertEqual(self._inference_with_stay('2026-10-04', '2026-10-07'), 'trip-x')
 
 
