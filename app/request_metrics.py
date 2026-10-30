@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import secrets
 import time
+import functools
+from contextlib import contextmanager
 from collections import defaultdict
 from threading import Lock
 from contextvars import ContextVar
@@ -18,7 +20,9 @@ from app.ota_queue_telemetry import percentile, stage_sample
 OPERATIONS = frozenset({"ota_snapshot", "first_render", "card_search",
                         "google_canonical_read", "db_lock_wait", "payload_serialize"})
 STAGES = frozenset({"snapshot_compute", "first_render", "card_search",
-                    "google_read", "db_lock_wait", "payload_serialize"})
+                    "google_read", "db_lock_wait", "payload_serialize",
+                    "db_connect", "card_query", "trip_labels", "card_render"})
+_CARD_OPERATION = ContextVar("cost_card_metrics_operation", default=None)
 _REQUEST_ID = ContextVar("cost_request_metrics_id", default=None)
 _LOCK_WAIT_STARTED = ContextVar("cost_request_metrics_lock_started", default=None)
 _REGISTRY = None
@@ -151,3 +155,46 @@ def record(item: dict) -> None:
 
 def summary() -> dict:
     return _REGISTRY.summary()
+
+
+@contextmanager
+def card_scope(operation):
+    """Select a fixed operation for nested card reads; retain no query values."""
+    if operation not in ('first_render', 'card_search'):
+        raise ValueError('invalid card operation')
+    token = _CARD_OPERATION.set(operation)
+    try:
+        yield
+    finally:
+        _CARD_OPERATION.reset(token)
+
+
+@contextmanager
+def card_phase(stage):
+    if stage not in ('db_connect', 'card_query', 'trip_labels', 'card_render'):
+        raise ValueError('invalid card stage')
+    operation = _CARD_OPERATION.get()
+    if operation is None:
+        yield
+        return
+    started = time.perf_counter()
+    yield
+    record(measurement(operation, stage, (time.perf_counter() - started) * 1000))
+
+
+def card_stage(stage):
+    """Time a card read boundary only inside a card page scope.
+
+    card_query includes connection setup and result materialization; db_connect
+    is its nested subset. These are inclusive wall times, not SQLite CPU time.
+    Exceptions propagate unchanged and do not become successful samples.
+    """
+    if stage not in ('db_connect', 'card_query', 'trip_labels', 'card_render'):
+        raise ValueError('invalid card stage')
+    def decorate(callback):
+        @functools.wraps(callback)
+        def measured(*args, **kwargs):
+            with card_phase(stage):
+                return callback(*args, **kwargs)
+        return measured
+    return decorate

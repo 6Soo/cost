@@ -3426,6 +3426,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._phase7_refuse(exc)
                 return
+        if parsed.path == '/api/maintenance/request-metrics':
+            if not _participant_owner_request():
+                self._send_json({'code': 'OWNER_ONLY'}, 403)
+                return
+            from app import request_metrics
+            self._send_json({'scope': 'bounded_process_window',
+                             'timing_semantics': 'inclusive_wall_time; db_connect is within card_query',
+                             'metrics': request_metrics.summary()})
+            return
         from . import receipt_review
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request(), query=query):
