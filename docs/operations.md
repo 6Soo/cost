@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 PR400 card phase metrics and protected diagnostics
+
+- [PR400](https://github.com/6Soo/cost/pull/400) merged normally. Tested `208eb6faa122c0b3929e22f6369f758986d6fada` and runtime `f98e401fe9b2777e93c6342293d287af4b12804b` trees match. Existing request metrics now separate card connection/query/labels/render stages and expose bounded aggregate diagnostics to the owner. Data-load timings include connection/materialization and are not additive SQLite CPU timings.
+- 6 focused,126 adjacent and24 telemetry/isolated first-render tests passed (overlap; no full-regression claim). Output/database byte equivalence and anonymous/staff/owner HTTP protection verified. Deployment1189 blobs match, fixed task/process SHA, listener1, health/ready200, protected APIs401 and13 protected tables unchanged. Previous verified1ce4fe6d release/task rollback preserved; no new full data backup/restore for this reversible code-only change.
+- Existing authenticated Aside session observed3 card GETs200 and aggregate GET200/no-store;10 aggregate stage groups recorded. Anonymous aggregate endpoint401; staff403 covered by actual synthetic HTTP tests. The samples establish working instrumentation, not representative performance SLA or real-device acceptance. Source/input/manual-paste acceptance gates remain independent of implementation completion.
+- Evidence `.local-archive/core-workflow-20261030/stage-*.xml`, code-gap-review.json and `.local-archive/deploy-f98e401fe9b2777e93c6342293d287af4b12804b/`; host `D:/WebLedgerHost/releases/deploy-evidence-f98e401fe9b2777e93c6342293d287af4b12804b.json`. No financial/roster/source/Google writes, card collection/upload, new billing or scheduler changes. See [current status](session_handoff.md) for the eight-item code/acceptance distinction and recheck conditions.
+
 ## 2026-10-30 PR398 archived-trip comparison and Google reader cutover
 
 - [PR398](https://github.com/6Soo/cost/pull/398) merged normally; tested `f847dcf3ce3f2d1095c07641871f65cc8ee49766` and runtime `1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3` trees match. Read-only M:N trip lookup includes archived trips while default review/write lookup scope is preserved.
