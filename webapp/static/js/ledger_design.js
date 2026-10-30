@@ -255,11 +255,14 @@ document.addEventListener('click',function(e){
   // A control inside a row form belongs to that form. Opening the panel there
   // would swallow the click and the control would do nothing.
   if(e.target.closest('form')) return;
+  if(e.target.closest('[data-gemn-close]')){e.target.closest('dialog').close();return;}
   var groupButton=e.target.closest('[data-gemn-group]');
   if(groupButton){
    e.preventDefault();
    var groupDetail=document.getElementById(groupButton.getAttribute('data-gemn-group'));
-   if(groupDetail){groupDetail.open=true;var groupSummary=groupDetail.querySelector('summary');
+   if(groupDetail){var groupDialog=groupDetail.closest('dialog');
+    if(groupDialog){groupDialog.querySelectorAll('details').forEach(function(detail){detail.hidden=detail!==groupDetail;});groupDialog.showModal();}
+    groupDetail.open=true;var groupSummary=groupDetail.querySelector('summary');
     if(groupSummary){groupSummary.focus();groupSummary.scrollIntoView({block:'nearest'});}}
    return;
   }

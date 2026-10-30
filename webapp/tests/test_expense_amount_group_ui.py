@@ -35,7 +35,7 @@ def test_helpers_render_semantic_status_summary_and_candidate_lists_safely():
     annotation = {"status": "partial", "cost_count": 5, "google_count": 2, "group_id": 'unsafe"<id>'}
     cell = ui.status_cell(annotation)
     assert "<td" in cell and "<button" in cell and "data-gemn-group='gemn-group-" in cell
-    assert "차이 3건" in cell and "개별 행" in cell
+    assert "차이 3건" in cell
     assert "scope='col'" in ui.header_cell()
     summary = ui.render_summary({**STATE, "available": False, "reason": '<bad & stale', "last_success_at": "2026-10-30"})
     assert "비교 불가" in summary and "&lt;bad &amp; stale" in summary
@@ -81,7 +81,7 @@ def test_chromium_desktop_visibility_and_table_semantics_at_899_and_900px():
             assert page.locator("th.gemn-desktop").evaluate("e => getComputedStyle(e).display") == expected
             assert page.locator("td.gemn-status-cell").evaluate("e => getComputedStyle(e).display") == expected
             assert page.locator(".gemn-summary").evaluate("e => getComputedStyle(e).display") == ("none" if width == 899 else "flex")
-            assert page.locator(".gemn-groups").evaluate("e => getComputedStyle(e).display") == ("none" if width == 899 else "block")
+            assert page.locator('.gemn-dialog').is_hidden()
             assert page.locator(".gemn-group summary").evaluate("e => getComputedStyle(e).display") == ("none" if width == 899 else "flex")
         assert page.locator("th.gemn-desktop").evaluate("e => e.tagName") == "TH"
         assert page.locator("td.gemn-status-cell").evaluate("e => e.tagName") == "TD"
@@ -91,7 +91,7 @@ def test_chromium_desktop_visibility_and_table_semantics_at_899_and_900px():
 
 def test_unavailable_groups_do_not_render_false_zero_or_green_match():
     markup = ui.render_groups({"available": False, "reason": "snapshot stale", "groups": []})
-    assert "snapshot stale" in markup
+    assert markup == ''
     assert "COST 지출 원행" not in markup
     assert "Google 지출 원행" not in markup
     assert "stale" in ui.render_summary({"available": False, "reason": "stale"})

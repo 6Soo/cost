@@ -34,7 +34,7 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
         document = page.render_page(state())
         self.assertIn("보험 명단 · 수입 글자 대조", document)
         self.assertIn("김*람", document)
-        self.assertIn("후보 여러 건", document)
+        self.assertIn("후보 확인", document)
         self.assertIn("가람&lt;합성&gt;", document)
         self.assertIn("글자 대조는 보험 가입 완료", document)
         self.assertIn("candidate-choice", document)

@@ -139,14 +139,46 @@ def _pattern_parts(pattern: str):
     return parts, visible
 
 
-def match_masked_name(pattern: str, value: str) -> bool:
+def _unknown_mask_length(pattern):
+    parts = _pattern_parts(pattern)[0]
+    return any(a is None and b is None for a, b in zip(parts, parts[1:]))
+
+
+def _match_basis(pattern: str, value: str) -> str:
     if not isinstance(pattern, str) or not isinstance(value, str):
-        return False
+        return ''
     parts, visible = _pattern_parts(pattern)
     candidate = _name_key(value)
-    if not visible or len(parts) != len(candidate):
-        return False
-    return all(part is None or part == char for part, char in zip(parts, candidate))
+    if not visible or not candidate or len(candidate) > 128:
+        return ''
+    # Some insurers use a fixed *** token regardless of the hidden name length.
+    # Preserve single-mask positional matching; consecutive masks are length
+    # unknown and can only produce review candidates, never a unique match.
+    if any(a is None and b is None for a, b in zip(parts, parts[1:])):
+        positions, index = {0}, 0
+        while index < len(parts):
+            if parts[index] is not None:
+                positions = {p + 1 for p in positions if p < len(candidate) and candidate[p] == parts[index]}
+                index += 1
+            else:
+                end = index + 1
+                while end < len(parts) and parts[end] is None:
+                    end += 1
+                # Bounded dynamic positions avoid exponential regex backtracking.
+                positions = ({p for p in range(min(positions) + 1, len(candidate) + 1)}
+                             if end - index > 1 and positions else
+                             {p + 1 for p in positions if p < len(candidate)})
+                index = end
+            if not positions:
+                return ''
+        return 'mask_length_unknown' if len(candidate) in positions else ''
+    if len(parts) != len(candidate):
+        return ''
+    return 'positional' if all(part is None or part == char for part, char in zip(parts, candidate)) else ''
+
+
+def match_masked_name(pattern: str, value: str) -> bool:
+    return bool(_match_basis(pattern, value))
 
 
 def match_contract(contract, income_rows) -> dict:
@@ -178,7 +210,7 @@ def match_contract(contract, income_rows) -> dict:
             state = "no_visible_letters"
         elif not hits:
             state = "unmatched"
-        elif len(hits) == 1 and occurrences[hits[0]] == 1:
+        elif len(hits) == 1 and occurrences[hits[0]] == 1 and not _unknown_mask_length(row.get('masked_name', '')):
             state = "matched"
         else:
             state = "ambiguous"
@@ -188,5 +220,6 @@ def match_contract(contract, income_rows) -> dict:
             income = incomes[idx]
             choices.append({k: income.get(k) for k in ("ref", "fingerprint", "name", "nickname", "trip_id", "trip_name", "date", "amount")})
         output.append({"review_row_id": row.get("review_row_id"), "masked_name": row.get("masked_name"),
+                       "mask_length_unknown": _unknown_mask_length(row.get('masked_name', '')),
                        "match_state": state, "matches": choices, "candidate_count": len(hits)})
     return {"rows": output, "counts": counts}
