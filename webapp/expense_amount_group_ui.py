@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 import html
+import hashlib
 from collections.abc import Mapping, Sequence
 
 
 def _esc(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
+
+
+def _group_dom_id(annotation: Mapping[str, object]) -> str:
+    """Create a stable, DOM-safe opaque id without exposing source group keys."""
+    group_id = annotation.get("group_id")
+    if group_id is None:
+        group_id = f"{annotation.get('trip_id', '')}\0{annotation.get('amount_krw', '')}"
+    digest = hashlib.sha256(str(group_id).encode("utf-8", "replace")).hexdigest()[:20]
+    return f"gemn-group-{digest}"
 
 
 _STATUS = {
@@ -25,6 +35,7 @@ def status_cell(annotation: Mapping[str, object] | None) -> str:
     tone, icon, label = _STATUS.get(status, _STATUS["unavailable"])
     cost_count = annotation.get("cost_count", "—")
     google_count = annotation.get("google_count", "—")
+    group_dom_id = _group_dom_id(annotation)
     detail = f"{label} · COST {cost_count}건 / Google {google_count}건"
     if status == "partial":
         try:
@@ -32,10 +43,11 @@ def status_cell(annotation: Mapping[str, object] | None) -> str:
         except (TypeError, ValueError, OverflowError):
             pass
     detail += " · 개별 행의 신원이나 장부 반영을 증명하지 않습니다."
-    return (f"<td class='gemn-desktop gemn-status-cell gemn-{tone}' role='status' "
-            f"aria-label='{_esc(detail)}' title='{_esc(detail)}'>"
+    return (f"<td class='gemn-desktop gemn-status-cell gemn-{tone}'>"
+            f"<button type='button' class='gemn-status-button' data-gemn-group='{group_dom_id}' "
+            f"aria-label='{_esc(detail)}' aria-controls='{group_dom_id}'>"
             f"<span aria-hidden='true'>{icon}</span> {_esc(label)} "
-            f"<span class='gemn-count'>{_esc(cost_count)}/{_esc(google_count)}</span></td>")
+            f"<span class='gemn-count'>{_esc(cost_count)}/{_esc(google_count)}</span></button></td>")
 
 
 def header_cell() -> str:
@@ -110,7 +122,8 @@ def render_groups(state: Mapping[str, object]) -> str:
             except (ValueError, TypeError, OverflowError):
                 amount_text = str(amount)
             title += f" · {amount_text}"
-        output.append(f"<details class='gemn-group'><summary>{_esc(title)}</summary>")
+        dom_id = _group_dom_id(group)
+        output.append(f"<details id='{dom_id}' class='gemn-group'><summary>{_esc(title)}</summary>")
         output.append("<p>후보 관계는 양측 목록의 모든 조합입니다. 개별 행 연결을 확정하지 않습니다.</p>")
         output.append(f"<section aria-label='COST 원행 {m}건'><h4>COST 지출 원행 ({_esc(m)}건)</h4><ul>")
         output.extend(f"<li>{_row_label(row, 'row_id')}</li>" for row in costs)
@@ -125,16 +138,20 @@ def render_groups(state: Mapping[str, object]) -> str:
 def styles() -> str:
     """Scoped styles inherit the application's light/dark color tokens."""
     return ("<style>"
-            ".gemn-desktop{display:none}"
-            "@media(min-width:900px){.gemn-desktop{display:block}.gemn-status-cell{display:table-cell}}"
+            ".gemn-desktop,th.gemn-desktop,td.gemn-desktop{display:none!important}"
+            ".gemn-group summary{display:none!important}"
+            ".gemn-status-button{font:inherit;color:inherit;background:transparent;border:0;padding:4px;cursor:pointer}"
             ".gemn-summary,.gemn-groups{color:var(--shell-text);background:var(--shell-paper);"
             "border:1px solid var(--shell-line);border-radius:8px;padding:10px;margin:8px 0}"
-            ".gemn-summary{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;font-size:13px}"
+            ".gemn-summary{gap:10px 16px;flex-wrap:wrap;align-items:center;font-size:13px}"
             ".gemn-summary .gemn-note,.gemn-summary .gemn-disclaimer{color:var(--shell-muted)}"
             ".gemn-group{border-top:1px solid var(--shell-line);padding:8px 0}"
             ".gemn-group summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:700}"
             ".gemn-group ul{margin:4px 0;padding-left:22px}.gemn-group li{overflow-wrap:anywhere;margin:3px 0}"
-            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-success)}"
-            ".gemn-partial{color:var(--shell-warn)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted)}"
+            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-accent,#1C7A52)}"
+            ".gemn-partial{color:var(--shell-warn,#B54708)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted,#475569)}"
             ".gemn-count{font-variant-numeric:tabular-nums}"
+            "@media(min-width:900px){th.gemn-desktop.gemn-desktop,td.gemn-desktop.gemn-desktop{display:table-cell!important}"
+            ".gemn-summary.gemn-desktop.gemn-desktop{display:flex!important}"
+            "div.gemn-groups.gemn-groups.gemn-desktop{display:block!important}.gemn-group summary{display:flex!important}}"
             "</style>")
