@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 PR398 archived-trip comparison and Google reader cutover
+
+- [PR398](https://github.com/6Soo/cost/pull/398) merged normally; tested `f847dcf3ce3f2d1095c07641871f65cc8ee49766` and runtime `1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3` trees match. Read-only M:N trip lookup includes archived trips while default review/write lookup scope is preserved.
+- 21 focused and35 adjacent protection tests passed.1188 release blobs match; task/process SHA, single loopback listener, health/ready200, protected APIs and affected trip page401,13 protected table contents/schema unchanged. Prior verified58cfa0aa release and task XML provide code rollback. No full data backup/restore was repeated for this reversible code-only change; no data/schema/Google writes.
+- Separately approved Google reader switch was already executed successfully:4b4d10fb to58cfa0aa, task result0, both sources normal at16:55:17+09:00, execution times/authentication/settings unchanged. Board deployment does not change that independent action.
+- Full recovered audit remains47/62 comparable.12 layout issues,2 formula/total issues and1 archived COST trip absent from current Google source remain unavailable. Actual deployed lookup now reaches GOOGLE_TRIP_UNAVAILABLE instead of incorrectly rejecting its COST archive state. Archive unchanged, database changes0; no false matched result was introduced.
+- Local evidence: `.local-archive/core-workflow-20261030/` and `.local-archive/deploy-1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3/`; host evidence `D:/WebLedgerHost/releases/deploy-evidence-1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3.json`. Remaining external gates and exact recheck conditions are in [current status](session_handoff.md). No new card collection or financial/participant/source writes.
+
 ## 2026-10-30 16:43 Google comparison incident recovery
 
 - User reported all Google expense comparisons unavailable. Same actual source reproduced SOURCE_NOT_VERIFIED on both prior d0d73f8a and deployed58cfa0aa. Cause was the16:00 main-reader SOURCE_UNREACHABLE, not demonstrated code regression.
