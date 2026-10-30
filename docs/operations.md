@@ -4,7 +4,7 @@
 
 - [PR #380](https://github.com/6Soo/cost/pull/380) 정상 병합·운영 SHA `c9336e978eca8ec60f8dccac50284700744f1eab`, 이전 검증 `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1`. 검수/병합 tree 동일,1,159 blobs 불일치0·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 불변 PASS. Board/SourceRefresh Running. 금융 적용·명단 등록·원문 재처리·Google 쓰기0.
 - 실제 확인: 참가자 인증 API200이나 configuredfalse/STORE_UNAVAILABLE, Drive readonly manifest3710/pending48/페이지·query진행중이므로 실제 참가자·메일 전환 수락은 미완료다. 원결제 증거·물리 모바일 기기·권한 유효 token/실사용 성능도 별도 수락이다. 실행 wrapper 절대 경로/서명과 제한된 broad SID ACE 확인을 전체 권한 보증으로 쓰지 않는다.
-- 인증 카드 초기 GET1회27,432ms·합성 검색 GET1회1,412ms가 관측돼 첫 조회 원인 후속을 별도 Luna low에게 배정했다. 단일 원격 수치를 backend render·p95·SLA로 표시하지 않는다. 근거는 root `.local-archive/remaining-acceptance-20261030/` 및 `D:/WebLedgerHost/releases/deploy-evidence-c9336e978eca8ec60f8dccac50284700744f1eab.json`이다. 문서만 바뀐 후속은 재배포·재시작하지 않는다.
+- 인증 카드 초기 GET1회27,432ms·합성 검색 GET1회1,412ms가 관측돼 별도 Luna low에게 후속을 배정했다. 실제6,395건 분리 결과 연결/등록1,593ms·연도 쿼리21.7/19.5ms·결과 동일, 환불 그룹 약462ms였다. 최초16초 연도 조회는 재현되지 않아 금융/날짜 의미와 캐시를 바꾸는 최적화는 하지 않았다. 단일 원격 수치를 backend render·p95·SLA로 표시하지 않는다. 근거는 root `.local-archive/remaining-acceptance-20261030/` 및 `D:/WebLedgerHost/releases/deploy-evidence-c9336e978eca8ec60f8dccac50284700744f1eab.json`이다. 문서만 바뀐 후속은 재배포·재시작하지 않는다.
 
 ## 2026-10-30 임시 브랜치 검토·병합·정리 및 운영 고정
 
