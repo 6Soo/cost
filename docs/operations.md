@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 임시 브랜치 검토·병합·정리 및 운영 고정
+
+- 사용자 “임시워크스페이스 및 브랜치 병합 및 정리 운영배포”, 후속 “보존하지말고 확인하고 병합해”에 따라 [PR #378](https://github.com/6Soo/cost/pull/378)로 검토된 이력을 main에 병합했다. 미병합으로 보이던45 refs/90 commits 중61개는 main과 stable patch가 같고29개는 후속 구현·최신 정책 대체를 확인했다. [검토 기록](branch-integration-audit-20261030.md)에 이유를 남겼으며, 현재 tree를 유지하는 명시적 `ours` 병합으로 중복·구형 로직을 되살리지 않았다. 별도 보관 브랜치 대신 병합 후 삭제했다.
+- 요청된 운영 고정 SHA는 `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1`이며 이전 `10b95b802c879e83dd93d9030aa333f7f348cf38`을 복구 릴리스로 유지했다. 대상 코드가 이전 검증 본과 동일함을 확인하고 보호 검사108 passed를 재사용했다. 1,156 blobs 불일치0·새 백업/별도 복원·task/processSHA·health/ready200·보호API401·보호13표 전후 불변 PASS. 금융 적용·원문 재처리·Google 쓰기0.
+- 완료된 별도 Git worktree3개를 정리했고 마지막 Paseo 통합 worktree는 운영 검증 기록을 주 작업 폴더로 이동한 뒤 공식 archive 절차로 닫는다. 원격은 main만, 로컬은 main과 미커밋 사용자 변경이 있는 기존 작업 브랜치만 남긴다. 사용자 변경과 stash는 원본 해시로 불변 확인했다. 근거: `C:/AX/cost/.local-archive/workspace-branch-cleanup-20261030/` 및 호스트 같은 SHA deploy-evidence. 이 기록의 문서 후속은 재배포 대상이 아니다.
+
 ## 2026-10-30 미결 구현·PR370 단계 통합 배포
 
 - 정상 병합 PR #371~#375의 최종 운영 SHA는 `10b95b802c879e83dd93d9030aa333f7f348cf38`이다. 이전 검증 릴리스 `d09596d0242416af2889b4a0514abd0509c60561`을 보존했다. [현재 상태](session_handoff.md)와 [실행 인덱스](specs/all-pending-execution-20261030.md)에 구현·부분 수락을 구분했다.

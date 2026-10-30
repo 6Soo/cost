@@ -1,3 +1,9 @@
+## 2026-10-30 임시 작업 통합·정리 후 현재 운영
+
+- 사용자 지시로 미병합45 refs/90 commits를 실제 main과 대조하고 PR #378로 병합 이력을 연결했다. 61 exact patch와29 후속 대체 검토·보호 검사108 passed. 오래된 미배정 예외·환불 범위 확대·미구현 현황을 다시 적용하지 않았다. [검토 기록](branch-integration-audit-20261030.md).
+- 운영 SHA `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1` 고정 배포 PASS:1,156 blobs 일치·백업/별도 복원·task/processSHA·health/ready200·보호API401·보호13표 불변. 실제 금융/분류/여행/원문/Google 적용0. 이전 외부 수락 미결·카드 수집/업로드 보류는 그대로다.
+- 임시 브랜치는 병합 후 삭제하고 원격 main만 유지한다. 사용자 주 작업 폴더의 미커밋 변경과 stash는 변경하지 않았으므로 해당 작업 브랜치1개는 사용 중으로 남긴다. 완료 worktree3개와 마지막 통합 작업 공간을 정리하며 운영 검증 기록은 root `.local-archive/workspace-branch-cleanup-20261030/`에 이동한다. 문서 후속으로 재배포하지 않는다.
+
 ## 2026-10-30 미결 병렬 구현 및 카드·OTA 경량화 배포
 
 - 사용자 “나머지 모든 미결사항 다수의 luna low에게 위임구현”과 “새로운 원격 pr 명세를 보고 구현에 추가하라”를 실행했다. Luna low 9명에게 분리 배정했고 [실행 인덱스](specs/all-pending-execution-20261030.md)에 [PR #370 명세](specs/lean-card-ota-core-20261030.md)의 R1~R5를 추가했다. 명세 PR #370 및 구현 [#371](https://github.com/6Soo/cost/pull/371), [#372](https://github.com/6Soo/cost/pull/372), [#373](https://github.com/6Soo/cost/pull/373), [#374](https://github.com/6Soo/cost/pull/374), [#375](https://github.com/6Soo/cost/pull/375)를 정상 병합했다. 기존 #366/#367은 통합 후 닫았다.
