@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-import math
 
 
 def _amount(row: Mapping) -> int | None:
@@ -13,15 +12,19 @@ def _amount(row: Mapping) -> int | None:
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
     return None
 
 
 def _unique_rows(rows: Sequence[Mapping], id_field: str, trip_id: str):
-    """Validate rows and collapse only explicitly identified same-source copies."""
+    """Validate rows before collapsing identical explicit source projections.
+
+    The first valid projection is retained; its source identity is also used to
+    annotate every valid alias COST row with the same status. Conflicting or
+    invalid projections sharing an identity fail the whole comparison closed.
+    """
     unique = []
-    seen_identity = set()
+    identity_rows = {}
+    identity_aliases = defaultdict(list)
     ids = set()
     invalid = False
     for row in rows:
@@ -29,7 +32,11 @@ def _unique_rows(rows: Sequence[Mapping], id_field: str, trip_id: str):
             invalid = True
             continue
         row_id = row.get(id_field)
-        if row_id is None or isinstance(row_id, (dict, list, set)):
+        try:
+            if not isinstance(row_id, (str, int)) or isinstance(row_id, bool) or not row_id:
+                raise TypeError
+            hash(row_id)
+        except (TypeError, ValueError):
             invalid = True
             continue
         if row_id in ids:
@@ -38,26 +45,40 @@ def _unique_rows(rows: Sequence[Mapping], id_field: str, trip_id: str):
             continue
         ids.add(row_id)
         identity = row.get("source_identity")
-        if identity is not None:
+        has_identity = identity is not None and identity != ""
+        if has_identity:
             try:
                 identity_key = (type(identity), identity)
                 hash(identity_key)
             except TypeError:
                 invalid = True
                 continue
-            if identity_key in seen_identity:
-                continue
-            seen_identity.add(identity_key)
         currency = row.get("currency")
         amount = _amount(row)
         row_trip = row.get("trip_id")
         if row_trip != trip_id or currency != "KRW" or amount is None:
             invalid = True
+            if has_identity and identity_key in identity_rows:
+                invalid = True
             continue
         item = dict(row)
         item["amount_krw"] = amount
+        if has_identity:
+            if identity_key in identity_rows:
+                prior = identity_rows[identity_key]
+                # Descriptive fields may differ; all grouping facts must agree.
+                if (prior["trip_id"], prior["currency"], prior["amount_krw"]) != (
+                    item["trip_id"], item["currency"], item["amount_krw"]
+                ):
+                    invalid = True
+                    continue
+                identity_aliases[identity_key].append(row_id)
+                continue
+            identity_rows[identity_key] = item
+        identity_key = (type(identity), identity) if has_identity else None
+        item["_source_identity_key"] = identity_key
         unique.append(item)
-    return unique, invalid
+    return unique, invalid, identity_aliases
 
 
 def reconcile_expense_amount_groups(
@@ -93,13 +114,14 @@ def reconcile_expense_amount_groups(
     if not isinstance(cost_rows, Sequence) or isinstance(cost_rows, (str, bytes)):
         cost_rows = []
         cost_invalid = True
+        cost_aliases = {}
     else:
-        cost_rows, cost_invalid = _unique_rows(cost_rows, "row_id", trip_id)
+        cost_rows, cost_invalid, cost_aliases = _unique_rows(cost_rows, "row_id", trip_id)
     if not isinstance(google_rows, Sequence) or isinstance(google_rows, (str, bytes)):
         google_rows = []
         google_invalid = True
     else:
-        google_rows, google_invalid = _unique_rows(google_rows, "ref", trip_id)
+        google_rows, google_invalid, _ = _unique_rows(google_rows, "ref", trip_id)
 
     costs_by_amount = defaultdict(list)
     google_by_amount = defaultdict(list)
@@ -111,7 +133,9 @@ def reconcile_expense_amount_groups(
     groups = []
     by_cost_id = {}
     summary = {s: 0 for s in ("matched", "partial", "unrecorded", "google_only", "unavailable")}
-    for amount in sorted(set(costs_by_amount) | set(google_by_amount)):
+    amounts = dict.fromkeys((*costs_by_amount.keys(), *google_by_amount.keys()))
+    aliases_by_identity = cost_aliases
+    for amount in amounts:
         costs = costs_by_amount.get(amount, [])
         google = google_by_amount.get(amount, [])
         if cost_invalid or google_invalid:
@@ -136,14 +160,22 @@ def reconcile_expense_amount_groups(
         }
         groups.append(group)
         summary[status] += 1
+        for row in google:
+            row.pop("_source_identity_key", None)
         for row in costs:
-            by_cost_id[row["row_id"]] = {
+            annotation = {
                 "group_id": group_id,
                 "status": status,
                 "cost_count": len(costs),
                 "google_count": len(google),
                 "candidate_count": len(costs) * len(google),
             }
+            by_cost_id[row["row_id"]] = annotation
+            identity = row.get("_source_identity_key")
+            if identity is not None:
+                for alias_id in aliases_by_identity.get(identity, ()):
+                    by_cost_id[alias_id] = dict(annotation)
+            row.pop("_source_identity_key", None)
 
     any_invalid = cost_invalid or google_invalid
     return {

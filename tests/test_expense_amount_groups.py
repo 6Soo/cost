@@ -41,6 +41,31 @@ def test_repeated_distinct_rows_survive_but_explicit_same_source_copy_collapses(
     assert group["cost_count"] == 2
     assert [row["row_id"] for row in group["cost_rows"]] == ["c1", "c2"]
     assert group["status"] == "matched"
+    assert out["by_cost_id"]["c1-copy"] == out["by_cost_id"]["c1"]
+
+
+@pytest.mark.parametrize("conflict", [
+    {"amount_krw": 49000}, {"trip_id": "trip-b"}, {"currency": "USD"},
+    {"amount_krw": True},
+])
+def test_conflicting_or_invalid_duplicate_projection_cannot_hide_behind_identity(conflict):
+    out = run([cost("c1", source_identity="same"),
+               cost("c2", source_identity="same", **conflict)], [google("g1")])
+    assert out["available"] is False
+    assert out["groups"][0]["status"] == "unavailable"
+
+
+def test_empty_source_identity_does_not_collapse_rows():
+    out = run([cost("c1", source_identity=""), cost("c2", source_identity="")],
+              [google("g1")])
+    assert out["groups"][0]["cost_count"] == 2
+    assert out["groups"][0]["status"] == "partial"
+
+
+@pytest.mark.parametrize("row_id", [None, "", 0, False, [], {}])
+def test_invalid_row_ids_fail_closed_without_raising(row_id):
+    out = run([cost(row_id)], [google("g1")])
+    assert out["available"] is False
 
 
 def test_equal_amount_date_or_merchant_never_deduplicates_without_identity():
@@ -53,7 +78,7 @@ def test_trip_amount_and_signed_refund_are_distinct_groups():
     out = run([cost("c1"), cost("c2", -50000)],
               [google("g1"), google("g2", trip_id="trip-b")])
     assert [(g["amount_krw"], g["cost_count"], g["google_count"])
-            for g in out["groups"]] == [(-50000, 1, 0), (50000, 1, 1)]
+            for g in out["groups"]] == [(50000, 1, 1), (-50000, 1, 0)]
     assert out["available"] is False
 
 
@@ -89,6 +114,7 @@ def test_annotations_are_small_and_inputs_are_not_mutated():
     assert "google_rows" not in annotation
 
 
-def test_cost_and_google_amounts_must_be_exact_integers():
-    out = run([cost("c", amount=50000.0)], [google("g", amount=50000)])
-    assert out["groups"][0]["status"] == "matched"
+@pytest.mark.parametrize("value", [50000.0, 2**53 * 1.0, float("inf"), float("nan")])
+def test_amounts_require_exact_integer_representation(value):
+    out = run([cost("c", amount=value)], [google("g", amount=50000)])
+    assert out["available"] is False
