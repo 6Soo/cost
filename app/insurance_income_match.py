@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 import json
 import re
 import unicodedata
@@ -12,7 +13,7 @@ _MAX_CONTRACTS = 1000
 _MAX_ROWS = 10000
 _MAX_CHOICES = 20
 _HEX = re.compile(r"^[0-9a-fA-F]{64}$")
-_MASKS = frozenset("*＊ＸＸxX엑스○〇●□■◇◆?？•·※")
+_MASKS = frozenset("*＊○〇●□■◇◆×✕✖")
 
 
 class ManifestError(ValueError):
@@ -35,7 +36,8 @@ def _opaque(*parts: str) -> str:
 def load_review_manifest(path) -> dict:
     """Load bounded manifest metadata; never opens referenced source documents."""
     try:
-        raw = Path(path).read_bytes()
+        with Path(path).open("rb") as stream:
+            raw = stream.read(_MAX_BYTES + 1)
     except OSError as exc:
         raise ManifestError("manifest unavailable") from exc
     if len(raw) > _MAX_BYTES:
@@ -45,7 +47,7 @@ def load_review_manifest(path) -> dict:
         source = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ManifestError("invalid manifest JSON") from exc
-    if not isinstance(source, dict) or type(source.get("schema_version")) is not int or source["schema_version"] < 1:
+    if not isinstance(source, dict) or type(source.get("schema_version")) is not int or source["schema_version"] != 1:
         raise ManifestError("invalid manifest header")
     if not all(isinstance(source.get(k), str) and source[k] for k in ("kind", "created_at", "query_basis")):
         raise ManifestError("invalid manifest header")
@@ -54,14 +56,18 @@ def load_review_manifest(path) -> dict:
     contracts = source.get("contracts")
     if not isinstance(contracts, list) or len(contracts) > _MAX_CONTRACTS:
         raise ManifestError("invalid contract list")
-    normalized, seen_contracts, seen_rows, total = [], set(), set(), 0
+    normalized, seen_contracts, seen_contract_ids, seen_rows, total = [], set(), set(), set(), 0
     for contract in contracts:
         if not isinstance(contract, dict):
             raise ManifestError("invalid contract")
         cid, start, end = (contract.get(k) for k in ("contract_id", "travel_start", "travel_end"))
         if not all(isinstance(x, str) and x.strip() for x in (cid, start, end)):
             raise ManifestError("invalid contract identity or dates")
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+        try:
+            start_date, end_date = date.fromisoformat(start), date.fromisoformat(end)
+        except ValueError as exc:
+            raise ManifestError("invalid travel date") from exc
+        if end_date < start_date:
             raise ManifestError("invalid travel date")
         if contract.get("insurance_status") != "completed_or_expired":
             raise ManifestError("unsupported insurance status")
@@ -82,13 +88,17 @@ def load_review_manifest(path) -> dict:
         items = contract.get("items")
         if not isinstance(items, list):
             raise ManifestError("invalid items")
+        insured_count = contract.get("insured_count")
+        if type(insured_count) is not int or insured_count < 0 or insured_count != len(items):
+            raise ManifestError("invalid insured count")
         total += len(items)
         if total > _MAX_ROWS:
             raise ManifestError("row limit exceeded")
         key = _opaque("contract", digest.lower(), cid, start, end)
-        if key in seen_contracts:
+        if key in seen_contracts or cid in seen_contract_ids:
             raise ManifestError("duplicate contract")
         seen_contracts.add(key)
+        seen_contract_ids.add(cid)
         rows = []
         for item in items:
             if not isinstance(item, dict):
@@ -120,7 +130,7 @@ def _pattern_parts(pattern: str):
     for char in normalized:
         if char.isspace():
             continue
-        if char in _MASKS or char in "*＊?？○〇●□■◇◆•·※":
+        if char in _MASKS:
             parts.append(None)
         else:
             parts.append(char)
@@ -176,7 +186,7 @@ def match_contract(contract, income_rows) -> dict:
         choices = []
         for idx in hits[:_MAX_CHOICES]:
             income = incomes[idx]
-            choices.append({k: income.get(k) for k in ("ref", "fingerprint", "name", "nickname", "cells", "trip_id", "trip_name", "date", "amount")})
+            choices.append({k: income.get(k) for k in ("ref", "fingerprint", "name", "nickname", "trip_id", "trip_name", "date", "amount")})
         output.append({"review_row_id": row.get("review_row_id"), "masked_name": row.get("masked_name"),
                        "match_state": state, "matches": choices, "candidate_count": len(hits)})
     return {"rows": output, "counts": counts}

@@ -1,7 +1,9 @@
 import hashlib
+import io
 import json
 
 import pytest
+import app.insurance_income_match as income_match
 
 from app.insurance_income_match import (
     ManifestError,
@@ -46,6 +48,8 @@ def test_load_returns_opaque_ids_and_fingerprint_without_source_reference(tmp_pa
 @pytest.mark.parametrize(("pattern", "value", "expected"), [
     ("김*수", "김민수", True), ("김＊수", "김민수", True), ("김○수", "김민수", True),
     ("김*수", "김수", False), ("김*수", "김민수님", False),
+    ("김x수", "김x수", True), ("김X수", "김X수", True), ("김엑스수", "김엑스수", True),
+    ("김스수", "김스수", True), ("김×수", "김민수", True),
     ("가 나*", "가나수", True), ("*", "민수", False), ("김*수", "이민수", False),
     ("Kim *", "kimx", True), ("김[+]*", "김[+]민", True),
 ])
@@ -95,6 +99,64 @@ def test_manifest_rejects_duplicate_keys_bad_digest_and_duplicate_source_rows(tm
     p.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(ManifestError):
         load_review_manifest(p)
+
+
+@pytest.mark.parametrize("change", [
+    {"schema_version": 2},
+    {"contracts": [{**manifest()["contracts"][0], "travel_start": "2026-02-30"}]},
+    {"contracts": [{**manifest()["contracts"][0], "travel_start": "2026-03-06"}]},
+    {"contracts": [{**manifest()["contracts"][0], "insured_count": True}]},
+    {"contracts": [{**manifest()["contracts"][0], "insured_count": 2}]},
+])
+def test_manifest_rejects_bad_schema_dates_and_insured_count(tmp_path, change):
+    p = tmp_path / "bad.json"
+    p.write_text(json.dumps(manifest(**change)), encoding="utf-8")
+    with pytest.raises(ManifestError):
+        load_review_manifest(p)
+
+
+def test_manifest_rejects_duplicate_contract_id_across_versions(tmp_path):
+    value = manifest()
+    second = dict(value["contracts"][0], sha256=hashlib.sha256(b"another version").hexdigest())
+    value["contracts"].append(second)
+    p = tmp_path / "duplicate.json"
+    p.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ManifestError):
+        load_review_manifest(p)
+
+
+def test_manifest_read_is_bounded_even_if_file_grows_after_stat(tmp_path, monkeypatch):
+    path = tmp_path / "large.json"
+    path.write_bytes(b"x" * (income_match._MAX_BYTES + 10))
+
+    class BoundedStream:
+        def __init__(self):
+            self.requested = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, size):
+            self.requested = size
+            return b"x" * size
+
+    stream = BoundedStream()
+    monkeypatch.setattr(income_match.Path, "open", lambda *_a, **_k: stream)
+    with pytest.raises(ManifestError):
+        load_review_manifest(path)
+    assert stream.requested == income_match._MAX_BYTES + 1
+
+
+def test_candidate_public_fields_exclude_cells():
+    contract = {"rows": [{"review_row_id": "r", "masked_name": "김*수"}]}
+    result = match_contract(contract, [{"ref": "i", "name": "김민수", "cells": {"C": "private-cell"}}])
+    assert set(result["rows"][0]["matches"][0]) == {
+        "ref", "fingerprint", "name", "nickname", "trip_id", "trip_name", "date", "amount"
+    }
+    assert "private-cell" not in repr(result)
 
 
 def test_candidate_choices_are_capped_but_count_retains_total():
