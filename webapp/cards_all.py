@@ -147,6 +147,60 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .card-all-link{font-size:12px;margin-top:0;align-items:center;min-height:32px}
 .card-all-page .card-all-pagination a{width:100%;white-space:normal;text-align:center}
 }
+
+/* Compact, flat card-history layout: one content plane, not nested cards. */
+.card-all-page{padding:14px 18px 40px}
+.card-all-page .card-all-hero{border:0;border-radius:0;background:transparent;padding:0 0 12px;margin:0 0 12px;border-bottom:1px solid var(--ca-border);gap:12px}
+.card-all-page .card-all-eyebrow{display:none}
+.card-all-page .card-all-lead{font-size:15px}
+.card-all-page .card-all-summary{display:flex;gap:18px;align-items:baseline}
+.card-all-page .card-all-stat{display:flex;gap:7px;align-items:baseline;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
+.card-all-page .card-all-stat-value{font-size:15px}
+.card-all-page .card-all-toolbar{display:none}
+.card-all-page .card-all-filters{margin:0 0 8px;gap:8px;padding:0;border:0;background:transparent}
+.card-all-page .card-all-filters :is(input[type=search],select){min-height:38px;padding:6px 9px}
+.card-all-page .card-all-filters button{min-height:38px}
+.card-all-page .card-all-help{margin:0 0 10px}
+.card-all-page .card-all-help summary{min-height:30px}
+.card-all-page :is(.card-all-detail,.card-all-undated){border:0;border-radius:0;background:transparent;padding:0;margin:0 0 20px}
+.card-all-page :is(.card-all-detail,.card-all-undated) h2{font-size:16px;margin:8px 0 10px}
+.card-all-page .card-all-table-wrap{border:0;border-radius:0;overflow:visible}
+.card-all-page .card-all-table{background:transparent}
+.card-all-page .card-all-table thead th{background:transparent;border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table tbody tr:not(.date-group):not(.card-all-expanded)>td{border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table .date-group th{background:transparent;border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px 8px}
+.card-all-page .card-all-table .card-all-expanded td{background:var(--ca-soft)}
+@media(max-width:759px){
+ .card-all-page{padding:8px 10px 30px}
+ .card-all-page .card-all-hero{padding:0 0 8px;margin:0 0 10px;gap:6px}
+ .card-all-page .card-all-lead{font-size:13px}
+ .card-all-page .card-all-summary{width:auto;display:flex;gap:10px;flex-wrap:wrap}
+ .card-all-page .card-all-stat{display:flex;gap:4px;padding:0}
+ .card-all-page .card-all-stat-label{font-size:10px}
+ .card-all-page .card-all-stat-value{font-size:12px}
+ .card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0;border:0;border-radius:0;background:transparent;margin:0 0 5px}
+ .card-all-page .card-all-filters>label{grid-column:auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;font-size:11px}
+ .card-all-page .card-all-filters>label:has(input[type=search]){grid-column:1/-1}
+ .card-all-page .card-all-filters>.card-all-unassigned{grid-column:1/-1;display:flex;flex-direction:row;align-items:center;min-height:24px;font-size:12px}
+ .card-all-page .card-all-filters :is(input[type=search],select){min-height:36px;font-size:14px;padding:5px 8px}
+ .card-all-page .card-all-filters button,.card-all-page .card-all-filters>.card-all-link{grid-column:auto;width:100%;min-height:36px;padding:5px 8px}
+ .card-all-page .card-all-help{padding:0;margin:0 0 8px}
+ .card-all-page .card-all-help summary{min-height:28px}
+ .card-all-page :is(.card-all-detail,.card-all-undated){padding:0;margin:0 0 14px}
+ .card-all-page :is(.card-all-detail,.card-all-undated) h2{font-size:15px;margin:6px 0 8px}
+ .card-all-page .card-all-table-wrap{border:0;border-radius:0}
+ .card-all-page .card-all-table{font-size:12px}
+ .card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:8px 4px}
+ .card-all-page .card-all-table .date-column{width:14%}
+ .card-all-page .card-all-table .merchant-column{width:36%}
+ .card-all-page .card-all-table .amount-column{width:25%}
+ .card-all-page .card-all-table .trip-column{width:25%}
+ .card-all-page .card-all-table .merchant-name{font-size:12px;line-height:1.35}
+ .card-all-page .card-identity{font-size:10px;margin-top:2px}
+ .card-all-page .card-all-table .amount{font-size:12px}
+}
+
 </style>
 """
 
