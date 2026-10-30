@@ -8,6 +8,16 @@
   "value_policy": "Names and static source metadata only. Never read process environment values.",
   "entries": [
     {
+      "name": "WEBLEDGER_INSURANCE_REVIEW_MANIFEST",
+      "owner": "webapp.insurance_income_match_service / tools.launch_web_ledger",
+      "role": "path:private-insurance-review-manifest",
+      "required": "optional; matching page disabled when absent",
+      "default": "none",
+      "status": "confirmed",
+      "source_refs": "webapp/insurance_income_match_service.py:build_state",
+      "evidence": "Read-only owner matching input; launcher opts in using insurance_review.manifest_path. No PDF content is served."
+    },
+    {
       "name": "WEBLEDGER_DATA_ROOT",
       "owner": "run_candidate.py / webapp.ops",
       "role": "path:data-root",

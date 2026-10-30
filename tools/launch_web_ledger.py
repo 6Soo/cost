@@ -143,7 +143,7 @@ def apply_product_features(options: dict, root: pathlib.Path) -> None:
     for name in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_RECEIPT_OCR',
                  'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', 'WEBLEDGER_GOOGLE_LEDGER_ROWS',
                  'WEBLEDGER_LOCAL_RULE_AI', 'WEBLEDGER_FLIGHT_PASSENGER_MATCHING',
-                 'WEBLEDGER_FLIGHT_PASSENGER_DB'):
+                 'WEBLEDGER_FLIGHT_PASSENGER_DB', 'WEBLEDGER_INSURANCE_REVIEW_MANIFEST'):
         os.environ.pop(name, None)
     receipts = options.get('receipts') or {}
     if receipts.get('enabled') is True:
@@ -161,6 +161,12 @@ def apply_product_features(options: dict, root: pathlib.Path) -> None:
     if (options.get('flight_passengers') or {}).get('enabled') is True:
         os.environ['WEBLEDGER_FLIGHT_PASSENGER_MATCHING'] = '1'
         os.environ['WEBLEDGER_FLIGHT_PASSENGER_DB'] = str(root / 'flight-passenger.sqlite')
+    review = options.get('insurance_review') or {}
+    if review.get('enabled') is True:
+        manifest = pathlib.Path(str(review.get('manifest_path') or ''))
+        if not manifest.is_absolute() or not manifest.is_file() or manifest.is_symlink():
+            raise _Refused('INSURANCE_REVIEW_MANIFEST')
+        os.environ['WEBLEDGER_INSURANCE_REVIEW_MANIFEST'] = str(manifest)
 
 
 def require_card_schema(path: pathlib.Path) -> None:

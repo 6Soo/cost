@@ -3455,6 +3455,10 @@ class Handler(BaseHTTPRequestHandler):
                     allowed_trip_ids=viewer_visible_tabs(getattr(_ROLE_LOCAL, "session", None)),
                     query=query, snapshot=held_flight_snapshot):
                 return
+        from . import insurance_income_match_page as _insurance_match_page
+        if _insurance_match_page.owns_route(parsed.path):
+            if _insurance_match_page.dispatch(self, parsed, is_owner=_participant_owner_request(), query=query):
+                return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
             # The owner gate was already decided above for an enforced server.
@@ -3875,6 +3879,10 @@ class Handler(BaseHTTPRequestHandler):
                                           board=_active_store(),
                                           is_owner=_participant_owner_request()):
             return
+        from . import insurance_income_match_page as _insurance_match_page
+        if _insurance_match_page.owns_route(parsed.path):
+            if _insurance_match_page.dispatch(self, parsed, is_owner=_participant_owner_request(), raw=raw):
+                return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
             # The viewer refusal was already decided above when the server enforces

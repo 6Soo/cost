@@ -29,6 +29,15 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-30 마스킹 보험 명단과 기존 수입 글자 대조
+
+- 최신 사용자 지시는 마스킹 명단을 보관하는 데서 끝내지 않고 이미 입력된 수입 이름·닉네임과 글자를 대조하는 기능 구현이다. 기존 12계약159행을 읽고, 실제 여행의 연결/기간 후보와 소유자가 선택한 여행의 Google 수입 스냅샷을 비교한다. 별도 이름 인덱스가 없어도 같은 세대의 원본 수입 행을 사용한다.
+- 구현·표적 검증 완료, 병합·운영 배포 진행 중. 별표 등 가림 문자 한 글자, 표시 글자/전체 글자 수, 유니코드·공백 정규화로 비교한다. 한 계약에서 같은 수입 행을 여러 명이 공유하거나 여러 행이 일치하면 복수 후보로 표시한다. 후보 보기 변경은 해당 행에만 적용하고 원본/신원/참가자/금융 링크를 쓰지 않는다.
+- 실제 readonly preview: 12계약159행 중 단일 후보41·복수 후보20·일치 없음98·자료 부재0. 이는 글자 대조이며 동일인·가입·수령 완료 증명이 아니다. 원본 PDF·가입 사진을 웹에 제공하거나 Git에 추가하지 않는다.
+- 실제 검증84 passed: 매칭/원본 수입 fallback/필터/세대·자료 부재, 실제 signed HTTP owner200·직원403·비로그인401·POST405·no-store, 오류 HTTP 상태·비밀 경로 비노출, 합성 Chromium320/390/760/1280과 후보 행 독립성, 참가자 패널·launcher opt-in·설정 목록 검사. 전체 회귀·실기기는 미실행이다.
+- 근거: `C:/AX/cost/.local-archive/masked-income-match-20261030/targeted.xml`. 기존 전체 미결의 외부 자료·실기기·메일 전환·원결제 증거 대기는 `.local-archive/remaining-acceptance-20261030/final.json`에 유지하며 완료로 확대하지 않는다. 카드 수집/업로드 중지와 Google 최종 장부 자동 쓰기 금지를 유지한다.
+- 다음: 정상 PR/main 병합 → 고정 SHA 배포·health/ready/권한·보호13표 확인 → 완료 결과 보존 후 임시 workspace 공식 보관. 기존 기본 작업 사본의 변경·미추적 파일·stash는 보존한다.
+
 ## 2026-10-30 숲나들e 일반 OTA 목록·정규 적재
 
 - COMPLETE — 사용자 “숲나들e도 ota 공급자로 db에 정상 적재되고있나?”에 이은 “구현해” 범위를 [PR #368](https://github.com/6Soo/cost/pull/368)로 구현·정상 병합·고정 배포했다. 운영 SHA `d09596d0242416af2889b4a0514abd0509c60561`, 이전 검증 `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6` 보존. [계약](specs/ota.md#2026-10-30-숲나들e-예약-관측의-정규-적재ota-목록).
