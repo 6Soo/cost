@@ -11,6 +11,7 @@ STATE = {
     "available": True,
     "summary": {"matched": 1, "partial": 1, "unrecorded": 1, "google_only": 1},
     "groups": [{
+        "group_id": "synthetic-trip:50000", "trip_id": "synthetic-trip",
         "status": "partial", "amount_krw": 50000, "cost_count": 2,
         "google_count": 3, "candidate_count": 6,
         "cost_rows": [{"row_id": 'c1"<script>', "description": "식사 <img src=x>"},
@@ -59,6 +60,7 @@ def test_helpers_render_semantic_status_summary_and_candidate_lists_safely():
     assert group_id.startswith("gemn-group-") and group_id.replace("-", "").isalnum() and len(group_id) == len("gemn-group-") + 20
     assert button["data-gemn-group"].startswith("gemn-group-")
     assert button["aria-controls"] == button["data-gemn-group"]
+    assert button['aria-controls'] == group_id
 
 
 def test_chromium_desktop_visibility_and_table_semantics_at_899_and_900px():
@@ -93,3 +95,7 @@ def test_unavailable_groups_do_not_render_false_zero_or_green_match():
     assert "COST 지출 원행" not in markup
     assert "Google 지출 원행" not in markup
     assert "stale" in ui.render_summary({"available": False, "reason": "stale"})
+    assert '0그룹' not in ui.render_summary({'available': False, 'reason': 'SOURCE_NOT_VERIFIED'})
+    assert '그룹 건수 확인 불가' in ui.render_summary({'available': False})
+    assert 'data-gemn-group' not in ui.status_cell(None)
+    assert '<button' not in ui.status_cell({'status': 'unavailable', 'group_id': 'missing'})
