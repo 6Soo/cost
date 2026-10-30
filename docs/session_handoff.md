@@ -1,3 +1,11 @@
+## 2026-10-30 전체 미결 후속 구현·검수·운영 배포
+
+- 사용자 “전체 미결건 위임해서 구현”에 따라 Luna low6명에게 현재 미결을 분리 배정했다. OTA 이용기간 우선/예약 배정 철회 출처, 메일 선택적 stored 집계 검증, 운영 읽기 전용 진단, 현행 공유 테마 검사 보완을 [PR #380](https://github.com/6Soo/cost/pull/380)으로 정상 병합했다. [실행·실제 대기 조건](specs/remaining-acceptance-20261030.md).
+- 운영 SHA `c9336e978eca8ec60f8dccac50284700744f1eab`, 이전 검증 `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1`. 검수 tree=병합 tree, 메일/진단/테마63 passed·OTA/분류 교정/exact/manual/부분환불24 passed. 1,159 blobs 일치·새 백업/별도 복원·task/processSHA·health/ready200·보호API401·보호13표 불변 PASS. 실제 금융/명단/원문/Google 쓰기0. 코드·합성 수락과 실제 외부 수락을 구분한다.
+- 실제 재확인: Drive readonly manifest는 메시지3,710/pending48/다음 페이지·query활성이어서 전환하지 않았다. 참가자 인증 API는200이나 configured=false/STORE_UNAVAILABLE이다. 금융 원결제 증거·실기기 수락은 여전히 미완료이며 카드 수집/업로드 보류를 유지한다. 실제 실행 wrapper의 절대 경로·유효 Microsoft 서명 및 지정 broad SID의 쓰기 허용 ACE0개를 확인했지만 전체 token 접근 수락으로 확대하지 않는다.
+- 실제 인증 카드 GET1회씩은 초기27,432ms·합성 검색1,412ms였다. backend 단계/네트워크/초기 캐시를 분리한 측정이 아니므로 첫 조회 원인과 가능한 개선을 추가 Luna low에게 배정했다. 이 후속 결과를 받아 검토·통합한다. 앞선6명 임시 workspace는 공식 archive하고 브랜치를 정리했으며 UI의 빈 디렉터리만 Windows handle 때문에 삭제 대기다. 사용자 원래 변경/stash는 미변경이다.
+- 근거: root `.local-archive/remaining-acceptance-20261030/`의 queue·worker-review·postdeploy·deploy와 호스트 동일SHA deploy-evidence. 문서 후속만으로 재배포하지 않는다.
+
 ## 2026-10-30 임시 작업 통합·정리 후 현재 운영
 
 - 사용자 지시로 미병합45 refs/90 commits를 실제 main과 대조하고 PR #378로 병합 이력을 연결했다. 61 exact patch와29 후속 대체 검토·보호 검사108 passed. 오래된 미배정 예외·환불 범위 확대·미구현 현황을 다시 적용하지 않았다. [검토 기록](branch-integration-audit-20261030.md).
