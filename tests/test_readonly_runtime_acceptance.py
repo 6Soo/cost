@@ -13,7 +13,7 @@ def test_release_report_only_exposes_marker_runner_and_path_booleans(tmp_path):
     report = acceptance.release_report(tmp_path, "abc123")
     assert report["marker_matches_expected"] is True
     assert report["runner_exists"] is True
-    assert report["action_executable_is_powershell"] is False
+    assert report["action_executable_recognized"] is False
     assert "synthetic runner" not in json.dumps(report)
 
 
@@ -82,7 +82,8 @@ def test_task_report_never_returns_action_or_principal(monkeypatch):
     report = acceptance.scheduled_task_report(expected_release=__import__('pathlib').Path('D:/WebLedgerHost/releases/' + 'a' * 40),
                                               expected_sha='a' * 40, client=client)
     assert report["registered"] and report["enabled"]
-    assert report["action_executable_is_powershell"] is True
+    assert report["action_executable_recognized"] is True
+    assert report["action_executable_resolution"] == "VERIFIED_PATH"
     assert report["action_runner_sha_reference_matches"] is True
     assert report["working_directory_match"] is False
     assert report["release_acl_protection"] == "UNKNOWN"
@@ -112,3 +113,22 @@ def test_task_runner_sha_reference_rejects_path_lookalikes(argument):
     report = acceptance.scheduled_task_report(expected_release=__import__('pathlib').Path('D:/WebLedgerHost/releases/' + 'a' * 40),
                                               expected_sha='a' * 40, client=client)
     assert report["action_runner_sha_reference_matches"] is False
+
+
+def test_extensionless_powershell_is_recognized_but_unresolved():
+    report = acceptance.release_report(__import__('pathlib').Path('D:/release'), 'a' * 40, 'powershell')
+    assert report["action_executable_recognized"] is True
+    assert report["action_executable_resolution"] == "UNVERIFIED"
+
+
+def test_redirect_response_is_rejected_without_following(monkeypatch):
+    import urllib.error
+    calls = []
+    def redirect(*args, **kwargs):
+        calls.append(True)
+        raise urllib.error.HTTPError(args[1].full_url, 302, "redirect", {"Location": "http://example.com/"}, None)
+    monkeypatch.setattr(acceptance.urllib.request.OpenerDirector, "open", redirect)
+    result = acceptance.probe_http(("http://127.0.0.1:8751/healthz",), samples=1)
+    assert calls == [True]
+    assert result["results"][0]["failures"] == 1
+    assert result["results"][0]["status_counts"] == {"302": 1}

@@ -9,13 +9,11 @@ contents and database rows are not read.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
 import re
 import statistics
-import subprocess
 import time
 from urllib.parse import urlsplit
 import urllib.error
@@ -27,17 +25,6 @@ MAX_SAMPLES = 20
 MAX_TIMEOUT = 3.0
 
 
-def _sha(path: Path) -> str | None:
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                digest.update(chunk)
-    except OSError:
-        return None
-    return digest.hexdigest()
-
-
 def release_report(release: Path, expected_sha: str, action_executable: str | None = None,
                    working_directory: str | None = None) -> dict:
     marker = release / "DEPLOYED_COMMIT"
@@ -47,15 +34,18 @@ def release_report(release: Path, expected_sha: str, action_executable: str | No
         marker_value = ""
     marker_sha = marker_value.lower() == expected_sha.lower()
     runner = release / "tools" / "start_web_ledger_host.ps1"
-    action_norm = str(action_executable or "").replace("/", "\\").casefold()
     release_norm = str(release).replace("/", "\\").rstrip("\\").casefold()
-    executable_match = Path(action_executable or "").name.casefold() in ("powershell.exe", "pwsh.exe")
+    executable_text = str(action_executable or "")
+    executable_name = Path(executable_text.replace("\\", "/")).name.casefold()
+    executable_known = executable_name in ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
+    executable_absolute = Path(executable_text).is_absolute()
     working_norm = str(working_directory or "").replace("/", "\\").rstrip("\\").casefold()
     return {
         "release_exists": release.is_dir(),
         "marker_matches_expected": marker_sha,
         "runner_exists": runner.is_file() and not runner.is_symlink(),
-        "action_executable_is_powershell": executable_match,
+        "action_executable_recognized": executable_known,
+        "action_executable_resolution": "VERIFIED_PATH" if executable_known and executable_absolute else "UNVERIFIED",
         "working_directory_matches_release": working_norm == release_norm,
     }
 
@@ -87,12 +77,6 @@ def scheduled_task_report(task_name: str = DEFAULT_TASK, *, expected_release: Pa
         action_runner_reference = any(value.replace("/", "\\").casefold() == runner_reference.casefold()
                                       for value in argument_values)
         release = release_report(expected_release, expected_sha, action_executable, working_directory)
-        try:
-            subprocess.run(["icacls", str(expected_release)], capture_output=True,
-                           text=True, timeout=2, check=False, shell=False)
-            acl_protected = None  # Text ACL summaries cannot prove effective SID-based write access.
-        except (OSError, subprocess.TimeoutExpired):
-            acl_protected = None
         return {
             "available": True,
             "registered": True,
@@ -101,10 +85,11 @@ def scheduled_task_report(task_name: str = DEFAULT_TASK, *, expected_release: Pa
             "run_level": int(principal.RunLevel),
             "logon_type": int(principal.LogonType),
             "action_count": int(definition.Actions.Count),
-            "action_executable_is_powershell": release["action_executable_is_powershell"],
+            "action_executable_recognized": release["action_executable_recognized"],
+            "action_executable_resolution": release["action_executable_resolution"],
             "action_runner_sha_reference_matches": action_sha_reference and action_runner_reference,
             "working_directory_match": release["working_directory_matches_release"],
-            "release_acl_protection": "UNKNOWN" if acl_protected is None else "CHECKED",
+            "release_acl_protection": "UNKNOWN",
             "arguments_emitted": False,
             "principal_identity_inspected": False,
         }
