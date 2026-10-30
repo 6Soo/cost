@@ -5,7 +5,26 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from app import google_authority
-from . import google_ledger_page, ledger_board, sheet_expense_reconciliation
+from . import google_ledger_page, ledger_board, read_scope, sheet_expense_reconciliation
+
+
+def _source_bundle():
+    """One consistent canonical input for one read-only render or audit."""
+    path = google_ledger_page.snapshot_path()
+    rows_path = google_ledger_page.rows_path()
+    def load():
+        try:
+            snapshot, rows = google_authority.load_consistent(path, rows_path)
+            snapshot = google_ledger_page.snapshot_for_display(snapshot)
+            mapping = google_ledger_page.load_mapping(path)
+            payload = google_ledger_page.owner_payload(snapshot, google_ledger_page.load_choices(path))
+            return snapshot, rows, mapping, payload
+        except Exception as error:
+            return error
+    result = read_scope.remember(('expense-amount-source', str(path), str(rows_path)), load)
+    if isinstance(result, Exception):
+        raise result
+    return result
 
 
 def _amount(value):
@@ -57,19 +76,13 @@ def build_state(board, trip_id, cost_rows=None):
                      sheet_expense_reconciliation._cost_preview_rows(store, str(trip_id)))
         if not google_ledger_page.enabled():
             raise ValueError('GOOGLE_SOURCE_DISABLED')
-        snapshot_path = google_ledger_page.snapshot_path()
-        snapshot, all_rows = google_authority.load_consistent(
-            snapshot_path, google_ledger_page.rows_path())
-        snapshot = google_ledger_page.snapshot_for_display(snapshot)
+        snapshot, all_rows, mapping, resolved = _source_bundle()
         last_success_at = snapshot.get('synced_at')
-        mapping = google_ledger_page.load_mapping(snapshot_path)
         keys = [key for key, mapped_trip in mapping.items()
                 if str(mapped_trip) == str(trip_id)]
         if len(keys) != 1:
             raise ValueError('TRIP_MAPPING_UNAVAILABLE')
         google_key = keys[0]
-        resolved = google_ledger_page.owner_payload(
-            snapshot, google_ledger_page.load_choices(snapshot_path))
         trip_matches = [item for item in resolved.get('trips', [])
                         if item.get('key') == google_key]
         if len(trip_matches) != 1:
@@ -159,6 +172,44 @@ def build_state(board, trip_id, cost_rows=None):
                  'RECONCILIATION_INVALID', 'INVALID_OR_UNCERTAIN_ROW'}
         reason = str(error) if isinstance(error, ValueError) and str(error) in codes else 'SOURCE_UNAVAILABLE'
         return _state_unavailable(trip_id, reason, locals().get('last_success_at'))
+
+
+@read_scope.scoped
+def audit_all_trips(board):
+    """Audit existing amount groups without exposing names, amounts or source IDs.
+
+    Google row positions and group counts locate a discrepancy. They do not
+    establish a transaction identity or authorize copying any particular row.
+    """
+    if getattr(board, 'current_role', ledger_board.current_role)() != 'owner':
+        return {'available': False, 'reason': 'OWNER_REQUIRED', 'trips': []}
+    from app.quarter_tab import parse_tab
+    store = getattr(board, 'store', None) or board
+    try:
+        trips = store.list_trips(include_archived=True)
+    except Exception:
+        return {'available': False, 'reason': 'COST_TRIP_UNAVAILABLE', 'trips': []}
+    reports = []
+    for trip in trips:
+        tid = str(trip.get('tab_id') or '')
+        if (not tid or tid in ('unclassified', 'refunds') or parse_tab(tid) or tid.startswith('quarter:')
+                or trip.get('deleted') or trip.get('kind') == 'quarter'):
+            continue
+        state = build_state(board, tid)
+        available = state.get('available') is True
+        reports.append({'trip_id': tid, 'available': available,
+                        'reason': state.get('reason'), 'last_success_at': state.get('last_success_at'),
+                        'summary': dict(state['summary']) if available else None,
+                        'groups': [{'status': g['status'], 'cost_count': g['cost_count'],
+                                    'google_count': g['google_count'],
+                                    'count_difference': g['cost_count'] - g['google_count'],
+                                    'google_row_numbers': [r['row_number'] for r in g.get('google_rows', [])],
+                                    'copy_review_required': g['status'] in ('partial', 'unrecorded')}
+                                   for g in state.get('groups', [])] if available else []})
+    return {'available': True, 'trips': reports, 'trip_count': len(reports),
+            'comparable_trip_count': sum(r['available'] for r in reports),
+            'unavailable_trip_count': sum(not r['available'] for r in reports),
+            'copy_authorization': 'EXISTING_EXPORT_PREVIEW_REQUIRED'}
 
 
 def sort_for_display(rows, state):

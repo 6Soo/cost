@@ -93,6 +93,7 @@ def _candidate_reasons(event, card, rules):
     return "NO_CARD_CANDIDATE"
 
 
+@ota_payments.provider_resolution_scope()
 def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
                           frozen_groups=None, source_diagnostics=None,
                           observation_report=None, run_secret=None,
