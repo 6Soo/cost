@@ -1,8 +1,10 @@
 """Bounded, read-only runtime acceptance diagnostics for the COST host.
 
 Reports only normalized task metadata, SHA match booleans, HTTP status/latency
-aggregates and byte counts. It never reads task arguments, process command lines,
-environment values, response bodies, configuration contents or database rows.
+aggregates and byte counts. Task arguments are inspected only in memory to
+verify the expected runner path and SHA; their contents are never emitted.
+Process command lines, environment values, response bodies, configuration
+contents and database rows are not read.
 """
 from __future__ import annotations
 
@@ -11,7 +13,9 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import statistics
+import subprocess
 import time
 from urllib.parse import urlsplit
 import urllib.error
@@ -41,23 +45,18 @@ def release_report(release: Path, expected_sha: str, action_executable: str | No
         marker_value = marker.read_text(encoding="ascii").strip()
     except (OSError, UnicodeError):
         marker_value = ""
-    launcher = release / "tools" / "launch_web_ledger.py"
     marker_sha = marker_value.lower() == expected_sha.lower()
-    launcher_sha = _sha(launcher)
-    normalized_launcher = str(launcher.resolve()).casefold()
-    action_norm = str(action_executable or "").replace("/", "\\").rstrip("\\").casefold()
+    runner = release / "tools" / "start_web_ledger_host.ps1"
+    action_norm = str(action_executable or "").replace("/", "\\").casefold()
     release_norm = str(release).replace("/", "\\").rstrip("\\").casefold()
-    action_release_match = action_norm == (release_norm + "\\tools\\launch_web_ledger.py")
+    executable_match = Path(action_executable or "").name.casefold() in ("powershell.exe", "pwsh.exe")
     working_norm = str(working_directory or "").replace("/", "\\").rstrip("\\").casefold()
-    working_match = working_norm == release_norm
     return {
         "release_exists": release.is_dir(),
         "marker_matches_expected": marker_sha,
-        "launcher_exists": launcher.is_file() and not launcher.is_symlink(),
-        "launcher_sha256": launcher_sha,
-        "action_executable_matches_release_launcher": action_release_match,
-        "working_directory_matches_release": working_match,
-        "launcher_sha256_available": launcher_sha is not None,
+        "runner_exists": runner.is_file() and not runner.is_symlink(),
+        "action_executable_is_powershell": executable_match,
+        "working_directory_matches_release": working_norm == release_norm,
     }
 
 
@@ -76,16 +75,22 @@ def scheduled_task_report(task_name: str = DEFAULT_TASK, *, expected_release: Pa
         action = definition.Actions.Item(1)
         action_executable = str(action.Path)
         working_directory = str(action.WorkingDirectory)
+        arguments = str(action.Arguments)
+        release_path = str(expected_release).replace("/", "\\").rstrip("\\")
+        runner_reference = release_path + "\\tools\\start_web_ledger_host.ps1"
+        argument_tokens = re.findall(r'"([^\"]+)"|([^\s]+)', arguments)
+        argument_values = [quoted or bare for quoted, bare in argument_tokens]
+        action_sha_reference = any(
+            re.search(r"(?<![0-9a-f])" + re.escape(expected_sha) + r"(?![0-9a-f])", value, re.I)
+            for value in argument_values
+        )
+        action_runner_reference = any(value.replace("/", "\\").casefold() == runner_reference.casefold()
+                                      for value in argument_values)
         release = release_report(expected_release, expected_sha, action_executable, working_directory)
         try:
-            import os
-            import subprocess
-            acl = subprocess.run(["icacls", str(expected_release)], capture_output=True,
-                                 text=True, timeout=2, check=False, shell=False)
-            acl_text = acl.stdout.casefold()
-            acl_protected = acl.returncode == 0 and not any(
-                marker in acl_text for marker in ("everyone:(f)", "users:(f)", "authenticated users:(f)", "builtin\\users:(m)")
-            )
+            subprocess.run(["icacls", str(expected_release)], capture_output=True,
+                           text=True, timeout=2, check=False, shell=False)
+            acl_protected = None  # Text ACL summaries cannot prove effective SID-based write access.
         except (OSError, subprocess.TimeoutExpired):
             acl_protected = None
         return {
@@ -96,11 +101,11 @@ def scheduled_task_report(task_name: str = DEFAULT_TASK, *, expected_release: Pa
             "run_level": int(principal.RunLevel),
             "logon_type": int(principal.LogonType),
             "action_count": int(definition.Actions.Count),
-            "action_path_inspected_internally": True,
-            "action_release_sha_match": release["marker_matches_expected"] and release["action_executable_matches_release_launcher"],
+            "action_executable_is_powershell": release["action_executable_is_powershell"],
+            "action_runner_sha_reference_matches": action_sha_reference and action_runner_reference,
             "working_directory_match": release["working_directory_matches_release"],
-            "release_acl_protected": acl_protected,
-            "arguments_inspected": False,
+            "release_acl_protection": "UNKNOWN" if acl_protected is None else "CHECKED",
+            "arguments_emitted": False,
             "principal_identity_inspected": False,
         }
     except ImportError:
@@ -142,6 +147,10 @@ def probe_http(urls=DEFAULT_URLS, samples: int = 5, timeout: float = 1.5) -> dic
                     sizes.append(len(response.read(65536)))
             except urllib.error.HTTPError as error:
                 statuses.append(int(error.code))
+                sizes.append(0)
+                failures += 1
+            except urllib.error.URLError:
+                statuses.append(310)  # redirect refused by the no-redirect opener
                 sizes.append(0)
                 failures += 1
             except (OSError, TimeoutError):
