@@ -9,8 +9,8 @@ def test_release_report_only_exposes_marker_runner_and_path_booleans(tmp_path):
     runner = tmp_path / "tools" / "start_web_ledger_host.ps1"
     runner.parent.mkdir()
     runner.write_text("synthetic runner", encoding="utf-8")
-    (tmp_path / "DEPLOYED_COMMIT").write_text("abc123\n", encoding="ascii")
-    report = acceptance.release_report(tmp_path, "abc123")
+    (tmp_path / "DEPLOYED_COMMIT").write_text("a" * 40 + "\n", encoding="ascii")
+    report = acceptance.release_report(tmp_path, "a" * 40)
     assert report["marker_matches_expected"] is True
     assert report["runner_exists"] is True
     assert report["action_executable_recognized"] is False
@@ -83,7 +83,7 @@ def test_task_report_never_returns_action_or_principal(monkeypatch):
                                               expected_sha='a' * 40, client=client)
     assert report["registered"] and report["enabled"]
     assert report["action_executable_recognized"] is True
-    assert report["action_executable_resolution"] == "VERIFIED_PATH"
+    assert report["action_executable_resolution"] == "ABSOLUTE_PATH_ONLY"
     assert report["action_runner_sha_reference_matches"] is True
     assert report["working_directory_match"] is False
     assert report["release_acl_protection"] == "UNKNOWN"
@@ -132,3 +132,18 @@ def test_redirect_response_is_rejected_without_following(monkeypatch):
     assert calls == [True]
     assert result["results"][0]["failures"] == 1
     assert result["results"][0]["status_counts"] == {"302": 1}
+
+
+def test_connection_error_does_not_fabricate_http_status(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise acceptance.urllib.error.URLError("synthetic connection refused")
+    monkeypatch.setattr(acceptance.urllib.request.OpenerDirector, "open", unavailable)
+    row = acceptance.probe_http(samples=1)["results"][0]
+    assert row["failures"] == 1
+    assert row["status_counts"] == {}
+
+
+@pytest.mark.parametrize("sha", ["", "abc123", "g" * 40])
+def test_invalid_expected_sha_cannot_match_missing_marker(tmp_path, sha):
+    with pytest.raises(ValueError, match="full Git commit"):
+        acceptance.release_report(tmp_path, sha)

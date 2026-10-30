@@ -37,8 +37,8 @@ def test_no_manual_toggle_or_localstorage_in_css():
     assert 'data-theme-icon="dark"' in site_shell.BUTTON
     assert 'aria-label="다크모드로 전환"' in site_shell.BUTTON
     assert 'localStorage' in site_theme.BOOTSTRAP
-    assert 'localStorage' not in site_assets.SHELL_STYLE.lower()
-    assert 'localStorage' not in site_assets.THEME_STYLE.lower()
+    assert 'localstorage' not in site_assets.SHELL_STYLE.lower()
+    assert 'localstorage' not in site_assets.THEME_STYLE.lower()
 
 
 def test_common_selectors_use_token_variables():

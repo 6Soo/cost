@@ -27,6 +27,8 @@ MAX_TIMEOUT = 3.0
 
 def release_report(release: Path, expected_sha: str, action_executable: str | None = None,
                    working_directory: str | None = None) -> dict:
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_sha):
+        raise ValueError("expected SHA must be a full Git commit ID")
     marker = release / "DEPLOYED_COMMIT"
     try:
         marker_value = marker.read_text(encoding="ascii").strip()
@@ -45,7 +47,7 @@ def release_report(release: Path, expected_sha: str, action_executable: str | No
         "marker_matches_expected": marker_sha,
         "runner_exists": runner.is_file() and not runner.is_symlink(),
         "action_executable_recognized": executable_known,
-        "action_executable_resolution": "VERIFIED_PATH" if executable_known and executable_absolute else "UNVERIFIED",
+        "action_executable_resolution": "ABSOLUTE_PATH_ONLY" if executable_known and executable_absolute else "UNVERIFIED",
         "working_directory_matches_release": working_norm == release_norm,
     }
 
@@ -135,8 +137,6 @@ def probe_http(urls=DEFAULT_URLS, samples: int = 5, timeout: float = 1.5) -> dic
                 sizes.append(0)
                 failures += 1
             except urllib.error.URLError:
-                statuses.append(310)  # redirect refused by the no-redirect opener
-                sizes.append(0)
                 failures += 1
             except (OSError, TimeoutError):
                 failures += 1
