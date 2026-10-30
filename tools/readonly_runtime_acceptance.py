@@ -23,6 +23,8 @@ DEFAULT_TASK = "WebLedger-Board"
 DEFAULT_URLS = ("http://127.0.0.1:8751/healthz", "http://127.0.0.1:8751/readyz")
 MAX_SAMPLES = 20
 MAX_TIMEOUT = 3.0
+# Fail-closed: DEPLOYED_COMMIT marker must be small (1 KiB) to prevent memory exhaustion
+MAX_MARKER_BYTES = 1024
 
 
 def release_report(release: Path, expected_sha: str, action_executable: str | None = None,
@@ -31,7 +33,12 @@ def release_report(release: Path, expected_sha: str, action_executable: str | No
         raise ValueError("expected SHA must be a full Git commit ID")
     marker = release / "DEPLOYED_COMMIT"
     try:
-        marker_value = marker.read_text(encoding="ascii").strip()
+        with marker.open('rb') as f:
+            data = f.read(MAX_MARKER_BYTES + 1)
+        if len(data) > MAX_MARKER_BYTES:
+            marker_value = ""
+        else:
+            marker_value = data.decode('ascii').strip()
     except (OSError, UnicodeError):
         marker_value = ""
     marker_sha = marker_value.lower() == expected_sha.lower()

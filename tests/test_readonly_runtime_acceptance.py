@@ -147,3 +147,18 @@ def test_connection_error_does_not_fabricate_http_status(monkeypatch):
 def test_invalid_expected_sha_cannot_match_missing_marker(tmp_path, sha):
     with pytest.raises(ValueError, match="full Git commit"):
         acceptance.release_report(tmp_path, sha)
+
+
+def test_marker_file_size_limit_fail_closed(tmp_path):
+    runner = tmp_path / "tools" / "start_web_ledger_host.ps1"
+    runner.parent.mkdir()
+    runner.write_text("synthetic runner", encoding="utf-8")
+    sha = "a" * 40
+    # Normal size marker (41 bytes) - should match
+    (tmp_path / "DEPLOYED_COMMIT").write_text(sha + "\n", encoding="ascii")
+    report = acceptance.release_report(tmp_path, sha)
+    assert report["marker_matches_expected"] is True
+    # Oversized marker (2 KiB) - should not match (fail-closed)
+    (tmp_path / "DEPLOYED_COMMIT").write_text("x" * 2048, encoding="ascii")
+    report = acceptance.release_report(tmp_path, sha)
+    assert report["marker_matches_expected"] is False
