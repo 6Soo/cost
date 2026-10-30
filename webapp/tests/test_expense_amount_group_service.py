@@ -93,6 +93,8 @@ def test_build_loads_whole_rows_preserves_board_ids_and_detail(monkeypatch):
     assert captured['costs'][0]['date'] == '2026-10-01'
     assert captured['costs'][0]['payee'] == 'Cafe'
     assert captured['google'][0]['ref']
+    assert captured['google'][0]['row_number'] == 12
+    assert [r['row_number'] for r in state['groups'][0]['google_rows']] == [12, 13]
     assert captured['google'][0]['payee'] == 'Hotel'
     assert len(captured['google']) == 2
     assert captured['kwargs']['available'] is True

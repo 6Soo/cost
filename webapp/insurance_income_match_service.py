@@ -114,6 +114,18 @@ def build_state(query=None, *, review=None, trips=None, context=None):
         blocked = not ids or bool(ids - all_ids) or bool(ids & set(context.get('blocked_trip_ids', ())))
         income_rows = [row for tid in sorted(ids) for row in context['rows_by_trip'].get(tid, [])] if not blocked else []
         matched = match_contract(contract, income_rows)
+        # Inferred date overlap is a search aid, not an authoritative roster
+        # assignment. Offer otherwise missed text hits from other verified trips
+        # as explicit review candidates, while respecting selected/mapped scope.
+        if not blocked and not selected and not mapped and periods:
+            outside = [row for tid, rows in context['rows_by_trip'].items() if tid not in ids
+                       for row in rows]
+            fallback = match_contract(contract, outside)
+            for row, other in zip(matched['rows'], fallback['rows']):
+                if row['match_state'] == 'unmatched' and other['candidate_count']:
+                    matched['counts']['unmatched'] -= 1
+                    matched['counts']['ambiguous'] += 1
+                    row.update(other, match_state='ambiguous', outside_trip_scope=True)
         if blocked:
             matched = {'rows': [dict(row, match_state='source_unavailable', matches=[], candidate_count=0)
                                 for row in contract['rows']],
@@ -126,6 +138,7 @@ def build_state(query=None, *, review=None, trips=None, context=None):
         for key, count in matched['counts'].items():
             totals[key] += count
     fingerprint = hashlib.sha256(json.dumps({
+        'matcher': 'masked-candidates-v2',
         'review': review['fingerprint'], 'generation': context.get('generation'),
         'mapping': context.get('mapping'), 'choices': context.get('choices'), 'trip': selected,
         'contract': contract_filter, 'trips': trips,
@@ -133,7 +146,7 @@ def build_state(query=None, *, review=None, trips=None, context=None):
         'income': sorted((row['ref'], row['fingerprint']) for rows in context['rows_by_trip'].values() for row in rows),
     }, ensure_ascii=True, sort_keys=True).encode()).hexdigest()
     return {'available': True, 'code': 'PARTIAL' if totals['source_unavailable'] else 'OK',
-            'message': '보이는 글자와 글자 수가 일치하는 기존 수입을 대조했습니다.',
+            'message': '기존 수입의 이름·닉네임과 대조했습니다.',
             'fingerprint': fingerprint, 'contracts': contracts, 'counts': totals,
             'contract_options': [{'contract_key': item['contract_key'],
                                   'travel_start': item['travel_start'], 'travel_end': item['travel_end'],

@@ -59,7 +59,10 @@ def status_cell(annotation: Mapping[str, object] | None) -> str:
             detail += f" · 차이 {abs(int(cost_count) - int(google_count))}건"
         except (TypeError, ValueError, OverflowError):
             pass
-    detail += " · 개별 행의 신원이나 장부 반영을 증명하지 않습니다."
+    if status == 'unavailable':
+        detail = label + ' · ' + _reason_label(annotation.get('reason'))
+        if annotation.get('last_success_at'):
+            detail += ' · 마지막 정상 조회 ' + str(annotation['last_success_at'])
     if not annotation.get('group_id') or status == 'unavailable':
         return (f"<td class='gemn-desktop gemn-status-cell gemn-unavailable' title='{_esc(detail)}'>"
                 f"<span aria-hidden='true'>{icon}</span> {_esc(label)}</td>")
@@ -104,7 +107,8 @@ def _row_label(row: object, identifier_key: str) -> str:
     if not isinstance(row, Mapping):
         return _esc(row)
     identifier = row.get(identifier_key, "")
-    details = [f"ID {identifier}"] if identifier != "" else []
+    details = ([f"Google 행 {row['row_number']}"] if type(row.get('row_number')) is int else
+               [f"ID {identifier}"] if identifier != "" else [])
     for key, label in (("date", "날짜"), ("description", "내용"), ("payee", "가맹점")):
         value = row.get(key)
         if value not in (None, ""):
@@ -117,11 +121,11 @@ def render_groups(state: Mapping[str, object]) -> str:
     groups = state.get("groups") or []
     if not isinstance(groups, Sequence) or isinstance(groups, (str, bytes)):
         groups = []
-    output = ["<div class='gemn-desktop gemn-groups' aria-label='금액 그룹 대조 상세'>"]
     if state.get("available") is not True:
-        reason = _reason_label(state.get("reason"))
-        output.append(f"<p role='status'>{_esc(reason)}</p></div>")
-        return "".join(output)
+        return ''
+    output = ["<dialog class='gemn-dialog' aria-label='금액 그룹 상세'>"
+              "<button type='button' class='gemn-close' data-gemn-close autofocus>닫기</button>"
+              "<div class='gemn-groups'>"]
     for group in groups:
         if not isinstance(group, Mapping):
             continue
@@ -145,14 +149,13 @@ def render_groups(state: Mapping[str, object]) -> str:
             title += f" · {amount_text}"
         dom_id = _group_dom_id(group)
         output.append(f"<details id='{dom_id}' class='gemn-group'><summary>{_esc(title)}</summary>")
-        output.append("<p>후보 관계는 양측 목록의 모든 조합입니다. 개별 행 연결을 확정하지 않습니다.</p>")
         output.append(f"<section aria-label='COST 원행 {m}건'><h4>COST 지출 원행 ({_esc(m)}건)</h4><ul>")
         output.extend(f"<li>{_row_label(row, 'row_id')}</li>" for row in costs)
         output.append("</ul></section>")
         output.append(f"<section aria-label='Google 원행 {n}건'><h4>Google 지출 원행 ({_esc(n)}건)</h4><ul>")
         output.extend(f"<li>{_row_label(row, 'ref')}</li>" for row in googles)
         output.append("</ul></section></details>")
-    output.append("</div>")
+    output.append("</div></dialog>")
     return "".join(output)
 
 
@@ -172,6 +175,10 @@ def styles() -> str:
             ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-accent,#1C7A52)}"
             ".gemn-partial{color:var(--shell-warn,#B54708)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted,#475569)}"
             ".gemn-count{font-variant-numeric:tabular-nums}"
+            ".gemn-dialog{color:var(--shell-ink);background:var(--shell-paper,#fff);border:1px solid var(--shell-line);"
+            "border-radius:8px;max-width:min(850px,90vw);max-height:80vh;overflow:auto}"
+            ".gemn-dialog::backdrop{background:#0006}.gemn-close{float:right;font:inherit;padding:8px 16px;cursor:pointer}"
+            "@media(max-width:899px){.gemn-dialog{display:none!important}}"
             "@media(min-width:900px){th.gemn-desktop.gemn-desktop,td.gemn-desktop.gemn-desktop{display:table-cell!important}"
             "col.gemn-column{display:table-column!important;width:170px}"
             ".gemn-summary.gemn-desktop.gemn-desktop{display:flex!important}"

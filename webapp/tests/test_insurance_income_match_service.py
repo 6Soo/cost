@@ -129,3 +129,17 @@ def test_availability_and_trip_scope_changes_invalidate_result_fingerprint():
     first = build_state(review=review, trips=trips, context=context)['fingerprint']
     context['blocked_trip_ids'] = {'trip-a'}
     assert build_state(review=review, trips=trips, context=context)['fingerprint'] != first
+
+
+def test_inferred_period_miss_offers_other_trip_as_review_only_and_respects_explicit_scope():
+    review, trips, context = inputs()
+    context['rows_by_trip']['trip-a'][0]['name'] = '다른이'
+    result = build_state(review=review, trips=trips, context=context)
+    row = result['contracts'][0]['rows'][0]
+    assert row['match_state'] == 'ambiguous' and row['outside_trip_scope']
+    assert row['matches'][0]['trip_id'] == 'trip-b'
+    assert result['counts']['matched'] == result['counts']['unmatched'] == 0
+    selected = build_state({'trip': ['trip-a']}, review=review, trips=trips, context=context)
+    assert selected['counts']['unmatched'] == 1
+    review['contracts'][0]['cost_trip_id'] = 'trip-a'
+    assert build_state(review=review, trips=trips, context=context)['counts']['unmatched'] == 1

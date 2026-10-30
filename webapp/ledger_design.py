@@ -1087,7 +1087,8 @@ def _column_head_row() -> str:
 def _amount_group_cell(state, row_id):
     from .expense_amount_group_ui import status_cell
     annotation = (state.get('by_cost_id') or {}).get(row_id)
-    return status_cell(annotation)
+    return status_cell(annotation or {'status': 'unavailable', 'reason': state.get('reason'),
+                                     'last_success_at': state.get('last_success_at')})
 
 
 def _amount_group_state(tab_id, rows, kind=''):
@@ -1100,6 +1101,8 @@ def _amount_group_state(tab_id, rows, kind=''):
 def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board", match_annotations=None,
                  amount_groups=None) -> str:
     from . import expense_amount_group_ui as gemn
+    from .expense_amount_group_service import sort_for_display
+    expenses = sort_for_display(expenses, amount_groups)
     enabled = amount_groups is not None
     extra_col = "<col class='gemn-desktop gemn-column'>" if enabled else ''
     extra_header = gemn.header_cell() if enabled else ''
@@ -1138,7 +1141,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         + "</table></div>")
     if amount_groups is None:
         return head + groups
-    return gemn.styles() + gemn.render_summary(amount_groups) + head + groups + gemn.render_groups(amount_groups)
+    return gemn.styles() + head + groups + gemn.render_groups(amount_groups)
 
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,

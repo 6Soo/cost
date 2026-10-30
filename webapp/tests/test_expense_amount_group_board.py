@@ -61,11 +61,16 @@ def test_board_status_opens_its_group_without_opening_transaction_panel():
             page.on('request', lambda request: calls.append(request.url))
             page.set_content(document)
             button = page.locator('[data-gemn-group]').first
+            assert page.locator('.gemn-summary').count() == 0
+            assert page.locator('.gemn-dialog').is_hidden()
             button.click()
             target = button.get_attribute('data-gemn-group')
             assert page.locator('#' + target).get_attribute('open') is not None
             assert not any('/api/rows' in url or '/api/row/' in url for url in calls)
             assert page.locator('#' + target + ' li').count() == 6
+            assert page.locator('.gemn-dialog').is_visible()
+            page.locator('[data-gemn-close]').click()
+            assert page.locator('.gemn-dialog').is_hidden()
             for width in (899, 900, 1280):
                 page.set_viewport_size({'width': width, 'height': 900})
                 assert button.is_visible() == (width >= 900)
@@ -73,3 +78,43 @@ def test_board_status_opens_its_group_without_opening_transaction_panel():
             assert page.locator('col.gemn-column').evaluate('e => getComputedStyle(e).display') == 'table-column'
         finally:
             browser.close()
+
+
+def test_google_row_order_groups_matches_first_without_mutation():
+    from webapp.expense_amount_group_service import sort_for_display
+    costs = [{'row_id': key, 'trip_id': 't', 'amount_krw': amount, 'currency': 'KRW', 'occurred_on': '2026-10-01'}
+             for key, amount in [('missing', 99), ('late', 20), ('partial-a', 30),
+                                 ('early', 10), ('partial-b', 30)]]
+    google = [{'ref': str(i), 'row_number': i, 'trip_id': 't', 'amount_krw': amount, 'currency': 'KRW'}
+              for i, amount in [(100, 20), (8, 10), (3, 30)]]
+    before = deepcopy((costs, google))
+    state = reconcile_expense_amount_groups('t', costs, google)
+    expected = ['early', 'late', 'partial-a', 'partial-b', 'missing']
+    assert [r['row_id'] for r in sort_for_display(costs, state)] == expected
+    assert [r['row_id'] for r in sort_for_display(costs[1:4], state)] == ['early', 'late', 'partial-a']
+    assert sort_for_display(costs, {'available': False}) == costs
+    assert (costs, google) == before
+    markup = design._tables_html([], costs, selected='', unclassified=False, amount_groups=state)
+    positions = [markup.index("data-id='" + key + "'") for key in expected]
+    assert positions == sorted(positions)
+
+
+def test_full_and_live_renderers_sort_table_but_keep_original_copy_order(monkeypatch):
+    costs, _ = fixture_state()
+    for i, row in enumerate(costs):
+        row['amount_krw'] = (i + 1) * 100
+    google = [{'ref': str(i), 'row_number': i, 'trip_id': 'trip-synthetic',
+               'amount_krw': amount, 'currency': 'KRW'} for i, amount in [(5, 300), (10, 200)]]
+    state = reconcile_expense_amount_groups('trip-synthetic', costs, google)
+    monkeypatch.setattr(design, '_STORE_missing', lambda: False)
+    monkeypatch.setattr(design, '_selected_rows', lambda *a: ([], costs, [], costs))
+    monkeypatch.setattr(design, '_amount_group_state', lambda *a: state)
+    monkeypatch.setattr(design, '_google_match_annotations', lambda *a: {})
+    copied = []
+    monkeypatch.setattr(design, '_trip_copy_html', lambda tid, rows: copied.append([r['row_id'] for r in rows]) or '')
+    for renderer in (design.rows_region, design.rows_part):
+        markup = renderer('trip-synthetic')
+        positions = [markup.index("data-id='cost-" + str(i) + "'") for i in (2, 1, 0)]
+        assert positions == sorted(positions)
+        assert "class='gemn-desktop gemn-summary'" not in markup
+    assert copied == [['cost-0', 'cost-1', 'cost-2']] * 2

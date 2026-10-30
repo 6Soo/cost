@@ -131,6 +131,7 @@ def build_state(board, trip_id, cost_rows=None):
             if str(currency).upper() != 'KRW' or not row.get('sheet_row_key'):
                 raise ValueError('AMOUNT_UNCERTAIN')
             google.append({'ref': str(row.get('sheet_row_key')),
+                           'row_number': row.get('row_number'),
                            'trip_id': str(trip_id), 'amount_krw': amount, 'currency': 'KRW',
                            'date': row.get('date') or '',
                            'description': row.get('description') or row.get('category') or '',
@@ -158,3 +159,24 @@ def build_state(board, trip_id, cost_rows=None):
                  'RECONCILIATION_INVALID', 'INVALID_OR_UNCERTAIN_ROW'}
         reason = str(error) if isinstance(error, ValueError) and str(error) in codes else 'SOURCE_UNAVAILABLE'
         return _state_unavailable(trip_id, reason, locals().get('last_success_at'))
+
+
+def sort_for_display(rows, state):
+    """Stable display-only order: exact groups, partial groups, then no match.
+
+    Within each matching tier use the first actual Google sheet row. M:N
+    groups share that position; input order breaks ties without inventing pairs.
+    """
+    if not state or state.get('available') is not True:
+        return list(rows)
+    positions = {}
+    for group in state.get('groups') or []:
+        numbers = [r['row_number'] for r in group.get('google_rows') or []
+                   if type(r.get('row_number')) is int and r['row_number'] > 0]
+        positions[group['group_id']] = min(numbers) if numbers else float('inf')
+    annotations = state.get('by_cost_id') or {}
+    def key(row):
+        annotation = annotations.get(row.get('row_id')) or {}
+        tier = {'matched': 0, 'partial': 1}.get(annotation.get('status'), 2)
+        return tier, positions.get(annotation.get('group_id'), float('inf')) if tier < 2 else float('inf')
+    return sorted(rows, key=key)

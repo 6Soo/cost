@@ -166,3 +166,22 @@ def test_candidate_choices_are_capped_but_count_retains_total():
     assert result["match_state"] == "ambiguous"
     assert len(result["matches"]) == 20
     assert result["candidate_count"] == 25
+
+
+def test_fixed_multi_mask_token_finds_candidates_without_claiming_unique_identity():
+    contract = {'rows': [{'review_row_id': 'r', 'masked_name': '김***수'}]}
+    assert match_masked_name('김***수', '김민수')
+    assert match_masked_name('김***수', '김가나다수')
+    assert not match_masked_name('김***수', '김수')
+    assert not match_masked_name('김***수', '이민수')
+    result = match_contract(contract, [{'name': '김민수', 'ref': 'i'}])['rows'][0]
+    assert result['match_state'] == 'ambiguous'
+    assert result['candidate_count'] == 1 and result['mask_length_unknown']
+    assert not match_masked_name('김*수', '김가나수')
+    assert not match_masked_name('***', '김민수')
+
+
+def test_repeated_mask_runs_are_bounded_and_visible_letters_remain_anchored():
+    assert not match_masked_name(('가***' * 40) + '나', '가' * 100)
+    assert match_masked_name('가**나**다', '가마나바다')
+    assert not match_masked_name('가**나**다', '가마다나')

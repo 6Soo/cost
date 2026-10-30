@@ -11,7 +11,7 @@ PAGE_SIZE = 50
 STATE_LABELS = {
     "matched": "글자 일치",
     "unique": "글자 일치",
-    "ambiguous": "후보 여러 건",
+    "ambiguous": "후보 확인",
     "unmatched": "일치 없음",
     "no_visible_letters": "보이는 글자 없음",
     "source_unavailable": "수입 자료 확인 필요",
@@ -51,7 +51,7 @@ def render_page(state: dict, *, query=None) -> str:
     summary_counts = state.get("counts") or {}
     summary = " · ".join(f"{label} {int(summary_counts.get(key, 0) or 0)}건" for key, label in (
         ("contracts", "계약"), ("rows", "명단 행"), ("matched", "글자 일치"),
-        ("ambiguous", "후보 여러 건"), ("unmatched", "일치 없음"),
+        ("ambiguous", "후보 확인"), ("unmatched", "일치 없음"),
         ("no_visible_letters", "보이는 글자 없음"), ("source_unavailable", "수입 자료 확인 필요")))
     options = ["<option value=''>전체 계약</option>"]
     for index, contract in enumerate(state.get('contract_options', contracts), start=1):
@@ -77,6 +77,10 @@ def render_page(state: dict, *, query=None) -> str:
         for index, row in enumerate(rows):
             state_key = str(row.get("match_state") or "unmatched")
             label = STATE_LABELS.get(state_key, "일치 없음")
+            if row.get('outside_trip_scope'):
+                label = '다른 여행 후보'
+            elif row.get('mask_length_unknown') and row.get('candidate_count'):
+                label = '가림 길이 미확인'
             candidates = list(row.get("matches") or [])
             match = candidates[0] if state_key in ("matched", "unique") and candidates else None
             def candidate_detail(item):
