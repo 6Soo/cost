@@ -1,6 +1,6 @@
 # COST 본질적 업무 완성: 잔여 구현·운영 수락 작업 (2026-10-30)
 
-> Status: **PR395 CODE_COMPLETE / MERGED / DEPLOYED; actual acceptance and external gates are tracked below.**
+> Status: **CORE-01..08 code re-audited; PR395/398/400 CODE_COMPLETE / MERGED / DEPLOYED. Actual acceptance and external gates are tracked separately below and in current status.**
 >
 > 핵심 목표: 카드·OTA·현지 영수증 원본 → 안전한 중복/취소/환불 대사 → 실제 여행·분기 귀속 → 사용자 검토 → Google B:H 수기 복사 → Google 정본 읽기에서 반영·마감 확인.
 >
@@ -104,5 +104,5 @@ Runtime58cfa0aa0949a1ad2d83ad691a64c9d7abae5b5e. See [current status](../session
 | CORE-04 | CODE_COMPLETE/DEPLOYED/READONLY_ACCEPTED: collapsed7 paths, current archive closure/unknown handling, synthetic and actual logged-in UI accepted | Independent implementation/read work complete. Actual closure changes need current normal reads of both Google sources |
 | CORE-05 | Existing HOLD reasons/uncertain splitting/corporate-card duplication protections already implemented and targeted tests pass; no duplicate state added | WAIT_EXTERNAL_EVIDENCE: approved receipt image and actual store available through authorized input path; then existing input/review/copy acceptance |
 | CORE-06 | COMPLETE for approved implementation, reader cutover and actual read: reuse unchanged private generation, preserve previous distinct generation and partial-failure source; approved switch to58cfa0aa, actual result0 and main/archive normal16:55:17+09:00 | Old approval wait superseded by user all-proceed and saved cutover/runtime evidence. Future actual source errors or sheet moves trigger normal reader recheck; no actual new sheet move is claimed |
-| CORE-07 | Deployment13-table/health/ready/API protection and actual logged-in trip UI accepted;5 cards GETs200/1527-2042ms | WAIT_EXTERNAL_EVIDENCE: no connected ADB devices; Safari/Android physical tests, real paste and production p95/internal-phase acceptance remain open. Recheck when devices/representative actual samples are available |
+| CORE-07 | PR400 deployedf98e401f: existing bounded metrics now separate card connection/query/labels/render; owner-only aggregate GET; actual authenticated3 card GETs and metric GET200/no-store;13 protected tables unchanged | Phase instrumentation implemented and actual capture accepted. WAIT_EXTERNAL_EVIDENCE for physical Safari/Android, real manual paste and representative production p95. Query includes connection/materialization; no pure SQL CPU or physical-device claim |
 | CORE-08 | Existing masked candidate guard and unavailable-roster/15 Google income row readonly protections verified | WAIT_EXTERNAL_EVIDENCE: configured=false, participant DB/registration receipt absent. Actual authorized DB/receipt and separately approved integration path must exist before operator reruns existing diagnostics; candidates do not prove identity/registration |
