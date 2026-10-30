@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 16:43 Google comparison incident recovery
+
+- User reported all Google expense comparisons unavailable. Same actual source reproduced SOURCE_NOT_VERIFIED on both prior d0d73f8a and deployed58cfa0aa. Cause was the16:00 main-reader SOURCE_UNREACHABLE, not demonstrated code regression.
+- Retried the existing scheduled readonly reader ONCE after its normal backoff expired; task result0, both main/archive normal with last_ok_at2026-10-30T16:43:03.212344+09:00. Schedule/runner unchanged. This supersedes the earlier current-failure observation, but does not activate PR395 generation optimization in the old scheduled runner.
+- Authenticated actual recovered trip GET200:35 matched cells and0 unavailable. Another currently viewed trip remains unavailable for a REAL source formula gap: H47:H75 excludes amount row76; directly inspected workbook in memory, cached total differs from all expense rows. No Google source edit or validation bypass. Another trip has LAYOUT_NOT_STANDARD. These individual source issues must not be reported as an ongoing global outage.
+- Evidence `.local-archive/core-workflow-20261030/google-recovery.json` and `sheet-range-diagnostic.json`; original values/names were not logged. No financial/roster/Google writes, server restart or redeploy. User edits the Google source formula/format, then the existing normal reader must refresh before rechecking those specific trips.
+
+
 ## 2026-10-30 CORE PR394/395 implementation and verified deployment
 
 - Approved specification [PR394](https://github.com/6Soo/cost/pull/394) and implementation [PR395](https://github.com/6Soo/cost/pull/395) merged normally. Tested commit `6387b915deb22dc55cdefd45feac3e0415863163`, runtime SHA `58cfa0aa0949a1ad2d83ad691a64c9d7abae5b5e`; tested and merged trees identical.
