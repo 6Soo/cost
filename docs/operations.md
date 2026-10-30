@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-30 PR382 마스킹 보험 이름·기존 수입 글자 대조 배포
+
+- [PR #382](https://github.com/6Soo/cost/pull/382) 정상 병합, 운영 SHA `6338146ecfd0f48cd89aafb61c63f46a07e94f25`, 이전 검증 `c9336e978eca8ec60f8dccac50284700744f1eab` 복구점 보존. 소유자 GET 화면/API와 같은 세대의 Google 수입 원행을 연결하고, 별도 이름 인덱스 없는 자료도 대조한다.159행의 결과는 단일 후보41·복수 후보20·일치 없음98이며 신원/등록/가입/실제 입금 확정과 구별한다.
+- 검증84 passed(실제 HTTP 권한/GET-only/no-store/오류 상태·후보 충돌·원본 fallback·필터·세대·Chromium320/390/760/1280·설정 경계). 검수/merge tree 동일·1,167 blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 불변. Board/SourceRefresh Running. 기존 Aside 로그인 탭에서 실제 화면 요약과 API200/OK/no-store 확인.
+- 로컬 명단 manifest 연결만 launcher/card-flow 설정으로 활성화하고 변경 전 설정을 배포 근거에 보존했다. 원본 PDF/사진은 배포/Git/웹 응답에 넣지 않았다. 금융/참가자 DB/Google/원문 쓰기·재처리·마이그레이션0. 기존 외부 수락·카드 수집/업로드 중지는 유지한다.
+- 근거: `C:/AX/cost/.local-archive/masked-income-match-20261030/targeted.xml`, `live-smoke.json`, `.local-archive/deploy-6338146ecfd0f48cd89aafb61c63f46a07e94f25/` 및 `D:/WebLedgerHost/releases/deploy-evidence-6338146ecfd0f48cd89aafb61c63f46a07e94f25.json`. 전체 회귀/실기기는 미실행이며 문서 후속으로 재배포하지 않는다.
+
 ## 2026-10-30 전체 미결 후속 PR380 고정 배포
 
 - [PR #380](https://github.com/6Soo/cost/pull/380) 정상 병합·운영 SHA `c9336e978eca8ec60f8dccac50284700744f1eab`, 이전 검증 `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1`. 검수/병합 tree 동일,1,159 blobs 불일치0·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 불변 PASS. Board/SourceRefresh Running. 금융 적용·명단 등록·원문 재처리·Google 쓰기0.
