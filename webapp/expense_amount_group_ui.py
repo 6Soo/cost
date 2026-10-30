@@ -165,7 +165,7 @@ def styles() -> str:
             ".gemn-group{border-top:1px solid var(--shell-line);padding:8px 0}"
             ".gemn-group summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:700}"
             ".gemn-group ul{margin:4px 0;padding-left:22px}.gemn-group li{overflow-wrap:anywhere;margin:3px 0}"
-            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--gemn-success,#1C7A52)}"
+            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-accent,#1C7A52)}"
             ".gemn-partial{color:var(--shell-warn,#B54708)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted,#475569)}"
             ".gemn-count{font-variant-numeric:tabular-nums}"
             "@media(min-width:900px){th.gemn-desktop.gemn-desktop,td.gemn-desktop.gemn-desktop{display:table-cell!important}"
