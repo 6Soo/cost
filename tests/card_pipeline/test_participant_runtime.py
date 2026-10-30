@@ -129,3 +129,11 @@ def test_runtime_cli_exit_contract_with_and_without_receipt(tmp_path):
                               capture_output=True, text=True, env=env, check=False)
     assert mismatch.returncode == 2
     assert json.loads(mismatch.stdout)['status'] == 'blocked'
+
+    # Receipt file size limit (fail-closed)
+    large_receipt = tmp_path / 'large_receipt.json'
+    large_receipt.write_text('{"x": "' + 'a' * 200000 + '"}', encoding='utf-8')
+    oversized = subprocess.run([sys.executable, str(script), '--db', str(db), '--receipt', str(large_receipt)],
+                               capture_output=True, text=True, env=env, check=False)
+    assert oversized.returncode == 2
+    assert json.loads(oversized.stdout)['code'] == 'PARTICIPANT_RECEIPT_TOO_LARGE'

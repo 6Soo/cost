@@ -60,6 +60,9 @@ def status_cell(annotation: Mapping[str, object] | None) -> str:
         except (TypeError, ValueError, OverflowError):
             pass
     detail += " · 개별 행의 신원이나 장부 반영을 증명하지 않습니다."
+    if not annotation.get('group_id') or status == 'unavailable':
+        return (f"<td class='gemn-desktop gemn-status-cell gemn-unavailable' title='{_esc(detail)}'>"
+                f"<span aria-hidden='true'>{icon}</span> {_esc(label)}</td>")
     return (f"<td class='gemn-desktop gemn-status-cell gemn-{tone}'>"
             f"<button type='button' class='gemn-status-button' data-gemn-group='{group_dom_id}' "
             f"aria-label='{_esc(detail)}' aria-controls='{group_dom_id}'>"
@@ -83,6 +86,7 @@ def render_summary(state: Mapping[str, object]) -> str:
     reason = state.get("reason")
     last_success = state.get("last_success_at")
     if not available:
+        counts = '그룹 건수 확인 불가'
         note = f"비교 불가 · {_esc(_reason_label(reason))}"
     else:
         note = "Google 지출 스냅샷 기준"
