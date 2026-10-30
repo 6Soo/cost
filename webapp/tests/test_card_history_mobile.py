@@ -35,7 +35,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             page.goto('http://cost.test/cards/all?year=2026&month=3')
             for theme in ('light', 'dark'):
                 page.emulate_media(color_scheme=theme)
-                for width in (320, 390, 600, 759, 760, 1280):
+                for width in (320, 375, 390, 430, 600, 759, 760, 1280):
                     page.set_viewport_size({'width': width, 'height': 844})
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     rows = page.locator('tr[data-tx-id]')
@@ -43,19 +43,25 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                     assert page.locator('thead th').count() == 4
                     assert page.locator('.detail-cell, .preserved').count() == 0
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-                    assert rows.first.locator('td').first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '1px'
                     if width <= 759:
-                        assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'table-row'
-                        assert all(row.bounding_box()['height'] <= 80 for row in rows.all())
+                        assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'grid'
+                        assert rows.first.locator('.use-datetime').is_hidden()
+                        assert page.locator('.card-all-table thead').is_hidden()
+                        assert rows.first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '1px'
+                        assert all(row.bounding_box()['height'] <= 80 for row in rows.all()), [
+                            (row.get_attribute('data-tx-id'), row.bounding_box()['height'],
+                             row.locator('.merchant').bounding_box(), row.locator('.amount-cell').bounding_box(),
+                             row.locator('.trip').bounding_box()) for row in rows.all()]
                         for row in rows.all():
                             button = row.locator('.card-all-row-toggle').bounding_box()
                             name = row.locator('.merchant-name').bounding_box()
                             identity = row.locator('.card-identity').bounding_box()
-                            assert button['height'] >= 44
+                            assert row.bounding_box()['height'] >= 44
                             assert button['height'] >= name['height']
                             assert 0 <= identity['y'] - (name['y'] + name['height']) <= 28
-                            tops = [cell.bounding_box()['y'] for cell in row.locator('td').all()]
+                            tops = [row.locator(cell).bounding_box()['y'] for cell in ('.merchant', '.amount-cell')]
                             assert max(tops) - min(tops) <= 1
+                            assert row.locator('.trip').bounding_box()['y'] >= row.locator('.amount-cell').bounding_box()['y']
                         for selector in ('.card-all-table-wrap', '.card-all-filters input[type=search]',
                                          '.card-all-filters select', '.card-all-filters button'):
                             for element in page.locator(selector).all():
@@ -83,7 +89,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             page.set_viewport_size({'width': 640, 'height': 844})
             page.evaluate('document.documentElement.style.zoom="200%"')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
+            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'block'
             link = page.locator('.card-all-row-toggle').first
             link.focus()
             assert link.evaluate('(e)=>e===document.activeElement')
@@ -98,6 +104,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             # All ordinary cells expand in place, including source-only transactions.
             for cell in ('td.use-datetime', 'td.amount-cell', 'td.trip'):
                 page.goto(original)
+                page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})
                 page.locator("tr[data-tx-id='TX-B-01'] " + cell).click()
                 detail = page.locator('#card-detail-TX-B-01')
                 from playwright.sync_api import expect
@@ -113,7 +120,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                 for expanded_width in (320, 390, 600, 759, 760, 1280):
                     page.set_viewport_size({'width': expanded_width, 'height': 844})
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-                page.set_viewport_size({'width': 390, 'height': 844})
+                page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})
                 if cell == 'td.use-datetime':
                     page.screenshot(path=str(output / 'detail-expanded.png'), full_page=True)
                 page.locator("tr[data-tx-id='TX-B-01'] " + cell).click()
