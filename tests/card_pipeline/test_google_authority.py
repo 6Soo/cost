@@ -730,9 +730,9 @@ def test_rows_file_from_another_generation_is_refused(tmp_path: Path):
 def test_previous_generation_is_kept_for_readers_and_the_oldest_is_removed(tmp_path: Path):
     snapshot_path = tmp_path / "snapshot.json"
     rows_path = tmp_path / "rows-private.json"
-    data = _row_book([("A", "식비", 1)])
     gens = []
     for minute in range(3):
+        data = _row_book([("A", "식비", minute + 1)])
         _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW + dt.timedelta(minutes=minute))
         gens.append(json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"])
     assert len(set(gens)) == 3

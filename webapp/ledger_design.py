@@ -1763,7 +1763,12 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
     matches = _google_match_annotations(tab_id, expenses)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
+    workflow = ''
+    if amount_groups is not None:
+        from .trip_workflow import render
+        workflow = render(board._active_store(), tab_id, _whole_expense, amount_groups)
     return (f"<div id='live-rows'>"
+            f"{workflow}"
             f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,

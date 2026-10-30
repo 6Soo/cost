@@ -642,13 +642,21 @@ def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEO
         sources[role] = record
         if rows is not None:
             private[role] = rows
-    generation = uuid.uuid4().hex
-    _write_atomic(_rows_file(rows_path, generation),
-                  {"schema": ROWS_SCHEMA, "generation": generation, "synced_at": checked_at, "sources": private})
+    private_unchanged = (private == previous_rows)
+    previous_gen = previous.get("rows_generation")
+    reuse_gen = private_unchanged and bool(previous_gen)
+    if reuse_gen:
+        generation = previous_gen
+        retained_previous_gen = previous.get("rows_generation_previous")
+    else:
+        generation = uuid.uuid4().hex
+        retained_previous_gen = previous_gen
+        _write_atomic(_rows_file(rows_path, generation),
+                      {"schema": ROWS_SCHEMA, "generation": generation, "synced_at": checked_at, "sources": private})
     snapshot = {"schema": SCHEMA, "synced_at": checked_at, "sources": sources,
                 "trips": build_trip_view(sources), "rows_generation": generation,
-                "rows_generation_previous": previous.get("rows_generation")}
+                "rows_generation_previous": retained_previous_gen}
     _write_atomic(snapshot_path, snapshot)
     # A reader that loaded the previous snapshot may still open its rows, so the previous generation stays.
-    _remove_other_generations(rows_path, keep={generation, previous.get("rows_generation")})
+    _remove_other_generations(rows_path, keep={generation, retained_previous_gen})
     return snapshot

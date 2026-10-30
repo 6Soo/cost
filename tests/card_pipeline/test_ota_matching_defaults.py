@@ -144,9 +144,17 @@ def test_event_issuer_alias_requires_its_own_user_approved_versioned_rule():
     assert match([sample], [transaction], rules=[issuer_rule])[0]["status"] == "MATCHED_AUTO"
 
 
-def test_inactive_dynamic_provider_alias_does_not_corroborate_a_candidate():
-    sample = event(provider="agoda", card_last4=None)
-    transaction = card(merchant="SYNTHETIC TRAVEL DESK", merchant_normalized="synthetic travel desk")
+def test_inactive_dynamic_provider_alias_does_not_corroborate_a_candidate(monkeypatch):
+    from app import ota_payments
+    from copy import deepcopy
+    policy=deepcopy(ota_payments.load_defaults())
+    policy['foreign_date_lag_days']=1
+    monkeypatch.setattr(ota_payments,'load_defaults',lambda:policy)
+    # A foreign next-day candidate isolates alias evidence. Same-day exact
+    # amounts have their own approved corroboration independent of this alias.
+    sample = event(provider="agoda", card_last4=None, currency='JPY', amount='3000')
+    transaction = card(merchant="SYNTHETIC TRAVEL DESK", merchant_normalized="synthetic travel desk",
+                       approval_date='2026-09-05',foreign_currency='JPY',foreign_amount='3000')
     rule = {"active":True, "approved_by":"synthetic-owner", "conditions":{
         "rule_kind":"provider_alias", "provider":"agoda", "alias":"synthetic travel desk",
         "approval_source":"synthetic-source", "alias_version":1}}

@@ -28,6 +28,30 @@ def test_unknown_ota_date_keeps_candidate_trace_and_redacts_ids(monkeypatch):
     assert summary["automatic_link_approvals"] == 0
 
 
+def test_coverage_scope_reuses_provider_resolution_without_changing_any_case(monkeypatch):
+    from app import ota_matching_defaults as defaults
+    events=[{'ota_event_id':f'event-{i}','provider':'agoda','event_type':'charge',
+             'evidence_status':'paid_verified','payment_status':'paid','paid_on':'2026-10-01',
+             'amount_krw':1000,'amount':'1000','currency':'KRW','card_last4':'1234'} for i in range(3)]
+    cards=[{'transaction_id':f'card-{i}','approval_date':'2026-10-01','amount_krw':1000,
+            'transaction_direction':'purchase','card_tail':'1234','issuer':'issuer-x',
+            'merchant':'Agoda','merchant_normalized':'agoda'} for i in range(4)]
+    calls=[]
+    original=defaults._resolve_provider
+    def counted(*args):
+        calls.append(True)
+        return original(*args)
+    monkeypatch.setattr(defaults,'_resolve_provider',counted)
+    unscoped=trace.build_coverage_report.__wrapped__(events=events,cards=cards,run_secret=b'x'*32)
+    unscoped_calls=len(calls)
+    calls.clear()
+    scoped=trace.build_coverage_report(events=events,cards=cards,run_secret=b'x'*32)
+    assert scoped == unscoped
+    assert len(calls)==1 and unscoped_calls>len(calls)
+    trace.build_coverage_report(events=events,cards=cards,run_secret=b'x'*32)
+    assert len(calls)==2  # A later run reads policy afresh.
+
+
 def test_audit_reads_synthetic_board_and_writes_redacted_reports(tmp_path):
     board = tmp_path / "board.sqlite"
     connection = sqlite3.connect(board)
