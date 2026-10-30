@@ -1,0 +1,140 @@
+"""Read-only, accessible rendering for COST ↔ Google expense amount groups."""
+from __future__ import annotations
+
+import html
+from collections.abc import Mapping, Sequence
+
+
+def _esc(value: object) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+_STATUS = {
+    "matched": ("ok", "✓", "장부 건수 일치"),
+    "partial": ("partial", "!", "부분 일치"),
+    "unrecorded": ("missing", "—", "미기록"),
+    "google_only": ("google-only", "·", "Google에만 있음"),
+    "unavailable": ("unavailable", "?", "비교 불가"),
+}
+
+
+def status_cell(annotation: Mapping[str, object] | None) -> str:
+    """Return a semantic table cell; counts indicate a group, not row identity."""
+    annotation = annotation or {}
+    status = str(annotation.get("status") or "unavailable")
+    tone, icon, label = _STATUS.get(status, _STATUS["unavailable"])
+    cost_count = annotation.get("cost_count", "—")
+    google_count = annotation.get("google_count", "—")
+    detail = f"{label} · COST {cost_count}건 / Google {google_count}건"
+    if status == "partial":
+        try:
+            detail += f" · 차이 {abs(int(cost_count) - int(google_count))}건"
+        except (TypeError, ValueError, OverflowError):
+            pass
+    detail += " · 개별 행의 신원이나 장부 반영을 증명하지 않습니다."
+    return (f"<td class='gemn-desktop gemn-status-cell gemn-{tone}' role='status' "
+            f"aria-label='{_esc(detail)}' title='{_esc(detail)}'>"
+            f"<span aria-hidden='true'>{icon}</span> {_esc(label)} "
+            f"<span class='gemn-count'>{_esc(cost_count)}/{_esc(google_count)}</span></td>")
+
+
+def header_cell() -> str:
+    """Return the matching accessible table header."""
+    return "<th class='gemn-desktop' scope='col'>Google 장부</th>"
+
+
+def render_summary(state: Mapping[str, object]) -> str:
+    """Render group-level totals and source freshness/failure information."""
+    summary = state.get("summary") or {}
+    summary = summary if isinstance(summary, Mapping) else {}
+    names = (("matched", "일치"), ("partial", "부분 일치"),
+             ("unrecorded", "미기록"), ("google_only", "Google 전용"))
+    counts = " · ".join(f"{label} {_esc(summary.get(key, 0))}그룹" for key, label in names)
+    available = state.get("available") is True
+    reason = state.get("reason")
+    last_success = state.get("last_success_at")
+    if not available:
+        note = f"비교 불가 · {_esc(reason or 'Google 자료를 확인할 수 없습니다.')}"
+    else:
+        note = "Google 지출 스냅샷 기준"
+        if reason:
+            note += f" · {_esc(reason)}"
+    if last_success:
+        note += f" · 마지막 정상 조회 {_esc(last_success)}"
+    return (f"<div class='gemn-desktop gemn-summary' role='status' aria-live='polite'>"
+            f"<strong>Google 지출 대조</strong><span>{counts}</span>"
+            f"<span class='gemn-note'>{note}</span>"
+            "<span class='gemn-disclaimer'>건수 일치는 개별 거래 식별 또는 Google 반영 완료를 뜻하지 않습니다.</span></div>")
+
+
+def _row_label(row: object, identifier_key: str) -> str:
+    if not isinstance(row, Mapping):
+        return _esc(row)
+    identifier = row.get(identifier_key, "")
+    details = [f"ID {identifier}"] if identifier != "" else []
+    for key, label in (("date", "날짜"), ("description", "내용"), ("payee", "가맹점")):
+        value = row.get(key)
+        if value not in (None, ""):
+            details.append(f"{label} {value}")
+    return _esc(" · ".join(details) or "식별 정보 없음")
+
+
+def render_groups(state: Mapping[str, object]) -> str:
+    """Render compact native-details groups with both source lists, O(m+n) DOM."""
+    groups = state.get("groups") or []
+    if not isinstance(groups, Sequence) or isinstance(groups, (str, bytes)):
+        groups = []
+    output = ["<div class='gemn-desktop gemn-groups' aria-label='금액 그룹 대조 상세'>"]
+    if state.get("available") is not True:
+        reason = state.get("reason") or "Google 자료를 확인할 수 없어 금액 그룹을 비교하지 않았습니다."
+        output.append(f"<p role='status'>{_esc(reason)}</p></div>")
+        return "".join(output)
+    for group in groups:
+        if not isinstance(group, Mapping):
+            continue
+        status = str(group.get("status") or "unavailable")
+        _, _, label = _STATUS.get(status, _STATUS["unavailable"])
+        costs = group.get("cost_rows") or []
+        googles = group.get("google_rows") or []
+        if not isinstance(costs, Sequence) or isinstance(costs, (str, bytes)):
+            costs = []
+        if not isinstance(googles, Sequence) or isinstance(googles, (str, bytes)):
+            googles = []
+        m = group.get("cost_count", len(costs))
+        n = group.get("google_count", len(googles))
+        amount = group.get("amount_krw", "")
+        title = f"{label} · {m}/{n} · {group.get('candidate_count', len(costs) * len(googles))}개 관계"
+        if amount != "":
+            try:
+                amount_text = f"{int(amount):,}원"
+            except (ValueError, TypeError, OverflowError):
+                amount_text = str(amount)
+            title += f" · {amount_text}"
+        output.append(f"<details class='gemn-group'><summary>{_esc(title)}</summary>")
+        output.append("<p>후보 관계는 양측 목록의 모든 조합입니다. 개별 행 연결을 확정하지 않습니다.</p>")
+        output.append(f"<section aria-label='COST 원행 {m}건'><h4>COST 지출 원행 ({_esc(m)}건)</h4><ul>")
+        output.extend(f"<li>{_row_label(row, 'row_id')}</li>" for row in costs)
+        output.append("</ul></section>")
+        output.append(f"<section aria-label='Google 원행 {n}건'><h4>Google 지출 원행 ({_esc(n)}건)</h4><ul>")
+        output.extend(f"<li>{_row_label(row, 'ref')}</li>" for row in googles)
+        output.append("</ul></section></details>")
+    output.append("</div>")
+    return "".join(output)
+
+
+def styles() -> str:
+    """Scoped styles inherit the application's light/dark color tokens."""
+    return ("<style>"
+            ".gemn-desktop{display:none}"
+            "@media(min-width:900px){.gemn-desktop{display:block}.gemn-status-cell{display:table-cell}}"
+            ".gemn-summary,.gemn-groups{color:var(--shell-text);background:var(--shell-paper);"
+            "border:1px solid var(--shell-line);border-radius:8px;padding:10px;margin:8px 0}"
+            ".gemn-summary{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;font-size:13px}"
+            ".gemn-summary .gemn-note,.gemn-summary .gemn-disclaimer{color:var(--shell-muted)}"
+            ".gemn-group{border-top:1px solid var(--shell-line);padding:8px 0}"
+            ".gemn-group summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:700}"
+            ".gemn-group ul{margin:4px 0;padding-left:22px}.gemn-group li{overflow-wrap:anywhere;margin:3px 0}"
+            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-success)}"
+            ".gemn-partial{color:var(--shell-warn)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted)}"
+            ".gemn-count{font-variant-numeric:tabular-nums}"
+            "</style>")
