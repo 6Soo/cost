@@ -69,6 +69,11 @@ def test_board_status_opens_its_group_without_opening_transaction_panel():
             assert not any('/api/rows' in url or '/api/row/' in url for url in calls)
             assert page.locator('#' + target + ' li').count() == 6
             assert page.locator('.gemn-dialog').is_visible()
+            page.set_viewport_size({'width': 899, 'height': 900})
+            page.wait_for_function('!document.querySelector(".gemn-dialog").matches(":modal")')
+            assert not page.locator('.gemn-dialog').evaluate('e => e.matches(":modal")')
+            page.set_viewport_size({'width': 1280, 'height': 900})
+            button.click()
             page.locator('[data-gemn-close]').click()
             assert page.locator('.gemn-dialog').is_hidden()
             for width in (899, 900, 1280):

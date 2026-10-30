@@ -83,6 +83,9 @@
  });
  var main=document.getElementById('main'), nav=document.getElementById('nav'),
      mask=document.getElementById('nav-mask');
+ window.matchMedia('(min-width:900px)').addEventListener('change',function(event){
+  if(!event.matches)document.querySelectorAll('.gemn-dialog[open]').forEach(function(dialog){dialog.close();});
+ });
  var stickyBar=main&&main.querySelector('.bar');
  if(stickyBar&&window.ResizeObserver){
   var syncStickyBarHeight=function(){
