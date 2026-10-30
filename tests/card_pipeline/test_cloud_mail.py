@@ -403,6 +403,30 @@ def test_readiness_rejects_invalid_watermark_and_message_identity():
         verify(evidence)
 
 
+def test_readiness_rejects_historical_incomplete_manifest_counts():
+    from tools.verify_cloud_cutover_readiness import verify, ReadinessError, batch_digest
+    client = Cloud(('a1', 'b2'))
+    ids = ['a1', 'b2']
+    evidence = {'manifest': client.document, 'batches': [
+        {'sha256': batch_digest(client.document['messages'], ids), 'ids': ids,
+         'coverage': {'complete': True, 'count': 2}}],
+        'existing': 0, 'new': 2, 'indexed': 2}
+    import hashlib
+    evidence['batch_coverage_sha256'] = hashlib.sha256('\n'.join(ids).encode()).hexdigest()
+    client.document.update(stored=3710, pending=['synthetic-pending'], last_complete=None,
+                           query='synthetic query')
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_PENDING'):
+        verify(evidence)
+    client.document['pending'] = []
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+        verify(evidence)
+    client.document.update(last_complete='2026-10-30T00:00:00Z', query=None)
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_STORED_COUNT_MISMATCH'):
+        verify(evidence)
+    client.document['stored'] = len(client.document['messages'])
+    assert verify(evidence)['status'] == 'PREVIEW_VERIFIED'
+
+
 @pytest.mark.parametrize('watermark', [
     '', '2026-99-99T00:00:00Z', '2026-10-30T25:61:61Z',
     '2026-10-30T00:00:00', '2026-10-30T00:00:00+00:00',
