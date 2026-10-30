@@ -102,14 +102,19 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         state, source, tab = self._row()[0], self._row()[1], self._row()[2]
         self.assertEqual((state, source, tab), ('classified', 'inference', 'trip-x'))
 
-    def _inference_with_stay(self, starts_on, ends_on):
+    def _inference_with_stay(self, starts_on, ends_on, *, origin=None):
         from app.normalize import normalize_merchant
         from app.reconciliation import OWNER_AUTHORIZED_INFERENCE_ORIGIN
+        origin = origin or OWNER_AUTHORIZED_INFERENCE_ORIGIN
+        if starts_on == '2026-11-10':
+            self.board.conn.execute("INSERT INTO trip_tabs(tab_id,display_key,starts_on,ends_on) VALUES "
+                                    "('trip-y','1110_합성','2026-11-10','2026-11-15')")
+            self.board.conn.commit()
         self.flow.pipeline.save_rule({
             'conditions': {'merchant_normalized': normalize_merchant('TRIP.COM'), 'transaction_direction': 'purchase'},
             'optional': {'source_hash': self.source_hash, 'inferred_assignment': {
                 'trip_id': 'trip-x', 'basis': '결제 뒤 가까운 여행', 'confidence': '낮음'}},
-            'effects': {'item': '숙박비'}, 'origin': OWNER_AUTHORIZED_INFERENCE_ORIGIN, 'rule_id': 'inference-stay'})
+            'effects': {'item': '숙박비'}, 'origin': origin, 'rule_id': 'inference-stay'})
         report = {'matches': [{
             'transaction_id': self.transaction_id, 'source_hash': self.source_hash, 'merchant': 'TRIP.COM',
             'provider': 'trip', 'booking_ref': 'B9', 'item': '숙박비', 'direction': 'purchase',
@@ -125,16 +130,25 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
                 patch.object(ota_catalog, '_index', lambda board, sources: {'entries': [catalog_entry]}), \
                 patch.object(ota_catalog, 'configured_sources', lambda board: {}):
             self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
-        return self._row()[3]
+        return self._row()
 
     def test_verified_service_period_beats_card_date_and_rejects_mismatched_saved_inference(self):
-        self.board.conn.execute("INSERT INTO trip_tabs(tab_id,display_key,starts_on,ends_on) VALUES "
-                                "('trip-y','1110_합성','2026-11-10','2026-11-15')")
-        self.board.conn.commit()
-        self.assertEqual(self._inference_with_stay('2026-11-10', '2026-11-12'), 'trip-y')
+        result = self._inference_with_stay('2026-11-10', '2026-11-12')
+        self.assertEqual((result[1], result[3]), ('inference', 'trip-y'))
 
     def test_saved_inference_is_kept_when_verified_service_period_overlaps_that_trip(self):
-        self.assertEqual(self._inference_with_stay('2026-10-04', '2026-10-07'), 'trip-x')
+        result = self._inference_with_stay('2026-10-04', '2026-10-07')
+        self.assertEqual(result[3], 'trip-x')
+
+    def test_history_recovery_inference_yields_to_verified_booking_period(self):
+        result = self._inference_with_stay('2026-11-10', '2026-11-12', origin='history-recovery-20261003')
+        self.assertEqual((result[1], result[3]), ('inference', 'trip-y'))
+
+    def test_owner_country_exception_keeps_priority_over_verified_booking_period(self):
+        from app.reconciliation import OWNER_COUNTRY_EXCEPTION_ORIGIN
+        result = self._inference_with_stay('2026-11-10', '2026-11-12',
+                                           origin=OWNER_COUNTRY_EXCEPTION_ORIGIN)
+        self.assertEqual((result[1], result[3]), ('user_exception', 'trip-x'))
 
 
 if __name__ == '__main__':

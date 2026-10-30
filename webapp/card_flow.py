@@ -608,7 +608,7 @@ class CardFlow:
             taken |= {rule['optional'].get('source_hash') for rule in self.pipeline.list_rules()
                       if rule.get('optional', {}).get('inferred_assignment')
                       and rule.get('origin') != OWNER_BOOKING_ORIGIN
-                      and rule.get('origin') != OWNER_COUNTRY_EXCEPTION_ORIGIN
+                      and not str(rule.get('origin') or '').startswith('history-recovery')
                       and rule.get('optional', {}).get('source_hash') not in blocked_inference_sources}
             ota_rules += self._booking_period_assignments(report, sources, taken)
         taken = {rule['optional'].get('source_hash') for rule in ota_rules}
