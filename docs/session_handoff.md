@@ -1,3 +1,14 @@
+## 2026-10-30 최신 완료 — 참가자·수입 화면 복구와 열린 PR392
+
+- **화면·읽기 동작·카드 PR 구현/검증/운영 COMPLETE:** 사용자 화면의 참가자·수입 대조 오류와 열린 [PR392](https://github.com/6Soo/cost/pull/392)를 함께 반영했다. 구현 `edf1b4ce3026b9e4401ae8f100eba10fa64b682b`, 운영 `d0d73f8aebed53674e2754dae665eb4dc30748ed`. [현재 변경 계약](specs/participant-income-mobile-recovery-20261030.md).
+- 참가자 화면의 body 태그 누락으로 공통 셸/테마가 빠지던 원인을 고쳤다. 모바일 표는 열을 압축하지 않고 영역 안에서 가로 스크롤하며 페이지 가로 넘침을 막는다. 내부 오류 코드·참가 확정0명·원시 소수점 시각을 없애고 명단 연결 필요와 읽을 수 있는 수입을 구분한다. 합계의 미검증 표시는 유지한다.
+- 별도 이름 인덱스가 없어도 일관된 Google 원본 수입 행을 읽는다. 인덱스가 완전하지 않으면 알려진 이름의 연결은 보존하되 후보 부재를 수입 없음·대조 완료로 확정하지 않는다. 참가 저장소가 없어도 실제 해당 여행15행을 표시하며 새 참가DB·참가 확정·수동 연결을 만들지 않는다. 보험 가림 글자 대조 링크를 제공한다. 실제 참가DB/명단 등록 미연결은 해결 완료로 꾸미지 않는다.
+- PR392의 모바일 카드 목록은759px 이하2열 목록,760px 이상 기존 표다. 긴 금액의 폭 제한·가맹점/카드 간격·80px 이하 합성 행·숨긴 날짜 셀·확장 상세를 보완했다. 날짜 그룹·환불 링크·원본/금액·검색/필터·스피너/키보드는 유지한다.
+- 검증: 관련 묶음81 passed/1 failed, 마지막 참가자 변경 후37 passed. 서로 겹쳐 합산하지 않는다. 전역 first_render p50 검사1건의 묶음 실패는 기준caea7b91에서도 동일 재현(58 passed/1 failed), 독립 검사는1 passed다. 기존 실패를 통과로 세지 않는다. Chromium320/375/390/430/759/760/1280·두 테마·200% 확대·owner/CSRF/지문·원본/금액·연결 보호를 확인했다. 전체 회귀·실기기/Safari는 미실행이다.
+- 배포1181 blobs 불일치0·검수/병합tree 동일·task/process SHA·단일loopback listener·health/ready200·보호API401·보호13표 전후 불변. 데이터/스키마 쓰기가 없는 코드 배포로 전체 자료 백업은 새로 반복하지 않았으며, 직전 검증5ef006ed 릴리스와 task XML로 코드 복구 수단을 유지했다. 기존 switch의 code-only 경로를 사용했고 금융/원본/명단/Google 쓰기·마이그레이션0이다.
+- 실제 기존 Aside 로그인 화면에서 참가자 페이지 셸/수입15행/원시 오류·잘못된0명 부재/쓰기form0/가로 넘침 없음, API200/no-store·configured=false·Google available=true·complete=false를 수락했다. 카드10월32행·표/펼침 버튼·페이지 가로 넘침 없음도 확인했다. 영향3경로 비인증401이다. 기존 Aside 연결이 복구돼 직전 세션의 브라우저 미실행 대기는 최신 화면 수락으로 대체한다.
+- 근거: `.local-archive/participant-mobile-20261030/`의 verified·participant-final·baseline-timing·timing-recheck XML, readonly-check·live-smoke·final JSON 및 `.local-archive/deploy-d0d73f8aebed53674e2754dae665eb4dc30748ed/`·호스트 같은SHA 근거. 완료 임시 공간/브랜치는 문서 병합 후 공식 archive하고 final.json에 실제 결과를 기록한다. 사용자 기본 작업 사본·stash, 기존 실제 명단DB/영수증·원결제·메일 전환·실기기 외부 대기와 카드 수집/업로드 보류는 보존한다. 다음은 외부 명단/영수증이 확인될 때 기존 읽기 전용 진단이며 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-10-30 최신 완료 — 지출 대조 안내·기본 정렬·보험 후보 보완
 
 - 사용자 세 요청을 [PR389](https://github.com/6Soo/cost/pull/389)·[PR390](https://github.com/6Soo/cost/pull/390)으로 병합하고 운영 `5ef006edb00a1b955520a07023e6c3fd7eb005bd`에 고정 배포했다. [현재 실행 명세](specs/ledger-sort-insurance-followup-20261030.md). 이전509392e1의 상단 대조 요약/하단 상시 그룹 목록은 최신 요청에 따라 제거했다. 상태 버튼 클릭 때만 닫기/Escape 가능한 상세 창을 연다. 열린 상태에서899px로 줄였을 때 숨은modal이 남는 재현 실패도 PR390에서 교정해 모바일 전환 시 닫힌다.
