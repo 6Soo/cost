@@ -127,7 +127,8 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                         '보험 후보 비교', '지출 검토·복사', '수입·마감 확인', '카드 원천', '미정리·보류', 'OTA·환불', '영수증']
                     assert tab.get_by_role('link', name='지출 검토·복사').get_attribute('href') == '#trip-expense-copy'
                     assert tab.locator('.trip-workflow > nav a').count()==3
-                    assert '전체 여행 자료' in tools.inner_text()
+                    assert '아래 화면은 전체 여행 자료입니다' not in tools.inner_text()
+                    assert tab.locator('.trip-workflow-intro').count() == 0
             tab.locator('.trip-workflow > summary').focus()
             tab.locator('.trip-workflow > summary').press('Enter')
             assert tab.locator('.trip-workflow > nav').is_hidden()
