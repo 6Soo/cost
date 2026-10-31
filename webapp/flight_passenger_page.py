@@ -78,13 +78,12 @@ h1,h2,p{margin:0}
 @media(max-width:375px){#flight-passenger-page form{flex-direction:column;align-items:stretch;padding:12px}#flight-passenger-page form label{margin:0 0 4px;font-size:12px}#flight-passenger-page article{padding:12px}#flight-passenger-page{padding:0 10px}}
 </style>
 """ + "</head><body><main id='flight-passenger-page'>" + """
-<h1>항공권 참가자 연결</h1><p>항공권에 기재된 영문 이름과 예약 명단의 참가자를 비교합니다. 선택한 연결은 COST에만 저장되며, 실제 탑승 여부나 예약 명단은 변경되지 않습니다.</p>
+<h1>항공권 참가자 연결</h1>
 <form id='search' aria-label='항공권 참가자 연결 검색'><label for='f-booking'>항공권 예약번호<input id='f-booking' name='booking_ref' required autocomplete='off'></label><label for='f-tour'>예약 시스템 여행 ID<input id='f-tour' name='tour_id' required autocomplete='off'></label><button id='search-submit' type='submit'>연결 후보 찾기</button></form>
 <p id='status' role='status' aria-live='polite'></p><section id='results' aria-label='후보 결과'></section>
 </main><script>
 const csrf=""" + token + """;
 const form=document.querySelector('#search'), status=document.querySelector('#status'), root=document.querySelector('#results'), searchButton=document.querySelector('#search-submit');
-status.textContent='항공권 예약번호와 여행 ID를 입력해 연결할 참가자를 찾아보세요.';
 const apiMessage=code=>({'VERIFIED_FLIGHT_EVIDENCE_NOT_FOUND':'확인된 항공권 예약 근거를 찾지 못했습니다. 예약번호를 확인해 주세요.','RESERVATION_AUTHORITY_UNAVAILABLE':'예약 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.','RESERVATION_AUTHORITY_UNAUTHORIZED':'예약 서비스 인증이 만료됐습니다. 관리자에게 문의해 주세요.','PASSENGER_ASSIGNMENT_ALREADY_CONFIRMED':'이미 확인한 연결과 달라 저장할 수 없습니다. 기존 연결을 확인해 주세요.','PASSENGER_CANDIDATE_REQUIRED':'후보를 다시 조회하고 한 명을 선택해 주세요.','INVALID_VALUE':'입력한 예약번호와 여행 ID를 확인해 주세요.','FEATURE_DISABLED':'현재 사용할 수 없는 기능입니다.','STORE_UNAVAILABLE':'자료를 불러올 수 없습니다. 관리자에게 문의해 주세요.'}[code]||'요청을 처리하지 못했습니다. 입력을 확인한 뒤 다시 시도해 주세요.');
 form.addEventListener('submit',async event=>{event.preventDefault();root.replaceChildren();searchButton.disabled=true;status.textContent='항공권과 예약 명단을 대조하는 중입니다.';
 const values=new FormData(form), booking_ref=String(values.get('booking_ref')||''), tour_id=String(values.get('tour_id')||'');
@@ -161,11 +160,10 @@ def _page(csrf):
 .fb-heading>div{min-width:0;overflow-wrap:anywhere}.fb-heading-icon{flex-shrink:0}
 @container(max-width:280px){.fb-route{grid-template-columns:minmax(0,1fr);padding:12px 0}.fb-route-arrow{transform:rotate(90deg)}.fb-summary{padding:4px}.fb-summary-item{padding:8px 2px;gap:6px}.fb-flight-facts{grid-template-columns:minmax(0,1fr)}.fb-flight-facts .fb-field{border:0}.fb-flight-bar{padding:7px;gap:5px}.fb-flight-number{margin-left:0}.fb-hero{padding:14px 10px}.fb-hero h3{padding-right:0!important}.fb-heading{gap:8px}}
 </style></head><body><main id="flight-booking-page">
-<h1>항공권 예약 확인</h1><p class="fb-muted">탑승객 이름으로 항공권 예약과 연결된 카드 결제 내역을 확인합니다.</p>
-<p class="fb-muted">이 조회는 예약·결제나 실제 탑승 여부를 확정하지 않습니다.</p>
+<h1>항공권 예약 확인</h1>
 <section class="fb-panel" aria-label="항공권 조회">
 <form id="fb-search"><label for="fb-name">탑승객 이름<input id="fb-name" name="name" placeholder="영문 또는 한글 이름" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
-<p class="fb-muted" id="fb-status" role="status" aria-live="polite">이름을 입력해 예약 내역을 조회해 주세요.</p></section>
+<p class="fb-muted" id="fb-status" role="status" aria-live="polite"></p></section>
 <section id="fb-results" aria-label="예약 조회 결과"></section><button id="fb-more" type="button" hidden>예약 더 보기</button></main>
 <script>
 const CSRF=__CSRF__;
