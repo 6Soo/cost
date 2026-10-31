@@ -19,7 +19,7 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');if(mask)mas
  if(path==='/board'&&params.get('tab'))sessionStorage.setItem('cost-workflow-return',location.pathname+location.search);
  const stored=sessionStorage.getItem('cost-workflow-return');
  let back=explicit&&(!stored||new URL(stored,location.origin).searchParams.get('tab')!==explicit)?'/board?'+new URLSearchParams({tab:explicit}):stored;
- if(back){const selected=new URL(back,location.origin).searchParams.get('tab');if(selected)nav.querySelectorAll('.site-links a[href]').forEach(a=>{const u=new URL(a.href);if(['/receipts','/trips','/reserve-links','/flight-passengers'].includes(u.pathname)&&!u.search)a.search=new URLSearchParams({trip:selected}).toString()})}
+ if(back){const selected=new URL(back,location.origin).searchParams.get('tab');if(selected)nav.querySelectorAll('.site-links a[href]').forEach(a=>{const u=new URL(a.href);if(['/receipts','/trips','/reserve-links','/flight-passengers'].includes(u.pathname)&&(!u.search||(path==='/board'&&explicit&&u.pathname==='/trips')))a.search=new URLSearchParams({trip:selected}).toString()})}
  if(back){const u=new URL(back,location.origin);if(u.origin!==location.origin||u.pathname!=='/board')back=null}
  const tools=new Set(['/receipts','/trips','/reserve-links','/flight-passengers','/participants','/participants/insurance-match','/export','/expense/new','/ota','/row','/rules']);
  if(back&&tools.has(path)){

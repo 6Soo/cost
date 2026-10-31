@@ -85,3 +85,5 @@
 완료 동작: 합성 영수증2장 묶기→한 행 복사→묶음 해제, PC/모바일 직접 입력 저장. 출력은 선택 준비·실행 잠금까지 확인했고 실제 고객 XLSX 생성은 하지 않았다. 운영에서는 읽기 전용 탐색과 가상의 이름으로 무결과 조회만 수행했다. 명단 연결·권한 승인·AI 전송·Google 쓰기·금융 저장은 하지 않았다. 여행/영수증 fixture에서 비활성인 보조 기능은 운영 로그인 화면으로 보완했으며, fixture의404를 기능 수락으로 세지 않는다.
 
 검사: `resumed-targeted.xml` 38 passed/9 subtests, `receipt-protection.xml` 5 passed. 기존 보호 검사 `protection.xml`은91 passed/1 failed이며 실패는 `protection-baseline.xml`로 기준 `ac2abeac`에서 같은 `processed 2 != 3` 재현을 확인했다. 최초142개 검사 중23개 실패에서 중복 홈/출력 링크 assertion은 새 동작에 맞게 수정했다. 기준 재실행22개 중21개 실패(영수증의 이전 확정 계약·접힌 입력 접근 등)는 별도 보존했다. 통과로 세지 않고 범위 밖 금융 정책을 바꾸지 않았다. shell 테마의 관찰 시점 문제는 명시적 상태 대기로 교정해 최종38개 통과했다. 전체 회귀·실기기 검사는 미실행이다.
+
+마지막 추가 수락: `manual-browser.json`에서 모바일 수기지출 합성 저장→같은 여행 복귀를 확인했다. 장부 메뉴가 다른 여행의 저장된 검색 조건보다 현재 명시 여행을 우선하도록 보완하고 PC/모바일 `trip-context-followup.json`으로 확인했다. 조회 목록 자체에서는 기존 검색 유지 계약을 보존한다. shell11개 추가 통과(`followup-shell.xml`). 브라우저 스크립트28/29의 selector 실패는 실행 기록에 남겼고, 실제 절대URL href와 native 장부 메뉴(`#btn-menu`)를 확인한 스크립트30으로 두 폭을 통과했다.
