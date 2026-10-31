@@ -110,3 +110,13 @@ body.site-standalone{margin:0!important;padding:0!important}
  .site-app>.nav-mask{position:fixed;inset:0;background:var(--shell-overlay,rgba(16,24,40,.38));z-index:44}
  #site-content{margin-left:0;width:100%;padding:12px}
 }
+.workflow-return{padding:10px 16px;border-bottom:1px solid var(--shell-line,#E4E7EC);font-size:14px}
+.workflow-return a{display:inline-flex;align-items:center;min-height:36px;color:var(--shell-accent,#1C7A52)}
+#trip-management-filter{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+#trip-management-filter input{flex:1;min-width:0;max-width:480px}
+#trip-management-count{flex-basis:100%}
+.trip-meta summary,.export-diagnostics summary{cursor:pointer;min-height:44px;display:flex;align-items:center;color:var(--shell-accent,#1C7A52)}
+.trip-meta[open] summary,.export-diagnostics[open] summary{margin-bottom:12px}
+.trip-management-row[hidden]{display:none!important}
+.trip-management-row h3 a{color:var(--shell-accent,#1C7A52)}
+.export-selection-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px}

@@ -15,6 +15,7 @@ import json
 import re
 import unicodedata
 import urllib.parse
+from urllib.parse import urlencode
 import uuid
 from datetime import date
 from pathlib import Path
@@ -122,15 +123,14 @@ def work_menu_html() -> str:
                 f"<span><strong>{title}</strong>"
                 f"</span></{tag}>")
 
-    actions = action('upload', '지출 정리', '카드 파일 추가 · 미배정 지출 정리 · 오분류 수정 · 전체 카드 검색', '/import')
-    actions += action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
+    actions = action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
     else:
         actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
     return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
-            f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
+            f"<h2>자료 확인</h2><nav class='work-actions'>{actions}</nav></section>")
 
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> str:
@@ -405,7 +405,7 @@ def _head_html(trip) -> str:
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
                 f""
-                f"<span><a class='btn' href='/trips'>{_icons.icon('map')}여행 관리</a></span>")
+                f"<span><a class='btn' href='/trips?{board.esc(urlencode({'trip': trip['tab_id']}))}'>{_icons.icon('map')}여행 관리</a></span>")
     return (
         "<div class='page-hd'><div>"
         f"<h1>{title}<span class='synth'>{board.data_status_mark()}</span></h1>"
@@ -415,7 +415,7 @@ def _head_html(trip) -> str:
         + _reserve_link_link_html()
         + _review_link_html()
         + f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>"
+        f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
 
@@ -1111,6 +1111,11 @@ def _amount_group_state(tab_id, rows, kind=''):
     return build_state(board._active_store(), tab_id, cost_rows=rows)
 
 
+def _manual_expense_link(move_back):
+    tab = urllib.parse.parse_qs(urllib.parse.urlsplit(move_back).query).get('tab', [''])[0]
+    return '/expense/new?' + urlencode({'tab': tab}) if tab else '/expense/new'
+
+
 def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board", match_annotations=None,
                  amount_groups=None) -> str:
     from . import expense_amount_group_ui as gemn
@@ -1146,7 +1151,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
-        "<td colspan='3'><a class='btn' id='add-manual-expense' data-manual-open href='/expense/new'>"
+        f"<td colspan='3'><a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(move_back))}'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th>{extra_blank}</tr></tbody>"
         + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
@@ -1223,7 +1228,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         "<div class='lst'>"
         + income_group +
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
-        "<a class='btn' id='add-manual-expense-mobile' data-manual-open href='/expense/new'>"
+        f"<a class='btn' id='add-manual-expense-mobile' data-manual-open href='{board.esc(_manual_expense_link(move_back))}'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
         f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
@@ -1435,8 +1440,8 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "</p>")
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
-    export_btn = ("" if home
-                  else f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>")
+    export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
+                  if tab_id and title != '선택 탭 출력' else "")
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
@@ -1450,8 +1455,8 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
-        f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"{export_btn}"
+        + (f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>" if home else "")
+        + f"{export_btn}"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
         "</div></div>"
         f"<div class='page-body'>{body}</div>"

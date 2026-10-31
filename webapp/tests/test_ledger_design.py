@@ -698,7 +698,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("카드 가져오기", page.inner_text("body"))
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
         page.wait_for_load_state()
-        page.click(".act a[href='/export']")
+        page.click(".act a[href^='/export?tab=']")
         page.wait_for_load_state()
         self.assertIn("출력", page.inner_text("body"))
         status, body = self._api("/api/exports/xlsx", {

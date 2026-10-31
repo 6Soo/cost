@@ -76,7 +76,7 @@ def render(board, trip_id, cost_rows, amount_groups):
              ('credit-card', '카드 원천', '전체 여행의 카드 원본 보기', '/cards/all'),
              ('list-filter', '미정리·보류', f"이 여행 표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 화면 열기", '/import'),
              ('link', 'OTA·환불', '결제·환불 근거 확인', '/ota'),
-             ('receipt', '영수증', receipt_text + ' · 전체 영수증 화면 열기', '/receipts')]
+             ('receipt', '영수증', receipt_text, '/receipts?' + urlencode({'trip': trip_id}))]
     cards = [
         f"<a class='trip-workflow-card' href='{esc(href)}'>"
         f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"
@@ -84,7 +84,7 @@ def render(board, trip_id, cost_rows, amount_groups):
         f"<span>{esc(text)}</span></span>"
         f"<span class='trip-workflow-arrow'>{ui_icons.icon('chevron-right', 16)}</span></a>"
         for icon, label, text, href in links]
-    return ("<details class='trip-workflow' aria-label='여행 검토' open><summary>"
+    return ("<details class='trip-workflow' aria-label='여행 검토'><summary>"
             f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
             f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
             "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards[:3]) + '</nav>'

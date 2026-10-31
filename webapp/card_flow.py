@@ -372,6 +372,8 @@ def home_page(board):
     next_run = state.get('next_run_at')
     next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
                  if next_run else '')
+    if next_run and dt.datetime.fromisoformat(next_run).astimezone(KST) <= dt.datetime.now(KST):
+        next_note = ''
     body = ("<style>"
             ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
             ".home-status{font-size:13px;color:var(--mut);margin:0 0 12px}"
