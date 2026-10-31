@@ -157,3 +157,57 @@ def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(mo
             assert not (tmp_path / 'missing.sqlite').exists()
         finally:
             browser.close()
+
+
+def test_browser_loading_retry_and_candidate_dialog_are_actionable_and_readonly(monkeypatch, tmp_path):
+    from playwright.sync_api import sync_playwright
+    from webapp import ledger_design_assets, participant_income_page
+    monkeypatch.setattr(participant_income_page, 'store_path', lambda: tmp_path / 'absent.sqlite')
+    monkeypatch.setenv('WEBLEDGER_INSURANCE_REVIEW_MANIFEST', 'synthetic')
+    review, trips, _ = inputs()
+    review['contracts'].append(copy.deepcopy(review['contracts'][0]))
+    value = state()
+    response = panel.render(dict(value, insurance_review=service.trip_review(value, review=review, trips=trips)))
+    document = ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<style>' + ledger_design_assets.STYLE + '</style><main id="main">'
+                '<table id="income-tbl" data-google-generation="one"><tr><td class="participant-insurance-cell" data-income-ref="income-1"></td></tr></table>'
+                + panel.shell(trip_id='trip-a') + '</main><script>' + ledger_design_assets.SCRIPT + '</script>')
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width':390,'height':844})
+            requests, held = [], []
+            def serve(route):
+                requests.append(route.request.method)
+                if '/trip-panel?' in route.request.url:
+                    held.append(route)
+                else:
+                    route.fulfill(status=200,content_type='text/html',body=document)
+            page.route('http://synthetic.test/**',serve)
+            page.goto('http://synthetic.test/')
+            page.wait_for_function('document.querySelector("#participant-trip-panel").getAttribute("aria-busy")==="true"')
+            assert page.locator('.participant-insurance-cell').inner_text() == '보험 명단 대조 중…'
+            page.wait_for_timeout(100)
+            held[0].fulfill(status=503,body='unavailable')
+            page.locator('.participant-insurance-cell .participant-review-retry').click()
+            page.wait_for_timeout(100)
+            assert len(held) == 2
+            held[1].fulfill(status=200,content_type='text/html',body=response)
+            button=page.locator('.insurance-candidate-button')
+            button.click()
+            dialog=page.locator('#insurance-candidate-dialog')
+            assert dialog.is_visible() and dialog.locator('.insurance-candidate-list li').count()==2
+            assert '가*다' in dialog.inner_text() and '1,000원' in dialog.inner_text()
+            assert '확정하지 않습니다' in dialog.inner_text()
+            assert dialog.locator('a').get_attribute('href').endswith('trip=trip-a')
+            assert page.locator('#participant-trip-panel').get_attribute('aria-busy')=='false'
+            for width in (320,390,1280):
+                page.set_viewport_size({'width':width,'height':844})
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            page.keyboard.press('Escape')
+            assert not dialog.is_visible()
+            assert button.evaluate('(el)=>document.activeElement===el')
+            assert page.locator('form').count()==0 and set(requests)=={'GET'}
+            assert not (tmp_path/'absent.sqlite').exists()
+        finally:
+            browser.close()

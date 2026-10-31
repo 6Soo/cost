@@ -58,12 +58,14 @@ def _review_markup(state, data):
     if state.get('configured') and not review.get('available'):
         return ''
     by_ref = {}
+    evidence_by_ref = {}
     truncated = False
     for contract in review.get('contracts') or []:
         for row in contract.get('rows') or []:
             truncated = truncated or row.get('candidate_count', 0) > len(row.get('matches') or [])
             for match in row.get('matches') or []:
                 by_ref.setdefault(match.get('ref'), []).append(row)
+                evidence_by_ref.setdefault(match.get('ref'), []).append((contract, row, match))
     counts = review.get('counts') or {}
     if review.get('available'):
         notice = (f"일정·연결 기준 명단 {int(counts.get('rows', 0))}건 · "
@@ -71,7 +73,7 @@ def _review_markup(state, data):
                   f"후보 확인 {int(counts.get('ambiguous', 0))}건")
     else:
         notice = review.get('message') or '보험 명단 자료 연결을 확인해 주세요.'
-    templates = []
+    templates, evidence = [], []
     for income in data['income_rows_page']:
         ref = income['ref']
         if data['links_by_ref'].get(ref):
@@ -90,9 +92,37 @@ def _review_markup(state, data):
         else:
             label = '글자 일치 없음'
         generation = (state.get('google') or {}).get('generation') or ''
+        status_html = f"<span class='insurance-review-status'>{_esc(label)}</span>"
+        if hits:
+            evidence_id = f'insurance-evidence-{len(evidence)}'
+            status_html = (f"<button type='button' class='insurance-review-status insurance-candidate-button' "
+                           f"data-insurance-evidence='{evidence_id}' aria-haspopup='dialog'>{_esc(label)}"
+                           "</button>")
+            cards = []
+            for contract, row, match in evidence_by_ref.get(ref, []):
+                reason = ('보이는 글자가 수입 이름·닉네임과 일치합니다.'
+                          if row.get('match_state') == 'matched' else
+                          '여러 기록에 글자가 맞아 한 사람으로 정할 수 없습니다.')
+                if row.get('mask_length_unknown'):
+                    reason += ' 가림 기호의 글자 수는 확인되지 않았습니다.'
+                cards.append("<li><strong>" + _esc(row.get('masked_name') or '가림 이름 없음')
+                             + "</strong><p>보험 기간 " + _esc(contract.get('travel_start'))
+                             + ' – ' + _esc(contract.get('travel_end')) + '</p><p>'
+                             + _esc(reason) + '</p></li>')
+            income_label = _esc(income.get('name') or income.get('nickname') or '이름 미기재')
+            amount = income.get('amount')
+            amount_label = f'{amount:,}원' if isinstance(amount, int) else '금액 미기재'
+            evidence.append(f"<template id='{evidence_id}'>"
+                            f"<p class='insurance-selected-income'><strong>{income_label}</strong> · "
+                            f"{_esc((income.get('cells') or {}).get('B'))} · {_esc(amount_label)}</p>"
+                            f"<ul class='insurance-candidate-list'>{''.join(cards)}</ul>"
+                            "<p>보험 원문과 수입 기록을 비교해 주세요. 가림 이름의 글자 일치만으로 "
+                            "참가자 연결이나 가입 완료를 확정하지 않습니다.</p>"
+                            f"<a class='btn' href='/participants/insurance-match?{_esc(urlencode({'trip': state.get('trip_id') or ''}))}'>"
+                            "이 여행 수입으로 전체 보험 명단 대조하기</a></template>")
         templates.append(f"<template class='participant-income-status' data-income-ref='{_esc(ref)}' "
                          f"data-google-generation='{_esc(generation)}'>"
-                         f"<span class='insurance-review-status'>{_esc(label)}</span></template>")
+                         f"{status_html}</template>")
     contracts = ''.join(
         "<li><span>" + _esc(contract.get('travel_start')) + '–' + _esc(contract.get('travel_end'))
         + "</span><span>" + ('가입 완료·기간 종료 이력' if contract.get('insurance_status') == 'completed_or_expired'
@@ -100,7 +130,11 @@ def _review_markup(state, data):
         for contract in review.get('contracts') or [])
     return ("<div class='insurance-review-summary'><p>" + _esc(notice) + '</p>'
             + ("<ul class='insurance-review-contracts'>" + contracts + '</ul>' if contracts else '') + '</div>'
-            + ''.join(templates))
+            + ''.join(templates) + ''.join(evidence)
+            + "<dialog class='insurance-candidate-dialog' id='insurance-candidate-dialog' aria-labelledby='insurance-candidate-title'>"
+              "<header><h2 id='insurance-candidate-title'>보험 명단 후보 비교</h2>"
+              "<button type='button' class='btn' data-insurance-close autofocus aria-label='후보 비교 닫기'>닫기</button></header>"
+              "<div data-insurance-evidence-content></div></dialog>")
 
 
 def render(state: dict, *, csrf: str = "", income_offset: int = 0,
@@ -210,10 +244,12 @@ def shell(*, trip_id: str) -> str:
     from . import participant_income_page
     auto = bool(os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')) and not participant_income_page.store_path().is_file()
     return ("<details class='participant-trip-panel' id='participant-trip-panel' "
-            f"data-trip='{_esc(trip_id)}' data-auto-load='{int(auto)}' aria-label='보험가입내역'>"
+            f"data-trip='{_esc(trip_id)}' data-auto-load='{int(auto)}' aria-busy='false' aria-label='보험가입내역'>"
             "<summary>보험 명단 · 수입 대조</summary>"
             "<div class='participant-trip-content' data-participant-content>"
-            "<p role='status'>참가자 정보를 불러오는 중입니다.</p></div></details>")
+            "<div class='insurance-loading' role='status'><span class='insurance-loading-dot' aria-hidden='true'></span>"
+            "<div><strong>보험 명단 대조 준비</strong><p>명단을 열면 이 여행의 수입 이름과 비교합니다.</p></div></div>"
+            "</div></details>")
 
 
 def _income_option(row: dict) -> str:
