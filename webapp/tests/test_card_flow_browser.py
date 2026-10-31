@@ -1,4 +1,4 @@
-"""모바일 화면에서 업로드·답변·미리보기·기록을 실제 HTTP로 검증한다."""
+﻿"""모바일 화면에서 업로드·답변·미리보기·기록을 실제 HTTP로 검증한다."""
 import json
 import os
 import tempfile
@@ -1018,7 +1018,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.on('pageerror',lambda e:errors.append(str(e)))
                     page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
                     page.locator('#file').set_input_files({'name':'synthetic.csv','mimeType':'text/csv','buffer':CARD})
-                    page.get_by_role('button',name='업로드하고 분류').click()
+                    page.get_by_role('button',name='카드 사용내역 업로드하고 분류').click()
                     page.get_by_role('heading',name='합성상점').wait_for()
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
                     page.locator('input[name=item]').fill('소모품')
@@ -1039,7 +1039,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.get_by_role('button',name='규칙 저장하고 다시 분류').click()
                     page.get_by_text('규칙을 저장하고 분류에 적용했습니다.',exact=False).wait_for()
                     self.assertEqual(server.card_store.list_tab_rows(None)[0]['item'],'소모품')
-                    page.get_by_role('button',name='업로드하고 분류').click()
+                    page.get_by_role('button',name='카드 사용내역 업로드하고 분류').click()
                     page.get_by_text('분류가 끝났습니다.',exact=True).wait_for()
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
                     self.assertEqual(errors,[])

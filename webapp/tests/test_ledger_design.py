@@ -1,4 +1,4 @@
-"""The A/Ramp/Pretendard design on the real ledger screen.
+﻿"""The A/Ramp/Pretendard design on the real ledger screen.
 
 Real clicks at 1440 and 390 against the product server and its real store:
 row edit panel, save, cancel, stale revision, classification move, upload,
@@ -660,7 +660,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(status, 200)
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
-        page.click(".act a[href='/import']")
+        page.click(".act a[href='/import#newupload']")
         page.wait_for_load_state()
         self.assertIn("카드 가져오기", page.inner_text("body"))
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")

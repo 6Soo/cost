@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 예약 명단·여행 연결 UX 배포
+
+- [PR412](https://github.com/6Soo/cost/pull/412), 운영 `29ecb215d63169e913e7f14a4959587436b68586`; 검증31b0f4cb와 tree 동일. 이름/여행명·검색·필터·10건 페이지·전체 연결 해제·저장 전 취소를 추가했다. main 밖에서 이미 운영 중이던74325e69의 로딩/업로드 수정도 정상 merge로 보존했다. 최초 이전SHA 게이트 거부는 실제 전환으로 세지 않는다. 실제 직전 검증18f3e747을 복구점으로 사용했다.
+- 1193 blobs 불일치0, task/process 고정SHA·단일loopback listener·health/ready200·보호API401·보호13표 내용/스키마 불변 PASS. 코드만 변경해 기존 검증 릴리스·task XML로 복구하고 새 전체백업/복원은 반복하지 않았다. 금융/연결/명단/Google/스키마 쓰기0.
+- 표적 화면36/38subtests·보호65/26subtests·통합6 통과. 추가 넓은 인접 검사는 중단·실패로 남겼으며 첫 실패는 기존74325e69에서도 재현했다. 상세 범위·미실행은 현재 상태 참조. 실제 인증 ego-browser `/reserve-links`에서 이름100행·가시10행·검색 무결과·2/10 페이지·넘침 없음 확인, 운영 저장/적용0. 근거 `C:/AX/cost/.local-archive/reserve-link-ux-20261031/`, `deploy-29ecb215d63169e913e7f14a4959587436b68586/` 및 호스트 동일SHA evidence. 문서 후속은 재배포하지 않는다.
+
 ## 2026-10-31 보험 후보·여행 검토 UX 운영 수락
 
 - [PR409](https://github.com/6Soo/cost/pull/409), 검증 `db789b6cfa079dbce3cd29f848b1ca855f42d4e6`, 운영 `1ecd2aa00d09f8bee7d9af7f09802cd506870c5c`, tree 동일. [실행 계약](specs/insurance-trip-review-ux-20261031.md): 명단 로딩/재시도·행별 후보 비교·여행별 작업3개와 전체 도구4개. 관련64/최종JS43/수동 버튼1검사 통과(중복 실행 합산 금지).
