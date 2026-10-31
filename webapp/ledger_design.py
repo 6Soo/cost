@@ -415,7 +415,7 @@ def _head_html(trip) -> str:
         "<div class='act'>"
         + _reserve_link_link_html()
         + _review_link_html()
-        + f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
+        + f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
         f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
@@ -1431,7 +1431,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
-        f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
+        f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
         f"{export_btn}"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
         "</div></div>"

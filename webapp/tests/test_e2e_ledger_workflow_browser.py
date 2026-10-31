@@ -1,4 +1,4 @@
-"""입력 → 검토·규칙 → 출력 한 사이클을 실제 브라우저와 HTTP로 검증한다. 합성 자료만 쓴다."""
+﻿"""입력 → 검토·규칙 → 출력 한 사이클을 실제 브라우저와 HTTP로 검증한다. 합성 자료만 쓴다."""
 import csv
 import io
 import os
@@ -58,7 +58,7 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
                     page.goto(base + '/import')
                     page.evaluate("document.getElementById('newupload').open = true")
                     page.set_input_files('#file', str(DATA / 'kb-domestic-acquired-synthetic.xls'))
-                    page.get_by_role('button', name='업로드하고 분류').click()
+                    page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
                     page.wait_for_load_state('networkidle')
                     page.get_by_text('분류가 끝났습니다', exact=False).wait_for(timeout=15000)
                     xls_rows = store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0]
@@ -67,7 +67,7 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
                     page.reload()
                     page.evaluate("document.getElementById('newupload').open = true")
                     page.set_input_files('#file', str(DATA / 'kb-domestic-acquired-synthetic.xls'))
-                    page.get_by_role('button', name='업로드하고 분류').click()
+                    page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
                     page.wait_for_load_state('networkidle')
                     self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 3)
                     self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM import_batches').fetchone()[0], 1)
@@ -76,7 +76,7 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
                     page.reload()
                     page.evaluate("document.getElementById('newupload').open = true")
                     page.set_input_files('#file', str(csv_path))
-                    page.get_by_role('button', name='업로드하고 분류').click()
+                    page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
                     page.wait_for_load_state('networkidle')
                     commit = page.get_by_role('button', name=re.compile(r'미리본 \d+건을 장부에 기록'))
                     commit.wait_for(timeout=15000)

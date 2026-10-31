@@ -1315,7 +1315,7 @@ def board_page(tab_id: str, query: str = "") -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     side = (
@@ -1333,7 +1333,7 @@ def income_new_page() -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     body = (
@@ -1380,7 +1380,7 @@ def expense_new_page() -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     body = (
