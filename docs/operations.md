@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 PR #424 Google 지출 비교·수기 추가 모달 배포
+
+- 운영 고정 `d2b4394634f9eab85c356291e909509560dac9eb`, [PR #424](https://github.com/6Soo/cost/pull/424). 합계 수식 오류와 개별 행 비교를 분리하되 완전한 정수 원화 행·snapshot 행 합계 일치를 요구한다. 실제 readonly 대조49여행 가능/합계경고2/비표준12/DB changes0. strict export·권한·금융 보호는 유지한다.
+- 수기 추가는 현재 여행의 native dialog, 오류 입력 유지·중복 제출 차단·Escape/닫기/포커스 복원·저장 후 새로고침. 모달 browser1 passed/2폭 subtests, 비교 통합37·최종사유14·export22·경고5·권한9·수기보호2 passed는 중복되는 실행이며 합산 회귀가 아니다.
+- 1199 Git blobs 일치·task/processSHA·listener1·health/ready200·보호 API와 영향 경로 비인증401·보호13표 불변·두 task Running. 호스트 Python 합성 모달·선택여행·음수저장·동일 요청 재전송 PASS. 이전 검증 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`와 task XML 보존, CODE_ONLY_NO_DATA_WRITES로 새 전체 백업/복원은 생략했다. 운영 금융/Google/원본/스키마 쓰기0. 실제 owner의 배포 후 모달 저장·전체 회귀는 미실행이다.
+- 근거: `.local-archive/deploy-d2b4394634f9eab85c356291e909509560dac9eb/`의 review/protection-before/protection-after/deploy-evidence/affected-path-smoke/auth-smoke와 호스트 같은SHA release-audit/deploy-evidence. 현 요청 미결0이며 문서 후속만으로 재배포하지 않는다.
+
 ## 2026-10-31 웹 안내 문구 정리 배포
 
 - COMPLETE — [PR #420](https://github.com/6Soo/cost/pull/420)·[PR #423](https://github.com/6Soo/cost/pull/423), 구현 `f9ef9f3`·`1e79213`, 배포 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`. 장부의 “기록된 거래”·수입 계산식과 카드/수입/사이드바/예약 연결/여행 검토/항공권의 반복 설명을 제거했다. 실제 오류·금액·원본 링크·조작·접근성 설명은 유지한다.

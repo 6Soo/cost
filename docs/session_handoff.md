@@ -166,6 +166,15 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-31 Google 지출 비교 오류·수기 추가 모달
+
+- COMPLETE — 사용자 “구글장부 왜 비교불가? 오류수정해 / 수기지출추가는 모달창 뜨는 방식으로 변경”. [PR #424](https://github.com/6Soo/cost/pull/424), 구현 `c3b20b6`·`0a925cc`·`1e3863f`, 운영 고정 SHA `d2b4394634f9eab85c356291e909509560dac9eb`.
+- 시트 합계 수식 범위가 개별 지출 행 전체를 포함하지 않는 표준 여행 2건 때문에 읽기 전용 금액/건수 비교까지 차단됐다. 원행 금액 검증과 행 합계의 snapshot `row_sum` 일치를 확인한 경우에만 개별 행 비교를 허용하고 합계 수식 경고를 표시한다. strict 신규 행 export·금융/환불/여행/수동 링크 보호는 유지한다. 비표준 양식은 구체적인 사유로 보류한다. 운영 readonly 대조: 비교 가능 47→49여행, 합계 경고2, 비표준12, DB changes0. 구형 양식 호환/Google 원본 수식 수정은 수행하지 않았다.
+- 수기 지출 추가는 현재 여행을 선택한 native dialog다. 모바일·데스크톱 공통 폼, 검증 오류 입력/요청ID 유지, 저장 중 입력/중복 제출 방지, Escape/닫기·포커스 복원, 저장 후 현재 장부 새로고침. 기존 보호 API와 요청 재전송 방지를 재사용한다.
+- 검증: 비교/표/export 통합37 passed, 최종 사유/UI14 passed, 최종 export22 passed, 추가 경고5 passed, 모달 browser1 passed/390·1280폭2 subtests, 권한9 passed, 수기 생성 보호2 passed. 중복 실행이 있어 합산 전체 회귀 수치가 아니다. 전체 회귀·배포 후 실제 owner 모달 저장은 미실행이며 합성 검사와 구별한다.
+- 배포: Git blobs1199 불일치0·task/processSHA·loopback listener1·health/ready200·보호 API/장부/수기입력/수기POST 비인증401·보호13표 불변·Board/SourceRefresh Running. 호스트 Python 합성 모달/선택여행/음수저장/요청 재전송 PASS. 코드 전용 배포로 이전 검증 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`와 task XML 복구점을 보존했다. 새 전체 백업·복원·운영 금융/Google/원본/스키마 쓰기0.
+- 근거: `C:/AX/cost/.local-archive/google-comparison-manual-modal-20261031/`의 XML·runtime-readonly·checkpoint, `C:/AX/cost/.local-archive/deploy-d2b4394634f9eab85c356291e909509560dac9eb/`와 호스트 동일 SHA release-audit/deploy-evidence. 현재 승인 범위 미결/차단0, 다음 명령 없음. 후속 상태 문서만으로 검사·재배포·재시작하지 않는다.
+
 ## 2026-10-31 국내·해외 구분 여행 배정 완료
 
 - COMPLETE — 최신 사용자 지시 “해외사용국가와 여행지는 일치할 필요 없어. 국내냐 해외냐만 구분해”를 반영했다. [PR #418](https://github.com/6Soo/cost/pull/418), 구현 `2b5fc5c4d702eb4e171980938afe5706e3693d4c`, 운영 배포 SHA `25cc29108cb44752b453832dca8e854747966558`. 해외 국가 코드가 달라도 국내·해외 구분과 검증된 여행 기간으로 배정한다. 국가 코드 없는 해외 통화 거래에도 적용하며 수동 배정·예약 이용기간·취소/환불·원본 보호 및 3820 국내 분기 비용 규칙을 유지한다.
