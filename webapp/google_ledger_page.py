@@ -353,7 +353,8 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             + ("<td></td>" if owner else "") +
             "</tr></tfoot>"
         )
-        table = ("<div class='google-income-scroll'><table id='income-tbl'>"
+        table = ("<div class='google-income-scroll'>"
+                 f"<table id='income-tbl' data-google-generation='{esc(snapshot.get('rows_generation') or '')}'>"
                  "<caption>수입 내역</caption>"
                  f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
                  f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"

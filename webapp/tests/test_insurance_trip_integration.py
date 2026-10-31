@@ -1,5 +1,6 @@
 """Embedded masked evidence never registers identities or crosses trip scope."""
 import copy
+import pytest
 from webapp import insurance_income_match_service as service, participant_trip_panel as panel
 from webapp.tests.test_insurance_income_match_service import inputs
 
@@ -92,19 +93,21 @@ def test_confirmed_manual_links_are_not_replaced_by_masked_candidates():
     assert markup.count('participant-income-status') == 1
 
 
-def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(monkeypatch, tmp_path):
+@pytest.mark.parametrize('generation', ['one', 'changed'])
+def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(monkeypatch, tmp_path, generation):
     from playwright.sync_api import sync_playwright
     from webapp import ledger_design_assets, participant_income_page
     monkeypatch.setattr(participant_income_page, 'store_path', lambda: tmp_path / 'missing.sqlite')
     monkeypatch.setenv('WEBLEDGER_INSURANCE_REVIEW_MANIFEST', 'synthetic-config')
     review, trips, _ = inputs()
     value = state()
+    value['google']['generation'] = generation
     result = service.trip_review(value, review=review, trips=trips)
     response = panel.render(dict(value, insurance_review=result))
     document = ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
                 '<style>' + ledger_design_assets.STYLE + '</style><body><main id="main">'
                 '<a href="#participant-trip-panel">보험 명단</a>'
-                '<table><tr><td class="participant-insurance-cell" data-income-ref="income-1">'
+                '<table id="income-tbl" data-google-generation="one"><tr><td class="participant-insurance-cell" data-income-ref="income-1">'
                 '보험 명단 확인<button class="participant-row-connect">대조</button></td></tr></table>'
                 + panel.shell(trip_id='trip-a') + '</main><script>' + ledger_design_assets.SCRIPT + '</script></body>')
     calls = []
@@ -118,8 +121,9 @@ def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(mo
                                 body=response if '/api/participants/trip-panel?' in request.request.url else document)
             page.route('http://synthetic.test/**', route)
             page.goto('http://synthetic.test/')
-            page.wait_for_selector('.participant-insurance-cell .insurance-review-status')
-            assert page.locator('.participant-insurance-cell').inner_text() == '글자 일치 · 가*다'
+            expected = '글자 일치 · 가*다' if generation == 'one' else '자료 변경 · 새로고침 필요'
+            page.wait_for_function('(value)=>document.querySelector(".participant-insurance-cell").textContent===value', arg=expected)
+            assert page.locator('.participant-insurance-cell').inner_text() == expected
             assert page.locator('.participant-row-connect').count() == 0
             for width in (320,390,900):
                 page.set_viewport_size({'width':width,'height':900})

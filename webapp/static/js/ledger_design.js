@@ -27,6 +27,11 @@
    root.querySelectorAll('.participant-income-status').forEach(function(template){
     var cell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(template.dataset.incomeRef)+'"]');
     if(!cell)return;
+    var incomeTable=cell.closest('#income-tbl');
+    if(incomeTable&&template.hasAttribute('data-google-generation')&&
+       incomeTable.dataset.googleGeneration!==template.dataset.googleGeneration){
+     cell.textContent='자료 변경 · 새로고침 필요';return;
+    }
     var button=cell.querySelector('.participant-row-connect');
     cell.replaceChildren(template.content.cloneNode(true));if(button&&form)cell.appendChild(button);
    });
