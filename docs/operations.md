@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 PR405/406/407 insurance integration and panel recovery
+
+- Existing masked review data now appears in trip-income cells and an inline contract-history panel even when the confirmed participant DB is absent. Compatible root markup fixes the generic loading error; confirmed manual links, canonical generation checks, trip scope and bounded-candidate uncertainty are preserved. Duplicate footer navigation is consolidated into the inline panel.
+- PR405 first deployed480e9ca6, PR406 generation guard deployed817b6178, and PR407 final pagination correction deployed `b99d01a78d96e28352657c47f0a3030bba18832e`. Final tested54e9d04f/merged trees identical. Authenticated817b6178 QA exposed13/20 populated cells; final deployed source-backed render covers20/20 and12/12, database changes0 and no write forms. Final authenticated browser not repeated; synthetic browser and actual rendering evidence remain distinct.
+- Test phases60/25/8/17 plus isolated manual-link check pass, overlap not summed. Four pre-existing income-badge subfailures reproduced on baseline1f3729c0; transient browser/test-call errors corrected/rechecked separately.1190 blobs match, fixed task/processSHA, listener1, health/ready200, protected participant and other APIs401,13 protected tables unchanged. Verified prior817b6178 code/task rollback preserved; no repeated full backup/restore for read-only code/UI changes.
+- Evidence `.local-archive/insurance-panel-integration-20261031/` and `.local-archive/deploy-b99d01a78d96e28352657c47f0a3030bba18832e/`; host `D:/WebLedgerHost/releases/deploy-evidence-b99d01a78d96e28352657c47f0a3030bba18832e.json`. No financial/source/participant/Google writes, new registrations, migration, downloads or scheduler changes. Text matches/candidates do not establish identity, active insurance or payment receipt. See [current status](session_handoff.md).
+
 ## 2026-10-31 PR403 trip review icon-card design
 
 - [PR403](https://github.com/6Soo/cost/pull/403) normal merge; testedc0326bf8 and runtime `6c4bb1cfbb08938dbe706f6d94c95e556e90bb42` trees match. Scoped markup/CSS adds summary and seven link icons, complete clickable cards, responsive3/2/1 layout and theme/focus/motion handling; existing links and source-derived review facts unchanged.
