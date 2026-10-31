@@ -303,6 +303,28 @@ def test_worker_ota_decision_is_sanitized_and_never_changes_payment_identity(set
         [dict(mail, source_digest='')], [], [])
 
 
+def test_import_has_one_review_flow_and_does_not_write(setup_review):
+    from webapp import card_flow
+    flow, _, _, _ = setup_review
+
+    class Handler:
+        def _send(self, body, status=200):
+            self.result = status, body
+
+    handler = Handler()
+    before = list(flow.board.conn.iterdump())
+    with patch('webapp.ledger_board._active_store', return_value=flow.board), \
+            patch('webapp.ota_payment_review.enabled', return_value=False):
+        assert card_flow.dispatch(handler, urlsplit('/import'), query={})
+    status, html = handler.result
+    assert status == 200
+    assert 'id=\'card-review-detail\'' in html
+    assert 'id="provisional-trip-review"' not in html
+    assert '분류되면 완료입니다' not in html
+    assert '검사를 통과한 거래는 자동 반영했습니다' not in html
+    assert list(flow.board.conn.iterdump()) == before
+
+
 def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, monkeypatch):
     import threading
     from playwright.sync_api import sync_playwright
