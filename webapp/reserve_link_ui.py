@@ -48,6 +48,25 @@ th { background:var(--soft); }
 .note { color: var(--muted); }
 .err { color: #A1262F; }
 .warntext { color: #8A5100; }
+.link-help { margin:.35rem 0 .75rem; color:var(--muted); }
+.link-tools { display:flex; align-items:end; gap:.75rem; flex-wrap:wrap; margin:.75rem 0; }
+.link-tools label { display:flex; flex-direction:column; gap:.25rem; color:var(--muted); font-size:.85rem; }
+.link-tools input, .link-tools select { min-width:15rem; min-height:40px; }
+.link-tools .page { display:flex; align-items:center; gap:.5rem; margin-left:auto; }
+.link-tools button { min-height:40px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;
+  background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
+.link-tools button:disabled { opacity:.5; cursor:not-allowed; }
+.page-count { min-width:5rem; text-align:center; color:var(--muted); }
+.linktable tbody tr.is-hidden { display:none; }
+.linktable .picker select { min-height:88px; }
+.linktable .source-name { font-weight:700; display:block; }
+.linktable .source-code { display:block; margin-top:.25rem; color:var(--muted); font-size:.82rem; }
+.linktable .chosen { min-width:13rem; }
+.linktable .chosen.empty { color:var(--muted); }
+.linktable .clear-link { margin-top:.5rem; min-height:36px; padding:5px 9px; border:1px solid var(--border);
+  border-radius:7px; background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
+.linktable .clear-link:hover { background:var(--accent-soft); border-color:var(--accent); }
+.empty-filter { padding:1rem; border:1px dashed var(--border); color:var(--muted); }
 fieldset { margin: 0.5rem 0; }
 a.back { color: var(--accent); text-decoration: none; }
 a.back:hover { text-decoration: underline; }
@@ -108,7 +127,8 @@ a.back:hover { text-decoration: underline; }
     margin-bottom: 0.15rem;
   }
 }
-@media (max-width:375px) { body { margin:.625rem; } h1 { font-size:1.15rem; } .linktable td { padding:.4rem; } }
+@media (max-width:700px) { .link-tools .page { margin-left:0; width:100%; justify-content:space-between; } }
+@media (max-width:375px) { body { margin:.625rem; } h1 { font-size:1.15rem; } .linktable td { padding:.4rem; } .link-tools input, .link-tools select { min-width:0; width:100%; } }
 </style>
 </head>
 <body>
@@ -128,6 +148,7 @@ a.back:hover { text-decoration: underline; }
 <div class="bar">
   <button id="reloadBtn" type="button">__ICON_REFRESH__다시 불러오기</button>
   <button id="saveBtn" type="button" disabled>__ICON_SAVE__여행 연결 저장</button>
+  <button id="cancelBtn" type="button" disabled>변경 취소</button>
   <button id="applyBtn" type="button" disabled>__ICON_CHECK__연결된 명단 적용</button>
 </div>
 <section id="linkBox"></section>
@@ -143,6 +164,9 @@ var draft = null;          // what the owner is looking at
 var pendingLinks = null;   // the owner's edited draft, not yet saved
 var applied = false;
 var appliedDigest = "";
+var visiblePage = 0;
+var pageSize = 10;
+var rowModels = [];
 
 function el(id) { return document.getElementById(id); }
 function text(value) {
@@ -178,12 +202,14 @@ function clearAll(message, kind) {
   clear(el("planBox"));
   clear(el("rows"));
   el("saveBtn").disabled = true;
+  el("cancelBtn").disabled = true;
   el("applyBtn").disabled = true;
   setState(message, kind || "err");
 }
 
 function renderPlan(payload) {
   draft = payload;
+  el("cancelBtn").disabled = true;
   pendingLinks = {};
   var per = payload.per_identifier || {};
   Object.keys(per).forEach(function(code) {
@@ -211,33 +237,87 @@ function renderPlan(payload) {
     setState("대상 행사 대기 중입니다. 연결은 진행할 수 없어요.", "warntext");
     return;
   }
+  add(box, "p", "link-help", "예약 건을 검색한 뒤 여행을 선택하세요. 한 번에 10건씩 표시합니다.");
+  var tools = add(box, "div", "link-tools");
+  var searchLabel = add(tools, "label", null, "예약 건 검색");
+  var search = document.createElement("input");
+  search.id = "linkSearch";
+  search.type = "search";
+  search.placeholder = "예약자 이름 · 예약 정보 · 여행명";
+  search.setAttribute("aria-label", "예약 건 검색");
+  searchLabel.appendChild(search);
+  var filterLabel = add(tools, "label", null, "상태");
+  var filter = document.createElement("select");
+  filter.id = "linkFilter";
+  filter.setAttribute("aria-label", "예약 건 상태 필터");
+  [["all", "전체"], ["unlinked", "미연결"], ["linked", "연결됨"]].forEach(function(item) {
+    var option = document.createElement("option");
+    option.value = item[0]; option.textContent = item[1]; filter.appendChild(option);
+  });
+  // Keep all rows visible after a save/reload so a just-linked row remains
+  // editable. The status filter is available for owners who want to focus on
+  // unlinked work; pagination keeps the default view bounded.
+  filter.value = "all";
+  filterLabel.appendChild(filter);
+  var pager = add(tools, "div", "page");
+  var previous = add(pager, "button", null, "이전");
+  previous.id = "previousPage";
+  var pageCount = add(pager, "span", "page-count", "");
+  pageCount.id = "pageCount";
+  var next = add(pager, "button", null, "다음");
+  next.id = "nextPage";
   var table = add(box, "table", "linktable");
   var head = add(add(table, "thead"), "tr");
-  ["예약 행사 식별자", "연결된 COST 여행", "COST 여행 선택"].forEach(function(label) {
+  ["예약자 / 예약 정보", "현재 연결", "연결할 COST 여행"].forEach(function(label) {
     var th = add(head, "th", null, label);
     th.setAttribute("scope", "col");
   });
   var body = add(table, "tbody");
+  rowModels = [];
+  var sourceMeta = {};
+  (payload.persons || []).forEach(function(person) {
+    (person.assignments || []).forEach(function(code) {
+      if (!sourceMeta[code]) { sourceMeta[code] = []; }
+      sourceMeta[code].push(person.display_name || "예약자 이름 없음");
+    });
+  });
   Object.keys(pendingLinks).forEach(function(code) {
     var row = add(body, "tr");
+    rowModels.push({code: code, row: row, names: sourceMeta[code] || []});
     // `data-label` is what each cell names itself with once the table becomes a
     // stack of cards at a narrow width. Without it a stacked row is three
     // unlabelled fragments and the source key looks like a heading.
-    var keyCell = add(row, "td", "code", code);
-    keyCell.setAttribute("data-label", "예약 행사 식별자");
-    var chosen = add(row, "td", "chosen",
-                      pendingLinks[code].join(", ") || "연결 없음");
-    chosen.setAttribute("data-label", "연결된 COST 여행");
+    var keyCell = add(row, "td", "code");
+    keyCell.setAttribute("data-label", "예약자 / 예약 정보");
+    var people = sourceMeta[code] || [];
+    add(keyCell, "span", "source-name", people.join(", ") || "예약자 정보 없음");
+    add(keyCell, "span", "source-code", code);
+    var chosen = add(row, "td", "chosen");
+    chosen.setAttribute("data-label", "현재 연결");
     chosen.setAttribute("data-source", code);
+    function renderChosen() {
+      clear(chosen);
+      var values = pendingLinks[code];
+      var changed = JSON.stringify(values.slice().sort()) !== JSON.stringify((per[code] || []).slice().sort());
+      chosen.classList.toggle("empty", !values.length);
+      add(chosen, "span", null, values.length
+          ? values.map(function(target) {
+              var match = choices.find(function(choice) { return choice.tab_id === target; });
+              return match ? (match.label || match.tab_id) : target;
+            }).join(", ")
+          : "아직 연결되지 않음");
+      if (changed) { add(chosen, "small", "source-code", "저장 전 변경"); }
+    }
+    renderChosen();
     var cell = add(row, "td", "picker");
-    cell.setAttribute("data-label", "COST 여행 선택");
+    cell.setAttribute("data-label", "연결할 COST 여행");
     var select = document.createElement("select");
     select.multiple = true;
     select.setAttribute("data-source", code);
     // Named on every row rather than only by the column header, because at a
     // narrow width the header is not beside this control any more.
     select.setAttribute("aria-label", "대상 선택 · " + code);
-    select.setAttribute("size", String(Math.min(4, Math.max(2, choices.length))));
+    select.setAttribute("size", String(Math.min(3, Math.max(2, choices.length))));
     choices.forEach(function(choice) {
       var option = document.createElement("option");
       option.value = choice.tab_id;
@@ -255,11 +335,58 @@ function renderPlan(payload) {
       // Replace, never merge: the selection *is* the target set for this
       // identifier, so a target the owner removed is gone from the draft.
       pendingLinks[code] = picked;
-      chosen.textContent = picked.join(", ") || "연결 없음";
+      renderChosen();
       el("saveBtn").disabled = false;
+      el("cancelBtn").disabled = false;
+      refreshRows();
     });
     cell.appendChild(select);
+    var clearButton = add(cell, "button", "clear-link", "이 예약 연결 해제");
+    clearButton.type = "button";
+    clearButton.addEventListener("click", function() {
+      for (var i = 0; i < select.options.length; i++) { select.options[i].selected = false; }
+      pendingLinks[code] = [];
+      renderChosen();
+      el("saveBtn").disabled = false;
+      el("cancelBtn").disabled = false;
+      refreshRows();
+    });
   });
+  function refreshRows() {
+    var query = (search.value || "").toLowerCase().trim();
+    var mode = filter.value;
+    var matches = rowModels.filter(function(model) {
+      var linked = pendingLinks[model.code].length > 0;
+      var targets = pendingLinks[model.code].map(function(target) {
+        var choice = choices.find(function(item) { return item.tab_id === target; });
+        return choice ? (choice.label || target) : target;
+      });
+      var searchable = [model.code].concat(model.names, targets).join(" ").toLowerCase();
+      return (!query || searchable.indexOf(query) !== -1)
+        && (mode === "all" || (mode === "linked" ? linked : !linked));
+    });
+    var pages = Math.max(1, Math.ceil(matches.length / pageSize));
+    visiblePage = Math.max(0, Math.min(visiblePage, pages - 1));
+    rowModels.forEach(function(model) { model.row.classList.add("is-hidden"); });
+    matches.slice(visiblePage * pageSize, (visiblePage + 1) * pageSize)
+      .forEach(function(model) { model.row.classList.remove("is-hidden"); });
+    pageCount.textContent = matches.length ? (String(visiblePage + 1) + " / " + String(pages)) : "0건";
+    previous.disabled = visiblePage === 0;
+    next.disabled = visiblePage >= pages - 1;
+    var empty = el("emptyFilter");
+    if (empty) { empty.remove(); }
+    if (!matches.length) {
+      var emptyRow = document.createElement("p");
+      emptyRow.id = "emptyFilter"; emptyRow.className = "empty-filter";
+      emptyRow.textContent = "조건에 맞는 예약 건이 없습니다.";
+      table.parentNode.insertBefore(emptyRow, table);
+    }
+  }
+  search.addEventListener("input", function() { visiblePage = 0; refreshRows(); });
+  filter.addEventListener("change", function() { visiblePage = 0; refreshRows(); });
+  previous.addEventListener("click", function() { visiblePage--; refreshRows(); });
+  next.addEventListener("click", function() { visiblePage++; refreshRows(); });
+  refreshRows();
   el("saveBtn").disabled = false;
   // Re-enabled only for a plan this screen has not already applied. The plan
   // digest is the identity of the apply, so an unchanged plan stays spent and a
@@ -440,6 +567,9 @@ function runApply() {
 }
 
 el("reloadBtn").addEventListener("click", loadPlan);
+el("cancelBtn").addEventListener("click", function() {
+  if (draft) { renderPlan(draft); setState("저장 전 변경을 취소했습니다.", ""); }
+});
 el("saveBtn").addEventListener("click", saveLinks);
 el("applyBtn").addEventListener("click", runApply);
 // Read once on open. Not on a timer: this is the owner's screen, and re-reading

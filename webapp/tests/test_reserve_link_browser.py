@@ -285,6 +285,41 @@ class LinkScreenTests(LinkBrowserFixture):
         # Nothing is applied by looking.
         self.assertEqual(self.visible_tabs(), set())
 
+    def test_search_clear_and_cancel_keep_saved_links_and_permissions_unchanged(self):
+        page = self.open_screen()
+        page.wait_for_function("() => window.__reserveLink.state() !== null", timeout=SETTLE_MS)
+        page.fill("#linkSearch", "합성 담당자")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 2)
+        selector = "select[data-source='reservation:cafeParse:ALFA']"
+        page.select_option(selector, ["COST-TRIP-ALFA"])
+        page.fill("#linkSearch", "COST-TRIP-ALFA")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 1)
+        page.click(".linktable tbody tr:visible .clear-link")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 0)
+        page.click("#cancelBtn")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 2)
+        self.assertEqual(page.eval_on_selector(selector, "s => [...s.selectedOptions].length"), 0)
+        self.assertTrue(page.is_disabled("#cancelBtn"))
+        self.assertEqual(self.visible_tabs(), set())
+
+    def test_pagination_and_name_search_work_on_mobile(self):
+        page = self.open_screen()
+        page.wait_for_function("() => window.__reserveLink.state() !== null", timeout=SETTLE_MS)
+        page.set_viewport_size({"width": 320, "height": 760})
+        page.evaluate("""() => {
+          const payload = structuredClone(window.__reserveLink.state());
+          payload.per_identifier = Object.fromEntries(Array.from({length: 12}, (_, i) => ['reservation:test:' + i, []]));
+          payload.persons = [{display_name: '페이지 예약자', assignments: ['reservation:test:11']}];
+          renderPlan(payload);
+        }""")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 10)
+        page.click("#nextPage")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 2)
+        page.fill("#linkSearch", "페이지 예약자")
+        self.assertEqual(page.locator(".linktable tbody tr:visible").count(), 1)
+        self.assertIn("reservation:test:11", page.inner_text(".linktable tbody tr:visible"))
+        self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+
     def test_a_saved_draft_alone_grants_nothing(self):
         page = self.open_screen()
         page.wait_for_function("() => window.__reserveLink.state() !== null",
