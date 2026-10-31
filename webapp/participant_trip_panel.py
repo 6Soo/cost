@@ -80,7 +80,9 @@ def _review_markup(state, data):
             label = f"보험 명단 후보 {len(hits)}건"
         else:
             label = '글자 일치 없음'
-        templates.append(f"<template class='participant-income-status' data-income-ref='{_esc(ref)}'>"
+        generation = (state.get('google') or {}).get('generation') or ''
+        templates.append(f"<template class='participant-income-status' data-income-ref='{_esc(ref)}' "
+                         f"data-google-generation='{_esc(generation)}'>"
                          f"<span class='insurance-review-status'>{_esc(label)}</span></template>")
     contracts = ''.join(
         "<li><span>" + _esc(contract.get('travel_start')) + '–' + _esc(contract.get('travel_end'))
