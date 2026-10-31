@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 보험 후보·여행 검토 UX 운영 수락
+
+- [PR409](https://github.com/6Soo/cost/pull/409), 검증 `db789b6cfa079dbce3cd29f848b1ca855f42d4e6`, 운영 `1ecd2aa00d09f8bee7d9af7f09802cd506870c5c`, tree 동일. [실행 계약](specs/insurance-trip-review-ux-20261031.md): 명단 로딩/재시도·행별 후보 비교·여행별 작업3개와 전체 도구4개. 관련64/최종JS43/수동 버튼1검사 통과(중복 실행 합산 금지).
+- 1190 blobs 일치·task/process SHA·단일 listener·health/ready200·보호API401·보호13표 내용/스키마 불변. 직전 검증b99d01a7 릴리스/task 복구 보존, 읽기 전용 코드 변경으로 신규 전체 백업/복원 없음. 금융/명단/원본/Google 쓰기·마이그레이션·스케줄 변경0.
+- 기존 로그인 Ego 실화면 첫20/20·다음12/12 상태,14개 후보 버튼·후보2행 비교·동일 근거·포커스 복귀, 여행 작업3개·접힌 전체 도구·명단 쓰기form0 확인. 최초 포인터 초기포커스 검사는 BODY 관찰로 실패했고, 후속 키보드 진입의 닫기 초기포커스·Tab·Escape/닫기·복귀 검사를 별도로 통과했다. 원래 실패 기록 보존. Ego 공간10 finish 완료. 전체 회귀/실기기 미실행. 실제 확정 명단/등록 증빙 대기 유지.
+- 근거 `C:/AX/cost/.local-archive/insurance-actionable-20261031/`와 `.local-archive/deploy-1ecd2aa00d09f8bee7d9af7f09802cd506870c5c/`. 후속 명세/상태 문서만 병합하며 코드 재검사·재배포·서버 재시작하지 않는다.
+
 ## 2026-10-31 PR405/406/407 insurance integration and panel recovery
 
 - Existing masked review data now appears in trip-income cells and an inline contract-history panel even when the confirmed participant DB is absent. Compatible root markup fixes the generic loading error; confirmed manual links, canonical generation checks, trip scope and bounded-candidate uncertainty are preserved. Duplicate footer navigation is consolidated into the inline panel.
