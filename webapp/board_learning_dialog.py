@@ -270,7 +270,6 @@ def rule_dialog_page(
             + rule_hidden(case_id, f"ui-close-{case_id}", csrf_token=csrf_token)
             + "<button class='btn' type='submit'>대화 닫기</button></form>")
     body = (f"<div class='sect'>{''.join(parts)}"
-            f"<p class='meta'>행 {row_id} · revision {row.get('revision', 1)}</p>"
             f"<p><a href='/row?id={row_id}'>내용으로 돌아가기</a> · "
             "<a href='/board'>목록으로</a></p></div>")
     return ledger_design.render(ledger_design.shell(

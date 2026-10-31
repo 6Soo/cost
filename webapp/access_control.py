@@ -139,6 +139,7 @@ VIEWER_DENIED_FIELDS = (
 
 # Routes only an owner may reach. A viewer receives the existing owner-action refusal.
 OWNER_ONLY_PATHS = (
+    "/api/maintenance/request-metrics",
     "/cards/all",
     "/api/cards/transactions",
     "/ota",

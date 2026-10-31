@@ -65,6 +65,10 @@ def test_no_active_claim_from_process_call_or_comment(tmp_path):
         assert classify(tmp_path / 'tools' / 'entry.py', source, tmp_path)[0] == 'UNKNOWN'
 
 
+def test_unknown_is_retained_without_a_promotion_config():
+    assert classify(Path('tools/entry.py'), 'import subprocess\nsubprocess.run(["python", "x.py"])')[0] == 'UNKNOWN'
+
+
 def test_missing_broken_and_invalid_utf8_are_diagnostics(tmp_path):
     import subprocess
     subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)

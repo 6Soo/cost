@@ -7,12 +7,15 @@ manifest and independently checks every bounded batch's digest and coverage.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import re
 from pathlib import Path
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
+MESSAGE_ID = re.compile(r"^[a-fA-F0-9]+$")
+UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 
 
 class ReadinessError(ValueError):
@@ -34,9 +37,28 @@ def batch_digest(messages, ids):
 
 def _read(path):
     try:
-        return json.loads(Path(path).read_bytes().decode("utf-8"))
+        return json.loads(Path(path).read_bytes().decode("utf-8"), object_pairs_hook=_unique_object)
     except (OSError, UnicodeError, json.JSONDecodeError):
         raise ReadinessError("CLOUD_MAIL_READINESS_INPUT_INVALID") from None
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ReadinessError("CLOUD_MAIL_DUPLICATE_JSON_KEY")
+        result[key] = value
+    return result
+
+
+def _valid_utc_timestamp(value):
+    if not isinstance(value, str) or not UTC_TIMESTAMP.fullmatch(value):
+        return False
+    try:
+        datetime.fromisoformat(value[:-1] + '+00:00')
+    except ValueError:
+        return False
+    return True
 
 
 def verify(bundle):
@@ -48,15 +70,21 @@ def verify(bundle):
     messages = manifest.get("messages")
     if not isinstance(messages, dict):
         raise ReadinessError("CLOUD_MAIL_READINESS_MANIFEST_INVALID")
+    if any(not isinstance(identity, str) or not MESSAGE_ID.fullmatch(identity)
+           or not isinstance(entry, dict) for identity, entry in messages.items()):
+        raise ReadinessError("CLOUD_MAIL_READINESS_MANIFEST_INVALID")
     if manifest.get("pending", []) not in ([], None):
         raise ReadinessError("CLOUD_MAIL_PENDING")
-    if (manifest.get("query") is not None or not isinstance(manifest.get("last_complete"), str)
-            or not manifest['last_complete'].strip()):
+    watermark = manifest.get("last_complete")
+    if manifest.get("query") is not None or not _valid_utc_timestamp(watermark):
         raise ReadinessError("CLOUD_MAIL_ENUMERATION_INCOMPLETE")
     if any(manifest.get(key) not in (None, '') for key in ('nextPageToken', 'next_page_token')):
         raise ReadinessError("CLOUD_MAIL_HAS_NEXT_PAGE")
     if manifest.get("has_next_page", False) is not False:
         raise ReadinessError("CLOUD_MAIL_HAS_NEXT_PAGE")
+    stored = manifest.get("stored")
+    if stored is not None and (type(stored) is not int or stored < 0 or stored != len(messages)):
+        raise ReadinessError("CLOUD_MAIL_STORED_COUNT_MISMATCH")
     batches = bundle.get("batches")
     if not isinstance(batches, list) or not batches:
         raise ReadinessError("CLOUD_MAIL_BATCH_EVIDENCE_REQUIRED")
@@ -90,6 +118,8 @@ def verify(bundle):
         raise ReadinessError("CLOUD_MAIL_COUNTS_INVALID")
     if indexed != len(messages) or indexed != existing + new:
         raise ReadinessError("CLOUD_MAIL_COUNTS_INVALID")
+    if stored is not None and indexed != stored:
+        raise ReadinessError("CLOUD_MAIL_STORED_COUNT_MISMATCH")
     return {"status": "PREVIEW_VERIFIED", "indexed": indexed, "batches": len(batches),
             "pending": 0, "has_next_page": False, 'operational_cutover_allowed': False,
             'remaining_gate': 'fresh live manifest, content preview, writer pause and verified backup/restore'}

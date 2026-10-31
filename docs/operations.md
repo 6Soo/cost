@@ -1,5 +1,177 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 보험 후보·여행 검토 UX 운영 수락
+
+- [PR409](https://github.com/6Soo/cost/pull/409), 검증 `db789b6cfa079dbce3cd29f848b1ca855f42d4e6`, 운영 `1ecd2aa00d09f8bee7d9af7f09802cd506870c5c`, tree 동일. [실행 계약](specs/insurance-trip-review-ux-20261031.md): 명단 로딩/재시도·행별 후보 비교·여행별 작업3개와 전체 도구4개. 관련64/최종JS43/수동 버튼1검사 통과(중복 실행 합산 금지).
+- 1190 blobs 일치·task/process SHA·단일 listener·health/ready200·보호API401·보호13표 내용/스키마 불변. 직전 검증b99d01a7 릴리스/task 복구 보존, 읽기 전용 코드 변경으로 신규 전체 백업/복원 없음. 금융/명단/원본/Google 쓰기·마이그레이션·스케줄 변경0.
+- 기존 로그인 Ego 실화면 첫20/20·다음12/12 상태,14개 후보 버튼·후보2행 비교·동일 근거·포커스 복귀, 여행 작업3개·접힌 전체 도구·명단 쓰기form0 확인. 최초 포인터 초기포커스 검사는 BODY 관찰로 실패했고, 후속 키보드 진입의 닫기 초기포커스·Tab·Escape/닫기·복귀 검사를 별도로 통과했다. 원래 실패 기록 보존. Ego 공간10 finish 완료. 전체 회귀/실기기 미실행. 실제 확정 명단/등록 증빙 대기 유지.
+- 근거 `C:/AX/cost/.local-archive/insurance-actionable-20261031/`와 `.local-archive/deploy-1ecd2aa00d09f8bee7d9af7f09802cd506870c5c/`. 후속 명세/상태 문서만 병합하며 코드 재검사·재배포·서버 재시작하지 않는다.
+
+## 2026-10-31 PR405/406/407 insurance integration and panel recovery
+
+- Existing masked review data now appears in trip-income cells and an inline contract-history panel even when the confirmed participant DB is absent. Compatible root markup fixes the generic loading error; confirmed manual links, canonical generation checks, trip scope and bounded-candidate uncertainty are preserved. Duplicate footer navigation is consolidated into the inline panel.
+- PR405 first deployed480e9ca6, PR406 generation guard deployed817b6178, and PR407 final pagination correction deployed `b99d01a78d96e28352657c47f0a3030bba18832e`. Final tested54e9d04f/merged trees identical. Authenticated817b6178 QA exposed13/20 populated cells; final deployed source-backed render covers20/20 and12/12, database changes0 and no write forms. Final authenticated browser not repeated; synthetic browser and actual rendering evidence remain distinct.
+- Test phases60/25/8/17 plus isolated manual-link check pass, overlap not summed. Four pre-existing income-badge subfailures reproduced on baseline1f3729c0; transient browser/test-call errors corrected/rechecked separately.1190 blobs match, fixed task/processSHA, listener1, health/ready200, protected participant and other APIs401,13 protected tables unchanged. Verified prior817b6178 code/task rollback preserved; no repeated full backup/restore for read-only code/UI changes.
+- Evidence `.local-archive/insurance-panel-integration-20261031/` and `.local-archive/deploy-b99d01a78d96e28352657c47f0a3030bba18832e/`; host `D:/WebLedgerHost/releases/deploy-evidence-b99d01a78d96e28352657c47f0a3030bba18832e.json`. No financial/source/participant/Google writes, new registrations, migration, downloads or scheduler changes. Text matches/candidates do not establish identity, active insurance or payment receipt. See [current status](session_handoff.md).
+
+## 2026-10-31 PR403 trip review icon-card design
+
+- [PR403](https://github.com/6Soo/cost/pull/403) normal merge; testedc0326bf8 and runtime `6c4bb1cfbb08938dbe706f6d94c95e556e90bb42` trees match. Scoped markup/CSS adds summary and seven link icons, complete clickable cards, responsive3/2/1 layout and theme/focus/motion handling; existing links and source-derived review facts unchanged.
+- 12 targeted tests passed; synthetic desktop/mobile light/dark visuals,320px200% no overflow, seven icons and keyboard toggle accepted. Ego task finished. Authenticated owner-page/physical-device acceptance was not repeated.1189 blobs match, task/process SHA, listener1, health/ready200, protectedAPI/affected-page401 and13 protected financial tables unchanged. Prior verifiedf98e401f release/task rollback remains available; no new full data backup/restore for reversible UI-only deployment.
+- Evidence `.local-archive/trip-review-design-20261031/` and `.local-archive/deploy-6c4bb1cfbb08938dbe706f6d94c95e556e90bb42/`; host sameSHA release audit/deploy evidence. No financial/source/participant/Google data, schema or scheduler writes. Insurance integration diagnosis is recorded separately in [current status](session_handoff.md), not claimed as fixed by this design change.
+
+## 2026-10-30 PR400 card phase metrics and protected diagnostics
+
+- [PR400](https://github.com/6Soo/cost/pull/400) merged normally. Tested `208eb6faa122c0b3929e22f6369f758986d6fada` and runtime `f98e401fe9b2777e93c6342293d287af4b12804b` trees match. Existing request metrics now separate card connection/query/labels/render stages and expose bounded aggregate diagnostics to the owner. Data-load timings include connection/materialization and are not additive SQLite CPU timings.
+- 6 focused,126 adjacent and24 telemetry/isolated first-render tests passed (overlap; no full-regression claim). Output/database byte equivalence and anonymous/staff/owner HTTP protection verified. Deployment1189 blobs match, fixed task/process SHA, listener1, health/ready200, protected APIs401 and13 protected tables unchanged. Previous verified1ce4fe6d release/task rollback preserved; no new full data backup/restore for this reversible code-only change.
+- Existing authenticated Aside session observed3 card GETs200 and aggregate GET200/no-store;10 aggregate stage groups recorded. Anonymous aggregate endpoint401; staff403 covered by actual synthetic HTTP tests. The samples establish working instrumentation, not representative performance SLA or real-device acceptance. Source/input/manual-paste acceptance gates remain independent of implementation completion.
+- Evidence `.local-archive/core-workflow-20261030/stage-*.xml`, code-gap-review.json and `.local-archive/deploy-f98e401fe9b2777e93c6342293d287af4b12804b/`; host `D:/WebLedgerHost/releases/deploy-evidence-f98e401fe9b2777e93c6342293d287af4b12804b.json`. No financial/roster/source/Google writes, card collection/upload, new billing or scheduler changes. See [current status](session_handoff.md) for the eight-item code/acceptance distinction and recheck conditions.
+
+## 2026-10-30 PR398 archived-trip comparison and Google reader cutover
+
+- [PR398](https://github.com/6Soo/cost/pull/398) merged normally; tested `f847dcf3ce3f2d1095c07641871f65cc8ee49766` and runtime `1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3` trees match. Read-only M:N trip lookup includes archived trips while default review/write lookup scope is preserved.
+- 21 focused and35 adjacent protection tests passed.1188 release blobs match; task/process SHA, single loopback listener, health/ready200, protected APIs and affected trip page401,13 protected table contents/schema unchanged. Prior verified58cfa0aa release and task XML provide code rollback. No full data backup/restore was repeated for this reversible code-only change; no data/schema/Google writes.
+- Separately approved Google reader switch was already executed successfully:4b4d10fb to58cfa0aa, task result0, both sources normal at16:55:17+09:00, execution times/authentication/settings unchanged. Board deployment does not change that independent action.
+- Full recovered audit remains47/62 comparable.12 layout issues,2 formula/total issues and1 archived COST trip absent from current Google source remain unavailable. Actual deployed lookup now reaches GOOGLE_TRIP_UNAVAILABLE instead of incorrectly rejecting its COST archive state. Archive unchanged, database changes0; no false matched result was introduced.
+- Local evidence: `.local-archive/core-workflow-20261030/` and `.local-archive/deploy-1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3/`; host evidence `D:/WebLedgerHost/releases/deploy-evidence-1ce4fe6dbe645c8e788b45e89b067cb15cb18bc3.json`. Remaining external gates and exact recheck conditions are in [current status](session_handoff.md). No new card collection or financial/participant/source writes.
+
+## 2026-10-30 16:43 Google comparison incident recovery
+
+- User reported all Google expense comparisons unavailable. Same actual source reproduced SOURCE_NOT_VERIFIED on both prior d0d73f8a and deployed58cfa0aa. Cause was the16:00 main-reader SOURCE_UNREACHABLE, not demonstrated code regression.
+- Retried the existing scheduled readonly reader ONCE after its normal backoff expired; task result0, both main/archive normal with last_ok_at2026-10-30T16:43:03.212344+09:00. Schedule/runner unchanged. This supersedes the earlier current-failure observation, but does not activate PR395 generation optimization in the old scheduled runner.
+- Authenticated actual recovered trip GET200:35 matched cells and0 unavailable. Another currently viewed trip remains unavailable for a REAL source formula gap: H47:H75 excludes amount row76; directly inspected workbook in memory, cached total differs from all expense rows. No Google source edit or validation bypass. Another trip has LAYOUT_NOT_STANDARD. These individual source issues must not be reported as an ongoing global outage.
+- Evidence `.local-archive/core-workflow-20261030/google-recovery.json` and `sheet-range-diagnostic.json`; original values/names were not logged. No financial/roster/Google writes, server restart or redeploy. User edits the Google source formula/format, then the existing normal reader must refresh before rechecking those specific trips.
+
+
+## 2026-10-30 CORE PR394/395 implementation and verified deployment
+
+- Approved specification [PR394](https://github.com/6Soo/cost/pull/394) and implementation [PR395](https://github.com/6Soo/cost/pull/395) merged normally. Tested commit `6387b915deb22dc55cdefd45feac3e0415863163`, runtime SHA `58cfa0aa0949a1ad2d83ad691a64c9d7abae5b5e`; tested and merged trees identical.
+- Existing trip page now has a collapsed review disclosure with seven existing navigation paths: card sources, holds, OTA/refunds, receipts, Google manual review, closure and insurance. Closure requires current archive evidence; unknown sources stay unknown. No new matcher, stored workflow state or Google writes.
+- Google unchanged private rows reuse their generation while checked timestamps advance; previous distinct generation remains available for inflight readers. Per-request source reuse supports the existing GEMN audit; OTA coverage reuses existing provider policy scope. The scheduled Google reader is STILL pinned to old4b4d10fb with latest result1. No schedule switch or forced sync was executed; activation and actual recovery require the separate schedule gate.
+- Targeted evidence: core34696 passed, workflow/receipt18 passed, protection134 passed, copy/trace84 passed, alias/refund84 passed, workflow-final12 passed. Counts overlap and must not be summed. Four obsolete copy fixtures and one alias fixture also failed on baseline; synthetic inputs were corrected to use canonical source/current matching rules without weakening financial protection. Full regression and physical Safari/Android acceptance were not run.
+- Actual readonly evidence: eight import source blobs with no fingerprint mismatch;62 actual trips,47 comparable/15 unavailable and DB changes0. OTA audit3914 events,228 MATCHED_AUTO/3 MATCHED_USER are observed existing decisions; new approvals/owner-decision changes0. Between the two audits source events increased3909 to3914 and NOT_CARD_CHARGE1107 to1112; these are NOT same-input equivalence/performance evidence. Scoped audit took590.842sec; scoped/unscoped equivalence and fewer resolver calls were verified using identical synthetic input. Participant DB and actual receipt store remain absent.
+- Deployment:1188 tracked blobs match; fixed task/process SHA, one loopback listener, health/ready200, protected APIs401,13 protected financial tables unchanged. Reversible code-only deployment used previous verified d0d73f8a release/task XML rollback; no new full backup/restore rehearsal was claimed. No financial/roster/source/Google writes, migrations or schedule cutover.
+- Existing authenticated Aside trip page accepted: initially collapsed, expands to7 links, write forms0, no page overflow, real unavailable/unknown closure states and correct Google manual-review link. Five authenticated cards/all GETs all200:1527-2042ms, median1742ms. This includes network and is not production p95, internal phase or physical-device acceptance. ADB devices0.
+- Evidence: `.local-archive/core-workflow-20261030/` XML, aggregate JSON, queue/checkpoint; `.local-archive/deploy-58cfa0aa0949a1ad2d83ad691a64c9d7abae5b5e/` and host deploy evidence. User pause on card collection/upload remains. Real Google manual paste, source payment proof, roster/registration receipt, actual receipt images and physical devices remain external gates. Verified artifacts are preserved before official temporary workspace archive; actual cleanup is recorded in final.json. Documentation-only followup does not trigger redeployment.
+
+
+## 2026-10-30 PR382 마스킹 보험 이름·기존 수입 글자 대조 배포
+
+- [PR #382](https://github.com/6Soo/cost/pull/382) 정상 병합, 운영 SHA `6338146ecfd0f48cd89aafb61c63f46a07e94f25`, 이전 검증 `c9336e978eca8ec60f8dccac50284700744f1eab` 복구점 보존. 소유자 GET 화면/API와 같은 세대의 Google 수입 원행을 연결하고, 별도 이름 인덱스 없는 자료도 대조한다.159행의 결과는 단일 후보41·복수 후보20·일치 없음98이며 신원/등록/가입/실제 입금 확정과 구별한다.
+- 검증84 passed(실제 HTTP 권한/GET-only/no-store/오류 상태·후보 충돌·원본 fallback·필터·세대·Chromium320/390/760/1280·설정 경계). 검수/merge tree 동일·1,167 blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 불변. Board/SourceRefresh Running. 기존 Aside 로그인 탭에서 실제 화면 요약과 API200/OK/no-store 확인.
+- 로컬 명단 manifest 연결만 launcher/card-flow 설정으로 활성화하고 변경 전 설정을 배포 근거에 보존했다. 원본 PDF/사진은 배포/Git/웹 응답에 넣지 않았다. 금융/참가자 DB/Google/원문 쓰기·재처리·마이그레이션0. 기존 외부 수락·카드 수집/업로드 중지는 유지한다.
+- 근거: `C:/AX/cost/.local-archive/masked-income-match-20261030/targeted.xml`, `live-smoke.json`, `.local-archive/deploy-6338146ecfd0f48cd89aafb61c63f46a07e94f25/` 및 `D:/WebLedgerHost/releases/deploy-evidence-6338146ecfd0f48cd89aafb61c63f46a07e94f25.json`. 전체 회귀/실기기는 미실행이며 문서 후속으로 재배포하지 않는다.
+
+## 2026-10-30 전체 미결 후속 PR380 고정 배포
+
+- [PR #380](https://github.com/6Soo/cost/pull/380) 정상 병합·운영 SHA `c9336e978eca8ec60f8dccac50284700744f1eab`, 이전 검증 `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1`. 검수/병합 tree 동일,1,159 blobs 불일치0·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API401·보호13표 불변 PASS. Board/SourceRefresh Running. 금융 적용·명단 등록·원문 재처리·Google 쓰기0.
+- 실제 확인: 참가자 인증 API200이나 configuredfalse/STORE_UNAVAILABLE, Drive readonly manifest3710/pending48/페이지·query진행중이므로 실제 참가자·메일 전환 수락은 미완료다. 원결제 증거·물리 모바일 기기·권한 유효 token/실사용 성능도 별도 수락이다. 실행 wrapper 절대 경로/서명과 제한된 broad SID ACE 확인을 전체 권한 보증으로 쓰지 않는다.
+- 인증 카드 초기 GET1회27,432ms·합성 검색 GET1회1,412ms가 관측돼 별도 Luna low에게 후속을 배정했다. 실제6,395건 분리 결과 연결/등록1,593ms·연도 쿼리21.7/19.5ms·결과 동일, 환불 그룹 약462ms였다. 최초16초 연도 조회는 재현되지 않아 금융/날짜 의미와 캐시를 바꾸는 최적화는 하지 않았다. 단일 원격 수치를 backend render·p95·SLA로 표시하지 않는다. 근거는 root `.local-archive/remaining-acceptance-20261030/` 및 `D:/WebLedgerHost/releases/deploy-evidence-c9336e978eca8ec60f8dccac50284700744f1eab.json`이다. 문서만 바뀐 후속은 재배포·재시작하지 않는다.
+
+## 2026-10-30 임시 브랜치 검토·병합·정리 및 운영 고정
+
+- 사용자 “임시워크스페이스 및 브랜치 병합 및 정리 운영배포”, 후속 “보존하지말고 확인하고 병합해”에 따라 [PR #378](https://github.com/6Soo/cost/pull/378)로 검토된 이력을 main에 병합했다. 미병합으로 보이던45 refs/90 commits 중61개는 main과 stable patch가 같고29개는 후속 구현·최신 정책 대체를 확인했다. [검토 기록](branch-integration-audit-20261030.md)에 이유를 남겼으며, 현재 tree를 유지하는 명시적 `ours` 병합으로 중복·구형 로직을 되살리지 않았다. 별도 보관 브랜치 대신 병합 후 삭제했다.
+- 요청된 운영 고정 SHA는 `dbead7d3b46e991f41a8ce6a39ff9bea8ae4c2e1`이며 이전 `10b95b802c879e83dd93d9030aa333f7f348cf38`을 복구 릴리스로 유지했다. 대상 코드가 이전 검증 본과 동일함을 확인하고 보호 검사108 passed를 재사용했다. 1,156 blobs 불일치0·새 백업/별도 복원·task/processSHA·health/ready200·보호API401·보호13표 전후 불변 PASS. 금융 적용·원문 재처리·Google 쓰기0.
+- 완료된 별도 Git worktree3개를 정리했고 마지막 Paseo 통합 worktree는 운영 검증 기록을 주 작업 폴더로 이동한 뒤 공식 archive 절차로 닫는다. 원격은 main만, 로컬은 main과 미커밋 사용자 변경이 있는 기존 작업 브랜치만 남긴다. 사용자 변경과 stash는 원본 해시로 불변 확인했다. 근거: `C:/AX/cost/.local-archive/workspace-branch-cleanup-20261030/` 및 호스트 같은 SHA deploy-evidence. 이 기록의 문서 후속은 재배포 대상이 아니다.
+
+## 2026-10-30 미결 구현·PR370 단계 통합 배포
+
+- 정상 병합 PR #371~#375의 최종 운영 SHA는 `10b95b802c879e83dd93d9030aa333f7f348cf38`이다. 이전 검증 릴리스 `d09596d0242416af2889b4a0514abd0509c60561`을 보존했다. [현재 상태](session_handoff.md)와 [실행 인덱스](specs/all-pending-execution-20261030.md)에 구현·부분 수락을 구분했다.
+- Git 고정 릴리스 1,154 blobs 불일치0, 새 운영 백업/별도 복원, task/process SHA 일치, 단일 loopback listener, health/ready200, 보호 API401, 보호13표 배포 전후 불변 PASS. `D:/WebLedgerHost/releases/deploy-evidence-10b95b802c879e83dd93d9030aa333f7f348cf38.json` 및 통합 worktree `.local-archive/all-pending-luna-20261030/deploy/`에 근거를 보관했다. Board/SourceRefresh 정상 복구. 금융 적용·원문 재처리·Google 쓰기는 실행하지 않았다.
+- Aside 인증 `/cards/all`에서 단일 수동 테마·문서 가로 overflow 없음·내부 분류 코드 비노출을 확인했다. 참가자 상태 API200, configured=false/complete=false는 준비된 실제 명단 저장소가 없다는 미완료 근거다. 클라우드 manifest pending48/complete=false로 전환하지 않았다. 카드 다운로드/업로드 보류와 실제 금융/보험/실기기 수락 경계를 유지했다.
+- 문서 후속은 재배포·DB 확인·서비스 재시작을 요구하지 않는다. 합성 query 감소 5→3회는 실제 운영 SLA가 아니며, R5 제품 삭제와 전면 컨트롤러 축소·문서 history 정리를 완료로 표시하지 않는다.
+
+## 2026-10-30 숲나들e 정규 관측 적재·수집 코드 전환
+
+- [PR #368](https://github.com/6Soo/cost/pull/368)을 정상 병합하고 `d09596d0242416af2889b4a0514abd0509c60561`을 고정 배포했다. 이전 검증 릴리스 `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`과 복구 사본을 보존한다. 코드 배포, 운영 관측 적재, MailCollect 전환을 별도 검증했다.
+- 최종 표적 검사96 passed/2 subtests, 병합 tree 일치·1,140 blobs 불일치0. 새 전체 백업/별도 복원·task/process SHA·단일loopback·health/ready200·보호API401·보호13표 배포 전후 불변을 확인했다. 무관한 전체 회귀는 반복하지 않았다.
+- 실제 원본 사본 리허설 후 운영 원본을 잠근 상태에서 새 백업·별도 복원과 전 표 digest 동등성을 검사하고 관측 표 추가/46행 append만 원자 적용했다. 원래 전 표·기존 관측 보존, 재실행 추가 쓰기0, 새 금융 링크0. 원문 번호 없는46건에 공급자 예약번호를 만들지 않았으며 원문은 그대로다.
+- `WebLedger-MailCollect`가 idle임을 확인하고 일시 비활성화한 뒤 보호 작업을 직렬 실행했다. 실행파일/인수를 유지하고 WorkingDirectory만 위 고정 릴리스로 바꾼 후 기존 활성 상태를 복구했다. 실제 새 메일 수집을 수동 실행하지 않았다. SourceRefresh 경로 변경0. 카드 업로드는 사용자 지시로 계속 보류한다.
+- 운영 읽기 수락: 정규 관측46·현재 일반 목록16(수집됨12/취소4)·과거30보존·가짜 공급자 번호0·조회 DB쓰기0. 수집 task XML의 트리거/권한/설정 동일. Aside owner 목록/API16개 고유 키·상세200·`원문 미제공`/종료일 미확인·내부 키 비노출을 확인했다. 목록 인덱스 ready. 중앙 카드/예약 대사는 generation505·ready/fresh·stale=false로 갱신 완료했다. 목록의 이전 대조 대기 경고는 새 대사 세대에 맞춰 인덱스가 갱신되는 동안의 캐시 표시이며 공급자 표기 오류7건 경고는 유지한다. 금융 대사의 추가 확정/Google 반영은 실행하지 않았다.
+- 근거: root `.local-archive/forest-provider-audit-20261030/`의 final-targeted.xml·rehearsal.json·applied.json·mail-task-before/after.xml·mail-task-transition.json, `.local-archive/deploy-d09596d0242416af2889b4a0514abd0509c60561/` 및 호스트 같은 SHA deploy-evidence. 금융/장부/수동/여행·두 건의 기존 교정·Google쓰기금지를 보존했다. 후속 문서만으로 재배포/재시작하지 않는다.
+
+## 2026-10-30 수기 Google 지출 중복 방지 배포·읽기 전용 수락
+
+- COMPLETE — [PR #364](https://github.com/6Soo/cost/pull/364), 운영 SHA `241cd452abd6c4da4ac59b4f3d534e4e4b2177a6`. 여행/업로드 복사 전에 수기 지출 대조와 원자 연결·revision/멱등 재검증을 적용했다. 사용자 교정·원본/환불/카드/금액/통화·점유 보호를 유지하며 Google 최종 장부 자동 쓰기는 금지한다. 직전 검증 `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`과 두 건의 운영 교정값 보존.
+- 1137 blobs 불일치0·새 백업/별도 복원·작업/프로세스SHA·단일loopback listener·health/ready200·보호API401·보호13표 전후 불변. 새 대조 경로의 익명403을 확인했다. 운영 분류/금융/여행/연결 메타데이터/Google 쓰기0.
+- 운영 읽기 전용61여행 중47개 원본 검증 가능·수기 연결 후보121건, 검증 불가14개 여행은 복사 보류. DB변경0·Google snapshot 불변. 실제 owner API200/원본검증불가503·요약5개·50행 페이지·320px overflow0을 Aside CLI로 확인했다. 자동 동일성 판정과 실제 연결 저장·Google 입력은 구분하며 운영 POST를 실행해 시험하지 않았다.
+- 표적 검사 통합70/main47/최종 카드·여행·HTTP·복사JS8/UI21/replay1/matcher26 passed는 서로 중복된다. 인접91 passed/5 failed의 두 실패 유형은 기존 기준 `e149d82`에서 동일 재현했고 통과로 계산하지 않았다. metadata guard 차단0/삭제0, 구문·diff 통과. 전체 회귀·실제 Google 쓰기는 미실행이다.
+- 근거: 통합 `.local-archive/open-pr-20261029/`와 호스트 동일SHA release-audit/deploy-evidence. 운영 작성권을 별도 숲나들e 작업자에게 해제 통보했다. 이후 완료 문서만으로 재배포·DB검사·재시작을 반복하지 않는다.
+
+## 2026-10-29 카드 업로드 전수 대조 운영 수락·배포
+
+- COMPLETE — 사용자 “모든 명세가 구현되었나? 되었다면 운영수락”에 따라 최신 main의 P2 변경을 통합·검증하고 [PR #355](https://github.com/6Soo/cost/pull/355)를 정상 병합했다. 운영 SHA `a69c0ae7389789a65d2ed01f3028c0348f52eb1f`, 직전 검증 릴리스 `3860a822efe3a6f2d6c1349e824b193ac7309a7b` 및 복구 사본 보존. [명세](specs/card-upload-full-reconciliation-20261029.md)의 CUV-01~07 구현·격리/운영 읽기 전용 수락 완료이며 실제 은행 환급·Google 반영 완료와 구분한다.
+- 운영 원본 대조 중 정상 XLSX 2개의 빈칸 `-` 4,120개를 수식으로 오인하는 결함을 발견해 `19f9edb`에서 교정했다. 하이픈 placeholder/음수 숫자를 허용하고 `=`, `+`, `@`, `-CMD` 등 수식 차단·XLSX scan fail-closed를 유지한다. 최신 main 통합 검사117 passed/fixture 의존 실패1은 전역 store fixture 복원으로 수정했고 관련 결합8 passed, placeholder/원천 대조27 passed를 확인했다. 유효한 나머지 통과 근거는 반복하지 않았다.
+- 실카드 검증은 운영 DB mode=ro → 격리 메모리 백업에서 원본8개를 사전검사·동일 파일 재대조했다. 원천 행6,929(E=6,929/N=0/H=0/P=0), 파일 오류0, 복사본 원본/분류/금융 표 불변, 운영 connection total_changes=0. 분류 C=6,026/U=903, 취소 원결제 경고R=112는 실제 데이터 상태이며 금융 완료로 승격하지 않는다. 파일 간 겹침을 포함한 원천 행 집계이므로 고유 거래 수로 보고하지 않는다. 실제 운영 재업로드 POST·분류 재처리·Google/은행 쓰기0.
+- 릴리스1,122 Git blobs 불일치0, 병합 코드 tree 일치·추가14파일 메타데이터 차단0/삭제0·새 백업/별도 복원 PASS. 공식 배포기를 통해 task/process SHA·단일 loopback listener·health/ready200·보호API401, 배포 및 인증 조회 전후 보호13표 불변, Board/SourceRefresh Running을 확인했다.
+- 인증 Aside `/import`의 파일/업로드 컨트롤·50건 페이지/시스템 오류 코드와 저장 자료8개 API200을 확인했다. 익명 `/import`, `/api/imports`, `/api/imports/rules`, POST `/api/imports`는401이다. 모바일·두 테마·키보드/포커스는 최종 합성 브라우저5 passed 근거를 재사용했다. 실기기/Safari와 운영 재업로드·실제 금융 변경은 미실행이다. 대량 응답27.5MB/동기 처리라는 기존 성능 제한은 명세에 보존한다.
+- 근거: 통합 worktree `.local-archive/cuv-operating-20261029/`의 acceptance-checkpoint·real-source-acceptance·review·release-audit·protection-before/after·deploy-evidence·upload-http-smoke·owner-ui-smoke 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-a69c0ae7389789a65d2ed01f3028c0348f52eb1f.json`. root 사용자 변경과 기존 workspace 보존. 해당 운영 수락 범위 남은 구현/배포0. 이 기록 후속은 문서 전용이며 재검사/백업/재배포/재시작하지 않는다.
+
+
+## 2026-10-29 P2 카드 재검토 배포와 실제 분류 반영
+
+- [PR #357](https://github.com/6Soo/cost/pull/357), 구현7ecf023·운영 `3860a822efe3a6f2d6c1349e824b193ac7309a7b`. 명시적 재검토 모드로 이전 완료 자동분류도 예약 이용기간/업종/용도와 대조한다. 원문/ID는 Git/외부 모델에 전송하지 않으며 추론 결과를 사용자 확인으로 기록하지 않는다.
+- 코드 배포: tree동일·1113 Git blobs 불일치0·신선 백업/별도 복원·task/processSHA·단일listener·health/ready200·보호API401·보호13표 불변. 이후 데이터 적용은 사용자의 별도 “p2 재진행” 지시에 따른다. 이전 검증3c8c970 릴리스와 복구 사본 보존.
+- 실제 P2 적용: 전체6395 점검·보호57 유지·5451건 분류/근거 갱신, 정상 결제 미배정1821→0. 항목70·귀속2047 변경(중복3), 근거만3337. 예약 대조393·이용기간 근거183·해당 근거가 있는 귀속 변경40, 자료 누락/오류0. 등록 여행2026~27·기존2025년 미배정1420을 포함하며, 날짜거리90일 초과670건은 낮은 추론으로 표시한다. 예약 결제 연결·실제 환급·사용자 확인을 창작하지 않는다.
+- 신선 백업/별도 복원·단일 작성자·동일 상태/digest 복사본 검증·원자 저장·원본/금융/수동 결정 보호·재실행0·서비스 복구 PASS. 사후 독립 readonly 감사에서 수동/교정 이력559건 전체 거래행·원본/금액/ID·보류/결정/override·금융 링크·스키마·장부 행 수 불변. 신규 장부/금융 링크/Google/은행 쓰기0. 최종6395 classified·보호 제외 미분류/정상 결제 미배정0·readonly쓰기0·health/ready200·카드/OTA API401·Board/SourceRefresh Running.
+- 검증: P2/분류/환불 보호76 passed·추가 캐시 원본 변경 거부1 passed, compile/PowerShell/diff/data guard 통과. 초기 복사본의 재생 근거 불일치는 실패로 기록하고 교정 후 실제 자료에서 통과했다. 전체 회귀/실기기/인증 owner 화면 수락 미실행. `.local-archive/p2-rerun-20261029/`, 동일 SHA 로컬/호스트 deploy evidence 및 `D:/WebLedgerHost/data/backups/card-classification-20261029T223551095/`의 backup-restore/preview/applied/repeat가 근거다. 문서만의 후속으로 재배포/재처리하지 않는다.
+
+## 2026-10-29 보존 분류 상태 제거 배포
+
+- [PR #354](https://github.com/6Soo/cost/pull/354), 구현a44c38c·운영 SHA `3c8c970da271b665feb99a89fad661b7399ef6d7`. 과거 카드에 preserved 상태를 생성하거나 해당 상태로 분류/조회/여행 검토/대사를 제외하지 않는다. 원본/수동 결정/금융 보호와 명시적 조회 기간 필터는 유지한다. 상세 최신 계약은 [금융 명세](specs/finance.md)에 기록했다.
+- 검수 tree=merge tree,1112 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일loopback listener·health/ready200·보호API와 카드 summary/years401·보호13표 내용/스키마 불변·Board/SourceRefresh Running. 호스트 venv 합성 과거/legacy 분류·일반 추론·기간 필터·원본/금액/ID 불변과 장부쓰기0 PASS. 이전 검증f9b71d2 릴리스와 복구 사본 보존.
+- 운영 사전 readonly: classified6395·preserved0·legacy 완료기간 출처0·쓰기0. 운영 마이그레이션/재분류·금융/여행/Google 쓰기0. 상태 제거를 개별 P2 재검토 완료로 표현하지 않는다. 분류/OTA/조회·여행·환불/원자성 표적 근거는 현재 상태와 로컬 checkpoint에 기록했다. OTA history1 실패는 기준f96cd8f에서 재현했고 전체 회귀/실기기/인증 owner 수락은 미실행이다.
+- 근거: `.local-archive/remove-preserved-20261029/`, `.local-archive/deploy-3c8c970da271b665feb99a89fad661b7399ef6d7/`, `D:/WebLedgerHost/releases/deploy-evidence-3c8c970da271b665feb99a89fad661b7399ef6d7.json`. 문서 후속만으로 재배포·재시작하지 않는다.
+
+## 2026-10-29 보존 카드 분류 완료·지출 정리 목록 표시 수정·운영 배포
+
+- COMPLETE — 과거 보존 카드 3,653건의 분류 완료와 지출 정리 조회 조건 보완을 완료했다. [PR #351](https://github.com/6Soo/cost/pull/351), 구현 `0f97623ad4b4e1d5b0e4776c67b8769b28a0a4d8`, 운영 SHA `f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb`.
+- 과거 유효 여행 기간 밖의 보존 거래는 현재/미래 여행으로 억지 배정하지 않고 `등록된 유효 여행 없음 · 비용 항목 분류 완료`로 보존 완료했다. 검증된 원결제의 분류를 상속한 환불 행도 재추론을 건너뛰도록 보호했다.
+- 지출 정리(`_cleanup_card_where`) 조회에서 완료 정책(`complete-card-inference-v1`) 또는 원결제 상속(`refund_original`)으로 완료된 정상 분류 행을 제외했다. 항목 누락·구문 오류·충돌 사유·명시적 사용자 보류(`transaction_review_holds`)가 있는 거래는 정리 목록에 계속 표시한다.
+- 검증: 표적 및 보호 테스트 37 passed (`test_card_cleanup_queries.py`, `test_automatic_classification_completion.py`, `test_refund_group_commit.py`), UI 9 passed (`test_card_cleanup_ui.py`). 실운영 DB(6,395건 전체 `classified`) 조회 검증 결과 정리 대상 카드 3,695→0건, 보류 4건 안전 보존 확인.
+- 배포: 1,112 Git blobs 일치(불일치 0), 새 백업(`operational-20261029T122609435227Z`, `v2-owner-ui-20261029T212558`) 및 복원 검증(`restore-evidence.json`), task/process 고정 SHA 일치, 단일 loopback listener, health/ready 200, 보호 API 401, 보호 13개 테이블 내용/스키마 불변(`protection-after.json`). WebLedger-Board 및 WebLedger-SourceRefresh Running 정상 확인. 이전 검증 릴리스 `160f4cd93301b469183c6c243f98ab2a2ad2effc` 및 복구 사본 보존. 신규 금융/Google/은행 쓰기 0.
+- 근거: `.local-archive/deploy-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb/`의 review.json, gate-before.json, protection-before.json, protection-after.json, deploy-evidence.json 및 `D:/WebLedgerHost/releases/deploy-evidence-f9b71d2f2b6a749fd6137855d7e4ff0582c68bbb.json`.
+
+## 2026-10-29 전체 화면 내부 설명 정리·카드 행 정렬
+
+- COMPLETE — 사용자 “모든 페이지 전체에 있는 이런 내부 문구 모두 삭제”와 직전 모바일 정렬 교정을 이어서 완료했다. [PR #343](https://github.com/6Soo/cost/pull/343)·[PR #347](https://github.com/6Soo/cost/pull/347), 문구 최종 검수 `ab4fa61e76eb220533fa07369b6ab5f35123fa09`, 운영 SHA `160f4cd93301b469183c6c243f98ab2a2ad2effc`.
+- 카드 목록·지출 정리·장부 상세/원천 미리보기·여행·OTA·예약 연결·계정·항공권·영수증·검토 화면의 반복적인 원행/보존/읽기 전용/기장 분리 설명과 revision·digest 안내를 정리했다. 장부 저장 성공은 “저장했습니다”로 표시한다. 거래별 오류/보류·원본 정보·금융 상태·확인/전송 동의·hidden revision 및 동시 수정 보호는 유지한다. 모바일 가맹점 버튼의 공통44px 높이를 해제해 이름과 카드 정보를 붙이고 셀을 위로 정렬한다.
+- 검증 archive: 카드/모바일28 passed(320/390/600/759/760/1280·두 테마·200% 확대·행64px 이하·이름/카드 간격3px 이하·가로 넘침/펼침/스피너). 화면 묶음130 passed/40 subtests, 보호 경계91 passed. 삭제한 설명을 요구하던 source/refund 검사는 새 계약으로 교정했고 source/refund/장부 인접76 passed. 이후 저장 문구/규칙 대화13개 검사는12+모바일 저장1 passed. 실행 간 중복이 있어 전체 합계로 세지 않는다.
+- 기존 실패: 증거UI schema2건·OTA snapshot/정리3건(폭별 subcase 포함5)은 기준 `fa087d3` archive에서도 재현했다. 결합 fixture 순서로 발생한 cleanup/OTA4건은 독립 검사3 passed/2 subtests로 확인했다. 테스트 보호를 완화하지 않았고 기존 실패를 통과로 세지 않는다. 전체 회귀·운영 owner 화면·Safari/실기기 수락은 미실행이다.
+- 배포: 변경 blobs 병합본 일치·1112 Git blobs 불일치0·호스트 Python 합성 원본 상세/이스케이프/마스킹/펼침/스피너/DB불변 PASS. 새 백업·별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호API/카드/상세/규칙 URL401·보호13표 내용/스키마 불변·Board/SourceRefresh Running. 이전 검증 `297a5ef0f0a882314f65c0372492d4886e6e2820`과 복구 사본 보존. 실제 고객 금융/분류/여행/Google 쓰기·마이그레이션0.
+- 근거: `.local-archive/internal-ui-copy-20261029/`의 checkpoint·검증 archive/XML·baseline-output 및 `.local-archive/deploy-160f4cd93301b469183c6c243f98ab2a2ad2effc/`와 호스트 동일 SHA release-audit/deploy-evidence. 기존 workspace 브랜치/사용자 변경/미추적 파일 보존. 현재 승인 범위의 미결·차단0, 다음 명령 없음. 후속 문서만으로 검사·재배포·재시작하지 않는다.
+
+## 2026-10-29 일반 지출정리20건 완료·환불 확인중19건 보존
+
+- [PR #344](https://github.com/6Soo/cost/pull/344), 구현 `1a552ba`, 운영 `297a5ef0f0a882314f65c0372492d4886e6e2820`. 검토 후 refunds로 분류한 미연결/비영점 취소를 환불 화면의 취소 정산 확인중 목록에 표시한다. 원문·미기록·실제 환급 미확인·보류 사유를 보존하고 기존 전액상쇄 묶음과 중복 표시하지 않는다. settlement/read-only/escaping/refund-tab/inline21 passed·merge tree 동일·metadata2파일 차단/삭제0·1112 blobs 일치.
+- 코드 배포는 새 백업/별도 복원·작업/프로세스SHA·단일loopback listener·health/ready200·보호API401·13표 불변을 통과했다. 이전6b63f78 및 복구 사본 보존. 코드 배포 단계의 자료 쓰기0이며 아래 실제 자료 적용과 구분한다.
+- 실제 적용: 정상 결제1,345,388원1건만 내부 장부/화면에 추가. 미매입 취소17건과 취소 예약2건은 원문 근거의 분류 교정19건을 기존 atomic review 경로로 적용했다.19건의 금융 기장/새 링크/보류 해제0, 기존금액/ID/원본/사용자 변경/장부/스키마/링크/보류 보존. 실제 은행 환급/Google 쓰기0.395,000원-355,000원의40,000원은 단순 원행 차액이며 수수료 확정 아님;152,358원은 대응 카드 환불 미확인이다.
+- 최근 백업 재사용은 실제 DB 불일치 검증으로 거부됐다. 새 백업/별도 복원·단일 작성자·동일 상태/digest 메모리 리허설 후 실제 적용했다. 정상 카드의 선택적 OTA 메타데이터 보강은 범위 밖 전체 재대사 비용을 피하기 위해 생략했으며 새 예약 링크를 만들지 않았다. 정상 단건 기록과19건 분류 원자성은 각각의 기존 경로이며 전체20건 단일 트랜잭션으로 보고하지 않는다. 재실행은 분류/장부 무쓰기다.
+- 인증 Aside 화면에서 `/import`20→0건, `/board?tab=refunds` 취소 정산 확인중19건을 확인했다.19건을 금융/환급 완료로 보고하지 않는다. Board/SourceRefresh Running·health/ready 정상. 근거는 `.local-archive/remaining20-20261029/`, 해당SHA 배포 폴더 및 `data/backups/remaining20-20261029T191324616/`의 복원/리허설/실제 적용 JSON이다. 새 원결제/카드취소 등 증거가 금융 재검토 조건이며 사용자에게 개별 환급 확인을 다시 묻는 승인 대기는 없다. 문서 후속 재배포/재시작 없음.
+
+## 2026-10-29 카드 모바일 5항목 — 구분선·폭·원본 상세·펼침·스피너
+
+- 5항목 모두 COMPLETE — [PR #340](https://github.com/6Soo/cost/pull/340), 검증 구현 `78469c2c8102f7726d026faec39fbab08b7fa745`, 운영 SHA `6b63f78b8779c97a6f9066e03d0b26dc9803b721`. 행 구분선을 제거하고 모바일 최소380px/데스크톱560px을 없애 실제 가용 폭에 맞춘다. 긴 내용은 줄바꿈하며 표와 페이지 모두 가로 넘침이 없다. 행/가맹점 버튼은 별도 페이지 이동 대신 바로 아래 상세를 열고 닫는다. 로딩 스피너·실패/지연 안내·재시도·Enter/Space/Escape·aria-expanded/busy·텍스트 선택·기존 환불 링크를 보존했다. 기간/검색 제출 및 일반 링크 이동도 스피너로 표시하며 뒤로가기 복귀 시 해제한다.
+- 장부행 전용 `card-…` 링크 때문에 원본만 있는 거래가 “없는 거래예요”로 표시되던 원인을 수정했다. `/api/cards/transactions/detail?id=…`는 원본 카드 고정 필드를 mode=ro·파라미터 SQL로 읽고 escaped HTML/no-store를 반환한다. 비로그인401·직원403을 원본 조회 전에 적용한다. 기존 장부 URL도 원본이 존재하면 소유자에게 읽기 전용 상세를 보여준다. 원본/금액/배정/분류/환불/Google/스키마는 쓰지 않는다.
+- 정확한 통합 Git archive에서 카드·모바일·원본 상세·환불 목적지·조회 API·실제 HTTP 권한 86 passed, 별도 인접 환불12 passed. 320/390/600/759/760/1280·두 테마·200% 확대·열림 전후 표/페이지 가로 넘침 부재·행 경계0·대기 스피너·실패 후 재시도·원본 전후 dump 동일성·카드 마스킹/HTML escape·원본 전용 과거 URL 수락. 전체 회귀·인증 운영 owner 화면/실기기는 미실행이다.
+- 병합 tree 동일·1111 Git blobs 불일치0·운영 Python 합성 smoke PASS. 별도 환불 세션의 승인된 작업이 종료된 뒤 새 보호 상태를 기록해 순차 배포했다. 새 백업/별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호API 및 상세/카드 URL401·보호13표 내용/스키마 불변, Board/SourceRefresh Running. 이전 검증 릴리스와 복구 사본을 보존했다. 이 UI 작업에서 운영 금융/여행/분류/Google 쓰기·마이그레이션·재처리0이며 별도 세션의 금융 작업과 구분한다.
+- 근거: `.local-archive/card-inline-details-20261029/`의 checkpoint/통합 archive/합성 이미지, `.local-archive/deploy-6b63f78b8779c97a6f9066e03d0b26dc9803b721/`의 review/runtime-smoke/auth-smoke/protection-before/protection-after/deploy-evidence 및 호스트 동일 SHA release-audit/deploy-evidence. 기존 사용자·다른 작업 변경/미추적 파일 보존. 현재 5항목의 남은 작업·차단0, 다음 명령 없음. 후속 문서만으로 검사·재배포·재시작하지 않는다.
+
+## 2026-10-29 전액상쇄 환불 기록 완료·부분 기기록 보호 교정
+
+- [PR #339](https://github.com/6Soo/cost/pull/339), 구현 `02cb163`, 운영 `8b91aeb622106af38935dce49da4c10bb7ddc37e`. 기존 장부가 있는 묶음 멤버의 파생 existing_ledger 보류가 빠진 쪽까지 막던 문제를 교정했다. 실제 ledger_entries가 있는 멤버만 제외하고 legacy 투영/수동/금융/중복/인증 보호를 유지한다. inline/cross-batch/refund-inference44 passed, merge tree 동일·metadata2파일 차단0/삭제0.
+- 코드 배포:1110 Git blobs 일치·새 백업/별도 복원·task/processSHA·단일listener·health/ready200·보호API401·13표 불변. 이전5297a0d와 복구 사본 보존. 코드 배포 때 금융 쓰기는0이며 아래 승인된 자료 적용과 구분한다.
+- 실제 적용: 점검된22묶음/46원행에 한정해 빠진44개 ledger_entries와 대응 board_rows/revisions를 기존 guarded commit/project로 추가했다. 전체 미기록20묶음과 일부 기기록2묶음을 완료했다. 기존 장부·원본/금액/ID·수동 결정·범위 밖 표·보존237묶음·스키마 불변, 각 묶음순액0·재요청 무쓰기 검증. Google/은행 쓰기0. 별도 신선 백업·복원·동일 상태/digest의 메모리 리허설 후 단일 작성자로 적용했다.
+- 초기 리허설은 sqlite_sequence 정상 증가를 검증기가 거부해 실제 쓰기 전 중단/서비스 복구했다. 승인된 append 표의 카운터만 단조 증가를 허용하도록 보완한 뒤 리허설·실제 적용을 통과했다. 실제 기록은 묶음별 원자성이고 전체22묶음을 하나의 트랜잭션으로 처리했다고 주장하지 않는다.
+- readonly audit 및 인증 Aside `/import`: 대상28행 제거·카드 지출정리48→20건, 남은20건은 별도 미연결/보류 거래다. Board/SourceRefresh Running·health/ready 정상. 전체 회귀/실기기는 미실행. 근거는 `.local-archive/refund-zero-audit-20261029/`, `.local-archive/deploy-8b91aeb622106af38935dce49da4c10bb7ddc37e/`, 호스트 동일SHA 배포 근거 및 `data/backups/refund-zero-20261029T185028294/`의 복원/리허설/실제 적용 JSON이다. 문서 후속으로 재배포/재시작하지 않는다.
+
+## 2026-10-29 카드 목록 배정·분기·취소환불 문구 정리
+
+- COMPLETE — [PR #336](https://github.com/6Soo/cost/pull/336), 구현 `e141289640e92409c3a9312c5f11bc991e4247b9`, 운영 SHA `5297a0daee012809f17dfb0d045283284f9b977e`. 카드 목록 열 제목을 `배정`으로 줄였다. 분기 배정은 내부 ID 대신 `2026년 3분기 기타비용`처럼 표시하며 내부 ID/title은 보존한다. 취소·환불 목록의 반복 부연 설명을 제거하고 기존 링크를 유지했다. 앞선 인계의 “quarter는 내부 ID이고 이미 분기로 표시” 설명은 카드 목록의 fallback 경로를 누락했으므로 이 기록으로 교정한다.
+- 정확한 구현 archive의 카드·모바일·환불 목적지 34 passed. 320/390/600/759/760/1280·두 테마·200% 확대·행/환불 링크·원본 불변 검증 포함. merge tree 동일·1110 Git blobs 불일치0·운영 Python의 분기1~4/연도·배정 제목·환불 링크·원본 불변 smoke PASS. 인접 장부 UI 실패6건은 기준 main에서 재현해 범위 밖으로 유지했다. 결합 검사에서 분기 브라우저 임시 DB 정리 실패1건이 있었으나 기준 main 독립 실행에서는 통과했다. 전체 회귀·실제 owner 화면/실기기는 미실행이다.
+- 새 백업/별도 복원·task/process 고정SHA·단일loopback listener·health/ready200·보호API401·금융/사용자13표 내용/스키마 불변 확인. Board/SourceRefresh Running. 이전 검증 `78cb6ad4a7ead4ecaff39671eb0a32090b4c8021` 보존. 실제 분류/금융/여행/Google 쓰기·마이그레이션·재처리0.
+- 근거: `.local-archive/card-assignment-label-20261029/`의 checkpoint/baseline-failures 및 `.local-archive/deploy-5297a0daee012809f17dfb0d045283284f9b977e/`의 review/runtime-smoke/auth-smoke/protection-before/protection-after/deploy-evidence, 호스트 동일 SHA release-audit/deploy-evidence. 기존 사용자·다른 작업 변경과 미추적 자료 보존. 현재 요청의 남은 구현/배포·차단0, 다음 실행 명령 없음. 후속 문서만으로 테스트·재배포·재시작하지 않는다.
+
 ## 2026-10-29 카드 3820 공통 자동분류 정책 배포
 
 - [PR #335](https://github.com/6Soo/cost/pull/335), 수정 `dc2aaf3`, 운영 SHA `78cb6ad4a7ead4ecaff39671eb0a32090b4c8021`. 공통 자동분류에 기존 싱가포르 기간 예외와 국내 잔여 매입의 거래일 기준 분기 기타비용 정책을 적용했다. 사용자 결정·완료 행·해외/날짜 불명·취소/환불 보호를 유지한다.
@@ -441,3 +613,31 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - [PR #332](https://github.com/6Soo/cost/pull/332)를 `dccd3af6d12a52a3f9eb50a647979527ac5cc1f7`로 고정 배포했다. 검수5587129와 merge tree 동일,1110 blobs 불일치0. 원승인번호 없이도 같은 발급사·카드·가맹점·이용일·동액의 상호 유일 대응과 기존 카카오 계열/기간 대조를 연결 완료로 인정한다. 자동 출처·근거를 표시하고 원본 오류·중복·경합·점유·초과환불·수동 보류·묶음 원자성·재기록 보호를 유지한다. 수동 보류 사유가 묶음 보류 사유로 덮이지 않도록 보존했다.
 - 표적242 passed(핵심144·환불UI/owner/원자성/cross-batch89·CardFlow3·카드 목적지6), compile/diff 및 metadata guard 차단0/삭제0. baseline 비교2건·inline stale 기대1건은 기준d753f45에서 동일 실패했고 통과로 세지 않았다. 전체 회귀·실제 owner 인증 화면 수락은 미실행이다.
 - 새 전체 백업/별도 복원·task/process SHA·단일loopback listener·health/ready200·OTA/환불 보호API401·보호13표 내용/스키마 불변. 호스트 Python 배포본에서 원승인번호 없는 대응·조회 원본 불변·합성 원자 기록 smoke PASS. 이전 검증de2aada와 복구 사본 보존. 실제 분류/기장/여행/Google/은행 환급 쓰기·재처리·스키마 변경0. 근거는 `.local-archive/refund-reference-optional-20261029/`, `.local-archive/deploy-dccd3af6d12a52a3f9eb50a647979527ac5cc1f7/`, 호스트 동일SHA release-audit/deploy-evidence다. 후속 문서만으로 재배포·재시작하지 않는다.
+
+## 2026-10-30 카드 이용일·OTA 근거 교정
+
+- [PR #361](https://github.com/6Soo/cost/pull/361)·[PR #362](https://github.com/6Soo/cost/pull/362), 운영 SHA `bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21`. 현지 사용은 명시 국가와 이용일 거리를 지역명보다 먼저 평가하고 예약 이용기간/항공권 OTA 용도를 3820 잔여 분기 분류보다 앞세운다. 기존 수동 결정·원결제 환불·금융 보호는 유지한다.
+- 두 행의 실제 교정은 별도 소수 교정 경계에서 source/revision/digest 및 단일 DB 트랜잭션을 검증하고 기존 거래/장부/화면 귀속을 함께 수정했다. 변경 전 값과 에이전트 근거를 기록했다. 실시간 Gmail의 결제/확정·같은 주문 PDF 영수증 확인을 사용자 확인으로 위장하지 않는다. 원본·금액·날짜·ID·범위 밖 행·기존 수동/금융/이력·스키마 불변, 새 장부행/금융 링크/Google 쓰기 0, 재요청 무쓰기 PASS. 사본 검증의 첫 카운터 오탐은 실제 적용 전에 교정했으며 실패를 통과로 세지 않는다.
+- 결합 99 passed·호스트 합성 3 PASS. 배포본 1,126 blobs 일치·새 백업/별도 복원·task/process SHA·listener 1·health/ready 200·보호 API 401·보호 13표 코드 배포 전후 불변. 이후 인증 Aside 카드 상세 GET 2건으로 귀속/항목 표시 수락. Board/SourceRefresh Running. 전체 회귀·실기기는 미실행이다.
+- 근거는 `.local-archive/classification-correction-20261030/`와 호스트 `D:/WebLedgerHost/releases/deploy-evidence-bc02ea4a1fb15523e0fcfd9d92f9c5bed37d6b21.json`이다. 이전 검증 `a69c0ae7389789a65d2ed01f3028c0348f52eb1f` 복구점을 보존했다. 카드 수집/업로드는 사용자 요청으로 보류했다. 후속 문서 변경만으로 재배포/재시작하지 않는다.
+
+
+## 2026-10-30 여행 지출 금액 그룹·카드 화면·진단 입력 제한 배포
+
+- PR384/385/386/387 정상 병합, 최종 운영 `509392e1558e3df1c31ccdbd2dfe676f5498051b`(이전 검증28853255). GEMN74·카드32·최종 후속25검사 통과; 인접56통과/10실패는 기준fc1e2022와 동일 실패로 구분했다. 원천 비교 불가를0건으로 취급하거나 상세 없는 버튼을 표시하던 실제 화면 문제를 보완했다.
+- 1179 Git blobs 일치·검수/병합tree 동일·새 백업/격리 복원·task/process SHA·listener1·health/ready200·보호API401·보호13표 전후 불변. 실제 기존 Aside 인증 화면에서 정상 그룹 상세 열기와 미검증 원천 확인 불가/트리거0 수락. 운영 금융/Google/명단/원본 쓰기0.
+- 근거: `.local-archive/open-pr-development-20261030/`와 `.local-archive/deploy-509392e1558e3df1c31ccdbd2dfe676f5498051b/`, 호스트 같은SHA deploy-evidence. OpenRouter free 오류 초안은 보존/감독자 검증, ANUS 결과는 통합. 실기기·전체 회귀·외부자료 대기는 미완료로 유지한다. 이 후속 문서 변경만으로 재배포·재시작하지 않는다.
+
+
+## 2026-10-30 대조 안내·Google 행 기본 정렬·보험 후보 수정
+
+- PR389/390 운영 `5ef006edb00a1b955520a07023e6c3fd7eb005bd`(이전 검증c2b4531e). 상단/하단 반복 안내와 상시 그룹 목록 제거·상태 클릭 상세 창, PC 일치/부분/미기록 및 첫 Google 행 기준 안정 정렬. 열린 상세 창의 모바일 전환 시 숨은modal 차단도 재현/교정했다. 복사 순서/원본/금융/수입 불변.
+- 연속 가림 문자 길이 미확인 후보와 기간 추정 밖 다른 여행 후보를 구분했다. 실제159행의 단일41 유지·검토70·미일치48. PR389 기존 Aside 화면/API·owner/no-store·지출 정렬/상세 창 수락 재사용. 최종SHA 실제 화면 재수락은 Aside 미실행으로 대기이며 합성 반응형8검사는 통과. 표적78 passed·후속8 passed(겹침 합산 안 함).1180 blobs 일치·새 백업/격리 복원·고정task/process SHA·health/ready200·보호API401·보호13표 불변.
+- `.local-archive/ledger-sort-insurance-20261030/` 및 `.local-archive/deploy-5ef006edb00a1b955520a07023e6c3fd7eb005bd/`·호스트 동일SHA 근거. 금융/명단/Google/원본 쓰기0, 실기기/전체 회귀 미실행. 후속 문서만으로 재배포/재시작하지 않는다.
+
+
+## 2026-10-30 PR392 참가자 수입 화면 복구·모바일 카드 목록
+
+- 운영 `d0d73f8aebed53674e2754dae665eb4dc30748ed`, 이전 검증5ef006ed. body/공통 셸·모바일 내부 스크롤·별도 이름 인덱스 없는 원본 수입·저장소 없는15행 조회를 복구하고, PR392의2줄 카드 목록을 검수/보완했다. 참가 명단 미연결을0명이나 완료로 해석하지 않는다.
+- 묶음81통과/기존p50실패1·최종 참가자37통과(중복 합산 안 함), 기준main58통과/동일1실패·독립1통과.1181 blobs 일치·task/process SHA·health/ready200·보호API401·보호13표 불변. 데이터/스키마 쓰기 없는 code-only 배포로 전체 자료 백업은 반복하지 않았고 검증 이전 릴리스/task XML 복구 수단을 유지했다. 금융/원본/명단/Google 쓰기0.
+- 기존 Aside 실제 참가자 화면15행/API200/no-store·카드32행·영향3경로 비인증401 수락. 근거는 `.local-archive/participant-mobile-20261030/`와 같은SHA deploy 근거다. 실제 참가DB/명단 등록·실기기는 미해결이며 문서 후속만으로 재배포/재시작하지 않는다.

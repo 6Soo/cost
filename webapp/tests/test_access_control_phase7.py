@@ -680,6 +680,25 @@ class AccessStoreTests(unittest.TestCase):
         status, _ = self.api("/rules?case=app-x", user=V1)
         self.assertEqual(status, 403)
 
+    def test_request_metrics_are_owner_only_and_aggregate_only(self):
+        from unittest.mock import patch
+        from app import request_metrics
+        self.seed_accounts()
+        path = '/api/maintenance/request-metrics'
+        with patch.object(request_metrics, 'summary', return_value={}) as summary:
+            status, _ = self.api(path)
+            self.assertEqual(status, 401)
+            status, _ = self.api(path, user=V1)
+            self.assertEqual(status, 403)
+            summary.assert_not_called()
+            before = list(self.store.conn.iterdump())
+            status, body = self.api_json(path, user=OWNER)
+            self.assertEqual(status, 200)
+            self.assertEqual(body['metrics'], {})
+            self.assertEqual(body['scope'], 'bounded_process_window')
+            summary.assert_called_once_with()
+            self.assertEqual(list(self.store.conn.iterdump()), before)
+
     def test_card_history_page_and_api_are_owner_only(self):
         self.seed_accounts()
         self.store.conn.execute(
@@ -692,6 +711,18 @@ class AccessStoreTests(unittest.TestCase):
             self.assertEqual(body["code"], "ACTION_FORBIDDEN", path)
             status, _ = self.api(path, user=OWNER)
             self.assertEqual(status, 200, path)
+
+    def test_card_source_detail_is_owner_only_before_source_query(self):
+        from unittest.mock import patch
+        from webapp import card_transactions
+        self.seed_accounts()
+        path = '/api/cards/transactions/detail?id=SYNTHETIC'
+        with patch.object(card_transactions, 'transaction_detail', return_value=None) as query:
+            self.assertEqual(self.api(path)[0], 401)
+            self.assertEqual(self.api_json(path, user=V1)[0], 403)
+            query.assert_not_called()
+            self.assertEqual(self.api_json(path, user=OWNER)[0], 404)
+            query.assert_called_once()
 
     def test_a_viewer_cannot_create_look_up_or_download_a_workbook(self):
         self.seed_accounts()

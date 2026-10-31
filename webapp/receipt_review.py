@@ -1197,7 +1197,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
             f"</tr></thead><tbody>{rows}</tbody></table></section>"
             "<section><h2>5. 승선권 등 선택 묶기</h2>"
-            "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다. 원본 증빙과 개별 금액은 보존됩니다.</p>"
+            "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></section>"
             "<section><h2>6. 구글 지출 7열 복사</h2>"

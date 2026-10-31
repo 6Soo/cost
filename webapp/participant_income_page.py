@@ -14,6 +14,7 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from urllib.parse import urlencode
 
 from app import google_authority
 from app import participant_income as income
@@ -38,6 +39,8 @@ STATE_LABELS = {
 }
 
 BLOCKING_LABELS = {
+    "STORE_UNAVAILABLE": "참가 명단 연결 필요",
+    "INCOME_INDEX_UNAVAILABLE": "전체 이름 대조 확인 필요",
     "ROSTER_INCOMPLETE": "전체 명단 미수신",
     "TRANSCRIPTION_PENDING": "판독 대기 항목 있음",
     "CONNECTION_PENDING": "연결 확인 대상 있음",
@@ -128,14 +131,16 @@ def google_context(trip_id: str) -> dict:
             rows_total = sum(int(value) for value in amounts if isinstance(value, int))
         source_record = (display.get("sources") or {}).get(source) or {}
         stale = bool(source_record.get("stale")) or source_record.get("status") != "ok"
-        available = bool(index and index.get("available")) and not stale
+        name_index_complete = bool(index and index.get("available"))
+        available = (name_index_complete or detail is not None) and not stale
         if not available and not blocked:
             blocked = ["INCOME_INDEX_UNAVAILABLE"]
         context.update({
-            "key": key, "source": source, "index": index,
+            "key": key, "source": source, "index": index if name_index_complete else None,
             "synced_at": snapshot.get("synced_at"), "generation": snapshot.get("rows_generation"),
             "stale": stale, "rows_total": rows_total, "sheet_total": trip.get("income_total"),
             "available": available, "verified": bool(trip.get("verified")),
+            "name_index_complete": name_index_complete,
             "blocked_by": blocked, "amount_rows": amount_rows,
         })
     except (google_authority.SnapshotError, ValueError, OSError):
@@ -149,10 +154,16 @@ def build_state(trip_id: str, *, store=None) -> dict:
     opened = store is None
     handle = store if store is not None else open_store(readonly=True)
     if handle is None:
-        return {"trip_id": trip_id, "configured": False, "participants": [], "unlinked_income": [],
-                "counts": {}, "completion": {"complete": False, "blocked_by": ["STORE_UNAVAILABLE"]},
-                "input_fingerprint": "", "google": google_context(trip_id), "roster": {},
-                "income_rows": [], "decisions": []}
+        context = google_context(trip_id)
+        rows = income.income_rows_from_trip(
+            index=context.get("index") or {}, amount_rows=context.get("amount_rows") or [],
+            source=context.get("source") or "main", sheet=context.get("key") or "")
+        return {"trip_id": trip_id, "configured": False, "participants": [],
+                "unlinked_income": [dict(row, state=income.STATE_UNVERIFIED) for row in rows],
+                "counts": {"income_rows": len(rows)},
+                "completion": {"complete": False, "blocked_by": ["STORE_UNAVAILABLE"]},
+                "input_fingerprint": "", "google": context, "roster": {},
+                "income_rows": rows, "decisions": []}
     try:
         people = handle.participants(trip_id)
         batches = [batch for batch in handle.batches() if batch["trip_id"] == trip_id]
@@ -171,7 +182,8 @@ def build_state(trip_id: str, *, store=None) -> dict:
         roster_version = income.roster_version_of(people, pending_items=pending, scope=scope)
         result = income.reconcile(
             trip_id=trip_id, participants=people, income_rows=rows,
-            index_available=bool(context.get("available")), decisions=decisions,
+            index_available=bool(context.get("available")) and bool(
+                context.get("name_index_complete", True)), decisions=decisions,
             roster_version=roster_version, google_generation=context.get("generation") or "",
             roster_complete=complete, transcription_pending=pending)
         return {"trip_id": trip_id, "configured": True, "participants": result["participants"],
@@ -241,6 +253,7 @@ def render_page(state: dict, *, csrf: str = "") -> str:
     """참가 대조표. 이름만 있는 참가자는 날짜·금액이 비어 있다."""
     esc = lambda value: html.escape("" if value is None else str(value))
     counts = state.get("counts") or {}
+    configured = bool(state.get("configured", True))
     google = state.get("google") or {}
     completion = state.get("completion") or {}
     blocked = " / ".join(BLOCKING_LABELS.get(code, code) for code in completion.get("blocked_by") or [])
@@ -254,12 +267,20 @@ def render_page(state: dict, *, csrf: str = "") -> str:
         f"이름만 있는 인원 {counts.get('name_only', 0)}명 · "
         f"연결 확인 대상 {counts.get('needs_check', 0)}명 · "
         f"명단과 미연결 수입 행 {counts.get('unlinked_income_rows', 0)}건 · "
-        f"검토 완료 수입 행 {counts.get('reviewed_income_rows', 0)}건 · "
-        f"마지막 Google 확인 {esc(google.get('synced_at') or '확인 대기')}</p>")
+        f"검토 완료 수입 행 {counts.get('reviewed_income_rows', 0)}건</p>")
     status = ("참가·수입 대조 완료" if completion.get("complete")
               else f"참가·수입 대조 진행 중 · {esc(blocked)}")
     if index_note:
         status = f"{status} · Google 수입 {esc(index_note)}"
+    if not configured:
+        status = "참가 명단 연결 필요"
+        if not google.get('available'):
+            status += " · Google 수입 자료 확인 필요"
+        summary = "<p class='small'>참가 인원은 아직 확인할 수 없습니다. Google 수입 기록을 먼저 확인하세요.</p>"
+    checked_at = google_ledger_page.format_display_time(google.get('synced_at'))
+    summary += f"<p class='small'>마지막 Google 확인 {esc(checked_at)}</p>"
+    match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
+    match_link = f"<a class='participant-match-link' href='{esc(match_href)}'>보험 명단과 수입 글자 대조</a>"
 
     def hidden():
         return (f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
@@ -372,8 +393,10 @@ def render_page(state: dict, *, csrf: str = "") -> str:
                   f"<input type='hidden' name='income_ref' value='{esc(row['ref'])}'>"
                   f"<input name='reason' placeholder='검토 사유'>"
                   f"<button type='submit'>검토 완료로 표시</button></form>"
-                  if row.get("state") == income.STATE_NOT_IN_ROSTER else
+                  if configured and row.get("state") == income.STATE_NOT_IN_ROSTER else
                   esc(row.get("review_reason") or ""))
+        if not configured:
+            label = "명단 연결 후 대조"
         unlinked.append(
             f"<tr><td>{esc(row.get('name'))}</td><td>{esc(row.get('nickname'))}</td>"
             f"<td>{esc(label)}</td>"
@@ -381,24 +404,37 @@ def render_page(state: dict, *, csrf: str = "") -> str:
             f"<td>{_amount_cell(row.get('amount'))}</td>"
             f"<td>{esc(row.get('ref'))}</td><td>{review}</td></tr>")
 
-    table = ("<table><caption>참가자 대조</caption><thead><tr><th>이름/닉네임</th><th>참가 상태</th>"
+    table = ("<div class='participant-table-wrap' tabindex='0' role='region' aria-label='참가자 대조'><table><caption>참가자 대조</caption><thead><tr><th>이름/닉네임</th><th>참가 상태</th>"
              "<th>수입 연결 상태</th><th>원본 수입 행·사용자 결정</th><th>참가 근거</th></tr></thead>"
              f"<tbody>{''.join(rows) or '<tr><td colspan=\"5\">등록된 참가자가 없습니다.</td></tr>'}"
-             "</tbody></table>")
-    other = ("<table><caption>명단에서 확인 안 됨</caption><thead><tr><th>이름</th><th>닉네임</th>"
+             "</tbody></table></div>")
+    if not configured:
+        table = "<section class='participant-empty'><h2>참가 명단</h2><p>확정 명단이 연결되면 참가자별 수입을 대조할 수 있습니다.</p></section>"
+    other_title = "명단에서 확인 안 됨" if configured else "Google 수입 기록 · 명단 대조 대기"
+    empty_income = '없음' if google.get('available') else 'Google 수입 자료를 확인할 수 없습니다.'
+    other = (f"<div class='participant-table-wrap' tabindex='0' role='region' aria-label='{other_title}'><table><caption>{other_title}</caption><thead><tr><th>이름</th><th>닉네임</th>"
              "<th>상태</th><th>예약금/잔금/추가금</th><th>총액</th><th>원본</th><th>검토</th></tr></thead>"
-             f"<tbody>{''.join(unlinked) or '<tr><td colspan=\"7\">없음</td></tr>'}</tbody></table>")
+             f"<tbody>{''.join(unlinked) or '<tr><td colspan=\"7\">' + empty_income + '</td></tr>'}</tbody></table></div>")
     total = _money(google.get("rows_total")) if google.get("rows_total") is not None else "확인 안 됨"
     total_note = ""
     if google.get("rows_total") is not None and not google.get("verified"):
         total_note = " · Google 합계가 검증되지 않아 확정 입금액이 아닙니다"
-    footer = (f"<p class='small'>Google 수입 행 합계 {total} · 합계는 Google 회계 합계이며 "
-              f"명단에서 만든 금액이 아닙니다{esc(total_note)}.</p>")
-    body = (f"<div class='body'><h1>참가자·수입 대조</h1><p>{status}</p>{summary}{footer}"
-            f"{table}{other}</div>")
+    footer = f"<p class='small'>Google 수입 행 합계 {total}{esc(total_note)}.</p>"
+    body = (f"<main class='participant-page'><h1>참가자·수입 대조</h1><p role='status'>{status}</p>{match_link}{summary}{footer}"
+            f"{table}{other}</main>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>참가자·수입 대조</title></head>" + body + "</html>")
+            "<title>참가자·수입 대조</title>"
+            "<style>.participant-page{max-width:1200px;margin:auto;padding:24px;min-width:0}"
+            ".participant-page h1{font-size:clamp(22px,4vw,30px);margin:0 0 16px}.participant-page .small{font-size:13px;color:var(--shell-muted,#64748b);line-height:1.6}"
+            ".participant-page p{overflow-wrap:anywhere}.participant-page .participant-match-link{display:inline-flex;align-items:center;min-height:44px}"
+            ".participant-table-wrap{max-width:100%;overflow-x:auto;margin:20px 0;border:1px solid var(--shell-line,#cbd5e1);border-radius:8px}"
+            ".participant-page table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}"
+            ".participant-page caption{text-align:left;font-weight:700;padding:12px}.participant-page th,.participant-page td{padding:10px;text-align:left;vertical-align:top;border-top:1px solid var(--shell-line,#cbd5e1);overflow-wrap:anywhere}"
+            ".participant-page th{white-space:nowrap}.participant-page form{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}"
+            ".participant-page :is(input,select,button){font:inherit;min-height:44px;max-width:100%}.participant-page :focus-visible{outline:2px solid var(--shell-focus,#2563eb);outline-offset:2px}"
+            "@media(max-width:759px){.participant-page{padding:16px 10px}.participant-page :is(input,select){font-size:16px}}"
+            "</style></head><body>" + body + "</body></html>")
 
 
 def _payload(raw, content_type: str = "") -> dict:
@@ -462,9 +498,10 @@ def dispatch(handler, parsed, *, is_owner: bool, raw=None, csrf: str = "", query
     trip_id = str(query.get("trip", [""])[0] or "")
     state = build_state(trip_id)
     if parsed.path == "/api/participants/trip-panel":
-        from . import participant_trip_panel
+        from . import participant_trip_panel, insurance_income_match_service
         try:
             controls = participant_trip_panel.controls_from_query(query)
+            state = dict(state, insurance_review=insurance_income_match_service.trip_review(state))
             handler._send(participant_trip_panel.render(
                 state, csrf=csrf, **controls))
         except (TypeError, ValueError):

@@ -10,6 +10,7 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from app import request_metrics
 
 # Fixed date-like token for the undated cursor. Undated rows have no real date,
 # so their order is transaction_id ASC and the token only carries that position.
@@ -34,12 +35,8 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
     if unassigned:
         clauses.append('COST_REFUND_TAB_MEMBER(transaction_id)=0')
         trips = sorted(set(valid_trip_ids or ()))
-        # Effective display destination precedes the stored trip. A dangling or
-        # unverified destination is unassigned even when its ID is nonempty.
-        target = "COALESCE(NULLIF(NULLIF(TRIM(display_tab_id),'unclassified'),''),NULLIF(TRIM(trip_id),''),'')"
-        if trips:
-            clauses.append(target + ' NOT IN (' + ','.join('?' for _ in trips) + ')')
-            params.extend(trips)
+        clauses.append("COST_ASSIGNMENT_STATUS(display_tab_id,trip_id,?)='UNASSIGNED'")
+        params.append(json.dumps(trips, ensure_ascii=True))
     if card:
         clauses.append('COST_CARD_KEY(issuer,card_kind,card_tail)=?')
         params.append(card)
@@ -61,6 +58,7 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
     return ''.join(' AND (' + clause + ')' for clause in clauses), params
 
 
+@request_metrics.card_stage('card_query')
 def card_options(db_path=None):
     conn = _connect(_resolve_card_db_path(db_path))
     try:
@@ -178,6 +176,28 @@ def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
         "장부 DB일 수 있으므로 카드 거래 조회용으로 사용하지 않습니다."
     )
 
+def transaction_detail(transaction_id: str, db_path=None):
+    """Read one source row, including cards that have never become ledger rows."""
+    if not isinstance(transaction_id, str) or not transaction_id.strip() or len(transaction_id) > 256:
+        raise ValueError('invalid transaction id')
+    fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
+              'foreign_amount', 'foreign_currency', 'merchant', 'description',
+              'classification_state', 'classification_source', 'trip_id', 'display_tab_id',
+              'item', 'duplicate_of', 'conflict_reason', 'issuer', 'card_kind', 'card_tail')
+    conn = _connect(_resolve_card_db_path(db_path))
+    try:
+        row = conn.execute('SELECT ' + ','.join(fields) + ' FROM transactions WHERE transaction_id=?',
+                           (transaction_id,)).fetchone()
+        if row is None:
+            return None
+        result = dict(zip(fields, row))
+        result.update(card_identity(result.pop('issuer'), result.pop('card_kind'), result.pop('card_tail')))
+        return result
+    finally:
+        conn.close()
+
+
+@request_metrics.card_stage('db_connect')
 def _connect(db_path: str) -> sqlite3.Connection:
     """Open database in read-only mode using SQLite URI.
 
@@ -187,6 +207,8 @@ def _connect(db_path: str) -> sqlite3.Connection:
     uri = path.as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
     conn.create_function("COST_VALID_USE_DATE", 1, lambda value: int(_valid_use_date(value)), deterministic=True)
+    from app.assignment_status import sql_assignment_status
+    conn.create_function('COST_ASSIGNMENT_STATUS', 3, sql_assignment_status, deterministic=True)
     conn.create_function('COST_CARD_KEY', 3, lambda issuer, kind, tail: card_identity(issuer, kind, tail)['card_key'], deterministic=True)
     # Resolve the same complete groups as the refund tab once per connection.
     # This stays lazy for endpoints that do not request destination metadata.
@@ -206,6 +228,7 @@ def _get_available_years(conn: sqlite3.Connection) -> List[int]:
     cur = conn.cursor()
     cur.execute(f"SELECT DISTINCT substr(approval_date, 1, 4) FROM transactions WHERE {_VALID_DATE_SQL} ORDER BY 1")
     return [int(row[0]) for row in cur.fetchall()]
+@request_metrics.card_stage('card_query')
 def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> Dict[str, Any]:
     """Get monthly transaction counts and undated count for a year.
 
@@ -230,6 +253,7 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> 
     finally:
         conn.close()
 
+@request_metrics.card_stage('card_query')
 def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int = 1,
                     cursor: Optional[str] = None, per_page: int = 100, **filters) -> Dict[str, Any]:
     """List transactions for a specific month with cursor pagination.
@@ -317,6 +341,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
     finally:
         conn.close()
 
+@request_metrics.card_stage('card_query')
 def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Optional[str] = None, per_page: int = 100, **filters) -> Dict[str, Any]:
     """List undated transactions (null/empty/invalid approval_date only).
 
@@ -395,6 +420,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         conn.close()
 
 
+@request_metrics.card_stage('card_query')
 def search_for_year(db_path: Optional[str] = None, year: int = 2026,
                     cursor: Optional[str] = None, per_page: int = 100,
                     **filters) -> Dict[str, Any]:
@@ -466,6 +492,7 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
     finally:
         conn.close()
 
+@request_metrics.card_stage('card_query')
 def available_years(db_path: Optional[str] = None) -> Dict[str, Any]:
     """Get list of available years from transactions, with 2026 as default if empty."""
     resolved_path = _resolve_card_db_path(db_path)

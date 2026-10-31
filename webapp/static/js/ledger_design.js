@@ -3,7 +3,7 @@
  document.addEventListener('DOMContentLoaded',function(){
   var root=document.getElementById('participant-trip-panel');
   if(!root)return;
-  var dlg=null,pending=null,form=null,busy=false;
+  var dlg=null,pending=null,form=null,busy=false,rowButtons=new WeakMap();
   function ask(message,submit){
    if(!dlg){if(window.confirm(message))submit();return;}
    dlg.querySelector('p').textContent=message;pending=submit;dlg.showModal();
@@ -27,8 +27,13 @@
    root.querySelectorAll('.participant-income-status').forEach(function(template){
     var cell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(template.dataset.incomeRef)+'"]');
     if(!cell)return;
-    var button=cell.querySelector('.participant-row-connect');
-    cell.replaceChildren(template.content.cloneNode(true));if(button)cell.appendChild(button);
+    var incomeTable=cell.closest('#income-tbl');
+    if(incomeTable&&template.hasAttribute('data-google-generation')&&
+       incomeTable.dataset.googleGeneration!==template.dataset.googleGeneration){
+     cell.textContent='자료 변경 · 새로고침 필요';return;
+    }
+    var button=cell.querySelector('.participant-row-connect')||rowButtons.get(cell);rowButtons.delete(cell);
+    cell.replaceChildren(template.content.cloneNode(true));if(button&&form)cell.appendChild(button);
    });
    root.querySelectorAll('.participant-cards li[draggable=true]').forEach(function(card){
     card.addEventListener('dragstart',function(e){root.dataset.dragParticipant=card.dataset.participant;e.dataTransfer.clearData();e.dataTransfer.effectAllowed='link';});
@@ -54,6 +59,17 @@
    ask(target.action.endsWith('/unlink')?'이 참가자 연결을 해제할까요?':'이 수입 기록을 '+(label||'선택한')+' 보험 참가자와 연결할까요?',function(){write(target);});
   });
   document.addEventListener('click',function(e){
+   var evidenceButton=e.target.closest('[data-insurance-evidence]');
+   if(evidenceButton){
+    var evidence=root.querySelector('#'+CSS.escape(evidenceButton.dataset.insuranceEvidence));
+    var candidateDialog=root.querySelector('#insurance-candidate-dialog');
+    if(evidence&&candidateDialog){root.open=true;candidateDialog.querySelector('[data-insurance-evidence-content]').replaceChildren(evidence.content.cloneNode(true));candidateDialog.showModal();}
+    return;
+   }
+   if(e.target.closest('[data-insurance-close]')){root.querySelector('#insurance-candidate-dialog').close();return;}
+   if(e.target.closest('.participant-review-retry')){loadPanel();return;}
+   var jump=e.target.closest('a[href="#participant-trip-panel"]');
+   if(jump){root.open=true;loadPanel();return;}
    var button=e.target.closest('.participant-row-connect');if(!button)return;
    var cell=button.closest('.participant-insurance-cell');
    if(form){choose(cell);return;}
@@ -71,18 +87,27 @@
   function loadPanel(){
    if(root.dataset.loaded==='1')return Promise.resolve();
    if(loading)return loading;
+   root.setAttribute('aria-busy','true');
+   var content=root.querySelector('[data-participant-content]');
+   if(content)content.innerHTML='<div class="insurance-loading" role="status"><span class="insurance-loading-dot" aria-hidden="true"></span><div><strong>보험 명단과 수입을 대조하고 있습니다</strong><p>완료되면 수입 표에 결과가 표시됩니다.</p></div></div>';
+   document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){var button=cell.querySelector('.participant-row-connect');if(button)rowButtons.set(cell,button);cell.setAttribute('aria-busy','true');cell.innerHTML='<span class="insurance-loading-label">보험 명단 대조 중…</span>';});
    var q=new URLSearchParams({trip:root.dataset.trip||''}),current=new URLSearchParams(location.search);
    ['participant_q','participant_offset','participant_income_offset'].forEach(function(key){if(current.has(key))q.set(key,current.get(key));});
-   loading=fetch('/api/participants/trip-panel?'+q.toString(),{headers:{'Accept':'text/html'},credentials:'same-origin'})
+   var controller=new AbortController(),timeout=setTimeout(function(){controller.abort();},25000);
+   loading=fetch('/api/participants/trip-panel?'+q.toString(),{headers:{'Accept':'text/html'},credentials:'same-origin',signal:controller.signal})
     .then(function(r){if(!r.ok)throw new Error();return r.text();})
     .then(function(markup){var doc=new DOMParser().parseFromString(markup,'text/html');var fresh=doc.querySelector('#participant-trip-panel');if(!fresh)throw new Error();root.innerHTML=fresh.innerHTML;root.dataset.loaded='1';bindPanel();})
-    .catch(function(){var content=root.querySelector('[data-participant-content]');if(content)content.textContent='참가자 정보를 불러오지 못했습니다. 다시 열어 주세요.';})
-    .finally(function(){loading=null;});return loading;
+    .catch(function(){var content=root.querySelector('[data-participant-content]');if(content)content.innerHTML='<p role="alert">보험 명단을 불러오지 못했습니다.</p><button type="button" class="participant-review-retry">다시 대조하기</button>';document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){cell.innerHTML='<button type="button" class="participant-review-retry">대조 재시도</button>';});})
+    .finally(function(){clearTimeout(timeout);loading=null;root.setAttribute('aria-busy','false');document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){cell.removeAttribute('aria-busy');});});return loading;
   }
   root.addEventListener('toggle',function(){if(root.open)loadPanel();});
+  if(root.dataset.autoLoad==='1')loadPanel();
  });
  var main=document.getElementById('main'), nav=document.getElementById('nav'),
      mask=document.getElementById('nav-mask');
+ window.matchMedia('(min-width:900px)').addEventListener('change',function(event){
+  if(!event.matches)document.querySelectorAll('.gemn-dialog[open]').forEach(function(dialog){dialog.close();});
+ });
  var stickyBar=main&&main.querySelector('.bar');
  if(stickyBar&&window.ResizeObserver){
   var syncStickyBarHeight=function(){
@@ -255,6 +280,17 @@ document.addEventListener('click',function(e){
   // A control inside a row form belongs to that form. Opening the panel there
   // would swallow the click and the control would do nothing.
   if(e.target.closest('form')) return;
+  if(e.target.closest('[data-gemn-close]')){e.target.closest('dialog').close();return;}
+  var groupButton=e.target.closest('[data-gemn-group]');
+  if(groupButton){
+   e.preventDefault();
+   var groupDetail=document.getElementById(groupButton.getAttribute('data-gemn-group'));
+   if(groupDetail){var groupDialog=groupDetail.closest('dialog');
+    if(groupDialog){groupDialog.querySelectorAll('details').forEach(function(detail){detail.hidden=detail!==groupDetail;});groupDialog.showModal();}
+    groupDetail.open=true;var groupSummary=groupDetail.querySelector('summary');
+    if(groupSummary){groupSummary.focus();groupSummary.scrollIntoView({block:'nearest'});}}
+   return;
+  }
   var row=e.target.closest('tr[data-id]');
   if(row){e.preventDefault();openPanel(row.dataset.id);return;}
   var item=e.target.closest('.li[data-id]');
@@ -304,7 +340,7 @@ document.addEventListener('click',function(e){
       var link=document.getElementById('rule-open');
       if(link) link.href='/rules?case='+encodeURIComponent(body.learning_case_id);
      }
-      say(slot,'저장했습니다 (revision '+body.revision+')',false);
+      say(slot,'저장했습니다',false);
       clearDirty(form);
       // The row's own identity did not change, so the position beside the walking
       // buttons and the one selected row are read again from the live DOM.
@@ -492,7 +528,16 @@ document.addEventListener('keydown',function(e){
     var filters=new URLSearchParams(location.search);
     var params=new URLSearchParams();
     ['q','kind'].forEach(function(key){if(filters.has(key)) params.set(key,filters.get(key));});
-    var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv?'+params.toString());
+     var check=await fetch('/api/google-ledger/expense-reconciliation?trip='+encodeURIComponent(tab));
+     var preview=await check.json();
+     if(!check.ok||!preview.source_available) throw new Error(preview.message||'Google 원본을 확인하지 못했습니다. 동기화 후 다시 복사해 주세요.');
+     var res=await fetch('/api/google-ledger/expense-reconciliation',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':btn.getAttribute('data-csrf')||''},
+      body:JSON.stringify({action:'export',scope:'board',trip_id:tab,expected_revision:preview.links_revision,
+       preview_digest:preview.preview_digest,request_id:'export:'+crypto.randomUUID(),
+       query:filters.get('q')||'',kind:filters.get('kind')||''})
+     });
     if(!res.ok){
      var errJson=await res.json().catch(function(){return {};});
      throw new Error(errJson.message||('복사 요청 실패 ('+res.status+')'));

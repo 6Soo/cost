@@ -118,7 +118,7 @@ def test_gate_can_be_switched_off_for_rollback(monkeypatch):
     assert result['matches'] == [match]
 
 
-def test_open_ids_exclude_recorded_preserved_and_user_decided_rows():
+def test_open_ids_exclude_recorded_and_user_decided_but_not_legacy_period_rows():
     conn = sqlite3.connect(':memory:')
     conn.executescript("""
         CREATE TABLE transactions(transaction_id TEXT, classification_state TEXT, classification_source TEXT);
@@ -130,7 +130,7 @@ def test_open_ids_exclude_recorded_preserved_and_user_decided_rows():
         INSERT INTO transactions VALUES ('t5','needs_review','booking_evidence_needed');
         INSERT INTO board_rows VALUES ('card-t2','expense');
     """)
-    assert ota_exact.open_transaction_ids(conn) == {'t1', 't5'}
+    assert ota_exact.open_transaction_ids(conn) == {'t1', 't3', 't5'}
 
 
 def test_portal_payment_without_a_date_is_refused_by_default_and_allowed_only_when_the_rule_is_off(monkeypatch):

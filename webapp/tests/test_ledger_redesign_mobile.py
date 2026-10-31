@@ -161,7 +161,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         page.click("#panel button[type='submit']")
         page.wait_for_function(
             "document.querySelector('.f-msg')&&document.querySelector('.f-msg')"
-            ".textContent.indexOf('revision')>=0")
+            ".textContent.indexOf('저장했습니다')>=0")
         self.assertEqual(self.store.get_row("expense-demo-c1")["revision"], before + 1)
         box = page.eval_on_selector(
             "#panel button[type='submit']",

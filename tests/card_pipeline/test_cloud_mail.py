@@ -384,6 +384,89 @@ def test_readiness_cli_verifies_whole_manifest_batches_and_counts(tmp_path):
         verify(evidence)
 
 
+def test_readiness_rejects_invalid_watermark_and_message_identity():
+    from tools.verify_cloud_cutover_readiness import verify, ReadinessError, batch_digest
+    client = Cloud(('a1', 'b2'))
+    ids = ['a1', 'b2']
+    evidence = {'manifest': client.document, 'batches': [
+        {'sha256': batch_digest(client.document['messages'], ids), 'ids': ids,
+         'coverage': {'complete': True, 'count': 2}}],
+        'existing': 0, 'new': 2, 'indexed': 2}
+    import hashlib
+    evidence['batch_coverage_sha256'] = hashlib.sha256('\n'.join(ids).encode()).hexdigest()
+    client.document['last_complete'] = 'yesterday'
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+        verify(evidence)
+    client.document['last_complete'] = '2026-10-28T00:00:00Z'
+    client.document['messages']['../bad'] = client.document['messages'].pop('a1')
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_READINESS_MANIFEST_INVALID'):
+        verify(evidence)
+
+
+def test_readiness_rejects_historical_incomplete_manifest_counts():
+    from tools.verify_cloud_cutover_readiness import verify, ReadinessError, batch_digest
+    client = Cloud(('a1', 'b2'))
+    ids = ['a1', 'b2']
+    evidence = {'manifest': client.document, 'batches': [
+        {'sha256': batch_digest(client.document['messages'], ids), 'ids': ids,
+         'coverage': {'complete': True, 'count': 2}}],
+        'existing': 0, 'new': 2, 'indexed': 2}
+    import hashlib
+    evidence['batch_coverage_sha256'] = hashlib.sha256('\n'.join(ids).encode()).hexdigest()
+    client.document.update(stored=3710, pending=['synthetic-pending'], last_complete=None,
+                           query='synthetic query')
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_PENDING'):
+        verify(evidence)
+    client.document['pending'] = []
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+        verify(evidence)
+    client.document.update(last_complete='2026-10-30T00:00:00Z', query=None)
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_STORED_COUNT_MISMATCH'):
+        verify(evidence)
+    client.document['stored'] = len(client.document['messages'])
+    assert verify(evidence)['status'] == 'PREVIEW_VERIFIED'
+
+
+@pytest.mark.parametrize('watermark', [
+    '', '2026-99-99T00:00:00Z', '2026-10-30T25:61:61Z',
+    '2026-10-30T00:00:00', '2026-10-30T00:00:00+00:00',
+])
+def test_readiness_rejects_nonexistent_or_non_utc_watermarks(watermark):
+    from tools.verify_cloud_cutover_readiness import verify, ReadinessError, batch_digest
+    client = Cloud(('a1', 'b2'))
+    ids = ['a1', 'b2']
+    evidence = {'manifest': client.document, 'batches': [
+        {'sha256': batch_digest(client.document['messages'], ids), 'ids': ids,
+         'coverage': {'complete': True, 'count': 2}}],
+        'existing': 0, 'new': 2, 'indexed': 2}
+    import hashlib
+    evidence['batch_coverage_sha256'] = hashlib.sha256('\n'.join(ids).encode()).hexdigest()
+    client.document['last_complete'] = watermark
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_ENUMERATION_INCOMPLETE'):
+        verify(evidence)
+
+
+def test_readiness_file_rejects_duplicate_json_keys(tmp_path):
+    from tools.verify_cloud_cutover_readiness import _read, ReadinessError
+    path = tmp_path / 'evidence.json'
+    path.write_text('{"status":"first","status":"second"}', encoding='utf-8')
+    with pytest.raises(ReadinessError, match='CLOUD_MAIL_DUPLICATE_JSON_KEY'):
+        _read(path)
+
+
+def test_prepare_cloud_mail_release_copies_only_validated_sources(tmp_path, capsys):
+    from tools import prepare_cloud_mail_release
+    output = tmp_path / 'release'
+    assert prepare_cloud_mail_release.main(['--output', str(output)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'PREPARED'
+    assert result['remote_written'] is False and result['credentials_included'] is False
+    assert {path.name for path in output.iterdir()} == {'CloudMail.gs', 'appsscript.json'}
+    assert json.loads((output / 'appsscript.json').read_text(encoding='utf-8'))
+    with pytest.raises(SystemExit):
+        prepare_cloud_mail_release.main(['--output', str(output)])
+
+
 def test_cli_batch_flags(tmp_path, monkeypatch):
     client = Cloud(('a1', 'b2'))
     monkeypatch.setattr(cloud_mail, 'DriveClient', lambda: client)

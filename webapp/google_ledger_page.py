@@ -23,7 +23,7 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import quote
 
-from app import google_access, google_authority
+from app import google_access, google_authority, request_metrics
 from . import ui_icons
 from decimal import Decimal, InvalidOperation
 
@@ -265,7 +265,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                 return panel('열람 권한이 없습니다.')
         if len(keys) != 1:
             return panel('수입 장부가 연결되지 않았습니다.')
-        snapshot, rows = google_authority.load_consistent(path, _rows_path())
+        snapshot, rows = _load_consistent_measured(path, _rows_path())
         payload = owner_payload(snapshot_for_display(snapshot), load_choices(path))
         matches = [trip for trip in payload['trips'] if trip['key'] == keys[0]]
         if len(matches) != 1:
@@ -340,7 +340,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td>"
             + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'>"
-                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험가입내역을 열어 연결 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 참가자와 연결'>연결</button></td>")
+                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험 명단 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 명단 대조'>대조</button></td>")
                if owner else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap
@@ -353,23 +353,20 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             + ("<td></td>" if owner else "") +
             "</tr></tfoot>"
         )
-        table = ("<div class='google-income-scroll'><table id='income-tbl'>"
+        table = ("<div class='google-income-scroll'>"
+                 f"<table id='income-tbl' data-google-generation='{esc(snapshot.get('rows_generation') or '')}'>"
                  "<caption>수입 내역</caption>"
                  f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
                  f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
                  "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
                  f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th>"
-                 + ("<th>보험 등록</th>" if owner else "") + "</tr></thead>"
+                 + ("<th>보험 명단</th>" if owner else "") + "</tr></thead>"
                  f"<tbody>{lines or f'<tr><td colspan=\"{7 if owner else 6}\">연결된 장부에 수입내역이 없습니다.</td></tr>'}</tbody>"
                  f"{tfoot}</table></div>")
         figures = (f"<p class='small'>장부 행 합계 {_money(rows_total)} · 장부 집계 "
                    f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
         source_link = (f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
                        f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
-        participant_link = ""
-        if owner:
-            participant_link = (f"<a class='btn' href='/participants?trip={html.escape(quote(tab_id, safe=''), quote=True)}'>"
-                                f"{ui_icons.icon('users')}참가자 대조</a>")
         overall_notice = ("<p class='small income-warning' role='status'>수입 자료는 표시하지만 지출 또는 여행 전체 회계 검증은 완료되지 않았습니다.</p>"
                           if income_verified and not trip.get('verified') else '')
         reasons_p = f"<p class='small'>{html.escape(reasons)}</p>" if reasons else ''
@@ -379,7 +376,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
 
         meta = (f"<div class='income-meta-bar income-detail'>"
                 f"<div class='income-meta-info'>{time_row}{figures}</div>"
-                f"<div class='income-meta-actions'>{source_link}{participant_link}</div>"
+                f"<div class='income-meta-actions'>{source_link}</div>"
                 f"</div>")
         more_link = (f"<a class='btn' href='/board?tab={html.escape(quote(tab_id, safe=''), quote=True)}&amp;participant_income_offset={income_offset + limit}'>다음 수입 20건</a>"
                      if owner and income_more else '')
@@ -423,7 +420,7 @@ def get_trip_income_summary(tab_id: str) -> dict | None:
                                            board.viewer_visible_tabs(session)) if session else set())
             if keys[0] not in allowed:
                 return None
-        snapshot, rows = google_authority.load_consistent(path, _rows_path())
+        snapshot, rows = _load_consistent_measured(path, _rows_path())
         payload = owner_payload(snapshot_for_display(snapshot), load_choices(path))
         matches = [trip for trip in payload['trips'] if trip['key'] == keys[0]]
         if len(matches) != 1:
@@ -541,6 +538,26 @@ def record_choice(snapshot_path: Path, *, key: str, source: str, at: str) -> dic
 
 # A copy choice never lifts these. They say the figures may be stale or the trip identity is uncertain.
 OWNER_CHOICE_BLOCKERS = {"SOURCE_STALE", "POSSIBLE_DUPLICATE", "DUPLICATE_IN_SOURCE", "COPY_NAME"}
+
+
+def _load_consistent_measured(snapshot_path, rows_path):
+    """Call the canonical read unchanged and retain only safe timing metadata."""
+    started = time.perf_counter()
+    snapshot, rows = google_authority.load_consistent(snapshot_path, rows_path)
+    generation = snapshot.get("generation") if type(snapshot) is dict else None
+    if type(generation) is not int or generation < 0:
+        generation = None
+    rule_version = snapshot.get("rule_version") if type(snapshot) is dict else None
+    if type(rule_version) is not str or len(rule_version) > 64 or not rule_version.replace("_", "").isalnum():
+        rule_version = None
+    request_metrics.record(request_metrics.measurement(
+        "google_canonical_read", "google_read",
+        (time.perf_counter() - started) * 1000,
+        row_count=len(snapshot.get("trips", ())) if type(snapshot) is dict and
+        type(snapshot.get("trips")) is list else None,
+        generation=generation, rule_version=rule_version,
+        request_id=request_metrics.current_request_id()))
+    return snapshot, rows
 
 
 def _trip_for_owner(trip: dict, choices: dict, sources: dict) -> dict:
@@ -996,7 +1013,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         now = dt.datetime.now(google_authority.KST).isoformat()
         try:
             if parsed.path.endswith('/auto-mapping'):
-                snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                snapshot, _ = _load_consistent_measured(_snapshot_path(), _rows_path())
                 from .ledger_board import _active_store
                 board = _active_store()
                 if board is None:
@@ -1005,7 +1022,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                 handler._send_json({'code': 'OK', 'linked': linked})
                 return True
             elif parsed.path.endswith("/mapping"):
-                snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                snapshot, _ = _load_consistent_measured(_snapshot_path(), _rows_path())
                 known = {t["key"] for t in snapshot["trips"]}
                 from .ledger_board import _active_store
                 board = _active_store()
@@ -1014,7 +1031,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                             tab_id=str(body.get("tab_id") or "") or None, known_keys=known,
                             known_tab_ids=tabs)
             elif parsed.path.endswith("/choice"):
-                snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                snapshot, _ = _load_consistent_measured(_snapshot_path(), _rows_path())
                 key, source = str(body.get('key', '')), str(body.get('source', ''))
                 trip = next((trip for trip in snapshot['trips'] if trip['key'] == key), None)
                 if trip is None:
@@ -1025,7 +1042,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                 record_choice(_snapshot_path(), key=key, source=source, at=now)
             else:
                 if body.get('granted') is True:
-                    snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                    snapshot, _ = _load_consistent_measured(_snapshot_path(), _rows_path())
                     known = {t['key'] for t in snapshot['trips']}
                     keys = body.get('keys')
                     if not isinstance(keys, list) or any(not isinstance(key, str) or key not in known for key in keys):
@@ -1050,7 +1067,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         key = ((query or {}).get("key") or [""])[0]
         source = ((query or {}).get("source") or [""])[0]
         try:
-            snapshot, rows = google_authority.load_consistent(_snapshot_path(), _rows_path())
+            snapshot, rows = _load_consistent_measured(_snapshot_path(), _rows_path())
             snapshot = snapshot_for_display(snapshot)
             trip = next((t for t in owner_payload(snapshot, load_choices(_snapshot_path()))['trips']
                          if t['key'] == key), {})
@@ -1078,7 +1095,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
             handler._send(render_rows_html(detail))
         return True
     try:
-        snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+        snapshot, _ = _load_consistent_measured(_snapshot_path(), _rows_path())
     except google_authority.SnapshotError as error:
         _send_unavailable(handler, parsed.path, error.code, '동기화 결과를 확인하지 못했습니다')
         return True

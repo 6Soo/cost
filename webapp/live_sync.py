@@ -78,22 +78,35 @@ def scope_token(store, tab_ids, *, include_unclassified: bool = False) -> str:
     conn = store.conn
     tabs = sorted({str(t) for t in tab_ids if t})
     parts: list = ["v1"]
-    for tab_id in tabs:
-        trip = conn.execute(
-            "SELECT tab_id, display_key, starts_on, ends_on, archived, deleted,"
-            " revision FROM trip_tabs WHERE tab_id=?", (tab_id,)).fetchone()
-        parts.append(("trip", trip))
-        # `board_rows.payload_json` is deliberately not read. The row revision
-        # already moves on every save, and reading the payload would put row
-        # content into the digest of a screen that may not show it.
-        for row in conn.execute(
-                "SELECT row_id, revision FROM board_rows"
-                " WHERE display_tab_id=? ORDER BY row_id", (tab_id,)):
-            parts.append(("row", tab_id, row))
+    trips, rows, allocations = {}, {}, {}
+    # Polls run every two seconds. Querying each table once per trip made
+    # every open screen hold the shared store lock for hundreds of queries.
+    # Fetch only the caller's allowed tabs, then preserve the original digest
+    # order and tuple shapes exactly. Chunking also bounds SQLite parameters.
+    for start in range(0, len(tabs), 500):
+        batch = tabs[start:start + 500]
+        placeholders = ','.join('?' for _ in batch)
+        for trip in conn.execute(
+                "SELECT tab_id, display_key, starts_on, ends_on, archived, deleted,"
+                f" revision FROM trip_tabs WHERE tab_id IN ({placeholders})", batch):
+            trips[trip[0]] = trip
+        for tab, row_id, revision in conn.execute(
+                "SELECT display_tab_id, row_id, revision FROM board_rows"
+                f" WHERE display_tab_id IN ({placeholders}) ORDER BY row_id", batch):
+            rows.setdefault(tab, []).append((row_id, revision))
         for allocation in conn.execute(
                 "SELECT allocation_id, source_row_id, amount_krw, active,"
                 " source_revision, display_tab_id FROM income_allocations"
-                " WHERE display_tab_id=? ORDER BY allocation_id", (tab_id,)):
+                f" WHERE display_tab_id IN ({placeholders}) ORDER BY allocation_id", batch):
+            allocations.setdefault(allocation[5], []).append(allocation)
+    for tab_id in tabs:
+        parts.append(("trip", trips.get(tab_id)))
+        # `board_rows.payload_json` is deliberately not read. The row revision
+        # already moves on every save, and reading the payload would put row
+        # content into the digest of a screen that may not show it.
+        for row in rows.get(tab_id, ()):
+            parts.append(("row", tab_id, row))
+        for allocation in allocations.get(tab_id, ()):
             parts.append(("alloc", tab_id, allocation))
     if include_unclassified:
         for row in conn.execute(

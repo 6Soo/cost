@@ -13,9 +13,6 @@ from pathlib import Path
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
-# Set up environment before importing
-os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
-
 from webapp import cards_all
 from webapp import card_transactions as ct
 
@@ -57,6 +54,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TEXT NOT NULL
 );
 """
+
+
+@pytest.fixture(autouse=True)
+def require_card_schema_for_test(monkeypatch):
+    """Apply the strict schema contract only while this test is running."""
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'require')
 
 
 @pytest.fixture
@@ -268,11 +271,13 @@ def test_month_detail_renderer_basic(card_db_path):
     assert '이용일시' in html
     assert '가맹점명' in html
     assert '금액' in html
-    assert '배정된 여행' in html
+    assert "<th scope='col'>배정</th>" in html
+    assert '배정된 여행' not in html
     assert 'detail-cell' not in html
     assert "colspan='4'" in html
-    assert "data-detail-href='/board?row=card-TX-A-01'" in html
-    assert "class='card-all-row-link'" in html
+    assert "data-detail-id='TX-A-01'" in html
+    assert "class='card-all-row-toggle'" in html
+    assert "aria-controls='card-detail-TX-A-01'" in html
     # Transaction data
     assert 'MERCURE' in html
     assert 'LAWSON' in html
@@ -282,7 +287,7 @@ def test_month_detail_renderer_basic(card_db_path):
     # Trip display
     assert '사용자 확정' in html or '추정' in html or '미배정' in html
     # Detail link
-    assert 'board?row=card-TX-A-01' in html
+    assert 'board?row=card-TX-A-01' not in html
 
 
 def test_card_history_visual_contract_and_trip_display_names(card_db_path, monkeypatch):
@@ -303,6 +308,12 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
     assert row["trip_id"] == "opaque-tab-1"
     fallback = cards_all._render_month_rows([row])
     assert "opaque-tab-1" in fallback
+
+    quarter_row = dict(row, display_tab_id='quarter:2026:3')
+    quarter_html = cards_all._render_month_rows([quarter_row])
+    assert '>2026년 3분기 기타비용</span>' in quarter_html
+    assert '>quarter:2026:3</span>' not in quarter_html
+    assert quarter_row['display_tab_id'] == 'quarter:2026:3'
 
     with patch("webapp.ledger_board.current_role", return_value="owner"), patch(
         "webapp.ledger_board.live_trips",
@@ -385,10 +396,9 @@ def test_render_month_rows_time_handling(card_db_path):
     assert '미배정' in html
     # Foreign currency
     assert 'JPY' not in html  # Not in test data
-    # Detail links
-    assert 'board?row=card-TX-01' in html
-    assert 'board?row=card-TX-02' in html
-    assert 'board?row=card-TX-03' in html
+    # Inline detail controls
+    for tid in ('TX-01', 'TX-02', 'TX-03'):
+        assert f"aria-controls='card-detail-{tid}'" in html
 
 
 def test_undated_list_excludes_valid_other_years(card_db_path):
@@ -444,6 +454,75 @@ def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
     source = inspect.getsource(Handler)
     assert 'parsed.path == "/cards/all"' in source
     assert 'cards_all.cards_all_page(query, db_path=_get_card_db_path())' in source
+
+
+def test_real_cards_all_handler_records_search_and_render_metrics(card_db_path, monkeypatch):
+    import io
+    import time
+    from types import SimpleNamespace
+    from app import request_metrics
+    from webapp import ledger_board
+
+    server = SimpleNamespace(store_lock=None, card_store=None)
+    handler = object.__new__(ledger_board.Handler)
+    handler.server = server
+    handler.path = "/cards/all?year=2026&q=SYNTHETIC-SEARCH-MARKER"
+    handler.headers = {}
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda status: setattr(handler, "status", status)
+    handler.send_header = lambda key, value: None
+    handler.end_headers = lambda: None
+    monkeypatch.setattr(ledger_board, "_get_card_db_path", lambda: card_db_path)
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", False)
+    before = request_metrics.summary()
+    ledger_board.Handler.do_GET(handler)
+    after = request_metrics.summary()
+    added = {key: value for key, value in after.items()
+             if key not in before or value["samples"] > before[key]["samples"]}
+    assert handler.status == 200
+    assert "SYNTHETIC-SEARCH-MARKER" in handler.wfile.getvalue().decode("utf-8")
+    assert "card_search.card_search" in added
+    assert "payload_serialize.payload_serialize" in added
+    assert added["card_search.card_search"]["samples"] == before.get("card_search.card_search", {}).get("samples", 0) + 1
+    assert after.get("first_render.first_render", {}).get("samples", 0) == before.get("first_render.first_render", {}).get("samples", 0)
+    assert "db_lock_wait.db_lock_wait" not in added  # this test deliberately bypasses the lock decorator
+    assert "SYNTHETIC-SEARCH-MARKER" not in str(added)
+
+
+def test_real_cards_all_initial_render_records_once_and_excludes_send_time(card_db_path, monkeypatch):
+    import io
+    import time
+    from types import SimpleNamespace
+    from app import request_metrics
+    from webapp import ledger_board
+
+    server = SimpleNamespace(store_lock=None, card_store=None)
+    handler = object.__new__(ledger_board.Handler)
+    handler.server = server
+    handler.path = "/cards/all?year=2026"
+    handler.headers = {}
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda status: setattr(handler, "status", status)
+    handler.send_header = lambda key, value: None
+    handler.end_headers = lambda: None
+    monkeypatch.setattr(ledger_board, "_get_card_db_path", lambda: card_db_path)
+    monkeypatch.setattr(ledger_board, "ACCESS_ENFORCEMENT", False)
+    from webapp import cards_all
+    original = cards_all.cards_all_page
+
+    def delayed_render(query, *, db_path=None):
+        time.sleep(0.04)
+        return original(query, db_path=db_path)
+
+    monkeypatch.setattr(cards_all, "cards_all_page", delayed_render)
+    before = request_metrics.summary()
+    ledger_board.Handler.do_GET(handler)
+    after = request_metrics.summary()
+    expected = before.get("first_render.first_render", {}).get("samples", 0) + 1
+    assert after["first_render.first_render"]["samples"] == expected
+    assert after["first_render.first_render"]["p50_ms"] >= 35
+    assert after["payload_serialize.payload_serialize"]["samples"] == before.get(
+        "payload_serialize.payload_serialize", {}).get("samples", 0) + 1
 
 
 def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_path):
@@ -504,15 +583,15 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator("tr[data-tx-id='TX-A-01'] .use-datetime").get_attribute('title') == '2026-03-05'
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
-                assert page.get_by_role('link', name='상세 보기').count() == 3
+                assert page.locator('.card-all-row-toggle').count() == 3
                 tx_row = page.locator("tr[data-tx-id='TX-A-01']")
                 assert tx_row.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
                 assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '추정 배정'
                 assert tx_row.locator('td.merchant .card-identity').count() == 1
                 assert tx_row.locator('td.amount-cell .card-all-badge').count() >= 1
                 assert tx_row.locator('td.trip .card-identity, td.trip .card-all-badge').count() == 0
-                assert tx_row.get_attribute('data-detail-href') == '/board?row=card-TX-A-01'
-                assert tx_row.locator('.card-all-row-link').get_attribute('href') == '/board?row=card-TX-A-01'
+                assert tx_row.get_attribute('data-detail-id') == 'TX-A-01'
+                assert tx_row.locator('.card-all-row-toggle').get_attribute('aria-expanded') == 'false'
                 assert page.get_by_role('columnheader', name='상세', exact=True).count() == 0
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 assert period.is_visible()

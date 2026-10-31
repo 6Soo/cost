@@ -22,6 +22,7 @@ import sqlite3
 import threading
 import uuid
 from contextvars import ContextVar
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
@@ -101,16 +102,28 @@ def _get_card_db_path() -> str | None:
 def _store_request_locked(method):
     """Serialize database work after the HTTP request has been parsed."""
     def wrapped(self, *args, **kwargs):
+        from app import request_metrics
         lock = getattr(self.server, "store_lock", None)
         # The liveness probe reads no store, so it must not queue behind a slow page.
         if lock is None or urlparse(self.path).path == "/healthz":
             return method(self, *args, **kwargs)
-        with lock:
-            if getattr(self.server, 'runtime_closing', False):
-                self._send_json({'code': 'SERVER_STOPPING',
-                                 'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
-                return
-            return method(self, *args, **kwargs)
+        token = request_metrics.bind_request_id()
+        try:
+            request_metrics.mark_lock_wait_started()
+            with lock:
+                lock_acquired = time.perf_counter()
+                lock_started = request_metrics.lock_wait_started()
+                waited_ms = max(0.0, (lock_acquired - lock_started) * 1000) if lock_started else 0.0
+                request_metrics.record(request_metrics.measurement(
+                    "db_lock_wait", "db_lock_wait", waited_ms,
+                    request_id=request_metrics.current_request_id()))
+                if getattr(self.server, 'runtime_closing', False):
+                    self._send_json({'code': 'SERVER_STOPPING',
+                                     'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
+                    return
+                return method(self, *args, **kwargs)
+        finally:
+            request_metrics.reset_request_id(token)
 
     wrapped.__name__ = getattr(method, "__name__", "wrapped")
     wrapped.__doc__ = getattr(method, "__doc__", None)
@@ -489,8 +502,7 @@ def access_control_render_owner_admin(session, store) -> str:
         f"<ul>{rows}</ul>"
         "<h3>예약 담당자 후보</h3>"
         f"<ul>{people}</ul>"
-        "<p class='muted'>같은 이름이 여럿이면 담당자 ID로 구분해요. "
-        "이 화면은 예약 DB에 배정을 쓰지 않습니다.</p></div>")
+        "</div>")
     return ledger_design.render(ledger_design.shell(
         "계정 관리", tab_id="", heading="계정 관리", body=body))
 
@@ -967,7 +979,7 @@ def data_status_mark() -> str:
         parts.append(f"여행 {trip_count}개")
     with store._lock:
         if store.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
-            cards = store.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state!='preserved'").fetchone()[0]
+            cards = store.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
             if cards:
                 parts.append(f"카드 자료 {cards:,}건")
     count = store.visible_row_count()
@@ -1466,7 +1478,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         cards.append(
             "<div class='card'>"
             f"<h3>{esc(t['display_key'])} <span class='muted'>{kind}</span></h3>"
-            f"<p class='muted rev-note'>여행 revision {t['revision']}</p>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
@@ -1802,8 +1813,6 @@ def detail_page(row_id: str, edit: bool = False) -> str:
         info = (
             f"<li>원천: {esc(row['source_kind'])} {esc(row['source_event_id'])}</li>"
             f"<li>분류 근거: {esc(row['classification_basis'])}</li>"
-            f"<li>분류 상태: {esc(row['classification_state'])} (표시만 일반 행)</li>"
-            f"<li>여행 revision {esc(str(row.get('revision', 1)))}</li>"
         )
         if edit:
             if _active_store() is None:
@@ -2167,9 +2176,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, text: str, code: int = 200) -> None:
         from . import site_shell, social_preview
+        from app import request_metrics
+        started = time.perf_counter()
         text = social_preview.decorate(text)
         if not ACCESS_ENFORCEMENT or current_request_session() is not None:
             text = site_shell.wrap_document(text, self.path, status=code)
+        body = text.encode("utf-8")
+        stage = "payload_serialize"
+        request_metrics.record(request_metrics.measurement(
+            "payload_serialize",
+            stage, (time.perf_counter() - started) * 1000,
+            byte_count=len(body), request_id=request_metrics.current_request_id()))
         board_http_shapes.send_html(self, text, code=code)
 
     # ------------------------------------------------- the session cookie
@@ -3384,6 +3401,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         resolve_role(self.headers, self._cookies())
         from . import google_ledger_page as _gl
+        from . import sheet_expense_review
+        if sheet_expense_review.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
+            return
         if _gl.owns_route(parsed.path):
             # Decided here, for every access setting: with enforcement off the caller is nobody, so the
             # Google routes answer 403 rather than falling through to the owner's board.
@@ -3406,6 +3426,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._phase7_refuse(exc)
                 return
+        if parsed.path == '/api/maintenance/request-metrics':
+            if not _participant_owner_request():
+                self._send_json({'code': 'OWNER_ONLY'}, 403)
+                return
+            from app import request_metrics
+            self._send_json({'scope': 'bounded_process_window',
+                             'timing_semantics': 'inclusive_wall_time; db_connect is within card_query',
+                             'metrics': request_metrics.summary()})
+            return
         from . import receipt_review
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request(), query=query):
@@ -3435,6 +3464,10 @@ class Handler(BaseHTTPRequestHandler):
                     allowed_trip_ids=viewer_visible_tabs(getattr(_ROLE_LOCAL, "session", None)),
                     query=query, snapshot=held_flight_snapshot):
                 return
+        from . import insurance_income_match_page as _insurance_match_page
+        if _insurance_match_page.owns_route(parsed.path):
+            if _insurance_match_page.dispatch(self, parsed, is_owner=_participant_owner_request(), query=query):
+                return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
             # The owner gate was already decided above for an enforced server.
@@ -3460,8 +3493,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/cards/all":
             from . import cards_all
-
-            self._send(cards_all.cards_all_page(query, db_path=_get_card_db_path()))
+            from app import request_metrics
+            search_request = "q" in query and bool(query.get("q", [""])[0])
+            started = time.perf_counter()
+            html_page = cards_all.cards_all_page(query, db_path=_get_card_db_path())
+            if search_request:
+                request_metrics.record(request_metrics.measurement(
+                    "card_search", "card_search", (time.perf_counter() - started) * 1000,
+                    byte_count=len(html_page.encode("utf-8")),
+                    request_id=request_metrics.current_request_id()))
+            else:
+                request_metrics.record(request_metrics.measurement(
+                    "first_render", "first_render", (time.perf_counter() - started) * 1000,
+                    byte_count=len(html_page.encode("utf-8")),
+                    request_id=request_metrics.current_request_id()))
+            self._send(html_page)
             return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)
@@ -3472,6 +3518,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in ("/", "/board"):
             from . import ledger_design
+            from app import request_metrics
 
             # An owner whose operational board is empty is sent to the actual
             # source comparison, because that is the work waiting for them. Only
@@ -3510,16 +3557,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             from . import live_sync
 
+            render_started = time.perf_counter()
             fragment = ledger_design.page(
                 tab, q, kind, row_id,
                 message=query.get("msg", [""])[0],
                 archived=query.get("arch", [""])[0],
                 participant_query=query)
-            self._send(ledger_design.render(
+            rendered = ledger_design.render(
                 fragment, live_config=live_sync.client_config(
                     live_sync.owner_token(_active_store(), tab), tab, q, kind,
                     role="owner",
-                    archived=query.get("arch", [""])[0], selected=row_id)))
+                    archived=query.get("arch", [""])[0], selected=row_id))
+            request_metrics.record(request_metrics.measurement(
+                "first_render", "first_render", (time.perf_counter() - render_started) * 1000,
+                byte_count=len(rendered.encode("utf-8")),
+                request_id=request_metrics.current_request_id()))
+            self._send(rendered)
             return
         if parsed.path == "/api/live/state":
             # Only reachable when no access store is bound: the enforcement branch
@@ -3678,7 +3731,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(rule, code=200)
         elif parsed.path.startswith("/api/cards/transactions"):
             from . import card_transactions as _ct
-            if parsed.path == "/api/cards/transactions/day" and current_role() != 'owner':
+            if parsed.path in ("/api/cards/transactions/day", "/api/cards/transactions/detail") and current_role() != 'owner':
                 self._send_json({"code": "OWNER_REQUIRED"}, code=403)
                 return
             try:
@@ -3719,6 +3772,14 @@ class Handler(BaseHTTPRequestHandler):
                 if card_db_path is None and _REQUEST_STORE.get() is _NO_REQUEST_STORE:
                     card_db_path = os.environ.get("WEBLEDGER_DB")
 
+                if parsed.path == "/api/cards/transactions/detail":
+                    from . import cards_all
+                    detail = _ct.transaction_detail(q.get('id', [''])[0], db_path=card_db_path)
+                    if detail is None:
+                        self._send_json({'code': 'NOT_FOUND', 'message': '거래를 찾을 수 없습니다. 목록을 새로 조회해 주세요.'}, code=404)
+                    else:
+                        self._send_json({'html': cards_all.card_detail_html(detail)}, code=200)
+                    return
                 if parsed.path == "/api/cards/transactions/day":
                     try:
                         result = _ct.list_for_day(db_path=card_db_path, day=q.get('date', [None])[0],
@@ -3767,7 +3828,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         length = int(self.headers.get("Content-Length") or 0)
-        if length > board_http_shapes.MAX_CONTENT_LENGTH:
+        if length > board_http_shapes.max_content_length(parsed.path):
             self._send_json({"code": "TOO_LARGE", "message": "요청이 너무 커요"}, code=413)
             return
         content_type = self.headers.get("Content-Type") or ""
@@ -3793,6 +3854,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # The write gates below read the session this request resolved, never a leftover from another one.
         resolve_role(self.headers, self._cookies())
+        from . import sheet_expense_review
+        if sheet_expense_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
+            return
         from . import rule_review
         from . import card_flow as _card_flow_switch
         if _card_flow_switch.enabled() and rule_review.owns_route(parsed.path):
@@ -3824,6 +3888,10 @@ class Handler(BaseHTTPRequestHandler):
                                           board=_active_store(),
                                           is_owner=_participant_owner_request()):
             return
+        from . import insurance_income_match_page as _insurance_match_page
+        if _insurance_match_page.owns_route(parsed.path):
+            if _insurance_match_page.dispatch(self, parsed, is_owner=_participant_owner_request(), raw=raw):
+                return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
             # The viewer refusal was already decided above when the server enforces

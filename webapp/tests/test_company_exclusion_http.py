@@ -77,9 +77,12 @@ def test_delayed_exclusion_response_keeps_new_batch_status_and_proposal(app, sta
         page = browser.new_page()
         page.on('dialog', lambda dialog: dialog.accept())
         page.goto(app.base + '/import')
-        page.locator(f'[data-batch="{app.batch}"]').click()
-        page.wait_for_function('(id)=>model.batch_id===id', arg=app.batch)
-        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+        page.locator('#card-review-detail > summary').click()
+        page.locator('#saved-materials summary').click()
+        page.locator(f'.batch-choice[data-batch="{app.batch}"]').wait_for(state='attached')
+        page.locator(f'.batch-choice[data-batch="{app.batch}"]').click()
+        page.wait_for_function('(id)=>model?.batch_id===id', arg=app.batch)
+        page.locator('#rule-focus option').first.wait_for(state='attached')
         page.select_option('#rule-focus', app.tx[0])
         page.fill('#rule-text', '회사 경비 아님')
         page.click('#rule-propose')
@@ -93,8 +96,8 @@ def test_delayed_exclusion_response_keeps_new_batch_status_and_proposal(app, sta
             assert code == 200
         else:
             result = {'message': 'OLD-EXCLUSION-ERROR'}
-        page.locator(f'[data-batch="{second}"]').click()
-        page.wait_for_function('(id)=>model.batch_id===id', arg=second)
+        page.locator(f'.batch-choice[data-batch="{second}"]').click()
+        page.wait_for_function('(id)=>model?.batch_id===id', arg=second)
         page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION';document.getElementById('rule-result').textContent='CURRENT-PROPOSAL'")
         with page.expect_response('**/company-exclusion'):
             pending.pop().fulfill(status=status, json=result)
@@ -103,6 +106,7 @@ def test_delayed_exclusion_response_keeps_new_batch_status_and_proposal(app, sta
         assert page.locator('#rule-result').inner_text() == 'CURRENT-PROPOSAL'
         assert page.evaluate('model.batch_id') == second
         assert app.flow.state(app.batch)['preview']['excluded'] == (1 if status == 200 else 0)
+        assert app.flow.state(second)['preview']['excluded'] == 0
         browser.close()
 
 
@@ -114,6 +118,7 @@ def test_browser_proposes_exclusion_and_can_restore(app, width):
         page = browser.new_page(viewport={'width': width, 'height': 900})
         page.on('dialog', lambda dialog: dialog.accept())
         page.goto(app.base + '/import')
+        page.locator('#card-review-detail > summary').click()
         page.locator('#rule-focus option').first.wait_for(state='attached')
         page.select_option('#rule-focus', app.tx[0])
         page.fill('#rule-text', '회사 경비 아님')
@@ -135,6 +140,7 @@ def test_browser_mobile_375_exclusion_refresh_lost_response_retry_and_restore(ap
         page = browser.new_page(viewport={'width': 375, 'height': 812})
         page.on('dialog', lambda dialog: dialog.accept())
         page.goto(app.base + '/import')
+        page.locator('#card-review-detail > summary').click()
         page.locator('#rule-focus option').first.wait_for(state='attached')
         page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
         page.select_option('#rule-focus', app.tx[0])
@@ -160,10 +166,13 @@ def test_browser_mobile_375_exclusion_refresh_lost_response_retry_and_restore(ap
         page.get_by_text('회사 경비에서 제외했습니다.', exact=False).wait_for()
         assert requests[0] == requests[1]
         page.reload()
+        page.locator('#card-review-detail > summary').click()
+        page.wait_for_function('model && model.batch_id')
         page.locator('[data-company-restore]').click()
         page.get_by_text('회사 경비 제외를 되돌렸습니다.', exact=False).wait_for()
         page.reload()
-        page.wait_for_function('model.preview.excluded===0')
+        page.locator('#card-review-detail > summary').click()
+        page.wait_for_function('model && model.preview && model.preview.excluded===0')
         assert page.evaluate('document.documentElement.scrollWidth - innerWidth') == 0
         assert app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall() == before
         browser.close()

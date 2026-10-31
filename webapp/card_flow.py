@@ -314,8 +314,7 @@ def batch_catalog(board):
             "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END) AS questions "
             "FROM import_batches b JOIN import_batch_rows x ON x.batch_id=b.batch_id "
             "JOIN transactions t ON t.transaction_id=x.transaction_id "
-            "WHERE t.classification_state!='preserved' "
-            "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
+            "WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?) "
             "GROUP BY b.batch_id ORDER BY questions DESC,b.received_at DESC,b.batch_id",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchall()
@@ -339,8 +338,7 @@ def home_page(board):
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
             "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END),0) "
-            "FROM transactions t WHERE t.classification_state!='preserved' "
-            "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
+            "FROM transactions t WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
     cleanup = cleanup_total(board)
@@ -533,12 +531,13 @@ class CardFlow:
     def _classify_evidence(self, batch_id, *, transaction_ids=None):
         ota_rules=[]
         blocked_inference_sources=set()
+        from app.classify import OWNER_BOOKING_ORIGIN
         selected=None if transaction_ids is None else set(transaction_ids)
         sources={source for source,identity,merchant in self.board.conn.execute(
             'SELECT t.source_hash,t.transaction_id,t.merchant FROM transactions t '
             'JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
-            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' AND t.classification_state!=? '
-            'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'preserved','',''))
+            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' '
+            'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'',''))
             if (selected is None or identity in selected) and _is_ota_row({'merchant':merchant})}
         from app import StoreError, ota_sources
         import sqlite3
@@ -605,10 +604,12 @@ class CardFlow:
                     blocked_inference_sources.add(source)
             # 이용기간으로 정해진 예약 배정은 같은 원본에 다른 제안이 없을 때만 적용한다.
             taken = {rule['optional'].get('source_hash') for rule in ota_rules}
-            # 과거 장부에서 복원한 추론은 예약 메일보다 약하므로 예약 이용기간 배정을 막지 않는다.
+            # 저장된 추론은 검증된 예약 이용기간보다 약하므로 기간 근거가 이를 대체할 수 있다.
             taken |= {rule['optional'].get('source_hash') for rule in self.pipeline.list_rules()
                       if rule.get('optional', {}).get('inferred_assignment')
-                      and not str(rule.get('origin') or '').startswith('history-recovery')}
+                      and rule.get('origin') != OWNER_BOOKING_ORIGIN
+                      and not str(rule.get('origin') or '').startswith('history-recovery')
+                      and rule.get('optional', {}).get('source_hash') not in blocked_inference_sources}
             ota_rules += self._booking_period_assignments(report, sources, taken)
         taken = {rule['optional'].get('source_hash') for rule in ota_rules}
         candidate_sources = {source for source, in self.board.conn.execute(
@@ -620,16 +621,29 @@ class CardFlow:
         ota_rules += self._evidence_period_assignments(batch_id, sources, taken, selected)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
-        taken = {rule.get('optional', {}).get('source_hash') for rule in
-                 ota_rules + board_rules + self.pipeline.list_rules()
-                 if rule.get('optional', {}).get('inferred_assignment')
-                 or rule.get('optional', {}).get('booking_period')}
+        active_owner_sources = {rule['optional'].get('source_hash') for rule in ota_rules
+                                if rule.get('origin') == OWNER_BOOKING_ORIGIN}
+        stale_owner_sources = {rule.get('optional', {}).get('source_hash')
+                               for rule in self.pipeline.list_rules()
+                               if rule.get('origin') == OWNER_BOOKING_ORIGIN
+                               and rule.get('optional', {}).get('source_hash') not in active_owner_sources}
+        taken = set()
+        for rule in ota_rules + board_rules + self.pipeline.list_rules():
+            optional = rule.get('optional', {})
+            if not (optional.get('inferred_assignment') or optional.get('booking_period')):
+                continue
+            if (rule.get('origin') == OWNER_BOOKING_ORIGIN
+                    and optional.get('source_hash') not in active_owner_sources):
+                continue
+            taken.add(optional.get('source_hash'))
         ota_rules += self._fallback_trip_assignments(batch_id, taken, selected, blocked_inference_sources)
         if ota_rules or blocked_inference_sources or board_rules:
             from app.classify import classify_batch
             active=[rule for rule in self.pipeline.list_rules() if not
-                    (rule.get('optional',{}).get('inferred_assignment')
-                     and rule['optional'].get('source_hash') in blocked_inference_sources)]
+                    ((rule.get('optional',{}).get('inferred_assignment')
+                      and rule['optional'].get('source_hash') in blocked_inference_sources)
+                     or (rule.get('origin') == OWNER_BOOKING_ORIGIN
+                         and rule.get('optional', {}).get('source_hash') in stale_owner_sources))]
             active, board_rules = self._board_rules_supersede(active, board_rules)
             return classify_batch(self.pipeline.store,batch_id,
                 rules=active+board_rules+ota_rules,trip_resolver=self.retail_trip,
@@ -1083,9 +1097,9 @@ class CardFlow:
         rows = self.board.conn.execute(
             'SELECT t.transaction_id,t.source_hash,t.merchant,t.merchant_normalized,t.card_kind '
             'FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
-            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' AND t.classification_state!=? '
+            'WHERE b.batch_id=? AND NOT ' + decided_sql('t') + ' '
             'AND t.conflict_reason=? AND t.parse_error=? AND t.transaction_direction=?',
-            (batch_id, 'preserved', '', '', 'purchase')).fetchall()
+            (batch_id, '', '', 'purchase')).fetchall()
         rules = []
         for identity, source_hash, merchant, merchant_normalized, card_kind in rows:
             guide = attributed.get(str(identity))
@@ -1322,9 +1336,17 @@ class CardFlow:
                  'duplicate_of','parse_error','conflict_reason','issuer','approval_number')
         from app import ota_exact
         with self.board._lock:
+            report_columns = ','.join('t.' + column for column in columns)
+            protected_sources = ','.join("'" + source.replace("'", "''") + "'"
+                                         for source in ota_exact.PROTECTED_SOURCES)
             rows=[tuple(row) for row in self.board.conn.execute(
-                'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
-            open_ids=sorted(ota_exact.open_transaction_ids(self.board.conn))
+                'SELECT '+report_columns+',t.classification_source,'
+                'CASE WHEN t.classification_source IN ('+protected_sources+') OR EXISTS('
+                "SELECT 1 FROM board_rows b WHERE b.row_kind='expense' "
+                "AND b.row_id='card-' || t.transaction_id) THEN 0 ELSE 1 END AS _ota_open "
+                'FROM transactions t ORDER BY t.transaction_id').fetchall()]
+            open_ids=sorted(str(row[0]) for row in rows if row[len(columns)+1])
+            rows=[row[:len(columns)] for row in rows]
             inference_excluded_ids = ({row[0] for row in self.board.conn.execute('SELECT transaction_id FROM transaction_review_holds')}
                 if self.board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else set())
         fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
@@ -1692,8 +1714,7 @@ class CardFlow:
         result = self.pipeline.get_batch(batch_id)
         approval_batch = result['summary'].get('status') == 'approval_evidence'
         review_from = os.environ.get('WEBLEDGER_REVIEW_FROM','')
-        result['rows'] = [r for r in result['rows'] if r['classification_state'] != 'preserved'
-                          and (not review_from or not (r['approval_date'] or r['posting_date'])
+        result['rows'] = [r for r in result['rows'] if (not review_from or not (r['approval_date'] or r['posting_date'])
                                or (r['approval_date'] or r['posting_date']) >= review_from)]
         result['summary']['row_count'] = len(result['rows'])
         from collections import Counter
@@ -2042,7 +2063,8 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                         from app import quarter_costs
                         ids = {r['transaction_id'] for r in state['rows'] if quarter_costs.destination(r)}
                         ordinary = [r for r in state['preview']['rows'] if r['transaction_id'] not in ids]
-                        handler._send_json(google_tsv_adapter.tsv_for_tab(ordinary, tab))
+                        from .sheet_expense_reconciliation import export_for_trip
+                        handler._send_json(export_for_trip(board, ordinary, tab))
                 except ValueError as error:
                     handler._send_json({'code': str(error)}, 400)
             elif len(parts) == 3:
@@ -2054,29 +2076,54 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             handler._send_json({'code':'CSRF_REQUIRED','message':'화면을 다시 열어 주세요'}, 403)
             return True
         if parsed.path == '/api/imports':
-            received = flow.pipeline.receive(raw, unquote(handler.headers.get('X-Filename') or 'card.xlsx'))
-            flow.classify(received['batch_id'])
-            result = flow.state(received['batch_id'])
-            if ota_payment_review.enabled():
-                try:
-                    backend = ota_payment_review.backend_for_request(board, handler, read_only=False)
-                    refresh = getattr(backend, 'refresh_after_import', None)
-                    if refresh:
-                        transaction_ids = [str(row.get('transaction_id') or '')
-                                           for row in result.get('rows', []) if row.get('transaction_id')]
-                        refresh(transaction_ids)
-                    result['ota_refresh_status'] = 'refreshed'
-                except Exception:
-                    result['ota_refresh_status'] = 'unavailable'
-                finally:
-                    closer = getattr(locals().get('backend'), 'close', None)
-                    if closer:
-                        closer()
-            # OTA refresh can make a row recordable after classify's first pass.
-            recorded = flow.auto_record(received['batch_id'])
-            if 'ota_refresh_status' in result:
-                recorded['ota_refresh_status'] = result['ota_refresh_status']
-            handler._send_json(recorded)
+            from .ledger_board import current_role
+            if current_role() != 'owner':
+                handler._send_json({'code':'FORBIDDEN','message':'소유자만 카드 파일을 등록할 수 있습니다.'}, 403)
+                return True
+            from app.card_preflight import validate_upload
+            filename = unquote(handler.headers.get('X-Filename') or 'card.xlsx')
+            source_file, inspection = validate_upload(raw, filename)
+            received = flow.pipeline.receive(raw, filename)
+            try:
+                flow.classify(received['batch_id'])
+                result = flow.state(received['batch_id'])
+                if ota_payment_review.enabled():
+                    backend = None
+                    try:
+                        backend = ota_payment_review.backend_for_request(board, handler, read_only=False)
+                        refresh = getattr(backend, 'refresh_after_import', None)
+                        if refresh:
+                            transaction_ids = [str(row.get('transaction_id') or '')
+                                               for row in result.get('rows', []) if row.get('transaction_id')]
+                            refresh(transaction_ids)
+                        result['ota_refresh_status'] = 'refreshed'
+                    except Exception:
+                        result['ota_refresh_status'] = 'unavailable'
+                    finally:
+                        closer = getattr(backend, 'close', None)
+                        if closer:
+                            closer()
+                # OTA refresh can make a row recordable after classify's first pass.
+                recorded = flow.auto_record(received['batch_id'])
+                if 'ota_refresh_status' in result:
+                    recorded['ota_refresh_status'] = result['ota_refresh_status']
+                if source_file.channel != 'approval':
+                    from app.upload_reconciliation import summarize
+                    from .card_classification_completion import context
+                    with board._lock:
+                        trips, nets = context(flow)
+                        recorded['upload_summary'] = summarize(flow.pipeline, received, source_file,
+                            trips, nets=nets, inspection=inspection)
+            except Exception:
+                # receive() commits the validated source batch before classification and
+                # recording. Report that durable state explicitly so clients can retry
+                # the same bytes; receive() and auto-record are idempotent on that retry.
+                handler._send_json({'code':'UPLOAD_PROCESSING_INCOMPLETE',
+                    'message':'원천 파일은 저장했지만 후속 처리가 완료되지 않았습니다. 같은 파일을 다시 올려 재시도해 주세요.',
+                    'batch_id':received['batch_id'], 'source_rows_persisted':True,
+                    'verification_status':'unavailable', 'retry_same_file':True}, 503)
+            else:
+                handler._send_json(recorded)
             return True
         payload = json.loads(raw.decode('utf-8'))
         if parsed.path == '/api/imports/rules':
@@ -2251,6 +2298,12 @@ def _cleanup_card_where():
     return (
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
         " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
+        " AND NOT (t.classification_state='classified'"
+        " AND COALESCE(t.item,'')!=''"
+        " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+        " AND (COALESCE(t.classification_basis,'') LIKE '%complete-card-inference-v1%'"
+        " OR t.classification_source='refund_original'))"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
@@ -2903,11 +2956,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
                 'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
             }
-            finance_label = ('이미 내부 장부에 기록됨' if preview_row.get('already_booked') else
-                             blocked_labels.get(blocked, '내부 비용 기록 준비 가능' if not blocked else
-                                                '내부 비용 기록 보류: 금융 검토가 필요합니다.'))
+            finance_label = ('장부 기록 완료' if preview_row.get('already_booked') else
+                             blocked_labels.get(blocked, '장부 기록 가능' if not blocked else
+                                                '기록 보류: 금융 검토가 필요합니다.'))
             if not blocked and not preview_row.get('already_booked'):
-                reason += ' · 내부 비용 기록 준비 가능'
+                reason += ' · 장부 기록 가능'
             elif blocked:
                 reason = finance_label
         elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):
@@ -2935,10 +2988,6 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                           f"순액 {example['net_krw']:,}원. OTA 상태는 별도로 확인합니다.")
             elif example.get('status') == 'excess':
                 reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
-            evidence += ("<p class='cleanup-finance-status'>"
-                         + esc("원결제·취소 원행은 각각 보존합니다. OTA 예약 연결 상태와 금융 기록은 별개입니다. "
-                               "실제 장부 기록·환급 완료를 의미하지 않습니다.")
-                         + "</p>")
         # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
             link = refund_by_id.get(tid)
@@ -3132,6 +3181,8 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 #holds:empty{display:none}#batches{display:grid;gap:8px}#batches p{margin:0;min-width:0}.batch-choice{width:100%;min-height:48px;text-align:left;line-height:1.5;font-size:14px}.batch-choice span{font-size:13px;color:var(--shell-muted)}summary{cursor:pointer;padding:10px 0;min-height:44px;display:flex;align-items:center}details{min-width:0}nav{font-size:14px}
 .flow{margin:12px 0;font-size:13px;color:var(--shell-muted);border:1px solid var(--shell-line);border-radius:4px;background:var(--shell-paper);padding:8px 12px}
 @media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid var(--shell-line);border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:var(--shell-muted)}.review-item summary{min-height:48px;font-size:14px}.ri-flag{flex-basis:100%}}
+.upload-table{overflow-x:auto}.upload-table table{min-width:650px}.upload-result{border:1px solid var(--shell-line);border-radius:4px;padding:12px;margin:8px 0}.upload-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.upload-metrics div{border:1px solid var(--shell-line);padding:8px}.upload-metrics b{color:var(--shell-muted);margin-right:6px}.upload-metrics strong{font-size:18px}.financial-warning{border:2px solid var(--shell-warn);padding:10px;margin-top:10px}@media(max-width:550px){.upload-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.upload-failure-pages{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 0}.upload-system-error{border:2px solid var(--shell-warn)}.upload-failure-pages button{min-width:80px;min-height:44px}.upload-failure-pages button:disabled{cursor:not-allowed}
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
 </style><body><main><h1>지출 정리</h1><p class="small">아래는 아직 장부 정리가 필요한 거래입니다. <a href="/import?scope=all">전체 카드 거래 검색</a></p><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
 <details id="newupload"><summary>새 카드 파일 추가</summary><section><p class="small">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 올려 주세요. 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><input id="file" type="file" accept=".xls,.xlsx,.csv"><button id="upload">__ICON_UPLOAD__업로드하고 분류</button></section></details>
@@ -3162,7 +3213,35 @@ el('review-date-toggle').onclick=e=>{e.preventDefault();el('review-date').open=!
 let rules=[];
 function renderRules(list){rules=list;const term=el('rulefilter').value.toLowerCase(),matches=list.filter(r=>(r.conditions.merchant_normalized+' '+r.effects.item).toLowerCase().includes(term));el('rulelist').innerHTML='<p class="small">'+matches.length+'개 규칙 중 '+Math.min(40,matches.length)+'개 표시 · 검색으로 찾을 수 있습니다.</p>'+matches.slice(0,40).map(r=>'<p><button data-rule="'+rules.indexOf(r)+'">'+esc(r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized)+' → '+esc(r.effects.item)+' · 수정</button></p>').join('');document.querySelectorAll('[data-rule]').forEach(b=>b.onclick=()=>{const r=rules[Number(b.dataset.rule)],f=el('ruleform');f.elements.rule_id.value=r.rule_id;f.elements.version.value=r.version;f.elements.merchant.value=r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized;f.elements.merchant.readOnly=r.conditions.merchant_normalized==='*';f.elements.card_kind.value=r.conditions.card_kind||'';f.elements.direction.value=r.conditions.transaction_direction||'purchase';f.elements.rule_country.value=r.optional.travel_country||'';f.elements.rule_item.value=r.effects.item||'';f.elements.rule_description.value=r.effects.description||'';f.elements.rule_country.disabled=!!r.optional.inferred_assignment;el('rule_scope').textContent=r.origin==='owner-country-exception-20261003'?'사용자 지정 예외: 조지아·카자흐스탄 거래를 유럽 여행에 배정합니다.':r.optional.inferred_assignment?'이번 거래에만 적용한 추론입니다. 여행은 미리보기의 수정에서 바꿀 수 있습니다.':r.optional.source_hash?'예약 자료로 확인된 해당 원본 거래에만 적용합니다.':r.note||''})}
 async function call(url,body,headers={}){const r=await fetch(url,body==null?{cache:'no-store'}:{method:'POST',headers:{'X-CSRF-Token':csrf,...headers},body}).catch(()=>{throw Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')});if(!(r.headers.get('Content-Type')||'').includes('application/json'))throw Error(r.status===401?'로그인이 필요합니다. 화면을 다시 열어 주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');const j=await r.json();if(!r.ok)throw Error(j.message||j.code);return j}
-function render(j,switchBatch=false){if(model&&model.batch_id!==j.batch_id&&!switchBatch)return;if(model&&model.batch_id===j.batch_id){const older=(rows,previous,field)=>{const versions=new Map(previous.map(r=>[r.transaction_id,Number(r[field]||0)]));return rows.some(r=>Number(r[field]||0)<(versions.get(r.transaction_id)||0))};if(older(j.rows,model.rows,'revision')||older(j.preview.rows,model.preview.rows,'exclusion_revision'))return;}if(model&&stateStamp(j)!==stamp)invalidateProposal();if(model?.batch_id!==j.batch_id){page=0;editing='';reviewState='review';el('review-search').value='';el('review-month').value='';el('review-category').value=''}model=j;el('review-metrics').before(el('summary'));renderReviewControls(j);fillFocus();stamp=stateStamp(j);el('summary').className='';const approval=j.summary.channel==='approval',approvalInfo=j.approval_summary||{},states=approvalInfo.states||{};const reviewCounts={review:0,booked:0,excluded:0};j.preview.rows.forEach(r=>{const state=reviewStatus(r);if(state)reviewCounts[state]=(reviewCounts[state]||0)+1});el('summary').innerHTML='<h2>'+esc(j.summary.display_name||'카드 사용내역')+'</h2><p class="small">'+esc(j.summary.period_start||'거래 기간 미확인')+(j.summary.period_end?' ~ '+esc(j.summary.period_end):'')+'</p><p>'+(approval?'승인 증거 '+(approvalInfo.source_rows??j.summary.row_count)+'행 · 1:1 연결 '+(states.linked||0)+'건 · 묶음 연결 '+((states.group_linked||0)+(states.group_partial||0))+'건 · 추가 확인 '+((states.ambiguous||0)+(states.approval_only||0)+(approvalInfo.conflict_rows||0))+'건 · 비용 행 생성 0건':'이번 자료 '+j.preview.rows.length+'건 · 확인 필요 '+reviewCounts.review+'건 · 기록 완료 '+reviewCounts.booked+'건'+(reviewCounts.excluded?' · 기록 제외 '+reviewCounts.excluded+'건':''))+'</p><details><summary>원본 파일 정보</summary><p>'+esc(j.summary.filename)+'</p></details>';
+let uploadFailurePage=0;const UPLOAD_FAILURE_PAGE_SIZE=50;
+function renderUploadSystemError(message){
+ const root=el('summary'),prior=root.querySelector('.upload-result');if(prior)prior.remove();
+ const panel=document.createElement('section');panel.className='upload-result upload-system-error';panel.setAttribute('role','alert');panel.setAttribute('aria-label','업로드 검증 불가');
+ const title=document.createElement('h2');title.textContent='검증 불가 (파일/시스템 오류)';
+ const detail=document.createElement('p');detail.textContent=message||'업로드 결과를 확인하지 못했습니다. 파일을 확인한 뒤 다시 시도해 주세요.';
+ panel.append(title,detail);root.insertBefore(panel,root.firstChild);root.className='';
+}
+function renderUploadSummary(j){
+ const s=j.upload_summary; if(!s)return;
+ const root=el('summary'),prior=root.querySelector('.upload-result');if(prior)prior.remove();
+ const c=s.counts; const labels=[['T','업로드 거래'],['E','기존 일치'],['N','신규 등록'],['C','분류 완료'],['U','미완료'],['H','대조 보류'],['P','파싱 실패'],['R','취소 원결제 미연결']];
+ const status=s.status==='passed'?'전수 분류 검증 통과':s.status==='empty'?'검증할 거래 없음':'분류 미완료 '+(c.U+c.H+c.P)+'건';
+ let h='<h2>'+esc(status)+'</h2><div class="upload-metrics" role="list">'+labels.map(([k,n])=>'<div role="listitem"><b>'+n+' ('+k+')</b><strong>'+esc(c[k])+'</strong></div>').join('')+'</div><p>분류 완료율 <strong>'+esc(s.rate==null?'검증할 거래 없음':Number(s.rate).toFixed(1)+'%')+'</strong></p>';
+ const meta=s.file; h+='<p>'+esc(meta.filename)+' · '+esc(meta.issuers.join(', '))+' · '+esc(meta.period_start||'날짜 확인 필요')+' ~ '+esc(meta.period_end)+'</p><p>파일 내부 중복 원천행 '+esc(s.duplicate_rows)+'건</p>';
+ const table=(title,a)=>a.length?'<details><summary>'+title+'</summary><div class="upload-table"><table><thead><tr><th>월</th>'+labels.slice(0,7).map(([k,n])=>'<th>'+n+'</th>').join('')+'</tr></thead><tbody>'+a.map(x=>'<tr><th scope="row">'+esc(x.month)+'</th>'+labels.slice(0,7).map(([k])=>'<td>'+esc(x[k])+'</td>').join('')+'</tr>').join('')+'</tbody></table></div></details>':'';
+ h+=table('월별 대조',s.monthly_reconciliation)+table('날짜 미상 대조',s.unknown_date_reconciliation);
+ if(s.financial_warning)h+='<aside class="financial-warning" role="alert"><strong>분류와 별도: 금융 대사 미완료</strong><p>'+esc(s.financial_warning)+'</p></aside>';
+ const failures=s.failures||[],pages=Math.max(1,Math.ceil(failures.length/UPLOAD_FAILURE_PAGE_SIZE));uploadFailurePage=Math.min(uploadFailurePage,pages-1);
+ if(failures.length){const start=uploadFailurePage*UPLOAD_FAILURE_PAGE_SIZE,shown=failures.slice(start,start+UPLOAD_FAILURE_PAGE_SIZE);
+  h+='<details open><summary>실패 상세 ('+failures.length+'건) · '+(start+1)+'–'+(start+shown.length)+'건 표시</summary><ul>'+shown.map(x=>'<li>행 '+esc(x.row_number)+' · '+esc(x.date)+' · '+esc(x.masked_identity)+' · '+esc(x.merchant)+' · '+esc(x.amount)+' '+esc(x.currency)+' · '+(x.matched?'기존 거래 연결':'미연결')+' · '+esc(x.trip_id)+' · '+esc(x.item)+' · '+esc(x.reason)+'<p>'+esc(x.basis)+'</p><a href="'+esc(x.review_url)+'">거래 검토</a></li>').join('')+'</ul>'+(pages>1?'<nav class="upload-failure-pages" aria-label="실패 상세 페이지"><button type="button" data-upload-failure-prev'+(uploadFailurePage===0?' disabled':'')+'>이전</button><span aria-live="polite">'+(uploadFailurePage+1)+' / '+pages+' 페이지</span><button type="button" data-upload-failure-next'+(uploadFailurePage+1>=pages?' disabled':'')+'>다음</button></nav>':'')+'</details>';
+ }
+ const section=document.createElement('section');section.className='upload-result';section.setAttribute('role','status');section.setAttribute('aria-label','업로드 전수 대조 결과');section.innerHTML=h;root.insertBefore(section,root.firstChild);
+ const changeFailurePage=(delta,preferred,fallback)=>{uploadFailurePage+=delta;renderUploadSummary({upload_summary:s});const target=el('summary').querySelector(preferred),backup=el('summary').querySelector(fallback);(target&&!target.disabled?target:backup)?.focus()};
+ section.querySelector('[data-upload-failure-prev]')?.addEventListener('click',()=>changeFailurePage(-1,'[data-upload-failure-prev]','[data-upload-failure-next]'));
+ section.querySelector('[data-upload-failure-next]')?.addEventListener('click',()=>changeFailurePage(1,'[data-upload-failure-next]','[data-upload-failure-prev]'));
+}
+ function render(j,switchBatch=false){if(model&&model.batch_id!==j.batch_id&&!switchBatch)return;if(model&&model.batch_id===j.batch_id){const older=(rows,previous,field)=>{const versions=new Map(previous.map(r=>[r.transaction_id,Number(r[field]||0)]));return rows.some(r=>Number(r[field]||0)<(versions.get(r.transaction_id)||0))};if(older(j.rows,model.rows,'revision')||older(j.preview.rows,model.preview.rows,'exclusion_revision'))return;}if(model&&stateStamp(j)!==stamp)invalidateProposal();if(model?.batch_id!==j.batch_id){page=0;editing='';reviewState='review';el('review-search').value='';el('review-month').value='';el('review-category').value=''}model=j;el('review-metrics').before(el('summary'));renderReviewControls(j);fillFocus();stamp=stateStamp(j);el('summary').className='';const approval=j.summary.channel==='approval',approvalInfo=j.approval_summary||{},states=approvalInfo.states||{};const reviewCounts={review:0,booked:0,excluded:0};j.preview.rows.forEach(r=>{const state=reviewStatus(r);if(state)reviewCounts[state]=(reviewCounts[state]||0)+1});el('summary').innerHTML='<h2>'+esc(j.summary.display_name||'카드 사용내역')+'</h2><p class="small">'+esc(j.summary.period_start||'거래 기간 미확인')+(j.summary.period_end?' ~ '+esc(j.summary.period_end):'')+'</p><p>'+(approval?'승인 증거 '+(approvalInfo.source_rows??j.summary.row_count)+'행 · 1:1 연결 '+((states.linked||0))+'건 · 묶음 연결 '+((states.group_linked||0)+(states.group_partial||0))+'건 · 추가 확인 '+((states.ambiguous||0)+(states.approval_only||0)+(approvalInfo.conflict_rows||0))+'건 · 비용 행 생성 0건':'이번 자료 '+j.preview.rows.length+'건 · 확인 필요 '+reviewCounts.review+'건 · 기록 완료 '+reviewCounts.booked+'건'+(reviewCounts.excluded?' · 기록 제외 '+reviewCounts.excluded+'건':''))+'</p><details><summary>원본 파일 정보</summary><p>'+esc(j.summary.filename)+'</p></details>';
+renderUploadSummary(j);
 if(j.ota_reconciliation?.enabled&&!j.ota_reconciliation.fresh){const notice=document.createElement('p');notice.className='small';notice.setAttribute('role','status');notice.textContent=j.ota_reconciliation.status==='stale'?'OTA 대사 자료가 갱신 중입니다. 예약 연결 표시는 최신 확인 전까지 미확정으로 표시합니다.':'OTA 대사 자료를 확인하고 있습니다. 예약 연결 표시는 확인 전까지 미확정으로 표시합니다.';el('summary').append(notice)}
 const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p>'+(evidence(r)?'<p class="small">'+esc(evidence(r))+'</p>':'')+'<p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__확인 후 수정</button></article>').join('')+'</details>':'';
 const asked=j.rows.filter(r=>j.preview.rows.find(p=>p.transaction_id===r.transaction_id)?.next_action?.required&&!r.duplicate_of&&r.transaction_id!==editing);const pages=Math.max(1,Math.ceil(asked.length/PAGE_SIZE));if(page>=pages)page=pages-1;const slice=asked.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;
@@ -3174,7 +3253,7 @@ document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{editing=b.dataset.edit;render(model);el('questions').scrollIntoView({block:'start',behavior:'smooth'});el('status').textContent='선택한 거래의 답변을 고쳐 쓸 수 있습니다.'});
 if(el('prevpage'))el('prevpage').onclick=()=>{page=Math.max(0,page-1);render(model)};
 if(el('nextpage'))el('nextpage').onclick=()=>{page=page+1;render(model)};}
-el('upload').onclick=async()=>{const f=el('file').files[0];if(!f)return;const generation=++batchGeneration;invalidateProposal();el('upload').disabled=true;el('status').textContent='파일을 읽고 분류하고 있습니다.';try{const j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)});if(generation!==batchGeneration)return;render(j,true);el('status').textContent='분류가 끝났습니다.'}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}finally{el('upload').disabled=false}};
+el('upload').onclick=async()=>{const f=el('file').files[0];if(!f)return;const generation=++batchGeneration;uploadFailurePage=0;invalidateProposal();el('upload').disabled=true;el('status').textContent='파일을 읽고 분류하고 있습니다.';try{const j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)});if(generation!==batchGeneration)return;render(j,true);el('status').textContent=j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과를 확인해 주세요'):'승인 증거를 가져왔습니다.'}catch(e){if(generation===batchGeneration){el('status').textContent=e.message;renderUploadSystemError(e.message)}}finally{el('upload').disabled=false}};
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(j.rules)renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(j.refresh_required){el('status').textContent='규칙은 저장됐지만 분류 갱신을 확인하지 못했습니다. 규칙을 다시 저장하지 말고 거래를 새로고침해 주세요.';return}try{if(model)render(await call('/api/imports/'+model.batch_id+'/auto-record','{}',{'Content-Type':'application/json'}))}catch(error){if(error.message==='소유자만 자동 반영할 수 있습니다.'){let refreshed=false;try{const updated=await call('/api/imports/'+model.batch_id);render(updated);refreshed=true}catch{}el('status').textContent=refreshed?'규칙은 저장되고 분류도 다시 계산됐습니다. 자동 장부 기록은 소유자만 할 수 있습니다.':'규칙은 저장되고 분류도 다시 계산됐지만 화면을 갱신하지 못했습니다. 자동 장부 기록은 소유자만 할 수 있습니다. 새로고침해서 확인해 주세요.';return}el('status').textContent='규칙은 저장됐습니다. 자동 기록 결과를 확인하지 못했습니다: '+error.message+' 규칙을 다시 저장하지 말고 최신 거래를 확인해 주세요.';return}el('status').textContent='규칙을 저장하고 분류에 적용했습니다. 이미 지정한 답변은 유지됩니다.'}catch(e){el('status').textContent=e.message}};
 el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('ruleform').reset();el('ruleform').elements.merchant.readOnly=false;el('rule_scope').textContent=''};
 function loadCardReviewRules(){call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);}
@@ -3182,7 +3261,7 @@ if(location.hash==='#newupload'){var _up=document.getElementById('newupload');if
 function focusReservationCard(transaction){const root=el('ota-review');if(!root)return;root.scrollIntoView({block:'start'});root.focusObserver?.disconnect();let scrolled=false;const mark=()=>{const radio=[...root.querySelectorAll('input[type=radio]')].find(r=>r.value===transaction);if(radio){radio.closest('label').style.outline='2px solid #1C7A52';if(!scrolled){radio.closest('label').scrollIntoView({block:'center'});radio.focus({preventScroll:true});scrolled=true;root.focusObserver?.disconnect()}}};root.focusObserver=new MutationObserver(mark);root.focusObserver.observe(root,{childList:true,subtree:true});mark();}
 async function loadBatch(id){const generation=++batchGeneration;invalidateProposal();try{const response=await fetch('/api/imports/'+encodeURIComponent(id));const j=await response.json();if(!response.ok)throw Error(j.message||'거래 자료를 불러오지 못했습니다');if(generation===batchGeneration){render(j,true);const focus=new URLSearchParams(location.search).get('transaction');if(focus&&j.rows.some(r=>r.transaction_id===focus)){document.getElementById('card-review-detail')?.setAttribute('open','');if(location.hash==='#ota-review'){focusReservationCard(focus)}else if(location.hash==='#preview'){reviewState='all';render(j);el('preview').scrollIntoView({block:'start'})}else{editing=focus;render(j);el('questions').scrollIntoView({block:'start'});el('questions').querySelector('select[name=display_tab_id]')?.focus()}}}}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}}const pollCard=async()=>{let wait=2000;if(model&&!document.hidden&&(!cardReviewDetail||cardReviewDetail.open)&&!el('upload').disabled){const started=Date.now(),batch=model.batch_id,generation=batchGeneration,version=stamp;try{const j=await call('/api/imports/'+batch);if(generation===batchGeneration&&model.batch_id===batch&&stamp===version&&stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){if(generation===batchGeneration&&model.batch_id===batch&&stamp===version)el('status').textContent=e.message}wait=Math.max(2000,4*(Date.now()-started))}setTimeout(pollCard,wait)};setTimeout(pollCard,2000);
 async function companyExclude(id,excluded,btn){const r=model.preview.rows.find(r=>r.transaction_id===id);if(!r)return;if(!confirm(excluded?'이 거래를 회사 경비 집계와 구글 복사에서 제외할까요? 원본은 유지합니다.':'회사 경비 제외를 되돌릴까요?'))return;const batch=model.batch_id,generation=batchGeneration;btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/company-exclusion',mutationBody(btn,{transaction_id:id,revision:r.revision,exclusion_revision:r.exclusion_revision||0,excluded:excluded,confirmed:true,note:excluded?'회사 경비 아님':'회사 경비 제외 되돌리기'}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('rule-result').innerHTML='';el('status').textContent=j.refresh_required?'회사 경비 변경은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':excluded?'회사 경비에서 제외했습니다. 원본 거래는 보존했습니다.':'회사 경비 제외를 되돌렸습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;btn.disabled=false}}document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-company-restore]');if(b)companyExclude(b.dataset.companyRestore,false,b)});
-let proposalGeneration=0;function invalidateProposal(){proposalGeneration++;window.ruleProposal=null;el('rule-result').innerHTML=''}el('rule-focus').onchange=invalidateProposal;el('rule-text').oninput=invalidateProposal;const fillFocus=()=>{if(!model||el('rule-focus').dataset.focusBatch===model.batch_id)return;el('rule-focus').dataset.focusBatch=model.batch_id;el('rule-focus').innerHTML=model.preview.rows.map(r=>'<option value="'+esc(r.transaction_id)+'">'+esc(r.merchant)+' · '+money(r.amount_krw)+(r.blocked?' (보류)':'')+'</option>').join('')};el('rule-propose').onclick=async()=>{if(!model){el('status').textContent='거래 자료를 먼저 불러오세요';return}fillFocus();const text=el('rule-text').value.trim();const tx=el('rule-focus').value;if(!text||!tx){el('status').textContent='지시와 대상 거래를 입력하세요';return}const batch=model.batch_id,generation=++proposalGeneration;window.ruleProposal=null;el('rule-result').innerHTML='';try{const p=await call('/api/imports/'+batch+'/rule-proposal',JSON.stringify({text:text,transaction_id:tx,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(generation!==proposalGeneration||model.batch_id!==batch||el('rule-focus').value!==tx||el('rule-text').value.trim()!==text){el('status').textContent='현재 선택이 바뀌었습니다. 다시 제안하세요.';return}if(p.interpreted_text){el('rule-text').value=p.interpreted_text;}window.ruleProposal={...p,batch_id:batch};const lines=p.changes.map(c=>'<li>'+esc(c.before_item||'(없음)')+' → '+esc(c.after_item||'회사 경비 제외')+'</li>').join('');const note=p.status==='AI_PENDING'?'로컬 AI가 응답하지 않아 해석을 대기 중입니다. 입력값을 유지했습니다. 다시 시도하거나 예시처럼 직접 입력해 주세요.':p.status!=='proposed'?'이 지시는 해석하지 못했거나 원본 값 변경을 요청했습니다. 아무 것도 바꾸지 않습니다.':p.needs_confirmation?'원본 거래를 보존하고 회사 경비 집계와 복사에서만 제외합니다. 별도 확인이 필요합니다.':'답변한 거래 '+p.skipped_confirmed+'건은 바꾸지 않습니다. 아래 '+p.payloads.length+'건만 바뀝니다.';el('rule-result').innerHTML='<p>'+note+'</p><ul>'+lines+'</ul>'+(p.needs_confirmation&&p.changes.length?'<button type="button" id="company-exclude">__ICON_CIRCLE_MINUS__회사 경비 제외 확인</button>':p.payloads.length?'<button type="button" id="rule-approve">승인하고 적용</button>':'');if(p.future_rule){const future=document.createElement('button');future.type='button';future.id='future-rule-draft';future.textContent='향후 사용 규칙 초안';future.onclick=()=>{const form=el('ruleform');form.reset();form.elements.rule_id.value='';form.elements.version.value='0';form.elements.merchant.value=p.future_rule.merchant;form.elements.rule_item.value=p.future_rule.item;el('rules').open=true;form.scrollIntoView({block:'center'});form.elements.merchant.focus();el('status').textContent='새 거래의 사용 규칙 초안을 채웠습니다. 거래 구분과 적용 조건을 확인한 뒤 규칙 저장 버튼을 눌러 주세요.'};el('rule-result').appendChild(future)}const ap=el('rule-approve');if(ap)ap.onclick=ruleApprove;const ce=el('company-exclude');if(ce)ce.onclick=()=>companyExclude(p.transaction_id,true,ce)}catch(e){if(generation===proposalGeneration&&model.batch_id===batch)el('status').textContent=e.message}};async function ruleApprove(){const p=window.ruleProposal;if(!p||p.batch_id!==model.batch_id||p.transaction_id!==el('rule-focus').value||p.text!==el('rule-text').value.trim()){invalidateProposal();return}const btn=el('rule-approve'),batch=p.batch_id,generation=batchGeneration;if(btn)btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/rule-proposal/approve',JSON.stringify({text:p.text,transaction_id:p.transaction_id,digest:p.digest,approved:true,request_id:(p.request_id??=crypto.randomUUID())}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('status').textContent=j.refresh_required?'승인은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':j.applied.length+'건을 한 번에 적용했습니다. 실패하면 한 건도 바뀌지 않습니다.';el('rule-result').innerHTML=''}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;if(btn)btn.disabled=false}}document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-google-copy]');if(!b||!model||googleCopyPending)return;const key='gcopy-trip:'+b.dataset.googleCopy;let before=null;try{before=localStorage.getItem(key)}catch{if(!confirm('복사 이력을 읽을 수 없습니다. 이미 Google에 붙여넣었는지 확인해 주세요. 중복 붙여넣기에 주의하고 계속 복사할까요?'))return;}if(before&&!confirm('이 여행은 '+before+'에 이미 구글 시트용으로 복사했습니다. 시트에 이미 붙여넣었다면 다시 붙여넣지 마세요. 그래도 복사할까요?'))return;googleCopyPending=true;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=true);const batch=model.batch_id,version=stamp,generation=batchGeneration;try{const x=await call('/api/imports/'+batch+'/google-tsv?tab='+encodeURIComponent(b.dataset.googleCopy));if(model.batch_id!==batch||stamp!==version||batchGeneration!==generation)throw Error('자료가 바뀌었습니다. 현재 자료에서 다시 복사해 주세요.');if(!x.row_count){el('status').textContent='복사할 행이 없습니다. 보류 '+x.held.length+'건은 시트에 넣지 않습니다.';return}await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}el('status').textContent='구글 지출 '+x.row_count+'행, 합계 '+money(x.total_krw)+'을 클립보드에 복사했습니다. 보류 '+x.held.length+'건은 복사하지 않았습니다. 이 복사는 장부를 바꾸지 않습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning}catch(err){el('status').textContent=err.message}finally{googleCopyPending=false;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=false)}});
+let proposalGeneration=0;function invalidateProposal(){proposalGeneration++;window.ruleProposal=null;el('rule-result').innerHTML=''}el('rule-focus').onchange=invalidateProposal;el('rule-text').oninput=invalidateProposal;const fillFocus=()=>{if(!model||el('rule-focus').dataset.focusBatch===model.batch_id)return;el('rule-focus').dataset.focusBatch=model.batch_id;el('rule-focus').innerHTML=model.preview.rows.map(r=>'<option value="'+esc(r.transaction_id)+'">'+esc(r.merchant)+' · '+money(r.amount_krw)+(r.blocked?' (보류)':'')+'</option>').join('')};el('rule-propose').onclick=async()=>{if(!model){el('status').textContent='거래 자료를 먼저 불러오세요';return}fillFocus();const text=el('rule-text').value.trim();const tx=el('rule-focus').value;if(!text||!tx){el('status').textContent='지시와 대상 거래를 입력하세요';return}const batch=model.batch_id,generation=++proposalGeneration;window.ruleProposal=null;el('rule-result').innerHTML='';try{const p=await call('/api/imports/'+batch+'/rule-proposal',JSON.stringify({text:text,transaction_id:tx,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(generation!==proposalGeneration||model.batch_id!==batch||el('rule-focus').value!==tx||el('rule-text').value.trim()!==text){el('status').textContent='현재 선택이 바뀌었습니다. 다시 제안하세요.';return}if(p.interpreted_text){el('rule-text').value=p.interpreted_text;}window.ruleProposal={...p,batch_id:batch};const lines=p.changes.map(c=>'<li>'+esc(c.before_item||'(없음)')+' → '+esc(c.after_item||'회사 경비 제외')+'</li>').join('');const note=p.status==='AI_PENDING'?'로컬 AI가 응답하지 않아 해석을 대기 중입니다. 입력값을 유지했습니다. 다시 시도하거나 예시처럼 직접 입력해 주세요.':p.status!=='proposed'?'이 지시는 해석하지 못했거나 원본 값 변경을 요청했습니다. 아무 것도 바꾸지 않습니다.':p.needs_confirmation?'원본 거래를 보존하고 회사 경비 집계와 복사에서만 제외합니다. 별도 확인이 필요합니다.':'답변한 거래 '+p.skipped_confirmed+'건은 바꾸지 않습니다. 아래 '+p.payloads.length+'건만 바뀝니다.';el('rule-result').innerHTML='<p>'+note+'</p><ul>'+lines+'</ul>'+(p.needs_confirmation&&p.changes.length?'<button type="button" id="company-exclude">__ICON_CIRCLE_MINUS__회사 경비 제외 확인</button>':p.payloads.length?'<button type="button" id="rule-approve">승인하고 적용</button>':'');if(p.future_rule){const future=document.createElement('button');future.type='button';future.id='future-rule-draft';future.textContent='향후 사용 규칙 초안';future.onclick=()=>{const form=el('ruleform');form.reset();form.elements.rule_id.value='';form.elements.version.value='0';form.elements.merchant.value=p.future_rule.merchant;form.elements.rule_item.value=p.future_rule.item;el('rules').open=true;form.scrollIntoView({block:'center'});form.elements.merchant.focus();el('status').textContent='새 거래의 사용 규칙 초안을 채웠습니다. 거래 구분과 적용 조건을 확인한 뒤 규칙 저장 버튼을 눌러 주세요.'};el('rule-result').appendChild(future)}const ap=el('rule-approve');if(ap)ap.onclick=ruleApprove;const ce=el('company-exclude');if(ce)ce.onclick=()=>companyExclude(p.transaction_id,true,ce)}catch(e){if(generation===proposalGeneration&&model.batch_id===batch)el('status').textContent=e.message}};async function ruleApprove(){const p=window.ruleProposal;if(!p||p.batch_id!==model.batch_id||p.transaction_id!==el('rule-focus').value||p.text!==el('rule-text').value.trim()){invalidateProposal();return}const btn=el('rule-approve'),batch=p.batch_id,generation=batchGeneration;if(btn)btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/rule-proposal/approve',JSON.stringify({text:p.text,transaction_id:p.transaction_id,digest:p.digest,approved:true,request_id:(p.request_id??=crypto.randomUUID())}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('status').textContent=j.refresh_required?'승인은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':j.applied.length+'건을 한 번에 적용했습니다. 실패하면 한 건도 바뀌지 않습니다.';el('rule-result').innerHTML=''}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;if(btn)btn.disabled=false}}document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-google-copy]');if(!b||!model||googleCopyPending)return;const key='gcopy-trip:'+b.dataset.googleCopy;let before=null;try{before=localStorage.getItem(key)}catch{if(!confirm('복사 이력을 읽을 수 없습니다. 이미 Google에 붙여넣었는지 확인해 주세요. 중복 붙여넣기에 주의하고 계속 복사할까요?'))return;}if(before&&!confirm('이 여행은 '+before+'에 이미 구글 시트용으로 복사했습니다. 시트에 이미 붙여넣었다면 다시 붙여넣지 마세요. 그래도 복사할까요?'))return;googleCopyPending=true;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=true);const batch=model.batch_id,version=stamp,generation=batchGeneration;try{let x;if(/^quarter:20[0-9]{2}:[1-4]$/.test(b.dataset.googleCopy)){x=await call('/api/imports/'+batch+'/google-tsv?tab='+encodeURIComponent(b.dataset.googleCopy));}else{const gp=await call('/api/google-ledger/expense-reconciliation?trip='+encodeURIComponent(b.dataset.googleCopy));if(!gp.source_available)throw Error('Google source unavailable');x=await call('/api/google-ledger/expense-reconciliation',JSON.stringify({action:'export',scope:'batch',batch_id:batch,trip_id:b.dataset.googleCopy,expected_revision:gp.links_revision,preview_digest:gp.preview_digest,request_id:'export:'+crypto.randomUUID()}),{'Content-Type':'application/json'});}if(model.batch_id!==batch||stamp!==version||batchGeneration!==generation)throw Error('자료가 바뀌었습니다. 현재 자료에서 다시 복사해 주세요.');if(!x.row_count){el('status').textContent='복사할 행이 없습니다. 보류 '+x.held.length+'건은 시트에 넣지 않습니다.';return}await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}el('status').textContent='구글 지출 '+x.row_count+'행, 합계 '+money(x.total_krw)+'을 클립보드에 복사했습니다. 보류 '+x.held.length+'건은 복사하지 않았습니다. 이 복사는 장부를 바꾸지 않습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning}catch(err){el('status').textContent=err.message}finally{googleCopyPending=false;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=false)}});
 document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-group-commit]');if(!b||!model||b.disabled)return;const batch=model.batch_id,generation=batchGeneration;b.disabled=true;try{const x=await call('/api/imports/'+batch+'/refund-groups/'+encodeURIComponent(b.dataset.groupCommit)+'/commit',mutationBody(b,{digest:b.dataset.digest}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(!x.refresh_required)render(x);el('status').textContent=x.refresh_required?'장부 기록은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':'환불 쌍을 장부에 기록했습니다.'}catch(err){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=err.message;b.disabled=false}});
 function loadCardReviewBatches(){call('/api/imports').then(j=>{el('batches').innerHTML=j.batches.map(b=>'<p><button class="batch-choice" data-batch="'+esc(b.batch_id)+'"><strong>'+esc(b.display_name)+'</strong><br><span>'+esc(b.period_start||'거래 기간 미확인')+(b.period_end?' ~ '+esc(b.period_end):'')+' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':'')+'</span></button></p>').join('')||'<p>저장된 카드 자료가 없습니다. </p>';document.querySelectorAll('[data-batch]').forEach(b=>b.onclick=()=>loadBatch(b.dataset.batch).catch(e=>el('status').textContent=e.message));if(!j.batches.length)el('newupload').open=true;const requested=new URLSearchParams(location.search).get('batch');const initial=j.batches.some(b=>b.batch_id===requested)?requested:j.batches[0]?.batch_id;return initial&&!model&&batchGeneration===0?loadBatch(initial):null}).catch(e=>el('status').textContent=e.message);}
 let cardReviewStarted=false;

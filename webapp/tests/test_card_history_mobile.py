@@ -24,7 +24,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
     monkeypatch.setattr(ledger_design, 'nav_region', lambda *args: '')
     document = site_shell.wrap_document(cards_all.cards_all_page(
         {'year': ['2026'], 'month': ['3']}, db_path=card_db_path), '/cards/all')
-    output = Path('.local-archive/card-row-navigation-20261029')
+    output = Path('.local-archive/card-inline-details-20261029')
     output.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -35,26 +35,40 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             page.goto('http://cost.test/cards/all?year=2026&month=3')
             for theme in ('light', 'dark'):
                 page.emulate_media(color_scheme=theme)
-                for width in (320, 390, 600, 759, 760, 1280):
+                for width in (320, 375, 390, 430, 600, 759, 760, 1280):
                     page.set_viewport_size({'width': width, 'height': 844})
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     rows = page.locator('tr[data-tx-id]')
                     assert rows.count() == 3
                     assert page.locator('thead th').count() == 4
                     assert page.locator('.detail-cell, .preserved').count() == 0
+                    assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
                     if width <= 759:
-                        if width <= 390:
-                            assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth>e.clientWidth')
-                            assert page.locator('.card-all-table').bounding_box()['width'] <= 381
-                        assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'table-row'
-                        assert all(row.bounding_box()['height'] <= 110 for row in rows.all())
+                        assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'grid'
+                        assert rows.first.locator('.use-datetime').is_hidden()
+                        assert page.locator('.card-all-table thead').is_hidden()
+                        assert rows.first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '1px'
+                        assert all(row.bounding_box()['height'] <= 80 for row in rows.all()), [
+                            (row.get_attribute('data-tx-id'), row.bounding_box()['height'],
+                             row.locator('.merchant').bounding_box(), row.locator('.amount-cell').bounding_box(),
+                             row.locator('.trip').bounding_box()) for row in rows.all()]
+                        for row in rows.all():
+                            button = row.locator('.card-all-row-toggle').bounding_box()
+                            name = row.locator('.merchant-name').bounding_box()
+                            identity = row.locator('.card-identity').bounding_box()
+                            assert row.bounding_box()['height'] >= 44
+                            assert button['height'] >= name['height']
+                            assert 0 <= identity['y'] - (name['y'] + name['height']) <= 28
+                            tops = [row.locator(cell).bounding_box()['y'] for cell in ('.merchant', '.amount-cell')]
+                            assert max(tops) - min(tops) <= 1
+                            assert row.locator('.trip').bounding_box()['y'] >= row.locator('.amount-cell').bounding_box()['y']
                         for selector in ('.card-all-table-wrap', '.card-all-filters input[type=search]',
                                          '.card-all-filters select', '.card-all-filters button'):
                             for element in page.locator(selector).all():
                                 box = element.bounding_box()
                                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= width + 1
                         for link in page.locator('td.trip>a').all():
-                            assert link.bounding_box()['height'] >= 32
+                            assert link.bounding_box()['height'] >= 44
                         assert page.locator('.card-all-filters input[type=search]').evaluate(
                             '(e)=>parseFloat(getComputedStyle(e).fontSize)>=16')
                         merchant = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")
@@ -75,25 +89,55 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             page.set_viewport_size({'width': 640, 'height': 844})
             page.evaluate('document.documentElement.style.zoom="200%"')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
-            link = page.locator('.card-all-row-link').first
+            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'block'
+            link = page.locator('.card-all-row-toggle').first
             link.focus()
             assert link.evaluate('(e)=>e===document.activeElement')
-            assert link.get_attribute('href').startswith('/board?row=card-')
+            assert link.get_attribute('aria-expanded') == 'false'
+            assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
             page.evaluate('document.documentElement.style.zoom="100%"')
             page.set_viewport_size({'width': 390, 'height': 844})
             page.route('http://cost.test/board*', lambda route: route.fulfill(status=200, body='<p>synthetic detail</p>'))
             original = 'http://cost.test/cards/all?year=2026&month=3'
-            # Whitespace and amount cells navigate the row, not just its text link.
+            pending = []
+            page.route('http://cost.test/api/cards/transactions/detail*', lambda route: pending.append(route))
+            # All ordinary cells expand in place, including source-only transactions.
             for cell in ('td.use-datetime', 'td.amount-cell', 'td.trip'):
                 page.goto(original)
+                page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})
                 page.locator("tr[data-tx-id='TX-B-01'] " + cell).click()
-                page.wait_for_url('**/board?row=card-TX-B-01')
+                detail = page.locator('#card-detail-TX-B-01')
+                from playwright.sync_api import expect
+                expect(detail.locator('[role=status]')).to_be_visible()
+                assert detail.locator('.card-all-expanded-content').get_attribute('aria-busy') == 'true'
+                if cell == 'td.use-datetime':
+                    page.screenshot(path=str(output / 'detail-loading.png'), full_page=True)
+                from webapp import card_transactions as ct
+                pending.pop().fulfill(json={'html': cards_all.card_detail_html(ct.transaction_detail('TX-B-01', card_db_path))})
+                expect(detail).to_contain_text('AGODA')
+                expect(detail.locator('.card-all-spinner')).to_have_count(0)
+                assert page.url == original
+                for expanded_width in (320, 390, 600, 759, 760, 1280):
+                    page.set_viewport_size({'width': expanded_width, 'height': 844})
+                    assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
+                page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})
+                if cell == 'td.use-datetime':
+                    page.screenshot(path=str(output / 'detail-expanded.png'), full_page=True)
+                page.locator("tr[data-tx-id='TX-B-01'] " + cell).click()
+                expect(detail).to_be_hidden()
             page.goto(original)
-            link = page.locator("tr[data-tx-id='TX-A-02'] .card-all-row-link")
+            link = page.locator("tr[data-tx-id='TX-A-02'] .card-all-row-toggle")
             link.focus()
             link.press('Enter')
-            page.wait_for_url('**/board?row=card-TX-A-02')
+            expect(page.locator('#card-detail-TX-A-02')).to_be_visible()
+            pending.pop().fulfill(status=503, json={'code': 'UNAVAILABLE'})
+            expect(page.locator('#card-detail-TX-A-02')).to_contain_text('닫았다 다시 열어')
+            link.press('Escape')
+            expect(page.locator('#card-detail-TX-A-02')).to_be_hidden()
+            link.press('Space')
+            expect(page.locator('#card-detail-TX-A-02 .card-all-spinner')).to_be_visible()
+            pending.pop().fulfill(json={'html': '<p>재시도 성공</p>'})
+            expect(page.locator('#card-detail-TX-A-02')).to_contain_text('재시도 성공')
             # Nested refund links retain their separate destination.
             page.goto(original)
             page.locator("tr[data-tx-id='TX-A-02'] td.trip a").click()
@@ -107,5 +151,14 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             }''')
             row.locator('td.amount-cell').dispatch_event('click', {'button': 0})
             assert page.url == original
+            assert page.locator('#card-detail-TX-B-01').is_hidden()
+            page.evaluate('getSelection().removeAllRanges()')
+            # Hold navigation at submission so the old document's loading state can be inspected.
+            page.locator('.card-all-filters').evaluate("e=>e.addEventListener('submit',e=>e.preventDefault())")
+            page.locator('.card-all-filters input[name=q]').fill('loading')
+            page.locator('.card-all-filters button').click()
+            expect(page.locator('.card-all-page-loading .card-all-spinner')).to_be_visible()
+            page.evaluate("window.dispatchEvent(new Event('pageshow'))")
+            expect(page.locator('.card-all-page-loading')).to_be_hidden()
         finally:
             browser.close()

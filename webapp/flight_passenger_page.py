@@ -177,7 +177,6 @@ function manualDateFilter(parent,confirmedDay=null,basis='EXPLICIT_LABEL'){
 const details=document.createElement('details');details.className='fb-date-filter';parent.append(details);
 text(details,'summary',confirmedDay?(basis==='FIRST_RECEIVED'?'최초 메일 수신일의 카드 거래 전체 조회':'예약 시각의 한국 날짜로 카드 거래 전체 조회'):'직접 지정한 날짜로 카드 원행 조회');
 text(details,'p',confirmedDay?(basis==='FIRST_RECEIVED'?'별도 예약일이 없어 보관된 인증 메일의 최초 수신일을 예약일 기준으로 사용합니다. 결제 연결은 미확정입니다.':'원본 예약 시각과 시간대를 한국 시간으로 환산한 날짜입니다. 결제 연결이 확정된 것은 아닙니다.'):'예약일이나 결제 연결이 확정된 것은 아닙니다.','fb-note');
-text(details,'p','해당 날짜의 모든 카드 원행을 조회합니다. 취소·환불·중복·기존 분류를 제외하지 않으며 이 예약과의 연결 여부는 판정하지 않습니다.','fb-muted');
 const filter=document.createElement('form'),label=text(filter,'label','조회 날짜 (직접 지정 필터)');
 const dateInput=document.createElement('input');dateInput.type='date';dateInput.required=true;dateInput.min='2000-01-01';dateInput.max='2100-12-31';label.append(dateInput);
 const search=text(filter,'button','지정 날짜 원행 조회');search.type='submit';details.append(filter);
@@ -300,7 +299,6 @@ manualDateFilter(candidates,candidateDay,b.booking_date_status);
 if(b.reserved_on&&!b.booking_card_day)text(candidates,'p','예약일 표기는 있지만 시간대 근거가 없어 자동 날짜 조회를 보류합니다. 날짜를 직접 선택해 주세요.','fb-muted');
 const participant=document.createElement('details');participant.className='fb-section';
 text(participant,'summary','참가자 연결 정보');
-text(participant,'p','기존 참가자 연결 기능에서 예약 명단과 비교하고 COST 내부 연결을 확인할 수 있습니다.','fb-muted');
 const link=text(participant,'a','참가자 연결 정보 열기');link.href='/flight-passengers?view=participants';card.append(participant);
 return card}
 let refreshAttempts=0,refreshTimer=null;

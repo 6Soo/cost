@@ -90,6 +90,20 @@ def test_a_card_discovery_searches_all_merchants_and_returns_every_same_date_row
     assert all('already_linked_event_id' in row for row in found)
 
 
+def test_candidate_search_marks_rejection_visibility_from_payment_date_only():
+    from app.ota_payments import search_card_candidates
+
+    fact = event(paid_on='2026-08-01', currency='KRW', amount=30000, amount_krw=30000)
+    same_day = card('same-day', amount_krw=31000, approval_date='2026-08-01')
+    other_day = card('other-day', amount_krw=31000, approval_date='2026-08-15')
+    result = search_card_candidates(fact, [same_day, other_day])
+    visibility = {row['transaction_id']: row['display_relevant'] for row in result['rejected']}
+    assert visibility == {'same-day': True, 'other-day': False}
+
+    undated = search_card_candidates(dict(fact, paid_on=None), [same_day])
+    assert undated['rejected'][0]['display_relevant'] is False
+
+
 def test_b_one_booking_can_have_multiple_distinct_paid_events():
     first, second = event('one'), event('two', source_ids=['mail:2'], amount=12000,
                                         amount_krw=12000, paid_on='2026-08-04')

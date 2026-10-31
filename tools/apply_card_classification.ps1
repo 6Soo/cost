@@ -1,11 +1,14 @@
-param([Parameter(Mandatory=$true)][string]$ReleaseSha, [switch]$Apply)
+param([Parameter(Mandatory=$true)][string]$ReleaseSha, [switch]$Apply, [switch]$Reconsider, [string]$EvidenceCache)
 $ErrorActionPreference='Stop'
 if($ReleaseSha -notmatch '^[a-f0-9]{40}$'){throw 'INVALID_SHA'}
 $release=Join-Path 'D:/WebLedgerHost/releases' $ReleaseSha
 $python='D:/WebLedgerHost/venv/Scripts/python.exe'
 $script=Join-Path $release 'tools/complete_card_classification.py'
 if((Get-Content -LiteralPath (Join-Path $release 'DEPLOYED_COMMIT') -Raw).Trim() -ne $ReleaseSha){throw 'RELEASE_MARKER_INVALID'}
-if(-not $Apply){ & $python $script; exit $LASTEXITCODE }
+$reviewArguments=@()
+if($Reconsider){$reviewArguments += '--reconsider'}
+if($EvidenceCache){$reviewArguments += @('--evidence-cache',$EvidenceCache)}
+if(-not $Apply){ & $python $script @reviewArguments; exit $LASTEXITCODE }
 $deploy=Get-Content -LiteralPath "D:/WebLedgerHost/releases/deploy-evidence-$ReleaseSha.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 if(!$deploy.runtime_sha_verified -or $deploy.blob_mismatches -ne 0){throw 'UNVERIFIED_RELEASE'}
 $boardTask=Get-ScheduledTask -TaskName WebLedger-Board
@@ -37,15 +40,15 @@ try {
     & $python (Join-Path $release 'tools/verify_operational_backup_restore.py') --evidence-out $backup
     if($LASTEXITCODE -ne 0){throw 'FRESH_BACKUP_RESTORE_FAILED'}
     Write-Output 'CLASSIFICATION_BACKUP_RESTORE_PASS'
-    $previewText= & $python $script --report (Join-Path $evidence 'preview.json')
+    $previewText= & $python $script @reviewArguments --report (Join-Path $evidence 'preview.json')
     if($LASTEXITCODE -ne 0){throw 'CLASSIFICATION_PREVIEW_FAILED'}
     $preview=$previewText | ConvertFrom-Json
     if($preview.status -ne 'PREVIEW' -or !$preview.protected_source_and_user_data_unchanged){throw 'CLASSIFICATION_PREVIEW_UNVERIFIED'}
-    $appliedText= & $python $script --apply --expected-digest $preview.digest --backup-evidence $backup --report (Join-Path $evidence 'applied.json')
+    $appliedText= & $python $script @reviewArguments --apply --expected-digest $preview.digest --backup-evidence $backup --report (Join-Path $evidence 'applied.json')
     if($LASTEXITCODE -ne 0){throw 'CLASSIFICATION_APPLY_FAILED'}
     $applied=$appliedText | ConvertFrom-Json
     if($applied.status -ne 'APPLIED' -or $applied.after.unclassified_purchases -ne 0 -or $applied.after.unclassified_all_directions -ne 0){throw 'CLASSIFICATION_RESULT_UNVERIFIED'}
-    $repeatText= & $python $script --report (Join-Path $evidence 'repeat-preview.json')
+    $repeatText= & $python $script @reviewArguments --report (Join-Path $evidence 'repeat-preview.json')
     if($LASTEXITCODE -ne 0 -or ($repeatText|ConvertFrom-Json).to_classify -ne 0){throw 'CLASSIFICATION_REPEAT_NOT_NOOP'}
     @{status='PASS';release_sha=$ReleaseSha;evidence_directory=$evidence;result=$applied;repeat_to_classify=0} | ConvertTo-Json -Depth 8 -Compress
 } finally {

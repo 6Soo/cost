@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = {
     'test-environment': ('audit_test_environment.py', '--summary'),
     'runtime-catalog': ('runtime_dependency_catalog.py', '--format', 'summary'),
+    'runtime-environment': ('verify_runtime_environment.py',),
     'call-map': ('refactor_call_map.py', '--summary', '--limit-output'),
     'write-boundaries': ('audit_write_boundaries.py',),
     'tracked-data': ('check_tracked_data.py', '--mode', 'inventory'),
@@ -29,14 +30,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     tool, *options = COMMANDS[args.command]
     path = ROOT / 'tools' / tool
-    if not path.is_file() or path.is_symlink():
-        print(json.dumps({'status': 'ERROR', 'code': 'AUDIT_TOOL_UNAVAILABLE'}))
-        return 2
     if not args.run:
         print(json.dumps({'status': 'PREVIEW', 'command': args.command,
                           'script': 'tools/' + tool, 'arguments': options,
                           'executed': [], 'scope': 'tracked source metadata only'}))
         return 0
+    if not path.is_file() or path.is_symlink():
+        print(json.dumps({'status': 'ERROR', 'code': 'AUDIT_TOOL_UNAVAILABLE'}))
+        return 2
     try:
         return subprocess.run([sys.executable, str(path), *options],
                               cwd=ROOT, shell=False, check=False).returncode

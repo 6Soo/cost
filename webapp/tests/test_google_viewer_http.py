@@ -116,12 +116,33 @@ class GoogleViewerHttpTests(unittest.TestCase):
         gl.set_mapping(self.snapshot, key=key, tab_id=tab, known_keys={'0630_오제', '0107_대만'})
 
     def test_owner_sees_every_trip_and_the_detail_over_http(self):
-        status, body = self.call('/api/google-ledger', OWNER)
-        self.assertEqual(status, 200, body)
-        self.assertEqual({t['key'] for t in json.loads(body)['trips']}, {'0630_오제', '0107_대만'})
         status, body = self.call('/api/google-ledger/rows?key=0630_%EC%98%A4%EC%A0%9C&source=main', OWNER)
         self.assertEqual(status, 200, body)
         self.assertIn('ALICE-NAME', body)
+
+    def test_removed_google_ledger_routes_do_not_claim_http_instrumentation(self):
+        from app import request_metrics
+        before = request_metrics.summary()
+        self.assertFalse(gl.owns_route('/google-ledger'))
+        self.assertFalse(gl.owns_route('/api/google-ledger'))
+        self.assertEqual(request_metrics.summary(), before)
+
+    def test_canonical_read_seam_measures_mock_loader_without_source_values(self):
+        from app import request_metrics
+        from unittest.mock import patch
+        sentinel = 'SENTINEL_PRIVATE_CUSTOMER'
+        snapshot = {'generation': 7, 'trips': [{'key': sentinel}], 'rule_version': 'rules_v1'}
+        rows = {'private': sentinel}
+        before = request_metrics.summary().get('google_canonical_read.google_read', {}).get('samples', 0)
+        with patch.object(gl.google_authority, 'load_consistent', return_value=(snapshot, rows)) as loader:
+            actual = gl._load_consistent_measured(self.snapshot, self.rows)
+        loader.assert_called_once_with(self.snapshot, self.rows)
+        self.assertEqual(actual, (snapshot, rows))
+        after = request_metrics.summary()['google_canonical_read.google_read']
+        self.assertEqual(after['samples'], before + 1)
+        self.assertEqual(after['rows'], 1)
+        self.assertNotIn(sentinel, json.dumps(request_metrics.summary()))
+        self.assertNotIn(str(self.snapshot), json.dumps(request_metrics.summary()))
 
     def test_a_viewer_sees_only_the_granted_linked_and_visible_trip(self):
         self.link_and_assign(VIEWER, self.trip)

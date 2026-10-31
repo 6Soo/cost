@@ -40,6 +40,22 @@ def test_passenger_feature_requires_explicit_opt_in_and_uses_durable_database(tm
         assert not any(key in os.environ for key in keys)
 
 
+def test_insurance_manifest_requires_opt_in_absolute_existing_file_and_resets(tmp_path):
+    key = 'WEBLEDGER_INSURANCE_REVIEW_MANIFEST'
+    manifest = tmp_path / 'synthetic-manifest.json'
+    manifest.write_text('{}', encoding='utf-8')
+    with patch.dict(os.environ, {key: 'inherited'}):
+        launcher.apply_product_features({}, tmp_path)
+        assert key not in os.environ
+        for invalid in ('relative.json', str(tmp_path / 'missing.json'), str(tmp_path)):
+            with pytest.raises(launcher._Refused):
+                launcher.apply_product_features({'insurance_review': {'enabled': True, 'manifest_path': invalid}}, tmp_path)
+        launcher.apply_product_features({'insurance_review': {'enabled': True, 'manifest_path': str(manifest)}}, tmp_path)
+        assert os.environ[key] == str(manifest)
+        launcher.apply_product_features({'insurance_review': {'enabled': False}}, tmp_path)
+        assert key not in os.environ
+
+
 @pytest.mark.parametrize('options,expected', [
     (None, None),
     ({'enabled': True, 'reserve_trip_sync': False}, None),

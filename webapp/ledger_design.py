@@ -634,9 +634,7 @@ def _source_preview_html(trip) -> str:
         f"<div class='src-hd'><h2>실제 원천 자료 · 입금과 지출</h2>"
         f"<a class='btn' id='src-review-link' href='{board.esc(review_href)}'>"
         f"{ui_icons.icon('search')}실제 자료 검토</a></div>"
-        f"<p class='muted'>원천 시트 <code>{board.esc(sheet)}</code> 의 "
-        f"{len(items)}행이에요. 원천 자료입니다. 저장된 장부 합계와 별도로 "
-        f"표시합니다. 검토에서 차이를 확인하세요. 여기서 결정하지 않아요.</p>"
+        f"<p class='muted'><code>{board.esc(sheet)}</code> · {len(items)}행</p>"
         f"<ul class='src-list'>{''.join(items)}</ul>"
         f"</section>")
 
@@ -1008,41 +1006,30 @@ def _google_match_annotations(tab_id, rows):
     if board.current_role() != 'owner' or not tab_id or tab_id == 'unclassified' or not rows:
         return {}
     try:
-        from . import google_ledger_page as google
-        if not google.enabled():
-            return {}
-        path = google.snapshot_path()
-        mapping = google.load_mapping(path)
-        keys = [key for key, linked in mapping.items() if linked == tab_id]
-        if len(keys) != 1:
-            return {}
-        snapshot, private_rows = google.google_authority.load_consistent(path, google.rows_path())
-        payload = google.owner_payload(google.snapshot_for_display(snapshot), google.load_choices(path))
-        trips = [trip for trip in payload.get('trips', []) if trip.get('key') == keys[0]]
-        if len(trips) != 1:
-            return {}
-        trip = trips[0]
-        source = trip.get('chosen_source')
-        source_state = (payload.get('sources') or {}).get(source) or {}
-        copy = (trip.get('copies') or {}).get(source) or {}
-        if (source not in ('main', 'archive') or source_state.get('status') != 'ok'
-                or source_state.get('stale') or copy.get('layout') != 'rev'
-                or not (copy.get('expense') or {}).get('verified')
-                or set(trip.get('review') or []) & google.OWNER_CHOICE_BLOCKERS):
-            return {}
-        detail = google.owner_rows(private_rows, keys[0], source)
-        if detail is None:
-            return {}
-        matches = _google_expense_matches(detail.get('expense') or [], rows)
-        return {rows[index].get('row_id'): value for index, value in matches.items()
-                if rows[index].get('row_id')}
+        from .sheet_expense_reconciliation import preview_for_trip
+        result = preview_for_trip(board._active_store(), tab_id, cost_rows=rows)
+        by_id = {item['transaction_id']: item for item in result.get('results', [])}
+        labels = {'MATCHED_MANUAL': '이미 수기로 기록됨 · 새 행 추가 안 함',
+                  'MATCHED_EXISTING': '기존 연결 확인 · 새 행 추가 안 함',
+                  'REVIEW_CONFLICT': '중복 가능성 확인 필요',
+                  'SOURCE_UNAVAILABLE': '시트 확인 불가 · 복사 보류'}
+        annotations = {}
+        for row in rows:
+            item = by_id.get(str(row.get('source_event_id') or row.get('row_id') or ''))
+            if item and item.get('status') in labels:
+                annotations[row['row_id']] = {
+                    'multiple': item['status'] == 'REVIEW_CONFLICT',
+                    'reasons': item.get('basis') or [], 'label': labels[item['status']]}
+        return annotations
     except (SnapshotError, AttributeError, KeyError, OSError, TypeError, ValueError):
         return {}
 
 
-def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match_annotations=None) -> str:
+def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match_annotations=None,
+                amount_groups=None) -> str:
     if not rows:
-        return ("<tbody><tr class='empty'><td colspan='5'>"
+        colspan = 6 if amount_groups is not None else 5
+        return (f"<tbody><tr class='empty'><td colspan='{colspan}'>"
                 f"{'수입 내역이 없어요' if kind == 'income' else '지출 내역이 없어요'}"
                 "</td></tr></tbody>")
     body = []
@@ -1061,7 +1048,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
         match_description = ''
         match_class = ''
         if match:
-            label = ('복수 후보 확인 필요' if match['multiple'] else
+            label = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                      '금액+' + '+'.join(match['reasons']))
             hint_id = 'google-match-' + str(rid)
             match_class = ' class="google-match-candidate"'
@@ -1077,6 +1064,9 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='c-stay'>{board.esc(_stay_text(row)) if item == '숙박비' else ''}</td>"
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
+            + (_amount_group_cell(amount_groups, rid) if amount_groups is not None and kind == 'expense'
+               else "<td class='gemn-desktop gemn-status-cell'></td>" if amount_groups is not None else '')
+            +
             f"</tr>")
         if unclassified:
             # The waiting row's travel picker lives in its own action row below
@@ -1094,7 +1084,29 @@ def _column_head_row() -> str:
             "<th scope='col' class='num'>금액</th></tr>")
 
 
-def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board", match_annotations=None) -> str:
+def _amount_group_cell(state, row_id):
+    from .expense_amount_group_ui import status_cell
+    annotation = (state.get('by_cost_id') or {}).get(row_id)
+    return status_cell(annotation or {'status': 'unavailable', 'reason': state.get('reason'),
+                                     'last_success_at': state.get('last_success_at')})
+
+
+def _amount_group_state(tab_id, rows, kind=''):
+    if board.current_role() != 'owner' or kind == 'in' or not _is_trip_tab(tab_id):
+        return None
+    from .expense_amount_group_service import build_state
+    return build_state(board._active_store(), tab_id, cost_rows=rows)
+
+
+def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board", match_annotations=None,
+                 amount_groups=None) -> str:
+    from . import expense_amount_group_ui as gemn
+    from .expense_amount_group_service import sort_for_display
+    expenses = sort_for_display(expenses, amount_groups)
+    enabled = amount_groups is not None
+    extra_col = "<col class='gemn-desktop gemn-column'>" if enabled else ''
+    extra_header = gemn.header_cell() if enabled else ''
+    extra_blank = "<td class='gemn-desktop gemn-status-cell'></td>" if enabled else ''
     head = (
         "<div class='tw'><table id='tbl'>"
         "<caption class='sr'>거래 내역. 수입은 위, 지출은 아래에 있습니다.</caption>"
@@ -1104,29 +1116,32 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         # amount column down, not across.
         "<colgroup><col style='width:108px'><col style='width:28%'><col style='width:104px'>"
         "<col style='width:280px'>"
-        "<col style='width:126px'></colgroup>"
+        f"<col style='width:126px'>{extra_col}</colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>이용일</th>"
-        "<th scope='col' class='num'>금액</th></tr></thead>")
+        f"<th scope='col' class='num'>금액</th>{extra_header}</tr></thead>")
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     income_group = (
         f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (COST 기록) "
         f"<a href='#google-trip-income'>수입내역 보기</a></th>"
-        f"<th class='num'>{_money(income_total)}</th></tr></tbody>"
-        + _table_html(incomes, kind="income", selected=selected, unclassified=False)
+        f"<th class='num'>{_money(income_total)}</th>{extra_blank}</tr></tbody>"
+        + _table_html(incomes, kind="income", selected=selected, unclassified=False,
+                      amount_groups=amount_groups)
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
         "<td colspan='3'><a class='btn' id='add-manual-expense' href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
-        f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
-        + "<tbody class='colhead'>" + _column_head_row() + "</tbody>"
+        f"<th class='num'>{_money(expense_total)}</th>{extra_blank}</tr></tbody>"
+        + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
                       unclassified=unclassified, move_back=move_back,
-                      match_annotations=match_annotations)
+                      match_annotations=match_annotations, amount_groups=amount_groups)
         + "</table></div>")
-    return head + groups
+    if amount_groups is None:
+        return head + groups
+    return gemn.styles() + head + groups + gemn.render_groups(amount_groups)
 
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
@@ -1156,7 +1171,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             cls += ' google-match-candidate'
         match_hint = ''
         if match:
-            reason = ('복수 후보 확인 필요' if match['multiple'] else
+            reason = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                       '금액+' + '+'.join(match['reasons']))
             match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
                           f"{board.esc(reason)}</span>")
@@ -1317,12 +1332,10 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         "<details class='p-src'>"
         "<summary>원본 정보</summary>"
         f"<p class='p-sub'>{board.esc(row.get('source_event_id') or row['row_id'])}"
-        f" · revision {rev} · {board.esc(row.get('source_kind') or '')}"
+        f" · {board.esc(row.get('source_kind') or '')}"
         f" · 가맹점 {board.esc(row.get('source_merchant') or '-')}</p>"
         f"{''.join(locked)}"
         "</details>"
-        "<p class='src'>원천 날짜·금액·예약번호는 읽기 전용이에요. 여행·항목·용도·메모는 "
-        "수정할 수 있습니다.</p>"
         f"<div class='p-links'>{' · '.join(x for x in links if x)}</div>"
         "</div>"
         "<div class='p-ft'>"
@@ -1505,7 +1518,8 @@ def tsv_for_trip_expenses(tab_id: str, query: str = "", kind: str = "") -> dict:
     if not _is_trip_tab(tab_id):
         raise ValueError("INVALID_TRIP_TAB")
     _, expenses, _, _ = _selected_rows(tab_id, query, kind)
-    return _trip_expense_tsv(tab_id, expenses)
+    from .sheet_expense_reconciliation import export_for_trip
+    return export_for_trip(board._active_store(), expenses, tab_id)
 
 
 def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
@@ -1536,10 +1550,11 @@ def _trip_copy_html(tab_id: str, expenses: list) -> str:
     return (
         f"<section class='trip-copy-wrap' aria-label='지출내용 복사'>"
         f"<div class='trip-copy-box'>"
-        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}'>"
+        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'>"
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
         f"</button>"
-        f"<span class='trip-copy-desc'>현재 표시된 지출을 Google 7열(B:H)로 복사합니다 ({count}건 · {_money(total)}{held})</span>"
+        f"<span class='trip-copy-desc'>수기 지출과 대조 후 신규 지출만 복사합니다 (대조 대상 {count}건 · {_money(total)}{held})</span>"
+        f"<a class='btn' href='/google-ledger/expense-reconciliation?trip={urllib.parse.quote(tab_id, safe='')}'>수기 지출 대조</a>"
         f"<span class='copy-status' id='copy-status' role='status' aria-live='polite'></span>"
         f"</div>"
         f"</section>"
@@ -1678,6 +1693,18 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
         return ""
     kind, row = board.find_row(row_id)
     if row is None:
+        if row_id.startswith('card-') and board.current_role() == 'owner':
+            from . import card_transactions, cards_all
+            import sqlite3
+            path = board._get_card_db_path()
+            try:
+                source = card_transactions.transaction_detail(row_id[5:], db_path=path) if path else None
+            except sqlite3.OperationalError:
+                source = None
+            if source is not None:
+                return ("<aside class='panel'><div class='p-bd'><h2>카드 거래 상세</h2>"
+                        f"{cards_all.card_detail_html(source)}"
+                        "<p><a href='/cards/all'>카드 내역으로 돌아가기</a></p></div></aside>")
         return ("<aside class='panel'><div class='p-bd'>"
                 "<p class='muted'>없는 거래예요</p></div></aside>")
     return _panel_html(row, kind, csrf=board.CSRF_TOKEN,
@@ -1735,9 +1762,15 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
     unclassified = tab_id == "unclassified"
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
     matches = _google_match_annotations(tab_id, expenses)
+    amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
+    workflow = ''
+    if amount_groups is not None:
+        from .trip_workflow import render
+        workflow = render(board._active_store(), tab_id, _whole_expense, amount_groups)
     return (f"<div id='live-rows'>"
+            f"{workflow}"
             f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches)}"
+                            move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
             f"{_trip_copy_html(tab_id, expenses)}"
@@ -1766,8 +1799,9 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     unclassified = tab_id == "unclassified"
     back = "/board?" + state_query(tab_id, query, kind, archived)
     matches = _google_match_annotations(tab_id, expenses)
+    amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches)}"
+                            move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
             f"{_trip_copy_html(tab_id, expenses)}")

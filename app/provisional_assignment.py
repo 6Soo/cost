@@ -59,13 +59,19 @@ def card_trip_candidates(transaction, trips, *, nets=None):
     except (TypeError, ValueError):
         return []
     merchant = str(transaction.get("merchant") or "").casefold()
+    from .rules import merchant_country, trip_countries, is_booking_or_online
+    country = '' if is_booking_or_online(transaction) else merchant_country(transaction)
+    compatible = {key for key, trip in authoritative.items() if country in trip_countries(trip)}
+    if compatible:
+        authoritative = {key: trip for key, trip in authoritative.items() if key in compatible}
     ranked = []
     for identity, trip in authoritative.items():
         start = date.fromisoformat(trip["starts_on"])
         end = date.fromisoformat(trip["ends_on"]) if trip.get("ends_on") else day
         distance = max((start - day).days, (day - end).days, 0)
         named = bool(trip.get("destination") and str(trip["destination"]).casefold() in merchant)
-        rank = (not named, distance, -(nets or {}).get(identity, 0))
+        # A place name does not make a purchase months later part of that trip.
+        rank = (distance, not named, -(nets or {}).get(identity, 0))
         ranked.append((rank, identity, distance, named))
     order = sorted({entry[0] for entry in ranked}, reverse=True)
     return [{"trip_id": identity, "score": order.index(rank), "confidence": "낮음",

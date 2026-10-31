@@ -12,10 +12,9 @@ from . import participant_roster
 def _identity(path: Path) -> dict:
     resolved = path.resolve()
     if not resolved.exists():
-        return {"exists": False, "path": str(resolved)}
+        return {"exists": False}
     stat = resolved.stat()
-    return {"exists": True, "path": str(resolved),
-            "file_id": [stat.st_dev, stat.st_ino], "size": stat.st_size}
+    return {"exists": True, "file_id": [stat.st_dev, stat.st_ino], "size": stat.st_size}
 
 
 def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | None = None) -> dict:
@@ -23,17 +22,20 @@ def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | No
     web_db = web_db or participant_roster.default_db_path()
     cli = _identity(cli_db)
     web = _identity(web_db)
-    same_path = Path(cli["path"]).resolve() == Path(web["path"]).resolve()
+    same_path = cli_db.resolve() == web_db.resolve()
     same_file = bool(cli.get("exists") and web.get("exists") and
                      cli.get("file_id") == web.get("file_id"))
-    result = {"status": "ok" if same_path and same_file else "blocked",
+    result = {"status": "blocked",
+              "code": "DB_IDENTITY_UNVERIFIED",
               "checks": {"same_resolved_path": same_path,
                          "same_file_identity": same_file},
-              "cli": cli, "web": web,
-              "write_performed": False}
+              "cli": {"exists": cli["exists"]},
+              "web": {"exists": web["exists"]},
+              "write_performed": False,
+              "registration_receipt_verified": False}
     if same_file:
         try:
-            store = participant_roster.ParticipantStore.open_readonly(Path(cli["path"]))
+            store = participant_roster.ParticipantStore.open_readonly(cli_db.resolve())
             try:
                 tables = {row[0] for row in store.conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'")}
@@ -56,6 +58,8 @@ def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | No
                         and all(type(receipt.get(key)) is int and receipt[key] >= 0
                                 for key in ('new_participants','reused_participants'))
                         and all(key in receipt and receipt[key] == stored.get(key) for key in fields))
+                    if result['receipt_matches_recorded_batch']:
+                        result['registration_receipt_verified'] = True
             finally:
                 store.close()
         except (OSError, ValueError, sqlite3.Error, participant_roster.RosterError):
@@ -64,6 +68,17 @@ def verify_paths(cli_db: Path, web_db: Path | None = None, *, receipt: dict | No
         result["schema_present"] = False
     if not result['schema_present'] or (receipt is not None and not result.get('receipt_matches_recorded_batch')):
         result['status'] = 'blocked'
+        result['code'] = ('PARTICIPANT_SCHEMA_UNAVAILABLE' if not result['schema_present']
+                          else 'REGISTRATION_RECEIPT_MISMATCH')
+    elif not (same_path and same_file):
+        result['status'] = 'blocked'
+        result['code'] = 'DB_IDENTITY_UNVERIFIED'
+    elif receipt is None:
+        result['status'] = 'ready_for_receipt_check'
+        result['code'] = 'REGISTRATION_RECEIPT_REQUIRED'
+    else:
+        result['status'] = 'accepted'
+        result['code'] = 'DB_AND_RECEIPT_MATCH'
     result['scope'] = 'configured_paths_only; active web process configuration must be verified separately'
     result['insurer_completion_verified'] = False
     return result

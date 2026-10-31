@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from app.ota_queue_paging import build_queue_index, list_queue_page
 from app.ota_queue_projection import summarize_queue
 from app.ota_queue_telemetry import payload_bytes, safe_snapshot_metadata, summarize_samples, timed
+from app.request_metrics import MetricsWindow, timed as request_timed
 
 
 KEY = b"synthetic-ota-queue-benchmark-signing-key"
@@ -67,6 +68,7 @@ def query_plan_probe(size):
 def run(size, repeats):
     events, rows = synthetic_rows(size)
     measurements = []
+    request_metrics = MetricsWindow(limit=max(10, repeats * 5))
     summary = None
     for _ in range(repeats):
         tracemalloc.start()
@@ -88,6 +90,22 @@ def run(size, repeats):
                                   row_count=20, byte_count_fn=payload_bytes)
         measurements.append(page_sample)
 
+        # Synthetic stand-ins exercise the five requested measurement seams;
+        # they deliberately do not claim production latency or inspect app data.
+        probes = (
+            ("ota_snapshot", "snapshot_compute", lambda: summarize_queue(events, READY, coverage="canonical"), size),
+            ("first_render", "first_render", lambda: summarize_queue(events, READY, coverage="canonical"), size),
+            ("card_search", "card_search", lambda: [row for row in rows[:20]
+                                                       if row["event"]["status"]], 20),
+            ("google_canonical_read", "google_read", lambda: dict(READY), 1),
+            ("db_lock_wait", "db_lock_wait", lambda: query_plan_probe(size), size),
+        )
+        for operation, stage, callback, row_count in probes:
+            request_timed(operation, stage, callback, row_count=row_count,
+                          byte_count_fn=payload_bytes, generation=1,
+                          rule_version="synthetic_v1",
+                          data_fingerprint="a" * 64, metrics=request_metrics)
+
     plan = query_plan_probe(size)
     metrics = summarize_samples(measurements + [plan])
     metrics["projection_memory"] = {"samples": repeats, "peak_memory_bytes": peak_bytes}
@@ -97,7 +115,7 @@ def run(size, repeats):
               "queue_counts": summary["counts_by_queue"],
               "page_items": len(page["items"]), "page_total": page["total_count"],
               "query_plan": {key: value for key, value in plan.items() if key != "elapsed_ms"},
-              "metrics": metrics}
+              "metrics": metrics, "request_metrics": request_metrics.summary()}
     return output
 
 

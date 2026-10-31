@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.reconcile import trace
+from app.reconcile import index_results, same_generation
 from tools.audit_ota_card_coverage import _canonical_results, main
 
 
@@ -25,6 +26,30 @@ def test_unknown_ota_date_keeps_candidate_trace_and_redacts_ids(monkeypatch):
     assert "real-booking-event" not in serialized
     assert "real-card-row" not in serialized
     assert summary["automatic_link_approvals"] == 0
+
+
+def test_coverage_scope_reuses_provider_resolution_without_changing_any_case(monkeypatch):
+    from app import ota_matching_defaults as defaults
+    events=[{'ota_event_id':f'event-{i}','provider':'agoda','event_type':'charge',
+             'evidence_status':'paid_verified','payment_status':'paid','paid_on':'2026-10-01',
+             'amount_krw':1000,'amount':'1000','currency':'KRW','card_last4':'1234'} for i in range(3)]
+    cards=[{'transaction_id':f'card-{i}','approval_date':'2026-10-01','amount_krw':1000,
+            'transaction_direction':'purchase','card_tail':'1234','issuer':'issuer-x',
+            'merchant':'Agoda','merchant_normalized':'agoda'} for i in range(4)]
+    calls=[]
+    original=defaults._resolve_provider
+    def counted(*args):
+        calls.append(True)
+        return original(*args)
+    monkeypatch.setattr(defaults,'_resolve_provider',counted)
+    unscoped=trace.build_coverage_report.__wrapped__(events=events,cards=cards,run_secret=b'x'*32)
+    unscoped_calls=len(calls)
+    calls.clear()
+    scoped=trace.build_coverage_report(events=events,cards=cards,run_secret=b'x'*32)
+    assert scoped == unscoped
+    assert len(calls)==1 and unscoped_calls>len(calls)
+    trace.build_coverage_report(events=events,cards=cards,run_secret=b'x'*32)
+    assert len(calls)==2  # A later run reads policy afresh.
 
 
 def test_audit_reads_synthetic_board_and_writes_redacted_reports(tmp_path):
@@ -71,6 +96,126 @@ def test_global_matcher_divergence_is_redacted_and_counted():
     assert summary["reconciliation_engine_status_counts"] == {"HOLD_AMBIGUOUS": 1}
     assert "private-event" not in json.dumps(summary)
     assert "private-card" not in json.dumps(summary)
+
+
+@pytest.mark.parametrize("artifacts,expected", [
+    (({"generation": 4}, {"generation": 4}), True),
+    ((4, 4, {"generation": 4}), True),
+    (({"generation": 4}, {"generation": 5}), False),
+    (({"generation": None},), False),
+    ((True,), False),
+    ((), False),
+])
+def test_shared_generation_contract(artifacts, expected):
+    assert same_generation(*artifacts) is expected
+
+
+def test_result_index_rejects_duplicate_ids_and_generation_mismatch():
+    rows = [{"ota_event_id": "one", "status": "MATCHED_AUTO"},
+            {"ota_event_id": "one", "status": "HOLD_AMBIGUOUS"},
+            {"ota_event_id": "two", "status": "NO_RESULT"}]
+    assert index_results(rows) == {"two": rows[2]}
+    assert index_results({"generation": 3, "results": rows}, generation=4) == {}
+    assert index_results({"generation": 3, "results": rows}, generation=3) == {"two": rows[2]}
+    assert index_results({"generation": 3, "results": rows}) == {"two": rows[2]}
+
+
+def test_coverage_report_suppresses_cross_generation_solver_comparison():
+    event = {"ota_event_id": "synthetic-event", "evidence_status": "paid_verified"}
+    result = {"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO",
+              "transaction_id": "synthetic-card"}
+    summary, _ = trace.build_coverage_report(events=[event], cards=[],
+        legacy_links={"synthetic-event": "synthetic-card"},
+        reconciliation_results=[result], snapshot_generation=8, list_generation=8,
+        detail_generation=7, readiness_generation=8, run_secret=b"g" * 32)
+    assert summary["generation_consistent"] is False
+    assert summary["snapshot_generation"] == 8
+    assert summary["legacy_engine_divergence_count"] == 1
+    assert summary["reconciliation_engine_status_counts"] == {}
+    assert summary["reconciliation_divergences"][0]["engine_status"] == "NO_RESULT"
+
+
+def test_coverage_report_treats_partially_missing_generation_as_incomplete():
+    summary, _ = trace.build_coverage_report(events=[], cards=[], snapshot_generation=5,
+        list_generation=5, detail_generation=None, readiness_generation=None)
+    assert summary["generation_consistent"] is False
+    assert summary["reconciliation_engine_status_counts"] == {}
+
+
+def test_coverage_report_checks_result_envelope_generation():
+    summary, _ = trace.build_coverage_report(events=[{"ota_event_id": "synthetic-event"}], cards=[],
+        reconciliation_results={"generation": 4, "results": [
+            {"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO"}]},
+        snapshot_generation=5, list_generation=5, detail_generation=5, readiness_generation=5)
+    assert summary["generation_consistent"] is True
+    assert summary["reconciliation_engine_status_counts"] == {}
+    assert summary["reconciliation_divergences"][0]["engine_status"] == "NO_RESULT"
+
+
+def test_legacy_generationless_trace_does_not_accept_versioned_result_envelope():
+    summary, _ = trace.build_coverage_report(events=[{"ota_event_id": "synthetic-event"}], cards=[],
+        reconciliation_results={"generation": 4, "results": [
+            {"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO"}]})
+    assert summary["generation_consistent"] is True
+    assert summary["reconciliation_engine_status_counts"] == {}
+
+
+def test_coverage_report_accepts_same_generation_and_preserves_solver_status():
+    result = {"ota_event_id": "synthetic-event", "status": "HOLD_AMBIGUOUS"}
+    summary, _ = trace.build_coverage_report(events=[{"ota_event_id": "synthetic-event"}], cards=[],
+        reconciliation_results=[result], snapshot_generation=8, list_generation=8,
+        detail_generation=8, readiness_generation=8)
+    assert summary["generation_consistent"] is True
+    assert summary["reconciliation_engine_status_counts"] == {"HOLD_AMBIGUOUS": 1}
+
+
+def test_snapshot_worker_list_and_detail_share_one_solver_result(monkeypatch):
+    """Exercise the owned worker integration; no consumer generation is fabricated."""
+    from types import SimpleNamespace
+    from unittest import mock
+
+    from webapp import ota_payment_review
+
+    event = {"ota_event_id": "synthetic-event", "provider": "agoda", "booking_ref": "SYN-1",
+             "event_type": "charge", "payment_status": "paid", "evidence_status": "paid_verified",
+             "paid_on": "2026-10-01", "amount": 12000, "amount_krw": 12000,
+             "currency": "KRW", "card_last4": "1234", "source_digest": "a" * 64}
+    result = {"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO",
+              "transaction_id": "synthetic-card", "reason": "unique_exact_evidence"}
+    backend = SimpleNamespace(
+        _data=lambda: ([event], [{"transaction_id": "synthetic-card", "approval_date": "2026-10-01",
+                                  "amount_krw": 12000, "transaction_direction": "purchase",
+                                  "card_tail": "1234", "issuer": "synthetic-issuer",
+                                  "merchant": "Agoda", "merchant_normalized": "agoda"}], {}, [result]),
+        _ota_telemetry_samples=[], board=SimpleNamespace(),
+        sources={"mail_directories": []},
+        store=SimpleNamespace(active_rules=lambda: []),
+        _occupied_cards=lambda *_: {},
+        snapshot_from=lambda data, include_cards: {
+            "events": [{"ota_event_id": data[0][0]["ota_event_id"], "status": data[3][0]["status"],
+                        "transaction_id": data[3][0]["transaction_id"]}],
+            "cards_by_event": {}, "proposals": []},
+    )
+    with (mock.patch("webapp.guide_airfare_review.evaluate", return_value={}),
+          mock.patch("webapp.guide_airfare_review.authority_summary", return_value={}),
+          mock.patch.object(ota_payment_review, "_passenger_index", return_value={}),
+          mock.patch.object(ota_payment_review, "scheduled_card_settlements", return_value=[]),
+          mock.patch.object(ota_payment_review, "_provisional_trip_decisions", return_value={}),
+          mock.patch.object(ota_payment_review, "_canonical_queue_detail_data",
+                            side_effect=lambda rows, events, results, public, transactions:
+                            ({"synthetic-event": {"status": results[0]["status"],
+                                                    "transaction_id": results[0]["transaction_id"]}},
+                             frozenset())),
+          mock.patch("app.ota_matching_defaults.load_defaults", return_value={})):
+        payload = ota_payment_review.reconcile_for(backend)
+
+    assert payload["results"] == [{"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO",
+                                   "transaction_id": "synthetic-card", "reserved_card_ids": None,
+                                   "allocation_basis": None, "inferred_link": None,
+                                   "inference_basis": None, "payment_date_verified": None}]
+    assert payload["public"]["events"][0]["status"] == payload["results"][0]["status"]
+    assert payload["queue_detail_rows"]["synthetic-event"]["status"] == payload["results"][0]["status"]
+    assert payload["queue_detail_rows"]["synthetic-event"]["transaction_id"] == payload["results"][0]["transaction_id"]
 
 
 def test_shadow_engine_only_receives_user_links_as_frozen_decisions(monkeypatch):

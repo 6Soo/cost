@@ -1,24 +1,24 @@
-﻿{
+{
   "schema": "rf001-call-map/v1",
   "mode": "static_ast_only",
-  "code_sha": "80d50f4e715ecb7e1aed0e442aaa8af5fc1880f1",
-  "base_sha": "80d50f4e715ecb7e1aed0e442aaa8af5fc1880f1",
+  "code_sha": "a0eef2b9ab72d40931ada510919e0b6a8471b061",
+  "base_sha": "a0eef2b9ab72d40931ada510919e0b6a8471b061",
   "working_tree_dirty": true,
   "counts": {
-    "files": 691,
-    "symbols": 9558,
-    "calls": 95304,
-    "routes": 38,
-    "effects": 6326,
+    "files": 761,
+    "symbols": 10231,
+    "calls": 103395,
+    "routes": 12,
+    "effects": 6941,
     "errors": 0,
-    "permission_signals": 0,
-    "repositories": 1081,
-    "services": 169,
-    "tables": 2265
+    "permission_signals": 69,
+    "repositories": 1101,
+    "services": 177,
+    "tables": 2492
   },
   "call_status": {
-    "OPEN_QUESTION": 76108,
-    "STATIC_CANDIDATE": 19196
+    "OPEN_QUESTION": 82579,
+    "STATIC_CANDIDATE": 20816
   },
   "routes": [
     {
@@ -28,117 +28,15 @@
       "status": "STATIC_CANDIDATE"
     },
     {
-      "path": "tests/card_pipeline/test_reservation_authority.py",
-      "symbol": "_Handler.do_GET",
-      "line": 40,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/authorize_cloud_mail_drive.py",
-      "symbol": "main.Callback.do_GET",
-      "line": 101,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/run_synthetic_preview.py",
-      "symbol": "preview_server.PreviewHandler.do_GET",
-      "line": 123,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_GET",
-      "line": 243,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_POST",
-      "line": 261,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_PUT",
-      "line": 329,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_DELETE",
-      "line": 333,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_PATCH",
-      "line": 337,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_OPTIONS",
-      "line": 341,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review.py",
-      "symbol": "_ReviewHandler.do_HEAD",
-      "line": 345,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_GET",
-      "line": 134,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_HEAD",
-      "line": 145,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_POST",
-      "line": 148,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_PUT",
-      "line": 151,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_PATCH",
-      "line": 154,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_DELETE",
-      "line": 157,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "tools/serve_review_entry.py",
-      "symbol": "_EntryHandler.do_OPTIONS",
-      "line": 160,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
       "path": "webapp/ledger_board.py",
       "symbol": "Handler.do_GET",
-      "line": 3328,
+      "line": 3352,
       "status": "STATIC_CANDIDATE"
     },
     {
       "path": "webapp/ledger_board.py",
       "symbol": "Handler.do_POST",
-      "line": 3712,
+      "line": 3769,
       "status": "STATIC_CANDIDATE"
     },
     {
@@ -194,60 +92,6 @@
       "symbol": "make_handler.Handler.do_POST",
       "line": 223,
       "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review.py",
-      "symbol": "_local_review_request.Handler.do_POST",
-      "line": 238,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review.py",
-      "symbol": "_local_review_request.Handler.do_GET",
-      "line": 247,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review.py",
-      "symbol": "OtaPaymentReviewTests.test_negative_lag_approve_and_edit_over_real_http.Handler.do_POST",
-      "line": 595,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review_browser.py",
-      "symbol": "OtaReviewBrowserTests.test_mobile_and_desktop_can_select_preview_confirm_and_answer_pending_proposal.Handler.do_GET",
-      "line": 525,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review_browser.py",
-      "symbol": "OtaReviewBrowserTests.test_mobile_and_desktop_can_select_preview_confirm_and_answer_pending_proposal.Handler.do_POST",
-      "line": 535,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review_browser.py",
-      "symbol": "OtaReviewBrowserTests.test_real_core_adapter_store_and_board_readonly_through_confirm_once_and_approve.Handler.do_GET",
-      "line": 697,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_ota_payment_review_browser.py",
-      "symbol": "OtaReviewBrowserTests.test_real_core_adapter_store_and_board_readonly_through_confirm_once_and_approve.Handler.do_POST",
-      "line": 704,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_passenger_cross_repo_integration.py",
-      "symbol": "test_real_reservation_route_http_adapter_cost_confirmation_and_stale_reconfirm.CostHandler.do_GET",
-      "line": 67,
-      "status": "STATIC_CANDIDATE"
-    },
-    {
-      "path": "webapp/tests/test_passenger_cross_repo_integration.py",
-      "symbol": "test_real_reservation_route_http_adapter_cost_confirmation_and_stale_reconfirm.CostHandler.do_POST",
-      "line": 75,
-      "status": "STATIC_CANDIDATE"
     }
   ],
   "errors": [],
@@ -260,8 +104,9 @@
     "Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.",
     "No literal values, SQL text, function bodies or application imports are emitted.",
     "Permission decorators and names are signals only; no authorization is inferred.",
-    "Repositories and services count matching callable symbols (including tests), not unique components or runtime roles.",
-    "Table rows count SQL findings; the same table can appear multiple times and is not a schema inventory.",
+    "Route inventory excludes tests and tools; only application source dispatch candidates are listed.",
+    "Permission checks are lexical guard calls and decorator signals; they do not prove authorization enforcement.",
+    "Table rows count user-table SQL findings; the same table can appear multiple times and is not a schema inventory.",
     "With --limit-output, oversized graph details are omitted; rerun without that flag for the full graph.",
     "Summary omits graph details; rerun without --summary for all locations."
   ]

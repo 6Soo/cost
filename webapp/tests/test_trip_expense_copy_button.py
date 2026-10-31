@@ -1,5 +1,6 @@
 """Tests for trip tab bottom expense copy button and TSV export."""
 import json
+import hashlib
 import os
 import tempfile
 import threading
@@ -15,6 +16,40 @@ from webapp.tests.test_reserve_link import OWNER
 from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
+def install_canonical_source(case, trip_id):
+    """Real canonical read boundary with synthetic files, never a source bypass."""
+    from app import google_authority as ga
+    from app.db import Store
+    from webapp.tests.test_sheet_expense_projection import _snapshot, _rows_doc, GOOGLE_KEY
+    Store(board._active_store().conn, schema_policy='create')
+    directory = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    case.addCleanup(directory.cleanup)
+    folder = Path(directory.name)
+    snapshot_path, rows_path = folder/'snapshot.json', folder/'rows.json'
+    env = patch.dict(os.environ, {'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT':str(snapshot_path),
+                                 'WEBLEDGER_GOOGLE_LEDGER_ROWS':str(rows_path)})
+    env.start();case.addCleanup(env.stop)
+    (folder/'google-tab-mapping.json').write_text(json.dumps({GOOGLE_KEY:trip_id}),encoding='utf-8')
+    def publish(expenses):
+        snapshot, document = _snapshot(), _rows_doc()
+        digest = hashlib.sha256(json.dumps(expenses,sort_keys=True).encode()).hexdigest()
+        generation = digest[:32]
+        snapshot['rows_generation'] = document['generation'] = generation
+        for role in ('main','archive'):
+            snapshot['sources'][role]['content_sha256'] = digest
+            document['sources'][role]['content_sha256'] = digest
+        document['sources']['main']['trips'][GOOGLE_KEY] = {'income':[], 'expense':expenses}
+        total = sum(row['amount'] for row in expenses)
+        trip=snapshot['trips'][0]
+        trip.update(income_total=0,expense_total=total,net=-total)
+        for name,amount in (('income',0),('expense',total)):
+            trip['copies']['main'][name].update(sheet_total=amount,row_sum=amount,total=amount)
+        ga._rows_file(rows_path,generation).write_text(json.dumps(document),encoding='utf-8')
+        snapshot_path.write_text(json.dumps(snapshot),encoding='utf-8')
+    publish([])
+    return publish
+
+
 class TripExpenseCopyButtonTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -24,6 +59,7 @@ class TripExpenseCopyButtonTests(unittest.TestCase):
         self.store = LedgerStore(self.path, seed_demo=True)
         board.bind_store(self.store)
         self.addCleanup(self._restore)
+        install_canonical_source(self,'trip-demo-a')
 
     def _restore(self):
         board.bind_store(None)
@@ -142,6 +178,7 @@ class TripExpenseCopyApiHttpTests(unittest.TestCase):
         self.thread.start()
         access_control.bind_synthetic_sessions(True)
         board.bind_access(self.access)
+        install_canonical_source(self,'trip-demo-a')
 
     def tearDown(self):
         board.bind_access(None)
@@ -212,6 +249,7 @@ class TripExpenseCopyBrowserTests(LinkBrowserFixture):
             destination="Tokyo", display_key="2026-06 Tokyo",
             client_request_id="trip-copy-e2e")
         tab_id = trip["tab_id"]
+        publish = install_canonical_source(self,tab_id)
 
         self.server.card_store.create_manual_expense(
             fields={
@@ -251,6 +289,20 @@ class TripExpenseCopyBrowserTests(LinkBrowserFixture):
         clipboard = page.evaluate("navigator.clipboard.readText()")
         self.assertEqual(clipboard.strip().split("\t"), [
             "2026-06-02", "도쿄 라멘야", "식비", "", "", "영수증", "45000"])
+
+        # Simulate the user's paste in a synthetic canonical file, then read it
+        # afresh. A clipboard success alone must not suppress the next export.
+        request = urllib.request.Request(f'http://127.0.0.1:{self.port}/api/tabs/{tab_id}/tsv',
+            headers={access_control.SyntheticSessionAdapter.HEADER:OWNER})
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(json.load(response)['row_count'],1)
+        publish([{'row':18,'cells':{'B':'2026-06-02','C':'도쿄 라멘야','D':'식비',
+                                  'E':'','F':'','G':'영수증'},'amount':45000}])
+        with urllib.request.urlopen(request) as response:
+            reflected=json.load(response)
+        self.assertTrue(reflected['source_available'])
+        self.assertEqual(reflected['row_count'],0)
+        self.assertEqual(len(reflected['matched']),1)
 
         # 2. Visit unclassified tab: copy button must NOT be present
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=unclassified")

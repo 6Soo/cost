@@ -21,26 +21,102 @@ from app import automatic_classification as policy
 from app.db import StoreError
 
 
-def load_context(conn, host):
+def read_flow(conn, host):
     from app import Pipeline
     from app.db import Store
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
-    from webapp.card_classification_completion import context
     options = json.loads((host / 'config/card-flow.json').read_text(encoding='utf-8-sig'))
     os.environ['WEBLEDGER_UNIFIED_DB'] = '1'
     os.environ['WEBLEDGER_TRIP_AUTHORITY'] = options['trip_authority_path']
     os.environ['WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT'] = str(host / 'data/google-authority/snapshot.json')
     os.environ['WEBLEDGER_GOOGLE_LEDGER_ROWS'] = str(host / 'data/google-authority/rows.json')
+    os.environ['WEBLEDGER_OTA_REVIEW_DB'] = str(host / 'data/ota-review/ota-review.sqlite')
     # A read facade avoids constructor schema, process-lease and seed writes.
     board = LedgerStore.__new__(LedgerStore)
     board.conn, board.path, board._lock = conn, host / 'data/board.sqlite', threading.RLock()
     board._card_pipeline = Pipeline(Store(conn, schema_policy='require'))
-    return context(CardFlow(board))
+    return CardFlow(board)
+
+
+def load_context(conn, host):
+    from webapp.card_classification_completion import context
+    return context(read_flow(conn, host))
+
+
+def load_review_evidence(conn, host, trips, cache_path=None):
+    """Read registered booking/mail sources locally; publish aggregate counts only.
+
+    These facts guide expense attribution. They never create financial links,
+    confirm a refund, publish customer text, or modify a snapshot/review store.
+    """
+    from collections import defaultdict
+    from app.provisional_assignment import ota_service_period_candidate
+    flow = read_flow(conn, host)
+    stamp = None
+    if cache_path is not None:
+        cache_path = cache_path.resolve()
+        if not cache_path.is_relative_to((host/'data/backups').resolve()):
+            raise ValueError('EVIDENCE_CACHE_LOCATION_INVALID')
+        from app.ota_sources import content_stamp
+        sources = flow._ota_sources()
+        watched = [sources.get('manifest_path'), *sources['reference_documents']]
+        for directory in sources['mail_directories']:
+            watched += list(Path(directory).glob('gmail*.json')) + [Path(directory)/'collection.json']
+        for database in sources['portal_databases']:
+            watched += [database, Path(str(database)+'-wal')]
+        stamps = [content_stamp(Path(path)) for path in watched if path and Path(path).is_file()]
+        from tools.verify_operational_backup_restore import database_state
+        review_db = host/'data/ota-review/ota-review.sqlite'
+        inputs = [protected_state(conn), trips, sources.get('missing'), stamps,
+                  database_state(review_db) if review_db.is_file() else None]
+        stamp = hashlib.sha256(json.dumps(inputs,sort_keys=True,default=str).encode()).hexdigest()
+        if cache_path.is_file():
+            saved = json.loads(cache_path.read_text(encoding='utf-8'))
+            if saved.get('stamp') != stamp:
+                raise ValueError('EVIDENCE_CACHE_STALE')
+            return saved['evidence'], saved['summary']
+    report = flow._compute_ota_report() or {}
+    rows = {row['transaction_id']: row for row in policy._read(conn)}
+    candidates = defaultdict(list)
+    for fact in report.get('matches', []):
+        row = rows.get(fact.get('transaction_id'))
+        if (not row or row['source_hash'] != fact.get('source_hash')
+                or row['transaction_direction'] != 'purchase'
+                or fact.get('reservation_status') == 'cancelled'
+                or fact.get('period_conflict') or fact.get('service_period_conflict')):
+            continue
+        period = fact.get('period') or fact.get('service_period')
+        if not isinstance(period, dict):
+            continue
+        options = ota_service_period_candidate({'service_period': period}, trips)
+        if len(options) == 1:
+            candidates[row['transaction_id']].append(dict(
+                source_hash=row['source_hash'], trip_id=options[0]['trip_id'],
+                item=fact.get('item') or '',
+                basis='보관 예약 이용기간 ' + period['starts_on'] + '~' + period['ends_on'] + ' · 비용 귀속 추론이며 결제 연결 미확정',
+                evidence_digest=hashlib.sha256(json.dumps(fact, sort_keys=True, default=str).encode()).hexdigest()))
+    evidence = {}
+    conflicts = 0
+    for tid, options in candidates.items():
+        if len({option['trip_id'] for option in options}) != 1:
+            conflicts += 1
+            continue
+        evidence[tid] = sorted(options, key=lambda option: option['evidence_digest'])[0]
+    summary = {'matched_facts': len(report.get('matches', [])),
+                      'service_period_evidence': len(evidence), 'conflicting_periods': conflicts,
+                      'source_errors': len(report.get('ota_source_errors', [])),
+                      'missing_sources': len((report.get('ota_source_inventory') or {}).get('missing', []))}
+    if cache_path is not None:
+        saved = dict(stamp=stamp,evidence=evidence,summary=summary)
+        temporary = cache_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(saved,sort_keys=True),encoding='utf-8')
+        temporary.replace(cache_path)
+    return evidence, summary
 
 
 def counts(conn):
-    eligible = (" FROM transactions t WHERE t.classification_state!='preserved' "
+    eligible = (" FROM transactions t WHERE 1=1 "
         "AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')='' "
         "AND COALESCE(t.parse_error,'')='' "
         "AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
@@ -50,11 +126,6 @@ def counts(conn):
         ('unclassified_all_directions', " AND (t.classification_state!='classified' OR COALESCE(t.item,'')='')"),
         ('purchase_without_trip', " AND t.transaction_direction='purchase' AND COALESCE(t.trip_id,'')='' AND COALESCE(t.display_tab_id,'') IN ('','unclassified') AND t.item!='분기 기타비용'"),
         ('automatic_purchase_without_trip', " AND t.transaction_direction='purchase' AND COALESCE(t.trip_id,'')='' AND COALESCE(t.display_tab_id,'') IN ('','unclassified') AND t.item!='분기 기타비용' AND t.decided_at IS NULL AND COALESCE(t.classification_source,'') NOT IN ('user_decision','user_exception','owner_booking') AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id) AND NOT EXISTS(SELECT 1 FROM board_manual_overrides b WHERE b.row_id='card-'||t.transaction_id)"))}
-    result['historical_purchase_without_trip'] = conn.execute(
-        "SELECT COUNT(*) FROM transactions WHERE classification_state='classified' "
-        "AND transaction_direction='purchase' AND COALESCE(trip_id,'')='' "
-        "AND COALESCE(display_tab_id,'') IN ('','unclassified') "
-        "AND COALESCE(classification_basis,'') LIKE '%등록된 유효 여행 없음%'").fetchone()[0]
     return result
 
 
@@ -111,6 +182,10 @@ def main(argv=None):
     parser.add_argument('--expected-digest')
     parser.add_argument('--backup-evidence',type=Path)
     parser.add_argument('--report',type=Path)
+    parser.add_argument('--reconsider', action='store_true',
+                        help='Revisit automatic classifications using existing booking evidence; preserve manual decisions')
+    parser.add_argument('--evidence-cache',type=Path,
+                        help='Optional source-bound derived evidence cache under protected host backups')
     args = parser.parse_args(argv)
     host = args.host_root.resolve()
     db = host/'data/board.sqlite'
@@ -122,9 +197,11 @@ def main(argv=None):
         connection = sqlite3.connect(db.as_uri()+'?mode='+('rw' if args.apply else 'ro'),uri=True,isolation_level=None)
         try:
             trips, nets = load_context(connection,host)
+            evidence, evidence_summary = load_review_evidence(connection,host,trips,args.evidence_cache) if args.reconsider else ({}, {})
             before = counts(connection)
             connection.execute('BEGIN IMMEDIATE' if args.apply else 'BEGIN')
-            preview = policy.plan(connection,trips,nets=nets)
+            options = dict(nets=nets, reconsider=args.reconsider, evidence=evidence)
+            preview = policy.plan(connection,trips,**options)
             if args.apply and args.expected_digest != preview['digest']:
                 raise ValueError('CLASSIFICATION_PREVIEW_STALE')
             if args.apply:
@@ -134,15 +211,15 @@ def main(argv=None):
                 connection.backup(target)
             try:
                 protected = protected_state(target)
-                result = policy.apply(target,preview,trips,nets=nets)
+                result = policy.apply(target,preview,trips,**options)
                 after = counts(target)
                 if protected_state(target) != protected:
                     raise ValueError('SOURCE_OR_USER_DATA_CHANGED')
                 if after['unclassified_purchases'] or after['unclassified_all_directions']:
                     raise ValueError('UNCLASSIFIED_CARDS_REMAIN')
-                if trips and after['purchase_without_trip'] > after['historical_purchase_without_trip']:
+                if trips and after['purchase_without_trip']:
                     raise ValueError('UNASSIGNED_CARDS_REMAIN')
-                if policy.plan(target,trips,nets=nets)['summary']['to_classify']:
+                if policy.plan(target,trips,**options)['summary']['to_classify']:
                     raise ValueError('CLASSIFICATION_REPEAT_NOT_NOOP')
                 if args.apply:
                     connection.commit()
@@ -151,7 +228,8 @@ def main(argv=None):
                     target.close()
             report = {'status':'APPLIED' if args.apply else 'PREVIEW','digest':preview['digest'],
                 'before':before,'after':after,**result,'protected_source_and_user_data_unchanged':True,
-                'new_ledger_entries':0,'new_financial_links':0,'google_writes':0}
+                'new_ledger_entries':0,'new_financial_links':0,'google_writes':0,
+                'evidence_review': evidence_summary}
         finally:
             connection.close()
         if args.report:

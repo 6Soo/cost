@@ -237,7 +237,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
         owner.feed(owner_html)
         self.assertIn(7, owner.rows)
         self.assertIn(6, owner.rows)
-        self.assertIn("+ (\"<th>보험 등록</th>\" if owner else \"\")",
+        self.assertIn("+ (\"<th>보험 명단</th>\" if owner else \"\")",
                       __import__('inspect').getsource(gl.trip_income_html))
 
     def test_a_stale_decision_is_refused(self):
@@ -411,6 +411,36 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertEqual(after["counts"]["reviewed_income_rows"], 1)
         self.assertNotIn('INCOME_UNCLASSIFIED', after["completion"]["blocked_by"])
 
+    def test_missing_roster_preserves_readable_google_rows_and_refuses_writes(self):
+        missing = Path(self._dir.name) / 'not-created.sqlite'
+        with patch.dict(os.environ, {'WEBLEDGER_PARTICIPANT_DB': str(missing)}):
+            status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+            state = json.loads(body)
+            self.assertEqual(status, 200)
+            self.assertFalse(state['configured'])
+            self.assertGreater(len(state['income_rows']), 0)
+            self.assertEqual(len(state['income_rows']), len(state['unlinked_income']))
+            self.assertFalse(state['completion']['complete'])
+            status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+            self.assertIn('id="site-shell-style"', body)
+            self.assertIn(PARTICIPANT, body)
+            self.assertNotIn('STORE_UNAVAILABLE', body)
+            status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+                'trip':self.trip, 'income_ref':state['income_rows'][0]['ref'],
+                'participant_id':'invented', 'input_fingerprint':''})
+            self.assertEqual(status, 503)
+            self.assertEqual(json.loads(body)['code'], 'STORE_UNAVAILABLE')
+            self.assertFalse(missing.exists())
+
+    def test_missing_name_index_matches_known_rows_without_declaring_absence(self):
+        from webapp import participant_income_page
+        with patch.object(gl, 'owner_income_names', return_value=None):
+            state = participant_income_page.build_state(self.trip)
+        self.assertTrue(state['google']['available'])
+        self.assertFalse(state['google']['name_index_complete'])
+        self.assertGreater(state['counts']['linked_income_rows'], 0)
+        self.assertFalse(state['completion']['complete'])
+
     def test_a_trip_with_one_copy_is_connected_without_a_choice(self):
         # 보관본에 같은 탭이 없으면 이 여행은 메인 한 사본뿐이다.
         main = workbook()
@@ -455,7 +485,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertIn('명단으로 참가 확정', body)
         self.assertNotIn('>confirmed<', body)
 
-    def test_the_trip_income_area_links_to_the_owner_page(self):
+    def test_the_trip_income_area_does_not_duplicate_the_inline_participant_entry(self):
         from webapp import google_ledger_page as gl_page
         from webapp import ledger_board as board_mod
         original = board_mod.current_role
@@ -464,7 +494,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
             body = gl_page.trip_income_html(self.trip)
         finally:
             board_mod.current_role = original
-        self.assertIn('/participants?trip=', body)
+        self.assertNotIn('/participants?trip=', body)
+        self.assertIn('수입·지출 원본 상세', body)
 
     def test_browser_owner_links_a_name_only_income_row_once(self):
         from playwright.sync_api import sync_playwright
@@ -543,6 +574,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(target.count(), 1)
                 row_ref = target.get_attribute('data-income-ref')
                 self.assertTrue(row_ref.startswith('main|0630_오제|'))
+                self.assertEqual(target.locator('.participant-row-connect').count(), 1)
                 card = page.locator('#participant-trip-panel .participant-cards li[draggable=true]').first
                 page.evaluate("""([source,target])=>{
                     const data={clearData(){},setData(){},effectAllowed:''};
