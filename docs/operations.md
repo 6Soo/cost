@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 검토 상태 조치·조회 재시도 UX 배포
+
+- [PR414](https://github.com/6Soo/cost/pull/414)·운영 `5cab519de4a7993017b787ad7bfa6d9d5546072c`, 검증 `e4a3869b27114fc1533316c9b61f414cbfab3e9f`와 tree 동일. [조사 범위](specs/actionable-review-ux-audit-20261031.md)의 카드 거래별 수정·OTA/항공권 재시도·여행/참가자 자료 확인 동선을 배포했다.
+- 카드/모바일/읽기79 passed, 인접141 passed와 발견한 여행 화면 import 오류1건 수정 후 새 동작/권한7 passed, 환불·분류44 passed. 검사 간 중복을 합산하지 않는다. compile/diff/data guard·Ego 합성 표시·호스트 모듈 smoke PASS. 전체 회귀/운영 owner 전 화면/실기기 미실행.
+- 1195 Git blobs 불일치0, task/process 고정SHA·단일loopback listener·health/ready200·영향 화면/보호API401·보호13표 전후 내용/스키마 불변. SourceRefresh 상태 유지. 이전 검증29ecb215 릴리스·작업 XML 보존, 코드 전용 전환으로 새 전체 데이터 백업/복원은 반복하지 않았다. 금융/원본/분류/여행/환불/명단/Google 쓰기와 migration0.
+- 근거 `C:/AX/cost/.local-archive/actionable-ux-20261031/` 및 `D:/WebLedgerHost/releases/deploy-evidence-5cab519de4a7993017b787ad7bfa6d9d5546072c.json`, 동일SHA release-audit. 후속 문서 전용 병합으로 재검사·재배포·재시작하지 않는다.
+
 ## 2026-10-31 예약 명단·여행 연결 UX 배포
 
 - [PR412](https://github.com/6Soo/cost/pull/412), 운영 `29ecb215d63169e913e7f14a4959587436b68586`; 검증31b0f4cb와 tree 동일. 이름/여행명·검색·필터·10건 페이지·전체 연결 해제·저장 전 취소를 추가했다. main 밖에서 이미 운영 중이던74325e69의 로딩/업로드 수정도 정상 merge로 보존했다. 최초 이전SHA 게이트 거부는 실제 전환으로 세지 않는다. 실제 직전 검증18f3e747을 복구점으로 사용했다.
