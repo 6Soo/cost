@@ -339,6 +339,9 @@ def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, mo
                 page = browser.new_page(viewport={'width':375,'height':812})
                 page.set_default_timeout(8000)
                 page.goto(base+'/import')
+                assert page.locator('#provisional-trip-review').count() == 0
+                # Retain coverage for the standalone component and protected APIs.
+                page.set_content(review.render(''))
                 root = page.locator('#provisional-trip-review')
                 assert root.locator('[data-trip-items] li').count() == 0
                 root.locator('summary').first.click()

@@ -143,7 +143,7 @@ def infer_trip(row, trips, *, nets=None, reconsider=False):
         # A missing use date does not turn the posting date into a service date.
         target = max(valid, key=lambda key: (valid[key]['starts_on'], key))
         return target, '이용일 단서 없음 · 가장 최근 시작한 실제 여행 선택'
-    return '', '등록된 유효 여행 없음 · 비용 항목 분류 완료'
+    return '', '등록된 유효 여행 없음'
 
 
 def _card3820_owner_policy(row, trips):
