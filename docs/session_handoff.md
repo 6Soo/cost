@@ -1,3 +1,11 @@
+## 2026-10-31 상태만 표시되는 검토 UX 교정·배포 완료
+
+- COMPLETE — 사용자 요청 “검토 필요로만 되어있고 아무것도 할 수 없는 UX 수정·모든 페이지 조사”를 수행했다. [화면별 조사](specs/actionable-review-ux-audit-20261031.md), [PR414](https://github.com/6Soo/cost/pull/414), 구현 `e24f91d`, 검증 통합 `e4a3869b27114fc1533316c9b61f414cbfab3e9f`, 병합·운영 `5cab519de4a7993017b787ad7bfa6d9d5546072c`. 검증/운영 tree 동일.
+- 카드 검토 배지→해당 batch·transaction 편집 폼, 원본 상세 수정·중복 근거 링크, 미배정 검토 링크를 제공한다. OTA 그룹 조회 실패 후 버튼·클릭 핸들러를 보존하고 항공권 목록/상세 직접 재시도를 추가했다. 여행 일정 근거 표시·자료/장부 연결, 참가자 자료 누락·항공권 후보 없음에서 실제 확인 화면으로 이동하도록 했다. 나머지 페이지는 기존 폼·원본·설정·재조회 동선을 조사해 기록했다.
+- 검증: 카드/모바일/읽기 경계79 passed, 인접142개 중141 passed·여행 관리 import 오류1건 발견 후 수정, 새 동작/해당 권한 재검증7 passed, 환불·분류 보호44 passed. 별도 실행 간 중복은 합산하지 않는다. 초기 합성 fixture의 Windows 열린 연결·schema 환경과 재시도 핸들러 문제도 수정했으며 초기 실패를 통과로 세지 않는다. Python compile·diff·data guard 차단0/삭제0, Ego 합성 화면 링크/넘침 확인과 호스트 릴리스 모듈 smoke PASS. 운영 owner 실자료 화면 전체·전체 회귀·실기기는 미실행이다.
+- 배포1195 blobs 일치·task/process 고정SHA·단일loopback listener·health/ready200·OTA/카드상세 API·카드/여행/참가자/항공권 URL401·보호13표 내용/스키마 불변 PASS. 이전 검증 `29ecb215d63169e913e7f14a4959587436b68586`과 작업 XML 복구 수단을 보존했다. 코드 전용이라 새 전체 데이터 백업/복원은 반복하지 않았다. 금융/여행/분류/환불/명단/원본/Google 쓰기·마이그레이션0.
+- 근거 `C:/AX/cost/.local-archive/actionable-ux-20261031/`의 검사 로그/XML·data-guard·review·release.zip·보호 전후·deploy-evidence 및 호스트 동일SHA release-audit/deploy-evidence. 기존 workspace의 사용자/다른 작업 변경을 보존했고 이번 초기 델타만 역패치해 중복 미커밋 수정을 제거했다. 현재 요청의 미결·차단0, 다음 기능 명령 없음. 문서 후속으로 재배포·재시작하지 않는다.
+
 ## 2026-10-31 예약 연결 UX 개선·운영 배포 완료
 
 - COMPLETE — 사용자 식별자/연결 없음 반복·선택 취소 불가 개선과 즉시 배포 요청. [PR412](https://github.com/6Soo/cost/pull/412), 운영 `29ecb215d63169e913e7f14a4959587436b68586`, 검증 `31b0f4cbfcc6e604d001078be1eb428ab5107419`와 tree 동일. 예약자 이름·여행명 표시, 이름/예약 정보/연결 여행명 검색, 상태 필터, 10건 페이지 이동, 예약별 전체 연결 해제, 저장 전 변경 표시·취소를 제공한다. 기존 API·원본 식별자·저장/명단 적용 분리는 유지한다.
