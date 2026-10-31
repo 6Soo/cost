@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 웹 안내 문구 정리 배포
+
+- COMPLETE — [PR #420](https://github.com/6Soo/cost/pull/420)·[PR #423](https://github.com/6Soo/cost/pull/423), 구현 `f9ef9f3`·`1e79213`, 배포 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`. 장부의 “기록된 거래”·수입 계산식과 카드/수입/사이드바/예약 연결/여행 검토/항공권의 반복 설명을 제거했다. 실제 오류·금액·원본 링크·조작·접근성 설명은 유지한다.
+- 통합 금액/필터/수입/자산/지출 중복75 passed·3 subtests, 모바일/장부/예약 연결 browser16 passed·6 subtests, 최종 통합 장부2 passed·4 subtests, 추가 여행/항공권28 passed 및 문구 assertion 교정 후1 passed. 실행 간 중복을 합산하지 않는다. 기준본 재현 카드 성능 시간 하한1실패는 별도 보존. 전체 회귀·전체 인증 운영 화면·실기기는 미실행.
+- 1,198 blobs 불일치0·검사본/배포본 코드 동일(문서만 차이)·task/process SHA·단일 loopback listener·health/ready200·보호 API/영향 화면401·보호13표 불변·호스트 Python 합성 smoke PASS. 이전 검증18978698과 task XML 복구점 보존, 코드 전용이므로 새 전체DB 백업/복원은 반복하지 않았다. 금융/분류/여행/Google/원본/스키마 쓰기0. 동시 작업자와 직렬화했으며 배포 종료 통지 완료.
+- 근거: `.local-archive/copy-cleanup-20261031/` 및 `D:/WebLedgerHost/releases/deploy-evidence-05d09ce6c0791d7d5ea66414b6def94dcac8109a.json`. 현재 요청 미결·차단0. 이 문서 후속 병합에는 재배포하지 않는다.
+
 ## 2026-10-31 수기지출 중복대조 메뉴를 여행 지출표로 통합
 
 - COMPLETE — 사용자 “수기지출중복대조 이게 대체 뭘 하라는 메뉴인데? 왜 존재해야해?” 및 “진행해”에 따라 별도 화면/메뉴를 제거했다. [PR419](https://github.com/6Soo/cost/pull/419), 구현 `03c9ea06`, 배포 SHA `1897869876a210b2b859afb6546de97bbaa83ddc`.

@@ -584,3 +584,10 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 1,084 Git blobs 일치, 새 백업·별도 복원 검증, 작업/프로세스SHA·loopback listener1·health/ready200·보호API401·보호13표 전후 불변을 확인했다. 추가된 trip-review/proposals/hold 경로도 익명401이다. 이전 검증61211012 복구점을 보존했다. 배포 근거는 `D:/WebLedgerHost/releases/deploy-evidence-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661.json`, 로컬 `.local-archive/merge-cleanup-20261028/deploy-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661/`다.
 
 실제 금융/여행 재배정·대량 재처리·명단 전달/보험가입·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선 및 PA-06 실자료 shadow/수락은 미측정으로 남긴다. 단일 환불 그룹 적용의 정상 owner 인증 대기는 유지한다. 최종 확인 시 열린 PR은0개다. 후속 문서만의 병합에는 재배포하지 않는다.
+## 2026-10-31 웹 전체 불필요 안내 정리 완료
+
+- COMPLETE — 사용자 “기록된 거래 / 총수입-지출 이런 불필요한 안내문구 웹 전체에서 삭제” 반영. [PR #420](https://github.com/6Soo/cost/pull/420)·[PR #423](https://github.com/6Soo/cost/pull/423), 구현 `f9ef9f3`·`1e79213`, 고정 배포 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`.
+- 장부 합계의 범위 안내·수입 계산식, 수입의 상시 회계 검증 안내, 카드 조회 도움말, 사이드바·예약 연결·여행 검토·항공권의 반복 조작 설명을 제거했다. 금액/필터/원본 링크·접근성 설명, 실제 합계 차이와 거래별 오류/미확인 상태는 유지한다. 앞선 [전체 화면 상태/행동 조사](specs/actionable-review-ux-audit-20261031.md)의 검토 링크·조회 재시도 수정은 PR #414/#415로 완료된 범위이며 재구현하지 않았다.
+- 검증: 최신 통합 금액/수입/필터/자산/지출 중복 75 passed·3 subtests, 모바일/장부/예약 연결 browser 16 passed·6 subtests, 최신 통합 장부 browser 2 passed·4 subtests. 마지막 여행/항공권 검사 28 passed 후 삭제 문구를 요구하던 assertion을 교정해 나머지 1 passed. 실행 간 중복이 있어 합산 전체 회귀로 세지 않는다. 카드 첫 렌더 시간 하한 검사 1건은 기준본에서도 실패함을 재현했으며 통과에 포함하지 않는다. 전체 회귀·전체 운영 인증 화면·실기기 수락은 미실행이다.
+- 배포: 1,198 Git blobs 일치·검사본과 배포본의 코드 동일(차이는 문서뿐)·task/process SHA·단일 loopback listener·health/ready200·보호 API 및 cards/all·board·reserve-links401·보호13표 내용/스키마 불변 PASS. 호스트 Python에서 안내 부재/금액/접근성/항공권 버튼 합성 smoke PASS. 코드 전용 전환으로 검증된 이전 `18978698` 릴리스/task XML 복구점을 보존했으며 새 전체 DB 백업·복원은 반복하지 않았다. 금융/분류/여행/Google/원본/스키마 쓰기0.
+- 근거: `.local-archive/copy-cleanup-20261031/`의 merged-unit·merged-browser·browser-final·final-hints/corrected·review·runtime-smoke·protection-before/after·deploy-evidence와 호스트 동일 SHA release audit/evidence. 동시 작업자의 운영 종료 후 직렬 배포했고 후속 비교/모달 담당자에게 호스트 쓰기 종료를 통지했다. 기존 사용자 변경과 workspace/미추적 파일은 보존. 이 요청의 미결·차단0, 다음 명령 없음. 문서 후속 변경에는 검사·재배포·서버 재시작을 반복하지 않는다.
