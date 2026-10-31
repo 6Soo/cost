@@ -28,7 +28,7 @@
     var cell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(template.dataset.incomeRef)+'"]');
     if(!cell)return;
     var button=cell.querySelector('.participant-row-connect');
-    cell.replaceChildren(template.content.cloneNode(true));if(button)cell.appendChild(button);
+    cell.replaceChildren(template.content.cloneNode(true));if(button&&form)cell.appendChild(button);
    });
    root.querySelectorAll('.participant-cards li[draggable=true]').forEach(function(card){
     card.addEventListener('dragstart',function(e){root.dataset.dragParticipant=card.dataset.participant;e.dataTransfer.clearData();e.dataTransfer.effectAllowed='link';});
@@ -54,6 +54,8 @@
    ask(target.action.endsWith('/unlink')?'이 참가자 연결을 해제할까요?':'이 수입 기록을 '+(label||'선택한')+' 보험 참가자와 연결할까요?',function(){write(target);});
   });
   document.addEventListener('click',function(e){
+   var jump=e.target.closest('a[href="#participant-trip-panel"]');
+   if(jump){root.open=true;loadPanel();return;}
    var button=e.target.closest('.participant-row-connect');if(!button)return;
    var cell=button.closest('.participant-insurance-cell');
    if(form){choose(cell);return;}
@@ -80,6 +82,7 @@
     .finally(function(){loading=null;});return loading;
   }
   root.addEventListener('toggle',function(){if(root.open)loadPanel();});
+  if(root.dataset.autoLoad==='1')loadPanel();
  });
  var main=document.getElementById('main'), nav=document.getElementById('nav'),
      mask=document.getElementById('nav-mask');

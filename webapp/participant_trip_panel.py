@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import os
 from urllib.parse import urlencode
 
 
@@ -46,15 +47,65 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
             "income_offset": income_offset, "participant_offset": participant_offset}
 
 
+def _review_markup(state, data):
+    """Masked text evidence is displayed without creating confirmed people."""
+    review = state.get('insurance_review') or {}
+    if state.get('configured') and not review.get('available'):
+        return ''
+    by_ref = {}
+    for contract in review.get('contracts') or []:
+        for row in contract.get('rows') or []:
+            for match in row.get('matches') or []:
+                by_ref.setdefault(match.get('ref'), []).append(row)
+    counts = review.get('counts') or {}
+    if review.get('available'):
+        notice = (f"일정·연결 기준 명단 {int(counts.get('rows', 0))}건 · "
+                  f"글자 일치 {int(counts.get('matched', 0))}건 · "
+                  f"후보 확인 {int(counts.get('ambiguous', 0))}건")
+    else:
+        notice = review.get('message') or '보험 명단 자료 연결을 확인해 주세요.'
+    templates = []
+    for income in data['income_rows_page']:
+        ref = income['ref']
+        if data['links_by_ref'].get(ref):
+            continue  # Explicit confirmed participant links always win.
+        hits = by_ref.get(ref, [])
+        if not review.get('available') or counts.get('source_unavailable'):
+            label = '보험·수입 자료 확인 필요'
+        elif not counts.get('contracts'):
+            label = '해당 여행 명단 확인 필요'
+        elif len(hits) == 1 and hits[0].get('match_state') == 'matched':
+            label = '글자 일치 · ' + str(hits[0].get('masked_name') or '')
+        elif hits:
+            label = f"보험 명단 후보 {len(hits)}건"
+        else:
+            label = '글자 일치 없음'
+        templates.append(f"<template class='participant-income-status' data-income-ref='{_esc(ref)}'>"
+                         f"<span class='insurance-review-status'>{_esc(label)}</span></template>")
+    contracts = ''.join(
+        "<li><span>" + _esc(contract.get('travel_start')) + '–' + _esc(contract.get('travel_end'))
+        + "</span><span>" + ('가입 완료·기간 종료 이력' if contract.get('insurance_status') == 'completed_or_expired'
+                             else '가입 상태 확인 필요') + '</span></li>'
+        for contract in review.get('contracts') or [])
+    return ("<div class='insurance-review-summary'><p>" + _esc(notice) + '</p>'
+            + ("<ul class='insurance-review-contracts'>" + contracts + '</ul>' if contracts else '') + '</div>'
+            + ''.join(templates))
+
+
 def render(state: dict, *, csrf: str = "", income_offset: int = 0,
            participant_offset: int = 0, search: str = "") -> str:
     """Render names only after the caller has established owner access."""
     match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
-    match_link = f"<p><a href='{_esc(match_href)}'>가림 이름과 수입 글자 대조</a></p>"
-    if not state.get("configured"):
-        return "<section class='participant-trip-panel'><h2>보험가입내역</h2>" + match_link + "<p>참가 저장소를 확인할 수 없습니다.</p></section>"
+    match_link = f"<p><a class='btn' href='{_esc(match_href)}'>보험 명단 상세</a></p>"
     data = project(state, income_offset=income_offset,
                    participant_offset=participant_offset, search=search)
+    review_html = _review_markup(state, data)
+    if not state.get("configured"):
+        return ("<details class='participant-trip-panel' id='participant-trip-panel'>"
+                "<summary>보험 명단 · 수입 대조</summary><div class='participant-trip-content'>"
+                + review_html + match_link
+                + "<p class='participant-review-note'>가림 이름의 글자 대조 결과입니다. 참가자 확정·입금 수령을 확인한 결과는 아닙니다.</p>"
+                + '</div></details>')
     google = state.get("google") or {}
     roster = state.get("roster") or {}
     counts = state.get("counts") or {}
@@ -120,11 +171,12 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
                    if data["participants_more"] else "")
     return (
         "<details class='participant-trip-panel' id='participant-trip-panel' aria-label='보험가입내역'>"
-        "<summary>보험가입내역 · 확정 참가자·수입 연결</summary><div class='participant-trip-content'>"
+        "<summary>보험 명단 · 수입 대조</summary><div class='participant-trip-content'>"
         "<h2>보험가입내역</h2>" + match_link +
+        f"<p><a href='/participants?{_esc(urlencode({'trip':state.get('trip_id') or ''}))}'>참가자 연결 관리</a></p>"
         f"<p>{_esc(status)} · 참가 확정 {counts.get('roster_confirmed', 0)}명 · "
         f"수입 연결 {counts.get('linked', 0)}명 · 미연결 수입 {counts.get('unlinked_income_rows', 0)}건</p>"
-        f"{search_form}{''.join(rows)}{row_more}"
+        f"{search_form}{''.join(rows)}{review_html}{row_more}"
         "<p role='status' class='participant-write-status'></p>"
         "<h3>확정 참가자 · 수입 연결</h3>"
         f"<ul class='participant-cards' aria-describedby='participant-link-help'>{''.join(people)}</ul>"
@@ -144,9 +196,11 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
 
 def shell(*, trip_id: str) -> str:
     """Closed placeholder contains no participant names or reconciliation data."""
+    from . import participant_income_page
+    auto = bool(os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')) and not participant_income_page.store_path().is_file()
     return ("<details class='participant-trip-panel' id='participant-trip-panel' "
-            f"data-trip='{_esc(trip_id)}' aria-label='보험가입내역'>"
-            "<summary>보험가입내역 · 참가자 연결 보기</summary>"
+            f"data-trip='{_esc(trip_id)}' data-auto-load='{int(auto)}' aria-label='보험가입내역'>"
+            "<summary>보험 명단 · 수입 대조</summary>"
             "<div class='participant-trip-content' data-participant-content>"
             "<p role='status'>참가자 정보를 불러오는 중입니다.</p></div></details>")
 
