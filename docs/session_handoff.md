@@ -1,3 +1,11 @@
+## 2026-10-31 보험 후보 버튼·로딩·여행 검토 동작 완료
+
+- 최신 사용자 요청 3개 COMPLETE: [실행 계약](specs/insurance-trip-review-ux-20261031.md), [PR409](https://github.com/6Soo/cost/pull/409). 검증 코드 `db789b6cfa079dbce3cd29f848b1ca855f42d4e6`, 병합·운영 `1ecd2aa00d09f8bee7d9af7f09802cd506870c5c`, tree 동일. 보험 대조 진행 표시·25초 제한·재시도, 수입 행 후보/글자 일치 버튼의 비교 창과 전체 명단 대조 링크, 기본 펼침 여행 작업 3개와 별도 접힘 전체 자료 도구 4개를 제공한다. 수동 연결·Google 세대 보호는 유지한다.
+- 합성 관련 검사64 passed, 마지막 JS 경로43 passed, 수동 연결 버튼 보호1 passed. 실행이 겹치므로 합산하지 않는다. 데스크톱·모바일 비교 창과 가로 넘침 없음 확인. 기존 실제 로그인 Ego 화면에서 첫 페이지20/20·다음12/12 대조, 후보 버튼14개, 비교 창 후보2행·동일 근거·닫기 후 원래 버튼 복귀, 여행별 작업3개·전체 도구 접힘·명단 쓰기 form0 확인.
+- 이전 운영 브라우저 스크립트는 포인터 클릭 후 초기 포커스를 BODY로 관찰해 실패했다. 이를 통과로 바꾸지 않는다. 후속 실제 키보드 진입은 닫기 버튼 초기 포커스·Tab의 창 내부 이동·Escape와 닫기 실행·후보 버튼 포커스 복귀를 통과했다. Ego 작업 공간10은 정상 finish 완료. 전체 회귀·실기기/Safari 검수는 미실행이다.
+- 배포1190 blobs 불일치0·고정 task/process SHA·단일 listener·health/ready200·보호 API401·보호13표 내용/스키마 불변. 이전 검증b99d01a7 릴리스/task 복구 수단 보존. 읽기 전용 코드 배포로 전체 백업/복원은 새로 반복하지 않았다. 금융·명단·원본·Google 쓰기/마이그레이션/스케줄 변경0. 이번 문서 후속은 재배포·재시작하지 않는다.
+- 근거 `C:/AX/cost/.local-archive/insurance-actionable-20261031/`의 verified.xml·final-js.xml·manual-button-verified.xml·production-verified.json·production-keyboard-verified.json 및 `.local-archive/deploy-1ecd2aa00d09f8bee7d9af7f09802cd506870c5c/`. CORE-04의 최신 UI 요청 완료, CORE-08의 후보 비교 UI 완료이며 실제 확정 참가명단/등록 증빙 수락은 별도 외부 대기다. CORE-01 카드 수집/업로드 보류와 다른 기존 외부 자료·실기기 대기는 유지한다. 과거 경고 여행 확인 질문은 최신 3개 UI 요청을 막는 조건으로 사용하지 않는다. 완료 커밋·작업 공간 정리 결과·조건부 재개 지점은 같은 폴더 final.json에 기록한다.
+
 ## 2026-10-31 insurance source integration and inline panel recovery
 
 - User approved proceeding with the earlier insurance linkage/panel/navigation findings. [PR405](https://github.com/6Soo/cost/pull/405), [PR406](https://github.com/6Soo/cost/pull/406) and [PR407](https://github.com/6Soo/cost/pull/407) merged normally. Final tested `54e9d04f479bce28cd55f49a142b4ac0107d7586`, runtime `b99d01a78d96e28352657c47f0a3030bba18832e`, trees identical. The earlier missing-store root error is fixed; missing confirmed identities/registration receipts are still independent facts.
