@@ -573,9 +573,23 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  .participant-trip-search,.participant-keyboard-link{align-items:stretch;flex-direction:column}
  .participant-keyboard-link select{width:100%}
 }
-.trip-workflow{margin:10px 0;border:1px solid var(--line,#dbe3ec);border-radius:8px;padding:0 12px;min-width:0}
-.trip-workflow summary{cursor:pointer;min-height:44px;align-content:center;font-weight:600}
-.trip-workflow dl{display:grid;grid-template-columns:minmax(70px,auto) minmax(0,1fr);gap:10px 14px;margin:8px 0 16px;font-size:13px}
-.trip-workflow dt{font-weight:600}.trip-workflow dd{margin:0;min-width:0;overflow-wrap:anywhere}
-.trip-workflow a{display:inline-block;min-height:32px;align-content:center}
-@media(max-width:759px){.trip-workflow dl{grid-template-columns:minmax(65px,auto) minmax(0,1fr)}.trip-workflow a{min-height:44px}}
+.trip-workflow{margin:16px 0;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);min-width:0}
+.trip-workflow>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:14px 18px;border-radius:14px;cursor:pointer;list-style:none;font-size:14px;font-weight:700}
+.trip-workflow>summary::-webkit-details-marker{display:none}
+.trip-workflow-heading{display:inline-flex;align-items:center;gap:10px}
+.trip-workflow-heading>.ic{color:var(--focus)}
+.trip-workflow-toggle{display:flex;align-items:center;color:var(--mut);transition:transform .15s ease}
+.trip-workflow[open]>summary{border-radius:14px 14px 0 0}
+.trip-workflow[open] .trip-workflow-toggle{transform:rotate(180deg)}
+.trip-workflow-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);padding:16px}
+.trip-workflow .trip-workflow-card{display:flex;align-items:center;gap:12px;min-height:84px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:var(--paper);text-decoration:none;transition:background .15s ease,border-color .15s ease}
+.trip-workflow-card:hover{background:var(--hover);border-color:var(--line-strong)}
+.trip-workflow-card:focus-visible,.trip-workflow>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.trip-workflow-icon{display:flex;align-items:center;justify-content:center;flex:0 0 38px;height:38px;border:1px solid var(--line);border-radius:10px;background:var(--hover);color:var(--focus)}
+.trip-workflow-copy{display:grid;gap:5px;min-width:0;flex:1;overflow-wrap:anywhere}
+.trip-workflow-copy strong{font-size:13px;line-height:1.5;font-weight:650}
+.trip-workflow-copy>span{font-size:12px;line-height:1.6;color:var(--mut)}
+.trip-workflow-arrow{display:flex;align-items:center;flex:0 0 16px;color:var(--mut)}
+@media(max-width:1100px){.trip-workflow-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.trip-workflow>summary{padding:12px 14px}.trip-workflow-grid{grid-template-columns:minmax(0,1fr);padding:12px;gap:8px}.trip-workflow .trip-workflow-card{min-height:76px;padding:12px}}
+@media(prefers-reduced-motion:reduce){.trip-workflow-toggle,.trip-workflow .trip-workflow-card{transition:none}}
