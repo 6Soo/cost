@@ -27,7 +27,7 @@ from .normalize import normalize_merchant, to_amount_krw, to_date
 TRIP_COUNTRIES = {
     'KR': {'부산','의왕','금오도','호남','군산','화순','영남','경주','통영','황금해안',
            '변산','양평','제주','세종','길상사','박달고치','함양','한티','해남'},
-    'TW': {'대만'}, 'MN': {'몽골'},
+    'TW': {'대만'}, 'MN': {'몽골'}, 'SG': {'싱가포르'},
     'JP': {'에히메','교토','나가센도','아오모리','오사카','알펜루트','북해도',
            '레분토&리시리','묘코','묘코고원','아키타','오제','야마가타','세토우치',
            '야마구치','북큐슈','도고','가루이자와','야쿠시마','도쿄','노리쿠라','다테시나','도쿠시마'},
@@ -73,6 +73,27 @@ def merchant_country(transaction):
         return ''
     if transaction.get('card_kind') == '국내':
         return 'KR'
+    return ''
+
+
+def transaction_region(transaction):
+    """Distinguish domestic and overseas use without requiring a country match."""
+    country = merchant_country(transaction)
+    if country:
+        return 'KR' if country == 'KR' else 'overseas'
+    if transaction.get('card_kind') == '국내':
+        return 'KR'
+    raw = transaction.get('raw_row') or {}
+    if (transaction.get('card_kind') == '해외' or transaction.get('foreign_currency')
+            or any(str(raw.get(key) or '').startswith('해외') for key in ('c1', 'c11'))):
+        return 'overseas'
+    return ''
+
+
+def trip_region(trip):
+    countries = trip_countries(trip)
+    if countries:
+        return 'KR' if countries == {'KR'} else 'overseas'
     return ''
 
 
@@ -157,7 +178,7 @@ def normalize_rule(draft: dict) -> dict:
         if optional['merchant_family']!='agoda' or conditions['merchant_normalized']!='agoda':
             _fail('가맹점 그룹은 확인된 아고다 규칙에만 사용할 수 있습니다')
     if 'travel_country' in optional:
-        if optional['travel_country'] not in ('local', 'JP', 'KR', 'TW', 'AT', 'IT', 'FR'):
+        if optional['travel_country'] not in ('local', 'overseas', 'JP', 'KR', 'TW', 'AT', 'IT', 'FR'):
             _fail('현지 여행 조건의 국가를 확인해 주세요')
     if conditions['merchant_normalized']=='*' and optional.get('travel_country')!='local':
         _fail('전체 가맹점 규칙은 사용 국가와 명시 여행이 일치하는 현지 사용에만 적용할 수 있습니다')

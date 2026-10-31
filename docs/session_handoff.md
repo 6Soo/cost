@@ -157,6 +157,14 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-10-31 국내·해외 구분 여행 배정 완료
+
+- COMPLETE — 최신 사용자 지시 “해외사용국가와 여행지는 일치할 필요 없어. 국내냐 해외냐만 구분해”를 반영했다. [PR #418](https://github.com/6Soo/cost/pull/418), 구현 `2b5fc5c4d702eb4e171980938afe5706e3693d4c`, 운영 배포 SHA `25cc29108cb44752b453832dca8e854747966558`. 해외 국가 코드가 달라도 국내·해외 구분과 검증된 여행 기간으로 배정한다. 국가 코드 없는 해외 통화 거래에도 적용하며 수동 배정·예약 이용기간·취소/환불·원본 보호 및 3820 국내 분기 비용 규칙을 유지한다.
+- 검증: 여행/분류 표적 50 passed, 환불/대사/권한 보호 88 passed, 추가 규칙 호환·원자성·재실행 8 passed(중복 포함). 병합 tree가 검증 구현과 동일하다. 배포 파일 1,197개 Git blob 불일치0, task/process 고정 SHA·단일 loopback listener·health/ready200·보호API401·배포 전후 보호13표 불변을 확인했다. 이전 검증 `8ebb4d8b495631e18d8c2d5b37a10c12e8257082`를 보존했다. 코드만 전환하므로 전체 DB 백업/복원은 반복하지 않았다.
+- 실제 자료 교정: 기존 보류 대상2건 중 10/24 거래1건을 `1020_알펜루트`에 AUTO_INFERRED로 배정했다. 여행 종료일 다음 날인10/25 거래는 그대로다. 메모리 사본 리허설·변경 전 값 로컬 보존·BEGIN IMMEDIATE 및 기존 원자 적용 경로로 처리했다. 원본/금액/ID·사용자 결정·금융/환불 링크·범위 밖 행/표·스키마 불변과 기존 감사 이력 보존/1건 추가, 재실행 대상0을 확인했다. 장부 추가·Google/은행 쓰기0이며 실제 환급을 확인한 것으로 기록하지 않는다.
+- 초기 식별자 비교와 리허설의 감사 이력 순번 검증 오류는 실제 쓰기 전에 중단했다. 실제 tab ID와 표시 키를 분리하고 change_log 순번 증가만 허용한 최종 검사를 통과했다. 전체 회귀·실기기·인증 owner 화면 수락은 미실행이다. 영향 경로 `/cards`, `/import`, 카드 API 익명401 및 두 작업 Running을 확인했다.
+- 근거: `C:/AX/cost/.local-archive/domestic-overseas-trip-20261031/`의 XML·preview-summary/applied/http-smoke JSON, `C:/AX/cost/.local-archive/deploy-25cc29108cb44752b453832dca8e854747966558/`, 호스트 동일 SHA release-audit/deploy-evidence. 복구용 변경 전 값은 `D:/WebLedgerHost/data/backups/domestic-overseas-trip-20261031/before.private.json`에만 보존했다. 기존 사용자 workspace 변경 보존. 현재 요청의 남은 작업·차단0, 다음 명령 없음. 후속 문서만으로 재배포/재시작하지 않는다. 다른 세션의 후속 PR은 이 작업의 새 실행 범위가 아니다.
+
 ## 2026-10-30 마스킹 보험 명단과 기존 수입 글자 대조
 
 - 최신 사용자 지시는 마스킹 명단을 보관하는 데서 끝내지 않고 이미 입력된 수입 이름·닉네임과 글자를 대조하는 기능 구현이다. 기존 12계약159행을 읽고, 실제 여행의 연결/기간 후보와 소유자가 선택한 여행의 Google 수입 스냅샷을 비교한다. 별도 이름 인덱스가 없어도 같은 세대의 원본 수입 행을 사용한다.

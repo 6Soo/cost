@@ -545,7 +545,7 @@ document.addEventListener('keydown',function(e){
     var data=await res.json();
     if(!data.tsv||data.row_count===0){
      if(status){
-      status.textContent=data.held&&data.held.length?'복사 가능한 지출이 없습니다. '+data.held.length+'건의 날짜·금액·증빙을 확인해 주세요.':'지출 내역이 없습니다.';
+      status.textContent=data.held&&data.held.length?'복사 가능한 지출이 없습니다. 중복 여부 또는 거래 상세 확인이 필요한 '+data.held.length+'건을 제외했습니다.':data.matched_count?'모든 지출이 장부에 있어 복사할 항목이 없습니다.':'복사할 지출이 없습니다.';
       status.className='copy-status';
      }
      return;
@@ -569,7 +569,7 @@ document.addEventListener('keydown',function(e){
     if(status){
      var countStr=data.row_count+'건';
      var sumStr=data.total_krw?(' · '+Number(data.total_krw).toLocaleString('ko-KR')+'원'):'';
-     status.textContent='지출내용이 복사되었습니다! ('+countStr+sumStr+') Google 시트에 붙여넣으세요.'+(data.held&&data.held.length?' 제외 '+data.held.length+'건: 날짜·금액·증빙 확인 필요':'');
+     status.textContent='지출내용이 복사되었습니다! ('+countStr+sumStr+') Google 시트에 붙여넣으세요.'+(data.matched_count?' 장부에 있는 '+data.matched_count+'건 제외.':'')+(data.held&&data.held.length?' 중복 여부 또는 거래 상세 확인 필요 '+data.held.length+'건 제외.':'');
      status.className='copy-status success';
     }
    }catch(err){

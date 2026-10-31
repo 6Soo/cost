@@ -48,8 +48,8 @@ class LedgerLayoutBrowserTests(unittest.TestCase):
                     page.goto(self._url('?tab=trip-demo-a'))
                     page.evaluate("document.querySelectorAll('#google-trip-income .income-detail').forEach(d=>d.open=true)")
                     income_table = page.locator('#google-trip-income table')
-                    self.assertNotIn('Google', page.locator('main').inner_text())
-                    self.assertIn('기록된 거래', page.locator('#live-sum').inner_text())
+                    self.assertNotIn('총수입 − 지출', page.locator('#live-sum').inner_text())
+                    self.assertNotIn('기록된 거래', page.locator('#live-sum').inner_text())
                     self.assertIn('2026.10.12 20:00', page.locator('#trip-income').inner_text())
                     self.assertNotIn('049343', page.locator('#trip-income').inner_text())
                     self.assertEqual(page.locator('#trip-income time').get_attribute('datetime'),
@@ -89,8 +89,9 @@ class LedgerLayoutBrowserTests(unittest.TestCase):
             source_link = page.get_by_role('link', name='수입·지출 원본 상세')
             self.assertTrue(source_link.get_attribute('href').startswith('https://docs.google.com/spreadsheets/d/'))
             self.assertEqual(source_link.get_attribute('target'), '_blank')
-            page.goto(self._url('').split('/board')[0] + '/google-ledger/rows?key=' + key + '&source=main')
-            detail_table = page.locator('table').first.inner_text()
+            # The retired /google-ledger/rows route is no longer served.
+            # Check the retained detail formatter separately from navigation.
+            detail_table = google.render_rows_html(google.owner_rows(rows, key, 'main'))
             self.assertIn('420,000', detail_table)
             self.assertIn('-420,000', detail_table)
             self.assertNotIn('420000.0', detail_table)

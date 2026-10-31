@@ -660,3 +660,9 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 `d0d73f8aebed53674e2754dae665eb4dc30748ed`, 이전 검증5ef006ed. body/공통 셸·모바일 내부 스크롤·별도 이름 인덱스 없는 원본 수입·저장소 없는15행 조회를 복구하고, PR392의2줄 카드 목록을 검수/보완했다. 참가 명단 미연결을0명이나 완료로 해석하지 않는다.
 - 묶음81통과/기존p50실패1·최종 참가자37통과(중복 합산 안 함), 기준main58통과/동일1실패·독립1통과.1181 blobs 일치·task/process SHA·health/ready200·보호API401·보호13표 불변. 데이터/스키마 쓰기 없는 code-only 배포로 전체 자료 백업은 반복하지 않았고 검증 이전 릴리스/task XML 복구 수단을 유지했다. 금융/원본/명단/Google 쓰기0.
 - 기존 Aside 실제 참가자 화면15행/API200/no-store·카드32행·영향3경로 비인증401 수락. 근거는 `.local-archive/participant-mobile-20261030/`와 같은SHA deploy 근거다. 실제 참가DB/명단 등록·실기기는 미해결이며 문서 후속만으로 재배포/재시작하지 않는다.
+# 2026-10-31 국내·해외 구분 여행 배정
+
+- [PR #418](https://github.com/6Soo/cost/pull/418), 구현 `2b5fc5c4`, 고정 배포 `25cc29108cb44752b453832dca8e854747966558`. 해외 사용 국가와 여행 국가의 일치를 요구하지 않고 국내·해외 구분과 여행 기간으로 배정한다. 기존 수동/예약/금융 보호는 유지한다.
+- 여행/분류50·보호88·추가 호환/원자성8 passed(중복 포함), 병합 tree 동일·1,197 blobs 일치. task/process SHA·loopback listener1·health/ready200·보호 API401·보호13표 불변. 이전 검증8ebb4d8b 복구점 보존. 코드 배포는 DB 무쓰기이므로 전체 백업/복원을 반복하지 않았다.
+- 승인된 보류 거래2건 중10/24 1건만 `1020_알펜루트`로 실제 자동 추론 배정했다.10/25는 종료일 밖으로 보존했다. 단건 교정은 변경 전 값 로컬 보존·메모리 리허설·SQLite 단일 작성자 잠금·원자 저장으로 실행했다. 원본/금액/ID·금융/환불 링크·사용자 결정·범위 밖·스키마 불변, 감사 이력 보존/1건 추가·재실행0 확인. 초기 검증 오류는 쓰기 전에 중단했고 최종 검사 통과 후 적용했다. 장부 추가/Google/은행 쓰기0, 실제 환급 확인과 구별한다.
+- 근거: `.local-archive/domestic-overseas-trip-20261031/`의 검사 XML·applied/http-smoke JSON, 같은 SHA deploy 디렉터리 및 호스트 release-audit/deploy-evidence. 복구 값은 호스트 `data/backups/domestic-overseas-trip-20261031/before.private.json`에만 보존한다. 전체 회귀·실기기·인증 owner 화면은 미실행. 두 작업 Running·영향 경로 익명401 수락. 요청 완료·미결0이며 문서 후속으로 재배포/재시작하지 않는다.
