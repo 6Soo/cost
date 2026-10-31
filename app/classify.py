@@ -112,8 +112,8 @@ def _verified_local_trip(transaction, item, trip_resolver):
             or '승차권' in str(transaction.get('merchant') or '')
             or is_booking_or_online(transaction)):
         return ''
-    from .rules import merchant_country
-    country = merchant_country(transaction)
+    from .rules import transaction_region
+    country = transaction_region(transaction)
     return trip_resolver(transaction, country) if country else ''
 
 
@@ -324,8 +324,8 @@ def _classify_transaction(transaction: dict, *, rules: list,
                                              if k != 'travel_country'})
             if not rule_matches(base, transaction)[0]:
                 continue
-            from .rules import merchant_country
-            actual_country = merchant_country(transaction) if country=='local' else country
+            from .rules import transaction_region
+            actual_country = transaction_region(transaction) if country=='local' else country
             target = trip_resolver(transaction, actual_country) if trip_resolver and actual_country else ''
             if not target:
                 trip_blocked = candidate
@@ -388,7 +388,7 @@ def _classify_transaction(transaction: dict, *, rules: list,
     if trip_blocked:
         return dict(classification_state=STATE_NEEDS_REVIEW,classification_source='travel_location_hold',
                     classification_basis=('예약 이용기간에 맞는 여행을 확인해 주세요' if trip_blocked.get('optional',{}).get('booking_period')
-                                          else '사용 국가와 명시 여행이 맞는지 확인해 주세요'),
+                                          else '국내·해외 구분과 여행 기간에 맞는 여행이 없습니다'),
                     item=trip_blocked['effects'].get('item',''),description=trip_blocked['effects'].get('description',''),
                     display_tab_id='',trip_id='',rule_id=trip_blocked.get('rule_id',''))
 

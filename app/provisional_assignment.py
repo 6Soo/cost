@@ -59,11 +59,10 @@ def card_trip_candidates(transaction, trips, *, nets=None):
     except (TypeError, ValueError):
         return []
     merchant = str(transaction.get("merchant") or "").casefold()
-    from .rules import merchant_country, trip_countries, is_booking_or_online
-    country = '' if is_booking_or_online(transaction) else merchant_country(transaction)
-    compatible = {key for key, trip in authoritative.items() if country in trip_countries(trip)}
-    if compatible:
-        authoritative = {key: trip for key, trip in authoritative.items() if key in compatible}
+    from .rules import transaction_region, trip_region, is_booking_or_online
+    region = '' if is_booking_or_online(transaction) else transaction_region(transaction)
+    if region:
+        authoritative = {key: trip for key, trip in authoritative.items() if trip_region(trip) == region}
     ranked = []
     for identity, trip in authoritative.items():
         start = date.fromisoformat(trip["starts_on"])

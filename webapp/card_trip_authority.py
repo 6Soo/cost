@@ -85,7 +85,7 @@ def trip_valid(flow, trip_id, *, google_periods, trip_authority, unchanged_workb
 
 
 def retail_trip(flow, transaction, country, *, google_nets):
-    from app.rules import merchant_country, trip_countries
+    from app.rules import transaction_region, trip_region
     if isinstance(country,dict):
         if country.get('owner_card3820_singapore'):
             candidates = [t for t in flow.board.list_trips()
@@ -99,16 +99,18 @@ def retail_trip(flow, transaction, country, *, google_nets):
                 return ''
             return target
         return flow.booking_trip(transaction,country)
-    if merchant_country(transaction) != country or not transaction.get('approval_date'):
+    region = transaction_region(transaction)
+    requested = 'KR' if country == 'KR' else 'overseas' if country else ''
+    if not region or region != requested or not transaction.get('approval_date'):
         return ''
     if not hasattr(flow, '_retail_trips'):
-        # 명시된 일정의 지역만 사용한다. 새 지역은 자동으로 국가를 만들어 붙이지 않는다.
+        # 국내/해외 구분과 검증된 일정만 사용한다. 국가 일치는 요구하지 않는다.
         flow._retail_trips = []
         for trip in flow.board.list_trips():
             if flow.trip_valid(trip['tab_id']):
-                flow._retail_trips.extend((code,trip) for code in trip_countries(trip))
+                flow._retail_trips.append((trip_region(trip), trip))
     occurred = transaction['approval_date']
-    candidates = [trip for code,trip in flow._retail_trips if code == country
+    candidates = [trip for code,trip in flow._retail_trips if code == region
                   and trip['starts_on'] <= occurred <= trip['ends_on']]
     if not candidates:
         return ''
