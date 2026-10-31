@@ -9,8 +9,7 @@ import html
 import hashlib
 import json
 import re
-import uuid
-from urllib.parse import parse_qs, quote
+from urllib.parse import parse_qs, quote, urlencode
 
 
 PAGE_PATH = "/google-ledger/expense-reconciliation"
@@ -25,11 +24,7 @@ STATUS_LABELS = {
     "REVIEW_CONFLICT": "중복 가능성 확인 필요",
     "SOURCE_UNAVAILABLE": "시트 확인 불가 · 안전 보류",
 }
-FIELD_LABELS = {
-    "date": "거래일", "payee": "가맹점/지급처", "merchant": "가맹점/지급처",
-    "category": "항목", "item": "항목", "description": "메모", "memo": "메모",
-    "amount_krw": "금액", "currency": "통화", "transaction_direction": "거래 방향",
-}
+
 
 
 def owns_route(path: str) -> bool:
@@ -208,129 +203,6 @@ def _with_link_revision(payload, preview):
             item["status"] = "SOURCE_UNAVAILABLE"
             item["status_label"] = STATUS_LABELS["SOURCE_UNAVAILABLE"]
     return payload
-
-
-def _render_page(payload, *, csrf, request_id, query="", kind=""):
-    trip = html.escape(str(payload.get("trip_id") or ""), quote=True)
-    query_qs = "&amp;q=" + quote(query, safe="") if query else ""
-    kind_qs = "&amp;kind=" + quote(kind, safe="") if kind else ""
-    counts = payload.get("counts") or {}
-    cards = "".join(
-        "<div class='ser-count'><span>" + html.escape(STATUS_LABELS[status]) + "</span><strong>"
-        + str(counts.get(status, 0)) + "</strong></div>" for status in STATUSES)
-    results = payload.get("results") or []
-    rows = []
-    for item in results:
-        status = item["status"]
-        differences = item.get("differences") or {}
-        diff_html = "".join(
-            "<li><b>" + html.escape(FIELD_LABELS.get(field, field)) + "</b>: 수기 ‘"
-            + html.escape(values.get("manual", "")) + "’ ↔ COST ‘"
-            + html.escape(values.get("cost", "")) + "’</li>"
-            for field, values in differences.items())
-        if differences and status in ("MATCHED_MANUAL", "MATCHED_EXISTING"):
-            note = "연결 완료 · 수기 원본 유지 · 차이 있음"
-        elif status == "REVIEW_CONFLICT":
-            note = STATUS_LABELS[status]
-        else:
-            note = STATUS_LABELS[status]
-        position = " · ".join(value for value in (
-            item.get("source"), item.get("sheet_id"),
-            ("행 " + str(item["row_number"])) if item.get("row_number") else "") if value)
-        can_save = status == "MATCHED_MANUAL" and not item.get("user_corrected")
-        checkbox = ("<label class='ser-select'><input type='checkbox' name='transaction_ids' value='"
-                    + html.escape(item["transaction_id"], quote=True) + "'> 연결 기록 선택</label>" if can_save else "")
-        basis = " · ".join(html.escape(value) for value in item.get("basis") or []) or "근거 상세 없음"
-        details = ("<ul class='ser-diffs'>" + diff_html + "</ul>") if diff_html else ""
-        correction = ("<p class='ser-correction'>사용자 교정 유지" +
-                      (" · " + html.escape(item.get("correction_source") or "") if item.get("correction_source") else "")
-                      + "</p>") if item.get("user_corrected") else ""
-        rows.append(
-            "<article class='ser-row ser-" + status.lower() + "'><header><span class='ser-status'>"
-            + html.escape(note) + "</span><a href='" + html.escape(item["review_href"], quote=True)
-            + "'>COST 거래 검토</a></header><dl><div><dt>거래일 · 가맹점</dt><dd>"
-            + html.escape(item.get("date") or "날짜 미상") + " · " + html.escape(item.get("merchant") or "가맹점 미상")
-            + "</dd></div><div><dt>금액 · 카드</dt><dd>" + html.escape(_display_value(item.get("amount_krw")))
-            + " " + html.escape(item.get("currency") or "") + " · " + html.escape(item.get("card") or "")
-            + "</dd></div><div><dt>수기 행 위치</dt><dd>" + html.escape(position or "위치 정보 없음")
-            + "</dd></div><div><dt>동일성 근거</dt><dd>" + basis + "</dd></div></dl>"
-            + details + correction + ("<p class='ser-reason'>" + html.escape(item.get("reason") or "") + "</p>" if item.get("reason") else "")
-            + checkbox + "</article>")
-    total, page, pages = payload.get("total", 0), payload.get("page", 1), payload.get("pages", 1)
-    pagination = ""
-    if pages > 1:
-        pagination = "<nav class='ser-pages' aria-label='대조 결과 페이지'>"
-        if page > 1:
-            pagination += f"<a rel='prev' href='{PAGE_PATH}?trip={trip}&amp;page={page-1}{query_qs}{kind_qs}'>이전 페이지</a>"
-        pagination += f"<span aria-current='page'>{page} / {pages}</span>"
-        if page < pages:
-            pagination += f"<a rel='next' href='{PAGE_PATH}?trip={trip}&amp;page={page+1}{query_qs}{kind_qs}'>다음 페이지</a>"
-        pagination += "</nav>"
-    unavailable_message = ("연결 상태 파일을 확인할 수 없어 안전하게 보류했습니다."
-                           if payload.get("code") == "LINKS_UNAVAILABLE" else
-                           "Google 시트 원본을 확인할 수 없어 안전하게 보류했습니다.")
-    unavailable = ("<p class='ser-alert' role='alert'>" + html.escape(unavailable_message)
-                   + " 새 행 추가나 연결 저장은 할 수 없습니다.</p>" if not payload.get("source_available") else "")
-    source = payload.get("source_info") or {}
-    source_label = " · ".join(str(source.get(key) or "") for key in ("source", "sheet_id") if source.get(key))
-    form = ""
-    if payload.get("source_available") and payload.get("links_revision") is not None:
-        expected = ("이미 수기 " + str(counts.get("MATCHED_MANUAL", 0)) + "건 · 기존 연결 "
-                    + str(counts.get("MATCHED_EXISTING", 0)) + "건 · 신규 TSV "
-                    + str(counts.get("NEW_EXPENSE", 0)) + "건 · 검토 보류 "
-                    + str(counts.get("REVIEW_CONFLICT", 0)) + "건")
-        form = ("<form class='ser-save' id='ser-save' aria-label='검증된 연결 메타데이터 저장'>"
-                f"<input type='hidden' name='csrf' value='{html.escape(csrf, quote=True)}'>"
-                f"<input type='hidden' name='trip_id' value='{trip}'>"
-                f"<input type='hidden' name='expected_revision' value='{payload['links_revision']}'>"
-                f"<input type='hidden' name='preview_digest' value='{html.escape(payload['preview_digest'], quote=True)}'>"
-                f"<input type='hidden' name='request_id' value='{html.escape(request_id, quote=True)}'>"
-                f"<input type='hidden' name='query' value='{html.escape(query, quote=True)}'>"
-                f"<input type='hidden' name='kind' value='{html.escape(kind, quote=True)}'>"
-                + "<p class='ser-expected'>예상 결과: " + html.escape(expected) + "</p>"
-                + "<p class='ser-note'>신규 지출 복사는 장부의 현재 검색어와 종류 필터를 적용합니다.</p>"
-                + "<button type='submit' name='action' value='links'>선택한 연결 기록</button> "
-                + "<button type='submit' name='action' value='export'>신규 지출 복사</button>"
-                + "<p class='ser-live' id='ser-live' role='status' aria-live='polite'></p>"
-                "<p class='ser-note'>COST 내부 연결 메타데이터와 TSV만 준비합니다. Google 시트는 변경하지 않습니다.</p></form>")
-    return (
-        "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>수기 지출 중복 대조</title><style>"
-        ".ser-page{max-width:1100px;margin:0 auto;padding:16px;color:var(--shell-ink);line-height:1.55}"
-        ".ser-page *{box-sizing:border-box}.ser-page h1{font-size:1.45rem}.ser-page a{color:var(--shell-accent)}"
-        ".ser-counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:16px 0}"
-        ".ser-count{border:1px solid var(--shell-line);border-radius:12px;padding:12px;background:var(--shell-paper)}"
-        ".ser-count span{display:block;font-size:.9rem;color:var(--shell-muted)}.ser-count strong{font-size:1.35rem}"
-        ".ser-row{border:1px solid var(--shell-line);border-radius:12px;padding:14px;margin:12px 0;overflow-wrap:anywhere}"
-        ".ser-row header{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}"
-        ".ser-status{font-weight:700}.ser-row dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}"
-        ".ser-row dl div{min-width:0}.ser-row dt{font-size:.85rem;color:var(--shell-muted)}.ser-row dd{margin:0}"
-        ".ser-diffs{border-left:3px solid var(--shell-accent);padding-left:22px}.ser-alert{padding:12px;border:1px solid var(--shell-warn);border-radius:10px;color:var(--shell-warn)}"
-        ".ser-select{display:inline-flex;align-items:center;gap:8px;min-height:44px}.ser-select input{width:20px;height:20px}"
-        ".ser-save{position:sticky;bottom:0;padding:12px;background:var(--shell-paper);border-top:1px solid var(--shell-line)}"
-        ".ser-save button,.ser-pages a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 14px;border:1px solid var(--shell-line);border-radius:9px;background:var(--shell-paper);color:var(--shell-ink);font:inherit}"
-        ".ser-pages{display:flex;justify-content:center;align-items:center;gap:14px;margin:16px 0}.ser-note,.ser-live{color:var(--shell-muted)}"
-        "@media(max-width:560px){.ser-page{padding:12px}.ser-row{padding:12px}.ser-row dl{grid-template-columns:1fr}.ser-pages{justify-content:space-between}}"
-        "</style></head><body><main class='ser-page' id='main' tabindex='-1'><h1>수기 지출 중복 대조</h1>"
-        f"<p>선택 여행: <b>{trip}</b>" + (f" · 원본: {html.escape(source_label)}" if source_label else "")
-        + "</p><p>수기와 COST 값을 비교해 기존 행 연결을 확인합니다. 자동 연결은 Google 시트에 새로 기입했다는 뜻이 아닙니다.</p>"
-        + unavailable + f"<section class='ser-counts' aria-label='상태별 건수'>{cards}</section>"
-        + ("<p>표시할 대조 결과가 없습니다.</p>" if not total else "")
-        + "<section aria-label='거래별 대조 결과'>" + "".join(rows) + "</section>" + pagination + form
-        + "<script>(function(){const f=document.getElementById('ser-save');if(!f)return;"
-        "f.addEventListener('submit',async e=>{e.preventDefault();const ids=[...f.querySelectorAll('input[name=transaction_ids]:checked')].map(x=>x.value);"
-        "const status=document.getElementById('ser-live');const action=e.submitter?.value||'links';"
-        "if(action==='links'&&!ids.length){status.textContent='연결할 행을 선택해 주세요.';return;}"
-        "const b=f.querySelector('button');b.disabled=true;status.textContent='최신 원본을 다시 확인하고 있습니다.';"
-        "const d=Object.fromEntries(new FormData(f).entries());d.transaction_ids=ids;d.action=action;d.request_id=action+':'+d.request_id;"
-        "try{const r=await fetch('" + API_PATH + "',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':d.csrf},body:JSON.stringify(d)});"
-        "const j=await r.json();if(!r.ok)throw new Error(j.message||j.code||'저장하지 못했습니다.');"
-        "if(action==='export'){if(j.row_count&&j.tsv){await navigator.clipboard.writeText(j.tsv);status.textContent=j.row_count+'건의 TSV를 복사했습니다. Google 시트에는 입력되지 않았습니다.';}"
-        "else{status.textContent='복사할 신규 지출이 없습니다. 기존 수기 행은 그대로 유지됩니다.';}return;}"
-        "status.textContent=j.replayed?'이전 연결 요청이 이미 처리되었습니다. 현재 상태를 다시 불러옵니다.':'연결 메타데이터를 저장했습니다. Google 시트는 변경하지 않았습니다.';"
-        "setTimeout(()=>location.reload(),500);}catch(err){status.textContent=err.message;b.disabled=false;}});})();</script>"
-        "</main></body></html>")
 
 
 def _send_error(handler, code, http_status, message="요청을 처리할 수 없습니다"):
@@ -636,16 +508,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf="") -> bool:
         except ValueError:
             handler._send("<!doctype html><html lang='ko'><meta charset='utf-8'><main><h1>잘못된 검색 조건</h1></main></html>", code=400)
             return True
-        try:
-            page = int(_query_value(query, "page") or 1)
-        except (TypeError, ValueError):
-            page = 1
-        payload, _preview, failure = _preview_payload(trip_id, page)
-        if failure:
-            handler._send("<!doctype html><html lang='ko'><meta charset='utf-8'><main><h1>대조 결과를 표시할 수 없습니다</h1><p role='alert'>시트 또는 COST 자료를 확인할 수 없어 안전하게 보류했습니다.</p></main></html>", code=503)
-            return True
-        handler._send(_render_page(payload, csrf=csrf, request_id=str(uuid.uuid4()),
-                                   query=filter_query, kind=kind))
+        from .board_http_shapes import send_redirect
+        location = "/board?" + urlencode({"tab": trip_id, "q": filter_query, "kind": kind})
+        send_redirect(handler, location + "#trip-expense-copy")
         return True
     if path == API_PATH and method == "GET":
         query = query if query is not None else parse_qs(getattr(parsed, "query", ""))

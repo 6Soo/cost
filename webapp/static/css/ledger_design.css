@@ -315,6 +315,7 @@ tr[data-id]:hover{background:var(--hover)}
 tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
 .google-match-candidate td{font-weight:700}
+.expense-copy-state{display:block;font-size:11px;font-weight:400;line-height:1.4;color:var(--mut);white-space:normal;overflow-wrap:anywhere}
 .google-match-candidate .m-row,.google-match-candidate .party-line{font-weight:700}
 .num{text-align:right}
 .a-in{color:var(--grn);font-weight:500}
@@ -568,6 +569,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .trip-copy-box{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
 .trip-copy-box .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap}
 .trip-copy-box .btn:hover{background:var(--hover)}
+.trip-copy-box .btn:disabled{opacity:.55;cursor:default}
 .trip-copy-desc{font-size:13px;color:var(--mut)}
 .copy-status{font-size:13px;font-weight:500;margin-left:4px}
 .copy-status.success{color:var(--grn)}

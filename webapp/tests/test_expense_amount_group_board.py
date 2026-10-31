@@ -116,7 +116,7 @@ def test_full_and_live_renderers_sort_table_but_keep_original_copy_order(monkeyp
     monkeypatch.setattr(design, '_amount_group_state', lambda *a: state)
     monkeypatch.setattr(design, '_google_match_annotations', lambda *a: {})
     copied = []
-    monkeypatch.setattr(design, '_trip_copy_html', lambda tid, rows: copied.append([r['row_id'] for r in rows]) or '')
+    monkeypatch.setattr(design, '_trip_copy_html', lambda tid, rows, preview=None: copied.append([r['row_id'] for r in rows]) or '')
     for renderer in (design.rows_region, design.rows_part):
         markup = renderer('trip-synthetic')
         positions = [markup.index("data-id='cost-" + str(i) + "'") for i in (2, 1, 0)]
