@@ -10,6 +10,26 @@
 .participant-trip-content{padding:12px 16px;border-top:1px solid var(--line)}
 .insurance-review-summary p{margin:0 0 10px;line-height:1.7;font-size:13px;color:var(--ink)}
 .insurance-review-status{display:inline-block;line-height:1.6;color:var(--mut);overflow-wrap:anywhere}
+.insurance-candidate-button{font:inherit;min-height:44px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--hover);color:var(--focus);cursor:pointer;text-align:left;white-space:normal}
+.insurance-candidate-button::after{content:' ↗';display:inline-block;margin-left:4px}
+.insurance-candidate-button:hover{border-color:var(--focus)}
+.insurance-candidate-button:focus-visible,.participant-review-retry:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.insurance-candidate-dialog{width:min(640px,calc(100% - 24px));max-height:85dvh;overflow:auto;padding:20px;border:1px solid var(--line-strong);border-radius:16px;background:var(--paper);color:var(--ink);box-shadow:0 20px 60px #0003}
+.insurance-candidate-dialog::backdrop{background:#0006}
+.insurance-candidate-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.insurance-candidate-dialog h2{margin:0;font-size:18px}
+.insurance-candidate-dialog p{font-size:13px;line-height:1.8;overflow-wrap:anywhere}
+.insurance-candidate-dialog button,.insurance-candidate-dialog .btn{min-height:44px}
+.insurance-candidate-list{display:grid;gap:10px;list-style:none;padding:0}
+.insurance-candidate-list li{padding:14px;border:1px solid var(--line);border-radius:10px}
+.insurance-candidate-list p{margin:6px 0 0}
+.insurance-selected-income{padding:12px;background:var(--hover);border-radius:8px}
+.insurance-loading{display:flex;align-items:center;gap:12px;padding:12px;color:var(--mut)}
+.insurance-loading p{margin:4px 0 0;font-size:12px;line-height:1.6}
+.insurance-loading-dot{flex:0 0 20px;width:20px;height:20px;border:2px solid var(--line-strong);border-top-color:var(--focus);border-radius:50%;animation:insurance-spin 1s linear infinite}
+.insurance-loading-label{color:var(--mut);font-size:12px}
+@keyframes insurance-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.insurance-loading-dot{animation:none}}
 .participant-review-note{font-size:12px;line-height:1.7;color:var(--mut)}
 .insurance-review-contracts{display:grid;gap:6px;list-style:none;margin:0 0 12px;padding:0}
 .insurance-review-contracts li{display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.6}
@@ -588,6 +608,12 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .trip-workflow[open]>summary{border-radius:14px 14px 0 0}
 .trip-workflow[open] .trip-workflow-toggle{transform:rotate(180deg)}
 .trip-workflow-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);padding:16px}
+.trip-workflow-intro{padding:0 18px 12px}
+.trip-workflow-intro p,.trip-workflow-tools>p{font-size:13px;line-height:1.7;color:var(--mut);margin:6px 0 0}
+.trip-workflow-tools{border-top:1px solid var(--line);margin:0 16px 16px}
+.trip-workflow-tools>summary{cursor:pointer;padding:14px 0;min-height:44px;font-size:13px;font-weight:600}
+.trip-workflow-tools .trip-workflow-grid{padding:12px 0 0;border:0;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:600px){.trip-workflow-tools .trip-workflow-grid{grid-template-columns:minmax(0,1fr)}}
 .trip-workflow .trip-workflow-card{display:flex;align-items:center;gap:12px;min-height:84px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:var(--paper);text-decoration:none;transition:background .15s ease,border-color .15s ease}
 .trip-workflow-card:hover{background:var(--hover);border-color:var(--line-strong)}
 .trip-workflow-card:focus-visible,.trip-workflow>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px}

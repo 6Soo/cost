@@ -574,6 +574,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(target.count(), 1)
                 row_ref = target.get_attribute('data-income-ref')
                 self.assertTrue(row_ref.startswith('main|0630_오제|'))
+                self.assertEqual(target.locator('.participant-row-connect').count(), 1)
                 card = page.locator('#participant-trip-panel .participant-cards li[draggable=true]').first
                 page.evaluate("""([source,target])=>{
                     const data={clearData(){},setData(){},effectAllowed:''};

@@ -74,21 +74,27 @@ def render(board, trip_id, cost_rows, amount_groups):
     last_success = google.format_display_time(state['last_success_at'])
     from .sheet_expense_review import PAGE_PATH
     google_url = PAGE_PATH + '?' + urlencode({'trip':trip_id})
-    links = [('credit-card', '카드 원천', '수집 범위 확인', '/cards/all'),
-             ('list-filter', '미정리·보류', f"표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 확인", '/import'),
+    links = [('users', '보험 후보 비교', '수입 표의 후보 버튼을 눌러 가림 이름·기간을 비교하세요.', '#participant-trip-panel'),
+             ('table', '지출 대조하기', google_text + ' · 마지막 정상 조회 ' + last_success, google_url),
+             ('archive', '수입·마감 확인', closure + ' · 수입 합계와 장부 위치를 확인하세요.', '#trip-income'),
+             ('credit-card', '카드 원천', '전체 여행의 카드 원본 보기', '/cards/all'),
+             ('list-filter', '미정리·보류', f"이 여행 표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 화면 열기", '/import'),
              ('link', 'OTA·환불', '결제·환불 근거 확인', '/ota'),
-             ('receipt', '영수증', receipt_text, '/receipts'),
-             ('table', 'Google 반영', google_text + ' · 마지막 정상 조회 ' + last_success, google_url),
-             ('archive', '여행 마감', closure, '#trip-income'),
-             ('users', '보험 명단', '명단과 수입 글자 대조', '#participant-trip-panel')]
-    cards = ''.join(
+             ('receipt', '영수증', receipt_text + ' · 전체 영수증 화면 열기', '/receipts')]
+    cards = [
         f"<a class='trip-workflow-card' href='{esc(href)}'>"
         f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"
         f"<span class='trip-workflow-copy'><strong>{esc(label)}</strong>"
         f"<span>{esc(text)}</span></span>"
         f"<span class='trip-workflow-arrow'>{ui_icons.icon('chevron-right', 16)}</span></a>"
-        for icon, label, text, href in links)
-    return ("<details class='trip-workflow' aria-label='여행 검토'><summary>"
+        for icon, label, text, href in links]
+    return ("<details class='trip-workflow' aria-label='여행 검토' open><summary>"
             f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
             f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
-            "<nav class='trip-workflow-grid' aria-label='여행 검토 항목'>" + cards + '</nav></details>')
+            "<div class='trip-workflow-intro'><strong>이 여행에서 할 일</strong>"
+            "<p>보험 후보를 비교하고, 지출을 대조한 다음 수입·마감 상태를 확인하세요. "
+            "각 작업은 해당 자료로 이동하며 완료 처리를 대신하지 않습니다.</p></div>"
+            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards[:3]) + '</nav>'
+            "<details class='trip-workflow-tools'><summary>전체 자료·도구 열기</summary>"
+            "<p>아래 화면은 전체 여행 자료입니다. 이동 후 여행·기간을 선택해 주세요.</p>"
+            "<nav class='trip-workflow-grid' aria-label='전체 자료 도구'>" + ''.join(cards[3:]) + '</nav></details></details>')

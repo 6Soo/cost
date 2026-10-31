@@ -112,7 +112,10 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                     tab.set_viewport_size({'width':width,'height':844})
                     disclosure=tab.locator('.trip-workflow')
                     if disclosure.get_attribute('open') is None:
-                        tab.locator('.trip-workflow summary').click()
+                        tab.locator('.trip-workflow > summary').click()
+                    tools=tab.locator('.trip-workflow-tools')
+                    if tools.get_attribute('open') is None:
+                        tools.locator('summary').click()
                     assert tab.evaluate('document.documentElement.scrollWidth<=innerWidth')
                     assert tab.locator('.trip-workflow a').count()==7
                     assert tab.locator('.trip-workflow-icon svg[aria-hidden=true]').count()==7
@@ -120,9 +123,11 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                     assert tab.locator('.trip-workflow a').evaluate_all(
                         '(links)=>links.every(link=>link.getBoundingClientRect().height>=44)')
                     assert tab.locator('.trip-workflow a strong').all_text_contents() == [
-                        '카드 원천', '미정리·보류', 'OTA·환불', '영수증', 'Google 반영', '여행 마감', '보험 명단']
-            tab.locator('.trip-workflow summary').focus()
-            tab.locator('.trip-workflow summary').press('Enter')
-            assert tab.locator('.trip-workflow nav').is_hidden()
+                        '보험 후보 비교', '지출 대조하기', '수입·마감 확인', '카드 원천', '미정리·보류', 'OTA·환불', '영수증']
+                    assert tab.locator('.trip-workflow > nav a').count()==3
+                    assert '전체 여행 자료' in tools.inner_text()
+            tab.locator('.trip-workflow > summary').focus()
+            tab.locator('.trip-workflow > summary').press('Enter')
+            assert tab.locator('.trip-workflow > nav').is_hidden()
         finally:
             browser.close()
