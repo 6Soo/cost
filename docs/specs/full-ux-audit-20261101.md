@@ -87,3 +87,5 @@
 검사: `resumed-targeted.xml` 38 passed/9 subtests, `receipt-protection.xml` 5 passed. 기존 보호 검사 `protection.xml`은91 passed/1 failed이며 실패는 `protection-baseline.xml`로 기준 `ac2abeac`에서 같은 `processed 2 != 3` 재현을 확인했다. 최초142개 검사 중23개 실패에서 중복 홈/출력 링크 assertion은 새 동작에 맞게 수정했다. 기준 재실행22개 중21개 실패(영수증의 이전 확정 계약·접힌 입력 접근 등)는 별도 보존했다. 통과로 세지 않고 범위 밖 금융 정책을 바꾸지 않았다. shell 테마의 관찰 시점 문제는 명시적 상태 대기로 교정해 최종38개 통과했다. 전체 회귀·실기기 검사는 미실행이다.
 
 마지막 추가 수락: `manual-browser.json`에서 모바일 수기지출 합성 저장→같은 여행 복귀를 확인했다. 장부 메뉴가 다른 여행의 저장된 검색 조건보다 현재 명시 여행을 우선하도록 보완하고 PC/모바일 `trip-context-followup.json`으로 확인했다. 조회 목록 자체에서는 기존 검색 유지 계약을 보존한다. shell11개 추가 통과(`followup-shell.xml`). 브라우저 스크립트28/29의 selector 실패는 실행 기록에 남겼고, 실제 절대URL href와 native 장부 메뉴(`#btn-menu`)를 확인한 스크립트30으로 두 폭을 통과했다.
+
+운영 수락에서 `enabled()`는 수입 snapshot 읽기 설정을 뜻하며, 제거된 Google 화면의 제공 여부와 다름을 확인했다. 초기 배포 `76f33ab8`은 런타임·보호 검사는 통과했지만 UX08 운영 스모크를 통과하지 못했다. 링크 판정에 `owns_route('/google-ledger')`를 추가하고 설정이 켜진 상태의 회귀 검사를 보강했다. 이 초기 배포를 전체 UX 완료 근거로 쓰지 않는다.
