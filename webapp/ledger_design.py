@@ -1146,7 +1146,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
-        "<td colspan='3'><a class='btn' id='add-manual-expense' href='/expense/new'>"
+        "<td colspan='3'><a class='btn' id='add-manual-expense' data-manual-open href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th>{extra_blank}</tr></tbody>"
         + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
@@ -1156,7 +1156,9 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         + "</table></div>")
     if amount_groups is None:
         return head + groups
-    return gemn.styles() + head + groups + gemn.render_groups(amount_groups)
+    warning = ("<p class='gemn-total-warning' role='status'>시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교</p>"
+               if amount_groups.get('total_warning') else '')
+    return gemn.styles() + warning + head + groups + gemn.render_groups(amount_groups)
 
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
@@ -1221,7 +1223,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         "<div class='lst'>"
         + income_group +
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
-        "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
+        "<a class='btn' id='add-manual-expense-mobile' data-manual-open href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
         f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
@@ -1572,7 +1574,11 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     if not expenses:
         description = '복사할 지출이 없습니다.'
     elif not available:
-        description = 'Google 장부를 불러오지 못해 중복 여부를 확인할 수 없습니다. 장부 동기화 후 다시 시도해 주세요.'
+        reason = (preview.get('source_info') or {}).get('reason')
+        if reason == 'SOURCE_LAYOUT_UNSUPPORTED':
+            description = '이 여행의 Google 시트는 표준 지출 양식이 아니어서 중복 확인과 복사를 보류합니다.'
+        else:
+            description = 'Google 장부를 불러오지 못해 중복 여부를 확인할 수 없습니다. 장부 동기화 후 다시 시도해 주세요.'
     else:
         recorded = matched.get('MATCHED_MANUAL', 0) + matched.get('MATCHED_EXISTING', 0)
         excluded = max(0, len(expenses) - recorded - count)
@@ -1703,7 +1709,10 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         "</div></main>")
     return (f"<div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
-            f"<div id='panel-slot'>{panel}</div></div>")
+            f"<div id='panel-slot'>{panel}</div>"
+            + (f"{board.MANUAL_EXPENSE_STYLE}<dialog id='manual-expense-dialog' aria-labelledby='mx-title'>"
+               f"{board.manual_expense_form(tab_id, modal=True)}</dialog>" if board.current_role() == 'owner' else '')
+            + "</div>")
 
 
 def _participant_trip_panel(tab_id: str, controls: dict) -> str:

@@ -87,10 +87,6 @@ def render(board, trip_id, cost_rows, amount_groups):
     return ("<details class='trip-workflow' aria-label='여행 검토' open><summary>"
             f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
             f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
-            "<div class='trip-workflow-intro'><strong>이 여행에서 할 일</strong>"
-            "<p>보험 후보를 비교하고, 지출을 확인한 다음 수입·마감 상태를 확인하세요. "
-            "각 작업은 해당 자료로 이동하며 완료 처리를 대신하지 않습니다.</p></div>"
             "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards[:3]) + '</nav>'
             "<details class='trip-workflow-tools'><summary>전체 자료·도구 열기</summary>"
-            "<p>아래 화면은 전체 여행 자료입니다. 이동 후 여행·기간을 선택해 주세요.</p>"
             "<nav class='trip-workflow-grid' aria-label='전체 자료 도구'>" + ''.join(cards[3:]) + '</nav></details></details>')
