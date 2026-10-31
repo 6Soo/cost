@@ -26,6 +26,39 @@ def overflow(page):
 
 
 class DesignScreenTests(unittest.TestCase):
+    def test_manual_expense_dialog_preserves_errors_and_saves_selected_trip(self):
+        for width in (390, 1280):
+            with self.subTest(width=width):
+                page = self._page(width)
+                self._board(page, '?tab=trip-demo-b')
+                trigger = '#add-manual-expense-mobile' if width < 760 else '#add-manual-expense'
+                page.click(trigger)
+                self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
+                self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-b')
+                page.fill('#mx-date', '2026-10-31')
+                page.fill('#mx-desc', 'Synthetic modal expense')
+                page.fill('#mx-amount', 'invalid')
+                request_id = page.input_value('#manual-expense-dialog [name=client_request_id]')
+                page.click('#manual-expense-dialog [type=submit]')
+                page.wait_for_function("document.querySelector('.mx-error').textContent.length>0")
+                self.assertEqual(page.input_value('#mx-desc'), 'Synthetic modal expense')
+                self.assertEqual(page.input_value('#manual-expense-dialog [name=client_request_id]'), request_id)
+                self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
+                self.assertEqual(overflow(page), 0)
+                page.keyboard.press('Escape')
+                self.assertFalse(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
+                page.click(trigger)
+                self.assertEqual(page.input_value('#mx-desc'), 'Synthetic modal expense')
+                page.fill('#mx-amount', '-1,250')
+                with page.expect_navigation():
+                    page.click('#manual-expense-dialog [type=submit]')
+                rows = [r for r in self.store.list_tab_rows('trip-demo-b')
+                        if r.get('description') == 'Synthetic modal expense']
+                self.assertEqual(len(rows), 1 + (width == 1280))
+                self.assertEqual(rows[-1]['amount_krw'], -1250)
+                self.assertIn('tab=trip-demo-b', page.url)
+                page.close()
+
     def test_document_stays_in_viewport_while_ledger_and_drawer_scroll_independently(self):
         for width in (375, 390, 759, 760, 1280):
             with self.subTest(width=width):

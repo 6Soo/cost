@@ -588,3 +588,35 @@ document.addEventListener('keydown',function(e){
    }
   });
  })();
+(function(){
+ document.addEventListener('DOMContentLoaded',function(){
+  var dialog=document.getElementById('manual-expense-dialog');
+  if(!dialog)return;
+  var form=dialog.querySelector('form'),busy=false,opener=null;
+  document.addEventListener('click',function(event){
+   var trigger=event.target.closest('[data-manual-open]');
+   if(!trigger)return;
+   event.preventDefault();opener=trigger;dialog.showModal();
+  });
+  dialog.querySelector('[data-manual-close]').addEventListener('click',function(){if(!busy)dialog.close();});
+  dialog.addEventListener('cancel',function(event){if(busy)event.preventDefault();});
+  dialog.addEventListener('close',function(){if(opener&&opener.isConnected)opener.focus();});
+  form.addEventListener('submit',async function(event){
+   event.preventDefault();if(busy)return;
+   var payload=Object.fromEntries(new FormData(form));
+   busy=true;form.setAttribute('aria-busy','true');
+   // Freeze inputs too: a network retry must repeat the same request identity
+   // and values, and a late response must not discard newly edited fields.
+   var controls=Array.from(form.elements);controls.forEach(function(c){c.disabled=true;});
+   var status=form.querySelector('.mx-error');status.textContent='';
+   try{
+    var response=await fetch(form.action,{method:'POST',credentials:'same-origin',
+     headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
+    var result=await response.json();
+    if(!response.ok)throw new Error(result.message||'저장하지 못했습니다. 다시 시도해 주세요.');
+    location.reload();
+   }catch(error){status.textContent=error.message||'저장하지 못했습니다. 다시 시도해 주세요.';
+    busy=false;controls.forEach(function(c){c.disabled=false;});form.removeAttribute('aria-busy');}
+  });
+ });
+})();

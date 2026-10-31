@@ -1131,7 +1131,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
-        "<td colspan='3'><a class='btn' id='add-manual-expense' href='/expense/new'>"
+        "<td colspan='3'><a class='btn' id='add-manual-expense' data-manual-open href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th>{extra_blank}</tr></tbody>"
         + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
@@ -1204,7 +1204,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         "<div class='lst'>"
         + income_group +
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
-        "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
+        "<a class='btn' id='add-manual-expense-mobile' data-manual-open href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
         f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
@@ -1671,7 +1671,10 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         "</div></main>")
     return (f"<div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
-            f"<div id='panel-slot'>{panel}</div></div>")
+            f"<div id='panel-slot'>{panel}</div>"
+            + (f"{board.MANUAL_EXPENSE_STYLE}<dialog id='manual-expense-dialog' aria-labelledby='mx-title'>"
+               f"{board.manual_expense_form(tab_id, modal=True)}</dialog>" if board.current_role() == 'owner' else '')
+            + "</div>")
 
 
 def _participant_trip_panel(tab_id: str, controls: dict) -> str:

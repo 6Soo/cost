@@ -93,6 +93,8 @@ def render_summary(state: Mapping[str, object]) -> str:
         note = f"비교 불가 · {_esc(_reason_label(reason))}"
     else:
         note = "Google 지출 스냅샷 기준"
+        if state.get('total_warning'):
+            note += ' · 시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교'
         if reason:
             note += f" · {_esc(reason)}"
     if last_success:
