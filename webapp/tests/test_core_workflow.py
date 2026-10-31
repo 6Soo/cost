@@ -115,8 +115,14 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                         tab.locator('.trip-workflow summary').click()
                     assert tab.evaluate('document.documentElement.scrollWidth<=innerWidth')
                     assert tab.locator('.trip-workflow a').count()==7
+                    assert tab.locator('.trip-workflow-icon svg[aria-hidden=true]').count()==7
+                    assert tab.locator('.trip-workflow-heading svg[aria-hidden=true]').count()==1
+                    assert tab.locator('.trip-workflow a').evaluate_all(
+                        '(links)=>links.every(link=>link.getBoundingClientRect().height>=44)')
+                    assert tab.locator('.trip-workflow a strong').all_text_contents() == [
+                        '카드 원천', '미정리·보류', 'OTA·환불', '영수증', 'Google 반영', '여행 마감', '보험 명단']
             tab.locator('.trip-workflow summary').focus()
             tab.locator('.trip-workflow summary').press('Enter')
-            assert tab.locator('.trip-workflow dl').is_hidden()
+            assert tab.locator('.trip-workflow nav').is_hidden()
         finally:
             browser.close()

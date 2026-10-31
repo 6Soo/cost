@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 from urllib.parse import urlencode
 
-from . import expense_amount_group_service as groups, google_ledger_page as google, receipt_review
+from . import expense_amount_group_service as groups, google_ledger_page as google, receipt_review, ui_icons
 
 
 def _receipts(trip_id):
@@ -75,13 +75,21 @@ def render(board, trip_id, cost_rows, amount_groups):
     match_url = '/participants/insurance-match?' + urlencode({'trip':trip_id})
     from .sheet_expense_review import PAGE_PATH
     google_url = PAGE_PATH + '?' + urlencode({'trip':trip_id})
-    links = [('카드 원천', '수집 범위 확인', '/cards/all'),
-             ('미정리·보류', f"표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 확인", '/import'),
-             ('OTA·환불', '기존 대사에서 결제·환불 근거 확인', '/ota'),
-             ('영수증', receipt_text, '/receipts'),
-             ('Google 반영', google_text + ' · 마지막 정상 조회 ' + last_success, google_url),
-             ('여행 마감', closure, '#trip-income'),
-             ('보험 명단', '명단과 수입 글자 대조', match_url)]
-    return ("<details class='trip-workflow' aria-label='여행 검토'><summary>여행 검토</summary>"
-            "<dl>" + ''.join(f"<dt>{esc(label)}</dt><dd><a href='{esc(href)}'>{esc(text)}</a></dd>"
-                             for label, text, href in links) + '</dl></details>')
+    links = [('credit-card', '카드 원천', '수집 범위 확인', '/cards/all'),
+             ('list-filter', '미정리·보류', f"표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 확인", '/import'),
+             ('link', 'OTA·환불', '결제·환불 근거 확인', '/ota'),
+             ('receipt', '영수증', receipt_text, '/receipts'),
+             ('table', 'Google 반영', google_text + ' · 마지막 정상 조회 ' + last_success, google_url),
+             ('archive', '여행 마감', closure, '#trip-income'),
+             ('users', '보험 명단', '명단과 수입 글자 대조', match_url)]
+    cards = ''.join(
+        f"<a class='trip-workflow-card' href='{esc(href)}'>"
+        f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"
+        f"<span class='trip-workflow-copy'><strong>{esc(label)}</strong>"
+        f"<span>{esc(text)}</span></span>"
+        f"<span class='trip-workflow-arrow'>{ui_icons.icon('chevron-right', 16)}</span></a>"
+        for icon, label, text, href in links)
+    return ("<details class='trip-workflow' aria-label='여행 검토'><summary>"
+            f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
+            f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
+            "<nav class='trip-workflow-grid' aria-label='여행 검토 항목'>" + cards + '</nav></details>')
