@@ -156,7 +156,6 @@ def render_html(data, query, *, csrf=''):
         "<nav class='catalog-actions' aria-label='전체 카드 거래 탐색'>"
         f"<a class='catalog-btn' href='/import'>{ui_icons.icon('list')}정리할 지출 보기</a></nav>"
         "<h1>전체 카드 거래 검색</h1>"
-        "<p class='small'>저장된 모든 카드 거래를 찾아봅니다. 처리는 거래를 눌러 지출 정리에서 합니다.</p>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         ""
         "<form id='card-filters' method='get' action='/import'><input name='q' aria-label='카드 거래 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"

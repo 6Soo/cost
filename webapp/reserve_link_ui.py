@@ -237,7 +237,6 @@ function renderPlan(payload) {
     setState("대상 행사 대기 중입니다. 연결은 진행할 수 없어요.", "warntext");
     return;
   }
-  add(box, "p", "link-help", "예약 건을 검색한 뒤 여행을 선택하세요. 한 번에 10건씩 표시합니다.");
   var tools = add(box, "div", "link-tools");
   var searchLabel = add(tools, "label", null, "예약 건 검색");
   var search = document.createElement("input");

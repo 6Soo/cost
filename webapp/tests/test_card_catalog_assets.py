@@ -47,7 +47,7 @@ class TestCardCatalogAssets:
         data = {'rows': [], 'total': 0, 'all_count': 0, 'cards': [], 'months': [], 'page': 1, 'pages': 1}
         with patch.object(assets.Path, "read_text", side_effect=AssertionError("Disk read called during render!")):
             html = card_catalog.render_html(data, {})
-            assert len(html) == 12873
+            assert len(html) == 12808
             assert "<style>" + assets.CATALOG_STYLE + "</style>" in html
 
     def test_baseline_empty_and_synthetic_markup_equivalence(self):
@@ -55,8 +55,8 @@ class TestCardCatalogAssets:
         # 1. Empty data
         data_empty = {'rows': [], 'total': 0, 'all_count': 0, 'cards': [], 'months': [], 'page': 1, 'pages': 1}
         html_empty = card_catalog.render_html(data_empty, {}, csrf="test-csrf")
-        assert len(html_empty) == 12873
-        assert _sha256(html_empty) == "104c3c10a05cf9073279e11c916d820d77fc1dc3c3516039ec7d673e0b65a12b"
+        assert len(html_empty) == 12808
+        assert _sha256(html_empty) == "e8c0ef91fdb09b4e99846332ba97fe1be4a923d6ac68ab53159703a5b0ab60a2"
 
         # 2. Synthetic list with normal and long booking references
         synthetic_rows = [
@@ -112,5 +112,5 @@ class TestCardCatalogAssets:
         }
         query_synth = {'q': '스타벅스', 'card': '1234', 'state': 'needs_review', 'sort': 'desc', 'month': '2026-10'}
         html_synth = card_catalog.render_html(data_synth, query_synth, csrf="test-csrf-synth")
-        assert len(html_synth) == 14339
-        assert _sha256(html_synth) == "33fbaad3a89b9eb98576aece4b6be4a6fd55c3d497bf09823f618c61d9e0bd37"
+        assert len(html_synth) == 14274
+        assert _sha256(html_synth) == "877d9cdb0f5548928e78a7c6df48f8d2b9e090b12f6da2384fc02b4e1a201cb7"

@@ -181,7 +181,6 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
            "<a class='all-trips-link' href='/trips'>"
            "<span>전체 여행 보기</span>"
            f"{_icons.icon('chevron-right', 16)}</a>"
-           "<p class='footer-help'>지난 여행과 진행 중인 여행은 여행 관리에서 확인할 수 있어요.</p>"
            "</footer>")
         + "</aside>"
         "<div class='nav-mask' id='nav-mask' hidden></div>")
@@ -664,9 +663,9 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
 
 def _net_income_summary(value, prefix=''):
     label = prefix + '수입'
-    return (f"<div class='net-income'><i title='총수입 − 지출'>{ui_icons.icon('arrow-up-down')}{label}</i>"
+    return (f"<div class='net-income'><i>{ui_icons.icon('arrow-up-down')}{label}</i>"
             f"<b aria-label='{label}, 총수입에서 지출을 뺀 금액'>{_money(value)}</b>"
-            "<small>총수입 − 지출</small></div>")
+            "</div>")
 
 
 def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None,
@@ -679,7 +678,6 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     the filter left visible; `whole` is the same for the unfiltered tab.
     """
     expense = sum(board._shown_amount(r) for r in expenses)
-    scope = "<span class='scope'>기록된 거래</span>"
 
     if google_income and not incomes and recorded_income_count in (0, -1):
         if google_income.get('show_rows'):
@@ -687,14 +685,14 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
             count_in = google_income['count']
             if filtered is not None and whole is not None:
                 return (
-                    f"<div class='sum tnum' id='sum'>{scope}"
+                    f"<div class='sum tnum' id='sum'>"
                     f"<div><i>{ui_icons.icon('book-open')}전체 총수입</i><b>{_money(income)}</b></div>"
                     f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
                     f"{_net_income_summary(income - whole[1], '전체 ')}"
                     f"<span class='n'>전체 수입 {count_in}건 · 전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
-                f"<div class='sum tnum' id='sum'>{scope}"
+                f"<div class='sum tnum' id='sum'>"
                 f"<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"{_net_income_summary(income - expense)}"
@@ -705,12 +703,12 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
             income_notice = f"<div><i>{ui_icons.icon('book-open')}수입</i>{income_status}</div>"
             if filtered is not None and whole is not None:
                 return (
-                    f"<div class='sum tnum' id='sum'>{scope}{income_notice}"
+                    f"<div class='sum tnum' id='sum'>{income_notice}"
                     f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
                     f"<span class='n'>전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
-                f"<div class='sum tnum' id='sum'>{scope}{income_notice}"
+                f"<div class='sum tnum' id='sum'>{income_notice}"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
 
@@ -718,23 +716,23 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     note = ""
     if not incomes and recorded_income_count in (0, -1):
         if filtered is not None and whole is not None:
-            return (f"<div class='sum tnum' id='sum'>{scope}"
+            return (f"<div class='sum tnum' id='sum'>"
                     f"<div><i>전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
                     f"<span class='n'>전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
-        return (f"<div class='sum tnum' id='sum'>{scope}"
+        return (f"<div class='sum tnum' id='sum'>"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
     if filtered is None or whole is None:
         return (
-            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
+            f"<div class='sum tnum' id='sum'><div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
             f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
             f"{_net_income_summary(income - expense)}"
             f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>" + note)
     fincome, fexpense, finc, fexp = filtered
     wincome, wexpense, winc, wexp = whole
     return (
-        f"<div class='sum tnum' id='sum'>{scope}"
+        f"<div class='sum tnum' id='sum'>"
         f"<div><i>전체 총수입</i><b>{_money(wincome)}</b></div>"
         f"<div><i>전체 지출</i><b>{_money(wexpense)}</b></div>"
         f"<div><i>검색 결과 총수입</i><b>{_money(fincome)}</b></div>"
@@ -1493,13 +1491,11 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
     waiting = "".join(line((r.get('approval_date') or r.get('posting_date') or '')[:10], r.get('merchant'),
                            r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>기록 전 거래가 없습니다.</td></tr>"
     done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
-                   for r in booked) or "<tr><td colspan='3'>기록된 거래가 없습니다.</td></tr>"
+                   for r in booked) or "<tr><td colspan='3'>거래가 없습니다.</td></tr>"
     return ("<div class='body'>" + note +
-            "<p class='hint'>새로 수집된 정상 거래는 자동으로 기록됩니다. 잘못 옮겨진 거래만 여행이나 항목을 바꾸세요.</p>"
-            f"<h3>기록된 거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
+            f"<h3>거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
             f"<tbody>{done}</tbody></table>"
             f"<h3>기록 전 기존 거래 {len(pending)}건 · {pending_total:,}원</h3>"
-            "<p class='hint'>자동 기록 시작 이전에 분류된 거래입니다. 확정 단계는 없고, 새로 수집되는 거래는 분류되는 즉시 기록됩니다.</p>"
             f"<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead><tbody>{waiting}</tbody></table></div>")
 
 
