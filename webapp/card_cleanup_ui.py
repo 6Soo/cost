@@ -200,13 +200,12 @@ def render_cleanup_card_review(
         )
     else:
         review = (
-            f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
-            f"<p class='cleanup-review-note'>분류 근거 · {esc(reason)}</p>"
+            f"<details class='cleanup-review'><summary>여행·항목 수정</summary>{evidence}"
             f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
             f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
             "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>"
         )
-    if not is_cancellation and finance_label:
+    if not is_cancellation and finance_label and finance_label != reason:
         review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
     return review
 
@@ -222,7 +221,7 @@ def render_cleanup_card_row(
         f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(row.tid)}' data-batch='{esc(row.batch)}'"
         f" data-revision='{int(row.revision)}' data-held='{1 if row.held else 0}' data-merchant='{esc(row.merchant)}'"
         f" data-current-tab='{esc(row.current_tab or '')}'>"
-        f"<div class='cleanup-card-head'><h3>카드 거래</h3>"
+        f"<div class='cleanup-card-head'>"
         f"<span class='cleanup-badge{badge_class}'>{row.label}</span></div>"
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
         f"<div class='cleanup-title'><strong>{esc(row.merchant)}</strong><small>{esc(row.day or '')} · 카드 결제</small></div></div>"

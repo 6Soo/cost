@@ -55,6 +55,7 @@ def test_browser_shell_tracks_system_theme_and_mobile_menu_keyboard():
             assert page.locator(':root').evaluate(
                 "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
             page.emulate_media(color_scheme='dark')
+            page.wait_for_function("getComputedStyle(document.documentElement).getPropertyValue('--shell-bg').trim()==='#0F172A'")
             assert page.locator(':root').evaluate(
                 "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
 
@@ -137,5 +138,5 @@ def test_home_omits_unavailable_features_instead_of_placeholder_cards():
         body=ledger_design.work_menu_html()
     assert '영수증 처리' not in body and '확정 장부' not in body
     assert '설정 필요' not in body and '미연결' not in body
-    assert "href='/import'" in body and "href='/ota'" in body and "href='/cards'" not in body
+    assert "href='/import'" not in body and "href='/ota'" in body and "href='/cards'" not in body
     assert '<small>' not in body

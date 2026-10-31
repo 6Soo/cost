@@ -824,7 +824,7 @@ def _row_html(candidate: dict, trips: list) -> str:
               if candidate.get('image_sha') else '수동 입력')
     return (
         f"<tr data-version='{candidate_version(candidate)}' data-currency='{candidate.get('currency', 'JPY')}' "
-        f"data-group-id='{html.escape(candidate.get('group_id') or '')}'>"
+        f"data-group-id='{html.escape(candidate.get('group_id') or '')}' data-saved-trip='{html.escape(candidate.get('trip_id') or '')}'>"
         f"<td data-label='상호·날짜·여행'>{source}"
         f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
         f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
@@ -860,8 +860,9 @@ def _hold_html(hold: dict) -> str:
 
 VISION_SCRIPT = r"""const visionChoices={currency:[['','통화 선택'],['JPY','엔화 JPY'],['KRW','원화 KRW']],payment:[['','결제수단 선택'],['cash','현금'],['private_card','개인카드'],['corporate_card','법인카드']]};
 const selectedTrip=document.getElementById('selected-trip');
-try{const old=sessionStorage.getItem('cost-receipt-trip');if(old)selectedTrip.value=old;}catch{}
-const syncTrip=()=>{document.getElementById('copy-trip').value=selectedTrip.value};
+try{const requested=new URLSearchParams(location.search).get('trip');const old=requested||sessionStorage.getItem('cost-receipt-trip');if(old&&[...selectedTrip.options].some(o=>o.value===old))selectedTrip.value=old;}catch{}
+const syncTrip=()=>{document.getElementById('copy-trip').value=selectedTrip.value;
+if(selectedTrip.value){const url=new URL(location.href);url.searchParams.set('trip',selectedTrip.value);history.replaceState(null,'',url.pathname+url.search+url.hash);document.querySelectorAll('a.work-back').forEach(a=>a.href='/board?'+new URLSearchParams({tab:selectedTrip.value}))}};
 syncTrip();
 selectedTrip.onchange=()=>{try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};syncTrip()};
 const pendingKey='cost-receipt-pending';
@@ -1040,6 +1041,7 @@ td{border:0;border-bottom:1px solid var(--line2);padding:8px 0;overflow-wrap:bre
 td::before{content:attr(data-label);display:block;font-size:13px;font-weight:600;margin-bottom:6px;overflow-wrap:break-word}
 input,select,button{min-height:44px;font-size:16px}td button{width:100%}}
 @media(min-width:760px){body{margin:16px auto;max-width:960px;padding:0 16px 80px}.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
+tr[hidden]{display:none!important}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"""
 
 
@@ -1067,11 +1069,11 @@ def _photo_strip(data: dict) -> str:
 
 
 def _rescan_html(target: str) -> str:
-    return ("<div class='rescan'><h3>빠진 영수증이 있나요?</h3>"
+    return ("<details class='rescan'><summary>빠진 영수증 다시 찾기</summary>"
             "<p class='hint'>빠진 점이나 잘못된 점을 적고 다시 인식하세요. 기존 후보는 바뀌지 않고, 새로 찾은 영수증만 위에 보여 줍니다.</p>"
             f"<p class='hint'>다시 인식할 사진: <strong id='rescan-target'>{target}</strong> </p>"
             "<textarea id='feedback' maxlength='300' placeholder='예: 6장인데 5장만 찾았어. 작은 승선권 하나 더 찾아'></textarea>"
-            "<button type='button' id='rescan-go'>다시 인식</button></div>")
+            "<button type='button' id='rescan-go'>다시 인식</button></details>")
 
 
 def _notes_html() -> str:
@@ -1107,7 +1109,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "let receiptBusy=false;const lockControls=()=>{const controls=[...document.querySelectorAll('input,select,button')];"
         "const disabled=controls.map(control=>control.disabled);controls.forEach(control=>control.disabled=true);"
         "return()=>controls.forEach((control,index)=>control.disabled=disabled[index])};"
-        "const updateCandidate=(button,result)=>{const row=button.closest('tr');row.dataset.version=result.version;"
+        "const updateCandidate=(button,result)=>{const row=button.closest('tr');row.dataset.version=result.version;row.dataset.savedTrip=result.trip_id||'';"
         "for(const [field,key] of [['trip','trip_id'],['merchant','merchant'],['date','date'],['total','total_jpy'],"
         "['payment','payment'],['payee','payee'],['category','category']]){const input=row.querySelector('[data-'+field+']');"
         "input.value=(field==='total'&&result.currency==='KRW'?result.total_original:result[key])??'';originalValues.set(input,input.value)}"
@@ -1121,7 +1123,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "say('저장하고 있습니다.');try{const result=await action();if(onSaved){try{onSaved(result)}catch{"
         "say('저장은 완료됐지만 화면 갱신에 실패했습니다. 입력값을 보관하고 화면을 다시 열어 주세요.')}}else location.reload()}"
         "catch(error){say(error.message||'저장하지 못했습니다. 다시 시도해 주세요.')}"
-        "finally{restore();receiptBusy=false}};"
+        "finally{restore();receiptBusy=false;document.dispatchEvent(new Event('receipt-workflow-change'))}};"
         "document.querySelectorAll('[data-image-sha]').forEach(button=>button.onclick=()=>{"
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
@@ -1150,6 +1152,12 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const editBody=b=>{const id=b.dataset.edit;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),payee:val('data-payee',id),category:val('data-category',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"
+        "document.getElementById('group-go').onclick=()=>{const selected=[...document.querySelectorAll('[data-group-select]:checked')];"
+        "if(selected.length<2){say('묶을 영수증을 두 장 이상 선택해 주세요.');return}"
+        "const identities=selected.map(e=>e.dataset.groupSelect),expected_versions=Object.fromEntries(selected.map(e=>[e.dataset.groupSelect,e.closest('tr').dataset.version]));"
+        "save(()=>post('/api/receipts/group',{identities,expected_versions,trip_id:document.getElementById('selected-trip').value}))};"
+        "document.getElementById('ungroup-go').onclick=()=>{const groups=[...new Set([...document.querySelectorAll('[data-group-select]:checked')].map(e=>e.closest('tr').dataset.groupId).filter(Boolean))];"
+        "if(groups.length!==1){say('해제할 묶음 하나를 선택해 주세요.');return}save(()=>post('/api/receipts/ungroup',{group_id:groups[0]}))};"
         "document.getElementById('r-currency').onchange=()=>{document.getElementById('r-total').placeholder='금액('+document.getElementById('r-currency').value+')'};"
         "document.getElementById('copy-tsv').onclick=async()=>{if(receiptBusy)return;"
         "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
@@ -1182,9 +1190,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             f"<style>{PAGE_CSS}</style></head><body>"
             f"<nav aria-label='장부 이동'><a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a></nav>"
             "<h1>영수증 정리</h1><p id='status' role='status' aria-live='polite'></p>"
-            "<section id='step-trip'><h2>1. 여행 선택</h2><label>이 영수증들이 속한 여행"
+            "<section id='step-trip'><h2>1. 여행 선택</h2><label>검토할 여행"
             "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
             "</select></label></section>"
+            "<p><a href='#other-methods' id='receipt-manual-open'>사진 없이 직접 입력</a></p>"
             "<section id='step-photos'><h2>2. 사진</h2>"
             "<input id='img-file' type='file' multiple accept='image/*'> "
             f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
@@ -1194,12 +1203,13 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             + ai_section +
             "<section id='step-review'><h2>4. 후보 검토</h2>"
             "<p class='hint'>분류가 끝난 영수증만 지출로 복사됩니다.</p>"
+            "<p id='receipt-visible-count' role='status'></p>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
             f"</tr></thead><tbody>{rows}</tbody></table></section>"
-            "<section><h2>5. 승선권 등 선택 묶기</h2>"
+            "<details id='step-group'><summary>승선권 등 선택 묶기</summary>"
             "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
-            "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></section>"
+            "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></details>"
             "<section><h2>6. 구글 지출 7열 복사</h2>"
             f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
             f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
@@ -1215,4 +1225,31 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></div>"
             + (_notes_html() if ai else "") +
             "</details>"
-            f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}</script></body></html>")
+            f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}{WORKFLOW_SCRIPT}</script></body></html>")
+
+
+WORKFLOW_SCRIPT = r"""(()=>{
+const byId=id=>document.getElementById(id),trip=byId('selected-trip');
+const update=()=>{
+ if(receiptBusy)return;
+ const checked=[...document.querySelectorAll('[data-group-select]:checked')],photos=document.querySelectorAll('.photo-check:checked').length;
+ const state=(id,enabled)=>{const el=byId(id);if(el)el.disabled=!enabled};
+ state('img-go',byId('img-file').files.length>0);
+ state('vision-go',!!trip.value&&photos>0);
+ state('rescan-go',!!trip.value&&!!byId('image-sha').value);
+ state('ocr-go',!!byId('image-sha').value);
+ state('group-go',!!trip.value&&checked.length>=2);
+ const groups=new Set(checked.map(e=>e.closest('tr').dataset.groupId).filter(Boolean));
+ state('ungroup-go',groups.size===1);
+ const copy=byId('copy-trip').value;
+ const candidates=[...document.querySelectorAll('tr[data-version]')];
+ candidates.forEach(row=>row.hidden=!!trip.value&&!!row.dataset.savedTrip&&row.dataset.savedTrip!==trip.value);
+ const visible=candidates.filter(row=>!row.hidden).length;
+ byId('receipt-visible-count').textContent=visible?visible+'건의 영수증 후보': '이 여행에 등록된 후보가 없습니다. 사진을 등록하거나 직접 입력하세요.';
+ state('copy-tsv',!!copy&&candidates.some(row=>row.querySelector('[data-trip]').value===copy));
+ byId('step-group').hidden=candidates.length===0;
+};
+document.addEventListener('change',update);document.addEventListener('receipt-workflow-change',update);
+byId('receipt-manual-open').addEventListener('click',()=>{byId('other-methods').open=true;byId('r-merchant').focus()});
+update();
+})();"""
