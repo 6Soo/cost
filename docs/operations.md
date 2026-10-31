@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 전액 환불 완료와 나머지 입력 요청 분리
+
+- [PR416](https://github.com/6Soo/cost/pull/416), 운영 `8ebb4d8b495631e18d8c2d5b37a10c12e8257082`, 이전 검증5cab519d 복구점 보존. 실제 환불쌍2건은 이미 기기록이며 아래 입력요청11건은 별개임을 인증 GET으로 확인했다. 완료된 전액 상쇄만 별도 완료 카드와 추가 입력 없음으로 표시하고 비용/여행/비활성 기록 버튼과 일반 표 중복을 제거했다. 부분/보류/미기록은 유지한다.
+- 합성390/1440·4사례 및 병합본 같은4사례 통과(중복 합산하지 않음), 환불 연결/기록 보호36 passed.1196 blobs 불일치0·고정task/processSHA·단일listener·health/ready200·보호API401·보호13표 불변 PASS. 코드만 바꿔 이전 검증 릴리스/task XML 복구를 사용하고 전체백업/복원은 반복하지 않았다. 실제 금융/분류/연결/명단/Google/스키마 쓰기0.
+- 실제 ego-browser 완료 환불1묶음·추가 입력 없음·그 외11행/별도수정11건·넘침 없음 확인. 근거 `C:/AX/cost/.local-archive/zero-refund-review-20261031/`, `deploy-8ebb4d8b495631e18d8c2d5b37a10c12e8257082/`와 호스트 동일SHA deploy-evidence. 전체회귀/실기기 미실행, 문서 후속 재배포 없음.
+
 ## 2026-10-31 검토 상태 조치·조회 재시도 UX 배포
 
 - [PR414](https://github.com/6Soo/cost/pull/414)·운영 `5cab519de4a7993017b787ad7bfa6d9d5546072c`, 검증 `e4a3869b27114fc1533316c9b61f414cbfab3e9f`와 tree 동일. [조사 범위](specs/actionable-review-ux-audit-20261031.md)의 카드 거래별 수정·OTA/항공권 재시도·여행/참가자 자료 확인 동선을 배포했다.
