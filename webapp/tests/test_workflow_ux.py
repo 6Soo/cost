@@ -33,7 +33,9 @@ def test_trip_and_export_views_preserve_data_and_explicit_selection(tmp_path):
             assert [e['value'] for e in elements(page, 'input', name='tab_ids', checked=None)] == [trips[1]['tab_id']]
             assert len(elements(board.export_page(), 'input', name='tab_ids', checked=None)) == 2
             assert len(elements(board.export_page('not-a-trip'), 'input', name='tab_ids', checked=None)) == 2
-            management = board.trips_page(role='owner')
+            # Snapshot settings remain enabled for income reads after the old page's removal.
+            with patch('webapp.google_ledger_page.enabled', return_value=True):
+                management = board.trips_page(role='owner')
             assert len(elements(management, 'article', **{'class':'card trip-management-row'})) == 2
             assert not elements(management, 'details', **{'class':'trip-meta','open':None})
             assert elements(management, 'form', id='trip-management-filter')
