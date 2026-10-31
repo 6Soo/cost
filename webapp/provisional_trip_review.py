@@ -171,7 +171,6 @@ def dispatch(handler, parsed, *, board, query, raw, csrf):
 
 def render(csrf):
     return """<details id="provisional-trip-review"><summary>여행 자동분류 · 근거와 교정</summary>
-<p>분류되면 완료입니다. 자동·수동 출처와 근거를 표시하며, 잘못된 분류는 교정할 수 있습니다.</p>
 <label>카드 자료 <select data-trip-batch></select></label>
 <label>분류 출처 <select data-trip-state><option value="all">전체</option><option value="automatic">자동분류</option><option value="unassigned">미배정·충돌</option><option value="authority_questions">질문 필요</option><option value="manual">수동 교정</option></select></label>
 <p data-trip-message role="status"></p><ol data-trip-items></ol>

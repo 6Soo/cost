@@ -991,7 +991,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.locator('[data-rule]').click()
                     page.locator('#ruleform input[name=rule_item]').fill('사무용품')
                     page.get_by_role('button',name='규칙 저장하고 다시 분류').click()
-                    page.get_by_text('규칙을 저장하고 분류에 적용했습니다.',exact=False).wait_for()
+                    page.get_by_text('규칙을 저장했습니다.',exact=True).wait_for()
                     rule=pipe.list_rules()[0]
                     self.assertEqual(rule['optional'],{'source_hash':auto['source_hash'],'amount_range':{'min':200,'max':200}})
                     self.assertEqual(rule['effects']['item'],'사무용품')
@@ -1037,7 +1037,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.locator('#ruleform input[name=merchant]').fill('합성상점')
                     page.locator('#ruleform input[name=rule_item]').fill('사무용품')
                     page.get_by_role('button',name='규칙 저장하고 다시 분류').click()
-                    page.get_by_text('규칙을 저장하고 분류에 적용했습니다.',exact=False).wait_for()
+                    page.get_by_text('규칙을 저장했습니다.',exact=True).wait_for()
                     self.assertEqual(server.card_store.list_tab_rows(None)[0]['item'],'소모품')
                     page.get_by_role('button',name='카드 사용내역 업로드하고 분류').click()
                     page.get_by_text('분류가 끝났습니다.',exact=True).wait_for()
