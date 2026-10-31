@@ -1486,7 +1486,9 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             # them through the name.
             f"<p class='muted'>연도 {esc(str(t.get('event_year') or ''))} · "
             f"종류 {esc(t.get('tab_kind') or 'trip')} · "
-            f"권위 {esc(AUTHORITY_LABELS.get(t.get('authority_status'), '미확인'))}</p>"
+            f"일정 근거 {esc('미확인' if t.get('authority_status') != 'authoritative' else '확인됨')}</p>"
+            f"<p><a class='btn' href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>여행 자료 확인</a> "
+            "<a class='btn' href='/google-ledger'>원본 장부·연결 설정 확인</a></p>"
             f"<p>{counts}</p>"
             + (f"<p class='muted'>댓글 {str(registration['comment_count'])+'개' if registration['comment_count'] is not None else '확인 불가'} · "
                f"<a href='{esc(registration['source_url'])}' target='_blank' rel='noopener'>여행글 보기</a></p>"

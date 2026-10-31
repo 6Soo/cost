@@ -281,6 +281,12 @@ def render_page(state: dict, *, csrf: str = "") -> str:
     summary += f"<p class='small'>마지막 Google 확인 {esc(checked_at)}</p>"
     match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
     match_link = f"<a class='participant-match-link' href='{esc(match_href)}'>보험 명단과 수입 글자 대조</a>"
+    if not google.get('available') or not configured or blocked or index_note:
+        trip_href = '/board?' + urlencode({'tab': state.get('trip_id') or ''})
+        match_link += (f" <a class='participant-source-action' href='{esc(trip_href)}'>여행 수입·명단 확인</a>"
+                       " <a class='participant-source-action' href='/google-ledger'>장부 연결 설정 확인</a>")
+        if not configured:
+            match_link += " <a class='participant-source-action' href='/reserve-links'>예약 명단·여행 연결</a>"
 
     def hidden():
         return (f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
