@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 PR403 trip review icon-card design
+
+- [PR403](https://github.com/6Soo/cost/pull/403) normal merge; testedc0326bf8 and runtime `6c4bb1cfbb08938dbe706f6d94c95e556e90bb42` trees match. Scoped markup/CSS adds summary and seven link icons, complete clickable cards, responsive3/2/1 layout and theme/focus/motion handling; existing links and source-derived review facts unchanged.
+- 12 targeted tests passed; synthetic desktop/mobile light/dark visuals,320px200% no overflow, seven icons and keyboard toggle accepted. Ego task finished. Authenticated owner-page/physical-device acceptance was not repeated.1189 blobs match, task/process SHA, listener1, health/ready200, protectedAPI/affected-page401 and13 protected financial tables unchanged. Prior verifiedf98e401f release/task rollback remains available; no new full data backup/restore for reversible UI-only deployment.
+- Evidence `.local-archive/trip-review-design-20261031/` and `.local-archive/deploy-6c4bb1cfbb08938dbe706f6d94c95e556e90bb42/`; host sameSHA release audit/deploy evidence. No financial/source/participant/Google data, schema or scheduler writes. Insurance integration diagnosis is recorded separately in [current status](session_handoff.md), not claimed as fixed by this design change.
+
 ## 2026-10-30 PR400 card phase metrics and protected diagnostics
 
 - [PR400](https://github.com/6Soo/cost/pull/400) merged normally. Tested `208eb6faa122c0b3929e22f6369f758986d6fada` and runtime `f98e401fe9b2777e93c6342293d287af4b12804b` trees match. Existing request metrics now separate card connection/query/labels/render stages and expose bounded aggregate diagnostics to the owner. Data-load timings include connection/materialization and are not additive SQLite CPU timings.
