@@ -1,3 +1,10 @@
+## 2026-10-31 여행 자동분류 중복 메뉴·완료 설명 제거
+
+- COMPLETE — 최신 사용자 요청의 중복 메뉴와 불필요 문구를 정리했다. [PR #427](https://github.com/6Soo/cost/pull/427), 구현 `c05b5c95`, 운영 SHA `55e2612fc3c0a5e5229f59b31858219d5de12838`. `/import`의 별도 여행 자동분류 섹션과 “분류되면 완료입니다” 설명을 제거하고 저장 성공·규칙 저장·여행 없음 근거를 짧게 표시한다. 앞서 main에 병합된 전체 화면 설명 정리와 새 기능은 보존했다.
+- 검증: 관련48개 + 중복 메뉴 부재/조회 DB 무쓰기1개 + CSRF를 보존한 독립 컴포넌트 브라우저1개, 총50개 통과. 화면 회귀9개 실패는 수정 전 main `6ac4af43`에서도 동일 재현했다. 업로드 버튼·페이지 선택·예약 근거·홈 건수 등 기존 실패를 통과로 세지 않았다. 독립 컴포넌트 테스트의 초기 CSRF 전달 누락은 수정 후 통과했다. 전체 회귀·운영 owner 브라우저·실기기 검사는 미실행이다.
+- 배포: 검수/병합 tree 동일·1,199 Git blobs 불일치0·task/process 고정SHA·단일loopback listener·health/ready200·영향 `/import`와 보호 화면/API401·금융/사용자 보호13표 내용/스키마 불변. 코드만 전환했으며 이전 검증 `d2b4394634f9eab85c356291e909509560dac9eb`와 task XML 복구점 보존, 별도 DB 백업/복원·금융/분류/여행/Google/원본 쓰기·스키마 변경0.
+- 근거: `.local-archive/copy-cleanup-continuation-20261031/`의 targeted/rerun/standalone-browser/baseline·review·protection-before/after·deploy-evidence, 호스트 동일 SHA release-audit/deploy-evidence. 현재 UI 요청의 미결·차단0, 다음 명령 없음. 이전 하나카드 무거래 판정 철회와 자료 수집 미결을 UI 완료로 처리하지 않는다. 문서 후속으로 재배포·재시작하지 않는다.
+
 ## 2026-10-31 수기지출 중복대조 메뉴를 여행 지출표로 통합
 
 - COMPLETE — 사용자 “수기지출중복대조 이게 대체 뭘 하라는 메뉴인데? 왜 존재해야해?” 및 “진행해”에 따라 별도 화면/메뉴를 제거했다. [PR419](https://github.com/6Soo/cost/pull/419), 구현 `03c9ea06`, 배포 SHA `1897869876a210b2b859afb6546de97bbaa83ddc`.
