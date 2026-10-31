@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-31 PR #427 중복 여행 자동분류 메뉴·문구 제거
+
+- [PR #427](https://github.com/6Soo/cost/pull/427), 운영 `55e2612fc3c0a5e5229f59b31858219d5de12838`. `/import`의 카드 검토와 중복되는 여행 자동분류 메뉴와 완료 설명을 제거했다. 저장/규칙 적용 메시지와 여행 없음 근거를 줄였으며 보호 API와 거래별 근거·보류 상태는 유지한다.
+- 관련50개 통과. 화면 회귀9개는 수정 전 `6ac4af43`에서도 재현한 기존 실패이며 통과로 세지 않았다. 독립 컴포넌트 브라우저 검사에서 CSRF 전달을 복구해 재검증했다. 전체 회귀·운영 owner 브라우저·실기기 미실행.
+- 검수/병합 tree 동일·1,199 blobs 불일치0·task/process SHA·단일loopback listener·health/ready200·`/import`/카드/장부/예약/OTA/환불 보호경로401·보호13표 불변. 코드 전환만 수행해 별도 DB 백업/복원과 실제 금융/분류/여행/Google/원본 쓰기0. 이전 검증 `d2b4394634f9eab85c356291e909509560dac9eb`와 task XML 복구점을 보존했다.
+- 근거: `.local-archive/copy-cleanup-continuation-20261031/`의 review·검사·baseline 비교·protection-before/after·deploy-evidence와 호스트 동일 SHA release-audit/deploy-evidence. 이 문서 후속으로 재배포·재시작하지 않는다.
+
 ## 2026-10-31 PR #424 Google 지출 비교·수기 추가 모달 배포
 
 - 운영 고정 `d2b4394634f9eab85c356291e909509560dac9eb`, [PR #424](https://github.com/6Soo/cost/pull/424). 합계 수식 오류와 개별 행 비교를 분리하되 완전한 정수 원화 행·snapshot 행 합계 일치를 요구한다. 실제 readonly 대조49여행 가능/합계경고2/비표준12/DB changes0. strict export·권한·금융 보호는 유지한다.
