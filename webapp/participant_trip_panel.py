@@ -21,7 +21,12 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
             search: str = "") -> dict:
     """Build a bounded view without changing the reconciler's source state."""
     needle = search.strip().casefold()
-    rows = list(state.get("income_rows") or [])
+    from . import google_ledger_page as google
+    def display_row(row):
+        return dict(row, date=row.get('date') or (row.get('cells') or {}).get('B'))
+    rows = sorted([row for row in state.get('income_rows') or []
+                   if not google.is_unconfirmed_income_row(display_row(row))],
+                  key=lambda row: google.transaction_date_sort_key(display_row(row)))
     people = [person for person in (state.get("roster") or {}).get("participants") or []
               if person.get("active", True) and person.get("state") == "confirmed"]
     if needle:
@@ -53,8 +58,10 @@ def _review_markup(state, data):
     if state.get('configured') and not review.get('available'):
         return ''
     by_ref = {}
+    truncated = False
     for contract in review.get('contracts') or []:
         for row in contract.get('rows') or []:
+            truncated = truncated or row.get('candidate_count', 0) > len(row.get('matches') or [])
             for match in row.get('matches') or []:
                 by_ref.setdefault(match.get('ref'), []).append(row)
     counts = review.get('counts') or {}
@@ -78,6 +85,8 @@ def _review_markup(state, data):
             label = '글자 일치 · ' + str(hits[0].get('masked_name') or '')
         elif hits:
             label = f"보험 명단 후보 {len(hits)}건"
+        elif truncated:
+            label = '후보 목록 확인 필요'
         else:
             label = '글자 일치 없음'
         generation = (state.get('google') or {}).get('generation') or ''

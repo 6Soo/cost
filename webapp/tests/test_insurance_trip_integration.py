@@ -93,6 +93,26 @@ def test_confirmed_manual_links_are_not_replaced_by_masked_candidates():
     assert markup.count('participant-income-status') == 1
 
 
+def test_income_status_page_uses_the_same_date_order_as_the_visible_income_table():
+    from webapp.tests.test_participant_trip_panel import sample_state
+    value = sample_state(25)
+    for i, row in enumerate(value['income_rows']):
+        row['cells']['B'] = f'2026-10-{25-i:02d}'
+    before = copy.deepcopy(value)
+    result = panel.project(value)
+    assert [r['row'] for r in result['rows']] == list(range(30,10,-1))
+    assert [r['row'] for r in panel.project(value, income_offset=20)['rows']] == list(range(10,5,-1))
+    assert value == before
+
+
+def test_capped_candidate_list_does_not_claim_unlisted_rows_have_no_match():
+    value = state()
+    value['insurance_review'] = {'available': True, 'counts': {'contracts':1,'rows':1},
+        'contracts': [{'rows': [{'match_state':'ambiguous','matches':[], 'candidate_count':21}]}]}
+    markup = panel.render(value)
+    assert '후보 목록 확인 필요' in markup and '글자 일치 없음' not in markup
+
+
 @pytest.mark.parametrize('generation', ['one', 'changed'])
 def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(monkeypatch, tmp_path, generation):
     from playwright.sync_api import sync_playwright
