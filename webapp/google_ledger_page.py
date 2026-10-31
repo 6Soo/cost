@@ -340,7 +340,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td>"
             + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'>"
-                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험가입내역을 열어 연결 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 참가자와 연결'>연결</button></td>")
+                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험 명단 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 명단 대조'>대조</button></td>")
                if owner else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap
@@ -359,17 +359,13 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                  f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
                  "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
                  f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th>"
-                 + ("<th>보험 등록</th>" if owner else "") + "</tr></thead>"
+                 + ("<th>보험 명단</th>" if owner else "") + "</tr></thead>"
                  f"<tbody>{lines or f'<tr><td colspan=\"{7 if owner else 6}\">연결된 장부에 수입내역이 없습니다.</td></tr>'}</tbody>"
                  f"{tfoot}</table></div>")
         figures = (f"<p class='small'>장부 행 합계 {_money(rows_total)} · 장부 집계 "
                    f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
         source_link = (f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
                        f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
-        participant_link = ""
-        if owner:
-            participant_link = (f"<a class='btn' href='/participants?trip={html.escape(quote(tab_id, safe=''), quote=True)}'>"
-                                f"{ui_icons.icon('users')}참가자 대조</a>")
         overall_notice = ("<p class='small income-warning' role='status'>수입 자료는 표시하지만 지출 또는 여행 전체 회계 검증은 완료되지 않았습니다.</p>"
                           if income_verified and not trip.get('verified') else '')
         reasons_p = f"<p class='small'>{html.escape(reasons)}</p>" if reasons else ''
@@ -379,7 +375,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
 
         meta = (f"<div class='income-meta-bar income-detail'>"
                 f"<div class='income-meta-info'>{time_row}{figures}</div>"
-                f"<div class='income-meta-actions'>{source_link}{participant_link}</div>"
+                f"<div class='income-meta-actions'>{source_link}</div>"
                 f"</div>")
         more_link = (f"<a class='btn' href='/board?tab={html.escape(quote(tab_id, safe=''), quote=True)}&amp;participant_income_offset={income_offset + limit}'>다음 수입 20건</a>"
                      if owner and income_more else '')

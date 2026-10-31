@@ -237,7 +237,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
         owner.feed(owner_html)
         self.assertIn(7, owner.rows)
         self.assertIn(6, owner.rows)
-        self.assertIn("+ (\"<th>보험 등록</th>\" if owner else \"\")",
+        self.assertIn("+ (\"<th>보험 명단</th>\" if owner else \"\")",
                       __import__('inspect').getsource(gl.trip_income_html))
 
     def test_a_stale_decision_is_refused(self):
@@ -485,7 +485,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertIn('명단으로 참가 확정', body)
         self.assertNotIn('>confirmed<', body)
 
-    def test_the_trip_income_area_links_to_the_owner_page(self):
+    def test_the_trip_income_area_does_not_duplicate_the_inline_participant_entry(self):
         from webapp import google_ledger_page as gl_page
         from webapp import ledger_board as board_mod
         original = board_mod.current_role
@@ -494,7 +494,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
             body = gl_page.trip_income_html(self.trip)
         finally:
             board_mod.current_role = original
-        self.assertIn('/participants?trip=', body)
+        self.assertNotIn('/participants?trip=', body)
+        self.assertIn('수입·지출 원본 상세', body)
 
     def test_browser_owner_links_a_name_only_income_row_once(self):
         from playwright.sync_api import sync_playwright

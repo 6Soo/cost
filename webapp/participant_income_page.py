@@ -498,9 +498,10 @@ def dispatch(handler, parsed, *, is_owner: bool, raw=None, csrf: str = "", query
     trip_id = str(query.get("trip", [""])[0] or "")
     state = build_state(trip_id)
     if parsed.path == "/api/participants/trip-panel":
-        from . import participant_trip_panel
+        from . import participant_trip_panel, insurance_income_match_service
         try:
             controls = participant_trip_panel.controls_from_query(query)
+            state = dict(state, insurance_review=insurance_income_match_service.trip_review(state))
             handler._send(participant_trip_panel.render(
                 state, csrf=csrf, **controls))
         except (TypeError, ValueError):

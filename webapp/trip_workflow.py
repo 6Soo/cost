@@ -72,7 +72,6 @@ def render(board, trip_id, cost_rows, amount_groups):
                     else '영수증 자료 확인 필요')
     google_text = '정본 대조 조회 가능' if state['google_available'] else '정본 대조 확인 필요'
     last_success = google.format_display_time(state['last_success_at'])
-    match_url = '/participants/insurance-match?' + urlencode({'trip':trip_id})
     from .sheet_expense_review import PAGE_PATH
     google_url = PAGE_PATH + '?' + urlencode({'trip':trip_id})
     links = [('credit-card', '카드 원천', '수집 범위 확인', '/cards/all'),
@@ -81,7 +80,7 @@ def render(board, trip_id, cost_rows, amount_groups):
              ('receipt', '영수증', receipt_text, '/receipts'),
              ('table', 'Google 반영', google_text + ' · 마지막 정상 조회 ' + last_success, google_url),
              ('archive', '여행 마감', closure, '#trip-income'),
-             ('users', '보험 명단', '명단과 수입 글자 대조', match_url)]
+             ('users', '보험 명단', '명단과 수입 글자 대조', '#participant-trip-panel')]
     cards = ''.join(
         f"<a class='trip-workflow-card' href='{esc(href)}'>"
         f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"

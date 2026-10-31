@@ -71,6 +71,47 @@ def _overlaps(contract, trip):
         return False
 
 
+def trip_review(state, *, review=None, trips=None):
+    """Reuse masked matching for this trip without registering a participant.
+
+    The standalone search can explicitly inspect any contract against a selected
+    trip. Embedded results must instead respect explicit mapping or overlapping
+    travel periods; never promote unrelated contracts to this trip's insurance.
+    Reuse the participant view's consistent income generation rather than read
+    another generation while composing the same panel.
+    """
+    tid = state.get('trip_id') or ''
+    try:
+        if review is None:
+            path = os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')
+            if not path:
+                return _failure('REVIEW_NOT_CONFIGURED', '보험 명단 자료가 연결되지 않았습니다.')
+            review = load_review_manifest(path)
+        trips = _current_trips() if trips is None else trips
+        selected = [trip for trip in trips if trip.get('tab_id') == tid]
+        if not tid or len(selected) != 1:
+            return _failure('INVALID_FILTER', '여행 연결을 확인해 주세요.')
+        trip = selected[0]
+        contracts = [contract for contract in review['contracts']
+                     if (contract.get('cost_trip_id') == tid
+                         or (not contract.get('cost_trip_id') and _overlaps(contract, trip)))]
+        google = state.get('google') or {}
+        rows = [dict(row, trip_id=tid, trip_name=trip.get('display_key') or tid,
+                     date=(row.get('cells') or {}).get('B') or '')
+                for row in state.get('income_rows') or []]
+        context = {'rows_by_trip': {tid: rows},
+                   'blocked_trip_ids': set() if (google.get('available') and not google.get('stale')
+                                                and google.get('generation')) else {tid},
+                   'generation': google.get('generation'),
+                   'mapping': {google.get('key') or '': tid}, 'choices': {}}
+        result = build_state({'trip': [tid]}, review=dict(review, contracts=contracts),
+                             trips=selected, context=context)
+        result['scope'] = 'explicit_trip_mapping_or_overlapping_period'
+        return result
+    except (ManifestError, OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+        return _failure('MATCH_SOURCE_UNAVAILABLE', '보험 명단 또는 현재 수입 자료를 확인할 수 없습니다.')
+
+
 def build_state(query=None, *, review=None, trips=None, context=None):
     """Project text associations only; never persist identities or financial links."""
     query = query or {}
