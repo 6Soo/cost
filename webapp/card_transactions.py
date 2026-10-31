@@ -183,7 +183,7 @@ def transaction_detail(transaction_id: str, db_path=None):
     fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
               'foreign_amount', 'foreign_currency', 'merchant', 'description',
               'classification_state', 'classification_source', 'trip_id', 'display_tab_id',
-              'item', 'duplicate_of', 'conflict_reason', 'issuer', 'card_kind', 'card_tail')
+              'item', 'duplicate_of', 'conflict_reason', 'issuer', 'card_kind', 'card_tail', 'batch_id', 'parse_error')
     conn = _connect(_resolve_card_db_path(db_path))
     try:
         row = conn.execute('SELECT ' + ','.join(fields) + ' FROM transactions WHERE transaction_id=?',
@@ -295,7 +295,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         sql = (
             "SELECT transaction_id, approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
-            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id) "
+            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             "FROM transactions WHERE " + where +
             " ORDER BY substr(approval_date, 1, 10) ASC, "
             "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
@@ -307,9 +307,9 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab,refund_member = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab,refund_member,batch = r
             items.append({
-                "transaction_id": tid,
+                "transaction_id": tid, "batch_id": batch,
                 "use_date": adate or "",
                 "approval_date": adate,
                 "approval_number": anumber,
@@ -379,7 +379,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         cur.execute(
             f"SELECT transaction_id, approval_date, approval_number, amount_krw, "
             f"foreign_amount, foreign_currency, merchant, description, classification_state, "
-            f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id) "
+            f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             f"FROM transactions WHERE {where} "
             f"ORDER BY transaction_id ASC LIMIT ?",
             params + [per_page + 1])
@@ -388,9 +388,9 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab,refund_member = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab,refund_member,batch = r
             items.append({
-                "transaction_id": tid,
+                "transaction_id": tid, "batch_id": batch,
                 "approval_date": adate or "",
                 "approval_number": anumber,
                 "amount_krw": amt,
@@ -463,7 +463,7 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
         sql = (
             "SELECT transaction_id, approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
-            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id) "
+            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             "FROM transactions WHERE " + where +
             " ORDER BY substr(approval_date, 1, 10) ASC, "
             "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
@@ -475,9 +475,9 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer, kind, tail, display_tab, refund_member = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer, kind, tail, display_tab, refund_member, batch = r
             items.append({
-                "transaction_id": tid, "use_date": adate or "", "approval_date": adate,
+                "transaction_id": tid, "batch_id": batch, "use_date": adate or "", "approval_date": adate,
                 "approval_number": anumber, "amount_krw": amt, "foreign_amount": famt,
                 "foreign_currency": fcurr, "merchant": merchant, "description": desc,
                 "classification_state": state, "classification_source": src,
