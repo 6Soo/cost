@@ -142,7 +142,7 @@ def render_html(data, query, *, csrf=''):
         amount = f"{r['amount_krw']:,}원" if type(r['amount_krw']) is int else '금액 미확인'
         cells = [('거래일', r['approval_date'] or r['posting_date']),
                  ('카드', r['issuer'] + ' · ' + r['card_tail']), ('지급처', r['merchant']),
-                 ('구분', direction + ' · ' + r['transaction_kind']), ('원본 금액', amount),
+                 ('거래 구분', direction), ('원본 금액', amount),
                  ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or
                   (quarter['name'] + ' · 여행 외 비용' if quarter else '여행 확인 필요')), ('상태', state)]
         row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
@@ -164,7 +164,7 @@ def render_html(data, query, *, csrf=''):
         f"<a class='catalog-btn' href='/import?scope=all'>{ui_icons.icon('rotate-ccw')}초기화</a>"
         + hidden_filters + "<input type='hidden' name='scope' value='all'></form>"
         + "<table><thead><tr>" + date_heading + card_heading
-        + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '구분', '원본 금액', '분류', '여행'))
+        + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '거래 구분', '원본 금액', '분류', '여행'))
         + state_heading + "<th scope='col'>다음 행동</th>"
         + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td colspan="9">조건에 맞는 카드 내역이 없습니다.</td></tr>')
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"

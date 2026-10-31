@@ -187,7 +187,7 @@ let activeDay='',cursor=null,revision=null;
 const render=tx=>{
  const row=document.createElement('article');row.className='fb-date-row';text(row,'h3',tx.merchant||'가맹점 미확인');
  const grid=document.createElement('div');grid.className='fb-grid';row.append(grid);
- for(const [key,title] of [['approval_date','이용일·원본 시각'],['approval_number','승인번호'],['transaction_direction','원행 거래 구분'],['transaction_kind','원행 거래 유형'],['classification_state','기존 분류 상태'],['trip_id','원행 여행 ID'],['display_tab_id','기존 표시 여행 ID'],['item','비용 항목']])field(grid,title,tx[key]);
+ for(const [key,title] of [['approval_date','이용일·원본 시각'],['approval_number','승인번호'],['transaction_direction','원행 거래 구분'],['classification_state','기존 분류 상태'],['trip_id','원행 여행 ID'],['display_tab_id','기존 표시 여행 ID'],['item','비용 항목']])field(grid,title,tx[key]);
  field(grid,'원화 금액',tx.amount_krw==null?null:String(tx.amount_krw)+'원');
  field(grid,'외화 금액·통화',[tx.foreign_amount,tx.foreign_currency].filter(v=>v!=null&&v!=='').join(' '));
  const protections=[];if(tx.duplicate_of)protections.push('중복 원행');if(tx.conflict_reason)protections.push('원본 충돌');if(tx.parse_error)protections.push('원본 오류');
