@@ -1373,18 +1373,20 @@ MANUAL_EXPENSE_STYLE = """<style>
 </style>"""
 
 
-def expense_new_page() -> str:
+def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
+    trips = [t for t in live_trips(include_archived=True)
+             if not t.get('archived') or t['tab_id'] == selected_tab]
     options = "".join(
-        f"<option value='{esc(t['tab_id'])}'>{esc(t['display_key'])}</option>" for t in live_trips()
+        f"<option value='{esc(t['tab_id'])}'"
+        f"{' selected' if t['tab_id'] == selected_tab else ''}>{esc(t['display_key'])}</option>"
+        for t in trips
     )
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
-    body = (
-        "<section class='mx-card'><h2>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
+    if not any(t['tab_id'] == selected_tab for t in trips):
+        options = "<option value='' selected>미배정</option>" + options
+    close = ("<button type='button' data-manual-close>닫기</button>" if modal
+             else "<a href='/board'>장부로 돌아가기</a>")
+    return (
+        "<section class='mx-card'><h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
         f"<form method='post' action='/api/expenses/manual' class='mx-form'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1396,13 +1398,17 @@ def expense_new_page() -> str:
         "<div class='mx-field'><label for='mx-item'>항목</label><input id='mx-item' name='item'></div>"
         "<div class='mx-field'><label for='mx-desc'>내용</label><input id='mx-desc' name='description'></div>"
         "<div class='mx-field wide mx-amount'><label for='mx-amount'>금액 (원, 환불은 음수)</label>"
-        "<input id='mx-amount' name='amount_krw' inputmode='numeric' placeholder='0'></div>"
+        "<input id='mx-amount' name='amount_krw' required inputmode='numeric' placeholder='0'></div>"
         "<div class='mx-field wide'><label for='mx-memo'>메모</label><input id='mx-memo' name='operator_note'></div>"
         "</div>"
-        "<div class='mx-actions'><button class='mx-submit' type='submit'>저장</button></div>"
+        "<p class='mx-error' role='alert'></p>"
+        f"<div class='mx-actions'>{close}<button class='mx-submit' type='submit'>저장</button></div>"
         "</form></section>"
     )
-    return layout("수기 지출 추가", f"{top}<div class='wrap'>{MANUAL_EXPENSE_STYLE}{body}</div>")
+
+
+def expense_new_page() -> str:
+    return layout("수기 지출 추가", f"<div class='wrap'>{MANUAL_EXPENSE_STYLE}{manual_expense_form()}</div>")
 
 
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE

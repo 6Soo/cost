@@ -34,6 +34,7 @@ def _reason_label(reason):
         'INVALID_OR_UNCERTAIN_ROW': '일부 원행의 금액·통화·식별 정보가 불확실합니다.',
         'TRIP_MAPPING_UNAVAILABLE': '이 여행과 Google 장부의 연결을 확인해 주세요.',
         'SOURCE_NOT_VERIFIED': 'Google 지출 자료가 검증되지 않았거나 오래됐습니다.',
+        'SOURCE_LAYOUT_UNSUPPORTED': '이 여행의 Google 시트는 표준 지출 양식이 아닙니다.',
         'SOURCE_FINGERPRINT_MISMATCH': 'Google 지출 자료가 바뀌어 다시 확인해야 합니다.',
         'SOURCE_NOT_SELECTED': '대조할 Google 장부를 선택해 주세요.',
         'GOOGLE_SOURCE_DISABLED': 'Google 지출 자료가 연결되지 않았습니다.',
@@ -93,6 +94,8 @@ def render_summary(state: Mapping[str, object]) -> str:
         note = f"비교 불가 · {_esc(_reason_label(reason))}"
     else:
         note = "Google 지출 스냅샷 기준"
+        if state.get('total_warning'):
+            note += ' · 시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교'
         if reason:
             note += f" · {_esc(reason)}"
     if last_success:

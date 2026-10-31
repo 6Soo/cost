@@ -625,3 +625,9 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 @media(max-width:1100px){.trip-workflow-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.trip-workflow>summary{padding:12px 14px}.trip-workflow-grid{grid-template-columns:minmax(0,1fr);padding:12px;gap:8px}.trip-workflow .trip-workflow-card{min-height:76px;padding:12px}}
 @media(prefers-reduced-motion:reduce){.trip-workflow-toggle,.trip-workflow .trip-workflow-card{transition:none}}
+#manual-expense-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);box-sizing:border-box;overflow:auto}
+#manual-expense-dialog::backdrop{background:rgb(0 0 0 / .45)}
+#manual-expense-dialog .mx-card{margin:0;border:0;box-shadow:none;max-width:none}
+#manual-expense-dialog .mx-actions{gap:12px}
+#manual-expense-dialog .mx-actions button{min-height:44px}
+#manual-expense-dialog .mx-error{color:var(--danger,#b42318);overflow-wrap:anywhere}
