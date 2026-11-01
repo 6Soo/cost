@@ -251,9 +251,21 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                  "parsed"))
             plan = _keyless_plan(store, batch_id, parsed.rows)
             occurrences = {}
+            from .card_export_profiles import existing_purchase
+            used_export_matches = set()
             for row in parsed.rows:
+                export_match = existing_purchase(store, batch_id, parsed.parser, row)
+                if export_match is not None and export_match[0] in used_export_matches:
+                    export_match = None
+                elif export_match is not None:
+                    used_export_matches.add(export_match[0])
                 keyless = plan.get(row.row_index)
-                if keyless is not None and keyless["matched"]:
+                if export_match is not None:
+                    identity, same_source = export_match
+                    outcome = ('reused' if same_source else
+                               _insert_row(store, batch_id, row, now, identity))
+                    matched += int(same_source)
+                elif keyless is not None and keyless["matched"]:
                     # The same payment is already recorded: link this file's row to it.
                     outcome, identity = "reused", keyless["matched"]
                     matched += 1
