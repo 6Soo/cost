@@ -1,5 +1,15 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-01 김동언(안드레) 여행 장부 추가 완료
+
+- COMPLETE — [PR #447](https://github.com/6Soo/cost/pull/447), 구현 `93fb4182`, 운영 SHA `35a6263b9cd876091ccadaae66fda8f056e0fe5c`. [실행 명세](specs/andre-multi-owner-ledger-20261101.md)의 담당자별 원본·여행 식별, 기간 추론 분리, 수동 이름/종료일 보존, 여행 관리 담당자 필터, 수입·참가자·보험 참조 및 지출 중복 검토를 반영했다. 카드 소유자만으로 여행을 재배정하지 않았다.
+- 실제 안드레 원본은 최초3개 확인 후 작업 중5개로 증가했다. 최종 `1022_홍천`, `1031_양평`, `1105_용인`, `1107_강화`, `1111_철원`을 모두 생성·연결했고, 새 원본까지 정기 읽기 대상이다. Google 원본3개/장부항목70(아슬란65+안드레5)·운영 수입 요약5개 조회 PASS. 보관 장부가 없어 안드레 마감은 미상이며 금융/환급 완료를 추정하지 않는다.
+- 검증: 같은 원본으로 기존/신규 파서를 비교해 아슬란65개 금액·기간·마감·원본 차이0. 별도 SQLite 사본의 전체 snapshot import에서 신규5·기존61·기존 근거 보류1, 기존 여행 행 변화0·재실행 신규0. 표적 원본/ADC·동명/연도 분리·수동 교정·매핑·참가자/보험 참조·지출 보호 통과. 통합 UI59 passed/2 subtests, 최종 PR448 포함28 passed/2 subtests, 저장/UI 보호34 passed/8 subtests, 지출 보호33 passed, 참조15 passed, 매핑26 passed이며 서로 중복되므로 합산하지 않는다. 기존 안내 문구1개·폐기 Google 라우트23개/별도 변형6개의 실패는 기준 `f05f599d`에서 재현했고 통과로 세지 않았다.
+- 배포: 1,213 Git blobs 불일치0·검증/병합 tree 동일·task/process SHA·단일 loopback listener·health/ready200·영향/보호 경로401·금융/수동 보호13표 불변. 직전 검증 `3d991339`와 task XML·Google 원본 generation·SQLite 복구 사본/격리 import 검증을 보존했다. 기존 서버를 정지한 동일 전환 안에서 snapshot/rows를 원자 게시하고 정상 startup writer만 신규 여행을 생성했다. 실패 시 이전 코드 기동 전에 원본 snapshot을 복원하도록 전환 훅을 검토했다. 신규 마이그레이션·금융 재처리 없이 전체 원본 백업/서버 복원 리허설은 반복하지 않았다.
+- `WebLedger-GoogleAuthority`의 기존 실행·인증·트리거를 보존하고 코드만 같은 SHA로 고정했다. 실제 예약 작업 실행은 Ready/LastTaskResult0, 다음 정기 실행 유지. SourceRefresh 상태와 ParticipantSyncConfig 인수 보존. 실제 변경은 새 읽기 원본/snapshot·여행5개/자동 연결5개이며 Google 쓰기·카드 재분류·환불·원문 수정0이다.
+- Luna medium과 ANUS Free Auto를 병렬 위임했다. ANUS 편집 오류는 취소 후 Luna로 인계했고 검증되지 않은 통과 주장은 사용하지 않았다. 최신 보험/수입 UI 후속 PR448도 함께 배포했다. 해당 담당자가 별도로 수행한 실제 인증 PC1440/모바일390 검색·초기화·목록/버튼 수락은 [보험·수입 UI 명세](specs/insurance-income-workflow-ux-20261101.md)에 기록한다. 안드레 자체의 검증은 실제 원본/운영 자료 조회와 합성 PC/모바일 필터이며 인증 운영 브라우저 검수·전체 회귀·실기기는 미실행이다.
+- 근거: `C:/AX/cost/.local-archive/andre-ledger-20261101/`의 validation·same-input-acceptance·rehearsal/full-rehearsal·검사XML·release-audit/runtime-ready/deploy-evidence·source-activation/operating-read/google-task-status, 호스트 같은 SHA release/deploy evidence. 고객 원문/사본은 Git 제외 로컬에만 보존한다. 현 요청 미결·차단0. 이 후속 문서만으로 재배포·재시작하지 않는다.
+
 ## 2026-11-01 보험 명단 열 가독성·모바일 배치 개선 완료
 
 - COMPLETE — 최신 사용자 스크린샷의 보험 명단 열 UIUX 개선. [PR #442](https://github.com/6Soo/cost/pull/442), 구현 `62f75767`·`02c6779f`, 운영 SHA `89f09d9b457167ed0cc028181bdb77914d00ba52`. 말줄임을 해제하고 연결 이름·인원은 기본 표시, 연결 근거·개별 해제는 펼침으로 정리했다. 모바일은 수입 행 아래에 보험 상태를 넓게 표시한다. 접힌 패널의 연결 선택과 해제 확인창이 보이지 않던 문제도 수정했다. 기존 API·CSRF·fingerprint·확인 절차와 실제 데이터는 유지한다.
