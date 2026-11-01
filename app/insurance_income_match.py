@@ -33,6 +33,19 @@ def _opaque(*parts: str) -> str:
     return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
 
 
+def contract_identity(contract_id: str) -> str:
+    """Stable across PDF revisions so excluded contracts cannot reappear."""
+    return _opaque('contract-identity',contract_id)
+
+
+def exclude_contracts(review, excluded):
+    excluded=set(excluded or ())
+    if not excluded:
+        return review
+    return dict(review,contracts=[c for c in review['contracts'] if c.get('contract_identity') not in excluded],
+                fingerprint=_opaque(review['fingerprint'],*sorted(excluded)))
+
+
 def load_review_manifest(path) -> dict:
     """Load bounded manifest metadata; never opens referenced source documents."""
     try:
@@ -113,7 +126,7 @@ def load_review_manifest(path) -> dict:
                 raise ManifestError("duplicate source row")
             seen_rows.add(row_id)
             rows.append({"review_row_id": row_id, "masked_name": masked})
-        normalized.append({"contract_key": key, "travel_start": start, "travel_end": end,
+        normalized.append({"contract_key": key, "contract_identity":contract_identity(cid), "travel_start": start, "travel_end": end,
                            "cost_trip_id": trip_id, "already_registered": contract["already_registered"],
                            "insurance_status": contract["insurance_status"], "rows": rows})
     return {"fingerprint": fingerprint, "contracts": normalized}
@@ -181,6 +194,31 @@ def match_masked_name(pattern: str, value: str) -> bool:
     return bool(_match_basis(pattern, value))
 
 
+def unique_identity_name_match(pattern: str, value: str) -> bool:
+    """Eligible name evidence; callers must also prove uniqueness both ways.
+
+    A masked name needs visible characters at both ends. Repeated mask tokens
+    may hide an unknown number of characters; never reconstruct those letters.
+    """
+    if not isinstance(pattern, str) or not isinstance(value, str):
+        return False
+    parts, visible = _pattern_parts(pattern)
+    candidate, _ = _pattern_parts(value)
+    if not parts or not candidate or any(p is None for p in candidate):
+        return False
+    if any(p is None for p in parts):
+        if visible < 2 or parts[0] is None or parts[-1] is None:
+            return False
+        if any(unicodedata.category(char)[0] not in 'LM' for char in candidate):
+            return False  # A group/deposit annotation is not a single name.
+        if re.search(r'\s(?:외|및|and)\s', value, re.I):
+            return False
+    else:
+        normalize = lambda text: re.sub(r'\s+', ' ', unicodedata.normalize('NFC', text).strip()).casefold()
+        return normalize(pattern) == normalize(value)
+    return bool(_match_basis(pattern, value))
+
+
 def match_contract(contract, income_rows) -> dict:
     rows = contract.get("rows", []) if isinstance(contract, dict) else []
     incomes = list(income_rows)
@@ -210,8 +248,14 @@ def match_contract(contract, income_rows) -> dict:
             state = "no_visible_letters"
         elif not hits:
             state = "unmatched"
-        elif len(hits) == 1 and occurrences[hits[0]] == 1 and not _unknown_mask_length(row.get('masked_name', '')):
-            state = "matched"
+        elif len(hits) == 1 and occurrences[hits[0]] == 1:
+            income = incomes[hits[0]]
+            fields = [income.get('name',''),income.get('nickname','')]
+            cells = income.get('cells') or {}
+            if isinstance(cells,dict):
+                fields.extend((cells.get('C',''),cells.get('D','')))
+            state = 'matched' if any(unique_identity_name_match(row.get('masked_name',''),v)
+                                     for v in fields) else 'ambiguous'
         else:
             state = "ambiguous"
         counts[state] += 1

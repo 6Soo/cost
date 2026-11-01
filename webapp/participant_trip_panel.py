@@ -163,7 +163,8 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     for row in data["rows"]:
         connected = links_by_ref.get(row["ref"], [])
         if connected:
-            label = " · ".join(_esc(item["name"]) + (" (직접 연결)" if item.get("method") == "manual" else " (이름 대조)") for item in connected)
+            labels = {'manual': '직접 연결', 'masked_name_match': '자동 · 앞뒤 글자 일치'}
+            label = " · ".join(_esc(item["name"]) + ' (' + labels.get(item.get('method'), '이름 대조') + ')' for item in connected)
             state_label = f"✓ {len(connected)}명 연결 · {label}"
         elif not google.get("available"):
             state_label = "확인 필요 · 수입 자료 최신성 확인"
@@ -242,7 +243,9 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
 def shell(*, trip_id: str) -> str:
     """Closed placeholder contains no participant names or reconciliation data."""
     from . import participant_income_page
-    auto = bool(os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')) and not participant_income_page.store_path().is_file()
+    auto = participant_income_page.store_path().is_file() or bool(
+        os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST') or
+        os.environ.get('WEBLEDGER_PARTICIPANT_SYNC_CONFIG'))
     return ("<details class='participant-trip-panel' id='participant-trip-panel' "
             f"data-trip='{_esc(trip_id)}' data-auto-load='{int(auto)}' aria-busy='false' aria-label='보험가입내역'>"
             "<summary>보험 명단 · 수입 대조</summary>"

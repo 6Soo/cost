@@ -510,6 +510,18 @@ class BoardLaunchTests(unittest.TestCase):
             # same receiver database both times, regardless of release path.
             self.assertGreaterEqual(output.count(f"MOCK-PARTICIPANT-DB [{shared}]"), 2, output)
 
+    def test_web_inherits_receiver_database_from_shared_sync_config(self):
+        config = 'C:\\synthetic\\participant-sync.json'
+        db = 'C:\\synthetic\\participant.sqlite'
+        code, output = run_runner(extra=f"-ParticipantSyncConfig '{config}'",
+                                  files={config:json.dumps({'db':db}),db:''})
+        self.assertEqual(code,0,output)
+        self.assertIn(f'MOCK-PARTICIPANT-DB [{db}]',output)
+        code, output = run_runner(extra=f"-ParticipantSyncConfig '{config}' -ParticipantDb 'C:\\other.sqlite'",
+                                  files={config:json.dumps({'db':db}),db:''})
+        self.assertNotEqual(code,0)
+        self.assertNotIn('MOCK-START',output)
+
     def test_no_data_root_is_invented(self):
         """A `checkout/data` beside the real one would be a second, empty ledger."""
         _code, output = run_runner(mode="Plan")
@@ -1316,13 +1328,15 @@ class IsolationTests(unittest.TestCase):
                                   "Get-Credential", "-Credential"):
                     self.assertNotIn(forbidden, line, f"{path.name}: {line}")
                 if "Get-Content" in line:
-                    self.assertIn("$ReserveSourceConfig", line,
-                                  f"{path.name} reads a file nobody named: {line}")
+                    self.assertTrue(any(parameter in line for parameter in (
+                        '$ReserveSourceConfig', '$ParticipantSyncConfig')),
+                        f"{path.name} reads a file nobody named: {line}")
                 if "ConvertFrom-Json" in line:
                     # Only the source configuration is ever parsed, so the parse
                     # can only be fed the text that came out of that file.
-                    self.assertIn("$reserveSourceText", line,
-                                  f"{path.name} parses something else: {line}")
+                    self.assertTrue(any(variable in line for variable in (
+                        '$reserveSourceText', '$participantSourceText')),
+                        f"{path.name} parses something else: {line}")
                 for secret in ("$OAuthFile", "$SessionSecretFile"):
                     if "Get-Content" in line or "ConvertFrom-Json" in line:
                         self.assertNotIn(secret, line, f"{path.name}: {line}")
