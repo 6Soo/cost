@@ -24,7 +24,7 @@ SCHEMA_VERSION = 1
 ROSTER_SCHEMA = "participant-roster-v1"
 
 #: 이 요청으로 인정된 참가 근거만 이 값을 쓸 수 있다.
-AUTHORITIES = ("owner_confirmed_insurance",)
+AUTHORITIES = ("owner_confirmed_insurance", "verified_insurance_document")
 TRANSCRIPTION_STATUSES = ("verified", "unreadable")
 COVERAGE_SCOPES = ("partial", "complete")
 
@@ -767,6 +767,14 @@ def _read_json(path: Path, code: str):
 
 def default_db_path() -> Path:
     """기본 저장 위치. Git에서 제외된 로컬 경로다."""
+    sync_config = os.environ.get('WEBLEDGER_PARTICIPANT_SYNC_CONFIG')
+    if sync_config:
+        from .participant_sync import load_config
+        target = Path(load_config(sync_config)['db'])
+        explicit = os.environ.get('WEBLEDGER_PARTICIPANT_DB')
+        if explicit and Path(explicit).resolve() != target.resolve():
+            raise RosterError('PARTICIPANT_DB_MISMATCH')
+        return target
     configured = os.environ.get("WEBLEDGER_PARTICIPANT_DB")
     if configured:
         return Path(configured)

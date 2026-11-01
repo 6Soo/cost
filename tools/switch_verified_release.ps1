@@ -1,5 +1,6 @@
-﻿param([Parameter(Mandatory=$true)][string]$PreviousSha,[Parameter(Mandatory=$true)][string]$CandidateSha,[switch]$BackupProducts,[string]$ParticipantDb='')
+﻿param([Parameter(Mandatory=$true)][string]$PreviousSha,[Parameter(Mandatory=$true)][string]$CandidateSha,[switch]$BackupProducts,[string]$ParticipantDb='',[string]$ParticipantSyncConfig='')
 $ErrorActionPreference='Stop'
+if($ParticipantSyncConfig -and ($ParticipantDb -or $ParticipantSyncConfig.Contains('"') -or -not (Test-Path -LiteralPath $ParticipantSyncConfig -PathType Leaf))){throw 'PARTICIPANT_SYNC_CONFIG_INVALID'}
 if($ParticipantDb -and ($ParticipantDb.Contains('"') -or -not (Test-Path -LiteralPath $ParticipantDb -PathType Leaf))){throw 'PARTICIPANT_DB_UNAVAILABLE'}
 if($PreviousSha -notmatch '^[a-f0-9]{40}$' -or $CandidateSha -notmatch '^[a-f0-9]{40}$'){throw 'SHA_INVALID'}
 $previous="D:\WebLedgerHost\releases\$PreviousSha"
@@ -60,6 +61,11 @@ try{
     if($ParticipantDb){
         if($newArguments -match '(?i)-ParticipantDb\s'){throw 'PARTICIPANT_DB_ALREADY_CONFIGURED'}
         $newArguments+=' -ParticipantDb "'+$ParticipantDb+'"'
+    }
+    if($ParticipantSyncConfig){
+        if($newArguments -match '(?i)-ParticipantSyncConfig\s'){throw 'PARTICIPANT_SYNC_ALREADY_CONFIGURED'}
+        $newArguments=$newArguments -replace '(?i) -ParticipantDb "[^"]+"',''
+        $newArguments+=' -ParticipantSyncConfig "'+$ParticipantSyncConfig+'"'
     }
     $new=New-ScheduledTaskAction -Execute $old.Execute -Argument $newArguments
     Set-ScheduledTask -TaskName WebLedger-Board -Action $new | Out-Null

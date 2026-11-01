@@ -16,6 +16,14 @@ def _failure(code, message):
     return {'available': False, 'code': code, 'message': message, 'contracts': [], 'counts': {}}
 
 
+def review_path():
+    config = os.environ.get('WEBLEDGER_PARTICIPANT_SYNC_CONFIG')
+    if config:
+        from app.participant_sync import load_config
+        return load_config(config).get('review_manifest')
+    return os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')
+
+
 def _current_trips():
     from . import ledger_board
     return [trip for trip in ledger_board.live_trips(include_archived=True)
@@ -83,7 +91,7 @@ def trip_review(state, *, review=None, trips=None):
     tid = state.get('trip_id') or ''
     try:
         if review is None:
-            path = os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')
+            path = review_path()
             if not path:
                 return _failure('REVIEW_NOT_CONFIGURED', '보험 명단 자료가 연결되지 않았습니다.')
             review = load_review_manifest(path)
@@ -121,7 +129,7 @@ def build_state(query=None, *, review=None, trips=None, context=None):
         if not isinstance(selected, str) or not isinstance(contract_filter, str) or len(selected) > 128 or len(contract_filter) > 64:
             return _failure('INVALID_FILTER', '조회 조건을 확인해 주세요.')
         if review is None:
-            path = os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')
+            path = review_path()
             if not path:
                 return _failure('REVIEW_NOT_CONFIGURED', '보험 명단 대조 자료가 연결되지 않았습니다.')
             review = load_review_manifest(path)

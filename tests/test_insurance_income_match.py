@@ -168,15 +168,16 @@ def test_candidate_choices_are_capped_but_count_retains_total():
     assert result["candidate_count"] == 25
 
 
-def test_fixed_multi_mask_token_finds_candidates_without_claiming_unique_identity():
+def test_fixed_multi_mask_token_uses_visible_ends_and_bidirectional_uniqueness():
     contract = {'rows': [{'review_row_id': 'r', 'masked_name': '김***수'}]}
     assert match_masked_name('김***수', '김민수')
     assert match_masked_name('김***수', '김가나다수')
     assert not match_masked_name('김***수', '김수')
     assert not match_masked_name('김***수', '이민수')
     result = match_contract(contract, [{'name': '김민수', 'ref': 'i'}])['rows'][0]
-    assert result['match_state'] == 'ambiguous'
+    assert result['match_state'] == 'matched'
     assert result['candidate_count'] == 1 and result['mask_length_unknown']
+    assert match_contract(contract,[{'name':'김민수'},{'name':'김가나다수'}])['rows'][0]['match_state']=='ambiguous'
     assert not match_masked_name('김*수', '김가나수')
     assert not match_masked_name('***', '김민수')
 

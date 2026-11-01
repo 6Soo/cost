@@ -181,6 +181,27 @@ def match_masked_name(pattern: str, value: str) -> bool:
     return bool(_match_basis(pattern, value))
 
 
+def unique_identity_name_match(pattern: str, value: str) -> bool:
+    """Eligible name evidence; callers must also prove uniqueness both ways.
+
+    A masked name needs visible characters at both ends. Repeated mask tokens
+    may hide an unknown number of characters; never reconstruct those letters.
+    """
+    if not isinstance(pattern, str) or not isinstance(value, str):
+        return False
+    parts, visible = _pattern_parts(pattern)
+    candidate, _ = _pattern_parts(value)
+    if not parts or not candidate or any(p is None for p in candidate):
+        return False
+    if any(p is None for p in parts):
+        if visible < 2 or parts[0] is None or parts[-1] is None:
+            return False
+    else:
+        normalize = lambda text: re.sub(r'\s+', ' ', unicodedata.normalize('NFC', text).strip()).casefold()
+        return normalize(pattern) == normalize(value)
+    return bool(_match_basis(pattern, value))
+
+
 def match_contract(contract, income_rows) -> dict:
     rows = contract.get("rows", []) if isinstance(contract, dict) else []
     incomes = list(income_rows)
@@ -210,8 +231,14 @@ def match_contract(contract, income_rows) -> dict:
             state = "no_visible_letters"
         elif not hits:
             state = "unmatched"
-        elif len(hits) == 1 and occurrences[hits[0]] == 1 and not _unknown_mask_length(row.get('masked_name', '')):
-            state = "matched"
+        elif len(hits) == 1 and occurrences[hits[0]] == 1:
+            income = incomes[hits[0]]
+            fields = [income.get('name',''),income.get('nickname','')]
+            cells = income.get('cells') or {}
+            if isinstance(cells,dict):
+                fields.extend((cells.get('C',''),cells.get('D','')))
+            state = 'matched' if any(unique_identity_name_match(row.get('masked_name',''),v)
+                                     for v in fields) else 'ambiguous'
         else:
             state = "ambiguous"
         counts[state] += 1

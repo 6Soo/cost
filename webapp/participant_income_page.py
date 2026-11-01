@@ -185,7 +185,8 @@ def build_state(trip_id: str, *, store=None) -> dict:
             index_available=bool(context.get("available")) and bool(
                 context.get("name_index_complete", True)), decisions=decisions,
             roster_version=roster_version, google_generation=context.get("generation") or "",
-            roster_complete=complete, transcription_pending=pending)
+            roster_complete=complete, transcription_pending=pending,
+            source_current=bool(context.get('available')))
         return {"trip_id": trip_id, "configured": True, "participants": result["participants"],
                 "unlinked_income": result["unlinked_income"], "counts": result["counts"],
                 "completion": result["completion"], "input_fingerprint": result["input_fingerprint"],
@@ -309,8 +310,9 @@ def render_page(state: dict, *, csrf: str = "") -> str:
             row = link["row"]
             cells = row.get("cells") or {}
             total = row.get("amount")
+            basis = ' · 자동 연결 · 앞뒤 글자 일치' if link.get('method') == 'masked_name_match' else ''
             detail.append(
-                f"<div class='small'>수입 {esc(row.get('row'))}행"
+                f"<div class='small'>수입 {esc(row.get('row'))}행{basis}"
                 f"{(' · ' + esc(cells.get('B'))) if cells.get('B') else ''} · "
                 f"{esc(row.get('name') or '')} · 예약금 {_amount_cell(cells.get('E'))}"
                 f" · 잔금 {_amount_cell(cells.get('F'))} · 추가금 {_amount_cell(cells.get('G'))} · "
