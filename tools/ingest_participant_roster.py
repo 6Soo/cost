@@ -5,6 +5,8 @@
 그대로 싣지 않고 항목 id와 상태만 보여 준다.
 """
 import argparse
+import datetime as dt
+import time
 import json
 import sys
 from pathlib import Path
@@ -31,7 +33,7 @@ def _load_mapping(path: Path | None) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--batch-dir', type=Path, required=True,
+    parser.add_argument('--batch-dir', type=Path,
                         help='manifest.json과 participants.json이 있는 배치 폴더')
     parser.add_argument('--db', type=Path, default=None,
                         help='참가 저장소 파일 (.local-archive 아래여야 합니다)')
@@ -40,7 +42,44 @@ def main():
     parser.add_argument('--mapping', type=Path,
                         help='google-tab-mapping.json 경로. 없으면 여행 연결을 보류합니다')
     parser.add_argument('--report', type=Path, help='결과를 저장할 JSON 경로')
+    parser.add_argument('--config', type=Path, help='웹과 수신기가 공유하는 고정 설정')
+    parser.add_argument('--watch', action='store_true')
+    parser.add_argument('--interval', type=int, default=60)
+    parser.add_argument('--report-dir', type=Path)
     args = parser.parse_args()
+    if args.config:
+        from app.participant_sync import load_config, sync_once
+        if args.batch_dir or args.db or args.mapping or args.interval < 5:
+            parser.error('공유 설정과 개별 경로를 함께 지정할 수 없습니다')
+        config = load_config(args.config)
+        if args.expected_web_db and args.expected_web_db.resolve() != Path(config['db']).resolve():
+            print(json.dumps({'status':'rejected','code':'PARTICIPANT_DB_MISMATCH'}))
+            return 2
+        store = ParticipantStore.open(config['db'])
+        try:
+            while True:
+                # Reload paths and mappings, but never silently move an open DB.
+                current = load_config(args.config)
+                if Path(current['db']).resolve() != Path(config['db']).resolve():
+                    raise RosterError('PARTICIPANT_DB_MISMATCH')
+                result = sync_once(current, store)
+                result['checked_at'] = dt.datetime.now(dt.timezone.utc).isoformat()
+                if args.report_dir:
+                    args.report_dir.mkdir(parents=True, exist_ok=True)
+                    target = args.report_dir/'latest-scan.json'
+                    temp = target.with_suffix('.tmp')
+                    temp.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+                    temp.replace(target)
+                print(json.dumps(result,ensure_ascii=True),flush=True)
+                if not args.watch:
+                    return 0
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            return 0
+        finally:
+            store.close()
+    if args.watch or not args.batch_dir:
+        parser.error('--batch-dir 또는 --config가 필요합니다')
 
     destination = (args.db or default_db_path()).resolve()
     if args.expected_web_db is not None and destination != args.expected_web_db.resolve():

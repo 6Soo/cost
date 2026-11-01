@@ -64,6 +64,7 @@ param(
     # A durable participant store shared with the roster receiver. Never derive
     # this from Checkout: each SHA release has a different directory.
     [string]$ParticipantDb = "",
+    [string]$ParticipantSyncConfig = "",
 
     # The explicit reservation source configuration: a JSON file naming the
     # source path, the file's own SHA-256 and the roster's semantic digest.
@@ -816,6 +817,17 @@ if ($missing) {
 # An environment value the launcher reads is a real setting; a variable nothing
 # reads is not, which is why the tunnel is a command line and not one of these.
 $env:WEBLEDGER_REVIEW_CONFIG = $ReviewConfig
+if (-not [string]::IsNullOrWhiteSpace($ParticipantSyncConfig)) {
+    $participantSourceText = Get-Content -LiteralPath $ParticipantSyncConfig -Raw -Encoding UTF8
+    $participantSettings = $participantSourceText | ConvertFrom-Json
+    $sharedParticipantDb = [string]$participantSettings.db
+    if (-not [IO.Path]::IsPathRooted($sharedParticipantDb) -or -not (Test-Path -LiteralPath $sharedParticipantDb -PathType Leaf)) {
+        throw 'PARTICIPANT_DB_UNAVAILABLE'
+    }
+    if ($ParticipantDb -and $ParticipantDb -ne $sharedParticipantDb) { throw 'PARTICIPANT_DB_MISMATCH' }
+    $ParticipantDb = $sharedParticipantDb
+    $env:WEBLEDGER_PARTICIPANT_SYNC_CONFIG = $ParticipantSyncConfig
+}
 if (-not [string]::IsNullOrWhiteSpace($ParticipantDb)) {
     $env:WEBLEDGER_PARTICIPANT_DB = $ParticipantDb
 }

@@ -68,7 +68,7 @@ def test_duplicate_contract_candidates_are_not_a_single_identity_and_masks_are_e
     assert '<img onerror' not in markup and '&lt;img' in markup
 
 
-def test_automatic_review_is_only_for_missing_confirmed_store(monkeypatch, tmp_path):
+def test_insurance_column_loads_automatically_for_both_received_and_review_rosters(monkeypatch, tmp_path):
     from webapp import participant_income_page
     path = tmp_path / 'missing.sqlite'
     monkeypatch.setattr(participant_income_page, 'store_path', lambda: path)
@@ -76,7 +76,7 @@ def test_automatic_review_is_only_for_missing_confirmed_store(monkeypatch, tmp_p
     assert "data-auto-load='1'" in panel.shell(trip_id='trip-a')
     assert not path.exists()
     path.touch()
-    assert "data-auto-load='0'" in panel.shell(trip_id='trip-a')
+    assert "data-auto-load='1'" in panel.shell(trip_id='trip-a')
 
 
 def test_confirmed_manual_links_are_not_replaced_by_masked_candidates():

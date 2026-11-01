@@ -38,6 +38,41 @@ def test_a_unique_name_match_links_to_the_existing_income_row():
     assert result["counts"]["linked_income_rows"] == 1
 
 
+@pytest.mark.parametrize('masked', ['김*람', '김***람', '김＊＊람'])
+def test_unique_masked_front_and_back_automatically_link_without_unmasking(masked):
+    entry = reconcile([person('masked', masked)], [income_row(6, '김가람', amount=100000)])['participants'][0]
+    assert entry['display_name'] == masked
+    assert entry['state'] == pi.STATE_NAME_MATCH
+    assert entry['links'][0]['method'] == 'masked_name_match'
+    assert entry['links'][0]['row']['name'] == '김가람'
+
+
+@pytest.mark.parametrize('masked', ['***', '김**', '**람', '김*수'])
+def test_insufficient_or_conflicting_visible_characters_never_auto_link(masked):
+    result = reconcile([person('masked', masked)], [income_row(6, '김가람')])
+    assert result['counts']['linked'] == 0
+
+
+def test_masked_matching_is_unique_in_both_directions_and_manual_unlink_wins():
+    rows = [income_row(6, '김가람')]
+    people = [person('a','김*람'),person('b','김가람')]
+    assert reconcile(people, rows)['counts']['linked'] == 0
+    assert reconcile([people[0]], rows+[income_row(7,'김나람')])['counts']['linked'] == 0
+    decision = {'participant_id':'a','income_ref':rows[0]['ref'],'decision':'unlinked'}
+    assert reconcile([people[0]], rows, decisions=[decision])['counts']['linked'] == 0
+
+
+def test_stale_or_corrected_roster_never_automatically_connects_masks():
+    rows=[income_row(6,'김가람')]
+    assert reconcile([person('a','김*람')], rows,source_current=False)['counts']['linked'] == 0
+    assert reconcile([person('a','김*람',state='correction_pending')],rows)['counts']['linked'] == 0
+
+
+def test_unknown_mask_length_does_not_absorb_a_joint_deposit_annotation():
+    for name in ('김가람/박다람','김가람(박다람)','김123람','김가람 외 박다람'):
+        assert reconcile([person('a','김***람')],[income_row(6,name)])['counts']['linked']==0
+
+
 def test_a_person_without_income_is_shown_by_name_only():
     result = reconcile([person("pt-1", "이나래")], [income_row(6, "김가람", amount=100000)])
     entry = result["participants"][0]

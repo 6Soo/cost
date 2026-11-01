@@ -15,8 +15,9 @@ import re
 import unicodedata
 
 from .participant_roster import RosterError, canonical, utc_now
+from .insurance_income_match import unique_identity_name_match
 
-RULE_VERSION = "participant-income-v1"
+RULE_VERSION = "participant-income-v2-masked"
 
 #: 대조 상태. 화면 문구는 webapp이 붙인다.
 STATE_NAME_MATCH = "name_match"
@@ -187,7 +188,8 @@ def _link(participant_id: str, row: dict, method: str, *, joint: bool = False,
 
 def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
               decisions=None, roster_version: str = "", google_generation: str = "",
-              roster_complete: bool = False, transcription_pending: int = 0) -> dict:
+              roster_complete: bool = False, transcription_pending: int = 0,
+              source_current: bool = True) -> dict:
     """참가자와 수입 행을 대조한다.
 
     우선순위는 기존 수동 결정 → 같은 여행의 명시적 참가자 연결 → 안전한 이름 일치 →
@@ -241,7 +243,9 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
     row_candidates: dict[str, list[str]] = {}
     for person in people:
         keys = participant_keys(person)
-        found = [row for row in rows if keys and (keys & income_row_keys(row))]
+        found = [row for row in rows if keys and any(
+            unique_identity_name_match(key, value)
+            for key in keys for value in income_row_keys(row))]
         candidates[person["participant_id"]] = found
         for row in found:
             row_candidates.setdefault(row["ref"], []).append(person["participant_id"])
@@ -261,9 +265,13 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         taken = [row for row in found if row["ref"] in manual_refs]
         remaining = [row for row in found if row["ref"] not in unlinked]
         auto = []
-        if len(remaining) == 1 and len(row_candidates.get(remaining[0]["ref"], [])) == 1 \
+        if source_current and (person.get('state') or 'confirmed') == 'confirmed' \
+                and len(remaining) == 1 and len(row_candidates.get(remaining[0]["ref"], [])) == 1 \
                 and not taken:
-            auto = [_link(pid, remaining[0], "name_match")]
+            exact = participant_keys(person) & income_row_keys(remaining[0])
+            method = 'name_match' if exact else 'masked_name_match'
+            auto = [_link(pid, remaining[0], method,
+                          reason='' if exact else '같은 여행의 마스킹 이름 앞뒤 글자·양방향 유일 일치')]
             linked_rows.setdefault(remaining[0]["ref"], []).append(pid)
         links = manual + [link for link in auto
                           if link["income_ref"] not in {item["income_ref"] for item in manual}]
@@ -346,7 +354,7 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         reasons.append("CONNECTION_PENDING")
     if counts["unlinked_income_rows"]:
         reasons.append("INCOME_UNCLASSIFIED")
-    if not index_available:
+    if not index_available or not source_current:
         reasons.append("INPUT_CHANGED")
     if correction_pending:
         reasons.append("CORRECTION_PENDING")

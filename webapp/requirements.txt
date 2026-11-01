@@ -3,6 +3,7 @@
 # Verify: python tools/sync_runtime_requirements.py
 openpyxl>=3.1.5,<4
 xlrd>=2.0.1,<3
+pypdf==6.21.2
 google-auth>=2.23.0,<3
 PyJWT[crypto]>=2.8.0,<3
 requests>=2.31.0,<3
