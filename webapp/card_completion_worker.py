@@ -198,7 +198,18 @@ class CardCompletionWorker:
             self.status['state'] = 'running'
             try:
                 queue_batch(self.board,batch,ids)
-                flow._classify(batch, transaction_ids=ids, snapshot_only=True)
+                unfinished = {row[0] for row in selected if row[4]!='guide_airfare_evidence'
+                              and (row[3]!='classified' or not row[5])}
+                if unfinished:
+                    flow._classify(batch, transaction_ids=unfinished, snapshot_only=True)
+                missing_assignment = {row[0] for row in selected if row[0] not in unfinished
+                    and row[4]!='guide_airfare_evidence' and row[5]!='분기 기타비용'
+                    and row[6] in (None,'','unclassified') and row[7] in (None,'','unclassified')}
+                if missing_assignment:
+                    from .card_classification_completion import complete
+                    # A crash after successful classification must resume its
+                    # recording, not replace stronger saved booking evidence.
+                    complete(flow,batch,missing_assignment)
                 result = flow._auto_record_locked(batch, include_state=False, transaction_ids=ids)
             except Exception as exc:
                 self.status.update(state='retry', error=type(exc).__name__)
