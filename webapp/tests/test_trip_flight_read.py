@@ -211,6 +211,49 @@ def test_existing_booking_trip_rules_are_read_without_mutating_synthetic_db(tmp_
     assert path.read_bytes() == before
 
 
+def test_optional_booking_trip_schema_can_be_absent_in_isolated_review_store(tmp_path, monkeypatch):
+    path = tmp_path / 'review.sqlite'
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE ota_review_links(event_id TEXT PRIMARY KEY)')
+    conn.commit()
+    conn.close()
+    before = path.read_bytes()
+    monkeypatch.setattr('webapp.ota_payment_review.review_db_path', lambda: str(path))
+    from webapp.trip_flight_read import read_booking_trip_rules
+    assert read_booking_trip_rules() == {}
+    class Handler:
+        def _send_json(self, body, status=200):
+            self.response = status, body
+    handler = Handler()
+    board = SimpleNamespace(live_trips=lambda **kwargs: [trip('A', '2026-11-07', '2026-11-10')])
+    dispatch(handler, SimpleNamespace(path='/api/trips/A/flight-bookings', query=''),
+             board=board, is_owner=True,
+             snapshot={'fresh': True, 'generation': 'g', 'data': {'passengers': {'R': evidence('R')}}})
+    assert handler.response[0] == 200
+    assert handler.response[1]['total_bookings'] == 1
+    assert handler.response[1]['items'][0]['assignment_status'] == 'AUTO_INFERRED'
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize('schema', [
+    'CREATE TABLE unrelated(value TEXT)',
+    'CREATE TABLE ota_review_booking_trip_history(value TEXT)',
+    'CREATE TABLE ota_review_booking_trips(value TEXT)',
+])
+def test_unreadable_or_partial_booking_authority_still_fails_closed(tmp_path, monkeypatch, schema):
+    path = tmp_path / 'review.sqlite'
+    conn = sqlite3.connect(path)
+    conn.execute(schema)
+    conn.commit()
+    conn.close()
+    before = path.read_bytes()
+    monkeypatch.setattr('webapp.ota_payment_review.review_db_path', lambda: str(path))
+    from webapp.trip_flight_read import read_booking_trip_rules
+    with pytest.raises(ValueError, match='FLIGHT_AUTHORITY_UNAVAILABLE'):
+        read_booking_trip_rules()
+    assert path.read_bytes() == before
+
+
 def test_limit_is_capped_at_twenty_and_bad_limit_is_http_400():
     class Handler:
         def _send_json(self, body, status=200):
