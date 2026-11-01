@@ -1,5 +1,6 @@
-﻿param([Parameter(Mandatory=$true)][string]$PreviousSha,[Parameter(Mandatory=$true)][string]$CandidateSha,[switch]$BackupProducts)
+﻿param([Parameter(Mandatory=$true)][string]$PreviousSha,[Parameter(Mandatory=$true)][string]$CandidateSha,[switch]$BackupProducts,[string]$ParticipantDb='')
 $ErrorActionPreference='Stop'
+if($ParticipantDb -and ($ParticipantDb.Contains('"') -or -not (Test-Path -LiteralPath $ParticipantDb -PathType Leaf))){throw 'PARTICIPANT_DB_UNAVAILABLE'}
 if($PreviousSha -notmatch '^[a-f0-9]{40}$' -or $CandidateSha -notmatch '^[a-f0-9]{40}$'){throw 'SHA_INVALID'}
 $previous="D:\WebLedgerHost\releases\$PreviousSha"
 $release="D:\WebLedgerHost\releases\$CandidateSha"
@@ -55,7 +56,12 @@ try{
         & D:\WebLedgerHost\venv\Scripts\python.exe "$release\tools\verify_operational_backup_restore.py" --evidence-out "$backup\restore-evidence.json"
         if($LASTEXITCODE -ne 0){throw 'BACKUP_RESTORE_FAILED'}
     }
-    $new=New-ScheduledTaskAction -Execute $old.Execute -Argument $old.Arguments.Replace($previous,$release)
+    $newArguments=$old.Arguments.Replace($previous,$release)
+    if($ParticipantDb){
+        if($newArguments -match '(?i)-ParticipantDb\s'){throw 'PARTICIPANT_DB_ALREADY_CONFIGURED'}
+        $newArguments+=' -ParticipantDb "'+$ParticipantDb+'"'
+    }
+    $new=New-ScheduledTaskAction -Execute $old.Execute -Argument $newArguments
     Set-ScheduledTask -TaskName WebLedger-Board -Action $new | Out-Null
     Start-ScheduledTask -TaskName WebLedger-Board
     $startInfo=Get-ScheduledTaskInfo -TaskName WebLedger-Board
