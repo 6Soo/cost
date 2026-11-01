@@ -270,3 +270,22 @@ def test_host_activation_cannot_be_overridden_by_an_inherited_environment(tmp_pa
     assert not enabled_for(fake)
     config.write_text('{"automatic_card_completion":true}',encoding='utf-8')
     assert enabled_for(fake)
+
+
+def test_resume_keeps_saved_guide_evidence_and_its_live_recording_guard(setup, monkeypatch):
+    board = setup
+    batch,rows = receive(board,1)
+    trip=board.create_trip(starts_on='2026-10-14',ends_on='2026-10-17',destination='합성',client_request_id='guide-trip')['tab_id']
+    board.conn.execute("UPDATE transactions SET classification_state='classified',classification_source='guide_airfare_evidence',classification_basis='synthetic verified guide evidence',item='항공료',display_tab_id=?,trip_id=?",(trip,trip))
+    board.conn.commit()
+    queue_batch(board,batch,{rows[0]['transaction_id']})
+    before=board.conn.execute('SELECT * FROM transactions').fetchall()
+    monkeypatch.setattr(CardFlow,'ota_group_holds',REAL_OTA_HOLDS)
+    def no_basic_reclassification(*args,**kwargs):
+        raise AssertionError('saved classification must not be erased on restart')
+    monkeypatch.setattr(CardFlow,'_classify',no_basic_reclassification)
+    worker=CardCompletionWorker(board,threading.RLock())
+    assert worker.sweep_once()
+    assert worker.status['failures']==0
+    assert board.conn.execute('SELECT * FROM transactions').fetchall()==before
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
