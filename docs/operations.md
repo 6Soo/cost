@@ -5,6 +5,12 @@
 - 최초 배포 전제 검사에서 병행 배포의 runtime 변경을 감지해 쓰기0으로 중단했다. 검증된598bf14f를 이전 릴리스로 갱신한 뒤1,237 blobs 일치·task/process SHA·단일127.0.0.1 listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변·task 인수/SourceRefresh 상태 보존 PASS. 코드전용으로 기존 릴리스/task XML 복구점을 사용하고 새전체DB백업/복원은 반복하지 않았다.
 - 근거 `C:/AX/cost/.local-archive/upload-format-20261102/`의 merged-targeted.xml·actual-after.json·actual-rehearsal.json·resume-browser-final.json·http-smoke.json·live-browser.json·review/release-audit/deploy-evidence 및 `D:/WebLedgerHost/releases/deploy-evidence-e448f34851cfaf122e4646585ea0a4c93589e37b.json`. 실제 원본 운영 업로드/금융/여행/Google/원본/스키마 쓰기0. 전체 회귀/실기기는 미실행, 요청 미결/차단0·다음명령 없음. 문서후속 재배포/재시작 없음.
 
+## 2026-11-02 알펜루트 배정 표시 누락 교정 완료
+
+- COMPLETE — 사용자 “왜 알펜루트로 배정안됐지?” 조사 결과 해당 10/24 거래는 이미 `1020_알펜루트`(10/20~24)의 현지경비로 자동 추론 배정됐고 내부 장부에는 미기록이었다. 지출 정리 카드가 저장된 여행·항목을 보여주지 않아 혼동을 일으켰다. 유효한 현재 여행과 항목을 카드 본문에 표시하며, 무효 여행·보류·금융 보호 판단은 유지한다. [PR #471](https://github.com/6Soo/cost/pull/471), 구현 `13c7a3ed`, 운영 SHA `598bf14f8bd0b70241c03e6a10968969a31b66a5`, 이전 검증 `13b02d22388383271db8f254cca2dfb6dbb30279`.
+- 검증: 표적 35 passed/기존 문구 계약 실패 4건 deselected(기준 `9835a769` 동일 재현). 활성/무효 여행 표시·escaping·조회 무쓰기 포함. 병합 시 추가된 두 운영 문서 외 실행 코드는 검사본과 동일하다. 인증된 운영 화면에서 현재 여행·현지경비·장부 기록 가능 표시와 PC/모바일390px 넘침0을 확인했다. TaskSpace7 정상 종료. 전체 회귀·실기기는 국소 표시 변경으로 미실행이다.
+- 배포: 1,234 Git blobs 불일치0·task/process 고정SHA·단일 loopback listener·health/ready200·영향/보호5경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용으로 새 전체DB백업/복원은 반복하지 않고 이전 검증 릴리스와 task XML 복구점을 보존했다. 분류/여행/장부/Google/원본/스키마 쓰기0. 근거 `.local-archive/gamsgo-alpen-20261102/`의 baseline/targeted-final/candidate.xml·review/release-audit/deploy-evidence·browser-final.json 및 호스트 동일SHA 감사 기록. 이 질문과 표시 교정 미결/차단0·다음 명령 없음. 문서 후속은 재배포/재시작하지 않는다.
+
 ## 2026-11-02 OTA 근거 카드의 여행 복구 누락·출처 표시 수정 완료
 
 - COMPLETE — [원인·수락 근거](specs/ota-missing-trip-completion-20261102.md). 업종만 분류되고 여행이 빈 정상 구매를 자동 작업자/기록 복구 SQL이 누락하던 경로를 공통 미완료 판정과 OTA 우선 복구로 수정했다. 구현 `2fcfafaf`, [PR #462](https://github.com/6Soo/cost/pull/462), 배포 `62bfa07b77e56716b141230f2bdfb4962cd91055`. 병합 릴리스60 passed, 기준 회귀2건 실패 재현, OTA/환불/권한11 passed 근거를 보존한다.
