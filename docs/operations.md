@@ -1,3 +1,10 @@
+## 2026-11-02 기업·하나 다운로드 업로드 형식 복구 PR470 배포
+
+- 구현 `b289b96e`·보호 보완 `9efd2b08`, 병합/운영 `e448f34851cfaf122e4646585ea0a4c93589e37b`. 기업 비표준 XLSX 스타일·잘못된 dimension과 하나 이용/해외 이용 헤더를 지원한다. 원행/승인번호 보존, 원문 열의 청구금액/수수료/부분취소 사용, 없는 매입일 공란, 명시 매입일·금액·가맹점·외화 충돌 및 수동·취소 보호를 검증했다.
+- 최종 병합 트리53 passed/14 deselected·4 권한/CSRF subtests. 실제13파일/1,254행 읽기와 격리 메모리 DB 리허설 PASS: 기존6,851행·수동/장부/보류 불변, 신규 정상683·기존422·충돌149, 취소 다중성 유지·구매 앵커 중복0·모든 재수신 멱등. 충돌은 덮어쓰거나 운영 적용하지 않았다. ego-browser 합성3파일 HTTP200·파일별 링크·PC/390px 넘침0, 운영 인증 업로드 화면 GET PASS. 합성 환경의 분류 미완료와 파싱 성공은 구별한다.
+- 최초 배포 전제 검사에서 병행 배포의 runtime 변경을 감지해 쓰기0으로 중단했다. 검증된598bf14f를 이전 릴리스로 갱신한 뒤1,237 blobs 일치·task/process SHA·단일127.0.0.1 listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변·task 인수/SourceRefresh 상태 보존 PASS. 코드전용으로 기존 릴리스/task XML 복구점을 사용하고 새전체DB백업/복원은 반복하지 않았다.
+- 근거 `C:/AX/cost/.local-archive/upload-format-20261102/`의 merged-targeted.xml·actual-after.json·actual-rehearsal.json·resume-browser-final.json·http-smoke.json·live-browser.json·review/release-audit/deploy-evidence 및 `D:/WebLedgerHost/releases/deploy-evidence-e448f34851cfaf122e4646585ea0a4c93589e37b.json`. 실제 원본 운영 업로드/금융/여행/Google/원본/스키마 쓰기0. 전체 회귀/실기기는 미실행, 요청 미결/차단0·다음명령 없음. 문서후속 재배포/재시작 없음.
+
 ## 2026-11-02 알펜루트 배정 표시 누락 교정 완료
 
 - COMPLETE — 사용자 “왜 알펜루트로 배정안됐지?” 조사 결과 해당 10/24 거래는 이미 `1020_알펜루트`(10/20~24)의 현지경비로 자동 추론 배정됐고 내부 장부에는 미기록이었다. 지출 정리 카드가 저장된 여행·항목을 보여주지 않아 혼동을 일으켰다. 유효한 현재 여행과 항목을 카드 본문에 표시하며, 무효 여행·보류·금융 보호 판단은 유지한다. [PR #471](https://github.com/6Soo/cost/pull/471), 구현 `13c7a3ed`, 운영 SHA `598bf14f8bd0b70241c03e6a10968969a31b66a5`, 이전 검증 `13b02d22388383271db8f254cca2dfb6dbb30279`.
