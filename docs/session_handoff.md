@@ -1,3 +1,9 @@
+## 2026-11-01 보험 명단 열 가독성·모바일 배치 개선 완료
+
+- COMPLETE — 최신 사용자 스크린샷의 보험 명단 열 UIUX 개선. [PR #442](https://github.com/6Soo/cost/pull/442), 구현 `62f75767`·`02c6779f`, 운영 SHA `89f09d9b457167ed0cc028181bdb77914d00ba52`. 말줄임을 해제하고 연결 이름·인원은 기본 표시, 연결 근거·개별 해제는 펼침으로 정리했다. 모바일은 수입 행 아래에 보험 상태를 넓게 표시한다. 접힌 패널의 연결 선택과 해제 확인창이 보이지 않던 문제도 수정했다. 기존 API·CSRF·fingerprint·확인 절차와 실제 데이터는 유지한다.
+- 검증: 배포와 동일 tree의 참가자/보험 검사18 passed. 병행 수입 전체행 변경을 포함한 작업본의 인접 검사50 passed는 별도 근거이며 해당 병행 변경은 이 PR에서 제외했다. 최초 인접49 pass/1 paging 실패는 병행 수정 중 발생했고 최신 작업본에서 해소됐다. 합성 실제 ego-browser 320/390/844/1440, 밝은/어두운 테마·동작 줄이기·연결 근거 펼침·해제 취소·접힌 패널에서 연결 선택 통과. 보험 영역 기본57px·조작44px 이상·페이지 가로 넘침0. Aside 실행 파일 부재로 ego-browser를 사용했다. 전체 회귀·실기기는 미실행이다.
+- 운영: 인증된 PC1440/모바일390에서 보험 상태20행·연결 펼침10행·버튼44px·문구 줄바꿈·페이지 가로 넘침0 확인(GET만). 검수/병합tree 동일·1,208 blobs 불일치0·task/process 고정SHA·단일loopback listener·health/ready200·영향/보호8경로401·보호13표 내용/스키마 불변·SourceRefresh 상태 보존. 금융/명단/Google/원본/스키마 쓰기0. 코드만 전환했으므로 전체DB 백업/복원은 반복하지 않았고 이전 검증 f05f599d와 task XML 복구점을 보존했다.
+- 근거 `.local-archive/insurance-cell-ux-20261101/`의 exact-final.xml·targeted-final.xml·browser-evidence.json·live-browser.json·review.json·protection-before/after.json·deploy-evidence.json 및 호스트 동일SHA release/deploy audit. 이번 UI 요청 미결·차단0, 다음 명령 없음. 수입 전체행 병행 변경과 기존 미추적 파일·stash는 보존한다. 이 완료 기록은 문서 전용으로 재검사·재배포·서버 재시작하지 않는다.
 ## 2026-11-01 OTA 결제일 미상·M:N 연결 배포 완료
 
 ## 2026-11-01 카드 4850 이름 표기 교정
