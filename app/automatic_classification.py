@@ -48,7 +48,9 @@ def completion_for_row(row, valid, *, nets=None):
         reasons.append('SOURCE_UNRESOLVED')
     if source in {'rule_conflict', 'inference_conflict', 'travel_location_hold', 'manual_hold'}:
         reasons.append('CLASSIFICATION_SOURCE_CONFLICT')
+    from .classification_provenance import origin
     return {'transaction_id': row['transaction_id'], 'complete': not reasons,
+            'execution_origin': origin(row),
             'mode': 'manual' if manual else ('auto' if not reasons else 'unresolved'),
             'blocked_by': reasons}
 
@@ -252,6 +254,10 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
         if tid in holds or tid in excluded or any(row[k] for k in ('parse_error','duplicate_of','conflict_reason')):
             protected += 1
             continue
+        if row['classification_source'] == 'ai_inference':
+            # P1 never silently overwrites a recorded P2 judgement. A new AI
+            # review is explicit and version-bound in ai_classification.
+            continue
         # A refund row that already inherited its item from a verified
         # original is complete even when its own trip display is blank. Do
         # not re-run weak trip inference on the next preview.
@@ -392,7 +398,7 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                 unchanged = all(chosen.get(k) == row.get(k) for k in ('item', 'trip_id', 'display_tab_id'))
                 if unchanged and row['classification_source'] not in ('', 'inference'):
                     chosen['classification_source'] = row['classification_source']
-                chosen['classification_basis'] = 'P2_REVIEW · ' + chosen['classification_basis']
+                chosen['classification_basis'] = 'CODE_REVIEW · ' + chosen['classification_basis']
             if link and not link.get('inferred') and original and original.get('item'):
                 chosen.update(classification_source='refund_original',
                     classification_basis=f"원거래 승인번호 {row['original_approval_number']}의 배정을 따름")

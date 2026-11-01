@@ -125,6 +125,7 @@ def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100)
             params.extend(cursor_values)
         rows = conn.execute(select + where + ' ORDER BY ' + order + ' LIMIT ?', params + [per_page + 1]).fetchall()
         items = [dict(zip(fields, row)) for row in rows[:per_page]]
+        enrich_status(conn, items)
         return {'date': day, 'filter_semantics': 'USER_DATE_FILTER', 'items': items,
                 'count': len(items), 'total_count': total, 'has_more': len(rows) > per_page,
                 'cursor': f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if len(rows) > per_page else None,
@@ -197,12 +198,47 @@ def transaction_detail(transaction_id: str, db_path=None):
         result['refund_tab_member'] = bool(conn.execute(
             'SELECT COST_REFUND_TAB_MEMBER(?)', (transaction_id,)).fetchone()[0])
         result.update(card_identity(result.pop('issuer'), result.pop('card_kind'), result.pop('card_tail')))
+        enrich_status(conn, [result])
         return result
     finally:
         conn.close()
 
 
 @request_metrics.card_stage('db_connect')
+def enrich_status(conn, items):
+    """Bounded read projection shared by month/search/day/detail, never a writer."""
+    if not items:
+        return
+    from .card_actions import next_action
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    joins = ''
+    held = "NULL,NULL"
+    if 'transaction_review_holds' in tables:
+        joins += ' LEFT JOIN transaction_review_holds h ON h.transaction_id=t.transaction_id'
+        held = "CASE WHEN h.source_hash=t.source_hash THEN h.kind ELSE 'evidence_pending' END,h.reason"
+    excluded = '0'
+    if 'transaction_company_exclusions' in tables:
+        joins += ' LEFT JOIN transaction_company_exclusions e ON e.transaction_id=t.transaction_id'
+        excluded = 'COALESCE(e.excluded,0)'
+    booked = ("EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
+              if 'ledger_entries' in tables else '0')
+    values = conn.execute('SELECT t.transaction_id,t.source_hash,t.batch_id,t.classification_basis,t.decided_at,'
+        't.parse_error,t.transaction_direction,' + booked + ',' + excluded + ',' + held +
+        ' FROM transactions t' + joins + ' WHERE t.transaction_id IN (SELECT value FROM json_each(?))',
+        (json.dumps([i['transaction_id'] for i in items]),)).fetchall()
+    index = {row[0]: row for row in values}
+    for item in items:
+        row = index[item['transaction_id']]
+        _, _, batch, basis, decided_at, parse_error, direction, recorded, excluded, kind, reason = row
+        item.setdefault('batch_id', batch)
+        item.update(classification_basis=basis, decided_at=decided_at, parse_error=parse_error,
+                    transaction_direction=direction, company_excluded=bool(excluded))
+        if kind:
+            item['review_hold'] = dict(kind=kind, reason=reason or '')
+        source = dict(item, trip_name='환불' if item.get('refund_tab_member') else '')
+        item['next_action'] = next_action(source, dict(already_booked=bool(recorded)))
+
+
 def _connect(db_path: str) -> sqlite3.Connection:
     """Open database in read-only mode using SQLite URI.
 
@@ -347,6 +383,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
                 "conflict_reason": conflict,
                 "revision": rev
             })
+        enrich_status(conn, items)
         next_cursor = f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if items else None
         return {
             "year": year, "month": month,
@@ -427,6 +464,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
                 "conflict_reason": conflict,
                 "revision": rev
             })
+        enrich_status(conn, items)
         next_cursor = f"{_UNDATED_CURSOR_DATE}|{items[-1]['transaction_id']}" if items else None
         return {
             "year": year, "items": items,
@@ -504,6 +542,7 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
                 "description_raw": raw, "duplicate_of": dup,
                 "conflict_reason": conflict, "revision": rev
             })
+        enrich_status(conn, items)
         next_cursor = f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if items and has_more else None
         return {"year": year, "items": items, "count": len(items),
                 "total_count": total, "has_more": has_more, "cursor": next_cursor}

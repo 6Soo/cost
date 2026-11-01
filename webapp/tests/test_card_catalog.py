@@ -26,7 +26,27 @@ def test_catalog_reads_every_batch_without_writing_or_hiding_refunds(stored):
     assert all('raw_row_json' not in r for r in result['rows'])
 
 
-@pytest.mark.parametrize('source,label', [('rule','자동 분류'),('inference','자동 추론')])
+def test_status_filters_partition_rows_and_source_filter_keeps_actual_origin(stored):
+    rows = card_catalog.catalog(stored, {})['rows']
+    ids = [row['transaction_id'] for row in rows]
+    stored.conn.execute("UPDATE transactions SET transaction_direction='purchase',classification_state='classified'")
+    stored.conn.execute("UPDATE transactions SET classification_source='inference' WHERE transaction_id=?", (ids[0],))
+    stored.conn.execute("UPDATE transactions SET classification_source='ai_inference',duplicate_of=? WHERE transaction_id=?", (ids[0],ids[1]))
+    stored.conn.execute("UPDATE transactions SET classification_source='rule' WHERE transaction_id=?", (ids[2],))
+    stored.conn.execute("INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) "
+        "SELECT transaction_id,batch_id,item,description,display_tab_id,trip_id,amount_krw,merchant,approval_date,transaction_direction,source_hash,'synthetic' FROM transactions WHERE transaction_id=?", (ids[0],))
+    stored.conn.commit()
+    before = stored.conn.total_changes
+    groups = {key:card_catalog.catalog(stored, {'state':[key]}) for key in card_catalog.STATES}
+    assert all(group['total'] == 1 for group in groups.values())
+    for key, group in groups.items():
+        assert group['rows'][0]['next_action']['group'] == key
+    assert card_catalog.catalog(stored, {'origin':['ai_inference']})['rows'][0]['transaction_id'] == ids[1]
+    assert card_catalog.catalog(stored, {'origin':['code_inference']})['rows'][0]['transaction_id'] == ids[0]
+    assert stored.conn.total_changes == before
+
+
+@pytest.mark.parametrize('source,label', [('rule','자동'),('inference','코드 추론'),('ai_inference','AI 추론')])
 def test_recording_does_not_turn_automatic_classification_into_a_user_decision(stored, monkeypatch, source, label):
     monkeypatch.setattr(CardFlow,'trip_valid',lambda self,trip:True)
     monkeypatch.setattr(CardFlow,'ota_group_holds',lambda self,**kw:{})
@@ -43,13 +63,13 @@ def test_recording_does_not_turn_automatic_classification_into_a_user_decision(s
     data['rows']=[row for row in data['rows'] if row['transaction_id']==tid]
     assert data['rows'][0]['decided'] and data['rows'][0]['decided_at'] is None
     markup=card_catalog.render_html(data,{})
-    assert '기록 완료' in markup and label in markup and '직접 분류' not in markup
+    assert '완료 · '+label in markup and '완료 · 직접' not in markup
     assert stored.conn.total_changes==before
     stored.conn.execute("UPDATE transactions SET classification_source='user_decision',decided_at='2026-11-02T00:00:00Z' WHERE transaction_id=?",(tid,))
     stored.conn.commit()
     data=card_catalog.catalog(stored,{})
     data['rows']=[row for row in data['rows'] if row['transaction_id']==tid]
-    assert '직접 분류' in card_catalog.render_html(data,{})
+    assert '완료 · 직접' in card_catalog.render_html(data,{})
 
 
 def test_search_filters_and_pagination_preserve_zero_and_original_amount(stored):

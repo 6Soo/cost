@@ -36,7 +36,7 @@ def test_correction_updates_existing_projections_and_keeps_originals_and_replay(
     assert payload['amount_krw']==r['amount_krw'] and payload['classification_source']=='inference'
     audit=json.loads(c.execute("SELECT detail_json FROM change_log WHERE kind='card.classification_corrected' LIMIT 1").fetchone()[0])
     assert audit['previous']['trip_id'] != audit['after']['trip_id']
-    assert audit['source']=='agent_evidence_review' and not audit['user_booking_or_refund_confirmation']
+    assert audit['source']=='code_inference' and not audit['user_booking_or_refund_confirmation']
     state=c.total_changes
     assert correction.apply(c,preview,changes,TRIPS,request_id='synthetic-correction')['applied']==0
     assert c.total_changes==state

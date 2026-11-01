@@ -14,7 +14,7 @@ CHUNK = 50
 JOB_SCOPE = 'card_completion_job'
 
 
-def queue_batch(board, batch_id, transaction_ids=None):
+def queue_batch(board, batch_id, transaction_ids=None, *, commit=True):
     """Persist exact resumable row IDs before classification can commit."""
     from app.db import utc_now
     with board._lock:
@@ -29,7 +29,8 @@ def queue_batch(board, batch_id, transaction_ids=None):
         state = json.dumps({'pending':True,'ids':sorted(identities)})
         board.conn.execute('INSERT INTO requests VALUES (?,?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET response_json=excluded.response_json WHERE requests.scope=excluded.scope',
             (key,JOB_SCOPE,_digest(batch_id),state,utc_now()))
-        board.conn.commit()
+        if commit:
+            board.conn.commit()
 
 
 def finish_jobs(board):
