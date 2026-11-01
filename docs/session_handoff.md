@@ -183,6 +183,15 @@
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
 
+## 2026-11-01 보험 수신 DB와 운영 웹 연결 복구
+
+- COMPLETE — 최신 사용자 “보험 명단 왜 아직도 연결안됐어?”의 원인은 수신기와 운영 웹의 DB 경로 불일치였다. 수신기는 기존 고정 참가자 DB에 등록했지만, 웹은 SHA별 release 아래 기본 경로를 찾아 운영 API가 `configured=false`를 반환했다. 과거 로컬 등록 완료 보고는 운영 웹 연결의 근거가 아니었다.
+- [PR #433](https://github.com/6Soo/cost/pull/433), 검수 `8adeae963289e137e59a6a580ebd4f1296fdb85d`, 운영 SHA `f52e019ad145eb0f7aaa21fde5ebb6d0c74fd958`. host runner의 `-ParticipantDb`를 실제 예약 작업에 명시하고 자식 프로세스 환경으로 전달한다. 이후 SHA 교체에도 같은 인수가 유지되며, 시작 실패 시 기존 task action으로 복구한다. 원본 복사·재등록·이름 기반 강제 연결은 하지 않았다.
+- 검증: host 시작/복구63 passed·23 subtests, 참가자 runtime/통합/누락 저장소 복구12 passed, PowerShell 구문·staged 데이터 보호 통과. 검수/병합 tree 동일·1,202 Git blobs 불일치0, task/process 고정SHA·health/ready200·참가자 및 기존 보호 API401, 금융 보호13표와 참가자8표 내용/스키마 불변.
+- 인증된 실제 운영 API에서 `0630_오제`31명·`1030_닛코`7명 모두 `configured=true`로 확인했다. 실제 여행 화면에서 명단 summary를 펼친 뒤 loaded=true·오류 없음. 처음에는 연결 후 autoLoad=0인 수동 펼침 화면을 자동 로딩으로 기다려30초 시간초과가 있었으며, 펼침 후 정상 수락했다. 이 경로 연결을 모든 참가자의 수입 수동 연결·보험사 신규 가입·실제 환급 확인으로 확대하지 않는다.
+- 기존 `COST-InsuranceRosterSync`와 SourceRefresh Running, 60초 스캔 유지. Google·금융·참가자·원본·스키마 쓰기0. 코드/경로 설정만 전환해 새 전체DB 백업·복원은 반복하지 않고 기존 검증 릴리스와 task XML 복구점을 보존했다. 전체 회귀·실기기 검사는 미실행.
+- 근거: `C:/AX/cost/.local-archive/continuation-20261101/`의 host-tests.xml·participant-tests.xml·review.json·production-after.json·participant-before/after.json·protection-before/after.json·deploy-evidence.json. 고객 원문은 Git 제외 로컬에만 보존한다. 명단 연결 요청의 미결0·다음 명령 없음. 별도 하나카드 다운로드는 과거 완전성 판정 철회·카드별 자료 미결을 유지하며, 이 연결 완료로 전체 카드 수집 완료를 선언하지 않는다.
+
 ## 2026-10-31 Google 지출 비교 오류·수기 추가 모달
 
 - COMPLETE — 사용자 “구글장부 왜 비교불가? 오류수정해 / 수기지출추가는 모달창 뜨는 방식으로 변경”. [PR #424](https://github.com/6Soo/cost/pull/424), 구현 `c3b20b6`·`0a925cc`·`1e3863f`, 운영 고정 SHA `d2b4394634f9eab85c356291e909509560dac9eb`.

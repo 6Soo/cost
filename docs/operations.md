@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-01 보험 수신기·웹 참가자 DB 경로 고정
+
+- DEPLOYED — [PR #433](https://github.com/6Soo/cost/pull/433), 검수 `8adeae963289e137e59a6a580ebd4f1296fdb85d`와 운영 `f52e019ad145eb0f7aaa21fde5ebb6d0c74fd958` tree 동일. 이전 검증 운영 `9e0ff03c464e98373b5cd591a19a3885fcf9ccf4`에서 전환했다. 예약 작업의 `-ParticipantDb`로 기존 수신 DB를 지정해 release별 빈 기본 경로를 읽던 문제를 복구했다. 경로는 다음 SHA 교체와 자식 재시작에도 유지된다.
+- host63 passed/23 subtests·참가자12 passed·PS parse/data guard PASS. 1,202 blobs 일치·task/processSHA·단일loopback listener·health/ready200·참가자 및 기존 보호API401. 금융 보호13표·참가자8표 전후 동일. 실제 금융/원본/참가자/Google/스키마 쓰기0, 새 전체DB 백업/복원 없음, 이전 릴리스와 task XML 복구점 보존.
+- 인증 운영 조회 `0630_오제`31명·`1030_닛코`7명 configured=true, 여행 화면 명단 펼침 loaded=true·오류 없음. autoLoad=0인 화면을 자동 로딩으로 기다렸던 첫30초 timeout은 펼침 동작 후 해소했다. 기존 수입 연결을 보존했으며 명단 표시와 수입 수동 연결·보험사 가입 확인은 구분한다. 수신기/SourceRefresh Running. 전체 회귀·실기기는 미실행.
+- 근거: `C:/AX/cost/.local-archive/continuation-20261101/`의 review·검사XML·production-after·participant/protection-before/after·deploy-evidence, 호스트 동일SHA release-audit/deploy-evidence. 현재 명단 연결 작업 미결0. 문서 후속만으로 재배포·재시작하지 않는다.
+
 ## 2026-11-01 전체 업무 UX 감사·개선 완료
 
 - COMPLETE — 현재 사용자 요청의 UX01~UX10. [감사·업무 목적·전후 비교](specs/full-ux-audit-20261101.md), [124개 경로/206개 핸들러](specs/full-ux-route-inventory-20261101.md). [PR429](https://github.com/6Soo/cost/pull/429)·[PR430](https://github.com/6Soo/cost/pull/430)·[PR431](https://github.com/6Soo/cost/pull/431), 최종 운영 `9e0ff03c464e98373b5cd591a19a3885fcf9ccf4`. 여행 맥락 전달·검색/상태 조건·개별 편집 접기·영수증 묶기/해제·빈 버튼 잠금·출력 선택 도구·중복 홈/헤더/카드 설명·규칙 화면 복귀·404 Google 링크를 정리했다.
