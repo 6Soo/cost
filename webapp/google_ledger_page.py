@@ -303,12 +303,13 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         reasons = ' / '.join(REVIEW_LABELS.get(code, code) for code in (trip.get('review') or []))
         synced_raw = html.escape(str(payload.get('synced_at') or ''))
         info_time = format_display_time(payload.get('synced_at'))
+        sync_control = (f"<button type='button' class='btn' data-google-sync>"
+                        f"{ui_icons.icon('refresh-cw')}<span>동기화</span></button>"
+                        "<span data-google-sync-status role='status' aria-live='polite'></span>"
+                        if owner else "<span>동기화</span>")
         time_row = (f"<div class='income-sync'><span>{html.escape(source_label(source))}</span>"
-                    f"{ui_icons.icon('refresh-cw')}<span>동기화</span><time datetime='{synced_raw}'>{info_time}</time></div>")
-        sheet = (trip.get('copies', {}).get(source) or {}).get('sheet') or trip_sheet(keys[0])
-        sheet_range = "'" + sheet.replace("'", "''") + "'!A1"
-        source_href = (f"https://docs.google.com/spreadsheets/d/{google_authority.SPREADSHEET_IDS[source]}"
-                       f"/edit#range={quote(sheet_range, safe='')}")
+                    f"{sync_control}<time datetime='{synced_raw}'>{info_time}</time></div>")
+        source_href = '/api/google-ledger/source?trip=' + quote(tab_id, safe='')
         esc = lambda value: html.escape('' if value is None else str(value))
         visible_rows = [
             row for row in sorted(detail['income'], key=transaction_date_sort_key)

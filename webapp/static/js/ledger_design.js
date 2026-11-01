@@ -1,5 +1,28 @@
 
 (function(){
+ document.addEventListener('click',async function(event){
+  var button=event.target.closest('[data-google-sync]');
+  if(!button||button.disabled)return;
+  var status=document.querySelector('[data-google-sync-status]');
+  var token=document.querySelector('input[name="csrf"]');
+  button.disabled=true;button.setAttribute('aria-busy','true');
+  if(status)status.textContent='Google 장부를 읽고 있습니다…';
+  try{
+   var response=await fetch('/api/google-ledger/sync',{method:'POST',credentials:'same-origin',
+    headers:{'X-CSRF-Token':token?token.value:''},body:'{}'});
+   if(!response.ok)throw new Error('동기화를 시작하지 못했습니다. 화면을 새로 연 뒤 다시 눌러 주세요.');
+   var result=await response.json(),deadline=Date.now()+180000;
+   while(result.status==='running'&&Date.now()<deadline){
+    await new Promise(function(resolve){setTimeout(resolve,1000);});
+    response=await fetch('/api/google-ledger/sync',{credentials:'same-origin',cache:'no-store'});
+    if(!response.ok)throw new Error('동기화 결과를 확인하지 못했습니다. 다시 눌러 주세요.');
+    result=await response.json();
+   }
+   if(result.status==='done'){location.reload();return;}
+   throw new Error(result.status==='running'?'동기화가 계속 진행 중입니다. 잠시 후 다시 확인해 주세요.':result.message||'동기화하지 못했습니다. 다시 눌러 주세요.');
+  }catch(error){if(status)status.textContent=error.message;}
+  finally{button.disabled=false;button.removeAttribute('aria-busy');}
+ });
  document.addEventListener('DOMContentLoaded',function(){
   var root=document.getElementById('participant-trip-panel');
   if(!root)return;

@@ -48,8 +48,7 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
         self.assertIn('INCOME-NAME', page.locator('#google-trip-income').inner_text())
         page.evaluate("document.querySelectorAll('#google-trip-income .income-detail').forEach(d=>d.open=true)")
         link = page.locator('#google-trip-income').get_by_role('link', name='수입·지출 원본 상세')
-        self.assertTrue(link.get_attribute('href').startswith(
-            'https://docs.google.com/spreadsheets/d/' + ga.SPREADSHEET_IDS['main'] + '/edit#range='))
+        self.assertEqual(link.get_attribute('href'), '/api/google-ledger/source?trip=' + trip['tab_id'])
         self.assertEqual(link.get_attribute('target'), '_blank')
         self.assertEqual(page.locator('#sum').get_by_text('수입', exact=True).count(), 1)
         self.assertEqual(self.server.card_store.conn.execute(
