@@ -139,11 +139,12 @@ def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(mo
                 request.fulfill(status=200, content_type='text/html',
                                 body=response if '/api/participants/trip-panel?' in request.request.url else document)
             page.route('http://synthetic.test/**', route)
-            page.goto('http://synthetic.test/')
+            page.goto('http://synthetic.test/?participant_q=')
             expected = '글자 일치 · 가*다' if generation == 'one' else '자료 변경 · 새로고침 필요'
             page.wait_for_function('(value)=>document.querySelector(".participant-insurance-cell").textContent===value', arg=expected)
             assert page.locator('.participant-insurance-cell').inner_text() == expected
             assert page.locator('.participant-row-connect').count() == 0
+            assert page.locator('#participant-trip-panel').get_attribute('open') is not None
             for width in (320,390,900):
                 page.set_viewport_size({'width':width,'height':900})
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
