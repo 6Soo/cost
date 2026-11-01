@@ -1,5 +1,6 @@
 openpyxl>=3.1.5,<4
 xlrd>=2.0.1,<3
+pypdf==6.21.2
 # Google OpenID Connect. SPEC_REFINEMENT 16.1 names a verified OIDC library, and
 # `google-auth` is the one that verifies Google's id token signature, issuer,
 # audience and expiry. It is a real dependency, not an optional extra: without

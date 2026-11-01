@@ -5,12 +5,32 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import io
+import re
+from pypdf.errors import PyPdfError
 
-from .insurance_income_match import ManifestError, load_review_manifest
+from .insurance_income_match import ManifestError, load_review_manifest, unique_identity_name_match
 from .participant_roster import RosterError, mapping_resolver, register_roster
+from .rules import trip_region
 
 
-def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_trip_counts=None):
+def document_info(path):
+    """Inspect product region and real page coverage locally, without logging text."""
+    from pypdf import PdfReader
+    path=Path(path)
+    if path.stat().st_size > 10*1024*1024:
+        raise RosterError('DOCUMENT_TOO_LARGE')
+    reader=PdfReader(io.BytesIO(path.read_bytes()))
+    if reader.is_encrypted or not 1 <= len(reader.pages) <= 100:
+        raise RosterError('DOCUMENT_UNREADABLE')
+    text='\n'.join(page.extract_text() or '' for page in reader.pages[:2])
+    domestic=bool(re.search(r'국내\s*여행|DOMESTIC\s+TRAVEL',text,re.I))
+    overseas=bool(re.search(r'해외\s*여행|OVERSEAS\s+TRAVEL',text,re.I))
+    return {'region':('KR' if domestic else 'overseas') if domestic != overseas else '',
+            'pages':list(range(1,len(reader.pages)+1))}
+
+
+def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_people=None):
     """Adapt verified documents to the existing immutable roster batch format.
 
     Only an explicit mapping or a unique enclosing Google trip is sufficient.
@@ -36,23 +56,43 @@ def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_t
         if hashlib.sha256(pdf.read_bytes()).hexdigest() != source['sha256']:
             reports.append({'source_key': key, 'status': 'rejected', 'code': 'SOURCE_HASH_MISMATCH'})
             continue
+        try:
+            info=document_info(pdf)
+        except (ImportError, ValueError, OSError, RosterError, PyPdfError):
+            reports.append({'source_key':key,'status':'held','code':'DOCUMENT_PRODUCT_UNVERIFIED',
+                            'rows':len(source['items'])})
+            continue
+        if not info['region']:
+            reports.append({'source_key':key,'status':'held','code':'DOCUMENT_PRODUCT_UNVERIFIED',
+                            'rows':len(source['items'])})
+            continue
         tid = source.get('cost_trip_id')
         mapping_basis = 'explicit_mapping' if tid else 'unique_enclosing_period'
+        conflict=False
         if not tid:
-            candidates = [trip['tab_id'] for trip in valid.values()
+            enclosing = [trip for trip in valid.values()
                           if trip.get('starts_on') and trip.get('ends_on')
                           and trip['starts_on'] <= source['travel_start']
                           and source['travel_end'] <= trip['ends_on']]
+            candidates=[trip['tab_id'] for trip in enclosing if trip_region(trip)==info['region']]
+            conflict=bool(enclosing) and not candidates
             tid = candidates[0] if len(candidates) == 1 else None
+        elif tid in valid:
+            region=trip_region(valid[tid])
+            conflict=bool(region) and region != info['region']
         keys = [k for k, value in mapping.items() if value == tid]
-        if tid not in valid or len(keys) != 1:
-            reports.append({'source_key': key, 'status': 'held', 'code': 'TRIP_MAPPING_REQUIRED',
+        if conflict or tid not in valid or len(keys) != 1:
+            reports.append({'source_key': key, 'status': 'held', 'code': 'TRIP_REGION_CONFLICT' if conflict else 'TRIP_MAPPING_REQUIRED',
                             'rows': len(source['items']), 'period': [source['travel_start'],source['travel_end']]})
             continue
         # The source handoff identifies this already registered contract. Keep
         # its existing participant IDs and links; never register its masks again.
         if source['already_registered']:
-            existing = (registered_trip_counts or {}).get(tid, 0) >= len(source['items'])
+            people=(registered_people or {}).get(tid,[])
+            matches=[[p['participant_id'] for p in people if item['masked_name']==p.get('display_name')
+                      or unique_identity_name_match(item['masked_name'],p.get('display_name',''))]
+                     for item in source['items']]
+            existing=bool(matches) and all(len(hits)==1 for hits in matches) and len({hits[0] for hits in matches})==len(matches)
             reports.append({'source_key': key, 'status': 'existing_registration' if existing else 'held',
                             'code': '' if existing else 'EXISTING_REGISTRATION_REQUIRED', 'trip_id': tid,
                             'rows': len(source['items'])})
@@ -66,8 +106,8 @@ def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_t
                     'trip_ref': {'cost_trip_id':tid,'google_trip_key':keys[0]},
                     'submitted_by':'verified-insurance-document-adapter',
                     'submitted_at':review['created_at'],
-                    'coverage': {'scope':'partial','received_pages':[1],
-                                 'expected_pages':None,'declared_people':len(source['items'])},
+                    'coverage': {'scope':'partial','received_pages':info['pages'],
+                                 'expected_pages':len(info['pages']),'declared_people':len(source['items'])},
                     'sources':[{'source_id':'document','path':'sources/document.pdf','sha256':source['sha256']}]}
         items = {'schema_version':1,'items':[
             {'source_item_id':'row-'+hashlib.sha256(item['source_row'].encode()).hexdigest()[:24],
@@ -120,13 +160,15 @@ def sync_once(config, store):
     connection.row_factory=sqlite3.Row
     try:
         trips=[dict(row) for row in connection.execute(
-            'SELECT tab_id,starts_on,ends_on,deleted FROM trip_tabs WHERE deleted=0')]
+            'SELECT tab_id,destination,starts_on,ends_on,deleted FROM trip_tabs WHERE deleted=0')]
     finally:
         connection.close()
-    counts=dict(store.conn.execute('SELECT trip_id,count(*) FROM trip_participants WHERE active=1 GROUP BY trip_id'))
+    people={}
+    for tid,pid,name in store.conn.execute('SELECT trip_id,participant_id,display_name FROM trip_participants WHERE active=1'):
+        people.setdefault(tid,[]).append({'participant_id':pid,'display_name':name})
     try:
         sources = prepare_document_batches(config['review_manifest'],config['inbox'],mapping=mapping,
-                                           trips=trips,registered_trip_counts=counts) if config.get('review_manifest') else []
+                                           trips=trips,registered_people=people) if config.get('review_manifest') else []
     except (ManifestError, OSError, ValueError, RosterError):
         sources = [{'status':'rejected','code':'DOCUMENT_SOURCE_UNAVAILABLE'}]
     batches=scan_inbox(config['inbox'],store,mapping=mapping,expected_web_db=config['db'])

@@ -8,9 +8,20 @@ from app.participant_sync import prepare_document_batches, scan_inbox
 
 
 def source(root):
+    from pypdf import PdfWriter
+    from pypdf.generic import NameObject, DictionaryObject, DecodedStreamObject
     pdf=root/'sources'/'certificate.pdf'
     pdf.parent.mkdir(parents=True)
-    pdf.write_bytes(b'synthetic certificate')
+    writer=PdfWriter()
+    page=writer.add_blank_page(width=400,height=200)
+    font=DictionaryObject({NameObject('/Type'):NameObject('/Font'),
+                           NameObject('/Subtype'):NameObject('/Type1'),NameObject('/BaseFont'):NameObject('/Helvetica')})
+    page[NameObject('/Resources')]=DictionaryObject({NameObject('/Font'):DictionaryObject({NameObject('/F1'):font})})
+    contents=DecodedStreamObject()
+    contents.set_data(b'BT /F1 12 Tf 20 100 Td (OVERSEAS TRAVEL INSURANCE) Tj ET')
+    page[NameObject('/Contents')]=contents
+    writer.add_blank_page(width=400,height=200)
+    writer.write(pdf)
     data={'schema_version':1,'kind':'synthetic','created_at':'2026-01-01',
           'query_basis':'synthetic','notes':[], 'contracts':[{
               'contract_id':'synthetic-contract','travel_start':'2026-03-02','travel_end':'2026-03-04',
@@ -23,7 +34,7 @@ def source(root):
     return path,data,pdf
 
 
-TRIPS=[{'tab_id':'trip-synthetic','starts_on':'2026-03-01','ends_on':'2026-03-05'}]
+TRIPS=[{'tab_id':'trip-synthetic','destination':'오제','starts_on':'2026-03-01','ends_on':'2026-03-05'}]
 MAPPING={'synthetic-trip':'trip-synthetic'}
 
 
@@ -61,13 +72,15 @@ def test_ambiguous_or_absent_google_trip_does_not_register(tmp_path):
 
 def test_original_hash_and_registration_evidence_are_required(tmp_path):
     path,data,pdf=source(tmp_path/'review')
+    original=pdf.read_bytes()
     pdf.write_bytes(b'changed')
     assert prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS)[0]['code']=='SOURCE_HASH_MISMATCH'
-    pdf.write_bytes(b'synthetic certificate')
+    pdf.write_bytes(original)
     data['contracts'][0].update(already_registered=True,cost_trip_id='trip-synthetic')
     path.write_text(json.dumps(data),encoding='utf-8')
     assert prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS)[0]['status']=='held'
-    result=prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS,registered_trip_counts={'trip-synthetic':1})
+    result=prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS,
+                                    registered_people={'trip-synthetic':[{'participant_id':'p','display_name':'김가람'}]})
     assert result[0]['status']=='existing_registration'
 
 
@@ -93,8 +106,8 @@ def test_bad_review_manifest_does_not_block_existing_canonical_batches(tmp_path)
     mapping.write_text(json.dumps(MAPPING),encoding='utf-8')
     board=tmp_path/'board.sqlite'
     c=sqlite3.connect(board)
-    c.execute('CREATE TABLE trip_tabs(tab_id TEXT, starts_on TEXT, ends_on TEXT, deleted INTEGER)')
-    c.execute("INSERT INTO trip_tabs VALUES ('trip-synthetic','2026-03-01','2026-03-05',0)")
+    c.execute('CREATE TABLE trip_tabs(tab_id TEXT, destination TEXT, starts_on TEXT, ends_on TEXT, deleted INTEGER)')
+    c.execute("INSERT INTO trip_tabs VALUES ('trip-synthetic','오제','2026-03-01','2026-03-05',0)")
     c.commit();c.close()
     store=ParticipantStore.open(tmp_path/'participant.sqlite')
     try:
@@ -119,3 +132,24 @@ def test_incomplete_generated_batch_preserves_user_edits(tmp_path):
     result=prepare_document_batches(path,inbox,mapping=MAPPING,trips=TRIPS)
     assert result[0]['code']=='DERIVED_BATCH_CONFLICT'
     assert target.read_text(encoding='utf-8')=='{"user_edit":true}'
+
+
+def test_overseas_certificate_never_assigns_to_domestic_date_candidate(tmp_path):
+    from app.participant_sync import document_info
+    path,_,pdf=source(tmp_path/'review')
+    assert document_info(pdf)=={'region':'overseas','pages':[1,2]}
+    result=prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,
+                                     trips=[dict(TRIPS[0],destination='양평')])
+    assert result[0]['status']=='held'
+    assert result[0]['code']=='TRIP_REGION_CONFLICT'
+    assert not (tmp_path/'inbox').exists()
+
+
+def test_matching_hash_does_not_make_an_unreadable_pdf_valid(tmp_path):
+    path,data,pdf=source(tmp_path/'review')
+    pdf.write_bytes(b'invalid PDF')
+    data['contracts'][0]['sha256']=hashlib.sha256(pdf.read_bytes()).hexdigest()
+    path.write_text(json.dumps(data),encoding='utf-8')
+    result=prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS)
+    assert result[0]['status']=='held'
+    assert result[0]['code']=='DOCUMENT_PRODUCT_UNVERIFIED'
