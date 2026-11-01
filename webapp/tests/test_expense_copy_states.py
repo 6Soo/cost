@@ -94,8 +94,9 @@ def test_integrated_labels_escape_source_text_and_are_visible_on_mobile(copy_sta
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     scope = page.locator('.lst') if width < 760 else page.locator('#tbl')
                     labels = scope.locator('.expense-copy-state')
-                    assert labels.count() == 4
-                    assert all(labels.nth(i).is_visible() for i in range(4))
+                    assert labels.count() == 3
+                    assert all(labels.nth(i).is_visible() for i in range(3))
+                    assert '복사 가능</span>' not in scope.inner_html()
                     assert page.get_by_role('button', name='지출내용 복사').is_enabled()
         finally:
             browser.close()
