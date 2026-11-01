@@ -3424,6 +3424,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         resolve_role(self.headers, self._cookies())
         from . import google_ledger_page as _gl
+        from . import google_ledger_actions as _gla
+        if parsed.path in _gla.ROUTES:
+            is_owner, viewer = _gl.caller(ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, 'session', None),
+                                         is_owner_session, _active_role)
+            tabs = _ACCESS.visible_tabs(viewer) if (viewer and _ACCESS and not is_owner) else set()
+            if _gla.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
+                             viewer_tabs=tabs, query=query):
+                return
         from . import sheet_expense_review
         if sheet_expense_review.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
@@ -3883,6 +3891,13 @@ class Handler(BaseHTTPRequestHandler):
                                    is_owner=_receipts_owner_request()):
             return
         from . import google_ledger_page
+        from . import google_ledger_actions
+        if parsed.path in google_ledger_actions.ROUTES:
+            is_owner, viewer = google_ledger_page.caller(
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, 'session', None), is_owner_session, _active_role)
+            if google_ledger_actions.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
+                                              raw=raw, csrf=CSRF_TOKEN):
+                return
         if google_ledger_page.owns_route(parsed.path):
             is_owner, viewer = google_ledger_page.caller(
                 ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,

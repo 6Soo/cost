@@ -1,3 +1,25 @@
+## 2026-11-02 원본 상세 탭 이동·수동 Google 동기화 완료
+
+- COMPLETE — 사용자 요청 2개를 [PR #478](https://github.com/6Soo/cost/pull/478)로 구현·병합·배포했다. 구현 `178b5b9558e0bf9f449ccfb1b6be8dae7d32d39c`, 운영 `ce61fea6ca09546c838602c530308850b9cade30`, 이전 검증 `6bfeee7b34d6eab551394b73d87bedfa29000bc1`. 원본 상세는 현재 여행 접근 권한·선택 사본·정확한 탭 제목을 확인하고 Google 읽기 전용 탭 색인에서 실제 gid를 찾아 새 창으로 연다. 장부 관리의 제거된 과거 페이지는 재활성화하지 않는다.
+- 동기화는 실제 버튼이며 소유자/CSRF 확인 후 백그라운드 읽기 작업과 상태 조회를 연결했다. 기존 스케줄러와 같은 OS 잠금·실패 backoff·원자 세대 저장·이전 세대 보존을 사용한다. 실행 중 중복 클릭을 막고 진행/실패/재시도 표시, 성공 후 새로고침을 제공한다. 현재 운영 GoogleAuthority task의 public 읽기 모드와 일치하며 ADC 설정 지원도 유지한다. Google 최종 장부·금융 DB·분류·여행 교정·원본·스키마 쓰기는 없다. 승인된 실제 동기화로 로컬 Google 읽기 캐시만 갱신했다.
+- 검증: 정확한 후보 트리 표적105 passed/기존 화면 문구 검사1 deselected, 스케줄/ADC 보호47 passed, JS 구문 PASS. 탐색 최초106 passed와 기존 문구 기대4 subtests 실패를 혼동하지 않는다. 기준 `a0f5d1edbe15467f5a530755bfbd07e3664187ca`에서도 같은4 실패 재현. 실제 HTTP worker/CSRF/완료 후 reload/실패 후 재시도/원본302 및 모바일390px 검사 포함. 전체 회귀·실기기는 범위가 제한되어 미실행이다.
+- 배포:1241 blobs 불일치0, task/process 고정SHA·단일loopback8751·health/ready200·기존 보호API401·새 Google action API403, 금융보호13표 내용/스키마 불변 PASS. 첫 시도는 새API의 올바른 비로그인403을 점검 스크립트가401로 기대해 자동 이전 릴리스 복구; 점검 기대값만 수정 후 동일 코드 재배포 성공. 별도 전체DB백업/복원은 반복하지 않고 기존 검증 릴리스·task XML을 보존했다.
+- 로그인된 ego-browser 운영 수락: 원본 버튼이 선택된 스프레드시트의 실제 `gid=1091731289`로 이동, 실제 동기화 클릭→진행/중복방지→성공 새로고침→시각03:00→03:58, 연결3개 소스 모두status=ok 확인. 재배포 전 화면의 이전CSRF는 거부됐고 최신 화면을 열어 성공한 근거를 구별한다. 금융 보호13표는 실제 동기화 뒤에도 불변이다. TaskSpace10은 결과 화면을 유지하고 종료했다.
+- 근거 `.local-archive/ledger-sync-20261102/`의 checkpoint/candidate.xml/baseline.xml/protection.xml/review/release-audit/deploy-evidence/protection-before·after/browser-final.json 및 호스트 동일SHA 감사. 사용자/다른 작업의 미커밋 변경은 보존했다. 요청 미결·차단0, 다음 기능 명령 없음. 문서 후속만으로 재배포/재시작하지 않는다.
+
+## 2026-11-02 보험 명단 행 간격·모바일 수입 표 조정 완료
+
+- COMPLETE — 첨부 화면의 보험 명단 행 높이 차이를 CSS로 교정했다. 연결/미연결/환불완료 행은 PC45px, 모바일57px로 통일하고 펼침 화살표·hover·focus를 정리했다. 모바일 table/section의 기본 표 배치 때문에 각 수입 행이 전체 너비의 일부로 축소되던 문제와 합계 정렬도 수정했다. [PR #475](https://github.com/6Soo/cost/pull/475), 구현 `6f8b9a61`, 운영 SHA `6bfeee7b34d6eab551394b73d87bedfa29000bc1`, 이전 검증 `e448f34851cfaf122e4646585ea0a4c93589e37b`.
+- 검증: 병합 트리와 동일한 후보의 수입/보험 연결 표적 50 passed/브라우저3 deselected. ego-browser 인증 운영 GET에서 PC1440·모바일390/320px의 동일 높이·행/표 너비 일치·합계 잘림0·가로 넘침0·마우스/키보드 펼침 PASS. TaskSpace8 정상 종료. 전체 회귀·실기기는 국소 CSS 변경으로 미실행. 분류/금융/수입/참가자/Google/원본/스키마 쓰기0.
+- 배포: 1,237 Git blobs 불일치0·task/process 고정SHA·단일 loopback listener·health/ready200·보호5경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용으로 새 전체DB백업/복원은 반복하지 않고 이전 검증 릴리스와 task XML 복구점을 보존했다. 근거 `.local-archive/insurance-density-20261102/`의 candidate-tests.xml·browser/live.json·release-audit/review/deploy-evidence 및 호스트 동일SHA 기록. 요청 미결/차단0·다음 명령 없음. 문서 후속은 재배포/재시작하지 않는다. 기존 사용자 미커밋 변경은 보존했다.
+
+## 2026-11-02 기업·하나 다운로드 파일 업로드 오류 수정 완료
+
+- COMPLETE — [PR #470](https://github.com/6Soo/cost/pull/470), 구현 `b289b96e`·보호 보완 `9efd2b08`, 고정 운영 SHA `e448f34851cfaf122e4646585ea0a4c93589e37b`. 기업 XLSX 비표준 스타일/잘못된 셀 범위, 하나 이용·해외 이용 XLS 헤더 인식 오류를 수정했다. 원본 바이트·원행·승인번호를 보존하고, 수수료/청구금액·부분취소를 해당 원문 열에서 읽는다. 없는 매입일은 공란이며 양쪽 명시 매입일·금액·가맹점·외화 충돌과 취소 다중성·수동 교정 보호를 유지한다.
+- 검증: 병합 트리53 passed/14 deselected·권한/CSRF4 subtests. 실제 다운로드13개/1,254행 파싱·원본/원행 불변 PASS. 운영 DB의 격리 메모리 사본에서 기존6,851행·수동/장부/보류 불변, 정상 신규683·기존422·충돌149 보존·구매 앵커 중복0·재수신13개 멱등성을 확인했다. 충돌149건은 자동 해결하거나 운영 반영하지 않았다.
+- ego-browser 합성3파일 업로드/파일별 상세 링크/HTTP200·동일파일 재수신 동일배치·PC/390px 넘침0, 인증 운영 업로드 화면 GET의 multiple·허용확장자·결과영역 PASS. 여행 자료 없는 합성 서버의 `분류 미완료`는 파싱 실패나 분류 완료로 보고하지 않는다. 실제 고객 파일의 운영 재업로드·분류/여행/장부/Google/원본/스키마 쓰기0. 전체 회귀/실기기는 미실행이다.
+- 배포:1,237 blobs 불일치0·task/process 고정SHA·단일loopback·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변. 최초 전환은 다른 배포의 SHA 변경을 쓰기 전에 감지해 중단했고, 검증된 최신598bf14f를 복구 기준으로 재검사 후 전환했다. 기존 task 인수/SourceRefresh 상태 보존. 새전체DB백업/복원은 반복하지 않았으며 이전 검증 릴리스와 task XML을 보존했다. 근거 `C:/AX/cost/.local-archive/upload-format-20261102/`의 merged-targeted.xml·actual-after.json·actual-rehearsal.json·resume-browser-final.json·live-browser.json·review/release-audit/deploy-evidence 및 호스트 동일SHA 기록. 이 요청의 미결/차단0·다음명령 없음. 문서후속 재배포/재시작 없음.
+
 ## 2026-11-02 알펜루트 배정 표시 누락 교정 완료
 
 - COMPLETE — 사용자 “왜 알펜루트로 배정안됐지?” 조사 결과 해당 10/24 거래는 이미 `1020_알펜루트`(10/20~24)의 현지경비로 자동 추론 배정됐고 내부 장부에는 미기록이었다. 지출 정리 카드가 저장된 여행·항목을 보여주지 않아 혼동을 일으켰다. 유효한 현재 여행과 항목을 카드 본문에 표시하며, 무효 여행·보류·금융 보호 판단은 유지한다. [PR #471](https://github.com/6Soo/cost/pull/471), 구현 `13c7a3ed`, 운영 SHA `598bf14f8bd0b70241c03e6a10968969a31b66a5`, 이전 검증 `13b02d22388383271db8f254cca2dfb6dbb30279`.
@@ -35,7 +57,7 @@
 
 - COMPLETE — 사용자 “프로젝트 규칙에서 aside 관련 내용을 모두 ego로 수정”. [COST 지침](../AGENTS.md), 참조 정본 `C:/AX/agent-policy/AUTONOMOUS_EXECUTION.md`의 브라우저 절, [카드 다운로드](card_downloads.md), 금융·Google 인증·UI 검증의 실행 지시를 ego-browser로 변경했다. Windows UTF-8 `.mjs`·동일 TaskSpace 재사용을 명시하며 인증·원본·외부 쓰기 권한 경계는 유지한다. 과거 운영/인증 기록은 당시 증거로 보존하고 현재 실행 지시와 구분한다.
 - 문서 diff·참조 경로·명령과 실제 스킬 API 일치만 확인한다. 이 변경에 따른 코드 테스트·빌드·운영 DB 확인·재배포·서버 재시작은 하지 않는다. 병행 코드 변경은 이 문서 변경에 포함하지 않는다.
-- 별도 업로드 오류는 미해결이다. 첨부 화면의 XLSX 읽기 실패·해외 XLS 카드 식별 누락·국내 XLS 형식 미인식을 확인했으며 실제 실패 원본을 확보해 재현하는 단계가 남았다. 보관된 기존 파일 통과를 이 화면의 해결 근거로 사용하지 않는다. 조사 근거와 다음 행동은 로컬 `.local-archive/upload-format-20261102/checkpoint.json`에 보존한다.
+- 당시 별도 업로드 오류는 원본 확보 전 미해결이었다. 후속 PR #470에서 실제13개 원본 재현·수정·격리 보호 검증·운영 코드 배포를 완료했다. 현재 상태는 이 문서 상단의 기업·하나 다운로드 업로드 완료 절과 로컬 `.local-archive/upload-format-20261102/checkpoint.json`을 따른다.
 
 ## 2026-11-01 모든 비용 준비기간·Python 기능군 리팩토링 완료
 
