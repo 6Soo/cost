@@ -47,7 +47,7 @@ _EVENT_FIELDS = (
     "rule_delta_krw", "discount_cause_confirmed", "group_order_frozen",
     "frozen_mapping", "proposed_mapping",
     "group_order_snapshot", "candidate_search_status", "candidate_date_status", "candidate_count",
-    "candidate_rejected_count", "reservation_link",
+    "candidate_rejected_count", "reservation_link", "payment_relation",
     "mail_authentication", "service_period_semantics", "travel_suggestion",
     "payment_evidence_basis", "cancelled_on", "cancellation_notice_sent_on", "provisional_assignment",
     "preauthorized_on", "preauthorized_amount_krw",
@@ -204,6 +204,27 @@ def _event_label(event_by_id, event_ids):
     return ", ".join(dict.fromkeys(labels)) or "다른 예약"
 
 
+def _public_payment_relation(value):
+    if not isinstance(value, dict) or value.get('status') != 'LINKED':
+        return None
+    strings = ('relation_id', 'currency', 'source_total', 'card_total', 'balance', 'basis', 'source_total_status')
+    result = {key: value.get(key) for key in strings
+              if value.get(key) is None or isinstance(value.get(key), str)}
+    result['status'] = 'LINKED'
+    for key in ('event_ids', 'transaction_ids', 'group_transaction_ids'):
+        ids = value.get(key)
+        if not isinstance(ids, list) or not ids or any(not isinstance(i, str) or not i for i in ids):
+            return None
+        result[key] = list(ids)
+    for key in ('event_count', 'card_count', 'booking_count'):
+        if type(value.get(key)) is not int or value[key] < 1:
+            return None
+        result[key] = value[key]
+    for key in ('payment_date_verified', 'individual_payment_verified'):
+        result[key] = value.get(key) is True
+    return result
+
+
 def _sanitize_card_row(source):
     """Apply field allowlist and post-processing to a card row for public API.
 
@@ -220,7 +241,8 @@ def _sanitize_card_row(source):
     safe_reasons = {"중복 거래라 선택할 수 없습니다.",
                     "거래 파싱 오류가 있어 선택할 수 없습니다.",
                     "거래 충돌이 있어 선택할 수 없습니다.",
-                    "저장한 예약 관계의 선택 이력입니다."}
+                    "저장한 예약 관계의 선택 이력입니다.",
+                    "M:N 관계로 연결된 카드입니다. 개별 금융 배분은 별도입니다."}
     if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
         block_reason = source["selection_disabled_reason"]
     if (not block_reason and source.get("candidate_rejection_reason") in
@@ -257,6 +279,11 @@ def public_snapshot(snapshot, *, include_cards=False):
             event["reservation_link"] = relation
         else:
             event.pop("reservation_link", None)
+        relation = _public_payment_relation(source.get('payment_relation'))
+        if relation:
+            event['payment_relation'] = relation
+        else:
+            event.pop('payment_relation', None)
         # Include card count summary for UI badges (pre-computed by snapshot_from)
         event["card_candidate_count"] = source.get("card_candidate_count", 0)
         events.append(event)
@@ -833,7 +860,12 @@ class CoreOtaPaymentBackend:
             if "unexpected keyword argument 'rules'" not in str(exc):
                 raise
             rows = self.payments.same_date_cards(event, transactions, links=links)
-        return [dict(row) for row in rows]
+        rows = [dict(row) for row in rows]
+        linked = set((event.get('payment_relation') or {}).get('transaction_ids') or ())
+        present = {str(row.get('transaction_id')) for row in rows}
+        rows.extend(dict(row) for row in transactions
+                    if str(row.get('transaction_id')) in linked - present)
+        return rows
 
     def _occupied_cards(self, links, results):
         occupied = {}
@@ -902,7 +934,8 @@ class CoreOtaPaymentBackend:
 
         # Determine if this event should be in the hold list (needs card display)
         show_in_holds = (is_hold or is_changed_manual or is_ordered_group
-                         or is_reservation_candidate or has_reservation_relation)
+                         or is_reservation_candidate or has_reservation_relation
+                         or result.get('status') == 'MATCHED_GROUP')
 
         # Build base event data for hold list
         event_data = {**event_by_id.get(event_id, {}), **result}
@@ -933,10 +966,13 @@ class CoreOtaPaymentBackend:
                 owner = occupied.get(transaction_id)
                 if not (owner and str(owner[0]) != event_id):
                     candidate_count += 1
+        payment_relation = result.get('payment_relation') or {}
+        if payment_relation.get('status') == 'LINKED':
+            candidate_count = len(payment_relation.get('transaction_ids') or ())
 
         # Only build full rows when explicitly requested
         # Also build for MATCHED_AUTO/MATCHED_USER events which have linked transactions
-        is_matched = result.get("status") in ("MATCHED_AUTO", "MATCHED_USER")
+        is_matched = result.get("status") in ("MATCHED_AUTO", "MATCHED_USER", "MATCHED_GROUP")
         rows = []
         if build_rows and (show_in_holds or is_matched):
             rows = self._event_rows(event_data, transactions, links, rules)
@@ -1013,6 +1049,9 @@ class CoreOtaPaymentBackend:
 
             # Apply shared post-processing (occupied, group holds, hold states, etc.)
             for row in rows:
+                if result.get('status') == 'MATCHED_GROUP':
+                    row['selection_disabled'] = True
+                    row['selection_disabled_reason'] = 'M:N 관계로 연결된 카드입니다. 개별 금융 배분은 별도입니다.'
                 if result.get("status") in ("HOLD_PARTIAL_GROUP", "HOLD_GROUP_CONFIRMATION_REQUIRED") or is_ordered_group:
                     row["selection_disabled"] = True
                     row["selection_disabled_reason"] = (
@@ -1020,7 +1059,10 @@ class CoreOtaPaymentBackend:
                         if result.get("status") == "HOLD_PARTIAL_GROUP" else
                         "사용자 승인 순서로 반복 거래를 배정했습니다. 개별 결제 근거가 확인된 연결은 아닙니다.")
                 owner = occupied.get(str(row.get("transaction_id") or ""))
-                if owner and str(owner[0]) != event_id:
+                related_owner = (payment_relation.get('status') == 'LINKED'
+                    and str(row.get('transaction_id')) in payment_relation.get('transaction_ids', ())
+                    and str((owner or ('',))[0]) in payment_relation.get('event_ids', ()))
+                if owner and str(owner[0]) != event_id and not related_owner:
                     row["already_linked_event_id"] = owner[0]
                     row["already_linked_reason"] = owner[1]
                     row["already_linked_label"] = _event_label(event_by_id, owner[0])
@@ -1078,7 +1120,8 @@ class CoreOtaPaymentBackend:
             relation["revision"] = saved_relation.get("revision")
             has_reservation_relation = relation.get("status") in ("INFERRED", "USER_CONFIRMED", "STALE")
             if (not is_hold and not is_changed_manual and not is_ordered_group
-                    and not is_reservation_candidate and not has_reservation_relation):
+                    and not is_reservation_candidate and not has_reservation_relation
+                    and result.get('status') != 'MATCHED_GROUP'):
                 continue
             event = {**event_by_id.get(event_id, {}), **result}
             search = result.get("candidate_search") or {}
@@ -1752,7 +1795,7 @@ def reconcile_for(backend) -> dict:
     for row in results:
         item = {key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
                                               "reserved_card_ids", "allocation_basis", "inferred_link",
-                                              "inference_basis", "payment_date_verified")}
+                                              "inference_basis", "payment_date_verified", "payment_relation")}
         if row.get("reservation_link"):
             item["reservation_link"] = row["reservation_link"]
         verdict = guide.get(str(row.get("ota_event_id")))
@@ -2141,14 +2184,21 @@ def render_import_section(csrf: str) -> str:
       const gap=card=>Number.isFinite(Number(card.amount_krw))&&Number.isFinite(amountKrw)?Math.abs(Number(card.amount_krw)-amountKrw):Infinity;
       const financialHoldReasons=['중복 거래라 선택할 수 없습니다.','거래 파싱 오류가 있어 선택할 수 없습니다.','거래 충돌이 있어 선택할 수 없습니다.'];
       const period=event.service_period&&typeof event.service_period==='object'?`${{event.service_period.starts_on||'자료 없음'}} ~ ${{event.service_period.ends_on||'자료 없음'}}`:event.service_period;
-      const group=event.group_count?`${{event.group_count.ota}}건 ↔ ${{event.group_count.cards}}건, 대응 ${{event.matched_count??Math.min(event.group_count.ota,event.group_count.cards)}}건`:'';
+      const group=event.payment_relation?`${{event.payment_relation.event_count}}건 ↔ 카드 ${{event.payment_relation.card_count}}건 (M:N)`:event.group_count?`${{event.group_count.ota}}건 ↔ ${{event.group_count.cards}}건, 대응 ${{event.matched_count??Math.min(event.group_count.ota,event.group_count.cards)}}건`:'';
       const basis=event.inferred_link?event.inference_basis:event.allocation_basis==='user_approved_stable_order'?'사용자 승인 순서 배정 · 개별 결제 근거 미확인':event.status==='HOLD_PARTIAL_GROUP'?'부분 묶음 · 개별 연결과 장부 기록 차단':'';
       const amountText=event.currency&&event.currency!=='KRW'?`${{event.amount}} ${{event.currency}} (원화 환산 ${{money(event.amount_krw)}})`:money(event.amount??event.amount_krw);
       const evidence=event.evidence_missing?'근거 사라짐':event.evidence_changed?'변경됨':'확인됨';
-      const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',label(EVENT_TYPE_LABELS,event.event_type)],['결제일',event.paid_on],[event.event_type==='reservation'?'예약 금액':'결제 금액',amountText],['이용 기간',period],['항목',event.item],['보류 이유',label(REASON_LABELS,event.reason)],['원본 근거',evidence]];
+      const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',label(EVENT_TYPE_LABELS,event.event_type)],['결제일',event.paid_on],[event.event_type==='reservation'?'예약 금액':'결제 금액',amountText],['이용 기간',period],['항목',event.item],[event.payment_relation?'연결 근거':'보류 이유',label(REASON_LABELS,event.reason)],['원본 근거',evidence]];
       if(event.evidence_status==='preauthorized')facts.push(['사전승인',`사전승인액 · 실제 결제 미확인 (${{event.preauthorized_on||'날짜 미확인'}})`]);
       if(event.card_issuer)facts.push(['메일의 결제 카드사',event.card_issuer]);
       if(event.payment_evidence_basis)facts.push(['결제 검증 근거',event.payment_evidence_basis]);
+      if(event.payment_relation){{
+        const relation=event.payment_relation;
+        facts.push(['예약·카드 M:N 연결',`${{relation.booking_count}}개 예약 ↔ 카드 ${{relation.card_count}}건 · 근거 ${{relation.event_count}}개`]);
+        if(!relation.payment_date_verified)facts.push(['결제일','원문 미기록 · 가맹점·금액·카드 끝자리로 연결']);
+        facts.push(['그룹 금액',`예약 근거 ${{relation.source_total??'미확인'}} / 카드 원행 ${{relation.card_total??'미확인'}} ${{relation.currency||''}} · ${{relation.balance==='BALANCED'?'합계 일치':relation.balance==='AMOUNT_DIFFERENCE'?'대사 금액 차이':'합계 미확인'}}`]);
+        if(relation.source_total_status==='OBSERVATIONS_NOT_DISTINCT_PAYMENTS')facts.push(['근거 중복 집계 방지','같은 예약의 복수 관측을 별도 결제로 합산하지 않음']);
+      }}
       if(event.cancelled_on)facts.push(['카드 취소 안내일',event.cancelled_on]);
       if(event.cancellation_notice_sent_on)facts.push(['취소 안내 발송일',event.cancellation_notice_sent_on]);
       if(event.provider==='forest'&&event.event_type==='reservation'){{
@@ -2376,9 +2426,10 @@ def render_import_section(csrf: str) -> str:
     summaryBox.innerHTML=`<p>${{data.counts_authoritative===true?'현재 자료 기준 집계':'잠정 집계 · 최신 자료 확인 필요'}} · ${{groupLabel}}</p><p>${{rows}}</p>`;
   }}
   const queueReasons={{EVENT_ID_MISSING:'거래 ID 없음',EVENT_ID_DUPLICATE:'거래 ID 중복',MALFORMED_EVENT:'거래 자료 오류',EVIDENCE_CHANGED:'근거 변경',EVIDENCE_MISSING:'근거 사라짐',REVIEW_WARNING:'검토 경고',STATUS_UNKNOWN:'상태 미확인',EVIDENCE_UNKNOWN:'근거 상태 미확인',PAYMENT_EVIDENCE_CONFLICT:'결제 근거 충돌',MATCHING_REVIEW_REQUIRED:'연결 검토 필요',PAYMENT_EVIDENCE_MISSING:'결제 근거 부족',SOURCE_OR_DATE_PENDING:'자료 또는 날짜 확인 대기',SCHEDULED_EVIDENCE_REVIEW:'예정 결제 확인 필요',PAYMENT_EVIDENCE_UNVERIFIED:'결제 근거 미검증',MATCH_REASON_UNKNOWN:'연결 근거 미확인',INFERRED_OR_GROUP_MATCH:'추론 또는 그룹 연결',PAYMENT_STATUS_UNVERIFIED:'결제 상태 미검증',TRANSACTION_ID_MISSING:'카드 거래 ID 없음',MATCHING_REVIEW_RESOLVED:'연결 검토 완료'}};
+  Object.assign(queueReasons,{{MATCHING_RELATION_RESOLVED:'연결 완료',LINKED_GROUP_AMOUNT_DIFFERENCE:'연결됨 · 그룹 금액 차이'}});
   function rowLabel(item){{const event=item.event||{{}},members=Array.isArray(event.group_members)?event.group_members:[],id=event.ota_event_id,total=Number.isInteger(event.group_total_count)?event.group_total_count:(members.length||1);const codes=item.reason_codes||[],reason=codes.map(code=>queueReasons[code]||'추가 확인 필요').join(', ');const preview=members.map(member=>[member.event_type,member.paid_on,member.amount,member.currency,STATUS_LABELS[member.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ')).join(' | ');const summaryText=[event.provider,event.booking_ref,`${{total}}건`,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');const memberButton=event.group_id?`<button type="button" data-load-group-members="${{esc(event.group_id)}}" data-cursor="">구성원 보기</button>`:id&&members[0]?.detail_available===true?`<button type="button" data-load-detail="${{esc(id)}}">원본 사건 검토</button>`:`<p>사건 ID 누락 또는 중복으로 상세를 열 수 없습니다.</p>`;const details=`<div data-group-members>${{memberButton}}<div data-detail-body></div></div>`;return `<details class="ota-queue-row" data-queue-detail data-event-id="${{esc(id||'')}}" data-group-id="${{esc(event.group_id||'')}}"><summary>${{summaryText||'OTA 예약 그룹'}}${{reason?` <span class="ota-chip">${{esc(reason)}}</span>`:''}}</summary><div class="ota-group-preview">${{preview?`<p>${{preview}}</p>`:''}}<p>미리보기 ${{members.length}} / 전체 ${{total}} 사건</p>${{details}}</div></details>`;}}
-  function renderGroupMembers(container,data,generation,groupId){{const rows=(data.items||[]).map(item=>{{const event=item.event||{{}},id=event.ota_event_id,label=[event.event_type,event.paid_on,event.amount,event.currency,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');const detail=id&&event.detail_available===true?`<button type="button" data-load-detail="${{esc(id)}}">원본 사건 검토</button>`:'<p>사건 ID 누락 또는 중복으로 상세를 열 수 없습니다.</p>';return `<section class="ota-group-member"><p>${{label}}</p>${{detail}}<div data-detail-body></div></section>`;}}).join('');const cursor=data.next_cursor||'';container.innerHTML=rows+`<p>${{data.items?.length||0}}건 · 전체 ${{data.total_count}}건</p>${{cursor?`<button type="button" data-load-group-members="${{esc(groupId)}}" data-cursor="${{esc(cursor)}}">다음 사건</button>`:''}}`;bindEventDetails(container,generation);container.querySelectorAll('[data-load-group-members]').forEach(button=>button.addEventListener('click',()=>loadGroupMembers(button,container,generation)));}}
-  async function loadGroupMembers(button,container,generation){{button.disabled=true;const groupId=button.dataset.loadGroupMembers,cursor=button.dataset.cursor||null;try{{const data=await get(queryPath(`/api/imports/ota/groups/${{encodeURIComponent(groupId)}}/members`,{{generation,limit:20,cursor}}));if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}renderGroupMembers(container,data,generation,groupId);}}catch(error){{if(!ignored(error)){{container.textContent=readError(error);button.disabled=false;if(error.status===409)invalidateSnapshot(readError(error));}}}}}}
+  function renderGroupMembers(container,data,generation,groupId){{const rows=(data.items||[]).map(item=>{{const event=item.event||{{}},id=event.ota_event_id,label=[event.event_type,event.paid_on,event.amount,event.currency,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');const detail=id&&event.detail_available===true?`<button type="button" data-load-detail="${{esc(id)}}">원본 사건 검토</button>`:'<p>사건 ID 누락 또는 중복으로 상세를 열 수 없습니다.</p>';return `<section class="ota-group-member"><p>${{label}}</p>${{detail}}<div data-detail-body></div></section>`;}}).join('');const cursor=data.next_cursor||'';container.innerHTML=rows+`<p>${{data.items?.length||0}}건 · 전체 ${{data.total_count}}건</p>${{cursor?`<button type="button" data-load-group-members="${{esc(groupId)}}" data-cursor="${{esc(cursor)}}">다음 사건</button>`:''}}`;bindEventDetails(container,generation);container.querySelectorAll('[data-load-group-members]').forEach(button=>button.onclick=()=>loadGroupMembers(button,container,generation));}}
+  async function loadGroupMembers(button,container,generation){{button.onclick=()=>loadGroupMembers(button,container,generation);button.disabled=true;const groupId=button.dataset.loadGroupMembers,cursor=button.dataset.cursor||null;try{{const data=await get(queryPath(`/api/imports/ota/groups/${{encodeURIComponent(groupId)}}/members`,{{generation,limit:20,cursor}}));if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}renderGroupMembers(container,data,generation,groupId);}}catch(error){{if(!ignored(error)){{let notice=container.querySelector('[data-group-error]');if(!notice){{notice=document.createElement('p');notice.dataset.groupError='';notice.setAttribute('role','alert');container.append(notice);}}notice.textContent=readError(error);button.disabled=false;button.textContent='구성원 다시 불러오기';if(error.status===409)invalidateSnapshot(readError(error));}}}}}}
   function bindEventDetails(target,generation){{target.querySelectorAll('[data-load-detail]').forEach(button=>button.addEventListener('click',async()=>{{const eventId=button.dataset.loadDetail,body=button.closest('.ota-group-member')?.querySelector('[data-detail-body]')||button.parentElement.querySelector('[data-detail-body]')||button.closest('[data-group-members]')?.querySelector('[data-detail-body]')||button.parentElement.nextElementSibling;button.disabled=true;try{{const detail=await get(`/api/imports/ota/events/${{encodeURIComponent(eventId)}}?generation=${{encodeURIComponent(generation)}}`);if(detail.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(body?.isConnected)renderFull({{events:[detail.event]}},body);}}catch(error){{if(!ignored(error)){{body.textContent=readError(error);button.disabled=false;if(error.status===409&&error.code!=='EVENT_ID_AMBIGUOUS')invalidateSnapshot(readError(error));}}}}}}));}}
   function bindPageDetails(target,generation){{target.querySelectorAll('.ota-queue-row').forEach(group=>group.addEventListener('toggle',()=>{{if(!group.open||group.dataset.loaded==='true')return;const button=group.querySelector('[data-load-group-members]');if(button){{group.dataset.loaded='true';loadGroupMembers(button,group.querySelector('[data-group-members]'),generation);}}}}));bindEventDetails(target,generation);}}
   function renderPage(data){{page=data;const target=root.querySelector('#ota-events');target.innerHTML=(data.items||[]).map(rowLabel).join('')||'<p>이 페이지에 표시할 거래가 없습니다.</p>';bindPageDetails(target,data.generation);root.querySelector('#ota-page-prev').disabled=cursorStack.length<=1;root.querySelector('#ota-page-next').disabled=!data.next_cursor;root.querySelector('#ota-page-label').textContent=`${{(data.items||[]).length}}건 · 자료 버전 ${{data.generation}}`;}}

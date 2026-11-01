@@ -61,7 +61,7 @@ def test_verified_income_remains_visible_when_only_expense_block_is_unverified(i
     body = page.trip_income_html('trip-syn')
     assert 'INCOME-NAME' in body
     assert '수입 1,000원' in body
-    assert '지출 또는 여행 전체 회계 검증은 완료되지 않았습니다' in body
+    assert '지출 또는 여행 전체 회계 검증은 완료되지 않았습니다' not in body
     assert '순수익' not in body
 
 

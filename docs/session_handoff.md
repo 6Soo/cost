@@ -1,3 +1,59 @@
+## 2026-11-01 OTA 결제일 미상·M:N 연결 배포 완료
+
+- COMPLETE — 사용자 지적4건의 원인 조사·공통 수정·배포 OM01~OM05 완료. [명세·수락 근거](specs/ota-undated-many-to-many-20261101.md), [PR #435](https://github.com/6Soo/cost/pull/435)·[PR #438](https://github.com/6Soo/cost/pull/438), 구현 `1f070bb7`·`60cdacc2`, 운영 `eb1c408c1eac96f536b77f74bb489c54c024a63e`.
+- 무날짜도 가맹점/확장명·정확 금액/통화·끝4 일치로 연결하며 조건 일치 관계를 M:N으로 보존한다. 카드 원행은 한 번만 집계하고 동일 예약의 관측을 결제 여러 건으로 더하지 않는다. 152,358원·395,000원은 기존에도 연결돼 있었으며 여행/환불 보류를 미연결로 설명한 오류와 취소 예약 카드 건수 누락을 바로잡았다.
+- 정책312·인접 기장/환불90·최종 선택 보호2 passed 근거 재사용, 후속 게시 통합192 passed. 최초1131d2a0는 실제 갱신 실패 후f52e019a로 복귀했으며 최종 후보에서 수정·재수락했다. 배포본 전체 읽기 입력3,921이벤트/6,851카드에서5예약·6관측 관계 동일, 운영 ego-browser PC1440/모바일390×5예약 연결·무날짜/M:N/취소 표시·넘침0 수락. 기존 재현 실패6개는 통과에 포함하지 않으며 전체 회귀/실기기 미실행이다.
+- 1,206 blobs 일치·task/processSHA·단일listener·health/ready200·보호API401·보호13표 불변. 기존ParticipantDb 유지, 이전f52e019a/task XML 복구점 보존. 원본/금융/여행/환불/기장/Google 쓰기·마이그레이션0. 코드전용이라 전체DB백업/복원 반복 없음. 미결0·다음 명령 없음. 로컬 근거 `.local-archive/ota-mn-policy-20261101/`; 문서만의 후속 병합에 재배포하지 않는다.
+
+## 2026-11-01 전체 업무 UX 감사·개선 완료
+
+- COMPLETE — 현재 사용자 요청의 UX01~UX10. [감사·업무 목적·전후 비교](specs/full-ux-audit-20261101.md), [124개 경로/206개 핸들러](specs/full-ux-route-inventory-20261101.md). [PR429](https://github.com/6Soo/cost/pull/429)·[PR430](https://github.com/6Soo/cost/pull/430)·[PR431](https://github.com/6Soo/cost/pull/431), 최종 운영 `9e0ff03c464e98373b5cd591a19a3885fcf9ccf4`. 여행 맥락 전달·검색/상태 조건·개별 편집 접기·영수증 묶기/해제·빈 버튼 잠금·출력 선택 도구·중복 홈/헤더/카드 설명·규칙 화면 복귀·404 Google 링크를 정리했다.
+- 실제 동일 합성 시나리오의 영수증 진입2→1조작(여행 재선택1→0), 현재 여행 하나의 출력 준비3→1조작. 각각 화면 이동은1→1이다. `/review`의 기존 지출 정리 통합을 유지하고 원본/예약/명단/권한 조회는 근거 확인 목적이 있어 유지했다.
+- 검사38 passed/9 subtests·영수증 보호5 passed·후속shell11 passed·Google 라우트회귀1 passed. 기존 보호91 passed/1 failed는 기준본에서도 동일 재현했고 통과로 세지 않았다. 최초142개 검사와 기준 재현의 기존 영수증 계약/화면 실패는 상세 문서에 남겼다. 전체 회귀·실기기는 미실행이다.
+- 실제 ego-browser PC1440/모바일390에서 여행 검색·무결과·URL 유지, 합성 영수증 직접입력/묶기→복사→해제, 모바일 수기지출 저장→같은 여행 복귀를 확인했다. 운영 읽기 전용으로 영수증 여행선택/복귀·관리의현재여행·출력단일선택/선택0잠금·수기선택·항공권무결과와 보조 메뉴를 확인했다. 운영 저장·권한승인·명단연결·AI 전송·Google 쓰기0.
+- 배포1,202 Git blobs 불일치0·검수/병합tree동일·task/process 고정SHA·단일loopback listener·health/ready200·기존 보호경로 및 영향7경로401·보호13표 내용/스키마 불변, 두 task Running. 코드 전용 전환으로 새 전체DB 백업/복원은 반복하지 않았고55e2612/76f33ab8 릴리스와 task XML 복구점을 보존했다. 실제 금융/분류/여행/원본/Google/스키마 쓰기0.
+- 초기76f33ab8은 설정과 제거된 라우트를 혼동한 Google 링크 때문에 UX08 운영스모크에 실패했다. PR431에서 라우트 확인을 보강한 최종9e0ff03c로 수락했다. 첫 출력 로딩은 브라우저 기본15초 제한을 넘겼으나 로드완료를 확인하고 후속 흐름을 통과했다. 첫 추가 비인증 요청의 일시 시간초과는 별도 재확인에서 health/ready200·영향7경로401로 해소했다. 이를 새 성능 개선이나 첫 시도의 통과로 꾸미지 않는다.
+- 근거: `C:/AX/cost/.local-archive/full-ux-audit-20261101/`의 검사XML·baseline비교·interaction-comparison·responsive/receipt/manual/trip-context/live-after-browser·affected-auth-smoke·review·protection-before/after·deploy-evidence, 호스트 동일SHA release/deploy audit. 고객 원문/실명 캡처는 Git 제외 로컬에만 보존한다. 현재 승인 범위 미결·차단0, 다음 명령 없음. 기존 `C:/AX/cost`의 사용자 변경은 보존했다. 이 후속은 문서 전용이므로 코드검사·재배포·재시작하지 않는다.
+
+## 2026-10-31 여행 자동분류 중복 메뉴·완료 설명 제거
+
+- COMPLETE — 최신 사용자 요청의 중복 메뉴와 불필요 문구를 정리했다. [PR #427](https://github.com/6Soo/cost/pull/427), 구현 `c05b5c95`, 운영 SHA `55e2612fc3c0a5e5229f59b31858219d5de12838`. `/import`의 별도 여행 자동분류 섹션과 “분류되면 완료입니다” 설명을 제거하고 저장 성공·규칙 저장·여행 없음 근거를 짧게 표시한다. 앞서 main에 병합된 전체 화면 설명 정리와 새 기능은 보존했다.
+- 검증: 관련48개 + 중복 메뉴 부재/조회 DB 무쓰기1개 + CSRF를 보존한 독립 컴포넌트 브라우저1개, 총50개 통과. 화면 회귀9개 실패는 수정 전 main `6ac4af43`에서도 동일 재현했다. 업로드 버튼·페이지 선택·예약 근거·홈 건수 등 기존 실패를 통과로 세지 않았다. 독립 컴포넌트 테스트의 초기 CSRF 전달 누락은 수정 후 통과했다. 전체 회귀·운영 owner 브라우저·실기기 검사는 미실행이다.
+- 배포: 검수/병합 tree 동일·1,199 Git blobs 불일치0·task/process 고정SHA·단일loopback listener·health/ready200·영향 `/import`와 보호 화면/API401·금융/사용자 보호13표 내용/스키마 불변. 코드만 전환했으며 이전 검증 `d2b4394634f9eab85c356291e909509560dac9eb`와 task XML 복구점 보존, 별도 DB 백업/복원·금융/분류/여행/Google/원본 쓰기·스키마 변경0.
+- 근거: `.local-archive/copy-cleanup-continuation-20261031/`의 targeted/rerun/standalone-browser/baseline·review·protection-before/after·deploy-evidence, 호스트 동일 SHA release-audit/deploy-evidence. 현재 UI 요청의 미결·차단0, 다음 명령 없음. 이전 하나카드 무거래 판정 철회와 자료 수집 미결을 UI 완료로 처리하지 않는다. 문서 후속으로 재배포·재시작하지 않는다.
+
+## 2026-10-31 수기지출 중복대조 메뉴를 여행 지출표로 통합
+
+- COMPLETE — 사용자 “수기지출중복대조 이게 대체 뭘 하라는 메뉴인데? 왜 존재해야해?” 및 “진행해”에 따라 별도 화면/메뉴를 제거했다. [PR419](https://github.com/6Soo/cost/pull/419), 구현 `03c9ea06`, 배포 SHA `1897869876a210b2b859afb6546de97bbaa83ddc`.
+- 여행 지출표의 각 행에 장부에 있음·복사 가능·중복 확인 필요를 표시하고 기존 복사 버튼에 복사 가능 건수/금액·제외 건수를 통합했다. 장부에 있는 거래/중복 후보/기존 보류는 복사에서 제외한다. Google 비교 실패 시 행별 비교 불가 표시를 반복하지 않고 표 아래 안내 한 곳과 비활성 복사 버튼으로 표시한다. 기존 대조 URL은 여행/검색 조건을 보존해 지출표 복사 영역으로 이동한다. 최신 원본 재검증·수동 연결·owner/CSRF·Google 최종 장부 쓰기 금지는 유지한다.
+- 검증: 표적 UI/API/통합68 passed, 중복/연결 보호41 passed. 동시 병합 PR418 국내/해외 규칙을 포함한 최종 배포본 관련54 passed. 중복 실행을 합산하지 않는다. 모바일320/390/760/1280·두 테마·상태표시·원본불변·escaping 포함. 전체 회귀/실기기는 미실행이다.
+- 배포:1198 Git blobs 일치·task/process 고정SHA·단일loopback listener·health/ready200·보호API401·보호13표 내용/스키마 불변 PASS. 직전 검증25cc2910 릴리스/task XML 복구점을 보존했다. 코드 전용 전환으로 새 전체DB 백업/복원은 반복하지 않았으며 실제 금융/분류/여행/원본/Google/스키마 쓰기0이다.
+- 실제 인증 ego-browser 여행 화면에서 별도 대조 링크0·복사 영역1·가로넘침 없음·예전주소 이동을 확인했다. 해당 여행의 Google 비교 자료는 사용 불가여서 통합 안내1개와 복사 잠금을 확인했다. 실제 자료의 정상 비교/복사 성공을 확인한 것으로 꾸미지 않으며, 자료 무결성 문제 수정은 별도 담당 범위다. 브라우저 TaskSpace22는 종료했다.
+- 근거: `C:/AX/cost/.local-archive/expense-dedup-integrated-20261031/`의 targeted/protection/merged XML·live-smoke·checkpoint와 `C:/AX/cost/.local-archive/deploy-1897869876a210b2b859afb6546de97bbaa83ddc/` 및 호스트 동일SHA release/deploy evidence. 기존 사용자 workspace 변경은 보존했다. 이번 메뉴 통합의 남은 작업/차단0, 다음 명령 없음. 후속 문서만으로 재검사·재배포·재시작하지 않는다.
+
+## 2026-10-31 전액 환불 완료·일반 입력 요청 분리 배포
+
+- COMPLETE — 사용자 환불쌍의 여행·비용 항목 요청 지적. 실제 인증 GET에서 해당 순액0원 환불쌍2건은 이미 기록 완료, 입력요청11건과 교집합0이었다. 최초 진단을 교정하고 화면에서 별개 거래임을 명확히 분리했다. [PR416](https://github.com/6Soo/cost/pull/416), 운영 `8ebb4d8b495631e18d8c2d5b37a10c12e8257082`.
+- 검증된 전액 상쇄·모든 구성원 기기록·보류 없는 묶음만 `전액 환불 · 처리 완료` / `기록 완료 2건 · 추가 입력 없음`으로 따로 표시한다. 이 완료 카드의 여행·항목·비활성 기록 버튼을 제거하고 일반 거래 표/필터 건수에서 중복을 제외한다. 나머지는 `그 외 거래 처리 결과`로 표시한다. 부분환불·미기록·보류 묶음과 기존 금융 기록·원본·API·분류 규칙은 변경하지 않는다.
+- 합성 Chromium390/1440에서 완료/부분/보류/미기록4사례 통과, 원본 DB무쓰기·가로넘침·JS오류 없음. 병합SHA에서 같은4사례를 재검증했다. 환불 연결/기록 보호36 passed, diff·metadata guard 차단0/삭제0. 전체 회귀/실기기는 미실행이다.
+- 배포1196 blobs 일치·task/process SHA·단일loopback listener·health/ready200·보호API401·보호13표 불변 PASS. 복구점5cab519d와 task XML 보존, 코드만 바꿔 새 전체백업/복원은 반복하지 않았다. 실제 금융/연결/분류/명단/Google/스키마 쓰기0.
+- 실제 로그인 ego-browser `/import`에서 완료 환불1묶음·입력컨트롤0·추가 입력 없음·그 외 거래11행·별도 수정요청11건·넘침 없음 확인. 사용자 확인용 결과 탭 유지. 근거 `C:/AX/cost/.local-archive/zero-refund-review-20261031/`, `deploy-8ebb4d8b495631e18d8c2d5b37a10c12e8257082/` 및 호스트 동일SHA deploy-evidence. 현재 요청 미결/차단0, 다음 명령 없음. 문서 후속은 재배포하지 않는다.
+
+## 2026-10-31 상태만 표시되는 검토 UX 교정·배포 완료
+
+- COMPLETE — 사용자 요청 “검토 필요로만 되어있고 아무것도 할 수 없는 UX 수정·모든 페이지 조사”를 수행했다. [화면별 조사](specs/actionable-review-ux-audit-20261031.md), [PR414](https://github.com/6Soo/cost/pull/414), 구현 `e24f91d`, 검증 통합 `e4a3869b27114fc1533316c9b61f414cbfab3e9f`, 병합·운영 `5cab519de4a7993017b787ad7bfa6d9d5546072c`. 검증/운영 tree 동일.
+- 카드 검토 배지→해당 batch·transaction 편집 폼, 원본 상세 수정·중복 근거 링크, 미배정 검토 링크를 제공한다. OTA 그룹 조회 실패 후 버튼·클릭 핸들러를 보존하고 항공권 목록/상세 직접 재시도를 추가했다. 여행 일정 근거 표시·자료/장부 연결, 참가자 자료 누락·항공권 후보 없음에서 실제 확인 화면으로 이동하도록 했다. 나머지 페이지는 기존 폼·원본·설정·재조회 동선을 조사해 기록했다.
+- 검증: 카드/모바일/읽기 경계79 passed, 인접142개 중141 passed·여행 관리 import 오류1건 발견 후 수정, 새 동작/해당 권한 재검증7 passed, 환불·분류 보호44 passed. 별도 실행 간 중복은 합산하지 않는다. 초기 합성 fixture의 Windows 열린 연결·schema 환경과 재시도 핸들러 문제도 수정했으며 초기 실패를 통과로 세지 않는다. Python compile·diff·data guard 차단0/삭제0, Ego 합성 화면 링크/넘침 확인과 호스트 릴리스 모듈 smoke PASS. 운영 owner 실자료 화면 전체·전체 회귀·실기기는 미실행이다.
+- 배포1195 blobs 일치·task/process 고정SHA·단일loopback listener·health/ready200·OTA/카드상세 API·카드/여행/참가자/항공권 URL401·보호13표 내용/스키마 불변 PASS. 이전 검증 `29ecb215d63169e913e7f14a4959587436b68586`과 작업 XML 복구 수단을 보존했다. 코드 전용이라 새 전체 데이터 백업/복원은 반복하지 않았다. 금융/여행/분류/환불/명단/원본/Google 쓰기·마이그레이션0.
+- 근거 `C:/AX/cost/.local-archive/actionable-ux-20261031/`의 검사 로그/XML·data-guard·review·release.zip·보호 전후·deploy-evidence 및 호스트 동일SHA release-audit/deploy-evidence. 기존 workspace의 사용자/다른 작업 변경을 보존했고 이번 초기 델타만 역패치해 중복 미커밋 수정을 제거했다. 현재 요청의 미결·차단0, 다음 기능 명령 없음. 문서 후속으로 재배포·재시작하지 않는다.
+
+## 2026-10-31 예약 연결 UX 개선·운영 배포 완료
+
+- COMPLETE — 사용자 식별자/연결 없음 반복·선택 취소 불가 개선과 즉시 배포 요청. [PR412](https://github.com/6Soo/cost/pull/412), 운영 `29ecb215d63169e913e7f14a4959587436b68586`, 검증 `31b0f4cbfcc6e604d001078be1eb428ab5107419`와 tree 동일. 예약자 이름·여행명 표시, 이름/예약 정보/연결 여행명 검색, 상태 필터, 10건 페이지 이동, 예약별 전체 연결 해제, 저장 전 변경 표시·취소를 제공한다. 기존 API·원본 식별자·저장/명단 적용 분리는 유지한다.
+- 기존 운영 로딩 토큰 배치·업로드 진입 수정 `74325e69`가 main에 없음을 확인하고 정상 merge로 보존했다. 예약 UI 화면36 passed/38 subtests(초기34 통과, 변경 전 표시 기대1건 교정 후 재검사1 통과, 페이지 이동1 통과), 연결/권한 보호65 passed/26 subtests, 통합 표적6 passed. 정리 필터는 후보·기존 운영 각각1 passed. 탐색적 넓은 인접 검사2회는 실패 후 중단했고 통과로 계산하지 않는다. 첫 실패 `test_api_ready_matches_visible_recordable_count_before_and_after_booking`는 기존74325e69에서도 동일30초 버튼 대기 실패 재현, 나머지 탐색 실패는 이번 범위 밖 미검증이다. 전체 회귀·실기기 미실행.
+- 배포1193 blobs 일치·task/process SHA·단일loopback listener·health/ready200·보호API401·보호13표 불변 PASS. 최초 배포 시도는 이전 SHA 불일치 게이트에서 쓰기 전 거부됐고, 실제 검증 운영18f3e747을 복구점으로 재확인해 전환했다. 코드만 변경하여 새 전체 백업/복원은 반복하지 않았다. 금융/예약 연결/명단/Google/스키마 쓰기0.
+- 기존 로그인 ego-browser 실제 `/reserve-links`: 예약100행 모두 이름 표시·가시10행, 검색 무결과0행·안내, 다음2/10 페이지10행, 가로 넘침 없음 확인. 운영 저장·명단 적용은 누르지 않았다. 결과 탭은 사용자가 확인하도록 유지했다. 근거 `C:/AX/cost/.local-archive/reserve-link-ux-20261031/`와 `deploy-29ecb215d63169e913e7f14a4959587436b68586/`, 호스트 동일SHA deploy-evidence. 현재 요청의 미결·차단0, 다음 실행 명령 없음. 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-10-31 보험 후보 버튼·로딩·여행 검토 동작 완료
 
 - 최신 사용자 요청 3개 COMPLETE: [실행 계약](specs/insurance-trip-review-ux-20261031.md), [PR409](https://github.com/6Soo/cost/pull/409). 검증 코드 `db789b6cfa079dbce3cd29f848b1ca855f42d4e6`, 병합·운영 `1ecd2aa00d09f8bee7d9af7f09802cd506870c5c`, tree 동일. 보험 대조 진행 표시·25초 제한·재시도, 수입 행 후보/글자 일치 버튼의 비교 창과 전체 명단 대조 링크, 기본 펼침 여행 작업 3개와 별도 접힘 전체 자료 도구 4개를 제공한다. 수동 연결·Google 세대 보호는 유지한다.
@@ -133,6 +189,32 @@
 - 기존 100건 재업로드·70+30건·5,000행/재업로드, 수동 결정/원본 보호·원자 롤백/재시도·환불·OTA exact·권한 검증. 두 실행은 114 passed/1 deselected 및 62 passed이며 후자는 앞서 제외한 권한 검사도 포함한다. 중복 실행을 합산하지 않는다. Chromium 320/390/1280·키보드·HTML 이스케이프·빈 결과·금융 경고 수락.
 - 근거: 통합 worktree `.local-archive/pr349-cuv-20261029/continuation.md`, `verification.xml`, `additional.xml`. 현재 승인 큐의 synthetic isolated only/no deployment/no production DB or Google writes 경계를 유지한다. main 병합·배포·운영 read-only/실카드 수락은 미실행이며 별도 범위 확대 전 실행하지 않는다. 원래 C:/AX/cost 사용자 변경은 보존했다.
 # 현재 상태와 남은 일
+
+## 2026-11-01 보험 수신 DB와 운영 웹 연결 복구
+
+- COMPLETE — 최신 사용자 “보험 명단 왜 아직도 연결안됐어?”의 원인은 수신기와 운영 웹의 DB 경로 불일치였다. 수신기는 기존 고정 참가자 DB에 등록했지만, 웹은 SHA별 release 아래 기본 경로를 찾아 운영 API가 `configured=false`를 반환했다. 과거 로컬 등록 완료 보고는 운영 웹 연결의 근거가 아니었다.
+- [PR #433](https://github.com/6Soo/cost/pull/433), 검수 `8adeae963289e137e59a6a580ebd4f1296fdb85d`, 운영 SHA `f52e019ad145eb0f7aaa21fde5ebb6d0c74fd958`. host runner의 `-ParticipantDb`를 실제 예약 작업에 명시하고 자식 프로세스 환경으로 전달한다. 이후 SHA 교체에도 같은 인수가 유지되며, 시작 실패 시 기존 task action으로 복구한다. 원본 복사·재등록·이름 기반 강제 연결은 하지 않았다.
+- 검증: host 시작/복구63 passed·23 subtests, 참가자 runtime/통합/누락 저장소 복구12 passed, PowerShell 구문·staged 데이터 보호 통과. 검수/병합 tree 동일·1,202 Git blobs 불일치0, task/process 고정SHA·health/ready200·참가자 및 기존 보호 API401, 금융 보호13표와 참가자8표 내용/스키마 불변.
+- 인증된 실제 운영 API에서 `0630_오제`31명·`1030_닛코`7명 모두 `configured=true`로 확인했다. 실제 여행 화면에서 명단 summary를 펼친 뒤 loaded=true·오류 없음. 처음에는 연결 후 autoLoad=0인 수동 펼침 화면을 자동 로딩으로 기다려30초 시간초과가 있었으며, 펼침 후 정상 수락했다. 이 경로 연결을 모든 참가자의 수입 수동 연결·보험사 신규 가입·실제 환급 확인으로 확대하지 않는다.
+- 기존 `COST-InsuranceRosterSync`와 SourceRefresh Running, 60초 스캔 유지. Google·금융·참가자·원본·스키마 쓰기0. 코드/경로 설정만 전환해 새 전체DB 백업·복원은 반복하지 않고 기존 검증 릴리스와 task XML 복구점을 보존했다. 전체 회귀·실기기 검사는 미실행.
+- 근거: `C:/AX/cost/.local-archive/continuation-20261101/`의 host-tests.xml·participant-tests.xml·review.json·production-after.json·participant-before/after.json·protection-before/after.json·deploy-evidence.json. 고객 원문은 Git 제외 로컬에만 보존한다. 명단 연결 요청의 미결0·다음 명령 없음. 별도 하나카드 다운로드는 과거 완전성 판정 철회·카드별 자료 미결을 유지하며, 이 연결 완료로 전체 카드 수집 완료를 선언하지 않는다.
+
+## 2026-10-31 Google 지출 비교 오류·수기 추가 모달
+
+- COMPLETE — 사용자 “구글장부 왜 비교불가? 오류수정해 / 수기지출추가는 모달창 뜨는 방식으로 변경”. [PR #424](https://github.com/6Soo/cost/pull/424), 구현 `c3b20b6`·`0a925cc`·`1e3863f`, 운영 고정 SHA `d2b4394634f9eab85c356291e909509560dac9eb`.
+- 시트 합계 수식 범위가 개별 지출 행 전체를 포함하지 않는 표준 여행 2건 때문에 읽기 전용 금액/건수 비교까지 차단됐다. 원행 금액 검증과 행 합계의 snapshot `row_sum` 일치를 확인한 경우에만 개별 행 비교를 허용하고 합계 수식 경고를 표시한다. strict 신규 행 export·금융/환불/여행/수동 링크 보호는 유지한다. 비표준 양식은 구체적인 사유로 보류한다. 운영 readonly 대조: 비교 가능 47→49여행, 합계 경고2, 비표준12, DB changes0. 구형 양식 호환/Google 원본 수식 수정은 수행하지 않았다.
+- 수기 지출 추가는 현재 여행을 선택한 native dialog다. 모바일·데스크톱 공통 폼, 검증 오류 입력/요청ID 유지, 저장 중 입력/중복 제출 방지, Escape/닫기·포커스 복원, 저장 후 현재 장부 새로고침. 기존 보호 API와 요청 재전송 방지를 재사용한다.
+- 검증: 비교/표/export 통합37 passed, 최종 사유/UI14 passed, 최종 export22 passed, 추가 경고5 passed, 모달 browser1 passed/390·1280폭2 subtests, 권한9 passed, 수기 생성 보호2 passed. 중복 실행이 있어 합산 전체 회귀 수치가 아니다. 전체 회귀·배포 후 실제 owner 모달 저장은 미실행이며 합성 검사와 구별한다.
+- 배포: Git blobs1199 불일치0·task/processSHA·loopback listener1·health/ready200·보호 API/장부/수기입력/수기POST 비인증401·보호13표 불변·Board/SourceRefresh Running. 호스트 Python 합성 모달/선택여행/음수저장/요청 재전송 PASS. 코드 전용 배포로 이전 검증 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`와 task XML 복구점을 보존했다. 새 전체 백업·복원·운영 금융/Google/원본/스키마 쓰기0.
+- 근거: `C:/AX/cost/.local-archive/google-comparison-manual-modal-20261031/`의 XML·runtime-readonly·checkpoint, `C:/AX/cost/.local-archive/deploy-d2b4394634f9eab85c356291e909509560dac9eb/`와 호스트 동일 SHA release-audit/deploy-evidence. 현재 승인 범위 미결/차단0, 다음 명령 없음. 후속 상태 문서만으로 검사·재배포·재시작하지 않는다.
+
+## 2026-10-31 국내·해외 구분 여행 배정 완료
+
+- COMPLETE — 최신 사용자 지시 “해외사용국가와 여행지는 일치할 필요 없어. 국내냐 해외냐만 구분해”를 반영했다. [PR #418](https://github.com/6Soo/cost/pull/418), 구현 `2b5fc5c4d702eb4e171980938afe5706e3693d4c`, 운영 배포 SHA `25cc29108cb44752b453832dca8e854747966558`. 해외 국가 코드가 달라도 국내·해외 구분과 검증된 여행 기간으로 배정한다. 국가 코드 없는 해외 통화 거래에도 적용하며 수동 배정·예약 이용기간·취소/환불·원본 보호 및 3820 국내 분기 비용 규칙을 유지한다.
+- 검증: 여행/분류 표적 50 passed, 환불/대사/권한 보호 88 passed, 추가 규칙 호환·원자성·재실행 8 passed(중복 포함). 병합 tree가 검증 구현과 동일하다. 배포 파일 1,197개 Git blob 불일치0, task/process 고정 SHA·단일 loopback listener·health/ready200·보호API401·배포 전후 보호13표 불변을 확인했다. 이전 검증 `8ebb4d8b495631e18d8c2d5b37a10c12e8257082`를 보존했다. 코드만 전환하므로 전체 DB 백업/복원은 반복하지 않았다.
+- 실제 자료 교정: 기존 보류 대상2건 중 10/24 거래1건을 `1020_알펜루트`에 AUTO_INFERRED로 배정했다. 여행 종료일 다음 날인10/25 거래는 그대로다. 메모리 사본 리허설·변경 전 값 로컬 보존·BEGIN IMMEDIATE 및 기존 원자 적용 경로로 처리했다. 원본/금액/ID·사용자 결정·금융/환불 링크·범위 밖 행/표·스키마 불변과 기존 감사 이력 보존/1건 추가, 재실행 대상0을 확인했다. 장부 추가·Google/은행 쓰기0이며 실제 환급을 확인한 것으로 기록하지 않는다.
+- 초기 식별자 비교와 리허설의 감사 이력 순번 검증 오류는 실제 쓰기 전에 중단했다. 실제 tab ID와 표시 키를 분리하고 change_log 순번 증가만 허용한 최종 검사를 통과했다. 전체 회귀·실기기·인증 owner 화면 수락은 미실행이다. 영향 경로 `/cards`, `/import`, 카드 API 익명401 및 두 작업 Running을 확인했다.
+- 근거: `C:/AX/cost/.local-archive/domestic-overseas-trip-20261031/`의 XML·preview-summary/applied/http-smoke JSON, `C:/AX/cost/.local-archive/deploy-25cc29108cb44752b453832dca8e854747966558/`, 호스트 동일 SHA release-audit/deploy-evidence. 복구용 변경 전 값은 `D:/WebLedgerHost/data/backups/domestic-overseas-trip-20261031/before.private.json`에만 보존했다. 기존 사용자 workspace 변경 보존. 현재 요청의 남은 작업·차단0, 다음 명령 없음. 후속 문서만으로 재배포/재시작하지 않는다. 다른 세션의 후속 PR은 이 작업의 새 실행 범위가 아니다.
 
 ## 2026-10-30 마스킹 보험 명단과 기존 수입 글자 대조
 
@@ -544,3 +626,10 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 1,084 Git blobs 일치, 새 백업·별도 복원 검증, 작업/프로세스SHA·loopback listener1·health/ready200·보호API401·보호13표 전후 불변을 확인했다. 추가된 trip-review/proposals/hold 경로도 익명401이다. 이전 검증61211012 복구점을 보존했다. 배포 근거는 `D:/WebLedgerHost/releases/deploy-evidence-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661.json`, 로컬 `.local-archive/merge-cleanup-20261028/deploy-c1bf76ce3e6e6973dc92e6a3e1c2a145c5e4e661/`다.
 
 실제 금융/여행 재배정·대량 재처리·명단 전달/보험가입·Google 쓰기·마이그레이션은 실행하지 않았다. PA-01 실자료 기준선 및 PA-06 실자료 shadow/수락은 미측정으로 남긴다. 단일 환불 그룹 적용의 정상 owner 인증 대기는 유지한다. 최종 확인 시 열린 PR은0개다. 후속 문서만의 병합에는 재배포하지 않는다.
+## 2026-10-31 웹 전체 불필요 안내 정리 완료
+
+- COMPLETE — 사용자 “기록된 거래 / 총수입-지출 이런 불필요한 안내문구 웹 전체에서 삭제” 반영. [PR #420](https://github.com/6Soo/cost/pull/420)·[PR #423](https://github.com/6Soo/cost/pull/423), 구현 `f9ef9f3`·`1e79213`, 고정 배포 `05d09ce6c0791d7d5ea66414b6def94dcac8109a`.
+- 장부 합계의 범위 안내·수입 계산식, 수입의 상시 회계 검증 안내, 카드 조회 도움말, 사이드바·예약 연결·여행 검토·항공권의 반복 조작 설명을 제거했다. 금액/필터/원본 링크·접근성 설명, 실제 합계 차이와 거래별 오류/미확인 상태는 유지한다. 앞선 [전체 화면 상태/행동 조사](specs/actionable-review-ux-audit-20261031.md)의 검토 링크·조회 재시도 수정은 PR #414/#415로 완료된 범위이며 재구현하지 않았다.
+- 검증: 최신 통합 금액/수입/필터/자산/지출 중복 75 passed·3 subtests, 모바일/장부/예약 연결 browser 16 passed·6 subtests, 최신 통합 장부 browser 2 passed·4 subtests. 마지막 여행/항공권 검사 28 passed 후 삭제 문구를 요구하던 assertion을 교정해 나머지 1 passed. 실행 간 중복이 있어 합산 전체 회귀로 세지 않는다. 카드 첫 렌더 시간 하한 검사 1건은 기준본에서도 실패함을 재현했으며 통과에 포함하지 않는다. 전체 회귀·전체 운영 인증 화면·실기기 수락은 미실행이다.
+- 배포: 1,198 Git blobs 일치·검사본과 배포본의 코드 동일(차이는 문서뿐)·task/process SHA·단일 loopback listener·health/ready200·보호 API 및 cards/all·board·reserve-links401·보호13표 내용/스키마 불변 PASS. 호스트 Python에서 안내 부재/금액/접근성/항공권 버튼 합성 smoke PASS. 코드 전용 전환으로 검증된 이전 `18978698` 릴리스/task XML 복구점을 보존했으며 새 전체 DB 백업·복원은 반복하지 않았다. 금융/분류/여행/Google/원본/스키마 쓰기0.
+- 근거: `.local-archive/copy-cleanup-20261031/`의 merged-unit·merged-browser·browser-final·final-hints/corrected·review·runtime-smoke·protection-before/after·deploy-evidence와 호스트 동일 SHA release audit/evidence. 동시 작업자의 운영 종료 후 직렬 배포했고 후속 비교/모달 담당자에게 호스트 쓰기 종료를 통지했다. 기존 사용자 변경과 workspace/미추적 파일은 보존. 이 요청의 미결·차단0, 다음 명령 없음. 문서 후속 변경에는 검사·재배포·서버 재시작을 반복하지 않는다.

@@ -15,6 +15,7 @@ import json
 import re
 import unicodedata
 import urllib.parse
+from urllib.parse import urlencode
 import uuid
 from datetime import date
 from pathlib import Path
@@ -122,15 +123,14 @@ def work_menu_html() -> str:
                 f"<span><strong>{title}</strong>"
                 f"</span></{tag}>")
 
-    actions = action('upload', '지출 정리', '카드 파일 추가 · 미배정 지출 정리 · 오분류 수정 · 전체 카드 검색', '/import')
-    actions += action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
+    actions = action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
     else:
         actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
     return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
-            f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
+            f"<h2>자료 확인</h2><nav class='work-actions'>{actions}</nav></section>")
 
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> str:
@@ -181,7 +181,6 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
            "<a class='all-trips-link' href='/trips'>"
            "<span>전체 여행 보기</span>"
            f"{_icons.icon('chevron-right', 16)}</a>"
-           "<p class='footer-help'>지난 여행과 진행 중인 여행은 여행 관리에서 확인할 수 있어요.</p>"
            "</footer>")
         + "</aside>"
         "<div class='nav-mask' id='nav-mask' hidden></div>")
@@ -406,7 +405,7 @@ def _head_html(trip) -> str:
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
                 f""
-                f"<span><a class='btn' href='/trips'>{_icons.icon('map')}여행 관리</a></span>")
+                f"<span><a class='btn' href='/trips?{board.esc(urlencode({'trip': trip['tab_id']}))}'>{_icons.icon('map')}여행 관리</a></span>")
     return (
         "<div class='page-hd'><div>"
         f"<h1>{title}<span class='synth'>{board.data_status_mark()}</span></h1>"
@@ -415,8 +414,8 @@ def _head_html(trip) -> str:
         "<div class='act'>"
         + _reserve_link_link_html()
         + _review_link_html()
-        + f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>"
+        + f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
+        f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
 
@@ -664,9 +663,9 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
 
 def _net_income_summary(value, prefix=''):
     label = prefix + '수입'
-    return (f"<div class='net-income'><i title='총수입 − 지출'>{ui_icons.icon('arrow-up-down')}{label}</i>"
+    return (f"<div class='net-income'><i>{ui_icons.icon('arrow-up-down')}{label}</i>"
             f"<b aria-label='{label}, 총수입에서 지출을 뺀 금액'>{_money(value)}</b>"
-            "<small>총수입 − 지출</small></div>")
+            "</div>")
 
 
 def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None,
@@ -679,7 +678,6 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     the filter left visible; `whole` is the same for the unfiltered tab.
     """
     expense = sum(board._shown_amount(r) for r in expenses)
-    scope = "<span class='scope'>기록된 거래</span>"
 
     if google_income and not incomes and recorded_income_count in (0, -1):
         if google_income.get('show_rows'):
@@ -687,14 +685,14 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
             count_in = google_income['count']
             if filtered is not None and whole is not None:
                 return (
-                    f"<div class='sum tnum' id='sum'>{scope}"
+                    f"<div class='sum tnum' id='sum'>"
                     f"<div><i>{ui_icons.icon('book-open')}전체 총수입</i><b>{_money(income)}</b></div>"
                     f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
                     f"{_net_income_summary(income - whole[1], '전체 ')}"
                     f"<span class='n'>전체 수입 {count_in}건 · 전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
-                f"<div class='sum tnum' id='sum'>{scope}"
+                f"<div class='sum tnum' id='sum'>"
                 f"<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"{_net_income_summary(income - expense)}"
@@ -705,12 +703,12 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
             income_notice = f"<div><i>{ui_icons.icon('book-open')}수입</i>{income_status}</div>"
             if filtered is not None and whole is not None:
                 return (
-                    f"<div class='sum tnum' id='sum'>{scope}{income_notice}"
+                    f"<div class='sum tnum' id='sum'>{income_notice}"
                     f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
                     f"<span class='n'>전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
-                f"<div class='sum tnum' id='sum'>{scope}{income_notice}"
+                f"<div class='sum tnum' id='sum'>{income_notice}"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
 
@@ -718,23 +716,23 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     note = ""
     if not incomes and recorded_income_count in (0, -1):
         if filtered is not None and whole is not None:
-            return (f"<div class='sum tnum' id='sum'>{scope}"
+            return (f"<div class='sum tnum' id='sum'>"
                     f"<div><i>전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
                     f"<span class='n'>전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
-        return (f"<div class='sum tnum' id='sum'>{scope}"
+        return (f"<div class='sum tnum' id='sum'>"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
     if filtered is None or whole is None:
         return (
-            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
+            f"<div class='sum tnum' id='sum'><div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
             f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
             f"{_net_income_summary(income - expense)}"
             f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>" + note)
     fincome, fexpense, finc, fexp = filtered
     wincome, wexpense, winc, wexp = whole
     return (
-        f"<div class='sum tnum' id='sum'>{scope}"
+        f"<div class='sum tnum' id='sum'>"
         f"<div><i>전체 총수입</i><b>{_money(wincome)}</b></div>"
         f"<div><i>전체 지출</i><b>{_money(wexpense)}</b></div>"
         f"<div><i>검색 결과 총수입</i><b>{_money(fincome)}</b></div>"
@@ -1001,25 +999,37 @@ def _google_expense_matches(google_rows, web_rows):
     return result
 
 
-def _google_match_annotations(tab_id, rows):
+def _expense_copy_preview(tab_id, rows):
+    """One read-only comparison shared by row labels and the copy summary."""
+    if board.current_role() != 'owner' or not _is_trip_tab(tab_id) or not rows:
+        return {}
+    from .sheet_expense_reconciliation import preview_for_trip
+    return preview_for_trip(board._active_store(), tab_id, cost_rows=rows)
+
+
+def _google_match_annotations(tab_id, rows, preview=None):
     """Read the already selected, fresh Google snapshot for owner-only display hints."""
     if board.current_role() != 'owner' or not tab_id or tab_id == 'unclassified' or not rows:
         return {}
     try:
-        from .sheet_expense_reconciliation import preview_for_trip
-        result = preview_for_trip(board._active_store(), tab_id, cost_rows=rows)
+        result = _expense_copy_preview(tab_id, rows) if preview is None else preview
+        if not result.get('source_available'):
+            return {}
         by_id = {item['transaction_id']: item for item in result.get('results', [])}
-        labels = {'MATCHED_MANUAL': '이미 수기로 기록됨 · 새 행 추가 안 함',
-                  'MATCHED_EXISTING': '기존 연결 확인 · 새 행 추가 안 함',
-                  'REVIEW_CONFLICT': '중복 가능성 확인 필요',
-                  'SOURCE_UNAVAILABLE': '시트 확인 불가 · 복사 보류'}
+        labels = {'MATCHED_MANUAL': '장부에 있음 · 복사 제외',
+                  'MATCHED_EXISTING': '장부에 있음 · 복사 제외',
+                  'NEW_EXPENSE': '복사 가능',
+                  'REVIEW_CONFLICT': '중복 확인 필요 · 복사 제외'}
         annotations = {}
         for row in rows:
-            item = by_id.get(str(row.get('source_event_id') or row.get('row_id') or ''))
+            item = by_id.get(str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''))
             if item and item.get('status') in labels:
                 annotations[row['row_id']] = {
                     'multiple': item['status'] == 'REVIEW_CONFLICT',
-                    'reasons': item.get('basis') or [], 'label': labels[item['status']]}
+                    'reasons': item.get('basis') or [],
+                    'label': ('복사 제외 · 거래 상세 확인' if item['status'] == 'NEW_EXPENSE'
+                              and (row.get('blocked') or row.get('excluded_from_company')) else labels[item['status']]),
+                    'status': item['status']}
         return annotations
     except (SnapshotError, AttributeError, KeyError, OSError, TypeError, ValueError):
         return {}
@@ -1051,15 +1061,18 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             label = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                      '금액+' + '+'.join(match['reasons']))
             hint_id = 'google-match-' + str(rid)
-            match_class = ' class="google-match-candidate"'
+            match_class = '' if match.get('status') == 'NEW_EXPENSE' else ' class="google-match-candidate"'
             match_attributes = f" aria-describedby='{board.esc(hint_id)}'"
             match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
                                  f"{board.esc(label)}</span>")
+            if match.get('status'):
+                match_description = (f"<span class='expense-copy-state' id='{board.esc(hint_id)}'>"
+                                     f"{board.esc(label)}</span>")
         body.append(
             f"<tr{match_class} data-id='{board.esc(rid)}' tabindex='0'"
             f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
-            f"<td class='c-date tnum'>{match_description}{board.esc(board._shown_date(row))}</td>"
+            f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}{match_description}</td>"
             f"{_party_cell(row)}"
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='c-stay'>{board.esc(_stay_text(row)) if item == '숙박비' else ''}</td>"
@@ -1098,10 +1111,17 @@ def _amount_group_state(tab_id, rows, kind=''):
     return build_state(board._active_store(), tab_id, cost_rows=rows)
 
 
+def _manual_expense_link(move_back):
+    tab = urllib.parse.parse_qs(urllib.parse.urlsplit(move_back).query).get('tab', [''])[0]
+    return '/expense/new?' + urlencode({'tab': tab}) if tab else '/expense/new'
+
+
 def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board", match_annotations=None,
                  amount_groups=None) -> str:
     from . import expense_amount_group_ui as gemn
     from .expense_amount_group_service import sort_for_display
+    if amount_groups is not None and not amount_groups.get('available'):
+        amount_groups = None
     expenses = sort_for_display(expenses, amount_groups)
     enabled = amount_groups is not None
     extra_col = "<col class='gemn-desktop gemn-column'>" if enabled else ''
@@ -1131,7 +1151,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
-        "<td colspan='3'><a class='btn' id='add-manual-expense' href='/expense/new'>"
+        f"<td colspan='3'><a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(move_back))}'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th>{extra_blank}</tr></tbody>"
         + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
@@ -1141,7 +1161,9 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         + "</table></div>")
     if amount_groups is None:
         return head + groups
-    return gemn.styles() + head + groups + gemn.render_groups(amount_groups)
+    warning = ("<p class='gemn-total-warning' role='status'>시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교</p>"
+               if amount_groups.get('total_warning') else '')
+    return gemn.styles() + warning + head + groups + gemn.render_groups(amount_groups)
 
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
@@ -1167,7 +1189,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         kind = _row_kind_meter(row)
         cls = "li pend" if unclassified else "li"
         match = match_annotations.get(rid) if is_expense else None
-        if match:
+        if match and match.get('status') != 'NEW_EXPENSE':
             cls += ' google-match-candidate'
         match_hint = ''
         if match:
@@ -1175,6 +1197,8 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                       '금액+' + '+'.join(match['reasons']))
             match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
                           f"{board.esc(reason)}</span>")
+            if match.get('status'):
+                match_hint = (f"<span class='expense-copy-state'>{board.esc(reason)}</span>")
         # Two-line business summary only: date, kind tag, category, vendor,
         # purpose, amount. The origin detail lives in the edit panel, so no
         # per-row details element here (density first).
@@ -1191,8 +1215,8 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             f"<span class='{tag_cls}'>{board.esc(kind)}</span>"
             f"<span class='m-cat category-line'>{_category_icon(row)}{board.esc(cat)}</span>"
             f"<span class='a tnum {_row_amount_class(row)}'>"
-            f"{_money(board._shown_amount(row))}</span>{match_hint}</span>"
-            f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span></button>{move}")
+            f"{_money(board._shown_amount(row))}</span></span>"
+            f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span>{match_hint}</button>{move}")
 
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
@@ -1204,7 +1228,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         "<div class='lst'>"
         + income_group +
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
-        "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
+        f"<a class='btn' id='add-manual-expense-mobile' data-manual-open href='{board.esc(_manual_expense_link(move_back))}'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
         f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
@@ -1416,8 +1440,8 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "</p>")
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
-    export_btn = ("" if home
-                  else f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>")
+    export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
+                  if tab_id and title != '선택 탭 출력' else "")
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
@@ -1431,8 +1455,8 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
-        f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"{export_btn}"
+        + (f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>" if home else "")
+        + f"{export_btn}"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
         "</div></div>"
         f"<div class='page-body'>{body}</div>"
@@ -1493,13 +1517,11 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
     waiting = "".join(line((r.get('approval_date') or r.get('posting_date') or '')[:10], r.get('merchant'),
                            r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>기록 전 거래가 없습니다.</td></tr>"
     done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
-                   for r in booked) or "<tr><td colspan='3'>기록된 거래가 없습니다.</td></tr>"
+                   for r in booked) or "<tr><td colspan='3'>거래가 없습니다.</td></tr>"
     return ("<div class='body'>" + note +
-            "<p class='hint'>새로 수집된 정상 거래는 자동으로 기록됩니다. 잘못 옮겨진 거래만 여행이나 항목을 바꾸세요.</p>"
-            f"<h3>기록된 거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
+            f"<h3>거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
             f"<tbody>{done}</tbody></table>"
             f"<h3>기록 전 기존 거래 {len(pending)}건 · {pending_total:,}원</h3>"
-            "<p class='hint'>자동 기록 시작 이전에 분류된 거래입니다. 확정 단계는 없고, 새로 수집되는 거래는 분류되는 즉시 기록됩니다.</p>"
             f"<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead><tbody>{waiting}</tbody></table></div>")
 
 
@@ -1540,21 +1562,42 @@ def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
     return {**expense_tsv(rows, layout="rev"), "tab_id": tab_id}
 
 
-def _trip_copy_html(tab_id: str, expenses: list) -> str:
+def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     """Renders the expense copy controls at the bottom of the trip tab only."""
-    if not _is_trip_tab(tab_id):
+    if not _is_trip_tab(tab_id) or board.current_role() != 'owner':
         return ""
-    result = _trip_expense_tsv(tab_id, expenses)
-    count, total = result["row_count"], result["total_krw"]
-    held = f" · 확인 필요 {len(result['held'])}건 제외" if result["held"] else ""
+    preview = _expense_copy_preview(tab_id, expenses) if preview is None else preview
+    available = bool(preview.get('source_available'))
+    matched = preview.get('counts') or {}
+    allowed_ids = {item['transaction_id'] for item in preview.get('results', [])
+                   if item.get('status') == 'NEW_EXPENSE'} if available else set()
+    allowed = [row for row in expenses
+               if str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or '') in allowed_ids
+               and not row.get('blocked') and not row.get('excluded_from_company')]
+    result = _trip_expense_tsv(tab_id, allowed)
+    count, total = result['row_count'], result['total_krw']
+    if not expenses:
+        description = '복사할 지출이 없습니다.'
+    elif not available:
+        reason = (preview.get('source_info') or {}).get('reason')
+        if reason == 'SOURCE_LAYOUT_UNSUPPORTED':
+            description = '이 여행의 Google 시트는 표준 지출 양식이 아니어서 중복 확인과 복사를 보류합니다.'
+        else:
+            description = 'Google 장부를 불러오지 못해 중복 여부를 확인할 수 없습니다. 장부 동기화 후 다시 시도해 주세요.'
+    else:
+        recorded = matched.get('MATCHED_MANUAL', 0) + matched.get('MATCHED_EXISTING', 0)
+        excluded = max(0, len(expenses) - recorded - count)
+        description = f'복사 가능 {count}건 · {_money(total)} · 장부에 있음 {recorded}건 제외'
+        if excluded:
+            description += f' · 확인 필요 {excluded}건 제외'
+    disabled = ' disabled' if not available or not count else ''
     return (
-        f"<section class='trip-copy-wrap' aria-label='지출내용 복사'>"
+        f"<section class='trip-copy-wrap' id='trip-expense-copy' aria-label='지출내용 복사'>"
         f"<div class='trip-copy-box'>"
-        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'>"
+        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
         f"</button>"
-        f"<span class='trip-copy-desc'>수기 지출과 대조 후 신규 지출만 복사합니다 (대조 대상 {count}건 · {_money(total)}{held})</span>"
-        f"<a class='btn' href='/google-ledger/expense-reconciliation?trip={urllib.parse.quote(tab_id, safe='')}'>수기 지출 대조</a>"
+        f"<span class='trip-copy-desc'>{board.esc(description)}</span>"
         f"<span class='copy-status' id='copy-status' role='status' aria-live='polite'></span>"
         f"</div>"
         f"</section>"
@@ -1671,7 +1714,10 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         "</div></main>")
     return (f"<div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
-            f"<div id='panel-slot'>{panel}</div></div>")
+            f"<div id='panel-slot'>{panel}</div>"
+            + (f"{board.MANUAL_EXPENSE_STYLE}<dialog id='manual-expense-dialog' aria-labelledby='mx-title'>"
+               f"{board.manual_expense_form(tab_id, modal=True)}</dialog>" if board.current_role() == 'owner' else '')
+            + "</div>")
 
 
 def _participant_trip_panel(tab_id: str, controls: dict) -> str:
@@ -1761,7 +1807,8 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
-    matches = _google_match_annotations(tab_id, expenses)
+    copy_preview = _expense_copy_preview(tab_id, expenses)
+    matches = _google_match_annotations(tab_id, expenses, copy_preview)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     workflow = ''
     if amount_groups is not None:
@@ -1773,7 +1820,7 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
-            f"{_trip_copy_html(tab_id, expenses)}"
+            f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
             f"</div>")
 
 
@@ -1798,13 +1845,14 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"
     back = "/board?" + state_query(tab_id, query, kind, archived)
-    matches = _google_match_annotations(tab_id, expenses)
+    copy_preview = _expense_copy_preview(tab_id, expenses)
+    matches = _google_match_annotations(tab_id, expenses, copy_preview)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
-            f"{_trip_copy_html(tab_id, expenses)}")
+            f"{_trip_copy_html(tab_id, expenses, copy_preview)}")
 
 
 def viewer_trips_html(trips) -> str:

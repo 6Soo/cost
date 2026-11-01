@@ -1,4 +1,4 @@
-"""The A/Ramp/Pretendard design on the real ledger screen.
+﻿"""The A/Ramp/Pretendard design on the real ledger screen.
 
 Real clicks at 1440 and 390 against the product server and its real store:
 row edit panel, save, cancel, stale revision, classification move, upload,
@@ -26,6 +26,39 @@ def overflow(page):
 
 
 class DesignScreenTests(unittest.TestCase):
+    def test_manual_expense_dialog_preserves_errors_and_saves_selected_trip(self):
+        for width in (390, 1280):
+            with self.subTest(width=width):
+                page = self._page(width)
+                self._board(page, '?tab=trip-demo-b')
+                trigger = '#add-manual-expense-mobile' if width < 760 else '#add-manual-expense'
+                page.click(trigger)
+                self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
+                self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-b')
+                page.fill('#mx-date', '2026-10-31')
+                page.fill('#mx-desc', 'Synthetic modal expense')
+                page.fill('#mx-amount', 'invalid')
+                request_id = page.input_value('#manual-expense-dialog [name=client_request_id]')
+                page.click('#manual-expense-dialog [type=submit]')
+                page.wait_for_function("document.querySelector('.mx-error').textContent.length>0")
+                self.assertEqual(page.input_value('#mx-desc'), 'Synthetic modal expense')
+                self.assertEqual(page.input_value('#manual-expense-dialog [name=client_request_id]'), request_id)
+                self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
+                self.assertEqual(overflow(page), 0)
+                page.keyboard.press('Escape')
+                self.assertFalse(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
+                page.click(trigger)
+                self.assertEqual(page.input_value('#mx-desc'), 'Synthetic modal expense')
+                page.fill('#mx-amount', '-1,250')
+                with page.expect_navigation():
+                    page.click('#manual-expense-dialog [type=submit]')
+                rows = [r for r in self.store.list_tab_rows('trip-demo-b')
+                        if r.get('description') == 'Synthetic modal expense']
+                self.assertEqual(len(rows), 1 + (width == 1280))
+                self.assertEqual(rows[-1]['amount_krw'], -1250)
+                self.assertIn('tab=trip-demo-b', page.url)
+                page.close()
+
     def test_document_stays_in_viewport_while_ledger_and_drawer_scroll_independently(self):
         for width in (375, 390, 759, 760, 1280):
             with self.subTest(width=width):
@@ -78,10 +111,10 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertEqual(page.locator('#nav .all-trips-link').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').get_attribute('href'), '/trips')
                 self.assertIn('전체 여행 보기', page.locator('#nav .nav-ft').inner_text())
-                self.assertIn('여행 관리', page.locator('#nav .footer-help').inner_text())
+                self.assertEqual(page.locator('#nav .footer-help').count(), 0)
                 self.assertEqual(page.locator('#ledger-note').count(), 0)
-                self.assertIn('기록된 거래', page.locator('#live-sum').inner_text())
-                self.assertGreater(page.locator('.act a[href="/import"]').count(), 0)
+                self.assertNotIn('기록된 거래', page.locator('#live-sum').inner_text())
+                self.assertGreater(page.locator('.act a[href="/import#newupload"]').count(), 0)
                 self.assertEqual(overflow(page), 0)
                 self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
                 page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
@@ -660,12 +693,12 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(status, 200)
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
-        page.click(".act a[href='/import']")
+        page.click(".act a[href='/import#newupload']")
         page.wait_for_load_state()
         self.assertIn("카드 가져오기", page.inner_text("body"))
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
         page.wait_for_load_state()
-        page.click(".act a[href='/export']")
+        page.click(".act a[href^='/export?tab=']")
         page.wait_for_load_state()
         self.assertIn("출력", page.inner_text("body"))
         status, body = self._api("/api/exports/xlsx", {

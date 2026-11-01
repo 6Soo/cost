@@ -461,7 +461,11 @@ def _status_badges(item: dict) -> str:
         badges.append("<span class='card-all-badge conflict'>원본 충돌</span>")
     state = str(item.get("classification_state") or "").strip()
     if state == "needs_review":
-        badges.append("<span class='card-all-badge review'>검토 필요</span>")
+        if item.get('batch_id') and item.get('transaction_id'):
+            href = '/import?' + urlencode({'batch': item['batch_id'], 'transaction': item['transaction_id']})
+            badges.append(f"<a class='card-all-badge review card-review-action' href='{_esc(href)}'>분류 검토</a>")
+        else:
+            badges.append("<span class='card-all-badge review'>검토 필요</span>")
     return "".join(badges)
 
 
@@ -470,6 +474,19 @@ def _detail_href(transaction_id) -> str:
     if not tid:
         return ""
     return "/board?" + urlencode({"row": f"card-{tid}"})
+
+
+def _review_action(item: dict) -> str:
+    """Open the existing revision/CSRF-protected editor for this exact source."""
+    tid, batch = item.get('transaction_id'), item.get('batch_id')
+    if not tid or not batch:
+        return ""
+    href = '/import?' + urlencode({'batch': batch, 'transaction': tid})
+    if item.get('duplicate_of'):
+        return f"<a class='card-all-link card-review-action' href='{_esc(href + '#preview')}'>중복 근거 확인</a>"
+    label = ('원본 문제 확인' if item.get('conflict_reason') or item.get('parse_error') else
+             '분류 수정' if item.get('classification_state') == 'classified' else '분류 검토')
+    return f"<a class='card-all-link card-review-action' href='{_esc(href)}'>{label}</a>"
 
 
 def card_detail_html(item: dict) -> str:
@@ -494,7 +511,7 @@ def card_detail_html(item: dict) -> str:
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
     return "<dl class='card-detail-fields'>" + ''.join(
-        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>'
+        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>' + _review_action(item)
 
 
 def _group_by_date(items: list[dict]) -> list[tuple[str, list[tuple[str, str, dict]]]]:
@@ -585,6 +602,8 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                    f"{merchant_markup}</button>")
             status = _status_badges(item)
             status_markup = f"<div class='card-all-badges'>{status}</div>" if status else ""
+            if not trip_id and not status and not item.get('refund_tab_member'):
+                trip_markup += _review_action(item)
             rows.append(
                 f"<tr role='row' data-tx-id='{_esc(tid)}'{row_attrs}>"
                 f"<td role='cell' class='use-datetime' title='{_esc(_format_use_date(approved))}'>{_esc(date_text)}</td>"
@@ -841,8 +860,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
             + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
             + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
-            + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
-            + "<details class='card-all-help'><summary>조회·상태 안내</summary><p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 전액 상쇄된 취소·환불 묶음은 취소·환불 탭에 표시합니다. 행을 누르면 해당 거래 상세로 이동합니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p></details>")
+            + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>")
 
         if selected_month is not None:
             detail = _month_detail(year, selected_month, items, next_cursor,

@@ -66,7 +66,8 @@ def test_closure_requires_current_google_archive_evidence(workflow_context, case
     assert state['google_available'] is True  # Amount-group equality never changes closure evidence.
     assert state['displayed_holds'] == 1
     markup = workflow.render(board,'trip',[],{'available':False})
-    assert '여행 검토' in markup and '정본 대조 확인 필요' in markup
+    assert '여행 검토' in markup and '지출 검토·복사' in markup
+    assert 'expense-reconciliation' not in markup
     assert 'form' not in markup and '<details' in markup
     if case == 'duplicate': assert '사본 중복 검토' in markup
 
@@ -123,9 +124,11 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                     assert tab.locator('.trip-workflow a').evaluate_all(
                         '(links)=>links.every(link=>link.getBoundingClientRect().height>=44)')
                     assert tab.locator('.trip-workflow a strong').all_text_contents() == [
-                        '보험 후보 비교', '지출 대조하기', '수입·마감 확인', '카드 원천', '미정리·보류', 'OTA·환불', '영수증']
+                        '보험 후보 비교', '지출 검토·복사', '수입·마감 확인', '카드 원천', '미정리·보류', 'OTA·환불', '영수증']
+                    assert tab.get_by_role('link', name='지출 검토·복사').get_attribute('href') == '#trip-expense-copy'
                     assert tab.locator('.trip-workflow > nav a').count()==3
-                    assert '전체 여행 자료' in tools.inner_text()
+                    assert '아래 화면은 전체 여행 자료입니다' not in tools.inner_text()
+                    assert tab.locator('.trip-workflow-intro').count() == 0
             tab.locator('.trip-workflow > summary').focus()
             tab.locator('.trip-workflow > summary').press('Enter')
             assert tab.locator('.trip-workflow > nav').is_hidden()

@@ -592,3 +592,10 @@ python tools/inspect_kb_exports.py --approval .local-archive/card-downloads/2026
 이번 실행에서는 임시 DB만 변경했으며 운영 DB에는 적용하지 않았습니다. 운영 적용 전에는 자동 스키마 생성까지 포함한 DB 변경 승인과 복구 사본 검증이 필요합니다. 승인 전에는 새 코드를 운영 DB에 연결하지 않습니다.
 
 표적 검증 파일은 `tests/card_pipeline/test_company_expenses.py`, `tests/card_pipeline/test_company_expense_integration.py`, `tests/card_pipeline/test_schema_migration.py`, `webapp/tests/test_company_exclusion_http.py`입니다. 원본 보존, 적용과 되돌리기, 재시도, 상태 충돌, 감사 기록 실패의 롤백 및 390px·1440px 화면을 다룹니다. 통합 검사는 제외 전 미리보기의 확정 거부, 제외 행의 기록과 TSV 배제, 되돌리기 후 사용자 결정 보존, 장부 오류 후 같은 요청 재시도, 환불 연결 보호와 제외 후 별도 파일의 환불 도착도 확인합니다.
+
+
+## 2026-10-31 해외 사용 국가와 여행 국가
+
+- 최신 사용자 결정: 해외 사용 국가와 여행지는 일치할 필요가 없다. 카드 사용은 국내·해외만 구분하며, 같은 구분의 검증된 여행 기간을 우선한다.
+- 해외 통화·해외 구분이 있으면 특정 국가 코드가 없어도 해외 거래다. 미국/싱가포르 등 해외 사용을 일본 여행에서 국가 불일치만으로 보류하지 않는다.
+- 예약 이용기간·수동 여행 배정·원본/중복/취소·환불 보호와 기존 3820 국내 잔여 분기 규칙은 유지한다. 3820 해외 거래는 유효한 해외 여행 기간 안에서 배정하며 기간 밖을 임의로 연장하지 않는다.

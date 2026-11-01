@@ -17,6 +17,7 @@ class ReservationRelationRead(TypedDict, total=False):
 
 class PaymentResultRead(TypedDict, total=False):
     reservation_link: Optional[ReservationRelationRead]
+    payment_relation: Optional[dict[str, Any]]
     transaction_id: Any
     allocation_basis: Any
     individual_payment_evidence: Any

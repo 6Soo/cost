@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import tempfile
 import threading
@@ -80,7 +80,7 @@ class CardGoogleCopyTests(unittest.TestCase):
             page = context.new_page()
             page.goto(self.base + '/import')
             page.locator('#file').set_input_files({'name': 'synthetic.csv', 'mimeType': 'text/csv', 'buffer': CARD})
-            page.get_by_role('button', name='업로드하고 분류').click()
+            page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
             form = page.locator('form[data-index]').first
             form.locator('input[name=item]').fill('숙박비')
             form.locator('select[name=display_tab_id]').select_option(trip)

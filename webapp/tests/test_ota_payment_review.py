@@ -812,7 +812,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertFalse(review_path.parent.exists())
             board_conn.close()
 
-    def test_core_snapshot_attaches_undated_candidate_without_allowing_link(self):
+    def test_core_snapshot_connects_undated_merchant_amount_tail_and_preserves_unknown_date(self):
         from app import ota_payments
         from app.ota_review import OtaReviewStore
         from tests.card_pipeline.test_ota_payments import card as ota_card, event as ota_event
@@ -823,8 +823,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 return [candidate_event]
 
             def match_ota_payment_events(self, events, _transactions, **_kwargs):
-                return [{"ota_event_id": events[0]["ota_event_id"], "status": "HOLD_DATE_UNKNOWN",
-                         "transaction_id": None, "candidates": [], "reason": "payment_date_not_in_source"}]
+                return ota_payments.match_ota_payment_events(events, _transactions, **_kwargs)
 
             search_card_candidates = staticmethod(ota_payments.search_card_candidates)
             _event_is_paid = staticmethod(ota_payments._event_is_paid)
@@ -864,14 +863,14 @@ class OtaPaymentReviewTests(unittest.TestCase):
             try:
                 data = backend._data()
                 result = data[3][0]
-                self.assertEqual(result["status"], "HOLD_DATE_UNKNOWN")
-                self.assertEqual(result["candidate_search"]["status"], "CANDIDATES_FOUND")
-                self.assertFalse(result["candidate_search"]["candidates"][0]["resolution_allowed"])
+                self.assertEqual(result["status"], "MATCHED_AUTO")
+                self.assertFalse(result['payment_relation']['payment_date_verified'])
                 snapshot = backend.snapshot_from(data)
-                candidate = snapshot["cards_by_event"][candidate_event["ota_event_id"]][0]
+                self.assertEqual(snapshot['events'], [])  # Successful matches leave the hold subset.
+                candidate = backend._event_rows(dict(candidate_event, **result), data[1], data[2])[0]
                 self.assertEqual(candidate["transaction_id"], candidate_card["transaction_id"])
-                self.assertTrue(candidate["selection_disabled"])
-                self.assertEqual(candidate["candidate_date_status"], "UNKNOWN")
+                self.assertFalse(candidate.get("selection_disabled", False))
+                self.assertIsNone(result.get('paid_on'))
             finally:
                 backend.close()
                 board_conn.close()
@@ -1282,8 +1281,10 @@ class OtaPaymentReviewTests(unittest.TestCase):
             with mock.patch.object(ota_payment_review, "enabled", return_value=True), \
                  mock.patch.object(payments, "build_ota_payment_events", side_effect=lambda _sources: events):
                 snapshot = backend.snapshot()
-                self.assertEqual({row["status"] for row in snapshot["events"]}, {"HOLD_PARTIAL_GROUP"})
-                self.assertTrue(all(row["selection_disabled"] for rows in snapshot["cards_by_event"].values()
+                self.assertEqual({row["status"] for row in snapshot["events"]}, {"MATCHED_GROUP"})
+                self.assertTrue(all(len(row['payment_relation']['transaction_ids']) == 2
+                                    for row in snapshot['events']))
+                self.assertTrue(all(row['selection_disabled'] for rows in snapshot['cards_by_event'].values()
                                     for row in rows))
                 status, _response = _local_review_request(lambda: CoreOtaPaymentBackend(
                     SimpleNamespace(conn=board_conn, _lock=threading.RLock()), str(review_path), read_only=False,
@@ -1349,7 +1350,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertEqual({row["transaction_id"] for row in candidates},
                              {"range-card--1", "range-card-0", "range-card-1", "range-card-2"})
             matcher_result = payments.match_ota_payment_events([candidate], rows, rules=rules)[0]
-            self.assertEqual(matcher_result["status"], "HOLD_PARTIAL_GROUP")
+            self.assertEqual(matcher_result["status"], "MATCHED_GROUP")
             self.assertEqual(set(matcher_result["candidates"]),
                              {"range-card--1", "range-card-0", "range-card-1", "range-card-2"})
             backend.close()

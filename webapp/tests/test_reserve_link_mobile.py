@@ -204,8 +204,8 @@ class NoHorizontalOverflowTests(MobileLayoutFixture):
           };
         }""")
         self.assertEqual(layout["display"], "block")
-        self.assertEqual(layout["label"], "예약 행사 식별자")
-        self.assertIn("예약 행사 식별자", layout["before"])
+        self.assertEqual(layout["label"], "예약자 / 예약 정보")
+        self.assertIn("예약자 / 예약 정보", layout["before"])
 
     def test_the_column_header_is_still_readable_by_assistive_technology(self):
         """Visually out of the way at a narrow width, still in the document.
@@ -226,7 +226,7 @@ class NoHorizontalOverflowTests(MobileLayoutFixture):
           };
         }""")
         self.assertNotEqual(header["display"], "none")
-        self.assertEqual(header["labels"], ["예약 행사 식별자", "연결된 COST 여행", "COST 여행 선택"])
+        self.assertEqual(header["labels"], ["예약자 / 예약 정보", "현재 연결", "연결할 COST 여행"])
         self.assertEqual(header["scopes"], ["col", "col", "col"])
 
 
@@ -235,7 +235,7 @@ class SourceKeyRemainsReadableTests(MobileLayoutFixture):
 
     def keys_on_screen(self):
         return self.page.evaluate(
-            "() => Array.from(document.querySelectorAll('td.code'))"
+            "() => Array.from(document.querySelectorAll('td.code .source-code'))"
             ".map(td => td.textContent)")
 
     def test_every_source_key_is_present_at_every_width(self):
@@ -272,13 +272,13 @@ class SourceKeyRemainsReadableTests(MobileLayoutFixture):
         one job this row exists for: comparing it against the roster.
         """
         self.at(320)
-        cell = self.page.query_selector("td.code")
+        cell = self.page.query_selector("td.code .source-code")
         key = cell.inner_text()
         self.assertNotIn("…", key)
         self.assertNotIn("...", key)
         self.assertGreater(len(key), 40)
         overflow = self.page.evaluate("""() => {
-          const td = document.querySelector('td.code');
+          const td = document.querySelector('td.code .source-code');
           const style = getComputedStyle(td);
           return {
             scrollW: td.scrollWidth,
@@ -293,7 +293,7 @@ class SourceKeyRemainsReadableTests(MobileLayoutFixture):
         self.assertNotEqual(overflow["textOverflow"], "ellipsis")
         self.assertNotEqual(overflow["whiteSpace"], "nowrap")
         self.assertEqual(key, self.page.evaluate(
-            "() => document.querySelector('td.code').textContent"))
+            "() => document.querySelector('td.code .source-code').textContent"))
 
 
 class MultiSelectTests(MobileLayoutFixture):
@@ -370,7 +370,7 @@ class MultiSelectTests(MobileLayoutFixture):
                     " source: td.getAttribute('data-source')}))")
                 self.assertTrue(cells)
                 for cell in cells:
-                    self.assertEqual(cell["label"], "연결된 COST 여행")
+                    self.assertEqual(cell["label"], "현재 연결")
                     self.assertTrue(cell["source"].startswith("reservation:"))
 
 
@@ -403,7 +403,9 @@ class NarrowSelectionReachesTheServerTests(MobileLayoutFixture):
         self.assertEqual(len(picked), 2)
 
         chosen_cell = self.page.query_selector(f'td.chosen[data-source="{source_key}"]')
-        self.assertEqual(sorted(chosen_cell.inner_text().split(", ")), sorted(picked))
+        chosen_text = chosen_cell.inner_text()
+        for target in picked:
+            self.assertIn(target, chosen_text)
 
         self.page.click("#saveBtn")
         self.assertTrue(self.wait_for_links({
@@ -465,7 +467,8 @@ class NarrowSelectionReachesTheServerTests(MobileLayoutFixture):
           select.dispatchEvent(new Event('change', {bubrows: true}));
         }""", source_key)
         chosen_cell = self.page.query_selector(f'td.chosen[data-source="{source_key}"]')
-        self.assertEqual(chosen_cell.inner_text(), "연결 없음")
+        self.assertEqual(chosen_cell.query_selector("span").inner_text(), "아직 연결되지 않음")
+        self.assertIn("저장 전 변경", chosen_cell.inner_text())
 
 
 class MarkupValidityTests(MobileLayoutFixture):
@@ -514,8 +517,8 @@ class MarkupValidityTests(MobileLayoutFixture):
         self.assertTrue(rows)
         for row in rows:
             self.assertIn("code", row["className"])
-            self.assertEqual(row["children"], 0)
-            self.assertTrue(row["text"].startswith("reservation:"))
+            self.assertEqual(row["children"], 2)
+            self.assertIn("reservation:", row["text"])
 
 
 @unittest.skipIf(sync_playwright is None, "playwright is not installed")

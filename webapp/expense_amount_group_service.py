@@ -94,9 +94,9 @@ def build_state(board, trip_id, cost_rows=None):
         source_info = (resolved.get('sources') or {}).get(source) or {}
         last_success_at = source_info.get('last_ok_at') or last_success_at
         copy_info = (trip.get('copies') or {}).get(source) or {}
+        if copy_info.get('layout') != 'rev':
+            raise ValueError('SOURCE_LAYOUT_UNSUPPORTED')
         if (source_info.get('status') != 'ok' or source_info.get('stale')
-                or copy_info.get('layout') != 'rev'
-                or not (copy_info.get('expense') or {}).get('verified')
                 or set(trip.get('review') or ()) & sheet_expense_reconciliation.BLOCKING_TRIP_FLAGS):
             raise ValueError('SOURCE_NOT_VERIFIED')
         sheet_id = copy_info.get('sheet')
@@ -149,6 +149,16 @@ def build_state(board, trip_id, cost_rows=None):
                            'date': row.get('date') or '',
                            'description': row.get('description') or row.get('category') or '',
                            'payee': row.get('payee') or ''})
+        # A broken sheet SUM range does not invalidate independently parsed
+        # expense rows. Permit display-only comparison when their complete sum
+        # agrees with the parser, without relaxing export or financial gates.
+        expense = copy_info.get('expense') or {}
+        total_warning = not expense.get('verified')
+        if total_warning:
+            flags = set(copy_info.get('flags') or ()) | set(trip.get('review') or ())
+            if (flags & google_authority.BLOCKING_FLAGS
+                    or _amount(expense.get('row_sum')) != sum(row['amount_krw'] for row in google)):
+                raise ValueError('SOURCE_NOT_VERIFIED')
         state = reconcile_expense_amount_groups(str(trip_id), costs, google,
                                                 available=True,
                                                 last_success_at=last_success_at)
@@ -164,12 +174,14 @@ def build_state(board, trip_id, cost_rows=None):
             raise ValueError('RECONCILIATION_INVALID')
         if not set(by_cost).issubset(expected_ids):
             raise ValueError('RECONCILIATION_INVALID')
+        if total_warning:
+            state['total_warning'] = True
         return state
     except Exception as error:
         codes = {'AMOUNT_UNCERTAIN', 'COST_TRIP_UNAVAILABLE', 'GOOGLE_SOURCE_DISABLED',
                  'TRIP_MAPPING_UNAVAILABLE', 'GOOGLE_TRIP_UNAVAILABLE', 'SOURCE_NOT_SELECTED',
                  'SOURCE_NOT_VERIFIED', 'SOURCE_FINGERPRINT_MISMATCH', 'SHEET_ROWS_UNAVAILABLE',
-                 'RECONCILIATION_INVALID', 'INVALID_OR_UNCERTAIN_ROW'}
+                 'RECONCILIATION_INVALID', 'INVALID_OR_UNCERTAIN_ROW', 'SOURCE_LAYOUT_UNSUPPORTED'}
         reason = str(error) if isinstance(error, ValueError) and str(error) in codes else 'SOURCE_UNAVAILABLE'
         return _state_unavailable(trip_id, reason, locals().get('last_success_at'))
 

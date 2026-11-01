@@ -128,6 +128,10 @@ def infer_trip(row, trips, *, nets=None, reconsider=False):
     for key in ('trip_id', 'display_tab_id'):
         if row.get(key) in valid and not reconsider:
             return row[key], '기존 실제 여행 유지'
+    from .rules import transaction_region, trip_region, is_booking_or_online
+    region = '' if is_booking_or_online(row) else transaction_region(row)
+    if region:
+        valid = {key: trip for key, trip in valid.items() if trip_region(trip) == region}
     candidates_trips = list(valid.values())
     candidates = card_trip_candidates(row, candidates_trips, nets=nets)
     if candidates:
@@ -139,7 +143,7 @@ def infer_trip(row, trips, *, nets=None, reconsider=False):
         # A missing use date does not turn the posting date into a service date.
         target = max(valid, key=lambda key: (valid[key]['starts_on'], key))
         return target, '이용일 단서 없음 · 가장 최근 시작한 실제 여행 선택'
-    return '', '등록된 유효 여행 없음 · 비용 항목 분류 완료'
+    return '', '등록된 유효 여행 없음'
 
 
 def _card3820_owner_policy(row, trips):
@@ -147,9 +151,9 @@ def _card3820_owner_policy(row, trips):
 
     This mirrors the primary card-classification path: the Singapore exception
     wins when exactly one matching trip exists; otherwise an eligible domestic
-    purchase goes to its transaction quarter.  Missing dates and foreign
-    location holds stay unresolved so this completion pass cannot invent a
-    travel or quarter assignment.
+    purchase goes to its transaction quarter. Overseas purchases use matching
+    trip periods irrespective of the particular foreign country. Missing dates
+    and periods outside every overseas trip cannot invent an assignment.
     """
     if row.get('card_tail') != '3820':
         return None
@@ -181,8 +185,16 @@ def _card3820_owner_policy(row, trips):
                         source='user_exception')
         return None
 
-    if row.get('foreign_currency') or merchant_country(row) not in ('', 'KR'):
-        return None
+    from .rules import transaction_region, trip_region
+    if transaction_region(row) == 'overseas':
+        candidates = [trip for trip in valid.values() if trip_region(trip) == 'overseas'
+                      and trip['starts_on'] <= occurred.isoformat() <= trip['ends_on']]
+        if not candidates:
+            return None
+        target, basis = infer_trip(row, candidates, reconsider=True)
+        return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
+                    display_tab_id=target, trip_id=target, source='inference',
+                    basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
     year, quarter = quarter_of(occurred)
     return dict(item='분기 기타비용', description=f'{year}년 {quarter}분기 기타비용',
                 display_tab_id=f'quarter:{year}:{quarter}', trip_id='',

@@ -1315,7 +1315,7 @@ def board_page(tab_id: str, query: str = "") -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     side = (
@@ -1333,7 +1333,7 @@ def income_new_page() -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     body = (
@@ -1373,18 +1373,20 @@ MANUAL_EXPENSE_STYLE = """<style>
 </style>"""
 
 
-def expense_new_page() -> str:
+def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
+    trips = [t for t in live_trips(include_archived=True)
+             if not t.get('archived') or t['tab_id'] == selected_tab]
     options = "".join(
-        f"<option value='{esc(t['tab_id'])}'>{esc(t['display_key'])}</option>" for t in live_trips()
+        f"<option value='{esc(t['tab_id'])}'"
+        f"{' selected' if t['tab_id'] == selected_tab else ''}>{esc(t['display_key'])}</option>"
+        for t in trips
     )
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
-    body = (
-        "<section class='mx-card'><h2>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
+    if not any(t['tab_id'] == selected_tab for t in trips):
+        options = "<option value='' selected>미배정</option>" + options
+    close = ("<button type='button' data-manual-close>닫기</button>" if modal
+             else f"<a href='/board?{esc(urlencode({'tab': selected_tab}))}'>장부로 돌아가기</a>")
+    return (
+        "<section class='mx-card'><h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
         f"<form method='post' action='/api/expenses/manual' class='mx-form'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1396,13 +1398,17 @@ def expense_new_page() -> str:
         "<div class='mx-field'><label for='mx-item'>항목</label><input id='mx-item' name='item'></div>"
         "<div class='mx-field'><label for='mx-desc'>내용</label><input id='mx-desc' name='description'></div>"
         "<div class='mx-field wide mx-amount'><label for='mx-amount'>금액 (원, 환불은 음수)</label>"
-        "<input id='mx-amount' name='amount_krw' inputmode='numeric' placeholder='0'></div>"
+        "<input id='mx-amount' name='amount_krw' required inputmode='numeric' placeholder='0'></div>"
         "<div class='mx-field wide'><label for='mx-memo'>메모</label><input id='mx-memo' name='operator_note'></div>"
         "</div>"
-        "<div class='mx-actions'><button class='mx-submit' type='submit'>저장</button></div>"
+        "<p class='mx-error' role='alert'></p>"
+        f"<div class='mx-actions'>{close}<button class='mx-submit' type='submit'>저장</button></div>"
         "</form></section>"
     )
-    return layout("수기 지출 추가", f"{top}<div class='wrap'>{MANUAL_EXPENSE_STYLE}{body}</div>")
+
+
+def expense_new_page(selected_tab: str = "") -> str:
+    return layout("수기 지출 추가", f"<div class='wrap'>{MANUAL_EXPENSE_STYLE}{manual_expense_form(selected_tab)}</div>")
 
 
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
@@ -1430,7 +1436,7 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
 
 
 def trips_page(preview_tab: str = "", role: str = "") -> str:
-    from . import ledger_design
+    from . import ledger_design, google_ledger_page
     from .sheets_export import _assignee_confirmed
 
     if not role:
@@ -1476,9 +1482,10 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 " <span class='muted warntext'>· 담당자 확인이 필요해요"
                 " (출처가 기록되지 않은 값이에요)</span>")
         cards.append(
-            "<div class='card'>"
-            f"<h3>{esc(t['display_key'])} <span class='muted'>{kind}</span></h3>"
+            f"<article class='card trip-management-row' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown)}' data-archived='{int(bool(t['archived']))}'>"
+            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t['display_key'])}</a> <span class='muted'>{kind}</span></h3>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
+            "<details class='trip-meta'><summary>정보 수정·보관</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
             # APP_SPEC 3 keeps the schedule authority and the tab kind apart from
@@ -1486,7 +1493,9 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             # them through the name.
             f"<p class='muted'>연도 {esc(str(t.get('event_year') or ''))} · "
             f"종류 {esc(t.get('tab_kind') or 'trip')} · "
-            f"권위 {esc(AUTHORITY_LABELS.get(t.get('authority_status'), '미확인'))}</p>"
+            f"일정 근거 {esc('미확인' if t.get('authority_status') != 'authoritative' else '확인됨')}</p>"
+            f"<p><a class='btn' href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>여행 자료 확인</a> "
+            + ("<a class='btn' href='/google-ledger'>원본 장부·연결 설정 확인</a>" if google_ledger_page.enabled() and google_ledger_page.owns_route('/google-ledger') else '') + "</p>"
             f"<p>{counts}</p>"
             + (f"<p class='muted'>댓글 {str(registration['comment_count'])+'개' if registration['comment_count'] is not None else '확인 불가'} · "
                f"<a href='{esc(registration['source_url'])}' target='_blank' rel='noopener'>여행글 보기</a></p>"
@@ -1517,7 +1526,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "<input type='hidden' name='return_to' value='/trips'>"
             f"<button type='submit'>{ui_icons.icon('archive')}{'복원' if t['archived'] else '보관'}</button></form>"
             f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
-            "</div>"
+            "</details></article>"
         )
     profile_html = ""
     if role == "owner":
@@ -1525,7 +1534,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         # it is the source for what every new trip is stamped with, and an empty
         # field is a legitimate state rather than something to guess at.
         profile_html = (
-            "<div class='card'><h3>회사·담당자 정보</h3>"
+            "<details class='card'><summary>회사·담당자 정보</summary>"
             "<form method='post' action='/api/owner-profile' id='owner-profile-form'>"
             f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
             f"<input type='hidden' name='expected_revision' value='{profile['revision']}'>"
@@ -1536,7 +1545,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "<p><label>기본 담당자명</label>"
             f"<input name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
             "<p class='muted'>새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.</p>"
-            f"<button type='submit'>{ui_icons.icon('save')}출처 정보 저장</button></form></div>")
+            f"<button type='submit'>{ui_icons.icon('save')}출처 정보 저장</button></form></details>")
     preview_html = ""
     if preview_tab:
         try:
@@ -1569,13 +1578,19 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             )
         except Exception as exc:
             preview_html = f"<div class='card'><p>미리보기 실패: {esc(str(exc))}</p></div>"
-    body = (f"<div class='sect'><h2>여행 관리</h2>{profile_html}{preview_html}"
-            f"{''.join(cards)}</div>")
+    body = ("<div class='sect'><form id='trip-management-filter' role='search'>"
+            "<label for='trip-management-search'>여행 찾기</label> "
+            "<input id='trip-management-search' type='search' placeholder='여행 이름·코드·담당자'> "
+            "<label for='trip-management-state'>상태</label> <select id='trip-management-state'>"
+            "<option value=''>전체</option><option value='0'>활성</option><option value='1'>보관</option></select> "
+            "<button type='reset'>초기화</button><p id='trip-management-count' role='status'></p></form>"
+            f"{profile_html}{preview_html}{''.join(cards)}"
+            "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></div>")
     return ledger_design.render(ledger_design.shell(
         "여행 관리", tab_id="", heading="여행 관리", body=body))
 
 
-def export_page() -> str:
+def export_page(selected_tab: str = "") -> str:
     from .sheets_export import assignee_needs_confirmation
 
     store = _active_store()
@@ -1587,11 +1602,14 @@ def export_page() -> str:
     # nothing the owner can see. One call to the one decision function, so the
     # screen and the export cannot drift apart.
     shown_ids = [t["tab_id"] for t in active_trips + archived_trips]
+    selected_tab = selected_tab if selected_tab in shown_ids else ""
     unconfirmed = set(assignee_needs_confirmation(store, shown_ids)
                       if store is not None else [])
 
     def trip_option(trip, suffix="", checked=True):
         tab_id = trip["tab_id"]
+        if selected_tab:
+            checked = tab_id == selected_tab
         note = ""
         if tab_id in unconfirmed:
             # The trip keeps the selection the page already gave it. Silently
@@ -1675,11 +1693,12 @@ def export_page() -> str:
             jobs_html = f"<h3>최근 출력</h3><ul>{items}</ul>"
     body = (
         "<div class='sect'><h2>선택 탭 출력</h2>"
-        f"{review_note}"
-        f"{counts}"
+        f"<details class='export-diagnostics'><summary>출력 전 검토·여행별 건수</summary>{review_note}{counts}</details>"
         f"<form method='post' action='/api/exports/xlsx'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+        "<p class='export-selection-tools'><button type='button' data-export-select='all'>전체 선택</button> "
+        "<button type='button' data-export-select='none'>선택 해제</button> <span id='export-selection-count' role='status'></span></p>"
         f"{options}{archived}"
         "<p class='muted'>분류대기 거래가 포함될 수 있습니다.</p>"
         f"{progress_note}"
@@ -1695,7 +1714,7 @@ def export_page() -> str:
     from . import ledger_design
 
     return ledger_design.render(ledger_design.shell(
-        '선택 탭 출력', tab_id='', heading='선택 탭 출력', body=body))
+        '선택 탭 출력', tab_id=selected_tab, heading='선택 탭 출력', body=body))
 
 
 def import_page() -> str:
@@ -3633,9 +3652,9 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/income/new":
             self._send(income_new_page())
         elif parsed.path == "/expense/new":
-            self._send(expense_new_page())
+            self._send(expense_new_page(query.get('tab', [''])[0]))
         elif parsed.path == "/export":
-            self._send(export_page())
+            self._send(export_page(query.get('tab', [''])[0]))
         elif parsed.path.startswith("/api/exports/") and parsed.path.endswith("/download"):
             self._send_export_file(parsed.path.rsplit("/", 2)[-2])
             return
@@ -3656,7 +3675,7 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/rules":
             case_id = query.get("case", [""])[0]
             if not case_id:
-                self._send(layout("규칙 대화", "<div class='body'><p>대화 사례가 필요해요.</p></div>"), code=404)
+                self._send(layout("규칙 대화", "<div class='body'><h1>검토할 거래를 선택해 주세요</h1><p>지출 정리에서 거래의 분류 규칙을 열 수 있습니다.</p><a href='/import'>지출 정리로 돌아가기</a></div>"), code=404)
                 return
             self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/api/tabs":

@@ -108,7 +108,7 @@ def test_owner_page_exposes_candidate_search_and_explicit_cost_confirmation_only
     assert '항공권 예약 확인' in handler.body
     assert '탑승객 이름' in handler.body
     assert '/api/flight-passengers/name-search' in handler.body
-    assert '실제 탑승 여부' in handler.body
+    assert '이 조회는 예약·결제나 실제 탑승 여부를 확정하지 않습니다.' not in handler.body
     assert not (tmp_path / 'flight.sqlite').exists()
 
 

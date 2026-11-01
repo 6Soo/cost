@@ -83,9 +83,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             assert page.locator("tr[data-tx-id='TX-A-01'] .merchant-name").inner_text() == long_merchant.strip()
             assert page.locator("tr[data-tx-id='TX-B-01'] .card-all-trip-name").inner_text() == long_trip.strip()
             assert page.locator("td.trip a[href='/board?tab=refunds']").count() == 2
-            assert page.locator('.card-all-help').get_attribute('open') is None
-            page.locator('.card-all-help summary').click()
-            assert page.locator('.card-all-help p').is_visible()
+            assert page.locator('.card-all-help').count() == 0
             page.set_viewport_size({'width': 640, 'height': 844})
             page.evaluate('document.documentElement.style.zoom="200%"')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

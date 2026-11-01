@@ -15,7 +15,7 @@ def test_source_detail_is_read_only_masked_escaped_and_independent_of_ledger(car
                      ('<img src=x onerror=alert(1)>', '<script>secret()</script>', 'quarter:2026:3'))
         before = list(conn.iterdump())
     detail = ct.transaction_detail('TX-A-01', card_db_path)
-    assert detail['card_label'] == 'CARD · •••• 1234 · credit'
+    assert detail['card_label'] == 'CARD · •••• 1234'
     assert 'card_tail' not in detail
     assert detail['amount_krw'] == 150000
     html = cards_all.card_detail_html(detail)

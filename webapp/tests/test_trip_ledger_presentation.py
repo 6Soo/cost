@@ -1,11 +1,12 @@
 from webapp import ledger_design, google_ledger_page
 
 
-def test_net_income_label_explains_calculation_and_preserves_values():
+def test_net_income_omits_redundant_hints_and_preserves_values():
     incomes = [{'amount_krw': 10000}]
     expenses = [{'amount_krw': 3000}]
     markup = ledger_design._summary_html(incomes, expenses)
-    assert '총수입' in markup and '총수입 − 지출' in markup
+    assert '총수입' in markup and '총수입 − 지출' not in markup
+    assert '기록된 거래' not in markup
     assert '10,000원' in markup and '3,000원' in markup and '7,000원' in markup
     assert '차액' not in markup and '수입, 총수입에서 지출을 뺀 금액' in markup
     filtered = ledger_design._summary_html(incomes, expenses, filtered=(2000, 500, 1, 1), whole=(10000, 3000, 2, 3))

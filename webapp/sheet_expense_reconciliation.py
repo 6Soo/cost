@@ -186,8 +186,9 @@ def preview_for_trip(board, trip_id, cost_rows=None):
             raise ValueError('SOURCE_NOT_SELECTED')
         source_info = (resolved.get('sources') or {}).get(source) or {}
         copy_info = (trip.get('copies') or {}).get(source) or {}
+        if copy_info.get('layout') != 'rev':
+            raise ValueError('SOURCE_LAYOUT_UNSUPPORTED')
         if (source_info.get('status') != 'ok' or source_info.get('stale')
-                or copy_info.get('layout') != 'rev'
                 or not (copy_info.get('expense') or {}).get('verified')
                 or set(trip.get('review') or ()) & BLOCKING_TRIP_FLAGS):
             raise ValueError('SOURCE_NOT_VERIFIED')
@@ -260,7 +261,7 @@ def preview_for_trip(board, trip_id, cost_rows=None):
         candidates = {'COST_TRIP_UNAVAILABLE', 'GOOGLE_SOURCE_DISABLED', 'TRIP_MAPPING_UNAVAILABLE',
                       'GOOGLE_TRIP_UNAVAILABLE', 'SOURCE_NOT_SELECTED', 'SOURCE_NOT_VERIFIED',
                       'SOURCE_FINGERPRINT_MISMATCH', 'SHEET_ROWS_UNAVAILABLE',
-                      'LINKS_UNAVAILABLE', 'RECONCILIATION_INVALID'}
+                      'LINKS_UNAVAILABLE', 'RECONCILIATION_INVALID', 'SOURCE_LAYOUT_UNSUPPORTED'}
         code = getattr(error, 'code', None)
         reason = code if code in candidates else (str(error) if isinstance(error, ValueError)
                                                    and str(error) in candidates else 'SOURCE_UNAVAILABLE')

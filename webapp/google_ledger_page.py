@@ -367,8 +367,6 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                    f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
         source_link = (f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
                        f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
-        overall_notice = ("<p class='small income-warning' role='status'>수입 자료는 표시하지만 지출 또는 여행 전체 회계 검증은 완료되지 않았습니다.</p>"
-                          if income_verified and not trip.get('verified') else '')
         reasons_p = f"<p class='small'>{html.escape(reasons)}</p>" if reasons else ''
         gap_alert = (f"<div class='income-discrepancy-alert' role='alert'>{ui_icons.icon('alert-triangle')}"
                      f"장부 행 합계({_money(rows_total)})와 장부 집계({_money(sheet_total)})가 일치하지 않습니다.</div>"
@@ -380,7 +378,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                 f"</div>")
         more_link = (f"<a class='btn' href='/board?tab={html.escape(quote(tab_id, safe=''), quote=True)}&amp;participant_income_offset={income_offset + limit}'>다음 수입 20건</a>"
                      if owner and income_more else '')
-        body = overall_notice + reasons_p + gap_alert + (table + more_link if show_rows else '') + meta
+        body = reasons_p + gap_alert + (table + more_link if show_rows else '') + meta
         if numeric_gap:
             message = '수입 합계 차이 있음'
         elif show_rows:

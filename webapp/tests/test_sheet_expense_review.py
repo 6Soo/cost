@@ -344,89 +344,29 @@ def test_unavailable_google_source_blocks_post_and_new_expense_never_saves(route
     assert links.saved == []
 
 
-def test_page_escapes_untrusted_source_values(route_env):
-    preview, _links = route_env
-    preview["cost_rows"][0]["merchant"] = "<img src=x onerror=alert(1)>"
-    preview["results"][0]["differences"]["description"] = {
-        "manual": "<script>bad()</script>", "cost": "& unsafe"}
+def test_legacy_page_redirects_without_reading_source(route_env, monkeypatch):
+    from urllib.parse import urlsplit, parse_qs
+    from webapp import board_http_shapes
+    locations = []
+    monkeypatch.setattr(board_http_shapes, 'send_redirect', lambda handler, url: locations.append(url))
+    monkeypatch.setattr(review, '_preview_for_trip', lambda *a: pytest.fail('legacy page must not load transactions'))
     handler = FakeHandler()
-    review.dispatch(handler, SimpleNamespace(path=review.PAGE_PATH, query="trip=" + TRIP),
-                    query={"trip": [TRIP]}, csrf="csrf-synthetic")
-    document = handler.html[1]
-    assert "<img src=x" not in document
-    assert "<script>bad()" not in document
-    assert "&lt;img" in document and "&lt;script&gt;bad()" in document
+    review.dispatch(handler, SimpleNamespace(path=review.PAGE_PATH),
+                    query={'trip': [TRIP], 'q': ['Cafe & tea'], 'kind': ['ex']})
+    target = urlsplit(locations[0])
+    assert target.path == '/board' and target.fragment == 'trip-expense-copy'
+    assert parse_qs(target.query) == {'tab': [TRIP], 'q': ['Cafe & tea'], 'kind': ['ex']}
 
 
-def test_get_page_is_accessible_responsive_and_uses_shared_shell_tokens(route_env):
-    preview, _links = route_env
-    preview["results"] = [sample_preview()["results"][0] for _ in range(51)]
-    preview["counts"] = {"MATCHED_MANUAL": 51}
+@pytest.mark.parametrize('query', [{}, {'trip': [TRIP], 'kind': ['unsafe']}])
+def test_legacy_page_rejects_missing_trip_or_invalid_filter(route_env, query):
     handler = FakeHandler()
-    review.dispatch(handler, SimpleNamespace(path=review.PAGE_PATH, query="trip=" + TRIP),
-                    query={"trip": [TRIP]}, csrf="csrf-synthetic")
-    code, document = handler.html
-    assert code == 200
-    assert "이미 수기로 기록됨 · 새 행 추가 안함" in document
-    assert "연결 완료 · 수기 원본 유지 · 차이 있음" in document
-    assert "Google 시트는 변경하지 않습니다" in document
-    assert "aria-live='polite'" in document and "다음 페이지" in document
-    assert "--shell-ink" in document and "--shell-paper" in document
-    assert "•••• 4321" in document
-    assert "C:/private" not in document
+    review.dispatch(handler, SimpleNamespace(path=review.PAGE_PATH), query=query)
+    assert handler.html[0] == 400
 
 
-def test_browser_shell_theme_and_narrow_viewport(route_env):
-    playwright = pytest.importorskip("playwright.sync_api")
-    from webapp import site_shell
-
-    preview, _links = route_env
-    preview["results"] = [sample_preview()["results"][0] | {"transaction_id": f"synthetic-cost-{n}"}
-                          for n in range(51)]
-    preview["counts"] = {"MATCHED_MANUAL": 51}
+def test_legacy_page_keeps_owner_boundary(route_env, monkeypatch):
+    monkeypatch.setattr(review, '_owner_request', lambda: False)
     handler = FakeHandler()
-    review.dispatch(handler, SimpleNamespace(path=review.PAGE_PATH, query="trip=" + TRIP),
-                    query={"trip": [TRIP]}, csrf="csrf-synthetic")
-    wrapped = site_shell.wrap_document(handler.html[1], review.PAGE_PATH)
-    try:
-        with playwright.sync_playwright() as p:
-            browser = p.chromium.launch()
-            try:
-                page = browser.new_page(viewport={"width": 320, "height": 780}, color_scheme="light")
-                page.set_content(wrapped)
-                page.wait_for_timeout(50)
-                for theme in ("light", "dark"):
-                    if page.locator("#site-theme-toggle").count():
-                        current = page.locator("html").get_attribute("data-theme")
-                        if current != theme:
-                            page.locator("#site-theme-toggle").click()
-                    page.locator(".ser-row").first.wait_for()
-                    assert page.locator("html").evaluate("e=>e.dataset.theme") == theme
-                    ink = page.locator(".ser-page").evaluate("e=>getComputedStyle(e).color")
-                    assert ink and ink != "rgba(0, 0, 0, 0)"
-                    contrast = page.locator(".ser-count strong").first.evaluate("""e=>{
-                      const rgb=s=>s.match(/[\\d.]+/g).slice(0,3).map(Number);
-                      const lum=s=>rgb(s).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4)
-                        .reduce((a,v,i)=>a+v*[.2126,.7152,.0722][i],0);
-                      const a=lum(getComputedStyle(e).color),b=lum(getComputedStyle(e.parentElement).backgroundColor);
-                      return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
-                    }""")
-                    assert contrast >= 4.5
-                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-                    assert page.locator(".ser-save button[value=links]").evaluate("e=>e.getBoundingClientRect().height >= 44")
-                    assert page.get_by_role("button", name="신규 지출 복사").count() == 1
-                    assert page.get_by_role("link", name="다음 페이지").count() == 1
-                checkbox = page.locator("input[name=transaction_ids]").first
-                checkbox.focus()
-                page.keyboard.press("Space")
-                assert checkbox.is_checked()
-                page.keyboard.press("Tab")
-                assert page.evaluate("document.activeElement.tagName") == "A"
-                page.keyboard.press("Shift+Tab")
-                assert page.evaluate("document.activeElement.name") == "transaction_ids"
-            finally:
-                browser.close()
-    except Exception as exc:
-        if "Executable doesn't exist" in str(exc) or "browserType.launch" in str(exc):
-            pytest.skip("synthetic browser runtime is unavailable")
-        raise
+    review.dispatch(handler, SimpleNamespace(path=review.PAGE_PATH), query={'trip': [TRIP]})
+    assert handler.response[0] == 403
