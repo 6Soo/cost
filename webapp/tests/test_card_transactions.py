@@ -17,9 +17,6 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-# Set up environment before importing
-os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
-
 from webapp import card_transactions as ct
 from webapp.ledger_board import Handler
 
@@ -61,6 +58,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TEXT NOT NULL
 );
 """
+
+
+@pytest.fixture(autouse=True)
+def require_card_schema_for_test(monkeypatch):
+    """Keep the strict card schema contract local to this test module."""
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'require')
 
 LEDGER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS board_rows (
