@@ -30,6 +30,7 @@ import re
 from dataclasses import dataclass, field
 
 from openpyxl import load_workbook
+from .card_workbook import load_card_workbook
 
 from .normalize import (AmountUnreadable, is_cancel_text, normalize_merchant,
                          to_amount_krw, to_currency_text, to_date, to_decimal)
@@ -213,8 +214,7 @@ def _read_xlsx(content: bytes) -> list[list]:
     except zipfile.BadZipFile:
         raise ParseError('UNREADABLE_FILE', '엑셀 파일을 열 수 없습니다') from None
     try:
-        workbook = load_workbook(io.BytesIO(content), data_only=True,
-                                 read_only=True)
+        workbook = load_card_workbook(content, data_only=True, reader=load_workbook)
     except Exception:
         raise ParseError("UNREADABLE_FILE", "엑셀 파일을 열 수 없어요") from None
     try:
@@ -532,6 +532,12 @@ def parse_card_file(content: bytes, filename: str, *,
         if cached is not None:
             return cached
     fmt, cells = read_cells(content)
+    from .card_export_profiles import parse_export
+    export = parse_export(cells, fmt, filename)
+    if export is not None:
+        if use_cache:
+            _CACHE[digest] = export
+        return export
     approval_header = _approval_header_row(cells)
     if approval_header is not None:
         parsed = _parse_approval(cells, approval_header, fmt, filename)

@@ -4,6 +4,12 @@
 - 검증: 표적 35 passed/기존 문구 계약 실패 4건 deselected(기준 `9835a769` 동일 재현). 활성/무효 여행 표시·escaping·조회 무쓰기 포함. 병합 시 추가된 두 운영 문서 외 실행 코드는 검사본과 동일하다. 인증된 운영 화면에서 현재 여행·현지경비·장부 기록 가능 표시와 PC/모바일390px 넘침0을 확인했다. TaskSpace7 정상 종료. 전체 회귀·실기기는 국소 표시 변경으로 미실행이다.
 - 배포: 1,234 Git blobs 불일치0·task/process 고정SHA·단일 loopback listener·health/ready200·영향/보호5경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용으로 새 전체DB백업/복원은 반복하지 않고 이전 검증 릴리스와 task XML 복구점을 보존했다. 분류/여행/장부/Google/원본/스키마 쓰기0. 근거 `.local-archive/gamsgo-alpen-20261102/`의 baseline/targeted-final/candidate.xml·review/release-audit/deploy-evidence·browser-final.json 및 호스트 동일SHA 감사 기록. 이 질문과 표시 교정 미결/차단0·다음 명령 없음. 문서 후속은 재배포/재시작하지 않는다.
 
+## 2026-11-02 OTA 근거 카드의 여행 복구 누락·출처 표시 수정 완료
+
+- COMPLETE — [원인·수락 근거](specs/ota-missing-trip-completion-20261102.md). 업종만 분류되고 여행이 빈 정상 구매를 자동 작업자/기록 복구 SQL이 누락하던 경로를 공통 미완료 판정과 OTA 우선 복구로 수정했다. 구현 `2fcfafaf`, [PR #462](https://github.com/6Soo/cost/pull/462), 배포 `62bfa07b77e56716b141230f2bdfb4962cd91055`. 병합 릴리스60 passed, 기준 회귀2건 실패 재현, OTA/환불/권한11 passed 근거를 보존한다.
+- 승인 단건은 신선한 Board 백업·별도 복원 동등성/무결성·사본 재실행0 후 자동처리 완료. `1015_오제 / 숙박비 / 9,906원` 내부기록1건, 원본/수동/기존 장부·금융 링크/다른 행/스키마 보존, Google 쓰기0. 이후 금융 보호용 decided를 수동 출처로 오인하던 표시도 구현 `9835a769`·[PR #466](https://github.com/6Soo/cost/pull/466)·운영 `13b02d22388383271db8f254cca2dfb6dbb30279`로 수정했다. 표시/읽기6 passed·보호13표 불변.
+- 최종 task/process SHA·단일 loopback8751·health/ready200·OTA/카드 보호401 확인. 이전 인증 브라우저 GET의 여행/항목/기록완료/장부보기 수락과, 출처 수정 후 읽기 전용 운영 catalog의 `기록 완료 · 자동 추론`/추가 확인 불필요/내부기록1/남은후보0을 구별한다. 출처 수정 후 브라우저 재검사·전체 회귀·실기기는 미실행이다.
+- 근거 `.local-archive/ota-trip-gap-20261102/`의 release/source-release-tests·backup-restore·activation-protection·source-label/deploy-evidence·source-live-projection·resume-runtime. 인계의8000번 미응답은 서비스 포트 확인이 아니었으며 현재13b02d22와 배포 근거가 일치해 재배포/재처리하지 않았다. 요청 미결/차단0·다음명령 없음. 문서 후속 재배포/재시작 없음. 다른 작업자의 미커밋 변경은 보존한다.
 
 ## 2026-11-02 항공권 예약 조회 오류·UIUX 개선 완료
 
