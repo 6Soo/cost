@@ -1,5 +1,4 @@
 """Whole-file validation before the web upload performs any writes."""
-import io
 from pathlib import PurePath
 import re
 
@@ -68,10 +67,10 @@ def validate_upload(content, filename):
             if _is_unsafe_formula_text(value):
                 raise StoreError('UNSAFE_FORMULA', '수식이 포함된 파일은 올릴 수 없습니다')
     if fmt == 'xlsx':
-        from openpyxl import load_workbook
+        from .card_workbook import load_card_workbook
         wb = None
         try:
-            wb = load_workbook(io.BytesIO(content), data_only=False, read_only=True)
+            wb = load_card_workbook(content, data_only=False)
             for r in wb[wb.sheetnames[0]].iter_rows(values_only=True):
                 for val in r:
                     if _is_unsafe_formula_text(val):
