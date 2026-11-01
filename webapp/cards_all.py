@@ -496,7 +496,9 @@ def card_detail_html(item: dict) -> str:
     assignment = row_assignment(item, _trip_context()[0].keys())
     destination = assignment['destination']
     quarter = parse_tab(destination)
-    if quarter:
+    if item.get('refund_tab_member'):
+        destination = '취소·환불'
+    elif quarter:
         destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용'
     elif destination in ('', 'unclassified'):
         destination = '미배정'
