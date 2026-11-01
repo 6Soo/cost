@@ -5,6 +5,14 @@
 - 최종 task/process SHA·단일 loopback8751·health/ready200·OTA/카드 보호401 확인. 이전 인증 브라우저 GET의 여행/항목/기록완료/장부보기 수락과, 출처 수정 후 읽기 전용 운영 catalog의 `기록 완료 · 자동 추론`/추가 확인 불필요/내부기록1/남은후보0을 구별한다. 출처 수정 후 브라우저 재검사·전체 회귀·실기기는 미실행이다.
 - 근거 `.local-archive/ota-trip-gap-20261102/`의 release/source-release-tests·backup-restore·activation-protection·source-label/deploy-evidence·source-live-projection·resume-runtime. 인계의8000번 미응답은 서비스 포트 확인이 아니었으며 현재13b02d22와 배포 근거가 일치해 재배포/재처리하지 않았다. 요청 미결/차단0·다음명령 없음. 문서 후속 재배포/재시작 없음. 다른 작업자의 미커밋 변경은 보존한다.
 
+## 2026-11-02 항공권 예약 조회 오류·UIUX 개선 완료
+
+- COMPLETE — 사용자 “문제수정 및 uiux개선”의 항공권 영역. [PR #465](https://github.com/6Soo/cost/pull/465), 구현 `cbc8e7a3`, 검증 배포 `5cf30d5c68ae626af9cf07d64aee425eb06467f7`. 선택 수동 여행 배정 테이블이 없는 정상 격리 저장소를 배정 없음으로 읽는다. 파일 누락·손상·부분 스키마는 계속 차단하며 GET 읽기 전용과 수동 배정 보호를 유지한다. 한국어 배정 상태, 예약 카드, 오류별 안내·재시도, 목록 갱신·페이지 이동, 상세 접힘과 긴 거래 설명 줄바꿈을 개선했다.
+- 검증: 표적82 passed, 병합본 API/서명 권한26 passed, 원본 보호2 passed. 별도 실행82건 중 OTA catalog1건 실패는 단독 재검사1 passed로 구분한다. 합성 ego-browser의 목록/상세 재시도·generation 변경·빈 목록·페이지 이동·escaping, 320/390/1440px 두 테마·버튼44px·넘침0 근거를 보존했다. 실행 간 중복은 합산하지 않는다.
+- 실제 인증 운영에서 세 여행 API200/빈 목록, 별도 예약이 있는 여행의 목록3건·확인 탑승객4명과 상세 여정·예약일 표시·접힘을 수락했다. PC1440/모바일390px 페이지/항공권 영역 넘침0·버튼44px 확인 후 기존 TaskSpace2를 정상 종료했다. 접힘 검사는 Chromium의 숨겨진 details 자식에 남는 레이아웃 크기 대신 실제 visibility로 확인했다. 전체 회귀·실기기 검사는 미실행이다.
+- 배포: 1,233 blobs 일치·task/process 고정SHA·단일listener·health/ready200·영향/보호 API401·보호13표 불변 PASS. 직전 검증355a059b/task XML 복구점 보존, 코드 전용으로 새 전체DB 백업/복원은 반복하지 않았다. 후속 카드 표시 PR466의 실제 운영 `13b02d22388383271db8f254cca2dfb6dbb30279`에도 이번 수정이 포함됨을 ancestry·호스트 배포 근거·예약 실조회로 확인했다. 금융/분류/여행/Google/원본/스키마 쓰기0.
+- 근거: `C:/AX/cost/.local-archive/flight-ux-20261102/`의 XML·browser.json·live-api.json·live-inventory.json·live-browser-final.json·review/deploy-evidence와 호스트 동일SHA 배포 기록. 원문/실명 캡처는 Git 제외 로컬에만 보존했다. 이 요청의 미결/차단0·다음 명령 없음. 병행 사용자 변경과 기존 workspace를 보존하며 문서 후속에는 재배포/재시작하지 않는다.
+
 ## 2026-11-02 첨부 카드8건 조사·취소 미배정 오표시 교정 완료
 
 ## 2026-11-02 수입 보험 명단 환불완료 표시 완료

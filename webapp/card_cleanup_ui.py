@@ -47,6 +47,7 @@ CLEANUP_STYLE = (
     "#expense-cleanup .cleanup-badge-protected{background:var(--shell-warn-bg);color:var(--shell-warn)}"
     "#expense-cleanup .cleanup-amount{font-size:24px;font-weight:800;margin:14px 0 4px;font-variant-numeric:tabular-nums}"
     "#expense-cleanup .cleanup-reason{font-size:13px;color:var(--shell-muted);margin:0 0 10px}"
+    "#expense-cleanup .cleanup-assignment{font-size:13px;line-height:1.6;margin:0 0 6px;overflow-wrap:anywhere}"
     "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
     "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
     "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
@@ -109,6 +110,7 @@ class CleanupCardRow:
     reason: Any
     review: Any
     refund_group_original: str = ""
+    assignment_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -226,7 +228,9 @@ def render_cleanup_card_row(
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
         f"<div class='cleanup-title'><strong>{esc(row.merchant)}</strong><small>{esc(row.day or '')} · 카드 결제</small></div></div>"
         f"<div class='cleanup-amount'>{int(row.amount or 0):,}원</div>"
-        f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}"
+        + (f"<p class='cleanup-assignment'>{esc(row.assignment_text)}</p>"
+           if row.assignment_text else "")
+        + f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}"
         + ("<div class='cleanup-refund-tool'>"
            f"<button type='button' class='cleanup-refund-action' "
            f"data-original='{esc(row.refund_group_original)}'>원결제·환불 묶음 기록</button>"
