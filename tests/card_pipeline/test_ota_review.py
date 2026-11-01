@@ -23,10 +23,11 @@ def card(identity='card-a', **changes):
     return value
 
 
-def test_i_global_card_event_matching_is_one_to_one():
+def test_i_global_card_event_relations_are_many_to_many_without_financial_double_allocation():
     results = match_ota_payment_events([event('one'), event('two', source_ids=['mail:2'])], [card()])
     assert len([item for item in results if item.get('transaction_id')]) <= 1
-    assert any(item['status'] == 'HOLD_AMBIGUOUS' for item in results)
+    assert all(item['status'] == 'MATCHED_GROUP' for item in results)
+    assert all(item['payment_relation']['transaction_ids'] == ['card-a'] for item in results)
 
 
 def test_j_manual_link_is_persisted_in_explicit_review_database(tmp_path):
@@ -573,9 +574,9 @@ def test_acceptance_07_saved_delta_rules_keep_exact_and_delta_edges_in_their_own
                        card('other-exact', merchant_normalized='agoda.com', card_tail='7777', amount_krw=100000),
                        card('other-delta', merchant_normalized='agoda.com', card_tail='7777', amount_krw=96000)]
         results = {row['ota_event_id']:row for row in match_ota_payment_events(candidates, transactions, rules=rules)}
-        assert results['rule-room-next']['status'] == 'HOLD_PARTIAL_GROUP'
+        assert results['rule-room-next']['status'] == 'MATCHED_GROUP'
         assert set(results['rule-room-next']['candidates']) == {'room-exact', 'room-delta'}
-        assert results['rule-hotel-next']['status'] == 'HOLD_PARTIAL_GROUP'
+        assert results['rule-hotel-next']['status'] == 'MATCHED_GROUP'
         assert set(results['rule-hotel-next']['candidates']) == {'hotel-exact', 'hotel-delta'}
         assert results['rule-other-item']['status'] == 'MATCHED_AUTO'
         assert results['rule-other-item']['transaction_id'] == 'other-exact'

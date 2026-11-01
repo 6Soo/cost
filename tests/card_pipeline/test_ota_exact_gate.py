@@ -25,8 +25,9 @@ def test_pair_passes_with_card_hint_exact_amount_and_same_day():
     assert ota_payments.pair_check(charge(), row()) is None
 
 
-def test_portal_style_payment_without_a_payment_date_is_not_paired():
-    assert ota_payments.pair_check(charge(paid_on=None), row()) == 'payment_date_unknown'
+def test_portal_style_payment_without_date_matches_explicit_merchant_amount_and_tail():
+    assert ota_payments.pair_check(charge(paid_on=None), row()) is None
+    assert ota_payments.pair_check(charge(paid_on=None, card_last4=None), row()) == 'payment_date_unknown'
 
 
 def test_card_hint_must_equal_the_card_tail():
@@ -69,7 +70,7 @@ def gate_report(*matches, rules=(), unmatched=(), types=(), diagnoses=()):
 def test_open_row_without_core_proof_loses_its_match_and_rule_and_gets_a_reason():
     match = dict(transaction_id='t1', source_hash='h' * 64, provider='agoda', booking_ref='B1', item='숙박비')
     report = gate_report(match, diagnoses=[dict(source_hash='h' * 64, reason='no_exact_payment_evidence')])
-    event = charge(paid_on=None)
+    event = charge(paid_on=None, card_last4=None)
     result = ota_exact.apply_gate(report, [row()], events=[event], rules=[], open_ids={'t1'})
     assert result['matches'] == [] and result['rules'] == []
     assert result['unmatched_transactions'][0]['reason'] == 'payment_date_unknown'
@@ -133,9 +134,9 @@ def test_open_ids_exclude_recorded_and_user_decided_but_not_legacy_period_rows()
     assert ota_exact.open_transaction_ids(conn) == {'t1', 't3', 't5'}
 
 
-def test_portal_payment_without_a_date_is_refused_by_default_and_allowed_only_when_the_rule_is_off(monkeypatch):
+def test_undated_identity_rule_is_independent_from_legacy_date_override(monkeypatch):
     portal = charge(paid_on=None)
-    assert ota_payments.pair_check(portal, row()) == 'payment_date_unknown'
+    assert ota_payments.pair_check(portal, row()) is None
     monkeypatch.setattr(ota_payments, 'portal_payment_date_required', lambda: False)
     assert ota_payments.pair_check(portal, row()) is None
     assert ota_payments.pair_check(portal, row(card_tail='3820')) == 'card_identity'
@@ -146,7 +147,7 @@ def test_refused_match_with_a_known_stay_blocks_inference_but_one_without_a_stay
     with_stay = dict(transaction_id='t1', source_hash='a' * 64, provider='agoda', booking_ref='B1', item='숙박비', period=stay)
     without_stay = dict(transaction_id='t2', source_hash='b' * 64, provider='agoda', booking_ref='B2', item='숙박비')
     report = gate_report(with_stay, without_stay)
-    events = [charge(paid_on=None), charge(booking_ref='B2', paid_on=None)]
+    events = [charge(paid_on=None, card_last4=None), charge(booking_ref='B2', paid_on=None, card_last4=None)]
     result = ota_exact.apply_gate(report, [row('t1'), row('t2')], events=events, rules=[], open_ids={'t1', 't2'})
     assert result['matches'] == []
     assert result['evidence_gate']['blocked_inference_sources'] == ['a' * 64]

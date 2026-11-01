@@ -1,6 +1,8 @@
 """Shared OTA display labels; no I/O or reconciliation decisions."""
 
 OTA_STATUS = {
+    'MATCHED_GROUP': 'M:N 연결 · 그룹 대사',
+    'GROUP_LINKED': 'M:N 연결',
     'RESERVATION_ONLY': '예약 근거 · 결제 연결 미확정',
     'HOLD_NO_CARD': '맞는 카드 거래 없음', 'HOLD_AMOUNT_MISMATCH': '금액이 다른 카드 거래만 있음',
     'HOLD_AMOUNT_UNVERIFIED': '금액 대조 근거 부족 · 연결 보류',
@@ -9,6 +11,8 @@ OTA_STATUS = {
     'PENDING_PAYMENT': '결제 대기', 'NOT_CARD_CHARGE': '카드 결제 아님',
 }
 OTA_REASON = {
+    'merchant_amount_card_tail_without_payment_date': '원문 결제일은 미기록이며 가맹점·원문 금액·카드 끝자리 일치로 연결했습니다.',
+    'many_to_many_payment_relation': '조건이 일치하는 예약·카드를 M:N으로 연결했습니다. 카드 원행은 한 번만 집계하며 그룹 금액 차이는 별도로 표시합니다.',
     'no_verified_paid_evidence': '예약 확인·이용일·동액만으로 결제를 확정할 수 없습니다. 예약번호가 명시된 인증 결제 완료 근거와 카드 결제 대조가 필요합니다.',
     'RESERVATION_CANCELLED': '동일 호텔·예약번호에 취소 이력이 있어 연결을 보류합니다.',
     'payment_date_not_in_source': 'OTA 결제일이 원본에 없어 결제 연결을 확정하지 않았습니다.',
