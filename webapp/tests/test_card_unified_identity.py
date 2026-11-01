@@ -21,7 +21,7 @@ def test_unified_card_filter_counts_pages_undated_and_labels(card_db_path, monke
         before = list(conn.iterdump())
     domestic = ct.card_identity('CARD', '국내', '4850')
     assert domestic == ct.card_identity('CARD', '해외', '4850')
-    assert domestic['card_label'] == 'CARD · •••• 4850 김동언 대장'
+    assert domestic['card_label'] == 'CARD · •••• 4850 김동언'
     key = domestic['card_key']
     options = ct.card_options(card_db_path)
     assert options.count(domestic) == 1

@@ -29,7 +29,7 @@ def card_identity(issuer, kind, last4):
     # Keep issuer separation because a last4 alone is not globally unique.
     issuer = str(issuer or '').strip()
     key = hashlib.sha256(json.dumps([issuer, tail], ensure_ascii=True).encode()).hexdigest()[:24]
-    number = '•••• ' + tail + (' 김동언 대장' if tail == '4850' else '')
+    number = '•••• ' + tail + (' 김동언' if tail == '4850' else '')
     return {'card_key': key, 'card_label': ' · '.join(filter(None, [issuer, number]))}
 
 
