@@ -179,8 +179,16 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
             f"<input type='hidden' name='income_ref' value='{_esc(row['ref'])}'>"
             f"<button type='submit'>{_esc(item['name'])} 연결 해제</button></form>"
             for item in connected)
+        if connected:
+            names = ' · '.join(_esc(item['name']) for item in connected)
+            status_markup = (
+                "<details class='participant-link-details'>"
+                f"<summary><span>✓ {len(connected)}명 연결 · {names}</span></summary>"
+                f"<div class='participant-link-actions'><p>{label}</p>{actions}</div></details>")
+        else:
+            status_markup = f"<span class='participant-link-status'>{state_label}</span>"
         rows.append(f"<template class='participant-income-status' data-income-ref='{_esc(row['ref'])}'>"
-                    f"<span>{state_label}</span>{actions}</template>")
+                    f"{status_markup}</template>")
     people = []
     for person in data["participants"]:
         person_id = person.get("participant_id") or ""

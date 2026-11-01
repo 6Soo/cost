@@ -6,6 +6,7 @@
   var dlg=null,pending=null,form=null,busy=false,rowButtons=new WeakMap();
   function ask(message,submit){
    if(!dlg){if(window.confirm(message))submit();return;}
+   root.open=true;
    dlg.querySelector('p').textContent=message;pending=submit;dlg.showModal();
   }
   function write(target){
@@ -33,7 +34,9 @@
      cell.textContent='자료 변경 · 새로고침 필요';return;
     }
     var button=cell.querySelector('.participant-row-connect')||rowButtons.get(cell);rowButtons.delete(cell);
-    cell.replaceChildren(template.content.cloneNode(true));if(button&&form)cell.appendChild(button);
+    var content=document.createElement('div');content.className='participant-cell-content';
+    content.appendChild(template.content.cloneNode(true));if(button&&form)content.appendChild(button);
+    cell.replaceChildren(content);
    });
    root.querySelectorAll('.participant-cards li[draggable=true]').forEach(function(card){
     card.addEventListener('dragstart',function(e){root.dataset.dragParticipant=card.dataset.participant;e.dataTransfer.clearData();e.dataTransfer.effectAllowed='link';});
@@ -42,6 +45,7 @@
   }
   function choose(cell,id){
    if(!form)return;
+   root.open=true;
    form.hidden=false;form.querySelector('[name=income_ref]').value=cell.dataset.incomeRef;
    if(id)form.querySelector('[name=participant_id]').value=id;
    form.scrollIntoView({block:'nearest'});
