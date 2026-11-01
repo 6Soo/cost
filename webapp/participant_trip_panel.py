@@ -223,7 +223,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         f"{_esc(person.get('display_name'))}</option>"
         for person in data["selectable_participants"])
     search_form = (
-        "<form method='get' action='/board' class='participant-trip-search'>"
+        "<form method='get' action='/board#participant-trip-panel' class='participant-trip-search'>"
         f"<input type='hidden' name='tab' value='{trip}'>"
         f"<label>이름 검색 <input type='search' name='participant_q' value='{_esc(search)}' maxlength='80' placeholder='이름 또는 닉네임'></label>"
         "<button type='submit'>검색</button>"

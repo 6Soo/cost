@@ -81,6 +81,7 @@ def test_paging_encodes_identity_and_preserves_other_offset():
     # All unlinked people remain selectable; only the cards are paginated.
     assert "data-participant='person-49'" not in markup
     assert "value='person-49'" in markup
+    assert "action='/board#participant-trip-panel'" in markup
 
 
 def test_unconfirmed_or_inactive_roster_entries_are_not_draggable_options():
