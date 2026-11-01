@@ -166,7 +166,7 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .participant-insurance-cell button:hover{background:var(--hover);border-color:var(--focus)}
 .participant-insurance-cell button:active{background:var(--surface-muted)}
 .participant-insurance-cell button:focus-visible,#google-trip-income .participant-link-details>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-#google-trip-income .participant-link-details>summary{min-height:44px;gap:8px;font:inherit;font-weight:600;color:var(--grn);white-space:normal;line-height:1.5}
+#google-trip-income .participant-link-details>summary{min-height:44px;gap:8px;font:inherit;font-weight:600;color:var(--ink);white-space:normal;line-height:1.5}
 #google-trip-income .participant-link-details>summary::after{content:'▸';flex-shrink:0}
 #google-trip-income .participant-link-details[open]>summary::after{content:'▾'}
 .participant-link-actions{padding:8px 0;display:grid;gap:8px}

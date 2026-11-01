@@ -45,6 +45,7 @@
   }
   function choose(cell,id){
    if(!form)return;
+   root.open=true;
    form.hidden=false;form.querySelector('[name=income_ref]').value=cell.dataset.incomeRef;
    if(id)form.querySelector('[name=participant_id]').value=id;
    form.scrollIntoView({block:'nearest'});
