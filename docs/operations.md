@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-01 카드 4850 이름 표기 교정
+
+- COMPLETE — 사용자 최신 교정에 따라 4850은 `•••• 4850 김동언`으로 표시한다. ‘대장’은 카테고리이며 이름에 붙이지 않는다. 카드사·끝자리 기준 국내/해외 통합 조회는 유지하고 카테고리·금융 자료는 쓰지 않았다. [PR #439](https://github.com/6Soo/cost/pull/439), 구현 `684e00de`, 운영 SHA `5ba6955a9f2f72488e3996e07e39a15798a95a47`.
+- 기존 통합 조회 합성 검사 1 passed, 운영 Python 배포본의 표시명·통합 필터·페이지 이동·원본 불변 smoke PASS. 1,206 Git blobs 불일치0, task/process SHA·단일 loopback listener·health/ready200·카드/OTA 보호 경로401·보호13표 불변·ParticipantDb 인수/수집 작업 상태 보존. 이전 검증 `eb1c408c`와 task 복구본 보존. 코드 전용 교체로 전체 데이터 백업/복원·전체 회귀·인증 운영 브라우저 검수는 수행하지 않았다. 근거 `.local-archive/card-label-correction-20261101/`. 남은 작업·차단 없음. 후속 문서 변경만으로 재배포하지 않는다.
+
+
 ## 2026-11-01 보험 수신기·웹 참가자 DB 경로 고정
 
 - DEPLOYED — [PR #433](https://github.com/6Soo/cost/pull/433), 검수 `8adeae963289e137e59a6a580ebd4f1296fdb85d`와 운영 `f52e019ad145eb0f7aaa21fde5ebb6d0c74fd958` tree 동일. 이전 검증 운영 `9e0ff03c464e98373b5cd591a19a3885fcf9ccf4`에서 전환했다. 예약 작업의 `-ParticipantDb`로 기존 수신 DB를 지정해 release별 빈 기본 경로를 읽던 문제를 복구했다. 경로는 다음 SHA 교체와 자식 재시작에도 유지된다.
