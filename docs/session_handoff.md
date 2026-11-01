@@ -1,3 +1,10 @@
+## 2026-11-01 안드레 여행 장부 추가 완료
+
+- COMPLETE — [PR447](https://github.com/6Soo/cost/pull/447), 구현 `93fb4182`, 운영 `35a6263b9cd876091ccadaae66fda8f056e0fe5c`. [명세](specs/andre-multi-owner-ledger-20261101.md). 김동언=안드레 원본을 아슬란과 분리하고 `1022_홍천`·`1031_양평`·`1105_용인`·`1107_강화`·`1111_철원`5개 여행과 원본 연결을 추가했다. 담당자 필터·이름 변경 후 원본 식별·수입/명단/지출 중복 읽기를 지원한다. 안드레 보관 원본은 없어 마감 미상이다.
+- 실제 읽기3원본/70항목·운영 수입요약5개 PASS. 동일 원본의 기존65항목 금액/기간/마감/원본 차이0, 별도 DB 사본에서 신규5→재실행 신규0·기존 여행/지출 보존. 통합 UI59/2subtests·최종28/2subtests·저장보호34/8subtests·지출33·참조15·매핑26 passed는 중복 검사로 합산하지 않는다. 기존 안내1·폐기 라우트23/변형6 실패는 기준 `f05f599d` 재현이며 성공으로 표시하지 않는다.
+- 1,213 blobs 일치·task/processSHA·단일listener·health/ready200·영향/보호 경로401·보호13표 불변. 기존 여행행/수동 mapping/스키마 보존. 직전 검증3d991339·task XML·원본 generation·SQLite 복구 사본/격리 전체 import 근거 보존. GoogleAuthority 같은 SHA 고정·실제 실행 LastTaskResult0/Ready, SourceRefresh·ParticipantSyncConfig 유지. 실제 쓰기는 신규 여행5/연결5·원본 snapshot이며 Google/카드재분류/금융/원문 쓰기0.
+- Luna medium/ANUS Free Auto 병렬 실행 후 ANUS 오류를 취소·Luna로 인계했다. 보험·수입 UI PR448까지 통합했고 해당 담당자의 실제 인증 PC/모바일 검색·초기화 수락은 [별도 명세](specs/insurance-income-workflow-ux-20261101.md)에 있다. 안드레의 실제 인증 브라우저·전체 회귀·실기기는 미실행이다. 상세는 [운영 기록](operations.md), 로컬 근거 `.local-archive/andre-ledger-20261101/`. 현 요청 미결/차단0, 다음 실행 명령 없음. 후속 문서 전용 변경에는 재배포하지 않는다.
+
 ## 2026-11-01 보험 명단 열 가독성·모바일 배치 개선 완료
 
 - COMPLETE — 최신 사용자 스크린샷의 보험 명단 열 UIUX 개선. [PR #442](https://github.com/6Soo/cost/pull/442), 구현 `62f75767`·`02c6779f`, 운영 SHA `89f09d9b457167ed0cc028181bdb77914d00ba52`. 말줄임을 해제하고 연결 이름·인원은 기본 표시, 연결 근거·개별 해제는 펼침으로 정리했다. 모바일은 수입 행 아래에 보험 상태를 넓게 표시한다. 접힌 패널의 연결 선택과 해제 확인창이 보이지 않던 문제도 수정했다. 기존 API·CSRF·fingerprint·확인 절차와 실제 데이터는 유지한다.
