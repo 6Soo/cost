@@ -1,3 +1,10 @@
+## 2026-11-02 OTA 근거 카드의 여행 복구 누락·출처 표시 수정 완료
+
+- COMPLETE — [원인·수락 근거](specs/ota-missing-trip-completion-20261102.md). 업종만 분류되고 여행이 빈 정상 구매를 자동 작업자/기록 복구 SQL이 누락하던 경로를 공통 미완료 판정과 OTA 우선 복구로 수정했다. 구현 `2fcfafaf`, [PR #462](https://github.com/6Soo/cost/pull/462), 배포 `62bfa07b77e56716b141230f2bdfb4962cd91055`. 병합 릴리스60 passed, 기준 회귀2건 실패 재현, OTA/환불/권한11 passed 근거를 보존한다.
+- 승인 단건은 신선한 Board 백업·별도 복원 동등성/무결성·사본 재실행0 후 자동처리 완료. `1015_오제 / 숙박비 / 9,906원` 내부기록1건, 원본/수동/기존 장부·금융 링크/다른 행/스키마 보존, Google 쓰기0. 이후 금융 보호용 decided를 수동 출처로 오인하던 표시도 구현 `9835a769`·[PR #466](https://github.com/6Soo/cost/pull/466)·운영 `13b02d22388383271db8f254cca2dfb6dbb30279`로 수정했다. 표시/읽기6 passed·보호13표 불변.
+- 최종 task/process SHA·단일 loopback8751·health/ready200·OTA/카드 보호401 확인. 이전 인증 브라우저 GET의 여행/항목/기록완료/장부보기 수락과, 출처 수정 후 읽기 전용 운영 catalog의 `기록 완료 · 자동 추론`/추가 확인 불필요/내부기록1/남은후보0을 구별한다. 출처 수정 후 브라우저 재검사·전체 회귀·실기기는 미실행이다.
+- 근거 `.local-archive/ota-trip-gap-20261102/`의 release/source-release-tests·backup-restore·activation-protection·source-label/deploy-evidence·source-live-projection·resume-runtime. 인계의8000번 미응답은 서비스 포트 확인이 아니었으며 현재13b02d22와 배포 근거가 일치해 재배포/재처리하지 않았다. 요청 미결/차단0·다음명령 없음. 문서 후속 재배포/재시작 없음. 다른 작업자의 미커밋 변경은 보존한다.
+
 ## 2026-11-01 모든 비용 준비기간·Python 기능군 리팩토링 완료
 
 - COMPLETE — [PR458](https://github.com/6Soo/cost/pull/458), 운영 `d206cab71cf02843fcd38be5340cf3e04ff4d75f`. [실행 큐](specs/python-refactor-20261101.md) PY01~PY05 완료. [전수 조사·수치·재현·한계](specs/python-refactor-results-20261101.md). 숙박 외 모든 비용의 준비기간 추론을 공유하고 여행 후보/선택 조회·OTA 단계·CSV/원본·회사명·스냅샷/합계 읽기를 개선했다. 수동·원본·중복·환불·기존3820 예외를 유지했다.
