@@ -344,6 +344,7 @@ function Start-Process {{
     # shell that set it looks correct.
     Write-Host ("MOCK-CHILD-ENV reserve=[" + [string]$env:WEBLEDGER_RESERVE_SOURCE +
         "] review=[" + [string]$env:WEBLEDGER_REVIEW_CONFIG + "]")
+    Write-Host ("MOCK-PARTICIPANT-DB [" + [string]$env:WEBLEDGER_PARTICIPANT_DB + "]")
     $exited = ($script:exitOnStart -gt 0 -and $script:starts -eq $script:exitOnStart)
     return [pscustomobject]@{{ Id = (9000 + $script:starts); HasExited = $exited }}
 }}
@@ -498,6 +499,16 @@ class BoardLaunchTests(unittest.TestCase):
         self.assertIn(f"--oauth-file {OAUTH_FILE}", command)
         self.assertIn(f"--session-secret-file {SESSION_SECRET_FILE}", command)
         self.assertIn(f"--port {BOARD_PORT}", command)
+
+    def test_participant_store_survives_checkout_changes_and_child_restart(self):
+        shared = "C:\\synthetic\\shared rosters\\participant.sqlite"
+        for checkout in (CHECKOUT, SPACED_CHECKOUT):
+            code, output = run_runner(checkout=checkout, exit_on_start=1,
+                                      extra=f"-ParticipantDb '{shared}'")
+            self.assertEqual(code, 0, output)
+            # A dead board child is restarted by the supervisor, inheriting the
+            # same receiver database both times, regardless of release path.
+            self.assertGreaterEqual(output.count(f"MOCK-PARTICIPANT-DB [{shared}]"), 2, output)
 
     def test_no_data_root_is_invented(self):
         """A `checkout/data` beside the real one would be a second, empty ledger."""

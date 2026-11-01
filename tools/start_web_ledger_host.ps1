@@ -61,6 +61,10 @@ param(
     [string]$DataRoot = "",
     [string]$ReviewConfig = "",
 
+    # A durable participant store shared with the roster receiver. Never derive
+    # this from Checkout: each SHA release has a different directory.
+    [string]$ParticipantDb = "",
+
     # The explicit reservation source configuration: a JSON file naming the
     # source path, the file's own SHA-256 and the roster's semantic digest.
     #
@@ -812,6 +816,9 @@ if ($missing) {
 # An environment value the launcher reads is a real setting; a variable nothing
 # reads is not, which is why the tunnel is a command line and not one of these.
 $env:WEBLEDGER_REVIEW_CONFIG = $ReviewConfig
+if (-not [string]::IsNullOrWhiteSpace($ParticipantDb)) {
+    $env:WEBLEDGER_PARTICIPANT_DB = $ParticipantDb
+}
 # Muse receipt reading is an explicit opt-in: the free model only, tools refused, never a paid fallback.
 $env:WEBLEDGER_RECEIPT_VISION = 'opencode-muse-free'
 # Owner-confirmed reading notes. The file is data, not release content, so it survives every release.
