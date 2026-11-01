@@ -1652,17 +1652,26 @@ class CardFlow:
 
     def auto_record(self, batch_id):
         """소유자의 변경 요청에서만 실행한다. 조회는 쓰지 않는다."""
+        from .card_classification_completion import missing_assignment_sql
         with self.board._lock:
             # Older imports and interrupted uploads may have finished only the
             # basic classifier. Re-run evidence + final inference before asking
             # the ledger to record them; a read must never repair these rows.
             pending = {row[0] for row in self.board.conn.execute(
                 "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
-                " WHERE b.batch_id=? AND (t.classification_state NOT IN ('classified','booked')"
+                " WHERE b.batch_id=? AND (((t.classification_state NOT IN ('classified','booked')"
                 " OR COALESCE(t.item,'')='')"
-                " AND t.transaction_direction='purchase' AND t.amount_krw>0"
                 " AND t.classification_source IN ('booking_evidence_needed','travel_location_hold',"
-                " 'authority_review','rule_conflict','inference_conflict')"
+                " 'authority_review','rule_conflict','inference_conflict'))"
+                " OR (" + missing_assignment_sql() +
+                " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
+                " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
+                " AND NOT EXISTS(SELECT 1 FROM transactions f WHERE f.issuer=t.issuer"
+                " AND f.card_tail=t.card_tail AND f.original_approval_number=t.approval_number"
+                " AND COALESCE(f.original_approval_number,'')!=''"
+                " AND (f.transaction_direction IN ('cancellation','refund') OR f.amount_krw<0))))"
+                " AND t.transaction_direction='purchase' AND t.amount_krw>0"
+                " AND COALESCE(t.classification_source,'') NOT IN ('owner_booking','manual','manual_hold')"
                 " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
                 " AND COALESCE(t.duplicate_of,'')=''"
                 " AND NOT " + decided_sql('t') +

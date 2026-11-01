@@ -55,6 +55,7 @@ def enabled_for(board):
 
 
 def candidates(conn):
+    from .card_classification_completion import missing_assignment_sql
     # Existing rows are the durable queue, including receive() committed before
     # an exception or process exit. A reservation/payment link is never changed.
     return conn.execute(
@@ -72,6 +73,7 @@ def candidates(conn):
         " AND f.original_approval_number=t.approval_number"
         " WHERE t.transaction_direction='purchase' AND t.amount_krw>0"
         " AND (t.classification_state NOT IN ('classified','booked') OR COALESCE(t.item,'')=''"
+        " OR " + missing_assignment_sql() +
         " OR t.transaction_id IN (SELECT transaction_id FROM queued))"
         " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
         " AND COALESCE(t.duplicate_of,'')='' AND t.decided_at IS NULL"
@@ -206,10 +208,11 @@ class CardCompletionWorker:
                     and row[4]!='guide_airfare_evidence' and row[5]!='분기 기타비용'
                     and row[6] in (None,'','unclassified') and row[7] in (None,'','unclassified')}
                 if missing_assignment:
-                    from .card_classification_completion import complete
-                    # A crash after successful classification must resume its
-                    # recording, not replace stronger saved booking evidence.
-                    complete(flow,batch,missing_assignment)
+                    # A category-only legacy/interrupted result is incomplete.
+                    # Reuse current published OTA service dates before falling
+                    # back to card-date inference. Fully assigned rows above
+                    # keep their saved evidence and only resume recording.
+                    flow._classify(batch, transaction_ids=missing_assignment, snapshot_only=True)
                 result = flow._auto_record_locked(batch, include_state=False, transaction_ids=ids)
             except Exception as exc:
                 self.status.update(state='retry', error=type(exc).__name__)
