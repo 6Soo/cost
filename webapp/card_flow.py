@@ -1647,6 +1647,26 @@ class CardFlow:
     def auto_record(self, batch_id):
         """소유자의 변경 요청에서만 실행한다. 조회는 쓰지 않는다."""
         with self.board._lock:
+            # Older imports and interrupted uploads may have finished only the
+            # basic classifier. Re-run evidence + final inference before asking
+            # the ledger to record them; a read must never repair these rows.
+            pending = {row[0] for row in self.board.conn.execute(
+                "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
+                " WHERE b.batch_id=? AND (t.classification_state NOT IN ('classified','booked')"
+                " OR COALESCE(t.item,'')='')"
+                " AND t.transaction_direction='purchase' AND t.amount_krw>0"
+                " AND t.classification_source IN ('booking_evidence_needed','travel_location_hold',"
+                " 'authority_review','rule_conflict','inference_conflict')"
+                " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
+                " AND COALESCE(t.duplicate_of,'')=''"
+                " AND NOT " + decided_sql('t') +
+                " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+                " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e"
+                " WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
+                " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
+                " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides o WHERE o.row_id='card-'||t.transaction_id)", (batch_id,))}
+            if pending:
+                self._classify(batch_id, transaction_ids=pending)
             return self._auto_record_locked(batch_id)
 
     def _auto_record_locked(self, batch_id, *, include_state=True):
