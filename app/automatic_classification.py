@@ -229,6 +229,43 @@ def _context(conn, selected=None):
     return rows, decisions, holds, excluded, overrides, ledger, boards
 
 
+def _add_target(targets, resolved, row, chosen, has_history):
+    values = tuple(chosen.get(key) or '' for key in FIELDS)
+    if values != tuple(row[key] or '' for key in FIELDS):
+        tid = row['transaction_id']
+        targets.append({'id': tid, 'values': values, 'revision': row['revision'],
+                        'has_prior_classification': has_history})
+        resolved[tid] = chosen
+
+
+def _restore_historical_assignment(row, chosen, valid, decisions, ledger, boards, nets):
+    """Preserve the entered item and restore only a missing destination."""
+    tid = row['transaction_id']
+    # History protects the entered category and actual chosen trip.
+    # A blank/default trip is not evidence that the owner wanted no trip.
+    if not chosen['item']:
+        chosen['raw_row'] = json.loads(row['raw_row_json'] or '{}')
+        chosen['item'], _ = infer_item(chosen)
+    chosen['classification_state'] = 'classified'
+    empty_trip = (not row['trip_id'] and row['display_tab_id'] in (None,'','unclassified'))
+    if empty_trip and chosen['item'] != '분기 기타비용':
+        recorded = ledger.get(tid) or {}
+        board = boards.get('card-'+tid)
+        candidates = [board[0] if board else '', decisions.get(tid),
+                      recorded.get('trip_id'), recorded.get('display_tab_id')]
+        target = next((value for value in candidates if value in valid or value == 'refunds'), '')
+        if target:
+            chosen.update(display_tab_id=target, trip_id='' if target == 'refunds' else target,
+                classification_basis='TRIP_ASSIGNMENT_RESTORED · 기존 항목 보존 · 기존 장부/분류 이력의 배정 복원')
+        else:
+            target, basis = infer_trip(chosen, list(valid.values()), nets=nets)
+            if target:
+                chosen.update(display_tab_id=target,trip_id=target,
+                    classification_basis=f'AUTO_TRIP_INFERRED · 낮음 · 기존 항목 보존 · {basis} · {POLICY}')
+        if target and row['classification_source'] not in ('user_decision','user_exception','owner_booking'):
+            chosen['classification_source'] = 'inference'
+
+
 def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None):
     """Read only. Private targets remain in memory; callers publish aggregate summaries."""
     selected = None if transaction_ids is None else set(transaction_ids)
@@ -271,32 +308,9 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
         has_history = (tid in decisions or row['decided_at'] is not None
                   or row['classification_source'] in ('user_decision','user_exception','owner_booking')
                   or 'card-' + tid in overrides)
-        current = tuple(row[k] or '' for k in FIELDS)
         chosen = dict(row)
         if has_history:
-            # History protects the entered category and actual chosen trip.
-            # A blank/default trip is not evidence that the owner wanted no trip.
-            if not chosen['item']:
-                chosen['raw_row'] = json.loads(row['raw_row_json'] or '{}')
-                chosen['item'], _ = infer_item(chosen)
-            chosen['classification_state'] = 'classified'
-            empty_trip = (not row['trip_id'] and row['display_tab_id'] in (None,'','unclassified'))
-            if empty_trip and chosen['item'] != '분기 기타비용':
-                recorded = ledger.get(tid) or {}
-                board = boards.get('card-'+tid)
-                candidates = [board[0] if board else '', decisions.get(tid),
-                              recorded.get('trip_id'), recorded.get('display_tab_id')]
-                target = next((value for value in candidates if value in valid or value == 'refunds'), '')
-                if target:
-                    chosen.update(display_tab_id=target, trip_id='' if target == 'refunds' else target,
-                        classification_basis='TRIP_ASSIGNMENT_RESTORED · 기존 항목 보존 · 기존 장부/분류 이력의 배정 복원')
-                else:
-                    target, basis = infer_trip(chosen, list(valid.values()), nets=nets)
-                    if target:
-                        chosen.update(display_tab_id=target,trip_id=target,
-                            classification_basis=f'AUTO_TRIP_INFERRED · 낮음 · 기존 항목 보존 · {basis} · {POLICY}')
-                if target and row['classification_source'] not in ('user_decision','user_exception','owner_booking'):
-                    chosen['classification_source'] = 'inference'
+            _restore_historical_assignment(row, chosen, valid, decisions, ledger, boards, nets)
         else:
             recorded = ledger.get(tid) or {}
             board = boards.get('card-'+tid)
@@ -332,11 +346,7 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                 chosen['classification_state'] = 'classified'
                 chosen['classification_source'] = owner_policy['source']
                 chosen['classification_basis'] = owner_policy['basis']
-                values = tuple(chosen.get(k) or '' for k in FIELDS)
-                if values != current:
-                    targets.append({'id': tid, 'values': values, 'revision': row['revision'],
-                                    'has_prior_classification': has_history})
-                    resolved[tid] = chosen
+                _add_target(targets, resolved, row, chosen, has_history)
                 continue
             link = links.get(tid)
             original = resolved.get((link or {}).get('original_id'))
@@ -352,12 +362,8 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                     if chosen['item'] in ('기타경비', '현지경비', '여행경비'):
                         chosen['item'] = specific
                     item_basis = '기존 항목·카드 업종·서비스 용도 재대조'
-            if (fact and fact.get('source_hash') == row['source_hash']
-                    and fact.get('trip_id') in valid
-                    and chosen.get('display_tab_id') != 'refunds'
-                    and chosen['item'] != '분기 기타비용'
-                    and not existing_tab
-                    and row['transaction_direction'] == 'purchase'):
+            if (valid_fact and chosen.get('display_tab_id') != 'refunds'
+                    and chosen['item'] != '분기 기타비용' and not existing_tab):
                 chosen.update(trip_id=fact['trip_id'], display_tab_id=fact['trip_id'])
                 if chosen['item'] in ('', '기타경비', '현지경비', '여행경비') and fact.get('item'):
                     chosen['item'] = fact['item']
@@ -398,10 +404,7 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                     classification_basis=f"원거래 승인번호 {row['original_approval_number']}의 배정을 따름")
             if not reconsider and row['classification_source'] in ('rule_conflict','inference_conflict','travel_location_hold','booking_evidence_needed'):
                 chosen['classification_basis'] += ' · 이전 단서: ' + (row['classification_basis'] or '')[:600]
-        values = tuple(chosen.get(k) or '' for k in FIELDS)
-        if values != current:
-            targets.append({'id': tid, 'values': values, 'revision': row['revision'], 'has_prior_classification': has_history})
-            resolved[tid] = chosen
+        _add_target(targets, resolved, row, chosen, has_history)
     payload = [context, trips, nets or {}, sorted(selected) if selected is not None else None,
                targets, POLICY, reconsider, evidence]
     fingerprint = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,

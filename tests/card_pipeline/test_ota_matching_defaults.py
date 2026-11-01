@@ -29,10 +29,12 @@ def match(events, cards, **kwargs):
     return match_ota_payment_events(events, cards, **kwargs)
 
 
-def test_missing_payment_date_never_exposes_card_candidates():
+def test_missing_payment_date_connects_on_exact_identity_and_keeps_source_date_blank():
     result = match([event(paid_on=None)], [card()])[0]
-    assert result["status"] == "HOLD_DATE_UNKNOWN"
-    assert result["candidates"] == []
+    assert result["status"] == "MATCHED_AUTO"
+    assert result["transaction_id"] == "card-1"
+    assert result["paid_on"] is None
+    assert result["reason"] == "merchant_amount_card_tail_without_payment_date"
 
 
 def test_provider_alias_covers_products_without_becoming_an_item_rule():
@@ -228,11 +230,16 @@ def test_partial_group_reserves_every_card_against_an_overlapping_group():
     second = [event(f"b{i}", booking_ref=f"B-{i}", item="숙박") for i in range(2)]
     cards = [card("shared-a"), card("shared-b")]
     results = match(first + second, cards)
-    assert {row["status"] for row in results} == {"HOLD_AMBIGUOUS"}
+    assert {row["status"] for row in results} == {"MATCHED_GROUP"}
     assert all(row.get("transaction_id") is None for row in results)
+    assert {tuple(row["ota_group_ids"]) for row in results} == {("a0", "a1", "a2"), ("b0", "b1")}
+    assert all(row["card_group_ids"] == ["shared-a", "shared-b"] for row in results)
+    assert all(row["reserved_card_ids"] == ["shared-a", "shared-b"] for row in results)
     reversed_results = match(list(reversed(first + second)), list(reversed(cards)))
-    assert {row["ota_event_id"]:row["status"] for row in reversed_results} == {
-        row["ota_event_id"]:row["status"] for row in results}
+    assert {row["ota_event_id"]:(row["status"], row["ota_group_ids"], row["card_group_ids"])
+            for row in reversed_results} == {
+        row["ota_event_id"]:(row["status"], row["ota_group_ids"], row["card_group_ids"])
+        for row in results}
     assert all(row.get("transaction_id") is None for row in reversed_results)
 
 
@@ -251,15 +258,19 @@ def test_group_signature_ignores_missing_ota_card_facts_but_requires_one_card_id
     assert all(row["group_count"] == {"ota":3, "cards":3} for row in results)
 
 
-def test_missing_issuer_with_same_tail_across_issuers_is_ambiguous():
+def test_missing_event_issuer_keeps_cross_issuer_candidates_as_a_group():
     result = match([event(card_issuer=None)], [card("a", issuer="Bank A"),
                                                card("b", issuer="Bank B")])[0]
-    assert result["status"] == "HOLD_AMBIGUOUS"
+    assert result["status"] == "MATCHED_GROUP"
+    assert result["candidates"] == ["a", "b"]
+    assert result["reserved_card_ids"] == ["a", "b"]
+    assert result["transaction_id"] is None
+    assert result["individual_payment_evidence"] is False
 
 
 def test_one_ota_with_two_same_card_candidates_is_a_reserved_partial_group():
     result = match([event()], [card("a"), card("b")])[0]
-    assert result["status"] == "HOLD_PARTIAL_GROUP"
+    assert result["status"] == "MATCHED_GROUP"
     assert result["group_count"] == {"ota": 1, "cards": 2}
     assert result["card_group_ids"] == ["a", "b"]
     assert result["reserved_card_ids"] == ["a", "b"]
@@ -291,21 +302,21 @@ def test_explicit_source_binding_with_conflicting_facts_fails_closed():
     assert merged[0]["evidence_status"] == "evidence_conflict"
 
 
-def test_partial_repeated_group_preserves_all_ids_and_blocks_individual_posting():
+def test_partial_repeated_group_preserves_all_ids_without_individual_allocation():
     events = [event(f"evt-{i}", booking_ref=f"BOOK-{i}") for i in range(3)]
     cards = [card(f"card-{i}") for i in range(2)]
     results = match(events, cards)
-    assert all(row["status"] == "HOLD_PARTIAL_GROUP" for row in results)
+    assert all(row["status"] == "MATCHED_GROUP" for row in results)
     assert all(row["matched_count"] == 2 for row in results)
     assert all(row["ota_group_ids"] == ["evt-0", "evt-1", "evt-2"] for row in results)
     assert all(row["card_group_ids"] == ["card-0", "card-1"] for row in results)
     assert all(row.get("transaction_id") is None for row in results)
 
 
-def test_two_ota_one_card_keeps_ambiguous_status_with_exact_partial_counts_and_reservation():
+def test_two_ota_one_card_preserves_mn_relation_and_exact_partial_counts():
     events = [event("one-card-a", booking_ref="A"), event("one-card-b", booking_ref="B")]
     results = match(events, [card("only-card")])
-    assert {row["status"] for row in results} == {"HOLD_AMBIGUOUS"}
+    assert {row["status"] for row in results} == {"MATCHED_GROUP"}
     assert all(row["group_count"] == {"ota":2, "cards":1} for row in results)
     assert all(row["matched_count"] == 1 for row in results)
     assert all(row["unmatched_ota_count"] == 1 and row["unmatched_card_count"] == 0 for row in results)
@@ -334,11 +345,13 @@ def test_stable_group_tiebreak_uses_approval_order_after_booking_order():
     assert by_id == {"e1":"z", "e2":"a"}
 
 
-def test_repeated_group_never_crosses_issuer_or_card_tail():
+def test_repeated_group_with_unspecified_event_issuer_keeps_group_without_allocation():
     events = [event("evt-a", booking_ref="BOOK-A"), event("evt-b", booking_ref="BOOK-B")]
     cards = [card("card-a", issuer="Bank A"), card("card-b", issuer="Bank B")]
     results = match(events, cards)
-    assert all(row["status"] == "HOLD_AMBIGUOUS" for row in results)
+    assert all(row["status"] == "MATCHED_GROUP" for row in results)
+    assert all(row.get("transaction_id") is None for row in results)
+    assert all(row["reserved_card_ids"] == ["card-a", "card-b"] for row in results)
     assert all(row.get("allocation_basis") != "user_approved_stable_order" for row in results)
 
 
@@ -350,16 +363,16 @@ def test_globally_pinned_links_keep_exact_allocation():
     assert next(row for row in results if row["ota_event_id"] == "evt-new")["transaction_id"] == "card-free"
 
 
-def test_card_claimed_by_an_absent_linked_event_is_excluded_from_repeated_group():
+def test_card_claimed_by_an_absent_linked_event_stays_reserved_outside_group():
     events = [event("e1", booking_ref="A"), event("e2", booking_ref="B")]
     cards = [card("a"), card("b")]
     results = match(events, cards, existing_links={
         "absent-event": {"transaction_id":"a", "status":"MATCHED_USER"}})
-    assert {row["status"] for row in results} == {"HOLD_AMBIGUOUS"}
+    assert {row["status"] for row in results} == {"MATCHED_GROUP"}
     assert all(row.get("transaction_id") is None for row in results)
     assert all(row["group_count"] == {"ota":2, "cards":1} for row in results)
     assert all(row["matched_count"] == 1 for row in results)
-    assert all("a" not in row.get("reserved_card_ids", []) for row in results)
+    assert all("a" not in row.get("card_group_ids", []) for row in results)
 
 
 def test_repeated_events_with_distinct_known_cards_form_separate_groups():
@@ -382,7 +395,7 @@ def test_frozen_group_cards_stay_reserved_when_the_source_events_are_missing():
     assert results[0]["transaction_id"] == "free"
 
 
-def test_frozen_group_signature_change_holds_members_and_keeps_cards_reserved():
+def test_frozen_group_signature_change_holds_members_and_allows_unrelated_relation():
     pin = {"event_ids":["e1", "e2"], "card_ids":["a", "b"],
            "mapping":{"e1":"a", "e2":"b"}, "order_snapshot":{}}
     events = [event("e1", item="숙박비"), event("e2"), event("new")]
@@ -391,11 +404,11 @@ def test_frozen_group_signature_change_holds_members_and_keeps_cards_reserved():
     assert by_id["e1"]["status"] == "HOLD_GROUP_CHANGED"
     assert by_id["e2"]["status"] == "HOLD_GROUP_CHANGED"
     assert {"a", "b"} <= set(by_id["e1"]["reserved_card_ids"])
-    assert by_id["new"]["status"].startswith("HOLD")
+    assert by_id["new"]["status"] == "MATCHED_GROUP"
     assert by_id["new"].get("transaction_id") is None
 
 
-def test_equal_optimum_singleton_candidates_across_signatures_hold_as_a_component():
+def test_equal_optimum_singleton_candidates_across_signatures_remain_a_group():
     events = [event("e1", booking_ref="A", item="항공권", card_last4=None, card_issuer=None),
               event("e2", booking_ref="B", item="숙박비", card_last4=None, card_issuer=None)]
     cards = [card("a", issuer="Bank A", card_tail="2042"),
@@ -404,15 +417,15 @@ def test_equal_optimum_singleton_candidates_across_signatures_hold_as_a_componen
         "rule_kind":"provider_alias", "provider":"trip", "alias":"trip.com",
         "approval_source":"synthetic-approved", "alias_version":1}}
     results = match(events, cards, rules=[alias_rule])
-    assert {row["status"] for row in results} == {"HOLD_AMBIGUOUS"}
+    assert {row["status"] for row in results} == {"MATCHED_GROUP"}
     assert all(row.get("transaction_id") is None for row in results)
     assert all(set(row["reserved_card_ids"]) == {"a", "b"} for row in results)
 
 
-def test_new_card_completes_partial_group_without_replacing_any_event_facts():
+def test_new_card_completes_relation_without_replacing_any_event_facts():
     events = [event(f"evt-{i}", booking_ref=f"BOOK-{i}") for i in range(3)]
     partial = match(events, [card("card-0"), card("card-1")])
-    assert {row["status"] for row in partial} == {"HOLD_PARTIAL_GROUP"}
+    assert {row["status"] for row in partial} == {"MATCHED_GROUP"}
     completed = match(events, [card("card-0"), card("card-1"), card("card-2")])
     assert {row["status"] for row in completed} == {"MATCHED_AUTO"}
     assert {row["ota_event_id"] for row in completed} == {row["ota_event_id"] for row in events}
@@ -455,7 +468,7 @@ def test_acceptance_04_signed_lag_range_matches_candidates_and_rejects_outside_d
         "lag--1", "lag-0", "lag-1", "lag-2"}
     matched = match([ota], rows, rules=[rule])
     assert len(matched) == 1
-    assert matched[0]["status"] == "HOLD_PARTIAL_GROUP"
+    assert matched[0]["status"] == "MATCHED_GROUP"
     assert set(matched[0]["candidates"]) == {"lag--1", "lag-0", "lag-1", "lag-2"}
 
 
@@ -507,7 +520,7 @@ def test_acceptance_07_item_scoped_rule_exposes_exact_and_delta_edges_separately
              card("flight-exact", merchant="AGODA.COM", merchant_normalized="agoda.com", card_tail="9999", amount_krw=100000),
              card("flight-delta", merchant="AGODA.COM", merchant_normalized="agoda.com", card_tail="9999", amount_krw=96000)]
     results = {row["ota_event_id"]:row for row in match([room, flight], cards, rules=rules)}
-    assert results["room"]["status"] == "HOLD_PARTIAL_GROUP"
+    assert results["room"]["status"] == "MATCHED_GROUP"
     assert set(results["room"]["candidates"]) == {"room-exact", "room-delta"}
     assert results["flight"]["status"] == "MATCHED_AUTO"
     assert results["flight"]["transaction_id"] == "flight-exact"

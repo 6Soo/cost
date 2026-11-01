@@ -473,9 +473,12 @@ class ScreenTests(unittest.TestCase):
         self.assertNotIn("/api/owner-profile", markup)
 
     def test_an_unset_profile_asks_for_the_assignee_at_creation(self):
-        """The first-time state has to be visible before a blank is saved."""
+        """The profile form exposes the unset value without inventing a name."""
         markup = self.page("owner")
-        self.assertIn("기본 담당자명이 아직 없어요", markup)
+        self.assertIn("기본 담당자명", markup)
+        self.assertIn("name='assignee_name' value=''", markup)
+        self.assertIn("새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.", markup)
+        self.assertFalse(self.store.owner_profile()["configured"])
 
     def test_a_set_profile_does_not_show_that_prompt(self):
         self.store.save_owner_profile(expected_revision=0, client_request_id="p1",

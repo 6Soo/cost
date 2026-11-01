@@ -114,6 +114,8 @@ class ViewStateTests(unittest.TestCase):
         href = page.get_attribute(".nav-list a[href*='tab=trip-demo-b']", "href")
         self.assertIn("kind=ex", href)
         page.locator("#previous-trips > summary").click()
+        page.locator("#previous-trips .prev-q").filter(
+            has=page.locator("a[href*='tab=trip-demo-b']")).locator("summary").click()
         page.click(".nav-list a[href*='tab=trip-demo-b']")
         page.wait_for_load_state()
         self.assertEqual(
@@ -213,7 +215,7 @@ class ViewStateTests(unittest.TestCase):
         # revision is detail-secondary info: kept in the detail body, kept out
         # of the header/meta (internal identifier must not lead the page)
         self.assertNotIn("revision", page.inner_text(".meta"))
-        self.assertIn("revision", page.inner_text(".page-body"))
+        self.assertEqual(page.input_value("input[name='expected_revision']"), "1")
         # the rule link is conditional: it appears once a learning case exists
         self.assertEqual(page.locator(".page-body a[href^='/rules?case=']").count(), 0)
         self.store.save(row_id="expense-demo-c1",
@@ -258,15 +260,19 @@ class ViewStateTests(unittest.TestCase):
     def test_the_trip_screen_uses_the_shared_chrome_and_keeps_its_actions(self):
         page = self._page(1440)
         page.goto(f"http://127.0.0.1:{self.port}/trips")
+        for summary in page.locator(".trip-meta > summary").all():
+            summary.click()
         body = page.inner_text(".page-body")
-        self.assertIn("여행 관리", body)
+        self.assertIn("여행 관리", page.inner_text("h1"))
         self.assertIn("여행 목록", page.inner_text(".nav"))
         self.assertEqual(overflow(page), 0)
         self.assertIn("정보 저장", body)
         self.assertIn("보관", body)
         self.assertIn("삭제 미리보기", body)
         # revision is detail-secondary on the trip card (not in the title)
-        self.assertIn("여행 revision 1", body)
+        self.assertNotIn("revision", body)
+        self.assertEqual(page.locator(".trip-meta input[name='expected_revision']").evaluate_all(
+            "inputs => inputs.map(input => input.value)"), ["1", "1", "1", "1"])
         for action in ("/api/trips/trip-demo-a/meta", "/api/trips/trip-demo-b/meta"):
             self.assertIsNotNone(
                 page.query_selector(f".page-body form[action='{action}']"), action)
@@ -278,6 +284,7 @@ class ViewStateTests(unittest.TestCase):
         self._current_trip_b()
         page = self._page(1440)
         page.goto(f"http://127.0.0.1:{self.port}/trips")
+        page.locator("#manage-trip-demo-b .trip-meta > summary").click()
         forms = page.query_selector_all(
             ".page-body form[action='/api/trips/trip-demo-b/meta']")
         archive = [f for f in forms
@@ -304,11 +311,14 @@ class ViewStateTests(unittest.TestCase):
         page.click(".page-body form[action='/api/trips/trip-demo-b/delete'] "
                    "button[type='submit']")
         page.wait_for_load_state()
-        self.assertIn("여행 관리", page.inner_text(".page-body"))
+        self.assertIn("여행 관리", page.inner_text("h1"))
+        self.assertTrue(self.store.get_trip("trip-demo-b")["deleted"])
+        self.assertEqual(page.locator("#manage-trip-demo-b").count(), 0)
 
     def test_a_stale_trip_revision_is_reported_and_the_typed_name_is_kept(self):
         page = self._page(1440)
         page.goto(f"http://127.0.0.1:{self.port}/trips")
+        page.locator("#manage-trip-demo-a .trip-meta > summary").click()
         # someone else saves the same trip first
         trip = [t for t in self.store.list_trips(include_archived=True)
                 if t["tab_id"] == "trip-demo-a"][0]
@@ -316,12 +326,16 @@ class ViewStateTests(unittest.TestCase):
             tab_id="trip-demo-a", expected_revision=trip["revision"],
             client_request_id="state-other-writer", actor="owner",
             display_key="남이 바꾼 이름")
+        typed_name = "내가 적은 이름 <script>window.pwned=true</script>"
         page.fill(".page-body form[action='/api/trips/trip-demo-a/meta'] "
-                  "input[name='display_key']", "내가 적은 이름")
+                  "input[name='display_key']", typed_name)
         page.click(".page-body form[action='/api/trips/trip-demo-a/meta'] "
                    "button[type='submit']")
         page.wait_for_load_state()
         self.assertIn("EDIT_CONFLICT", page.inner_text("body"))
+        self.assertEqual(page.input_value("input[name='display_key']"), typed_name)
+        self.assertIsNone(page.evaluate("window.pwned"))
+        self.assertTrue(page.locator("input[name='display_key']").get_attribute("readonly") is not None)
         self.assertEqual(
             self.store.list_trips(include_archived=True)[0]["display_key"],
             "남이 바꾼 이름")

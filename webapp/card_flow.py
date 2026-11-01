@@ -2549,12 +2549,16 @@ def _cleanup_card_breakdown(board):
     return dict(rows)
 
 
-def _cleanup_counts(board):
+def _cleanup_population(board):
+    """Read the card and ledger populations once for counts and paging."""
     card = _cleanup_card_breakdown(board)
     ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
-    card['no_trip'] = card.get('no_trip', 0) + ledger
-    card['all'] = sum(card.get(reason, 0) for reason in ('no_item', 'no_trip', 'protected', 'other_review'))
-    return card
+    counts = dict(card, no_trip=card.get('no_trip', 0) + ledger, all=sum(card.values()) + ledger)
+    return card, ledger, counts
+
+
+def _cleanup_counts(board):
+    return _cleanup_population(board)[2]
 
 
 def _cleanup_unassigned_where():
@@ -2901,19 +2905,10 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     if reason not in card_cleanup_queries.REASONS:
         reason = 'all'
     selected_reason = reason
-    counts = _cleanup_counts(board)
+    card_breakdown, ledger_all, counts = _cleanup_population(board)
     all_total = counts['all']
-    card_breakdown = _cleanup_card_breakdown(board)
-    ledger_all = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
-    card_total = _cleanup_card_count(board)
-    if selected_reason == 'all':
-        filtered_card_total, ledger_total = card_total, ledger_all
-    elif selected_reason == 'no_trip':
-        filtered_card_total = card_breakdown.get('no_trip', 0)
-        ledger_total = ledger_all
-    else:
-        filtered_card_total = card_breakdown.get(selected_reason, 0)
-        ledger_total = 0
+    filtered_card_total = sum(card_breakdown.values()) if selected_reason == 'all' else card_breakdown.get(selected_reason, 0)
+    ledger_total = ledger_all if selected_reason in ('all', 'no_trip') else 0
     total = filtered_card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
     page = min(max(1, int(page or 1)), pages)
@@ -2943,14 +2938,13 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 if card[1] == batch_id:
                     preview_by_card[str(card[0])] = {'blocked': 'preview_unavailable',
                         'reason': '금융 보호 검사 결과를 읽지 못했습니다. 카드 자료 전체 검토에서 다시 확인해 주세요.'}
-    cancellation_ids = {row[0] for row in board.conn.execute(
-        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
     from app.partial_refund import refund_links, count_held_cancellations
-    visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
     # A displayed original may have cancellations on another cleanup page.
     # Resolve globally once so its status does not contradict the refund card.
     all_refund_ids = [row[0] for row in board.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    cancellation_ids = set(all_refund_ids)
+    visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
     all_refund_links = refund_links(board.conn, all_refund_ids)
     refund_by_id = {tid: all_refund_links[tid] for tid in visible_refunds if tid in all_refund_links}
     original_refunds = {}
@@ -2959,6 +2953,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
     visible_card_ids = {row[0] for row in rows_card}
+    inference_ids = [row[0] for row in rows_card
+                     if row[7] in (None, '', 'unclassified') and row[6] == 'inference']
+    basis_by_card = (dict(board.conn.execute(
+        'SELECT transaction_id,classification_basis FROM transactions WHERE transaction_id IN (' +
+        ','.join('?' for _ in inference_ids) + ')', inference_ids)) if inference_ids else {})
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -2986,12 +2985,8 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             )
         # Classification confidence describes a proposal, not a persisted trip.
         # Do not present an old high-confidence basis as an active assignment.
-        if (current_tab in (None, '', 'unclassified')
-                and source == 'inference'):
-            basis_row = board.conn.execute(
-                "SELECT classification_basis FROM transactions WHERE transaction_id=?",
-                (tid,)).fetchone()
-            basis_text = str(basis_row[0] or '') if basis_row else ''
+        if tid in basis_by_card:
+            basis_text = str(basis_by_card.get(tid) or '')
             if '추론 배정 · 높음' in basis_text:
                 reason = ('과거 추론 근거는 높음이지만 현재 여행 배정값이 비어 있습니다.'
                           ' 유효한 여행을 자동 재검증할 때까지 배정 완료로 표시하지 않습니다.')
@@ -3069,39 +3064,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
             if preview_row and preview_row.get('blocked'):
                 reason += ' ' + finance_label
-            # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=True,
-                evidence=evidence,
-                esc=esc,
-            )
-        elif conflict_reason or parse_error:
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=False,
-                evidence=evidence,
-                conflict_reason=conflict_reason,
-                parse_error=parse_error,
-                esc=esc,
-            )
-        elif held:
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=False,
-                evidence=evidence,
-                held=True,
-                esc=esc,
-            )
-        else:
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=False,
-                evidence=evidence,
-                reason=reason,
-                item=item,
-                esc=esc,
-            )
+        # The renderer owns cancellation > conflict > hold > edit precedence.
+        review = card_cleanup_ui.render_cleanup_card_review(
+            detail=detail, is_cancellation=tid in cancellation_ids,
+            evidence=evidence, conflict_reason=conflict_reason,
+            parse_error=parse_error, held=held, reason=reason, item=item, esc=esc)
         if tid not in cancellation_ids and finance_label:
             review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
