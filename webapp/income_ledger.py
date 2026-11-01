@@ -19,12 +19,12 @@ changes for card rows.
 
 from __future__ import annotations
 
-import csv
 import hashlib
-import io
 import json
 import os
 import sqlite3
+
+from .import_source import parse_csv_rows, verify_source_bytes
 
 BANK_PROFILE_ID = "synthetic-bank-v1"
 BANK_REQUIRED_COLUMNS = ("occurred_on", "payer_name", "amount_krw", "direction")
@@ -132,33 +132,8 @@ def raw_content_digest(fields: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def verify_source_bytes(conn: sqlite3.Connection, batch_id: str) -> bool:
-    row = conn.execute(
-        "SELECT sha256, content FROM source_blobs WHERE batch_id=?",
-        (batch_id,),
-    ).fetchone()
-    if row is None:
-        return False
-    return row[0] == hashlib.sha256(bytes(row[1])).hexdigest()
-
-
 def parse_bank_csv(content: bytes):
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise BankImportError("BANK_BAD_FORMAT", "CSV를 읽을 수 없어요") from exc
-    reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None:
-        raise BankImportError("BANK_BAD_FORMAT", "머리글 행이 없어요")
-    missing = [c for c in BANK_REQUIRED_COLUMNS if c not in reader.fieldnames]
-    if missing:
-        raise BankImportError("BANK_BAD_FORMAT", f"필수 열이 없어요: {','.join(missing)}")
-    rows = []
-    for index, raw in enumerate(reader):
-        if all((v or "").strip() == "" for v in raw.values()):
-            continue
-        rows.append((index, {k: (v or "").strip() for k, v in raw.items()}))
-    return rows
+    return parse_csv_rows(content, BANK_REQUIRED_COLUMNS, BankImportError, "BANK_BAD_FORMAT")
 
 
 def classify_bank_row(fields: dict):

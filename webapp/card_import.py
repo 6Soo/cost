@@ -31,11 +31,11 @@ unclassified. Display placement never promotes accounting authority.
 
 from __future__ import annotations
 
-import csv
 import hashlib
-import io
 import json
 import sqlite3
+
+from .import_source import parse_csv_rows, verify_source_bytes
 
 from .space_guard import (IMPORT_FILE_OVERHEAD_BYTES, IMPORT_ROW_BYTES,
                            SpaceRefused, reserve, reserve_conn)
@@ -145,16 +145,6 @@ def raw_content_digest(fields: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def verify_source_bytes(conn: sqlite3.Connection, batch_id: str) -> bool:
-    row = conn.execute(
-        "SELECT sha256, content FROM source_blobs WHERE batch_id=?",
-        (batch_id,),
-    ).fetchone()
-    if row is None:
-        return False
-    return row[0] == hashlib.sha256(bytes(row[1])).hexdigest()
-
-
 def _normalize_cancel_flag(fields: dict) -> str:
     return "1" if str(fields.get("cancel_flag", "") or "").strip() in (
         "1", "Y", "y", "true") else ""
@@ -198,22 +188,7 @@ def content_digest(event: dict) -> str:
 
 
 def parse_csv(content: bytes):
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise ImportError("IMPORT_BAD_FORMAT", "CSV를 읽을 수 없어요") from exc
-    reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None:
-        raise ImportError("IMPORT_BAD_FORMAT", "머리글 행이 없어요")
-    missing = [c for c in REQUIRED_COLUMNS if c not in reader.fieldnames]
-    if missing:
-        raise ImportError("IMPORT_BAD_FORMAT", f"필수 열이 없어요: {','.join(missing)}")
-    rows = []
-    for index, raw in enumerate(reader):
-        if all((v or "").strip() == "" for v in raw.values()):
-            continue
-        rows.append((index, {k: (v or "").strip() for k, v in raw.items()}))
-    return rows
+    return parse_csv_rows(content, REQUIRED_COLUMNS, ImportError, "IMPORT_BAD_FORMAT")
 
 
 def classify_parsed(fields: dict):

@@ -6,39 +6,10 @@ import hashlib
 import json
 import re
 
+from .trip_selection import canonical_trip_periods, regional_trips, period_or_preparation
+
 POLICY_VERSION = "automatic-classification-v2"
 MANUAL_STATES = {"USER_CONFIRMED", "MANUAL_UNASSIGNED", "MANUAL_HOLD", "MANUAL_EXCLUDED"}
-
-
-def canonical_trip_periods(trips):
-    """Apply the shared open-end rule and discard invalid/non-authoritative trips."""
-    rows = []
-    for raw in trips:
-        trip = dict(raw)
-        period_flags = set(trip.get("flags") or trip.get("period_flags") or ())
-        if (not trip.get("trip_id") or trip.get("archived") or trip.get("deleted") or trip.get("enabled") is False
-                or trip.get("valid") is False or trip.get("conflict")
-                or trip.get("period_conflict")
-                or period_flags & {"PERIOD_START_MISSING", "PERIOD_START_MISMATCH",
-                                   "PERIOD_DATE_INVALID", "PERIOD_ORDER"}):
-            continue
-        try:
-            start = date.fromisoformat(trip["starts_on"])
-            end = date.fromisoformat(trip["ends_on"]) if trip.get("ends_on") else None
-            if end and end < start:
-                continue
-        except (KeyError, TypeError, ValueError):
-            continue
-        rows.append((start, trip))
-    rows.sort(key=lambda pair: pair[0])
-    from .reconciliation import open_trip_end
-    for index, (start, trip) in enumerate(rows):
-        if trip.get("ends_on"):
-            continue
-        following = next((other_start.isoformat() for other_start, _ in rows[index + 1:]
-                          if other_start > start), None)
-        trip["ends_on"] = open_trip_end(trip.get("starts_on"), following)
-    return {str(trip["trip_id"]): trip for _, trip in rows}
 
 
 def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
@@ -59,12 +30,13 @@ def card_trip_candidates(transaction, trips, *, nets=None):
     except (TypeError, ValueError):
         return []
     merchant = str(transaction.get("merchant") or "").casefold()
-    from .rules import transaction_region, trip_region, is_booking_or_online
-    region = '' if is_booking_or_online(transaction) else transaction_region(transaction)
-    if region:
-        authoritative = {key: trip for key, trip in authoritative.items() if trip_region(trip) == region}
+    available = regional_trips(transaction, authoritative.values(), booking_agnostic=True)
+    preferred, preparation = period_or_preparation(available, day.isoformat())
+    if preferred:
+        available = preferred
     ranked = []
-    for identity, trip in authoritative.items():
+    for trip in available:
+        identity = str(trip["trip_id"])
         start = date.fromisoformat(trip["starts_on"])
         end = date.fromisoformat(trip["ends_on"]) if trip.get("ends_on") else day
         distance = max((start - day).days, (day - end).days, 0)
@@ -72,9 +44,9 @@ def card_trip_candidates(transaction, trips, *, nets=None):
         # A place name does not make a purchase months later part of that trip.
         rank = (distance, not named, -(nets or {}).get(identity, 0))
         ranked.append((rank, identity, distance, named))
-    order = sorted({entry[0] for entry in ranked}, reverse=True)
-    return [{"trip_id": identity, "score": order.index(rank), "confidence": "낮음",
-             "basis": ("가맹점 지역명 일치 · " if named else "") + f"카드 이용일과 여행 기간 거리 {distance}일"}
+    order = {rank: index for index, rank in enumerate(sorted({entry[0] for entry in ranked}, reverse=True))}
+    return [{"trip_id": identity, "score": order[rank], "confidence": "낮음",
+             "basis": ("다음 여행 준비기간 · " if preparation else "") + ("가맹점 지역명 일치 · " if named else "") + f"카드 이용일과 여행 기간 거리 {distance}일"}
             for rank, identity, distance, named in ranked]
 
 

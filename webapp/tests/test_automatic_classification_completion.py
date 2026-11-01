@@ -244,6 +244,21 @@ def test_verified_partial_refunds_inherit_but_orphans_do_not_create_financial_li
     assert identity == c.execute('SELECT transaction_id,approval_number,original_approval_number,amount_krw FROM transactions').fetchall()
 
 
+def test_scoped_refund_reads_its_out_of_scope_original_without_reclassifying_it(setup):
+    board, _, _, rows = setup
+    original, refund = rows[:2]
+    c = board.conn
+    c.execute("UPDATE transactions SET item='식비',trip_id='A',display_tab_id='A',classification_state='classified' WHERE transaction_id=?", (original['transaction_id'],))
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-100,original_approval_number=? WHERE transaction_id=?", (original['approval_number'],refund['transaction_id']))
+    before = c.execute('SELECT * FROM transactions WHERE transaction_id!=? ORDER BY transaction_id', (refund['transaction_id'],)).fetchall()
+    selected = {refund['transaction_id']}
+    assert [r['transaction_id'] for r in policy._read(c, selected)] == list(selected)
+    preview = policy.plan(c, TRIPS, transaction_ids=selected)
+    policy.apply(c, preview, TRIPS, transaction_ids=selected)
+    assert c.execute('SELECT item,trip_id FROM transactions WHERE transaction_id=?', (refund['transaction_id'],)).fetchone() == ('식비','A')
+    assert before == c.execute('SELECT * FROM transactions WHERE transaction_id!=? ORDER BY transaction_id', (refund['transaction_id'],)).fetchall()
+
+
 def test_legacy_source_completion_keeps_valid_recorded_trip_and_projection_unchanged(setup, monkeypatch):
     board, flow, batch, rows = setup
     c = board.conn

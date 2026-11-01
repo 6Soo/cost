@@ -10,6 +10,7 @@ from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
 from .assignment_status import row_assignment
 from .rules import merchant_country
+from .trip_selection import regional_trips, period_or_preparation
 
 POLICY = 'complete-card-inference-v1'
 FIELDS = ('classification_state', 'classification_source', 'classification_basis',
@@ -128,11 +129,8 @@ def infer_trip(row, trips, *, nets=None, reconsider=False):
     for key in ('trip_id', 'display_tab_id'):
         if row.get(key) in valid and not reconsider:
             return row[key], '기존 실제 여행 유지'
-    from .rules import transaction_region, trip_region, is_booking_or_online
-    region = '' if is_booking_or_online(row) else transaction_region(row)
-    if region:
-        valid = {key: trip for key, trip in valid.items() if trip_region(trip) == region}
-    candidates_trips = list(valid.values())
+    candidates_trips = regional_trips(row, valid.values(), booking_agnostic=True)
+    valid = {trip['trip_id']: trip for trip in candidates_trips}
     candidates = card_trip_candidates(row, candidates_trips, nets=nets)
     if candidates:
         candidates.sort(key=lambda c: (-c['score'], valid[c['trip_id']]['starts_on'], c['trip_id']))
@@ -152,8 +150,8 @@ def _card3820_owner_policy(row, trips):
     This mirrors the primary card-classification path: the Singapore exception
     wins when exactly one matching trip exists; otherwise an eligible domestic
     purchase goes to its transaction quarter. Overseas purchases use matching
-    trip periods irrespective of the particular foreign country. Missing dates
-    and periods outside every overseas trip cannot invent an assignment.
+    trip periods and the nearest following preparation period regardless of country.
+    Missing dates and the absence of real trips cannot invent an assignment.
     """
     if row.get('card_tail') != '3820':
         return None
@@ -185,10 +183,10 @@ def _card3820_owner_policy(row, trips):
                         source='user_exception')
         return None
 
-    from .rules import transaction_region, trip_region
+    from .rules import transaction_region
     if transaction_region(row) == 'overseas':
-        candidates = [trip for trip in valid.values() if trip_region(trip) == 'overseas'
-                      and trip['starts_on'] <= occurred.isoformat() <= trip['ends_on']]
+        candidates, preparation = period_or_preparation(
+            regional_trips(row, valid.values()), occurred.isoformat())
         if not candidates:
             return None
         target, basis = infer_trip(row, candidates, reconsider=True)
@@ -209,13 +207,16 @@ def _read(conn, selected=None):
                'merchant_normalized', 'amount_krw', 'foreign_amount', 'foreign_currency',
                'description_raw', 'raw_row_json', 'parse_error', 'duplicate_of', 'conflict_reason',
                *FIELDS, 'revision', 'decided_at')
-    rows = [dict(zip(columns, r)) for r in conn.execute('SELECT ' + ','.join(columns) + ' FROM transactions ORDER BY transaction_id')
-            if selected is None or r[0] in selected]
+    query, parameters = 'SELECT ' + ','.join(columns) + ' FROM transactions', ()
+    if selected is not None:
+        query += ' WHERE transaction_id IN (SELECT value FROM json_each(?))'
+        parameters = (json.dumps(sorted(selected)),)
+    rows = [dict(zip(columns, r)) for r in conn.execute(query + ' ORDER BY transaction_id', parameters)]
     return rows
 
 
 def _context(conn, selected=None):
-    rows = _read(conn)
+    rows = _read(conn, selected)
     decisions = {r[0]: r[1] for r in conn.execute(
         'SELECT transaction_id,display_tab_id FROM review_decisions ORDER BY revision')}
     holds = {r[0] for r in conn.execute('SELECT transaction_id FROM transaction_review_holds')}
@@ -239,6 +240,11 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
     targets, protected = [], 0
     evidence = evidence or {}
     resolved = {r['transaction_id']: r for r in rows}
+    # A scoped refund still inherits its actual original outside this batch.
+    # Load only those dependencies instead of materializing every source row.
+    originals = {link['original_id'] for link in links.values()} - resolved.keys()
+    if originals:
+        resolved.update((row['transaction_id'], row) for row in _read(conn, originals))
     for row in sorted(rows, key=lambda r: (r['transaction_direction'] != 'purchase', r['transaction_id'])):
         tid = row['transaction_id']
         if selected is not None and tid not in selected:

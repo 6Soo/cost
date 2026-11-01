@@ -114,6 +114,29 @@ def test_new_trip_evidence_resumes_a_waiting_row_without_an_owner_request(setup)
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
 
 
+@pytest.mark.parametrize('day,next_start,previous_end,destination', [
+    ('2026-10-14', '2026-10-15', '2026-10-13', '오제'),
+    ('2026-10-25', '2026-10-26', '2026-10-24', '가루이자와')])
+def test_preparation_costs_complete_without_a_request_and_replay_once(setup, day, next_start, previous_end, destination):
+    board = setup
+    flow = CardFlow(board)
+    batch = flow.pipeline.receive(make_csv([domestic_row(
+        merchant='SYNTHETIC PREPARATION SERVICE', amount=10000,
+        approval='PREP', date=day, kind='매입', issuer='국민', card='****3820')]), 'preparation.csv')['batch_id']
+    board.conn.execute("UPDATE transactions SET foreign_currency='JPY',card_kind='해외'")
+    board.create_trip(starts_on='2026-10-10', ends_on=previous_end,
+                      destination='도쿠시마', client_request_id='prep-previous')
+    next_trip = board.create_trip(starts_on=next_start, ends_on='2026-10-30',
+                                 destination=destination, client_request_id='prep-next')['tab_id']
+    original = snapshot_originals(board)
+    worker = CardCompletionWorker(board, threading.RLock())
+    assert worker.sweep_once()
+    assert board.conn.execute('SELECT trip_id,amount_krw FROM ledger_entries').fetchall() == [(next_trip,10000)]
+    assert '준비기간' in board.conn.execute('SELECT classification_basis FROM transactions').fetchone()[0]
+    assert not worker.sweep_once()
+    assert snapshot_originals(board) == original
+
+
 def test_manual_hold_duplicate_parse_and_refund_original_are_unchanged(setup):
     board = setup
     _, rows = receive(board, 6)

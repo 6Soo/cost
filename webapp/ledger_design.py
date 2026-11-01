@@ -1772,11 +1772,6 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
     elif kind == "ex":
         whole_income = []
 
-    def totals(rows_in, rows_ex):
-        return (sum(board._shown_amount(r) for r in rows_in),
-                sum(board._shown_amount(r) for r in rows_ex),
-                len(rows_in), len(rows_ex))
-
     from .google_ledger_page import get_trip_income_summary
     google_income = get_trip_income_summary(tab_id)
 
@@ -1790,8 +1785,8 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
     return _summary_html(
         shown_in, shown_ex,
         recorded_income_count=recorded_income_count,
-        filtered=totals(shown_in, shown_ex),
-        whole=totals(whole_income, whole_expense),
+        filtered=_summary_totals(shown_in, shown_ex),
+        whole=_summary_totals(whole_income, whole_expense),
         google_income=google_income)
 
 
@@ -1888,18 +1883,20 @@ def _matches(row: dict, needle: str) -> bool:
     return needle in hay
 
 
+def _summary_totals(rows_in, rows_ex):
+    """Compute displayed amounts through the board's current amount hook."""
+    return (sum(board._shown_amount(r) for r in rows_in),
+            sum(board._shown_amount(r) for r in rows_ex),
+            len(rows_in), len(rows_ex))
+
+
 def _totals_kw(query, shown_in, shown_ex, whole_in, whole_ex) -> dict:
     """The summary's keyword arguments, split only when a filter is on."""
     if not query:
         return {}
 
-    def totals(rows_in, rows_ex):
-        return (sum(board._shown_amount(r) for r in rows_in),
-                sum(board._shown_amount(r) for r in rows_ex),
-                len(rows_in), len(rows_ex))
-
-    return {"filtered": totals(shown_in, shown_ex),
-            "whole": totals(whole_in, whole_ex)}
+    return {"filtered": _summary_totals(shown_in, shown_ex),
+            "whole": _summary_totals(whole_in, whole_ex)}
 
 
 def _STORE_missing() -> bool:

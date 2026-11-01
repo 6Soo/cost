@@ -94,6 +94,23 @@ BUSY_TIMEOUT_MS = 5000
 TRANSIENT_SQLITE_MARKERS = ("database is locked", "database table is locked",
                             "database is busy")
 
+
+def _ignored_reservation_snapshot_result(revision: int, digest: str,
+                                         persons_seen: int) -> dict:
+    """Build the stable response shared by stale and idempotent syncs."""
+    return {
+        "snapshot_revision": revision,
+        "digest": digest,
+        "ignored_stale_or_equal": True,
+        "persons_seen": persons_seen,
+        "persons_deactivated": 0,
+        "connections_revoked": 0,
+        "sessions_bumped": 0,
+        "connected_persons_synced": 0,
+        "assignments_applied": 0,
+        "assignments_ignored_older": 0,
+    }
+
 # At most one active owner may exist. Enforced by a partial unique index
 # (fresh databases) with the transactional check in `ensure_owner` as the
 # authority for the error code. The index is the cross-connection backstop:
@@ -1402,18 +1419,8 @@ class AccessStore:
                         revision=revision, digest=digest,
                         source_version=source_version,
                         persons_seen=len(persons), outcome="ignored_stale")
-                    return {
-                        "snapshot_revision": revision,
-                        "digest": digest,
-                        "ignored_stale_or_equal": True,
-                        "persons_seen": len(persons),
-                        "persons_deactivated": 0,
-                        "connections_revoked": 0,
-                        "sessions_bumped": 0,
-                        "connected_persons_synced": 0,
-                        "assignments_applied": 0,
-                        "assignments_ignored_older": 0,
-                    }
+                    return _ignored_reservation_snapshot_result(
+                        revision, digest, len(persons))
                 if head is not None and revision == head["snapshot_revision"]:
                     # Identical source *and* identical links: a genuine repeat, and
                     # nothing to do. A link correction arrives here too — same
@@ -1429,18 +1436,8 @@ class AccessStore:
                             source_version=source_version,
                             persons_seen=len(persons),
                             outcome="ignored_idempotent")
-                        return {
-                            "snapshot_revision": revision,
-                            "digest": digest,
-                            "ignored_stale_or_equal": True,
-                            "persons_seen": len(persons),
-                            "persons_deactivated": 0,
-                            "connections_revoked": 0,
-                            "sessions_bumped": 0,
-                            "connected_persons_synced": 0,
-                            "assignments_applied": 0,
-                            "assignments_ignored_older": 0,
-                        }
+                        return _ignored_reservation_snapshot_result(
+                            revision, digest, len(persons))
                     links_are_newer = int(link_version) > int(
                         head.get("link_version", 0) or 0)
                     if digest != head["digest"] and not links_are_newer:

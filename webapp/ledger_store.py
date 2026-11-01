@@ -93,6 +93,7 @@ from .ledger_store_schema import (
     _ensure_trip_tab_columns,
 )
 from .operator_ledger import LedgerError, OperatorLedger
+from .owner_metadata import company_name_default
 from .space_guard import SpaceRefused, reserve
 
 # Bytes one row save is assumed to need. A row is small; the number exists so
@@ -125,18 +126,6 @@ def owner_assignee_default(conn) -> str:
         return ""
     return str(row[0] or "").strip()
 
-
-def company_name_default(conn) -> str:
-    """The owner-entered company name, or "" when there is not one yet."""
-    try:
-        row = conn.execute(
-            "SELECT company_name FROM owner_profile WHERE profile_id='owner'"
-        ).fetchone()
-    except Exception:
-        return ""
-    if not row:
-        return ""
-    return str(row[0] or "").strip()
 
 
 def _seoul_today() -> str:

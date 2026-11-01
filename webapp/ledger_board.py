@@ -79,6 +79,20 @@ def _active_store():
     return _STORE if local is _NO_REQUEST_STORE else local
 
 
+def _held_flight_snapshot(store):
+    """Return the store's current flight snapshot, warming its service if needed."""
+    service = getattr(store, "_flight_booking_service", None) if store is not None else None
+    if service is None and store is not None:
+        from .flight_booking_index import prewarm
+        prewarm(store)
+        service = getattr(store, "_flight_booking_service", None)
+    if service is None:
+        return None
+    current, state = service.display_context()
+    return dict(current or {}, fresh=bool(state.get("fresh")),
+                generation=state.get("generation"))
+
+
 def _get_card_db_path() -> str | None:
     """Get the card transactions database path from the active store's connection.
     Uses PRAGMA database_list to get the actual file path from the SQLite connection.
@@ -2434,22 +2448,10 @@ class Handler(BaseHTTPRequestHandler):
         if trip_flight_read.owns_route(path):
             store = _active_store()
 
-            def held_flight_snapshot():
-                service = getattr(store, "_flight_booking_service", None) if store is not None else None
-                if service is None and store is not None:
-                    from .flight_booking_index import prewarm
-                    prewarm(store)
-                    service = getattr(store, "_flight_booking_service", None)
-                if service is None:
-                    return None
-                current, state = service.display_context()
-                return dict(current or {}, fresh=bool(state.get("fresh")),
-                            generation=state.get("generation"))
-
             if trip_flight_read.dispatch(
                     self, parsed, board=store, is_owner=is_owner_session(session),
                     allowed_trip_ids=viewer_visible_tabs(session), query=query,
-                    snapshot=held_flight_snapshot):
+                    snapshot=lambda: _held_flight_snapshot(store)):
                 return True
 
         # The access screens answer for both roles.
@@ -3468,22 +3470,10 @@ class Handler(BaseHTTPRequestHandler):
         if trip_flight_read.owns_route(parsed.path):
             store = _active_store()
 
-            def held_flight_snapshot():
-                service = getattr(store, "_flight_booking_service", None) if store is not None else None
-                if service is None and store is not None:
-                    from .flight_booking_index import prewarm
-                    prewarm(store)
-                    service = getattr(store, "_flight_booking_service", None)
-                if service is None:
-                    return None
-                current, state = service.display_context()
-                return dict(current or {}, fresh=bool(state.get("fresh")),
-                            generation=state.get("generation"))
-
             if trip_flight_read.dispatch(
                     self, parsed, board=store, is_owner=_participant_owner_request(),
                     allowed_trip_ids=viewer_visible_tabs(getattr(_ROLE_LOCAL, "session", None)),
-                    query=query, snapshot=held_flight_snapshot):
+                    query=query, snapshot=lambda: _held_flight_snapshot(store)):
                 return
         from . import insurance_income_match_page as _insurance_match_page
         if _insurance_match_page.owns_route(parsed.path):
