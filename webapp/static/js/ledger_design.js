@@ -106,7 +106,7 @@
     .finally(function(){clearTimeout(timeout);loading=null;root.setAttribute('aria-busy','false');document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){cell.removeAttribute('aria-busy');});});return loading;
   }
   root.addEventListener('toggle',function(){if(root.open&&!root.dataset.loadFailed)loadPanel();});
-  if(location.hash==='#participant-trip-panel')root.open=true;
+  if(location.hash==='#participant-trip-panel'||new URLSearchParams(location.search).has('participant_q'))root.open=true;
   if(root.dataset.autoLoad==='1')loadPanel();
  });
  var main=document.getElementById('main'), nav=document.getElementById('nav'),
