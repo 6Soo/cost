@@ -23,6 +23,14 @@ EXPENSE = ["거래일자", "항목", "내용", "기간", "예약번호", "증빙
 NOW = dt.datetime(2026, 10, 11, 9, 0, tzinfo=ga.KST)
 
 
+def empty_workbook():
+    book = openpyxl.Workbook()
+    book.active.title = 'Synthetic template'
+    data = io.BytesIO()
+    book.save(data)
+    return data.getvalue()
+
+
 def workbook(title, income, expense):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -122,6 +130,7 @@ class GoogleLedgerBrowserTests(unittest.TestCase):
 
     @staticmethod
     def fetcher(books):
+        books = {'andre_main': empty_workbook(), **books}
         def fetch(url):
             for role, sheet_id in ga.SPREADSHEET_IDS.items():
                 if sheet_id in url:

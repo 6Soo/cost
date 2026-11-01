@@ -25,7 +25,43 @@ import openpyxl
 SPREADSHEET_IDS = {
     "main": "1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU",
     "archive": "1scMHyDERFWZp82gwZMxnz9Hzgy0CJm3TdvqD1sw_9C8",
+    "andre_main": "1giIJZDYIL-RBwVy_-yDhElAmsV0pUgkCxBcEa3Wr87Y",
 }
+SOURCE_REGISTRY = {
+    "main": {"owner_id": "aslan", "role": "main", "owner_name": "아슬란", "owner_alias": "아슬란"},
+    "archive": {"owner_id": "aslan", "role": "archive", "owner_name": "아슬란", "owner_alias": "아슬란"},
+    "andre_main": {"owner_id": "andre", "role": "main", "owner_name": "김동언", "owner_alias": "안드레"},
+}
+
+
+def source_owner_id(source: str) -> str:
+    return SOURCE_REGISTRY[source]["owner_id"]
+
+
+def source_role(source: str) -> str:
+    return SOURCE_REGISTRY[source]["role"]
+
+
+def source_label(source: str) -> str:
+    metadata = SOURCE_REGISTRY[source]
+    role = "메인 장부" if metadata["role"] == "main" else "보관 장부"
+    return f"{metadata['owner_alias']} {role}"
+
+
+def trip_sheet(key: str) -> str:
+    if key.startswith("andre::"):
+        match = re.fullmatch(r"andre::(\d{4})::(.+)", key)
+        if match is None:
+            raise ValueError("INVALID_QUALIFIED_TRIP_KEY")
+        return match[2]
+    return key
+
+
+def trip_owner_id(key: str) -> str:
+    if key.startswith("andre::"):
+        trip_sheet(key)  # Reject malformed qualified keys instead of treating them as legacy Aslan keys.
+        return "andre"
+    return "aslan"
 EXPORT_URL = "https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 SCHEMA = "google-authority-readonly-v2"
 ROWS_SCHEMA = "google-authority-rows-private-v1"
@@ -35,7 +71,7 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 
 #: 파서 세대. 이름 인덱스를 만들기 전 세대(`quarter-expense-v1`)는 같은 workbook
 #: 해시여도 다시 읽어야 이름 인덱스가 생긴다.
-PARSER_VERSION = 'quarter-expense-v2'
+PARSER_VERSION = 'quarter-expense-v3'
 
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
@@ -279,7 +315,9 @@ def parse_trip_period(ws_v, sheet: str, year_offset: int = 0) -> dict:
             break
     flags = []
     year_text = re.search(r"(20\d{2})년", title)
-    year = (int(year_text[1]) if year_text else BASE_YEAR) + year_offset
+    year = int(year_text[1]) if year_text else BASE_YEAR
+    if year_offset and year == BASE_YEAR:
+        year += year_offset
     first = TRIP_HEADER_DATES_FIRST.search(title)
     last = TRIP_HEADER_DATES_LAST.search(title)
     if first:
@@ -440,7 +478,7 @@ def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetch
         return {**previous, "checked_at": now, "last_ok_at": now, "unchanged": True,
                 "row_changes": {"added": 0, "removed": 0, "changed": 0}}, None
     try:
-        trips = parse_workbook(data, rollover=role == "main")
+        trips = parse_workbook(data, rollover=role in ("main", "andre_main"))
     except Exception:
         return _retained(previous, code="SOURCE_PARSE_FAILED", checked_at=now), None
     if not trips and previous.get("trips"):
@@ -465,15 +503,34 @@ def _copy(trip: dict | None) -> dict | None:
 
 def build_trip_view(sources: dict) -> list[dict]:
     """Groups tabs by exact title. Only an exact title match is treated as the same trip."""
-    main_trips = sources["main"].get("trips", [])
-    archive_trips = sources["archive"].get("trips", [])
-    archive_ok = sources["archive"].get("status") == "ok"
     view = []
-    for title in sorted({trip["sheet"] for trip in main_trips + archive_trips}):
-        main = [t for t in main_trips if t["sheet"] == title]
-        archive = [t for t in archive_trips if t["sheet"] == title]
-        other = archive_trips if main else main_trips
+    groups = {}
+    for role in SPREADSHEET_IDS:
+        owner = source_owner_id(role)
+        for trip in sources.get(role, {}).get("trips", []):
+            raw = trip["sheet"]
+            year = trip.get('ledger_year') or (trip.get('period') or {}).get('year')
+            qualified_year = f"{int(year):04d}" if year else "0000"
+            key = raw if owner == "aslan" else f"andre::{qualified_year}::{raw}"
+            group_key = (owner, year, raw) if owner == "andre" else (owner, None, raw)
+            groups.setdefault(group_key, []).append((role, trip, key, year))
+    for (owner, year, title), members in sorted(groups.items(), key=lambda item: (item[0][0], item[0][1] or 0, item[0][2])):
+        main = [t for role, t, _, _ in members if role in ("main", "andre_main")]
+        archive = [t for role, t, _, _ in members if role == "archive"]
+        main_role = "andre_main" if owner == "andre" else "main"
+        archive_role = "archive"
+        main_source = sources.get(main_role, {})
+        archive_source = sources.get(archive_role, {}) if owner == "aslan" else {}
+        archive_ok = archive_source.get("status") == "ok"
+        other = [t for role in ("main", "archive", "andre_main")
+                 if source_owner_id(role) == owner and role != (main_role if main else archive_role)
+                 for t in sources.get(role, {}).get("trips", [])]
         flags: set = set()
+        years = {member_year for _, _, _, member_year in members if member_year is not None}
+        if owner == "aslan" and len(years) > 1:
+            flags.add("PERIOD_YEAR_CONFLICT")
+        if owner == "andre" and any(member_year is None for _, _, _, member_year in members):
+            flags.add("PERIOD_YEAR_MISSING")
         if len(main) > 1 or len(archive) > 1:
             flags.add("DUPLICATE_IN_SOURCE")
         if main and archive:
@@ -484,12 +541,12 @@ def build_trip_view(sources: dict) -> list[dict]:
             flags.add("COPY_NAME")
         if any(t["sheet"] != title and _candidate_key(t["sheet"]) == _candidate_key(title) for t in other):
             flags.add("POSSIBLE_DUPLICATE")
-        canonical_source, canonical = ("main", main[0]) if main else ("archive", archive[0])
+        canonical_source, canonical = (main_role, main[0]) if main else (archive_role, archive[0])
         if sources[canonical_source].get("stale"):
             flags.add("SOURCE_STALE")
         usable = (canonical["layout"] == "rev"
-                  and not flags & {"DUPLICATE_IN_SOURCE", "POSSIBLE_DUPLICATE"})
-        closure = "closed" if archive else ("unknown" if sources["archive"].get("last_ok_at") is None else "open")
+                  and not flags & {"DUPLICATE_IN_SOURCE", "POSSIBLE_DUPLICATE", "PERIOD_YEAR_CONFLICT", "PERIOD_YEAR_MISSING"})
+        closure = "closed" if archive else ("unknown" if owner == "andre" or archive_source.get("last_ok_at") is None else "open")
         verified = usable and canonical["verified"] and not flags & {"SOURCE_STALE"}
         reported = {
             "income_total": canonical["income"]["total"] if usable else None,
@@ -499,7 +556,11 @@ def build_trip_view(sources: dict) -> list[dict]:
         # Only verified figures count as totals. What Google displays but COST cannot verify stays in reported.
         figures = reported if verified else dict.fromkeys(reported)
         view.append({
-            "key": title,
+            "key": title if owner == "aslan" else members[0][2],
+            "owner_id": owner,
+            "owner_name": "김동언" if owner == "andre" else "아슬란",
+            "owner_alias": "안드레" if owner == "andre" else "아슬란",
+            "sheet": title,
             **{k: canonical[k] for k in ('kind', 'quarter', 'ledger_year', 'period') if k in canonical},
             "closure": closure,
             "closure_current": archive_ok and closure != "unknown",
@@ -507,10 +568,13 @@ def build_trip_view(sources: dict) -> list[dict]:
             **figures,
             "reported": reported,
             "verified": verified,
-            "copies": {"main": _copy(main[0] if main else None), "archive": _copy(archive[0] if archive else None)},
+            "copies": ({main_role: _copy(main[0] if main else None)} if owner == "andre" else
+                       {"main": _copy(main[0] if main else None), "archive": _copy(archive[0] if archive else None)}),
             "review": sorted(flags | set(canonical["flags"])),
         })
-    _close_open_ends(view)
+    for owner in ("aslan", "andre"):
+        owned = [t for t in view if t["owner_id"] == owner]
+        _close_open_ends(owned)
     return view
 
 
@@ -524,7 +588,9 @@ def _close_open_ends(view: list[dict]) -> None:
             continue
         from .reconciliation import open_trip_end
         following = next((t["period"]["starts_on"] for t in dated[index + 1:]
-                          if t["period"]["starts_on"] > period["starts_on"]), None)
+                          if t["period"]["starts_on"] > period["starts_on"]
+                          and (t["period"].get("year") or int(t["period"]["starts_on"][:4]))
+                          == (period.get("year") or int(period["starts_on"][:4]))), None)
         ends = open_trip_end(period["starts_on"], following)
         if ends is None:
             continue

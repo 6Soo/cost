@@ -1482,8 +1482,8 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 " <span class='muted warntext'>· 담당자 확인이 필요해요"
                 " (출처가 기록되지 않은 값이에요)</span>")
         cards.append(
-            f"<article class='card trip-management-row' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown)}' data-archived='{int(bool(t['archived']))}'>"
-            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t['display_key'])}</a> <span class='muted'>{kind}</span></h3>"
+            f"<article class='card trip-management-row' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}'>"
+            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
             "<details class='trip-meta'><summary>정보 수정·보관</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
@@ -1581,6 +1581,8 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     body = ("<div class='sect'><form id='trip-management-filter' role='search'>"
             "<label for='trip-management-search'>여행 찾기</label> "
             "<input id='trip-management-search' type='search' placeholder='여행 이름·코드·담당자'> "
+            "<label for='trip-management-owner'>담당자</label> <select id='trip-management-owner'>"
+            "<option value=''>전체</option><option value='aslan'>아슬란</option><option value='andre'>김동언(안드레)</option></select> "
             "<label for='trip-management-state'>상태</label> <select id='trip-management-state'>"
             "<option value=''>전체</option><option value='0'>활성</option><option value='1'>보관</option></select> "
             "<button type='reset'>초기화</button><p id='trip-management-count' role='status'></p></form>"

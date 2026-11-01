@@ -89,7 +89,7 @@ def build_state(board, trip_id, cost_rows=None):
             raise ValueError('GOOGLE_TRIP_UNAVAILABLE')
         trip = trip_matches[0]
         source = trip.get('chosen_source')
-        if source not in ('main', 'archive'):
+        if source not in google_authority.SPREADSHEET_IDS:
             raise ValueError('SOURCE_NOT_SELECTED')
         source_info = (resolved.get('sources') or {}).get(source) or {}
         last_success_at = source_info.get('last_ok_at') or last_success_at

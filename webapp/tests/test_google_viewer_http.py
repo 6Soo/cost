@@ -21,7 +21,7 @@ from webapp import access_control
 from webapp import google_ledger_page as gl
 from webapp import ledger_board as board_mod
 from webapp.ledger_store import LedgerStore
-from webapp.tests.test_google_ledger_browser import workbook
+from webapp.tests.test_google_ledger_browser import workbook, empty_workbook
 
 OWNER = "syn-owner-O"
 VIEWER = "syn-viewer-V"
@@ -70,6 +70,7 @@ class GoogleViewerHttpTests(unittest.TestCase):
 
     @staticmethod
     def _fetcher(books):
+        books = {'andre_main': empty_workbook(), **books}
         def fetch(url):
             for role, sheet_id in ga.SPREADSHEET_IDS.items():
                 if sheet_id in url:

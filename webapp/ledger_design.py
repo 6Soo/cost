@@ -264,7 +264,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         else:
             dates = short_date(start or end) or None
         return entry(
-            board.esc(trip["display_key"]),
+            board.esc(trip.get('display_title') or trip["display_key"]) + (' · 안드레' if trip.get('owner_id') == 'andre' else ''),
             f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
             dates, trip["tab_id"] == tab_id)
 
@@ -400,7 +400,9 @@ def _head_html(trip) -> str:
         period = "여행을 정하지 않은 내역이에요"
         meta = "이 목록을 정리하면 여행 합계가 함께 갱신돼요"
     else:
-        title = board.esc(trip["display_key"])
+        title = board.esc(trip.get('display_title') or trip["display_key"])
+        if trip.get('owner_id') == 'andre':
+            title += ' · 김동언(안드레)'
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"

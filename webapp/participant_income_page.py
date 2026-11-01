@@ -119,7 +119,7 @@ def google_context(trip_id: str) -> dict:
             return context
         source = trip.get("chosen_source")
         blocked = list(trip.get("blocked_by") or [])
-        if source not in ("main", "archive"):
+        if source not in google_authority.SPREADSHEET_IDS:
             context["blocked_by"] = blocked or ["INCOME_INDEX_UNAVAILABLE"]
             return context
         index = google_ledger_page.owner_income_names(rows, key, source)
@@ -136,7 +136,7 @@ def google_context(trip_id: str) -> dict:
         if not available and not blocked:
             blocked = ["INCOME_INDEX_UNAVAILABLE"]
         context.update({
-            "key": key, "source": source, "index": index if name_index_complete else None,
+            "key": key, "sheet": google_authority.trip_sheet(key), "source": source, "index": index if name_index_complete else None,
             "synced_at": snapshot.get("synced_at"), "generation": snapshot.get("rows_generation"),
             "stale": stale, "rows_total": rows_total, "sheet_total": trip.get("income_total"),
             "available": available, "verified": bool(trip.get("verified")),
@@ -157,7 +157,7 @@ def build_state(trip_id: str, *, store=None) -> dict:
         context = google_context(trip_id)
         rows = income.income_rows_from_trip(
             index=context.get("index") or {}, amount_rows=context.get("amount_rows") or [],
-            source=context.get("source") or "main", sheet=context.get("key") or "")
+            source=context.get("source") or "main", sheet=context.get("sheet") or context.get("key") or "")
         return {"trip_id": trip_id, "configured": False, "participants": [],
                 "unlinked_income": [dict(row, state=income.STATE_UNVERIFIED) for row in rows],
                 "counts": {"income_rows": len(rows)},
@@ -177,7 +177,7 @@ def build_state(trip_id: str, *, store=None) -> dict:
         index = context.get("index") or {}
         rows = income.income_rows_from_trip(index=index, amount_rows=context.get("amount_rows") or [],
                                             source=context.get("source") or "main",
-                                            sheet=context.get("key") or "")
+                                            sheet=context.get("sheet") or context.get("key") or "")
         decisions = income.decisions_for_trip(handle.conn, trip_id)
         roster_version = income.roster_version_of(people, pending_items=pending, scope=scope)
         result = income.reconcile(

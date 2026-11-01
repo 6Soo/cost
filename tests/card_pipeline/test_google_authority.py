@@ -231,12 +231,17 @@ def _fetcher(payloads):
     def fetch(url):
         for role, sheet_id in ga.SPREADSHEET_IDS.items():
             if sheet_id in url:
-                outcome = payloads[role]
+                outcome = payloads.get(role, _empty_valid_workbook())
                 if isinstance(outcome, Exception):
                     raise outcome
                 return outcome
         raise AssertionError(url)
     return fetch
+
+
+def _empty_valid_workbook():
+    """Synthetic no-trip workbook for Aslan-only cases that still sync every registered source."""
+    return workbook_bytes(lambda wb: wb.create_sheet("Ledger template"))
 
 
 def _sync(path, **kwargs):
@@ -533,7 +538,7 @@ def test_participant_name_index_is_created_for_an_older_snapshot_of_the_same_wor
                     fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
     # 같은 workbook 해시여도 이름 인덱스가 없으면 다시 읽는다.
     assert again["sources"]["main"]["unchanged"] is False
-    assert again["sources"]["main"]["parser_version"] == ga.PARSER_VERSION == "quarter-expense-v2"
+    assert again["sources"]["main"]["parser_version"] == ga.PARSER_VERSION
     private = json.loads(_rows_text(snapshot_path, rows_path))
     index = private["sources"]["main"]["income_names"]["0404_에히메"]
     assert index["available"] is True
@@ -633,7 +638,8 @@ def test_adc_corrupt_xlsx_keeps_last_good_and_recovers_through_real_adapter(tmp_
     ga.sync(snapshot_path, rows_path, fetcher=_fetcher({'main': original, 'archive': original}), now=NOW)
     before = json.loads(_rows_text(snapshot_path, rows_path))['sources']
     scopes, responses, calls = [], [], []
-    payloads = {'main': b'SYNTHETIC-PRIVATE-BROKEN-XLSX', 'archive': updated}
+    payloads = {'main': b'SYNTHETIC-PRIVATE-BROKEN-XLSX', 'archive': updated,
+                'andre_main': _empty_valid_workbook()}
 
     class Session:
         def get(self, url, **kwargs):
@@ -909,6 +915,14 @@ def test_tabs_after_the_december_tabs_of_the_main_workbook_are_next_year():
     assert trips['0302_야쿠시마']['starts_on'] == '2027-03-02'
     unchanged = {t['sheet']: t['period'] for t in ga.parse_workbook(workbook_bytes(build))}
     assert unchanged['0206_하쿠산']['starts_on'] == '2026-02-06'
+
+
+def test_explicit_next_year_title_is_not_rolled_forward_again():
+    def build(wb):
+        wb.create_sheet('1205_도쿄')['C2'] = '2026년 월 매출 확인자료_'
+        wb.create_sheet('0206_하쿠산')['C2'] = '2027년 월 매출 확인자료_'
+    trips = {t['sheet']: t['period'] for t in ga.parse_workbook(workbook_bytes(build), rollover=True)}
+    assert trips['0206_하쿠산']['starts_on'] == '2027-02-06'
 
 
 def test_end_comes_from_the_expense_period_range_when_the_title_has_none():
