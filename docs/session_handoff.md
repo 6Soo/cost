@@ -1,3 +1,9 @@
+## 2026-11-02 브라우저 실행 규칙 ego-browser 전환
+
+- COMPLETE — 사용자 “프로젝트 규칙에서 aside 관련 내용을 모두 ego로 수정”. [COST 지침](../AGENTS.md), 참조 정본 `C:/AX/agent-policy/AUTONOMOUS_EXECUTION.md`의 브라우저 절, [카드 다운로드](card_downloads.md), 금융·Google 인증·UI 검증의 실행 지시를 ego-browser로 변경했다. Windows UTF-8 `.mjs`·동일 TaskSpace 재사용을 명시하며 인증·원본·외부 쓰기 권한 경계는 유지한다. 과거 운영/인증 기록은 당시 증거로 보존하고 현재 실행 지시와 구분한다.
+- 문서 diff·참조 경로·명령과 실제 스킬 API 일치만 확인한다. 이 변경에 따른 코드 테스트·빌드·운영 DB 확인·재배포·서버 재시작은 하지 않는다. 병행 코드 변경은 이 문서 변경에 포함하지 않는다.
+- 별도 업로드 오류는 미해결이다. 첨부 화면의 XLSX 읽기 실패·해외 XLS 카드 식별 누락·국내 XLS 형식 미인식을 확인했으며 실제 실패 원본을 확보해 재현하는 단계가 남았다. 보관된 기존 파일 통과를 이 화면의 해결 근거로 사용하지 않는다. 조사 근거와 다음 행동은 로컬 `.local-archive/upload-format-20261102/checkpoint.json`에 보존한다.
+
 ## 2026-11-01 모든 비용 준비기간·Python 기능군 리팩토링 완료
 
 - COMPLETE — [PR458](https://github.com/6Soo/cost/pull/458), 운영 `d206cab71cf02843fcd38be5340cf3e04ff4d75f`. [실행 큐](specs/python-refactor-20261101.md) PY01~PY05 완료. [전수 조사·수치·재현·한계](specs/python-refactor-results-20261101.md). 숙박 외 모든 비용의 준비기간 추론을 공유하고 여행 후보/선택 조회·OTA 단계·CSV/원본·회사명·스냅샷/합계 읽기를 개선했다. 수동·원본·중복·환불·기존3820 예외를 유지했다.

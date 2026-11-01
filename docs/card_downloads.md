@@ -1,26 +1,25 @@
-# 카드 원본 수집 — Aside REPL 실행 안내
+# 카드 원본 수집 — ego-browser 실행 안내
+
+현재 브라우저 실행 기준은 **ego-browser**다. 아래 과거 실행 기록의 도구·인증 대기는 당시 증거이며 현재 실행 명령이나 새 수집 승인으로 사용하지 않는다.
 
 사용자가 지정한 카드사·자료 종류·기간만 수집한다. 이번 확정 범위는 **국민 기업카드 국내 매입과 해외 매입을 이용일 기준2026-10-01부터 수집하고, 중복 검증 후 운영 DB에 가져오기까지**다. 승인 내역을 관성적으로 추가하지 않는다. 원본 다운로드·기간/건수 검증과 운영 DB 입력은 별도 완료 단계로 기록한다. 상세 금융 해석은 [금융 명세](specs/finance.md#src-docs-card-downloads-md)를 따른다.
 
 ## 반복 실행의 기준
 
 1. 운영 DB를 `mode=ro`로 열어 국민카드의 마지막 이용일(`approval_date`)과 매입일(`posting_date`)을 국내·해외별로 집계한다. 원문 행을 출력하지 않는다. 이번 사용자 지시의 기본값은 **전체 국민카드의 마지막 이용일 당일부터** 조회하는 것이다. 하루 겹침은 마지막 이용일을 하루 더 빼는 뜻이 아니다. 두 날짜와 자료별 마지막 날짜가 다르면 인터뷰에서 차이를 설명한다.
-2. `aside account list`, `aside guide repl`, `aside skills list`로 현재 계정과 기능을 확인한다. 기본 계정과 보안 설정을 바꾸지 않는다. 사용할 계정은 저장 인증서 항목을 사용할 수 있는 현재 계정으로 정하며 과거 계정 번호를 고정하지 않는다.
-3. **대화형 `aside repl --account <확인한 계정>` 하나를 유지**한다. 단발 `aside repl "..."`의 임시 세션 종료가 새로 연 탭도 닫을 수 있으므로, 로그인→국내→해외→다운로드 완료 확인을 같은 REPL에서 순차 실행한다. 새 세션에서 성공한 사실이 없으면 무인 재로그인 성공으로 기록하지 않는다.
-4. `listBrowserTabs()`로 관련 탭만 찾고, 있으면 `attachBrowserTab(targetId)`로 재사용한다. 없을 때만 `openTab()`을 사용한다. `chrome.windows.get` 또는 `getAll`의 세션 메타데이터로 일반 모드를 확인한다. 비관련 업무 탭을 닫거나 공유 인증 세션을 초기화하지 않는다.
-5. `snapshot(page,{interactive:true})`를 주 읽기 경로로 사용한다. 각 동작 뒤 새 snapshot의 `diff`로 결과를 확인한다. ref는 새 snapshot 기준으로만 사용하며 저장해 둔 ref/좌표를 다음 실행에 재사용하지 않는다. 조회 결과 원문 표는 채팅/보고서/외부 모델에 출력하지 않는다. 확인할 폼·버튼·요약 영역을 좁혀 읽는다.
+2. `ego-browser` 스킬과 `ego-browser skill`로 현재 설치 버전의 기능을 확인한다. Windows에서는 UTF-8 `.mjs` 파일에 스크립트를 작성하고 `ego-browser nodejs -e "await import('file:///C:/절대/경로/script.mjs')"`로 실행한다. 기본 프로필과 보안 설정을 바꾸지 않는다.
+3. 로그인→국내→해외→다운로드 완료 확인은 **같은 TaskSpace**에서 순차 실행한다. 후속 스크립트는 기록한 `spaceId`와 Page 라벨로 재개한다. 실제로 새 로그인에 성공한 사실이 없으면 무인 재로그인 성공으로 기록하지 않는다.
+4. `task.tabs()`로 해당 작업의 관련 탭을 확인하고, 기존 관리 Page를 재사용한다. 사용자 탭은 스킬의 소유권·제어권 절차를 따른다. 비관련 업무 탭을 닫거나 공유 인증 세션을 초기화하지 않는다. 프로필 선택은 사용자가 명시한 경우에만 수행한다.
+5. `page.snapshot()`을 주 읽기 경로로 사용하고, 각 동작 뒤 새 snapshot으로 결과를 확인한다. ref는 새 snapshot 기준으로만 사용하며 저장해 둔 ref/좌표를 다음 실행에 재사용하지 않는다. 조회 결과 원문 표는 채팅/보고서/외부 모델에 출력하지 않는다. 확인할 폼·버튼·요약 영역을 좁혀 읽는다.
 
 ## 로그인
 
 - 기업 홈페이지: `https://biz.kbcard.com/CXERCZZC0001.cms`.
 - 세션이 유효하면 그대로 이용한다. 만료됐으면 **공동인증서 → 로그인 → 로컬디스크 → 실제 회사 기업 인증서 확인** 순으로 진행한다. 인증서 암호·개인키·원문 식별자를 읽거나 출력하지 않는다.
-- 사용할 수 있는 공식 저장 암호 자동입력 경로를 우선한다. `passwordManager`의 제공 여부는 실제 실행 환경에서 확인한다. 단독 REPL에는 해당 전역이 없을 수 있다. 브라우저 공식 입력 제안이 없고 지원 API도 없으면 자동입력 성공으로 꾸미지 않는다. 별도 `aside exec` 모델을 쓰려면 기존 승인 모델/비용 범위와 사용자의 REPL 경로 요구를 먼저 적용한다.
-- 공식 **키보드 입력전환** 버튼은 필요할 때 한 번 확인할 수 있다. 보안 입력 속성 변경·저장 암호 원문 조회·보안 프로그램 우회·반복 인증 제출은 하지 않는다. 사용자 인증만 필요하면 전자서명창을 유지하고 사용자가 그 창에서 인증하도록 요청한다. 암호를 채팅으로 받지 않는다.
-- **이번 최신 사용자 결정은 Aside Vault 저장 암호를 사용하는 것**이다. 수동 인증 요청을 반복하지 않는다. REPL에서 Vault API가 제공되지 않을 때는 로그인 단계에 한정한 정상 Aside agent가 내장 password-manager 스킬을 읽고 `listAccounts()`→해당 카드사 `listItems()` 메타데이터 확인→`autofillItem()`을 수행하는 공식 경로를 사용한다. 조회/다운로드는 부모의 동일 REPL로 돌려주어 작성자를 하나로 유지한다. 암호 원문/길이 대신 입력 성공 boolean과 실제 로그인 결과만 확인한다.
-- **확인한 버전의 CLI/MCP REPL은 항상 비공개 agent 세션을 만든다.** 데몬의 `createCliReplSession`은 `incognito:true`를 지정하며 일반 모드에서만 Vault 전역을 제공한다. 브라우저 창의 `incognito:false`나 `saveSessions:true`로 바뀌지 않는다. 실제로 저장 설정을 켠 별도 REPL에서도 `passwordManager`가 없었다. 저장 설정을 해결책으로 반복 변경하지 않는다. 임시 변경은 원래 값으로 복구하며 기본 계정과 Vault 접근 정책은 바꾸지 않는다.
-- **Vault 자동입력과 모델 실행의 과금을 구분한다.** 설치된 `PasswordManagerRepl.autofillItem`은 접근 정책을 검사하고 확장 프로그램의 `Aside.performPasswordManagerAutofill`로 넘긴다. 확인한 이 경로에는 모델 호출이 없다. 일반 agent를 시작할 때의 HTTP402 `Insufficient credits`는 모델 호출 실패이며 Vault 과금·암호 불일치·실제 자동입력 실패 증거가 아니다. 같은 실패 호출이나 임의의 새 유료 모델 전환을 반복하지 않는다.
-- 지원되는 일반 세션에서의 공식 순서는 `listAccounts()` → 선택한 계정의 `listItems(pwmAccountId, {url: 'https://biz.kbcard.com/CXERCZZC0001.cms'})` → 현재 회사 인증서와 일치하는 전자서명 항목 선택 → `autofillItem(page, pwmAccountId, itemId)`다. 계정/항목 ID는 현재 메타데이터로 선택하며 전체 목록·이메일·비밀값을 출력하지 않는다. 암호·OTP·원문 전체 항목 조회 API를 사용하지 않는다.
-- 공개 CLI `repl`에는 일반 세션 선택 인자가 없고 MCP `repl`에는 기존 agent의 `session_id` 연결 인자가 없었다. `session resume`/`exec`는 모델 실행 경로이며 직접 코드 실행 기능으로 확인되지 않았다. **확인한 공개 경로에서는 일반 세션의 Vault API를 모델 없이 호출할 연결이 미해결**이다. 세션 플래그/설치 코드 변경, 권한 검사 우회, 저장 암호 추출로 대체하지 않는다. 지원되는 일반 REPL 연결 또는 승인된 기존 agent 실행 경로가 실제 사용 가능해지면 공식 자동입력부터 재검증한다. 새 CLI 버전 알림만으로 해결됐다고 가정하지 않는다.
+- 사용할 수 있는 브라우저 공식 저장 암호 자동입력 경로를 우선한다. ego-browser가 실제 지원하는 UI/API만 사용하며 자동입력 경로가 없으면 성공으로 꾸미지 않는다. 다른 도구의 저장 암호 API나 세션을 ego-browser에 있다고 가정하지 않는다.
+- 공식 **키보드 입력전환** 버튼은 필요할 때 한 번 확인할 수 있다. 보안 입력 속성 변경·저장 암호 원문 조회·보안 프로그램 우회·반복 인증 제출은 하지 않는다. 암호를 채팅으로 받지 않는다.
+- 로그인·인증 코드·CAPTCHA 등 사용자만 완료할 수 있는 단계가 실제로 남으면 `task.handOff()`로 같은 화면을 넘기고 필요한 행동을 구체적으로 알린다. 같은 인증 요청을 반복하지 않으며 암호·OTP·개인키·저장 암호 원문을 조회하거나 출력하지 않는다. 사용자 확인 후 동일 TaskSpace의 제어권을 정식으로 되찾는다.
+- 인증 제한을 세션 플래그·설치 코드 변경이나 권한 검사 우회로 대체하지 않는다. 브라우저 전환은 새 모델 호출·과금·자격 증명 이전을 승인하지 않는다.
 - 로그인 이후 기업 세션과 조회 화면 진입을 확인해야 인증 완료다. 인증서 선택이나 암호 입력란의 존재만으로 로그인 성공을 선언하지 않는다.
 
 ## 국민카드 필수 자료와 기간
@@ -39,15 +38,16 @@
 ```javascript
 // 저장 버튼의 ref는 직전 snapshot에서 확인한 실제 값으로 지정한다.
 const pendingDownload = page.waitForEvent('download');
-await page.locator(actualSaveButtonRef).click();
+await page.click(actualSaveButtonRef);
 const downloaded = await pendingDownload;
-const completedPath = await downloaded.path();
-const completedSize = (await fs.stat(completedPath)).size;
-await downloaded.saveAs('./artifacts/' + uniqueOutputName);
+const outputPath = 'C:/AX/cost/.local-archive/card-downloads/' + uniqueOutputName;
+await downloaded.saveAs(outputPath);
+const fs = await import('node:fs/promises');
+const completedSize = (await fs.stat(outputPath)).size;
 console.log({filename: downloaded.suggestedFilename(), bytes: completedSize});
 ```
 
-완료 파일의 확인과 artifacts 복사는 같은 살아 있는 REPL에서 끝낸다. 원본은 실행별 새 보호 폴더에 복사해 보존하고 덮어쓰지 않는다. `download.path()`의 경로, 원래 파일명, 실제 보존 경로, 크기·SHA256을 확인한 뒤 원본 수집 완료로 기록한다. 파일명 예시는 `kb-domestic-acquired-시작일-종료일.xls`, `kb-overseas-acquired-시작일-종료일.xls`다.
+완료 파일의 보존과 확인은 다운로드 이벤트를 받은 같은 스크립트 실행 안에서 끝낸다. 원본은 실행별 새 보호 폴더에 복사해 보존하고 덮어쓰지 않는다. 원래 파일명, 실제 보존 절대 경로, 크기·SHA256을 확인한 뒤 원본 수집 완료로 기록한다. 파일명 예시는 `kb-domestic-acquired-시작일-종료일.xls`, `kb-overseas-acquired-시작일-종료일.xls`다.
 
 ## 다운로드 이후의 읽기 전용 검증
 
@@ -66,7 +66,9 @@ console.log({filename: downloaded.suggestedFilename(), bytes: completedSize});
 4. 실제 원본/금융 DB 쓰기 전에는 위험에 맞는 신선 백업·별도 복원·단일 작성자·같은 입력/DB 상태 리허설·원자성·재수신 무변경 검증을 적용한다. 현재 수동 교정·기존 원문/금액/ID·환불/중복 보호·기존 장부·분류를 보존하고 실제 신규/연결/충돌 건수를 별도로 보고한다. 필요한 보호가 실패하면 쓰기 전에 중단한다.
 5. 최종 기록은 국내/해외의 다운로드·파싱·중복 검증·DB 입력 상태를 각각 표시한다. 새 DB 건수가 파일 행수와 같다고 가정하지 않는다. 문서만 바뀐 후속 단계에서 데이터 재처리나 재배포를 반복하지 않는다.
 
-## 이번 인터뷰와 실행 상태 — 2026-10-29
+## 과거 인터뷰와 실행 상태 — 2026-10-29
+
+이 절은 당시 도구·실행 상태의 보존 기록이다. 현재 브라우저 실행은 위 ego-browser 절차를 따르며, 아래 REPL/Vault 재개 조건을 현재 작업의 선행 조건으로 사용하지 않는다.
 
 - 최신 사용자 범위: 국민 국내/해외 매입, DB 마지막 이용일과 하루 중복, 화면의 최신 허용일까지 수집, 불분명한 부분은 인터뷰로 구체화.
 - readonly DB 확인: 국민3,675건. 국내 마지막 이용일2026-10-01/매입일2026-10-02, 해외 마지막 이용일2026-09-30/매입일2026-10-02. DB 쓰기0.
@@ -75,5 +77,7 @@ console.log({filename: downloaded.suggestedFilename(), bytes: completedSize});
 - **WAIT_SUPPORTED_VAULT_REPL**: 사용자 지적에 따라 크레딧을 Vault의 필수 조건으로 보던 앞선 판단을 정정했다. CLI1.26.1023.1115·데몬1.26.1029.43의 설치 코드에서 CLI REPL의 비공개 세션 고정과 Vault 전역 제외를 확인했다. 이는 설치 코드의 정적 확인이며 Vault 호출 성공을 관찰한 것은 아니다. 실제 REPL에서도 `passwordManager`가 없고 저장 설정을 켠 별도 REPL도 같았다. 일반 agent는 HTTP402로 도구 실행 전에 실패했지만 Vault 자체의 크레딧 요구는 확인되지 않았다.
 - 자동입력 API·로그인·조회 기간 상한·국내/해외 다운로드·원본 파싱·중복 검증·DB 입력은 아직 미실행/미확인이다. 기본 계정/모델/Vault 정책 변경·신규 과금·운영 DB 쓰기0이며 임시 CLI 세션 표시 설정은 원래false로 복구했다. 조회 종료일을 오늘/전날로 추정해 완료 처리하지 않는다.
 - 재개 조건: 지원되는 일반 세션의 직접 REPL/Vault 연결 또는 기존 승인 범위의 실행 가능한 agent 경로를 실제 확인한다. 이후 공식 자동입력→같은 지속 REPL에서 로그인 결과 확인→국내/해외 원본 다운로드→중복 검증→단일 작성자 조율과 보호된 DB 입력 순서다. 수동 암호 입력을 사용자에게 다시 요구하거나 새 유료 자원을 만들지 않는다. 운영 배포를 진행하는 별도 작성자와는 DB 입력 직전에 다시 조율한다.
+
+작업 완료 후 스킬에 따라 `task.finish()`를 실행한다.
 
 이 문서는 다운로드 실행 안내다. 상태가 대기인 항목을 완료라고 쓰지 않으며, 문서 변경 때문에 코드 검사·배포·서버 재시작을 하지 않는다.
