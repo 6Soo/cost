@@ -192,7 +192,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertIn(PARTICIPANT, body)
         self.assertIn('data-income-ref=', body)
-        self.assertIn("action='/api/participants/link'", body)
+        self.assertNotIn("action='/api/participants/link'", body)
+        self.assertIn('모든 참가자가 수입에 연결되어 있습니다.', body)
 
     def test_trip_income_owner_column_is_well_formed_and_viewer_rows_keep_contract(self):
         from html.parser import HTMLParser
@@ -523,6 +524,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
         from playwright.sync_api import sync_playwright
         import zipfile
         import xml.etree.ElementTree as ET
+        write_roster(Path(self._dir.name), tab_id=self.trip, name='미연결-합성',
+                     batch_id='batch-ui-unlinked', roster_id='roster-ui-unlinked', row_label='2')
         # Excel normally supplies cached formula totals; openpyxl does not.
         # Keep the real income-verification gate and provide a verified fixture.
         browser_book = openpyxl.load_workbook(io.BytesIO(workbook()))
@@ -564,7 +567,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertIn(PARTICIPANT, page.locator('.participant-insurance-cell').first.inner_text())
                 page.locator('#participant-trip-panel summary').click()
                 page.locator('#participant-trip-panel .participant-cards li').first.wait_for()
-                self.assertIn(PARTICIPANT, page.locator('#participant-trip-panel').inner_text())
+                self.assertNotIn(PARTICIPANT, page.locator('#participant-trip-panel .participant-cards').inner_text())
+                self.assertIn('미연결-합성', page.locator('#participant-trip-panel .participant-cards').inner_text())
                 income_table = page.locator('#google-trip-income table#income-tbl')
                 if income_table.count() == 0:
                     self.fail('Google 수입 표가 렌더되지 않음: ' + page.locator('#google-trip-income').inner_text())
@@ -575,7 +579,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(target.count(), 1)
                 row_ref = target.get_attribute('data-income-ref')
                 self.assertTrue(row_ref.startswith('main|0630_오제|'))
-                self.assertEqual(target.locator('.participant-row-connect').count(), 1)
+                self.assertEqual(income_table.locator('.participant-row-connect').count(), 0)
                 card = page.locator('#participant-trip-panel .participant-cards li[draggable=true]').first
                 page.evaluate("""([source,target])=>{
                     const data={clearData(){},setData(){},effectAllowed:''};
