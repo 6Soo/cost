@@ -26,6 +26,32 @@ def test_catalog_reads_every_batch_without_writing_or_hiding_refunds(stored):
     assert all('raw_row_json' not in r for r in result['rows'])
 
 
+@pytest.mark.parametrize('source,label', [('rule','자동 분류'),('inference','자동 추론')])
+def test_recording_does_not_turn_automatic_classification_into_a_user_decision(stored, monkeypatch, source, label):
+    monkeypatch.setattr(CardFlow,'trip_valid',lambda self,trip:True)
+    monkeypatch.setattr(CardFlow,'ota_group_holds',lambda self,**kw:{})
+    monkeypatch.setattr(CardFlow,'preview_metadata',lambda self,**kw:None)
+    trip=stored.create_trip(starts_on='2026-10-01',ends_on='2026-10-05',
+        destination='합성',client_request_id='catalog-source-trip')['tab_id']
+    flow=CardFlow(stored)
+    tid,batch=stored.conn.execute("SELECT transaction_id,batch_id FROM transactions WHERE amount_krw=37000").fetchone()
+    stored.conn.execute("UPDATE transactions SET classification_state='classified',classification_source=?,item='숙박비',display_tab_id=?,trip_id=? WHERE transaction_id=?",(source,trip,trip,tid))
+    stored.conn.commit()
+    assert flow._auto_record_locked(batch,include_state=False,transaction_ids={tid})['auto_recorded']==1
+    before=stored.conn.total_changes
+    data=card_catalog.catalog(stored,{})
+    data['rows']=[row for row in data['rows'] if row['transaction_id']==tid]
+    assert data['rows'][0]['decided'] and data['rows'][0]['decided_at'] is None
+    markup=card_catalog.render_html(data,{})
+    assert '기록 완료' in markup and label in markup and '직접 분류' not in markup
+    assert stored.conn.total_changes==before
+    stored.conn.execute("UPDATE transactions SET classification_source='user_decision',decided_at='2026-11-02T00:00:00Z' WHERE transaction_id=?",(tid,))
+    stored.conn.commit()
+    data=card_catalog.catalog(stored,{})
+    data['rows']=[row for row in data['rows'] if row['transaction_id']==tid]
+    assert '직접 분류' in card_catalog.render_html(data,{})
+
+
 def test_search_filters_and_pagination_preserve_zero_and_original_amount(stored):
     assert card_catalog.catalog(stored, {'q': ['no match']})['total'] == 0
     assert card_catalog.catalog(stored, {'card': ['1234']})['total'] == 3
