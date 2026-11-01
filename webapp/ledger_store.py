@@ -414,6 +414,9 @@ class LedgerStore:
             )
 
     def close(self) -> None:
+        worker = getattr(self, '_card_completion_worker', None)
+        if worker is not None:
+            worker.stop(timeout=5)
         with self._lock:
             audit_connection = getattr(self.ledger, 'conn', None)
             if audit_connection is not None and audit_connection is not self.conn:
