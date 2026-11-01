@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-02 첨부 카드8건 조사·취소 표시 교정
+
+- COMPLETE — [PR461](https://github.com/6Soo/cost/pull/461), 운영 `efefafc43dd13134c61c85c9fd1d171c8523142c`, 이전 검증 `d206cab71cf02843fcd38be5340cf3e04ff4d75f`. [거래별 조사·범위·미확인 사실](specs/eight-card-review-20261102.md). 취소7건의 목록/상세/미배정필터/집계·정산탭 표시를 교정하고 명시 이용 확인 보류1건을 보존했다. 금융 연결·금액·분류·장부·Google·원본·스키마 쓰기0.
+- 병합본65 passed/기준624ceec9 재현 기존실패2 deselected.1,232 blobs 불일치0·task/process 고정SHA·단일loopback listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변·SourceRefresh 상태와 기존task 인수 보존. 기존 검증 릴리스/task XML로 복구 가능하며 코드전용이라 새전체DB백업/복원은 반복하지 않았다.
+- 인증ego-browser8건(취소표시7·이용확인보류1)·395,000원 상세·미배정 필터 제외·모바일390px 가로넘침0 수락, TaskSpace1 정상종료. 최초Aside 실행파일 부재 및 검수스크립트의 snapshot root/버튼포함 비교 오류는 교정 후 재검수했다. 실제은행환급/현재Gmail전체검색·전체회귀·실기기 미실행. 로컬 `.local-archive/eight-card-review-20261102/`와 호스트 동일SHA release/deploy audit에 근거 보존. 요청 조사/코드/배포 미결0, 다음명령 없음. 문서후속 재배포/재시작 없음.
+
 ## 2026-11-01 모든 비용 준비기간·Python 기능군 리팩토링 완료
 
 - COMPLETE — [PR458](https://github.com/6Soo/cost/pull/458), 구현 `26e7b9c4`, 고정 운영 SHA `d206cab71cf02843fcd38be5340cf3e04ff4d75f`(직전 검증 `34835792`). [실행 명세](specs/python-refactor-20261101.md)·[수치/한계/재현](specs/python-refactor-results-20261101.md). 숙박 외 교통·식비·항공·기타/현지경비도 여행 사이 빈 기간이면 가장 가까운 다음 검증 여행의 준비 비용으로 추론한다. 실제 이용기간·수동 배정·3820 국내 잔여/사용자 예외·원본/환불/중복 보호를 유지하며 날짜·여행 기간을 바꾸지 않는다.
