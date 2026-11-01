@@ -194,6 +194,8 @@ def transaction_detail(transaction_id: str, db_path=None):
         if row is None:
             return None
         result = dict(zip(fields, row))
+        result['refund_tab_member'] = bool(conn.execute(
+            'SELECT COST_REFUND_TAB_MEMBER(?)', (transaction_id,)).fetchone()[0])
         result.update(card_identity(result.pop('issuer'), result.pop('card_kind'), result.pop('card_tail')))
         return result
     finally:
@@ -222,6 +224,19 @@ def _connect(db_path: str) -> sqlite3.Connection:
             from types import SimpleNamespace
             from .refund_tab import groups
             members = {row['transaction_id'] for group in groups(SimpleNamespace(conn=conn)) for row in group}
+            # A reviewed cancellation need not have a verified original or a
+            # ledger entry. This is a display disposition, never a payment link.
+            members.update(row[0] for row in conn.execute(
+                "SELECT transaction_id FROM transactions WHERE display_tab_id='refunds' "
+                "AND COALESCE(trip_id,'') IN ('','unclassified','refunds')"))
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                            "AND name='transaction_review_holds'").fetchone():
+                members.update(row[0] for row in conn.execute(
+                    "SELECT t.transaction_id FROM transactions t "
+                    "JOIN transaction_review_holds h ON h.transaction_id=t.transaction_id "
+                    "AND h.source_hash=t.source_hash WHERE h.kind='cancelled' "
+                    "AND COALESCE(t.display_tab_id,'') IN ('','unclassified','refunds') "
+                    "AND COALESCE(t.trip_id,'') IN ('','unclassified','refunds')"))
         return int(transaction_id in members)
     conn.create_function('COST_REFUND_TAB_MEMBER', 1, refund_member)
     return conn
