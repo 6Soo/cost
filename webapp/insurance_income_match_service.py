@@ -62,7 +62,7 @@ def _income_context(trips):
         chosen = by_key.get(key) or {}
         source = chosen.get('chosen_source')
         record = (payload.get('sources') or {}).get(source) or {}
-        if source not in ('main', 'archive') or record.get('stale') or record.get('status') != 'ok':
+        if source not in google_authority.SPREADSHEET_IDS or record.get('stale') or record.get('status') != 'ok':
             blocked.add(tid)
             continue
         detail = google.owner_rows(private, key, source)
@@ -72,7 +72,7 @@ def _income_context(trips):
             continue
         rows = participant_income.income_rows_from_trip(
             index=copy.deepcopy(index) if index and index.get('available') else {},
-            amount_rows=detail.get('income', []), source=source, sheet=key)
+            amount_rows=detail.get('income', []), source=source, sheet=google_authority.trip_sheet(key))
         result[tid] = [dict(row, date=(row.get('cells') or {}).get('B') or '',
                             trip_id=tid, trip_name=trip.get('display_key') or tid) for row in rows]
     return {'rows_by_trip': result, 'blocked_trip_ids': blocked,

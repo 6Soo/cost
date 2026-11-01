@@ -4017,7 +4017,10 @@ class LedgerStore:
             f"SELECT {self._TRIP_COLUMNS}"
             " FROM trip_tabs WHERE deleted=0 ORDER BY starts_on, tab_id"
         ).fetchall()
-        trips = [self._trip_dict(r) for r in rows]
+        originals = {tab_id: json.loads(record).get('display_key', '')
+                     for tab_id, record in self.conn.execute(
+                         "SELECT tab_id, new_json FROM trip_tab_history WHERE change_kind='create' ORDER BY id DESC")}
+        trips = [self._trip_identity(self._trip_dict(r), originals) for r in rows]
         if not include_archived:
             trips = [t for t in trips if not t["archived"]]
         return trips
@@ -4027,22 +4030,44 @@ class LedgerStore:
             f"SELECT {self._TRIP_COLUMNS} FROM trip_tabs WHERE tab_id=?",
             (tab_id,),
         ).fetchone()
-        return self._trip_dict(row) if row else None
+        return self._trip_identity(self._trip_dict(row)) if row else None
 
-    def find_trip_by_schedule(self, starts_on: str, destination: str):
+    def _trip_identity(self, trip, originals=None):
+        """Keep the imported owner after a user edits a trip's display name.
+
+        The creation history is already durable and immutable. Reading it needs
+        no schema change and never rewrites the user's current metadata.
+        """
+        from app.google_authority import trip_owner_id, trip_sheet
+        if originals is None:
+            created = self.conn.execute(
+                "SELECT new_json FROM trip_tab_history WHERE tab_id=? AND change_kind='create' ORDER BY id LIMIT 1",
+                (trip['tab_id'],)).fetchone()
+            original = json.loads(created[0]).get('display_key', '') if created else trip['display_key']
+        else:
+            original = originals.get(trip['tab_id'], trip['display_key'])
+        owner = trip_owner_id(original)
+        return {**trip, 'owner_id': owner,
+                'owner_name': '김동언' if owner == 'andre' else '',
+                'owner_alias': '안드레' if owner == 'andre' else '아슬란',
+                'source_trip_key': original,
+                'display_title': trip_sheet(trip['display_key'])}
+
+    def find_trip_by_schedule(self, starts_on: str, destination: str, *, owner_id: str = 'aslan'):
         """The live trip already standing for this date and destination.
 
         APP_SPEC 3: a new tab on a date and destination that already exists must
         not add a second row, and whether the two should be merged is not
         decided here. The caller shows the existing tab instead.
         """
-        row = self.conn.execute(
+        rows = self.conn.execute(
             f"SELECT {self._TRIP_COLUMNS} FROM trip_tabs"
             " WHERE deleted=0 AND starts_on=? AND destination=?"
-            " ORDER BY tab_id LIMIT 1",
+            " ORDER BY tab_id",
             (starts_on, destination),
-        ).fetchone()
-        return self._trip_dict(row) if row else None
+        ).fetchall()
+        return next((trip for row in rows
+                     if (trip := self._trip_identity(self._trip_dict(row)))['owner_id'] == owner_id), None)
 
     def create_trip(self, *, starts_on: str, destination: str,
                     ends_on: str = "", display_key=None, tab_kind: str = "trip",
@@ -4112,7 +4137,9 @@ class LedgerStore:
 
             # Section 3: the same date and destination shows the tab that is
             # already there. No second row, and no merge decision either way.
-            already = self.find_trip_by_schedule(starts_on, destination)
+            from app.google_authority import trip_owner_id
+            already = self.find_trip_by_schedule(starts_on, destination,
+                                                 owner_id=trip_owner_id(display_key or ''))
             if already is not None:
                 result = {"outcome": "existing", "created": False,
                           "tab_id": already["tab_id"],
@@ -4135,6 +4162,14 @@ class LedgerStore:
                     else f"{starts_on[5:7]}{starts_on[8:10]}_{destination}")
             tab_id = f"trip-{uuid.uuid4().hex[:12]}"
             created_at = _utc_now()
+            new_assignee = owner_assignee_default(self.conn)
+            assignee_source = 'owner_profile' if new_assignee else ''
+            if actor == 'google-sync' and trip_owner_id(name) == 'andre':
+                # The user explicitly registered this workbook as Kim Dong-eon's.
+                # Never copy the Aslan owner-profile default into Andre trips.
+                from app.google_authority import SOURCE_REGISTRY
+                new_assignee = SOURCE_REGISTRY['andre_main']['owner_name']
+                assignee_source = 'google_workbook'
             next_order = self.conn.execute(
                 "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM trip_tabs"
             ).fetchone()[0]
@@ -4146,6 +4181,7 @@ class LedgerStore:
                       # never confirmed just because the screen made it.
                       "authority_status": "needs_review",
                       "source_sha256": source_sha256, "sort_order": next_order,
+                      "prepared_by_name": new_assignee, "assignee_source": assignee_source,
                       "archived": False, "deleted": False, "revision": 1,
                       "tab_lifecycle": "active"}
             result = {"outcome": "created", "created": True, "tab_id": tab_id,
@@ -4160,7 +4196,6 @@ class LedgerStore:
                 ).fetchone()
                 if dup:
                     raise SaveError("__REPLAY__", "retry")
-                new_assignee = owner_assignee_default(self.conn)
                 self.conn.execute(
                     "INSERT INTO trip_tabs(tab_id, display_key, destination,"
                     " starts_on, ends_on, event_year, tab_kind, authority_status,"
@@ -4170,7 +4205,7 @@ class LedgerStore:
                     (tab_id, name, destination, starts_on, ends_on, event_year,
                      tab_kind, "needs_review", source_sha256, next_order,
                      _seoul_today(),
-                     new_assignee, "owner_profile" if new_assignee else "",
+                     new_assignee, assignee_source,
                      0, 0, 1),
                 )
                 self.conn.execute(

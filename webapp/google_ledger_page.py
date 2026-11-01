@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from app import google_access, google_authority, request_metrics
+from app.google_authority import source_label, source_owner_id, trip_sheet, trip_owner_id
 from . import ui_icons
 from decimal import Decimal, InvalidOperation
 
@@ -50,7 +51,6 @@ MAX_SNAPSHOT_AGE_SECONDS = 2 * 60 * 60
 def snapshot_for_display(snapshot: dict, *, now=None) -> dict:
     data = copy.deepcopy(snapshot)
     current = now or dt.datetime.now(google_authority.KST)
-    stale = False
     for source in data.get('sources', {}).values():
         try:
             stamp = dt.datetime.fromisoformat(source.get('last_ok_at') or '')
@@ -61,9 +61,13 @@ def snapshot_for_display(snapshot: dict, *, now=None) -> dict:
         if expired or source.get('stale') or source.get('status') != 'ok':
             source['stale'] = True
             source['error_code'] = source.get('error_code') or 'SYNC_DELAYED'
-            stale = True
-    if stale:
-        for trip in data.get('trips', []):
+    for trip in data.get('trips', []):
+        owner = trip.get('owner_id') or trip_owner_id(trip.get('key', ''))
+        owner_roles = [role for role in google_authority.SPREADSHEET_IDS if source_owner_id(role) == owner]
+        owner_stale = any(data.get('sources', {}).get(role, {}).get('stale')
+                          or data.get('sources', {}).get(role, {}).get('status') != 'ok'
+                          for role in owner_roles)
+        if owner_stale:
             trip.update(verified=False, income_total=None, expense_total=None, net=None, closure_current=False)
             trip['review'] = sorted(set(trip.get('review', [])) | {'SOURCE_STALE'})
     return data
@@ -127,9 +131,12 @@ def rows_path() -> Path:
 
 def owner_rows(rows: dict, key: str, source: str) -> dict | None:
     """Every row of one trip tab from one source, as stored in the private rows file. Owner only."""
-    if source not in ("main", "archive"):
+    if source not in google_authority.SPREADSHEET_IDS:
         raise ValueError("SOURCE_INVALID")
-    tab = rows.get(source, {}).get("trips", {}).get(key)
+    if source_owner_id(source) != trip_owner_id(key):
+        raise ValueError("SOURCE_OWNER_MISMATCH")
+    sheet = trip_sheet(key)
+    tab = rows.get(source, {}).get("trips", {}).get(sheet)
     if tab is None:
         return None
     def income(block):
@@ -145,7 +152,7 @@ def owner_rows(rows: dict, key: str, source: str) -> dict | None:
                  "category": r["cells"].get("D"), "period": r["cells"].get("E"),
                  "reservation": r["cells"].get("F"), "evidence": r["cells"].get("G"), "amount": r["amount"]}
                 for r in block]
-    return {"key": key, "source": source, "income": income(tab.get("income", [])),
+    return {"key": key, "sheet": sheet, "source": source, "income": income(tab.get("income", [])),
             "expense": expense(tab.get("expense", []))}
 
 
@@ -155,12 +162,14 @@ def owner_income_names(rows: dict, key: str, source: str) -> dict | None:
     `None` means this snapshot generation has no name index at all, so a missing name
     cannot be concluded from it. An empty list means the tab was read and held no name.
     """
-    if source not in ("main", "archive"):
+    if source not in google_authority.SPREADSHEET_IDS:
         raise ValueError("SOURCE_INVALID")
+    if source_owner_id(source) != trip_owner_id(key):
+        raise ValueError("SOURCE_OWNER_MISMATCH")
     names = rows.get(source, {}).get("income_names")
     if not isinstance(names, dict):
         return None
-    entry = names.get(key)
+    entry = names.get(trip_sheet(key))
     if not isinstance(entry, dict):
         return None
     return {"available": bool(entry.get("available")), "rows": list(entry.get("income") or [])}
@@ -272,7 +281,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             return panel('수입 장부를 찾지 못했습니다.')
         trip = matches[0]
         source = trip.get('chosen_source')
-        if source not in ('main', 'archive'):
+        if source not in google_authority.SPREADSHEET_IDS:
             return panel('사용할 장부 사본을 선택해 주세요.')
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
@@ -294,9 +303,9 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         reasons = ' / '.join(REVIEW_LABELS.get(code, code) for code in (trip.get('review') or []))
         synced_raw = html.escape(str(payload.get('synced_at') or ''))
         info_time = format_display_time(payload.get('synced_at'))
-        time_row = (f"<div class='income-sync'><span>{'메인 장부' if source == 'main' else '보관 장부'}</span>"
+        time_row = (f"<div class='income-sync'><span>{html.escape(source_label(source))}</span>"
                     f"{ui_icons.icon('refresh-cw')}<span>동기화</span><time datetime='{synced_raw}'>{info_time}</time></div>")
-        sheet = (trip.get('copies', {}).get(source) or {}).get('sheet') or keys[0]
+        sheet = (trip.get('copies', {}).get(source) or {}).get('sheet') or trip_sheet(keys[0])
         sheet_range = "'" + sheet.replace("'", "''") + "'!A1"
         source_href = (f"https://docs.google.com/spreadsheets/d/{google_authority.SPREADSHEET_IDS[source]}"
                        f"/edit#range={quote(sheet_range, safe='')}")
@@ -314,7 +323,8 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         income_offset = 0
         if owner:
             from . import participant_trip_panel
-            visible_rows = participant_trip_panel.attach_row_refs(visible_rows, source=source, sheet=keys[0])
+            visible_rows = participant_trip_panel.attach_row_refs(visible_rows, source=source,
+                                                                  sheet=trip_sheet(keys[0]))
         if owner:
             try:
                 from . import participant_income_page, participant_trip_panel
@@ -417,7 +427,7 @@ def get_trip_income_summary(tab_id: str) -> dict | None:
             return None
         trip = matches[0]
         source = trip.get('chosen_source')
-        if source not in ('main', 'archive'):
+        if source not in google_authority.SPREADSHEET_IDS:
             return None
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
@@ -503,8 +513,15 @@ def _read_settings(path: Path, default: dict) -> dict:
 def load_choices(snapshot_path: Path) -> dict:
     data = _read_settings(choice_path(snapshot_path), {'choices': {}, 'history': []})
     choices = data.get('choices')
-    if (not isinstance(choices, dict) or not isinstance(data.get('history'), list)
-            or any(not isinstance(key, str) or value not in ('main', 'archive') for key, value in choices.items())):
+    try:
+        valid_choices = (isinstance(choices, dict) and isinstance(data.get('history'), list)
+                         and all(isinstance(key, str) and isinstance(value, str)
+                                 and value in google_authority.SPREADSHEET_IDS
+                                 and source_owner_id(value) == trip_owner_id(key)
+                                 for key, value in choices.items()))
+    except (KeyError, ValueError):
+        valid_choices = False
+    if not valid_choices:
         raise google_authority.SnapshotError('SETTINGS_UNAVAILABLE')
     return data
 
@@ -512,8 +529,10 @@ def load_choices(snapshot_path: Path) -> dict:
 @_serialized
 def record_choice(snapshot_path: Path, *, key: str, source: str, at: str) -> dict:
     """Records the owner's copy for a trip that exists in both books, with history. Never touches Google."""
-    if source not in ("main", "archive"):
+    if source not in google_authority.SPREADSHEET_IDS:
         raise ValueError("CHOICE_SOURCE_INVALID")
+    if source_owner_id(source) != trip_owner_id(key):
+        raise ValueError("CHOICE_OWNER_MISMATCH")
     data = load_choices(snapshot_path)
     previous = data["choices"].get(key)
     if previous == source:
@@ -527,7 +546,8 @@ def record_choice(snapshot_path: Path, *, key: str, source: str, at: str) -> dic
 
 
 # A copy choice never lifts these. They say the figures may be stale or the trip identity is uncertain.
-OWNER_CHOICE_BLOCKERS = {"SOURCE_STALE", "POSSIBLE_DUPLICATE", "DUPLICATE_IN_SOURCE", "COPY_NAME"}
+OWNER_CHOICE_BLOCKERS = {"SOURCE_STALE", "POSSIBLE_DUPLICATE", "DUPLICATE_IN_SOURCE", "COPY_NAME",
+                         "PERIOD_YEAR_CONFLICT", "PERIOD_YEAR_MISSING"}
 
 
 def _load_consistent_measured(snapshot_path, rows_path):
@@ -554,20 +574,36 @@ def _trip_for_owner(trip: dict, choices: dict, sources: dict) -> dict:
     """Applies the owner's copy choice. A choice selects which copy's figures count; it never clears a block."""
     chosen = choices.get(trip["key"])
     copies = trip.get("copies") or {}
+    key_owner = trip_owner_id(trip['key'])
+    owner = trip.get('owner_id') or key_owner
+    if owner != key_owner:
+        return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
+                'expense_total': None, 'net': None, 'blocked_by': ['TRIP_OWNER_MISMATCH']}
+    copies = {source: copy for source, copy in copies.items()
+              if copy and source in google_authority.SPREADSHEET_IDS and source_owner_id(source) == owner}
+    if chosen and (chosen not in google_authority.SPREADSHEET_IDS or source_owner_id(chosen) != owner):
+        return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
+                'expense_total': None, 'net': None, 'blocked_by': ['CHOSEN_COPY_OWNER_MISMATCH']}
+    if not chosen and len(copies) == 1:
+        if owner == 'aslan':
+            return {**trip, 'chosen_source': trip['canonical_source']}
+        chosen = next(iter(copies))
     if chosen and not copies.get(chosen):
         return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
                 'expense_total': None, 'net': None, 'blocked_by': ['CHOSEN_COPY_MISSING']}
-    if copies.get('main') and copies.get('archive') and chosen not in ('main', 'archive'):
+    if len(copies) > 1 and chosen not in copies:
         return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
                 'expense_total': None, 'net': None, 'blocked_by': ['CHOICE_REQUIRED']}
     if not chosen:
         return {**trip, "chosen_source": trip["canonical_source"]}
     copy = copies[chosen]
     blockers = set(trip["review"]) & OWNER_CHOICE_BLOCKERS
-    if any(src.get("status") != "ok" or src.get("stale") for src in sources.values()):
+    owner_sources = [source for source in google_authority.SPREADSHEET_IDS if source_owner_id(source) == owner]
+    if any(sources.get(source, {}).get("status") != "ok" or sources.get(source, {}).get("stale")
+           for source in owner_sources):
         blockers.add("SOURCE_NOT_CURRENT")
-    if not trip.get("closure_current"):
-        blockers.add("CLOSURE_NOT_CURRENT")
+    if owner == 'aslan' and not trip.get('closure_current'):
+        blockers.add('CLOSURE_NOT_CURRENT')
     if copy["layout"] != "rev" or not (copy["income"]["verified"] and copy["expense"]["verified"]):
         blockers.add("COPY_NOT_VERIFIED")
     if blockers:
@@ -655,7 +691,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         copies = trip.get("copies") or {}
         links = " ".join(
             f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={role}'>{role} 상세</a>"
-            for role in ("main", "archive") if copies.get(role))
+            for role in google_authority.SPREADSHEET_IDS if copies.get(role))
         chosen = trip.get('chosen_source')
         choice = ''
         if is_owner and ((copies.get('main') and copies.get('archive'))
@@ -664,10 +700,13 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
             if csrf:
                 choice += ''.join(
                     f"<button type='button' data-choice='{html.escape(trip['key'], quote=True)}' "
-                    f"data-source='{role}'>{ui_icons.icon('check')}{role} 최종 장부로 선택</button>" for role in ('main', 'archive') if copies.get(role))
+                    f"data-source='{role}'>{ui_icons.icon('check')}"
+                    f"{source_label(role) if trip_owner_id(trip['key']) == 'andre' else (role + ' 최종 장부로 선택')}"
+                    f"</button>"
+                    for role in google_authority.SPREADSHEET_IDS if copies.get(role))
         elif not is_owner:
             links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
-                     if chosen in ('main', 'archive') else '최종 장부 선택 필요')
+                     if chosen in google_authority.SPREADSHEET_IDS else '최종 장부 선택 필요')
         rows.append(
             "<tr>"
             f"<td data-label='여행'>{html.escape(trip['key'])}<br>{links}{choice}</td>"
@@ -783,30 +822,49 @@ def auto_mapping_candidates(snapshot: dict, tabs: list, existing: dict) -> dict:
     def base(name):
         return re.sub(r'의사본$', '', identity(name))
 
-    google_counts = Counter(base(t['key']) for t in snapshot['trips'])
+    google_counts = Counter(((t.get('owner_id') or trip_owner_id(t['key'])),
+                             base(t.get('sheet') or trip_sheet(t['key'])))
+                            for t in snapshot['trips'])
     active = [t for t in tabs if not t.get('deleted') and t.get('tab_kind', 'trip') == 'trip']
-    cost_counts = Counter(identity(t.get('display_key')) for t in active)
     occupied = set(existing.values())
     result = {}
     # Explicit user decisions recorded in docs/google-workbook-layout.md.
     known_years = {'0206_하쿠산': 2027, '0302_야쿠시마': 2027}
     for source in snapshot['trips']:
         key = source['key']
-        name = identity(key)
-        if key in existing or google_counts[base(key)] != 1:
+        owner = source.get('owner_id') or trip_owner_id(key)
+        if owner != trip_owner_id(key):
             continue
-        if not re.match(r'^\d{4}_\S', name) or name != base(key) or cost_counts[name] != 1:
+        raw_title = source.get('sheet') or trip_sheet(key)
+        name = identity(raw_title)
+        if key in existing or google_counts[(owner, base(name))] != 1:
             continue
-        target = next(t for t in active if identity(t.get('display_key')) == name)
+        # Immutable source identity wins over mutable display names and remains owner scoped.
+        identity_matches = [t for t in active
+                            if (t.get('owner_id') or 'aslan') == owner
+                            and t.get('source_trip_key') == key]
+        if len(identity_matches) == 1:
+            target = identity_matches[0]
+        elif len(identity_matches) > 1:
+            continue
+        else:
+            display_matches = [t for t in active if (t.get('owner_id') or 'aslan') == owner
+                               and identity(trip_sheet(t.get('display_key') or '')) == name]
+            if (not re.match(r'^\d{4}_\S', name) or name != base(name)
+                    or len(display_matches) != 1):
+                continue
+            target = display_matches[0]
         if target['tab_id'] in occupied:
             continue
         start = str(target.get('starts_on') or '')
         year = str(target.get('event_year') or (start[:4] if start else ''))
+        if owner == 'andre' and year != key.split('::', 2)[1]:
+            continue
         if start and (not re.match(r'^\d{4}-\d{2}-\d{2}$', start)
                       or start[5:7] + start[8:10] != name[:4]
                       or year != start[:4]):
             continue
-        if name in known_years and year != str(known_years[name]):
+        if owner == 'aslan' and name in known_years and year != str(known_years[name]):
             continue
         result[key] = target['tab_id']
         occupied.add(target['tab_id'])
@@ -831,14 +889,26 @@ def import_trips(board, snapshot: dict) -> dict:
     """
     from .ledger_store import SaveError
     counts = Counter()
-    named = {t['display_key']: t for t in board.list_trips(include_archived=True)}
+    existing_tabs = board.list_trips(include_archived=True)
+    named = {t['display_key']: t for t in existing_tabs}
+    source_named = {(t.get('owner_id') or 'aslan', t.get('source_trip_key')): t
+                    for t in existing_tabs if t.get('source_trip_key')}
     for trip in snapshot.get('trips', []):
         period = trip.get('period') or {}
-        destination = re.sub(r'^\d{4}(?:_\d{4})?_', '', trip['key']).strip('_ ')
+        key = trip['key']
+        owner = trip.get('owner_id') or trip_owner_id(key)
+        if owner != trip_owner_id(key) or set(trip.get('review') or ()) & {'PERIOD_YEAR_CONFLICT', 'PERIOD_YEAR_MISSING'}:
+            counts['held'] += 1
+            continue
+        if owner != trip_owner_id(key):
+            counts['held'] += 1
+            continue
+        raw_title = trip.get('sheet') or trip_sheet(key)
+        destination = re.sub(r'^\d{4}(?:_\d{4})?_', '', raw_title).strip('_ ')
         if trip.get('kind') == 'quarter':
             continue
-        if trip['key'] in named:
-            tab = named[trip['key']]
+        tab = source_named.get((owner, key)) or (named.get(key) if owner == 'aslan' else None)
+        if tab is not None:
             # 다음 여행 직전일로 정한 종료일은 다음 여행이 바뀌면 따라 바뀐다. 사용자가 직접 정한 종료일은 덮지 않는다.
             follows = ('PERIOD_END_FROM_NEXT_TRIP' in (period.get('flags') or ()) and tab.get('ends_on')
                        and period.get('ends_on') and tab['ends_on'] != period['ends_on']
@@ -854,14 +924,14 @@ def import_trips(board, snapshot: dict) -> dict:
                 continue
             counts['existing'] += 1
             continue
-        if not period.get('starts_on') or not destination:
+        if not period.get('starts_on') or not destination or not period.get('year'):
             counts['held'] += 1
             continue
-        digest = hashlib.sha256(json.dumps({'key': trip['key'], 'period': period}, sort_keys=True,
+        digest = hashlib.sha256(json.dumps({'key': key, 'period': period}, sort_keys=True,
                                            ensure_ascii=False).encode('utf-8')).hexdigest()
         try:
             outcome = board.create_trip(starts_on=period['starts_on'], ends_on=period.get('ends_on') or '',
-                                        destination=destination, display_key=trip['key'], source_sha256=digest,
+                                        destination=destination, display_key=key, source_sha256=digest,
                                         client_request_id='google-trip-' + digest, actor='google-sync')
         except SaveError:
             counts['held'] += 1
@@ -1027,7 +1097,9 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                 if trip is None:
                     raise ValueError('GOOGLE_TRIP_UNKNOWN')
                 copies = trip.get('copies') or {}
-                if source not in ('main', 'archive') or not copies.get(source):
+                if source not in google_authority.SPREADSHEET_IDS or not copies.get(source):
+                    raise ValueError('CHOICE_COPY_UNAVAILABLE')
+                if source_owner_id(source) != trip_owner_id(key):
                     raise ValueError('CHOICE_COPY_UNAVAILABLE')
                 record_choice(_snapshot_path(), key=key, source=source, at=now)
             else:

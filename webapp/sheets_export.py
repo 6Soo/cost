@@ -248,7 +248,7 @@ class UnconfirmedAssigneeError(Exception):
 #: `''` is absent from this set on purpose: an empty source is the unconfirmed
 #: case, and it is decided by provenance rather than by comparing the text, so a
 #: person who genuinely typed the old placeholder string is not caught by it.
-CONFIRMED_ASSIGNEE_SOURCES = frozenset({"owner_profile", "manual", "seed"})
+CONFIRMED_ASSIGNEE_SOURCES = frozenset({"owner_profile", "manual", "seed", "google_workbook"})
 
 
 def _assignee_confirmed(conn, tab_id: str, source: str, assignee: str = "") -> bool:

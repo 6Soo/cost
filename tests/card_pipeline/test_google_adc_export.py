@@ -48,6 +48,15 @@ def test_authenticated_export_accepts_known_workbook_and_no_redirect():
     assert response.closed
 
 
+def test_authenticated_export_allowlist_includes_andre_workbook():
+    from app.google_authority import SPREADSHEET_IDS
+    session = FakeSession(FakeResponse())
+    fetcher = authorized_export_fetcher(timeout=5, max_bytes=1024, session=session)
+    url = 'https://docs.google.com/spreadsheets/d/' + SPREADSHEET_IDS['andre_main'] + '/export?format=xlsx'
+    assert fetcher(url) == b'xlsx'
+    assert len(session.calls) == 1
+
+
 def test_authenticated_export_never_fetches_unrecognized_host_or_id():
     session = FakeSession(FakeResponse())
     fetcher = authorized_export_fetcher(timeout=5, max_bytes=1024, session=session)
