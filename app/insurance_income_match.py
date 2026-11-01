@@ -196,6 +196,8 @@ def unique_identity_name_match(pattern: str, value: str) -> bool:
     if any(p is None for p in parts):
         if visible < 2 or parts[0] is None or parts[-1] is None:
             return False
+        if any(unicodedata.category(char)[0] not in 'LM' for char in candidate):
+            return False  # A group/deposit annotation is not a single name.
     else:
         normalize = lambda text: re.sub(r'\s+', ' ', unicodedata.normalize('NFC', text).strip()).casefold()
         return normalize(pattern) == normalize(value)

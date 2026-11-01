@@ -68,6 +68,11 @@ def test_stale_or_corrected_roster_never_automatically_connects_masks():
     assert reconcile([person('a','김*람',state='correction_pending')],rows)['counts']['linked'] == 0
 
 
+def test_unknown_mask_length_does_not_absorb_a_joint_deposit_annotation():
+    for name in ('김가람/박다람','김가람(박다람)','김123람'):
+        assert reconcile([person('a','김***람')],[income_row(6,name)])['counts']['linked']==0
+
+
 def test_a_person_without_income_is_shown_by_name_only():
     result = reconcile([person("pt-1", "이나래")], [income_row(6, "김가람", amount=100000)])
     entry = result["participants"][0]
