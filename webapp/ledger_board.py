@@ -5184,7 +5184,18 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
         # A worker thread must not keep the process alive after the socket closes.
         server.daemon_threads = True
         server.store_lock = threading.RLock()
-        if with_worker and not card_flow.enabled():
+        from . import card_completion_worker
+        if card_flow.enabled() and card_completion_worker.enabled_for(store):
+            # --no-worker refers to the legacy importer. This distinct worker
+            # requires the host's explicit automatic-completion activation.
+            worker = card_completion_worker.CardCompletionWorker(store, server.store_lock)
+            store._card_completion_worker = worker
+            original_close = server.server_close
+            def close_with_completion():
+                worker.stop(timeout=5)
+                original_close()
+            server.server_close = close_with_completion
+        elif with_worker and not card_flow.enabled():
             worker = CardWorker(db_path)
             worker.start()
         server.card_worker = worker
@@ -5203,8 +5214,18 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
         raise
     # Publish only a fully constructed server; a bind failure must not replace
     # another server's active store with a failed, closed connection.
+    previous_store, previous_importer = _STORE, _IMPORTER
     bind_store(store)
     bind_importer(importer)
+    try:
+        if getattr(store, '_card_completion_worker', None) is not None:
+            worker.start()
+    except BaseException:
+        server.server_close()
+        store.close()
+        bind_store(previous_store)
+        bind_importer(previous_importer)
+        raise
     return server
 
 

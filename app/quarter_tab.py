@@ -68,7 +68,7 @@ def assign_unassigned(conn) -> dict:
     return placed
 
 
-def book_batch(store, batch_id: str, projection=None) -> int:
+def book_batch(store, batch_id: str, projection=None, *, transaction_ids=None) -> int:
     """Records the quarter-cost rows of one newly collected batch. Older batches are never touched."""
     if not auto_record_policy.batch_is_new(store.conn, batch_id):
         return 0
@@ -76,11 +76,12 @@ def book_batch(store, batch_id: str, projection=None) -> int:
         "SELECT DISTINCT display_tab_id FROM transactions WHERE item=? "
         "AND display_tab_id LIKE 'quarter:%' AND transaction_id IN "
         "(SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)", (ITEM, batch_id)).fetchall()]
-    return sum(confirm_tab(store, tab, batch_id=batch_id, projection=projection)['booked']
+    return sum(confirm_tab(store, tab, batch_id=batch_id, projection=projection,
+                           transaction_ids=transaction_ids)['booked']
                for tab in tabs if parse_tab(tab))
 
 
-def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None) -> dict:
+def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None, *, transaction_ids=None) -> dict:
     """Records the tab's rows in one transaction and returns the counts. Already recorded rows are skipped.
 
     `projection`, when given, is called for each booked row inside the same transaction, so the
@@ -91,6 +92,7 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None) -
     description = f'{year}년 {quarter}분기 기타비용'
     booked, skipped = [], []
     now = utc_now()
+    selected = None if transaction_ids is None else frozenset(transaction_ids)
     with store.lock:
         store.conn.execute('BEGIN IMMEDIATE')
         try:
@@ -100,6 +102,8 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None) -
             holds = active_holds(store.conn)
             for row in pending_rows(store.conn, tab, batch_id):
                 transaction_id = row['transaction_id']
+                if selected is not None and transaction_id not in selected:
+                    continue
                 amount = row['amount_krw']
                 undated = not (row['approval_date'] or row['posting_date'])
                 if row['transaction_direction'] != 'purchase' or type(amount) is not int or amount <= 0 or undated:

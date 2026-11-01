@@ -499,13 +499,14 @@ class CardFlow:
             synced += 1
         return synced
 
-    def _classify(self, batch_id, *, transaction_ids=None):
+    def _classify(self, batch_id, *, transaction_ids=None, snapshot_only=False):
         from app import StoreError
         from .card_classification_completion import complete
         from app.automatic_classification import FIELDS
         initial = {row['transaction_id']: row for row in self.pipeline.get_batch(batch_id)['rows']}
         try:
-            result = self._classify_evidence(batch_id, transaction_ids=transaction_ids)
+            result = (self._classify_evidence(batch_id, transaction_ids=transaction_ids, snapshot_only=True)
+                      if snapshot_only else self._classify_evidence(batch_id, transaction_ids=transaction_ids))
         except StoreError as exc:
             if exc.code != 'OTA_EVIDENCE_UNAVAILABLE':
                 raise
@@ -530,7 +531,7 @@ class CardFlow:
         result['classified'] = result['counts'].get('classified', 0)
         return result
 
-    def _classify_evidence(self, batch_id, *, transaction_ids=None):
+    def _classify_evidence(self, batch_id, *, transaction_ids=None, snapshot_only=False):
         ota_rules=[]
         blocked_inference_sources=set()
         from app.classify import OWNER_BOOKING_ORIGIN
@@ -544,7 +545,11 @@ class CardFlow:
         from app import StoreError, ota_sources
         import sqlite3
         try:
-            report=self._ota_report() if sources else None
+            if snapshot_only:
+                current, fresh = self._held_ota_snapshot()
+                report = self._canonical_snapshot_report(current) if sources and current and fresh else None
+            else:
+                report=self._ota_report() if sources else None
         except (OSError,ValueError,KeyError,TypeError,sqlite3.Error,ota_sources.OtaSourcesError):
             raise StoreError('OTA_EVIDENCE_UNAVAILABLE','등록된 예약 근거 자료를 읽지 못했습니다') from None
         if report is not None and (report.get('ota_source_errors')
@@ -620,7 +625,8 @@ class CardFlow:
         ota_rules += self._canonical_candidate_period_assignments(
             candidate_sources, taken, selected, blocked_inference_sources)
         taken = {rule['optional'].get('source_hash') for rule in ota_rules}
-        ota_rules += self._evidence_period_assignments(batch_id, sources, taken, selected)
+        if not snapshot_only:
+            ota_rules += self._evidence_period_assignments(batch_id, sources, taken, selected)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
         active_owner_sources = {rule['optional'].get('source_hash') for rule in ota_rules
@@ -1669,7 +1675,7 @@ class CardFlow:
                 self._classify(batch_id, transaction_ids=pending)
             return self._auto_record_locked(batch_id)
 
-    def _auto_record_locked(self, batch_id, *, include_state=True):
+    def _auto_record_locked(self, batch_id, *, include_state=True, transaction_ids=None):
         from app import auto_record_policy, quarter_tab
         # The policy accepts every real imported batch, including historical ones.
         # The existence guard still blocks invalid batch IDs.
@@ -1679,10 +1685,16 @@ class CardFlow:
             state = self.state(batch_id)
             state['auto_recorded'] = 0
             return state
+        include_refund_groups = transaction_ids is None
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=None, entry_metadata=self.preview_metadata(),
-                       additional_holds=self.automatic_holds(batch_id, include_verified_full_refunds=True),
-                       include_verified_full_refunds=True)
+                       additional_holds=self.automatic_holds(batch_id, include_verified_full_refunds=include_refund_groups),
+                       include_verified_full_refunds=include_refund_groups)
+        if transaction_ids is not None:
+            selected = frozenset(transaction_ids)
+            options['additional_holds'].update({row[0]: {'kind': 'completion_scope', 'reason': '다음 자동 처리 범위'}
+                for row in self.board.conn.execute('SELECT transaction_id FROM transactions')
+                if row[0] not in selected})
         preview = self.pipeline.preview(batch_id, **options)
         from app.ledger import recordable_rows
         applied = 0
@@ -1691,7 +1703,12 @@ class CardFlow:
                 'auto-record:' + batch_id + ':' + preview['digest'],
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)), automatic_record=True, **options)
             applied = result['applied']
-        applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project)
+        if transaction_ids is None:
+            applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project)
+        else:
+            applied += quarter_tab.book_batch(self.pipeline.store, batch_id,
+                projection=lambda entry: self.project(dict(entry, automatic_record=True)),
+                transaction_ids=transaction_ids)
         if not include_state:
             return {'auto_recorded': applied}
         state = self.state(batch_id)
@@ -2106,6 +2123,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             filename = unquote(handler.headers.get('X-Filename') or 'card.xlsx')
             source_file, inspection = validate_upload(raw, filename)
             received = flow.pipeline.receive(raw, filename)
+            from .card_completion_worker import queue_batch, finish_jobs
+            queue_batch(board, received['batch_id'])
+            recovery = getattr(board, '_card_completion_worker', None)
+            if recovery is not None:
+                recovery.wake()
             try:
                 flow.classify(received['batch_id'])
                 result = flow.state(received['batch_id'])
@@ -2136,14 +2158,18 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                         trips, nets = context(flow)
                         recorded['upload_summary'] = summarize(flow.pipeline, received, source_file,
                             trips, nets=nets, inspection=inspection)
+                finish_jobs(board)
             except Exception:
                 # receive() commits the validated source batch before classification and
-                # recording. Report that durable state explicitly so clients can retry
-                # the same bytes; receive() and auto-record are idempotent on that retry.
+                # recording. The activated worker resumes from this durable batch;
+                # without one, an idempotent same-file retry remains available.
+                scheduled = recovery is not None and recovery.running
                 handler._send_json({'code':'UPLOAD_PROCESSING_INCOMPLETE',
-                    'message':'원천 파일은 저장했지만 후속 처리가 완료되지 않았습니다. 같은 파일을 다시 올려 재시도해 주세요.',
+                    'message':('원천 파일은 저장했고 후속 처리를 자동으로 재시도합니다. 다시 업로드할 필요가 없습니다.' if scheduled else
+                               '원천 파일은 저장했지만 후속 처리가 완료되지 않았습니다. 같은 파일을 다시 올려 재시도해 주세요.'),
                     'batch_id':received['batch_id'], 'source_rows_persisted':True,
-                    'verification_status':'unavailable', 'retry_same_file':True}, 503)
+                    'verification_status':'unavailable', 'retry_same_file':not scheduled,
+                    'automatic_recovery_scheduled':scheduled}, 503)
             else:
                 handler._send_json(recorded)
             return True
