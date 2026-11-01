@@ -16,13 +16,13 @@ def sample_state(count=25):
             "roster": {"scope": "partial", "participants": people}}
 
 
-def test_projection_is_bounded_to_twenty_for_both_lists():
+def test_projection_shows_all_income_rows_but_keeps_participants_bounded():
     projected = panel.project(sample_state())
-    assert len(projected["rows"]) == 20
+    assert len(projected["rows"]) == 25
     assert len(projected["participants"]) == 20
-    assert projected["rows_more"] and projected["participants_more"]
+    assert not projected["rows_more"] and projected["participants_more"]
     second = panel.project(sample_state(), income_offset=20, participant_offset=20)
-    assert [row["row"] for row in second["rows"]] == [26, 27, 28, 29, 30]
+    assert [row["row"] for row in second["rows"]] == list(range(6, 31))
     assert len(second["participants"]) == 5
 
 
@@ -75,8 +75,9 @@ def test_paging_encodes_identity_and_preserves_other_offset():
     queries = [parse_qs(urlsplit(html_module.unescape(href)).query) for href in hrefs
                if urlsplit(html_module.unescape(href)).path == '/board']
     assert all(query['tab'] == [state['trip_id']] for query in queries)
-    assert any(query['participant_income_offset'] == ['20'] and
-               query['participant_offset'] == ['20'] for query in queries)
+    assert any(query.get('participant_offset') == ['40'] and
+               'participant_income_offset' not in query for query in queries)
+    assert '수입 다음 20건' not in markup
     assert 'person 49' not in markup
 
 

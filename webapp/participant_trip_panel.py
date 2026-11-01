@@ -35,8 +35,11 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
         people = [person for person in people
                   if needle in str(person.get("display_name") or "").casefold()
                   or needle in str(person.get("nickname") or "").casefold()]
-    shown_rows, rows_more = _slice(rows, income_offset)
-    income_rows_page, _ = _slice(rows, income_offset)
+    # Keep the complete income list visible for reconciliation. Participant cards
+    # remain paginated independently.
+    shown_rows = rows
+    rows_more = False
+    income_rows_page = rows
     shown_people, people_more = _slice(people, participant_offset)
     links_by_ref = {}
     for person in state.get("participants") or []:
@@ -215,12 +218,9 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         "<button>검색</button></form>")
     def page_url(**overrides):
         query = {"tab": state.get("trip_id"), "participant_q": search,
-                 "participant_income_offset": income_offset,
                  "participant_offset": participant_offset}
         query.update(overrides)
         return _esc("/board?" + urlencode(query))
-    row_more = (f"<a class='btn' href='{page_url(participant_income_offset=income_offset + 20)}'>수입 다음 20건</a>"
-                if data["rows_more"] else "")
     person_more = (f"<a class='btn' href='{page_url(participant_offset=participant_offset + 20)}'>참가자 다음 20명</a>"
                    if data["participants_more"] else "")
     return (
@@ -230,7 +230,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         f"<p><a href='/participants?{_esc(urlencode({'trip':state.get('trip_id') or ''}))}'>참가자 연결 관리</a></p>"
         f"<p>{_esc(status)} · 참가 확정 {counts.get('roster_confirmed', 0)}명 · "
         f"수입 연결 {counts.get('linked', 0)}명 · 미연결 수입 {counts.get('unlinked_income_rows', 0)}건</p>"
-        f"{search_form}{''.join(rows)}{review_html}{row_more}"
+        f"{search_form}{''.join(rows)}{review_html}"
         "<p role='status' class='participant-write-status'></p>"
         "<h3>확정 참가자 · 수입 연결</h3>"
         f"<ul class='participant-cards' aria-describedby='participant-link-help'>{''.join(people)}</ul>"
