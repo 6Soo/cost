@@ -1,5 +1,12 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-01 카드 업로드 UI·여러 파일 순차 처리 완료
+
+- COMPLETE — [PR #451](https://github.com/6Soo/cost/pull/451), 구현 `bf9ad2b4`·`635da5cc`, 최종 검사 `614f4ede`, 운영 SHA `10aee46d228a7bbab58e900ce268d1f7c116d874`. 업로드 영역의 파일 목록·드롭·키보드 선택과 XLS/XLSX/CSV 여러 파일 순차 요청을 추가했다. 중간 오류 후 다음 파일을 처리하며 파일별 결과·상세 링크를 보존하고, 전송 성공과 분류 검증 완료를 구분한다. 처리 중 파일 선택 잠금·자료 전환 시 남은 요청 중단·모바일 숨김 입력란 넘침을 교정했다. 기존 파일별 API·CSRF·금융/중복 보호를 재사용한다.
+- 표적 검사4 passed, 최종 키보드/드롭/큐2 passed(앞 검사와 중복), 기존 브라우저 진입/중복 보호2 passed. 실제 ego-browser 합성 DB에서 정상→오류→동일 원문 재업로드3파일을 처리해 결과2링크·실패1파일·거래1건 유지, 1440/390/320 넘침0·버튼44px 확인. 최초 추가 키보드 검사는 자동으로 열린 패널을 테스트가 닫아 실패했으며 패널 진입을 교정한 최종2검사가 통과했다. 첫 합성 브라우저에서 PC버튼34px을 발견해44px로 수정했다. 서버 재기동 뒤 캐시된 합성 페이지의 CSRF 오류는 새 페이지로 재검증했다. Aside 앱 실행 파일 부재로 ego-browser를 사용했다. 전체 회귀·실기기·실제 운영 파일 업로드는 미실행이다.
+- 운영: 검수/병합tree동일·1,215 blobs 일치·task/process 고정SHA·단일loopback listener·health/ready200·영향/보호8경로401·보호13표 내용/스키마 불변·SourceRefresh 상태 유지. 인증된 운영 PC1440/모바일390에서 업로드 패널·multiple·드롭 영역·결과 컨테이너·44px 버튼·넘침0을 GET만으로 확인했다. 이전 검증 `35a6263b`와 task XML 복구점을 보존한 코드 전용 전환이며 새 전체DB 백업/복원은 반복하지 않았다. 실제 금융/분류/여행/명단/원본/Google/스키마 쓰기0.
+- 근거 `.local-archive/card-multi-upload-20261101/`의 targeted-final.xml·queue-final.xml·browser-regression.xml·browser-evidence.json·live-browser.json·review.json·protection-before/after.json·deploy-evidence.json 및 호스트 동일SHA release/deploy audit. 요청 미결·차단0, 다음 실행 명령 없음. 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-11-01 김동언(안드레) 여행 장부 추가 완료
 
 - COMPLETE — [PR #447](https://github.com/6Soo/cost/pull/447), 구현 `93fb4182`, 운영 SHA `35a6263b9cd876091ccadaae66fda8f056e0fe5c`. [실행 명세](specs/andre-multi-owner-ledger-20261101.md)의 담당자별 원본·여행 식별, 기간 추론 분리, 수동 이름/종료일 보존, 여행 관리 담당자 필터, 수입·참가자·보험 참조 및 지출 중복 검토를 반영했다. 카드 소유자만으로 여행을 재배정하지 않았다.
