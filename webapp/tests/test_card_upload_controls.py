@@ -15,8 +15,8 @@ def test_card_upload_accepts_multiple_files_and_drop_target_is_keyboard_accessib
                 content_type="application/json", body='{"rules": []}'))
             screen.route("http://synthetic.test/api/imports", lambda r: r.fulfill(
                 content_type="application/json", body='{"batches": []}'))
-            screen.goto("http://synthetic.test/import")
-            screen.locator("#newupload > summary").click()
+            screen.goto("http://synthetic.test/import#newupload")
+            expect(screen.locator("#upload-drop")).to_be_visible()
             screen.locator("#file").set_input_files([
                 {"name": "january.csv", "mimeType": "text/csv", "buffer": b"a,b\n"},
                 {"name": "february.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "buffer": b"PK"},
@@ -25,7 +25,7 @@ def test_card_upload_accepts_multiple_files_and_drop_target_is_keyboard_accessib
             assert screen.locator("#file").evaluate("el => el.files.length") == 2
             expect(screen.locator("#upload-selection")).to_contain_text("2개 파일 선택됨")
             assert screen.locator("#upload-drop").get_attribute("tabindex") == "0"
-            with screen.expect_file_chooser():
+            with screen.expect_file_chooser(timeout=3000):
                 screen.locator("#upload-drop").press("Enter")
             screen.locator("#upload-drop").dispatch_event("dragover")
             assert "is-dragover" in (screen.locator("#upload-drop").get_attribute("class") or "")
