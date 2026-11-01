@@ -1,5 +1,11 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-02 수입 보험 명단 환불완료 표시 완료
+
+- COMPLETE — 사용자 요청 두 항목 반영. [PR #464](https://github.com/6Soo/cost/pull/464), 구현 `0515370d`, 고정 운영 SHA `355a059ba5808151a8780409a09b06508427f2f3`, 이전 검증 `62bfa07b77e56716b141230f2bdfb4962cd91055`. 미연결의 `보험 미가입을 뜻하지 않음` 문구를 제거하고, 수입 행 총액이 0원 이하이면 보험 명단 열을 `환불완료`로 대체한다. 금액 미상은 환불완료로 추정하지 않는다. 최초 렌더·보험 비동기 로딩/성공/실패에서도 표시를 유지하며 기존 보험 연결·수입 원본/금액은 보존한다.
+- 검증: 병합 트리와 동일한 후보에서 수입/보험 명단/연결·권한 보호 80 passed/브라우저 등 5 deselected. ego-browser 합성 0원·음수·양수 로딩/성공/실패 PASS. 인증된 운영 여행의 수입13행 중 0원1행 `환불완료`, 양수 행 오표시0·삭제 문구0을 확인하고 TaskSpace4를 정상 종료했다. 전체 회귀·실기기는 미실행(국소 표시 변경). 금융/참가자/Google/원본/스키마 쓰기0.
+- 배포: 1,233 Git blobs 불일치0·검사본/병합본 트리 동일·task/process 고정SHA·단일 loopback listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용이므로 새 전체 DB 백업/복원은 반복하지 않았으며 이전 검증 릴리스/task XML 복구점을 보존했다. 근거 `.local-archive/income-refund-label-20261102/`의 targeted.xml·browser.json·live.json·review/release-audit/deploy-evidence 및 호스트 동일SHA 감사 기록. 이 요청의 미결/차단0, 다음 명령 없음. 후속 문서는 재배포/재시작하지 않는다.
+
 ## 2026-11-02 첨부 카드8건 조사·취소 표시 교정
 
 - COMPLETE — [PR461](https://github.com/6Soo/cost/pull/461), 운영 `efefafc43dd13134c61c85c9fd1d171c8523142c`, 이전 검증 `d206cab71cf02843fcd38be5340cf3e04ff4d75f`. [거래별 조사·범위·미확인 사실](specs/eight-card-review-20261102.md). 취소7건의 목록/상세/미배정필터/집계·정산탭 표시를 교정하고 명시 이용 확인 보류1건을 보존했다. 금융 연결·금액·분류·장부·Google·원본·스키마 쓰기0.
