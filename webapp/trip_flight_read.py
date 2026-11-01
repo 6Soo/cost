@@ -164,7 +164,12 @@ def read_booking_trip_rules() -> dict:
         if any(not name.startswith("ota_review_") for name in names):
             raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
         if "ota_review_booking_trips" not in names:
-            raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
+            # Booking-trip tables are created on the first explicit assignment.
+            # An existing isolated review store without them has no manual rules.
+            # A remaining history table signals an incomplete schema instead.
+            if not names or "ota_review_booking_trip_history" in names:
+                raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
+            return {}
         rows = conn.execute(
             "SELECT provider,booking_ref,trip_tab_id,trip_code,basis,revision,status,user,changed_at "
             "FROM ota_review_booking_trips ORDER BY provider,booking_ref")
