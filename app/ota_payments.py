@@ -7,9 +7,11 @@ import hashlib
 import json
 import re
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 from app import ota_mail, ota_portal
 from app.ota_matching_defaults import load_defaults, provider_resolution_scope
@@ -1118,7 +1120,7 @@ def _undated_exact_identity(event, row, rules=()):
     return merchant_match
 
 
-def _eligible_cards(event, transactions, links=None, rules=None):
+def _eligible_cards(event, transactions, links=None, rules=None, *, candidate_rows=None):
     # Reservation notices and unknown-card undated events cannot create an edge.
     # Keep them out of the full card scan when date-less relations are enabled.
     if not _event_is_paid(event) or (not event.get('paid_on') and
@@ -1126,7 +1128,7 @@ def _eligible_cards(event, transactions, links=None, rules=None):
         return []
     expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
     eligible = []
-    for row in transactions:
+    for row in transactions if candidate_rows is None else candidate_rows:
         if row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
             continue
         if _direction(row) != expected_direction:
@@ -1515,315 +1517,100 @@ def _card_identity(row):
             _direction(row))
 
 
-@provider_resolution_scope()
-def match_ota_payment_events(events, transactions, *, existing_links=None, rules=None,
-                             frozen_groups=None):
-    """Build M:N payment relations; retain separate legacy financial allocations."""
-    existing_links = existing_links or {}
-    rules = rules or []
-    frozen_groups = frozen_groups or []
+@dataclass
+class _OtaMatchContext:
+    """Mutable state shared across independent OTA allocation phases."""
+    events: list[dict[str, Any]]
+    transactions: list[dict[str, Any]]
+    existing_links: dict[Any, Any]
+    rules: list[dict[str, Any]]
+    frozen_groups: list[dict[str, Any]]
+    rows: dict[Any, dict[str, Any]]
+    claimed: dict[Any, Any]
+    pinned_counts: defaultdict[Any, int]
+    pin_owners_by_card: defaultdict[str, list[dict[str, Any]]]
+    all_events_by_id: dict[str, dict[str, Any]]
+    raw_options: dict[str, list[dict[str, Any]]]
+    options_by_event: dict[str, list[dict[str, Any]]]
+    grouped_results: dict[Any, dict[str, Any]] = field(default_factory=dict)
+    reserved_partial: set[Any] = field(default_factory=set)
+    grouped_event_ids: set[Any] = field(default_factory=set)
+    singleton_selected: dict[Any, Any] = field(default_factory=dict)
+    singleton_conflicts: set[Any] = field(default_factory=set)
+    inferred_pairs: dict[Any, dict[str, Any]] = field(default_factory=dict)
+
+
+def _prepare_match_state(events, transactions, existing_links, rules, frozen_groups):
+    """Build the shared indexes and eligible edges used by all allocation phases."""
     rows = {row.get("transaction_id"): row for row in transactions if row.get("transaction_id")}
-    result = []
-    claimed = {}
-    pinned_counts = defaultdict(int)
-    # 이미 고정된 연결을 먼저 점유시켜 자동 대조가 이를 바꾸거나 재사용하지 않게 한다.
+    claimed, pinned_counts = {}, defaultdict(int)
     for identity, link in existing_links.items():
         transaction_id = link.get("transaction_id") if isinstance(link, dict) else link
         if transaction_id:
             claimed[transaction_id] = identity
             pinned_counts[transaction_id] += 1
+
     pin_owners_by_card = defaultdict(list)
+    pin_event_ids_by_card = defaultdict(list)
     for pin in frozen_groups:
+        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
         for transaction_id in pin.get("card_ids", ()):
-            pin_owners_by_card[str(transaction_id)].append(pin)
-    all_events_by_id = {str(event.get("ota_event_id")):event for event in events
+            card_id = str(transaction_id)
+            pin_owners_by_card[card_id].append(pin)
+            pin_event_ids_by_card[card_id].append(pin_event_ids)
+
+    all_events_by_id = {str(event.get("ota_event_id")): event for event in events
                         if event.get("ota_event_id") is not None}
-    raw_options = {
-        str(event.get("ota_event_id")): _eligible_cards(event, transactions, rules=rules)
-        for event in events if not existing_links.get(event.get("ota_event_id"))
-    }
-    options_by_event = {}
-    for identity, options in raw_options.items():
+    cards_by_direction = defaultdict(list)
+    cards_by_direction_tail = defaultdict(list)
+    for row in transactions:
+        direction = _direction(row)
+        cards_by_direction[direction].append(row)
+        tail = str(row.get("card_tail") or row.get("card_last4") or "")
+        if len(tail) >= 4:
+            cards_by_direction_tail[(direction, tail[-4:])].append(row)
+    raw_options, options_by_event = {}, {}
+    for event in events:
+        event_id = event.get("ota_event_id")
+        if existing_links.get(event_id):
+            continue
+        identity = str(event_id)
+        direction = "refund" if event.get("event_type") == "refund" else "purchase"
+        last4 = str(event.get("card_last4") or "")
+        candidate_rows = (cards_by_direction_tail.get((direction, last4), ())
+                          if re.fullmatch(r"\d{4}", last4)
+                          else cards_by_direction[direction])
+        options = _eligible_cards(event, transactions, rules=rules,
+                                  candidate_rows=candidate_rows)
+        raw_options[identity] = options
         options_by_event[identity] = [row for row in options
             if str(row.get("transaction_id")) not in claimed and
-            all(identity in {str(value) for value in pin.get("event_ids", ())}
-                for pin in pin_owners_by_card.get(str(row.get("transaction_id")), ()))]
-    # 동일 조건의 반복 거래를 먼저 나눈 뒤, 후보 카드가 증명하는 카드 정체성별로 묶는다.
-    by_signature = defaultdict(list)
-    signature_by_event = {}
-    for event in events:
-        identity = event.get("ota_event_id")
-        if identity in existing_links or not _event_is_paid(event) or not event.get("paid_on"):
-            continue
-        signature = _event_group_signature(event)
-        signature_by_event[str(identity)] = signature
-        by_signature[signature].append(event)
-    grouped_results = {}
-    group_specs = []
-    reserved_partial = set(pin_owners_by_card)
-    stale_pin_indexes = set()
-    for pin_index, pin in enumerate(frozen_groups):
-        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
-        pin_card_ids = {str(identity) for identity in pin.get("card_ids", ())}
-        present = [identity for identity in pin_event_ids if identity in all_events_by_id]
-        signatures = {signature_by_event.get(identity) for identity in pin_event_ids}
-        stale = (not pin_event_ids or not pin_card_ids or len(present) != len(pin_event_ids) or
-                 None in signatures or len(signatures) != 1)
-        for identity, transaction_id in (pin.get("mapping") or {}).items():
-            identity = str(identity)
-            if identity not in options_by_event or str(transaction_id) not in {
-                    str(row.get("transaction_id")) for row in options_by_event.get(identity, ())}:
-                stale = True
-        if not stale:
-            identity_keys = {_card_identity(row) for identity in pin_event_ids
-                             for row in options_by_event.get(identity, ())}
-            if len(identity_keys) != 1:
-                stale = True
-        if not stale:
-            continue
-        stale_pin_indexes.add(pin_index)
-        current_card_ids = pin_card_ids | {str(row.get("transaction_id"))
-            for identity in present for row in raw_options.get(identity, ()) if row.get("transaction_id")}
-        reserved_partial.update(current_card_ids)
-        for identity in present:
-            event = all_events_by_id[identity]
-            if identity in existing_links:
-                continue
-            grouped_results[identity] = dict(event, status="HOLD_GROUP_CHANGED", transaction_id=None,
-                candidates=sorted(current_card_ids), reason="frozen_group_evidence_changed",
-                review_warning="confirm_group_reallocation", frozen_mapping=pin.get("mapping", {}),
-                proposed_mapping={}, group_order_snapshot=pin.get("order_snapshot", {}),
-                group_count={"ota":len(pin_event_ids), "cards":len(current_card_ids)},
-                ota_group_ids=sorted(pin_event_ids), card_group_ids=sorted(current_card_ids),
-                reserved_card_ids=sorted(current_card_ids))
-    for pin_index, pin in enumerate(frozen_groups):
-        if pin_index in stale_pin_indexes:
-            continue
-        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
-        signatures = {signature_by_event.get(identity) for identity in pin_event_ids}
-        signature = next(iter(signatures))
-        signature_events = by_signature.get(signature, ())
-        if {str(item.get("ota_event_id")) for item in signature_events} != pin_event_ids:
-            stale_pin_indexes.add(pin_index)
-            current_card_ids = {str(identity) for identity in pin.get("card_ids", ())}
-            current_event_ids = {str(item.get("ota_event_id")) for item in signature_events}
-            current_card_ids.update(str(row.get("transaction_id")) for identity in pin_event_ids | current_event_ids
-                                     for row in raw_options.get(identity, ()) if row.get("transaction_id"))
-            reserved_partial.update(current_card_ids)
-            for identity in pin_event_ids | current_event_ids:
-                if identity in all_events_by_id and identity not in existing_links:
-                    event = all_events_by_id[identity]
-                    grouped_results[identity] = dict(event, status="HOLD_GROUP_CHANGED", transaction_id=None,
-                        candidates=sorted(current_card_ids), reason="frozen_group_membership_changed",
-                        review_warning="confirm_group_reallocation", frozen_mapping=pin.get("mapping", {}),
-                        proposed_mapping={}, group_order_snapshot=pin.get("order_snapshot", {}),
-                        group_count={"ota":len(pin_event_ids), "cards":len(current_card_ids)},
-                        ota_group_ids=sorted(pin_event_ids), card_group_ids=sorted(current_card_ids),
-                        reserved_card_ids=sorted(current_card_ids))
-    for group_events in by_signature.values():
-        card_identity_groups = defaultdict(list)
-        for event in group_events:
-            identity = str(event.get("ota_event_id"))
-            if identity in grouped_results:
-                continue
-            identity_keys = {_card_identity(row) for row in options_by_event.get(identity, ())}
-            if len(identity_keys) == 1:
-                card_identity_groups[next(iter(identity_keys))].append(event)
-        for card_identity, identity_events in card_identity_groups.items():
-            event_ids = [event.get("ota_event_id") for event in identity_events]
-            card_ids = {str(row.get("transaction_id")) for identity in event_ids
-                        for row in options_by_event.get(str(identity), ())
-                        if _card_identity(row) == card_identity and row.get("transaction_id")}
-            if not card_ids or (len(identity_events) < 2 and len(card_ids) < 2):
-                continue
-            if len(identity_events) == 1:
-                identity = str(identity_events[0].get("ota_event_id"))
-                overlaps_other = any(other_id != identity and card_ids &
-                    {str(row.get("transaction_id")) for row in other_options}
-                    for other_id, other_options in options_by_event.items())
-                if overlaps_other:
-                    continue
-            sorted_events = sorted(identity_events, key=lambda item: (str(item.get("booking_ref") or ""),
-                                                                       str(item.get("ota_event_id") or "")))
-            card_rows = {str(row.get("transaction_id")):row for identity in event_ids
-                         for row in options_by_event.get(str(identity), ())
-                         if str(row.get("transaction_id")) in card_ids}
-            if (not card_identity[0] or not re.fullmatch(r"\d{4}", card_identity[1]) or
-                    any(event.get("card_last4") and event.get("card_last4") != card_identity[1]
-                        for event in sorted_events)):
-                all_ids = sorted(card_ids)
-                reserved_partial.update(card_ids)
-                for ota in sorted_events:
-                    grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_AMBIGUOUS",
-                        transaction_id=None, candidates=all_ids,
-                        reason="repeated_group_card_identity_conflict",
-                        group_count={"ota":len(sorted_events), "cards":len(card_ids)},
-                        ota_group_ids=sorted(event_ids), card_group_ids=all_ids,
-                        reserved_card_ids=all_ids)
-                continue
-            sorted_cards = sorted(card_ids, key=lambda identity: (
-                str(card_rows[identity].get("approval_number") or card_rows[identity].get("authorization_number") or
-                    card_rows[identity].get("authorization_id") or ""), str(identity)))
-            order_snapshot = {"events":[[str(item.get("ota_event_id")),str(item.get("booking_ref") or "")]
-                                        for item in sorted_events],
-                "cards":[[str(card_id),str(card_rows[card_id].get("approval_number") or
-                           card_rows[card_id].get("authorization_number") or
-                           card_rows[card_id].get("authorization_id") or "")] for card_id in sorted_cards],
-                "event_evidence":[[str(item.get("ota_event_id")),_digest(item)] for item in sorted_events],
-                "card_evidence":[[str(card_id),_digest(card_rows[card_id])] for card_id in sorted_cards],
-                "eligible_edges_digest":_digest([[str(item.get("ota_event_id")), str(card_id)]
-                    for item in sorted_events
-                    for card_id in sorted(str(row.get("transaction_id"))
-                        for row in options_by_event.get(str(item.get("ota_event_id")), ())
-                        if str(row.get("transaction_id")) in card_ids)])}
-            selected_pairs = _assign_exact_first(sorted_events, options_by_event,
-                                                  unavailable=set(claimed))
-            matched_count = len(selected_pairs)
-            current_event_ids = sorted(str(identity) for identity in event_ids)
-            current_card_ids = sorted(card_ids)
-            pin = next((item for item in frozen_groups
-                        if set(map(str, item.get("event_ids", ()))) & set(current_event_ids)), None)
-            if pin:
-                pin_event_ids = set(map(str, pin.get("event_ids", ())))
-                pin_card_ids = set(map(str, pin.get("card_ids", ())))
-                frozen_mapping = {str(key):str(value) for key, value in (pin.get("mapping") or {}).items()}
-                reserved_ids = sorted(pin_card_ids | set(current_card_ids))
-                if (pin_event_ids != set(current_event_ids) or pin_card_ids != set(current_card_ids) or
-                        (pin.get("order_snapshot") and pin["order_snapshot"] != order_snapshot) or
-                        set(frozen_mapping) != set(current_event_ids) or
-                        set(frozen_mapping.values()) != set(current_card_ids)):
-                    for ota in sorted_events:
-                        grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_GROUP_CHANGED",
-                            transaction_id=None, candidates=reserved_ids,
-                            reason="frozen_group_evidence_changed", review_warning="confirm_group_reallocation",
-                            frozen_mapping=pin.get("mapping", {}),
-                            proposed_mapping=dict(selected_pairs),
-                            group_order_snapshot=order_snapshot,
-                            group_count={"ota":len(pin_event_ids | set(current_event_ids)), "cards":len(reserved_ids)},
-                            ota_group_ids=sorted(pin_event_ids | set(current_event_ids)),
-                            card_group_ids=reserved_ids,
-                            reserved_card_ids=reserved_ids)
-                    reserved_partial.update(reserved_ids)
-                    continue
-                selected_pairs = sorted(frozen_mapping.items())
-            group_specs.append({"events": sorted_events, "event_ids": event_ids,
-                                "card_ids": sorted(card_ids),
-                                "pairs": selected_pairs, "matched_count": matched_count,
-                                "card_rows": card_rows, "pin":pin,
-                                "order_snapshot":order_snapshot})
-    # A card candidate shared by separate groups or singleton events makes
-    # every connected component ambiguous. Never claim by iteration order.
-    event_group = {event["ota_event_id"]: spec for spec in group_specs for event in spec["events"]}
-    card_owners = defaultdict(set)
-    for index, spec in enumerate(group_specs):
-        for card_id in spec["card_ids"]:
-            card_owners[card_id].add(index)
-    collision_indices = {index for owners in card_owners.values() if len(owners) > 1 for index in owners}
-    grouped_event_ids = set(event_group) | set(grouped_results)
-    for identity, options in options_by_event.items():
-        if identity in grouped_event_ids:
-            continue
-        for row in options:
-            for index in card_owners.get(row["transaction_id"], ()):
-                collision_indices.add(index)
-                for spec in group_specs:
-                    if identity in {event["ota_event_id"] for event in spec["events"]}:
-                        collision_indices.add(group_specs.index(spec))
-    for index, spec in enumerate(group_specs):
-        sorted_events, card_ids = spec["events"], spec["card_ids"]
-        all_event_ids, all_card_ids = sorted(spec["event_ids"]), sorted(card_ids)
-        if index in collision_indices:
-            for ota in sorted_events:
-                grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_AMBIGUOUS",
-                    transaction_id=None, candidates=all_card_ids, reason="overlapping_global_group_candidates",
-                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
-                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
-                    reserved_card_ids=all_card_ids)
-            reserved_partial.update(card_ids)
-            continue
-        if spec["matched_count"] < len(sorted_events) or spec["matched_count"] < len(card_ids):
-            reserved_partial.update(card_ids)
-            status = ("HOLD_AMBIGUOUS" if len(sorted_events) > 1 and len(card_ids) == 1
-                      else "HOLD_PARTIAL_GROUP")
-            for ota in sorted_events:
-                grouped_results[ota["ota_event_id"]] = dict(ota, status=status, transaction_id=None,
-                    candidates=all_card_ids, reason="partial_repeated_payment_group",
-                    matched_count=spec["matched_count"], unmatched_ota_count=max(0, len(sorted_events)-spec["matched_count"]),
-                    unmatched_card_count=max(0, len(card_ids)-spec["matched_count"]),
-                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
-                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
-                    reserved_card_ids=all_card_ids)
-            continue
-        selected = dict(spec["pairs"])
-        # 같은 금액 반복 결제는 승인 없이 승인번호·예약번호 순서로 자동 배정하고, 기록 근거를 남겨 월별 검토에서 고친다.
-        for ota in sorted_events:
-            identity = ota["ota_event_id"]
-            card_id = selected[identity]
-            allocation_basis = ("frozen_user_confirmed_order" if spec.get("pin")
-                                else "auto_stable_order")
-            grouped_results[identity] = dict(ota, status="MATCHED_AUTO", transaction_id=card_id,
-                candidates=[card_id], reason=allocation_basis, allocation_basis=allocation_basis,
-                group_order_frozen=bool(spec.get("pin")),
-                individual_payment_evidence=False, group_count={"ota":len(sorted_events), "cards":len(card_ids)},
-                ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
-                group_order_snapshot=spec["order_snapshot"],
-                rule_delta_krw=(int(_card_amount(spec["card_rows"][card_id]) - _event_amount(ota))
-                                if _card_amount(spec["card_rows"][card_id]) != _event_amount(ota) and
-                                _event_amount(ota) is not None and _card_amount(spec["card_rows"][card_id]) is not None else None),
-                discount_cause_confirmed=False)
-            claimed[card_id] = identity
-    # Resolve remaining singleton candidates as one bipartite problem. Exact
-    # edges win globally; equal best allocations remain a hold.
-    singleton_events = [event for event in events if event.get("ota_event_id") not in grouped_event_ids and
-                        event.get("ota_event_id") not in existing_links and _event_is_paid(event) and
-                        (event.get("paid_on") or options_by_event.get(str(event.get("ota_event_id"))))]
-    singleton_events.sort(key=lambda event: str(event.get("ota_event_id") or ""))
-    singleton_unavailable = set(claimed) | reserved_partial
-    singleton_pairs = _assign_exact_first(singleton_events, options_by_event,
-                                           unavailable=singleton_unavailable)
-    singleton_selected = dict(singleton_pairs)
-    singleton_conflicts = _ambiguous_optimal_singletons(
-        singleton_events, options_by_event, singleton_pairs, unavailable=singleton_unavailable)
+            all(identity in owners for owners in pin_event_ids_by_card.get(
+                str(row.get("transaction_id")), ()))]
+    return _OtaMatchContext(events, transactions, existing_links, rules, frozen_groups,
+                            rows, claimed, pinned_counts, pin_owners_by_card,
+                            all_events_by_id, raw_options, options_by_event)
+
+
+def _assemble_ota_match_results(context):
+    """Apply link, evidence, and singleton outcomes in original event order."""
     from app import ota_inference
-    inferred_pairs = ota_inference.unique_pairs(events, transactions,
-        occupied=set(claimed) | set(reserved_partial), rules=rules)
+    events, transactions = context.events, context.transactions
+    existing_links, rules, rows = context.existing_links, context.rules, context.rows
+    pinned_counts, grouped_results = context.pinned_counts, context.grouped_results
+    inferred_pairs, options_by_event = context.inferred_pairs, context.options_by_event
+    singleton_selected, singleton_conflicts = context.singleton_selected, context.singleton_conflicts
+    reserved_partial, claimed = context.reserved_partial, context.claimed
+    raw_options, pin_owners_by_card = context.raw_options, context.pin_owners_by_card
+    result = []
     for event in events:
         identity = event.get("ota_event_id")
         if identity in grouped_results:
             result.append(grouped_results[identity])
             continue
-        link = existing_links.get(identity)
-        if link:
-            transaction_id = link.get("transaction_id") if isinstance(link, dict) else link
-            status = link.get("status", "MATCHED_USER") if isinstance(link, dict) else "MATCHED_USER"
-            if pinned_counts[transaction_id] > 1:
-                result.append(dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
-                                   candidates=[transaction_id], reason="pinned_global_one_to_one_collision"))
-                continue
-            if status not in ("MATCHED_AUTO", "MATCHED_USER"):
-                result.append(dict(event, status="HOLD_EVIDENCE_CONFLICT", transaction_id=None,
-                                   candidates=[], reason="invalid_existing_link_status"))
-                continue
-            if isinstance(link, dict) and link.get("legacy_exact"):
-                row = rows.get(transaction_id)
-                valid = (row is not None and link.get("source_digest") == event.get("source_digest") and
-                         status in ("MATCHED_AUTO", "MATCHED_USER") and _event_is_paid(event))
-                if valid:
-                    expected = "refund" if event.get("event_type") == "refund" else "purchase"
-                    card_hint = str(event.get("card_last4") or "")
-                    actual_hint = str(row.get("card_tail") or row.get("card_last4") or "")
-                    amount_match = _amount_matches(event, row, rules)
-                    valid = (amount_match and _direction(row) == expected and
-                             (not card_hint or actual_hint.endswith(card_hint)))
-                    old_sources = set(link.get("source_digests") or [])
-                    current_sources = set(event.get("source_digests") or [])
-                    valid = valid and bool(old_sources and current_sources and old_sources & current_sources)
-                if not valid:
-                    result.append(dict(event, status="HOLD_EVIDENCE_CONFLICT", transaction_id=None,
-                                       candidates=[], reason="legacy_exact_binding_validation_failed"))
-                    continue
-            result.append(dict(event, status=status, transaction_id=transaction_id,
-                               candidates=[], reason="pinned_existing_link"))
+        pinned = _pinned_link_result(event, context)
+        if pinned is not None:
+            result.append(pinned)
             continue
         if not _event_is_paid(event):
             if event.get("evidence_status") in ("conflict", "evidence_conflict", "refund_conflict"):
@@ -1950,6 +1737,326 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                                 discount_cause_confirmed=False if trip_delta else None))
     from app.ota_payment_relations import attach_relations
     return attach_relations(events, rows, options_by_event, result, existing_links=existing_links)
+
+def _validate_frozen_group_membership(context, by_signature, signature_by_event,
+                                      grouped_results, reserved_partial):
+    events, existing_links, frozen_groups = context.events, context.existing_links, context.frozen_groups
+    all_events_by_id, raw_options = context.all_events_by_id, context.raw_options
+    options_by_event = context.options_by_event
+    stale_pin_indexes = set()
+    for pin_index, pin in enumerate(frozen_groups):
+        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
+        pin_card_ids = {str(identity) for identity in pin.get("card_ids", ())}
+        present = [identity for identity in pin_event_ids if identity in all_events_by_id]
+        signatures = {signature_by_event.get(identity) for identity in pin_event_ids}
+        stale = (not pin_event_ids or not pin_card_ids or len(present) != len(pin_event_ids) or
+                 None in signatures or len(signatures) != 1)
+        for identity, transaction_id in (pin.get("mapping") or {}).items():
+            identity = str(identity)
+            if identity not in options_by_event or str(transaction_id) not in {
+                    str(row.get("transaction_id")) for row in options_by_event.get(identity, ())}:
+                stale = True
+        if not stale:
+            identity_keys = {_card_identity(row) for identity in pin_event_ids
+                             for row in options_by_event.get(identity, ())}
+            if len(identity_keys) != 1:
+                stale = True
+        if not stale:
+            continue
+        stale_pin_indexes.add(pin_index)
+        current_card_ids = pin_card_ids | {str(row.get("transaction_id"))
+            for identity in present for row in raw_options.get(identity, ()) if row.get("transaction_id")}
+        reserved_partial.update(current_card_ids)
+        for identity in present:
+            event = all_events_by_id[identity]
+            if identity in existing_links:
+                continue
+            grouped_results[identity] = dict(event, status="HOLD_GROUP_CHANGED", transaction_id=None,
+                candidates=sorted(current_card_ids), reason="frozen_group_evidence_changed",
+                review_warning="confirm_group_reallocation", frozen_mapping=pin.get("mapping", {}),
+                proposed_mapping={}, group_order_snapshot=pin.get("order_snapshot", {}),
+                group_count={"ota":len(pin_event_ids), "cards":len(current_card_ids)},
+                ota_group_ids=sorted(pin_event_ids), card_group_ids=sorted(current_card_ids),
+                reserved_card_ids=sorted(current_card_ids))
+    for pin_index, pin in enumerate(frozen_groups):
+        if pin_index in stale_pin_indexes:
+            continue
+        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
+        signatures = {signature_by_event.get(identity) for identity in pin_event_ids}
+        signature = next(iter(signatures))
+        signature_events = by_signature.get(signature, ())
+        if {str(item.get("ota_event_id")) for item in signature_events} != pin_event_ids:
+            stale_pin_indexes.add(pin_index)
+            current_card_ids = {str(identity) for identity in pin.get("card_ids", ())}
+            current_event_ids = {str(item.get("ota_event_id")) for item in signature_events}
+            current_card_ids.update(str(row.get("transaction_id")) for identity in pin_event_ids | current_event_ids
+                                     for row in raw_options.get(identity, ()) if row.get("transaction_id"))
+            reserved_partial.update(current_card_ids)
+            for identity in pin_event_ids | current_event_ids:
+                if identity in all_events_by_id and identity not in existing_links:
+                    event = all_events_by_id[identity]
+                    grouped_results[identity] = dict(event, status="HOLD_GROUP_CHANGED", transaction_id=None,
+                        candidates=sorted(current_card_ids), reason="frozen_group_membership_changed",
+                        review_warning="confirm_group_reallocation", frozen_mapping=pin.get("mapping", {}),
+                        proposed_mapping={}, group_order_snapshot=pin.get("order_snapshot", {}),
+                        group_count={"ota":len(pin_event_ids), "cards":len(current_card_ids)},
+                        ota_group_ids=sorted(pin_event_ids), card_group_ids=sorted(current_card_ids),
+                        reserved_card_ids=sorted(current_card_ids))
+    return stale_pin_indexes
+
+
+def _build_repeated_group_specs(context, by_signature, grouped_results, reserved_partial,
+                               stale_pin_indexes):
+    events, frozen_groups = context.events, context.frozen_groups
+    claimed, options_by_event = context.claimed, context.options_by_event
+    group_specs = []
+    for group_events in by_signature.values():
+        card_identity_groups = defaultdict(list)
+        for event in group_events:
+            identity = str(event.get("ota_event_id"))
+            if identity in grouped_results:
+                continue
+            identity_keys = {_card_identity(row) for row in options_by_event.get(identity, ())}
+            if len(identity_keys) == 1:
+                card_identity_groups[next(iter(identity_keys))].append(event)
+        for card_identity, identity_events in card_identity_groups.items():
+            event_ids = [event.get("ota_event_id") for event in identity_events]
+            card_ids = {str(row.get("transaction_id")) for identity in event_ids
+                        for row in options_by_event.get(str(identity), ())
+                        if _card_identity(row) == card_identity and row.get("transaction_id")}
+            if not card_ids or (len(identity_events) < 2 and len(card_ids) < 2):
+                continue
+            if len(identity_events) == 1:
+                identity = str(identity_events[0].get("ota_event_id"))
+                overlaps_other = any(other_id != identity and card_ids &
+                    {str(row.get("transaction_id")) for row in other_options}
+                    for other_id, other_options in options_by_event.items())
+                if overlaps_other:
+                    continue
+            sorted_events = sorted(identity_events, key=lambda item: (str(item.get("booking_ref") or ""),
+                                                                       str(item.get("ota_event_id") or "")))
+            card_rows = {str(row.get("transaction_id")):row for identity in event_ids
+                         for row in options_by_event.get(str(identity), ())
+                         if str(row.get("transaction_id")) in card_ids}
+            if (not card_identity[0] or not re.fullmatch(r"\d{4}", card_identity[1]) or
+                    any(event.get("card_last4") and event.get("card_last4") != card_identity[1]
+                        for event in sorted_events)):
+                all_ids = sorted(card_ids)
+                reserved_partial.update(card_ids)
+                for ota in sorted_events:
+                    grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_AMBIGUOUS",
+                        transaction_id=None, candidates=all_ids,
+                        reason="repeated_group_card_identity_conflict",
+                        group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                        ota_group_ids=sorted(event_ids), card_group_ids=all_ids,
+                        reserved_card_ids=all_ids)
+                continue
+            sorted_cards = sorted(card_ids, key=lambda identity: (
+                str(card_rows[identity].get("approval_number") or card_rows[identity].get("authorization_number") or
+                    card_rows[identity].get("authorization_id") or ""), str(identity)))
+            order_snapshot = {"events":[[str(item.get("ota_event_id")),str(item.get("booking_ref") or "")]
+                                        for item in sorted_events],
+                "cards":[[str(card_id),str(card_rows[card_id].get("approval_number") or
+                           card_rows[card_id].get("authorization_number") or
+                           card_rows[card_id].get("authorization_id") or "")] for card_id in sorted_cards],
+                "event_evidence":[[str(item.get("ota_event_id")),_digest(item)] for item in sorted_events],
+                "card_evidence":[[str(card_id),_digest(card_rows[card_id])] for card_id in sorted_cards],
+                "eligible_edges_digest":_digest([[str(item.get("ota_event_id")), str(card_id)]
+                    for item in sorted_events
+                    for card_id in sorted(str(row.get("transaction_id"))
+                        for row in options_by_event.get(str(item.get("ota_event_id")), ())
+                        if str(row.get("transaction_id")) in card_ids)])}
+            selected_pairs = _assign_exact_first(sorted_events, options_by_event,
+                                                  unavailable=set(claimed))
+            matched_count = len(selected_pairs)
+            current_event_ids = sorted(str(identity) for identity in event_ids)
+            current_card_ids = sorted(card_ids)
+            pin = next((item for item in frozen_groups
+                        if set(map(str, item.get("event_ids", ()))) & set(current_event_ids)), None)
+            if pin:
+                pin_event_ids = set(map(str, pin.get("event_ids", ())))
+                pin_card_ids = set(map(str, pin.get("card_ids", ())))
+                frozen_mapping = {str(key):str(value) for key, value in (pin.get("mapping") or {}).items()}
+                reserved_ids = sorted(pin_card_ids | set(current_card_ids))
+                if (pin_event_ids != set(current_event_ids) or pin_card_ids != set(current_card_ids) or
+                        (pin.get("order_snapshot") and pin["order_snapshot"] != order_snapshot) or
+                        set(frozen_mapping) != set(current_event_ids) or
+                        set(frozen_mapping.values()) != set(current_card_ids)):
+                    for ota in sorted_events:
+                        grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_GROUP_CHANGED",
+                            transaction_id=None, candidates=reserved_ids,
+                            reason="frozen_group_evidence_changed", review_warning="confirm_group_reallocation",
+                            frozen_mapping=pin.get("mapping", {}),
+                            proposed_mapping=dict(selected_pairs),
+                            group_order_snapshot=order_snapshot,
+                            group_count={"ota":len(pin_event_ids | set(current_event_ids)), "cards":len(reserved_ids)},
+                            ota_group_ids=sorted(pin_event_ids | set(current_event_ids)),
+                            card_group_ids=reserved_ids,
+                            reserved_card_ids=reserved_ids)
+                    reserved_partial.update(reserved_ids)
+                    continue
+                selected_pairs = sorted(frozen_mapping.items())
+            group_specs.append({"events": sorted_events, "event_ids": event_ids,
+                                "card_ids": sorted(card_ids),
+                                "pairs": selected_pairs, "matched_count": matched_count,
+                                "card_rows": card_rows, "pin":pin,
+                                "order_snapshot":order_snapshot})
+    return group_specs
+
+
+def _resolve_repeated_group_specs(context, group_specs, grouped_results, reserved_partial):
+    claimed = context.claimed
+    options_by_event = context.options_by_event
+    # A card candidate shared by separate groups or singleton events makes
+    # every connected component ambiguous. Never claim by iteration order.
+    group_index_by_event = {event["ota_event_id"]: index
+                            for index, spec in enumerate(group_specs) for event in spec["events"]}
+    card_owners = defaultdict(set)
+    for index, spec in enumerate(group_specs):
+        for card_id in spec["card_ids"]:
+            card_owners[card_id].add(index)
+    collision_indices = {index for owners in card_owners.values() if len(owners) > 1 for index in owners}
+    grouped_event_ids = set(group_index_by_event) | set(grouped_results)
+    for identity, options in options_by_event.items():
+        if identity in grouped_event_ids:
+            continue
+        for row in options:
+            collision_indices.update(card_owners.get(row["transaction_id"], ()))
+    for index, spec in enumerate(group_specs):
+        sorted_events, card_ids = spec["events"], spec["card_ids"]
+        all_event_ids, all_card_ids = sorted(spec["event_ids"]), sorted(card_ids)
+        if index in collision_indices:
+            for ota in sorted_events:
+                grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_AMBIGUOUS",
+                    transaction_id=None, candidates=all_card_ids, reason="overlapping_global_group_candidates",
+                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                    reserved_card_ids=all_card_ids)
+            reserved_partial.update(card_ids)
+            continue
+        if spec["matched_count"] < len(sorted_events) or spec["matched_count"] < len(card_ids):
+            reserved_partial.update(card_ids)
+            status = ("HOLD_AMBIGUOUS" if len(sorted_events) > 1 and len(card_ids) == 1
+                      else "HOLD_PARTIAL_GROUP")
+            for ota in sorted_events:
+                grouped_results[ota["ota_event_id"]] = dict(ota, status=status, transaction_id=None,
+                    candidates=all_card_ids, reason="partial_repeated_payment_group",
+                    matched_count=spec["matched_count"], unmatched_ota_count=max(0, len(sorted_events)-spec["matched_count"]),
+                    unmatched_card_count=max(0, len(card_ids)-spec["matched_count"]),
+                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                    reserved_card_ids=all_card_ids)
+            continue
+        selected = dict(spec["pairs"])
+        # 같은 금액 반복 결제는 승인 없이 승인번호·예약번호 순서로 자동 배정하고, 기록 근거를 남겨 월별 검토에서 고친다.
+        for ota in sorted_events:
+            identity = ota["ota_event_id"]
+            card_id = selected[identity]
+            allocation_basis = ("frozen_user_confirmed_order" if spec.get("pin")
+                                else "auto_stable_order")
+            grouped_results[identity] = dict(ota, status="MATCHED_AUTO", transaction_id=card_id,
+                candidates=[card_id], reason=allocation_basis, allocation_basis=allocation_basis,
+                group_order_frozen=bool(spec.get("pin")),
+                individual_payment_evidence=False, group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                group_order_snapshot=spec["order_snapshot"],
+                rule_delta_krw=(int(_card_amount(spec["card_rows"][card_id]) - _event_amount(ota))
+                                if _card_amount(spec["card_rows"][card_id]) != _event_amount(ota) and
+                                _event_amount(ota) is not None and _card_amount(spec["card_rows"][card_id]) is not None else None),
+                discount_cause_confirmed=False)
+            claimed[card_id] = identity
+    return grouped_results, reserved_partial, grouped_event_ids
+
+
+def _allocate_repeated_groups(context):
+    """Validate frozen membership, build repeated groups, then resolve collisions."""
+    events, existing_links = context.events, context.existing_links
+    by_signature, signature_by_event = defaultdict(list), {}
+    for event in events:
+        identity = event.get("ota_event_id")
+        if identity in existing_links or not _event_is_paid(event) or not event.get("paid_on"):
+            continue
+        signature = _event_group_signature(event)
+        signature_by_event[str(identity)] = signature
+        by_signature[signature].append(event)
+    grouped_results = {}
+    reserved_partial = set(context.pin_owners_by_card)
+    stale = _validate_frozen_group_membership(
+        context, by_signature, signature_by_event, grouped_results, reserved_partial)
+    specs = _build_repeated_group_specs(
+        context, by_signature, grouped_results, reserved_partial, stale)
+    grouped_results, reserved_partial, grouped_event_ids = _resolve_repeated_group_specs(
+        context, specs, grouped_results, reserved_partial)
+    context.grouped_results = grouped_results
+    context.reserved_partial = reserved_partial
+    context.grouped_event_ids = grouped_event_ids
+
+
+
+def _pinned_link_result(event, context):
+    """Validate and retain a pre-existing manual or legacy exact link."""
+    link = context.existing_links.get(event.get("ota_event_id"))
+    if not link:
+        return None
+    transaction_id = link.get("transaction_id") if isinstance(link, dict) else link
+    status = link.get("status", "MATCHED_USER") if isinstance(link, dict) else "MATCHED_USER"
+    if context.pinned_counts[transaction_id] > 1:
+        return dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
+                    candidates=[transaction_id], reason="pinned_global_one_to_one_collision")
+    if status not in ("MATCHED_AUTO", "MATCHED_USER"):
+        return dict(event, status="HOLD_EVIDENCE_CONFLICT", transaction_id=None,
+                    candidates=[], reason="invalid_existing_link_status")
+    if isinstance(link, dict) and link.get("legacy_exact"):
+        row = context.rows.get(transaction_id)
+        valid = (row is not None and link.get("source_digest") == event.get("source_digest") and
+                 _event_is_paid(event))
+        if valid:
+            expected = "refund" if event.get("event_type") == "refund" else "purchase"
+            card_hint = str(event.get("card_last4") or "")
+            actual_hint = str(row.get("card_tail") or row.get("card_last4") or "")
+            valid = (_amount_matches(event, row, context.rules) and _direction(row) == expected and
+                     (not card_hint or actual_hint.endswith(card_hint)))
+            old_sources = set(link.get("source_digests") or [])
+            current_sources = set(event.get("source_digests") or [])
+            valid = valid and bool(old_sources and current_sources and old_sources & current_sources)
+        if not valid:
+            return dict(event, status="HOLD_EVIDENCE_CONFLICT", transaction_id=None,
+                        candidates=[], reason="legacy_exact_binding_validation_failed")
+    return dict(event, status=status, transaction_id=transaction_id,
+                candidates=[], reason="pinned_existing_link")
+
+
+def _select_singleton_payments(context):
+    """Resolve ungrouped verified payments as one global assignment problem."""
+    events, transactions = context.events, context.transactions
+    existing_links, rules = context.existing_links, context.rules
+    claimed, reserved_partial = context.claimed, context.reserved_partial
+    grouped_event_ids, options_by_event = context.grouped_event_ids, context.options_by_event
+    singleton_events = [event for event in events if event.get("ota_event_id") not in grouped_event_ids and
+                        event.get("ota_event_id") not in existing_links and _event_is_paid(event) and
+                        (event.get("paid_on") or options_by_event.get(str(event.get("ota_event_id"))))]
+    singleton_events.sort(key=lambda event: str(event.get("ota_event_id") or ""))
+    unavailable = set(claimed) | reserved_partial
+    pairs = _assign_exact_first(singleton_events, options_by_event, unavailable=unavailable)
+    context.singleton_selected = dict(pairs)
+    context.singleton_conflicts = _ambiguous_optimal_singletons(
+        singleton_events, options_by_event, pairs, unavailable=unavailable)
+    from app import ota_inference
+    context.inferred_pairs = ota_inference.unique_pairs(
+        events, transactions, occupied=unavailable, rules=rules)
+
+
+@provider_resolution_scope()
+def match_ota_payment_events(events, transactions, *, existing_links=None, rules=None,
+                             frozen_groups=None):
+    """Build M:N payment relations; retain separate legacy financial allocations."""
+    existing_links = existing_links or {}
+    rules = rules or []
+    frozen_groups = frozen_groups or []
+    context = _prepare_match_state(events, transactions, existing_links, rules, frozen_groups)
+    _allocate_repeated_groups(context)
+    _select_singleton_payments(context)
+    return _assemble_ota_match_results(context)
 
 
 def bind_legacy_portal_links(events, legacy_links):

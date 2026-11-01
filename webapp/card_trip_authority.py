@@ -110,8 +110,9 @@ def retail_trip(flow, transaction, country, *, google_nets):
             if flow.trip_valid(trip['tab_id']):
                 flow._retail_trips.append((trip_region(trip), trip))
     occurred = transaction['approval_date']
-    candidates = [trip for code,trip in flow._retail_trips if code == region
-                  and trip['starts_on'] <= occurred <= trip['ends_on']]
+    from app.trip_selection import period_or_preparation
+    candidates, preparation = period_or_preparation(
+        [trip for code, trip in flow._retail_trips if code == region], occurred)
     if not candidates:
         return ''
     # 한 여행이 끝나고 다음 여행이 시작하는 날이면 수입-비용 차액이 큰 여행으로 보낸다.

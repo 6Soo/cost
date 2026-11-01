@@ -43,6 +43,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from .owner_metadata import company_name_default as _owner_company_name
 from .space_guard import SpaceRefused, free_bytes, reserve, reserve_conn
 
 # Bytes a workbook costs on top of its rows: styles, shared strings, the zip
@@ -460,24 +461,6 @@ def _assignee_source(store, tab_id: str) -> str:
         return ""
     return str(trip.get("assignee_source") or "")
 
-
-def _owner_company_name(conn) -> str:
-    """The company name the owner entered, or "" when none has been entered.
-
-    Takes the connection rather than the store so it can be read inside the same
-    read transaction as everything else in one export. A company name read
-    before a transaction and a trip read inside it could come from different
-    points in time, and the file would then disagree with its own manifest.
-    """
-    try:
-        row = conn.execute(
-            "SELECT company_name FROM owner_profile WHERE profile_id='owner'"
-        ).fetchone()
-    except Exception:
-        return ""
-    if not row:
-        return ""
-    return str(row[0] or "").strip()
 
 
 #: Written where an assignee value exists but nobody ever recorded where it came
