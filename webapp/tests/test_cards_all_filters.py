@@ -9,6 +9,36 @@ from webapp import card_transactions as ct, cards_all
 from webapp.tests.test_cards_all import card_db_path
 
 
+def test_reviewed_refunds_without_payment_links_are_not_unassigned(card_db_path, monkeypatch):
+    monkeypatch.setattr(cards_all, '_trip_context', lambda: ({}, set()))
+    with closing(sqlite3.connect(card_db_path)) as conn, conn:
+        conn.execute("UPDATE transactions SET display_tab_id='refunds',trip_id='', "
+                     "classification_state='classified' WHERE transaction_id='TX-A-01'")
+        conn.execute('CREATE TABLE transaction_review_holds '
+                     '(transaction_id TEXT, source_hash TEXT, kind TEXT, reason TEXT)')
+        conn.executemany('INSERT INTO transaction_review_holds VALUES (?,?,?,?)', [
+            ('TX-A-02', 'h2', 'cancelled', 'cancelled booking'),
+            ('TX-B-01', 'stale-source', 'cancelled', 'source changed'),
+            ('TX-APR-02', 'h5', 'user_hold', 'usage unknown')])
+        conn.execute("UPDATE transactions SET trip_id='' WHERE transaction_id='TX-A-02'")
+        before = conn.iterdump()
+        before = '\n'.join(before)
+    items = ct.list_for_month(card_db_path, 2026, 3)['items']
+    assert {r['transaction_id'] for r in items if r['refund_tab_member']} == {'TX-A-01', 'TX-A-02'}
+    filtered = ct.list_for_month(card_db_path, 2026, 3, unassigned=True)['items']
+    assert [r['transaction_id'] for r in filtered] == ['TX-B-01']
+    assert ct.year_summary(card_db_path, 2026, unassigned=True)['months'][3] == 1
+    assert ct.year_summary(card_db_path, 2026, unassigned=True)['months'][4] == 2
+    page = cards_all.cards_all_page({'period': ['2026-03']}, db_path=card_db_path)
+    assert page.count("href='/board?tab=refunds'>취소·환불</a>") == 2
+    for tid in ('TX-A-01', 'TX-A-02'):
+        detail = ct.transaction_detail(tid, card_db_path)
+        assert detail['refund_tab_member']
+        assert '<dt>배정</dt><dd>취소·환불</dd>' in cards_all.card_detail_html(detail)
+    with closing(sqlite3.connect(card_db_path)) as conn:
+        assert '\n'.join(conn.iterdump()) == before
+
+
 def test_integrated_period_preserves_search_card_scope_and_legacy_links(card_db_path, monkeypatch):
     monkeypatch.setattr(cards_all, '_trip_context', lambda: ({}, set()))
     key = ct.card_identity('CARD', 'credit', '1234')['card_key']

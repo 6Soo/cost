@@ -72,7 +72,10 @@ def render_settlement_review(store, completed=(), *, query='', kind=''):
         "JOIN review_decisions d ON d.transaction_id=t.transaction_id "
         "AND d.revision=(SELECT MAX(d2.revision) FROM review_decisions d2 WHERE d2.transaction_id=t.transaction_id) "
         "LEFT JOIN transaction_review_holds h ON h.transaction_id=t.transaction_id "
-        "WHERE d.display_tab_id='refunds' "
+        "WHERE d.display_tab_id='refunds' OR (h.kind='cancelled' "
+        "AND h.source_hash=t.source_hash "
+        "AND COALESCE(t.display_tab_id,'') IN ('','unclassified','refunds') "
+        "AND COALESCE(t.trip_id,'') IN ('','unclassified','refunds')) "
         "ORDER BY COALESCE(NULLIF(t.approval_date,''),t.posting_date) DESC,t.transaction_id").fetchall()
     esc = html.escape
     cards = []

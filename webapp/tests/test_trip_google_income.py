@@ -35,6 +35,30 @@ def test_income_connects_only_explicit_trip_and_preserves_rows(income_context):
     assert '연결되지 않았습니다' in page.trip_income_html('other-trip')
 
 
+@pytest.mark.parametrize('amount', [0, -1000, 1000])
+@pytest.mark.parametrize('loaded', [False, True])
+def test_income_refund_status_uses_total_before_and_after_roster_load(
+        income_context, monkeypatch, amount, loaded):
+    import copy
+    snapshot, _ = income_context
+    rows = [{'row': 6, 'date': '2026-10-28', 'name': 'synthetic',
+             'deposit': 1000, 'balance': 0, 'extra': amount - 1000, 'amount': amount}]
+    before = copy.deepcopy(rows)
+    monkeypatch.setattr(page, 'owner_rows', lambda *args: {'income': rows, 'expense': []})
+    snapshot['trips'][0]['copies']['main']['income'].update(
+        total=amount, row_sum=amount, sheet_total=amount)
+    body = page.trip_income_html('trip-syn', participant_state={} if loaded else None)
+    assert ('환불완료' in body) == (amount <= 0)
+    assert ("data-income-refund-complete='1'" in body) == (amount <= 0)
+    assert '보험 미가입을 뜻하지 않음' not in body
+    assert rows == before
+
+
+def test_missing_income_total_is_not_refund_complete():
+    assert not page.is_refunded_income({})
+    assert not page.is_refunded_income({'amount': None})
+
+
 def test_income_renders_all_rows_without_next_20_link(income_context, monkeypatch):
     snapshot, _ = income_context
     rows = [
