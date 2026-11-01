@@ -28,6 +28,8 @@
 
 - 표적 카드 조회/필터/취소 정산/환불 탭65 passed,2 deselected. 제외2건은 기준624ceec9에서도 같은 실패를 재현했다(상충 배정 필터 기대값, 과거 안내 문구 기대값). 최초 실행63 passed/2 failed와 구분한다.
 - 운영 원행을 수정 코드의 읽기 투영으로 대조: 취소 표시7·미배정 필터 제외7·명시 이용 확인 보류1 유지.119,965원 취소 정산 표시 확인.13개 보호 표 스키마/내용 전후 불변.
-- Aside CLI는 있으나 실제 브라우저 실행 파일이 없어 인증 브라우저 확인 불가. 재설치/인증 우회 없음. 기존 환불 탭 합성 모바일 검사 통과를 실운영 인증 브라우저로 보고하지 않는다.
+- 초기 Aside 시도는 실행 파일 부재로 실패했다. 이후 사용자의 최신 ego-browser 지침으로 동일 작업 공간1을 사용해 인증 운영8건·395,000원 상세·미배정 필터 제외·모바일390px 가로 넘침0을 수락했다. TaskSpace는 정상 종료했다. 최초 잘못 지정한 snapshot root 및 버튼 문구까지 비교한 검수 스크립트 오류는 교정했으며 서비스 오류로 보고하지 않는다.
 - 고객 원문은 Git에 추가하지 않는다. 로컬 근거: `.local-archive/eight-card-review-20261102/`의 initial/mail-facts/mail-selected/related/snapshot-selected, targeted-final.xml, baseline-failures.xml, live-projection.json.
-- 코드 배포·최종 SHA·최소 스모크 결과는 작업 종료 시 운영 기록과 현재 상태에 기록한다. 전체 회귀·실제 금융/Google 쓰기는 실행 범위 밖이다.
+- COMPLETE — [PR461](https://github.com/6Soo/cost/pull/461), 구현 `c5f88337b24a6ef0f832ec5ed937281264918b4d`, 운영 `efefafc43dd13134c61c85c9fd1d171c8523142c`. 병합 시 다른 작업의 문서6파일만 추가됐으며 병합본 자체에서65 passed/기존2 deselected를 확인했다.1,232 blobs 불일치0·task/process 고정SHA·단일loopback listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변·SourceRefresh 상태와 기존task 인수 보존.
+- 직전 검증 `d206cab71cf02843fcd38be5340cf3e04ff4d75f`와 task XML 복구점을 보존했다. 코드만 전환했으므로 새 전체DB백업/복원은 반복하지 않았다. 실제 금융/분류/여행/보류/원문/장부/Google/스키마 쓰기0. 전체 회귀·실기기·현재 Gmail 전체 검색·실제 은행 환급 확인은 미실행이다.
+- 후속 근거는 merged-final.xml·release-audit/review/protection-before/after/deploy-evidence·browser-final/browser-detail.json·mobile-after.png와 호스트 동일SHA release/deploy audit이다. 초기 검수본과 병합본의 실행코드는 같으며 문서만 달랐다. 조사 및 표시 수정의 남은 코드/배포 작업0, 다음 명령 없음. Agoda146,018원의 실제 이용/취소/환급 사실은 미확인 상태 그대로이며 사용자 재확인 사실을 만들지 않았다. 후속 문서 변경에는 코드 재검사·재배포·재시작을 하지 않는다.

@@ -1,3 +1,9 @@
+## 2026-11-02 첨부 카드8건 조사·취소 미배정 오표시 교정 완료
+
+- COMPLETE — [조사·8건별 근거](specs/eight-card-review-20261102.md), [PR461](https://github.com/6Soo/cost/pull/461). 구현 `c5f88337`, 운영 `efefafc43dd13134c61c85c9fd1d171c8523142c`. 저장된 취소·환불6건과 취소 확인 보류1건을 목록/상세/집계/미배정 필터/취소 정산 탭에서 일관되게 표시했다. 군산 Agoda146,018원의 명시 이용 확인 보류는 유지했다.395,000원 결제의 원승인 취소355,000원·순액40,000원 근거를 확인했으나 성격/환급을 창작하지 않았다.
+- 병합본 표적65 passed/기준624ceec9 재현 기존실패2 deselected. 운영8건 읽기 대조·인증ego8건/상세/필터·모바일390px 넘침0 수락.1,232 blobs 일치·task/processSHA·단일listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변. SourceRefresh 및 기존task 인수 보존. 금융/분류/여행/보류/장부/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/eight-card-review-20261102/`, 호스트 동일SHA release/deploy audit. 직전 검증d206cab7와task XML 복구점 보존, 코드 전용으로 새전체DB백업/복원 없음. 조사/표시교정 미결0·다음명령 없음. 실제 이용/은행 환급·현재Gmail 전체검색·전체회귀/실기기는 미확인이며 기존보호를 유지한다. 문서후속 재배포/재시작 없음. 병행 사용자/다른작업 변경은 별도 보존한다.
+
 ## 2026-11-02 브라우저 실행 규칙 ego-browser 전환
 
 - COMPLETE — 사용자 “프로젝트 규칙에서 aside 관련 내용을 모두 ego로 수정”. [COST 지침](../AGENTS.md), 참조 정본 `C:/AX/agent-policy/AUTONOMOUS_EXECUTION.md`의 브라우저 절, [카드 다운로드](card_downloads.md), 금융·Google 인증·UI 검증의 실행 지시를 ego-browser로 변경했다. Windows UTF-8 `.mjs`·동일 TaskSpace 재사용을 명시하며 인증·원본·외부 쓰기 권한 경계는 유지한다. 과거 운영/인증 기록은 당시 증거로 보존하고 현재 실행 지시와 구분한다.
