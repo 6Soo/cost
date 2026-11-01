@@ -2896,6 +2896,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                     if not t.get('deleted') and not t.get('archived') and trip_valid(t['tab_id'])),
                    key=lambda t: t.get('starts_on') or '', reverse=True)
     options = card_cleanup_ui.render_cleanup_trip_options(trips, esc=esc)
+    trip_names = {t['tab_id']: t.get('display_key') or t['tab_id'] for t in trips}
     from . import card_cleanup_queries
     if reason not in card_cleanup_queries.REASONS:
         reason = 'all'
@@ -3117,6 +3118,10 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             elif offset_link.get('status') == 'full':
                 label = '환불 상쇄 확인'
         card_row = card_cleanup_ui.CleanupCardRow(
+            assignment_text=(
+                f"현재 여행: {trip_names[current_tab]} · 항목: {item or '미분류'}"
+                if current_tab in trip_names else ""
+            ),
             tid=tid,
             batch=batch,
             revision=revision,
