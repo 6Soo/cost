@@ -153,3 +153,15 @@ def test_matching_hash_does_not_make_an_unreadable_pdf_valid(tmp_path):
     result=prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS)
     assert result[0]['status']=='held'
     assert result[0]['code']=='DOCUMENT_PRODUCT_UNVERIFIED'
+
+
+def test_explicit_source_mapping_uses_existing_google_trip_without_replacing_prior_mapping(tmp_path):
+    path,_,_=source(tmp_path/'review')
+    trips=TRIPS+[dict(TRIPS[0],tab_id='other',starts_on='2026-04-01',ends_on='2026-04-04')]
+    mapping=dict(MAPPING,other='other')
+    original=prepare_document_batches(path,tmp_path/'inbox',mapping=mapping,trips=trips)[0]
+    override={original['source_key']:'other'}
+    held=prepare_document_batches(path,tmp_path/'inbox',mapping=mapping,trips=trips,trip_overrides=override)[0]
+    assert held['code']=='EXISTING_MAPPING_PRESERVED'
+    new=prepare_document_batches(path,tmp_path/'other-inbox',mapping=mapping,trips=trips,trip_overrides=override)[0]
+    assert new['trip_id']=='other' and new['mapping_basis']=='explicit_source_mapping'

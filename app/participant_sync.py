@@ -30,7 +30,7 @@ def document_info(path):
             'pages':list(range(1,len(reader.pages)+1))}
 
 
-def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_people=None):
+def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_people=None, trip_overrides=None):
     """Adapt verified documents to the existing immutable roster batch format.
 
     Only an explicit mapping or a unique enclosing Google trip is sufficient.
@@ -66,8 +66,9 @@ def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_p
             reports.append({'source_key':key,'status':'held','code':'DOCUMENT_PRODUCT_UNVERIFIED',
                             'rows':len(source['items'])})
             continue
-        tid = source.get('cost_trip_id')
-        mapping_basis = 'explicit_mapping' if tid else 'unique_enclosing_period'
+        overrides=trip_overrides or {}
+        tid = overrides.get(key,source.get('cost_trip_id'))
+        mapping_basis = 'explicit_source_mapping' if key in overrides else 'explicit_mapping' if tid else 'unique_enclosing_period'
         conflict=False
         if not tid:
             enclosing = [trip for trip in valid.values()
@@ -100,6 +101,11 @@ def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_p
         batch = inbox / batch_id
         if not batch.resolve().is_relative_to(inbox.resolve()):
             raise RosterError('SOURCE_PATH_INVALID')
+        if (batch/'manifest.json').is_file():
+            current=json.loads((batch/'manifest.json').read_text(encoding='utf-8'))
+            if (current.get('trip_ref') or {}).get('cost_trip_id') != tid:
+                reports.append({'source_key':key,'status':'held','code':'EXISTING_MAPPING_PRESERVED'})
+                continue
         manifest = {'schema_version': 1, 'batch_id': batch_id,
                     'roster_id': 'insurance-document-'+key[:32], 'revision': 1,
                     'authority': 'verified_insurance_document',
@@ -168,7 +174,8 @@ def sync_once(config, store):
         people.setdefault(tid,[]).append({'participant_id':pid,'display_name':name})
     try:
         sources = prepare_document_batches(config['review_manifest'],config['inbox'],mapping=mapping,
-                                           trips=trips,registered_people=people) if config.get('review_manifest') else []
+                                           trips=trips,registered_people=people,
+                                           trip_overrides=config.get('document_trip_overrides')) if config.get('review_manifest') else []
     except (ManifestError, OSError, ValueError, RosterError):
         sources = [{'status':'rejected','code':'DOCUMENT_SOURCE_UNAVAILABLE'}]
     batches=scan_inbox(config['inbox'],store,mapping=mapping,expected_web_db=config['db'])
