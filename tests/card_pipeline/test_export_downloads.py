@@ -98,6 +98,7 @@ def test_hana_foreign_billed_total_is_not_principal_plus_fee_twice():
     assert row.issuer == '하나' and row.card_kind == '해외'
     assert row.amount_krw == 10300
     assert row.foreign_amount == '1000.5' and row.foreign_currency == ''
+    assert row.posting_date == ''
 
 
 @pytest.mark.parametrize('headers,values', [(HANA_USAGE, hana_usage(card='')),
@@ -147,6 +148,17 @@ def test_same_approval_with_changed_billed_total_preserves_source_conflict():
     pipe.receive(make_csv([hana_usage()], headers=HANA_USAGE), 'first.csv')
     second = pipe.receive(make_csv([hana_foreign(amount=11300)], headers=HANA_FOREIGN), 'second.csv')
     assert second['conflicts'] == 1 and second['inserted'] == 0
+    assert pipe.store.conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason<>''").fetchone()[0] == 1
+
+
+def test_conflicting_explicit_posting_dates_preserve_source_conflict():
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    first = hana_usage()
+    second = hana_usage()
+    second[2] = '2026-10-12'
+    pipe.receive(make_csv([first], headers=HANA_USAGE), 'first.csv')
+    result = pipe.receive(make_csv([second], headers=HANA_USAGE), 'second.csv')
+    assert result['conflicts'] == 1 and result['inserted'] == 0
     assert pipe.store.conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason<>''").fetchone()[0] == 1
 
 

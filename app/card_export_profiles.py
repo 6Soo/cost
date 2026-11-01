@@ -94,6 +94,8 @@ def parse_export(cells, fmt, filename):
                         raw={f'c{i}': None if v is None else str(v)
                              for i, v in enumerate(values)})
         _normalize_row(row, values, columns, None)
+        if 'posting_date' not in columns:
+            row.posting_date = ''  # This compact view supplies no posting date.
         row.issuer = '기업' if layout == 'ibk_print' else '하나'
         # Keep alphanumeric issuer approval IDs intact in these export layouts.
         row.approval_number = str(at('approval_number') or '').strip()
@@ -142,15 +144,17 @@ def existing_purchase(store, batch_id, parser, row):
             or not row.approval_number or not row.card_tail or not row.approval_date):
         return None
     candidates = store.conn.execute(
-        "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency "
+        "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency,posting_date "
         "FROM transactions WHERE issuer=? AND card_tail=? AND approval_number=? "
         "AND approval_date=? AND transaction_direction='purchase' AND batch_id<>? "
         "AND parse_error='' AND conflict_reason='' AND duplicate_of IS NULL",
         (row.issuer, row.card_tail, row.approval_number, row.approval_date, batch_id)).fetchall()
     if len(candidates) != 1:
         return None
-    identity, merchant, amount, foreign, currency = candidates[0]
+    identity, merchant, amount, foreign, currency, posting_date = candidates[0]
     same = merchant == row.merchant_normalized and amount == row.amount_krw
+    if posting_date and row.posting_date:
+        same = same and posting_date == row.posting_date
     if foreign and row.foreign_amount:
         try:
             same = same and to_decimal(foreign) == to_decimal(row.foreign_amount)
