@@ -69,7 +69,7 @@ def test_stale_or_corrected_roster_never_automatically_connects_masks():
 
 
 def test_unknown_mask_length_does_not_absorb_a_joint_deposit_annotation():
-    for name in ('김가람/박다람','김가람(박다람)','김123람'):
+    for name in ('김가람/박다람','김가람(박다람)','김123람','김가람 외 박다람'):
         assert reconcile([person('a','김***람')],[income_row(6,name)])['counts']['linked']==0
 
 
