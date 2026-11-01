@@ -334,7 +334,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td>"
             + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'>"
-                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험 명단 확인") + "<button type='button' class='participant-row-connect' aria-label='보험 명단 대조'>대조</button></td>")
+                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험 명단 확인") + "</td>")
                if owner else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap

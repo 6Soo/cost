@@ -188,7 +188,8 @@ def test_browser_loading_retry_and_candidate_dialog_are_actionable_and_readonly(
             assert page.locator('.participant-insurance-cell').inner_text() == '보험 명단 대조 중…'
             page.wait_for_timeout(100)
             held[0].fulfill(status=503,body='unavailable')
-            page.locator('.participant-insurance-cell .participant-review-retry').click()
+            assert page.locator('.participant-insurance-cell button').count() == 0
+            page.locator('#participant-trip-panel .participant-review-retry').click()
             page.wait_for_timeout(100)
             assert len(held) == 2
             held[1].fulfill(status=200,content_type='text/html',body=response)
