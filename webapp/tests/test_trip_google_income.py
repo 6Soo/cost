@@ -35,6 +35,25 @@ def test_income_connects_only_explicit_trip_and_preserves_rows(income_context):
     assert '연결되지 않았습니다' in page.trip_income_html('other-trip')
 
 
+def test_income_renders_all_rows_without_next_20_link(income_context, monkeypatch):
+    snapshot, _ = income_context
+    rows = [
+        {'row': index, 'date': f'2026-10-{(index % 28) + 1:02d}',
+         'name': f'INCOME-{index}', 'nickname': '', 'deposit': 1000,
+         'balance': '', 'extra': '', 'amount': 1000}
+        for index in range(25)
+    ]
+    monkeypatch.setattr(page, 'owner_rows', lambda *args: {'income': rows, 'expense': []})
+    snapshot['trips'][0]['copies']['main']['income'].update(
+        total=25000, row_sum=25000, sheet_total=25000)
+
+    body = page.trip_income_html('trip-syn')
+
+    assert 'INCOME-0' in body and 'INCOME-24' in body
+    assert body.count("<td class='income-person'>") == 25
+    assert '다음 수입 20건' not in body
+
+
 def test_income_does_not_guess_ambiguous_mapping(income_context, monkeypatch):
     _, key = income_context
     monkeypatch.setattr(page, 'load_mapping', lambda *a: {key: 'trip-syn', 'other': 'trip-syn'})

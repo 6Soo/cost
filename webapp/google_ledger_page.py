@@ -311,13 +311,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                 visible_rows = [row for row in visible_rows if
                     needle in str(row.get("name") or "").casefold() or
                     needle in str(row.get("nickname") or "").casefold()]
-            limit = max(1, min(int(participant_limit), 20))
-            income_more = len(visible_rows) > income_offset + limit
-            visible_rows = visible_rows[income_offset:income_offset + limit]
-        else:
-            income_more = False
-            income_offset = 0
-            limit = len(visible_rows)
+        income_offset = 0
         if owner:
             from . import participant_trip_panel
             visible_rows = participant_trip_panel.attach_row_refs(visible_rows, source=source, sheet=keys[0])
@@ -376,9 +370,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                 f"<div class='income-meta-info'>{time_row}{figures}</div>"
                 f"<div class='income-meta-actions'>{source_link}</div>"
                 f"</div>")
-        more_link = (f"<a class='btn' href='/board?tab={html.escape(quote(tab_id, safe=''), quote=True)}&amp;participant_income_offset={income_offset + limit}'>다음 수입 20건</a>"
-                     if owner and income_more else '')
-        body = reasons_p + gap_alert + (table + more_link if show_rows else '') + meta
+        body = reasons_p + gap_alert + (table if show_rows else '') + meta
         if numeric_gap:
             message = '수입 합계 차이 있음'
         elif show_rows:
