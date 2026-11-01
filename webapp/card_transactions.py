@@ -25,9 +25,12 @@ def card_identity(issuer, kind, last4):
     tail = str(last4 or '').strip()
     if not re.fullmatch(r'[0-9]{4}', tail):
         return {'card_key': 'missing', 'card_label': '식별 정보 없음'}
-    issuer, kind = str(issuer or '').strip(), str(kind or '').strip()
-    key = hashlib.sha256(json.dumps([issuer, kind, tail], ensure_ascii=True).encode()).hexdigest()[:24]
-    return {'card_key': key, 'card_label': ' · '.join(filter(None, [issuer, '•••• ' + tail, kind]))}
+    # Domestic/overseas is a source category, not a different physical card.
+    # Keep issuer separation because a last4 alone is not globally unique.
+    issuer = str(issuer or '').strip()
+    key = hashlib.sha256(json.dumps([issuer, tail], ensure_ascii=True).encode()).hexdigest()[:24]
+    number = '•••• ' + tail + (' 김동언 대장' if tail == '4850' else '')
+    return {'card_key': key, 'card_label': ' · '.join(filter(None, [issuer, number]))}
 
 
 def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):

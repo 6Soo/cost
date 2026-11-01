@@ -99,11 +99,11 @@ def test_valid_display_destination_and_dangling_override_are_counted_consistentl
     assert ct.year_summary(card_db_path, 2026, **filters)['months'][3] == result['count']
 
 
-def test_card_identity_uses_only_explicit_last4_and_separates_issuer_and_kind(card_db_path):
+def test_card_identity_uses_only_explicit_last4_and_separates_issuer(card_db_path):
     first = ct.card_identity('Bank A', 'credit', '1234')
     assert first == ct.card_identity('Bank A', 'credit', '1234')
     assert first['card_key'] != ct.card_identity('Bank B', 'credit', '1234')['card_key']
-    assert first['card_key'] != ct.card_identity('Bank A', 'debit', '1234')['card_key']
+    assert first == ct.card_identity('Bank A', 'debit', '1234')
     assert '•••• 1234' in first['card_label']
     for tail in ('', None, '123', 'synthetic-invalid-long-number'):
         assert ct.card_identity('Bank A', 'credit', tail) == {'card_key': 'missing', 'card_label': '식별 정보 없음'}
