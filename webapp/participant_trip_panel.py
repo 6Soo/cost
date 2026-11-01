@@ -29,14 +29,22 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
                   key=lambda row: google.transaction_date_sort_key(display_row(row)))
     people = [person for person in (state.get("roster") or {}).get("participants") or []
               if person.get("active", True) and person.get("state") == "confirmed"]
+    linked_ids = {person['participant_id'] for person in state.get('participants') or []
+                  if person.get('links')}
+    people = [person for person in people if person.get('participant_id') not in linked_ids]
+    unlinked_count = len(people)
     if needle:
         rows = [row for row in rows if needle in str(row.get("name") or "").casefold()
                 or needle in str(row.get("nickname") or "").casefold()]
         people = [person for person in people
                   if needle in str(person.get("display_name") or "").casefold()
                   or needle in str(person.get("nickname") or "").casefold()]
-    shown_rows, rows_more = _slice(rows, income_offset)
-    income_rows_page, _ = _slice(rows, income_offset)
+    # Keep the complete income list visible for reconciliation. Participant cards
+    # remain paginated independently.
+    shown_rows = rows
+    rows_more = False
+    income_rows_page = rows
+    participant_offset = min(max(0, participant_offset), max(0, (len(people) - 1) // 20 * 20))
     shown_people, people_more = _slice(people, participant_offset)
     links_by_ref = {}
     for person in state.get("participants") or []:
@@ -46,6 +54,7 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
                  "name": person.get("display_name") or "", "method": link.get("method")})
     return {"rows": shown_rows, "rows_more": rows_more,
             "participants": shown_people, "participants_more": people_more,
+            "selectable_participants": people, "unlinked_participant_count": unlinked_count,
             "income_rows_page": income_rows_page,
             "links_by_ref": links_by_ref, "row_count": len(rows),
             "participant_count": len(people), "search": search,
@@ -67,6 +76,8 @@ def _review_markup(state, data):
                 by_ref.setdefault(match.get('ref'), []).append(row)
                 evidence_by_ref.setdefault(match.get('ref'), []).append((contract, row, match))
     counts = review.get('counts') or {}
+    if state.get('configured') and not counts.get('contracts'):
+        return ''
     if review.get('available'):
         notice = (f"일정·연결 기준 명단 {int(counts.get('rows', 0))}건 · "
                   f"글자 일치 {int(counts.get('matched', 0))}건 · "
@@ -144,10 +155,11 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     match_link = f"<p><a class='btn' href='{_esc(match_href)}'>보험 명단 상세</a></p>"
     data = project(state, income_offset=income_offset,
                    participant_offset=participant_offset, search=search)
+    participant_offset = data['participant_offset']
     review_html = _review_markup(state, data)
     if not state.get("configured"):
         return ("<details class='participant-trip-panel' id='participant-trip-panel'>"
-                "<summary>보험 명단 · 수입 대조</summary><div class='participant-trip-content'>"
+                "<summary>보험가입내역</summary><div class='participant-trip-content'>"
                 + review_html + match_link
                 + "<p class='participant-review-note'>가림 이름의 글자 대조 결과입니다. 참가자 확정·입금 수령을 확인한 결과는 아닙니다.</p>"
                 + '</div></details>')
@@ -179,61 +191,80 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
             f"<input type='hidden' name='income_ref' value='{_esc(row['ref'])}'>"
             f"<button type='submit'>{_esc(item['name'])} 연결 해제</button></form>"
             for item in connected)
+        if connected:
+            names = ' · '.join(_esc(item['name']) for item in connected)
+            status_markup = (
+                "<details class='participant-link-details'>"
+                f"<summary><span>✓ {len(connected)}명 연결 · {names}</span></summary>"
+                f"<div class='participant-link-actions'><p>{label}</p>{actions}</div></details>")
+        else:
+            status_markup = f"<span class='participant-link-status'>{state_label}</span>"
         rows.append(f"<template class='participant-income-status' data-income-ref='{_esc(row['ref'])}'>"
-                    f"<span>{state_label}</span>{actions}</template>")
+                    f"{status_markup}</template>")
     people = []
     for person in data["participants"]:
         person_id = person.get("participant_id") or ""
-        linked = any(person_id == link["participant_id"]
-                     for links in links_by_ref.values() for link in links)
         name = _esc(person.get("display_name"))
+        disabled = '' if google.get('available') and data['income_rows_page'] else ' disabled'
         people.append(
             f"<li draggable='true' data-participant='{_esc(person_id)}'"
             f"data-name='{name}'><span class='drag-handle' aria-hidden='true'>⠿</span>"
-            f"<strong>{name}</strong><span>{'수입 연결됨' if linked else '수입 미연결'}</span>"
+            f"<button type='button' class='participant-select' data-select-participant='{_esc(person_id)}'{disabled}>{name}</button>"
             "</li>")
     if not people:
-        people.append("<li>확정 참가자가 없거나 명단을 확인할 수 없습니다.</li>")
+        empty = ('검색 결과가 없습니다.' if search else
+                 '모든 참가자가 수입에 연결되어 있습니다.' if data['unlinked_participant_count'] == 0
+                 and counts.get('roster_confirmed', 0) else '연결할 참가자가 없습니다. 보험 명단을 확인해 주세요.')
+        people.append(f"<li class='participant-empty'>{empty}</li>")
     fingerprint = _esc(state.get("input_fingerprint"))
     trip = _esc(state.get("trip_id"))
     selector_options = "".join(
         f"<option value='{_esc(person.get('participant_id'))}'>"
         f"{_esc(person.get('display_name'))}</option>"
-        for person in data["participants"])
+        for person in data["selectable_participants"])
     search_form = (
-        "<form method='get' action='/board' class='participant-trip-search'>"
+        "<form method='get' action='/board#participant-trip-panel' class='participant-trip-search'>"
         f"<input type='hidden' name='tab' value='{trip}'>"
-        f"<label>이름 검색 <input type='search' name='participant_q' value='{_esc(search)}' maxlength='80'></label>"
-        "<button>검색</button></form>")
+        f"<label>이름 검색 <input type='search' name='participant_q' value='{_esc(search)}' maxlength='80' placeholder='이름 또는 닉네임'></label>"
+        "<button type='submit'>검색</button>"
+        + (f"<a class='btn' href='/board?{_esc(urlencode({'tab':state.get('trip_id') or ''}))}#participant-trip-panel'>초기화</a>" if search else '')
+        + "</form>")
     def page_url(**overrides):
         query = {"tab": state.get("trip_id"), "participant_q": search,
-                 "participant_income_offset": income_offset,
                  "participant_offset": participant_offset}
         query.update(overrides)
-        return _esc("/board?" + urlencode(query))
-    row_more = (f"<a class='btn' href='{page_url(participant_income_offset=income_offset + 20)}'>수입 다음 20건</a>"
-                if data["rows_more"] else "")
-    person_more = (f"<a class='btn' href='{page_url(participant_offset=participant_offset + 20)}'>참가자 다음 20명</a>"
-                   if data["participants_more"] else "")
-    return (
-        "<details class='participant-trip-panel' id='participant-trip-panel' aria-label='보험가입내역'>"
-        "<summary>보험 명단 · 수입 대조</summary><div class='participant-trip-content'>"
-        "<h2>보험가입내역</h2>" + match_link +
-        f"<p><a href='/participants?{_esc(urlencode({'trip':state.get('trip_id') or ''}))}'>참가자 연결 관리</a></p>"
-        f"<p>{_esc(status)} · 참가 확정 {counts.get('roster_confirmed', 0)}명 · "
-        f"수입 연결 {counts.get('linked', 0)}명 · 미연결 수입 {counts.get('unlinked_income_rows', 0)}건</p>"
-        f"{search_form}{''.join(rows)}{review_html}{row_more}"
-        "<p role='status' class='participant-write-status'></p>"
-        "<h3>확정 참가자 · 수입 연결</h3>"
-        f"<ul class='participant-cards' aria-describedby='participant-link-help'>{''.join(people)}</ul>"
-        f"{person_more}<p id='participant-link-help'>보험 참가자 카드를 수입 표의 보험 등록 열로 끌어놓을 수 있습니다. 연결을 시작하려면 수입 행의 연결 버튼을 사용해 주세요.</p>"
-        f"<form method='post' action='/api/participants/link' class='participant-keyboard-link' data-link-confirm hidden>"
+        return _esc("/board?" + urlencode(query) + '#participant-trip-panel')
+    paging = (f"<a class='btn' href='{page_url(participant_offset=max(0, participant_offset - 20))}'>이전 참가자</a>" if participant_offset else '')
+    if data['participants_more']:
+        paging += f"<a class='btn' href='{page_url(participant_offset=participant_offset + 20)}'>다음 참가자</a>"
+    linking_available = bool(selector_options and data['income_rows_page'] and google.get('available'))
+    link_form = (
+        "<form method='post' action='/api/participants/link' class='participant-keyboard-link' data-link-confirm>"
         f"<input type='hidden' name='csrf' value='{_esc(csrf)}'><input type='hidden' name='trip' value='{trip}'>"
         f"<input type='hidden' name='input_fingerprint' value='{fingerprint}'>"
-        "<label>수입 행 <select name='income_ref'>" + "".join(
-            _income_option(row) for row in data["income_rows_page"]) + "</select></label>"
-        f"<label>보험 참가자 <select name='participant_id'>{selector_options}</select></label>"
-        "<button type='submit'>선택한 참가자 연결</button></form>"
+        "<label>보험 참가자 <select name='participant_id' required><option value=''>참가자 선택</option>"
+        f"{selector_options}</select></label>"
+        "<label>연결할 수입 <select name='income_ref' required><option value=''>수입 선택</option>"
+        + "".join(_income_option(row) for row in data['income_rows_page']) + "</select></label>"
+        "<button type='submit'>수입에 연결</button></form>" if linking_available else '')
+    return (
+        "<details class='participant-trip-panel' id='participant-trip-panel' aria-label='보험가입내역'>"
+        "<summary>보험가입내역</summary><div class='participant-trip-content'>"
+        "<dl class='participant-metrics'>"
+        f"<div><dt>참가 확정</dt><dd>{int(counts.get('roster_confirmed', 0))}명</dd></div>"
+        f"<div><dt>수입 연결</dt><dd>{int(counts.get('linked', 0))}명</dd></div>"
+        f"<div><dt>연결할 참가자</dt><dd>{data['unlinked_participant_count']}명</dd></div></dl>"
+        + (f"<p class='participant-review-note'>{_esc(status)}</p>" if roster.get('scope') != 'complete' or not google.get('available') else '')
+        + "<div class='participant-toolbar'>" + search_form
+        + "<div class='participant-source-links'>"
+        f"<a class='btn' href='{_esc(match_href)}'>보험 명단 상세</a>"
+        f"<a class='btn' href='/participants?{_esc(urlencode({'trip':state.get('trip_id') or ''}))}'>전체 연결 관리</a></div></div>"
+        f"{''.join(rows)}{review_html}"
+        "<h3>수입 미연결 참가자</h3>"
+        f"<ul class='participant-cards' aria-describedby='participant-link-help'>{''.join(people)}</ul>"
+        f"<nav class='participant-paging' aria-label='미연결 참가자 목록'>{paging}</nav>"
+        + ("<p id='participant-link-help' class='participant-review-note'>참가자와 수입을 아래에서 선택해 연결하세요. 참가자 이름을 누르거나 수입 표의 보험 열로 끌어놓을 수도 있습니다.</p>" if linking_available else "<p id='participant-link-help' class='participant-review-note'></p>")
+        + f"{link_form}<p role='status' class='participant-write-status' aria-live='polite'></p>"
         "<dialog id='participant-link-confirm' aria-labelledby='participant-link-confirm-text'>"
         "<form method='dialog'><p id='participant-link-confirm-text'></p>"
         "<button value='cancel'>취소</button><button value='confirm'>연결 확인</button>"
@@ -248,7 +279,7 @@ def shell(*, trip_id: str) -> str:
         os.environ.get('WEBLEDGER_PARTICIPANT_SYNC_CONFIG'))
     return ("<details class='participant-trip-panel' id='participant-trip-panel' "
             f"data-trip='{_esc(trip_id)}' data-auto-load='{int(auto)}' aria-busy='false' aria-label='보험가입내역'>"
-            "<summary>보험 명단 · 수입 대조</summary>"
+            "<summary>보험가입내역</summary>"
             "<div class='participant-trip-content' data-participant-content>"
             "<div class='insurance-loading' role='status'><span class='insurance-loading-dot' aria-hidden='true'></span>"
             "<div><strong>보험 명단 대조 준비</strong><p>명단을 열면 이 여행의 수입 이름과 비교합니다.</p></div></div>"
