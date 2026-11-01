@@ -505,6 +505,10 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
              current_item, current_description, current_tab, current_trip) = row
             if selected is not None and transaction_id not in selected:
                 continue
+            if current_source == 'ai_inference' and state == STATE_CLASSIFIED:
+                counts[state] = counts.get(state, 0) + 1
+                protected += 1
+                continue
             # 3820 장부 행의 미배정은 규칙으로 다시 대사한다. 사용자가 정한 거래와 배정된 거래는 보호한다.
             reconcile_booked = (decided and residual_policy and card_tail == '3820'
                                 and current_tab in (None, '', 'unclassified') and current_source not in ('user_decision', 'user_exception')

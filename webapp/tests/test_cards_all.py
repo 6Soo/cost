@@ -285,7 +285,7 @@ def test_month_detail_renderer_basic(card_db_path):
     # Currency display
     assert '원' in html
     # Trip display
-    assert '사용자 확정' in html or '추정' in html or '미배정' in html
+    assert '직접' in html or '코드 추론' in html or '미배정' in html
     # Detail link
     assert 'board?row=card-TX-A-01' not in html
 
@@ -303,7 +303,7 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
         [row], trip_names={"opaque-tab-1": "0630_오제"})
     assert "0630_오제" in rendered
     assert "title='opaque-tab-1'" in rendered
-    assert "사용자 확정" in rendered
+    assert "직접" in rendered
     assert "<span class='card-all-trip-name'" in rendered
     assert row["trip_id"] == "opaque-tab-1"
     fallback = cards_all._render_month_rows([row])
@@ -391,8 +391,8 @@ def test_render_month_rows_time_handling(card_db_path):
     # Merchant fallback
     assert '가맹점 미상' in html
     # Trip display logic
-    assert '사용자 확정' in html
-    assert '추정' in html
+    assert '직접' in html
+    assert '코드 추론' in html
     assert '미배정' in html
     # Foreign currency
     assert 'JPY' not in html  # Not in test data
@@ -586,7 +586,7 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator('.card-all-row-toggle').count() == 3
                 tx_row = page.locator("tr[data-tx-id='TX-A-01']")
                 assert tx_row.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
-                assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '추정 배정'
+                assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '코드 추론'
                 assert tx_row.locator('td.merchant .card-identity').count() == 1
                 assert tx_row.locator('td.amount-cell .card-all-badge').count() >= 1
                 assert tx_row.locator('td.trip .card-identity, td.trip .card-all-badge').count() == 0

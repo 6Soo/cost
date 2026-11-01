@@ -1,5 +1,6 @@
 """Owner-only, read-only listing of stored card transactions across all imports."""
 import html
+import json
 import re
 from urllib.parse import urlencode
 
@@ -8,7 +9,7 @@ from app.db import decided_sql
 from . import ui_icons
 
 PAGE_SIZE = 50
-STATES = {'needs_review': '확인 필요', 'classified': '분류 완료', 'booked': '기록 완료'}
+STATES = {'review': '처리 필요', 'booked': '완료', 'excluded': '제외'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"
 
 from .card_catalog_assets import CATALOG_SCRIPT, CATALOG_STYLE
@@ -29,7 +30,7 @@ def catalog(board, query):
     columns = ('transaction_id', 'batch_id', 'approval_date', 'posting_date', 'issuer', 'card_tail',
                'transaction_direction', 'transaction_kind', 'merchant', 'amount_krw', 'foreign_amount',
                'foreign_currency', 'item', 'description', 'classification_state', 'decided',
-               'duplicate_of', 'conflict_reason', 'parse_error', 'display_tab_id', 'classification_source', 'decided_at')
+               'duplicate_of', 'conflict_reason', 'parse_error', 'display_tab_id', 'classification_source', 'decided_at', 'classification_basis')
     from .history_policy import cutoff
     boundary = cutoff()
     base = f"({TRADE_DATE} IS NULL OR {TRADE_DATE}='' OR {TRADE_DATE}>=?)" if boundary else ''
@@ -41,12 +42,25 @@ def catalog(board, query):
     if card:
         where.append('t.card_tail=?')
         params.append(card)
-    if state:
-        if state == 'booked':
-            where.append('EXISTS (SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)')
-        else:
-            where.append('t.classification_state=?')
-            params.append(state)
+    from app.classification_provenance import origin, LABELS
+    selected_origin = value('origin')
+    if selected_origin in LABELS:
+        where.append('COST_CLASSIFICATION_ORIGIN(t.classification_source,t.decided_at,t.classification_basis)=?')
+        params.append(selected_origin)
+    from .refund_tab import groups
+    complete = {r['transaction_id'] for group in groups(board) for r in group}
+    state_sql = ("CASE WHEN EXISTS (SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) THEN 'booked'"
+        " WHEN COALESCE(t.duplicate_of,'')!='' OR COALESCE(e.excluded,0)=1"
+        " OR t.transaction_id IN (SELECT value FROM json_each(?)) THEN 'excluded'"
+        " WHEN COALESCE(t.conflict_reason,'')!='' OR COALESCE(t.parse_error,'')!='' THEN 'review'"
+        " WHEN EXISTS (SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id"
+        " AND h.source_hash=t.source_hash AND h.kind='existing_ledger') THEN 'booked' ELSE 'review' END")
+    if state in STATES or state == 'needs_review':
+        state = 'review' if state == 'needs_review' else state
+        where.append('(' + state_sql + ')=?')
+        params.extend((json.dumps(sorted(complete)), state))
+    elif state == 'classified':  # Existing bookmarks remain usable.
+        where.append("t.classification_state='classified'")
     if month:
         where.append(f"strftime('%Y-%m',{TRADE_DATE})=?")
         params.append(month)
@@ -54,6 +68,9 @@ def catalog(board, query):
     source = (' FROM transactions t LEFT JOIN trip_tabs p ON p.tab_id=t.display_tab_id'
               ' LEFT JOIN transaction_company_exclusions e ON e.transaction_id=t.transaction_id')
     with board._lock:
+        board.conn.create_function('COST_CLASSIFICATION_ORIGIN', 3,
+            lambda source, decided_at, basis: origin(dict(classification_source=source,
+                decided_at=decided_at, classification_basis=basis)), deterministic=True)
         if not board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
             return {'rows': [], 'total': 0, 'all_count': 0, 'cards': [], 'months': [], 'page': 1, 'pages': 1}
         all_count = board.conn.execute('SELECT COUNT(*) FROM transactions t' +
@@ -72,8 +89,6 @@ def catalog(board, query):
             'WHERE month IS NOT NULL' + (' AND ' + base if base else '') + ' ORDER BY month ASC',
             [boundary] if base else [])]
     rows = [dict(zip((*columns, 'trip_name', 'company_excluded'), row)) for row in records]
-    from .refund_tab import groups
-    complete = {r['transaction_id'] for group in groups(board) for r in group}
     for row in rows:
         if row['transaction_id'] in complete:
             row['trip_name'] = '환불'
@@ -97,7 +112,7 @@ def render_html(data, query, *, csrf=''):
     esc = lambda value: html.escape('' if value is None else str(value), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
     def link(page):
-        return '/import?' + urlencode({**{k: value(k) for k in ('q', 'card', 'state', 'month', 'sort')},
+        return '/import?' + urlencode({**{k: value(k) for k in ('q', 'card', 'state', 'month', 'sort', 'origin')},
                                        'scope': 'all', 'page': page})
     def choices(name, label, options, selected):
         return f'<h2>{esc(label)}</h2>' + ''.join(
@@ -117,28 +132,21 @@ def render_html(data, query, *, csrf=''):
                            + (' · ' + value('month') if value('month') else ''), date_controls, 'calendar-days')
     card_heading = heading('card', '카드', value('card'), choices('card', '카드 선택',
                            [('', '모든 카드')] + [(c, c) for c in data['cards'] if c], value('card')), 'credit-card')
-    state_heading = heading('state', '상태', STATES.get(value('state'), ''),
-                            choices('state', '분류 상태', [('', '모든 상태'), *STATES.items()], value('state')), 'list-filter')
+    from app.classification_provenance import LABELS
+    state_controls = choices('state', '처리 상태', [('', '모든 상태'), *STATES.items()], value('state'))
+    state_controls += choices('origin', '분류 출처', [('', '모든 출처'), *LABELS.items()], value('origin'))
+    state_heading = heading('state', '상태', STATES.get(value('state'), ''), state_controls, 'list-filter')
     hidden_filters = ''.join(f"<input type='hidden' name='{name}' value='{esc(value(name))}'>"
-                             for name in ('sort', 'month', 'card', 'state'))
+                             for name in ('sort', 'month', 'card', 'state', 'origin'))
     rows = []
     for r in data['rows']:
         from app import quarter_costs
         quarter = quarter_costs.destination(r)
         from .card_actions import next_action
         action = r.get('next_action') or next_action(r)
-        from .card_actions import GROUP_LABELS
-        state = GROUP_LABELS.get(action.get('group'), '')
-        if r.get('decided_at') or r.get('classification_source') in ('user_decision','user_exception','previous_decision','manual'):
-            state += (' · ' if state else '') + '직접 분류'
-        elif r.get('classification_state') == 'classified':
-            state += (' · ' if state else '') + ('자동 추론' if r.get('classification_source') == 'inference' else '자동 분류')
-        if r['duplicate_of']:
-            state += (' · ' if state else '') + '중복'
-        if r['company_excluded']:
-            state += (' · ' if state else '') + '회사 경비 제외'
-        if r['conflict_reason'] or r['parse_error']:
-            state += (' · ' if state else '') + '오류 확인'
+        state = action['state_label']
+        if r.get('classification_state') == 'classified':
+            state += ' · ' + action['source_label']
         direction = {'purchase': '결제', 'cancellation': '취소', 'refund': '환불'}.get(
             r['transaction_direction'], r['transaction_direction'])
         amount = f"{r['amount_krw']:,}원" if type(r['amount_krw']) is int else '금액 미확인'
@@ -148,9 +156,12 @@ def render_html(data, query, *, csrf=''):
                  ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or
                   (quarter['name'] + ' · 여행 외 비용' if quarter else '여행 확인 필요')), ('상태', state)]
         row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
-        evidence = ''.join(f"<p class='small'>{esc(note)}</p>" for note in r.get('ota_candidate_notes') or ())
+        details = [action.get('status'), action.get('reason'), r.get('classification_basis')]
+        details.extend(r.get('ota_candidate_notes') or ())
+        evidence = ("<details><summary>근거 보기</summary>" + ''.join(
+            f"<p class='small'>{esc(note)}</p>" for note in details if note) + '</details>')
         rows.append(f"<tr data-transaction='{esc(r['transaction_id'])}'>" + row +
-                    f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason'])}</p>"
+                    f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason_label'])}</p>"
                     f"{evidence}<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'><title>전체 카드 거래 검색</title>"

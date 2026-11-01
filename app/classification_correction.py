@@ -33,6 +33,17 @@ def preview(conn, corrections, trips):
         row = _row(conn, 'transactions', 'transaction_id', tid)
         if not row or row['source_hash'] != correction['source_hash']:
             raise ValueError('CORRECTION_SOURCE_CHANGED')
+        if 'revision' in correction and correction['revision'] != row['revision']:
+            raise ValueError('CORRECTION_PREVIEW_STALE')
+        source = correction.get('classification_source', 'inference')
+        if source not in ('inference', 'code_inference', 'ai_inference'):
+            raise ValueError('CORRECTION_SOURCE_INVALID')
+        if source == 'ai_inference':
+            execution = correction.get('execution') or {}
+            if (execution.get('kind') != 'connected_agent'
+                    or any(not isinstance(execution.get(k), str) or not execution[k].strip()
+                           or len(execution[k]) > 160 for k in ('provider', 'model', 'run_id'))):
+                raise ValueError('AI_EXECUTION_REQUIRED')
         if correction_protection_reason(SimpleNamespace(conn=conn),tid,row['source_hash']):
             raise ValueError('CORRECTION_PROTECTED')
         if (row['decided_at'] is not None
@@ -77,8 +88,11 @@ def apply(conn, expected, corrections, trips, *, request_id):
             for target in current['targets']:
                 old, fix = target['before'], target['correction']
                 tid, trip = old['transaction_id'], fix['trip_id']
-                after = dict(classification_state='classified',classification_source='inference',
-                    classification_basis='P2_CORRECTION · '+fix['basis'],item=fix['item'],
+                source = fix.get('classification_source', 'inference')
+                basis = ('AI_INFERRED · ' + json.dumps(fix['execution'], ensure_ascii=False, sort_keys=True)
+                         if source == 'ai_inference' else 'CODE_INFERRED')
+                after = dict(classification_state='classified',classification_source=source,
+                    classification_basis=basis+' · '+fix['basis'],item=fix['item'],
                     description=fix.get('description',old['description']) or '',display_tab_id=trip,trip_id=trip)
                 conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
                     ',revision=revision+1 WHERE transaction_id=? AND revision=?',
@@ -90,7 +104,7 @@ def apply(conn, expected, corrections, trips, *, request_id):
                     board = target['board']
                     payload = json.loads(board['payload_json'])
                     payload.update(item=after['item'],description=after['description'],display_tab_id=trip,
-                                   classification_state='classified',classification_source='inference',
+                                   classification_state='classified',classification_source=source,
                                    classification_basis=after['classification_basis'])
                     if 'revision' in payload:
                         payload['revision'] = board['revision'] + 1
@@ -101,7 +115,8 @@ def apply(conn, expected, corrections, trips, *, request_id):
                 detail = dict(request_id=request_id,source_hash=old['source_hash'],
                     previous={k:old[k] for k in FIELDS},after=after,
                     previous_ledger=target['ledger'],previous_board=target['board'],
-                    source='agent_evidence_review',user_booking_or_refund_confirmation=False)
+                    source='agent_evidence_review' if source == 'ai_inference' else 'code_inference',
+                    execution=fix.get('execution'), user_booking_or_refund_confirmation=False)
                 conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                     (utc_now(),'card.classification_corrected',tid,json.dumps(detail,ensure_ascii=False,sort_keys=True)))
             result = dict(applied=current['count'],replay=False)

@@ -440,10 +440,9 @@ def _get_trip_display(trip_id, classification_source) -> str:
     if not trip:
         return "미배정"
     source = str(classification_source or "").strip()
-    if source == "manual":
-        return f"{trip} · 사용자 확정"
-    if source == "auto_inferred":
-        return f"{trip} · 추정"
+    if source in ('manual', 'user_decision', 'user_exception', 'previous_decision',
+                  'inference', 'auto_inferred', 'code_inference', 'ai_inference'):
+        return f"{trip} · {_classification_source_label(source)}"
     return trip
 
 
@@ -454,6 +453,15 @@ def _classification_source_label(source) -> str:
 
 def _status_badges(item: dict) -> str:
     """읽기 투영이 실제로 돌려주는 상태만 배지로 표시한다."""
+    action = item.get('next_action')
+    if action:
+        text = _esc(action['state_label'])
+        if action['group'] == 'review':
+            text = f"<a class='card-all-badge review card-review-action' href='{_esc(action['href'])}'>{text}</a>"
+            if action.get('reason_label'):
+                text += f"<span class='card-all-badge'>{_esc(action['reason_label'])}</span>"
+            return text
+        return f"<span class='card-all-badge'>{text}</span>"
     badges: list[str] = []
     if str(item.get("duplicate_of") or "").strip():
         badges.append("<span class='card-all-badge duplicate'>중복 출처</span>")
@@ -504,11 +512,13 @@ def card_detail_html(item: dict) -> str:
         destination = '미배정'
     else:
         destination = _trip_context()[0].get(destination, destination)
-    source = _classification_source_label(item.get('classification_source'))
+    from app.classification_provenance import label
+    source = label(item)
     fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or '날짜 확인 필요'),
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
               ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
+              ('분류 근거', item.get('classification_basis')),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
@@ -592,9 +602,9 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             else:
                 trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>"
                                f"{_esc(trip_name)}</span>")
-                if source in ("manual", "auto_inferred"):
-                    label = "사용자 확정" if source == "manual" else "추정 배정"
-                    trip_markup += f"<span class='card-all-trip-source'>{label}</span>"
+                from app.classification_provenance import origin, label
+                if origin(item) != 'unknown':
+                    trip_markup += f"<span class='card-all-trip-source'>{_esc(label(item))}</span>"
             detail_id = 'card-detail-' + tid
             merchant_markup = f"<span class='merchant-name'>{_esc(merchant)}</span>"
             row_attrs = f" data-detail-id='{_esc(tid)}'" if tid and include_detail_link else ''
