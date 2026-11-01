@@ -1,3 +1,10 @@
+## 2026-11-01 OTA 결제일 미상·M:N 연결 배포 완료
+
+- COMPLETE — 사용자 지적4건의 원인 조사·공통 수정·배포 OM01~OM05 완료. [명세·수락 근거](specs/ota-undated-many-to-many-20261101.md), [PR #435](https://github.com/6Soo/cost/pull/435)·[PR #438](https://github.com/6Soo/cost/pull/438), 구현 `1f070bb7`·`60cdacc2`, 운영 `eb1c408c1eac96f536b77f74bb489c54c024a63e`.
+- 무날짜도 가맹점/확장명·정확 금액/통화·끝4 일치로 연결하며 조건 일치 관계를 M:N으로 보존한다. 카드 원행은 한 번만 집계하고 동일 예약의 관측을 결제 여러 건으로 더하지 않는다. 152,358원·395,000원은 기존에도 연결돼 있었으며 여행/환불 보류를 미연결로 설명한 오류와 취소 예약 카드 건수 누락을 바로잡았다.
+- 정책312·인접 기장/환불90·최종 선택 보호2 passed 근거 재사용, 후속 게시 통합192 passed. 최초1131d2a0는 실제 갱신 실패 후f52e019a로 복귀했으며 최종 후보에서 수정·재수락했다. 배포본 전체 읽기 입력3,921이벤트/6,851카드에서5예약·6관측 관계 동일, 운영 ego-browser PC1440/모바일390×5예약 연결·무날짜/M:N/취소 표시·넘침0 수락. 기존 재현 실패6개는 통과에 포함하지 않으며 전체 회귀/실기기 미실행이다.
+- 1,206 blobs 일치·task/processSHA·단일listener·health/ready200·보호API401·보호13표 불변. 기존ParticipantDb 유지, 이전f52e019a/task XML 복구점 보존. 원본/금융/여행/환불/기장/Google 쓰기·마이그레이션0. 코드전용이라 전체DB백업/복원 반복 없음. 미결0·다음 명령 없음. 로컬 근거 `.local-archive/ota-mn-policy-20261101/`; 문서만의 후속 병합에 재배포하지 않는다.
+
 ## 2026-11-01 전체 업무 UX 감사·개선 완료
 
 - COMPLETE — 현재 사용자 요청의 UX01~UX10. [감사·업무 목적·전후 비교](specs/full-ux-audit-20261101.md), [124개 경로/206개 핸들러](specs/full-ux-route-inventory-20261101.md). [PR429](https://github.com/6Soo/cost/pull/429)·[PR430](https://github.com/6Soo/cost/pull/430)·[PR431](https://github.com/6Soo/cost/pull/431), 최종 운영 `9e0ff03c464e98373b5cd591a19a3885fcf9ccf4`. 여행 맥락 전달·검색/상태 조건·개별 편집 접기·영수증 묶기/해제·빈 버튼 잠금·출력 선택 도구·중복 홈/헤더/카드 설명·규칙 화면 복귀·404 Google 링크를 정리했다.

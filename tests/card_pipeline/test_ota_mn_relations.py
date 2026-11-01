@@ -150,3 +150,34 @@ def test_explicit_payment_identity_controls_source_total_without_merging_events(
     results=match_ota_payment_events(sources,[card()])
     assert len(results)==2
     assert all(r['payment_relation']['source_total']==total for r in results)
+
+
+@pytest.mark.parametrize('scenario,reason,queue', [
+    ('difference', 'LINKED_GROUP_AMOUNT_DIFFERENCE', 'needs_action'),
+    ('unverified', 'LINKED_GROUP_AMOUNT_UNVERIFIED', 'needs_action'),
+    ('balanced', 'MATCHING_RELATION_RESOLVED', 'completed'),
+    ('observations', 'MATCHING_RELATION_RESOLVED', 'completed'),
+])
+def test_mn_relations_publish_through_canonical_worker_paging(scenario, reason, queue):
+    from app.ota_queue_paging import build_queue_index, list_queue_page
+    from webapp.ota_payment_review import (
+        _canonical_queue_rows, _canonical_queue_page_rows, _canonical_queue_group_rows,
+    )
+    sources = [event('one', booking_ref='ONE'),
+               event('two', booking_ref='ONE' if scenario == 'observations' else 'TWO')]
+    cards = [card('a'), card('b')] if scenario == 'balanced' else [card()]
+    results = match_ota_payment_events(sources, cards)
+    if scenario == 'unverified':
+        for result in results:
+            result['payment_relation'].update(balance='UNKNOWN', source_total=None,
+                                               source_total_status='AMOUNT_UNVERIFIED')
+    canonical = _canonical_queue_rows(sources, results, {})
+    before = deepcopy(canonical)
+    for rows in (_canonical_queue_page_rows(canonical), _canonical_queue_group_rows(canonical)):
+        index = build_queue_index(rows, generation=7, snapshot_nonce='mn-runtime', signing_key=b'x'*32)
+        page = list_queue_page(index, queue=queue, limit=20)
+        assert page['total_count'] == len(rows)
+        assert all(reason in row['reason_codes'] for row in page['items'])
+        assert all(row['event']['status'] in {result['status'] for result in results}
+                   for row in page['items'])
+    assert canonical == before
