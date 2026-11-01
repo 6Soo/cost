@@ -29,7 +29,7 @@ def catalog(board, query):
     columns = ('transaction_id', 'batch_id', 'approval_date', 'posting_date', 'issuer', 'card_tail',
                'transaction_direction', 'transaction_kind', 'merchant', 'amount_krw', 'foreign_amount',
                'foreign_currency', 'item', 'description', 'classification_state', 'decided',
-               'duplicate_of', 'conflict_reason', 'parse_error', 'display_tab_id', 'classification_source')
+               'duplicate_of', 'conflict_reason', 'parse_error', 'display_tab_id', 'classification_source', 'decided_at')
     from .history_policy import cutoff
     boundary = cutoff()
     base = f"({TRADE_DATE} IS NULL OR {TRADE_DATE}='' OR {TRADE_DATE}>=?)" if boundary else ''
@@ -129,8 +129,10 @@ def render_html(data, query, *, csrf=''):
         action = r.get('next_action') or next_action(r)
         from .card_actions import GROUP_LABELS
         state = GROUP_LABELS.get(action.get('group'), '')
-        if r['decided']:
+        if r.get('decided_at') or r.get('classification_source') in ('user_decision','user_exception','previous_decision','manual'):
             state += (' · ' if state else '') + '직접 분류'
+        elif r.get('classification_state') == 'classified':
+            state += (' · ' if state else '') + ('자동 추론' if r.get('classification_source') == 'inference' else '자동 분류')
         if r['duplicate_of']:
             state += (' · ' if state else '') + '중복'
         if r['company_excluded']:

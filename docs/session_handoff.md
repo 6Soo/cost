@@ -1,3 +1,15 @@
+## 2026-11-02 첨부 카드8건 조사·취소 미배정 오표시 교정 완료
+
+## 2026-11-02 수입 보험 명단 환불완료 표시 완료
+
+- COMPLETE — 사용자 요청 두 항목 반영. [PR #464](https://github.com/6Soo/cost/pull/464), 구현 `0515370d`, 고정 운영 SHA `355a059ba5808151a8780409a09b06508427f2f3`, 이전 검증 `62bfa07b77e56716b141230f2bdfb4962cd91055`. 미연결의 `보험 미가입을 뜻하지 않음` 문구를 제거하고, 수입 행 총액이 0원 이하이면 보험 명단 열을 `환불완료`로 대체한다. 금액 미상은 환불완료로 추정하지 않는다. 최초 렌더·보험 비동기 로딩/성공/실패에서도 표시를 유지하며 기존 보험 연결·수입 원본/금액은 보존한다.
+- 검증: 병합 트리와 동일한 후보에서 수입/보험 명단/연결·권한 보호 80 passed/브라우저 등 5 deselected. ego-browser 합성 0원·음수·양수 로딩/성공/실패 PASS. 인증된 운영 여행의 수입13행 중 0원1행 `환불완료`, 양수 행 오표시0·삭제 문구0을 확인하고 TaskSpace4를 정상 종료했다. 전체 회귀·실기기는 미실행(국소 표시 변경). 금융/참가자/Google/원본/스키마 쓰기0.
+- 배포: 1,233 Git blobs 불일치0·검사본/병합본 트리 동일·task/process 고정SHA·단일 loopback listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용이므로 새 전체 DB 백업/복원은 반복하지 않았으며 이전 검증 릴리스/task XML 복구점을 보존했다. 근거 `.local-archive/income-refund-label-20261102/`의 targeted.xml·browser.json·live.json·review/release-audit/deploy-evidence 및 호스트 동일SHA 감사 기록. 이 요청의 미결/차단0, 다음 명령 없음. 후속 문서는 재배포/재시작하지 않는다.
+
+- COMPLETE — [조사·8건별 근거](specs/eight-card-review-20261102.md), [PR461](https://github.com/6Soo/cost/pull/461). 구현 `c5f88337`, 운영 `efefafc43dd13134c61c85c9fd1d171c8523142c`. 저장된 취소·환불6건과 취소 확인 보류1건을 목록/상세/집계/미배정 필터/취소 정산 탭에서 일관되게 표시했다. 군산 Agoda146,018원의 명시 이용 확인 보류는 유지했다.395,000원 결제의 원승인 취소355,000원·순액40,000원 근거를 확인했으나 성격/환급을 창작하지 않았다.
+- 병합본 표적65 passed/기준624ceec9 재현 기존실패2 deselected. 운영8건 읽기 대조·인증ego8건/상세/필터·모바일390px 넘침0 수락.1,232 blobs 일치·task/processSHA·단일listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변. SourceRefresh 및 기존task 인수 보존. 금융/분류/여행/보류/장부/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/eight-card-review-20261102/`, 호스트 동일SHA release/deploy audit. 직전 검증d206cab7와task XML 복구점 보존, 코드 전용으로 새전체DB백업/복원 없음. 조사/표시교정 미결0·다음명령 없음. 실제 이용/은행 환급·현재Gmail 전체검색·전체회귀/실기기는 미확인이며 기존보호를 유지한다. 문서후속 재배포/재시작 없음. 병행 사용자/다른작업 변경은 별도 보존한다.
+
 ## 2026-11-02 브라우저 실행 규칙 ego-browser 전환
 
 - COMPLETE — 사용자 “프로젝트 규칙에서 aside 관련 내용을 모두 ego로 수정”. [COST 지침](../AGENTS.md), 참조 정본 `C:/AX/agent-policy/AUTONOMOUS_EXECUTION.md`의 브라우저 절, [카드 다운로드](card_downloads.md), 금융·Google 인증·UI 검증의 실행 지시를 ego-browser로 변경했다. Windows UTF-8 `.mjs`·동일 TaskSpace 재사용을 명시하며 인증·원본·외부 쓰기 권한 경계는 유지한다. 과거 운영/인증 기록은 당시 증거로 보존하고 현재 실행 지시와 구분한다.

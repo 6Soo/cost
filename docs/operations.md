@@ -1,5 +1,17 @@
 # 운영 기록과 실행 경계
 
+## 2026-11-02 수입 보험 명단 환불완료 표시 완료
+
+- COMPLETE — 사용자 요청 두 항목 반영. [PR #464](https://github.com/6Soo/cost/pull/464), 구현 `0515370d`, 고정 운영 SHA `355a059ba5808151a8780409a09b06508427f2f3`, 이전 검증 `62bfa07b77e56716b141230f2bdfb4962cd91055`. 미연결의 `보험 미가입을 뜻하지 않음` 문구를 제거하고, 수입 행 총액이 0원 이하이면 보험 명단 열을 `환불완료`로 대체한다. 금액 미상은 환불완료로 추정하지 않는다. 최초 렌더·보험 비동기 로딩/성공/실패에서도 표시를 유지하며 기존 보험 연결·수입 원본/금액은 보존한다.
+- 검증: 병합 트리와 동일한 후보에서 수입/보험 명단/연결·권한 보호 80 passed/브라우저 등 5 deselected. ego-browser 합성 0원·음수·양수 로딩/성공/실패 PASS. 인증된 운영 여행의 수입13행 중 0원1행 `환불완료`, 양수 행 오표시0·삭제 문구0을 확인하고 TaskSpace4를 정상 종료했다. 전체 회귀·실기기는 미실행(국소 표시 변경). 금융/참가자/Google/원본/스키마 쓰기0.
+- 배포: 1,233 Git blobs 불일치0·검사본/병합본 트리 동일·task/process 고정SHA·단일 loopback listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용이므로 새 전체 DB 백업/복원은 반복하지 않았으며 이전 검증 릴리스/task XML 복구점을 보존했다. 근거 `.local-archive/income-refund-label-20261102/`의 targeted.xml·browser.json·live.json·review/release-audit/deploy-evidence 및 호스트 동일SHA 감사 기록. 이 요청의 미결/차단0, 다음 명령 없음. 후속 문서는 재배포/재시작하지 않는다.
+
+## 2026-11-02 첨부 카드8건 조사·취소 표시 교정
+
+- COMPLETE — [PR461](https://github.com/6Soo/cost/pull/461), 운영 `efefafc43dd13134c61c85c9fd1d171c8523142c`, 이전 검증 `d206cab71cf02843fcd38be5340cf3e04ff4d75f`. [거래별 조사·범위·미확인 사실](specs/eight-card-review-20261102.md). 취소7건의 목록/상세/미배정필터/집계·정산탭 표시를 교정하고 명시 이용 확인 보류1건을 보존했다. 금융 연결·금액·분류·장부·Google·원본·스키마 쓰기0.
+- 병합본65 passed/기준624ceec9 재현 기존실패2 deselected.1,232 blobs 불일치0·task/process 고정SHA·단일loopback listener·health/ready200·영향/보호4경로401·보호13표 내용/스키마 불변·SourceRefresh 상태와 기존task 인수 보존. 기존 검증 릴리스/task XML로 복구 가능하며 코드전용이라 새전체DB백업/복원은 반복하지 않았다.
+- 인증ego-browser8건(취소표시7·이용확인보류1)·395,000원 상세·미배정 필터 제외·모바일390px 가로넘침0 수락, TaskSpace1 정상종료. 최초Aside 실행파일 부재 및 검수스크립트의 snapshot root/버튼포함 비교 오류는 교정 후 재검수했다. 실제은행환급/현재Gmail전체검색·전체회귀·실기기 미실행. 로컬 `.local-archive/eight-card-review-20261102/`와 호스트 동일SHA release/deploy audit에 근거 보존. 요청 조사/코드/배포 미결0, 다음명령 없음. 문서후속 재배포/재시작 없음.
+
 ## 2026-11-01 모든 비용 준비기간·Python 기능군 리팩토링 완료
 
 - COMPLETE — [PR458](https://github.com/6Soo/cost/pull/458), 구현 `26e7b9c4`, 고정 운영 SHA `d206cab71cf02843fcd38be5340cf3e04ff4d75f`(직전 검증 `34835792`). [실행 명세](specs/python-refactor-20261101.md)·[수치/한계/재현](specs/python-refactor-results-20261101.md). 숙박 외 교통·식비·항공·기타/현지경비도 여행 사이 빈 기간이면 가장 가까운 다음 검증 여행의 준비 비용으로 추론한다. 실제 이용기간·수동 배정·3820 국내 잔여/사용자 예외·원본/환불/중복 보호를 유지하며 날짜·여행 기간을 바꾸지 않는다.

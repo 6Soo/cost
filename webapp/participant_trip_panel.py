@@ -63,6 +63,7 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
 
 def _review_markup(state, data):
     """Masked text evidence is displayed without creating confirmed people."""
+    from .google_ledger_page import is_refunded_income
     review = state.get('insurance_review') or {}
     if state.get('configured') and not review.get('available'):
         return ''
@@ -86,6 +87,8 @@ def _review_markup(state, data):
         notice = review.get('message') or '보험 명단 자료 연결을 확인해 주세요.'
     templates, evidence = [], []
     for income in data['income_rows_page']:
+        if is_refunded_income(income):
+            continue
         ref = income['ref']
         if data['links_by_ref'].get(ref):
             continue  # Explicit confirmed participant links always win.
@@ -151,6 +154,7 @@ def _review_markup(state, data):
 def render(state: dict, *, csrf: str = "", income_offset: int = 0,
            participant_offset: int = 0, search: str = "") -> str:
     """Render names only after the caller has established owner access."""
+    from .google_ledger_page import is_refunded_income
     match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
     match_link = f"<p><a class='btn' href='{_esc(match_href)}'>보험 명단 상세</a></p>"
     data = project(state, income_offset=income_offset,
@@ -181,7 +185,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         elif not google.get("available"):
             state_label = "확인 필요 · 수입 자료 최신성 확인"
         else:
-            state_label = "미연결 · 보험 미가입을 뜻하지 않음"
+            state_label = "미연결"
         actions = "".join(
             f"<form method='post' action='/api/participants/unlink'>"
             f"<input type='hidden' name='csrf' value='{_esc(csrf)}'>"
@@ -191,7 +195,9 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
             f"<input type='hidden' name='income_ref' value='{_esc(row['ref'])}'>"
             f"<button type='submit'>{_esc(item['name'])} 연결 해제</button></form>"
             for item in connected)
-        if connected:
+        if is_refunded_income(row):
+            status_markup = "<span class='participant-link-status'>환불완료</span>"
+        elif connected:
             names = ' · '.join(_esc(item['name']) for item in connected)
             status_markup = (
                 "<details class='participant-link-details'>"

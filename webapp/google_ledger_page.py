@@ -343,8 +343,9 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td>"
-            + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'>"
-                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None else "보험 명단 확인") + "</td>")
+            + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'"
+                + (" data-income-refund-complete='1'" if is_refunded_income(row) else "") + ">"
+                + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None or is_refunded_income(row) else "보험 명단 확인") + "</td>")
                if owner else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap
@@ -392,11 +393,19 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         return panel('수입 내역을 불러오지 못했습니다. 새로고침해 주세요.')
 
 
+def is_refunded_income(row: dict) -> bool:
+    """Display the owner's refund status only for a known nonpositive total."""
+    amount = row.get("amount")
+    return isinstance(amount, (int, float)) and amount <= 0
+
+
 def _participant_insurance_cell(row: dict, links_by_ref: dict) -> str:
     """Owner-only virtual cell. Google rows remain read-only."""
+    if is_refunded_income(row):
+        return "환불완료"
     ref = row.get("participant_income_ref") or ""
     entry = (links_by_ref.get(ref) or [None])[0]
-    state = "미연결 · 보험 미가입을 뜻하지 않음"
+    state = "미연결"
     if entry:
         state = "✓ 직접 연결 · " + html.escape(str(entry.get("name") or ""))
     return state

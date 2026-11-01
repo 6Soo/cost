@@ -27,7 +27,7 @@
    if(dlg)dlg.addEventListener('close',function(){var action=pending;pending=null;if(dlg.returnValue==='confirm'&&action)action();});
    root.querySelectorAll('.participant-income-status').forEach(function(template){
     var cell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(template.dataset.incomeRef)+'"]');
-    if(!cell)return;
+    if(!cell||cell.dataset.incomeRefundComplete==='1')return;
     var incomeTable=cell.closest('#income-tbl');
     if(incomeTable&&template.hasAttribute('data-google-generation')&&
        incomeTable.dataset.googleGeneration!==template.dataset.googleGeneration){
@@ -95,14 +95,14 @@
    root.setAttribute('aria-busy','true');
    var content=root.querySelector('[data-participant-content]');
    if(content)content.innerHTML='<div class="insurance-loading" role="status"><span class="insurance-loading-dot" aria-hidden="true"></span><div><strong>보험 명단과 수입을 대조하고 있습니다</strong><p>완료되면 수입 표에 결과가 표시됩니다.</p></div></div>';
-   document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){cell.setAttribute('aria-busy','true');cell.innerHTML='<span class="insurance-loading-label">보험 명단 대조 중…</span>';});
+   document.querySelectorAll('.participant-insurance-cell:not([data-income-refund-complete])').forEach(function(cell){cell.setAttribute('aria-busy','true');cell.innerHTML='<span class="insurance-loading-label">보험 명단 대조 중…</span>';});
    var q=new URLSearchParams({trip:root.dataset.trip||''}),current=new URLSearchParams(location.search);
    ['participant_q','participant_offset','participant_income_offset'].forEach(function(key){if(current.has(key))q.set(key,current.get(key));});
    var controller=new AbortController(),timeout=setTimeout(function(){controller.abort();},25000);
    loading=fetch('/api/participants/trip-panel?'+q.toString(),{headers:{'Accept':'text/html'},credentials:'same-origin',signal:controller.signal})
     .then(function(r){if(!r.ok)throw new Error();return r.text();})
     .then(function(markup){var doc=new DOMParser().parseFromString(markup,'text/html');var fresh=doc.querySelector('#participant-trip-panel');if(!fresh)throw new Error();root.innerHTML=fresh.innerHTML;root.dataset.loaded='1';bindPanel();})
-    .catch(function(){root.dataset.loadFailed='1';root.open=true;var content=root.querySelector('[data-participant-content]');if(content)content.innerHTML='<p role="alert">보험 명단을 불러오지 못했습니다.</p><button type="button" class="participant-review-retry">다시 대조하기</button>';document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){cell.textContent='보험 영역에서 다시 불러와 주세요';});})
+    .catch(function(){root.dataset.loadFailed='1';root.open=true;var content=root.querySelector('[data-participant-content]');if(content)content.innerHTML='<p role="alert">보험 명단을 불러오지 못했습니다.</p><button type="button" class="participant-review-retry">다시 대조하기</button>';document.querySelectorAll('.participant-insurance-cell:not([data-income-refund-complete])').forEach(function(cell){cell.textContent='보험 영역에서 다시 불러와 주세요';});})
     .finally(function(){clearTimeout(timeout);loading=null;root.setAttribute('aria-busy','false');document.querySelectorAll('.participant-insurance-cell').forEach(function(cell){cell.removeAttribute('aria-busy');});});return loading;
   }
   root.addEventListener('toggle',function(){if(root.open&&!root.dataset.loadFailed)loadPanel();});

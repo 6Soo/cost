@@ -325,6 +325,11 @@ td.c-stay{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px;
  white-space:nowrap}
 .s-sub{display:block;font-size:11.5px;color:var(--mut);overflow:hidden;
  text-overflow:ellipsis;white-space:nowrap}
+/* Reservation evidence must remain readable beside the expense category. */
+td.c-party{padding-top:8px;padding-bottom:8px}
+td.c-party .s-main,td.c-party .s-sub{white-space:normal;overflow:visible;
+ text-overflow:clip;overflow-wrap:anywhere}
+td.c-party .s-sub{font-size:12px;line-height:1.5;margin-top:3px}
 td.c-note{font-size:13px;color:var(--mut)}
 td.c-amt{font-weight:600}
 tbody.grp th{height:30px;background:var(--bg);font-size:12.5px;font-weight:600;color:var(--mut);
