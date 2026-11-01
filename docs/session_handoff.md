@@ -1,3 +1,9 @@
+## 2026-11-02 보험 명단 행 간격·모바일 수입 표 조정 완료
+
+- COMPLETE — 첨부 화면의 보험 명단 행 높이 차이를 CSS로 교정했다. 연결/미연결/환불완료 행은 PC45px, 모바일57px로 통일하고 펼침 화살표·hover·focus를 정리했다. 모바일 table/section의 기본 표 배치 때문에 각 수입 행이 전체 너비의 일부로 축소되던 문제와 합계 정렬도 수정했다. [PR #475](https://github.com/6Soo/cost/pull/475), 구현 `6f8b9a61`, 운영 SHA `6bfeee7b34d6eab551394b73d87bedfa29000bc1`, 이전 검증 `e448f34851cfaf122e4646585ea0a4c93589e37b`.
+- 검증: 병합 트리와 동일한 후보의 수입/보험 연결 표적 50 passed/브라우저3 deselected. ego-browser 인증 운영 GET에서 PC1440·모바일390/320px의 동일 높이·행/표 너비 일치·합계 잘림0·가로 넘침0·마우스/키보드 펼침 PASS. TaskSpace8 정상 종료. 전체 회귀·실기기는 국소 CSS 변경으로 미실행. 분류/금융/수입/참가자/Google/원본/스키마 쓰기0.
+- 배포: 1,237 Git blobs 불일치0·task/process 고정SHA·단일 loopback listener·health/ready200·보호5경로401·보호13표 내용/스키마 불변 PASS. 기존 task 인수/SourceRefresh 상태 보존. 코드 전용으로 새 전체DB백업/복원은 반복하지 않고 이전 검증 릴리스와 task XML 복구점을 보존했다. 근거 `.local-archive/insurance-density-20261102/`의 candidate-tests.xml·browser/live.json·release-audit/review/deploy-evidence 및 호스트 동일SHA 기록. 요청 미결/차단0·다음 명령 없음. 문서 후속은 재배포/재시작하지 않는다. 기존 사용자 미커밋 변경은 보존했다.
+
 ## 2026-11-02 기업·하나 다운로드 파일 업로드 오류 수정 완료
 
 - COMPLETE — [PR #470](https://github.com/6Soo/cost/pull/470), 구현 `b289b96e`·보호 보완 `9efd2b08`, 고정 운영 SHA `e448f34851cfaf122e4646585ea0a4c93589e37b`. 기업 XLSX 비표준 스타일/잘못된 셀 범위, 하나 이용·해외 이용 XLS 헤더 인식 오류를 수정했다. 원본 바이트·원행·승인번호를 보존하고, 수수료/청구금액·부분취소를 해당 원문 열에서 읽는다. 없는 매입일은 공란이며 양쪽 명시 매입일·금액·가맹점·외화 충돌과 취소 다중성·수동 교정 보호를 유지한다.
