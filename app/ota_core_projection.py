@@ -86,6 +86,15 @@ def project_card_ota_statuses(current: Optional[OtaStatusSnapshotRead]) -> Tuple
         for reserved in result.get('reserved_card_ids') or ():
             states[str(reserved)] = 'REVIEW_REQUIRED'
 
+    # Relation cardinality is independent from the legacy financial allocator.
+    for result in results:
+        relation = result.get('payment_relation') or {}
+        if relation.get('status') == 'LINKED':
+            for identity in relation.get('transaction_ids') or ():
+                states[str(identity)] = ('GROUP_RECONCILED' if relation.get('balance') == 'BALANCED'
+                                         and relation.get('event_count') != 1 else
+                                         'EXACT' if relation.get('individual_payment_verified') else 'GROUP_LINKED')
+
     # Reservation-only candidates from data.results
     for result in (current.get('data') or {}).get('results') or ():
         trace = result.get('candidate_search') or {}
@@ -131,6 +140,16 @@ def project_card_ota_candidate_notes(
     notes: Dict[str, Set[str]] = {}
 
     for result in data.get('results', []):
+        relation = result.get('payment_relation') or {}
+        if relation.get('status') == 'LINKED':
+            note = (f"OTA M:N 연결 · 결제 근거 {relation.get('event_count')}개 ↔ 카드 {relation.get('card_count')}건"
+                    + (' · 그룹 금액 차이' if relation.get('balance') == 'AMOUNT_DIFFERENCE' else '')
+                    + (' · 원문 결제일 미기록' if not relation.get('payment_date_verified') else ''))
+            for identity in relation.get('transaction_ids') or ():
+                if str(identity) in wanted_transaction_ids:
+                    notes.setdefault(str(identity), set()).add(note)
+            if not relation.get('individual_payment_verified'):
+                continue
         group_only = (result.get('allocation_basis') in
                       ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
                       and result.get('individual_payment_evidence') is False)

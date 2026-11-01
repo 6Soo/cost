@@ -17,7 +17,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 _NO_ALLOCATION_SNAPSHOT = object()
 PARSER_VERSION = 9
-MATCHER_VERSION = 4
+MATCHER_VERSION = 5
 
 
 class OtaSourcesError(ValueError):
@@ -709,8 +709,18 @@ def _card_amount(row):
         return None
 
 
+def _merchant_descriptors(row):
+    """Keep the imported descriptor and its explicit expanded forms together."""
+    import unicodedata
+    keys = ('merchant_normalized', 'merchant', 'merchant_extended', 'merchant_name_extended',
+            'extended_merchant_name', 'expanded_merchant_name', 'merchant_name',
+            '가맹점명', '가맹점명(확장)', '확장가맹점명')
+    return tuple(dict.fromkeys(unicodedata.normalize('NFKC', str(row.get(key) or '')).casefold()
+                               for key in keys if row.get(key)))
+
+
 def _descriptor_matches(event, row, rules=()):
-    merchant = str(row.get("merchant_normalized") or row.get("merchant") or "").casefold()
+    merchants = _merchant_descriptors(row)
     provider = str(event.get("provider") or "").casefold()
     defaults = load_defaults()
     records = defaults.get("provider_merchant_alias_records", {}).get(provider, ())
@@ -726,8 +736,8 @@ def _descriptor_matches(event, row, rules=()):
                 conditions.get("approval_source") and conditions.get("alias_version") and
                 rule.get("approved_by")):
             approved.append(conditions["alias"])
-    return bool(merchant and any(re.search(rf"(?<!\w){re.escape(name.casefold())}(?!\w)", merchant)
-                                 for name in approved if name))
+    return any(re.search(rf"(?<![^\W_]){re.escape(name.casefold())}(?![^\W_])", merchant)
+               for name in approved if name for merchant in merchants)
 
 
 def _rule_scope_valid(conditions):
@@ -1040,12 +1050,13 @@ def provider_compatible(event, row, rules=()):
     if provider == 'toyoko':  # Hotel branch/stay matching is a separate contract.
         return True
     merchant = str(row.get('merchant_normalized') or row.get('merchant') or '').casefold()
-    known = provider_for_merchant(merchant)
-    if known and known != provider:
+    known = {provider_for_merchant(value) for value in _merchant_descriptors(row)} - {None, ''}
+    if any(value != provider for value in known):
         return False
     if provider == 'trip':
         aliases = load_defaults().get('provider_merchant_aliases', {}).get('trip', ())
-        return (_same_day_exact_amount(event, row) or _descriptor_matches(event, row, rules) or
+        return (_same_day_exact_amount(event, row) or _undated_exact_identity(event, row, rules) or
+                _descriptor_matches(event, row, rules) or
                 any(re.search(rf'(?<!\w){re.escape(alias.casefold())}(?!\w)', merchant)
                     for alias in aliases if alias))
     return True
@@ -1090,25 +1101,47 @@ def _has_corroborator(event, row, rules):
     return _descriptor_matches(event, row, rules) or _rule_matches(event, row, rules)
 
 
+def _undated_exact_identity(event, row, rules=()):
+    """Owner 2026-11-01: merchant, original amount and card tail replace absent date."""
+    tail = str(event.get('card_last4') or '')
+    if (event.get('paid_on') or not _event_is_paid(event) or not re.fullmatch(r'\d{4}', tail)
+            or tail != str(row.get('card_tail') or row.get('card_last4') or '')
+            or compare_payment_amount(event, row, [])['status'] != 'MATCH'):
+        return False
+    if (str(event.get('currency') or '').upper() == 'KRW'
+            and abs(_card_amount(row)) != _event_amount(event)):
+        return False
+    aliases = load_defaults().get('provider_merchant_aliases', {}).get(str(event.get('provider') or '').casefold(), ())
+    merchant_match = (_descriptor_matches(event, row, rules) or any(
+        re.search(rf"(?<![^\W_]){re.escape(str(alias).casefold())}(?![^\W_])", merchant)
+        for alias in aliases if alias for merchant in _merchant_descriptors(row)))
+    return merchant_match
+
+
 def _eligible_cards(event, transactions, links=None, rules=None):
-    if not event.get("paid_on"):
+    # Reservation notices and unknown-card undated events cannot create an edge.
+    # Keep them out of the full card scan when date-less relations are enabled.
+    if not _event_is_paid(event) or (not event.get('paid_on') and
+            not re.fullmatch(r'\d{4}', str(event.get('card_last4') or ''))):
         return []
     expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
     eligible = []
     for row in transactions:
-        if not provider_compatible(event, row, rules or []):
-            continue
         if row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
             continue
-        if not _strict_card_identity(event, row, rules):
+        if _direction(row) != expected_direction:
             continue
-        if _direction(row) != expected_direction or not _amount_matches(event, row, rules):
-            continue
-        exact_date = row.get("approval_date") == event.get("paid_on")
-        if not exact_date and not _approved_lag_match(event, row, rules or []) and not _foreign_day_lag_match(event, row):
+        paid_on = event.get('paid_on')
+        if paid_on and row.get('approval_date') != paid_on and not _approved_lag_match(event, row, rules or []) and not _foreign_day_lag_match(event, row):
             continue
         last4 = str(event.get("card_last4") or "")
         if last4 and not (str(row.get("card_tail") or row.get("card_last4") or "").endswith(last4)):
+            continue
+        if not _amount_matches(event, row, rules) or not _strict_card_identity(event, row, rules):
+            continue
+        if not provider_compatible(event, row, rules or []):
+            continue
+        if not paid_on and not _undated_exact_identity(event, row, rules or []):
             continue
         if not _has_corroborator(event, row, rules or []):
             continue
@@ -1133,7 +1166,7 @@ def pair_check(event, row, rules=None):
     if not provider_compatible(event, row, rules):
         return "provider"
     paid_on = event.get("paid_on")
-    if not paid_on and portal_payment_date_required():
+    if not paid_on and portal_payment_date_required() and not _undated_exact_identity(event, row, rules):
         return "payment_date_unknown"
     if not _strict_card_identity(event, row, rules):
         return "card_identity"
@@ -1235,7 +1268,8 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
             date_status = "MISMATCH"
         candidates.append({"transaction_id": row.get("transaction_id"),
                           "date_status": date_status,
-                          "resolution_allowed": bool(paid_on and date_status == "MATCH"),
+                          "resolution_allowed": bool((paid_on and date_status == "MATCH") or
+                                                     _undated_exact_identity(event, row, rules)),
                           "basis": "EXACT_AMOUNT_AND_CARD_EVIDENCE"})
     return {"status": "CANDIDATES_FOUND" if candidates else "NO_CANDIDATE",
             "candidates": candidates, "comparisons": len(narrowed),
@@ -1484,7 +1518,7 @@ def _card_identity(row):
 @provider_resolution_scope()
 def match_ota_payment_events(events, transactions, *, existing_links=None, rules=None,
                              frozen_groups=None):
-    """검증된 OTA 이벤트와 카드 행을 입력 변경 없이 전역 일대일 대조한다."""
+    """Build M:N payment relations; retain separate legacy financial allocations."""
     existing_links = existing_links or {}
     rules = rules or []
     frozen_groups = frozen_groups or []
@@ -1742,7 +1776,7 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
     # edges win globally; equal best allocations remain a hold.
     singleton_events = [event for event in events if event.get("ota_event_id") not in grouped_event_ids and
                         event.get("ota_event_id") not in existing_links and _event_is_paid(event) and
-                        event.get("paid_on")]
+                        (event.get("paid_on") or options_by_event.get(str(event.get("ota_event_id"))))]
     singleton_events.sort(key=lambda event: str(event.get("ota_event_id") or ""))
     singleton_unavailable = set(claimed) | reserved_partial
     singleton_pairs = _assign_exact_first(singleton_events, options_by_event,
@@ -1815,7 +1849,7 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                                allocation_basis=ota_inference.BASIS, inferred_link=True,
                                inference_basis=ota_inference.NOTE, payment_date_verified=False))
             continue
-        if not event.get("paid_on"):
+        if not event.get("paid_on") and not options_by_event.get(str(identity)):
             result.append(dict(event, status="HOLD_DATE_UNKNOWN", transaction_id=None,
                                candidates=[], reason="payment_date_not_in_source"))
             continue
@@ -1908,11 +1942,14 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                           load_defaults().get("trip_flight_charge_delta", {}).get("item_values", []))
             result.append(dict(event, status="MATCHED_AUTO", transaction_id=row["transaction_id"],
                                 candidates=[row["transaction_id"]],
-                                reason=("approved_trip_flight_delta" if trip_delta else
+                                reason=("merchant_amount_card_tail_without_payment_date" if not event.get('paid_on') else
+                                        "approved_trip_flight_delta" if trip_delta else
                                         "approved_delta_rule" if has_delta_rule else "unique_exact_evidence"),
+                                payment_date_verified=bool(event.get('paid_on')),
                                 rule_delta_krw=int(delta) if has_delta_rule else None,
                                 discount_cause_confirmed=False if trip_delta else None))
-    return result
+    from app.ota_payment_relations import attach_relations
+    return attach_relations(events, rows, options_by_event, result, existing_links=existing_links)
 
 
 def bind_legacy_portal_links(events, legacy_links):

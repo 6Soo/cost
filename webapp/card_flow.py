@@ -2642,6 +2642,7 @@ def ota_catalog_summary(entry) -> str:
                 'EXACT': 'OTA 결제 확정 연결',
                 'INFERRED': 'OTA 결제 추론 연결',
                 'GROUP_RECONCILED': 'OTA 반복 결제 그룹 대응 (개별 연결 미확정)',
+                'GROUP_LINKED': 'OTA M:N 연결',
                 'USER_CONFIRMED': '사용자 확정 OTA 연결',
                 'RESERVATION_INFERRED': '예약 추론 관계 · 결제 미검증',
                 'RESERVATION_CONFIRMED': '사용자 확인 예약 관계 · 결제 미검증',
@@ -3205,6 +3206,7 @@ const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_action?.required||r.blocked?'review':''));
 const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 추론 관계 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계 확인 필요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 재확인 필요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+otaLabels.GROUP_LINKED='OTA M:N 연결';
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
 const reviewLabel=r=>[r.next_action?.status||{review:'\ud655\uc778 \ud544\uc694',booked:'\uae30\ub85d \uc644\ub8cc',excluded:'\uae30\ub85d \uc81c\uc678'}[reviewStatus(r)]||'',otaLabels[r.ota_link_status],expenseLabels[r.internal_expense_status],...(r.ota_candidate_notes||[])].filter(Boolean).join(' / ');
 function completedRefundGroups(j){const rows=new Map(j.preview.rows.map(r=>[r.transaction_id,r]));return (j.refund_groups||[]).filter(g=>!g.error&&g.status==='full'&&g.net_krw===0&&g.rows.length&&g.rows.every(r=>r.already_booked&&!r.blocked&&!rows.get(r.transaction_id)?.review_hold))}

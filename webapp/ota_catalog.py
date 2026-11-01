@@ -364,6 +364,15 @@ def _reservation_link_states(flow):
             for key, values in states.items()}
 
 
+def _payment_link_states(flow):
+    from . import ota_payment_review
+    from app.ota_payment_relations import catalog_links
+    if not ota_payment_review.enabled():
+        return {}
+    current, fresh = flow._held_ota_snapshot()
+    return catalog_links(current.get('data') or {}) if current and fresh else {}
+
+
 def _review_store():
     """The OTA review store for reads, or None when isolated review is not configured or has no file yet."""
     from . import ota_payment_review
@@ -635,6 +644,7 @@ def _build_index(board, sources):
     live, cancelled, card_error = _card_matches(flow)
     reservation_candidates = _reservation_card_candidates(flow)
     reservation_links = _reservation_link_states(flow)
+    payment_links = _payment_link_states(flow)
     if card_error:
         warnings.append('카드 결제와 예약을 대조하지 못했습니다. 지출 정리에서 자료를 확인해 주세요.')
     states = _owner_rule_states()
@@ -701,6 +711,7 @@ def _build_index(board, sources):
             'card_matches': live.get(key, []),
             'card_candidates': reservation_candidates.get(key, []),
             'reservation_links': reservation_links.get(key, []),
+            'payment_links': payment_links.get(key, []),
             'card_reconciliation_pending': card_error,
             'cancelled_matches': cancelled.get(key, 0),
         })
@@ -877,6 +888,27 @@ def prewarm(board):
         pass
 
 
+def _linked_card_count(entry):
+    if not entry.get('payment_links'):
+        return len(entry['card_matches'])
+    matches = list(entry['card_matches']) + list(entry['payment_links'])
+    return len({m['transaction_id'] for m in matches if m.get('transaction_id')}) + sum(
+        1 for m in entry['card_matches'] if not m.get('transaction_id'))
+
+
+def _payment_links_html(row):
+    esc = lambda value: html.escape(str(value or ''))
+    amount_text = lambda value: f'{value:,}원' if type(value) in (int, float) else '원화 미확인'
+    links = row.get('payment_links') or ()
+    return ''.join('<br><small>연결된 카드 · ' + esc(link.get('day')) + ' · ' +
+        esc(link.get('merchant')) + ' · ' + esc(amount_text(link.get('amount_krw'))) +
+        (f" · M:N {link.get('booking_count') or link['event_count']}:{link['card_count']}" if (link.get('booking_count') or link.get('event_count', 0)) > 1
+         or link.get('card_count', 0) > 1 else '') +
+        (' · 그룹 금액 차이' if link.get('balance') == 'AMOUNT_DIFFERENCE' else '') +
+        (' · 원문 결제일 미기록' if not link.get('payment_date_verified') else '') + '</small>'
+        for link in links)
+
+
 def _public_row(entry):
     return {'provider': entry['provider'], 'booking_ref': entry['booking_ref'], 'label': entry['label'],
             'booking_ref_display': _booking_ref_display(entry),
@@ -888,7 +920,8 @@ def _public_row(entry):
             'rule': None if not entry['rule'] else {'trip_tab_id': entry['rule']['trip_tab_id'],
                                                     'revision': entry['rule']['revision'],
                                                     'trip_valid': entry['rule']['trip_valid']},
-            'card_count': len(entry['card_matches']),
+            'card_count': _linked_card_count(entry),
+            'payment_links': list(entry.get('payment_links') or ()),
             'card_candidates': list(entry.get('card_candidates') or ()),
             'reservation_links': list(entry.get('reservation_links') or ())}
 
@@ -1078,7 +1111,7 @@ def render_html(data, query, *, csrf=''):
             ('OTA', esc(PROVIDERS.get(row['provider'], row['provider']))),
             ('예약번호', f"<a href='{esc(detail_url(row['provider'], row['booking_ref']))}'>{esc(row.get('booking_ref_display', _booking_ref_display(row)))}</a>"),
             ('예약 내용', esc(row['label'] or '미확인')), ('예약 상태', status_cell),
-            ('카드 결제', esc(f"{row.get('card_count', 0)}건") +
+            ('카드 결제', esc(f"{row.get('card_count', 0)}건") + _payment_links_html(row) +
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
               if row.get('card_candidates') else '') +
              ("<br><small>예약 관계: " + esc(' / '.join(

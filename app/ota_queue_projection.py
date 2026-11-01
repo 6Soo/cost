@@ -32,10 +32,11 @@ _KNOWN_STATUSES = _MATCHED_STATUSES + (
     'PENDING_PAYMENT', 'HOLD_DATE_UNKNOWN', 'HOLD_NO_CARD',
     'RESERVATION_ONLY', 'HOLD_AMOUNT_UNVERIFIED', 'HOLD_AMOUNT_MISMATCH',
     'HOLD_AMBIGUOUS', 'HOLD_EVIDENCE_CONFLICT', 'HOLD_GROUP_CHANGED',
-    'HOLD_PARTIAL_GROUP', 'NOT_CARD_CHARGE',
+    'HOLD_PARTIAL_GROUP', 'NOT_CARD_CHARGE', 'MATCHED_GROUP',
 )
 _SUCCESS_REASONS = ('unique_exact_evidence', 'approved_delta_rule',
-                    'approved_trip_flight_delta', 'pinned_existing_link')
+                    'approved_trip_flight_delta', 'pinned_existing_link',
+                    'merchant_amount_card_tail_without_payment_date')
 _VERIFIED_EVIDENCE = ('paid_verified', 'refund_verified')
 _KNOWN_EVIDENCE = _VERIFIED_EVIDENCE + (
     'scheduled', 'unknown', 'not_card_charge', 'conflict', 'evidence_conflict',
@@ -125,6 +126,15 @@ def _classify_ready_event(event, *, duplicate_identity=False):
     if not evidence_known:
         codes.append('EVIDENCE_UNKNOWN')
         return _result('needs_action', *codes, warning=True)
+    relation = event.get('payment_relation')
+    if (status in ('MATCHED_AUTO', 'MATCHED_GROUP') and evidence in _VERIFIED_EVIDENCE
+            and event.get('payment_status') == 'paid' and isinstance(relation, dict)
+            and relation.get('status') == 'LINKED' and relation.get('transaction_ids')
+            and relation.get('group_transaction_ids') and relation.get('event_ids')):
+        if relation.get('balance') == 'BALANCED' or relation.get('source_total_status') == 'OBSERVATIONS_NOT_DISTINCT_PAYMENTS':
+            return _result('completed', *(codes + ['MATCHING_RELATION_RESOLVED']))
+        return _result('needs_action', *(codes + ['LINKED_GROUP_AMOUNT_DIFFERENCE' if
+            relation.get('balance') == 'AMOUNT_DIFFERENCE' else 'LINKED_GROUP_AMOUNT_UNVERIFIED']))
     if evidence in ('conflict', 'evidence_conflict', 'refund_conflict'):
         return _result('needs_action', 'PAYMENT_EVIDENCE_CONFLICT', warning=True)
     if status in ('HOLD_AMOUNT_MISMATCH', 'HOLD_EVIDENCE_CONFLICT',

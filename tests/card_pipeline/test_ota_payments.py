@@ -148,7 +148,8 @@ def test_f_two_distinct_payment_ids_for_same_booking_are_not_merged():
     results = match_ota_payment_events([one, two], [card()])
     assert len(results) == 2
     assert sum(result['status'] == 'MATCHED_AUTO' for result in results) <= 1
-    assert any(result['status'] == 'HOLD_AMBIGUOUS' for result in results)
+    assert all(result['status'] == 'MATCHED_GROUP' for result in results)
+    assert all(result['payment_relation']['transaction_ids'] == ['card-a'] for result in results)
 
 
 def test_g_legacy_exact_link_is_pinned_even_if_a_better_card_appears():
@@ -447,7 +448,8 @@ def test_same_date_and_amount_mail_portal_claims_without_identity_proof_stay_sep
     merged = _merge_proven_duplicate_payments([mail_event, portal_event])
     assert {item['ota_event_id'] for item in merged} == {'mail-event', 'portal-event'}
     contested = match_ota_payment_events(merged, [card()])
-    assert [item['status'] for item in contested] == ['HOLD_AMBIGUOUS', 'HOLD_AMBIGUOUS']
+    assert [item['status'] for item in contested] == ['MATCHED_GROUP', 'MATCHED_GROUP']
+    assert all(item['payment_relation']['event_count'] == 2 for item in contested)
 
 
 def test_portal_explicit_completed_refund_becomes_separate_event(tmp_path):
@@ -811,7 +813,7 @@ def test_repeated_nm_payments_normalize_equal_decimal_formats_without_inventing_
                for row in first)
 
 
-def test_repeated_nm_payments_hold_when_extra_equal_amount_card_exists():
+def test_repeated_nm_payments_keep_relations_when_extra_equal_amount_card_exists():
     bookings = [
         event('over-1', booking_ref='B-A', amount=30000, amount_krw=30000),
         event('over-2', booking_ref='B-B', amount='30000.0', amount_krw='30000.00'),
@@ -819,9 +821,11 @@ def test_repeated_nm_payments_hold_when_extra_equal_amount_card_exists():
     cards = [card('over-c1'), card('over-c2'), card('over-c3')]
     results = match_ota_payment_events(bookings, cards)
     assert len(results) == 2
-    assert all(row['status'] == 'HOLD_PARTIAL_GROUP'
+    assert all(row['status'] == 'MATCHED_GROUP'
                and row['transaction_id'] is None
                and row['group_count'] == {'ota': 2, 'cards': 3}
+               and row['payment_relation']['transaction_ids'] == ['over-c1', 'over-c2', 'over-c3']
+               and row['payment_relation']['balance'] == 'AMOUNT_DIFFERENCE'
                for row in results)
 
 

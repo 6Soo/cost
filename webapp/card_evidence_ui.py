@@ -72,6 +72,7 @@ def render_ota_snapshot_evidence(
         'EXACT': ('확정 연결', 'ok'),
         'INFERRED': ('추론 연결', 'warn'),
         'GROUP_RECONCILED': ('그룹 대응 (개별 미확정)', 'warn'),
+        'GROUP_LINKED': ('M:N 연결', 'ok'),
         'USER_CONFIRMED': ('사용자 확정', 'ok'),
         'RESERVATION_INFERRED': ('예약 추론 관계', 'idle'),
         'RESERVATION_CONFIRMED': ('예약 관계 사용자 확인', 'ok'),
@@ -105,7 +106,9 @@ def render_ota_snapshot_evidence(
         lines.append(f"<span class='cleanup-ota-note'>{esc(note)}</span>")
 
     # 보호/보류 상태 추가 정보
-    if status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
+    if status == 'GROUP_LINKED':
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약·카드 관계 연결됨 · 카드 원행 금액은 한 번만 집계')}</span>")
+    elif status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
         lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용')}</span>")
     elif status in ('RESERVATION_NEEDS_REVIEW', 'RESERVATION_STALE'):
         lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 사용자 재확인 필요')}</span>")
