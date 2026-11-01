@@ -58,7 +58,7 @@
 
 - 사용자 승인 범위: 전용 프로젝트/비공개 원문 폴더 생성, Gmail 읽기/Drive 접근, 별도 호스트 Drive 읽기 인증, 백업·별도 복원 검증, 원문 적재와 수집 스케줄 전환. 최종 Google 장부·금융/여행 수동 결정 쓰기는 제외한다.
 - 기존 전용 프로젝트를 재사용한다. 최초 403 accessNotConfigured는 [공식 고급 서비스 활성화 절차](https://developers.google.com/apps-script/guides/services/advanced)에 따라 Gmail v1 manifest 의존성으로 수정했다. 명시 scope는 유지했다. 원격 소스/manifest 일치 근거는 Git 제외 로컬 cloud-live-source-verification-resumed.json이다.
-- 호스트 인증 도우미: `python tools/authorize_cloud_mail_drive.py --client-file <기존 installed client> --destination <새 전용 ADC> --account <소유자> --request-file <새 로컬 요청 파일>` 실행 후 Aside에서 `http://127.0.0.1:8769/start`를 연다. Google 동의는 사용자가 직접 완료한다. state 검증·소유자/Drive readonly·offline refresh token을 확인한 뒤 새 파일만 생성하며 기존 자격 증명을 덮지 않는다. 거부·만료는 실제 차단으로 기록하고 같은 실패를 무한 재시도하지 않는다.
+- 호스트 인증 도우미: `python tools/authorize_cloud_mail_drive.py --client-file <기존 installed client> --destination <새 전용 ADC> --account <소유자> --request-file <새 로컬 요청 파일>` 실행 후 ego-browser에서 `http://127.0.0.1:8769/start`를 연다. Google 동의는 사용자가 직접 완료한다. state 검증·소유자/Drive readonly·offline refresh token을 확인한 뒤 새 파일만 생성하며 기존 자격 증명을 덮지 않는다. 거부·만료는 실제 차단으로 기록하고 같은 실패를 무한 재시도하지 않는다.
 - 재시작 복구 검증: 수집기 20 passed, 별도 인증 14 passed(실제 loopback start/잘못된 콜백/동의 거부 포함), compile·원격 소스 비교 통과. 기존 importer32·browser3 검사는 변경이 없어 앞선 통과 근거를 재사용한다. Board 재시작·전체 회귀는 수행하지 않는다.
 ### 호스트 인증 수락과 백필 I/O 보완
 

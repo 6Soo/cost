@@ -1,6 +1,7 @@
 # COST 작업 지침
 
 - Windows 셸·UTF-8 문서 읽기는 `C:/AX/agent-policy/WINDOWS_EXECUTION.md`, 공통 실행은 `C:/AX/agent-policy/AUTONOMOUS_EXECUTION.md`를 따른다. 같은 지침이 이미 문맥에 있으면 반복해서 읽지 않는다.
+- 웹 브라우저 작업은 `ego-browser`를 사용한다. 작업 전에 해당 스킬과 `ego-browser skill`을 확인하고, Windows에서는 UTF-8 `.mjs` 스크립트를 `ego-browser nodejs`로 실행한다. 같은 작업의 TaskSpace를 재사용하며 인증·외부 쓰기 권한과 원본 보호 경계는 유지한다.
 - 현재 사용자 요청 하나를 실행 기준으로 삼는다. 과거 ACTIVE·READY·미구현 표시는 새 개발 과제가 아니다.
 - 문서 진입점은 [시작 안내](docs/COST_V3_START_HERE.md), 현재 미결은 [현재 상태](docs/session_handoff.md), 실제 배포 근거는 [운영 기록](docs/operations.md)이다. 필요한 상세 명세만 읽는다.
 - 사용자 최신 결정이 과거 문서보다 우선한다. 금융·여행 규칙은 [금융 명세](docs/specs/finance.md), OTA는 [대사 명세](docs/specs/ota.md), Google은 [장부 명세](docs/specs/google-ledger.md)를 따른다.
