@@ -1,4 +1,6 @@
 from webapp import participant_trip_panel as panel
+import copy
+import pytest
 
 
 def sample_state(count=25):
@@ -14,6 +16,26 @@ def sample_state(count=25):
                        "unlinked_income_rows": count},
             "google": {"available": True},
             "roster": {"scope": "partial", "participants": people}}
+
+
+@pytest.mark.parametrize('amount', [0, -1000, 1000])
+@pytest.mark.parametrize('linked', [False, True])
+def test_refund_status_replaces_roster_display_without_changing_links(amount, linked):
+    from webapp.google_ledger_page import _participant_insurance_cell
+    state = sample_state(1)
+    row = state['income_rows'][0]
+    row['amount'] = amount
+    if linked:
+        state['participants'] = [{'participant_id': 'person-0', 'display_name': 'person 0',
+                                  'links': [{'income_ref': row['ref'], 'method': 'manual'}]}]
+    before = copy.deepcopy(state)
+    markup = panel.render(state)
+    cell = _participant_insurance_cell(dict(row, participant_income_ref=row['ref']),
+                                       panel.project(state)['links_by_ref'])
+    assert ('환불완료' in markup) == (amount <= 0)
+    assert ('환불완료' in cell) == (amount <= 0)
+    assert '보험 미가입을 뜻하지 않음' not in markup + cell
+    assert state == before
 
 
 def test_projection_shows_all_income_rows_but_keeps_participants_bounded():
@@ -34,7 +56,8 @@ def test_virtual_projection_keeps_source_rows_and_amounts_unchanged():
     assert after == before
     assert "<table" not in html
     assert "participant-income-status" in html
-    assert "미연결 · 보험 미가입을 뜻하지 않음" in html
+    assert "미연결" in html
+    assert "보험 미가입을 뜻하지 않음" not in html
     assert "1000원" not in html
 
 
