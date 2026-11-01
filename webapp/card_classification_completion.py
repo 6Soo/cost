@@ -2,6 +2,15 @@
 from app import automatic_classification as policy
 
 
+def missing_assignment_sql(alias='t'):
+    """An automatic category alone cannot complete an ordinary trip expense."""
+    return (f"({alias}.classification_state='classified'"
+            f" AND COALESCE({alias}.item,'') NOT IN ('','분기 기타비용')"
+            f" AND COALESCE({alias}.classification_source,'')!='guide_airfare_evidence'"
+            f" AND COALESCE({alias}.display_tab_id,'') IN ('','unclassified')"
+            f" AND COALESCE({alias}.trip_id,'') IN ('','unclassified'))")
+
+
 def context(flow):
     from .card_flow import _google_nets
     trips = [dict(trip, trip_id=trip['tab_id']) for trip in flow.board.list_trips()

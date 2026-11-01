@@ -44,6 +44,89 @@ def snapshot_originals(board):
     return board.conn.execute('SELECT transaction_id,source_hash,raw_row_json,amount_krw,approval_number,approval_date,posting_date,decided_at FROM transactions ORDER BY transaction_id').fetchall()
 
 
+@pytest.mark.parametrize('entrypoint', ['worker', 'auto_record'])
+def test_category_only_booking_recovers_using_service_period_not_card_date(setup, monkeypatch, entrypoint):
+    board = setup
+    batch, rows = receive(board, 1, card='1234')
+    row = rows[0]
+    board.create_trip(starts_on='2026-10-14', ends_on='2026-10-17',
+                      destination='결제일 여행', client_request_id='payment-date-trip')
+    service_trip = board.create_trip(starts_on='2026-11-01', ends_on='2026-11-04',
+                      destination='예약 이용일 여행', client_request_id='service-trip')['tab_id']
+    board.conn.execute("UPDATE transactions SET classification_state='classified',"
+                       "classification_source='rule',item='숙박비',trip_id='',display_tab_id=''")
+    board.conn.commit()
+    original = snapshot_originals(board)
+    report = {'matches': [dict(transaction_id=row['transaction_id'], source_hash=row['source_hash'],
+        booking_ref='90000000001', item='숙박비', reservation_status='confirmed',
+        period=dict(starts_on='2026-11-01', ends_on='2026-11-02'), source_digests=['a'*64])],
+        'rules': [dict(conditions=dict(merchant_normalized=row['merchant_normalized'],
+            transaction_direction='purchase'), optional=dict(source_hash=row['source_hash']),
+            effects=dict(item='숙박비'))], 'type_only_candidates': []}
+    monkeypatch.setenv('WEBLEDGER_OTA_REVIEW_MODE', 'isolated')
+    monkeypatch.setenv('WEBLEDGER_OTA_REVIEW_DB', str(board.path.parent/'ota.sqlite'))
+    monkeypatch.setattr(CardFlow, '_held_ota_snapshot', lambda self: ({'generation': 1}, True))
+    monkeypatch.setattr(CardFlow, '_canonical_snapshot_report', lambda self, current: report)
+    monkeypatch.setattr(CardFlow, '_ota_report', lambda self: report)
+    monkeypatch.setattr(CardFlow, '_compute_ota_report', lambda self: pytest.fail('raw scan'))
+    other_before = None
+    if entrypoint == 'auto_record':
+        _, other = receive(board, 1, card='1234', suffix='other-batch')
+        other_id = other[0]['transaction_id']
+        other_before = board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (other_id,)).fetchone()
+        original = snapshot_originals(board)
+    before = board.conn.execute('SELECT * FROM transactions').fetchall()
+    # Reads must neither classify nor enqueue this historical incomplete row.
+    CardFlow(board).state(batch)
+    assert board.conn.execute('SELECT * FROM transactions').fetchall() == before
+    if entrypoint == 'worker':
+        assert len(candidates(board.conn)) == 1
+        worker = CardCompletionWorker(board, threading.RLock())
+        assert worker.sweep_once() and worker.status['failures'] == 0
+        assert not worker.sweep_once()
+    else:
+        assert CardFlow(board).auto_record(batch)['auto_recorded'] == 1
+        assert CardFlow(board).auto_record(batch)['auto_recorded'] == 0
+    assert board.conn.execute('SELECT trip_id,amount_krw,item FROM ledger_entries').fetchall() == [(service_trip,10000,'숙박비')]
+    assert snapshot_originals(board) == original
+    assert not board.conn.execute('SELECT 1 FROM review_decisions').fetchone()
+    if other_before:
+        assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (other_id,)).fetchone() == other_before
+
+
+def test_category_only_recovery_preserves_all_protected_rows(setup):
+    board = setup
+    _, rows = receive(board, 9, card='1234')
+    c = board.conn
+    c.execute("UPDATE transactions SET classification_state='classified',classification_source='rule',item='숙박비',trip_id='',display_tab_id=''")
+    c.execute("UPDATE transactions SET classification_source='user_decision' WHERE transaction_id=?", (rows[0]['transaction_id'],))
+    c.execute('INSERT INTO transaction_review_holds VALUES (?,?,?,?)', (rows[1]['transaction_id'],rows[1]['source_hash'],'user_hold','synthetic'))
+    c.execute("UPDATE transactions SET duplicate_of='synthetic' WHERE transaction_id=?", (rows[2]['transaction_id'],))
+    c.execute("UPDATE transactions SET parse_error='synthetic' WHERE transaction_id=?", (rows[3]['transaction_id'],))
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',original_approval_number=? WHERE transaction_id=?", (rows[4]['approval_number'],rows[5]['transaction_id']))
+    c.execute("UPDATE transactions SET conflict_reason='synthetic' WHERE transaction_id=?", (rows[6]['transaction_id'],))
+    c.execute("UPDATE transactions SET classification_source='guide_airfare_evidence',item='항공료' WHERE transaction_id=?", (rows[7]['transaction_id'],))
+    c.execute("UPDATE transactions SET item='분기 기타비용',display_tab_id='quarter:2026:4' WHERE transaction_id=?", (rows[8]['transaction_id'],))
+    c.commit()
+    before=c.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+    assert candidates(c)==[]
+    assert not CardCompletionWorker(board,threading.RLock()).sweep_once()
+    assert c.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()==before
+
+
+def test_assigned_historical_purchase_is_not_a_new_backfill_job(setup):
+    board=setup
+    receive(board,1,card='1234')
+    trip=board.create_trip(starts_on='2026-10-14',ends_on='2026-10-17',
+        destination='기존 배정',client_request_id='historical-trip')['tab_id']
+    board.conn.execute("UPDATE transactions SET classification_state='classified',classification_source='rule',item='숙박비',trip_id=?,display_tab_id=?",(trip,trip))
+    board.conn.commit()
+    before=board.conn.execute('SELECT * FROM transactions').fetchall()
+    assert candidates(board.conn)==[]
+    assert not CardCompletionWorker(board,threading.RLock()).sweep_once()
+    assert board.conn.execute('SELECT * FROM transactions').fetchall()==before
+
+
 def test_no_request_needed_and_chunks_survive_a_new_worker(setup):
     board = setup
     _, rows = receive(board)
