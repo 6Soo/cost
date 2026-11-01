@@ -9,7 +9,7 @@ import io
 import re
 from pypdf.errors import PyPdfError
 
-from .insurance_income_match import ManifestError, load_review_manifest, unique_identity_name_match
+from .insurance_income_match import ManifestError, load_review_manifest, unique_identity_name_match, contract_identity
 from .participant_roster import RosterError, mapping_resolver, register_roster
 from .rules import trip_region
 
@@ -30,7 +30,7 @@ def document_info(path):
             'pages':list(range(1,len(reader.pages)+1))}
 
 
-def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_people=None, trip_overrides=None):
+def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_people=None, trip_overrides=None, excluded_contracts=None):
     """Adapt verified documents to the existing immutable roster batch format.
 
     Only an explicit mapping or a unique enclosing Google trip is sufficient.
@@ -47,6 +47,11 @@ def prepare_document_batches(review_path, inbox, *, mapping, trips, registered_p
     reports = []
     for source in review['contracts']:
         key = hashlib.sha256((source['contract_id']+'|'+source['sha256']).encode()).hexdigest()
+        identity=contract_identity(source['contract_id'])
+        if identity in (excluded_contracts or {}):
+            reports.append({'source_key':key,'contract_identity':identity,'status':'excluded',
+                            'code':'OTHER_LEDGER_INDIVIDUAL_RESERVATION','rows':len(source['items'])})
+            continue
         batch_id = 'document-' + key[:32]
         base = review_path.parent.resolve()
         pdf = (base / source['source_pdf']).resolve()
@@ -175,7 +180,8 @@ def sync_once(config, store):
     try:
         sources = prepare_document_batches(config['review_manifest'],config['inbox'],mapping=mapping,
                                            trips=trips,registered_people=people,
-                                           trip_overrides=config.get('document_trip_overrides')) if config.get('review_manifest') else []
+                                           trip_overrides=config.get('document_trip_overrides'),
+                                           excluded_contracts=config.get('excluded_contracts')) if config.get('review_manifest') else []
     except (ManifestError, OSError, ValueError, RosterError):
         sources = [{'status':'rejected','code':'DOCUMENT_SOURCE_UNAVAILABLE'}]
     batches=scan_inbox(config['inbox'],store,mapping=mapping,expected_web_db=config['db'])

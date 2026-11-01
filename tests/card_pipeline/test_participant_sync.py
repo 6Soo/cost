@@ -165,3 +165,29 @@ def test_explicit_source_mapping_uses_existing_google_trip_without_replacing_pri
     assert held['code']=='EXISTING_MAPPING_PRESERVED'
     new=prepare_document_batches(path,tmp_path/'other-inbox',mapping=mapping,trips=trips,trip_overrides=override)[0]
     assert new['trip_id']=='other' and new['mapping_basis']=='explicit_source_mapping'
+
+
+def test_other_ledger_exclusion_survives_document_revision_and_removes_candidates(tmp_path, monkeypatch):
+    from app.insurance_income_match import contract_identity, exclude_contracts, load_review_manifest
+    path,data,pdf=source(tmp_path/'review')
+    excluded={contract_identity(data['contracts'][0]['contract_id']):'owner: other ledger individual reservation'}
+    before=load_review_manifest(path)
+    assert exclude_contracts(before,excluded)['contracts']==[]
+    assert exclude_contracts(before,excluded)['fingerprint']!=before['fingerprint']
+    for revision in (b'',b'\n% revised document\n'):
+        if revision:
+            pdf.write_bytes(pdf.read_bytes()+revision)
+            data['contracts'][0]['sha256']=hashlib.sha256(pdf.read_bytes()).hexdigest()
+            path.write_text(json.dumps(data),encoding='utf-8')
+        result=prepare_document_batches(path,tmp_path/'inbox',mapping=MAPPING,trips=TRIPS,
+                                         excluded_contracts=excluded)
+        assert result[0]['status']=='excluded'
+        assert result[0]['code']=='OTHER_LEDGER_INDIVIDUAL_RESERVATION'
+        assert not (tmp_path/'inbox').exists()
+    from webapp.insurance_income_match_service import configured_review
+    config=tmp_path/'sync.json'
+    config.write_text(json.dumps({'db':str(tmp_path/'.local-archive'/'participant.sqlite'),
+                                  'inbox':str(tmp_path/'inbox'),'mapping':str(tmp_path/'mapping.json'),
+                                  'trip_db':str(tmp_path/'board.sqlite'),'excluded_contracts':excluded}),encoding='utf-8')
+    monkeypatch.setenv('WEBLEDGER_PARTICIPANT_SYNC_CONFIG',str(config))
+    assert configured_review(path)['contracts']==[]

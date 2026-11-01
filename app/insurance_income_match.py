@@ -33,6 +33,19 @@ def _opaque(*parts: str) -> str:
     return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
 
 
+def contract_identity(contract_id: str) -> str:
+    """Stable across PDF revisions so excluded contracts cannot reappear."""
+    return _opaque('contract-identity',contract_id)
+
+
+def exclude_contracts(review, excluded):
+    excluded=set(excluded or ())
+    if not excluded:
+        return review
+    return dict(review,contracts=[c for c in review['contracts'] if c.get('contract_identity') not in excluded],
+                fingerprint=_opaque(review['fingerprint'],*sorted(excluded)))
+
+
 def load_review_manifest(path) -> dict:
     """Load bounded manifest metadata; never opens referenced source documents."""
     try:
@@ -113,7 +126,7 @@ def load_review_manifest(path) -> dict:
                 raise ManifestError("duplicate source row")
             seen_rows.add(row_id)
             rows.append({"review_row_id": row_id, "masked_name": masked})
-        normalized.append({"contract_key": key, "travel_start": start, "travel_end": end,
+        normalized.append({"contract_key": key, "contract_identity":contract_identity(cid), "travel_start": start, "travel_end": end,
                            "cost_trip_id": trip_id, "already_registered": contract["already_registered"],
                            "insurance_status": contract["insurance_status"], "rows": rows})
     return {"fingerprint": fingerprint, "contracts": normalized}

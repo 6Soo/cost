@@ -8,7 +8,7 @@ import json
 import os
 import sqlite3
 
-from app.insurance_income_match import ManifestError, load_review_manifest, match_contract
+from app.insurance_income_match import ManifestError, load_review_manifest, match_contract, exclude_contracts
 from app.google_authority import SnapshotError
 
 
@@ -22,6 +22,15 @@ def review_path():
         from app.participant_sync import load_config
         return load_config(config).get('review_manifest')
     return os.environ.get('WEBLEDGER_INSURANCE_REVIEW_MANIFEST')
+
+
+def configured_review(path):
+    review=load_review_manifest(path)
+    config=os.environ.get('WEBLEDGER_PARTICIPANT_SYNC_CONFIG')
+    if config:
+        from app.participant_sync import load_config
+        review=exclude_contracts(review,load_config(config).get('excluded_contracts'))
+    return review
 
 
 def _current_trips():
@@ -94,7 +103,7 @@ def trip_review(state, *, review=None, trips=None):
             path = review_path()
             if not path:
                 return _failure('REVIEW_NOT_CONFIGURED', '보험 명단 자료가 연결되지 않았습니다.')
-            review = load_review_manifest(path)
+            review = configured_review(path)
         trips = _current_trips() if trips is None else trips
         selected = [trip for trip in trips if trip.get('tab_id') == tid]
         if not tid or len(selected) != 1:
@@ -132,7 +141,7 @@ def build_state(query=None, *, review=None, trips=None, context=None):
             path = review_path()
             if not path:
                 return _failure('REVIEW_NOT_CONFIGURED', '보험 명단 대조 자료가 연결되지 않았습니다.')
-            review = load_review_manifest(path)
+            review = configured_review(path)
         trips = _current_trips() if trips is None else trips
         by_id = {trip['tab_id']: trip for trip in trips}
         if selected and selected not in by_id:
