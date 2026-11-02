@@ -49,6 +49,33 @@ def start(board, handler, flow, received, source_file, inspection):
                 break
             if job['public']['status'] != 'running' and (time.monotonic()-job['created'] > 3600 or len(jobs) >= 16):
                 del jobs[identity]
+        if completed is None:
+            identity = uuid.uuid4().hex
+            job = {'batch_id': received['batch_id'], 'created': time.monotonic(),
+                   'public': {'status': 'running', 'message': '파일 접수 완료 · 처리 대기 중'}}
+            jobs[identity] = job
+            def progress(message):
+                with _guard:
+                    job['public'] = {'status': 'running', 'message': message}
+            def run():
+                try:
+                    # Same lock order as HTTP and the durable completion worker.
+                    with handler.server.store_lock:
+                        if getattr(handler.server, 'runtime_closing', False):
+                            raise RuntimeError('SERVER_STOPPING')
+                        result, code = process(board, handler, flow, received, source_file, inspection, progress)
+                    public = ({'status': 'done', 'result': result} if code == 200 else
+                              {'status': 'error', 'message': result['message']})
+                except Exception:
+                    public = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
+                with _guard:
+                    job['public'] = public
+            try:
+                threading.Thread(target=run, name='card-upload', daemon=True).start()
+            except Exception:
+                job['public'] = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
+            return dict(status_url=PREFIX+identity, batch_id=received['batch_id'],
+                        status='running', source_rows_persisted=True)
     if completed:
         identity, job = completed
         # Read the latest committed projection after a manual correction. Never
@@ -71,6 +98,8 @@ def start(board, handler, flow, received, source_file, inspection):
                 if getattr(board, '_upload_jobs', {}).get(identity) is job and job['public']['status'] == 'done':
                     result = dict(job['public'].get('result') or {})
                     result.pop('rows', None)
+                    result.pop('preview', None)
+                    result.pop('summary', None)
                     result['refresh_required'] = True
                     result['upload_summary'] = dict(result.get('upload_summary') or {},
                                                     status='refresh_required')
@@ -84,32 +113,6 @@ def start(board, handler, flow, received, source_file, inspection):
             if public['status'] == 'done':
                 acknowledgement['result'] = public['result']
             return acknowledgement
-    with _guard:
-        identity = uuid.uuid4().hex
-        job = {'batch_id': received['batch_id'], 'created': time.monotonic(),
-               'public': {'status': 'running', 'message': '파일 접수 완료 · 처리 대기 중'}}
-        jobs[identity] = job
-        def progress(message):
-            with _guard:
-                job['public'] = {'status': 'running', 'message': message}
-        def run():
-            try:
-                # Same lock order as HTTP and the durable completion worker.
-                with handler.server.store_lock:
-                    if getattr(handler.server, 'runtime_closing', False):
-                        raise RuntimeError('SERVER_STOPPING')
-                    result, code = process(board, handler, flow, received, source_file, inspection, progress)
-                public = ({'status': 'done', 'result': result} if code == 200 else
-                          {'status': 'error', 'message': result['message']})
-            except Exception:
-                public = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
-            with _guard:
-                job['public'] = public
-        try:
-            threading.Thread(target=run, name='card-upload', daemon=True).start()
-        except Exception:
-            job['public'] = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
-        return dict(status_url=PREFIX+identity, batch_id=received['batch_id'], status='running', source_rows_persisted=True)
 
 
 def process(board, handler, flow, received, source_file, inspection, progress=lambda message: None):

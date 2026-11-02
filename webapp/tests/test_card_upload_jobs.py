@@ -79,6 +79,7 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
 
 def test_job_coalesces_and_status_does_not_read_db(monkeypatch):
     gate = threading.Event()
+    callers = threading.Barrier(8)
     board = SimpleNamespace()
     handler = SimpleNamespace(server=SimpleNamespace(store_lock=threading.RLock()))
     calls = []
@@ -87,10 +88,21 @@ def test_job_coalesces_and_status_does_not_read_db(monkeypatch):
         assert gate.wait(3)
         return {'upload_summary': {'status': 'passed'}}, 200
     monkeypatch.setattr(card_upload_jobs, 'process', process)
+    acknowledgements = []
+    def upload_start():
+        callers.wait(3)
+        acknowledgements.append(card_upload_jobs.start(
+            board, handler, None, {'batch_id': 'same'}, None, None))
+    starters = [threading.Thread(target=upload_start) for _ in range(callers.parties)]
     try:
-        first = card_upload_jobs.start(board, handler, None, {'batch_id': 'same'}, None, None)
-        second = card_upload_jobs.start(board, handler, None, {'batch_id': 'same'}, None, None)
-        assert first['status_url'] == second['status_url']
+        for starter in starters:
+            starter.start()
+        for starter in starters:
+            starter.join(3)
+            assert not starter.is_alive()
+        assert len(acknowledgements) == callers.parties
+        assert len({ack['status_url'] for ack in acknowledgements}) == 1
+        first = acknowledgements[0]
         assert card_upload_jobs.status(board, first['status_url'].split('/')[-1])[0]['status'] == 'running'
         assert card_upload_jobs.status(SimpleNamespace(), 'missing')[1] == 404
     finally:
@@ -143,6 +155,8 @@ def test_completed_job_reuses_status_and_failed_job_gets_retry(monkeypatch):
     assert stale['result']['refresh_required'] is True
     assert stale['result']['upload_summary']['status'] == 'refresh_required'
     assert 'rows' not in stale['result']
+    assert 'preview' not in stale['result']
+    assert 'summary' not in stale['result']
     assert calls == [1]
 
     failed = card_upload_jobs.start(board, handler, flow,
