@@ -4805,6 +4805,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_trip_meta(self, tab_id, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError
 
+        payload = {}
         try:
             payload = read_payload()
             check_csrf(payload)
@@ -4851,8 +4852,20 @@ class Handler(BaseHTTPRequestHandler):
                 actor="owner", **kwargs,
             )
         except SaveError as exc:
-            self._send_json({"code": exc.code, "message": str(exc)},
-                            code=STATUS_FOR_CODE.get(exc.code, 422))
+            if "application/json" in content_type or exc.code != 'EDIT_CONFLICT':
+                self._send_json({"code": exc.code, "message": str(exc)},
+                                code=STATUS_FOR_CODE.get(exc.code, 422))
+            else:
+                from . import ledger_design
+                fields = ''.join(
+                    f"<p><label>{label}<input readonly name='{key}' value='{esc(str(payload[key]))}'></label></p>"
+                    for key, label in (('display_key', '입력한 표시 이름'),
+                                       ('prepared_on', '입력한 작성일'), ('prepared_by_name', '입력한 담당자'))
+                    if key in payload)
+                body = (f"<p role='alert'>{esc(exc.code)}: {esc(str(exc))}</p>" + fields +
+                        f"<p><a href='/trips?trip={esc(tab_id)}'>최신 여행 정보 확인</a></p>")
+                self._send(ledger_design.render(ledger_design.shell(
+                    '여행 정보 저장 오류', tab_id='', heading='여행 정보 저장 오류', body=body)), code=409)
             return
         if "application/json" in content_type:
             self._send_json(result, code=200)

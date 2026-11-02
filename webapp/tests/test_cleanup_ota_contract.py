@@ -158,8 +158,10 @@ def test_valid_card_without_ota_can_still_prepare(context, monkeypatch):
                        (trip['tab_id'], trip['tab_id'], tid))
     board.conn.commit()
     monkeypatch.setattr(card_flow.CardFlow, 'trip_valid', lambda self, target: target == trip['tab_id'])
+    changes = board.conn.total_changes
     markup = card_flow.render_expense_cleanup(board, 'csrf')
-    assert '준비 가능' in markup
+    assert '장부 기록 가능' in markup
+    assert board.conn.total_changes == changes
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
 
 
