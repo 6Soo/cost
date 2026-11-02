@@ -248,7 +248,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
         parts = target.split("::")
         module_name, function_name = parts[0], parts[-1]
         class_suffix = ".".join(parts[1:-1])
-        return (case.get("name") == function_name
+        case_name = case.get("name", "")
+        return ((case_name == function_name or case_name.startswith(function_name + "["))
                 and case.get("classname", "").startswith(module_name)
                 and (not class_suffix or case.get("classname", "").endswith(class_suffix)))
 

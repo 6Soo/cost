@@ -49,7 +49,7 @@ def test_full_refund_completion_is_separate_without_hiding_real_review(flow, sce
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 def route(request):
-                    path = request.request.url.split('cost.test', 1)[-1]
+                    path = request.request.url.split('cost.test', 1)[-1].split('?', 1)[0]
                     if path == '/import':
                         request.fulfill(content_type='text/html', body=render_page('synthetic'))
                     elif path == '/api/imports':
@@ -59,7 +59,7 @@ def test_full_refund_completion_is_separate_without_hiding_real_review(flow, sce
                     else:
                         request.fulfill(json={'rules': []})
                 page.route('**/*', route)
-                page.goto('http://cost.test/import')
+                page.goto(f'http://cost.test/import?batch={batch}#saved-materials')
                 page.locator('[data-review-state="all"]').click()
                 completed = scenario == 'complete'
                 assert page.locator('.refund-complete').count() == int(completed)
