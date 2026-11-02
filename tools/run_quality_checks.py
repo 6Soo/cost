@@ -104,18 +104,32 @@ def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]
         if not source_path.is_file():
             continue
         try:
-            tree = ast.parse(source_path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError, UnicodeError):
+            tree = ast.parse(source_path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            if source_path.name.endswith("_browser.py"):
+                raise ValueError(f"BROWSER_TEST_PARSE_FAILED:{file_part}") from exc
             continue
-        candidates: list[tuple[str, ast.AST]] = []
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
-                candidates.append((node.name, node))
-        requested = node_part.split("::")[-1] if node_part else None
-        for name, node in candidates:
-            if (requested is None or requested == name) and _calls_playwright(node):
-                module_name = file_part[:-3].replace("/", ".")
-                cases.add(f"{module_name}::{name}")
+        requested_parts = node_part.split("::") if node_part else []
+        module_name = file_part[:-3].replace("/", ".")
+        browser_module = source_path.name.endswith("_browser.py")
+
+        def visit(body: list[ast.stmt], class_path: tuple[str, ...] = (), inherited_browser: bool = False) -> None:
+            for node in body:
+                if isinstance(node, ast.ClassDef):
+                    is_browser_fixture = any(
+                        (isinstance(base, ast.Name) and base.id.endswith("BrowserFixture"))
+                        or (isinstance(base, ast.Attribute) and base.attr.endswith("BrowserFixture"))
+                        for base in node.bases)
+                    visit(node.body, (*class_path, node.name), inherited_browser or is_browser_fixture)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                    if requested_parts and (requested_parts[-1] != node.name
+                            or (len(requested_parts) > 1 and list(class_path) != requested_parts[:-1])):
+                        continue
+                    if browser_module or inherited_browser or _calls_playwright(node):
+                        qualified = "::".join((module_name, *class_path, node.name))
+                        cases.add(qualified)
+
+        visit(tree.body)
     return sorted(cases)
 
 
@@ -221,10 +235,12 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
     skipped: set[str] = set()
     executed_count = 0
     for target in browser_tests:
-        module_name, function_name = target.split("::", 1)
+        parts = target.split("::")
+        module_name, function_name = parts[0], parts[-1]
+        class_suffix = ".".join(parts[1:-1])
         matched = [case for case in cases if case.get("name") == function_name
-                   and (case.get("classname", "").startswith(module_name)
-                        or case.get("classname", "") == module_name)]
+                   and case.get("classname", "").startswith(module_name)
+                   and (not class_suffix or case.get("classname", "").endswith(class_suffix))]
         if any(case.find("skipped") is None for case in matched):
             executed.add(target)
         if any(case.find("skipped") is not None for case in matched):

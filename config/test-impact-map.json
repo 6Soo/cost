@@ -148,7 +148,7 @@
     {
       "name": "card-catalog-assets",
       "paths": ["webapp/card_catalog.py", "webapp/card_catalog_assets.py", "webapp/static/css/card_catalog.css", "webapp/static/js/card_catalog.js", "webapp/tests/test_card_catalog_assets.py"],
-      "tests": ["webapp/tests/test_card_catalog_assets.py", "webapp/tests/test_cards_all_filters.py", "webapp/tests/test_ota_reserve_ui_theme.py"]
+      "tests": ["webapp/tests/test_card_catalog_assets.py", "webapp/tests/test_card_catalog_browser.py", "webapp/tests/test_cards_all_filters.py", "webapp/tests/test_ota_reserve_ui_theme.py"]
     },
     {
       "name": "real-review-template",
@@ -188,7 +188,7 @@
     {
       "name": "shared-shell-assets",
       "paths": ["webapp/site_assets.py", "webapp/site_shell.py", "webapp/site_theme.py", "webapp/static/css/site_shell.css", "webapp/static/css/site_theme.css", "webapp/static/js/site_shell.js", "webapp/static/js/site_theme.js", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_tokens.py"],
-      "tests": ["webapp/tests/test_site_tokens.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_convergence.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+      "tests": ["webapp/tests/test_site_tokens.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_browser.py", "webapp/tests/test_site_shell_convergence.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
     },
     {
       "name": "ledger-audit-rules",
@@ -219,7 +219,7 @@
     {
       "name": "shared-ui-browser-contracts",
       "paths": ["webapp/static/css/**", "webapp/static/js/**", "webapp/static/templates/**", "webapp/site_*.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"],
-      "tests": ["webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_tokens.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"]
+      "tests": ["webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_browser.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_tokens.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"]
     }
   ]
 }

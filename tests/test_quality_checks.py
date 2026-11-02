@@ -47,6 +47,41 @@ def test_playwright_detection_uses_ast_not_test_filename():
     assert "webapp.tests.test_site_tokens::test_chromium_true_baseline_differential_matrix" in plan["browser_tests"]
 
 
+def test_card_catalog_fixture_browser_tests_are_mapped_and_required():
+    impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
+    targets, unknown = selector_tool.select_targets(["webapp/card_catalog_assets.py"], impact_map["groups"])
+    assert unknown == []
+    assert "webapp/tests/test_card_catalog_browser.py" in targets
+    plan = quality.build_plan(["webapp/card_catalog_assets.py"], selector([], targets=targets))
+    assert set(plan["browser_tests"]) >= {
+        "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click",
+        "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_menu_search_and_source_review_at_390",
+    }
+
+
+def test_browser_modules_require_every_test_even_when_playwright_is_in_helpers():
+    targets = ["webapp/tests/test_card_flow_browser.py", "webapp/tests/test_site_shell_browser.py",
+               "webapp/tests/test_expense_copy_states.py", "webapp/tests/test_card_catalog_browser.py"]
+    cases = quality.collect_browser_tests(targets)
+    expected = {
+        "webapp.tests.test_card_flow_browser::CardFlowBrowserTests::test_cleanup_filters_save_stale_empty_and_responsive_browser_contract",
+        "webapp.tests.test_site_shell_browser::SiteShellBrowserTests::test_theme_keyboard_motion_and_responsive_contract",
+        "webapp.tests.test_expense_copy_states::test_integrated_labels_escape_source_text_and_are_visible_on_mobile",
+        "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click",
+        "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_menu_search_and_source_review_at_390",
+    }
+    assert expected <= set(cases)
+    assert len([case for case in cases if case.startswith("webapp.tests.test_card_flow_browser::")]) == 16
+    assert len([case for case in cases if case.startswith("webapp.tests.test_site_shell_browser::")]) == 7
+
+
+def test_selected_browser_module_parse_error_fails_closed(tmp_path):
+    module = tmp_path / "test_broken_browser.py"
+    module.write_text("\ufeffdef test_broken(:\n    pass\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="BROWSER_TEST_PARSE_FAILED:test_broken_browser.py"):
+        quality.collect_browser_tests(["test_broken_browser.py"], root=tmp_path)
+
+
 def test_autonomous_workflow_http_journeys_are_selected_from_the_map():
     impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
     targets, unknown = selector_tool.select_targets(["webapp/tests/test_autonomous_workflows.py"], impact_map["groups"])
@@ -122,6 +157,11 @@ def test_junit_cannot_pass_zero_tests_or_skipped_browser_cases(tmp_path):
     assert skipped["executed_case_count"] == 0
     assert skipped["browser_skipped"] == browser
     assert skipped["missing_browser_tests"] == browser
+    fixture_browser = ["webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click"]
+    junit.write_text('<testsuite><testcase classname="webapp.tests.test_card_catalog_browser.CardCatalogBrowserTests" name="test_header_buttons_sort_and_filter_without_search_click"/></testsuite>', encoding="utf-8")
+    fixture_result = quality.summarize_junit(junit, fixture_browser)
+    assert fixture_result["browser_executed"] == fixture_browser
+    assert fixture_result["missing_browser_tests"] == []
 
 
 def test_deleted_paths_are_retained_in_impact_plan():
