@@ -65,6 +65,12 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
         if not isinstance(command, list) or len(command) < 5 or command[1:3] != ["-m", "pytest"]:
             raise ValueError("SELECTOR_COMMAND_INVALID")
         targets.update(command[3:-1])
+    # A mapped test change can otherwise select only its impact group's other
+    # tests, leaving the test modified by the PR unexecuted.
+    targets.update(p for p in code
+                   if (p.startswith("tests/") or p.startswith("webapp/tests/"))
+                   and Path(p).name.startswith("test_") and p.endswith(".py")
+                   and (root / p).is_file())
     qa_unknown = sorted(set(unknown) & QA_OWNED_PATHS)
     unknown = sorted(set(unknown) - QA_OWNED_PATHS)
     if unknown:
