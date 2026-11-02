@@ -69,6 +69,7 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.locator('#img-file').set_input_files(str(photo))
                 with page.expect_navigation():
                     page.locator('#img-go').click()
+                page.locator('#other-methods').evaluate('(el)=>el.open=true')
                 page.locator('#ocr-go').click()
                 page.wait_for_function("document.getElementById('ocr-text').value.includes('SYNTHETIC')")
                 self.assertEqual(page.locator('#r-date').input_value(), '2026-10-12')
@@ -96,10 +97,10 @@ class ReceiptReviewTests(unittest.TestCase):
                         self.assertEqual(other.locator('summary').inner_text(), '직접 입력 / 다른 방법')
                         self.assertFalse(other.evaluate('el=>el.open'))
                         body = pg.evaluate("document.querySelector('#other-methods').textContent")
-                        self.assertTrue('자동 추출은 연결되지' in body or 'Windows OCR로 사진의 글자를' in body)
+                        self.assertTrue('사진을 보면서' in body or 'Windows OCR' in body)
                         self.assertEqual(pg.locator(f'[data-category="{identity}"]').get_attribute('aria-label'), '비용 분류')
                         if width < 760:
-                            for field in ('trip', 'merchant', 'date', 'total', 'payment', 'payee', 'category', 'confirm'):
+                            for field in ('trip', 'merchant', 'date', 'total', 'payment', 'payee', 'category', 'edit'):
                                 control = pg.locator(f'[data-{field}="{identity}"]')
                                 box = control.bounding_box()
                                 self.assertGreaterEqual(box['x'], 0, field)
@@ -271,24 +272,28 @@ class ReceiptReviewTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body['amount_krw'], 13000)
         self.assertEqual(body['history'][-1]['edit'], {'total_jpy': 1234})
-        status, body = self.request('/api/receipts/edit', {'identity': identity, 'category': '식비'}, token=self.csrf())
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'amount_krw': 13000}, token=self.csrf())
         self.assertEqual((status, body['code']), (400, 'FIELD_NOT_EDITABLE'))
 
     def test_writes_need_the_csrf_token(self):
         status, body = self.request('/api/receipts/scan', REGIONS)
         self.assertEqual((status, body['code']), (403, 'CSRF_REQUIRED'))
 
-    def test_confirm_needs_payee_and_category_and_keeps_history(self):
+    def test_unclassified_receipt_is_not_exported_until_payee_and_category_are_saved(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         _, stored = self.request('/api/receipts')
         identity = stored['candidates'][0]['identity']
-        status, _ = self.request('/api/receipts/edit',
-                                 {'identity': identity, 'payee': '', 'category': '식비'}, token=self.csrf())
-        self.assertEqual(status, 400)
+        status, body = self.request('/api/receipts/edit',
+                                    {'identity': identity, 'payee': '', 'category': '식비'}, token=self.csrf())
+        self.assertEqual(status, 200)
+        self.assertEqual(body['payee'], '')
+        self.assertEqual(self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['row_count'], 0)
+        self.request('/api/receipts/edit', {'identity': identity, 'trip_id': self.trip}, token=self.csrf())
         status, body = self.request('/api/receipts/edit',
                                     {'identity': identity, 'payee': '라멘집', 'category': '식비'}, token=self.csrf())
         self.assertEqual(status, 200)
-        self.assertEqual(body['history'][0]['to'], {'payee': '라멘집', 'category': '식비'})
+        self.assertEqual(body['history'][-1]['to'], {'payee': '라멘집', 'category': '식비'})
+        self.assertEqual(self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['row_count'], 1)
 
     def test_a_receipt_joins_a_trip_only_when_the_board_holds_that_trip(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
@@ -565,6 +570,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
             page.goto(self.base + '/receipts')
+            page.locator('#copy-trip').select_option(self.trip)
             page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
             page.click('#copy-tsv')
@@ -581,6 +587,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
             page.goto(self.base + '/receipts')
+            page.locator('#copy-trip').select_option(self.trip)
             page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.evaluate("navigator.clipboard.writeText('KEEP')")
             page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
@@ -706,6 +713,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
             page.goto(self.base + '/receipts')
+            page.locator('#copy-trip').select_option(self.trip)
             page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('[data-total="' + other + '"]').fill('700')
             page.locator('#copy-trip').select_option(self.trip)
@@ -715,7 +723,7 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertNotIn('OTHER-SHOP', page.evaluate('navigator.clipboard.readText()'))
             browser.close()
 
-    def test_old_receipt_page_cannot_confirm_a_new_amount(self):
+    def test_old_receipt_page_cannot_overwrite_a_new_amount(self):
         identity = self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
@@ -726,11 +734,11 @@ class ReceiptReviewTests(unittest.TestCase):
             before = self.store.read_bytes()
             page.locator('[data-payee]').fill('OLD-PAGE-PAYEE')
             with page.expect_response('**/api/receipts/edit') as response:
-                page.locator('[data-confirm]').click()
+                page.locator('[data-edit]').click()
             self.assertEqual(response.value.status, 409)
             self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
             self.assertEqual(self.store.read_bytes(), before)
-            self.assertFalse(page.locator('[data-confirm]').is_disabled())
+            self.assertFalse(page.locator('[data-edit]').is_disabled())
             browser.close()
 
     def test_old_receipt_page_cannot_overwrite_a_new_confirmation(self):
@@ -763,7 +771,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page.locator('[data-total]').fill('2300')
             with page.expect_request('**/api/receipts/edit'):
                 page.locator('[data-edit]').click()
-            for selector in ('[data-edit]', '[data-confirm]', '[data-total]', '#region-go', '#copy-tsv', '#img-go'):
+            for selector in ('[data-edit]', '[data-total]', '#region-go', '#copy-tsv', '#img-go'):
                 self.assertTrue(page.locator(selector).is_disabled(), selector)
             page.locator('[data-edit]').evaluate('(button)=>{button.click();button.click()}')
             self.assertEqual(len(pending), 1)
@@ -771,7 +779,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page.get_by_text('RETRY-SAVE', exact=True).wait_for()
             self.assertEqual(page.locator('[data-total]').input_value(), '2300')
             self.assertTrue(page.locator('[data-edit]').is_enabled())
-            self.assertTrue(page.locator('[data-confirm]').is_enabled())
+            self.assertTrue(page.locator('[data-edit]').is_enabled())
             page.unroute('**/api/receipts/edit')
             with page.expect_response('**/api/receipts/edit') as response:
                 page.locator('[data-edit]').click()
@@ -785,7 +793,7 @@ class ReceiptReviewTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            for operation in ('edit', 'confirm'):
+            for operation in ('edit', 'classify'):
                 page.goto(self.base + '/receipts')
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 if operation == 'edit':
@@ -802,13 +810,13 @@ class ReceiptReviewTests(unittest.TestCase):
                         route.abort('failed')
                     else:
                         route.fulfill(response=response)
-                pattern = '**/api/receipts/' + operation
+                pattern = '**/api/receipts/edit'
                 page.route(pattern, lose_first_response)
-                page.locator('[data-' + operation + ']').click()
+                page.locator('[data-edit]').click()
                 page.wait_for_function("document.getElementById('status').textContent.includes('연결하지 못했습니다')")
                 saved = self.store.read_bytes()
                 with page.expect_response(pattern) as retry:
-                    page.locator('[data-' + operation + ']').click()
+                    page.locator('[data-edit]').click()
                 self.assertEqual(retry.value.status, 200)
                 self.assertEqual(requests[0], requests[1])
                 self.assertEqual(self.store.read_bytes(), saved)
@@ -833,12 +841,12 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
             self.assertEqual(page.locator(f'[data-payee="{other}"]').input_value(), 'UNSAVED-PAYEE')
             self.assertEqual(page.locator('#r-merchant').input_value(), 'UNSAVED-REGION')
-            self.assertEqual(page.locator(f'[data-payee="{first}"]').input_value(), '')
+            self.assertEqual(page.locator(f'[data-payee="{first}"]').input_value(), '라멘집')
             self.assertIn('26,000', page.locator(f'[data-edit="{first}"]').locator('xpath=ancestor::tr').inner_text())
             page.locator(f'[data-payee="{first}"]').fill('SAVED-PAYEE')
             page.locator(f'[data-category="{first}"]').fill('FOOD')
             with page.expect_response('**/api/receipts/edit') as confirmation:
-                page.locator(f'[data-confirm="{first}"]').click()
+                page.locator(f'[data-edit="{first}"]').click()
             self.assertEqual(confirmation.value.status, 200)
             page.wait_for_function('!receiptBusy')
             self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
