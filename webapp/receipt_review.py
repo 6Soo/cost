@@ -373,15 +373,37 @@ def vision_new(path: Path, *, image: str, job_id: str) -> dict:
     known = {}
     for stored in load(path)['candidates']:
         if stored.get('image_sha') == image and stored.get('reading'):
-            known[stored['reading']] = known.get(stored['reading'], 0) + 1
-    seen, new = {}, []
-    for item in receipts:
+            known.setdefault(stored['reading'], []).append(stored.get('box'))
+    groups = {}
+    for index, item in enumerate(receipts):
         key = reading_key({'merchant': item['merchant'], 'date': item['date'], 'total': item['amount'],
                            'currency': item['currency'], 'payment': item['payment']})
-        occurrence = seen.get(key, 0)
-        seen[key] = occurrence + 1
-        if occurrence >= known.get(key, 0):
-            new.append({**item, 'reading': key, 'ordinal': occurrence})
+        group = groups.setdefault(key, [])
+        group.append((index, {**item, 'reading': key, 'ordinal': len(group)}))
+    matched = set()
+    for key, entries in groups.items():
+        unmatched_known = 0
+        for box in known.get(key, []):
+            box = opencode_receipt_vision._valid_box(box)
+            choices = []
+            if box is not None:
+                for index, item in entries:
+                    other = opencode_receipt_vision._valid_box(item.get('box'))
+                    if index not in matched and other is not None:
+                        choices.append((rc._overlap(box, other), index))
+            best = max(choices, default=(0, -1))
+            if best[0] > rc.BOX_OVERLAP_HOLD:
+                matched.add(best[1])
+            else:
+                unmatched_known += 1
+        # Older candidates may lack a position; retain the previous conservative
+        # reading-count fallback without letting them displace a position match.
+        for index, _item in entries:
+            if unmatched_known and index not in matched:
+                matched.add(index)
+                unmatched_known -= 1
+    new = [item for index, item in sorted(
+        (index, item) for entries in groups.values() for index, item in entries if index not in matched)]
     return {'new': new, 'already': len(receipts) - len(new)}
 
 
