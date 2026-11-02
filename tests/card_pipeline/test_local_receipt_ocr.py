@@ -32,9 +32,12 @@ def test_pdf_recognition_is_disabled_until_local_windows_ocr_is_enabled(tmp_path
         run.assert_not_called()
 
 
-def test_real_windows_engine_reads_synthetic_image(tmp_path):
+def test_platform_engine_reads_synthetic_image_or_refuses_non_windows(tmp_path):
     if os.name != 'nt':
-        pytest.skip('Windows OCR integration')
+        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}):
+            with pytest.raises(ocr.OcrError, match='OCR_UNAVAILABLE'):
+                ocr.recognize(tmp_path / 'synthetic.png')
+        return
     from PIL import Image, ImageDraw, ImageFont
     image = Image.new('RGB', (800, 400), 'white')
     draw = ImageDraw.Draw(image)
@@ -49,9 +52,14 @@ def test_real_windows_engine_reads_synthetic_image(tmp_path):
     assert result['requires_review'] is True
 
 
-def test_real_windows_engine_renders_and_reads_synthetic_pdf(tmp_path):
+def test_platform_engine_reads_synthetic_pdf_or_refuses_non_windows(tmp_path):
     if os.name != 'nt':
-        pytest.skip('Windows OCR integration')
+        path = tmp_path / 'synthetic.pdf'
+        path.write_bytes(b'%PDF-1.4 synthetic')
+        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}):
+            with pytest.raises(ocr.OcrError, match='OCR_UNAVAILABLE'):
+                ocr.recognize_pdf(path)
+        return
     from PIL import Image, ImageDraw, ImageFont
     image = Image.new('RGB', (800, 400), 'white')
     ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
