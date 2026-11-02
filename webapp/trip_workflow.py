@@ -77,6 +77,11 @@ def render(board, trip_id, cost_rows, amount_groups):
              ('list-filter', '미정리·보류', f"이 여행 표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 화면 열기", '/import'),
              ('link', 'OTA·환불', '결제·환불 근거 확인', '/ota'),
              ('receipt', '영수증', receipt_text, '/receipts?' + urlencode({'trip': trip_id}))]
+    from .trip_insurance_policy import domestic_trip
+    domestic = domestic_trip(trip_id)
+    if domestic:
+        links = links[1:]
+    primary_count = 2 if domestic else 3
     cards = [
         f"<a class='trip-workflow-card' href='{esc(href)}'>"
         f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"
@@ -87,6 +92,6 @@ def render(board, trip_id, cost_rows, amount_groups):
     return ("<details class='trip-workflow' aria-label='여행 검토'><summary>"
             f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
             f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
-            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards[:3]) + '</nav>'
+            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards[:primary_count]) + '</nav>'
             "<details class='trip-workflow-tools'><summary>전체 자료·도구 열기</summary>"
-            "<nav class='trip-workflow-grid' aria-label='전체 자료 도구'>" + ''.join(cards[3:]) + '</nav></details></details>')
+            "<nav class='trip-workflow-grid' aria-label='전체 자료 도구'>" + ''.join(cards[primary_count:]) + '</nav></details></details>')

@@ -504,6 +504,11 @@ def dispatch(handler, parsed, *, is_owner: bool, raw=None, csrf: str = "", query
         return True
 
     trip_id = str(query.get("trip", [""])[0] or "")
+    if parsed.path == "/api/participants/trip-panel":
+        from . import trip_insurance_policy
+        if trip_insurance_policy.domestic_trip(trip_id):
+            handler._send(trip_insurance_policy.notice())
+            return True
     state = build_state(trip_id)
     if parsed.path == "/api/participants/trip-panel":
         from . import participant_trip_panel, insurance_income_match_service

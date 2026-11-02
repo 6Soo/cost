@@ -248,6 +248,8 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
     if not tab_id or tab_id == 'unclassified':
         return ''
     owner = board.current_role() == 'owner'
+    from .trip_insurance_policy import domestic_trip
+    insurance_column = owner and not domestic_trip(tab_id)
     settings = ''
 
     def panel(message, body=''):
@@ -322,11 +324,11 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                     needle in str(row.get("name") or "").casefold() or
                     needle in str(row.get("nickname") or "").casefold()]
         income_offset = 0
-        if owner:
+        if insurance_column:
             from . import participant_trip_panel
             visible_rows = participant_trip_panel.attach_row_refs(visible_rows, source=source,
                                                                   sheet=trip_sheet(keys[0]))
-        if owner:
+        if insurance_column:
             try:
                 from . import participant_income_page, participant_trip_panel
                 if participant_state is None:
@@ -347,7 +349,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             + (("<td class='participant-insurance-cell' data-income-ref='" + html.escape(row.get('participant_income_ref') or '', quote=True) + "'"
                 + (" data-income-refund-complete='1'" if is_refunded_income(row) else "") + ">"
                 + (_participant_insurance_cell(row, links_by_ref) if participant_state is not None or is_refunded_income(row) else "보험 명단 확인") + "</td>")
-               if owner else "") + "</tr>"
+               if insurance_column else "") + "</tr>"
             for row in visible_rows)
         show_rows = income_verified and not numeric_gap
 
@@ -356,7 +358,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
             f"<td colspan='2' class='income-foot-label'>수입 행 합계 ({len(visible_rows)}건)</td>"
             "<td class='income-breakdown'></td><td class='income-breakdown'></td><td class='income-breakdown'></td>"
             f"<td class='income-total num'>{_money(rows_total)}</td>"
-            + ("<td></td>" if owner else "") +
+            + ("<td></td>" if insurance_column else "") +
             "</tr></tfoot>"
         )
         table = ("<div class='google-income-scroll'>"
@@ -366,8 +368,8 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
                  f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
                  "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
                  f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th>"
-                 + ("<th>보험 명단</th>" if owner else "") + "</tr></thead>"
-                 f"<tbody>{lines or f'<tr><td colspan=\"{7 if owner else 6}\">연결된 장부에 수입내역이 없습니다.</td></tr>'}</tbody>"
+                 + ("<th>보험 명단</th>" if insurance_column else "") + "</tr></thead>"
+                 f"<tbody>{lines or f'<tr><td colspan=\"{7 if insurance_column else 6}\">연결된 장부에 수입내역이 없습니다.</td></tr>'}</tbody>"
                  f"{tfoot}</table></div>")
         figures = (f"<p class='small'>장부 행 합계 {_money(rows_total)} · 장부 집계 "
                    f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
