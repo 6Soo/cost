@@ -1,3 +1,11 @@
+## 2026-11-02 보험 연결 표시 간소화·미연결 연결 버튼 완료
+
+- COMPLETE — 사용자 “일단 연결이 되면 크게 수정할 필요가 없는 부분이야. 버튼이 도드라지지않고 자연스럽게 글자위주로 변경하고, 미연결 부분을 버튼으로 만들어서 기능을 추가해.” [PR #505](https://github.com/6Soo/cost/pull/505), 구현 `447ebb16c4b97cdf8c865be1de7db7003a3466fc`, 병합·고정 배포 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`, 이전 검증 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`.
+- 연결된 보험은 보조색 글자·작은 펼침 화살표로 표시하고 기존 상세/수정 경로를 유지한다. 미연결은 버튼으로 전환해 해당 수입을 미리 선택한 기존 보호 연결 폼을 열고 참가자 선택란으로 이동한다. 클릭만으로 저장하지 않으며 확인 후 연결한다. 연결 후보가 없으면 안내와 보험 명단 상세 경로를 제공한다.
+- 검증: 표적87 passed/2 deselected, 최신 main 통합5 passed·JS 문법 PASS. ego-browser 합성320/390/1440px×밝음/어두움6건·키보드·실제 합성HTTP 연결/취소/확인·후보 없음 PASS. 합성 연결1→2, 취소 시1 유지, 원본 수입 불변. 운영 읽기 수락에서 정확한 수입 선택·참가자란 focus·폼 표시 PASS, 연결 글자400/테두리0·44px 터치 영역·행 높이 동일·가로 넘침0. 실제 운영 연결 저장은 누르지 않았다. 기존 보험 패널 header 테두리0·아이콘 및 workflow 공통 장식 제외도 확인했다.
+- 배포1,269 blobs 불일치0·runtime SHA 검증·단일 listener·health/ready200·보호API401/403·금융보호13표 전후 불변 PASS. 이전 검증 릴리스/task 복구점 보존. 코드 전용으로 새 전체DB백업/복원은 반복하지 않았다. 금융/참가자 연결/Google/원본/스키마 쓰기0. 전체 회귀·실기기는 국소 UI 변경으로 미실행이다.
+- 근거 `.local-archive/insurance-connect-action-20261102/`의 targeted/integrated XML·review/release-audit/deploy-evidence·browser-layout/browser-connect/browser-no-candidates·live-final.json·live-after.png·checkpoint.json. 재개 시 배포/운영 수락 근거를 대조하고 남은 문서만 완료했다. 해당 이름의 활성 ego TaskSpace 없음 확인. 기존 사용자/병행 변경을 보존하고 별도 index로 본 문구만 커밋한다. 요청 미결/차단0·다음 기능 명령 없음. 문서 후속으로 재검사·재배포·서버 재시작하지 않는다.
+
 ## 2026-11-02 카드 조회기간 증빙·미확인 구간 구현 완료
 
 - COMPLETE — 열린 PR의 미구현을 ANUS Free Auto 2개에 위임하라는 요청의 대상 #479를 [PR510](https://github.com/6Soo/cost/pull/510)으로 구현·병합·배포했다. [수락9개·검사·한계](specs/card-upload-coverage-implementation-20261102.md). 원명세 #479도 병합됐다. 당시 #477은 이미 구현된 UI 변경이고 이후 #484는 이번 실행 범위가 아니다.
