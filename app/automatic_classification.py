@@ -127,6 +127,7 @@ def infer_item(row):
 
 def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
     """Pick the best real trip, resolving weak ties deterministically and explaining them."""
+    # Reuse only this plan's validation; independent calls revalidate authority.
     valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     for key in ('trip_id', 'display_tab_id'):
         if row.get(key) in valid and not reconsider:

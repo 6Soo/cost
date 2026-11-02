@@ -23,6 +23,7 @@ def card_trip_candidates(transaction, trips, *, nets=None, _canonical=None):
 
     Scores encode ordinal policy order, not a fabricated probability or margin.
     Booking service dates must be resolved by the caller before this fallback.
+    _canonical is private, validated input from this same plan, never a cache.
     """
     authoritative = canonical_trip_periods(trips) if _canonical is None else _canonical
     try:

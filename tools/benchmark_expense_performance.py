@@ -80,7 +80,30 @@ def choose_equivalence(select):
         assert select(candidates,valid)==expected
 
 
-def measured(function,conn,samples):
+def boundary_comparison(select):
+    """Expose the conversion/call cost hidden by a native-only microbenchmark."""
+    results = []
+    for size in (1, 10, 70):
+        candidates = [dict(trip_id=f'trip-{i}', score=i % 5) for i in range(size)]
+        valid = {c['trip_id']: dict(starts_on='2026-10-01') for c in candidates}
+        def python_choice():
+            ordered = sorted(candidates, key=lambda c: (-c['score'], valid[c['trip_id']]['starts_on'], c['trip_id']))
+            return ordered[0], sum(c['score'] == ordered[0]['score'] for c in candidates)
+        assert python_choice() == select(candidates, valid)
+        timings = {}
+        for name, call in [('python', python_choice), ('rust_with_conversion_and_call', lambda: select(candidates, valid))]:
+            samples = []
+            for _ in range(5):
+                start = time.perf_counter()
+                for _ in range(2000):
+                    call()
+                samples.append((time.perf_counter() - start) * 1e6 / 2000)
+            timings[name + '_us'] = statistics.median(samples)
+        results.append(dict(candidates=size, **timings))
+    return results
+
+
+def measured(function,conn):
     conn.meter=Meter()
     start=time.perf_counter();result=function();elapsed=(time.perf_counter()-start)*1000
     return result,dict(total_ms=elapsed,sql_ms=conn.meter.sql_seconds*1000,sql_statements=conn.meter.statements)
@@ -94,7 +117,7 @@ def compare(functions,conn,repeats):
         if iteration%2:order.reverse()
         for name,fn in order:
             before=conn.total_changes
-            result,measurement=measured(fn,conn,repeats)
+            result,measurement=measured(fn,conn)
             assert result==expected,name
             assert conn.total_changes==before
             samples[name].append(measurement)
@@ -113,8 +136,13 @@ def main(args):
     from webapp import card_flow,ledger_board
     old=baseline(args.baseline)
     native=None
+    native_metadata={}
     if args.native_dll:
-        select=native_selector(args.native_dll);choose_equivalence(select)
+        start=time.perf_counter()
+        select=native_selector(args.native_dll)
+        native_metadata['dll_load_and_adapter_ms']=(time.perf_counter()-start)*1000
+        choose_equivalence(select)
+        native_metadata['selection_boundary']=boundary_comparison(select)
         native=native_infer(policy,select)
     with tempfile.TemporaryDirectory(prefix='cost-performance-compare-') as d:
         store,trips=setup_operational(args.operational_db) if args.operational_db else setup_synthetic(Path(d),args.rows,args.trips)
@@ -124,7 +152,7 @@ def main(args):
                 def native_plan():
                     with patch.object(policy,'infer_trip',native):return policy.plan(store.conn,trips)
                 functions['optimized_python_rust_choice']=native_plan
-            result=dict(scope='operational-read-only' if args.operational_db else 'synthetic',baseline=args.baseline,rows=store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0],trips=len(trips),python=sys.version,plan=compare(functions,store.conn,args.repeats),native_choice_random_equivalence_cases=250 if native else 0,native_dll_bytes=args.native_dll.stat().st_size if args.native_dll else None,
+            result=dict(scope='operational-read-only' if args.operational_db else 'synthetic',baseline=args.baseline,rows=store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0],trips=len(trips),python=sys.version,plan=compare(functions,store.conn,args.repeats),native_choice_random_equivalence_cases=250 if native else 0,native_dll_bytes=args.native_dll.stat().st_size if args.native_dll else None,native_metadata=native_metadata,
                 limits='SQL driver timing instrumented in all variants; warm in-process repeated plans; separate tracemalloc run excludes native heap/RSS; no HTTP or network; no production writes')
             args.output.parent.mkdir(parents=True,exist_ok=True)
             args.output.write_text(json.dumps(result,indent=2),encoding='utf-8')
