@@ -4565,8 +4565,7 @@ class LedgerStore:
             new_revision = current["revision"] + 1
             created_at = _utc_now()
             outbox_id = f"ledger-trip-{client_request_id}"
-            ledger_action = ("propose" if current["revision"] == 1
-                             and not changes.get("archived", False) else "correct")
+            ledger_action = self._stream_action(f"trip-{tab_id}")
             self._begin_write()
             try:
                 fresh = self.conn.execute(

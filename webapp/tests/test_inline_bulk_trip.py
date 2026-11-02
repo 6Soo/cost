@@ -88,3 +88,20 @@ def test_failure_during_second_write_rolls_back_first(store, monkeypatch):
     assert len(calls) == 2
     assert [store.get_row(x['row_id']) for x in chosen] == before
     assert not store.conn.execute("SELECT 1 FROM board_requests WHERE client_request_id=?", ('bulk:bulk-failure',)).fetchone()
+
+
+def test_first_archive_and_restore_create_valid_embedded_audit_chain(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    store = LedgerStore(tmp_path / 'archive.sqlite')
+    try:
+        store.save_trip_meta(tab_id='trip-demo-b', expected_revision=1,
+                             client_request_id='first-archive', archived=True)
+        store.save_trip_meta(tab_id='trip-demo-b', expected_revision=2,
+                             client_request_id='restore', archived=False)
+        events = store.conn.execute(
+            "SELECT action FROM decision_events WHERE stream_id=? ORDER BY sequence_no",
+            ('trip-trip-demo-b',)).fetchall()
+        assert [row[0] for row in events] == ['propose', 'correct']
+        assert store.ledger.verify_chain()['ok']
+    finally:
+        store.close()
