@@ -1,3 +1,12 @@
+## 2026-11-02 PR458 후속 복잡성·기존20실패 정비 완료
+
+- COMPLETE — 현재 사용자 승인 기능군을 [PR483](https://github.com/6Soo/cost/pull/483)·[PR486](https://github.com/6Soo/cost/pull/486)으로 통합·병합·배포했다. 원 구현 `c5ee972d`, 최종 검사 `d750ee7e`, 운영 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad`, 이전 검증 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`. 검사/병합 트리 차이0. [승인 범위](specs/python-refactor-followup-20261102.md)·[비교/20건별 원인/한계](specs/python-refactor-followup-results-20261102.md).
+- 자동분류의 보호·이력 복원·새 추론 책임을 분리하고 지출정리 중복 집계/취소 조회·행별 근거 조회/렌더 호출을 줄였다. OTA13·화면6·안내1은 현재 계약으로 검증했으며 HTML 충돌 입력 손실 실제 결함도 수정했다. 전체 계획/digest·HTML 동등성 및 조회 무쓰기 유지. 최신 상태/AI 출처·수동/원본/중복/환불/권한/원자성 보호를 보존했다.
+- 같은 기능 기준 f1e6453d→최종: 실행83,809행 동일·분기21,674→21,670·100행 초과102→101·동일본문중복2→2·실행 import 동일. plan186/140→63/29행/분기, cleanup338/132→304/130. 전체 코드량·중복 사본·의존성 감소는 달성하지 않았다. 합성 SELECT58→35, 9회 순서교대148.30→133.46ms; 자동분류64.44→64.12ms로 사실상 동일. 이전 느린 표본과 운영 전체 성능 미측정을 결과 문서에 구분했다. Rust 도입 없음.
+- 표적348 passed·ego-browser 합성 페이지/빈필터/390px/충돌 입력 보존·XSS PASS. 인접 권한/거절15 passed·3 failed/26 subtests는 기준 f1e6453d 동일 재현의 과거 drawer/내부ID 기대이며 기존20건/통과에 합산하지 않는다. 전체회귀·실기기·새 인증 운영UI 수락은 미실행. 배포본 호스트venv의 격리 합성 자동분류/cleanup/조회무쓰기 PASS.
+- 운영1,252 blobs 불일치0·고정 task/processSHA·단일loopback8751·health/ready200·보호401/403·금융보호13표 내용/스키마 불변. 전체task 인수/ParticipantSyncConfig·SourceRefresh 상태 보존. 코드전용으로 이전 검증 릴리스/task XML을 복구점으로 남겼으며 새 전체DB백업/복원은 반복하지 않았다. 앞선55e304ad 배포는 중단돼 성공으로 기록하지 않으며 최종752eff0c에 통합했다. 금융/Google/여행/원본 쓰기·재처리·마이그레이션0.
+- 근거 `.local-archive/refactor-followup-20261102/`의 verified-final/verified-structure·refusal-baseline·resume-browser-final·review/release-audit·protection-before/after·deploy-evidence·released-smoke 및 호스트 동일SHA 기록. 현재 요청의 필수 미결/차단0, 다음 기능 명령 없음. 추가 인접3실패는 보고된 기준 문제로 남기고 새 전체개발 큐를 만들지 않는다. 사용자/타작업 미커밋 변경 보존. 문서 후속으로 재배포/재시작하지 않는다.
+
 ## 2026-11-02 장부 숙박 이용일 표시 누락 수정 완료
 
 - COMPLETE — 사용자 “왜 이용일 확인 필요로 되어있지? 조사해서 수정”. 기존 카드 장부 행의 빈 이용기간만 읽고 현재 OTA 검증 기간을 표시하지 않던 경로를 읽기 전용 투영으로 수정했다. [PR #482](https://github.com/6Soo/cost/pull/482), 구현·운영 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`, 병합 `f1e6453dfa48edd8cdd02fbc4e01f1a79300f15b`, 이전 검증 `ce61fea6ca09546c838602c530308850b9cade30`. 병합 SHA에는 독립 PR481의 분류 변경이 함께 있어, main에 포함된 이번 검증 구현 커밋만 고정 배포했다.
