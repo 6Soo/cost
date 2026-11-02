@@ -99,7 +99,7 @@ def test_dates_currency_payment_are_normalized_and_unclear_fields_become_null():
     assert rows[0]["date"] == "2026-10-01" and rows[0]["currency"] == "JPY" and rows[0]["payment"] == "cash"
     assert rows[1]["date"] is None and rows[1]["amount"] is None
     assert rows[1]["currency"] is None and rows[1]["payment"] is None
-    assert all("box" not in r for r in rows)
+    assert all(r["box"] is None for r in rows)
 
 
 def test_an_entry_with_no_merchant_date_or_amount_is_not_a_candidate():
@@ -124,4 +124,21 @@ def test_numeric_text_amounts_are_read_and_model_boxes_are_ignored():
     raw = {"receipts": [{"box": [5, 9, 100, 200], "merchant": "A", "date": "2026-10-01", "amount": "1,200",
                          "currency": "JPY", "payment": None, "category_hint": None, "note": None}]}
     rows = vision.validate_response(raw, image_hash="h")["receipts"]
-    assert rows[0]["amount"] == 1200 and "box" not in rows[0]
+    assert rows[0]["amount"] == 1200 and rows[0]["box"] is None
+
+
+def test_normalized_boxes_are_requested_and_strictly_preserved_or_cleared():
+    valid = {"box": [0.1, 0.2, 0.8, 0.9], "merchant": "A", "date": "2026-10-01",
+             "amount": 820, "currency": "JPY", "payment": None}
+    invalid = {"box": [0.8, 0.2, 0.1, 0.9], "merchant": "B", "date": None,
+               "amount": 1, "currency": "JPY", "payment": None}
+    nonfinite = {"box": [0, 0, float("inf"), 1], "merchant": "C", "date": None,
+                 "amount": 2, "currency": "JPY", "payment": None}
+    rows = vision.validate_response({"receipts": [valid, invalid, nonfinite]}, image_hash="h")["receipts"]
+    assert rows[0]["box"] == [0.1, 0.2, 0.8, 0.9]
+    assert rows[1]["box"] is None and rows[2]["box"] is None
+    assert all(row["requires_review"] for row in rows)
+
+    without_box = {key: value for key, value in valid.items() if key != "box"}
+    assert vision.validate_response({"receipts": [without_box]}, image_hash="h")["receipts"][0]["id"] == \
+        vision.validate_response({"receipts": [{**without_box, "box": None}]}, image_hash="h")["receipts"][0]["id"]
