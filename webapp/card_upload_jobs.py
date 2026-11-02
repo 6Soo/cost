@@ -28,14 +28,23 @@ def status(board, identity):
 
 def start(board, handler, flow, received, source_file, inspection):
     # receive + queue_batch have committed before this acknowledgement. Repeating
-    # bytes cannot create duplicate transactions; active jobs are coalesced too.
+    # bytes cannot create duplicate transactions; active and completed jobs are
+    # coalesced too. Failed jobs deliberately get a fresh worker for retry.
     with _guard:
         jobs = getattr(board, '_upload_jobs', None)
         if jobs is None:
             jobs = board._upload_jobs = {}
         for identity, job in list(jobs.items()):
-            if job['public']['status'] == 'running' and job['batch_id'] == received['batch_id']:
-                return dict(status_url=PREFIX+identity, batch_id=received['batch_id'], status='running', source_rows_persisted=True)
+            public = job['public']
+            if (public['status'] in ('running', 'done') and
+                    job['batch_id'] == received['batch_id']):
+                acknowledgement = dict(status_url=PREFIX+identity,
+                                        batch_id=received['batch_id'],
+                                        status=public['status'],
+                                        source_rows_persisted=True)
+                if public['status'] == 'done':
+                    acknowledgement['result'] = public['result']
+                return acknowledgement
             if job['public']['status'] != 'running' and (time.monotonic()-job['created'] > 3600 or len(jobs) >= 16):
                 del jobs[identity]
         identity = uuid.uuid4().hex

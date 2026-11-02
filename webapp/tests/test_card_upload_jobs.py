@@ -99,6 +99,59 @@ def test_job_coalesces_and_status_does_not_read_db(monkeypatch):
     assert len(calls) == 1
 
 
+def test_completed_job_reuses_status_and_failed_job_gets_retry(monkeypatch):
+    board = SimpleNamespace()
+    handler = SimpleNamespace(server=SimpleNamespace(store_lock=threading.RLock()))
+    calls = []
+
+    def process(*args):
+        calls.append(len(calls) + 1)
+        if len(calls) == 2:
+            raise RuntimeError('synthetic worker failure')
+        return {'upload_summary': {'status': 'passed'}, 'worker': len(calls)}, 200
+
+    monkeypatch.setattr(card_upload_jobs, 'process', process)
+
+    first = card_upload_jobs.start(board, handler, None,
+                                   {'batch_id': 'completed'}, None, None)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        state, _ = card_upload_jobs.status(board, first['status_url'].split('/')[-1])
+        if state['status'] != 'running':
+            break
+        time.sleep(.01)
+    assert state == {'status': 'done',
+                     'result': {'upload_summary': {'status': 'passed'}, 'worker': 1}}
+    reused = card_upload_jobs.start(board, handler, None,
+                                    {'batch_id': 'completed'}, None, None)
+    assert reused['status_url'] == first['status_url']
+    assert reused['status'] == 'done'
+    assert reused['result']['worker'] == 1
+    assert calls == [1]
+
+    failed = card_upload_jobs.start(board, handler, None,
+                                    {'batch_id': 'retryable'}, None, None)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        failed_state, _ = card_upload_jobs.status(board, failed['status_url'].split('/')[-1])
+        if failed_state['status'] != 'running':
+            break
+        time.sleep(.01)
+    assert failed_state['status'] == 'error'
+    retried = card_upload_jobs.start(board, handler, None,
+                                     {'batch_id': 'retryable'}, None, None)
+    assert retried['status_url'] != failed['status_url']
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        retried_state, _ = card_upload_jobs.status(board, retried['status_url'].split('/')[-1])
+        if retried_state['status'] != 'running':
+            break
+        time.sleep(.01)
+    assert retried_state['status'] == 'done'
+    assert retried_state['result']['worker'] == 3
+    assert calls == [1, 2, 3]
+
+
 def test_status_owner_and_csrf_gates(monkeypatch):
     monkeypatch.setattr(card_flow, 'enabled', lambda: True)
     monkeypatch.setattr(ledger_board, '_active_store', lambda: SimpleNamespace())
