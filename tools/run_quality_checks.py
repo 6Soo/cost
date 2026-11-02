@@ -230,27 +230,42 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
         root = ET.parse(junit_path).getroot()
     except (OSError, ET.ParseError):
         return {"test_case_count": 0, "browser_executed": [], "browser_skipped": list(browser_tests),
-                "missing_browser_tests": list(browser_tests)}
+                "missing_browser_tests": list(browser_tests), "skipped_test_cases": [],
+                "nonbrowser_skipped_test_cases": [], "skip_count": 0}
     cases = list(root.iter("testcase"))
     executed: set[str] = set()
     skipped: set[str] = set()
     executed_count = 0
-    for target in browser_tests:
+
+    def matches_browser_case(case, target: str) -> bool:
         parts = target.split("::")
         module_name, function_name = parts[0], parts[-1]
         class_suffix = ".".join(parts[1:-1])
-        matched = [case for case in cases if case.get("name") == function_name
-                   and case.get("classname", "").startswith(module_name)
-                   and (not class_suffix or case.get("classname", "").endswith(class_suffix))]
+        return (case.get("name") == function_name
+                and case.get("classname", "").startswith(module_name)
+                and (not class_suffix or case.get("classname", "").endswith(class_suffix)))
+
+    for target in browser_tests:
+        matched = [case for case in cases if matches_browser_case(case, target)]
         if any(case.find("skipped") is None for case in matched):
             executed.add(target)
         if any(case.find("skipped") is not None for case in matched):
             skipped.add(target)
     executed_count = sum(1 for case in cases if case.find("skipped") is None)
+    skipped_cases = [case for case in cases if case.find("skipped") is not None]
+    skipped_test_cases = sorted(f"{case.get('classname', '')}::{case.get('name', '')}"
+                                for case in skipped_cases)
+    nonbrowser_skipped_test_cases = sorted(
+        f"{case.get('classname', '')}::{case.get('name', '')}"
+        for case in skipped_cases
+        if not any(matches_browser_case(case, target) for target in browser_tests))
     return {"test_case_count": len(cases), "executed_case_count": executed_count,
             "browser_executed": sorted(executed),
             "browser_skipped": sorted(skipped),
-            "missing_browser_tests": sorted(set(browser_tests) - executed)}
+            "missing_browser_tests": sorted(set(browser_tests) - executed),
+            "skipped_test_cases": skipped_test_cases,
+            "nonbrowser_skipped_test_cases": nonbrowser_skipped_test_cases,
+            "skip_count": len(skipped_test_cases)}
 
 
 def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha: str,
@@ -293,17 +308,22 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
     junit_result = summarize_junit(junit_path, browser_tests)
     browser_executed = junit_result["browser_executed"]
     browser_skipped = junit_result["browser_skipped"]
+    nonbrowser_skipped = junit_result["nonbrowser_skipped_test_cases"]
     missing_browser = junit_result["missing_browser_tests"]
     case_count = junit_result["test_case_count"]
     executed_case_count = junit_result["executed_case_count"]
     status = "PASSED" if (tests.returncode == 0 and compile_result.returncode == 0
                           and case_count > 0 and executed_case_count > 0
-                          and not missing_browser and not browser_skipped) else "FAILED"
+                          and not missing_browser and not browser_skipped
+                          and not nonbrowser_skipped) else "FAILED"
     summary = {"status": status, "base_sha": base_sha, "head_sha": head_sha,
                "test_case_count": case_count, "executed_case_count": executed_case_count,
                "browser_required": bool(browser_tests),
                "browser_tests": browser_tests, "browser_executed": sorted(browser_executed),
                "browser_skipped": sorted(browser_skipped), "missing_browser_tests": missing_browser,
+               "skip_count": junit_result["skip_count"],
+               "skipped_test_cases": junit_result["skipped_test_cases"],
+               "nonbrowser_skipped_test_cases": nonbrowser_skipped,
                "pytest_exit_code": tests.returncode, "compile_exit_code": compile_result.returncode,
                "pytest_targets": targets}
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

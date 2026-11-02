@@ -3,7 +3,8 @@
   "audit_groups": [
     "core-safety-net", "financial-core", "google-readonly", "ota-reconciliation",
     "card-flow", "ledger-store-boundaries", "shared-shell-assets", "shared-ui-browser-contracts",
-    "autonomous-workflow-journeys", "async-upload-idempotency", "receipt-review"
+    "autonomous-workflow-journeys", "async-upload-idempotency", "receipt-review",
+    "core-business-acceptance"
   ],
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
@@ -40,7 +41,7 @@
     {
       "name": "provisional-trip-review",
       "paths": ["app/provisional_assignment.py", "app/trip_correction_review.py", "app/review.py", "webapp/provisional_trip_review.py", "webapp/tests/test_provisional_trip_review.py", "tests/card_pipeline/test_provisional_assignment.py", "tools/benchmark_provisional_assignment.py"],
-      "tests": ["webapp/tests/test_provisional_trip_review.py", "tests/card_pipeline/test_provisional_assignment.py", "tests/card_pipeline/test_ota_inference.py", "tests/card_pipeline/test_pipeline.py"]
+      "tests": ["webapp/tests/test_provisional_trip_review.py", "tests/card_pipeline/test_provisional_assignment.py", "tests/card_pipeline/test_ota_inference.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_rule_review.py"]
     },
     {
       "name": "ota-queue-telemetry",
@@ -134,12 +135,12 @@
     {
       "name": "ledger-store-boundaries",
       "paths": ["webapp/ledger_store*.py", "webapp/tests/test_ledger_store*.py"],
-      "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_income_card_boundary.py", "webapp/tests/test_refund_group_commit.py"]
+      "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_income_card_boundary.py", "webapp/tests/test_refund_group_commit.py", "webapp/tests/test_owner_metadata.py"]
     },
     {
       "name": "board-read-boundaries",
       "paths": ["webapp/ledger_board.py", "webapp/board_*.py", "webapp/tests/test_board_*.py", "tests/test_board_*.py"],
-      "tests": ["tests/test_board_http_shapes.py", "tests/test_board_render_helpers.py", "tests/test_board_read_projection.py", "tests/test_board_export_helpers.py", "tests/test_board_learning_dialog.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py"]
+      "tests": ["tests/test_board_http_shapes.py", "tests/test_board_render_helpers.py", "tests/test_board_read_projection.py", "tests/test_board_export_helpers.py", "tests/test_board_learning_dialog.py", "webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py", "webapp/tests/test_insurance_income_match_http.py", "webapp/tests/test_owner_metadata.py", "webapp/tests/test_trip_history_browser.py", "webapp/tests/test_trip_expense_copy_button.py"]
     },
     {
       "name": "ledger-design-assets",
@@ -210,7 +211,7 @@
     {
       "name": "autonomous-workflow-journeys",
       "paths": ["webapp/tests/test_autonomous_workflows.py", "webapp/expense_workspace.py", "webapp/static/js/expense_workspace.js", "webapp/tests/test_expense_workspace.py", "webapp/board_export_helpers.py", "webapp/sheets_export.py", "webapp/ledger_board.py", "webapp/tests/test_sheets_export.py", "webapp/tests/test_export_assignee_guidance.py", "webapp/tests/test_export_page_performance.py"],
-      "tests": ["webapp/tests/test_autonomous_workflows.py", "webapp/tests/test_expense_workspace.py", "webapp/tests/test_card_upload_jobs.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_sheets_export.py", "webapp/tests/test_export_assignee_guidance.py", "webapp/tests/test_export_page_performance.py", "webapp/tests/test_ledger_store.py"]
+      "tests": ["webapp/tests/test_autonomous_workflows.py", "webapp/tests/test_expense_workspace.py", "webapp/tests/test_card_upload_jobs.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_sheets_export.py", "webapp/tests/test_export_assignee_guidance.py", "webapp/tests/test_export_page_performance.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_owner_metadata.py"]
     },
     {
       "name": "async-upload-idempotency",
@@ -221,6 +222,24 @@
       "name": "receipt-review",
       "paths": ["webapp/receipt_review.py", "webapp/tests/test_receipt_review.py"],
       "tests": ["webapp/tests/test_receipt_review.py", "webapp/tests/test_receipt_page_flow.py", "webapp/tests/test_receipt_krw.py"]
+    },
+    {
+      "name": "core-business-acceptance",
+      "paths": [
+        "webapp/insurance_income_match_service.py", "webapp/insurance_income_match_page.py",
+        "webapp/owner_metadata.py", "webapp/flight_booking_index.py", "webapp/rule_review.py",
+        "webapp/dialog_turn.py", "webapp/tests/test_insurance_income_match_http.py",
+        "webapp/tests/test_insurance_income_match_browser.py", "webapp/tests/test_owner_metadata.py",
+        "webapp/tests/test_flight_booking_name_search.py", "webapp/tests/test_rule_review.py",
+        "webapp/tests/test_rule_dialog_screen.py", "webapp/tests/test_trip_history_browser.py",
+        "webapp/tests/test_trip_expense_copy_button.py"
+      ],
+      "tests": [
+        "webapp/tests/test_insurance_income_match_http.py", "webapp/tests/test_insurance_income_match_browser.py",
+        "webapp/tests/test_owner_metadata.py", "webapp/tests/test_flight_booking_name_search.py",
+        "webapp/tests/test_rule_review.py", "webapp/tests/test_rule_dialog_screen.py",
+        "webapp/tests/test_trip_history_browser.py", "webapp/tests/test_trip_expense_copy_button.py"
+      ]
     },
     {
       "name": "shared-ui-browser-contracts",

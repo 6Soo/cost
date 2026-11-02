@@ -120,6 +120,59 @@ def test_receipt_review_journeys_are_selected_for_targeted_qa_and_scheduled_audi
     assert audit["browser_required"] is True
 
 
+def test_core_business_acceptance_is_targeted_and_audited_with_browser_cases_required():
+    impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
+    required = {
+        "webapp/tests/test_insurance_income_match_http.py",
+        "webapp/tests/test_insurance_income_match_browser.py",
+        "webapp/tests/test_owner_metadata.py",
+        "webapp/tests/test_flight_booking_name_search.py",
+        "webapp/tests/test_rule_review.py",
+        "webapp/tests/test_rule_dialog_screen.py",
+        "webapp/tests/test_trip_history_browser.py",
+        "webapp/tests/test_trip_expense_copy_button.py",
+    }
+    group = next(group for group in impact_map["groups"]
+                 if group["name"] == "core-business-acceptance")
+    assert "core-business-acceptance" in impact_map["audit_groups"]
+    assert required == set(group["tests"])
+    assert required <= set(group["paths"])
+
+    source_routes = {
+        "webapp/ledger_board.py": {
+            "webapp/tests/test_insurance_income_match_http.py",
+            "webapp/tests/test_owner_metadata.py",
+            "webapp/tests/test_trip_history_browser.py",
+            "webapp/tests/test_trip_expense_copy_button.py",
+        },
+        "webapp/ledger_store.py": {"webapp/tests/test_owner_metadata.py"},
+        "webapp/flight_passenger_page.py": {"webapp/tests/test_flight_booking_name_search.py"},
+        "app/review.py": {"webapp/tests/test_rule_review.py"},
+    }
+    for source, expected in source_routes.items():
+        selected, unknown = selector_tool.select_targets([source], impact_map["groups"])
+        assert unknown == []
+        assert expected <= set(selected), source
+
+    plan = quality.build_plan(["webapp/owner_metadata.py"], selector([], targets=sorted(required)))
+    assert required <= set(plan["pytest_targets"])
+    required_browser_cases = {
+        "webapp.tests.test_insurance_income_match_browser::test_candidate_selection_stays_in_its_row_and_narrow_page_does_not_overflow",
+        "webapp.tests.test_flight_booking_name_search::test_browser_name_search_renders_verified_itinerary_and_secondary_participant_flow",
+        "webapp.tests.test_rule_review::RuleReviewTests::test_browser_reports_committed_approval_when_refresh_fails",
+        "webapp.tests.test_rule_dialog_screen::RuleDialogScreenTests::test_full_flow_at_1440",
+        "webapp.tests.test_trip_history_browser::TripHistoryBrowserTests::test_previous_trips_open_and_link_to_existing_ledger_at_both_widths",
+        "webapp.tests.test_trip_expense_copy_button::TripExpenseCopyBrowserTests::test_browser_copy_trip_expenses_interaction",
+    }
+    assert required_browser_cases <= set(plan["browser_tests"])
+    assert plan["browser_required"] is True
+
+    audit = quality.audit_plan()
+    assert required <= set(audit["pytest_targets"])
+    assert required_browser_cases <= set(audit["browser_tests"])
+    assert audit["browser_required"] is True
+
+
 def test_scheduled_audit_selects_deduplicated_protection_and_ui_groups():
     plan = quality.audit_plan()
     assert plan["status"] == "AUDIT"
@@ -192,11 +245,41 @@ def test_junit_cannot_pass_zero_tests_or_skipped_browser_cases(tmp_path):
     assert skipped["executed_case_count"] == 0
     assert skipped["browser_skipped"] == browser
     assert skipped["missing_browser_tests"] == browser
+    assert skipped["skip_count"] == 1
+    assert skipped["nonbrowser_skipped_test_cases"] == []
     fixture_browser = ["webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click"]
     junit.write_text('<testsuite><testcase classname="webapp.tests.test_card_catalog_browser.CardCatalogBrowserTests" name="test_header_buttons_sort_and_filter_without_search_click"/></testsuite>', encoding="utf-8")
     fixture_result = quality.summarize_junit(junit, fixture_browser)
     assert fixture_result["browser_executed"] == fixture_browser
     assert fixture_result["missing_browser_tests"] == []
+
+
+def test_selected_nonbrowser_skip_fails_quality_run_even_when_another_case_passes(tmp_path):
+    from unittest.mock import patch
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text(
+            '<testsuite tests="2" skipped="1">'
+            '<testcase classname="synthetic.required" name="passed"/>'
+            '<testcase classname="synthetic.required" name="skipped"><skipped message="not run"/>'
+            '</testcase></testsuite>', encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40, root=tmp_path)
+    assert result == 1
+    summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
+    assert summary["status"] == "FAILED"
+    assert summary["test_case_count"] == 2
+    assert summary["executed_case_count"] == 1
+    assert summary["skip_count"] == 1
+    assert summary["nonbrowser_skipped_test_cases"] == ["synthetic.required::skipped"]
 
 
 def test_deleted_paths_are_retained_in_impact_plan():
