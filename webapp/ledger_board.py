@@ -3441,6 +3441,11 @@ class Handler(BaseHTTPRequestHandler):
         resolve_role(self.headers, self._cookies())
         from . import google_ledger_page as _gl
         from . import google_ledger_actions as _gla
+        if parsed.path == '/demo/preview':
+            is_owner, _ = _gl.caller(ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, 'session', None),
+                                     is_owner_session, _active_role)
+            google_demo_page.dispatch_preview(self, parsed, is_owner=is_owner)
+            return
         if parsed.path in _gla.ROUTES:
             is_owner, viewer = _gl.caller(ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, 'session', None),
                                          is_owner_session, _active_role)
