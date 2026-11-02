@@ -116,17 +116,38 @@ class GoogleViewerHttpTests(unittest.TestCase):
         gl.set_grants(self.snapshot, user_id=user, keys=[key], granted=True, at='t')
         gl.set_mapping(self.snapshot, key=key, tab_id=tab, known_keys={'0630_오제', '0107_대만'})
 
-    def test_owner_sees_every_trip_and_the_detail_over_http(self):
-        status, body = self.call('/api/google-ledger/rows?key=0630_%EC%98%A4%EC%A0%9C&source=main', OWNER)
-        self.assertEqual(status, 200, body)
-        self.assertIn('ALICE-NAME', body)
-
-    def test_removed_google_ledger_routes_do_not_claim_http_instrumentation(self):
+    def test_retired_google_ledger_routes_return_404_without_private_data_or_writes(self):
         from app import request_metrics
-        before = request_metrics.summary()
-        self.assertFalse(gl.owns_route('/google-ledger'))
-        self.assertFalse(gl.owns_route('/api/google-ledger'))
-        self.assertEqual(request_metrics.summary(), before)
+        before = request_metrics.summary().get('google_canonical_read.google_read', {}).get('samples', 0)
+        paths = (
+            '/google-ledger',
+            '/api/google-ledger',
+            '/google-ledger/rows?key=0630_%EC%98%A4%EC%A0%9C&source=main',
+            '/api/google-ledger/rows?key=0630_%EC%98%A4%EC%A0%9C&source=main',
+        )
+        # The legacy screen, row APIs and settings writes have no route owner.
+        # Exercise the real HTTP handler for each session class and keep the
+        # local synthetic snapshot unchanged across rejected write requests.
+        original_snapshot = self.snapshot.read_bytes()
+        original_settings = {path.name: path.read_bytes() for path in self.snapshot.parent.glob('google-*.json')
+                             if path != self.rows}
+        for user, expected in ((None, 401), (VIEWER, 404), (OWNER, 404)):
+            for path in paths:
+                status, body = self.call(path, user)
+                self.assertEqual(status, expected, path)
+                self.assertNotIn('ALICE-NAME', body)
+                self.assertNotIn('PAYEE-SHOP', body)
+            for path in ('choice', 'grants', 'mapping', 'auto-mapping'):
+                status, body = self.call(f'/api/google-ledger/{path}', user, 'POST',
+                                         {'key': '0630_오제', 'source': 'archive'})
+                write_expected = {None: 401, VIEWER: 403, OWNER: 404}[user]
+                self.assertEqual(status, write_expected, path)
+                self.assertNotIn('ALICE-NAME', body)
+        self.assertEqual(self.snapshot.read_bytes(), original_snapshot)
+        self.assertEqual({path.name: path.read_bytes() for path in self.snapshot.parent.glob('google-*.json')
+                          if path != self.rows}, original_settings)
+        after = request_metrics.summary().get('google_canonical_read.google_read', {}).get('samples', 0)
+        self.assertEqual(after, before)
 
     def test_canonical_read_seam_measures_mock_loader_without_source_values(self):
         from app import request_metrics
@@ -144,59 +165,6 @@ class GoogleViewerHttpTests(unittest.TestCase):
         self.assertEqual(after['rows'], 1)
         self.assertNotIn(sentinel, json.dumps(request_metrics.summary()))
         self.assertNotIn(str(self.snapshot), json.dumps(request_metrics.summary()))
-
-    def test_a_viewer_sees_only_the_granted_linked_and_visible_trip(self):
-        self.link_and_assign(VIEWER, self.trip)
-        self.grant_and_link(VIEWER, '0630_오제', self.trip)
-        status, body = self.call('/api/google-ledger', VIEWER)
-        self.assertEqual(status, 200, body)
-        keys = [t['key'] for t in json.loads(body)['trips']]
-        self.assertEqual(keys, ['0630_오제'])
-        self.assertNotIn('copies', body)
-        self.assertNotIn('0107_대만', body)
-
-    def test_a_viewer_reads_the_income_and_expense_detail_of_the_allowed_trip_only(self):
-        self.link_and_assign(VIEWER, self.trip)
-        self.grant_and_link(VIEWER, '0630_오제', self.trip)
-        status, body = self.call('/api/google-ledger/rows?key=0630_%EC%98%A4%EC%A0%9C&source=main', VIEWER)
-        self.assertEqual(status, 200, body)
-        self.assertIn('ALICE-NAME', body)
-        self.assertIn('PAYEE-SHOP', body)
-        status, body = self.call('/api/google-ledger/rows?key=0107_%EB%8C%80%EB%A7%8C&source=archive', VIEWER)
-        self.assertIn(status, (403, 404))
-        self.assertNotIn('BOB-NAME', body)
-
-    def test_anonymous_and_ungranted_viewers_are_refused(self):
-        self.link_and_assign(VIEWER, self.trip)
-        self.grant_and_link(VIEWER, '0630_오제', self.trip)
-        for path in ('/google-ledger', '/api/google-ledger', '/google-ledger/rows?key=0630_%EC%98%A4%EC%A0%9C&source=main'):
-            status, body = self.call(path)
-            self.assertIn(status, (401, 403, 404), path)
-            self.assertNotIn('ALICE-NAME', body)
-        status, body = self.call('/api/google-ledger', OTHER)
-        self.assertEqual(json.loads(body)['trips'], [])
-
-    def test_revoking_the_owner_grant_or_the_cost_assignment_ends_access_at_once(self):
-        self.link_and_assign(VIEWER, self.trip)
-        self.grant_and_link(VIEWER, '0630_오제', self.trip)
-        gl.set_grants(self.snapshot, user_id=VIEWER, keys=['0630_오제'], granted=False, at='t2')
-        self.assertEqual(json.loads(self.call('/api/google-ledger', VIEWER)[1])['trips'], [])
-        gl.set_grants(self.snapshot, user_id=VIEWER, keys=['0630_오제'], granted=True, at='t3')
-        self.assertEqual(len(json.loads(self.call('/api/google-ledger', VIEWER)[1])['trips']), 1)
-        self.access.apply_assignment_snapshot(
-            user_id=VIEWER, items=[{'tab_id': self.trip, 'snapshot_revision': 2,
-                                    'state': access_control.ASSIGN_REVOKED}],
-            source_version='src-2', validity=access_control.DEFAULT_VALIDITY, now=None, complete=False)
-        self.assertEqual(json.loads(self.call('/api/google-ledger', VIEWER)[1])['trips'], [])
-
-    def test_a_deactivated_viewer_loses_access_on_the_next_request(self):
-        self.link_and_assign(VIEWER, self.trip)
-        self.grant_and_link(VIEWER, '0630_오제', self.trip)
-        self.assertEqual(len(json.loads(self.call('/api/google-ledger', VIEWER)[1])['trips']), 1)
-        self.access.set_account_active(user_id=VIEWER, is_active=False)
-        status, body = self.call('/api/google-ledger', VIEWER)
-        self.assertNotIn('ALICE-NAME', body)
-        self.assertNotEqual(status, 200)
 
     def test_the_ordinary_cost_board_policy_is_unchanged_for_a_viewer(self):
         self.link_and_assign(VIEWER, self.trip)
