@@ -381,7 +381,14 @@ tr.inline-editor-row>td{height:auto;padding:0;white-space:normal;overflow:visibl
 .bulk-bar select{min-width:12rem;max-width:100%;height:44px}
 .bulk-bar input{min-width:0;width:10rem;max-width:100%;height:44px}
 body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-padding-bottom:var(--bulk-bar-height,230px)}
-@media(max-width:759px){.bulk-bar{gap:6px;padding:8px 12px max(8px,env(safe-area-inset-bottom))}.bulk-bar strong{width:100%}.bulk-bar select{flex:1;min-width:0}.bulk-bar label{font-size:12px}.bulk-bar input{width:7rem}.bulk-bar [data-bulk-status]{width:100%;font-size:12px}}
+@media(max-width:759px){
+ .bulk-bar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;padding:8px 12px max(8px,env(safe-area-inset-bottom))}
+ .bulk-bar strong,.bulk-bar [data-bulk-status]{grid-column:1/-1}
+ .bulk-bar label{font-size:12px}
+ .bulk-bar select,.bulk-bar input{width:100%;min-width:0;box-sizing:border-box}
+ .bulk-bar button{min-height:44px}
+ .bulk-bar [data-bulk-status]{font-size:12px}
+}
 
 #panel-slot{display:flex;min-height:0}
 .panel{width:400px;flex:0 0 400px;background:var(--paper);border-left:1px solid var(--line);
