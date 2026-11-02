@@ -118,9 +118,23 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
         return original_process(*args, **kwargs)
 
     monkeypatch.setattr(card_upload_jobs, 'process', count_process)
-    raw = make_xlsx([domestic_row(merchant='SYNTHETIC JOURNEY CAFE', amount=18400,
-                     approval='SYN-JOURNEY-001', issuer='SYNTHETIC ISSUER', card='****3820',
-                     kind='매입')])
+    threading = __import__('threading')
+    original_thread_start = threading.Thread.start
+    held_upload_threads = []
+
+    def hold_upload_start(thread, *args, **kwargs):
+        if thread.name == 'card-upload':
+            held_upload_threads.append(thread)
+            return None
+        return original_thread_start(thread, *args, **kwargs)
+
+    monkeypatch.setattr(threading.Thread, 'start', hold_upload_start)
+    raw = make_xlsx([
+        domestic_row(merchant='SYNTHETIC JOURNEY CAFE', amount=18400,
+                     approval='SYN-JOURNEY-001', issuer='SYNTHETIC ISSUER', card='****3820', kind='매입'),
+        domestic_row(merchant='SYNTHETIC MANUAL CAFE', amount=7000,
+                     approval='SYN-JOURNEY-002', issuer='SYNTHETIC ISSUER', card='****1111', kind='매입'),
+    ])
     # Owner upload returns 202 after durable source ingestion; refresh receives
     # only the shell and status polling eventually returns the completed result.
     code, body, _ = binary_request(service, '/api/imports', raw, headers={
@@ -129,6 +143,20 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     ack = json.loads(body)
     assert ack['source_rows_persisted'] is True
     assert service.request('/import', cookie=service.cookie(OWNER))[0] == 200
+    assert len(held_upload_threads) == 1
+    state_code, state_body, _ = service.request('/api/imports/' + ack['batch_id'],
+                                                 cookie=service.cookie(OWNER))
+    assert state_code == 200, state_body
+    manual_row = next(row for row in json.loads(state_body)['rows']
+                      if row['merchant'] == 'SYNTHETIC MANUAL CAFE')
+    decision_code, decision_body, _ = json_post(service, '/api/imports/' + ack['batch_id'] + '/decision', {
+        'transaction_id': manual_row['transaction_id'], 'revision': manual_row['revision'],
+        'item': '분기 기타비용', 'description': 'OWNER MANUAL CORRECTION',
+        'display_tab_id': trip_id, 'request_id': 'autonomous-manual-correction',
+    })
+    assert decision_code == 200, decision_body
+    monkeypatch.setattr(threading.Thread, 'start', original_thread_start)
+    original_thread_start(held_upload_threads.pop())
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         code, state, _ = service.request(ack['status_url'], cookie=service.cookie(OWNER))
@@ -152,21 +180,29 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert replay['batch_id'] == ack['batch_id']
     assert replay['status_url'] == ack['status_url']
     assert len(process_calls) == 1
-    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 2
     rows = board.conn.execute(
         'SELECT transaction_id, source_hash, revision FROM transactions '
         'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)',
         (ack['batch_id'],)).fetchall()
-    assert len(rows) == 1
-    source_id, source_hash, revision = next(row for row in rows if row[2] >= 1)
+    assert len(rows) == 2
+    source_id = board.conn.execute(
+        "SELECT transaction_id FROM transactions WHERE merchant='SYNTHETIC JOURNEY CAFE'").fetchone()[0]
+    manual_id = manual_row['transaction_id']
+    source_hash, revision = board.conn.execute(
+        'SELECT source_hash, revision FROM transactions WHERE transaction_id=?', (source_id,)).fetchone()
     identities = [row[0] for row in rows]
     immutable_before = {tid: board.conn.execute(
         'SELECT source_hash, issuer, card_tail, amount_krw, transaction_direction '
         'FROM transactions WHERE transaction_id=?', (tid,)).fetchone() for tid in identities}
     assert sum(board.conn.execute(
         'SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone()[0]
-        for tid in identities) == 1
-    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == entries_after_first == 1
+        for tid in identities) == 2
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == entries_after_first == 2
+    manual_after = board.conn.execute(
+        'SELECT item, description, classification_source FROM transactions WHERE transaction_id=?',
+        (manual_id,)).fetchone()
+    assert manual_after == ('분기 기타비용', 'OWNER MANUAL CORRECTION', 'user_decision')
     before_denied = board.conn.total_changes
     for user, csrf, expected in ((VIEWER, True, 403), (None, True, 401), (OWNER, False, 403)):
         denied, _, _ = binary_request(service, '/api/imports', raw, user=user, csrf=csrf,
@@ -217,8 +253,9 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert copy_code == 200, copy_body
     copied = json.loads(copy_body)
     fields = copied['tsv'].rstrip('\n').split('\t')
-    assert copied['row_count'] == 1 and len(fields) == 7, copy_body
-    assert 'SYNTHETIC JOURNEY CAFE' in fields[1]
+    copied_rows = [line.split('\t') for line in copied['tsv'].rstrip('\n').splitlines()]
+    assert copied['row_count'] == 2 and all(len(row) == 7 for row in copied_rows), copy_body
+    assert {row[1] for row in copied_rows} == {'SYNTHETIC JOURNEY CAFE', 'SYNTHETIC MANUAL CAFE'}
     viewer_copy, _, _ = service.request(
         '/api/imports/' + ack['batch_id'] + '/google-tsv?tab=' + quote(trip_id),
         cookie=service.cookie(VIEWER))
@@ -230,6 +267,9 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert {tid: board.conn.execute(
         'SELECT source_hash, issuer, card_tail, amount_krw, transaction_direction '
         'FROM transactions WHERE transaction_id=?', (tid,)).fetchone() for tid in identities} == immutable_before
+    assert board.conn.execute(
+        'SELECT item, description, classification_source FROM transactions WHERE transaction_id=?',
+        (manual_id,)).fetchone() == manual_after
 
     # The real export page is a read-only summary. Record timing for diagnosis,
     # but assert no arbitrary latency threshold: no performance defect is proven.
