@@ -8,7 +8,7 @@ import pytest
 from webapp.card_flow import page
 
 
-@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required'])
+@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'concurrent'])
 def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
     source = page('synthetic-csrf')
     source = source[source.index("const uploadJobKey="):source.index("el('ruleform').onsubmit=")]
@@ -16,6 +16,7 @@ def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
 const assert = require('node:assert/strict'), vm = require('node:vm');
 const mode = MODE;
 const storage = new Map(), nodes = new Map(), posts = [], entries = [];
+const waiting = []; let maxWaiting = 0;
 const identity = n => '/api/imports/upload-status/'+String(n).padStart(32,'0');
 function element(){return {disabled:false, textContent:'', append(...xs){entries.push(...xs)},
   setAttribute(){},removeAttribute(){},querySelector(){return this},addEventListener(name,fn){this[name]=fn},scrollIntoView(){this.scrolled=true}}}
@@ -30,6 +31,7 @@ const context={el,localStorage,document:{createElement:element},Date,Error,JSON,
   renderUploadSelection:()=>Array.from({length:10},(_,i)=>({name:(i+1)+'.csv',arrayBuffer:async()=>Buffer.from('synthetic '+i)})),
   call:async(url,data,headers)=>{assert.equal(headers['X-Upload-Async'],'1');const n=Number(decodeURIComponent(headers['X-Filename']).split('.')[0]);posts.push(n);return {status_url:identity(n),batch_id:String(n)}},
   fetch:async url=>{const n=Number(url.split('/').at(-1));
+    if(mode==='concurrent'&&n<=4)await new Promise(resolve=>{waiting.push(resolve);maxWaiting=Math.max(maxWaiting,waiting.length);if(waiting.length===4)while(waiting.length)waiting.pop()()});
     if(mode==='mixed'&&(n===2||n===4))throw Error('temporary disconnect');
     return {ok:true,status:200,json:async()=>mode==='refresh-required'&&(n===1||n===10)?{status:'done',result:{batch_id:String(n),refresh_required:true,upload_summary:{status:'refresh_required'}}}:mode==='mixed'&&n===1?{status:'error',message:'synthetic classification failure'}:{status:'done',result:{batch_id:String(n),upload_summary:{status:'passed'}}}};
   }
@@ -42,6 +44,7 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     assert.equal(storage.size,0);assert.ok(entries.some(x=>x.href==='/import?batch=9#summary'));
   }
   await el('upload').onclick();
+  if(mode==='concurrent')assert.equal(maxWaiting,4,'four files must reach status polling before any completes');
   assert.deepEqual(posts,[1,2,3,4,5,6,7,8,9,10]);
   assert.equal(rendered.batch_id,mode==='refresh-required'?'9':'10');
   assert.ok(!rendered.refresh_required,'Unavailable projection must never reach the renderer');

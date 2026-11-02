@@ -3381,21 +3381,23 @@ el('upload').onclick=async()=>{
  const generation=++batchGeneration;uploadFailurePage=0;invalidateProposal();el('upload').disabled=true;uploadInput.disabled=true;uploadDrop.setAttribute('aria-disabled','true');
  const results=[],failures=[],pending=[],root=el('upload-results');root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><ul class="upload-file-list"></ul>';const list=root.querySelector('ul');
  try{
-  for(let i=0;i<files.length;i++){
-   if(generation!==batchGeneration){const entry=document.createElement('li');entry.textContent='자료 선택이 바뀌어 나머지 파일 업로드를 중단했습니다.';list.append(entry);return}
-   const f=files[i],entry=document.createElement('li');list.append(entry);entry.textContent=f.name+' · 처리 중';
+  let nextFile=0;const entries=files.map(f=>{const entry=document.createElement('li');entry.textContent=f.name+' · 접수 대기';list.append(entry);return entry});
+  const processFile=async i=>{
+   const f=files[i],entry=entries[i];if(generation!==batchGeneration){entry.textContent=f.name+' · 자료 선택이 바뀌어 업로드하지 않았습니다.';return}
+   entry.textContent=f.name+' · 접수 중';
    el('status').textContent='파일 '+(i+1)+'/'+files.length+' · '+f.name+'을(를) 읽고 분류하고 있습니다.';uploadLabel.textContent='처리 중 '+(i+1)+'/'+files.length;
    try{
-    let j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name),'X-Upload-Async':'1'});if(j.status_url){j.filename=f.name;j=await awaitUpload(j,entry)}results.push(j);entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
+    let j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name),'X-Upload-Async':'1'});if(j.status_url){j.filename=f.name;entry.textContent=f.name+' · 파일 접수 완료 · 분류 중';j=await awaitUpload(j,entry)}results[i]=j;entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
     if(j.batch_id){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(j.batch_id)+'#summary';link.textContent='상세 결과';entry.append(link)}
     appendCoverageForm(entry,j);
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
-  }
+  };
+  const workers=Array.from({length:Math.min(4,files.length)},async()=>{while(nextFile<files.length){const i=nextFile++;await processFile(i)}});await Promise.all(workers);
   if(generation!==batchGeneration)return;
-  if(results.length)render(results[results.length-1],true);
-  const incomplete=results.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
-  el('status').textContent=results.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
-  if(!results.length&&failures.length)renderUploadSystemError(failures[0].message);
+  const completed=results.filter(Boolean);if(completed.length)render(completed[completed.length-1],true);
+  const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
+  el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
+  if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
  }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드하고 분류'}
 };
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(j.rules)renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(j.refresh_required){el('status').textContent='규칙은 저장됐지만 분류 갱신을 확인하지 못했습니다. 규칙을 다시 저장하지 말고 거래를 새로고침해 주세요.';return}try{if(model)render(await call('/api/imports/'+model.batch_id+'/auto-record','{}',{'Content-Type':'application/json'}))}catch(error){if(error.message==='소유자만 자동 반영할 수 있습니다.'){let refreshed=false;try{const updated=await call('/api/imports/'+model.batch_id);render(updated);refreshed=true}catch{}el('status').textContent=refreshed?'규칙은 저장되고 분류도 다시 계산됐습니다. 자동 장부 기록은 소유자만 할 수 있습니다.':'규칙은 저장되고 분류도 다시 계산됐지만 화면을 갱신하지 못했습니다. 자동 장부 기록은 소유자만 할 수 있습니다. 새로고침해서 확인해 주세요.';return}el('status').textContent='규칙은 저장됐습니다. 자동 기록 결과를 확인하지 못했습니다: '+error.message+' 규칙을 다시 저장하지 말고 최신 거래를 확인해 주세요.';return}el('status').textContent='규칙을 저장했습니다.'}catch(e){el('status').textContent=e.message}};
