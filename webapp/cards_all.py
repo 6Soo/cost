@@ -870,7 +870,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             + _period_select(year, selected_month, years)
             + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
             + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
-            + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류·금액·승인번호'></label>"
+            + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='카드사·끝4자리·가맹점·내용·분류·금액·승인번호'></label>"
             + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
             + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>")
 
