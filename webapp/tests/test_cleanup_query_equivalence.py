@@ -23,6 +23,15 @@ def test_refund_membership_matches_correlated_exists_with_nullable_sources(monke
                  rng.choice(['A1', 'A2', '', None]),
                  rng.choice(['same merchant', 'other merchant', '', None]))
                 for i in range(350)]
+        rows.extend([
+            ('unmatched', 'purchase', 1004, 'valid', 'unique', 'tail', 'A', '', 'store'),
+            ('null-issuer', 'purchase', 1004, 'valid', None, 'tail', None, None, None),
+            ('null-refund', 'cancellation', -1004, 'valid', None, 'tail', None, None, None),
+            ('empty-approval', 'purchase', 1004, 'valid', 'empty', 'tail', '', '', 'purchase'),
+            ('empty-reference', 'refund', -1004, 'valid', 'empty', 'tail', '', '', 'refund'),
+            ('numbered', 'purchase', 1004, 'valid', 'numbered', 'tail', 'A', '', 'purchase'),
+            ('numbered-refund', 'cancellation', -1, 'valid', 'numbered', 'tail', '', 'A', 'refund'),
+        ])
         db.executemany('INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?)', rows)
         monkeypatch.setattr(read_scope, 'remember', lambda key, compute: ['valid'])
         optimized = completed_assignment_sql(None)
@@ -35,6 +44,8 @@ def test_refund_membership_matches_correlated_exists_with_nullable_sources(monke
                    OR c.merchant_normalized=t.merchant_normalized)))"""
         before = db.total_changes
         expected = db.execute('SELECT transaction_id FROM transactions t WHERE ' + reference).fetchall()
+        assert {('unmatched',), ('null-issuer',), ('empty-approval',)} <= set(expected)
+        assert ('numbered',) not in expected
         assert db.execute('SELECT transaction_id FROM transactions t WHERE ' + optimized).fetchall() == expected
         assert db.total_changes == before
     finally:
