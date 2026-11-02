@@ -3360,7 +3360,7 @@ async function awaitUpload(job,entry){
   await new Promise(resolve=>setTimeout(resolve,Math.min(10000,errors?1000*2**errors:1500)));
  }
 }
-function savedUploadLink(entry,batch){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='저장된 파일 상세 결과';entry.append(' ',link)}
+function savedUploadLink(entry,batch){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='저장된 파일 상세 결과';link.addEventListener('click',async event=>{if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await loadBatch(batch);el('summary').scrollIntoView({block:'start'});});entry.append(' ',link)}
 async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return;
  const root=el('upload-results');root.hidden=false;el('newupload').open=true;el('upload').disabled=true;uploadInput.disabled=true;
  try{for(const job of jobs){const entry=document.createElement('p');root.append(entry);
