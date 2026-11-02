@@ -210,12 +210,22 @@
     {
       "name": "WEBLEDGER_DEMO_SNAPSHOT",
       "owner": "webapp.google_demo_page",
-      "role": "path:synthetic-demo-data",
+      "role": "path:demo-snapshot; real publication requires separate explicit gate",
       "required": "optional",
       "default": "disabled when absent",
       "status": "confirmed",
       "source_refs": "webapp\\google_demo_page.py:21,33",
       "evidence": "Static environment read and callsite captured by the verifier; no runtime value is inspected."
+    },
+    {
+      "name": "WEBLEDGER_DEMO_REAL_PUBLICATION",
+      "owner": "webapp.google_demo_page",
+      "role": "flag:explicit-real-demo-publication",
+      "required": "optional; activate only after initial privacy review",
+      "default": "disabled when absent",
+      "status": "confirmed",
+      "source_refs": "webapp\\google_demo_page.py",
+      "evidence": "Separate fail-closed gate for the allowlisted real-source demo projection."
     },
     {
       "name": "WEBLEDGER_RECEIPTS_STORE",
