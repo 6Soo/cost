@@ -96,7 +96,10 @@ def test_integrated_labels_escape_source_text_and_are_visible_on_mobile(copy_sta
                     labels = scope.locator('.expense-copy-state')
                     assert labels.count() == 3
                     assert all(labels.nth(i).is_visible() for i in range(3))
-                    assert '복사 가능</span>' not in scope.inner_html()
+                    # Status labels describe each row; the trip summary may still say
+                    # how many expenses can be copied and the copy action stays available.
+                    assert all('복사 가능' not in label.inner_text()
+                               for label in labels.all())
                     assert page.get_by_role('button', name='지출내용 복사').is_enabled()
         finally:
             browser.close()
