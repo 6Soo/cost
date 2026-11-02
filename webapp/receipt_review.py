@@ -29,13 +29,14 @@ from app import receipt_learning
 from . import receipt_vision_jobs, ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
-          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision",
+          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/pdf", "/api/receipts/vision",
           "/api/receipts/vision/rescan", "/api/receipts/vision/new", "/api/receipts/learn", "/api/receipts/learn/delete",
           "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 VISION_JOB = re.compile(r"^/api/receipts/vision/([0-9a-f]{32})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
+PDF_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
 PAYMENT_LABELS = {"cash": "현금", "private_card": "개인카드", "corporate_card": "법인카드"}
 MESSAGES = {
@@ -129,17 +130,22 @@ def _images_dir(store: Path) -> Path:
     return store.parent / "receipt-images"
 
 
+def _pdfs_dir(store: Path) -> Path:
+    return store.parent / "receipt-pdfs"
+
+
 def load(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"candidates": [], "holds": [], "images": []}
+        return {"candidates": [], "holds": [], "images": [], "pdfs": []}
     except (OSError, ValueError):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
     if not isinstance(data, dict) or any(not isinstance(data.get(key), list) for key in ('candidates', 'holds')):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     data.setdefault("images", [])
-    if not isinstance(data['images'], list):
+    data.setdefault("pdfs", [])
+    if not isinstance(data['images'], list) or not isinstance(data['pdfs'], list):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     required = {'identity', 'date', 'merchant', 'total_jpy', 'payment', 'amount_krw', 'history'}
     for candidate in data['candidates']:
@@ -164,6 +170,11 @@ def load(path: Path) -> dict:
                 or (hold.get('image_sha') is not None and not isinstance(hold['image_sha'], str))):
             raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     if any(not isinstance(image, str) for image in data['images']):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    if any(not isinstance(pdf, dict) or not re.fullmatch(r'[0-9a-f]{64}', str(pdf.get('sha256', '')))
+           or not isinstance(pdf.get('pages'), list) or len(pdf['pages']) > local_receipt_ocr.PDF_PAGE_LIMIT
+           or any(not isinstance(page, str) or page not in data['images'] for page in pdf['pages'])
+           for pdf in data['pdfs']):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     return data
 
@@ -216,6 +227,41 @@ def store_image(path: Path, body: bytes) -> dict:
         data["images"].append(sha)
         _save(path, data)
     return {"sha256": sha, "bytes": len(body), "media_type": media}
+
+
+@_serialized
+def store_pdf(path: Path, body: bytes, *, language: str = 'ja') -> dict:
+    if not body or len(body) > PDF_LIMIT or not body.startswith(b'%PDF-'):
+        raise ValueError('PDF_INVALID')
+    sha = hashlib.sha256(body).hexdigest()
+    folder = _pdfs_dir(path)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f'{sha}.pdf'
+    if target.exists():
+        if target.stat().st_size != len(body) or target.read_bytes() != body:
+            raise ValueError('PDF_INVALID')
+    else:
+        temporary = target.with_suffix('.pdf.tmp')
+        temporary.write_bytes(body)
+        os.replace(temporary, target)
+    data = load(path)
+    existing = next((item for item in data['pdfs'] if item['sha256'] == sha), None)
+    if existing:
+        return existing
+    try:
+        result = local_receipt_ocr.recognize_pdf(target, language)
+    except local_receipt_ocr.OcrError as error:
+        raise ValueError(str(error)) from None
+    pages = []
+    for page in result['pages']:
+        image = store_image(path, page['image'])
+        pages.append(image['sha256'])
+    item = {'sha256': sha, 'bytes': len(body), 'pages': pages, 'page_text': [p['text'] for p in result['pages']]}
+    item['suggestions'] = [p['suggestions'] for p in result['pages']]
+    data = load(path)
+    data['pdfs'].append(item)
+    _save(path, data)
+    return item
 
 
 def image_bytes(path: Path, sha: str) -> bytes:
@@ -707,6 +753,12 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         if parsed.path == "/api/receipts/image":
             handler._send_json(store_image(path, raw))
             return True
+        if parsed.path == "/api/receipts/pdf":
+            try:
+                handler._send_json(store_pdf(path, raw, language=handler.headers.get('X-Receipt-Language', 'ja')))
+            except ValueError as error:
+                handler._send_json({'code': str(error), 'message': 'PDF를 처리하지 못했습니다. 최대 10페이지 PDF를 선택해 주세요.'}, 400)
+            return True
         body = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(body, dict):
             raise ValueError('INVALID_VALUE')
@@ -1134,6 +1186,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "for(const f of files){const r=await fetch('/api/receipts/image',{method:'POST',"
         "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:await normalizeReceiptImage(f)});"
         "const j=await readResponse(r);document.getElementById('image-sha').value=j.sha256;}})};"
+        "document.getElementById('pdf-go').onclick=async()=>{const file=document.getElementById('pdf-file').files[0];"
+        "if(!file){say('PDF 파일을 고르세요.');return}if(file.size>5*1024*1024){say('PDF는 5MB 이하만 등록할 수 있습니다.');return}"
+        "await save(async()=>{const r=await fetch('/api/receipts/pdf',{method:'POST',headers:{'Content-Type':'application/pdf','X-CSRF-Token':csrf,'X-Receipt-Language':document.getElementById('ocr-language')?.value||'ja'},body:file});"
+        "const result=await readResponse(r);if(result.pages.length)document.getElementById('image-sha').value=result.pages[result.pages.length-1];"
+        "say('PDF 원본을 보관하고 '+result.pages.length+'페이지를 사진 후보로 등록했습니다. 각 페이지에서 영수증 값을 확인해 주세요.');location.reload()})};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
@@ -1197,8 +1254,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<section id='step-photos'><h2>2. 사진</h2>"
             "<input id='img-file' type='file' multiple accept='image/*'> "
             f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
+            "<label>PDF 영수증<input id='pdf-file' type='file' accept='application/pdf,.pdf'></label> "
+            "<button type='button' id='pdf-go'>PDF 페이지 등록</button>"
             f"<input type='hidden' id='image-sha' value='{latest}'>"
-            "<p class='hint'>iPhone 사진(HEIC 포함)이나 큰 사진은 업로드 전에 JPEG로 바꿉니다. 분석할 사진을 체크하세요.</p>"
+            "<p class='hint'>원본은 그대로 보관합니다. PDF는 로컬 Windows에서 최대 10페이지를 사진 후보로 렌더링합니다. 페이지별로 확인해 영수증 값을 직접 입력하세요.</p>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
             + ai_section +
             "<section id='step-review'><h2>4. 후보 검토</h2>"

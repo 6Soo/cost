@@ -23,6 +23,15 @@ def test_disabled_and_unsupported_languages_fail_without_process():
         run.assert_not_called()
 
 
+def test_pdf_recognition_is_disabled_until_local_windows_ocr_is_enabled(tmp_path):
+    pdf = tmp_path / 'synthetic.pdf'
+    pdf.write_bytes(b'%PDF-1.4 synthetic')
+    with patch.dict(os.environ, {}, clear=True), patch.object(ocr.subprocess, 'run') as run:
+        with pytest.raises(ocr.OcrError):
+            ocr.recognize_pdf(pdf)
+        run.assert_not_called()
+
+
 def test_real_windows_engine_reads_synthetic_image(tmp_path):
     if os.name != 'nt':
         pytest.skip('Windows OCR integration')
