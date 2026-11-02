@@ -9,7 +9,7 @@ import re
 from app import ota_mail
 
 
-PARSER_VERSION = "flight-evidence-v5-flat-layout"
+PARSER_VERSION = "flight-evidence-v6-labeled-departure"
 PROVIDER_DOMAINS = {"trip": ("trip.com", "trip.co.kr")}
 
 _INVISIBLE = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, *range(0x202A, 0x202F)])
@@ -143,9 +143,23 @@ def parse_flight_text(text: str) -> dict | None:
     reserved_on, booking_date_status, date_facts, card_day = _booking_date_details(tokens)
     # A date from a multi-booking message cannot be attributed to its first reference.
     refs = _booking_refs(tokens)
+    # Some authenticated one-way notices use separate explicitly labeled
+    # departure/arrival lines instead of an itinerary heading. Do not infer a
+    # date from payment prose, multi-booking notices, or multi-leg layouts.
+    departures = [t for t in tokens if re.match(r'^출발\s*[:：]\s*\d{4}년', t)]
+    arrivals = [t for t in tokens if re.match(r'^도착\s*[:：]\s*\d{4}년', t)]
+    labeled_departure = ''
+    if (len(refs) == 1 and len(departures) == len(arrivals) == 1
+            and tokens.index(departures[0]) < tokens.index(arrivals[0])
+            and _TIME.search(departures[0]) and _TIME.search(arrivals[0])):
+        departure_match, arrival_match = _DATE.search(departures[0]), _DATE.search(arrivals[0])
+        departure_day = _date_on(departure_match.group()) if departure_match else ''
+        arrival_day = _date_on(arrival_match.group()) if arrival_match else ''
+        if departure_day and arrival_day and departure_day <= arrival_day:
+            labeled_departure = departure_day
     if len(refs) > 1:
         reserved_on, booking_date_status, card_day = '', 'CONFLICT', ''
-    if not passengers and not headers and (cancellation_status == "NONE" or not booking_ref):
+    if not passengers and not headers and not labeled_departure and (cancellation_status == "NONE" or not booking_ref):
         return None
     stops = headers + [i for i, token in enumerate(tokens) if "규정 조회" in token]
     stops += [i - 1 for i, token in enumerate(tokens) if token == "(성)" and i > 0]
@@ -161,6 +175,7 @@ def parse_flight_text(text: str) -> dict | None:
     return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
             "reserved_on": reserved_on, "booking_date_status": booking_date_status,
             "booking_date_evidence": date_facts, "booking_card_day": card_day,
+            "labeled_departure_on": labeled_departure,
             "cancellation_status": cancellation_status,
             "legs_complete": bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)}
 
@@ -188,6 +203,18 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
         legs.append({"label": label, "origin_city": origin, "destination_city": destination,
                      "departure_on": min(departures, default=""),
                      "segments": routes[min(routes)] if routes else []})
+    labeled_dates = {part.get('labeled_departure_on') for part in parts if part.get('labeled_departure_on')}
+    if len(labeled_dates) > 1:
+        conflict = True
+    elif labeled_dates:
+        labeled_day = next(iter(labeled_dates))
+        if legs:
+            known_days = {leg['departure_on'] for leg in legs if leg['departure_on']}
+            if known_days and labeled_day not in known_days:
+                conflict = True
+        else:
+            legs.append({'label': '구간', 'origin_city': '', 'destination_city': '',
+                         'departure_on': labeled_day, 'segments': []})
     legs.sort(key=_leg_order)
     legs_complete = bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)
     # Conflicting explicit dates, or one ambiguous source, must never auto-select a day.
@@ -208,7 +235,9 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
     cancellation_status = ("CONFLICT" if "CANCELLED" in cancellation_states and "NONE" in cancellation_states
                            or "CONFLICT" in cancellation_states else
                            "CANCELLED" if "CANCELLED" in cancellation_states else "NONE")
-    digest_body = {"v": PARSER_VERSION,
+    # Cache invalidation and evidence identity are separate. Preserve the old
+    # digest for bookings whose parsed facts have not changed.
+    digest_body = {"v": "flight-evidence-v5-flat-layout",
                    "passengers": sorted([p["surname"].casefold(), p["given_name"].casefold()] for p in passengers),
                    "legs": legs, "source_digests": source_digests,
                    "cancellation_status": cancellation_status, "conflict": conflict,

@@ -100,6 +100,33 @@ def test_empty_text_returns_none():
     assert parse_flight_text("  \n\n  ") is None
 
 
+def test_labeled_departure_notice_assigns_only_explicit_one_way_day():
+    text = ('예약번호: 9000012345678901\n결제일: 2031년 2월 1일\n'
+            '출발：2031년 3월 10일 09:20, 합성 공항\n'
+            '도착：2031년 3월 10일 11:00, 다른 공항\n')
+    parsed = parse_flight_text(text)
+    parsed['source_digest'] = 'synthetic'
+    merged = merge_booking_evidence([parsed])
+    assert merged['legs'][0]['departure_on'] == '2031-03-10'
+    assert merged['legs_complete'] is False
+    from webapp.trip_flight_read import project_trip_bookings, page_for_trip
+    trip = {'tab_id': 'trip-A', 'starts_on': '2031-03-10', 'ends_on': '2031-03-12'}
+    projection = project_trip_bookings({'9000012345678901': merged}, [trip], source_generation='x')
+    assert page_for_trip(projection, 'trip-A')['total_bookings'] == 1
+    assert parse_flight_text(text + '출발：2031년 3월 11일 09:20, 합성 공항\n') is None
+    assert parse_flight_text(text + '예약번호: 9000099999999999\n') is None
+
+
+def test_labeled_departure_disagreement_keeps_booking_in_conflict():
+    def item(day):
+        value = parse_flight_text(f'예약번호: 9000012345678901\n출발：2031년 3월 {day}일 09:20, 합성\n도착：2031년 3월 {day}일 11:00, 합성')
+        value['source_digest'] = day
+        return value
+    result = merge_booking_evidence([item('10'), item('11')])
+    assert result['conflict'] is True
+    assert result['legs'] == []
+
+
 def _flattened_confirmation():
     return (
         '예약번호 9000012345678901[합성] 예약 확인'
