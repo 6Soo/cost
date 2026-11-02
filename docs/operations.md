@@ -1,3 +1,8 @@
+## 2026-11-02 여행 정보 입력 라벨 배포
+
+- [PR #524](https://github.com/6Soo/cost/pull/524), 코드 `51805911b6997a3eb58849d22b04b29b92043ad6`, 운영 `58557f389bde6e67d59f7de3041e0d96b9fd6942`. 여행 관리의 표시 이름·작성일·담당자 입력을 각 라벨에 연결했다. [PR #523](https://github.com/6Soo/cost/pull/523)은 합성 브라우저의 여행 정보 충돌·입력 보존 검사를 추가했다.
+- 영향 QA 423 passed·35 subtests, skip 0; GitHub Actions 41408383202 통과. 운영 1,292 blobs 일치, health/ready 200, 보호 API 401/403, 보호 13표 전후 불변. 직전 `82d818fcb86d1059db1413749f54f042a239a87f` 보존. 인증 운영 화면에서 67개 여행의 세 입력 모두 라벨 0/67→67/67, ID 유일·가로 넘침 없음 확인. 근거 `.local-archive/autonomous-qa-20261102/trip-labels-release/deploy-evidence.json`, `trip-labels-before.mjs`, `trip-labels-after.mjs`.
+
 ## 2026-11-02 영수증·예약 연결 본문 접근성 배포
 
 - [PR #521](https://github.com/6Soo/cost/pull/521), 코드 `48a607ef86c3c4f0b670acc313d3dfb98cf592a4`, 운영 `82d818fcb86d1059db1413749f54f042a239a87f`. 두 화면의 제목과 업무 영역에 본문 랜드마크를 추가했다.
