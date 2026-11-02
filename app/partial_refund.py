@@ -275,7 +275,7 @@ def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
         " (transaction_direction='cancellation' AND amount_krw<0"
         " AND TRIM(COALESCE(original_approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ')=''))"
     ).fetchall()
-    purchases, refunds = [], []
+    purchases, refunds = {}, []
     for (tid, direction, issuer, tail, merchant, amount, raw_day, original,
          duplicate, conflict, error, currency, foreign, normalized) in rows:
         if not issuer or not tail or not merchant:
@@ -287,14 +287,17 @@ def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
         entry = (tid, issuer, tail, abs(amount), when, merchant, clean,
                  str(normalized or merchant).strip())
         if direction == 'purchase':
-            purchases.append(entry)
+            purchases.setdefault((issuer, tail, abs(amount)), []).append(entry)
         elif direction == 'cancellation':
             refunds.append(entry)
     candidates, collisions = {}, {}
     for refund in refunds:
         rid, issuer, tail, amount, when, merchant, clean, normalized = refund
-        matches = [p for p in purchases if p[1:4] == (issuer, tail, amount)
-                   and ((0 <= (when - p[4]).days <= 14
+        # Keep every candidate, including dirty/occupied rows: they must still
+        # defeat uniqueness. Index only exact card and amount, never merchant
+        # families, dates or cleanliness, which participate in later guards.
+        matches = [p for p in purchases.get((issuer, tail, amount), ())
+                   if ((0 <= (when - p[4]).days <= 14
                          and '카카오' in merchant and '카카오' in p[5])
                         or (when == p[4] and normalized == p[7]))]
         for purchase in matches:
