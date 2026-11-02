@@ -563,3 +563,58 @@ def test_import_cleanup_keeps_legacy_filter_bookmarks(service, legacy, canonical
         cookie=service.cookie(OWNER))
     assert invalid_code == 400
     assert duplicate_code == 400
+
+
+def test_browser_home_trip_export_download(service):
+    """A signed owner selects a trip from home and downloads its actual workbook."""
+    from playwright.sync_api import sync_playwright
+    from openpyxl import load_workbook
+
+    store = service.server.card_store
+    trip = store.create_trip(starts_on='2026-04-01', ends_on='2026-04-30',
+        destination='Synthetic export trip', display_key='Synthetic export trip',
+        client_request_id='browser-export-trip')
+    tab = trip['tab_id']
+    current = store.get_trip(tab)
+    status, body, _ = json_post(service, f'/api/trips/{tab}/meta', {
+        'expected_revision': current['revision'], 'client_request_id': 'browser-export-owner',
+        'prepared_by_name': 'Synthetic owner'})
+    assert status == 200, body
+    status, body, _ = json_post(service, '/api/expenses/manual', {
+        'amount_krw': '7200', 'occurred_on': '2026-04-10', 'pay_method': '현금',
+        'item': 'OTHER_EXPENSE', 'description': 'SYNTHETIC EXPORT MERCHANT',
+        'display_tab_id': tab, 'client_request_id': 'browser-export-expense'})
+    assert status == 200, body
+    base = f'http://127.0.0.1:{service.port}'
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            context = browser.new_context(viewport={'width': 1440, 'height': 900}, accept_downloads=True)
+            context.add_cookies([{'name': google_oidc.COOKIE_NAME, 'value': service.cookie(OWNER), 'url': base}])
+            page = context.new_page()
+            page.goto(base + '/')
+            page.locator("nav[aria-label='주요 메뉴'] a[href='/board']").click()
+            history = page.locator('#previous-trips')
+            history.locator(':scope > summary').click()
+            quarter = history.locator('.prev-q').filter(has=page.locator(f"a[href*='tab={tab}']"))
+            quarter.locator(':scope > summary').click()
+            history.locator(f"a[href*='tab={tab}']").click()
+            assert f'tab={tab}' in page.url
+            page.get_by_role('link', name='XLSX 출력', exact=True).click()
+            assert page.locator(f"input[name=tab_ids][value='{tab}']").is_checked()
+            with page.expect_download(timeout=30000) as received:
+                page.get_by_role('button', name='출력', exact=True).click()
+            download = received.value
+            assert download.failure() is None
+            workbook = load_workbook(BytesIO(download.path().read_bytes()), read_only=True, data_only=True)
+            try:
+                assert workbook.sheetnames == ['Synthetic export trip']
+                rows = list(workbook['Synthetic export trip'].iter_rows(values_only=True))
+                matches = [row for row in rows if row[3] == 'SYNTHETIC EXPORT MERCHANT']
+                assert len(matches) == 1
+                assert matches[0][2] == 'OTHER_EXPENSE'
+                assert matches[0][7] == 7200
+            finally:
+                workbook.close()
+        finally:
+            browser.close()
