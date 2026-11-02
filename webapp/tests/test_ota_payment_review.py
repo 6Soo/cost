@@ -18,6 +18,8 @@ import urllib.request
 from webapp import ota_payment_review
 from webapp import card_flow
 
+SYNTHETIC_REVIEW_DB = str(Path(tempfile.gettempdir()) / "cost-synthetic-ota-review.sqlite")
+
 
 EVENT: dict[str, Any] = {
     "ota_event_id": "evt-synth-001",
@@ -322,7 +324,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         FakeCorePayments.occupied_transaction = "card-00"
         self.environment = mock.patch.dict(os.environ, {
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -334,7 +336,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertFalse(ota_payment_review.enabled())
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True):
             self.assertTrue(ota_payment_review.enabled())
 
@@ -672,7 +674,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1",
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True), mock.patch("webapp.ledger_board._active_store", return_value=object()):
             ota_payment_review.configure_backend_factory(read_factory=configure, write_factory=configure)
             self.addCleanup(ota_payment_review.configure_backend_factory,
@@ -689,7 +691,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1",
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True):
             def factory(**kwargs):
                 factory_calls.append(kwargs)
@@ -1087,7 +1089,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             backend.close()
             board_conn.close()
 
-    def test_import_post_passes_only_new_transaction_ids_to_ota_refresh_hook(self):
+    def test_import_post_uses_completion_worker_without_legacy_ota_refresh_hook(self):
         backend = FakeBackend()
         board = object()
 
@@ -1101,29 +1103,30 @@ class OtaPaymentReviewTests(unittest.TestCase):
             def __init__(self, _board):
                 pass
 
-            def classify(self, _batch_id):
-                pass
-
-            def state(self, _batch_id):
-                return {"rows": [{"transaction_id": "new-01"}, {"transaction_id": "new-02"}]}
-
-            def auto_record(self, _batch_id):
-                return {"rows": [{"transaction_id": "new-01"}, {"transaction_id": "new-02"}], "auto_recorded": 0}
-
         handler = FakeHandler(backend, "/api/imports", b"synthetic card file")
+        queued = []
+        processed = []
+        result = {"batch_id": "synthetic-batch", "status": "complete",
+                  "classified_percent": 100.0, "recorded_rows": 2}
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1", "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True), mock.patch("webapp.ledger_board._active_store", return_value=board), \
+                mock.patch("webapp.ledger_board.current_role", return_value="owner"), \
+                mock.patch("app.card_preflight.validate_upload",
+                           return_value=(b"validated-source", {"synthetic": True})), \
+                mock.patch("webapp.card_completion_worker.queue_batch",
+                           side_effect=lambda _board, batch_id: queued.append(batch_id)), \
+                mock.patch("webapp.card_upload_jobs.process",
+                           side_effect=lambda *args: (processed.append(args) or (result, 200))), \
                 mock.patch.object(card_flow, "CardFlow", FakeFlow):
-            adapter = lambda **_kwargs: backend
-            ota_payment_review.configure_backend_factory(read_factory=adapter, write_factory=adapter)
-            self.addCleanup(ota_payment_review.configure_backend_factory,
-                            read_factory=None, write_factory=None)
             self.assertTrue(card_flow.dispatch(handler, urlsplit(handler.path), raw=handler.raw,
                                                csrf="token-synth"))
-        self.assertEqual(handler.response[2]["ota_refresh_status"], "refreshed")
-        self.assertEqual(backend.calls[-1], ("refresh_after_import", ["new-01", "new-02"]))
+        self.assertEqual(handler.response, (200, "application/json", result))
+        self.assertEqual(queued, ["synthetic-batch"])
+        self.assertEqual(len(processed), 1)
+        self.assertEqual(processed[0][4:], (b"validated-source", {"synthetic": True}))
+        self.assertEqual(backend.calls, [], "card upload must not invoke the retired OTA refresh hook")
 
     def test_missing_paid_on_is_shown_as_unknown_and_never_used_to_choose_a_card(self):
         from webapp.ota_payment_review import CoreOtaPaymentBackend

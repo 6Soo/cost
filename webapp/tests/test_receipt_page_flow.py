@@ -27,12 +27,12 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         """Fixed answers: the first photo has two receipts and a third appears only on re-reading."""
         name = Path(path).stem
         if name == self.photos[0]:
-            found = [receipt('SHOP A', '2026-10-01', 820), receipt('FERRY', '2026-10-01', 820, payment=None)]
+            found = [receipt('SHOP A', '2026-10-10', 820), receipt('FERRY', '2026-10-10', 820, payment=None)]
             if kwargs.get('guidance') and 'Owner feedback' in kwargs['guidance']:
-                found.append(receipt('NEW STOP', '2026-10-05', 700, payment='cash'))
+                found.append(receipt('NEW STOP', '2026-10-12', 700, payment='cash'))
             return {'receipts': found, 'label': 'Muse', 'lesson': None}
         if name == self.photos[1]:
-            return {'receipts': [receipt('CAFE', '2026-10-02', 12000, currency='KRW')], 'label': 'Muse', 'lesson': None}
+            return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Muse', 'lesson': None}
         return {'receipts': [], 'label': 'Muse', 'lesson': None}
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
@@ -44,6 +44,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         recognizer = patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
                            side_effect=lambda path, **kw: self._answers(path, **kw))
         recognizer.start()
+        engine = patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True)
+        engine.start()
         try:
             with sync_playwright() as api:
                 browser = api.chromium.launch()
@@ -76,16 +78,27 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     if shots:
                         page.screenshot(path=os.path.join(shots, 'p1-results-390.png'), full_page=True)
                     self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
-                    page.locator('.receipt-card').nth(1).locator('select').nth(1).select_option('cash')
-                    page.click('#vision-register')
-                    page.wait_for_load_state()
+                    cards = page.locator('.receipt-card')
+                    ferry = next(cards.nth(index) for index in range(cards.count())
+                                 if cards.nth(index).get_by_role('textbox', name='상호', exact=True).input_value() == 'FERRY')
+                    ferry.get_by_role('combobox', name='결제수단', exact=True).select_option('cash')
+                    with page.expect_navigation():
+                        page.click('#vision-register')
                     page.wait_for_selector('#step-review table')
-                    self.assertEqual(len(self.request('/api/receipts')[1]['candidates']), 3)
+                    candidates = self.request('/api/receipts')[1]['candidates']
+                    self.assertEqual(len(candidates), 3)
+                    self.assertEqual({candidate['merchant'] for candidate in candidates},
+                                     {'SHOP A', 'FERRY', 'CAFE'})
+                    self.assertTrue(all(candidate['trip_id'] == self.trip for candidate in candidates))
+                    self.assertTrue(all('2026-10-10' <= candidate['date'] <= '2026-10-13'
+                                        for candidate in candidates))
                     self.assertEqual(page.locator('#vision-register').count(), 0)
                     self.assertEqual(page.evaluate("JSON.parse(sessionStorage.getItem('cost-receipt-pending')||'[]').length"), 0)
                     self.assertEqual(page.locator('#vision-finish').count(), 0)
                     page.locator('[data-image-sha]').first.click()
-                    self.assertIn('사진 1', page.locator('#rescan-target').inner_text())
+                    page.wait_for_function("document.getElementById('rescan-target').textContent.includes('사진 1')")
+                    self.assertIn('사진 1', page.locator('#rescan-target').text_content())
+                    page.locator('details.rescan > summary').click()
                     page.fill('#feedback', '6장인데 5장만 찾았어. 작은 승선권 하나 더 찾아')
                     page.click('#rescan-go')
                     page.wait_for_function("document.getElementById('status').textContent.includes('새 후보')",
@@ -93,12 +106,13 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertEqual(page.locator('.receipt-card').count(), 1)
                     if shots:
                         page.screenshot(path=os.path.join(shots, 'p2-rescan-390.png'), full_page=True)
-                    page.click('#vision-register')
-                    page.wait_for_load_state()
+                    with page.expect_navigation():
+                        page.click('#vision-register')
                     page.wait_for_selector('#step-review table')
                     candidates = self.request('/api/receipts')[1]['candidates']
                     self.assertEqual(len(candidates), 4)
                     self.assertEqual(sorted(c['merchant'] for c in candidates).count('NEW STOP'), 1)
+                    self.assertTrue(all(candidate['trip_id'] == self.trip for candidate in candidates))
                     self.assertTrue(page.locator('#other-methods').count() == 1)
                     page.locator('#other-methods > summary').click()
                     self.assertTrue(page.locator('#r-merchant').is_visible())
@@ -110,6 +124,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     browser.close()
         finally:
             recognizer.stop()
+            engine.stop()
             env.stop()
 
 

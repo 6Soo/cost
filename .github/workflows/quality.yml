@@ -1,0 +1,88 @@
+name: COST impact quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '30 3 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Base commit to compare against
+        required: false
+        type: string
+      audit:
+        description: Run mapped synthetic business and protection audit
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  impact-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Select checks
+        id: plan
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base }}
+          MANUAL_AUDIT: ${{ inputs.audit }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then base="$PR_BASE";
+          elif [[ "$EVENT_NAME" == "push" ]]; then base="$PUSH_BEFORE";
+          else base="${MANUAL_BASE:-$GITHUB_SHA}"; fi
+          audit=false
+          if [[ "$EVENT_NAME" == "schedule" || "$MANUAL_AUDIT" == "true" ]]; then audit=true; fi
+          if [[ "$audit" == "true" ]]; then
+            python tools/run_quality_checks.py --head HEAD --audit --plan-json > quality-plan.json
+          else
+            python tools/run_quality_checks.py --base "$base" --head HEAD --plan-json > quality-plan.json
+          fi
+          cat quality-plan.json
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "audit=$audit" >> "$GITHUB_OUTPUT"
+          python -c "import json; p=json.load(open('quality-plan.json', encoding='utf-8')); print('status='+p['status']); print('browser='+str(p.get('browser_required', False)).lower())" >> "$GITHUB_OUTPUT"
+      - name: Install test dependencies
+        if: steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'AUDIT'
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install Chromium for selected browser tests
+        if: steps.plan.outputs.browser == 'true'
+        run: python -m playwright install --with-deps chromium
+      - name: Run data protection gate and impact tests
+        run: |
+          if [[ "${{ steps.plan.outputs.audit }}" == "true" ]]; then
+            python tools/run_quality_checks.py --head HEAD --audit --run
+          else
+            python tools/run_quality_checks.py --base "${{ steps.plan.outputs.base }}" --head HEAD --run
+          fi
+      - name: Upload quality plan and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            quality-plan.json
+            quality-artifacts/**
+          if-no-files-found: warn
+          retention-days: 14

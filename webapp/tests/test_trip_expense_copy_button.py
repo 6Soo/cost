@@ -283,7 +283,11 @@ class TripExpenseCopyBrowserTests(LinkBrowserFixture):
 
         # Verify status message appears
         status = page.locator("#copy-status")
-        page.wait_for_function("() => document.getElementById('copy-status').textContent.includes('복사되었습니다')")
+        page.wait_for_function("""() => {
+          const node = document.getElementById('copy-status');
+          return node && (node.classList.contains('success') || node.classList.contains('err'));
+        }""")
+        self.assertIn("success", status.get_attribute("class"), status.inner_text())
         self.assertIn("지출내용이 복사되었습니다", status.inner_text())
         self.assertIn("1건", status.inner_text())
         clipboard = page.evaluate("navigator.clipboard.readText()")

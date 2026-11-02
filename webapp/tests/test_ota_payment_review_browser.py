@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from datetime import datetime, timezone, timedelta
 from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +23,8 @@ from webapp import card_flow
 from webapp.tests.test_ota_payment_review import FakeBackend
 from app.ota_queue_paging import build_queue_index
 from app.ota_queue_projection import summarize_queue
+
+SYNTHETIC_REVIEW_DB = str(Path(tempfile.gettempdir()) / "cost-synthetic-ota-review.sqlite")
 
 
 def _mock_queue_routes(page, snapshot):
@@ -103,48 +106,102 @@ def _mock_queue_routes(page, snapshot):
     page.route("**/api/imports/ota", handle)
 
 
-def _expand_queue_details(page):
+def _expand_queue_details(page, *, load_cards=True):
     """Legacy assertions exercise the old card renderer after explicitly opening each row."""
     rows = page.locator("[data-queue-detail]")
     rows.first.wait_for(timeout=40000)
     for index in range(rows.count()):
         row = rows.nth(index)
-        row.locator(":scope > summary").click()
+        if row.get_attribute("open") is None:
+            row.locator(":scope > summary").click()
         button = row.locator("[data-load-detail]")
-        button.first.wait_for()
+        button.first.wait_for(state="visible")
         if button.count():
-            button.click()
-            row.locator(".ota-event").wait_for()
+            event = row.locator(".ota-event")
+            detail_body = row.locator("[data-detail-body]")
+            for attempt in range(20):
+                if row.get_attribute("open") is None:
+                    row.locator(":scope > summary").click()
+                button.first.wait_for(state="visible")
+                button.click()
+                try:
+                    event.wait_for(timeout=1000)
+                    break
+                except Exception as error:
+                    message = detail_body.inner_text()
+                    if message and "자료 갱신을 기다리고 있습니다." not in message:
+                        raise AssertionError(
+                            f"OTA detail failed for {row.get_attribute('data-event-id')}: {message}"
+                        ) from error
+                    if attempt == 19:
+                        raise AssertionError(
+                            f"OTA detail did not become available for "
+                            f"{row.get_attribute('data-event-id')}; "
+                            f"status={page.locator('#ota-status').inner_text()}"
+                        ) from error
+                    button_handle = button.element_handle()
+                    page.wait_for_function(
+                        "button => button.isConnected && !button.disabled",
+                        arg=button_handle, timeout=3000)
             row.locator(".ota-event .ota-more > summary").click()
             card_toggle = row.locator(".ota-event h4[role=button]")
-            if card_toggle.count():
-                card_toggle.click()
-                row.locator(".ota-event .ota-cards[data-cards-loaded='true']").wait_for(state="attached")
+            if load_cards and card_toggle.count():
+                cards_container = row.locator(".ota-event .ota-cards")
+                loaded_cards = row.locator(".ota-event .ota-cards[data-cards-loaded='true']")
+                for attempt in range(20):
+                    if row.get_attribute("open") is None:
+                        row.locator(":scope > summary").click()
+                    card_toggle.wait_for(state="visible")
+                    card_toggle.click()
+                    try:
+                        loaded_cards.wait_for(state="attached", timeout=1000)
+                        break
+                    except Exception as error:
+                        hint = cards_container.inner_text()
+                        if "예약 근거 갱신 중입니다." not in hint or attempt == 19:
+                            event = row.locator(".ota-event").first
+                            raise AssertionError(
+                                f"card candidates did not load for "
+                                f"{event.get_attribute('data-event')}: {hint}; "
+                                f"status={page.locator('#ota-status').inner_text()}"
+                            ) from error
+                        page.wait_for_timeout(1000)
 
 
 class QueueFakeBackend(FakeBackend):
     """Synthetic read contract for the real HTTP/browser action fixture."""
     generation = 7
+    generated_at = "2026-10-28T00:00:00+00:00"
+
+    def _snapshot_metadata(self, public):
+        input_fingerprint = hashlib.sha256(json.dumps(
+            public["events"], sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        rule_fingerprint = hashlib.sha256(b"synthetic-active-ota-rules-v1").hexdigest()
+        freshness = {"status": "ready", "fresh": True, "stale": False,
+                     "refreshing": False, "enabled": True, "generation": self.generation}
+        summary = summarize_queue(public["events"], freshness, coverage="canonical")
+        summary.update(generation=self.generation, generated_at=self.generated_at,
+                       input_fingerprint=input_fingerprint,
+                       rule_fingerprint=rule_fingerprint)
+        telemetry = {"input_fingerprint": input_fingerprint,
+                     "rule_fingerprint": rule_fingerprint}
+        return summary, telemetry
 
     def _public(self):
         return ota_payment_review.public_snapshot(self.snapshot(), include_cards=False)
 
     def snapshot_view(self):
         public = self._public()
-        event = public["events"][0] if public["events"] else {}
-        summary = summarize_queue([event], {"status": "ready", "fresh": True,
-                                          "stale": False, "refreshing": False,
-                                          "enabled": True, "generation": self.generation},
-                                  coverage="canonical")
+        summary, telemetry = self._snapshot_metadata(public)
         return {"status": "ready", "stale": False, "fresh": True,
                 "refreshing": False, "generation": self.generation,
-                "generated_at": "2026-10-28T00:00:00+00:00",
-                "current": {"public": public, "queue_summary": {
-                    **summary, "generation": self.generation,
-                    "generated_at": "2026-10-28T00:00:00+00:00"}}}
+                "generated_at": self.generated_at,
+                "telemetry": telemetry,
+                "current": {"public": public, "queue_summary": summary}}
 
     def queue_page_context(self):
         public = self._public()
+        summary, telemetry = self._snapshot_metadata(public)
         rows = [{"queue": "needs_action", "reason_codes": [], "event": {
             key: event.get(key) for key in ("ota_event_id", "provider", "booking_ref", "event_type",
                                             "paid_on", "item", "amount", "currency", "status")}}
@@ -160,8 +217,9 @@ class QueueFakeBackend(FakeBackend):
                                             snapshot_nonce="synthetic-nonce",
                                             signing_key=b"synthetic-key" * 3),
                 "status": "ready", "generation": self.generation,
-                "generated_at": "2026-10-28T00:00:00+00:00", "fresh": True,
-                "stale": False, "refreshing": False}
+                "generated_at": self.generated_at, "fresh": True,
+                "stale": False, "refreshing": False,
+                "summary": summary, "telemetry": telemetry}
 
     def queue_group_context(self):
         return self.queue_page_context()
@@ -188,7 +246,10 @@ class QueueFakeBackend(FakeBackend):
         public = self._public()
         event = next((item for item in public["events"]
                       if item.get("ota_event_id") == event_id), None)
-        return {"event": event, "generation": self.generation, "ambiguous": False}
+        summary, telemetry = self._snapshot_metadata(public)
+        return {"event": event, "generation": self.generation, "ambiguous": False,
+                "summary": summary, "telemetry": telemetry,
+                "generated_at": self.generated_at}
 
     def proposal_page_context(self, generation, *, limit=20, cursor=None):
         items = self._public()["proposals"][:limit]
@@ -200,6 +261,54 @@ class QueueFakeBackend(FakeBackend):
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_cancelled_detail_request_leaves_connected_button_retryable(self):
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id": "synthetic-cancelled-detail", "provider": "Synthetic OTA",
+                        "booking_ref": "SYNTHETIC-CANCELLED-BOOKING", "event_type": "charge",
+                        "paid_on": "2026-10-01", "amount": 12000, "amount_krw": 12000,
+                        "status": "HOLD_DATE_UNKNOWN", "reason": "payment_date_not_in_source"}],
+            "cards_by_event": {"synthetic-cancelled-detail": []}, "proposals": []}, include_cards=True)
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                _mock_queue_routes(page, snapshot)
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                page.evaluate("""() => {
+                    const nativeFetch = window.fetch.bind(window);
+                    window.fetch = (input, options = {}) => {
+                      if (String(input).includes('/api/imports/ota/events/')) {
+                        window.__heldOtaDetail = true;
+                        return new Promise((resolve, reject) => {
+                          options.signal.addEventListener('abort', () => {
+                            window.__otaDetailAbortObserved = true;
+                            reject(new DOMException('Request aborted for test', 'AbortError'));
+                          }, { once: true });
+                        });
+                      }
+                      return nativeFetch(input, options);
+                    };
+                }""")
+                page.locator("#ota-review > summary").click()
+                row = page.locator("[data-queue-detail]").first
+                row.locator(":scope > summary").click()
+                button = row.locator("[data-load-detail]")
+                button.wait_for()
+                button.click()
+                page.wait_for_function("window.__heldOtaDetail === true")
+                page.evaluate("""() => {
+                    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+                    document.dispatchEvent(new Event('visibilitychange'));
+                }""")
+                page.wait_for_function("window.__otaDetailAbortObserved === true")
+                page.wait_for_timeout(0)
+                self.assertTrue(button.evaluate("element => element.isConnected"))
+                self.assertFalse(button.is_disabled(), "cancelled detail requests must leave the button retryable")
+            finally:
+                browser.close()
+
     def test_event_diagnostics_load_only_when_opened(self):
         snapshot = ota_payment_review.public_snapshot({
             "events": [{"ota_event_id":"synthetic-diagnostic-event", "provider":"Synthetic OTA",
@@ -542,7 +651,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
 
         with patch.dict("os.environ", {
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }):
             server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -614,7 +723,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
     def test_real_core_adapter_store_and_board_readonly_through_confirm_once_and_approve(self):
         from app import ota_review
 
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory, ExitStack() as cleanup:
             root = Path(directory)
             mail_dir = root / "synthetic-mail"
             mail_dir.mkdir()
@@ -644,20 +753,51 @@ class OtaReviewBrowserTests(unittest.TestCase):
 
             board_path = root / "board.sqlite"
             board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            cleanup.callback(board_conn.close)
             board_conn.row_factory = sqlite3.Row
-            board_conn.execute("""CREATE TABLE transactions (
-                transaction_id TEXT PRIMARY KEY, source_hash TEXT, merchant TEXT,
-                merchant_normalized TEXT, card_kind TEXT, card_tail TEXT,
-                transaction_direction TEXT, approval_date TEXT, posting_date TEXT,
-                amount_krw INTEGER, foreign_currency TEXT, foreign_amount TEXT,
-                duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT,
-                issuer TEXT, authorization_id TEXT, cancellation_status TEXT,
-                refund_status TEXT)""")
-            rows = [(f"card-{index}", f"hash-{index}", "TRIP.COM", "trip.com", "credit", "2042" if index < 2 else "9999",
-                     "purchase", "2026-09-04", "2026-09-05", 12000 if index < 2 else 13000, "", "", "", "", "",
-                     "Synthetic Bank", f"AUTH-{index}", "not_cancelled", "no_refund")
-                    for index in range(4)]
-            board_conn.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            from app.db import Store
+            Store(board_conn)
+            rows = [{
+                "transaction_id": f"card-{index}",
+                "source_hash": f"hash-{index}",
+                "batch_id": f"synthetic-batch-{index}",
+                "issuer": "Synthetic Bank",
+                "card_tail": "2042" if index < 2 else "9999",
+                "card_kind": "credit",
+                "transaction_direction": "purchase",
+                "transaction_kind": "purchase",
+                "approval_number": f"AUTH-{index}",
+                "original_approval_number": f"AUTH-{index}",
+                "approval_date": "2026-09-04",
+                "posting_date": "2026-09-05",
+                "merchant": "TRIP.COM",
+                "merchant_normalized": "trip.com",
+                "amount_krw": 12000 if index < 2 else 13000,
+                "foreign_amount": "",
+                "foreign_currency": "",
+                "description_raw": "",
+                "row_index": index,
+                "raw_row_json": "{}",
+                "duplicate_of": "",
+                "conflict_reason": "",
+                "parse_error": "",
+                "classification_state": "needs_review",
+                "classification_source": "",
+                "classification_basis": "",
+                "item": "",
+                "description": "",
+                "display_tab_id": "",
+                "trip_id": "",
+                "revision": 1,
+                "decided_at": None,
+                "created_at": "2026-11-02T00:00:00Z",
+            } for index in range(4)]
+            for row in rows:
+                columns = tuple(row)
+                placeholders = ",".join("?" for _ in columns)
+                board_conn.execute(
+                    f"INSERT INTO transactions ({','.join(columns)}) VALUES ({placeholders})",
+                    tuple(row[column] for column in columns))
             board_conn.commit()
             board = type("SyntheticBoard", (), {})()
             board.conn = board_conn
@@ -772,10 +912,17 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         (mail_dir / "gmail-synthetic.json").unlink()
                         page.reload()
                         page.locator("#ota-review > summary").click()
-                        _expand_queue_details(page)
+                        _expand_queue_details(page, load_cards=False)
+                        rows = page.locator("[data-queue-detail]")
+                        self.assertEqual(rows.count(), 2)
+                        for index in range(rows.count()):
+                            self.assertIn("근거 사라짐", rows.nth(index).inner_text())
                         page.get_by_text("원본 근거: 근거 사라짐", exact=True).first.wait_for(timeout=40000)
-                        self.assertEqual(page.locator(".ota-event").count(), 2)
-                        self.assertEqual(page.locator(".ota-card-row input[type=radio]:disabled").count(), 8)
+                        events = page.locator(".ota-event")
+                        for index in range(events.count()):
+                            event = events.nth(index)
+                            self.assertEqual(event.get_attribute("data-evidence-missing"), "true")
+                            self.assertEqual(event.locator('input[type="radio"]:not(:disabled)').count(), 0)
                         self.assertEqual(hashlib.sha256(review_path.read_bytes()).hexdigest(), review_digest)
                         browser.close()
                 finally:

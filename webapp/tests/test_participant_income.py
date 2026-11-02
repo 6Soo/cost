@@ -578,7 +578,17 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(target.count(), 1)
                 row_ref = target.get_attribute('data-income-ref')
                 self.assertTrue(row_ref.startswith('main|0630_오제|'))
-                self.assertEqual(income_table.locator('.participant-row-connect').count(), 0)
+                connect = income_table.locator('.participant-row-connect')
+                self.assertEqual(connect.count(), 1)
+                self.assertEqual(connect.get_attribute('aria-label'),
+                                 '미연결 · 이 수입에 보험 참가자 연결')
+                connect.click()
+                form = page.locator('#participant-trip-panel .participant-keyboard-link')
+                form.wait_for(state='visible')
+                self.assertEqual(form.locator('[name=income_ref]').input_value(), row_ref)
+                self.assertEqual(form.locator('[name=participant_id]').input_value(), '')
+                self.assertEqual(json.loads(self.call(
+                    f'/api/participants/state?trip={self.trip}', OWNER)[1])['counts']['linked_income_rows'], 1)
                 card = page.locator('#participant-trip-panel .participant-cards li[draggable=true]').first
                 page.evaluate("""([source,target])=>{
                     const data={clearData(){},setData(){},effectAllowed:''};

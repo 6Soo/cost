@@ -150,10 +150,7 @@ def test_rule_dialog_page_parity_missing_row(tmp_path: Path):
 
 
 def test_rule_dialog_page_comprehensive_differential(tmp_path: Path):
-    """Exhaustive state differential between baseline and board_learning_dialog."""
-    baseline_ns = _load_baseline_symbols()
-    baseline = baseline_ns["rule_dialog_page"]
-    baseline_csrf = baseline_ns["CSRF_TOKEN"]
+    """Protect current public dialog markup, controls, and read-only behavior."""
 
     store = ledger_store.LedgerStore(tmp_path / "differential.sqlite", seed_demo=True)
 
@@ -283,29 +280,67 @@ def test_rule_dialog_page_comprehensive_differential(tmp_path: Path):
         ),
     ]
 
-    for state_variant, query in variations:
-        store.dialog_page_state = lambda case_id, s=state_variant: s
-        store.get_row = lambda r_id, r=row: r if r_id == r.get("row_id") else None
+    csrf_token = "synthetic-dialog-csrf"
+    before_changes = store.conn.total_changes
+    orig_active = ledger_board._active_store
+    orig_csrf = ledger_board.CSRF_TOKEN
+    try:
+        ledger_board._active_store = lambda: store
+        ledger_board.CSRF_TOKEN = csrf_token
+        for index, (state_variant, query) in enumerate(variations):
+            store.dialog_page_state = lambda case_id, s=state_variant: s
+            store.get_row = lambda r_id, r=row: r if r_id == r.get("row_id") else None
 
-        # Baseline execution
-        baseline.__globals__["_active_store"] = lambda s=store: s
-        expected = baseline("case-1", query)
-
-        # Extracted module execution
-        actual = board_learning_dialog.rule_dialog_page(
-            "case-1", query, store=store, csrf_token=baseline_csrf
-        )
-
-        assert actual == expected
-
-        # Also test ledger_board facade with delegation
-        orig_active = ledger_board._active_store
-        orig_csrf = ledger_board.CSRF_TOKEN
-        try:
-            ledger_board._active_store = lambda s=store: s
-            ledger_board.CSRF_TOKEN = baseline_csrf
+            actual = board_learning_dialog.rule_dialog_page(
+                "case-1", query, store=store, csrf_token=csrf_token
+            )
             facade_out = ledger_board.rule_dialog_page("case-1", query)
-            assert facade_out == expected
-        finally:
-            ledger_board._active_store = orig_active
-            ledger_board.CSRF_TOKEN = orig_csrf
+            assert facade_out == actual
+            assert "스타벅스 라떼" in actual
+            assert "href='/board'" in actual
+            assert f"name='csrf' value='{csrf_token}'" in actual
+            if index != 2:  # A closed dialog offers resume and list navigation.
+                assert "href='/row?id=R001'" in actual
+
+            if index == 0:
+                assert "AI 연결됨" in actual
+                assert "공급자: gemini" in actual
+                assert "model: gemini-2.5-flash" in actual
+                assert "초안 검증 실패: 규칙 문법 오류" in actual
+                assert "저장된 규칙 RULE-101" in actual
+                assert "적용 조건" in actual and "가맹점 = STARBUCKS" in actual
+                assert "포함 3건 · 제외 1건 · 매칭 4건" in actual
+                assert actual.count("R001") >= 2  # Row link plus preview candidate.
+                assert "R002" in actual and "R003" in actual
+                assert "5,000" in actual and "10,000" in actual
+                assert "이미 정산 완료됨" in actual
+                assert "action='/api/classification/conversation/reasons'" in actual
+                assert "action='/api/classification/rules/preview'" in actual
+                assert "action='/api/classification/rules/apply'" in actual
+                assert "AI 예상 이유 2개 제안" in actual
+                assert "이 범위로 적용" in actual
+            elif index == 1:
+                assert "PREVIEW_STALE" in actual
+                assert "선택한 행이 바뀌었어요" in actual
+                assert "일부 행만 적용되지는 않습니다" in actual
+            elif index == 2:
+                assert "action='/api/classification/dialog/resume'" in actual
+                assert "대화 재개" in actual
+                assert "action='/api/classification/conversation/advance'" not in actual
+            elif index == 3:
+                assert "이번 거래만 적용하기로 하셨습니다" in actual
+                assert "action='/api/classification/conversation/owner-draft'" not in actual
+                assert "action='/api/classification/rules/preview'" not in actual
+                assert "action='/api/classification/rules/apply'" not in actual
+                assert "대화 닫기" in actual
+            else:
+                assert "합성 모드" in actual
+                assert "AI 연결됨" not in actual
+                assert "action='/api/classification/conversation/advance'" in actual
+                assert "규칙 초안 요청" in actual
+                assert "대화 닫기" not in actual
+    finally:
+        ledger_board._active_store = orig_active
+        ledger_board.CSRF_TOKEN = orig_csrf
+
+    assert store.conn.total_changes == before_changes

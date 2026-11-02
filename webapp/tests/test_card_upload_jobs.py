@@ -23,6 +23,7 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
     monkeypatch.setattr(card_flow.CardFlow, 'classify', slow_classify)
     monkeypatch.setattr(card_flow.CardFlow, 'auto_record', lambda self, batch: {'batch_id': batch})
     monkeypatch.setattr(card_flow.CardFlow, 'state', lambda *a: (_ for _ in ()).throw(AssertionError('unused preview')))
+    monkeypatch.setattr(card_flow.CardFlow, 'saved_state', lambda self, batch: {'rows': []})
     from app import upload_reconciliation
     from webapp import card_classification_completion
     monkeypatch.setattr(card_classification_completion, 'context', lambda flow: ([], {}))
@@ -78,6 +79,7 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
 
 def test_job_coalesces_and_status_does_not_read_db(monkeypatch):
     gate = threading.Event()
+    callers = threading.Barrier(8)
     board = SimpleNamespace()
     handler = SimpleNamespace(server=SimpleNamespace(store_lock=threading.RLock()))
     calls = []
@@ -86,10 +88,21 @@ def test_job_coalesces_and_status_does_not_read_db(monkeypatch):
         assert gate.wait(3)
         return {'upload_summary': {'status': 'passed'}}, 200
     monkeypatch.setattr(card_upload_jobs, 'process', process)
+    acknowledgements = []
+    def upload_start():
+        callers.wait(3)
+        acknowledgements.append(card_upload_jobs.start(
+            board, handler, None, {'batch_id': 'same'}, None, None))
+    starters = [threading.Thread(target=upload_start) for _ in range(callers.parties)]
     try:
-        first = card_upload_jobs.start(board, handler, None, {'batch_id': 'same'}, None, None)
-        second = card_upload_jobs.start(board, handler, None, {'batch_id': 'same'}, None, None)
-        assert first['status_url'] == second['status_url']
+        for starter in starters:
+            starter.start()
+        for starter in starters:
+            starter.join(3)
+            assert not starter.is_alive()
+        assert len(acknowledgements) == callers.parties
+        assert len({ack['status_url'] for ack in acknowledgements}) == 1
+        first = acknowledgements[0]
         assert card_upload_jobs.status(board, first['status_url'].split('/')[-1])[0]['status'] == 'running'
         assert card_upload_jobs.status(SimpleNamespace(), 'missing')[1] == 404
     finally:
@@ -97,6 +110,76 @@ def test_job_coalesces_and_status_does_not_read_db(monkeypatch):
     with handler.server.store_lock:
         pass
     assert len(calls) == 1
+
+
+def test_completed_job_reuses_status_and_failed_job_gets_retry(monkeypatch):
+    board = SimpleNamespace()
+    handler = SimpleNamespace(server=SimpleNamespace(store_lock=threading.RLock()))
+    calls = []
+    flow = SimpleNamespace(saved_state=lambda batch: {'rows': [{'description': 'fresh projection'}]})
+
+    def process(*args):
+        calls.append(len(calls) + 1)
+        if len(calls) == 2:
+            raise RuntimeError('synthetic worker failure')
+        return {'upload_summary': {'status': 'passed'}, 'worker': len(calls),
+                'rows': [{'description': 'worker snapshot'}]}, 200
+
+    monkeypatch.setattr(card_upload_jobs, 'process', process)
+
+    first = card_upload_jobs.start(board, handler, flow,
+                                   {'batch_id': 'completed'}, None, None)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        state, _ = card_upload_jobs.status(board, first['status_url'].split('/')[-1])
+        if state['status'] != 'running':
+            break
+        time.sleep(.01)
+    assert state == {'status': 'done',
+                     'result': {'upload_summary': {'status': 'passed'}, 'worker': 1,
+                                'rows': [{'description': 'worker snapshot'}]}}
+    reused = card_upload_jobs.start(board, handler, flow,
+                                    {'batch_id': 'completed'}, None, None)
+    assert reused['status_url'] == first['status_url']
+    assert reused['status'] == 'done'
+    assert reused['result']['worker'] == 1
+    assert reused['result']['rows'] == [{'description': 'fresh projection'}]
+    assert calls == [1]
+
+    # If a completed projection cannot be refreshed, keep the same job but
+    # suppress its stale rows and direct the caller to saved batch details.
+    flow.saved_state = lambda batch: (_ for _ in ()).throw(RuntimeError('synthetic read failure'))
+    stale = card_upload_jobs.start(board, handler, flow,
+                                   {'batch_id': 'completed'}, None, None)
+    assert stale['status_url'] == first['status_url']
+    assert stale['result']['refresh_required'] is True
+    assert stale['result']['upload_summary']['status'] == 'refresh_required'
+    assert 'rows' not in stale['result']
+    assert 'preview' not in stale['result']
+    assert 'summary' not in stale['result']
+    assert calls == [1]
+
+    failed = card_upload_jobs.start(board, handler, flow,
+                                    {'batch_id': 'retryable'}, None, None)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        failed_state, _ = card_upload_jobs.status(board, failed['status_url'].split('/')[-1])
+        if failed_state['status'] != 'running':
+            break
+        time.sleep(.01)
+    assert failed_state['status'] == 'error'
+    retried = card_upload_jobs.start(board, handler, flow,
+                                     {'batch_id': 'retryable'}, None, None)
+    assert retried['status_url'] != failed['status_url']
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        retried_state, _ = card_upload_jobs.status(board, retried['status_url'].split('/')[-1])
+        if retried_state['status'] != 'running':
+            break
+        time.sleep(.01)
+    assert retried_state['status'] == 'done'
+    assert retried_state['result']['worker'] == 3
+    assert calls == [1, 2, 3]
 
 
 def test_status_owner_and_csrf_gates(monkeypatch):

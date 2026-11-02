@@ -1,5 +1,7 @@
 """Synthetic deposits must never be accepted as card expenditure decisions."""
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from openpyxl import load_workbook
@@ -28,7 +30,10 @@ def income_service(directory: Path):
                                   lambda _: [fx.candidate_key(1)])
     Path(manifest["review_path"]).write_text(review, encoding="utf-8", newline="")
     manifest["review_sha256"] = sha256_text(review)
-    return RealReviewService(manifest)
+    # Keep this boundary test on its synthetic, read-only fixture even when a
+    # developer's shell enables the production unified database switch.
+    with patch.dict(os.environ, {"WEBLEDGER_UNIFIED_DB": "0"}):
+        return RealReviewService(manifest)
 
 
 def test_income_source_keeps_customer_fields_and_original_candidate(tmp_path):

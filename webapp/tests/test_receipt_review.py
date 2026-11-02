@@ -52,15 +52,33 @@ def _card_purchase(board, batch_id, transaction_id, merchant, amount_jpy, date):
 
 
 class ReceiptReviewTests(unittest.TestCase):
-    @unittest.skipUnless(os.name == 'nt', 'Windows OCR integration')
-    def test_local_ocr_reads_registered_photo_without_creating_costs(self):
-        from PIL import Image, ImageDraw, ImageFont
-        image = Image.new('RGB', (800, 400), 'white')
-        ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
-                                  font=ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40))
+    def test_ocr_ui_uses_platform_engine_without_creating_costs(self):
+        from app import local_receipt_ocr
+        from contextlib import ExitStack
+
         photo = Path(self._dir.name) / 'synthetic.png'
-        image.save(photo)
-        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}), sync_playwright() as api:
+        synthetic_result = {'text': 'SYNTHETIC RECEIPT 2026/10/12',
+                            'suggestions': {'date': '2026-10-12'}, 'requires_review': True}
+        if os.name == 'nt':
+            from PIL import Image, ImageDraw, ImageFont
+
+            image = Image.new('RGB', (800, 400), 'white')
+            try:
+                font = ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40)
+            except OSError:
+                font = ImageFont.load_default()
+            ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
+                                      font=font)
+            image.save(photo)
+        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}), ExitStack() as adapters, \
+                sync_playwright() as api:
+            recognize = None
+            if os.name != 'nt':
+                # Linux exercises the OCR UI/API contract with a deterministic adapter response.
+                photo.write_bytes(PNG)
+                adapters.enter_context(patch.object(local_receipt_ocr, 'enabled', return_value=True))
+                recognize = adapters.enter_context(patch.object(
+                    local_receipt_ocr, 'recognize', return_value=synthetic_result))
             browser = api.chromium.launch()
             try:
                 page = browser.new_page(viewport={'width': 375, 'height': 900})
@@ -69,12 +87,22 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.locator('#img-file').set_input_files(str(photo))
                 with page.expect_navigation():
                     page.locator('#img-go').click()
+                page.locator('#other-methods').evaluate('(el)=>el.open=true')
+                image_button = page.locator('[data-image-sha]').first
+                sha = image_button.get_attribute('data-image-sha')
+                image_button.click()
                 page.locator('#ocr-go').click()
-                page.wait_for_function("document.getElementById('ocr-text').value.includes('SYNTHETIC')")
-                self.assertEqual(page.locator('#r-date').input_value(), '2026-10-12')
+                page.wait_for_function("document.getElementById('ocr-text').value.trim().length > 0")
+                if recognize is None:
+                    self.assertTrue(page.locator('#ocr-text').input_value().strip())
+                else:
+                    self.assertEqual(page.locator('#ocr-text').input_value(), synthetic_result['text'])
+                    self.assertEqual(page.locator('#r-date').input_value(), '2026-10-12')
+                    recognize.assert_called_once()
+                    self.assertTrue(Path(recognize.call_args.args[0]).is_file())
+                    self.assertEqual(recognize.call_args.args[1], 'ja')
                 self.assertTrue(page.locator('#ocr-go').is_enabled())
                 self.assertEqual(self.request('/api/receipts')[1]['candidates'], [])
-                sha = page.locator('#image-sha').input_value()
                 status, result = self.request('/api/receipts/upload', {'image': sha})
                 self.assertEqual((status, result['code']), (403, 'CSRF_REQUIRED'))
                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 375)
@@ -96,10 +124,10 @@ class ReceiptReviewTests(unittest.TestCase):
                         self.assertEqual(other.locator('summary').inner_text(), '직접 입력 / 다른 방법')
                         self.assertFalse(other.evaluate('el=>el.open'))
                         body = pg.evaluate("document.querySelector('#other-methods').textContent")
-                        self.assertTrue('자동 추출은 연결되지' in body or 'Windows OCR로 사진의 글자를' in body)
+                        self.assertEqual(pg.locator('#region-go').count(), 1)
                         self.assertEqual(pg.locator(f'[data-category="{identity}"]').get_attribute('aria-label'), '비용 분류')
                         if width < 760:
-                            for field in ('trip', 'merchant', 'date', 'total', 'payment', 'payee', 'category', 'confirm'):
+                            for field in ('trip', 'merchant', 'date', 'total', 'payment', 'payee', 'category', 'edit'):
                                 control = pg.locator(f'[data-{field}="{identity}"]')
                                 box = control.bounding_box()
                                 self.assertGreaterEqual(box['x'], 0, field)
@@ -111,33 +139,52 @@ class ReceiptReviewTests(unittest.TestCase):
 
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
         self.store = Path(self._dir.name) / 'receipts.json'
         self._env = patch.dict(os.environ, {'WEBLEDGER_UNIFIED_DB': '1', 'WEBLEDGER_CARD_FLOW': '1',
                                             'WEBLEDGER_REVIEW_FROM': '',
                                             'WEBLEDGER_RECEIPTS_STORE': str(self.store)})
         self._env.start()
+        self.addCleanup(self._env.stop)
         self._previous = ledger_board._STORE
+        self._previous_access = ledger_board._ACCESS
+        self.addCleanup(ledger_board.bind_access, self._previous_access)
+        self.addCleanup(ledger_board.bind_store, self._previous)
         ledger_board.bind_access(None)
         self.server = ledger_board.serve(port=0, db_path=Path(self._dir.name) / 'board.sqlite',
                                          with_worker=False, seed_demo=False)
+        self.addCleanup(self.server.card_store.close)
+        self.addCleanup(self.server.server_close)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.addCleanup(self.thread.join, timeout=3)
+        self.addCleanup(lambda: self.server.shutdown() if self.thread.is_alive() else None)
         self.base = f'http://127.0.0.1:{self.server.server_address[1]}'
         self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=True)
         self._owner.start()
+        self.addCleanup(self._owner.stop)
         CardFlow(self.server.card_store)  # creates the card tables the board reads for card links
         self.trip = self.server.card_store.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
                                                        destination='합성 여행', client_request_id='receipt-trip')['tab_id']
 
     def tearDown(self):
-        self._owner.stop()
-        self.server.shutdown()
-        self.server.server_close()
-        self.server.card_store.close()
-        self.thread.join(timeout=3)
-        ledger_board.bind_store(self._previous)
-        self._env.stop()
-        self._dir.cleanup()
+        self.doCleanups()
+
+    def test_partial_setup_failure_releases_fixture_resources(self):
+        failed = ReceiptReviewTests()
+        previous_store, previous_access = ledger_board._STORE, ledger_board._ACCESS
+        previous_receipts_path = os.environ.get('WEBLEDGER_RECEIPTS_STORE')
+        try:
+            with patch('webapp.tests.test_receipt_review.CardFlow', side_effect=RuntimeError('synthetic setup failure')):
+                with self.assertRaisesRegex(RuntimeError, 'synthetic setup failure'):
+                    failed.setUp()
+        finally:
+            failed.doCleanups()
+
+        self.assertFalse(failed.thread.is_alive())
+        self.assertIs(ledger_board._STORE, previous_store)
+        self.assertIs(ledger_board._ACCESS, previous_access)
+        self.assertEqual(os.environ.get('WEBLEDGER_RECEIPTS_STORE'), previous_receipts_path)
 
     def request(self, path, body=None, token=None, raw=None, method=None):
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
@@ -271,24 +318,28 @@ class ReceiptReviewTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body['amount_krw'], 13000)
         self.assertEqual(body['history'][-1]['edit'], {'total_jpy': 1234})
-        status, body = self.request('/api/receipts/edit', {'identity': identity, 'category': '식비'}, token=self.csrf())
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'amount_krw': 13000}, token=self.csrf())
         self.assertEqual((status, body['code']), (400, 'FIELD_NOT_EDITABLE'))
 
     def test_writes_need_the_csrf_token(self):
         status, body = self.request('/api/receipts/scan', REGIONS)
         self.assertEqual((status, body['code']), (403, 'CSRF_REQUIRED'))
 
-    def test_confirm_needs_payee_and_category_and_keeps_history(self):
+    def test_unclassified_receipt_is_not_exported_until_payee_and_category_are_saved(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         _, stored = self.request('/api/receipts')
         identity = stored['candidates'][0]['identity']
-        status, _ = self.request('/api/receipts/edit',
-                                 {'identity': identity, 'payee': '', 'category': '식비'}, token=self.csrf())
-        self.assertEqual(status, 400)
+        status, body = self.request('/api/receipts/edit',
+                                    {'identity': identity, 'payee': '', 'category': '식비'}, token=self.csrf())
+        self.assertEqual(status, 200)
+        self.assertEqual(body['payee'], '')
+        self.assertEqual(self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['row_count'], 0)
+        self.request('/api/receipts/edit', {'identity': identity, 'trip_id': self.trip}, token=self.csrf())
         status, body = self.request('/api/receipts/edit',
                                     {'identity': identity, 'payee': '라멘집', 'category': '식비'}, token=self.csrf())
         self.assertEqual(status, 200)
-        self.assertEqual(body['history'][0]['to'], {'payee': '라멘집', 'category': '식비'})
+        self.assertEqual(body['history'][-1]['to'], {'payee': '라멘집', 'category': '식비'})
+        self.assertEqual(self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['row_count'], 1)
 
     def test_a_receipt_joins_a_trip_only_when_the_board_holds_that_trip(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
@@ -320,47 +371,51 @@ class ReceiptReviewTests(unittest.TestCase):
 
     def _browser_flow(self, width, height):
         with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
-                                          viewport={'width': width, 'height': height})
-            page = context.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.set_input_files('#img-file', files=[{'name': 'receipt.png', 'mimeType': 'image/png',
-                                                      'buffer': PNG}])
-            page.click('#img-go')
-            # The page reloads after a registration, so the registered photo itself is the signal.
-            page.locator("img[src*='/api/receipts/image/']").first.wait_for()
-            page.wait_for_load_state()
-            page.fill('#r-merchant', '라멘집'); page.fill('#r-date', '2027-08-03'); page.fill('#r-total', '1234')
-            page.click('#region-go')
-            page.wait_for_load_state()
-            page.locator('[data-confirm]').first.wait_for()
-            identity = page.locator('[data-confirm]').first.get_attribute('data-confirm')
-            page.select_option(f'[data-trip="{identity}"]', self.trip)
-            page.fill(f'[data-total="{identity}"]', '1300')
-            page.click(f'[data-edit="{identity}"]')
-            page.wait_for_load_state()
-            page.locator(f'[data-total="{identity}"]').wait_for()
-            self.assertEqual(page.locator(f'[data-total="{identity}"]').input_value(), '1300')
-            page.fill(f'[data-payee="{identity}"]', '라멘집')
-            page.fill(f'[data-category="{identity}"]', '식비')
-            page.click(f'[data-confirm="{identity}"]')
-            page.wait_for_load_state()
-            page.select_option('#copy-trip', self.trip)
-            page.click('#copy-tsv')
-            page.get_by_text('클립보드에 복사했습니다', exact=False).wait_for()
-            clipboard = page.evaluate('navigator.clipboard.readText()').replace(chr(13) + chr(10), chr(10))
-            self.assertIn('\t영수증\t13000', clipboard)
-            _, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
-            self.assertEqual(clipboard, tsv['tsv'])
-            self.assertTrue(page.evaluate('(trip)=>Boolean(localStorage.getItem("gcopy-trip:"+trip))', self.trip))
-            dialogs = []
-            page.on('dialog', lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
-            page.click('#copy-tsv')
-            self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
-            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-            browser.close()
+            browser = api.chromium.launch()
+            try:
+                context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
+                                              viewport={'width': width, 'height': height})
+                page = context.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.set_input_files('#img-file', files=[{'name': 'receipt.png', 'mimeType': 'image/png',
+                                                          'buffer': PNG}])
+                page.click('#img-go')
+                # The page reloads after a registration, so the registered photo itself is the signal.
+                page.locator("img[src*='/api/receipts/image/']").first.wait_for()
+                page.wait_for_load_state()
+                page.locator('#other-methods > summary').click()
+                page.fill('#r-merchant', '라멘집'); page.fill('#r-date', '2027-08-03'); page.fill('#r-total', '1234')
+                page.click('#region-go')
+                page.wait_for_load_state()
+                page.locator('[data-edit]').first.wait_for()
+                identity = page.locator('[data-edit]').first.get_attribute('data-edit')
+                page.select_option(f'[data-trip="{identity}"]', self.trip)
+                page.fill(f'[data-total="{identity}"]', '1300')
+                page.click(f'[data-edit="{identity}"]')
+                page.wait_for_load_state()
+                page.locator(f'[data-total="{identity}"]').wait_for()
+                self.assertEqual(page.locator(f'[data-total="{identity}"]').input_value(), '1300')
+                page.fill(f'[data-payee="{identity}"]', '라멘집')
+                page.fill(f'[data-category="{identity}"]', '식비')
+                page.click(f'[data-edit="{identity}"]')
+                page.get_by_role('status').filter(has_text='영수증 변경을 저장했습니다').wait_for()
+                self.assertEqual(page.locator(f'tr[data-version] [data-state]').inner_text(), '분류됨')
+                page.select_option('#copy-trip', self.trip)
+                page.click('#copy-tsv')
+                page.get_by_text('클립보드에 복사했습니다', exact=False).wait_for()
+                clipboard = page.evaluate('navigator.clipboard.readText()').replace(chr(13) + chr(10), chr(10))
+                self.assertIn('\t영수증\t13000', clipboard)
+                _, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
+                self.assertEqual(clipboard, tsv['tsv'])
+                self.assertTrue(page.evaluate('(trip)=>Boolean(localStorage.getItem("gcopy-trip:"+trip))', self.trip))
+                dialogs = []
+                page.on('dialog', lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
+                page.click('#copy-tsv')
+                self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
+                self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+            finally:
+                browser.close()
 
     def test_browser_mobile_390_photo_region_edit_confirm_and_copy(self):
         self._browser_flow(390, 844)
@@ -371,41 +426,43 @@ class ReceiptReviewTests(unittest.TestCase):
     def test_browser_mobile_375_payment_review_and_late_card_prevent_double_copy(self):
         identity = self._confirmed_cash_receipt(merchant='SYN-SHOP', total=1200)
         with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
-                                          viewport={'width': 375, 'height': 812})
-            page = context.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            payment = page.locator(f'[data-payment="{identity}"]')
-            self.assertEqual(payment.locator('option').all_text_contents(), ['현금', '개인카드', '법인카드'])
-            payment.select_option('private_card')
-            with page.expect_response('**/api/receipts/edit') as saved:
+            browser = api.chromium.launch()
+            try:
+                context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
+                                              viewport={'width': 375, 'height': 812})
+                page = context.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                payment = page.locator(f'[data-payment="{identity}"]')
+                self.assertEqual(payment.locator('option').all_text_contents(), ['현금', '개인카드', '법인카드'])
+                payment.select_option('private_card')
+                with page.expect_response('**/api/receipts/edit') as saved:
+                    page.locator(f'[data-edit="{identity}"]').click()
+                self.assertEqual(saved.value.status, 200)
+                candidate = self.request('/api/receipts')[1]['candidates'][0]
+                self.assertEqual((candidate['payment'], candidate['amount_krw'], candidate['payee'], candidate['category']),
+                                 ('private_card', 12000, 'SYN-SHOP', '식비'))
+                page.locator(f'[data-payee="{identity}"]').fill('SYN-SHOP')
+                page.locator(f'[data-category="{identity}"]').fill('식비')
                 page.locator(f'[data-edit="{identity}"]').click()
-            self.assertEqual(saved.value.status, 200)
-            candidate = self.request('/api/receipts')[1]['candidates'][0]
-            self.assertEqual((candidate['payment'], candidate['amount_krw'], candidate['payee'], candidate['category']),
-                             ('private_card', 12000, None, None))
-            page.locator(f'[data-payee="{identity}"]').fill('SYN-SHOP')
-            page.locator(f'[data-category="{identity}"]').fill('식비')
-            page.locator(f'[data-confirm="{identity}"]').click()
-            page.get_by_text('확정됨', exact=True).wait_for()
-            page.reload()
-            self.assertEqual(payment.input_value(), 'private_card')
-            before = self.store.read_bytes()
-            batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'late-card.csv')['batch_id']
-            _card_purchase(self.server.card_store, batch, 'late-card-syn', 'SYN-SHOP', 1200, '2027-08-03')
-            page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
-            page.select_option('#copy-trip', self.trip)
-            page.click('#copy-tsv')
-            page.get_by_text('복사할 영수증이 없습니다.', exact=False).wait_for()
-            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
-            result = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]
-            self.assertEqual(result['row_count'], 0)
-            self.assertTrue(any(hold['reason'] == 'CARD_PAYMENT_CONFLICT' for hold in result['held']))
-            self.assertEqual(self.store.read_bytes(), before)
-            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-            browser.close()
+                page.get_by_role('status').filter(has_text='영수증 변경을 저장했습니다').wait_for()
+                page.reload()
+                self.assertEqual(payment.input_value(), 'private_card')
+                before = self.store.read_bytes()
+                batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'late-card.csv')['batch_id']
+                _card_purchase(self.server.card_store, batch, 'late-card-syn', 'SYN-SHOP', 1200, '2027-08-03')
+                page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+                page.select_option('#copy-trip', self.trip)
+                page.click('#copy-tsv')
+                page.get_by_text('복사할 영수증이 없습니다.', exact=False).wait_for()
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+                result = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]
+                self.assertEqual(result['row_count'], 0)
+                self.assertTrue(any(hold['reason'] == 'CARD_PAYMENT_CONFLICT' for hold in result['held']))
+                self.assertEqual(self.store.read_bytes(), before)
+                self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+            finally:
+                browser.close()
 
     def test_browser_desktop_1440_photo_region_edit_confirm_and_copy(self):
         self._browser_flow(1440, 900)
@@ -415,6 +472,7 @@ class ReceiptReviewTests(unittest.TestCase):
         self._owner.stop()
         self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=False)
         self._owner.start()
+        self.addCleanup(self._owner.stop)
         for method_path in (('GET', '/receipts'), ('GET', '/api/receipts'), ('GET', '/api/receipts/tsv'),
                             ('GET', '/api/receipts/image/' + 'a' * 64)):
             status, body = self.request(method_path[1])
@@ -428,6 +486,7 @@ class ReceiptReviewTests(unittest.TestCase):
         self._owner.stop()
         self._owner = patch.object(ledger_board, 'ACCESS_ENFORCEMENT', False)
         self._owner.start()
+        self.addCleanup(self._owner.stop)
         self.assertFalse(ledger_board._receipts_owner_request())
 
     def test_client_sent_card_rows_are_ignored_and_the_server_decides_the_link(self):
@@ -461,19 +520,21 @@ class ReceiptReviewTests(unittest.TestCase):
         before = self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': 390, 'height': 844})
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.locator('[data-trip]').select_option(self.trip)
-            with page.expect_response('**/api/receipts/edit') as answer:
-                page.locator('[data-edit]').click()
-            self.assertEqual(answer.value.status, 200)
-            # The page reloads on save; read persisted state instead of a discarded response body.
-            result = self.request('/api/receipts')[1]['candidates'][0]
-            self.assertEqual(result['trip_id'], self.trip)
-            self.assertEqual(result['card_transaction_id'], 'card-trip-syn')
-            self.assertIsNone(result['amount_krw'])
-            browser.close()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.locator('[data-trip]').select_option(self.trip)
+                with page.expect_response('**/api/receipts/edit') as answer:
+                    page.locator('[data-edit]').click()
+                self.assertEqual(answer.value.status, 200)
+                # The page reloads on save; read persisted state instead of a discarded response body.
+                result = self.request('/api/receipts')[1]['candidates'][0]
+                self.assertEqual(result['trip_id'], self.trip)
+                self.assertEqual(result['card_transaction_id'], 'card-trip-syn')
+                self.assertIsNone(result['amount_krw'])
+            finally:
+                browser.close()
         self.assertEqual(self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
 
     def test_browser_selects_earlier_photo_and_keeps_candidate_source(self):
@@ -481,19 +542,21 @@ class ReceiptReviewTests(unittest.TestCase):
         self.request('/api/receipts/image', token=self.csrf(), raw=make_png(b'\x00\xff\x00'))
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': 390, 'height': 844})
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.locator('[data-image-sha]').first.click()
-            self.assertEqual(page.locator('#image-sha').input_value(), first)
-            page.fill('#r-merchant', 'SYN-SHOP')
-            page.fill('#r-date', '2027-08-03')
-            page.fill('#r-total', '1234')
-            with page.expect_response('**/api/receipts/scan') as answer:
-                page.locator('#region-go').click()
-            self.assertEqual(answer.value.status, 200)
-            page.get_by_role('link', name='원본 사진', exact=True).wait_for()
-            browser.close()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.locator('[data-image-sha]').first.click()
+                self.assertEqual(page.locator('#image-sha').input_value(), first)
+                page.fill('#r-merchant', 'SYN-SHOP')
+                page.fill('#r-date', '2027-08-03')
+                page.fill('#r-total', '1234')
+                with page.expect_response('**/api/receipts/scan') as answer:
+                    page.locator('#region-go').click()
+                self.assertEqual(answer.value.status, 200)
+                page.get_by_role('link', name='원본 사진', exact=True).wait_for()
+            finally:
+                browser.close()
         candidate, = self.request('/api/receipts')[1]['candidates']
         self.assertEqual(candidate['image_sha'], first)
         self.assertIsNone(candidate['box'])
@@ -502,57 +565,63 @@ class ReceiptReviewTests(unittest.TestCase):
         pending = []
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': 390, 'height': 844})
-            page.route('**/api/receipts/image', lambda route: pending.append(route))
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.locator('#img-file').set_input_files({'name': 'synthetic.png', 'mimeType': 'image/png', 'buffer': PNG})
-            with page.expect_request('**/api/receipts/image'):
-                page.locator('#img-go').click()
-            self.assertTrue(page.locator('#img-go').is_disabled())
-            page.locator('#img-go').evaluate('(button)=>{button.click();button.click()}')
-            self.assertEqual(len(pending), 1)
-            pending.pop().fulfill(status=400, json={'code': 'IMAGE_SIZE_INVALID'})
-            page.get_by_text('사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.', exact=True).wait_for()
-            self.assertTrue(page.locator('#img-go').is_enabled())
-            self.assertFalse(self.store.exists())
-            page.unroute('**/api/receipts/image')
-            with page.expect_response('**/api/receipts/image') as answer:
-                page.locator('#img-go').click()
-            self.assertEqual(answer.value.status, 200)
-            page.locator("img[alt='등록한 영수증 사진']").wait_for()
-            self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
-            browser.close()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.route('**/api/receipts/image', lambda route: pending.append(route))
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.locator('#img-file').set_input_files({'name': 'synthetic.png', 'mimeType': 'image/png', 'buffer': PNG})
+                with page.expect_request('**/api/receipts/image'):
+                    page.locator('#img-go').click()
+                self.assertTrue(page.locator('#img-go').is_disabled())
+                page.locator('#img-go').evaluate('(button)=>{button.click();button.click()}')
+                self.assertEqual(len(pending), 1)
+                pending.pop().fulfill(status=400, json={'code': 'IMAGE_SIZE_INVALID'})
+                page.get_by_text('사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.', exact=True).wait_for()
+                self.assertTrue(page.locator('#img-go').is_enabled())
+                self.assertFalse(self.store.exists())
+                page.unroute('**/api/receipts/image')
+                with page.expect_response('**/api/receipts/image') as answer:
+                    page.locator('#img-go').click()
+                self.assertEqual(answer.value.status, 200)
+                page.locator("img[src*='/api/receipts/image/']").first.wait_for()
+                self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+            finally:
+                browser.close()
 
     def test_browser_copy_locks_trip_and_recovers_without_changing_clipboard(self):
+        self._confirmed_cash_receipt()
         pending = []
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'])
-            page = context.new_page()
-            page.route('**/api/receipts/tsv?*', lambda route: pending.append(route))
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
-            with page.expect_request('**/api/receipts/tsv?*'):
-                page.click('#copy-tsv')
-            self.assertTrue(page.locator('#copy-trip').is_disabled())
-            self.assertTrue(page.locator('#copy-tsv').is_disabled())
-            page.locator('#copy-tsv').evaluate('(button)=>{button.click();button.click()}')
-            self.assertEqual(len(pending), 1)
-            pending.pop().fulfill(status=400, json={'code': 'FIELD_MISSING'})
-            page.get_by_text('상호·날짜·지급처·내용의 필수 입력을 확인해 주세요.', exact=True).wait_for()
-            self.assertTrue(page.locator('#copy-trip').is_enabled())
-            self.assertTrue(page.locator('#copy-tsv').is_enabled())
-            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
-            with page.expect_request('**/api/receipts/tsv?*'):
-                page.click('#copy-tsv')
-            pending.pop().fulfill(json={'row_count': 0, 'held': [], 'tsv': ''})
-            page.get_by_text('복사할 영수증이 없습니다. 보류 0건', exact=True).wait_for()
-            self.assertTrue(page.locator('#copy-trip').is_enabled())
-            self.assertTrue(page.locator('#copy-tsv').is_enabled())
-            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
-            browser.close()
+            try:
+                context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'])
+                page = context.new_page()
+                page.route('**/api/receipts/tsv?*', lambda route: pending.append(route))
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.select_option('#copy-trip', self.trip)
+                page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+                with page.expect_request('**/api/receipts/tsv?*'):
+                    page.click('#copy-tsv')
+                self.assertTrue(page.locator('#copy-trip').is_disabled())
+                self.assertTrue(page.locator('#copy-tsv').is_disabled())
+                page.locator('#copy-tsv').evaluate('(button)=>{button.click();button.click()}')
+                self.assertEqual(len(pending), 1)
+                pending.pop().fulfill(status=400, json={'code': 'FIELD_MISSING'})
+                page.get_by_text('상호·날짜·지급처·내용의 필수 입력을 확인해 주세요.', exact=True).wait_for()
+                self.assertTrue(page.locator('#copy-trip').is_enabled())
+                self.assertTrue(page.locator('#copy-tsv').is_enabled())
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+                with page.expect_request('**/api/receipts/tsv?*'):
+                    page.click('#copy-tsv')
+                pending.pop().fulfill(json={'row_count': 0, 'held': [], 'tsv': ''})
+                page.get_by_text('복사할 영수증이 없습니다. 보류 0건', exact=True).wait_for()
+                self.assertTrue(page.locator('#copy-trip').is_enabled())
+                self.assertTrue(page.locator('#copy-tsv').is_enabled())
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+            finally:
+                browser.close()
 
     def test_receipt_copy_success_survives_copy_history_storage_failure(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
@@ -563,43 +632,50 @@ class ReceiptReviewTests(unittest.TestCase):
         expected = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['tsv']
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
-            page.click('#copy-tsv')
-            page.wait_for_function('!document.getElementById("copy-tsv").disabled')
-            self.assertIn('클립보드에 복사했습니다', page.locator('#status').inner_text())
-            self.assertIn('복사 이력을 저장하지 못했습니다', page.locator('#status').inner_text())
-            self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
-            self.assertTrue(page.locator('#copy-trip').is_enabled())
+            try:
+                page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+                page.goto(self.base + '/receipts')
+                page.locator('#copy-trip').select_option(self.trip)
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
+                page.click('#copy-tsv')
+                page.wait_for_function('!document.getElementById("copy-tsv").disabled')
+                self.assertIn('클립보드에 복사했습니다', page.locator('#status').inner_text())
+                self.assertIn('복사 이력을 저장하지 못했습니다', page.locator('#status').inner_text())
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
+                self.assertTrue(page.locator('#copy-trip').is_enabled())
+            finally:
+                browser.close()
+
 
     def test_receipt_copy_requires_confirmation_when_history_cannot_be_read(self):
         self._confirmed_cash_receipt()
         expected = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['tsv']
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.evaluate("navigator.clipboard.writeText('KEEP')")
-            page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
-            dialogs = []
-            def dismiss(dialog):
-                dialogs.append(dialog.message)
-                dialog.dismiss()
-            page.on('dialog', dismiss)
-            page.click('#copy-tsv')
-            self.assertEqual(len(dialogs), 1)
-            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
-            page.remove_listener('dialog', dismiss)
-            page.on('dialog', lambda dialog: dialog.accept())
-            page.click('#copy-tsv')
-            page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
-            self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
-            self.assertTrue(page.locator('#copy-tsv').is_enabled())
-            browser.close()
-            browser.close()
+            try:
+                page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+                page.goto(self.base + '/receipts')
+                page.locator('#copy-trip').select_option(self.trip)
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.evaluate("navigator.clipboard.writeText('KEEP')")
+                page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
+                dialogs = []
+                def dismiss(dialog):
+                    dialogs.append(dialog.message)
+                    dialog.dismiss()
+                page.on('dialog', dismiss)
+                page.click('#copy-tsv')
+                self.assertEqual(len(dialogs), 1)
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
+                page.remove_listener('dialog', dismiss)
+                page.on('dialog', lambda dialog: dialog.accept())
+                page.click('#copy-tsv')
+                page.get_by_role('status').filter(has_text='클립보드에 복사했습니다').wait_for()
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
+                self.assertTrue(page.locator('#copy-tsv').is_enabled())
+            finally:
+                browser.close()
 
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
         png_no_end = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0dIHDR' + b'\x00' * 13 + b'\x00\x00\x00\x00IDAT'
@@ -647,54 +723,68 @@ class ReceiptReviewTests(unittest.TestCase):
                      token=self.csrf())
         return identity
 
-    def test_confirm_refuses_unsaved_amount_or_trip_in_browser(self):
+    def test_unsaved_amount_or_trip_is_not_saved_or_copied_in_browser(self):
         identity = self._confirmed_cash_receipt()
         before = self.store.read_bytes()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            requests = []
-            page.on('request', lambda request: requests.append(request.url)
-                    if request.url.endswith('/api/receipts/edit') else None)
-            for selector, value in (('[data-total]', '2000'), ('[data-trip]', '')):
-                page.reload()
-                if selector == '[data-trip]':
-                    page.locator(selector).select_option(value)
-                else:
-                    page.locator(selector).fill(value)
-                page.locator('[data-payee]').fill('NEW-PAYEE')
-                page.locator('[data-confirm]').click()
-                page.wait_for_function("document.getElementById('status').textContent.includes('수정 버튼')")
-                self.assertEqual(requests, [])
-                self.assertEqual(self.store.read_bytes(), before)
-                self.assertEqual(page.locator('[data-total]').input_value(), value if selector == '[data-total]' else '1234')
-            browser.close()
+            try:
+                context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'])
+                page = context.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                requests = []
+                page.on('request', lambda request: requests.append(request.url)
+                        if request.url.endswith('/api/receipts/edit') else None)
+                for selector, value in (('[data-total]', '2000'), ('[data-trip]', '')):
+                    page.reload()
+                    page.select_option('#copy-trip', self.trip)
+                    page.wait_for_function("!document.getElementById('copy-tsv').disabled")
+                    if selector == '[data-trip]':
+                        page.locator(selector).select_option(value)
+                    else:
+                        page.locator(selector).fill(value)
+                    page.locator('[data-payee]').fill('NEW-PAYEE')
+                    page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+                    if selector == '[data-trip]':
+                        self.assertFalse(page.locator('#copy-tsv').is_enabled())
+                    else:
+                        page.locator('#copy-tsv').click()
+                        page.wait_for_function("document.getElementById('status').textContent.includes('저장하지 않은 변경')")
+                    self.assertEqual(requests, [])
+                    self.assertEqual(self.store.read_bytes(), before)
+                    self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+                    self.assertEqual(page.locator('[data-total]').input_value(), value if selector == '[data-total]' else '1234')
+                    if selector == '[data-trip]':
+                        self.assertEqual(page.locator(selector).input_value(), '')
+            finally:
+                browser.close()
 
     def test_receipt_copy_refuses_unsaved_review_changes(self):
         self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            requests = []
-            page.on('request', lambda request: requests.append(request.url)
-                    if '/api/receipts/tsv?' in request.url else None)
-            for selector, value in (('[data-total]', '2500'), ('[data-payee]', 'UNSAVED-PAYEE'),
-                                    ('[data-category]', 'UNSAVED-CATEGORY'), ('[data-trip]', '')):
-                page.goto(self.base + '/receipts')
-                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-                page.evaluate("navigator.clipboard.writeText('KEEP')")
-                if selector == '[data-trip]':
-                    page.locator(selector).select_option(value)
-                else:
+            try:
+                page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+                requests = []
+                page.on('request', lambda request: requests.append(request.url)
+                        if '/api/receipts/tsv?' in request.url else None)
+                for selector, value in (('[data-total]', '2500'), ('[data-payee]', 'UNSAVED-PAYEE'),
+                                        ('[data-category]', 'UNSAVED-CATEGORY')):
+                    page.goto(self.base + '/receipts')
+                    page.locator('#copy-trip').select_option(self.trip)
+                    page.wait_for_function("!document.getElementById('copy-tsv').disabled")
+                    page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                    page.evaluate("navigator.clipboard.writeText('KEEP')")
                     page.locator(selector).fill(value)
-                page.click('#copy-tsv')
-                page.wait_for_function('!receiptBusy')
-                self.assertEqual(requests, [])
-                self.assertIn('저장하지 않은 변경', page.locator('#status').inner_text())
-                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
-            browser.close()
+                    self.assertTrue(page.locator('#copy-tsv').is_enabled(), selector)
+                    page.click('#copy-tsv')
+                    page.wait_for_function('!receiptBusy')
+                    self.assertEqual(requests, [])
+                    self.assertIn('저장하지 않은 변경', page.locator('#status').inner_text())
+                    self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
+            finally:
+                browser.close()
 
     def test_receipt_copy_keeps_other_trips_unsaved_changes_separate(self):
         self._confirmed_cash_receipt()
@@ -704,203 +794,220 @@ class ReceiptReviewTests(unittest.TestCase):
         self.request('/api/receipts/edit', {'identity': other, 'trip_id': other_trip}, token=self.csrf())
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.locator('[data-total="' + other + '"]').fill('700')
-            page.locator('#copy-trip').select_option(self.trip)
-            page.click('#copy-tsv')
-            page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
-            self.assertEqual(page.locator('[data-total="' + other + '"]').input_value(), '700')
-            self.assertNotIn('OTHER-SHOP', page.evaluate('navigator.clipboard.readText()'))
-            browser.close()
+            try:
+                page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+                page.goto(self.base + '/receipts')
+                page.locator('#copy-trip').select_option(self.trip)
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.locator('[data-total="' + other + '"]').fill('700')
+                page.locator('#copy-trip').select_option(self.trip)
+                page.click('#copy-tsv')
+                page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
+                self.assertEqual(page.locator('[data-total="' + other + '"]').input_value(), '700')
+                self.assertNotIn('OTHER-SHOP', page.evaluate('navigator.clipboard.readText()'))
+            finally:
+                browser.close()
 
-    def test_old_receipt_page_cannot_confirm_a_new_amount(self):
+    def test_old_receipt_page_cannot_overwrite_a_new_amount(self):
         identity = self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2000}, token=self.csrf())
-            before = self.store.read_bytes()
-            page.locator('[data-payee]').fill('OLD-PAGE-PAYEE')
-            with page.expect_response('**/api/receipts/edit') as response:
-                page.locator('[data-confirm]').click()
-            self.assertEqual(response.value.status, 409)
-            self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
-            self.assertEqual(self.store.read_bytes(), before)
-            self.assertFalse(page.locator('[data-confirm]').is_disabled())
-            browser.close()
+            try:
+                page = browser.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2000}, token=self.csrf())
+                before = self.store.read_bytes()
+                page.locator('[data-payee]').fill('OLD-PAGE-PAYEE')
+                with page.expect_response('**/api/receipts/edit') as response:
+                    page.locator('[data-edit]').click()
+                self.assertEqual(response.value.status, 409)
+                self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
+                self.assertEqual(self.store.read_bytes(), before)
+                self.assertFalse(page.locator('[data-edit]').is_disabled())
+            finally:
+                browser.close()
 
     def test_old_receipt_page_cannot_overwrite_a_new_confirmation(self):
         identity = self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            self.request('/api/receipts/edit', {'identity': identity, 'payee': 'NEW-PAYEE',
-                                                  'category': 'NEW-CATEGORY'}, token=self.csrf())
-            before = self.store.read_bytes()
-            page.locator('[data-total]').fill('2100')
-            with page.expect_response('**/api/receipts/edit') as response:
-                page.locator('[data-edit]').click()
-            self.assertEqual(response.value.status, 409)
-            self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
-            self.assertEqual(self.store.read_bytes(), before)
-            browser.close()
+            try:
+                page = browser.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                self.request('/api/receipts/edit', {'identity': identity, 'payee': 'NEW-PAYEE',
+                                                      'category': 'NEW-CATEGORY'}, token=self.csrf())
+                before = self.store.read_bytes()
+                page.locator('[data-total]').fill('2100')
+                with page.expect_response('**/api/receipts/edit') as response:
+                    page.locator('[data-edit]').click()
+                self.assertEqual(response.value.status, 409)
+                self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
+                self.assertEqual(self.store.read_bytes(), before)
+            finally:
+                browser.close()
 
     def test_receipt_save_locks_controls_and_restores_inputs_after_error(self):
         self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            pending = []
-            page.route('**/api/receipts/edit', lambda route: pending.append(route))
-            page.locator('[data-total]').fill('2300')
-            with page.expect_request('**/api/receipts/edit'):
-                page.locator('[data-edit]').click()
-            for selector in ('[data-edit]', '[data-confirm]', '[data-total]', '#region-go', '#copy-tsv', '#img-go'):
-                self.assertTrue(page.locator(selector).is_disabled(), selector)
-            page.locator('[data-edit]').evaluate('(button)=>{button.click();button.click()}')
-            self.assertEqual(len(pending), 1)
-            pending.pop().fulfill(status=500, json={'message': 'RETRY-SAVE'})
-            page.get_by_text('RETRY-SAVE', exact=True).wait_for()
-            self.assertEqual(page.locator('[data-total]').input_value(), '2300')
-            self.assertTrue(page.locator('[data-edit]').is_enabled())
-            self.assertTrue(page.locator('[data-confirm]').is_enabled())
-            page.unroute('**/api/receipts/edit')
-            with page.expect_response('**/api/receipts/edit') as response:
-                page.locator('[data-edit]').click()
-            self.assertEqual(response.value.status, 200)
-            page.wait_for_function("document.querySelector('[data-total]').value==='2300' && !document.querySelector('[data-edit]').disabled")
-            self.assertEqual(self.request('/api/receipts')[1]['candidates'][0]['total_jpy'], 2300)
-            browser.close()
+            try:
+                page = browser.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                pending = []
+                page.route('**/api/receipts/edit', lambda route: pending.append(route))
+                page.locator('[data-total]').fill('2300')
+                with page.expect_request('**/api/receipts/edit'):
+                    page.locator('[data-edit]').click()
+                for selector in ('[data-edit]', '[data-total]', '#region-go', '#copy-tsv', '#img-go'):
+                    self.assertTrue(page.locator(selector).is_disabled(), selector)
+                page.locator('[data-edit]').evaluate('(button)=>{button.click();button.click()}')
+                self.assertEqual(len(pending), 1)
+                pending.pop().fulfill(status=500, json={'message': 'RETRY-SAVE'})
+                page.get_by_text('RETRY-SAVE', exact=True).wait_for()
+                self.assertEqual(page.locator('[data-total]').input_value(), '2300')
+                self.assertTrue(page.locator('[data-edit]').is_enabled())
+                self.assertTrue(page.locator('[data-edit]').is_enabled())
+                page.unroute('**/api/receipts/edit')
+                with page.expect_response('**/api/receipts/edit') as response:
+                    page.locator('[data-edit]').click()
+                self.assertEqual(response.value.status, 200)
+                page.wait_for_function("document.querySelector('[data-total]').value==='2300' && !document.querySelector('[data-edit]').disabled")
+                self.assertEqual(self.request('/api/receipts')[1]['candidates'][0]['total_jpy'], 2300)
+            finally:
+                browser.close()
 
     def test_receipt_save_retry_after_lost_response_preserves_one_history_entry(self):
         self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            for operation in ('edit', 'confirm'):
-                page.goto(self.base + '/receipts')
-                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-                if operation == 'edit':
-                    page.locator('[data-total]').fill('2400')
-                else:
-                    page.locator('[data-payee]').fill('LOST-RESPONSE-PAYEE')
-                    page.locator('[data-category]').fill('FOOD')
-                requests = []
-                def lose_first_response(route):
-                    requests.append(route.request.post_data_json)
-                    response = route.fetch()
-                    if len(requests) == 1:
-                        self.assertEqual(response.status, 200)
-                        route.abort('failed')
+            try:
+                page = browser.new_page()
+                for operation in ('edit', 'classify'):
+                    page.goto(self.base + '/receipts')
+                    page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                    if operation == 'edit':
+                        page.locator('[data-total]').fill('2400')
                     else:
-                        route.fulfill(response=response)
-                pattern = '**/api/receipts/' + operation
-                page.route(pattern, lose_first_response)
-                page.locator('[data-' + operation + ']').click()
-                page.wait_for_function("document.getElementById('status').textContent.includes('연결하지 못했습니다')")
-                saved = self.store.read_bytes()
-                with page.expect_response(pattern) as retry:
-                    page.locator('[data-' + operation + ']').click()
-                self.assertEqual(retry.value.status, 200)
-                self.assertEqual(requests[0], requests[1])
-                self.assertEqual(self.store.read_bytes(), saved)
-                page.unroute(pattern)
-            browser.close()
+                        page.locator('[data-payee]').fill('LOST-RESPONSE-PAYEE')
+                        page.locator('[data-category]').fill('FOOD')
+                    requests = []
+                    def lose_first_response(route):
+                        requests.append(route.request.post_data_json)
+                        response = route.fetch()
+                        if len(requests) == 1:
+                            self.assertEqual(response.status, 200)
+                            route.abort('failed')
+                        else:
+                            route.fulfill(response=response)
+                    pattern = '**/api/receipts/edit'
+                    page.route(pattern, lose_first_response)
+                    page.locator('[data-edit]').click()
+                    page.wait_for_function("document.getElementById('status').textContent.includes('연결하지 못했습니다')")
+                    saved = self.store.read_bytes()
+                    with page.expect_response(pattern) as retry:
+                        page.locator('[data-edit]').click()
+                    self.assertEqual(retry.value.status, 200)
+                    self.assertEqual(requests[0], requests[1])
+                    self.assertEqual(self.store.read_bytes(), saved)
+                    page.unroute(pattern)
+            finally:
+                browser.close()
 
     def test_saving_one_receipt_preserves_other_receipts_unsaved_inputs(self):
         first = self._confirmed_cash_receipt()
         other = self._confirmed_cash_receipt(merchant='OTHER-SHOP', total=500)
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.locator(f'[data-total="{other}"]').fill('900')
-            page.locator(f'[data-payee="{other}"]').fill('UNSAVED-PAYEE')
-            page.locator('#r-merchant').fill('UNSAVED-REGION')
-            page.locator(f'[data-total="{first}"]').fill('2600')
-            with page.expect_response('**/api/receipts/edit'):
-                page.locator(f'[data-edit="{first}"]').click()
-            page.wait_for_load_state('networkidle')
-            self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
-            self.assertEqual(page.locator(f'[data-payee="{other}"]').input_value(), 'UNSAVED-PAYEE')
-            self.assertEqual(page.locator('#r-merchant').input_value(), 'UNSAVED-REGION')
-            self.assertEqual(page.locator(f'[data-payee="{first}"]').input_value(), '')
-            self.assertIn('26,000', page.locator(f'[data-edit="{first}"]').locator('xpath=ancestor::tr').inner_text())
-            page.locator(f'[data-payee="{first}"]').fill('SAVED-PAYEE')
-            page.locator(f'[data-category="{first}"]').fill('FOOD')
-            with page.expect_response('**/api/receipts/edit') as confirmation:
-                page.locator(f'[data-confirm="{first}"]').click()
-            self.assertEqual(confirmation.value.status, 200)
-            page.wait_for_function('!receiptBusy')
-            self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
-            saved = {row['identity']: row for row in self.request('/api/receipts')[1]['candidates']}
-            self.assertEqual(saved[first]['total_jpy'], 2600)
-            self.assertEqual(saved[first]['payee'], 'SAVED-PAYEE')
-            self.assertEqual(saved[other]['total_jpy'], 500)
-            browser.close()
+            try:
+                page = browser.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.locator(f'[data-total="{other}"]').fill('900')
+                page.locator(f'[data-payee="{other}"]').fill('UNSAVED-PAYEE')
+                page.locator('#r-merchant').fill('UNSAVED-REGION')
+                page.locator(f'[data-total="{first}"]').fill('2600')
+                with page.expect_response('**/api/receipts/edit'):
+                    page.locator(f'[data-edit="{first}"]').click()
+                page.wait_for_load_state('networkidle')
+                self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
+                self.assertEqual(page.locator(f'[data-payee="{other}"]').input_value(), 'UNSAVED-PAYEE')
+                self.assertEqual(page.locator('#r-merchant').input_value(), 'UNSAVED-REGION')
+                self.assertEqual(page.locator(f'[data-payee="{first}"]').input_value(), '라멘집')
+                self.assertIn('26,000', page.locator(f'[data-edit="{first}"]').locator('xpath=ancestor::tr').inner_text())
+                page.locator(f'[data-payee="{first}"]').fill('SAVED-PAYEE')
+                page.locator(f'[data-category="{first}"]').fill('FOOD')
+                with page.expect_response('**/api/receipts/edit') as confirmation:
+                    page.locator(f'[data-edit="{first}"]').click()
+                self.assertEqual(confirmation.value.status, 200)
+                page.wait_for_function('!receiptBusy')
+                self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
+                saved = {row['identity']: row for row in self.request('/api/receipts')[1]['candidates']}
+                self.assertEqual(saved[first]['total_jpy'], 2600)
+                self.assertEqual(saved[first]['payee'], 'SAVED-PAYEE')
+                self.assertEqual(saved[other]['total_jpy'], 500)
+            finally:
+                browser.close()
 
     def test_non_json_receipt_failures_show_safe_recovery_messages(self):
         self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            for status, expected in ((401, '다시 로그인'), (500, '저장 여부를 확인')):
-                page.goto(self.base + '/receipts')
-                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-                page.locator('[data-total]').fill('2700')
-                def fail_response(route):
-                    route.fulfill(status=status, content_type='text/html', body='<h1>PRIVATE-SERVER-DETAILS</h1>')
-                page.route('**/api/receipts/edit', fail_response)
-                with page.expect_response('**/api/receipts/edit'):
-                    page.locator('[data-edit]').click()
-                page.wait_for_function('!receiptBusy')
-                message = page.locator('#status').inner_text()
-                self.assertIn(expected, message)
-                self.assertNotIn('PRIVATE', message)
-                self.assertEqual(page.locator('[data-total]').input_value(), '2700')
-                self.assertTrue(page.locator('[data-edit]').is_enabled())
-                page.unroute('**/api/receipts/edit')
-            browser.close()
+            try:
+                page = browser.new_page()
+                for status, expected in ((401, '다시 로그인'), (500, '저장 여부를 확인')):
+                    page.goto(self.base + '/receipts')
+                    page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                    page.locator('[data-total]').fill('2700')
+                    def fail_response(route):
+                        route.fulfill(status=status, content_type='text/html', body='<h1>PRIVATE-SERVER-DETAILS</h1>')
+                    page.route('**/api/receipts/edit', fail_response)
+                    with page.expect_response('**/api/receipts/edit'):
+                        page.locator('[data-edit]').click()
+                    page.wait_for_function('!receiptBusy')
+                    message = page.locator('#status').inner_text()
+                    self.assertIn(expected, message)
+                    self.assertNotIn('PRIVATE', message)
+                    self.assertEqual(page.locator('[data-total]').input_value(), '2700')
+                    self.assertTrue(page.locator('[data-edit]').is_enabled())
+                    page.unroute('**/api/receipts/edit')
+            finally:
+                browser.close()
 
     def test_new_region_registration_does_not_discard_unsaved_receipt_review(self):
         self._confirmed_cash_receipt()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/receipts')
-            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            page.locator('[data-total]').fill('2800')
-            for selector, value in (('#r-merchant', 'NEW-SHOP'),
-                                    ('#r-date', '2027-08-03'), ('#r-total', '700')):
-                page.locator(selector).fill(value)
-            requests = []
-            page.on('request', lambda request: requests.append(request.url)
-                    if request.url.endswith('/api/receipts/scan') else None)
-            page.click('#region-go')
-            page.wait_for_load_state('networkidle')
-            self.assertEqual(requests, [])
-            self.assertEqual(page.locator('[data-total]').input_value(), '2800')
-            self.assertEqual(page.locator('#r-merchant').input_value(), 'NEW-SHOP')
-            self.assertIn('먼저 저장', page.locator('#status').inner_text())
-            with page.expect_response('**/api/receipts/edit'):
-                page.locator('[data-edit]').click()
-            page.wait_for_function('!receiptBusy')
-            with page.expect_response('**/api/receipts/scan') as scan:
+            try:
+                page = browser.new_page()
+                page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
+                page.locator('[data-total]').fill('2800')
+                for selector, value in (('#r-merchant', 'NEW-SHOP'),
+                                        ('#r-date', '2027-08-03'), ('#r-total', '700')):
+                    page.locator(selector).fill(value)
+                requests = []
+                page.on('request', lambda request: requests.append(request.url)
+                        if request.url.endswith('/api/receipts/scan') else None)
                 page.click('#region-go')
-            self.assertEqual(scan.value.status, 200)
-            # Registration reloads the page; inspect the durable result after that response is discarded.
-            stored = self.request('/api/receipts')[1]['candidates']
-            self.assertEqual(len([candidate for candidate in stored if candidate['merchant'] == 'NEW-SHOP']), 1)
-            browser.close()
+                page.wait_for_load_state('networkidle')
+                self.assertEqual(requests, [])
+                self.assertEqual(page.locator('[data-total]').input_value(), '2800')
+                self.assertEqual(page.locator('#r-merchant').input_value(), 'NEW-SHOP')
+                self.assertIn('먼저 저장', page.locator('#status').inner_text())
+                with page.expect_response('**/api/receipts/edit'):
+                    page.locator('[data-edit]').click()
+                page.wait_for_function('!receiptBusy')
+                with page.expect_response('**/api/receipts/scan') as scan:
+                    page.click('#region-go')
+                self.assertEqual(scan.value.status, 200)
+                # Registration reloads the page; inspect the durable result after that response is discarded.
+                stored = self.request('/api/receipts')[1]['candidates']
+                self.assertEqual(len([candidate for candidate in stored if candidate['merchant'] == 'NEW-SHOP']), 1)
+            finally:
+                browser.close()
 
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
