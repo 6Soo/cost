@@ -1,3 +1,11 @@
+## 2026-11-02 지출 정리 가로 탭·전체 UI/UX 개선 완료
+
+- COMPLETE — 사용자 “해당 메뉴들을 가로로 배치하면 하위메뉴로 두지 않아도될거같은데. 지출정리 페이지의 uiux전체를 개선해”. [PR #504](https://github.com/6Soo/cost/pull/504), 구현 `8feee6d9bde29d91b383bda62033072d282df84c`, 병합·고정 운영 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`, 이전 검증 `959c139c850b9f86d570cca2b7cc7d2842737db2`.
+- 카드 자료 관리의 중첩 메뉴를 정리할 지출·저장된 자료·카드 업로드·분류 규칙의 최상위 가로 탭으로 전환했다. 상태 필터·PC 두 열/모바일 한 열 카드·파일 목록·업로드 영역·규칙 폼을 개선하고, 키보드 방향키/Home/End·선택 URL·새로고침·뒤로가기·편집값 유지를 지원한다. 업로드에서는 이전 파일 거래를 숨기며 재개 오류와 현재 업로드 결과를 표시한다. 기존 금융·수동·환불·업로드·CSRF 처리기를 재사용한다.
+- 검증: 표적125 passed/기존3 failed는 변경 전 동일 재현, 보호39 passed, 최종 인접11 passed(중복 포함). ego-browser 합성320/390/768/1440px×4탭 가로배치·넘침0, 밝음/어두움·키보드/URL·업로드 재개·편집값 유지 수락. 추가375px·가로 화면·큰 글자 넘침0. 로그인된 운영 화면 네 탭 및390px 가로배치·넘침0 수락, TaskSpace14 정상 종료. 전체 회귀·실기기·실제 파일 업로드는 국소 화면 변경으로 미실행이다.
+- 배포1,268 blobs 불일치0·검사/병합 tree 동일·task/process 고정SHA·단일loopback listener·health/ready200·보호API401/403·금융보호13표 전후 불변 PASS. 이전 검증 릴리스/task XML 복구점을 보존했으며 코드 전용으로 새 전체DB백업/복원은 반복하지 않았다. 실제 금융/분류/여행/환불/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/expense-ux-20261102/`의 targeted/baseline/protection/final-adjacent XML·browser-results/browser-adjacent·live.json·review/release-audit/deploy-evidence/checkpoint. 사용자·병행 변경을 보존하고 별도index로 본 변경만 커밋했다. 요청 미결/차단0·다음 기능 명령 없음. 문서 후속만으로 재검사·재배포·재시작하지 않는다.
+
 ## 2026-11-02 웹 텍스트 액션 버튼 전역 정리 완료
 
 - COMPLETE — [조사·판단·검증 범위](specs/action-buttons-audit-20261102.md). 중복 카드 검색 진입점 제거, 카드 자료 관리 제목 정리, 필요한 액션의 아이콘·테두리·focus·모바일44px·비동기 갱신 공통화. 데이터 링크·테마 아이콘·핸들러·권한 유지. 복합 메뉴 이중 테두리·보험행 높이 회귀 보정.
