@@ -2098,7 +2098,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 body = page(csrf)
                 from . import card_cleanup_queries
                 reason_values = (query or {}).get('cleanup_reason') or ['all']
-                cleanup_reason = reason_values[0] if len(reason_values) == 1 else None
+                if len(reason_values) > 1:
+                    handler._send('잘못된 지출 정리 필터입니다.', 400)
+                    return True
+                cleanup_reason = reason_values[0]
+                cleanup_reason = card_cleanup_queries.LEGACY_REASONS.get(cleanup_reason, cleanup_reason)
                 if cleanup_reason not in card_cleanup_queries.REASONS:
                     handler._send('잘못된 지출 정리 필터입니다.', 400)
                     return True

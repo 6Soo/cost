@@ -431,3 +431,25 @@ def test_unprepared_quarter_copy_stays_rejected_without_writes(service):
     assert code == 400 and json.loads(body)['code'] == 'QUARTER_SHEET_NOT_READY'
     assert board.conn.total_changes == before_changes
     assert service.snapshot.read_bytes() == before_snapshot
+
+
+@pytest.mark.parametrize(('legacy', 'canonical'), [
+    ('no_item', 'classification'),
+    ('no_trip', 'classification'),
+    ('protected', 'evidence'),
+    ('other_review', 'classification'),
+])
+def test_import_cleanup_keeps_legacy_filter_bookmarks(service, legacy, canonical):
+    code, body, _ = service.request(
+        '/import?cleanup_reason=' + quote(legacy), cookie=service.cookie(OWNER))
+    assert code == 200, body[:500]
+    assert (f"href='/import?cleanup_reason={canonical}#expense-cleanup' "
+            "aria-current='page'") in body
+
+    invalid_code, _, _ = service.request(
+        '/import?cleanup_reason=unknown', cookie=service.cookie(OWNER))
+    duplicate_code, _, _ = service.request(
+        '/import?cleanup_reason=no_item&cleanup_reason=no_trip',
+        cookie=service.cookie(OWNER))
+    assert invalid_code == 400
+    assert duplicate_code == 400
