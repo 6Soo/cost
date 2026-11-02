@@ -15,7 +15,10 @@ def test_card_upload_accepts_multiple_files_and_drop_target_is_keyboard_accessib
                 content_type="application/json", body='{"rules": []}'))
             screen.route("http://synthetic.test/api/imports", lambda r: r.fulfill(
                 content_type="application/json", body='{"batches": []}'))
-            screen.goto("http://synthetic.test/import#newupload")
+            screen.goto("http://synthetic.test/import")
+            screen.locator("#expense-tab-upload").click()
+            upload_section = screen.locator("#newupload")
+            expect(upload_section).to_have_attribute("open", "")
             expect(screen.locator("#upload-drop")).to_be_visible()
             screen.locator("#file").set_input_files([
                 {"name": "january.csv", "mimeType": "text/csv", "buffer": b"a,b\n"},
@@ -68,7 +71,12 @@ def test_upload_queue_continues_after_failure_and_preserves_each_outcome():
                     "status": "passed" if len(requests) == 1 else "incomplete"}})
 
             screen.route("http://synthetic.test/api/**", respond)
-            screen.goto("http://synthetic.test/import")
+            screen.goto("http://synthetic.test/import#newupload")
+            upload_section = screen.locator("#newupload")
+            if upload_section.get_attribute("open") is None:
+                screen.locator("#newupload > summary").click()
+            expect(upload_section).to_have_attribute("open", "")
+            expect(screen.locator("#upload-drop")).to_be_visible()
             # Rendering the full ledger is covered by the existing server/browser test.
             screen.evaluate("render = () => {}")
             screen.locator("#file").set_input_files([

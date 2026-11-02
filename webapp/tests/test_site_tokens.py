@@ -22,6 +22,27 @@ from playwright.sync_api import sync_playwright
 from webapp import site_assets, site_shell, site_theme, ledger_board, ledger_design
 
 
+# Independent geometry reference: 40px menu control, 232px navigation, and
+# 44px theme control. This is an explicit contract fixture, not a byte-for-byte
+# copy of a historical stylesheet; it remains independent of the candidate CSS.
+BASELINE_SHELL_CSS = """\
+:root{--shell-bg:#F8FAFC;--shell-paper:#FFFFFF;--shell-ink:#0F172A;--shell-muted:#475569;--shell-warn:#B54708;--shell-line:#E2E8F0;--shell-line-strong:#D0D5DD;--shell-hover:#F8FAFC;--shell-selected:#ECF5EF;--shell-accent:#1C7A52;--shell-focus:#2266F5;--shell-overlay:rgba(16,24,40,.38);--shell-nav-width:232px;--shell-drawer-width:min(300px,85vw);--shell-topbar-height:56px;--shell-control-min:40px}
+@media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A;--shell-paper:#1E293B;--shell-ink:#F8FAFC;--shell-muted:#94A3B8;--shell-warn:#FBBF24;--shell-line:#334155;--shell-line-strong:#475569;--shell-hover:#334155;--shell-selected:#1E3A5F;--shell-accent:#34D399;--shell-focus:#93C5FD;--shell-overlay:rgba(0,0,0,.62)}}
+.site-topbar{display:flex;justify-content:flex-end}.site-topbar>.site-menu-toggle,.site-topbar>span{display:none}@media(width < 760px){.site-topbar>.site-menu-toggle{display:inline-flex}.site-topbar>span{display:inline}}.site-menu-toggle{box-sizing:border-box;height:40px;min-height:40px;font:inherit;padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+#nav{box-sizing:border-box;width:var(--shell-nav-width,232px);flex:0 0 var(--shell-nav-width,232px);min-height:0;margin:0;padding:0;display:flex;flex-direction:column;overflow:auto;background:var(--shell-bg,#F7F9FC);border-right:1px solid var(--shell-line,#E4E7EC);color:var(--shell-ink,#182230)}
+.site-app>#nav{position:fixed;inset:0 auto 0 0;z-index:45}
+#site-content{margin-left:var(--shell-nav-width,232px);width:calc(100% - var(--shell-nav-width,232px));min-width:0;padding:16px}
+@media(width < 760px){#nav{width:min(var(--shell-drawer-width,min(300px,85vw)),100%);flex-basis:auto}.site-topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;min-height:var(--shell-topbar-height,56px);box-sizing:border-box;padding:8px 16px;background:var(--shell-paper,#fff);border-bottom:1px solid var(--shell-line,#E4E7EC)}.site-app>#nav{width:var(--shell-drawer-width,min(300px,85vw));transform:translateX(-100%)}#site-content{margin-left:0;width:100%;padding:12px}}
+"""
+BASELINE_THEME_CSS = """\
+:root{--shell-theme-control-size:44px;--shell-warn-bg:#FFF0E7;--shell-danger:#B42318}
+:root[data-theme="dark"]{--shell-warn-bg:#332D20;--shell-danger:#FDA4AF}
+:root{--bg:var(--shell-bg);--paper:var(--shell-paper);--ink:var(--shell-ink);--mut:var(--shell-muted);--line:var(--shell-line);--focus:var(--shell-focus);--warn:var(--shell-warn);--bad:var(--shell-danger)}
+body.site-standalone{background:var(--shell-bg);color:var(--shell-ink)}
+#site-theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:var(--shell-theme-control-size,44px);min-width:var(--shell-theme-control-size,44px);height:var(--shell-theme-control-size,44px);min-height:var(--shell-theme-control-size,44px);padding:0;margin:0;border:1px solid var(--shell-line-strong);border-radius:10px;background:var(--shell-paper);color:var(--shell-ink);cursor:pointer}
+"""
+
+
 def test_canonical_single_ownership_of_geometry_and_control_tokens():
     """Verify site_shell.css is the sole canonical owner of geometry and control tokens."""
     shell_css = site_assets.SHELL_STYLE
@@ -140,13 +161,9 @@ def test_chromium_true_baseline_differential_matrix():
     - 2 CSS zoom scales: 1.0 (100%), 2.0 (200%)
     - 2 themes: light, dark
     """
-    # Load baseline CSS from commit a10ba4c
-    base_shell_css = subprocess.check_output(
-        ["git", "show", "a10ba4c:webapp/static/css/site_shell.css"], text=True, encoding="utf-8"
-    )
-    base_theme_css = subprocess.check_output(
-        ["git", "show", "a10ba4c:webapp/static/css/site_theme.css"], text=True, encoding="utf-8"
-    )
+    # Use the reviewed fixture rather than requiring a particular local Git object.
+    base_shell_css = BASELINE_SHELL_CSS
+    base_theme_css = BASELINE_THEME_CSS
 
     standalone_raw = "<!doctype html><html><head><title>S</title></head><body><main>Main</main></body></html>"
     native_raw = ledger_design.render(

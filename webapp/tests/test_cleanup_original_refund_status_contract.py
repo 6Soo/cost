@@ -1,11 +1,18 @@
 """Protect the distinction between OTA evidence and settled refund linkage."""
-from pathlib import Path
+from webapp import card_flow
+from webapp.tests.test_refund_inference_runtime import context
 
 
-def test_cleanup_original_shows_refund_offset_even_if_ota_refreshing():
-    source = (Path(__file__).resolve().parents[1] / 'card_flow.py').read_text(encoding='utf-8')
-    assert 'original_refunds.setdefault' in source
-    assert 'if tid not in cancellation_ids and tid in original_refunds:' in source
-    assert 'OTA 예약 연결 상태와 금융 기록은 별개입니다.' in source
-    assert '실제 장부 기록·환급 완료를 의미하지 않습니다.' in source
-    assert 'trip_no_longer_valid' in source
+def test_cleanup_original_shows_refund_offset_even_if_ota_refreshing(context):
+    store, flow, batch, original, refund = context
+    store.conn.execute('UPDATE transactions SET original_approval_number=? WHERE transaction_id=?',
+                       ('100', refund))
+    store.conn.commit()
+    before = list(store.conn.iterdump())
+    markup = card_flow.render_expense_cleanup(store, 'synthetic-csrf')
+    assert markup.count(f"data-transaction='{original}'") == 1
+    assert markup.count(f"data-transaction='{refund}'") == 1
+    assert '환불 상쇄 확인' in markup
+    assert '원승인번호 기준 원결제 확정 연결' in markup
+    assert store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
+    assert list(store.conn.iterdump()) == before

@@ -1,24 +1,28 @@
 import json
-import urllib.request
-import urllib.error
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import pytest
 
 from webapp import google_ledger_page as gl
+from webapp import google_ledger_actions
 from webapp.tests import test_google_viewer_http as existing
 
 
-def post(app, path, payload):
-    request = urllib.request.Request(f'http://127.0.0.1:{app.port}{path}',
-        data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json',
-            existing.access_control.SyntheticSessionAdapter.HEADER: existing.OWNER,
-            'X-CSRF-Token': existing.board_mod.CSRF_TOKEN})
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def get_without_following_redirect(app, path, user):
+    request = Request(f'http://127.0.0.1:{app.port}{path}', headers={
+        existing.access_control.SyntheticSessionAdapter.HEADER: user})
     try:
-        response = urllib.request.urlopen(request)
-    except urllib.error.HTTPError as error:
+        response = build_opener(_NoRedirect).open(request)
+    except HTTPError as error:
         response = error
     with response:
-        return response.status, response.read().decode()
+        return response.status, response.headers, response.read().decode()
 
 
 def test_duplicate_cost_tab_is_refused_without_modifying_mapping(tmp_path):
@@ -53,30 +57,43 @@ def app():
         case.tearDown()
 
 
-def test_mapping_http_requires_a_current_cost_tab(app):
-    status, body = post(app, '/api/google-ledger/mapping',
-                            {'key': '0630_오제', 'tab_id': 'does-not-exist'})
-    assert (status, json.loads(body)['code']) == (400, 'COST_TAB_UNKNOWN')
-    assert not gl.mapping_path(app.snapshot).exists()
+def test_current_source_api_checks_owner_mapping_viewer_grant_and_assignment(app, monkeypatch):
+    tab = app.trip
+    key = '0630_오제'
+    gl.set_mapping(app.snapshot, key=key, tab_id=tab, known_keys={key, '0107_대만'})
+    mapping_before = gl.mapping_path(app.snapshot).read_bytes()
+    source_before = app.snapshot.read_bytes()
+    target_url = 'https://synthetic.invalid/google-sheet'
+    monkeypatch.setattr(google_ledger_actions, 'source_url', lambda source, sheet: target_url)
 
+    status, headers, body = get_without_following_redirect(
+        app, f'/api/google-ledger/source?trip={tab}', existing.OWNER)
+    assert status == 302 and headers['Location'] == target_url
+    assert headers['Cache-Control'] == 'no-store' and body == ''
 
-def test_http_rejects_string_boolean_and_unknown_trip_grant(app):
-    for data in ({'keys': ['0630_오제'], 'granted': 'false'},
-                 {'keys': ['unknown-trip'], 'granted': True}):
-        status, body = post(app, '/api/google-ledger/grants',
-                                dict(data, user_id=existing.VIEWER))
-        assert status == 400, body
-    assert not gl.grants_path(app.snapshot).exists()
+    app.link_and_assign(existing.VIEWER, tab)
+    status, _, body = get_without_following_redirect(
+        app, f'/api/google-ledger/source?trip={tab}', existing.VIEWER)
+    assert status == 404 and 'ALICE-NAME' not in body
 
+    app.grant_and_link(existing.VIEWER, key, tab)
+    grants_before = gl.grants_path(app.snapshot).read_bytes()
+    mapping_before = gl.mapping_path(app.snapshot).read_bytes()
+    status, headers, body = get_without_following_redirect(
+        app, f'/api/google-ledger/source?trip={tab}', existing.VIEWER)
+    assert status == 302 and headers['Location'] == target_url and body == ''
 
-def test_settings_http_rejects_non_object_json_without_writes(app):
-    for route in ('choice', 'mapping', 'grants'):
-        for body in ([], None, 'invalid', 123):
-            status, response = post(app, '/api/google-ledger/' + route, body)
-            assert (status, json.loads(response)['code']) == (400, 'INVALID_VALUE')
-    assert not gl.choice_path(app.snapshot).exists()
-    assert not gl.mapping_path(app.snapshot).exists()
-    assert not gl.grants_path(app.snapshot).exists()
+    app.access.apply_assignment_snapshot(
+        user_id=existing.VIEWER,
+        items=[{'tab_id': tab, 'snapshot_revision': 2, 'state': existing.access_control.ASSIGN_REVOKED}],
+        source_version='source-revoked', validity=existing.access_control.DEFAULT_VALIDITY,
+        now=None, complete=False)
+    status, _, body = get_without_following_redirect(
+        app, f'/api/google-ledger/source?trip={tab}', existing.VIEWER)
+    assert status == 404 and 'ALICE-NAME' not in body
+    assert gl.mapping_path(app.snapshot).read_bytes() == mapping_before
+    assert gl.grants_path(app.snapshot).read_bytes() == grants_before
+    assert app.snapshot.read_bytes() == source_before
 
 
 @pytest.mark.parametrize('loader,path_of,body', [
@@ -95,19 +112,11 @@ def test_corrupt_settings_are_refused_and_preserved(tmp_path, loader, path_of, b
     assert path.read_text(encoding='utf-8') == body
 
 
-def test_corrupt_settings_over_http_fail_closed_and_recover_after_repair(app):
-    app.link_and_assign(existing.VIEWER, app.trip)
-    app.grant_and_link(existing.VIEWER, '0630_오제', app.trip)
-    for path_of in (gl.grants_path, gl.mapping_path, gl.choice_path):
-        path = path_of(app.snapshot)
-        before = path.read_bytes() if path.exists() else None
-        path.write_text('[]', encoding='utf-8')
-        status, body = app.call('/api/google-ledger', user=existing.VIEWER)
-        assert status == 503 and json.loads(body)['code'] == 'SETTINGS_UNAVAILABLE'
-        assert path.read_text(encoding='utf-8') == '[]'
-        if before is None:
-            path.unlink()
-        else:
-            path.write_bytes(before)
-    status, body = app.call('/api/google-ledger', user=existing.VIEWER)
-    assert status == 200 and [trip['key'] for trip in json.loads(body)['trips']] == ['0630_오제']
+def test_corrupt_mapping_read_through_current_source_api_fails_closed_and_preserves_file(app):
+    gl.set_mapping(app.snapshot, key='0630_오제', tab_id=app.trip, known_keys={'0630_오제'})
+    mapping = gl.mapping_path(app.snapshot)
+    mapping.write_text('[]', encoding='utf-8')
+    before = mapping.read_bytes()
+    status, body = app.call(f'/api/google-ledger/source?trip={app.trip}', user=existing.OWNER)
+    assert status == 404 and 'ALICE-NAME' not in body
+    assert mapping.read_bytes() == before

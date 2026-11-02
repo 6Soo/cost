@@ -1662,11 +1662,20 @@ def export_page(selected_tab: str = "") -> str:
     # rendered at all in that state rather than showing its empty form.
     review_note = ""
     if _active_store() is not None:
+        export_store = _active_store()
+        try:
+            conflicting_row_ids = export_store.conflicting_row_ids()
+        except Exception:
+            # Keep the established per-row check if a bulk snapshot is
+            # unavailable; a diagnostics optimization must not hide conflicts.
+            conflict_check = row_has_conflict
+        else:
+            conflict_check = lambda row: (row.get("row_id") or "") in conflicting_row_ids
         trip_counts, rc_summary = board_export_helpers.collect_export_page_summaries(
             live_trips(include_archived=True),
-            list_tab_rows_fn=_active_store().list_tab_rows,
+            list_tab_rows_fn=export_store.list_tab_rows,
             row_needs_review_fn=row_needs_review,
-            row_has_conflict_fn=row_has_conflict,
+            row_has_conflict_fn=conflict_check,
         )
         lines = []
         for tc in trip_counts:

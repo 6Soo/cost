@@ -117,7 +117,7 @@ def test_filter_trips_and_unclassified():
 
 
 def test_collect_export_page_summaries_query_count_and_sequence(tmp_path):
-    """Verify query call sequence and single unclassified query in export summaries."""
+    """Verify each trip and the unclassified bucket are loaded once, in order."""
     store = LedgerStore(tmp_path / "synth_export.sqlite", seed_demo=True)
     trips = store.list_trips(include_archived=True)
 
@@ -134,11 +134,11 @@ def test_collect_export_page_summaries_query_count_and_sequence(tmp_path):
             row_has_conflict_fn=lambda r: False,
         )
 
-        # Expected sequence: trips loop 1, then None once, then trips loop 2
-        expected_calls = [t["tab_id"] for t in trips] + [None] + [t["tab_id"] for t in trips]
+        # The same trip rows feed counts and diagnostics; None is still queried once.
+        expected_calls = [t["tab_id"] for t in trips] + [None]
         assert calls == expected_calls
         assert calls.count(None) == 1
-        assert len(calls) == 2 * len(trips) + 1
+        assert len(calls) == len(trips) + 1
 
         # Check counts
         assert len(trip_counts) == len(trips) + 1

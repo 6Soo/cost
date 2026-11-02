@@ -160,7 +160,12 @@ def test_valid_card_without_ota_can_still_prepare(context, monkeypatch):
     monkeypatch.setattr(card_flow.CardFlow, 'trip_valid', lambda self, target: target == trip['tab_id'])
     changes = board.conn.total_changes
     markup = card_flow.render_expense_cleanup(board, 'csrf')
-    assert '장부 기록 가능' in markup
+    assert f"data-transaction='{tid}'" not in markup  # classified valid rows have left cleanup
+    batch = board.conn.execute('SELECT batch_id FROM transactions WHERE transaction_id=?', (tid,)).fetchone()[0]
+    preview = flow.pipeline.preview(batch, trip_validator=lambda target: target == trip['tab_id'],
+                                    tab_validator=lambda target: target == trip['tab_id'])
+    assert preview['ready'] == 1
+    assert not preview['rows'][0].get('blocked')
     assert board.conn.total_changes == changes
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
 

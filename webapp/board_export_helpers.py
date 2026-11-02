@@ -34,15 +34,18 @@ def collect_export_page_summaries(
     row_needs_review_fn: Callable[[Dict[str, Any]], bool],
     row_has_conflict_fn: Callable[[Dict[str, Any]], bool],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Collect trip row counts and review/conflict summary preserving exact query count and sequence.
+    """Collect trip row counts and review/conflict summary from one read per tab.
 
     Enforces required keys row_kind, display_key, and archived.
-    Evaluates list_tab_rows_fn(None) exactly once and reuses the rows for both
-    counts and review/conflict tallies, preserving the exact store call order.
+    Evaluates list_tab_rows_fn once per trip and once for None, then reuses those
+    rows for both counts and review/conflict tallies. The remaining store calls
+    preserve their original relative order.
     """
     trip_counts: List[Dict[str, Any]] = []
+    rows_by_trip: List[Tuple[Dict[str, Any], List[Dict[str, Any]]]] = []
     for t in trips:
         rows = list_tab_rows_fn(t["tab_id"])
+        rows_by_trip.append((t, rows))
         inc = sum(1 for r in rows if r["row_kind"] == "income")
         exp = sum(1 for r in rows if r["row_kind"] == "expense")
         trip_counts.append({
@@ -66,8 +69,7 @@ def collect_export_page_summaries(
     review_total = 0
     conflict_total = 0
     per_tab: List[Dict[str, Any]] = []
-    for t in trips:
-        trows = list_tab_rows_fn(t["tab_id"])
+    for t, trows in rows_by_trip:
         n_review = sum(1 for r in trows if row_needs_review_fn(r))
         n_conflict = sum(1 for r in trows if row_has_conflict_fn(r))
         review_total += n_review

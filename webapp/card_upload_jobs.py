@@ -28,41 +28,91 @@ def status(board, identity):
 
 def start(board, handler, flow, received, source_file, inspection):
     # receive + queue_batch have committed before this acknowledgement. Repeating
-    # bytes cannot create duplicate transactions; active jobs are coalesced too.
+    # bytes cannot create duplicate transactions; active and completed jobs are
+    # coalesced too. Failed jobs deliberately get a fresh worker for retry.
+    completed = None
     with _guard:
         jobs = getattr(board, '_upload_jobs', None)
         if jobs is None:
             jobs = board._upload_jobs = {}
         for identity, job in list(jobs.items()):
-            if job['public']['status'] == 'running' and job['batch_id'] == received['batch_id']:
-                return dict(status_url=PREFIX+identity, batch_id=received['batch_id'], status='running', source_rows_persisted=True)
+            public = job['public']
+            if (public['status'] in ('running', 'done') and
+                    job['batch_id'] == received['batch_id']):
+                if public['status'] == 'done':
+                    completed = (identity, job)
+                else:
+                    return dict(status_url=PREFIX+identity,
+                                batch_id=received['batch_id'],
+                                status=public['status'],
+                                source_rows_persisted=True)
+                break
             if job['public']['status'] != 'running' and (time.monotonic()-job['created'] > 3600 or len(jobs) >= 16):
                 del jobs[identity]
-        identity = uuid.uuid4().hex
-        job = {'batch_id': received['batch_id'], 'created': time.monotonic(),
-               'public': {'status': 'running', 'message': '파일 접수 완료 · 처리 대기 중'}}
-        jobs[identity] = job
-        def progress(message):
-            with _guard:
-                job['public'] = {'status': 'running', 'message': message}
-        def run():
+        if completed is None:
+            identity = uuid.uuid4().hex
+            job = {'batch_id': received['batch_id'], 'created': time.monotonic(),
+                   'public': {'status': 'running', 'message': '파일 접수 완료 · 처리 대기 중'}}
+            jobs[identity] = job
+            def progress(message):
+                with _guard:
+                    job['public'] = {'status': 'running', 'message': message}
+            def run():
+                try:
+                    # Same lock order as HTTP and the durable completion worker.
+                    with handler.server.store_lock:
+                        if getattr(handler.server, 'runtime_closing', False):
+                            raise RuntimeError('SERVER_STOPPING')
+                        result, code = process(board, handler, flow, received, source_file, inspection, progress)
+                    public = ({'status': 'done', 'result': result} if code == 200 else
+                              {'status': 'error', 'message': result['message']})
+                except Exception:
+                    public = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
+                with _guard:
+                    job['public'] = public
             try:
-                # Same lock order as HTTP and the durable completion worker.
-                with handler.server.store_lock:
-                    if getattr(handler.server, 'runtime_closing', False):
-                        raise RuntimeError('SERVER_STOPPING')
-                    result, code = process(board, handler, flow, received, source_file, inspection, progress)
-                public = ({'status': 'done', 'result': result} if code == 200 else
-                          {'status': 'error', 'message': result['message']})
+                threading.Thread(target=run, name='card-upload', daemon=True).start()
             except Exception:
-                public = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
-            with _guard:
-                job['public'] = public
+                job['public'] = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
+            return dict(status_url=PREFIX+identity, batch_id=received['batch_id'],
+                        status='running', source_rows_persisted=True)
+    if completed:
+        identity, job = completed
+        # Read the latest committed projection after a manual correction. Never
+        # hold _guard while acquiring store_lock: the worker takes them in the
+        # opposite order when it publishes completion.
         try:
-            threading.Thread(target=run, name='card-upload', daemon=True).start()
+            with handler.server.store_lock:
+                fresh = flow.saved_state(received['batch_id'])
+            if (not isinstance(fresh, dict) or fresh.get('refresh_required') or
+                    not isinstance(fresh.get('rows'), list)):
+                raise RuntimeError('LATEST_BATCH_STATE_UNAVAILABLE')
+            with _guard:
+                if getattr(board, '_upload_jobs', {}).get(identity) is job and job['public']['status'] == 'done':
+                    result = dict(job['public']['result'])
+                    result.update(fresh)
+                    result.pop('refresh_required', None)
+                    job['public'] = {'status': 'done', 'result': result}
         except Exception:
-            job['public'] = {'status': 'error', 'message': '원천 파일은 저장되었습니다. 저장된 파일 상세 결과를 확인해 주세요.'}
-        return dict(status_url=PREFIX+identity, batch_id=received['batch_id'], status='running', source_rows_persisted=True)
+            with _guard:
+                if getattr(board, '_upload_jobs', {}).get(identity) is job and job['public']['status'] == 'done':
+                    result = dict(job['public'].get('result') or {})
+                    result.pop('rows', None)
+                    result.pop('preview', None)
+                    result.pop('summary', None)
+                    result['refresh_required'] = True
+                    result['upload_summary'] = dict(result.get('upload_summary') or {},
+                                                    status='refresh_required')
+                    job['public'] = {'status': 'done', 'result': result}
+        with _guard:
+            public = job['public']
+            acknowledgement = dict(status_url=PREFIX+identity,
+                                    batch_id=received['batch_id'],
+                                    status=public['status'],
+                                    source_rows_persisted=True)
+            if public['status'] == 'done':
+                acknowledgement['result'] = public['result']
+            return acknowledgement
 
 
 def process(board, handler, flow, received, source_file, inspection, progress=lambda message: None):

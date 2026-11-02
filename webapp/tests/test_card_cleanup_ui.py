@@ -125,7 +125,13 @@ def test_render_cleanup_card_review_branches():
         item="식비",
         finance_label="내부 비용 기록 준비 가능",
     )
-    assert "분류 근거 · 여행 배정 필요" in rev_norm
+    # The current card places its reason beside the review form, once per row.
+    rendered = card_cleanup_ui.render_cleanup_card_row(card_cleanup_ui.CleanupCardRow(
+        tid='c5', batch='1', revision=1, held=False, merchant='Synthetic', current_tab='',
+        protected=False, label='분류·배정 필요', day='2026-10-01', amount=100,
+        reason='여행 배정 필요', review=rev_norm))
+    assert "<p class='cleanup-reason'>여행 배정 필요</p>" in rendered
+    assert rendered.count('여행 배정 필요') == 1
     assert "value='식비'" in rev_norm
     assert "<button type='submit'>여행 수정</button>" in rev_norm
     assert "<p class='cleanup-finance-status'>내부 비용 기록 준비 가능</p>" in rev_norm

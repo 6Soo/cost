@@ -5,6 +5,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,6 +28,12 @@ class RuleReviewTests(unittest.TestCase):
         card = CARD.replace('합성상점'.encode(), b'AGODA.COM').replace(b'A123', b'AGODA-TEST')
         batch = self.flow.pipeline.receive(card, 'agoda-compound-synthetic.csv')['batch_id']
         transaction_id = self.flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
+        self.server.card_store.conn.execute(
+            'UPDATE transactions SET trip_id=?, display_tab_id=? WHERE transaction_id=?',
+            (self.trip, self.trip, transaction_id))
+        self.server.card_store.conn.commit()
+        original_item = self.server.card_store.conn.execute(
+            'SELECT item FROM transactions WHERE transaction_id=?', (transaction_id,)).fetchone()[0]
         instruction = ('아고다 결제는 숙박비로 분류하고, 예약 이용기간으로 여행을 찾아줘. '
                        '여러 여행에 해당하면 미배정으로 남겨.')
         status, preview = self.post(f'/api/imports/{batch}/rule-proposal',
@@ -45,9 +52,7 @@ class RuleReviewTests(unittest.TestCase):
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.on('dialog', lambda dialog: dialog.accept())
-                page.goto(self.base + '/import')
-                page.locator('#card-review-detail > summary').click()
-                page.locator('#rule-focus option').first.wait_for(state='attached')
+                self.open_rule_browser(page, batch)
                 page.select_option('#rule-focus', transaction_id)
                 page.fill('#rule-text', instruction)
                 page.click('#rule-propose')
@@ -55,7 +60,7 @@ class RuleReviewTests(unittest.TestCase):
                 self.assertIn('숙박비', page.locator('#rule-result').inner_text())
                 self.assertEqual(self.server.card_store.conn.execute(
                     "SELECT COALESCE(item, '') FROM transactions WHERE transaction_id=?",
-                    (transaction_id,)).fetchone()[0], '')
+                    (transaction_id,)).fetchone()[0], original_item)
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
                 page.click('#rule-approve')
                 page.locator('#rule-approve').wait_for(state='detached')
@@ -69,25 +74,24 @@ class RuleReviewTests(unittest.TestCase):
                 browser.close()
 
     def test_cleanup_card_proposal_preview_requires_separate_approval(self):
+        unselected = self.pin_unselected_manual_row()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.on('dialog', lambda dialog: dialog.accept())
-                page.goto(self.base + '/import')
-                page.locator('#card-review-detail > summary').click()
-                page.locator('#rule-focus option').first.wait_for(state='attached')
+                self.open_rule_browser(page, self.batch)
                 page.select_option('#rule-focus', self.tx[0])
                 page.fill('#rule-text', '이 건만 숙박비로 분류해 줘')
                 page.click('#rule-propose')
                 page.locator('#rule-approve').wait_for()
-                self.assertEqual(set(self.items().values()), {''})
+                self.assertEqual(self.items(), {self.tx[0]: '', unselected: '기존 직접 분류'})
                 self.assertIn('숙박비', page.locator('#rule-result').inner_text())
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
                 page.click('#rule-approve')
                 page.locator('#rule-approve').wait_for(state='detached')
                 self.assertEqual(self.items()[self.tx[0]], '숙박비')
-                self.assertEqual(self.items()[self.tx[1]], '')
+                self.assertEqual(self.items()[unselected], '기존 직접 분류')
             finally:
                 browser.close()
 
@@ -98,9 +102,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch()
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
-                page.goto(self.base + '/import')
-                page.locator('#card-review-detail > summary').click()
-                page.locator('#rule-focus option').first.wait_for(state='attached')
+                self.open_rule_browser(page, self.batch)
                 page.select_option('#rule-focus', self.tx[0])
                 page.fill('#rule-text', '이 가맹점은 앞으로 현지잡비로 분류해 줘')
                 page.click('#rule-propose')
@@ -113,7 +115,10 @@ class RuleReviewTests(unittest.TestCase):
                 ledger_before = self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]
                 page.get_by_role('button', name='규칙 저장하고 다시 분류', exact=True).click()
                 page.get_by_text('규칙은 저장되고 분류도 다시 계산됐습니다.', exact=False).wait_for()
-                self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], ledger_before)
+                self.assertEqual(ledger_before, 0)
+                self.assertEqual(self.server.card_store.conn.execute(
+                    'SELECT COUNT(*), COUNT(DISTINCT transaction_id) FROM ledger_entries').fetchone(), (2, 2))
+                self.assertEqual(self.flow.auto_record(self.batch)['auto_recorded'], 0)
                 self.assertTrue(any(r['conditions']['merchant_normalized'] == merchant
                                     and r['effects']['item'] == '현지잡비'
                                     for r in self.flow.pipeline.list_rules()))
@@ -125,26 +130,34 @@ class RuleReviewTests(unittest.TestCase):
             finally:
                 browser.close()
 
-    @unittest.skipUnless(os.environ.get('COST_LOCAL_AI_SMOKE') == '1', 'Opt-in local AI engine smoke')
-    def test_actual_local_ai_browser_proposal_requires_approval(self):
-        with patch.dict(os.environ, {'WEBLEDGER_LOCAL_RULE_AI': '1'}), sync_playwright() as api:
+    def test_local_ai_browser_proposal_requires_explicit_approval(self):
+        """Always exercise the UI with a synthetic adapter; opt in to a real local engine."""
+        from app import local_rule_ai
+        live_engine = os.environ.get('COST_LOCAL_AI_SMOKE') == '1'
+        unselected = self.pin_unselected_manual_row()
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {'WEBLEDGER_LOCAL_RULE_AI': '1'}))
+            if not live_engine:
+                stack.enter_context(patch.object(
+                    local_rule_ai, 'interpret', return_value='이 건만 현지잡비로 분류'))
+            api = stack.enter_context(sync_playwright())
             browser = api.chromium.launch()
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
-                page.goto(self.base + '/import')
-                page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+                self.open_rule_browser(page, self.batch)
                 page.select_option('#rule-focus', self.tx[0])
                 page.fill('#rule-text', '이 결제는 식비가 아니라 현지잡비야. 이번만 그렇게 분류해 줘.')
                 page.click('#rule-propose')
                 page.locator('#rule-approve').wait_for(timeout=25000)
                 self.assertEqual(page.locator('#rule-text').input_value(), '이 건만 현지잡비로 분류')
-                self.assertEqual(set(self.items().values()), {''})
+                self.assertEqual(self.items(), {self.tx[0]: '', unselected: '기존 직접 분류'})
                 page.click('#rule-approve')
                 page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
-                page.reload()
+                page.goto(self.base + '/import?batch=' + self.batch + '#preview')
+                page.locator('[data-review-state="all"]').click()
                 page.locator('#preview').get_by_text('현지잡비').first.wait_for()
                 self.assertEqual(self.items()[self.tx[0]], '현지잡비')
-                self.assertEqual(self.items()[self.tx[1]], '')
+                self.assertEqual(self.items()[unselected], '기존 직접 분류')
             finally:
                 browser.close()
 
@@ -224,11 +237,45 @@ class RuleReviewTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read().decode('utf-8') or '{}')
 
+    def open_rule_browser(self, page, batch=None):
+        """Select the intended saved batch, then expose its rule controls in the rules tab."""
+        page.goto(self.base + '/import')
+        page.locator('#expense-tab-saved').click()
+        if batch:
+            choice = page.locator(f'#batches [data-batch="{batch}"]')
+            choice.wait_for(state='visible')
+            choice.click()
+            page.wait_for_function('(id) => model && model.batch_id === id', arg=batch)
+        else:
+            page.wait_for_function('() => Boolean(model && model.batch_id)')
+        page.locator('#rule-panel #rule-focus option').first.wait_for(state='attached')
+        page.locator('#expense-tab-rules').click()
+        page.locator('#rule-panel #rule-focus').wait_for(state='visible')
+        self.assertEqual(page.locator('#expense-tab-rules').get_attribute('aria-selected'), 'true')
+
     def items(self):
         rows = self.server.card_store.conn.execute(
             'SELECT transaction_id, item FROM transactions WHERE transaction_id IN (%s)' %
             ','.join('?' * len(self.tx)), self.tx).fetchall()
         return {tid: item for tid, item in rows}
+
+    def pin_unselected_manual_row(self, selected_transaction_id=None):
+        """Keep automatic batch processing from obscuring the reviewed row boundary."""
+        selected = selected_transaction_id or self.tx[0]
+        unselected = next(transaction_id for transaction_id in self.tx
+                          if transaction_id != selected)
+        return self.pin_owner_decision(unselected)
+
+    def pin_owner_decision(self, transaction_id):
+        """Represent a real prior owner choice so automatic classification must preserve it."""
+        self.server.card_store.conn.execute(
+            "UPDATE transactions SET item=?, classification_state='classified', "
+            "classification_source='user_decision', classification_basis=?, decided_at=? "
+            "WHERE transaction_id=?",
+            ('기존 직접 분류', 'OWNER_CONFIRMED: synthetic test fixture',
+             '2026-11-02T00:00:00Z', transaction_id))
+        self.server.card_store.conn.commit()
+        return transaction_id
 
     def propose(self, transaction_id=None, text='이 가맹점은 앞으로 현지잡비로 분류해 줘'):
         _, body = self.post(f'/api/imports/{self.batch}/rule-proposal',
@@ -273,12 +320,17 @@ class RuleReviewTests(unittest.TestCase):
         self.assertEqual(set(self.items().values()), {''})
         self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
 
-    def test_approval_applies_every_row_in_one_request(self):
+    def test_approval_applies_selected_row_and_preserves_unselected_owner_decision(self):
+        self.pin_unselected_manual_row()
         proposal = self.propose()
         status, body = self.approve(proposal, 'batch-once')
         self.assertEqual(status, 200)
         self.assertEqual(body['applied'], [self.tx[0]])
-        self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: ''})
+        self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: '기존 직접 분류'})
+        source = self.server.card_store.conn.execute(
+            'SELECT classification_source, classification_basis FROM transactions WHERE transaction_id=?',
+            (self.tx[1],)).fetchone()
+        self.assertEqual(source, ('user_decision', 'OWNER_CONFIRMED: synthetic test fixture'))
 
     def test_saved_approval_survives_refresh_failure_and_same_request_retry(self):
         proposal = self.propose()
@@ -332,9 +384,8 @@ class RuleReviewTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import')
-            page.wait_for_function('(id)=>model?.batch_id===id', arg=self.batch)
-            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.getElementById('card-review-detail').open=true;document.getElementById('rules').open=true")
+            self.open_rule_browser(page, self.batch)
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
             form = page.locator('#ruleform')
             form.locator('[name="merchant"]').fill('SYNTHETIC-SHOP')
             form.locator('[name="rule_item"]').fill('식비')
@@ -521,6 +572,7 @@ class RuleReviewTests(unittest.TestCase):
 
     def test_simultaneous_http_approval_returns_same_result_once(self):
         from concurrent.futures import ThreadPoolExecutor
+        self.pin_unselected_manual_row()
         proposal = self.propose()
         barrier = threading.Barrier(2)
         before = self.server.card_store.conn.execute(
@@ -536,18 +588,24 @@ class RuleReviewTests(unittest.TestCase):
         self.assertEqual(results[0][1]['applied'], results[1][1]['applied'])
         conn = self.server.card_store.conn
         self.assertEqual(conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
-        self.assertEqual(conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        booked = {row[0] for row in conn.execute('SELECT transaction_id FROM ledger_entries')}
+        self.assertEqual(booked, set(self.tx))
+        self.assertEqual(len(booked), 2)
+        self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: '기존 직접 분류'})
+        self.assertEqual(conn.execute(
+            'SELECT classification_source, classification_basis FROM transactions WHERE transaction_id=?',
+            (self.tx[1],)).fetchone(),
+            ('user_decision', 'OWNER_CONFIRMED: synthetic test fixture'))
         self.assertEqual(conn.execute(
             'SELECT source_hash, amount_krw, raw_row_json FROM transactions ORDER BY transaction_id').fetchall(), before)
 
     def _browser_case(self, width, height):
+        chosen = self.tx[1]
+        unselected = self.pin_unselected_manual_row(selected_transaction_id=chosen)
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(viewport={'width': width, 'height': height}).new_page()
-            page.goto(self.base + '/import')
-            page.locator('#card-review-detail > summary').click()
-            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
-            chosen = self.tx[1]
+            self.open_rule_browser(page, self.batch)
             page.select_option('#rule-focus', chosen)
             page.fill('#rule-text', '이 가맹점은 앞으로 현지잡비로 분류해 줘')
             page.click('#rule-propose')
@@ -560,16 +618,12 @@ class RuleReviewTests(unittest.TestCase):
             page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
             # Re-query: a fresh load of the page shows the saved item, not just the in-page state.
             page.reload()
-            # A reload may preserve the native <details> state. Set it explicitly instead of
-            # toggling it, which can accidentally close the preview on desktop Chromium.
-            page.locator('#card-review-detail').evaluate('(node) => { node.open = true; }')
-            # The preview contains unresolved rows, so the successfully classified row is
-            # expected to disappear after reload. Wait for the other row to prove the batch loaded.
+            page.locator('#expense-tab-saved').click()
             page.wait_for_function('(batch) => model && model.batch_id === batch', arg=self.batch)
             page.locator('#preview').wait_for(state='visible')
             items = self.items()
             self.assertEqual(items[chosen], '현지잡비')
-            self.assertEqual(items[self.tx[0]], '')  # the other merchant's row is untouched
+            self.assertEqual(items[unselected], '기존 직접 분류')
             browser.close()
 
     def test_browser_mobile_390_keeps_the_chosen_row_and_applies_only_it(self):
@@ -584,9 +638,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': 390, 'height': 844})
             page.route('**/rule-proposal', lambda route: pending.append(route))
-            page.goto(self.base + '/import')
-            page.locator('#card-review-detail > summary').click()
-            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+            self.open_rule_browser(page, self.batch)
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
             with page.expect_request('**/rule-proposal'):
@@ -603,9 +655,7 @@ class RuleReviewTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import')
-            page.locator('#card-review-detail > summary').click()
-            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+            self.open_rule_browser(page, self.batch)
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
             page.click('#rule-propose')
             page.locator('#rule-approve').wait_for()
@@ -620,9 +670,7 @@ class RuleReviewTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import')
-            page.locator('#card-review-detail > summary').click()
-            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+            self.open_rule_browser(page, self.batch)
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
@@ -647,9 +695,7 @@ class RuleReviewTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import')
-            page.locator('#card-review-detail > summary').click()
-            page.locator('#rule-focus option').first.wait_for(state='attached')
+            self.open_rule_browser(page, self.batch)
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
             page.click('#rule-propose')
@@ -672,12 +718,11 @@ class RuleReviewTests(unittest.TestCase):
 
     def _lost_approval_response(self, width):
         requests = []
+        unselected = self.pin_unselected_manual_row()
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': width, 'height': 812})
-            page.goto(self.base + '/import')
-            page.locator('#card-review-detail > summary').click()
-            page.locator('#rule-focus option').first.wait_for(state='attached')
+            self.open_rule_browser(page, self.batch)
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
@@ -703,6 +748,11 @@ class RuleReviewTests(unittest.TestCase):
             page.wait_for_function('document.querySelector("#rule-approve")===null', timeout=5000)
             self.assertEqual(requests[0]['request_id'], requests[1]['request_id'])
             self.assertEqual(self.items()[self.tx[0]], '식비')
+            self.assertEqual(self.items()[unselected], '기존 직접 분류')
+            self.assertEqual(self.server.card_store.conn.execute(
+                'SELECT classification_source, classification_basis FROM transactions WHERE transaction_id=?',
+                (unselected,)).fetchone(),
+                ('user_decision', 'OWNER_CONFIRMED: synthetic test fixture'))
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
             self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             page.reload()
@@ -714,14 +764,12 @@ class RuleReviewTests(unittest.TestCase):
 
     def test_delayed_approval_result_does_not_restore_previous_batch(self):
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        unselected = self.pin_unselected_manual_row()
         pending = []
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import')
-            page.locator(f'[data-batch="{self.batch}"]').click()
-            page.wait_for_function('(batch)=>model.batch_id===batch', arg=self.batch)
-            page.locator('#card-review-detail > summary').click()
+            self.open_rule_browser(page, self.batch)
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
             page.click('#rule-propose')
@@ -732,22 +780,28 @@ class RuleReviewTests(unittest.TestCase):
             status, result = self.post(f'/api/imports/{self.batch}/rule-proposal/approve',
                                        pending[0].request.post_data_json, token=ledger_board.CSRF_TOKEN)
             self.assertEqual(status, 200)
-            page.locator(f'[data-batch="{second}"]').click()
+            page.locator('#expense-tab-saved').click()
+            page.locator(f'#batches [data-batch="{second}"]').wait_for(state='visible')
+            page.locator(f'#batches [data-batch="{second}"]').click()
             page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+            page.locator('#expense-tab-rules').click()
+            page.locator('#rule-panel #rule-focus').wait_for(state='visible')
             with page.expect_response('**/rule-proposal/approve'):
                 pending.pop().fulfill(json=result)
             page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
             self.assertEqual(page.evaluate('model.batch_id'), second)
             self.assertEqual(self.items()[self.tx[0]], '식비')
+            self.assertEqual(self.items()[unselected], '기존 직접 분류')
             browser.close()
 
     def test_same_request_id_with_different_approval_is_refused_and_changes_nothing(self):
+        self.pin_unselected_manual_row()
         first = self.propose()
         self.assertEqual(self.approve(first, 'reuse-1')[0], 200)
         other = self.propose(text='이 가맹점은 앞으로 교통비로 분류해 줘')
         status, body = self.approve(other, 'reuse-1')
         self.assertEqual((status, body['code']), (409, 'REQUEST_ID_REUSED'))
-        self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: ''})
+        self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: '기존 직접 분류'})
         status, body = self.post(f'/api/imports/{self.batch}/rule-proposal/approve',
                                  {'text': first['text'], 'transaction_id': self.tx[1], 'digest': first['digest'],
                                   'approved': True, 'request_id': 'reuse-1'}, token=ledger_board.CSRF_TOKEN)

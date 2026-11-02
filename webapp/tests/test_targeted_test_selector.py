@@ -140,7 +140,8 @@ def test_real_selector_cli_reports_unknown_impact_in_synthetic_git_repo(tmp_path
                           capture_output=True, text=True).stdout.strip()
     (repo / 'unmapped.py').write_text('VALUE = 1\n', encoding='utf-8')
     subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
-    subprocess.run(['git', '-C', str(repo), 'commit', '-qm', 'change'], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Synthetic', '-c',
+                    'user.email=synthetic@example.invalid', 'commit', '-qm', 'change'], check=True)
     proc = subprocess.run([__import__('sys').executable, str(script), '--base', base], cwd=repo,
                           check=False, capture_output=True, text=True)
     payload = json.loads(proc.stdout)
