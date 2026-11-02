@@ -14,6 +14,8 @@ def test_actions_preserve_labels_handlers_and_dynamic_content():
     <details><summary id="upload">카드 사용내역 업로드</summary><p>내용</p></details>
     <button id="existing"><svg aria-hidden="true"></svg>검색</button>
     <details><summary id="compound"><button>날짜 선택</button></summary><p>기간</p></details>
+    <details><summary id="designed"><svg aria-hidden="true"></svg>여행 검토</summary><p>도구</p></details>
+    <details class="participant-trip-panel"><summary id="panel-heading">보험가입내역</summary><p>보험</p></details>
     <div id="dynamic"></div></main></body></html>'''
     with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
         document = site_shell.wrap_document(original, '/import')
@@ -37,6 +39,9 @@ def test_actions_preserve_labels_handlers_and_dynamic_content():
             assert 'site-action-icon' not in page.locator('#existing').get_attribute('class')
             assert page.locator('#compound').get_attribute('class') is None
             assert 'site-action-icon' in page.locator('#compound button').get_attribute('class')
+            assert page.locator('#designed').get_attribute('class') is None
+            assert page.locator('#panel-heading').evaluate("el=>getComputedStyle(el).borderTopWidth") == '0px'
+            assert 'site-action-icon' in page.locator('#panel-heading').get_attribute('class')
             page.locator('#upload').focus()
             page.keyboard.press('Space')
             assert page.locator('details:has(#upload)').get_attribute('open') is not None
