@@ -258,3 +258,13 @@ def test_repeat_analysis_with_shifted_box_does_not_duplicate_existing_receipt(tm
     assert rr.scan(path, {'image': SHA, 'regions': [first]})['added'] == 1
     assert rr.scan(path, {'image': SHA, 'regions': [second]})['added'] == 0
     assert len(rr.load(path)['candidates']) == 1
+
+
+def test_boxed_analysis_does_not_duplicate_legacy_unboxed_receipt(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    original = reading('SHOP A', '2026-10-01', 820)
+    assert rr.scan(path, {'image': SHA, 'regions': [original]})['added'] == 1
+    result = rr.scan(path, {'image': SHA, 'regions': [{**original, 'box': [0.1, 0.1, 0.4, 0.4]}]})
+    assert result['added'] == 0
+    assert len(rr.load(path)['candidates']) == 1

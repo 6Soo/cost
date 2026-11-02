@@ -540,6 +540,8 @@ def _same_physical_receipt(left: dict, right: dict) -> bool:
             and left["source_region"] != right["source_region"]):
         if left.get('box') is not None and right.get('box') is not None:
             return rc._overlap(left['box'], right['box']) > rc.BOX_OVERLAP_HOLD
+        if (left.get('box') is None) != (right.get('box') is None):
+            return True
         return False
     return True
 
@@ -931,6 +933,21 @@ const receiptCard=(group,index,receipt)=>{
  const card=document.createElement('article');card.className='receipt-card';card.dataset.key=group.sha+'|'+index;
  const include=document.createElement('input');include.type='checkbox';include.checked=receipt.include!==false;
  const top=document.createElement('label');top.className='card-top';top.append(include,' 등록에 포함');
+ const preview=document.createElement('div');preview.className='receipt-region-preview';
+ const photo=document.createElement('img');photo.src='/api/receipts/image/'+encodeURIComponent(group.sha);photo.alt='영수증 원본 사진';preview.append(photo);
+ const outline=document.createElement('span');outline.className='receipt-region-box';outline.setAttribute('aria-hidden','true');preview.append(outline);
+ const regionNote=document.createElement('p');regionNote.className='receipt-region-note';
+ const regionFields=document.createElement('div');regionFields.className='receipt-region-fields';
+ const coordinates=['왼쪽','위','오른쪽','아래'].map((name,i)=>{const label=document.createElement('label');label.textContent=name;
+  const input=fieldInput('number',receipt.boxDraft?.[i]??receipt.box?.[i], '0~1',name+' 영역 좌표');input.min='0';input.max='1';input.step='0.01';label.append(input);regionFields.append(label);return input});
+ const syncBox=()=>{const values=coordinates.map(input=>input.value.trim());const allEmpty=values.every(v=>v==='');
+  const nums=values.map(Number);const valid=!allEmpty&&values.every(v=>v!=='')&&nums.every(v=>Number.isFinite(v)&&v>=0&&v<=1)&&nums[0]<nums[2]&&nums[1]<nums[3];
+  receipt.boxDraft=values;receipt.boxInvalid=!allEmpty&&!valid;receipt.box=valid?nums:null;outline.hidden=!valid;
+  regionNote.textContent=receipt.boxInvalid?'영역 좌표 네 개를 0~1 범위에서 확인하세요.':valid?'사진 위 영역을 확인하고 필요하면 좌표를 수정하세요.':'영역 미확인 · 필요하면 좌표를 입력하세요.';
+  if(valid){outline.style.left=(nums[0]*100)+'%';outline.style.top=(nums[1]*100)+'%';outline.style.width=((nums[2]-nums[0])*100)+'%';outline.style.height=((nums[3]-nums[1])*100)+'%'}
+  storePending()};
+ for(const input of coordinates)input.addEventListener('input',syncBox);
+ syncBox();
  const merchant=fieldInput('text',receipt.merchant,'상호 (읽히지 않으면 직접 입력)','상호');
  const amount=fieldInput('number',receipt.amount,'금액','금액');amount.inputMode='numeric';amount.className='amount-input';
  const date=fieldInput('text',receipt.date,'날짜 2026-10-01','날짜');
@@ -943,7 +960,7 @@ const receiptCard=(group,index,receipt)=>{
  const sync=()=>{Object.assign(receipt,{include:include.checked,merchant:merchant.value.trim()||null,date:date.value.trim()||null,
    amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
  for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
- card.append(top,merchant,amount,row2,error,remove);
+ card.append(top,preview,regionNote,regionFields,merchant,amount,row2,error,remove);
  return card;
 };
 const renderPending=()=>{
@@ -984,7 +1001,7 @@ if(visionGo)visionGo.onclick=async()=>{
    try{
     const state=await pollJob(await post('/api/receipts/vision',{image:sha}),label);
     if(state.status!=='done')throw new Error(jobFailure(state));
-    const receipts=state.result.receipts.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,include:true}));
+    const receipts=state.result.receipts.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,include:true}));
     found+=receipts.length;
     setPhotoState(sha,receipts.length?'후보 '+receipts.length+'건':'인식된 영수증 없음');
     if(receipts.length){pending.push({sha,kind:'analysis',jobId:state.job_id,receipts});storePending();renderPending()}
@@ -1000,7 +1017,8 @@ const registerPending=async()=>{
  if(!trip){say('여행을 먼저 선택하세요.');return}
  const plan=[];
  for(const group of pending){const items=group.receipts.map((r,i)=>({r,i})).filter(({r})=>r.include!==false);
-  for(const {r,i} of items){if(!r.currency){cardError(group,i,'통화를 선택해 주세요.');say('통화를 선택한 뒤 등록해 주세요.');return}
+  for(const {r,i} of items){if(r.boxInvalid){cardError(group,i,'영역 좌표를 확인해 주세요.');say('영역 좌표를 확인한 뒤 등록해 주세요.');return}
+   if(!r.currency){cardError(group,i,'통화를 선택해 주세요.');say('통화를 선택한 뒤 등록해 주세요.');return}
    if(!r.merchant&&!r.date&&r.amount==null){cardError(group,i,'상호·날짜·금액 중 하나는 입력해 주세요.');say('등록할 내용이 없는 후보가 있습니다.');return}}
   if(items.length)plan.push({group,items})}
  if(!plan.length){say('등록할 영수증을 하나 이상 선택하세요.');return}
@@ -1008,7 +1026,7 @@ const registerPending=async()=>{
  try{
   for(const {group,items} of plan){
    say('사진 '+photoNumber(group.sha)+'의 영수증을 등록하고 있습니다.');
-   const regions=items.map(({r})=>({box:null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
+   const regions=items.map(({r})=>({box:r.box??null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions});
    added+=result.added;
@@ -1035,7 +1053,7 @@ if(rescanGo)rescanGo.onclick=async()=>{
   if(state.status!=='done')throw new Error(jobFailure(state));
   const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});
   if(found.new.length){
-   pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,
+   pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,
      currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}))});
    storePending();renderPending();document.getElementById('feedback').value='';
   }
@@ -1077,6 +1095,12 @@ button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
 .photo-state{font-size:12px;color:var(--mut)}
 .result-group{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
 .receipt-card{border:1px solid var(--line-strong);border-radius:10px;padding:12px;margin:8px 0;background:var(--paper);display:grid;gap:8px;min-width:0}
+.receipt-region-preview{position:relative;line-height:0;max-width:480px}
+.receipt-region-preview img{display:block;width:100%;height:auto}
+.receipt-region-box{position:absolute;box-sizing:border-box;border:3px solid #e22525;background:rgba(255,40,40,.12);pointer-events:none}
+.receipt-region-box[hidden]{display:none}
+.receipt-region-note{margin:0;color:var(--mut)}
+.receipt-region-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
 .receipt-card input:not([type=checkbox]),.receipt-card select{width:100%;min-width:0}
 .receipt-card .amount-input{font-size:22px;font-weight:700;text-align:right}
 .receipt-card .row2{display:grid;grid-template-columns:1fr;gap:8px}
