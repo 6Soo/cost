@@ -419,7 +419,8 @@ class LedgerStore:
         return deserialize_row_record(row_id, row[0], row[1], row[2], row[3])
 
     def list_tab_rows(self, tab_id: str | None):
-        split = self.split_source_ids()
+        from . import read_scope
+        split = read_scope.remember(('split_source_ids', id(self)), self.split_source_ids)
         rows = fetch_tab_board_rows(self.conn, tab_id)
         out = []
         for row_id, kind, display, revision, payload_json in rows:
