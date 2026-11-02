@@ -27,12 +27,12 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         """Fixed answers: the first photo has two receipts and a third appears only on re-reading."""
         name = Path(path).stem
         if name == self.photos[0]:
-            found = [receipt('SHOP A', '2026-10-01', 820), receipt('FERRY', '2026-10-01', 820, payment=None)]
+            found = [receipt('SHOP A', '2026-10-10', 820), receipt('FERRY', '2026-10-10', 820, payment=None)]
             if kwargs.get('guidance') and 'Owner feedback' in kwargs['guidance']:
-                found.append(receipt('NEW STOP', '2026-10-05', 700, payment='cash'))
+                found.append(receipt('NEW STOP', '2026-10-12', 700, payment='cash'))
             return {'receipts': found, 'label': 'Muse', 'lesson': None}
         if name == self.photos[1]:
-            return {'receipts': [receipt('CAFE', '2026-10-02', 12000, currency='KRW')], 'label': 'Muse', 'lesson': None}
+            return {'receipts': [receipt('CAFE', '2026-10-11', 12000, currency='KRW')], 'label': 'Muse', 'lesson': None}
         return {'receipts': [], 'label': 'Muse', 'lesson': None}
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
@@ -44,6 +44,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         recognizer = patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
                            side_effect=lambda path, **kw: self._answers(path, **kw))
         recognizer.start()
+        engine = patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True)
+        engine.start()
         try:
             with sync_playwright() as api:
                 browser = api.chromium.launch()
@@ -80,7 +82,13 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     page.click('#vision-register')
                     page.wait_for_load_state()
                     page.wait_for_selector('#step-review table')
-                    self.assertEqual(len(self.request('/api/receipts')[1]['candidates']), 3)
+                    candidates = self.request('/api/receipts')[1]['candidates']
+                    self.assertEqual(len(candidates), 3)
+                    self.assertEqual({candidate['merchant'] for candidate in candidates},
+                                     {'SHOP A', 'FERRY', 'CAFE'})
+                    self.assertTrue(all(candidate['trip_id'] == self.trip for candidate in candidates))
+                    self.assertTrue(all('2026-10-10' <= candidate['date'] <= '2026-10-13'
+                                        for candidate in candidates))
                     self.assertEqual(page.locator('#vision-register').count(), 0)
                     self.assertEqual(page.evaluate("JSON.parse(sessionStorage.getItem('cost-receipt-pending')||'[]').length"), 0)
                     self.assertEqual(page.locator('#vision-finish').count(), 0)
@@ -99,6 +107,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     candidates = self.request('/api/receipts')[1]['candidates']
                     self.assertEqual(len(candidates), 4)
                     self.assertEqual(sorted(c['merchant'] for c in candidates).count('NEW STOP'), 1)
+                    self.assertTrue(all(candidate['trip_id'] == self.trip for candidate in candidates))
                     self.assertTrue(page.locator('#other-methods').count() == 1)
                     page.locator('#other-methods > summary').click()
                     self.assertTrue(page.locator('#r-merchant').is_visible())
@@ -110,6 +119,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     browser.close()
         finally:
             recognizer.stop()
+            engine.stop()
             env.stop()
 
 

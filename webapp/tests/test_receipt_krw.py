@@ -9,11 +9,11 @@ from webapp.tests import test_receipt_review as receipt_tests
 @pytest.fixture
 def app():
     case = receipt_tests.ReceiptReviewTests()
-    case.setUp()
     try:
+        case.setUp()
         yield case
     finally:
-        case.tearDown()
+        case.doCleanups()
 
 
 def test_krw_is_not_converted_and_corporate_receipts_are_only_evidence():
@@ -48,8 +48,9 @@ def test_krw_manual_review_edit_reload_and_copy_preserves_original_amount(app):
             page.get_by_role('status').filter(has_text='변경을 저장했습니다').wait_for()
             page.locator('[data-payee]').fill('원화 합성 매장')
             page.locator('[data-category]').fill('식비')
-            page.locator('[data-confirm]').click()
-            page.get_by_role('status').filter(has_text='변경을 저장했습니다').wait_for()
+            page.locator('[data-edit]').click()
+            page.get_by_role('status').filter(has_text='영수증 변경을 저장했습니다').wait_for()
+            assert page.locator('[data-state]').inner_text() == '분류됨'
             page.reload()
             page.locator('#copy-trip').select_option(app.trip)
             page.locator('#copy-tsv').click()

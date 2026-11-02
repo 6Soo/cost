@@ -127,26 +127,37 @@ def _expand_queue_details(page):
 class QueueFakeBackend(FakeBackend):
     """Synthetic read contract for the real HTTP/browser action fixture."""
     generation = 7
+    generated_at = "2026-10-28T00:00:00+00:00"
+
+    def _snapshot_metadata(self, public):
+        input_fingerprint = hashlib.sha256(json.dumps(
+            public["events"], sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        rule_fingerprint = hashlib.sha256(b"synthetic-active-ota-rules-v1").hexdigest()
+        freshness = {"status": "ready", "fresh": True, "stale": False,
+                     "refreshing": False, "enabled": True, "generation": self.generation}
+        summary = summarize_queue(public["events"], freshness, coverage="canonical")
+        summary.update(generation=self.generation, generated_at=self.generated_at,
+                       input_fingerprint=input_fingerprint,
+                       rule_fingerprint=rule_fingerprint)
+        telemetry = {"input_fingerprint": input_fingerprint,
+                     "rule_fingerprint": rule_fingerprint}
+        return summary, telemetry
 
     def _public(self):
         return ota_payment_review.public_snapshot(self.snapshot(), include_cards=False)
 
     def snapshot_view(self):
         public = self._public()
-        event = public["events"][0] if public["events"] else {}
-        summary = summarize_queue([event], {"status": "ready", "fresh": True,
-                                          "stale": False, "refreshing": False,
-                                          "enabled": True, "generation": self.generation},
-                                  coverage="canonical")
+        summary, telemetry = self._snapshot_metadata(public)
         return {"status": "ready", "stale": False, "fresh": True,
                 "refreshing": False, "generation": self.generation,
-                "generated_at": "2026-10-28T00:00:00+00:00",
-                "current": {"public": public, "queue_summary": {
-                    **summary, "generation": self.generation,
-                    "generated_at": "2026-10-28T00:00:00+00:00"}}}
+                "generated_at": self.generated_at,
+                "telemetry": telemetry,
+                "current": {"public": public, "queue_summary": summary}}
 
     def queue_page_context(self):
         public = self._public()
+        summary, telemetry = self._snapshot_metadata(public)
         rows = [{"queue": "needs_action", "reason_codes": [], "event": {
             key: event.get(key) for key in ("ota_event_id", "provider", "booking_ref", "event_type",
                                             "paid_on", "item", "amount", "currency", "status")}}
@@ -162,8 +173,9 @@ class QueueFakeBackend(FakeBackend):
                                             snapshot_nonce="synthetic-nonce",
                                             signing_key=b"synthetic-key" * 3),
                 "status": "ready", "generation": self.generation,
-                "generated_at": "2026-10-28T00:00:00+00:00", "fresh": True,
-                "stale": False, "refreshing": False}
+                "generated_at": self.generated_at, "fresh": True,
+                "stale": False, "refreshing": False,
+                "summary": summary, "telemetry": telemetry}
 
     def queue_group_context(self):
         return self.queue_page_context()
@@ -190,7 +202,10 @@ class QueueFakeBackend(FakeBackend):
         public = self._public()
         event = next((item for item in public["events"]
                       if item.get("ota_event_id") == event_id), None)
-        return {"event": event, "generation": self.generation, "ambiguous": False}
+        summary, telemetry = self._snapshot_metadata(public)
+        return {"event": event, "generation": self.generation, "ambiguous": False,
+                "summary": summary, "telemetry": telemetry,
+                "generated_at": self.generated_at}
 
     def proposal_page_context(self, generation, *, limit=20, cursor=None):
         items = self._public()["proposals"][:limit]
@@ -647,19 +662,49 @@ class OtaReviewBrowserTests(unittest.TestCase):
             board_path = root / "board.sqlite"
             board_conn = sqlite3.connect(board_path, check_same_thread=False)
             board_conn.row_factory = sqlite3.Row
-            board_conn.execute("""CREATE TABLE transactions (
-                transaction_id TEXT PRIMARY KEY, source_hash TEXT, merchant TEXT,
-                merchant_normalized TEXT, card_kind TEXT, card_tail TEXT,
-                transaction_direction TEXT, approval_date TEXT, posting_date TEXT,
-                amount_krw INTEGER, foreign_currency TEXT, foreign_amount TEXT,
-                duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT,
-                issuer TEXT, authorization_id TEXT, cancellation_status TEXT,
-                refund_status TEXT)""")
-            rows = [(f"card-{index}", f"hash-{index}", "TRIP.COM", "trip.com", "credit", "2042" if index < 2 else "9999",
-                     "purchase", "2026-09-04", "2026-09-05", 12000 if index < 2 else 13000, "", "", "", "", "",
-                     "Synthetic Bank", f"AUTH-{index}", "not_cancelled", "no_refund")
-                    for index in range(4)]
-            board_conn.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            from app.db import Store
+            Store(board_conn)
+            rows = [{
+                "transaction_id": f"card-{index}",
+                "source_hash": f"hash-{index}",
+                "batch_id": f"synthetic-batch-{index}",
+                "issuer": "Synthetic Bank",
+                "card_tail": "2042" if index < 2 else "9999",
+                "card_kind": "credit",
+                "transaction_direction": "purchase",
+                "transaction_kind": "purchase",
+                "approval_number": f"AUTH-{index}",
+                "original_approval_number": f"AUTH-{index}",
+                "approval_date": "2026-09-04",
+                "posting_date": "2026-09-05",
+                "merchant": "TRIP.COM",
+                "merchant_normalized": "trip.com",
+                "amount_krw": 12000 if index < 2 else 13000,
+                "foreign_amount": "",
+                "foreign_currency": "",
+                "description_raw": "",
+                "row_index": index,
+                "raw_row_json": "{}",
+                "duplicate_of": "",
+                "conflict_reason": "",
+                "parse_error": "",
+                "classification_state": "needs_review",
+                "classification_source": "",
+                "classification_basis": "",
+                "item": "",
+                "description": "",
+                "display_tab_id": "",
+                "trip_id": "",
+                "revision": 1,
+                "decided_at": None,
+                "created_at": "2026-11-02T00:00:00Z",
+            } for index in range(4)]
+            for row in rows:
+                columns = tuple(row)
+                placeholders = ",".join("?" for _ in columns)
+                board_conn.execute(
+                    f"INSERT INTO transactions ({','.join(columns)}) VALUES ({placeholders})",
+                    tuple(row[column] for column in columns))
             board_conn.commit()
             board = type("SyntheticBoard", (), {})()
             board.conn = board_conn
