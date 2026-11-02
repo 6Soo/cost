@@ -54,6 +54,10 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     vm.runInContext('saveUploadJob(readUploadJobs()[0],true)',context);
     assert.deepEqual(JSON.parse(storage.get('cost-card-upload-job')).map(j=>j.batch_id),['4']);
     assert.ok(entries.some(x=>x.href==='/import?batch=1#summary'));
+    context.fetch=async()=>({ok:true,status:200,json:async()=>({status:'done',result:{batch_id:'4',upload_summary:{status:'passed'}}})});
+    await vm.runInContext('resumeUpload()',context);
+    assert.equal(storage.size,0);
+    assert.ok(entries.some(x=>x.href==='/import?batch=4#summary'));
   }else{assert.equal(storage.size,0);assert.ok(el('status').textContent.includes('10개 파일 처리'));}
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
