@@ -749,7 +749,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(page.locator('input[type=file]').count(), 0)
                     self.assertNotIn('H.xlsx', page.locator('body').inner_text())
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
-                    self.assertTrue(page.get_by_role('link', name='카드 검토 1건', exact=True).is_visible())
+                    self.assertTrue(page.get_by_role('link', name='지출 정리 1건', exact=True).is_visible())
                     self.assertTrue(page.locator('.home-secondary').is_visible())
                     self.assertEqual(page.get_by_role('link', name='XLSX 출력', exact=True).count(), 0)
                     primary_bg = page.locator('.home-review').evaluate(
@@ -760,8 +760,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                     visible_trips = page.locator('.home-trip').evaluate_all(
                         "els => els.filter(el => { const r=el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }).length")
                     self.assertGreaterEqual(visible_trips, 3)
-                    page.get_by_role('link', name='카드 검토 1건', exact=True).click()
-                    page.locator('#saved-materials summary').click()
+                    page.get_by_role('link', name='지출 정리 1건', exact=True).click()
+                    page.locator('#expense-tab-saved').click()
                     page.locator('[data-batch]').wait_for()
                     self.assertIn('국민카드 사용내역', page.locator('[data-batch]').inner_text())
                     self.assertNotIn('H.xlsx', page.locator('[data-batch]').inner_text())
@@ -911,6 +911,13 @@ class CardFlowBrowserTests(unittest.TestCase):
                 },
             ],
         }
+        synthetic_state['preview']['rows'] = [
+            {**row, 'next_action': {
+                'required': row['transaction_id'] != 'decided',
+                'label': '비용 항목 확인', 'reason': '합성 검토 상태',
+                'state': 'review' if row['transaction_id'] != 'decided' else 'booked',
+            }} for row in synthetic_state['rows']
+        ]
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
                 {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
             ledger_board.bind_access(None)
@@ -935,6 +942,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                                     route.continue_()
                             page.route('**/api/imports**', route_api)
                             page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                            page.locator('#expense-tab-saved').click()
                             page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).first.wait_for()
                             self.assertGreater(page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).count(),0)
                             self.assertGreater(page.get_by_text('메일 있음 · 연결 확인 필요 · 분류 확인 권장',exact=True).count(),0)
@@ -974,6 +982,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page=browser.new_page(viewport={'width':390,'height':844})
                     page.on('pageerror',lambda e:errors.append(str(e)))
                     page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                    page.locator('#expense-tab-saved').click()
                     page.get_by_role('button',name='다음 20건').wait_for()
                     self.assertEqual(page.locator('form[data-index]').count(),20)
                     questions = page.locator('#questions .review-item')
