@@ -201,6 +201,136 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             browser.close()
 
 
+def test_browser_name_search_opens_real_synthetic_card_and_trip_flight_then_returns():
+    """Exercise search, original card row, trip flight list/detail and browser return on real routes."""
+    from types import SimpleNamespace
+    from playwright.sync_api import sync_playwright, expect
+    from webapp import flight_booking_index
+    from webapp.card_flow import CardFlow
+    from webapp.google_oidc import COOKIE_NAME
+    from webapp.tests.test_signed_session_http import OWNER, SignedSessionHttpTests
+    from tests.card_pipeline.fixtures import domestic_row, make_xlsx
+
+    service = SignedSessionHttpTests()
+    service.setUp()
+    try:
+        store = service.server.card_store
+        trip = store.create_trip(starts_on='2026-11-07', ends_on='2026-11-10',
+            destination='Synthetic flight trip', display_key='Synthetic flight trip',
+            client_request_id='synthetic-flight-search-trip')
+        flow = CardFlow(store)
+        batch = flow.pipeline.receive(make_xlsx([domestic_row(
+            merchant='SYNTHETIC AIRLINE', amount=13000, approval='SYN-FLIGHT-001',
+            issuer='SYNTHETIC ISSUER', card='****3820', kind='매입')]),
+            'synthetic-flight-card.xlsx')['batch_id']
+        source_row = flow.pipeline.get_batch(batch)['rows'][0]
+        transaction_id = source_row['transaction_id']
+        flow.trip_valid = lambda candidate: candidate == trip['tab_id']
+        decision = flow.pipeline.save_decision(
+            transaction_id, source_row['revision'], item='항공료',
+            description='Synthetic airline fare', display_tab_id=trip['tab_id'],
+            trip_id=trip['tab_id'], request_id='synthetic-flight-trip-assignment',
+            trip_validator=flow.trip_valid, tab_validator=flow.tab_valid)
+        assert decision['trip_id'] == trip['tab_id']
+        assert flow.record_decision(batch, transaction_id) == 1
+
+        index = _index()
+        evidence = index['SYNTH-100']
+        card = {
+            'transaction_id': transaction_id, 'source_hash': source_row['source_hash'],
+            'issuer': 'SYNTHETIC ISSUER', 'merchant': 'SYNTHETIC AIRLINE',
+            'merchant_normalized': 'synthetic airline', 'card_tail': '3820',
+            'approval_date': '2026-11-10', 'approval_number': 'SYN-FLIGHT-001',
+            'transaction_direction': 'purchase', 'amount_krw': 13000,
+            'foreign_currency': '', 'foreign_amount': None,
+        }
+        event = {
+            'ota_event_id': 'synthetic-flight-paid-event', 'provider': 'trip',
+            'booking_ref': 'SYNTH-100', 'event_type': 'charge',
+            'evidence_status': 'paid_verified', 'payment_status': 'paid',
+            'source_digest': 'synthetic-flight-payment-proof',
+            'amount_krw': 13000, 'currency': 'KRW',
+        }
+        snapshot = {
+            'passengers': {'SYNTH-100': evidence}, 'events': [event],
+            'transactions': [card],
+            'links': {event['ota_event_id']: {
+                'transaction_id': transaction_id, 'status': 'MATCHED_USER',
+                'source_digest': event['source_digest']}},
+            'results': [{'ota_event_id': event['ota_event_id'],
+                'transaction_id': transaction_id, 'status': 'MATCHED_USER'}],
+        }
+        store._ota_snapshot_service = SimpleNamespace(
+            held=lambda: ({'data': snapshot}, True))
+        store._flight_booking_service = SimpleNamespace(display_context=lambda: (
+            {'data': snapshot}, {'fresh': True, 'generation': 'synthetic-flight-generation'}))
+
+        with patch.dict(os.environ, {
+                page.FEATURE_FLAG: '1', 'WEBLEDGER_OTA_REVIEW_DB': ''}), \
+             patch('webapp.flight_booking_index.passenger_index_for', return_value=index), \
+             patch.object(flight_booking_index, 'prewarm', return_value=None):
+            with sync_playwright() as api:
+                browser = api.chromium.launch(headless=True)
+                try:
+                    context = browser.new_context(viewport={'width': 1280, 'height': 900})
+                    context.add_cookies([{
+                        'name': COOKIE_NAME, 'value': service.cookie(OWNER),
+                        'url': f'http://127.0.0.1:{service.port}',
+                    }])
+                    screen = context.new_page()
+                    base = f'http://127.0.0.1:{service.port}'
+                    screen.goto(base + '/flight-passengers')
+                    expect(screen.get_by_role('heading', name='항공권 예약 확인')).to_be_visible()
+                    screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
+                    screen.get_by_role('button', name='예약 조회', exact=True).click()
+                    ticket = screen.locator('.fb-ticket').filter(has_text='SYNTH-100')
+                    expect(ticket).to_be_visible()
+                    expect(ticket.get_by_text('SYN123', exact=True)).to_be_visible()
+                    detail_link = ticket.get_by_role('link', name='카드 원행 상세 보기')
+                    expect(detail_link).to_have_attribute('href', f'/board?row=card-{transaction_id}')
+                    detail_link.click()
+                    expect(screen).to_have_url(f'{base}/board?row=card-{transaction_id}')
+                    expect(screen.locator('#panel')).to_have_attribute('data-row', f'card-{transaction_id}')
+                    expect(screen.locator('#panel')).to_contain_text('SYNTHETIC AIRLINE')
+                    expect(screen.locator('#panel')).to_contain_text(transaction_id)
+                    expect(screen.locator('#panel')).to_contain_text('13,000')
+
+                    # Open the real trip list, then follow its actual trip-tab link.
+                    trips_navigation = screen.locator('a[href="/trips"]').first
+                    expect(trips_navigation).to_be_visible()
+                    trips_navigation.click()
+                    expect(screen).to_have_url(base + '/trips')
+                    trip_link = screen.get_by_role('link', name='Synthetic flight trip', exact=True).first
+                    expect(trip_link).to_have_attribute('href', f"/board?tab={trip['tab_id']}")
+                    trip_link.click()
+                    expect(screen).to_have_url(f"{base}/board?tab={trip['tab_id']}")
+                    section = screen.locator('.trip-flight')
+                    expect(section).to_be_visible()
+                    section.locator('summary').click()
+                    booking_button = section.get_by_role('button', name='2026-11-10 · SYNTH-100')
+                    expect(booking_button).to_be_visible()
+                    expect(section.locator('.trip-flight-items')).to_contain_text('ICN → NRT')
+                    booking_button.click()
+                    expect(section.locator('.trip-flight-detail')).to_be_visible()
+                    expect(section.locator('.trip-flight-detail')).to_contain_text('SYN123')
+                    expect(section.locator('.trip-flight-detail')).to_contain_text('KIM ALPHA')
+
+                    screen.go_back()
+                    expect(screen).to_have_url(base + '/trips')
+                    screen.go_back()
+                    expect(screen).to_have_url(f'{base}/board?row=card-{transaction_id}')
+                    screen.go_back()
+                    expect(screen).to_have_url(base + '/flight-passengers')
+                    expect(screen.get_by_label('탑승객 이름')).to_be_visible()
+                    screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
+                    screen.get_by_role('button', name='예약 조회', exact=True).click()
+                    expect(screen.locator('.fb-ticket').first).to_contain_text('SYNTH-100')
+                finally:
+                    browser.close()
+    finally:
+        service.tearDown()
+
+
 def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisions():
     from playwright.sync_api import sync_playwright, expect
     from webapp import site_shell
