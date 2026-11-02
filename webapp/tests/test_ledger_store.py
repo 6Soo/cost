@@ -34,7 +34,7 @@ class LedgerEventBoundaryTests(unittest.TestCase):
             store.conn.execute("BEGIN IMMEDIATE")
             store._enqueue_ledger(
                 outbox_id="r01-rollback", stream_id="row-expense-demo-c1",
-                action="correct", target="evt-1",
+                action="propose", target="evt-1",
                 rationale="outer failure probe", actor="local-operator")
             inside = store.conn.execute(
                 "SELECT COUNT(*) FROM ledger_outbox").fetchone()[0]
