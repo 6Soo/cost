@@ -235,8 +235,8 @@
     },
     {
       "name": "receipt-review",
-      "paths": ["webapp/receipt_review.py", "webapp/tests/test_receipt_review.py"],
-      "tests": ["webapp/tests/test_receipt_review.py", "webapp/tests/test_receipt_page_flow.py", "webapp/tests/test_receipt_krw.py"]
+      "paths": ["webapp/receipt_review.py", "webapp/tests/test_receipt_review.py", "app/local_receipt_ocr.py", "app/opencode_receipt_vision.py", "tools/windows_receipt_ocr.ps1", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_opencode_receipt_vision.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py"],
+      "tests": ["webapp/tests/test_receipt_review.py", "webapp/tests/test_receipt_page_flow.py", "webapp/tests/test_receipt_krw.py", "webapp/tests/test_receipt_pdf.py", "webapp/tests/test_receipt_learning.py", "webapp/tests/test_receipt_integrity.py", "webapp/tests/test_receipt_muse_grouping.py", "tests/card_pipeline/test_local_receipt_ocr.py", "tests/card_pipeline/test_opencode_receipt_vision.py"]
     },
     {
       "name": "core-business-acceptance",
