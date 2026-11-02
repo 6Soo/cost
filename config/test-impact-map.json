@@ -121,6 +121,11 @@
       "tests": ["tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ota_payment_review.py", "webapp/tests/test_ota_payment_review_browser.py"]
     },
     {
+      "name": "flight-evidence",
+      "paths": ["app/flight_evidence.py", "tests/card_pipeline/test_flight_evidence.py"],
+      "tests": ["tests/card_pipeline/test_flight_evidence.py", "webapp/tests/test_trip_flight_read.py", "webapp/tests/test_flight_booking_date_evidence.py", "webapp/tests/test_flight_booking_name_search.py"]
+    },
+    {
       "name": "passenger-linking",
       "paths": ["app/flight_passenger_*.py", "app/reservation_authority.py", "webapp/flight_passenger_page.py", "webapp/flight_booking_projection.py",
                 "webapp/tests/test_flight_passenger_page.py"],
