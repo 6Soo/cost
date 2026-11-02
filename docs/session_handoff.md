@@ -1,3 +1,11 @@
+## 2026-11-02 국내여행 보험 대상 아님 UI 완료
+
+- COMPLETE — 사용자 “국내여행은 보험을 가입하지 않기 때문에 보험명단이 없다” 및 제안 실행 승인. 기존 `trip_region()`의 destination 정확 일치 판별에서 KR인 실제 여행만 국내여행 배지·중립적인 “국내여행 · 보험 가입 대상 아님” 안내를 표시한다. 보험 명단 열/대조 패널/후보 비교를 숨기고 lazy 대조 요청을 생략한다. 해외·지역 미상은 기존 UI 유지, 지역명 목록 확대·여행/참가자/수동 연결 변경 없음.
+- [PR #488](https://github.com/6Soo/cost/pull/488), 구현 `d6a4cfaeb7dc4eefcaaac991f8d55c0e5eb25a95`, 운영 `b7c60927dddf110fe616699a07cf65ea5e8cdcea`, 이전 검증 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad`. 관련 묶음93 passed/기존 코드 문자열 검사1 failed/2 deselected, 해당 검사를 실제 HTML 헤더 검사로 변경 후 개별1 passed. 신규 국내/해외/미상·삭제/중복 여행·소유자/열람 권한·조회 생략·수입/원본 불변 포함. 전체 회귀·실기기는 국소 표시 변경으로 미실행.
+- ego-browser 합성3분류×320/390/1440px9건 PASS. 인증 운영 통영·야마가타 각각390/1440px4건 PASS: 통영은 배지/안내·보험 열/패널/후보 없음·자동 보험 요청0, 야마가타는 기존 보험 열/패널/후보 유지·자동 보험 요청1. 수입 표와 합계 유지·문서 가로 넘침0 확인. 합성 모바일 스크린샷의 배치도 확인했으며 운영 모바일 캡처에는 기존 탐색 서랍이 열려 있었으므로 전체 화면의 가림 없음까지 통과로 주장하지 않는다. 브라우저 작업 공간은 정상 종료.
+- 배포1,254 blobs 불일치0·검사본/병합본 동일 tree·task/process 고정 SHA·단일loopback8751·health/ready200·보호API401/403·새 영향패널 비로그인401·금융보호13표 내용/스키마 불변 PASS. 기존 SourceRefresh 상태·전체 task 인수 보존. 코드 전용으로 기존 검증 릴리스·task XML 복구 수단을 보존하고 별도 전체DB백업/복원은 반복하지 않았다. 금융/분류/여행/참가자/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/domestic-insurance-20261102/`의 targeted.xml·updated-contract.xml·browser-synthetic.json·review.json·release-audit.json·deploy-evidence.json·live-final.json·checkpoint.json. 공유 작업 트리의 기존 소스 변경을 보존하고 격리 archive 후보/독립 index로 커밋했다. 미결/차단0·다음 기능 명령 없음. 문서 후속 재배포/재시작 없음.
+
 ## 2026-11-02 PR458 후속 복잡성·기존20실패 정비 완료
 
 - COMPLETE — 현재 사용자 승인 기능군을 [PR483](https://github.com/6Soo/cost/pull/483)·[PR486](https://github.com/6Soo/cost/pull/486)으로 통합·병합·배포했다. 원 구현 `c5ee972d`, 최종 검사 `d750ee7e`, 운영 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad`, 이전 검증 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`. 검사/병합 트리 차이0. [승인 범위](specs/python-refactor-followup-20261102.md)·[비교/20건별 원인/한계](specs/python-refactor-followup-results-20261102.md).
