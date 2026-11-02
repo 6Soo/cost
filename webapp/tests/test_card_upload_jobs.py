@@ -58,6 +58,8 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
             time.sleep(.02)
         assert status['status'] == 'done', status
         assert status['result']['upload_summary']['status'] == 'passed'
+        assert status['result']['coverage_evidence']['card_tail'] == '3820'
+        assert status['result']['coverage_available'] is True
         with urlopen(Request(base+'/api/imports', data=raw, headers=headers), timeout=3) as response:
             second = json.load(response)
         # Same bytes reuse the committed batch and original transaction.

@@ -2026,7 +2026,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     refund_pair_route = parsed.path.startswith('/api/maintenance/refund-pair/')
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
                             or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths
-                            or refund_pair_route):
+                            or parsed.path == '/api/cards/coverage/summary' or refund_pair_route):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
@@ -2082,6 +2082,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             return True
         from . import provisional_trip_review
         if provisional_trip_review.dispatch(handler, parsed, query=query or {}, raw=raw, csrf=csrf, board=board):
+            return True
+        from . import card_upload_coverage
+        if card_upload_coverage.dispatch(handler, parsed, board, query=query, raw=raw, csrf=csrf):
             return True
         flow = CardFlow(board)
         parts = parsed.path.strip('/').split('/')
@@ -3211,8 +3214,10 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 #newupload #upload{min-height:44px}#newupload section{display:grid;gap:12px}.upload-lede{margin:0;max-width:68ch}.upload-drop{display:grid;gap:4px;min-height:112px;padding:18px;border:2px dashed var(--shell-line);border-radius:10px;background:var(--shell-bg);cursor:pointer;transition:border-color .16s ease,background-color .16s ease}.upload-drop:hover,.upload-drop:focus-visible,.upload-drop.is-dragover{border-color:var(--shell-accent);background:var(--shell-selected);outline:none}.upload-drop strong{color:var(--shell-accent);font-size:15px}.upload-drop small{color:var(--shell-muted)}.upload-drop.is-dragover strong{text-decoration:underline}.upload-file-list{display:grid;gap:2px;margin:0;padding-left:18px;color:var(--shell-ink);font-size:13px}.upload-file-list li{overflow-wrap:anywhere}.upload-file-count{font-weight:700}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #file.sr-only{width:1px;height:1px;min-height:0;min-width:0}.upload-failure-pages{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 0}.upload-system-error{border:2px solid var(--shell-warn)}.upload-failure-pages button{min-width:80px;min-height:44px}.upload-failure-pages button:disabled{cursor:not-allowed}
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
+
+.coverage-form{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--shell-line);border-radius:6px;max-width:100%;overflow-wrap:anywhere}.coverage-form label{display:grid;gap:4px}.coverage-form input,.coverage-form select{min-width:0;width:100%;box-sizing:border-box;min-height:44px}.coverage-form button{min-height:44px}.coverage-form .coverage-complete{display:flex;align-items:center;gap:8px}.coverage-complete input{width:22px;min-height:22px}.coverage-message{white-space:normal;overflow-wrap:anywhere}
 </style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
-<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일은 하나씩 안전하게 처리하고, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">선택한 파일은 순서대로 업로드하고 각 파일의 분류 결과를 저장합니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
+<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일은 하나씩 안전하게 처리하고, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">선택한 파일은 순서대로 업로드하고 각 파일의 분류 결과를 저장합니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><details><summary>카드별 조회 기간</summary><div id="coverage-summary" aria-live="polite"></div></details><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>
 </main><script>
@@ -3244,6 +3249,42 @@ el('review-date-toggle').onclick=e=>{e.preventDefault();el('review-date').open=!
 let rules=[];
 function renderRules(list){rules=list;const term=el('rulefilter').value.toLowerCase(),matches=list.filter(r=>(r.conditions.merchant_normalized+' '+r.effects.item).toLowerCase().includes(term));el('rulelist').innerHTML='<p class="small">'+matches.length+'개 규칙 중 '+Math.min(40,matches.length)+'개 표시 · 검색으로 찾을 수 있습니다.</p>'+matches.slice(0,40).map(r=>'<p><button data-rule="'+rules.indexOf(r)+'">'+esc(r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized)+' → '+esc(r.effects.item)+' · 수정</button></p>').join('');document.querySelectorAll('[data-rule]').forEach(b=>b.onclick=()=>{const r=rules[Number(b.dataset.rule)],f=el('ruleform');f.elements.rule_id.value=r.rule_id;f.elements.version.value=r.version;f.elements.merchant.value=r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized;f.elements.merchant.readOnly=r.conditions.merchant_normalized==='*';f.elements.card_kind.value=r.conditions.card_kind||'';f.elements.direction.value=r.conditions.transaction_direction||'purchase';f.elements.rule_country.value=['JP','TW','AT','IT','FR'].includes(r.optional.travel_country)?'overseas':r.optional.travel_country||'';f.elements.rule_item.value=r.effects.item||'';f.elements.rule_description.value=r.effects.description||'';f.elements.rule_country.disabled=!!r.optional.inferred_assignment;el('rule_scope').textContent=r.origin==='owner-country-exception-20261003'?'사용자 지정 예외: 조지아·카자흐스탄 거래를 유럽 여행에 배정합니다.':r.optional.inferred_assignment?'이번 거래에만 적용한 추론입니다. 여행은 미리보기의 수정에서 바꿀 수 있습니다.':r.optional.source_hash?'예약 자료로 확인된 해당 원본 거래에만 적용합니다.':r.note||''})}
 async function call(url,body,headers={}){const r=await fetch(url,body==null?{cache:'no-store'}:{method:'POST',headers:{'X-CSRF-Token':csrf,...headers},body}).catch(()=>{throw Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')});if(!(r.headers.get('Content-Type')||'').includes('application/json'))throw Error(r.status===401?'로그인이 필요합니다. 화면을 다시 열어 주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');const j=await r.json();if(!r.ok)throw Error(j.message||j.code);return j}
+
+async function refreshCoverageSummary(){
+ const root=el('coverage-summary');if(!root)return;
+ try{const data=await call('/api/cards/coverage/summary');root.replaceChildren();
+  const note=document.createElement('p');note.textContent=data.available?'조회 확인은 현재 확보한 조회 결과의 범위입니다. 카드사의 지연 매입·정정은 다시 조회할 수 있습니다.':'조회기간 저장 기능 준비 전입니다. 기존 카드 업로드는 사용할 수 있습니다.';root.append(note);
+  for(const [kind,label] of [['coverages','조회 확인'],['gaps','미확인'],['rechecks','재확인 필요']])for(const card of data[kind]||[]){
+   const row=document.createElement('p');const intervals=card.periods||card.gaps||[];
+   row.textContent=[card.issuer,'끝'+card.card_tail,card.date_basis,label,intervals.map(p=>p.start+' ~ '+p.end).join(', ')||card.reason||'조회 조건 확인 필요'].join(' · ');root.append(row);
+  }
+  if(data.available&&!(data.coverages||[]).length){const empty=document.createElement('p');empty.textContent='조회 확인 기록 없음 · 과거 거래일만으로 확인 처리하지 않습니다.';root.append(empty);}
+ }catch(error){root.textContent=error.message;}
+}
+function appendCoverageForm(root,j){
+ if(!j.batch_id||!j.coverage_evidence)return;
+ const batch=j.batch_id,cov=j.coverage_evidence,details=document.createElement('details');details.className='batch-coverage';
+ const title=document.createElement('summary');title.textContent='조회 기간 확인 · '+(cov.issuer||'카드사 확인 필요')+' · 끝'+(cov.card_tail||'미확인');details.append(title);
+ const form=document.createElement('form');form.className='coverage-form';
+ const info=document.createElement('p');info.textContent='카드사에서 실제 조회한 기간과 기준을 확인해 주세요. 거래가 없는 날도 포함하며 거래일 범위로 추정하지 않습니다.';form.append(info);
+ const fields=[['issuer','카드사','text'],['card_tail','카드 끝4자리','text'],['date_basis','조회 기준','select'],['start_date','조회 시작일','date'],['end_date','조회 종료일','date'],['management_start','관리 시작일 (선택)','date']];
+ const inputs={};for(const [name,label,type] of fields){const wrap=document.createElement('label');wrap.textContent=label;const input=document.createElement(type==='select'?'select':'input');input.name=name;
+  if(type==='select')for(const value of ['','승인일','이용일','매입일']){const option=document.createElement('option');option.value=value;option.textContent=value||'실제 조회 기준 선택';input.append(option);}else input.type=type;
+  input.value=cov[name]||'';input.required=name!=='management_start';if(['issuer','card_tail'].includes(name)&&cov[name])input.readOnly=true;
+  wrap.append(input);form.append(wrap);inputs[name]=input;
+ }
+ const completeLabel=document.createElement('label');completeLabel.className='coverage-complete';const complete=document.createElement('input');complete.type='checkbox';complete.required=true;completeLabel.append(complete,document.createTextNode('위 카드·기간·조회 기준의 전체 조회 결과 파일임을 확인했습니다.'));form.append(completeLabel);
+ const submit=document.createElement('button');submit.type='submit';submit.textContent='조회 기간 저장';submit.disabled=j.coverage_available===false;form.append(submit);
+ const message=document.createElement('p');message.className='coverage-message';message.setAttribute('aria-live','polite');message.textContent=submit.disabled?'조회기간 저장 기능 준비 전입니다. 파일 업로드 결과는 보존됐습니다.':cov.reason||'';form.append(message);
+ form.onsubmit=async event=>{event.preventDefault();if(submit.disabled||!form.reportValidity())return;submit.disabled=true;message.textContent='조회 기간 저장 중';
+  const evidence=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.value]));evidence.complete=complete.checked;evidence.card_id=cov.card_id||'';
+  try{const result=await call('/api/imports/'+encodeURIComponent(batch)+'/coverage/confirm',JSON.stringify({evidence}),{'Content-Type':'application/json'});
+   if(!result.confirmed)throw Error(result.reason||'조회 조건을 재확인해 주세요.');message.textContent='조회 확인 저장 완료';submit.textContent='다시 조회 기간 저장';await refreshCoverageSummary();
+  }catch(error){message.textContent=error.message;}finally{submit.disabled=false;}
+ };
+ details.append(form);root.append(details);
+}
+
 let uploadFailurePage=0;const UPLOAD_FAILURE_PAGE_SIZE=50;
 function renderUploadSystemError(message){
  const root=el('summary'),prior=root.querySelector('.upload-result');if(prior)prior.remove();
@@ -3270,6 +3311,7 @@ function renderUploadSummary(j){
  const changeFailurePage=(delta,preferred,fallback)=>{uploadFailurePage+=delta;renderUploadSummary({upload_summary:s});const target=el('summary').querySelector(preferred),backup=el('summary').querySelector(fallback);(target&&!target.disabled?target:backup)?.focus()};
  section.querySelector('[data-upload-failure-prev]')?.addEventListener('click',()=>changeFailurePage(-1,'[data-upload-failure-prev]','[data-upload-failure-next]'));
  section.querySelector('[data-upload-failure-next]')?.addEventListener('click',()=>changeFailurePage(1,'[data-upload-failure-next]','[data-upload-failure-prev]'));
+
 }
  function render(j,switchBatch=false){if(model&&model.batch_id!==j.batch_id&&!switchBatch)return;if(model&&model.batch_id===j.batch_id){const older=(rows,previous,field)=>{const versions=new Map(previous.map(r=>[r.transaction_id,Number(r[field]||0)]));return rows.some(r=>Number(r[field]||0)<(versions.get(r.transaction_id)||0))};if(older(j.rows,model.rows,'revision')||older(j.preview.rows,model.preview.rows,'exclusion_revision'))return;}if(model&&stateStamp(j)!==stamp)invalidateProposal();if(model?.batch_id!==j.batch_id){page=0;editing='';reviewState='review';el('review-search').value='';el('review-month').value='';el('review-category').value=''}model=j;el('review-metrics').before(el('summary'));renderReviewControls(j);fillFocus();stamp=stateStamp(j);el('summary').className='';const approval=j.summary.channel==='approval',approvalInfo=j.approval_summary||{},states=approvalInfo.states||{};const reviewCounts={review:0,booked:0,excluded:0};j.preview.rows.forEach(r=>{const state=reviewStatus(r);if(state)reviewCounts[state]=(reviewCounts[state]||0)+1});el('summary').innerHTML='<h2>'+esc(j.summary.display_name||'카드 사용내역')+'</h2><p class="small">'+esc(j.summary.period_start||'거래 기간 미확인')+(j.summary.period_end?' ~ '+esc(j.summary.period_end):'')+'</p><p>'+(approval?'승인 증거 '+(approvalInfo.source_rows??j.summary.row_count)+'행 · 1:1 연결 '+((states.linked||0))+'건 · 묶음 연결 '+((states.group_linked||0)+(states.group_partial||0))+'건 · 추가 확인 '+((states.ambiguous||0)+(states.approval_only||0)+(approvalInfo.conflict_rows||0))+'건 · 비용 행 생성 0건':'이번 자료 '+j.preview.rows.length+'건 · 확인 필요 '+reviewCounts.review+'건 · 기록 완료 '+reviewCounts.booked+'건'+(reviewCounts.excluded?' · 기록 제외 '+reviewCounts.excluded+'건':''))+'</p><details><summary>원본 파일 정보</summary><p>'+esc(j.summary.filename)+'</p></details>';
 renderUploadSummary(j);
@@ -3334,6 +3376,7 @@ el('upload').onclick=async()=>{
    try{
     let j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name),'X-Upload-Async':'1'});if(j.status_url){j.filename=f.name;j=await awaitUpload(j,entry)}results.push(j);entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
     if(j.batch_id){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(j.batch_id)+'#summary';link.textContent='상세 결과';entry.append(link)}
+    appendCoverageForm(entry,j);
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch){savedUploadLink(entry,e.savedBatch);break}}
   }
   if(generation!==batchGeneration){el('status').textContent='파일 처리가 끝났습니다. 파일별 결과를 확인해 주세요.';return}
@@ -3358,7 +3401,7 @@ const cardReviewDetail=document.getElementById('card-review-detail');
 function startCardReview(){
  if(cardReviewStarted)return;
  cardReviewStarted=true;
- loadCardReviewRules();loadCardReviewBatches();
+ loadCardReviewRules();loadCardReviewBatches();refreshCoverageSummary();
 }
 if(!cardReviewDetail){startCardReview();}
 else{
