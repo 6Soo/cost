@@ -1,3 +1,8 @@
+## 2026-11-02 항공권 검색 복귀 개선
+
+- PARTIAL — [PR #536](https://github.com/6Soo/cost/pull/536)을 운영 `d878234c2ca90ab6c1362f7a007f284060562e88`에 반영했다. 합성 앱에서 항공권 검색→새 탭 카드 상세→여행 항공편 상세 및 원래 검색 유지 확인, 영향 QA 260 passed·16 subtests와 CI 및 배포 보호 검사 통과. 인증 운영 영향 화면은 TaskSpace 63을 찾지 못해 미확인이다. [운영 기록](operations.md)을 따른다.
+- 전체 업무 감사는 진행 중이며 실제 OTA 수집·환급·Google 장부 쓰기를 검증 완료로 주장하지 않는다. 상세 근거와 다음 작업은 `.local-archive/autonomous-qa-20261102/continuation-queue-20261102.md`.
+
 ## 2026-11-02 능동 QA 후속 여정 검증
 
 - PARTIAL — 합성 모바일 카드 업로드→화면 분류→여행 장부 복사 [PR #530](https://github.com/6Soo/cost/pull/530), 영수증 교정·복사→원래 여행 복귀 [PR #531](https://github.com/6Soo/cost/pull/531), 합성 OTA 결제·환불·여행 보호 [PR #532](https://github.com/6Soo/cost/pull/532)을 검증 후 병합했다. #532의 OTA 보고서는 합성 주입이며 실제 수집 수락이 아니다. 테스트 전용 변경이라 운영 재배포는 하지 않았다.
