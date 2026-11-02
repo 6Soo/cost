@@ -44,6 +44,9 @@ def test_render_preserves_contract_and_uses_design_tokens():
     assert isinstance(rendered, str)
     assert rendered.startswith("<!doctype html>")
     assert "<html lang='ko'>" in rendered
+    main = rendered.split('<main>', 1)[1].split('</main>', 1)[0]
+    assert '<h1>영수증 정리</h1>' in main
+    assert "id='selected-trip'" in main and "id='copy-tsv'" in main
 
     # CSRF token must appear in the inline script and in the JS post helper.
     assert "const csrf=" in rendered
@@ -167,9 +170,11 @@ def test_browser_receipt_screen_fits_required_viewports():
             assert page.locator('#step-review').is_visible()
 
             page.emulate_media(color_scheme='dark')
+            page.wait_for_function("document.documentElement.dataset.theme === 'dark'")
             dark = page.locator(':root').evaluate(
                 "element => getComputedStyle(element).getPropertyValue('--bg').trim()")
             page.emulate_media(color_scheme='light')
+            page.wait_for_function("document.documentElement.dataset.theme === 'light'")
             light = page.locator(':root').evaluate(
                 "element => getComputedStyle(element).getPropertyValue('--bg').trim()")
             assert (dark, light) == ('#0F172A', '#F8FAFC')
