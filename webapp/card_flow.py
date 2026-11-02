@@ -3338,18 +3338,19 @@ uploadDrop.ondragleave=()=>uploadDrop.classList.remove('is-dragover');
 uploadDrop.ondrop=e=>{e.preventDefault();uploadDrop.classList.remove('is-dragover');if(!uploadInput.disabled){uploadInput.files=e.dataTransfer.files;renderUploadSelection()}};
 uploadDrop.onkeydown=e=>{if(uploadInput.disabled)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();uploadInput.click()}};
 const uploadJobKey='cost-card-upload-job';
-function saveUploadJob(job){try{if(job)localStorage.setItem(uploadJobKey,JSON.stringify(job));else localStorage.removeItem(uploadJobKey)}catch{}}
+function readUploadJobs(){try{const saved=JSON.parse(localStorage.getItem(uploadJobKey)||'null');return (Array.isArray(saved)?saved:saved?[saved]:[]).filter(job=>job?.status_url&&new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))}catch{return []}}
+function saveUploadJob(job,finished=false){try{const jobs=readUploadJobs().filter(saved=>saved.status_url!==job.status_url);if(!finished)jobs.push(job);if(jobs.length)localStorage.setItem(uploadJobKey,JSON.stringify(jobs));else localStorage.removeItem(uploadJobKey)}catch{}}
 async function awaitUpload(job,entry){
  saveUploadJob(job);const started=Date.now();let errors=0;
  while(true){
   try{
    const r=await fetch(job.status_url,{cache:'no-store',signal:AbortSignal.timeout(10000)});
    if(r.status===401||r.status===403)throw Object.assign(Error('로그인이 만료되었습니다. 다시 로그인한 뒤 상세 결과를 확인해 주세요.'),{terminal:true});
-   if(r.status===404){saveUploadJob(null);throw Object.assign(Error('서버가 재시작되었습니다. 저장된 파일의 상세 결과를 확인해 주세요.'),{terminal:true});}
+   if(r.status===404){saveUploadJob(job,true);throw Object.assign(Error('서버가 재시작되었습니다. 저장된 파일의 상세 결과를 확인해 주세요.'),{terminal:true});}
    if(!r.ok)throw Error('진행 상태 연결 재시도 중');
    const state=await r.json();errors=0;
-   if(state.status==='done'){saveUploadJob(null);return state.result}
-   if(state.status==='error'){saveUploadJob(null);throw Object.assign(Error(state.message),{terminal:true})}
+   if(state.status==='done'){saveUploadJob(job,true);if(state.result?.refresh_required)throw Object.assign(Error('파일은 저장되었습니다. 최신 결과는 저장된 파일 상세 결과에서 다시 확인해 주세요.'),{terminal:true});return state.result}
+   if(state.status==='error'){saveUploadJob(job,true);throw Object.assign(Error(state.message),{terminal:true})}
    entry.textContent=(job.filename||'카드 파일')+' · '+(state.message||'처리 중')+' · '+Math.floor((Date.now()-started)/1000)+'초';
   }catch(e){
    if(e.terminal){e.savedBatch=job.batch_id;throw e}
@@ -3360,10 +3361,12 @@ async function awaitUpload(job,entry){
  }
 }
 function savedUploadLink(entry,batch){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='저장된 파일 상세 결과';entry.append(' ',link)}
-async function resumeUpload(){let job;try{job=JSON.parse(localStorage.getItem(uploadJobKey)||'null')}catch{}if(!job?.status_url||!new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))return;
- const root=el('upload-results');root.hidden=false;el('newupload').open=true;const entry=document.createElement('p');root.append(entry);el('upload').disabled=true;
- try{const result=await awaitUpload(job,entry);entry.textContent=(job.filename||'카드 파일')+' · '+uploadOutcome(result);savedUploadLink(entry,job.batch_id)}
- catch(e){entry.textContent=e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}finally{el('upload').disabled=false}
+async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return;
+ const root=el('upload-results');root.hidden=false;el('newupload').open=true;el('upload').disabled=true;uploadInput.disabled=true;
+ try{for(const job of jobs){const entry=document.createElement('p');root.append(entry);
+  try{const result=await awaitUpload(job,entry);entry.textContent=(job.filename||'카드 파일')+' · '+uploadOutcome(result);savedUploadLink(entry,job.batch_id)}
+  catch(e){entry.textContent=(job.filename||'카드 파일')+' · '+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
+ }}finally{el('upload').disabled=false;uploadInput.disabled=false}
 }
 resumeUpload();
 function uploadOutcome(j){return j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
@@ -3381,12 +3384,12 @@ el('upload').onclick=async()=>{
     let j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name),'X-Upload-Async':'1'});if(j.status_url){j.filename=f.name;j=await awaitUpload(j,entry)}results.push(j);entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
     if(j.batch_id){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(j.batch_id)+'#summary';link.textContent='상세 결과';entry.append(link)}
     appendCoverageForm(entry,j);
-   }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch){savedUploadLink(entry,e.savedBatch);break}}
+   }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
   }
   if(generation!==batchGeneration){el('status').textContent='파일 처리가 끝났습니다. 파일별 결과를 확인해 주세요.';return}
   if(results.length)render(results[results.length-1],true);
   const incomplete=results.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
-  el('status').textContent=results.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요 (나머지 파일은 미업로드)':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
+  el('status').textContent=results.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!results.length&&failures.length)renderUploadSystemError(failures[0].message);
  }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드하고 분류'}
 };
