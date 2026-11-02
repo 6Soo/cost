@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import base64
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,9 @@ import subprocess
 import threading
 
 _LOCK = threading.Lock()
+PDF_PAGE_LIMIT = 10
+PDF_LIMIT = 5 * 1024 * 1024
+PDF_PAGE_IMAGE_LIMIT = 4 * 1024 * 1024
 
 
 class OcrError(Exception):
@@ -41,6 +45,53 @@ def recognize(image: Path, language: str = 'ja') -> dict:
             raise OcrError('OCR_TEXT_EMPTY')
         return {**result, 'suggestions': suggestions(result['text'], language),
                 'requires_review': True}
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, KeyError):
+        raise OcrError('OCR_FAILED') from None
+    finally:
+        _LOCK.release()
+
+
+def recognize_pdf(pdf: Path, language: str = 'ja') -> dict:
+    """Render/OCR a bounded PDF locally. Return page images for existing receipt review."""
+    if language not in ('ja', 'ko'):
+        raise OcrError('OCR_LANGUAGE_INVALID')
+    try:
+        size = pdf.stat().st_size
+        if not 8 <= size <= PDF_LIMIT or not pdf.read_bytes().startswith(b'%PDF-'):
+            raise OcrError('PDF_INVALID')
+    except OcrError:
+        raise
+    except OSError:
+        raise OcrError('PDF_INVALID') from None
+    if not enabled():
+        raise OcrError('OCR_UNAVAILABLE')
+    if not _LOCK.acquire(blocking=False):
+        raise OcrError('OCR_BUSY')
+    try:
+        script = Path(__file__).resolve().parents[1] / 'tools/windows_receipt_ocr.ps1'
+        process = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script),
+             '-PdfPath', str(pdf.resolve()), '-Language', language],
+            capture_output=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if process.returncode or len(process.stdout) > 48 * 1024 * 1024:
+            raise OcrError('OCR_FAILED')
+        result = json.loads(process.stdout.decode('utf-8-sig'))
+        pages = result.get('pages')
+        if not isinstance(pages, list) or not 1 <= len(pages) <= PDF_PAGE_LIMIT:
+            raise OcrError('PDF_PAGE_LIMIT')
+        clean = []
+        for number, page in enumerate(pages, 1):
+            if not isinstance(page, dict) or page.get('page') != number or not isinstance(page.get('text'), str):
+                raise OcrError('OCR_FAILED')
+            image = base64.b64decode(page.get('png', ''), validate=True)
+            if len(image) > PDF_PAGE_IMAGE_LIMIT or not image.startswith(b'\x89PNG\r\n\x1a\n'):
+                raise OcrError('OCR_FAILED')
+            clean.append({'page': number, 'text': page['text'], 'image': image,
+                          'suggestions': suggestions(page['text'], language), 'requires_review': True})
+        return {'pages': clean, 'requires_review': True}
+    except OcrError:
+        raise
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, KeyError):
         raise OcrError('OCR_FAILED') from None
     finally:

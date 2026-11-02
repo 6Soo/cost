@@ -29,13 +29,14 @@ from app import receipt_learning
 from . import receipt_vision_jobs, ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
-          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision",
+          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/pdf", "/api/receipts/vision",
           "/api/receipts/vision/rescan", "/api/receipts/vision/new", "/api/receipts/learn", "/api/receipts/learn/delete",
           "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 VISION_JOB = re.compile(r"^/api/receipts/vision/([0-9a-f]{32})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
+PDF_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
 PAYMENT_LABELS = {"cash": "현금", "private_card": "개인카드", "corporate_card": "법인카드"}
 MESSAGES = {
@@ -129,17 +130,22 @@ def _images_dir(store: Path) -> Path:
     return store.parent / "receipt-images"
 
 
+def _pdfs_dir(store: Path) -> Path:
+    return store.parent / "receipt-pdfs"
+
+
 def load(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"candidates": [], "holds": [], "images": []}
+        return {"candidates": [], "holds": [], "images": [], "pdfs": []}
     except (OSError, ValueError):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
     if not isinstance(data, dict) or any(not isinstance(data.get(key), list) for key in ('candidates', 'holds')):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     data.setdefault("images", [])
-    if not isinstance(data['images'], list):
+    data.setdefault("pdfs", [])
+    if not isinstance(data['images'], list) or not isinstance(data['pdfs'], list):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     required = {'identity', 'date', 'merchant', 'total_jpy', 'payment', 'amount_krw', 'history'}
     for candidate in data['candidates']:
@@ -164,6 +170,11 @@ def load(path: Path) -> dict:
                 or (hold.get('image_sha') is not None and not isinstance(hold['image_sha'], str))):
             raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     if any(not isinstance(image, str) for image in data['images']):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    if any(not isinstance(pdf, dict) or not re.fullmatch(r'[0-9a-f]{64}', str(pdf.get('sha256', '')))
+           or not isinstance(pdf.get('pages'), list) or len(pdf['pages']) > local_receipt_ocr.PDF_PAGE_LIMIT
+           or any(not isinstance(page, str) or page not in data['images'] for page in pdf['pages'])
+           for pdf in data['pdfs']):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     return data
 
@@ -216,6 +227,41 @@ def store_image(path: Path, body: bytes) -> dict:
         data["images"].append(sha)
         _save(path, data)
     return {"sha256": sha, "bytes": len(body), "media_type": media}
+
+
+@_serialized
+def store_pdf(path: Path, body: bytes, *, language: str = 'ja') -> dict:
+    if not body or len(body) > PDF_LIMIT or not body.startswith(b'%PDF-'):
+        raise ValueError('PDF_INVALID')
+    sha = hashlib.sha256(body).hexdigest()
+    folder = _pdfs_dir(path)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f'{sha}.pdf'
+    if target.exists():
+        if target.stat().st_size != len(body) or target.read_bytes() != body:
+            raise ValueError('PDF_INVALID')
+    else:
+        temporary = target.with_suffix('.pdf.tmp')
+        temporary.write_bytes(body)
+        os.replace(temporary, target)
+    data = load(path)
+    existing = next((item for item in data['pdfs'] if item['sha256'] == sha), None)
+    if existing:
+        return existing
+    try:
+        result = local_receipt_ocr.recognize_pdf(target, language)
+    except local_receipt_ocr.OcrError as error:
+        raise ValueError(str(error)) from None
+    pages = []
+    for page in result['pages']:
+        image = store_image(path, page['image'])
+        pages.append(image['sha256'])
+    item = {'sha256': sha, 'bytes': len(body), 'pages': pages, 'page_text': [p['text'] for p in result['pages']]}
+    item['suggestions'] = [p['suggestions'] for p in result['pages']]
+    data = load(path)
+    data['pdfs'].append(item)
+    _save(path, data)
+    return item
 
 
 def image_bytes(path: Path, sha: str) -> bytes:
@@ -327,15 +373,37 @@ def vision_new(path: Path, *, image: str, job_id: str) -> dict:
     known = {}
     for stored in load(path)['candidates']:
         if stored.get('image_sha') == image and stored.get('reading'):
-            known[stored['reading']] = known.get(stored['reading'], 0) + 1
-    seen, new = {}, []
-    for item in receipts:
+            known.setdefault(stored['reading'], []).append(stored.get('box'))
+    groups = {}
+    for index, item in enumerate(receipts):
         key = reading_key({'merchant': item['merchant'], 'date': item['date'], 'total': item['amount'],
                            'currency': item['currency'], 'payment': item['payment']})
-        occurrence = seen.get(key, 0)
-        seen[key] = occurrence + 1
-        if occurrence >= known.get(key, 0):
-            new.append({**item, 'reading': key, 'ordinal': occurrence})
+        group = groups.setdefault(key, [])
+        group.append((index, {**item, 'reading': key, 'ordinal': len(group)}))
+    matched = set()
+    for key, entries in groups.items():
+        unmatched_known = 0
+        for box in known.get(key, []):
+            box = opencode_receipt_vision._valid_box(box)
+            choices = []
+            if box is not None:
+                for index, item in entries:
+                    other = opencode_receipt_vision._valid_box(item.get('box'))
+                    if index not in matched and other is not None:
+                        choices.append((rc._overlap(box, other), index))
+            best = max(choices, default=(0, -1))
+            if best[0] > rc.BOX_OVERLAP_HOLD:
+                matched.add(best[1])
+            else:
+                unmatched_known += 1
+        # Older candidates may lack a position; retain the previous conservative
+        # reading-count fallback without letting them displace a position match.
+        for index, _item in entries:
+            if unmatched_known and index not in matched:
+                matched.add(index)
+                unmatched_known -= 1
+    new = [item for index, item in sorted(
+        (index, item) for entries in groups.values() for index, item in entries if index not in matched)]
     return {'new': new, 'already': len(receipts) - len(new)}
 
 
@@ -492,6 +560,10 @@ def _same_physical_receipt(left: dict, right: dict) -> bool:
     if (left.get("image_sha") and left.get("image_sha") == right.get("image_sha")
             and left.get("source_region") and right.get("source_region")
             and left["source_region"] != right["source_region"]):
+        if left.get('box') is not None and right.get('box') is not None:
+            return rc._overlap(left['box'], right['box']) > rc.BOX_OVERLAP_HOLD
+        if (left.get('box') is None) != (right.get('box') is None):
+            return True
         return False
     return True
 
@@ -707,6 +779,12 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         if parsed.path == "/api/receipts/image":
             handler._send_json(store_image(path, raw))
             return True
+        if parsed.path == "/api/receipts/pdf":
+            try:
+                handler._send_json(store_pdf(path, raw, language=handler.headers.get('X-Receipt-Language', 'ja')))
+            except ValueError as error:
+                handler._send_json({'code': str(error), 'message': 'PDF를 처리하지 못했습니다. 최대 10페이지 PDF를 선택해 주세요.'}, 400)
+            return True
         body = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(body, dict):
             raise ValueError('INVALID_VALUE')
@@ -877,6 +955,21 @@ const receiptCard=(group,index,receipt)=>{
  const card=document.createElement('article');card.className='receipt-card';card.dataset.key=group.sha+'|'+index;
  const include=document.createElement('input');include.type='checkbox';include.checked=receipt.include!==false;
  const top=document.createElement('label');top.className='card-top';top.append(include,' 등록에 포함');
+ const preview=document.createElement('div');preview.className='receipt-region-preview';
+ const photo=document.createElement('img');photo.src='/api/receipts/image/'+encodeURIComponent(group.sha);photo.alt='영수증 원본 사진';preview.append(photo);
+ const outline=document.createElement('span');outline.className='receipt-region-box';outline.setAttribute('aria-hidden','true');preview.append(outline);
+ const regionNote=document.createElement('p');regionNote.className='receipt-region-note';
+ const regionFields=document.createElement('div');regionFields.className='receipt-region-fields';
+ const coordinates=['왼쪽','위','오른쪽','아래'].map((name,i)=>{const label=document.createElement('label');label.textContent=name;
+  const input=fieldInput('number',receipt.boxDraft?.[i]??receipt.box?.[i], '0~1',name+' 영역 좌표');input.min='0';input.max='1';input.step='0.01';label.append(input);regionFields.append(label);return input});
+ const syncBox=()=>{const values=coordinates.map(input=>input.value.trim());const allEmpty=values.every(v=>v==='');
+  const nums=values.map(Number);const valid=!allEmpty&&values.every(v=>v!=='')&&nums.every(v=>Number.isFinite(v)&&v>=0&&v<=1)&&nums[0]<nums[2]&&nums[1]<nums[3];
+  receipt.boxDraft=values;receipt.boxInvalid=!allEmpty&&!valid;receipt.box=valid?nums:null;outline.hidden=!valid;
+  regionNote.textContent=receipt.boxInvalid?'영역 좌표 네 개를 0~1 범위에서 확인하세요.':valid?'사진 위 영역을 확인하고 필요하면 좌표를 수정하세요.':'영역 미확인 · 필요하면 좌표를 입력하세요.';
+  if(valid){outline.style.left=(nums[0]*100)+'%';outline.style.top=(nums[1]*100)+'%';outline.style.width=((nums[2]-nums[0])*100)+'%';outline.style.height=((nums[3]-nums[1])*100)+'%'}
+  storePending()};
+ for(const input of coordinates)input.addEventListener('input',syncBox);
+ syncBox();
  const merchant=fieldInput('text',receipt.merchant,'상호 (읽히지 않으면 직접 입력)','상호');
  const amount=fieldInput('number',receipt.amount,'금액','금액');amount.inputMode='numeric';amount.className='amount-input';
  const date=fieldInput('text',receipt.date,'날짜 2026-10-01','날짜');
@@ -889,7 +982,7 @@ const receiptCard=(group,index,receipt)=>{
  const sync=()=>{Object.assign(receipt,{include:include.checked,merchant:merchant.value.trim()||null,date:date.value.trim()||null,
    amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
  for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
- card.append(top,merchant,amount,row2,error,remove);
+ card.append(top,preview,regionNote,regionFields,merchant,amount,row2,error,remove);
  return card;
 };
 const renderPending=()=>{
@@ -930,7 +1023,7 @@ if(visionGo)visionGo.onclick=async()=>{
    try{
     const state=await pollJob(await post('/api/receipts/vision',{image:sha}),label);
     if(state.status!=='done')throw new Error(jobFailure(state));
-    const receipts=state.result.receipts.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,include:true}));
+    const receipts=state.result.receipts.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,include:true}));
     found+=receipts.length;
     setPhotoState(sha,receipts.length?'후보 '+receipts.length+'건':'인식된 영수증 없음');
     if(receipts.length){pending.push({sha,kind:'analysis',jobId:state.job_id,receipts});storePending();renderPending()}
@@ -946,7 +1039,8 @@ const registerPending=async()=>{
  if(!trip){say('여행을 먼저 선택하세요.');return}
  const plan=[];
  for(const group of pending){const items=group.receipts.map((r,i)=>({r,i})).filter(({r})=>r.include!==false);
-  for(const {r,i} of items){if(!r.currency){cardError(group,i,'통화를 선택해 주세요.');say('통화를 선택한 뒤 등록해 주세요.');return}
+  for(const {r,i} of items){if(r.boxInvalid){cardError(group,i,'영역 좌표를 확인해 주세요.');say('영역 좌표를 확인한 뒤 등록해 주세요.');return}
+   if(!r.currency){cardError(group,i,'통화를 선택해 주세요.');say('통화를 선택한 뒤 등록해 주세요.');return}
    if(!r.merchant&&!r.date&&r.amount==null){cardError(group,i,'상호·날짜·금액 중 하나는 입력해 주세요.');say('등록할 내용이 없는 후보가 있습니다.');return}}
   if(items.length)plan.push({group,items})}
  if(!plan.length){say('등록할 영수증을 하나 이상 선택하세요.');return}
@@ -954,7 +1048,7 @@ const registerPending=async()=>{
  try{
   for(const {group,items} of plan){
    say('사진 '+photoNumber(group.sha)+'의 영수증을 등록하고 있습니다.');
-   const regions=items.map(({r})=>({box:null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
+   const regions=items.map(({r})=>({box:r.box??null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions});
    added+=result.added;
@@ -981,7 +1075,7 @@ if(rescanGo)rescanGo.onclick=async()=>{
   if(state.status!=='done')throw new Error(jobFailure(state));
   const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});
   if(found.new.length){
-   pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,
+   pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,
      currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}))});
    storePending();renderPending();document.getElementById('feedback').value='';
   }
@@ -1023,6 +1117,12 @@ button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
 .photo-state{font-size:12px;color:var(--mut)}
 .result-group{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
 .receipt-card{border:1px solid var(--line-strong);border-radius:10px;padding:12px;margin:8px 0;background:var(--paper);display:grid;gap:8px;min-width:0}
+.receipt-region-preview{position:relative;line-height:0;max-width:480px}
+.receipt-region-preview img{display:block;width:100%;height:auto}
+.receipt-region-box{position:absolute;box-sizing:border-box;border:3px solid #e22525;background:rgba(255,40,40,.12);pointer-events:none}
+.receipt-region-box[hidden]{display:none}
+.receipt-region-note{margin:0;color:var(--mut)}
+.receipt-region-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
 .receipt-card input:not([type=checkbox]),.receipt-card select{width:100%;min-width:0}
 .receipt-card .amount-input{font-size:22px;font-weight:700;text-align:right}
 .receipt-card .row2{display:grid;grid-template-columns:1fr;gap:8px}
@@ -1134,6 +1234,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "for(const f of files){const r=await fetch('/api/receipts/image',{method:'POST',"
         "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:await normalizeReceiptImage(f)});"
         "const j=await readResponse(r);document.getElementById('image-sha').value=j.sha256;}})};"
+        "document.getElementById('pdf-go').onclick=async()=>{const file=document.getElementById('pdf-file').files[0];"
+        "if(!file){say('PDF 파일을 고르세요.');return}if(file.size>5*1024*1024){say('PDF는 5MB 이하만 등록할 수 있습니다.');return}"
+        "await save(async()=>{const r=await fetch('/api/receipts/pdf',{method:'POST',headers:{'Content-Type':'application/pdf','X-CSRF-Token':csrf,'X-Receipt-Language':document.getElementById('ocr-language')?.value||'ja'},body:file});"
+        "const result=await readResponse(r);if(result.pages.length)document.getElementById('image-sha').value=result.pages[result.pages.length-1];"
+        "say('PDF 원본을 보관하고 '+result.pages.length+'페이지를 사진 후보로 등록했습니다. 각 페이지에서 영수증 값을 확인해 주세요.');location.reload()})};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
@@ -1197,8 +1302,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<section id='step-photos'><h2>2. 사진</h2>"
             "<input id='img-file' type='file' multiple accept='image/*'> "
             f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
+            "<label>PDF 영수증<input id='pdf-file' type='file' accept='application/pdf,.pdf'></label> "
+            "<button type='button' id='pdf-go'>PDF 페이지 등록</button>"
             f"<input type='hidden' id='image-sha' value='{latest}'>"
-            "<p class='hint'>iPhone 사진(HEIC 포함)이나 큰 사진은 업로드 전에 JPEG로 바꿉니다. 분석할 사진을 체크하세요.</p>"
+            "<p class='hint'>원본은 그대로 보관합니다. PDF는 로컬 Windows에서 최대 10페이지를 사진 후보로 렌더링합니다. 페이지별로 확인해 영수증 값을 직접 입력하세요.</p>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
             + ai_section +
             "<section id='step-review'><h2>4. 후보 검토</h2>"

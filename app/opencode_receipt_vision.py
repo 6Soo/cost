@@ -6,9 +6,11 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -25,7 +27,7 @@ NETWORK_WORDS = ('fetch failed', 'econnreset', 'etimedout', 'econnrefused', 'soc
 MAX_BYTES = 5 * 1024 * 1024
 MAX_OUTPUT_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 120
-SCHEMA = '{"receipts":[{"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}'
+SCHEMA = '{"receipts":[{"box":null,"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}'
 AGENT_INSTRUCTION = ('You read one attached receipt image and answer with JSON only, using exactly this schema and no other keys: '
                      + SCHEMA + '. The image is already in the message. Never call tools, never look for files or instructions.')
 LESSON_INSTRUCTION = ('사용자가 지적한 인식 오류를 바탕으로 영수증을 다시 분석하라. 실제로 새로 발견한 영수증이 있다면, '
@@ -38,6 +40,8 @@ Schema: {SCHEMA}
 The page image is already attached to this message. Do not call any tool; answer from the attached image only.
 The page may contain several Japanese/Korean receipts, ferry or boarding tickets, handwriting and stamps,
 overlapping or rotated slips. One receipts entry per physical receipt or ticket, even identical-priced tickets.
+box is [x0,y0,x1,y1] normalized to the whole page, with every coordinate in 0..1,
+where x0 < x1 and y0 < y1. Use null when the bounds are unclear; never guess them.
 Write merchant as printed in the original language (Korean, Japanese or English). Do not translate it.
 date as YYYY-MM-DD. amount is the paid total as an integer (not subtotal, tax, tendered or change).
 currency is JPY or KRW. payment is cash, private_card, corporate_card or null.
@@ -133,8 +137,9 @@ ITEM_ALIASES = {'merchant': 'merchant', 'store': 'merchant', 'shop': 'merchant',
                 'date': 'date', 'datetime': 'date', 'receipt_date': 'date',
                 'amount': 'amount', 'total_amount': 'amount', 'total': 'amount',
                 'currency': 'currency', 'payment': 'payment', 'payment_method': 'payment',
+                'box': 'box', 'bbox': 'box', 'region': 'box',
                 'category_hint': 'category_hint', 'note': 'note'}
-CANONICAL_ITEM_KEYS = ('merchant', 'date', 'amount', 'currency', 'payment', 'category_hint', 'note')
+CANONICAL_ITEM_KEYS = ('box', 'merchant', 'date', 'amount', 'currency', 'payment', 'category_hint', 'note')
 
 
 def _canonical_item(item):
@@ -150,6 +155,7 @@ def _canonical_item(item):
 def _normalized_item(item):
     """Deterministic clean-up of what the model wrote; anything still unclear becomes null, never a guess."""
     item = _canonical_item(item)
+    item['box'] = _valid_box(item.get('box'))
     date = item.get('date')
     if isinstance(date, str):
         match = _DATE_SEPARATED.match(date.strip())
@@ -165,6 +171,21 @@ def _normalized_item(item):
     if isinstance(currency, str):
         item['currency'] = currency.strip().upper() if currency.strip().upper() in ('JPY', 'KRW') else None
     return item
+
+
+def _valid_box(value):
+    """Keep only a finite, ordered normalized page box; bad model coordinates become unknown."""
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    if any(type(point) not in (int, float) or not 0 <= point <= 1 or not math.isfinite(point)
+           for point in value):
+        return None
+    x0, y0, x1, y1 = value
+    if x0 >= x1 or y0 >= y1:
+        return None
+    return [float(point) for point in value]
 
 
 def _valid_date(value):
@@ -205,12 +226,16 @@ def validate_response(result, *, image_hash, model=MODEL, lesson=False):
             continue
         currency = item['currency'] if item['currency'] in ('JPY', 'KRW') else None
         payment = item['payment'] if item['payment'] in PAYMENT_VALUES else None
-        content = json.dumps([merchant, date, amount, currency, payment], ensure_ascii=False)
+        box = item['box']
+        identity = [merchant, date, amount, currency, payment]
+        if box is not None:
+            identity.insert(0, box)
+        content = json.dumps(identity, ensure_ascii=False)
         # Identical tickets stay separate: the k-th copy of one reading gets its own id; list order does not matter.
         occurrence = seen.get(content, 0)
         seen[content] = occurrence + 1
         rid = hashlib.sha256(json.dumps([image_hash, content, occurrence]).encode()).hexdigest()[:24]
-        rows.append({'id': rid, 'merchant': merchant, 'date': date, 'amount': amount,
+        rows.append({'id': rid, 'box': box, 'merchant': merchant, 'date': date, 'amount': amount,
                      'currency': currency, 'payment': payment,
                      'category_hint': _string(item['category_hint'], 60),
                      'note': _string(item['note'], 240), 'requires_review': True})
@@ -231,13 +256,19 @@ def _run_bounded(command, *, cwd, env):
     """
     process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                               creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),
+                               start_new_session=os.name != 'nt')
     try:
         stdout, stderr = process.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'] if os.name == 'nt'
-                       else ['kill','-9',str(process.pid)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if os.name == 'nt':
+            subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         try:
             process.communicate(timeout=10)
         except subprocess.TimeoutExpired:
