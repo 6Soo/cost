@@ -382,6 +382,67 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     workbook.close()
 
 
+def test_trip_metadata_stale_http_edit_preserves_saved_state(service):
+    store = service.server.card_store
+    created = store.create_trip(
+        starts_on='2026-05-01', ends_on='2026-05-31',
+        destination='Synthetic metadata conflict trip',
+        display_key='Synthetic metadata original',
+        client_request_id='autonomous-trip-meta-conflict-create')
+    tab_id = created['tab_id']
+    current = store.get_trip(tab_id)
+    page_code, page_html, _ = service.request(
+        f'/trips?trip={quote(tab_id)}', cookie=service.cookie(OWNER))
+    assert page_code == 200, page_html[:500]
+    assert f"name='display_key' value='{current['display_key']}'" in page_html
+
+    # Save permitted metadata through the real authenticated HTTP endpoint.
+    saved_code, saved_body, _ = json_post(service, f'/api/trips/{quote(tab_id)}/meta', {
+        'expected_revision': current['revision'],
+        'client_request_id': 'autonomous-trip-meta-conflict-first-save',
+        'display_key': 'Synthetic metadata accepted',
+        'prepared_by_name': 'Synthetic metadata owner',
+    })
+    assert saved_code == 200, saved_body
+    saved = store.get_trip(tab_id)
+    assert saved['revision'] == current['revision'] + 1
+    assert saved['display_key'] == 'Synthetic metadata accepted'
+    assert saved['prepared_by_name'] == 'Synthetic metadata owner'
+
+    snapshot_before_stale = service.snapshot.read_bytes()
+
+    def database_rows():
+        names = [row[0] for row in store.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+            "AND name != 'rule_process_leases' ORDER BY name")]
+        return {name: sorted(store.conn.execute(f'SELECT * FROM "{name}"').fetchall(), key=repr)
+                for name in names}
+
+    database_before_stale = database_rows()
+    history_before_stale = store.conn.execute(
+        'SELECT revision, prev_json, new_json FROM trip_tab_history WHERE tab_id=? ORDER BY revision',
+        (tab_id,)).fetchall()
+    requests_before_stale = store.conn.execute(
+        'SELECT client_request_id FROM trip_tab_requests WHERE tab_id=? ORDER BY client_request_id',
+        (tab_id,)).fetchall()
+    stale_code, stale_body, _ = json_post(service, f'/api/trips/{quote(tab_id)}/meta', {
+        'expected_revision': current['revision'],
+        'client_request_id': 'autonomous-trip-meta-conflict-stale-save',
+        'display_key': 'Synthetic stale title',
+        'prepared_by_name': 'Synthetic stale owner',
+    })
+    assert stale_code == 409, stale_body
+    assert database_rows() == database_before_stale
+    assert store.get_trip(tab_id) == saved
+    assert store.conn.execute(
+        'SELECT revision, prev_json, new_json FROM trip_tab_history WHERE tab_id=? ORDER BY revision',
+        (tab_id,)).fetchall() == history_before_stale
+    assert store.conn.execute(
+        'SELECT client_request_id FROM trip_tab_requests WHERE tab_id=? ORDER BY client_request_id',
+        (tab_id,)).fetchall() == requests_before_stale
+    assert service.snapshot.read_bytes() == snapshot_before_stale
+
+
 def test_synthetic_google_copy_and_manual_record_are_read_only_or_idempotent(service):
     store = service.server.card_store
     before_snapshot = service.snapshot.read_bytes()
