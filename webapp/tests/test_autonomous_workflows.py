@@ -20,6 +20,42 @@ OWNER = 'synthetic-owner-sub'
 VIEWER = 'synthetic-viewer-sub'
 
 
+def seed_synthetic_trip(service):
+    """Reuse signed identity and Google snapshot fixtures for a ready Q2 tab."""
+    from copy import deepcopy
+    from app import google_authority
+    from webapp.tests.test_google_canonical_workflow import healthy_snapshot
+
+    tab_id = 'quarter:2026:2'
+    snapshot = healthy_snapshot()
+    trip = deepcopy(snapshot['trips'][0])
+    stamp = __import__('datetime').datetime.now(google_authority.KST).isoformat()
+    trip.update(key='2분기_기타비용', kind='quarter', quarter=2, ledger_year=2026,
+                canonical_source='main', closure='open', closure_current=True,
+                verified=True, review=[])
+    trip['copies'] = {'main': {
+        'sheet': '2분기_기타비용', 'kind': 'quarter', 'ledger_year': 2026,
+        'layout': 'rev', 'flags': [],
+        'income': {'sheet_total': 0, 'row_sum': 0, 'total': 0, 'verified': True},
+        'expense': {'sheet_total': 0, 'row_sum': 0, 'total': 0, 'verified': True},
+    }, 'archive': None}
+    trip.update(income_total=0, expense_total=0, net=None,
+                reported={'income_total': 0, 'expense_total': 0, 'net': None})
+    snapshot.update(trips=[trip], synced_at=stamp)
+    for source in snapshot['sources'].values():
+        source.update(status='ok', stale=False, last_ok_at=stamp, checked_at=stamp)
+    service.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
+    list_trips = service.server.card_store.list_trips
+    quarter_trip = {
+        'tab_id': tab_id, 'starts_on': '2026-04-01', 'ends_on': '2026-06-29',
+        'destination': 'Synthetic Q2 source', 'display_key': 'Synthetic Q2 source',
+        'archived': False,
+    }
+    service.server.card_store.list_trips = lambda include_archived=True: (
+        list_trips(include_archived=include_archived) + [quarter_trip])
+    return tab_id
+
+
 @pytest.fixture
 def service(monkeypatch):
     from webapp.tests.test_signed_session_http import SignedSessionHttpTests
@@ -68,6 +104,9 @@ def binary_get(service, path, *, user=OWNER):
 
 def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, request, monkeypatch):
     board = service.server.card_store
+    from webapp.card_flow import CardFlow
+    monkeypatch.setattr(CardFlow, 'trip_valid', lambda self, target: target == trip_id)
+    trip_id = seed_synthetic_trip(service)
     from webapp import card_upload_jobs
     process_calls = []
     process_lock = __import__('threading').Lock()
@@ -79,13 +118,9 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
         return original_process(*args, **kwargs)
 
     monkeypatch.setattr(card_upload_jobs, 'process', count_process)
-    raw = make_xlsx([
-        domestic_row(merchant='SYNTHETIC JOURNEY CAFE', amount=18400,
-                     approval='SYN-JOURNEY-001', issuer='SYNTHETIC ISSUER'),
-        domestic_row(merchant='SYNTHETIC JOURNEY CAFE', amount=-18400,
-                     approval='SYN-JOURNEY-001', issuer='SYNTHETIC ISSUER',
-                     kind='PURCHASE CANCELLATION', status='CANCELLED'),
-    ])
+    raw = make_xlsx([domestic_row(merchant='SYNTHETIC JOURNEY CAFE', amount=18400,
+                     approval='SYN-JOURNEY-001', issuer='SYNTHETIC ISSUER', card='****3820',
+                     kind='매입')])
     # Owner upload returns 202 after durable source ingestion; refresh receives
     # only the shell and status polling eventually returns the completed result.
     code, body, _ = binary_request(service, '/api/imports', raw, headers={
@@ -105,6 +140,7 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
         time.sleep(.05)
     assert status['status'] == 'done', status
     assert len(process_calls) == 1
+    assert status['result']['summary']['status'] == 'classified'
 
     # Reposting identical workbook is idempotent: one source transaction and no
     # second ledger entry. Denied roles / missing CSRF cause no database effect.
@@ -116,11 +152,12 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert replay['batch_id'] == ack['batch_id']
     assert replay['status_url'] == ack['status_url']
     assert len(process_calls) == 1
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
     rows = board.conn.execute(
         'SELECT transaction_id, source_hash, revision FROM transactions '
         'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)',
         (ack['batch_id'],)).fetchall()
-    assert len(rows) == 2
+    assert len(rows) == 1
     source_id, source_hash, revision = next(row for row in rows if row[2] >= 1)
     identities = [row[0] for row in rows]
     immutable_before = {tid: board.conn.execute(
@@ -128,8 +165,8 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
         'FROM transactions WHERE transaction_id=?', (tid,)).fetchone() for tid in identities}
     assert sum(board.conn.execute(
         'SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone()[0]
-        for tid in identities) <= len(identities)
-    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == entries_after_first
+        for tid in identities) == 1
+    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == entries_after_first == 1
     before_denied = board.conn.total_changes
     for user, csrf, expected in ((VIEWER, True, 403), (None, True, 401), (OWNER, False, 403)):
         denied, _, _ = binary_request(service, '/api/imports', raw, user=user, csrf=csrf,
@@ -170,16 +207,20 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert after[0] == source_hash and after[1] == revision
     assert after[2] != 'SYNTHETIC CORRECTION' and after[3] != 'PRESERVE INPUT CHECK'
 
-    # Google TSV is only a preview/copy payload. It must not mutate card,
-    # ledger, source, or Google fixture state.
+    # The verified fixture provides a successful copy payload without mutating
+    # card, ledger, source, or Google fixture state.
     before_copy = board.conn.total_changes
     google_snapshot = service.snapshot.read_bytes()
     copy_code, copy_body, _ = service.request(
-        '/api/imports/' + ack['batch_id'] + '/google-tsv?tab=quarter:2026:1',
+        '/api/imports/' + ack['batch_id'] + '/google-tsv?tab=' + quote(trip_id),
         cookie=service.cookie(OWNER))
-    assert copy_code == 400 and json.loads(copy_body)['code'] == 'QUARTER_SHEET_NOT_READY'
+    assert copy_code == 200, copy_body
+    copied = json.loads(copy_body)
+    fields = copied['tsv'].rstrip('\n').split('\t')
+    assert copied['row_count'] == 1 and len(fields) == 7, copy_body
+    assert 'SYNTHETIC JOURNEY CAFE' in fields[1]
     viewer_copy, _, _ = service.request(
-        '/api/imports/' + ack['batch_id'] + '/google-tsv?tab=quarter:2026:1',
+        '/api/imports/' + ack['batch_id'] + '/google-tsv?tab=' + quote(trip_id),
         cookie=service.cookie(VIEWER))
     assert viewer_copy == 403
     assert board.conn.total_changes == before_copy
@@ -211,6 +252,14 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
         'prepared_by_name': 'Synthetic owner',
     })
     assert trip_code == 200, trip_body
+    manual_payload = {
+        'amount_krw': '7200', 'occurred_on': '2026-04-10', 'pay_method': '현금',
+        'item': 'OTHER_EXPENSE', 'description': 'SYNTHETIC EXPORT MERCHANT',
+        'display_tab_id': created['tab_id'], 'client_request_id': 'autonomous-export-expense',
+    }
+    manual_code, manual_body, _ = json_post(service, '/api/expenses/manual', manual_payload)
+    assert manual_code == 200, manual_body
+    manual_row_id = json.loads(manual_body)['row_id']
     export_code, export_body, _ = json_post(service, '/api/exports/xlsx', {
         'tab_ids': [created['tab_id']], 'client_request_id': 'autonomous-xlsx-export'})
     assert export_code == 200, export_body
@@ -222,6 +271,16 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     with zipfile.ZipFile(BytesIO(xlsx)) as archive:
         assert archive.testzip() is None
         assert 'xl/workbook.xml' in archive.namelist()
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(xlsx), read_only=True, data_only=True)
+    values = [value for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True)
+              for value in row if value is not None]
+    assert sum(value == 'SYNTHETIC EXPORT MERCHANT' for value in values) == 1
+    assert sum(value == 7200 for value in values) == 1
+    assert sum(value == 'OTHER_EXPENSE' for value in values) == 1
+    assert store.conn.execute('SELECT COUNT(*) FROM board_rows WHERE row_id=?',
+                              (manual_row_id,)).fetchone()[0] == 1
+    workbook.close()
 
 
 def test_synthetic_google_copy_and_manual_record_are_read_only_or_idempotent(service):
@@ -258,6 +317,18 @@ def test_synthetic_google_copy_and_manual_record_are_read_only_or_idempotent(ser
         "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
     assert after_manual_schema == before_schema
     assert service.snapshot.read_bytes() == before_snapshot
-    assert store.conn.execute(
-        "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name").fetchall() == before_schema
+
+
+def test_unprepared_quarter_copy_stays_rejected_without_writes(service):
+    board = service.server.card_store
+    raw = make_xlsx([domestic_row(merchant='SYNTHETIC UNPREPARED CAFE', amount=5100,
+                                  approval='SYN-UNPREPARED-001', issuer='SYNTHETIC ISSUER')])
+    from webapp.card_flow import CardFlow
+    batch = CardFlow(board).pipeline.receive(raw, 'synthetic-unprepared.xlsx')['batch_id']
+    before_changes = board.conn.total_changes
+    before_snapshot = service.snapshot.read_bytes()
+    code, body, _ = service.request(
+        f'/api/imports/{batch}/google-tsv?tab=quarter:2026:2', cookie=service.cookie(OWNER))
+    assert code == 400 and json.loads(body)['code'] == 'QUARTER_SHEET_NOT_READY'
+    assert board.conn.total_changes == before_changes
     assert service.snapshot.read_bytes() == before_snapshot
