@@ -1,7 +1,11 @@
+## 2026-11-02 항공권 운영 화면 후속 확인
+
+- 사용자 지시에 따라 새 ego-browser 작업 공간에서 운영 `/flight-passengers`의 인증 화면·검색 입력을 확인했다. 합성 영문 이름 조회는 예약 없음으로 응답했고 입력 유지·가로 넘침 없음을 확인했다. 실제 예약 결과의 새 탭 클릭은 수행하지 않았으며 해당 동작은 PR #536 합성 브라우저 검사로 확인했다. 고객 금융·Google 장부 쓰기 없음. 로컬 근거 `.local-archive/autonomous-qa-20261102/flight-live-resume-valid.mjs`, `flight-live-resume-status.mjs`.
+
 ## 2026-11-02 항공권 검색 결과 유지 배포
 
 - [PR #536](https://github.com/6Soo/cost/pull/536), 코드 `4303ca66`, 운영 `d878234c2ca90ab6c1362f7a007f284060562e88`. 카드 원행을 안내와 함께 새 탭에서 열어 검색 결과를 유지한다. 이름이나 예약 정보를 URL·브라우저 저장소에 새로 기록하지 않는다.
-- 합성 항공 검색 12 passed, 영향 QA 260 passed·16 subtests·skip 0, GitHub Actions 41423166983 통과. 운영 1,293 blobs 일치, health/ready 200, 보호 API 401/403, 보호 13표 전후 불변. 직전 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a` 보존. 인증 운영 영향 화면은 기존 TaskSpace 63을 찾을 수 없어 미확인이다. 실제 금융·Google 쓰기 없음. 근거 `.local-archive/autonomous-qa-20261102/flight-detail-release/deploy-evidence.json`.
+- 합성 항공 검색 12 passed, 영향 QA 260 passed·16 subtests·skip 0, GitHub Actions 41423166983 통과. 운영 1,293 blobs 일치, health/ready 200, 보호 API 401/403, 보호 13표 전후 불변. 직전 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a` 보존. 배포 당시 기존 TaskSpace 63을 찾지 못했으며 후속 운영 화면 확인은 위에 기록했다. 실제 금융·Google 쓰기 없음. 근거 `.local-archive/autonomous-qa-20261102/flight-detail-release/deploy-evidence.json`.
 
 ## 2026-11-02 카드 자료 전환 상태 보호 배포
 

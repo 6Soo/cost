@@ -1,6 +1,11 @@
+## 2026-11-02 항공권 운영 화면 후속 확인
+
+- 새 ego-browser 작업 공간에서 인증된 항공권 화면과 합성 이름의 예약 없음 응답·입력 유지·가로 넘침 없음을 확인했다. 실제 예약 결과의 새 탭 클릭은 수행하지 않았다. [운영 기록](operations.md)에 근거와 한계를 기록한다.
+- 합성 홈→여행→실제 XLSX 다운로드 검사 [PR #538](https://github.com/6Soo/cost/pull/538)과 현행 업로드→분류→규칙→출력 검사 복구 [PR #539](https://github.com/6Soo/cost/pull/539)를 병합했다. 상세 범위와 검사 결과는 `.local-archive/autonomous-qa-20261102/continuation-queue-20261102.md`에 있다. 두 PR은 테스트 전용이며 운영 재배포하지 않았다.
+
 ## 2026-11-02 항공권 검색 복귀 개선
 
-- PARTIAL — [PR #536](https://github.com/6Soo/cost/pull/536)을 운영 `d878234c2ca90ab6c1362f7a007f284060562e88`에 반영했다. 합성 앱에서 항공권 검색→새 탭 카드 상세→여행 항공편 상세 및 원래 검색 유지 확인, 영향 QA 260 passed·16 subtests와 CI 및 배포 보호 검사 통과. 인증 운영 영향 화면은 TaskSpace 63을 찾지 못해 미확인이다. [운영 기록](operations.md)을 따른다.
+- [PR #536](https://github.com/6Soo/cost/pull/536)을 운영 `d878234c2ca90ab6c1362f7a007f284060562e88`에 반영했다. 합성 앱에서 항공권 검색→새 탭 카드 상세→여행 항공편 상세 및 원래 검색 유지 확인, 영향 QA 260 passed·16 subtests와 CI 및 배포 보호 검사 통과. 후속 인증 운영 화면 확인의 범위는 위와 [운영 기록](operations.md)을 따른다.
 - 전체 업무 감사는 진행 중이며 실제 OTA 수집·환급·Google 장부 쓰기를 검증 완료로 주장하지 않는다. 상세 근거와 다음 작업은 `.local-archive/autonomous-qa-20261102/continuation-queue-20261102.md`.
 
 ## 2026-11-02 능동 QA 후속 여정 검증
