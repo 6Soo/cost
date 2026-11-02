@@ -740,7 +740,7 @@ class CardFlowTests(unittest.TestCase):
             return {'generation': calls[-1]}, True
         def classify(_batch_id, **_kwargs):
             return self.flow._held_ota_snapshot()
-        def auto_record(_batch_id):
+        def auto_record(_batch_id, **_kwargs):
             return self.flow._held_ota_snapshot()
         with patch.object(ota_payment_review, 'snapshot_service',
                           return_value=SimpleNamespace(held=held)), \
@@ -987,7 +987,8 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(ota_view['events'][0]['card_candidate_count'], 1)
         self.assertEqual(current['data']['transactions'][0]['transaction_id'], row['transaction_id'])
         self.assertEqual(reviewed['display_tab_id'], trip)
-        self.assertEqual(reviewed['ota_link_status'], 'INFERRED')
+        self.assertEqual(reviewed['ota_link_status'], 'EXACT')
+        self.assertIsNone(event['paid_on'])
         self.assertEqual(reviewed['ota_snapshot_generation'], 91)
         self.assertIn(reviewed['internal_expense_status'], ('READY_FOR_INTERNAL_SAVE', 'SAVED'))
         self.assertEqual(reviewed.get('booking_ref') or '', '')
@@ -1371,6 +1372,7 @@ class CardFlowTests(unittest.TestCase):
         batch = self.flow.pipeline.receive(CARD, 'pending.csv')['batch_id']
         row = self.flow.pipeline.get_batch(batch)['rows'][0]
         self.board.conn.execute("UPDATE transactions SET classification_state='classified', "
+                                "classification_basis='complete-card-inference-v1', "
                                 "item='숙박비', trip_id=?, display_tab_id=? WHERE transaction_id=?",
                                 (trip, trip, row['transaction_id']))
         self.board.conn.commit()
