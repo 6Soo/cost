@@ -125,15 +125,15 @@ def infer_item(row):
     return '기타경비', '업종·용도 단서 부족 · 업무 카드 지출 기본 분류'
 
 
-def infer_trip(row, trips, *, nets=None, reconsider=False):
+def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
     """Pick the best real trip, resolving weak ties deterministically and explaining them."""
-    valid = canonical_trip_periods(trips)
+    valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     for key in ('trip_id', 'display_tab_id'):
         if row.get(key) in valid and not reconsider:
             return row[key], '기존 실제 여행 유지'
     candidates_trips = regional_trips(row, valid.values(), booking_agnostic=True)
     valid = {trip['trip_id']: trip for trip in candidates_trips}
-    candidates = card_trip_candidates(row, candidates_trips, nets=nets)
+    candidates = card_trip_candidates(row, candidates_trips, nets=nets, _canonical=valid)
     if candidates:
         candidates.sort(key=lambda c: (-c['score'], valid[c['trip_id']]['starts_on'], c['trip_id']))
         top = candidates[0]
@@ -146,7 +146,7 @@ def infer_trip(row, trips, *, nets=None, reconsider=False):
     return '', '등록된 유효 여행 없음'
 
 
-def _card3820_owner_policy(row, trips):
+def _card3820_owner_policy(row, trips, *, _canonical=None):
     """Apply the explicit 3820 policy before generic completion inference.
 
     This mirrors the primary card-classification path: the Singapore exception
@@ -171,7 +171,7 @@ def _card3820_owner_policy(row, trips):
     except (TypeError, ValueError):
         return None
 
-    valid = canonical_trip_periods(trips)
+    valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     singapore = [trip for trip in valid.values()
                  if trip.get('destination') == '싱가포르'
                  and trip.get('starts_on') and trip.get('ends_on')
@@ -191,7 +191,8 @@ def _card3820_owner_policy(row, trips):
             regional_trips(row, valid.values()), occurred.isoformat())
         if not candidates:
             return None
-        target, basis = infer_trip(row, candidates, reconsider=True)
+        target, basis = infer_trip(row, candidates, reconsider=True,
+                                   _canonical={t['trip_id']: t for t in candidates})
         return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
                     display_tab_id=target, trip_id=target, source='inference',
                     basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
@@ -269,7 +270,7 @@ def _restore_historical_row(row, chosen, tid, valid, nets, decisions, ledger, bo
         chosen.update(display_tab_id=target, trip_id='' if target == 'refunds' else target,
                       classification_basis='TRIP_ASSIGNMENT_RESTORED · 기존 항목 보존 · 기존 장부/분류 이력의 배정 복원')
     else:
-        target, basis = infer_trip(chosen, list(valid.values()), nets=nets)
+        target, basis = infer_trip(chosen, list(valid.values()), nets=nets, _canonical=valid)
         if target:
             chosen.update(display_tab_id=target, trip_id=target,
                           classification_basis=f'AUTO_TRIP_INFERRED · 낮음 · 기존 항목 보존 · {basis} · {POLICY}')
@@ -304,7 +305,7 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         chosen.update(item=verified_item or infer_item(dict(chosen, item=''))[0], description='')
     if (not valid_fact and not airfare_ota and not existing_tab
             and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase'):
-        owner_policy = _card3820_owner_policy(chosen, trips)
+        owner_policy = _card3820_owner_policy(chosen, trips, _canonical=valid)
         if owner_policy is None:
             return None, True
         chosen.update({key: owner_policy[key] for key in FIELDS if key in owner_policy})
@@ -339,11 +340,12 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         rerank = (reconsider and not existing_tab and not valid_fact and not link
                   and row['classification_source'] == 'inference'
                   and '예약 이용기간' not in (row['classification_basis'] or ''))
-        target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets, reconsider=rerank)
+        target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets,
+                                      reconsider=rerank, _canonical=valid)
         if target:
             chosen.update(trip_id=target, display_tab_id=target)
             if reconsider:
-                ranked = card_trip_candidates(chosen, list(valid.values()), nets=nets)
+                ranked = card_trip_candidates(chosen, list(valid.values()), nets=nets, _canonical=valid)
                 trip_basis = next((candidate['basis'] for candidate in ranked if candidate['trip_id'] == target),
                                   '유효 여행 유지 · 이용일 단서 없음')
         else:
