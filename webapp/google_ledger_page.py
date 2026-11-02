@@ -411,6 +411,9 @@ def _participant_insurance_cell(row: dict, links_by_ref: dict) -> str:
     state = "미연결"
     if entry:
         state = "✓ 직접 연결 · " + html.escape(str(entry.get("name") or ""))
+    else:
+        from .participant_trip_panel import connect_button
+        return connect_button()
     return state
 
 

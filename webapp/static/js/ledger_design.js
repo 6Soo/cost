@@ -66,10 +66,22 @@
    });
   }
   function choose(cell,id){
-   if(!form)return;
    root.open=true;
-   form.hidden=false;form.querySelector('[name=income_ref]').value=cell.dataset.incomeRef;
-   if(id)form.querySelector('[name=participant_id]').value=id;
+   var notice=root.querySelector('.participant-connect-notice');
+   if(!form){
+    if(notice){notice.hidden=false;notice.textContent='연결할 보험 참가자가 없습니다. 보험 명단 상세에서 자료를 확인해 주세요.';notice.focus();}
+    root.scrollIntoView({block:'nearest'});return;
+   }
+   var income=form.querySelector('[name=income_ref]');
+   income.value=cell.dataset.incomeRef;
+   if(!income.value){
+    if(notice){notice.hidden=false;notice.textContent='수입 자료가 변경되었습니다. 새로고침 후 다시 연결해 주세요.';notice.focus();}
+    return;
+   }
+   if(notice)notice.hidden=true;
+   form.hidden=false;form.querySelector('[name=participant_id]').value=id||'';
+   var selected=form.querySelector('.participant-selected-income');
+   if(selected){selected.hidden=false;selected.textContent=(income.selectedOptions[0]||{}).textContent+' 수입에 연결합니다.';}
    form.scrollIntoView({block:'nearest'});
    form.querySelector('[name=participant_id]').focus();
   }
@@ -85,6 +97,17 @@
    ask(target.action.endsWith('/unlink')?'이 참가자 연결을 해제할까요?':'이 수입 기록을 '+(label||'선택한')+' 보험 참가자와 연결할까요?',function(){write(target);});
   });
   document.addEventListener('click',function(e){
+   var connectButton=e.target.closest('[data-connect-income]');
+   if(connectButton){
+    var cell=connectButton.closest('.participant-insurance-cell');
+    if(!cell)return;
+    connectButton.disabled=true;
+    loadPanel().then(function(){
+     if(root.dataset.loaded==='1')choose(cell);
+     else{root.open=true;var retry=root.querySelector('.participant-review-retry');if(retry)retry.focus();}
+    }).finally(function(){if(connectButton.isConnected)connectButton.disabled=false;});
+    return;
+   }
    var evidenceButton=e.target.closest('[data-insurance-evidence]');
    if(evidenceButton){
     var evidence=root.querySelector('#'+CSS.escape(evidenceButton.dataset.insuranceEvidence));

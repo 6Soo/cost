@@ -11,6 +11,13 @@ def _esc(value) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def connect_button() -> str:
+    from . import ui_icons
+    return ("<button type='button' class='participant-row-connect' data-connect-income "
+            "aria-label='미연결 · 이 수입에 보험 참가자 연결'>"
+            f"{ui_icons.icon('link', 14)}<span>미연결</span></button>")
+
+
 def _slice(items, offset: int, limit: int = 20):
     page = list(items or [])[offset:offset + limit]
     more = offset + limit < len(items or [])
@@ -164,6 +171,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     if not state.get("configured"):
         return ("<details class='participant-trip-panel' id='participant-trip-panel'>"
                 "<summary>보험가입내역</summary><div class='participant-trip-content'>"
+                "<p class='participant-connect-notice' role='status' tabindex='-1' hidden></p>"
                 + review_html + match_link
                 + "<p class='participant-review-note'>가림 이름의 글자 대조 결과입니다. 참가자 확정·입금 수령을 확인한 결과는 아닙니다.</p>"
                 + '</div></details>')
@@ -201,8 +209,10 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
             names = ' · '.join(_esc(item['name']) for item in connected)
             status_markup = (
                 "<details class='participant-link-details'>"
-                f"<summary><span>✓ {len(connected)}명 연결 · {names}</span></summary>"
+                f"<summary><span>{len(connected)}명 연결 · {names}</span></summary>"
                 f"<div class='participant-link-actions'><p>{label}</p>{actions}</div></details>")
+        elif google.get('available'):
+            status_markup = connect_button()
         else:
             status_markup = f"<span class='participant-link-status'>{state_label}</span>"
         rows.append(f"<template class='participant-income-status' data-income-ref='{_esc(row['ref'])}'>"
@@ -246,6 +256,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     linking_available = bool(selector_options and data['income_rows_page'] and google.get('available'))
     link_form = (
         "<form method='post' action='/api/participants/link' class='participant-keyboard-link' data-link-confirm>"
+        "<p class='participant-selected-income' role='status' hidden></p>"
         f"<input type='hidden' name='csrf' value='{_esc(csrf)}'><input type='hidden' name='trip' value='{trip}'>"
         f"<input type='hidden' name='input_fingerprint' value='{fingerprint}'>"
         "<label>보험 참가자 <select name='participant_id' required><option value=''>참가자 선택</option>"
@@ -256,6 +267,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     return (
         "<details class='participant-trip-panel' id='participant-trip-panel' aria-label='보험가입내역'>"
         "<summary>보험가입내역</summary><div class='participant-trip-content'>"
+        "<p class='participant-connect-notice' role='status' tabindex='-1' hidden></p>"
         "<dl class='participant-metrics'>"
         f"<div><dt>참가 확정</dt><dd>{int(counts.get('roster_confirmed', 0))}명</dd></div>"
         f"<div><dt>수입 연결</dt><dd>{int(counts.get('linked', 0))}명</dd></div>"
