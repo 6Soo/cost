@@ -8,7 +8,7 @@ Current user scope: improve elapsed time after PR486; implement and compare Pyth
 | Python optimization | Implemented, tested | Reuse validation within one plan; no cross-request cache |
 | Actual Rust comparison | Done | Built C ABI DLL;250seeded cases and full outputs equivalent |
 | Selection/protection | Done | Choose Python;79targeted+109adjacent protection tests passed |
-| PR/deployment/handoff | In progress | PR507; fixed-SHA deployment/acceptance pending |
+| PR/deployment/handoff | Complete | PR507 merged; fixed-SHA deployment and acceptance below |
 
 ## Bottleneck and implementation
 
@@ -69,3 +69,13 @@ Real authenticated ego-browser /import GET5samples afterPR498: median1,497.5ms(r
 79targeted passed(new freshness3,existing full-plan/digest8,completion/correction/preparation/domestic-overseas/SQL equivalence);109adjacent protection passed(manual/source/duplicate/partial/foreign/original-approval/cross-batch refunds/correction rules). No weakened assertions. Full regression omitted for local computation reuse; prior20case task not reopened. Host venv lacks pytest: tests used developmentPython3.14.7; operational diagnostics hostvenvPython3.14.7.
 
 Local .local-archive/expense-performance-20261102/: synthetic-before.json,operating-plan-before.json,synthetic-final.json,operating-comparison.json,business-context-comparison.json,operating-cleanup-before.json,operating-cleanup-after-pr498.json,browser-before.json,complexity.json,memory-baseline/python/rust.json,measure-process-memory.py,final-targeted.xml,protection-tests.xml. No customer rows/IDs/SQLparameters/HTML/individual links in reports/Git/external models.
+
+## Deployment and final acceptance
+
+[PR507](https://github.com/6Soo/cost/pull/507) merged and deployed as `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`; previous verified release `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`. Tested `fdeebfc0` to final runtime differs only in documentation; latest integration37passed includes overlapping targeted cases. Existing expense workspace, insurance connection UI, issuer search, async upload and PR498 are preserved.
+
+1,275 tracked blobs matched Git; scheduled task/process SHA and single loopback listener verified. health/ready200, protected APIs401/403, protected13tables content/schema unchanged. Prior release and task XML retained as recovery points; code-only transition did not repeat whole-DB backup/restore. No operating classification/apply, financial/trip/refund/Google/source/schema writes.
+
+Deployed hostvenvPython exercised isolated synthetic80rows/8trips: repeat plans equal, changed periods exercised between calls, original input reproduced, cleanup HTML nonempty, read total_changes unchanged. This smoke supplements the stronger freshness/baseline-equivalence tests; it does not prove actual upload/apply timing. Authenticated ego-browser GET/import200, four tabs, no horizontal overflow; TaskSpace16 finished. The single acceptance GET873ms is not a before/after benchmark: UI/runtime context and response size changed independently, and GET does not invoke the automatic plan.
+
+Evidence: same local directory `review.json`, `release-audit.json`, `deploy-evidence.json`, `protection-before/after.json`, `deployed-smoke.json`, `browser-after.json`; host `D:/WebLedgerHost/releases/deploy-evidence-699eb8ed6b2c796b1da7841e4605db7c0ef38fc2.json`. All approved targets complete; no pending functional action. Final documentation alone requires no code tests, restart or redeployment.
