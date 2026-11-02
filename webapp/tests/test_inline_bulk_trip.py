@@ -57,6 +57,19 @@ def test_manual_override_refuses_whole_batch(store):
     assert [store.get_row(x['row_id']) for x in chosen] == before
 
 
+def test_three_rows_with_protected_row_leave_every_row_unchanged(store):
+    chosen = rows(store)
+    rid = 'expense-demo-c3'
+    chosen.append({'row_id': rid, 'revision': store.get_row(rid)['revision']})
+    before = [store.get_row(x['row_id']) for x in chosen]
+    store.conn.execute("INSERT INTO board_manual_overrides(row_id,field,event_id) VALUES (?, 'display_tab_id', '')", (rid,))
+    store.conn.commit()
+    with pytest.raises(SaveError) as err:
+        store.save_expense_trips_atomic(rows=chosen, target='trip-demo-b', client_request_id='bulk-three-protected')
+    assert err.value.code == 'FIELD_READ_ONLY'
+    assert [store.get_row(x['row_id']) for x in chosen] == before
+
+
 def test_failure_during_second_write_rolls_back_first(store, monkeypatch):
     chosen = rows(store)
     before = [store.get_row(x['row_id']) for x in chosen]
