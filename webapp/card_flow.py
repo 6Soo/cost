@@ -3345,7 +3345,7 @@ async function awaitUpload(job,entry){
    if(r.status===404){saveUploadJob(job,true);throw Object.assign(Error('서버가 재시작되었습니다. 저장된 파일의 상세 결과를 확인해 주세요.'),{terminal:true});}
    if(!r.ok)throw Error('진행 상태 연결 재시도 중');
    const state=await r.json();errors=0;
-   if(state.status==='done'){saveUploadJob(job,true);return state.result}
+   if(state.status==='done'){saveUploadJob(job,true);if(state.result?.refresh_required)throw Object.assign(Error('파일은 저장되었습니다. 최신 결과는 저장된 파일 상세 결과에서 다시 확인해 주세요.'),{terminal:true});return state.result}
    if(state.status==='error'){saveUploadJob(job,true);throw Object.assign(Error(state.message),{terminal:true})}
    entry.textContent=(job.filename||'카드 파일')+' · '+(state.message||'처리 중')+' · '+Math.floor((Date.now()-started)/1000)+'초';
   }catch(e){

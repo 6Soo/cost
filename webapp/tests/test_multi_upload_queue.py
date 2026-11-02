@@ -8,7 +8,7 @@ import pytest
 from webapp.card_flow import page
 
 
-@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume'])
+@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required'])
 def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
     source = page('synthetic-csrf')
     source = source[source.index("const uploadJobKey="):source.index("el('ruleform').onsubmit=")]
@@ -31,7 +31,7 @@ const context={el,localStorage,document:{createElement:element},Date,Error,JSON,
   call:async(url,data,headers)=>{assert.equal(headers['X-Upload-Async'],'1');const n=Number(decodeURIComponent(headers['X-Filename']).split('.')[0]);posts.push(n);return {status_url:identity(n),batch_id:String(n)}},
   fetch:async url=>{const n=Number(url.split('/').at(-1));
     if(mode==='mixed'&&(n===2||n===4))throw Error('temporary disconnect');
-    return {ok:true,status:200,json:async()=>mode==='mixed'&&n===1?{status:'error',message:'synthetic classification failure'}:{status:'done',result:{batch_id:String(n),upload_summary:{status:'passed'}}}};
+    return {ok:true,status:200,json:async()=>mode==='refresh-required'&&(n===1||n===10)?{status:'done',result:{batch_id:String(n),refresh_required:true,upload_summary:{status:'refresh_required'}}}:mode==='mixed'&&n===1?{status:'error',message:'synthetic classification failure'}:{status:'done',result:{batch_id:String(n),upload_summary:{status:'passed'}}}};
   }
 };
 vm.createContext(context);vm.runInContext(SOURCE,context);
@@ -43,7 +43,8 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
   }
   await el('upload').onclick();
   assert.deepEqual(posts,[1,2,3,4,5,6,7,8,9,10]);
-  assert.equal(rendered.batch_id,'10');
+  assert.equal(rendered.batch_id,mode==='refresh-required'?'9':'10');
+  assert.ok(!rendered.refresh_required,'Unavailable projection must never reach the renderer');
   assert.equal(el('upload').disabled,false);assert.equal(el('file').disabled,false);
   assert.ok(!el('status').textContent.includes('미업로드'));
   if(mode==='mixed'){
@@ -58,6 +59,10 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     await vm.runInContext('resumeUpload()',context);
     assert.equal(storage.size,0);
     assert.ok(entries.some(x=>x.href==='/import?batch=4#summary'));
+  }else if(mode==='refresh-required'){
+    assert.equal(storage.size,0);
+    assert.ok(el('status').textContent.includes('8개 파일 처리 · 0개 파일 업로드 실패 · 2개 파일 접수 완료'));
+    for(const n of [1,10])assert.ok(entries.some(x=>x.href==='/import?batch='+n+'#summary'));
   }else{assert.equal(storage.size,0);assert.ok(el('status').textContent.includes('10개 파일 처리'));}
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
