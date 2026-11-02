@@ -3,6 +3,11 @@ $ErrorActionPreference='Stop'
 if($ParticipantSyncConfig -and ($ParticipantDb -or $ParticipantSyncConfig.Contains('"') -or -not (Test-Path -LiteralPath $ParticipantSyncConfig -PathType Leaf))){throw 'PARTICIPANT_SYNC_CONFIG_INVALID'}
 if($ParticipantDb -and ($ParticipantDb.Contains('"') -or -not (Test-Path -LiteralPath $ParticipantDb -PathType Leaf))){throw 'PARTICIPANT_DB_UNAVAILABLE'}
 if($PreviousSha -notmatch '^[a-f0-9]{40}$' -or $CandidateSha -notmatch '^[a-f0-9]{40}$'){throw 'SHA_INVALID'}
+if(Test-Path -LiteralPath 'D:\WebLedgerHost\config\ledger-route.json' -PathType Leaf) {
+    if($BackupProducts -or $ParticipantDb -or $ParticipantSyncConfig){throw 'CONTINUOUS_RELEASE_CODE_ONLY_REQUIRED'}
+    & (Join-Path $PSScriptRoot 'switch_continuous_release.ps1') -PreviousSha $PreviousSha -CandidateSha $CandidateSha
+    return
+}
 $previous="D:\WebLedgerHost\releases\$PreviousSha"
 $release="D:\WebLedgerHost\releases\$CandidateSha"
 $task=Get-ScheduledTask -TaskName WebLedger-Board

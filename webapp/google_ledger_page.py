@@ -959,14 +959,19 @@ def start_trip_import(board, interval: float = 600.0) -> None:
     """Imports the Google trip tabs now and again every interval, so new tabs appear without a restart."""
     def run():
         while True:
+            active = False
             try:
-                snapshot = google_authority.load_snapshot(_snapshot_path())
-                import_trips(board, snapshot)
-                auto_link_trips(_snapshot_path(), snapshot, board.list_trips(include_archived=True))
+                from .deployment_role import writer
+                with writer() as active:
+                    if active:
+                        snapshot = google_authority.load_snapshot(_snapshot_path())
+                        import_trips(board, snapshot)
+                        auto_link_trips(_snapshot_path(), snapshot, board.list_trips(include_archived=True))
             except Exception:
                 # The snapshot may not exist yet or may be mid-write; the next pass reads it again.
                 pass
-            time.sleep(interval)
+            # A prepared release takes over promptly when routing activates it.
+            time.sleep(min(interval, 1.0) if not active else interval)
     threading.Thread(target=run, name='google-trip-import', daemon=True).start()
 
 
