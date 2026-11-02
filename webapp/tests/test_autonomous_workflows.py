@@ -464,6 +464,11 @@ def test_trip_metadata_conflict_keeps_browser_draft_and_latest_saved_value(servi
             row = page.locator(f'[id="manage-{tab_id}"]')
             row.locator('.trip-meta > summary').click()
             form = row.locator('form').first
+            for field, label in (('display_key', '표시 이름'), ('prepared_on', '작성일'),
+                                 ('prepared_by_name', '담당자')):
+                assert form.locator(f'[name={field}]').evaluate(
+                    '(input, expected) => Array.from(input.labels).some(label => label.textContent.includes(expected))',
+                    label)
             revision = int(form.locator('[name=expected_revision]').input_value())
             code, body, _ = json_post(service, f'/api/trips/{quote(tab_id)}/meta', {
                 'expected_revision': revision, 'client_request_id': 'browser-conflict-concurrent',

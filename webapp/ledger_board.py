@@ -1527,9 +1527,9 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<input type='hidden' name='expected_revision' value='{t['revision']}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
             "<input type='hidden' name='return_to' value='/trips'>"
-            f"<p><label>표시 이름</label><input name='display_key' value='{esc(t['display_key'])}'></p>"
-            f"<p><label>작성일</label><input name='prepared_on' value='{esc(t['prepared_on'])}'></p>"
-            f"<p><label>담당자</label><input name='prepared_by_name' value='{esc(assignee_shown)}'>"
+            f"<p><label for='trip-title-{esc(t['tab_id'])}'>표시 이름</label><input id='trip-title-{esc(t['tab_id'])}' name='display_key' value='{esc(t['display_key'])}'></p>"
+            f"<p><label for='trip-prepared-{esc(t['tab_id'])}'>작성일</label><input id='trip-prepared-{esc(t['tab_id'])}' name='prepared_on' value='{esc(t['prepared_on'])}'></p>"
+            f"<p><label for='trip-assignee-{esc(t['tab_id'])}'>담당자</label><input id='trip-assignee-{esc(t['tab_id'])}' name='prepared_by_name' value='{esc(assignee_shown)}'>"
             # The marker is a hidden field that is always submitted, and the
             # confirmation is a separate tick. An unchecked checkbox sends
             # nothing at all, so making the flag itself the checkbox would leave
