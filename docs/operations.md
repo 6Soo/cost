@@ -1,3 +1,12 @@
+## 2026-11-02 카드 조회기간 증빙·미확인 구간 구현 완료
+
+- COMPLETE — 열린 PR의 미구현을 ANUS Free Auto 2개에 위임하라는 요청의 대상 #479를 [PR510](https://github.com/6Soo/cost/pull/510)으로 구현·병합·배포했다. [수락9개·검사·한계](specs/card-upload-coverage-implementation-20261102.md). 원명세 #479도 병합됐다. 당시 #477은 이미 구현된 UI 변경이고 이후 #484는 이번 실행 범위가 아니다.
+- 기존 업로드의 파일별 결과에서 조회 기준·기간·관리 시작일을 확인하고, 원본/카드 맥락과 연결한 조회 확인·미확인·재확인 구간을 표시한다. 거래 min/max 역산·과거 소급·끝4만 같은 파일 합치기를 금지하며 제한/부분/파싱/조회조건 충돌은 사용자 확인으로 승격하지 않는다. 기존 비동기 업로드·원행/수동/중복/환불/OTA 보호를 유지하고 기존 변경 로그만 사용해 스키마 변경이 없다.
+- 최신 통합52 passed/7 subtests, 인접보호62 passed. 기존 업로드 UI fixture1 timeout은 변경 전699eb8ed의 page()로 동일 재현했으며 통과에 포함하지 않는다. ego 합성320/390/1440px 넘침0·44px·파일별 저장·CSRF·HTML 삽입0, 실제 signed HTTP의0건 업로드/소유자 확인/조회 PASS. 전체 회귀·실기기·실제 고객 업로드는 미실행이다.
+- 운영 `a7aa8c7ff23af9574ccbf42301803687b788d64d`, 직전 검증 `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`. 검사/병합 트리 동일·1,282blobs 불일치0·task/processSHA·단일loopback8751·health/ready200·신규/기존 보호API401/403·금융보호13표 내용/스키마 불변 PASS. task 인수/SourceRefresh 상태와 이전 검증 릴리스/task XML 복구점 보존, 코드 전용이라 새 전체DB 백업/복원은 반복하지 않았다.
+- 호스트venv 격리 합성의0건 증빙·공백·멱등·비변경 PASS. 인증ego 운영/import의 카드 업로드 탭/조회기간API200·390/1440px 넘침0·버튼44px 수락, 조회확인0/재확인0으로 과거 자동소급 없음 확인. TaskSpace19/20 정상 종료. 실제 금융/분류/여행/환불/Google/원본/스키마 쓰기0.
+- 근거 `C:/AX/cost/.local-archive/card-upload-coverage-final-20261102/`의 checkpoint·browser-evidence·live-browser·deployed-smoke·review/release-audit·protection-before/after·deploy-evidence 및 호스트 동일SHA 감사 기록. 사용자·병행 변경·stash 보존. 요청 미결/차단0·다음 기능 명령 없음. 결과 문서 후속에는 재검사·재배포·서버 재시작을 하지 않는다.
+
 ## 2026-11-02 자동분류 성능 최적화 운영 반영 완료
 
 - COMPLETE — [PR507](https://github.com/6Soo/cost/pull/507) 병합·고정 운영 `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`; 이전 검증 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`. [동일 입력 Python/Rust 비교·검증 한계](specs/expense-performance-20261102.md). 최신 지출 UI·보험 연결·기업검색·비동기업로드·PR498 SQL 개선 보존.
