@@ -47,3 +47,21 @@ def test_real_windows_engine_reads_synthetic_image(tmp_path):
     assert 'SYNTHETIC' in result['text']
     assert result['suggestions']['date'] == '2026-10-12'
     assert result['requires_review'] is True
+
+
+def test_real_windows_engine_renders_and_reads_synthetic_pdf(tmp_path):
+    if os.name != 'nt':
+        pytest.skip('Windows OCR integration')
+    from PIL import Image, ImageDraw, ImageFont
+    image = Image.new('RGB', (800, 400), 'white')
+    ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
+                               font=ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40))
+    path = tmp_path / 'synthetic.pdf'
+    image.save(path, 'PDF')
+    with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}):
+        result = ocr.recognize_pdf(path)
+    assert result['requires_review'] is True
+    assert len(result['pages']) == 1
+    assert result['pages'][0]['image'].startswith(b'\x89PNG\r\n\x1a\n')
+    assert 'SYNTHETIC' in result['pages'][0]['text']
+    assert result['pages'][0]['suggestions']['date'] == '2026-10-12'

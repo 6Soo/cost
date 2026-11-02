@@ -6,15 +6,16 @@ $null = [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
 $null = [Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation,ContentType=WindowsRuntime]
 $null = [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
 $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } | Select-Object -First 1
+$asAction = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and -not $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } | Select-Object -First 1
 function Await($Operation, $Type) {
     $task = $asTask.MakeGenericMethod($Type).Invoke($null, @($Operation))
     if (-not $task.Wait(25000)) { throw 'OCR_TIMEOUT' }
     return $task.Result
 }
 function AwaitAction($Operation) {
-    $task = [System.WindowsRuntimeSystemExtensions]::AsTask($Operation)
+    $task = $asAction.Invoke($null, @($Operation))
     if (-not $task.Wait(25000)) { throw 'OCR_TIMEOUT' }
-    $task.GetAwaiter().GetResult()
+    $null = $task.GetAwaiter().GetResult()
 }
 function New-OcrEngine {
     $lang = [Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime]::new($Language)
