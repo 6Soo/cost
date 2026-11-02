@@ -1,3 +1,10 @@
+## 2026-11-03 지출 인라인·일괄 편집 후속 수락
+
+- PARTIAL — [PR #555](https://github.com/6Soo/cost/pull/555) 병합 `c8ba18d50f003d0e1528d3068fd3dfa08575f636`, GitHub CI `41488569096` 통과. 단일 편집에서 바꾸지 않은 여행까지 수동 교정으로 고정하던 문제와 모바일 하단 바의 여행 선택기가 과도하게 줄어드는 문제를 수정했다. 기본 인라인·다중 편집은 PR #549를 유지한다. 운영 배포·운영 화면 수락은 아래 게이트웨이 설치 정책 차단이 해소되지 않아 미실행이다.
+- 코드 검사 SHA `0fe7c48da293f15d3f83e3d54fa6609bc758ded5`: 영향 QA 378 passed·55 subtests·skip 0. 후속 `572908f7`은 명세 상태 문서만 변경했고 문서 검사 통과. 로컬 근거 `C:/AX/cost-inline-acceptance/quality-artifacts/`, `.local-archive/inline-bulk-checkpoint-20261103.md`.
+- 새 작업 공간 사용에 대한 사용자 승인 후 Ego78에서 합성 자료로 단일 항목/여행 저장→다중 선택→여행 일괄 저장과 항목 유지, 1440/390/320px·라이트/다크, Enter/Space/Shift/Escape, 미저장 입력 보존, 보호 실패와 두 탭 revision 충돌 시 선택·대상 유지를 확인했다. 거래처 열은 PC 634px(900px 화면에서는332px), 모바일 가로 넘침0, 수정 후 선택기 폭262/192px. 실기기·실제 금융 자료 쓰기·Google 쓰기·운영 수락은 미실행이다.
+- 배포 SHA 없음. 운영 `a9b0617a132be8ea83328a8ac6a9345514efeffc`의 Board task Running·health/ready 200·Gateway task 없음을 읽기 확인했다. 다음: 기존 `DEPLOY_BLOCKED_TOOL_POLICY` 해소와 배포 단일 작성자 확인 후 검증된 main SHA를 고정 배포하고 health/ready·보호 API/표·운영 영향 화면을 수락한다. 거부된 설치 명령을 다른 경로로 우회하지 않는다.
+
 ## 2026-11-02 영수증 PDF·영역 검토 — 병합, 운영 전환 대기
 
 - PARTIAL — [PR #553](https://github.com/6Soo/cost/pull/553) 병합 `01a7b2321b1d53583a876076f8c1fa298d457aee`. PDF 원본 보존 및 페이지별 OCR, 영수증 영역 표시·교정, 겹치는 후보 중복 보호와 재분석 위치 대응을 구현했다. 영역을 알 수 없는 후보는 미지정으로 표시하고 기존 미지정 후보와 중복 가능성을 보수적으로 처리한다.
