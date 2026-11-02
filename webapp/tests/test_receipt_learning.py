@@ -248,3 +248,13 @@ def test_the_learning_routes_are_owner_routes(monkeypatch):
 def _event(text):
     return type('Proc', (), {'returncode': 0, 'stderr': b'', 'stdout': (json.dumps({
         'type': 'text', 'part': {'type': 'text', 'text': text}}, ensure_ascii=False) + '\n').encode('utf-8')})()
+
+
+def test_repeat_analysis_with_shifted_box_does_not_duplicate_existing_receipt(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    first = {**reading('SHOP A', '2026-10-01', 820), 'box': [0.1, 0.1, 0.4, 0.4]}
+    second = {**first, 'box': [0.11, 0.1, 0.41, 0.4]}
+    assert rr.scan(path, {'image': SHA, 'regions': [first]})['added'] == 1
+    assert rr.scan(path, {'image': SHA, 'regions': [second]})['added'] == 0
+    assert len(rr.load(path)['candidates']) == 1

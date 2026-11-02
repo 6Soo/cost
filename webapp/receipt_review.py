@@ -538,6 +538,8 @@ def _same_physical_receipt(left: dict, right: dict) -> bool:
     if (left.get("image_sha") and left.get("image_sha") == right.get("image_sha")
             and left.get("source_region") and right.get("source_region")
             and left["source_region"] != right["source_region"]):
+        if left.get('box') is not None and right.get('box') is not None:
+            return rc._overlap(left['box'], right['box']) > rc.BOX_OVERLAP_HOLD
         return False
     return True
 
