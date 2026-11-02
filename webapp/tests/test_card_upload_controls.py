@@ -74,6 +74,8 @@ def test_upload_queue_continues_after_failure_and_preserves_each_outcome():
             screen.route("http://synthetic.test/api/**", respond)
             screen.goto("http://synthetic.test/import#newupload")
             upload_section = screen.locator("#newupload")
+            if upload_section.get_attribute("open") is None:
+                screen.locator("#newupload > summary").click()
             expect(upload_section).to_have_attribute("open", "")
             expect(screen.locator("#upload-drop")).to_be_visible()
             # Rendering the full ledger is covered by the existing server/browser test.
