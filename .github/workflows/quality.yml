@@ -1,0 +1,58 @@
+name: COST impact quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Base commit to compare against
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  impact-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Select checks
+        id: plan
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then base="$PR_BASE";
+          elif [[ "$EVENT_NAME" == "push" ]]; then base="$PUSH_BEFORE";
+          else base="$MANUAL_BASE"; fi
+          python tools/run_quality_checks.py --base "$base" --head HEAD --plan-json > quality-plan.json
+          cat quality-plan.json
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          python -c "import json; p=json.load(open('quality-plan.json', encoding='utf-8')); print('status='+p['status']); print('browser='+str(p.get('browser_required', False)).lower())" >> "$GITHUB_OUTPUT"
+      - name: Install test dependencies
+        if: steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'UNKNOWN_BROAD'
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install Chromium for selected browser tests
+        if: steps.plan.outputs.browser == 'true'
+        run: python -m playwright install --with-deps chromium
+      - name: Run data protection gate and impact tests
+        run: python tools/run_quality_checks.py --base "${{ steps.plan.outputs.base }}" --head HEAD --run
