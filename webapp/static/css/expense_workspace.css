@@ -32,7 +32,11 @@ main:has(.expense-tabs) :is(button,a,input,select,textarea,summary):focus-visibl
 #expense-cleanup .cleanup-review{margin-top:16px}
 #expense-cleanup .cleanup-form :is(input,select,button){min-height:44px;height:auto}
 #expense-cleanup .cleanup-list>li:only-child:not(.cleanup-row){grid-column:1/-1;padding:48px 24px;text-align:center;border:1px solid var(--shell-line);border-radius:12px;background:var(--shell-paper);color:var(--shell-muted)}
-#batches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-height:400px;overflow:auto;padding:4px}
+#batches{display:grid;gap:18px;max-height:400px;overflow:auto;padding:4px}
+#batches .batch-group{min-width:0}
+#batches .batch-group h3{display:flex;align-items:baseline;gap:8px;margin:0 0 8px;font-size:15px}
+#batches .batch-group h3 span{color:var(--shell-muted);font-size:12px;font-weight:400}
+#batches .batch-list{display:grid;gap:8px}
 #batches p{margin:0;min-width:0}
 #batches .batch-choice{width:100%;height:100%;min-height:76px;padding:14px 16px;text-align:left;border-radius:10px;background:var(--shell-bg);line-height:1.7}
 #batches .batch-choice:hover{border-color:var(--shell-accent);background:var(--shell-selected)}

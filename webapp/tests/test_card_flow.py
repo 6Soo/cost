@@ -1322,6 +1322,17 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual([r['questions'] for r in catalog], [1, 0])
         self.assertEqual([r['rows'] for r in catalog], [1, 1])
 
+    def test_batch_catalog_orders_issuers_and_latest_period_first(self):
+        ids = {}
+        for issuer, date, code in [('기업', '2026-11-01', 'I1'), ('하나', '2026-10-31', 'H1'),
+                                   ('국민', '2026-09-01', 'K1'), ('국민', '2026-10-28', 'K2'),
+                                   ('하나', '2026-08-01', 'H2')]:
+            content = (PAIR_HEADER.decode() +
+                       f'{issuer},1234,domestic,purchase,합성상점,37000,,,37000,{date},{date},{code},,매입\n').encode()
+            ids[code] = self.flow.pipeline.receive(content, f'{code}.csv')['batch_id']
+        self.assertEqual([row['batch_id'] for row in batch_catalog(self.board)],
+                         [ids[code] for code in ('K2', 'K1', 'H1', 'H2', 'I1')])
+
     def test_home_counts_the_same_transaction_in_two_files_only_once(self):
         from webapp.card_flow import home_page
         from webapp import ledger_board
