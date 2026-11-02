@@ -78,7 +78,10 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     if shots:
                         page.screenshot(path=os.path.join(shots, 'p1-results-390.png'), full_page=True)
                     self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
-                    page.locator('.receipt-card').nth(1).locator('select').nth(1).select_option('cash')
+                    cards = page.locator('.receipt-card')
+                    ferry = next(cards.nth(index) for index in range(cards.count())
+                                 if cards.nth(index).get_by_role('textbox', name='상호', exact=True).input_value() == 'FERRY')
+                    ferry.get_by_role('combobox', name='결제수단', exact=True).select_option('cash')
                     page.click('#vision-register')
                     page.wait_for_load_state()
                     page.wait_for_selector('#step-review table')
