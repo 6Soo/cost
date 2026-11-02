@@ -239,6 +239,41 @@ class SignedSessionHttpTests(unittest.TestCase):
                     from webapp import receipt_review
                     self.assertEqual(receipt_review.image_bytes(self.receipts, body['sha256']), PNG)
 
+    def test_signed_coverage_upload_confirmation_and_read_boundaries(self):
+        from tests.card_pipeline.test_card_upload_coverage import content
+        from urllib.parse import quote
+        raw = content(rows=False, preamble=[
+            ['조회기간', '2026-04-01 ~ 2026-04-10'], ['조회기준', '이용일'],
+            ['카드사', 'SYNTH'], ['카드번호', '1234-56**-****-1111']])
+        headers = {'Content-Type': 'application/octet-stream',
+                   'X-CSRF-Token': board.CSRF_TOKEN, 'X-Filename': quote('synthetic.csv'),
+                   'Cookie': f'{google_oidc.COOKIE_NAME}={self.cookie(OWNER)}'}
+        req = Request(f'http://127.0.0.1:{self.port}/api/imports', data=raw, headers=headers)
+        response = self.opener.open(req, timeout=5)
+        self.assertEqual(response.code, 200)
+        uploaded = json.loads(response.read())
+        self.assertTrue(uploaded['coverage_available'])
+        batch_path = '/api/imports/' + uploaded['batch_id'] + '/coverage'
+        evidence = dict(uploaded['coverage_evidence'], complete=True)
+        status, body, _ = self.request('/api/cards/coverage/summary', cookie=self.cookie(OWNER))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)['coverages'], [])
+        for user, token, expected in ((None, board.CSRF_TOKEN, 401),
+                                      (VIEWER, board.CSRF_TOKEN, 403), (OWNER, '', 403),
+                                      (OWNER, board.CSRF_TOKEN, 200)):
+            status, body, _ = self.request(batch_path + '/confirm',
+                cookie=self.cookie(user) if user else None,
+                payload={'evidence': evidence}, headers={'X-CSRF-Token': token})
+            self.assertEqual(status, expected, body)
+        status, body, _ = self.request('/api/cards/coverage/summary?through=2026-04-10',
+                                       cookie=self.cookie(OWNER))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)['coverages'][0]['periods'],
+                         [{'start': '2026-04-01', 'end': '2026-04-10'}])
+        for user, expected in ((OWNER, 200), (VIEWER, 403), (None, 401)):
+            status, body, _ = self.request(batch_path, cookie=self.cookie(user) if user else None)
+            self.assertEqual(status, expected, body)
+
     def test_signed_card_xlsx_upload_keeps_amount_and_csrf_gate(self):
         from tests.card_pipeline.fixtures import make_xlsx, domestic_row
         content = make_xlsx([domestic_row(merchant='합성 업로드 상점', amount=37000, approval='PREVIEW-XLSX')])
