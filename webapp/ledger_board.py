@@ -119,7 +119,14 @@ def _store_request_locked(method):
         from app import request_metrics
         lock = getattr(self.server, "store_lock", None)
         # The liveness probe reads no store, so it must not queue behind a slow page.
-        if lock is None or urlparse(self.path).path == "/healthz":
+        from . import card_upload_jobs
+        path = urlparse(self.path).path
+        self._upload_shell_only = (getattr(self, 'command', '') == 'GET'
+                                   and path == '/import' and card_upload_jobs.running(_active_store()))
+        status_read = (getattr(self, 'command', '') == 'GET'
+                       and (card_upload_jobs.owns_route(path)
+                            or self._upload_shell_only))
+        if lock is None or urlparse(self.path).path == "/healthz" or status_read:
             return method(self, *args, **kwargs)
         token = request_metrics.bind_request_id()
         try:
