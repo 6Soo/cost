@@ -105,7 +105,7 @@ def _payload() -> dict:
             payload = prepare_real_demo(snapshot, choices, previous=previous)
     else:
         raise PermissionError("DEMO_NOT_SYNTHETIC")
-    if not payload["stale"]:
+    if not payload["stale"] and payload != previous:
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=last_safe_path.parent,

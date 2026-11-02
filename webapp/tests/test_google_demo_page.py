@@ -81,6 +81,14 @@ def test_failed_sync_shows_the_last_safe_ranking_marked_stale(demo_file):
     assert body["stale"] is True and [e["net"] for e in body["entries"]] == [900, 700, 500]
 
 
+def test_unchanged_projection_does_not_rewrite_cache(demo_file, monkeypatch):
+    get('/api/demo/top3')
+    def refuse_replacement(*args):
+        raise AssertionError('unchanged projection must not replace cache')
+    monkeypatch.setattr(page.os, 'replace', refuse_replacement)
+    assert get('/api/demo/top3')[1] == 200
+
+
 def test_write_methods_are_refused(demo_file):
     handler = FakeHandler()
     page.dispatch(handler, urlparse("/api/demo/top3"), raw=b"{}")
