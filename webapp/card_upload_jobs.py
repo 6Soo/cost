@@ -102,6 +102,11 @@ def process(board, handler, flow, received, source_file, inspection, progress=la
                 trips, nets = context(flow)
                 recorded['upload_summary'] = summarize(flow.pipeline, received, source_file,
                     trips, nets=nets, inspection=inspection)
+        from . import card_upload_coverage
+        with board._lock:
+            coverage = card_upload_coverage.batch_inspection(board, received['batch_id'])
+            recorded['coverage_evidence'] = coverage['evidence']
+            recorded['coverage_available'] = coverage['available']
         finish_jobs(board)
     except Exception:
         # receive() commits the validated source batch before classification and
