@@ -1673,8 +1673,6 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
                      refund_body(board._active_store(), query, kind) + '</div>')
     trip = _selected_trip(tab_id)
     from .google_ledger_page import trip_income_html
-    incomes, expenses, whole_income, whole_expense = _selected_rows(tab_id, query, kind)
-    unclassified = tab_id == "unclassified"
     status = ""
     if error:
         status = f"<p class='status err' id='status' role='alert'>{board.esc(error)}</p>"
