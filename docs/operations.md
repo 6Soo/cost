@@ -1,3 +1,8 @@
+## 2026-11-02 저장 파일 상세 이동 배포
+
+- [PR #516](https://github.com/6Soo/cost/pull/516), 검증 코드 `1bf142bd0b6c0cc07ae70ecf2b14679ee0e675e6`, 배포 `41c66b8b7e17b150391ad7898aed09956a472120`. 상세 결과를 페이지 새로고침 없이 불러오고 후속 처리 오류 안내를 명확히 했다.
+- 영향 QA 230 passed·30 subtests, skip 0, GitHub Actions 41399400683 통과. 배포 파일 1,292개 일치, health/ready 200, 보호 API 및 보호 13표 불변. 이전 검증 릴리스 `20da556e174c66570a856324c770e05ad422aa69` 보존. 근거 `.local-archive/upload-detail-20261102/deploy-evidence.json`. 운영 인증 화면 수동 확인 미실행.
+
 ## 2026-11-02 능동 QA·다중 업로드 배포
 
 - [PR #513](https://github.com/6Soo/cost/pull/513), [PR #514](https://github.com/6Soo/cost/pull/514)를 검증 후 병합하고 `20da556e174c66570a856324c770e05ad422aa69`를 고정 배포했다. 이전 검증 릴리스 `a7aa8c7ff23af9574ccbf42301803687b788d64d`와 task 복구점을 유지했다.
