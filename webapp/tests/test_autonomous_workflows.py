@@ -149,12 +149,7 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert state_code == 200, state_body
     manual_row = next(row for row in json.loads(state_body)['rows']
                       if row['merchant'] == 'SYNTHETIC MANUAL CAFE')
-    decision_code, decision_body, _ = json_post(service, '/api/imports/' + ack['batch_id'] + '/decision', {
-        'transaction_id': manual_row['transaction_id'], 'revision': manual_row['revision'],
-        'item': '분기 기타비용', 'description': 'OWNER MANUAL CORRECTION',
-        'display_tab_id': trip_id, 'request_id': 'autonomous-manual-correction',
-    })
-    assert decision_code == 200, decision_body
+    manual_id = manual_row['transaction_id']
     monkeypatch.setattr(threading.Thread, 'start', original_thread_start)
     original_thread_start(held_upload_threads.pop())
     deadline = time.monotonic() + 20
@@ -170,6 +165,20 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert len(process_calls) == 1
     assert status['result']['summary']['status'] == 'classified'
 
+    # A correction made after completion must refresh the cached replay result
+    # without launching another classifier or ledger writer.
+    state_code, state_body, _ = service.request('/api/imports/' + ack['batch_id'],
+                                                 cookie=service.cookie(OWNER))
+    assert state_code == 200, state_body
+    manual_row = next(row for row in json.loads(state_body)['rows']
+                      if row['transaction_id'] == manual_id)
+    decision_code, decision_body, _ = json_post(service, '/api/imports/' + ack['batch_id'] + '/decision', {
+        'transaction_id': manual_row['transaction_id'], 'revision': manual_row['revision'],
+        'item': '분기 기타비용', 'description': 'OWNER MANUAL CORRECTION',
+        'display_tab_id': trip_id, 'request_id': 'autonomous-manual-correction',
+    })
+    assert decision_code == 200, decision_body
+
     # Reposting identical workbook is idempotent: one source transaction and no
     # second ledger entry. Denied roles / missing CSRF cause no database effect.
     entries_after_first = board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]
@@ -179,6 +188,10 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     replay = json.loads(replay_body)
     assert replay['batch_id'] == ack['batch_id']
     assert replay['status_url'] == ack['status_url']
+    assert 'refresh_required' not in replay['result']
+    replay_manual = next(row for row in replay['result']['rows']
+                         if row['transaction_id'] == manual_id)
+    assert replay_manual['description'] == 'OWNER MANUAL CORRECTION'
     assert len(process_calls) == 1
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 2
     rows = board.conn.execute(
@@ -188,7 +201,6 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert len(rows) == 2
     source_id = board.conn.execute(
         "SELECT transaction_id FROM transactions WHERE merchant='SYNTHETIC JOURNEY CAFE'").fetchone()[0]
-    manual_id = manual_row['transaction_id']
     source_hash, revision = board.conn.execute(
         'SELECT source_hash, revision FROM transactions WHERE transaction_id=?', (source_id,)).fetchone()
     identities = [row[0] for row in rows]
