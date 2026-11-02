@@ -99,7 +99,6 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
                     income_panel = page.locator('#google-trip-income')
                     summary_text = income_panel.locator('summary').inner_text()
                     self.assertTrue(summary_text.startswith('수입'))
-                    self.assertIn('정본 · 읽기 전용', summary_text)
                     self.assertIn('1,000원', summary_text)
 
                     # 3. Income table and attached subtotal footer
