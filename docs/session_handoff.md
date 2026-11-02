@@ -1,3 +1,8 @@
+## 2026-11-02 저장 파일 상세 이동 및 재처리 안내
+
+- COMPLETE — [PR #516](https://github.com/6Soo/cost/pull/516), 코드 `1bf142bd0b6c0cc07ae70ecf2b14679ee0e675e6`, 운영 `41c66b8b7e17b150391ad7898aed09956a472120`. 저장 파일 상세를 현재 페이지에서 불러오고, 원본 저장 후 처리 오류로 자동 재처리됨을 안내한다. 개별 파일의 오류 원인과 재처리 완료 여부는 확인하지 않았다.
+- 검증: 표적 23건 통과, 영향 QA 230건·30 subtests 통과, skip 0, GitHub Actions 41399400683 통과. 배포 1,292 blobs 일치, health/ready 200, 보호 API 확인, 보호 13표 불변. 근거 `.local-archive/upload-detail-20261102/deploy-evidence.json`. 운영 인증 화면 수동 확인은 미실행. 다음 명령 없음.
+
 ## 2026-11-02 능동 감사·다중 업로드 운영 반영 및 미결
 
 - PARTIAL — [실행 기록](specs/autonomous-qa-20261102.md)의 최근 PR30 분석, 발견 결함 개선, 영향 기반 QA와 다중 업로드 수정은 [PR #513](https://github.com/6Soo/cost/pull/513), [PR #514](https://github.com/6Soo/cost/pull/514)로 병합해 운영 `20da556e174c66570a856324c770e05ad422aa69`에 반영했다. 전체 업무 감사의 모든 end-to-end 수락과 배포 후 인증 화면 확인은 아직 완료로 표시하지 않는다.
