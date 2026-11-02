@@ -1,3 +1,8 @@
+## 2026-11-02 항공권 검색 결과 유지 배포
+
+- [PR #536](https://github.com/6Soo/cost/pull/536), 코드 `4303ca66`, 운영 `d878234c2ca90ab6c1362f7a007f284060562e88`. 카드 원행을 안내와 함께 새 탭에서 열어 검색 결과를 유지한다. 이름이나 예약 정보를 URL·브라우저 저장소에 새로 기록하지 않는다.
+- 합성 항공 검색 12 passed, 영향 QA 260 passed·16 subtests·skip 0, GitHub Actions 41423166983 통과. 운영 1,293 blobs 일치, health/ready 200, 보호 API 401/403, 보호 13표 전후 불변. 직전 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a` 보존. 인증 운영 영향 화면은 기존 TaskSpace 63을 찾을 수 없어 미확인이다. 실제 금융·Google 쓰기 없음. 근거 `.local-archive/autonomous-qa-20261102/flight-detail-release/deploy-evidence.json`.
+
 ## 2026-11-02 카드 자료 전환 상태 보호 배포
 
 - [PR #528](https://github.com/6Soo/cost/pull/528), 검증 코드 `ec92540c`, 운영 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a`. 업로드 중 다른 자료를 선택하면 이전 응답이 현재 상태를 덮지 않도록 고쳤고 파일별 결과는 보존했다. 카드 복사 검사를 현행 경로로 복구했다.
