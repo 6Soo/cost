@@ -1,3 +1,10 @@
+## 2026-11-02 능동 QA·다중 업로드 배포
+
+- [PR #513](https://github.com/6Soo/cost/pull/513), [PR #514](https://github.com/6Soo/cost/pull/514)를 검증 후 병합하고 `20da556e174c66570a856324c770e05ad422aa69`를 고정 배포했다. 이전 검증 릴리스 `a7aa8c7ff23af9574ccbf42301803687b788d64d`와 task 복구점을 유지했다.
+- #513 PR 검사 825 passed/86 subtests, 정기 감사 704 passed/86 subtests; #514 영향 검사 280 passed/30 subtests, 필수 skip·누락 0. PR 검사 트리와 병합 트리 동일. 실행 간 중복은 합산하지 않는다.
+- 배포 검사 1,292 blobs 불일치 0, task/process SHA 및 단일 loopback 확인, health/ready 200, 보호 API 401/403, 보호 13표 내용·스키마 전후 불변. 실제 금융·분류·여행·Google·원본·스키마 업무 쓰기 0. 자세한 증거 `.local-archive/autonomous-qa-20261102/deploy-evidence.json`.
+- 인증된 운영 브라우저 재수락은 기존 TaskSpace 21을 찾지 못해 미실행이다. 합성 브라우저와 Windows OCR의 기존 증거는 이 운영 화면 수락을 대신하지 않는다. 문서 변경에 따른 재배포는 하지 않는다.
+
 ## 2026-11-02 보험 연결 표시 간소화·미연결 연결 버튼 완료
 
 - COMPLETE — 사용자 “일단 연결이 되면 크게 수정할 필요가 없는 부분이야. 버튼이 도드라지지않고 자연스럽게 글자위주로 변경하고, 미연결 부분을 버튼으로 만들어서 기능을 추가해.” [PR #505](https://github.com/6Soo/cost/pull/505), 구현 `447ebb16c4b97cdf8c865be1de7db7003a3466fc`, 병합·고정 배포 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`, 이전 검증 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`.
