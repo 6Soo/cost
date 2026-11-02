@@ -174,11 +174,16 @@ class CardGoogleCopyTests(unittest.TestCase):
             page.goto(self.base + '/import#newupload')
             page.locator('#file').set_input_files({'name': 'synthetic.csv', 'mimeType': 'text/csv', 'buffer': CARD})
             page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
-            page.wait_for_function('typeof model !== "undefined" && model.rows.length > 0')
-            batch = page.evaluate('model.batch_id')
-            row = self.flow.pipeline.get_batch(batch)['rows'][0]
-            self.save_browser_classification(page, batch, row, trip=trip, item='숙박비',
-                                             request_id='mobile-trip-classification')
+            page.locator('#upload-results a').first.wait_for()
+            page.locator('[data-review-state="all"]').click()
+            page.locator('#preview [data-edit]').first.click()
+            form = page.locator('#questions form[data-index]').first
+            form.locator('select[name=display_tab_id]').select_option(trip)
+            form.locator('input[name=item]').fill('숙박비')
+            with page.expect_response('**/decision') as decision:
+                form.get_by_role('button', name='저장하고 자동 반영').click()
+            self.assertEqual(decision.value.status, 200)
+            self.assertEqual(decision.value.json()['ledger_recording']['status'], 'recorded')
             saved = self.server.card_store.conn.execute(
                 'SELECT amount_krw,item,display_tab_id,decided_at IS NOT NULL FROM transactions').fetchone()
             self.assertEqual(saved, (37000, '숙박비', trip, 1))
