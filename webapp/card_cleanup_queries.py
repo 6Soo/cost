@@ -51,7 +51,11 @@ def completed_assignment_sql(board):
         targets = board.conn.execute(
             "SELECT DISTINCT display_tab_id FROM transactions"
             " WHERE classification_state='classified' AND COALESCE(item,'')!=''"
-            " AND COALESCE(display_tab_id,'') NOT IN ('','unclassified')").fetchall()
+            " AND COALESCE(display_tab_id,'') NOT IN ('','unclassified')"
+            " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=transactions.transaction_id)"
+            " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||transactions.transaction_id)"
+            " AND COALESCE(classification_basis,'') NOT LIKE '%complete-card-inference-v1%'"
+            " AND classification_source!='refund_original'").fetchall()
         return [target for (target,) in targets if flow.trip_valid(target)]
 
     valid = read_scope.remember(('cleanup-completed-trips', id(board)), destinations)
