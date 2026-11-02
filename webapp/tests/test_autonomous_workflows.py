@@ -443,6 +443,50 @@ def test_trip_metadata_stale_http_edit_preserves_saved_state(service):
     assert service.snapshot.read_bytes() == snapshot_before_stale
 
 
+def test_trip_metadata_conflict_keeps_browser_draft_and_latest_saved_value(service):
+    from playwright.sync_api import sync_playwright
+
+    store = service.server.card_store
+    trip = store.create_trip(starts_on='2026-05-01', ends_on='2026-05-31',
+                             destination='Synthetic conflict trip',
+                             display_key='Synthetic original',
+                             client_request_id='browser-conflict-create')
+    tab_id = trip['tab_id']
+    base = f'http://127.0.0.1:{service.port}'
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        context = browser.new_context(viewport={'width': 390, 'height': 844})
+        try:
+            context.add_cookies([{'name': google_oidc.COOKIE_NAME,
+                                  'value': service.cookie(OWNER), 'url': base}])
+            page = context.new_page()
+            page.goto(f'{base}/trips?trip={quote(tab_id)}')
+            row = page.locator(f'[id="manage-{tab_id}"]')
+            row.locator('.trip-meta > summary').click()
+            form = row.locator('form').first
+            revision = int(form.locator('[name=expected_revision]').input_value())
+            code, body, _ = json_post(service, f'/api/trips/{quote(tab_id)}/meta', {
+                'expected_revision': revision, 'client_request_id': 'browser-conflict-concurrent',
+                'display_key': 'Synthetic latest', 'prepared_by_name': 'Latest owner',
+            })
+            assert code == 200, body
+            latest = store.get_trip(tab_id)
+            form.locator('[name=display_key]').fill('Synthetic draft')
+            form.locator('[name=prepared_on]').fill('2026-05-02')
+            form.locator('[name=prepared_by_name]').fill('Draft owner')
+            with page.expect_response(lambda response: '/meta' in response.url and response.status == 409):
+                form.locator('button[type=submit]').click()
+            assert page.get_by_text('EDIT_CONFLICT', exact=False).is_visible()
+            assert page.locator('input[name=display_key][readonly]').input_value() == 'Synthetic draft'
+            assert page.locator('input[name=prepared_on][readonly]').input_value() == '2026-05-02'
+            assert page.locator('input[name=prepared_by_name][readonly]').input_value() == 'Draft owner'
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            assert store.get_trip(tab_id) == latest
+        finally:
+            context.close()
+            browser.close()
+
+
 def test_synthetic_google_copy_and_manual_record_are_read_only_or_idempotent(service):
     store = service.server.card_store
     before_snapshot = service.snapshot.read_bytes()
