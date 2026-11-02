@@ -28,6 +28,7 @@ def muse_ready(tmp_path, monkeypatch):
     image.write_bytes(PNG)
     monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
     monkeypatch.setenv('WEBLEDGER_OPENCODE_EXE', __file__)
+    monkeypatch.setattr(vision, 'enabled', lambda: True)
     vision._COOLING.clear()
     return str(image)
 

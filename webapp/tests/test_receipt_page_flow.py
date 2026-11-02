@@ -37,6 +37,10 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         return {'receipts': [], 'label': 'Muse', 'lesson': None}
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
+        from webapp import receipt_vision_jobs
+        with receipt_vision_jobs._LOCK:
+            receipt_vision_jobs._JOBS.clear()
+            receipt_vision_jobs._BY_IMAGE.clear()
         shots = os.environ.get('WEBLEDGER_FLOW_SHOTS')
         self.photos = []
         env = patch.dict(os.environ, {'WEBLEDGER_RECEIPT_VISION': 'opencode-muse-free',

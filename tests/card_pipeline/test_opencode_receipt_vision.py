@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import pytest
 """No network or real Muse call: exercise pinned-model CLI and untrusted JSON."""
 import json
@@ -84,8 +85,10 @@ def test_a_command_past_the_time_limit_is_stopped_with_its_children(monkeypatch)
     monkeypatch.setattr(vision, "TIMEOUT_SECONDS", 2)
     started = time.time()
     with pytest.raises(subprocess.TimeoutExpired):
-        vision._run_bounded(["cmd", "/c", "ping -n 120 127.0.0.1 >nul"], cwd=".", env=dict(os.environ))
-    assert time.time() - started < 30
+        vision._run_bounded([sys.executable, '-c',
+            "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']); time.sleep(120)"],
+            cwd=".", env=dict(os.environ))
+    assert time.time() - started < 8
 
 
 

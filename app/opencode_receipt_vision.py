@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -255,13 +256,19 @@ def _run_bounded(command, *, cwd, env):
     """
     process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                               creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),
+                               start_new_session=os.name != 'nt')
     try:
         stdout, stderr = process.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'] if os.name == 'nt'
-                       else ['kill','-9',str(process.pid)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if os.name == 'nt':
+            subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         try:
             process.communicate(timeout=10)
         except subprocess.TimeoutExpired:
