@@ -413,7 +413,7 @@ def test_card_detail_opens_inline_and_keeps_current_trip_for_immediate_edit(tmp_
                                  client_request_id='cleanup-inline-trip')
         monkeypatch.setattr(CardFlow, 'trip_valid', lambda self, target: target == trip['tab_id'])
         board.conn.execute(
-            "UPDATE transactions SET display_tab_id=?, trip_id=?, item='숙박비' WHERE transaction_id=?",
+            "UPDATE transactions SET display_tab_id=?, trip_id=?, item='숙박비', classification_state='needs_review' WHERE transaction_id=?",
             (trip['tab_id'], trip['tab_id'], tid),
         )
         board.conn.commit()
