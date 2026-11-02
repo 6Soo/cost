@@ -82,8 +82,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     ferry = next(cards.nth(index) for index in range(cards.count())
                                  if cards.nth(index).get_by_role('textbox', name='상호', exact=True).input_value() == 'FERRY')
                     ferry.get_by_role('combobox', name='결제수단', exact=True).select_option('cash')
-                    page.click('#vision-register')
-                    page.wait_for_load_state()
+                    with page.expect_navigation():
+                        page.click('#vision-register')
                     page.wait_for_selector('#step-review table')
                     candidates = self.request('/api/receipts')[1]['candidates']
                     self.assertEqual(len(candidates), 3)
@@ -106,8 +106,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertEqual(page.locator('.receipt-card').count(), 1)
                     if shots:
                         page.screenshot(path=os.path.join(shots, 'p2-rescan-390.png'), full_page=True)
-                    page.click('#vision-register')
-                    page.wait_for_load_state()
+                    with page.expect_navigation():
+                        page.click('#vision-register')
                     page.wait_for_selector('#step-review table')
                     candidates = self.request('/api/receipts')[1]['candidates']
                     self.assertEqual(len(candidates), 4)
