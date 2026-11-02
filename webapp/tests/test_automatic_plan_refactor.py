@@ -9,7 +9,7 @@ from webapp.tests.test_automatic_classification_completion import setup, TRIPS
 
 
 def baseline_policy():
-    source = subprocess.check_output(['git', 'show', '3410f395:app/automatic_classification.py']).decode('utf-8')
+    source = subprocess.check_output(['git', 'show', '55e304ad:app/automatic_classification.py']).decode('utf-8')
     module = types.ModuleType('app._baseline_automatic_classification')
     module.__package__ = 'app'
     exec(compile(source, '<baseline-automatic-classification>', 'exec'), vars(module))

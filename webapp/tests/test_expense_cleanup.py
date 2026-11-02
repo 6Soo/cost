@@ -49,7 +49,7 @@ def test_unlinked_booking_explains_missing_connection_without_requesting_card_ev
 
         markup = render_expense_cleanup(board, 'token')
 
-        assert '연결 상태 확인 대기' in markup
+        assert 'OTA 결제 연결 없음 · 결제 근거 확인 필요' in markup
         assert '예약 자료가 없습니다' not in markup
         assert '예약 근거를 카드 자료에서 확인' not in markup
         assert tuple(board.conn.execute("SELECT * FROM transactions WHERE transaction_id=?", (tid,)).fetchone()) == before
@@ -420,7 +420,7 @@ def test_card_detail_opens_inline_and_keeps_current_trip_for_immediate_edit(tmp_
 
         html = render_expense_cleanup(board, 'token')
 
-        assert "<details class='cleanup-review'><summary>상세 검토</summary>" in html
+        assert "<details class='cleanup-review'><summary>여행·항목 수정</summary>" in html
         assert "<button type='submit'>여행 수정</button>" in html
         assert f"data-current-tab='{trip['tab_id']}'" in html
         assert "const current=select.closest('.cleanup-row')?.dataset.currentTab||'';" in html
@@ -528,10 +528,10 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
         first = first.split("</li>", 1)[0]
         held = html.split(f"data-transaction='{protected['transaction_id']}'", 1)[1]
         held = held.split("</li>", 1)[0]
-        assert '거래 검토' in first and "class='cleanup-badge'" in first
+        assert '처리 필요 · 분류·배정 필요' in first and "class='cleanup-badge'" in first
         assert 'AI에게 처리 방법 알려주기' not in first
         assert '이 지시로 규칙 제안하기' not in first
-        assert '상세 검토' in first and '여행 수정' in first
+        assert '근거 보기' in first and '여행·항목 수정' in first and '여행 수정' in first
         assert 'data-cleanup-propose' not in held and '보류 중' in held
         assert "'rule-proposal/approve'" not in first  # HTML은 서버 승인 없이 기록하지 않는다.
         assert 'resolve_hold:' not in html

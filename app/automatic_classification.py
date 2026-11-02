@@ -326,9 +326,8 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
             if chosen['item'] in ('기타경비', '현지경비', '여행경비'):
                 chosen['item'] = specific
             item_basis = '기존 항목·카드 업종·서비스 용도 재대조'
-    if (fact and fact.get('source_hash') == row['source_hash'] and fact.get('trip_id') in valid
-            and chosen.get('display_tab_id') != 'refunds' and chosen['item'] != '분기 기타비용'
-            and not existing_tab and row['transaction_direction'] == 'purchase'):
+    if (valid_fact and chosen.get('display_tab_id') != 'refunds'
+            and chosen['item'] != '분기 기타비용' and not existing_tab):
         chosen.update(trip_id=fact['trip_id'], display_tab_id=fact['trip_id'])
         if chosen['item'] in ('', '기타경비', '현지경비', '여행경비') and fact.get('item'):
             chosen['item'] = fact['item']

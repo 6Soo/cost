@@ -8,7 +8,7 @@ from webapp import card_flow, ledger_board
 from webapp.ledger_store import LedgerStore
 from webapp.tests.test_expense_cleanup import card_rows, unassigned_row
 
-BASELINE = '3410f395aa5a0888dc6538747a7cf5032a0d830d'
+BASELINE = '55e304ad493a4f8cdcf1eddf4188e931cb3e1af7'
 
 
 def baseline_renderer():
@@ -56,8 +56,8 @@ def render_with_queries(renderer, board, **options):
     return html, [q for q in statements if q.lstrip().upper().startswith('SELECT')]
 
 
-@pytest.mark.parametrize('reason,page', [('all', 1), ('all', 2), ('all', 3), ('no_item', 1),
-                                       ('no_trip', 1), ('protected', 1), ('other_review', 2), ('invalid', 1)])
+@pytest.mark.parametrize('reason,page', [('all', 1), ('all', 2), ('all', 3), ('classification', 1),
+                                       ('evidence', 1), ('finance', 1), ('manual', 2), ('invalid', 1)])
 def test_cleanup_html_and_financial_state_equal_baseline_with_fewer_reads(population, reason, page):
     board = population
     tables = [r[0] for r in board.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
