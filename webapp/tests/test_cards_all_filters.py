@@ -125,7 +125,13 @@ def test_valid_display_destination_and_dangling_override_are_counted_consistentl
         conn.execute("UPDATE transactions SET display_tab_id='MISSING',trip_id='VALID' WHERE transaction_id='TX-A-02'")
     filters = dict(unassigned=True, valid_trip_ids={'VALID'})
     result = ct.list_for_month(card_db_path, 2026, 3, **filters)
-    assert {row['transaction_id'] for row in result['items']} == {'TX-A-02', 'TX-B-01'}
+    # A valid stored trip is an assignment even when the display destination is stale;
+    # the separate conflict indicator must still retain the discrepancy.
+    assert {row['transaction_id'] for row in result['items']} == {'TX-B-01'}
+    from app.assignment_status import row_assignment
+    verdict = row_assignment({'display_tab_id': 'MISSING', 'trip_id': 'VALID'}, {'VALID'})
+    assert verdict['status'] == 'ASSIGNED'
+    assert 'STALE_DISPLAY_DESTINATION' in verdict['conflicts']
     assert ct.year_summary(card_db_path, 2026, **filters)['months'][3] == result['count']
 
 
@@ -159,7 +165,7 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
     assert '미배정 1건' in page and '•••• 1234' in page and '카드 식별' in page
     assert "class='btn' type='submit'" in page and "aria-hidden='true'" in page
     assert '>조회</button>' in page and "<svg class='ic'" in page
-    assert '같은 카드사·종류·끝자리' in page
+    assert "aria-label='카드별 조회'" in page and '카드사·끝4자리·가맹점' in page
     for form in re.findall(r'<form\b.*?</form>', page, re.S):
         if "action='/cards/all'" not in form:
             continue
