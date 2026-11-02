@@ -52,20 +52,16 @@ def test_cleanup_reasons_are_exclusive_and_filtered_on_the_full_population(tmp_p
         all_html = render_expense_cleanup(board, 'csrf')
         assert cleanup_total(board) == 26
         assert "전체 26건" in all_html
-        assert "기타 검토 22건" in all_html
-        assert len([row for row in ids if f"data-transaction='{row}'" in render_expense_cleanup(board, 'csrf', reason='other_review')]) == 20
-        no_item = render_expense_cleanup(board, 'csrf', reason='no_item')
-        assert f"data-transaction='{ids[0]}'" in no_item
-        assert f"data-transaction='{ids[1]}'" not in no_item
-        assert "항목 미분류 1건 중 1~1건 표시" in no_item
-        no_trip = render_expense_cleanup(board, 'csrf', reason='no_trip')
-        assert f"data-transaction='{ids[1]}'" in no_trip
-        assert "data-row-id='cleanup-ledger'" in no_trip
-        assert "여행 미배정 2건" in no_trip
-        protected = render_expense_cleanup(board, 'csrf', reason='protected')
+        assert "분류·배정 필요 25건" in all_html
+        assert len([row for row in ids if f"data-transaction='{row}'" in render_expense_cleanup(board, 'csrf', reason='classification')]) == 20
+        second = render_expense_cleanup(board, 'csrf', reason='classification', page=2)
+        assert "data-row-id='cleanup-ledger'" in second
+        assert "분류·배정 필요 25건 중 21~25건 표시" in second
+        protected = render_expense_cleanup(board, 'csrf', reason='evidence')
         assert f"data-transaction='{ids[3]}'" in protected
-        assert "보류·오류 1건" in protected
-        assert f"cleanup_reason=other_review#expense-cleanup" in render_expense_cleanup(board, 'csrf', reason='other_review', page=2)
+        assert "근거 충돌 1건" in protected
+        assert f"cleanup_reason=classification#expense-cleanup" in second
+        assert render_expense_cleanup(board, 'csrf', reason='no_trip') == render_expense_cleanup(board, 'csrf', reason='classification')
     finally:
         ledger_board.bind_store(None)
         board.close()
@@ -77,10 +73,10 @@ def test_cleanup_empty_filter_and_invalid_reason_fall_back_safely(tmp_path, monk
         ledger_board.bind_store(board)
         card_rows(board, 1)
         monkeypatch.setattr('webapp.card_flow._ota_entries_by_card', lambda _board, **kw: {'__snapshot_status__': {'fresh': True, 'status': 'ready'}})
-        empty = render_expense_cleanup(board, 'csrf', reason='no_item')
-        assert '항목 미분류 거래가 없습니다.' in empty
+        empty = render_expense_cleanup(board, 'csrf', reason='finance')
+        assert '결제·환불 확인 거래가 없습니다.' in empty
         assert "aria-current='page'" in empty
-        assert "항목 미분류 0건" in empty
+        assert "결제·환불 확인 0건" in empty
         assert "data-kind='card'" not in empty
         assert render_expense_cleanup(board, 'csrf', reason='unexpected') == render_expense_cleanup(board, 'csrf')
     finally:

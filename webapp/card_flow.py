@@ -2553,7 +2553,8 @@ def _cleanup_population(board):
     """Read the card and ledger populations once for counts and paging."""
     card = _cleanup_card_breakdown(board)
     ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
-    counts = dict(card, no_trip=card.get('no_trip', 0) + ledger, all=sum(card.values()) + ledger)
+    counts = dict(card, classification=card.get('classification', 0) + ledger,
+                  all=sum(card.values()) + ledger)
     return card, ledger, counts
 
 
@@ -2902,13 +2903,14 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     options = card_cleanup_ui.render_cleanup_trip_options(trips, esc=esc)
     trip_names = {t['tab_id']: t.get('display_key') or t['tab_id'] for t in trips}
     from . import card_cleanup_queries
+    reason = card_cleanup_queries.LEGACY_REASONS.get(reason, reason)
     if reason not in card_cleanup_queries.REASONS:
         reason = 'all'
     selected_reason = reason
     card_breakdown, ledger_all, counts = _cleanup_population(board)
     all_total = counts['all']
     filtered_card_total = sum(card_breakdown.values()) if selected_reason == 'all' else card_breakdown.get(selected_reason, 0)
-    ledger_total = ledger_all if selected_reason in ('all', 'no_trip') else 0
+    ledger_total = ledger_all if selected_reason in ('all', 'classification') else 0
     total = filtered_card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
     page = min(max(1, int(page or 1)), pages)
@@ -2918,7 +2920,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset, reason=selected_reason) if card_limit else []
     ledger_offset = max(0, offset - filtered_card_total)
     ledger_limit = (_CLEANUP_PAGE_SIZE - len(rows_card)
-                    if selected_reason in ('all', 'no_trip') else 0)
+                    if selected_reason in ('all', 'classification') else 0)
     items = []
     ota_by_card = _ota_entries_by_card(board, transaction_ids=[row[0] for row in rows_card])
     snapshot_context = ota_by_card.get('__snapshot_status__', {})
@@ -2953,11 +2955,18 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
     visible_card_ids = {row[0] for row in rows_card}
+
     inference_ids = [row[0] for row in rows_card
                      if row[7] in (None, '', 'unclassified') and row[6] == 'inference']
     basis_by_card = (dict(board.conn.execute(
         'SELECT transaction_id,classification_basis FROM transactions WHERE transaction_id IN (' +
         ','.join('?' for _ in inference_ids) + ')', inference_ids)) if inference_ids else {})
+
+    from app.review_holds import active_holds
+    from .card_actions import reason_category, REASON_LABELS
+    from app.classification_provenance import label as provenance_label
+    cleanup_holds = active_holds(board.conn)
+
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -3084,6 +3093,16 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 label = '기록 보류'
             elif offset_link.get('status') == 'full':
                 label = '환불 상쇄 확인'
+        category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
+            transaction_direction='cancellation' if tid in cancellation_ids else 'purchase',
+            review_hold=cleanup_holds.get(tid)),
+            dict(preview_row or {}, **({'refund_link': original_refunds[tid][0][1]} if tid in original_refunds else {})))
+        # Keep exact diagnoses and financial evidence inside the expandable body.
+        review = ("<details><summary>근거 보기</summary><p>" + esc(label) + '</p>'
+                  + review + '</details>')
+        label = '처리 필요 · ' + REASON_LABELS[category]
+        if item:
+            label += ' · ' + provenance_label({'classification_source': source})
         card_row = card_cleanup_ui.CleanupCardRow(
             assignment_text=(
                 f"현재 여행: {trip_names[current_tab]} · 항목: {item or '미분류'}"
@@ -3142,10 +3161,8 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                      if page < pages else '<span>다음 20건</span>')
         nav = (f"<nav class='cleanup-pages'><p class='muted'>{total}건 중 {min((page-1)*20+1,total)}~{min(page*20,total)}건 · {page}/{pages}페이지</p>"
                f"{previous} · {following}</nav>")
-    labels = [('all', '전체', counts['all']), ('no_item', '항목 미분류', counts.get('no_item', 0)),
-              ('no_trip', '여행 미배정', counts.get('no_trip', 0)), ('protected', '보류·오류', counts.get('protected', 0))]
-    if counts.get('other_review', 0):
-        labels.append(('other_review', '기타 검토', counts['other_review']))
+    labels = [('all', '전체', counts['all'])] + [(key, REASON_LABELS[key], counts.get(key, 0))
+              for key in ('classification', 'evidence', 'finance', 'manual')]
     chips = []
     for key, label, count in labels:
         query_part = '' if key == 'all' else '?cleanup_reason=' + key
@@ -3236,7 +3253,7 @@ const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_a
 const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 추론 관계 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계 확인 필요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 재확인 필요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
 otaLabels.GROUP_LINKED='OTA M:N 연결';
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
-const reviewLabel=r=>[r.next_action?.status||{review:'\ud655\uc778 \ud544\uc694',booked:'\uae30\ub85d \uc644\ub8cc',excluded:'\uae30\ub85d \uc81c\uc678'}[reviewStatus(r)]||'',otaLabels[r.ota_link_status],expenseLabels[r.internal_expense_status],...(r.ota_candidate_notes||[])].filter(Boolean).join(' / ');
+const reviewLabel=r=>[r.next_action?.state_label||{review:'처리 필요',booked:'완료',excluded:'제외'}[reviewStatus(r)]||'',r.next_action?.source_label,r.next_action?.reason_label].filter(Boolean).join(' · ');
 function completedRefundGroups(j){const rows=new Map(j.preview.rows.map(r=>[r.transaction_id,r]));return (j.refund_groups||[]).filter(g=>!g.error&&g.status==='full'&&g.net_krw===0&&g.rows.length&&g.rows.every(r=>r.already_booked&&!r.blocked&&!rows.get(r.transaction_id)?.review_hold))}
 function otherReviewRows(j){const completed=new Set(completedRefundGroups(j).flatMap(g=>g.rows.map(r=>r.transaction_id)));return j.preview.rows.filter(r=>!completed.has(r.transaction_id))}
 function renderCompletedRefund(g){return '<div class="refund-group refund-complete"><h2>전액 환불 · 처리 완료</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>기록 완료 '+g.rows.length+'건 · 추가 입력 없음</p></div>'}
@@ -3281,7 +3298,7 @@ if(j.ota_reconciliation?.enabled&&!j.ota_reconciliation.fresh){const notice=docu
 const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p>'+(evidence(r)?'<p class="small">'+esc(evidence(r))+'</p>':'')+'<p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__확인 후 수정</button></article>').join('')+'</details>':'';
 const asked=j.rows.filter(r=>j.preview.rows.find(p=>p.transaction_id===r.transaction_id)?.next_action?.required&&!r.duplicate_of&&r.transaction_id!==editing);const pages=Math.max(1,Math.ceil(asked.length/PAGE_SIZE));if(page>=pages)page=pages-1;const slice=asked.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;
 el('questions').innerHTML=(ed?'<article><h2>'+esc(j.preview.rows.find(r=>r.transaction_id===ed.transaction_id)?.next_action?.label||'거래 수정')+' · '+esc(ed.merchant)+'</h2><p class="small">'+esc(j.preview.rows.find(r=>r.transaction_id===ed.transaction_id)?.next_action?.reason||'')+'</p>'+answerForm(j,ed)+'</article>':'')+slice.map((r,i)=>'<details class="review-item"'+(i===0?' open':'')+'><summary><span class="ri-date">'+esc(r.approval_date||r.posting_date)+(r.approval_date?'':' (매입일)')+'</span><h2>'+esc(r.merchant)+'</h2><span class="amount">'+money(r.amount_krw)+'</span>'+(evidence(r)?'<span class="ri-flag">'+esc(evidence(r))+'</span>':'')+'</summary><div class="ri-body"><p class="small">'+esc(r.conflict_reason||r.parse_error||r.classification_basis)+'</p>'+answerForm(j,r)+'</div></details>').join('')+(pages>1?'<nav><p class="small">확인하거나 수정할 '+asked.length+'건을 '+PAGE_SIZE+'건씩 봅니다 · '+(page+1)+'/'+pages+'페이지</p><button type="button" id="prevpage"'+(page?'':' disabled')+'>__ICON_CHEVRON_LEFT__이전 20건</button> <button type="button" id="nextpage"'+(page+1<pages?'':' disabled')+'>다음 20건__ICON_CHEVRON_RIGHT__</button></nav>':'');
-const completedGroups=new Set(completedRefundGroups(j));const groups=(j.refund_groups||[]).map(g=>completedGroups.has(g)?renderCompletedRefund(g):g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'미배정')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p={...j.preview,rows:otherReviewRows(j)};el('preview').className='';el('preview').innerHTML=(groups?'<section aria-label="환불 처리 결과">'+groups+'</section>':'')+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+(completedGroups.size?'<h2>그 외 거래 처리 결과</h2><p>위 전액 환불과 별개인 거래입니다.</p>':'<h2>거래 처리 결과</h2>')+'<p>기록 완료 '+p.rows.filter(r=>r.already_booked).length+'건 · 확인할 거래 '+p.rows.filter(r=>r.next_action?.required).length+'건</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({user_exception:'사용자 예외',guide_airfare_evidence:'대장 항공권 근거'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'추론 배정')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 확인 필요')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
+const completedGroups=new Set(completedRefundGroups(j));const groups=(j.refund_groups||[]).map(g=>completedGroups.has(g)?renderCompletedRefund(g):g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'미배정')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p={...j.preview,rows:otherReviewRows(j)};el('preview').className='';el('preview').innerHTML=(groups?'<section aria-label="환불 처리 결과">'+groups+'</section>':'')+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+(completedGroups.size?'<h2>그 외 거래 처리 결과</h2><p>위 전액 환불과 별개인 거래입니다.</p>':'<h2>거래 처리 결과</h2>')+'<p>완료 '+p.rows.filter(r=>r.already_booked).length+'건 · 처리 필요 '+p.rows.filter(r=>r.next_action?.required).length+'건</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({inference:'코드 추론',code_inference:'코드 추론',ai_inference:'AI 추론',user_exception:'직접',guide_airfare_evidence:'자동'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'코드 추론')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 확인 필요')+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
 document.querySelectorAll('[data-group-commit]').forEach(b=>b.hidden=true);el('preview').insertAdjacentHTML('beforeend',(j.quarter_targets||[]).map(t=>'<section class="quarter-copy"><h2>'+esc(t.name)+'</h2><p class="small">여행 외 비용 · '+t.transaction_ids.length+'건 · 원본과 기록 상태는 그대로 유지합니다.</p>'+(t.available?'<a href="'+esc(t.href)+'" target="_blank" rel="noopener noreferrer">Google 분기 원본 열기</a><p><button type="button" data-google-copy="'+esc(t.id)+'">__ICON_COPY__'+esc(t.name)+' 지출 7열 복사</button></p>':'<p role="status">'+esc(t.reason)+'</p>')+'</section>').join(''));
 document.querySelector('[data-review-date]').onclick=()=>{el('review-date').open=true;el('review-date').scrollIntoView({block:'center'});};
 document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f),batch=model.batch_id,generation=batchGeneration,button=f.querySelector('button');if(button.disabled)return;button.disabled=true;try{const j=await call('/api/imports/'+model.batch_id+'/decision',mutationBody(f,{transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule'),resolve_hold:v.has('resolve_hold')}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.trip_move_learning?.status==='opened'){location.assign(j.trip_move_learning.url);return}if(editing===r.transaction_id)editing='';if(!j.refresh_required)render(j);el('status').textContent=j.refresh_required?'분류는 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 주세요.':j.ledger_recording?.status==='held'?'분류 완료 · 장부 기록 보류: '+j.ledger_recording.reason:'저장했습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message}finally{button.disabled=false}})

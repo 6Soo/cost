@@ -1,19 +1,25 @@
 """Canonical read-only reason classification for the expense cleanup queue."""
 
-REASONS = ('all', 'no_item', 'no_trip', 'protected', 'other_review')
+REASONS = ('all', 'classification', 'evidence', 'finance', 'manual')
+LEGACY_REASONS = {'no_item': 'classification', 'no_trip': 'classification',
+                  'protected': 'evidence', 'other_review': 'classification'}
 
 
 def card_reason_sql(alias='t'):
     """Return the mutually exclusive reason expression for a cleanup card row."""
     t = alias
     return (
-        f"CASE WHEN {t}.transaction_direction='cancellation'"
-        f" OR COALESCE({t}.conflict_reason,'')!='' OR COALESCE({t}.parse_error,'')!=''"
-        f" OR EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id)"
-        " THEN 'protected'"
-        f" WHEN COALESCE({t}.item,'')='' THEN 'no_item'"
-        f" WHEN COALESCE({t}.display_tab_id,'') IN ('','unclassified') THEN 'no_trip'"
-        " ELSE 'other_review' END"
+        f"CASE WHEN COALESCE({t}.conflict_reason,'')!='' OR COALESCE({t}.parse_error,'')!='' THEN 'evidence'"
+        f" WHEN {t}.transaction_direction IN ('cancellation','refund')"
+        f" OR EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id AND h.kind IN ('refund_pending','cancelled'))"
+        f" OR (COALESCE({t}.approval_number,'')!='' AND ({t}.issuer,{t}.card_tail,{t}.approval_number) IN"
+        " (SELECT r.issuer,r.card_tail,r.original_approval_number FROM transactions r"
+        " WHERE r.transaction_direction IN ('cancellation','refund'))) THEN 'finance'"
+        f" WHEN EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id"
+        f" AND h.source_hash={t}.source_hash AND h.kind IN ('manual','manual_hold','owner_hold','user_hold','review_hold')) THEN 'manual'"
+        f" WHEN EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id"
+        " AND h.kind NOT IN ('trip_needed','classification_needed','existing_ledger')) THEN 'evidence'"
+        " ELSE 'classification' END"
     )
 
 

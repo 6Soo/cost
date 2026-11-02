@@ -839,7 +839,12 @@ def _stay_text(row) -> str:
     """
     from datetime import date, timedelta
     unknown = "\uC774\uC6A9\uC77C \uD655\uC778 \uD544\uC694"
-    match = _STAY_PATTERN.fullmatch(str(row.get("service_period") or "").strip())
+    period = str(row.get("service_period") or "").strip()
+    if not period and str(row.get("row_id") or "").startswith("card-"):
+        from . import ledger_stay_evidence
+        index = read_scope.remember("ledger_stay_evidence", lambda: ledger_stay_evidence.stay_index(board._active_store()))
+        period = ledger_stay_evidence.period_for(row, index)
+    match = _STAY_PATTERN.fullmatch(period)
     if not match:
         return unknown
     try:

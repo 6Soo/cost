@@ -281,8 +281,8 @@ def test_cleanup_render_exposes_filter_controls_and_preserves_non_owner_boundary
 
         c_pop = card_flow.render_expense_cleanup(store, "csrf-test")
         assert "전체 3건" in c_pop
-        assert "항목 미분류 0건" in c_pop
-        assert "보류·오류 1건" in c_pop
-        assert "여행 미배정 2건" in c_pop
+        assert "분류·배정 필요 2건" in c_pop
+        assert "근거 충돌 1건" in c_pop
+        assert "결제·환불 확인 0건" in c_pop
     finally:
         store.close()

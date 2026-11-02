@@ -4,9 +4,29 @@ from app import quarter_costs
 
 
 #: The visible states a person sees for a card row, whichever screen shows it.
-GROUP_LABELS = {'review': '확인 필요', 'booked': '기록 완료', 'excluded': '기록 제외'}
+GROUP_LABELS = {'review': '처리 필요', 'booked': '완료', 'excluded': '제외'}
 GROUP_OF_STATUS = {'기록 완료': 'booked', '기존 기록': 'booked',
                    '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
+
+REASON_LABELS = {'classification': '분류·배정 필요', 'evidence': '근거 충돌',
+                 'finance': '결제·환불 확인', 'manual': '사용자 보류'}
+
+
+def reason_category(row, preview=None, hold=None):
+    preview = preview or {}
+    blocked = str(preview.get('blocked') or '')
+    hold = row.get('review_hold') or preview.get('review_hold') or hold or {}
+    if row.get('conflict_reason') or row.get('parse_error') or blocked in ('source_conflict', 'duplicate_possible', 'preview_unavailable'):
+        return 'evidence'
+    if (blocked.startswith('refund_') or preview.get('refund_link')
+            or row.get('transaction_direction') in ('cancellation', 'refund')
+            or hold.get('kind') in ('refund_pending', 'cancelled')):
+        return 'finance'
+    if hold and hold.get('kind') not in ('trip_needed', 'classification_needed', 'existing_ledger'):
+        if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold'):
+            return 'manual'
+        return 'evidence'
+    return 'classification'
 
 
 def next_action(row, preview=None, extra_hold=None):
@@ -14,9 +34,14 @@ def next_action(row, preview=None, extra_hold=None):
     href = '/import?' + urlencode({'batch': row['batch_id'], 'transaction': row['transaction_id']})
     def action(status, label, reason='', required=True, target=None):
         result = dict(status=status, label=label, reason=reason, required=required, href=target or href)
-        group = GROUP_OF_STATUS.get(status, 'review' if required else None)
+        group = GROUP_OF_STATUS.get(status, 'review')
         if group:
             result['group'] = group
+        from app.classification_provenance import origin, LABELS
+        category = reason_category(row, preview, extra_hold) if group == 'review' and required else ''
+        result.update(state=group, state_label=GROUP_LABELS[group],
+                      reason_category=category, reason_label=REASON_LABELS.get(category, ''),
+                      source=origin(row), source_label=LABELS[origin(row)])
         return result
     if preview.get('already_booked'):
         return action('기록 완료', '장부 보기', required=False,

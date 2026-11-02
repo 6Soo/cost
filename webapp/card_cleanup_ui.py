@@ -249,7 +249,7 @@ def render_cleanup_ledger_row(
     return (
         f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row.row_id)}' data-revision='{int(row.revision)}'>"
         "<div class='cleanup-card-head'><h3>여행 지정</h3>"
-        "<span class='cleanup-badge'>여행 미배정</span></div>"
+        "<span class='cleanup-badge'>처리 필요 · 분류·배정 필요</span></div>"
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
         f"<div class='cleanup-title'><strong>{esc(row.merchant_or_desc)}</strong>"
         f"<small>{esc(row.occurred_on or '')} · {esc(row.item or '항목 없음')}</small></div></div>"
@@ -301,7 +301,7 @@ def render_cleanup_section(
     return (
         style_html
         + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-        f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>"
+        f"<h2>처리 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>"
         f"{breakdown_html}{note_html}"
         f"<template id='cleanup-trip-options'>{options_html}</template>"
         f"<ul class='cleanup-list'>{body_html}</ul>{nav_html}"
