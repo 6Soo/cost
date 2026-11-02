@@ -90,6 +90,14 @@ def test_autonomous_workflow_http_journeys_are_selected_from_the_map():
     assert len([target for target in targets if target.startswith("webapp/tests/test_")]) >= 8
 
 
+def test_upload_queue_regression_selected_for_source_and_test_changes():
+    impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
+    for path in ("webapp/card_flow.py", "webapp/tests/test_multi_upload_queue.py"):
+        targets, unknown = selector_tool.select_targets([path], impact_map["groups"])
+        assert unknown == []
+        assert "webapp/tests/test_multi_upload_queue.py" in targets
+
+
 def test_receipt_review_journeys_are_selected_for_targeted_qa_and_scheduled_audit():
     impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
     targets, unknown = selector_tool.select_targets(["webapp/receipt_review.py"], impact_map["groups"])
