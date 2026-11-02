@@ -1,3 +1,10 @@
+## 2026-11-02 자동분류 성능 최적화 운영 반영 완료
+
+- COMPLETE — [PR507](https://github.com/6Soo/cost/pull/507) 병합·고정 운영 `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`; 이전 검증 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`. [동일 입력 Python/Rust 비교·검증 한계](specs/expense-performance-20261102.md). 최신 지출 UI·보험 연결·기업검색·비동기업로드·PR498 SQL 개선 보존.
+- 계획당 여행 기간 검증 결과 재사용. 운영 읽기6,895행/64여행·Google 잔액 조건의 중앙값2.612→1.046초(59.9% 단축), Rust혼합0.998초이나 범위 중첩·다른 조건에서는 더 느려 Python 채택. 변환/호출 포함 Rust 후보 선택은 Python보다 느렸다. 전체출력/digest 동일. 메모리·DB조회·정적복잡성 개선 주장 없음; 실제 적용/업로드/HTTP 속도와 구분한다.
+- 표적79·보호109 passed·최신통합37 passed(중복 포함). 검사fdeebfc0→최종SHA 차이는 문서뿐.1,275Git blobs불일치0·task/processSHA·단일loopback8751·health/ready200·보호API401/403·금융보호13표 내용/스키마 불변 PASS. 배포본호스트venv 합성80행/8여행 plan/render무쓰기PASS·인증ego/import4탭/가로넘침0 수락/TaskSpace16종료.
+- 코드 전용 직렬 전환, 이전 검증 릴리스·task XML 복구점 보존. 새 전체DB백업/복원 반복없음·Rust운영의존성/DDL/운영분류·여행·금융·환불·Google·원본 쓰기0. 근거 `.local-archive/expense-performance-20261102/`의 측정JSON·검사XML·review/release-audit/deploy-evidence·protection-before/after·deployed-smoke·browser-after 및 호스트 동일SHA deploy-evidence. 후속coverage 담당자에게 host/gate 해제통지. 전체회귀/실제 재처리/실기기 미실행. 문서 후속만으로 재검사·재배포·재시작하지 않는다.
+
 ## 2026-11-02 지출 정리 가로 탭·전체 UI/UX 개선 완료
 
 - COMPLETE — 사용자 “해당 메뉴들을 가로로 배치하면 하위메뉴로 두지 않아도될거같은데. 지출정리 페이지의 uiux전체를 개선해”. [PR #504](https://github.com/6Soo/cost/pull/504), 구현 `8feee6d9bde29d91b383bda62033072d282df84c`, 병합·고정 운영 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`, 이전 검증 `959c139c850b9f86d570cca2b7cc7d2842737db2`.

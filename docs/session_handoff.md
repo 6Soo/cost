@@ -1,3 +1,12 @@
+## 2026-11-02 자동분류 성능 최적화·Python/Rust 실측 완료
+
+- COMPLETE — 최신 인계·PR486 기반 성능 최적화 요청. [PR507](https://github.com/6Soo/cost/pull/507), 고정 운영 `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`, 이전 검증 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`. [측정·선택·한계 정본](specs/expense-performance-20261102.md).
+- 계획 안에서 검증한 여행 기간을 재사용해 반복 정규화를 제거했다. 요청 간 캐시는 없으며 수동 교정·원본·중복·환불·OTA·최신 여행 권한을 보존한다. PR498 SQL/환불 개선은 재사용하고 중복 구현하지 않았다.
+- 운영 읽기 전용 동일 입력 6,895행/유효64여행·Google 잔액 조건의 5회 중앙값: 기존 Python 2.612초 → 개선 Python 1.046초(59.9% 단축), Rust 혼합 0.998초. Rust 변환·호출 포함 후보 선택은 더 느렸고 전체 시간 이득도 조건별 일관되지 않아 Python 채택. 등록66여행 조건은 3.258→1.206초, Rust1.266초; 합성2,000행/70여행은 2.103→1.037초, Rust1.280초. 전체 결과/digest 동일·읽기 쓰기0.
+- 메모리 약97MiB·조회13회는 개선되지 않았다. 런타임2모듈은755→759행/AST분기141→144로 소폭 증가했다. Rust는 실제 C ABI 구현·250난수 검증을 했으나 운영 DLL/도구체인·신규 의존성은 도입하지 않았다. 실업로드/적용·동시성/장기메모리/HTTP 개선율은 미측정이며 프로파일·합성·HTTP 수치를 합산하지 않는다.
+- 표적79·금융/수동/원본/중복/환불 보호109 passed; 최신 UI통합37 passed는 중복 포함. 변경 후 재검증이 필요한 코드 차이는 없고 최종 병합 차이는 문서뿐이다. 전체 회귀는 국소 계산 재사용 변경으로 미실행. 배포1,275blobs 일치·task/processSHA·단일loopback·health/ready200·보호401/403·금융13표 내용/스키마 불변 PASS. 호스트venv 격리 합성80행/8여행 plan/render무쓰기·인증ego/import4탭200/넘침0 수락, TaskSpace16 종료.
+- 근거 `.local-archive/expense-performance-20261102/` 비교JSON·검사XML·review/release-audit/deploy-evidence·deployed-smoke·browser-after. 이전 검증 릴리스/task XML 보존, 코드 전용이라 새 전체DB백업/복원은 반복하지 않았다. 운영 분류/여행/금융/환불/Google/원본/스키마 쓰기0. host/gate 작성권 해제 및 후속coverage 담당 통지. 이 요청 미결/차단0·다음 기능 명령 없음. 문서 후속은 재검사·재배포·재시작하지 않는다.
+
 ## 2026-11-02 지출 정리 가로 탭·전체 UI/UX 개선 완료
 
 - COMPLETE — 사용자 “해당 메뉴들을 가로로 배치하면 하위메뉴로 두지 않아도될거같은데. 지출정리 페이지의 uiux전체를 개선해”. [PR #504](https://github.com/6Soo/cost/pull/504), 구현 `8feee6d9bde29d91b383bda62033072d282df84c`, 병합·고정 운영 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`, 이전 검증 `959c139c850b9f86d570cca2b7cc7d2842737db2`.
