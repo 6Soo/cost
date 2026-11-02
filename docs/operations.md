@@ -1,3 +1,8 @@
+## 2026-11-02 영수증·예약 연결 본문 접근성 배포
+
+- [PR #521](https://github.com/6Soo/cost/pull/521), 코드 `48a607ef86c3c4f0b670acc313d3dfb98cf592a4`, 운영 `82d818fcb86d1059db1413749f54f042a239a87f`. 두 화면의 제목과 업무 영역에 본문 랜드마크를 추가했다.
+- 영향 QA 189 passed·15 subtests, skip 0; GitHub Actions 41405062332 통과. 운영 1,292 blobs 일치, health/ready 200, 보호 API 401/403, 보호 13표 전후 불변. 이전 릴리스 `73eae23873323a7ffdd9f3bbe19dbf148ba5b4e4` 보존. 인증 운영 두 화면에서 랜드마크·제목·업무 영역과 가로 넘침 없음을 읽기 전용 확인했다. 근거 `.local-archive/autonomous-qa-20261102/landmarks-release/deploy-evidence.json`, `landmarks-live.mjs`.
+
 ## 2026-11-02 저장 파일 상세 이동 배포
 
 - [PR #516](https://github.com/6Soo/cost/pull/516), 검증 코드 `1bf142bd0b6c0cc07ae70ecf2b14679ee0e675e6`, 배포 `41c66b8b7e17b150391ad7898aed09956a472120`. 상세 결과를 페이지 새로고침 없이 불러오고 후속 처리 오류 안내를 명확히 했다.
