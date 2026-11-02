@@ -23,9 +23,14 @@ class TripHistoryBrowserTests(LinkBrowserFixture):
                 self.assertFalse(history.evaluate("el=>el.open"))
                 self.assertEqual(page.locator(f"#trips a[href*='tab={old['tab_id']}']").count(), 0)
                 self.assertEqual(page.locator(f"#trips a[href*='tab={new['tab_id']}']").count(), 1)
-                history.locator("summary").click()
+                history.locator(":scope > summary").click()
                 self.assertTrue(history.evaluate("el=>el.open"))
-                history.locator(f"a[href*='tab={old['tab_id']}']").click()
+                old_quarter = history.locator(".prev-q").filter(has=page.locator(
+                    f"a[href*='tab={old['tab_id']}']"))
+                old_quarter.locator(":scope > summary").click()
+                old_link = history.locator(f"a[href*='tab={old['tab_id']}']")
+                self.assertTrue(old_link.is_visible())
+                old_link.click()
                 page.wait_for_url("**/board?tab=" + old['tab_id'])
                 # Default collapsed for any selected/previous trip (new rule);
                 # user click opens it.

@@ -154,6 +154,7 @@ class RuleReviewTests(unittest.TestCase):
                 page.click('#rule-approve')
                 page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
                 page.goto(self.base + '/import?batch=' + self.batch + '#preview')
+                page.locator('[data-review-state="all"]').click()
                 page.locator('#preview').get_by_text('현지잡비').first.wait_for()
                 self.assertEqual(self.items()[self.tx[0]], '현지잡비')
                 self.assertEqual(self.items()[unselected], '기존 직접 분류')

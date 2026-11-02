@@ -93,7 +93,9 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertEqual(page.evaluate("JSON.parse(sessionStorage.getItem('cost-receipt-pending')||'[]').length"), 0)
                     self.assertEqual(page.locator('#vision-finish').count(), 0)
                     page.locator('[data-image-sha]').first.click()
-                    self.assertIn('사진 1', page.locator('#rescan-target').inner_text())
+                    page.wait_for_function("document.getElementById('rescan-target').textContent.includes('사진 1')")
+                    self.assertIn('사진 1', page.locator('#rescan-target').text_content())
+                    page.locator('details.rescan > summary').click()
                     page.fill('#feedback', '6장인데 5장만 찾았어. 작은 승선권 하나 더 찾아')
                     page.click('#rescan-go')
                     page.wait_for_function("document.getElementById('status').textContent.includes('새 후보')",

@@ -53,26 +53,29 @@ def _card_purchase(board, batch_id, transaction_id, merchant, amount_jpy, date):
 
 class ReceiptReviewTests(unittest.TestCase):
     def test_ocr_ui_uses_platform_engine_without_creating_costs(self):
-        from PIL import Image, ImageDraw, ImageFont
-        from webapp import local_receipt_ocr
+        from app import local_receipt_ocr
         from contextlib import ExitStack
 
-        image = Image.new('RGB', (800, 400), 'white')
-        try:
-            font = ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40)
-        except OSError:
-            font = ImageFont.load_default()
-        ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
-                                  font=font)
         photo = Path(self._dir.name) / 'synthetic.png'
-        image.save(photo)
         synthetic_result = {'text': 'SYNTHETIC RECEIPT 2026/10/12',
                             'suggestions': {'date': '2026-10-12'}, 'requires_review': True}
+        if os.name == 'nt':
+            from PIL import Image, ImageDraw, ImageFont
+
+            image = Image.new('RGB', (800, 400), 'white')
+            try:
+                font = ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40)
+            except OSError:
+                font = ImageFont.load_default()
+            ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
+                                      font=font)
+            image.save(photo)
         with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}), ExitStack() as adapters, \
                 sync_playwright() as api:
             recognize = None
             if os.name != 'nt':
                 # Linux exercises the OCR UI/API contract with a deterministic adapter response.
+                photo.write_bytes(PNG)
                 adapters.enter_context(patch.object(local_receipt_ocr, 'enabled', return_value=True))
                 recognize = adapters.enter_context(patch.object(
                     local_receipt_ocr, 'recognize', return_value=synthetic_result))
@@ -469,6 +472,7 @@ class ReceiptReviewTests(unittest.TestCase):
         self._owner.stop()
         self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=False)
         self._owner.start()
+        self.addCleanup(self._owner.stop)
         for method_path in (('GET', '/receipts'), ('GET', '/api/receipts'), ('GET', '/api/receipts/tsv'),
                             ('GET', '/api/receipts/image/' + 'a' * 64)):
             status, body = self.request(method_path[1])
@@ -482,6 +486,7 @@ class ReceiptReviewTests(unittest.TestCase):
         self._owner.stop()
         self._owner = patch.object(ledger_board, 'ACCESS_ENFORCEMENT', False)
         self._owner.start()
+        self.addCleanup(self._owner.stop)
         self.assertFalse(ledger_board._receipts_owner_request())
 
     def test_client_sent_card_rows_are_ignored_and_the_server_decides_the_link(self):
@@ -724,7 +729,8 @@ class ReceiptReviewTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'])
+                page = context.new_page()
                 page.goto(self.base + '/receipts')
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 requests = []
@@ -733,18 +739,24 @@ class ReceiptReviewTests(unittest.TestCase):
                 for selector, value in (('[data-total]', '2000'), ('[data-trip]', '')):
                     page.reload()
                     page.select_option('#copy-trip', self.trip)
+                    page.wait_for_function("!document.getElementById('copy-tsv').disabled")
                     if selector == '[data-trip]':
                         page.locator(selector).select_option(value)
                     else:
                         page.locator(selector).fill(value)
                     page.locator('[data-payee]').fill('NEW-PAYEE')
                     page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
-                    page.locator('#copy-tsv').click()
-                    page.wait_for_function("document.getElementById('status').textContent.includes('저장하지 않은 변경')")
+                    if selector == '[data-trip]':
+                        self.assertFalse(page.locator('#copy-tsv').is_enabled())
+                    else:
+                        page.locator('#copy-tsv').click()
+                        page.wait_for_function("document.getElementById('status').textContent.includes('저장하지 않은 변경')")
                     self.assertEqual(requests, [])
                     self.assertEqual(self.store.read_bytes(), before)
                     self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
                     self.assertEqual(page.locator('[data-total]').input_value(), value if selector == '[data-total]' else '1234')
+                    if selector == '[data-trip]':
+                        self.assertEqual(page.locator(selector).input_value(), '')
             finally:
                 browser.close()
 
@@ -758,14 +770,14 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.on('request', lambda request: requests.append(request.url)
                         if '/api/receipts/tsv?' in request.url else None)
                 for selector, value in (('[data-total]', '2500'), ('[data-payee]', 'UNSAVED-PAYEE'),
-                                        ('[data-category]', 'UNSAVED-CATEGORY'), ('[data-trip]', '')):
+                                        ('[data-category]', 'UNSAVED-CATEGORY')):
                     page.goto(self.base + '/receipts')
+                    page.locator('#copy-trip').select_option(self.trip)
+                    page.wait_for_function("!document.getElementById('copy-tsv').disabled")
                     page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                     page.evaluate("navigator.clipboard.writeText('KEEP')")
-                    if selector == '[data-trip]':
-                        page.locator(selector).select_option(value)
-                    else:
-                        page.locator(selector).fill(value)
+                    page.locator(selector).fill(value)
+                    self.assertTrue(page.locator('#copy-tsv').is_enabled(), selector)
                     page.click('#copy-tsv')
                     page.wait_for_function('!receiptBusy')
                     self.assertEqual(requests, [])

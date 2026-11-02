@@ -131,12 +131,13 @@ class CardFlowBrowserTests(unittest.TestCase):
                         item.locator('.cleanup-review summary').click()
                         item.locator("select[name=display_tab_id]").select_option(trip)
                         item.locator("input[name=item]").fill('식비')
-                        item.locator('button[type=submit]').click()
+                        with page.expect_navigation():
+                            item.locator('button[type=submit]').click()
                         page.wait_for_url('**/import?cleanup_reason=classification#expense-cleanup')
                         self.assertEqual(page.locator("#expense-cleanup .cleanup-row[data-transaction='" + ids[1] + "']").count(), 0)
                         self.assertIn('전체 23건', page.locator('#expense-cleanup').inner_text())
 
-                        response = page.goto(base + '/import?cleanup_reason=classification#expense-cleanup')
+                        response = page.reload()
                         self.assertEqual(response.status, 200, page.locator('body').inner_text())
                         self.assertIn('분류·배정 필요', page.locator('#expense-cleanup').inner_text())
                         classification_link = page.locator(".cleanup-breakdown a[href*='cleanup_reason=classification']")
@@ -158,7 +159,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
                             page.evaluate("document.documentElement.style.zoom='200%'")
                             page.set_viewport_size({'width':390,'height':844})
-                            self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
+                            self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390,
+                                page.evaluate("[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth).slice(0,12).map(e=>({tag:e.tagName,id:e.id,cls:e.className,right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width}))"))
                             page.evaluate("document.documentElement.style.zoom='100%'")
                         self.assertEqual(board.conn.execute(
                             "SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?", (ids[1],)).fetchone()[0], 1)
@@ -642,6 +644,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                         page.goto(base + '/import?batch=' + batch + '#preview')
                         state = page.request.get(base + '/api/imports/' + batch).json()
                         self.assertTrue(state['preview']['rows'][0]['already_booked'])
+                        page.locator('[data-review-state="all"]').click()
                         page.locator('#preview tbody tr').first.wait_for()
                         self.assertEqual(page.locator('#preview tbody tr').count(), 1)
                         self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
@@ -681,6 +684,13 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'booking_ref':'1111111111111111', 'event_type':'charge', 'evidence_status':'paid_verified',
                     'payment_status':'paid', 'currency':'KRW', 'amount_krw':123000,
                     'paid_on':'2026-05-01', 'card_last4':'1234'}
+                authority = patch.object(CardFlow, 'trip_valid', autospec=True,
+                                         side_effect=lambda instance, identity: identity == trip)
+                authority.start()
+                self.addCleanup(authority.stop)
+                payment_source = patch.object(ota_payments, 'build_ota_payment_events', return_value=[payment_event])
+                payment_source.start()
+                self.addCleanup(payment_source.stop)
                 with patch.object(flow, 'trip_valid', side_effect=lambda identity: identity == trip):
                     with patch.object(ota_payments, 'build_ota_payment_events', return_value=[payment_event]):
                         flow.classify(batch)
@@ -699,6 +709,9 @@ class CardFlowBrowserTests(unittest.TestCase):
                     for width, height in ((390,844), (1440,900)):
                         page.set_viewport_size({'width':width, 'height':height})
                         page.goto(f'http://127.0.0.1:{server.server_address[1]}/import?batch={batch}#preview')
+                        state = page.request.get(f'http://127.0.0.1:{server.server_address[1]}/api/imports/{batch}').json()
+                        self.assertEqual(state['preview']['rows'][0].get('booking_ref'), '1111111111111111', state['preview']['rows'][0])
+                        page.locator('[data-review-state="all"]').click()
                         page.locator('#preview').get_by_text('OTA 예약 근거', exact=False).wait_for()
                         text = page.locator('#preview').inner_text()
                         self.assertIn('1111111111111111', text)
@@ -1092,26 +1105,33 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.locator('#expense-tab-upload').click()
                     page.locator('#file').set_input_files({'name':'synthetic.csv','mimeType':'text/csv','buffer':CARD})
                     page.get_by_role('button',name='카드 사용내역 업로드하고 분류').click()
-                    page.get_by_role('heading',name='합성상점').wait_for()
+                    page.locator('#upload-results a').first.wait_for()
+                    page.locator('[data-review-state="all"]').click()
+                    page.locator('#preview [data-edit]').first.click()
+                    page.locator('#questions form[data-index]').first.wait_for()
+                    self.assertIn('합성상점', page.locator('#questions').inner_text())
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
                     page.locator('select[name=display_tab_id]').select_option(trip)
                     page.locator('input[name=item]').fill('소모품')
                     page.locator('textarea[name=note]').fill('사무실 소모품입니다')
                     page.locator('input[name=reuse_rule]').check()
-                    page.get_by_role('button',name='저장하고 자동 반영').click()
-                    page.get_by_text('거래 분류를 저장하고 반영했습니다.',exact=False).wait_for()
+                    with page.expect_response('**/decision') as decision:
+                        page.get_by_role('button',name='저장하고 자동 반영').click()
+                    self.assertEqual(decision.value.status, 200)
+                    self.assertEqual(decision.value.json()['ledger_recording']['status'], 'recorded')
+                    page.locator('#status').get_by_text('저장했습니다.',exact=True).wait_for()
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
                     screenshot=Path(directory)/'card-flow-mobile.png'
                     page.screenshot(path=str(screenshot),full_page=True)
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0],1)
-                    self.assertEqual(len(server.card_store.list_tab_rows(None)),1)
+                    self.assertEqual(len(server.card_store.list_tab_rows(trip)),1)
                     page.locator('#expense-tab-rules').click()
                     page.locator('#ruleform input[name=merchant]').fill('합성상점')
                     page.locator('#ruleform input[name=rule_item]').fill('사무용품')
                     page.get_by_role('button',name='규칙 저장하고 다시 분류').click()
                     page.get_by_text('규칙은 저장되고 분류도 다시 계산됐습니다.',exact=False).wait_for()
-                    self.assertEqual(server.card_store.list_tab_rows(None)[0]['item'],'소모품')
+                    self.assertEqual(server.card_store.list_tab_rows(trip)[0]['item'],'소모품')
                     page.locator('#expense-tab-upload').click()
                     page.get_by_role('button',name='카드 사용내역 업로드하고 분류').click()
                     page.locator('#upload-results').get_by_text('synthetic.csv ·',exact=False).wait_for()

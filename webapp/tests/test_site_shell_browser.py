@@ -122,7 +122,7 @@ class SiteShellBrowserTests(LinkBrowserFixture):
         for path in ('/', '/board', '/import', '/cards', '/receipts', '/reserve-links', '/trips', '/access/admin'):
             with self.subTest(path=path):
                 response = page.goto(base + path)
-                self.assertEqual(response.status, 200)
+                self.assertEqual(response.status, 200, f"{path} returned HTTP {response.status}")
                 self.assertEqual(page.locator('#nav').count(), 1)
                 links = page.locator('#nav a[href]').evaluate_all('(items)=>items.map(a=>a.getAttribute("href"))')
                 if menu is None:

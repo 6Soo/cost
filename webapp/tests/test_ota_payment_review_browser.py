@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from datetime import datetime, timezone, timedelta
 from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -105,23 +106,66 @@ def _mock_queue_routes(page, snapshot):
     page.route("**/api/imports/ota", handle)
 
 
-def _expand_queue_details(page):
+def _expand_queue_details(page, *, load_cards=True):
     """Legacy assertions exercise the old card renderer after explicitly opening each row."""
     rows = page.locator("[data-queue-detail]")
     rows.first.wait_for(timeout=40000)
     for index in range(rows.count()):
         row = rows.nth(index)
-        row.locator(":scope > summary").click()
+        if row.get_attribute("open") is None:
+            row.locator(":scope > summary").click()
         button = row.locator("[data-load-detail]")
-        button.first.wait_for()
+        button.first.wait_for(state="visible")
         if button.count():
-            button.click()
-            row.locator(".ota-event").wait_for()
+            event = row.locator(".ota-event")
+            detail_body = row.locator("[data-detail-body]")
+            for attempt in range(20):
+                if row.get_attribute("open") is None:
+                    row.locator(":scope > summary").click()
+                button.first.wait_for(state="visible")
+                button.click()
+                try:
+                    event.wait_for(timeout=1000)
+                    break
+                except Exception as error:
+                    message = detail_body.inner_text()
+                    if message and "자료 갱신을 기다리고 있습니다." not in message:
+                        raise AssertionError(
+                            f"OTA detail failed for {row.get_attribute('data-event-id')}: {message}"
+                        ) from error
+                    if attempt == 19:
+                        raise AssertionError(
+                            f"OTA detail did not become available for "
+                            f"{row.get_attribute('data-event-id')}; "
+                            f"status={page.locator('#ota-status').inner_text()}"
+                        ) from error
+                    button_handle = button.element_handle()
+                    page.wait_for_function(
+                        "button => button.isConnected && !button.disabled",
+                        arg=button_handle, timeout=3000)
             row.locator(".ota-event .ota-more > summary").click()
             card_toggle = row.locator(".ota-event h4[role=button]")
-            if card_toggle.count():
-                card_toggle.click()
-                row.locator(".ota-event .ota-cards[data-cards-loaded='true']").wait_for(state="attached")
+            if load_cards and card_toggle.count():
+                cards_container = row.locator(".ota-event .ota-cards")
+                loaded_cards = row.locator(".ota-event .ota-cards[data-cards-loaded='true']")
+                for attempt in range(20):
+                    if row.get_attribute("open") is None:
+                        row.locator(":scope > summary").click()
+                    card_toggle.wait_for(state="visible")
+                    card_toggle.click()
+                    try:
+                        loaded_cards.wait_for(state="attached", timeout=1000)
+                        break
+                    except Exception as error:
+                        hint = cards_container.inner_text()
+                        if "예약 근거 갱신 중입니다." not in hint or attempt == 19:
+                            event = row.locator(".ota-event").first
+                            raise AssertionError(
+                                f"card candidates did not load for "
+                                f"{event.get_attribute('data-event')}: {hint}; "
+                                f"status={page.locator('#ota-status').inner_text()}"
+                            ) from error
+                        page.wait_for_timeout(1000)
 
 
 class QueueFakeBackend(FakeBackend):
@@ -217,6 +261,54 @@ class QueueFakeBackend(FakeBackend):
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_cancelled_detail_request_leaves_connected_button_retryable(self):
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id": "synthetic-cancelled-detail", "provider": "Synthetic OTA",
+                        "booking_ref": "SYNTHETIC-CANCELLED-BOOKING", "event_type": "charge",
+                        "paid_on": "2026-10-01", "amount": 12000, "amount_krw": 12000,
+                        "status": "HOLD_DATE_UNKNOWN", "reason": "payment_date_not_in_source"}],
+            "cards_by_event": {"synthetic-cancelled-detail": []}, "proposals": []}, include_cards=True)
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                _mock_queue_routes(page, snapshot)
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                page.evaluate("""() => {
+                    const nativeFetch = window.fetch.bind(window);
+                    window.fetch = (input, options = {}) => {
+                      if (String(input).includes('/api/imports/ota/events/')) {
+                        window.__heldOtaDetail = true;
+                        return new Promise((resolve, reject) => {
+                          options.signal.addEventListener('abort', () => {
+                            window.__otaDetailAbortObserved = true;
+                            reject(new DOMException('Request aborted for test', 'AbortError'));
+                          }, { once: true });
+                        });
+                      }
+                      return nativeFetch(input, options);
+                    };
+                }""")
+                page.locator("#ota-review > summary").click()
+                row = page.locator("[data-queue-detail]").first
+                row.locator(":scope > summary").click()
+                button = row.locator("[data-load-detail]")
+                button.wait_for()
+                button.click()
+                page.wait_for_function("window.__heldOtaDetail === true")
+                page.evaluate("""() => {
+                    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+                    document.dispatchEvent(new Event('visibilitychange'));
+                }""")
+                page.wait_for_function("window.__otaDetailAbortObserved === true")
+                page.wait_for_timeout(0)
+                self.assertTrue(button.evaluate("element => element.isConnected"))
+                self.assertFalse(button.is_disabled(), "cancelled detail requests must leave the button retryable")
+            finally:
+                browser.close()
+
     def test_event_diagnostics_load_only_when_opened(self):
         snapshot = ota_payment_review.public_snapshot({
             "events": [{"ota_event_id":"synthetic-diagnostic-event", "provider":"Synthetic OTA",
@@ -631,7 +723,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
     def test_real_core_adapter_store_and_board_readonly_through_confirm_once_and_approve(self):
         from app import ota_review
 
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory, ExitStack() as cleanup:
             root = Path(directory)
             mail_dir = root / "synthetic-mail"
             mail_dir.mkdir()
@@ -661,6 +753,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
 
             board_path = root / "board.sqlite"
             board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            cleanup.callback(board_conn.close)
             board_conn.row_factory = sqlite3.Row
             from app.db import Store
             Store(board_conn)
@@ -819,10 +912,17 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         (mail_dir / "gmail-synthetic.json").unlink()
                         page.reload()
                         page.locator("#ota-review > summary").click()
-                        _expand_queue_details(page)
+                        _expand_queue_details(page, load_cards=False)
+                        rows = page.locator("[data-queue-detail]")
+                        self.assertEqual(rows.count(), 2)
+                        for index in range(rows.count()):
+                            self.assertIn("근거 사라짐", rows.nth(index).inner_text())
                         page.get_by_text("원본 근거: 근거 사라짐", exact=True).first.wait_for(timeout=40000)
-                        self.assertEqual(page.locator(".ota-event").count(), 2)
-                        self.assertEqual(page.locator(".ota-card-row input[type=radio]:disabled").count(), 8)
+                        events = page.locator(".ota-event")
+                        for index in range(events.count()):
+                            event = events.nth(index)
+                            self.assertEqual(event.get_attribute("data-evidence-missing"), "true")
+                            self.assertEqual(event.locator('input[type="radio"]:not(:disabled)').count(), 0)
                         self.assertEqual(hashlib.sha256(review_path.read_bytes()).hexdigest(), review_digest)
                         browser.close()
                 finally:
