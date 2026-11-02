@@ -8,9 +8,10 @@ Verifies:
 """
 
 from pathlib import Path
+import json
 from unittest.mock import patch
 
-from webapp import site_assets, site_shell, site_theme
+from webapp import site_assets, site_shell, site_theme, ui_icons
 
 
 def test_site_assets_module_owns_static_files():
@@ -23,7 +24,8 @@ def test_site_assets_module_owns_static_files():
     assert (js_dir / "site_theme.js").is_file()
 
     assert site_assets.SHELL_STYLE == (css_dir / "site_shell.css").read_text(encoding="utf-8")
-    assert site_assets.SHELL_SCRIPT == (js_dir / "site_shell.js").read_text(encoding="utf-8")
+    assert site_assets.SHELL_SCRIPT == (js_dir / "site_shell.js").read_text(encoding="utf-8").replace(
+        '__ACTION_ICONS__', json.dumps(ui_icons.ICONS, ensure_ascii=True))
     assert site_assets.THEME_STYLE == (css_dir / "site_theme.css").read_text(encoding="utf-8")
     assert site_assets.THEME_BOOTSTRAP == (js_dir / "site_theme.js").read_text(encoding="utf-8")
 

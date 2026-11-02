@@ -5,6 +5,9 @@ ensuring zero extra disk I/O on per-request rendering.
 """
 
 from pathlib import Path
+import json
+
+from . import ui_icons
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 CSS_DIR = STATIC_DIR / "css"
@@ -16,6 +19,7 @@ _THEME_CSS_PATH = CSS_DIR / "site_theme.css"
 _THEME_JS_PATH = JS_DIR / "site_theme.js"
 
 SHELL_STYLE = _SHELL_CSS_PATH.read_text(encoding="utf-8")
-SHELL_SCRIPT = _SHELL_JS_PATH.read_text(encoding="utf-8")
+SHELL_SCRIPT = _SHELL_JS_PATH.read_text(encoding="utf-8").replace(
+    '__ACTION_ICONS__', json.dumps(ui_icons.ICONS, ensure_ascii=True))
 THEME_STYLE = _THEME_CSS_PATH.read_text(encoding="utf-8")
 THEME_BOOTSTRAP = _THEME_JS_PATH.read_text(encoding="utf-8")
