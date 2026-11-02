@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from webapp import google_ledger_page as page
@@ -48,22 +50,28 @@ def test_auto_apply_is_idempotent_and_failed_replace_preserves_settings(tmp_path
     assert page.load_mapping(path) == {'1005_Synthetic': 'a'}
 
 
-def test_auto_route_requires_csrf_and_returns_saved_count(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from urllib.parse import urlparse
-    from webapp import ledger_board
-    from webapp.tests.test_google_ledger_page import FakeHandler
-    path = tmp_path / 'snapshot.json'
-    monkeypatch.setenv('WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', str(path))
-    monkeypatch.setenv('WEBLEDGER_GOOGLE_LEDGER_ROWS', str(tmp_path / 'rows.json'))
-    monkeypatch.setattr(page.google_authority, 'load_consistent', lambda *a: (snapshot('1005_Synthetic'), {}))
-    monkeypatch.setattr(ledger_board, '_active_store', lambda: SimpleNamespace(list_trips=lambda **kw: [trip()]))
-    handler = FakeHandler()
-    page.dispatch(handler, urlparse('/api/google-ledger/auto-mapping'), is_owner=True, csrf='token', raw=b'{}')
-    assert handler.sent[0][1] == 403
-    handler = FakeHandler('token')
-    page.dispatch(handler, urlparse('/api/google-ledger/auto-mapping'), is_owner=True, csrf='token', raw=b'{}')
-    assert handler.sent[0] == ('json', 200, {'code': 'OK', 'linked': 1})
+def test_current_sync_api_is_owner_only_and_requires_csrf():
+    from unittest.mock import patch
+    from webapp.tests.test_google_viewer_http import GoogleViewerHttpTests, OWNER, VIEWER
+
+    app = GoogleViewerHttpTests()
+    app.setUp()
+    try:
+        with patch('webapp.google_ledger_actions._state', {'status': 'idle'}):
+            # The real board handler rejects the owner POST before starting a
+            # refresh when the CSRF header is missing. Viewer reads and writes
+            # remain owner-only; the status GET itself is read-only.
+            status, body = app.call('/api/google-ledger/sync', OWNER, 'POST', {})
+            assert status == 403 and json.loads(body)['code'] == 'CSRF_REQUIRED'
+            status, body = app.call('/api/google-ledger/sync', VIEWER)
+            assert status == 403 and json.loads(body)['code'] == 'OWNER_ONLY'
+            status, body = app.call('/api/google-ledger/sync', VIEWER, 'POST', {})
+            assert status == 403 and json.loads(body)['code'] == 'ACTION_FORBIDDEN'
+            status, body = app.call('/api/google-ledger/sync', OWNER)
+            assert status == 200 and json.loads(body) == {'status': 'idle'}
+        assert not app.snapshot.with_name('sync-state.json').exists()
+    finally:
+        app.tearDown()
 
 
 def test_import_creates_trips_from_the_sheet_top_and_leaves_an_end_empty_only_when_no_next_trip_exists(tmp_path):
