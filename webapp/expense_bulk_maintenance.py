@@ -170,7 +170,7 @@ def _requires_snapshot_refresh(board):
         return False
     with board._lock:
         merchants = board.conn.execute(
-            "SELECT DISTINCT t.merchant" + card_flow._cleanup_card_where()).fetchall()
+            "SELECT DISTINCT t.merchant" + card_flow._cleanup_card_where(board)).fetchall()
     return any(card_flow._is_ota_row({"merchant": merchant}) for (merchant,) in merchants)
 
 

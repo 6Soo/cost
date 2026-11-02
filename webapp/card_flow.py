@@ -2105,7 +2105,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
                 cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
-                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
+                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 자료 관리</summary>", 1)
                 body = body.replace('</main>', '</details></main>', 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
@@ -2328,7 +2328,9 @@ CARD_REASON = {'booking_evidence_needed': '예약 상품과 이용일을 연결�
 _CLEANUP_PAGE_SIZE = 20
 
 
-def _cleanup_card_where():
+def _cleanup_card_where(board):
+    from .card_cleanup_queries import completed_assignment_sql
+    completed = completed_assignment_sql(board)
     return (
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
         " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
@@ -2337,7 +2339,7 @@ def _cleanup_card_where():
         " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " AND (COALESCE(t.classification_basis,'') LIKE '%complete-card-inference-v1%'"
-        " OR t.classification_source='refund_original'))"
+        " OR t.classification_source='refund_original' OR " + completed + "))"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
@@ -2354,14 +2356,14 @@ def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0, reason='al
         "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
         " t.amount_krw, t.item, t.classification_source, t.display_tab_id, t.revision,"
         " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id),"
-        " t.conflict_reason, t.parse_error" + _cleanup_card_where() +
+        " t.conflict_reason, t.parse_error" + _cleanup_card_where(board) +
         card_cleanup_queries.card_reason_filter(reason) +
         " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?",
         card_cleanup_queries.card_reason_params(reason) + (limit, offset)).fetchall()
 
 
 def _cleanup_card_count(board):
-    return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
+    return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where(board)).fetchone()[0]
 
 
 def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
@@ -2381,7 +2383,7 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
     # 전체 정리 잠금 안에서 처음 해석하면 최신 연결의 유효 시간이 지나고,
     # 워커는 같은 잠금을 기다려 그 연결을 분류에 전달하지 못한다.
     with board._lock:
-        merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where()).fetchall()
+        merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where(board)).fetchall()
     if not _preview and any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
         try:
             # Use the same central snapshot/freshness contract as card review.
@@ -2408,9 +2410,9 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
                 raise PreviewError('PREVIEW_STALE',
                                    '미리보기 뒤 자료가 바뀌었습니다. 다시 미리보기를 실행해 주세요.')
         batches = [row[0] for row in board.conn.execute(
-            "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
+            "SELECT DISTINCT r.batch_id" + _cleanup_card_where(board))]
         rows = board.conn.execute(
-            "SELECT t.transaction_id, MIN(r.batch_id), t.merchant" + _cleanup_card_where() +
+            "SELECT t.transaction_id, MIN(r.batch_id), t.merchant" + _cleanup_card_where(board) +
             " AND NOT " + decided_sql('t') +
             " AND t.transaction_direction='purchase'"
             " AND t.amount_krw>0"
@@ -2521,7 +2523,7 @@ def _cleanup_card_breakdown(board):
     categories = card_reason_sql()
     rows = board.conn.execute(
         "SELECT status, COUNT(*) FROM (SELECT DISTINCT t.transaction_id, " + categories +
-        " AS status" + _cleanup_card_where() + ") GROUP BY status"
+        " AS status" + _cleanup_card_where(board) + ") GROUP BY status"
     ).fetchall()
     return dict(rows)
 
@@ -3209,7 +3211,7 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 #newupload #upload{min-height:44px}#newupload section{display:grid;gap:12px}.upload-lede{margin:0;max-width:68ch}.upload-drop{display:grid;gap:4px;min-height:112px;padding:18px;border:2px dashed var(--shell-line);border-radius:10px;background:var(--shell-bg);cursor:pointer;transition:border-color .16s ease,background-color .16s ease}.upload-drop:hover,.upload-drop:focus-visible,.upload-drop.is-dragover{border-color:var(--shell-accent);background:var(--shell-selected);outline:none}.upload-drop strong{color:var(--shell-accent);font-size:15px}.upload-drop small{color:var(--shell-muted)}.upload-drop.is-dragover strong{text-decoration:underline}.upload-file-list{display:grid;gap:2px;margin:0;padding-left:18px;color:var(--shell-ink);font-size:13px}.upload-file-list li{overflow-wrap:anywhere}.upload-file-count{font-weight:700}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #file.sr-only{width:1px;height:1px;min-height:0;min-width:0}.upload-failure-pages{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 0}.upload-system-error{border:2px solid var(--shell-warn)}.upload-failure-pages button{min-width:80px;min-height:44px}.upload-failure-pages button:disabled{cursor:not-allowed}
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
-</style><body><main><h1>지출 정리</h1><p class="small"><a href="/import?scope=all">전체 카드 거래 검색</a></p><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
+</style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
 <details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일은 하나씩 안전하게 처리하고, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">선택한 파일은 순서대로 업로드하고 각 파일의 분류 결과를 저장합니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>

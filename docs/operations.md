@@ -1,3 +1,20 @@
+## 2026-11-02 분류 완료 거래의 반복 검토 요구 수정 완료
+
+- COMPLETE — 사용자 첨부 GAMSGO 반복 검토 원인 수정. 구버전 `complete-card-inference-v1` 문구만 완료로 인정하던 지출 정리 SQL에 현재 여행 권한으로 검증한 저장 분류 완료 조건을 추가했다. 낮은 신뢰도/분류 출처와 무관하게 여행·항목이 완료되면 목록·필터·건수에서 재확인을 요구하지 않는다. 내부 장부 미기록은 분류 미완료로 간주하지 않는다. 원본 오류·보류·환불 후보·원결제 미연결은 보존한다. 권한이 상실된 여행은 다시 표시한다.
+- PR #489·#491 정상 main 병합. 최종 구현·고정 운영 `859c3af426451ef2284bf436dcce9c3ccf9fe74b`, 병합 `b504526d`, 이전 검증 `b7c60927dddf110fe616699a07cf65ea5e8cdcea`. 검토 중 섞인 독립 제목 두 줄은 후속에서 기존 main 문구로 복구했고 workspace의 다른 작성자 변경은 보존했다. 과거 기기록 여행 전체를 매번 검증하지 않도록 미기록 후보만 검증한다.
+- 검증: 최종 후보 지출 목록/필터/분류 완료·원본/수동보류·환불/원자 기록/유지보수 77 passed. 별도 소스 문구 계약 1 failed는 기준 main에서 동일 재현; 통과에 포함하지 않는다. 운영 DB 읽기 전용 대조 쓰기0. 전체 회귀·실기기는 국소 읽기 판정 변경으로 미실행이다.
+- 실제 ego-browser 인증 GET 수락: 처리필요 2→1·분류배정0·결제환불1, GAMSGO 제외·원결제 미연결 아고다 취소 보존. 해당 취소의 동일 카드 원결제는 현재 수집 자료에서 찾지 못했으며 원결제 원본/참조가 필요하다. 가맹점명·소액만으로 링크나 환급 완료를 만들지 않았다. TaskSpace7 정상 종료.
+- 배포 1,255 blobs 불일치0·검사 후보와 동일·task/process 고정SHA·단일loopback8751·health/ready200·보호API401/403·금융보호13표 내용/스키마 불변 PASS. 코드 전용이므로 이전 검증 릴리스/task 복구점 보존, 새 전체DB백업·복원은 반복하지 않았다. 금융/분류/여행/장부/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/cleanup-root-20261102/`의 verified-final.xml·baseline-protection.xml·actual-readonly.json·browser-final.json·review/release-audit/deploy-evidence·protection-before/after. 요청된 코드 수정/배포 미결0·다음 기능 명령 없음. 아고다 미연결은 원결제 자료 의존이며 자동 연결/완료 처리하지 않는다. 문서 후속으로 재배포하지 않는다.
+
+## 2026-11-02 국내여행 보험 대상 아님 UI 완료
+
+- COMPLETE — 사용자 “국내여행은 보험을 가입하지 않기 때문에 보험명단이 없다” 및 제안 실행 승인. 기존 `trip_region()`의 destination 정확 일치 판별에서 KR인 실제 여행만 국내여행 배지·중립적인 “국내여행 · 보험 가입 대상 아님” 안내를 표시한다. 보험 명단 열/대조 패널/후보 비교를 숨기고 lazy 대조 요청을 생략한다. 해외·지역 미상은 기존 UI 유지, 지역명 목록 확대·여행/참가자/수동 연결 변경 없음.
+- [PR #488](https://github.com/6Soo/cost/pull/488), 구현 `d6a4cfaeb7dc4eefcaaac991f8d55c0e5eb25a95`, 운영 `b7c60927dddf110fe616699a07cf65ea5e8cdcea`, 이전 검증 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad`. 관련 묶음93 passed/기존 코드 문자열 검사1 failed/2 deselected, 해당 검사를 실제 HTML 헤더 검사로 변경 후 개별1 passed. 신규 국내/해외/미상·삭제/중복 여행·소유자/열람 권한·조회 생략·수입/원본 불변 포함. 전체 회귀·실기기는 국소 표시 변경으로 미실행.
+- ego-browser 합성3분류×320/390/1440px9건 PASS. 인증 운영 통영·야마가타 각각390/1440px4건 PASS: 통영은 배지/안내·보험 열/패널/후보 없음·자동 보험 요청0, 야마가타는 기존 보험 열/패널/후보 유지·자동 보험 요청1. 수입 표와 합계 유지·문서 가로 넘침0 확인. 합성 모바일 스크린샷의 배치도 확인했으며 운영 모바일 캡처에는 기존 탐색 서랍이 열려 있었으므로 전체 화면의 가림 없음까지 통과로 주장하지 않는다. 브라우저 작업 공간은 정상 종료.
+- 배포1,254 blobs 불일치0·검사본/병합본 동일 tree·task/process 고정 SHA·단일loopback8751·health/ready200·보호API401/403·새 영향패널 비로그인401·금융보호13표 내용/스키마 불변 PASS. 기존 SourceRefresh 상태·전체 task 인수 보존. 코드 전용으로 기존 검증 릴리스·task XML 복구 수단을 보존하고 별도 전체DB백업/복원은 반복하지 않았다. 금융/분류/여행/참가자/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/domestic-insurance-20261102/`의 targeted.xml·updated-contract.xml·browser-synthetic.json·review.json·release-audit.json·deploy-evidence.json·live-final.json·checkpoint.json. 공유 작업 트리의 기존 소스 변경을 보존하고 격리 archive 후보/독립 index로 커밋했다. 미결/차단0·다음 기능 명령 없음. 문서 후속 재배포/재시작 없음.
+
 ## 2026-11-02 PR458 후속 리팩토링·기존20실패 정비 배포
 
 - [PR483](https://github.com/6Soo/cost/pull/483)·[PR486](https://github.com/6Soo/cost/pull/486) 정상 병합, 검사 `d750ee7e`와 동일 트리의 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad` 고정 배포. 이전 검증 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`. 1,252 Git blobs 불일치0·task/process SHA·단일127.0.0.1:8751·health/ready200·OTA/카드/board401·Google action403·보호13표 내용/스키마 불변 PASS. 기존 task 인수/ParticipantSyncConfig·SourceRefresh 상태를 보존했다.
