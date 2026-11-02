@@ -125,15 +125,16 @@ def infer_item(row):
     return '기타경비', '업종·용도 단서 부족 · 업무 카드 지출 기본 분류'
 
 
-def infer_trip(row, trips, *, nets=None, reconsider=False):
+def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
     """Pick the best real trip, resolving weak ties deterministically and explaining them."""
-    valid = canonical_trip_periods(trips)
+    # Reuse only this plan's validation; independent calls revalidate authority.
+    valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     for key in ('trip_id', 'display_tab_id'):
         if row.get(key) in valid and not reconsider:
             return row[key], '기존 실제 여행 유지'
     candidates_trips = regional_trips(row, valid.values(), booking_agnostic=True)
     valid = {trip['trip_id']: trip for trip in candidates_trips}
-    candidates = card_trip_candidates(row, candidates_trips, nets=nets)
+    candidates = card_trip_candidates(row, candidates_trips, nets=nets, _canonical=valid)
     if candidates:
         candidates.sort(key=lambda c: (-c['score'], valid[c['trip_id']]['starts_on'], c['trip_id']))
         top = candidates[0]
@@ -146,7 +147,7 @@ def infer_trip(row, trips, *, nets=None, reconsider=False):
     return '', '등록된 유효 여행 없음'
 
 
-def _card3820_owner_policy(row, trips):
+def _card3820_owner_policy(row, trips, *, _canonical=None):
     """Apply the explicit 3820 policy before generic completion inference.
 
     This mirrors the primary card-classification path: the Singapore exception
@@ -171,7 +172,7 @@ def _card3820_owner_policy(row, trips):
     except (TypeError, ValueError):
         return None
 
-    valid = canonical_trip_periods(trips)
+    valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     singapore = [trip for trip in valid.values()
                  if trip.get('destination') == '싱가포르'
                  and trip.get('starts_on') and trip.get('ends_on')
@@ -191,7 +192,8 @@ def _card3820_owner_policy(row, trips):
             regional_trips(row, valid.values()), occurred.isoformat())
         if not candidates:
             return None
-        target, basis = infer_trip(row, candidates, reconsider=True)
+        target, basis = infer_trip(row, candidates, reconsider=True,
+                                   _canonical={t['trip_id']: t for t in candidates})
         return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
                     display_tab_id=target, trip_id=target, source='inference',
                     basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
@@ -231,6 +233,146 @@ def _context(conn, selected=None):
     return rows, decisions, holds, excluded, overrides, ledger, boards
 
 
+def _protected_row(row, tid, holds, excluded):
+    return (tid in holds or tid in excluded
+            or any(row[k] for k in ('parse_error', 'duplicate_of', 'conflict_reason')))
+
+
+def _refund_original_is_complete(row, tid, links, reconsider):
+    if (row['classification_state'] != 'classified'
+            or row.get('classification_source') != 'refund_original'):
+        return False
+    verified = links.get(tid) or {}
+    return (not reconsider or verified.get('inferred')
+            or verified.get('status') not in ('full', 'partial'))
+
+
+def _has_history(row, tid, decisions, overrides):
+    return (tid in decisions or row['decided_at'] is not None
+            or row['classification_source'] in ('user_decision', 'user_exception', 'owner_booking')
+            or 'card-' + tid in overrides)
+
+
+def _restore_historical_row(row, chosen, tid, valid, nets, decisions, ledger, boards):
+    """Preserve historical item choices while repairing a missing destination."""
+    if not chosen['item']:
+        chosen['raw_row'] = json.loads(row['raw_row_json'] or '{}')
+        chosen['item'], _ = infer_item(chosen)
+    chosen['classification_state'] = 'classified'
+    empty_trip = (not row['trip_id'] and row['display_tab_id'] in (None, '', 'unclassified'))
+    if not empty_trip or chosen['item'] == '분기 기타비용':
+        return chosen
+    recorded = ledger.get(tid) or {}
+    board = boards.get('card-' + tid)
+    candidates = [board[0] if board else '', decisions.get(tid),
+                  recorded.get('trip_id'), recorded.get('display_tab_id')]
+    target = next((value for value in candidates if value in valid or value == 'refunds'), '')
+    if target:
+        chosen.update(display_tab_id=target, trip_id='' if target == 'refunds' else target,
+                      classification_basis='TRIP_ASSIGNMENT_RESTORED · 기존 항목 보존 · 기존 장부/분류 이력의 배정 복원')
+    else:
+        target, basis = infer_trip(chosen, list(valid.values()), nets=nets, _canonical=valid)
+        if target:
+            chosen.update(display_tab_id=target, trip_id=target,
+                          classification_basis=f'AUTO_TRIP_INFERRED · 낮음 · 기존 항목 보존 · {basis} · {POLICY}')
+    if target and row['classification_source'] not in ('user_decision', 'user_exception', 'owner_booking'):
+        chosen['classification_source'] = 'inference'
+    return chosen
+
+
+def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, ledger, boards,
+                      reconsider, evidence):
+    """Infer one row without historical decisions; return it or ``None`` when unchanged."""
+    recorded = ledger.get(tid) or {}
+    board = boards.get('card-' + tid)
+    if board and not chosen['item']:
+        chosen['item'] = json.loads(board[1]).get('item') or ''
+    if recorded.get('item'):
+        chosen['item'] = recorded['item']
+    recorded_tab = recorded.get('trip_id') or recorded.get('display_tab_id')
+    existing_tab = next((value for value in (board[0] if board else '', recorded_tab)
+                         if value in valid or value == 'refunds'), '')
+    if existing_tab and not (chosen['trip_id'] in valid or chosen['display_tab_id'] in valid):
+        chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab,
+                      display_tab_id=existing_tab)
+    fact = evidence.get(tid) if reconsider else None
+    valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
+                      and fact.get('trip_id') in valid
+                      and row['transaction_direction'] == 'purchase')
+    airfare_ota = bool(re.search(r'gotogate|고투게이트', str(row.get('merchant') or ''), re.I))
+    residual_with_fact = (valid_fact and row['classification_source'] == 'owner_card_residual')
+    if (residual_with_fact or (airfare_ota and row['classification_source'] == 'owner_card_residual')) and not existing_tab:
+        verified_item = fact.get('item') if valid_fact else None
+        chosen.update(item=verified_item or infer_item(dict(chosen, item=''))[0], description='')
+    if (not valid_fact and not airfare_ota and not existing_tab
+            and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase'):
+        owner_policy = _card3820_owner_policy(chosen, trips, _canonical=valid)
+        if owner_policy is None:
+            return None, True
+        chosen.update({key: owner_policy[key] for key in FIELDS if key in owner_policy})
+        chosen.update(classification_state='classified', classification_source=owner_policy['source'],
+                      classification_basis=owner_policy['basis'])
+        return chosen, False
+
+    link = links.get(tid)
+    original = resolved.get((link or {}).get('original_id'))
+    if link and not link.get('inferred') and original and original.get('item'):
+        chosen.update(item=original['item'], trip_id=original.get('trip_id') or '',
+                      display_tab_id=original.get('display_tab_id') or '')
+        item_basis = '검증된 원결제 항목·여행 상속'
+    else:
+        chosen['raw_row'] = json.loads(row['raw_row_json'] or '{}')
+        chosen['item'], item_basis = infer_item(chosen)
+        if reconsider:
+            specific, _ = infer_item(dict(chosen, item=''))
+            if chosen['item'] in ('기타경비', '현지경비', '여행경비'):
+                chosen['item'] = specific
+            item_basis = '기존 항목·카드 업종·서비스 용도 재대조'
+    if (valid_fact and chosen.get('display_tab_id') != 'refunds'
+            and chosen['item'] != '분기 기타비용' and not existing_tab):
+        chosen.update(trip_id=fact['trip_id'], display_tab_id=fact['trip_id'])
+        if chosen['item'] in ('', '기타경비', '현지경비', '여행경비') and fact.get('item'):
+            chosen['item'] = fact['item']
+        item_basis += ' · 예약 이용기간 근거 우선: ' + fact['basis']
+    special = (chosen.get('display_tab_id') == 'refunds' or chosen['item'] == '분기 기타비용')
+    if special:
+        target, trip_basis = chosen.get('trip_id') or '', '환불/분기 비용 기존 배정 유지'
+    else:
+        rerank = (reconsider and not existing_tab and not valid_fact and not link
+                  and row['classification_source'] == 'inference'
+                  and '예약 이용기간' not in (row['classification_basis'] or ''))
+        target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets,
+                                      reconsider=rerank, _canonical=valid)
+        if target:
+            chosen.update(trip_id=target, display_tab_id=target)
+            if reconsider:
+                ranked = card_trip_candidates(chosen, list(valid.values()), nets=nets, _canonical=valid)
+                trip_basis = next((candidate['basis'] for candidate in ranked if candidate['trip_id'] == target),
+                                  '유효 여행 유지 · 이용일 단서 없음')
+        else:
+            chosen['display_tab_id'] = chosen.get('display_tab_id') or 'unclassified'
+    needs_completion = (reconsider or row['classification_state'] != 'classified' or not row['item']
+                        or (not special and valid and not (row['trip_id'] in valid or row['display_tab_id'] in valid))
+                        or (existing_tab and row['display_tab_id'] in (None, '', 'unclassified')
+                            and chosen['display_tab_id'] != row['display_tab_id']))
+    if not needs_completion:
+        return None, False
+    chosen.update(classification_state='classified', classification_source='inference',
+                  classification_basis=f'AUTO_INFERRED · 낮음 · {item_basis} · {trip_basis} · {POLICY}')
+    if reconsider:
+        unchanged = all(chosen.get(k) == row.get(k) for k in ('item', 'trip_id', 'display_tab_id'))
+        if unchanged and row['classification_source'] not in ('', 'inference'):
+            chosen['classification_source'] = row['classification_source']
+        chosen['classification_basis'] = 'CODE_REVIEW · ' + chosen['classification_basis']
+    if link and not link.get('inferred') and original and original.get('item'):
+        chosen.update(classification_source='refund_original',
+                      classification_basis=f"원거래 승인번호 {row['original_approval_number']}의 배정을 따름")
+    if not reconsider and row['classification_source'] in ('rule_conflict', 'inference_conflict',
+                                                            'travel_location_hold', 'booking_evidence_needed'):
+        chosen['classification_basis'] += ' · 이전 단서: ' + (row['classification_basis'] or '')[:600]
+    return chosen, False
+
+
 def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None):
     """Read only. Private targets remain in memory; callers publish aggregate summaries."""
     selected = None if transaction_ids is None else set(transaction_ids)
@@ -251,22 +393,15 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
         tid = row['transaction_id']
         if selected is not None and tid not in selected:
             continue
-        if tid in holds or tid in excluded or any(row[k] for k in ('parse_error','duplicate_of','conflict_reason')):
+        if _protected_row(row, tid, holds, excluded):
             protected += 1
             continue
         if row['classification_source'] == 'ai_inference':
             # P1 never silently overwrites a recorded P2 judgement. A new AI
             # review is explicit and version-bound in ai_classification.
             continue
-        # A refund row that already inherited its item from a verified
-        # original is complete even when its own trip display is blank. Do
-        # not re-run weak trip inference on the next preview.
-        if (row['classification_state'] == 'classified'
-                and row.get('classification_source') == 'refund_original'):
-            verified = links.get(tid) or {}
-            if (not reconsider or verified.get('inferred')
-                    or verified.get('status') not in ('full', 'partial')):
-                continue
+        if _refund_original_is_complete(row, tid, links, reconsider):
+            continue
         if (row.get('card_tail') == '3820'
                 and (row.get('decided_at') is not None
                      or row.get('classification_source') in ('user_decision', 'user_exception'))):
@@ -274,136 +409,20 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
             # decision, including a decision whose trip is blank.
             protected += 1
             continue
-        has_history = (tid in decisions or row['decided_at'] is not None
-                  or row['classification_source'] in ('user_decision','user_exception','owner_booking')
-                  or 'card-' + tid in overrides)
+        has_history = _has_history(row, tid, decisions, overrides)
         current = tuple(row[k] or '' for k in FIELDS)
         chosen = dict(row)
         if has_history:
-            # History protects the entered category and actual chosen trip.
-            # A blank/default trip is not evidence that the owner wanted no trip.
-            if not chosen['item']:
-                chosen['raw_row'] = json.loads(row['raw_row_json'] or '{}')
-                chosen['item'], _ = infer_item(chosen)
-            chosen['classification_state'] = 'classified'
-            empty_trip = (not row['trip_id'] and row['display_tab_id'] in (None,'','unclassified'))
-            if empty_trip and chosen['item'] != '분기 기타비용':
-                recorded = ledger.get(tid) or {}
-                board = boards.get('card-'+tid)
-                candidates = [board[0] if board else '', decisions.get(tid),
-                              recorded.get('trip_id'), recorded.get('display_tab_id')]
-                target = next((value for value in candidates if value in valid or value == 'refunds'), '')
-                if target:
-                    chosen.update(display_tab_id=target, trip_id='' if target == 'refunds' else target,
-                        classification_basis='TRIP_ASSIGNMENT_RESTORED · 기존 항목 보존 · 기존 장부/분류 이력의 배정 복원')
-                else:
-                    target, basis = infer_trip(chosen, list(valid.values()), nets=nets)
-                    if target:
-                        chosen.update(display_tab_id=target,trip_id=target,
-                            classification_basis=f'AUTO_TRIP_INFERRED · 낮음 · 기존 항목 보존 · {basis} · {POLICY}')
-                if target and row['classification_source'] not in ('user_decision','user_exception','owner_booking'):
-                    chosen['classification_source'] = 'inference'
+            chosen = _restore_historical_row(row, chosen, tid, valid, nets, decisions, ledger, boards)
         else:
-            recorded = ledger.get(tid) or {}
-            board = boards.get('card-'+tid)
-            if board and not chosen['item']:
-                chosen['item'] = json.loads(board[1]).get('item') or ''
-            if recorded.get('item'):
-                chosen['item'] = recorded['item']
-            recorded_tab = recorded.get('trip_id') or recorded.get('display_tab_id')
-            existing_tab = next((value for value in (board[0] if board else '', recorded_tab)
-                                 if value in valid or value == 'refunds'), '')
-            if existing_tab and not (chosen['trip_id'] in valid or chosen['display_tab_id'] in valid):
-                chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab, display_tab_id=existing_tab)
-            fact = evidence.get(tid) if reconsider else None
-            valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
-                              and fact.get('trip_id') in valid
-                              and row['transaction_direction'] == 'purchase')
-            airfare_ota = bool(re.search(r'gotogate|고투게이트', str(row.get('merchant') or ''), re.I))
-            residual_with_fact = (valid_fact and row['classification_source'] == 'owner_card_residual')
-            if (residual_with_fact or (airfare_ota and row['classification_source'] == 'owner_card_residual')) and not existing_tab:
-                # A later verified reservation/payment fact may supersede an
-                # earlier quarter residual. Do not let the residual's generic
-                # item make the trip assignment look like a competing decision.
-                verified_item = fact.get('item') if valid_fact else None
-                chosen.update(item=verified_item or infer_item(dict(chosen,item=''))[0], description='')
-            if not valid_fact and not airfare_ota and not existing_tab and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase':
-                owner_policy = _card3820_owner_policy(chosen, trips)
-                if owner_policy is None:
-                    # The explicit rule keeps unreadable dates and foreign
-                    # location holds out of generic completion inference.
-                    protected += 1
-                    continue
-                chosen.update({key: owner_policy[key] for key in FIELDS if key in owner_policy})
-                chosen['classification_state'] = 'classified'
-                chosen['classification_source'] = owner_policy['source']
-                chosen['classification_basis'] = owner_policy['basis']
-                values = tuple(chosen.get(k) or '' for k in FIELDS)
-                if values != current:
-                    targets.append({'id': tid, 'values': values, 'revision': row['revision'],
-                                    'has_prior_classification': has_history})
-                    resolved[tid] = chosen
+            chosen, protected_by_policy = _classify_new_row(
+                row, chosen, tid, valid, trips, nets, links, resolved, ledger, boards,
+                reconsider, evidence)
+            if protected_by_policy:
+                protected += 1
                 continue
-            link = links.get(tid)
-            original = resolved.get((link or {}).get('original_id'))
-            if link and not link.get('inferred') and original and original.get('item'):
-                chosen.update(item=original['item'], trip_id=original.get('trip_id') or '',
-                              display_tab_id=original.get('display_tab_id') or '')
-                item_basis = '검증된 원결제 항목·여행 상속'
-            else:
-                chosen['raw_row'] = json.loads(row['raw_row_json'] or '{}')
-                chosen['item'], item_basis = infer_item(chosen)
-                if reconsider:
-                    specific, _ = infer_item(dict(chosen, item=''))
-                    if chosen['item'] in ('기타경비', '현지경비', '여행경비'):
-                        chosen['item'] = specific
-                    item_basis = '기존 항목·카드 업종·서비스 용도 재대조'
-            if (fact and fact.get('source_hash') == row['source_hash']
-                    and fact.get('trip_id') in valid
-                    and chosen.get('display_tab_id') != 'refunds'
-                    and chosen['item'] != '분기 기타비용'
-                    and not existing_tab
-                    and row['transaction_direction'] == 'purchase'):
-                chosen.update(trip_id=fact['trip_id'], display_tab_id=fact['trip_id'])
-                if chosen['item'] in ('', '기타경비', '현지경비', '여행경비') and fact.get('item'):
-                    chosen['item'] = fact['item']
-                item_basis += ' · 예약 이용기간 근거 우선: ' + fact['basis']
-            special = (chosen.get('display_tab_id') == 'refunds' or chosen['item'] == '분기 기타비용')
-            if special:
-                target, trip_basis = chosen.get('trip_id') or '', '환불/분기 비용 기존 배정 유지'
-            else:
-                rerank = (reconsider and not existing_tab and not valid_fact and not link
-                          and row['classification_source'] == 'inference'
-                          and '예약 이용기간' not in (row['classification_basis'] or ''))
-                target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets, reconsider=rerank)
-                if target:
-                    chosen.update(trip_id=target, display_tab_id=target)
-                    if reconsider:
-                        ranked = card_trip_candidates(chosen, list(valid.values()), nets=nets)
-                        trip_basis = next((candidate['basis'] for candidate in ranked
-                                           if candidate['trip_id'] == target),
-                                          '유효 여행 유지 · 이용일 단서 없음')
-                else:
-                    chosen['display_tab_id'] = chosen.get('display_tab_id') or 'unclassified'
-            needs_completion = (reconsider or row['classification_state'] != 'classified' or not row['item']
-                                or (not special and valid
-                                    and not (row['trip_id'] in valid or row['display_tab_id'] in valid))
-                                or (existing_tab and row['display_tab_id'] in (None,'','unclassified')
-                                    and chosen['display_tab_id'] != row['display_tab_id']))
-            if not needs_completion:
+            if chosen is None:
                 continue
-            chosen.update(classification_state='classified', classification_source='inference',
-                          classification_basis=f'AUTO_INFERRED · 낮음 · {item_basis} · {trip_basis} · {POLICY}')
-            if reconsider:
-                unchanged = all(chosen.get(k) == row.get(k) for k in ('item', 'trip_id', 'display_tab_id'))
-                if unchanged and row['classification_source'] not in ('', 'inference'):
-                    chosen['classification_source'] = row['classification_source']
-                chosen['classification_basis'] = 'CODE_REVIEW · ' + chosen['classification_basis']
-            if link and not link.get('inferred') and original and original.get('item'):
-                chosen.update(classification_source='refund_original',
-                    classification_basis=f"원거래 승인번호 {row['original_approval_number']}의 배정을 따름")
-            if not reconsider and row['classification_source'] in ('rule_conflict','inference_conflict','travel_location_hold','booking_evidence_needed'):
-                chosen['classification_basis'] += ' · 이전 단서: ' + (row['classification_basis'] or '')[:600]
         values = tuple(chosen.get(k) or '' for k in FIELDS)
         if values != current:
             targets.append({'id': tid, 'values': values, 'revision': row['revision'], 'has_prior_classification': has_history})

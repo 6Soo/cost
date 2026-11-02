@@ -403,6 +403,9 @@ def _head_html(trip) -> str:
         title = board.esc(trip.get('display_title') or trip["display_key"])
         if trip.get('owner_id') == 'andre':
             title += ' · 김동언(안드레)'
+        from .trip_insurance_policy import is_domestic
+        if is_domestic(trip):
+            title += " <span class='trip-region-badge'>국내여행</span>"
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
@@ -1731,6 +1734,9 @@ def _participant_trip_panel(tab_id: str, controls: dict) -> str:
     """Owner-only projection. Viewer HTML never receives participant names."""
     if board.current_role() != "owner" or not _selected_trip(tab_id):
         return ""
+    from . import trip_insurance_policy
+    if trip_insurance_policy.domestic_trip(tab_id):
+        return trip_insurance_policy.notice()
     from . import participant_trip_panel
     return participant_trip_panel.shell(trip_id=tab_id)
 

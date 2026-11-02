@@ -75,7 +75,7 @@ def test_quarter_card_shows_assigned_destination_despite_trip_validity_flag():
     assert '2026년 3분기 기타비용' in html
     assert 'card-all-trip-name unassigned' not in html
     detail = card_detail_html(row)
-    assert '자동 분류 · 카드 잔여 비용 규칙' in detail
+    assert '<dt>분류 출처</dt><dd>자동</dd>' in detail
     assert 'owner_card_residual' not in detail
 
 

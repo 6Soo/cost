@@ -120,3 +120,19 @@ body.site-standalone{margin:0!important;padding:0!important}
 .trip-management-row[hidden]{display:none!important}
 .trip-management-row h3 a{color:var(--shell-accent,#1C7A52)}
 .export-selection-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+
+/* Shared action affordances; data links and table headings retain their layout. */
+.site-action{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;max-width:100%;padding:8px 12px;border:1px solid var(--shell-line-strong);border-radius:8px;font:inherit;line-height:1.4;text-decoration:none;vertical-align:middle;cursor:pointer;overflow-wrap:anywhere}
+a.site-action,summary.site-action{color:var(--shell-ink);background:var(--shell-paper);text-decoration:none}
+.site-action-icon::before{content:"";display:block;width:16px;height:16px;flex:0 0 16px;background:currentColor;mask:var(--action-icon) center/contain no-repeat;-webkit-mask:var(--action-icon) center/contain no-repeat;pointer-events:none}
+.site-action>.ic{flex-shrink:0;pointer-events:none}
+.site-action:focus-visible{outline:2px solid var(--shell-focus);outline-offset:3px}
+a.site-action:hover,summary.site-action:hover{background:var(--shell-hover);border-color:var(--shell-accent)}
+.site-action:disabled,.site-action[aria-disabled=true]{cursor:not-allowed;opacity:.55}
+summary.site-action{justify-content:flex-start;list-style:none;margin:8px 0}
+summary.site-action::-webkit-details-marker{display:none}
+summary.site-action::after{content:"";width:7px;height:7px;flex:0 0 7px;margin-left:8px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);pointer-events:none}
+details[open]>summary.site-action::after{transform:rotate(225deg) translate(-2px,-2px)}
+.participant-trip-panel>summary.site-action{margin:0;border:0;border-radius:0;background:transparent}
+.workflow-return a.site-action{min-height:36px}
+@media(width < 760px){.site-action{min-height:44px}summary.site-action{width:100%}}

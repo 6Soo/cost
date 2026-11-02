@@ -18,13 +18,14 @@ def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
     return _decision("CLASSIFIED", str(trip_id), candidate["basis"], [candidate], confidence)
 
 
-def card_trip_candidates(transaction, trips, *, nets=None):
+def card_trip_candidates(transaction, trips, *, nets=None, _canonical=None):
     """Share the existing locality/date/net ordering, leaving semantic ties tied.
 
     Scores encode ordinal policy order, not a fabricated probability or margin.
     Booking service dates must be resolved by the caller before this fallback.
+    _canonical is private, validated input from this same plan, never a cache.
     """
-    authoritative = canonical_trip_periods(trips)
+    authoritative = canonical_trip_periods(trips) if _canonical is None else _canonical
     try:
         day = date.fromisoformat(transaction.get("approval_date") or "")
     except (TypeError, ValueError):

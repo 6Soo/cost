@@ -49,15 +49,24 @@ def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
         # (9800).  Amounts are deliberately substring-searchable so a user
         # can enter a partial amount while investigating a transaction.
         numeric_search = str(search).replace(",", "") or str(search)
+        # Bank names are visible on every row and must be searchable too.
+        # Expand IBK's common display names only in the issuer predicate;
+        # merchant/amount/approval text keeps the original literal query.
+        compact = re.sub(r'\s+', '', str(search)).casefold()
+        issuer_search = ('기업' if compact in {'기업카드', '기업은행', 'ibk',
+                         'ibk기업', 'ibk기업카드', 'ibk기업은행'} else search)
         clauses.append(
             "(instr(lower(COALESCE(merchant,'')),lower(?))>0 "
             "OR instr(lower(COALESCE(description,'')),lower(?))>0 "
             "OR instr(lower(COALESCE(item,'')),lower(?))>0 "
             "OR instr(lower(COALESCE(approval_number,'')),lower(?))>0 "
             "OR instr(CAST(COALESCE(amount_krw,'') AS TEXT),?)>0 "
-            "OR instr(lower(replace(COALESCE(foreign_amount,''),',','')),lower(?))>0)"
+            "OR instr(lower(replace(COALESCE(foreign_amount,''),',','')),lower(?))>0 "
+            "OR instr(lower(COALESCE(issuer,'')),lower(?))>0 "
+            "OR instr(CASE WHEN length(card_tail)=4 AND card_tail NOT GLOB '*[^0-9]*' "
+            "THEN card_tail ELSE '' END,?)>0)"
         )
-        params.extend([search] * 4 + [numeric_search, numeric_search])
+        params.extend([search] * 4 + [numeric_search, numeric_search, issuer_search, search])
     return ''.join(' AND (' + clause + ')' for clause in clauses), params
 
 

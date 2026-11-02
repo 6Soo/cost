@@ -1,3 +1,85 @@
+## 2026-11-02 지출 정리 가로 탭·전체 UI/UX 개선 완료
+
+- COMPLETE — 사용자 “해당 메뉴들을 가로로 배치하면 하위메뉴로 두지 않아도될거같은데. 지출정리 페이지의 uiux전체를 개선해”. [PR #504](https://github.com/6Soo/cost/pull/504), 구현 `8feee6d9bde29d91b383bda62033072d282df84c`, 병합·고정 운영 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`, 이전 검증 `959c139c850b9f86d570cca2b7cc7d2842737db2`.
+- 카드 자료 관리의 중첩 메뉴를 정리할 지출·저장된 자료·카드 업로드·분류 규칙의 최상위 가로 탭으로 전환했다. 상태 필터·PC 두 열/모바일 한 열 카드·파일 목록·업로드 영역·규칙 폼을 개선하고, 키보드 방향키/Home/End·선택 URL·새로고침·뒤로가기·편집값 유지를 지원한다. 업로드에서는 이전 파일 거래를 숨기며 재개 오류와 현재 업로드 결과를 표시한다. 기존 금융·수동·환불·업로드·CSRF 처리기를 재사용한다.
+- 검증: 표적125 passed/기존3 failed는 변경 전 동일 재현, 보호39 passed, 최종 인접11 passed(중복 포함). ego-browser 합성320/390/768/1440px×4탭 가로배치·넘침0, 밝음/어두움·키보드/URL·업로드 재개·편집값 유지 수락. 추가375px·가로 화면·큰 글자 넘침0. 로그인된 운영 화면 네 탭 및390px 가로배치·넘침0 수락, TaskSpace14 정상 종료. 전체 회귀·실기기·실제 파일 업로드는 국소 화면 변경으로 미실행이다.
+- 배포1,268 blobs 불일치0·검사/병합 tree 동일·task/process 고정SHA·단일loopback listener·health/ready200·보호API401/403·금융보호13표 전후 불변 PASS. 이전 검증 릴리스/task XML 복구점을 보존했으며 코드 전용으로 새 전체DB백업/복원은 반복하지 않았다. 실제 금융/분류/여행/환불/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/expense-ux-20261102/`의 targeted/baseline/protection/final-adjacent XML·browser-results/browser-adjacent·live.json·review/release-audit/deploy-evidence/checkpoint. 사용자·병행 변경을 보존하고 별도index로 본 변경만 커밋했다. 요청 미결/차단0·다음 기능 명령 없음. 문서 후속만으로 재검사·재배포·재시작하지 않는다.
+
+## 2026-11-02 웹 텍스트 액션 버튼 전역 정리 완료
+
+- COMPLETE — [조사·판단·검증 범위](specs/action-buttons-audit-20261102.md). 중복 카드 검색 진입점 제거, 카드 자료 관리 제목 정리, 필요한 액션의 아이콘·테두리·focus·모바일44px·비동기 갱신 공통화. 데이터 링크·테마 아이콘·핸들러·권한 유지. 복합 메뉴 이중 테두리·보험행 높이 회귀 보정.
+- PR493·495·497·503, 최종 검증/운영 `959c139c850b9f86d570cca2b7cc7d2842737db2`, main 병합 `05755753b4a2fcd81447e91dacd10d594f66b2dc`. 직전3b72d0e의 기업검색·업로드·PR498 읽기 개선 보존. 정확한 후보36 passed/기존실패1 deselected, 보험행 별도25 passed. 기존실패는 변경 전 재현.
+- 기존 주요9화면×1440/390/320px×라이트/다크의 넘침/대상누락0. 최종보정 후 지출정리3폭의 아이콘·모바일44px·키보드·중복프레임0, 실제보험패널2폭의border0/margin0·아이콘·행공통장식0 PASS. 기존 출력화면 `/export` GET 지연으로 실제 화면 수락은 제외하며 소스조사만 완료. 전체 회귀·실기기 미실행.
+- 1,263 Git blobs 일치·task/processSHA·단일loopback·health/ready200·보호401/403·금융13표 불변 PASS. 분류/배정/Google/원본/스키마 쓰기0. 근거 `.local-archive/button-ux-20261102/`의 source/live감사·polish-targeted.xml·polish-evidence·polish-live.json. TaskSpace17 정상finish, host/gate작성권 해제. 문서 후속은 재배포/재시작하지 않는다.
+
+## 2026-11-02 카드 전체 내역 기업카드 검색 누락 수정 완료
+
+- COMPLETE — 사용자 “처리가 됐는데 왜 기업카드 내역이 조회안되지?” 및 카드 전체 내역 화면이라는 답변. [PR #500](https://github.com/6Soo/cost/pull/500), 구현 `b89647cd8847d5e020f4dbb026568555b7ce4d09`, 운영 `3b72d0e541f271241ffaa647862f132699a35a8b`, 이전 검증 `114af50de6f1a28f19186d9b3cc35c89a92c1be4`.
+- 원인 재현: 기업카드218행이 저장돼 있으나 기존 검색의 카드사명 누락으로 `기업`은 국민카드의 가맹점 일치1행만 조회됐다. 개별 카드 선택은 정상이며8972는145행이다. 조회 조건에 issuer/유효한 마스킹 끝4자리와 기업카드·기업은행·IBK 별칭을 추가했다. 가맹점 등 기존 문자/금액 검색은 유지하고 카드/기간/미배정과 교집합을 취한다. 화면 검색 안내도 갱신했다. 원본/금융/분류/여행/환불/Google 쓰기0.
+- 검증66 passed/기존2 failed는 변경 전114af50d에서도 동일 재현 후 제외했다(미배정 목적지 판정·삭제된 안내문 계약). 통과에 포함하지 않는다. 발급사/끝4·별칭·무날짜 취소·월/연 합계·페이지 커서·SQL 삽입 문자·잘못 저장된PAN 끝자리 검색 차단·원본 불변 포함. 운영 DB 읽기 전용 비교에서 기업카드218행/3페이지·중복/누락0·월 합계 일치. 전체 회귀는 국소 읽기 조건 변경으로 미실행이다.
+- 인증ego 운영 실제폼 조회: `기업카드` 검색218건·첫100행·기업4971/4985/8972만 표시·다음cursor 검색어 유지·390px 가로넘침0 수락. TaskSpace12 정상 종료. 기업 일반 검색은 기존 가맹점 문자 일치도 유지하므로 기업카드 전체를 보려면 `기업카드`/`IBK`로 검색한다.
+- 배포1,263 blobs 불일치0·검사후보/배포코드동일(차이는기존결과문서뿐)·task/process 고정SHA·단일loopback listener·health/ready200·검색영향경로/보호API401/403·금융보호13표전후불변 PASS. 이전114af50d의성능·UI·업로드async를보존했다. 코드전용이라이전검증릴리스/task XML 복구점을보존하고새전체DB백업/복원은반복하지않았다. 실제자료재업로드·금융재처리·Google쓰기는하지않았다.
+- 근거 `.local-archive/ibk-query-20261102/`의 state.json·targeted.xml·baseline-existing.xml·actual-query.json·live.json·review/release-audit/deploy-evidence/checkpoint. 사용자/타작업변경보존. 서버/gate쓰기종료를후속UI·최적화담당자에게통지했다. 이 요청미결/차단0·다음기능명령없음. 문서후속만으로검사/재배포/재시작하지않는다.
+
+## 2026-11-02 지출 정리·환불 읽기 성능 최적화 완료
+
+- COMPLETE — 사용자 “코드 살펴보면서 발견된 부분들을 최적화, 가능하면 Rust”. [성능·Rust 판단·재현 명세](specs/cleanup-read-performance-20261102.md), [PR #498](https://github.com/6Soo/cost/pull/498). 실행 병목2개인 취소 상관 OR 전체조회와 환불별 전체 구매 순회를 SQLite 문장별 IN집합·정확 발급사/끝4/금액 후보색인으로 교체했다. 원본/유일성/수동/중복/환불·NULL 의미를 유지한다. Rust는 주 병목이 네이티브SQL과탐색횟수이고 도구체인도없어 미도입했다.
+- 동일 입력·전체결과·워밍후5회 중앙값: 운영 읽기 묶음2.235→0.514초(4.35배), 환불0.625→0.248초(2.52배),486링크전체·목록/건수동일·쓰기0. 합성5,000구매/500취소는38.80배/16.47배이며 운영/HTTP개선율과구별한다. 검사144+40+47 passed, 후속NULL4는40과중복이다. 전체회귀/실기기는국소읽기변경으로미실행.
+- 구현 `c82d86b7`·검사 `2e3a6935`, main병합/고정운영 `114af50de6f1a28f19186d9b3cc35c89a92c1be4`, 이전검증 `e95a82392be716f488e1175d8ed621c2ac6cd8ec`. UI단일작성자handoff후직렬배포했고이전UI·비동기업로드코드를보존했다.1,262blobs불일치0·task/processSHA·단일loopback8751·health/ready200·보호API401/403·금융13표내용/스키마불변PASS. 이전검증릴리스/task복구점보존, 새전체DB백업/복원반복없음. 금융/분류/여행/장부/Google/원본/스키마쓰기0.
+- 인증ego/import수락:총1·GAMSGO제외·원결제미연결아고다취소유지PASS,TaskSpace13종료. 준비중외부502는앞선UI전환중관측이며본배포후정상수락과구별한다. 근거 `.local-archive/read-performance-20261102/`의 profile/real-differential/synthetic-benchmark·검사XML·review/release-audit/deploy-evidence·browser-final·protection-before/after. 호스트작성권을후속담당자에게해제통지했고이후문서만처리한다. 이요청미결/차단0·다음기능명령없음. 사용자/타작성자변경보존·문서후속재배포없음.
+
+## 2026-11-02 보험 연결 행 높이·과도한 버튼 테두리 회귀 수정 완료
+
+- COMPLETE — 사용자 첨부의 연결 행만 높아지는 문제를 재현했다. 직전 국내여행 보험 대상 아님 PR488은 해당 연결 버튼을 변경하지 않았다. 이후 공통 버튼 장식 PR493이 `.participant-link-details > summary`에도 class·아이콘·상하8px margin을 부여해 연결60.4px/미연결·환불45px로 커진 것이 원인이다. 해당 summary만 공통 장식에서 제외하고 기존 chevron·focus·44px 터치 영역을 보존한다. PR495 복합 버튼 보호도 함께 유지한다.
+- [PR #497](https://github.com/6Soo/cost/pull/497), 구현 `455384c0c07493880906a68ce5155e749922fe6b`, 병합·운영 `e95a82392be716f488e1175d8ed621c2ac6cd8ec`. 공통 버튼 담당65f011e가 직전 검증 운영 `61188520fe1758a18230bcdbf6563ee6cc70a1c0`에서 PR495+497을 통합해 단일 배포했다. 동시 host/gate 전환 없음.
+- 검증: 실제 panel.render+site_shell 합성에서 초기·비동기 연결/미연결/환불 행을 비교,320/390/1440px×밝음/어두움6건 모두 같은 높이(PC45px/모바일 전체행93px),추가 margin0·가로 넘침0·키보드 펼침/접힘 PASS. Python 관련25 passed. 같은 조건의 브라우저 회귀 테스트를 추가했으며 본 작업의 실제 브라우저 실행은 ego-browser다. 인증 운영 화면의 연결 행과 미연결/환불 행 높이·장식 제거를 live-final.json에서 확인했다.
+- 운영 SHA·health/ready·보호API 및 금융 보호13표 내용/스키마 불변은 host 동일SHA deploy-evidence와 배포 담당 근거를 사용한다. 금융/참가자 연결/Google/원본/스키마 쓰기0. 전체 회귀·실기기는 국소 장식 수정으로 미실행. 기존 미커밋 소스 보존,격리 archive/별도 index 사용.
+- 근거 `.local-archive/insurance-row-regression-20261102/`의 browser-result.json·targeted.xml·live-final.json·checkpoint.json 및 호스트 동일SHA 배포 기록. 요청 미결/차단0·다음 기능 명령 없음. 문서 전용 후속 재배포/재시작 없음.
+
+## 2026-11-02 카드 업로드 지연·실패 표시 수정 완료
+
+- COMPLETE — 사용자 첨부 XLSX 처리 지연·연결 실패 개선. [PR #494](https://github.com/6Soo/cost/pull/494), 구현 `25d1bca9`·통합 검증 `e9ec14bd`, 운영 `61188520fe1758a18230bcdbf6563ee6cc70a1c0`, 이전 검증 `697eb8f064e1bccccc07276d943958260c68f06f`. [실행 계약](specs/card-upload-latency-20261102.md).
+- UI 요청은 검증·원본 접수·내구 큐 저장 직후202를 반환하고 기존 분류→OTA 갱신→기록→전수 검증을 서버에서 직렬 실행한다. 소유자 전용 상태 조회는 금융DB/작성자 잠금을 사용하지 않는다. 진행 단계·경과 시간·연결 재시도·새로고침 재개·저장된 파일 링크를 제공하고, 저장 후 오류를 업로드 실패로 세지 않는다. 처리 중 새로고침에는 DB 없는 UI shell을 제공한다. 원문·수동 결정·중복·환불 보호 및 기존 동기 API를 유지하며 불필요한 중간 화면 조립2회를 제거했다. 총 분류/OTA 처리 시간이나 운영 개선 배수는 미측정이다.
+- 검증: 최신 통합 트리 표적/보호82 passed. 느린 분류를 중지한 채202·상태GET·새로고침HTML 응답, 같은 파일 재접수·OTA 갱신 전후 기록·부분환불·수동 이동·내구 복구·전수 대조 포함. 별도 인접33·HTTP/UI5 passed는 중복을 포함하므로 합산하지 않는다. ego-browser 합성 새로고침/완료/접수 후 오류/상세 링크/390px 넘침0 수락. 전체 회귀·운영 실파일 재업로드는 미실행이며 금융 재처리를 하지 않았다.
+- 첨부 원본은 읽기 전용 조사에서44행이 이미 저장되어 있었고43행 분류/내부 기록 완료·취소1행needs_review임을 확인했다. 특정 프록시 타임아웃 로그는 확보하지 않았다. 취소행 보호 유지, 재업로드·실제은행환급·Google 반영을 수행/확정하지 않았다. 인증 운영 화면에서 같은batch의44행과 새 async 코드·상태복구 함수 정상 표시 수락. TaskSpace8 정상 종료.
+- 배포1,259 blobs 불일치0·검사/배포 트리 동일·task/process 고정SHA·단일loopback listener·health/ready200·새 상태API/화면401 및 기존보호API401/403·금융보호13표 전후 불변 PASS. 기존 task 인수와 SourceRefresh 상태 보존. 코드 전용으로 이전 검증 릴리스/task XML 복구점을 보존했으며 새 전체DB백업/복원은 반복하지 않았다. 실제 금융/분류/여행/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/upload-speed-20261102/`의 merged-targeted.xml·final-adjacent.xml·saved-upload-state.json·live.json·review/release-audit/deploy-evidence/checkpoint. 사용자/타 작업 변경 보존. 후속UI 배포 담당자에게61188520 보존과 서버/게이트 쓰기 종료를 전달했다. 이 요청 미결·차단0·다음명령 없음. 문서 후속으로 재검사·재배포·재시작하지 않는다.
+
+## 2026-11-02 분류 완료 거래의 반복 검토 요구 수정 완료
+
+- COMPLETE — 사용자 첨부 GAMSGO 반복 검토 원인 수정. 구버전 `complete-card-inference-v1` 문구만 완료로 인정하던 지출 정리 SQL에 현재 여행 권한으로 검증한 저장 분류 완료 조건을 추가했다. 낮은 신뢰도/분류 출처와 무관하게 여행·항목이 완료되면 목록·필터·건수에서 재확인을 요구하지 않는다. 내부 장부 미기록은 분류 미완료로 간주하지 않는다. 원본 오류·보류·환불 후보·원결제 미연결은 보존한다. 권한이 상실된 여행은 다시 표시한다.
+- PR #489·#491 정상 main 병합. 최종 구현·고정 운영 `859c3af426451ef2284bf436dcce9c3ccf9fe74b`, 병합 `b504526d`, 이전 검증 `b7c60927dddf110fe616699a07cf65ea5e8cdcea`. 검토 중 섞인 독립 제목 두 줄은 후속에서 기존 main 문구로 복구했고 workspace의 다른 작성자 변경은 보존했다. 과거 기기록 여행 전체를 매번 검증하지 않도록 미기록 후보만 검증한다.
+- 검증: 최종 후보 지출 목록/필터/분류 완료·원본/수동보류·환불/원자 기록/유지보수 77 passed. 별도 소스 문구 계약 1 failed는 기준 main에서 동일 재현; 통과에 포함하지 않는다. 운영 DB 읽기 전용 대조 쓰기0. 전체 회귀·실기기는 국소 읽기 판정 변경으로 미실행이다.
+- 실제 ego-browser 인증 GET 수락: 처리필요 2→1·분류배정0·결제환불1, GAMSGO 제외·원결제 미연결 아고다 취소 보존. 해당 취소의 동일 카드 원결제는 현재 수집 자료에서 찾지 못했으며 원결제 원본/참조가 필요하다. 가맹점명·소액만으로 링크나 환급 완료를 만들지 않았다. TaskSpace7 정상 종료.
+- 배포 1,255 blobs 불일치0·검사 후보와 동일·task/process 고정SHA·단일loopback8751·health/ready200·보호API401/403·금융보호13표 내용/스키마 불변 PASS. 코드 전용이므로 이전 검증 릴리스/task 복구점 보존, 새 전체DB백업·복원은 반복하지 않았다. 금융/분류/여행/장부/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/cleanup-root-20261102/`의 verified-final.xml·baseline-protection.xml·actual-readonly.json·browser-final.json·review/release-audit/deploy-evidence·protection-before/after. 요청된 코드 수정/배포 미결0·다음 기능 명령 없음. 아고다 미연결은 원결제 자료 의존이며 자동 연결/완료 처리하지 않는다. 문서 후속으로 재배포하지 않는다.
+
+## 2026-11-02 국내여행 보험 대상 아님 UI 완료
+
+- COMPLETE — 사용자 “국내여행은 보험을 가입하지 않기 때문에 보험명단이 없다” 및 제안 실행 승인. 기존 `trip_region()`의 destination 정확 일치 판별에서 KR인 실제 여행만 국내여행 배지·중립적인 “국내여행 · 보험 가입 대상 아님” 안내를 표시한다. 보험 명단 열/대조 패널/후보 비교를 숨기고 lazy 대조 요청을 생략한다. 해외·지역 미상은 기존 UI 유지, 지역명 목록 확대·여행/참가자/수동 연결 변경 없음.
+- [PR #488](https://github.com/6Soo/cost/pull/488), 구현 `d6a4cfaeb7dc4eefcaaac991f8d55c0e5eb25a95`, 운영 `b7c60927dddf110fe616699a07cf65ea5e8cdcea`, 이전 검증 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad`. 관련 묶음93 passed/기존 코드 문자열 검사1 failed/2 deselected, 해당 검사를 실제 HTML 헤더 검사로 변경 후 개별1 passed. 신규 국내/해외/미상·삭제/중복 여행·소유자/열람 권한·조회 생략·수입/원본 불변 포함. 전체 회귀·실기기는 국소 표시 변경으로 미실행.
+- ego-browser 합성3분류×320/390/1440px9건 PASS. 인증 운영 통영·야마가타 각각390/1440px4건 PASS: 통영은 배지/안내·보험 열/패널/후보 없음·자동 보험 요청0, 야마가타는 기존 보험 열/패널/후보 유지·자동 보험 요청1. 수입 표와 합계 유지·문서 가로 넘침0 확인. 합성 모바일 스크린샷의 배치도 확인했으며 운영 모바일 캡처에는 기존 탐색 서랍이 열려 있었으므로 전체 화면의 가림 없음까지 통과로 주장하지 않는다. 브라우저 작업 공간은 정상 종료.
+- 배포1,254 blobs 불일치0·검사본/병합본 동일 tree·task/process 고정 SHA·단일loopback8751·health/ready200·보호API401/403·새 영향패널 비로그인401·금융보호13표 내용/스키마 불변 PASS. 기존 SourceRefresh 상태·전체 task 인수 보존. 코드 전용으로 기존 검증 릴리스·task XML 복구 수단을 보존하고 별도 전체DB백업/복원은 반복하지 않았다. 금융/분류/여행/참가자/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/domestic-insurance-20261102/`의 targeted.xml·updated-contract.xml·browser-synthetic.json·review.json·release-audit.json·deploy-evidence.json·live-final.json·checkpoint.json. 공유 작업 트리의 기존 소스 변경을 보존하고 격리 archive 후보/독립 index로 커밋했다. 미결/차단0·다음 기능 명령 없음. 문서 후속 재배포/재시작 없음.
+
+## 2026-11-02 PR458 후속 복잡성·기존20실패 정비 완료
+
+- COMPLETE — 현재 사용자 승인 기능군을 [PR483](https://github.com/6Soo/cost/pull/483)·[PR486](https://github.com/6Soo/cost/pull/486)으로 통합·병합·배포했다. 원 구현 `c5ee972d`, 최종 검사 `d750ee7e`, 운영 `752eff0c667ddd8e4e661ec6b069d2d8c49e85ad`, 이전 검증 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`. 검사/병합 트리 차이0. [승인 범위](specs/python-refactor-followup-20261102.md)·[비교/20건별 원인/한계](specs/python-refactor-followup-results-20261102.md).
+- 자동분류의 보호·이력 복원·새 추론 책임을 분리하고 지출정리 중복 집계/취소 조회·행별 근거 조회/렌더 호출을 줄였다. OTA13·화면6·안내1은 현재 계약으로 검증했으며 HTML 충돌 입력 손실 실제 결함도 수정했다. 전체 계획/digest·HTML 동등성 및 조회 무쓰기 유지. 최신 상태/AI 출처·수동/원본/중복/환불/권한/원자성 보호를 보존했다.
+- 같은 기능 기준 f1e6453d→최종: 실행83,809행 동일·분기21,674→21,670·100행 초과102→101·동일본문중복2→2·실행 import 동일. plan186/140→63/29행/분기, cleanup338/132→304/130. 전체 코드량·중복 사본·의존성 감소는 달성하지 않았다. 합성 SELECT58→35, 9회 순서교대148.30→133.46ms; 자동분류64.44→64.12ms로 사실상 동일. 이전 느린 표본과 운영 전체 성능 미측정을 결과 문서에 구분했다. Rust 도입 없음.
+- 표적348 passed·ego-browser 합성 페이지/빈필터/390px/충돌 입력 보존·XSS PASS. 인접 권한/거절15 passed·3 failed/26 subtests는 기준 f1e6453d 동일 재현의 과거 drawer/내부ID 기대이며 기존20건/통과에 합산하지 않는다. 전체회귀·실기기·새 인증 운영UI 수락은 미실행. 배포본 호스트venv의 격리 합성 자동분류/cleanup/조회무쓰기 PASS.
+- 운영1,252 blobs 불일치0·고정 task/processSHA·단일loopback8751·health/ready200·보호401/403·금융보호13표 내용/스키마 불변. 전체task 인수/ParticipantSyncConfig·SourceRefresh 상태 보존. 코드전용으로 이전 검증 릴리스/task XML을 복구점으로 남겼으며 새 전체DB백업/복원은 반복하지 않았다. 앞선55e304ad 배포는 중단돼 성공으로 기록하지 않으며 최종752eff0c에 통합했다. 금융/Google/여행/원본 쓰기·재처리·마이그레이션0.
+- 근거 `.local-archive/refactor-followup-20261102/`의 verified-final/verified-structure·refusal-baseline·resume-browser-final·review/release-audit·protection-before/after·deploy-evidence·released-smoke 및 호스트 동일SHA 기록. 현재 요청의 필수 미결/차단0, 다음 기능 명령 없음. 추가 인접3실패는 보고된 기준 문제로 남기고 새 전체개발 큐를 만들지 않는다. 사용자/타작업 미커밋 변경 보존. 문서 후속으로 재배포/재시작하지 않는다.
+
+## 2026-11-02 장부 숙박 이용일 표시 누락 수정 완료
+
+- COMPLETE — 사용자 “왜 이용일 확인 필요로 되어있지? 조사해서 수정”. 기존 카드 장부 행의 빈 이용기간만 읽고 현재 OTA 검증 기간을 표시하지 않던 경로를 읽기 전용 투영으로 수정했다. [PR #482](https://github.com/6Soo/cost/pull/482), 구현·운영 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`, 병합 `f1e6453dfa48edd8cdd02fbc4e01f1a79300f15b`, 이전 검증 `ce61fea6ca09546c838602c530308850b9cade30`. 병합 SHA에는 독립 PR481의 분류 변경이 함께 있어, main에 포함된 이번 검증 구현 커밋만 고정 배포했다.
+- 검증: 표적42 passed·OTA 투영/동일 세대 신선도 보호12 passed, 실행 파일은 검사 후보와 모두 동일, Git diff check PASS. 저장 기간·수동 빈값·예약 충돌·stale·취소/환불·원본/중복 보호 유지. 전체 회귀·실기기는 국소 표시 변경으로 미실행.
+- 인증 ego-browser 운영 수락: 재시작 뒤 OTA 대사 갱신 중에는 미확인 표시 유지, 정상 갱신 완료 뒤 실제 야마가타 장부의 문제4행이 각각6/26~28·7/5~7(2행)·6/28~29로 표시됨을 확인했다. 카드 날짜는 그대로다. 저장 대조 자료의4행 투영과 실제 신선한 운영 화면 수락을 구별한다. 개별 기간 근거가 없는 행은 날짜를 창작하지 않는다.
+- 배포1,243 blobs 불일치0·task/process 고정 SHA·단일loopback8751·health/ready200·보호API401/403·금융보호13표 내용/스키마 불변 PASS. 코드 전용이므로 별도 전체DB백업/복원 대신 이전 검증 릴리스·task XML 복구점을 보존했다. 분류/여행/장부/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/stay-date-20261102/`의 targeted.xml·protection-tests.xml·actual-projection.json·review.json·release-audit.json·deploy-evidence.json·live-final.json·resume-checkpoint.json. 사용자/타 작업 미커밋 변경 보존. 요청 미결/차단0·다음 기능 명령 없음. 문서 후속만으로 재배포/재시작하지 않는다.
+
 ## 2026-11-02 원본 상세 탭 이동·수동 Google 동기화 완료
 
 - COMPLETE — 사용자 요청 2개를 [PR #478](https://github.com/6Soo/cost/pull/478)로 구현·병합·배포했다. 구현 `178b5b9558e0bf9f449ccfb1b6be8dae7d32d39c`, 운영 `ce61fea6ca09546c838602c530308850b9cade30`, 이전 검증 `6bfeee7b34d6eab551394b73d87bedfa29000bc1`. 원본 상세는 현재 여행 접근 권한·선택 사본·정확한 탭 제목을 확인하고 Google 읽기 전용 탭 색인에서 실제 gid를 찾아 새 창으로 연다. 장부 관리의 제거된 과거 페이지는 재활성화하지 않는다.

@@ -465,7 +465,7 @@ class CardFlow:
         with self._ota_request_scope():
             with self.board._lock:
                 result = self._classify(batch_id, transaction_ids=transaction_ids)
-                self._auto_record_locked(batch_id)
+                self._auto_record_locked(batch_id, include_state=False)
                 self.sync_ledger_rows()
                 return result
 
@@ -2035,6 +2035,20 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     if board is None:
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
+    from . import card_upload_jobs
+    if raw is None and parsed.path == '/import' and getattr(handler, '_upload_shell_only', False):
+        # A reload during an upload needs only the UI shell. It must not query
+        # cleanup rows on the connection currently owned by the classifier.
+        handler._send(page(csrf))
+        return True
+    if raw is None and card_upload_jobs.owns_route(parsed.path):
+        from .ledger_board import current_role
+        if current_role() != 'owner':
+            handler._send_json({'code': 'FORBIDDEN'}, 403)
+        else:
+            result, code = card_upload_jobs.status(board, parsed.path.rsplit('/', 1)[-1])
+            handler._send_json(result, code)
+        return True
     try:
         from . import expense_bulk_maintenance, refund_cleanup_action
         if expense_bulk_maintenance.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
@@ -2094,8 +2108,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
                 cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
-                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
-                body = body.replace('</main>', '</details></main>', 1)
+                body = body.replace('<!--EXPENSE_CLEANUP-->', cleanup, 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
                 handler._send(body)
@@ -2132,65 +2145,21 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler._send_json({'code':'FORBIDDEN','message':'소유자만 카드 파일을 등록할 수 있습니다.'}, 403)
                 return True
             from app.card_preflight import validate_upload
-            from . import card_upload_coverage
             filename = unquote(handler.headers.get('X-Filename') or 'card.xlsx')
             source_file, inspection = validate_upload(raw, filename)
             received = flow.pipeline.receive(raw, filename)
-            # Inspect coverage evidence from file metadata (no DB write)
-            coverage_inspection = card_upload_coverage.inspect_file(board, raw, filename, source_file)
             from .card_completion_worker import queue_batch, finish_jobs
             queue_batch(board, received['batch_id'])
             recovery = getattr(board, '_card_completion_worker', None)
-            if recovery is not None:
+            if recovery is not None and handler.headers.get('X-Upload-Async') != '1':
                 recovery.wake()
-            try:
-                flow.classify(received['batch_id'])
-                result = flow.state(received['batch_id'])
-                if ota_payment_review.enabled():
-                    backend = None
-                    try:
-                        backend = ota_payment_review.backend_for_request(board, handler, read_only=False)
-                        refresh = getattr(backend, 'refresh_after_import', None)
-                        if refresh:
-                            transaction_ids = [str(row.get('transaction_id') or '')
-                                               for row in result.get('rows', []) if row.get('transaction_id')]
-                            refresh(transaction_ids)
-                        result['ota_refresh_status'] = 'refreshed'
-                    except Exception:
-                        result['ota_refresh_status'] = 'unavailable'
-                    finally:
-                        closer = getattr(backend, 'close', None)
-                        if closer:
-                            closer()
-                # OTA refresh can make a row recordable after classify's first pass.
-                recorded = flow.auto_record(received['batch_id'])
-                if 'ota_refresh_status' in result:
-                    recorded['ota_refresh_status'] = result['ota_refresh_status']
-                if source_file.channel != 'approval':
-                    from app.upload_reconciliation import summarize
-                    from .card_classification_completion import context
-                    with board._lock:
-                        trips, nets = context(flow)
-                        recorded['upload_summary'] = summarize(flow.pipeline, received, source_file,
-                            trips, nets=nets, inspection=inspection)
-                # Add coverage evidence to response for UI display
-                recorded['coverage_evidence'] = coverage_inspection.get('evidence', {})
-                recorded['coverage_source_hash'] = coverage_inspection.get('source_hash', '')
-                recorded['coverage_available'] = card_upload_coverage.available(board.conn)
-                finish_jobs(board)
-            except Exception:
-                # receive() commits the validated source batch before classification and
-                # recording. The activated worker resumes from this durable batch;
-                # without one, an idempotent same-file retry remains available.
-                scheduled = recovery is not None and recovery.running
-                handler._send_json({'code':'UPLOAD_PROCESSING_INCOMPLETE',
-                    'message':('원천 파일은 저장했고 후속 처리를 자동으로 재시도합니다. 다시 업로드할 필요가 없습니다.' if scheduled else
-                               '원천 파일은 저장했지만 후속 처리가 완료되지 않았습니다. 같은 파일을 다시 올려 재시도해 주세요.'),
-                    'batch_id':received['batch_id'], 'source_rows_persisted':True,
-                    'verification_status':'unavailable', 'retry_same_file':not scheduled,
-                    'automatic_recovery_scheduled':scheduled}, 503)
+            from . import card_upload_jobs
+            if handler.headers.get('X-Upload-Async') == '1':
+                job = card_upload_jobs.start(board, handler, flow, received, source_file, inspection)
+                handler._send_json(job, 202)
             else:
-                handler._send_json(recorded)
+                result, code = card_upload_jobs.process(board, handler, flow, received, source_file, inspection)
+                handler._send_json(result, code)
             return True
         payload = json.loads(raw.decode('utf-8'))
         if parsed.path == '/api/imports/rules':
@@ -2361,7 +2330,9 @@ CARD_REASON = {'booking_evidence_needed': '예약 상품과 이용일을 연결�
 _CLEANUP_PAGE_SIZE = 20
 
 
-def _cleanup_card_where():
+def _cleanup_card_where(board):
+    from .card_cleanup_queries import completed_assignment_sql
+    completed = completed_assignment_sql(board)
     return (
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
         " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
@@ -2370,7 +2341,7 @@ def _cleanup_card_where():
         " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " AND (COALESCE(t.classification_basis,'') LIKE '%complete-card-inference-v1%'"
-        " OR t.classification_source='refund_original'))"
+        " OR t.classification_source='refund_original' OR " + completed + "))"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
@@ -2387,14 +2358,14 @@ def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0, reason='al
         "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
         " t.amount_krw, t.item, t.classification_source, t.display_tab_id, t.revision,"
         " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id),"
-        " t.conflict_reason, t.parse_error" + _cleanup_card_where() +
+        " t.conflict_reason, t.parse_error" + _cleanup_card_where(board) +
         card_cleanup_queries.card_reason_filter(reason) +
         " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?",
         card_cleanup_queries.card_reason_params(reason) + (limit, offset)).fetchall()
 
 
 def _cleanup_card_count(board):
-    return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
+    return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where(board)).fetchone()[0]
 
 
 def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
@@ -2414,7 +2385,7 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
     # 전체 정리 잠금 안에서 처음 해석하면 최신 연결의 유효 시간이 지나고,
     # 워커는 같은 잠금을 기다려 그 연결을 분류에 전달하지 못한다.
     with board._lock:
-        merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where()).fetchall()
+        merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where(board)).fetchall()
     if not _preview and any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
         try:
             # Use the same central snapshot/freshness contract as card review.
@@ -2441,9 +2412,9 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
                 raise PreviewError('PREVIEW_STALE',
                                    '미리보기 뒤 자료가 바뀌었습니다. 다시 미리보기를 실행해 주세요.')
         batches = [row[0] for row in board.conn.execute(
-            "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
+            "SELECT DISTINCT r.batch_id" + _cleanup_card_where(board))]
         rows = board.conn.execute(
-            "SELECT t.transaction_id, MIN(r.batch_id), t.merchant" + _cleanup_card_where() +
+            "SELECT t.transaction_id, MIN(r.batch_id), t.merchant" + _cleanup_card_where(board) +
             " AND NOT " + decided_sql('t') +
             " AND t.transaction_direction='purchase'"
             " AND t.amount_krw>0"
@@ -2554,17 +2525,22 @@ def _cleanup_card_breakdown(board):
     categories = card_reason_sql()
     rows = board.conn.execute(
         "SELECT status, COUNT(*) FROM (SELECT DISTINCT t.transaction_id, " + categories +
-        " AS status" + _cleanup_card_where() + ") GROUP BY status"
+        " AS status" + _cleanup_card_where(board) + ") GROUP BY status"
     ).fetchall()
     return dict(rows)
 
 
-def _cleanup_counts(board):
+def _cleanup_population(board):
+    """Read the card and ledger populations once for counts and paging."""
     card = _cleanup_card_breakdown(board)
     ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
-    card['classification'] = card.get('classification', 0) + ledger
-    card['all'] = sum(card.get(reason, 0) for reason in ('classification', 'evidence', 'finance', 'manual'))
-    return card
+    counts = dict(card, classification=card.get('classification', 0) + ledger,
+                  all=sum(card.values()) + ledger)
+    return card, ledger, counts
+
+
+def _cleanup_counts(board):
+    return _cleanup_population(board)[2]
 
 
 def _cleanup_unassigned_where():
@@ -2912,19 +2888,10 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     if reason not in card_cleanup_queries.REASONS:
         reason = 'all'
     selected_reason = reason
-    counts = _cleanup_counts(board)
+    card_breakdown, ledger_all, counts = _cleanup_population(board)
     all_total = counts['all']
-    card_breakdown = _cleanup_card_breakdown(board)
-    ledger_all = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
-    card_total = _cleanup_card_count(board)
-    if selected_reason == 'all':
-        filtered_card_total, ledger_total = card_total, ledger_all
-    elif selected_reason == 'classification':
-        filtered_card_total = card_breakdown.get('classification', 0)
-        ledger_total = ledger_all
-    else:
-        filtered_card_total = card_breakdown.get(selected_reason, 0)
-        ledger_total = 0
+    filtered_card_total = sum(card_breakdown.values()) if selected_reason == 'all' else card_breakdown.get(selected_reason, 0)
+    ledger_total = ledger_all if selected_reason in ('all', 'classification') else 0
     total = filtered_card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
     page = min(max(1, int(page or 1)), pages)
@@ -2954,14 +2921,13 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 if card[1] == batch_id:
                     preview_by_card[str(card[0])] = {'blocked': 'preview_unavailable',
                         'reason': '금융 보호 검사 결과를 읽지 못했습니다. 카드 자료 전체 검토에서 다시 확인해 주세요.'}
-    cancellation_ids = {row[0] for row in board.conn.execute(
-        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
     from app.partial_refund import refund_links, count_held_cancellations
-    visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
     # A displayed original may have cancellations on another cleanup page.
     # Resolve globally once so its status does not contradict the refund card.
     all_refund_ids = [row[0] for row in board.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    cancellation_ids = set(all_refund_ids)
+    visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
     all_refund_links = refund_links(board.conn, all_refund_ids)
     refund_by_id = {tid: all_refund_links[tid] for tid in visible_refunds if tid in all_refund_links}
     original_refunds = {}
@@ -2970,10 +2936,18 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
     visible_card_ids = {row[0] for row in rows_card}
+
+    inference_ids = [row[0] for row in rows_card
+                     if row[7] in (None, '', 'unclassified') and row[6] == 'inference']
+    basis_by_card = (dict(board.conn.execute(
+        'SELECT transaction_id,classification_basis FROM transactions WHERE transaction_id IN (' +
+        ','.join('?' for _ in inference_ids) + ')', inference_ids)) if inference_ids else {})
+
     from app.review_holds import active_holds
     from .card_actions import reason_category, REASON_LABELS
     from app.classification_provenance import label as provenance_label
     cleanup_holds = active_holds(board.conn)
+
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -3001,12 +2975,8 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             )
         # Classification confidence describes a proposal, not a persisted trip.
         # Do not present an old high-confidence basis as an active assignment.
-        if (current_tab in (None, '', 'unclassified')
-                and source == 'inference'):
-            basis_row = board.conn.execute(
-                "SELECT classification_basis FROM transactions WHERE transaction_id=?",
-                (tid,)).fetchone()
-            basis_text = str(basis_row[0] or '') if basis_row else ''
+        if tid in basis_by_card:
+            basis_text = str(basis_by_card.get(tid) or '')
             if '추론 배정 · 높음' in basis_text:
                 reason = ('과거 추론 근거는 높음이지만 현재 여행 배정값이 비어 있습니다.'
                           ' 유효한 여행을 자동 재검증할 때까지 배정 완료로 표시하지 않습니다.')
@@ -3084,39 +3054,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
             if preview_row and preview_row.get('blocked'):
                 reason += ' ' + finance_label
-            # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=True,
-                evidence=evidence,
-                esc=esc,
-            )
-        elif conflict_reason or parse_error:
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=False,
-                evidence=evidence,
-                conflict_reason=conflict_reason,
-                parse_error=parse_error,
-                esc=esc,
-            )
-        elif held:
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=False,
-                evidence=evidence,
-                held=True,
-                esc=esc,
-            )
-        else:
-            review = card_cleanup_ui.render_cleanup_card_review(
-                detail=detail,
-                is_cancellation=False,
-                evidence=evidence,
-                reason=reason,
-                item=item,
-                esc=esc,
-            )
+        # The renderer owns cancellation > conflict > hold > edit precedence.
+        review = card_cleanup_ui.render_cleanup_card_review(
+            detail=detail, is_cancellation=tid in cancellation_ids,
+            evidence=evidence, conflict_reason=conflict_reason,
+            parse_error=parse_error, held=held, reason=reason, item=item, esc=esc)
         if tid not in cancellation_ids and finance_label:
             review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
@@ -3255,7 +3197,8 @@ def page(csrf):
         **{item: _category_icon({'item': item}) for item in
            ('항공료', '숙박비', '교통비', '식비', '현지경비')},
     }, ensure_ascii=False))
-    return document + separator + script
+    from .expense_workspace import decorate
+    return decorate(document + separator + script)
 
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3273,8 +3216,8 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
 
 .coverage-form{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--shell-line);border-radius:6px;max-width:100%;overflow-wrap:anywhere}.coverage-form label{display:grid;gap:4px}.coverage-form input,.coverage-form select{min-width:0;width:100%;box-sizing:border-box;min-height:44px}.coverage-form button{min-height:44px}.coverage-form .coverage-complete{display:flex;align-items:center;gap:8px}.coverage-complete input{width:22px;min-height:22px}.coverage-message{white-space:normal;overflow-wrap:anywhere}
-</style><body><main><h1>지출 정리</h1><p class="small"><a href="/import?scope=all">전체 카드 거래 검색</a></p><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
-<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일은 하나씩 안전하게 처리하고, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">선택한 파일은 순서대로 업로드하고 각 파일의 분류 결과를 저장합니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><details><summary>카드별 조회 기간</summary><div id="coverage-summary" aria-live="polite"></div></details><div id="upload-results" aria-label="파일별 업로드 결과" hidden></div></section></details>
+</style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
+<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일은 하나씩 안전하게 처리하고, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">선택한 파일은 순서대로 업로드하고 각 파일의 분류 결과를 저장합니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><details><summary>카드별 조회 기간</summary><div id="coverage-summary" aria-live="polite"></div></details><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>
 </main><script>
@@ -3390,27 +3333,56 @@ uploadDrop.ondragover=e=>{e.preventDefault();if(uploadInput.disabled)return;uplo
 uploadDrop.ondragleave=()=>uploadDrop.classList.remove('is-dragover');
 uploadDrop.ondrop=e=>{e.preventDefault();uploadDrop.classList.remove('is-dragover');if(!uploadInput.disabled){uploadInput.files=e.dataTransfer.files;renderUploadSelection()}};
 uploadDrop.onkeydown=e=>{if(uploadInput.disabled)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();uploadInput.click()}};
+const uploadJobKey='cost-card-upload-job';
+function saveUploadJob(job){try{if(job)localStorage.setItem(uploadJobKey,JSON.stringify(job));else localStorage.removeItem(uploadJobKey)}catch{}}
+async function awaitUpload(job,entry){
+ saveUploadJob(job);const started=Date.now();let errors=0;
+ while(true){
+  try{
+   const r=await fetch(job.status_url,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+   if(r.status===401||r.status===403)throw Object.assign(Error('로그인이 만료되었습니다. 다시 로그인한 뒤 상세 결과를 확인해 주세요.'),{terminal:true});
+   if(r.status===404){saveUploadJob(null);throw Object.assign(Error('서버가 재시작되었습니다. 저장된 파일의 상세 결과를 확인해 주세요.'),{terminal:true});}
+   if(!r.ok)throw Error('진행 상태 연결 재시도 중');
+   const state=await r.json();errors=0;
+   if(state.status==='done'){saveUploadJob(null);return state.result}
+   if(state.status==='error'){saveUploadJob(null);throw Object.assign(Error(state.message),{terminal:true})}
+   entry.textContent=(job.filename||'카드 파일')+' · '+(state.message||'처리 중')+' · '+Math.floor((Date.now()-started)/1000)+'초';
+  }catch(e){
+   if(e.terminal){e.savedBatch=job.batch_id;throw e}
+   errors++;entry.textContent=(job.filename||'카드 파일')+' · 파일 접수 완료 · 연결 재시도 중 (재업로드 불필요)';
+   if(errors>=5){const error=Error('파일은 접수되었습니다. 화면을 다시 열면 진행 상태를 이어서 확인합니다.');error.savedBatch=job.batch_id;throw error}
+  }
+  await new Promise(resolve=>setTimeout(resolve,Math.min(10000,errors?1000*2**errors:1500)));
+ }
+}
+function savedUploadLink(entry,batch){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='저장된 파일 상세 결과';entry.append(' ',link)}
+async function resumeUpload(){let job;try{job=JSON.parse(localStorage.getItem(uploadJobKey)||'null')}catch{}if(!job?.status_url||!new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))return;
+ const root=el('upload-results');root.hidden=false;el('newupload').open=true;const entry=document.createElement('p');root.append(entry);el('upload').disabled=true;
+ try{const result=await awaitUpload(job,entry);entry.textContent=(job.filename||'카드 파일')+' · '+uploadOutcome(result);savedUploadLink(entry,job.batch_id)}
+ catch(e){entry.textContent=e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}finally{el('upload').disabled=false}
+}
+resumeUpload();
 function uploadOutcome(j){return j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
 el('upload').onclick=async()=>{
  if(el('upload').disabled)return;
  const files=renderUploadSelection();if(!files.length){el('status').textContent='업로드할 카드 파일을 먼저 선택해 주세요.';uploadDrop.focus();return}
  const generation=++batchGeneration;uploadFailurePage=0;invalidateProposal();el('upload').disabled=true;uploadInput.disabled=true;uploadDrop.setAttribute('aria-disabled','true');
- const results=[],failures=[],root=el('upload-results');root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><ul class="upload-file-list"></ul>';const list=root.querySelector('ul');
+ const results=[],failures=[],pending=[],root=el('upload-results');root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><ul class="upload-file-list"></ul>';const list=root.querySelector('ul');
  try{
   for(let i=0;i<files.length;i++){
    if(generation!==batchGeneration){el('status').textContent='자료 선택이 바뀌어 나머지 파일 업로드를 중단했습니다. 처리된 파일은 파일별 결과에서 확인해 주세요.';return}
    const f=files[i],entry=document.createElement('li');list.append(entry);entry.textContent=f.name+' · 처리 중';
    el('status').textContent='파일 '+(i+1)+'/'+files.length+' · '+f.name+'을(를) 읽고 분류하고 있습니다.';uploadLabel.textContent='처리 중 '+(i+1)+'/'+files.length;
    try{
-    const j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)});results.push(j);entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
+    let j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name),'X-Upload-Async':'1'});if(j.status_url){j.filename=f.name;j=await awaitUpload(j,entry)}results.push(j);entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
     if(j.batch_id){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(j.batch_id)+'#summary';link.textContent='상세 결과';entry.append(link)}
     appendCoverageForm(entry,j);
-   }catch(e){failures.push({name:f.name,message:e.message});entry.textContent=f.name+' · 업로드 실패: '+e.message+' 파일을 확인한 뒤 이 파일만 다시 선택해 주세요.'}
+   }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch){savedUploadLink(entry,e.savedBatch);break}}
   }
   if(generation!==batchGeneration){el('status').textContent='파일 처리가 끝났습니다. 파일별 결과를 확인해 주세요.';return}
   if(results.length)render(results[results.length-1],true);
   const incomplete=results.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
-  el('status').textContent=results.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
+  el('status').textContent=results.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요 (나머지 파일은 미업로드)':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!results.length&&failures.length)renderUploadSystemError(failures[0].message);
  }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드하고 분류'}
 };

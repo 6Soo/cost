@@ -39,6 +39,12 @@ def test_dispatch_upload_records_before_and_after_refresh_without_duplicate_effe
     observations = []
     original_locked = card_flow.CardFlow._auto_record_locked
     original_auto_record = card_flow.CardFlow.auto_record
+    original_state = card_flow.CardFlow.state
+    state_calls = []
+    def tracked_state(flow, batch_id):
+        state_calls.append(batch_id)
+        return original_state(flow, batch_id)
+    monkeypatch.setattr(card_flow.CardFlow, "state", tracked_state)
 
     def holds(self):
         if state["late_hold"]:
@@ -101,11 +107,15 @@ def test_dispatch_upload_records_before_and_after_refresh_without_duplicate_effe
                                           approval="SYNTH-001", date="2026-04-09")])
 
         response_one = _upload(file_one)
+        assert state_calls == [response_one['batch_id']]
         assert [(x["stage"], x["auto_recorded"]) for x in observations[:2]] == [
             ("classify_internal", 1), ("dispatch_after_refresh", 0)]
         first, second = observations[:2]
         assert first["ledger"] == second["ledger"]
-        assert first["digest"] == second["digest"]
+        # The discarded internal preview is intentionally skipped. The final
+        # preview still covers the same committed ledger and request IDs.
+        assert first["digest"] is None
+        assert second["digest"] == response_one["preview"]["digest"]
         assert first["request_ids"] == second["request_ids"]
         assert first["ledger"][0][1] == 25000
         assert first["board_count"] == second["board_count"] == 1

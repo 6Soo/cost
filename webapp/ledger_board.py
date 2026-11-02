@@ -119,7 +119,14 @@ def _store_request_locked(method):
         from app import request_metrics
         lock = getattr(self.server, "store_lock", None)
         # The liveness probe reads no store, so it must not queue behind a slow page.
-        if lock is None or urlparse(self.path).path == "/healthz":
+        from . import card_upload_jobs
+        path = urlparse(self.path).path
+        self._upload_shell_only = (getattr(self, 'command', '') == 'GET'
+                                   and path == '/import' and card_upload_jobs.running(_active_store()))
+        status_read = (getattr(self, 'command', '') == 'GET'
+                       and (card_upload_jobs.owns_route(path)
+                            or self._upload_shell_only))
+        if lock is None or urlparse(self.path).path == "/healthz" or status_read:
             return method(self, *args, **kwargs)
         token = request_metrics.bind_request_id()
         try:
@@ -4805,6 +4812,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_trip_meta(self, tab_id, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError
 
+        payload = {}
         try:
             payload = read_payload()
             check_csrf(payload)
@@ -4851,8 +4859,20 @@ class Handler(BaseHTTPRequestHandler):
                 actor="owner", **kwargs,
             )
         except SaveError as exc:
-            self._send_json({"code": exc.code, "message": str(exc)},
-                            code=STATUS_FOR_CODE.get(exc.code, 422))
+            if "application/json" in content_type or exc.code != 'EDIT_CONFLICT':
+                self._send_json({"code": exc.code, "message": str(exc)},
+                                code=STATUS_FOR_CODE.get(exc.code, 422))
+            else:
+                from . import ledger_design
+                fields = ''.join(
+                    f"<p><label>{label}<input readonly name='{key}' value='{esc(str(payload[key]))}'></label></p>"
+                    for key, label in (('display_key', '입력한 표시 이름'),
+                                       ('prepared_on', '입력한 작성일'), ('prepared_by_name', '입력한 담당자'))
+                    if key in payload)
+                body = (f"<p role='alert'>{esc(exc.code)}: {esc(str(exc))}</p>" + fields +
+                        f"<p><a href='/trips?trip={esc(tab_id)}'>최신 여행 정보 확인</a></p>")
+                self._send(ledger_design.render(ledger_design.shell(
+                    '여행 정보 저장 오류', tab_id='', heading='여행 정보 저장 오류', body=body)), code=409)
             return
         if "application/json" in content_type:
             self._send_json(result, code=200)
