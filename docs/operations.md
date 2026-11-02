@@ -1,3 +1,12 @@
+## 2026-11-02 연속 배포 구현 병합·운영 전환 정책 차단
+
+- 요청: 개발·배포 중 운영 502 해결을 “적용해”. [PR #547](https://github.com/6Soo/cost/pull/547), 병합 SHA `6207dd3092c40adb5f0ce0fafb687f0141c916c2`; 검사 `7afec0f1`와 동일 트리. 게이트웨이 8790→8751/8752, 후보 readiness/인증 보호 선검사, 요청 drain과 대기, 금융 요청 재전송 금지, 카드 자동 완료·여행 내부 동기화의 역할/프로세스 잠금, 실패 시 기존 서버 유지/복구를 구현했다.
+- 실제 검증: `python tools/run_quality_checks.py --base origin/main --run` 257 passed·skip 0. 포함된 게이트웨이/실제 PowerShell 스크립트 합성 검사 10 passed는 정상 인계·준비 실패·drain 실패·인계 실패 복구를 확인한다. 과거 호스트 검사 실패 1건은 현재 커밋 재검사 1 passed. 호스팅 PR CI [41439813479](https://github.com/6Soo/cost/actions/runs/41439813479), main CI [41440047572](https://github.com/6Soo/cost/actions/runs/41440047572) 성공. 전체 회귀·인증 브라우저는 배포 제어 범위에 추가하지 않았다.
+- 로컬 고정 릴리스 `D:/WebLedgerHost/releases/6207dd3092c40adb5f0ce0fafb687f0141c916c2`의 1,300 tracked blobs를 Git SHA-1과 대조해 불일치 0. 이전 검증 릴리스 보존, 보호 13표 사전 aggregate snapshot PASS. 고객 행·비밀값은 보고하지 않았다. 코드 전용이며 새 전체 DB 백업·복원·마이그레이션·업무 재처리를 하지 않았다.
+- `DEPLOY_BLOCKED_TOOL_POLICY`: 공개 health/ready 읽기 모니터 시작과 `tools/install_ledger_gateway.ps1 -Apply`를 포함한 셸 호출이 `CreateProcess ... Rejected ... blocked by policy`로 거부됐다. 구체적 사유는 반환되지 않았다. 해당 프로세스가 시작되지 않았으므로 설치/터널/작업 변경은 미실행이며 다른 경로로 재시도하지 않았다. 이후 읽기 확인: 기존 운영 SHA `a9b0617a132be8ea83328a8ac6a9345514efeffc`의 Board task Running, 후보 SHA 미설정, route 파일 없음, loopback 8751 health/ready 각각 200. 전환 연속 요청·후보 runtime·배포 후 보호 13표 비교는 미실행이다.
+- 차단 해소 후 다음 순서: 실제 운영 SHA/작업·단일 작성자 재확인 → 보호 사전 snapshot 갱신 → 위 고정 릴리스의 `tools/install_ledger_gateway.ps1 -Apply` → 새 터널 ready와 기존 연결 정리 확인 → `tools/deploy_verified_release.ps1 -CandidateSha 6207dd3092c40adb5f0ce0fafb687f0141c916c2 -PreviousSha <재확인한 운영 SHA> -ReviewEvidence C:/AX/cost/.local-archive/continuous-deploy-20261102/review.json -Apply` → 연속 요청·health/ready·보호 API·13표 불변·gateway/Board task 및 프로세스 SHA 확인. 정책 거부가 유지되는 동안 이 명령을 우회 실행하지 않는다.
+- 증거: `.local-archive/continuous-deploy-20261102/`의 `checkpoint.json`, `impact-summary.json`, `impact.xml`, `switch-contract.xml`, `host-recheck.xml`, `review.json`, `protection-before.json`; 호스트 `release-audit-6207dd3092c40adb5f0ce0fafb687f0141c916c2.json`. 완료 상태는 구현·검증·병합만이며 운영 적용은 BLOCKED다. 단일 Windows 호스트·게이트웨이 자체 장애까지 무중단을 보장하지 않는다.
+
 ## 2026-11-02 항공권 운영 화면 후속 확인
 
 - 사용자 지시에 따라 새 ego-browser 작업 공간에서 운영 `/flight-passengers`의 인증 화면·검색 입력을 확인했다. 합성 영문 이름 조회는 예약 없음으로 응답했고 입력 유지·가로 넘침 없음을 확인했다. 실제 예약 결과의 새 탭 클릭은 수행하지 않았으며 해당 동작은 PR #536 합성 브라우저 검사로 확인했다. 고객 금융·Google 장부 쓰기 없음. 로컬 근거 `.local-archive/autonomous-qa-20261102/flight-live-resume-valid.mjs`, `flight-live-resume-status.mjs`.

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import shutil
 
 import pytest
 
@@ -49,9 +50,10 @@ def test_cli_fails_closed_on_count_drift_and_does_not_publish_rows(tmp_path, mon
     assert not list(tmp_path.iterdir())
 
 
-@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell parser and command contract')
 def test_deploy_default_preview_does_not_read_review_or_access_host():
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-File',
+    shell = shutil.which('powershell.exe') or shutil.which('pwsh')
+    assert shell, 'PowerShell is required to verify the release entrypoint'
+    result = subprocess.run([shell, '-NoProfile', '-File',
         str(ROOT / 'tools/deploy_verified_release.ps1'), '-CandidateSha', 'a' * 40,
         '-PreviousSha', 'b' * 40, '-ReviewEvidence', 'Z:/nonexistent/private-review.json'],
         capture_output=True, text=True)
@@ -61,10 +63,11 @@ def test_deploy_default_preview_does_not_read_review_or_access_host():
     assert 'Z:/nonexistent' not in result.stdout
 
 
-@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell command contract')
 @pytest.mark.parametrize('candidate,previous', [('invalid', 'b' * 40), ('a' * 40, 'a' * 40)])
 def test_invalid_or_identical_release_is_rejected_before_host_access(candidate, previous):
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-File',
+    shell = shutil.which('powershell.exe') or shutil.which('pwsh')
+    assert shell, 'PowerShell is required to verify the release entrypoint'
+    result = subprocess.run([shell, '-NoProfile', '-File',
         str(ROOT / 'tools/deploy_verified_release.ps1'), '-CandidateSha', candidate,
         '-PreviousSha', previous, '-ReviewEvidence', 'Z:/nonexistent/private-review.json', '-Apply'],
         capture_output=True, text=True)

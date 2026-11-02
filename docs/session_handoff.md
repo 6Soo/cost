@@ -1,3 +1,10 @@
+## 2026-11-02 개발·배포 중 502 방지 구조 — 운영 전환 차단
+
+- PARTIAL — 사용자 “적용해” 범위의 [명세](specs/continuous-deployment-20261102.md)를 [PR #547](https://github.com/6Soo/cost/pull/547)로 구현·병합했다. 병합 `6207dd3092c40adb5f0ce0fafb687f0141c916c2`, 검사 트리 `7afec0f1`와 동일. 고정 게이트웨이·후보 준비·요청 drain·단일 자동 작성자·실패 복구를 구현했다.
+- 영향 QA 257 passed·skip 0, 게이트웨이/합성 Windows 전환 10 passed(영향 QA에 포함), 기존 호스트 미결 재검사 1 passed. PR CI 41439813479·main CI 41440047572 성공. 배포 후보 1,300 tracked blobs 불일치 0, 보호 13표 사전 읽기 완료.
+- `DEPLOY_BLOCKED_TOOL_POLICY` — 게이트웨이 설치를 포함한 셸 호출이 프로세스 생성 전에 자동 승인 검토에서 `blocked by policy`로 거부됐다. 세부 이유는 반환되지 않았다. 우회 실행하지 않았으며 설치·터널 전환·후보 기동·운영 배포는 미실행이다. 기존 운영 `a9b0617a132be8ea83328a8ac6a9345514efeffc` task Running, route 파일 없음, health/ready 200을 읽기 전용으로 재확인했다. 금융·Google·원본·스키마 업무 쓰기 없음. 보호표 사후 비교·전환 연속 요청 검사는 미실행이며 배포 성공으로 취급하지 않는다.
+- 재개는 도구 정책 거부가 해소된 뒤만 가능하다. 단일 작성자·실제 운영 SHA를 다시 확인하고 `.local-archive/continuous-deploy-20261102/checkpoint.json`의 설치→고정 SHA 배포→연속 요청/보호 API/13표/작업·프로세스 SHA 검증을 수행한다. 명령과 근거는 [운영 기록](operations.md)에 있다. 사용자/타 작업의 workspace·미추적 파일을 보존했다.
+
 ## 2026-11-02 항공권 불일치 교정 및 배포
 
 - 완료 — [PR #544](https://github.com/6Soo/cost/pull/544) 운영 `a9b0617a132be8ea83328a8ac6a9345514efeffc`. 인증 메일의 단일 출발·도착 라벨을 읽어 실제 여정일에 예약을 귀속한다. 대상 카드 1건은 원문과 여행 기간을 대조해 AI 추론으로 여행을 교정했고 거래·장부 양쪽 일치를 재확인했다. 자동 OTA 연결을 사용자 확정으로 취급하지 않았다.
