@@ -10,6 +10,60 @@ from webapp.ledger_store import LedgerStore
 from webapp.tests.test_card_flow import CARD
 
 
+def test_board_page_selects_rows_only_for_summary_and_rows(tmp_path, monkeypatch):
+    from webapp import ledger_board, ledger_design
+    store = LedgerStore(tmp_path / 'board-selection.sqlite', seed_demo=True)
+    previous = ledger_board._STORE
+    ledger_board.bind_store(store)
+    try:
+        original = ledger_design._selected_rows
+        calls = []
+        def selected(*args, **kwargs):
+            calls.append((args, kwargs))
+            return original(*args, **kwargs)
+        monkeypatch.setattr(ledger_design, '_selected_rows', selected)
+        before = list(store.conn.iterdump())
+        html = ledger_design.page('trip-demo-a')
+        assert 'live-sum' in html and 'live-rows' in html
+        assert len(calls) == 2
+        assert list(store.conn.iterdump()) == before
+    finally:
+        ledger_board.bind_store(previous)
+        store.close()
+
+
+def test_split_sources_are_reused_only_within_render(tmp_path, monkeypatch):
+    from webapp import read_scope
+    store = LedgerStore(tmp_path / 'split-cache.sqlite', seed_demo=True)
+    try:
+        original = store.split_source_ids
+        calls = []
+        monkeypatch.setattr(store, 'split_source_ids', lambda: (calls.append(1), original())[1])
+        @read_scope.scoped
+        def read_tabs():
+            return [store.list_tab_rows(tab) for tab in ('trip-demo-a', 'trip-demo-b', None)]
+        before = list(store.conn.iterdump())
+        first = read_tabs()
+        assert len(calls) == 1
+        second = read_tabs()
+        assert first == second and len(calls) == 2
+        store.list_tab_rows(None)
+        assert len(calls) == 3
+        assert list(store.conn.iterdump()) == before
+        store.conn.execute('INSERT INTO board_rows VALUES (?,?,?,?,?)', (
+            'synthetic-source', 'income', None, 1, json.dumps({
+                'row_id': 'synthetic-source', 'row_kind': 'income', 'display_tab_id': None,
+                'occurred_on': '2026-10-01', 'amount_krw': 100000,
+                'source_kind': '은행', 'source_event_id': 'synthetic-event'})))
+        store.conn.execute('INSERT INTO income_allocations(allocation_id,source_row_id,customer_id,customer_name,nickname,display_tab_id,income_kind,amount_krw,active,source_revision,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                           ('synthetic-allocation','synthetic-source','','','', 'trip-demo-a','deposit',40000,1,1,'2026-10-01','synthetic-request'))
+        expected = [store.list_tab_rows(tab) for tab in ('trip-demo-a', 'trip-demo-b', None)]
+        assert read_tabs() == expected
+        assert any(row.get('is_remainder') and row['amount_krw'] == 60000 for row in expected[-1])
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize('fresh', [False, True])
 def test_display_state_metadata_never_runs_legacy_during_snapshot_refresh(tmp_path, monkeypatch, fresh):
     from webapp import ota_payment_review
@@ -298,7 +352,7 @@ def test_cleanup_shares_unlinked_refund_count_check_for_the_display(tmp_path, mo
         monkeypatch.setattr(partial_refund, 'count_held_cancellations', lambda conn: (checks.append(1), original(conn))[1])
         before = board.conn.total_changes
         markup = card_flow.render_expense_cleanup(board, 'synthetic')
-        assert markup.count('확정 원결제 자료 미확인') == 2
+        assert markup.count('원결제 자료 미확인') == 2
         assert board.conn.total_changes == before
         assert len(checks) == 2  # One batch guard and one shared display check.
     finally:
