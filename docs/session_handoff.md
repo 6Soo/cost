@@ -1,3 +1,9 @@
+## 2026-11-02 영수증 PDF·영역 검토 — 병합, 운영 전환 대기
+
+- PARTIAL — [PR #553](https://github.com/6Soo/cost/pull/553) 병합 `01a7b2321b1d53583a876076f8c1fa298d457aee`. PDF 원본 보존 및 페이지별 OCR, 영수증 영역 표시·교정, 겹치는 후보 중복 보호와 재분석 위치 대응을 구현했다. 영역을 알 수 없는 후보는 미지정으로 표시하고 기존 미지정 후보와 중복 가능성을 보수적으로 처리한다.
+- 검증 head `e598c30177a63c28d71faccf721fe86ad18ecf3a`와 병합 트리는 동일하다. Windows 영향 QA와 호스팅 CI 각각 365 passed·30 subtests·skip 0, 합성 브라우저에서 영역 교정·무효 좌표 보존·재분석을 확인했고 실제 Windows OCR에 합성 PDF를 사용했다. 실제 고객 영수증과 외부 AI 추론은 검증하지 않았다. Windows OCR은 `WEBLEDGER_RECEIPT_OCR=windows` 설정이 필요하다.
+- 운영 배포와 운영 수락은 아래 게이트웨이 정책 차단 해소 후 수행한다. 마지막으로 확인한 운영 SHA는 `a9b0617a132be8ea83328a8ac6a9345514efeffc`다. 지출 인라인·일괄 편집 [PR #549](https://github.com/6Soo/cost/pull/549)도 병합됐으나 운영 배포와 운영 화면 수락은 아직 남아 있다.
+
 ## 2026-11-02 개발·배포 중 502 방지 구조 — 운영 전환 차단
 
 - PARTIAL — 사용자 “적용해” 범위의 [명세](specs/continuous-deployment-20261102.md)를 [PR #547](https://github.com/6Soo/cost/pull/547)로 구현·병합했다. 병합 `6207dd3092c40adb5f0ce0fafb687f0141c916c2`, 검사 트리 `7afec0f1`와 동일. 고정 게이트웨이·후보 준비·요청 drain·단일 자동 작성자·실패 복구를 구현했다.
