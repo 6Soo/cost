@@ -166,7 +166,7 @@ def process(board, handler, flow, received, source_file, inspection, progress=la
         if scheduled:
             recovery.wake()
         return {'code':'UPLOAD_PROCESSING_INCOMPLETE',
-            'message':('원천 파일은 저장했고 후속 처리를 자동으로 재시도합니다. 다시 업로드할 필요가 없습니다.' if scheduled else
+            'message':('원천 파일은 저장했지만 후속 처리 중 오류가 발생해 자동으로 다시 처리합니다. 다시 업로드할 필요가 없습니다.' if scheduled else
                        '원천 파일은 저장했지만 후속 처리가 완료되지 않았습니다. 같은 파일을 다시 올려 재시도해 주세요.'),
             'batch_id':received['batch_id'], 'source_rows_persisted':True,
             'verification_status':'unavailable', 'retry_same_file':not scheduled,

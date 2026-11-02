@@ -18,7 +18,7 @@ const mode = MODE;
 const storage = new Map(), nodes = new Map(), posts = [], entries = [];
 const identity = n => '/api/imports/upload-status/'+String(n).padStart(32,'0');
 function element(){return {disabled:false, textContent:'', append(...xs){entries.push(...xs)},
-  setAttribute(){},removeAttribute(){},querySelector(){return this}}}
+  setAttribute(){},removeAttribute(){},querySelector(){return this},addEventListener(name,fn){this[name]=fn},scrollIntoView(){this.scrolled=true}}}
 const el = id => {if(!nodes.has(id))nodes.set(id,element());return nodes.get(id)};
 const localStorage = {getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
 if(mode==='legacy-resume')localStorage.setItem('cost-card-upload-job',JSON.stringify({status_url:identity(9),batch_id:'9',filename:'legacy.csv'}));
@@ -26,7 +26,7 @@ let rendered;
 const context={el,localStorage,document:{createElement:element},Date,Error,JSON,Array,Math,RegExp,
   AbortSignal:{timeout(){}},setTimeout:fn=>{fn();},
   uploadInput:el('file'),uploadDrop:element(),uploadLabel:element(),batchGeneration:0,
-  invalidateProposal(){},appendCoverageForm(){},render:j=>{rendered=j},renderUploadSystemError(){},
+  invalidateProposal(){},appendCoverageForm(){},render:j=>{rendered=j},renderUploadSystemError(){},loadBatch:async batch=>{context.loaded=batch},
   renderUploadSelection:()=>Array.from({length:10},(_,i)=>({name:(i+1)+'.csv',arrayBuffer:async()=>Buffer.from('synthetic '+i)})),
   call:async(url,data,headers)=>{assert.equal(headers['X-Upload-Async'],'1');const n=Number(decodeURIComponent(headers['X-Filename']).split('.')[0]);posts.push(n);return {status_url:identity(n),batch_id:String(n)}},
   fetch:async url=>{const n=Number(url.split('/').at(-1));
@@ -55,6 +55,11 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     vm.runInContext('saveUploadJob(readUploadJobs()[0],true)',context);
     assert.deepEqual(JSON.parse(storage.get('cost-card-upload-job')).map(j=>j.batch_id),['4']);
     assert.ok(entries.some(x=>x.href==='/import?batch=1#summary'));
+    const detail=entries.find(x=>x.href==='/import?batch=1#summary');
+    let prevented=false;await detail.click({button:0,preventDefault(){prevented=true}});
+    assert.ok(prevented);assert.equal(context.loaded,'1');assert.ok(el('summary').scrolled);
+    prevented=false;await detail.click({button:0,ctrlKey:true,preventDefault(){prevented=true}});
+    assert.equal(prevented,false);
     context.fetch=async()=>({ok:true,status:200,json:async()=>({status:'done',result:{batch_id:'4',upload_summary:{status:'passed'}}})});
     await vm.runInContext('resumeUpload()',context);
     assert.equal(storage.size,0);
