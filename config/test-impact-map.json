@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "continuous-release-gateway",
+      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py"],
+      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
+    },
+    {
       "name": "participant-runtime-identity",
       "paths": ["app/participant_runtime.py", "tools/verify_participant_runtime.py", "tools/ingest_participant_roster.py", "tests/card_pipeline/test_participant_runtime.py"],
       "tests": ["tests/card_pipeline/test_participant_runtime.py", "tests/card_pipeline/test_participant_integration.py", "webapp/tests/test_participant_trip_panel.py"]
