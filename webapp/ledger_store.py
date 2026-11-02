@@ -2927,13 +2927,15 @@ class LedgerStore:
         change_mode: str,
         changes: dict,
         actor: str = "owner",
+        _joined_bulk: bool = False,
     ) -> dict:
         if change_mode not in ("exception", "rule_change"):
             raise SaveError("INVALID_VALUE", "변경 이유를 예외 사항과 규칙 변경 중에서 골라 주세요")
         if not client_request_id or not isinstance(client_request_id, str):
             raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
         with self._lock:
-            self._replay_pending()
+            if not _joined_bulk:
+                self._replay_pending()
             changes = dict(changes)
             if changes.get("display_tab_id") == "unclassified":
                 changes["display_tab_id"] = None
@@ -2977,6 +2979,8 @@ class LedgerStore:
                     "affected_tab_ids": sorted({t for t in (prev["display_tab_id"], new["display_tab_id"]) if t}),
                     "learning_case_id": None, "request_id": client_request_id,
                 }
+                if _joined_bulk:
+                    return result
                 self._begin_write(code="SAVE_NO_SPACE",
                                   what="행을 저장하는 데")
                 try:
@@ -3153,6 +3157,90 @@ class LedgerStore:
                 "learning_case_id": learning_case_id, "request_id": client_request_id,
                 "ledger_pending": True,
             }
+
+    def save_expense_trips_atomic(self, *, rows: list, target: str,
+                                  client_request_id: str, actor: str = "owner") -> dict:
+        """Apply one explicit trip change to all selected rows in one transaction."""
+        import hashlib
+        from . import ledger_board as board
+        if not isinstance(client_request_id, str) or not (1 <= len(client_request_id) <= 100):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        if not isinstance(rows, list) or not rows or len(rows) > 200:
+            raise SaveError("INVALID_VALUE", "선택 거래는 1건 이상 200건 이하여야 해요")
+        if not isinstance(target, str) or not target:
+            raise SaveError("TARGET_NOT_ASSIGNABLE", "변경할 여행을 선택해 주세요")
+        normalized = []
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != {"row_id", "revision"}:
+                raise SaveError("INVALID_VALUE", "거래 식별자와 revision이 필요해요")
+            rid, rev = row["row_id"], row["revision"]
+            if not isinstance(rid, str) or not rid or isinstance(rev, bool) or not isinstance(rev, int) or rev < 1:
+                raise SaveError("INVALID_VALUE", "거래 식별자와 revision을 확인해 주세요")
+            normalized.append({"row_id": rid, "revision": rev})
+        if len({item['row_id'] for item in normalized}) != len(normalized):
+            raise SaveError("INVALID_VALUE", "같은 거래를 두 번 선택할 수 없어요")
+        normalized.sort(key=lambda item: item['row_id'])
+        request = {"rows": normalized, "target": target}
+        master = "bulk:" + client_request_id
+        with self._lock:
+            self._replay_pending()
+            found = self.conn.execute("SELECT result_json FROM board_requests WHERE client_request_id=?", (master,)).fetchone()
+            if found:
+                stored = json.loads(found[0])
+                if stored.get('bulk_request') != request:
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                return stored['result']
+            try:
+                self._begin_write(code="SAVE_NO_SPACE", what="거래를 일괄 변경하는 데")
+                trips = {str(t['tab_id']) for t in board.live_trips()}
+                if target not in trips:
+                    raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
+                for entry in normalized:
+                    current = self.get_row(entry['row_id'])
+                    try:
+                        if not current or current.get('row_kind') != 'expense' or current.get('is_allocation'):
+                            raise SaveError('INVALID_VALUE', '변경할 수 없는 지출이에요')
+                        check_revision_conflict(current['revision'], entry['revision'])
+                        if current.get('blocked') or current.get('excluded_from_company') or current.get('event_kind') == 'cancellation':
+                            raise SaveError('FIELD_READ_ONLY', '보호된 거래는 개별 검토해 주세요')
+                        if entry['row_id'].startswith('card-'):
+                            from types import SimpleNamespace
+                            from app.review import correction_protection_reason
+                            tid = entry['row_id'][5:]
+                            try:
+                                source = self.conn.execute('SELECT source_hash FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+                                reason = correction_protection_reason(SimpleNamespace(conn=self.conn), tid, source[0]) if source else 'SOURCE_MISSING'
+                            except sqlite3.OperationalError:
+                                reason = 'SOURCE_UNAVAILABLE'
+                            if reason:
+                                raise SaveError('FIELD_READ_ONLY', '원본·중복·환불 보호로 개별 검토가 필요해요: ' + reason)
+                        if self.conn.execute("SELECT 1 FROM board_manual_overrides WHERE row_id=? AND field='display_tab_id'", (entry['row_id'],)).fetchone():
+                            raise SaveError('FIELD_READ_ONLY', '수동 여행 교정이 있어 개별 검토해 주세요')
+                        self._validate(current, {'display_tab_id': target})
+                    except SaveError as exc:
+                        exc.row_id = entry['row_id']
+                        raise
+                results = []
+                for entry in normalized:
+                    child = 'bulk-row:' + hashlib.sha256((master + '\0' + entry['row_id']).encode()).hexdigest()
+                    results.append(self.save(row_id=entry['row_id'], expected_revision=entry['revision'],
+                        client_request_id=child, change_mode='exception', changes={'display_tab_id': target},
+                        actor=actor, _joined_bulk=True))
+                result = {'outcome': 'saved', 'count': len(results), 'results': results, 'request_id': client_request_id}
+                self.conn.execute("INSERT INTO board_requests(client_request_id,row_id,expected_revision,result_json,ledger_pending,created_at) VALUES (?,?,?,?,0,?)",
+                    (master, '__bulk__', 0, _canonical({'bulk_request': request, 'result': result}), _utc_now()))
+                self._commit_write()
+            except SpaceRefused as exc:
+                self._rollback_write()
+                raise space_refused_as_save_error(exc) from exc
+            except Exception:
+                self._rollback_write()
+                raise
+            try:
+                self._replay_pending()
+            except Exception:
+                pass  # committed outbox remains available for replay
+            return result
 
     def import_row(self, *, row_id: str, fields: dict, batch_id: str,
                    client_request_id: str, actor: str = "owner") -> dict:
@@ -4477,8 +4565,7 @@ class LedgerStore:
             new_revision = current["revision"] + 1
             created_at = _utc_now()
             outbox_id = f"ledger-trip-{client_request_id}"
-            ledger_action = ("propose" if current["revision"] == 1
-                             and not changes.get("archived", False) else "correct")
+            ledger_action = self._stream_action(f"trip-{tab_id}")
             self._begin_write()
             try:
                 fresh = self.conn.execute(
