@@ -254,6 +254,67 @@ def test_junit_cannot_pass_zero_tests_or_skipped_browser_cases(tmp_path):
     assert fixture_result["missing_browser_tests"] == []
 
 
+def test_missing_junit_reports_zero_cases_and_missing_required_browser_tests(tmp_path):
+    browser = ["webapp.tests.required_browser::test_required"]
+    result = quality.summarize_junit(tmp_path / "missing.xml", browser)
+
+    assert result["test_case_count"] == 0
+    assert result["executed_case_count"] == 0
+    assert result["browser_executed"] == []
+    assert result["browser_skipped"] == browser
+    assert result["missing_browser_tests"] == browser
+    assert result["skipped_test_cases"] == []
+    assert result["nonbrowser_skipped_test_cases"] == []
+    assert result["skip_count"] == 0
+
+
+def test_malformed_junit_reports_zero_cases_and_missing_required_browser_tests(tmp_path):
+    junit = tmp_path / "malformed.xml"
+    junit.write_text("<testsuite>", encoding="utf-8")
+    browser = ["webapp.tests.required_browser::test_required"]
+
+    result = quality.summarize_junit(junit, browser)
+
+    assert result["test_case_count"] == 0
+    assert result["executed_case_count"] == 0
+    assert result["browser_executed"] == []
+    assert result["browser_skipped"] == browser
+    assert result["missing_browser_tests"] == browser
+    assert result["skipped_test_cases"] == []
+    assert result["nonbrowser_skipped_test_cases"] == []
+    assert result["skip_count"] == 0
+
+
+def test_malformed_junit_fails_run_and_preserves_failure_artifacts(tmp_path):
+    from unittest.mock import patch
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text("<testsuite>", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    browser = ["webapp.tests.required_browser::test_required"]
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], browser, "a" * 40, "b" * 40, root=tmp_path)
+
+    artifacts = tmp_path / "quality-artifacts"
+    summary = json.loads((artifacts / "run-summary.json").read_text(encoding="utf-8"))
+    assert result == 1
+    assert summary["status"] == "FAILED"
+    assert summary["test_case_count"] == 0
+    assert summary["executed_case_count"] == 0
+    assert summary["browser_skipped"] == browser
+    assert summary["missing_browser_tests"] == browser
+    assert summary["pytest_exit_code"] == 0
+    assert (artifacts / "junit.xml").read_text(encoding="utf-8") == "<testsuite>"
+    assert (artifacts / "pytest.log").exists()
+
+
 def test_selected_nonbrowser_skip_fails_quality_run_even_when_another_case_passes(tmp_path):
     from unittest.mock import patch
 

@@ -229,7 +229,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
     try:
         root = ET.parse(junit_path).getroot()
     except (OSError, ET.ParseError):
-        return {"test_case_count": 0, "browser_executed": [], "browser_skipped": list(browser_tests),
+        return {"test_case_count": 0, "executed_case_count": 0,
+                "browser_executed": [], "browser_skipped": list(browser_tests),
                 "missing_browser_tests": list(browser_tests), "skipped_test_cases": [],
                 "nonbrowser_skipped_test_cases": [], "skip_count": 0}
     cases = list(root.iter("testcase"))
