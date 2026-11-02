@@ -191,3 +191,26 @@ def test_real_failure_never_reuses_synthetic_cache(demo_file, monkeypatch):
     assert get('/api/demo/top3')[2]['entries'] == []
     demo_file.unlink()
     assert get('/api/demo/top3')[2]['entries'] == []
+
+
+def test_owner_preview_is_read_only_and_never_exposes_source_fields(tmp_path, monkeypatch):
+    import datetime as dt
+    from webapp import google_ledger_page
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    source = {'status': 'ok', 'stale': False, 'last_ok_at': now}
+    doc = {'schema': 'google-authority-readonly-v2', 'synced_at': now,
+           'sources': {'main': dict(source), 'archive': dict(source)},
+           'trips': [trip('SECRET-A', 900, owner_id='aslan', kind='trip')]}
+    path = tmp_path / 'authority.json'
+    path.write_text(json.dumps(doc), encoding='utf-8')
+    monkeypatch.setenv('WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', str(path))
+    monkeypatch.delenv('WEBLEDGER_DEMO_REAL_PUBLICATION', raising=False)
+    monkeypatch.setattr(google_ledger_page, 'load_choices', lambda _: {})
+    denied = FakeHandler()
+    assert page.dispatch_preview(denied, urlparse('/demo/preview'), is_owner=False)
+    assert denied.sent[0][1] == 403
+    owner = FakeHandler()
+    assert page.dispatch_preview(owner, urlparse('/demo/preview'), is_owner=True)
+    assert owner.sent[0][1] == 200 and '900원' in owner.sent[0][2]
+    assert 'SECRET' not in owner.sent[0][2]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['authority.json']

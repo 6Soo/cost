@@ -143,6 +143,27 @@ def render_html(payload: dict) -> str:
             "<title>데모</title></head><body>" + body + "</body></html>")
 
 
+def dispatch_preview(handler, parsed, *, is_owner: bool) -> bool:
+    """Owner-only, read-only preview; publication and cache settings are untouched."""
+    if parsed.path != '/demo/preview':
+        return False
+    if not is_owner:
+        handler._send_json({'code': 'FORBIDDEN'}, 403)
+        return True
+    from app import google_authority
+    from . import google_ledger_page
+    try:
+        path = google_ledger_page.snapshot_path()
+        snapshot = google_authority.load_snapshot(path)
+        choices = google_ledger_page.load_choices(path)
+        payload = prepare_real_demo(snapshot, choices)
+    except (KeyError, OSError, ValueError, google_authority.SnapshotError):
+        payload = google_demo.build_demo(None)
+    preview = render_html(payload).replace('<body>', '<body><p>공개 전 미리보기</p>', 1)
+    handler._send(preview)
+    return True
+
+
 def dispatch(handler, parsed, *, raw=None) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
