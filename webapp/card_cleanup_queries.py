@@ -34,3 +34,34 @@ def card_reason_params(reason):
     if reason not in REASONS:
         raise ValueError('invalid cleanup reason')
     return () if reason == 'all' else (reason,)
+
+
+def completed_assignment_sql(board):
+    """Persisted classification completes review regardless of its rule version.
+
+    Classification is separate from recording. Keep unresolved financial pairs
+    visible, and validate destinations with the same authority as write previews.
+    Only memoize within the current read render; later reads see corrections.
+    """
+    from . import read_scope
+    from .card_flow import CardFlow
+
+    def destinations():
+        flow = CardFlow(board)
+        targets = board.conn.execute(
+            "SELECT DISTINCT display_tab_id FROM transactions"
+            " WHERE classification_state='classified' AND COALESCE(item,'')!=''"
+            " AND COALESCE(display_tab_id,'') NOT IN ('','unclassified')").fetchall()
+        return [target for (target,) in targets if flow.trip_valid(target)]
+
+    valid = read_scope.remember(('cleanup-completed-trips', id(board)), destinations)
+    quoted = ','.join("'" + target.replace("'", "''") + "'" for target in valid) or "SELECT NULL WHERE 0"
+    return (
+        "(t.transaction_direction='purchase' AND t.amount_krw>0"
+        f" AND COALESCE(t.display_tab_id,'') IN ({quoted})"
+        " AND NOT EXISTS(SELECT 1 FROM transactions c"
+        " WHERE c.issuer=t.issuer AND c.card_tail=t.card_tail"
+        " AND (c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0)"
+        " AND ((COALESCE(t.approval_number,'')!='' AND c.original_approval_number=t.approval_number)"
+        " OR c.merchant_normalized=t.merchant_normalized)))"
+    )
