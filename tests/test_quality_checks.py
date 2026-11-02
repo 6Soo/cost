@@ -90,6 +90,36 @@ def test_autonomous_workflow_http_journeys_are_selected_from_the_map():
     assert len([target for target in targets if target.startswith("webapp/tests/test_")]) >= 8
 
 
+def test_receipt_review_journeys_are_selected_for_targeted_qa_and_scheduled_audit():
+    impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
+    targets, unknown = selector_tool.select_targets(["webapp/receipt_review.py"], impact_map["groups"])
+    assert unknown == []
+    required_modules = {
+        "webapp/tests/test_receipt_review.py",
+        "webapp/tests/test_receipt_page_flow.py",
+        "webapp/tests/test_receipt_krw.py",
+    }
+    assert required_modules <= set(targets)
+
+    plan = quality.build_plan(["webapp/receipt_review.py"], selector([], targets=targets))
+    assert required_modules <= set(plan["pytest_targets"])
+    required_browser_cases = {
+        "webapp.tests.test_receipt_page_flow::ReceiptPageFlowTests::test_three_photos_are_analysed_registered_and_refreshed",
+        "webapp.tests.test_receipt_review::ReceiptReviewTests::test_receipt_copy_refuses_unsaved_review_changes",
+        "webapp.tests.test_receipt_review::ReceiptReviewTests::test_receipt_save_locks_controls_and_restores_inputs_after_error",
+        "webapp.tests.test_receipt_review::ReceiptReviewTests::test_receipt_save_retry_after_lost_response_preserves_one_history_entry",
+        "webapp.tests.test_receipt_review::ReceiptReviewTests::test_saving_one_receipt_preserves_other_receipts_unsaved_inputs",
+    }
+    assert required_browser_cases <= set(plan["browser_tests"])
+    assert plan["browser_required"] is True
+
+    audit = quality.audit_plan()
+    assert "receipt-review" in impact_map["audit_groups"]
+    assert required_modules <= set(audit["pytest_targets"])
+    assert required_browser_cases <= set(audit["browser_tests"])
+    assert audit["browser_required"] is True
+
+
 def test_scheduled_audit_selects_deduplicated_protection_and_ui_groups():
     plan = quality.audit_plan()
     assert plan["status"] == "AUDIT"
