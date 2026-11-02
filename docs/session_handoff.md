@@ -1,3 +1,10 @@
+## 2026-11-02 능동 감사·다중 업로드 운영 반영 및 미결
+
+- PARTIAL — [실행 기록](specs/autonomous-qa-20261102.md)의 최근 PR30 분석, 발견 결함 개선, 영향 기반 QA와 다중 업로드 수정은 [PR #513](https://github.com/6Soo/cost/pull/513), [PR #514](https://github.com/6Soo/cost/pull/514)로 병합해 운영 `20da556e174c66570a856324c770e05ad422aa69`에 반영했다. 전체 업무 감사의 모든 end-to-end 수락과 배포 후 인증 화면 확인은 아직 완료로 표시하지 않는다.
+- #513의 `ad72e131` PR 검사 825 passed/86 subtests, 정기 감사 704 passed/86 subtests. #514의 `7ed20a3c` 로컬·호스팅 영향 검사 각각 280 passed/30 subtests, skip·필수 브라우저 누락 0. 두 실행은 중복 대상이 있어 합산하지 않는다. 10개 파일 중 한 파일의 상태 확인이 실패해도 나머지를 계속 접수하고 파일별 결과·재개를 보존한다.
+- 운영은 1,292개 blob 일치·task/process SHA·단일 listener·health/ready 200·보호 API 401/403·보호 13표 전후 불변 PASS. 직전 검증 릴리스 `a7aa8c7f` 복구점 유지. 금융/여행/Google/원본/스키마 업무 쓰기 0. 배포 후 ego TaskSpace 21은 `task space not found`로 인증 화면을 재사용하지 못했다. 새 공간으로 우회하지 않았으며, 인증된 운영 영향 화면 수락과 전체 승인 업무별 미검증 여정은 남아 있다.
+- 다음: 기존 ego 작업 공간을 복구해 배포 후 운영 영향 화면을 읽기 전용으로 확인하고, `.local-archive/autonomous-qa-20261102/final-acceptance-review-v103.md`의 미검증 업무를 실제 수락 증거와 대조한다. 운영 근거는 `.local-archive/autonomous-qa-20261102/deploy-evidence.json`, 검사 근거는 GitHub Actions 41394660544·41394655458·41395391574 및 로컬 `final-qa-acceptance.json`. 문서 후속만으로 재배포·재시작하지 않는다.
+
 ## 2026-11-02 보험 연결 표시 간소화·미연결 연결 버튼 완료
 
 - COMPLETE — 사용자 “일단 연결이 되면 크게 수정할 필요가 없는 부분이야. 버튼이 도드라지지않고 자연스럽게 글자위주로 변경하고, 미연결 부분을 버튼으로 만들어서 기능을 추가해.” [PR #505](https://github.com/6Soo/cost/pull/505), 구현 `447ebb16c4b97cdf8c865be1de7db7003a3466fc`, 병합·고정 배포 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`, 이전 검증 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`.
