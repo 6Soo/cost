@@ -1,3 +1,10 @@
+## 2026-11-02 웹 텍스트 액션 버튼 전역 정리 완료
+
+- COMPLETE — [조사·판단·검증 범위](specs/action-buttons-audit-20261102.md). 중복 카드 검색 진입점 제거, 카드 자료 관리 제목 정리, 필요한 액션의 아이콘·테두리·focus·모바일44px·비동기 갱신 공통화. 데이터 링크·테마 아이콘·핸들러·권한 유지. 복합 메뉴 이중 테두리·보험행 높이 회귀 보정.
+- PR493·495·497·503, 최종 검증/운영 `959c139c850b9f86d570cca2b7cc7d2842737db2`, main 병합 `05755753b4a2fcd81447e91dacd10d594f66b2dc`. 직전3b72d0e의 기업검색·업로드·PR498 읽기 개선 보존. 정확한 후보36 passed/기존실패1 deselected, 보험행 별도25 passed. 기존실패는 변경 전 재현.
+- 기존 주요9화면×1440/390/320px×라이트/다크의 넘침/대상누락0. 최종보정 후 지출정리3폭의 아이콘·모바일44px·키보드·중복프레임0, 실제보험패널2폭의border0/margin0·아이콘·행공통장식0 PASS. 기존 출력화면 `/export` GET 지연으로 실제 화면 수락은 제외하며 소스조사만 완료. 전체 회귀·실기기 미실행.
+- 1,263 Git blobs 일치·task/processSHA·단일loopback·health/ready200·보호401/403·금융13표 불변 PASS. 분류/배정/Google/원본/스키마 쓰기0. 근거 `.local-archive/button-ux-20261102/`의 source/live감사·polish-targeted.xml·polish-evidence·polish-live.json. TaskSpace17 정상finish, host/gate작성권 해제. 문서 후속은 재배포/재시작하지 않는다.
+
 ## 2026-11-02 카드 전체 내역 기업카드 검색 누락 수정 완료
 
 - COMPLETE — 사용자 “처리가 됐는데 왜 기업카드 내역이 조회안되지?” 및 카드 전체 내역 화면이라는 답변. [PR #500](https://github.com/6Soo/cost/pull/500), 구현 `b89647cd8847d5e020f4dbb026568555b7ce4d09`, 운영 `3b72d0e541f271241ffaa647862f132699a35a8b`, 이전 검증 `114af50de6f1a28f19186d9b3cc35c89a92c1be4`.

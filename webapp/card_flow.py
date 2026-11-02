@@ -2105,8 +2105,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
                 cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
-                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 자료 관리</summary>", 1)
-                body = body.replace('</main>', '</details></main>', 1)
+                body = body.replace('<!--EXPENSE_CLEANUP-->', cleanup, 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
                 handler._send(body)
@@ -3195,7 +3194,8 @@ def page(csrf):
         **{item: _category_icon({'item': item}) for item in
            ('항공료', '숙박비', '교통비', '식비', '현지경비')},
     }, ensure_ascii=False))
-    return document + separator + script
+    from .expense_workspace import decorate
+    return decorate(document + separator + script)
 
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
