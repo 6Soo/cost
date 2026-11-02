@@ -15,6 +15,8 @@
  const actionLink=/검색|조회|초기화|돌아가기|장부로|장부 보기|상세|검토|다운로드|내보내기|추가|업로드|수정|관리|전체 보기|더 보기|이전|다음|새 창|원본|설정/;
  function decorateAction(el){
   if(el.closest('#nav,[role="tablist"],.site-theme-bar')||el.matches('#btn-menu,.site-menu-toggle'))return;
+  // A compound disclosure already exposes its own button; avoid a second frame.
+  if(el.tagName==='SUMMARY'&&el.querySelector('button,[role="button"]'))return;
   const text=el.textContent.trim();
   // Numeric pages, disclosure arrows and accessible icon-only controls stay compact.
   if(!/[가-힣A-Za-z]/.test(text))return;
