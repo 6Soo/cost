@@ -226,6 +226,7 @@ SCRIPT = """
     'number','date','time','month','week'].indexOf(type)>=0;
   }
   function editInProgress(){
+   if(document.querySelector('#panel')||document.body.classList.contains('bulk-selecting')) return 'editing';
    if(document.querySelector('form[data-dirty="1"]')) return 'editing';
    if(document.querySelector('form[data-saving="1"]')) return 'saving';
    var el=document.activeElement;

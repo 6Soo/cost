@@ -1079,7 +1079,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
                 match_description = (f"<span class='expense-copy-state' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
         body.append(
-            f"<tr{match_class} data-id='{board.esc(rid)}' tabindex='0'"
+            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
             f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
             f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}{match_description}</td>"
@@ -1144,8 +1144,8 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         # and content column takes whatever is left. The amount is the last column
         # and stays right-aligned, because a ledger is read by comparing the
         # amount column down, not across.
-        "<colgroup><col style='width:108px'><col style='width:28%'><col style='width:104px'>"
-        "<col style='width:280px'>"
+        "<colgroup><col style='width:108px'><col><col style='width:104px'>"
+        "<col style='width:160px'>"
         f"<col style='width:126px'>{extra_col}</colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>이용일</th>"
@@ -1218,7 +1218,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         headline = " \u00b7 ".join(text for text in (main_text, sub_text) if text)
         tag_cls = "tag in" if kind == "수입" else "tag"
         return (
-            f"<button class='{cls}' type='button' data-id='{board.esc(rid)}'"
+            f"<button class='{cls}' type='button' data-id='{board.esc(rid)}' data-kind='{'expense' if is_expense else 'income'}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' aria-expanded='false'"
             f"{' aria-selected="true"' if rid == selected else ''}>"
             f"<span class='m-row'><span class='d tnum'>"
             f"{board.esc(board._shown_date(row))}</span>"
@@ -1290,7 +1290,9 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
 
     current_tab = value_of("display_tab_id", row.get("display_tab_id") or "")
     fields.append(
-        "<div class='f'><label for='f-display_tab_id'>여행</label>"
+        "<div class='f'><label for='f-trip-search'>여행 검색</label>"
+        "<input id='f-trip-search' type='search' autocomplete='off' placeholder='여행 이름 검색'>"
+        "<label for='f-display_tab_id'>여행</label>"
         f"<select id='f-display_tab_id' name='display_tab_id'{' disabled' if 'display_tab_id' not in allowed else ''}>"
         f"{_trip_options(current_tab, '분류대기(여행 미정)')}</select></div>")
     for name, label in (("item", "항목"), ("customer_name", "이름"),
@@ -1381,6 +1383,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         "<button class='btn p-nav' type='button' id='p-next' hidden"
         f" aria-label='다음 거래'>다음{_panel_icons.icon('chevron-right')}</button>"
         "<span class='p-count tnum' id='p-count'></span>"
+        + ("<button class='btn' type='button' id='bulk-start'>다른 거래도 함께 변경</button>" if row.get('row_kind') == 'expense' and board.current_role() == 'owner' else '') +
         f"<button class='btn primary' type='submit'>{_panel_icons.icon('save')}저장 "
         "<kbd class='kbd'>Ctrl</kbd>+<kbd class='kbd'>Enter</kbd></button>"
         f"<a class='btn' id='p-cancel' href='{board.esc(back)}'>취소 "

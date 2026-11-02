@@ -184,6 +184,96 @@ function goBack(){location.href=main.dataset.base;}
   function panel(){return document.getElementById('panel');}
   function panelForm(){var p=panel();return p?p.querySelector('form[data-js-save]'):null;}
   function panelRow(){var p=panel();return p?(p.getAttribute('data-row')||''):'';}
+  function placeEditor(id){
+   var slot=document.getElementById('panel-slot');
+   var rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]'), target=null;
+   for(var i=0;i<rows.length;i++) if(rows[i].dataset.id===id&&rows[i].getClientRects().length){target=rows[i];break;}
+   if(!slot||!target)return false;
+   var old=slot.closest('.inline-editor-row,.inline-editor-mobile');
+   if(old){document.querySelector('.app').appendChild(slot);old.remove();}
+   document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+   var wrapper;
+   if(target.tagName==='TR'){
+    wrapper=document.createElement('tr');wrapper.className='inline-editor-row';
+    var cell=document.createElement('td');cell.colSpan=target.cells.length;wrapper.appendChild(cell);cell.appendChild(slot);
+   }else{wrapper=document.createElement('div');wrapper.className='inline-editor-mobile';wrapper.appendChild(slot);}
+   target.insertAdjacentElement('afterend',wrapper);
+   target.setAttribute('aria-expanded','true');target.setAttribute('aria-controls','panel');
+   return true;
+  }
+  function removeEditor(){
+   var slot=document.getElementById('panel-slot');if(!slot)return;
+   var wrapper=slot.closest('.inline-editor-row,.inline-editor-mobile');
+   document.querySelector('.app').appendChild(slot);slot.innerHTML='';if(wrapper)wrapper.remove();
+   document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+  }
+  var bulk=null;
+  function bulkMark(){
+   document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]').forEach(function(row){
+    var selected=!!(bulk&&bulk.selected.has(row.dataset.id));
+    if(selected){row.dataset.bulkSelected='true';row.setAttribute(row.tagName==='BUTTON'?'aria-pressed':'aria-selected','true');}
+    else{delete row.dataset.bulkSelected;if(bulk)row.setAttribute(row.tagName==='BUTTON'?'aria-pressed':'aria-selected','false');}
+   });
+   if(!bulk)return;
+   var count=bulk.selected.size,total=0;bulk.selected.forEach(function(row){total+=row.amount;});
+   bulk.bar.querySelector('[data-bulk-count]').textContent='선택 '+count+'건 · 합계 '+new Intl.NumberFormat('ko-KR').format(total)+'원';
+   bulk.bar.querySelector('[data-bulk-save]').textContent=count+'건 변경';
+   bulk.bar.querySelector('[data-bulk-save]').disabled=!count||!bulk.bar.querySelector('select').value||bulk.saving;
+  }
+  function bulkToggle(row,range){
+   if(!bulk||bulk.saving||row.dataset.kind!=='expense')return;
+   var visible=Array.from(document.querySelectorAll('.tw tr[data-kind="expense"],.lst .li[data-kind="expense"]')).filter(function(el){return el.getClientRects().length;});
+   var ids=[row],i=visible.indexOf(row),last=visible.findIndex(function(el){return el.dataset.id===bulk.anchor;});
+   if(range&&last>=0&&i>=0)ids=visible.slice(Math.min(last,i),Math.max(last,i)+1);
+   var select=!bulk.selected.has(row.dataset.id);
+   ids.forEach(function(el){if(select)bulk.selected.set(el.dataset.id,{id:el.dataset.id,revision:Number(el.dataset.revision),amount:Number(el.dataset.amount)});else bulk.selected.delete(el.dataset.id);});
+   bulk.anchor=row.dataset.id;bulk.requestId='';bulkMark();
+  }
+  function startBulk(){
+   var form=panelForm(),id=panelRow(),select=form&&form.querySelector('[name=display_tab_id]');
+   if(!form||!select)return;
+   var initial=select.querySelector('option[selected]');
+   var values=select.innerHTML,chosen=select.value!==(initial?initial.value:'')?select.value:'';
+   if(form.getAttribute('data-dirty')&&!window.confirm('여행 선택을 유지하고 다른 편집 내용은 취소할까요?'))return;
+   var row=Array.from(document.querySelectorAll('[data-id]')).find(function(el){return el.dataset.id===id&&el.getClientRects().length;});
+   if(!row)return;
+   releasePanel();removeEditor();setRowParam('');
+   var bar=document.createElement('div');bar.className='bulk-bar';bar.setAttribute('role','region');bar.setAttribute('aria-label','선택 거래 일괄 변경');
+   bar.innerHTML='<strong data-bulk-count aria-live="polite"></strong><label for="bulk-search">여행 검색</label><input id="bulk-search" type="search" autocomplete="off"><label for="bulk-trip">변경할 여행</label><select id="bulk-trip" aria-label="변경할 여행"></select><button type="button" class="btn primary" data-bulk-save disabled>0건 변경</button><button type="button" class="btn" data-bulk-end>선택 종료</button><span data-bulk-status role="status" aria-live="polite"></span>';
+   document.body.appendChild(bar);bar.querySelector('select').innerHTML=values;
+   var empty=bar.querySelector('select option[value=""]');if(empty)empty.textContent='변경할 여행 선택';
+   bar.querySelector('select').value=chosen;
+   bulk={selected:new Map(),bar:bar,anchor:id,saving:false};document.body.classList.add('bulk-selecting');
+   if(window.ResizeObserver){bulk.observer=new ResizeObserver(function(){main.style.setProperty('--bulk-bar-height',(bar.getBoundingClientRect().height+24)+'px');});bulk.observer.observe(bar);}
+   bulkToggle(row,false);bar.querySelector('select').focus();
+  }
+  function endBulk(){
+   if(!bulk||bulk.saving)return;
+   var bar=bulk.bar;if(bulk.observer)bulk.observer.disconnect();bulk=null;document.body.classList.remove('bulk-selecting');main.style.removeProperty('--bulk-bar-height');bar.remove();
+   document.querySelectorAll('[data-id]').forEach(function(row){delete row.dataset.bulkSelected;row.removeAttribute('aria-selected');row.removeAttribute('aria-pressed');});
+   window.dispatchEvent(new Event('ledger:saved'));
+  }
+  function saveBulk(){
+   if(!bulk||bulk.saving||!bulk.selected.size)return;
+   var state=bulk,select=state.bar.querySelector('select'),target=select.value;
+   if(!target)return;
+   if(!window.confirm(state.selected.size+'건의 여행을 '+select.selectedOptions[0].textContent+'(으)로 변경할까요? 비용 항목은 유지됩니다.'))return;
+   if(!state.requestId)state.requestId=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID():String(Date.now())+'-'+String(Math.random()).slice(2);
+   var rows=Array.from(state.selected.values()).map(function(row){return {row_id:row.id,revision:row.revision};});
+   state.saving=true;select.disabled=true;bulkMark();
+   state.bar.querySelector('[data-bulk-status]').textContent='저장 중입니다.';
+   post('/api/rows/bulk-trip',{rows:rows,target:target,client_request_id:state.requestId}).then(function(res){
+    if(res.ok&&res.body.outcome==='saved'){
+     state.saving=false;endBulk();
+     var next=new URL(location.href);next.searchParams.delete('row');
+     next.searchParams.set('msg',res.body.count+'건을 변경했습니다. 여행이 바뀐 거래는 현재 목록에서 빠질 수 있습니다.');
+     location.href=next.toString();return;
+    }
+    var error=res.body||{};
+    state.bar.querySelector('[data-bulk-status]').textContent=(error.row_id?'거래 '+error.row_id+': ':'')+(error.message||'저장하지 못했어요. 선택은 유지됩니다.');
+   }).catch(function(){state.bar.querySelector('[data-bulk-status]').textContent='응답을 확인하지 못했어요. 같은 선택으로 다시 시도해 주세요.';})
+    .finally(function(){state.saving=false;select.disabled=false;bulkMark();});
+  }
   // The rows that are on screen, in the order they are on screen. Both markups
   // are read — the desktop table's rows and the phone list's buttons — and a
   // layout only ever renders one of them, so this is a walk over what a reader
@@ -213,6 +303,7 @@ function goBack(){location.href=main.dataset.base;}
   // a second click cannot leave two rows looking selected, and a live refresh
   // that replaced the list cannot leave none.
   function markSelection(){
+   if(bulk){bulkMark();return;}
    var cur=panelRow();
    var rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]');
    for(var i=0;i<rows.length;i++){
@@ -229,20 +320,22 @@ function goBack(){location.href=main.dataset.base;}
    if(!prev||!next||!count||!panel()) return;
    var ids=visibleRowIds(),i=ids.indexOf(panelRow());
    if(i<0){
-    prev.hidden=true;next.hidden=true;count.textContent='';return;
+    prev.hidden=true;next.hidden=true;if(count.textContent!=='')count.textContent='';return;
    }
    // A button with no row to walk to is not shown at all. One row of six is a
    // real position and is still said; the two ends of a one row list are the
    // same row, so offering them would be offering a move that cannot happen.
    prev.hidden=(i<=0);
    next.hidden=(i>=ids.length-1);
-   count.textContent=(i+1)+' / '+ids.length;
+   var position=(i+1)+' / '+ids.length;
+   if(count.textContent!==position)count.textContent=position;
   }
   var panelLoading=false;
   function openPanel(id){
    // The row that is already open needs no panel and no question: re-fetching it
    // would throw away what was typed for no gain.
-   if(!id||id===panelRow()) return;
+   if(!id) return;
+   if(id===panelRow()){closePanel();return;}
    if(!canLeavePanel()) return;
    panelLoading=true;
    var slot=document.getElementById('panel-slot');
@@ -255,6 +348,7 @@ function goBack(){location.href=main.dataset.base;}
      if(!content.querySelector('#panel')) throw new Error('PANEL_LOAD_FAILED');
      releasePanel();
      slot.innerHTML=html;
+     if(!placeEditor(id))throw new Error('ROW_NOT_FOUND');
      markSelection();
      syncNav();
      // Focus the panel, not a field in it: a field that holds the keyboard stops
@@ -271,7 +365,7 @@ function goBack(){location.href=main.dataset.base;}
   function closePanel(){
    if(!canLeavePanel()) return;
    releasePanel();
-   goBack();
+   removeEditor();setRowParam('');markSelection();window.dispatchEvent(new Event('ledger:saved'));
   }
   // Previous/next over the rows on screen. A step that would leave the list does
   // nothing, which is what the disabled button already says.
@@ -314,6 +408,10 @@ function goBack(){location.href=main.dataset.base;}
    .then(function(html){document.getElementById('sum').outerHTML=html;});
  }
 document.addEventListener('click',function(e){
+   if(e.target.closest('#bulk-start')){e.preventDefault();startBulk();return;}
+   if(e.target.closest('[data-bulk-save]')){e.preventDefault();saveBulk();return;}
+   if(e.target.closest('[data-bulk-end]')){endBulk();return;}
+   if(e.target.closest('#p-cancel')){e.preventDefault();closePanel();return;}
    if(e.target.closest('#p-cancel')&&document.querySelector('form[data-saving="1"]')){
     e.preventDefault();canLeavePanel();return;
    }
@@ -343,10 +441,11 @@ document.addEventListener('click',function(e){
     if(groupSummary){groupSummary.focus();groupSummary.scrollIntoView({block:'nearest'});}}
    return;
   }
+  if(e.target.closest('a,button,input,select,textarea')&&!e.target.closest('.li[data-id]'))return;
   var row=e.target.closest('tr[data-id]');
-  if(row){e.preventDefault();openPanel(row.dataset.id);return;}
+  if(row){e.preventDefault();if(bulk)bulkToggle(row,e.shiftKey);else openPanel(row.dataset.id);return;}
   var item=e.target.closest('.li[data-id]');
-  if(item){e.preventDefault();openPanel(item.dataset.id);return;}
+  if(item){e.preventDefault();if(bulk)bulkToggle(item,e.shiftKey);else openPanel(item.dataset.id);return;}
  });
  document.addEventListener('submit',function(e){
   var form=e.target;
@@ -373,6 +472,9 @@ document.addEventListener('click',function(e){
     if(isSave){
      var rev=form.querySelector("input[name='expected_revision']");
      if(rev&&body.revision) rev.value=body.revision;
+     if(body.revision)document.querySelectorAll('[data-id]').forEach(function(row){
+      if(row.dataset.id===body.row_id)row.dataset.revision=String(body.revision);
+     });
      // A second edit from the same panel must not reuse the first request id,
      // or the store would answer REQUEST_ID_REUSED instead of saving.
      var req=form.querySelector("input[name='client_request_id']");
@@ -508,7 +610,7 @@ document.addEventListener('keydown',function(e){
      var tr=e.target.closest&&e.target.closest('tr[data-id]');
      if(tr&&!(e.target.closest&&e.target.closest('button,select,input,textarea,a'))){
       e.preventDefault();
-      openPanel(tr.getAttribute('data-id'));
+      if(bulk)bulkToggle(tr,e.shiftKey);else openPanel(tr.getAttribute('data-id'));
       return;
      }
     }
@@ -541,12 +643,19 @@ document.addEventListener('keydown',function(e){
       var target=opener.querySelector('button,td,a')||opener;
       try{target.focus();}catch(e){}
      }
-     goBack();
+     removeEditor();setRowParam('');markSelection();window.dispatchEvent(new Event('ledger:saved'));
     }
    });
   // A finished save, and a row list that another screen replaced, both mean the
   // selection and the position beside the walking buttons have to be read again.
   window.addEventListener('ledger:saved',function(){markSelection();syncNav();});
+  if(panelRow())placeEditor(panelRow());
+  window.addEventListener('resize',function(){
+   window.requestAnimationFrame(function(){
+    var id=panelRow(), slot=document.getElementById('panel-slot');
+    if(id&&slot&&!slot.getClientRects().length)placeEditor(id);
+   });
+  });
   var region=document.getElementById('live-rows');
   if(region&&window.MutationObserver){
    new MutationObserver(function(){markSelection();syncNav();})
@@ -554,9 +663,15 @@ document.addEventListener('keydown',function(e){
   }
   // Any change marks the panel dirty so Escape knows to ask.
   document.addEventListener('input',function(e){
+   if(e.target.id==='f-trip-search'||e.target.id==='bulk-search'){
+    var target=e.target.id==='f-trip-search'?document.getElementById('f-display_tab_id'):document.getElementById('bulk-trip');
+    if(target){var query=e.target.value.trim().toLocaleLowerCase();Array.from(target.options).forEach(function(option){option.hidden=!!option.value&&option.value!==target.value&&!option.textContent.toLocaleLowerCase().includes(query);});}
+    return;
+   }
    var form=e.target.closest&&e.target.closest('form[data-js-save]');
    if(form) markDirty(form);
   });
+  document.addEventListener('change',function(e){if(bulk&&e.target===bulk.bar.querySelector('select')){bulk.requestId='';bulkMark();}});
   // A finished save leaves nothing unsaved.
   document.addEventListener('submit',function(e){
    var form=e.target;
