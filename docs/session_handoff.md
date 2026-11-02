@@ -1,3 +1,8 @@
+## 2026-11-02 능동 QA 후속 여정 검증
+
+- PARTIAL — 합성 모바일 카드 업로드→화면 분류→여행 장부 복사 [PR #530](https://github.com/6Soo/cost/pull/530), 영수증 교정·복사→원래 여행 복귀 [PR #531](https://github.com/6Soo/cost/pull/531), 합성 OTA 결제·환불·여행 보호 [PR #532](https://github.com/6Soo/cost/pull/532)을 검증 후 병합했다. #532의 OTA 보고서는 합성 주입이며 실제 수집 수락이 아니다. 테스트 전용 변경이라 운영 재배포는 하지 않았다.
+- 운영은 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a`, 현재 상세 검증·미결은 [능동 QA 기록](specs/autonomous-qa-20261102.md)과 `.local-archive/autonomous-qa-20261102/continuation-queue-20261102.md`에 있다. 전체 업무의 모든 조합을 완료로 주장하지 않는다.
+
 ## 2026-11-02 카드 자료 상태 보호 및 능동 QA 진행
 
 - PARTIAL — [PR #528](https://github.com/6Soo/cost/pull/528)의 업로드 중 자료 전환 상태 보호와 카드 복사 검사 복구를 운영 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a`에 반영했다. 영향 QA 227 passed·34 subtests·skip 0, 호스팅 CI 및 배포 보호 검사 통과. 인증 운영 화면 확인은 읽기 전용이다. [운영 기록](operations.md)을 따른다.

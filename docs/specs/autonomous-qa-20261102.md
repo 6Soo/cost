@@ -1,5 +1,13 @@
 # COST 능동 감사·자율 QA 실행 기록 (2026-11-02)
 
+## 후속 감사 및 운영 상태
+
+전체 감사는 **PARTIAL**이다. [PR #528](https://github.com/6Soo/cost/pull/528)은 업로드 응답을 기다리는 동안 다른 자료를 선택했을 때 이전 결과가 현재 상태를 덮는 문제를 고쳐 운영 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a`에 반영했다. 카드 복사 전체 21건·4 subtests와 영향 QA 227건·34 subtests가 통과했다. 배포 보호 검사와 읽기 전용 운영 화면 확인은 [운영 기록](../operations.md)에 있다.
+
+[PR #526](https://github.com/6Soo/cost/pull/526)은 매개변수화 브라우저 검사의 JUnit 집계를 수정하고 skip 차단을 보존했다. [PR #527](https://github.com/6Soo/cost/pull/527)은 카드 필터 검사를 유효 여행과 별도 충돌 표시 계약에 맞췄다. [PR #530](https://github.com/6Soo/cost/pull/530)은 합성 모바일에서 카드 업로드→화면 분류·자동 기록→여행 장부 7열 복사를 연결했다. [PR #531](https://github.com/6Soo/cost/pull/531)은 영수증 교정·복사 후 원래 여행 복귀를 세 화면 크기로 확인했다. [PR #532](https://github.com/6Soo/cost/pull/532)은 합성 예약·결제 수동 링크·여행·부분환불 보호를 연결하되 OTA 분류 보고서는 주입한다. 이 세 검사는 실제 OTA 수집이나 운영 금융 쓰기를 의미하지 않는다.
+
+수입 연결 후 여행·원본 확인의 합성 모바일 검사, 항공 이름 조회 11건, 규칙 화면 10건·2 subtests도 통과했다. 전체 운영 업무의 모든 조합과 실제 OTA 수집·환불·Google 반영은 수락하지 않았다. PR별 실행률, 사용자 최초 발견 결함/기능 PR 10개, 동일 원인 후속 수정 비율과 업무 완료율·시간을 이후 실측하며 사용자 지적 감소율은 아직 산출할 자료가 없다. GitHub branch protection 조회 403으로 서버 측 강제는 여전히 미확인이다.
+
 ## 2026-11-02 운영 반영 후 상태
 
 PR30 분석은 완료했다. 발견 결함 수정과 영향 기반 QA는 [PR #513](https://github.com/6Soo/cost/pull/513), 다중 업로드·대기열 회귀의 영향 매핑은 [PR #514](https://github.com/6Soo/cost/pull/514)로 병합하여 운영 `20da556e174c66570a856324c770e05ad422aa69`에 반영했다. #513의 PR 검사 825/86 subtests와 감사 704/86 subtests, #514 영향 검사 280/30 subtests는 통과했다. 보호 13표 전후 불변 및 health/ready·보호 API 확인 근거는 [운영 기록](../operations.md)에 있다.
