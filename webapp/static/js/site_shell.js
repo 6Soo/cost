@@ -18,7 +18,7 @@
   // This inline disclosure owns its compact row height, chevron and focus style.
   if(el.matches('.participant-link-details > summary'))return;
   // A compound disclosure already exposes its own button; avoid a second frame.
-  if(el.tagName==='SUMMARY'&&el.querySelector('button,[role="button"]'))return;
+  if(el.tagName==='SUMMARY'&&el.querySelector('svg,img,button,[role="button"]'))return;
   const text=el.textContent.trim();
   // Numeric pages, disclosure arrows and accessible icon-only controls stay compact.
   if(!/[가-힣A-Za-z]/.test(text))return;
