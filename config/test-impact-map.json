@@ -1,5 +1,9 @@
 {
   "schema": "cost-test-impact-map-v1",
+  "audit_groups": [
+    "core-safety-net", "financial-core", "google-readonly", "ota-reconciliation",
+    "card-flow", "ledger-store-boundaries", "shared-shell-assets", "shared-ui-browser-contracts"
+  ],
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
@@ -195,7 +199,27 @@
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
                 "webapp/tests/test_targeted_test_selector.py", "tools/run_targeted_checks.py", "tests/test_run_targeted_checks.py"],
-      "tests": ["webapp/tests/test_targeted_test_selector.py", "tests/test_run_targeted_checks.py", "tests/test_refactor_call_map.py"]
+      "tests": ["webapp/tests/test_targeted_test_selector.py", "tests/test_run_targeted_checks.py", "tests/test_quality_checks.py", "tests/test_refactor_call_map.py"]
+    },
+    {
+      "name": "autonomous-quality-gate",
+      "paths": ["tools/run_quality_checks.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt"],
+      "tests": ["tests/test_quality_checks.py", "tests/test_run_targeted_checks.py", "webapp/tests/test_targeted_test_selector.py"]
+    },
+    {
+      "name": "autonomous-workflow-journeys",
+      "paths": ["webapp/tests/test_autonomous_workflows.py", "webapp/expense_workspace.py", "webapp/static/js/expense_workspace.js", "webapp/tests/test_expense_workspace.py", "webapp/board_export_helpers.py", "webapp/sheets_export.py", "webapp/ledger_board.py", "webapp/tests/test_sheets_export.py", "webapp/tests/test_export_assignee_guidance.py", "webapp/tests/test_export_page_performance.py"],
+      "tests": ["webapp/tests/test_autonomous_workflows.py", "webapp/tests/test_expense_workspace.py", "webapp/tests/test_card_upload_jobs.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_sheets_export.py", "webapp/tests/test_export_assignee_guidance.py", "webapp/tests/test_export_page_performance.py", "webapp/tests/test_ledger_store.py"]
+    },
+    {
+      "name": "async-upload-idempotency",
+      "paths": ["webapp/card_upload_jobs.py", "webapp/tests/test_card_upload_jobs.py"],
+      "tests": ["webapp/tests/test_card_upload_jobs.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_ledger_store.py"]
+    },
+    {
+      "name": "shared-ui-browser-contracts",
+      "paths": ["webapp/static/css/**", "webapp/static/js/**", "webapp/static/templates/**", "webapp/site_*.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"],
+      "tests": ["webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_tokens.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"]
     }
   ]
 }

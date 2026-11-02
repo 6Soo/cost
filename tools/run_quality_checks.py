@@ -6,43 +6,20 @@ repository impact map and the existing fail-closed data/targeted-check gate.
 from __future__ import annotations
 
 import argparse
-import fnmatch
+import ast
 import json
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SELECTOR = ROOT / "tools" / "select_targeted_tests.py"
-GATE = ROOT / "tools" / "run_targeted_checks.py"
-GLOBAL_UI_TESTS = [
-    "webapp/tests/test_site_shell.py::test_browser_shell_tracks_system_theme_and_mobile_menu_keyboard",
-    "webapp/tests/test_cards_all.py::test_browser_cards_all_fits_required_viewports_with_system_theme",
-    "webapp/tests/test_card_flow_browser.py::CardFlowBrowserTests::test_cleanup_filters_save_stale_empty_and_responsive_browser_contract",
-    "webapp/tests/test_site_shell_assets.py",
-    "webapp/tests/test_manual_theme.py",
-]
-FINANCIAL_GUARD_TESTS = [
-    "tests/card_pipeline/test_partial_refund.py",
-    "tests/card_pipeline/test_ota_exact_gate.py",
-    "tests/card_pipeline/test_ota_matching_refactor.py",
-    "tests/card_pipeline/test_pipeline.py",
-    "tests/card_pipeline/test_source_links.py",
-    "tests/card_pipeline/test_google_tsv.py",
-    "webapp/tests/test_refund_group_commit.py",
-    "webapp/tests/test_cleanup_original_refund_status_contract.py",
-    "webapp/tests/test_income_card_boundary.py",
-]
-GLOBAL_UI_PATTERNS = (
-    "webapp/static/css/**", "webapp/static/js/site_*.js",
-    "webapp/site_*.py", "webapp/templates/**",
-)
 QA_OWNED_PATHS = {
     "tools/run_quality_checks.py", "tests/test_quality_checks.py",
     ".github/workflows/quality.yml", "requirements-dev.txt",
 }
-DOC_SUFFIXES = (".md", ".tsv")
 
 
 def _git(args: list[str], *, root: Path = ROOT) -> str:
@@ -66,13 +43,13 @@ def changed_paths(base: str, head: str, *, root: Path = ROOT) -> list[str]:
 
 def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -> dict:
     normalized = sorted({p.replace("\\", "/").removeprefix("./") for p in paths})
-    docs = [p for p in normalized if p.lower().endswith(DOC_SUFFIXES)
-            and (p.startswith("docs/") or "/" not in p)]
+    docs = [p for p in normalized if p.lower().endswith(".md")
+            or (p.lower().endswith(".tsv") and (p.startswith("docs/") or "/" not in p))]
     code = [p for p in normalized if p not in docs]
     if not normalized:
         return {"status": "NO_CHANGES", "changed_paths": [], "steps": []}
     if not code:
-        return {"status": "DOCS_ONLY", "changed_paths": normalized,
+        return {"status": "DOCS_ONLY", "changed_paths": normalized, "document_paths": docs,
                 "steps": ["documentation-diff-and-links"]}
 
     unknown = selector_payload.get("unknown_files")
@@ -89,35 +66,96 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
         targets.update(command[3:-1])
     qa_unknown = sorted(set(unknown) & QA_OWNED_PATHS)
     unknown = sorted(set(unknown) - QA_OWNED_PATHS)
+    if unknown:
+        # Unknown product changes require an explicit impact-map entry; never run
+        # hundreds of unrelated tests or report a skipped route as a pass.
+        raise ValueError(f"UNKNOWN_IMPACT:{len(unknown)}")
     if qa_unknown:
         targets.add("tests/test_quality_checks.py")
-    if unknown:
-        # A declared broad suite is safer than silently passing an unmapped product path.
-        broad = sorted(str(p.relative_to(root)).replace("\\", "/") for p in
-                       (root / "tests", root / "webapp" / "tests")
-                       for p in p.rglob("test_*.py") if p.is_file())
-        if not broad:
-            raise ValueError("UNKNOWN_PATH_WITHOUT_FALLBACK")
-        targets.update(broad)
-    if any(any(fnmatch.fnmatchcase(p, pattern) for pattern in GLOBAL_UI_PATTERNS) for p in code):
-        targets.update(GLOBAL_UI_TESTS)
-    # Every product-code change carries the non-weakening financial protection set.
-    targets.update(FINANCIAL_GUARD_TESTS)
-
     missing = sorted(t for t in targets if not (root / t.split("::", 1)[0]).is_file())
     if missing:
         raise ValueError("MISSING_TARGET:" + ",".join(missing))
-    return {"status": "UNKNOWN_BROAD" if unknown else "SELECTED",
-            "changed_paths": normalized, "unknown_paths": unknown,
+    browser_tests = collect_browser_tests(sorted(targets), root=root)
+    return {"status": "SELECTED",
+            "changed_paths": normalized, "document_paths": docs, "unknown_paths": unknown,
             "steps": ["tracked-data-guard", "selected-pytest"],
-            "pytest_targets": sorted(targets), "browser_required": any("browser" in t for t in targets),
-            "fallback": "all-existing-pytest-files" if unknown else None}
+            "pytest_targets": sorted(targets), "browser_required": bool(browser_tests),
+            "browser_tests": browser_tests,
+            "fallback": None}
 
 
-def plan(base: str, head: str, *, root: Path = ROOT) -> dict:
-    base_sha = _git(["rev-parse", "--verify", f"{base}^{{commit}}"], root=root)
+def _calls_playwright(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id in {
+                "sync_playwright", "async_playwright"}:
+            return True
+        if isinstance(child, ast.ImportFrom) and (child.module or "").startswith("playwright"):
+            return True
+        if isinstance(child, ast.Import) and any(alias.name.startswith("playwright") for alias in child.names):
+            return True
+    return False
+
+
+def collect_browser_tests(targets: list[str], *, root: Path = ROOT) -> list[str]:
+    cases: set[str] = set()
+    for target in targets:
+        file_part, _, node_part = target.partition("::")
+        source_path = root / file_part
+        if not source_path.is_file():
+            continue
+        try:
+            tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeError):
+            continue
+        candidates: list[tuple[str, ast.AST]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                candidates.append((node.name, node))
+        requested = node_part.split("::")[-1] if node_part else None
+        for name, node in candidates:
+            if (requested is None or requested == name) and _calls_playwright(node):
+                module_name = file_part[:-3].replace("/", ".")
+                cases.add(f"{module_name}::{name}")
+    return sorted(cases)
+
+
+def audit_plan(*, root: Path = ROOT) -> dict:
+    try:
+        impact_map = json.loads((root / "config/test-impact-map.json").read_text(encoding="utf-8"))
+        audit_groups = impact_map["audit_groups"]
+        groups = impact_map["groups"]
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        raise ValueError("IMPACT_MAP_INVALID") from exc
+    group_index = {group.get("name"): group for group in groups if isinstance(group, dict)}
+    if (not isinstance(audit_groups, list) or not audit_groups
+            or not all(isinstance(name, str) for name in audit_groups)
+            or len(audit_groups) != len(set(audit_groups))
+            or any(name not in group_index for name in audit_groups)):
+        raise ValueError("IMPACT_MAP_AUDIT_GROUPS_INVALID")
+    targets = set(impact_map.get("safe_fallback_tests", []))
+    for name in audit_groups:
+        targets.update(group_index[name]["tests"])
+    missing = sorted(t for t in targets if not (root / t.split("::", 1)[0]).is_file())
+    if missing:
+        raise ValueError("MISSING_TARGET:" + ",".join(missing))
+    browser_tests = collect_browser_tests(sorted(targets), root=root)
+    return {"status": "AUDIT", "audit": True, "changed_paths": [], "document_paths": [],
+            "steps": ["tracked-data-guard", "selected-pytest"],
+            "pytest_targets": sorted(targets), "browser_required": bool(browser_tests),
+            "browser_tests": browser_tests, "fallback": None}
+
+
+def plan(base: str, head: str, *, audit: bool = False, root: Path = ROOT) -> dict:
     head_sha = _git(["rev-parse", "--verify", f"{head}^{{commit}}"], root=root)
-    if not re.fullmatch(r"[0-9a-fA-F]{40}", base_sha) or not re.fullmatch(r"[0-9a-fA-F]{40}", head_sha):
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", head_sha):
+        raise ValueError("INVALID_COMMIT_ID")
+    checked_out_sha = _git(["rev-parse", "--verify", "HEAD^{commit}"], root=root)
+    if checked_out_sha.lower() != head_sha.lower():
+        raise ValueError("HEAD_MISMATCH")
+    if audit:
+        return {"base_sha": head_sha, "head_sha": head_sha, **audit_plan(root=root)}
+    base_sha = _git(["rev-parse", "--verify", f"{base}^{{commit}}"], root=root)
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", base_sha):
         raise ValueError("INVALID_COMMIT_ID")
     paths = changed_paths(base_sha, head_sha, root=root)
     if not paths:
@@ -156,63 +194,126 @@ def check_documentation(base_sha: str, head_sha: str, paths: list[str], *, root:
                 raise ValueError("DOCUMENTATION_LINK_BROKEN:" + file)
 
 
+def _validate_guard(payload_text: str, returncode: int) -> None:
+    try:
+        guard = json.loads(payload_text)
+        blocked = guard["blocked_count"]
+        files = guard["files"]
+        valid = (type(guard.get("schema_version")) is int and guard["schema_version"] == 1
+                 and type(blocked) is int and blocked >= 0 and isinstance(files, list)
+                 and all(isinstance(item, dict) and isinstance(item.get("path"), str)
+                         and isinstance(item.get("blocked"), bool) for item in files)
+                 and sum(1 for item in files if item["blocked"]) == blocked)
+    except (json.JSONDecodeError, KeyError, TypeError):
+        valid, blocked = False, None
+    if returncode != 0 or not valid or blocked:
+        raise ValueError("DATA_GUARD_FAILED")
+
+
+def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
+    try:
+        root = ET.parse(junit_path).getroot()
+    except (OSError, ET.ParseError):
+        return {"test_case_count": 0, "browser_executed": [], "browser_skipped": list(browser_tests),
+                "missing_browser_tests": list(browser_tests)}
+    cases = list(root.iter("testcase"))
+    executed: set[str] = set()
+    skipped: set[str] = set()
+    executed_count = 0
+    for target in browser_tests:
+        module_name, function_name = target.split("::", 1)
+        matched = [case for case in cases if case.get("name") == function_name
+                   and (case.get("classname", "").startswith(module_name)
+                        or case.get("classname", "") == module_name)]
+        if any(case.find("skipped") is None for case in matched):
+            executed.add(target)
+        if any(case.find("skipped") is not None for case in matched):
+            skipped.add(target)
+    executed_count = sum(1 for case in cases if case.find("skipped") is None)
+    return {"test_case_count": len(cases), "executed_case_count": executed_count,
+            "browser_executed": sorted(executed),
+            "browser_skipped": sorted(skipped),
+            "missing_browser_tests": sorted(set(browser_tests) - executed)}
+
+
+def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha: str,
+                         head_sha: str, *, root: Path = ROOT) -> int:
+    artifact_dir = root / "quality-artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = artifact_dir / "run-summary.json"
+    log_path = artifact_dir / "pytest.log"
+    junit_path = artifact_dir / "junit.xml"
+    guard = subprocess.run(
+        [sys.executable, str(root / "tools/check_tracked_data.py"), "--mode", "base",
+         "--base", base_sha, "--json"], cwd=root, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", shell=False,
+    )
+    try:
+        _validate_guard(guard.stdout, guard.returncode)
+    except ValueError:
+        summary_path.write_text(json.dumps({"status": "DATA_GUARD_FAILED", "base_sha": base_sha,
+                                            "head_sha": head_sha}, indent=2), encoding="utf-8")
+        log_path.write_text(guard.stdout + "\n" + guard.stderr, encoding="utf-8")
+        print("DATA_GUARD_FAILED", file=sys.stderr)
+        return 1
+
+    py_targets = sorted(p for p in {t.split("::", 1)[0] for t in targets}
+                        if p.endswith(".py") and (root / p).is_file())
+    compile_result = subprocess.run([sys.executable, "-m", "py_compile", *py_targets],
+                                    cwd=root, capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace", shell=False)
+    command = [sys.executable, "-m", "pytest", *targets, "-q", "-ra", f"--junitxml={junit_path}"]
+    with log_path.open("w", encoding="utf-8") as log:
+        log.write("$ " + " ".join(command) + "\n$ py_compile\n")
+        log.write(compile_result.stdout + compile_result.stderr + "\n$ pytest\n")
+        log.flush()
+        tests = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
+                               text=True, encoding="utf-8", errors="replace", shell=False)
+    junit_result = summarize_junit(junit_path, browser_tests)
+    browser_executed = junit_result["browser_executed"]
+    browser_skipped = junit_result["browser_skipped"]
+    missing_browser = junit_result["missing_browser_tests"]
+    case_count = junit_result["test_case_count"]
+    executed_case_count = junit_result["executed_case_count"]
+    status = "PASSED" if (tests.returncode == 0 and compile_result.returncode == 0
+                          and case_count > 0 and executed_case_count > 0
+                          and not missing_browser and not browser_skipped) else "FAILED"
+    summary = {"status": status, "base_sha": base_sha, "head_sha": head_sha,
+               "test_case_count": case_count, "executed_case_count": executed_case_count,
+               "browser_required": bool(browser_tests),
+               "browser_tests": browser_tests, "browser_executed": sorted(browser_executed),
+               "browser_skipped": sorted(browser_skipped), "missing_browser_tests": missing_browser,
+               "pytest_exit_code": tests.returncode, "compile_exit_code": compile_result.returncode,
+               "pytest_targets": targets}
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(log_path.read_text(encoding="utf-8"), end="")
+    if status != "PASSED":
+        print("QUALITY_RUN_FAILED: see quality-artifacts/run-summary.json and pytest.log", file=sys.stderr)
+        return tests.returncode or compile_result.returncode or 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", required=True, help="base commit/ref")
+    parser.add_argument("--base", default="HEAD", help="base commit/ref")
     parser.add_argument("--head", default="HEAD", help="head commit/ref")
+    parser.add_argument("--audit", action="store_true", help="run the mapped synthetic business-protection audit")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--plan-json", action="store_true", help="print plan only")
     modes.add_argument("--check", action="store_true", help="validate the plan without running checks")
     modes.add_argument("--run", action="store_true", help="run data guard and planned pytest")
     args = parser.parse_args(argv)
     try:
-        result = plan(args.base, args.head)
-        if args.check and result["status"] not in {"DOCS_ONLY", "NO_CHANGES", "SELECTED", "UNKNOWN_BROAD"}:
+        result = plan(args.base, args.head, audit=args.audit)
+        if args.check and result["status"] not in {"DOCS_ONLY", "NO_CHANGES", "SELECTED", "AUDIT"}:
             raise ValueError("PLAN_NOT_RUNNABLE")
-        if args.run and result["status"] in {"SELECTED", "UNKNOWN_BROAD"}:
-            targets = result["pytest_targets"]
-            if result["status"] == "UNKNOWN_BROAD":
-                guard = subprocess.run(
-                    [sys.executable, str(ROOT / "tools/check_tracked_data.py"), "--mode", "base",
-                     "--base", result["base_sha"], "--json"], cwd=ROOT,
-                    capture_output=True, text=True, encoding="utf-8", errors="replace", shell=False,
-                )
-                try:
-                    guard_result = json.loads(guard.stdout)
-                    blocked = guard_result["blocked_count"]
-                    files = guard_result["files"]
-                    valid_guard = (guard_result.get("schema_version") == 1
-                                   and type(blocked) is int and blocked >= 0
-                                   and isinstance(files, list)
-                                   and sum(1 for item in files if isinstance(item, dict)
-                                           and item.get("blocked") is True) == blocked)
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    valid_guard, blocked = False, None
-                if guard.returncode or not valid_guard or blocked:
-                    print(json.dumps({"status": "DATA_GUARD_FAILED"}, ensure_ascii=False))
-                    return 1
-            else:
-                # Existing gate runs the mapped targets and its tracked-data protection check.
-                run = subprocess.run([sys.executable, str(GATE), "--base", result["base_sha"],
-                                      "--run", "--json"], cwd=ROOT, shell=False)
-                if run.returncode:
-                    return run.returncode
-                selector = subprocess.run(
-                    [sys.executable, str(SELECTOR), "--base", result["base_sha"]], cwd=ROOT,
-                    capture_output=True, text=True, encoding="utf-8", errors="replace", shell=False,
-                )
-                try:
-                    selected = {t for cmd in json.loads(selector.stdout)["pytest_commands"] for t in cmd[3:-1]}
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    return 2
-                targets = [t for t in targets if t not in selected]
-            if targets:
-                tests = subprocess.run([sys.executable, "-m", "pytest", *targets, "-q"],
-                                       cwd=ROOT, shell=False)
-                return tests.returncode
-            return 0
+        if args.run and result["status"] in {"SELECTED", "AUDIT"}:
+            if result.get("document_paths"):
+                check_documentation(result["base_sha"], result["head_sha"], result["document_paths"])
+            return _write_run_artifacts(result["pytest_targets"], result["browser_tests"],
+                                        result["base_sha"], result["head_sha"])
         if args.run and result["status"] == "DOCS_ONLY":
-            check_documentation(result["base_sha"], result["head_sha"], result["changed_paths"])
+            check_documentation(result["base_sha"], result["head_sha"], result["document_paths"])
             print(json.dumps({"status": "DOCS_CHECKED", "tests_executed": 0}, ensure_ascii=False))
             return 0
         print(json.dumps(result, ensure_ascii=False, indent=2))
