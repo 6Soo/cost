@@ -18,6 +18,8 @@ import urllib.request
 from webapp import ota_payment_review
 from webapp import card_flow
 
+SYNTHETIC_REVIEW_DB = str(Path(tempfile.gettempdir()) / "cost-synthetic-ota-review.sqlite")
+
 
 EVENT: dict[str, Any] = {
     "ota_event_id": "evt-synth-001",
@@ -322,7 +324,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         FakeCorePayments.occupied_transaction = "card-00"
         self.environment = mock.patch.dict(os.environ, {
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -334,7 +336,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertFalse(ota_payment_review.enabled())
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True):
             self.assertTrue(ota_payment_review.enabled())
 
@@ -672,7 +674,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1",
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True), mock.patch("webapp.ledger_board._active_store", return_value=object()):
             ota_payment_review.configure_backend_factory(read_factory=configure, write_factory=configure)
             self.addCleanup(ota_payment_review.configure_backend_factory,
@@ -689,7 +691,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1",
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True):
             def factory(**kwargs):
                 factory_calls.append(kwargs)
@@ -1108,7 +1110,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                   "classified_percent": 100.0, "recorded_rows": 2}
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1", "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }, clear=True), mock.patch("webapp.ledger_board._active_store", return_value=board), \
                 mock.patch("webapp.ledger_board.current_role", return_value="owner"), \
                 mock.patch("app.card_preflight.validate_upload",

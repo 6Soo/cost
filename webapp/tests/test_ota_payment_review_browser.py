@@ -23,6 +23,8 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 from app.ota_queue_paging import build_queue_index
 from app.ota_queue_projection import summarize_queue
 
+SYNTHETIC_REVIEW_DB = str(Path(tempfile.gettempdir()) / "cost-synthetic-ota-review.sqlite")
+
 
 def _mock_queue_routes(page, snapshot):
     """Adapt legacy synthetic snapshots to the summary/page/detail read contract."""
@@ -542,7 +544,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
 
         with patch.dict("os.environ", {
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
-            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+            "WEBLEDGER_OTA_REVIEW_DB": SYNTHETIC_REVIEW_DB,
         }):
             server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
