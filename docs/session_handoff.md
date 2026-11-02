@@ -1,3 +1,10 @@
+## 2026-11-02 지출 정리·환불 읽기 성능 최적화 완료
+
+- COMPLETE — 사용자 “코드 살펴보면서 발견된 부분들을 최적화, 가능하면 Rust”. [성능·Rust 판단·재현 명세](specs/cleanup-read-performance-20261102.md), [PR #498](https://github.com/6Soo/cost/pull/498). 실행 병목2개인 취소 상관 OR 전체조회와 환불별 전체 구매 순회를 SQLite 문장별 IN집합·정확 발급사/끝4/금액 후보색인으로 교체했다. 원본/유일성/수동/중복/환불·NULL 의미를 유지한다. Rust는 주 병목이 네이티브SQL과탐색횟수이고 도구체인도없어 미도입했다.
+- 동일 입력·전체결과·워밍후5회 중앙값: 운영 읽기 묶음2.235→0.514초(4.35배), 환불0.625→0.248초(2.52배),486링크전체·목록/건수동일·쓰기0. 합성5,000구매/500취소는38.80배/16.47배이며 운영/HTTP개선율과구별한다. 검사144+40+47 passed, 후속NULL4는40과중복이다. 전체회귀/실기기는국소읽기변경으로미실행.
+- 구현 `c82d86b7`·검사 `2e3a6935`, main병합/고정운영 `114af50de6f1a28f19186d9b3cc35c89a92c1be4`, 이전검증 `e95a82392be716f488e1175d8ed621c2ac6cd8ec`. UI단일작성자handoff후직렬배포했고이전UI·비동기업로드코드를보존했다.1,262blobs불일치0·task/processSHA·단일loopback8751·health/ready200·보호API401/403·금융13표내용/스키마불변PASS. 이전검증릴리스/task복구점보존, 새전체DB백업/복원반복없음. 금융/분류/여행/장부/Google/원본/스키마쓰기0.
+- 인증ego/import수락:총1·GAMSGO제외·원결제미연결아고다취소유지PASS,TaskSpace13종료. 준비중외부502는앞선UI전환중관측이며본배포후정상수락과구별한다. 근거 `.local-archive/read-performance-20261102/`의 profile/real-differential/synthetic-benchmark·검사XML·review/release-audit/deploy-evidence·browser-final·protection-before/after. 호스트작성권을후속담당자에게해제통지했고이후문서만처리한다. 이요청미결/차단0·다음기능명령없음. 사용자/타작성자변경보존·문서후속재배포없음.
+
 ## 2026-11-02 보험 연결 행 높이·과도한 버튼 테두리 회귀 수정 완료
 
 - COMPLETE — 사용자 첨부의 연결 행만 높아지는 문제를 재현했다. 직전 국내여행 보험 대상 아님 PR488은 해당 연결 버튼을 변경하지 않았다. 이후 공통 버튼 장식 PR493이 `.participant-link-details > summary`에도 class·아이콘·상하8px margin을 부여해 연결60.4px/미연결·환불45px로 커진 것이 원인이다. 해당 summary만 공통 장식에서 제외하고 기존 chevron·focus·44px 터치 영역을 보존한다. PR495 복합 버튼 보호도 함께 유지한다.
