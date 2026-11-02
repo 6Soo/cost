@@ -287,7 +287,7 @@ field(info,'승인번호',tx.approval_number);field(info,'거래 유형',tx.even
 field(info,'취소 상태',tx.cancellation_status);field(info,'환불 상태',tx.refund_status);
 field(info,'연결 근거','사용자 확인');linked.append(info);
 if(tx.amount_status!=='MATCH'||tx.currency_status!=='MATCH')text(linked,'p','결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.','fb-note');
-if(typeof tx.detail_href==='string'&&tx.detail_href.startsWith('/board?row=')){const detail=text(linked,'a','카드 원행 상세 보기');detail.href=tx.detail_href}
+if(typeof tx.detail_href==='string'&&tx.detail_href.startsWith('/board?row=')){const detail=text(linked,'a','카드 원행 상세 보기 (새 탭)');detail.href=tx.detail_href;detail.target='_blank';detail.rel='noopener noreferrer';text(linked,'span','새 탭에서 열립니다. 검색 결과는 이 탭에 유지됩니다.','fb-muted')}
 }}else{text(linked,'p','이 조회에서는 확정된 카드 연결 근거를 아직 검증할 수 없습니다. 카드 거래가 없거나 미결제라는 뜻은 아닙니다.','fb-note')}
 card.append(linked);
 const candidateDay=['EXPLICIT_LABEL','FIRST_RECEIVED'].includes(b.booking_date_status)&&b.source_verified&&!b.conflict&&!b.cancelled&&!(b.linked_cards||[]).length?b.booking_card_day:null;
