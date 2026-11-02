@@ -298,7 +298,9 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'links':{}, 'results':[result]}, 'results':[result]}
                 service = SimpleNamespace(held=lambda: (current, True))
                 backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
-                base = {'matches':[], 'type_only_candidates':[], 'rules':[], 'ota_source_errors':[],
+                base = {'matches':[], 'type_only_candidates':[], 'rules':[],
+                        'unmatched_transactions':[dict(candidate_card, reason='payment_date_unknown')],
+                        'ota_source_errors':[],
                         'ota_source_inventory':{'missing':[]}, 'evidence_gate':{}}
                 with patch.object(ota_payment_review, 'enabled', return_value=True), \
                      patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
@@ -532,12 +534,12 @@ class CardFlowBrowserTests(unittest.TestCase):
                     destination='Synthetic stay trip', client_request_id='browser-inferred-trip')['tab_id']
                 header, source_line = CARD.splitlines(keepends=True)
                 fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
-                fields[4], fields[5], fields[8] = 'TRIP.COM', '30000', '30000'
+                fields[4], fields[5], fields[8] = 'AGODA.COM', '30000', '30000'
                 batch = flow.pipeline.receive(header + (','.join(fields)+'\n').encode(),
                                               'ota-inferred-browser.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 candidate_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
-                    merchant='TRIP.COM', merchant_normalized='trip.com', approval_date='2026-08-01',
+                    merchant='AGODA.COM', merchant_normalized='agoda.com', approval_date='2026-08-01',
                     amount_krw=30000, card_tail='1234', ota_inference_eligible=True)
                 event = ota_event('ota-inferred-browser', paid_on=None, verified_portal_snapshot=True,
                     reservation_status='completed',
@@ -590,12 +592,15 @@ class CardFlowBrowserTests(unittest.TestCase):
             thread.start()
             try:
                 flow = CardFlow(server.card_store)
+                trip = server.card_store.create_trip(starts_on='2026-10-01', ends_on='2026-10-03',
+                    destination='Synthetic recording trip', client_request_id='browser-recording-trip')['tab_id']
                 batch = flow.pipeline.receive(CARD, 'ready-synthetic.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 flow.pipeline.save_decision(row['transaction_id'], row['revision'],
-                                            item='소모품비', display_tab_id='unclassified',
+                                            item='소모품비', display_tab_id=trip,
                                             tab_validator=flow.tab_valid, request_id='ready-confirm')
                 flow.classify(batch)
+                self.assertEqual(flow.auto_record(batch)['auto_recorded'], 1)
                 self.assertEqual(flow.auto_record(batch)['auto_recorded'], 0)
                 row_id = 'card-' + row['transaction_id']
                 self.assertEqual(server.card_store.conn.execute(
@@ -641,9 +646,12 @@ class CardFlowBrowserTests(unittest.TestCase):
             thread.start()
             try:
                 flow = CardFlow(server.card_store)
+                server.card_store.create_trip(starts_on='2026-05-22', ends_on='2026-05-23',
+                    destination='Synthetic Italy stay', client_request_id='browser-ota-stay-trip')
                 batch = flow.pipeline.receive(make_csv([domestic_row(merchant='TRIP.COM',
                     amount=123000, approval='87654321', date='2026-05-01')]), 'synthetic-ota.csv')['batch_id']
                 flow.classify(batch)
+                self.assertEqual(flow.auto_record(batch)['auto_recorded'], 1)
                 transaction_id = flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
                 row_id = 'card-' + transaction_id
                 self.assertEqual(server.card_store.conn.execute(
@@ -762,9 +770,9 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertGreaterEqual(visible_trips, 3)
                     page.get_by_role('link', name='지출 정리 1건', exact=True).click()
                     page.locator('#expense-tab-saved').click()
-                    page.locator('[data-batch]').wait_for()
-                    self.assertIn('국민카드 사용내역', page.locator('[data-batch]').inner_text())
-                    self.assertNotIn('H.xlsx', page.locator('[data-batch]').inner_text())
+                    page.locator('.batch-choice[data-batch]').wait_for()
+                    self.assertIn('국민카드 사용내역', page.locator('.batch-choice[data-batch]').inner_text())
+                    self.assertNotIn('H.xlsx', page.locator('.batch-choice[data-batch]').inner_text())
                     self.assertFalse(page.locator('#newupload').evaluate('(el) => el.open'))
                     page.locator('#summary').get_by_role('heading', name='국민카드 사용내역').wait_for()
                     self.assertNotIn('H.xlsx', page.locator('#summary').inner_text())
@@ -1001,12 +1009,12 @@ class CardFlowBrowserTests(unittest.TestCase):
                     field.fill(original_item)
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
                     page.get_by_role('button',name='다음 20건').click()
-                    self.assertEqual(page.locator('form[data-index]').count(),5)
+                    self.assertEqual(page.locator('form[data-index]').count(),6)
                     self.assertEqual(page.locator('#questions .review-item[open]').count(), 1)
                     page.get_by_role('button',name='이전 20건').click()
                     self.assertEqual(page.locator('form[data-index]').count(),20)
                     page.get_by_role('button',name='다음 20건').click()
-                    self.assertEqual(page.locator('form[data-index]').count(),5)
+                    self.assertEqual(page.locator('form[data-index]').count(),6)
                     page.locator('[data-edit]').click()
                     page.get_by_role('heading',name='수정 · 합성 자동분류').wait_for()
                     self.assertEqual(page.locator('form[data-index]').first.locator('input[name=item]').input_value(),'소모품')
@@ -1049,7 +1057,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.locator('input[name=item]').fill('소모품')
                     page.locator('textarea[name=note]').fill('사무실 소모품입니다')
                     page.locator('input[name=reuse_rule]').check()
-                    page.get_by_role('button',name='답변 저장하고 다시 분류').click()
+                    page.get_by_role('button',name='저장하고 자동 반영').click()
                     page.get_by_text('저장했습니다.',exact=True).wait_for()
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
                     screenshot=Path(directory)/'card-flow-mobile.png'

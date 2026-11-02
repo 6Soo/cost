@@ -8,7 +8,7 @@ import time
 import zipfile
 from io import BytesIO
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import pytest
@@ -45,12 +45,21 @@ def seed_synthetic_trip(service):
     for source in snapshot['sources'].values():
         source.update(status='ok', stale=False, last_ok_at=stamp, checked_at=stamp)
     service.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
-    list_trips = service.server.card_store.list_trips
-    quarter_trip = {
-        'tab_id': tab_id, 'starts_on': '2026-04-01', 'ends_on': '2026-06-29',
-        'destination': 'Synthetic Q2 source', 'display_key': 'Synthetic Q2 source',
-        'archived': False,
+    store = service.server.card_store
+    created = store.create_trip(starts_on='2026-04-01', ends_on='2026-06-29',
+        destination='Synthetic Q2 source', display_key='2분기_기타비용',
+        client_request_id='autonomous-quarter-source-trip')
+    quarter_trip = store.get_trip(created['tab_id'])
+    quarter_trip.update(tab_id=tab_id, key='2분기_기타비용', kind='quarter', quarter=2,
+        ledger_year=2026, canonical_source='main', closure='open', closure_current=True,
+        verified=True, review=[])
+    required_trip_keys = {
+        'tab_id', 'display_key', 'destination', 'starts_on', 'ends_on', 'prepared_on',
+        'prepared_by_name', 'archived', 'revision', 'event_year', 'tab_kind',
+        'authority_status', 'source_sha256', 'assignee_source',
     }
+    assert required_trip_keys <= quarter_trip.keys()
+    list_trips = store.list_trips
     service.server.card_store.list_trips = lambda include_archived=True: (
         list_trips(include_archived=include_archived) + [quarter_trip])
     return tab_id
@@ -107,6 +116,44 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     from webapp.card_flow import CardFlow
     monkeypatch.setattr(CardFlow, 'trip_valid', lambda self, target: target == trip_id)
     trip_id = seed_synthetic_trip(service)
+    trip = next(item for item in service.server.card_store.list_trips()
+                if item['tab_id'] == trip_id)
+    trips_code, trips_html, _ = service.request(
+        '/trips?trip=' + quote(trip_id), cookie=service.cookie(OWNER))
+    assert trips_code == 200, trips_html[:500]
+    assert f"id='manage-{trip_id}'" in trips_html
+    assert f'name=\'prepared_on\' value=\'{trip["prepared_on"]}\'' in trips_html
+    assert '담당자' in trips_html
+    source_trip = next(item for item in service.server.card_store.list_trips()
+                       if item['destination'] == 'Synthetic Q2 source')
+    submitted = {
+        'csrf': ledger_board.CSRF_TOKEN,
+        'expected_revision': str(source_trip['revision'] - 1),
+        'client_request_id': 'autonomous-trip-stale-input',
+        'return_to': '/trips',
+        'display_key': 'SYNTHETIC REJECTED TITLE',
+        'prepared_on': '2026-04-02',
+        'prepared_by_name': source_trip['prepared_by_name'],
+        'assignee_form': '1',
+    }
+    rejected_request = Request(
+        f'http://127.0.0.1:{service.port}/api/trips/{quote(source_trip["tab_id"])}/meta',
+        data=urlencode(submitted).encode(),
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Cookie': f'{google_oidc.COOKIE_NAME}={service.cookie(OWNER)}',
+        })
+    try:
+        rejected_response = service.opener.open(rejected_request, timeout=5)
+    except HTTPError as error:
+        rejected_response = error
+    rejected_html = rejected_response.read().decode('utf-8')
+    assert rejected_response.code == 409, rejected_html[:500]
+    assert 'SYNTHETIC REJECTED TITLE' in rejected_html
+    assert '2026-04-02' in rejected_html
+    unchanged_trip = service.server.card_store.get_trip(source_trip['tab_id'])
+    assert unchanged_trip['display_key'] == source_trip['display_key']
+    assert unchanged_trip['prepared_on'] == source_trip['prepared_on']
     from webapp import card_upload_jobs
     process_calls = []
     process_lock = __import__('threading').Lock()
