@@ -1189,7 +1189,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 정리</title>"
             f"<style>{PAGE_CSS}</style></head><body>"
             f"<nav aria-label='장부 이동'><a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a></nav>"
-            "<h1>영수증 정리</h1><p id='status' role='status' aria-live='polite'></p>"
+            "<main><h1>영수증 정리</h1><p id='status' role='status' aria-live='polite'></p>"
             "<section id='step-trip'><h2>1. 여행 선택</h2><label>검토할 여행"
             "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
             "</select></label></section>"
@@ -1224,7 +1224,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<option value='corporate_card'>법인카드</option></select> "
             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></div>"
             + (_notes_html() if ai else "") +
-            "</details>"
+            "</details></main>"
             f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}{WORKFLOW_SCRIPT}</script></body></html>")
 
 

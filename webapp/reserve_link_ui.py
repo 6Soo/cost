@@ -132,6 +132,7 @@ a.back:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+<main>
 <h1>예약 명단·여행 연결</h1>
 <!-- Two ways back out. This screen has no navigation rail of its own, so
      without these the owner can arrive here and only reach anything else by
@@ -154,6 +155,7 @@ a.back:hover { text-decoration: underline; }
 <section id="linkBox"></section>
 <section id="planBox"></section>
 <div id="rows"></div>
+</main>
 <script>
 var stateUrl = "/api/reserve-link/plan";
 var linksUrl = "/api/reserve-link/links";

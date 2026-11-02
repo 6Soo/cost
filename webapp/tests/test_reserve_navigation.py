@@ -94,7 +94,7 @@ class OwnerEntryLinkTests(_Base):
         markup = self.header("owner")
         head = markup[markup.index("page-hd"):markup.index("id='q-form'")]
         self.assertIn(f"id='{ENTRY_ID}'", head)
-        self.assertIn("href='/export'", head)
+        self.assertIn("href='/export?tab=", head)
 
     def test_the_entry_link_comes_before_the_review_link_when_both_are_drawn(self):
         """Linking first, then comparing against the real source.
@@ -177,7 +177,7 @@ class ViewerSeesNoEntryLinkTests(_Base):
         is configured, which is a separate condition.
         """
         markup = self.header("viewer")
-        self.assertIn("href='/export'", markup)
+        self.assertIn("href='/export?tab=", markup)
         self.assertIn("카드 가져오기", markup)
 
 
@@ -210,6 +210,12 @@ class ReturnLinkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.document = reserve_link_ui.render_reserve_link_ui("csrf-synthetic")
+
+    def test_main_landmark_contains_heading_and_work_area(self):
+        main = self.document.split('<main>', 1)[1].split('</main>', 1)[0]
+        self.assertIn('<h1>예약 명단·여행 연결</h1>', main)
+        self.assertIn('id="linkBox"', main)
+        self.assertIn('id="rows"', main)
 
     def test_the_ledger_return_link_is_present_and_points_at_the_board(self):
         self.assertIn("id=\"back-board\"", self.document)
