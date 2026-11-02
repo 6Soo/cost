@@ -1075,7 +1075,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             match_attributes = f" aria-describedby='{board.esc(hint_id)}'"
             match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
                                  f"{board.esc(label)}</span>")
-            if match.get('status'):
+            if match.get('status') and match.get('status') != 'NEW_EXPENSE':
                 match_description = (f"<span class='expense-copy-state' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
         body.append(
@@ -1207,7 +1207,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                       '금액+' + '+'.join(match['reasons']))
             match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
                           f"{board.esc(reason)}</span>")
-            if match.get('status'):
+            if match.get('status') and match.get('status') != 'NEW_EXPENSE':
                 match_hint = (f"<span class='expense-copy-state'>{board.esc(reason)}</span>")
         # Two-line business summary only: date, kind tag, category, vendor,
         # purpose, amount. The origin detail lives in the edit panel, so no
