@@ -56,6 +56,22 @@ def test_correction_refuses_protected_rows(setup,protection):
         correction.preview(c,fixes(rows),TRIPS)
 
 
+def test_low_confidence_note_does_not_bypass_manual_decision_protection(setup):
+    board, flow, _, rows = setup
+    c = board.conn
+    row = rows[0]
+    decision = flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+        display_tab_id='A', trip_id='A', trip_validator=lambda _: True, tab_validator=lambda _: True,
+        note='낮은 확신 분배 synthetic', request_id='synthetic-legacy')
+    change = dict(transaction_id=row['transaction_id'], source_hash=row['source_hash'],
+        revision=decision['revision'], trip_id='B', item='항공료', basis='synthetic ticket evidence',
+        classification_source='ai_inference', execution=dict(kind='connected_agent', provider='synthetic',
+        model='synthetic', run_id='synthetic'), legacy_inference_reconsideration=dict(
+            revision=decision['revision'], item='숙박비', display_tab_id='A', note='낮은 확신 분배 synthetic'))
+    with pytest.raises(ValueError, match='CORRECTION_PROTECTED'):
+        correction.preview(c, [change], TRIPS)
+
+
 def test_original_with_refund_is_not_moved_independently(setup):
     board,_,_,rows=setup; c=board.conn
     c.execute("UPDATE transactions SET transaction_direction='cancellation',original_approval_number=? WHERE transaction_id=?",(rows[0]['approval_number'],rows[2]['transaction_id']))

@@ -392,8 +392,7 @@ class OtaStore:
                 self.conn.execute('INSERT OR IGNORE INTO ota_mail_origins VALUES(?,?)', (message_id, source))
                 fact_key = sha(encoded(message))
                 if fact_key not in self._fact_cache:
-                    self._fact_cache[fact_key] = (ota_mail.extract_mail(message)
-                        or ota_payments._extract_signed_payment_message(message))
+                    self._fact_cache[fact_key] = ota_payments.extract_payment_fact(message)
                 fact = self._fact_cache[fact_key]
                 if fact:
                     self._evidence(fact['provider'], fact['booking_ref'], revision, message_id, 'mail', fact)

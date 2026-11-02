@@ -25,6 +25,8 @@ def test_query_always_includes_the_kew2000_recipient_and_the_supplier_domains():
     assert 'from:toyoko-inn.co.jp' in query
     assert 'from:forest.go.kr' in query
     assert 'from:foresttrip.go.kr' in query
+    assert 'from:flyasiana.com' in query
+    assert 'from:skyticket.com' in query
     assert 'subject:토요코인' in query
     for domain in mail_collect.SUPPLIER_DOMAINS:
         assert f'from:{domain}' in query
@@ -37,6 +39,14 @@ def test_query_preserves_always_collected_recipients_and_after_boundary():
     assert 'to:kew2000@daum.net OR cc:kew2000@daum.net' in query
     assert 'subject:토요코인 OR (from:nicepg.co.kr ("자연휴양림" OR "휴양시설"))' in query
     assert query.endswith(')))')
+
+
+def test_rest_message_received_timestamp_is_usable_without_rewriting_original():
+    message = {'internalDate': '1792242000000'}
+    headers = {'date': 'Sat, 17 Oct 2026 12:00:00 +0900'}
+    assert ota_mail.sent_day(message, headers).isoformat() == '2026-10-17'
+    assert 'internal_date' not in message
+    assert ota_mail.sent_day(dict(message, internal_date='1'), headers) is None
 
 
 def test_collect_keeps_two_day_overlap_and_state_query(tmp_path):
@@ -73,6 +83,7 @@ def test_owner_raw_mail_decodes_declared_charset_and_keeps_original():
 
 def test_collect_writes_new_messages_once_and_records_state(tmp_path):
     (tmp_path / 'collection.json').write_text(json.dumps({'before': '2026-10-05', 'message_ids': ['old-1']}), encoding='utf-8')
+    (tmp_path / 'gmail-existing.json').write_text(json.dumps({'responses': [{'id': 'old-1'}]}), encoding='utf-8')
     client = FakeGmail(['old-1', 'new-1', 'new-2'])
     result = mail_collect.collect(client, tmp_path, datetime(2026, 10, 15, 9, 0))
     assert result == {'matched': 3, 'fetched': 2, 'query': client.queries[0]}
@@ -86,6 +97,43 @@ def test_collect_writes_new_messages_once_and_records_state(tmp_path):
     written = sorted(tmp_path.glob('gmail-auto-*.json'))
     assert len(written) == 1
     assert [m['id'] for m in json.loads(written[0].read_text(encoding='utf-8'))['responses']] == ['new-1', 'new-2']
+
+
+def test_listed_id_without_original_is_fetched_again(tmp_path):
+    (tmp_path / 'collection.json').write_text(json.dumps({
+        'before': '2026-10-05', 'message_ids': ['missing'],
+    }), encoding='utf-8')
+    result = mail_collect.collect(FakeGmail(['missing']), tmp_path, datetime(2026, 10, 15, 9, 0))
+    assert result['fetched'] == 1
+    assert json.loads(next(tmp_path.glob('gmail-auto-*.json')).read_text(encoding='utf-8'))['responses'][0]['id'] == 'missing'
+
+
+def test_historical_window_is_idempotent_and_preserves_recurring_watermark(tmp_path):
+    state = '{"before":"2026-10-31","message_ids":[]}'
+    (tmp_path / 'collection.json').write_text(state, encoding='utf-8')
+    client = FakeGmail(['historic', 'historic'])
+    result = mail_collect.collect_window(client, tmp_path, '2026-09-16', '2026-09-19')
+    assert result['fetched'] == 1
+    assert 'before:2026/09/19' in client.queries[0]
+    assert (tmp_path / 'collection.json').read_text(encoding='utf-8') == state
+    assert mail_collect.collect_window(client, tmp_path, '2026-09-16', '2026-09-19')['fetched'] == 0
+
+
+def test_historical_window_retries_import_without_replacing_original(tmp_path, monkeypatch):
+    import pytest
+    client = FakeGmail(['historic'])
+    def fail(_directory):
+        raise ValueError('synthetic import failure')
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', fail)
+    with pytest.raises(ValueError, match='synthetic import failure'):
+        mail_collect.collect_window(client, tmp_path, '2026-09-16', '2026-09-19')
+    original, = tmp_path.glob('gmail-window-*.json')
+    before = original.read_bytes()
+    called = []
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', lambda directory: called.append(directory))
+    result = mail_collect.collect_window(client, tmp_path, '2026-09-16', '2026-09-19')
+    assert result['fetched'] == 0 and called == [tmp_path]
+    assert original.read_bytes() == before
 
 
 def test_collected_file_is_read_by_the_mail_loader(tmp_path):

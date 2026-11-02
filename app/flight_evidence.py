@@ -9,8 +9,12 @@ import re
 from app import ota_mail
 
 
-PARSER_VERSION = "flight-evidence-v6-labeled-departure"
-PROVIDER_DOMAINS = {"trip": ("trip.com", "trip.co.kr")}
+PARSER_VERSION = "flight-evidence-v7-conservative-asiana-skyticket"
+PROVIDER_DOMAINS = {
+    "trip": ("trip.com", "trip.co.kr"),
+    "asiana": ("flyasiana.com",),
+    "skyticket": ("skyticket.com",),
+}
 
 _INVISIBLE = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, *range(0x202A, 0x202F)])
 _HEADER = re.compile(
@@ -86,7 +90,12 @@ def _booking_refs(tokens):
 
 def _received_fact(message, source_digest):
     """Mailbox reception milliseconds only; sender Date/Received text is not used."""
-    raw = str(message.get('internal_date') or '')
+    snake = message.get('internal_date')
+    camel = message.get('internalDate')
+    if snake not in (None, '') and camel not in (None, '') and str(snake) != str(camel):
+        # Conflict between original spellings: reject conservatively, keep digest unchanged.
+        return None
+    raw = str(snake if snake not in (None, '') else camel or '')
     if not re.fullmatch(r'\d{12,13}', raw):
         return None
     try:
@@ -289,6 +298,30 @@ def collect_flight_evidence(mail_directories) -> dict:
         subject = str((authenticated[0] or {}).get("subject") or "")
         body_text = ota_mail.message_text(message)
         source_digest = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
+        if provider in ('asiana', 'skyticket'):
+            from app import airline_payment_mail
+            payment = airline_payment_mail.extract(message)
+            cancelled = airline_payment_mail.cancellation_references(message)
+            references = ({payment['booking_ref']} if payment else
+                          {ref for name, ref in cancelled if name == provider})
+            received = _received_fact(message, source_digest)
+            period = payment.get('period') if payment else None
+            dates = (payment or {}).get('reserved_dates', [])
+            date_status = 'CONFLICT' if len(dates) > 1 else 'EXPLICIT_LABEL' if dates else 'UNKNOWN'
+            for ref in references:
+                if received:
+                    receipts[(provider, ref)].append(received)
+                grouped[(provider, ref)].append({
+                    'booking_ref': ref, 'passengers': [], 'legs': [],
+                    'reserved_on': dates[0] if len(dates) == 1 else '', 'booking_date_status': date_status,
+                    'booking_date_evidence': ([{'source_date': dates[0], 'timezone': 'GMT',
+                                               'meaning': 'explicit_booking_created_label'}]
+                                              if len(dates) == 1 else []), 'booking_card_day': '',
+                    'labeled_departure_on': (period or {}).get('starts_on', ''),
+                    'cancellation_status': 'CONFLICT' if cancelled else 'NONE',
+                    'source_digest': source_digest,
+                })
+            continue
         refs = _booking_refs(_flight_tokens(body_text))
         fact = _received_fact(message, source_digest)
         if len(refs) == 1 and fact:
