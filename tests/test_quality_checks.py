@@ -35,6 +35,13 @@ def test_product_change_uses_existing_impact_group_and_data_protection_gate():
     assert len(plan["pytest_targets"]) == 5
 
 
+def test_changed_test_module_is_executed_even_when_impact_map_omits_it():
+    path = "webapp/tests/test_trip_google_income_browser.py"
+    plan = quality.build_plan([path], selector([], targets=["tests/test_cost_audit.py"]))
+    assert path in plan["pytest_targets"]
+    assert plan["browser_required"] is True
+
+
 def test_playwright_detection_uses_ast_not_test_filename():
     impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
     targets, unknown = selector_tool.select_targets(["webapp/static/css/site_shell.css"], impact_map["groups"])
