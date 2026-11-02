@@ -82,6 +82,9 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-expanded td{padding:12px;background:var(--ca-soft)}
 .card-all-page .card-all-expanded[hidden]{display:none}
 .card-all-page .card-all-expanded-content{min-width:0;overflow-wrap:anywhere}
+.card-all-page .card-all-action{margin:0 0 14px;padding:12px 14px;border-left:3px solid var(--ca-accent);background:var(--ca-paper);line-height:1.55}
+.card-all-page .card-all-action p{margin:4px 0}
+.card-all-page .card-all-action .card-all-link{font-size:13px;min-height:36px;align-items:center}
 .card-detail-fields{display:grid;grid-template-columns:minmax(60px,auto) minmax(0,1fr);gap:8px 12px;margin:0;font-size:12px;line-height:1.5}
 .card-detail-fields dt{color:var(--mut,#64748b)}
 .card-detail-fields dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
@@ -518,12 +521,24 @@ def card_detail_html(item: dict) -> str:
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
               ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
-              ('분류 근거', item.get('classification_basis')),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
-    return "<dl class='card-detail-fields'>" + ''.join(
-        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>' + _review_action(item)
+    action = item.get('next_action') or {}
+    action_html = ''
+    if action:
+        reason = action.get('reason') or ('이 거래는 COST에 기록되어 있습니다.' if action.get('group') == 'booked' else
+                  '분류와 배정 내용을 확인하거나 수정할 수 있습니다.' if action.get('group') == 'review' else
+                  '이 거래의 처리 내용을 확인할 수 있습니다.')
+        heading = ' · '.join(filter(None, (action.get('state_label'), action.get('reason_label'))))
+        link = (f"<a class='card-all-link card-review-action' href='{_esc(action['href'])}'>"
+                f"{_esc(action.get('label') or '거래 확인')}</a>" if action.get('href') else '')
+        action_html = f"<div class='card-all-action'><strong>{_esc(heading)}</strong><p>{_esc(reason)}</p>{link}</div>"
+    basis = item.get('classification_basis')
+    basis_html = (f"<details><summary>저장된 분류 근거 보기</summary><p>{_esc(basis)}</p></details>"
+                  if basis else '')
+    return action_html + "<dl class='card-detail-fields'>" + ''.join(
+        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>' + basis_html + _review_action(item)
 
 
 def _group_by_date(items: list[dict]) -> list[tuple[str, list[tuple[str, str, dict]]]]:
