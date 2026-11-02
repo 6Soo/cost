@@ -376,7 +376,7 @@ class ReceiptReviewTests(unittest.TestCase):
                 context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
                                               viewport={'width': width, 'height': height})
                 page = context.new_page()
-                page.goto(self.base + '/receipts')
+                page.goto(self.base + '/receipts?trip=' + self.trip)
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.set_input_files('#img-file', files=[{'name': 'receipt.png', 'mimeType': 'image/png',
                                                           'buffer': PNG}])
@@ -414,6 +414,11 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.click('#copy-tsv')
                 self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+                back = page.locator('a.work-back')
+                self.assertIn('tab=' + self.trip, back.get_attribute('href'))
+                back.click()
+                self.assertEqual(page.evaluate('new URL(location.href).searchParams.get("tab")'), self.trip)
+                self.assertEqual(page.evaluate('location.pathname'), '/board')
             finally:
                 browser.close()
 
