@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -283,8 +284,12 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
         log.write("$ " + " ".join(command) + "\n$ py_compile\n")
         log.write(compile_result.stdout + compile_result.stderr + "\n$ pytest\n")
         log.flush()
+        # A redirected stdout is written by the child itself. The parent's
+        # encoding= option does not control Python/pytest's Windows encoding.
+        child_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         tests = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
-                               text=True, encoding="utf-8", errors="replace", shell=False)
+                               text=True, encoding="utf-8", errors="replace", shell=False,
+                               env=child_env)
     junit_result = summarize_junit(junit_path, browser_tests)
     browser_executed = junit_result["browser_executed"]
     browser_skipped = junit_result["browser_skipped"]

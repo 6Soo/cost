@@ -173,6 +173,31 @@ def test_deleted_paths_are_retained_in_impact_plan():
     assert "app/ledger.py" in quality.build_plan(["app/ledger.py"], selector([]))["changed_paths"]
 
 
+def test_redirected_pytest_uses_utf8_and_keeps_failure_artifacts(tmp_path, monkeypatch):
+    """Exercise a real child stream under a legacy Windows encoding setting."""
+    monkeypatch.setenv("PYTHONIOENCODING", "cp949")
+    real_run = subprocess.run
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text('<testsuite><testcase classname="synthetic" name="failure"><failure message="synthetic"/></testcase></testsuite>', encoding="utf-8")
+        return real_run([quality.sys.executable, "-c", "print('검사 실패');raise SystemExit(1)"], **kwargs)
+
+    monkeypatch.setattr(quality.subprocess, "run", run)
+    assert quality._write_run_artifacts([], [], "a" * 40, "b" * 40, root=tmp_path) == 1
+    artifacts = tmp_path / "quality-artifacts"
+    assert "검사 실패" in (artifacts / "pytest.log").read_text(encoding="utf-8")
+    summary = json.loads((artifacts / "run-summary.json").read_text(encoding="utf-8"))
+    assert summary["status"] == "FAILED"
+    assert summary["pytest_exit_code"] == 1
+    assert summary["test_case_count"] == 1
+
+
 def test_selector_malformed_and_unknown_status_fail_closed():
     with pytest.raises(ValueError, match="SELECTOR_MALFORMED"):
         quality.build_plan(["app/file.py"], {"status": "SELECTED", "pytest_commands": []})

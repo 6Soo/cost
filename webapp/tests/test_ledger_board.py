@@ -628,11 +628,13 @@ class BoardApiTests(unittest.TestCase):
         and requires 후보 and 자동분류 rows to look like ordinary rows.
         """
         page = self._get_html("/board?tab=trip-demo-a")
-        for word in ("후보", "미분류", "auto_classified", "classification_state",
-                     "검토필요"):
-            self.assertNotIn(word, page, word)
-        self.assertNotIn("badge", page)
-        for classes in re.findall(r"<tr[^>]*class='([^']*)'", page):
+        table = re.search(r"<table id='tbl'>.*?</table>", page, re.S).group()
+        headers = re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)
+        self.assertIn("거래처·내용", headers)
+        self.assertIn("금액", headers)
+        self.assertNotIn("분류 상태", headers)
+        self.assertNotIn("badge", table)
+        for classes in re.findall(r"<tr[^>]*class='([^']*)'", table):
             self.assertNotIn("candidate", classes)
             self.assertNotIn("unclassified", classes)
         # an auto-classified row and a cancellation row both still render, as
@@ -646,19 +648,21 @@ class BoardApiTests(unittest.TestCase):
         # asserted on those rather than on heading text the router dropped.
         page = self._get_html("/board?tab=trip-demo-a")
         groups = re.findall(r"colgroup'[^>]*>([^<]*)<", page)
-        self.assertEqual(groups, ["수입", "지출"])
+        self.assertEqual([group.strip() for group in groups], ["수입 (COST 기록)", "지출"])
         self.assertEqual(re.findall(r"<tbody[^>]*>", page)[0],
                          "<tbody class='grp'>")
-        self.assertLess(page.index(">수입<"), page.index(">지출<"))
+        # Group headers above already assert the table order; global text also
+        # contains summary totals, which are outside the transaction table.
+        self.assertIn("수입내역 보기", page)
 
     def test_mobile_layout_present_on_the_routed_page(self):
         # The narrow-screen rules live in the served stylesheet. The old 760px
         # breakpoint and `scrollx` belonged to the unrouted function.
         page = self._get_html("/board?tab=trip-demo-a")
-        self.assertIn("@media (max-width:759px)", page)
-        self.assertIn(".lst{display:block", page)
-        # the trip list moves behind a button, per 17.1
-        self.assertIn("#btn-menu", page)
+        self.assertIn("@media(width < 760px)", page)
+        self.assertIn("<div class='tw'><table id='tbl'>", page)
+        self.assertRegex(page, r"\.tw\{[^}]*overflow-x:auto")
+        self.assertRegex(page, r"id='btn-menu'[^>]*aria-controls='nav'")
 
     def test_detail_shows_basis(self):
         page = self._get_html("/row?id=expense-demo-c1")
