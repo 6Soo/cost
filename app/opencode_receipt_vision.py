@@ -178,7 +178,7 @@ def _valid_box(value):
         return None
     if not isinstance(value, (list, tuple)) or len(value) != 4:
         return None
-    if any(type(point) not in (int, float) or not math.isfinite(point) or not 0 <= point <= 1
+    if any(type(point) not in (int, float) or not 0 <= point <= 1 or not math.isfinite(point)
            for point in value):
         return None
     x0, y0, x1, y1 = value

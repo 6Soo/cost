@@ -142,3 +142,8 @@ def test_normalized_boxes_are_requested_and_strictly_preserved_or_cleared():
     without_box = {key: value for key, value in valid.items() if key != "box"}
     assert vision.validate_response({"receipts": [without_box]}, image_hash="h")["receipts"][0]["id"] == \
         vision.validate_response({"receipts": [{**without_box, "box": None}]}, image_hash="h")["receipts"][0]["id"]
+
+
+def test_extremely_large_box_coordinate_becomes_unknown():
+    raw = {"receipts": [{"box": [0, 0, 10**400, 1], "merchant": "A", "amount": 820}]}
+    assert vision.validate_response(raw, image_hash="h")["receipts"][0]["box"] is None
