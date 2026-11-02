@@ -1,3 +1,11 @@
+## 2026-11-02 장부 숙박 이용일 표시 누락 수정 완료
+
+- COMPLETE — 사용자 “왜 이용일 확인 필요로 되어있지? 조사해서 수정”. 기존 카드 장부 행의 빈 이용기간만 읽고 현재 OTA 검증 기간을 표시하지 않던 경로를 읽기 전용 투영으로 수정했다. [PR #482](https://github.com/6Soo/cost/pull/482), 구현·운영 `46e00f8d4bcd5ca0c3f7d3cc7861eae6bfb45acb`, 병합 `f1e6453dfa48edd8cdd02fbc4e01f1a79300f15b`, 이전 검증 `ce61fea6ca09546c838602c530308850b9cade30`. 병합 SHA에는 독립 PR481의 분류 변경이 함께 있어, main에 포함된 이번 검증 구현 커밋만 고정 배포했다.
+- 검증: 표적42 passed·OTA 투영/동일 세대 신선도 보호12 passed, 실행 파일은 검사 후보와 모두 동일, Git diff check PASS. 저장 기간·수동 빈값·예약 충돌·stale·취소/환불·원본/중복 보호 유지. 전체 회귀·실기기는 국소 표시 변경으로 미실행.
+- 인증 ego-browser 운영 수락: 재시작 뒤 OTA 대사 갱신 중에는 미확인 표시 유지, 정상 갱신 완료 뒤 실제 야마가타 장부의 문제4행이 각각6/26~28·7/5~7(2행)·6/28~29로 표시됨을 확인했다. 카드 날짜는 그대로다. 저장 대조 자료의4행 투영과 실제 신선한 운영 화면 수락을 구별한다. 개별 기간 근거가 없는 행은 날짜를 창작하지 않는다.
+- 배포1,243 blobs 불일치0·task/process 고정 SHA·단일loopback8751·health/ready200·보호API401/403·금융보호13표 내용/스키마 불변 PASS. 코드 전용이므로 별도 전체DB백업/복원 대신 이전 검증 릴리스·task XML 복구점을 보존했다. 분류/여행/장부/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/stay-date-20261102/`의 targeted.xml·protection-tests.xml·actual-projection.json·review.json·release-audit.json·deploy-evidence.json·live-final.json·resume-checkpoint.json. 사용자/타 작업 미커밋 변경 보존. 요청 미결/차단0·다음 기능 명령 없음. 문서 후속만으로 재배포/재시작하지 않는다.
+
 ## 2026-11-02 원본 상세 탭 이동·수동 Google 동기화 완료
 
 - COMPLETE — 사용자 요청 2개를 [PR #478](https://github.com/6Soo/cost/pull/478)로 구현·병합·배포했다. 구현 `178b5b9558e0bf9f449ccfb1b6be8dae7d32d39c`, 운영 `ce61fea6ca09546c838602c530308850b9cade30`, 이전 검증 `6bfeee7b34d6eab551394b73d87bedfa29000bc1`. 원본 상세는 현재 여행 접근 권한·선택 사본·정확한 탭 제목을 확인하고 Google 읽기 전용 탭 색인에서 실제 gid를 찾아 새 창으로 연다. 장부 관리의 제거된 과거 페이지는 재활성화하지 않는다.
