@@ -4,10 +4,10 @@
 
 ## 현재 상태
 
-- IMPLEMENTED / RELEASE_PENDING: ANUS Free Auto 두 명의 저장·계산 및 UI/API 결과를 주세션이 인수·교정·통합했다. 최초 완료 보고의 결함은 실제 검사로 재현해 수정했으며 보고 자체를 수락 근거로 쓰지 않았다.
+- COMPLETE: ANUS Free Auto 두 명의 저장·계산 및 UI/API 결과를 주세션이 인수·교정·통합했다. 최초 완료 보고의 결함은 실제 검사로 재현해 수정했으며 보고 자체를 수락 근거로 쓰지 않았다.
 - 구현 `52498478`, 비동기 업로드 보존 통합 `b2daa1ef`. 시작 SHA `f1e6453d`, 최신 코드 통합 기준 `699eb8ed`.
 - 기존 업로드 이력·변경 로그만 사용한다. 생성자·조회 GET·기능 저장 모두 DDL이 없고 기존 require-schema 계약을 변경하지 않는다. 과거 거래로 조회 확인을 역산하지 않는다.
-- 운영 배포·실제 자료 업로드/재처리·Google 쓰기는 아직 미실행이다. 호스트 작성권은 선행 배포 담당자가 해제했으며 검증 SHA를 직렬 배포한다.
+- [PR #510](https://github.com/6Soo/cost/pull/510) 및 원명세 #479 병합. 운영 SHA `a7aa8c7ff23af9574ccbf42301803687b788d64d`, 직전 검증 `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`. 선행 배포 이후 작성권을 인수해 코드만 직렬 전환했다. 실제 자료 업로드/재처리·Google 쓰기는 미실행이다.
 - 기존 `C:/AX/cost`의 사용자·병행 변경을 보존하고 `feat/card-upload-coverage-20261102` 격리 작업 공간만 사용한다.
 
 ## 수락 조건과 실제 근거
@@ -33,6 +33,11 @@
 - 메타데이터는 지원하는 명시 조회조건만 제안한다. 파싱 오류·제한 조회·부분 다운로드·중복 조회조건 충돌·행/메타데이터 카드 불일치·식별 누락 행은 사용자 확인으로 승격하지 않는다. 끝4만 식별된 파일은 다른 파일과 합치지 않는다.
 - 과거 기록 자동 보정·금융 분류·여행 배정·환불 확정·Google 최종 장부 쓰기는 이 기능의 효과가 아니다. 코드 배포는 운영 DB나 원본 변경을 포함하지 않는다.
 
-## 다음 실행
+## 운영 수락과 종료
 
-구현 PR 검토·main 정상 병합 → 검증 코드 동일성 확인 → 선행 운영 SHA `699eb8ed6b2c796b1da7841e4605db7c0ef38fc2`를 복구점으로 코드 전용 배포 → health/ready·보호 API·호스트 합성 영향 경로·보호13표 비교 → 운영 SHA와 현재 상태 기록.
+- 검사 트리와 병합본 전체 동일, 1,282 Git blobs 불일치0. task/process SHA·단일 loopback8751·health/ready200·신규 조회기간/기존 금융 API401·Google 보호403·보호13표 내용/스키마 불변 PASS. 기존 task 인수와 SourceRefresh 상태를 보존했다.
+- 호스트 venv의 격리 합성 SQLite에서 0건 증빙 저장·공백·멱등·원본/금융 표 불변 PASS. 실제 운영 자료를 합성 fixture로 복사하지 않았다.
+- 인증된 운영 `/import`의 카드 업로드 탭·조회기간 API200/available true·390/1440px 넘침0·44px 업로드 버튼·조회기간 표시 수락. 과거 자동 소급이 없어 조회 확인0/재확인0이며 실제 사용자 확인을 꾸미지 않는다. TaskSpace20 정상 종료.
+- 코드 전용 배포이므로 검증된 이전 릴리스/task XML 복구점을 보존하고 새 전체 DB 백업·복원은 반복하지 않았다. 금융/여행/환불/원본/Google/스키마 쓰기0.
+- 근거는 `C:/AX/cost/.local-archive/card-upload-coverage-final-20261102/`에 보존하는 checkpoint·browser-evidence·live-browser·deployed-smoke·review·release-audit·protection-before/after·deploy-evidence 및 호스트 동일 SHA 감사 기록이다. 기존 고객 자료·사용자 변경·stash를 보존한다.
+- 승인된 PR479 구현·검증·운영 반영의 미결/차단0, 다음 기능 명령 없음. 후속 결과 문서만으로 검사·재배포·서버 재시작을 반복하지 않는다.
