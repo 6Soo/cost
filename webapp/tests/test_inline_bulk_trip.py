@@ -46,6 +46,60 @@ def test_conflict_rolls_back_every_row(store):
     assert [store.get_row(x['row_id']) for x in chosen] == before
 
 
+def test_single_item_edit_does_not_lock_unchanged_trip_before_bulk_move(store):
+    rid = 'expense-demo-c1'
+    original = store.get_row(rid)
+    store.save(row_id=rid, expected_revision=original['revision'],
+               client_request_id='item-edit', change_mode='exception',
+               changes={'item': '식비', 'display_tab_id': original['display_tab_id']})
+    fields = {row[0] for row in store.conn.execute(
+        'SELECT field FROM board_manual_overrides WHERE row_id=?', (rid,))}
+    assert fields == {'item'}
+    chosen = rows(store)
+    result = store.save_expense_trips_atomic(
+        rows=chosen, target='trip-demo-b', client_request_id='after-item-edit')
+    assert result['count'] == 2
+    assert store.get_row(rid)['display_tab_id'] == 'trip-demo-b'
+    assert store.get_row(rid)['item'] == '식비'
+    assert store.get_row(rid)['amount_krw'] == original['amount_krw']
+
+
+def test_bulk_move_accepts_rows_already_in_destination_without_new_revision(store):
+    chosen = rows(store)
+    store.save(row_id='expense-demo-c3', expected_revision=1,
+               client_request_id='seed-destination', change_mode='exception',
+               changes={'display_tab_id': 'trip-demo-b'}, actor='automatic')
+    other = store.get_row('expense-demo-c3')
+    chosen.append({'row_id': other['row_id'], 'revision': other['revision']})
+    assert other['display_tab_id'] == 'trip-demo-b'
+    result = store.save_expense_trips_atomic(
+        rows=chosen, target='trip-demo-b', client_request_id='mixed-destination')
+    assert result['count'] == 3
+    assert store.get_row(other['row_id']) == other
+    assert all(store.get_row(row['row_id'])['display_tab_id'] == 'trip-demo-b'
+               for row in chosen)
+
+
+def test_item_edit_preserves_existing_manual_trip_protection(store):
+    rid = 'expense-demo-c1'
+    original = store.get_row(rid)
+    store.conn.execute(
+        'INSERT INTO board_manual_overrides(row_id,field,event_id) VALUES (?,?,?)',
+        (rid, 'display_tab_id', 'existing-trip-decision'))
+    store.conn.commit()
+    store.save(row_id=rid, expected_revision=original['revision'],
+               client_request_id='protected-item-edit', change_mode='exception',
+               changes={'item': '식비', 'display_tab_id': original['display_tab_id']})
+    assert store.conn.execute(
+        'SELECT event_id FROM board_manual_overrides WHERE row_id=? AND field=?',
+        (rid, 'display_tab_id')).fetchone()[0] == 'existing-trip-decision'
+    with pytest.raises(SaveError) as err:
+        store.save_expense_trips_atomic(
+            rows=rows(store), target='trip-demo-b', client_request_id='protected-move')
+    assert err.value.code == 'FIELD_READ_ONLY'
+    assert store.get_row(rid)['display_tab_id'] == original['display_tab_id']
+
+
 def test_manual_override_refuses_whole_batch(store):
     chosen = rows(store)
     before = [store.get_row(x['row_id']) for x in chosen]

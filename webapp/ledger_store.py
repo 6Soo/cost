@@ -3058,6 +3058,8 @@ class LedgerStore:
                      change_mode, actor, created_at, client_request_id),
                 )
                 for field in changes if actor != "automatic" else ():
+                    if new.get(field) == prev.get(field):
+                        continue
                     self.conn.execute(
                         "INSERT OR REPLACE INTO board_manual_overrides(row_id, field, event_id)"
                         " VALUES (?,?,?)",
