@@ -216,3 +216,101 @@ function Start-Process {
                             encoding='utf-8', errors='replace', timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
     assert f'ROLE={route};PORT=8752' in result.stdout
+
+
+@pytest.mark.parametrize('failure', ['', 'prepare', 'drain', 'takeover'])
+def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
+    """Execute the switch script with synthetic task/process and route APIs."""
+    shell = shutil.which('powershell') or shutil.which('pwsh')
+    assert shell, 'PowerShell is required for the switch contract'
+    root = tmp_path / 'host'
+    (root / 'config').mkdir(parents=True)
+    (root / 'releases').mkdir()
+    old, new = 'a' * 40, 'b' * 40
+    candidate = root / 'releases' / new / 'webapp'
+    candidate.mkdir(parents=True)
+    (candidate / 'deployment_role.py').touch()
+    atomic_json(root / 'config/ledger-route.json', dict(port=8751, paused=False))
+    atomic_json(root / 'config/v2-deploy-gate.json', dict(status='PASS', candidate_sha=new))
+    source = (Path(__file__).resolve().parents[1] / 'tools/switch_continuous_release.ps1').read_text(encoding='utf-8')
+    source = source.replace("$hostRoot='D:\\WebLedgerHost'", f"$hostRoot='{root}'")
+    # Only the external controller invocation is replaced; real script flow,
+    # task actions, error handling, and filesystem evidence remain exercised.
+    source = source.replace('& $python @parameters', 'Invoke-SyntheticRoute @parameters')
+    switch = tmp_path / 'switch.ps1'
+    switch.write_text(source, encoding='utf-8')
+    harness = tmp_path / 'harness.ps1'
+    harness.write_text(r'''
+param($Switch,$Old,$New,$Failure,$Root)
+$ErrorActionPreference='Stop'
+$global:events=[Collections.Generic.List[string]]::new()
+$global:board=[pscustomobject]@{State='Running';Actions=@([pscustomobject]@{Execute='powershell';Arguments="-File $Old/start.ps1 -BoardPort 8751"});Principal=@{};Settings=@{}}
+$global:prepared=$null
+$global:ports=@{8751=$Old}
+$global:takeoverFailed=$false
+function Get-ScheduledTask {
+    param($TaskName)
+    if($TaskName -eq 'WebLedger-Board'){return $global:board}
+    if($TaskName -eq 'WebLedger-Prepared'){return $global:prepared}
+}
+function New-ScheduledTaskAction {param($Execute,$Argument); [pscustomobject]@{Execute=$Execute;Arguments=$Argument}}
+function Register-ScheduledTask {
+    param($TaskName,$Action,$Principal,$Settings)
+    $global:prepared=[pscustomobject]@{State='Ready';Actions=@($Action)}
+}
+function Start-ScheduledTask {
+    param($TaskName)
+    $global:events.Add('start:'+$TaskName)
+    $task=Get-ScheduledTask $TaskName
+    if($TaskName -eq 'WebLedger-Board' -and $task.Actions[0].Arguments.Contains($New) -and $Failure -eq 'takeover' -and -not $global:takeoverFailed){$global:takeoverFailed=$true;throw 'SYNTHETIC_TAKEOVER_FAILURE'}
+    $task.State='Running'
+    $port=if($task.Actions[0].Arguments.Contains('-BoardPort 8752')){8752}else{8751}
+    $global:ports[$port]=if($task.Actions[0].Arguments.Contains($New)){$New}else{$Old}
+}
+function Stop-ScheduledTask {param($TaskName); $global:events.Add('stop:'+$TaskName); (Get-ScheduledTask $TaskName).State='Ready'}
+function Set-ScheduledTask {param($TaskName,$Action); $global:board.Actions=@($Action)}
+function Unregister-ScheduledTask {param($TaskName,[switch]$Confirm); $global:prepared=$null}
+function Export-ScheduledTask {param($TaskName); '<synthetic/>'}
+function Get-NetTCPConnection {
+    param($LocalPort,$State)
+    if($LocalPort -eq 8790 -or $global:ports.ContainsKey([int]$LocalPort)){
+        [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=[int]$LocalPort}
+    }
+}
+function Get-CimInstance {
+    param($ClassName,$Filter)
+    $processId=[int]($Filter -replace 'ProcessId=','')
+    if($processId -eq 8790){$line='ledger_gateway.py'}elseif($global:ports.ContainsKey($processId)){$line=$global:ports[$processId]+' launch_web_ledger.py'}else{return}
+    [pscustomobject]@{ProcessId=$processId;ParentProcessId=99999;CommandLine=$line}
+}
+function Stop-Process {param($Id); $global:events.Add('kill:'+$Id); $global:ports.Remove([int]$Id)}
+function Invoke-WebRequest {
+    param($Uri,$TimeoutSec,[switch]$UseBasicParsing)
+    if("$Uri" -match ':8752/' -and $Failure -eq 'prepare'){throw 'SYNTHETIC_NOT_READY'}
+    [pscustomobject]@{StatusCode=200}
+}
+function Start-Sleep {}
+function Invoke-SyntheticRoute {
+    $action=$args[1]
+    $global:events.Add('route:'+$action)
+    if($action -eq 'pause' -and $Failure -eq 'drain'){throw 'SYNTHETIC_DRAIN_TIMEOUT'}
+    $global:LASTEXITCODE=0
+}
+try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS' } catch { $outcome='FAILED' }
+[pscustomobject]@{outcome=$outcome;events=@($global:events);board=$global:board.Actions[0].Arguments;old_alive=$global:ports.ContainsKey(8751);new_alive=$global:ports.ContainsKey(8752);prepared_exists=($null -ne $global:prepared)} | ConvertTo-Json -Compress
+''', encoding='utf-8')
+    result = subprocess.run([shell, '-NoProfile', '-File', str(harness), '-Switch', str(switch),
+                             '-Old', old, '-New', new, '-Failure', failure or 'none', '-Root', str(root)],
+                            capture_output=True, encoding='utf-8', errors='replace', timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert not report['prepared_exists']
+    if not failure:
+        assert report['outcome'] == 'PASS', report
+        assert new in report['board'] and report['new_alive'] and not report['old_alive']
+        assert report['events'].index('route:pause') < report['events'].index('kill:8751') < report['events'].index('route:activate')
+    else:
+        assert report['outcome'] == 'FAILED', report
+        assert old in report['board'] and report['old_alive'] and not report['new_alive'], report
+        if failure in ('prepare', 'drain'):
+            assert 'stop:WebLedger-Board' not in report['events'], report
