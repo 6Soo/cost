@@ -99,6 +99,11 @@ def test_scheduled_audit_selects_deduplicated_protection_and_ui_groups():
     assert len(plan["pytest_targets"]) == len(set(plan["pytest_targets"]))
     assert plan["browser_required"] is True
     assert any("chromium_true_baseline_differential_matrix" in target for target in plan["browser_tests"])
+    assert {
+        "webapp/tests/test_autonomous_workflows.py",
+        "webapp/tests/test_card_upload_jobs.py",
+        "webapp/tests/test_export_page_performance.py",
+    } <= set(plan["pytest_targets"])
 
 
 def test_unknown_product_path_fails_closed_without_broad_suite(tmp_path):

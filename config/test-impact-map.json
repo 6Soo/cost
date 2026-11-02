@@ -2,7 +2,8 @@
   "schema": "cost-test-impact-map-v1",
   "audit_groups": [
     "core-safety-net", "financial-core", "google-readonly", "ota-reconciliation",
-    "card-flow", "ledger-store-boundaries", "shared-shell-assets", "shared-ui-browser-contracts"
+    "card-flow", "ledger-store-boundaries", "shared-shell-assets", "shared-ui-browser-contracts",
+    "autonomous-workflow-journeys", "async-upload-idempotency"
   ],
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
