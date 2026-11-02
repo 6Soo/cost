@@ -3382,7 +3382,7 @@ el('upload').onclick=async()=>{
  const results=[],failures=[],pending=[],root=el('upload-results');root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><ul class="upload-file-list"></ul>';const list=root.querySelector('ul');
  try{
   for(let i=0;i<files.length;i++){
-   if(generation!==batchGeneration){el('status').textContent='자료 선택이 바뀌어 나머지 파일 업로드를 중단했습니다. 처리된 파일은 파일별 결과에서 확인해 주세요.';return}
+   if(generation!==batchGeneration){const entry=document.createElement('li');entry.textContent='자료 선택이 바뀌어 나머지 파일 업로드를 중단했습니다.';list.append(entry);return}
    const f=files[i],entry=document.createElement('li');list.append(entry);entry.textContent=f.name+' · 처리 중';
    el('status').textContent='파일 '+(i+1)+'/'+files.length+' · '+f.name+'을(를) 읽고 분류하고 있습니다.';uploadLabel.textContent='처리 중 '+(i+1)+'/'+files.length;
    try{
@@ -3391,7 +3391,7 @@ el('upload').onclick=async()=>{
     appendCoverageForm(entry,j);
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
   }
-  if(generation!==batchGeneration){el('status').textContent='파일 처리가 끝났습니다. 파일별 결과를 확인해 주세요.';return}
+  if(generation!==batchGeneration)return;
   if(results.length)render(results[results.length-1],true);
   const incomplete=results.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=results.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
