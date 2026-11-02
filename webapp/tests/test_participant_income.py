@@ -238,8 +238,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
         owner.feed(owner_html)
         self.assertIn(7, owner.rows)
         self.assertIn(6, owner.rows)
-        self.assertIn("+ (\"<th>보험 명단</th>\" if owner else \"\")",
-                      __import__('inspect').getsource(gl.trip_income_html))
+        self.assertIn('<th>보험 명단</th>', owner_html)
 
     def test_a_stale_decision_is_refused(self):
         status, body = self.call('/api/participants/link', OWNER, 'POST',
