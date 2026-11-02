@@ -174,6 +174,17 @@ def test_real_projection_rejects_identifying_text_in_timestamp():
     assert 'SECRET' not in json.dumps(page.prepare_real_demo(snapshot, {}))
 
 
+@pytest.mark.parametrize('stamp', ['2020-01-01T00:00:00+09:00', '2030-01-01T00:00:00+09:00'])
+def test_real_projection_rejects_stale_or_future_snapshot_timestamp(stamp):
+    import datetime as dt
+    now = dt.datetime.fromisoformat('2026-10-11T10:00:00+09:00')
+    source = {'status': 'ok', 'stale': False, 'last_ok_at': now.isoformat()}
+    snapshot = {'schema': 'google-authority-readonly-v2', 'synced_at': stamp,
+                'sources': {'main': dict(source), 'archive': dict(source)},
+                'trips': [trip('SECRET', 900, owner_id='aslan', kind='trip')]}
+    assert page.prepare_real_demo(snapshot, {}, now=now)['entries'] == []
+
+
 def test_real_failure_never_reuses_synthetic_cache(demo_file, monkeypatch):
     assert get('/api/demo/top3')[2]['entries']
     monkeypatch.setenv('WEBLEDGER_DEMO_REAL_PUBLICATION', '1')

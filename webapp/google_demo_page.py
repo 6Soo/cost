@@ -25,14 +25,18 @@ def prepare_real_demo(snapshot: dict, choices: dict, *, previous=None, now=None)
 
     if not isinstance(snapshot, dict) or snapshot.get('schema') != google_authority.SCHEMA:
         return google_demo.build_demo(None, previous)
-    try:
-        synced_at = dt.datetime.fromisoformat(snapshot['synced_at']).isoformat()
-    except (KeyError, ValueError, TypeError):
-        return google_demo.build_demo(None, previous)
     sources = snapshot.get('sources')
     if not isinstance(sources, dict) or not all(isinstance(sources.get(role), dict) for role in ('main', 'archive')):
         return google_demo.build_demo(None, previous)
     current = now or dt.datetime.now(google_authority.KST)
+    try:
+        stamp = dt.datetime.fromisoformat(snapshot['synced_at'])
+        snapshot_age = (current - stamp).total_seconds()
+        synced_at = stamp.isoformat()
+    except (KeyError, ValueError, TypeError):
+        return google_demo.build_demo(None, previous)
+    if not -60 <= snapshot_age <= google_ledger_page.MAX_SNAPSHOT_AGE_SECONDS:
+        return google_demo.build_demo(None, previous)
     for role in ('main', 'archive'):
         source = sources[role]
         try:
