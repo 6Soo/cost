@@ -2,6 +2,11 @@
 
 - 사용자 지시에 따라 새 ego-browser 작업 공간에서 운영 `/flight-passengers`의 인증 화면·검색 입력을 확인했다. 합성 영문 이름 조회는 예약 없음으로 응답했고 입력 유지·가로 넘침 없음을 확인했다. 실제 예약 결과의 새 탭 클릭은 수행하지 않았으며 해당 동작은 PR #536 합성 브라우저 검사로 확인했다. 고객 금융·Google 장부 쓰기 없음. 로컬 근거 `.local-archive/autonomous-qa-20261102/flight-live-resume-valid.mjs`, `flight-live-resume-status.mjs`.
 
+## 2026-11-02 카드 업로드 대기 개선 배포
+
+- [PR #541](https://github.com/6Soo/cost/pull/541), 운영 `828e56db310e41fab864410e2dacb7049ed503a3`, 이전 검증 릴리스 `d878234c2ca90ab6c1362f7a007f284060562e88`. 영향 QA 207 passed·30 subtests 및 GitHub Actions 41431463759 통과.
+- 1,293개 파일 해시 일치, health/ready 200, 보호 API 401/403, 보호 테이블 13개 전후 불변. 인증 운영 업로드 화면 읽기 확인. 실제 업로드와 성능 개선율은 미측정이며 서버 처리에는 공유 잠금이 유지된다. 근거 `.local-archive/autonomous-qa-20261102/upload-speed-release/deploy-evidence.json`.
+
 ## 2026-11-02 항공권 검색 결과 유지 배포
 
 - [PR #536](https://github.com/6Soo/cost/pull/536), 코드 `4303ca66`, 운영 `d878234c2ca90ab6c1362f7a007f284060562e88`. 카드 원행을 안내와 함께 새 탭에서 열어 검색 결과를 유지한다. 이름이나 예약 정보를 URL·브라우저 저장소에 새로 기록하지 않는다.
