@@ -1,3 +1,8 @@
+## 2026-11-02 카드 자료 전환 상태 보호 배포
+
+- [PR #528](https://github.com/6Soo/cost/pull/528), 검증 코드 `ec92540c`, 운영 `38d31b89a202d0b7da30bb1bf08f0bd2340b6c2a`. 업로드 중 다른 자료를 선택하면 이전 응답이 현재 상태를 덮지 않도록 고쳤고 파일별 결과는 보존했다. 카드 복사 검사를 현행 경로로 복구했다.
+- 카드 복사 모듈 21 passed·4 subtests; 영향 QA 227 passed·34 subtests·skip 0, GitHub Actions 41413669138 통과. 운영 1,292 blobs 일치, health/ready 200, 보호 API 401/403, 보호 13표 전후 불변. 직전 릴리스 `58557f389bde6e67d59f7de3041e0d96b9fd6942` 보존. 인증 운영 카드 자료 화면에서 두 탭·버튼과 가로 넘침 없음을 읽기 전용 확인했다. 실제 업로드·금융·Google 쓰기는 하지 않았다. 근거 `.local-archive/autonomous-qa-20261102/card-copy-release/deploy-evidence.json`, `card-copy-live-new.mjs`.
+
 ## 2026-11-02 여행 정보 입력 라벨 배포
 
 - [PR #524](https://github.com/6Soo/cost/pull/524), 코드 `51805911b6997a3eb58849d22b04b29b92043ad6`, 운영 `58557f389bde6e67d59f7de3041e0d96b9fd6942`. 여행 관리의 표시 이름·작성일·담당자 입력을 각 라벨에 연결했다. [PR #523](https://github.com/6Soo/cost/pull/523)은 합성 브라우저의 여행 정보 충돌·입력 보존 검사를 추가했다.
