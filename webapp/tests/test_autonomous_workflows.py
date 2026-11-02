@@ -608,11 +608,12 @@ def test_browser_home_trip_export_download(service):
             assert download.failure() is None
             workbook = load_workbook(BytesIO(download.path().read_bytes()), read_only=True, data_only=True)
             try:
-                values = [value for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True)
-                          for value in row if value is not None]
-                assert values.count('SYNTHETIC EXPORT MERCHANT') == 1
-                assert values.count(7200) == 1
-                assert values.count('OTHER_EXPENSE') == 1
+                assert workbook.sheetnames == ['Synthetic export trip']
+                rows = list(workbook['Synthetic export trip'].iter_rows(values_only=True))
+                matches = [row for row in rows if row[3] == 'SYNTHETIC EXPORT MERCHANT']
+                assert len(matches) == 1
+                assert matches[0][2] == 'OTHER_EXPENSE'
+                assert matches[0][7] == 7200
             finally:
                 workbook.close()
         finally:
