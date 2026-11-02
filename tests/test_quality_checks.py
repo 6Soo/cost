@@ -269,6 +269,17 @@ def test_junit_cannot_pass_zero_tests_or_skipped_browser_cases(tmp_path):
     assert fixture_result["missing_browser_tests"] == []
 
 
+def test_parameterized_browser_cases_are_counted_and_skips_remain_blocking(tmp_path):
+    junit = tmp_path / "junit.xml"
+    browser = ["webapp.tests.test_refund::test_review"]
+    junit.write_text('<testsuite><testcase classname="webapp.tests.test_refund" name="test_review[complete]"/><testcase classname="webapp.tests.test_refund" name="test_review[pending]"><skipped/></testcase><testcase classname="webapp.tests.test_refund" name="test_review_other"/></testsuite>', encoding="utf-8")
+    result = quality.summarize_junit(junit, browser)
+    assert result["browser_executed"] == browser
+    assert result["browser_skipped"] == browser
+    assert result["missing_browser_tests"] == []
+    assert result["skip_count"] == 1
+
+
 def test_missing_junit_reports_zero_cases_and_missing_required_browser_tests(tmp_path):
     browser = ["webapp.tests.required_browser::test_required"]
     result = quality.summarize_junit(tmp_path / "missing.xml", browser)
