@@ -1,3 +1,27 @@
+## 2026-11-02 지출 정리·환불 읽기 성능 최적화 완료
+
+- COMPLETE — 사용자 “코드 살펴보면서 발견된 부분들을 최적화, 가능하면 Rust”. [성능·Rust 판단·재현 명세](specs/cleanup-read-performance-20261102.md), [PR #498](https://github.com/6Soo/cost/pull/498). 실행 병목2개인 취소 상관 OR 전체조회와 환불별 전체 구매 순회를 SQLite 문장별 IN집합·정확 발급사/끝4/금액 후보색인으로 교체했다. 원본/유일성/수동/중복/환불·NULL 의미를 유지한다. Rust는 주 병목이 네이티브SQL과탐색횟수이고 도구체인도없어 미도입했다.
+- 동일 입력·전체결과·워밍후5회 중앙값: 운영 읽기 묶음2.235→0.514초(4.35배), 환불0.625→0.248초(2.52배),486링크전체·목록/건수동일·쓰기0. 합성5,000구매/500취소는38.80배/16.47배이며 운영/HTTP개선율과구별한다. 검사144+40+47 passed, 후속NULL4는40과중복이다. 전체회귀/실기기는국소읽기변경으로미실행.
+- 구현 `c82d86b7`·검사 `2e3a6935`, main병합/고정운영 `114af50de6f1a28f19186d9b3cc35c89a92c1be4`, 이전검증 `e95a82392be716f488e1175d8ed621c2ac6cd8ec`. UI단일작성자handoff후직렬배포했고이전UI·비동기업로드코드를보존했다.1,262blobs불일치0·task/processSHA·단일loopback8751·health/ready200·보호API401/403·금융13표내용/스키마불변PASS. 이전검증릴리스/task복구점보존, 새전체DB백업/복원반복없음. 금융/분류/여행/장부/Google/원본/스키마쓰기0.
+- 인증ego/import수락:총1·GAMSGO제외·원결제미연결아고다취소유지PASS,TaskSpace13종료. 준비중외부502는앞선UI전환중관측이며본배포후정상수락과구별한다. 근거 `.local-archive/read-performance-20261102/`의 profile/real-differential/synthetic-benchmark·검사XML·review/release-audit/deploy-evidence·browser-final·protection-before/after. 호스트작성권을후속담당자에게해제통지했고이후문서만처리한다. 이요청미결/차단0·다음기능명령없음. 사용자/타작성자변경보존·문서후속재배포없음.
+
+## 2026-11-02 보험 연결 행 높이·과도한 버튼 테두리 회귀 수정 완료
+
+- COMPLETE — 사용자 첨부의 연결 행만 높아지는 문제를 재현했다. 직전 국내여행 보험 대상 아님 PR488은 해당 연결 버튼을 변경하지 않았다. 이후 공통 버튼 장식 PR493이 `.participant-link-details > summary`에도 class·아이콘·상하8px margin을 부여해 연결60.4px/미연결·환불45px로 커진 것이 원인이다. 해당 summary만 공통 장식에서 제외하고 기존 chevron·focus·44px 터치 영역을 보존한다. PR495 복합 버튼 보호도 함께 유지한다.
+- [PR #497](https://github.com/6Soo/cost/pull/497), 구현 `455384c0c07493880906a68ce5155e749922fe6b`, 병합·운영 `e95a82392be716f488e1175d8ed621c2ac6cd8ec`. 공통 버튼 담당65f011e가 직전 검증 운영 `61188520fe1758a18230bcdbf6563ee6cc70a1c0`에서 PR495+497을 통합해 단일 배포했다. 동시 host/gate 전환 없음.
+- 검증: 실제 panel.render+site_shell 합성에서 초기·비동기 연결/미연결/환불 행을 비교,320/390/1440px×밝음/어두움6건 모두 같은 높이(PC45px/모바일 전체행93px),추가 margin0·가로 넘침0·키보드 펼침/접힘 PASS. Python 관련25 passed. 같은 조건의 브라우저 회귀 테스트를 추가했으며 본 작업의 실제 브라우저 실행은 ego-browser다. 인증 운영 화면의 연결 행과 미연결/환불 행 높이·장식 제거를 live-final.json에서 확인했다.
+- 운영 SHA·health/ready·보호API 및 금융 보호13표 내용/스키마 불변은 host 동일SHA deploy-evidence와 배포 담당 근거를 사용한다. 금융/참가자 연결/Google/원본/스키마 쓰기0. 전체 회귀·실기기는 국소 장식 수정으로 미실행. 기존 미커밋 소스 보존,격리 archive/별도 index 사용.
+- 근거 `.local-archive/insurance-row-regression-20261102/`의 browser-result.json·targeted.xml·live-final.json·checkpoint.json 및 호스트 동일SHA 배포 기록. 요청 미결/차단0·다음 기능 명령 없음. 문서 전용 후속 재배포/재시작 없음.
+
+## 2026-11-02 카드 업로드 지연·실패 표시 수정 완료
+
+- COMPLETE — 사용자 첨부 XLSX 처리 지연·연결 실패 개선. [PR #494](https://github.com/6Soo/cost/pull/494), 구현 `25d1bca9`·통합 검증 `e9ec14bd`, 운영 `61188520fe1758a18230bcdbf6563ee6cc70a1c0`, 이전 검증 `697eb8f064e1bccccc07276d943958260c68f06f`. [실행 계약](specs/card-upload-latency-20261102.md).
+- UI 요청은 검증·원본 접수·내구 큐 저장 직후202를 반환하고 기존 분류→OTA 갱신→기록→전수 검증을 서버에서 직렬 실행한다. 소유자 전용 상태 조회는 금융DB/작성자 잠금을 사용하지 않는다. 진행 단계·경과 시간·연결 재시도·새로고침 재개·저장된 파일 링크를 제공하고, 저장 후 오류를 업로드 실패로 세지 않는다. 처리 중 새로고침에는 DB 없는 UI shell을 제공한다. 원문·수동 결정·중복·환불 보호 및 기존 동기 API를 유지하며 불필요한 중간 화면 조립2회를 제거했다. 총 분류/OTA 처리 시간이나 운영 개선 배수는 미측정이다.
+- 검증: 최신 통합 트리 표적/보호82 passed. 느린 분류를 중지한 채202·상태GET·새로고침HTML 응답, 같은 파일 재접수·OTA 갱신 전후 기록·부분환불·수동 이동·내구 복구·전수 대조 포함. 별도 인접33·HTTP/UI5 passed는 중복을 포함하므로 합산하지 않는다. ego-browser 합성 새로고침/완료/접수 후 오류/상세 링크/390px 넘침0 수락. 전체 회귀·운영 실파일 재업로드는 미실행이며 금융 재처리를 하지 않았다.
+- 첨부 원본은 읽기 전용 조사에서44행이 이미 저장되어 있었고43행 분류/내부 기록 완료·취소1행needs_review임을 확인했다. 특정 프록시 타임아웃 로그는 확보하지 않았다. 취소행 보호 유지, 재업로드·실제은행환급·Google 반영을 수행/확정하지 않았다. 인증 운영 화면에서 같은batch의44행과 새 async 코드·상태복구 함수 정상 표시 수락. TaskSpace8 정상 종료.
+- 배포1,259 blobs 불일치0·검사/배포 트리 동일·task/process 고정SHA·단일loopback listener·health/ready200·새 상태API/화면401 및 기존보호API401/403·금융보호13표 전후 불변 PASS. 기존 task 인수와 SourceRefresh 상태 보존. 코드 전용으로 이전 검증 릴리스/task XML 복구점을 보존했으며 새 전체DB백업/복원은 반복하지 않았다. 실제 금융/분류/여행/Google/원본/스키마 쓰기0.
+- 근거 `.local-archive/upload-speed-20261102/`의 merged-targeted.xml·final-adjacent.xml·saved-upload-state.json·live.json·review/release-audit/deploy-evidence/checkpoint. 사용자/타 작업 변경 보존. 후속UI 배포 담당자에게61188520 보존과 서버/게이트 쓰기 종료를 전달했다. 이 요청 미결·차단0·다음명령 없음. 문서 후속으로 재검사·재배포·재시작하지 않는다.
+
 ## 2026-11-02 분류 완료 거래의 반복 검토 요구 수정 완료
 
 - COMPLETE — 사용자 첨부 GAMSGO 반복 검토 원인 수정. 구버전 `complete-card-inference-v1` 문구만 완료로 인정하던 지출 정리 SQL에 현재 여행 권한으로 검증한 저장 분류 완료 조건을 추가했다. 낮은 신뢰도/분류 출처와 무관하게 여행·항목이 완료되면 목록·필터·건수에서 재확인을 요구하지 않는다. 내부 장부 미기록은 분류 미완료로 간주하지 않는다. 원본 오류·보류·환불 후보·원결제 미연결은 보존한다. 권한이 상실된 여행은 다시 표시한다.

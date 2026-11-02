@@ -63,9 +63,14 @@ def completed_assignment_sql(board):
     return (
         "(t.transaction_direction='purchase' AND t.amount_krw>0"
         f" AND COALESCE(t.display_tab_id,'') IN ({quoted})"
-        " AND NOT EXISTS(SELECT 1 FROM transactions c"
-        " WHERE c.issuer=t.issuer AND c.card_tail=t.card_tail"
-        " AND (c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0)"
-        " AND ((COALESCE(t.approval_number,'')!='' AND c.original_approval_number=t.approval_number)"
-        " OR c.merchant_normalized=t.merchant_normalized)))"
+        # Uncorrelated IN sets are built once per statement by SQLite. A
+        # correlated OR scan previously reread all refunds for every purchase.
+        # IN can return NULL; EXISTS treats unknown equality as no match.
+        " AND NOT ((COALESCE(t.approval_number,'')!='' AND COALESCE("
+        " (t.issuer,t.card_tail,t.approval_number) IN"
+        " (SELECT c.issuer,c.card_tail,c.original_approval_number FROM transactions c"
+        " WHERE c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0),0))"
+        " OR COALESCE((t.issuer,t.card_tail,t.merchant_normalized) IN"
+        " (SELECT c.issuer,c.card_tail,c.merchant_normalized FROM transactions c"
+        " WHERE c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0),0)))"
     )
