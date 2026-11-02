@@ -176,7 +176,10 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             expect(ticket.locator('.fb-flight-card')).to_have_count(1)
             assert ticket.locator('.fb-route-stop').count() == 2
             assert ticket.get_by_text('Synthetic Airline', exact=True).is_visible()
-            assert ticket.get_by_role('link', name='카드 원행 상세 보기').get_attribute('href') == '/board?row=card-synthetic'
+            detail_link = ticket.locator('a[href^="/board?row="]')
+            assert detail_link.get_attribute('href') == '/board?row=card-synthetic'
+            assert detail_link.get_attribute('target') == '_blank'
+            assert detail_link.get_attribute('rel') == 'noopener noreferrer'
             assert ticket.get_by_text('결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.').is_visible()
             ticket.get_by_text('참가자 연결 정보', exact=True).click()
             assert ticket.get_by_role('link', name='참가자 연결 정보 열기').get_attribute('href') == '/flight-passengers?view=participants'
@@ -278,53 +281,67 @@ def test_browser_name_search_opens_real_synthetic_card_and_trip_flight_then_retu
                         'url': f'http://127.0.0.1:{service.port}',
                     }])
                     screen = context.new_page()
+                    search_requests = []
+                    screen.on('request', lambda request: search_requests.append(request.post_data)
+                              if request.url.endswith('/api/flight-passengers/name-search') else None)
                     base = f'http://127.0.0.1:{service.port}'
                     screen.goto(base + '/flight-passengers')
-                    expect(screen.get_by_role('heading', name='항공권 예약 확인')).to_be_visible()
-                    screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
-                    screen.get_by_role('button', name='예약 조회', exact=True).click()
-                    ticket = screen.locator('.fb-ticket').filter(has_text='SYNTH-100')
-                    expect(ticket).to_be_visible()
-                    expect(ticket.get_by_text('SYN123', exact=True)).to_be_visible()
-                    detail_link = ticket.get_by_role('link', name='카드 원행 상세 보기')
-                    expect(detail_link).to_have_attribute('href', f'/board?row=card-{transaction_id}')
-                    detail_link.click()
-                    expect(screen).to_have_url(f'{base}/board?row=card-{transaction_id}')
-                    expect(screen.locator('#panel')).to_have_attribute('data-row', f'card-{transaction_id}')
-                    expect(screen.locator('#panel')).to_contain_text('SYNTHETIC AIRLINE')
-                    expect(screen.locator('#panel')).to_contain_text(transaction_id)
-                    expect(screen.locator('#panel')).to_contain_text('13,000')
+                    expect(screen.locator('h1').first).to_be_visible()
+                    screen.locator('input[name="name"]').fill('KIM ALPHA')
+                    screen.locator('form button[type="submit"]').click()
+                    tickets = screen.locator('.fb-ticket')
+                    expect(tickets.filter(has_text='SYNTH-100')).to_be_visible()
+                    expect(tickets.filter(has_text='SYNTH-200')).to_be_visible()
+                    expect(tickets.filter(has_text='SYNTH-100').get_by_text('SYN123', exact=True)).to_be_visible()
 
-                    # Open the real trip list, then follow its actual trip-tab link.
-                    trips_navigation = screen.locator('a[href="/trips"]').first
+                    detail_link = tickets.filter(has_text='SYNTH-100').locator('a[href^="/board?row="]')
+                    expect(detail_link).to_have_attribute('target', '_blank')
+                    expect(detail_link).to_have_attribute('rel', 'noopener noreferrer')
+                    expect(screen.get_by_text('새 탭에서 열립니다. 검색 결과는 이 탭에 유지됩니다.')).to_be_visible()
+                    with screen.expect_popup() as popup_info:
+                        detail_link.click()
+                    detail = popup_info.value
+                    expect(detail).to_have_url(f'{base}/board?row=card-{transaction_id}')
+                    expect(detail.locator('#panel')).to_have_attribute('data-row', f'card-{transaction_id}')
+                    expect(detail.locator('#panel')).to_contain_text('SYNTHETIC AIRLINE')
+                    expect(detail.locator('#panel')).to_contain_text(transaction_id)
+                    expect(detail.locator('#panel')).to_contain_text('13,000')
+
+                    # Continue through the real trip and flight detail routes inside the popup.
+                    trips_navigation = detail.locator('a[href="/trips"]').first
                     expect(trips_navigation).to_be_visible()
                     trips_navigation.click()
-                    expect(screen).to_have_url(base + '/trips')
-                    trip_link = screen.get_by_role('link', name='Synthetic flight trip', exact=True).first
+                    expect(detail).to_have_url(base + '/trips')
+                    trip_link = detail.get_by_role('link', name='Synthetic flight trip', exact=True).first
                     expect(trip_link).to_have_attribute('href', f"/board?tab={trip['tab_id']}")
                     trip_link.click()
-                    expect(screen).to_have_url(f"{base}/board?tab={trip['tab_id']}")
-                    section = screen.locator('.trip-flight')
+                    expect(detail).to_have_url(f"{base}/board?tab={trip['tab_id']}")
+                    section = detail.locator('.trip-flight')
                     expect(section).to_be_visible()
                     section.locator('summary').click()
-                    booking_button = section.get_by_role('button', name='2026-11-10 · SYNTH-100')
+                    booking_button = section.locator('.trip-flight-items button').filter(has_text='SYNTH-100').first
                     expect(booking_button).to_be_visible()
-                    expect(section.locator('.trip-flight-items')).to_contain_text('ICN → NRT')
+                    expect(section.locator('.trip-flight-items')).to_contain_text('ICN')
+                    expect(section.locator('.trip-flight-items')).to_contain_text('NRT')
                     booking_button.click()
-                    expect(section.locator('.trip-flight-detail')).to_be_visible()
                     expect(section.locator('.trip-flight-detail')).to_contain_text('SYN123')
                     expect(section.locator('.trip-flight-detail')).to_contain_text('KIM ALPHA')
 
-                    screen.go_back()
-                    expect(screen).to_have_url(base + '/trips')
-                    screen.go_back()
-                    expect(screen).to_have_url(f'{base}/board?row=card-{transaction_id}')
-                    screen.go_back()
+                    # The originating tab keeps both reservations and needs no repeat search.
                     expect(screen).to_have_url(base + '/flight-passengers')
-                    expect(screen.get_by_label('탑승객 이름')).to_be_visible()
-                    screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
-                    screen.get_by_role('button', name='예약 조회', exact=True).click()
-                    expect(screen.locator('.fb-ticket').first).to_contain_text('SYNTH-100')
+                    expect(screen.locator('input[name="name"]')).to_have_value('KIM ALPHA')
+                    expect(tickets.filter(has_text='SYNTH-100')).to_be_visible()
+                    expect(tickets.filter(has_text='SYNTH-200')).to_be_visible()
+                    assert len(search_requests) == 1
+                    assert 'KIM ALPHA' not in screen.url and 'SYNTH-100' not in screen.url
+                    storage = screen.evaluate("JSON.stringify([localStorage, sessionStorage])")
+                    assert 'KIM ALPHA' not in storage and 'SYNTH-100' not in storage
+                    detail.close()
+                    # Verify the second synthetic reservation directly from the preserved results.
+                    second = tickets.filter(has_text='SYNTH-200')
+                    expect(second).to_contain_text('SYNTH-200')
+                    expect(second).to_contain_text('KIM ALPHA')
+                    assert len(search_requests) == 1
                 finally:
                     browser.close()
     finally:
