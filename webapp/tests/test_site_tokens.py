@@ -22,12 +22,13 @@ from playwright.sync_api import sync_playwright
 from webapp import site_assets, site_shell, site_theme, ledger_board, ledger_design
 
 
-# Reviewed, non-sensitive pre-RF201 CSS oracle. This fixture keeps fresh clones
-# independent of local Git objects while the differential matrix stays intact.
+# Independent geometry reference: 40px menu control, 232px navigation, and
+# 44px theme control. This is an explicit contract fixture, not a byte-for-byte
+# copy of a historical stylesheet; it remains independent of the candidate CSS.
 BASELINE_SHELL_CSS = """\
 :root{--shell-bg:#F8FAFC;--shell-paper:#FFFFFF;--shell-ink:#0F172A;--shell-muted:#475569;--shell-warn:#B54708;--shell-line:#E2E8F0;--shell-line-strong:#D0D5DD;--shell-hover:#F8FAFC;--shell-selected:#ECF5EF;--shell-accent:#1C7A52;--shell-focus:#2266F5;--shell-overlay:rgba(16,24,40,.38);--shell-nav-width:232px;--shell-drawer-width:min(300px,85vw);--shell-topbar-height:56px;--shell-control-min:40px}
 @media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A;--shell-paper:#1E293B;--shell-ink:#F8FAFC;--shell-muted:#94A3B8;--shell-warn:#FBBF24;--shell-line:#334155;--shell-line-strong:#475569;--shell-hover:#334155;--shell-selected:#1E3A5F;--shell-accent:#34D399;--shell-focus:#93C5FD;--shell-overlay:rgba(0,0,0,.62)}}
-.site-topbar{display:flex;justify-content:flex-end}.site-topbar>.site-menu-toggle,.site-topbar>span{display:none}@media(width < 760px){.site-topbar>.site-menu-toggle{display:inline-flex}.site-topbar>span{display:inline}}.site-menu-toggle{font:inherit;min-height:var(--shell-control-min,40px);padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.site-topbar{display:flex;justify-content:flex-end}.site-topbar>.site-menu-toggle,.site-topbar>span{display:none}@media(width < 760px){.site-topbar>.site-menu-toggle{display:inline-flex}.site-topbar>span{display:inline}}.site-menu-toggle{box-sizing:border-box;height:40px;min-height:40px;font:inherit;padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
 #nav{box-sizing:border-box;width:var(--shell-nav-width,232px);flex:0 0 var(--shell-nav-width,232px);min-height:0;margin:0;padding:0;display:flex;flex-direction:column;overflow:auto;background:var(--shell-bg,#F7F9FC);border-right:1px solid var(--shell-line,#E4E7EC);color:var(--shell-ink,#182230)}
 .site-app>#nav{position:fixed;inset:0 auto 0 0;z-index:45}
 #site-content{margin-left:var(--shell-nav-width,232px);width:calc(100% - var(--shell-nav-width,232px));min-width:0;padding:16px}

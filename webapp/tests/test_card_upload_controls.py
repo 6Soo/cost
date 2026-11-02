@@ -16,9 +16,8 @@ def test_card_upload_accepts_multiple_files_and_drop_target_is_keyboard_accessib
             screen.route("http://synthetic.test/api/imports", lambda r: r.fulfill(
                 content_type="application/json", body='{"batches": []}'))
             screen.goto("http://synthetic.test/import")
+            screen.locator("#expense-tab-upload").click()
             upload_section = screen.locator("#newupload")
-            expect(upload_section).not_to_have_attribute("open", "")
-            screen.locator("#newupload > summary").click()
             expect(upload_section).to_have_attribute("open", "")
             expect(screen.locator("#upload-drop")).to_be_visible()
             screen.locator("#file").set_input_files([
