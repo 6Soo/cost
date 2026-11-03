@@ -109,7 +109,8 @@ def test_history_does_not_count_cancelled_or_conflicting_passengers_as_current()
     index = {"ACTIVE": evidence("ACTIVE"),
              "CANCEL": evidence("CANCEL", cancellation_status="CANCELLED"),
              "CONFLICT": evidence("CONFLICT", conflict=True)}
-    projection = project_trip_bookings(index, [active], source_generation="g")
+    projection = project_trip_bookings(index, [active], source_generation="g",
+                                       user_assignments={"trip:CONFLICT": {"trip_tab_id": "A"}})
     current = page_for_trip(projection, "A")
     history = page_for_trip(projection, "A", status="all")
     assert current["total_bookings"] == 1
@@ -123,6 +124,26 @@ def test_history_does_not_count_cancelled_or_conflicting_passengers_as_current()
     assert manual["bookings"][0]["assigned_trip_tab_id"] == "B"
     assert manual["bookings"][0]["assignment_conflict"] is True
     assert page_for_trip(manual, "B")["verified_passenger_count"] == 0
+
+
+def test_conflicting_flight_evidence_does_not_create_date_only_assignment():
+    active = trip("A", "2026-11-07", "2026-11-10")
+    index = {"PNR": evidence("PNR", conflict=True)}
+    unresolved = project_trip_bookings(index, [active], source_generation="g")
+    booking, = unresolved["bookings"]
+    assert booking["assigned_trip_tab_id"] == ""
+    assert booking["assignment_status"] == "CONFLICT"
+    assert page_for_trip(unresolved, "A", status="all")["total_bookings"] == 0
+    manual = project_trip_bookings(index, [active], source_generation="g",
+                                   user_assignments={"trip:PNR": {"trip_tab_id": "A"}})
+    assert manual["bookings"][0]["assignment_status"] == "USER_CONFIRMED"
+    assert manual["bookings"][0]["assigned_trip_tab_id"] == "A"
+    assert page_for_trip(manual, "A", status="all")["verified_passenger_count"] == 0
+    linked = project_trip_bookings(index, [active], source_generation="g",
+                                   authority_trip_ids={"trip:PNR": ["A"]})
+    assert linked["bookings"][0]["assignment_status"] == "AUTHORITY_VERIFIED"
+    assert linked["bookings"][0]["assigned_trip_tab_id"] == "A"
+    assert page_for_trip(linked, "A", status="all")["verified_passenger_count"] == 0
 
 
 def test_passenger_count_preserves_homonyms_and_provider_is_part_of_key():
