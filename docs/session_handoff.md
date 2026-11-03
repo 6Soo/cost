@@ -5,6 +5,12 @@
 - 문제 거래 1건(아고다 175,019원, 이용기간 10/13~10/14)을 `1002_영남`에서 `1010_도쿠시마`로 교정 완료. 단일 행 사본·원자 저장·교정 이력 보존, 거래/장부/화면 세 위치 일치, 금액·원본·날짜·ID 보존, 추가 반복 대상 0건 검증.
 - 검증: Windows 영향 QA 373 passed·30 subtests·skip 0, PR 호스팅 CI 41596907545 성공, main 병합 CI 41597324430 성공. 운영 DB 읽기 전용 검증에서 세 투영 일치, 금융 보호 불변, 교정 이력 1건 재확인. 근거 `C:/AX/cost/.local-archive/stay-trip-fix-20261103/` 및 `D:/WebLedgerHost/data/backups/stay-period-single-20261103/`. 문서 후속만으로 재검사·재배포·서버 재시작하지 않는다.
 
+## 2026-11-03 토요코인 수집·이용일 표시 점검 — 완료
+
+- COMPLETE — [PR #575](https://github.com/6Soo/cost/pull/575) 병합·운영 `bcd4e5bf5fd4e51516f5a026f3c41308ad64e311`, 이전 검증 `d57675a512f3c1446d0d3c9d3966114637640220`. 토요코인 메일 파서에서 홈페이지/감사 인사말을 호텔 지점명으로 오인하던 결함(69건)을 수정하고(parser12), 동일 지점·숙박 시점의 예약 후보 이용기간이 모두 일치할 때 장부에 '예약 근거 추론'으로 읽기 전용 표시를 보완했다. 개별 예약번호·결제 검증은 승격하지 않으며 원본/금융/여행 배정/Google 쓰기 없음.
+- 수집 점검 및 Google 재인증: 사용자 승인 하에 Ego 창에서 Google 계정(kkokkohero6@gmail.com) 재인증 완료 후 토큰 원자적 교정. Gmail 읽기 전용 조회(전체 986건, 기간 255건, 10/1 이후 44건) 누락 0건 확인. `WebLedger-MailCollect` 예약 작업 정상 완료(exit code 0, 100건 신규 메일 정상 수집).
+- 검증 및 배포: 표적 106 passed, Windows 영향 QA 495 passed·13 subtests·skip0 및 PR CI 41594203986 성공. 1,309 blobs 불일치0·backend8751 단일 배포·health/ready 200·보호 API 401·보호 13표 불변 PASS. ego-browser 운영 UI 수락(`1002_영남` `tab=trip-86714d1ca408`)에서 10/2(1,445,900원) 및 10/3(68,000원) 토요코인 창원 행의 '10월 2일(금) ~ 10월 4일(일) · 2박 · 예약 근거 추론' 표시와 가로 넘침 없음(overflow: false) 확인. 근거: `.local-archive/toyoko-audit-20261103/` (`actual-display.json`, `live-pc.json`, `deploy-evidence.json`, `reauth-audit.json`, `review.json`) 및 [명세](specs/toyoko-collection-audit-20261103.md). 다음 기능 명령 없음.
+
 ## 2026-11-03 트립닷컴 날짜 중복·OTA 추론 출처 표기
 
 - 구현·검증·병합·배포 COMPLETE: [PR #572](https://github.com/6Soo/cost/pull/572), 병합 `2c0616a27470e73c66b568cae80b639a95f0e1fd`, 합동 운영 `d57675a512f3c1446d0d3c9d3966114637640220`. 숙박 이용일 열과 정확히 같은 기간만 설명에서 생략한다. 이용일 미상·오류·다른 기간은 보존하며 원본/예약번호/메모/복사 내용은 변경하지 않는다. OTA 코드 matcher의 추론은 `코드 추론`으로 통일하고 기존 `AI 추론`은 구분한다.
