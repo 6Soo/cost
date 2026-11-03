@@ -817,6 +817,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                         "els => els.filter(el => { const r=el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }).length")
                     self.assertGreaterEqual(visible_trips, 3)
                     page.get_by_role('link', name='지출 정리 1건', exact=True).click()
+                    if not page.locator('#expense-tab-saved').is_visible():
+                        page.locator('.expense-tools > summary').click()
                     page.locator('#expense-tab-saved').click()
                     page.locator('.batch-choice[data-batch]').wait_for()
                     self.assertIn('국민카드 사용내역', page.locator('.batch-choice[data-batch]').inner_text())
@@ -998,6 +1000,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                                     route.continue_()
                             page.route('**/api/imports**', route_api)
                             page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                            if not page.locator('#expense-tab-saved').is_visible():
+                                page.locator('.expense-tools > summary').click()
                             page.locator('#expense-tab-saved').click()
                             page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).first.wait_for()
                             self.assertGreater(page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).count(),0)
@@ -1038,6 +1042,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page=browser.new_page(viewport={'width':390,'height':844})
                     page.on('pageerror',lambda e:errors.append(str(e)))
                     page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                    if not page.locator('#expense-tab-saved').is_visible():
+                        page.locator('.expense-tools > summary').click()
                     page.locator('#expense-tab-saved').click()
                     page.get_by_role('button',name='다음 20건').wait_for()
                     self.assertEqual(page.locator('form[data-index]').count(),20)
@@ -1066,6 +1072,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.locator(f'[data-edit="{auto["transaction_id"]}"]').click()
                     page.locator('#questions h2').filter(has_text='합성 자동분류').wait_for()
                     self.assertEqual(page.locator('form[data-index]').first.locator('input[name=item]').input_value(),'소모품')
+                    if not page.locator('#expense-tab-rules').is_visible():
+                        page.locator('.expense-tools > summary').click()
                     page.locator('#expense-tab-rules').click()
                     page.locator('#rulefilter').fill('자동분류')
                     page.locator('[data-rule]').click()
@@ -1127,6 +1135,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0],1)
                     self.assertEqual(len(server.card_store.list_tab_rows(trip)),1)
+                    if not page.locator('#expense-tab-rules').is_visible():
+                        page.locator('.expense-tools > summary').click()
                     page.locator('#expense-tab-rules').click()
                     page.locator('#ruleform input[name=merchant]').fill('합성상점')
                     page.locator('#ruleform input[name=rule_item]').fill('사무용품')

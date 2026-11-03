@@ -90,11 +90,12 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
     def tearDown(self):
         self._shutdown()
 
-    def test_the_global_area_states_the_unsaved_count_and_the_last_save(self):
+    def test_global_area_reserves_unsaved_warning_without_routine_save_timestamp(self):
         status, page = self._open(f"/board?tab={TAB}")
         self.assertEqual(status, 200)
         self.assertIn("저장되지 않은 변경 없음", page)
-        self.assertIn("최근 저장", page)
+        self.assertNotIn("최근 저장", page)
+        self.assertIn("id='unsaved-count' hidden", page)
 
     def test_the_last_save_time_comes_from_the_change_ledger(self):
         self._open(f"/api/rows/{ROW}/save",
@@ -102,18 +103,16 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
                     "operator_note": "기록", "change_mode": "exception",
                     "client_request_id": "top-1"}, "POST")
         _, page = self._open(f"/board?tab={TAB}")
-        m = re.search(r"최근 저장 ([^<·]+)", page)
-        self.assertIsNotNone(m)
-        shown = m.group(1).strip()
+        self.assertNotIn("최근 저장", page)
         latest = self.store.conn.execute(
             "SELECT MAX(created_at) FROM board_revisions WHERE kind<>'conflict'"
         ).fetchone()[0]
-        self.assertEqual(shown, google_ledger_page.format_display_time(latest))
+        self.assertTrue(latest)
 
     def test_a_ledger_with_no_save_says_so_rather_than_inventing_a_time(self):
         status, page = self._open("/board?tab=trip-demo-b")
         self.assertEqual(status, 200)
-        self.assertIn("최근 저장", page)
+        self.assertNotIn("최근 저장", page)
 
     def test_the_shared_screens_carry_the_same_global_line(self):
         for path in ("/import", "/export", "/trips"):
@@ -242,7 +241,7 @@ class ManualExpenseEntryPointTests(_Server, unittest.TestCase):
         self.assertEqual(len(rows), 2, "income group then expense group")
         expense_row = rows[1]
         self.assertIn("id='add-manual-expense'", expense_row)
-        self.assertIn("href='/expense/new'", expense_row)
+        self.assertIn(f"href='/expense/new?tab={TAB}'", expense_row)
 
     def test_the_button_is_not_in_the_income_group(self):
         _, page = self._open(f"/board?tab={TAB}")
@@ -310,6 +309,7 @@ class LeaveConfirmBrowserTests(unittest.TestCase):
         self.page.goto(self._url(f"/board?tab={TAB}"))
         self.page.wait_for_load_state()
         self.page.click(f"tr[data-id='{ROW}']")
+        self.page.locator('#panel .p-extra > summary').click()
         self.page.wait_for_selector("#f-description")
 
     def test_a_clean_page_leaves_without_any_dialog(self):
@@ -334,7 +334,7 @@ class LeaveConfirmBrowserTests(unittest.TestCase):
         self._open_panel()
         self.page.fill("#f-description", "저장할 값")
         self.page.wait_for_timeout(200)
-        self.page.click("button[type=submit]")
+        self.page.locator('#panel button[type=submit]').click()
         self.page.wait_for_timeout(600)
         self.assertIn("저장되지 않은 변경 없음",
                       self.page.inner_text("#unsaved-count"))

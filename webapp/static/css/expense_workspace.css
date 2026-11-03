@@ -9,6 +9,13 @@ main:has(.expense-tabs){max-width:1120px;padding:8px 8px 32px}
 .expense-tabs [role=tab][aria-selected=true]{background:var(--shell-selected);color:var(--shell-accent);border-color:var(--shell-accent);font-weight:750}
 .expense-tabs [role=tab]:hover,.expense-all-link:hover{background:var(--shell-hover);color:var(--shell-accent)}
 .expense-tabs .ic,.expense-all-link .ic{width:18px;height:18px;flex:none;margin:0}
+.expense-tabs .expense-tools{position:relative;margin:0;padding:0;border:0;background:transparent;flex:0 0 auto}
+.expense-tools>summary{display:flex;align-items:center;min-height:48px;padding:8px 12px;cursor:pointer;color:var(--shell-muted);font-size:13px}
+.expense-tools>summary::after{content:'⌄';margin-left:8px}
+.expense-tools>div{display:flex;flex-wrap:wrap;gap:4px}
+.expense-tools[open]>summary{color:var(--shell-accent)}
+.expense-tabs:has(.expense-tools[open]){flex-wrap:wrap}
+.expense-tabs .expense-tools[open]{flex-basis:100%;border-top:1px solid var(--shell-line)}
 main:has(.expense-tabs) :is(button,a,input,select,textarea,summary):focus-visible{outline:3px solid var(--shell-focus);outline-offset:3px}
 #expense-overview{background:transparent;border:0;padding:0;margin:0}
 #card-review-detail{border:0;padding:0;margin:0;background:transparent}

@@ -222,8 +222,7 @@ function renderPlan(payload) {
   var summary = el("summary");
   clear(summary);
   add(summary, "p", "counts-line",
-      "원천 식별자 " + text(counts.source_identifiers || 0) + "개 중 연결 "
-      + text(counts.resolved_transactions || 0) + "개, 미연결 "
+      "연결 " + text(counts.resolved_transactions || 0) + "개 · 미연결 "
       + text(counts.unlinked_identifiers || 0) + "개");
 
   var box = el("linkBox");
@@ -299,6 +298,7 @@ function renderPlan(payload) {
     function renderChosen() {
       clear(chosen);
       var values = pendingLinks[code];
+      if (clearButton) { clearButton.hidden = !values.length; }
       var changed = JSON.stringify(values.slice().sort()) !== JSON.stringify((per[code] || []).slice().sort());
       chosen.classList.toggle("empty", !values.length);
       add(chosen, "span", null, values.length
@@ -344,6 +344,7 @@ function renderPlan(payload) {
     cell.appendChild(select);
     var clearButton = add(cell, "button", "clear-link", "이 예약 연결 해제");
     clearButton.type = "button";
+    clearButton.hidden = !pendingLinks[code].length;
     clearButton.addEventListener("click", function() {
       for (var i = 0; i < select.options.length; i++) { select.options[i].selected = false; }
       pendingLinks[code] = [];

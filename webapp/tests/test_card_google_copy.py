@@ -453,6 +453,8 @@ class CardGoogleCopyTests(unittest.TestCase):
             with page.expect_request('**/api/imports'):
                 page.click('#upload')
             self.assertTrue(page.locator('#upload').is_disabled())
+            if not page.locator('#expense-tab-saved').is_visible():
+                page.locator('.expense-tools > summary').click()
             page.locator('#expense-tab-saved').click()
             page.locator(f'.batch-choice[data-batch="{batch}"]').click()
             page.wait_for_function('(id)=>model.batch_id===id', arg=batch)

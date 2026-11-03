@@ -54,24 +54,24 @@ def decorate(markup: str) -> str:
         'style/body boundary')
     _required_match(markup, r'</body\s*>', 'body closing tag')
 
-    tabs = ''.join(
+    tabs = [
         f'<button type="button" id="expense-tab-{key}" role="tab" '
         f'aria-controls="{panel}" aria-selected="{str(key == "cleanup").lower()}" '
         f'tabindex="{0 if key == "cleanup" else -1}" data-expense-view="{key}">'
         f'{icon(symbol)}<span>{label}</span></button>'
         for key, panel, symbol, label in (
             ('cleanup', 'expense-overview', 'list', '정리할 지출'),
-            ('saved', 'saved-materials', 'list', '저장된 자료'),
             ('upload', 'newupload', 'upload', '카드 업로드'),
+            ('saved', 'saved-materials', 'list', '저장된 자료'),
             ('rules', 'rules', 'pencil', '분류 규칙'),
         )
-    )
+    ]
     heading = (
         '<header class="expense-heading"><div><h1>지출 정리</h1>'
-        '<p>확인이 필요한 지출을 정리하고, 카드 자료와 분류 규칙을 관리하세요.</p>'
-        '</div><a class="expense-all-link" href="/import?scope=all">'
-        + icon('credit-card') + '전체 카드 내역' + icon('chevron-right') + '</a></header>'
-        '<nav class="expense-tabs" role="tablist" aria-label="지출 정리 작업">' + tabs + '</nav>'
+        '</div></header>'
+        '<nav class="expense-tabs" role="tablist" aria-label="지출 정리 작업">' + ''.join(tabs[:2])
+        + '<details class="expense-tools"><summary>자료·규칙 관리</summary><div>'
+        + ''.join(tabs[2:]) + '</div></details></nav>'
         '<section id="expense-overview" role="tabpanel" aria-labelledby="expense-tab-cleanup">'
         '<!--EXPENSE_CLEANUP--></section>'
         '<details id="card-review-detail"><summary>선택한 카드 자료</summary>'

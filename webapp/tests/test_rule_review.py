@@ -240,6 +240,8 @@ class RuleReviewTests(unittest.TestCase):
     def open_rule_browser(self, page, batch=None):
         """Select the intended saved batch, then expose its rule controls in the rules tab."""
         page.goto(self.base + '/import')
+        if not page.locator('#expense-tab-saved').is_visible():
+            page.locator('.expense-tools > summary').click()
         page.locator('#expense-tab-saved').click()
         if batch:
             choice = page.locator(f'#batches [data-batch="{batch}"]')
@@ -249,6 +251,8 @@ class RuleReviewTests(unittest.TestCase):
         else:
             page.wait_for_function('() => Boolean(model && model.batch_id)')
         page.locator('#rule-panel #rule-focus option').first.wait_for(state='attached')
+        if not page.locator('#expense-tab-rules').is_visible():
+            page.locator('.expense-tools > summary').click()
         page.locator('#expense-tab-rules').click()
         page.locator('#rule-panel #rule-focus').wait_for(state='visible')
         self.assertEqual(page.locator('#expense-tab-rules').get_attribute('aria-selected'), 'true')
@@ -618,6 +622,8 @@ class RuleReviewTests(unittest.TestCase):
             page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
             # Re-query: a fresh load of the page shows the saved item, not just the in-page state.
             page.reload()
+            if not page.locator('#expense-tab-saved').is_visible():
+                page.locator('.expense-tools > summary').click()
             page.locator('#expense-tab-saved').click()
             page.wait_for_function('(batch) => model && model.batch_id === batch', arg=self.batch)
             page.locator('#preview').wait_for(state='visible')
@@ -706,6 +712,8 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(self.items()[self.tx[0]], '식비')
             self.assertEqual(page.locator('#rule-approve').count(), 0)
             page.reload()
+            if not page.locator('#expense-tab-saved').is_visible():
+                page.locator('.expense-tools > summary').click()
             page.locator('#expense-tab-saved').click()
             page.wait_for_function('(id)=>model && model.rows.find(r=>r.transaction_id===id)?.item==="식비"', arg=self.tx[0])
             self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).decided', self.tx[0]), 1)
@@ -781,10 +789,14 @@ class RuleReviewTests(unittest.TestCase):
             status, result = self.post(f'/api/imports/{self.batch}/rule-proposal/approve',
                                        pending[0].request.post_data_json, token=ledger_board.CSRF_TOKEN)
             self.assertEqual(status, 200)
+            if not page.locator('#expense-tab-saved').is_visible():
+                page.locator('.expense-tools > summary').click()
             page.locator('#expense-tab-saved').click()
             page.locator(f'#batches [data-batch="{second}"]').wait_for(state='visible')
             page.locator(f'#batches [data-batch="{second}"]').click()
             page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+            if not page.locator('#expense-tab-rules').is_visible():
+                page.locator('.expense-tools > summary').click()
             page.locator('#expense-tab-rules').click()
             page.locator('#rule-panel #rule-focus').wait_for(state='visible')
             with page.expect_response('**/rule-proposal/approve'):

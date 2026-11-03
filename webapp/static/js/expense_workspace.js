@@ -73,6 +73,7 @@
       const active = tab.dataset.expenseView === view;
       tab.setAttribute('aria-selected', String(active));
       tab.tabIndex = active ? 0 : -1;
+      if (active) { const tools = tab.closest?.('.expense-tools'); if (tools) tools.open = true; }
       if (focus && active) tab.focus();
     });
     overview.hidden = view !== 'cleanup';

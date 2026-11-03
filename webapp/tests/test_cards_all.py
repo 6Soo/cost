@@ -323,7 +323,8 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
             {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
     assert "id=\"card-all-design\"" in result
     assert "조회 조건" in result
-    assert "월별 카드 거래 확인" in result
+    assert "월별 카드 거래 확인" not in result
+    assert "CARD TRANSACTION HISTORY" not in result
     assert "카드 전체 내역" in result
     assert "0630_오제" in result
     assert "title='T-A'" in result
