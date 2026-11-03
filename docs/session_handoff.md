@@ -1,3 +1,9 @@
+## 2026-11-04 보험 후보·지출 편집 미배포 변경 배포
+
+- [PR #612](https://github.com/6Soo/cost/pull/612) 보험 후보 문구·연결 참가자 제외와 [PR #609](https://github.com/6Soo/cost/pull/609) 지출 인라인 편집 밀도·모션 변경을 병합해 `fd7f7fb468486a5e006faa6202a56c277ca41ea2`로 배포했다. 가림 이름이 여러 명과 일치해 구별할 수 없으면 후보를 보존한다. 이전 운영 `3c00ebb4b83cfb7e3c4058a019f54b25b773ad3e`를 복구점으로 유지한다.
+- 보험 Windows 영향 QA 277 passed, 지출 Windows 영향 QA 205 passed/27 subtests, 최종 병합 보험 화면 28 passed. 두 PR GitHub impact-checks PASS. PR #609 기존 CI의 숨겨진 구 메뉴 버튼 실패는 최신 main에서도 재현했고 현재 공통 메뉴 검사를 교정한 후 재검증했다. 실자료 화면·전체 회귀는 미실행이다.
+- 1,313 blobs 일치, health/ready 200, 보호 API 및 board·참가자 API 익명 401, 보호 13표 내용·스키마 불변. 금융·여행·원본·Google 쓰기와 마이그레이션은 수행하지 않았다. 근거 `C:/AX/cost-flight-606/.local-archive/pending-release-20261104/` 및 `D:/WebLedgerHost/releases/deploy-evidence-fd7f7fb468486a5e006faa6202a56c277ca41ea2.json`. 문서 전용 PR #607·#567은 코드 배포 대상이 아니다.
+
 ## 2026-11-04 항공권 예약 화면 개편 배포
 
 - PR #606 명세와 PR #610 구현을 병합하고 `3c00ebb4b83cfb7e3c4058a019f54b25b773ad3e`를 배포했다. 예약의 결제 확인을 통합하고 카드 날짜 목록·원행 상세를 같은 화면에서 읽는다. 동승객과 참가자 연결은 일반 예약 화면에서 제외한다. 이전 검증 릴리스는 `097d7dabe787816244ddf8df03eb759032f84672`다.
