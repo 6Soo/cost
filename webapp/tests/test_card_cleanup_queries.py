@@ -52,15 +52,18 @@ def test_cleanup_reasons_are_exclusive_and_filtered_on_the_full_population(tmp_p
         all_html = render_expense_cleanup(board, 'csrf')
         assert cleanup_total(board) == 26
         assert "전체 26건" in all_html
-        assert "분류·배정 필요 25건" in all_html
-        assert len([row for row in ids if f"data-transaction='{row}'" in render_expense_cleanup(board, 'csrf', reason='classification')]) == 20
-        second = render_expense_cleanup(board, 'csrf', reason='classification', page=2)
-        assert "data-row-id='cleanup-ledger'" in second
-        assert "분류·배정 필요 25건 중 21~25건 표시" in second
+        assert "분류·배정 필요 3건" in all_html
+        assert "기록 상태 확인 22건" in all_html
+        classification = render_expense_cleanup(board, 'csrf', reason='classification')
+        assert f"data-transaction='{ids[0]}'" in classification
+        assert f"data-transaction='{ids[1]}'" in classification
+        assert "data-row-id='cleanup-ledger'" in classification
+        second = render_expense_cleanup(board, 'csrf', reason='recording', page=2)
+        assert "기록 상태 확인 22건 중 21~22건 표시" in second
         protected = render_expense_cleanup(board, 'csrf', reason='evidence')
         assert f"data-transaction='{ids[3]}'" in protected
         assert "근거 충돌 1건" in protected
-        assert f"cleanup_reason=classification#expense-cleanup" in second
+        assert f"cleanup_reason=recording#expense-cleanup" in second
         assert render_expense_cleanup(board, 'csrf', reason='no_trip') == render_expense_cleanup(board, 'csrf', reason='classification')
     finally:
         ledger_board.bind_store(None)

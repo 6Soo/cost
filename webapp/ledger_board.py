@@ -1002,7 +1002,7 @@ def data_status_mark() -> str:
         if store.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
             cards = store.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
             if cards:
-                parts.append(f"카드 자료 {cards:,}건")
+                parts.append(f"저장된 카드 거래 전체 {cards:,}건")
     count = store.visible_row_count()
     parts.append(f"장부 기록 {count:,}건")
     return " · ".join(parts)

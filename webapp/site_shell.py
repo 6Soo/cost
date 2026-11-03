@@ -54,18 +54,19 @@ def wrap_document(document: str, path: str, *, status: int = 200) -> str:
         return document
     end = closing[-1].start()
     content = document[opening.end():end]
+    title_match = re.search(r'<title\b[^>]*>(.*?)</title\s*>', document, re.I | re.S)
+    title = html.escape(html.unescape(re.sub(r'<[^>]*>', '', title_match[1])).strip() if title_match else 'COST')
+    topbar = BUTTON.replace('COST 업무 메뉴', title)
     native = bool(re.search(r'\bid=[\"\']nav[\"\']', content))
     if native:
-        content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + site_theme.BUTTON, content, count=1)
-        if not re.search(r'\bid=[\"\']btn-menu[\"\']', content):
-            content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + TOPBAR_NAVIGATION, content, count=1)
+        content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + topbar, content, count=1)
         body = opening[0]
     else:
         from .ledger_design import _nav_html
         query = parse_qs(urlsplit(path).query)
         tab = (query.get('tab') or [''])[0]
         nav = _nav_html(tab, '')
-        content = '<div class="site-app">' + nav + '<div id="site-content">' + BUTTON + content + '</div></div>'
+        content = '<div class="site-app">' + nav + '<div id="site-content">' + topbar + content + '</div></div>'
         body = '<body class="site-standalone">'
     return (document[:opening.start()] + '<style id="site-shell-style">' + STYLE + site_theme.STYLE + '</style>'
             + '<script>' + site_theme.BOOTSTRAP + '</script>'
