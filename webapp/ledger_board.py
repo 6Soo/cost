@@ -1503,9 +1503,17 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 " <span class='muted warntext'>· 담당자 확인이 필요해요"
                 " (출처가 기록되지 않은 값이에요)</span>")
         cards.append(
-            f"<article class='card trip-management-row' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}'>"
-            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
+            f"<article class='card trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
+            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">✓ 마감</span>' if t.get('visual_closed') else ''} <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
+            + (f"<form method='post' class='trip-close-form' action='/api/trips/{esc(t['tab_id'])}/meta'>"
+               f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
+               f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+               f"<input type='hidden' name='expected_closed' value='{int(bool(t.get('visual_closed')))}'>"
+               f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
+               "<input type='hidden' name='return_to' value='/trips'>"
+               f"<button type='submit'>{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
+            +
             "<details class='trip-meta'><summary>정보 수정·보관</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
@@ -1606,6 +1614,8 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "<option value=''>전체</option><option value='aslan'>아슬란</option><option value='andre'>김동언(안드레)</option></select> "
             "<label for='trip-management-state'>상태</label> <select id='trip-management-state'>"
             "<option value=''>전체</option><option value='0'>활성</option><option value='1'>보관</option></select> "
+            "<label for='trip-management-closed'>마감</label> <select id='trip-management-closed'>"
+            "<option value=''>전체</option><option value='0'>미마감</option><option value='1'>마감</option></select> "
             "<button type='reset'>초기화</button><p id='trip-management-count' role='status'></p></form>"
             f"{profile_html}{preview_html}{''.join(cards)}"
             "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></div>")
@@ -4855,6 +4865,20 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = read_payload()
             check_csrf(payload)
+            if 'visual_closed' in payload:
+                if str(payload.get('visual_closed')) not in ('0', '1') or str(payload.get('expected_closed')) not in ('0', '1'):
+                    raise SaveError('INVALID_VALUE', '마감 표시 값이 올바르지 않아요')
+                result = _active_store().save_trip_visual_close(
+                    tab_id=tab_id, expected_closed=str(payload['expected_closed']) == '1',
+                    closed=str(payload['visual_closed']) == '1',
+                    client_request_id=str(payload.get('client_request_id') or ''), actor='owner')
+                if 'application/json' in content_type:
+                    self._send_json(result, code=200)
+                else:
+                    self.send_response(303)
+                    self.send_header('Location', '/trips')
+                    self.end_headers()
+                return
             try:
                 expected_revision = int(payload.get("expected_revision", ""))
             except (TypeError, ValueError):

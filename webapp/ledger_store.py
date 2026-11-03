@@ -4103,10 +4103,59 @@ class LedgerStore:
         originals = {tab_id: json.loads(record).get('display_key', '')
                      for tab_id, record in self.conn.execute(
                          "SELECT tab_id, new_json FROM trip_tab_history WHERE change_kind='create' ORDER BY id DESC")}
-        trips = [self._trip_identity(self._trip_dict(r), originals) for r in rows]
+        closed = self.trip_visual_close_states()
+        trips = [{**self._trip_identity(self._trip_dict(r), originals),
+                  'visual_closed': closed.get(r[0], False)} for r in rows]
         if not include_archived:
             trips = [t for t in trips if not t["archived"]]
         return trips
+
+    def trip_visual_close_states(self):
+        states = {}
+        for tab_id, value in self.conn.execute(
+                "SELECT tab_id, new_json FROM trip_tab_history"
+                " WHERE change_kind='visual_close' ORDER BY id"):
+            states[tab_id] = bool(json.loads(value).get('visual_closed'))
+        return states
+
+    def save_trip_visual_close(self, *, tab_id, expected_closed, closed,
+                               client_request_id, actor='owner'):
+        """Record a reversible display marker without changing trip metadata."""
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError('INVALID_VALUE', '요청 ID가 필요해요')
+        with self._lock:
+            self._begin_write()
+            try:
+                trip = self.conn.execute(
+                    'SELECT 1 FROM trip_tabs WHERE tab_id=? AND deleted=0',
+                    (tab_id,)).fetchone()
+                if not trip:
+                    raise SaveError('INVALID_VALUE', '없는 여행이에요')
+                prior = self.conn.execute(
+                    "SELECT tab_id, prev_json, new_json FROM trip_tab_history"
+                    " WHERE change_kind='visual_close' AND client_request_id=?",
+                    (client_request_id,)).fetchone()
+                if prior:
+                    if (prior[0] != tab_id or
+                        json.loads(prior[1]).get('visual_closed') != expected_closed or
+                        json.loads(prior[2]).get('visual_closed') != closed):
+                        raise SaveError('REQUEST_ID_REUSED', '같은 요청 ID에 다른 내용이 왔어요')
+                    self._commit_write()
+                    return {'outcome': 'saved', 'visual_closed': closed}
+                current = self.trip_visual_close_states().get(tab_id, False)
+                if current != expected_closed:
+                    raise SaveError('EDIT_CONFLICT', '마감 표시가 변경됐어요. 새로고침 후 다시 시도해 주세요')
+                self.conn.execute(
+                    "INSERT INTO trip_tab_history(tab_id, revision, change_kind, prev_json,"
+                    " new_json, event_id, actor, created_at, client_request_id)"
+                    " VALUES (?, -1, 'visual_close', ?, ?, '', ?, ?, ?)",
+                    (tab_id, _canonical({'visual_closed': current}),
+                     _canonical({'visual_closed': closed}), actor, _utc_now(), client_request_id))
+                self._commit_write()
+                return {'outcome': 'saved', 'visual_closed': closed}
+            except Exception:
+                self._rollback_write()
+                raise
 
     def get_trip(self, tab_id: str):
         row = self.conn.execute(
