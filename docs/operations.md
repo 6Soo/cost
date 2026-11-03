@@ -1,3 +1,10 @@
+## 2026-11-03 토요코인 수집 점검 및 예약 근거 추론 배포
+
+- PR #575 정상 병합 `bcd4e5bf5fd4e51516f5a026f3c41308ad64e311`, PR CI 41594203986 및 main CI 성공. 검증 코드 검사 495 passed·13 subtests·skip0 및 표적 106 passed를 재사용하고 후속 문서만으로 검사를 반복하지 않았다.
+- 공식 `deploy_verified_release.ps1 -CandidateSha bcd4e5bf5fd4e51516f5a026f3c41308ad64e311 -PreviousSha d57675a512f3c1446d0d3c9d3966114637640220 -ReviewEvidence C:/AX/cost/.local-archive/toyoko-audit-20261103/review.json -Apply` 성공. gateway8790→backend8751, 1,309 tracked blobs 불일치0·task/process SHA 일치·단일 loopback listener·health/ready 200·보호 API 401·보호 13표 불변 PASS(2026-11-03T07:20:15Z). 배포 중 업무 DB/Google/원본/스키마 쓰기 0.
+- Google 수집 계정(kkokkohero6@gmail.com) Ego 재인증 완료 및 토큰 원자적 교정. `WebLedger-MailCollect` 예약 작업 수동 트리거 및 정상 완료(exit code 0, 100건 신규 수집). ego-browser 운영 UI 수락(`1002_영남` `tab=trip-86714d1ca408`)에서 창원 2행 '10월 2일(금) ~ 10월 4일(일) · 2박 · 예약 근거 추론' 표시 및 overflow: false 확인. 실제 결제 승격·금융 저장 없음.
+- 근거 `C:/AX/cost/.local-archive/toyoko-audit-20261103/` (`deploy-evidence.json`, `reauth-audit.json`, `live-pc.json`, `actual-display.json`) 및 [명세](specs/toyoko-collection-audit-20261103.md) 참조.
+
 ## 2026-11-03 트립닷컴 날짜 중복·OTA 출처 문구 배포
 
 - [PR #572](https://github.com/6Soo/cost/pull/572), 구현 `dbb7487c`, 비교 검사 기준 교정 `3c661999`, 병합 `2c0616a27470e73c66b568cae80b639a95f0e1fd`를 포함한 합동 `d57675a512f3c1446d0d3c9d3966114637640220` 배포 완료(07:15:21Z). 동일 숙박기간의 설명 중복만 숨기고 OTA 코드 추론 출처를 표시한다. 미상·오류·다른 기간/메모/원본/예약번호/AI 추론 표시는 보존한다.
