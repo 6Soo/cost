@@ -115,7 +115,7 @@ def _page(csrf):
 :root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--good:#047857;--warn:#a16207}
 @media(prefers-color-scheme:dark){:root{--bg:#0f172a;--paper:#1e293b;--ink:#f8fafc;--mut:#cbd5e1;--line:#334155;--hover:#334155;--focus:#93c5fd;--good:#6ee7b7;--warn:#fbbf24}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 system-ui,"Malgun Gothic",sans-serif}
-#flight-booking-page{max-width:1080px;margin:32px auto;padding:0 22px 64px}
+#flight-booking-page{max-width:880px;margin:32px auto;padding:0 22px 64px}
 #flight-booking-page h1{font-size:26px;margin:0 0 6px}#flight-booking-page h2{font-size:17px;margin:0 0 12px}
 #flight-booking-page p{margin:0 0 14px}.fb-muted{color:var(--mut)}.fb-panel{border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:20px;margin-top:18px}
 #flight-booking-page form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}#flight-booking-page label{display:grid;gap:6px;flex:1 1 250px;font-weight:650}
@@ -166,6 +166,7 @@ def _page(csrf):
 .fb-amount{font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .fb-date-row{padding:16px}.fb-date-row .fb-grid{margin-top:10px}.fb-date-row p{margin-top:10px!important}
 .fb-payment-detail{margin-top:8px}.fb-date-filter>summary{color:var(--ink)}
+.fb-card-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px}.fb-card-detail dd{margin:0;overflow-wrap:anywhere}.fb-card-detail dt{color:var(--mut)}
 #flight-booking-page [hidden]{display:none!important}
 @media(max-width:600px){
  .fb-hero{padding:18px}.fb-ticket .fb-hero h3{font-size:19px}.fb-summary{padding:0 18px 18px;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -198,7 +199,7 @@ function cardTransaction(parent,tx,candidate=false){
  const currency=tx.foreign_currency||tx.currency;
  text(head,'strong',money(tx.amount_krw)||money(tx.foreign_amount,currency)||'금액 확인 필요','fb-amount');
  const grid=text(row,'div','','fb-grid');field(grid,'거래일',tx.approval_date);
- const direction=tx.transaction_direction||tx.event_type;
+ const direction=tx.transaction_direction||tx.direction||tx.event_type;
  field(grid,'거래 유형',({purchase:'결제',charge:'결제',refund:'취소·환불',cancel:'취소',cancellation:'취소'})[direction]||'유형 확인 필요');
  if(tx.card_tail||tx.issuer)field(grid,'결제 카드',[tx.issuer,tx.card_tail?'끝 '+tx.card_tail:''].filter(Boolean).join(' · '));
  if(tx.foreign_amount!=null&&currency)field(grid,'외화 금액',money(tx.foreign_amount,currency));
@@ -206,12 +207,14 @@ function cardTransaction(parent,tx,candidate=false){
  if(protections.length)text(row,'p',protections.join(' · '),'fb-note');
  if(!candidate&&(tx.amount_status!=='MATCH'||tx.currency_status!=='MATCH'))text(row,'p','결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.','fb-note');
  if(tx.approval_number){const detail=text(row,'details','','fb-payment-detail');text(detail,'summary','승인 정보');field(detail,'승인번호',tx.approval_number)}
- if(typeof tx.detail_href==='string'&&tx.detail_href.startsWith('/board?row=')){const detail=text(row,'a','카드 원행 상세 보기 (새 탭)');detail.href=tx.detail_href;detail.target='_blank';detail.rel='noopener noreferrer';text(row,'span','새 탭에서 열립니다. 검색 결과는 이 탭에 유지됩니다.','fb-muted')}
+ if(tx.transaction_id){const detail=text(row,'details','','fb-card-detail');text(detail,'summary','카드 원행 상세');const content=text(detail,'div','');
+ detail.addEventListener('toggle',async()=>{if(!detail.open||detail.dataset.loaded||detail.dataset.loading)return;detail.dataset.loading='1';content.textContent='원행을 불러오는 중입니다.';
+ try{const response=await fetch('/api/cards/transactions/detail?'+new URLSearchParams({id:tx.transaction_id}),{cache:'no-store'});if(!response.ok)throw Error(response.status===401||response.status===403?'로그인과 조회 권한을 확인해 주세요.':'원행을 불러오지 못했습니다. 닫았다 다시 열어 주세요.');const data=await response.json();if(typeof data.html!=='string')throw Error('원행을 확인할 수 없습니다.');const parsed=new DOMParser().parseFromString(data.html,'text/html');const facts=parsed.querySelector('dl.card-detail-fields');content.replaceChildren();if(facts)content.append(facts);else content.textContent='표시할 원행 상세가 없습니다.';detail.dataset.loaded='1'}catch(error){content.textContent=error.message}finally{delete detail.dataset.loading}})}
  parent.append(row);
 }
 function manualDateFilter(parent,confirmedDay=null,basis='EXPLICIT_LABEL'){
 const details=document.createElement('details');details.className='fb-date-filter';parent.append(details);
-text(details,'summary',confirmedDay?(basis==='FIRST_RECEIVED'?'최초 메일 수신일의 카드 거래 전체 조회':'예약 시각의 한국 날짜로 카드 거래 전체 조회'):'직접 지정한 날짜로 카드 원행 조회');
+text(details,'summary','카드 거래 보기');
 text(details,'p',confirmedDay?(basis==='FIRST_RECEIVED'?'별도 예약일이 없어 보관된 인증 메일의 최초 수신일을 예약일 기준으로 사용합니다. 결제 연결은 미확정입니다.':'원본 예약 시각과 시간대를 한국 시간으로 환산한 날짜입니다. 결제 연결이 확정된 것은 아닙니다.'):'예약일이나 결제 연결이 확정된 것은 아닙니다.','fb-note');
 const filter=document.createElement('form'),label=text(filter,'label','조회 날짜 (직접 지정 필터)');
 const dateInput=document.createElement('input');dateInput.type='date';dateInput.required=true;dateInput.min='2000-01-01';dateInput.max='2100-12-31';label.append(dateInput);
@@ -234,17 +237,17 @@ async function load(reset){
   if(data.filter_semantics!=='USER_DATE_FILTER'||data.date!==requestedDay)throw Error('지정한 날짜의 응답을 확인할 수 없습니다. 다시 조회해 주세요.');
   for(const tx of data.items||[])render(tx);
   cursor=data.cursor;revision=data.revision;next.hidden=!(data.has_more&&cursor);
-  note.textContent=(confirmedDay&&requestedDay===confirmedDay?(basis==='FIRST_RECEIVED'?'최초 메일 수신일 기준 ':'예약 시각의 한국 날짜 '):'직접 지정한 날짜 ')+requestedDay+' · '+rows.children.length+' / '+data.total_count+'건. 결제 연결을 확정하지 않습니다.';
+  note.textContent=(confirmedDay&&requestedDay===confirmedDay?(basis==='FIRST_RECEIVED'?'최초 인증 메일 수신일 기준 ':'예약 시각의 한국 날짜 '):'직접 지정한 날짜 ')+requestedDay+' · '+(data.total_count?rows.children.length+' / '+data.total_count+'건':'현재 조회 범위에서 결과 없음')+'. 결제 연결을 확정하지 않습니다.';
  }catch(error){note.textContent=error.message}finally{search.disabled=false;next.disabled=false}
 }
 filter.addEventListener('submit',event=>{event.preventDefault();if(dateInput.value&&filter.reportValidity())load(true)});
 next.addEventListener('click',()=>load(false));
-if(confirmedDay){dateInput.value=confirmedDay;load(true)}
+if(confirmedDay){dateInput.value=confirmedDay;details.addEventListener('toggle',()=>{if(details.open&&!activeDay)load(true)})}
 }
 function showBooking(b){
 const card=document.createElement('article');card.className='fb-ticket';
 const hero=document.createElement('header');hero.className='fb-hero';
-text(hero,'span',b.conflict||b.cancellation_status==='CONFLICT'?'예약 자료 충돌':b.cancelled?'취소·변경 근거 있음':'예약 근거 확인','fb-status');
+if(b.conflict||b.cancellation_status==='CONFLICT'||b.cancelled)text(hero,'span',b.conflict||b.cancellation_status==='CONFLICT'?'예약 자료 충돌':'취소·변경 근거 있음','fb-status');
 text(hero,'p','항공권 예약','fb-eyebrow');
 text(hero,'h3',(b.booking_ref||'예약번호 미확인')+' · '+(b.passenger_name||'이름 미확인'));
 const legs=Array.isArray(b.legs)?b.legs:[],firstLeg=legs[0];
@@ -260,8 +263,7 @@ function summaryItem(label,value,symbol,extra){
  wrap.append(content);summary.append(wrap);
 }
 summaryItem('항공권 예약번호',b.booking_ref,'');
-const passengers=Array.isArray(b.passengers)&&b.passengers.length?b.passengers:[b.passenger_name].filter(Boolean);
-summaryItem('탑승객'+(passengers.length?' · '+passengers.length+'명':''),passengers.join(' · '),'');
+summaryItem('탑승객',b.passenger_name,'');
 summaryItem('예약일',b.booking_date_status==='CONFLICT'?'근거 날짜 충돌':b.reserved_on||'확인되지 않음','▦',
  b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일 기준':b.booking_date_status==='EXPLICIT_LABEL'?'원본 명시 확인':null);
 summaryItem('예약처',b.provider==='trip'?'Trip.com':b.provider||'확인되지 않음','');
@@ -305,25 +307,21 @@ for(const [legIndex,leg] of (Array.isArray(b.legs)?b.legs:[]).entries()){
 }
 if(!legCount)text(segments,'p','확인된 상세 여정 정보가 없습니다.','fb-muted');
 card.append(segments);
-const linked=document.createElement('div');linked.className='fb-section';text(linked,'h2','연결된 카드 결제');
+const linked=document.createElement('div');linked.className='fb-section';text(linked,'h2','결제 확인');
 if(Array.isArray(b.linked_cards)&&b.linked_cards.length){
-text(linked,'p','사용자가 확인한 거래 연결입니다. 예약 전체의 결제 완료를 뜻하지 않습니다.','fb-note');
+text(linked,'p','연결 확인 · 예약 전체의 결제 완료를 뜻하지 않습니다.','fb-muted');
 for(const tx of b.linked_cards)cardTransaction(linked,tx);
-}else{text(linked,'p','이 조회에서는 확정된 카드 연결 근거를 아직 검증할 수 없습니다. 카드 거래가 없거나 미결제라는 뜻은 아닙니다.','fb-muted')}
+}else{text(linked,'p',b.conflict||b.cancelled||!b.source_verified||b.booking_date_status==='CONFLICT'?'확인 불가 · 원본 상태를 확인해 주세요.':b.booking_card_day?'카드 거래 후보 · 날짜가 같아도 연결은 확정되지 않습니다.':'연결 근거 없음 · 미결제를 뜻하지 않습니다.','fb-muted')}
 card.append(linked);
 const candidateDay=['EXPLICIT_LABEL','FIRST_RECEIVED'].includes(b.booking_date_status)&&b.source_verified&&!b.conflict&&!b.cancelled&&!(b.linked_cards||[]).length?b.booking_card_day:null;
-const candidates=document.createElement('div');candidates.className='fb-section';text(candidates,'h2','예약일의 카드 거래 후보');text(candidates,'p',candidateDay?(b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일을 예약일 기준으로 카드 거래 전체를 조회합니다. 날짜가 같아도 연결은 미확정입니다.':'원본 예약 시각의 한국 날짜로 카드 거래 전체를 후보로 조회합니다. 날짜가 같아도 연결이 확정된 것은 아닙니다.'):b.booking_date_status==='CONFLICT'?'예약일 원본끼리 날짜가 충돌해 자동 후보 조회를 보류합니다. 직접 날짜 조회만 가능합니다.':b.reserved_on?'자동 조회 조건을 충족하지 않아 직접 날짜 조회를 제공합니다.':'원본 예약일과 같은 예약번호의 최초 메일 수신일을 확인할 수 없어 자동 조회를 보류합니다. 날짜를 직접 선택해 주세요.','fb-muted');card.append(candidates);
-const manualDate=text(candidates,'a','카드 전체 내역에서 날짜별 원행 확인');manualDate.href='/cards/all';
+const candidates=linked;
 manualDateFilter(candidates,candidateDay,b.booking_date_status);
 if(b.reserved_on&&!b.booking_card_day)text(candidates,'p','예약일 표기는 있지만 시간대 근거가 없어 자동 날짜 조회를 보류합니다. 날짜를 직접 선택해 주세요.','fb-muted');
-const participant=document.createElement('details');participant.className='fb-section';
-const evidence=text(card,'details','','fb-section fb-evidence');text(evidence,'summary','예약일·원본 근거 확인');
+const evidence=text(card,'details','','fb-section fb-evidence');text(evidence,'summary','예약일 근거');
 text(evidence,'p',b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일 기준입니다. 실제 예약 생성일·발권일·결제일과 다를 수 있습니다.':b.booking_date_status==='EXPLICIT_LABEL'?'원본에 명시된 예약일입니다. 발권일·결제일과 구분합니다.':'예약일을 확정할 수 있는 원본 근거가 없습니다.','fb-muted');
 const dateTimes=(b.booking_date_evidence||[]).map(f=>f.timestamp).filter(Boolean);
 if(dateTimes.length)field(evidence,'근거 시각·시간대',[...new Set(dateTimes)].join(' / '));
 text(evidence,'p','예약 확인 자료에서 조회한 정보입니다. 실제 탑승·현재 운항 여부는 항공사에서 확인하세요.','fb-muted');
-text(participant,'summary','참가자 연결 정보');
-const link=text(participant,'a','참가자 연결 정보 열기');link.href='/flight-passengers?view=participants';card.append(participant);
 return card}
 let refreshAttempts=0,refreshTimer=null,refreshStarted=0;
 async function loadBookings(reset,poll=false){
@@ -344,7 +342,7 @@ if(data.source_status==='LOADING'){
  }else status.textContent='항공권 자료 준비가 지연되고 있습니다. 예약 조회를 눌러 다시 시도해 주세요.';
  return;
 }
-for(const booking of data.reservations||[])resultRoot.append(showBooking(booking));
+for(const booking of data.reservations||[]){const ticket=showBooking(booking);if((data.total??data.reservations.length)>1){const item=document.createElement('details');item.className='fb-booking-choice';text(item,'summary',(booking.booking_ref||'예약번호 미확인')+' · '+(booking.passenger_name||'이름 미확인'));item.addEventListener('toggle',()=>{if(item.open)resultRoot.querySelectorAll('.fb-booking-choice').forEach(other=>{if(other!==item)other.open=false})});item.append(ticket);resultRoot.append(item)}else resultRoot.append(ticket)}
 sourceRevision=data.revision;nextOffset=data.next_offset??null;more.hidden=nextOffset===null;
 const count=resultRoot.querySelectorAll('.fb-ticket').length;
 status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?'확인된 항공권 예약 '+(data.total??count)+'건 중 '+count+'건을 표시합니다. 같은 이름의 예약은 예약번호와 여정을 각각 확인해 주세요.':'이 이름으로 확인된 항공권 예약이 없습니다. 영문 표기를 확인해 주세요.';
@@ -421,7 +419,7 @@ def _confirmed_card_index(board, passenger_index):
                     amount_status = 'MATCH' if abs(a) == abs(b) else 'MISMATCH'
             except (InvalidOperation, ValueError):
                 pass
-        row = {key: card.get(key) for key in ('transaction_id', 'approval_date', 'merchant',
+        row = {key: card.get(key) for key in ('transaction_id', 'approval_date', 'merchant', 'issuer', 'card_tail',
                'amount_krw', 'foreign_amount', 'refund_status', 'cancellation_status')}
         row.update(currency=currency, approval_number=card.get('approval_number') or card.get('authorization_id'),
                    direction=card.get('transaction_direction') or card.get('direction'),

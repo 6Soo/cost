@@ -12,10 +12,11 @@ def test_booking_route_cards_keep_existing_workflows():
         "가는편", "오는편", "탑승권·여정 정보",
         "/api/flight-passengers/name-search",
         "/api/cards/transactions/day",
-        "/flight-passengers?view=participants",
+        "/api/cards/transactions/detail",
         "manualDateFilter(candidates,candidateDay,b.booking_date_status)",
     ):
         assert marker in html
     assert "@media(max-width:600px)" in html
     assert "@media(prefers-color-scheme:dark)" in html
     assert "textContent=String(value" in html  # No untrusted reservation innerHTML.
+    assert "/flight-passengers?view=participants" not in html

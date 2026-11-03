@@ -119,8 +119,8 @@ def test_page_renders_usable_name_only_ui_and_unknown_card_status():
     assert 'name="name"' in html
     assert 'name="booking_ref"' not in html
     assert 'name="tour_id"' not in html
-    assert '예약일의 카드 거래 후보' in html
-    assert '확정된 카드 연결 근거를 아직 검증할 수 없습니다' in html
+    assert '결제 확인' in html
+    assert '연결 근거 없음' in html
     assert '/api/flight-passengers/name-search' in html
 
 
@@ -143,7 +143,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
         result = page._name_search(object(), 'KIM ALPHA')
     result['reservations'][0]['linked_cards'] = [{'merchant': 'Synthetic Airline', 'amount_krw': 13000,
         'currency': 'KRW', 'amount_status': 'MISMATCH', 'currency_status': 'MATCH',
-        'detail_href': '/board?row=card-synthetic', 'approval_number': 'SYNTH-AUTH'}]
+        'transaction_id': 'synthetic', 'approval_number': 'SYNTH-AUTH'}]
     with patch('webapp.ledger_design.nav_region', return_value=''):
         document = site_shell.wrap_document(page._page('synthetic-csrf'), '/flight-passengers')
     with sync_playwright() as api:
@@ -168,6 +168,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             screen.goto('http://synthetic.test/flight-passengers')
             screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
             screen.get_by_label('탑승객 이름').press('Enter')
+            screen.locator('.fb-booking-choice > summary').first.click()
             ticket = screen.locator('.fb-ticket').first
             expect(ticket.get_by_text('서울', exact=True)).to_be_visible()
             assert ticket.get_by_text('도쿄', exact=True).is_visible()
@@ -177,13 +178,9 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             expect(ticket.locator('.fb-flight-card')).to_have_count(1)
             assert ticket.locator('.fb-route-stop').count() == 2
             assert ticket.get_by_text('Synthetic Airline', exact=True).is_visible()
-            detail_link = ticket.locator('a[href^="/board?row="]')
-            assert detail_link.get_attribute('href') == '/board?row=card-synthetic'
-            assert detail_link.get_attribute('target') == '_blank'
-            assert detail_link.get_attribute('rel') == 'noopener noreferrer'
+            assert ticket.get_by_text('카드 원행 상세', exact=True).is_visible()
             assert ticket.get_by_text('결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.').is_visible()
-            ticket.get_by_text('참가자 연결 정보', exact=True).click()
-            assert ticket.get_by_role('link', name='참가자 연결 정보 열기').get_attribute('href') == '/flight-passengers?view=participants'
+            assert ticket.get_by_text('참가자 연결 정보', exact=True).count() == 0
             screen.get_by_label('탑승객 이름').fill('different input not submitted')
             screen.get_by_role('button', name='예약 더 보기').click()
             expect(screen.locator('.fb-ticket')).to_have_count(2)
@@ -200,7 +197,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             # CSS zoom may round document scrollWidth up by one device pixel.
             assert screen.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
             assert screen.locator(".fb-ticket").evaluate_all('(items)=>items.every(e=>e.getBoundingClientRect().right<=innerWidth)')
-            assert ticket.get_by_role('link', name='참가자 연결 정보 열기').is_visible()
+            assert ticket.get_by_text('참가자 연결 정보', exact=True).count() == 0
         finally:
             browser.close()
 
@@ -291,54 +288,27 @@ def test_browser_name_search_opens_real_synthetic_card_and_trip_flight_then_retu
                     screen.locator('input[name="name"]').fill('KIM ALPHA')
                     screen.locator('form button[type="submit"]').click()
                     tickets = screen.locator('.fb-ticket')
+                    screen.locator('.fb-booking-choice').filter(has_text='SYNTH-100').locator('summary').first.click()
                     expect(tickets.filter(has_text='SYNTH-100')).to_be_visible()
-                    expect(tickets.filter(has_text='SYNTH-200')).to_be_visible()
                     expect(tickets.filter(has_text='SYNTH-100').get_by_text('SYN123', exact=True)).to_be_visible()
 
-                    detail_link = tickets.filter(has_text='SYNTH-100').locator('a[href^="/board?row="]')
-                    expect(detail_link).to_have_attribute('target', '_blank')
-                    expect(detail_link).to_have_attribute('rel', 'noopener noreferrer')
-                    expect(screen.get_by_text('새 탭에서 열립니다. 검색 결과는 이 탭에 유지됩니다.')).to_be_visible()
-                    with screen.expect_popup() as popup_info:
-                        detail_link.click()
-                    detail = popup_info.value
-                    expect(detail).to_have_url(f'{base}/board?row=card-{transaction_id}')
-                    expect(detail.locator('#panel')).to_have_attribute('data-row', f'card-{transaction_id}')
-                    expect(detail.locator('#panel')).to_contain_text('SYNTHETIC AIRLINE')
-                    expect(detail.locator('#panel')).to_contain_text(transaction_id)
-                    expect(detail.locator('#panel')).to_contain_text('13,000')
-
-                    # Continue through the real trip and flight detail routes inside the popup.
-                    trips_navigation = detail.locator('a[href="/trips"]').first
-                    expect(trips_navigation).to_be_visible()
-                    trips_navigation.click()
-                    expect(detail).to_have_url(base + '/trips')
-                    trip_link = detail.get_by_role('link', name='Synthetic flight trip', exact=True).first
-                    expect(trip_link).to_have_attribute('href', f"/board?tab={trip['tab_id']}")
-                    trip_link.click()
-                    expect(detail).to_have_url(f"{base}/board?tab={trip['tab_id']}")
-                    section = detail.locator('.trip-flight')
-                    expect(section).to_be_visible()
-                    section.locator('summary').click()
-                    booking_button = section.locator('.trip-flight-items button').filter(has_text='SYNTH-100').first
-                    expect(booking_button).to_be_visible()
-                    expect(section.locator('.trip-flight-items')).to_contain_text('ICN')
-                    expect(section.locator('.trip-flight-items')).to_contain_text('NRT')
-                    booking_button.click()
-                    expect(section.locator('.trip-flight-detail')).to_contain_text('SYN123')
-                    expect(section.locator('.trip-flight-detail')).to_contain_text('KIM ALPHA')
+                    detail = tickets.filter(has_text='SYNTH-100').locator('.fb-card-detail')
+                    detail.locator('summary').click()
+                    expect(detail).to_contain_text('SYNTHETIC AIRLINE')
+                    expect(detail).to_contain_text('13,000')
+                    assert detail.locator('a,button,form').count() == 0
+                    detail.locator('summary').click()
 
                     # The originating tab keeps both reservations and needs no repeat search.
                     expect(screen).to_have_url(base + '/flight-passengers')
                     expect(screen.locator('input[name="name"]')).to_have_value('KIM ALPHA')
                     expect(tickets.filter(has_text='SYNTH-100')).to_be_visible()
-                    expect(tickets.filter(has_text='SYNTH-200')).to_be_visible()
                     assert len(search_requests) == 1
                     assert 'KIM ALPHA' not in screen.url and 'SYNTH-100' not in screen.url
                     storage = screen.evaluate("JSON.stringify([localStorage, sessionStorage])")
                     assert 'KIM ALPHA' not in storage and 'SYNTH-100' not in storage
-                    detail.close()
                     # Verify the second synthetic reservation directly from the preserved results.
+                    screen.locator('.fb-booking-choice').filter(has_text='SYNTH-200').locator('summary').first.click()
                     second = tickets.filter(has_text='SYNTH-200')
                     expect(second).to_contain_text('SYNTH-200')
                     expect(second).to_contain_text('KIM ALPHA')
@@ -380,7 +350,10 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
         screen.goto('http://synthetic.test/flight-passengers')
         screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
         screen.get_by_role('button', name='예약 조회', exact=True).click()
-        screen.get_by_text('직접 지정한 날짜로 카드 원행 조회', exact=True).click()
+        expect(screen.locator('.fb-ticket')).to_have_count(1)
+        if screen.locator('.fb-booking-choice > summary').count():
+            screen.locator('.fb-booking-choice > summary').first.click()
+        screen.get_by_text('카드 거래 보기', exact=True).click()
         screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-03-07')
         screen.get_by_role('button', name='지정 날짜 원행 조회', exact=True).click()
         expect(screen.locator('.fb-date-row')).to_have_count(1)
