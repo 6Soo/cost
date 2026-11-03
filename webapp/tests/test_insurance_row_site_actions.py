@@ -15,7 +15,7 @@ def regression_document():
     row=lambda key,cell: f"<tr id='{key}'><td>합성</td><td class='income-total'>1,000원</td><td class='participant-insurance-cell'>{cell}</td></tr>"
     body=("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>"+ledger_design_assets.STYLE+
         "</style></head><body><main id='main'><section id='google-trip-income'><table id='income-tbl'><tbody>"+
-        row('linked',linked)+row('unlinked','미연결')+row('refunded','환불완료')+row('async','미연결')+
+        row('linked',linked)+row('unlinked','미연결')+row('refunded','환불완료')+row('candidate',"<div class='participant-cell-content'><button class='insurance-review-status insurance-candidate-button'>보험 명단 후보 1건</button></div>")+row('async','미연결')+
         "</tbody></table></section><template id='linked-template'>"+linked+"</template></main></body></html>")
     with patch('webapp.ledger_design._nav_html',return_value='<aside id="nav"></aside>'):
         return site_shell.wrap_document(body,'/board')
@@ -36,6 +36,9 @@ def test_closed_and_async_insurance_rows_keep_same_height_and_keyboard_disclosur
                     heights=page.locator('#income-tbl tbody tr').evaluate_all('(rows)=>rows.map(r=>r.getBoundingClientRect().height)')
                     assert max(heights)-min(heights)<1,heights
                     assert heights[0]==(93 if width<760 else 45),heights
+                    candidate=page.locator('#candidate button')
+                    assert 'site-action' not in (candidate.get_attribute('class') or '')
+                    assert candidate.evaluate("el=>getComputedStyle(el).borderTopWidth") == '0px'
             summary=page.locator('#linked summary')
             summary.focus();page.keyboard.press('Enter')
             assert page.locator('#linked details').get_attribute('open') is not None

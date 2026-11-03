@@ -166,6 +166,9 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .participant-insurance-cell button:hover{background:var(--hover);border-color:var(--focus)}
 .participant-insurance-cell button:active{background:var(--surface-muted)}
 .participant-insurance-cell button:focus-visible,#google-trip-income .participant-link-details>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+#google-trip-income .participant-insurance-cell .insurance-candidate-button{flex:0 1 auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--focus);text-align:left}
+#google-trip-income .participant-insurance-cell .insurance-candidate-button::after{content:'';width:5px;height:5px;margin:0 4px 0 0;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);flex-shrink:0;opacity:.7}
+#google-trip-income .participant-insurance-cell .insurance-candidate-button:hover{text-decoration:underline}
 #google-trip-income .participant-link-details{flex:0 1 auto;max-width:100%}
 #google-trip-income .participant-link-details>summary{display:inline-flex;align-items:center;min-height:44px;padding:0;gap:6px;font:inherit;font-weight:400;color:var(--mut);white-space:normal;line-height:1.5;border-radius:4px}
 #google-trip-income .participant-link-details>summary:hover{color:var(--ink);text-decoration:underline}
