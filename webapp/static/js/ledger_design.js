@@ -112,7 +112,22 @@
    if(evidenceButton){
     var evidence=root.querySelector('#'+CSS.escape(evidenceButton.dataset.insuranceEvidence));
     var candidateDialog=root.querySelector('#insurance-candidate-dialog');
-    if(evidence&&candidateDialog){root.open=true;candidateDialog.querySelector('[data-insurance-evidence-content]').replaceChildren(evidence.content.cloneNode(true));candidateDialog.showModal();}
+    if(evidence&&candidateDialog){
+     root.open=true;
+     var evidenceContent=candidateDialog.querySelector('[data-insurance-evidence-content]');
+     evidenceContent.replaceChildren(evidence.content.cloneNode(true));
+     var roster=evidenceContent.querySelector('[data-insurance-roster]'),rosterTemplate=root.querySelector('#insurance-roster-candidates');
+     if(roster&&rosterTemplate)roster.replaceChildren(rosterTemplate.content.cloneNode(true));
+     candidateDialog.showModal();
+    }
+    return;
+   }
+   var candidateConnect=e.target.closest('[data-insurance-connect-ref]');
+   if(candidateConnect){
+    var targetCell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(candidateConnect.dataset.insuranceConnectRef)+'"]');
+    var dialog=root.querySelector('#insurance-candidate-dialog');
+    if(dialog)dialog.close();
+    if(targetCell)choose(targetCell);
     return;
    }
    if(e.target.closest('[data-insurance-close]')){root.querySelector('#insurance-candidate-dialog').close();return;}
