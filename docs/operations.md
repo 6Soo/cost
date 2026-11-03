@@ -1,3 +1,11 @@
+## 2026-11-04 핵심 기능 중심 UI 축소
+
+- [PR #620](https://github.com/6Soo/cost/pull/620) 운영 `2663f08e9fd478adba52cba2218a5a528046aa81`, 이전 검증 `4758fe63386c10a3cf1f255e7448d3a21c55fdfe`. 제목 옆 전체 집계·상시 저장 시각·홈 중복 링크·카드 소개/중복 요약·항공권 반복 정보를 제거했다. 장부 추가 작업·여행 마감/상세 필터·지출 자료/규칙·OTA 진단은 접이식으로 옮기고 영수증은 자료가 있는 단계만 표시한다. [요구사항별 결과](specs/core-ui-reduction-20261104.md).
+- 최종 검사 `1bd604ee11dd9d3bf5f4ad6510385ad37c381d64`와 병합 tree 동일. Windows 영향 QA 1,009 passed·121 subtests·skip 0·필수 브라우저 누락 0, PR CI 41711523569 성공. 새 접근 경로·키보드·딥링크·입력 보존·편집/복사와 기존 금융 보호를 검사했다. 기존 CSV 테스트 모드·누적 성능 측정의 기준 실패는 독립 추출본에서 재현하고 테스트 조건만 격리했다.
+- 공식 단일 작성자 배포 1,316 blobs 불일치 0·런타임 SHA·listener 1·health/ready 200·보호 API 401·보호 13표 내용/스키마 전후 불변. gateway8790→backend8752. 코드 전용으로 이전 검증 릴리스와 작업 복구 수단을 유지했으며 금융/Google/원본 업무 쓰기·마이그레이션·대량 재처리는 실행하지 않았다.
+- 운영 인증 PC 11경로에서 가로 넘침 0, 전체 집계 배지 제거, 마감·자료/규칙·OTA·PDF의 기본 접힘과 펼친 뒤 접근을 확인했다. 모바일 390px 6경로 가로 넘침 0·테마 버튼 각 1개. 합성 7화면×두 폭×두 테마 28조건과 마지막 영향8조건도 확인했다. 실제 마감/금융 저장·고객 파일 업로드·실기기·모든 데이터 상태 조합은 미검증이다. Ego44 종료, 소유 합성 서버8876 종료.
+- 근거 `C:/AX/cost/.local-archive/core-ui-20261104/`의 windows-final/·acceptance-themes.json·final-affected.json·live-acceptance.json·live-mobile.json·review.json·deploy-evidence.json, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-2663f08e9fd478adba52cba2218a5a528046aa81.json`. 문서 후속만으로 재배포하지 않는다.
+
 ## 2026-11-04 넓은 화면 본문 중앙 정렬
 
 - [PR #618](https://github.com/6Soo/cost/pull/618), 운영 `4758fe63386c10a3cf1f255e7448d3a21c55fdfe`, 이전 `7c0be270a6ef770973efd797be00a9922dbd9210`. 홈·여행 관리 등 공통 제목과 본문을 최대 1180px로 정렬하고 영수증의 바깥 폭 제한을 해제해 960px 본문을 중앙에 배치했다. 기존 홈의 지출 정리 강조 및 장부·항공권 등 기존 작업 폭을 유지한다.
