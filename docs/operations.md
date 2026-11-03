@@ -1,3 +1,11 @@
+## 2026-11-03 잔존 프로세스 복구 및 후속 main 고정 배포
+
+- 사용자 “운영배포해”에 따라 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`→`d26b43e9cc9f66ef89d2385d163b67ef7f04bba4` 공식 전환 완료(2026-11-03T14:49:37Z). PR582~600의 Google 표시·감독자 수명·OTA 커서/스냅샷 신선도·항공권 권위/취소 이력·지출 날짜 근거 등 병합된 후속 코드를 포함한다. Windows 최종 영향338 passed/4 subtests/skip0와 개별 변경 근거 및 main CI41636631694 success를 확인했다.
+- 배포 전 후보8752/진입56069를 점유한 잔존713 릴리스 및33 중복 준비 감독자를 SHA·PID·생성시각·부모 관계·스크립트/역할/loopback 포트로 식별했다. 두 공식 배포 잠금과 gateway 요청/writer drain 아래 정리하고 기존 backend42372 유지·33 진입 서버 복구·health/ready200·보호13표 불변을 확인했다. 영수증 인식 임시 상태는 재시작 만료 계약이며 저장 원본과 장부를 보존한다. 임의 제3 포트나 신원 검사 우회는 사용하지 않았다.
+- `C:/AX/cost-demo-sync-20261103/tools/deploy_verified_release.ps1 -CandidateSha d26b43e9cc9f66ef89d2385d163b67ef7f04bba4 -PreviousSha 33bf47e7dbc3788a6eeb4082ad120d221c8cabc7 -ReviewEvidence C:/AX/cost/.local-archive/deploy-resume-20261103/review.json -Apply` PASS. gateway8790→backend8752/paused=false, Board Running/고정SHA, Prepared 제거, 단일 loopback backend, entry56069 및 gateway8790 유지. 1,312 blobs 불일치0·health/ready200·보호API3개401·보호13표 내용/스키마 전후불변. 전환 중 표본196요청 실패0/최대7.099초이며 전 구간 무중단 보장과 구분한다.
+- 이전 검증 릴리스/task XML 복구점 보존. 코드 전용으로 별도 전체DB백업·복원·마이그레이션·금융/여행 대량 재처리·Google 쓰기 없음. 직접 입력 유지 결정에 따라 새 모델 연결/거래 근거 전송 없음. 새 인증 브라우저·실제 금융 저장·전체 회귀는 이번 배포에서 반복하지 않았다.
+- 근거 `C:/AX/cost/.local-archive/deploy-resume-20261103/` 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d26b43e9cc9f66ef89d2385d163b67ef7f04bba4.json`, `continuous-switch-d26b43e9cc9f66ef89d2385d163b67ef7f04bba4.json`. 사용자 미추적 파일·기존 작업 공간 보존. 문서 후속 재배포/재시작 없음.
+
 ## 2026-11-03 항공권 여정 개편·예약 이용기간 교정·업로드 재시작 검증 운영 배포
 
 - PR #574 (항공권 여정/탑승객 개편 `71340078`), PR #578 (예약 이용기간 교정 `cc9d31cb`), PR #576 (업로드 재시작 검증 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`) 정상 병합 및 호스팅 CI 41598022768 성공.
