@@ -9,11 +9,14 @@ def render_flight_section(trip_tab_id: str, *, total: int | None = None, passeng
     encoded_trip = quote(str(trip_tab_id), safe="")
     url = escape(endpoint or f"/api/trips/{encoded_trip}/flight-bookings", quote=True)
     summary = ("항공권 예약" if total is None else
-               f"항공권 예약 {int(total)}건" + (f" · 확인된 탑승객 {int(passenger_count)}명" if passenger_count is not None else ""))
+               f"항공권 예약 {int(total)}건" + (f" · 현재 예약 탑승객 {int(passenger_count)}명" if passenger_count is not None else ""))
     return (f'<section class="trip-flight" data-trip="{trip}" data-endpoint="{url}">'
             f'<details><summary>{summary}</summary>'
             '<div class="trip-flight-body">'
             '<p class="trip-flight-status" role="status" aria-live="polite">펼치면 예약 목록을 불러옵니다.</p>'
+            '<label class="trip-flight-filter">예약 상태 <select aria-label="예약 상태">'
+            '<option value="active">현재 예약</option><option value="all">전체 이력 (취소 포함)</option>'
+            '</select></label>'
             '<button type="button" class="trip-flight-retry" hidden>다시 불러오기</button>'
             '<ol class="trip-flight-items"></ol><button type="button" class="trip-flight-more" hidden>예약 더 보기</button>'
             '<div class="trip-flight-detail" tabindex="-1" hidden></div>'
@@ -32,6 +35,9 @@ STYLE = """<style>
 .trip-flight summary{padding:16px;min-height:44px;box-sizing:border-box;font-weight:600;cursor:pointer}
 .trip-flight summary:hover{background:var(--hover,#f4f6f8)}
 .trip-flight-body{padding:0 16px 16px}
+.trip-flight-filter{display:flex;align-items:center;gap:8px;margin:0 0 12px;flex-wrap:wrap}
+.trip-flight-filter select{font:inherit;color:inherit;background:var(--paper,#fff);border:1px solid var(--line,#d6dce3);border-radius:8px;min-height:44px;max-width:100%;padding:8px}
+.trip-flight-filter select:focus-visible{outline:2px solid var(--grn,#176b59);outline-offset:2px}
 .trip-flight-status{margin:0 0 12px;line-height:1.6;font-size:13px;color:var(--mut,#536375)}
 .trip-flight[data-state=error] .trip-flight-status{color:var(--ink,#172b42);padding:12px;border-left:3px solid var(--mut,#536375);background:var(--bg,#f4f6f8);border-radius:4px}
 .trip-flight button{font:inherit;color:inherit;min-height:44px;cursor:pointer;border:1px solid var(--line,#d6dce3);border-radius:8px;background:var(--paper,#fff);padding:10px 14px;max-width:100%;overflow-wrap:anywhere;text-align:left}
@@ -54,10 +60,10 @@ STYLE = """<style>
 CLIENT_SCRIPT = r"""<script>
 document.querySelectorAll('.trip-flight').forEach(section=>{
  if(section.dataset.initialized)return;section.dataset.initialized='true';
- const details=section.querySelector('details'), status=section.querySelector('.trip-flight-status'), list=section.querySelector('.trip-flight-items'), more=section.querySelector('.trip-flight-more'), retry=section.querySelector('.trip-flight-retry'), detail=section.querySelector('.trip-flight-detail');
+ const details=section.querySelector('details'), status=section.querySelector('.trip-flight-status'), list=section.querySelector('.trip-flight-items'), more=section.querySelector('.trip-flight-more'), retry=section.querySelector('.trip-flight-retry'), detail=section.querySelector('.trip-flight-detail'), filter=section.querySelector('.trip-flight-filter select');
  let loaded=false,busy=false,cursor='',generation='',retryAction=null;
  const labels={AUTO_INFERRED:'출발일 기준 자동 배정',USER_CONFIRMED:'수동 배정',AUTHORITY_VERIFIED:'연결 근거로 배정',VERIFIED_GUIDE_BRIDGE:'가이드 예약 근거',UNRESOLVED:'배정 근거 확인 필요',CONFLICT:'귀속 충돌'};
- function setBusy(value){busy=value;section.setAttribute('aria-busy',String(value));more.disabled=value;retry.disabled=value;list.querySelectorAll('button').forEach(b=>b.disabled=value)}
+ function setBusy(value){busy=value;section.setAttribute('aria-busy',String(value));more.disabled=value;retry.disabled=value;filter.disabled=value;list.querySelectorAll('button').forEach(b=>b.disabled=value)}
  function message(value,state='ready'){status.textContent=value;section.dataset.state=state}
  function resetSource(){loaded=false;cursor='';generation='';list.replaceChildren();more.hidden=true;detail.replaceChildren();detail.hidden=true;section.querySelector('summary').textContent='항공권 예약'}
  function failed(e,action,fallback){
@@ -71,13 +77,13 @@ document.querySelectorAll('.trip-flight').forEach(section=>{
  function assignment(b){return (labels[b.assignment_status]||'배정 근거 확인 필요')+(b.assignment_conflict?' · 귀속 충돌':'')+(b.evidence_status==='CONFLICT'?' · 자료 충돌':'')}
  async function load(){
   if(busy)return;retry.hidden=true;setBusy(true);message('예약 목록을 불러오는 중입니다.','loading');
-  const u=new URL(section.dataset.endpoint,location.origin);if(cursor)u.searchParams.set('cursor',cursor);
+  const u=new URL(section.dataset.endpoint,location.origin);u.searchParams.set('status',filter.value);if(cursor)u.searchParams.set('cursor',cursor);
   try{
    const d=await request(u);if(generation&&generation!==d.source_generation)throw Error('SOURCE_CHANGED');generation=d.source_generation;
    for(const b of d.items||[]){const li=document.createElement('li');const title=append(li,'button',(b.outbound_departure_on||'출발일 미확인')+' · '+(b.booking_ref||'예약번호 미확인'));title.type='button';title.addEventListener('click',()=>loadDetail(b.booking_key));
-    append(li,'p',(b.route_summary||'경로 확인 필요')+' · '+(b.passenger_count??0)+'명');append(li,'p',assignment(b));list.append(li)}
+    append(li,'p',(b.route_summary||'경로 확인 필요')+' · '+(b.passenger_count??0)+'명');append(li,'p',assignment(b)+(b.booking_status==='CANCELLED'?' · 취소':b.booking_status==='CONFLICT'?' · 예약 상태 충돌':''));list.append(li)}
    cursor=d.next_cursor||'';more.hidden=!cursor;
-   section.querySelector('summary').textContent='항공권 예약 '+d.total_bookings+'건'+(d.verified_passenger_count!=null?' · 확인된 탑승객 '+d.verified_passenger_count+'명':'');
+   section.querySelector('summary').textContent='항공권 예약 '+d.total_bookings+'건'+(d.verified_passenger_count!=null?' · 현재 예약 탑승객 '+d.verified_passenger_count+'명':'');
    message(d.evidence_status==='UNAVAILABLE'?'항공권 자료를 확인할 수 없습니다.':d.total_bookings?'예약 '+d.total_bookings+'건 중 '+list.children.length+'건 · 예약을 선택하면 여정과 탑승객을 확인할 수 있습니다.':'이 여행에 연결된 항공권 예약이 없습니다.');loaded=true;
   }catch(e){failed(e,load,'예약 자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}finally{setBusy(false)}
  }
@@ -90,10 +96,11 @@ document.querySelectorAll('.trip-flight').forEach(section=>{
    for(const leg of b.legs||[])append(detail,'p',(leg.label||'여정')+' · '+(leg.departure_on||'날짜 미확인')+' · '+(leg.segments||[]).map(x=>(x.departure_airport||'?')+' → '+(x.arrival_airport||'?')+' '+(x.flight_number||'')+' '+[x.departure_time,x.arrival_time].filter(Boolean).join('–')).join(' · '));
    append(detail,'p','탑승객: '+((b.passengers||[]).join(', ')||'확인 필요'));
    if(b.booking_date_label)append(detail,'p',b.booking_date_label);
-   append(detail,'p',assignment(b));detail.hidden=false;detail.focus();message('예약 상세를 표시합니다.');
+   append(detail,'p',assignment(b)+(b.booking_status==='CANCELLED'?' · 취소':b.booking_status==='CONFLICT'?' · 예약 상태 충돌':''));detail.hidden=false;detail.focus();message('예약 상세를 표시합니다.');
   }catch(e){failed(e,()=>loadDetail(key),'예약 상세를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}finally{setBusy(false)}
  }
  retry.addEventListener('click',()=>retryAction?.());
+ filter.addEventListener('change',()=>{resetSource();retry.hidden=true;if(details.open)load()});
  details.addEventListener('toggle',()=>{if(details.open&&!loaded)load()});more.addEventListener('click',load);
 });
 </script>"""

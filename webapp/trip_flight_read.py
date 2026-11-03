@@ -261,7 +261,11 @@ def page_for_trip(projection: Mapping[str, Any], trip_tab_id: str, *, limit: int
     return {"trip_tab_id": trip_tab_id, "source_generation": generation,
             "evidence_status": projection.get("evidence_status", "UNAVAILABLE"),
             "total_bookings": len(all_items),
-            "verified_passenger_count": sum(b["passenger_count"] for b in all_items),
+            "verified_passenger_count": sum(b["passenger_count"] for b in all_items
+                                            if b["booking_status"] == "ACTIVE"
+                                            and b["evidence_status"] != "CONFLICT"
+                                            and b["assignment_status"] not in ("CONFLICT", "UNRESOLVED")
+                                            and not b["assignment_conflict"]),
             "items": items, "next_cursor": next_cursor, "has_conflicts": any(
                 b["assignment_status"] in ("CONFLICT", "UNRESOLVED") or b["assignment_conflict"]
                 or b["evidence_status"] == "CONFLICT" for b in all_items)}
