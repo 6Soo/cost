@@ -528,3 +528,25 @@ def test_browser_refresh_wait_stays_busy_and_announces_once_until_ready(outcome)
             assert len(calls) == 3
         finally:
             browser.close()
+
+
+def test_browser_stalled_search_request_releases_controls_with_retry_message():
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            screen = browser.new_page()
+            screen.route('http://synthetic.test/flight-passengers', lambda route: route.fulfill(
+                content_type='text/html', body=page._page('synthetic-csrf')))
+            screen.route('**/api/flight-passengers/name-search', lambda route: None)
+            screen.clock.install()
+            screen.goto('http://synthetic.test/flight-passengers')
+            screen.locator('input[name=name]').fill('SYNTH')
+            with screen.expect_request('**/api/flight-passengers/name-search'):
+                screen.locator('form button[type=submit]').click()
+            screen.clock.fast_forward(15000)
+            expect(screen.locator('[role=status]')).to_contain_text('응답이 지연')
+            expect(screen.locator('form button[type=submit]')).to_be_enabled()
+            expect(screen.locator('#fb-results')).to_have_attribute('aria-busy', 'false')
+        finally:
+            browser.close()
