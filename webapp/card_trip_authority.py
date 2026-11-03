@@ -88,6 +88,11 @@ def retail_trip(flow, transaction, country, *, google_nets):
     from app.rules import transaction_region, trip_region
     from app.trip_selection import card_trip_allowed
     if isinstance(country,dict):
+        if country.get('fukutake_setouchi'):
+            from app.trip_selection import fukutake_trips
+            trips = [t for t in flow.board.list_trips() if flow.trip_valid(t['tab_id'])]
+            preferred = fukutake_trips(transaction, trips)
+            return preferred[0]['tab_id'] if preferred else ''
         if country.get('owner_card3820_singapore'):
             candidates = [t for t in flow.board.list_trips()
                           if t['destination'] == '싱가포르'
