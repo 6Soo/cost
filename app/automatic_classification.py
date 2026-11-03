@@ -305,6 +305,13 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
     valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
                       and fact.get('trip_id') in valid
                       and row['transaction_direction'] == 'purchase')
+    # A recorded calendar guess is still an automatic inference. A later,
+    # source-bound reservation period may correct it during explicit review.
+    # Historical/manual rows have already taken the protected branch in plan().
+    recorded_correction = bool(valid_fact and existing_tab and existing_tab != 'refunds'
+        and row['classification_source'] == 'inference' and not links.get(tid)
+        and (not board or json.loads(board[1]).get('confirmed_by') == 'automatic')
+        and (not recorded_tab or recorded_tab == existing_tab))
     airfare_ota = bool(re.search(r'gotogate|고투게이트', str(row.get('merchant') or ''), re.I))
     residual_with_fact = (valid_fact and row['classification_source'] == 'owner_card_residual')
     if (residual_with_fact or (airfare_ota and row['classification_source'] == 'owner_card_residual')) and not existing_tab:
@@ -334,8 +341,10 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
             if chosen['item'] in ('기타경비', '현지경비', '여행경비'):
                 chosen['item'] = specific
             item_basis = '기존 항목·카드 업종·서비스 용도 재대조'
+    applied_fact = False
     if (valid_fact and chosen.get('display_tab_id') != 'refunds'
-            and chosen['item'] != '분기 기타비용' and not existing_tab):
+            and chosen['item'] != '분기 기타비용' and (not existing_tab or recorded_correction)):
+        applied_fact = True
         chosen.update(trip_id=fact['trip_id'], display_tab_id=fact['trip_id'])
         if chosen['item'] in ('', '기타경비', '현지경비', '여행경비') and fact.get('item'):
             chosen['item'] = fact['item']
@@ -351,7 +360,9 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
                                       reconsider=rerank, _canonical=valid)
         if target:
             chosen.update(trip_id=target, display_tab_id=target)
-            if reconsider:
+            if reconsider and applied_fact:
+                trip_basis = fact['basis']
+            elif reconsider:
                 ranked = card_trip_candidates(chosen, list(valid.values()), nets=nets, _canonical=valid)
                 trip_basis = next((candidate['basis'] for candidate in ranked if candidate['trip_id'] == target),
                                   '유효 여행 유지 · 이용일 단서 없음')
@@ -421,9 +432,18 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
         if has_history:
             chosen = _restore_historical_row(row, chosen, tid, valid, nets, decisions, ledger, boards)
         else:
+            row_evidence = evidence
+            if tid in ledger or 'card-' + tid in boards:
+                refund = conn.execute(
+                    "SELECT 1 FROM transactions WHERE issuer=? AND card_tail=?"
+                    " AND original_approval_number=? AND COALESCE(original_approval_number,'')!=''"
+                    " AND (transaction_direction IN ('cancellation','refund') OR amount_krw<0) LIMIT 1",
+                    (row['issuer'], row['card_tail'], row['approval_number'])).fetchone()
+                if refund:
+                    row_evidence = {}
             chosen, protected_by_policy = _classify_new_row(
                 row, chosen, tid, valid, trips, nets, links, resolved, ledger, boards,
-                reconsider, evidence)
+                reconsider, row_evidence)
             if protected_by_policy:
                 protected += 1
                 continue
@@ -431,7 +451,13 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                 continue
         values = tuple(chosen.get(k) or '' for k in FIELDS)
         if values != current:
-            targets.append({'id': tid, 'values': values, 'revision': row['revision'], 'has_prior_classification': has_history})
+            correction = bool(not has_history and reconsider and evidence.get(tid)
+                and chosen.get('trip_id') != row.get('trip_id')
+                and '예약 이용기간 근거 우선:' in chosen.get('classification_basis', '')
+                and ('card-' + tid in boards or tid in ledger))
+            targets.append({'id': tid, 'values': values, 'revision': row['revision'],
+                            'has_prior_classification': has_history,
+                            **({'booking_trip_correction': True} if correction else {})})
             resolved[tid] = chosen
     payload = [context, trips, nets or {}, sorted(selected) if selected is not None else None,
                targets, POLICY, reconsider, evidence]
@@ -456,6 +482,12 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
             raise ValueError('CLASSIFICATION_PREVIEW_STALE')
         for target in current['targets']:
             tid, values = target['id'], target['values']
+            correction = target.get('booking_trip_correction', False)
+            before = None
+            if correction:
+                original = _read(conn, {tid})[0]
+                before = {'transaction': {key: original[key] for key in (*FIELDS, 'revision')},
+                    'ledger': conn.execute('SELECT display_tab_id,trip_id FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone()}
             conn.execute('UPDATE transactions SET ' + ','.join(k+'=?' for k in FIELDS)
                          + ',revision=revision+1 WHERE transaction_id=? AND revision=?',
                          (*values, tid, target['revision']))
@@ -465,17 +497,34 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
                 "display_tab_id=CASE WHEN COALESCE(display_tab_id,'') IN ('','unclassified') THEN ? ELSE display_tab_id END,"
                 "trip_id=CASE WHEN COALESCE(trip_id,'') IN ('','unclassified') THEN ? ELSE trip_id END WHERE transaction_id=?",
                 (item, tab, trip, tid))
+            if correction:
+                conn.execute('UPDATE ledger_entries SET display_tab_id=?,trip_id=? WHERE transaction_id=?',
+                             (tab, trip, tid))
             board = conn.execute('SELECT payload_json,display_tab_id FROM board_rows WHERE row_id=?', ('card-'+tid,)).fetchone()
             if board:
                 payload = json.loads(board[0])
                 payload['classification_state'] = 'classified'
                 payload['item'] = payload.get('item') or item
                 board_tab = tab if board[1] in (None,'','unclassified') else board[1]
+                if correction:
+                    board_tab = tab
+                    payload.update(display_tab_id=tab, classification_source=values[1],
+                                   classification_basis=values[2])
                 if payload.get('display_tab_id') in (None,'','unclassified'):
                     payload['display_tab_id'] = board_tab
                 if payload != json.loads(board[0]) or board_tab != board[1]:
+                    if correction:
+                        old_revision = conn.execute('SELECT revision FROM board_rows WHERE row_id=?', ('card-'+tid,)).fetchone()[0]
+                        payload['revision'] = old_revision + 1
+                        conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
+                            ('card-'+tid, old_revision+1, board[0], json.dumps(payload,ensure_ascii=False,sort_keys=True),
+                             '', 'rule_change', 'automatic', utc_now(), 'booking-period-'+current['digest'][:24]))
                     conn.execute('UPDATE board_rows SET payload_json=?,display_tab_id=?,revision=revision+1 WHERE row_id=?',
                         (json.dumps(payload,ensure_ascii=False,sort_keys=True), board_tab, 'card-'+tid))
+            if correction:
+                conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
+                    (utc_now(), 'card.booking_trip_correction', tid,
+                     json.dumps({'before': before, 'trip_id': trip, 'basis': values[2]},ensure_ascii=False,sort_keys=True)))
         if current['targets']:
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                 (utc_now(), 'card.automatic_classification', POLICY,

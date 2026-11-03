@@ -520,6 +520,9 @@ class CardFlow:
                 review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'), transaction_ids=transaction_ids)
             result['booking_evidence_unavailable'] = True
         result['completion'] = complete(self, batch_id, transaction_ids)
+        if not snapshot_only:
+            from .card_classification_completion import correct_recorded_booking_periods
+            result['booking_trip_corrections'] = correct_recorded_booking_periods(self, batch_id, transaction_ids)
         from collections import Counter
         current = self.pipeline.get_batch(batch_id)['rows']
         for row in current:

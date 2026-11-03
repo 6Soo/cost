@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "recorded-booking-period-correction",
+      "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py"],
+      "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
+    },
+    {
       "name": "fukutake-setouchi-assignment",
       "paths": ["app/trip_selection.py", "app/classify.py", "app/automatic_classification.py", "app/provisional_assignment.py", "webapp/card_trip_authority.py", "tests/card_pipeline/test_fukutake_setouchi.py"],
       "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
