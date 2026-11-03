@@ -27,6 +27,7 @@ def test_full_trip_group_counts_are_stable_in_search_and_live_fragments(monkeypa
     monkeypatch.setattr(design, '_is_trip_tab', lambda *a: True)
     monkeypatch.setattr(board, 'current_role', lambda: 'owner')
     monkeypatch.setattr(board, '_active_store', lambda: object())
+    monkeypatch.setattr(board, 'live_trips', lambda **kwargs: [])
     from webapp import expense_amount_group_service as service
     monkeypatch.setattr(service, 'build_state', lambda *a, **kw: received.append(kw['cost_rows']) or state)
     for renderer in (design.rows_region, design.rows_part):
