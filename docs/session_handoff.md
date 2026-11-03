@@ -1,3 +1,10 @@
+## 2026-11-03 Google 지출 대조·데모 동기화 — 병합, 배포 전환 실패
+
+- PARTIAL — [PR #582](https://github.com/6Soo/cost/pull/582) 병합 `20eb4ca388db4b50403d5f5807fc0fe6aeaf308e`. 선택된 검증 Google 정본과 같은 여행의 지출을 표시용으로 비교하여 단서·복수 후보를 PC/모바일에 표시한다. 복사 중복 판정·금융 연결은 변경하지 않는다. Windows 영향 QA 184 passed·9 subtests·skip 0, PR CI `41608573778`·main CI `41609077615` 성공. 금융·수동 링크 등 별도 표적 67 passed. 인접 그룹 화면 fixture 1건 실패는 기준 `afd21ce2`에서도 동일 재현했다.
+- PARTIAL — [PR #583](https://github.com/6Soo/cost/pull/583) 병합 `4b9aaca9d1c3ea1cc0673d4738cd1b9a2c89a9e8`. 명시적으로 활성화된 실제 데모에 한해 동일 정본의 정상 동기화 직후 익명 집계를 저장하고 조회와 갱신을 직렬화한다. 동기화 실패 시 마지막 정상 결과를 지연 표시한다. Windows 영향 QA 337 passed·skip 0, PR CI `41610189708`·main CI `41610428270` 성공. 실제 데모 공개 설정·고객 자료는 변경하지 않았다. 실제 자동 갱신에는 동기화 프로세스의 동일 snapshot 경로와 기존 공개 게이트 설정, 최초 개인정보 검수가 필요하다.
+- 두 PR의 운영 배포는 **미완료**다. `20eb4ca3` 전환은 공식 배포기에서 `DEPLOYMENT_FAILED_VERIFY_PRIOR_RELEASE`로 실패했다. 현재 Board task `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`·gateway→8751·health/ready 200이며 보호 13표 전후 불변이다. 8752는 이전 검증 릴리스 `71340078` 프로세스가 점유하고, 그 트리의 진입 서버는 56069에서 실제 서비스 중이다. 정리 사전 검사는 살아 있는 자식/진입 listener를 발견해 동작 전에 중단했으며 프로세스 종료는 없었다.
+- 원인 분석과 다음 단계: `switch_continuous_release.ps1`은 준비 포트 사용을 차단하고 기존 진입 서버 SHA가 직전 릴리스와 같아야 한다. 현 진입 서버는 그보다 오래된 `71340078`이다. windowless wrapper 자손의 수명과 재생성을 합성 Windows 테스트로 재현하고, 활동 중 작업·요청 보호와 실패 복구를 포함한 안전한 인계 절차를 검증한 후에만 배포한다. 8752를 강제로 비우거나 56069를 임의 종료하지 않는다. 최신 main `4b9aaca9` 릴리스는 1,312 blobs 불일치 0으로 준비했다. 근거 `C:/AX/cost/.local-archive/completion-audit-20261103/checkpoint.md`, `C:/AX/cost/.local-archive/google-display-candidates-20261103/` 및 두 작업 공간의 `quality-artifacts/`.
+
 ## 2026-11-03 항공권 개편·예약기간 교정·업로드 재시작 배포 — 완료
 
 - COMPLETE — [PR #574](https://github.com/6Soo/cost/pull/574) (항공권 예약 조회 개편), [PR #578](https://github.com/6Soo/cost/pull/578) (기록된 자동 배정 예약 이용기간 교정), [PR #576](https://github.com/6Soo/cost/pull/576) (업로드 재시작 시 저장된 배치 링크 보존) 병합 및 고정 배포 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`.
