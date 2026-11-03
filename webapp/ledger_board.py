@@ -1554,7 +1554,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                f"<input type='hidden' name='expected_closed' value='{int(bool(t.get('visual_closed')))}'>"
                f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
                "<input type='hidden' name='return_to' value='/trips'>"
-               f"<button type='submit'>{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
+               f"<button type='submit'>{ui_icons.icon('rotate-ccw' if t.get('visual_closed') else 'check')}{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
             + "</article>"
         )
     profile_html = ""

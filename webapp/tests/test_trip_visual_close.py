@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from webapp import ledger_board, ledger_design
+from webapp import ledger_board, ledger_design, ui_icons
 from webapp.ledger_store import LedgerStore, SaveError
 
 
@@ -48,3 +48,27 @@ def test_sidebar_marks_closed_trip_without_visible_label():
     assert "nv sel nv-closed" in html
     assert 'aria-label=\'Example · 마감\'' in html
     assert '>마감<' not in html
+
+
+def test_trip_close_actions_use_state_specific_icons_without_changing_state(tmp_path):
+    store = LedgerStore(tmp_path / 'board.sqlite', seed_demo=True)
+    try:
+        with patch.object(ledger_board, '_STORE', store):
+            opened = ledger_board.trips_page(role='owner')
+            assert ui_icons.icon('check') + '마감</button>' in opened
+            store.save_trip_visual_close(tab_id='trip-demo-a', expected_closed=False,
+                                         closed=True, client_request_id='icon-test')
+            closed = ledger_board.trips_page(role='owner')
+            assert ui_icons.icon('rotate-ccw') + '마감 해제</button>' in closed
+            assert store.trip_visual_close_states()['trip-demo-a']
+    finally:
+        store.close()
+
+
+def test_flight_navigation_has_distinct_airplane_icon():
+    assert ui_icons.icon('airplane', 18)
+    with patch.object(ledger_board, 'current_role', return_value='owner'), \
+         patch('webapp.flight_passenger_page.enabled', return_value=True):
+        nav = ledger_design._nav_html('', '')
+    assert "href='/flight-passengers'>" + ui_icons.icon('airplane', 18) in nav
+    assert ui_icons.icon('airplane', 18) != ui_icons.icon('users', 18)

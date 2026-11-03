@@ -23,6 +23,7 @@ ICONS = {
     "sun": "<circle cx='12' cy='12' r='4'/><path d='M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5'/>",
     "moon": "<path d='M21 13a9 9 0 0 1-10-10A9 9 0 1 0 21 13z'/>",
     "plane": "<path d='m22 2-7 20-4-9-9-4z'/><path d='m22 2-11 11'/>",
+    "airplane": "<path d='M21 3c1 1 0 3-1 4l-4 4 2 7-2 2-4-6-3 3v3l-2 1-1-4-4-1 1-2h3l3-3-6-4 2-2 7 2 4-4c1-1 3-2 4-1z'/>",
     "bed": "<path d='M3 18V6m18 12V10H3m0 5h18M7 10V7h6v3'/>",
     "bus": "<rect x='5' y='3' width='14' height='17' rx='3'/><path d='M5 11h14M8 20v2m8-2v2M8 15h.01M16 15h.01'/>",
     "utensils": "<path d='M4 3v6a3 3 0 0 0 6 0V3M7 3v19M20 22V3c-5 3-5 10 0 10'/>",
