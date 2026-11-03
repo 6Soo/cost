@@ -73,7 +73,7 @@ class DesignScreenTests(unittest.TestCase):
                     }
                 }""")
                 if width < 760:
-                    page.click('#btn-menu')
+                    page.click('.site-menu-toggle')
                     page.wait_for_timeout(300)
                 page.locator('#nav').evaluate('e => e.scrollTop = e.scrollHeight')
                 self.assertGreater(page.locator('#nav').evaluate('e => e.scrollTop'), 0)
@@ -100,7 +100,7 @@ class DesignScreenTests(unittest.TestCase):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-a')
                 if width == 390:
-                    page.click('#btn-menu')
+                    page.click('.site-menu-toggle')
                 page.locator('#previous-trips > summary').click()
                 page.locator('#previous-trips .prev-q > summary').nth(1).click()
                 trip_link = page.locator('#previous-trips a[href*="tab=trip-demo-a"]').first.inner_text()
@@ -302,9 +302,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(overflow(page), 0)
         self.assertTrue(page.is_visible(".lst"))
         self.assertFalse(page.is_visible(".tw"))
-        self.assertEqual(page.locator("#btn-menu").count(), 1)
-        self.assertEqual(page.evaluate(
-            "document.querySelectorAll('.bar .icon').length"), 1)
+        self.assertEqual(page.locator('.site-menu-toggle:visible').count(), 1)
         status = page.inner_text(".status")
         self.assertEqual(len(status.strip().split("\n")), 1)
         # the first transaction must not be pushed far down
@@ -312,7 +310,7 @@ class DesignScreenTests(unittest.TestCase):
             "document.querySelector('.li').getBoundingClientRect().top")
         self.assertLess(top, page.evaluate('innerHeight'))
         # the nav drawer opens from the one button
-        page.click("#btn-menu")
+        page.click('.site-menu-toggle')
         self.assertTrue(page.is_visible(".nav.open"))
         page.locator("#nav-mask").click(position={"x": 380, "y": 400})
         self.assertFalse(page.evaluate("document.getElementById('nav').className.includes('open')"))
