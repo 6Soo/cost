@@ -111,6 +111,21 @@ class LoginEntryHtmlTests(_Server, unittest.TestCase):
         self.assertIn('text/html',ctype)
         self.assertIn('data-refusal="AUTH_REQUIRED"',body)
 
+    def test_direct_application_pages_offer_login(self):
+        for path in ('/cards/all', '/ota', '/receipts', '/trips',
+                     '/flight-passengers', '/reserve-links', '/export', '/rules'):
+            with self.subTest(path=path):
+                status, ctype, body = self._get(path, accept='text/html')
+                self.assertEqual(status, 401)
+                self.assertIn('text/html', ctype)
+                self.assertIn('data-refusal="AUTH_REQUIRED"', body)
+
+    def test_direct_application_page_json_accept_stays_json(self):
+        status, ctype, body = self._get('/cards/all', accept='application/json')
+        self.assertEqual(status, 401)
+        self.assertIn('application/json', ctype)
+        self.assertIn('AUTH_REQUIRED', body)
+
     def test_review_json_accept_stays_json(self):
         status, ctype, body = self._get("/review", accept="application/json")
         self.assertEqual(status, 401)
@@ -182,7 +197,10 @@ class LoginEntryHtmlTests(_Server, unittest.TestCase):
         self.assertNotIn("trip-demo-a", body)
         self.assertNotIn("<script>", body)
         self.assertNotIn("alert(1)", body)
-        self.assertNotIn("http", body.lower())
+        # Static Open Graph metadata may contain the public site URL; the
+        # login page must not create a navigable external link from the query.
+        self.assertNotIn('href="http', body.lower())
+        self.assertNotIn("href='http", body.lower())
         self.assertNotIn("accounts.", body.lower())
 
     def test_expired_cookie_same_html_policy(self):
