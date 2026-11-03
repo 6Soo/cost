@@ -344,6 +344,8 @@ class DesignScreenTests(unittest.TestCase):
             self.assertLessEqual(box["bottom"], inner_height, selector)
             self.assertGreaterEqual(box["top"], 0, selector)
 
+        page.click("#panel .p-extra > summary")
+
         # 2. the first save by real click
         before = self.store.get_row("expense-demo-c1")["revision"]
         page.fill("#f-description", "390 첫 번째 저장")
@@ -384,7 +386,39 @@ class DesignScreenTests(unittest.TestCase):
         self._board(page, "?tab=trip-demo-a")
         page.click(f"tr[data-id='{row_id}']")
         page.wait_for_selector("#panel")
+        if page.locator("#panel .p-extra").count():
+            page.click("#panel .p-extra > summary")
         return page.inner_text("#panel")
+
+    def test_expense_extra_fields_are_collapsed_and_keyboard_accessible(self):
+        page = self._page(390, 844)
+        self._board(page, "?tab=trip-demo-a")
+        page.click(".lst .li[data-id='expense-demo-c1']")
+        page.wait_for_selector("#panel .p-extra")
+        self.assertFalse(page.is_visible("#f-description"))
+        summary = page.locator("#panel .p-extra > summary")
+        summary.focus()
+        page.keyboard.press("Enter")
+        self.assertTrue(page.is_visible("#f-description"))
+        page.fill("#f-description", "extra details saved")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function("document.querySelector('.f-msg').textContent.includes('\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4')")
+        self.assertEqual(self.store.get_row("expense-demo-c1")["description"], "extra details saved")
+        self.assertEqual(overflow(page), 0)
+
+    def test_refusal_opens_collapsed_extra_field_and_focuses_it(self):
+        page = self._page(1440)
+        self._board(page, "?tab=trip-demo-a")
+        page.click("tr[data-id='expense-demo-c1']")
+        page.wait_for_selector("#panel .p-extra")
+        page.route("**/api/rows/expense-demo-c1/save", lambda route: route.fulfill(
+            status=400, content_type="application/json",
+            body='{"code":"INVALID","field":"description","message":"Invalid value"}'))
+        page.click("#panel button[type='submit']")
+        page.wait_for_selector("#f-description[aria-invalid='true']")
+        self.assertTrue(page.is_visible("#f-description"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "f-description")
+        self.assertTrue(page.locator("#panel .p-extra").evaluate("el => el.open"))
 
     def test_the_row_panel_keeps_the_source_locked_and_saves_for_real(self):
         page = self._page(1440)
