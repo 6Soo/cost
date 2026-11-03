@@ -390,14 +390,17 @@ def test_configured_authority_failure_cannot_silently_replace_manual_choice(tmp_
     assert not path.exists()
 
 
-def test_card_authority_read_failure_does_not_fall_back_to_departure_date(monkeypatch):
+@pytest.mark.parametrize("failure", ["database", "invalid_payload"])
+def test_card_authority_read_failure_does_not_fall_back_to_departure_date(monkeypatch, failure):
     from webapp import trip_flight_read
     class Handler:
         def _send_json(self, body, status=200):
             self.response = status, body
     class BrokenConnection:
         def execute(self, *args):
-            raise sqlite3.OperationalError("synthetic read failure")
+            if failure == "database":
+                raise sqlite3.OperationalError("synthetic read failure")
+            return SimpleNamespace(fetchall=lambda: [("expense", "A", "{invalid")])
     board = SimpleNamespace(live_trips=lambda **kwargs: [trip("A", "2026-11-07", "2026-11-10")],
                             conn=BrokenConnection())
     monkeypatch.setattr(trip_flight_read, "confirmed_booking_card_links", lambda *_: {
