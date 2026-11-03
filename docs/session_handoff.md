@@ -1,3 +1,9 @@
+## 2026-11-03 항공권 개편·예약기간 교정·업로드 재시작 배포 — 완료
+
+- COMPLETE — [PR #574](https://github.com/6Soo/cost/pull/574) (항공권 예약 조회 개편), [PR #578](https://github.com/6Soo/cost/pull/578) (기록된 자동 배정 예약 이용기간 교정), [PR #576](https://github.com/6Soo/cost/pull/576) (업로드 재시작 시 저장된 배치 링크 보존) 병합 및 고정 배포 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`.
+- 공식 `deploy_verified_release.ps1` 무중단 전환 성공: gateway8790→backend8751, 1,312 tracked blobs 불일치 0, listener 1, health/ready 200, 보호 API 401, 보호 13표 불변 PASS.
+- 배포 중 업무 DB/Google/원본/스키마 쓰기 0, 금융 안전 게이트 통과. 호스트 및 로컬 검증 근거 보존.
+
 ## 2026-11-03 기록된 자동 배정 예약 이용기간 교정 — 완료
 
 - COMPLETE — 사용자 “이용일 제대로 체크했는데 왜 엉뚱한곳에 배정됐지? 문제찾고수정” [PR #578](https://github.com/6Soo/cost/pull/578) 병합 `cc9d31cb`, 구현 `8bc945ff`·`d93ec632`, 사양 [기록된 자동 배정 예약 이용기간 교정](specs/recorded-booking-period-correction-20261103.md).
