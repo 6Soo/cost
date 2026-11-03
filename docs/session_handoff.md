@@ -1026,3 +1026,6 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 - 인증된 기존 ego TaskSpace 6/p1에서 최종 운영의 실제 대상이 `no_income`/연결 0건에서 `name_match`/`masked_name_match` 연결 1건으로 바뀐 것을 읽기 확인했다. 실제 수입 행의 `1명 연결`을 펼쳐 `자동 · 이름 글자 일치` 근거와 가로 넘침 0을 확인했다. 원수입 날짜·금액이 기존 조사와 일치하며 6d 배포 후와 e75 배포 후의 수입 13행 digest도 동일하다. 실제 보험 가입·입금 수령을 새로 확인한 것으로 확대하지 않는다. 작업 공간은 정상 종료했다.
 - 근거: `C:/AX/cost/.local-archive/insurance-two-character-20261103/`의 checkpoint·review·release-audit·windows-qa·ci·acceptance-after.json 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-6d7c4f59834fa2f245d759ede54dba554e0741d3.json`, `deploy-evidence-e75f0b9699bd87fe951ea307712258db974a8677.json`. Google/원본/금융 쓰기·대량 재처리·전체 회귀는 수행하지 않았다. 이 요청 미결 0·다음 기능 명령 없음. 문서 후속에는 코드 검사·재배포·서버 재시작을 반복하지 않는다.
 - 임시 QA worktree 정리는 경로/사본 해시 확인 후 삭제·정리를 시도하려던 셸 호출 자체가 자동 승인 검토에서 `blocked by policy`로 거부돼 보존했다. 세부 이유는 반환되지 않았다. 우회하지 않았으며 배포와 무관하다. 현재 `C:/AX/cost-two-character-qa-20261103`의 문서 후속 브랜치를 사용하고 공용 checkout의 다른 작업을 보존한다.
+## 2026-11-04 넓은 화면 중앙 정렬
+
+- COMPLETE — [PR #618](https://github.com/6Soo/cost/pull/618) 운영 `4758fe63386c10a3cf1f255e7448d3a21c55fdfe`. 홈·여행 관리의 공통 본문과 제목을 중앙에 모으고 영수증 본문을 중앙 정렬했다. 상세 검사·배포 근거는 [운영 기록](operations.md#2026-11-04-넓은-화면-본문-중앙-정렬). Windows 영향 QA 208 passed·27 subtests·skip 0, CI 성공, 운영 PC 7화면 읽기 확인. 실기기·모든 상태 조합은 미검증이다.

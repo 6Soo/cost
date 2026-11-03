@@ -1,3 +1,9 @@
+## 2026-11-04 넓은 화면 본문 중앙 정렬
+
+- [PR #618](https://github.com/6Soo/cost/pull/618), 운영 `4758fe63386c10a3cf1f255e7448d3a21c55fdfe`, 이전 `7c0be270a6ef770973efd797be00a9922dbd9210`. 홈·여행 관리 등 공통 제목과 본문을 최대 1180px로 정렬하고 영수증의 바깥 폭 제한을 해제해 960px 본문을 중앙에 배치했다. 기존 홈의 지출 정리 강조 및 장부·항공권 등 기존 작업 폭을 유지한다.
+- 검사 SHA `ea3567eb0adc8a6c8b8b2935ccdb2033b01dbed0`와 병합 트리 동일. Windows 영향 QA 208 passed·27 subtests·skip 0, PR CI 41703516776 성공. 합성 1920/390px 정렬·가로 넘침 검사 및 운영 읽기 PC 1920px 주요 7화면 가로 넘침 0. 실기기와 모든 화면 상태는 미검증.
+- 공식 단일 작성자 배포 1,314 blobs 불일치 0·런타임 SHA·listener 1·health/ready 200·보호 API 401·보호 13표 전후 불변. 금융/Google/원본 업무 쓰기 없음. 근거 `C:/AX/cost/.local-archive/centered-layout-20261104/`, `D:/WebLedgerHost/releases/deploy-evidence-4758fe63386c10a3cf1f255e7448d3a21c55fdfe.json`.
+
 ## 2026-11-04 PC 여행·항공권 버튼과 아이콘 점검
 
 - [PR #616](https://github.com/6Soo/cost/pull/616) 운영 `7c0be270a6ef770973efd797be00a9922dbd9210`, 이전 검증 `efaf49a319f25e4c40c9c18ae9b10d8c187fbb81`. 여행 관리 마감/해제 아이콘을 상태별 체크/복원으로 구분하고 항공권 메뉴에 비행기 아이콘을 적용했다. 폼·권한·상태 처리 변경 없음.
