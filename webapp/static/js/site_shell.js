@@ -16,7 +16,7 @@
  function decorateAction(el){
   if(el.closest('#nav,[role="tablist"],.site-theme-bar')||el.matches('#btn-menu,.site-menu-toggle'))return;
   // This inline disclosure owns its compact row height, chevron and focus style.
-  if(el.matches('.participant-link-details > summary'))return;
+  if(el.matches('.participant-link-details > summary,.insurance-candidate-button'))return;
   // A compound disclosure already exposes its own button; avoid a second frame.
   if(el.tagName==='SUMMARY'&&el.querySelector('svg,img,button,[role="button"]'))return;
   const text=el.textContent.trim();
