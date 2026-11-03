@@ -147,7 +147,8 @@ def protected_state(conn):
             row = dict(zip(columns,raw))
             if table == 'board_rows':
                 payload = json.loads(row.get('payload_json') or '{}')
-                for field in ('item','display_tab_id','classification_state'):
+                for field in ('item','display_tab_id','classification_state',
+                              'classification_source','classification_basis','revision'):
                     payload.pop(field,None)
                 row['protected_payload'] = payload
             values.append({k:v for k,v in row.items() if k not in allowed.get(table,set())})

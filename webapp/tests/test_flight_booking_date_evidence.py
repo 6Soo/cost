@@ -142,6 +142,8 @@ def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence(dat
                 expect(screen.locator('.fb-ticket').first).to_contain_text('최초 메일 수신일 기준')
                 expect(screen.locator('.fb-date-status').first).to_contain_text('최초 메일 수신일 기준')
             assert len(calls) == 1 and calls[0][0] == 'GET' and 'date=2026-10-03' in calls[0][1]
-            assert screen.locator('.fb-date-filter[open]').count() == 1
+            assert screen.locator('.fb-date-filter[open]').count() == 0
+            screen.locator('.fb-date-filter > summary').first.click()
+            expect(screen.locator('.fb-date-status').first).to_be_visible()
         finally:
             browser.close()
