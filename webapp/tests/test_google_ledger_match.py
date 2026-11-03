@@ -42,24 +42,48 @@ def test_many_to_many_candidates_are_all_marked_ambiguous():
 
 def test_annotation_reads_only_selected_fresh_source_and_is_owner_only(monkeypatch):
     rows = [{'row_id': 'web-a', 'amount_krw': 900, 'occurred_on': '2026-10-03'}]
-    snapshot = {'trips': [], 'sources': {}}
-    payload = {'trips': [{'key': 'trip-key', 'chosen_source': 'main', 'review': [],
-                          'copies': {'main': {'layout': 'rev', 'expense': {'verified': True}}}}],
-              'sources': {'main': {'status': 'ok', 'stale': False}}}
-    with patch.object(ledger_board, 'current_role', return_value='owner'), \
-            patch.object(google_ledger_page, 'enabled', return_value=True), \
-            patch.object(google_ledger_page, 'snapshot_path', return_value='synthetic-snapshot'), \
-            patch.object(google_ledger_page, 'rows_path', return_value='synthetic-rows'), \
-            patch.object(google_ledger_page, 'load_mapping', return_value={'trip-key': 'trip-syn'}), \
-            patch.object(google_ledger_page.google_authority, 'load_consistent', return_value=(snapshot, {})), \
-            patch.object(google_ledger_page, 'owner_payload', return_value=payload), \
-            patch.object(google_ledger_page, 'load_choices', return_value={'choices': {'trip-key': 'main'}}), \
-            patch.object(google_ledger_page, 'owner_rows', return_value={
-                'expense': [{'amount': 900, 'date': '2026-10-03'}]}):
-        annotations = ledger_design._google_match_annotations('trip-syn', rows)
-    assert annotations == {'web-a': {'reasons': ['날짜'], 'multiple': False}}
+    preview = {'source_available': True,
+               'sheet_rows': [{'amount_krw': 900, 'date': '2026-10-03', 'currency': 'KRW'}],
+               'results': [{'transaction_id': 'web-a', 'status': 'NEW_EXPENSE', 'basis': []}]}
+    with patch.object(ledger_board, 'current_role', return_value='owner'):
+        annotations = ledger_design._google_match_annotations('trip-syn', rows, preview)
+        assert annotations['web-a']['display_candidate'] is True
+        assert annotations['web-a']['reasons'] == ['날짜']
+        assert annotations['web-a']['status'] == 'NEW_EXPENSE'
+        assert ledger_design._google_match_annotations('trip-syn', rows, {**preview, 'source_available': False}) == {}
     with patch.object(ledger_board, 'current_role', return_value='viewer'):
-        assert ledger_design._google_match_annotations('trip-syn', rows) == {}
+        assert ledger_design._google_match_annotations('trip-syn', rows, preview) == {}
+
+
+def test_display_candidate_does_not_change_copy_status_and_is_visible_on_both_layouts():
+    row = {'row_id': 'web-a', 'amount_krw': 900, 'occurred_on': '2026-10-03'}
+    preview = {'source_available': True,
+               'sheet_rows': [{'amount_krw': 900, 'date': '2026-10-03', 'currency': 'KRW'},
+                              {'amount_krw': 900, 'date': '2026-10-03', 'currency': 'KRW'}],
+               'results': [{'transaction_id': 'web-a', 'status': 'NEW_EXPENSE', 'basis': []}]}
+    with patch.object(ledger_board, 'current_role', return_value='owner'):
+        annotations = ledger_design._google_match_annotations('trip-syn', [row], preview)
+    assert annotations['web-a']['multiple'] is True
+    assert preview['results'][0]['status'] == 'NEW_EXPENSE'
+    desktop = ledger_design._table_html([row], kind='expense', selected='', unclassified=False,
+                                        match_annotations=annotations)
+    mobile = ledger_design._mobile_html([], [row], selected='', unclassified=False,
+                                       match_annotations=annotations)
+    for markup in (desktop, mobile):
+        assert 'google-match-candidate' in markup
+        assert 'Google 장부 대조 후보' in markup
+        assert '복수 후보' in markup
+
+
+def test_filtered_view_retains_ambiguity_against_other_expenses():
+    rows = [{'row_id': key, 'amount_krw': 900, 'occurred_on': '2026-10-03'}
+            for key in ('visible', 'filtered-out')]
+    preview = {'source_available': True,
+               'sheet_rows': [{'amount_krw': 900, 'date': '2026-10-03'}],
+               'results': [{'transaction_id': 'visible', 'status': 'NEW_EXPENSE', 'basis': []}]}
+    with patch.object(ledger_board, 'current_role', return_value='owner'):
+        result = ledger_design._google_match_annotations('trip-syn', rows[:1], preview, rows)
+    assert result['visible']['multiple'] is True
 
 
 def test_web_transaction_row_exposes_bold_candidate_and_reason_accessibly():
