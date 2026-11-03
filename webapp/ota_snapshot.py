@@ -128,6 +128,8 @@ class OtaSnapshotService:
         self._lock = threading.Lock()
         self._publish_lock = threading.Lock()
         self._pending_publish = None
+        self._published_role_token = None
+        self._role_inactive = True
         self._wake = threading.Event()
         self._stopping = False
         self._current = None
@@ -385,15 +387,21 @@ class OtaSnapshotService:
         from .deployment_role import writer
         with self._publish_lock:
             with self._lock:
-                current = self._pending_publish
-            if current is None:
+                current = self._pending_publish or self._current
+            if current is None or current.get('data') is None:
                 return
             try:
                 with writer() as active:
                     if not active:
+                        self._role_inactive = True
                         return
+                    route = os.environ.get('WEBLEDGER_DEPLOYMENT_ROUTE')
+                    role_token = (route, json.loads(Path(route).read_text(encoding='utf-8-sig')).get('generation')) if route else ('unmanaged',)
                     with self._lock:
-                        if current is not self._pending_publish:
+                        if current is not self._current:
+                            return
+                        if (self._pending_publish is None and not self._role_inactive
+                                and role_token == self._published_role_token):
                             return
                     self._persist(current)
                     if self._on_published is not None:
@@ -404,8 +412,11 @@ class OtaSnapshotService:
                     with self._lock:
                         if current is self._pending_publish:
                             self._pending_publish = None
-            except OSError:
+                    self._published_role_token = role_token
+                    self._role_inactive = False
+            except (OSError, ValueError, TypeError):
                 # Keep the in-memory snapshot available; retry publication on the next check.
+                self._role_inactive = True
                 return
 
     # reads

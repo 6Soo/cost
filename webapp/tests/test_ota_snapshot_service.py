@@ -279,6 +279,29 @@ def test_snapshot_files_and_callbacks_wait_for_active_deployment_role(tmp_path, 
     assert calls == ['first', 'second']
 
 
+def test_snapshot_is_republished_when_previous_release_regains_role(tmp_path, monkeypatch):
+    route, snapshot = tmp_path / 'route.json', tmp_path / 'snapshot.json'
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_ROUTE', str(route))
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_PORT', '8751')
+    calls = []
+    payload = {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    svc = OtaSnapshotService(key_fn=lambda: 'old', reconcile_fn=lambda: payload,
+                             persist_path=snapshot, on_published=lambda current: calls.append(current['key']),
+                             start=False)
+    route.write_text(json.dumps({'port': 8751, 'paused': False, 'generation': 'before'}), encoding='utf-8')
+    svc.check_now()
+    assert calls == ['old']
+    route.write_text(json.dumps({'port': 8752, 'paused': False, 'generation': 'new'}), encoding='utf-8')
+    svc.check_now()
+    snapshot.write_text(json.dumps({'key': 'new'}), encoding='utf-8')
+    route.write_text(json.dumps({'port': 8751, 'paused': False, 'generation': 'rollback'}), encoding='utf-8')
+    svc.check_now()
+    assert json.loads(snapshot.read_text(encoding='utf-8'))['key'] == 'old'
+    assert calls == ['old', 'old']
+    svc.check_now()
+    assert calls == ['old', 'old']
+
+
 def test_role_switch_waits_for_snapshot_callback_to_finish(tmp_path, monkeypatch):
     from webapp.deployment_role import route_lock
     route = tmp_path / 'route.json'
