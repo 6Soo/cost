@@ -1115,7 +1115,7 @@ def render_html(data, query, *, csrf=''):
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
               if row.get('card_candidates') else '') +
              ("<br><small>예약 관계: " + esc(' / '.join(
-                 f"{'예약 추론 연결' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 재확인 필요' if link.get('status') == 'STALE' else '예약 관계 확인 필요'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
+                 f"{'예약 코드 추론' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 재확인 필요' if link.get('status') == 'STALE' else '예약 관계 확인 필요'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
                  for link in row.get('reservation_links') or ())) + "</small>"
               if row.get('reservation_links') else '')),
             ('여행 배정', trip_cell))) + '</tr>')
@@ -1237,7 +1237,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
             f"<td>{esc(card['merchant'] or state.get('merchant') or '미확인')}</td>"
             f"<td>{esc(amount_text)}</td>"
             f"<td>{esc(_state_label(state or None))}"
-            + ("<br><small>추론 연결 · 아고다 결제일 미확인</small>" if card.get('inferred_link') else '')
+            + ("<br><small>코드 추론 · 아고다 결제일 미확인</small>" if card.get('inferred_link') else '')
             + ("<br><small>사용자 승인 순서 배정 · 개별 결제 근거 미확인</small>"
                if card.get('allocation_basis') == 'user_approved_stable_order' else
                "<br><small>반복 거래 순서 배정 · 개별 결제 근거 미확인</small>"

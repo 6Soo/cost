@@ -816,6 +816,22 @@ def _row_party_sub(row) -> str:
     reservation = str(row.get("reservation_no") or "").strip()
     description = str(row.get("description") or "").strip()
     item = str(row.get("item") or "").strip()
+    if item == "숙박비":
+        period = _stay_period(row)
+        match = _STAY_PATTERN.fullmatch(period)
+        if match and _stay_text(row) != "이용일 확인 필요":
+            from datetime import date
+            start, end = (date.fromisoformat(value) for value in match.groups())
+            # Only a whole description segment repeating the displayed period is redundant.
+            ranges = {re.sub(r"\s+", "", period), f"{start.month}/{start.day}~{end.month}/{end.day}",
+                      f"{start:%m/%d}~{end:%m/%d}"}
+            description = " · ".join(part.strip() for part in description.split("·")
+                if re.sub(r"\s+", "", part) not in ranges)
+    # This legacy clause was emitted by ota_inference's code matcher, not by AI.
+    if reservation:
+        from app.assignment_status import classification_source_label
+        description = " · ".join(classification_source_label('code_inference')
+            if part.strip() == "추론 연결" else part.strip() for part in description.split("·"))
     parts = []
     # A lodging or flight row names its stay or its passengers instead of the number;
     # the number itself stays in the row, the search and the source link.
@@ -839,6 +855,15 @@ _STAY_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})")
 _MAX_STAY_DAYS = 366
 
 
+def _stay_period(row) -> str:
+    period = str(row.get("service_period") or "").strip()
+    if not period and str(row.get("row_id") or "").startswith("card-"):
+        from . import ledger_stay_evidence
+        index = read_scope.remember("ledger_stay_evidence", lambda: ledger_stay_evidence.stay_index(board._active_store()))
+        period = ledger_stay_evidence.period_for(row, index)
+    return period
+
+
 def _stay_text(row) -> str:
     """The lodging dates from the source's service period, never from the reservation number.
 
@@ -847,11 +872,7 @@ def _stay_text(row) -> str:
     """
     from datetime import date, timedelta
     unknown = "\uC774\uC6A9\uC77C \uD655\uC778 \uD544\uC694"
-    period = str(row.get("service_period") or "").strip()
-    if not period and str(row.get("row_id") or "").startswith("card-"):
-        from . import ledger_stay_evidence
-        index = read_scope.remember("ledger_stay_evidence", lambda: ledger_stay_evidence.stay_index(board._active_store()))
-        period = ledger_stay_evidence.period_for(row, index)
+    period = _stay_period(row)
     match = _STAY_PATTERN.fullmatch(period)
     if not match:
         return unknown

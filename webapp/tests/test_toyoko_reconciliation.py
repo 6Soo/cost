@@ -99,7 +99,7 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         assert ota_entry['card_candidates'] == [tid]
         assert ota_entry['reservation_links'][0]['status'] == 'INFERRED'
         ota_html = ota_catalog.render_html(ota_listing, {})
-        assert '예약 추론 연결 · 결제 미검증' in ota_html
+        assert '예약 코드 추론 · 결제 미검증' in ota_html
         assert tid not in ota_html
         # 예약 후보를 장부 예약번호나 확정 비용 근거로 승격하지 않는다.
         assert ota_core_projection.card_matches([], canonical) == []
