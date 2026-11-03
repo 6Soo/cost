@@ -198,6 +198,13 @@ def test_member_cursor_retry_resets_only_expired_cursor(status, code, expected_r
             page.locator('[data-queue-detail] > summary').click()
             page.get_by_role('button', name='다음 사건').click()
             expect(page.locator('[data-group-error]')).to_be_visible()
+            if code == 'BAD_CURSOR':
+                page.locator('[data-group-members]').evaluate(
+                    "e => e.insertAdjacentHTML('beforeend', \"<div class='ota-card-row'><input type='radio' checked></div>\")")
+                page.get_by_role('button', name='구성원 다시 불러오기').click()
+                expect(page.locator('#ota-freshness')).to_contain_text('저장하지 않은 선택')
+                assert cursors == [None, 'expired']
+                page.locator('.ota-card-row input').evaluate('e => e.checked = false')
             page.get_by_role('button', name='구성원 다시 불러오기').click()
             expect(page.locator('[data-group-error]')).to_have_count(0)
             expect(page.get_by_role('button', name='다음 사건')).to_be_visible()
