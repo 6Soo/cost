@@ -125,6 +125,16 @@ def classify_transaction(transaction: dict, *, rules: list,
     regular = [r for r in rules if r not in inferred]
     verdict = _classify_transaction(transaction,rules=regular,prior_decision=prior_decision,
                                     trip_resolver=trip_resolver,allow_defaults=allow_defaults)
+    from .trip_selection import is_fukutake_purchase, FUKUTAKE_BASIS
+    if (trip_resolver and is_fukutake_purchase(transaction) and not prior_decision
+            and verdict['classification_source'] not in ('rule_conflict', 'owner_booking', 'user_exception')
+            and not any(r.get('origin') == OWNER_BOOKING_ORIGIN and rule_matches(r, transaction)[0]
+                        for r in inferred)):
+        target = trip_resolver(transaction, {'fukutake_setouchi': True})
+        return dict(verdict, classification_state=STATE_CLASSIFIED,
+                    classification_source='rule', classification_basis=FUKUTAKE_BASIS,
+                    item=verdict.get('item') or '입장료', display_tab_id=target or 'unclassified',
+                    trip_id=target, rule_id='owner-fukutake-next-setouchi')
     if residual_policy and not prior_decision:
         exception = _card3820_singapore(transaction, verdict, trip_resolver)
         if exception is not None:

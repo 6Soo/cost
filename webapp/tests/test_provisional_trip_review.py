@@ -318,7 +318,7 @@ def test_import_has_one_review_flow_and_does_not_write(setup_review):
         assert card_flow.dispatch(handler, urlsplit('/import'), query={})
     status, html = handler.result
     assert status == 200
-    assert 'id=\'card-review-detail\'' in html
+    assert html.count('id="card-review-detail"') == 1
     assert 'id="provisional-trip-review"' not in html
     assert '분류되면 완료입니다' not in html
     assert '검사를 통과한 거래는 자동 반영했습니다' not in html
