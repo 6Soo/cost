@@ -131,6 +131,10 @@ def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
     valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     from .trip_selection import card_trip_allowed
     valid = {key: trip for key, trip in valid.items() if card_trip_allowed(row, trip)}
+    from .trip_selection import fukutake_trips, FUKUTAKE_BASIS
+    preferred = fukutake_trips(row, valid.values())
+    if preferred is not None:
+        return (preferred[0]['trip_id'] if preferred else '', FUKUTAKE_BASIS)
     for key in ('trip_id', 'display_tab_id'):
         if row.get(key) in valid and not reconsider:
             return row[key], '기존 실제 여행 유지'

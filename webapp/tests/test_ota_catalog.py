@@ -89,7 +89,7 @@ def test_inferred_link_displays_card_use_date_and_keeps_ota_payment_date_unknown
     before = board.conn.total_changes
     markup = ota_catalog.render_detail(board, entry, csrf='synthetic')
     assert '카드 이용일' in markup
-    assert '추론 연결 · 아고다 결제일 미확인' in markup
+    assert '코드 추론 · 아고다 결제일 미확인' in markup
     assert '2026-10-01' in markup and '35,000원' in markup
     assert entry['card_matches'][0]['paid_on'] == ''
     assert board.conn.total_changes == before
