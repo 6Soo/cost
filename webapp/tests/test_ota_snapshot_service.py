@@ -279,6 +279,130 @@ def test_snapshot_files_and_callbacks_wait_for_active_deployment_role(tmp_path, 
     assert calls == ['first', 'second']
 
 
+def test_source_check_error_revokes_freshness_until_same_source_is_checked_again():
+    source = {'failed': False}
+    calls = []
+    def key():
+        if source['failed']:
+            raise OSError('synthetic source unavailable')
+        return 'stable'
+    def reconcile():
+        calls.append('reconciled')
+        return {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    svc = OtaSnapshotService(key_fn=key, reconcile_fn=reconcile, start=False)
+    svc.check_now()
+    assert svc.held()[1] is True
+    source['failed'] = True
+    svc.check_now()
+    assert svc.view()['status'] == 'error'
+    assert svc.view()['fresh'] is False
+    assert svc.held()[1] is False
+    assert svc.display_context()[1]['fresh'] is False
+    source['failed'] = False
+    svc.check_now()
+    assert svc.view()['status'] == 'ready'
+    assert svc.held()[1] is True
+    assert svc.display_context()[1]['fresh'] is True
+    assert calls == ['reconciled']
+
+
+def test_changed_input_during_reconciliation_does_not_publish_or_claim_fresh(tmp_path):
+    source = {'key': 'old', 'change_during_compute': False}
+    calls = []
+    path = tmp_path / 'snapshot.json'
+    def reconcile():
+        if source['change_during_compute']:
+            source['key'] = 'after'
+        return {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=reconcile, persist_path=path,
+                             on_published=lambda current: calls.append(current['key']), start=False)
+    svc.check_now()
+    assert calls == ['old']
+    source.update(key='before', change_during_compute=True)
+    svc.check_now()
+    assert svc.view()['status'] == 'error'
+    assert svc.held()[1] is False
+    assert json.loads(path.read_text(encoding='utf-8'))['key'] == 'old'
+    assert calls == ['old']
+    source['change_during_compute'] = False
+    svc.check_now()
+    assert svc.view()['status'] == 'ready'
+    assert svc.held()[1] is True
+    assert json.loads(path.read_text(encoding='utf-8'))['key'] == 'after'
+    assert calls == ['old', 'after']
+
+
+def test_worker_promptly_retries_changed_input():
+    source = {'key': 'before'}
+    published = threading.Event()
+    calls = []
+
+    def reconcile():
+        calls.append(source['key'])
+        source['key'] = 'after'
+        return {'public': {}, 'results': [], 'links': {}, 'data': {}}
+
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=reconcile, check_seconds=60,
+                             on_published=lambda current: published.set())
+    try:
+        assert published.wait(5), 'changed input should be retried before the regular check interval'
+        assert calls == ['before', 'after']
+        assert svc.held()[1] is True
+    finally:
+        svc.stop()
+
+
+def test_reverting_key_during_refresh_does_not_mark_held_snapshot_fresh():
+    source = {'key': 'old'}
+    entered, release = threading.Event(), threading.Event()
+    payload = {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    def reconcile():
+        if source['key'] == 'new':
+            entered.set()
+            assert release.wait(5)
+        return payload
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=reconcile, start=False)
+    svc.check_now()
+    source['key'] = 'new'
+    worker = threading.Thread(target=svc.check_now)
+    try:
+        worker.start()
+        assert entered.wait(5)
+        source['key'] = 'old'
+        svc.check_now()
+        assert svc.held()[1] is False
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    svc.check_now()
+    assert svc.held()[1] is True
+
+
+def test_ota_service_factory_checks_local_key_again_before_publication(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from webapp import ota_payment_review as review
+    state = {'key': 'before'}
+    original = OtaSnapshotService
+    monkeypatch.setattr(review.ota_snapshot, 'OtaSnapshotService',
+                        lambda **kwargs: original(**{**kwargs, 'start': False}))
+    monkeypatch.setattr(review, 'review_db_path', lambda: str(tmp_path / 'review.sqlite'))
+    monkeypatch.setattr(review, 'input_key', lambda board: state['key'])
+    monkeypatch.setattr(review, 'current_input_key', lambda board: state['key'])
+    def reconcile(_board):
+        state['key'] = 'after'
+        return {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    monkeypatch.setattr(review, 'reconcile_in_child', reconcile)
+    service = review.snapshot_service(SimpleNamespace())
+    service.check_now()
+    assert service.view()['status'] == 'error'
+    assert service.held()[1] is False
+    assert not (tmp_path / review.SNAPSHOT_FILE).exists()
+
+
 def test_snapshot_is_republished_when_previous_release_regains_role(tmp_path, monkeypatch):
     route, snapshot = tmp_path / 'route.json', tmp_path / 'snapshot.json'
     monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_ROUTE', str(route))

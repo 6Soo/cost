@@ -17,9 +17,6 @@ def route_lock(route):
         stream.seek(0)
         if os.name == 'nt':
             import msvcrt
-            if stream.read(1) == b'':
-                stream.write(b'0')
-                stream.flush()
             while True:
                 try:
                     stream.seek(0)
@@ -27,6 +24,10 @@ def route_lock(route):
                     break
                 except OSError:
                     time.sleep(.05)
+            stream.seek(0)
+            if stream.read(1) == b'':
+                stream.write(b'0')
+                stream.flush()
         else:
             import fcntl
             fcntl.flock(stream, fcntl.LOCK_EX)

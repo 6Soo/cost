@@ -7,6 +7,7 @@ import threading
 import time
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -223,6 +224,34 @@ def test_pause_waits_for_existing_background_writer(tmp_path, monkeypatch):
         worker.result()
         transition.result()
     assert not deployment_role.is_active()
+
+
+def test_route_lock_waits_for_writer_in_another_process(tmp_path):
+    route = tmp_path / 'route.json'
+    started, acquired = tmp_path / 'started', tmp_path / 'acquired'
+    script = ('import pathlib,sys; from webapp.deployment_role import route_lock; '
+              'route,started,acquired=map(pathlib.Path,sys.argv[1:]); started.touch(); '
+              'lock=route_lock(route); lock.__enter__(); acquired.touch(); lock.__exit__(None,None,None)')
+    process = None
+    try:
+        with deployment_role.route_lock(route):
+            process = subprocess.Popen([sys.executable, '-c', script, str(route), str(started), str(acquired)],
+                                       cwd=Path(__file__).resolve().parents[1], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 10
+            while not started.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(.02)
+            assert started.exists()
+            time.sleep(.2)
+            if process.poll() is not None:
+                raise AssertionError(process.communicate()[1].decode('utf-8', errors='replace'))
+            assert not acquired.exists()
+        _, error = process.communicate(timeout=10)
+        assert process.returncode == 0, error.decode('utf-8', errors='replace')
+        assert acquired.exists()
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
 
 
 def test_host_runner_passes_durable_role_to_both_prepared_and_restarted_child(tmp_path):

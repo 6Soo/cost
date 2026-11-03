@@ -111,8 +111,9 @@ class OtaSnapshotService:
     def __init__(self, *, key_fn, reconcile_fn, persist_path=None, log_path=None, clock=time.monotonic,
                  check_seconds=CHECK_SECONDS, fresh_seconds=FRESH_SECONDS, retry_seconds=RETRY_SECONDS,
                  first_wait_seconds=FIRST_WAIT_SECONDS, start=True, on_published=None,
-                 profile_memory=False):
+                 profile_memory=False, verify_key_fn=None):
         self._key_fn = key_fn
+        self._verify_key_fn = verify_key_fn
         self._reconcile_fn = reconcile_fn
         self._profile_memory = profile_memory is True
         self._persist_path = Path(persist_path) if persist_path else None
@@ -142,6 +143,7 @@ class OtaSnapshotService:
         self._failed_key = None
         self._failed_at = None
         self._failures = 0
+        self._source_changed_retry = False
         self._thread = None
         self._load_persisted()
         self._autostart = start
@@ -184,7 +186,10 @@ class OtaSnapshotService:
             self.check_now()
             if self._stopping:
                 break
-            self._wake.wait(self._check_seconds)
+            with self._lock:
+                retry_changed = self._source_changed_retry
+                self._source_changed_retry = False
+            self._wake.wait(min(self._check_seconds, 1) if retry_changed else self._check_seconds)
             self._wake.clear()
 
     # worker
@@ -240,14 +245,18 @@ class OtaSnapshotService:
             current = self._current
             failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_window()
             held = current is not None and current["key"] == key and current.get("data") is not None
+            if held and not self._refreshing:
+                # A successful key check revalidates this already-held snapshot.
+                self._error = None
             skip = held or failed or self._refreshing or self._stopping
+            publish_held = held and not self._refreshing and not self._stopping
             if skip:
                 self._log("check", key=key[:12], held=held, failed=failed, refreshing=self._refreshing,
                           generation=(current or {}).get("generation", 0))
             else:
                 self._refreshing = True
         if skip:
-            if held:
+            if publish_held:
                 self._publish_if_active()
             return
         self._log("refresh_start", key=key[:12], generation=(current or {}).get("generation", 0))
@@ -306,6 +315,9 @@ class OtaSnapshotService:
             else:
                 ambiguous_ids = frozenset(value for value in ambiguous_ids
                                           if type(value) is str and value.strip())
+            source_changed = self._verify_key_fn is not None and self._verify_key_fn() != key
+            if source_changed:
+                raise ValueError('SOURCE_CHANGED_DURING_RECONCILIATION')
         except Exception as exc:
             with self._lock:
                 self._refreshing = False
@@ -313,6 +325,8 @@ class OtaSnapshotService:
                 self._failed_key = key
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
+                if isinstance(exc, ValueError) and str(exc) == 'SOURCE_CHANGED_DURING_RECONCILIATION':
+                    self._source_changed_retry = True
             self._log("refresh_failed", key=key[:12], code=type(exc).__name__, message=str(exc)[:200])
             if owns_tracing:
                 tracemalloc.stop()
@@ -422,7 +436,8 @@ class OtaSnapshotService:
     # reads
 
     def _fresh_locked(self):
-        return (self._current is not None and self._checked_key == self._current["key"]
+        return (not self._refreshing and self._error is None and self._current is not None
+                and self._checked_key == self._current["key"]
                 and self._checked_at is not None and self._clock() - self._checked_at < self._fresh_seconds)
 
     def _has_data_locked(self):
