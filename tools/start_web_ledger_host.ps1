@@ -60,6 +60,7 @@ param(
 
     [string]$DataRoot = "",
     [string]$ReviewConfig = "",
+    [string]$DeploymentRoute = "",
 
     # A durable participant store shared with the roster receiver. Never derive
     # this from Checkout: each SHA release has a different directory.
@@ -817,6 +818,14 @@ if ($missing) {
 # An environment value the launcher reads is a real setting; a variable nothing
 # reads is not, which is why the tunnel is a command line and not one of these.
 $env:WEBLEDGER_REVIEW_CONFIG = $ReviewConfig
+if ($DeploymentRoute) {
+    if (-not (Test-Path -LiteralPath $DeploymentRoute -PathType Leaf)) { throw 'DEPLOYMENT_ROUTE_MISSING' }
+    $env:WEBLEDGER_DEPLOYMENT_ROUTE = $DeploymentRoute
+    $env:WEBLEDGER_DEPLOYMENT_PORT = [string]$BoardPort
+} else {
+    Remove-Item Env:\WEBLEDGER_DEPLOYMENT_ROUTE -ErrorAction SilentlyContinue
+    Remove-Item Env:\WEBLEDGER_DEPLOYMENT_PORT -ErrorAction SilentlyContinue
+}
 if (-not [string]::IsNullOrWhiteSpace($ParticipantSyncConfig)) {
     $participantSourceText = Get-Content -LiteralPath $ParticipantSyncConfig -Raw -Encoding UTF8
     $participantSettings = $participantSourceText | ConvertFrom-Json

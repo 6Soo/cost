@@ -23,9 +23,21 @@ def test_disabled_and_unsupported_languages_fail_without_process():
         run.assert_not_called()
 
 
-def test_real_windows_engine_reads_synthetic_image(tmp_path):
+def test_pdf_recognition_is_disabled_until_local_windows_ocr_is_enabled(tmp_path):
+    pdf = tmp_path / 'synthetic.pdf'
+    pdf.write_bytes(b'%PDF-1.4 synthetic')
+    with patch.dict(os.environ, {}, clear=True), patch.object(ocr.subprocess, 'run') as run:
+        with pytest.raises(ocr.OcrError):
+            ocr.recognize_pdf(pdf)
+        run.assert_not_called()
+
+
+def test_platform_engine_reads_synthetic_image_or_refuses_non_windows(tmp_path):
     if os.name != 'nt':
-        pytest.skip('Windows OCR integration')
+        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}):
+            with pytest.raises(ocr.OcrError, match='OCR_UNAVAILABLE'):
+                ocr.recognize(tmp_path / 'synthetic.png')
+        return
     from PIL import Image, ImageDraw, ImageFont
     image = Image.new('RGB', (800, 400), 'white')
     draw = ImageDraw.Draw(image)
@@ -38,3 +50,26 @@ def test_real_windows_engine_reads_synthetic_image(tmp_path):
     assert 'SYNTHETIC' in result['text']
     assert result['suggestions']['date'] == '2026-10-12'
     assert result['requires_review'] is True
+
+
+def test_platform_engine_reads_synthetic_pdf_or_refuses_non_windows(tmp_path):
+    if os.name != 'nt':
+        path = tmp_path / 'synthetic.pdf'
+        path.write_bytes(b'%PDF-1.4 synthetic')
+        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}):
+            with pytest.raises(ocr.OcrError, match='OCR_UNAVAILABLE'):
+                ocr.recognize_pdf(path)
+        return
+    from PIL import Image, ImageDraw, ImageFont
+    image = Image.new('RGB', (800, 400), 'white')
+    ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
+                               font=ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40))
+    path = tmp_path / 'synthetic.pdf'
+    image.save(path, 'PDF')
+    with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}):
+        result = ocr.recognize_pdf(path)
+    assert result['requires_review'] is True
+    assert len(result['pages']) == 1
+    assert result['pages'][0]['image'].startswith(b'\x89PNG\r\n\x1a\n')
+    assert 'SYNTHETIC' in result['pages'][0]['text']
+    assert result['pages'][0]['suggestions']['date'] == '2026-10-12'

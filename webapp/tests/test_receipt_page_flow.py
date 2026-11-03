@@ -14,9 +14,9 @@ from webapp.tests import test_receipt_review as review
 WIDTHS = (375, 390, 1280, 1440)
 
 
-def receipt(merchant, date, amount, currency='JPY', payment='cash'):
+def receipt(merchant, date, amount, currency='JPY', payment='cash', box=None):
     return {'id': 'x', 'merchant': merchant, 'date': date, 'amount': amount, 'currency': currency,
-            'payment': payment, 'category_hint': None, 'note': None, 'requires_review': True}
+            'payment': payment, 'category_hint': None, 'note': None, 'requires_review': True, 'box': box}
 
 
 class ReceiptPageFlowTests(review.ReceiptReviewTests):
@@ -27,7 +27,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         """Fixed answers: the first photo has two receipts and a third appears only on re-reading."""
         name = Path(path).stem
         if name == self.photos[0]:
-            found = [receipt('SHOP A', '2026-10-10', 820), receipt('FERRY', '2026-10-10', 820, payment=None)]
+            found = [receipt('SHOP A', '2026-10-10', 820, box=[0.1, 0.1, 0.4, 0.4]),
+                     receipt('FERRY', '2026-10-10', 820, payment=None, box=[0.6, 0.1, 0.9, 0.4])]
             if kwargs.get('guidance') and 'Owner feedback' in kwargs['guidance']:
                 found.append(receipt('NEW STOP', '2026-10-12', 700, payment='cash'))
             return {'receipts': found, 'label': 'Muse', 'lesson': None}
@@ -36,6 +37,10 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
         return {'receipts': [], 'label': 'Muse', 'lesson': None}
 
     def test_three_photos_are_analysed_registered_and_refreshed(self):
+        from webapp import receipt_vision_jobs
+        with receipt_vision_jobs._LOCK:
+            receipt_vision_jobs._JOBS.clear()
+            receipt_vision_jobs._BY_IMAGE.clear()
         shots = os.environ.get('WEBLEDGER_FLOW_SHOTS')
         self.photos = []
         env = patch.dict(os.environ, {'WEBLEDGER_RECEIPT_VISION': 'opencode-muse-free',
@@ -74,6 +79,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     page.wait_for_function("document.getElementById('status').textContent.includes('분석을 마쳤습니다')",
                                            timeout=240000)
                     self.assertEqual(page.locator('.receipt-card').count(), 3, page.locator('#status').inner_text())
+                    self.assertEqual(page.locator('.receipt-region-box:not([hidden])').count(), 2)
+                    self.assertEqual(page.get_by_text('영역 미확인', exact=False).count(), 1)
                     self.assertIn('후보', page.locator('.photo-state').first.inner_text())
                     if shots:
                         page.screenshot(path=os.path.join(shots, 'p1-results-390.png'), full_page=True)
@@ -89,6 +96,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertEqual(len(candidates), 3)
                     self.assertEqual({candidate['merchant'] for candidate in candidates},
                                      {'SHOP A', 'FERRY', 'CAFE'})
+                    self.assertEqual({c['merchant']: c['box'] for c in candidates},
+                                     {'SHOP A': [0.1, 0.1, 0.4, 0.4], 'FERRY': [0.6, 0.1, 0.9, 0.4], 'CAFE': None})
                     self.assertTrue(all(candidate['trip_id'] == self.trip for candidate in candidates))
                     self.assertTrue(all('2026-10-10' <= candidate['date'] <= '2026-10-13'
                                         for candidate in candidates))

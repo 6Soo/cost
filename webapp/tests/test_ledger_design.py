@@ -318,13 +318,8 @@ class DesignScreenTests(unittest.TestCase):
         self.assertFalse(page.evaluate("document.getElementById('nav').className.includes('open')"))
 
     def test_the_panel_footer_stays_reachable_and_two_saves_work_at_390(self):
-        # The save form is a flex child of .panel. If the form does not pass the
-        # column on, .p-bd keeps growing with its content instead of scrolling,
-        # and the first save adds a .f-msg line that pushes the 저장/취소 footer
-        # past the panel bottom. The second save then cannot be clicked at all.
-        # Assert the flow, not a fixed geometry: the footer starts on screen,
-        # the first save happens by real click, the body scrolls if it has to,
-        # the footer is still on screen, and the second save lands.
+        # The inline editor scrolls with the list. Both actions must be reachable
+        # and a second real save must still work after the status message appears.
         page = self._page(390, 844)
         # at 390 the table is hidden and the row lives in the vertical list
         self._board(page, "?tab=trip-demo-a")
@@ -340,14 +335,9 @@ class DesignScreenTests(unittest.TestCase):
                 "e=>{const r=e.getBoundingClientRect();"
                 "return {top:r.top, bottom:r.bottom};}")
 
-        def body_scroll():
-            return page.eval_on_selector(
-                "#panel .p-bd",
-                "e=>({sh:e.scrollHeight, ch:e.clientHeight,"
-                "oy:getComputedStyle(e).overflowY})")
-
-        # 1. the footer starts inside the viewport
+        # Inline editors scroll with the document; both actions must be reachable.
         for selector in ("#panel button[type='submit']", "#p-cancel"):
+            page.locator(selector).scroll_into_view_if_needed()
             box = page.eval_on_selector(
                 selector, "e=>{const r=e.getBoundingClientRect();"
                           "return {top:r.top, bottom:r.bottom};}")
@@ -367,17 +357,8 @@ class DesignScreenTests(unittest.TestCase):
             self.store.get_row("expense-demo-c1")["revision"], before + 1)
         self.assertEqual(overflow(page), 0)
 
-        # 3. after the save the body scrolls if it has to, and does scroll
-        scroll = body_scroll()
-        self.assertEqual(scroll["oy"], "auto")
-        self.assertGreaterEqual(scroll["sh"], scroll["ch"])
-        if scroll["sh"] > scroll["ch"]:
-            moved = page.eval_on_selector(
-                "#panel .p-bd",
-                "e=>{e.scrollTop=e.scrollHeight;return e.scrollTop;}")
-            self.assertGreater(moved, 0)
-
-        # 4. the footer is still on screen after the message grew the body
+        # The footer remains reachable after the message grows the editor.
+        page.locator("#panel button[type='submit']").scroll_into_view_if_needed()
         box = footer_box()
         self.assertLessEqual(box["bottom"], inner_height)
         self.assertGreaterEqual(box["top"], 0)
@@ -436,6 +417,7 @@ class DesignScreenTests(unittest.TestCase):
         self._open_panel(page, "expense-demo-c4")
         before = self.store.get_row("expense-demo-c4")
         page.fill("#f-description", "취소되어야 하는 값")
+        page.once("dialog", lambda dialog: dialog.accept())
         page.click("#p-cancel")
         page.wait_for_load_state()
         self.assertIsNone(page.query_selector("#panel"))

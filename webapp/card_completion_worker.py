@@ -8,6 +8,7 @@ from pathlib import Path
 import threading
 import time
 from app.partial_refund import read_only_scope as refund_evidence_scope
+from .deployment_role import active_writer
 
 INTERVAL = 30
 CHUNK = 50
@@ -125,6 +126,7 @@ class CardCompletionWorker:
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout)
 
+    @active_writer()
     def _publish(self):
         # Aggregate operational evidence only; the queue survives in SQLite.
         path = self.board.path.parent / 'card-completion-status.json'
@@ -153,6 +155,7 @@ class CardCompletionWorker:
         self.status['state'] = 'stopped'
         self._publish()
 
+    @active_writer(default=False)
     @refund_evidence_scope()
     def sweep_once(self):
         from .card_flow import CardFlow

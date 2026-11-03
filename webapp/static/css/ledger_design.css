@@ -368,6 +368,28 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  font-size:12.5px;padding:0 4px}
 .lst{display:none}
 
+/* The editor is part of the list and moves following rows down. */
+tr.inline-editor-row>td{height:auto;padding:0;white-space:normal;overflow:visible}
+.inline-editor-row #panel-slot,.inline-editor-mobile #panel-slot{display:block;width:100%}
+.inline-editor-row .panel,.inline-editor-mobile .panel{position:static;width:100%;flex:1 1 auto;min-width:0;min-height:0;box-shadow:none;border:1px solid var(--line);display:flex}
+.inline-editor-row .p-bd,.inline-editor-mobile .p-bd{overflow:visible}
+.bulk-selecting tr[data-bulk-selected='true'],.bulk-selecting .li[data-bulk-selected='true']{background:#eff6ff;box-shadow:inset 3px 0 #60a5fa}
+.bulk-selecting tr[data-bulk-selected='true']:hover,.bulk-selecting .li[data-bulk-selected='true']:hover{background:#dbeafe}
+[data-theme='dark'] .bulk-selecting tr[data-bulk-selected='true'],[data-theme='dark'] .bulk-selecting .li[data-bulk-selected='true']{background:#1b3555;box-shadow:inset 3px 0 #60a5fa}
+@media(prefers-color-scheme:dark){html:not([data-theme='light']) .bulk-selecting tr[data-bulk-selected='true'],html:not([data-theme='light']) .bulk-selecting .li[data-bulk-selected='true']{background:#1b3555;box-shadow:inset 3px 0 #60a5fa}}
+.bulk-bar{position:fixed;z-index:40;bottom:0;left:0;right:0;background:var(--paper);border-top:1px solid var(--line);padding:12px max(16px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 -4px 18px #0002}
+.bulk-bar select{min-width:12rem;max-width:100%;height:44px}
+.bulk-bar input{min-width:0;width:10rem;max-width:100%;height:44px}
+body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-padding-bottom:var(--bulk-bar-height,230px)}
+@media(max-width:759px){
+ .bulk-bar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;padding:8px 12px max(8px,env(safe-area-inset-bottom))}
+ .bulk-bar strong,.bulk-bar [data-bulk-status]{grid-column:1/-1}
+ .bulk-bar label{font-size:12px}
+ .bulk-bar select,.bulk-bar input{width:100%;min-width:0;box-sizing:border-box}
+ .bulk-bar button{min-height:44px}
+ .bulk-bar [data-bulk-status]{font-size:12px}
+}
+
 #panel-slot{display:flex;min-height:0}
 .panel{width:400px;flex:0 0 400px;background:var(--paper);border-left:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0}

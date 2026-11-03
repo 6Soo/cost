@@ -3441,6 +3441,11 @@ class Handler(BaseHTTPRequestHandler):
         resolve_role(self.headers, self._cookies())
         from . import google_ledger_page as _gl
         from . import google_ledger_actions as _gla
+        if parsed.path == '/demo/preview':
+            is_owner, _ = _gl.caller(ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, 'session', None),
+                                     is_owner_session, _active_role)
+            google_demo_page.dispatch_preview(self, parsed, is_owner=is_owner)
+            return
         if parsed.path in _gla.ROUTES:
             is_owner, viewer = _gl.caller(ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, 'session', None),
                                          is_owner_session, _active_role)
@@ -3889,6 +3894,31 @@ class Handler(BaseHTTPRequestHandler):
 
         # The write gates below read the session this request resolved, never a leftover from another one.
         resolve_role(self.headers, self._cookies())
+        if parsed.path == '/api/rows/bulk-trip':
+            if current_role() != 'owner':
+                self._send_json({'code': 'OWNER_REQUIRED', 'message': '소유자만 변경할 수 있어요'}, code=403)
+                return
+            if _active_store() is None:
+                self._send_json({'code': 'STORE_UNBOUND', 'message': '저장소가 연결되지 않았어요'}, code=503)
+                return
+            try:
+                payload = read_payload()
+                if not isinstance(payload, dict) or set(payload) - {'csrf', 'rows', 'target', 'client_request_id'}:
+                    raise SaveError('INVALID_VALUE', '허용하지 않은 입력이에요')
+                check_csrf(payload)
+                result = _active_store().save_expense_trips_atomic(
+                    rows=payload.get('rows'), target=payload.get('target'),
+                    client_request_id=payload.get('client_request_id'), actor='owner')
+            except SaveError as exc:
+                self._send_json({'code': exc.code, 'message': str(exc),
+                                 'row_id': getattr(exc, 'row_id', '')},
+                                code=STATUS_FOR_CODE.get(exc.code, 422))
+                return
+            except sqlite3.OperationalError as exc:
+                self._send_transient(exc)
+                return
+            self._send_json(result, code=200)
+            return
         from . import sheet_expense_review
         if sheet_expense_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return

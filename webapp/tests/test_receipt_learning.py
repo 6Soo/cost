@@ -28,6 +28,7 @@ def muse_ready(tmp_path, monkeypatch):
     image.write_bytes(PNG)
     monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
     monkeypatch.setenv('WEBLEDGER_OPENCODE_EXE', __file__)
+    monkeypatch.setattr(vision, 'enabled', lambda: True)
     vision._COOLING.clear()
     return str(image)
 
@@ -248,3 +249,37 @@ def test_the_learning_routes_are_owner_routes(monkeypatch):
 def _event(text):
     return type('Proc', (), {'returncode': 0, 'stderr': b'', 'stdout': (json.dumps({
         'type': 'text', 'part': {'type': 'text', 'text': text}}, ensure_ascii=False) + '\n').encode('utf-8')})()
+
+
+def test_repeat_analysis_with_shifted_box_does_not_duplicate_existing_receipt(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    first = {**reading('SHOP A', '2026-10-01', 820), 'box': [0.1, 0.1, 0.4, 0.4]}
+    second = {**first, 'box': [0.11, 0.1, 0.41, 0.4]}
+    assert rr.scan(path, {'image': SHA, 'regions': [first]})['added'] == 1
+    assert rr.scan(path, {'image': SHA, 'regions': [second]})['added'] == 0
+    assert len(rr.load(path)['candidates']) == 1
+
+
+def test_boxed_analysis_does_not_duplicate_legacy_unboxed_receipt(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    original = reading('SHOP A', '2026-10-01', 820)
+    assert rr.scan(path, {'image': SHA, 'regions': [original]})['added'] == 1
+    result = rr.scan(path, {'image': SHA, 'regions': [{**original, 'box': [0.1, 0.1, 0.4, 0.4]}]})
+    assert result['added'] == 0
+    assert len(rr.load(path)['candidates']) == 1
+
+
+def test_rescan_matches_existing_box_before_identical_new_ticket(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    original = {**reading('FERRY', '2026-10-01', 820), 'box': [0.1, 0.1, 0.4, 0.4]}
+    assert rr.scan(path, {'image': SHA, 'regions': [original]})['added'] == 1
+    base = {'merchant': 'FERRY', 'date': '2026-10-01', 'amount': 820, 'currency': 'JPY', 'payment': 'cash'}
+    new_box = [0.6, 0.1, 0.9, 0.4]
+    job = done_job([{**base, 'box': new_box}, {**base, 'box': original['box']}], None)
+    with patch.object(jobs, 'lookup', return_value=job):
+        result = rr.vision_new(path, image=SHA, job_id='f' * 32)
+    assert result['already'] == 1
+    assert [item['box'] for item in result['new']] == [new_box]

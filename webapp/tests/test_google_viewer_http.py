@@ -94,6 +94,17 @@ class GoogleViewerHttpTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, error.read().decode('utf-8')
 
+    def test_demo_preview_requires_owner_over_http(self):
+        for user in (None, VIEWER, OTHER):
+            status, body = self.call('/demo/preview', user)
+            self.assertEqual(status, 403)
+            self.assertNotIn('ALICE-NAME', body)
+        status, body = self.call('/demo/preview', OWNER)
+        self.assertEqual(status, 200)
+        self.assertIn('공개 전 미리보기', body)
+        self.assertNotIn('ALICE-NAME', body)
+        self.assertNotIn('BOB-NAME', body)
+
     def link_and_assign(self, user, tab):
         """A real link: application, approval against a reservation person, then a trip assignment."""
         person = f'rp-{user}'

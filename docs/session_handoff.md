@@ -1,3 +1,28 @@
+## 2026-11-03 지출 인라인·일괄 편집 후속 수락
+
+- PARTIAL — [PR #555](https://github.com/6Soo/cost/pull/555) 병합 `c8ba18d50f003d0e1528d3068fd3dfa08575f636`, GitHub CI `41488569096` 통과. 단일 편집에서 바꾸지 않은 여행까지 수동 교정으로 고정하던 문제와 모바일 하단 바의 여행 선택기가 과도하게 줄어드는 문제를 수정했다. 기본 인라인·다중 편집은 PR #549를 유지한다. 운영 배포·운영 화면 수락은 아래 게이트웨이 설치 정책 차단이 해소되지 않아 미실행이다.
+- 코드 검사 SHA `0fe7c48da293f15d3f83e3d54fa6609bc758ded5`: 영향 QA 378 passed·55 subtests·skip 0. 후속 `572908f7`은 명세 상태 문서만 변경했고 문서 검사 통과. 로컬 근거 `C:/AX/cost-inline-acceptance/quality-artifacts/`, `.local-archive/inline-bulk-checkpoint-20261103.md`.
+- 새 작업 공간 사용에 대한 사용자 승인 후 Ego78에서 합성 자료로 단일 항목/여행 저장→다중 선택→여행 일괄 저장과 항목 유지, 1440/390/320px·라이트/다크, Enter/Space/Shift/Escape, 미저장 입력 보존, 보호 실패와 두 탭 revision 충돌 시 선택·대상 유지를 확인했다. 거래처 열은 PC 634px(900px 화면에서는332px), 모바일 가로 넘침0, 수정 후 선택기 폭262/192px. 실기기·실제 금융 자료 쓰기·Google 쓰기·운영 수락은 미실행이다.
+- 배포 SHA 없음. 운영 `a9b0617a132be8ea83328a8ac6a9345514efeffc`의 Board task Running·health/ready 200·Gateway task 없음을 읽기 확인했다. 다음: 기존 `DEPLOY_BLOCKED_TOOL_POLICY` 해소와 배포 단일 작성자 확인 후 검증된 main SHA를 고정 배포하고 health/ready·보호 API/표·운영 영향 화면을 수락한다. 거부된 설치 명령을 다른 경로로 우회하지 않는다.
+
+## 2026-11-02 영수증 PDF·영역 검토 — 병합, 운영 전환 대기
+
+- PARTIAL — [PR #553](https://github.com/6Soo/cost/pull/553) 병합 `01a7b2321b1d53583a876076f8c1fa298d457aee`. PDF 원본 보존 및 페이지별 OCR, 영수증 영역 표시·교정, 겹치는 후보 중복 보호와 재분석 위치 대응을 구현했다. 영역을 알 수 없는 후보는 미지정으로 표시하고 기존 미지정 후보와 중복 가능성을 보수적으로 처리한다.
+- 검증 head `e598c30177a63c28d71faccf721fe86ad18ecf3a`와 병합 트리는 동일하다. Windows 영향 QA와 호스팅 CI 각각 365 passed·30 subtests·skip 0, 합성 브라우저에서 영역 교정·무효 좌표 보존·재분석을 확인했고 실제 Windows OCR에 합성 PDF를 사용했다. 실제 고객 영수증과 외부 AI 추론은 검증하지 않았다. Windows OCR은 `WEBLEDGER_RECEIPT_OCR=windows` 설정이 필요하다.
+- 운영 배포와 운영 수락은 아래 게이트웨이 정책 차단 해소 후 수행한다. 마지막으로 확인한 운영 SHA는 `a9b0617a132be8ea83328a8ac6a9345514efeffc`다. 지출 인라인·일괄 편집 [PR #549](https://github.com/6Soo/cost/pull/549)도 병합됐으나 운영 배포와 운영 화면 수락은 아직 남아 있다.
+
+## 2026-11-02 개발·배포 중 502 방지 구조 — 운영 전환 차단
+
+- PARTIAL — 사용자 “적용해” 범위의 [명세](specs/continuous-deployment-20261102.md)를 [PR #547](https://github.com/6Soo/cost/pull/547)로 구현·병합했다. 병합 `6207dd3092c40adb5f0ce0fafb687f0141c916c2`, 검사 트리 `7afec0f1`와 동일. 고정 게이트웨이·후보 준비·요청 drain·단일 자동 작성자·실패 복구를 구현했다.
+- 영향 QA 257 passed·skip 0, 게이트웨이/합성 Windows 전환 10 passed(영향 QA에 포함), 기존 호스트 미결 재검사 1 passed. PR CI 41439813479·main CI 41440047572 성공. 배포 후보 1,300 tracked blobs 불일치 0, 보호 13표 사전 읽기 완료.
+- `DEPLOY_BLOCKED_TOOL_POLICY` — 게이트웨이 설치를 포함한 셸 호출이 프로세스 생성 전에 자동 승인 검토에서 `blocked by policy`로 거부됐다. 세부 이유는 반환되지 않았다. 우회 실행하지 않았으며 설치·터널 전환·후보 기동·운영 배포는 미실행이다. 기존 운영 `a9b0617a132be8ea83328a8ac6a9345514efeffc` task Running, route 파일 없음, health/ready 200을 읽기 전용으로 재확인했다. 금융·Google·원본·스키마 업무 쓰기 없음. 보호표 사후 비교·전환 연속 요청 검사는 미실행이며 배포 성공으로 취급하지 않는다.
+- 재개는 도구 정책 거부가 해소된 뒤만 가능하다. 단일 작성자·실제 운영 SHA를 다시 확인하고 `.local-archive/continuous-deploy-20261102/checkpoint.json`의 설치→고정 SHA 배포→연속 요청/보호 API/13표/작업·프로세스 SHA 검증을 수행한다. 명령과 근거는 [운영 기록](operations.md)에 있다. 사용자/타 작업의 workspace·미추적 파일을 보존했다.
+
+## 2026-11-02 항공권 불일치 교정 및 배포
+
+- 완료 — [PR #544](https://github.com/6Soo/cost/pull/544) 운영 `a9b0617a132be8ea83328a8ac6a9345514efeffc`. 인증 메일의 단일 출발·도착 라벨을 읽어 실제 여정일에 예약을 귀속한다. 대상 카드 1건은 원문과 여행 기간을 대조해 AI 추론으로 여행을 교정했고 거래·장부 양쪽 일치를 재확인했다. 자동 OTA 연결을 사용자 확정으로 취급하지 않았다.
+- 표적 56건, 영향 QA 260건·skip 0 및 호스팅 CI 통과. SHA 파일 1,293개 일치, 백업·복원 검증, health/ready 200, 보호 API 및 보호 13표 불변. 색인 갱신 후 인증 운영 여행 화면에서 예약 1건과 출발일을 확인했다. [운영 기록](operations.md) 참조.
+
 ## 2026-11-02 카드 다중 업로드 대기 개선
 
 - [PR #541](https://github.com/6Soo/cost/pull/541)을 운영 `828e56db310e41fab864410e2dacb7049ed503a3`에 배포했다. 파일 접수·상태 대기를 최대 4개 겹치고 선택 순서와 재시작 정보를 보존한다. 서버 접수·분류는 공유 잠금으로 직렬화되므로 실제 처리 시간 개선 폭은 미측정이다.
