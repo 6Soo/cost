@@ -571,12 +571,13 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         board.conn.commit()
 
         assert _cleanup_card_breakdown(board) == {
-            'classification': 3, 'evidence': 1,
+            'classification': 2, 'recording': 1, 'evidence': 1,
         }
         assert cleanup_total(board) == 5
         html = render_expense_cleanup(board, 'token')
         assert '처리 필요한 거래 <span id=\'cleanup-count\' data-total=\'5\'>5건' in html
-        assert '분류·배정 필요 4건' in html
+        assert '분류·배정 필요 3건' in html
+        assert '기록 상태 확인 1건' in html
         assert '기록 대기' not in html
         assert '근거 충돌 1건' in html
         assert '사용자 보류 0건' in html

@@ -88,8 +88,10 @@ CLEANUP_STYLE = (
     "border-radius:10px;background:var(--shell-hover);color:var(--shell-accent);font-weight:750;cursor:pointer}"
     "#expense-cleanup .cleanup-refund-action:disabled{opacity:.55;cursor:wait}"
     "#expense-cleanup .cleanup-refund-status{font-size:13px;margin:8px 0;overflow-wrap:anywhere}"
-    "@media(max-width:550px){#expense-cleanup .cleanup-row{padding:16px}"
-    "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
+    "@media(max-width:550px){#expense-cleanup .cleanup-list{gap:8px}#expense-cleanup .cleanup-row{padding:12px}"
+    "#expense-cleanup .cleanup-info{flex-wrap:wrap}#expense-cleanup .cleanup-receipt-icon{display:none}"
+    "#expense-cleanup .cleanup-card-head{margin-bottom:5px}#expense-cleanup .cleanup-amount{font-size:19px;margin:4px 0}"
+    "#expense-cleanup .cleanup-assignment{line-height:1.4;margin-bottom:3px}"
     "}"
     "</style>"
 )

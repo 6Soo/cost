@@ -53,14 +53,17 @@
  }).observe(document.body,{childList:true,subtree:true,characterData:true});
  const nav=document.getElementById('nav'),mask=document.getElementById('nav-mask');if(!nav)return;
  const buttons=document.querySelectorAll('.site-menu-toggle,#btn-menu');let menuTrigger=null;
-const close=({restoreFocus=false}={})=>{nav.classList.remove('open');if(mask)mask.hidden=true;buttons.forEach(b=>b.setAttribute('aria-expanded','false'));if(restoreFocus){const target=menuTrigger&&menuTrigger.getClientRects().length?menuTrigger:[...buttons].find(b=>b.getClientRects().length);target?.focus()}menuTrigger=null};
+ const mobile=matchMedia('(width < 760px)');
+ const syncNav=()=>{nav.inert=mobile.matches&&!nav.classList.contains('open')};
+const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();if(mask)mask.hidden=true;buttons.forEach(b=>b.setAttribute('aria-expanded','false'));if(restoreFocus){const target=menuTrigger&&menuTrigger.getClientRects().length?menuTrigger:[...buttons].find(b=>b.getClientRects().length);target?.focus()}menuTrigger=null};
+ mobile.addEventListener('change',()=>close());syncNav();
  buttons.forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const open=!nav.classList.contains('open');
  if(open)menuTrigger=b;
- nav.classList.toggle('open',open);if(mask)mask.hidden=!open;b.setAttribute('aria-expanded',String(open));
+ nav.classList.toggle('open',open);syncNav();if(mask)mask.hidden=!open;buttons.forEach(button=>button.setAttribute('aria-expanded',String(open)));
  if(open)nav.querySelector('a,input')?.focus()}));
  mask?.addEventListener('click',close);
  nav.addEventListener('keydown',e=>{if(e.key==='Tab'&&nav.classList.contains('open')){const items=[...nav.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),summary')].filter(el=>el.getClientRects().length);if(!items.length)return;const first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
- document.addEventListener('keydown',e=>{if(e.key==='Escape'&&nav.classList.contains('open'))close({restoreFocus:true})});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&nav.classList.contains('open')){e.preventDefault();close({restoreFocus:true})}});
  const path=location.pathname;
  // Restore only a view's own GET filters; stored state never performs a write.
  try{
