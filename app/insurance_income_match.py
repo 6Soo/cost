@@ -197,8 +197,8 @@ def match_masked_name(pattern: str, value: str) -> bool:
 def unique_identity_name_match(pattern: str, value: str) -> bool:
     """Eligible name evidence; callers must also prove uniqueness both ways.
 
-    A masked name needs visible characters at both ends. Repeated mask tokens
-    may hide an unknown number of characters; never reconstruct those letters.
+    Two-character names accept one visible positional character. Longer names
+    need visible characters at both ends. Never reconstruct hidden letters.
     """
     if not isinstance(pattern, str) or not isinstance(value, str):
         return False
@@ -207,7 +207,9 @@ def unique_identity_name_match(pattern: str, value: str) -> bool:
     if not parts or not candidate or any(p is None for p in candidate):
         return False
     if any(p is None for p in parts):
-        if visible < 2 or parts[0] is None or parts[-1] is None:
+        two_character_name = (len(parts) == len(candidate) == 2 and visible == 1
+                              and not any(char.isspace() for char in value.strip()))
+        if not two_character_name and (visible < 2 or parts[0] is None or parts[-1] is None):
             return False
         if any(unicodedata.category(char)[0] not in 'LM' for char in candidate):
             return False  # A group/deposit annotation is not a single name.

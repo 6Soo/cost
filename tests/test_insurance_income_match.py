@@ -186,3 +186,29 @@ def test_repeated_mask_runs_are_bounded_and_visible_letters_remain_anchored():
     assert not match_masked_name(('가***' * 40) + '나', '가' * 100)
     assert match_masked_name('가**나**다', '가마나바다')
     assert not match_masked_name('가**나**다', '가마다나')
+
+
+@pytest.mark.parametrize(('pattern', 'name'), [('박*', '박솔'), ('*솔', '박솔'), ('박＊', '박솔')])
+def test_two_character_names_match_with_one_visible_positional_character(pattern, name):
+    contract = {'rows': [{'review_row_id': 'r', 'masked_name': pattern}]}
+    incomes = [{'ref': 'i', 'name': name}]
+    result = match_contract(contract, incomes)['rows'][0]
+    assert result['match_state'] == 'matched'
+    assert result['candidate_count'] == 1
+    assert result['masked_name'] == pattern
+    assert incomes == [{'ref': 'i', 'name': name}]
+
+
+def test_two_character_name_collisions_stay_ambiguous_in_both_directions():
+    contract = {'rows': [{'review_row_id': 'r', 'masked_name': '박*'}]}
+    assert match_contract(contract, [{'name': '박솔'}, {'name': '박별'}])['rows'][0]['match_state'] == 'ambiguous'
+    contract['rows'].append({'review_row_id': 's', 'masked_name': '*솔'})
+    assert all(row['match_state'] == 'ambiguous' for row in match_contract(contract, [{'name': '박솔'}])['rows'])
+
+
+@pytest.mark.parametrize(('pattern', 'name'), [
+    ('박*', '박가람'), ('박**', '박솔'), ('**', '박솔'), ('박*', '박'),
+    ('박*', '박1'), ('박*', '박 솔'), ('박*', '김솔'), ('박**', '박가람'),
+])
+def test_two_character_exception_does_not_relax_other_mask_evidence(pattern, name):
+    assert not income_match.unique_identity_name_match(pattern, name)
