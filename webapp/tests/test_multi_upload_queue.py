@@ -8,7 +8,7 @@ import pytest
 from webapp.card_flow import page
 
 
-@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'concurrent'])
+@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'concurrent', 'restart-expired'])
 def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
     source = page('synthetic-csrf')
     source = source[source.index("const uploadJobKey="):source.index("el('ruleform').onsubmit=")]
@@ -22,7 +22,7 @@ function element(){return {disabled:false, textContent:'', append(...xs){entries
   setAttribute(){},removeAttribute(){},querySelector(){return this},addEventListener(name,fn){this[name]=fn},scrollIntoView(){this.scrolled=true}}}
 const el = id => {if(!nodes.has(id))nodes.set(id,element());return nodes.get(id)};
 const localStorage = {getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
-if(mode==='legacy-resume')localStorage.setItem('cost-card-upload-job',JSON.stringify({status_url:identity(9),batch_id:'9',filename:'legacy.csv'}));
+if(mode==='legacy-resume'||mode==='restart-expired')localStorage.setItem('cost-card-upload-job',JSON.stringify({status_url:identity(9),batch_id:'9',filename:'legacy.csv'}));
 let rendered;
 const context={el,localStorage,document:{createElement:element},Date,Error,JSON,Array,Math,RegExp,
   AbortSignal:{timeout(){}},setTimeout:fn=>{fn();},
@@ -31,6 +31,7 @@ const context={el,localStorage,document:{createElement:element},Date,Error,JSON,
   renderUploadSelection:()=>Array.from({length:10},(_,i)=>({name:(i+1)+'.csv',arrayBuffer:async()=>Buffer.from('synthetic '+i)})),
   call:async(url,data,headers)=>{assert.equal(headers['X-Upload-Async'],'1');const n=Number(decodeURIComponent(headers['X-Filename']).split('.')[0]);posts.push(n);return {status_url:identity(n),batch_id:String(n)}},
   fetch:async url=>{const n=Number(url.split('/').at(-1));
+    if(mode==='restart-expired'&&n===9)return {ok:false,status:404};
     if(mode==='concurrent'&&n<=4)await new Promise(resolve=>{waiting.push(resolve);maxWaiting=Math.max(maxWaiting,waiting.length);if(waiting.length===4)while(waiting.length)waiting.pop()()});
     if(mode==='mixed'&&(n===2||n===4))throw Error('temporary disconnect');
     return {ok:true,status:200,json:async()=>mode==='refresh-required'&&(n===1||n===10)?{status:'done',result:{batch_id:String(n),refresh_required:true,upload_summary:{status:'refresh_required'}}}:mode==='mixed'&&n===1?{status:'error',message:'synthetic classification failure'}:{status:'done',result:{batch_id:String(n),upload_summary:{status:'passed'}}}};
@@ -42,6 +43,14 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
   for(let i=0;i<20;i++)await Promise.resolve();
   if(mode==='legacy-resume'){
     assert.equal(storage.size,0);assert.ok(entries.some(x=>x.href==='/import?batch=9#summary'));
+  }
+  if(mode==='restart-expired'){
+    assert.equal(storage.size,0);
+    const detail=entries.find(x=>x.href==='/import?batch=9#summary');
+    assert.ok(detail,'expired status must retain a link to the saved batch');
+    let prevented=false;await detail.click({button:0,preventDefault(){prevented=true}});
+    assert.ok(prevented);assert.equal(context.loaded,'9');assert.ok(el('summary').scrolled);
+    return;
   }
   await el('upload').onclick();
   if(mode==='concurrent')assert.equal(maxWaiting,4,'four files must reach status polling before any completes');
