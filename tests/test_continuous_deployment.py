@@ -254,7 +254,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'direct_parent', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity'])
+@pytest.mark.parametrize('failure', ['', 'direct_parent', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -280,6 +280,8 @@ def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path,
 param($Switch,$Old,$New,$Failure,$Root)
 $ErrorActionPreference='Stop'
 $global:events=[Collections.Generic.List[string]]::new()
+$global:oldSha=$Old
+$global:newSha=$New
 $global:board=[pscustomobject]@{State='Running';Actions=@([pscustomobject]@{Execute='powershell';Arguments="-File $Old/start.ps1 -BoardPort 8751"});Principal=@{};Settings=@{}}
 $global:prepared=$null
 $global:ports=@{8751=$Old}
@@ -320,7 +322,9 @@ function Get-NetTCPConnection {
 function Get-CimInstance {
     param($ClassName,$Filter)
     if(-not $Filter){
-        if($global:supervisors[8752]){[pscustomobject]@{ProcessId=28752;ParentProcessId=99999;Name='powershell.exe';CommandLine=$New+'\tools\start_web_ledger_host.ps1 -BoardPort 8752 -DisableEntry'}}
+        if($global:supervisors[8751]){[pscustomobject]@{ProcessId=28751;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:oldSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8751')}}
+        if($Failure -eq 'multiple_supervisors'){[pscustomobject]@{ProcessId=12345;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:oldSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8751')}}
+        if($global:supervisors[8752]){[pscustomobject]@{ProcessId=28752;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:newSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8752 -DisableEntry')}}
         return
     }
     $processId=[int]($Filter -replace 'ProcessId=','')
@@ -371,10 +375,12 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
         assert 'kill:28752' in report['events']
     else:
         assert report['outcome'] == 'FAILED', report
+        if failure == 'multiple_supervisors':
+            assert 'SUPERVISOR_AMBIGUOUS' in report['error']
         assert old in report['board'] and report['old_alive'], report
         if failure == 'candidate_identity':
             assert report['new_alive'] and 'kill:8752' not in report['events']
         else:
             assert not report['new_alive'], report
-        if failure in ('prepare', 'before_listen', 'drain', 'identity', 'candidate_identity'):
+        if failure in ('prepare', 'before_listen', 'drain', 'identity', 'candidate_identity', 'multiple_supervisors'):
             assert 'stop:WebLedger-Board' not in report['events'], report

@@ -67,6 +67,12 @@ function Get-BackendSupervisor([int]$Port,[string]$Sha) {
     elseif($parent.CommandLine.Contains('launch_web_ledger.py')){$supervisor=Get-CimInstance Win32_Process -Filter "ProcessId=$($parent.ParentProcessId)"}
     else {throw 'SUPERVISOR_PARENT_IDENTITY_INVALID'}
     if(-not $supervisor -or $supervisor.Name -notin @('powershell.exe','pwsh.exe') -or -not $supervisor.CommandLine.Contains("$Sha\tools\start_web_ledger_host.ps1") -or $supervisor.CommandLine -notmatch "-BoardPort $Port( |$)"){throw 'SUPERVISOR_IDENTITY_INVALID'}
+    $candidates=@(Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -in @('powershell.exe','pwsh.exe') -and $_.CommandLine -and
+        $_.CommandLine.Contains("$Sha\tools\start_web_ledger_host.ps1") -and
+        $_.CommandLine -match "-BoardPort $Port( |$)"
+    })
+    if($candidates.Count -ne 1 -or $candidates[0].ProcessId -ne $supervisor.ProcessId){throw 'SUPERVISOR_AMBIGUOUS'}
     return @{pid=[int]$supervisor.ProcessId;sha=$Sha;port=$Port;created=$supervisor.CreationDate}
 }
 function Get-PreparedSupervisor([int]$Port,[string]$Sha) {
