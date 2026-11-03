@@ -1,6 +1,11 @@
 param([switch]$Apply)
 $ErrorActionPreference='Stop'
 if(-not $Apply){@{status='PREVIEW';scope='loopback gateway and rolling tunnel origin change; no customer data'}|ConvertTo-Json -Compress; return}
+function ConvertTo-GatewayOrigin([string]$ConfigText) {
+    $pattern='(?m)^([ \t]*service:[ \t]*)http://127\.0\.0\.1:8751([ \t]*(?:#[^\r\n]*)?\r?)$'
+    if(([regex]::Matches($ConfigText,$pattern)).Count -ne 1){throw 'ORIGIN_CONFIG_MISMATCH'}
+    return [regex]::Replace($ConfigText,$pattern,'$1http://127.0.0.1:8790$2')
+}
 $hostRoot='D:\WebLedgerHost'
 $route="$hostRoot\config\ledger-route.json"
 $status="$hostRoot\config\ledger-gateway-status.json"
@@ -21,7 +26,7 @@ try {
         if((Invoke-WebRequest "http://127.0.0.1:8751$path" -UseBasicParsing -TimeoutSec 5).StatusCode -ne 200){throw 'BOARD_NOT_READY'}
     }
     $original=[IO.File]::ReadAllText($config)
-    if(([regex]::Matches($original,'http://127\.0\.0\.1:8751\b')).Count -ne 1){throw 'ORIGIN_CONFIG_MISMATCH'}
+    $updated=ConvertTo-GatewayOrigin $original
     $oldTunnels=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'cloudflared.exe' -and $_.CommandLine.Contains($config) -and $_.CommandLine.Contains('8259194a-39d3-45c2-8b95-c656ce02f3fb')})
     if($oldTunnels.Count -ne 1){throw 'EXISTING_TUNNEL_IDENTITY_FAILED'}
     $backup="$hostRoot\config\gateway-install-$(Get-Date -Format yyyyMMddTHHmmss)"
@@ -42,7 +47,7 @@ try {
         Start-Sleep -Milliseconds 250
     }
     if(-not $ready){throw 'GATEWAY_NOT_READY'}
-    [IO.File]::WriteAllText($config,($original -replace 'http://127\.0\.0\.1:8751\b','http://127.0.0.1:8790'),[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($config,$updated,[Text.UTF8Encoding]::new($false))
     $configChanged=$true
     # Keep the registered old connector serving until the new connector is ready.
     $newTunnel=Start-Process "$hostRoot\bin\cloudflared.exe" -ArgumentList @('tunnel','--config',$config,'--metrics','127.0.0.1:20249','run','8259194a-39d3-45c2-8b95-c656ce02f3fb') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$backup\tunnel.stdout.log" -RedirectStandardError "$backup\tunnel.stderr.log"

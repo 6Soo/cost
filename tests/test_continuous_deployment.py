@@ -18,6 +18,42 @@ from tools.gateway_route import change
 from webapp import deployment_role
 
 
+@pytest.mark.parametrize('services', [1, 0, 2])
+def test_gateway_install_changes_only_one_service_and_preserves_origin_comments(tmp_path, services):
+    shell = shutil.which('powershell') or shutil.which('pwsh')
+    assert shell, 'PowerShell is required for the installation contract'
+    source = Path(__file__).resolve().parents[1] / 'tools/install_ledger_gateway.ps1'
+    config = tmp_path / 'tunnel.yml'
+    original = '# Existing origin http://127.0.0.1:8751\r\ningress:\r\n'
+    original += '  - hostname: synthetic.invalid\r\n    service: http://127.0.0.1:8751 # preserve\r\n' * services
+    original += '  - service: http_status:404\r\n'
+    config.write_bytes(original.encode())
+    script = tmp_path / 'check.ps1'
+    script.write_text(r'''
+param($Source,$Config)
+$ErrorActionPreference='Stop'
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$null,[ref]$null)
+$definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'ConvertTo-GatewayOrigin'},$true)
+Invoke-Expression $definition.Extent.Text
+try {
+    $result=ConvertTo-GatewayOrigin ([IO.File]::ReadAllText($Config))
+    [pscustomobject]@{status='PASS';result=$result} | ConvertTo-Json -Compress
+} catch {
+    if($_.Exception.Message -ne 'ORIGIN_CONFIG_MISMATCH'){throw}
+    [pscustomobject]@{status='REJECTED'} | ConvertTo-Json -Compress
+}
+''', encoding='utf-8')
+    result = subprocess.run([shell, '-NoProfile', '-File', str(script), '-Source', str(source),
+                             '-Config', str(config)], capture_output=True, encoding='utf-8', timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report['status'] == ('PASS' if services == 1 else 'REJECTED')
+    if services == 1:
+        expected = original.replace('service: http://127.0.0.1:8751', 'service: http://127.0.0.1:8790')
+        assert report['result'] == expected
+    assert config.read_bytes() == original.encode()
+
+
 @contextmanager
 def backend(label, entered=None, release=None, requests=None):
     class Handler(BaseHTTPRequestHandler):
