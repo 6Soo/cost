@@ -8,8 +8,7 @@ from tests.card_pipeline.test_ota_matching_defaults import event, card
 @pytest.mark.parametrize('provider,merchant', [
     ('trip', 'AGODA_NICE-Agoda'), ('trip', 'BOOKING.COM'), ('trip', 'KLOOK'),
     ('agoda', 'Trip.com Tokyo JP'), ('booking', 'Trip.com Tokyo JP'),
-    ('klook', 'Trip.com Tokyo JP'), ('trip', 'UNRELATED MERCHANT'),
-    ('trip', 'nottrip.commercial'),
+    ('klook', 'Trip.com Tokyo JP'),
 ])
 def test_provider_scope_excludes_cross_provider_before_amount_comparison(provider, merchant):
     ota = event(provider=provider)
@@ -22,6 +21,21 @@ def test_provider_scope_excludes_cross_provider_before_amount_comparison(provide
         assert search['comparisons'] == 0
         assert search['candidates'] == []
         assert search.get('rejected', []) == []
+
+
+@pytest.mark.parametrize('merchant', ['UNRELATED MERCHANT', 'nottrip.commercial'])
+def test_unknown_merchant_requires_same_day_exact_amount_or_other_approved_evidence(merchant):
+    ota = event(provider='trip')
+    row = card(merchant=merchant, merchant_normalized=merchant.casefold())
+    assert match_ota_payment_events([ota], [row])[0]['transaction_id'] == 'card-1'
+    assert pair_check(ota, row) is None
+
+    # An unrecognized descriptor alone is not an approved lag or discount rule.
+    for changed in ({'approval_date': '2026-09-05'}, {'amount_krw': 85621},
+                    {'card_tail': '9999'}):
+        candidate = {**row, **changed}
+        assert match_ota_payment_events([ota], [candidate])[0]['transaction_id'] is None
+        assert pair_check(ota, candidate) is not None
 
 
 @pytest.mark.parametrize('merchant', ['Trip.com Tokyo JP', '대표_카카오페이-트립닷컴', '나이스정보통신'])
