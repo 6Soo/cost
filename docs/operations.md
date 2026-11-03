@@ -1,3 +1,12 @@
+## 2026-11-03 게이트웨이·보험 순차 고정 SHA 배포
+
+- 사용자 “배포해”에 따라 `a9b0617a`→`ac2eed16`→`6d7c4f59`→`e75f0b96`를 공식 `deploy_verified_release.ps1`으로 직렬 전환했다. 최종 SHA `e75f0b9699bd87fe951ea307712258db974a8677`, route8752/paused=false, gate PASS. 게이트웨이 설치와 선행 지출 인라인/일괄 편집·영수증 PDF/영역 검토 및 보험 두 글자 이름/후보 보기 코드의 운영 반영 근거다.
+- 기존 설치기의 주석 URL 중복 오인은 [PR #563](https://github.com/6Soo/cost/pull/563)으로 실제 `service:` 행만 검사하도록 수정했다. 3개 회귀 검사와 영향65 passed/skip0, CI41576154132 성공. 검증 후보 `43b7492c`에 이 수정만 포함한 `ac2eed1635bd8b807abdee2e6dbcd382ef969225` 1,304blobs 불일치0. 누적 QA1,175+96/skip0 근거를 재사용했다. 설치된 gateway/route를 후속 배포가 재사용하므로 후속 구버전 설치기는 재실행하지 않았다.
+- 543f7490·5d342163 사용량 오류로 배포를 시작하지 못해 successor36e9f713가 준비된 review/검사 근거를 인수했다. 두 글자 이름 [PR #559](https://github.com/6Soo/cost/pull/559) Windows/CI465+16/skip0 및 mainCI41573831949, 후보 보기 [PR #560](https://github.com/6Soo/cost/pull/560) Windows/CI361+25/skip0 및 mainCI41574755063 성공을 확인했다. 각 단계 별도 보호 baseline/사후 비교를 통과했고 보호13표 내용·스키마가 동일했다.
+- 각 SHA1304blobs 일치·task/process SHA·단일loopback listener·health/ready200·보호API401. Board/Gateway/SourceRefresh Running, Prepared 제거. 선행 재개 전환 모니터508요청 실패0/최대6.973초. 공개health/ready200, 영향 `/board`·`/import`·`/receipts`·`/flight-passengers` 익명401. 재전송·실제 고객 업로드·금융/Google/원본/스키마 업무 쓰기·마이그레이션·대량 재처리 없음. 이전 검증 릴리스/task XML 보존, 코드 배포에 전체DB백업/복원을 반복하지 않았다.
+- 후속 두 전환의 loopback8790 연속 health/ready874요청 실패0/최대9.393초. 샘플 범위는 `.local-archive/deploy-main-20261103/followup-continuity.json`이며 선행508요청과 별도다. 지연시간을 무지연 보장으로 표현하지 않는다.
+- 호스트 근거: `D:/WebLedgerHost/releases/deploy-evidence-ac2eed1635bd8b807abdee2e6dbcd382ef969225.json`, `deploy-evidence-6d7c4f59834fa2f245d759ede54dba554e0741d3.json`, `deploy-evidence-e75f0b9699bd87fe951ea307712258db974a8677.json` 및 같은 SHA의 `continuous-switch-*.json`. 로컬 `.local-archive/deploy-main-20261103/`·`.local-archive/insurance-two-character-20261103/`·`.local-archive/insurance-no-match-20261103/`에 review·보호 비교·연속 요청 근거 보존. 기존 Ego4 없음으로 인증 화면 수락은 보험 담당자의 기존 Ego6 읽기 수락과 구분한다. 전체 회귀·실기기·실제 금융 저장을 실행한 것으로 표현하지 않는다.
+
 ## 2026-11-02 연속 배포 구현 병합·운영 전환 정책 차단
 
 - 요청: 개발·배포 중 운영 502 해결을 “적용해”. [PR #547](https://github.com/6Soo/cost/pull/547), 병합 SHA `6207dd3092c40adb5f0ce0fafb687f0141c916c2`; 검사 `7afec0f1`와 동일 트리. 게이트웨이 8790→8751/8752, 후보 readiness/인증 보호 선검사, 요청 drain과 대기, 금융 요청 재전송 금지, 카드 자동 완료·여행 내부 동기화의 역할/프로세스 잠금, 실패 시 기존 서버 유지/복구를 구현했다.

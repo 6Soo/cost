@@ -1,3 +1,11 @@
+## 2026-11-03 승인 배포 후속 — 게이트웨이·지출·영수증·보험 운영 반영
+
+- COMPLETE — 사용자 “배포해”의 선행 검증 후보 `ac2eed1635bd8b807abdee2e6dbcd382ef969225`를 이전 검증 `a9b0617a132be8ea83328a8ac6a9345514efeffc`에서 배포했다. 이어 기존 승인된 보험 PR #558/#559의 `6d7c4f59834fa2f245d759ede54dba554e0741d3`, 후보 보기 PR #560의 `e75f0b9699bd87fe951ea307712258db974a8677`를 단일 작성자로 순차 배포했다. 아래 과거 정책 차단·운영 미배포 상태는 이 실제 배포 기록으로 대체한다. 지출 인라인/일괄 편집 및 영수증 PDF/영역 검토 코드도 포함된다.
+- 최종 런타임 `e75f0b9699bd87fe951ea307712258db974a8677`, gateway8790→backend8752. 각 단계 1,304 tracked blobs 불일치0·task/process SHA 일치·health/ready200·보호API401·보호13표 내용/스키마 불변. Board/Gateway/SourceRefresh Running, Prepared 임시 작업 정리. 코드 전용으로 이전 검증 릴리스/task XML을 보존하고 전체 자료 백업/복원을 반복하지 않았다. 금융·Google 최종 장부·원본·스키마 업무 쓰기와 재처리 없음.
+- 검증 근거 재사용: 선행 누적 영향 QA1,175 passed+96 subtests/skip0, 설치기 수정65 passed/skip0와 PR #563 CI41576154132 성공. 두 글자 이름 Windows/CI 각각465 passed+16 subtests/skip0, 후보 보기 Windows/CI 각각361 passed+25 subtests/skip0 및 main CI41574755063 성공. 서로 겹치는 검사 수는 합산하지 않는다.
+- 재개 시 중단된 후보 준비 작업을 SHA/포트·두 배포 잠금으로 확인해 정리한 뒤 공식 배포기를 재실행했다. 선행 전환 연속 health/ready508요청 실패0. 인증 UI 수락 및 부팅 창 억제 후속은 별도 기록을 따른다. Ego4는 `task space not found`로 복구 실패하여 새 공간으로 우회하지 않았고, 보험 담당자는 기존 Ego6에서 읽기 수락을 담당한다. 실제 연결 저장·고객 업로드·Google 쓰기는 하지 않는다.
+- 근거: [운영 기록](operations.md)의 2026-11-03 순차 배포, 로컬 `.local-archive/deploy-main-20261103/`, `.local-archive/insurance-two-character-20261103/`, `.local-archive/insurance-no-match-20261103/`와 호스트 각 SHA의 deploy-evidence/continuous-switch JSON. 543/5d 사용량 오류 후 배포는 successor `36e9f713-4b6b-4c32-9857-14f6d93d9f9b`가 인수했다. 문서 후속만으로 재배포·서버 재시작을 하지 않는다.
+
 ## 2026-11-03 지출 인라인·일괄 편집 후속 수락
 
 - PARTIAL — [PR #555](https://github.com/6Soo/cost/pull/555) 병합 `c8ba18d50f003d0e1528d3068fd3dfa08575f636`, GitHub CI `41488569096` 통과. 단일 편집에서 바꾸지 않은 여행까지 수동 교정으로 고정하던 문제와 모바일 하단 바의 여행 선택기가 과도하게 줄어드는 문제를 수정했다. 기본 인라인·다중 편집은 PR #549를 유지한다. 운영 배포·운영 화면 수락은 아래 게이트웨이 설치 정책 차단이 해소되지 않아 미실행이다.
