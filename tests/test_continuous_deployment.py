@@ -254,7 +254,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement'])
+@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -322,6 +322,9 @@ function Unregister-ScheduledTask {param($TaskName,[switch]$Confirm); $global:pr
 function Export-ScheduledTask {param($TaskName); '<synthetic/>'}
 function Get-NetTCPConnection {
     param($LocalPort,$State)
+    if($LocalPort -eq 56069 -and ($Failure -eq 'foreign_entry' -or ($Failure -eq 'late_foreign_entry' -and $global:prepared))){
+        [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=56069};return
+    }
     if($LocalPort -eq 8790 -or ($global:ports.ContainsKey([int]$LocalPort) -and -not ($LocalPort -eq 8752 -and $global:starting))){
         [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=[int]$LocalPort}
     }
@@ -336,7 +339,8 @@ function Get-CimInstance {
     }
     $processId=[int]($Filter -replace 'ProcessId=','')
     if($processId -eq 28751 -and $Failure -eq 'late_replacement' -and $global:oldStopped){return}
-    if($processId -eq 8790){$line='ledger_gateway.py';$parent=99999}
+    if($processId -eq 56069){$line='other-release serve_review_entry.py';$parent=99999}
+    elseif($processId -eq 8790){$line='ledger_gateway.py';$parent=99999}
     elseif($global:ports.ContainsKey($processId)){$line=$global:ports[$processId]+' launch_web_ledger.py';$parent=$processId+$(if($Failure -eq 'direct_parent'){20000}elseif($Failure -eq 'adopted_backend'){30000}else{10000})}
     elseif($processId -in @(18751,18752) -and $global:ports.ContainsKey($processId-10000)){$line=$global:ports[$processId-10000]+' launch_web_ledger.py';$parent=$processId+10000}
     elseif($processId -in @(28751,28752) -and $global:ports.ContainsKey($processId-20000) -and $global:supervisors[$processId-20000]){
@@ -393,5 +397,8 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
             assert report['new_alive'] and 'kill:8752' not in report['events']
         else:
             assert not report['new_alive'], report
-        if failure in ('prepare', 'before_listen', 'drain', 'identity', 'candidate_identity', 'multiple_supervisors'):
+        if failure in ('foreign_entry', 'late_foreign_entry'):
+            assert 'ENTRY_IDENTITY_FAILED' in report['error']
+            assert 'route:pause' not in report['events']
+        if failure in ('prepare', 'before_listen', 'drain', 'identity', 'candidate_identity', 'multiple_supervisors', 'foreign_entry', 'late_foreign_entry'):
             assert 'stop:WebLedger-Board' not in report['events'], report

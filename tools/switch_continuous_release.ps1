@@ -110,6 +110,12 @@ function Stop-VerifiedSupervisor($Identity) {
     if(-not $process){return}
     Stop-Process -Id $process.ProcessId -ErrorAction Stop
 }
+function Assert-EntryIdentity([string]$Sha) {
+    foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
+        $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($entry.OwningProcess)"
+        if($entry.LocalAddress -ne '127.0.0.1' -or -not $process -or -not $process.CommandLine -or -not $process.CommandLine.Contains($Sha) -or -not $process.CommandLine.Contains('serve_review_entry.py')){throw 'ENTRY_IDENTITY_FAILED'}
+    }
+}
 try {
     $task=Get-ScheduledTask -TaskName WebLedger-Board
     $old=$task.Actions[0]
@@ -129,6 +135,7 @@ try {
     if(Get-ScheduledTask -TaskName WebLedger-Prepared -ErrorAction SilentlyContinue){throw 'PREPARED_TASK_EXISTS'}
     if(Get-PreparedSupervisor $newPort $CandidateSha){throw 'PREPARED_SUPERVISOR_EXISTS'}
     $oldSupervisor=Get-BackendSupervisor $oldPort $PreviousSha
+    Assert-EntryIdentity $PreviousSha
     $newArguments=$old.Arguments.Replace($PreviousSha,$CandidateSha) -replace "-BoardPort $oldPort( |$)","-BoardPort $newPort`$1"
     if($canPrepare) {
         if($newArguments -notmatch '(?i)-DeploymentRoute\s'){$newArguments+=' -DeploymentRoute "'+$route+'"'}
@@ -153,6 +160,7 @@ try {
         if(-not (Get-VerifiedSupervisorProcess $preparedSupervisor)){throw 'PREPARED_SUPERVISOR_GONE'}
     }
     # No operating task has been stopped before the candidate passes readiness.
+    Assert-EntryIdentity $PreviousSha
     $paused=$true
     Route-Control 'pause'
     Stop-ScheduledTask -TaskName WebLedger-Board
