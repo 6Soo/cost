@@ -191,19 +191,21 @@ def confirmed_booking_card_links(board: Any, index: Mapping[str, Any]) -> dict:
     try:
         from .flight_passenger_page import _confirmed_card_index
         return _confirmed_card_index(board, index)
-    except (OSError, ValueError, TypeError, AttributeError):
-        return {}
+    except (OSError, ValueError, TypeError, AttributeError, sqlite3.Error):
+        raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE") from None
 
 
 def confirmed_card_trip_rows(board: Any, links: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[dict[str, str]]:
     """Join verified card IDs to their ledger trip in bounded, read-only SQL batches."""
     conn = getattr(board, "conn", None)
-    if conn is None:
-        return []
     transaction_ids = sorted({str(link.get("transaction_id") or "")
         for group in (links or {}).values() for link in (group or ())
         if isinstance(link, Mapping) and link.get("link_source") == "USER_CONFIRMED"
         and link.get("transaction_id")})
+    if conn is None:
+        if transaction_ids:
+            raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
+        return []
     rows = []
     for offset in range(0, len(transaction_ids), 400):
         row_ids = ["card-" + value for value in transaction_ids[offset:offset + 400]]
@@ -215,7 +217,7 @@ def confirmed_card_trip_rows(board: Any, links: Mapping[str, Sequence[Mapping[st
                 f"SELECT row_kind,display_tab_id,payload_json FROM board_rows WHERE row_id IN ({marks})",
                 row_ids).fetchall()
         except sqlite3.Error:
-            return []
+            raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE") from None
         for row_kind, tab_id, payload_json in records:
             if row_kind != "expense" or not tab_id:
                 continue
@@ -379,12 +381,12 @@ def dispatch(handler: Any, parsed: Any, *, board: Any, is_owner: bool,
     if index is not None:
         try:
             rules = read_booking_trip_rules() if booking_trip_rules is None else booking_trip_rules
+            links = confirmed_booking_card_links(board, index)
+            rows = (expense_rows() if callable(expense_rows) else expense_rows
+                    if expense_rows else confirmed_card_trip_rows(board, links))
         except ValueError:
             handler._send_json({"code": "FLIGHT_AUTHORITY_UNAVAILABLE"}, 503)
             return True
-        links = confirmed_booking_card_links(board, index)
-        rows = (expense_rows() if callable(expense_rows) else expense_rows
-                if expense_rows else confirmed_card_trip_rows(board, links))
         user_assignments, authorities, authority_revision = build_authority_maps(
             index, trips, booking_trip_rules=rules, confirmed_card_links=links,
             expense_rows=rows)
