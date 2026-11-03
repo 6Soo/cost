@@ -48,6 +48,12 @@
 - 배포 검사 1,292 blobs 불일치 0, task/process SHA 및 단일 loopback 확인, health/ready 200, 보호 API 401/403, 보호 13표 내용·스키마 전후 불변. 실제 금융·분류·여행·Google·원본·스키마 업무 쓰기 0. 자세한 증거 `.local-archive/autonomous-qa-20261102/deploy-evidence.json`.
 - 인증된 운영 브라우저 재수락은 기존 TaskSpace 21을 찾지 못해 미실행이다. 합성 브라우저와 Windows OCR의 기존 증거는 이 운영 화면 수락을 대신하지 않는다. 문서 변경에 따른 재배포는 하지 않는다.
 
+## 2026-11-03 두 글자 보험 이름 자동 연결 운영 확인
+
+- [PR #559](https://github.com/6Soo/cost/pull/559) 병합 `6d7c4f59834fa2f245d759ede54dba554e0741d3`를 V124 단일 작성자가 검증된 `ac2eed16`에서 배포하고 후속 PR #560의 `e75f0b9699bd87fe951ea307712258db974a8677`까지 직렬 전환했다. 두 배포 모두 1,304 blobs 불일치 0·runtime SHA·health/ready 200·보호 API 401·보호 13표 불변 PASS, 해당 배포 완료 시 route 8752/paused false다. 기존 릴리스/task XML 복구점 유지, 코드 전용으로 전체 DB 백업·복원을 반복하지 않았다. 이후 별도 PR #561의 운영 전환과 구분하며 아래 수락은 e75 기준이다.
+- 기존 ego TaskSpace 6에서 실제 대상의 자동 연결 0→1, `name_match`/`masked_name_match`, 기존 수입 날짜·금액 보존을 읽기 확인했다. 실제 수입 행의 `1명 연결`을 펼쳐 `자동 · 이름 글자 일치` 근거·가로 넘침 0을 확인하고 작업 공간을 정상 종료했다. 후속 배포 전후 수입 13행 digest 동일. Windows와 CI 각각 영향 QA 465 passed·16 subtests·skip 0 근거를 재사용했다. 실제 금융/Google/원본/수동 연결 쓰기·대량 재처리는 없다.
+- 근거: `.local-archive/insurance-two-character-20261103/acceptance-after.json`과 같은 폴더의 checkpoint/review/windows-qa/ci, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-6d7c4f59834fa2f245d759ede54dba554e0741d3.json` 및 `deploy-evidence-e75f0b9699bd87fe951ea307712258db974a8677.json`. 문서 후속만으로 코드 검사·재배포·재시작하지 않는다.
+
 ## 2026-11-02 보험 연결 표시 간소화·미연결 연결 버튼 완료
 
 - COMPLETE — 사용자 “일단 연결이 되면 크게 수정할 필요가 없는 부분이야. 버튼이 도드라지지않고 자연스럽게 글자위주로 변경하고, 미연결 부분을 버튼으로 만들어서 기능을 추가해.” [PR #505](https://github.com/6Soo/cost/pull/505), 구현 `447ebb16c4b97cdf8c865be1de7db7003a3466fc`, 병합·고정 배포 `c0d45b46b10726ea9ce660ba92c62f79e3e998f5`, 이전 검증 `ec2a37ab4c2b9a6d9e41a23de64e2b09869d0870`.
