@@ -104,6 +104,27 @@ def test_permissions_cancelled_reservations_and_safe_ui_markup():
     assert "<details>" in markup and "<ol" in markup
 
 
+def test_history_does_not_count_cancelled_or_conflicting_passengers_as_current():
+    active = trip("A", "2026-11-07", "2026-11-10")
+    index = {"ACTIVE": evidence("ACTIVE"),
+             "CANCEL": evidence("CANCEL", cancellation_status="CANCELLED"),
+             "CONFLICT": evidence("CONFLICT", conflict=True)}
+    projection = project_trip_bookings(index, [active], source_generation="g")
+    current = page_for_trip(projection, "A")
+    history = page_for_trip(projection, "A", status="all")
+    assert current["total_bookings"] == 1
+    assert history["total_bookings"] == 3
+    assert current["verified_passenger_count"] == history["verified_passenger_count"] == 2
+    assert {item["booking_status"] for item in history["items"]} == {"ACTIVE", "CANCELLED", "CONFLICT"}
+    other = trip("B", "2026-11-09", "2026-11-10")
+    manual = project_trip_bookings({"ACTIVE": evidence("ACTIVE")}, [active, other],
+                                   source_generation="g", user_assignments={
+                                       "trip:ACTIVE": {"trip_tab_id": "B"}})
+    assert manual["bookings"][0]["assigned_trip_tab_id"] == "B"
+    assert manual["bookings"][0]["assignment_conflict"] is True
+    assert page_for_trip(manual, "B")["verified_passenger_count"] == 0
+
+
 def test_passenger_count_preserves_homonyms_and_provider_is_part_of_key():
     item = evidence("SAME")
     first = project_trip_bookings({"SAME": item}, [trip("A", "2026-11-07", "2026-11-10")], source_generation="g")["bookings"][0]

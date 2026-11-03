@@ -61,6 +61,56 @@ def test_trip_flight_list_is_lazy_and_detail_uses_text_content():
             browser.close()
 
 
+def test_history_filter_exposes_cancelled_booking_and_returns_to_current():
+    from urllib.parse import parse_qs, urlparse
+    html = "<!doctype html><meta charset='utf-8'><body>" + render_trip_flights("trip-A")
+    calls = []
+
+    def respond(route):
+        query = parse_qs(urlparse(route.request.url).query)
+        calls.append(query)
+        if 'booking_key' in query:
+            route.fulfill(json={'item': {'booking_ref': 'CANCELLED', 'passengers': ['SYNTHETIC'],
+                                        'legs': [], 'booking_status': 'CANCELLED',
+                                        'assignment_status': 'AUTO_INFERRED'}})
+            return
+        items = [{'booking_key': 'trip:CURRENT', 'booking_ref': 'CURRENT',
+                  'outbound_departure_on': '2026-11-07', 'passenger_count': 1,
+                  'assignment_status': 'AUTO_INFERRED', 'booking_status': 'ACTIVE'}]
+        if query.get('status') == ['all']:
+            items.append({'booking_key': 'trip:CANCELLED', 'booking_ref': 'CANCELLED',
+                          'outbound_departure_on': '2026-11-07', 'passenger_count': 1,
+                          'assignment_status': 'AUTO_INFERRED', 'booking_status': 'CANCELLED'})
+        route.fulfill(json={'items': items, 'source_generation': 'g', 'next_cursor': None,
+                            'total_bookings': len(items), 'verified_passenger_count': 1,
+                            'evidence_status': 'FRESH'})
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': 390, 'height': 844})
+            page.route('http://test.local/', lambda route: route.fulfill(
+                content_type='text/html; charset=utf-8', body=html))
+            page.route('http://test.local/api/trips/trip-A/flight-bookings**', respond)
+            page.goto('http://test.local')
+            page.locator('summary').click()
+            page.get_by_role('button', name='2026-11-07 · CURRENT').wait_for()
+            page.get_by_label('예약 상태').select_option('all')
+            page.get_by_role('button', name='2026-11-07 · CANCELLED').wait_for()
+            assert '취소' in page.locator('.trip-flight-items li').last.inner_text()
+            assert '현재 예약 탑승객 1명' in page.locator('summary').inner_text()
+            page.get_by_role('button', name='2026-11-07 · CANCELLED').click()
+            page.get_by_role('heading', name='CANCELLED · 1명').wait_for()
+            assert '취소' in page.locator('.trip-flight-detail').inner_text()
+            page.get_by_label('예약 상태').select_option('active')
+            page.get_by_role('button', name='2026-11-07 · CURRENT').wait_for()
+            assert page.get_by_role('button', name='2026-11-07 · CANCELLED').count() == 0
+            assert calls[-3].get('status') == ['all'] and calls[-1].get('status') == ['active']
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        finally:
+            browser.close()
+
+
 def _respond(route, calls):
     from urllib.parse import urlparse, parse_qs
     query = parse_qs(urlparse(route.request.url).query)
