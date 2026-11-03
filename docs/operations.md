@@ -1,3 +1,9 @@
+## 2026-11-04 카드 검토 모바일 터치 영역 개선
+
+- [PR #614](https://github.com/6Soo/cost/pull/614) 병합·운영 `efaf49a319f25e4c40c9c18ae9b10d8c187fbb81`, 이전 검증 `fd7f7fb468486a5e006faa6202a56c277ca41ea2`. 카드 전체 내역의 모바일 처리 필요 링크를 높이 21px에서 44px로 늘렸다. 이동 대상과 금융 처리 동작은 유지한다.
+- 합성 거래에서 변경 전 21px 재현, 변경 후 44px 및 정확한 거래 편집 화면 이동 통과. 320/390/1440px 합성 가로 넘침 0. Windows 영향 QA 121 passed·skip 0, 필수 브라우저 검사 3건 실행; GitHub Actions 41695541815 성공. 검사 SHA `fb78269aea3c3b86626e8dd12a0593da14a8961a`와 병합 tree 동일.
+- 배포 파일 1,313개 불일치 0, 런타임 SHA·단일 listener 확인, health/ready 200, 보호 API 401, 보호 테이블 13개 전후 동일. 운영 인증 화면 390px에서 링크 높이 44px·가로 넘침 0. 실제 금융 쓰기와 실기기 검증은 미실행. 근거 `C:/AX/cost-pr609/.local-archive/card-review-touch-20261104/` 및 `D:/WebLedgerHost/releases/deploy-evidence-efaf49a319f25e4c40c9c18ae9b10d8c187fbb81.json`.
+
 ## 2026-11-04 항공권 조회 갱신 안내 반복 수정 배포
 
 - 사용자 이미지 진단: `flight-search.log`의 첫 준비2026-11-03 15:46:45→15:47:29 UTC/44.39초. 첫 방문에서만 항공권 색인이 시작됐고 LOADING 응답마다 UI 안내가 다시 공지됐다. finally가 대기 중 버튼을 활성화해 재클릭 시60회 한도를 초기화했으며 검색마다 worker를 강제로 깨웠다. 이후 같은 이름의 운영 조회 예약2건 정상도 확인해 영구 갱신 실패로 단정하지 않았다.
