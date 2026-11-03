@@ -1,3 +1,11 @@
+## 2026-11-03 트립닷컴 날짜 중복·OTA 추론 출처 표기
+
+- 구현·검증·병합·배포 COMPLETE: [PR #572](https://github.com/6Soo/cost/pull/572), 병합 `2c0616a27470e73c66b568cae80b639a95f0e1fd`, 합동 운영 `d57675a512f3c1446d0d3c9d3966114637640220`. 숙박 이용일 열과 정확히 같은 기간만 설명에서 생략한다. 이용일 미상·오류·다른 기간은 보존하며 원본/예약번호/메모/복사 내용은 변경하지 않는다. OTA 코드 matcher의 추론은 `코드 추론`으로 통일하고 기존 `AI 추론`은 구분한다.
+- 고정 병합 SHA Windows 영향 QA478 passed·43 subtests·skip0(1007.24초), PR CI41592175031 및 main CI41592668337 성공. 초기 오래된 환불 비교 기준 실패2건은 기준 커밋에서도 재현했고, 승인된 변경 직전 기준으로 교정 후 비교6건 통과. 다른 작업의481검사와 합산하지 않는다.
+- 단일 작성자650fe1e1의 공식 합동 배포: 1308 blobs 불일치0·runtime SHA·health/ready200·보호API401·보호13표 불변. 고객 원본/금융/Google/여행 자료 쓰기0. 실제 근거는 [운영 기록](operations.md) 및 `.local-archive/expense-date-inference-20261103/final-windows-quality/`다.
+- 추가 운영 화면 수락 PARTIAL: Ego17/p1 첫 여행에서 인증 main·43행·`코드 추론`4건 확인. 뒤의 여행 이동은 navigation/evaluation timeout으로 미완료이며 같은 공간 reload·p2 복구도 응답하지 않았다. `body.textContent`의 잔여 구문2건은 숨은 원문/다른 상태 여부를 확인하지 못했으므로 가시 OTA 상태 잔존이라고 단정하지 않는다. 날짜의 실제 운영 전후 비교와 세 여행 전체 수락은 주장하지 않는다. Ego17/p1,p2는 오류 상태라 finish하지 않았다.
+- 다음: 브라우저가 응답할 때 동일 Ego17의 현재 상태를 확인하고, 필요시 page reload 후 `.local-archive/expense-date-inference-20261103/browser13-after.mjs`를 현재 Page에 맞춰 실행해 추가 읽기 수락을 기록한다. 코드 검사·배포·데이터 교정을 반복하지 않는다. 공용 checkout의 다른 사용자 변경은 보존했다.
+
 ## 2026-11-03 제주항공 OTA·0909 제주 카드 제한 — 완료
 
 - COMPLETE — [PR #566](https://github.com/6Soo/cost/pull/566) 병합·운영 `f1b1ff63b5eaefcbea914808f3022ec6044e3a1e`, 이전 검증 `35ec72b8cb0fe5547dfd80cef01772f6ab2b7e3b`. 제주항공 원문2건은 예약1건·결제2건·관측3건으로 집계하며 카드 원행을 중복 집계하지 않는다. `0909_제주`는4813만 자동 후보로 허용하고 다른 카드는 기존 규칙을 따른다. 기존 데이터 교정62건과 원문 적재는 재실행하지 않았다.
