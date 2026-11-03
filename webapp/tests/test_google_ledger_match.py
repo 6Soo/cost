@@ -86,6 +86,19 @@ def test_filtered_view_retains_ambiguity_against_other_expenses():
     assert result['visible']['multiple'] is True
 
 
+def test_copy_conflict_is_not_claimed_as_multiple_display_candidates():
+    row = {'row_id': 'a', 'amount_krw': 900, 'occurred_on': '2026-10-03'}
+    preview = {'source_available': True, 'sheet_rows': [{'amount_krw': 900, 'date': '2026-10-03'}],
+               'results': [{'transaction_id': 'a', 'status': 'REVIEW_CONFLICT', 'basis': []}]}
+    with patch.object(ledger_board, 'current_role', return_value='owner'):
+        annotations = ledger_design._google_match_annotations('trip-syn', [row], preview)
+    markup = ledger_design._table_html([row], kind='expense', selected='', unclassified=False,
+                                       match_annotations=annotations)
+    assert '중복 확인 필요' in markup
+    assert 'Google 장부 대조 후보: 금액+날짜' in markup
+    assert '복수 후보' not in markup
+
+
 def test_web_transaction_row_exposes_bold_candidate_and_reason_accessibly():
     html = ledger_design._table_html(
         [{'row_id': 'web-syn', 'amount_krw': 900, 'occurred_on': '2026-10-03'}],

@@ -1079,6 +1079,7 @@ def _google_match_annotations(tab_id, rows, preview=None, candidate_rows=None):
                     'multiple': bool(candidate and candidate['multiple']) or item['status'] == 'REVIEW_CONFLICT',
                     'reasons': candidate['reasons'] if candidate else item.get('basis') or [],
                     'display_candidate': bool(candidate),
+                    'candidate_multiple': bool(candidate and candidate['multiple']),
                     'label': ('복사 제외 · 거래 상세 확인' if item['status'] == 'NEW_EXPENSE'
                               and (row.get('blocked') or row.get('excluded_from_company')) else labels[item['status']]),
                     'status': item['status']}
@@ -1116,13 +1117,16 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             match_class = (' class="google-match-candidate"' if match.get('display_candidate')
                            or match.get('status') != 'NEW_EXPENSE' else '')
             match_attributes = f" aria-describedby='{board.esc(hint_id)}'"
-            match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
+            match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>"
                                  f"{board.esc(label)}</span>")
+            if not match.get('status'):
+                match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
+                                     f"{board.esc(label)}</span>")
             if match.get('status') and match.get('status') != 'NEW_EXPENSE':
                 match_description = (f"<span class='expense-copy-state' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
             if match.get('display_candidate'):
-                candidate_label = ('복수 후보 · 확인 필요' if match['multiple'] else
+                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
                                    '금액+' + '+'.join(match['reasons']))
                 match_attributes = f" aria-describedby='{board.esc(hint_id)} {board.esc(hint_id)}-candidate'"
                 match_description += (f"<span class='expense-copy-state' "
@@ -1255,12 +1259,14 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         if match:
             reason = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                       '금액+' + '+'.join(match['reasons']))
-            match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
-                          f"{board.esc(reason)}</span>")
+            match_hint = f"<span class='sr'>{board.esc(reason)}</span>"
+            if not match.get('status'):
+                match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
+                              f"{board.esc(reason)}</span>")
             if match.get('status') and match.get('status') != 'NEW_EXPENSE':
                 match_hint = (f"<span class='expense-copy-state'>{board.esc(reason)}</span>")
             if match.get('display_candidate'):
-                candidate_label = ('복수 후보 · 확인 필요' if match['multiple'] else
+                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
                                    '금액+' + '+'.join(match['reasons']))
                 match_hint += (f"<span class='expense-copy-state'>Google 장부 대조 후보: "
                                f"{board.esc(candidate_label)}</span>")
