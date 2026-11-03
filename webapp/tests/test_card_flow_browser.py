@@ -82,8 +82,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                         self.assertIn('전체 24건', page.locator('#expense-cleanup').inner_text())
 
                         for reason, expected_count, expected_id in (
-                                ('classification', 20, ids[0]), ('no_item', 20, ids[0]),
-                                ('no_trip', 20, ids[0]), ('evidence', 1, ids[2]),
+                                ('classification', 2, ids[0]), ('no_item', 2, ids[0]),
+                                ('no_trip', 2, ids[0]), ('recording', 20, ids[3]), ('evidence', 1, ids[2]),
                                 ('protected', 1, ids[2])):
                             page.goto(base + '/import?cleanup_reason=' + reason + '#expense-cleanup')
                             self.assertEqual(page.locator(".cleanup-breakdown a[aria-current='page']").count(), 1)
@@ -94,12 +94,13 @@ class CardFlowBrowserTests(unittest.TestCase):
                         response = page.goto(base + '/import?cleanup_reason=classification#expense-cleanup')
                         self.assertEqual(response.status, 200, page.locator('body').inner_text())
                         self.assertIn('분류·배정 필요', page.locator('#expense-cleanup').inner_text())
-                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 20)
-                        self.assertIn('23건 중 1~20건 표시', page.locator('#expense-cleanup').inner_text())
+                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 2)
+                        page.goto(base + '/import?cleanup_reason=recording#expense-cleanup')
+                        self.assertIn('21건 중 1~20건 표시', page.locator('#expense-cleanup').inner_text())
                         page.get_by_role('link', name='다음 20건').click()
-                        self.assertIn('cleanup_reason=classification', page.url)
-                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 3)
-                        self.assertIn('23건 중 21~23건 표시', page.locator('#expense-cleanup').inner_text())
+                        self.assertIn('cleanup_reason=recording', page.url)
+                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 1)
+                        self.assertIn('21건 중 21~21건 표시', page.locator('#expense-cleanup').inner_text())
 
                         board.conn.execute('DELETE FROM transaction_review_holds WHERE transaction_id=?', (ids[2],))
                         board.conn.commit()

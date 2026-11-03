@@ -63,7 +63,7 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  if(open)nav.querySelector('a,input')?.focus()}));
  mask?.addEventListener('click',close);
  nav.addEventListener('keydown',e=>{if(e.key==='Tab'&&nav.classList.contains('open')){const items=[...nav.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),summary')].filter(el=>el.getClientRects().length);if(!items.length)return;const first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
- document.addEventListener('keydown',e=>{if(e.key==='Escape'&&nav.classList.contains('open'))close({restoreFocus:true})});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&nav.classList.contains('open')){e.preventDefault();close({restoreFocus:true})}});
  const path=location.pathname;
  // Restore only a view's own GET filters; stored state never performs a write.
  try{
