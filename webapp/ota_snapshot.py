@@ -143,6 +143,7 @@ class OtaSnapshotService:
         self._failed_key = None
         self._failed_at = None
         self._failures = 0
+        self._source_changed_retry = False
         self._thread = None
         self._load_persisted()
         self._autostart = start
@@ -185,7 +186,10 @@ class OtaSnapshotService:
             self.check_now()
             if self._stopping:
                 break
-            self._wake.wait(self._check_seconds)
+            with self._lock:
+                retry_changed = self._source_changed_retry
+                self._source_changed_retry = False
+            self._wake.wait(min(self._check_seconds, 1) if retry_changed else self._check_seconds)
             self._wake.clear()
 
     # worker
@@ -311,7 +315,8 @@ class OtaSnapshotService:
             else:
                 ambiguous_ids = frozenset(value for value in ambiguous_ids
                                           if type(value) is str and value.strip())
-            if self._verify_key_fn is not None and self._verify_key_fn() != key:
+            source_changed = self._verify_key_fn is not None and self._verify_key_fn() != key
+            if source_changed:
                 raise ValueError('SOURCE_CHANGED_DURING_RECONCILIATION')
         except Exception as exc:
             with self._lock:
@@ -320,6 +325,8 @@ class OtaSnapshotService:
                 self._failed_key = key
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
+                if isinstance(exc, ValueError) and str(exc) == 'SOURCE_CHANGED_DURING_RECONCILIATION':
+                    self._source_changed_retry = True
             self._log("refresh_failed", key=key[:12], code=type(exc).__name__, message=str(exc)[:200])
             if owns_tracing:
                 tracemalloc.stop()

@@ -333,6 +333,27 @@ def test_changed_input_during_reconciliation_does_not_publish_or_claim_fresh(tmp
     assert calls == ['old', 'after']
 
 
+def test_worker_promptly_retries_changed_input():
+    source = {'key': 'before'}
+    published = threading.Event()
+    calls = []
+
+    def reconcile():
+        calls.append(source['key'])
+        source['key'] = 'after'
+        return {'public': {}, 'results': [], 'links': {}, 'data': {}}
+
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=reconcile, check_seconds=60,
+                             on_published=lambda current: published.set())
+    try:
+        assert published.wait(5), 'changed input should be retried before the regular check interval'
+        assert calls == ['before', 'after']
+        assert svc.held()[1] is True
+    finally:
+        svc.stop()
+
+
 def test_reverting_key_during_refresh_does_not_mark_held_snapshot_fresh():
     source = {'key': 'old'}
     entered, release = threading.Event(), threading.Event()
