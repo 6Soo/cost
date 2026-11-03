@@ -47,16 +47,17 @@ def test_browser_multi_city_booking_and_payment_are_readable_without_internal_fi
             page.goto('http://synthetic.test/flight-passengers')
             page.get_by_label('탑승객 이름').fill('ALPHA')
             page.get_by_label('탑승객 이름').press('Enter')
-            expect(page.locator('.fb-summary')).to_contain_text('PARK BETA')
+            expect(page.locator('.fb-summary')).to_contain_text('KIM ALPHA')
+            expect(page.locator('.fb-summary')).not_to_contain_text('PARK BETA')
             cards = page.locator('.fb-flight-card')
             expect(cards).to_have_count(3)
             assert cards.nth(0).locator('.fb-route-stop strong').all_text_contents() == ['ICN', 'DXB']
             assert cards.nth(1).locator('.fb-route-stop strong').all_text_contents() == ['DXB', 'CDG']
             expect(cards.nth(2).locator('.fb-flight-title')).to_have_text('여정 2')
             assert page.locator('.fb-return').count() == 0
-            expect(page.locator('.fb-date-row')).to_have_count(1)
-            expect(page.locator('.fb-date-row')).not_to_be_visible()
+            expect(page.locator('.fb-date-row')).to_have_count(0)
             page.locator('.fb-date-filter > summary').click()
+            expect(page.locator('.fb-date-row')).to_have_count(1)
             expect(page.get_by_text('1,234,567원', exact=True)).to_be_visible()
             expect(page.get_by_text('취소·환불', exact=True)).to_be_visible()
             assert not any(value in page.locator('main').inner_text() for value in ('PRIVATE-', '표시 여행 ID', '분류 상태'))

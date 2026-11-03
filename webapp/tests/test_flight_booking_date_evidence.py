@@ -137,13 +137,14 @@ def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence(dat
             screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
             screen.get_by_role('button', name='예약 조회', exact=True).click()
             expect(screen.locator('.fb-ticket')).to_have_count(6)
-            expect(screen.locator('.fb-date-status').first).to_contain_text('0 / 0건')
+            assert not calls
+            screen.locator('.fb-booking-choice > summary').first.click()
+            screen.locator('.fb-date-filter > summary').first.click()
+            expect(screen.locator('.fb-date-status').first).to_contain_text('현재 조회 범위에서 결과 없음')
             if date_basis == 'FIRST_RECEIVED':
                 expect(screen.locator('.fb-ticket').first).to_contain_text('최초 메일 수신일 기준')
-                expect(screen.locator('.fb-date-status').first).to_contain_text('최초 메일 수신일 기준')
+                expect(screen.locator('.fb-date-status').first).to_contain_text('최초 인증 메일 수신일 기준')
             assert len(calls) == 1 and calls[0][0] == 'GET' and 'date=2026-10-03' in calls[0][1]
-            assert screen.locator('.fb-date-filter[open]').count() == 0
-            screen.locator('.fb-date-filter > summary').first.click()
             expect(screen.locator('.fb-date-status').first).to_be_visible()
         finally:
             browser.close()

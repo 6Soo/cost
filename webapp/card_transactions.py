@@ -113,7 +113,7 @@ def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100)
     fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
               'foreign_amount', 'foreign_currency', 'merchant', 'transaction_direction',
               'transaction_kind', 'classification_state', 'trip_id', 'display_tab_id', 'item',
-              'duplicate_of', 'conflict_reason', 'parse_error', 'revision')
+              'duplicate_of', 'conflict_reason', 'parse_error', 'revision', 'issuer', 'card_tail')
     order = 'CASE WHEN length(approval_date)=10 THEN 1 ELSE 0 END, substr(approval_date,12), transaction_id'
     where = _VALID_DATE_SQL + ' AND substr(approval_date,1,10)=?'
     select = 'SELECT ' + ','.join(fields) + ' FROM transactions WHERE '
