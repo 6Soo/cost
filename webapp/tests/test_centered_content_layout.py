@@ -22,6 +22,8 @@ def test_native_and_receipt_content_are_centered_in_workspace():
             for doc, parent, content in [(native, 'main', '.page-body'),
                                          (receipt, '#site-content', '#site-content > main')]:
                 page.set_content(doc, wait_until='domcontentloaded')
+                if parent == '#site-content':
+                    assert page.evaluate("document.querySelector('.site-app').getBoundingClientRect().width") == 1920
                 sizes = page.evaluate("""([p,c])=>{const a=document.querySelector(p).getBoundingClientRect(),
                     b=document.querySelector(c).getBoundingClientRect();
                     return {width:b.width, offset:Math.abs((a.left+a.right-b.left-b.right)/2)}}""", [parent, content])
