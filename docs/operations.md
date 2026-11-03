@@ -1,3 +1,11 @@
+## 2026-11-03 항공권 여정 개편·예약 이용기간 교정·업로드 재시작 검증 운영 배포
+
+- PR #574 (항공권 여정/탑승객 개편 `71340078`), PR #578 (예약 이용기간 교정 `cc9d31cb`), PR #576 (업로드 재시작 검증 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`) 정상 병합 및 호스팅 CI 41598022768 성공.
+- 공식 `deploy_verified_release.ps1 -CandidateSha 33bf47e7dbc3788a6eeb4082ad120d221c8cabc7 -PreviousSha 71340078bc66028704e9eddae813f517be3237f9 -ReviewEvidence C:/AX/cost/.local-archive/deploy-main-33bf47e7/review.json -Apply` 성공.
+- 전환 결과: gateway8790→backend8751, 1,312 tracked blobs 불일치 0, runtime SHA 일치, 단일 loopback listener, health/ready 200, 보호 API 401, 보호 13표 불변 PASS (2026-11-03T07:54:39Z).
+- 배포 중 업무 DB/Google/원본/스키마 쓰기 0. 코드 전용이며 이전 검증 릴리스 및 task XML 보존.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-33bf47e7dbc3788a6eeb4082ad120d221c8cabc7.json`, `continuous-switch-33bf47e7dbc3788a6eeb4082ad120d221c8cabc7.json`, `release-audit-33bf47e7dbc3788a6eeb4082ad120d221c8cabc7.json`.
+
 ## 2026-11-03 토요코인 수집 점검 및 예약 근거 추론 배포
 
 - PR #575 정상 병합 `bcd4e5bf5fd4e51516f5a026f3c41308ad64e311`, PR CI 41594203986 및 main CI 성공. 검증 코드 검사 495 passed·13 subtests·skip0 및 표적 106 passed를 재사용하고 후속 문서만으로 검사를 반복하지 않았다.
