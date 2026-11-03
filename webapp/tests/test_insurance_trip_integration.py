@@ -112,6 +112,51 @@ def test_capped_candidate_list_does_not_claim_unlisted_rows_have_no_match():
     assert '후보 목록 확인 필요' in markup and '글자 일치 없음' not in markup
 
 
+def test_no_match_button_opens_roster_and_preselects_income_without_writing():
+    from playwright.sync_api import sync_playwright
+    from webapp import ledger_design_assets
+    from webapp.tests.test_participant_trip_panel import sample_state
+    value = sample_state(1)
+    value['google']['generation'] = 'one'
+    value['insurance_review'] = {'available': True, 'counts': {'contracts': 1, 'rows': 1},
+        'contracts': [{'travel_start': '2026-10-01', 'travel_end': '2026-10-05',
+                       'rows': [{'masked_name': '김*수', 'match_state': 'unmatched', 'matches': []}]}]}
+    before = copy.deepcopy(value)
+    response = panel.render(value, csrf='token')
+    ref = value['income_rows'][0]['ref']
+    document = ('<!doctype html><meta charset="utf-8"><style>' + ledger_design_assets.STYLE + '</style>'
+                '<main id="main"><section id="google-trip-income"><table id="income-tbl" data-google-generation="one">'
+                f'<tr><td class="participant-insurance-cell" data-income-ref="{ref}"></td></tr></table></section>'
+                + panel.shell(trip_id='trip-synthetic') + '</main><script>' + ledger_design_assets.SCRIPT + '</script>')
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page()
+            requests = []
+            def serve(route):
+                requests.append(route.request.method)
+                route.fulfill(status=200, content_type='text/html',
+                              body=response if '/trip-panel?' in route.request.url else document)
+            page.route('http://synthetic.test/**', serve)
+            page.goto('http://synthetic.test/')
+            page.locator('#participant-trip-panel summary').first.click()
+            button = page.locator('.participant-insurance-cell .insurance-candidate-button')
+            assert button.inner_text() == '글자 일치 없음'
+            button.click()
+            dialog = page.locator('#insurance-candidate-dialog')
+            assert dialog.is_visible()
+            assert '김*수' in dialog.inner_text() and '직접 비교' in dialog.inner_text()
+            assert '이미 연결된 사람' in dialog.inner_text()
+            dialog.locator('[data-insurance-connect-ref]').click()
+            assert not dialog.is_visible()
+            assert page.locator('.participant-keyboard-link [name=income_ref]').input_value() == ref
+            assert page.locator('.participant-keyboard-link [name=participant_id]').input_value() == ''
+            assert set(requests) == {'GET'}
+            assert value == before
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize('generation', ['one', 'changed'])
 def test_browser_missing_store_auto_load_updates_cells_without_error_or_write(monkeypatch, tmp_path, generation):
     from playwright.sync_api import sync_playwright
