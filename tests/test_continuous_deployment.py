@@ -254,7 +254,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement'])
+@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -310,7 +310,13 @@ function Start-ScheduledTask {
     $global:supervisors[$port]=$true
     if($TaskName -eq 'WebLedger-Prepared' -and $Failure -eq 'before_listen'){$global:starting=$true}
 }
-function Stop-ScheduledTask {param($TaskName); $global:events.Add('stop:'+$TaskName); if($TaskName -eq 'WebLedger-Board'){$global:oldStopped=$true}; (Get-ScheduledTask $TaskName).State='Ready'}
+function Stop-ScheduledTask {
+    param($TaskName)
+    $global:events.Add('stop:'+$TaskName)
+    if($TaskName -eq 'WebLedger-Board'){$global:oldStopped=$true}
+    if($Failure -eq 'supervisor_exits'){$port=if($TaskName -eq 'WebLedger-Board'){8751}else{8752};$global:supervisors[$port]=$false}
+    (Get-ScheduledTask $TaskName).State='Ready'
+}
 function Set-ScheduledTask {param($TaskName,$Action); $global:board.Actions=@($Action)}
 function Unregister-ScheduledTask {param($TaskName,[switch]$Confirm); $global:prepared=$null}
 function Export-ScheduledTask {param($TaskName); '<synthetic/>'}
@@ -369,12 +375,13 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert not report['prepared_exists']
-    if not failure or failure in ('direct_parent', 'adopted_backend'):
+    if not failure or failure in ('direct_parent', 'adopted_backend', 'supervisor_exits'):
         assert report['outcome'] == 'PASS', report
         assert new in report['board'] and report['new_alive'] and not report['old_alive']
         assert report['events'].index('route:pause') < report['events'].index('kill:8751') < report['events'].index('route:activate')
-        assert report['events'].index('kill:28751') < report['events'].index('kill:8751')
-        assert 'kill:28752' in report['events']
+        if failure != 'supervisor_exits':
+            assert report['events'].index('kill:28751') < report['events'].index('kill:8751')
+            assert 'kill:28752' in report['events']
     else:
         assert report['outcome'] == 'FAILED', report
         if failure in ('multiple_supervisors', 'late_duplicate', 'late_replacement'):
