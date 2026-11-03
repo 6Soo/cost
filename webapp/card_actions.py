@@ -8,7 +8,7 @@ GROUP_LABELS = {'review': '처리 필요', 'booked': '완료', 'excluded': '제�
 GROUP_OF_STATUS = {'기록 완료': 'booked', '기존 기록': 'booked',
                    '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
 
-REASON_LABELS = {'classification': '분류·배정 필요', 'evidence': '근거 충돌',
+REASON_LABELS = {'classification': '분류·배정 필요', 'recording': '기록 상태 확인', 'evidence': '근거 충돌',
                  'finance': '결제·환불 확인', 'manual': '사용자 보류'}
 
 
@@ -26,6 +26,8 @@ def reason_category(row, preview=None, hold=None):
         if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold'):
             return 'manual'
         return 'evidence'
+    if row.get('item') and row.get('display_tab_id') not in (None, '', 'unclassified'):
+        return 'recording'
     return 'classification'
 
 

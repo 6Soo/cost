@@ -1,6 +1,6 @@
 """Canonical read-only reason classification for the expense cleanup queue."""
 
-REASONS = ('all', 'classification', 'evidence', 'finance', 'manual')
+REASONS = ('all', 'classification', 'recording', 'evidence', 'finance', 'manual')
 LEGACY_REASONS = {'no_item': 'classification', 'no_trip': 'classification',
                   'protected': 'evidence', 'other_review': 'classification'}
 
@@ -19,6 +19,7 @@ def card_reason_sql(alias='t'):
         f" AND h.source_hash={t}.source_hash AND h.kind IN ('manual','manual_hold','owner_hold','user_hold','review_hold')) THEN 'manual'"
         f" WHEN EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id"
         " AND h.kind NOT IN ('trip_needed','classification_needed','existing_ledger')) THEN 'evidence'"
+        f" WHEN COALESCE({t}.item,'')!='' AND COALESCE({t}.display_tab_id,'') NOT IN ('','unclassified') THEN 'recording'"
         " ELSE 'classification' END"
     )
 

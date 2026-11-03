@@ -1,5 +1,6 @@
 
 @font-face{font-family:"Pretendard Variable";src:url("/assets/fonts/PretendardVariable.woff2") format("woff2");font-weight:100 900;font-display:swap}
+body{font-family:"Pretendard Variable",system-ui,sans-serif}
 :root{--shell-bg:#F8FAFC;--shell-paper:#FFFFFF;--shell-ink:#0F172A;--shell-muted:#475569;--shell-warn:#B54708;--shell-line:#E2E8F0;--shell-line-strong:#D0D5DD;--shell-hover:#F8FAFC;--shell-selected:#ECF5EF;--shell-accent:#1C7A52;--shell-focus:#2266F5;--shell-overlay:rgba(16,24,40,.38);--shell-nav-width:232px;--shell-drawer-width:min(300px,85vw);--shell-topbar-height:56px;--shell-control-min:44px}
 @media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A;--shell-paper:#1E293B;--shell-ink:#F8FAFC;--shell-muted:#94A3B8;--shell-warn:#FBBF24;--shell-line:#334155;--shell-line-strong:#475569;--shell-hover:#334155;--shell-selected:#1E3A5F;--shell-accent:#34D399;--shell-focus:#93C5FD;--shell-overlay:rgba(0,0,0,.62)}}
 
@@ -7,6 +8,7 @@
 .site-topbar>.site-theme-bar{margin-left:auto;padding:0;min-height:0;display:flex;align-items:center;background:transparent}
 .site-topbar #site-theme-toggle{width:var(--shell-theme-control-size,var(--shell-control-min,44px))!important;min-width:var(--shell-theme-control-size,var(--shell-control-min,44px));height:var(--shell-theme-control-size,var(--shell-control-min,44px));min-height:var(--shell-theme-control-size,var(--shell-control-min,44px));padding:0!important}
 @media(width < 760px){.site-topbar{width:100%;min-width:0;gap:10px}.site-topbar>span{flex:1 1 auto}.site-topbar>.site-theme-bar{flex:0 0 auto}}
+@media(width < 760px){#btn-menu{display:none!important}}
 
 .site-topbar{display:flex;justify-content:flex-end}.site-topbar>.site-menu-toggle,.site-topbar>span{display:none}@media(width < 760px){.site-topbar>.site-menu-toggle{display:inline-flex}.site-topbar>span{display:inline}}.site-menu-toggle{font:inherit;min-height:var(--shell-control-min,44px);padding:8px 14px;cursor:pointer;
  display:inline-flex;align-items:center;gap:8px}

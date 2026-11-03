@@ -1125,17 +1125,15 @@ def render_html(data, query, *, csrf=''):
     reason_block = ''
     if reasons:
         items = ''.join(f"<tr><td>{esc(r['label'])}</td><td>{r['count']:,}건</td></tr>" for r in reasons)
-        reason_block = (f"<section class='trip-check' aria-labelledby='reason-title'>"
-                        f"<h2 id='reason-title'>여행 미배정 사유 · {data['unassigned_count']:,}건</h2>"
-                        f"<table><tbody>{items}</tbody></table></section>")
+        reason_block = (f"<details class='trip-check'><summary id='reason-title'>여행 미배정 사유 · {data['unassigned_count']:,}건</summary>"
+                        f"<table><tbody>{items}</tbody></table></details>")
     problem_block = ''
     if problems:
         items = ''.join(f"<li><strong>{esc(t['name'])}</strong> · {esc(t['reason'])}</li>" for t in problems[:30])
-        problem_block = (f"<section class='trip-check' aria-labelledby='trip-check-title'>"
-                         f"<h2 id='trip-check-title'>여행 일정 확인 필요 {len(problems):,}개 / 전체 {data.get('trip_count', 0):,}개</h2>"
+        problem_block = (f"<details class='trip-check'><summary id='trip-check-title'>여행 일정 확인 필요 {len(problems):,}개 / 전체 {data.get('trip_count', 0):,}개</summary>"
                          "<p class='small'>일정 원본이 확인되지 않은 여행에는 예약을 배정할 수 없습니다. "
                          "원본을 다시 확인해 일정을 맞춘 뒤 배정해 주세요.</p>"
-                         f"<ul>{items}</ul></section>")
+                         f"<ul>{items}</ul></details>")
     state = data.get('refresh_state', 'ready')
     loading = state != 'ready' and not data['all_count']
     refresh_note = '' if state == 'ready' else (
@@ -1149,6 +1147,8 @@ def render_html(data, query, *, csrf=''):
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         '<title>OTA 내역</title><style>' + CATALOG_STYLE + OTA_STYLE +
         '</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
+        + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
+        f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if not value('state') else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
         f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
         f"<a class='catalog-btn' href='{esc(url(state='excluded', page=1))}'>취소·배정 해제 {data.get('excluded_count', 0):,}건</a>"
@@ -1157,9 +1157,7 @@ def render_html(data, query, *, csrf=''):
         + ('' if loading else f"<p id='card-count'>{ui_icons.icon('list', 16)}전체 {data['all_count']:,}건 · 자동 추론 {data.get('inferred_count', 0):,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 취소·해제 제외 {data.get('excluded_count', 0):,}건 · 검색 결과 {data['total']:,}건</p>")
         + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
         + reason_block + problem_block
-        + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
-        f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
-        '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
+        + '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)
         + '</tr></thead><tbody>' + (''.join(body) or ("<tr><td colspan='7'>OTA 자료 갱신에 실패했습니다.</td></tr>" if state == 'failed' and loading else "<tr><td colspan='7'>OTA 자료를 불러오는 중입니다.</td></tr>" if loading else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조건에 맞는 OTA 예약이 없습니다.</td></tr>"
             if data['all_count'] else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</td></tr>"))

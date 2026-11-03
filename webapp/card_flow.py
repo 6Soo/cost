@@ -417,7 +417,7 @@ def home_page(board):
             "}"
             "</style>"
             "<section class='home-overview' aria-label='장부 상태와 주요 작업'>"
-            f"<p class='home-status'>카드 <b>{saved:,}</b> · 정리할 지출 <b>{cleanup:,}</b> · 장부 <b>{posted:,}</b></p>"
+            f"<p class='home-status'>{'조회 기간 내 카드 거래' if review_from else '저장된 카드 거래 전체'} <b>{saved:,}</b> · 정리할 지출 <b>{cleanup:,}</b> · 장부 <b>{posted:,}</b></p>"
             f"<a class='home-review btn primary' href='/import'>{ui_icons.icon('check')}지출 정리 {cleanup:,}건</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
             f"<a class='btn' href='/import#newupload'>{ui_icons.icon('upload')}새 카드 가져오기</a>"
@@ -3087,6 +3087,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             elif offset_link.get('status') == 'full':
                 label = '환불 상쇄 확인'
         category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
+            item=item, display_tab_id=current_tab,
             transaction_direction='cancellation' if tid in cancellation_ids else 'purchase',
             review_hold=cleanup_holds.get(tid)),
             dict(preview_row or {}, **({'refund_link': original_refunds[tid][0][1]} if tid in original_refunds else {})))
@@ -3155,7 +3156,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
         nav = (f"<nav class='cleanup-pages'><p class='muted'>{total}건 중 {min((page-1)*20+1,total)}~{min(page*20,total)}건 · {page}/{pages}페이지</p>"
                f"{previous} · {following}</nav>")
     labels = [('all', '전체', counts['all'])] + [(key, REASON_LABELS[key], counts.get(key, 0))
-              for key in ('classification', 'evidence', 'finance', 'manual')]
+              for key in ('classification', 'recording', 'evidence', 'finance', 'manual')]
     chips = []
     for key, label, count in labels:
         query_part = '' if key == 'all' else '?cleanup_reason=' + key

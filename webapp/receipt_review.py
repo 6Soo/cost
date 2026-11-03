@@ -1299,16 +1299,16 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
             "</select></label></section>"
             "<p><a href='#other-methods' id='receipt-manual-open'>사진 없이 직접 입력</a></p>"
-            "<section id='step-photos'><h2>2. 사진</h2>"
-            "<input id='img-file' type='file' multiple accept='image/*'> "
-            f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
-            "<label>PDF 영수증<input id='pdf-file' type='file' accept='application/pdf,.pdf'></label> "
-            "<button type='button' id='pdf-go'>PDF 페이지 등록</button>"
+            "<section id='step-photos'><h2>2. 영수증 파일 등록</h2>"
+            "<div><label>영수증 사진<input id='img-file' type='file' multiple accept='image/*'></label> "
+            f"<button type='button' id='img-go' disabled>{ui_icons.icon('upload')}사진 등록</button></div>"
+            "<div><label>PDF 영수증<input id='pdf-file' type='file' accept='application/pdf,.pdf'></label> "
+            "<button type='button' id='pdf-go' disabled>PDF 페이지 등록</button></div>"
             f"<input type='hidden' id='image-sha' value='{latest}'>"
-            "<p class='hint'>원본은 그대로 보관합니다. PDF는 로컬 Windows에서 최대 10페이지를 사진 후보로 렌더링합니다. 페이지별로 확인해 영수증 값을 직접 입력하세요.</p>"
+            "<p class='hint'>원본은 그대로 보관합니다. PDF는 최대 10페이지까지 등록할 수 있습니다. 페이지별 영수증 값을 확인해 주세요.</p>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
-            + ai_section +
-            "<section id='step-review'><h2>4. 후보 검토</h2>"
+            + ai_section
+            + ("<section id='step-review'><h2>4. 후보 검토</h2>" if ai else "<section id='step-review'><h2>3. 후보 검토</h2>") +
             "<p class='hint'>분류가 끝난 영수증만 지출로 복사됩니다.</p>"
             "<p id='receipt-visible-count' role='status'></p>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
@@ -1317,7 +1317,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></details>"
-            "<section><h2>6. 구글 지출 7열 복사</h2>"
+            + ("<section><h2>5. 구글 지출 7열 복사</h2>" if ai else "<section><h2>4. 구글 지출 7열 복사</h2>") +
             f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
             f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
             f"<h3>보류</h3><ul>{holds}</ul></section>"
@@ -1342,6 +1342,7 @@ const update=()=>{
  const checked=[...document.querySelectorAll('[data-group-select]:checked')],photos=document.querySelectorAll('.photo-check:checked').length;
  const state=(id,enabled)=>{const el=byId(id);if(el)el.disabled=!enabled};
  state('img-go',byId('img-file').files.length>0);
+ state('pdf-go',byId('pdf-file').files.length>0);
  state('vision-go',!!trip.value&&photos>0);
  state('rescan-go',!!trip.value&&!!byId('image-sha').value);
  state('ocr-go',!!byId('image-sha').value);
