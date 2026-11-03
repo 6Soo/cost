@@ -1,3 +1,9 @@
+## 2026-11-04 PC 여행·항공권 버튼과 아이콘 점검
+
+- [PR #616](https://github.com/6Soo/cost/pull/616) 운영 `7c0be270a6ef770973efd797be00a9922dbd9210`, 이전 검증 `efaf49a319f25e4c40c9c18ae9b10d8c187fbb81`. 여행 관리 마감/해제 아이콘을 상태별 체크/복원으로 구분하고 항공권 메뉴에 비행기 아이콘을 적용했다. 폼·권한·상태 처리 변경 없음.
+- 운영 PC 1440×900에서 여행 관리·여행 장부·항공권 화면 및 주요 펼침 상태를 점검했다. 합성 예약 조회·펼침, 합성 여행 마감→해제, 두 테마의 아이콘 및 가로 넘침을 확인했다. 표적 22 passed, Windows 영향 484 passed·46 subtests·skip 0, PR CI 41700622159 성공. 검사 SHA `ee5e34f4de67517f2e7861b710cda22a704ebdda`와 병합 tree 동일.
+- 1,313 blobs 불일치 0·런타임 SHA·단일 listener·health/ready 200·보호 API 401·보호 13표 전후 동일. 배포 후 인증 PC에서 마감 체크와 항공권 비행기 아이콘 확인. 실제 마감·금융 쓰기와 모든 거래 상태 조합은 미검증. 근거 `C:/AX/cost-pr609/.local-archive/pc-buttons-20261104/`, `D:/WebLedgerHost/releases/deploy-evidence-7c0be270a6ef770973efd797be00a9922dbd9210.json`.
+
 ## 2026-11-04 카드 검토 모바일 터치 영역 개선
 
 - [PR #614](https://github.com/6Soo/cost/pull/614) 병합·운영 `efaf49a319f25e4c40c9c18ae9b10d8c187fbb81`, 이전 검증 `fd7f7fb468486a5e006faa6202a56c277ca41ea2`. 카드 전체 내역의 모바일 처리 필요 링크를 높이 21px에서 44px로 늘렸다. 이동 대상과 금융 처리 동작은 유지한다.
