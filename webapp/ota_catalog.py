@@ -28,7 +28,7 @@ from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
 PAGE_SIZE = 50
 PROVIDERS = {'agoda': 'Agoda', 'trip': 'Trip.com', 'klook': 'Klook', 'booking': 'Booking.com',
-             'toyoko': '토요코인', 'forest': '숲나들e'}
+             'toyoko': '토요코인', 'forest': '숲나들e', 'jeju': '제주항공'}
 STATUSES = {'confirmed': '예약 확정', 'completed': '이용 완료', 'cancelled': '취소',
             'canceled': '취소', 'unknown': '미확인', 'observed': '수집됨', 'upcoming': '예정'}
 PRODUCTS = {'lodging': '숙박', 'flight': '항공', 'rental': '렌터카', 'package': '패키지', 'unknown': '미확인'}

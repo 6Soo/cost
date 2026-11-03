@@ -10,7 +10,7 @@ from pathlib import Path
 
 SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking.com', 'agoda-messaging.com',
                     'toyoko-inn.com', 'toyoko-inn.co.jp', 'forest.go.kr', 'foresttrip.go.kr',
-                    'flyasiana.com', 'skyticket.com')
+                    'flyasiana.com', 'skyticket.com', 'jejuair.net')
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2

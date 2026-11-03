@@ -676,7 +676,7 @@ class CardFlow:
         if not trips:
             return []
         rows = self.board.conn.execute(
-            "SELECT t.transaction_id,t.source_hash,t.merchant,t.item,t.approval_date FROM transactions t"
+            "SELECT t.transaction_id,t.source_hash,t.merchant,t.item,t.approval_date,t.card_tail FROM transactions t"
             " JOIN import_batch_rows r ON r.transaction_id=t.transaction_id WHERE r.batch_id=?"
             " AND t.classification_state IN ('needs_review','classified') AND NOT " + decided_sql('t') +
             " AND t.transaction_direction='purchase' AND t.amount_krw>0"
@@ -706,7 +706,7 @@ class CardFlow:
                                         (result.get('candidate_search') or {}).get('candidates', []))
                     if result.get('transaction_id'):
                         period_cards.add(str(result['transaction_id']))
-        for tid, source, merchant, item, day in rows:
+        for tid, source, merchant, item, day, card_tail in rows:
             if tid in held or tid in period_cards or source in taken or source in blocked_sources or (selected is not None and tid not in selected):
                 continue
             pattern = _pattern_for(normalize_merchant(merchant or ''))
@@ -720,7 +720,7 @@ class CardFlow:
             from app.provisional_assignment import card_trip_candidates, rank_trip_candidates
             canonical = [dict(trip, trip_id=trip['tab_id']) for trip in trips]
             decision = rank_trip_candidates(card_trip_candidates(
-                {'merchant': merchant, 'approval_date': day}, canonical, nets=nets), trips=canonical)
+                {'merchant': merchant, 'approval_date': day, 'card_tail': card_tail}, canonical, nets=nets), trips=canonical)
             if decision['status'] != 'CLASSIFIED':
                 continue
             trip = next(trip for trip in trips if trip['tab_id'] == decision['trip_id'])

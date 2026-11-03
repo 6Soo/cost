@@ -39,10 +39,18 @@ def canonical_trip_periods(trips):
     return {str(trip['trip_id']): trip for _, trip in rows}
 
 
+def card_trip_allowed(transaction, trip):
+    """Owner exception applies only to the 2026 September Jeju trip."""
+    restricted = (trip.get('display_key') == '0909_제주'
+                  and str(trip.get('starts_on') or '') == '2026-09-09')
+    return not restricted or str(transaction.get('card_tail') or '') == '4813'
+
+
 def regional_trips(transaction, trips, *, booking_agnostic=False):
     from .rules import is_booking_or_online, transaction_region, trip_region
     region = '' if booking_agnostic and is_booking_or_online(transaction) else transaction_region(transaction)
-    return [trip for trip in trips if not region or trip_region(trip) == region]
+    return [trip for trip in trips if card_trip_allowed(transaction, trip)
+            and (not region or trip_region(trip) == region)]
 
 
 def period_or_preparation(trips, day):

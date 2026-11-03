@@ -8,7 +8,7 @@ from app import ota_mail
 
 
 def cancellation_references(message):
-    authenticated = ota_mail.authenticated_headers(message, ('flyasiana.com', 'skyticket.com'))
+    authenticated = ota_mail.authenticated_headers(message, ('flyasiana.com', 'skyticket.com', 'jejuair.net'))
     if not authenticated:
         return set()
     headers, domain = authenticated
@@ -16,13 +16,61 @@ def cancellation_references(message):
     if not re.search(r'취소|환불|cancel|refund', subject, re.I):
         return set()
     text = subject + '\n' + ota_mail.message_text(message)
-    pattern = (r'예약번호\s*[:：]?\s*([A-Z0-9]{6})\b' if domain == 'flyasiana.com'
+    pattern = (r'예약번호\s*[:：]?\s*([A-Z0-9]{6})\b' if domain in ('flyasiana.com', 'jejuair.net')
                else r'신청번호\s*[:：]?\s*([0-9]{6,20})')
     refs = set(re.findall(pattern, text, re.I))
-    return {(('asiana' if domain == 'flyasiana.com' else 'skyticket'), ref) for ref in refs}
+    provider = {'flyasiana.com': 'asiana', 'skyticket.com': 'skyticket', 'jejuair.net': 'jeju'}[domain]
+    return {(provider, ref) for ref in refs}
+
+
+def jeju_payment_facts(message):
+    """Retain each labelled charge in an e-ticket, including amendment payments.
+
+    A masked airline token is not assumed to be the issuer's physical card tail.
+    Explicit charge dates and approval IDs identify the payment observations.
+    Only outbound departure is used for trip attribution; returns may change.
+    """
+    authenticated = ota_mail.authenticated_headers(message, ('jejuair.net',))
+    if not authenticated or not re.search(r'여정확인서\s*\(e-ticket\)', authenticated[0].get('subject', ''), re.I):
+        return []
+    text = ota_mail.message_text(message)
+    refs = set(re.findall(r'예약번호\s*[:：]?\s*([A-Z0-9]{6})\b', text))
+    if len(refs) != 1:
+        return []
+    compact = '\n'.join(line.strip() for line in text.splitlines() if line.strip())
+    reserved = re.findall(r'^예약일\s*\n(20\d{2}\.\d{2}\.\d{2})', compact, re.M)
+    outbound = re.search(r'가는편\b(?:(?!오는편).)*?\b(20\d{2}\.\d{2}\.\d{2})', compact, re.S)
+    blocks = re.split(r'(?=^승인번호\s*$)', compact, flags=re.M)[1:]
+    digest = hashlib.sha256(json.dumps(message, ensure_ascii=False, sort_keys=True,
+                                     separators=(',', ':')).encode()).hexdigest()
+    result = []
+    try:
+        reserved = sorted({date.fromisoformat(value.replace('.', '-')).isoformat() for value in reserved})
+        day = date.fromisoformat(outbound[1].replace('.', '-')).isoformat() if outbound else None
+        for block in blocks:
+            approval = re.search(r'^승인번호\s*\n([A-Za-z0-9-]{4,32})\s*$', block, re.M)
+            paid = re.search(r'^결제일\s*\n(20\d{2}\.\d{2}\.\d{2})\s*$', block, re.M)
+            amounts = set(re.findall(r'^결제금액\s*\n((?:\d+|[1-9]\d{0,2}(?:,\d{3})+))\s*원\s*$', block, re.M))
+            if not approval or not paid or len(amounts) != 1:
+                return []
+            amount = int(next(iter(amounts)).replace(',', ''))
+            if amount <= 0:
+                return []
+            result.append(dict(provider='jeju', booking_ref=next(iter(refs)), item='항공료',
+                paid_amount_krw=amount, paid_on=date.fromisoformat(paid[1].replace('.', '-')).isoformat(),
+                payment_id=next(iter(refs)) + ':' + approval[1],
+                period={'starts_on': day, 'ends_on': day} if day else None,
+                reserved_dates=reserved, source_sha256=digest, reservation_status='observed',
+                paid_on_semantics='explicit_charge_date'))
+    except ValueError:
+        return []
+    return result
 
 
 def extract(message):
+    jeju = jeju_payment_facts(message)
+    if jeju:
+        return jeju[0]
     authenticated = ota_mail.authenticated_headers(message, ('flyasiana.com', 'skyticket.com'))
     if not authenticated:
         return None
