@@ -126,6 +126,10 @@ class OtaSnapshotService:
         self._queue_page_signing_key = secrets.token_bytes(32)
         self._first_ready = threading.Event()
         self._lock = threading.Lock()
+        self._publish_lock = threading.Lock()
+        self._pending_publish = None
+        self._published_role_token = None
+        self._role_inactive = True
         self._wake = threading.Event()
         self._stopping = False
         self._current = None
@@ -236,11 +240,16 @@ class OtaSnapshotService:
             current = self._current
             failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_window()
             held = current is not None and current["key"] == key and current.get("data") is not None
-            if held or failed or self._refreshing or self._stopping:
+            skip = held or failed or self._refreshing or self._stopping
+            if skip:
                 self._log("check", key=key[:12], held=held, failed=failed, refreshing=self._refreshing,
                           generation=(current or {}).get("generation", 0))
-                return
-            self._refreshing = True
+            else:
+                self._refreshing = True
+        if skip:
+            if held:
+                self._publish_if_active()
+            return
         self._log("refresh_start", key=key[:12], generation=(current or {}).get("generation", 0))
         started = self._clock()
         owns_tracing = self._profile_memory and not tracemalloc.is_tracing()
@@ -369,13 +378,46 @@ class OtaSnapshotService:
             self._failed_key = None
             self._checked_at = self._clock()
             published = self._current
+            self._pending_publish = published
         self._first_ready.set()
-        self._persist(published)
-        if self._on_published is not None:
+        self._publish_if_active()
+
+    def _publish_if_active(self):
+        """Publish shared files only while this release owns the writer role."""
+        from .deployment_role import writer
+        with self._publish_lock:
+            with self._lock:
+                current = self._pending_publish or self._current
+            if current is None or current.get('data') is None:
+                return
             try:
-                self._on_published(published)
-            except Exception:
-                pass
+                with writer() as active:
+                    if not active:
+                        self._role_inactive = True
+                        return
+                    route = os.environ.get('WEBLEDGER_DEPLOYMENT_ROUTE')
+                    role_token = (route, json.loads(Path(route).read_text(encoding='utf-8-sig')).get('generation')) if route else ('unmanaged',)
+                    with self._lock:
+                        if current is not self._current:
+                            return
+                        if (self._pending_publish is None and not self._role_inactive
+                                and role_token == self._published_role_token):
+                            return
+                    self._persist(current)
+                    if self._on_published is not None:
+                        try:
+                            self._on_published(current)
+                        except Exception:
+                            pass
+                    with self._lock:
+                        if current is self._pending_publish:
+                            self._pending_publish = None
+                    self._published_role_token = role_token
+                    self._role_inactive = False
+            except (OSError, ValueError, TypeError):
+                # Keep the in-memory snapshot available; retry publication on the next check.
+                self._role_inactive = True
+                return
 
     # reads
 

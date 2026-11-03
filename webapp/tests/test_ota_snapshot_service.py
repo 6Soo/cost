@@ -1,6 +1,8 @@
 """The OTA review snapshot: requests read it, one worker recomputes it, and content keys decide when."""
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -243,3 +245,156 @@ def test_authority_metadata_is_published_and_survives_a_restart(tmp_path):
     assert reloaded.view()["current"]["authority"] == meta
     assert "CHULSOO" not in path.read_text(encoding="utf-8")
     reloaded.stop()
+
+
+def test_snapshot_files_and_callbacks_wait_for_active_deployment_role(tmp_path, monkeypatch):
+    route = tmp_path / 'route.json'
+    path = tmp_path / 'snapshot.json'
+    path.write_text('previous snapshot', encoding='utf-8')
+    route.write_text(json.dumps({'port': 8751, 'paused': False}), encoding='utf-8')
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_ROUTE', str(route))
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_PORT', '8752')
+    key = ['first']
+    calls = []
+    payload = {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    svc = OtaSnapshotService(key_fn=lambda: key[0], reconcile_fn=lambda: payload,
+                             persist_path=path, on_published=lambda current: calls.append(current['key']),
+                             start=False)
+    svc.check_now()
+    assert svc.view()['status'] == 'ready'
+    assert path.read_text(encoding='utf-8') == 'previous snapshot'
+    assert calls == []
+    route.write_text(json.dumps({'port': 8752, 'paused': False}), encoding='utf-8')
+    svc.check_now()
+    assert json.loads(path.read_text(encoding='utf-8'))['key'] == 'first'
+    assert calls == ['first']
+    route.write_text(json.dumps({'port': 8752, 'paused': True}), encoding='utf-8')
+    key[0] = 'second'
+    svc.check_now()
+    assert json.loads(path.read_text(encoding='utf-8'))['key'] == 'first'
+    assert calls == ['first']
+    route.write_text(json.dumps({'port': 8752, 'paused': False}), encoding='utf-8')
+    svc.check_now()
+    assert json.loads(path.read_text(encoding='utf-8'))['key'] == 'second'
+    assert calls == ['first', 'second']
+
+
+def test_snapshot_is_republished_when_previous_release_regains_role(tmp_path, monkeypatch):
+    route, snapshot = tmp_path / 'route.json', tmp_path / 'snapshot.json'
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_ROUTE', str(route))
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_PORT', '8751')
+    calls = []
+    payload = {'public': {}, 'results': [], 'links': {}, 'data': {}}
+    svc = OtaSnapshotService(key_fn=lambda: 'old', reconcile_fn=lambda: payload,
+                             persist_path=snapshot, on_published=lambda current: calls.append(current['key']),
+                             start=False)
+    route.write_text(json.dumps({'port': 8751, 'paused': False, 'generation': 'before'}), encoding='utf-8')
+    svc.check_now()
+    assert calls == ['old']
+    route.write_text(json.dumps({'port': 8752, 'paused': False, 'generation': 'new'}), encoding='utf-8')
+    svc.check_now()
+    snapshot.write_text(json.dumps({'key': 'new'}), encoding='utf-8')
+    route.write_text(json.dumps({'port': 8751, 'paused': False, 'generation': 'rollback'}), encoding='utf-8')
+    svc.check_now()
+    assert json.loads(snapshot.read_text(encoding='utf-8'))['key'] == 'old'
+    assert calls == ['old', 'old']
+    svc.check_now()
+    assert calls == ['old', 'old']
+
+
+def test_role_switch_waits_for_snapshot_callback_to_finish(tmp_path, monkeypatch):
+    from webapp.deployment_role import route_lock
+    route = tmp_path / 'route.json'
+    route.write_text(json.dumps({'port': 8751, 'paused': False}), encoding='utf-8')
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_ROUTE', str(route))
+    monkeypatch.setenv('WEBLEDGER_DEPLOYMENT_PORT', '8751')
+    entered, release, switched = threading.Event(), threading.Event(), threading.Event()
+    def callback(_current):
+        entered.set()
+        assert release.wait(5)
+    svc = OtaSnapshotService(key_fn=lambda: 'k',
+                             reconcile_fn=lambda: {'public': {}, 'results': [], 'links': {}, 'data': {}},
+                             on_published=callback, start=False)
+    publishing = threading.Thread(target=svc.check_now)
+    def switch():
+        with route_lock(route):
+            switched.set()
+    switching = threading.Thread(target=switch)
+    try:
+        publishing.start()
+        assert entered.wait(5)
+        switching.start()
+        assert not switched.wait(.2)
+    finally:
+        release.set()
+        publishing.join(5)
+        if switching.ident is not None:
+            switching.join(5)
+    assert not publishing.is_alive() and not switching.is_alive()
+    assert switched.is_set()
+
+
+def test_old_process_cannot_publish_after_new_process_takes_role(tmp_path):
+    from webapp.deployment_role import route_lock
+    route, snapshot = tmp_path / 'route.json', tmp_path / 'snapshot.json'
+    route.write_text(json.dumps({'port': 8751, 'paused': False}), encoding='utf-8')
+    driver = tmp_path / 'publisher.py'
+    driver.write_text('''
+import os, pathlib, sys, time
+from webapp.ota_snapshot import OtaSnapshotService
+root, name = pathlib.Path(sys.argv[1]), sys.argv[2]
+def wait(path):
+    until = time.monotonic() + 15
+    while not path.exists():
+        if time.monotonic() >= until: raise TimeoutError(str(path))
+        time.sleep(.02)
+def build():
+    if name == "old":
+        (root / "old-started").touch()
+        wait(root / "release-old")
+    return {"public": {}, "results": [], "links": {}, "data": {}}
+svc = OtaSnapshotService(key_fn=lambda: name, reconcile_fn=build,
+    persist_path=root / "snapshot.json", on_published=lambda current: (root / (name + "-published")).touch(),
+    start=False)
+svc.check_now()
+if name == "new":
+    (root / "new-ready").touch()
+    wait(root / "activate-new")
+    svc.check_now()
+''', encoding='utf-8')
+    def start(name, port):
+        env = {**os.environ, 'WEBLEDGER_DEPLOYMENT_ROUTE': str(route), 'WEBLEDGER_DEPLOYMENT_PORT': str(port),
+               'PYTHONPATH': os.pathsep.join(filter(None, (str(Path(__file__).resolve().parents[2]),
+                                                           os.environ.get('PYTHONPATH', ''))))}
+        return subprocess.Popen([sys.executable, str(driver), str(tmp_path), name], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def wait_for(path, process):
+        deadline = time.monotonic() + 15
+        while not path.exists():
+            if process.poll() is not None:
+                raise AssertionError(process.communicate()[1].decode('utf-8', errors='replace'))
+            if time.monotonic() >= deadline:
+                raise TimeoutError(str(path))
+            time.sleep(.02)
+    old = start('old', 8751)
+    new = None
+    try:
+        wait_for(tmp_path / 'old-started', old)
+        new = start('new', 8752)
+        wait_for(tmp_path / 'new-ready', new)
+        assert not snapshot.exists()
+        with route_lock(route):
+            route.write_text(json.dumps({'port': 8752, 'paused': False}), encoding='utf-8')
+        (tmp_path / 'release-old').touch()
+        (tmp_path / 'activate-new').touch()
+        for process in (old, new):
+            _, error = process.communicate(timeout=15)
+            assert process.returncode == 0, error.decode('utf-8', errors='replace')
+        assert json.loads(snapshot.read_text(encoding='utf-8'))['key'] == 'new'
+        assert (tmp_path / 'new-published').exists()
+        assert not (tmp_path / 'old-published').exists()
+    finally:
+        for process in (old, new):
+            if process is not None and process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
