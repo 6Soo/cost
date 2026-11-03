@@ -53,6 +53,27 @@ def test_insufficient_or_conflicting_visible_characters_never_auto_link(masked):
     assert result['counts']['linked'] == 0
 
 
+def test_two_character_mask_auto_links_and_preserves_manual_and_stale_protection():
+    people = [person('masked', '박*')]
+    rows = [income_row(6, '박솔', amount=100000)]
+    result = reconcile(people, rows)
+    entry = result['participants'][0]
+    assert entry['state'] == pi.STATE_NAME_MATCH
+    assert entry['links'][0]['method'] == 'masked_name_match'
+    assert entry['display_name'] == '박*'
+    assert entry['links'][0]['row'] == rows[0]
+    assert reconcile(people, rows, source_current=False)['counts']['linked'] == 0
+    assert reconcile(people + [person('other', '박솔')], rows)['counts']['linked'] == 0
+    assert reconcile(people, rows + [income_row(7, '박별')])['counts']['linked'] == 0
+    unlink = {'participant_id': 'masked', 'income_ref': rows[0]['ref'], 'decision': 'unlinked'}
+    assert reconcile(people, rows, decisions=[unlink])['counts']['linked'] == 0
+    manual = {'participant_id': 'other', 'income_ref': rows[0]['ref'], 'decision': 'linked',
+              'link_method': 'manual', 'income_fingerprint': rows[0]['fingerprint']}
+    result = reconcile(people + [person('other', '이나래')], rows, decisions=[manual])
+    assert result['participants'][0]['links'] == []
+    assert result['participants'][1]['links'][0]['method'] == 'manual'
+
+
 def test_masked_matching_is_unique_in_both_directions_and_manual_unlink_wins():
     rows = [income_row(6, '김가람')]
     people = [person('a','김*람'),person('b','김가람')]

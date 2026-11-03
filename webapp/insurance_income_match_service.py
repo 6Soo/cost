@@ -196,7 +196,7 @@ def build_state(query=None, *, review=None, trips=None, context=None):
         for key, count in matched['counts'].items():
             totals[key] += count
     fingerprint = hashlib.sha256(json.dumps({
-        'matcher': 'masked-candidates-v2',
+        'matcher': 'masked-candidates-v3-two-character',
         'review': review['fingerprint'], 'generation': context.get('generation'),
         'mapping': context.get('mapping'), 'choices': context.get('choices'), 'trip': selected,
         'contract': contract_filter, 'trips': trips,

@@ -310,7 +310,7 @@ def render_page(state: dict, *, csrf: str = "") -> str:
             row = link["row"]
             cells = row.get("cells") or {}
             total = row.get("amount")
-            basis = ' · 자동 연결 · 앞뒤 글자 일치' if link.get('method') == 'masked_name_match' else ''
+            basis = ' · 자동 연결 · 이름 글자 일치' if link.get('method') == 'masked_name_match' else ''
             detail.append(
                 f"<div class='small'>수입 {esc(row.get('row'))}행{basis}"
                 f"{(' · ' + esc(cells.get('B'))) if cells.get('B') else ''} · "

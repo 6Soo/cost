@@ -187,7 +187,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     for row in data["rows"]:
         connected = links_by_ref.get(row["ref"], [])
         if connected:
-            labels = {'manual': '직접 연결', 'masked_name_match': '자동 · 앞뒤 글자 일치'}
+            labels = {'manual': '직접 연결', 'masked_name_match': '자동 · 이름 글자 일치'}
             label = " · ".join(_esc(item["name"]) + ' (' + labels.get(item.get('method'), '이름 대조') + ')' for item in connected)
             state_label = f"✓ {len(connected)}명 연결 · {label}"
         elif not google.get("available"):

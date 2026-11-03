@@ -9,6 +9,20 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "insurance-name-matching",
+      "paths": [
+        "app/insurance_income_match.py", "app/participant_income.py", "app/participant_sync.py",
+        "webapp/insurance_income_match_service.py", "webapp/participant_trip_panel.py", "webapp/participant_income_page.py",
+        "tests/test_insurance_income_match.py", "tests/card_pipeline/test_participant_income.py"
+      ],
+      "tests": [
+        "tests/test_insurance_income_match.py", "tests/card_pipeline/test_participant_income.py",
+        "tests/card_pipeline/test_participant_sync.py", "tests/card_pipeline/test_participant_integration.py",
+        "webapp/tests/test_insurance_income_match_service.py", "webapp/tests/test_insurance_trip_integration.py",
+        "webapp/tests/test_participant_income.py", "webapp/tests/test_participant_trip_panel.py"
+      ]
+    },
+    {
       "name": "airline-payment-mail",
       "paths": [
         "app/airline_payment_mail.py",

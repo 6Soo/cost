@@ -17,7 +17,7 @@ import unicodedata
 from .participant_roster import RosterError, canonical, utc_now
 from .insurance_income_match import unique_identity_name_match
 
-RULE_VERSION = "participant-income-v2-masked"
+RULE_VERSION = "participant-income-v3-two-character"
 
 #: 대조 상태. 화면 문구는 webapp이 붙인다.
 STATE_NAME_MATCH = "name_match"
@@ -271,7 +271,7 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
             exact = participant_keys(person) & income_row_keys(remaining[0])
             method = 'name_match' if exact else 'masked_name_match'
             auto = [_link(pid, remaining[0], method,
-                          reason='' if exact else '같은 여행의 마스킹 이름 앞뒤 글자·양방향 유일 일치')]
+                          reason='' if exact else '같은 여행의 마스킹 이름 글자·양방향 유일 일치')]
             linked_rows.setdefault(remaining[0]["ref"], []).append(pid)
         links = manual + [link for link in auto
                           if link["income_ref"] not in {item["income_ref"] for item in manual}]
