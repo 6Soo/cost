@@ -1,3 +1,10 @@
+## 2026-11-03 제주항공 OTA·카드 제한 배포
+
+- PR #566 정상 병합 `f1b1ff63b5eaefcbea914808f3022ec6044e3a1e`, PR CI41578660810·main CI41579009582 성공. 원래 코드 검사573 passed·34 subtests·skip0를 재사용하고 후속 문서만으로 코드 검사를 반복하지 않았다.
+- 공식 `deploy_verified_release.ps1 -CandidateSha f1b1ff63b5eaefcbea914808f3022ec6044e3a1e -PreviousSha 35ec72b8cb0fe5547dfd80cef01772f6ab2b7e3b -ReviewEvidence C:/AX/cost/.local-archive/jeju-resume-20261103/review.json -Apply` 성공. 두 공식 배포 잠금·기존 창 없는 래퍼 보존, 준비 후보 ready 후 drain/전환, gateway8790→backend8752. 1,307 tracked blobs 불일치0·task/processSHA·단일loopback listener·health/ready200·보호API3개401·보호13표 불변 PASS(2026-11-03T06:19:02Z).
+- 코드 전용으로 이전 검증 릴리스/task XML을 보존했으며 새 전체 자료 백업·복원·마이그레이션·데이터 교정·원문 적재·Google 쓰기를 반복하지 않았다. 기존 안전 게이트를 통과한 원문2건 적재·여행62건 교정 요약을 확인했고 운영DB 읽기에서 제주4813 3건·타카드0을 재확인했다. 사용자 승인으로 기존 소실 Ego9 대신 Ego13에서 읽기 수락했다. 카드 대사421.1초·generation663 및 색인 갱신 완료 후 제주항공 예약1행·중복 없는 카드2건(311,600원/85,600원)·0806 여행 배정·제주 지출3건 PASS, Ego13 종료. 실제 환급·사용자 수동 확정·Google 반영 완료로 해석하지 않는다.
+- 근거 `C:/AX/cost/.local-archive/jeju-resume-20261103/`와 호스트 `D:/WebLedgerHost/releases/deploy-evidence-f1b1ff63b5eaefcbea914808f3022ec6044e3a1e.json`. [실행 기록](specs/jeju-ota-card-scope-20261103.md) 참조.
+
 ## 2026-11-03 게이트웨이·보험 순차 고정 SHA 배포
 
 - 사용자 “배포해”에 따라 `a9b0617a`→`ac2eed16`→`6d7c4f59`→`e75f0b96`를 공식 `deploy_verified_release.ps1`으로 직렬 전환했다. 이 범위의 마지막 SHA `e75f0b9699bd87fe951ea307712258db974a8677`, route8752/paused=false, gate PASS. 게이트웨이 설치와 선행 지출 인라인/일괄 편집·영수증 PDF/영역 검토 및 보험 두 글자 이름/후보 보기 코드의 운영 반영 근거다. 이후 별도 여행 마감 PR #561 담당자가 e75→`35ec72b8cb0fe5547dfd80cef01772f6ab2b7e3b`/8751로 전환한 호스트 deploy-evidence PASS(04:22:40Z)를 관측했으며 최신 런타임을 보존한다.
