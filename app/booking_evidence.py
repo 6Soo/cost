@@ -91,7 +91,8 @@ def summarize(subject, sent, text):
         # 법인 예약 메일의 제목에는 지점이 없으므로 본문의 독립된 호텔명만 사용한다.
         for line in lines:
             if (re.fullmatch(r'토요코인\s+[가-힣A-Za-z0-9 .-]{1,40}', line)
-                    and not any(word in line for word in ('클럽', '회원', '코퍼레이트', '예약', '바랍니다'))):
+                    and not any(word in line for word in ('클럽', '회원', '코퍼레이트', '예약', '바랍니다',
+                                                         '홈페이지', '감사합니다', '주식회사', '사이트'))):
                 hotel_name = line
                 break
     return {'subject': subject, 'sent': sent.isoformat() if sent else '', 'refs': refs,
