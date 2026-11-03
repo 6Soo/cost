@@ -1506,14 +1506,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<article class='card trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
             f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">✓ 마감</span>' if t.get('visual_closed') else ''} <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
-            + (f"<form method='post' class='trip-close-form' action='/api/trips/{esc(t['tab_id'])}/meta'>"
-               f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
-               f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-               f"<input type='hidden' name='expected_closed' value='{int(bool(t.get('visual_closed')))}'>"
-               f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
-               "<input type='hidden' name='return_to' value='/trips'>"
-               f"<button type='submit'>{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
-            +
             "<details class='trip-meta'><summary>정보 수정·보관</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
@@ -1555,7 +1547,15 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "<input type='hidden' name='return_to' value='/trips'>"
             f"<button type='submit'>{ui_icons.icon('archive')}{'복원' if t['archived'] else '보관'}</button></form>"
             f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
-            "</details></article>"
+            "</details>"
+            + (f"<form method='post' class='trip-close-form' action='/api/trips/{esc(t['tab_id'])}/meta'>"
+               f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
+               f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+               f"<input type='hidden' name='expected_closed' value='{int(bool(t.get('visual_closed')))}'>"
+               f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
+               "<input type='hidden' name='return_to' value='/trips'>"
+               f"<button type='submit'>{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
+            + "</article>"
         )
     profile_html = ""
     if role == "owner":
