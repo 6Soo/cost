@@ -97,6 +97,12 @@ function Get-VerifiedSupervisorProcess($Identity) {
     if(-not $process){return $null}
     $isPrepared=$process.CommandLine -match '(?i)(^|\s)-DisableEntry(\s|$)'
     if(($Identity.created -and $process.CreationDate -ne $Identity.created) -or $process.Name -notin @('powershell.exe','pwsh.exe') -or -not $process.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -or $process.CommandLine -notmatch "-BoardPort $($Identity.port)( |$)" -or ([bool]$Identity.prepared -ne [bool]$isPrepared)){throw 'SUPERVISOR_IDENTITY_CHANGED'}
+    $candidates=@(Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -in @('powershell.exe','pwsh.exe') -and $_.CommandLine -and
+        $_.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -and
+        $_.CommandLine -match "-BoardPort $($Identity.port)( |$)"
+    })
+    if($candidates.Count -ne 1 -or $candidates[0].ProcessId -ne $Identity.pid){throw 'SUPERVISOR_AMBIGUOUS'}
     return $process
 }
 function Stop-VerifiedSupervisor($Identity) {

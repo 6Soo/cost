@@ -254,7 +254,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors'])
+@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -287,6 +287,7 @@ $global:prepared=$null
 $global:ports=@{8751=$Old}
 $global:supervisors=@{8751=$true;8752=$false}
 $global:starting=$false
+$global:oldStopped=$false
 $global:takeoverFailed=$false
 function Get-ScheduledTask {
     param($TaskName)
@@ -302,14 +303,14 @@ function Start-ScheduledTask {
     param($TaskName)
     $global:events.Add('start:'+$TaskName)
     $task=Get-ScheduledTask $TaskName
-    if($TaskName -eq 'WebLedger-Board' -and $task.Actions[0].Arguments.Contains($New) -and $Failure -eq 'takeover' -and -not $global:takeoverFailed){$global:takeoverFailed=$true;throw 'SYNTHETIC_TAKEOVER_FAILURE'}
+    if($TaskName -eq 'WebLedger-Board' -and $task.Actions[0].Arguments.Contains($global:newSha) -and $Failure -eq 'takeover' -and -not $global:takeoverFailed){$global:takeoverFailed=$true;throw 'SYNTHETIC_TAKEOVER_FAILURE'}
     $task.State='Running'
     $port=if($task.Actions[0].Arguments.Contains('-BoardPort 8752')){8752}else{8751}
-    $global:ports[$port]=if($task.Actions[0].Arguments.Contains($New)){$New}else{$Old}
+    $global:ports[$port]=if($task.Actions[0].Arguments.Contains($global:newSha)){$global:newSha}else{$global:oldSha}
     $global:supervisors[$port]=$true
     if($TaskName -eq 'WebLedger-Prepared' -and $Failure -eq 'before_listen'){$global:starting=$true}
 }
-function Stop-ScheduledTask {param($TaskName); $global:events.Add('stop:'+$TaskName); (Get-ScheduledTask $TaskName).State='Ready'}
+function Stop-ScheduledTask {param($TaskName); $global:events.Add('stop:'+$TaskName); if($TaskName -eq 'WebLedger-Board'){$global:oldStopped=$true}; (Get-ScheduledTask $TaskName).State='Ready'}
 function Set-ScheduledTask {param($TaskName,$Action); $global:board.Actions=@($Action)}
 function Unregister-ScheduledTask {param($TaskName,[switch]$Confirm); $global:prepared=$null}
 function Export-ScheduledTask {param($TaskName); '<synthetic/>'}
@@ -323,7 +324,7 @@ function Get-CimInstance {
     param($ClassName,$Filter)
     if(-not $Filter){
         if($global:supervisors[8751] -and $Failure -ne 'identity'){[pscustomobject]@{ProcessId=28751;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:oldSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8751')}}
-        if($Failure -eq 'multiple_supervisors'){[pscustomobject]@{ProcessId=12345;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:oldSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8751')}}
+        if($Failure -eq 'multiple_supervisors' -or ($Failure -eq 'late_duplicate' -and $global:oldStopped)){[pscustomobject]@{ProcessId=12345;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:oldSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8751')}}
         if($global:supervisors[8752]){[pscustomobject]@{ProcessId=28752;ParentProcessId=99999;Name='powershell.exe';CommandLine=($global:newSha+'\tools\start_web_ledger_host.ps1 -BoardPort 8752 -DisableEntry')}}
         return
     }
@@ -375,8 +376,10 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
         assert 'kill:28752' in report['events']
     else:
         assert report['outcome'] == 'FAILED', report
-        if failure == 'multiple_supervisors':
+        if failure in ('multiple_supervisors', 'late_duplicate'):
             assert 'SUPERVISOR_AMBIGUOUS' in report['error']
+        if failure == 'late_duplicate':
+            assert 'kill:28751' not in report['events']
         assert old in report['board'] and report['old_alive'], report
         if failure == 'candidate_identity':
             assert report['new_alive'] and 'kill:8752' not in report['events']
