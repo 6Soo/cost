@@ -199,7 +199,28 @@ function goBack(){location.href=main.dataset.base;}
   function panel(){return document.getElementById('panel');}
   function panelForm(){var p=panel();return p?p.querySelector('form[data-js-save]'):null;}
   function panelRow(){var p=panel();return p?(p.getAttribute('data-row')||''):'';}
+  var editorExitAnimation=null;
+  function editorMotionAllowed(){
+   return !window.matchMedia||!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+  function cancelEditorExit(){
+   if(!editorExitAnimation)return;
+   var active=editorExitAnimation;
+   editorExitAnimation=null;
+   active.onfinish=null;
+   active.cancel();
+  }
+  function animateEditorOpen(slot){
+   if(!slot||!slot.animate||!editorMotionAllowed())return;
+   var height=slot.scrollHeight;
+   if(!height)return;
+   slot.animate([
+    {height:'0px',opacity:0,overflow:'hidden'},
+    {height:height+'px',opacity:1,overflow:'hidden'}
+   ],{duration:220,easing:'cubic-bezier(.22,1,.36,1)'});
+  }
   function placeEditor(id){
+   cancelEditorExit();
    var slot=document.getElementById('panel-slot');
    var rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]'), target=null;
    for(var i=0;i<rows.length;i++) if(rows[i].dataset.id===id&&rows[i].getClientRects().length){target=rows[i];break;}
@@ -214,13 +235,32 @@ function goBack(){location.href=main.dataset.base;}
    }else{wrapper=document.createElement('div');wrapper.className='inline-editor-mobile';wrapper.appendChild(slot);}
    target.insertAdjacentElement('afterend',wrapper);
    target.setAttribute('aria-expanded','true');target.setAttribute('aria-controls','panel');
+   animateEditorOpen(slot);
    return true;
   }
-  function removeEditor(){
-   var slot=document.getElementById('panel-slot');if(!slot)return;
+  function removeEditor(animateClose,done){
+   var slot=document.getElementById('panel-slot');
+   if(!slot){if(done)done();return;}
+   cancelEditorExit();
    var wrapper=slot.closest('.inline-editor-row,.inline-editor-mobile');
-   document.querySelector('.app').appendChild(slot);slot.innerHTML='';if(wrapper)wrapper.remove();
-   document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+   function finish(){
+    editorExitAnimation=null;
+    document.querySelector('.app').appendChild(slot);
+    slot.innerHTML='';
+    if(wrapper)wrapper.remove();
+    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){
+     row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');
+    });
+    if(done)done();
+   }
+   var height=wrapper?slot.getBoundingClientRect().height:0;
+   if(animateClose&&wrapper&&height>0&&slot.animate&&editorMotionAllowed()){
+    editorExitAnimation=slot.animate([
+     {height:height+'px',opacity:1,overflow:'hidden'},
+     {height:'0px',opacity:0,overflow:'hidden'}
+    ],{duration:170,easing:'ease-in',fill:'forwards'});
+    editorExitAnimation.onfinish=finish;
+   }else finish();
   }
   var bulk=null;
   function bulkMark(){
@@ -380,7 +420,10 @@ function goBack(){location.href=main.dataset.base;}
   function closePanel(){
    if(!canLeavePanel()) return;
    releasePanel();
-   removeEditor();setRowParam('');markSelection();window.dispatchEvent(new Event('ledger:saved'));
+   setRowParam('');
+   removeEditor(true,function(){
+    markSelection();window.dispatchEvent(new Event('ledger:saved'));
+   });
   }
   // Previous/next over the rows on screen. A step that would leave the list does
   // nothing, which is what the disabled button already says.
