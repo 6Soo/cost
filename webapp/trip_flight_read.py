@@ -224,7 +224,9 @@ def confirmed_card_trip_rows(board: Any, links: Mapping[str, Sequence[Mapping[st
             try:
                 payload = json.loads(payload_json)
             except (TypeError, ValueError):
-                continue
+                raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE") from None
+            if not isinstance(payload, dict):
+                raise ValueError("FLIGHT_AUTHORITY_UNAVAILABLE")
             if payload.get("source_kind") == "카드" and payload.get("source_event_id"):
                 rows.append({"source_kind": "카드", "source_event_id": str(payload["source_event_id"]),
                              "display_tab_id": str(tab_id)})
