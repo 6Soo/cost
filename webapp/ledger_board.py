@@ -2415,7 +2415,10 @@ class Handler(BaseHTTPRequestHandler):
                     req_path = urlparse(self.path).path
                 except Exception:  # noqa: BLE001 - a bad target stays JSON
                     req_path = ""
-                if req_path in ("/", "/board", "/review", "/import"):
+                if req_path in ("/", "/board", "/review", "/import",
+                                "/cards/all", "/ota", "/receipts", "/trips",
+                                "/flight-passengers", "/reserve-links", "/export",
+                                "/rules"):
                     try:
                         accept = self.headers.get("Accept") or ""
                     except Exception:  # noqa: BLE001 - no header stays JSON
