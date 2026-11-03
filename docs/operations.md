@@ -1,3 +1,11 @@
+## 2026-11-04 항공권 조회 갱신 안내 반복 수정 배포
+
+- 사용자 이미지 진단: `flight-search.log`의 첫 준비2026-11-03 15:46:45→15:47:29 UTC/44.39초. 첫 방문에서만 항공권 색인이 시작됐고 LOADING 응답마다 UI 안내가 다시 공지됐다. finally가 대기 중 버튼을 활성화해 재클릭 시60회 한도를 초기화했으며 검색마다 worker를 강제로 깨웠다. 이후 같은 이름의 운영 조회 예약2건 정상도 확인해 영구 갱신 실패로 단정하지 않았다.
+- [PR #605](https://github.com/6Soo/cost/pull/605), 구현50b355ba·추가 회귀a2a19334, 병합/운영 `097d7dabe787816244ddf8df03eb759032f84672`. 서버 시작 시 기능 활성화된 항공권 색인 사전 준비·worker 정상 검사 간격·안정된 안내/대기 상태·120초/60회 자동 대기·15초 요청 제한을 적용했다. Windows 영향273 passed/16 subtests/skip0, 추가 응답 지연1·시작/진입점8 passed. PR CI41668924366 최종274 cases/skip0 PASS, 최종head와 병합tree 동일.
+- 공식 `tools/deploy_verified_release.ps1`로 이전 검증 `46339830d9ab7e93be38529094d106b49c2a9036`에서 전환(2026-11-03 16:00:47 UTC). gateway8790→backend8752/paused=false, 1,312 Git blobs 일치·task/processSHA·단일backend listener·health/ready200·보호API3개401·보호13표 내용/스키마 전후불변 PASS. 이전 릴리스/task XML 복구점 보존. code-only로 전체DB백업/복원을 반복하지 않았다.
+- 새 기동의 독립 색인 준비는 첫 브라우저 방문 전에 시작됐고 검증된 동일 입력 캐시로0.9초 완료. Ego34 인증 읽기에서 새 스크립트·동일 검색 예약2건·약1.391초·busy=false/버튼복구·가로넘침0 확인 후 공간 종료. 이는 재수집 원문 파싱 전체의 성능 보장이 아니다. 금융·여행·Google·원본·스키마 업무 쓰기/재처리 없음.
+- 로컬 근거 `C:/AX/cost-deploy-qa-20261103/.local-archive/flight-refresh-20261104/`의 checkpoint/Windows 및 hosted QA XML/summary/release-audit/protection-before/after/deploy-evidence/live-flight-search JSON. 호스트 `D:/WebLedgerHost/releases/deploy-evidence-097d7dabe787816244ddf8df03eb759032f84672.json`. 이 요청 미결0. 후속 문서 병합으로 재배포·재시작하지 않는다.
+
 ## 2026-11-04 UI/UX 검토 개선 배포
 
 - UR01~UR09 구현 [PR #602](https://github.com/6Soo/cost/pull/602) 병합 SHA `46339830d9ab7e93be38529094d106b49c2a9036`을 `d26b43e9cc9f66ef89d2385d163b67ef7f04bba4`에서 공식 절차로 전환했다 (2026-11-03 15:25:39 UTC). 모바일 메뉴 포커스, 영수증 입력, 지출 상태 집계, OTA 검색·진단, 모바일 밀도, 공통 헤더·타이포, 홈 집계 명칭을 개선했다.
