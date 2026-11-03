@@ -18,7 +18,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 9
+PARSER_VERSION = 10
 MATCHER_VERSION = 5
 
 
@@ -80,10 +80,11 @@ def _parse_mail_events(directories):
         raise OtaSourcesError(failures)
     events = {}
     context = ota_booking_context.collect(messages)
+    from app import airline_payment_mail
+    airline_cancellations = {value for message in messages.values()
+                             for value in airline_payment_mail.cancellation_references(message)}
     for message_id, message in sorted(messages.items()):
-        fact = ota_mail.extract_mail(message)
-        if not fact:
-            fact = _extract_signed_payment_message(message)
+        fact = extract_payment_fact(message)
         if not fact:
             continue
         amount = fact.get("paid_amount_krw")
@@ -91,6 +92,8 @@ def _parse_mail_events(directories):
         event_type = fact.get("event_type", "charge")
         explicit_status = fact.get("evidence_status")
         status = explicit_status or ("paid_verified" if amount not in (None, 0) else "not_card_charge")
+        if (fact.get('provider'), fact.get('booking_ref')) in airline_cancellations:
+            status = 'evidence_conflict'
         preauthorized = fact.get('preauthorized_amount_krw')
         if preauthorized and not amount and not explicit_status:
             status = 'preauthorized'
@@ -151,6 +154,19 @@ def _parse_mail_events(directories):
     from app import forest_mail, forest_payment_mail, toyoko_mail
     return (list(events.values()) + toyoko_mail.collect(messages, inventory)
             + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory))
+
+
+def extract_payment_fact(message):
+    """Prefer a richer signed payment fact only for the same active reservation."""
+    from app import airline_payment_mail
+    fact = ota_mail.extract_mail(message)
+    if fact and fact.get('paid_amount_krw') is None and fact.get('reservation_status') != 'cancelled':
+        richer = _extract_signed_payment_message(message)
+        if (richer and richer.get('provider') == fact.get('provider')
+                and richer.get('booking_ref') == fact.get('booking_ref')
+                and richer.get('evidence_status') == 'paid_verified'):
+            return richer
+    return fact or airline_payment_mail.extract(message) or _extract_signed_payment_message(message)
 
 
 def _trip_japanese_paid_stay(message, headers, text):
@@ -1055,6 +1071,8 @@ def provider_compatible(event, row, rules=()):
     known = {provider_for_merchant(value) for value in _merchant_descriptors(row)} - {None, ''}
     if any(value != provider for value in known):
         return False
+    if provider in ('asiana', 'skyticket'):
+        return provider in known
     if provider == 'trip':
         aliases = load_defaults().get('provider_merchant_aliases', {}).get('trip', ())
         return (_same_day_exact_amount(event, row) or _undated_exact_identity(event, row, rules) or

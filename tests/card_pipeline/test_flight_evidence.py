@@ -331,3 +331,15 @@ def test_collect_reuses_memo_for_identical_stamps(tmp_path):
         mail_file.write_text('{"responses": [1]}', encoding="utf-8")
         collect_flight_evidence([tmp_path])
         assert load.call_count == 2
+
+
+def test_received_fact_accepts_internalDate_synthetic():
+    msg = {"internalDate": "1893456000000"}
+    fact = flight_evidence._received_fact(msg, "digest-synthetic")
+    assert fact is not None
+    assert fact["source_date"] == "2030-01-01"
+
+
+def test_received_fact_rejects_conflicting_spelling_synthetic():
+    msg = {"internal_date": "1893456000000", "internalDate": "1893456000001"}
+    assert flight_evidence._received_fact(msg, "digest-synthetic") is None

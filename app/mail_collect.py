@@ -9,7 +9,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking.com', 'agoda-messaging.com',
-                    'toyoko-inn.com', 'toyoko-inn.co.jp', 'forest.go.kr', 'foresttrip.go.kr')
+                    'toyoko-inn.com', 'toyoko-inn.co.jp', 'forest.go.kr', 'foresttrip.go.kr',
+                    'flyasiana.com', 'skyticket.com')
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
@@ -103,7 +104,9 @@ def collect(client, directory: Path, now: datetime | None = None) -> dict:
     assert all(f'to:{address}' in query for address in ALWAYS_RECIPIENTS), 'always-collected recipient missing from query'
     listed = client.list_ids(query)
     stored = stored_ids(directory)
-    fresh = [message_id for message_id in listed if message_id not in known and message_id not in stored]
+    # A listing watermark is not evidence that the original is still present.
+    # Recover listed IDs whose files are missing; never replace an existing original.
+    fresh = [message_id for message_id in listed if message_id not in stored]
     messages = [client.get_full(message_id) for message_id in fresh]
     if messages:
         stamp = now.strftime('%Y%m%dT%H%M%S')
@@ -120,6 +123,33 @@ def collect(client, directory: Path, now: datetime | None = None) -> dict:
     temp = state_path.with_suffix('.tmp')
     temp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
     os.replace(temp, state_path)
+    sync_unified_store(directory)
+    return {'matched': len(listed), 'fetched': len(messages), 'query': query}
+
+
+def collect_window(client, directory: Path, after: str, before: str) -> dict:
+    """Append a bounded historical query without changing the recurring watermark."""
+    import tempfile
+    import uuid
+    directory = Path(directory)
+    start, end = date.fromisoformat(after), date.fromisoformat(before)
+    if start >= end:
+        raise ValueError('MAIL_WINDOW_INVALID')
+    query = build_query(start.isoformat()) + ' before:' + end.isoformat().replace('-', '/')
+    listed = list(dict.fromkeys(client.list_ids(query)))
+    stored = stored_ids(directory)
+    messages = [client.get_full(message_id) for message_id in listed if message_id not in stored]
+    if messages:
+        path = directory / f'gmail-window-{uuid.uuid4().hex}.json'
+        fd, temporary = tempfile.mkstemp(prefix='.mail-window-', suffix='.tmp', dir=directory)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as output:
+                json.dump({'responses': messages}, output, ensure_ascii=False)
+                output.flush()
+                os.fsync(output.fileno())
+            os.link(temporary, path)
+        finally:
+            os.unlink(temporary)
     sync_unified_store(directory)
     return {'matched': len(listed), 'fetched': len(messages), 'query': query}
 
@@ -238,12 +268,17 @@ def main(argv=None) -> int:
     parser.add_argument('--token-file', required=True)
     parser.add_argument('--client-file', required=True)
     parser.add_argument('--authorize', action='store_true')
+    parser.add_argument('--after', help='historical window lower bound (exclusive, YYYY-MM-DD)')
+    parser.add_argument('--before', help='historical window upper bound (exclusive, YYYY-MM-DD)')
     args = parser.parse_args(argv)
     if args.authorize:
         authorize(Path(args.client_file), Path(args.token_file))
         return 0
     client = GmailApi(args.token_file, args.client_file)
-    result = collect(client, Path(args.directory))
+    if bool(args.after) != bool(args.before):
+        parser.error('--after and --before must be used together')
+    result = (collect_window(client, Path(args.directory), args.after, args.before)
+              if args.after else collect(client, Path(args.directory)))
     print(f"matched {result['matched']} fetched {result['fetched']}")
     return 0
 

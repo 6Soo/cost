@@ -5,7 +5,9 @@
     "trip": ["trip.com", "trip.com korea", "트립닷컴", "트립"],
     "klook": ["klook", "클룩"],
     "booking": ["booking.com", "booking", "부킹닷컴"],
-    "gotogate": ["gotogate", "고투게이트"]
+    "gotogate": ["gotogate", "고투게이트"],
+    "asiana": ["아시아나항공", "flyasiana"],
+    "skyticket": ["skyticket", "스카이티켓", "주식회사 어드벤처코리아"]
   },
   "provider_merchant_alias_records": {
     "agoda": [

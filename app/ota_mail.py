@@ -248,6 +248,15 @@ def body_text(part):
     return value+'\n'+'\n'.join(body_text(p) for p in (part.get('parts') or []))
 
 
+def mail_internal_date(message):
+    """Read Gmail REST and archived field spellings without changing originals."""
+    snake = message.get('internal_date')
+    camel = message.get('internalDate')
+    if snake not in (None, '') and camel not in (None, '') and str(snake) != str(camel):
+        return None
+    return snake if snake not in (None, '') else camel
+
+
 def sent_day(message, headers):
     """수신 지연과 결제일을 구분하고 서명된 발송 날짜를 보존한다."""
     try:
@@ -255,7 +264,7 @@ def sent_day(message, headers):
         if sent.tzinfo is None:
             return None
         zone = datetime.timezone(datetime.timedelta(hours=9))
-        received = datetime.datetime.fromtimestamp(int(message['internal_date'])/1000, zone)
+        received = datetime.datetime.fromtimestamp(int(mail_internal_date(message))/1000, zone)
         sent = sent.astimezone(zone)
         # 수신 지연은 허용하되 미래 발송일은 근거로 쓰지 않는다.
         if sent > received + datetime.timedelta(days=1):

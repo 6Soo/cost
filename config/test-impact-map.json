@@ -9,6 +9,21 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "airline-payment-mail",
+      "paths": [
+        "app/airline_payment_mail.py",
+        "tests/card_pipeline/test_airline_payment_mail.py",
+        "tests/card_pipeline/test_mail_collect.py",
+        "config/ota-matching-defaults.json"
+      ],
+      "tests": [
+        "tests/card_pipeline/test_airline_payment_mail.py",
+        "tests/card_pipeline/test_mail_collect.py",
+        "tests/card_pipeline/test_ota_payments.py",
+        "webapp/tests/test_classification_correction.py"
+      ]
+    },
+    {
       "name": "google-demo-publication",
       "paths": ["app/google_demo.py", "webapp/google_demo_page.py", "webapp/tests/test_google_demo_page.py", "tests/card_pipeline/test_google_demo.py", "config/runtime-environment-catalog.json"],
       "tests": ["tests/card_pipeline/test_google_demo.py", "webapp/tests/test_google_demo_page.py", "webapp/tests/test_google_viewer_http.py", "webapp/tests/test_access_control_phase7.py", "tests/test_verify_runtime_environment.py"]
