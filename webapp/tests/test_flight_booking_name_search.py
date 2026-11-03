@@ -350,6 +350,7 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
         screen.goto('http://synthetic.test/flight-passengers')
         screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
         screen.get_by_role('button', name='예약 조회', exact=True).click()
+        expect(screen.locator('.fb-ticket')).to_have_count(1)
         if screen.locator('.fb-booking-choice > summary').count():
             screen.locator('.fb-booking-choice > summary').first.click()
         screen.get_by_text('카드 거래 보기', exact=True).click()
