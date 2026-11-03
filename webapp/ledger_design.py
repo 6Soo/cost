@@ -1375,7 +1375,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
            + ("<details class='p-extra'><summary>추가 정보·변경 이유</summary><div class='p-extra-fields'>"
               + "".join(extra_fields) + "</div></details>" if compact_expense else "")
            + note)
-        "<details class='p-src'>"
+        + "<details class='p-src'>"
         "<summary>원본 정보</summary>"
         f"<p class='p-sub'>{board.esc(row.get('source_event_id') or row['row_id'])}"
         f" · {board.esc(row.get('source_kind') or '')}"
