@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "jeju-trip-card-scope",
+      "paths": ["app/trip_selection.py", "app/automatic_classification.py", "tests/card_pipeline/test_jeju_trip_card_scope.py"],
+      "tests": ["tests/card_pipeline/test_jeju_trip_card_scope.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_priority_trip_assignment.py"]
+    },
+    {
       "name": "insurance-name-matching",
       "paths": [
         "app/insurance_income_match.py", "app/participant_income.py", "app/participant_sync.py",

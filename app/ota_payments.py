@@ -18,7 +18,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 10
+PARSER_VERSION = 11
 MATCHER_VERSION = 5
 
 
@@ -83,10 +83,16 @@ def _parse_mail_events(directories):
     from app import airline_payment_mail
     airline_cancellations = {value for message in messages.values()
                              for value in airline_payment_mail.cancellation_references(message)}
-    for message_id, message in sorted(messages.items()):
-        fact = extract_payment_fact(message)
-        if not fact:
-            continue
+    def payment_facts():
+        for message_id, message in sorted(messages.items()):
+            facts = airline_payment_mail.jeju_payment_facts(message)
+            if not facts:
+                fact = extract_payment_fact(message)
+                facts = [fact] if fact else []
+            for fact in facts:
+                yield message_id, message, fact
+
+    for message_id, message, fact in payment_facts():
         amount = fact.get("paid_amount_krw")
         paid_on = fact.get("paid_on")
         event_type = fact.get("event_type", "charge")
@@ -108,6 +114,8 @@ def _parse_mail_events(directories):
         card_match = re.search(r"(?:card|카드)(?:\s*(?:ending|ends|끝\s*자리))?\s*[:#-]?\s*(?:\*+|X+)?(\d{4})\b",
                                text, re.I)
         payment_id = fact.get("payment_id") or (payment_match.group(1) if payment_match else None)
+        identity_source = (source_id + ':payment:' + payment_id
+                           if fact['provider'] == 'jeju' and payment_id else source_id)
         raw_amount = fact.get("amount", amount if amount is not None else preauthorized)
         currency = fact.get("currency", "KRW")
         event = {
@@ -125,7 +133,7 @@ def _parse_mail_events(directories):
                  "scheduled" if status == "scheduled" else
                  "preauthorized" if status == "preauthorized" else "unknown"),
             "evidence_status": status, "source_digest": digest, "source_ids": [source_id],
-            "identity_source_ids": [source_id],
+            "identity_source_ids": [identity_source],
             "source_digests": [digest],
             "evidence_kind": "authenticated_payment_mail", "source_inventory": inventory,
             "payment_id": payment_id,
@@ -143,7 +151,7 @@ def _parse_mail_events(directories):
                 event["payment_event_id"] = "pay_" + _digest([fact["provider"], *payment_identity])
         event["source_lineage_ids"] = ["mail_" + _digest(source_id)]
         event["observation_ids"] = ["obs_" + _digest([event["source_lineage_ids"][0], message_id,
-            0, "authenticated_mail", event_type])]
+            identity_source if fact['provider'] == 'jeju' else 0, "authenticated_mail", event_type])]
         if not event["card_last4"] and card_match:
             event["card_last4"] = card_match.group(1)
         event["ota_event_id"] = _event_id(event["identity_source_ids"])
@@ -1071,7 +1079,7 @@ def provider_compatible(event, row, rules=()):
     known = {provider_for_merchant(value) for value in _merchant_descriptors(row)} - {None, ''}
     if any(value != provider for value in known):
         return False
-    if provider in ('asiana', 'skyticket'):
+    if provider in ('asiana', 'skyticket', 'jeju'):
         return provider in known
     if provider == 'trip':
         aliases = load_defaults().get('provider_merchant_aliases', {}).get('trip', ())

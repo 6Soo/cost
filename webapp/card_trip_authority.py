@@ -86,6 +86,7 @@ def trip_valid(flow, trip_id, *, google_periods, trip_authority, unchanged_workb
 
 def retail_trip(flow, transaction, country, *, google_nets):
     from app.rules import transaction_region, trip_region
+    from app.trip_selection import card_trip_allowed
     if isinstance(country,dict):
         if country.get('owner_card3820_singapore'):
             candidates = [t for t in flow.board.list_trips()
@@ -95,7 +96,7 @@ def retail_trip(flow, transaction, country, *, google_nets):
             return candidates[0]['tab_id'] if len(candidates) == 1 else ''
         if 'inferred_trip_id' in country:
             target=country['inferred_trip_id']
-            if not flow.trip_valid(target):
+            if not flow.trip_valid(target) or not card_trip_allowed(transaction, flow.board.get_trip(target) or {}):
                 return ''
             return target
         return flow.booking_trip(transaction,country)
@@ -112,7 +113,8 @@ def retail_trip(flow, transaction, country, *, google_nets):
     occurred = transaction['approval_date']
     from app.trip_selection import period_or_preparation
     candidates, preparation = period_or_preparation(
-        [trip for code, trip in flow._retail_trips if code == region], occurred)
+        [trip for code, trip in flow._retail_trips if code == region
+         and card_trip_allowed(transaction, trip)], occurred)
     if not candidates:
         return ''
     # 한 여행이 끝나고 다음 여행이 시작하는 날이면 수입-비용 차액이 큰 여행으로 보낸다.
@@ -128,7 +130,9 @@ def retail_trip(flow, transaction, country, *, google_nets):
 
 def booking_trip(flow, transaction, period, *, google_nets, handover_days, overlaps_stay, stay_trip):
     # 이용기간에 맞는 검증된 여행이다. 저장된 여행 이름이 그 기간과 겹치는 여행이면 그 여행을 쓴다.
-    verified = [t for t in flow.board.list_trips() if flow.trip_valid(t['tab_id'])]
+    from app.trip_selection import card_trip_allowed
+    verified = [t for t in flow.board.list_trips() if flow.trip_valid(t['tab_id'])
+                and card_trip_allowed(transaction, t)]
     service = period.get('service', False)
     handover = handover_days(verified)
     named = [t for t in verified if t['display_key']==period.get('target_code')

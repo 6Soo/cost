@@ -80,3 +80,39 @@ def test_explicit_gmt_booking_date_takes_precedence_over_received_date(tmp_path)
     assert result['booking_date_status'] == 'EXPLICIT_LABEL'
     assert result['reserved_on'] == '2026-09-16'
     assert result['booking_card_day'] == ''
+
+
+def test_jeju_amendment_keeps_two_charges_and_repeated_original_observation(tmp_path):
+    body = ('예약번호 ABC123\n예약일\n2026.07.20 (월)\n가는편\nSTANDARD\n편명 7C1601\n'
+            '2026.08.06 (목) 07:05\n오는편\n2026.08.12 (수) 10:00\n'
+            '카드번호\n050204*****1923\n승인번호\n30107803\n결제일\n2026.07.20\n결제금액\n311,600 원\n')
+    first = message('reservation@jejuair.net', '고객님의 제주항공 여정확인서(e-ticket) 입니다.', body)
+    subject = '고객님의 제주항공 여정확인서(e-ticket) 입니다.'
+    changed = message('reservation@jejuair.net', subject,
+                      body.replace('2026.08.12', '2026.08.11') +
+                      '카드번호\n050204*****1923\n승인번호\n30109119\n결제일\n2026.07.31\n결제금액\n85,600 원\n')
+    changed['id'] = 'amended'
+    (tmp_path / 'gmail-synthetic.json').write_text(json.dumps({'responses': [first, changed]}), encoding='utf-8')
+    events = ota_payments._parse_mail_events([tmp_path])
+    assert len(events) == 3
+    assert len({e['ota_event_id'] for e in events}) == 3
+    assert len({e['payment_event_id'] for e in events}) == 2
+    assert sorted(e['amount_krw'] for e in events) == [85600, 311600, 311600]
+    assert all(e['card_last4'] is None for e in events)
+    assert all(e['service_period'] == {'starts_on': '2026-08-06', 'ends_on': '2026-08-06'} for e in events)
+    assert all(ota_payments.provider_compatible(e, {'merchant': '(주)제주항공(ISP)'}) for e in events)
+    assert all(not ota_payments.provider_compatible(e, {'merchant': '다른항공사'}) for e in events)
+    card = dict(merchant='(주)제주항공(ISP)', approval_date='2026-07-31', amount_krw=85600,
+                transaction_direction='purchase', card_tail='8835')
+    extra = next(e for e in events if e['amount_krw'] == 85600)
+    assert ota_payments.pair_check(extra, card) is None
+    from webapp.ota_catalog import PROVIDERS
+    assert PROVIDERS['jeju'] == '제주항공'
+    assert airline_payment_mail.jeju_payment_facts(message('x@jejuair.net.example', subject, body)) == []
+
+
+def test_jeju_rejects_ambiguous_charge_and_cancellation_blocks_payment(tmp_path):
+    body = '예약번호 ABC123\n승인번호\n12345678\n결제일\n2026.07.20\n결제금액\n311,600 원\n결제금액\n1,000 원'
+    subject = '제주항공 여정확인서(e-ticket) 입니다.'
+    assert airline_payment_mail.jeju_payment_facts(message('reservation@jejuair.net', subject, body)) == []
+    assert airline_payment_mail.cancellation_references(message('reservation@jejuair.net', '취소 완료', '예약번호 ABC123')) == {('jeju', 'ABC123')}
