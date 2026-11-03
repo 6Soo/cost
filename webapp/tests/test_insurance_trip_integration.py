@@ -141,12 +141,12 @@ def test_no_match_button_opens_roster_and_preselects_income_without_writing():
             page.goto('http://synthetic.test/')
             page.locator('#participant-trip-panel summary').first.click()
             button = page.locator('.participant-insurance-cell .insurance-candidate-button')
-            assert button.inner_text() == '글자 일치 없음'
+            assert button.inner_text() == '이름 일치 없음'
             button.click()
             dialog = page.locator('#insurance-candidate-dialog')
             assert dialog.is_visible()
             assert '김*수' in dialog.inner_text() and '직접 비교' in dialog.inner_text()
-            assert '이미 연결된 사람' in dialog.inner_text()
+            assert '이미 연결된 사람' not in dialog.inner_text()
             dialog.locator('[data-insurance-connect-ref]').click()
             assert not dialog.is_visible()
             assert page.locator('.participant-keyboard-link [name=income_ref]').input_value() == ref
@@ -155,6 +155,24 @@ def test_no_match_button_opens_roster_and_preselects_income_without_writing():
             assert value == before
         finally:
             browser.close()
+
+
+def test_connected_roster_people_are_excluded_from_candidate_lists():
+    from webapp.tests.test_participant_trip_panel import sample_state
+    value = sample_state(2)
+    value['roster']['participants'][0]['display_name'] = '김민수'
+    value['roster']['participants'][1]['display_name'] = '이영희'
+    value['participants'] = [{'participant_id': 'person-0', 'display_name': '김민수',
+                              'links': [{'income_ref': value['income_rows'][0]['ref'], 'method': 'manual'}]}]
+    ref = value['income_rows'][1]['ref']
+    value['insurance_review'] = {'available': True, 'counts': {'contracts': 1, 'rows': 2},
+        'contracts': [{'rows': [
+            {'masked_name': '김*수', 'match_state': 'ambiguous', 'matches': [{'ref': ref}]},
+            {'masked_name': '이*희', 'match_state': 'ambiguous', 'matches': [{'ref': ref}]},
+        ]}]}
+    markup = panel.render(value)
+    assert '김*수' not in markup
+    assert '이*희' in markup and '보험 명단 후보 1건' in markup
 
 
 @pytest.mark.parametrize('generation', ['one', 'changed'])
