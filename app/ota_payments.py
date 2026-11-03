@@ -18,7 +18,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 11
+PARSER_VERSION = 12
 MATCHER_VERSION = 5
 
 
