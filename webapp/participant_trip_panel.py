@@ -140,7 +140,7 @@ def _review_markup(state, data):
             amount = income.get('amount')
             amount_label = f'{amount:,}원' if isinstance(amount, int) else '금액 미기재'
             no_match = not hits
-            roster = ("<p>글자가 일치하지 않아 같은 여행의 명단을 직접 비교합니다. "
+            roster = ("<p>글자가 일치하지 않아 이 여행에 연결되거나 일정이 겹치는 명단을 직접 비교합니다. "
                       "명단에는 이미 연결된 사람이 포함될 수 있습니다.</p>"
                       "<div data-insurance-roster></div>" if no_match else
                       f"<ul class='insurance-candidate-list'>{''.join(cards)}</ul>")
