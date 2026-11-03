@@ -254,7 +254,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'prepare', 'drain', 'takeover'])
+@pytest.mark.parametrize('failure', ['', 'prepare', 'drain', 'takeover', 'identity', 'candidate_identity'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -283,6 +283,7 @@ $global:events=[Collections.Generic.List[string]]::new()
 $global:board=[pscustomobject]@{State='Running';Actions=@([pscustomobject]@{Execute='powershell';Arguments="-File $Old/start.ps1 -BoardPort 8751"});Principal=@{};Settings=@{}}
 $global:prepared=$null
 $global:ports=@{8751=$Old}
+$global:supervisors=@{8751=$true;8752=$false}
 $global:takeoverFailed=$false
 function Get-ScheduledTask {
     param($TaskName)
@@ -302,6 +303,7 @@ function Start-ScheduledTask {
     $task.State='Running'
     $port=if($task.Actions[0].Arguments.Contains('-BoardPort 8752')){8752}else{8751}
     $global:ports[$port]=if($task.Actions[0].Arguments.Contains($New)){$New}else{$Old}
+    $global:supervisors[$port]=$true
 }
 function Stop-ScheduledTask {param($TaskName); $global:events.Add('stop:'+$TaskName); (Get-ScheduledTask $TaskName).State='Ready'}
 function Set-ScheduledTask {param($TaskName,$Action); $global:board.Actions=@($Action)}
@@ -316,10 +318,24 @@ function Get-NetTCPConnection {
 function Get-CimInstance {
     param($ClassName,$Filter)
     $processId=[int]($Filter -replace 'ProcessId=','')
-    if($processId -eq 8790){$line='ledger_gateway.py'}elseif($global:ports.ContainsKey($processId)){$line=$global:ports[$processId]+' launch_web_ledger.py'}else{return}
-    [pscustomobject]@{ProcessId=$processId;ParentProcessId=99999;CommandLine=$line}
+    if($processId -eq 8790){$line='ledger_gateway.py';$parent=99999}
+    elseif($global:ports.ContainsKey($processId)){$line=$global:ports[$processId]+' launch_web_ledger.py';$parent=$processId+10000}
+    elseif($processId -in @(18751,18752) -and $global:ports.ContainsKey($processId-10000)){$line=$global:ports[$processId-10000]+' launch_web_ledger.py';$parent=$processId+10000}
+    elseif($processId -in @(28751,28752) -and $global:ports.ContainsKey($processId-20000) -and $global:supervisors[$processId-20000]){
+        $line=if(($Failure -eq 'identity' -and $processId -eq 28751) -or ($Failure -eq 'candidate_identity' -and $processId -eq 28752)){'unrelated supervisor'}else{$global:ports[$processId-20000]+'\tools\start_web_ledger_host.ps1 -BoardPort '+($processId-20000)}
+        $parent=99999
+    }
+    else{return}
+    $name=if($processId -in @(28751,28752)){'powershell.exe'}else{'python.exe'}
+    [pscustomobject]@{ProcessId=$processId;ParentProcessId=$parent;CommandLine=$line;Name=$name}
 }
-function Stop-Process {param($Id); $global:events.Add('kill:'+$Id); $global:ports.Remove([int]$Id)}
+function Stop-Process {
+    param($Id)
+    $global:events.Add('kill:'+$Id)
+    if($Id -in @(28751,28752)){$global:supervisors[[int]$Id-20000]=$false;return}
+    if($global:supervisors[[int]$Id]){return} # A surviving supervisor restarts its backend.
+    $global:ports.Remove([int]$Id)
+}
 function Invoke-WebRequest {
     param($Uri,$TimeoutSec,[switch]$UseBasicParsing)
     if("$Uri" -match ':8752/' -and $Failure -eq 'prepare'){throw 'SYNTHETIC_NOT_READY'}
@@ -345,8 +361,14 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS' } catch { 
         assert report['outcome'] == 'PASS', report
         assert new in report['board'] and report['new_alive'] and not report['old_alive']
         assert report['events'].index('route:pause') < report['events'].index('kill:8751') < report['events'].index('route:activate')
+        assert report['events'].index('kill:28751') < report['events'].index('kill:8751')
+        assert 'kill:28752' in report['events']
     else:
         assert report['outcome'] == 'FAILED', report
-        assert old in report['board'] and report['old_alive'] and not report['new_alive'], report
-        if failure in ('prepare', 'drain'):
+        assert old in report['board'] and report['old_alive'], report
+        if failure == 'candidate_identity':
+            assert report['new_alive'] and 'kill:8752' not in report['events']
+        else:
+            assert not report['new_alive'], report
+        if failure in ('prepare', 'drain', 'identity', 'candidate_identity'):
             assert 'stop:WebLedger-Board' not in report['events'], report

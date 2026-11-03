@@ -15,6 +15,8 @@ $paused=$false
 $oldStopped=$false
 $switched=$false
 $candidateStarted=$false
+$oldSupervisor=$null
+$preparedSupervisor=$null
 function Route-Control([string]$Action,[int]$Port=0) {
     $parameters=@($controller,$Action,'--route',$route,'--status',$status)
     if($Port){$parameters+=@('--port',[string]$Port)}
@@ -54,6 +56,24 @@ function Stop-Backend([int]$Port,[string]$Sha) {
         if($parent -and $parent.CommandLine -and $parent.CommandLine.Contains($Sha) -and $parent.CommandLine.Contains('launch_web_ledger.py')){Stop-Process -Id $parent.ProcessId -ErrorAction SilentlyContinue}
     }
 }
+function Get-BackendSupervisor([int]$Port,[string]$Sha) {
+    $listeners=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    if($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne '127.0.0.1'){throw 'SUPERVISOR_LISTENER_INVALID'}
+    $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($listeners[0].OwningProcess)"
+    if(-not $process -or -not $process.CommandLine.Contains($Sha) -or -not $process.CommandLine.Contains('launch_web_ledger.py')){throw 'SUPERVISOR_BACKEND_IDENTITY_INVALID'}
+    $parent=Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ParentProcessId)"
+    if(-not $parent -or -not $parent.CommandLine.Contains($Sha) -or -not $parent.CommandLine.Contains('launch_web_ledger.py')){throw 'SUPERVISOR_PARENT_IDENTITY_INVALID'}
+    $supervisor=Get-CimInstance Win32_Process -Filter "ProcessId=$($parent.ParentProcessId)"
+    if(-not $supervisor -or $supervisor.Name -notin @('powershell.exe','pwsh.exe') -or -not $supervisor.CommandLine.Contains("$Sha\tools\start_web_ledger_host.ps1") -or $supervisor.CommandLine -notmatch "-BoardPort $Port( |$)"){throw 'SUPERVISOR_IDENTITY_INVALID'}
+    return @{pid=[int]$supervisor.ProcessId;sha=$Sha;port=$Port;created=$supervisor.CreationDate}
+}
+function Stop-VerifiedSupervisor($Identity) {
+    if(-not $Identity){return}
+    $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($Identity.pid)"
+    if(-not $process){return}
+    if(($Identity.created -and $process.CreationDate -ne $Identity.created) -or $process.Name -notin @('powershell.exe','pwsh.exe') -or -not $process.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -or $process.CommandLine -notmatch "-BoardPort $($Identity.port)( |$)"){throw 'SUPERVISOR_IDENTITY_CHANGED'}
+    Stop-Process -Id $process.ProcessId -ErrorAction Stop
+}
 try {
     $task=Get-ScheduledTask -TaskName WebLedger-Board
     $old=$task.Actions[0]
@@ -71,6 +91,7 @@ try {
     $canPrepare=Test-Path -LiteralPath "$hostRoot\releases\$CandidateSha\webapp\deployment_role.py" -PathType Leaf
     if(@(Get-NetTCPConnection -LocalPort $newPort -State Listen -ErrorAction SilentlyContinue).Count){throw 'PREPARED_PORT_OCCUPIED'}
     if(Get-ScheduledTask -TaskName WebLedger-Prepared -ErrorAction SilentlyContinue){throw 'PREPARED_TASK_EXISTS'}
+    $oldSupervisor=Get-BackendSupervisor $oldPort $PreviousSha
     $newArguments=$old.Arguments.Replace($PreviousSha,$CandidateSha) -replace "-BoardPort $oldPort( |$)","-BoardPort $newPort`$1"
     if($canPrepare) {
         if($newArguments -notmatch '(?i)-DeploymentRoute\s'){$newArguments+=' -DeploymentRoute "'+$route+'"'}
@@ -89,12 +110,14 @@ try {
         $candidateStarted=$true
         Start-ScheduledTask -TaskName WebLedger-Prepared
         Wait-Backend $newPort $CandidateSha
+        $preparedSupervisor=Get-BackendSupervisor $newPort $CandidateSha
     }
     # No operating task has been stopped before the candidate passes readiness.
     $paused=$true
     Route-Control 'pause'
     Stop-ScheduledTask -TaskName WebLedger-Board
     $oldStopped=$true
+    Stop-VerifiedSupervisor $oldSupervisor
     Stop-Backend $oldPort $PreviousSha
     # Keep the private entry port available to the new supervisor.
     foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
@@ -114,6 +137,7 @@ try {
     $switched=$true
     if($registered) {
         Stop-ScheduledTask -TaskName WebLedger-Prepared
+        Stop-VerifiedSupervisor $preparedSupervisor
         Start-ScheduledTask -TaskName WebLedger-Board
     }
     Wait-BoardTask
@@ -121,14 +145,21 @@ try {
     @{status='PASS';sha=$CandidateSha;previous_sha=$PreviousSha;backend_port=$newPort;gateway_port=8790;prepared_before_stop=[bool]$canPrepare;drained=$true;full_backup='NOT_REQUIRED_CODE_ONLY';at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content $evidence -Encoding UTF8
 } catch {
     $originalError=$_.FullyQualifiedErrorId
+    $cleanupUnknown=$false
     if($switched){
         $paused=$true
         try {Route-Control 'pause'} catch {Route-Control 'resume'; throw 'ROLLBACK_DRAIN_FAILED_CANDIDATE_PRESERVED'}
     }
-    if($registered){Stop-ScheduledTask -TaskName WebLedger-Prepared -ErrorAction SilentlyContinue}
+    if($registered){
+        Stop-ScheduledTask -TaskName WebLedger-Prepared -ErrorAction SilentlyContinue
+        if(-not $preparedSupervisor -and $candidateStarted -and @(Get-NetTCPConnection -LocalPort $newPort -State Listen -ErrorAction SilentlyContinue).Count){
+            try {$preparedSupervisor=Get-BackendSupervisor $newPort $CandidateSha} catch {$cleanupUnknown=$true}
+        }
+        if($preparedSupervisor){try {Stop-VerifiedSupervisor $preparedSupervisor} catch {$cleanupUnknown=$true}}
+    }
     if($candidateStarted) {
         if($switched -or -not $canPrepare){Stop-ScheduledTask -TaskName WebLedger-Board -ErrorAction SilentlyContinue}
-        Stop-Backend $newPort $CandidateSha
+        if(-not $cleanupUnknown){Stop-Backend $newPort $CandidateSha}
     }
     if($oldStopped) {
         Set-ScheduledTask -TaskName WebLedger-Board -Action $old | Out-Null
@@ -137,6 +168,7 @@ try {
         Wait-Backend $oldPort $PreviousSha
         Route-Control 'activate' $oldPort
     } elseif($paused) {Route-Control 'resume'}
+    if($cleanupUnknown){throw 'CONTINUOUS_SWITCH_FAILED_CANDIDATE_SUPERVISOR_UNVERIFIED'}
     throw "CONTINUOUS_SWITCH_FAILED_$originalError"
 } finally {
     if($registered){Unregister-ScheduledTask -TaskName WebLedger-Prepared -Confirm:$false -ErrorAction SilentlyContinue}
