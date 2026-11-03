@@ -1,3 +1,10 @@
+## 2026-11-03 트립닷컴 날짜 중복·OTA 출처 문구 배포
+
+- [PR #572](https://github.com/6Soo/cost/pull/572), 구현 `dbb7487c`, 비교 검사 기준 교정 `3c661999`, 병합 `2c0616a27470e73c66b568cae80b639a95f0e1fd`를 포함한 합동 `d57675a512f3c1446d0d3c9d3966114637640220` 배포 완료(07:15:21Z). 동일 숙박기간의 설명 중복만 숨기고 OTA 코드 추론 출처를 표시한다. 미상·오류·다른 기간/메모/원본/예약번호/AI 추론 표시는 보존한다.
+- 정확2c061 Windows 영향 QA478 passed·43 subtests·skip0, PR CI41592175031/main CI41592668337 성공. 근거 `.local-archive/expense-date-inference-20261103/final-windows-quality/`의 run-summary/JUnit/pytest.log 및 ci/ 원본. 초기 dbb QA의 과거 비교 기준2실패와 최종 통과를 구별한다.
+- 공식 단일 작성자650fe1e1이 `044b535c`→`d57675a5` 전환. `D:/WebLedgerHost/releases/deploy-evidence-d57675a512f3c1446d0d3c9d3966114637640220.json`: 1308 tracked blobs 불일치0, runtime SHA 확인, backend8752, listener1, health/ready200, 보호API3개401, 보호13표 내용/스키마 불변. 코드 전용이며 금융/Google/원본/여행 쓰기·스키마/대량 재처리 없음. 기존 검증 릴리스/작업 복구 수단을 유지하며 전체DB백업을 반복하지 않았다.
+- 첫 인증 운영 board의 main·43행·`코드 추론`4건 확인. 추가 여행 이동과 동일공간 reload/p2는 browser timeout으로 미완료다. 운영 날짜 전후 비교·세 여행 전체 검증 완료를 주장하지 않는다. 브라우저 오류 상태 Ego17을 보존했으며 추가 읽기 수락만 남았다. 문서 후속만으로 코드 테스트·재배포·서버 재시작하지 않는다.
+
 ## 2026-11-03 제주항공 OTA·카드 제한 배포
 
 - PR #566 정상 병합 `f1b1ff63b5eaefcbea914808f3022ec6044e3a1e`, PR CI41578660810·main CI41579009582 성공. 원래 코드 검사573 passed·34 subtests·skip0를 재사용하고 후속 문서만으로 코드 검사를 반복하지 않았다.
