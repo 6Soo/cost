@@ -388,3 +388,22 @@ def test_configured_authority_failure_cannot_silently_replace_manual_choice(tmp_
              snapshot={"fresh": True, "generation": "g", "data": {"passengers": {"R": evidence("R")}}})
     assert handler.response == (503, {"code": "FLIGHT_AUTHORITY_UNAVAILABLE"})
     assert not path.exists()
+
+
+def test_card_authority_read_failure_does_not_fall_back_to_departure_date(monkeypatch):
+    from webapp import trip_flight_read
+    class Handler:
+        def _send_json(self, body, status=200):
+            self.response = status, body
+    class BrokenConnection:
+        def execute(self, *args):
+            raise sqlite3.OperationalError("synthetic read failure")
+    board = SimpleNamespace(live_trips=lambda **kwargs: [trip("A", "2026-11-07", "2026-11-10")],
+                            conn=BrokenConnection())
+    monkeypatch.setattr(trip_flight_read, "confirmed_booking_card_links", lambda *_: {
+        "R": [{"transaction_id": "synthetic", "link_source": "USER_CONFIRMED"}]})
+    handler = Handler()
+    dispatch(handler, SimpleNamespace(path="/api/trips/A/flight-bookings", query=""),
+             board=board, is_owner=True, booking_trip_rules={},
+             snapshot={"fresh": True, "generation": "g", "data": {"passengers": {"R": evidence("R")}}})
+    assert handler.response == (503, {"code": "FLIGHT_AUTHORITY_UNAVAILABLE"})
