@@ -54,8 +54,8 @@
     },
     {
       "name": "google-demo-publication",
-      "paths": ["app/google_demo.py", "webapp/google_demo_page.py", "webapp/tests/test_google_demo_page.py", "tests/card_pipeline/test_google_demo.py", "config/runtime-environment-catalog.json"],
-      "tests": ["tests/card_pipeline/test_google_demo.py", "webapp/tests/test_google_demo_page.py", "webapp/tests/test_google_viewer_http.py", "webapp/tests/test_access_control_phase7.py", "tests/test_verify_runtime_environment.py"]
+      "paths": ["app/google_demo.py", "webapp/google_demo_page.py", "tools/google_authority_sync.py", "webapp/tests/test_google_demo_page.py", "tests/card_pipeline/test_google_demo.py", "config/runtime-environment-catalog.json"],
+      "tests": ["tests/card_pipeline/test_google_demo.py", "tests/card_pipeline/test_google_authority.py", "tests/card_pipeline/test_sync_schedule.py", "webapp/tests/test_google_demo_page.py", "webapp/tests/test_google_viewer_http.py", "webapp/tests/test_access_control_phase7.py", "tests/test_verify_runtime_environment.py"]
     },
     {
       "name": "continuous-release-gateway",
