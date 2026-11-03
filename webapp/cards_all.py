@@ -193,6 +193,7 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-table .card-all-trip-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.35;font-weight:600}
  .card-all-page .card-all-table .card-all-trip-source{display:none}
  .card-all-page .card-all-table .card-all-badges{max-width:135px}
+ .card-all-page .card-all-table a.card-all-badge.card-review-action{min-width:44px;min-height:44px;align-items:center;justify-content:center}
  .card-all-page .card-all-table tbody tr.card-all-expanded:not([hidden]){display:block;width:100%;border-bottom:1px solid var(--ca-border)}
  .card-all-page .card-all-table tbody tr.card-all-expanded>td{display:block;width:100%;padding:10px 4px}
  .card-all-page .card-all-table tbody tr.card-all-expanded[hidden]{display:none}

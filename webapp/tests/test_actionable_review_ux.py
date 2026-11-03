@@ -74,6 +74,8 @@ def test_history_review_button_opens_exact_editable_transaction(flow, monkeypatc
                 page.goto(f'http://127.0.0.1:{server.server_address[1]}/cards/all?year=2026&month=4')
                 target = page.locator(f'tr[data-tx-id="{row["transaction_id"]}"]')
                 link = target.locator('.card-review-action')
+                box = link.bounding_box()
+                assert box['width'] >= 44 and box['height'] >= 44
                 query = parse_qs(urlsplit(link.get_attribute('href')).query)
                 assert query == {'batch': [batch], 'transaction': [row['transaction_id']]}
                 link.click()
