@@ -1353,7 +1353,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
 
     current_tab = value_of("display_tab_id", row.get("display_tab_id") or "")
     fields.append(
-        "<div class='f'><label for='f-trip-search'>여행 검색</label>"
+        "<div class='f f-trip-edit'><label for='f-trip-search'>여행 검색</label>"
         "<input id='f-trip-search' type='search' autocomplete='off' placeholder='여행 이름 검색'>"
         "<label for='f-display_tab_id'>여행</label>"
         f"<select id='f-display_tab_id' name='display_tab_id'{' disabled' if 'display_tab_id' not in allowed else ''}>"
