@@ -216,12 +216,15 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     state = state_query(tab_id, query, kind, archived)
     drawer_open = archived in ("1", "open", "true")
 
-    def entry(label, href, count, current, warn=False, archived_row=False, icon=""):
+    def entry(label, href, count, current, warn=False, archived_row=False, icon="", closed=False):
         cls = "nv sel" if current else ("nv nv-arch" if archived_row else "nv")
+        if closed:
+            cls += " nv-closed"
         badge = (f"<span class='ct{' warn' if warn else ''}'>{count}</span>"
                  if count is not None else "")
         icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
-        return (f"<li><a class='{cls}' href='{href}'"
+        accessible = f" aria-label='{label} · 마감'" if closed else ''
+        return (f"<li><a class='{cls}' href='{href}'{accessible}"
                 f"{' aria-pressed=\"true\"' if current else ''}>"
                 f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
 
@@ -266,7 +269,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         return entry(
             board.esc(trip.get('display_title') or trip["display_key"]) + (' · 안드레' if trip.get('owner_id') == 'andre' else ''),
             f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
-            dates, trip["tab_id"] == tab_id)
+            dates, trip["tab_id"] == tab_id, closed=trip.get('visual_closed', False))
 
     listed = []
     for trip in active:
@@ -301,6 +304,8 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         rows = []
         for trip in archived_rows:
             href = f"/board?{state_query(trip['tab_id'], query, kind, archived)}"
+            closed_label = (f" aria-label='{board.esc(trip['display_key'])} · 마감'"
+                            if trip.get('visual_closed') else '')
             view = (
                 f"<a class='btn arch-view' href='{href}'>보기</a>")
             restore = (
@@ -316,7 +321,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                 "<button class='btn' type='submit'>복원</button></form>")
             rows.append(
                 "<li class='arch-row'>"
-                f"<a class='nv nv-arch' href='{href}'>"
+                f"<a class='nv nv-arch{' nv-closed' if trip.get('visual_closed') else ''}' href='{href}'{closed_label}>"
                 f"<span class='nm'>{board.esc(trip['display_key'])}</span></a>"
                 f"{view}{restore}</li>")
         arch_head += f"<ul class='nav-list' id='archived'>{''.join(rows)}</ul>"

@@ -87,6 +87,8 @@
 #nav .ct{flex:0 0 auto;margin-left:8px;font-size:12px;white-space:nowrap;color:var(--shell-muted,#667085)}
 #nav .ct.warn{color:var(--shell-warn,#B54708)}
 #nav .nv.sel,#nav .nv[aria-pressed=true]{background:var(--shell-selected,#ECF5EF);border-left-color:var(--shell-accent,#1C7A52);font-weight:600}
+#nav .nv.nv-closed{background:var(--shell-line,#E2E8F0);color:var(--shell-muted,#475569)}
+#nav .nv.nv-closed.sel,#nav .nv.nv-closed[aria-pressed=true]{background:var(--shell-line,#E2E8F0);border-left-color:var(--shell-accent,#1C7A52)}
 #nav a:hover{background:var(--shell-hover,#F8FAFC)}#nav .work-action:hover{border-color:var(--shell-accent,#1C7A52)}
 #nav a:focus-visible,#nav button:focus-visible,#nav summary:focus-visible,#site-content :focus-visible{outline:2px solid var(--shell-focus,#2266F5);outline-offset:2px}
 #nav .nav-toggle{margin:0 8px;max-width:calc(100% - 16px)}
@@ -115,6 +117,9 @@ body.site-standalone{margin:0!important;padding:0!important}
 #trip-management-filter{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px}
 #trip-management-filter input{flex:1;min-width:0;max-width:480px}
 #trip-management-count{flex-basis:100%}
+.trip-management-row.trip-closed{background:var(--shell-hover, var(--shell-paper));border-color:var(--shell-line)}
+.trip-closed-badge{font-size:.8em;color:var(--shell-muted, inherit);white-space:nowrap}
+.trip-close-form{margin:8px 0}
 .trip-meta summary,.export-diagnostics summary{cursor:pointer;min-height:44px;display:flex;align-items:center;color:var(--shell-accent,#1C7A52)}
 .trip-meta[open] summary,.export-diagnostics[open] summary{margin-bottom:12px}
 .trip-management-row[hidden]{display:none!important}
