@@ -515,6 +515,7 @@ class DesignScreenTests(unittest.TestCase):
         page.fill("#f-description", "취소되어야 하는 값")
         page.once("dialog", lambda dialog: dialog.accept())
         page.click("#p-cancel")
+        page.wait_for_selector("#panel", state="detached")
         page.wait_for_load_state()
         self.assertIsNone(page.query_selector("#panel"))
         after = self.store.get_row("expense-demo-c4")
