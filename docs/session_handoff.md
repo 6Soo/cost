@@ -1,3 +1,11 @@
+## 2026-11-03 후속 main 운영 배포 완료
+
+- COMPLETE — 사용자 “운영배포해”. 검증된 main `d26b43e9cc9f66ef89d2385d163b67ef7f04bba4`를 공식 배포기로 운영 반영했다. 이전 검증 SHA는 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`이며 gateway8790→backend8752, paused=false, Board Running, Prepared 작업 없음이다.
+- 후보 포트를 점유한 이전713 릴리스와 진입 서버, 중복33 준비 감독자는 SHA·PID·생성시각·부모 관계·역할·loopback 포트를 확인하고 두 배포 잠금 및 요청/writer drain 아래 정리했다. 정리 중 기존 운영 backend42372는 유지했고 현재33 진입 서버를 복구한 다음 공식 전환을 수행했다. 과거 “복구 미완료” 기록은 당시 상태이며 이번 배포의 차단 사유가 아니다.
+- 검증: 1,312 Git blobs 불일치0·task/process SHA 일치·단일 backend listener·health/ready200·보호 API3개401·보호13표 내용/스키마 전후 불변. 전환 중 gateway 표본196요청 실패0/최대7.099초이며 전체 구간 무중단이나 무지연 보장을 뜻하지 않는다. Windows 최종 영향338 passed/4 subtests/skip0와 main CI41636631694 success 및 개별 변경 검증을 재사용했다.
+- 여행 이동 이유는 사용자 결정대로 당분간 직접 입력을 사용한다. 새 모델 연결·거래 근거 전송·금융 재처리·Google 쓰기·마이그레이션은 수행하지 않았다. 메모리 영수증 인식 상태는 정상 재시작 시 만료되는 기존 계약이며 원본 이미지와 저장 장부를 보존했다. 이전 검증 릴리스/task XML을 복구 수단으로 유지했고 전체DB백업·복원은 반복하지 않았다.
+- 근거 `C:/AX/cost/.local-archive/deploy-resume-20261103/`의 recovery-identities/recovery-result/release-audit/deploy-evidence/protection-before/protection-after/continuity 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d26b43e9cc9f66ef89d2385d163b67ef7f04bba4.json`. 전체 미구현 조사는 전수완료 미입증이며 이번 배포 완료와 구분한다. 이 배포 요청의 미결0. 문서 후속으로 재배포·재시작하지 않는다.
+
 ## 2026-11-03 QA·UI/UX 기록 대조
 
 - COMPLETE — 이번 요청의 문서 정합성 정리. [능동 QA 현재 판정](specs/autonomous-qa-20261102.md#2026-11-03-기록-대조-후-현재-판정)에 구현·합성 여정 완료와 운영 읽기 수락·서버 강제·효과 실측의 PARTIAL을 구분했다. 로컬 큐의 제한부 완료를 전체 업무 완료로 확대하지 않는다.
