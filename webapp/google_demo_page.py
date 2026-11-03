@@ -12,8 +12,9 @@ import os
 from pathlib import Path
 import datetime as dt
 import tempfile
+import time
 
-from app import google_demo
+from app import google_demo, sync_schedule
 
 ROUTES = ("/demo", "/api/demo/top3")
 
@@ -78,7 +79,7 @@ def _last_safe_path(snapshot_path: Path, *, real: bool = False) -> Path:
     return snapshot_path.with_name("demo-real-last-safe.json" if real else "demo-last-safe.json")
 
 
-def _payload() -> dict:
+def _payload_unlocked() -> dict:
     snapshot_path = Path(os.environ["WEBLEDGER_DEMO_SNAPSHOT"])
     real_enabled = os.environ.get('WEBLEDGER_DEMO_REAL_PUBLICATION') == '1'
     last_safe_path = _last_safe_path(snapshot_path, real=real_enabled)
@@ -123,6 +124,41 @@ def _payload() -> dict:
             if temporary:
                 temporary.unlink(missing_ok=True)
     return payload
+
+
+def _payload(*, raise_on_contention=False) -> dict:
+    """Serialize readers and sync refreshes so an older projection cannot win a race."""
+    snapshot_path = Path(os.environ['WEBLEDGER_DEMO_SNAPSHOT'])
+    lock_path = snapshot_path.with_name('demo-cache.lock')
+    try:
+        with sync_schedule.SyncLock(lock_path, now=dt.datetime.now(dt.timezone.utc)):
+            return _payload_unlocked()
+    except sync_schedule.LockHeld:
+        if raise_on_contention:
+            raise
+        path = _last_safe_path(snapshot_path, real=os.environ.get('WEBLEDGER_DEMO_REAL_PUBLICATION') == '1')
+        try:
+            previous = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            previous = None
+        return google_demo.build_demo(None, previous)
+
+
+def refresh_after_sync(snapshot_path: Path) -> str:
+    """Refresh only the explicitly enabled real demo for the synced authority file."""
+    configured = os.environ.get('WEBLEDGER_DEMO_SNAPSHOT')
+    if os.environ.get('WEBLEDGER_DEMO_REAL_PUBLICATION') != '1' or not configured:
+        return 'disabled'
+    if Path(configured).resolve() != Path(snapshot_path).resolve():
+        return 'different_snapshot'
+    for attempt in range(20):
+        try:
+            result = _payload(raise_on_contention=True)
+            return 'retained' if result['stale'] else 'refreshed'
+        except sync_schedule.LockHeld:
+            if attempt < 19:
+                time.sleep(0.1)
+    return 'busy'
 
 
 def render_html(payload: dict) -> str:

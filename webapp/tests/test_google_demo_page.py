@@ -193,6 +193,88 @@ def test_real_failure_never_reuses_synthetic_cache(demo_file, monkeypatch):
     assert get('/api/demo/top3')[2]['entries'] == []
 
 
+def test_successful_authority_sync_refreshes_safe_demo_before_any_public_request(tmp_path, monkeypatch):
+    import datetime as dt
+    from app import google_authority
+    from tools import google_authority_sync as sync_cli
+    from webapp import google_ledger_page
+
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    source = {'status': 'ok', 'stale': False, 'last_ok_at': now,
+              'error_code': None, 'trips': []}
+    snapshot = {'schema': google_authority.SCHEMA, 'synced_at': now,
+                'sources': {'main': dict(source), 'archive': dict(source)},
+                'trips': [trip('PRIVATE-TRIP', 900, owner_id='aslan', kind='trip')]}
+    path, rows = tmp_path / 'authority.json', tmp_path / 'rows.json'
+    monkeypatch.setenv('WEBLEDGER_DEMO_SNAPSHOT', str(path))
+    monkeypatch.setenv('WEBLEDGER_DEMO_REAL_PUBLICATION', '1')
+    monkeypatch.setattr(google_ledger_page, 'load_choices', lambda _: {})
+
+    def sync(*args, **kwargs):
+        path.write_text(json.dumps(snapshot), encoding='utf-8')
+        return snapshot
+
+    monkeypatch.setattr(google_authority, 'sync', sync)
+    assert sync_cli.main(['--snapshot', str(path), '--rows', str(rows)]) == 0
+    cache = tmp_path / 'demo-real-last-safe.json'
+    assert cache.exists()
+    content = cache.read_text(encoding='utf-8')
+    assert 'PRIVATE-TRIP' not in content
+    assert json.loads(content)['entries'][0]['net'] == 900
+    snapshot['sources']['archive'].update(status='error', stale=True, error_code='SOURCE_UNREACHABLE')
+    assert sync_cli.main(['--snapshot', str(path), '--rows', str(rows)]) == 1
+    assert cache.read_text(encoding='utf-8') == content
+    body = get('/api/demo/top3')[2]
+    assert body['stale'] is True and body['entries'][0]['net'] == 900
+    path.unlink()
+    body = get('/api/demo/top3')[2]
+    assert body['stale'] is True and body['entries'][0]['net'] == 900
+
+
+def test_sync_refresh_is_disabled_by_default_and_requires_same_snapshot(tmp_path, monkeypatch):
+    path = tmp_path / 'authority.json'
+    monkeypatch.setenv('WEBLEDGER_DEMO_SNAPSHOT', str(path))
+    monkeypatch.delenv('WEBLEDGER_DEMO_REAL_PUBLICATION', raising=False)
+    assert page.refresh_after_sync(path) == 'disabled'
+    monkeypatch.setenv('WEBLEDGER_DEMO_REAL_PUBLICATION', '1')
+    assert page.refresh_after_sync(tmp_path / 'different.json') == 'different_snapshot'
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_demo_refresh_failure_does_not_break_source_sync_or_leak_error(tmp_path, monkeypatch, capsys):
+    from app import google_authority
+    from tools import google_authority_sync as sync_cli
+    source = {'status': 'ok', 'stale': False, 'error_code': None, 'trips': []}
+    monkeypatch.setattr(google_authority, 'sync', lambda *a, **k: {
+        'sources': {'main': dict(source), 'archive': dict(source)}, 'trips': []})
+
+    def fail(_):
+        raise RuntimeError('PRIVATE-SYNTHETIC-DETAIL')
+
+    monkeypatch.setattr(page, 'refresh_after_sync', fail)
+    assert sync_cli.main(['--snapshot', str(tmp_path / 'snapshot.json'),
+                          '--rows', str(tmp_path / 'rows.json')]) == 0
+    output = capsys.readouterr().out
+    assert json.loads(output)['demo_refresh'] == 'unavailable'
+    assert 'PRIVATE-SYNTHETIC-DETAIL' not in output
+
+
+def test_busy_cache_returns_only_sanitized_last_safe_projection(demo_file):
+    import datetime as dt
+    from app import sync_schedule
+    get('/api/demo/top3')
+    cache = demo_file.with_name('demo-last-safe.json')
+    old = json.loads(cache.read_text(encoding='utf-8'))
+    old['private'] = 'PRIVATE-NAME'
+    old['entries'][0]['private'] = 'PRIVATE-NAME'
+    cache.write_text(json.dumps(old), encoding='utf-8')
+    with sync_schedule.SyncLock(demo_file.with_name('demo-cache.lock'), now=dt.datetime.now(dt.timezone.utc)):
+        body = get('/api/demo/top3')[2]
+    assert body['stale'] is True
+    assert body['entries'][0]['net'] == 900
+    assert 'PRIVATE-NAME' not in json.dumps(body)
+
+
 def test_owner_preview_is_read_only_and_never_exposes_source_fields(tmp_path, monkeypatch):
     import datetime as dt
     from webapp import google_ledger_page

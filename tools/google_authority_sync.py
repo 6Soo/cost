@@ -87,6 +87,14 @@ def _run_locked(args, now, state_path) -> int:
     sync_schedule.record_result(state_path, ok=not failed, now=now,
                                 error_code=snapshot["sources"][failed[0]]["error_code"] if failed else None)
     result = {"sources": sources, "trips": len(snapshot["trips"])}
+    if not failed:
+        try:
+            from webapp.google_demo_page import refresh_after_sync
+            demo_status = refresh_after_sync(args.snapshot)
+        except Exception:  # Demo is optional; never turn a successful source sync into a failure.
+            demo_status = 'unavailable'
+        if demo_status != 'disabled':
+            result['demo_refresh'] = demo_status
     if auth_unavailable:
         result['code'] = 'GOOGLE_AUTH_UNAVAILABLE'
     print(json.dumps(result, ensure_ascii=False))
