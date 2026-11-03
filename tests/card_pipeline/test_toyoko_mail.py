@@ -27,6 +27,28 @@ def card(identity='card-1', **updates):
             'approval_date': '2026-10-01', 'transaction_direction': 'purchase', **updates}
 
 
+def test_website_greeting_is_not_a_hotel_branch():
+    from app import booking_evidence
+    text = ('토요코인 공식 홈페이지를 이용해 주셔서 감사합니다.\n'
+            '토요코인 울산삼산동\n예약번호: 1234567\n'
+            '숙박일: 2026년 10월 1일부터 1박\n합계금액: 37,000원')
+    summary = booking_evidence.summarize('토요코인 예약 확인', None, text)
+    assert summary['hotel_name'] == '토요코인 울산삼산동'
+    assert summary['starts_on'] == '2026-10-01'
+    mail = mail_collect.owner_record('greeting', {
+        'From': 'reservation@wm.toyoko-inn.com', 'Subject': '토요코인 예약 확인'}, text)
+    event = toyoko_mail.collect({'greeting': mail})[0]
+    assert event['hotel_name'] == summary['hotel_name']
+    assert event['payment_status'] == 'unknown'
+    assert not ota_payments._event_is_paid(event)
+
+
+def test_website_greeting_without_branch_does_not_manufacture_a_hotel():
+    from app import booking_evidence
+    assert booking_evidence.summarize('토요코인 예약 확인', None,
+        '토요코인 공식 홈페이지를 이용해 주셔서 감사합니다.\n예약번호: 1234567')['hotel_name'] == ''
+
+
 def test_corporate_rooms_and_group_total_enter_core_without_claiming_cards(tmp_path):
     mail = message(refs=('1234567', '2345678'), amount=12000, currency='엔')
     (tmp_path / 'gmail-synthetic.json').write_text(json.dumps({'responses': [mail]}), encoding='utf-8')

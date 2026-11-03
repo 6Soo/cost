@@ -123,3 +123,106 @@ def test_alternate_period_conflict_is_protected(context, where):
     store, data, _, _ = context
     data[where][0]['period_conflict'] = True
     assert stays.stay_index(store) == {}
+
+
+def toyoko_candidates(data):
+    event = data['events'][0]
+    event.update(provider='toyoko', event_type='reservation', source_trust='sender_domain',
+                 evidence_status='reservation_only', reservation_status='observed')
+    data['transactions'][0].update(merchant='토요코인 합성지점')
+    data['results'] = [dict(ota_event_id='e1', status='RESERVATION_ONLY',
+        candidate_search={'status': 'CANDIDATES_FOUND', 'candidates': [
+            dict(transaction_id='t1', branch_status='MATCH', stay_date_status='MATCH',
+                 amount_status='MISMATCH', basis='HOTEL_BRANCH_AND_STAY_ONLY')]})]
+
+
+def test_many_rooms_and_cards_share_dates_without_claiming_payment_or_writing(context):
+    store, data, _, calls = context
+    toyoko_candidates(data)
+    data['transactions'].append(dict(data['transactions'][0], transaction_id='t2', source_hash='s2'))
+    data['results'][0]['candidate_search']['candidates'].append(dict(
+        data['results'][0]['candidate_search']['candidates'][0], transaction_id='t2'))
+    data['events'].append(dict(data['events'][0], ota_event_id='e2', booking_ref='B2', reservation_group_only=True))
+    data['results'].append(dict(data['results'][0], ota_event_id='e2'))
+    before = deepcopy(data)
+    changes = store.conn.total_changes
+    @scoped
+    def render():
+        return design._stay_text(card()), design._stay_text(dict(row_id='card-t2', item='숙박비'))
+    assert render() == ('7월 5일(일) ~ 7월 7일(화) · 2박 · 예약 근거 추론',) * 2
+    assert calls == [1] and store.conn.total_changes == changes and data == before
+    inferred = stays.stay_index(store)['t1']
+    assert inferred['booking_ref'] == '' and inferred['ota_evidence']['payment_verified'] is False
+    from app.ota_core_projection import card_matches
+    assert card_matches([], data) == []
+
+
+def test_different_candidate_periods_do_not_pick_a_room(context):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    data['events'].append(dict(data['events'][0], ota_event_id='e2',
+        service_period={'starts_on':'2026-07-04', 'ends_on':'2026-07-07'}))
+    data['results'].append(dict(data['results'][0], ota_event_id='e2'))
+    assert stays.stay_index(store) == {}
+
+
+@pytest.mark.parametrize('field,value', [
+    ('source_trust', 'subject_only_unverified'), ('reservation_status','cancelled'),
+    ('reservation_status','refunded'), ('reservation_status','refund_pending'),
+    ('evidence_status','evidence_conflict'), ('period_conflict',True),
+    ('service_period_conflict',True), ('evidence_changed',True), ('evidence_missing',True),
+    ('source_digest','')])
+def test_toyoko_unsafe_reservation_period_is_not_displayed(context, field, value):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    data['events'][0][field] = value
+    assert stays.stay_index(store) == {}
+
+
+@pytest.mark.parametrize('field,value', [
+    ('transaction_direction','refund'), ('duplicate_of','other'), ('parse_error','error'),
+    ('conflict_reason','conflict'), ('ota_review_held', True),
+    ('reservation_refund_blocked', True), ('refund_status','refund_requested')])
+def test_toyoko_financial_holds_are_preserved(context, field, value):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    data['transactions'][0][field] = value
+    assert stays.stay_index(store) == {}
+
+
+@pytest.mark.parametrize('field', ['branch_status','stay_date_status'])
+def test_toyoko_requires_branch_and_card_date_in_stay(context, field):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    data['results'][0]['candidate_search']['candidates'][0][field] = 'UNKNOWN'
+    assert stays.stay_index(store) == {}
+
+
+def test_toyoko_manual_empty_period_stored_booking_and_other_occupancy_win(context):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    assert stays.period_for(card(reservation_no='B1'), stays.stay_index(store)) == ''
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+    store.conn.execute('DELETE FROM board_manual_overrides')
+    data['links'] = {'other': {'transaction_id':'t1'}}
+    assert stays.stay_index(store) == {}
+
+
+def test_one_conflicting_reservation_blocks_other_agreeing_candidates(context):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    data['events'].append(dict(data['events'][0], ota_event_id='e2', period_conflict=True))
+    data['results'].append(dict(data['results'][0], ota_event_id='e2'))
+    assert stays.stay_index(store) == {}
+
+
+@pytest.mark.parametrize('relation', [
+    {'reservation_link': {'status':'USER_CONFIRMED', 'transaction_id':'t1'}},
+    {'payment_relation': {'status':'LINKED', 'transaction_ids':['t1']}},
+    {'reserved_card_ids':['t1']}])
+def test_existing_relations_cannot_be_replaced_with_reservation_inference(context, relation):
+    store, data, _, _ = context
+    toyoko_candidates(data)
+    data['results'].append(dict(ota_event_id='other', status='MATCHED_GROUP', **relation))
+    assert stays.stay_index(store) == {}

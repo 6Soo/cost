@@ -154,8 +154,13 @@
     },
     {
       "name": "mail-collection",
-      "paths": ["app/mail_collect.py", "app/toyoko_mail.py", "app/booking_evidence.py"],
+      "paths": ["app/mail_collect.py", "app/toyoko_mail.py", "app/booking_evidence.py", "tests/card_pipeline/test_toyoko_mail.py"],
       "tests": ["tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_toyoko_mail.py"]
+    },
+    {
+      "name": "toyoko-stay-display",
+      "paths": ["webapp/ledger_stay_evidence.py", "webapp/tests/test_ledger_stay_evidence.py", "app/booking_evidence.py", "tests/card_pipeline/test_toyoko_mail.py"],
+      "tests": ["webapp/tests/test_ledger_stay_evidence.py", "webapp/tests/test_ledger_spend_detail.py", "tests/card_pipeline/test_toyoko_mail.py", "tests/card_pipeline/test_toyoko_reservation_links.py", "webapp/tests/test_toyoko_reconciliation.py"]
     },
     {
       "name": "core-safety-net",
@@ -183,7 +188,7 @@
       "name": "passenger-linking",
       "paths": ["app/flight_passenger_*.py", "app/reservation_authority.py", "webapp/flight_passenger_page.py", "webapp/flight_booking_projection.py",
                 "webapp/tests/test_flight_passenger_page.py"],
-      "tests": ["webapp/tests/test_flight_passenger_page.py", "webapp/tests/test_flight_booking_projection.py", "webapp/tests/test_flight_booking_name_search.py", "webapp/tests/test_flight_booking_date_evidence.py"]
+      "tests": ["webapp/tests/test_flight_passenger_page.py", "webapp/tests/test_flight_booking_projection.py", "webapp/tests/test_flight_booking_name_search.py", "webapp/tests/test_flight_booking_date_evidence.py", "webapp/tests/test_flight_booking_experience.py", "webapp/tests/test_flight_booking_ui_contract_20261027.py"]
     },
     {
       "name": "card-import",

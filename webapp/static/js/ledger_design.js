@@ -606,6 +606,8 @@ else{
    if(input.parentNode&&!input.parentNode.querySelector('.f-flag')){
     input.parentNode.appendChild(flag);
    }
+   var disclosure=input.closest('details');
+   while(disclosure){disclosure.open=true;disclosure=disclosure.parentElement.closest('details');}
    try{input.focus();input.select&&input.select();}catch(e){}
   }
   function clearFlags(form){
@@ -641,7 +643,7 @@ document.addEventListener('keydown',function(e){
      // A textarea keeps its newline. A single-line field is not a save: it
      // just does nothing, so a stray Enter cannot write a row.
      var tag=(e.target.tagName||'').toLowerCase();
-     if(tag==='textarea') return;
+     if(tag==='textarea'||tag==='summary') return;
      if(e.target.type==='button'||e.target.type==='submit') return;
      e.preventDefault();
      return;

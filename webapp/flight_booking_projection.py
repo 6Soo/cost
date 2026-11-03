@@ -57,6 +57,11 @@ def project_booking_reservation(
     return {
         'booking_ref': str(booking_ref),
         'passenger_name': passenger_name,
+        'passengers': list(dict.fromkeys(
+            ' '.join((str(person.get('surname') or ''), str(person.get('given_name') or ''))).strip()
+            for person in evidence.get('passengers') or [] if isinstance(person, dict)
+            and (person.get('surname') or person.get('given_name')))),
+        'cancellation_status': evidence.get('cancellation_status', 'NONE'),
         'legs': legs,
         'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
         'conflict': bool(evidence.get('conflict')),

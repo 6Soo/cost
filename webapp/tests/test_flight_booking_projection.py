@@ -26,6 +26,14 @@ import pytest
 from webapp import flight_booking_index, flight_booking_projection, flight_passenger_page
 
 
+def _existing_fields(result):
+    """Compare the legacy contract; new passenger/status fields change the revision."""
+    return {**{k: v for k, v in result.items() if k not in ('revision', 'reservations')},
+            'reservations': [{k: v for k, v in row.items()
+                              if k not in ('passengers', 'cancellation_status')}
+                             for row in result['reservations']]}
+
+
 def _synthetic_index():
     return {
         "SYNTH-100": {
@@ -389,15 +397,16 @@ def test_baseline_equivalence_with_main_ed48263(baseline_name_search_fn):
         baseline_res = baseline_name_search_fn(board, "alpha kim")
         curr_page_res = flight_passenger_page._name_search(board, "alpha kim")
         curr_proj_res = flight_booking_projection.query_booking_reservations(index, "alpha kim")
+        assert curr_page_res == curr_proj_res
 
-        assert baseline_res == curr_page_res
-        assert baseline_res == curr_proj_res
+        assert _existing_fields(baseline_res) == _existing_fields(curr_page_res)
+        assert _existing_fields(baseline_res) == _existing_fields(curr_proj_res)
 
         # Test single token match
-        assert baseline_name_search_fn(board, "KIM") == flight_passenger_page._name_search(board, "KIM")
+        assert _existing_fields(baseline_name_search_fn(board, "KIM")) == _existing_fields(flight_passenger_page._name_search(board, "KIM"))
 
         # Test other passenger
-        assert baseline_name_search_fn(board, "BETA") == flight_passenger_page._name_search(board, "BETA")
+        assert _existing_fields(baseline_name_search_fn(board, "BETA")) == _existing_fields(flight_passenger_page._name_search(board, "BETA"))
 
         # Test empty index
         with patch("webapp.flight_booking_index.passenger_index_for", return_value={}), \
@@ -447,7 +456,7 @@ def test_cards_ref_to_none_identity_and_value_preserved(baseline_name_search_fn,
         curr_res = flight_passenger_page._name_search(board, "alpha kim")
 
         # Compare baseline vs current
-        assert base_res == curr_res
+        assert _existing_fields(base_res) == _existing_fields(curr_res)
         # SYNTH-100's linked_cards must be None in both
         assert curr_res["reservations"][1]["booking_ref"] == "SYNTH-100"
         assert curr_res["reservations"][1]["linked_cards"] is None
