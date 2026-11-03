@@ -1512,16 +1512,14 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
-    # APP_SPEC 4.1: the global top area carries the unsaved row count and the
-    # last saved time. The count is filled in by the script as edits become
-    # dirty; the time is the ledger's own last save for this tab.
+    # Reserve the status slot for actual unsaved edits, not routine timestamps.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     main_class = "main home-main" if home else "main"
     from . import ui_icons as _icons
     global_state = "" if home else (
         f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
         "<span id='unsaved-count' hidden></span>"
-        + (f" · {board.esc(role_note)}" if role_note else "")
+        + (board.esc(role_note) if role_note else "")
         + "</p>")
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.

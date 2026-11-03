@@ -119,8 +119,12 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
             with self.subTest(path=path):
                 status, page = self._open(path)
                 self.assertEqual(status, 200)
-                self.assertIn("id='global-state'", page)
-                self.assertIn("id='unsaved-count'", page)
+                if path == '/import' and 'expense-tabs' in page:
+                    self.assertIn('id="status"', page)
+                else:
+                    self.assertIn("id='global-state'", page)
+                    self.assertIn("id='unsaved-count'", page)
+                self.assertNotIn('최근 저장', page)
 
     def test_the_script_keeps_the_count_in_step_with_the_dirty_marks(self):
         _, page = self._open(f"/board?tab={TAB}")

@@ -497,6 +497,9 @@ def test_real_cards_all_initial_render_records_once_and_excludes_send_time(card_
     from app import request_metrics
     from webapp import ledger_board
 
+    # The delay belongs to this request, not the process-wide median of earlier tests.
+    monkeypatch.setattr(request_metrics, '_REGISTRY', request_metrics.MetricsWindow())
+
     server = SimpleNamespace(store_lock=None, card_store=None)
     handler = object.__new__(ledger_board.Handler)
     handler.server = server

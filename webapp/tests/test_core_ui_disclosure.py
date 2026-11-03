@@ -34,6 +34,10 @@ def test_trip_header_and_management_disclose_secondary_actions(tmp_path):
                 row.locator('.trip-meta > summary').click()
                 assert row.locator('.trip-close-form button').is_visible()
                 assert row.locator('.trip-close-form input[name=visual_closed]').input_value() == '1'
+                page.route('https://ui.test/**', lambda route: route.fulfill(content_type='text/html', body=trips))
+                page.goto('https://ui.test/trips?closed=1')
+                assert page.locator('.trip-filter-tools').get_attribute('open') is not None
+                assert page.locator('#trip-management-closed').input_value() == '1'
             finally:
                 browser.close()
     finally:

@@ -95,6 +95,13 @@ class BoardApiTests(unittest.TestCase):
         from webapp import ledger_board as board_mod
         from webapp.ledger_store import LedgerStore
 
+        from unittest.mock import patch
+        # These phase-1 CSV tests target the legacy importer; canonical card jobs
+        # have their own integration suite and must not change this fixture's API.
+        legacy_mode = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '0', 'WEBLEDGER_UNIFIED_DB': '0'})
+        legacy_mode.start()
+        self.addCleanup(legacy_mode.stop)
+
         self.tmp = tempfile.mkdtemp()
         self._prev_db = os.environ.get("WEBLEDGER_DB")
         db_path = str(Path(self.tmp) / "server.sqlite")

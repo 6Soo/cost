@@ -11,7 +11,7 @@ main:has(.expense-tabs){max-width:1120px;padding:8px 8px 32px}
 .expense-tabs .ic,.expense-all-link .ic{width:18px;height:18px;flex:none;margin:0}
 .expense-tabs .expense-tools{position:relative;margin:0;padding:0;border:0;background:transparent;flex:0 0 auto}
 .expense-tools>summary{display:flex;align-items:center;min-height:48px;padding:8px 12px;cursor:pointer;color:var(--shell-muted);font-size:13px}
-.expense-tools>summary::after{content:'⌄';margin-left:8px}
+.expense-tools>summary::after{content:'';width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);margin-left:8px}
 .expense-tools>div{display:flex;flex-wrap:wrap;gap:4px}
 .expense-tools[open]>summary{color:var(--shell-accent)}
 .expense-tabs:has(.expense-tools[open]){flex-wrap:wrap}

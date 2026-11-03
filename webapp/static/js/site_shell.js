@@ -88,6 +88,7 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  const tripFilter=document.getElementById('trip-management-filter');
  if(tripFilter){const search=document.getElementById('trip-management-search'),state=document.getElementById('trip-management-state'),closed=document.getElementById('trip-management-closed'),owner=document.getElementById('trip-management-owner'),rows=[...document.querySelectorAll('.trip-management-row')],params=new URLSearchParams(location.search);
  search.value=params.get('q')||'';state.value=params.get('state')||'';closed.value=['0','1'].includes(params.get('closed'))?params.get('closed'):'';if(owner)owner.value=['aslan','andre'].includes(params.get('owner'))?params.get('owner'):'';
+ if(state.value||closed.value||owner?.value){const tools=tripFilter.querySelector('.trip-filter-tools');if(tools)tools.open=true}
  const selected=params.get('trip');
  if(selected&&!search.value){const row=rows.find(r=>r.dataset.tripId===selected);if(row)search.value=row.querySelector('h3 a').textContent}
  const update=()=>{const term=search.value.trim().toLocaleLowerCase();let count=0;rows.forEach(row=>{row.hidden=!(row.dataset.tripSearch.toLocaleLowerCase().includes(term)&&(!state.value||row.dataset.archived===state.value)&&(!closed.value||row.dataset.closed===closed.value)&&(!owner?.value||row.dataset.owner===owner.value));if(!row.hidden)count++});document.getElementById('trip-management-count').textContent=count+'개 여행';document.getElementById('trip-management-empty').hidden=count>0;
