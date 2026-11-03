@@ -1,3 +1,9 @@
+## 2026-11-04 UI/UX 검토 개선 배포
+
+- UR01~UR09 구현 [PR #602](https://github.com/6Soo/cost/pull/602) 병합 SHA `46339830d9ab7e93be38529094d106b49c2a9036`을 `d26b43e9cc9f66ef89d2385d163b67ef7f04bba4`에서 공식 절차로 전환했다 (2026-11-03 15:25:39 UTC). 모바일 메뉴 포커스, 영수증 입력, 지출 상태 집계, OTA 검색·진단, 모바일 밀도, 공통 헤더·타이포, 홈 집계 명칭을 개선했다.
+- 테스트 SHA `5c76c29b9906bb9e16d599b12617c7fa4a0ed3a8`와 병합 tree 동일. Windows 영향 QA 836 passed·87 subtests·skip 0·필수 브라우저 누락 0, PR CI 41661493005 및 main CI 41662501155 성공.
+- 릴리스 1,312 blob 불일치 0, 런타임 SHA 및 단일 listener 확인, health/ready 200, 보호 API 3개와 /board·/import·/receipts 비인증 401, 보호 13표 전후 불변. 금융 적용·Google 쓰기·마이그레이션 없음. 근거 `D:/WebLedgerHost/releases/deploy-evidence-46339830d9ab7e93be38529094d106b49c2a9036.json`, `C:/AX/cost/.local-archive/ux-review-20261103/`.
+- UR06 동일 조건의 과업 스크롤 전후 비교, UR02 PDF 취소·실패 후 전용 수락, UR05 모바일 검색 위치 재측정, UR08 전 화면·양 테마 시각 수락과 실기기는 미검증이다. 합성 테스트와 구현 사실을 이 수락 조건 전체의 통과로 간주하지 않는다.
 ## 2026-11-03 잔존 프로세스 복구 및 후속 main 고정 배포
 
 - 사용자 “운영배포해”에 따라 `33bf47e7dbc3788a6eeb4082ad120d221c8cabc7`→`d26b43e9cc9f66ef89d2385d163b67ef7f04bba4` 공식 전환 완료(2026-11-03T14:49:37Z). PR582~600의 Google 표시·감독자 수명·OTA 커서/스냅샷 신선도·항공권 권위/취소 이력·지출 날짜 근거 등 병합된 후속 코드를 포함한다. Windows 최종 영향338 passed/4 subtests/skip0와 개별 변경 근거 및 main CI41636631694 success를 확인했다.
