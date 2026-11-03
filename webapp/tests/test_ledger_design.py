@@ -390,6 +390,68 @@ class DesignScreenTests(unittest.TestCase):
             page.click("#panel .p-extra > summary")
         return page.inner_text("#panel")
 
+    def test_compact_inline_expense_layout_and_motion(self):
+        """One-row edit stays compact; the inline container opens and closes smoothly."""
+        instrument = """(() => {
+            window.__editorMotions = [];
+            const original = Element.prototype.animate;
+            Element.prototype.animate = function(keyframes, options) {
+                if (this.id === 'panel-slot') window.__editorMotions.push(options.duration);
+                return original.call(this, keyframes, options);
+            };
+        })();"""
+        for width in (390, 1440):
+            with self.subTest(width=width):
+                page = self._page(width)
+                page.emulate_media(reduced_motion="no-preference")
+                page.add_init_script(instrument)
+                self._board(page, "?tab=trip-demo-a")
+                row = (".lst .li[data-id='expense-demo-c1']" if width < 760
+                       else "tr[data-id='expense-demo-c1']")
+                page.click(row)
+                page.wait_for_selector("#panel[data-edit-kind='expense']")
+                page.wait_for_timeout(260)
+                self.assertFalse(page.locator("#panel .p-extra").evaluate("el => el.open"))
+                self.assertFalse(page.locator("#panel .p-src").evaluate("el => el.open"))
+                self.assertTrue(page.is_visible("#f-trip-search"))
+                self.assertTrue(page.is_visible("#f-display_tab_id"))
+                self.assertTrue(page.is_visible("#f-item"))
+                self.assertLess(page.locator("#panel").bounding_box()["height"],
+                                600 if width < 760 else 350)
+                self.assertEqual(overflow(page), 0)
+                if width >= 760:
+                    search = page.locator("#f-trip-search").bounding_box()
+                    trip = page.locator("#f-display_tab_id").bounding_box()
+                    item = page.locator("#f-item").bounding_box()
+                    self.assertLess(abs(search["y"] - trip["y"]), 5)
+                    self.assertLess(abs(trip["y"] - item["y"]), 5)
+                self.assertIn(220, page.evaluate("window.__editorMotions"))
+                page.click("#p-close")
+                page.wait_for_selector("#panel", state="detached")
+                self.assertIn(170, page.evaluate("window.__editorMotions"))
+                self.assertEqual(page.locator(".inline-editor-row,.inline-editor-mobile").count(), 0)
+                page.close()
+
+    def test_reduced_motion_opens_and_closes_inline_editor_without_animation(self):
+        page = self._page(390)
+        page.emulate_media(reduced_motion="reduce")
+        page.add_init_script("""(() => {
+            window.__editorMotions = [];
+            const original = Element.prototype.animate;
+            Element.prototype.animate = function(keyframes, options) {
+                if (this.id === 'panel-slot') window.__editorMotions.push(options.duration);
+                return original.call(this, keyframes, options);
+            };
+        })();""")
+        self._board(page, "?tab=trip-demo-a")
+        page.click(".lst .li[data-id='expense-demo-c1']")
+        page.wait_for_selector("#panel")
+        self.assertEqual(page.evaluate("window.__editorMotions"), [])
+        page.click("#p-close")
+        page.wait_for_selector("#panel", state="detached")
+        self.assertEqual(page.evaluate("window.__editorMotions"), [])
+        page.close()
+
     def test_expense_extra_fields_are_collapsed_and_keyboard_accessible(self):
         page = self._page(390, 844)
         self._board(page, "?tab=trip-demo-a")
