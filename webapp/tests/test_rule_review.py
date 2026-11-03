@@ -706,7 +706,8 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(self.items()[self.tx[0]], '식비')
             self.assertEqual(page.locator('#rule-approve').count(), 0)
             page.reload()
-            page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=self.tx[0])
+            page.locator('#expense-tab-saved').click()
+            page.wait_for_function('(id)=>model && model.rows.find(r=>r.transaction_id===id)?.item==="식비"', arg=self.tx[0])
             self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).decided', self.tx[0]), 1)
             browser.close()
 

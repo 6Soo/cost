@@ -4,6 +4,37 @@ Callers supply authoritative trips; this module never reads or writes a store.
 Preparation changes attribution only, never the source date or trip schedule.
 """
 from datetime import date
+import re
+
+
+FUKUTAKE_BASIS = '사용자 규칙: FUKUTAKE FOUNDATION · 결제일 당일 또는 이후 가장 가까운 세토우치 출발일'
+
+
+def is_fukutake_purchase(transaction):
+    return (bool(re.match(r'^FUKUTAKE\s+FOUNDATION(?:\b|$)',
+                         str(transaction.get('merchant') or '').strip(), re.I))
+            and transaction.get('transaction_direction', 'purchase') == 'purchase'
+            and not any(transaction.get(k) for k in ('parse_error', 'duplicate_of', 'conflict_reason')))
+
+
+def fukutake_trips(transaction, trips):
+    """Return None outside this rule, otherwise only the nearest future Setouchi.
+
+    Callers supply validated real trips. Never use today's date or posting date.
+    """
+    if not is_fukutake_purchase(transaction):
+        return None
+    try:
+        day = date.fromisoformat(transaction.get('approval_date') or '').isoformat()
+    except (TypeError, ValueError):
+        return []
+    candidates = [t for t in trips
+                  if ('세토우치' in str(t.get('destination') or '')
+                      or '세토우치' in str(t.get('display_key') or ''))
+                  and t.get('starts_on') and t['starts_on'] >= day]
+    first = min((t['starts_on'] for t in candidates), default=None)
+    return sorted((t for t in candidates if t['starts_on'] == first),
+                  key=lambda t: str(t.get('trip_id') or t.get('tab_id') or ''))
 
 
 def canonical_trip_periods(trips):

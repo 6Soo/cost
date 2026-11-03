@@ -885,7 +885,7 @@ class CoreOtaPaymentBackend:
             if result.get("status") in ("MATCHED_AUTO", "MATCHED_USER") and result.get("transaction_id"):
                 occupied.setdefault(str(result["transaction_id"]),
                                     (str(result.get("ota_event_id") or ""),
-                                     "추론 연결" if result.get('inferred_link') else
+                                     "코드 추론" if result.get('inferred_link') else
                                      "자동 연결" if result["status"] == "MATCHED_AUTO" else "사용자 확정 연결"))
         return occupied
 
