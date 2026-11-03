@@ -148,9 +148,17 @@ def test_member_failure_clears_stale_rows_or_displays_cursor_error(status, code)
                 expect(page.locator('#ota-events')).to_have_text('이 페이지에 표시할 거래가 없습니다.')
                 assert reads['summary'] == 2
             else:
-                expect(page.locator('[data-group-members]')).to_have_text('페이지 정보가 만료되었습니다.')
+                expect(page.locator('[data-group-error]')).to_have_text('페이지 정보가 만료되었습니다.')
                 assert page.locator('[data-queue-detail]').count() == 1
                 assert reads['summary'] == 1
             assert reads['members'] == 1
+            if status == 400:
+                retry = page.get_by_role('button', name='구성원 다시 불러오기')
+                expect(retry).to_be_enabled()
+                with page.expect_request('**/api/imports/ota/groups/*/members*'):
+                    retry.click()
+                expect(page.locator('[data-group-error]')).to_have_text('페이지 정보가 만료되었습니다.')
+                assert reads['members'] == 2
+                assert reads['summary'] == 1
         finally:
             browser.close()
