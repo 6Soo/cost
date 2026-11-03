@@ -57,3 +57,18 @@ def test_parse_failure_propagates_in_strict_mode():
         with pytest.raises(ValueError):
             _passenger_index([], strict=True)
         assert _passenger_index([]) == {}
+
+
+def test_ready_searches_do_not_wake_full_mail_hashing_on_every_poll():
+    from unittest.mock import Mock
+    service = ota_snapshot.OtaSnapshotService(
+        key_fn=lambda: 'synthetic',
+        reconcile_fn=lambda: {'public': {}, 'data': {'passengers': {'SYNTH': {}}}},
+        start=False)
+    service.check_now()
+    service.request_check = Mock()
+    board = SimpleNamespace(_flight_booking_service=service)
+    for _ in range(5):
+        assert index.passenger_index_for(board) == {'SYNTH': {}}
+        assert index.source_status(board) == 'VERIFIED'
+    service.request_check.assert_not_called()
