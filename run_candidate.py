@@ -361,6 +361,12 @@ def main(argv=None) -> int:
     from webapp import card_flow
     threading.Thread(target=card_flow.prewarm_booking_evidence, args=(server.card_store,),
                      name='booking-evidence-prewarm', daemon=True).start()
+    from webapp import flight_booking_index, flight_passenger_page
+    if flight_passenger_page.enabled():
+        # The independent flight index must be ready before the first name
+        # search, rather than starting a full mail parse on that first visit.
+        threading.Thread(target=flight_booking_index.prewarm, args=(server.card_store,),
+                         name='flight-search-prewarm', daemon=True).start()
     from webapp import google_ledger_page
     if google_ledger_page.enabled():
         google_ledger_page.start_trip_import(server.card_store)

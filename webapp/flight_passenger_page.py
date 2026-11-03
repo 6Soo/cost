@@ -325,26 +325,31 @@ text(evidence,'p','예약 확인 자료에서 조회한 정보입니다. 실제 
 text(participant,'summary','참가자 연결 정보');
 const link=text(participant,'a','참가자 연결 정보 열기');link.href='/flight-passengers?view=participants';card.append(participant);
 return card}
-let refreshAttempts=0,refreshTimer=null;
-async function loadBookings(reset){
+let refreshAttempts=0,refreshTimer=null,refreshStarted=0;
+async function loadBookings(reset,poll=false){
 if(reset){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}
-resultRoot.setAttribute('aria-busy','true');submit.disabled=true;more.disabled=true;status.textContent='항공권 예약 내역을 찾고 있습니다.';
+let waiting=false;
+resultRoot.setAttribute('aria-busy','true');submit.disabled=true;more.disabled=true;
+if(!poll)status.textContent='항공권 예약 내역을 찾고 있습니다.';
+const controller=new AbortController(),requestTimer=setTimeout(()=>controller.abort(),15000);
 try{
-const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:searchName,offset:reset?0:nextOffset,revision:reset?null:sourceRevision}),cache:'no-store'});
+const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:searchName,offset:reset?0:nextOffset,revision:reset?null:sourceRevision}),cache:'no-store',signal:controller.signal});
 if(response.status===401||response.redirected)throw Error('로그인이 필요합니다. 새로고침 후 로그인해 주세요.');
 const data=await response.json();if(!response.ok){if(data.code==='SOURCE_CHANGED'){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}throw new Error(({'INVALID_NAME':'탑승객 이름을 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 이름을 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다. 예약 조회 또는 더 보기를 눌러 다시 시도하세요.')}
 if(data.source_status==='LOADING'){
- status.textContent='항공권 메일 자료를 갱신하고 있습니다. 잠시 후 다시 조회합니다.';
- if(refreshAttempts++<60)refreshTimer=setTimeout(()=>loadBookings(true),2000);
- else status.textContent='항공권 메일 자료를 갱신하고 있습니다. 잠시 후 예약 조회를 눌러 주세요.';
+ const notice='항공권 자료를 준비하고 있습니다. 완료되면 자동으로 조회합니다. 최대 2분 정도 기다려 주세요.';
+ if(refreshAttempts++<60&&Date.now()-refreshStarted<120000){
+  if(status.textContent!==notice)status.textContent=notice;
+  waiting=true;refreshTimer=setTimeout(()=>loadBookings(true,true),2000);
+ }else status.textContent='항공권 자료 준비가 지연되고 있습니다. 예약 조회를 눌러 다시 시도해 주세요.';
  return;
 }
 for(const booking of data.reservations||[])resultRoot.append(showBooking(booking));
 sourceRevision=data.revision;nextOffset=data.next_offset??null;more.hidden=nextOffset===null;
 const count=resultRoot.querySelectorAll('.fb-ticket').length;
 status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?'확인된 항공권 예약 '+(data.total??count)+'건 중 '+count+'건을 표시합니다. 같은 이름의 예약은 예약번호와 여정을 각각 확인해 주세요.':'이 이름으로 확인된 항공권 예약이 없습니다. 영문 표기를 확인해 주세요.';
-}catch(error){status.textContent=error.message}finally{submit.disabled=false;more.disabled=false;resultRoot.setAttribute('aria-busy','false')}}
-form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;clearTimeout(refreshTimer);refreshAttempts=0;searchName=form.elements.name.value.trim();loadBookings(true)});
+}catch(error){status.textContent=error.name==='AbortError'?'항공권 조회 응답이 지연되고 있습니다. 예약 조회를 눌러 다시 시도해 주세요.':error.message}finally{clearTimeout(requestTimer);if(!waiting){submit.disabled=false;more.disabled=false;resultRoot.setAttribute('aria-busy','false')}}}
+form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;clearTimeout(refreshTimer);refreshAttempts=0;refreshStarted=Date.now();searchName=form.elements.name.value.trim();loadBookings(true)});
 more.addEventListener('click',()=>{if(nextOffset!==null&&!more.disabled)loadBookings(false)});
 </script></body></html>""".replace('__CSRF__', token)
 

@@ -89,7 +89,9 @@ def prewarm(board):
 def passenger_index_for(board):
     try:
         service = service_for(board)
-        service.request_check()
+        # Use the worker's check interval; polling a search must not repeatedly
+        # hash the entire mail collection while a fresh index is already held.
+        service.view()
         current, state = service.display_context()
         if state.get('fresh'):
             return (current.get('data') or {}).get('passengers') or {}

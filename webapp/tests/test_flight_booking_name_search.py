@@ -1,6 +1,7 @@
 """Synthetic tests for name-only flight lookup. Never access live reservations."""
 import json
 import os
+import pytest
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -478,3 +479,74 @@ def test_no_current_evidence_and_secondary_participant_view_have_explicit_states
         page.dispatch(handler, urlsplit('/flight-passengers?view=participants'),
                       is_owner=False, board=object(), csrf='synthetic-csrf')
         assert handler.response[0] == 403
+
+
+@pytest.mark.parametrize('outcome', ['VERIFIED', 'UNAVAILABLE', 'TIMEOUT'])
+def test_browser_refresh_wait_stays_busy_and_announces_once_until_ready(outcome):
+    from playwright.sync_api import sync_playwright, expect
+
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            screen = browser.new_page()
+            screen.route('http://synthetic.test/flight-passengers', lambda route: route.fulfill(
+                content_type='text/html', body=page._page('synthetic-csrf')))
+            calls = []
+            def respond(route):
+                calls.append(route.request.post_data)
+                route.fulfill(content_type='application/json', body=json.dumps({
+                    'source_status': 'LOADING' if len(calls) < 3 or outcome == 'TIMEOUT' else outcome,
+                    'reservations': [], 'total': 0}))
+            screen.route('**/api/flight-passengers/name-search', respond)
+            screen.clock.install()
+            screen.goto('http://synthetic.test/flight-passengers')
+            screen.evaluate("""() => {
+                window.notices=[];
+                new MutationObserver(() => window.notices.push(document.querySelector('[role=status]').textContent))
+                    .observe(document.querySelector('[role=status]'), {childList:true});
+            }""")
+            screen.locator('input[name=name]').fill('SYNTH')
+            screen.locator('form button[type=submit]').click()
+            status = screen.locator('[role=status]')
+            expect(status).to_contain_text('자동으로 조회')
+            expect(screen.locator('form button[type=submit]')).to_be_disabled()
+            expect(screen.locator('#fb-results')).to_have_attribute('aria-busy', 'true')
+            first_notice = status.inner_text()
+            with screen.expect_response('**/api/flight-passengers/name-search'):
+                screen.clock.fast_forward(2000)
+            expect(status).to_have_text(first_notice)
+            expect(screen.locator('form button[type=submit]')).to_be_disabled()
+            assert screen.evaluate('window.notices.filter(t=>t.includes("자동으로 조회")).length') == 1
+            with screen.expect_response('**/api/flight-passengers/name-search'):
+                screen.clock.fast_forward(120000 if outcome == 'TIMEOUT' else 2000)
+            expected = {'VERIFIED': '예약이 없습니다', 'UNAVAILABLE': '최신 수집 상태', 'TIMEOUT': '다시 시도'}
+            expect(status).to_contain_text(expected[outcome])
+            expect(screen.locator('form button[type=submit]')).to_be_enabled()
+            expect(screen.locator('#fb-results')).to_have_attribute('aria-busy', 'false')
+            assert len(calls) == 3
+            screen.clock.fast_forward(10000)
+            assert len(calls) == 3
+        finally:
+            browser.close()
+
+
+def test_browser_stalled_search_request_releases_controls_with_retry_message():
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            screen = browser.new_page()
+            screen.route('http://synthetic.test/flight-passengers', lambda route: route.fulfill(
+                content_type='text/html', body=page._page('synthetic-csrf')))
+            screen.route('**/api/flight-passengers/name-search', lambda route: None)
+            screen.clock.install()
+            screen.goto('http://synthetic.test/flight-passengers')
+            screen.locator('input[name=name]').fill('SYNTH')
+            with screen.expect_request('**/api/flight-passengers/name-search'):
+                screen.locator('form button[type=submit]').click()
+            screen.clock.fast_forward(15000)
+            expect(screen.locator('[role=status]')).to_contain_text('응답이 지연')
+            expect(screen.locator('form button[type=submit]')).to_be_enabled()
+            expect(screen.locator('#fb-results')).to_have_attribute('aria-busy', 'false')
+        finally:
+            browser.close()
