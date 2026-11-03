@@ -859,7 +859,7 @@ def _stay_period(row) -> str:
     period = str(row.get("service_period") or "").strip()
     if not period and str(row.get("row_id") or "").startswith("card-"):
         from . import ledger_stay_evidence
-        index = read_scope.remember("ledger_stay_evidence", lambda: ledger_stay_evidence.stay_index(board._active_store()))
+        index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
         period = ledger_stay_evidence.period_for(row, index)
     return period
 
@@ -884,7 +884,18 @@ def _stay_text(row) -> str:
         return unknown
     nights = (end - start).days
     stay = f"{nights}박" if nights else "당일"
-    return f"{_day_label(start, start.year != end.year)} ~ {_day_label(end, start.year != end.year)} · {stay}"
+    text = f"{_day_label(start, start.year != end.year)} ~ {_day_label(end, start.year != end.year)} · {stay}"
+    if not str(row.get('service_period') or '').strip() and str(row.get('row_id') or '').startswith('card-'):
+        index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
+        tid = str(row.get('source_event_id') or str(row['row_id'])[5:])
+        if ((index.get(tid) or {}).get('ota_evidence') or {}).get('kind') == 'reservation_period_inferred':
+            text += ' · 예약 근거 추론'
+    return text
+
+
+def _ledger_stay_index():
+    from . import ledger_stay_evidence
+    return ledger_stay_evidence.stay_index(board._active_store())
 
 
 def _day_label(day, with_year: bool) -> str:

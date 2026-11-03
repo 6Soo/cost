@@ -48,6 +48,67 @@ def stay_index(store):
         })
         if metadata.get('service_period'):
             result[tid] = metadata
+    # Reservation dates can agree without identifying which room a card paid.
+    # Keep that inference local to this read-only display, outside card_matches
+    # and ledger_metadata, which supply financial/booking writes elsewhere.
+    for tid, metadata in _toyoko_candidate_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _toyoko_candidate_periods(data, manual):
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    occupied = {str(r.get('transaction_id')) for r in data.get('results', [])
+                if r.get('transaction_id')}
+    occupied.update(str(tid) for r in data.get('results', [])
+                    for tid in r.get('reserved_card_ids') or ())
+    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id'))
+                    for r in data.get('results', [])
+                    if (r.get('reservation_link') or {}).get('transaction_id'))
+    occupied.update(str(tid) for r in data.get('results', [])
+                    if (r.get('payment_relation') or {}).get('status') == 'LINKED'
+                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
+    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                    if isinstance(link, dict) and link.get('transaction_id'))
+    periods, blocked = defaultdict(set), set()
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        if event.get('provider') != 'toyoko' or event.get('event_type') != 'reservation':
+            continue
+        trace = record.get('candidate_search') or {}
+        candidates = trace.get('candidates') or ()
+        period = event.get('service_period') or {}
+        unsafe = (record.get('status') != 'RESERVATION_ONLY'
+                  or event.get('evidence_status') != 'reservation_only'
+                  or event.get('source_trust') != 'sender_domain'
+                  or not event.get('source_digest') or event.get('item') != '숙박비'
+                  or event.get('reservation_status') not in ('observed', 'confirmed', 'completed')
+                  or (record.get('reservation_link') or {}).get('status') == 'STALE'
+                  or trace.get('status') != 'CANDIDATES_FOUND'
+                  or any(obj.get(key) for obj in (event, record) for key in
+                         ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))
+                  or not period.get('starts_on') or not period.get('ends_on'))
+        for candidate in candidates:
+            tid = str(candidate.get('transaction_id') or '')
+            if candidate.get('branch_status') != 'MATCH' or candidate.get('stay_date_status') != 'MATCH':
+                continue
+            if unsafe:
+                blocked.add(tid)
+            else:
+                periods[tid].add((period['starts_on'], period['ends_on']))
+    result = {}
+    for tid, choices in periods.items():
+        card = cards.get(tid) or {}
+        if (len(choices) != 1 or tid in blocked or tid in occupied or 'card-' + tid in manual
+                or not card.get('source_hash') or card.get('transaction_direction') != 'purchase'
+                or any(card.get(key) for key in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                                'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        start, end = next(iter(choices))
+        result[tid] = {'booking_ref': '', 'service_period': start + '~' + end,
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 
