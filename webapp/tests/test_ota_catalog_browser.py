@@ -34,7 +34,7 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 page.locator('#nav').get_by_role('link', name='OTA 내역', exact=False).click()
                 self.assertEqual(page.locator('#nav').count(), 1)
                 self.assertIn('전체 3건', page.inner_text('#card-count'))
-                rows = page.locator('#card-filters + table tbody tr')
+                rows = page.locator('main.card-catalog > table tbody tr')
                 self.assertEqual(rows.count(), 3)
                 self.assertIn('2026-10-01', rows.first.inner_text())
                 page.locator('main').get_by_role('link', name='여행 미배정', exact=True).click()

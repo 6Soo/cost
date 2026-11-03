@@ -1080,22 +1080,21 @@ def render_html(data, query, *, csrf=''):
     for row in data['rows']:
         names = ' · '.join(esc(t['name']) for t in row['trips'])
         if names:
-            rule = row.get('rule')
-            suffix = f" · 규칙 r{rule['revision']}" if rule else ''
+            suffix = ''
             if any(t.get('source') == 'period' for t in row['trips']):
                 inferred = next(t for t in row['trips'] if t.get('source') == 'period')
                 suffix += ' · 자동 추론 · 확신 ' + inferred.get('confidence', '보통')
             trip_cell = (f"<span class='ota-badge trip ok'>{ui_icons.icon('check', 14)}"
                          f"<span>{names}{esc(suffix)}</span></span>")
             if any(t.get('source') == 'period' for t in row['trips']):
-                trip_cell += '<br><small>' + esc(inferred.get('basis')) + '</small>'
+                trip_cell += '<details><summary>배정 근거</summary><p>' + esc(inferred.get('basis')) + '</p></details>'
         else:
             trip_cell = (f"<span class='ota-badge trip idle'>{ui_icons.icon('map', 14)}"
                          "<span>여행 미배정</span></span>")
         if not names and row.get('reason') in ('cancelled', 'revoked'):
             trip_cell = "<span class='ota-badge trip idle'>배정 제외 · " + esc(UNASSIGNED_REASONS[row['reason']]) + '</span>'
-        trip_cell += (f" <a href='{esc(detail_url(row['provider'], row['booking_ref']))}'>"
-                      + ('여행 수정' if names else '판단하기') + '</a>')
+        if not names:
+            trip_cell += f" <a href='{esc(detail_url(row['provider'], row['booking_ref']))}'>판단하기</a>"
         status = row['status'] or '미확인'
         badge = STATUS_BADGE.get(status)
         if badge is not None:
@@ -1151,12 +1150,14 @@ def render_html(data, query, *, csrf=''):
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if not value('state') else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
         f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
+        "</nav>"
+        + refresh_note
+        + ('' if loading else f"<p id='card-count'>검색 결과 {data['total']:,}건 · 전체 {data['all_count']:,}건</p>")
+        + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
+        + f"<details class='catalog-tools'{' open' if value('state') == 'excluded' else ''}><summary>추가 조회·관리</summary><nav class='catalog-actions' aria-label='OTA 추가 조회'>"
         f"<a class='catalog-btn' href='{esc(url(state='excluded', page=1))}'>취소·배정 해제 {data.get('excluded_count', 0):,}건</a>"
         f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
-        + refresh_note
-        + ('' if loading else f"<p id='card-count'>{ui_icons.icon('list', 16)}전체 {data['all_count']:,}건 · 자동 추론 {data.get('inferred_count', 0):,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 취소·해제 제외 {data.get('excluded_count', 0):,}건 · 검색 결과 {data['total']:,}건</p>")
-        + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
-        + reason_block + problem_block
+        + reason_block + problem_block + '</details>'
         + '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)
         + '</tr></thead><tbody>' + (''.join(body) or ("<tr><td colspan='7'>OTA 자료 갱신에 실패했습니다.</td></tr>" if state == 'failed' and loading else "<tr><td colspan='7'>OTA 자료를 불러오는 중입니다.</td></tr>" if loading else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조건에 맞는 OTA 예약이 없습니다.</td></tr>"

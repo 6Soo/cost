@@ -174,7 +174,8 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             assert ticket.get_by_text('도쿄', exact=True).is_visible()
             assert ticket.locator('.fb-flight-date').filter(has_text='2026-11-10').is_visible()
             assert ticket.get_by_text('SYN123', exact=True).is_visible()
-            expect(ticket.locator('.fb-summary-item')).to_have_count(5)
+            expect(ticket.locator('.fb-summary-item')).to_have_count(2)
+            expect(ticket.locator('.fb-hero')).to_contain_text('KIM ALPHA')
             expect(ticket.locator('.fb-flight-card')).to_have_count(1)
             assert ticket.locator('.fb-route-stop').count() == 2
             assert ticket.get_by_text('Synthetic Airline', exact=True).is_visible()

@@ -1142,6 +1142,7 @@ td::before{content:attr(data-label);display:block;font-size:13px;font-weight:600
 input,select,button{min-height:44px;font-size:16px}td button{width:100%}}
 @media(min-width:760px){body{margin:16px auto;max-width:960px;padding:0 16px 80px}.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
 tr[hidden]{display:none!important}
+#receipt-pdf,#other-methods:not([open]),#step-group:not([open]){padding:0;border:0;background:transparent}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"""
 
 
@@ -1187,7 +1188,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
     rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 사진을 분석하거나 직접 입력하세요.</td></tr>'
-    holds = ''.join(_hold_html(h) for h in data['holds']) or '<li>보류된 영수증이 없습니다.</li>'
+    holds = ''.join(_hold_html(h) for h in data['holds'])
     latest = data['images'][-1] if data['images'] else ''
     ai = opencode_receipt_vision.enabled()
     script = (
@@ -1302,10 +1303,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<section id='step-photos'><h2>2. 영수증 파일 등록</h2>"
             "<div><label>영수증 사진<input id='img-file' type='file' multiple accept='image/*'></label> "
             f"<button type='button' id='img-go' disabled>{ui_icons.icon('upload')}사진 등록</button></div>"
-            "<div><label>PDF 영수증<input id='pdf-file' type='file' accept='application/pdf,.pdf'></label> "
+            "<details id='receipt-pdf'><summary>PDF로 등록</summary><div><label>PDF 영수증<input id='pdf-file' type='file' accept='application/pdf,.pdf'></label> "
             "<button type='button' id='pdf-go' disabled>PDF 페이지 등록</button></div>"
+            "<p class='hint'>최대 10페이지까지 등록할 수 있습니다.</p></details>"
             f"<input type='hidden' id='image-sha' value='{latest}'>"
-            "<p class='hint'>원본은 그대로 보관합니다. PDF는 최대 10페이지까지 등록할 수 있습니다. 페이지별 영수증 값을 확인해 주세요.</p>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
             + ai_section
             + ("<section id='step-review'><h2>4. 후보 검토</h2>" if ai else "<section id='step-review'><h2>3. 후보 검토</h2>") +
@@ -1317,10 +1318,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></details>"
-            + ("<section><h2>5. 구글 지출 7열 복사</h2>" if ai else "<section><h2>4. 구글 지출 7열 복사</h2>") +
+            + ("<section id='step-copy'><h2>5. 구글 지출 7열 복사</h2>" if ai else "<section id='step-copy'><h2>4. 구글 지출 7열 복사</h2>") +
             f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
             f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
-            f"<h3>보류</h3><ul>{holds}</ul></section>"
+            "</section>"
+            + (f"<section id='receipt-holds'><h2>확인 필요</h2><ul>{holds}</ul></section>" if holds else '') +
             "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
             + ocr +
             "<div style='margin-top:12px'><h3>직접 입력</h3>"
@@ -1353,6 +1355,9 @@ const update=()=>{
  const candidates=[...document.querySelectorAll('tr[data-version]')];
  candidates.forEach(row=>row.hidden=!!trip.value&&!!row.dataset.savedTrip&&row.dataset.savedTrip!==trip.value);
  const visible=candidates.filter(row=>!row.hidden).length;
+ byId('step-review').hidden=visible===0;
+ byId('step-copy').hidden=visible===0;
+ const aiStep=byId('step-ai');if(aiStep)aiStep.hidden=document.querySelectorAll('.photo').length===0;
  byId('receipt-visible-count').textContent=visible?visible+'건의 영수증 후보': '이 여행에 등록된 후보가 없습니다. 사진을 등록하거나 직접 입력하세요.';
  state('copy-tsv',!!copy&&candidates.some(row=>row.querySelector('[data-trip]').value===copy));
  byId('step-group').hidden=candidates.length===0;

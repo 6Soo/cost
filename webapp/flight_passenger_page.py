@@ -176,10 +176,9 @@ def _page(csrf):
 }
 </style></head><body><main id="flight-booking-page">
 <h1>항공권 예약 확인</h1>
-<p class="fb-muted">탑승객 이름으로 예약과 여정을 찾고, 연결된 결제 내역을 확인하세요.</p>
 <section class="fb-panel" aria-label="항공권 조회">
 <form id="fb-search"><label for="fb-name">탑승객 이름<input id="fb-name" name="name" placeholder="영문 또는 한글 이름" aria-describedby="fb-search-help" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
-<p class="fb-muted" id="fb-search-help">항공권에 적힌 이름을 입력하세요. 영문 이름은 성·이름 순서와 관계없이 검색할 수 있습니다.</p>
+<p class="fb-muted" id="fb-search-help">영문 이름은 성·이름 순서와 관계없이 검색됩니다.</p>
 <p class="fb-muted" id="fb-status" role="status" aria-live="polite"></p></section>
 <section id="fb-results" aria-label="예약 조회 결과"></section><button id="fb-more" type="button" hidden>예약 더 보기</button></main>
 <script>
@@ -262,17 +261,13 @@ function summaryItem(label,value,symbol,extra){
  if(extra)text(content,'span',extra,'fb-summary-detail');
  wrap.append(content);summary.append(wrap);
 }
-summaryItem('항공권 예약번호',b.booking_ref,'');
-summaryItem('탑승객',b.passenger_name,'');
 summaryItem('예약일',b.booking_date_status==='CONFLICT'?'근거 날짜 충돌':b.reserved_on||'확인되지 않음','▦',
  b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일 기준':b.booking_date_status==='EXPLICIT_LABEL'?'원본 명시 확인':null);
 summaryItem('예약처',b.provider==='trip'?'Trip.com':b.provider||'확인되지 않음','');
-summaryItem('여정',legs.length?legs.length+'개 여정':'확인되지 않음','');
 card.append(summary);
 const segments=document.createElement('section');segments.className='fb-section fb-itinerary';
 const heading=document.createElement('div');heading.className='fb-heading';
 const headingCopy=document.createElement('div');text(headingCopy,'h2','탑승권·여정 정보');
-text(headingCopy,'p','원본에서 확인된 시간입니다. 시간대·도착 날짜가 없으면 임의로 추정하지 않습니다.','fb-muted');
 heading.append(headingCopy);segments.append(heading);
 let legCount=0;
 for(const [legIndex,leg] of (Array.isArray(b.legs)?b.legs:[]).entries()){
@@ -297,10 +292,8 @@ for(const [legIndex,leg] of (Array.isArray(b.legs)?b.legs:[]).entries()){
   if(flight?.arrival_airport)text(to,'span',flight.arrival_airport,'fb-airport-code');
   route.insertBefore(from,arrow);route.append(to);trip.append(route);
   const facts=document.createElement('div');facts.className='fb-flight-facts';
-  if(leg?.departure_on)field(facts,'출발일',leg.departure_on);
   if(flight?.departure_time)field(facts,'출발 시간',flight.departure_time);
   if(flight?.arrival_time)field(facts,'도착 시간',flight.arrival_time);
-  if(flight?.departure_airport||flight?.arrival_airport)field(facts,'출발 / 도착 공항',(flight.departure_airport||'?')+' → '+(flight.arrival_airport||'?'));
   if(facts.children.length)trip.append(facts);
   segments.append(trip);legCount++;
  }

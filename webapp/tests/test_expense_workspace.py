@@ -36,11 +36,13 @@ class WorkspaceParser(HTMLParser):
             self.stack = self.stack[:len(self.stack) - 1 - self.stack[::-1].index(tag)]
 
 
-def test_tasks_are_top_level_tabs_with_unique_reachable_panels():
+def test_core_tasks_are_primary_and_management_is_disclosed_with_reachable_panels():
     parser = WorkspaceParser()
     parser.feed(page('synthetic-token'))
     assert len(parser.tabs) == 4
-    assert all('details' not in ancestors for ancestors in parser.tab_ancestors)
+    assert [tab['data-expense-view'] for tab in parser.tabs] == ['cleanup', 'upload', 'saved', 'rules']
+    assert all('details' not in ancestors for ancestors in parser.tab_ancestors[:2])
+    assert all('details' in ancestors for ancestors in parser.tab_ancestors[2:])
     assert sum(tab['aria-selected'] == 'true' for tab in parser.tabs) == 1
     for tab in parser.tabs:
         _, panel = parser.ids[tab['aria-controls']]

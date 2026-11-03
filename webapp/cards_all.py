@@ -881,7 +881,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             f"<option value='{_esc(option['card_key'])}'{' selected' if option['card_key'] == selected_card else ''}>{_esc(option['card_label'])}</option>"
             for option in card_options)
         filter_form = (
-            "<form method='get' action='/cards/all' class='card-all-filters'>"
+            "<form method='get' action='/cards/all' class='card-all-filters' aria-label='조회 조건'>"
             + _hidden_filters({'undated': '1'} if show_undated else {})
             + _period_select(year, selected_month, years)
             + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
@@ -905,15 +905,6 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             + "<div class='card-all-page'>"
             "<div class='card-all-page-loading' role='status' hidden>"
             "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
-            "<header class='card-all-hero'>"
-            "<div><p class='card-all-eyebrow'>CARD TRANSACTION HISTORY</p>"
-            "<p class='card-all-lead'>월별 카드 거래 확인</p>"
-            "</div>"
-            "<div class='card-all-summary' aria-label='저장 거래 요약'>"
-            f"<div class='card-all-stat'><span class='card-all-stat-label'>{year}년 날짜 확인 거래</span><strong class='card-all-stat-value'>{sum(int(v or 0) for v in months.values()):,}건</strong></div>"
-            f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
-            "</div></header>"
-            "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회 조건</h2></div>"
             f"{filter_form}"
             f"{detail}"
             f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)}"

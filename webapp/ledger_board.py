@@ -1506,16 +1506,14 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<article class='card trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
             f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">✓ 마감</span>' if t.get('visual_closed') else ''} <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
-            "<details class='trip-meta'><summary>정보 수정·보관</summary>"
+            "<details class='trip-meta'><summary>여행 관리</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
             # APP_SPEC 3 keeps the schedule authority and the tab kind apart from
             # the display name, so the screen states them rather than implying
             # them through the name.
-            f"<p class='muted'>연도 {esc(str(t.get('event_year') or ''))} · "
-            f"종류 {esc(t.get('tab_kind') or 'trip')} · "
-            f"일정 근거 {esc('미확인' if t.get('authority_status') != 'authoritative' else '확인됨')}</p>"
-            f"<p><a class='btn' href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>여행 자료 확인</a> "
+            + ("<p class='muted'>일정 근거 확인 필요</p>" if t.get('authority_status') != 'authoritative' else '') +
+            "<p>"
             + ("<a class='btn' href='/google-ledger'>원본 장부·연결 설정 확인</a>" if google_ledger_page.enabled() and google_ledger_page.owns_route('/google-ledger') else '') + "</p>"
             f"<p>{counts}</p>"
             + (f"<p class='muted'>댓글 {str(registration['comment_count'])+'개' if registration['comment_count'] is not None else '확인 불가'} · "
@@ -1547,7 +1545,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "<input type='hidden' name='return_to' value='/trips'>"
             f"<button type='submit'>{ui_icons.icon('archive')}{'복원' if t['archived'] else '보관'}</button></form>"
             f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
-            "</details>"
             + (f"<form method='post' class='trip-close-form' action='/api/trips/{esc(t['tab_id'])}/meta'>"
                f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
                f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1555,7 +1552,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
                "<input type='hidden' name='return_to' value='/trips'>"
                f"<button type='submit'>{ui_icons.icon('rotate-ccw' if t.get('visual_closed') else 'check')}{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
-            + "</article>"
+            + "</details></article>"
         )
     profile_html = ""
     if role == "owner":
@@ -1610,13 +1607,14 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     body = ("<div class='sect'><form id='trip-management-filter' role='search'>"
             "<label for='trip-management-search'>여행 찾기</label> "
             "<input id='trip-management-search' type='search' placeholder='여행 이름·코드·담당자'> "
+            "<details class='trip-filter-tools'><summary>상세 조건</summary><div>"
             "<label for='trip-management-owner'>담당자</label> <select id='trip-management-owner'>"
             "<option value=''>전체</option><option value='aslan'>아슬란</option><option value='andre'>김동언(안드레)</option></select> "
             "<label for='trip-management-state'>상태</label> <select id='trip-management-state'>"
             "<option value=''>전체</option><option value='0'>활성</option><option value='1'>보관</option></select> "
             "<label for='trip-management-closed'>마감</label> <select id='trip-management-closed'>"
             "<option value=''>전체</option><option value='0'>미마감</option><option value='1'>마감</option></select> "
-            "<button type='reset'>초기화</button><p id='trip-management-count' role='status'></p></form>"
+            "<button type='reset'>초기화</button></div></details><p id='trip-management-count' role='status'></p></form>"
             f"{profile_html}{preview_html}{''.join(cards)}"
             "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></div>")
     return ledger_design.render(ledger_design.shell(

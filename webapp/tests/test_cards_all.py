@@ -323,7 +323,8 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
             {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
     assert "id=\"card-all-design\"" in result
     assert "조회 조건" in result
-    assert "월별 카드 거래 확인" in result
+    assert "월별 카드 거래 확인" not in result
+    assert "CARD TRANSACTION HISTORY" not in result
     assert "카드 전체 내역" in result
     assert "0630_오제" in result
     assert "title='T-A'" in result
@@ -495,6 +496,9 @@ def test_real_cards_all_initial_render_records_once_and_excludes_send_time(card_
     from types import SimpleNamespace
     from app import request_metrics
     from webapp import ledger_board
+
+    # The delay belongs to this request, not the process-wide median of earlier tests.
+    monkeypatch.setattr(request_metrics, '_REGISTRY', request_metrics.MetricsWindow())
 
     server = SimpleNamespace(store_lock=None, card_store=None)
     handler = object.__new__(ledger_board.Handler)

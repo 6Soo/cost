@@ -151,16 +151,16 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
                         "<span class='nm'>영수증 처리</span></a>")
-        management = ("</nav><h2 class='nav-sec'>관리</h2>"
+        if flight_passenger_page.enabled():
+            primary += (f"<a href='/flight-passengers'>{_icons.icon('airplane', 18)}"
+                        "<span class='nm'>항공권 예약 확인</span></a>")
+        management = ("</nav><details class='nav-management'><summary>관리</summary>"
                       "<nav class='site-links' aria-label='관리 메뉴'>"
                       f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
                       f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>")
-        if flight_passenger_page.enabled():
-            management += (f"<a href='/flight-passengers'>{_icons.icon('airplane', 18)}"
-                           "<span class='nm'>항공권 예약 확인</span></a>")
         primary += (management
                     + f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
-                    + "</nav>")
+                    + "</nav></details>")
     else:
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
@@ -396,6 +396,12 @@ def nav_part(tab_id: str, query: str = "", kind: str = "",
     return _nav_region_inner(tab_id, query, kind, archived)
 
 
+def _context_badge() -> str:
+    """Only example-data warnings belong beside every page title."""
+    mark = board.data_status_mark()
+    return f"<span class='synth'>{board.esc(mark)}</span>" if mark == board.SYNTHETIC_MARK else ''
+
+
 def _head_html(trip) -> str:
     from . import ui_icons as _icons
     if trip is None:
@@ -418,14 +424,15 @@ def _head_html(trip) -> str:
                 f"<span><a class='btn' href='/trips?{board.esc(urlencode({'trip': trip['tab_id']}))}'>{_icons.icon('map')}여행 관리</a></span>")
     return (
         "<div class='page-hd'><div>"
-        f"<h1>{title}<span class='synth'>{board.data_status_mark()}</span></h1>"
+        f"<h1>{title}{_context_badge()}</h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
-        + _reserve_link_link_html()
-        + _review_link_html()
+        + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
+        "<details class='secondary-actions'><summary>추가 작업</summary><div>"
+        + _reserve_link_link_html() + _review_link_html()
         + f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
+        "</div></details>"
         "</div></div>")
 
 
@@ -1505,17 +1512,14 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
-    # APP_SPEC 4.1: the global top area carries the unsaved row count and the
-    # last saved time. The count is filled in by the script as edits become
-    # dirty; the time is the ledger's own last save for this tab.
+    # Reserve the status slot for actual unsaved edits, not routine timestamps.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     main_class = "main home-main" if home else "main"
     from . import ui_icons as _icons
     global_state = "" if home else (
         f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
-        "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
-        f"<span>{ui_icons.icon('save')}최근 저장 {_last_saved_at(tab_id)}</span>"
-        + (f" · {board.esc(role_note)}" if role_note else "")
+        "<span id='unsaved-count' hidden></span>"
+        + (board.esc(role_note) if role_note else "")
         + "</p>")
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
@@ -1524,7 +1528,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
-        f"<h1>{heading}<span class='synth'>{board.data_status_mark()}</span></h1>"
+        f"<h1>{heading}{_context_badge()}</h1>"
         + (f"<p class='period'>{period}</p>" if period else "")
         + (f"<p class='meta'>{meta}</p>" if meta else "")
         + global_state
@@ -1534,10 +1538,9 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
-        + (f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>" if home else "")
         + f"{export_btn}"
-        f"<a class='btn' href='{board.esc(back)}'>장부</a>"
-        "</div></div>"
+        + (f"<a class='btn' href='{board.esc(back)}'>장부</a>" if not home else "")
+        + "</div></div>"
         f"<div class='page-body'>{body}</div>"
         "</main>")
     slot = f"<div id='panel-slot'>{aside}</div>" if aside else "<div id='panel-slot'></div>"
@@ -1771,8 +1774,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         # APP_SPEC 4.1: the same global state line the shared shell carries.
         f"<p class='meta' id='global-state' data-role='"
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
-        "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
-        f"<span>{ui_icons.icon('save')}최근 저장 {_last_saved_at(tab_id)}</span></p>"
+        "<span id='unsaved-count' hidden></span></p>"
         # APP_SPEC 4.1: ledger-note removed per review
         # The live refresh replaces the totals and the two row lists as one block,
         # and the edit panel sits outside it so an open panel is never rewritten.

@@ -47,7 +47,7 @@ def test_browser_multi_city_booking_and_payment_are_readable_without_internal_fi
             page.goto('http://synthetic.test/flight-passengers')
             page.get_by_label('탑승객 이름').fill('ALPHA')
             page.get_by_label('탑승객 이름').press('Enter')
-            expect(page.locator('.fb-summary')).to_contain_text('KIM ALPHA')
+            expect(page.locator('.fb-hero')).to_contain_text('KIM ALPHA')
             expect(page.locator('.fb-summary')).not_to_contain_text('PARK BETA')
             cards = page.locator('.fb-flight-card')
             expect(cards).to_have_count(3)

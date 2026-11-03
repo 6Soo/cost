@@ -123,6 +123,10 @@ class DesignScreenTests(unittest.TestCase):
                 page.close()
 
     def setUp(self):
+        from unittest.mock import patch
+        legacy_mode = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '0', 'WEBLEDGER_UNIFIED_DB': '0'})
+        legacy_mode.start()
+        self.addCleanup(legacy_mode.stop)
         self.tmp = tempfile.mkdtemp()
         self._prev_db = os.environ.get("WEBLEDGER_DB")
         os.environ["WEBLEDGER_DB"] = str(Path(self.tmp) / "design.sqlite")
@@ -281,8 +285,10 @@ class DesignScreenTests(unittest.TestCase):
         # is absent because no review is configured in this environment; the
         # reservation-linking button is present because it does not depend on
         # one (RESERVE-NAVIGATION-001).
-        self.assertEqual(page.inner_text(".act").replace("\n", " "),
-                         "예약 연결 카드 가져오기 XLSX 출력")
+        self.assertEqual(page.inner_text(".act").replace("\n", " "), "XLSX 출력 추가 작업")
+        page.locator('.secondary-actions > summary').click()
+        self.assertTrue(page.locator('#reserve-link').is_visible())
+        self.assertTrue(page.locator('.act a[href="/import#newupload"]').is_visible())
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
@@ -770,6 +776,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(status, 200)
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
+        page.locator('.secondary-actions > summary').click()
         page.click(".act a[href='/import#newupload']")
         page.wait_for_load_state()
         self.assertIn("카드 가져오기", page.inner_text("body"))
