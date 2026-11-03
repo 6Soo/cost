@@ -2,7 +2,7 @@
 
 CSS zoom and viewport emulation only; these tests do not claim physical-device QA.
 """
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timezone
 
 import pytest
@@ -160,5 +160,54 @@ def test_member_failure_clears_stale_rows_or_displays_cursor_error(status, code)
                 expect(page.locator('[data-group-error]')).to_have_text('페이지 정보가 만료되었습니다.')
                 assert reads['members'] == 2
                 assert reads['summary'] == 1
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize('status,code,expected_retry', [
+    (400, 'BAD_CURSOR', None), (503, 'SERVICE_ERROR', 'expired'),
+])
+def test_member_cursor_retry_resets_only_expired_cursor(status, code, expected_retry):
+    group_id = 'b' * 64
+    cursors = []
+
+    def route(request):
+        url = urlsplit(request.request.url)
+        if url.path.endswith('/summary'):
+            request.fulfill(json=summary())
+        elif url.path.endswith('/groups'):
+            request.fulfill(json={'generation': 1, 'next_cursor': None, 'items': [row(group_id)]})
+        elif url.path.endswith('/members'):
+            cursor = parse_qs(url.query).get('cursor', [None])[0]
+            cursors.append(cursor)
+            if cursor and cursors.count(cursor) == 1:
+                request.fulfill(status=status, json={'code': code})
+            else:
+                request.fulfill(json={'generation': 1, 'items': [{'event': EVENT}],
+                                      'total_count': 21, 'next_cursor': 'expired'})
+        else:
+            request.fulfill(status=404, json={'code': 'NOT_FOUND'})
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.route('**/api/imports/ota/**', route)
+            page.set_content(document())
+            page.locator('#ota-review > summary').click()
+            page.locator('[data-queue-detail] > summary').click()
+            page.get_by_role('button', name='다음 사건').click()
+            expect(page.locator('[data-group-error]')).to_be_visible()
+            if code == 'BAD_CURSOR':
+                page.locator('[data-group-members]').evaluate(
+                    "e => e.insertAdjacentHTML('beforeend', \"<div class='ota-card-row'><input type='radio' checked></div>\")")
+                page.get_by_role('button', name='구성원 다시 불러오기').click()
+                expect(page.locator('#ota-freshness')).to_contain_text('저장하지 않은 선택')
+                assert cursors == [None, 'expired']
+                page.locator('.ota-card-row input').evaluate('e => e.checked = false')
+            page.get_by_role('button', name='구성원 다시 불러오기').click()
+            expect(page.locator('[data-group-error]')).to_have_count(0)
+            expect(page.get_by_role('button', name='다음 사건')).to_be_visible()
+            assert cursors == [None, 'expired', expected_retry]
         finally:
             browser.close()
