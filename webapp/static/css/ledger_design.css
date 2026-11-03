@@ -776,14 +776,14 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  grid-template-columns:minmax(0,2.4fr) minmax(0,1fr);
  gap:10px 14px;
 }
-.panel[data-edit-kind='expense'] .p-core-fields>.f:first-child{
+.panel[data-edit-kind='expense'] .p-core-fields>.f-trip-edit{
  display:grid;
  grid-template-columns:minmax(0,1fr) minmax(0,1.45fr);
  grid-template-rows:auto 36px;
  column-gap:10px;
  align-items:end;
 }
-.panel[data-edit-kind='expense'] .p-core-fields>.f:first-child>label:first-child{grid-column:1;grid-row:1}
+.panel[data-edit-kind='expense'] .p-core-fields>.f-trip-edit>label:first-child{grid-column:1;grid-row:1}
 .panel[data-edit-kind='expense'] .p-core-fields #f-trip-search{grid-column:1;grid-row:2;min-width:0}
 .panel[data-edit-kind='expense'] .p-core-fields label[for='f-display_tab_id']{grid-column:2;grid-row:1}
 .panel[data-edit-kind='expense'] .p-core-fields #f-display_tab_id{grid-column:2;grid-row:2;min-width:0}
@@ -815,6 +815,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .panel[data-edit-kind='expense'] .p-src[open]{
  display:block;
  width:100%;
+ box-sizing:border-box;
  margin-right:0;
  border:1px solid var(--line);
  border-radius:8px;
@@ -865,12 +866,12 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  .panel[data-edit-kind='expense'] .p-ft #p-cancel{flex:1 1 90px}
 }
 @media(max-width:560px){
- .panel[data-edit-kind='expense'] .p-core-fields>.f:first-child{
+ .panel[data-edit-kind='expense'] .p-core-fields>.f-trip-edit{
   grid-template-columns:minmax(0,1fr);
   grid-template-rows:auto 36px auto 36px;
   row-gap:2px;
  }
- .panel[data-edit-kind='expense'] .p-core-fields>.f:first-child>label:first-child{grid-column:1;grid-row:1}
+ .panel[data-edit-kind='expense'] .p-core-fields>.f-trip-edit>label:first-child{grid-column:1;grid-row:1}
  .panel[data-edit-kind='expense'] .p-core-fields #f-trip-search{grid-column:1;grid-row:2}
  .panel[data-edit-kind='expense'] .p-core-fields label[for='f-display_tab_id']{grid-column:1;grid-row:3}
  .panel[data-edit-kind='expense'] .p-core-fields #f-display_tab_id{grid-column:1;grid-row:4}
