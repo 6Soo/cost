@@ -13,4 +13,8 @@
 
 ## 운영 반영 상태
 
-데이터 교정과 원문 적재는 완료했다. 새 파서·향후 카드 제한의 코드 배포와 OTA 운영 화면 수락은 PR CI 및 단일 host 작성자 조율 후 수행한다. 기존 공용 checkout의 동시 브랜치 전환으로 초안 일부가 사라져 실제 수정 격리를 위해 `C:/AX/cost-jeju-20261103` worktree를 사용했다. 공용 사용자 변경은 보존했다.
+데이터 교정과 원문 적재는 완료했다. PR [#566](https://github.com/6Soo/cost/pull/566)을 병합한 `f1b1ff63b5eaefcbea914808f3022ec6044e3a1e`를 이전 검증 `35ec72b8cb0fe5547dfd80cef01772f6ab2b7e3b`에서 공식 배포했다. PR CI41578660810·main CI41579009582 성공, 1,307 tracked blobs 불일치0, gateway8790→backend8752·task/process SHA·health/ready200·보호API401·보호13표 불변 PASS다. 기존 창 없는 작업 래퍼를 보존했고 별도 금융·원본·Google·스키마 쓰기나 데이터 교정을 반복하지 않았다.
+
+재개 시 원문 적재2건·여행 교정37+25건의 기존 안전 검증 요약을 대조하고, 운영DB를 읽어 `0909_제주`의4813 3건·타카드0을 재확인했다. 기존 Ego9가 없어 사용자 승인 후 Ego13으로 운영 화면 검증을 재개했다. 카드 대사 갱신은421.1초 뒤 generation663으로 정상 완료했고, 두 결제의 `MATCHED_AUTO`·서로 다른 카드 원행2건을 확인했다. 이후 OTA 색인 갱신까지 완료한 인증 운영 화면에서 제주항공 예약1행·카드2건(311,600원·85,600원)·`0806_다테시나` 자동 추론 배정, 제주 여행 화면의 지출3건을 수락했다. 원결제 재관측을 별도 카드 결제로 중복 집계하지 않는다. Ego13은 검증 후 종료했다. 요청 미결0이며 코드 재배포·데이터 재적재는 필요 없다.
+
+배포·읽기 검증 근거는 `C:/AX/cost/.local-archive/jeju-resume-20261103/`의 `deploy-evidence.json`, `protection-before.json`, `protection-after.json`, `data-verification.json`과 호스트 `D:/WebLedgerHost/releases/deploy-evidence-f1b1ff63b5eaefcbea914808f3022ec6044e3a1e.json`이다. 기존 공용 checkout의 동시 브랜치 전환으로 초안 일부가 사라져 실제 수정 격리를 위해 `C:/AX/cost-jeju-20261103` worktree를 사용했다. 공용 사용자 변경은 보존했다.

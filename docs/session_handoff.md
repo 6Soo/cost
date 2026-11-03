@@ -1,3 +1,9 @@
+## 2026-11-03 제주항공 OTA·0909 제주 카드 제한 — 완료
+
+- COMPLETE — [PR #566](https://github.com/6Soo/cost/pull/566) 병합·운영 `f1b1ff63b5eaefcbea914808f3022ec6044e3a1e`, 이전 검증 `35ec72b8cb0fe5547dfd80cef01772f6ab2b7e3b`. 제주항공 원문2건은 예약1건·결제2건·관측3건으로 집계하며 카드 원행을 중복 집계하지 않는다. `0909_제주`는4813만 자동 후보로 허용하고 다른 카드는 기존 규칙을 따른다. 기존 데이터 교정62건과 원문 적재는 재실행하지 않았다.
+- Windows 영향QA573 passed·34 subtests·skip0 및 PR CI41578660810/main CI41579009582 성공. 1,307 blobs 불일치0·공식 단일 작성자 배포·gateway8790→backend8752·task/processSHA·health/ready200·보호API401·보호13표 불변 PASS. 배포 중 업무DB/Google/원본/스키마 쓰기0. 운영DB 읽기에서 제주4813 3건·타카드0을 재확인했다.
+- 기존 Ego9 소실 후 사용자 승인으로 Ego13을 열었다. 카드 대사 generation663·색인 갱신 완료 후 인증 OTA 화면에서 예약1행·원결제311,600원/추가85,600원 카드2건·`0806_다테시나` 배정을 수락했다. 제주 여행 화면도 지출3건이다. 근거 `C:/AX/cost/.local-archive/jeju-resume-20261103/`의 `live-ota.json`, `live-jeju.json`, `canonical-jeju.json`과 [실행 기록](specs/jeju-ota-card-scope-20261103.md). Ego13 종료, 요청 미결0·다음 기능 명령 없음. 문서 후속만으로 재검사·재배포·서버 재시작하지 않는다.
+
 ## 2026-11-03 승인 배포 후속 — 게이트웨이·지출·영수증·보험 운영 반영
 
 - COMPLETE — 사용자 “배포해”의 선행 검증 후보 `ac2eed1635bd8b807abdee2e6dbcd382ef969225`를 이전 검증 `a9b0617a132be8ea83328a8ac6a9345514efeffc`에서 배포했다. 이어 기존 승인된 보험 PR #558/#559의 `6d7c4f59834fa2f245d759ede54dba554e0741d3`, 후보 보기 PR #560의 `e75f0b9699bd87fe951ea307712258db974a8677`를 단일 작성자로 순차 배포했다. 아래 과거 정책 차단·운영 미배포 상태는 이 실제 배포 기록으로 대체한다. 지출 인라인/일괄 편집 및 영수증 PDF/영역 검토 코드도 포함된다.
