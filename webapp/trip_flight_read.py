@@ -53,6 +53,9 @@ def project_trip_bookings(index: Mapping[str, Any], trips: Sequence[Mapping[str,
         facts = {"provider": provider, "booking_ref": str(ref), "legs": legs}
         assigned = resolve_assignment(facts, trips, user_assignment=assignments.get(key),
                                       authority_trip_ids=authorities.get(key, ()))
+        if evidence.get("conflict") and assigned["assignment_status"] == "AUTO_INFERRED":
+            assigned = {**assigned, "trip_tab_id": "", "assignment_status": "CONFLICT",
+                        "assignment_basis": "FLIGHT_EVIDENCE_CONFLICT"}
         departure = assigned["outbound_departure_on"]
         route = _route_summary(legs)
         bookings.append({"provider": provider, "booking_key": key, "booking_ref": str(ref),
