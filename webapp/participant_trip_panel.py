@@ -71,14 +71,24 @@ def project(state: dict, *, income_offset: int = 0, participant_offset: int = 0,
 def _review_markup(state, data):
     """Masked text evidence is displayed without creating confirmed people."""
     from .google_ledger_page import is_refunded_income
+    from app.insurance_income_match import unique_identity_name_match
     review = state.get('insurance_review') or {}
     if state.get('configured') and not review.get('available'):
         return ''
     by_ref = {}
     evidence_by_ref = {}
     truncated = False
+    people = (state.get('roster') or {}).get('participants') or []
+    linked_ids = {p.get('participant_id') for p in state.get('participants') or [] if p.get('links')}
+    def linked_row(row):
+        name = row.get('masked_name') or ''
+        matches = [p for p in people if name and (name == p.get('display_name')
+                   or unique_identity_name_match(name, p.get('display_name') or ''))]
+        return len(matches) == 1 and matches[0].get('participant_id') in linked_ids
     for contract in review.get('contracts') or []:
         for row in contract.get('rows') or []:
+            if linked_row(row):
+                continue
             truncated = truncated or row.get('candidate_count', 0) > len(row.get('matches') or [])
             for match in row.get('matches') or []:
                 by_ref.setdefault(match.get('ref'), []).append(row)
@@ -95,6 +105,8 @@ def _review_markup(state, data):
     roster_cards = []
     for contract in review.get('contracts') or []:
         for row in contract.get('rows') or []:
+            if linked_row(row):
+                continue
             roster_cards.append("<li><strong>" + _esc(row.get('masked_name') or '가림 이름 없음')
                                 + "</strong><p>보험 기간 " + _esc(contract.get('travel_start'))
                                 + ' – ' + _esc(contract.get('travel_end')) + '</p></li>')
@@ -117,10 +129,10 @@ def _review_markup(state, data):
         elif truncated:
             label = '후보 목록 확인 필요'
         else:
-            label = '글자 일치 없음'
+            label = '이름 일치 없음'
         generation = (state.get('google') or {}).get('generation') or ''
         status_html = f"<span class='insurance-review-status'>{_esc(label)}</span>"
-        if hits or label == '글자 일치 없음':
+        if hits or label == '이름 일치 없음':
             evidence_id = f'insurance-evidence-{len(evidence)}'
             status_html = (f"<button type='button' class='insurance-review-status insurance-candidate-button' "
                            f"data-insurance-evidence='{evidence_id}' aria-haspopup='dialog'>{_esc(label)}"
@@ -140,8 +152,7 @@ def _review_markup(state, data):
             amount = income.get('amount')
             amount_label = f'{amount:,}원' if isinstance(amount, int) else '금액 미기재'
             no_match = not hits
-            roster = ("<p>글자가 일치하지 않아 이 여행에 연결되거나 일정이 겹치는 명단을 직접 비교합니다. "
-                      "명단에는 이미 연결된 사람이 포함될 수 있습니다.</p>"
+            roster = ("<p>이름이 일치하지 않아 이 여행에 연결되거나 일정이 겹치는 명단을 직접 비교합니다.</p>"
                       "<div data-insurance-roster></div>" if no_match else
                       f"<ul class='insurance-candidate-list'>{''.join(cards)}</ul>")
             connect = (f"<button type='button' class='btn' data-insurance-connect-ref='{_esc(ref)}'>"
