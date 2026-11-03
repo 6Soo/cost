@@ -70,11 +70,11 @@ def render_ota_snapshot_evidence(
     # OTA 연결 상태 뱃지
     status_labels = {
         'EXACT': ('확정 연결', 'ok'),
-        'INFERRED': ('추론 연결', 'warn'),
+        'INFERRED': ('코드 추론', 'warn'),
         'GROUP_RECONCILED': ('그룹 대응 (개별 미확정)', 'warn'),
         'GROUP_LINKED': ('M:N 연결', 'ok'),
         'USER_CONFIRMED': ('사용자 확정', 'ok'),
-        'RESERVATION_INFERRED': ('예약 추론 관계', 'idle'),
+        'RESERVATION_INFERRED': ('예약 코드 추론', 'idle'),
         'RESERVATION_CONFIRMED': ('예약 관계 사용자 확인', 'ok'),
         'RESERVATION_NEEDS_REVIEW': ('예약 후보 경합/충돌', 'warn'),
         'RESERVATION_STALE': ('예약 관계 근거 변경', 'bad'),

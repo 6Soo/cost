@@ -3,6 +3,7 @@
 Every name and date here is synthetic.
 """
 from copy import deepcopy
+import pytest
 
 from app import flight_evidence
 from app.google_tsv import expense_tsv
@@ -41,6 +42,32 @@ def lab(value):
 
 
 class TestLodgingText:
+    @pytest.mark.parametrize('segment', ['9/30~10/1', '09/30 ~ 10/01',
+                                        '2026-09-30 ~ 2026-10-01'])
+    def test_repeated_period_is_only_hidden_in_description(self, segment):
+        value = row('stay', '숙박비', reservation_no='SYNTHETIC-R',
+                    service_period='2026-09-30 ~ 2026-10-01',
+                    description=f'SYNTHETIC-R · {segment} · 조식 포함')
+        before = deepcopy(value)
+        assert sub(value) == '예약번호 SYNTHETIC-R · 조식 포함'
+        assert '1박' in stay(value)
+        assert value == before
+
+    @pytest.mark.parametrize('period', ['', '2026-02-30~2026-03-01',
+                                      '2026-10-01~2026-09-30', '2026-01-01~2028-01-01',
+                                      '2026-09-29~2026-10-01'])
+    def test_unknown_or_different_period_keeps_description(self, period):
+        value = row('stay', '숙박비', service_period=period,
+                    description='9/30~10/1 · 조식 포함')
+        assert '9/30~10/1' in sub(value)
+
+    def test_legacy_code_inference_and_ai_provenance_are_distinct(self):
+        value = row('stay', '숙박비', reservation_no='SYNTHETIC-R',
+                    description='SYNTHETIC-R · 추론 연결 · AI 추론 · 결제일 미확인')
+        before = deepcopy(value)
+        assert sub(value) == '예약번호 SYNTHETIC-R · 코드 추론 · AI 추론 · 결제일 미확인'
+        assert value == before
+
     def test_a_confirmed_stay_shows_its_dates_and_nights_not_the_reservation(self):
         text = stay(row('stay', '숙박비', reservation_no='664206015', service_period='2026-10-14~2026-10-16'))
         assert text == f"{lab('2026-10-14')} ~ {lab('2026-10-16')} · 2박"

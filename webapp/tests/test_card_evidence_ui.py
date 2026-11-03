@@ -67,6 +67,8 @@ def test_baseline_equivalence_ota_snapshot_evidence(baseline_ns):
 
     for entry in scenarios:
         baseline_html = baseline_ns["_render_ota_snapshot_evidence"](entry, "tx-any")
+        baseline_html = baseline_html.replace('>추론 연결<', '>코드 추론<').replace(
+            '>예약 추론 관계<', '>예약 코드 추론<')
         wrapper_html = card_flow._render_ota_snapshot_evidence(entry, "tx-any")
         direct_html = card_evidence_ui.render_ota_snapshot_evidence(entry, "tx-any", esc=ledger_board.esc)
         assert baseline_html == wrapper_html == direct_html
