@@ -13,6 +13,15 @@ def test_standalone_header_theme_is_inline_not_before_menu():
     assert 'site-topbar>.site-theme-bar' in html
 
 
+def test_native_header_uses_current_title_and_shared_typography_tokens():
+    doc = '<html><head><title>장부 &amp; 여행</title></head><body><aside id="nav"></aside><main id="main"><div class="page-hd"><h1>장부</h1></div></main></body></html>'
+    result = site_shell.wrap_document(doc, '/board')
+    header = result.split('<header class="site-topbar">', 1)[1].split('</header>', 1)[0]
+    assert '장부 &amp; 여행' in header
+    assert result.count('id="site-theme-toggle"') == 1
+    assert '--shell-title-size:24px' in result
+
+
 def test_theme_remains_visible_on_desktop_and_shares_mobile_row():
     from playwright.sync_api import sync_playwright
     from unittest.mock import patch
