@@ -62,16 +62,37 @@ function Get-BackendSupervisor([int]$Port,[string]$Sha) {
     $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($listeners[0].OwningProcess)"
     if(-not $process -or -not $process.CommandLine.Contains($Sha) -or -not $process.CommandLine.Contains('launch_web_ledger.py')){throw 'SUPERVISOR_BACKEND_IDENTITY_INVALID'}
     $parent=Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ParentProcessId)"
-    if(-not $parent -or -not $parent.CommandLine.Contains($Sha) -or -not $parent.CommandLine.Contains('launch_web_ledger.py')){throw 'SUPERVISOR_PARENT_IDENTITY_INVALID'}
-    $supervisor=Get-CimInstance Win32_Process -Filter "ProcessId=$($parent.ParentProcessId)"
+    if(-not $parent -or -not $parent.CommandLine.Contains($Sha)){throw 'SUPERVISOR_PARENT_IDENTITY_INVALID'}
+    if($parent.Name -in @('powershell.exe','pwsh.exe')){$supervisor=$parent}
+    elseif($parent.CommandLine.Contains('launch_web_ledger.py')){$supervisor=Get-CimInstance Win32_Process -Filter "ProcessId=$($parent.ParentProcessId)"}
+    else {throw 'SUPERVISOR_PARENT_IDENTITY_INVALID'}
     if(-not $supervisor -or $supervisor.Name -notin @('powershell.exe','pwsh.exe') -or -not $supervisor.CommandLine.Contains("$Sha\tools\start_web_ledger_host.ps1") -or $supervisor.CommandLine -notmatch "-BoardPort $Port( |$)"){throw 'SUPERVISOR_IDENTITY_INVALID'}
     return @{pid=[int]$supervisor.ProcessId;sha=$Sha;port=$Port;created=$supervisor.CreationDate}
+}
+function Get-PreparedSupervisor([int]$Port,[string]$Sha) {
+    $candidates=@(Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -in @('powershell.exe','pwsh.exe') -and $_.CommandLine -and
+        $_.CommandLine.Contains("$Sha\tools\start_web_ledger_host.ps1") -and
+        $_.CommandLine -match "-BoardPort $Port( |$)"
+    })
+    if($candidates.Count -gt 1){throw 'PREPARED_SUPERVISOR_AMBIGUOUS'}
+    if(-not $candidates.Count){return $null}
+    if($candidates[0].CommandLine -notmatch '(?i)(^|\s)-DisableEntry(\s|$)'){throw 'PREPARED_SUPERVISOR_INVALID'}
+    return @{pid=[int]$candidates[0].ProcessId;sha=$Sha;port=$Port;created=$candidates[0].CreationDate;prepared=$true}
+}
+function Wait-PreparedSupervisor([int]$Port,[string]$Sha) {
+    for($attempt=0;$attempt -lt 120;$attempt++) {
+        $identity=Get-PreparedSupervisor $Port $Sha
+        if($identity){return $identity}
+        Start-Sleep -Milliseconds 500
+    }
+    throw 'PREPARED_SUPERVISOR_NOT_STARTED'
 }
 function Stop-VerifiedSupervisor($Identity) {
     if(-not $Identity){return}
     $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($Identity.pid)"
     if(-not $process){return}
-    if(($Identity.created -and $process.CreationDate -ne $Identity.created) -or $process.Name -notin @('powershell.exe','pwsh.exe') -or -not $process.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -or $process.CommandLine -notmatch "-BoardPort $($Identity.port)( |$)"){throw 'SUPERVISOR_IDENTITY_CHANGED'}
+    if(($Identity.created -and $process.CreationDate -ne $Identity.created) -or $process.Name -notin @('powershell.exe','pwsh.exe') -or -not $process.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -or $process.CommandLine -notmatch "-BoardPort $($Identity.port)( |$)" -or ($Identity.prepared -and $process.CommandLine -notmatch '(?i)(^|\s)-DisableEntry(\s|$)')){throw 'SUPERVISOR_IDENTITY_CHANGED'}
     Stop-Process -Id $process.ProcessId -ErrorAction Stop
 }
 try {
@@ -91,6 +112,7 @@ try {
     $canPrepare=Test-Path -LiteralPath "$hostRoot\releases\$CandidateSha\webapp\deployment_role.py" -PathType Leaf
     if(@(Get-NetTCPConnection -LocalPort $newPort -State Listen -ErrorAction SilentlyContinue).Count){throw 'PREPARED_PORT_OCCUPIED'}
     if(Get-ScheduledTask -TaskName WebLedger-Prepared -ErrorAction SilentlyContinue){throw 'PREPARED_TASK_EXISTS'}
+    if(Get-PreparedSupervisor $newPort $CandidateSha){throw 'PREPARED_SUPERVISOR_EXISTS'}
     $oldSupervisor=Get-BackendSupervisor $oldPort $PreviousSha
     $newArguments=$old.Arguments.Replace($PreviousSha,$CandidateSha) -replace "-BoardPort $oldPort( |$)","-BoardPort $newPort`$1"
     if($canPrepare) {
@@ -109,8 +131,10 @@ try {
         $registered=$true
         $candidateStarted=$true
         Start-ScheduledTask -TaskName WebLedger-Prepared
+        $preparedSupervisor=Wait-PreparedSupervisor $newPort $CandidateSha
         Wait-Backend $newPort $CandidateSha
-        $preparedSupervisor=Get-BackendSupervisor $newPort $CandidateSha
+        $backendSupervisor=Get-BackendSupervisor $newPort $CandidateSha
+        if($backendSupervisor.pid -ne $preparedSupervisor.pid){throw 'PREPARED_SUPERVISOR_MISMATCH'}
     }
     # No operating task has been stopped before the candidate passes readiness.
     $paused=$true
@@ -152,8 +176,9 @@ try {
     }
     if($registered){
         Stop-ScheduledTask -TaskName WebLedger-Prepared -ErrorAction SilentlyContinue
-        if(-not $preparedSupervisor -and $candidateStarted -and @(Get-NetTCPConnection -LocalPort $newPort -State Listen -ErrorAction SilentlyContinue).Count){
-            try {$preparedSupervisor=Get-BackendSupervisor $newPort $CandidateSha} catch {$cleanupUnknown=$true}
+        if(-not $preparedSupervisor -and $candidateStarted){
+            try {$preparedSupervisor=Get-PreparedSupervisor $newPort $CandidateSha} catch {$cleanupUnknown=$true}
+            if(-not $preparedSupervisor){$cleanupUnknown=$true}
         }
         if($preparedSupervisor){try {Stop-VerifiedSupervisor $preparedSupervisor} catch {$cleanupUnknown=$true}}
     }
