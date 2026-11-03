@@ -1,3 +1,9 @@
+## 2026-11-03 연속 배포 감독자 보호 — 병합, 기존 운영 복구 미완료
+
+- PARTIAL — [PR #585](https://github.com/6Soo/cost/pull/585) `b15710a6bd7e9cc60814a5cbb5141665dcbf2619` 병합. 정상 전환과 후보 준비 실패 시 감독자 신원을 검사하고, 중복·미확인 감독자를 임의 종료하지 않도록 보호한다. 입양된 백엔드와 포트를 열기 전의 후보도 합성 Windows 전환 검사에 포함했다. Windows 영향 QA 71 passed·skip 0, 표적 25 passed, PR CI `41613371942` 성공. 독립 합성 Windows 프로세스에서 불일치 신원 거절·일치 프로세스 종료를 확인했다.
+- 현재 운영의 `33bf47e7`에는 준비용·정식 감독자가 각각 존재하고, 이전 `71340078` 프로세스가 8752와 현재 진입 포트 56069를 사용한다. 새 식별기를 운영에 **읽기 전용으로만** 적용했을 때 `SUPERVISOR_AMBIGUOUS`로 거절했다. 이 변경은 이미 남은 프로세스를 정리하지 않는다. 현재 Board task `33bf47e7`, gateway→8751이며 health/ready 200이다. PR #582/#583/#585 운영 반영은 미완료다.
+- Windows `IsProcessInJob` 읽기 전용 확인에서 관련 감독자·백엔드·진입 프로세스가 Job Object에 속한다. 종료 정책과 핸들 소유를 확인하지 못했으므로 합성 프로세스 결과를 실제 프로세스 종료 안전성으로 확대하지 않는다. 어느 프로세스도 강제 종료하지 않았다. 동일한 작업 스케줄러/Job Object 구성을 격리해 프로세스 수명·진입 경로·요청 보존·실패 복구를 재현한 후에만 현재 포트 충돌을 해소하고 고정 SHA 배포를 재시도한다. 근거 `C:/AX/cost/.local-archive/completion-audit-20261103/checkpoint.md` 및 `C:/AX/cost/.local-archive/continuous-supervisor-test-20261103/`.
+
 ## 2026-11-03 Google 지출 대조·데모 동기화 — 병합, 배포 전환 실패
 
 - PARTIAL — [PR #582](https://github.com/6Soo/cost/pull/582) 병합 `20eb4ca388db4b50403d5f5807fc0fe6aeaf308e`. 선택된 검증 Google 정본과 같은 여행의 지출을 표시용으로 비교하여 단서·복수 후보를 PC/모바일에 표시한다. 복사 중복 판정·금융 연결은 변경하지 않는다. Windows 영향 QA 184 passed·9 subtests·skip 0, PR CI `41608573778`·main CI `41609077615` 성공. 금융·수동 링크 등 별도 표적 67 passed. 인접 그룹 화면 fixture 1건 실패는 기준 `afd21ce2`에서도 동일 재현했다.
