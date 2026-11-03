@@ -1424,6 +1424,11 @@ def input_key(board) -> str:
     """The worker's fingerprint. It alone refreshes the reservation authority (a network read)."""
     from . import guide_airfare_review
     guide_airfare_review.refresh_authority(board)
+    return current_input_key(board)
+
+
+def current_input_key(board) -> str:
+    """Re-read the local input fingerprint without refreshing the network authority."""
     backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
     try:
         return input_key_for(backend)
@@ -2004,7 +2009,8 @@ def snapshot_service(board):
     service = getattr(board, "_ota_snapshot_service", None)
     if service is None:
         service = ota_snapshot.OtaSnapshotService(
-            key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile_in_child(board),
+            key_fn=lambda: input_key(board), verify_key_fn=lambda: current_input_key(board),
+            reconcile_fn=lambda: reconcile_in_child(board),
             persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE,
             log_path=Path(review_db_path()).parent / "ota-snapshot.log",
             on_published=lambda current: _write_passenger_index(
