@@ -147,7 +147,7 @@ def _sheet_rows(rows, *, trip_id, google_key, sheet_id, source):
     return projected
 
 
-def preview_for_trip(board, trip_id, cost_rows=None):
+def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False):
     """Reconcile one COST trip against a fresh, selected, verified Google snapshot.
 
     This function only reads the COST store and local Google snapshots/settings.
@@ -252,7 +252,8 @@ def preview_for_trip(board, trip_id, cost_rows=None):
         payload = {'trip_id': str(trip_id), 'revision': revision,
                    'cost_rows': costs, 'sheet_rows': sheet_rows,
                    'results': result['results'], 'counts': result['counts']}
-        return {**result, 'cost_rows': costs, 'source_available': True, 'source_digest': source_digest,
+        return {**result, **({'sheet_rows': sheet_rows} if include_sheet_rows else {}),
+                'cost_rows': costs, 'source_available': True, 'source_digest': source_digest,
                 'source_info': {'trip_key': google_key, 'sheet_id': sheet_id, 'source': source,
                                 'layout': copy_info.get('layout'), 'synced_at': snapshot.get('synced_at')},
                 'revision': revision, 'links_path': str(links_path),

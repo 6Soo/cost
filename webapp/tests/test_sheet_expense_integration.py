@@ -49,6 +49,25 @@ def _export(payload, **updates):
     return handler.response
 
 
+def test_display_candidates_use_selected_verified_sheet_without_exposing_rows(integrated, monkeypatch):
+    board, _, snapshot = integrated
+    row = {'row_id': 'board-row', 'source_event_id': 'synthetic-source', 'row_kind': 'expense',
+           'display_tab_id': TRIP_ID, 'occurred_on': '2026-10-10',
+           'source_merchant': 'Other Shop', 'item': '기타경비', 'amount_krw': 12000,
+           'evidence_type': '영수증'}
+    monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
+    monkeypatch.setattr(ledger_board, '_active_store', lambda: board)
+    monkeypatch.setattr(ledger_design, '_is_trip_tab', lambda _: True)
+    before = snapshot.read_bytes()
+    preview = ledger_design._expense_copy_preview(TRIP_ID, [row])
+    annotations = ledger_design._google_match_annotations(TRIP_ID, [row], preview)
+    assert preview['source_available']
+    assert annotations['board-row']['display_candidate'] is True
+    assert annotations['board-row']['reasons'] == ['날짜']
+    assert 'sheet_rows' not in reconciliation.preview_for_trip(board, TRIP_ID, [row])
+    assert snapshot.read_bytes() == before
+
+
 def test_real_preview_save_reload_replay_and_cost_change(integrated):
     board, costs, snapshot = integrated
     before = snapshot.read_bytes()

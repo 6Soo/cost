@@ -1007,18 +1007,18 @@ def _google_expense_matches(google_rows, web_rows):
     reverse = {}
     web_by_amount = {}
     for web_index, web_row in enumerate(web_rows):
-        amount = _match_amount(web_row.get('amount_krw'))
+        amount = _match_amount(web_row.get('display_amount_krw', web_row.get('amount_krw')))
         if amount is not None:
             web_by_amount.setdefault(amount, []).append(web_index)
     for g_index, google_row in enumerate(google_rows):
-        amount = _match_amount(google_row.get('amount'))
+        amount = _match_amount(google_row.get('amount', google_row.get('amount_krw')))
         if amount is None:
             continue
         for web_index in web_by_amount.get(amount, []):
             web_row = web_rows[web_index]
             reasons = []
             g_date, w_date = _match_date(google_row.get('date')), _match_date(
-                web_row.get('occurred_on') or web_row.get('ledger_date'))
+                web_row.get('display_occurred_on') or web_row.get('occurred_on') or web_row.get('ledger_date'))
             if g_date and w_date and g_date == w_date:
                 reasons.append('날짜')
             g_merchant, w_merchant = _match_text(google_row.get('payee')), _match_text(
@@ -1029,7 +1029,7 @@ def _google_expense_matches(google_rows, web_rows):
                 web_row.get('item'))
             if g_category and w_category and g_category == w_category:
                 reasons.append('분류')
-            g_reservation = _match_text(google_row.get('reservation'))
+            g_reservation = _match_text(google_row.get('reservation') or google_row.get('booking_ref'))
             w_reservation = _match_text(web_row.get('reservation_no'))
             placeholders = {'-', '미확정', '미확인', '없음', 'unknown', 'tbd', 'n/a'}
             if (g_reservation and w_reservation and g_reservation not in placeholders
@@ -1051,10 +1051,10 @@ def _expense_copy_preview(tab_id, rows):
     if board.current_role() != 'owner' or not _is_trip_tab(tab_id) or not rows:
         return {}
     from .sheet_expense_reconciliation import preview_for_trip
-    return preview_for_trip(board._active_store(), tab_id, cost_rows=rows)
+    return preview_for_trip(board._active_store(), tab_id, cost_rows=rows, include_sheet_rows=True)
 
 
-def _google_match_annotations(tab_id, rows, preview=None):
+def _google_match_annotations(tab_id, rows, preview=None, candidate_rows=None):
     """Read the already selected, fresh Google snapshot for owner-only display hints."""
     if board.current_role() != 'owner' or not tab_id or tab_id == 'unclassified' or not rows:
         return {}
@@ -1062,6 +1062,9 @@ def _google_match_annotations(tab_id, rows, preview=None):
         result = _expense_copy_preview(tab_id, rows) if preview is None else preview
         if not result.get('source_available'):
             return {}
+        comparison_rows = rows if candidate_rows is None else candidate_rows
+        candidates = {comparison_rows[index]['row_id']: candidate for index, candidate in
+                      _google_expense_matches(result.get('sheet_rows') or [], comparison_rows).items()}
         by_id = {item['transaction_id']: item for item in result.get('results', [])}
         labels = {'MATCHED_MANUAL': '장부에 있음 · 복사 제외',
                   'MATCHED_EXISTING': '장부에 있음 · 복사 제외',
@@ -1071,9 +1074,12 @@ def _google_match_annotations(tab_id, rows, preview=None):
         for row in rows:
             item = by_id.get(str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''))
             if item and item.get('status') in labels:
+                candidate = candidates.get(row['row_id'])
                 annotations[row['row_id']] = {
-                    'multiple': item['status'] == 'REVIEW_CONFLICT',
-                    'reasons': item.get('basis') or [],
+                    'multiple': bool(candidate and candidate['multiple']) or item['status'] == 'REVIEW_CONFLICT',
+                    'reasons': candidate['reasons'] if candidate else item.get('basis') or [],
+                    'display_candidate': bool(candidate),
+                    'candidate_multiple': bool(candidate and candidate['multiple']),
                     'label': ('복사 제외 · 거래 상세 확인' if item['status'] == 'NEW_EXPENSE'
                               and (row.get('blocked') or row.get('excluded_from_company')) else labels[item['status']]),
                     'status': item['status']}
@@ -1108,13 +1114,24 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             label = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                      '금액+' + '+'.join(match['reasons']))
             hint_id = 'google-match-' + str(rid)
-            match_class = '' if match.get('status') == 'NEW_EXPENSE' else ' class="google-match-candidate"'
+            match_class = (' class="google-match-candidate"' if match.get('display_candidate')
+                           or match.get('status') != 'NEW_EXPENSE' else '')
             match_attributes = f" aria-describedby='{board.esc(hint_id)}'"
-            match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
+            match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>"
                                  f"{board.esc(label)}</span>")
+            if not match.get('status'):
+                match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
+                                     f"{board.esc(label)}</span>")
             if match.get('status') and match.get('status') != 'NEW_EXPENSE':
                 match_description = (f"<span class='expense-copy-state' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
+            if match.get('display_candidate'):
+                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
+                                   '금액+' + '+'.join(match['reasons']))
+                match_attributes = f" aria-describedby='{board.esc(hint_id)} {board.esc(hint_id)}-candidate'"
+                match_description += (f"<span class='expense-copy-state' "
+                                      f"id='{board.esc(hint_id)}-candidate'>Google 장부 대조 후보: "
+                                      f"{board.esc(candidate_label)}</span>")
         body.append(
             f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
             f"{match_attributes}"
@@ -1236,16 +1253,23 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         kind = _row_kind_meter(row)
         cls = "li pend" if unclassified else "li"
         match = match_annotations.get(rid) if is_expense else None
-        if match and match.get('status') != 'NEW_EXPENSE':
+        if match and (match.get('display_candidate') or match.get('status') != 'NEW_EXPENSE'):
             cls += ' google-match-candidate'
         match_hint = ''
         if match:
             reason = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
                       '금액+' + '+'.join(match['reasons']))
-            match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
-                          f"{board.esc(reason)}</span>")
+            match_hint = f"<span class='sr'>{board.esc(reason)}</span>"
+            if not match.get('status'):
+                match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
+                              f"{board.esc(reason)}</span>")
             if match.get('status') and match.get('status') != 'NEW_EXPENSE':
                 match_hint = (f"<span class='expense-copy-state'>{board.esc(reason)}</span>")
+            if match.get('display_candidate'):
+                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
+                                   '금액+' + '+'.join(match['reasons']))
+                match_hint += (f"<span class='expense-copy-state'>Google 장부 대조 후보: "
+                               f"{board.esc(candidate_label)}</span>")
         # Two-line business summary only: date, kind tag, category, vendor,
         # purpose, amount. The origin detail lives in the edit panel, so no
         # per-row details element here (density first).
@@ -1859,7 +1883,7 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
     unclassified = tab_id == "unclassified"
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
     copy_preview = _expense_copy_preview(tab_id, expenses)
-    matches = _google_match_annotations(tab_id, expenses, copy_preview)
+    matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     workflow = ''
     if amount_groups is not None:
@@ -1897,7 +1921,7 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     unclassified = tab_id == "unclassified"
     back = "/board?" + state_query(tab_id, query, kind, archived)
     copy_preview = _expense_copy_preview(tab_id, expenses)
-    matches = _google_match_annotations(tab_id, expenses, copy_preview)
+    matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
