@@ -1256,6 +1256,8 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
     rev = row.get("revision", 1)
     amount = board._shown_amount(row)
     fields = []
+    extra_fields = []
+    compact_expense = row.get('row_kind') == 'expense'
 
     def text_field(name, label, value, *, ro=False, placeholder=""):
         # A locked source field carries no name, so neither a scripted nor a
@@ -1312,16 +1314,16 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         fields.append(text_field(name, label, value_of(name, stored),
                                  ro=name in fixed))
     if "description" in allowed or "description" in fixed:
-        fields.append(text_field("description", "용도",
+        (extra_fields if compact_expense else fields).append(text_field("description", "용도",
                                  value_of("description", row.get("description", "")),
                                  ro="description" in fixed))
-    fields.append(
+    (extra_fields if compact_expense else fields).append(
         "<div class='f'><label for='f-operator_note'>메모</label>"
         f"<textarea id='f-operator_note' name='operator_note'"
         f"{' disabled' if 'operator_note' not in allowed else ''}>"
         f"{board.esc(value_of('operator_note', row.get('operator_note')) or '')}"
         "</textarea></div>")
-    fields.append(
+    (extra_fields if compact_expense else fields).append(
         "<div class='f'><label for='f-change_mode'>변경 이유</label>"
         "<select id='f-change_mode' name='change_mode'>"
         "<option value='exception'>예외 처리 (이 건만)</option>"
@@ -1352,7 +1354,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         # move to the previous or next row that is actually on screen and to keep
         # exactly one row marked as selected, so the two cannot drift apart.
         "<aside class='panel' id='panel' tabindex='-1'"
-        f" data-row='{board.esc(row['row_id'])}' aria-label='거래 상세 편집 패널'>"
+        f" data-row='{board.esc(row['row_id'])}' data-edit-kind='{'expense' if compact_expense else 'other'}' aria-label='거래 상세 편집 패널'>"
         "<div class='p-hd'><div>"
         f"<h2>거래 상세</h2><p class='p-amt tnum'>{_money(amount)}</p></div>"
         "<button class='icon' id='p-close' type='button' aria-label='패널 닫기'>×</button>"
@@ -1369,7 +1371,10 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         # does not, so they are folded away here and opened on demand. Nothing is
         # removed and no input loses its selector or its missing name: a locked
         # field is still the same input with no `name`, so no post can send it.
-        f"{''.join(fields)}{note}"
+        + ("<div class='p-core-fields'>" + "".join(fields) + "</div>"
+           + ("<details class='p-extra'><summary>추가 정보·변경 이유</summary><div class='p-extra-fields'>"
+              + "".join(extra_fields) + "</div></details>" if compact_expense else "")
+           + note)
         "<details class='p-src'>"
         "<summary>원본 정보</summary>"
         f"<p class='p-sub'>{board.esc(row.get('source_event_id') or row['row_id'])}"
