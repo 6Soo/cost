@@ -1,8 +1,8 @@
-"""Independent targeted equivalence tests for webapp.card_evidence_ui against baseline 2384cfd.
+"""Independent targeted equivalence tests against the pre-change baseline 044b535c.
 
 Verifies pure HTML presentation:
 - Pure inputs only (no database connections, no board objects in card_evidence_ui)
-- AST-level namespace compilation of commit 2384cfd functions
+- AST-level namespace compilation of baseline functions and their pure renderer
 - Exact byte-for-byte equivalence across normal, empty dict, unknown status, None fields, escaping,
   KeyError on missing required keys, Kakao alias diagnosis, and 1:N refund candidate comparisons.
 """
@@ -11,16 +11,23 @@ import html
 import subprocess
 import pytest
 
-from webapp import card_evidence_ui, card_flow, ledger_board
+from webapp import card_evidence_ui, card_flow, card_refund_query, ledger_board
+from types import SimpleNamespace
 from webapp.ledger_store import LedgerStore
 from tests.card_pipeline.test_partial_refund import HEADER
 
 
 @pytest.fixture(scope="module")
 def baseline_ns():
-    """Extract and compile baseline functions from commit 2384cfd in an isolated namespace."""
+    """Use the current pre-change contract, including prior approved refund changes."""
+    baseline = '044b535c64dff143b5b21650cb69faf5f09d489c'
+    renderer_code = subprocess.run(
+        ['git', 'show', f'{baseline}:webapp/card_evidence_ui.py'],
+        capture_output=True, check=True).stdout.decode('utf-8')
+    renderer_ns = {}
+    exec(compile(renderer_code, '<baseline_card_evidence_ui>', 'exec'), renderer_ns)
     code = subprocess.run(
-        ["git", "show", "2384cfd:webapp/card_flow.py"],
+        ["git", "show", f"{baseline}:webapp/card_flow.py"],
         capture_output=True,
         check=True,
     ).stdout.decode("utf-8")
@@ -31,6 +38,7 @@ def baseline_ns():
         "_refund_merchant_key",
         "_render_refund_merchant_candidates",
         "_render_refund_evidence",
+        "_build_refund_evidence_content",
         "_refund_merchant_candidates_readonly",
         "_kakao_merchant_inventory_readonly",
     }
@@ -39,8 +47,10 @@ def baseline_ns():
         if isinstance(node, ast.FunctionDef) and node.name in target_names
     ]
     module_node = ast.Module(body=extracted_nodes, type_ignores=[])
-    compiled = compile(module_node, filename="<2384cfd_card_flow>", mode="exec")
-    ns = {"__name__": "webapp.baseline_card_flow", "__package__": "webapp", "ledger_board": ledger_board}
+    compiled = compile(module_node, filename="<baseline_card_flow>", mode="exec")
+    ns = {"__name__": "webapp.baseline_card_flow", "__package__": "webapp", "ledger_board": ledger_board,
+          'card_evidence_ui': SimpleNamespace(**renderer_ns), 'card_refund_query': card_refund_query,
+          '_refund_merchant_key': renderer_ns['refund_merchant_key']}
     exec(compiled, ns)
     return ns
 
