@@ -103,6 +103,7 @@ body.site-standalone{margin:0!important;padding:0!important}
 .site-app{min-height:100dvh;display:flex;min-width:0}
 .site-app>#nav{position:fixed;inset:0 auto 0 0;z-index:45}
 #site-content{margin-left:var(--shell-nav-width,232px);width:calc(100% - var(--shell-nav-width,232px));min-width:0;padding:16px}
+#site-content:has(#img-file)>main{width:100%;max-width:960px;margin-inline:auto}
 .site-app>.nav-mask[hidden]{display:none!important}
 @media(width < 760px){
  #nav{width:min(var(--shell-drawer-width,min(300px,85vw)),100%);flex-basis:auto}
