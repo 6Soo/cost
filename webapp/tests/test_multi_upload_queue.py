@@ -8,7 +8,7 @@ import pytest
 from webapp.card_flow import page
 
 
-@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'concurrent', 'restart-expired'])
+@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'background', 'restart-expired'])
 def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
     source = page('synthetic-csrf')
     source = source[source.index("const uploadJobKey="):source.index("el('ruleform').onsubmit=")]
@@ -16,23 +16,24 @@ def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
 const assert = require('node:assert/strict'), vm = require('node:vm');
 const mode = MODE;
 const storage = new Map(), nodes = new Map(), posts = [], entries = [];
-const waiting = []; let maxWaiting = 0;
+const waiting = [];
 const identity = n => '/api/imports/upload-status/'+String(n).padStart(32,'0');
-function element(){return {disabled:false, textContent:'', append(...xs){entries.push(...xs)},
+function element(){return {disabled:false, textContent:'', append(...xs){entries.push(...xs)},prepend(...xs){entries.push(...xs)},
   setAttribute(){},removeAttribute(){},querySelector(){return this},addEventListener(name,fn){this[name]=fn},scrollIntoView(){this.scrolled=true}}}
 const el = id => {if(!nodes.has(id))nodes.set(id,element());return nodes.get(id)};
 const localStorage = {getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
 if(mode==='legacy-resume'||mode==='restart-expired')localStorage.setItem('cost-card-upload-job',JSON.stringify({status_url:identity(9),batch_id:'9',filename:'legacy.csv'}));
 let rendered;
 const context={el,localStorage,document:{createElement:element},Date,Error,JSON,Array,Math,RegExp,
+  FormData:class{constructor(){this.files=[]}append(key,file){assert.equal(key,'files');this.files.push(file)}},
   AbortSignal:{timeout(){}},setTimeout:fn=>{fn();},
   uploadInput:el('file'),uploadDrop:element(),uploadLabel:element(),batchGeneration:0,
   invalidateProposal(){},appendCoverageForm(){},render:j=>{rendered=j},renderUploadSystemError(){},loadBatch:async batch=>{context.loaded=batch},
   renderUploadSelection:()=>Array.from({length:10},(_,i)=>({name:(i+1)+'.csv',arrayBuffer:async()=>Buffer.from('synthetic '+i)})),
-  call:async(url,data,headers)=>{assert.equal(headers['X-Upload-Async'],'1');const n=Number(decodeURIComponent(headers['X-Filename']).split('.')[0]);posts.push(n);return {status_url:identity(n),batch_id:String(n)}},
+  call:async(url,data)=>{assert.equal(url,'/api/imports/upload-batch');return {files:data.files.map(file=>{const n=Number(file.name.split('.')[0]);posts.push(n);return {filename:file.name,status_url:identity(n),batch_id:String(n)}})}},
   fetch:async url=>{const n=Number(url.split('/').at(-1));
     if(mode==='restart-expired'&&n===9)return {ok:false,status:404};
-    if(mode==='concurrent'&&n<=4)await new Promise(resolve=>{waiting.push(resolve);maxWaiting=Math.max(maxWaiting,waiting.length);if(waiting.length===4)while(waiting.length)waiting.pop()()});
+    if(mode==='background')await new Promise(resolve=>{waiting.push(resolve)});
     if(mode==='mixed'&&(n===2||n===4))throw Error('temporary disconnect');
     return {ok:true,status:200,json:async()=>mode==='refresh-required'&&(n===1||n===10)?{status:'done',result:{batch_id:String(n),refresh_required:true,upload_summary:{status:'refresh_required'}}}:mode==='mixed'&&n===1?{status:'error',message:'synthetic classification failure'}:{status:'done',result:{batch_id:String(n),upload_summary:{status:'passed'}}}};
   }
@@ -52,8 +53,17 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     assert.ok(prevented);assert.equal(context.loaded,'9');assert.ok(el('summary').scrolled);
     return;
   }
-  await el('upload').onclick();
-  if(mode==='concurrent')assert.equal(maxWaiting,4,'four files must reach status polling before any completes');
+  const finished=el('upload').onclick();
+  for(let i=0;i<30;i++)await Promise.resolve();
+  if(mode==='background'){
+    assert.equal(waiting.length,10,'every file is accepted before classification finishes');
+    assert.equal(JSON.parse(storage.get('cost-card-upload-job')).length,10);
+    assert.equal(el('upload').disabled,false);assert.equal(el('file').disabled,false);
+    assert.ok(el('status').textContent.includes('다른 페이지로 이동해도'));
+    assert.equal(rendered,undefined);
+    while(waiting.length)waiting.pop()();
+  }
+  await finished;
   assert.deepEqual(posts,[1,2,3,4,5,6,7,8,9,10]);
   assert.equal(rendered.batch_id,mode==='refresh-required'?'9':'10');
   assert.ok(!rendered.refresh_required,'Unavailable projection must never reach the renderer');

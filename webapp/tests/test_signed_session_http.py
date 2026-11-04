@@ -239,6 +239,25 @@ class SignedSessionHttpTests(unittest.TestCase):
                     from webapp import receipt_review
                     self.assertEqual(receipt_review.image_bytes(self.receipts, body['sha256']), PNG)
 
+    def test_batch_card_upload_keeps_owner_and_csrf_boundaries(self):
+        raw = b'--boundary\r\nContent-Disposition: form-data; name="files"; filename="invalid.csv"\r\n\r\ninvalid\r\n--boundary--\r\n'
+        for user, csrf, expected in ((OWNER, board.CSRF_TOKEN, 202), (OWNER, '', 403),
+                                     (VIEWER, board.CSRF_TOKEN, 403), (None, board.CSRF_TOKEN, 401)):
+            with self.subTest(user=user, csrf=bool(csrf)):
+                headers = {'Content-Type': 'multipart/form-data; boundary=boundary', 'X-CSRF-Token': csrf}
+                if user:
+                    headers['Cookie'] = f'{google_oidc.COOKIE_NAME}={self.cookie(user)}'
+                req = Request(f'http://127.0.0.1:{self.port}/api/imports/upload-batch', data=raw, headers=headers)
+                try:
+                    response = self.opener.open(req, timeout=5)
+                except HTTPError as error:
+                    response = error
+                result = json.loads(response.read())
+                self.assertEqual(response.code, expected, result)
+                if expected == 202:
+                    self.assertEqual(len(result['files']), 1)
+                    self.assertNotIn('status_url', result['files'][0])
+
     def test_signed_coverage_upload_confirmation_and_read_boundaries(self):
         from tests.card_pipeline.test_card_upload_coverage import content
         from urllib.parse import quote

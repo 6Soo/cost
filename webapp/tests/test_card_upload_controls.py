@@ -59,16 +59,27 @@ def test_upload_queue_continues_after_failure_and_preserves_each_outcome():
             def respond(route):
                 request = route.request
                 if request.method != "POST":
+                    if '/upload-status/' in request.url:
+                        index = int(request.url.rsplit('/', 1)[-1])
+                        route.fulfill(json={'status': 'done', 'result': {'batch_id': str(index), 'upload_summary': {
+                            'status': 'passed' if index == 1 else 'incomplete'}}})
+                        return
                     route.fulfill(json={"rules": [], "batches": []})
                     return
-                requests.append(request.headers["x-filename"])
+                from email import policy
+                from email.parser import BytesParser
+                assert request.url.endswith('/api/imports/upload-batch')
+                message = BytesParser(policy=policy.default).parsebytes(
+                    ('Content-Type: ' + request.headers['content-type'] + '\r\n\r\n').encode() + request.post_data_buffer)
                 assert request.headers["x-csrf-token"] == "synthetic-csrf"
-                assert request.post_data_buffer == b"a,b\n"
-                if len(requests) == 2:
-                    route.fulfill(status=422, json={"message": "파일 형식 오류"})
-                    return
-                route.fulfill(json={"batch_id": str(len(requests)), "upload_summary": {
-                    "status": "passed" if len(requests) == 1 else "incomplete"}})
+                outcomes = []
+                for index, part in enumerate(message.iter_parts(), 1):
+                    requests.append(part.get_filename())
+                    assert part.get_payload(decode=True) == b'a,b\n'
+                    outcomes.append({'filename': part.get_filename(), 'message': '파일 형식 오류'} if index == 2 else {
+                        'filename': part.get_filename(), 'batch_id': str(index),
+                        'status_url': '/api/imports/upload-status/' + str(index).zfill(32)})
+                route.fulfill(status=202, json={'files': outcomes})
 
             screen.route("http://synthetic.test/api/**", respond)
             screen.goto("http://synthetic.test/import#newupload")

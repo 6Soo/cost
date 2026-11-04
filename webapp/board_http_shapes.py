@@ -19,6 +19,8 @@ MAX_CARD_UPLOAD_CONTENT_LENGTH: int = 20 * 1024 * 1024
 
 def max_content_length(path: str) -> int:
     """Return the request body limit for this exact endpoint path."""
+    if path == "/api/imports/upload-batch":
+        return 100 * 1024 * 1024
     return MAX_CARD_UPLOAD_CONTENT_LENGTH if path == "/api/imports" else MAX_CONTENT_LENGTH
 
 # Standard HTTP status mapping for error codes

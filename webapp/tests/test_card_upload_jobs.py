@@ -5,12 +5,15 @@ import time
 from types import SimpleNamespace
 from urllib.request import Request, urlopen
 
+import pytest
+
 from tests.card_pipeline.fixtures import domestic_row, make_csv
 from webapp import card_flow, card_upload_jobs, ledger_board
 from webapp.ledger_store import LedgerStore
 
 
-def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypatch):
+@pytest.mark.parametrize('batch_upload', [False, True])
+def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypatch, batch_upload):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     monkeypatch.setenv('WEBLEDGER_CARD_FLOW', '1')
     monkeypatch.setenv('WEBLEDGER_OTA_REVIEW_MODE', 'legacy')
@@ -39,9 +42,26 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
     headers = {'X-CSRF-Token': ledger_board.CSRF_TOKEN, 'X-Filename': 'synthetic.csv', 'X-Upload-Async': '1'}
     try:
         began = time.monotonic()
-        with urlopen(Request(base+'/api/imports', data=raw, headers=headers), timeout=5) as response:
+        endpoint, body, request_headers = '/api/imports', raw, headers
+        if batch_upload:
+            # Invalid peer, twelve valid distinct files, and an identical retry.
+            # No classifier may delay reception of the later files.
+            contents = [b'invalid'] + [raw.replace(b'SYNTH001', ('SYNTH%03d' % n).encode()) for n in range(1, 13)] + [raw]
+            body = b''.join(b'--synthetic-boundary\r\nContent-Disposition: form-data; name="files"; filename="file.csv"\r\nContent-Type: application/octet-stream\r\n\r\n' + data + b'\r\n' for data in contents) + b'--synthetic-boundary--\r\n'
+            endpoint = '/api/imports/upload-batch'
+            request_headers = dict(headers, **{'Content-Type': 'multipart/form-data; boundary=synthetic-boundary'})
+        with urlopen(Request(base+endpoint, data=body, headers=request_headers), timeout=5) as response:
             assert response.status == 202
             ack = json.load(response)
+        if batch_upload:
+            outcomes = ack['files']
+            assert len(outcomes) == 14
+            assert 'code' in outcomes[0] and 'status_url' not in outcomes[0]
+            assert all(job['source_rows_persisted'] for job in outcomes[1:])
+            assert outcomes[1]['batch_id'] == outcomes[-1]['batch_id']
+            assert outcomes[1]['status_url'] == outcomes[-1]['status_url']
+            assert len({job['batch_id'] for job in outcomes[1:]}) == 12
+            ack = outcomes[1]
         assert time.monotonic()-began < 3
         assert ack['source_rows_persisted'] is True
         assert entered.wait(3)
