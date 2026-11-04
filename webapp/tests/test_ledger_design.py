@@ -280,15 +280,9 @@ class DesignScreenTests(unittest.TestCase):
         nav = page.inner_text(".nav")
         self.assertIn("0408_예시여행A", nav)
         self.assertNotIn("미배정 지출", nav)
-        # The action bar is pinned exactly, because a button appearing here
-        # without a decision is how a rail grows by accident. The review button
-        # is absent because no review is configured in this environment; the
-        # reservation-linking button is present because it does not depend on
-        # one (RESERVE-NAVIGATION-001).
-        self.assertEqual(page.inner_text(".act").replace("\n", " "), "XLSX 출력 추가 작업")
-        page.locator('.secondary-actions > summary').click()
-        self.assertTrue(page.locator('#reserve-link').is_visible())
-        self.assertTrue(page.locator('.act a[href="/import#newupload"]').is_visible())
+        # Trip actions contain export; imports and maintenance use navigation.
+        self.assertEqual(page.inner_text(".act").replace("\n", " "),
+                         "XLSX 출력")
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")

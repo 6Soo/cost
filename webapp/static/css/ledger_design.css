@@ -132,6 +132,10 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .main-wrap .status,.main-wrap .income-note{padding-left:0;padding-right:0}
 .main-wrap #global-state,.main-wrap #live-status-wrap{padding-left:0!important;padding-right:0!important}
 .main-wrap .act{flex:1 1 420px;justify-content:flex-end;max-width:100%}
+.main-wrap .trip-header{flex-wrap:wrap}
+.main-wrap .trip-header>div:first-child{flex:1 1 260px}
+.main-wrap .trip-header>.act{flex:0 1 auto;min-width:0}
+.main-wrap .trip-header>.act .btn{white-space:nowrap;min-height:44px}
 .main-wrap .period,.main-wrap .meta>span,.main-wrap .sum i{display:inline-flex;align-items:center;gap:6px}
 .main-wrap .meta .btn{height:28px;font-size:12px}
 .main-wrap .sum{align-items:center;padding-top:16px;padding-bottom:16px}
