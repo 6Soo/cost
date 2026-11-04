@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "export-source-equivalence",
+      "paths": ["app/card_export_profiles.py", "app/review.py", "webapp/card_flow.py", "tests/card_pipeline/test_export_downloads.py", "webapp/tests/test_cleanup_export_conflicts.py"],
+      "tests": ["tests/card_pipeline/test_export_downloads.py", "tests/card_pipeline/test_pipeline.py", "tests/card_pipeline/test_review_holds.py", "webapp/tests/test_cleanup_export_conflicts.py", "webapp/tests/test_cleanup_completed_assignment.py", "webapp/tests/test_card_cleanup_queries.py", "webapp/tests/test_cleanup_original_refund_status_contract.py"]
+    },
+    {
       "name": "recorded-booking-period-correction",
       "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py"],
       "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]

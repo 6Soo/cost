@@ -253,8 +253,10 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
             occurrences = {}
             from .card_export_profiles import existing_purchase
             used_export_matches = set()
+            export_source_cache = {}
             for row in parsed.rows:
-                export_match = existing_purchase(store, batch_id, parsed.parser, row)
+                export_match = existing_purchase(store, batch_id, parsed.parser, row,
+                                                source_cache=export_source_cache)
                 if export_match is not None and export_match[0] in used_export_matches:
                     export_match = None
                 elif export_match is not None:

@@ -162,6 +162,61 @@ def test_conflicting_explicit_posting_dates_preserve_source_conflict():
     assert pipe.store.conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason<>''").fetchone()[0] == 1
 
 
+def legacy_domestic(*, merchant='합성상점', amount=10000, merchant_number='100'):
+    return make_csv([['하나','2026-10-09','****1234','00001111',merchant,amount,merchant_number]],
+                    headers=['카드사','이용일','카드번호','승인번호','가맹점명','승인금액','가맹점번호'])
+
+
+def domestic_usage(*, merchant='합성상점', amount=10000, merchant_number='100'):
+    row=hana_usage(amount=amount,fee=0)
+    row[4:6]=['국내','국내일시불']
+    row[7]=merchant
+    row[9]=merchant_number
+    return make_csv([row],headers=HANA_USAGE)
+
+
+def test_missing_legacy_posting_date_is_not_a_conflicting_explicit_date():
+    pipe=Pipeline(sqlite3.connect(':memory:',isolation_level=None))
+    pipe.receive(legacy_domestic(),'legacy.csv')
+    original=pipe.store.conn.execute('SELECT * FROM transactions').fetchall()
+    result=pipe.receive(domestic_usage(),'usage.csv')
+    assert result['conflicts']==0
+    assert result['already_present']==1
+    assert pipe.store.conn.execute('SELECT * FROM transactions').fetchall()==original
+
+
+@pytest.mark.parametrize('merchant,number,reused',[
+    ('합성상점 서울','100',True),
+    ('합성상점 서울','999',False),
+    ('다른상점','100',False),
+    ('합성상점 서울','',False),
+])
+def test_merchant_label_extension_requires_same_explicit_source_merchant_number(merchant,number,reused):
+    pipe=Pipeline(sqlite3.connect(':memory:',isolation_level=None))
+    pipe.receive(legacy_domestic(),'legacy.csv')
+    before=pipe.store.conn.execute('SELECT * FROM transactions').fetchall()
+    result=pipe.receive(domestic_usage(merchant=merchant,merchant_number=number),'usage.csv')
+    assert result['already_present']==int(reused)
+    assert result['conflicts']==int(not reused)
+    assert pipe.store.conn.execute('SELECT * FROM transactions ORDER BY created_at,transaction_id').fetchall()[0]==before[0]
+
+
+def test_persisted_false_export_conflict_is_recognized_readonly_and_real_merchant_difference_stays():
+    from app.card_export_profiles import redundant_purchase_conflicts
+    pipe=Pipeline(sqlite3.connect(':memory:',isolation_level=None))
+    pipe.receive(legacy_domestic(),'legacy.csv')
+    # Reproduce an old release's strict posting comparison.
+    from unittest.mock import patch
+    original=pipe.store.conn.execute('SELECT transaction_id FROM transactions').fetchone()[0]
+    with patch('app.card_export_profiles.existing_purchase',return_value=(original,False)):
+        pipe.receive(domestic_usage(),'usage.csv')
+    pipe.receive(domestic_usage(merchant='다른상점'),'changed.csv')
+    before=list(pipe.store.conn.iterdump())
+    equivalent=redundant_purchase_conflicts(pipe.store.conn)
+    assert len(equivalent)==1
+    assert list(pipe.store.conn.iterdump())==before
+
+
 def test_ibk_headered_and_headerless_source_views_keep_one_financial_purchase():
     pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
     row = ibk_row()
