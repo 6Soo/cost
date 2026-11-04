@@ -29,6 +29,8 @@ FRESH_SECONDS = 150
 RETRY_SECONDS = 60
 RETRY_CAP_SECONDS = 900
 FIRST_WAIT_SECONDS = 3
+LOG_HEARTBEAT_SECONDS = 3600
+MAX_DIAGNOSTIC_LOG_BYTES = 5 * 1024 * 1024
 WORKER_NAME = "ota-snapshot"
 _CURSOR_CHARS = re.compile(r"[A-Za-z0-9_-]+\Z", re.ASCII)
 _RESERVATION_PRIVATE_FIELDS = frozenset((
@@ -145,6 +147,8 @@ class OtaSnapshotService:
         self._failures = 0
         self._source_changed_retry = False
         self._thread = None
+        self._last_check_sig = None
+        self._last_check_log_at = 0.0
         self._load_persisted()
         self._autostart = start
         if start:
@@ -215,10 +219,28 @@ class OtaSnapshotService:
         if self._log_path is None:
             return
         try:
+            if self._log_path.stat().st_size >= MAX_DIAGNOSTIC_LOG_BYTES:
+                try:
+                    os.replace(self._log_path, self._log_path.with_name(self._log_path.name + ".1"))
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        try:
             with self._log_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps({"at": _now_iso(), "event": event, **fields}, ensure_ascii=False, default=str) + "\n")
         except OSError:
             return
+
+    def _log_check(self, key, held, failed, generation):
+        """Log a held/failed check only on state change, at most once an hour otherwise."""
+        signature = (bool(held), bool(failed), bool(self._refreshing), generation)
+        now = self._clock()
+        if signature != self._last_check_sig or now - self._last_check_log_at >= LOG_HEARTBEAT_SECONDS:
+            self._log("check", key=key[:12], held=held, failed=failed, refreshing=self._refreshing,
+                      generation=generation)
+            self._last_check_sig = signature
+            self._last_check_log_at = now
 
     def _retry_window(self):
         """The wait before retrying the same failed input: doubles per repeat, capped.
@@ -251,8 +273,7 @@ class OtaSnapshotService:
             skip = held or failed or self._refreshing or self._stopping
             publish_held = held and not self._refreshing and not self._stopping
             if skip:
-                self._log("check", key=key[:12], held=held, failed=failed, refreshing=self._refreshing,
-                          generation=(current or {}).get("generation", 0))
+                self._log_check(key, held, failed, (current or {}).get("generation", 0))
             else:
                 self._refreshing = True
         if skip:
