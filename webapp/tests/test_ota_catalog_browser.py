@@ -9,6 +9,23 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class OtaCatalogBrowserTests(LinkBrowserFixture):
+    def test_empty_state_message_stays_wide_at_mobile(self):
+        env = patch.dict(os.environ, {
+            'WEBLEDGER_OTA_SOURCES_JSON': json.dumps({'portal_databases': [], 'mail_directories': []}),
+            'WEBLEDGER_REVIEW_CONFIG': '',
+        })
+        env.start()
+        self.addCleanup(env.stop)
+        context = self.browser.new_context(viewport={'width': 390, 'height': 844})
+        self.addCleanup(context.close)
+        context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
+        page = context.new_page()
+        page.goto(f'http://127.0.0.1:{self.port}/ota')
+        page.get_by_text('조회된 OTA 예약이 없습니다.', exact=False).wait_for(state='visible')
+        cell = page.locator('main.card-catalog tbody td[colspan="7"]')
+        self.assertIn('조회된 OTA 예약이 없습니다.', cell.inner_text())
+        self.assertLess(cell.bounding_box()['height'], 100)
+
     def test_shared_menu_all_unassigned_search_and_header_filters(self):
         source = self.tmp / 'ota.sqlite'
         source_database(source)
@@ -20,7 +37,7 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
         self.addCleanup(env.stop)
         original = source.read_bytes()
         before = self.server.card_store.conn.total_changes
-        for width in (390, 1440):
+        for width in (390, 760, 1440):
             with self.subTest(width=width):
                 context = self.browser.new_context(viewport={'width': width, 'height': 900})
                 self.addCleanup(context.close)
@@ -37,6 +54,9 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 rows = page.locator('main.card-catalog > table tbody tr')
                 self.assertEqual(rows.count(), 3)
                 self.assertIn('2026-10-01', rows.first.inner_text())
+                self.assertEqual(
+                    rows.first.locator('td').first.evaluate('e=>getComputedStyle(e).display'),
+                    'grid' if width < 1024 else 'table-cell')
                 page.locator('main').get_by_role('link', name='여행 미배정', exact=True).click()
                 self.assertEqual(rows.count(), 1)
                 self.assertIn('BOOK-1', rows.inner_text())

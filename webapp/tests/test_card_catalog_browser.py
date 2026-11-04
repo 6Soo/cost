@@ -66,12 +66,12 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                 self.assertGreaterEqual(panel['x'], 0)
                 self.assertLessEqual(panel['x'] + panel['width'], width)
                 with page.expect_navigation():
-                    page.get_by_role('button', name='확인 필요', exact=True).click()
-                self.assertEqual(page.locator('input[name="state"]').input_value(), 'needs_review')
+                    page.get_by_role('button', name='처리 필요', exact=True).click()
+                self.assertEqual(page.locator('input[name="state"]').input_value(), 'review')
                 self.assertEqual(page.get_by_label('카드 거래 검색').input_value(), 'no match')
                 self.assertEqual(page.locator('input[name="month"]').input_value(), '2026-02')
                 self.assertIn('검색 결과 0건', page.inner_text('#card-count'))
-                self.assertIn('확인 필요', page.get_by_role('button', name='상태', exact=True).inner_text())
+                self.assertIn('처리 필요', page.get_by_role('button', name='상태', exact=True).inner_text())
                 context.close()
         self.assertEqual(conn.total_changes, before)
 
@@ -89,7 +89,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         script_errors = []
         page.on('pageerror', lambda error: script_errors.append(str(error)))
         page.goto(f'http://127.0.0.1:{self.port}/import')
-        page.locator('#card-review-detail > summary').click()
+        self.assertFalse(page.locator('#card-review-detail > summary').is_visible())
         self.assertEqual(page.get_by_role('link', name='전체 카드 거래 검색', exact=True).count(), 0)
         self.assertEqual(page.locator('#nav a[href^="/cards/all"]').count(), 1)
         page.goto(f'http://127.0.0.1:{self.port}/import?scope=all')
