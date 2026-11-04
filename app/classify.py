@@ -133,7 +133,7 @@ def classify_transaction(transaction: dict, *, rules: list,
         target = trip_resolver(transaction, {'fukutake_setouchi': True})
         return dict(verdict, classification_state=STATE_CLASSIFIED,
                     classification_source='rule', classification_basis=FUKUTAKE_BASIS,
-                    item=verdict.get('item') or '입장료', display_tab_id=target or 'unclassified',
+                    item='입장료', display_tab_id=target or 'unclassified',
                     trip_id=target, rule_id='owner-fukutake-next-setouchi')
     if residual_policy and not prior_decision:
         exception = _card3820_singapore(transaction, verdict, trip_resolver)

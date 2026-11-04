@@ -139,6 +139,7 @@ def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence(dat
             expect(screen.locator('.fb-ticket')).to_have_count(6)
             assert not calls
             screen.locator('.fb-booking-choice > summary').first.click()
+            screen.locator('.fb-more-details > summary').first.click()
             screen.locator('.fb-date-filter > summary').first.click()
             expect(screen.locator('.fb-date-status').first).to_contain_text('현재 조회 범위에서 결과 없음')
             if date_basis == 'FIRST_RECEIVED':

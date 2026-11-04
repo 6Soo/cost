@@ -174,10 +174,11 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             assert ticket.get_by_text('도쿄', exact=True).is_visible()
             assert ticket.locator('.fb-flight-date').filter(has_text='2026-11-10').is_visible()
             assert ticket.get_by_text('SYN123', exact=True).is_visible()
-            expect(ticket.locator('.fb-summary-item')).to_have_count(2)
+            expect(ticket.locator('.fb-summary-item')).to_have_count(3)
             expect(ticket.locator('.fb-hero')).to_contain_text('KIM ALPHA')
             expect(ticket.locator('.fb-flight-card')).to_have_count(1)
             assert ticket.locator('.fb-route-stop').count() == 2
+            ticket.locator('.fb-more-details > summary').click()
             assert ticket.get_by_text('Synthetic Airline', exact=True).is_visible()
             assert ticket.get_by_text('카드 원행 상세', exact=True).is_visible()
             assert ticket.get_by_text('결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.').is_visible()
@@ -293,6 +294,7 @@ def test_browser_name_search_opens_real_synthetic_card_and_trip_flight_then_retu
                     expect(tickets.filter(has_text='SYNTH-100')).to_be_visible()
                     expect(tickets.filter(has_text='SYNTH-100').get_by_text('SYN123', exact=True)).to_be_visible()
 
+                    tickets.filter(has_text='SYNTH-100').locator('.fb-more-details > summary').click()
                     detail = tickets.filter(has_text='SYNTH-100').locator('.fb-card-detail')
                     detail.locator('summary').click()
                     expect(detail).to_contain_text('SYNTHETIC AIRLINE')
@@ -354,6 +356,7 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
         expect(screen.locator('.fb-ticket')).to_have_count(1)
         if screen.locator('.fb-booking-choice > summary').count():
             screen.locator('.fb-booking-choice > summary').first.click()
+        screen.locator('.fb-more-details > summary').first.click()
         screen.get_by_text('카드 거래 보기', exact=True).click()
         screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-03-07')
         screen.get_by_role('button', name='지정 날짜 원행 조회', exact=True).click()

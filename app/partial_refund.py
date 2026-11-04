@@ -21,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
-__all__ = ["count_held_cancellations", "refund_group", "refund_links"]
+__all__ = ["count_held_cancellations", "refund_group", "refund_links", "refund_review_originals"]
 
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
@@ -168,12 +168,12 @@ def _day(value):
         return None
 
 
-def _foreign_pool(conn, taken) -> tuple:
+def _foreign_pool(conn, taken, *, include_protected=False) -> tuple:
     """Purchases and cancellations that can pair by foreign amount, keyed by card, merchant, currency and amount."""
     rows = conn.execute(
         "SELECT transaction_id, transaction_direction, issuer, card_tail, merchant_normalized, amount_krw,"
         " foreign_amount, foreign_currency, COALESCE(NULLIF(approval_date,''),posting_date), original_approval_number"
-        f" FROM transactions WHERE {_CLEAN} AND COALESCE(foreign_currency,'')!='' AND COALESCE(foreign_amount,'')!=''"
+        f" FROM transactions WHERE {'1=1' if include_protected else _CLEAN} AND COALESCE(foreign_currency,'')!='' AND COALESCE(foreign_amount,'')!=''"
         " AND ((transaction_direction='purchase' AND amount_krw>0)"
         "      OR (transaction_direction='cancellation' AND amount_krw<0 AND COALESCE(original_approval_number,'')=''))"
     ).fetchall()
@@ -332,3 +332,49 @@ def count_held_cancellations(conn) -> dict:
     Among identical rows the purchase a cancellation undoes is unknown, so these are not recorded one by one. They wait
     as a count group until the statement's counts are checked."""
     return {tid: dict(counts) for tid, counts in _read_analysis(conn)[1].items()}
+
+
+def refund_review_originals(conn):
+    """Protect actual links and unresolved amount/date candidates, never a whole merchant.
+
+    This is a read-only queue boundary, not a new pairing or refund decision.
+    Ambiguous candidates remain visible without being promoted to links.
+    """
+    refund_ids = [row[0] for row in conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction IN ('cancellation','refund')")]
+    links = refund_links(conn, refund_ids)
+    protected = {link['original_id'] for link in links.values()}
+    # A reference stays protected even when duplicate originals prevent a link.
+    protected.update(row[0] for row in conn.execute(
+        "SELECT p.transaction_id FROM transactions p JOIN transactions c"
+        " ON c.issuer=p.issuer AND c.card_tail=p.card_tail"
+        " AND TRIM(c.original_approval_number,char(9)||char(10)||char(11)||char(12)||char(13)||' ')=TRIM(p.approval_number,char(9)||char(10)||char(11)||char(12)||char(13)||' ')"
+        " WHERE p.transaction_direction='purchase' AND COALESCE(TRIM(p.approval_number,char(9)||char(10)||char(11)||char(12)||char(13)||' '),'')!=''"
+        " AND (c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0)"))
+    purchases, refunds = _foreign_pool(conn, set(), include_protected=True)
+    window = int(_settings()['max_days_after_purchase'])
+    for key, candidates in purchases.items():
+        for tid, _amount, day in candidates:
+            if any(0 <= (refund_day - day).days <= window for rid, _, refund_day in refunds.get(key, ())
+                   if rid not in links):
+                protected.add(tid)
+    # Domestic ambiguous exact-amount candidates retain the existing same-day
+    # rule and the bounded Kakao taxi window, including dirty source competitors.
+    rows = conn.execute(
+        "SELECT p.transaction_id,p.merchant,c.merchant,p.merchant_normalized,c.merchant_normalized,"
+        " COALESCE(NULLIF(p.approval_date,''),p.posting_date),"
+        " COALESCE(NULLIF(c.approval_date,''),c.posting_date),c.transaction_id"
+        " FROM transactions p JOIN transactions c ON p.issuer=c.issuer AND p.card_tail=c.card_tail"
+        " AND p.amount_krw=-c.amount_krw WHERE p.transaction_direction='purchase' AND p.amount_krw>0"
+        " AND c.transaction_direction IN ('cancellation','refund')"
+        " AND COALESCE(TRIM(c.original_approval_number),'')=''"
+        " AND COALESCE(p.foreign_currency,'')='' AND COALESCE(c.foreign_currency,'')=''"
+        " AND COALESCE(p.foreign_amount,'')='' AND COALESCE(c.foreign_amount,'')=''").fetchall()
+    for tid, merchant, refund_merchant, normalized, refund_normalized, day, refund_day, rid in rows:
+        if rid in links:
+            continue
+        start, end = _day(day), _day(refund_day)
+        if start and end and ((start == end and normalized and normalized == refund_normalized)
+                or ('카카오' in str(merchant) and '카카오' in str(refund_merchant) and 0 <= (end-start).days <= 14)):
+            protected.add(tid)
+    return sorted(protected)

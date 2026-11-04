@@ -243,8 +243,8 @@
     },
     {
       "name": "card-cleanup-presentation",
-      "paths": ["webapp/card_cleanup_ui.py", "webapp/tests/test_card_cleanup_ui.py"],
-      "tests": ["webapp/tests/test_card_cleanup_ui.py", "webapp/tests/test_cleanup_ota_contract.py", "webapp/tests/test_cleanup_original_refund_status_contract.py"]
+      "paths": ["webapp/card_cleanup_ui.py", "webapp/card_cleanup_queries.py", "webapp/tests/test_cleanup_query_equivalence.py", "webapp/tests/test_card_cleanup_ui.py"],
+      "tests": ["webapp/tests/test_card_cleanup_ui.py", "webapp/tests/test_cleanup_query_equivalence.py", "webapp/tests/test_cleanup_ota_contract.py", "webapp/tests/test_cleanup_original_refund_status_contract.py"]
     },
     {
       "name": "card-ota-projection",

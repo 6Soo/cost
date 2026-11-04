@@ -64,3 +64,24 @@ def test_primary_classifier_does_not_fall_back_to_an_unrelated_trip_without_futu
     result = classify_transaction(dict(ROW, approval_date='2028-01-01'), rules=[], trip_resolver=resolver)
     assert result['trip_id'] == ''
     assert result['display_tab_id'] == 'unclassified'
+
+
+def test_explicit_fukutake_category_beats_a_legacy_automatic_local_expense_rule():
+    from app.normalize import normalize_merchant
+    rule = dict(rule_id='synthetic-old',status='active',
+                conditions={'merchant_normalized':normalize_merchant(ROW['merchant'])},
+                effects={'item':'현지경비'},optional={})
+    result=classify_transaction(ROW,rules=[rule],trip_resolver=resolver)
+    assert result['item']=='입장료'
+    assert result['trip_id']=='near'
+    manual=classify_transaction(ROW,rules=[rule],trip_resolver=resolver,
+        prior_decision=dict(item='기타경비',trip_id='sejong',display_tab_id='sejong'))
+    assert manual['item']=='기타경비' and manual['trip_id']=='sejong'
+
+
+def test_completion_uses_owner_category_without_overriding_manual_or_refund_items():
+    from app.automatic_classification import infer_item
+    assert infer_item(dict(ROW,item='현지경비'))[0]=='입장료'
+    assert infer_item(dict(ROW,item=''))[0]=='입장료'
+    assert infer_item(dict(ROW,item='기타경비',classification_source='user_decision'))[0]=='기타경비'
+    assert infer_item(dict(ROW,item='취소·환불',transaction_direction='cancellation'))[0]=='취소·환불'
