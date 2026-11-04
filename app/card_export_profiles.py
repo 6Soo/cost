@@ -134,13 +134,14 @@ def parse_export(cells, fmt, filename):
 
 def _source_document(conn, batch_id, cache):
     """Read verified original layout metadata once per operation."""
+    import hashlib
     from .import_card import ParseError, parse_card_file
     if batch_id not in cache:
         cache[batch_id] = None
         source = conn.execute(
-            'SELECT parser,filename,content_bytes FROM import_batches WHERE batch_id=?',
+            'SELECT parser,filename,content_bytes,content_sha256 FROM import_batches WHERE batch_id=?',
             (batch_id,)).fetchone()
-        if source and source[2]:
+        if source and source[2] and hashlib.sha256(source[2]).hexdigest() == source[3]:
             try:
                 parsed = parse_card_file(source[2], source[1])
                 if parsed.parser == source[0]:

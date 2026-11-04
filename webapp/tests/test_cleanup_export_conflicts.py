@@ -44,7 +44,7 @@ def test_cleanup_count_rows_breakdown_and_render_share_readonly_verified_duplica
     assert list(board.conn.iterdump())==before
 
 
-@pytest.mark.parametrize('guard',['manual','hold','parse','source-change','missing-source','ambiguous-original'])
+@pytest.mark.parametrize('guard',['manual','hold','parse','source-change','missing-source','corrupt-blob','ambiguous-original'])
 def test_duplicate_projection_preserves_manual_dirty_missing_and_ambiguous_source_guards(context,guard):
     board,pipe,original,conflict=context
     if guard=='manual':
@@ -57,6 +57,10 @@ def test_duplicate_projection_preserves_manual_dirty_missing_and_ambiguous_sourc
         board.conn.execute("UPDATE transactions SET source_hash='changed-source' WHERE transaction_id=?",(conflict,))
     elif guard=='missing-source':
         board.conn.execute("UPDATE import_batches SET content_bytes=X'' WHERE batch_id=(SELECT batch_id FROM transactions WHERE transaction_id=?)",(original,))
+    elif guard=='corrupt-blob':
+        batch=board.conn.execute('SELECT batch_id FROM transactions WHERE transaction_id=?',(original,)).fetchone()[0]
+        content=board.conn.execute('SELECT content_bytes FROM import_batches WHERE batch_id=?',(batch,)).fetchone()[0]
+        board.conn.execute('UPDATE import_batches SET content_bytes=? WHERE batch_id=?',(content+b'\n',batch))
     elif guard=='ambiguous-original':
         from tests.card_pipeline.test_export_downloads import make_csv,HANA_USAGE,hana_usage
         extra=hana_usage(amount=12000,fee=0);extra[6]='00002222'
