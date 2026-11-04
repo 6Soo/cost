@@ -98,6 +98,10 @@ def reconciliation_completion(conn, batch_id):
 
 def infer_item(row):
     """Industry and service vocabulary apply across merchants, with an explicit fallback."""
+    from .trip_selection import is_fukutake_purchase
+    if (is_fukutake_purchase(row) and row.get('classification_source') not in
+            ('user_decision', 'user_exception', 'owner_booking')):
+        return '입장료', '사용자 규칙: FUKUTAKE FOUNDATION 미술관 입장료'
     if row.get('item'):
         return row['item'], '기존 항목 유지'
     raw = str(row.get('description_raw') or '')
@@ -368,7 +372,9 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
                                   '유효 여행 유지 · 이용일 단서 없음')
         else:
             chosen['display_tab_id'] = chosen.get('display_tab_id') or 'unclassified'
-    needs_completion = (reconsider or row['classification_state'] != 'classified' or not row['item']
+    from .trip_selection import is_fukutake_purchase
+    owner_item_correction = is_fukutake_purchase(row) and chosen['item'] != row['item']
+    needs_completion = (owner_item_correction or reconsider or row['classification_state'] != 'classified' or not row['item']
                         or (not special and valid and not (row['trip_id'] in valid or row['display_tab_id'] in valid))
                         or (existing_tab and row['display_tab_id'] in (None, '', 'unclassified')
                             and chosen['display_tab_id'] != row['display_tab_id']))

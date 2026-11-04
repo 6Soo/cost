@@ -56,6 +56,7 @@ def test_browser_multi_city_booking_and_payment_are_readable_without_internal_fi
             expect(cards.nth(2).locator('.fb-flight-title')).to_have_text('여정 2')
             assert page.locator('.fb-return').count() == 0
             expect(page.locator('.fb-date-row')).to_have_count(0)
+            page.locator('.fb-more-details > summary').click()
             page.locator('.fb-date-filter > summary').click()
             expect(page.locator('.fb-date-row')).to_have_count(1)
             expect(page.get_by_text('1,234,567원', exact=True)).to_be_visible()

@@ -46,6 +46,7 @@ def completed_assignment_sql(board):
     """
     from . import read_scope
     from .card_flow import CardFlow
+    from app.partial_refund import refund_review_originals
 
     def destinations():
         flow = CardFlow(board)
@@ -60,18 +61,11 @@ def completed_assignment_sql(board):
         return [target for (target,) in targets if flow.trip_valid(target)]
 
     valid = read_scope.remember(('cleanup-completed-trips', id(board)), destinations)
+    protected = read_scope.remember(('cleanup-refund-originals', id(board)), lambda: refund_review_originals(board.conn))
+    protected_sql = ','.join("'" + tid.replace("'", "''") + "'" for tid in protected) or "SELECT NULL WHERE 0"
     quoted = ','.join("'" + target.replace("'", "''") + "'" for target in valid) or "SELECT NULL WHERE 0"
     return (
         "(t.transaction_direction='purchase' AND t.amount_krw>0"
         f" AND COALESCE(t.display_tab_id,'') IN ({quoted})"
-        # Uncorrelated IN sets are built once per statement by SQLite. A
-        # correlated OR scan previously reread all refunds for every purchase.
-        # IN can return NULL; EXISTS treats unknown equality as no match.
-        " AND NOT ((COALESCE(t.approval_number,'')!='' AND COALESCE("
-        " (t.issuer,t.card_tail,t.approval_number) IN"
-        " (SELECT c.issuer,c.card_tail,c.original_approval_number FROM transactions c"
-        " WHERE c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0),0))"
-        " OR COALESCE((t.issuer,t.card_tail,t.merchant_normalized) IN"
-        " (SELECT c.issuer,c.card_tail,c.merchant_normalized FROM transactions c"
-        " WHERE c.transaction_direction IN ('cancellation','refund') OR c.amount_krw<0),0)))"
+        f" AND t.transaction_id NOT IN ({protected_sql}))"
     )

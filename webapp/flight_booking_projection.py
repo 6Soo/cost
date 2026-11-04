@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from datetime import date
 from typing import Any, Mapping, Sequence
 import unicodedata
 
@@ -32,6 +34,14 @@ def normalize_name_tokens(value: object) -> tuple[str, ...]:
 def project_itinerary_leg(leg: Mapping[str, Any]) -> dict[str, Any]:
     """Project single itinerary leg with flight segments."""
     projected = {key: leg.get(key) for key in ('label', 'origin_city', 'destination_city', 'departure_on')}
+    for key in ('origin_city', 'destination_city'):
+        value = str(projected.get(key) or '').strip()
+        if not re.fullmatch(r"[^\d:|<>\n]{1,40}", value):
+            projected[key] = ''
+    try:
+        projected['departure_on'] = date.fromisoformat(str(projected.get('departure_on') or '')).isoformat()
+    except ValueError:
+        projected['departure_on'] = ''
     projected['segments'] = [{key: segment.get(key) for key in
         ('flight_number', 'departure_airport', 'departure_time', 'arrival_airport', 'arrival_time')}
         for segment in leg.get('segments') or []]

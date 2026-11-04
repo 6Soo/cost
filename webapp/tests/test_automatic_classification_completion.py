@@ -42,6 +42,21 @@ def test_weak_ties_and_missing_dates_complete_using_only_actual_trips():
     assert policy.infer_trip({}, [])[0] == ''
 
 
+def test_fukutake_already_classified_generic_item_is_corrected_by_completion_plan(setup):
+    board, _, _, _ = setup
+    board.conn.execute("UPDATE transactions SET merchant='FUKUTAKE FOUNDATION',item='현지경비',"
+                       "classification_state='classified',classification_source='code_inference',"
+                       "trip_id='A',display_tab_id='A'")
+    board.conn.commit()
+    before=board.conn.execute('SELECT source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()
+    trips=[dict(trip, destination='세토우치') for trip in TRIPS]
+    plan=policy.plan(board.conn,trips)
+    assert plan['summary']['to_classify']==5
+    policy.apply(board.conn,plan,trips)
+    assert {r[0] for r in board.conn.execute('SELECT item FROM transactions')}=={'입장료'}
+    assert board.conn.execute('SELECT source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()==before
+
+
 def test_legacy_preserved_state_uses_the_same_inference_as_other_rows(setup):
     board, _, _, rows = setup
     board.conn.execute("UPDATE transactions SET classification_state='preserved',approval_date='2025-10-03'")

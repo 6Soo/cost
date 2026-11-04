@@ -17,6 +17,8 @@
   if(el.closest('#nav,[role="tablist"],.site-theme-bar')||el.matches('#btn-menu,.site-menu-toggle'))return;
   // This inline disclosure owns its compact row height, chevron and focus style.
   if(el.matches('.participant-link-details > summary,.insurance-candidate-button'))return;
+  // Flight disclosures own their layout and single trailing chevron.
+  if(el.matches('#flight-booking-page summary'))return;
   // A compound disclosure already exposes its own button; avoid a second frame.
   if(el.tagName==='SUMMARY'&&el.querySelector('svg,img,button,[role="button"]'))return;
   const text=el.textContent.trim();
