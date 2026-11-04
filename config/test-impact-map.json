@@ -114,8 +114,8 @@
     },
     {
       "name": "cloud-mail-ingestion",
-      "paths": ["app/cloud_mail.py", "tests/card_pipeline/test_cloud_mail.py"],
-      "tests": ["tests/card_pipeline/test_cloud_mail.py", "tests/card_pipeline/test_mail_collect.py"]
+      "paths": ["app/cloud_mail.py", "tests/card_pipeline/test_cloud_mail.py", "cloud-mail/CloudMail.gs", "tests/apps_script/cloud_mail.test.cjs", "tests/test_cloud_mail_script.py"],
+      "tests": ["tests/card_pipeline/test_cloud_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/test_cloud_mail_script.py"]
     },
     {
       "name": "provider-config-schema",
