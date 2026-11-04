@@ -1,3 +1,9 @@
+## 2026-11-05 PR #636·#644 현황 대조·문서 정합화
+
+- **자율 지출정리 PARTIAL** — 명세 [#636](https://github.com/6Soo/cost/pull/636) 병합 후 구현 [#643](https://github.com/6Soo/cost/pull/643), Windows OpenCode 실제 실행기·무료 모델 수정 [#647](https://github.com/6Soo/cost/pull/647)이 병합됐다. 격리 합성 호스트에서 2건의 실제 무료 모델 P2 호출/적용을 확인했으나, 운영 설정 `autonomous_ai_review` 게이트 활성 여부·실제 신규 지출 자동 호출·운영 SHA·사용자 최초 지적 감소는 미확인이다. 원인 묶음 기록은 코드 결함의 자율 수정/PR·배포가 아니다. [최신 구현·미결 정리](specs/autonomous-expense-cleanup-20261105.md#구현운영-상태-대조-2026-11-05)를 따른다. 과거 아래 `SPEC_ONLY` 문구는 작성 당시 이력이다.
+- **HDD I/O PARTIAL** — [명세 #644](https://github.com/6Soo/cost/pull/644) **열림/미병합**, [후속 구현 #646](https://github.com/6Soo/cost/pull/646) **열림/미병합**. #646은 이벤트 기반 Gateway status + 30초 heartbeat, route cache 250ms, OTA 체크 로그 변경 때만 기록·시간별 heartbeat 및 5MiB 순환을 제안한다. PR 제목의 ‘~97%’는 **파일 정기 쓰기 빈도 추정/테스트**에 관한 것으로 운영 HDD 총 I/O·소음 개선 실측이 아니다. 게이트웨이 process 안전 업데이트, 15분 전후 NTFS/성능 카운터 비교, 연결 drain/상태 신선도·보호13표·배포 수락이 남았다.
+- **문서 작업 한정:** 최신 상태 표시를 업데이트하고 기존 금융·무중단 배포 계약과 연결했다. 이 기록만으로 운영 기능 활성화, Gateway 재시작, 금융/Google 쓰기, PR #644/#646 병합을 수행하지 않는다.
+
 ## 2026-11-05 지출 정리 문구·인라인 편집 및 여행 장부 뷰어 UI 개편 — 완료
 
 - COMPLETE — 사용자 “검토필요 장부기록가능이 대체 무슨 정보를 제공하는지 알수가없고 여행항목수정 버튼을 눌러서 단 두 줄의 버튼만 제공할거면 왜 만들었으며 UI까지 다 박살냄” 피드백 해결.
