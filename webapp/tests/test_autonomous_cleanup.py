@@ -11,6 +11,7 @@ from webapp.card_completion_worker import candidates
 from webapp.autonomous_cleanup_worker import (
     AutonomousCleanupWorker, JOB_SCOPE, BUNDLE_SCOPE, detect_bundles,
     fingerprint, load_job, pending_job_ids, detection_candidates, p2_calls_today,
+    save_job, _digest,
 )
 from webapp.ledger_store import LedgerStore
 
@@ -284,6 +285,65 @@ def test_cause_bundles_group_repeated_signatures(setup):
     assert bundle is not None and bundle[0] == signature and bundle[1] >= 9
 
 
+def test_cause_bundles_group_repeated_provider_code_failures_but_not_rate_limits(setup):
+    from webapp.autonomous_cleanup_worker import code_fingerprint
+
+    board = setup
+    from app.db import Store as CardStore
+    CardStore(board.conn)
+    for index in range(9):
+        save_job(board.conn, f'synthetic-provider-{index}', code_fingerprint(),
+                 {'status': 'ai_retry', 'attempts': 1, 'reason': 'AGENT_EXECUTION_FAILED'})
+    for index in range(9):
+        save_job(board.conn, f'synthetic-rate-limit-{index}', code_fingerprint(),
+                 {'status': 'ai_retry', 'attempts': 1, 'reason': 'AGENT_RATE_LIMITED'})
+    board.conn.commit()
+
+    assert detect_bundles(board.conn) == 1
+    bundle = board.conn.execute(
+        "SELECT json_extract(response_json,'$.signature'), json_extract(response_json,'$.count'),"
+        " json_extract(response_json,'$.source') FROM requests WHERE scope = ?"
+        " AND json_extract(response_json,'$.source') = 'worker'", (BUNDLE_SCOPE,)).fetchone()
+    assert bundle == ('AGENT_EXECUTION_FAILED', 9, 'worker')
+
+
+def test_decision_code_fingerprint_changes_when_relevant_code_changes(tmp_path):
+    from webapp.autonomous_cleanup_worker import CODE_FINGERPRINT_FILES, code_fingerprint
+
+    for index, relative in enumerate(CODE_FINGERPRINT_FILES):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'synthetic code {index}', encoding='utf-8')
+    first = code_fingerprint(tmp_path)
+    (tmp_path / CODE_FINGERPRINT_FILES[0]).write_text('synthetic verified fix', encoding='utf-8')
+    assert code_fingerprint(tmp_path) != first
+
+
+def test_verified_code_change_requeues_previously_dead_job(setup, monkeypatch):
+    from webapp import autonomous_cleanup_worker as worker_module
+
+    board = setup
+    trip = create_trip(board)
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, trip)
+    row = detection_candidates(board.conn)[0]
+
+    monkeypatch.setattr(worker_module, 'code_fingerprint', lambda: 'verified-code-v1')
+    worker_v1 = AutonomousCleanupWorker(board, board._lock, provider=lambda request: response_for(request))
+    _, trips, nets, inputs_v1 = worker_v1._held_context()
+    first = fingerprint(row, _digest(inputs_v1))
+    save_job(board.conn, ids[0], first,
+             {'status': 'ai_dead', 'attempts': 3, 'reason': 'AGENT_EXECUTION_FAILED'})
+    board.conn.commit()
+    assert ids[0] not in pending_job_ids(board.conn, {ids[0]: first})
+
+    monkeypatch.setattr(worker_module, 'code_fingerprint', lambda: 'verified-code-v2')
+    worker_v2 = AutonomousCleanupWorker(board, board._lock, provider=lambda request: response_for(request))
+    _, trips, nets, inputs_v2 = worker_v2._held_context()
+    second = fingerprint(row, _digest(inputs_v2))
+    assert ids[0] in pending_job_ids(board.conn, {ids[0]: second})
+
+
 def test_detection_excludes_protected_and_ai_reviewed_rows(setup):
     board = setup
     trip = create_trip(board)
@@ -377,3 +437,91 @@ def test_provider_catalog_stays_on_free_tier():
     from app import connected_agent_provider as provider
     assert provider.DEFAULT_MODEL in provider.MODELS
     assert all(name.startswith('opencode/') and name.endswith('-free') for name in provider.MODELS)
+
+
+def test_provider_attaches_large_review_request_from_private_temp_file(tmp_path, monkeypatch):
+    import re
+    import subprocess
+    from pathlib import Path
+    from app import connected_agent_provider as provider
+    monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-opencode')
+
+    request = {'digest': 'synthetic-digest', 'cases': [
+        {'transaction_id': f'synthetic-{index}', 'context': 'x' * 2400} for index in range(20)]}
+    observed = {}
+
+    def runner(command, *, cwd, env, timeout):
+        command_line = subprocess.list2cmdline(command)
+        assert len(command_line) < 10000
+        assert 'x' * 100 not in command_line
+        request_file = Path(command[command.index('--file') + 1])
+        prompt = request_file.read_text(encoding='utf-8')
+        assert len(prompt) > 32767
+        assert json.dumps(request, ensure_ascii=False) in prompt
+        observed['path'] = request_file
+        run_id = re.search(r'run_id: ([a-f0-9]+)', prompt).group(1)
+        answer = json.dumps({'request_digest': request['digest'],
+                             'execution': {'kind': 'connected_agent', 'provider': 'opencode',
+                                           'model': provider.DEFAULT_MODEL, 'run_id': run_id},
+                             'results': []})
+        event = json.dumps({'type': 'text', 'part': {'type': 'text', 'text': answer}}).encode('utf-8')
+        return subprocess.CompletedProcess(command, 0, event, b'')
+
+    result = provider.run_agent(request, runner=runner)
+    assert result['execution']['kind'] == 'connected_agent'
+    assert not observed['path'].exists()
+
+
+def test_provider_classifies_windows_command_line_limit_without_exposing_error_text(monkeypatch):
+    from app import connected_agent_provider as provider
+    monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-opencode')
+
+    def runner(command, *, cwd, env, timeout):
+        error = OSError('synthetic Windows command size failure')
+        error.winerror = 206
+        raise error
+
+    with pytest.raises(provider.AgentUnavailable) as caught:
+        provider.run_agent({'digest': 'synthetic', 'cases': []}, runner=runner)
+    assert caught.value.code == 'AGENT_COMMAND_LINE_TOO_LONG'
+
+
+def test_autonomous_interval_config_is_bounded_and_defaults_to_thirty_minutes(tmp_path):
+    import json
+    from webapp.autonomous_cleanup_worker import INTERVAL, configured_interval
+
+    config = tmp_path / 'card-flow.json'
+    assert INTERVAL == 1800
+    assert configured_interval(config) == 1800
+    config.write_text(json.dumps({'autonomous_cleanup_interval_seconds': 600}), encoding='utf-8')
+    assert configured_interval(config) == 600
+    config.write_text(json.dumps({'autonomous_cleanup_interval_seconds': 5}), encoding='utf-8')
+    assert configured_interval(config) == 1800
+
+
+def test_autonomous_status_skips_identical_writes_until_heartbeat(setup, monkeypatch):
+    from webapp import autonomous_cleanup_worker as worker_module
+
+    board = setup
+    monotonic = [100.0]
+    wall = [1000.0]
+    monkeypatch.setattr(worker_module.time, 'time', lambda: wall[0])
+    worker = AutonomousCleanupWorker(board, board._lock, clock=lambda: monotonic[0])
+    worker._publish()
+    path = board.path.parent / 'autonomous-cleanup-status.json'
+    first = json.loads(path.read_text(encoding='utf-8'))
+
+    worker._publish()
+    assert json.loads(path.read_text(encoding='utf-8')) == first
+    monotonic[0] += worker_module.STATUS_HEARTBEAT_SECONDS - 1
+    worker._publish()
+    assert json.loads(path.read_text(encoding='utf-8')) == first
+
+    monotonic[0] += 1
+    wall[0] += 300
+    worker._publish()
+    assert json.loads(path.read_text(encoding='utf-8'))['updated_at'] == 1300.0
+
+    worker.status['state'] = 'running'
+    worker._publish()
+    assert json.loads(path.read_text(encoding='utf-8'))['state'] == 'running'

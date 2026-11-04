@@ -23,7 +23,8 @@ DEFAULT_MODEL = MODEL
 MODELS = (MODEL, SPACE_BUNNY, MIMO)
 MAX_OUTPUT_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 180
-COOLDOWN = {'AGENT_RATE_LIMITED': 300, 'AGENT_PROVIDER_UNAVAILABLE': 60, 'AGENT_EXECUTION_FAILED': 60}
+COOLDOWN = {'AGENT_RATE_LIMITED': 300, 'AGENT_PROVIDER_UNAVAILABLE': 60, 'AGENT_EXECUTION_FAILED': 60,
+            'AGENT_EXECUTION_DENIED': 300, 'AGENT_TIMEOUT': 60, 'AGENT_COMMAND_LINE_TOO_LONG': 60}
 NETWORK_WORDS = ('fetch failed', 'econnreset', 'etimedout', 'econnrefused', 'socket', 'overloaded', 'unavailable', 'timed out')
 
 SCHEMA = '{"request_digest":"<string>","execution":{"kind":"connected_agent","provider":"opencode","model":"<string>","run_id":"<string>"},"results":[{"transaction_id":"<string>","trip_id":"<string or empty>","item":"<string>","basis":"<string>","uncertainty":"<string>"}]}'
@@ -187,13 +188,32 @@ def run_agent(request, *, model=None, runner=None, timeout=TIMEOUT_SECONDS):
         (isolated / 'opencode').mkdir(parents=True)
         (isolated / 'opencode' / 'opencode.json').write_text(json.dumps(config), encoding='utf-8')
         environment = dict(os.environ, XDG_CONFIG_HOME=str(isolated))
+        # Windows limits CreateProcess command lines to 32,767 characters. A
+        # normal 20-case review can exceed that once derived trip context is
+        # serialized, so keep the request out of argv and attach a private temp
+        # file instead. The file is removed with the temporary directory.
+        request_file = root / 'review-request.txt'
+        request_file.write_text(prompt, encoding='utf-8')
         command = [executable, 'run', '--pure', '--model', model, '--agent', 'autonomous-review',
-                   '--title', 'COST autonomous review (free)', '--format', 'json', '--', prompt]
+                   '--title', 'COST autonomous review (free)', '--format', 'json',
+                   '--file', str(request_file), '--',
+                   'Follow the attached COST review request and return only its required JSON.']
         started = time.monotonic()
         try:
             proc = (runner or _run_bounded)(command, cwd=str(root), env=environment, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired):
-            raise AgentUnavailable('AGENT_EXECUTION_FAILED') from None
+        except subprocess.TimeoutExpired:
+            raise AgentUnavailable('AGENT_TIMEOUT') from None
+        except OSError as exc:
+            winerror = getattr(exc, 'winerror', None)
+            if winerror == 206:
+                code = 'AGENT_COMMAND_LINE_TOO_LONG'
+            elif winerror in (2, 3):
+                code = 'AGENT_OPENCODE_NOT_FOUND'
+            elif winerror == 5:
+                code = 'AGENT_EXECUTION_DENIED'
+            else:
+                code = 'AGENT_EXECUTION_FAILED'
+            raise AgentUnavailable(code) from None
         elapsed_ms = int((time.monotonic() - started) * 1000)
         if proc.returncode:
             parse_events(proc.stdout)
