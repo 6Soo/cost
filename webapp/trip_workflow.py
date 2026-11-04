@@ -68,30 +68,42 @@ def render(board, trip_id, cost_rows, amount_groups):
     if state['duplicate_copy']:
         closure += ' · 사본 중복 검토'
     receipt = state['receipts']
-    receipt_text = (f"{receipt['count']}건 · 보류 {receipt['held']}건" if receipt['available']
-                    else '영수증 자료 확인 필요')
-    links = [('users', '보험 후보 비교', '수입 표의 후보 버튼을 눌러 가림 이름·기간을 비교하세요.', '#participant-trip-panel'),
-             ('table', '지출 검토·복사', '지출표에서 장부 기록 여부를 확인하고 새 지출을 복사하세요.', '#trip-expense-copy'),
-             ('archive', '수입·마감 확인', closure + ' · 수입 합계와 장부 위치를 확인하세요.', '#trip-income'),
-             ('credit-card', '카드 원천', '전체 여행의 카드 원본 보기', '/cards/all'),
-             ('list-filter', '미정리·보류', f"이 여행 표시 지출 보류 {state['displayed_holds']}건 · 전체 미정리 화면 열기", '/import'),
-             ('link', 'OTA·환불', '결제·환불 근거 확인', '/ota'),
-             ('receipt', '영수증', receipt_text, '/receipts?' + urlencode({'trip': trip_id}))]
+    receipt_text = (f"이 여행 {receipt['count']}건 · 보류 {receipt['held']}건. 영수증의 금액·여행·결제수단을 확인하세요."
+                    if receipt['available'] else '자료를 읽지 못해 건수를 확인할 수 없습니다. 영수증 화면에서 확인하세요.')
+    summary = (amount_groups or {}).get('summary') or {}
+    copy_text = (f"미기록 {summary.get('unrecorded', 0)}그룹 · 부분 일치 {summary.get('partial', 0)}그룹. "
+                 '장부 표시를 대조한 뒤 복사 가능한 지출을 확인하세요.' if state['google_available']
+                 else 'Google 장부와 비교할 수 없습니다. 비교 자료를 확인한 뒤 복사 여부를 판단하세요.')
+    links = [('users', '보험 후보 비교', '수입의 보험 등록 후보를 비교하고, 맞는 참가자를 연결하거나 기존 연결을 교정하세요.', '#participant-trip-panel'),
+             ('table', '지출 검토·복사', copy_text, '#trip-expense-copy'),
+             ('receipt', '영수증 확인', receipt_text, '/receipts?' + urlencode({'trip': trip_id})),
+             ('archive', '수입·마감 확인', closure + ' · 수입 내역과 출처를 확인하세요. 마감과 지출 기록은 별개입니다.', '#trip-income')]
     from .trip_insurance_policy import domestic_trip
     domestic = domestic_trip(trip_id)
     if domestic:
         links = links[1:]
-    primary_count = 2 if domestic else 3
     cards = [
-        f"<a class='trip-workflow-card' href='{esc(href)}'>"
+        f"<a class='trip-workflow-card' href='{esc(href)}'"
+        + (" data-trip-panel='participant-trip-panel'" if href == '#participant-trip-panel' else '') + ">"
         f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"
         f"<span class='trip-workflow-copy'><strong>{esc(label)}</strong>"
         f"<span>{esc(text)}</span></span>"
         f"<span class='trip-workflow-arrow'>{ui_icons.icon('chevron-right', 16)}</span></a>"
         for icon, label, text, href in links]
-    return ("<details class='trip-workflow' aria-label='여행 검토'><summary>"
+    held = [row for row in cost_rows if row.get('blocked')]
+    held_links = ''.join(
+        f"<li><a href='/board?{esc(urlencode({'tab': trip_id, 'row': row['row_id']}))}'>"
+        f"{esc(row.get('source_merchant') or row.get('description') or row.get('item') or '지출')} · 상세에서 보류 근거 확인</a></li>"
+        for row in held if row.get('row_id'))
+    holds = (f"<section class='trip-review-holds' aria-label='이 여행 보류 지출'><h3>보류 지출 {len(held)}건</h3>"
+             + (f"<p>각 거래의 근거를 확인하고 필요한 항목을 교정하세요.</p><ul>{held_links}</ul>" if held
+                else '<p>이 여행 지출에 보류 표시가 없습니다.</p>') + '</section>')
+    return ("<details class='trip-workflow' id='trip-review-panel' aria-label='여행 검토'><summary>"
             f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
             f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
-            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards[:primary_count]) + '</nav>'
-            "<details class='trip-workflow-tools'><summary>전체 자료·도구 열기</summary>"
-            "<nav class='trip-workflow-grid' aria-label='전체 자료 도구'>" + ''.join(cards[primary_count:]) + '</nav></details></details>')
+            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards) + '</nav>' + holds
+            + "<details class='trip-workflow-tools'><summary>전체 여행 자료에서 더 찾기</summary>"
+            "<p>아래 화면은 전체 여행 자료를 엽니다. 현재 여행으로 자동 필터되지 않습니다.</p>"
+            "<nav class='trip-review-sources' aria-label='전체 자료 도구'>"
+            "<a href='/cards/all'>카드 원본 찾기</a><a href='/ota'>OTA·환불 근거 찾기</a>"
+            "<a href='/google-ledger'>Google 장부 사본·마감 관리</a></nav></details></details>")

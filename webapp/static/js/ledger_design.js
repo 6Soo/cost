@@ -1,5 +1,46 @@
 
 (function(){
+ document.addEventListener('DOMContentLoaded',function(){
+  if(!document.querySelector('.trip-actions'))return;
+  document.documentElement.classList.add('trip-actions-ready');
+  function sync(){
+   document.querySelectorAll('.trip-actions [data-trip-panel]').forEach(function(button){
+    var panel=document.getElementById(button.dataset.tripPanel);
+    button.setAttribute('aria-expanded',String(!!panel&&panel.open));
+   });
+  }
+  document.addEventListener('click',function(event){
+   var button=event.target.closest('[data-trip-panel]');
+   if(!button)return;
+   var panel=document.getElementById(button.dataset.tripPanel);
+   if(!panel)return;
+   event.preventDefault();
+   var opening=!panel.open;
+   document.querySelectorAll('#participant-trip-panel,#trip-review-panel').forEach(function(other){other.open=false;});
+   panel.open=opening;sync();
+   if(opening&&!button.closest('.trip-actions')){
+    var target=panel.querySelector('a,button,input');
+    if(target)target.focus();
+    panel.scrollIntoView({block:'nearest'});
+   }
+  });
+  document.addEventListener('toggle',sync,true);
+  document.addEventListener('keydown',function(event){
+   if(event.key===' '&&event.target.matches('.trip-actions [data-trip-panel]')){
+    event.preventDefault();event.target.click();
+   }
+  });
+  var region=document.getElementById('live-rows');
+  if(region)new MutationObserver(function(){
+   var button=document.querySelector('.trip-actions [data-trip-panel="trip-review-panel"]');
+   var panel=document.getElementById('trip-review-panel');
+   if(button&&panel)panel.open=button.getAttribute('aria-expanded')==='true';
+   sync();
+  }).observe(region,{childList:true});
+  sync();
+ });
+})();
+(function(){
  document.addEventListener('click',async function(event){
   var button=event.target.closest('[data-google-sync]');
   if(!button||button.disabled)return;

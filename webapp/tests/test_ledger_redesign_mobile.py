@@ -213,15 +213,15 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     self.assertTrue(page.is_visible(".lst"),
                                     f"{width}px에서 .lst는 표시")
                     link = page.locator(
-                        ".lst #add-manual-expense-mobile[href='/expense/new']")
+                        ".trip-actions #add-manual-expense")
                     self.assertEqual(link.count(), 1, f"{width}px 링크 1개")
                     self.assertTrue(link.is_visible(), f"{width}px 링크 visible")
                     self.assertIn("수기 지출 추가", link.inner_text())
                     self.assertIn("btn", link.get_attribute("class"))
                     link.click()
                     page.wait_for_load_state()
-                    self.assertIn("/expense/new", page.url, f"{width}px 진입")
-                    self.assertIn("수기 지출 추가", page.content())
+                    self.assertTrue(page.locator('#manual-expense-dialog').evaluate('el=>el.open'))
+                    self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-a')
                     ctx.close()
         finally:
             browser.close()
@@ -232,8 +232,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         html = ledger_design._mobile_html(
             board_mod._income_rows(), [],
             selected="", unclassified=False)
-        self.assertIn("id='add-manual-expense-mobile'", html)
-        self.assertIn("href='/expense/new'", html)
+        self.assertNotIn("data-manual-open", html)
         self.assertIn("지출 내역이 없어요", html)
         from playwright.sync_api import sync_playwright
         pw = sync_playwright().start()
@@ -252,13 +251,13 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     page.evaluate("document.fonts.ready.then(()=>0)")
                     self.assertTrue(page.is_visible(".lst"))
                     link = page.locator(
-                        ".lst #add-manual-expense-mobile[href='/expense/new']")
+                        ".trip-actions #add-manual-expense")
                     self.assertEqual(link.count(), 1)
                     self.assertTrue(link.is_visible())
                     link.click()
                     page.wait_for_load_state()
-                    self.assertIn("/expense/new", page.url)
-                    self.assertIn("수기 지출 추가", page.content())
+                    self.assertTrue(page.locator('#manual-expense-dialog').evaluate('el=>el.open'))
+                    self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-a')
                     ctx.close()
         finally:
             browser.close()

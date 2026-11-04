@@ -17,16 +17,17 @@ def test_net_income_omits_redundant_hints_and_preserves_values():
     assert 'net-income' not in unverified and '확인 필요' in unverified
 
 
-def test_expense_table_keeps_full_service_dates_in_a_dedicated_wrapping_column(monkeypatch):
+def test_expense_table_keeps_compact_service_dates_and_complete_tooltip(monkeypatch):
     monkeypatch.setattr(ledger_design.board, 'current_role', lambda: 'owner')
     row = {'row_id': 'synthetic-expense', 'row_kind': 'expense', 'source_kind': 'manual',
            'amount_krw': 12345, 'item': '숙박비', 'description': '합성 숙소 ' * 30,
            'occurred_on': '2026-06-30', 'service_period': '2026-06-30~2026-07-01'}
     # Verify the actual table markup, including the source period text.
     markup = ledger_design._tables_html([], [row], selected='', unclassified=False)
-    assert "width:280px" in markup and "width:28%" in markup
+    assert "width:210px" in markup
     assert "class='c-stay'" in markup
     assert '6월 30일(화) ~ 7월 1일(수)' in markup
+    assert '06.30–07.01 · 1박' in markup
     assert 'text-overflow:clip' in ledger_design.STYLE
 
 
@@ -78,8 +79,8 @@ def test_browser_expense_table_keeps_long_party_and_service_dates_reachable(monk
                         stay_cell = page.locator('.c-stay')
                         amount_cell = page.locator('.c-amt')
                         assert date_cell.is_visible() and date_cell.inner_text() == '2026-06-30'
-                        assert stay_cell.is_visible() and '6월 30일(화)' in stay_cell.inner_text()
-                        assert '7월 1일(수)' in stay_cell.inner_text()
+                        assert stay_cell.is_visible() and stay_cell.inner_text() == '06.30–07.01 · 1박'
+                        assert '6월 30일(화) ~ 7월 1일(수)' in stay_cell.get_attribute('title')
                         date_box = date_cell.bounding_box()
                         stay_box, amount_box = stay_cell.bounding_box(), amount_cell.bounding_box()
                         assert date_box['width'] > 0 and date_box['height'] > 0

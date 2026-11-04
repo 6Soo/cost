@@ -31,7 +31,7 @@ class DesignScreenTests(unittest.TestCase):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-b')
-                trigger = '#add-manual-expense-mobile' if width < 760 else '#add-manual-expense'
+                trigger = '.trip-actions #add-manual-expense'
                 page.click(trigger)
                 self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
                 self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-b')
