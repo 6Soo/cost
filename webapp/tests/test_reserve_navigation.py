@@ -1,4 +1,4 @@
-"""RESERVE-NAVIGATION-001: the linking screen is reachable, and it leads back.
+"""Reservation linking stays reachable through management, outside trip actions.
 
 Before this, `/reserve-links` existed and worked, but nothing in the product
 linked to it. The only way in was to know the address, and once inside there was
@@ -8,7 +8,7 @@ opens once.
 
 So these tests pin two things and nothing else:
 
-* an owner is shown the entry link on the ledger header, and is *not* shown it
+* an owner is shown the entry link in management, and is *not* shown it
   only when a source is configured. The configuration-required state is exactly
   the state the owner needs to be able to reach.
 * a viewer is never shown it, and the server still refuses the route. The link
@@ -79,21 +79,17 @@ class _Base(unittest.TestCase):
 class OwnerEntryLinkTests(_Base):
     def test_an_owner_is_shown_the_entry_link(self):
         markup = self.header("owner")
-        self.assertIn(f"id='{ENTRY_ID}'", markup)
+        self.assertIn("href='/reserve-links'", markup)
         self.assertIn("href='/reserve-links'", markup)
         self.assertIn(OWNER_LINK, markup)
 
-    def test_the_entry_link_is_in_the_header_action_rail(self):
-        """It belongs beside the export button, not buried in a row.
-
-        The rail is the only part of the header that is a set of destinations. A
-        link inside a table cell would read as part of one trip's data. The
-        review button is a fixed neighbour but not a reliable one: it is drawn
-        only when a review is configured, so it is not asserted here.
-        """
+    def test_trip_header_only_offers_export(self):
+        """Global source import and maintenance do not belong to one trip."""
         markup = self.header("owner")
-        head = markup[markup.index("page-hd"):markup.index("id='q-form'")]
-        self.assertIn(f"id='{ENTRY_ID}'", head)
+        head = markup[markup.index("<div class='page-hd trip-header'"):markup.index("id='q-form'")]
+        self.assertNotIn("/reserve-links", head)
+        self.assertNotIn("href='/import#newupload'", head)
+        self.assertNotIn("id='review-link'", head)
         self.assertIn("href='/export?tab=", head)
 
     def test_the_entry_link_comes_before_the_review_link_when_both_are_drawn(self):
@@ -152,7 +148,7 @@ class OwnerEntryLinkTests(_Base):
             else os.environ.pop(reserve_link_mod.CONFIG_ENV, None))
         self.assertIsNone(os.environ.get(reserve_link_mod.CONFIG_ENV))
         markup = self.header("owner")
-        self.assertIn(f"id='{ENTRY_ID}'", markup)
+        self.assertIn("href='/reserve-links'", markup)
 
 
 class ViewerSeesNoEntryLinkTests(_Base):
@@ -168,34 +164,24 @@ class ViewerSeesNoEntryLinkTests(_Base):
         self.assertNotIn("/reserve-links", markup)
         self.assertNotIn(OWNER_LINK, markup)
 
-    def test_a_viewer_keeps_the_other_header_links(self):
-        """Only the new link is withheld.
-
-        If the whole rail disappeared for a viewer this test would pass for the
-        wrong reason, and the header would lose buttons a viewer is allowed to
-        use. The review button is not asserted: it is drawn only when a review
-        is configured, which is a separate condition.
-        """
+    def test_a_viewer_keeps_export_without_import_in_trip_header(self):
+        """Export remains available after removing global actions."""
         markup = self.header("viewer")
         self.assertIn("href='/export?tab=", markup)
-        self.assertIn("카드 가져오기", markup)
+        head = markup.split("trip-header", 1)[1].split("id='q-form'", 1)[0]
+        self.assertNotIn("카드 가져오기", head)
 
 
 class LinkIdempotenceTests(_Base):
     def test_the_entry_link_is_drawn_once(self):
-        """The header is rendered per request; a duplicate id would break the label.
-
-        `id` is what a test, a label and a fragment address bind to. Two elements
-        with one id means the address reaches whichever came first, which is a
-        bug that looks fine in the page and is not.
-        """
+        """Management has one destination without a duplicate trip action."""
         markup = self.header("owner")
-        self.assertEqual(markup.count(f"id='{ENTRY_ID}'"), 1)
-        self.assertEqual(markup.count("href='/reserve-links'"), 2)
+        self.assertEqual(markup.count(f"id='{ENTRY_ID}'"), 0)
+        self.assertEqual(markup.count("href='/reserve-links'"), 1)
         sidebar = markup.split("<div class='nav-mask'")[0]
         self.assertEqual(sidebar.count("href='/reserve-links'"), 1)
         act = markup.split("<div class='act'>")[1].split("</div>")[0]
-        self.assertEqual(act.count("href='/reserve-links'"), 1)
+        self.assertEqual(act.count("href='/reserve-links'"), 0)
 
 
 class ReturnLinkTests(unittest.TestCase):

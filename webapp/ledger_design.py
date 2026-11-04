@@ -417,15 +417,12 @@ def _head_html(trip) -> str:
                 f""
                 f"<span><a class='btn' href='/trips?{board.esc(urlencode({'trip': trip['tab_id']}))}'>{_icons.icon('map')}여행 관리</a></span>")
     return (
-        "<div class='page-hd'><div>"
+        "<div class='page-hd trip-header'><div>"
         f"<h1>{title}<span class='synth'>{board.data_status_mark()}</span></h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
-        + _reserve_link_link_html()
-        + _review_link_html()
-        + f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
+        + f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
 
