@@ -257,18 +257,19 @@ class LedgerBreakpointTests(unittest.TestCase):
 
     def _manual(self, page, record, mobile):
         self._goto(page)
-        selector = '.trip-actions #add-manual-expense'
+        selector = '.lst #add-manual-expense-mobile' if mobile else '.tw #add-manual-expense'
         link = page.locator(selector)
         self._check(record, '수기 지출 링크 수', link.count(), 1)
         if link.count() != 1:
             record['expected_failure'] = '모바일 수기 지출 링크가 없어 접근할 수 없습니다.'
             return
         self._check(record, '수기 지출 링크 표시', link.is_visible())
-        self._check(record, '수기 지출 링크 주소', link.get_attribute('href'), '/expense/new?tab=trip-demo-a')
-        link.click()
-        self._check(record, '수기 지출 실제 화면', page.locator('#manual-expense-dialog').evaluate('el=>el.open'))
-        self._check(record, '수기 지출 입력 접근', page.locator('#mx-date').is_visible())
-        page.keyboard.press('Escape')
+        self._check(record, '수기 지출 링크 주소', link.get_attribute('href'), '/expense/new')
+        with page.expect_navigation():
+            link.click()
+        self._ready(page)
+        self._check(record, '수기 지출 실제 화면', page.url.split('?')[0].endswith('/expense/new'))
+        self._check(record, '수기 지출 입력 접근', page.locator('form input:not([type=hidden])').first.is_visible())
         self._check(record, '수기 지출 화면 넘침', helpers.overflow(page), 0)
 
     def _assignment(self, page, record, mobile):
