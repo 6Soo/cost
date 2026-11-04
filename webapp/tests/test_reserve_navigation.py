@@ -168,17 +168,12 @@ class ViewerSeesNoEntryLinkTests(_Base):
         self.assertNotIn("/reserve-links", markup)
         self.assertNotIn(OWNER_LINK, markup)
 
-    def test_a_viewer_keeps_the_other_header_links(self):
-        """Only the new link is withheld.
-
-        If the whole rail disappeared for a viewer this test would pass for the
-        wrong reason, and the header would lose buttons a viewer is allowed to
-        use. The review button is not asserted: it is drawn only when a review
-        is configured, which is a separate condition.
-        """
+    def test_a_viewer_keeps_export_without_import_in_trip_header(self):
+        """Export remains available after removing global actions."""
         markup = self.header("viewer")
         self.assertIn("href='/export?tab=", markup)
-        self.assertIn("카드 가져오기", markup)
+        head = markup.split("trip-header", 1)[1].split("id='q-form'", 1)[0]
+        self.assertNotIn("카드 가져오기", head)
 
 
 class LinkIdempotenceTests(_Base):
