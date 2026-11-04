@@ -2988,7 +2988,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 확인해 주세요' if not item else
                       '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
-                      '배정과 거래의 보호 검사 결과를 확인해 주세요')
+                      '여행·항목이 지정되어 있습니다. COST 내부 비용 기록은 아직 없습니다.')
             evidence = card_evidence_ui.render_no_booking_evidence(
                 fresh=bool(snapshot_context.get('fresh')),
                 source=source,
@@ -3024,6 +3024,9 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             finance_label = ('COST 내부 기록 있음' if preview_row.get('already_booked') else
                              blocked_labels.get(blocked, '' if not blocked else
                                                 '기록 보류: 금융 검토가 필요합니다.'))
+            if (blocked == 'review_hold' and not held
+                    and preview_row.get('reason') == '비용 항목과 배정 내용을 확인해 주세요.'):
+                finance_label = '여행·항목을 확인하고 변경 저장을 눌러 주세요.'
             if blocked:
                 reason = finance_label
         elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):

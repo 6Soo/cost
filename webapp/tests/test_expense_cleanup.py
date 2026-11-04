@@ -426,6 +426,7 @@ def test_card_detail_opens_inline_and_keeps_current_trip_for_immediate_edit(tmp_
         assert row_html.index('<form') < row_html.index('<details')
         assert '검토 필요' not in row_html
         assert '장부 기록 가능' not in row_html
+        assert '여행·항목을 확인하고 변경 저장을 눌러 주세요.' in row_html
         assert '<details><summary>근거 보기' not in row_html
         assert f"data-current-tab='{trip['tab_id']}'" in html
         assert "const current=select.closest('.cleanup-row')?.dataset.currentTab||'';" in html
