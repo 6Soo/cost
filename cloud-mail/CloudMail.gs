@@ -7,7 +7,7 @@ const COST_CLOUD_MAIL = {
   manifest: 'cloud-mail-manifest.json',
   schema: 'cost-cloud-mail-v1',
   budgetMs: 240000,
-  queryRevision: 2,
+  queryRevision: 3,
 };
 
 function costMailJson_(response) {
@@ -84,7 +84,8 @@ function costMailSave_(folder, held) {
 function costMailQuery_(after) {
   if (!costMailValidDate_(after)) throw new Error('CLOUD_MAIL_DATE_INVALID');
   const suppliers = ['trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking.com',
-    'agoda-messaging.com', 'toyoko-inn.com', 'toyoko-inn.co.jp', 'forest.go.kr', 'foresttrip.go.kr'];
+    'agoda-messaging.com', 'toyoko-inn.com', 'toyoko-inn.co.jp', 'forest.go.kr', 'foresttrip.go.kr',
+    'flyasiana.com', 'skyticket.com', 'jejuair.net', 'traveloka.com'];
   const recipients = ['kew2000@hanmail.net', 'kew2000@daum.net'];
   return 'after:' + after.replace(/-/g, '/') + ' (' + suppliers.map(x => 'from:' + x).concat(
     recipients.map(x => 'to:' + x + ' OR cc:' + x)).join(' OR ')

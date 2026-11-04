@@ -18,6 +18,7 @@ _SAFE_DEFAULTS = {
         "gotogate": ["gotogate", "고투게이트"],
         "asiana": ["아시아나항공", "flyasiana"],
         "jeju": ["제주항공", "jejuair", "jeju air"],
+        "traveloka": ["traveloka", "트래블로카"],
         "skyticket": ["skyticket", "스카이티켓", "주식회사 어드벤처코리아"],
     },
     "provider_merchant_alias_records": {

@@ -124,6 +124,7 @@ def trip_review(state, *, review=None, trips=None):
         result = build_state({'trip': [tid]}, review=dict(review, contracts=contracts),
                              trips=selected, context=context)
         result['scope'] = 'explicit_trip_mapping_or_overlapping_period'
+        result['trip_period'] = {'start': trip.get('starts_on'), 'end': trip.get('ends_on')}
         return result
     except (ManifestError, OSError, ValueError, KeyError, TypeError, sqlite3.Error):
         return _failure('MATCH_SOURCE_UNAVAILABLE', '보험 명단 또는 현재 수입 자료를 확인할 수 없습니다.')

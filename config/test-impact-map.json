@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "airline-mail-collection",
+      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py"],
+      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
+    },
+    {
       "name": "export-source-equivalence",
       "paths": ["app/card_export_profiles.py", "app/review.py", "webapp/card_flow.py", "tests/card_pipeline/test_export_downloads.py", "webapp/tests/test_cleanup_export_conflicts.py"],
       "tests": ["tests/card_pipeline/test_export_downloads.py", "tests/card_pipeline/test_pipeline.py", "tests/card_pipeline/test_review_holds.py", "webapp/tests/test_cleanup_export_conflicts.py", "webapp/tests/test_cleanup_completed_assignment.py", "webapp/tests/test_card_cleanup_queries.py", "webapp/tests/test_cleanup_original_refund_status_contract.py"]
@@ -109,8 +114,8 @@
     },
     {
       "name": "cloud-mail-ingestion",
-      "paths": ["app/cloud_mail.py", "tests/card_pipeline/test_cloud_mail.py"],
-      "tests": ["tests/card_pipeline/test_cloud_mail.py", "tests/card_pipeline/test_mail_collect.py"]
+      "paths": ["app/cloud_mail.py", "tests/card_pipeline/test_cloud_mail.py", "cloud-mail/CloudMail.gs", "tests/apps_script/cloud_mail.test.cjs", "tests/test_cloud_mail_script.py"],
+      "tests": ["tests/card_pipeline/test_cloud_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/test_cloud_mail_script.py"]
     },
     {
       "name": "provider-config-schema",

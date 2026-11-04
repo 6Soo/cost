@@ -133,7 +133,12 @@ def test_render_cleanup_card_review_branches():
     assert "<p class='cleanup-reason'>여행 배정 필요</p>" in rendered
     assert rendered.count('여행 배정 필요') == 1
     assert "value='식비'" in rev_norm
-    assert "<button type='submit'>여행 수정</button>" in rev_norm
+    assert "<button type='submit'>변경 저장</button>" in rev_norm
+    # Editing requires no disclosure click; only supporting evidence collapses.
+    assert rev_norm.index("<form") < rev_norm.index("<details")
+    assert "<label>여행<select" in rev_norm
+    assert "<label>비용 항목<input" in rev_norm
+    assert "COST의 여행·항목에 저장됩니다." in rev_norm
     assert "<p class='cleanup-finance-status'>내부 비용 기록 준비 가능</p>" in rev_norm
 
 

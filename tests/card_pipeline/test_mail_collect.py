@@ -17,6 +17,19 @@ class FakeGmail:
         return {'id': message_id, 'payload': {'headers': [{'name': 'Subject', 'value': message_id}]}}
 
 
+def test_owner_collection_is_explicit_scoped_and_keeps_original_authentication():
+    original = {'id': 'synthetic', 'payload': {'headers': [
+        {'name': 'From', 'value': 'reservation@jejuair.net'},
+        {'name': 'Authentication-Results', 'value': 'spf=none'}]}}
+    assert mail_collect.owner_directed_record(original) is original
+    owned = mail_collect.owner_directed_record(original, ('jejuair.net',))
+    assert owned['owner_collected'] is True
+    assert owned['payload'] == original['payload']
+    assert 'owner_collected' not in original
+    spoof = {'payload': {'headers': [{'name': 'From', 'value': 'x@jejuair.net.example'}]}}
+    assert mail_collect.owner_directed_record(spoof, ('jejuair.net',)) is spoof
+
+
 def test_query_always_includes_the_kew2000_recipient_and_the_supplier_domains():
     query = mail_collect.build_query('2026-10-02')
     assert query.startswith('after:2026/10/02 (')
@@ -27,6 +40,8 @@ def test_query_always_includes_the_kew2000_recipient_and_the_supplier_domains():
     assert 'from:foresttrip.go.kr' in query
     assert 'from:flyasiana.com' in query
     assert 'from:skyticket.com' in query
+    assert 'from:jejuair.net' in query
+    assert 'from:traveloka.com' in query
     assert 'subject:토요코인' in query
     for domain in mail_collect.SUPPLIER_DOMAINS:
         assert f'from:{domain}' in query

@@ -9,6 +9,7 @@ from app import ota_mail
 DOMAINS = {
     'trip': ('trip.com', 'trip.co.kr'), 'agoda': ('agoda.com', 'agoda-messaging.com'),
     'booking': ('booking.com',), 'klook': ('klook.com',),
+    'traveloka': ('traveloka.com',),
 }
 
 
@@ -22,6 +23,10 @@ def attest(event, message, text):
         r'(?:예약\s*(?:확인\s*)?(?:번호|코드|ID)|예약번호|予約番号|'
         r'booking\s*(?:reference|number|ID)|reservation\s*(?:number|ID)|confirmation\s*number)'
         r'\s*[:：#]?\s*([A-Z0-9-]{6,32})', text, re.I))
+    if provider == 'traveloka':
+        from app.traveloka_mail import references
+        # The OTA Booking ID is distinct from each airline's segment PNR.
+        refs = references(message)
     if refs != {reference}:
         return event
     source_id = 'mail:' + str(message['id'])
