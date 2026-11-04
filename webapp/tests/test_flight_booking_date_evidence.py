@@ -134,7 +134,7 @@ def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence(dat
                                     'items': [], 'total_count': 0, 'has_more': False, 'revision': 'synthetic'})
             screen.route('**/api/cards/transactions/day?*', day)
             screen.goto('http://synthetic.test/flight-passengers')
-            screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
+            screen.get_by_label('항공권 검색').fill('KIM ALPHA')
             screen.get_by_role('button', name='예약 조회', exact=True).click()
             expect(screen.locator('.fb-ticket')).to_have_count(6)
             assert not calls

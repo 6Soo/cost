@@ -411,7 +411,8 @@ def test_baseline_equivalence_with_main_ed48263(baseline_name_search_fn):
         # Test empty index
         with patch("webapp.flight_booking_index.passenger_index_for", return_value={}), \
              patch("webapp.flight_booking_index.source_status", return_value="UNAVAILABLE"):
-            assert baseline_name_search_fn(board, "KIM") == flight_passenger_page._name_search(board, "KIM")
+            # Cursor revision now also binds the search conditions, even for empty results.
+            assert _existing_fields(baseline_name_search_fn(board, "KIM")) == _existing_fields(flight_passenger_page._name_search(board, "KIM"))
 
 
 def test_fail_on_second_query_normalization(monkeypatch):
