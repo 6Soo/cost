@@ -2346,11 +2346,17 @@ _CLEANUP_PAGE_SIZE = 20
 
 
 def _cleanup_card_where(board):
+    from app.card_export_profiles import redundant_purchase_conflicts
+    from . import read_scope
     from .card_cleanup_queries import completed_assignment_sql
     completed = completed_assignment_sql(board)
+    redundant = read_scope.remember(('cleanup-redundant-sources', id(board)),
+                                   lambda: redundant_purchase_conflicts(board.conn))
+    redundant_sql = ','.join("'" + tid.replace("'", "''") + "'" for tid in redundant) or 'SELECT NULL WHERE 0'
     return (
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
         " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
+        f" AND t.transaction_id NOT IN ({redundant_sql})"
         " AND NOT (t.classification_state='classified'"
         " AND COALESCE(t.item,'')!=''"
         " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.conflict_reason,'')=''"

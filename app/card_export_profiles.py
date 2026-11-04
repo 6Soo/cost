@@ -132,7 +132,50 @@ def parse_export(cells, fmt, filename):
                       else 'domestic_acquired' if layout == 'hana_usage' else 'statement')
 
 
-def existing_purchase(store, batch_id, parser, row):
+def _source_document(conn, batch_id, cache):
+    """Read verified original layout metadata once per operation."""
+    from .import_card import ParseError, parse_card_file
+    if batch_id not in cache:
+        cache[batch_id] = None
+        source = conn.execute(
+            'SELECT parser,filename,content_bytes FROM import_batches WHERE batch_id=?',
+            (batch_id,)).fetchone()
+        if source and source[2]:
+            try:
+                parsed = parse_card_file(source[2], source[1])
+                if parsed.parser == source[0]:
+                    cache[batch_id] = parsed
+            except (ParseError, ValueError, TypeError):
+                pass  # Unavailable or changed provenance cannot discharge a conflict.
+    return cache[batch_id]
+
+
+def _posting_was_defaulted(conn, batch_id, cache):
+    """Prove the legacy source omitted posting dates; never infer from equality."""
+    from .import_card import _build_header_map
+    parsed = _source_document(conn, batch_id, cache)
+    return bool(parsed and parsed.parser.endswith(':headered')
+                and 'posting_date' not in _build_header_map(parsed.headers))
+
+
+def _merchant_number(conn, batch_id, row_index, expected_hash, cache):
+    """Only the explicit merchant-number column in an intact source is evidence."""
+    from .review import source_hash_of
+    parsed = _source_document(conn, batch_id, cache)
+    if not parsed or parsed.parser.split(':',1)[-1] not in ('headered','hana_usage'):
+        return ''
+    headers = [_text(header) for header in parsed.headers]
+    if headers.count('가맹점번호') != 1:
+        return ''
+    source = next((r for r in parsed.rows if r.row_index == row_index), None)
+    index = headers.index('가맹점번호')
+    if not source or source_hash_of(source) != expected_hash or index >= len(source.source_row):
+        return ''
+    value = str(source.source_row[index] or '').strip()
+    return value if re.fullmatch(r'[A-Za-z0-9]{3,}', value) and set(value) != {'0'} else ''
+
+
+def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
     """Reuse a verified purchase across views, or preserve a source conflict.
 
     Missing posting/currency details in a compact view cannot erase the fuller
@@ -144,17 +187,28 @@ def existing_purchase(store, batch_id, parser, row):
             or not row.approval_number or not row.card_tail or not row.approval_date):
         return None
     candidates = store.conn.execute(
-        "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency,posting_date "
+        "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency,posting_date,batch_id,row_index,source_hash "
         "FROM transactions WHERE issuer=? AND card_tail=? AND approval_number=? "
         "AND approval_date=? AND transaction_direction='purchase' AND batch_id<>? "
         "AND parse_error='' AND conflict_reason='' AND duplicate_of IS NULL",
         (row.issuer, row.card_tail, row.approval_number, row.approval_date, batch_id)).fetchall()
     if len(candidates) != 1:
         return None
-    identity, merchant, amount, foreign, currency, posting_date = candidates[0]
-    same = merchant == row.merchant_normalized and amount == row.amount_krw
+    identity, merchant, amount, foreign, currency, posting_date, original_batch, original_index, original_hash = candidates[0]
+    cache = source_cache if source_cache is not None else {}
+    same_merchant = merchant == row.merchant_normalized
+    if not same_merchant and merchant and row.merchant_normalized and (
+            merchant in row.merchant_normalized or row.merchant_normalized in merchant):
+        from .review import source_hash_of
+        number = _merchant_number(store.conn, original_batch, original_index, original_hash, cache)
+        same_merchant = bool(number and number == _merchant_number(
+            store.conn, batch_id, row.row_index, source_hash_of(row), cache))
+    same = same_merchant and amount == row.amount_krw
     if posting_date and row.posting_date:
-        same = same and posting_date == row.posting_date
+        same_date = posting_date == row.posting_date
+        if not same_date and posting_date == row.approval_date:
+            same_date = _posting_was_defaulted(store.conn, original_batch, cache)
+        same = same and same_date
     if foreign and row.foreign_amount:
         try:
             same = same and to_decimal(foreign) == to_decimal(row.foreign_amount)
@@ -163,3 +217,44 @@ def existing_purchase(store, batch_id, parser, row):
     if currency and row.foreign_currency:
         same = same and currency == row.foreign_currency
     return identity, same
+
+
+def redundant_purchase_conflicts(conn):
+    """Read-only duplicate projection for conflicts created by older importers.
+
+    Keep every source and conflict flag. Only an unchanged export source with
+    one clean canonical purchase can be omitted from the duplicate work queue.
+    Explicit date/amount/merchant differences and manual actions stay protected.
+    """
+    from types import SimpleNamespace
+    from .import_card import ParsedRow
+    from .review import source_hash_of
+    has_board = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='board_rows'").fetchone()
+    board_guard = (" AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
+                   if has_board else '')
+    cursor = conn.execute(
+        "SELECT t.*,b.parser AS import_parser FROM transactions t"
+        " JOIN import_batches b ON b.batch_id=t.batch_id"
+        " WHERE t.transaction_id LIKE '%:conflict:%'"
+        " AND t.conflict_reason='같은 거래 ID인데 원문 금액·가맹점이 달라요'"
+        " AND t.transaction_direction='purchase' AND t.amount_krw>0"
+        " AND COALESCE(t.parse_error,'')='' AND COALESCE(t.duplicate_of,'')=''"
+        " AND COALESCE(t.classification_source,'') NOT IN ('user_decision','user_exception','manual')"
+        " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+        " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
+        + board_guard)
+    columns = [field[0] for field in cursor.description]
+    records = [dict(zip(columns, record)) for record in cursor.fetchall()]
+    result, cache = [], {}
+    for record in records:
+        fields = {key:record[key] for key in ParsedRow.__dataclass_fields__
+                  if key in record and key not in ('raw','source_row')}
+        row = ParsedRow(**fields, raw={}, source_row=[])
+        if source_hash_of(row) != record['source_hash']:
+            continue
+        match = existing_purchase(SimpleNamespace(conn=conn), record['batch_id'],
+                                  record['import_parser'], row, source_cache=cache)
+        if match == (record['transaction_id'].split(':conflict:')[0], True):
+            result.append(record['transaction_id'])
+    return result
