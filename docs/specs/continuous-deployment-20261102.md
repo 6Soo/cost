@@ -12,7 +12,7 @@
 
 ## 2026-11-05 Gateway 유휴 HDD I/O 최적화 후속 (진행 중)
 
-[상세 명세 #644](https://github.com/6Soo/cost/pull/644)는 문서 PR **열림/미병합**, [구현 #646](https://github.com/6Soo/cost/pull/646)은 코드 PR **열림/미병합**이다. #646의 제안은 status 이벤트별 즉시 게시와 30초 유휴 heartbeat, route 파일 250ms stat cache, 로그 체크 감소다. 해당 PR의 ‘~97% 감소’는 예정 heartbeat 횟수에 대한 추정이며 운영 HDD/소음 실측이 아니다. **현재 main/배포의 적용 증거로 사용하지 말 것.** route pause/generation·drain 최신성·기존 연결 보존, 후보 실패 원복, Gateway 프로세스 교체·잠금/작업 스케줄러·보호13표·실측 수락이 선행되어야 한다. 주기 숫자만 고치거나 구상태 파일을 근거로 연결 종료를 승인하지 않는다.
+[상세 명세 #644](https://github.com/6Soo/cost/pull/644)는 문서 PR **병합 완료**, [구현 #646](https://github.com/6Soo/cost/pull/646)은 코드 PR **열림/미병합**이다. #646의 제안은 status 이벤트별 즉시 게시와 30초 유휴 heartbeat, route 파일 250ms stat cache, 로그 체크 감소다. 해당 PR의 ‘~97% 감소’는 예정 heartbeat 횟수에 대한 추정이며 운영 HDD/소음 실측이 아니다. **현재 main/배포의 적용 증거로 사용하지 말 것.** route pause/generation·drain 최신성·기존 연결 보존, 후보 실패 원복, Gateway 프로세스 교체·잠금/작업 스케줄러·보호13표·실측 수락이 선행되어야 한다. 주기 숫자만 고치거나 구상태 파일을 근거로 연결 종료를 승인하지 않는다.
 
 ## 실행 계약
 
