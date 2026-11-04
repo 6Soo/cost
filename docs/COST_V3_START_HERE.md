@@ -4,6 +4,9 @@
 
 ## 최신 개발 현황 확인
 
+**2026-11-04 최신 통합 현황:** [개발 상태·미결·정본 인덱스](specs/development-status-20261104.md). 과거 10/28 감사 및 날짜별 기록은 최신 배포 증거를 대신하지 않는다. 같은 주제의 예전 SPEC_ONLY·PARTIAL을 새 개발 큐로 다시 열지 않는다.
+
+
 [2026-10-28 18:30 기준 구현현황·명세 차이 감사](specs/implementation-status-audit-20261028.md)는 GitHub 병합과 실제 운영 배포를 구분한다. 최신 실행 큐 자체는 [현재 상태](session_handoff.md), 제품 정책은 [오너 확정 결정](specs/owner-product-decisions-20261028.md)를 따른다. 완료한 하위 추출을 전체 리팩토링 완료로 보고하거나 별도 SPEC_ONLY를 이미 실행 중이라고 해석하지 않는다.
 
 ## 문서의 역할
