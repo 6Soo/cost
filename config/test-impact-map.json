@@ -330,5 +330,10 @@
       "paths": ["webapp/static/css/**", "webapp/static/js/**", "webapp/static/templates/**", "webapp/site_*.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"],
       "tests": ["webapp/tests/test_site_shell.py", "webapp/tests/test_site_shell_browser.py", "webapp/tests/test_site_shell_assets.py", "webapp/tests/test_site_tokens.py", "webapp/tests/test_card_upload_controls.py", "webapp/tests/test_expense_copy_states.py"]
     }
+    ,{
+      "name": "admin-ui-ux-review-evidence",
+      "paths": ["quality-artifacts/admin-ui-ux/**"],
+      "tests": ["webapp/tests/test_ota_catalog_browser.py", "webapp/tests/test_card_catalog_browser.py", "webapp/tests/test_expense_workspace.py"]
+    }
   ]
 }
