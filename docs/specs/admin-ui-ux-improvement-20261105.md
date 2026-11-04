@@ -1,7 +1,7 @@
 # COST 관리자 UI/UX 종합 개선 실행 명세
 
 - 작성일: 2026-11-05
-- 상태: 구현·화면 검증 완료. 영향 기반 품질 검사와 별도 PR 제출 진행 중.
+- 상태: 구현·화면 검증·영향 기반 품질 검사 완료. 별도 PR 제출 완료; 운영 배포는 수행하지 않았다.
 - 목적: 관리자가 데스크톱과 모바일에서 주요 업무를 이해하고 키보드를 포함한 다양한 입력 방식으로 처리할 수 있도록 기존 UI를 개선한다.
 - 실행 요청: 현재 대화에서 승인된 관리자 UI/UX 개선. 과거 문서의 미완료 표시는 이 명세의 신규 작업으로 자동 편입하지 않는다.
 - 완료 조건: 진단 범위와 결과, 변경 전후 비교, 실제 테스트와 최종 리뷰 근거를 포함한 별도 PR 제출. 운영 배포 여부는 PR 제출과 구분한다.
@@ -118,4 +118,4 @@
 - 변경 후 `python -m pytest webapp/tests/test_card_catalog_browser.py::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click -q -ra`: 1 passed, 3 subtests passed (6.07초).
 - Python 구문 검사: `python -m py_compile webapp/card_catalog.py webapp/card_flow.py webapp/ota_catalog.py` 통과.
 - 변경 전 카드 필터 브라우저 테스트의 기존 문구 기대는 실패했다. 기대값을 실제 현재 UI 계약에 맞춘 뒤 위 브라우저 회귀 테스트가 통과했다.
-- 영향 기반 통합 품질 검사 및 최종 SHA/PR 링크는 실행 후 이 절에 추가한다. 검사를 마치기 전 전체 완료로 표시하지 않는다.
+- `python tools/run_quality_checks.py --base origin/main --run`: PASSED. 기준 SHA `f7ff4ec41093d7e983bd8970bb3bf437e30d0718`, 검증 SHA `e6fa5634222977297beb521a843df09becf1d6ce`, 699 passed, 61 subtests passed, 0 skipped, 브라우저 테스트 포함. JUnit 검사 건수 699/699 실행 확인; Python 컴파일 검사 통과.\n- 영향 맵에 `quality-artifacts/admin-ui-ux/**` 경로를 추가해 저장된 화면 증거 변경이 OTA·카드·지출 UI 회귀 검사에 연결되도록 했다. 영향 맵 회귀 테스트도 품질 게이트에서 실행됐다.\n- diff 최종 검토: UI 렌더링/CSS/접근성 속성 및 테스트/영향 맵만 변경했다. 금융 분류·거래 처리, API 요청 계약, 데이터 구조, 운영 DB 변경은 없다.\n- 별도 PR: https://github.com/6Soo/cost/pull/653 (`feat/admin-ui-ux-20261105`, 최종 구현 SHA `e6fa5634222977297beb521a843df09becf1d6ce`). PR은 열어두었고 병합·배포는 하지 않았다.
