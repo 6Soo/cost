@@ -166,8 +166,8 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
                 route.fulfill(content_type='application/json', body=json.dumps(batch))
             screen.route('**/api/flight-passengers/name-search', respond)
             screen.goto('http://synthetic.test/flight-passengers')
-            screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
-            screen.get_by_label('탑승객 이름').press('Enter')
+            screen.get_by_label('항공권 검색').fill('KIM ALPHA')
+            screen.get_by_label('항공권 검색').press('Enter')
             screen.locator('.fb-booking-choice > summary').first.click()
             ticket = screen.locator('.fb-ticket').first
             expect(ticket.get_by_text('서울', exact=True)).to_be_visible()
@@ -182,7 +182,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             assert ticket.get_by_text('카드 원행 상세', exact=True).is_visible()
             assert ticket.get_by_text('결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.').is_visible()
             assert ticket.get_by_text('참가자 연결 정보', exact=True).count() == 0
-            screen.get_by_label('탑승객 이름').fill('different input not submitted')
+            screen.get_by_label('항공권 검색').fill('different input not submitted')
             screen.get_by_role('button', name='예약 더 보기').click()
             expect(screen.locator('.fb-ticket')).to_have_count(2)
             assert requests[-1]['name'] == 'KIM ALPHA'
@@ -349,7 +349,7 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
                 'revision': 'a' * 64})
         screen.route('**/api/cards/transactions/day?*', respond)
         screen.goto('http://synthetic.test/flight-passengers')
-        screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
+        screen.get_by_label('항공권 검색').fill('KIM ALPHA')
         screen.get_by_role('button', name='예약 조회', exact=True).click()
         expect(screen.locator('.fb-ticket')).to_have_count(1)
         if screen.locator('.fb-booking-choice > summary').count():

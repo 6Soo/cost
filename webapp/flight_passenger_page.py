@@ -177,8 +177,8 @@ def _page(csrf):
 </style></head><body><main id="flight-booking-page">
 <h1>항공권 예약 확인</h1>
 <section class="fb-panel" aria-label="항공권 조회">
-<form id="fb-search"><label for="fb-name">탑승객 이름<input id="fb-name" name="name" placeholder="영문 또는 한글 이름" aria-describedby="fb-search-help" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
-<p class="fb-muted" id="fb-search-help">영문 이름은 성·이름 순서와 관계없이 검색됩니다.</p>
+<form id="fb-search"><label for="fb-name">항공권 검색<input id="fb-name" name="name" placeholder="예: 22일 시즈오카, fuk, 탑승객 이름" aria-describedby="fb-search-help" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
+<p class="fb-muted" id="fb-search-help">이름·행선지·공항 코드·여행 중 날짜로 검색하세요.</p>
 <p class="fb-muted" id="fb-status" role="status" aria-live="polite"></p></section>
 <section id="fb-results" aria-label="예약 조회 결과"></section><button id="fb-more" type="button" hidden>예약 더 보기</button></main>
 <script>
@@ -326,7 +326,7 @@ const controller=new AbortController(),requestTimer=setTimeout(()=>controller.ab
 try{
 const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:searchName,offset:reset?0:nextOffset,revision:reset?null:sourceRevision}),cache:'no-store',signal:controller.signal});
 if(response.status===401||response.redirected)throw Error('로그인이 필요합니다. 새로고침 후 로그인해 주세요.');
-const data=await response.json();if(!response.ok){if(data.code==='SOURCE_CHANGED'){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}throw new Error(({'INVALID_NAME':'탑승객 이름을 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 이름을 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다. 예약 조회 또는 더 보기를 눌러 다시 시도하세요.')}
+const data=await response.json();if(!response.ok){if(data.code==='SOURCE_CHANGED'){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}throw new Error(({'INVALID_NAME':'검색어와 날짜를 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다. 예약 조회 또는 더 보기를 눌러 다시 시도하세요.')}
 if(data.source_status==='LOADING'){
  const notice='항공권 자료를 준비하고 있습니다. 완료되면 자동으로 조회합니다. 최대 2분 정도 기다려 주세요.';
  if(refreshAttempts++<60&&Date.now()-refreshStarted<120000){
@@ -338,7 +338,7 @@ if(data.source_status==='LOADING'){
 for(const booking of data.reservations||[]){const ticket=showBooking(booking);if((data.total??data.reservations.length)>1){const item=document.createElement('details');item.className='fb-booking-choice';text(item,'summary',(booking.booking_ref||'예약번호 미확인')+' · '+(booking.passenger_name||'이름 미확인'));item.addEventListener('toggle',()=>{if(item.open)resultRoot.querySelectorAll('.fb-booking-choice').forEach(other=>{if(other!==item)other.open=false})});item.append(ticket);resultRoot.append(item)}else resultRoot.append(ticket)}
 sourceRevision=data.revision;nextOffset=data.next_offset??null;more.hidden=nextOffset===null;
 const count=resultRoot.querySelectorAll('.fb-ticket').length;
-status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?'확인된 항공권 예약 '+(data.total??count)+'건 중 '+count+'건을 표시합니다. 같은 이름의 예약은 예약번호와 여정을 각각 확인해 주세요.':'이 이름으로 확인된 항공권 예약이 없습니다. 영문 표기를 확인해 주세요.';
+status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?'확인된 항공권 예약 '+(data.total??count)+'건 중 '+count+'건을 표시합니다.':'검색 조건에 맞는 항공권 예약이 없습니다. 날짜나 행선지를 바꿔 검색해 주세요.';
 }catch(error){status.textContent=error.name==='AbortError'?'항공권 조회 응답이 지연되고 있습니다. 예약 조회를 눌러 다시 시도해 주세요.':error.message}finally{clearTimeout(requestTimer);if(!waiting){submit.disabled=false;more.disabled=false;resultRoot.setAttribute('aria-busy','false')}}}
 form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;clearTimeout(refreshTimer);refreshAttempts=0;refreshStarted=Date.now();searchName=form.elements.name.value.trim();loadBookings(true)});
 more.addEventListener('click',()=>{if(nextOffset!==null&&!more.disabled)loadBookings(false)});
@@ -425,10 +425,9 @@ def _confirmed_card_index(board, passenger_index):
 
 
 def _name_search(board, name, *, offset=0, revision=None):
-    """Search verified original-name tokens without requiring tour ID or full name."""
-    query = _name_key(name)
-    if not query:
-        raise ValueError('INVALID_NAME')
+    """Search evidenced names, routes and travel dates without a tour or booking ID."""
+    from .flight_booking_search import parse_search
+    query, dates = parse_search(name, _name_key)
     if type(offset) is not int or offset < 0 or offset > 1000000 or offset and not revision:
         raise ValueError('INVALID_CURSOR')
     from .flight_booking_index import passenger_index_for, source_status
@@ -438,6 +437,7 @@ def _name_search(board, name, *, offset=0, revision=None):
     return query_booking_reservations(
         index,
         query_tokens=query,
+        query_dates=dates,
         cards=cards,
         offset=offset,
         revision=revision,

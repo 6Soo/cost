@@ -4,7 +4,7 @@ Responsibilities:
 - normalize_name_tokens: NFKC-normalized alphanumeric token set for passenger name search
 - project_itinerary_leg: Clean projection of flights, airports, and departure facts
 - project_booking_reservation: Pure DTO for a verified booking reservation with dates and flags
-- query_booking_reservations: Filter, project, sort, and paginate reservations by passenger name
+- query_booking_reservations: Search names, routes and travel dates, then sort and paginate
 
 Strictly in-memory and presentation-only:
 - No file IO, database connections, or network access
@@ -80,6 +80,7 @@ def query_booking_reservations(
     query_name: str = '',
     *,
     query_tokens: tuple[str, ...] | None = None,
+    query_dates: tuple[tuple[int | None, int | None, int], ...] = (),
     cards: Mapping[str, Any] | None = None,
     offset: int = 0,
     limit: int = 100,
@@ -87,12 +88,10 @@ def query_booking_reservations(
     fallback_status_fn: Any = 'UNAVAILABLE',
     name_key_fn: Any = normalize_name_tokens,
 ) -> dict[str, Any]:
-    """Filter, project, sort, and paginate verified reservations matching name tokens."""
-    if query_tokens is not None:
-        query = query_tokens
-    else:
-        query = name_key_fn(query_name)
-    if not query:
+    """Search verified names/routes and inclusive itinerary dates without writes."""
+    from .flight_booking_search import parse_search, matches_dates, route_tokens, matches_words
+    query, dates = parse_search(query_name, name_key_fn) if query_tokens is None else (query_tokens, query_dates)
+    if not query and not dates:
         raise ValueError('INVALID_NAME')
     if type(offset) is not int or offset < 0 or offset > 1000000 or (offset and not revision):
         raise ValueError('INVALID_CURSOR')
@@ -103,13 +102,16 @@ def query_booking_reservations(
     for booking_ref, evidence in (index or {}).items():
         if not isinstance(evidence, dict) or not evidence.get('source_digests'):
             continue
-        passengers = evidence.get('passengers') or []
+        if not matches_dates(evidence, dates):
+            continue
+        locations = route_tokens(evidence, name_key_fn)
+        passengers = evidence.get('passengers') or [{}]
         for person in passengers:
             if not isinstance(person, dict):
                 continue
             full_name = ' '.join((str(person.get('surname') or ''), str(person.get('given_name') or ''))).strip()
             original_name_tokens = name_key_fn(full_name)
-            if any(token not in original_name_tokens for token in query):
+            if not matches_words(query, original_name_tokens, locations):
                 continue
             linked = cards.get(str(booking_ref), [])
             reservation = project_booking_reservation(booking_ref, evidence, full_name, linked_cards=linked)
@@ -119,7 +121,7 @@ def query_booking_reservations(
 
     results.sort(key=lambda row: row['booking_ref'])
     results.sort(key=lambda row: max((leg.get('departure_on') or '' for leg in row['legs']), default=''), reverse=True)
-    current_revision = hashlib.sha256(json.dumps([sorted(fingerprints), results],
+    current_revision = hashlib.sha256(json.dumps([query, dates, sorted(fingerprints), results],
         sort_keys=True, ensure_ascii=True, default=str).encode()).hexdigest()
 
     if revision is not None and revision != current_revision:
