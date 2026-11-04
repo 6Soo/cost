@@ -16,10 +16,11 @@ import tempfile
 import time
 import uuid
 
-MODEL = 'opencode/muse-spark-1.3-contributor-free'
-SPACE_BUNNY = 'opencode/space-bunny-free'
+MODEL = 'opencode/glm-5.3-flash-free'
+SPACE_BUNNY = 'opencode/deepseek-v4.1-flash-free'
+MIMO = 'opencode/mimo-v2.6-flash-free'
 DEFAULT_MODEL = MODEL
-MODELS = (MODEL, SPACE_BUNNY)
+MODELS = (MODEL, SPACE_BUNNY, MIMO)
 MAX_OUTPUT_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 180
 COOLDOWN = {'AGENT_RATE_LIMITED': 300, 'AGENT_PROVIDER_UNAVAILABLE': 60, 'AGENT_EXECUTION_FAILED': 60}
@@ -71,16 +72,26 @@ def daily_cap(config_path):
         return 200
 
 
+def _real_executable(path):
+    """A .cmd shim re-parses its arguments in cmd.exe and breaks multi-line prompts."""
+    candidate = Path(path)
+    if candidate.suffix.lower() in ('.cmd', '.bat'):
+        actual = candidate.parent / 'node_modules' / 'opencode-ai' / 'bin' / 'opencode.exe'
+        if actual.is_file():
+            return str(actual)
+    return str(candidate)
+
+
 def _executable():
     configured = os.environ.get('WEBLEDGER_OPENCODE_EXE', '').strip()
     if configured and Path(configured).is_file():
-        return configured
+        return _real_executable(configured)
     found = shutil.which('opencode')
     if found:
-        return found
+        return _real_executable(found)
     appdata = os.environ.get('APPDATA', '')
     if appdata and (Path(appdata) / 'npm' / 'opencode.cmd').is_file():
-        return str(Path(appdata) / 'npm' / 'opencode.cmd')
+        return _real_executable(Path(appdata) / 'npm' / 'opencode.cmd')
     return None
 
 
