@@ -8,6 +8,31 @@ import pytest
 from webapp.card_flow import page
 
 
+@pytest.mark.parametrize('status', [401, 403])
+def test_auth_refusal_preserves_received_job_without_mislabeling_permission(status):
+    source = page('synthetic-csrf')
+    source = source[source.index('const uploadJobKey='):source.index('function savedUploadLink')]
+    harness = r"""
+const assert=require('node:assert/strict'),vm=require('node:vm'),storage=new Map();
+const context={localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
+  Date,Error,JSON,Array,RegExp,AbortSignal:{timeout(){}},fetch:async()=>({status:STATUS})};
+vm.createContext(context);vm.runInContext(SOURCE,context);
+(async()=>{
+ let error;
+ try{await vm.runInContext("awaitUpload({status_url:'/api/imports/upload-status/'+'a'.repeat(32),batch_id:'received'}, {})",context)}catch(e){error=e}
+ assert.ok(error.terminal);assert.equal(error.savedBatch,'received');
+ assert.ok(error.message.includes('재업로드할 필요가 없습니다'));
+ assert.equal(error.message.includes('로그인이 만료'),STATUS===401);
+ assert.equal(error.message.includes('권한이 없습니다'),STATUS===403);
+ assert.equal(JSON.parse(storage.get('cost-card-upload-job'))[0].batch_id,'received');
+})().catch(e=>{console.error(e);process.exitCode=1});
+""".replace('STATUS', str(status)).replace('SOURCE', json.dumps(source))
+    node = shutil.which('node')
+    assert node, 'Node is required to verify authentication recovery'
+    result = subprocess.run([node, '-e', harness], capture_output=True, text=True, encoding='utf-8')
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'background', 'restart-expired'])
 def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
     source = page('synthetic-csrf')
