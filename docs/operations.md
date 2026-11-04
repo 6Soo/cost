@@ -1188,3 +1188,10 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - [PR #544](https://github.com/6Soo/cost/pull/544) 병합 SHA `a9b0617a132be8ea83328a8ac6a9345514efeffc`를 이전 검증 릴리스 `41843c45625a33d268c9d1540cf47b6a5fd756da`에서 공식 절차로 전환했다. 단일 항공편의 출발·도착 라벨을 해석하며 모호한 여정과 기존 수동 결정을 보호한다.
 - 영향 QA 260건·skip 0, 호스팅 impact-checks 통과. 릴리스 1,293개 blob 일치, 새 백업·분리 복원 검증, health/ready 200, 보호 API 401, 보호 테이블 13개 불변. 배포 증거 `D:/WebLedgerHost/releases/deploy-evidence-a9b0617a132be8ea83328a8ac6a9345514efeffc.json`.
 - 대상 카드 1건은 배포 전 AI 추론 경로로 원자 교정했고 거래·장부의 여행 및 출처를 읽기 전용으로 재확인했다. 색인 갱신 완료 후 인증 여행 화면에서 해당 출발일의 예약 1건을 확인했다. OTA 연결은 자동대사이며 사용자 확정이나 실제 환급을 뜻하지 않는다. Google 장부 쓰기는 수행하지 않았다.
+## 2026-11-05 COST 관리자 UI/UX 종합 개선 배포 완료
+
+- [PR #653](https://github.com/6Soo/cost/pull/653) 병합 커밋 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`를 운영 반영했다. 이전 운영 SHA는 `37b82e5829a7b8a062e7a7e2a9fff7081bd3a737`이다. 반응형 관리자 화면의 레이아웃·타이포그래피·접근성·문구를 기존 디자인 시스템과 컴포넌트에 맞춰 개선했다.
+- 영향 QA 699 passed·61 subtests·skip 0, PR CI `41935646283` 성공. 데스크톱/모바일 전후 화면 증거와 예외 상태 검토를 작업 archive에 보존했다.
+- 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
+- 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
