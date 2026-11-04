@@ -43,6 +43,9 @@ BUTTON = '<header class="site-topbar">' + MENU_TOGGLE + site_theme.BUTTON + '</h
 
 
 def wrap_document(document: str, path: str, *, status: int = 200) -> str:
+    # The trip embeds the existing owner-gated editor without a second menu rail.
+    if 'data-trip-reservation-embed="1"' in document:
+        return document
     if (status not in (200, 503) or 'id="site-shell-style"' in document
             or path.startswith(('/auth', '/login', '/demo', '/api/', '/health', '/ready'))):
         return document

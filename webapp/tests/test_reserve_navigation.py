@@ -35,7 +35,7 @@ from webapp import ledger_board as board_mod  # noqa: E402
 from webapp import ledger_design, reserve_link_ui  # noqa: E402
 from webapp.ledger_store import LedgerStore  # noqa: E402
 
-OWNER_LINK = "예약 명단·여행 연결"
+OWNER_LINK = "예약·참가자 여행 연결"
 ENTRY_ID = "reserve-link"
 
 
@@ -52,7 +52,7 @@ class _Base(unittest.TestCase):
         self._prev_role = getattr(board_mod._ROLE_LOCAL, "role", None)
         self.path = Path(self.tmp) / "nav.sqlite"
         os.environ["WEBLEDGER_DB"] = str(self.path)
-        self.store = LedgerStore(self.path, seed_demo=False)
+        self.store = LedgerStore(self.path, seed_demo=True)
         board_mod.bind_store(self.store)
         self.addCleanup(self._restore)
 
@@ -80,7 +80,7 @@ class OwnerEntryLinkTests(_Base):
     def test_an_owner_is_shown_the_entry_link(self):
         markup = self.header("owner")
         self.assertIn(f"id='{ENTRY_ID}'", markup)
-        self.assertIn("href='/reserve-links'", markup)
+        self.assertIn("href='#trip-reservations'", markup)
         self.assertIn(OWNER_LINK, markup)
 
     def test_the_entry_link_is_in_the_header_action_rail(self):
@@ -116,9 +116,9 @@ class OwnerEntryLinkTests(_Base):
                       + ledger_design._review_link_html())
         finally:
             real_review.active_service = saved
-        self.assertIn("/reserve-links", header)
+        self.assertIn("#trip-reservations", header)
         self.assertIn("/review'", header)
-        self.assertLess(header.index("/reserve-links"), header.index("/review'"))
+        self.assertLess(header.index("#trip-reservations"), header.index("/review'"))
 
     def test_the_entry_link_survives_with_no_review_configured(self):
         """The entry link does not depend on the review being set up.
@@ -131,7 +131,7 @@ class OwnerEntryLinkTests(_Base):
         from webapp import real_review
         self.assertIsNone(real_review.active_service())
         as_role("owner")
-        self.assertIn("/reserve-links", ledger_design._reserve_link_link_html())
+        self.assertIn("#trip-reservations", ledger_design._reserve_link_link_html())
         self.assertEqual(ledger_design._review_link_html(), "")
 
     def test_the_entry_link_appears_with_no_source_configured(self):
@@ -191,11 +191,11 @@ class LinkIdempotenceTests(_Base):
         """
         markup = self.header("owner")
         self.assertEqual(markup.count(f"id='{ENTRY_ID}'"), 1)
-        self.assertEqual(markup.count("href='/reserve-links'"), 2)
+        self.assertEqual(markup.count("href='#trip-reservations'"), 1)
         sidebar = markup.split("<div class='nav-mask'")[0]
-        self.assertEqual(sidebar.count("href='/reserve-links'"), 1)
-        act = markup.split("<div class='act'>")[1].split("</div>")[0]
-        self.assertEqual(act.count("href='/reserve-links'"), 1)
+        self.assertEqual(sidebar.count("href='/reserve-links'"), 0)
+        act = markup.split("<div class='act'>")[1].split("id='q-form'")[0]
+        self.assertEqual(act.count("href='#trip-reservations'"), 1)
 
 
 class ReturnLinkTests(unittest.TestCase):

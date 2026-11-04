@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import html
+import json
 
 __all__ = ["render_reserve_link_ui"]
 
@@ -161,6 +162,7 @@ var stateUrl = "/api/reserve-link/plan";
 var linksUrl = "/api/reserve-link/links";
 var applyUrl = "/api/reserve-link/apply";
 var csrfToken = "__CSRF__";
+var currentTrip = __TRIP_ID__;
 
 var draft = null;          // what the owner is looking at
 var pendingLinks = null;   // the owner's edited draft, not yet saved
@@ -228,6 +230,10 @@ function renderPlan(payload) {
   var box = el("linkBox");
   clear(box);
   var choices = payload.choices || [];
+  if (currentTrip) {
+    var currentChoice = choices.find(function(choice) { return choice.tab_id === currentTrip; });
+    document.querySelector('h1').textContent = (currentChoice ? currentChoice.label : '이 여행') + ' · 예약 연결';
+  }
   if (!choices.length) {
     // The honest empty state. Not an example row, not a disabled dropdown full of
     // invented tabs: there is nothing to connect to yet.
@@ -250,14 +256,15 @@ function renderPlan(payload) {
   var filter = document.createElement("select");
   filter.id = "linkFilter";
   filter.setAttribute("aria-label", "예약 건 상태 필터");
-  [["all", "전체"], ["unlinked", "미연결"], ["linked", "연결됨"]].forEach(function(item) {
+  (currentTrip ? [["trip", "이 여행에 연결됨"], ["unlinked", "미연결 예약 찾기"], ["all", "전체 예약에서 찾기"]]
+               : [["all", "전체"], ["unlinked", "미연결"], ["linked", "연결됨"]]).forEach(function(item) {
     var option = document.createElement("option");
     option.value = item[0]; option.textContent = item[1]; filter.appendChild(option);
   });
   // Keep all rows visible after a save/reload so a just-linked row remains
   // editable. The status filter is available for owners who want to focus on
   // unlinked work; pagination keeps the default view bounded.
-  filter.value = "all";
+  filter.value = currentTrip ? "trip" : "all";
   filterLabel.appendChild(filter);
   var pager = add(tools, "div", "page");
   var previous = add(pager, "button", null, "이전");
@@ -365,7 +372,8 @@ function renderPlan(payload) {
       });
       var searchable = [model.code].concat(model.names, targets).join(" ").toLowerCase();
       return (!query || searchable.indexOf(query) !== -1)
-        && (mode === "all" || (mode === "linked" ? linked : !linked));
+        && (mode === "all" || (mode === "trip" ? pendingLinks[model.code].indexOf(currentTrip) !== -1
+                                             : (mode === "linked" ? linked : !linked)));
     });
     var pages = Math.max(1, Math.ceil(matches.length / pageSize));
     visiblePage = Math.max(0, Math.min(visiblePage, pages - 1));
@@ -593,7 +601,8 @@ window.__reserveLink = {
 """
 
 
-def render_reserve_link_ui(csrf_token: str = "", payload_json: str = "") -> str:
+def render_reserve_link_ui(csrf_token: str = "", payload_json: str = "", *,
+                           trip_id: str = "", embedded: bool = False) -> str:
     """The static document.
 
     Only the CSRF token is substituted. No source identifier, no person, no
@@ -608,6 +617,24 @@ def render_reserve_link_ui(csrf_token: str = "", payload_json: str = "") -> str:
     markup = _DOCUMENT.replace(
         "__CSRF__", html.escape("" if csrf_token is None else str(csrf_token),
                                  quote=True))
+    markup = markup.replace('__TRIP_ID__', json.dumps(str(trip_id), ensure_ascii=True).replace('<', '\\u003c'))
+    if trip_id:
+        from urllib.parse import urlencode
+        back = '/board?' + urlencode({'tab': trip_id})
+        markup = markup.replace('id="back-board" href="/board"',
+                                'id="back-board" href="' + html.escape(back, quote=True) + '"')
+        # Applying the roster is a global operation, never disguised as this trip's save.
+        button = '<button id="applyBtn" type="button" disabled>__ICON_CHECK__연결된 명단 적용</button>'
+        markup = markup.replace(button, '<details class="global-roster"><summary>전체 명단 작업</summary>'
+                                '<p>이 작업은 현재 여행뿐 아니라 전체 연결 명단을 적용합니다. 여행 연결 저장과 별개입니다.</p>'
+                                + button.replace('연결된 명단 적용', '전체 연결 명단 적용') + '</details>')
+    if embedded and trip_id:
+        from . import site_theme
+        markup = markup.replace('<body>', '<body data-trip-reservation-embed="1">')
+        markup = markup.replace('</head>', '<style>'
+                                + 'body{margin:0;padding:8px;box-sizing:border-box} .backbar{display:none}'
+                                + 'h1{font-size:1rem}.link-tools input,.link-tools select{min-width:0;max-width:100%}'
+                                + '</style><script>' + site_theme.BOOTSTRAP + '</script></head>')
     for token, name in (
             ("__ICON_CHEVRON_LEFT__", "chevron-left"),
             ("__ICON_SEARCH__", "search"),

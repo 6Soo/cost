@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "trip-context-management",
+      "paths": ["webapp/trip_management_ui.py", "webapp/reserve_link_ui.py", "webapp/tests/test_trip_context_management.py", "webapp/tests/test_reserve_navigation.py", "webapp/tests/test_reserve_navigation_browser.py"],
+      "tests": ["webapp/tests/test_trip_context_management.py", "webapp/tests/test_trip_visual_close.py", "webapp/tests/test_reserve_navigation.py", "webapp/tests/test_reserve_navigation_browser.py", "webapp/tests/test_reserve_link.py", "webapp/tests/test_core_ui_disclosure.py"]
+    },
+    {
       "name": "airline-mail-collection",
       "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py"],
       "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
