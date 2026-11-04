@@ -37,13 +37,24 @@ from webapp.tests.test_real_review_browser import SETTLE_MS  # noqa: E402
 class NavigationBrowserFixture(LinkBrowserFixture):
     """The linking server, plus a ledger page that links to it."""
 
+    def setUp(self):
+        super().setUp()
+        from webapp import ledger_board
+        trip = ledger_board._active_store().create_trip(
+            starts_on='2026-10-01', ends_on='2026-10-03', destination='Synthetic',
+            client_request_id='navigation-trip')
+        self.trip_id = trip['tab_id']
+        self.served.conn.execute('INSERT INTO trip_tabs(tab_id, display_key) VALUES (?, ?)',
+                                 (self.trip_id, 'Synthetic'))
+
     def board_page(self, user=OWNER):
         context = self.browser.new_context(viewport={"width": 1280, "height": 900})
         self.addCleanup(context.close)
         context.set_extra_http_headers(
             {access_control.SyntheticSessionAdapter.HEADER: user})
         page = context.new_page()
-        response = page.goto(f"http://127.0.0.1:{self.port}/board")
+        suffix = '?tab=' + self.trip_id if user == OWNER else ''
+        response = page.goto(f"http://127.0.0.1:{self.port}/board" + suffix)
         return response, page
 
     def wait_ready(self, page):
@@ -54,6 +65,30 @@ class NavigationBrowserFixture(LinkBrowserFixture):
 
 @unittest.skipIf(sync_playwright is None, "playwright is not installed")
 class OwnerNavigationTests(NavigationBrowserFixture):
+    def test_trip_filter_save_keeps_other_trips_and_allows_unlinked_search(self):
+        from webapp import reserve_link
+        plan = reserve_link.build_plan(self.served, self.snapshot)
+        reserve_link.save_links(self.served, self.snapshot, {
+            'request_id': 'seed-navigation', 'source_binding': self.bind(),
+            'link_revision': plan['link_revision'], 'unlinks': [],
+            'links': [{'source_event_key': 'reservation:cafeParse:ALFA', 'target_tab_id': self.trip_id},
+                      {'source_event_key': 'reservation:cafeParse:BRAVO', 'target_tab_id': 'COST-TRIP-BRAVO'}],
+        }, owner_id=OWNER)
+        _, page = self.board_page()
+        page.click('#reserve-link')
+        frame = page.frame_locator('#trip-reservations iframe')
+        frame.locator('#linkFilter').wait_for()
+        self.assertEqual(frame.locator('.linktable tbody tr:not(.is-hidden)').count(), 1)
+        frame.locator('select[data-source="reservation:cafeParse:ALFA"]').select_option([self.trip_id, 'COST-TRIP-ALFA'])
+        frame.locator('#saveBtn').click()
+        frame.locator('#state').filter(has_text='연결을 저장했어요').wait_for()
+        after = reserve_link.build_plan(self.served, self.snapshot)
+        self.assertEqual(after['per_identifier']['reservation:cafeParse:BRAVO'], ['COST-TRIP-BRAVO'])
+        self.assertEqual(set(after['per_identifier']['reservation:cafeParse:ALFA']), {self.trip_id, 'COST-TRIP-ALFA'})
+        frame.locator('#linkFilter').select_option('unlinked')
+        self.assertEqual(frame.locator('.linktable tbody tr:not(.is-hidden)').count(), 0)
+        self.assertIn('조건에 맞는 예약 건이 없습니다', frame.locator('#emptyFilter').inner_text())
+
     def test_the_owner_finds_the_link_and_follows_it_to_the_linking_screen(self):
         """The whole point: no address typed, no bookmark needed."""
         response, page = self.board_page()
@@ -61,24 +96,22 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         self.assertEqual(response.status, 200)
         link = page.query_selector("#reserve-link")
         self.assertIsNotNone(link, "the owner ledger carries no entry link")
-        self.assertEqual(link.get_attribute("href"), "/reserve-links")
-        self.assertIn("예약 명단·여행 연결", link.inner_text())
+        self.assertEqual(link.get_attribute("href"), "#trip-reservations")
+        self.assertIn("예약·참가자", link.inner_text())
 
         link.click()
-        page.wait_for_function(
-            "() => window.__reserveLink !== undefined"
-            " || document.readyState === 'complete'", timeout=SETTLE_MS)
-        page.wait_for_function("() => window.__reserveLink !== undefined",
-                               timeout=SETTLE_MS)
-        self.assertTrue(page.url.endswith("/reserve-links"), page.url)
-        self.assertIn("예약 명단·여행 연결", page.inner_text("h1"))
-        self.assertIn("수입 금액을 확정하는 메뉴", page.inner_text("body"))
+        frame = page.frame_locator('#trip-reservations iframe')
+        frame.locator('#linkFilter').wait_for()
+        self.assertEqual(frame.locator('#linkFilter').input_value(), 'trip')
+        self.assertIn('#trip-reservations', page.url)
+        self.assertEqual(page.locator('#trip-reservations').get_attribute('open'), '')
+        self.assertIn('전체 명단 작업', frame.locator('body').inner_text())
 
     def test_the_linking_screen_reaches_the_ledger_and_the_review_screen(self):
         """A screen with no way out is a screen an owner opens once."""
         _response, page = self.board_page()
         self.wait_ready(page)
-        page.click("#reserve-link")
+        page.goto(f"http://127.0.0.1:{self.port}/reserve-links?trip={self.trip_id}")
         page.wait_for_function("() => window.__reserveLink !== undefined",
                                timeout=SETTLE_MS)
 
@@ -86,7 +119,7 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         review = page.query_selector("#back-review")
         self.assertIsNotNone(board, "no return link to the ledger")
         self.assertIsNotNone(review, "no return link to the source review")
-        self.assertEqual(board.get_attribute("href"), "/board")
+        self.assertEqual(board.get_attribute("href"), "/board?tab=" + self.trip_id)
         self.assertEqual(review.get_attribute("href"), "/review")
         self.assertIn("장부", board.inner_text())
         self.assertIn("실제 자료", review.inner_text())
@@ -106,7 +139,7 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         """
         _response, page = self.board_page()
         self.wait_ready(page)
-        page.click("#reserve-link")
+        page.goto(f"http://127.0.0.1:{self.port}/reserve-links?trip={self.trip_id}")
         page.wait_for_function("() => window.__reserveLink !== undefined",
                                timeout=SETTLE_MS)
         page.click("#back-review")
@@ -170,7 +203,7 @@ class ViewerNavigationTests(NavigationBrowserFixture):
         self.wait_ready(page)
         self.assertEqual(response.status, 200)
         self.assertIsNone(page.query_selector("#reserve-link"))
-        self.assertNotIn("/reserve-links", page.content())
+        self.assertEqual(page.locator('a[href^="/reserve-links"], #trip-reservations iframe').count(), 0)
 
     def test_a_viewer_asking_for_the_address_directly_is_still_refused(self):
         """The link is a convenience; the server gate is the decision.
