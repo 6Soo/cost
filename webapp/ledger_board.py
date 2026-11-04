@@ -5293,7 +5293,10 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
                 original_close()
             server.server_close = close_with_completion
         if card_flow.enabled() and autonomous_cleanup_worker.enabled_for(store):
-            autonomous = autonomous_cleanup_worker.AutonomousCleanupWorker(store, server.store_lock)
+            autonomous = autonomous_cleanup_worker.AutonomousCleanupWorker(
+                store, server.store_lock,
+                interval=autonomous_cleanup_worker.configured_interval(
+                    store.path.parent.parent / 'config' / 'card-flow.json'))
             store._autonomous_cleanup_worker = autonomous
             completion_close = server.server_close
             def close_with_autonomous():

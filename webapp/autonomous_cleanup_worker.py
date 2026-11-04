@@ -12,12 +12,14 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 import threading
 
 from app.partial_refund import read_only_scope as refund_evidence_scope
 from .deployment_role import active_writer
 
-INTERVAL = 60
+INTERVAL = 1800
+STATUS_HEARTBEAT_SECONDS = 300
 CHUNK = 20
 MAX_ATTEMPTS = 3
 STALE_PROCESSING_SECONDS = 600
@@ -27,6 +29,36 @@ JOB_SCOPE = 'autonomous_cleanup_job'
 BUNDLE_SCOPE = 'autonomous_cause_bundle'
 METRICS_FILE = 'autonomous-cleanup-metrics.jsonl'
 TERMINAL = ('no_ai_needed', 'p2_applied', 'ai_dead')
+CODE_DEFECT_REASONS = ('AGENT_EXECUTION_FAILED', 'AGENT_COMMAND_LINE_TOO_LONG',
+                       'AGENT_RESPONSE_INVALID', 'AGENT_EXECUTION_MISMATCH')
+CODE_FINGERPRINT_FILES = (
+    'app/connected_agent_provider.py', 'app/ai_classification.py',
+    'app/automatic_classification.py', 'app/rules.py',
+    'webapp/autonomous_cleanup_worker.py', 'webapp/card_classification_completion.py',
+)
+
+
+def configured_interval(config_path):
+    """Read the bounded recovery-sweep interval; uploads still wake the worker immediately."""
+    try:
+        options = json.loads(Path(config_path).read_text(encoding='utf-8-sig'))
+        interval = options.get('autonomous_cleanup_interval_seconds')
+        if type(interval) is int and 60 <= interval <= 86400:
+            return interval
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return INTERVAL
+
+
+def code_fingerprint(root=None):
+    """Fingerprint only the P1/P2 decision code so a verified fix requeues failed jobs."""
+    base = Path(root) if root is not None else Path(__file__).resolve().parent.parent
+    digest = hashlib.sha256()
+    for relative in CODE_FINGERPRINT_FILES:
+        digest.update(relative.encode('utf-8'))
+        digest.update(b'\0')
+        digest.update((base / relative).read_bytes())
+    return digest.hexdigest()
 
 
 def _digest(value):
@@ -134,16 +166,23 @@ def pending_job_ids(conn, fingerprints, now=None):
 
 
 def detect_bundles(conn):
-    rows = conn.execute(
+    rows = [('transaction', signature, count) for signature, count in conn.execute(
         "SELECT COALESCE(NULLIF(conflict_reason,''), NULLIF(parse_error,'')) signature, COUNT(*) count"
         " FROM transactions"
         " WHERE COALESCE(conflict_reason,'') != '' OR COALESCE(parse_error,'') != ''"
-        " GROUP BY signature HAVING COUNT(*) >= 8").fetchall()
+        " GROUP BY signature HAVING COUNT(*) >= 8").fetchall()]
+    placeholders = ','.join('?' for _ in CODE_DEFECT_REASONS)
+    rows.extend(('worker', reason, count) for reason, count in conn.execute(
+        "SELECT json_extract(response_json,'$.reason'), COUNT(*) FROM requests"
+        " WHERE scope = ? AND json_extract(response_json,'$.status') IN ('ai_retry','ai_dead')"
+        f" AND json_extract(response_json,'$.reason') IN ({placeholders})"
+        " GROUP BY 1 HAVING COUNT(*) >= 8", (JOB_SCOPE, *CODE_DEFECT_REASONS)).fetchall())
     from app.db import utc_now
-    for signature, count in rows:
-        key = 'autonomous-bundle:' + hashlib.sha256(signature.encode('utf-8')).hexdigest()[:16]
+    for source, signature, count in rows:
+        bundle_digest = signature if source == 'transaction' else source + ':' + signature
+        key = 'autonomous-bundle:' + hashlib.sha256(bundle_digest.encode('utf-8')).hexdigest()[:16]
         state = {'signature': signature, 'count': count, 'state': 'suspected_code_defect',
-                 'first_seen': utc_now(), 'resolution': 'pending_code_fix'}
+                 'source': source, 'first_seen': utc_now(), 'resolution': 'pending_code_fix'}
         old = conn.execute('SELECT response_json FROM requests WHERE request_id = ? AND scope = ?',
                            (key, BUNDLE_SCOPE)).fetchone()
         if old:
@@ -216,8 +255,11 @@ class AutonomousCleanupWorker:
         self.provider = provider
         self.agent_config = agent_config
         self.agent_model = agent_model
+        self.decision_code_fingerprint = code_fingerprint()
         self._stop, self._wake = threading.Event(), threading.Event()
         self._thread = None
+        self._last_status_snapshot = None
+        self._last_status_published = 0.0
         self.status = {'state': 'idle', 'passes': 0, 'p2_applied': 0, 'no_ai_needed': 0,
                        'ai_retry': 0, 'ai_dead': 0, 'blocked': 0, 'failures': 0,
                        'candidates': 0, 'due': 0, 'suspected_defects': 0}
@@ -244,12 +286,19 @@ class AutonomousCleanupWorker:
 
     @active_writer()
     def _publish(self):
+        snapshot = json.dumps(self.status, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        now = self.clock()
+        if (snapshot == self._last_status_snapshot
+                and now - self._last_status_published < STATUS_HEARTBEAT_SECONDS):
+            return
         path = self.board.path.parent / 'autonomous-cleanup-status.json'
         temporary = path.with_suffix('.tmp')
         try:
             payload = dict(self.status, updated_at=time.time())
             temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
             temporary.replace(path)
+            self._last_status_snapshot = snapshot
+            self._last_status_published = now
         except OSError:
             pass
 
@@ -287,7 +336,8 @@ class AutonomousCleanupWorker:
         trips, nets = context(flow)
         rules = self.board.conn.execute(
             'SELECT rule_id, version, status, rule_hash FROM cost_classification_rules ORDER BY rule_id').fetchall()
-        inputs = (trips, nets, rules, (held[0] or {}).get('generation'), held[1])
+        inputs = (trips, nets, rules, (held[0] or {}).get('generation'), held[1],
+                  self.decision_code_fingerprint)
         return flow, trips, nets, inputs
 
     def _default_flow(self):
