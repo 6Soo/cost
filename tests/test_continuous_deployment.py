@@ -431,3 +431,142 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
             assert 'route:pause' not in report['events']
         if failure in ('prepare', 'before_listen', 'drain', 'identity', 'candidate_identity', 'multiple_supervisors', 'foreign_entry', 'late_foreign_entry'):
             assert 'stop:WebLedger-Board' not in report['events'], report
+
+
+import contextlib
+import os
+
+
+def test_route_cache_rereads_only_on_file_change_and_never_misses_replacement(tmp_path):
+    from tools.ledger_gateway import RouteCache
+    route = tmp_path / 'route.json'
+    atomic_json(route, dict(port=8751, paused=False, generation='g1'))
+    cache = RouteCache(route, min_interval=0.0)
+    first = cache.get()
+    assert first['generation'] == 'g1' and cache.file_reads == 1
+    assert cache.get() is first and cache.file_reads == 1 and cache.stat_checks == 2
+    atomic_json(route, dict(port=8751, paused=True, generation='g2'))
+    second = cache.get()
+    assert second['generation'] == 'g2' and cache.file_reads == 2
+    throttled = RouteCache(route, min_interval=999)
+    throttled.get()
+    atomic_json(route, dict(port=8751, paused=False, generation='g3'))
+    assert throttled.get()['generation'] == 'g2'
+    assert throttled.get(force=True)['generation'] == 'g3'
+
+
+def test_idle_gateway_publishes_once_then_waits_for_heartbeat(tmp_path, monkeypatch):
+    route, status = tmp_path / 'route.json', tmp_path / 'status.json'
+    atomic_json(route, dict(port=8751, paused=False, generation='g1'))
+    server = Gateway(0, route, status)
+    published = []
+    real_publish = server.publish
+
+    def counting():
+        published.append(1)
+        real_publish()
+
+    monkeypatch.setattr(server, 'publish', counting)
+    server.service_actions()
+    assert len(published) == 1
+    server.service_actions()
+    server.service_actions()
+    assert len(published) == 1
+
+    monkeypatch.setattr('tools.ledger_gateway.HEARTBEAT_SECONDS', 1)
+    server.last_publish = 0.0
+    server.service_actions()
+    assert len(published) == 2
+
+
+def test_route_generation_change_is_published_within_stat_throttle(tmp_path):
+    route, status = tmp_path / 'route.json', tmp_path / 'status.json'
+    atomic_json(route, dict(port=8751, paused=False, generation='g1'))
+    server = Gateway(0, route, status)
+    server.route_cache.min_interval = 0
+    server.service_actions()
+    first = json.loads(status.read_text(encoding='utf-8'))
+    assert first['generation'] == 'g1'
+    atomic_json(route, dict(port=8751, paused=True, generation='g2'))
+    server.service_actions()
+    second = json.loads(status.read_text(encoding='utf-8'))
+    assert second['generation'] == 'g2'
+    assert second['updated_at'] >= first['updated_at']
+
+
+@contextlib.contextmanager
+def gateway_relay_client(server):
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.01), daemon=True)
+    thread.start()
+    try:
+        socket_obj = socket.create_connection(('127.0.0.1', server.server_address[1]), timeout=5)
+        try:
+            yield socket_obj
+        finally:
+            socket_obj.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_publish_failure_keeps_serving_and_never_busy_loops(tmp_path, monkeypatch):
+    route, status = tmp_path / 'route.json', tmp_path / 'status.json'
+    atomic_json(route, dict(port=8751, paused=False, generation='g1'))
+    server = Gateway(0, route, status)
+    attempts = []
+
+    def failing_publish(*args):
+        attempts.append(1)
+        raise PermissionError('SYNTHETIC_REPLACE_DENIED')
+
+    monkeypatch.setattr('tools.ledger_gateway.atomic_json', failing_publish)
+    for _ in range(20):
+        server.note_activity()
+        server.service_actions()
+    assert len(attempts) == 1
+    with backend('old') as old:
+        atomic_json(route, dict(port=old, paused=False, generation='g2'))
+        server.route_cache.min_interval = 0
+        with gateway_relay_client(server) as client:
+            client.sendall(b'GET /healthz HTTP/1.0\r\n\r\n')
+            assert client.recv(256).startswith(b'HTTP')
+
+
+def test_connection_events_publish_and_drain_status_shows_zero(tmp_path):
+    route, status = tmp_path / 'route.json', tmp_path / 'status.json'
+    atomic_json(route, dict(port=8751, paused=False, generation='g1'))
+    with backend('old') as old:
+        atomic_json(route, dict(port=old, paused=False, generation='g1'))
+        server = Gateway(0, route, status)
+        thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.01), daemon=True)
+        thread.start()
+        try:
+            assert get(f'http://127.0.0.1:{server.server_address[1]}/healthz') == b'old'
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                report = json.loads(status.read_text(encoding='utf-8'))
+                if report['active'].get(str(old)) == 0:
+                    break
+                time.sleep(.02)
+            report = json.loads(status.read_text(encoding='utf-8'))
+            assert report['generation'] == 'g1'
+            assert all(count == 0 for count in report['active'].values())
+            assert report['pid'] == os.getpid()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+
+def test_drained_accepts_live_gateway_and_rejects_stale_status(tmp_path):
+    from tools.gateway_route import drained
+    route, status = tmp_path / 'route.json', tmp_path / 'status.json'
+    atomic_json(route, dict(port=8751, paused=True, generation='g1'))
+    atomic_json(status, dict(pid=os.getpid(), updated_at=time.time(),
+                             active={'8751': 0}, generation='g1'))
+    drained(route, status, 2)
+    atomic_json(status, dict(pid=os.getpid(), updated_at=time.time() - 1000,
+                             active={'8751': 0}, generation='g1'))
+    with pytest.raises(ValueError, match='DRAIN_TIMEOUT'):
+        drained(route, status, 0.3)

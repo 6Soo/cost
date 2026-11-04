@@ -522,3 +522,46 @@ if name == "new":
             if process is not None and process.poll() is None:
                 process.terminate()
                 process.wait(timeout=5)
+
+
+class CheckLogPolicyTests(unittest.TestCase):
+
+    def _service(self, clock=None):
+        import tempfile
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        log_path = Path(directory.name) / "snap.log"
+        svc, counter, state = service(["k1"] * 6, clock=clock, log_path=log_path)
+        return svc, log_path
+
+    @staticmethod
+    def _check_lines(log_path):
+        lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        return [line for line in lines if line.get("event") == "check"]
+
+    def test_identical_held_checks_log_a_single_check_line(self):
+        svc, log_path = self._service()
+        for _ in range(5):
+            svc.check_now()
+        self.assertEqual(len(self._check_lines(log_path)), 1)
+
+    def test_unchanged_check_logs_again_after_an_hour(self):
+        clock = FakeClock()
+        svc, log_path = self._service(clock=clock)
+        svc.check_now()
+        svc.check_now()
+        self.assertEqual(len(self._check_lines(log_path)), 1)
+        clock.now += 100
+        svc.check_now()
+        self.assertEqual(len(self._check_lines(log_path)), 1)
+        clock.now += 3601
+        svc.check_now()
+        self.assertEqual(len(self._check_lines(log_path)), 2)
+
+    def test_oversized_diagnostic_log_rotates_to_single_backup(self):
+        svc, log_path = self._service()
+        log_path.write_text("x" * 64, encoding="utf-8")
+        with mock.patch("webapp.ota_snapshot.MAX_DIAGNOSTIC_LOG_BYTES", 16):
+            svc._log("probe")
+        self.assertEqual(log_path.read_text(encoding="utf-8").count("probe"), 1)
+        self.assertEqual(log_path.with_name(log_path.name + ".1").read_text(encoding="utf-8"), "x" * 64)

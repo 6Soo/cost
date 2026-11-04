@@ -9,7 +9,7 @@ import urllib.request
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools.ledger_gateway import atomic_json, read_route
+from tools.ledger_gateway import STATUS_FRESH_SECONDS, atomic_json, read_route
 from webapp.deployment_role import route_lock
 
 
@@ -31,7 +31,7 @@ def drained(route, status, timeout):
         report = json.loads(Path(status).read_text(encoding='utf-8-sig'))
         if not state['paused']:
             raise ValueError('ROUTE_NOT_PAUSED')
-        if (report['generation'] == state['generation'] and time.time() - report['updated_at'] < 3
+        if (report['generation'] == state['generation'] and time.time() - report['updated_at'] < STATUS_FRESH_SECONDS
                 and all(count == 0 for count in report['active'].values())):
             return
         time.sleep(.05)
