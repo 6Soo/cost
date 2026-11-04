@@ -420,8 +420,13 @@ def test_card_detail_opens_inline_and_keeps_current_trip_for_immediate_edit(tmp_
 
         html = render_expense_cleanup(board, 'token')
 
-        assert "<details class='cleanup-review'><summary>여행·항목 수정</summary>" in html
-        assert "<button type='submit'>여행 수정</button>" in html
+        assert "<p class='cleanup-editor-title'>여행·항목 수정</p>" in html
+        assert "<button type='submit'>변경 저장</button>" in html
+        row_html = html.split(f"data-transaction='{tid}'", 1)[1].split("</li>", 1)[0]
+        assert row_html.index('<form') < row_html.index('<details')
+        assert '검토 필요' not in row_html
+        assert '장부 기록 가능' not in row_html
+        assert '<details><summary>근거 보기' not in row_html
         assert f"data-current-tab='{trip['tab_id']}'" in html
         assert "const current=select.closest('.cleanup-row')?.dataset.currentTab||'';" in html
         assert "select.value=current" in html
@@ -531,7 +536,8 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
         assert '처리 필요 · 분류·배정 필요' in first and "class='cleanup-badge'" in first
         assert 'AI에게 처리 방법 알려주기' not in first
         assert '이 지시로 규칙 제안하기' not in first
-        assert '근거 보기' in first and '여행·항목 수정' in first and '여행 수정' in first
+        assert '근거 보기' in first and '여행·항목 수정' in first and '변경 저장' in first
+        assert '<form' not in held
         assert 'data-cleanup-propose' not in held and '보류 중' in held
         assert "'rule-proposal/approve'" not in first  # HTML은 서버 승인 없이 기록하지 않는다.
         assert 'resolve_hold:' not in html
@@ -580,7 +586,7 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         assert '기록 상태 확인 1건' in html
         assert '기록 대기' not in html
         assert '근거 충돌 1건' in html
-        assert '사용자 보류 0건' in html
+        assert '사용자 보류 0건' not in html
     finally:
         ledger_board.bind_store(None)
         board.close()
