@@ -1,3 +1,9 @@
+## 2026-11-04 항공권 날짜·행선지 검색 — 완료
+
+- COMPLETE — [PR #622](https://github.com/6Soo/cost/pull/622), 운영 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`. 기존 검색창 하나에서 이름·여행 중 날짜·도시·공항 코드의 조합을 검색한다. [요구사항과 결과](specs/flight-route-date-search-20261104.md).
+- Windows 영향 QA386 passed·16 subtests·skip0·필수 브라우저 누락0, CI41761912476 성공, 검사/병합 tree 동일. 공식 배포의 보호13표·health/ready·보호API 정상. 운영 `22일 시즈오카`3건·`fuk`8건 및 모바일390px 읽기 수락 완료.
+- 이 요청의 미결0. 금융/원본/Google 업무 쓰기·실기기·모든 예약 조합은 미검증. [운영 근거](operations.md#2026-11-04-항공권-날짜행선지-검색). 문서 후속만으로 재배포·재시작하지 않는다.
+
 ## 2026-11-04 핵심 기능 중심 UI 축소 — 완료
 
 - COMPLETE — [PR #620](https://github.com/6Soo/cost/pull/620) 병합·운영 `2663f08e9fd478adba52cba2218a5a528046aa81`. [최신 실행 범위](specs/core-ui-reduction-20261104.md)의 UIR01~08을 구현·검증·배포했다. 불필요한 문구/집계·중복 버튼을 제거하고 보조 기능을 접이식으로 이동했다.

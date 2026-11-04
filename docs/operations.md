@@ -1,3 +1,11 @@
+## 2026-11-04 항공권 날짜·행선지 검색
+
+- [PR #622](https://github.com/6Soo/cost/pull/622) 운영 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`, 이전 검증 `2663f08e9fd478adba52cba2218a5a528046aa81`. 항공권 단일 검색창에서 이름·도시·공항 코드·여정 기간 중 날짜를 조합한다. 날짜 미상은 예약일/카드일로 추정하지 않으며 충돌 자료는 명시 날짜만 검색한다. [상세 계약](specs/flight-route-date-search-20261104.md).
+- 최종 검사 `10b92ca8bde80e263590aec22a2d177d7522049c`와 병합 tree 동일. Windows 영향 QA386 passed·16 subtests·skip0·필수 브라우저 누락0, PR CI41761912476 success. 이름 검색·페이지 넘김·검색조건별 커서·소유자/CSRF와 기존 금융 보호를 검사했다.
+- 공식 단일 작성자 배포: 1,319 blobs 불일치0·런타임 SHA 일치·listener1·health/ready200·보호API401·보호13표 내용/스키마 전후 불변. gateway8790→backend8751. 이전 검증 릴리스와 작업 복구 수단 유지. 금융/원본/Google 업무 쓰기·마이그레이션·대량 재처리는 수행하지 않았다.
+- 합성5검색 및 모바일 단일 입력/버튼·넘침0 확인. 운영 인증 읽기 `22일 시즈오카`3건·`fuk`8건 조회, 모바일390px 넘침0. 실기기·모든 예약 조합·실제 금융 저장은 미검증. Ego45 종료, 소유 합성 서버8876 종료.
+- 근거 `C:/AX/cost/.local-archive/flight-route-search-20261104/`의 windows-final/·synthetic-browser.json·live-acceptance.json·review.json·deploy-evidence.json, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-8ce17a9a6d37ef4959b34811a3e5fa9469594f88.json`. 문서 후속만으로 재배포하지 않는다.
+
 ## 2026-11-04 핵심 기능 중심 UI 축소
 
 - [PR #620](https://github.com/6Soo/cost/pull/620) 운영 `2663f08e9fd478adba52cba2218a5a528046aa81`, 이전 검증 `4758fe63386c10a3cf1f255e7448d3a21c55fdfe`. 제목 옆 전체 집계·상시 저장 시각·홈 중복 링크·카드 소개/중복 요약·항공권 반복 정보를 제거했다. 장부 추가 작업·여행 마감/상세 필터·지출 자료/규칙·OTA 진단은 접이식으로 옮기고 영수증은 자료가 있는 단계만 표시한다. [요구사항별 결과](specs/core-ui-reduction-20261104.md).
