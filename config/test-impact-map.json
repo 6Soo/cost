@@ -262,6 +262,11 @@
       "tests": ["webapp/tests/test_card_cleanup_ui.py", "webapp/tests/test_cleanup_query_equivalence.py", "webapp/tests/test_cleanup_ota_contract.py", "webapp/tests/test_cleanup_original_refund_status_contract.py"]
     },
     {
+      "name": "autonomous-cleanup-loop",
+      "paths": ["app/connected_agent_provider.py", "webapp/autonomous_cleanup_worker.py", "tools/report_autonomous_metrics.py", "webapp/tests/test_autonomous_cleanup.py"],
+      "tests": ["webapp/tests/test_autonomous_cleanup.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_status_inference_stages.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_cleanup_queries.py", "webapp/tests/test_expense_cleanup.py"]
+    },
+    {
       "name": "card-ota-projection",
       "paths": ["webapp/card_ota_projection.py", "webapp/tests/test_card_ota_projection.py"],
       "tests": ["webapp/tests/test_card_ota_projection.py", "webapp/tests/test_ota_card_evidence_relevance.py", "tests/card_pipeline/test_trip_currency_comparison.py"]

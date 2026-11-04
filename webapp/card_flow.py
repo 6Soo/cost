@@ -2113,12 +2113,21 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 if cleanup_reason not in card_cleanup_queries.REASONS:
                     handler._send('잘못된 지출 정리 필터입니다.', 400)
                     return True
+                owner_values = (query or {}).get('cleanup_owner') or ['all']
+                if len(owner_values) > 1:
+                    handler._send('잘못된 지출 확인 주체 필터입니다.', 400)
+                    return True
+                cleanup_owner = owner_values[0]
+                if cleanup_owner not in card_cleanup_queries.OWNERS:
+                    handler._send('잘못된 지출 확인 주체 필터입니다.', 400)
+                    return True
                 try:
                     raw_page = ((query or {}).get('cleanup_page') or ['1'])[0]
                     cleanup_page = int(raw_page) if raw_page.isdigit() and len(raw_page) <= 7 else 1
                 except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
-                cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
+                cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason,
+                                                 owner=cleanup_owner)
                 body = body.replace('<!--EXPENSE_CLEANUP-->', cleanup, 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
@@ -2168,6 +2177,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             recovery = getattr(board, '_card_completion_worker', None)
             if recovery is not None and handler.headers.get('X-Upload-Async') != '1':
                 recovery.wake()
+            autonomous = getattr(board, '_autonomous_cleanup_worker', None)
+            if autonomous is not None:
+                autonomous.wake()
             from . import card_upload_jobs
             if handler.headers.get('X-Upload-Async') == '1':
                 job = card_upload_jobs.start(board, handler, flow, received, source_file, inspection)
@@ -2372,7 +2384,7 @@ def _cleanup_card_where(board):
     )
 
 
-def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0, reason='all'):
+def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0, reason='all', owner='all'):
     """장부에 아직 없는 카드 거래를 한 페이지씩 읽는다. 충돌 거래도 숨기지 않고 검토 대상으로 보여 준다."""
     from . import card_cleanup_queries
     return board.conn.execute(
@@ -2381,8 +2393,9 @@ def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0, reason='al
         " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id),"
         " t.conflict_reason, t.parse_error" + _cleanup_card_where(board) +
         card_cleanup_queries.card_reason_filter(reason) +
+        card_cleanup_queries.card_owner_filter(owner) +
         " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?",
-        card_cleanup_queries.card_reason_params(reason) + (limit, offset)).fetchall()
+        card_cleanup_queries.card_reason_params(reason) + card_cleanup_queries.card_owner_params(owner) + (limit, offset)).fetchall()
 
 
 def _cleanup_card_count(board):
@@ -2551,12 +2564,26 @@ def _cleanup_card_breakdown(board):
     return dict(rows)
 
 
+def _cleanup_owner_breakdown(board):
+    """Count user-required vs auto-resolvable rows from the same card population."""
+    from .card_cleanup_queries import card_owner_action_sql
+    owner_sql = card_owner_action_sql()
+    rows = board.conn.execute(
+        "SELECT owner, COUNT(*) FROM (SELECT DISTINCT t.transaction_id, " + owner_sql +
+        " AS owner" + _cleanup_card_where(board) + ") GROUP BY owner"
+    ).fetchall()
+    return dict(rows)
+
+
 def _cleanup_population(board):
     """Read the card and ledger populations once for counts and paging."""
     card = _cleanup_card_breakdown(board)
+    owners = _cleanup_owner_breakdown(board)
     ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
     counts = dict(card, classification=card.get('classification', 0) + ledger,
-                  all=sum(card.values()) + ledger)
+                  all=sum(card.values()) + ledger,
+                  owner_user=owners.get('user', 0),
+                  owner_auto=owners.get('auto', 0) + ledger)
     return card, ledger, counts
 
 
@@ -2887,7 +2914,7 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
 
 @read_scope.scoped
 @refund_read_only_scope()
-def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
+def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
     """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
     from . import ledger_board, ota_catalog
     if ledger_board.current_role() != 'owner':
@@ -2909,20 +2936,34 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     if reason not in card_cleanup_queries.REASONS:
         reason = 'all'
     selected_reason = reason
+    from .card_cleanup_queries import OWNERS
+    owner = owner if owner in OWNERS else 'all'
+    selected_owner = owner
     card_breakdown, ledger_all, counts = _cleanup_population(board)
     all_total = counts['all']
-    filtered_card_total = sum(card_breakdown.values()) if selected_reason == 'all' else card_breakdown.get(selected_reason, 0)
-    ledger_total = ledger_all if selected_reason in ('all', 'classification') else 0
+    user_total = counts.get('owner_user', 0)
+    auto_total = counts.get('owner_auto', 0)
+    if selected_owner == 'all':
+        filtered_card_total = sum(card_breakdown.values()) if selected_reason == 'all' else card_breakdown.get(selected_reason, 0)
+        ledger_total = ledger_all if selected_reason in ('all', 'classification') else 0
+    else:
+        from .card_cleanup_queries import card_reason_filter, card_owner_filter, card_reason_params, card_owner_params
+        filtered_card_total = board.conn.execute(
+            "SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where(board) +
+            card_reason_filter(selected_reason) + card_owner_filter(selected_owner),
+            card_reason_params(selected_reason) + card_owner_params(selected_owner)).fetchone()[0]
+        ledger_total = ledger_all if (selected_owner == 'auto' and selected_reason in ('all', 'classification')) else 0
     total = filtered_card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
     page = min(max(1, int(page or 1)), pages)
     offset = (page - 1) * _CLEANUP_PAGE_SIZE
     card_offset = min(offset, filtered_card_total)
     card_limit = max(0, min(_CLEANUP_PAGE_SIZE, filtered_card_total - card_offset)) if offset < filtered_card_total else 0
-    rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset, reason=selected_reason) if card_limit else []
+    rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset, reason=selected_reason,
+                                    owner=selected_owner) if card_limit else []
     ledger_offset = max(0, offset - filtered_card_total)
     ledger_limit = (_CLEANUP_PAGE_SIZE - len(rows_card)
-                    if selected_reason in ('all', 'classification') else 0)
+                    if selected_reason in ('all', 'classification') and selected_owner != 'user' else 0)
     items = []
     ota_by_card = _ota_entries_by_card(board, transaction_ids=[row[0] for row in rows_card])
     snapshot_context = ota_by_card.get('__snapshot_status__', {})
@@ -2963,6 +3004,27 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     basis_by_card = (dict(board.conn.execute(
         'SELECT transaction_id,classification_basis FROM transactions WHERE transaction_id IN (' +
         ','.join('?' for _ in inference_ids) + ')', inference_ids)) if inference_ids else {})
+    AUTO_STATE_LABELS = {
+        'awaiting_agent': '자율 처리: 자동 검토·기록 중',
+        'ai_retry': '자율 처리: 자동 검토 재시도 예정',
+        'ai_dead': '자율 처리: 자동 검토 실패 · 원인 조사 중',
+        'blocked': '자율 처리: 자동 검토 보류 · 연결 에이전트 대기',
+        'p2_applied': '자율 처리: AI 검토·반영 완료',
+        'no_ai_needed': '자율 처리: 코드 규칙으로 처리 완료',
+        'p1_pending': '자율 처리: 자동 분류 처리 대기',
+    }
+    auto_states = {}
+    if rows_card:
+        keys = ['autonomous-cleanup:' + row[0] for row in rows_card]
+        for rid, raw in board.conn.execute(
+                'SELECT request_id, response_json FROM requests WHERE scope = ? AND request_id IN (' +
+                ','.join('?' for _ in keys) + ')', ['autonomous_cleanup_job', *keys]).fetchall():
+            try:
+                state = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(state, dict):
+                auto_states[rid.split(':', 1)[1]] = state
 
     from app.review_holds import active_holds
     from .card_actions import reason_category, REASON_LABELS
@@ -3081,6 +3143,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             detail=detail, is_cancellation=tid in cancellation_ids,
             evidence=evidence, conflict_reason=conflict_reason,
             parse_error=parse_error, held=held, reason=reason, item=item, esc=esc)
+        auto_job = auto_states.get(tid)
+        if auto_job:
+            auto_label = AUTO_STATE_LABELS.get(auto_job.get('status') or '', '')
+            if auto_label:
+                evidence += "<p class='cleanup-auto-state'>" + esc(auto_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
                  '취소·환불 확인' if tid in cancellation_ids else
@@ -3156,26 +3223,41 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     note = card_cleanup_ui.render_cleanup_snapshot_note(snapshot_context, esc=esc)
     nav = ''
     if pages > 1:
+        owner_part = '' if selected_owner == 'all' else '&cleanup_owner=' + selected_owner
         query_prefix = '' if selected_reason == 'all' else '&cleanup_reason=' + selected_reason
+        query_prefix += owner_part
         previous = (f"<a href='/import?cleanup_page={page - 1}{query_prefix}#expense-cleanup'>이전 20건</a>"
                     if page > 1 else '<span>이전 20건</span>')
         following = (f"<a href='/import?cleanup_page={page + 1}{query_prefix}#expense-cleanup'>다음 20건</a>"
                      if page < pages else '<span>다음 20건</span>')
         nav = (f"<nav class='cleanup-pages'><p class='muted'>{total}건 중 {min((page-1)*20+1,total)}~{min(page*20,total)}건 · {page}/{pages}페이지</p>"
                f"{previous} · {following}</nav>")
+    owner_query = '' if selected_owner == 'all' else '&cleanup_owner=' + selected_owner
     labels = [('all', '전체', counts['all'])] + [(key, REASON_LABELS[key], counts.get(key, 0))
               for key in ('classification', 'recording', 'evidence', 'finance', 'manual')]
     chips = []
     for key, label, count in labels:
         if not count and key not in ('all', selected_reason):
             continue
-        query_part = '' if key == 'all' else '?cleanup_reason=' + key
+        query_part = ('' if key == 'all' else '?cleanup_reason=' + key)
+        if selected_owner != 'all':
+            query_part += ('&' if query_part else '?') + 'cleanup_owner=' + selected_owner
         current = " aria-current='page'" if key == selected_reason else ''
         chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} {count:,}건</a>")
+    user_current = " aria-current='page'" if selected_owner == 'user' else ''
+    auto_current = " aria-current='page'" if selected_owner == 'auto' else ''
+    all_owner_current = " aria-current='page'" if selected_owner == 'all' else ''
+    owner_cta = (
+        "<nav class='cleanup-owner' aria-label='지출 확인 주체 필터'>"
+        f"<a class='cleanup-user-cta' href='/import?cleanup_owner=user#expense-cleanup'{user_current}>내 확인 필요 {user_total:,}건</a>"
+        f"<a href='/import?cleanup_owner=auto#expense-cleanup'{auto_current}>자동 진행·대기 {auto_total:,}건</a>"
+        f"<a href='/import#expense-cleanup'{all_owner_current}>전체 {all_total:,}건</a>"
+        "</nav>")
     breakdown = (f"<p class='cleanup-filter-total'>{esc(dict((key, label) for key, label, _ in labels).get(selected_reason, '전체'))} "
                  f"{total:,}건 중 {min((page-1)*20+1,total) if total else 0}~{min(page*20,total)}건 표시</p>"
-                 "<nav class='cleanup-breakdown' aria-label='지출 정리 상태 필터'>" + ''.join(chips) + '</nav>')
-    if pages == 1 and selected_reason == 'all':
+                 + owner_cta
+                 + "<nav class='cleanup-breakdown' aria-label='지출 정리 상태 필터'>" + ''.join(chips) + '</nav>')
+    if pages == 1 and selected_reason == 'all' and selected_owner == 'all':
         breakdown = breakdown[breakdown.index("<nav"):]
     if total == 0:
         empty_labels = dict((key, label) for key, label, _ in labels)
@@ -3192,8 +3274,13 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
         style_html=card_cleanup_ui.CLEANUP_STYLE +
         "<style>#expense-cleanup .cleanup-breakdown a{display:inline-flex;align-items:center;min-height:44px;padding:7px 12px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
         "#expense-cleanup .cleanup-breakdown a[aria-current='page']{border:2px solid var(--shell-accent);font-weight:750}"
-        "#expense-cleanup .cleanup-breakdown a:focus-visible{outline:3px solid var(--shell-accent);outline-offset:2px}"
-        "#expense-cleanup .cleanup-filter-total{font-weight:700;margin:8px 0}</style>",
+        "#expense-cleanup .cleanup-owner{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 8px}"
+        "#expense-cleanup .cleanup-owner a{display:inline-flex;align-items:center;min-height:44px;padding:7px 14px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
+        "#expense-cleanup .cleanup-owner .cleanup-user-cta{border:2px solid var(--shell-accent);font-weight:750}"
+        "#expense-cleanup .cleanup-owner a[aria-current='page']{outline:3px solid var(--shell-accent);outline-offset:2px}"
+        "#expense-cleanup .cleanup-breakdown a:focus-visible,#expense-cleanup .cleanup-owner a:focus-visible{outline:3px solid var(--shell-accent);outline-offset:2px}"
+        "#expense-cleanup .cleanup-filter-total{font-weight:700;margin:8px 0}"
+        "#expense-cleanup .cleanup-auto-state{color:var(--shell-muted,#667);font-size:.85em;margin:4px 0 0}</style>",
     )
 
 
