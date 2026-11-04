@@ -4,6 +4,8 @@
 
 ## 최신 개발 현황 확인
 
+**현재 단일 에이전트 실행 큐:** [자율 지출정리·WebLedgerHost HDD I/O 통합 미결 실행계획](specs/autonomy-io-unified-followup-20261105.md). #636·#644의 상세 명세를 대체하지 않고, 최신 #643/#647 구현·#646 열린 PR, 운영 활성화/안전 배포/실측 검증의 **미완료 항목만** 한 실행 순서로 묶는다. 중복 구현이나 문서만으로 완료 선언 금지.
+
 **2026-11-05 진행 현황:** [자율 지출정리 관리자 명세](specs/autonomous-expense-cleanup-20261105.md) #636 병합, 후속 코드 [#643](https://github.com/6Soo/cost/pull/643)·Windows OpenCode 실행 오류 수정 [#647](https://github.com/6Soo/cost/pull/647) 병합. **운영 무인 AI 게이트 활성화/실자료 자동 실행 및 코드 결함 자동 PR·배포는 아직 입증되지 않았다.** [WebLedgerHost HDD I/O 정본 명세](specs/webledger-idle-io-optimization-20261105.md)는 [#644](https://github.com/6Soo/cost/pull/644)로 병합됐고 [최적화 구현 #646](https://github.com/6Soo/cost/pull/646)도 열린 코드 PR이다. 코드·운영 상태를 혼동하지 않는다.
 
 
