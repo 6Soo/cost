@@ -2150,10 +2150,14 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         if handler.headers.get('X-CSRF-Token') != csrf:
             handler._send_json({'code':'CSRF_REQUIRED','message':'화면을 다시 열어 주세요'}, 403)
             return True
-        if parsed.path == '/api/imports':
+        if parsed.path in ('/api/imports', '/api/imports/upload-batch'):
             from .ledger_board import current_role
             if current_role() != 'owner':
                 handler._send_json({'code':'FORBIDDEN','message':'소유자만 카드 파일을 등록할 수 있습니다.'}, 403)
+                return True
+            if parsed.path == '/api/imports/upload-batch':
+                result = card_upload_jobs.receive_batch(board, handler, flow, raw)
+                handler._send_json(result, 202)
                 return True
             from app.card_preflight import validate_upload
             filename = unquote(handler.headers.get('X-Filename') or 'card.xlsx')
@@ -3233,7 +3237,7 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 
 .coverage-form{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--shell-line);border-radius:6px;max-width:100%;overflow-wrap:anywhere}.coverage-form label{display:grid;gap:4px}.coverage-form input,.coverage-form select{min-width:0;width:100%;box-sizing:border-box;min-height:44px}.coverage-form button{min-height:44px}.coverage-form .coverage-complete{display:flex;align-items:center;gap:8px}.coverage-complete input{width:22px;min-height:22px}.coverage-message{white-space:normal;overflow-wrap:anywhere}
 </style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
-<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일은 하나씩 안전하게 처리하고, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">선택한 파일은 순서대로 업로드하고 각 파일의 분류 결과를 저장합니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><details><summary>카드별 조회 기간</summary><div id="coverage-summary" aria-live="polite"></div></details><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
+<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일을 먼저 한 번에 접수한 뒤 백그라운드에서 분류하며, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">전체 파일 접수가 끝나면 다른 페이지로 이동할 수 있습니다. 분류는 백그라운드에서 계속되며 결과는 저장됩니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><details><summary>카드별 조회 기간</summary><div id="coverage-summary" aria-live="polite"></div></details><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>
 </main><script>
@@ -3374,11 +3378,13 @@ async function awaitUpload(job,entry){
 }
 function savedUploadLink(entry,batch){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='저장된 파일 상세 결과';link.addEventListener('click',async event=>{if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await loadBatch(batch);el('summary').scrollIntoView({block:'start'});});entry.append(' ',link)}
 async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return;
- const root=el('upload-results');root.hidden=false;el('newupload').open=true;el('upload').disabled=true;uploadInput.disabled=true;
- try{for(const job of jobs){const entry=document.createElement('p');root.append(entry);
+ const root=el('upload-results');root.hidden=false;el('newupload').open=true;
+ const note=document.createElement('p');note.textContent=jobs.length+'개 파일 접수 완료 · 다른 페이지로 이동해도 분류는 계속됩니다.';root.append(note);
+ await Promise.all(jobs.map(async job=>{const entry=document.createElement('p');root.append(entry);
   try{const result=await awaitUpload(job,entry);entry.textContent=(job.filename||'카드 파일')+' · '+uploadOutcome(result);savedUploadLink(entry,job.batch_id)}
   catch(e){entry.textContent=(job.filename||'카드 파일')+' · '+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
- }}finally{el('upload').disabled=false;uploadInput.disabled=false}
+ }));
+ note.textContent=jobs.length+'개 파일 진행 상태 확인 완료 · 파일별 결과를 확인해 주세요.';
 }
 resumeUpload();
 function uploadOutcome(j){return j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
@@ -3387,25 +3393,38 @@ el('upload').onclick=async()=>{
  const files=renderUploadSelection();if(!files.length){el('status').textContent='업로드할 카드 파일을 먼저 선택해 주세요.';uploadDrop.focus();return}
  const generation=++batchGeneration;uploadFailurePage=0;invalidateProposal();el('upload').disabled=true;uploadInput.disabled=true;uploadDrop.setAttribute('aria-disabled','true');
  const results=[],failures=[],pending=[],root=el('upload-results');root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><ul class="upload-file-list"></ul>';const list=root.querySelector('ul');
+ const notice=document.createElement('p');notice.setAttribute('role','status');root.prepend(notice);
+ const entries=files.map(f=>{const entry=document.createElement('li');entry.textContent=f.name+' · 접수 중';list.append(entry);return entry});
+ let received;
  try{
-  let nextFile=0;const entries=files.map(f=>{const entry=document.createElement('li');entry.textContent=f.name+' · 접수 대기';list.append(entry);return entry});
-  const processFile=async i=>{
-   const f=files[i],entry=entries[i];if(generation!==batchGeneration){entry.textContent=f.name+' · 자료 선택이 바뀌어 업로드하지 않았습니다.';return}
-   entry.textContent=f.name+' · 접수 중';
-   el('status').textContent='파일 '+(i+1)+'/'+files.length+' · '+f.name+'을(를) 읽고 분류하고 있습니다.';uploadLabel.textContent='처리 중 '+(i+1)+'/'+files.length;
+  if(files.length>100||files.reduce((sum,f)=>sum+f.size,0)>99*1024*1024)throw Error('한 번에 100개, 총 99MB 이하로 나누어 올려 주세요.');
+  notice.textContent=files.length+'개 파일 전송 중 · 접수 완료 안내가 나올 때까지 이 페이지를 유지해 주세요.';uploadLabel.textContent='파일 접수 중';
+  const body=new FormData();for(const file of files)body.append('files',file);
+  received=await call('/api/imports/upload-batch',body);
+  if(!Array.isArray(received.files)||received.files.length!==files.length)throw Error('접수 결과를 확인하지 못했습니다. 저장된 파일 목록을 확인해 주세요.');
+  for(const job of received.files)if(job.status_url)saveUploadJob(job);
+  const accepted=received.files.filter(job=>job.status_url).length;
+  notice.textContent=accepted+'개 파일 접수 완료 · 다른 페이지로 이동해도 분류는 계속됩니다. 이 화면으로 돌아오면 진행 상태를 이어서 확인합니다.';
+  if(generation===batchGeneration)el('status').textContent=notice.textContent;
+  uploadInput.value='';renderUploadSelection();
+ }catch(error){notice.textContent=error.message;entries.forEach((entry,i)=>entry.textContent=files[i].name+' · 접수 확인 필요');if(generation===batchGeneration){el('status').textContent=error.message;renderUploadSystemError(error.message)}return;
+ }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드하고 분류'}
+ const processFile=async (job,i)=>{
+   const f=files[i],entry=entries[i];
    try{
-    let j=await call('/api/imports',await f.arrayBuffer(),{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name),'X-Upload-Async':'1'});if(j.status_url){j.filename=f.name;entry.textContent=f.name+' · 파일 접수 완료 · 분류 중';j=await awaitUpload(j,entry)}results[i]=j;entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
+    if(!job.status_url)throw Error(job.message||'파일을 접수하지 못했습니다.');
+    entry.textContent=f.name+' · 파일 접수 완료 · 분류 대기';let j=await awaitUpload(job,entry);results[i]=j;entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
     if(j.batch_id){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(j.batch_id)+'#summary';link.textContent='상세 결과';entry.append(link)}
     appendCoverageForm(entry,j);
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
   };
-  const workers=Array.from({length:Math.min(4,files.length)},async()=>{while(nextFile<files.length){const i=nextFile++;await processFile(i)}});await Promise.all(workers);
+  await Promise.all(received.files.map(processFile));
+  notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
   if(generation!==batchGeneration)return;
   const completed=results.filter(Boolean);if(completed.length)render(completed[completed.length-1],true);
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
- }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드하고 분류'}
 };
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(j.rules)renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(j.refresh_required){el('status').textContent='규칙은 저장됐지만 분류 갱신을 확인하지 못했습니다. 규칙을 다시 저장하지 말고 거래를 새로고침해 주세요.';return}try{if(model)render(await call('/api/imports/'+model.batch_id+'/auto-record','{}',{'Content-Type':'application/json'}))}catch(error){if(error.message==='소유자만 자동 반영할 수 있습니다.'){let refreshed=false;try{const updated=await call('/api/imports/'+model.batch_id);render(updated);refreshed=true}catch{}el('status').textContent=refreshed?'규칙은 저장되고 분류도 다시 계산됐습니다. 자동 장부 기록은 소유자만 할 수 있습니다.':'규칙은 저장되고 분류도 다시 계산됐지만 화면을 갱신하지 못했습니다. 자동 장부 기록은 소유자만 할 수 있습니다. 새로고침해서 확인해 주세요.';return}el('status').textContent='규칙은 저장됐습니다. 자동 기록 결과를 확인하지 못했습니다: '+error.message+' 규칙을 다시 저장하지 말고 최신 거래를 확인해 주세요.';return}el('status').textContent='규칙을 저장했습니다.'}catch(e){el('status').textContent=e.message}};
 el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('ruleform').reset();el('ruleform').elements.merchant.readOnly=false;el('rule_scope').textContent=''};

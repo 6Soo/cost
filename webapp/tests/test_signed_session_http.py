@@ -164,7 +164,21 @@ class SignedSessionHttpTests(unittest.TestCase):
                         self.assertNotIn('BOOK-1', body)
                         self.assertNotIn('합성 호텔', body)
                     elif path.startswith('/api/'):
-                        self.assertEqual(json.loads(body)['total'], 1)
+                        # The HTTP catalog intentionally serves a pending index
+                        # while rebuilding. Verify its actual ready response,
+                        # rather than relying on another test having warmed it.
+                        catalog = json.loads(body)
+                        deadline = time.monotonic() + 10
+                        while catalog['refresh_state'] != 'ready' and time.monotonic() < deadline:
+                            self.assertNotEqual(catalog['refresh_state'], 'failed', catalog)
+                            time.sleep(.05)
+                            status, body, headers = self.request(path, cookie=self.cookie(user))
+                            self.assertEqual(status, 200, body)
+                            self.assertEqual(headers.get('Cache-Control'), 'no-store')
+                            catalog = json.loads(body)
+                        self.assertEqual(catalog['refresh_state'], 'ready', catalog)
+                        self.assertEqual(catalog['total'], 1)
+                        self.assertEqual(catalog['rows'][0]['booking_ref'], 'BOOK-1')
 
     def test_trip_flight_booking_route_uses_signed_trip_visibility_and_snapshot(self):
         route_store = board._active_store()
@@ -239,6 +253,25 @@ class SignedSessionHttpTests(unittest.TestCase):
                     from webapp import receipt_review
                     self.assertEqual(receipt_review.image_bytes(self.receipts, body['sha256']), PNG)
 
+    def test_batch_card_upload_keeps_owner_and_csrf_boundaries(self):
+        raw = b'--boundary\r\nContent-Disposition: form-data; name="files"; filename="invalid.csv"\r\n\r\ninvalid\r\n--boundary--\r\n'
+        for user, csrf, expected in ((OWNER, board.CSRF_TOKEN, 202), (OWNER, '', 403),
+                                     (VIEWER, board.CSRF_TOKEN, 403), (None, board.CSRF_TOKEN, 401)):
+            with self.subTest(user=user, csrf=bool(csrf)):
+                headers = {'Content-Type': 'multipart/form-data; boundary=boundary', 'X-CSRF-Token': csrf}
+                if user:
+                    headers['Cookie'] = f'{google_oidc.COOKIE_NAME}={self.cookie(user)}'
+                req = Request(f'http://127.0.0.1:{self.port}/api/imports/upload-batch', data=raw, headers=headers)
+                try:
+                    response = self.opener.open(req, timeout=5)
+                except HTTPError as error:
+                    response = error
+                result = json.loads(response.read())
+                self.assertEqual(response.code, expected, result)
+                if expected == 202:
+                    self.assertEqual(len(result['files']), 1)
+                    self.assertNotIn('status_url', result['files'][0])
+
     def test_signed_coverage_upload_confirmation_and_read_boundaries(self):
         from tests.card_pipeline.test_card_upload_coverage import content
         from urllib.parse import quote
@@ -297,8 +330,10 @@ class SignedSessionHttpTests(unittest.TestCase):
                     self.assertEqual(body['rows'][0]['amount_krw'], 37000)
 
     def assert_json_response(self, path, *, cookie, status, body, headers=None):
-        actual_status, actual_body, _ = self.request(path, cookie=cookie, headers=headers)
+        actual_status, actual_body, response_headers = self.request(
+            path, cookie=cookie, headers={'Accept': 'application/json', **(headers or {})})
         self.assertEqual(actual_status, status, actual_body)
+        self.assertIn('application/json', response_headers.get('Content-Type', ''))
         self.assertEqual(json.loads(actual_body), body)
 
     def test_private_pages_and_apis_never_cache_signed_or_denied_responses(self):
@@ -327,12 +362,19 @@ class SignedSessionHttpTests(unittest.TestCase):
             status, body, _ = self.request(path, cookie=owner)
             self.assertEqual(status, 200, body)
             if path.startswith('/api/'):
-                self.assertEqual(json.loads(body), {"candidates": [], "holds": [], "images": []})
+                self.assertEqual(json.loads(body), {"candidates": [], "holds": [], "images": [], "pdfs": []})
             else:
                 self.assertIn('영수증', body)
             viewer_status, viewer_body, _ = self.request(path, cookie=viewer)
             self.assertEqual(viewer_status, 404)
             self.assertEqual(viewer_body, "없음")
+            if not path.startswith('/api/'):
+                denied, login, response_headers = self.request(path)
+                self.assertEqual(denied, 401)
+                self.assertIn('text/html', response_headers.get('Content-Type', ''))
+                self.assertIn('/auth/login', login)
+                self.assertNotIn(OWNER, login)
+                self.assertNotIn(VIEWER, login)
             self.assert_json_response(path, cookie=None, status=401,
                                       body={"code": "AUTH_REQUIRED", "message": "다시 로그인해 주세요"})
 

@@ -1,3 +1,9 @@
+## 2026-11-04 다중 파일 즉시 접수·백그라운드 분류 UX
+
+- PARTIAL — [PR #627](https://github.com/6Soo/cost/pull/627), 검사 코드 `ae48f216`. [요구사항·검증·다음 단계](specs/card-upload-background-navigation-20261104.md). 일괄 접수 후 분류·버튼 활성·이동 안내·복귀 상태 복구를 구현했다. 고객 업로드/운영 금융·Google·스키마 쓰기0.
+- 사용자 “함께 수정하고 배포” 승인으로 기존 실패2건도 수정했다. HTML/JSON 로그인·영수증PDF 응답 계약을 검증하고 실제 OTA 준비 완료를 기다린 뒤 정확한 예약을 검사한다. 최신 코드 통합 후 Windows 영향 QA498 passed/97 subtests·skip0·필수 브라우저 누락0, PR CI41770440689 success. 합성 ego12개 접수→이동→복귀12개 복구 PASS.
+- 다른 작업의 완료 문서만 추가 통합했다. 운영 코드 검증은 재사용하며 문서 diff·링크를 확인한다. 다음: 최종 PR CI 확인→정상 병합→공식 배포→보호/운영 확인. 근거 `.local-archive/upload-background-20261104/`; 기존 사용자 workspace/미추적 파일과 운영 `96b978bf`를 보존한다.
+
 ## 2026-11-04 항공권 누락·모바일 정보 밀도 개선 — 완료
 
 - COMPLETE — 최신 사용자 3요청의 [실행 범위](specs/flight-coverage-mobile-density-20261104.md), [PR #626](https://github.com/6Soo/cost/pull/626), 운영 `96b978bfe7f161ccd9c9de090fd635c4b85a6a51`. 보관 메일 3,499건 읽기 대조로 시즈오카 4예약·5이름 표기를 확인했다. 기존 3예약의 대표 이름만 노출하던 경로와 제주항공 조회 누락을 수정했다. 이름 표기는 고유인원·유효 항공권 수를 확정하지 않으며 취소·충돌 경고를 유지한다.

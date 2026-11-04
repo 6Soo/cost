@@ -8,6 +8,48 @@ PREFIX = '/api/imports/upload-status/'
 _guard = threading.RLock()
 
 
+def receive_batch(board, handler, flow, raw):
+    """Persist every file before starting any expensive classification worker.
+
+    Called under store_lock. Per-file validation, durable recovery and content
+    identity are identical to single uploads; an invalid file cannot stop peers.
+    """
+    from email import policy
+    from email.parser import BytesParser
+    from app import StoreError, ParseError
+    from app.card_preflight import validate_upload
+    from .card_completion_worker import queue_batch
+
+    content_type = handler.headers.get('Content-Type', '')
+    if not content_type.startswith('multipart/form-data;'):
+        raise ValueError('MULTIPART_REQUIRED')
+    message = BytesParser(policy=policy.default).parsebytes(
+        ('Content-Type: ' + content_type + '\r\nMIME-Version: 1.0\r\n\r\n').encode('ascii') + raw)
+    parts = list(message.iter_parts())
+    if message.defects or not parts or len(parts) > 100:
+        raise ValueError('INVALID_UPLOAD_BATCH')
+    if any(part.get_param('name', header='content-disposition') != 'files'
+           or not part.get_filename() or part.is_multipart() for part in parts):
+        raise ValueError('INVALID_UPLOAD_PART')
+    outcomes, accepted = [], []
+    for part in parts:
+        filename = part.get_filename()
+        try:
+            content = part.get_payload(decode=True)
+            source, inspection = validate_upload(content, filename)
+            received = flow.pipeline.receive(content, filename)
+            queue_batch(board, received['batch_id'])
+        except (StoreError, ParseError) as exc:
+            outcomes.append({'filename': filename, 'message': str(exc), 'code': exc.code})
+            continue
+        outcome = {'filename': filename, 'batch_id': received['batch_id']}
+        outcomes.append(outcome)
+        accepted.append((outcome, received, source, inspection))
+    for outcome, received, source, inspection in accepted:
+        outcome.update(start(board, handler, flow, received, source, inspection))
+    return {'files': outcomes}
+
+
 def owns_route(path):
     return bool(re.fullmatch(re.escape(PREFIX) + r'[a-f0-9]{32}', path))
 
