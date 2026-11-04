@@ -150,6 +150,7 @@ def test_candidate_rows_toggle_independently_and_keep_income_table_usable():
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
                 assert page.locator('.insurance-candidate-row li:visible').count() == 24
                 assert page.locator('dialog[open]').count() == 0
+                assert page.locator('.insurance-candidate-row').evaluate_all('rows=>rows.every(row=>row.querySelector(".insurance-candidate-content").getBoundingClientRect().bottom<=row.getBoundingClientRect().bottom)')
             buttons.nth(0).click()
             assert page.locator('.insurance-candidate-row').count() == 1
             assert buttons.nth(0).get_attribute('aria-expanded') == 'false'

@@ -24,7 +24,7 @@
 .insurance-period-difference{margin:0 0 4px;font-size:12px;color:var(--mut)}
 .insurance-candidate-content footer{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px}
 .insurance-candidate-content footer .btn{font-size:12px;min-height:44px;padding:4px 0;background:transparent;border:0;color:var(--focus);white-space:normal}
-#google-trip-income #income-tbl .insurance-candidate-row>td{padding:8px 16px;background:var(--hover);border-bottom:1px solid var(--line-strong);white-space:normal;text-align:left}
+#google-trip-income #income-tbl .insurance-candidate-row>td{height:auto;overflow:visible;padding:8px 16px;background:var(--hover);border-bottom:1px solid var(--line-strong);white-space:normal;text-align:left}
 #google-trip-income .participant-insurance-cell .insurance-candidate-button[aria-expanded=true]::after{transform:rotate(45deg)}
 @media(max-width:899px){#google-trip-income #income-tbl tbody tr.insurance-candidate-row{display:block}#google-trip-income #income-tbl .insurance-candidate-row>td{display:block;width:100%;min-width:0}}
 .insurance-loading{display:flex;align-items:center;gap:12px;padding:12px;color:var(--mut)}
