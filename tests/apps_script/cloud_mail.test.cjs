@@ -73,12 +73,13 @@ function harness({pages=[{messages:[{id:'a1'}]}], held=null, originals={}, failS
     released:()=>released,folderCreates:()=>folderCreates,saves:()=>saves};
 }
 function state(extra={}) {return {schema:'cost-cloud-mail-v1',messages:{},query:null,configured_after:'2026-04-01',
-  pending:[],nextPageToken:null,query_revision:2,account,...extra};}
+  pending:[],nextPageToken:null,query_revision:3,account,...extra};}
 
 test('query includes every current collector discovery path',()=>{
   const h=harness(), query=h.context.costMailQuery_('2026-04-01');
   for(const term of ['forest.go.kr','foresttrip.go.kr','subject:토요코인',
-      'from:nicepg.co.kr','자연휴양림','휴양시설'])assert.ok(query.includes(term),term);
+      'from:nicepg.co.kr','자연휴양림','휴양시설', 'from:jejuair.net', 'from:traveloka.com',
+      'from:flyasiana.com', 'from:skyticket.com'])assert.ok(query.includes(term),term);
 });
 test('all pages preserve full original headers MIME and internal date; repeat is immutable',()=>{
   const h=harness({pages:[{messages:[{id:'a1'}],nextPageToken:'1'}, {messages:[{id:'b2'}]}]});
@@ -186,11 +187,11 @@ test('crash after original create recovers without duplicate or overwrite',()=>{
   assert.equal(h.run().fetched,0);assert.equal(h.files.get('gmail-a1.json'),original);
 });
 test('broadened query backfills configured start and retains original map',()=>{
-  const h=harness({held:state({query_revision:1,last_complete:'2026-10-28T00:00:00Z',
+  const h=harness({held:state({query_revision:2,last_complete:'2026-10-28T00:00:00Z',
     query:'old-query',pending:['ff'],nextPageToken:'old-page'})});
   h.run();const url=h.calls.find(c=>c.url&&c.url.includes('messages?')).url;
   assert.ok(decodeURIComponent(url).includes('after:2026/03/30'));
-  assert.ok(!url.includes('old-page'));assert.equal(h.manifest().query_revision,2);
+  assert.ok(!url.includes('old-page'));assert.equal(h.manifest().query_revision,3);
 });
 test('indexed original missing stops before redownload and does not discard index',()=>{
   const h=harness({held:state({messages:{a1:{file_id:'gone',name:'gmail-a1.json'}}})});

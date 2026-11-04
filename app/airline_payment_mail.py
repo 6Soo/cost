@@ -8,6 +8,10 @@ from app import ota_mail
 
 
 def cancellation_references(message):
+    from app import traveloka_mail
+    traveloka = ota_mail.authenticated_headers(message, ('traveloka.com',))
+    if traveloka and re.search(r'취소|환불|cancel|refund', traveloka[0].get('subject', ''), re.I):
+        return {('traveloka', ref) for ref in traveloka_mail.references(message)}
     authenticated = ota_mail.authenticated_headers(message, ('flyasiana.com', 'skyticket.com', 'jejuair.net'))
     if not authenticated:
         return set()
@@ -48,7 +52,7 @@ def jeju_payment_facts(message):
         reserved = sorted({date.fromisoformat(value.replace('.', '-')).isoformat() for value in reserved})
         day = date.fromisoformat(outbound[1].replace('.', '-')).isoformat() if outbound else None
         for block in blocks:
-            approval = re.search(r'^승인번호\s*\n([A-Za-z0-9-]{4,32})\s*$', block, re.M)
+            approval = re.search(r'^승인번호\s*\n([A-Za-z0-9_-]{4,64})\s*$', block, re.M)
             paid = re.search(r'^결제일\s*\n(20\d{2}\.\d{2}\.\d{2})\s*$', block, re.M)
             amounts = set(re.findall(r'^결제금액\s*\n((?:\d+|[1-9]\d{0,2}(?:,\d{3})+))\s*원\s*$', block, re.M))
             if not approval or not paid or len(amounts) != 1:
@@ -68,9 +72,35 @@ def jeju_payment_facts(message):
 
 
 def extract(message):
+    from app import traveloka_mail
+    traveloka = traveloka_mail.extract(message)
+    if traveloka:
+        return traveloka
     jeju = jeju_payment_facts(message)
     if jeju:
         return jeju[0]
+    authenticated_jeju = ota_mail.authenticated_headers(message, ('jejuair.net',))
+    if authenticated_jeju and re.search(r'여정확인서\s*\(e-ticket\)', authenticated_jeju[0].get('subject', ''), re.I):
+        text = ota_mail.message_text(message)
+        refs = set(re.findall(r'예약번호\s*[:：]?\s*([A-Z0-9]{6})\b', text))
+        if len(refs) == 1:
+            compact = '\n'.join(line.strip() for line in text.splitlines() if line.strip())
+            reserved = re.findall(r'^예약일\s*\n(20\d{2}\.\d{2}\.\d{2})', compact, re.M)
+            outbound = re.search(r'가는편\b(?:(?!오는편).)*?\b(20\d{2}\.\d{2}\.\d{2})', compact, re.S)
+            period = None
+            try:
+                reserved = sorted({date.fromisoformat(value.replace('.', '-')).isoformat() for value in reserved})
+                if outbound:
+                    day = date.fromisoformat(outbound[1].replace('.', '-')).isoformat()
+                    period = {'starts_on': day, 'ends_on': day}
+            except ValueError:
+                reserved = []
+            return dict(provider='jeju', booking_ref=next(iter(refs)), item='항공료',
+                paid_amount_krw=None, paid_on=None, period=period, reserved_dates=reserved,
+                event_type='reservation', evidence_status='reservation_observed',
+                reservation_status='observed', paid_on_semantics='missing',
+                source_sha256=hashlib.sha256(json.dumps(message, ensure_ascii=False,
+                    sort_keys=True, separators=(',', ':')).encode()).hexdigest())
     authenticated = ota_mail.authenticated_headers(message, ('flyasiana.com', 'skyticket.com'))
     if not authenticated:
         return None

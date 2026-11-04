@@ -9,12 +9,13 @@ import re
 from app import ota_mail
 
 
-PARSER_VERSION = "flight-evidence-v8-jeju-payment-observations"
+PARSER_VERSION = "flight-evidence-v9-traveloka-reservations"
 PROVIDER_DOMAINS = {
     "trip": ("trip.com", "trip.co.kr"),
     "asiana": ("flyasiana.com",),
     "skyticket": ("skyticket.com",),
     "jeju": ("jejuair.net",),
+    "traveloka": ("traveloka.com",),
 }
 
 _INVISIBLE = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, *range(0x202A, 0x202F)])
@@ -299,7 +300,7 @@ def collect_flight_evidence(mail_directories) -> dict:
         subject = str((authenticated[0] or {}).get("subject") or "")
         body_text = ota_mail.message_text(message)
         source_digest = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
-        if provider in ('asiana', 'skyticket', 'jeju'):
+        if provider in ('asiana', 'skyticket', 'jeju', 'traveloka'):
             from app import airline_payment_mail
             payment = airline_payment_mail.extract(message)
             cancelled = airline_payment_mail.cancellation_references(message)
@@ -315,7 +316,7 @@ def collect_flight_evidence(mail_directories) -> dict:
                 grouped[(provider, ref)].append({
                     'booking_ref': ref, 'passengers': [], 'legs': [],
                     'reserved_on': dates[0] if len(dates) == 1 else '', 'booking_date_status': date_status,
-                    'booking_date_evidence': ([{'source_date': dates[0], 'timezone': '' if provider == 'jeju' else 'GMT',
+                    'booking_date_evidence': ([{'source_date': dates[0], 'timezone': '' if provider in ('jeju', 'traveloka') else 'GMT',
                                                'meaning': 'explicit_booking_created_label'}]
                                               if len(dates) == 1 else []), 'booking_card_day': '',
                     'labeled_departure_on': (period or {}).get('starts_on', ''),
