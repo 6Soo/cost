@@ -1160,8 +1160,8 @@ def render_html(data, query, *, csrf=''):
         + reason_block + problem_block + '</details>'
         + '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)
-        + '</tr></thead><tbody>' + (''.join(body) or ("<tr><td colspan='7'>OTA 자료 갱신에 실패했습니다.</td></tr>" if state == 'failed' and loading else "<tr><td colspan='7'>OTA 자료를 불러오는 중입니다.</td></tr>" if loading else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조건에 맞는 OTA 예약이 없습니다.</td></tr>"
-            if data['all_count'] else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</td></tr>"))
+        + '</tr></thead><tbody>' + (''.join(body) or ("<tr><td class='catalog-message' colspan='7'><span class='catalog-message-text'>OTA 자료 갱신에 실패했습니다.</span></td></tr>" if state == 'failed' and loading else "<tr><td class='catalog-message' colspan='7'><span class='catalog-message-text'>OTA 자료를 불러오는 중입니다.</span></td></tr>" if loading else f"<tr><td class='catalog-message' colspan=\"7\">{ui_icons.icon('search', 16)}<span class='catalog-message-text'>조건에 맞는 OTA 예약이 없습니다.</span></td></tr>"
+            if data['all_count'] else f"<tr><td class='catalog-message' colspan=\"7\">{ui_icons.icon('search', 16)}<span class='catalog-message-text'>조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</span></td></tr>"))
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
@@ -1170,7 +1170,7 @@ def render_html(data, query, *, csrf=''):
 
 OTA_STYLE = (
     "@media(prefers-color-scheme:dark){.card-catalog{--cc-bg:#111820;--cc-surface:#1B2632;--cc-text:#E7EDF4;--cc-muted:#A7B4C2;--cc-border:#394858;--cc-soft:#24313E;--cc-accent:#8ED3AD;--cc-accent-bg:#244536;--cc-focus:#86B7FF;color-scheme:dark}}"
-    ".card-catalog td:before{display:none}@media(width < 760px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
+    ".card-catalog td:before{display:none}@media(width < 1024px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
     ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
     ".card-catalog svg.ic:first-child{margin-right:6px}"

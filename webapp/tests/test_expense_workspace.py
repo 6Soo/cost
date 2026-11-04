@@ -50,6 +50,7 @@ def test_core_tasks_are_primary_and_management_is_disclosed_with_reachable_panel
         assert panel['aria-labelledby'] == tab['id']
     for target in ('upload', 'file', 'status', 'summary', 'preview', 'questions', 'ruleform', 'rule-panel'):
         assert target in parser.ids
+    assert re.search(r'<label for="rule-text">분류 지시</label>\s*<textarea id="rule-text"', page('synthetic-token'))
     assert '<!--EXPENSE_CLEANUP-->' in page('synthetic-token')
 
 

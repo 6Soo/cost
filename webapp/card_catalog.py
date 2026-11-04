@@ -178,7 +178,7 @@ def render_html(data, query, *, csrf=''):
         + "<table><thead><tr>" + date_heading + card_heading
         + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '거래 구분', '원본 금액', '분류', '여행'))
         + state_heading + "<th scope='col'>다음 행동</th>"
-        + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td colspan="9">조건에 맞는 카드 내역이 없습니다.</td></tr>')
+        + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td class="catalog-message" colspan="9"><span class="catalog-message-text">조건에 맞는 카드 내역이 없습니다.</span></td></tr>')
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>{ui_icons.icon('chevron-left')}이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음{ui_icons.icon('chevron-right')}</a>" if data['page'] < data['pages'] else '')

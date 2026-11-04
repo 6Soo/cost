@@ -54,7 +54,7 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
 .card-catalog td a{color:var(--cc-accent);font-weight:600;text-underline-offset:3px}
 .card-catalog .catalog-pagination{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:20px 0}
 .card-catalog .catalog-pagination span{margin-right:auto;color:#667085}
-@media(width < 760px){
+@media(width < 1024px){
  .card-catalog .catalog-actions{margin:8px 0 18px}
  .card-catalog .catalog-actions .catalog-btn{flex:1 1 auto;padding:9px 12px}
  .card-catalog h1{font-size:22px}
@@ -71,5 +71,9 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
  .card-catalog tbody tr{margin:12px 0;border:1px solid var(--cc-border);border-radius:12px;background:var(--cc-surface);overflow:hidden}
  .card-catalog td{display:grid;grid-template-columns:76px minmax(0,1fr);border:0;padding:8px 12px}
  .card-catalog td:before{content:attr(data-label);color:#667085;font-size:12px}
+ .card-catalog td.catalog-message{display:flex;align-items:flex-start;gap:6px}
+ .card-catalog td.catalog-message:before{display:none;content:none}
+ .card-catalog td.catalog-message>svg{flex:0 0 16px}
+ .card-catalog td.catalog-message .catalog-message-text{flex:1;min-width:0}
 }
 @media(max-width:375px){.card-catalog{font-size:13px}.card-catalog td{grid-template-columns:68px minmax(0,1fr);padding:8px}.card-catalog .catalog-btn{white-space:normal}}
