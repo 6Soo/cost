@@ -588,6 +588,8 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
                 assert page.locator('.card-all-row-toggle').count() == 3
+                assert page.locator('.card-all-row-toggle.site-action-icon').count() == 0
+                assert page.locator('.card-all-filters select[name=period]').bounding_box()['y'] == page.locator('.card-all-filters select[name=card]').bounding_box()['y']
                 tx_row = page.locator("tr[data-tx-id='TX-A-01']")
                 assert tx_row.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
                 assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '코드 추론'

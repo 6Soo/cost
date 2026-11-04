@@ -124,7 +124,8 @@ def query_booking_reservations(
             if not matches_words(query, original_name_tokens, locations):
                 continue
             linked = cards.get(str(booking_ref), [])
-            reservation = project_booking_reservation(booking_ref, evidence, full_name, linked_cards=linked)
+            reservation = project_booking_reservation(evidence.get('booking_ref') or booking_ref,
+                evidence, full_name, linked_cards=linked, provider=evidence.get('provider') or 'trip')
             results.append(reservation)
             fingerprints.append((str(booking_ref), evidence.get('digest'), evidence.get('source_digests')))
             break
