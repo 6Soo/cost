@@ -1,4 +1,4 @@
-﻿"""The A/Ramp/Pretendard design on the real ledger screen.
+"""The A/Ramp/Pretendard design on the real ledger screen.
 
 Real clicks at 1440 and 390 against the product server and its real store:
 row edit panel, save, cancel, stale revision, classification move, upload,
@@ -285,7 +285,7 @@ class DesignScreenTests(unittest.TestCase):
         # is absent because no review is configured in this environment; the
         # reservation-linking button is present because it does not depend on
         # one (RESERVE-NAVIGATION-001).
-        self.assertEqual(page.inner_text(".act").replace("\n", " "), "XLSX 출력 추가 작업")
+        self.assertEqual(page.inner_text(".act").replace("\n", " "), "마감 여행 관리 예약·참가자 XLSX 출력 추가 작업")
         page.locator('.secondary-actions > summary').click()
         self.assertTrue(page.locator('#reserve-link').is_visible())
         self.assertTrue(page.locator('.act a[href="/import#newupload"]').is_visible())
@@ -507,7 +507,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(stored["revision"], before + 1)
         # the panel shows the new revision, and the summary was re-read
         self.assertEqual(
-            page.input_value("input[name='expected_revision']"),
+            page.input_value("#panel input[name='expected_revision']"),
             str(stored["revision"]))
         self.assertIn("180,000원", page.inner_text("#sum"))
         self.assertIn("1,000,000원", page.inner_text("#sum"))
