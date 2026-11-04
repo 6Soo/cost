@@ -439,11 +439,12 @@ def test_provider_catalog_stays_on_free_tier():
     assert all(name.startswith('opencode/') and name.endswith('-free') for name in provider.MODELS)
 
 
-def test_provider_attaches_large_review_request_from_private_temp_file(tmp_path):
+def test_provider_attaches_large_review_request_from_private_temp_file(tmp_path, monkeypatch):
     import re
     import subprocess
     from pathlib import Path
     from app import connected_agent_provider as provider
+    monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-opencode')
 
     request = {'digest': 'synthetic-digest', 'cases': [
         {'transaction_id': f'synthetic-{index}', 'context': 'x' * 2400} for index in range(20)]}
@@ -471,8 +472,9 @@ def test_provider_attaches_large_review_request_from_private_temp_file(tmp_path)
     assert not observed['path'].exists()
 
 
-def test_provider_classifies_windows_command_line_limit_without_exposing_error_text():
+def test_provider_classifies_windows_command_line_limit_without_exposing_error_text(monkeypatch):
     from app import connected_agent_provider as provider
+    monkeypatch.setattr(provider, '_executable', lambda: 'synthetic-opencode')
 
     def runner(command, *, cwd, env, timeout):
         error = OSError('synthetic Windows command size failure')
