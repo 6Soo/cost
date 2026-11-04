@@ -146,16 +146,17 @@ def _review_markup(state, data):
             status_html = (f"<button type='button' class='insurance-review-status insurance-candidate-button' "
                            f"data-insurance-evidence='{evidence_id}' aria-controls='{evidence_id}-row' aria-expanded='false'>{_esc(label)}"
                            "</button>")
-            cards = []
+            card_groups = {}
             for contract, row, match in evidence_by_ref.get(ref, []):
                 reason = ('보이는 글자가 수입 이름·닉네임과 일치합니다.'
                           if row.get('match_state') == 'matched' else
                           '여러 기록에 글자가 맞아 한 사람으로 정할 수 없습니다.')
                 if row.get('mask_length_unknown'):
                     reason += ' 가림 기호의 글자 수는 확인되지 않았습니다.'
-                cards.append(candidate_group(contract, ["<li><strong>"
-                             + _esc(row.get('masked_name') or '가림 이름 없음')
-                             + '</strong><p>' + _esc(reason) + '</p></li>']))
+                group = card_groups.setdefault(id(contract), (contract, []))
+                group[1].append("<li><strong>" + _esc(row.get('masked_name') or '가림 이름 없음')
+                                + '</strong><p>' + _esc(reason) + '</p></li>')
+            cards = [candidate_group(contract, items) for contract, items in card_groups.values()]
             no_match = not hits
             roster = ("<div data-insurance-roster></div>" if no_match else
                       ''.join(cards))

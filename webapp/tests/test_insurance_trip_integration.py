@@ -104,6 +104,64 @@ def test_income_status_page_uses_the_same_date_order_as_the_visible_income_table
     assert value == before
 
 
+def test_candidate_rows_toggle_independently_and_keep_income_table_usable():
+    from playwright.sync_api import sync_playwright
+    from webapp import ledger_design_assets
+    from webapp.tests.test_participant_trip_panel import sample_state
+    value = sample_state(2)
+    value['google']['generation'] = 'one'
+    value['insurance_review'] = {'available': True, 'counts': {'contracts': 1, 'rows': 12},
+        'trip_period': {'start': '2026-10-01', 'end': '2026-10-05'},
+        'contracts': [{'travel_start': '2026-10-01', 'travel_end': '2026-10-05',
+                       'rows': [{'masked_name': f'합성{i}*', 'matches': []} for i in range(12)]}]}
+    response = panel.render(value)
+    rows = ''.join(f"<tr><td class='income-date'>10월1일</td><td class='income-person'>합성{i}</td>"
+                   "<td class='income-breakdown'></td><td class='income-breakdown'></td>"
+                   "<td class='income-breakdown'></td><td class='income-total'>1,000원</td>"
+                   f"<td class='participant-insurance-cell' data-income-ref='{row['ref']}'></td></tr>"
+                   for i, row in enumerate(value['income_rows']))
+    document = ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<style>' + ledger_design_assets.STYLE + '</style><main id="main"><section id="google-trip-income">'
+                '<table id="income-tbl" data-google-generation="one"><tbody>' + rows + '</tbody></table></section>'
+                + panel.shell(trip_id='trip-a') + '</main><script>' + ledger_design_assets.SCRIPT + '</script>')
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': 1280, 'height': 900})
+            calls = []
+            def serve(route):
+                calls.append(route.request.method)
+                route.fulfill(status=200, content_type='text/html',
+                              body=response if '/trip-panel?' in route.request.url else document)
+            page.route('http://synthetic.test/**', serve)
+            page.goto('http://synthetic.test/')
+            page.locator('#participant-trip-panel summary').first.click()
+            buttons = page.locator('.insurance-candidate-button')
+            buttons.nth(0).click()
+            buttons.nth(1).click()
+            assert page.locator('.insurance-candidate-row').count() == 2
+            for row in page.locator('.insurance-candidate-row').all():
+                assert row.locator('td').get_attribute('colspan') == '7'
+                assert row.locator('li').count() == 12
+                assert '보험 기간' not in row.inner_text() and '1,000원' not in row.inner_text()
+                assert row.evaluate('(el)=>el.previousElementSibling.querySelector(".insurance-candidate-button").getAttribute("aria-controls")===el.id')
+            for width in (320, 390, 759, 900, 1280):
+                page.set_viewport_size({'width': width, 'height': 900})
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                assert page.locator('.insurance-candidate-row li:visible').count() == 24
+                assert page.locator('dialog[open]').count() == 0
+            buttons.nth(0).click()
+            assert page.locator('.insurance-candidate-row').count() == 1
+            assert buttons.nth(0).get_attribute('aria-expanded') == 'false'
+            page.locator('.insurance-candidate-row a').focus()
+            page.keyboard.press('Escape')
+            assert page.locator('.insurance-candidate-row').count() == 0
+            assert buttons.nth(1).evaluate('(el)=>el===document.activeElement')
+            assert set(calls) == {'GET'}
+        finally:
+            browser.close()
+
+
 def test_capped_candidate_list_does_not_claim_unlisted_rows_have_no_match():
     value = state()
     value['insurance_review'] = {'available': True, 'counts': {'contracts':1,'rows':1},
