@@ -428,7 +428,7 @@ def _head_html(trip) -> str:
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
-        + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX ??</a>"
+        + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
 
