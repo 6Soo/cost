@@ -3380,6 +3380,7 @@ async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return
   try{const result=await awaitUpload(job,entry);entry.textContent=(job.filename||'카드 파일')+' · '+uploadOutcome(result);savedUploadLink(entry,job.batch_id)}
   catch(e){entry.textContent=(job.filename||'카드 파일')+' · '+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
  }));
+ note.textContent=jobs.length+'개 파일 진행 상태 확인 완료 · 파일별 결과를 확인해 주세요.';
 }
 resumeUpload();
 function uploadOutcome(j){return j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
