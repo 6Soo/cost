@@ -1121,3 +1121,8 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 2026-11-04 넓은 화면 중앙 정렬
 
 - COMPLETE — [PR #618](https://github.com/6Soo/cost/pull/618) 운영 `4758fe63386c10a3cf1f255e7448d3a21c55fdfe`. 홈·여행 관리의 공통 본문과 제목을 중앙에 모으고 영수증 본문을 중앙 정렬했다. 상세 검사·배포 근거는 [운영 기록](operations.md#2026-11-04-넓은-화면-본문-중앙-정렬). Windows 영향 QA 208 passed·27 subtests·skip 0, CI 성공, 운영 PC 7화면 읽기 확인. 실기기·모든 상태 조합은 미검증이다.
+## 2026-11-05 COST 관리자 UI/UX 종합 개선 — 구현·운영 완료
+
+- COMPLETE — [PR #653](https://github.com/6Soo/cost/pull/653) 병합 및 운영 배포 완료. 고정 운영 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`.
+- 영향 QA 699 passed·61 subtests·skip 0, PR CI `41935646283` 성공. 데스크톱/모바일 비교 및 예외 상태 검토 완료. 보호 테이블 13개 전후 불변, health/ready 200, 보호 API 401. 금융/Google/원본 데이터 쓰기와 DB 변경 없음.
+- 배포 증거: `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`; 작업 archive: `C:/AX/cost-admin-ui-ux-20261105/.local-archive/admin-ui-ux-deploy-20261105/`. 상세 운영 이력은 [운영 기록](operations.md#2026-11-05-cost-관리자-uiux-종합-개선-배포-완료).
