@@ -297,7 +297,7 @@ class AutonomousCleanupWorker:
     @active_writer(default=False)
     @refund_evidence_scope()
     def sweep_once(self):
-        from app import automatic_classification, ai_classification, connected_agent_provider
+        from app import automatic_classification, ai_classification
 
         with self.runtime_lock, self.board._lock:
             if self._stop.is_set():
@@ -358,34 +358,39 @@ class AutonomousCleanupWorker:
                 self.board.conn.commit()
                 self._finish(rows)
                 return True
-            return self._call_agent(request, due_rows, fingerprints, now, trips, nets, rows)
+            # Claim under the lock; the provider call runs unlocked so the HTTP path
+            # stays responsive. apply() re-validates freshness in a fresh transaction.
+            claim = (request, due_rows, fingerprints, now, rows)
+        return self._call_agent(*claim)
 
-    def _call_agent(self, request, due_rows, fingerprints, now, trips, nets, all_rows):
+    def _call_agent(self, request, due_rows, fingerprints, now, all_rows):
         from app import ai_classification, connected_agent_provider
 
         batch_ids = [row[0] for row in due_rows]
         if not self.agent_enabled():
-            for row in due_rows:
-                save_job(self.board.conn, row[0], fingerprints[row[0]],
-                         {'status': 'blocked', 'reason': 'AGENT_NOT_ENABLED', 'attempts': 0,
-                          'not_before': now + BLOCKED_RETRY_SECONDS})
-            self.status['blocked'] += len(batch_ids)
-            self.board.conn.commit()
-            append_metric(self.board, {'kind': 'p2_blocked', 'cases': len(request['cases']),
-                                       'reason': 'AGENT_NOT_ENABLED'})
-            self._finish(all_rows)
+            with self.runtime_lock, self.board._lock:
+                for row in due_rows:
+                    save_job(self.board.conn, row[0], fingerprints[row[0]],
+                             {'status': 'blocked', 'reason': 'AGENT_NOT_ENABLED', 'attempts': 0,
+                              'not_before': now + BLOCKED_RETRY_SECONDS})
+                self.status['blocked'] += len(batch_ids)
+                self.board.conn.commit()
+                append_metric(self.board, {'kind': 'p2_blocked', 'cases': len(request['cases']),
+                                           'reason': 'AGENT_NOT_ENABLED'})
+                self._finish(all_rows)
             return True
         cap = connected_agent_provider.daily_cap(self._config_path())
         if p2_calls_today(self.board) >= cap:
-            for row in due_rows:
-                save_job(self.board.conn, row[0], fingerprints[row[0]],
-                         {'status': 'blocked', 'reason': 'AGENT_DAILY_CAP', 'attempts': 0,
-                          'not_before': now + BLOCKED_RETRY_SECONDS})
-            self.status['blocked'] += len(batch_ids)
-            self.board.conn.commit()
-            append_metric(self.board, {'kind': 'p2_blocked', 'cases': len(request['cases']),
-                                       'reason': 'AGENT_DAILY_CAP'})
-            self._finish(all_rows)
+            with self.runtime_lock, self.board._lock:
+                for row in due_rows:
+                    save_job(self.board.conn, row[0], fingerprints[row[0]],
+                             {'status': 'blocked', 'reason': 'AGENT_DAILY_CAP', 'attempts': 0,
+                              'not_before': now + BLOCKED_RETRY_SECONDS})
+                self.status['blocked'] += len(batch_ids)
+                self.board.conn.commit()
+                append_metric(self.board, {'kind': 'p2_blocked', 'cases': len(request['cases']),
+                                           'reason': 'AGENT_DAILY_CAP'})
+                self._finish(all_rows)
             return True
         started = time.monotonic()
         try:
@@ -396,41 +401,48 @@ class AutonomousCleanupWorker:
                 response = connected_agent_provider.run_agent(request, model=model)
         except Exception as exc:
             code = getattr(exc, 'code', type(exc).__name__)
-            for row in due_rows:
-                self._retry_or_dead(row, fingerprints[row[0]], now, str(code))
-            self.board.conn.commit()
-            append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
-                                       'outcome': 'unavailable:' + str(code),
-                                       'duration_ms': int((time.monotonic() - started) * 1000)})
-            self._finish(all_rows)
+            with self.runtime_lock, self.board._lock:
+                for row in due_rows:
+                    self._retry_or_dead(row, fingerprints[row[0]], now, str(code))
+                self.board.conn.commit()
+                append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
+                                           'outcome': 'unavailable:' + str(code),
+                                           'duration_ms': int((time.monotonic() - started) * 1000)})
+                self._finish(all_rows)
             return True
         response = {key: value for key, value in response.items() if not key.startswith('_')}
-        try:
-            result = ai_classification.apply(
-                self.board.conn, trips, request, response,
-                request_id='connected-agent:' + response['execution']['run_id'], nets=nets)
-        except Exception as exc:
-            self.board.conn.rollback()
+        with self.runtime_lock, self.board._lock:
+            try:
+                trips, nets = self._fresh_context()
+                result = ai_classification.apply(
+                    self.board.conn, trips, request, response,
+                    request_id='connected-agent:' + response['execution']['run_id'], nets=nets)
+            except Exception as exc:
+                self.board.conn.rollback()
+                for row in due_rows:
+                    self._retry_or_dead(row, fingerprints[row[0]], now, 'apply_' + type(exc).__name__)
+                self.board.conn.commit()
+                append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
+                                           'outcome': 'apply_failed:' + type(exc).__name__,
+                                           'duration_ms': int((time.monotonic() - started) * 1000)})
+                self._finish(all_rows)
+                return True
+            applied = int((result or {}).get('applied') or 0) if isinstance(result, dict) else 0
             for row in due_rows:
-                self._retry_or_dead(row, fingerprints[row[0]], now, 'apply_' + type(exc).__name__)
+                save_job(self.board.conn, row[0], fingerprints[row[0]], {'status': 'p2_applied', 'attempts': 0})
             self.board.conn.commit()
-            append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
-                                       'outcome': 'apply_failed:' + type(exc).__name__,
+            self.status['p2_applied'] += len(batch_ids)
+            append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']), 'applied': applied,
+                                       'outcome': 'applied',
+                                       'run_id': response.get('execution', {}).get('run_id'),
+                                       'model': response.get('execution', {}).get('model'),
                                        'duration_ms': int((time.monotonic() - started) * 1000)})
             self._finish(all_rows)
             return True
-        applied = int((result or {}).get('applied') or 0) if isinstance(result, dict) else 0
-        for row in due_rows:
-            save_job(self.board.conn, row[0], fingerprints[row[0]], {'status': 'p2_applied', 'attempts': 0})
-        self.board.conn.commit()
-        self.status['p2_applied'] += len(batch_ids)
-        append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']), 'applied': applied,
-                                   'outcome': 'applied',
-                                   'run_id': response.get('execution', {}).get('run_id'),
-                                   'model': response.get('execution', {}).get('model'),
-                                   'duration_ms': int((time.monotonic() - started) * 1000)})
-        self._finish(all_rows)
-        return True
+
+    def _fresh_context(self):
+        flow, trips, nets, inputs = self._held_context()
+        return trips, nets
 
     def _retry_or_dead(self, row, fingerprint_value, now, reason, *, not_before=None):
         job = load_job(self.board.conn, row[0]) or {}
