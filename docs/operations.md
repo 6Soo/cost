@@ -1,3 +1,30 @@
+## 2026-11-05 지출 정리 문구·인라인 편집 및 여행 장부 뷰어 UI 개편 배포 완료
+
+- COMPLETE — 사용자 “검토필요 장부기록가능이 대체 무슨 정보를 제공하는지 알수가없고 여행항목수정 버튼을 눌러서 단 두 줄의 버튼만 제공할거면 왜 만들었으며 UI까지 다 박살냄” 피드백 해결.
+- PR: [PR #638](https://github.com/6Soo/cost/pull/638), [PR #640](https://github.com/6Soo/cost/pull/640), [PR #639](https://github.com/6Soo/cost/pull/639).
+- 운영 전환 SHA: `37b82e5829a7b8a062e7a7e2a9fff7081bd3a737`, 이전 운영: `465760ba7cbc23ab46fe61eaa20eb06999510c70`.
+- 주요 변경 사항:
+  1. **지출 정리(Cleanup) 상태 문구 모순 해소**: 혼란을 유발하던 '장부기록가능' 문구를 “여행·항목이 지정되어 있습니다. COST 내부 비용 기록은 아직 없습니다.”로 수정하여 미기록 상태와 현재 연결 정보를 정확하게 안내.
+  2. **지출 정리 인라인 편집기 개편**: 숨겨진 2줄 `<summary>` 버튼을 제거하고, 행 클릭 시 `<label>여행<select>`, `<label>비용 항목<input>`, `<button>변경 저장</button>`이 포함된 직관적인 인라인 그리드 폼 노출.
+  3. **여행 상세 페이지 UI 복구 및 액션바 단일화**:
+     - 상단 헤더 복구: 불필요한 import 버튼 노출을 배제하고 `XLSX 출력`만 `.act`에 남겨 반응형 뷰포트 오버플로우 방지.
+     - 숙박 이용일 압축: 테이블 내 긴 이용기간을 `09.22–09.23 · 1박` 형식으로 요약하고 상세 날짜·요일·추론 근거는 툴팁에 보존.
+     - 여행 작업 버튼군 일원화: `수기 지출 추가`, `보험가입내역`, `여행 검토`를 `.trip-actions` 단일 행 툴바(44px 보장, 단일 수평 정렬)로 모으고 `#trip-review-panel` 드로어를 통해 현재 여행에 귀속된 보험 후보·지출 복사·영수증·보류 거래 상세를 제공.
+- 실제 검증:
+  - Windows 영향 QA: 341 passed (29개 브라우저 케이스 포함), skip 0.
+  - 최신 main 통합 테스트: 71 passed, skip 0 (`latest-main-integration.xml`).
+  - GitHub Actions CI: PR #639 CI(`41906688103`) 및 main push CI(`41907354625`) 통과.
+  - 배포 후 테스트: `test_trip_review_actions.py` (1 passed, 5 subtests passed), `test_core_ui_disclosure.py` (3 passed).
+- 배포:
+  - `tools/deploy_verified_release.ps1 -Apply` 성공.
+  - 1,343 tracked blobs 일치 (blob_mismatches: 0).
+  - task/process 고정 SHA 검증 (`37b82e5829a7b8a062e7a7e2a9fff7081bd3a737`).
+  - gateway 8790 → backend 8752 연속 전환 완료 (`ledger-route.json`: port 8752, paused: false).
+  - `/healthz`: 200, `/readyz`: 200, 보호 API (`/api/imports/ota`, `/api/imports/ota/summary`, `/api/maintenance/refund-pair/synthetic/preview`): 401.
+  - 금융 보호 13개 테이블 불변 검증 PASS (`unchanged: true`).
+  - 실제 금융·Google 장부 쓰기 0건.
+- 근거: `C:/AX/cost/.local-archive/trip-review-20261105/` 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-37b82e5829a7b8a062e7a7e2a9fff7081bd3a737.json`.
+
 ## 2026-11-05 여행 탭에서 마감·여행 관리 및 예약 연결 통합 완료
 
 - COMPLETE — 사용자 “여행관리가 왜 여행 탭이 아니라 별도 메뉴로 존재해야하지? 예약명단 여행연결이란 메뉴가 왜 필요하지? -> 바로 진행해” 반영. [PR #642](https://github.com/6Soo/cost/pull/642), 머지 `465760ba7cbc23ab46fe61eaa20eb06999510c70`, 고정 운영 `465760ba7cbc23ab46fe61eaa20eb06999510c70`, 이전 운영 `73075112214a81151e07b54bb02a0615b9833b86`.

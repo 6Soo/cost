@@ -1,3 +1,20 @@
+## 2026-11-05 지출 정리 문구·인라인 편집 및 여행 장부 뷰어 UI 개편 — 완료
+
+- COMPLETE — 사용자 “검토필요 장부기록가능이 대체 무슨 정보를 제공하는지 알수가없고 여행항목수정 버튼을 눌러서 단 두 줄의 버튼만 제공할거면 왜 만들었으며 UI까지 다 박살냄” 피드백 해결.
+- PR: [PR #638](https://github.com/6Soo/cost/pull/638), [PR #640](https://github.com/6Soo/cost/pull/640), [PR #639](https://github.com/6Soo/cost/pull/639).
+- 운영 전환 SHA: `37b82e5829a7b8a062e7a7e2a9fff7081bd3a737`, 이전 운영: `465760ba7cbc23ab46fe61eaa20eb06999510c70`. [운영 기록](operations.md#2026-11-05-지출-정리-문구인라인-편집-및-여행-장부-뷰어-ui-개편-배포-완료).
+- 핵심 조치:
+  1. 지출 정리 안내 문구 모순 해소: '장부기록가능' 문구를 “여행·항목이 지정되어 있습니다. COST 내부 비용 기록은 아직 없습니다.”로 수정.
+  2. 지출 정리 인라인 편집기 개편: 숨겨진 2줄 summary 대신 직관적인 그리드 폼(`<label>여행<select>`, `<label>비용 항목<input>`, `<button>변경 저장</button>`) 노출.
+  3. 여행 장부 뷰어 UI 복구:
+     - 상단 헤더 복구: `XLSX 출력` 단독 노출로 반응형 뷰포트 오버플로우 방지.
+     - 숙박 이용일 압축: `09.22–09.23 · 1박` 형식으로 요약(상세 툴팁 유지).
+     - 액션바 통합: `수기 지출 추가`, `보험가입내역`, `여행 검토`를 `.trip-actions` 단일 행 툴바로 통합하고, `#trip-review-panel` 드로어를 통해 현재 여행에 귀속된 보험 후보·지출 복사·영수증·보류 거래 상세를 연계.
+- 검증 및 배포:
+  - Windows 영향 QA 341 passed (skip 0), 최신 main 통합 71 passed, PR CI(`41906688103`) 및 main push CI(`41907354625`) 전건 통과.
+  - 고정 SHA `37b82e58` 무중단 전환 배포 성공 (blob_mismatches: 0, healthz/readyz 200, 보호 API 401, 보호 13개 테이블 불변 PASS, 금융/Google 쓰기 0).
+- 근거: `C:/AX/cost/.local-archive/trip-review-20261105/` 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-37b82e5829a7b8a062e7a7e2a9fff7081bd3a737.json`.
+
 ## 2026-11-05 여행 탭에서 마감·여행 관리 및 예약 연결 통합 — 완료
 
 - COMPLETE — 사용자 “여행관리가 왜 여행 탭이 아니라 별도 메뉴로 존재해야하지? 예약명단 여행연결이란 메뉴가 왜 필요하지? -> 바로 진행해” 반영. [PR #642](https://github.com/6Soo/cost/pull/642), 머지 `465760ba7cbc23ab46fe61eaa20eb06999510c70`, 고정 운영 `465760ba7cbc23ab46fe61eaa20eb06999510c70`, 이전 운영 `73075112214a81151e07b54bb02a0615b9833b86`. [명세](specs/trip-context-management-20261105.md), [운영 기록](operations.md#2026-11-05-여행-탭에서-마감여행-관리-및-예약-연결-통합-완료).
