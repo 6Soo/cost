@@ -143,10 +143,15 @@ def test_no_match_button_opens_roster_and_preselects_income_without_writing():
             button = page.locator('.participant-insurance-cell .insurance-candidate-button')
             assert button.inner_text() == '이름 일치 없음'
             button.click()
-            dialog = page.locator('#insurance-candidate-dialog')
+            dialog = page.locator('.insurance-candidate-row')
             assert dialog.is_visible()
-            assert '김*수' in dialog.inner_text() and '직접 비교' in dialog.inner_text()
-            assert '이미 연결된 사람' not in dialog.inner_text()
+            assert '김*수' in dialog.inner_text()
+            assert page.locator('dialog[open]').count() == 0
+            assert button.get_attribute('aria-expanded') == 'true'
+            assert page.locator('#income-tbl').is_visible()
+            assert dialog.locator('.insurance-candidate-list li:visible').count() == 1
+            assert dialog.evaluate('(row)=>row.previousElementSibling.contains(document.querySelector(".insurance-candidate-button"))')
+            assert dialog.locator('td').get_attribute('colspan') == '1'
             dialog.locator('[data-insurance-connect-ref]').click()
             assert not dialog.is_visible()
             assert page.locator('.participant-keyboard-link [name=income_ref]').input_value() == ref
@@ -259,10 +264,10 @@ def test_browser_loading_retry_and_candidate_dialog_are_actionable_and_readonly(
             held[1].fulfill(status=200,content_type='text/html',body=response)
             button=page.locator('.insurance-candidate-button')
             button.click()
-            dialog=page.locator('#insurance-candidate-dialog')
+            dialog=page.locator('.insurance-candidate-row')
             assert dialog.is_visible() and dialog.locator('.insurance-candidate-list li').count()==2
-            assert '가*다' in dialog.inner_text() and '1,000원' in dialog.inner_text()
-            assert '확정하지 않습니다' in dialog.inner_text()
+            assert '가*다' in dialog.inner_text() and '1,000원' not in dialog.inner_text()
+            assert dialog.locator('.insurance-selected-income').count() == 0
             assert dialog.locator('a').get_attribute('href').endswith('trip=trip-a')
             assert page.locator('#participant-trip-panel').get_attribute('aria-busy')=='false'
             for width in (320,390,1280):
@@ -275,3 +280,17 @@ def test_browser_loading_retry_and_candidate_dialog_are_actionable_and_readonly(
             assert not (tmp_path/'absent.sqlite').exists()
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize('same_period', [True, False])
+def test_candidate_period_is_grouped_and_only_shown_when_different(same_period):
+    value = state()
+    value['insurance_review'] = {'available': True, 'counts': {'contracts': 1, 'rows': 2},
+        'trip_period': {'start': '2026-10-01', 'end': '2026-10-05' if same_period else '2026-10-06'},
+        'contracts': [{'travel_start': '2026-10-01', 'travel_end': '2026-10-05',
+                       'rows': [{'masked_name': name, 'matches': []} for name in ('김*수', '이*희')]}]}
+    before = copy.deepcopy(value)
+    roster = panel.render(value).split("id='insurance-roster-candidates'>", 1)[1].split('</template>', 1)[0]
+    assert roster.count('<li>') == 2
+    assert roster.count("class='insurance-period-difference'") == (0 if same_period else 1)
+    assert value == before
