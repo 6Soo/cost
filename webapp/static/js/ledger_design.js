@@ -27,6 +27,18 @@
   var root=document.getElementById('participant-trip-panel');
   if(!root)return;
   var dlg=null,pending=null,form=null,busy=false;
+  function closeCandidates(row,restoreFocus){
+   if(!row)return;
+   var button=document.querySelector('button[data-insurance-evidence="'+CSS.escape(row.dataset.insuranceRowEvidence)+'"]');
+   row.remove();
+   if(button){button.setAttribute('aria-expanded','false');if(restoreFocus)button.focus({preventScroll:true});}
+  }
+  document.addEventListener('keydown',function(e){
+   if(e.key!=='Escape')return;
+   var row=e.target.closest('.insurance-candidate-row');
+   if(!row&&e.target.matches('[data-insurance-evidence]'))row=document.getElementById(e.target.getAttribute('aria-controls'));
+   if(row){e.preventDefault();closeCandidates(row,true);}
+  });
   function ask(message,submit){
    if(!dlg){if(window.confirm(message))submit();return;}
    root.open=true;
@@ -111,26 +123,31 @@
    var evidenceButton=e.target.closest('[data-insurance-evidence]');
    if(evidenceButton){
     var evidence=root.querySelector('#'+CSS.escape(evidenceButton.dataset.insuranceEvidence));
-    var candidateDialog=root.querySelector('#insurance-candidate-dialog');
-    if(evidence&&candidateDialog){
-     root.open=true;
-     var evidenceContent=candidateDialog.querySelector('[data-insurance-evidence-content]');
-     evidenceContent.replaceChildren(evidence.content.cloneNode(true));
+    var existing=document.getElementById(evidenceButton.getAttribute('aria-controls'));
+    if(existing){closeCandidates(existing,false);return;}
+    if(evidence){
+     var sourceRow=evidenceButton.closest('tr');
+     var candidateRow=document.createElement('tr');
+     candidateRow.className='insurance-candidate-row';candidateRow.id=evidenceButton.getAttribute('aria-controls');
+     candidateRow.dataset.insuranceRowEvidence=evidenceButton.dataset.insuranceEvidence;
+     var cell=document.createElement('td');
+     cell.colSpan=Array.from(sourceRow.cells).reduce(function(total,item){return total+item.colSpan;},0);
+     var evidenceContent=document.createElement('div');evidenceContent.className='insurance-candidate-content';
+     evidenceContent.appendChild(evidence.content.cloneNode(true));
      var roster=evidenceContent.querySelector('[data-insurance-roster]'),rosterTemplate=root.querySelector('#insurance-roster-candidates');
      if(roster&&rosterTemplate)roster.replaceChildren(rosterTemplate.content.cloneNode(true));
-     candidateDialog.showModal();
+     cell.appendChild(evidenceContent);candidateRow.appendChild(cell);sourceRow.after(candidateRow);
+     evidenceButton.setAttribute('aria-expanded','true');
     }
     return;
    }
    var candidateConnect=e.target.closest('[data-insurance-connect-ref]');
    if(candidateConnect){
     var targetCell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(candidateConnect.dataset.insuranceConnectRef)+'"]');
-    var dialog=root.querySelector('#insurance-candidate-dialog');
-    if(dialog)dialog.close();
+    closeCandidates(candidateConnect.closest('.insurance-candidate-row'),false);
     if(targetCell)choose(targetCell);
     return;
    }
-   if(e.target.closest('[data-insurance-close]')){root.querySelector('#insurance-candidate-dialog').close();return;}
    if(e.target.closest('.participant-review-retry')){loadPanel();return;}
    var jump=e.target.closest('a[href="#participant-trip-panel"]');
    if(jump){root.open=true;loadPanel();return;}
