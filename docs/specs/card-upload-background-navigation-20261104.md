@@ -18,8 +18,8 @@
 - ego-browser TaskSpace48에서 합성 12개 접수→다른 페이지→업로드 복귀·12개 상태 복구·업로드 버튼 활성·가로 넘침 없음 확인, 작업 공간 종료. 합성 fetch를 사용했으므로 운영 처리 성능·운영 고객 업로드 수락과 구분한다.
 - Windows 영향 QA 시작 SHA `e6d97d8f9a07562cca10fb4eac0a5a5f5a104987`: 496 passed/97 subtests, 2 failed, skip0. 실패를 통과로 처리하지 않는다. 실패 2건은 기준 `a912182991739917fcdd961dc04a7234c32f9b08`에서도 재현됐다. 인증 페이지는 현재 HTML 로그인 화면을 JSON으로 파싱하는 기대값 실패이며, OTA signed catalog는 기존 upload jobs 모듈 뒤 실행할 때 total0/기대1로 실패한다. 단독 OTA 검사는 기준에서 통과해 순서 의존성이 있다.
 - 근거: Git 제외 `.local-archive/upload-background-20261104/`의 `candidate/quality-artifacts/`, `baseline-failures.xml`, `baseline-order-full.xml`, `browser-05.mjs`, `browser-resumed.png`, `checkpoint.json`.
-- 현재 범위 밖 기존 실패 수정 여부는 사용자에게 질문했다. 호스팅 CI 녹색·정상 병합·검증된 SHA 배포는 아직 미완료이며 배포 성공으로 보고하지 않는다. 기존 운영 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`를 보존한다.
+- 사용자 “함께 수정하고 배포” 승인으로 기존 테스트 두 건도 수정했다. HTML/명시 JSON 로그인·PDF 포함 영수증 응답을 검증하고, OTA는 실제 HTTP 색인 ready를 기다린 뒤 예약1건/예약번호를 비교한다. skip이나 제품 권한 약화 없이 Windows 영향 QA498 passed/97 subtests·skip0·필수 브라우저 누락0, 검사 SHA `ae48f216`, PR CI41770440689 success를 확인했다. 이후 다른 작업의 완료 문서만 통합했고 운영 코드는 동일하다. 정상 병합·공식 배포·운영 확인은 아직 미완료이며 운영 `96b978bf`를 보존한다.
 
 ## 다음 단계
 
-기존 실패 수정 범위에 대한 답변과 PR CI 결과를 확인한다. 허용된 범위에서 검사를 통과한 후 main 병합→공식 단일 작성자 배포→health/ready·보호 API·영향 업로드 화면 읽기·보호13표 확인→SHA 기록을 수행한다. 테스트 제외나 skip으로 녹색을 만들지 않는다.
+최종 PR CI 확인 후 main 병합→공식 단일 작성자 배포→health/ready·보호 API·영향 업로드 화면 읽기·보호13표 확인→SHA 기록을 수행한다. 테스트 제외나 skip으로 녹색을 만들지 않는다.

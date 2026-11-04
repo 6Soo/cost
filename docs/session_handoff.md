@@ -1,8 +1,15 @@
 ## 2026-11-04 다중 파일 즉시 접수·백그라운드 분류 UX
 
-- PARTIAL — [PR #627](https://github.com/6Soo/cost/pull/627), 코드 `8890fa3a`. [요구사항·검증·다음 단계](specs/card-upload-background-navigation-20261104.md). 모든 파일을 먼저 한 번에 접수한 뒤 분류하며 접수 직후 버튼 활성·이동 가능 안내·복귀 시 상태 복구를 구현했다. 고객 업로드/운영 금융·Google·스키마 쓰기0.
-- 표적13 passed, signed bulk owner/CSRF1 passed/4 subtests, 최종 queue6 passed, 합성 ego12개 접수→이동→복귀12개 복구 PASS. Windows 영향 QA496 passed/97 subtests·2 failed·skip0. 두 실패는 기준 main에서도 재현했다(인증 HTML/JSON 기대값, upload jobs 후 OTA total0 순서 의존). 통과로 처리하지 않는다.
-- 기존 실패 수정 범위를 사용자에게 질문한 상태다. 호스팅 CI 녹색·병합·공식 배포는 미완료, 운영 `f680e7e0` 보존. 근거 `.local-archive/upload-background-20261104/`; 다음 `gh pr checks 627`과 범위 답변 확인. 기존 사용자 workspace/미추적 파일을 보존했고 독립 candidate worktree는 계속 작업할 수 있도록 유지한다.
+- PARTIAL — [PR #627](https://github.com/6Soo/cost/pull/627), 검사 코드 `ae48f216`. [요구사항·검증·다음 단계](specs/card-upload-background-navigation-20261104.md). 일괄 접수 후 분류·버튼 활성·이동 안내·복귀 상태 복구를 구현했다. 고객 업로드/운영 금융·Google·스키마 쓰기0.
+- 사용자 “함께 수정하고 배포” 승인으로 기존 실패2건도 수정했다. HTML/JSON 로그인·영수증PDF 응답 계약을 검증하고 실제 OTA 준비 완료를 기다린 뒤 정확한 예약을 검사한다. 최신 코드 통합 후 Windows 영향 QA498 passed/97 subtests·skip0·필수 브라우저 누락0, PR CI41770440689 success. 합성 ego12개 접수→이동→복귀12개 복구 PASS.
+- 다른 작업의 완료 문서만 추가 통합했다. 운영 코드 검증은 재사용하며 문서 diff·링크를 확인한다. 다음: 최종 PR CI 확인→정상 병합→공식 배포→보호/운영 확인. 근거 `.local-archive/upload-background-20261104/`; 기존 사용자 workspace/미추적 파일과 운영 `96b978bf`를 보존한다.
+
+## 2026-11-04 항공권 누락·모바일 정보 밀도 개선 — 완료
+
+- COMPLETE — 최신 사용자 3요청의 [실행 범위](specs/flight-coverage-mobile-density-20261104.md), [PR #626](https://github.com/6Soo/cost/pull/626), 운영 `96b978bfe7f161ccd9c9de090fd635c4b85a6a51`. 보관 메일 3,499건 읽기 대조로 시즈오카 4예약·5이름 표기를 확인했다. 기존 3예약의 대표 이름만 노출하던 경로와 제주항공 조회 누락을 수정했다. 이름 표기는 고유인원·유효 항공권 수를 확정하지 않으며 취소·충돌 경고를 유지한다.
+- Google Flights 실제 결과와 Xero 공식 지출 기능/앱 예시 탐색을 반영해 여정 시간·도시·공항을 한 행에 모았다. 카드 버튼 장식 충돌·44px 미만 터치 영역, 모바일 필터 줄 나눔·중복 제목, 지출 0건 필터·반복 집계·중첩 틀도 수정했다.
+- Windows 영향 QA590 passed·62 subtests·skip0·필수 브라우저 누락0, CI41769141167 success, 검사 `e31d392b`와 병합 tree 동일. 운영 검색 4예약·2명 그룹 1개·기존 경고 보존, 두 테마 및 390px 7경로 배치 수락. 보호13표·health/ready·보호API 정상. [배포 상세](operations.md#2026-11-04-항공권-누락모바일-정보-밀도-개선).
+- 현재 승인 범위의 구현/배포 미결0. 금융/원본/여행/Google 업무 쓰기·재분류·마이그레이션0. 실기기·전체 메일 계정 탐색·모든 자료 조합은 미검증. 다른 checkout 변경과 미추적 자료 보존. 다음 별도 사용자 요청을 기다리며 과거 큐는 재개하지 않는다. 문서 후속은 재배포하지 않는다.
 
 ## 2026-11-04 FUKUTAKE·항공권 정보 우선순위/버튼 수정 — 완료
 
