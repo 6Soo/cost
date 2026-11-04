@@ -155,9 +155,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
             primary += (f"<a href='/flight-passengers'>{_icons.icon('airplane', 18)}"
                         "<span class='nm'>항공권 예약 확인</span></a>")
         management = ("</nav><details class='nav-management'><summary>관리</summary>"
-                      "<nav class='site-links' aria-label='관리 메뉴'>"
-                      f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
-                      f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>")
+                      "<nav class='site-links' aria-label='관리 메뉴'>")
         primary += (management
                     + f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
                     + "</nav></details>")
@@ -419,15 +417,16 @@ def _head_html(trip) -> str:
             title += " <span class='trip-region-badge'>국내여행</span>"
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
-                f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
-                f""
-                f"<span><a class='btn' href='/trips?{board.esc(urlencode({'trip': trip['tab_id']}))}'>{_icons.icon('map')}여행 관리</a></span>")
+                f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
+    from . import trip_management_ui
     return (
         "<div class='page-hd trip-header'><div>"
         f"<h1>{title}{_context_badge()}</h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
+        + trip_management_ui.controls(board, trip)
+        + (_reserve_link_link_html() if trip and not trip.get('is_unclassified') else '')
         + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
@@ -457,8 +456,8 @@ def _reserve_link_link_html() -> str:
     if board.current_role() != "owner":
         return ""
     from . import ui_icons as _icons
-    return ("<a class='btn' id='reserve-link' href='/reserve-links' aria-label='예약 명단·여행 연결'>"
-            f"{_icons.icon('link')}예약 연결</a>")
+    return ("<a class='btn' id='reserve-link' href='#trip-reservations' aria-label='예약·참가자 여행 연결'>"
+            f"{_icons.icon('link')}예약·참가자</a>")
 
 
 def _review_link_html() -> str:
@@ -1771,6 +1770,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         participant_search=participant_controls.get("search", ""))
     from .trip_flight_ui import render_trip_flights
     flight_html = render_trip_flights(tab_id) if _is_trip_tab(tab_id) else ""
+    from . import trip_management_ui
     panel = ""
     if selected:
         panel = panel_part(selected, back=back, error=error, message=message,
@@ -1794,18 +1794,19 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"</section>"
         f"{_trip_actions(tab_id, back)}"
         f"{_participant_trip_panel(tab_id, participant_controls)}"
+        f"{trip_management_ui.reservations(board, trip)}"
         f"{_source_preview_html(trip)}"
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
         f"{flight_html}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div></main>")
-    return (f"<div class='app'>"
+    return (f"<style>{trip_management_ui.STYLE}</style><div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
             f"<div id='panel-slot'>{panel}</div>"
             + (f"{board.MANUAL_EXPENSE_STYLE}<dialog id='manual-expense-dialog' aria-labelledby='mx-title'>"
                f"{board.manual_expense_form(tab_id, modal=True)}</dialog>" if board.current_role() == 'owner' else '')
-            + "</div>")
+            + f"</div><script>{trip_management_ui.SCRIPT}</script>")
 
 
 def _trip_actions(tab_id: str, back: str) -> str:

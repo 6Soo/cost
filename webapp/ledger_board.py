@@ -3113,7 +3113,13 @@ class Handler(BaseHTTPRequestHandler):
             # Nothing is interpolated into the document: the screen fetches the
             # payload over the authenticated route, so a copy of this HTML carries
             # no source identifier and no person.
-            self._send(reserve_link_ui.render_reserve_link_ui(CSRF_TOKEN))
+            query = parse_qs(urlparse(self.path).query)
+            trip_id = (query.get('trip') or [''])[0]
+            if trip_id and not _active_store().get_trip(trip_id):
+                self._send_json({'code': 'RESOURCE_NOT_FOUND'}, code=404)
+                return
+            self._send(reserve_link_ui.render_reserve_link_ui(
+                CSRF_TOKEN, trip_id=trip_id, embedded=(query.get('embedded') == ['1'])))
             return
         payload = self._reserve_link_payload()
         if path == "/api/reserve-link/state":
@@ -4877,7 +4883,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(result, code=200)
                 else:
                     self.send_response(303)
-                    self.send_header('Location', '/trips')
+                    trip_back = '/board?' + urlencode({'tab': tab_id})
+                    self.send_header('Location', trip_back if payload.get('return_to') == trip_back else '/trips')
                     self.end_headers()
                 return
             try:
@@ -5274,6 +5281,7 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
         server.daemon_threads = True
         server.store_lock = threading.RLock()
         from . import card_completion_worker
+        from . import autonomous_cleanup_worker
         if card_flow.enabled() and card_completion_worker.enabled_for(store):
             # --no-worker refers to the legacy importer. This distinct worker
             # requires the host's explicit automatic-completion activation.
@@ -5284,6 +5292,14 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
                 worker.stop(timeout=5)
                 original_close()
             server.server_close = close_with_completion
+        if card_flow.enabled() and autonomous_cleanup_worker.enabled_for(store):
+            autonomous = autonomous_cleanup_worker.AutonomousCleanupWorker(store, server.store_lock)
+            store._autonomous_cleanup_worker = autonomous
+            completion_close = server.server_close
+            def close_with_autonomous():
+                autonomous.stop(timeout=5)
+                completion_close()
+            server.server_close = close_with_autonomous
         elif with_worker and not card_flow.enabled():
             worker = CardWorker(db_path)
             worker.start()
@@ -5309,6 +5325,8 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
     try:
         if getattr(store, '_card_completion_worker', None) is not None:
             worker.start()
+        if getattr(store, '_autonomous_cleanup_worker', None) is not None:
+            store._autonomous_cleanup_worker.start()
     except BaseException:
         server.server_close()
         store.close()

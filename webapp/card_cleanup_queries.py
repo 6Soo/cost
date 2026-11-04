@@ -1,6 +1,7 @@
 """Canonical read-only reason classification for the expense cleanup queue."""
 
 REASONS = ('all', 'classification', 'recording', 'evidence', 'finance', 'manual')
+OWNERS = ('all', 'user', 'auto')
 LEGACY_REASONS = {'no_item': 'classification', 'no_trip': 'classification',
                   'protected': 'evidence', 'other_review': 'classification'}
 
@@ -22,6 +23,26 @@ def card_reason_sql(alias='t'):
         f" WHEN COALESCE({t}.item,'')!='' AND COALESCE({t}.display_tab_id,'') NOT IN ('','unclassified') THEN 'recording'"
         " ELSE 'classification' END"
     )
+
+
+def card_owner_action_sql(alias='t'):
+    """Return 'user' for rows only a person can settle, else 'auto' (P1/P2 will act)."""
+    return (
+        "CASE WHEN ({}) IN ('manual','finance','evidence') THEN 'user' ELSE 'auto' END"
+        .format(card_reason_sql(alias))
+    )
+
+
+def card_owner_filter(owner, alias='t'):
+    if owner not in OWNERS:
+        raise ValueError('invalid cleanup owner')
+    return '' if owner == 'all' else f' AND ({card_owner_action_sql(alias)})=?'
+
+
+def card_owner_params(owner):
+    if owner not in OWNERS:
+        raise ValueError('invalid cleanup owner')
+    return () if owner == 'all' else (owner,)
 
 
 def card_reason_filter(reason, alias='t'):

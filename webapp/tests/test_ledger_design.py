@@ -1,4 +1,4 @@
-﻿"""The A/Ramp/Pretendard design on the real ledger screen.
+"""The A/Ramp/Pretendard design on the real ledger screen.
 
 Real clicks at 1440 and 390 against the product server and its real store:
 row edit panel, save, cancel, stale revision, classification move, upload,
@@ -281,9 +281,12 @@ class DesignScreenTests(unittest.TestCase):
         nav = page.inner_text(".nav")
         self.assertIn("0408_예시여행A", nav)
         self.assertNotIn("미배정 지출", nav)
-        # Trip actions contain export; imports and maintenance use navigation.
-        self.assertEqual(page.inner_text(".act").replace("\n", " "),
-                         "XLSX 출력")
+        # The action bar contains management, reservation link, and export, but no secondary actions.
+        self.assertEqual(page.inner_text(".act").replace("\n", " ").strip(), "마감 여행 관리 예약·참가자 XLSX 출력")
+        self.assertEqual(page.locator('.secondary-actions').count(), 0)
+        self.assertTrue(page.locator('#reserve-link').is_visible())
+        self.assertEqual(page.locator('.act a[href="/import#newupload"]').count(), 0)
+        self.assertEqual(page.locator('.nav a[href="/import"]').count(), 1)
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
@@ -502,7 +505,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(stored["revision"], before + 1)
         # the panel shows the new revision, and the summary was re-read
         self.assertEqual(
-            page.input_value("input[name='expected_revision']"),
+            page.input_value("#panel input[name='expected_revision']"),
             str(stored["revision"]))
         self.assertIn("180,000원", page.inner_text("#sum"))
         self.assertIn("1,000,000원", page.inner_text("#sum"))

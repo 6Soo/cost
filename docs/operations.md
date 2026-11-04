@@ -1,3 +1,11 @@
+## 2026-11-05 여행 탭에서 마감·여행 관리 및 예약 연결 통합 완료
+
+- COMPLETE — 사용자 “여행관리가 왜 여행 탭이 아니라 별도 메뉴로 존재해야하지? 예약명단 여행연결이란 메뉴가 왜 필요하지? -> 바로 진행해” 반영. [PR #642](https://github.com/6Soo/cost/pull/642), 머지 `465760ba7cbc23ab46fe61eaa20eb06999510c70`, 고정 운영 `465760ba7cbc23ab46fe61eaa20eb06999510c70`, 이전 운영 `73075112214a81151e07b54bb02a0615b9833b86`.
+- 여행 상단 액션바에 '마감' 버튼과 '여행 관리' 메뉴(표시 이름, 작성일, 담당자 수정, 보관)를 통합하고, 여행 화면 본문에 '예약·참가자 여행 연결' 섹션을 배치하여 개별 여행 안에서 모든 맥락 작업을 수행할 수 있도록 개편. 사이드바의 독립 관리 메뉴 2종은 제거(URL 직접 접근 호환성은 보존).
+- 검증: Windows 영향 QA 692 passed·88 subtests·skip 0, PR CI 41899301788 success. `test_trip_context_management.py`, `test_reserve_navigation.py`, `test_reserve_navigation_browser.py`, `test_ledger_design.py` 통과.
+- 배포: `deploy_verified_release.ps1 -Apply` 성공. 1,338 tracked blobs 일치, task/process SHA 일치, gateway 8790 → backend 8751 전환, healthz/readyz 200, 보호 API 401, 보호 13개 테이블 불변 PASS. 금융·원문·Google 업무 쓰기 없음.
+- 근거: `C:/AX/cost/.local-archive/trip-context-deploy-20261105/` 및 호스트 `D:/WebLedgerHost/releases/deploy-evidence-465760ba7cbc23ab46fe61eaa20eb06999510c70.json`.
+
 ## 2026-11-05 제주항공·Traveloka 항공권 OTA 수집 보완
 
 - [PR #634](https://github.com/6Soo/cost/pull/634), 운영 `43907dd375bffa860a3415e2330082d12948e8fe`, 이전 `2e911f3f6fdb853f1635f720ea259f6191541008`. 상세 [실행 결과](specs/airline-mail-collection-20261105.md#2026-11-05-운영-반영-결과).
