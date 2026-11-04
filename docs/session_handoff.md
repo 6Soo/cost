@@ -1,8 +1,9 @@
-## 2026-11-04 다중 파일 즉시 접수·백그라운드 분류 UX
+## 2026-11-04 다중 파일 즉시 접수·백그라운드 분류 UX — 완료
 
-- PARTIAL — [PR #627](https://github.com/6Soo/cost/pull/627), 검사 코드 `ae48f216`. [요구사항·검증·다음 단계](specs/card-upload-background-navigation-20261104.md). 일괄 접수 후 분류·버튼 활성·이동 안내·복귀 상태 복구를 구현했다. 고객 업로드/운영 금융·Google·스키마 쓰기0.
-- 사용자 “함께 수정하고 배포” 승인으로 기존 실패2건도 수정했다. HTML/JSON 로그인·영수증PDF 응답 계약을 검증하고 실제 OTA 준비 완료를 기다린 뒤 정확한 예약을 검사한다. 최신 코드 통합 후 Windows 영향 QA498 passed/97 subtests·skip0·필수 브라우저 누락0, PR CI41770440689 success. 합성 ego12개 접수→이동→복귀12개 복구 PASS.
-- 다른 작업의 완료 문서만 추가 통합했다. 운영 코드 검증은 재사용하며 문서 diff·링크를 확인한다. 다음: 최종 PR CI 확인→정상 병합→공식 배포→보호/운영 확인. 근거 `.local-archive/upload-background-20261104/`; 기존 사용자 workspace/미추적 파일과 운영 `96b978bf`를 보존한다.
+- COMPLETE — [PR #627](https://github.com/6Soo/cost/pull/627), 운영 `804eac6023ddcddb90c7959b66fce970bb656ef2`. [요구사항별 결과](specs/card-upload-background-navigation-20261104.md). 여러 파일을 먼저 일괄 접수한 뒤 분류하고, 접수 직후 버튼 활성·페이지 이동 안내·복귀 시 상태 복구를 제공한다.
+- 최종 Windows 영향 QA 498건 통과·skip0·필수 브라우저 누락0, [PR CI](https://github.com/6Soo/cost/actions/runs/41771130622) 성공. 최초 실패2건은 사용자 승인으로 HTML/JSON·PDF 응답 계약과 비동기 OTA 준비 대기로 수정했다. 테스트 제외/권한 약화 없이 red→green을 확인했다. 합성 ego12개 접수→이동→복귀12개 복구 PASS.
+- 공식 단일 작성자 배포: 1326 blobs 일치·고정task/processSHA·health/ready200·보호API401·보호13표 불변. 코드 전용 전환이며 이전 검증 릴리스/task XML을 보존했다. 고객 업로드·재분류·금융/Google/원본/스키마 업무 쓰기0. 운영 화면 수락의 상세 범위와 증거는 [운영 기록](operations.md#2026-11-04-다중-파일-접수백그라운드-분류-ux)을 따른다.
+- 근거 `.local-archive/upload-background-20261104/`. 요청 미결0·다음 기능 명령 없음. 문서 후속으로 재검사·재배포·재시작하지 않는다. 기존 사용자 변경/미추적 자료를 보존한다.
 
 ## 2026-11-04 항공권 누락·모바일 정보 밀도 개선 — 완료
 

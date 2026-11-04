@@ -1,3 +1,12 @@
+## 2026-11-04 다중 파일 접수·백그라운드 분류 UX
+
+- [PR #627](https://github.com/6Soo/cost/pull/627) 정상 병합·운영 `804eac6023ddcddb90c7959b66fce970bb656ef2`, 이전 검증 `96b978bfe7f161ccd9c9de090fd635c4b85a6a51`. 전체 파일의 원본 검증·저장·durable queue 등록을 먼저 완료하고 분류를 시작한다. 접수 직후 이동 가능 안내·버튼 활성·복귀 시 병렬 상태 복구를 제공한다. 단일 파일 API·개별20MiB·중복/환불/수동/원본/owner/CSRF 보호·금융 쓰기 직렬화는 유지한다.
+- Windows 영향 QA 498건 통과·skip0·필수 브라우저 누락0. 최초 baseline 실패2건은 사용자 승인 후 테스트 계약을 고쳐 red→green 확인. PR CI 41771130622 성공, 검사본/병합본 운영 코드 동일(문서 차이 검토). 합성 ego12개 접수→다른 페이지→복귀12개 상태 복구·활성 버튼·가로넘침0 PASS.
+- 공식 `deploy_verified_release.ps1` 단일 작성자 전환, gateway8790→backend8752. 1326 tracked blobs 불일치0·task/process 고정SHA·단일listener·health/ready200·보호API401·보호13표 내용/스키마 불변. 이전 검증 릴리스/task XML 복구점 보존, 코드 전용으로 전체 자료 백업/복원·마이그레이션·업무 재처리를 반복하지 않았다.
+- 첫 전환 시도는 active 요청1건의 DRAIN_TIMEOUT으로 안전 중단·기존96b978bf/route 복구·health200·보호13표 불변을 확인했다. 검증용 ego 화면을 about:blank로 옮겨 자동 조회를 멈춘 뒤 active0을 확인하고 같은 공식 drain 게이트로 재시도했다. 최초 실패를 성공으로 처리하거나 요청을 강제 종료하지 않았다. 상세 `failed-deploy.json`과 최종 `deploy-evidence.json`을 구분한다.
+- 인증 운영 업로드 화면에서 새 접수 후 이동 안내·multiple 파일 선택·일괄 접수 endpoint 코드·활성 버튼·가로 넘침0을 읽기 수락했다. 새 endpoint 익명 GET401도 확인했다. TaskSpace49 종료. 결과 `.local-archive/upload-background-20261104/live-result.json`. 실제 고객 업로드·금융/여행/Google/원본/스키마 업무 쓰기0. 실제 업로드 성능·전체 회귀·실기기는 미검증이다.
+- 근거 `.local-archive/upload-background-20261104/`의 final-impact/·auth-fixed.xml·baseline-failures.xml·baseline-order-full.xml·browser-resumed.png·review/release-audit/deploy-evidence·protection-before/after·live-result.json 및 호스트 동일SHA deploy evidence. 요청 미결0·다음 명령 없음. 기존 사용자 변경을 보존하며 문서 후속 재배포/재시작 없음.
+
 ## 2026-11-04 항공권 누락·모바일 정보 밀도 개선
 
 - COMPLETE — [PR #626](https://github.com/6Soo/cost/pull/626), 구현 `f86acff6`·복수 예약 보호 `e31d392b`, 운영 `96b978bfe7f161ccd9c9de090fd635c4b85a6a51`. 이전 검증 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`. [요청별 실행 범위](specs/flight-coverage-mobile-density-20261104.md).
