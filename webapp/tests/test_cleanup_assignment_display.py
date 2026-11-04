@@ -17,7 +17,8 @@ def test_cleanup_displays_only_current_active_trip(tmp_path, monkeypatch, active
                                  destination='합성<여행>', client_request_id='display-trip')
         monkeypatch.setattr(card_flow.CardFlow, 'trip_valid',
                             lambda self, target: active and target == trip['tab_id'])
-        board.conn.execute("UPDATE transactions SET trip_id=?, display_tab_id=?, item=?",
+        # Keep the row in review; completed classified rows leave this queue.
+        board.conn.execute("UPDATE transactions SET classification_state='needs_review', trip_id=?, display_tab_id=?, item=?",
                            (trip['tab_id'], trip['tab_id'], '현지<경비>'))
         board.conn.commit()
         before = board.conn.total_changes

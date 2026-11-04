@@ -2988,7 +2988,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 확인해 주세요' if not item else
                       '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
-                      '배정과 거래의 보호 검사 결과를 확인해 주세요')
+                      '여행·항목이 지정되어 있습니다. COST 내부 비용 기록은 아직 없습니다.')
             evidence = card_evidence_ui.render_no_booking_evidence(
                 fresh=bool(snapshot_context.get('fresh')),
                 source=source,
@@ -3021,12 +3021,13 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
                 'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
             }
-            finance_label = ('장부 기록 완료' if preview_row.get('already_booked') else
-                             blocked_labels.get(blocked, '장부 기록 가능' if not blocked else
+            finance_label = ('COST 내부 기록 있음' if preview_row.get('already_booked') else
+                             blocked_labels.get(blocked, '' if not blocked else
                                                 '기록 보류: 금융 검토가 필요합니다.'))
-            if not blocked and not preview_row.get('already_booked'):
-                reason += ' · 장부 기록 가능'
-            elif blocked:
+            if (blocked == 'review_hold' and not held
+                    and preview_row.get('reason') == '비용 항목과 배정 내용을 확인해 주세요.'):
+                finance_label = '여행·항목을 확인하고 변경 저장을 눌러 주세요.'
+            if blocked:
                 reason = finance_label
         elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):
             snapshot_message = {
@@ -3080,13 +3081,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             detail=detail, is_cancellation=tid in cancellation_ids,
             evidence=evidence, conflict_reason=conflict_reason,
             parse_error=parse_error, held=held, reason=reason, item=item, esc=esc)
-        if tid not in cancellation_ids and finance_label:
-            review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
                  '취소·환불 확인' if tid in cancellation_ids else
                  '보류 중' if held else '분류 필요' if not item else
-                 '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '검토 필요')
+                 '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '내부 기록 상태 확인')
         if not protected and tid not in cancellation_ids and tid in original_refunds:
             offset_link = original_refunds[tid][0][1]
             if offset_link.get('inferred'):
@@ -3095,14 +3094,14 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 label = '기록 보류'
             elif offset_link.get('status') == 'full':
                 label = '환불 상쇄 확인'
+            if label not in reason:
+                reason = label + ' · ' + reason
         category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
             item=item, display_tab_id=current_tab,
             transaction_direction='cancellation' if tid in cancellation_ids else 'purchase',
             review_hold=cleanup_holds.get(tid)),
             dict(preview_row or {}, **({'refund_link': original_refunds[tid][0][1]} if tid in original_refunds else {})))
-        # Keep exact diagnoses and financial evidence inside the expandable body.
-        review = ("<details><summary>근거 보기</summary><p>" + esc(label) + '</p>'
-                  + review + '</details>')
+        # Keep the editor and actionable reason visible; only evidence collapses.
         label = '처리 필요 · ' + REASON_LABELS[category]
         if item:
             label += ' · ' + provenance_label({'classification_source': source})
