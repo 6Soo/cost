@@ -1,6 +1,13 @@
 # WebLedgerHost 상시 HDD I/O 경량화 및 운영 안전성 명세 (2026-11-05)
 
-**상태: SPEC_ONLY · 구현/성능 검증/운영 배포 미완료.** 사용자가 제공한 Windows 성능 카운터·NTFS USN 분석과 현재 `main`의 `tools/ledger_gateway.py`, [무중단 배포 계약](continuous-deployment-20261102.md), [운영 증거](../operations.md)를 근거로 한 **개발 요구사항**이다. 사용자의 현장 로그는 원인 후보에 대한 증거이지, 전체 쓰기량이나 소음 감소의 실제 개선 수치를 뜻하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
+**2026-11-05 진행 현황: PARTIAL · 상세 명세 PR #644는 열림/미병합, 코드 구현 PR #646도 열림/미병합. 운영 배포·HDD 실측 수락은 미완료.** 사용자가 제공한 Windows 성능 카운터·NTFS USN 분석과 현재 `main`의 `tools/ledger_gateway.py`, [무중단 배포 계약](continuous-deployment-20261102.md), [운영 증거](../operations.md)를 근거로 한 **개발 요구사항**이다. 사용자의 현장 로그는 원인 후보에 대한 증거이지, 전체 쓰기량이나 소음 감소의 실제 개선 수치를 뜻하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
+
+## 후속 PR #646 구현 대조 및 남은 수락
+
+- [PR #646](https://github.com/6Soo/cost/pull/646)은 상태파일 event publish + 30초 heartbeat, route stat cache(250ms), `tools/gateway_route.py`의 status freshness 상한 정합화, `webapp/ota_snapshot.py` 체크 로그 change-only·시간별 heartbeat·5MiB log rotation 및 관련 테스트를 추가했다. **코드 PR이 열려 있으며 main/운영 반영으로 간주하지 않는다.**
+- ‘약 97% 유휴 I/O 감소’는 기존 1초 대비 30초 **정기 상태 publish 호출 빈도의 이론적 감소(약 96.7%)**를 반올림한 것에 가깝다. 연결 시작·종료 이벤트, 반복 route stat, WAL/OTA 갱신·다른 프로세스를 포함한 **실제 D: 물리 HDD 총 쓰기·헤드 소음 감소 수치가 아니다.**
+- **수락 미달/입증 필요:** 동일 유휴 15분 기준 실제 NTFS/성능 카운터 전후 비교; GPU나 SSD 개발 작업 제외; route pause 순간/연결 중 전환, drain 최신성, status 파일 쓰기 실패, 무중단 Gateway **프로세스 자체** 교체와 복구; 운영 SHA·작업/프로세스·보호13표 수락. OTA/항공권 **스냅샷 전체 재저장 방지**는 #646 변경 파일에서 직접 확인되지 않으므로 완료 처리하지 않는다. 모든 `flight-search.log` 기록기가 제어되는지 별도 점검 필요.
+- 기존 서술의 '현행 코드 1초 기록'은 **명세 작성 당시 main 기준 baseline**이다. #646이 병합·배포되어 실제 호스트가 교체되면 현행 상태와 baseline을 구분해 수치를 기록할 것.
 
 ## 1. 조사 사실 및 검증할 가설
 
