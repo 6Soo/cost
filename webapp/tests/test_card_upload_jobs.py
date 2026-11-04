@@ -87,9 +87,12 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
         assert second['batch_id'] == ack['batch_id']
     finally:
         release.set()
-        # Drain any duplicate job before closing its database.
-        with server.store_lock:
-            pass
+        # Every accepted peer must finish before restoring module patches and
+        # the global active store. Acquiring the lock once cannot drain a batch.
+        deadline = time.monotonic() + 10
+        while card_upload_jobs.running(ledger_board._active_store()) and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert not card_upload_jobs.running(ledger_board._active_store())
         server.shutdown()
         server.server_close()
         thread.join(3)
