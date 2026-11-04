@@ -1,3 +1,21 @@
+## 2026-11-05 자율 지출정리 선처리 신규 명세 — 구현 대기
+
+- **SPEC_ONLY** — [자율 지출정리 관리자 명세](specs/autonomous-expense-cleanup-20261105.md)를 추가했다. 카드 업로드/권위 자료 갱신으로 신규 지출정리 건이 생길 때 기존 P1 처리→연결 AI P2 자동 호출→원인 묶음·코드 결함 재현/개선→최종 사용자 필수 예외만 노출하는 운영 루프를 구현하는 **신규 승인 범위**다. 현재 운영이 이를 무인 실행한다고 주장하지 않는다. 최신 #631의 허위 충돌108건 재현 방지, Google 읽기 전용/금융 보호와 CI·고정 SHA 배포 게이트를 수락 조건으로 명시했다. 문서만 추가했으므로 배포·재시작/금융 쓰기 없음. 이번 명세의 구현·운영 수락은 후속 작업 대상이다.
+
+## 2026-11-05 제주항공·Traveloka 수집 누락 조치
+
+- 코드 배포·운영 원문 반영 완료 — [PR #634](https://github.com/6Soo/cost/pull/634), 운영 `43907dd375bffa860a3415e2330082d12948e8fe`. [범위와 검증](specs/airline-mail-collection-20261105.md), [운영 기록](operations.md#2026-11-05-제주항공traveloka-항공권-ota-수집-보완).
+- Traveloka 수집/항공 파서 누락과 제주항공 인증 경로 누락을 보완했다. 새 원문138건·기존3건 직접 수집 출처 추가, 제주128메일/102예약·Traveloka11메일/5예약 실제 저장소 파싱 확인. 기존 원문/스키마·금융 보호13표 불변, 금융/여행/Google 쓰기0.
+- 영향509건/4 subtests/skip0·CI 성공,1333blobs·health/ready·보호API·task/processSHA PASS. 정기 MailCollect를 새 SHA/명시 owner-domain에 연결했다. 원격 클라우드 업로드/전환·새 메일 도착 후 후속 수집은 미실행/미관측이다.
+- 인증 OTA 화면은 적재 후 색인 갱신 중이며 최종 읽기 수락 결과는 후속 기록을 따른다. workspace `C:/AX/cost-airline-20261105`, 비공개 체크포인트 `C:/AX/cost/.local-archive/airline-audit-20261105/checkpoint.md`. 기존 사용자 workspace/미추적 자료를 보존했다.
+
+## 2026-11-05 카드 업로드 후속 처리 오류 — 완료
+
+- COMPLETE — 사용자 “문제해결”, [PR #633](https://github.com/6Soo/cost/pull/633), 운영 `2e911f3f6fdb853f1635f720ea259f6191541008`, 이전 검증 `94ccd9b334220bc14b11b1c50decd7f13606fa92`. [실행 결과](specs/upload-audit-recovery-20261105.md). 최초 감사 기록 여부를 실제 stream으로 판단해 기존 장부 행의 후속 처리 실패를 수정했고 로그인 만료401/권한 부족403 안내를 구분했다.
+- 업로드12개 모두 저장/배치 classified·파싱 오류0. 한 파일의7행은 기존 원본 충돌 보호로 needs_review를 유지한다. 재업로드 불필요. 과거 인증 오류 원인은 재현되지 않아 단정하지 않는다. 운영 자료 재처리·금융/여행/Google 업무 쓰기0.
+- Windows 영향 QA401 passed·33 subtests·skip0·필수 브라우저 누락0, PR CI41889472534 success. 공식 연속 전환 PASS·1,329 blobs 일치·task/processSHA·health/ready200·보호API401·보호13표 내용/스키마 불변. 전환 후 사용량 제한으로 누락됐던 최종 근거는 successor가 실제 상태를 검사해 복구했으며 재배포/재시작하지 않았다.
+- 기존 Ego2 인증 화면: 새401/403 코드·저장 상세200(327행, classified320/needs_review7)·없는 작업404·가로넘침0 수락 후 TaskSpace 종료. 실제 고객 업로드/운영 재처리/실기기 확인은 미실행. [운영 기록](operations.md#2026-11-05-카드-업로드-후속-처리-오류)과 `C:/AX/cost/.local-archive/upload-fix-20261105/`에 근거 보존. 이 오류 수정의 미결0·다음 기능 명령 없음. 문서 후속으로 재검사·재배포·재시작하지 않는다.
+
 ## 2026-11-05 지출 정리 거짓 원문 충돌 108건 교정 — 완료
 
 - COMPLETE — 사용자 “지출필요건수가 많이 늘었는데 확인하고 코드 수정”. [명세/결과](specs/cleanup-export-conflicts-20261105.md), [PR #631](https://github.com/6Soo/cost/pull/631), 운영 `94ccd9b334220bc14b11b1c50decd7f13606fa92`. 기존CSV의 이용일 대체 매입일과 하나 이용내역의 명시 매입일을 충돌로 판단한108건을 원본 헤더·파일/행 해시로 검증했다. 명칭 차이14건은 동일 가맹점번호와 부분 명칭까지 대조한다.

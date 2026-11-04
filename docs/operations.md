@@ -1,3 +1,20 @@
+## 2026-11-05 제주항공·Traveloka 항공권 OTA 수집 보완
+
+- [PR #634](https://github.com/6Soo/cost/pull/634), 운영 `43907dd375bffa860a3415e2330082d12948e8fe`, 이전 `2e911f3f6fdb853f1635f720ea259f6191541008`. 상세 [실행 결과](specs/airline-mail-collection-20261105.md#2026-11-05-운영-반영-결과).
+- Windows 영향509 passed·4 subtests·skip0, CI41890085930 success, 병합 인접14 passed.1333 blobs 일치·task/processSHA·단일 backend8751·health/ready200·보호API401·보호13표 불변. 첫 gateway 상태 읽기 충돌은 기존 운영 복구 확인 후 재시도 성공했다.
+- 백업/격리 복원 검증 후 새 원문138건·기존3건 직접 수집 출처를 원자 추가했다. 새 운영 복구 사본·기존 원문 전체/스키마 불변·integrity_check PASS. 운영 재파싱 제주128메일/102예약·Traveloka11메일/5예약 PASS. 실제 금융 결제·환급·탑승 확인과 구분한다.
+- MailCollect를 새 SHA와 명시 제주항공 owner-domain 옵션에 연결하고 Ready 확인. 클라우드 query 보완은 저장소 코드에 한하며 원격 Apps Script 업로드/전환 미실행, 새 메일 도착 후 정기 실행 미관측. 금융·여행·Google 쓰기/스키마 변경0.
+- 비공개 근거 `C:/AX/cost/.local-archive/airline-audit-20261105/`, 복구 사본 `D:/WebLedgerHost/data/backups/airline-mail-20261105-private/`, 호스트 `deploy-evidence-43907dd375bffa860a3415e2330082d12948e8fe.json`. 문서 후속으로 재배포·재시작하지 않는다.
+
+## 2026-11-05 카드 업로드 후속 처리 오류
+
+- COMPLETE — [PR #633](https://github.com/6Soo/cost/pull/633), 구현 `6279dae4`·검사 fixture 수정 `2bbaa5379f94d1165da0b53be30d65fa99ee44f6`, 고정 운영 `2e911f3f6fdb853f1635f720ea259f6191541008`, 이전 검증 `94ccd9b334220bc14b11b1c50decd7f13606fa92`. [명세/수락](specs/upload-audit-recovery-20261105.md).
+- 운영 DB 읽기 전용 격리 사본에서 classify→sync_ledger_rows→save→감사 append 실패를 재현했다. projection revision은 올라갔으나 감사 stream이 없는 행을 correct로 기록하려던 문제다. 실제 stream으로 최초/후속 기록을 결정한다. 최초 감사/연속 교정·멱등성·원본/수동 결정·감사 체인 보호 회귀2건은 수정 전 red, 수정 후 green이다. 401/403 안내를 구분하며 기존 파일 체크포인트를 유지한다. 과거 인증 만료의 직접 원인은 재현하지 못했다.
+- 검증: 초기 표적36 passed·44 subtests, 최종 Windows 영향 QA401 passed·33 subtests·skip0·필수 브라우저 누락0, PR CI41889472534 success. 기존 relay fixture의 암묵적 저장 방식 실패는 baseline에서도 재현됐고 의도한 분리 모드를 명시했다. 검사/병합 runtime blobs 동일, 병합 시 독립 문서 차이만 검토. 전체 회귀는 국소 변경으로 미실행.
+- 공식 연속 전환은 2026-11-05 03:47 KST PASS, candidate 사전 준비·기존 요청 drain 후 gateway8790→backend8752. 이전 agent의 사용량 제한 후 successor가 원래 보호 기준·현재 task/processSHA·loopback listener1·health/ready200·보호API3경로401·보호13표 내용/스키마 동일·Board/Gateway/SourceRefresh Running을 검증하고 최종 deploy-evidence를 기록했다. 1,329 tracked blobs 불일치0. 전환 반복/재시작 없음. 첫 후속 HTTP 검증 호출의 실패는 정상 완료로 취급하지 않았으며 독립 상태 조회와 이후 최종 검사에서 정상 응답을 확인했다. 당시 응답코드/원인은 확보하지 못했다.
+- 기존 Ego2/p1 인증 수락: 업로드 화면 새401/403 분기 확인·저장 상세GET200(327행, classified320/needs_review7)·없는 작업GET404/UPLOAD_STATUS_EXPIRED·가로넘침0. TaskSpace 정상 종료. 읽기 검증상12파일 모두 저장/배치 classified·파싱 오류0이며7행은 원본 충돌 보호를 유지한다. 실제 고객 재업로드/운영 재처리·실기기 확인은 미실행이다.
+- 코드 전용으로 이전 검증 릴리스/task XML을 보존하고 전체DB 백업/복원을 반복하지 않았다. 금융/분류/여행/환불/Google/원본/스키마 업무 쓰기0. 근거 `C:/AX/cost/.local-archive/upload-fix-20261105/`의 review/received-state/resume-checkpoint/live-browser/protection-before/after/deploy-evidence, `C:/AX/cost-upload-fix/quality-artifacts/`, 호스트 동일SHA continuous-switch/release-audit/deploy-evidence. 미결0. 문서 후속만으로 재배포·재시작하지 않는다.
+
 ## 2026-11-05 지출 정리 거짓 원문 충돌 108건 교정
 
 - COMPLETE — [PR #631](https://github.com/6Soo/cost/pull/631), 구현 `c70dff8d`·원본 파일 해시 보호 `157a8439`, 운영 `94ccd9b334220bc14b11b1c50decd7f13606fa92`. 이전 검증 `804eac6023ddcddb90c7959b66fce970bb656ef2`. [실행 범위](specs/cleanup-export-conflicts-20261105.md).

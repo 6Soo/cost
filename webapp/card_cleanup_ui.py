@@ -49,9 +49,14 @@ CLEANUP_STYLE = (
     "#expense-cleanup .cleanup-amount{font-size:24px;font-weight:800;margin:14px 0 4px;font-variant-numeric:tabular-nums}"
     "#expense-cleanup .cleanup-reason{font-size:13px;color:var(--shell-muted);margin:0 0 10px}"
     "#expense-cleanup .cleanup-assignment{font-size:13px;line-height:1.6;margin:0 0 6px;overflow-wrap:anywhere}"
-    "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
-    "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
-    "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
+    "#expense-cleanup .cleanup-form{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:12px 0 0}"
+    "#expense-cleanup .cleanup-form label{display:grid;gap:4px;min-width:0;font-size:12px;color:var(--shell-muted)}"
+    "#expense-cleanup .cleanup-form select,#expense-cleanup .cleanup-form input{width:100%;min-width:0;min-height:44px;box-sizing:border-box;font-size:14px}"
+    "#expense-cleanup .cleanup-form button{min-height:44px;margin:0;white-space:nowrap}"
+    "#expense-cleanup .cleanup-editor-title{font-size:13px;font-weight:700;margin:12px 0 0}"
+    "#expense-cleanup .cleanup-save-note{font-size:12px;color:var(--shell-muted);margin:6px 0 0}"
+    "#expense-cleanup .cleanup-form .cleanup-error{grid-column:1/-1}"
+    "#expense-cleanup .cleanup-error:empty{display:none}"
     "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:var(--shell-danger)}"
     "#expense-cleanup .cleanup-review{margin-top:14px;border-top:1px solid var(--shell-line)}"
     "#expense-cleanup .cleanup-review>summary{cursor:pointer;font-weight:700;min-height:44px}"
@@ -96,6 +101,8 @@ CLEANUP_STYLE = (
     "#expense-cleanup .cleanup-info{flex-wrap:wrap}#expense-cleanup .cleanup-receipt-icon{display:none}"
     "#expense-cleanup .cleanup-card-head{margin-bottom:5px}#expense-cleanup .cleanup-amount{font-size:19px;margin:4px 0}"
     "#expense-cleanup .cleanup-assignment{line-height:1.4;margin-bottom:3px}"
+    "#expense-cleanup .cleanup-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}"
+    "#expense-cleanup .cleanup-form button{grid-column:1/-1;justify-self:end;padding:8px 16px}"
     "}"
     "</style>"
 )
@@ -209,10 +216,13 @@ def render_cleanup_card_review(
         )
     else:
         review = (
-            f"<details class='cleanup-review'><summary>여행·항목 수정</summary>{evidence}"
-            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
-            f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
-            "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>"
+            "<p class='cleanup-editor-title'>여행·항목 수정</p>"
+            "<form class='cleanup-form'><label>여행<select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select></label>"
+            f"<label>비용 항목<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='예: 식비' required></label>"
+            "<button type='submit'>변경 저장</button><p class='cleanup-error' role='alert'></p></form>"
+            "<p class='cleanup-save-note'>COST의 여행·항목에 저장됩니다.</p>"
+            f"<details class='cleanup-review'><summary>예약·분류 근거 보기</summary>{evidence}"
+            f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>"
         )
     if not is_cancellation and finance_label and finance_label != reason:
         review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
