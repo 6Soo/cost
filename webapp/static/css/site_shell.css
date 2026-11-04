@@ -157,3 +157,4 @@ details[open]>summary.site-action::after{transform:rotate(225deg) translate(-2px
 .participant-trip-panel>summary.site-action{margin:0;border:0;border-radius:0;background:transparent}
 .workflow-return a.site-action{min-height:36px}
 @media(width < 760px){.site-action{min-height:44px}summary.site-action{width:100%}}
+@media(width < 760px){.site-title-duplicate{position:absolute!important;width:1px!important;height:1px!important;margin:0!important;padding:0!important;overflow:hidden!important;clip-path:inset(50%)} }

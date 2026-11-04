@@ -289,6 +289,7 @@ def test_cleanup_render_exposes_filter_controls_and_preserves_non_owner_boundary
         assert "전체 3건" in c_pop
         assert "분류·배정 필요 2건" in c_pop
         assert "근거 충돌 1건" in c_pop
-        assert "결제·환불 확인 0건" in c_pop
+        assert "결제·환불 확인 0건" not in c_pop
+        assert "<p class='cleanup-filter-total'>" not in c_pop
     finally:
         store.close()
