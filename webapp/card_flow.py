@@ -3367,7 +3367,8 @@ async function awaitUpload(job,entry){
  while(true){
   try{
    const r=await fetch(job.status_url,{cache:'no-store',signal:AbortSignal.timeout(10000)});
-   if(r.status===401||r.status===403)throw Object.assign(Error('로그인이 만료되었습니다. 다시 로그인한 뒤 상세 결과를 확인해 주세요.'),{terminal:true});
+   if(r.status===401)throw Object.assign(Error('로그인이 만료되었습니다. 파일은 접수되어 있습니다. 다시 로그인한 뒤 상세 결과를 확인해 주세요. 재업로드할 필요가 없습니다.'),{terminal:true});
+   if(r.status===403)throw Object.assign(Error('처리 결과를 조회할 권한이 없습니다. 소유자 계정으로 로그인한 뒤 상세 결과를 확인해 주세요. 파일은 접수되어 있으므로 재업로드할 필요가 없습니다.'),{terminal:true});
    if(r.status===404){saveUploadJob(job,true);throw Object.assign(Error('서버가 재시작되었습니다. 저장된 파일의 상세 결과를 확인해 주세요.'),{terminal:true});}
    if(!r.ok)throw Error('진행 상태 연결 재시도 중');
    const state=await r.json();errors=0;

@@ -24,6 +24,40 @@ from webapp.ledger_store_audit import (
 )
 
 
+@pytest.mark.parametrize('unified', [False, True])
+def test_first_audited_save_of_advanced_import_revision(tmp_path, monkeypatch, unified):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1' if unified else '0')
+    store = LedgerStore(tmp_path / 'board.sqlite')
+    try:
+        row_id = 'expense-demo-c1'
+        row = store.get_row(row_id)
+        # Imported projections may already have revisions without a board
+        # decision stream. Match both the indexed and serialized revision.
+        payload = json.loads(store.conn.execute(
+            'SELECT payload_json FROM board_rows WHERE row_id=?', (row_id,)).fetchone()[0])
+        payload['revision'] = 4
+        store.conn.execute('UPDATE board_rows SET revision=4,payload_json=? WHERE row_id=?',
+                           (json.dumps(payload), row_id))
+        original_facts = (row['amount_krw'], row.get('occurred_on'), row.get('source_event_id'))
+        for revision, request_id, description in ((4, 'sync-first', '동기화'), (5, 'sync-next', '다음 동기화')):
+            result = store.save(row_id=row_id, expected_revision=revision,
+                client_request_id=request_id, change_mode='rule_change',
+                changes={'description': description}, actor='automatic')
+            assert result['outcome'] == 'saved'
+            assert not result.get('ledger_pending')
+            assert store.save(row_id=row_id, expected_revision=revision,
+                client_request_id=request_id, change_mode='rule_change',
+                changes={'description': description}, actor='automatic') == result
+        events = [event for event in store.ledger.all_events() if event['stream_id'] == 'row-' + row_id]
+        assert [event['action'] for event in events] == ['propose', 'correct']
+        assert store.ledger.verify_chain()['ok']
+        saved = store.get_row(row_id)
+        assert (saved['amount_krw'], saved.get('occurred_on'), saved.get('source_event_id')) == original_facts
+        assert store.conn.execute('SELECT COUNT(*) FROM board_manual_overrides').fetchone()[0] == 0
+    finally:
+        store.close()
+
+
 def _load_base_2384cfd_functions():
     p = subprocess.run(
         ["git", "show", "2384cfd:webapp/ledger_store.py"],

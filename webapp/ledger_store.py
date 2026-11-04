@@ -3017,7 +3017,10 @@ class LedgerStore:
             # 행·revision·수동 고정·학습 사례·요청 결과·정본 사건(outbox)을
             # 같은 트랜잭션에 넣고, 별도 DB 복제는 COMMIT 뒤 내구성 기록에서 한다.
             outbox_id = f"ledger-{client_request_id}"
-            ledger_action = "propose" if current["revision"] == 1 else "correct"
+            # Imported projections can advance revisions before their first
+            # audited board edit. The audit stream, rather than the projection
+            # revision, determines whether this starts or corrects a decision.
+            ledger_action = self._stream_action(f"row-{row_id}")
             ledger_rationale = f"행 저장 {row_id} revision {new['revision']} ({change_mode})"
             outer_txn = self.conn.in_transaction
             if not outer_txn:
