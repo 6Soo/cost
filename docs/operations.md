@@ -1,3 +1,12 @@
+## 2026-11-04 FUKUTAKE·항공권 정보 우선순위/버튼 수정
+
+- [PR #624](https://github.com/6Soo/cost/pull/624) 운영 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`, 이전 검증 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`. [요구사항 F1~F3](specs/expense-flight-priority-fix-20261104.md)를 구현했다. FUKUTAKE 입장료 규칙은 자동 현지경비보다 우선하고 환불 대기는 실제 연결/승인번호/금액통화날짜 후보로 좁힌다. 모호 후보·원본 오류·수동 결정을 보호한다.
+- 항공권 결과는 행선지·여행 날짜·탑승객을 먼저 보여주고 여정을 펼친다. 중복 예약번호/hero·상시 안내/장문 집계를 제거하고 예약/결제 도구는 닫힌 상세로 이동했다. 오염된 도시/날짜 문장은 조회 DTO에서 배제해 공항 코드로 대체하고 원문·충돌/취소 경고를 유지한다. 버튼 깨짐은 페이지 block 스타일과 공통 자동 아이콘/chevron 충돌이 원인이며 해당 disclosure가 flex·단일 화살표를 소유하도록 수정했다.
+- 최종 검사 `52c0fd60b6951bcd87ef20624af367831a834b53`와 병합 tree 동일. Windows 영향 QA573 passed·32 subtests·skip0·필수 브라우저 누락0, PR CI41764424619 success. 기존 항목 교정/수동 보존·실제 환불/모호 후보/원본 오류 보호·오염 문장/긴 이름/키보드/정보 순서/버튼 computed style 회귀를 포함한다.
+- 공식 단일 작성자 배포: 1,321 blobs 불일치0·런타임SHA 일치·listener1·health/ready200·보호API401·보호13표 내용/스키마 전후 불변. gateway8790→backend8752. 이전 검증 릴리스/작업 복구 수단 유지. 실제 항목 일괄 재분류·금융/원본/Google 업무 쓰기·마이그레이션 없음.
+- 합성4폭×두테마8조건 넘침/summary배치오류0 및 실제390px 이미지 육안 확인. 운영 인증 시즈오카3건·오염 문장0·메타 기본닫힘·중복hero0·첫 여정 상단458.4px, 상세 펼친390/1440px 배치/넘침오류0. 지출 정리 화면 FUKUTAKE4건 확인(기존 불필요14건 제외·실제환불4건 보호). 실기기·모든 자료 조합은 미검증. Ego46 및 소유 합성8876 서버 종료.
+- 근거 `C:/AX/cost/.local-archive/fukutake-check-20261104/`의 windows-final/·final-layout.json·final-mobile.png·live-flight.json·live-details-expenses.json·review.json·deploy-evidence.json, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f.json`. 문서 후속으로 재배포하지 않는다.
+
 ## 2026-11-04 항공권 날짜·행선지 검색
 
 - [PR #622](https://github.com/6Soo/cost/pull/622) 운영 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`, 이전 검증 `2663f08e9fd478adba52cba2218a5a528046aa81`. 항공권 단일 검색창에서 이름·도시·공항 코드·여정 기간 중 날짜를 조합한다. 날짜 미상은 예약일/카드일로 추정하지 않으며 충돌 자료는 명시 날짜만 검색한다. [상세 계약](specs/flight-route-date-search-20261104.md).

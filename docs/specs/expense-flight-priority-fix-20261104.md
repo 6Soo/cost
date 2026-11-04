@@ -5,4 +5,15 @@
 - F2: 검색 결과 요약에 행선지·여행 날짜·탑승객을 표시한다. 예약번호 중복·상시 도움말/장문 집계를 제거하고 예약일/결제/원행 도구는 닫힌 상세로 이동한다. 취소·충돌 경고는 유지한다. 잘못 추출된 도시·날짜 문장을 조회 DTO에서 배제하고 공항 코드로 대체한다. 원문/충돌 여부는 변경하지 않는다.
 - F3: 항공권 disclosure가 아이콘/chevron/레이아웃을 직접 소유하도록 공통 장식과 충돌을 제거한다. 320/390/768/1440px, 두 테마, 긴 이름·줄바꿈·실제 버튼/텍스트/화살표 좌표와 첫 화면 정보 순서를 검사한다.
 - 검증/종료: 위 오류 합성 재현 red→green, 표적·보호·영향 QA, CI 녹색 병합, 검증 SHA 배포, 운영 읽기 수락 및 근거 기록. DB 재분류/Google 쓰기/마이그레이션은 이 코드 수정으로 수행하지 않는다.
-- 상태: IMPLEMENTING.
+- 상태: COMPLETE — [PR #624](https://github.com/6Soo/cost/pull/624) 병합 및 운영 배포 완료. 이 요청의 미결 0.
+
+| 요구사항 | 상태 | 실제 근거 |
+| --- | --- | --- |
+| F1 분류·대기열 코드 오류 | COMPLETE | 기존 현지경비/수동/환불 합성 회귀 및 교정 계획 적용 검사. 운영 읽기 예측에서 불필요14건 제외·실제 연결4건 보호, 배포 후 지출 정리 화면 FUKUTAKE4건 확인 |
+| F2 필요한 정보 우선 | COMPLETE | 운영 시즈오카3건 검색, 오염 문장 노출0·중복 hero 노출0·메타 상세 기본 닫힘. 390px 첫 여정 상단458.4px |
+| F3 모바일 버튼 깨짐 | COMPLETE | 공통 자동 장식과 페이지 block 스타일 충돌 제거. 합성4폭×2테마8조건·실제390/1440px 상세 펼침에서 flex/화살표/44px 높이·넘침 확인 |
+
+- 최종 검사 `52c0fd60b6951bcd87ef20624af367831a834b53`: Windows 영향 QA573 passed·32 subtests·skip0·필수 브라우저 누락0, CI41764424619 success. 병합/운영 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`와 tree 동일.
+- 공식 배포: 이전 검증 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`, 1,321 blobs 불일치0·런타임SHA 일치·listener1·health/ready200·보호API401·보호13표 내용/스키마 전후 불변. gateway8790→backend8752.
+- 기존 실제 거래의 비용 항목을 일괄 재분류하거나 금융/원본/Google 업무 쓰기·마이그레이션을 실행하지 않았다. 수정한 코드의 분류 동작과 임시 합성DB 교정 적용을 검증했다. 실기기·모든 자료 조합은 미검증이다.
+- Ego46 종료·소유 합성8876 서버 종료. 근거 `C:/AX/cost/.local-archive/fukutake-check-20261104/`의 windows-final/·final-layout.json·final-mobile.png·live-flight.json·live-details-expenses.json·review.json·deploy-evidence.json. 문서 후속으로 재배포하지 않는다.
