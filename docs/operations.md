@@ -1,3 +1,13 @@
+## 2026-11-05 지출 정리 거짓 원문 충돌 108건 교정
+
+- COMPLETE — [PR #631](https://github.com/6Soo/cost/pull/631), 구현 `c70dff8d`·원본 파일 해시 보호 `157a8439`, 운영 `94ccd9b334220bc14b11b1c50decd7f13606fa92`. 이전 검증 `804eac6023ddcddb90c7959b66fce970bb656ef2`. [실행 범위](specs/cleanup-export-conflicts-20261105.md).
+- 원인: 인증 운영 화면118건 중108건은2026-11-04 재수집 시 생성된 동일 원행의 거짓 충돌이다. 원본CSV는 명시 매입일 헤더가 없는데 parser가 이용일로 대체했고, 새 하나 이용내역은 실제 매입일을 제공했다. 카드/발급사·승인번호·이용일·금액이 일치하며94건은 가맹점명도 같다. 나머지14건은 가맹점명의 확장/축약과 동일한 명시 가맹점번호를 원본 파일에서 검증했다. 명시 매입일 누락과 파일 해시 변경의 회귀를 red 재현했다.
+- 변경: 원본 bytes의 저장SHA256·행 source_hash·parser/header를 대조한 근거로만 기본 날짜를 허용한다. 가맹점 차이는 부분 명칭과 같은 명시 가맹점번호까지 요구한다. 미래 업로드는 같은 승인 원행을 재사용한다. 기존108개 행은 원본/ID/충돌 플래그/분류/수동 결정/장부를 바꾸지 않고 지출 대기열의 중복 작업에서만 제외한다. 실제 명시 날짜·금액·가맹점 차이, 복수 원결제 후보, 원문 오류·수동 결정/보류·장부 기록은 보호한다.
+- 검증: 최종 검사 `157a8439c136815b54840a3de479afaf34fdd921`, Windows 영향 QA483 passed·42 subtests·skip0·필수 브라우저 누락0, CI41886588452 success, 검사/병합 tree 동일. 재사용/멱등성·원문/수동/중복·부분환불·OTA exact·권한·대기열 집계/목록/필터/render 읽기 전용 검사를 포함한다. 선행482검사와 후속483검사를 합산하지 않는다. 초기 hosted CI41885527350은 Chromium 설치 지연 중 새 커밋으로 대체돼 중단했으며 최종 근거가 아니다.
+- 배포: 1,328 Git blobs 일치·task/process 고정SHA·loopback listener1·gateway8790→backend8751·health/ready200·보호API401·영향3경로401·보호13표 내용/스키마 전후 동일. 최초 drain30초 시간 초과 시 새 릴리스를 활성화하지 않고 이전 라우트 재개/준비 작업 정리·보호13표 동일을 확인했다. 활성 연결이 자연 종료돼0인 상태에서 동일 공식 배포기를 정상 재실행했다. 요청 강제 종료·drain 게이트 우회 없음. 이전 검증 릴리스/task 복구점을 보존하고 코드 전용이라 전체DB 백업/복원은 반복하지 않았다.
+- 운영 수락: 호스트 Python과 실제 배포 파일을 사용하고, store initializer 없이 mode=ro/query_only 연결·운영 Google snapshot/일정 권한·실제 trip_valid로 전체10건·목록10행·금융6/기록4/근거충돌0을 확인했다. 검사 중 DB total_changes0. 이는 배포본 업무 코드의 읽기 대조이며 인증 브라우저 화면 확인으로 보고하지 않는다. Ego50은 배포 전118건 읽기 수락 후 소실됐다. 새 공간/다른 사용자 또는 다른 에이전트 공간으로 우회하지 않았으며 배포 후 인증 GUI/실제 업로드/실기기 확인은 미실행이다.
+- 근거: `.local-archive/cleanup-count-20261105/`의 baseline/candidate/compare·windows-final·review/deploy-evidence·protection-before/after·impact-auth-smoke·runtime-acceptance·checkpoint, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-94ccd9b334220bc14b11b1c50decd7f13606fa92.json`. 운영 원본/금융/분류/여행/Google 업무 쓰기·삭제·마이그레이션0. 문서 후속만으로 재검사·재배포·서버 재시작하지 않는다.
+
 ## 2026-11-04 다중 파일 접수·백그라운드 분류 UX
 
 - [PR #627](https://github.com/6Soo/cost/pull/627) 정상 병합·운영 `804eac6023ddcddb90c7959b66fce970bb656ef2`, 이전 검증 `96b978bfe7f161ccd9c9de090fd635c4b85a6a51`. 전체 파일의 원본 검증·저장·durable queue 등록을 먼저 완료하고 분류를 시작한다. 접수 직후 이동 가능 안내·버튼 활성·복귀 시 병렬 상태 복구를 제공한다. 단일 파일 API·개별20MiB·중복/환불/수동/원본/owner/CSRF 보호·금융 쓰기 직렬화는 유지한다.
