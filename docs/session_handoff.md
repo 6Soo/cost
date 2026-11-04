@@ -1,3 +1,9 @@
+## 2026-11-04 다중 파일 즉시 접수·백그라운드 분류 UX
+
+- PARTIAL — [PR #627](https://github.com/6Soo/cost/pull/627), 코드 `8890fa3a`. [요구사항·검증·다음 단계](specs/card-upload-background-navigation-20261104.md). 모든 파일을 먼저 한 번에 접수한 뒤 분류하며 접수 직후 버튼 활성·이동 가능 안내·복귀 시 상태 복구를 구현했다. 고객 업로드/운영 금융·Google·스키마 쓰기0.
+- 표적13 passed, signed bulk owner/CSRF1 passed/4 subtests, 최종 queue6 passed, 합성 ego12개 접수→이동→복귀12개 복구 PASS. Windows 영향 QA496 passed/97 subtests·2 failed·skip0. 두 실패는 기준 main에서도 재현했다(인증 HTML/JSON 기대값, upload jobs 후 OTA total0 순서 의존). 통과로 처리하지 않는다.
+- 기존 실패 수정 범위를 사용자에게 질문한 상태다. 호스팅 CI 녹색·병합·공식 배포는 미완료, 운영 `f680e7e0` 보존. 근거 `.local-archive/upload-background-20261104/`; 다음 `gh pr checks 627`과 범위 답변 확인. 기존 사용자 workspace/미추적 파일을 보존했고 독립 candidate worktree는 계속 작업할 수 있도록 유지한다.
+
 ## 2026-11-04 FUKUTAKE·항공권 정보 우선순위/버튼 수정 — 완료
 
 - COMPLETE — [PR #624](https://github.com/6Soo/cost/pull/624), 운영 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`. [요구사항별 결과](specs/expense-flight-priority-fix-20261104.md). FUKUTAKE 명시 항목 우선·환불 후보별 대기, 항공권 여정 우선·보조 상세 접기·오염 문장 배제·공통 장식과 전용 버튼 스타일 충돌을 수정했다.
