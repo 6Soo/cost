@@ -19,6 +19,10 @@
 
 작업 공간: `C:/AX/cost-status-inference` (기존 공유 작업 공간의 병행 미커밋 변경 보호를 위해 격리).
 
+### 2026-11-05 신규 자율 P2 작업자 구현 범위
+
+[자율 지출정리 최신 상태](autonomous-expense-cleanup-20261105.md#구현운영-상태-대조-2026-11-05): [#643](https://github.com/6Soo/cost/pull/643)이 기존 P1/AI preview·apply 계약에 자동 작업자를 연결했고, [#647](https://github.com/6Soo/cost/pull/647)이 Windows OpenCode 실행기 오류를 수정했다. 기존 아래 CLI 실행 계약은 여전히 유효하지만 자동 작업자 존재 자체가 **운영 호스트에서 무인 게이트 활성화** 또는 코드 결함 자동수정까지 완료했음을 뜻하지 않는다. 사용량 상한·실행 출처·수동 보호/Google 읽기 전용 계약 유지.
+
 ## 연결 에이전트의 실제 P2 실행
 
 `tools/review_card_inference.py --host-root <보호호스트> --transaction <ID> --output <로컬요청.json>`은 읽기 전용 DB의 메모리 사본에서 P1을 먼저 실행하고 P2 요청을 만든다. 원문·가맹점 원문·이름·카드번호·예약번호는 요청에 포함하지 않고, 기존 비용 항목·이용일·유효 여행 기간·파생 서비스 항목만 전달한다. 이미 충분한 코드 분류는 재검토하지 않으며, 명시 선택한 자동분류 교정에만 `--reconsider`를 쓴다.
