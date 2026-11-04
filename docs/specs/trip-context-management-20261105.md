@@ -6,6 +6,6 @@
 
 완료 조건: 선택 여행 안에서 관리 및 연결이 가능하고 저장 후 같은 여행으로 돌아온다. 예약은 해당 여행 연결을 기본 표시하고 미연결/전체 검색을 명시한다. 전체 명단 적용은 별도 전체 범위로 표시한다. 영향 QA·호스팅 CI·정상 병합·검증 SHA 배포와 브라우저 확인을 수행한다.
 
-상태: IMPLEMENTING. 기존 C:/AX/cost의 미커밋 보험 변경과 3개 미병합 커밋을 보존하기 위해 origin/main 기반 C:/AX/cost-trip-context-20261105, feat/trip-context-management-20261105를 사용한다.
+상태: COMPLETE. PR #642 정상 병합 및 검증 SHA `465760ba7cbc23ab46fe61eaa20eb06999510c70` 고정 배포 완료.
 
 검증/배포 결과는 docs/session_handoff.md와 docs/operations.md에 인계한다.
