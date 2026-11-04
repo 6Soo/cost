@@ -186,8 +186,11 @@ def test_relay_request_outbox_preserves_dynamic_dispatch_and_lock_boundary(tmp_p
     store.conn.close()
 
 
-def test_outbox_lifecycle_failure_and_replay(tmp_path):
+def test_outbox_lifecycle_failure_and_replay(tmp_path, monkeypatch):
     """Test full outbox enqueue -> failure -> replay cycle on LedgerStore."""
+    # This scenario specifically exercises the separate-ledger relay. Other
+    # suites can enable embedded auditing, where enqueue is already relayed.
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '0')
     db_path = str(tmp_path / "test_lifecycle.db")
     store = LedgerStore(db_path)
 
