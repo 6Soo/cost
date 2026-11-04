@@ -349,3 +349,31 @@ def test_cleanup_owner_ctas_split_user_and_auto(tmp_path, monkeypatch):
     finally:
         ledger_board.bind_store(None)
         board.close()
+
+
+def test_provider_resolves_real_exe_behind_cmd_shim(tmp_path, monkeypatch):
+    from app import connected_agent_provider as provider
+    bin_dir = tmp_path / 'npm' / 'node_modules' / 'opencode-ai' / 'bin'
+    bin_dir.mkdir(parents=True)
+    shim = tmp_path / 'npm' / 'opencode.cmd'
+    shim.write_text('@echo off\n', encoding='utf-8')
+    real = bin_dir / 'opencode.exe'
+    real.write_bytes(b'')
+    monkeypatch.delenv('WEBLEDGER_OPENCODE_EXE', raising=False)
+    monkeypatch.setattr(provider.shutil, 'which', lambda name: str(shim))
+    assert provider._executable() == str(real)
+
+
+def test_provider_keeps_explicit_executable(tmp_path, monkeypatch):
+    from app import connected_agent_provider as provider
+    custom = tmp_path / 'opencode.exe'
+    custom.write_bytes(b'')
+    monkeypatch.setenv('WEBLEDGER_OPENCODE_EXE', str(custom))
+    monkeypatch.setattr(provider.shutil, 'which', lambda name: None)
+    assert provider._executable() == str(custom)
+
+
+def test_provider_catalog_stays_on_free_tier():
+    from app import connected_agent_provider as provider
+    assert provider.DEFAULT_MODEL in provider.MODELS
+    assert all(name.startswith('opencode/') and name.endswith('-free') for name in provider.MODELS)
