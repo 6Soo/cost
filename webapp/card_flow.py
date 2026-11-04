@@ -2988,7 +2988,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 확인해 주세요' if not item else
                       '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
-                      '배정과 거래의 보호 검사 결과를 확인해 주세요')
+                      '여행·항목이 지정되어 있습니다. COST 내부 비용 기록은 아직 없습니다.')
             evidence = card_evidence_ui.render_no_booking_evidence(
                 fresh=bool(snapshot_context.get('fresh')),
                 source=source,
