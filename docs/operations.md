@@ -1,3 +1,11 @@
+## 2026-11-05 제주항공·Traveloka 항공권 OTA 수집 보완
+
+- [PR #634](https://github.com/6Soo/cost/pull/634), 운영 `43907dd375bffa860a3415e2330082d12948e8fe`, 이전 `2e911f3f6fdb853f1635f720ea259f6191541008`. 상세 [실행 결과](specs/airline-mail-collection-20261105.md#2026-11-05-운영-반영-결과).
+- Windows 영향509 passed·4 subtests·skip0, CI41890085930 success, 병합 인접14 passed.1333 blobs 일치·task/processSHA·단일 backend8751·health/ready200·보호API401·보호13표 불변. 첫 gateway 상태 읽기 충돌은 기존 운영 복구 확인 후 재시도 성공했다.
+- 백업/격리 복원 검증 후 새 원문138건·기존3건 직접 수집 출처를 원자 추가했다. 새 운영 복구 사본·기존 원문 전체/스키마 불변·integrity_check PASS. 운영 재파싱 제주128메일/102예약·Traveloka11메일/5예약 PASS. 실제 금융 결제·환급·탑승 확인과 구분한다.
+- MailCollect를 새 SHA와 명시 제주항공 owner-domain 옵션에 연결하고 Ready 확인. 클라우드 query 보완은 저장소 코드에 한하며 원격 Apps Script 업로드/전환 미실행, 새 메일 도착 후 정기 실행 미관측. 금융·여행·Google 쓰기/스키마 변경0.
+- 비공개 근거 `C:/AX/cost/.local-archive/airline-audit-20261105/`, 복구 사본 `D:/WebLedgerHost/data/backups/airline-mail-20261105-private/`, 호스트 `deploy-evidence-43907dd375bffa860a3415e2330082d12948e8fe.json`. 문서 후속으로 재배포·재시작하지 않는다.
+
 ## 2026-11-05 카드 업로드 후속 처리 오류
 
 - COMPLETE — [PR #633](https://github.com/6Soo/cost/pull/633), 구현 `6279dae4`·검사 fixture 수정 `2bbaa5379f94d1165da0b53be30d65fa99ee44f6`, 고정 운영 `2e911f3f6fdb853f1635f720ea259f6191541008`, 이전 검증 `94ccd9b334220bc14b11b1c50decd7f13606fa92`. [명세/수락](specs/upload-audit-recovery-20261105.md).
