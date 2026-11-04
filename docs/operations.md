@@ -1,3 +1,13 @@
+## 2026-11-04 항공권 누락·모바일 정보 밀도 개선
+
+- COMPLETE — [PR #626](https://github.com/6Soo/cost/pull/626), 구현 `f86acff6`·복수 예약 보호 `e31d392b`, 운영 `96b978bfe7f161ccd9c9de090fd635c4b85a6a51`. 이전 검증 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`. [요청별 실행 범위](specs/flight-coverage-mobile-density-20261104.md).
+- 요청1: 보관3,499메일(최신 수신일2026-11-04)을 읽기 대조했다. 시즈오카는 기존 Trip3예약·이름4명분에 제주1예약이 추가돼 4예약·5이름 표기다. 전원을 고유인원 또는 유효 항공권으로 확정하지 않는다. 취소/충돌 표시가 있는 예약1건을 포함하며 운영 화면의 기존 경고2개를 유지했다. 조회용 투영만 확장하고 금융 Trip 색인/기존 소스 digest 연결을 보존한다. 인증된 여정만 포함하고 예약자 인사·위장 도메인·복수 예약번호의 모호한 노선은 제외한다. 추가 복수예약 회귀는 red 재현 후 coverage8 passed로 교정했다.
+- 요청2: Google Flights 실제 검색 목록과 Xero 공식 지출 기능·모바일 앱 예시를 직접 탐색했다. 실제 Xero 고객 장부 사용으로 보고하지 않으며 Zoho 데모는 DNS 실패로 채택하지 않았다. 여정 시간·도시·공항을 같은 행에 모으고 동반 탑승객을 목록에 표시했다. 합성4폭×두테마 밀도 근거와390px 왕복 하단537.4px를 보존한다. 재개 후 실제 테마 버튼으로 라이트/다크 배경 차이와 배치를 확인하고 라이트 스크린샷도 육안 검토했다.
+- 요청3: 카드100행의 자동 아이콘/전용 버튼 충돌·최소44px, 모바일 기간/카드 필터 같은 행 배치, 상단과 동일한 제목만 숨김, 지출0건 필터·반복 집계·무관 OTA 문구와 개별 중첩 틀을 정리했다. 운영390px `/board`, `/import`, `/cards/all`, `/ota`, `/receipts`, `/trips`, `/flight-passengers`에서 넘침/장식오류/중복제목/작은 카드버튼/불필요0필터0 및 필터 같은 행을 수락했다. 최초 재개 브라우저 검사는 viewport 재설정 누락으로 desktop에서 대기 실패했으며 새 실행에서390px를 명시해 교정했다. 제품 실패나 통과로 혼동하지 않는다.
+- 검증: Windows 영향 QA590 passed·62 subtests·skip0·필수 브라우저 누락0, CI41769141167 success. 검사SHA `e31d392b2265b15abb3651003b501e75f55d50b5`와 병합 tree 동일. 중단된 이전 QA는 근거에서 제외했다. 운영 검색 `예약 4건`·2명 그룹1개·기존 경고/닫힌 결제 상세 유지, 실제 두 테마 배경 차이와 summary 배치 통과.
+- 배포: 1,325 Git blobs 일치·task/process 고정SHA·loopback listener1·health/ready200·보호API401·영향4경로401·보호13표 내용/스키마 전후 동일. 코드 전용 전환으로 이전 검증 릴리스/task 복구점을 보존했고 새 전체DB 백업/복원은 반복하지 않았다. 금융/원본/분류/여행/Google 업무 쓰기·마이그레이션0. 파생 조회 캐시만 갱신한다. 실기기·모든 상태 조합·전체 계정 추가수집은 미실행이다.
+- 근거: `.local-archive/flight-coverage-20261104/`의 coverage-summary/collection-scope·windows-final·review/deploy-evidence·protection-before/after·impact-auth-smoke·live-search-acceptance/live-path-acceptance. 호스트 `D:/WebLedgerHost/releases/deploy-evidence-96b978bfe7f161ccd9c9de090fd635c4b85a6a51.json`. Ego47 정상 종료, 소유8876 합성 서버는 commandline 확인 후 종료. 문서 후속만으로 재배포·재시작하지 않는다.
+
 ## 2026-11-04 FUKUTAKE·항공권 정보 우선순위/버튼 수정
 
 - [PR #624](https://github.com/6Soo/cost/pull/624) 운영 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`, 이전 검증 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`. [요구사항 F1~F3](specs/expense-flight-priority-fix-20261104.md)를 구현했다. FUKUTAKE 입장료 규칙은 자동 현지경비보다 우선하고 환불 대기는 실제 연결/승인번호/금액통화날짜 후보로 좁힌다. 모호 후보·원본 오류·수동 결정을 보호한다.
