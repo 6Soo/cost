@@ -10,6 +10,10 @@
 - 검증: 합성 연결 전환·진행 중 요청·업로드/인증 전달·재전송 없음·후보 실패·drain 실패·자동 작성자 배제, 기존 Windows 호스트 검사와 영향 QA. 실제 전환 시 연속 요청·health/ready·보호 API·13표 불변을 확인한다.
 - 완료 조건: CI 녹색 병합 SHA 고정 배포, 게이트웨이와 새 앱 스케줄러 실행 확인, 실제 전환 근거 및 남은 한계 기록.
 
+## 2026-11-05 Gateway 유휴 HDD I/O 최적화 후속 (진행 중)
+
+[상세 명세 #644](https://github.com/6Soo/cost/pull/644)는 문서 PR **열림/미병합**, [구현 #646](https://github.com/6Soo/cost/pull/646)은 코드 PR **열림/미병합**이다. #646의 제안은 status 이벤트별 즉시 게시와 30초 유휴 heartbeat, route 파일 250ms stat cache, 로그 체크 감소다. 해당 PR의 ‘~97% 감소’는 예정 heartbeat 횟수에 대한 추정이며 운영 HDD/소음 실측이 아니다. **현재 main/배포의 적용 증거로 사용하지 말 것.** route pause/generation·drain 최신성·기존 연결 보존, 후보 실패 원복, Gateway 프로세스 교체·잠금/작업 스케줄러·보호13표·실측 수락이 선행되어야 한다. 주기 숫자만 고치거나 구상태 파일을 근거로 연결 종료를 승인하지 않는다.
+
 ## 실행 계약
 
 1. 검증된 SHA의 `tools/install_ledger_gateway.ps1`을 `-Apply` 없이 미리보기한다. 첫 설치만 `-Apply`로 실행한다. 기존 앱을 유지하고 새 터널 연결의 `/ready`가 200인 뒤 기존 터널 연결을 종료한다. 터널 인증·공개 hostname은 유지한다.

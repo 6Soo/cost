@@ -1,6 +1,22 @@
 # COST 자율 지출정리 관리자: P1→P2 선처리·코드 결함 자율 개선 (2026-11-05)
 
-**상태: SPEC_ONLY · 사용자 승인 요구사항, 구현/배포 미완료.** 최신 승인 요청: 카드 지출정리 건수가 생길 때 사용자가 ‘모든 내역 확인해’를 반복하지 않도록 에이전트가 선제 조사·분류·원인 해결을 하고, **에이전트로 해결 불가능한 실제 사용자 판단만 최종 표시**한다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
+**현재 판정(2026-11-05): PARTIAL · 명세 #636 병합, 자동 P1→P2 및 사용자 필수 예외 분리 코드 #643 병합, 호스트 실행기 오류 수정 #647 병합. 운영 활성화·운영 실자료 자율 처리·전체 자동 코드 수정/배포는 확인되지 않음.** 최신 승인 요청: 카드 지출정리 건수가 생길 때 사용자가 ‘모든 내역 확인해’를 반복하지 않도록 에이전트가 선제 조사·분류·원인 해결을 하고, **에이전트로 해결 불가능한 실제 사용자 판단만 최종 표시**한다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
+
+## 구현·운영 상태 대조 (2026-11-05)
+
+| 항목 | 판정 | 근거 및 남은 확인 |
+| --- | --- | --- |
+| 설계 승인·정본 명세 | **COMPLETE** | [#636](https://github.com/6Soo/cost/pull/636) 병합; 본 문서는 목표 계약이다 |
+| 신규 거래 변화 탐지, P1→P2 작업자, 지문·멱등·복구·재시도 | **CODE MERGED** | [#643](https://github.com/6Soo/cost/pull/643): `webapp/autonomous_cleanup_worker.py`, `app/connected_agent_provider.py`, 기존 `requests` 스코프 기반 durable 상태; 60초 sweep 및 업로드 wake; 합성 테스트 |
+| 실제 연결 OpenCode 호출 경로 | **코드 수정/합성 실행 검증** | [#647](https://github.com/6Soo/cost/pull/647): Windows npm `.CMD` 인수 파싱 오류 수정, 실행 파일 경로와 무료 모델 목록 변경. 격리 호스트에서 **합성 2건 실제 무료모델 P2 처리** 확인. 운영 자료 자동 처리/무인 지속 실행 검증과 구별 |
+| 운영 무인 AI 활성화 | **UNVERIFIED** | 코드에는 `config/card-flow.json`의 `autonomous_ai_review: true` 또는 `WEBLEDGER_AUTONOMOUS_AI_REVIEW=1` opt-in 게이트가 있다. 호스트 설정과 현재 프로세스의 실제 활성화·운영 수락 증거를 확인하기 전에는 작동 중으로 표시하지 말 것 |
+| ‘내 확인 필요’ UI 및 원인 묶음 | **CODE MERGED** | [#643](https://github.com/6Soo/cost/pull/643): `cleanup_owner=user|auto|all` 및 원인 묶음·실행 지표. **원인 묶음 기록은 자동 코드 수정/PR 생성이 아님** |
+| 결함 재현→코드 수정→PR/CI→안전 배포→재평가의 무인 연결 | **미구현/미입증** | 기존 QA/배포 도구의 존재와 지속 자동 패치 운영은 별개. 위험 변경의 권한 게이트를 유지하며 별도 구현·E2E 증거 필요 |
+| 실제 운영 전 범위 수락 | **PENDING** | 정확한 실행 SHA, 활성 게이트, 보호 13표, 인증 운영 UI 읽기, 사용자 첫 지적 없는 신규 지출 처리, 재시작 복구, 7일 지표를 검증 |
+
+**불일치 주의:** 본 명세의 30분 보완 검사는 요구사항이고 구현 #643의 주기 sweep는 **60초**다. 불필요한 유휴 디스크 스캔을 늘릴 수 있으므로 [HDD I/O 최적화 명세 PR #644](https://github.com/6Soo/cost/pull/644) 및 [구현 PR #646](https://github.com/6Soo/cost/pull/646)의 부하·상태 갱신과 함께 실제 측정해 주기를 정한다. 호스트에서 실패·재시도·방치된 작업을 신뢰성 있게 회복하되 원본·수동 결정·Google 읽기 전용 보호를 약화하지 않는다.
+
+**완료 조건 재확인:** #643/#647 병합 자체는 서비스가 운영에서 자동으로 AI를 호출한다는 증거가 아니다. 별도 무인 호스트 활성화·현행 무료 모델 가용성·실제 신규 지출 시점의 실행 근거를 확보해야 하며, 자동 코드 결함 수정은 아직 다음 개발 범위다.
 
 ## 1. 목표 및 비목표
 

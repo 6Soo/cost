@@ -4,7 +4,7 @@
 
 ## 최신 개발 현황 확인
 
-**2026-11-05 신규 승인·미구현:** [자율 지출정리 관리자 명세](specs/autonomous-expense-cleanup-20261105.md). 신규 카드 지출 발생 시 P1→실제 연결 AI P2 선제 검토·코드 결함 해결·최종 사용자 필수 예외만 노출하는 자동 운영 루프의 요구사항이다. 구현/배포 완료가 아니며 에이전트에게 끝까지 실행하도록 위임할 대상이다.
+**2026-11-05 진행 현황:** [자율 지출정리 관리자 명세](specs/autonomous-expense-cleanup-20261105.md) #636 병합, 후속 코드 [#643](https://github.com/6Soo/cost/pull/643)·Windows OpenCode 실행 오류 수정 [#647](https://github.com/6Soo/cost/pull/647) 병합. **운영 무인 AI 게이트 활성화/실자료 자동 실행 및 코드 결함 자동 PR·배포는 아직 입증되지 않았다.** [WebLedgerHost HDD I/O 명세 #644](https://github.com/6Soo/cost/pull/644)는 아직 열린 문서 PR이고 [최적화 구현 #646](https://github.com/6Soo/cost/pull/646)도 열린 코드 PR이다. 코드·운영 상태를 혼동하지 않는다.
 
 
 [2026-10-28 18:30 기준 구현현황·명세 차이 감사](specs/implementation-status-audit-20261028.md)는 GitHub 병합과 실제 운영 배포를 구분한다. 최신 실행 큐 자체는 [현재 상태](session_handoff.md), 제품 정책은 [오너 확정 결정](specs/owner-product-decisions-20261028.md)를 따른다. 완료한 하위 추출을 전체 리팩토링 완료로 보고하거나 별도 SPEC_ONLY를 이미 실행 중이라고 해석하지 않는다.
