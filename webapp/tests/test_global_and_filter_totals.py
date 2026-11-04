@@ -230,7 +230,7 @@ class FilteredTotalsTests(_Server, unittest.TestCase):
 
 
 class ManualExpenseEntryPointTests(_Server, unittest.TestCase):
-    """DETAILED 15: the button belongs beside the expense section heading."""
+    """The shared trip toolbar owns the manual expense entry point."""
 
     def setUp(self):
         self._boot("manual-entry.sqlite")
@@ -238,14 +238,15 @@ class ManualExpenseEntryPointTests(_Server, unittest.TestCase):
     def tearDown(self):
         self._shutdown()
 
-    def test_the_board_places_the_button_in_the_expense_group_row(self):
+    def test_the_board_places_the_button_in_the_shared_trip_toolbar(self):
         status, page = self._open(f"/board?tab={TAB}")
         self.assertEqual(status, 200)
         rows = re.findall(r"<tbody class='grp'>(.*?)</tbody>", page, re.S)
         self.assertEqual(len(rows), 2, "income group then expense group")
         expense_row = rows[1]
-        self.assertIn("id='add-manual-expense'", expense_row)
-        self.assertIn(f"href='/expense/new?tab={TAB}'", expense_row)
+        self.assertNotIn("add-manual-expense", expense_row)
+        self.assertEqual(page.count("id='add-manual-expense'"), 1)
+        self.assertIn("href='/expense/new?tab=", page)
 
     def test_the_button_is_not_in_the_income_group(self):
         _, page = self._open(f"/board?tab={TAB}")

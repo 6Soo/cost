@@ -420,7 +420,7 @@ def _head_html(trip) -> str:
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
     from . import trip_management_ui
     return (
-        "<div class='page-hd'><div>"
+        "<div class='page-hd trip-header'><div>"
         f"<h1>{title}{_context_badge()}</h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
@@ -428,10 +428,6 @@ def _head_html(trip) -> str:
         + trip_management_ui.controls(board, trip)
         + (_reserve_link_link_html() if trip and not trip.get('is_unclassified') else '')
         + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
-        "<details class='secondary-actions'><summary>추가 작업</summary><div>"
-        + _review_link_html()
-        + f"<a class='btn' href='/import#newupload'>{_icons.icon('upload')}카드 가져오기</a>"
-        "</div></details>"
         "</div></div>")
 
 
@@ -911,6 +907,20 @@ def _day_label(day, with_year: bool) -> str:
     return f"{prefix}{day.month}월 {day.day}일({weekday})"
 
 
+def _compact_stay(row) -> str:
+    """Compact table label; keep complete dates and inference in the tooltip."""
+    full = _stay_text(row)
+    match = _STAY_PATTERN.fullmatch(_stay_period(row))
+    if full == '이용일 확인 필요' or not match:
+        return full
+    from datetime import date
+    start, end = (date.fromisoformat(value) for value in match.groups())
+    fmt = '%y.%m.%d' if start.year != end.year else '%m.%d'
+    nights = (end - start).days
+    label = f"{start.strftime(fmt)}–{end.strftime(fmt)} · {str(nights) + '박' if nights else '당일'}"
+    return label + (' · 추론' if '예약 근거 추론' in full else '')
+
+
 def _flight_passengers() -> dict:
     """The passenger index the OTA refresh holds in memory, read without computing anything."""
     return read_scope.remember("flight_passengers", _load_flight_passengers)
@@ -1145,7 +1155,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}{match_description}</td>"
             f"{_party_cell(row)}"
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
-            f"<td class='c-stay'>{board.esc(_stay_text(row)) if item == '숙박비' else ''}</td>"
+            f"<td class='c-stay' title='{board.esc(_stay_text(row)) if item == '숙박비' else ''}'>{board.esc(_compact_stay(row)) if item == '숙박비' else ''}</td>"
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
             + (_amount_group_cell(amount_groups, rid) if amount_groups is not None and kind == 'expense'
                else "<td class='gemn-desktop gemn-status-cell'></td>" if amount_groups is not None else '')
@@ -1205,7 +1215,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         # and stays right-aligned, because a ledger is read by comparing the
         # amount column down, not across.
         "<colgroup><col style='width:108px'><col><col style='width:104px'>"
-        "<col style='width:160px'>"
+        "<col style='width:210px'>"
         f"<col style='width:126px'>{extra_col}</colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>이용일</th>"
@@ -1221,8 +1231,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
-        f"<td colspan='3'><a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(move_back))}'>"
-        f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
+        "<td colspan='3'></td>"
         f"<th class='num'>{_money(expense_total)}</th>{extra_blank}</tr></tbody>"
         + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
@@ -1305,8 +1314,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         "<div class='lst'>"
         + income_group +
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
-        f"<a class='btn' id='add-manual-expense-mobile' data-manual-open href='{board.esc(_manual_expense_link(move_back))}'>"
-        f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
+        "</p>"
         f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
 
@@ -1784,6 +1792,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<section id='trip-income' aria-label='여행 수입 · COST 기록'>"
         f"{google_income_html}"
         f"</section>"
+        f"{_trip_actions(tab_id, back)}"
         f"{_participant_trip_panel(tab_id, participant_controls)}"
         f"{trip_management_ui.reservations(board, trip)}"
         f"{_source_preview_html(trip)}"
@@ -1798,6 +1807,23 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
             + (f"{board.MANUAL_EXPENSE_STYLE}<dialog id='manual-expense-dialog' aria-labelledby='mx-title'>"
                f"{board.manual_expense_form(tab_id, modal=True)}</dialog>" if board.current_role() == 'owner' else '')
             + f"</div><script>{trip_management_ui.SCRIPT}</script>")
+
+
+def _trip_actions(tab_id: str, back: str) -> str:
+    if board.current_role() != 'owner':
+        return ''
+    from .trip_insurance_policy import domestic_trip
+    links = []
+    if _is_trip_tab(tab_id):
+        if not domestic_trip(tab_id):
+            links.append(("users", "보험가입내역", "participant-trip-panel"))
+        links.append(("list-filter", "여행 검토", "trip-review-panel"))
+    controls = ''.join(
+        f"<a class='btn' role='button' href='#{target}' data-trip-panel='{target}' aria-controls='{target}'>"
+        f"{ui_icons.icon(icon)}<span>{label}</span></a>" for icon, label, target in links)
+    return ("<div class='trip-actions' role='group' aria-label='여행 작업'>" + controls
+            + f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
+            + f"{ui_icons.icon('pencil')}<span>수기 지출 추가</span></a></div>")
 
 
 def _participant_trip_panel(tab_id: str, controls: dict) -> str:
@@ -1889,7 +1915,7 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     workflow = ''
-    if amount_groups is not None:
+    if board.current_role() == 'owner' and _is_trip_tab(tab_id):
         from .trip_workflow import render
         workflow = render(board._active_store(), tab_id, _whole_expense, amount_groups)
     return (f"<div id='live-rows'>"
@@ -1926,7 +1952,11 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     copy_preview = _expense_copy_preview(tab_id, expenses)
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
-    return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
+    workflow = ''
+    if board.current_role() == 'owner' and _is_trip_tab(tab_id):
+        from .trip_workflow import render
+        workflow = render(board._active_store(), tab_id, _whole_expense, amount_groups)
+    return (workflow + f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"

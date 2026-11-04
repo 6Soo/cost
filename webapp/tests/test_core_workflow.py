@@ -93,6 +93,17 @@ def test_source_failure_is_cached_only_within_the_audit(context, monkeypatch):
     assert len(calls) == 2
 
 
+def test_review_actions_use_current_trip_and_do_not_claim_missing_sources_are_empty(workflow_context):
+    board, _, _ = workflow_context
+    markup = workflow.render(board, 'trip', [{'row_id': 'expense-a', 'blocked': True,
+                                            'source_merchant': 'Synthetic merchant'}], {'available': False})
+    assert "href='/board?tab=trip&amp;row=expense-a'" in markup
+    assert "href='/receipts?trip=trip'" in markup
+    assert "data-trip-panel='participant-trip-panel'" in markup
+    assert '비교할 수 없습니다' in markup and '건수를 확인할 수 없습니다' in markup
+    assert '/import' not in markup and '분류 대기' not in markup
+
+
 def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_context, monkeypatch):
     from playwright.sync_api import sync_playwright
     from webapp import ledger_design_assets, site_shell
@@ -119,15 +130,15 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                         tools.locator('summary').click()
                     assert tab.evaluate('document.documentElement.scrollWidth<=innerWidth')
                     assert tab.locator('.trip-workflow a').count()==7
-                    assert tab.locator('.trip-workflow-icon svg[aria-hidden=true]').count()==7
+                    assert tab.locator('.trip-workflow-icon svg[aria-hidden=true]').count()==4
                     assert tab.locator('.trip-workflow-heading svg[aria-hidden=true]').count()==1
                     assert tab.locator('.trip-workflow a').evaluate_all(
                         '(links)=>links.every(link=>link.getBoundingClientRect().height>=44)')
                     assert tab.locator('.trip-workflow a strong').all_text_contents() == [
-                        '보험 후보 비교', '지출 검토·복사', '수입·마감 확인', '카드 원천', '미정리·보류', 'OTA·환불', '영수증']
+                        '보험 후보 비교', '지출 검토·복사', '영수증 확인', '수입·마감 확인']
                     assert tab.get_by_role('link', name='지출 검토·복사').get_attribute('href') == '#trip-expense-copy'
-                    assert tab.locator('.trip-workflow > nav a').count()==3
-                    assert '아래 화면은 전체 여행 자료입니다' not in tools.inner_text()
+                    assert tab.locator('.trip-workflow > nav a').count()==4
+                    assert '현재 여행으로 자동 필터되지 않습니다' in tools.inner_text()
                     assert tab.locator('.trip-workflow-intro').count() == 0
             tab.locator('.trip-workflow > summary').focus()
             tab.locator('.trip-workflow > summary').press('Enter')

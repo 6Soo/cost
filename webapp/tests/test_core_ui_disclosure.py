@@ -23,10 +23,8 @@ def test_trip_header_and_management_disclose_secondary_actions(tmp_path):
                 page = browser.new_page(viewport={'width': 1440, 'height': 900})
                 page.set_content(document)
                 assert page.get_by_role('link', name='XLSX 출력').is_visible()
+                assert page.locator('.secondary-actions').count() == 0
                 assert not page.locator('.act a[href="/import#newupload"]').is_visible()
-                page.locator('.secondary-actions > summary').focus()
-                page.keyboard.press('Enter')
-                assert page.locator('.act a[href="/import#newupload"]').is_visible()
                 page.set_content(trips)
                 row = page.locator('#manage-trip-demo-a')
                 assert row.locator('h3 a').is_visible()

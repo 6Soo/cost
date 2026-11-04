@@ -135,6 +135,10 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .main-wrap .status,.main-wrap .income-note{padding-left:0;padding-right:0}
 .main-wrap #global-state,.main-wrap #live-status-wrap{padding-left:0!important;padding-right:0!important}
 .main-wrap .act{flex:1 1 420px;justify-content:flex-end;max-width:100%}
+.main-wrap .trip-header{flex-wrap:wrap}
+.main-wrap .trip-header>div:first-child{flex:1 1 260px}
+.main-wrap .trip-header>.act{flex:0 1 auto;min-width:0}
+.main-wrap .trip-header>.act .btn{white-space:nowrap;min-height:44px}
 .main-wrap .period,.main-wrap .meta>span,.main-wrap .sum i{display:inline-flex;align-items:center;gap:6px}
 .main-wrap .meta .btn{height:28px;font-size:12px}
 .main-wrap .sum{align-items:center;padding-top:16px;padding-bottom:16px}
@@ -332,7 +336,7 @@ thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
    to the content is not printed twice. */
 td.c-party{white-space:normal;line-height:1.35;padding:0 6px}
 .party-line{display:flex;align-items:center;gap:6px;min-width:0}
-td.c-stay{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px;line-height:1.6;overflow-wrap:break-word;padding:8px 10px}
+td.c-stay{white-space:nowrap;overflow:visible;text-overflow:clip;font-size:13px;line-height:1.6;padding:8px 10px;font-variant-numeric:tabular-nums}
 .party-copy{display:block;min-width:0;flex:1}
 .party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
 .category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}
@@ -675,7 +679,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-workflow-toggle{display:flex;align-items:center;color:var(--mut);transition:transform .15s ease}
 .trip-workflow[open]>summary{border-radius:14px 14px 0 0}
 .trip-workflow[open] .trip-workflow-toggle{transform:rotate(180deg)}
-.trip-workflow-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);padding:16px}
+.trip-workflow-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);padding:16px}
 .trip-workflow-intro{padding:0 18px 12px}
 .trip-workflow-intro p,.trip-workflow-tools>p{font-size:13px;line-height:1.7;color:var(--mut);margin:6px 0 0}
 .trip-workflow-tools{border-top:1px solid var(--line);margin:0 16px 16px}
@@ -693,6 +697,20 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 @media(max-width:1100px){.trip-workflow-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.trip-workflow>summary{padding:12px 14px}.trip-workflow-grid{grid-template-columns:minmax(0,1fr);padding:12px;gap:8px}.trip-workflow .trip-workflow-card{min-height:76px;padding:12px}}
 @media(prefers-reduced-motion:reduce){.trip-workflow-toggle,.trip-workflow .trip-workflow-card{transition:none}}
+.trip-actions{display:flex;align-items:center;gap:8px;margin:16px 0;min-width:0}
+.trip-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;height:auto;padding:10px 16px;white-space:nowrap;text-decoration:none}
+.trip-actions [aria-expanded=true]{background:var(--hover);border-color:var(--focus);color:var(--focus)}
+.trip-actions [data-manual-open]{margin-left:auto}
+.trip-actions-ready #participant-trip-panel>summary,.trip-actions-ready #trip-review-panel>summary{display:none}
+.trip-actions-ready #participant-trip-panel:not([open]),.trip-actions-ready #trip-review-panel:not([open]){display:none}
+.trip-actions-ready .trip-workflow-grid{border-top:0}
+.trip-review-holds{margin:0 16px 16px;padding:16px;background:var(--hover);border-radius:10px}
+.trip-review-holds h3{font-size:14px;margin:0 0 6px}
+.trip-review-holds p{color:var(--mut);font-size:13px;margin:0;line-height:1.6}
+.trip-review-holds ul{margin:8px 0 0;padding:0;list-style:none}
+.trip-review-holds a,.trip-review-sources a{display:flex;align-items:center;min-height:44px;color:var(--focus);font-size:13px;overflow-wrap:anywhere}
+.trip-review-sources{display:flex;flex-wrap:wrap;gap:8px 24px}
+@media(max-width:600px){.trip-actions{gap:6px}.trip-actions .btn{padding:10px 8px;gap:5px;font-size:12px;flex:1;min-width:0}.trip-actions .ic{display:none}.trip-actions [data-manual-open]{margin-left:0}}
 #manual-expense-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);box-sizing:border-box;overflow:auto}
 #manual-expense-dialog::backdrop{background:rgb(0 0 0 / .45)}
 #manual-expense-dialog .mx-card{margin:0;border:0;box-shadow:none;max-width:none}

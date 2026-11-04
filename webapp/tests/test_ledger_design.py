@@ -31,7 +31,7 @@ class DesignScreenTests(unittest.TestCase):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-b')
-                trigger = '#add-manual-expense-mobile' if width < 760 else '#add-manual-expense'
+                trigger = '.trip-actions #add-manual-expense'
                 page.click(trigger)
                 self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
                 self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-b')
@@ -114,7 +114,8 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertEqual(page.locator('#nav .footer-help').count(), 0)
                 self.assertEqual(page.locator('#ledger-note').count(), 0)
                 self.assertNotIn('기록된 거래', page.locator('#live-sum').inner_text())
-                self.assertGreater(page.locator('.act a[href="/import#newupload"]').count(), 0)
+                self.assertEqual(page.locator('.act a[href="/import#newupload"]').count(), 0)
+                self.assertEqual(page.locator('.nav a[href="/import"]').count(), 1)
                 self.assertEqual(overflow(page), 0)
                 self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
                 page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
@@ -280,15 +281,12 @@ class DesignScreenTests(unittest.TestCase):
         nav = page.inner_text(".nav")
         self.assertIn("0408_예시여행A", nav)
         self.assertNotIn("미배정 지출", nav)
-        # The action bar is pinned exactly, because a button appearing here
-        # without a decision is how a rail grows by accident. The review button
-        # is absent because no review is configured in this environment; the
-        # reservation-linking button is present because it does not depend on
-        # one (RESERVE-NAVIGATION-001).
-        self.assertEqual(page.inner_text(".act").replace("\n", " "), "마감 여행 관리 예약·참가자 XLSX 출력 추가 작업")
-        page.locator('.secondary-actions > summary').click()
+        # The action bar contains management, reservation link, and export, but no secondary actions.
+        self.assertEqual(page.inner_text(".act").replace("\n", " ").strip(), "마감 여행 관리 예약·참가자 XLSX 출력")
+        self.assertEqual(page.locator('.secondary-actions').count(), 0)
         self.assertTrue(page.locator('#reserve-link').is_visible())
-        self.assertTrue(page.locator('.act a[href="/import#newupload"]').is_visible())
+        self.assertEqual(page.locator('.act a[href="/import#newupload"]').count(), 0)
+        self.assertEqual(page.locator('.nav a[href="/import"]').count(), 1)
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
@@ -776,8 +774,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(status, 200)
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
-        page.locator('.secondary-actions > summary').click()
-        page.click(".act a[href='/import#newupload']")
+        page.click(".nav a[href='/import']")
         page.wait_for_load_state()
         self.assertIn("카드 가져오기", page.inner_text("body"))
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
