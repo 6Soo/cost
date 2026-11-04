@@ -10,7 +10,7 @@ from pathlib import Path
 
 SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking.com', 'agoda-messaging.com',
                     'toyoko-inn.com', 'toyoko-inn.co.jp', 'forest.go.kr', 'foresttrip.go.kr',
-                    'flyasiana.com', 'skyticket.com', 'jejuair.net')
+                    'flyasiana.com', 'skyticket.com', 'jejuair.net', 'traveloka.com')
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
@@ -28,11 +28,12 @@ def build_query(after: str) -> str:
 class GmailApi:
     """Gmail REST 호출. 액세스 토큰은 저장된 갱신 토큰으로 새로 받는다."""
 
-    def __init__(self, token_file: Path, client_file: Path):
+    def __init__(self, token_file: Path, client_file: Path, *, owner_domains=()):
         self.token = json.loads(Path(token_file).read_text(encoding='utf-8'))
         data = json.loads(Path(client_file).read_text(encoding='utf-8'))
         self.client = data.get('installed') or data['web']
         self._access = None
+        self.owner_domains = tuple(owner_domains)
 
     def _access_token(self) -> str:
         if self._access is None:
@@ -59,7 +60,19 @@ class GmailApi:
                 return ids
 
     def get_full(self, message_id: str) -> dict:
-        return self._get(f'{API}/messages/{message_id}?format=full')
+        message = self._get(f'{API}/messages/{message_id}?format=full')
+        return owner_directed_record(message, self.owner_domains)
+
+
+def owner_directed_record(message, domains=()):
+    """Opt-in owner collection scope, independent of automatic sender authentication."""
+    from email.utils import parseaddr
+    headers = {h['name'].lower(): h['value'] for h in message.get('payload', {}).get('headers', [])}
+    sender = parseaddr(headers.get('from', ''))[1].rpartition('@')[2].lower()
+    if any(sender == domain or sender.endswith('.' + domain) for domain in domains):
+        return dict(message, owner_collected=True,
+                    owner_collection_source='owner-directed-gmail-readonly')
+    return message
 
 
 def stored_ids(directory: Path) -> set:
@@ -267,6 +280,8 @@ def main(argv=None) -> int:
     parser.add_argument('--directory')
     parser.add_argument('--token-file', required=True)
     parser.add_argument('--client-file', required=True)
+    parser.add_argument('--owner-domain', action='append', choices=('jejuair.net',), default=[],
+                        help='Explicit owner-directed original collection; retain authentication headers')
     parser.add_argument('--authorize', action='store_true')
     parser.add_argument('--after', help='historical window lower bound (exclusive, YYYY-MM-DD)')
     parser.add_argument('--before', help='historical window upper bound (exclusive, YYYY-MM-DD)')
@@ -274,7 +289,7 @@ def main(argv=None) -> int:
     if args.authorize:
         authorize(Path(args.client_file), Path(args.token_file))
         return 0
-    client = GmailApi(args.token_file, args.client_file)
+    client = GmailApi(args.token_file, args.client_file, owner_domains=args.owner_domain)
     if bool(args.after) != bool(args.before):
         parser.error('--after and --before must be used together')
     result = (collect_window(client, Path(args.directory), args.after, args.before)

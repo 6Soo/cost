@@ -18,7 +18,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 12
+PARSER_VERSION = 13
 MATCHER_VERSION = 5
 
 
@@ -1079,7 +1079,7 @@ def provider_compatible(event, row, rules=()):
     known = {provider_for_merchant(value) for value in _merchant_descriptors(row)} - {None, ''}
     if any(value != provider for value in known):
         return False
-    if provider in ('asiana', 'skyticket', 'jeju'):
+    if provider in ('asiana', 'skyticket', 'jeju', 'traveloka'):
         return provider in known
     if provider == 'trip':
         aliases = load_defaults().get('provider_merchant_aliases', {}).get('trip', ())
