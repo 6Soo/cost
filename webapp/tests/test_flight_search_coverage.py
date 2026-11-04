@@ -101,3 +101,10 @@ def test_display_route_enrichment_preserves_unchanged_financial_source_binding(t
     linked=[{'transaction_id':'synthetic-verified-manual-link'}]
     result=query_booking_reservations(updated,'시즈오카',cards={'1234567890123':linked})
     assert result['reservations'][0]['linked_cards'] is linked
+
+
+def test_multiple_booking_references_cannot_attach_all_routes_to_first_booking(tmp_path):
+    text=('예약번호 1234567890123\n예약번호 1234567890124\n서울 - 시즈오카 현\n|\n'
+          '2026년 11월 22일\nKIM\n(성)\nALPHA\n(이름)')
+    write_mail(tmp_path,[mail('multiple-bookings',text,'항공편 안내','noreply@trip.com')])
+    assert build_search_index([tmp_path],{})=={}

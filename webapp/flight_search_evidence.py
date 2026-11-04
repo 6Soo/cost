@@ -115,6 +115,10 @@ def build_search_index(directories, trip_index):
                 receipts.setdefault(key,[]).append(fact)
             grouped.setdefault(key,[]).append(dict(parsed,source_digest=digest))
         elif re.search(r'항공|flight|전자항공권',subject,re.I):
+            # A notice can mention several reservations without identifying
+            # which passengers and routes belong to each one.
+            if len(flights._booking_refs(flights._flight_tokens(body))) != 1:
+                continue
             parsed=flights.parse_flight_text('Subject: '+subject+'\n'+body)
             if not parsed or not parsed.get('booking_ref') or not parsed.get('passengers'):
                 continue
