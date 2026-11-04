@@ -27,10 +27,11 @@ def _sources(board):
 
 
 def _key(sources):
+    from .flight_search_evidence import SEARCH_SCHEMA
     directories = sources.get('mail_directories') or []
     if not directories or any(not Path(p).exists() for p in directories):
         raise ValueError('FLIGHT_MAIL_UNAVAILABLE')
-    return ota_snapshot.digest({'parser': flight_evidence.PARSER_VERSION,
+    return ota_snapshot.digest({'parser': flight_evidence.PARSER_VERSION, 'search_schema': SEARCH_SCHEMA,
                                 'directories': list(map(str, directories)),
                                 'mail': ota_sources.mail_stamps(directories)})
 
@@ -63,7 +64,9 @@ def service_for(board):
                     and isinstance(saved.get('passengers'), dict)):
                 passengers = saved['passengers']
             else:
-                passengers = _passenger_index(sources['mail_directories'], strict=True)
+                from .flight_search_evidence import build_search_index
+                passengers = build_search_index(sources['mail_directories'],
+                    _passenger_index(sources['mail_directories'], strict=True))
             # Never publish a parse spanning a changed collection or source configuration.
             if key != _key(_sources(board)):
                 raise ValueError('FLIGHT_SOURCE_CHANGED')

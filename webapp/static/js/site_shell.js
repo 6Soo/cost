@@ -19,6 +19,7 @@
   if(el.matches('.participant-link-details > summary,.insurance-candidate-button'))return;
   // Flight disclosures own their layout and single trailing chevron.
   if(el.matches('#flight-booking-page summary'))return;
+  if(el.matches('.card-all-row-toggle,.cleanup-review > summary'))return;
   // A compound disclosure already exposes its own button; avoid a second frame.
   if(el.tagName==='SUMMARY'&&el.querySelector('svg,img,button,[role="button"]'))return;
   const text=el.textContent.trim();
@@ -44,6 +45,10 @@
   root.querySelectorAll('button,summary,a[href]').forEach(decorateAction);
  }
  decorateTree(document.body);
+ // A mobile page title already appears in the sticky top bar. Hide only an
+ // identical heading; a trip/destination heading remains visible.
+ const heading=document.querySelector('main h1'),topTitle=document.querySelector('.site-topbar > span');
+ if(heading&&topTitle&&heading.textContent.trim()===topTitle.textContent.trim())heading.classList.add('site-title-duplicate');
  new MutationObserver(records=>{
   const roots=new Set();
   for(const record of records){

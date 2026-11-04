@@ -149,7 +149,10 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0;border:0;border-radius:0;background:transparent;margin:0 0 5px}
  .card-all-page .card-all-filters>label{grid-column:auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;font-size:11px}
  .card-all-page .card-all-filters>label:has(input[type=search]){grid-column:1/-1}
+ .card-all-page .card-all-filters>label:has(select[name=period]){grid-column:1;grid-row:1}
+ .card-all-page .card-all-filters>label:has(select[name=card]){grid-column:2;grid-row:1}
  .card-all-page .card-all-filters>.card-all-unassigned{grid-column:1/-1;display:flex;flex-direction:row;align-items:center;min-height:44px;font-size:12px}
+ .card-all-page .card-all-filters>.card-all-unassigned{grid-row:2}
  .card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
  .card-all-page .card-all-filters :is(input[type=search],select){min-height:44px;font-size:16px;padding:5px 8px}
  .card-all-page .card-all-filters button,.card-all-page .card-all-filters>.card-all-link{grid-column:auto;width:100%;min-height:44px;padding:5px 8px}
@@ -186,7 +189,7 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-table tbody tr[data-tx-id]>.merchant{grid-area:merchant;font-size:13px;font-weight:700;line-height:1.35;overflow-wrap:anywhere}
  .card-all-page .card-all-table tbody tr[data-tx-id]>.amount-cell{grid-area:amount;text-align:right;align-self:start}
  .card-all-page .card-all-table tbody tr[data-tx-id]>.trip{grid-area:trip;align-self:end;text-align:right;font-size:11px;max-width:145px}
- .card-all-page .card-all-table .card-all-row-toggle{min-height:0}
+ .card-all-page .card-all-table .card-all-row-toggle{min-height:44px}
  .card-all-page .card-all-table .merchant-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
  .card-all-page .card-all-table .card-identity{display:block;margin-top:5px;font-size:11px;line-height:1.3;font-weight:400}
  .card-all-page .card-all-table .amount-cell .amount{font-size:14px;font-weight:750;white-space:normal;overflow-wrap:anywhere}

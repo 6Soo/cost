@@ -3040,7 +3040,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
                 reason = f"원결제와 취소·환불 {example['refund_count']}건의 금액을 함께 확인할 수 있습니다."
             elif example.get('status') == 'partial':
                 reason = (f"원결제에 취소·환불 {example['refund_count']}건 연결 · "
-                          f"순액 {example['net_krw']:,}원. OTA 상태는 별도로 확인합니다.")
+                          f"순액 {example['net_krw']:,}원.")
             elif example.get('status') == 'excess':
                 reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
         # 취소/환불 거래: refund pair 상태별 상세 구분
@@ -3158,12 +3158,16 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
               for key in ('classification', 'recording', 'evidence', 'finance', 'manual')]
     chips = []
     for key, label, count in labels:
+        if not count and key not in ('all', selected_reason):
+            continue
         query_part = '' if key == 'all' else '?cleanup_reason=' + key
         current = " aria-current='page'" if key == selected_reason else ''
         chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} {count:,}건</a>")
     breakdown = (f"<p class='cleanup-filter-total'>{esc(dict((key, label) for key, label, _ in labels).get(selected_reason, '전체'))} "
                  f"{total:,}건 중 {min((page-1)*20+1,total) if total else 0}~{min(page*20,total)}건 표시</p>"
                  "<nav class='cleanup-breakdown' aria-label='지출 정리 상태 필터'>" + ''.join(chips) + '</nav>')
+    if pages == 1 and selected_reason == 'all':
+        breakdown = breakdown[breakdown.index("<nav"):]
     if total == 0:
         empty_labels = dict((key, label) for key, label, _ in labels)
         body = f"<li class='muted'>{empty_labels.get(selected_reason, '지출')} 거래가 없습니다.</li>"
