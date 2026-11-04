@@ -1,3 +1,9 @@
+## 2026-11-04 FUKUTAKE·항공권 정보 우선순위/버튼 수정 — 완료
+
+- COMPLETE — [PR #624](https://github.com/6Soo/cost/pull/624), 운영 `f680e7e0b8b6ce6d98cdc30949fa0e2e6d63f99f`. [요구사항별 결과](specs/expense-flight-priority-fix-20261104.md). FUKUTAKE 명시 항목 우선·환불 후보별 대기, 항공권 여정 우선·보조 상세 접기·오염 문장 배제·공통 장식과 전용 버튼 스타일 충돌을 수정했다.
+- Windows 영향 QA573 passed·32 subtests·skip0·필수 브라우저 누락0, CI41764424619 success, 검사/병합 tree 동일. 공식 배포의 보호13표·health/ready·보호API 정상. 운영 시즈오카3건·모바일 여정/상세 버튼 수락, 지출 정리 FUKUTAKE4건(기존 불필요14건 제외) 확인.
+- 이 요청의 코드/배포 미결0. 기존 실제 항목 일괄 재분류·금융/원본/Google 업무 쓰기는 수행하지 않았다. 실기기·모든 상태 조합은 미검증. [운영 근거](operations.md#2026-11-04-fukutake항공권-정보-우선순위버튼-수정). 문서 후속으로 재배포·재시작하지 않는다.
+
 ## 2026-11-04 항공권 날짜·행선지 검색 — 완료
 
 - COMPLETE — [PR #622](https://github.com/6Soo/cost/pull/622), 운영 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`. 기존 검색창 하나에서 이름·여행 중 날짜·도시·공항 코드의 조합을 검색한다. [요구사항과 결과](specs/flight-route-date-search-20261104.md).
