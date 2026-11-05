@@ -97,9 +97,9 @@ def test_upload_queue_continues_after_failure_and_preserves_each_outcome():
             expect(screen.locator("#status")).to_contain_text("2개 파일 처리 · 1개 파일 업로드 실패 · 1개 파일 분류 미완료")
             assert requests == ["first.csv", "broken.csv", "last.csv"]
             outcomes = screen.locator("#upload-results")
-            expect(outcomes).to_contain_text("first.csv · 전수 분류 검증 통과")
-            expect(outcomes).to_contain_text("broken.csv · 업로드 실패: 파일 형식 오류")
-            expect(outcomes).to_contain_text("last.csv · 분류 미완료")
+            expect(outcomes.locator('li').filter(has_text='first.csv')).to_contain_text('전수 분류 검증 통과')
+            expect(outcomes.locator('li').filter(has_text='broken.csv')).to_contain_text('파일 형식 오류')
+            expect(outcomes.locator('li').filter(has_text='last.csv')).to_contain_text('분류 미완료')
             assert outcomes.locator("a").evaluate_all("xs => xs.map(x => x.getAttribute('href'))") == [
                 "/import?batch=1#summary", "/import?batch=3#summary"]
             expect(screen.locator("#file")).to_be_enabled()
