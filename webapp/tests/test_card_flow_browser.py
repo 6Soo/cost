@@ -161,6 +161,10 @@ class CardFlowBrowserTests(unittest.TestCase):
                             for width in (320, 375, 390):
                                 page.set_viewport_size({'width':width,'height':844})
                                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                                count_label = page.locator(
+                                    ".cleanup-breakdown a[aria-current='page'] .cleanup-filter-count")
+                                self.assertEqual(count_label.evaluate(
+                                    '(element) => getComputedStyle(element).whiteSpace'), 'nowrap')
                             page.evaluate("document.documentElement.style.zoom='200%'")
                             page.set_viewport_size({'width':390,'height':844})
                             self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390,

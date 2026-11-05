@@ -3202,7 +3202,8 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             continue
         query_part = '?cleanup_reason=' + key
         current = " aria-current='page'" if key == selected_reason else ''
-        chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} {count:,}건</a>")
+        chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} "
+                     f"<span class='cleanup-filter-count'>{count:,}건</span></a>")
     breakdown = (f"<p class='cleanup-filter-total'>{esc(dict((key, label) for key, label, _ in labels).get(selected_reason, '전체 거래·장부 행'))} "
                  f"{total:,}건 중 {min((page-1)*20+1,total) if total else 0}~{min(page*20,total)}건 표시</p>"
                  + "<nav class='cleanup-breakdown' aria-label='거래·장부 상태 필터'>" + ''.join(chips) + '</nav>')
@@ -3224,6 +3225,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
         script_html=script_html,
         style_html=card_cleanup_ui.CLEANUP_STYLE +
         "<style>#expense-cleanup .cleanup-breakdown a{display:inline-flex;align-items:center;min-height:44px;padding:7px 12px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
+        "#expense-cleanup .cleanup-breakdown .cleanup-filter-count{white-space:nowrap}"
         "#expense-cleanup .cleanup-breakdown a[aria-current='page']{border:2px solid var(--shell-accent);font-weight:750}"
         "#expense-cleanup .cleanup-owner{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 8px}"
         "#expense-cleanup .cleanup-owner a{display:inline-flex;align-items:center;min-height:44px;padding:7px 14px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
