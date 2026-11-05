@@ -79,7 +79,7 @@ def saved_status(board, batch_id):
             'FROM import_batch_rows b LEFT JOIN transactions t USING(transaction_id) WHERE b.batch_id=?', (batch_id,)).fetchone()
         approval = batch[0] == 'approval_evidence'
         # These counts describe classification only, never ledger/Google/refund completion.
-        pending = batch[0] not in ('parsed', 'approval_evidence') or batch[2] > 0 or (not approval and ((total == 0 and batch[1] > 0) or classified < total))
+        pending = batch[0] not in ('parsed', 'classified', 'approval_evidence') or batch[2] > 0 or (not approval and ((total == 0 and batch[1] > 0) or classified < total))
         return {'status': 'saved', 'result': {'batch_id': batch_id, 'recovered_upload': True,
             'recovery': {'pending': pending, 'source_rows': batch[1], 'transaction_count': total,
                          'classified_count': classified, 'error_count': batch[2]}}}, 200

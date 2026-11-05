@@ -34,6 +34,9 @@ def test_durable_summary_is_read_only_handles_duplicates_and_retains_incomplete(
         'transaction_count':2, 'classified_count':2, 'error_count':0}
     assert 'rows' not in result['result'] and 'upload_summary' not in result['result']
     assert path.read_bytes() == before
+    conn.execute("UPDATE import_batches SET status='classified'")
+    conn.commit()
+    assert not card_upload_jobs.saved_status(board,batch)[0]['result']['recovery']['pending']
     conn.execute("UPDATE transactions SET classification_state='needs_review' WHERE transaction_id='two'")
     conn.commit()
     assert card_upload_jobs.saved_status(board,batch)[0]['result']['recovery']['pending']
