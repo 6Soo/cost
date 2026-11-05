@@ -13,6 +13,7 @@
 - 문서 최신화 PR [#659](https://github.com/6Soo/cost/pull/659)은 main SHA `7ee7d1b6f2828a521696db277b3e5b272e5aead2`로 병합됐고 impact CI `41945397409` 성공. 문서 전용이므로 앱 재배포는 하지 않았다.
 - D: `D:/WebLedgerHost/scratch-io-ab-20261105-0105/status-count-ab.json`에 격리 idle A/B를 기록했다. 같은 60초 동안 구형 Gateway status 파일 mtime 변경 58회, 신형 30초 heartbeat 2회(-96.6%). 각기 별도 loopback 포트·scratch route/status를 썼고 운영 8790/8752 listener는 유지됐다.
 - 같은 격리 구간의 Windows process `IOWriteBytes`는 두 버전 모두 0으로 보고돼 프로세스 write bytes 계측에 사용할 수 없었다. 이전 실제 호스트 15분 PhysicalDisk 비교도 D: 쓰기 132.9→221.0 MB, busy 0.672→0.945%로 증가했다. 따라서 Gateway status 갱신 감소는 재현됐지만 process별 HDD bytes 및 전체 물리 디스크 감소는 미입증이다.
+- 소스 검토에서 OTA·항공권 snapshot은 content-hash 입력 키가 같으면 held 결과를 재발행하지 않고, 키 변경이나 writer role 전환 때 발행함을 확인했다. #646는 OTA check 로그를 상태 변경/시간 heartbeat로 제한하고 회전시킨다. 이 코드는 불필요한 반복 snapshot/log I/O를 줄이지만 물리 write-byte 실측은 아니다.
 - 호스트의 read-only 상태는 `state=running`, `passes=41`, `p2_applied=0`, `ai_retry=98`, `ai_dead=200`, `blocked=120`, `candidates=400`, `due=200`, `failures=0`이었다. 상태 파일 최종 갱신은 2026-11-05 00:50:32 UTC로 현재 관측 시점보다 오래됐으며 최신 무인 P2 성공 증거가 아니다. 허용된 provider 경로 timeout은 해소되지 않았다. 우회·cap reset·금융 재처리는 하지 않았고 P2는 BLOCKED 유지.
 
 ## 2026-11-05 PR #636·#644 통합 실행 — PARTIAL
