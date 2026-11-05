@@ -238,11 +238,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         allowed = board.viewer_visible_tabs(board.current_request_session())
         trips = [t for t in trips if t["tab_id"] in allowed]
     # Display grouping only: never archive or rewrite a trip or its ledger.
-    def previous_trip(trip):
-        try:
-            return date.fromisoformat(trip.get("starts_on") or "") <= date(2026, 6, 25)
-        except (TypeError, ValueError):
-            return False
+    previous_trip = board.is_previous_trip
 
     previous_rows = [t for t in trips if not t.get("deleted") and previous_trip(t)]
     active = [t for t in trips if not t.get("archived") and not t.get("deleted")

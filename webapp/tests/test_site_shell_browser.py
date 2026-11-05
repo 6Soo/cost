@@ -9,6 +9,29 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class SiteShellBrowserTests(LinkBrowserFixture):
+    def test_default_open_trip_overrides_remembered_closed_trip(self):
+        store = self.server.card_store
+        trips = [store.create_trip(
+            display_key=name, destination='합성 여행', starts_on=start, ends_on=end,
+            client_request_id='default-' + name)['tab_id']
+            for name, start, end in [('마감 여행', '2026-07-01', '2026-07-03'),
+                                     ('첫 미마감 여행', '2026-07-04', '2026-07-06'),
+                                     ('다음 여행', '2026-07-07', '2026-07-09')]]
+        store.save_trip_visual_close(tab_id=trips[0], expected_closed=False,
+                                     closed=True, client_request_id='close-first')
+        page, base = self.prepare_pages(1440)
+        page.goto(base + '/board?tab=' + trips[0])
+        self.assertEqual(page.evaluate("sessionStorage.getItem('cost-nav-trip')"), trips[0])
+        page.goto(base + '/board')
+        self.assertIn('첫 미마감 여행', page.locator('h1').inner_text())
+        self.assertEqual(page.locator('#trips a.sel').count(), 1)
+        self.assertIn('tab=' + trips[1], page.locator('#trips a.sel').get_attribute('href'))
+        self.assertEqual(page.evaluate("sessionStorage.getItem('cost-nav-trip')"), trips[1])
+        self.assertIn('tab=' + trips[1], page.evaluate("sessionStorage.getItem('cost-workflow-return')"))
+        page.goto(base + '/board?tab=' + trips[2])
+        self.assertIn('다음 여행', page.locator('h1').inner_text())
+        self.assertIn('tab=' + trips[2], page.locator('#trips a.sel').get_attribute('href'))
+
     def test_theme_keyboard_motion_and_responsive_contract(self):
         page, base = self.prepare_pages(1440)
         for width in (320, 375, 390, 760, 1024, 1440):

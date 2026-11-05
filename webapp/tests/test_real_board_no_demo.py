@@ -217,10 +217,10 @@ class RealStoreBoardTests(unittest.TestCase):
         self.assertIn("분류대기", page)
 
     def test_the_default_tab_follows_the_data(self):
-        """With a real trip present, `/board` opens on it."""
+        """A trip grouped under past trips remains explicitly accessible."""
         self.make_trip()
-        self.assertEqual(board_mod.default_board_tab(), self.trip)
-        _status, page = self.get("/board")
+        self.assertEqual(board_mod.default_board_tab(), "unclassified")
+        _status, page = self.get(f"/board?tab={self.trip}")
         self.assertIn("2026-05 실제여행", page)
 
     def test_a_persisted_row_is_shown_and_no_example_is_added(self):
@@ -239,17 +239,15 @@ class RealStoreBoardTests(unittest.TestCase):
         self.assertIn("실제 지출", bundle)
         self.assert_no_example_data(bundle, "the fragment")
 
-    def test_the_badge_reports_the_persisted_count_not_synthetic_data(self):
-        """The badge said 합성 자료 on a store serving its own rows, which is false.
-
-        It now reports the number of rows the store holds, which is the number the
-        board is rendering and the reader can check.
-        """
+    def test_real_data_keeps_accurate_counts_without_a_global_header_badge(self):
+        """UIR01 removes global counts from titles; real rows stay visible."""
         self.assertEqual(board_mod.data_status_mark(), "장부 기록 0건")
         self.expense()
         self.assertEqual(board_mod.data_status_mark(), "여행 1개 · 장부 기록 1건")
         _status, page = self.get(f"/board?tab={self.trip}")
-        self.assertIn("장부 기록 1건", page)
+        self.assertIn("실제 지출", page)
+        self.assertNotIn("장부 기록 1건", page)
+        self.assertNotIn("<span class='synth'>", page)
         self.assertNotIn(board_mod.SYNTHETIC_MARK, page)
 
     def test_a_seeded_store_still_says_synthetic_data(self):
@@ -265,6 +263,9 @@ class RealStoreBoardTests(unittest.TestCase):
             board_mod.bind_store(seeded)
             self.assertEqual(board_mod.data_status_mark(),
                              board_mod.SYNTHETIC_MARK)
+            # Removing global counts must retain the warning on example data.
+            page = ledger_design._head_html(seeded.get_trip("trip-demo-a"))
+            self.assertIn(f"<span class='synth'>{board_mod.SYNTHETIC_MARK}</span>", page)
             # and one row of its own takes it off the example board
             seeded.create_manual_expense(
                 fields={"display_tab_id": "trip-demo-a",
@@ -336,7 +337,7 @@ class RealStoreBoardTests(unittest.TestCase):
             for row in board_mod._expense_rows():
                 self.assertIsNotNone(seeded.get_row(row["row_id"]),
                                      f"{row['row_id']} is not in the seeded store")
-            self.assertEqual(board_mod.default_board_tab(), "trip-demo-a")
+            self.assertEqual(board_mod.default_board_tab(), "unclassified")
         finally:
             board_mod.bind_store(self.store)
             seeded.close()
@@ -354,7 +355,7 @@ class RealStoreBoardTests(unittest.TestCase):
             self.assertTrue(board_mod._income_rows())
             self.assertEqual(board_mod.data_status_mark(),
                              board_mod.SYNTHETIC_MARK)
-            self.assertEqual(board_mod.default_board_tab(), "trip-demo-a")
+            self.assertEqual(board_mod.default_board_tab(), "unclassified")
         finally:
             board_mod.bind_store(self.store)
 

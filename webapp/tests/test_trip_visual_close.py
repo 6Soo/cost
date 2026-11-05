@@ -72,3 +72,19 @@ def test_flight_navigation_has_distinct_airplane_icon():
         nav = ledger_design._nav_html('', '')
     assert "href='/flight-passengers'>" + ui_icons.icon('airplane', 18) in nav
     assert ui_icons.icon('airplane', 18) != ui_icons.icon('users', 18)
+
+
+def test_default_uses_first_open_trip_in_sidebar_order():
+    trips = [
+        dict(tab_id='past', starts_on='2026-01-01'),
+        dict(tab_id='archived', starts_on='2026-07-01', archived=True),
+        dict(tab_id='closed', starts_on='2026-07-02', visual_closed=True),
+        dict(tab_id='first', starts_on='2026-07-03'),
+        dict(tab_id='second', starts_on='2026-07-04'),
+    ]
+    with patch.object(ledger_board, 'live_trips', return_value=trips):
+        assert ledger_board.default_board_tab() == 'first'
+        trips[3]['visual_closed'] = True
+        assert ledger_board.default_board_tab() == 'second'
+        trips[4]['visual_closed'] = True
+        assert ledger_board.default_board_tab() == 'unclassified'
