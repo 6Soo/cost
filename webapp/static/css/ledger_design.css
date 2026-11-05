@@ -12,7 +12,7 @@
 .insurance-review-status{display:inline-block;line-height:1.6;color:var(--mut);overflow-wrap:anywhere}
 .insurance-candidate-button{font:inherit;min-height:44px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--hover);color:var(--focus);cursor:pointer;text-align:left;white-space:normal}
 .insurance-candidate-button::after{content:' ↗';display:inline-block;margin-left:4px}
-.insurance-candidate-button:hover{border-color:var(--focus)}
+@media(hover:hover){.insurance-candidate-button:hover{border-color:var(--focus)}}
 .insurance-candidate-button:focus-visible,.participant-review-retry:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .insurance-candidate-content{color:var(--ink);white-space:normal;min-width:0}
 .insurance-candidate-list{display:flex;flex-wrap:wrap;gap:6px 20px;list-style:none;padding:0;margin:0}
@@ -121,7 +121,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .work-action>span{flex:1 1 auto;min-width:0}
 .work-action strong,.work-action small{display:block}
 .work-action small{font-size:12px;color:var(--mut);margin-top:3px}
-a.work-action:hover{background:var(--hover);border-color:var(--grn)}
+@media(hover:hover){a.work-action:hover{background:var(--hover);border-color:var(--grn)}}
 .nav .work-menu{padding:10px 12px;flex:none}
 .nav .work-actions{display:grid;grid-template-columns:1fr}
 .nav .work-action{padding:8px 10px;font-size:12px}
@@ -170,15 +170,15 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .participant-cell-content>.insurance-review-status,.participant-link-status,.participant-link-details{flex:1 1 140px;min-width:0}
 .participant-insurance-cell button{font:inherit;min-height:44px;min-width:44px;padding:6px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--focus);cursor:pointer;white-space:normal;line-height:1.5}
 .participant-insurance-cell .participant-row-connect{margin:0;flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border-color:var(--line);font-weight:500}
-.participant-insurance-cell button:hover{background:var(--hover);border-color:var(--focus)}
+@media(hover:hover){.participant-insurance-cell button:hover{background:var(--hover);border-color:var(--focus)}}
 .participant-insurance-cell button:active{background:var(--surface-muted)}
 .participant-insurance-cell button:focus-visible,#google-trip-income .participant-link-details>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 #google-trip-income .participant-insurance-cell .insurance-candidate-button{flex:0 1 auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--focus);text-align:left}
 #google-trip-income .participant-insurance-cell .insurance-candidate-button::after{content:'';width:5px;height:5px;margin:0 4px 0 0;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);flex-shrink:0;opacity:.7}
-#google-trip-income .participant-insurance-cell .insurance-candidate-button:hover{text-decoration:underline}
+@media(hover:hover){#google-trip-income .participant-insurance-cell .insurance-candidate-button:hover{text-decoration:underline}}
 #google-trip-income .participant-link-details{flex:0 1 auto;max-width:100%}
 #google-trip-income .participant-link-details>summary{display:inline-flex;align-items:center;min-height:44px;padding:0;gap:6px;font:inherit;font-weight:400;color:var(--mut);white-space:normal;line-height:1.5;border-radius:4px}
-#google-trip-income .participant-link-details>summary:hover{color:var(--ink);text-decoration:underline}
+@media(hover:hover){#google-trip-income .participant-link-details>summary:hover{color:var(--ink);text-decoration:underline}}
 #google-trip-income .participant-link-details>summary::after{content:'';width:5px;height:5px;margin-right:4px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);flex-shrink:0;opacity:.55}
 #google-trip-income .participant-link-details[open]>summary::after{transform:rotate(45deg)}
 .participant-link-actions{padding:8px 0;display:grid;gap:8px}
@@ -244,13 +244,13 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
 a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
-a.brand:hover{background:var(--hover)}
+@media(hover:hover){a.brand:hover{background:var(--hover)}}
 a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .nav-sec{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--mut);letter-spacing:.05em}
 .site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
 .site-links a{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px;
  border-radius:6px;text-decoration:none;color:inherit}
-.site-links a:hover{background:var(--hover)}
+@media(hover:hover){.site-links a:hover{background:var(--hover)}}
 .site-links a[aria-current=page]{background:var(--sel);font-weight:600}
 .site-links .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav-q{margin:0 12px 6px}
@@ -259,8 +259,8 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .nav-list{list-style:none;margin:0;padding:0 8px}
 .nv{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 8px;
  border:0;border-left:2px solid transparent;border-radius:7px;background:transparent;
- font-size:14px;font-weight:400;text-align:left;cursor:pointer;color:var(--ink);text-decoration:none}
-.nv:hover{background:var(--hover)}
+ font-size:14px;font-weight:400;text-align:left;cursor:pointer;color:var(--ink);text-decoration:none;transition:scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
+@media(hover:hover){.nv:hover{background:var(--hover)}}
 .nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
 .nv.nv-closed{color:var(--mut);background:var(--hover)}
 .nv.nv-closed[aria-pressed="true"],.nv.nv-closed.sel{background:var(--sel);border-left-color:var(--grn)}
@@ -359,7 +359,7 @@ tbody.grp td{height:30px;background:var(--bg);text-align:right}
 tbody.grp .btn{height:24px;font-size:12px}
 tbody.colhead{display:none}
 tr[data-id]{cursor:pointer}
-tr[data-id]:hover{background:var(--hover)}
+@media(hover:hover){tr[data-id]:hover{background:var(--hover)}}
 tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
 .google-match-candidate td{font-weight:700}
@@ -387,7 +387,7 @@ tr.inline-editor-row>td{height:auto;padding:0;white-space:normal;overflow:visibl
 .inline-editor-row .panel,.inline-editor-mobile .panel{position:static;width:100%;flex:1 1 auto;min-width:0;min-height:0;box-shadow:none;border:1px solid var(--line);display:flex}
 .inline-editor-row .p-bd,.inline-editor-mobile .p-bd{overflow:visible}
 .bulk-selecting tr[data-bulk-selected='true'],.bulk-selecting .li[data-bulk-selected='true']{background:#eff6ff;box-shadow:inset 3px 0 #60a5fa}
-.bulk-selecting tr[data-bulk-selected='true']:hover,.bulk-selecting .li[data-bulk-selected='true']:hover{background:#dbeafe}
+@media(hover:hover){.bulk-selecting tr[data-bulk-selected='true']:hover,.bulk-selecting .li[data-bulk-selected='true']:hover{background:#dbeafe}}
 [data-theme='dark'] .bulk-selecting tr[data-bulk-selected='true'],[data-theme='dark'] .bulk-selecting .li[data-bulk-selected='true']{background:#1b3555;box-shadow:inset 3px 0 #60a5fa}
 @media(prefers-color-scheme:dark){html:not([data-theme='light']) .bulk-selecting tr[data-bulk-selected='true'],html:not([data-theme='light']) .bulk-selecting .li[data-bulk-selected='true']{background:#1b3555;box-shadow:inset 3px 0 #60a5fa}}
 .bulk-bar{position:fixed;z-index:40;bottom:0;left:0;right:0;background:var(--paper);border-top:1px solid var(--line);padding:12px max(16px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 -4px 18px #0002}
@@ -554,18 +554,22 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .btn{height:32px;padding:0 10px;border:1px solid var(--line-strong);border-radius:7px;
  background:var(--paper);font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink);
  white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
-.btn:hover{background:var(--hover)}
+.btn{transition:scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
+@media(hover:hover){.btn:hover{background:var(--hover)}}
 .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
-.btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}
+@media(hover:hover){.btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}}
 .btn[disabled]{opacity:.45;cursor:default}
-.btn[disabled]:hover{background:var(--paper)}
+@media(hover:hover){.btn[disabled]:hover{background:var(--paper)}}
 /* 작은 선형 아이콘: 문구 왼쪽 16px, 장식은 클릭을 부모 버튼에 전달한다. */
 .btn .ic,.page-body button .ic,.page-body a.btn .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
 .nv .ic,.site-links a .ic{width:18px;height:18px;flex:0 0 auto;pointer-events:none}
 .work-action .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
-.work-action{transition:border-color .15s,background .15s}
+.work-action{transition:border-color .15s,background .15s,scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
 @media(prefers-reduced-motion:reduce){
  .work-action,.btn,.nv{transition:none}
+}
+@media(prefers-reduced-motion:no-preference){
+ .btn:not(:disabled):not([aria-disabled=true]):active,.nv:not([aria-disabled=true]):active,.work-action:active,.trip-workflow-card:active{scale:.96}
 }
 .icon{width:32px;height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
  cursor:pointer;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
@@ -638,7 +642,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-copy-wrap{margin:24px 0 16px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
 .trip-copy-box{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
 .trip-copy-box .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap}
-.trip-copy-box .btn:hover{background:var(--hover)}
+@media(hover:hover){.trip-copy-box .btn:hover{background:var(--hover)}}
 .trip-copy-box .btn:disabled{opacity:.55;cursor:default}
 .trip-copy-desc{font-size:13px;color:var(--mut)}
 .copy-status{font-size:13px;font-weight:500;margin-left:4px}
@@ -686,8 +690,8 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-workflow-tools>summary{cursor:pointer;padding:14px 0;min-height:44px;font-size:13px;font-weight:600}
 .trip-workflow-tools .trip-workflow-grid{padding:12px 0 0;border:0;grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:600px){.trip-workflow-tools .trip-workflow-grid{grid-template-columns:minmax(0,1fr)}}
-.trip-workflow .trip-workflow-card{display:flex;align-items:center;gap:12px;min-height:84px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:var(--paper);text-decoration:none;transition:background .15s ease,border-color .15s ease}
-.trip-workflow-card:hover{background:var(--hover);border-color:var(--line-strong)}
+.trip-workflow .trip-workflow-card{display:flex;align-items:center;gap:12px;min-height:84px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:var(--paper);text-decoration:none;transition:background .15s ease,border-color .15s ease,scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
+@media(hover:hover){.trip-workflow-card:hover{background:var(--hover);border-color:var(--line-strong)}}
 .trip-workflow-card:focus-visible,.trip-workflow>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 .trip-workflow-icon{display:flex;align-items:center;justify-content:center;flex:0 0 38px;height:38px;border:1px solid var(--line);border-radius:10px;background:var(--hover);color:var(--focus)}
 .trip-workflow-copy{display:grid;gap:5px;min-width:0;flex:1;overflow-wrap:anywhere}
@@ -733,9 +737,10 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .participant-trip-search label{display:grid;gap:6px;flex:1;min-width:0;font-size:12px;color:var(--mut)}
 .participant-source-links,.participant-paging{display:flex;flex-wrap:wrap;gap:8px}
 .participant-paging:empty{display:none}
-#participant-trip-panel button,#participant-trip-panel .btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;font:inherit;font-size:13px;line-height:1.5;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--ink);text-decoration:none;cursor:pointer;white-space:normal}
-#participant-trip-panel button:hover,#participant-trip-panel .btn:hover{background:var(--hover);border-color:var(--focus)}
+#participant-trip-panel button,#participant-trip-panel .btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;font:inherit;font-size:13px;line-height:1.5;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--ink);text-decoration:none;cursor:pointer;white-space:normal;transition:scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
+@media(hover:hover){#participant-trip-panel button:hover,#participant-trip-panel .btn:hover{background:var(--hover);border-color:var(--focus)}}
 #participant-trip-panel button:active{background:var(--surface-muted)}
+@media(prefers-reduced-motion:no-preference){#participant-trip-panel button:not(:disabled):active{scale:.96}}
 #participant-trip-panel button:disabled{opacity:.6;cursor:default}
 #participant-trip-panel input,#participant-trip-panel select{width:100%;min-width:0;min-height:44px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--ink);font:inherit;font-size:14px}
 #participant-trip-panel :is(button,a,input,select,summary):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -873,14 +878,6 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .panel[data-edit-kind='expense'] .p-ft #bulk-start{margin-left:auto}
 .panel[data-edit-kind='expense'] .p-ft .primary{min-width:110px}
 .panel[data-edit-kind='expense'] .p-ft .p-nav{min-width:0}
-@keyframes cost-extra-reveal{
- from{opacity:0;transform:translateY(-4px)}
- to{opacity:1;transform:translateY(0)}
-}
-.panel[data-edit-kind='expense'] .p-extra[open] .p-extra-fields,
-.panel[data-edit-kind='expense'] .p-src[open] .p-sub{
- animation:cost-extra-reveal 160ms ease-out both;
-}
 @media(max-width:760px){
  .panel[data-edit-kind='expense'] .p-core-fields{grid-template-columns:minmax(0,1fr)}
  .panel[data-edit-kind='expense'] .p-ft #bulk-start{margin-left:0}
@@ -901,7 +898,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  .panel[data-edit-kind='expense'] .p-ft .primary{order:2}
  .panel[data-edit-kind='expense'] .p-ft #p-cancel{order:3}
 }
-@media(prefers-reduced-motion:reduce){
- .panel[data-edit-kind='expense'] .p-extra[open] .p-extra-fields,
- .panel[data-edit-kind='expense'] .p-src[open] .p-sub{animation:none}
+@media (prefers-reduced-motion: reduce) and (width < 760px) {
+ .nav{transform:none;opacity:0;visibility:hidden;transition-property:opacity,visibility;transition-duration:150ms,0s;transition-delay:0s,150ms}
+ .nav.open{opacity:1;visibility:visible;transition-delay:0s}
 }

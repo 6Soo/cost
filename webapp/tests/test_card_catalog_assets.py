@@ -37,8 +37,8 @@ class TestCardCatalogAssets:
         assert js_file.read_text(encoding="utf-8") == assets.CATALOG_SCRIPT
 
         # Lengths and hashes matching baseline
-        assert len(assets.CATALOG_STYLE) == 6590
-        assert _sha256(assets.CATALOG_STYLE) == "935222e47db16b3e86b726e4f6e0c2f6073a34a87d7beae2d984106b08e77d52"
+        assert len(assets.CATALOG_STYLE) == 7121
+        assert _sha256(assets.CATALOG_STYLE) == "f575c1d2d745a46554339ee0b9a7dc3d3af6062f4c6719be61dd34eeb2bdb342"
         assert len(assets.CATALOG_SCRIPT) == 1077
         assert _sha256(assets.CATALOG_SCRIPT) == "f9a0039ada5025608f80e59d005240fe58f854c7df63adcabb255cfda814970a"
 
@@ -47,7 +47,7 @@ class TestCardCatalogAssets:
         data = {'rows': [], 'total': 0, 'all_count': 0, 'cards': [], 'months': [], 'page': 1, 'pages': 1}
         with patch.object(assets.Path, "read_text", side_effect=AssertionError("Disk read called during render!")):
             html = card_catalog.render_html(data, {})
-            assert len(html) == 14054
+            assert len(html) == 14585
             assert "<style>" + assets.CATALOG_STYLE + "</style>" in html
 
     def test_baseline_empty_and_synthetic_markup_equivalence(self):
@@ -55,8 +55,8 @@ class TestCardCatalogAssets:
         # 1. Empty data
         data_empty = {'rows': [], 'total': 0, 'all_count': 0, 'cards': [], 'months': [], 'page': 1, 'pages': 1}
         html_empty = card_catalog.render_html(data_empty, {}, csrf="test-csrf")
-        assert len(html_empty) == 14054
-        assert _sha256(html_empty) == "565649e81456fd24a701b6c299ae5bc2d16f17d5842e92e14b81f22a26cd9f1e"
+        assert len(html_empty) == 14585
+        assert _sha256(html_empty) == "7f0de2e2e07fe68aecea5614d3f5bc79b3f6564afa39ffcc0df5a5b6b984d020"
 
         # 2. Synthetic list with normal and long booking references
         synthetic_rows = [
@@ -112,5 +112,5 @@ class TestCardCatalogAssets:
         }
         query_synth = {'q': '스타벅스', 'card': '1234', 'state': 'needs_review', 'sort': 'desc', 'month': '2026-10'}
         html_synth = card_catalog.render_html(data_synth, query_synth, csrf="test-csrf-synth")
-        assert len(html_synth) == 15564
-        assert _sha256(html_synth) == "117ab605d7a881f0ebea22ccea0c771e6cf73f0388e19a11823124a446a84be0"
+        assert len(html_synth) == 16095
+        assert _sha256(html_synth) == "5468feb6fefdd04d68ed4cc23eacb9dab3f0eda03e0e39cfc328946297f6639d"

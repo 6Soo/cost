@@ -31,7 +31,7 @@ _TIME_RE = re.compile(r"^(\d{2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$")
 CARD_ALL_STYLE = """
 <style id="card-all-design">
 /* This visual layer scopes every rule to the read-only card history screen. */
-.card-all-page{--ca-border:var(--line,#e2e8f0);--ca-muted:var(--mut,#64748b);--ca-ink:var(--ink,#0f172a);--ca-paper:var(--paper,#fff);--ca-soft:var(--hover,#f1f5f9);--ca-accent:var(--grn,#1c7a52);color:var(--ca-ink);max-width:1260px;margin:0 auto;padding:24px 24px 64px;font:inherit}
+.card-all-page{--ca-border:var(--line,#e2e8f0);--ca-muted:var(--mut,#64748b);--ca-ink:var(--ink,#0f172a);--ca-paper:var(--paper,#fff);--ca-soft:var(--hover,#f1f5f9);--ca-accent:var(--shell-accent,var(--grn,#1c7a52));color:var(--ca-ink);max-width:1260px;margin:0 auto;padding:24px 24px 64px;font:inherit}
 .card-all-page *{box-sizing:border-box}
 .card-all-page .card-all-hero{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:22px 24px;border:1px solid var(--ca-border);border-radius:16px;background:var(--ca-paper);margin-bottom:18px}
 .card-all-page .card-all-eyebrow{font-size:12px;font-weight:750;letter-spacing:.045em;color:var(--ca-accent);margin:0 0 5px}
@@ -68,7 +68,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:7px 6px;text-align:left;vertical-align:middle;border:0;overflow-wrap:anywhere}
 .card-all-page .card-all-table thead th{position:sticky;top:0;background:var(--ca-soft);color:var(--ca-muted);font-size:12px;font-weight:700;z-index:1}
 .card-all-page .card-all-table .date-group th{padding:9px 14px;background:var(--ca-soft);color:var(--ca-ink);font-size:12px;font-weight:750}
-.card-all-page .card-all-table tbody tr:not(.date-group):hover{background:var(--ca-soft)}
+@media(hover:hover){.card-all-page .card-all-table tbody tr:not(.date-group):hover{background:var(--ca-soft)}}
 .card-all-page .card-all-table tbody tr:last-child td{border-bottom:0}
 .card-all-page .card-all-table .amount{text-align:right;font-weight:750;font-variant-numeric:tabular-nums}
 .card-all-page .card-all-table .amount-cell .amount{white-space:normal;overflow-wrap:anywhere}
@@ -778,9 +778,12 @@ def _default_db_path():
 
 
 def _error_page(message: str) -> str:
-    body = ("<section class='card-all-empty' role='alert'>"
+    body = (CARD_ALL_STYLE + "<div class='card-all-page'>"
+            "<section class='card-all-detail card-all-empty' role='alert'>"
             "<h2>카드를 불러오지 못했어요</h2>"
-            f"<p>{_esc(message)}</p></section>")
+            f"<p>{_esc(message)}</p>"
+            "<p>다시 불러온 뒤에도 문제가 계속되면 관리자에게 문의해 주세요.</p>"
+            "<a class='site-action' href=''>다시 불러오기</a></section></div>")
     fragment = _design.shell("카드 전체 내역", tab_id="", heading="카드 전체 내역",
                              meta="저장된 카드 거래를 연도와 월로 확인해요.",
                              body=body, home=True)

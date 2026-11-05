@@ -26,6 +26,7 @@
 
 ## 구현·검증·병합·배포
 
+- UI 작업은 지정 화면과 관련 화면을 독립적으로 점검하고 객관적인 HIGH/MEDIUM 결함을 수정한다. 실제 `better-interface`, `better-layout`, `better-ui`, `better-typography`, `better-colors`, `better-accessibility` 스킬을 읽어 적용하고 변경은 `interface-review`로 최종 검토한다. 기존 기능과 디자인 규칙을 유지하며 동일 크기의 수정 전후 스크린샷과 모바일·데스크톱 실제 렌더링 및 테스트를 근거로 남긴다. 남은 결함을 재수정·재검증하고 실행하지 못한 항목은 미검증으로 명시한다. 세부 UI 수정을 사용자에게 일일이 요구하지 않고 주관적 제품 결정만 보고한다.
 - 시작 전에 목적 / 변경 동작 / 직접 영향 / 필요한 한 번의 검증 / 종료 조건을 짧게 정한다. 기본 흐름은 `DISCOVER → IMPLEMENT → TARGETED TEST → REVIEW → COMMIT`이다.
 - 바뀐 기능의 테스트 파일 또는 `-k`를 지정하고 필요한 인접 검사만 실행한다. 유효한 통과 근거는 반복하지 않는다. 무관한 실패는 기준 커밋 재현 여부만 확인하고 범위 밖 수정으로 확대하지 않는다.
 - 향후 PR은 영향 기반 QA를 `python tools/run_quality_checks.py --base origin/main --run`으로 실행하고, 실제 검사 대상·결과·SHA를 기록한다. 호스팅 CI가 녹색일 때만 병합하고 단일 작성자로 배포한다.
