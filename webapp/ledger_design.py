@@ -143,7 +143,12 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     from . import ui_icons as _icons
     if board.current_role() == 'owner':
         from . import flight_passenger_page, receipt_review
+        from . import user_action_queue
+        active_store = board._active_store()
+        action_count = (user_action_queue.open_count(active_store.conn)
+                        if getattr(active_store, "conn", None) is not None else 0)
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
+                   f"<a href='/my-actions'>{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_count:,}건</span></a>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
                    f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 전체 내역</span></a>"
