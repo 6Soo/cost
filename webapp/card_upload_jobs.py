@@ -232,6 +232,29 @@ def process(board, handler, flow, received, source_file, inspection, progress=la
             recorded['coverage_evidence'] = coverage['evidence']
             recorded['coverage_available'] = coverage['available']
         finish_jobs(board)
+        # Only a source-declared COMPLETE query may self-attest its covered dates.
+        # Sparse transaction dates, filenames and the user's requested gap are
+        # never used to fabricate evidence. A failed coverage check does not
+        # undo an already-durable card import or falsely close a gap.
+        evidence = coverage.get('evidence') or {}
+        meta = coverage.get('metadata') or {}
+        if (coverage.get('available') and not coverage.get('blocked') and
+                meta.get('full_query_declared') is True and
+                all(evidence.get(key) for key in
+                    ('card_id', 'issuer', 'card_tail', 'date_basis',
+                     'start_date', 'end_date'))):
+            from app.card_upload_coverage import CoverageStore
+            from app.db import StoreError
+            try:
+                with board._lock:
+                    confirmed = CoverageStore(board.conn).record(
+                        received['batch_id'],
+                        dict(evidence, confirmed=True, complete=True,
+                             evidence_source='metadata'))
+                recorded['coverage_confirmed'] = confirmed['confirmed']
+            except StoreError as error:
+                recorded['coverage_confirmed'] = False
+                recorded['coverage_reason'] = str(error)
     except Exception:
         # receive() commits the validated source batch before classification and
         # recording. The activated worker resumes from this durable batch;
