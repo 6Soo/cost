@@ -107,6 +107,7 @@ def test_inline_connection_toggles_and_submits_only_its_own_income_after_confirm
             inline.locator('select').wait_for()
             assert not page.locator('#participant-trip-panel').evaluate('(node)=>node.open')
             assert inline.locator('td').get_attribute('colspan') == '2'
+            assert inline.locator('button[type=submit]').bounding_box()['height'] >= 44
             assert inline.locator('[name=income_ref]').input_value() == state['income_rows'][0]['ref']
             page.locator('[data-connect-income]').nth(1).click()
             assert inline.count() == 2
