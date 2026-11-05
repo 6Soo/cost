@@ -101,8 +101,9 @@ def record_coverage(board, batch_id, evidence):
 def dispatch(handler, parsed, board, *, query=None, raw=None, csrf=''):
     parts = parsed.path.strip('/').split('/')
     summary_route = parsed.path == '/api/cards/coverage/summary'
+    baseline_route = parsed.path == '/api/cards/coverage/baseline'
     batch_route = len(parts) in (4, 5) and parts[:2] == ['api', 'imports'] and parts[3] == 'coverage'
-    if not summary_route and not batch_route:
+    if not summary_route and not batch_route and not baseline_route:
         return False
     from .ledger_board import current_role
     if current_role() != 'owner':
@@ -114,11 +115,23 @@ def dispatch(handler, parsed, board, *, query=None, raw=None, csrf=''):
                 if summary_route:
                     filters = {key: (query or {}).get(key, [None])[0] for key in ('issuer', 'card_tail', 'date_basis', 'through')}
                     result = get_coverage_summary(board, **filters)
-                elif len(parts) == 4:
+                elif batch_route and len(parts) == 4:
                     result = batch_inspection(board, parts[2])
                 else:
                     handler._send_json({'code': 'METHOD_NOT_ALLOWED'}, 405)
                     return True
+            handler._send_json(result)
+        elif baseline_route:
+            if not csrf or handler.headers.get('X-CSRF-Token') != csrf:
+                handler._send_json({'code': 'CSRF_REQUIRED'}, 403)
+                return True
+            payload = json.loads(raw.decode('utf-8'))
+            if not isinstance(payload, dict):
+                raise ValueError('object required')
+            with board._lock:
+                result = CoverageStore(board.conn).set_management_start(
+                    payload.get('card_id'), payload.get('date_basis'),
+                    payload.get('management_start'), payload.get('expected_revision'))
             handler._send_json(result)
         elif batch_route and len(parts) == 5 and parts[4] == 'confirm':
             if not csrf or handler.headers.get('X-CSRF-Token') != csrf:
