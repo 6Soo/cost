@@ -305,20 +305,20 @@ def batch_catalog(board):
         hold_filter = ("AND NOT EXISTS (SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
                        if board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else '')
         rows = board.conn.execute(
-            "SELECT b.batch_id,b.filename,COUNT(*),b.status,GROUP_CONCAT(DISTINCT t.issuer),"
+            "SELECT b.batch_id,b.filename,COUNT(DISTINCT x.transaction_id),b.status,GROUP_CONCAT(DISTINCT t.issuer),"
             "MIN(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
             "MAX(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
             "SUM(CASE WHEN (t.classification_state='needs_review' OR "
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
             "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END) AS questions "
-            "FROM import_batches b JOIN import_batch_rows x ON x.batch_id=b.batch_id "
-            "JOIN transactions t ON t.transaction_id=x.transaction_id "
-            "WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
+            "FROM import_batches b LEFT JOIN import_batch_rows x ON x.batch_id=b.batch_id "
+            "LEFT JOIN transactions t ON t.transaction_id=x.transaction_id "
+            "WHERE (?='' OR t.transaction_id IS NULL OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?) "
             "GROUP BY b.batch_id ORDER BY questions DESC,b.received_at DESC,b.batch_id",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchall()
-    catalog = [dict(batch_id=r[0], filename=r[1], rows=r[2], status=r[3], questions=r[7],
+    catalog = [dict(batch_id=r[0], filename=r[1], rows=r[2], status=r[3], questions=r[7] or 0,
                     **batch_display_info((r[4] or '').split(','), r[5], r[6])) for r in rows]
     # Keep mixed or unknown issuers together after the three individual issuers.
     order = {'국민카드 사용내역': 0, '하나카드 사용내역': 1, '기업카드 사용내역': 2}
