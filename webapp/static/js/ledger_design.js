@@ -67,17 +67,19 @@
  document.addEventListener('DOMContentLoaded',function(){
   var root=document.getElementById('participant-trip-panel');
   if(!root)return;
-  var dlg=null,pending=null,form=null,busy=false;
+  var dlg=null,pending=null,form=null,busy=false,connectSequence=0;
   function closeCandidates(row,restoreFocus){
    if(!row)return;
-   var button=document.querySelector('button[data-insurance-evidence="'+CSS.escape(row.dataset.insuranceRowEvidence)+'"]');
+   var button=row.dataset.connectIncomeRef!==undefined
+    ?document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(row.dataset.connectIncomeRef)+'"] button')
+    :document.querySelector('button[data-insurance-evidence="'+CSS.escape(row.dataset.insuranceRowEvidence)+'"]');
    row.remove();
    if(button){button.setAttribute('aria-expanded','false');if(restoreFocus)button.focus({preventScroll:true});}
   }
   document.addEventListener('keydown',function(e){
    if(e.key!=='Escape')return;
    var row=e.target.closest('.insurance-candidate-row');
-   if(!row&&e.target.matches('[data-insurance-evidence]'))row=document.getElementById(e.target.getAttribute('aria-controls'));
+   if(!row&&e.target.matches('[data-insurance-evidence],[data-connect-income]'))row=document.getElementById(e.target.getAttribute('aria-controls'));
    if(row){e.preventDefault();closeCandidates(row,true);}
   });
   function ask(message,submit){
@@ -88,7 +90,7 @@
   function write(target){
    if(busy)return;
    busy=true;
-   var status=root.querySelector('.participant-write-status');
+   var status=target.closest('.insurance-candidate-row')?.querySelector('.participant-inline-status')||root.querySelector('.participant-write-status');
    if(status)status.textContent='저장 중입니다.';
    fetch(target.action,{method:'POST',credentials:'same-origin',
     headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
@@ -118,30 +120,48 @@
     card.addEventListener('dragend',function(){delete root.dataset.dragParticipant;});
    });
   }
-  function choose(cell,id){
-   root.open=true;
+  function choose(cell,id,toggle){
+   var button=cell.querySelector('[data-connect-income],[data-insurance-evidence]');
+   var existing=Array.from(document.querySelectorAll('.insurance-candidate-row[data-connect-income-ref]')).find(function(row){return row.dataset.connectIncomeRef===cell.dataset.incomeRef;});
+   if(existing){if(toggle){closeCandidates(existing,false);return;}closeCandidates(existing,false);}
+   var sourceRow=cell.closest('tr');
+   if(!sourceRow)return;
+   var row=document.createElement('tr');row.className='insurance-candidate-row';
+   row.dataset.connectIncomeRef=cell.dataset.incomeRef;
+   row.id='income-connect-'+(++connectSequence);
+   var detail=document.createElement('td');
+   detail.colSpan=Array.from(sourceRow.cells).reduce(function(total,item){return total+item.colSpan;},0);
+   var content=document.createElement('div');content.className='insurance-candidate-content';
+   detail.appendChild(content);row.appendChild(detail);sourceRow.after(row);
+   if(button){button.setAttribute('aria-controls',row.id);button.setAttribute('aria-expanded','true');}
+   var reason=cell.querySelector('.participant-match-reason');
+   if(reason){var explanation=document.createElement('p');explanation.textContent=reason.textContent+'입니다. 가림 이름만으로 구별할 수 없어 직접 연결이 필요합니다.';content.appendChild(explanation);}
    var notice=root.querySelector('.participant-connect-notice');
    if(!form){
-    if(notice){notice.hidden=false;notice.textContent='연결할 보험 참가자가 없습니다. 보험 명단 상세에서 자료를 확인해 주세요.';notice.focus();}
-    root.scrollIntoView({block:'nearest'});return;
+    var empty=document.createElement('p');empty.textContent='연결할 보험 참가자가 없습니다. 보험 명단 상세에서 자료를 확인해 주세요.';content.appendChild(empty);
+    var link=document.createElement('a');link.href='/participants/insurance-match?'+new URLSearchParams({trip:root.dataset.trip||''});link.textContent='보험 명단 상세';content.appendChild(link);return;
    }
-   var income=form.querySelector('[name=income_ref]');
+   var localForm=form.cloneNode(true);localForm.hidden=false;content.appendChild(localForm);
+   var localStatus=document.createElement('p');localStatus.className='participant-inline-status';localStatus.setAttribute('role','status');content.appendChild(localStatus);
+   var income=localForm.querySelector('[name=income_ref]');
    income.value=cell.dataset.incomeRef;
    if(!income.value){
     if(notice){notice.hidden=false;notice.textContent='수입 자료가 변경되었습니다. 새로고침 후 다시 연결해 주세요.';notice.focus();}
     return;
    }
    if(notice)notice.hidden=true;
-   form.hidden=false;form.querySelector('[name=participant_id]').value=id||'';
-   var selected=form.querySelector('.participant-selected-income');
+   localForm.querySelector('[name=participant_id]').value=id||'';
+   var selected=localForm.querySelector('.participant-selected-income');
    if(selected){selected.hidden=false;selected.textContent=(income.selectedOptions[0]||{}).textContent+' 수입에 연결합니다.';}
-   form.scrollIntoView({block:'nearest'});
-   form.querySelector('[name=participant_id]').focus();
+   var lockedIncome=document.createElement('input');lockedIncome.type='hidden';lockedIncome.name='income_ref';lockedIncome.value=income.value;income.closest('label').replaceWith(lockedIncome);
+   localForm.querySelector('[name=participant_id]').focus({preventScroll:true});
+   row.scrollIntoView({block:'nearest'});
+   return localForm;
   }
   document.addEventListener('submit',function(e){
    var target=e.target;
    if(!target.matches('form[action="/api/participants/link"],form[action="/api/participants/unlink"]') ||
-      !(root.contains(target)||target.closest('.participant-insurance-cell')))return;
+      !(root.contains(target)||target.closest('.participant-insurance-cell,.insurance-candidate-row')))return;
    e.preventDefault();
    if(busy)return;
    var person=target.querySelector('[name=participant_id]');
@@ -156,7 +176,7 @@
     if(!cell)return;
     connectButton.disabled=true;
     loadPanel().then(function(){
-     if(root.dataset.loaded==='1')choose(cell);
+     if(root.dataset.loaded==='1')choose(cell,null,true);
      else{root.open=true;var retry=root.querySelector('.participant-review-retry');if(retry)retry.focus();}
     }).finally(function(){if(connectButton.isConnected)connectButton.disabled=false;});
     return;
@@ -204,7 +224,7 @@
    var cell=e.target.closest('.participant-insurance-cell');if(!cell)return;
    e.preventDefault();cell.classList.remove('participant-drop-target');
    var id=root.dataset.dragParticipant;delete root.dataset.dragParticipant;
-   if(!id||!form)return;choose(cell,id);form.requestSubmit();
+   if(!id||!form)return;var selectedForm=choose(cell,id);if(selectedForm)selectedForm.requestSubmit();
   });
   var loading=null;
   function loadPanel(){

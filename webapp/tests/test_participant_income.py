@@ -564,7 +564,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 page.wait_for_function("document.querySelector('#participant-trip-panel')?.dataset.loaded === '1'")
                 self.assertIn(PARTICIPANT, page.locator('.participant-insurance-cell').first.inner_text())
-                page.locator('#participant-trip-panel summary').click()
+                page.locator('.trip-actions [data-trip-panel="participant-trip-panel"]').click()
                 page.locator('#participant-trip-panel .participant-cards li').first.wait_for()
                 self.assertNotIn(PARTICIPANT, page.locator('#participant-trip-panel .participant-cards').inner_text())
                 self.assertIn('미연결-합성', page.locator('#participant-trip-panel .participant-cards').inner_text())
@@ -583,7 +583,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(connect.get_attribute('aria-label'),
                                  '미연결 · 이 수입에 보험 참가자 연결')
                 connect.click()
-                form = page.locator('#participant-trip-panel .participant-keyboard-link')
+                form = income_table.locator('.insurance-candidate-row .participant-keyboard-link')
                 form.wait_for(state='visible')
                 self.assertEqual(form.locator('[name=income_ref]').input_value(), row_ref)
                 self.assertEqual(form.locator('[name=participant_id]').input_value(), '')
