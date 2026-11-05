@@ -21,6 +21,7 @@ import math
 import uuid
 from pathlib import Path
 from urllib.parse import quote, unquote
+from contextlib import contextmanager
 
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
@@ -30,6 +31,7 @@ from app import receipt_learning
 from . import receipt_vision_jobs, ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
+          "/api/receipts/drafts",
           "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/pdf", "/api/receipts/vision",
           "/api/receipts/vision/rescan", "/api/receipts/vision/new", "/api/receipts/learn", "/api/receipts/learn/delete",
           "/api/receipts/group", "/api/receipts/ungroup")
@@ -58,14 +60,50 @@ MESSAGES = {
     'CARD_PAYMENT_CONFLICT': '같은 날짜·상호·금액의 카드 매입이 있습니다. 결제수단을 확인해 주세요.',
     'CARD_LINKED_NOT_EDITABLE': '카드에 연결된 영수증의 상호·날짜·금액·결제수단은 변경할 수 없습니다.',
     'STALE_CANDIDATE': '다른 화면에서 영수증을 변경했습니다. 입력값을 확인하고 화면을 새로 열어 주세요.',
+    'DRAFT_STALE': '다른 화면에서 분석 결과를 변경했습니다. 이 화면의 입력을 보관한 뒤 저장된 결과를 확인해 주세요.',
+    'DRAFT_OPERATION_CONFLICT': '등록 요청이 이전 요청과 다릅니다. 저장된 결과를 확인해 주세요.',
     'RECEIPT_STORE_UNAVAILABLE': '영수증 저장소를 확인하지 못했습니다. 저장 여부와 복구 사본을 확인한 뒤 다시 시도해 주세요.',
     'Failed to fetch': '연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.',
 }
 _STORE_LOCK = threading.RLock()
+_STORE_LOCK_DEPTH = threading.local()
 
 
 class ReceiptStoreError(OSError):
     """A saved receipt file must remain untouched until it can be read or replaced safely."""
+
+
+@contextmanager
+def _process_store_lock(path: Path):
+    """Serialize writers in different processes as well as nested calls in this process."""
+    depth = getattr(_STORE_LOCK_DEPTH, 'value', 0)
+    if depth:
+        _STORE_LOCK_DEPTH.value = depth + 1
+        try:
+            yield
+        finally:
+            _STORE_LOCK_DEPTH.value -= 1
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + '.lock')
+    with lock_path.open('a+b') as lock_file:
+        if os.name == 'nt':
+            import msvcrt
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        _STORE_LOCK_DEPTH.value = 1
+        try:
+            yield
+        finally:
+            _STORE_LOCK_DEPTH.value = 0
+            if os.name == 'nt':
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _serialized(function):
@@ -73,7 +111,8 @@ def _serialized(function):
     def wrapped(*args, **kwargs):
         with _STORE_LOCK:
             try:
-                return function(*args, **kwargs)
+                with _process_store_lock(args[0] if args else kwargs['path']):
+                    return function(*args, **kwargs)
             except OSError:
                 raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
     return wrapped
@@ -139,7 +178,7 @@ def load(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"candidates": [], "holds": [], "images": [], "pdfs": [], "uploads": []}
+        return {"candidates": [], "holds": [], "images": [], "pdfs": [], "uploads": [], "drafts": []}
     except (OSError, ValueError):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
     if not isinstance(data, dict) or any(not isinstance(data.get(key), list) for key in ('candidates', 'holds')):
@@ -147,7 +186,8 @@ def load(path: Path) -> dict:
     data.setdefault("images", [])
     data.setdefault("pdfs", [])
     data.setdefault("uploads", [])
-    if not isinstance(data['images'], list) or not isinstance(data['pdfs'], list) or not isinstance(data['uploads'], list):
+    data.setdefault("drafts", [])
+    if any(not isinstance(data[key], list) for key in ('images', 'pdfs', 'uploads', 'drafts')):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     required = {'identity', 'date', 'merchant', 'total_jpy', 'payment', 'amount_krw', 'history'}
     for candidate in data['candidates']:
@@ -185,6 +225,22 @@ def load(path: Path) -> dict:
            or (item['kind'] == 'pdf' and not any(pdf['sha256'] == item['sha256'] for pdf in data['pdfs']))
            for item in data['uploads']):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    if any(not isinstance(draft, dict) or not re.fullmatch(r'[0-9a-f]{32}', str(draft.get('draft_id', '')))
+           or not isinstance(draft.get('trip_id'), str) or type(draft.get('revision')) is not int
+           or draft['revision'] < 1 or not isinstance(draft.get('groups'), list)
+           or not isinstance(draft.get('operations', []), list)
+           or any(not isinstance(op, dict) or not re.fullmatch(r'[0-9a-f]{32}', str(op.get('operation_id', '')))
+                  or not re.fullmatch(r'[0-9a-f]{64}', str(op.get('digest', ''))) or not isinstance(op.get('result'), dict)
+                  for op in draft.get('operations', []))
+           for draft in data['drafts']):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    if len({draft['draft_id'] for draft in data['drafts']}) != len(data['drafts']):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    try:
+        for draft in data['drafts']:
+            _validate_draft_groups(draft['groups'], data['images'])
+    except (TypeError, ValueError):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
     return data
 
 
@@ -286,6 +342,82 @@ def store_uploaded(path: Path, body: bytes, *, kind: str, name: str, language: s
         data['uploads'].append({'kind': kind, 'sha256': result['sha256'], 'name': name})
         _save(path, data)
     return {**result, 'duplicate': duplicate}
+
+
+def _validate_draft_groups(groups, images):
+    if not isinstance(groups, list) or len(groups) > 100:
+        raise ValueError('DRAFT_INVALID')
+    try:
+        if len(json.dumps(groups, ensure_ascii=False, allow_nan=False).encode('utf-8')) > 512 * 1024:
+            raise ValueError('DRAFT_INVALID')
+    except (TypeError, ValueError, UnicodeError):
+        raise ValueError('DRAFT_INVALID') from None
+    for group in groups:
+        if not isinstance(group, dict) or group.get('kind') not in ('analysis', 'rescan'):
+            raise ValueError('DRAFT_INVALID')
+        sha = group.get('sha')
+        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha) or sha not in images:
+            raise ValueError('IMAGE_NOT_FOUND')
+        for key in ('jobId', 'operationId'):
+            value = group.get(key)
+            if value is not None and (not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{32}', value)):
+                raise ValueError('DRAFT_INVALID')
+        if group.get('status') not in (None, 'unknown'):
+            raise ValueError('DRAFT_INVALID')
+        if group.get('feedback') is not None and (not isinstance(group['feedback'], str) or len(group['feedback']) > 4096):
+            raise ValueError('DRAFT_INVALID')
+        if 'empty' in group and type(group['empty']) is not bool:
+            raise ValueError('DRAFT_INVALID')
+        if not isinstance(group.get('receipts'), list) or len(group['receipts']) > 100:
+            raise ValueError('DRAFT_INVALID')
+        if (not group['receipts'] and not (group.get('empty') or group.get('status') == 'unknown')) or (
+                group['receipts'] and (group.get('empty') or group.get('status') == 'unknown')):
+            raise ValueError('DRAFT_INVALID')
+        for receipt in group['receipts']:
+            if not isinstance(receipt, dict):
+                raise ValueError('DRAFT_INVALID')
+            for key in ('merchant', 'date', 'currency', 'payment', 'category', 'reading'):
+                value = receipt.get(key)
+                if value is not None and (not isinstance(value, str) or len(value) > 4096):
+                    raise ValueError('DRAFT_INVALID')
+            for key in ('include', 'boxInvalid'):
+                if key in receipt and type(receipt[key]) is not bool:
+                    raise ValueError('DRAFT_INVALID')
+            if receipt.get('amount') is not None and type(receipt['amount']) not in (int, float):
+                raise ValueError('DRAFT_INVALID')
+            if receipt.get('ordinal') is not None and (type(receipt['ordinal']) is not int or receipt['ordinal'] < 0):
+                raise ValueError('DRAFT_INVALID')
+            if receipt.get('box') is not None and (not isinstance(receipt['box'], list) or len(receipt['box']) != 4
+                    or any(type(value) not in (int, float) for value in receipt['box'])):
+                raise ValueError('DRAFT_INVALID')
+            if receipt.get('boxDraft') is not None and (not isinstance(receipt['boxDraft'], list)
+                    or len(receipt['boxDraft']) != 4 or any(not isinstance(value, str) or len(value) > 64 for value in receipt['boxDraft'])):
+                raise ValueError('DRAFT_INVALID')
+
+
+@_serialized
+def save_draft(path: Path, payload: dict, *, valid_trips: set) -> dict:
+    draft_id, trip_id, revision = payload.get('draft_id'), payload.get('trip_id'), payload.get('expected_revision')
+    if not isinstance(draft_id, str) or not re.fullmatch(r'[0-9a-f]{32}', draft_id):
+        raise ValueError('DRAFT_INVALID')
+    if not isinstance(trip_id, str) or trip_id not in valid_trips:
+        raise ValueError('TRIP_UNKNOWN')
+    if type(revision) is not int or revision < 0:
+        raise ValueError('DRAFT_INVALID')
+    data = load(path)
+    _validate_draft_groups(payload.get('groups'), data['images'])
+    existing = next((draft for draft in data['drafts'] if draft['draft_id'] == draft_id), None)
+    if revision != (existing['revision'] if existing else 0):
+        raise ValueError('DRAFT_STALE')
+    if existing and existing['trip_id'] != trip_id:
+        raise ValueError('DRAFT_TRIP_MISMATCH')
+    draft = {'draft_id': draft_id, 'trip_id': trip_id, 'revision': revision + 1, 'groups': payload['groups'],
+             'operations': existing.get('operations', []) if existing else []}
+    if existing:
+        data['drafts'].remove(existing)
+    data['drafts'].append(draft)
+    _save(path, data)
+    return draft
 
 
 def image_bytes(path: Path, sha: str) -> bytes:
@@ -451,6 +583,35 @@ def card_rows(board) -> list[dict]:
 @_serialized
 def scan(path: Path, payload: dict, *, board=None) -> dict:
     data = load(path)
+    draft_request = payload.get('draft')
+    draft = None
+    operation_id = None
+    digest = None
+    if draft_request is not None:
+        if not isinstance(draft_request, dict):
+            raise ValueError('DRAFT_INVALID')
+        draft_id, operation_id = draft_request.get('draft_id'), draft_request.get('operation_id')
+        if (not isinstance(draft_id, str) or not re.fullmatch(r'[0-9a-f]{32}', draft_id)
+                or not isinstance(operation_id, str) or not re.fullmatch(r'[0-9a-f]{32}', operation_id)):
+            raise ValueError('DRAFT_INVALID')
+        draft = next((item for item in data['drafts'] if item['draft_id'] == draft_id), None)
+        if draft is None:
+            raise ValueError('DRAFT_NOT_FOUND')
+        try:
+            digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')).hexdigest()
+        except (TypeError, ValueError, UnicodeError):
+            raise ValueError('DRAFT_INVALID') from None
+        previous = next((op for item in data['drafts'] for op in item.get('operations', [])
+                         if op['operation_id'] == operation_id), None)
+        if previous:
+            if previous['digest'] != digest:
+                raise ValueError('DRAFT_OPERATION_CONFLICT')
+            return previous['result']
+        if type(draft_request.get('expected_revision')) is not int or draft_request['expected_revision'] != draft['revision']:
+            raise ValueError('DRAFT_STALE')
+        if payload.get('trip_id') != draft['trip_id'] or not any(group.get('sha') == payload.get('image') for group in draft['groups']):
+            raise ValueError('DRAFT_SOURCE_MISMATCH')
+        _validate_draft_groups(draft_request.get('remaining_groups'), data['images'])
     regions = _regions(payload)
     requested_trip = payload.get("trip_id") or None
     if requested_trip is not None and requested_trip not in _trip_ids(board):
@@ -516,8 +677,14 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     data['holds'] = [h for h in data['holds'] if h['identity'] not in resolved]
     seen = {h["identity"] for h in data["holds"]}
     data["holds"].extend(h for h in result["holds"] + duplicates if h["identity"] not in seen)
+    response = {"added": added, "holds": result["holds"] + duplicates}
+    if draft is not None:
+        draft['groups'] = draft_request['remaining_groups']
+        draft['revision'] += 1
+        response['draft_revision'] = draft['revision']
+        draft.setdefault('operations', []).append({'operation_id': operation_id, 'digest': digest, 'result': response})
     _save(path, data)
-    return {"added": added, "holds": result["holds"] + duplicates}
+    return response
 
 
 def _match_card(card_rows_list: list, stored: dict) -> list:
@@ -784,7 +951,16 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         if parsed.path == "/receipts":
             handler._send(render_html(load(path), csrf, _trips(board)))
         elif parsed.path == "/api/receipts":
-            handler._send_json(load(path))
+            data = load(path)
+            data.pop('drafts', None)
+            handler._send_json(data)
+        elif parsed.path == "/api/receipts/drafts":
+            if not csrf or handler.headers.get('X-CSRF-Token') != csrf:
+                handler._send_json({'code': 'CSRF_REQUIRED'}, 403)
+            else:
+                drafts = [{key: draft[key] for key in ('draft_id', 'trip_id', 'revision', 'groups')}
+                          for draft in load(path)['drafts']]
+                handler._send_json({'drafts': drafts})
         elif parsed.path == "/api/receipts/tsv":
             trip = ((query or {}).get("trip") or [""])[0]
             try:
@@ -823,7 +999,10 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         body = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(body, dict):
             raise ValueError('INVALID_VALUE')
-        if parsed.path == "/api/receipts/upload":
+        if parsed.path == "/api/receipts/drafts":
+            draft = save_draft(path, body, valid_trips=_trip_ids(board))
+            handler._send_json({key: draft[key] for key in ('draft_id', 'trip_id', 'revision', 'groups')})
+        elif parsed.path == "/api/receipts/upload":
             sha = body.get('image', '')
             if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha):
                 raise ValueError('IMAGE_NOT_FOUND')
@@ -915,7 +1094,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
     except KeyError as error:
         handler._send_json({"code": str(error.args[0]) if error.args else "NOT_FOUND"}, 404)
     except (ValueError, TypeError) as error:
-        handler._send_json({"code": str(error) or "INVALID_VALUE"}, 409 if str(error) == 'STALE_CANDIDATE' else 400)
+        handler._send_json({"code": str(error) or "INVALID_VALUE"}, 409 if str(error) in ('STALE_CANDIDATE', 'DRAFT_STALE', 'DRAFT_OPERATION_CONFLICT') else 400)
     return True
 
 
@@ -975,16 +1154,41 @@ VISION_SCRIPT = r"""const visionChoices={currency:[['','통화 선택'],['JPY','
 const selectedTrip=document.getElementById('selected-trip');
 try{const requested=new URLSearchParams(location.search).get('trip');const old=requested||sessionStorage.getItem('cost-receipt-trip');if(old&&[...selectedTrip.options].some(o=>o.value===old))selectedTrip.value=old;}catch{}
 const syncTrip=()=>{document.getElementById('copy-trip').value=selectedTrip.value;
-if(selectedTrip.value){const url=new URL(location.href);url.searchParams.set('trip',selectedTrip.value);history.replaceState(null,'',url.pathname+url.search+url.hash);document.querySelectorAll('.site-links a[href^="/board"]').forEach(a=>a.href='/board?'+new URLSearchParams({tab:selectedTrip.value}))}};
+const url=new URL(location.href);if(selectedTrip.value)url.searchParams.set('trip',selectedTrip.value);else url.searchParams.delete('trip');history.replaceState(null,'',url.pathname+url.search+url.hash);
+const target=selectedTrip.value?'/board?'+new URLSearchParams({tab:selectedTrip.value}):'/board';document.querySelectorAll('.site-links a[href^="/board"]').forEach(a=>a.href=target);
+const back=document.querySelector('.workflow-return a');if(back){if(selectedTrip.value)back.href=target;else back.closest('.workflow-return').remove()}};
 syncTrip();
 const pendingKey='cost-receipt-pending';
 let pending=[];
 try{pending=JSON.parse(sessionStorage.getItem(pendingKey)||'[]')}catch{pending=[]}
+if(!Array.isArray(pending))pending=[];
+const draftKey='cost-receipt-draft-id',revisionKey='cost-receipt-draft-revision';
+let draftId='',draftRevision=0,draftDirty=false,draftReady=false,draftConflict=false,draftTimer=null,draftPromise=null;
+try{draftId=sessionStorage.getItem(draftKey)||'';draftRevision=Number(sessionStorage.getItem(revisionKey)||0)}catch{}
+if(!/^[0-9a-f]{32}$/.test(draftId)||!Number.isSafeInteger(draftRevision)||draftRevision<0){draftId='';draftRevision=0}
+const newDraftId=()=>{const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return [...bytes].map(x=>x.toString(16).padStart(2,'0')).join('')};
+const draftStatus=text=>{document.getElementById('draft-status').textContent=text};
+const persistDraftKeys=()=>{try{sessionStorage.setItem(draftKey,draftId);sessionStorage.setItem(revisionKey,String(draftRevision))}catch{}};
+const scheduleDraft=()=>{if(draftTimer)clearTimeout(draftTimer);if(draftReady&&!draftConflict&&draftId)draftTimer=setTimeout(()=>flushDraft().catch(()=>{}),300)};
+const flushDraft=async()=>{
+ if(draftTimer){clearTimeout(draftTimer);draftTimer=null}
+ if(draftPromise)await draftPromise;
+ if(!draftReady)throw new Error('분석 결과 저장 상태를 확인 중입니다. 잠시 후 다시 시도해 주세요.');
+ if(draftConflict)throw new Error('저장된 분석 결과와 이 화면의 입력이 다릅니다. 저장된 결과를 확인해 주세요.');
+ while(draftDirty){
+  if(!draftId||!selectedTrip.value)throw new Error('분석 결과를 저장할 여행을 선택해 주세요.');
+  const snapshot=JSON.parse(JSON.stringify(pending));draftDirty=false;draftStatus('분석 결과 저장 중');
+  draftPromise=post('/api/receipts/drafts',{draft_id:draftId,expected_revision:draftRevision,trip_id:selectedTrip.value,groups:snapshot});
+  try{const saved=await draftPromise;draftRevision=saved.revision;persistDraftKeys();draftStatus('분석 결과 저장됨')}
+  catch(error){draftDirty=true;draftConflict=error.code==='DRAFT_STALE';draftStatus(error.message||'분석 결과를 저장하지 못했습니다. 다시 시도해 주세요.');if(draftConflict)initDrafts().catch(()=>{});throw error}
+  finally{draftPromise=null}
+ }
+};
 let previousTrip=selectedTrip.value;
-const hasUnsavedReceipt=()=>selectedFiles.length>0||failedFiles.size>0||pending.length>0||[...document.querySelectorAll(reviewFields)].some(input=>input.value!==originalValues.get(input))||manualHasInput();
-selectedTrip.onchange=()=>{if(receiptBusy||hasUnsavedReceipt()){selectedTrip.value=previousTrip;say('여행을 바꾸기 전에 선택한 파일과 저장하지 않은 입력을 먼저 처리해 주세요.');return}previousTrip=selectedTrip.value;try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};syncTrip()};
+const hasUnsavedReceipt=()=>selectedFiles.length>0||failedFiles.size>0||pending.length>0||draftDirty||!!draftPromise||[...document.querySelectorAll(reviewFields)].some(input=>input.value!==originalValues.get(input))||manualHasInput();
+selectedTrip.onchange=()=>{if(receiptBusy||(previousTrip&&hasUnsavedReceipt())){selectedTrip.value=previousTrip;say('여행을 바꾸기 전에 선택한 파일과 저장하지 않은 입력을 먼저 처리해 주세요.');return}if(previousTrip&&previousTrip!==selectedTrip.value){draftId='';draftRevision=0;draftConflict=false;persistDraftKeys();try{sessionStorage.removeItem(pendingKey)}catch{}}previousTrip=selectedTrip.value;try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};syncTrip();if(draftDirty)scheduleDraft()};
 window.addEventListener('beforeunload',event=>{if(!allowReceiptReload&&(receiptBusy||hasUnsavedReceipt())){event.preventDefault();event.returnValue=''}});
-const storePending=()=>{try{sessionStorage.setItem(pendingKey,JSON.stringify(pending))}catch{say('분석 결과를 임시 저장하지 못했습니다. 이 화면에서 바로 등록해 주세요.')}};
+const storePending=()=>{try{sessionStorage.setItem(pendingKey,JSON.stringify(pending))}catch{say('분석 결과를 이 화면에 임시 저장하지 못했습니다. 서버 저장 상태를 확인해 주세요.')}if(!draftId&&pending.length){draftId=newDraftId();draftRevision=0;persistDraftKeys()}if(draftId){draftDirty=true;scheduleDraft()}};
 const photoNumber=sha=>{const b=document.querySelector('[data-image-sha="'+sha+'"]');return b?b.dataset.photoIndex:'?'};
 const setPhotoState=(sha,text)=>{document.querySelectorAll('[data-photo-state="'+sha+'"],[data-upload-page="'+sha+'"]').forEach(el=>el.textContent=text)};
 const fieldInput=(type,value,placeholder,label)=>{const input=document.createElement('input');input.type=type;input.value=value??'';input.placeholder=placeholder;input.setAttribute('aria-label',label);return input};
@@ -1000,14 +1204,14 @@ const receiptCard=(group,index,receipt)=>{
  const regionFields=document.createElement('div');regionFields.className='receipt-region-fields';
  const coordinates=['왼쪽','위','오른쪽','아래'].map((name,i)=>{const label=document.createElement('label');label.textContent=name;
   const input=fieldInput('number',receipt.boxDraft?.[i]??receipt.box?.[i], '0~1',name+' 영역 좌표');input.min='0';input.max='1';input.step='0.01';label.append(input);regionFields.append(label);return input});
- const syncBox=()=>{const values=coordinates.map(input=>input.value.trim());const allEmpty=values.every(v=>v==='');
+ const syncBox=(persist=true)=>{const values=coordinates.map(input=>input.value.trim());const allEmpty=values.every(v=>v==='');
   const nums=values.map(Number);const valid=!allEmpty&&values.every(v=>v!=='')&&nums.every(v=>Number.isFinite(v)&&v>=0&&v<=1)&&nums[0]<nums[2]&&nums[1]<nums[3];
   receipt.boxDraft=values;receipt.boxInvalid=!allEmpty&&!valid;receipt.box=valid?nums:null;outline.hidden=!valid;
   regionNote.textContent=receipt.boxInvalid?'영역 좌표 네 개를 0~1 범위에서 확인하세요.':valid?'사진 위 영역을 확인하고 필요하면 좌표를 수정하세요.':'영역 미확인 · 필요하면 좌표를 입력하세요.';
   if(valid){outline.style.left=(nums[0]*100)+'%';outline.style.top=(nums[1]*100)+'%';outline.style.width=((nums[2]-nums[0])*100)+'%';outline.style.height=((nums[3]-nums[1])*100)+'%'}
-  storePending()};
- for(const input of coordinates)input.addEventListener('input',syncBox);
- syncBox();
+  if(persist)storePending()};
+ for(const input of coordinates)input.addEventListener('input',()=>syncBox());
+ syncBox(false);
  const merchant=fieldInput('text',receipt.merchant,'상호 (읽히지 않으면 직접 입력)','상호');
  const amount=fieldInput('number',receipt.amount,'금액','금액');amount.inputMode='numeric';amount.className='amount-input';
  const date=fieldInput('text',receipt.date,'날짜 2026-10-01','날짜');
@@ -1021,6 +1225,7 @@ const receiptCard=(group,index,receipt)=>{
    amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
  for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
  card.append(top,preview,regionNote,regionFields,merchant,amount,row2,error,remove);
+ if(receiptBusy)card.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);
  return card;
 };
 const renderPending=()=>{
@@ -1029,13 +1234,16 @@ const renderPending=()=>{
  for(const group of pending){
   const section=document.createElement('div');section.className='result-group';
   const head=document.createElement('h3');
-  head.textContent='사진 '+photoNumber(group.sha)+(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건';
+  head.textContent='사진 '+photoNumber(group.sha)+(group.status==='unknown'?' · 분석 상태 확인 필요':(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건');
   section.append(head);
+  if(group.status==='unknown'){const note=document.createElement('p');note.textContent='분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않습니다.';section.append(note);if(group.jobId){const check=document.createElement('button');check.type='button';check.textContent='분석 상태 확인';check.disabled=receiptBusy;check.onclick=()=>resumeJob(group);section.append(check)}const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;section.append(manual);const close=document.createElement('button');close.type='button';close.textContent='확인 필요 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(close)}
+  if(group.empty){const note=document.createElement('p');note.textContent='영수증 후보 0건 · 원본 저장됨';const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;const close=document.createElement('button');close.type='button';close.textContent='0건 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(note,manual,close)}
   group.receipts.forEach((receipt,index)=>section.append(receiptCard(group,index,receipt)));
   box.append(section);
+  setPhotoState(group.sha,group.status==='unknown'?'분석 상태 확인 필요':group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
  }
- if(pending.length){const go=document.createElement('button');go.type='button';go.id='vision-register';go.className='primary';
-  go.textContent='선택한 영수증 등록';go.onclick=registerPending;box.append(go)}
+ if(pending.some(group=>group.receipts.length)){const go=document.createElement('button');go.type='button';go.id='vision-register';go.className='primary';
+  go.textContent='선택한 영수증 등록';go.disabled=receiptBusy;go.onclick=registerPending;box.append(go)}
 };
 const pollJob=async(state,label)=>{const t0=Date.now();
  while(state.status==='queued'||state.status==='running'){
@@ -1047,6 +1255,22 @@ const pollJob=async(state,label)=>{const t0=Date.now();
  return state};
 const jobFailure=state=>state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':
  state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'Muse 인식에 실패했습니다. 직접 입력해 주세요.';
+const completeJob=async(group,state)=>{
+ if(state.status!=='done')throw new Error(jobFailure(state));
+ const source=group.kind==='rescan'?(await post('/api/receipts/vision/new',{image:group.sha,job_id:state.job_id})).new:state.result.receipts;
+ group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}));
+ group.jobId=state.job_id;delete group.status;group.empty=group.receipts.length===0;
+ setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
+ storePending();await flushDraft();renderPending();return group.receipts.length;
+};
+async function resumeJob(group){
+ if(receiptBusy||!group.jobId)return;
+ receiptBusy=true;const restore=lockControls();
+ try{const state=await pollJob(await fetch('/api/receipts/vision/'+group.jobId,{headers:{'X-CSRF-Token':csrf}}).then(readResponse),'분석 상태 확인');
+  const count=await completeJob(group,state);say(count?'분석 결과를 확인한 뒤 등록하세요.':'인식된 영수증이 없습니다. 직접 입력할 수 있습니다.')}
+ catch(error){say(error.message||'분석 상태를 확인하지 못했습니다. 원본을 확인한 뒤 다시 분석할 수 있습니다.')}
+ finally{restore();receiptBusy=false;renderPending()}
+}
 const visionGo=document.getElementById('vision-go');
 if(visionGo)visionGo.onclick=async()=>{
  if(receiptBusy)return;
@@ -1057,18 +1281,18 @@ if(visionGo)visionGo.onclick=async()=>{
  try{
   for(const [i,sha] of shas.entries()){
    const label='사진 '+photoNumber(sha)+' ('+(i+1)+'/'+shas.length+')';
+   const existing=pending.find(group=>group.sha===sha&&group.receipts.length);
+   if(existing){found+=existing.receipts.length;setPhotoState(sha,'후보 '+existing.receipts.length+'건');continue}
    setPhotoState(sha,'분석 중');
+   pending=pending.filter(group=>!(group.sha===sha&&(group.empty||group.status==='unknown')));
+   const attempt={sha,kind:'analysis',jobId:null,receipts:[],status:'unknown'};pending.push(attempt);storePending();
    try{
-    const state=await pollJob(await post('/api/receipts/vision',{image:sha}),label);
-    if(state.status!=='done')throw new Error(jobFailure(state));
-    const receipts=state.result.receipts.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,include:true}));
-    found+=receipts.length;
-    setPhotoState(sha,receipts.length?'후보 '+receipts.length+'건':'인식된 영수증 없음');
-    if(receipts.length){pending.push({sha,kind:'analysis',jobId:state.job_id,receipts});storePending();renderPending()}
-   }catch(error){failed.push(label+' · '+(error.message||'실패'));setPhotoState(sha,'분석 실패')}
+    await flushDraft();const queued=await post('/api/receipts/vision',{image:sha});attempt.jobId=queued.job_id;storePending();await flushDraft();
+    const state=await pollJob(queued,label);found+=await completeJob(attempt,state);
+   }catch(error){failed.push(label+' · '+(error.message||'실패'));if(!attempt.receipts.length&&!attempt.empty){attempt.status='unknown';setPhotoState(sha,'분석 상태 확인 필요');storePending();try{await flushDraft()}catch{}}}
   }
   say((failed.length?'분석을 마쳤습니다. 실패한 사진: '+failed.join(' / ')+' ':'분석을 마쳤습니다. ')+(found?'결과를 확인한 뒤 등록하세요.':'인식된 영수증이 없습니다. 직접 입력할 수 있습니다.'));
- }finally{restore();receiptBusy=false}
+ }finally{restore();receiptBusy=false;renderPending()}
 };
 const cardError=(group,index,message)=>{const card=document.querySelector('[data-key="'+group.sha+'|'+index+'"]');if(card)card.querySelector('.card-error').textContent=message};
 const registerPending=async()=>{
@@ -1086,18 +1310,23 @@ const registerPending=async()=>{
  receiptBusy=true;const restore=lockControls();let added=0;
  try{
   for(const {group,items} of plan){
+   if(!group.operationId){group.operationId=newDraftId();storePending()}
+   await flushDraft();
    say('사진 '+photoNumber(group.sha)+'의 영수증을 등록하고 있습니다.');
    const regions=items.map(({r})=>({box:r.box??null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
-   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions});
+   const remaining=pending.map(item=>item===group?{...item,receipts:item.receipts.filter(r=>r.include===false)}:item)
+     .filter(item=>item.receipts.length||item.empty||item.status==='unknown');
+   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions,
+     draft:{draft_id:draftId,expected_revision:draftRevision,operation_id:group.operationId,remaining_groups:remaining}});
    added+=result.added;
    if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
-   group.receipts=group.receipts.filter(r=>r.include===false);
+   pending=remaining;draftRevision=result.draft_revision;persistDraftKeys();try{sessionStorage.setItem(pendingKey,JSON.stringify(pending))}catch{}
   }
-  pending=pending.filter(g=>g.receipts.length);storePending();
+  draftStatus('분석 결과 저장됨');
   say('영수증 '+added+'건을 등록했습니다. 후보를 새로 불러옵니다.');
   allowReceiptReload=true;location.reload();
- }catch(error){pending=pending.filter(g=>g.receipts.length);storePending();renderPending();say(error.message||'등록하지 못했습니다. 다시 시도해 주세요.')}
+ }catch(error){pending=pending.filter(g=>g.receipts.length||g.empty||g.status==='unknown');storePending();renderPending();say(error.message||'등록하지 못했습니다. 다시 시도해 주세요.')}
  finally{restore();receiptBusy=false}
 };
 const rescanGo=document.getElementById('rescan-go');
@@ -1109,21 +1338,42 @@ if(rescanGo)rescanGo.onclick=async()=>{
  const feedback=document.getElementById('feedback').value.trim();
  if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}
  receiptBusy=true;const restore=lockControls();
+ const attempt={sha,kind:'rescan',jobId:null,receipts:[],status:'unknown',feedback};pending.push(attempt);storePending();
  try{
-  const state=await pollJob(await post('/api/receipts/vision/rescan',{image:sha,feedback}),'다시 인식');
-  if(state.status!=='done')throw new Error(jobFailure(state));
-  const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});
-  if(found.new.length){
-   pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,
-     currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}))});
-   storePending();renderPending();document.getElementById('feedback').value='';
-  }
-  say(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인한 뒤 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.');
- }catch(error){say(error.message||'다시 인식에 실패했습니다.')}
- finally{restore();receiptBusy=false}
+  await flushDraft();const queued=await post('/api/receipts/vision/rescan',{image:sha,feedback});attempt.jobId=queued.job_id;storePending();await flushDraft();
+  const state=await pollJob(queued,'다시 인식');const count=await completeJob(attempt,state);
+  if(count)document.getElementById('feedback').value='';
+  say(count?'새 후보 '+count+'건을 찾았습니다. 확인한 뒤 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.');
+ }catch(error){if(!attempt.receipts.length&&!attempt.empty){attempt.status='unknown';storePending();try{await flushDraft()}catch{}}say(error.message||'다시 인식 상태를 확인하지 못했습니다.')}
+ finally{restore();receiptBusy=false;renderPending()}
 };
 document.addEventListener('click',event=>{const b=event.target.closest('[data-image-sha]');if(b){const t=document.getElementById('rescan-target');if(t)t.textContent='사진 '+b.dataset.photoIndex}});
-renderPending();
+const initDrafts=async()=>{
+ const recovery=document.getElementById('draft-recovery');recovery.replaceChildren();
+ try{
+  const response=await fetch('/api/receipts/drafts',{headers:{'X-CSRF-Token':csrf}}).then(readResponse);
+  const current=response.drafts.find(d=>d.draft_id===draftId);
+  if(current&&current.revision!==draftRevision){draftConflict=true;draftStatus('저장된 분석 결과가 이 화면과 다릅니다. 아래에서 복구 방법을 선택해 주세요.')}
+  else if(draftId&&!current&&draftRevision){draftConflict=true;draftStatus('저장된 분석 결과를 찾지 못했습니다. 현재 입력을 새 초안으로 보관할 수 있습니다.')}
+  else if(current){let local=false;try{local=sessionStorage.getItem(pendingKey)!==null}catch{};if(!local){pending=current.groups;renderPending()}draftRevision=current.revision;persistDraftKeys()}
+  const drafts=response.drafts.filter(d=>Array.isArray(d.groups)&&(d.groups.length||(d.draft_id===draftId&&draftConflict)));
+  for(const saved of drafts){
+   if(saved.draft_id===draftId&&!draftConflict)continue;
+   const button=document.createElement('button');button.type='button';
+   const option=[...selectedTrip.options].find(item=>item.value===saved.trip_id);
+   button.textContent=(option?option.textContent:'확인할 수 없는 여행')+' · 저장된 분석 결과 열기';
+   button.onclick=async()=>{if(!option){say('이 분석 결과의 여행을 확인할 수 없습니다.');return}if(pending.length&&!confirm('현재 입력을 보관하고 저장된 결과를 열까요?'))return;
+    if(pending.length){try{if(draftConflict){if(!selectedTrip.value)throw new Error('현재 입력을 보관할 여행을 먼저 선택해 주세요.');await post('/api/receipts/drafts',{draft_id:newDraftId(),expected_revision:0,trip_id:selectedTrip.value,groups:pending})}else await flushDraft()}catch(error){draftStatus(error.message||'현재 입력을 보관하지 못했습니다.');return}}
+    pending=JSON.parse(JSON.stringify(saved.groups));draftId=saved.draft_id;draftRevision=saved.revision;draftConflict=false;draftDirty=false;
+    selectedTrip.value=saved.trip_id;previousTrip=saved.trip_id;syncTrip();persistDraftKeys();try{sessionStorage.setItem(pendingKey,JSON.stringify(pending))}catch{}
+    recovery.replaceChildren();draftStatus('저장된 분석 결과를 불러왔습니다.');if(!pending.length){const link=document.createElement('a');link.href=location.pathname+location.search+'#step-review';link.textContent='화면을 다시 열어 등록 내역 확인';link.onclick=event=>{event.preventDefault();location.hash='step-review';location.reload()};recovery.append(link)}renderPending();document.dispatchEvent(new Event('receipt-workflow-change'))};
+   recovery.append(button);
+  }
+  if(draftConflict&&pending.length){const keep=document.createElement('button');keep.type='button';keep.textContent='현재 입력을 새 초안으로 보관';keep.onclick=()=>{draftId=newDraftId();draftRevision=0;draftConflict=false;persistDraftKeys();recovery.replaceChildren();storePending()};recovery.append(keep)}
+  draftReady=true;if(draftDirty&&!draftConflict)scheduleDraft();
+ }catch(error){draftReady=false;draftStatus(error.message||'분석 결과 저장 상태를 확인하지 못했습니다.');const retry=document.createElement('button');retry.type='button';retry.textContent='저장 상태 다시 확인';retry.onclick=initDrafts;recovery.append(retry)}
+};
+renderPending();initDrafts();
 """
 
 LEARNING_SCRIPT = r"""const renderNotes=async()=>{const list=document.getElementById('learn-list');if(!list)return;const body=await fetch('/api/receipts/learn',{headers:{'X-CSRF-Token':csrf}}).then(readResponse);list.replaceChildren();const add=text=>{const li=document.createElement('li');li.textContent=text;list.append(li)};if(!body.enabled){add('학습 저장 위치가 설정되지 않았습니다.');return}if(!body.notes.length){add('저장된 학습 메모가 없습니다.');return}for(const note of body.notes){const li=document.createElement('li');li.textContent=note.text+' ';const button=document.createElement('button');button.type='button';button.textContent='삭제';button.onclick=()=>save(()=>post('/api/receipts/learn/delete',{id:note.id}),()=>renderNotes().catch(()=>{}));li.append(button);list.append(li)}};
@@ -1277,7 +1527,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "'서버 응답을 확인하지 못했습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.';"
         "const readResponse=async response=>{let body;try{body=await response.json()}catch{throw new Error(responseError(response.status))}"
         "if(!body||typeof body!=='object'||Array.isArray(body))throw new Error(responseError(response.status));"
-        "if(!response.ok)throw new Error(body.message||message(body.code)||responseError(response.status));return body};"
+        "if(!response.ok){const error=new Error(body.message||message(body.code)||responseError(response.status));error.code=body.code;throw error}return body};"
         "const post=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},"
         "body:JSON.stringify(b)}).then(readResponse);"
         "const say=t=>document.getElementById('status').textContent=message(t);"
@@ -1301,7 +1551,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "if(!onSaved&&[...document.querySelectorAll(reviewFields)].some(input=>input.value!==originalValues.get(input))){"
         "say('영수증의 변경을 먼저 저장해 주세요. 입력값은 유지합니다.');return}"
         "receiptBusy=true;const restore=lockControls();"
-        "say('저장하고 있습니다.');try{const result=await action();if(onSaved){try{onSaved(result)}catch{"
+        "say('저장하고 있습니다.');try{if(!onSaved&&draftId&&(draftDirty||draftPromise))await flushDraft();const result=await action();if(onSaved){try{onSaved(result)}catch{"
         "say('저장은 완료됐지만 화면 갱신에 실패했습니다. 입력값을 보관하고 화면을 다시 열어 주세요.')}}else{allowReceiptReload=true;location.reload()}}"
         "catch(error){say(error.message||'저장하지 못했습니다. 다시 시도해 주세요.')}"
         "finally{restore();receiptBusy=false;document.dispatchEvent(new Event('receipt-workflow-change'))}};"
@@ -1383,12 +1633,14 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
            "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
            if local_receipt_ocr.enabled() else
            "<p id='receipt-ocr-disabled'>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>")
-    ai_section = ("<section id='step-ai'><h2>영수증 분석</h2>"
-                  "<p class='hint'>체크한 사진을 Muse가 한 장씩 읽습니다. 원본 사진은 무료 AI 모델로 전송되며, 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
-                  "<button type='button' id='vision-go'>체크한 사진 분석</button>"
+    ai_section = ("<section id='step-ai'><h2>영수증 분석 결과</h2>"
+                  + ("<p class='hint'>체크한 사진을 Muse가 한 장씩 읽습니다. 원본 사진은 무료 AI 모델로 전송되며, 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
+                     "<button type='button' id='vision-go'>체크한 사진 분석</button>" if ai else
+                     "<p>자동 분석을 사용할 수 없습니다. 저장된 결과를 확인하거나 직접 입력해 주세요.</p>")
+                  + "<p id='draft-status' role='status'></p><div id='draft-recovery'></div>"
                   "<div id='vision-results' aria-live='polite'></div>"
-                  + _rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요")
-                  + "</section>") if ai else ""
+                  + (_rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요") if ai else '')
+                  + "</section>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 처리</title>"
             f"<style>{PAGE_CSS}</style></head><body>"

@@ -4,6 +4,7 @@ Muse is replaced by a fixed answer per photo, so the flow is checked without a m
 are written to WEBLEDGER_FLOW_SHOTS when that variable names a folder.
 """
 import os
+import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -114,6 +115,144 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 self.assertIn('저장 여부 확인 필요', page.locator('#upload-results').inner_text())
                 self.assertIn('응답 시간이 초과', page.locator('#upload-results').inner_text())
                 self.assertTrue(page.evaluate("() => {const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented}"))
+            finally:
+                browser.close()
+
+    def test_analysis_drafts_and_zero_results_recover_without_session_or_job_memory(self):
+        from webapp import receipt_vision_jobs
+        answer = {'receipts': [receipt('SYNTHETIC', '2026-10-12', 100)], 'label': 'fixture', 'lesson': None}
+        first_sha = hashlib.sha256(review.PNG).hexdigest()
+        with receipt_vision_jobs._LOCK:
+            receipt_vision_jobs._JOBS.clear()
+            receipt_vision_jobs._BY_IMAGE.clear()
+        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), \
+             patch('webapp.receipt_review.opencode_receipt_vision.recognize_with_fallback',
+                   side_effect=lambda path, **kw: answer if Path(path).stem == first_sha else {'receipts': []}), \
+             sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                first = browser.new_context(viewport={'width': 390, 'height': 900})
+                page = first.new_page()
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', [
+                    {'name': 'photo.png', 'mimeType': 'image/png', 'buffer': review.PNG},
+                    {'name': 'empty.png', 'mimeType': 'image/png', 'buffer': review.make_png(b'\x00\xff\x00')},
+                ])
+                page.click('#img-go')
+                page.wait_for_function("document.querySelectorAll('#upload-results img').length === 2")
+                page.click('#vision-go')
+                page.locator('.receipt-card').wait_for(timeout=30000)
+                page.get_by_text('영수증 후보 0건 · 원본 저장됨').wait_for(timeout=30000)
+                with page.expect_response(lambda response: '/api/receipts/drafts' in response.url and response.request.method == 'POST'):
+                    page.get_by_role('textbox', name='상호', exact=True).fill('EDITED SYNTHETIC')
+                page.wait_for_function("""async () => {
+                  const response=await fetch('/api/receipts/drafts',{headers:{'X-CSRF-Token':csrf}});
+                  const data=await response.json();
+                  return data.drafts.some(d=>d.groups.some(g=>g.receipts.some(r=>r.merchant==='EDITED SYNTHETIC')));
+                }""")
+                first.close()
+                with receipt_vision_jobs._LOCK:
+                    receipt_vision_jobs._JOBS.clear()
+                    receipt_vision_jobs._BY_IMAGE.clear()
+                second = browser.new_context(viewport={'width': 390, 'height': 900})
+                reopened = second.new_page()
+                reopened.goto(self.base + '/receipts?trip=' + self.trip)
+                reopened.locator('#draft-recovery button').first.click()
+                self.assertEqual(reopened.get_by_role('textbox', name='상호', exact=True).input_value(), 'EDITED SYNTHETIC')
+                self.assertTrue(reopened.get_by_text('영수증 후보 0건 · 원본 저장됨').is_visible())
+                self.assertEqual(reopened.locator('#selected-trip').input_value(), self.trip)
+                second.close()
+            finally:
+                browser.close()
+
+    def test_two_tabs_keep_local_edit_when_draft_revision_conflicts(self):
+        sha = self.request('/api/receipts/image', token=self.csrf(), raw=review.PNG)[1]['sha256']
+        import uuid
+        draft = {'draft_id': uuid.uuid4().hex, 'expected_revision': 0, 'trip_id': self.trip,
+                 'groups': [{'sha': sha, 'kind': 'analysis', 'jobId': None,
+                             'receipts': [{'merchant': 'SYNTHETIC', 'date': '2026-10-12', 'amount': 100,
+                                           'currency': 'JPY', 'payment': 'cash', 'include': True}]}]}
+        self.assertEqual(self.request('/api/receipts/drafts', draft, token=self.csrf())[0], 200)
+        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                contexts = [browser.new_context(), browser.new_context()]
+                pages = [context.new_page() for context in contexts]
+                for page in pages:
+                    page.goto(self.base + '/receipts?trip=' + self.trip)
+                    page.locator('#draft-recovery button').first.click()
+                pages[0].get_by_role('textbox', name='상호', exact=True).fill('FIRST')
+                pages[0].wait_for_function("document.getElementById('draft-status').textContent.includes('저장됨')")
+                pages[1].get_by_role('textbox', name='상호', exact=True).fill('SECOND')
+                pages[1].get_by_role('button', name='현재 입력을 새 초안으로 보관').wait_for(timeout=30000)
+                self.assertEqual(pages[1].get_by_role('textbox', name='상호', exact=True).input_value(), 'SECOND')
+                saved = self.request('/api/receipts/drafts', token=self.csrf())[1]['drafts']
+                self.assertEqual(saved[0]['groups'][0]['receipts'][0]['merchant'], 'FIRST')
+                pages[1].get_by_role('button', name='현재 입력을 새 초안으로 보관').click()
+                pages[1].wait_for_function("document.getElementById('draft-status').textContent.includes('저장됨')")
+                saved = self.request('/api/receipts/drafts', token=self.csrf())[1]['drafts']
+                assert {draft['groups'][0]['receipts'][0]['merchant'] for draft in saved} == {'FIRST', 'SECOND'}
+                for context in contexts:
+                    context.close()
+            finally:
+                browser.close()
+
+    def test_lost_analysis_response_recovers_unknown_without_automatic_resubmit(self):
+        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                first = browser.new_context()
+                page = first.new_page()
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', {'name': 'photo.png', 'mimeType': 'image/png', 'buffer': review.PNG})
+                page.click('#img-go')
+                page.locator('#upload-results img').wait_for()
+                page.route('**/api/receipts/vision', lambda route: route.abort())
+                page.click('#vision-go')
+                page.get_by_text('분석 완료 여부를 확인하지 못했습니다.', exact=False).wait_for(timeout=30000)
+                page.wait_for_function("document.getElementById('draft-status').textContent.includes('저장됨')")
+                saved = self.request('/api/receipts/drafts', token=self.csrf())[1]['drafts']
+                self.assertEqual(saved[0]['groups'][0]['status'], 'unknown')
+                first.close()
+                second = browser.new_context()
+                reopened = second.new_page()
+                calls = []
+                reopened.on('request', lambda request: calls.append(request.url)
+                            if request.method == 'POST' and request.url.endswith('/api/receipts/vision') else None)
+                reopened.goto(self.base + '/receipts?trip=' + self.trip)
+                reopened.locator('#draft-recovery button').first.click()
+                self.assertTrue(reopened.get_by_text('분석 완료 여부를 확인하지 못했습니다.', exact=False).is_visible())
+                self.assertEqual(calls, [])
+                second.close()
+            finally:
+                browser.close()
+
+    def test_lost_registration_response_recovers_committed_result_without_duplicate(self):
+        import uuid
+        sha = self.request('/api/receipts/image', token=self.csrf(), raw=review.PNG)[1]['sha256']
+        draft = {'draft_id': uuid.uuid4().hex, 'expected_revision': 0, 'trip_id': self.trip,
+                 'groups': [{'sha': sha, 'kind': 'analysis', 'jobId': None,
+                             'receipts': [{'merchant': 'SYNTHETIC', 'date': '2026-10-12', 'amount': 100,
+                                           'currency': 'JPY', 'payment': 'cash', 'include': True}]}]}
+        self.assertEqual(self.request('/api/receipts/drafts', draft, token=self.csrf())[0], 200)
+        with patch('webapp.receipt_review.opencode_receipt_vision.enabled', return_value=True), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.locator('#draft-recovery button').first.click()
+                def lose_response(route):
+                    route.fetch()
+                    route.abort()
+                page.route('**/api/receipts/scan', lose_response, times=1)
+                page.click('#vision-register')
+                page.get_by_role('button', name='현재 입력을 새 초안으로 보관').wait_for(timeout=30000)
+                self.assertEqual(len(self.request('/api/receipts')[1]['candidates']), 1)
+                page.once('dialog', lambda dialog: dialog.accept())
+                page.get_by_role('button', name='저장된 분석 결과 열기', exact=False).click()
+                page.get_by_role('link', name='화면을 다시 열어 등록 내역 확인').click()
+                page.locator('[data-version]').first.wait_for()
+                self.assertEqual(len(self.request('/api/receipts')[1]['candidates']), 1)
             finally:
                 browser.close()
 
@@ -238,7 +377,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertTrue(all('2026-10-10' <= candidate['date'] <= '2026-10-13'
                                         for candidate in candidates))
                     self.assertEqual(page.locator('#vision-register').count(), 0)
-                    self.assertEqual(page.evaluate("JSON.parse(sessionStorage.getItem('cost-receipt-pending')||'[]').length"), 0)
+                    self.assertEqual(page.evaluate("JSON.parse(sessionStorage.getItem('cost-receipt-pending')||'[]').filter(g=>g.empty).length"), 1)
+                    self.assertTrue(page.get_by_text('영수증 후보 0건 · 원본 저장됨').is_visible())
                     self.assertEqual(page.locator('#vision-finish').count(), 0)
                     page.locator('[data-image-sha]').first.click()
                     page.wait_for_function("document.getElementById('rescan-target').textContent.includes('사진 1')")
