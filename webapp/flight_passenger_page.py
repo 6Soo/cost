@@ -167,6 +167,24 @@ def _page(csrf):
 .fb-card-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px}.fb-card-detail dd{margin:0;overflow-wrap:anywhere}.fb-card-detail dt{color:var(--mut)}
 .fb-passengers{padding:0 16px 12px;overflow-wrap:anywhere;font-size:0.875rem}.fb-passengers p{margin:0!important}.fb-passengers small{color:var(--mut)}
 #flight-booking-page [hidden]{display:none!important}
+#site-content:has(#flight-booking-page){container:flight-content / inline-size}
+@container flight-content (max-width:30rem){
+ #flight-booking-page{padding-inline:12px}
+ .fb-summary,.fb-grid{grid-template-columns:minmax(0,1fr)}
+ .fb-summary,.fb-hero,.fb-section{padding:12px}
+ #flight-booking-page .fb-booking-choice>summary{padding:12px}
+ .fb-reservation-warning{margin-inline:12px}
+ .fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}
+ .fb-date-filter label{width:100%}
+ #flight-booking-page button{white-space:normal}
+}
+@container flight-content (max-width:20rem){
+ .fb-route{grid-template-columns:minmax(0,1fr)}
+ .fb-route-stop:last-child{text-align:start}
+ .fb-route-arrow{text-align:start;transform:rotate(90deg);justify-self:start}
+ .fb-time,.fb-airport-code,.fb-flight-date{overflow-wrap:anywhere}
+ #flight-booking-page .fb-actions a,#flight-booking-page .fb-actions button,#flight-booking-page #fb-submit{display:block}
+}
 @container flight-search (max-width:20rem){#flight-booking-page #fb-search{display:grid;grid-template-columns:minmax(0,1fr)}#flight-booking-page #fb-submit{justify-self:start}}
 @media(max-width:600px){#flight-booking-page{margin:12px auto;padding:0 12px 32px}#flight-booking-page h1{font-size:1.25rem}.fb-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.fb-summary-item:first-child{grid-column:1/-1}.fb-grid{grid-template-columns:minmax(0,1fr)}#flight-booking-page .fb-booking-choice>summary{padding:12px}.fb-section{padding:12px}.fb-summary,.fb-hero{padding:12px}.fb-reservation-warning{margin-inline:12px}.fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}.fb-date-filter label{width:100%}.fb-date-filter form button{justify-self:start}}
 </style></head><body><main id="flight-booking-page">
