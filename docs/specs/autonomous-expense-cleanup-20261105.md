@@ -2,6 +2,12 @@
 
 **현재 판정(2026-11-05 실행): PARTIAL · #636·#643·#647·#652 및 회귀 수정 PR #658 병합. 앱 SHA `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`로 공식 운영 전환됐고, 보호 13표 불변·단일 listener·health/ready를 확인했다.** 운영 AI opt-in은 켜져 있으나 실제 무인 P2 적용은 0건이며 승인된 일반 provider 경로가 timeout됐다. 최신 승인 요청은 카드 지출정리 건수를 사용자가 반복 확인하지 않아도 P1→P2가 처리하고, 실제 사용자 판단만 최종 표시하는 것이다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
 
+## 12시경 문서 검토 후 남은 수락
+
+- **P2 운영 실제 성공은 아직 0건:** AI 게이트가 `true`인 상태와 AI가 실제 거래를 처리했다는 사실은 별개다. 마지막 status 기록은 오래됐고 정상 provider 호출이 timeout됐으므로, 승인된 네트워크·모델 연결에서 해결·재관측해야 한다. 기존 합성 성공·#647/#652 수정·`ai_dead` 누적을 실제 처리 완료로 바꾸지 않는다.
+- **기존 코드 결함 탐지/재평가와 완전 자율 패치는 별개:** #658은 이미 해결된 108건 원인 묶음의 오탐을 수정·배포했다. 하지만 신규 결함을 무인으로 재현하고 PR·CI·허용 배포 후 관련 거래를 처리한 실제 전 과정 증거는 없다. [통합 미결 진입점](autonomy-io-unified-followup-20261105.md#현재-판단과-실제-남은-작업-2026-11-05-12시경-문서-대조) 참조.
+- **UI 수락:** 인증 운영 지출정리 화면에서 사용자 필수 판단과 안전 보류/자동 처리 분리 및 페이지 건수 일치는 미검증. 합성 화면 검사를 실제 사용자 흐름 수락으로 오인하지 말 것.
+
 ## 2026-11-05 최신 운영 수락
 
 - 운영 `automatic_card_completion=true`, `autonomous_ai_review=true`; 마지막 읽기 전용 상태 파일(08:53 KST)에서 `state=idle`, `passes=333`, `p2_applied=0`, `ai_retry=18`, `ai_dead=20`, `blocked=400`, `candidates=400`, `due=0`, `failures=0`이었다. 최근 상태상 worker는 08:53:56 이후 갱신되지 않았다. worker 설정/시작만으로 실제 무인 P2 성공을 뜻하지 않으며 업무 완료는 0건으로 확인된다.
@@ -10,10 +16,6 @@
 - `f7ff4ec4` 공식 전환 시도는 8751 점유 검사에서 중단됐으나, 뒤이은 읽기 전용 확인에서 Board task가 `79a3c57340cfadeb227e3748966a4baf0fd6ca63` checkout, route 8751, Running으로 관측됐다. P2 worker·분류·Gateway·OTA 4개 파일은 `origin/main`과 바이트 해시가 일치하고 health/ready 200, 보호 API 401이다. 이 현재 실행 상태가 확인되어도 운영 P2 적용 0건과 due0이므로 코드 재평가·무인 재처리의 수락 근거는 아니다.
 - PR #658은 PR #631에서 해결한 날짜 alias 충돌 108건이 #652 결함 묶음에서 재등장하는 오탐을 지문으로 제외한다. 타깃 통합 검사 4 passed, 영향 QA 242 passed·skip0, PR CI `41943273672`, main CI `41943503301` 통과. 배포 SHA는 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`이며 health/ready·보호 API·보호13표를 확인했다. 배포본 규칙을 사용한 운영 DB 읽기 전용 재평가에서 알려진 108건 그룹은 제외됐고 원행·충돌 플래그·bundle 이력은 수정하지 않았다.
 - 실제 P1→P2 성공은 계속 0건이다. 인증/프록시 우회, 일일 cap reset, 강제 재시도 및 금융 대량 재처리는 수행하지 않았다. 전체 후속 수락은 [통합 명세](autonomy-io-unified-followup-20261105.md)와 [운영 기록](../operations.md#2026-11-05-pr-658-결함-묶음-회귀-수정-배포)을 따른다.
-- 후속 결함 회귀 PR #658은 PR #631에서 이미 해결한 과거 날짜 alias 충돌 108건이 반복 코드 결함으로 다시 묶이는 오탐을 확인된 opaque fingerprint로 제외했다. 타깃 통합검사 4 passed, 영향 QA 242 passed·skip0, PR CI `41943273672`, main CI `41943503301` 통과. 운영 DB 읽기 전용 재평가에서 해당 108건 그룹을 새 코드가 제외했고 거래 원행·충돌 플래그·기존 bundle 이력을 수정하지 않았다.
-- PR #658 공식 운영 SHA는 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`; 1,383 files·blob mismatch0·runtime SHA 일치·route8752·health/ready200·보호 API401·13표 불변을 확인했다. 합성 통합 검사에서 Gateway 응답 중 worker 오류→재시도→P2 성공을 확인했고 합성 금융 스냅샷은 변하지 않았다.
-- 실제 P2 적용은 계속 0건이다. 프록시/인증 우회·일일 한도 초기화·강제 재처리 없이 승인된 일반 provider 응답을 기다린다.
-
 ## 구현·운영 상태 대조 (2026-11-05)
 
 | 항목 | 판정 | 근거 및 남은 확인 |
