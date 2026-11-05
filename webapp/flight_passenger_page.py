@@ -177,6 +177,7 @@ def _page(csrf):
  .fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}
  .fb-date-filter label{width:100%}
  #flight-booking-page button{white-space:normal}
+ #flight-booking-page button .site-action-label{white-space:normal;overflow-wrap:anywhere}
 }
 @container flight-content (max-width:20rem){
  .fb-route{grid-template-columns:minmax(0,1fr)}
