@@ -145,11 +145,22 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         from . import flight_passenger_page, receipt_review
         from . import user_action_queue
         active_store = board._active_store()
-        action_count = (user_action_queue.open_count(active_store.conn)
-                        if getattr(active_store, "conn", None) is not None else 0)
+        action_snapshot = None
+        if getattr(active_store, "conn", None) is not None:
+            try:
+                action_snapshot = user_action_queue.open_snapshot(active_store.conn)
+            except user_action_queue.QueueReadUnavailable:
+                pass
+        action_link = (
+            "<a href='/my-actions'" + user_action_queue.queue_data_attrs(action_snapshot) +
+            f">{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_snapshot.count:,}건</span></a>"
+            if action_snapshot is not None else
+            f"<a href='/my-actions' aria-label='내 확인 필요 수를 확인할 수 없음'>{_icons.icon('check', 18)}"
+            "<span class='nm'>업무 수 확인 불가</span></a>"
+        )
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/my-actions'>{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_count:,}건</span></a>"
-                   f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
+                   + action_link
+                   + f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
                    f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 전체 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")

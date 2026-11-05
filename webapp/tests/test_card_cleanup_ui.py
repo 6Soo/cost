@@ -118,6 +118,19 @@ def test_render_cleanup_card_review_branches():
     assert "내 확인 필요" not in rev_held
     assert "<p>근거</p>" in rev_held
 
+    rev_finance = card_cleanup_ui.render_cleanup_card_review(
+        detail="/import?batch=1&transaction=finance",
+        is_cancellation=False,
+        evidence="<p>\uae08\uc735 \uadfc\uac70</p>",
+        finance_related=True,
+        reason="\uc6d0\uacb0\uc81c\uc640 \ud658\ubd88 \uad00\uacc4",
+        item="\uc219\ubc15\ube44",
+    )
+    assert "\uc77d\uae30 \uc804\uc6a9" in rev_finance
+    assert "<form" not in rev_finance
+    assert "\ubcc0\uacbd \uc800\uc7a5" not in rev_finance
+    assert "<p>\uae08\uc735 \uadfc\uac70</p>" in rev_finance
+
     # Normal form branch
     rev_norm = card_cleanup_ui.render_cleanup_card_review(
         detail="/import?batch=1&transaction=c5",
@@ -253,7 +266,7 @@ def test_cleanup_render_exposes_filter_controls_and_preserves_non_owner_boundary
         # 2. Owner with empty store
         monkeypatch.setattr(ledger_board, "current_role", lambda: "owner")
         c_empty = card_flow.render_expense_cleanup(store, "csrf-test")
-        assert "aria-label='지출 정리 상태 필터'" in c_empty
+        assert "aria-label='\uac70\ub798\u00b7\uc7a5\ubd80 \uc0c1\ud0dc \ud544\ud130'" in c_empty
         assert "cleanup-filter-total" in c_empty
 
         # 3. Owner with active card rows via pipeline receive and unassigned ledger rows
@@ -294,9 +307,9 @@ def test_cleanup_render_exposes_filter_controls_and_preserves_non_owner_boundary
         store.conn.commit()
 
         c_pop = card_flow.render_expense_cleanup(store, "csrf-test")
-        assert "전체 3건" in c_pop
-        assert "분류·배정 필요 2건" in c_pop
-        assert "근거 충돌 1건" in c_pop
+        assert "전체 거래·장부 행 3건" in c_pop
+        assert "분류 상태 2건" in c_pop
+        assert "원본·보호 상태 1건" in c_pop
         assert "결제·환불 확인 0건" not in c_pop
         assert "<p class='cleanup-filter-total'>" not in c_pop
     finally:

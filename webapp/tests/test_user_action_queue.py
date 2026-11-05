@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -19,6 +20,12 @@ def _register(conn, **overrides):
                   source_refs=("transaction-1",), source_revision="source-v1", answer_options=("예", "아니오"))
     values.update(overrides)
     return queue.register(conn, **values)
+
+
+def _insert_task(conn, request_id, raw):
+    payload = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+    conn.execute("INSERT INTO requests VALUES(?,?,?,?,?)",
+                 (request_id, queue.SCOPE, "synthetic", payload, "2026-11-05T00:00:00Z"))
 
 
 def test_same_group_is_idempotent_and_answer_requires_current_revision(conn):
@@ -75,6 +82,109 @@ def test_owner_navigation_exposes_single_queue_with_action_count(conn, monkeypat
     nav = ledger_design._nav_html("", "")
     assert nav.count("/my-actions") == 1
     assert "내 확인 필요 1건" in nav
+
+
+def test_import_summary_and_navigation_share_one_request_snapshot(conn, monkeypatch):
+    from webapp import ledger_design
+
+    _register(conn, group_key="refund:group-a")
+    fake_store = type("Store", (), {"conn": conn})()
+    monkeypatch.setattr(ledger_design.board, "current_role", lambda: "owner")
+    monkeypatch.setattr(ledger_design.board, "_active_store", lambda: fake_store)
+    monkeypatch.setattr(ledger_design, "nav_region", lambda *args: "")
+
+    with queue.request_snapshot_scope():
+        snapshot = queue.open_snapshot(conn)
+        summary = queue.render_queue_summary(snapshot)
+        _register(conn, group_key="refund:group-b")
+        nav = ledger_design._nav_html("", "")
+
+        assert "내 확인 필요 1건" in summary
+        assert "내 확인 필요 1건" in nav
+        assert "내 확인 필요 2건" not in nav
+
+    assert "내 확인 필요 2건" in ledger_design._nav_html("", "")
+
+
+def test_request_snapshot_scope_reuses_queue_read_failure_until_response_finishes(monkeypatch):
+    from webapp import ledger_design
+
+    missing_table = sqlite3.connect(":memory:")
+    fake_store = type("Store", (), {"conn": missing_table})()
+    monkeypatch.setattr(ledger_design.board, "current_role", lambda: "owner")
+    monkeypatch.setattr(ledger_design.board, "_active_store", lambda: fake_store)
+    monkeypatch.setattr(ledger_design, "nav_region", lambda *args: "")
+    try:
+        with queue.request_snapshot_scope():
+            with pytest.raises(queue.QueueReadUnavailable):
+                queue.open_snapshot(missing_table)
+            missing_table.execute(
+                "CREATE TABLE requests(request_id TEXT PRIMARY KEY, scope TEXT NOT NULL, "
+                "payload_sha256 TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)"
+            )
+            nav = ledger_design._nav_html("", "")
+            assert "업무 수 확인 불가" in nav
+            assert "내 확인 필요 0건" not in nav
+
+        assert "내 확인 필요 0건" in ledger_design._nav_html("", "")
+    finally:
+        missing_table.close()
+
+
+def test_open_snapshot_deduplicates_valid_actions_and_shares_count_revision(conn):
+    first = _register(conn, group_key="refund:group-a")
+    other = _register(conn, group_key="refund:group-b")
+    newest = {**first, "title": "\ucd5c\uc2e0 \ud655\uc778 \uc9c8\ubb38", "updated_at": "9999-01-01T00:00:00Z",
+              "revision": first["revision"] + 1}
+    _insert_task(conn, "duplicate-a", newest)
+    _insert_task(conn, "invalid-id", {**first, "action_id": "ua-invalid"})
+    _insert_task(conn, "invalid-title", {**first, "title": "  "})
+    _insert_task(conn, "malformed-json", "{broken json")
+
+    snapshot = queue.open_snapshot(conn)
+    assert snapshot.count == 2
+    selected = {task["action_id"]: task for task in snapshot.tasks}
+    assert selected[first["action_id"]]["title"] == "\ucd5c\uc2e0 \ud655\uc778 \uc9c8\ubb38"
+    assert selected[other["action_id"]]["title"] == other["title"]
+
+    attrs = queue.queue_data_attrs(snapshot)
+    actions_page = queue.render(conn, "csrf-token", snapshot=snapshot)
+    import_summary = queue.render_queue_summary(snapshot)
+    assert attrs in actions_page
+    assert attrs in import_summary
+    assert f"\ub0b4 \ud655\uc778 \ud544\uc694 {snapshot.count}\uac74" in actions_page
+    assert f"\ub0b4 \ud655\uc778 \ud544\uc694 {snapshot.count}\uac74" in import_summary
+    assert snapshot.revision in actions_page and snapshot.revision in import_summary
+
+
+def test_queue_read_failure_is_not_rendered_as_zero(conn):
+    missing_table = sqlite3.connect(":memory:")
+    try:
+        with pytest.raises(queue.QueueReadUnavailable):
+            queue.open_snapshot(missing_table)
+        page = queue.render(missing_table, "csrf-token")
+        assert "\uc791\uc5c5 \ubaa9\ub85d\uc744 \ubd88\ub7ec\uc624\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4" in page
+        assert "\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74" not in page
+        assert "data-action-count='0'" not in page
+    finally:
+        missing_table.close()
+
+
+def test_owner_navigation_does_not_claim_zero_when_queue_read_fails(monkeypatch):
+    from webapp import ledger_design
+
+    missing_table = sqlite3.connect(":memory:")
+    fake_store = type("Store", (), {"conn": missing_table})()
+    monkeypatch.setattr(ledger_design.board, "current_role", lambda: "owner")
+    monkeypatch.setattr(ledger_design.board, "_active_store", lambda: fake_store)
+    monkeypatch.setattr(ledger_design, "nav_region", lambda *args: "")
+    try:
+        nav = ledger_design._nav_html("", "")
+        assert "\uc5c5\ubb34 \uc218 \ud655\uc778 \ubd88\uac00" in nav
+        assert "\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74" not in nav
+        assert "data-action-count='0'" not in nav
+    finally:
+        missing_table.close()
 
 
 def test_answer_options_keep_internal_values_and_render_human_labels(conn):

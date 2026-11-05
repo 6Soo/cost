@@ -479,7 +479,7 @@ def test_cleanup_no_longer_exposes_a_second_owner_action_queue(tmp_path, monkeyp
         board.conn.commit()
 
         html = card_flow.render_expense_cleanup(board, 'token')
-        assert '내 확인 필요' not in html
+        assert '\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74' in html
         assert '자동 진행·대기' not in html
         assert 'cleanup_owner=' not in html
 
