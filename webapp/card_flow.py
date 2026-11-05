@@ -305,16 +305,16 @@ def batch_catalog(board):
         hold_filter = ("AND NOT EXISTS (SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
                        if board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else '')
         rows = board.conn.execute(
-            "SELECT b.batch_id,b.filename,COUNT(*),b.status,GROUP_CONCAT(DISTINCT t.issuer),"
+            "SELECT b.batch_id,b.filename,COUNT(DISTINCT t.transaction_id),b.status,GROUP_CONCAT(DISTINCT t.issuer),"
             "MIN(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
             "MAX(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
-            "SUM(CASE WHEN (t.classification_state='needs_review' OR "
+            "COALESCE(SUM(CASE WHEN (t.classification_state='needs_review' OR "
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
-            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END) AS questions "
-            "FROM import_batches b JOIN import_batch_rows x ON x.batch_id=b.batch_id "
-            "JOIN transactions t ON t.transaction_id=x.transaction_id "
-            "WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
+            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END),0) AS questions "
+            "FROM import_batches b LEFT JOIN import_batch_rows x ON x.batch_id=b.batch_id "
+            "LEFT JOIN transactions t ON t.transaction_id=x.transaction_id "
+            "WHERE (?='' OR t.transaction_id IS NULL OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?) "
             "GROUP BY b.batch_id ORDER BY questions DESC,b.received_at DESC,b.batch_id",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchall()
@@ -3278,8 +3278,32 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
 
 .coverage-form{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--shell-line);border-radius:6px;max-width:100%;overflow-wrap:anywhere}.coverage-form label{display:grid;gap:4px}.coverage-form input,.coverage-form select{min-width:0;width:100%;box-sizing:border-box;min-height:44px}.coverage-form button{min-height:44px}.coverage-form .coverage-complete{display:flex;align-items:center;gap:8px}.coverage-complete input{width:22px;min-height:22px}.coverage-message{white-space:normal;overflow-wrap:anywhere}
-</style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
-<details id="newupload"><summary>카드 사용내역 업로드</summary><section><h2>카드 파일 추가</h2><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일을 먼저 한 번에 접수한 뒤 백그라운드에서 분류하며, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">전체 파일 접수가 끝나면 다른 페이지로 이동할 수 있습니다. 분류는 백그라운드에서 계속되며 결과는 저장됩니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><details><summary>카드별 조회 기간</summary><div id="coverage-summary" aria-live="polite"></div></details><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
+
+/* Card-by-card query coverage, separate from transaction classifications. */
+.coverage-dashboard{margin:14px 0 20px;min-width:0}
+.coverage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0 0 12px}
+.coverage-metric{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:9px;padding:12px;min-width:0}
+.coverage-metric strong{display:block;font-size:21px;font-variant-numeric:tabular-nums}
+.coverage-metric span{display:block;color:var(--shell-muted,#667);font-size:12px}
+.coverage-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px}
+.coverage-card{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:10px;padding:14px;min-width:0}
+.coverage-card h3{font-size:16px;margin:0 0 5px}
+.coverage-status{font-weight:650;font-size:13px;margin:8px 0}
+.coverage-period{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:7px 0;padding:8px;border-inline-start:4px solid #278363;border-radius:4px;background:var(--shell-bg)}
+.coverage-period.missing{border-inline-start-color:#bd713a}
+.coverage-period .period-dates{flex:1;min-width:130px;overflow-wrap:anywhere}
+.coverage-period button,.coverage-card button{min-height:44px}
+.coverage-files{margin-top:12px;border-top:1px solid var(--shell-line);padding-top:9px}
+.coverage-files summary{cursor:pointer;padding:4px 0}
+.coverage-file{padding:8px 0;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}
+.coverage-file button{display:block;margin-top:7px}
+.coverage-empty{padding:14px;border:1px dashed var(--shell-line);border-radius:9px}
+.coverage-baseline{padding:8px 0}.coverage-baseline summary{cursor:pointer}.coverage-baseline-form input{min-height:44px;margin:8px 0}.coverage-baseline-form button{min-height:44px}
+.gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
+@media(max-width:740px){.coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:360px){.coverage-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.coverage-period{display:block}.coverage-period button{width:100%;margin-top:8px}}
+</style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>기존 업로드 파일 상세</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
+<details id="newupload"><summary>카드 자료 관리·업로드</summary><section><h2>카드별 조회기간</h2><p class="small">거래가 없던 날짜와 아직 조회하지 않은 날짜는 다릅니다. 카드사가 실제로 조회한 기간을 기준으로 공백을 계산합니다.</p><div id="coverage-summary" class="coverage-dashboard" aria-live="polite"><p>카드별 수집 현황을 불러오는 중입니다.</p></div><h2>카드 파일 추가</h2><p id="gap-upload-context" class="gap-upload-context" role="status" hidden></p><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일을 먼저 한 번에 접수한 뒤 백그라운드에서 분류하며, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">전체 파일 접수가 끝나면 다른 페이지로 이동할 수 있습니다. 분류는 백그라운드에서 계속되며 결과는 저장됩니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><label for="rule-text">분류 지시</label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>
 </main><script>
@@ -3312,19 +3336,109 @@ let rules=[];
 function renderRules(list){rules=list;const term=el('rulefilter').value.toLowerCase(),matches=list.filter(r=>(r.conditions.merchant_normalized+' '+r.effects.item).toLowerCase().includes(term));el('rulelist').innerHTML='<p class="small">'+matches.length+'개 규칙 중 '+Math.min(40,matches.length)+'개 표시 · 검색으로 찾을 수 있습니다.</p>'+matches.slice(0,40).map(r=>'<p><button data-rule="'+rules.indexOf(r)+'">'+esc(r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized)+' → '+esc(r.effects.item)+' · 수정</button></p>').join('');document.querySelectorAll('[data-rule]').forEach(b=>b.onclick=()=>{const r=rules[Number(b.dataset.rule)],f=el('ruleform');f.elements.rule_id.value=r.rule_id;f.elements.version.value=r.version;f.elements.merchant.value=r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized;f.elements.merchant.readOnly=r.conditions.merchant_normalized==='*';f.elements.card_kind.value=r.conditions.card_kind||'';f.elements.direction.value=r.conditions.transaction_direction||'purchase';f.elements.rule_country.value=['JP','TW','AT','IT','FR'].includes(r.optional.travel_country)?'overseas':r.optional.travel_country||'';f.elements.rule_item.value=r.effects.item||'';f.elements.rule_description.value=r.effects.description||'';f.elements.rule_country.disabled=!!r.optional.inferred_assignment;el('rule_scope').textContent=r.origin==='owner-country-exception-20261003'?'사용자 지정 예외: 조지아·카자흐스탄 거래를 유럽 여행에 배정합니다.':r.optional.inferred_assignment?'이번 거래에만 적용한 추론입니다. 여행은 미리보기의 수정에서 바꿀 수 있습니다.':r.optional.source_hash?'예약 자료로 확인된 해당 원본 거래에만 적용합니다.':r.note||''})}
 async function call(url,body,headers={}){const r=await fetch(url,body==null?{cache:'no-store'}:{method:'POST',headers:{'X-CSRF-Token':csrf,...headers},body}).catch(()=>{throw Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')});if(!(r.headers.get('Content-Type')||'').includes('application/json'))throw Error(r.status===401?'로그인이 필요합니다. 화면을 다시 열어 주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');const j=await r.json();if(!r.ok)throw Error(j.message||j.code);return j}
 
+
+let selectedCoverageGap=null;
+try{selectedCoverageGap=JSON.parse(sessionStorage.getItem('selectedCardCoverageGap')||'null')}catch{selectedCoverageGap=null}
+function coverageNode(tag,klass,content){
+ const node=document.createElement(tag);if(klass)node.className=klass;
+ if(content!=null)node.textContent=String(content);return node;
+}
+function openMissingCoverage(card,gap){
+ selectedCoverageGap={card_id:card.card_id,issuer:card.issuer,card_tail:card.card_tail,
+   date_basis:card.date_basis,start:gap.start,end:gap.end};
+ try{sessionStorage.setItem('selectedCardCoverageGap',JSON.stringify(selectedCoverageGap))}catch{}
+ const info=el('gap-upload-context');info.hidden=false;
+ info.textContent=card.issuer+' · 끝'+card.card_tail+' · '+card.date_basis+' 기준 · '
+   +gap.start+' ~ '+gap.end+' 자료를 추가합니다. 카드사에서 이 기간 전체 내역을 조회한 파일을 선택하세요. '
+   +'파일에 조회기간이 없다면 실제 조회 조건을 직접 확인해야 하며, 업로드만으로 누락 기간이 해소되지는 않습니다.';
+ el('newupload').open=true;
+ el('upload-drop').scrollIntoView({block:'center'});
+ el('upload-drop').focus({preventScroll:true});
+}
+function renderCoverageFile(file,root){
+ const entry=coverageNode('div','coverage-file');
+ entry.append(coverageNode('div','',file.filename||'이름 없는 원본'));
+ const period=(file.query_periods||[]).map(p=>p.date_basis+' '+p.start+' ~ '+p.end).join(', ');
+ entry.append(coverageNode('div','small',(period?'확인된 조회기간: '+period:'조회기간 확인 필요')
+  +' · 원천 '+file.source_rows+'행 · 고유 '+file.unique_transactions+'건'
+  +(file.zero_rows?' · 거래 0건':'')+' · '+(file.status||'처리 상태 확인 필요')));
+ if(file.transaction_start)entry.append(coverageNode('div','small',
+  '거래 발생기간: '+file.transaction_start+' ~ '+file.transaction_end+' (조회기간과 별개)'));
+ const button=coverageNode('button','', '파일 상세 보기');button.type='button';
+ button.addEventListener('click',()=>loadBatch(file.batch_id));entry.append(button);root.append(entry);
+}
 async function refreshCoverageSummary(){
  const root=el('coverage-summary');if(!root)return;
- try{const data=await call('/api/cards/coverage/summary');root.replaceChildren();
-  const note=document.createElement('p');note.textContent=data.available?'조회 확인은 현재 확보한 조회 결과의 범위입니다. 카드사의 지연 매입·정정은 다시 조회할 수 있습니다.':'조회기간 저장 기능 준비 전입니다. 기존 카드 업로드는 사용할 수 있습니다.';root.append(note);
-  for(const [kind,label] of [['coverages','조회 확인'],['gaps','미확인'],['rechecks','재확인 필요']])for(const card of data[kind]||[]){
-   const row=document.createElement('p');const intervals=card.periods||card.gaps||[];
-   row.textContent=[card.issuer,'끝'+card.card_tail,card.date_basis,label,intervals.map(p=>p.start+' ~ '+p.end).join(', ')||card.reason||'조회 조건 확인 필요'].join(' · ');root.append(row);
+ try{
+  const data=await call('/api/cards/coverage/summary');root.replaceChildren();
+  if(!data.available){root.append(coverageNode('p','coverage-empty','조회기간 관리 기능을 사용할 수 없습니다. 기존 파일 업로드는 가능합니다.'));return;}
+  const overview=data.overview||{},metrics=coverageNode('div','coverage-metrics');
+  for(const [key,label] of [['card_count','관리 카드'],['covered_bases','조회 기준'],['gap_count','미수집 구간'],['files_need_review','조회 확인 필요 파일']]){
+   const block=coverageNode('div','coverage-metric');block.append(coverageNode('strong','',overview[key]||0),coverageNode('span','',label));metrics.append(block);
   }
-  if(data.available&&!(data.coverages||[]).length){const empty=document.createElement('p');empty.textContent='조회 확인 기록 없음 · 과거 거래일만으로 확인 처리하지 않습니다.';root.append(empty);}
- }catch(error){root.textContent=error.message;}
+  root.append(metrics);
+  const cards=coverageNode('div','coverage-cards');
+  for(const card of data.cards||[]){
+   const box=coverageNode('section','coverage-card');
+   box.append(coverageNode('h3','',card.issuer+' · 끝'+card.card_tail+' · '+card.date_basis));
+   box.append(coverageNode('p','small',card.identity_scope==='source_file'
+    ?'파일 단위 식별 · 동일 끝4자리 다른 카드와 자동 병합하지 않음'
+    :'마스킹 번호 확인 · 카드별 조회기간'));
+   const missing=card.gaps||[];
+   box.append(coverageNode('p','coverage-status',missing.length?'미수집 기간 '+missing.length+'곳':
+    !card.management_start?'확인된 조회기간 · 관리 시작일 미설정':'관리 범위 조회 확인'));
+   if(!card.management_start)box.append(coverageNode('p','small','최초 확인기간 이전은 누락으로 판단하지 않습니다. 관리 시작일을 정하면 이전 기간의 공백도 확인할 수 있습니다.'));
+   else box.append(coverageNode('p','small','관리 시작일 '+card.management_start));
+   const baseline=coverageNode('details','coverage-baseline');
+   baseline.append(coverageNode('summary','','관리 시작일 '+(card.management_start?'변경':'설정')));
+   const form=coverageNode('form','coverage-baseline-form');
+   const label=coverageNode('label','','이 카드의 '+card.date_basis+' 조회 내역을 관리하기 시작한 날짜');
+   const field=coverageNode('input','');field.type='date';field.required=true;
+   field.value=card.management_start||card.periods?.[0]?.start||'';
+   label.append(field);form.append(label);
+   const save=coverageNode('button','','관리 시작일 저장');save.type='submit';form.append(save);
+   const message=coverageNode('p','small');message.setAttribute('role','status');form.append(message);
+   form.addEventListener('submit',async event=>{
+    event.preventDefault();if(!form.reportValidity())return;save.disabled=true;
+    try{
+     await call('/api/cards/coverage/baseline',JSON.stringify({
+      card_id:card.card_id,date_basis:card.date_basis,management_start:field.value,
+      expected_revision:card.management_revision||0}),{'Content-Type':'application/json'});
+     message.textContent='관리 시작일을 저장했습니다. 조회 공백을 다시 계산합니다.';
+     await refreshCoverageSummary();
+    }catch(error){message.textContent=error.message;}finally{save.disabled=false;}
+   });
+   baseline.append(form);box.append(baseline);
+   const timeline=[...(card.periods||[]).map(p=>({...p,missing:false})),
+                   ...missing.map(p=>({...p,missing:true}))].sort((a,b)=>a.start.localeCompare(b.start));
+   for(const period of timeline){
+    const line=coverageNode('div','coverage-period'+(period.missing?' missing':''));
+    const text=coverageNode('span','period-dates',(period.missing?'미수집 ':'조회 확인 ')+period.start+' ~ '+period.end);line.append(text);
+    if(period.missing){const btn=coverageNode('button','','이 기간 자료 추가');btn.type='button';
+      btn.addEventListener('click',()=>openMissingCoverage(card,period));line.append(btn);}
+    box.append(line);
+   }
+   const detail=coverageNode('details','coverage-files');
+   detail.append(coverageNode('summary','',(card.files||[]).length+'개 업로드 파일 상세'));
+   for(const file of card.files||[])renderCoverageFile(file,detail);
+   box.append(detail);cards.append(box);
+  }
+  root.append(cards);
+  const pending=(data.files||[]).filter(file=>file.coverage_status!=='confirmed');
+  if(pending.length){
+   const section=coverageNode('details','coverage-files');section.append(coverageNode('summary','',
+     '조회 범위 확인이 필요한 파일 '+pending.length+'개'));
+   section.append(coverageNode('p','small','이 파일들은 업로드됐지만 카드사가 조회한 전체 기간을 확인하지 못했습니다. 거래 발생일로 조회기간을 추정하지 않습니다.'));
+   for(const file of pending)renderCoverageFile(file,section);
+   root.append(section);
+  }
+  if(!(data.cards||[]).length&&!pending.length)root.append(coverageNode('p','coverage-empty',
+    '확인된 조회기간이 없습니다. 카드사에서 조회한 전체 결과 파일을 업로드하면 여기에 기간이 표시됩니다.'));
+ }catch(error){root.replaceChildren(coverageNode('p','coverage-empty',error.message));}
 }
 function appendCoverageForm(root,j){
  if(!j.batch_id||!j.coverage_evidence)return;
+ if(j.coverage_confirmed){root.append(coverageNode('p','small','원본에 명시된 전체 조회기간을 자동 확인했습니다.'));return;}
  const batch=j.batch_id,cov=j.coverage_evidence,details=document.createElement('details');details.className='batch-coverage';
  const title=document.createElement('summary');title.textContent='조회 기간 확인 · '+(cov.issuer||'카드사 확인 필요')+' · 끝'+(cov.card_tail||'미확인');details.append(title);
  const form=document.createElement('form');form.className='coverage-form';
@@ -3478,11 +3592,22 @@ el('upload').onclick=async()=>{
     uploadRow(entry,f.name,'접수 완료 · 분류 대기');let j=await awaitUpload(job,entry);results[i]=j;uploadRow(entry,f.name,uploadOutcome(j),'saved');
     if(j.batch_id)savedUploadLink(entry,j.batch_id);
     appendCoverageForm(entry,j);
+    if(typeof selectedCoverageGap!=='undefined' && selectedCoverageGap &&
+       typeof coverageNode==='function'){
+      const cov=j.coverage_evidence||{},gap=selectedCoverageGap;
+      const matched=cov.card_id===gap.card_id&&cov.date_basis===gap.date_basis&&
+        cov.start_date&&cov.end_date&&cov.start_date<=gap.start&&cov.end_date>=gap.end&&
+        j.coverage_confirmed===true;
+      entry.append(coverageNode('p','small',matched
+        ?'선택한 미수집 기간을 이 파일의 전체 조회 증빙으로 확인했습니다.'
+        :'선택한 누락 기간 전체의 조회 증빙은 아직 확보되지 않았습니다. 실제 카드·조회 기준·기간을 확인해 주세요.'));
+    }
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});uploadErrorRow(entry,{filename:f.name},e)}
   };
   await Promise.all(received.files.map(processFile));
   notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
   if(generation!==batchGeneration)return;
+  if(typeof refreshCoverageSummary==='function')await refreshCoverageSummary();
   const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
@@ -3497,7 +3622,29 @@ async function loadBatch(id){const generation=++batchGeneration;invalidatePropos
 async function companyExclude(id,excluded,btn){const r=model.preview.rows.find(r=>r.transaction_id===id);if(!r)return;if(!confirm(excluded?'이 거래를 회사 경비 집계와 구글 복사에서 제외할까요? 원본은 유지합니다.':'회사 경비 제외를 되돌릴까요?'))return;const batch=model.batch_id,generation=batchGeneration;btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/company-exclusion',mutationBody(btn,{transaction_id:id,revision:r.revision,exclusion_revision:r.exclusion_revision||0,excluded:excluded,confirmed:true,note:excluded?'회사 경비 아님':'회사 경비 제외 되돌리기'}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('rule-result').innerHTML='';el('status').textContent=j.refresh_required?'회사 경비 변경은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':excluded?'회사 경비에서 제외했습니다. 원본 거래는 보존했습니다.':'회사 경비 제외를 되돌렸습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;btn.disabled=false}}document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-company-restore]');if(b)companyExclude(b.dataset.companyRestore,false,b)});
 let proposalGeneration=0;function invalidateProposal(){proposalGeneration++;window.ruleProposal=null;el('rule-result').innerHTML=''}el('rule-focus').onchange=invalidateProposal;el('rule-text').oninput=invalidateProposal;const fillFocus=()=>{if(!model||el('rule-focus').dataset.focusBatch===model.batch_id)return;el('rule-focus').dataset.focusBatch=model.batch_id;el('rule-focus').innerHTML=model.preview.rows.map(r=>'<option value="'+esc(r.transaction_id)+'">'+esc(r.merchant)+' · '+money(r.amount_krw)+(r.blocked?' (보류)':'')+'</option>').join('')};el('rule-propose').onclick=async()=>{if(!model){el('status').textContent='거래 자료를 먼저 불러오세요';return}fillFocus();const text=el('rule-text').value.trim();const tx=el('rule-focus').value;if(!text||!tx){el('status').textContent='지시와 대상 거래를 입력하세요';return}const batch=model.batch_id,generation=++proposalGeneration;window.ruleProposal=null;el('rule-result').innerHTML='';try{const p=await call('/api/imports/'+batch+'/rule-proposal',JSON.stringify({text:text,transaction_id:tx,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(generation!==proposalGeneration||model.batch_id!==batch||el('rule-focus').value!==tx||el('rule-text').value.trim()!==text){el('status').textContent='현재 선택이 바뀌었습니다. 다시 제안하세요.';return}if(p.interpreted_text){el('rule-text').value=p.interpreted_text;}window.ruleProposal={...p,batch_id:batch};const lines=p.changes.map(c=>'<li>'+esc(c.before_item||'(없음)')+' → '+esc(c.after_item||'회사 경비 제외')+'</li>').join('');const note=p.status==='AI_PENDING'?'로컬 AI가 응답하지 않아 해석을 대기 중입니다. 입력값을 유지했습니다. 다시 시도하거나 예시처럼 직접 입력해 주세요.':p.status!=='proposed'?'이 지시는 해석하지 못했거나 원본 값 변경을 요청했습니다. 아무 것도 바꾸지 않습니다.':p.needs_confirmation?'원본 거래를 보존하고 회사 경비 집계와 복사에서만 제외합니다. 별도 확인이 필요합니다.':'답변한 거래 '+p.skipped_confirmed+'건은 바꾸지 않습니다. 아래 '+p.payloads.length+'건만 바뀝니다.';el('rule-result').innerHTML='<p>'+note+'</p><ul>'+lines+'</ul>'+(p.needs_confirmation&&p.changes.length?'<button type="button" id="company-exclude">__ICON_CIRCLE_MINUS__회사 경비 제외 확인</button>':p.payloads.length?'<button type="button" id="rule-approve">승인하고 적용</button>':'');if(p.future_rule){const future=document.createElement('button');future.type='button';future.id='future-rule-draft';future.textContent='향후 사용 규칙 초안';future.onclick=()=>{const form=el('ruleform');form.reset();form.elements.rule_id.value='';form.elements.version.value='0';form.elements.merchant.value=p.future_rule.merchant;form.elements.rule_item.value=p.future_rule.item;el('rules').open=true;form.scrollIntoView({block:'center'});form.elements.merchant.focus();el('status').textContent='새 거래의 사용 규칙 초안을 채웠습니다. 거래 구분과 적용 조건을 확인한 뒤 규칙 저장 버튼을 눌러 주세요.'};el('rule-result').appendChild(future)}const ap=el('rule-approve');if(ap)ap.onclick=ruleApprove;const ce=el('company-exclude');if(ce)ce.onclick=()=>companyExclude(p.transaction_id,true,ce)}catch(e){if(generation===proposalGeneration&&model.batch_id===batch)el('status').textContent=e.message}};async function ruleApprove(){const p=window.ruleProposal;if(!p||p.batch_id!==model.batch_id||p.transaction_id!==el('rule-focus').value||p.text!==el('rule-text').value.trim()){invalidateProposal();return}const btn=el('rule-approve'),batch=p.batch_id,generation=batchGeneration;if(btn)btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/rule-proposal/approve',JSON.stringify({text:p.text,transaction_id:p.transaction_id,digest:p.digest,approved:true,request_id:(p.request_id??=crypto.randomUUID())}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('status').textContent=j.refresh_required?'승인은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':j.applied.length+'건을 한 번에 적용했습니다. 실패하면 한 건도 바뀌지 않습니다.';el('rule-result').innerHTML=''}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;if(btn)btn.disabled=false}}document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-google-copy]');if(!b||!model||googleCopyPending)return;const key='gcopy-trip:'+b.dataset.googleCopy;let before=null;try{before=localStorage.getItem(key)}catch{if(!confirm('복사 이력을 읽을 수 없습니다. 이미 Google에 붙여넣었는지 확인해 주세요. 중복 붙여넣기에 주의하고 계속 복사할까요?'))return;}if(before&&!confirm('이 여행은 '+before+'에 이미 구글 시트용으로 복사했습니다. 시트에 이미 붙여넣었다면 다시 붙여넣지 마세요. 그래도 복사할까요?'))return;googleCopyPending=true;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=true);const batch=model.batch_id,version=stamp,generation=batchGeneration;try{let x;if(/^quarter:20[0-9]{2}:[1-4]$/.test(b.dataset.googleCopy)){x=await call('/api/imports/'+batch+'/google-tsv?tab='+encodeURIComponent(b.dataset.googleCopy));}else{const gp=await call('/api/google-ledger/expense-reconciliation?trip='+encodeURIComponent(b.dataset.googleCopy));if(!gp.source_available)throw Error('Google source unavailable');x=await call('/api/google-ledger/expense-reconciliation',JSON.stringify({action:'export',scope:'batch',batch_id:batch,trip_id:b.dataset.googleCopy,expected_revision:gp.links_revision,preview_digest:gp.preview_digest,request_id:'export:'+crypto.randomUUID()}),{'Content-Type':'application/json'});}if(model.batch_id!==batch||stamp!==version||batchGeneration!==generation)throw Error('자료가 바뀌었습니다. 현재 자료에서 다시 복사해 주세요.');if(!x.row_count){el('status').textContent='복사할 행이 없습니다. 보류 '+x.held.length+'건은 시트에 넣지 않습니다.';return}await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}el('status').textContent='구글 지출 '+x.row_count+'행, 합계 '+money(x.total_krw)+'을 클립보드에 복사했습니다. 보류 '+x.held.length+'건은 복사하지 않았습니다. 이 복사는 장부를 바꾸지 않습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning}catch(err){el('status').textContent=err.message}finally{googleCopyPending=false;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=false)}});
 document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-group-commit]');if(!b||!model||b.disabled)return;const batch=model.batch_id,generation=batchGeneration;b.disabled=true;try{const x=await call('/api/imports/'+batch+'/refund-groups/'+encodeURIComponent(b.dataset.groupCommit)+'/commit',mutationBody(b,{digest:b.dataset.digest}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(!x.refresh_required)render(x);el('status').textContent=x.refresh_required?'장부 기록은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':'환불 쌍을 장부에 기록했습니다.'}catch(err){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=err.message;b.disabled=false}});
-function loadCardReviewBatches(){call('/api/imports').then(j=>{const groups=[['국민카드','국민카드 사용내역'],['하나카드','하나카드 사용내역'],['기업카드','기업카드 사용내역'],['기타 카드','']];el('batches').innerHTML=groups.map(([label,name])=>{const items=j.batches.filter(b=>name?b.display_name===name:!groups.some(([,known])=>known&&known===b.display_name));return items.length?'<div class="batch-group"><h3>'+label+' <span>'+items.length+'개 자료</span></h3><div class="batch-list">'+items.map(b=>'<p><button class="batch-choice" data-batch="'+esc(b.batch_id)+'"><strong>'+esc(b.display_name)+'</strong><br><span>'+esc(b.period_start||'거래 기간 미확인')+(b.period_end?' ~ '+esc(b.period_end):'')+' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':'')+'</span></button></p>').join('')+'</div></div>':''}).join('')||'<p>저장된 카드 자료가 없습니다. </p>';document.querySelectorAll('[data-batch]').forEach(b=>b.onclick=()=>loadBatch(b.dataset.batch).catch(e=>el('status').textContent=e.message));if(!j.batches.length)el('newupload').open=true;const requested=new URLSearchParams(location.search).get('batch');const initial=j.batches.some(b=>b.batch_id===requested)?requested:j.batches[0]?.batch_id;return initial&&!model&&batchGeneration===0?loadBatch(initial):null}).catch(e=>el('status').textContent=e.message);}
+function loadCardReviewBatches(){call('/api/imports').then(j=>{
+ const groups=new Map();for(const b of j.batches||[]){const label=b.display_name||'식별되지 않은 카드 자료';
+  if(!groups.has(label))groups.set(label,[]);groups.get(label).push(b);}
+ const container=el('batches');container.replaceChildren();
+ for(const [label,files] of groups){
+  const group=coverageNode('div','batch-group');
+  group.append(coverageNode('h3','',label+' · '+files.length+'개 파일'));
+  const items=coverageNode('div','batch-list');
+  for(const b of files){
+   const wrap=coverageNode('p','');const button=coverageNode('button','batch-choice',
+     b.display_name+' · 거래 발생기간 '+(b.period_start||'확인 불가')+' ~ '+(b.period_end||'확인 불가')+
+     ' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':''));
+   button.dataset.batch=b.batch_id;button.type='button';
+   button.addEventListener('click',()=>loadBatch(b.batch_id));wrap.append(button);items.append(wrap);
+  }group.append(items);container.append(group);
+ }
+ if(!groups.size)container.append(coverageNode('p','','아직 저장된 카드 자료가 없습니다.'));
+ if(!(j.batches||[]).length)el('newupload').open=true;
+ const requested=new URLSearchParams(location.search).get('batch');
+ const initial=(j.batches||[]).some(b=>b.batch_id===requested)?requested:j.batches?.[0]?.batch_id;
+ return initial&&!model&&batchGeneration===0?loadBatch(initial):null;
+ }).catch(e=>el('status').textContent=e.message);}
+
 let cardReviewStarted=false;
 const cardReviewDetail=document.getElementById('card-review-detail');
 function startCardReview(){
@@ -3510,5 +3657,10 @@ else{
  cardReviewDetail.addEventListener('toggle',()=>{if(cardReviewDetail.open)startCardReview();});
  if(new URLSearchParams(location.search).has('batch')||['#preview','#ota-review'].includes(location.hash))cardReviewDetail.open=true;
  if(cardReviewDetail.open)startCardReview();
+}
+if(selectedCoverageGap){
+ const info=el('gap-upload-context');if(info){info.hidden=false;
+  info.textContent=selectedCoverageGap.issuer+' · 끝'+selectedCoverageGap.card_tail+' · '+selectedCoverageGap.date_basis+' 기준 · '
+   +selectedCoverageGap.start+' ~ '+selectedCoverageGap.end+' 자료 추가 대상입니다. 카드사가 실제로 조회한 전체 기간을 확인합니다.';}
 }
 </script></body></html>'''
