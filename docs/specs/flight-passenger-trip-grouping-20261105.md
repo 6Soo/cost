@@ -1,6 +1,6 @@
 ﻿# 항공권 검색: 여행별 그룹·탑승객 중심·행동 가능한 상세
 
-상태: 구현·표적 검사 완료 / 영향 QA·CI·운영 수락 진행. 최신 사용자 요청은 상세 UX 교정, 탑승객 중심 제목, 배정 여행별 그룹이다. 이전 항공권 제안 전체를 새 작업으로 재실행하지 않는다.
+상태: **구현·영향 QA·독립 리뷰·CI·운영 배포 완료**. PR #684 병합·운영 SHA `ae64bd19c29f6a5347212f53c25408f870e283ac`. 최신 사용자 요청은 상세 UX 교정, 탑승객 중심 제목, 배정 여행별 그룹이다. 이전 항공권 제안 전체를 새 작업으로 재실행하지 않는다.
 
 ## 목적과 동작
 
@@ -29,3 +29,9 @@
 - ego-browser 동일 TaskSpace30에서 실제 shell/renderer를 합성 HTTP API로 연결했다. 같은 입력·390/1440px 수정 전후 캡처, state-machine 방식의 데이터 상태 전환, 긴 이름/320px/텍스트 확대 스트레스 및 키보드/테마/명암을 확인한다. 합성 자료만 사용하며 원본 고객 이미지·메일을 Git에 추가하지 않는다.
 - 스킬: better-interface/layout/ui/typography/colors/accessibility/writing 원문과 필요한 참고 문서, ui-ux-pro-max의 error recovery 일치 결과를 사용한다. 최종 diff는 interface-review로 검토한다. `.local-archive/flight-passenger-ux-20261105/`에 합성 harness·캡처·JUnit·검사 결과·review·배포 근거를 보존한다.
 - 금융·여행 배정·원본·Google·스키마 쓰기 없음. 배포에는 기존 단일 작성자·원본 보호·정확 SHA 게이트를 사용한다. 화면 개선은 예약 충돌의 실제 해결·실제 탑승·환급·Google 반영을 뜻하지 않는다.
+
+## 최종 수락 및 정리
+
+- 최종 코드 `c02244d2` Windows 영향 QA324passed+16subtests·skip0·필수browser누락0·compile PASS. PR CI42036009335와 main CI42036639901 SUCCESS. 200% 확대 Linux 실패와 독립 리뷰의 버튼 문구 잘림을 실제 container 폭에 맞춘 재배치 및 구체적 nowrap override로 교정한 뒤 재검증했다. 검사 제외·허용폭 확대 없음. 독립 최종 Approve.
+- 운영 `ae64bd19` 고정 배포(이전bd75f63f),1413blobs mismatch0·runtimeSHA검증·단일listener8752·gateway8790·health/ready200·보호API401·보호13표 전후 불변. 인증된 항공권 페이지의 최종 검색/CSS 확인. 금융 apply NOT_RUN, Google/원본/여행 배정 쓰기 없음. [운영 기록](../operations.md).
+- 해당 임시 workspace의 미추적 QA3파일61,678bytes는 기본 폴더 `.local-archive/flight-passenger-ux-20261105/preserved-worktree/`에 SHA256 검증 보존했다. 이 문서 기록 병합 후 공식 archive와 병합 브랜치 정리 결과를 같은 로컬 checkpoint에 남긴다. 타 작업공간/사용자 변경/stash는 보존한다. 문서 기록을 위한 앱 재배포·재시작은 하지 않는다.
