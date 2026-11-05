@@ -80,3 +80,21 @@ def test_confirm_requires_explicit_complete_result(board):
 def test_get_on_confirm_and_post_on_summary_are_rejected(board):
     assert request(board, '/api/imports/x/coverage/confirm').status == 405
     assert request(board, '/api/cards/coverage/summary', raw=b'{}').status == 405
+
+
+def test_baseline_route_requires_owner_and_csrf(board, monkeypatch):
+    h = request(board, '/api/cards/coverage/baseline', raw=b'{}', token='')
+    assert h.status == 403
+    monkeypatch.setattr(ledger_board, 'current_role', lambda: 'member')
+    h = request(board, '/api/cards/coverage/baseline', raw=b'{}')
+    assert h.status == 403
+
+
+def test_baseline_post_validates_known_card_without_creating_identity(board):
+    payload = json.dumps({'card_id':'fake', 'issuer':'TEST', 'card_tail':'1234',
+                          'date_basis':'이용일','management_start':'2026-04-01',
+                          'expected_revision':0}).encode()
+    h = request(board,'/api/cards/coverage/baseline',raw=payload)
+    assert h.status == 409 and h.value['code'] == 'CARD_IDENTITY_REQUIRED'
+    no_data = request(board,'/api/cards/coverage/baseline')
+    assert no_data.status == 405
