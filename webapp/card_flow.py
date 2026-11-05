@@ -3298,7 +3298,7 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 .coverage-file{padding:8px 0;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}
 .coverage-file button{display:block;margin-top:7px}
 .coverage-empty{padding:14px;border:1px dashed var(--shell-line);border-radius:9px}
-.gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
+.coverage-baseline{padding:8px 0}.coverage-baseline summary{cursor:pointer}.coverage-baseline-form input{min-height:44px;margin:8px 0}.coverage-baseline-form button{min-height:44px}\n.gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
 @media(max-width:740px){.coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:360px){.coverage-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.coverage-period{display:block}.coverage-period button{width:100%;margin-top:8px}}
 </style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>기존 업로드 파일 상세</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
@@ -3386,8 +3386,28 @@ async function refreshCoverageSummary(){
    const missing=card.gaps||[];
    box.append(coverageNode('p','coverage-status',missing.length?'미수집 기간 '+missing.length+'곳':
     !card.management_start?'확인된 조회기간 · 관리 시작일 미설정':'관리 범위 조회 확인'));
-   if(!card.management_start)box.append(coverageNode('p','small','최초 확인기간 이전은 누락으로 판단하지 않습니다.'));
+   if(!card.management_start)box.append(coverageNode('p','small','최초 확인기간 이전은 누락으로 판단하지 않습니다. 관리 시작일을 정하면 이전 기간의 공백도 확인할 수 있습니다.'));
    else box.append(coverageNode('p','small','관리 시작일 '+card.management_start));
+   const baseline=coverageNode('details','coverage-baseline');
+   baseline.append(coverageNode('summary','','관리 시작일 '+(card.management_start?'변경':'설정')));
+   const form=coverageNode('form','coverage-baseline-form');
+   const label=coverageNode('label','','이 카드의 '+card.date_basis+' 조회 내역을 관리하기 시작한 날짜');
+   const field=coverageNode('input','');field.type='date';field.required=true;
+   field.value=card.management_start||card.periods?.[0]?.start||'';
+   label.append(field);form.append(label);
+   const save=coverageNode('button','','관리 시작일 저장');save.type='submit';form.append(save);
+   const message=coverageNode('p','small');message.setAttribute('role','status');form.append(message);
+   form.addEventListener('submit',async event=>{
+    event.preventDefault();if(!form.reportValidity())return;save.disabled=true;
+    try{
+     await call('/api/cards/coverage/baseline',JSON.stringify({
+      card_id:card.card_id,date_basis:card.date_basis,management_start:field.value,
+      expected_revision:card.management_revision||0}),{'Content-Type':'application/json'});
+     message.textContent='관리 시작일을 저장했습니다. 조회 공백을 다시 계산합니다.';
+     await refreshCoverageSummary();
+    }catch(error){message.textContent=error.message;}finally{save.disabled=false;}
+   });
+   baseline.append(form);box.append(baseline);
    const timeline=[...(card.periods||[]).map(p=>({...p,missing:false})),
                    ...missing.map(p=>({...p,missing:true}))].sort((a,b)=>a.start.localeCompare(b.start));
    for(const period of timeline){
