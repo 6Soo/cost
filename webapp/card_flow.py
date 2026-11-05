@@ -318,7 +318,7 @@ def batch_catalog(board):
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?) "
             "GROUP BY b.batch_id ORDER BY questions DESC,b.received_at DESC,b.batch_id",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchall()
-    catalog = [dict(batch_id=r[0], filename=r[1], rows=r[2], status=r[3], filename=r[1], questions=r[7] or 0,
+    catalog = [dict(batch_id=r[0], filename=r[1], rows=r[2], status=r[3], questions=r[7] or 0,
                     **batch_display_info((r[4] or '').split(','), r[5], r[6])) for r in rows]
     # Keep mixed or unknown issuers together after the three individual issuers.
     order = {'국민카드 사용내역': 0, '하나카드 사용내역': 1, '기업카드 사용내역': 2}
