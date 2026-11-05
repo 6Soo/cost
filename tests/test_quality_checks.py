@@ -79,7 +79,7 @@ def test_browser_modules_require_every_test_even_when_playwright_is_in_helpers()
     }
     assert expected <= set(cases)
     assert len([case for case in cases if case.startswith("webapp.tests.test_card_flow_browser::")]) == 16
-    assert len([case for case in cases if case.startswith("webapp.tests.test_site_shell_browser::")]) == 7
+    assert len([case for case in cases if case.startswith("webapp.tests.test_site_shell_browser::")]) == 9
 
 
 def test_selected_browser_module_parse_error_fails_closed(tmp_path):
