@@ -1134,3 +1134,8 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 - COMPLETE — [PR #653](https://github.com/6Soo/cost/pull/653) 병합 및 운영 배포 완료. 고정 운영 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`.
 - 영향 QA 699 passed·61 subtests·skip 0, PR CI `41935646283` 성공. 데스크톱/모바일 비교 및 예외 상태 검토 완료. 보호 테이블 13개 전후 불변, health/ready 200, 보호 API 401. 금융/Google/원본 데이터 쓰기와 DB 변경 없음.
 - 배포 증거: `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`; 작업 archive: `C:/AX/cost-admin-ui-ux-20261105/.local-archive/admin-ui-ux-deploy-20261105/`. 상세 운영 이력은 [운영 기록](operations.md#2026-11-05-cost-관리자-uiux-종합-개선-배포-완료).
+## 2026-11-05 기본 미마감 여행 선택·CI 수정 — COMPLETE
+
+- 사용자 기본 여행 선택 요청 및 CI 실패 수정 요청은 [PR #664](https://github.com/6Soo/cost/pull/664) 병합·운영 `8e435e48e67987f3e0bb9140bf2066172ac77096` 배포·인증 화면 수락까지 완료했다. 기본 장부는 목록 첫 미마감 여행이며 명시 선택은 유지한다. 옛 배지 검사를 현재 UI 계약에 맞추고 브라우저 기억값의 선택 표시 덮어쓰기도 수정했다.
+- Windows 영향547+하위62, 병합 인접43+하위16·skip0, PR/main CI 성공. 최종 공식 배포 Git1,393 blobs·runtime SHA·health/ready200·보호API401·보호13표 불변 PASS. 기존 Ego21 인증 화면에서 제목·첫 미마감 여행·선택 표시·기억값 일치와 가로 넘침0 확인 후 종료했다.
+- 근거 `.local-archive/default-open-trip-20261105/` 및 [운영 기록](operations.md). 최초 잠금 대기 중 종료된 배포는 성공으로 취급하지 않고 준비용 후보만 신원 확인 후 정리해 재실행했다. 본 요청 미결0·다음 기능 명령 없음. 아래 독립 작업의 과거 상태를 새 실행 과제로 가져오지 않는다. 문서 후속으로 재검사·재배포·재시작하지 않는다.

@@ -1,3 +1,11 @@
+## 2026-11-05 기본 미마감 여행 선택 및 CI 검사 복구 — 완료
+
+- [PR #664](https://github.com/6Soo/cost/pull/664), 운영 SHA `8e435e48e67987f3e0bb9140bf2066172ac77096`. 장부 기본 진입은 사이드바 첫 미마감 여행을 선택하며 지난 여행·보관·삭제 여행을 제외한다. 후보가 없으면 미분류 화면을 열고 명시적으로 선택한 여행은 유지한다. 브라우저가 기억한 여행이 현재 장부의 선택 표시와 복귀 링크를 덮지 않는다.
+- 기존 CI 실패는 UIR01에서 제거한 전체 집계 배지를 옛 검사가 요구하던 문제였다. 실제 건수 계산·실제 자료의 배지 숨김·합성 자료 경고를 검증하도록 수정했으며 검사 제외 없이 통과했다. 최종 Windows 영향 검사 `4387eb01`: 547 passed·62 subtests·skip0, 병합 SHA 인접 검사 43 passed·16 subtests·skip0. PR CI `41971962067`, main CI `41973283929` 성공.
+- 공식 배포기의 잠금 대기 중 최초 프로세스가 종료됐다. 기존 운영 서버를 유지하고 단일 배포 잠금 아래 신원을 확인한 준비용 후보만 정리한 뒤 공식 배포기를 재실행했다. 카드 업로드와 자동 정리 작업이 잠금을 놓은 후 2026-11-05 14:45 KST 전환 완료. 최초 배포 프로세스 종료 원인은 확인되지 않았으며 성공으로 취급하지 않는다.
+- 최종 배포: Git blobs 1,393개 일치·runtime SHA 일치·Gateway8790→backend8751·health/ready200·보호 API3개401·보호13표 전후 불변. 이전 검증 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135` 보존. 본 배포의 금융/여행 배정·원본·Google·스키마 쓰기 및 재처리 없음.
+- 운영 수락: 배포본+운영 DB query-only 기본 여행/목록 순서 일치, DB 변경0. 기존 Ego21 인증 `/board`에서 첫 미마감 여행·장부 제목·선택 표시·기억된 여행 일치 및 가로 넘침0 확인 후 작업 공간 종료. 근거 `.local-archive/default-open-trip-20261105/`의 `deploy-evidence.json`, `live-default-readonly.json`, `live-browser-final.json`, `run-summary.json`, `merged-integration-meta.json`; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-8e435e48e67987f3e0bb9140bf2066172ac77096.json`. 이 요청 미결0. 기록만의 후속에는 재배포하지 않는다.
+
 ## 2026-11-05 PR #658 결함 묶음 회귀 수정·배포
 
 - 운영 DB의 읽기 전용 집계에서 PR #631에서 이미 해결한 날짜 alias 충돌 108건이 #652 결함 탐지기에 `pending_code_fix`로 다시 분류되는 것을 발견했다. 고객 원문은 출력하지 않고 opaque SHA-256 지문과 건수만 대조했다.
