@@ -1,3 +1,11 @@
+## 2026-11-06 미연결 수입 행 아래 연결 메뉴 — COMPLETE
+
+- [PR #696](https://github.com/6Soo/cost/pull/696) 병합·운영 SHA `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608` (이전 `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7`). 미연결 버튼이 별도 보험 공용 폼으로 이동하던 동작을 원행 직후 전체 열 펼침·수입 고정 연결 폼으로 변경했다. 행별 독립 토글·Escape 포커스 복귀·44px 조작·행 안 오류 안내를 제공한다.
+- 자동 연결 누락 진단은 같은 여행 확정 명단의 동일 가림 이름 복수 후보였다. 양방향 유일성·수동 결정 보호를 유지하고 후보 수/연결 불가 사유를 표시하며 텍스트 단일 대조가 확정 명단의 모호성을 덮지 못하게 했다. 임의 인물 병합·실제 연결 저장·금융/Google/원본 쓰기 없음.
+- Windows 영향380 passed+40 subtests·skip0·필수 브라우저26개 전건실행·compile 통과 at09e06da2. 먼저 병합된 항공 UI를 통합한 efa39e27에서 인접63 passed·skip0. 본 변경 소스는 동일하다. 최종 PR CI42055763965/main CI42056702798 SUCCESS. 최초 CI42054134558은 Ubuntu 글꼴 다운로드 중 통합 push로 취소되어 성공으로 계산하지 않았다. 초기 작은 저장 버튼은44px로 고치고 최종 재검증했다.
+- 독립 interface-review 최종 Approve. 합성1440/390/320px·다크·200%·키보드·넘침0과 취소 무저장/CSRF·지문/409 검증. 인증 운영 PC1440/모바일390에서 원행 아래 폼·고정 수입·중복 후보 사유·Escape 복귀·넘침0·44px 이상을 확인했다. 고객 화면/원문은 비공개 로컬에만 보존했다. 물리 기기·수동 스크린리더 미검증.
+- 공식 단일 작성자 배포: 1418 blobs 불일치0·task/process SHA 일치·Gateway8790→8752·health/ready200·보호API401·보호13표 불변. 금융 apply NOT_RUN. 별도 전체DB 백업/복원·마이그레이션·재처리 없음. [범위와 수락](specs/insurance-unlinked-inline-20261106.md), 비공개 `.local-archive/income-inline-20261106/`의 QA·integration·interface-review·browser·release/deploy 증거. 이 UI 요청의 구현·배포 미결0. 동일 가림 이름만으로 실제 인물을 지정하는 연결은 수행하지 않았다. 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-11-06 여행 항공권 예약 UI 개선 — COMPLETE
 
 - [PR #695](https://github.com/6Soo/cost/pull/695) 병합·운영 SHA `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7` (이전 `5ede21297b93c648fb631c111b3150bcdc6df739`). 경로 우선 전체 행 선택·선택됨 표시, 넓은 패널 목록/상세 병렬 배치, 모바일 세로 배치, 가는편/오는편·탑승객·근거 구분. 금융·원본·분류·여행 배정·환불·Google 쓰기 없음.
