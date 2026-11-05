@@ -12,4 +12,4 @@
 
 합성 인물만 테스트·Git 문서에 사용한다. 운영 읽기 진단의 개인정보는 비공개 로컬 증거에만 보존한다. 동일 가림 이름 둘 중 하나를 이름만으로 자동 선택하는 규칙은 추가하지 않는다.
 
-검증 중: 표적·영향 QA 및 PR/CI·배포 최종 결과는 완료 후 현행 상태와 운영 기록에 기록한다. 구현 작성만으로 운영 완료를 주장하지 않는다.
+상태: **COMPLETE — [PR #696](https://github.com/6Soo/cost/pull/696)·운영 `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608` 수락**. Windows 영향380+40subtests·필수브라우저26개·skip0, 최신 main 통합 인접63개 통과. 독립 interface-review Approve, 합성PC/모바일/다크/200% 및 운영PC/모바일 확인. PR/main CI SUCCESS, 공식 전환·보호13표 불변·금융 apply NOT_RUN. 상세 근거는 [현재 상태](../session_handoff.md)와 [운영 기록](../operations.md)을 따른다. 실제 동일인 선택·운영 연결 저장은 하지 않았고, 수동 스크린리더·물리기기는 미검증이다.
