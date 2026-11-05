@@ -3518,10 +3518,19 @@ el('coverage-new-file').addEventListener('click',()=>{
 });
 function appendCoverageForm(root,j){
  if(!j.batch_id||!j.coverage_evidence)return;
- const batch=j.batch_id,cov=j.coverage_evidence,details=document.createElement('details');details.className='batch-coverage';
+ if(j.coverage_confirmed){
+  root.append(coverageNode('span',' · 조회기간 자동 확인 완료'));
+  return;
+ }
+ const batch=j.batch_id,cov=j.coverage_evidence;
+ if(cov.complete===false){
+  root.append(coverageNode('p','조회기간 증빙 불가 · '+(cov.reason||'원본 전체 조회조건을 확인해 파일을 다시 내려받으세요.'),'coverage-message'));
+  return;
+ }
+ const details=document.createElement('details');details.className='batch-coverage';
  const title=document.createElement('summary');title.textContent='조회 기간 확인 · '+(cov.issuer||'카드사 확인 필요')+' · 끝'+(cov.card_tail||'미확인');details.append(title);
  const form=document.createElement('form');form.className='coverage-form';
- const info=document.createElement('p');info.textContent='카드사에서 실제 조회한 기간과 기준을 확인해 주세요. 거래가 없는 날도 포함하며 거래일 범위로 추정하지 않습니다.';form.append(info);
+ const info=document.createElement('p');info.textContent='원본에 조회기간이 명시되지 않았습니다. 카드사에서 실제 선택한 조회 기간과 기준만 확인해 주세요. 거래일 범위나 요청한 누락 기간을 자동으로 사실로 채우지 않습니다.';form.append(info);
  const fields=[['issuer','카드사','text'],['card_tail','카드 끝4자리','text'],['date_basis','조회 기준','select'],['start_date','조회 시작일','date'],['end_date','조회 종료일','date'],['management_start','관리 시작일 (선택)','date']];
  const inputs={};for(const [name,label,type] of fields){const wrap=document.createElement('label');wrap.textContent=label;const input=document.createElement(type==='select'?'select':'input');input.name=name;
   if(type==='select')for(const value of ['','승인일','이용일','매입일']){const option=document.createElement('option');option.value=value;option.textContent=value||'실제 조회 기준 선택';input.append(option);}else input.type=type;
@@ -3671,12 +3680,21 @@ el('upload').onclick=async()=>{
     uploadRow(entry,f.name,'접수 완료 · 분류 대기');let j=await awaitUpload(job,entry);results[i]=j;uploadRow(entry,f.name,uploadOutcome(j),'saved');
     if(j.batch_id)savedUploadLink(entry,j.batch_id);
     appendCoverageForm(entry,j);
+    if(coverageUploadTarget){
+     const target=coverageUploadTarget,ev=j.coverage_evidence||{};
+     const same=ev.card_id===target.card_id&&ev.date_basis===target.date_basis;
+     const full=ev.start_date&&ev.end_date&&ev.start_date<=target.start&&ev.end_date>=target.end;
+     entry.append(coverageNode('p',
+       j.coverage_confirmed&&same&&full?'선택한 기간의 조회 증빙이 확인됐습니다.':
+       '요청한 누락 기간이 실제로 확인됐는지는 카드 현황에서 확인하세요. 파일 조회기간이 다르거나 미확인 상태이면 해당 공백은 유지됩니다.','small'));
+    }
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});uploadErrorRow(entry,{filename:f.name},e)}
   };
   await Promise.all(received.files.map(processFile));
   notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
   if(generation!==batchGeneration)return;
   const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
+  if(completed.length){refreshCoverageSummary();loadCardReviewBatches();}
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
