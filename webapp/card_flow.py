@@ -3694,7 +3694,7 @@ el('upload').onclick=async()=>{
   notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
   if(generation!==batchGeneration)return;
   const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
-  if(completed.length){refreshCoverageSummary();loadCardReviewBatches();}
+  if(completed.length&&typeof document.getElementById==='function'&&document.getElementById('coverage-summary')){refreshCoverageSummary();loadCardReviewBatches();}
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
