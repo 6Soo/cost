@@ -209,10 +209,9 @@ def render_cleanup_card_review(
         )
     elif held:
         review = (
-            f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
-            "<p class='cleanup-protected'>보류 중 · 여행 변경과 보류 해제는 카드 자료 전체 검토에서 "
-            "명시적으로 확인해 주세요.</p>"
-            f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>"
+            f"<details class='cleanup-review'><summary>금융 보호 근거</summary>{evidence}"
+            "<p class='cleanup-protected'>현재 근거로는 자동 기록할 수 없습니다. 필요한 사용자 답변은 내 확인 필요에서 확인해 주세요.</p>"
+            f"<p><a href='{esc(detail)}'>원본 자료 보기</a></p></details>"
         )
     else:
         review = (

@@ -6,11 +6,13 @@
 
 ## 2026-11-05 PR #665 통합 사용자 확인함 구현 — PARTIAL · 운영 미배포
 
-- 기준 명세는 병합된 [PR #665](https://github.com/6Soo/cost/pull/665)의 `docs/specs/unified-expense-action-queue-20261105.md`다. 기존 사용자 변경이 있던 `C:/AX/cost`는 보존하고 별도 worktree `C:/AX/cost-unified-action-queue`의 `feat/unified-expense-action-queue-20261105`에서 작업했다. 기반 구현 커밋 `c9429844`, QA 기준선 오류 기대값 교정 `8520ff4d`이며 최신 검증 SHA `8520ff4d888d12b44ad11be1fb5f6ec40cc055d4`다.
+- 기준 명세는 병합된 [PR #665](https://github.com/6Soo/cost/pull/665)의 `docs/specs/unified-expense-action-queue-20261105.md`다. 기존 사용자 변경이 있던 `C:/AX/cost`는 보존하고 별도 worktree `C:/AX/cost-unified-action-queue`의 `feat/unified-expense-action-queue-20261105`에서 작업했다. 기반 구현은 `a054954a`, QA 기준선 오류 기대값 교정은 `d399982c`이며 이 후속 수정은 아직 커밋하지 않았다.
 - 현재 구현: 기존 `requests` 저장소를 쓰는 통합 task 저장/멱등 group key/revision·digest stale 거부, owner 메뉴 건수와 `/my-actions`, CSRF owner 답변 경로를 추가했다. 스키마·고객 DB·Google 변경은 없다. 최신 main sidebar 변경에서 생긴 브라우저 테스트 기대 수 7→9 기준선 오류도 수정했다.
 - 검증: `python tools/run_quality_checks.py --base origin/main --run`, base `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`, SHA `8520ff4d888d12b44ad11be1fb5f6ec40cc055d4`: 574 passed·46 subtests·skip 0·필수 브라우저 9개 실행·compile 통과. 타깃 owner/access/server isolation 112 passed. 결과 `.local` 저장소의 `quality-artifacts/run-summary.json`, `junit.xml`, `pytest.log`에 있다.
-- **미완료·배포 차단:** 카드/환불/OTA/영수증/예약/Google 도메인의 P3 source adapter 및 중복 그룹화가 아직 연결되지 않았다. 답변은 내부 저장 후 worker를 깨우지만 답변 사실이 기존 P1/P2 실행 입력으로 전달되지 않으며, task가 실제 해결을 검증해 `RESOLVED` 되는 경로도 없다. `/import` 등의 별도 작업/보류 UI도 아직 제거되지 않았다. 지금 배포하면 작업함이 비어 보이거나 답변을 완료로 오인할 수 있으므로 PR 작성·병합·운영 배포는 실행하지 않았다.
-- 재개: 먼저 현재 main과 열린 PR을 다시 확인하고, source adapter별 P3 조건·answer consumer·자동 재처리/종료·기존 화면 단일 task link·보류 UI 제거를 구현한다. 명세 7절 전체 수락 및 보호 회귀를 통과한 뒤 영향 QA/CI, PR, 고정 SHA 배포와 최소 운영 수락을 수행한다. **현재 HEAD:** worktree에서 `git status --short --branch; git log -2 --oneline`.
+- 추가 구현: `/import`의 owner별 “내 확인 필요/자동 진행·대기” 보조 대기열과 요청 필드를 제거했다. 여행 자동분류 화면의 사용자 “검토 보류” 버튼 및 POST 경로, 카드 세부 화면의 보류 해제 체크박스/전송 필드도 제거했다. 기존 transaction_review_holds 및 기록 검증은 유지했다. 화면 계약에 맞게 3개 테스트를 갱신했다.
+- 표적 검증: `python -m pytest webapp/tests/test_autonomous_cleanup.py webapp/tests/test_card_cleanup_ui.py webapp/tests/test_expense_cleanup.py webapp/tests/test_provisional_trip_review.py webapp/tests/test_user_action_queue.py -q` — **76 passed**, skip 없음. 변경 Python 3개 `compileall` 및 `git diff --check` 통과. 이 표적 결과는 이전 574개 전체 영향 QA를 대체하지 않는다.
+- **미완료·배포 차단:** P3 task를 실제 카드/환불/OTA/영수증/예약/Google 흐름에서 등록하는 source adapter와 중복 그룹화가 없다. 작업함 답변 저장은 기존 P1/P2 입력으로 소비되지 않고, task를 근거 재검증 후 `RESOLVED`로 닫는 경로도 없다. 영수증 확인 목록, OTA·여행·Google의 화면별 확인 경로와 다른 사용자 보류 문구/상태도 남아 있다. 따라서 새 작업함은 현재 테스트 fixture 밖에서 비어 있으며 운영 사용자가 답변해도 업무 처리가 되지 않는다. PR 작성·병합·운영 배포는 아직 실행하지 않는다.
+- 재개: 모든 관련 도메인 P3 adapter 및 answer consumer를 기존 권한·금융 보호 API에 연결하고, 원본 revision 재검증·자동 재평가·해결/재질문 상태 전이를 구현한다. 이어 중복 작업 집계, 화면별 작업 목록/보류 affordance 제거, 전체 수락 및 보호 회귀, 영향 QA/CI, PR, 고정 SHA 배포와 운영 최소 스모크를 수행한다. **현재 HEAD:** worktree에서 `git status --short --branch; git log -3 --oneline`.
 
 ## 2026-11-05 단일 계정 메뉴 구조 교정 — COMPLETE
 

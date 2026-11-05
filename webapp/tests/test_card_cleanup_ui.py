@@ -113,7 +113,9 @@ def test_render_cleanup_card_review_branches():
         evidence="<p>근거</p>",
         held=True,
     )
-    assert "보류 중 · 여행 변경과 보류 해제는" in rev_held
+    assert "금융 보호 근거" in rev_held
+    assert "보류 해제" not in rev_held
+    assert "내 확인 필요" in rev_held
     assert "<p>근거</p>" in rev_held
 
     # Normal form branch

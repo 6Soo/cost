@@ -325,7 +325,7 @@ def test_import_has_one_review_flow_and_does_not_write(setup_review):
     assert list(flow.board.conn.iterdump()) == before
 
 
-def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, monkeypatch):
+def test_real_browser_owner_review_paging_pending_approval_without_hold_controls(tmp_path, monkeypatch):
     import threading
     from playwright.sync_api import sync_playwright
     from webapp import ledger_board
@@ -392,12 +392,8 @@ def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, mo
                 root.locator('[data-trip-state]').select_option('automatic')
                 root.locator('[data-trip-items] li').nth(19).wait_for()
                 row = root.locator('[data-trip-items] li').first
-                identity = row.get_attribute('data-transaction')
-                page.once('dialog', lambda dialog: dialog.accept())
-                row.get_by_role('button', name='검토 보류', exact=True).click()
-                page.wait_for_function("id=>{const n=[...document.querySelectorAll('[data-trip-items] li')].find(n=>n.dataset.transaction===id);return n?.textContent.includes('분류 완료')&&n.textContent.includes('검토 보류')&&n.querySelector('button[type=submit]').disabled}", arg=identity)
-                assert board.conn.execute('SELECT kind FROM transaction_review_holds WHERE transaction_id=?',
-                                           (identity,)).fetchone()[0] == 'user_hold'
+                assert root.get_by_role('button', name='검토 보류', exact=True).count() == 0
+                assert '/hold' not in review.CLIENT_SCRIPT
                 form = root.locator('[data-trip-items] li form').filter(
                     has=page.locator('button[type=submit]:enabled')).first
                 changed_id = form.locator('..').get_attribute('data-transaction')
