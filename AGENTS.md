@@ -1,5 +1,7 @@
 # COST 작업 지침
 
+- **UI 변경 전용 절차(2026-11-05):** [Jakub Krehel UI 스킬 실행 명세](docs/specs/ui-skill-workflow-20261105.md)를 따른다. 해당 사용자 요청의 화면만 진단→최소 구현→예외·접근성·브라우저·영향 테스트→독립 UI 리뷰로 검증한다. 이 절차는 금융·운영·배포 보호 경계를 완화하지 않으며 문서 추가 자체는 구현 완료가 아니다.
+
 - Windows 셸·UTF-8 문서 읽기는 `C:/AX/agent-policy/WINDOWS_EXECUTION.md`, 공통 실행은 `C:/AX/agent-policy/AUTONOMOUS_EXECUTION.md`를 따른다. 같은 지침이 이미 문맥에 있으면 반복해서 읽지 않는다.
 - 웹 브라우저 작업은 `ego-browser`를 사용한다. 작업 전에 해당 스킬과 `ego-browser skill`을 확인하고, Windows에서는 UTF-8 `.mjs` 스크립트를 `ego-browser nodejs`로 실행한다. 같은 작업의 TaskSpace를 재사용하며 인증·외부 쓰기 권한과 원본 보호 경계는 유지한다.
 - 현재 사용자 요청 하나를 실행 기준으로 삼는다. 과거 ACTIVE·READY·미구현 표시는 새 개발 과제가 아니다.
