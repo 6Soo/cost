@@ -318,7 +318,7 @@ def batch_catalog(board):
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?) "
             "GROUP BY b.batch_id ORDER BY questions DESC,b.received_at DESC,b.batch_id",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchall()
-    catalog = [dict(batch_id=r[0], filename=r[1], rows=r[2], status=r[3], questions=r[7] or 0,
+    catalog = [dict(batch_id=r[0], filename=r[1], rows=r[2], status=r[3], filename=r[1], questions=r[7] or 0,
                     **batch_display_info((r[4] or '').split(','), r[5], r[6])) for r in rows]
     # Keep mixed or unknown issuers together after the three individual issuers.
     order = {'국민카드 사용내역': 0, '하나카드 사용내역': 1, '기업카드 사용내역': 2}
@@ -3304,7 +3304,7 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 .coverage-file-list li{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--shell-line);padding:8px 0}
 .coverage-file-list button{min-height:44px;text-align:left;white-space:normal;overflow-wrap:anywhere}
 .coverage-file-list small{color:var(--shell-muted)}
-.coverage-baseline{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:12px 0 4px}
+.coverage-baseline{display:block;margin:12px 0 4px}.coverage-baseline form{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
 .coverage-baseline label{font-size:12px;display:flex;flex-direction:column}
 .coverage-baseline input{width:auto;min-width:160px}
 .coverage-target{padding:10px 12px;border:1px solid #1C7A52;border-radius:8px;background:color-mix(in srgb,#1C7A52 7%,var(--shell-paper));overflow-wrap:anywhere}
