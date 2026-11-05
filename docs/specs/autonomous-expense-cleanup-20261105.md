@@ -1,6 +1,13 @@
 # COST 자율 지출정리 관리자: P1→P2 선처리·코드 결함 자율 개선 (2026-11-05)
 
-**현재 판정(2026-11-05): PARTIAL · 명세 #636 병합, 자동 P1→P2 및 사용자 필수 예외 분리 코드 #643 병합, 호스트 실행기 오류 수정 #647 병합. 운영 활성화·운영 실자료 자율 처리·전체 자동 코드 수정/배포는 확인되지 않음.** 최신 승인 요청: 카드 지출정리 건수가 생길 때 사용자가 ‘모든 내역 확인해’를 반복하지 않도록 에이전트가 선제 조사·분류·원인 해결을 하고, **에이전트로 해결 불가능한 실제 사용자 판단만 최종 표시**한다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
+**현재 판정(2026-11-05 실행): PARTIAL · #636·#643·#647 병합, 실행 복구/자동 재평가 코드 PR #652 병합(`f7ff4ec4`) 및 현재 Board `79a3c573` checkout에서 코드 일치 확인. 운영 AI opt-in은 켜져 있고 P1/P2 작업 경로가 배포된 앱에 있으나, 실제 무인 P2 적용은 0건이며 AI 호출도 정상 네트워크 경로에서 성공하지 못했다.** 최신 승인 요청은 카드 지출정리 건수를 사용자가 반복 확인하지 않아도 P1→P2가 처리하고, 실제 사용자 판단만 최종 표시하는 것이다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
+
+## 2026-11-05 최신 운영 수락
+
+- 운영 `automatic_card_completion=true`, `autonomous_ai_review=true`; 마지막 읽기 전용 상태 파일(08:53 KST)에서 `state=idle`, `passes=333`, `p2_applied=0`, `ai_retry=18`, `ai_dead=20`, `blocked=400`, `candidates=400`, `due=0`, `failures=0`이었다. 최근 상태상 worker는 08:53:56 이후 갱신되지 않았다. worker 설정/시작만으로 실제 무인 P2 성공을 뜻하지 않으며 업무 완료는 0건으로 확인된다.
+- 격리 synthetic scratch에서 OpenCode를 기본 호스트 네트워크 설정으로 호출했으나 timeout됐다. `NO_PROXY` 등 프록시 우회는 사용하지 않았고, 운영 한도·대기 작업을 수동 초기화하지 않았다. 정상 승인된 outbound 경로가 확보될 때까지 실제 모델 P2 성공은 **BLOCKED/UNVERIFIED**다. 새 일일 한도나 재시도 요청을 강제하지 않았다.
+- PR #652는 긴 요청을 임시 파일로 전달하고 실행 오류 이유를 안전하게 분리하며, 반복 코드 오류 묶음·판단 코드 fingerprint 기반 재평가를 추가했다. Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311` 통과. 금융 원본·Google 기록은 변경하지 않았다.
+- `f7ff4ec4` 공식 전환 시도는 8751 점유 검사에서 중단됐으나, 뒤이은 읽기 전용 확인에서 Board task가 `79a3c57340cfadeb227e3748966a4baf0fd6ca63` checkout, route 8751, Running으로 관측됐다. P2 worker·분류·Gateway·OTA 4개 파일은 `origin/main`과 바이트 해시가 일치하고 health/ready 200, 보호 API 401이다. 이 현재 실행 상태가 확인되어도 운영 P2 적용 0건과 due0이므로 코드 재평가·무인 재처리의 수락 근거는 아니다.
 
 ## 구현·운영 상태 대조 (2026-11-05)
 

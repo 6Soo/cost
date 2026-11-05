@@ -1,6 +1,19 @@
 # COST 통합 미결 실행계획: 자율 지출정리 + WebLedgerHost 유휴 I/O (2026-11-05)
 
-> **상태: ACTION PLAN / 미결 작업.** 단일 주 에이전트가 이 문서를 실행 진입점으로 사용한다. 본 문서는 독립 제품 정책이나 중복 명세가 아니다. 정본은 [자율 지출정리 #636](autonomous-expense-cleanup-20261105.md), [유휴 HDD I/O #644](webledger-idle-io-optimization-20261105.md), [기존 금융 계약](finance.md#p1-p2-p3-20261029), [무중단 배포](continuous-deployment-20261102.md), [최신 인계](../session_handoff.md), [운영 기록](../operations.md), [AGENTS.md](../../AGENTS.md)다. **날짜가 지난 성공/실패 이력을 새로운 재실행 명령으로 취급하지 않는다.**
+> **2026-11-05 실행 판정: PARTIAL.** 이 문서는 최초 실행 계획이며, 아래의 실제 결과 표와 최신 인계가 현재 상태의 기준이다. 본 문서는 독립 제품 정책이나 중복 명세가 아니다. 정본은 [자율 지출정리 #636](autonomous-expense-cleanup-20261105.md), [유휴 HDD I/O #644](webledger-idle-io-optimization-20261105.md), [기존 금융 계약](finance.md#p1-p2-p3-20261029), [무중단 배포](continuous-deployment-20261102.md), [최신 인계](../session_handoff.md), [운영 기록](../operations.md), [AGENTS.md](../../AGENTS.md)다. **날짜가 지난 성공/실패 이력을 새로운 재실행 명령으로 취급하지 않는다.**
+
+## 실제 실행 결과 (2026-11-05)
+
+| 영역 | 결과 | 근거와 남은 차단 |
+| --- | --- | --- |
+| 코드·CI·운영 반영 | PR #646 정상 병합 `40ea7f9d`; 복구 PR #652 정상 병합 `f7ff4ec4`, Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311`. PR #653 `79a3c573`은 공식 운영 배포 evidence 보유. | 현재 main `79a3c573`; 공식 evidence 1,383 files·blob mismatch0·runtime SHA·단일 listener·health/ready 200·보호 API 401·보호13표 불변. |
+| P1→P2 운영 | 게이트 `autonomous_ai_review=true`; 마지막 운영 상태 파일(08:53 KST)은 `state=idle`, `passes=333`, `p2_applied=0`, `ai_retry=18`, `ai_dead=20`, `blocked=400`, `candidates=400`, `due=0`, `failures=0`. 현재 Board checkout에는 PR #652 descendant 코드가 해시 일치로 포함돼 있다. | 무인 P2 성공 0건. 격리 synthetic OpenCode 호출은 정상 네트워크 경로에서 timeout. 프록시/인증 우회, 한도 초기화, 강제 재처리는 하지 않았다. |
+| 공통 결함 자동화 | PR #652에는 실패 사유 분리, 유사 코드 오류 fingerprint 묶음, 관련 코드 변경 후 재평가 추적이 포함되며 현재 checkout 파일 해시가 main과 일치한다. | 실제 운영 결함 자동 재현→검증 가능한 코드 수정 PR/CI→허용 배포→금융 건 재평가까지 이어지는 성공 기록은 없다. 모델이 운영 코드를 임의 수정하게 하지는 않는다. |
+| 배포·데이터 보호 | 첫 배포기 시도는 8751 점유에서 중단됐으나 PR #653의 공식 전환이 `79a3c573`로 완료됐다. 후속 관측의 task/route 8751, 4개 핵심 파일 hash 일치, health/ready 200, 보호 API 401, 보호13표 동일이 공식 evidence와 별도 비교에서 확인됐다. | 공식 전환 evidence와 현재 검사가 일치. DB/Google 쓰기 없음. 증거는 호스트 deploy-evidence와 `protection-check-79a3-20261105`. |
+| Gateway 운영 경로 | `WebLedger-Gateway` 작업의 다음 실행 경로는 검증 릴리스 `f7ff4ec4`; 실행 중 프로세스 파일 해시는 해당 릴리스와 일치. Board는 공식 배포된 `79a3c573`에서 route 8751로 응답. | 공개 경로 유지, 8790/8751 health·ready 200, 보호 API 401. |
+| HDD·UI | D: 격리 Gateway 15분 A/B에서 정기 status 원자 교체 886→31회(-96.5%); 320/390px 구조 검사에서 가로 넘침 없음. | D: 물리 전체 쓰기량은 132.9→221.0 MB, busy 0.672→0.945%여서 전체 HDD 개선은 입증되지 않았다. 인증 지출정리 UI는 브라우저 세션에서 확인되지 않아 로그인 수락은 미검증. |
+
+**전체 판정은 PARTIAL**이다. 운영 모델 호출·P2 적용·자동 결함 수정/PR/재처리의 성공 근거가 없으므로 “무인 P1→P2 완료”라고 보고하지 않는다.
 
 ## 0. 출발점: 현재 증명된 사실
 
@@ -10,10 +23,10 @@
 | 자율 P1→P2 워커, 사용자 ‘내 확인 필요’ 필터 | [#643](https://github.com/6Soo/cost/pull/643) **병합 완료**. 업로드 wake + 60초 sweep, durable job·원인 묶음·재시도·지표 | **운영 활성화/실거래 무인 처리 미입증**. 원인 묶음 기록은 자동 코드 패치가 아님 |
 | Windows OpenCode 실행기 보정 | [#647](https://github.com/6Soo/cost/pull/647) **병합 완료**. 실제 무료 모델을 격리 합성 호스트에서 호출하여 2건 P2 적용 | 운영 설정 `autonomous_ai_review` 및 최신 무료 모델 가용성 확인 필요; AI 미실행을 성공으로 표시 금지 |
 | HDD I/O 상세 명세 | [#644](https://github.com/6Soo/cost/pull/644) **병합 완료** | 코드·운영 실측과 구분 |
-| Gateway·OTA 체크 로그 경량화 | [#646](https://github.com/6Soo/cost/pull/646) **열림/미병합**; 해당 head `e7e21fc7`의 GitHub Actions `41912360929` 성공 | **실제 D: 전후 15분 실측·배포/게이트웨이 자체 교체 수락 없음**. #646는 status event + 30초 heartbeat, 250ms route stat cache, OTA check 로그 변화/시간별 기록·순환을 제안 |
+| Gateway·OTA 체크 로그 경량화 | [#646](https://github.com/6Soo/cost/pull/646) **병합 완료** `40ea7f9d`; 후속 복구 PR #652도 `f7ff4ec4` 병합, 현재 Board/Gateway 핵심 코드가 main과 일치 | 격리 D: A/B status 교체 수락 완료. 물리 전체 HDD 효과는 미입증이며 두 기능 동시 장애·복구와 전체 운영 부하 수락은 남음. |
 | 문서 정합화 | [#648](https://github.com/6Soo/cost/pull/648)·[#649](https://github.com/6Soo/cost/pull/649) **병합 완료** | 기존 명세에 남은 과거 문구는 이력; 수행 중에는 최신 증거가 우선 |
 
-**현재 운영의 정확한 SHA·프로세스·AI 게이트는 이 문서 작성 시 호스트에서 직접 검사하지 않았다.** #643/#647은 코드 병합, #646은 CI 성공한 열린 PR이라는 사실만 확정. 문서 병합을 이유로 호스트 재시작·배포하지 않는다.
+실행 후 읽기 전용 확인에서 현재 Board task/route, AI gate 및 핵심 파일 해시를 대조했다. task checkout은 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`, route 8751, health/ready 200, 보호 API 401이다. 운영 AI 상태 파일은 08:53:56 KST 이후 갱신되지 않았으며, 이에 따라 활성 코드와 실제 자율 처리 성공을 별도 상태로 기록한다.
 
 ## 1. 단일 주 에이전트의 실행 범위 및 우선순위
 
