@@ -263,7 +263,11 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             screen.set_viewport_size({'width': 760, 'height': 812})
             screen.evaluate('document.documentElement.style.zoom="200%"')
             # CSS zoom may round document scrollWidth up by one device pixel.
-            assert screen.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+            assert screen.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), screen.evaluate('''() => ({
+                viewport:innerWidth,scroll:document.documentElement.scrollWidth,
+                overflow:[...document.querySelectorAll('#flight-booking-page *')].filter(e=>e.checkVisibility()&&e.getBoundingClientRect().right>innerWidth).map(e=>({
+                    tag:e.tagName,cls:e.className,text:e.textContent.slice(0,50),right:e.getBoundingClientRect().right,
+                    minWidth:getComputedStyle(e).minWidth,whiteSpace:getComputedStyle(e).whiteSpace}))})''')
             assert screen.locator(".fb-ticket").evaluate_all('(items)=>items.every(e=>e.getBoundingClientRect().right<=innerWidth)')
             assert ticket.get_by_text('참가자 연결 정보', exact=True).count() == 0
         finally:
