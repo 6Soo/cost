@@ -201,3 +201,55 @@ def test_failed_confirmation_preserves_other_files_evidence(store):
     bad, evidence = received(store, content(amount='bad', merchant='OTHER'))
     assert not store[0].record(bad, evidence)['confirmed']
     assert store[0].summary(through='2026-04-10')['coverages'] == before
+
+
+def test_explicit_full_query_marker_is_required_for_automatic_coverage():
+    header=[['조회기간','2026-04-01 ~ 2026-04-10'],['조회기준','이용일']]
+    no_marker=inspect(content(preamble=header),'synthetic.csv')
+    assert not no_marker['metadata'].get('full_query_explicit')
+    full=inspect(content(preamble=header+[ ['조회유형','전체'] ]),'synthetic.csv')
+    assert full['metadata']['full_query_explicit'] is True
+    restricted=inspect(content(preamble=header+[ ['조회유형','취소만'] ]),'synthetic.csv')
+    assert restricted['blocked']
+    assert not restricted['metadata'].get('full_query_explicit')
+
+
+def test_card_baseline_is_audited_per_card_axis_and_changes_gap_math(store):
+    coverage,_=store
+    batch,ev=received(store)
+    ev.update(start_date='2026-04-10',end_date='2026-04-20',date_basis='이용일')
+    assert coverage.record(batch,ev)['confirmed']
+    before=coverage.summary(through='2026-04-20')
+    assert before['gaps'] == []
+    card=before['coverages'][0]
+    written=coverage.set_baseline(card_id=card['card_id'],issuer=card['issuer'],
+        card_tail=card['card_tail'],date_basis=card['date_basis'],
+        management_start='2026-04-01',expected_revision=0)
+    assert written['updated'] and written['revision'] == 1
+    after=coverage.summary(through='2026-04-20')
+    assert after['gaps'][0]['gaps'] == [{'start':'2026-04-01','end':'2026-04-09'}]
+    assert after['coverages'][0]['baseline_revision'] == 1
+    count=store[0].conn.execute("SELECT COUNT(*) FROM change_log").fetchone()[0]
+    again=coverage.set_baseline(card_id=card['card_id'],issuer=card['issuer'],
+        card_tail=card['card_tail'],date_basis='이용일',
+        management_start='2026-04-01',expected_revision=1)
+    assert not again['updated']
+    assert store[0].conn.execute("SELECT COUNT(*) FROM change_log").fetchone()[0] == count
+    with pytest.raises(StoreError,match='관리 기간'):
+        coverage.set_baseline(card_id=card['card_id'],issuer=card['issuer'],
+            card_tail=card['card_tail'],date_basis='이용일',
+            management_start='2026-03-01',expected_revision=0)
+
+
+def test_zero_row_source_remains_listed_in_uploaded_file_catalog(store):
+    from types import SimpleNamespace
+    import threading
+    from webapp.card_flow import batch_catalog
+    raw=content(rows=False,preamble=[['조회기간','2026-04-01 ~ 2026-04-10'],
+                                     ['조회기준','이용일'],['카드사','SYNTH'],
+                                     ['카드번호','1234-56**-****-1111']])
+    batch=store[1].receive(raw,'zero-query.csv')['batch_id']
+    board=SimpleNamespace(conn=store[0].conn,_lock=threading.RLock())
+    listed=batch_catalog(board)
+    assert any(item['batch_id']==batch and item['rows']==0 and
+               item['filename']=='zero-query.csv' for item in listed)
