@@ -1,3 +1,9 @@
+## 2026-11-05 업로드 진행 복구·결과 UI — COMPLETE
+
+- 사용자 첨부 12파일 화면 수정: [PR668](https://github.com/6Soo/cost/pull/668)·[PR672](https://github.com/6Soo/cost/pull/672), [구현·수락 근거](specs/upload-results-recovery-20261105.md). 반복 안내를 공통 요약과 파일명/상태/상세 보기로 정리하고, 만료된 진행 ID는 작성자 잠금 없는 읽기 전용 저장 집계로 복구한다. 로그인·권한·연결 장애와 미완료 분류는 재조회 정보를 보존한다.
+- 최종 운영 `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`(이전 검증 `f9b6a2e7`), 1,399 blobs·runtime SHA·health/ready200·보호API401·보호13표 불변 PASS. Windows 영향334+46 subtests 및 후속327+30 subtests·skip0(중복 합산 금지), 최종 상태 후속18 passed·PR CI 성공. Ego27 인증 저장 결과 복구313ms·상세 링크·체크포인트0·가로 넘침0 수락. 합성375/390px·다크도 확인했다.
+- 운영 자료 재업로드·원본/금융/분류/여행/환불/Google 쓰기0. 근거 `.local-archive/upload-results-20261105/` 및 동일 SHA 호스트 deploy-evidence. 미결0·다음 기능 명령 없음. 전체 상세 조회의 일반 성능 개선이나 카드 관리 화면 명세 전체를 완료했다고 주장하지 않으며 기록만의 후속으로 재배포하지 않는다.
+
 ## 2026-11-05 단일 계정 메뉴 구조 교정 — COMPLETE
 
 - 현재 요청: 첨부 사이드바의 발생 원인과 `better-ui` 검토 누락을 설명하고 수정. [PR667](https://github.com/6Soo/cost/pull/667) 및 [원인·검증 기록](specs/sidebar-singleton-management-20261105.md). 세 항목 그룹에서 두 항목을 이동한 뒤 남긴 접기 컨테이너가 원인이다. 이전 검토는 실제 펼친 메뉴의 필요성을 확인하지 않았고 일부 셸 검사는 축약된 가짜 메뉴를 사용했다. 계정 링크를 평탄화하고 실제 렌더러의9개 회귀 조건을 추가했다.

@@ -1,3 +1,10 @@
+## 2026-11-05 업로드 결과 복구·정렬 UI 배포 — 완료
+
+- [PR668](https://github.com/6Soo/cost/pull/668)의 `f9b6a2e7` 배포 후 실자료 상세 조회 약97초를 확인해 [PR672](https://github.com/6Soo/cost/pull/672)에서 소유자 전용 진행 API의 별도 read-only SQLite 집계로 보완했다. 최종 운영 `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`는 이전 검증 `f9b6a2e7bc33403a848d7750f2268643c5071f66`에서 공식 단일 작성자 전환했다. 중간에 반영된 사이드바 릴리스도 보존했다.
+- Git1,399 blobs 일치·task/process SHA·Gateway8790→backend8752·health/ready200·보호API3개401·보호13표 전후 불변. 이전 릴리스/task XML을 보존한 코드 전용 배포이며 전체DB 백업/복원·금융/원본/분류/여행/환불/Google 쓰기·스키마 변경·재처리0.
+- Windows 영향 UI334+46 subtests, 집계327+30 subtests·skip0 및 후속 표적18 passed(겹침 합산 안 함). PR CI41980944714/41982482852 성공. 실제174건 query-only 집계 약12ms·Ego27 인증 복구313ms/상세 링크/체크포인트0/가로 넘침0. 실제 사용자12건의 분류·기장을 완료한 것으로 표시하지 않는다.
+- [상세 실행 기록](specs/upload-results-recovery-20261105.md), `.local-archive/upload-results-20261105/durable-deploy/deploy-evidence.json`, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-01e9db6427c7afe9a89b04c48f70a1c3a1f4a039.json`. 요청 미결0. 문서 후속으로 재배포·재시작·DB 검사하지 않는다.
+
 ## 2026-11-05 단일 계정 메뉴의 불필요한 관리 접기 제거 — 완료
 
 - [PR #667](https://github.com/6Soo/cost/pull/667), 코드 `6760276a`, 병합·운영 `936fdc14d6f897416d837a23d806a21ad9f7a9a5`. 여행 관리·예약 연결이 여행 화면으로 이동한 뒤 계정 하나만 감싸던 ‘관리’ 제목과 접기를 제거했다. 계정은 기존 주요 메뉴의 직접 링크가 되며 전용 CSS·자동 펼침 JS도 제거했다.
