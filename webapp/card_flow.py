@@ -3298,7 +3298,8 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 .coverage-file{padding:8px 0;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}
 .coverage-file button{display:block;margin-top:7px}
 .coverage-empty{padding:14px;border:1px dashed var(--shell-line);border-radius:9px}
-.coverage-baseline{padding:8px 0}.coverage-baseline summary{cursor:pointer}.coverage-baseline-form input{min-height:44px;margin:8px 0}.coverage-baseline-form button{min-height:44px}\n.gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
+.coverage-baseline{padding:8px 0}.coverage-baseline summary{cursor:pointer}.coverage-baseline-form input{min-height:44px;margin:8px 0}.coverage-baseline-form button{min-height:44px}
+.gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
 @media(max-width:740px){.coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:360px){.coverage-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.coverage-period{display:block}.coverage-period button{width:100%;margin-top:8px}}
 </style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>기존 업로드 파일 상세</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
