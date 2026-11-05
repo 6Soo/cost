@@ -231,6 +231,26 @@ def process(board, handler, flow, received, source_file, inspection, progress=la
             coverage = card_upload_coverage.batch_inspection(board, received['batch_id'])
             recorded['coverage_evidence'] = coverage['evidence']
             recorded['coverage_available'] = coverage['available']
+            recorded['coverage_confirmed'] = bool(
+                any(row.get('confirmed') for row in coverage.get('records', [])))
+            # Only an explicit *entire query* marker, intact card identity and
+            # exact source dates can close a gap without owner confirmation.
+            # Sparse transaction dates are never promoted to query metadata.
+            proof = coverage['evidence']
+            if (coverage['available'] and not recorded['coverage_confirmed']
+                    and coverage.get('metadata', {}).get('full_query_explicit')
+                    and not coverage.get('blocked')
+                    and all(proof.get(k) for k in ('card_id','date_basis','start_date','end_date'))):
+                try:
+                    from app.card_upload_coverage import CoverageStore
+                    accepted = CoverageStore(board.conn).record(
+                        received['batch_id'], dict(proof,
+                            confirmed=True, complete=True, evidence_source='metadata'))
+                    recorded['coverage_confirmed'] = bool(accepted['confirmed'])
+                    if not accepted['confirmed']:
+                        recorded['coverage_reason'] = accepted['reason']
+                except StoreError as error:
+                    recorded['coverage_reason'] = str(error)
         finish_jobs(board)
     except Exception:
         # receive() commits the validated source batch before classification and
