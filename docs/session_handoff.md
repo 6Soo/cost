@@ -1,4 +1,20 @@
+## 2026-11-05 보험 명단 파란 강조·박스 제거와 행 높이 복구 — COMPLETE
+
+- [PR #689](https://github.com/6Soo/cost/pull/689), 구현8a206b7c·병합a88257a8·운영 `6a6095bdf3ede9f16d5c6d075d35ef6ee1a011df`. 최신 사용자 요청에 따라 이전44px/테두리 버튼 외형을 텍스트 동작으로 대체했다. 연결/미연결/후보 native 동작·포커스는 유지, 데스크톱45→36px·모바일 전체행93→72px. [검사 범위·미검증·배포 근거](specs/insurance-plain-actions-20261105.md).
+- Windows 영향208 passed+36subtests·skip0·필수browser20전건·compile통과, 표적22·Ego8폭/테마·키보드/hover/CSS200%/긴이름·독립Luna interface-review Approve. PR CI42036622325 SUCCESS. 병합a882 CI는 후속 문서 병합으로 취소됐고 통과로 간주하지 않는다. Markdown3개만 추가한6a6095bd의CI42037790866 SUCCESS 및 보험검증blob동일성을 확인했다.
+- 공식 단일 작성자 배포 완료: 이전ae64bd19→6a6095bd, 1414blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8751/healthready200/보호API401/보호13표불변/financialapply NOT_RUN. 코드외 금융/Google/원본/연결데이터/스키마 쓰기0. 증거 `.local-archive/insurance-plain-20261105/`, 호스트동일SHA deploy-evidence. 작성권·잠금반납, 요청미결0·다음기능명령없음. 문서기록으로재배포하지않는다.
+
 ## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
+
+## 2026-11-05 항공권 여행 그룹·탑승객 중심 UI #684 — 운영 완료
+
+- 사용자 요청: 배정된 여행별 그룹·탑승객 중심 항공권 결과·구체적인 원본 확인/카드 조회 동선, 이후 `fix/flight-passenger-grouped-release-20261105` 병합·정리. [상세 명세](specs/flight-passenger-trip-grouping-20261105.md).
+- [PR #684](https://github.com/6Soo/cost/pull/684) 최종 코드 `c02244d2edb66afb684657213bbe66407464dbe3`, 병합·운영 SHA `ae64bd19c29f6a5347212f53c25408f870e283ac`. PR CI42036009335·main CI42036639901 SUCCESS. 초기 Linux 확대 실패를 검사 제외 없이 본문 container 재배치·버튼 nowrap 교정으로 해결했다. 독립 리뷰의 버튼 잘림 Block도 수정 후 Approve로 해소했다.
+- 최종 Windows 영향 검사: `python tools/run_quality_checks.py --base origin/main --run`, base `4c2e9656f4674a378da6dda6369697b4f4793f10` → head `c02244d2edb66afb684657213bbe66407464dbe3`, **324 passed + 16 subtests, skip0·필수 browser 누락0·compile PASS**. 같은 입력390/1440px 전후 화면,320/390/760/1440px·200% 확대(745≤760px), 독립 interface-review Approve. 화면 상태·명암·키보드 기존 검증은 상세 명세와 로컬 근거에 보존한다.
+- 공식 `deploy_verified_release.ps1 -Apply` 단일 작성자 전환: 이전 `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` → `ae64bd19c29f6a5347212f53c25408f870e283ac`, gateway8790→8752, 1,413 tracked blobs 불일치0·runtime SHA 일치·listener1·health/ready200·보호 API3개401·금융 보호13표 내용/스키마 전후 불변. 금융 apply NOT_RUN·Google/원본/스키마/실제 여행 배정 쓰기0. 인증된 실제 `/flight-passengers` 읽기 스모크에서 검색 입력·예약 조회 버튼·최종 container CSS 확인.
+- 보존·정리: 해당 임시 workspace만 정리하는 범위이며 타 작업공간·미커밋·stash6개는 유지한다. 미추적 QA3파일61,678bytes를 기본 폴더에 SHA256 검증 복사했다. 공식 workspace archive와 병합된 코드/기록 브랜치 정리는 이 기록 병합 후 진행하며, 최종 결과는 로컬 checkpoint에 기록한다.
+- 근거: `.local-archive/flight-passenger-ux-20261105/`의 `preserved-worktree/manifest.json`, `review-final.md`, `container-checks.json`, `production-smoke.json`, `deploy-evidence.json`; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-ae64bd19c29f6a5347212f53c25408f870e283ac.json`. 수동 스크린리더·물리기기·실고객 카드조회·예약처 외부 로그인은 미실행. 보관 메뉴 질문은 읽기 설명만 수행했고 메뉴/여행 보관값은 변경하지 않았다. 병렬 #689/#690은 이 운영 SHA에 포함하지 않았으며 그 완료를 주장하지 않는다.
+
 
 - 원인: 이용일 출력이 숙박비로 제한돼 항공 예약 여정이 수집돼도 항공료는 공란이었다. [PR #686](https://github.com/6Soo/cost/pull/686)으로 저장 기간 우선·검증된 fresh 여정 출발일 보완 및 PC/모바일 표시를 수정했다. 금액·결제일·예약 관계·분류·여행·원본·Google 쓰기 없음.
 - 최종 제품/배포 SHA `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` (이전 `1b8aafc06ef3d692b6f7e8f691bb16a755ab2263`). 1,412 blobs 불일치0, task/process SHA 일치, Gateway8790→8751, health/ready200·보호API401·보호13표 불변. 공식 단일 작성자 전환 성공, 금융 apply NOT_RUN.

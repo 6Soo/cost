@@ -97,6 +97,8 @@ def query_booking_reservations(
     revision: str | None = None,
     fallback_status_fn: Any = 'UNAVAILABLE',
     name_key_fn: Any = normalize_name_tokens,
+    trip_metadata: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
+    trip_revision: str = '',
 ) -> dict[str, Any]:
     """Search verified names/routes and inclusive itinerary dates without writes."""
     from .flight_booking_search import parse_search, matches_dates, route_tokens, matches_words
@@ -126,13 +128,18 @@ def query_booking_reservations(
             linked = cards.get(str(booking_ref), [])
             reservation = project_booking_reservation(evidence.get('booking_ref') or booking_ref,
                 evidence, full_name, linked_cards=linked, provider=evidence.get('provider') or 'trip')
+            metadata = (trip_metadata or {}).get((str(reservation['provider']).lower(), str(booking_ref)), {})
+            reservation.update({key: metadata[key] for key in (
+                'assigned_trip_tab_id', 'assigned_trip_title', 'assigned_trip_starts_on',
+                'assignment_status', 'assignment_basis', 'assignment_conflict',
+                'trip_assignment_available') if key in metadata})
             results.append(reservation)
             fingerprints.append((str(booking_ref), evidence.get('digest'), evidence.get('source_digests')))
             break
 
     results.sort(key=lambda row: row['booking_ref'])
     results.sort(key=lambda row: max((leg.get('departure_on') or '' for leg in row['legs']), default=''), reverse=True)
-    current_revision = hashlib.sha256(json.dumps([query, dates, sorted(fingerprints), results],
+    current_revision = hashlib.sha256(json.dumps([query, dates, sorted(fingerprints), results, trip_revision],
         sort_keys=True, ensure_ascii=True, default=str).encode()).hexdigest()
 
     if revision is not None and revision != current_revision:
