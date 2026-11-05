@@ -1145,7 +1145,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(server.card_store.list_tab_rows(trip)[0]['item'],'소모품')
                     page.locator('#expense-tab-upload').click()
                     page.get_by_role('button',name='카드 사용내역 업로드하고 분류').click()
-                    page.locator('#upload-results').get_by_text('synthetic.csv ·',exact=False).wait_for()
+                    page.locator('#upload-results').get_by_text('synthetic.csv',exact=True).wait_for()
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
                     self.assertEqual(errors,[])
                     browser.close()
