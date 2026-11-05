@@ -154,11 +154,10 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         if flight_passenger_page.enabled():
             primary += (f"<a href='/flight-passengers'>{_icons.icon('airplane', 18)}"
                         "<span class='nm'>항공권 예약 확인</span></a>")
-        management = ("</nav><details class='nav-management'><summary>관리</summary>"
-                      "<nav class='site-links' aria-label='관리 메뉴'>")
-        primary += (management
-                    + f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
-                    + "</nav></details>")
+        # Account access is the only remaining administrative destination.
+        # Keep it directly reachable instead of a one-item disclosure group.
+        primary += (f"<a href='/access/admin'>{_icons.icon('users', 18)}"
+                    "<span class='nm'>계정·권한 관리</span></a></nav>")
     else:
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")

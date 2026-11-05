@@ -116,6 +116,9 @@ def test_flight_passenger_link_is_owner_only_and_feature_gated():
     assert "href='/flight-passengers'" in owner
     assert "href='/flight-passengers'" not in viewer
     assert "href='/flight-passengers'" not in disabled
+    assert "href='/access/admin'" in owner
+    assert "href='/access/admin'" not in viewer
+    assert "href='/access/admin'" in disabled
 
 
 def test_cleanup_preserves_errors_confirmation_and_scripts():

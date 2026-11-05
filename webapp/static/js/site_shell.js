@@ -106,7 +106,7 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  const exportForm=document.querySelector('form[action="/api/exports/xlsx"]');
  if(exportForm&&document.getElementById('export-selection-count')){const boxes=[...exportForm.querySelectorAll('input[name="tab_ids"]')];const update=()=>{const n=boxes.filter(b=>b.checked).length;document.getElementById('export-selection-count').textContent=n+'개 여행 선택';exportForm.querySelector('button[type="submit"]').disabled=n===0};exportForm.querySelectorAll('[data-export-select]').forEach(b=>b.addEventListener('click',()=>{boxes.forEach(box=>box.checked=b.dataset.exportSelect==='all');update()}));exportForm.addEventListener('change',update);update()}
  nav.querySelectorAll('a[href]').forEach(a=>{const u=new URL(a.href,location.href);
- if(u.pathname===path&&(!u.search||a.closest('.site-links')) || path.startsWith('/google-ledger/')&&u.pathname==='/google-ledger'){a.setAttribute('aria-current','page');const group=a.closest('.nav-management');if(group)group.open=true}});
+ if(u.pathname===path&&(!u.search||a.closest('.site-links')) || path.startsWith('/google-ledger/')&&u.pathname==='/google-ledger'){a.setAttribute('aria-current','page')}});
  try{nav.scrollTop=Number(sessionStorage.getItem('cost-nav-scroll')||0);
  const rendered=path==='/board'?nav.querySelector('a.nv.sel[href]'):null;
  const selected=new URLSearchParams(location.search).get('tab')||(rendered?new URL(rendered.href).searchParams.get('tab'):null);
