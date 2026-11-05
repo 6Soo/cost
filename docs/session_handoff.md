@@ -1,3 +1,9 @@
+## 2026-11-05 보험 명단 파란 강조·박스 제거와 행 높이 복구 — COMPLETE
+
+- [PR #689](https://github.com/6Soo/cost/pull/689), 구현8a206b7c·병합a88257a8·운영 `6a6095bdf3ede9f16d5c6d075d35ef6ee1a011df`. 최신 사용자 요청에 따라 이전44px/테두리 버튼 외형을 텍스트 동작으로 대체했다. 연결/미연결/후보 native 동작·포커스는 유지, 데스크톱45→36px·모바일 전체행93→72px. [검사 범위·미검증·배포 근거](specs/insurance-plain-actions-20261105.md).
+- Windows 영향208 passed+36subtests·skip0·필수browser20전건·compile통과, 표적22·Ego8폭/테마·키보드/hover/CSS200%/긴이름·독립Luna interface-review Approve. PR CI42036622325 SUCCESS. 병합a882 CI는 후속 문서 병합으로 취소됐고 통과로 간주하지 않는다. Markdown3개만 추가한6a6095bd의CI42037790866 SUCCESS 및 보험검증blob동일성을 확인했다.
+- 공식 단일 작성자 배포 완료: 이전ae64bd19→6a6095bd, 1414blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8751/healthready200/보호API401/보호13표불변/financialapply NOT_RUN. 코드외 금융/Google/원본/연결데이터/스키마 쓰기0. 증거 `.local-archive/insurance-plain-20261105/`, 호스트동일SHA deploy-evidence. 작성권·잠금반납, 요청미결0·다음기능명령없음. 문서기록으로재배포하지않는다.
+
 ## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
 
 ## 2026-11-05 항공권 여행 그룹·탑승객 중심 UI #684 — 운영 완료

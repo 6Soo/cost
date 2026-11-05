@@ -1,3 +1,9 @@
+## 2026-11-05 보험 명단 텍스트 동작·행 높이 복구 운영 배포 — COMPLETE
+
+- [PR #689](https://github.com/6Soo/cost/pull/689) 병합a88257a8, 운영 `6a6095bdf3ede9f16d5c6d075d35ef6ee1a011df`(이전ae64bd19). 파란 강조·테두리 박스 제거·동작/포커스 유지·표 행 높이45→36px/모바일93→72px. [상세 근거 및 미검증](specs/insurance-plain-actions-20261105.md).
+- Windows 영향208+36subtests·skip0·필수browser20/compile통과, 표적22·Ego8조합/키보드/hover/CSS200%/긴이름·독립리뷰Approve. PR CI42036622325 SUCCESS. a882 push CI취소는통과아님; 문서3개차이의최종main6a6095bd CI42037790866 SUCCESS와 코드blob동일성으로SHA고정.
+- 22:43 KST 공식단일작성자전환:1414blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8751/healthready200/보호API401/보호13표전후불변/financialapply NOT_RUN. 금융·Google·원본·연결데이터·스키마·대량처리없음. 증거 `.local-archive/insurance-plain-20261105/deploy-evidence.json`, 호스트 `D:/WebLedgerHost/releases/deploy-evidence-6a6095bdf3ede9f16d5c6d075d35ef6ee1a011df.json`. 잠금/작성권반납, 이 기록은재배포하지않음.
+
 ## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
 
 ## 2026-11-05 항공권 여행 그룹·탑승객 중심 UI #684 — 운영 완료
