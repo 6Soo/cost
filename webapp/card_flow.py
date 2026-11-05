@@ -3315,6 +3315,7 @@ def page(csrf):
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>지출 정리</title><style>
+#upload-results .upload-result-list{list-style:none;padding:0;margin:0;border:1px solid var(--shell-line);border-radius:8px;overflow:hidden}#upload-results .upload-result-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,.7fr) auto;align-items:center;gap:8px 16px;padding:10px 14px;border-bottom:1px solid var(--shell-line);font-size:14px;line-height:1.5}#upload-results .upload-result-row:last-child{border-bottom:0}#upload-results .upload-result-name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}#upload-results .upload-result-state{color:var(--shell-muted)}#upload-results [data-state=auth] .upload-result-state{color:var(--shell-warn)}#upload-results .upload-result-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;white-space:nowrap;border:1px solid var(--shell-line);border-radius:6px;text-decoration:none;font-weight:600}#upload-results .upload-result-link:hover{background:var(--shell-hover)}#upload-results .upload-result-link:focus-visible{outline:2px solid var(--shell-accent);outline-offset:2px}#upload-results .upload-result-notice{margin:0 0 12px;color:var(--shell-muted)}#upload-results .upload-result-row>details{grid-column:1/-1}@media(max-width:600px){#upload-results .upload-result-row{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px}#upload-results .upload-result-name{grid-column:1}#upload-results .upload-result-state{grid-column:1;font-size:13px}#upload-results .upload-result-link{grid-column:2;grid-row:1/3}}
 @font-face{font-family:"Pretendard Variable";src:url("/assets/fonts/PretendardVariable.woff2") format("woff2-variations"),url("/assets/fonts/PretendardVariable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
 *{box-sizing:border-box}body{margin:0;padding:16px;font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;background:var(--shell-bg);color:var(--shell-ink)}main{max-width:900px;margin:auto;min-width:0}
 article,section{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:4px;padding:16px;margin:12px 0;min-width:0}input,select,textarea{font:inherit;max-width:100%;min-width:0;padding:0 8px;border:1px solid var(--shell-line);border-radius:4px;background:var(--shell-paper);color:var(--shell-ink)}input:not([type=checkbox]),select{height:34px}input:not([type=checkbox]),select,textarea{width:100%;margin:6px 0}textarea{height:auto;min-height:64px;padding:8px}button{font:inherit;max-width:100%;padding:0 12px;min-height:34px;border:1px solid var(--shell-line);border-radius:4px;background:var(--shell-paper);color:var(--shell-ink);font-weight:600;cursor:pointer}button:disabled{opacity:.5}button .ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}button .ic:first-child{margin-right:6px}button .ic:last-child:not(:first-child){margin-left:6px}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}form[data-index] button,#commit,#upload,#ruleform button:not([type=button]){background:#1C7A52;border-color:#1C7A52;color:#fff}h1{font-size:20px}h2{font-size:16px}.small{font-size:13px;color:var(--shell-muted)}.amount{font-size:17px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.hidden{display:none}table{width:100%;table-layout:fixed;border-collapse:collapse}h1,h2,button,p,span,td,th,summary{overflow-wrap:anywhere;word-break:keep-all;min-width:0}td button{padding:0 8px;min-height:34px}td,th{padding:7px 10px;text-align:left;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}a{color:var(--shell-accent)}.pv-label{display:none}
@@ -3446,6 +3447,23 @@ uploadDrop.ondragleave=()=>uploadDrop.classList.remove('is-dragover');
 uploadDrop.ondrop=e=>{e.preventDefault();uploadDrop.classList.remove('is-dragover');if(!uploadInput.disabled){uploadInput.files=e.dataTransfer.files;renderUploadSelection()}};
 uploadDrop.onkeydown=e=>{if(uploadInput.disabled)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();uploadInput.click()}};
 const uploadJobKey='cost-card-upload-job';
+function uploadRow(entry,name,message,tone='pending'){
+ entry.className='upload-result-row';entry.dataset.state=tone;entry.replaceChildren();
+ const filename=document.createElement('strong');filename.className='upload-result-name';filename.textContent=name||'카드 파일';
+ const status=document.createElement('span');status.className='upload-result-state';status.textContent=message;
+ entry.append(filename,status);
+}
+function uploadResultList(root){root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><p class="upload-result-notice" role="status"></p><ul class="upload-result-list"></ul>';return {note:root.querySelector('p'),list:root.querySelector('ul')}}
+function uploadErrorRow(entry,job,error){uploadRow(entry,job.filename,(error.savedBatch?'':'접수 실패 · ')+error.message,error.auth?'auth':error.savedBatch?'pending':'error');if(error.savedBatch)savedUploadLink(entry,error.savedBatch)}
+async function recoverUpload(job){
+ const response=await fetch('/api/imports/'+encodeURIComponent(job.batch_id),{cache:'no-store',signal:AbortSignal.timeout(10000)});
+ if(response.status===401||response.status===403)throw Object.assign(Error(response.status===401?'로그인 필요':'조회 권한 필요'),{terminal:true,auth:true});
+ if(!response.ok)throw Error('저장된 결과 조회 재시도 중');
+ const result=await response.json();
+ if(result.batch_id!==job.batch_id||!Array.isArray(result.rows)||!result.preview||result.refresh_required)throw Error('저장된 결과 조회 재시도 중');
+ if(result.summary?.channel!=='approval'&&result.rows.some(row=>row.classification_state!=='classified'))throw Object.assign(Error('접수 완료 · 분류 결과 확인 필요'),{terminal:true});
+ saveUploadJob(job,true);return {...result,recovered_upload:true};
+}
 function readUploadJobs(){try{const saved=JSON.parse(localStorage.getItem(uploadJobKey)||'null');return (Array.isArray(saved)?saved:saved?[saved]:[]).filter(job=>job?.status_url&&new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))}catch{return []}}
 function saveUploadJob(job,finished=false){try{const jobs=readUploadJobs().filter(saved=>saved.status_url!==job.status_url);if(!finished)jobs.push(job);if(jobs.length)localStorage.setItem(uploadJobKey,JSON.stringify(jobs));else localStorage.removeItem(uploadJobKey)}catch{}}
 async function awaitUpload(job,entry){
@@ -3453,41 +3471,43 @@ async function awaitUpload(job,entry){
  while(true){
   try{
    const r=await fetch(job.status_url,{cache:'no-store',signal:AbortSignal.timeout(10000)});
-   if(r.status===401)throw Object.assign(Error('로그인이 만료되었습니다. 파일은 접수되어 있습니다. 다시 로그인한 뒤 상세 결과를 확인해 주세요. 재업로드할 필요가 없습니다.'),{terminal:true});
-   if(r.status===403)throw Object.assign(Error('처리 결과를 조회할 권한이 없습니다. 소유자 계정으로 로그인한 뒤 상세 결과를 확인해 주세요. 파일은 접수되어 있으므로 재업로드할 필요가 없습니다.'),{terminal:true});
-   if(r.status===404){saveUploadJob(job,true);throw Object.assign(Error('서버가 재시작되었습니다. 저장된 파일의 상세 결과를 확인해 주세요.'),{terminal:true});}
+   if(r.status===401||r.status===403)throw Object.assign(Error(r.status===401?'로그인 필요':'조회 권한 필요'),{terminal:true,auth:true});
+   if(r.status===404)return await recoverUpload(job);
    if(!r.ok)throw Error('진행 상태 연결 재시도 중');
-   const state=await r.json();errors=0;
-   if(state.status==='done'){saveUploadJob(job,true);if(state.result?.refresh_required)throw Object.assign(Error('파일은 저장되었습니다. 최신 결과는 저장된 파일 상세 결과에서 다시 확인해 주세요.'),{terminal:true});return state.result}
+   const state=await r.json();
+   if(state.status==='done'){if(state.result?.refresh_required)return await recoverUpload(job);saveUploadJob(job,true);return state.result}
    if(state.status==='error'){saveUploadJob(job,true);throw Object.assign(Error(state.message),{terminal:true})}
-   entry.textContent=(job.filename||'카드 파일')+' · '+(state.message||'처리 중')+' · '+Math.floor((Date.now()-started)/1000)+'초';
+   errors=0;
+   uploadRow(entry,job.filename,(state.message||'처리 중')+' · '+Math.floor((Date.now()-started)/1000)+'초');
   }catch(e){
    if(e.terminal){e.savedBatch=job.batch_id;throw e}
-   errors++;entry.textContent=(job.filename||'카드 파일')+' · 파일 접수 완료 · 연결 재시도 중 (재업로드 불필요)';
-   if(errors>=5){const error=Error('파일은 접수되었습니다. 화면을 다시 열면 진행 상태를 이어서 확인합니다.');error.savedBatch=job.batch_id;throw error}
+   errors++;uploadRow(entry,job.filename,'접수 완료 · 연결 재시도 중');
+   if(errors>=5){const error=Error('접수 완료 · 결과 조회 대기');error.savedBatch=job.batch_id;throw error}
   }
   await new Promise(resolve=>setTimeout(resolve,Math.min(10000,errors?1000*2**errors:1500)));
  }
 }
-function savedUploadLink(entry,batch){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='저장된 파일 상세 결과';link.addEventListener('click',async event=>{if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await loadBatch(batch);el('summary').scrollIntoView({block:'start'});});entry.append(' ',link)}
+function savedUploadLink(entry,batch){const link=document.createElement('a');link.className='upload-result-link';link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='상세 보기';link.setAttribute('aria-label',(entry.querySelector('strong')?.textContent||'카드 파일')+' 상세 결과');entry.append(link)}
 async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return;
- const root=el('upload-results');root.hidden=false;el('newupload').open=true;
- const note=document.createElement('p');note.textContent=jobs.length+'개 파일 접수 완료 · 다른 페이지로 이동해도 분류는 계속됩니다.';root.append(note);
- await Promise.all(jobs.map(async job=>{const entry=document.createElement('p');root.append(entry);
-  try{const result=await awaitUpload(job,entry);entry.textContent=(job.filename||'카드 파일')+' · '+uploadOutcome(result);savedUploadLink(entry,job.batch_id)}
-  catch(e){entry.textContent=(job.filename||'카드 파일')+' · '+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
- }));
- note.textContent=jobs.length+'개 파일 진행 상태 확인 완료 · 파일별 결과를 확인해 주세요.';
+ const root=el('upload-results');el('newupload').open=true;const {note,list}=uploadResultList(root);
+ note.textContent=jobs.length+'개 파일 접수 완료 · 저장된 결과를 확인하고 있습니다.';
+ let checked=0,waiting=0,auth=0,next=0;
+ const entries=jobs.map(job=>{const entry=document.createElement('li');uploadRow(entry,job.filename,'결과 확인 대기');list.append(entry);return entry});
+ const worker=async()=>{while(next<jobs.length){const i=next++,job=jobs[i],entry=entries[i];
+  try{const result=await awaitUpload(job,entry);checked++;uploadRow(entry,job.filename,uploadOutcome(result),'saved');savedUploadLink(entry,job.batch_id)}
+  catch(e){waiting++;if(e.auth)auth++;uploadErrorRow(entry,job,e)}
+ }};
+ await Promise.all(Array.from({length:Math.min(4,jobs.length)},worker));
+ note.textContent=checked+'개 결과 조회 · '+waiting+'개 조회 대기. 접수된 파일은 다시 올릴 필요가 없습니다.'+(auth?' 로그인 또는 소유자 권한을 확인한 뒤 이 화면을 다시 열어 주세요.':'');
 }
 resumeUpload();
-function uploadOutcome(j){return j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
+function uploadOutcome(j){return j.recovered_upload?'저장된 결과 조회 완료':j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
 el('upload').onclick=async()=>{
  if(el('upload').disabled)return;
  const files=renderUploadSelection();if(!files.length){el('status').textContent='업로드할 카드 파일을 먼저 선택해 주세요.';uploadDrop.focus();return}
  const generation=++batchGeneration;uploadFailurePage=0;invalidateProposal();el('upload').disabled=true;uploadInput.disabled=true;uploadDrop.setAttribute('aria-disabled','true');
- const results=[],failures=[],pending=[],root=el('upload-results');root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><ul class="upload-file-list"></ul>';const list=root.querySelector('ul');
- const notice=document.createElement('p');notice.setAttribute('role','status');root.prepend(notice);
- const entries=files.map(f=>{const entry=document.createElement('li');entry.textContent=f.name+' · 접수 중';list.append(entry);return entry});
+ const results=[],failures=[],pending=[],root=el('upload-results');const {note:notice,list}=uploadResultList(root);
+ const entries=files.map(f=>{const entry=document.createElement('li');uploadRow(entry,f.name,'접수 중');list.append(entry);return entry});
  let received;
  try{
   if(files.length>100||files.reduce((sum,f)=>sum+f.size,0)>99*1024*1024)throw Error('한 번에 100개, 총 99MB 이하로 나누어 올려 주세요.');
@@ -3506,10 +3526,10 @@ el('upload').onclick=async()=>{
    const f=files[i],entry=entries[i];
    try{
     if(!job.status_url)throw Error(job.message||'파일을 접수하지 못했습니다.');
-    entry.textContent=f.name+' · 파일 접수 완료 · 분류 대기';let j=await awaitUpload(job,entry);results[i]=j;entry.textContent=f.name+' · '+uploadOutcome(j)+' ';
-    if(j.batch_id){const link=document.createElement('a');link.href='/import?batch='+encodeURIComponent(j.batch_id)+'#summary';link.textContent='상세 결과';entry.append(link)}
+    uploadRow(entry,f.name,'접수 완료 · 분류 대기');let j=await awaitUpload(job,entry);results[i]=j;uploadRow(entry,f.name,uploadOutcome(j),'saved');
+    if(j.batch_id)savedUploadLink(entry,j.batch_id);
     appendCoverageForm(entry,j);
-   }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});entry.textContent=f.name+(e.savedBatch?' · 접수 완료 · ':' · 업로드 실패: ')+e.message;if(e.savedBatch)savedUploadLink(entry,e.savedBatch)}
+   }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});uploadErrorRow(entry,{filename:f.name},e)}
   };
   await Promise.all(received.files.map(processFile));
   notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
