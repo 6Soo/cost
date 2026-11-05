@@ -2,6 +2,13 @@
 
 **2026-11-05 실행 판정: PARTIAL · 명세 #644 및 구현 #646 병합. 현재 Board는 PR #658 포함 SHA `b3b1bb90`으로 공식 운영 배포됐다.** 최신 호스트 evidence는 1,383 files·blob mismatch0·runtime SHA 확인·단일 listener·8752·health/ready 200·보호 API 401·보호13표 불변을 기록한다. HDD 실측은 실제 D: HDD에서 했으나, 물리 디스크 전체 수치는 다른 운영 작업을 포함하므로 Gateway status 파일 횟수와 혼동하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
 
+## 12시경 문서 재점검: 검증된 절감 범위와 남은 계측
+
+- #646의 Gateway status 이벤트/30초 heartbeat 및 route cache 코드, #652 후속 최적화, #658 운영 릴리스는 이미 병합·적용된 범위다. 완료된 gateway 경량화를 다시 구현하거나 문서 PR #659~#661만을 이유로 재배포하지 않는다.
+- **확정 가능한 수치:** 격리 60초 status 파일 mtime 변경 `58→2회`(-96.6%), 격리 15분 원자 교체 `886→31회`(-96.5%). #661의 소스 점검에 따르면 OTA·항공권 스냅샷은 동일 입력 지문에서 불필요한 재발행을 건너뛴다. 이는 **파일 접근 횟수와 코드 계약**의 증거다.
+- **확정할 수 없는 수치:** 기존 두 구간의 Windows process `IOWriteBytes=0` 카운터는 실제 쓰기 바이트를 설명하지 못한다. D: 물리 전체는 132.9→221.0MB로 증가해 사용자가 체감하는 HDD 전체 소음·활성 시간 감소를 입증하지 못했다. **성능 개선 완료**가 아닌 **Gateway 부분 개선 완료/HDD 전체 효과 미입증**으로 표기한다.
+- **다음 수락:** 실제 운영과 동등한 유휴 상태에서 process/file별 출처를 신뢰할 수 있는 Windows 계측으로 분리하고, 다른 에이전트 pytest/개발 SSD 작업·SourceRefresh·OTA 색인·로그·WAL을 구분한다. 원인으로 확인된 쓰기만 최소 변경하고, 새 배포가 필요할 때에만 기존 drain/13표 보호/고정 SHA 게이트를 적용한다. [통합 실행계획](autonomy-io-unified-followup-20261105.md#현재-판단과-실제-남은-작업-2026-11-05-12시경-문서-대조) 참조.
+
 ## 2026-11-05 구현·운영·실측 결과
 
 - PR #646은 `40ea7f9d`로 병합됐다. Gateway status 이벤트 게시/30초 heartbeat, route stat cache 250ms, OTA/항공 check-only 로그 억제·시간별 heartbeat·5MiB 순환이 main에 포함됐다. 서비스의 기존 `ota_snapshot.json`은 동일한 입력 키와 역할에서 `_publish_if_active()`가 재쓰기하지 않으며, 변경 입력·역할 복귀 때 재게시한다. 관련 OTA 스냅샷 테스트와 #646 영향 CI를 재사용했다.
