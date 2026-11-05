@@ -26,7 +26,7 @@ def test_card_management_is_primary_and_gap_upload_is_contextual():
     assert '이 기간 자료 추가' in html
     assert '관리 시작일 설정' in html
     assert 'coverage-summary' in html
-    assert '조회기간이 실제로 확인' in html
+    assert '누락 기간이 실제로 확인' in html
     assert html.index('id="card-coverage-management"') < html.index('id="newupload"')
     assert '카드별 조회 기간</summary>' not in html
 
