@@ -54,6 +54,10 @@ class DesignScreenTests(unittest.TestCase):
                 page.keyboard.press('Enter')
                 self.assertFalse(page.locator('#trip-settings').evaluate('e=>e.open'))
                 page.locator('#reserve-link').click()
+                page.wait_for_function("""() => {
+                    const panel = document.getElementById('trip-reservations');
+                    return panel.open && panel.querySelector('iframe').getAttribute('src')?.includes('trip=trip-demo-a');
+                }""")
                 self.assertTrue(page.locator('#trip-reservations').evaluate('e=>e.open'))
                 self.assertIn('trip=trip-demo-a', page.locator('#trip-reservations iframe').get_attribute('src'))
                 page.close()
