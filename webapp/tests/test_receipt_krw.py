@@ -35,6 +35,7 @@ def test_krw_manual_review_edit_reload_and_copy_preserves_original_amount(app):
             context = browser.new_context(viewport={'width': 390, 'height': 844}, permissions=['clipboard-read', 'clipboard-write'])
             page = context.new_page()
             page.goto(app.base + '/receipts')
+            page.select_option('#selected-trip', app.trip)
             page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('#r-currency').select_option('KRW')
             for field, value in (('r-merchant', '원화 합성 매장'), ('r-date', '2026-10-12'), ('r-total', '12500')):

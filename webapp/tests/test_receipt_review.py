@@ -83,10 +83,11 @@ class ReceiptReviewTests(unittest.TestCase):
             try:
                 page = browser.new_page(viewport={'width': 375, 'height': 900})
                 page.goto(self.base + '/receipts')
+                page.select_option('#selected-trip', self.trip)
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.locator('#img-file').set_input_files(str(photo))
-                with page.expect_navigation():
-                    page.locator('#img-go').click()
+                page.locator('#img-go').click()
+                page.locator('[data-image-sha]').first.wait_for()
                 page.locator('#other-methods').evaluate('(el)=>el.open=true')
                 image_button = page.locator('[data-image-sha]').first
                 sha = image_button.get_attribute('data-image-sha')
@@ -117,8 +118,8 @@ class ReceiptReviewTests(unittest.TestCase):
                 for width in (375, 390, 1440):
                     with self.subTest(width=width):
                         pg = browser.new_page(viewport={'width': width, 'height': 900})
-                        pg.goto(self.base + '/receipts')
-                        self.assertTrue(pg.get_by_role('link', name='장부로 돌아가기').is_visible())
+                        pg.goto(self.base + '/receipts?trip=' + self.trip)
+                        self.assertTrue(pg.get_by_role('link', name='선택한 여행 장부로 돌아가기').is_visible())
                         # The reading notes sit in the collapsed "직접 입력 / 다른 방법" group, so the text is checked in the DOM.
                         other = pg.locator('#other-methods')
                         self.assertEqual(other.locator('summary').inner_text(), '직접 입력 / 다른 방법')
@@ -381,10 +382,9 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.set_input_files('#img-file', files=[{'name': 'receipt.png', 'mimeType': 'image/png',
                                                           'buffer': PNG}])
                 page.click('#img-go')
-                # The page reloads after a registration, so the registered photo itself is the signal.
+                # Upload keeps the current page and publishes the saved original in place.
                 page.locator("img[src*='/api/receipts/image/']").first.wait_for()
-                page.wait_for_load_state()
-                page.locator('#other-methods > summary').click()
+                page.locator('#other-methods').evaluate('(el)=>el.open=true')
                 page.fill('#r-merchant', '라멘집'); page.fill('#r-date', '2027-08-03'); page.fill('#r-total', '1234')
                 page.click('#region-go')
                 page.wait_for_load_state()
@@ -414,8 +414,10 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.click('#copy-tsv')
                 self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-                back = page.locator('a.work-back')
+                back = page.locator('.site-links a[href^="/board"]')
                 self.assertIn('tab=' + self.trip, back.get_attribute('href'))
+                if width < 768:
+                    page.locator('.site-menu-toggle').click()
                 back.click()
                 self.assertEqual(page.evaluate('new URL(location.href).searchParams.get("tab")'), self.trip)
                 self.assertEqual(page.evaluate('location.pathname'), '/board')
@@ -550,6 +552,7 @@ class ReceiptReviewTests(unittest.TestCase):
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.goto(self.base + '/receipts')
+                page.select_option('#selected-trip', self.trip)
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.locator('[data-image-sha]').first.click()
                 self.assertEqual(page.locator('#image-sha').input_value(), first)
@@ -574,6 +577,7 @@ class ReceiptReviewTests(unittest.TestCase):
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.route('**/api/receipts/image', lambda route: pending.append(route))
                 page.goto(self.base + '/receipts')
+                page.select_option('#selected-trip', self.trip)
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.locator('#img-file').set_input_files({'name': 'synthetic.png', 'mimeType': 'image/png', 'buffer': PNG})
                 with page.expect_request('**/api/receipts/image'):
@@ -582,12 +586,12 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.locator('#img-go').evaluate('(button)=>{button.click();button.click()}')
                 self.assertEqual(len(pending), 1)
                 pending.pop().fulfill(status=400, json={'code': 'IMAGE_SIZE_INVALID'})
-                page.get_by_text('사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.', exact=True).wait_for()
-                self.assertTrue(page.locator('#img-go').is_enabled())
+                page.get_by_text('사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.', exact=False).wait_for()
+                self.assertTrue(page.get_by_role('button', name='다시 시도').is_enabled())
                 self.assertFalse(self.store.exists())
                 page.unroute('**/api/receipts/image')
                 with page.expect_response('**/api/receipts/image') as answer:
-                    page.locator('#img-go').click()
+                    page.get_by_role('button', name='다시 시도').click()
                 self.assertEqual(answer.value.status, 200)
                 page.locator("img[src*='/api/receipts/image/']").first.wait_for()
                 self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
@@ -988,6 +992,7 @@ class ReceiptReviewTests(unittest.TestCase):
             try:
                 page = browser.new_page()
                 page.goto(self.base + '/receipts')
+                page.select_option('#selected-trip', self.trip)
                 page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.locator('[data-total]').fill('2800')
                 for selector, value in (('#r-merchant', 'NEW-SHOP'),

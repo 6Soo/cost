@@ -39,6 +39,42 @@ def test_pdf_original_is_preserved_and_page_candidates_are_idempotent(tmp_path):
     assert len(data['pdfs']) == 1
 
 
+def test_saved_upload_name_and_duplicate_are_recovered_without_changing_original(tmp_path):
+    store = tmp_path / 'receipts.json'
+    first = rr.store_uploaded(store, PNG, kind='image', name='<합성>.png')
+    second = rr.store_uploaded(store, PNG, kind='image', name='another.png')
+    assert first['duplicate'] is False and second['duplicate'] is True
+    data = rr.load(store)
+    assert data['uploads'] == [{'kind': 'image', 'sha256': first['sha256'], 'name': '<합성>.png'}]
+    assert rr.image_bytes(store, first['sha256']) == PNG
+    page = rr.render_html(data, csrf='test')
+    assert '&lt;합성&gt;.png' in page
+    assert '<합성>.png' not in page
+
+
+def test_retry_after_upload_metadata_write_failure_keeps_original(tmp_path):
+    from unittest.mock import patch
+    store = tmp_path / 'receipts.json'
+    save = rr._save
+    calls = []
+
+    def fail_metadata(path, data):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError('synthetic write failure')
+        save(path, data)
+
+    with patch.object(rr, '_save', side_effect=fail_metadata):
+        with pytest.raises(rr.ReceiptStoreError):
+            rr.store_uploaded(store, PNG, kind='image', name='fixture.png')
+    sha = hashlib.sha256(PNG).hexdigest()
+    assert rr.image_bytes(store, sha) == PNG
+    assert rr.load(store)['uploads'] == []
+    retry = rr.store_uploaded(store, PNG, kind='image', name='fixture.png')
+    assert retry['duplicate'] is True
+    assert rr.load(store)['uploads'][0]['sha256'] == sha
+
+
 @pytest.mark.parametrize('kind', ['empty', 'bad_header', 'oversized'])
 def test_invalid_or_oversized_pdf_is_rejected_before_render(tmp_path, kind):
     from unittest.mock import patch

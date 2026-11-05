@@ -23,6 +23,119 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
     setUp = review.ReceiptReviewTests.setUp
     tearDown = review.ReceiptReviewTests.tearDown
 
+    def test_selected_files_survive_cancelled_trip_change(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', {'name': 'receipt.png', 'mimeType': 'image/png', 'buffer': review.PNG})
+                page.select_option('#selected-trip', '')
+                self.assertEqual(page.locator('#selected-trip').input_value(), self.trip)
+                self.assertIn('먼저 처리', page.locator('#status').inner_text())
+                self.assertEqual(page.locator('#selected-files li').count(), 1)
+                page.get_by_role('button', name='receipt.png 선택 제거').click()
+                self.assertEqual(page.locator('#selected-files li').count(), 0)
+            finally:
+                browser.close()
+
+    def test_blank_mime_uses_browser_image_conversion(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', {'name': 'photo.heic', 'mimeType': '', 'buffer': review.PNG})
+                page.click('#img-go')
+                page.locator('#upload-results img').wait_for()
+                data = self.request('/api/receipts')[1]
+                image = self.request('/api/receipts/image/' + data['images'][0])[1]
+                self.assertTrue(image.startswith(b'\xff\xd8\xff'))
+                self.assertEqual(data['uploads'][0]['name'], 'photo.heic')
+            finally:
+                browser.close()
+
+    def test_unsaved_manual_input_keeps_its_original_image(self):
+        first = self.request('/api/receipts/image', token=self.csrf(), raw=review.PNG)[1]['sha256']
+        second = self.request('/api/receipts/image', token=self.csrf(), raw=review.make_png(b'\x00\xff\x00'))[1]['sha256']
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.locator(f'[data-image-sha="{first}"]').click()
+                page.locator('#other-methods').evaluate('(el)=>el.open=true')
+                page.fill('#r-merchant', 'SYNTHETIC')
+                page.locator(f'[data-image-sha="{second}"]').click()
+                self.assertEqual(page.locator('#image-sha').input_value(), first)
+                self.assertIn(first, page.locator('#manual-preview').get_attribute('src'))
+                page.set_input_files('#img-file', {'name': 'new.png', 'mimeType': 'image/png', 'buffer': review.PNG})
+                page.click('#img-go')
+                self.assertEqual(page.locator('#selected-files li').count(), 1)
+                self.assertEqual(page.locator('#image-sha').input_value(), first)
+            finally:
+                browser.close()
+
+    def test_manual_currency_or_payment_alone_blocks_source_and_trip_change(self):
+        first = self.request('/api/receipts/image', token=self.csrf(), raw=review.PNG)[1]['sha256']
+        second = self.request('/api/receipts/image', token=self.csrf(), raw=review.make_png(b'\x00\xff\x00'))[1]['sha256']
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                for field, value in (('r-currency', 'KRW'), ('r-payment', 'private_card')):
+                    page = browser.new_page(viewport={'width': 390, 'height': 900})
+                    page.goto(self.base + '/receipts?trip=' + self.trip)
+                    page.locator(f'[data-image-sha="{first}"]').click()
+                    page.locator('#other-methods').evaluate('(el)=>el.open=true')
+                    page.select_option('#' + field, value)
+                    page.locator(f'[data-image-sha="{second}"]').click()
+                    self.assertEqual(page.locator('#image-sha').input_value(), first)
+                    page.select_option('#selected-trip', '')
+                    self.assertEqual(page.locator('#selected-trip').input_value(), self.trip)
+                    self.assertTrue(page.evaluate("() => {const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented}"))
+                    page.close()
+            finally:
+                browser.close()
+
+    def test_mixed_upload_failure_retry_and_pdf_page_recovery(self):
+        from app import local_receipt_ocr
+        rendered = {'pages': [
+            {'image': review.PNG, 'text': '', 'suggestions': {}},
+            {'image': review.PNG, 'text': '', 'suggestions': {}},
+        ]}
+        with patch.object(local_receipt_ocr, 'recognize_pdf', return_value=rendered), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.set_input_files('#img-file', [
+                    {'name': 'receipt.png', 'mimeType': 'image/png', 'buffer': review.PNG},
+                    {'name': 'receipt.pdf', 'mimeType': 'application/pdf', 'buffer': b'%PDF-1.7 synthetic'},
+                    {'name': 'bad.png', 'mimeType': 'image/png', 'buffer': b'invalid'},
+                ])
+                self.assertEqual(page.locator('#selected-files li').count(), 3)
+                page.click('#img-go')
+                page.get_by_role('button', name='다시 시도').wait_for()
+                self.assertEqual(page.locator('#upload-results p').count(), 3)
+                self.assertEqual(len(self.request('/api/receipts')[1]['pdfs']), 1)
+                self.assertIn('원본 저장됨', page.locator('#upload-results p').nth(0).inner_text())
+                self.assertIn('2페이지', page.locator('#upload-results p').nth(1).inner_text())
+                page.get_by_role('button', name='다시 시도').click()
+                page.get_by_role('button', name='다시 시도').wait_for()
+                self.assertEqual(page.locator('#upload-results p').count(), 3)
+                self.assertEqual(len(self.request('/api/receipts')[1]['pdfs']), 1)
+                page.get_by_role('button', name='실패 파일 제거').click()
+                page.reload()
+                pdf = page.locator('section[aria-label="저장된 파일"] > ul > li').filter(has_text='receipt.pdf')
+                pdf_pages = pdf.locator('[data-manual-image]')
+                self.assertEqual(pdf_pages.count(), 2)
+                pdf_pages.first.click()
+                self.assertTrue(page.locator('#r-merchant').is_visible())
+                self.assertEqual(page.locator('#image-sha').input_value(),
+                                 self.request('/api/receipts')[1]['pdfs'][0]['pages'][0])
+            finally:
+                browser.close()
+
     def _answers(self, path, **kwargs):
         """Fixed answers: the first photo has two receipts and a third appears only on re-reading."""
         name = Path(path).stem
@@ -58,7 +171,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     for width in WIDTHS:
                         page = browser.new_page(viewport={'width': width, 'height': 900})
                         page.goto(self.base + '/receipts')
-                        self.assertEqual(page.locator('h1').inner_text(), '영수증 정리')
+                        self.assertEqual(page.locator('h1').inner_text(), '영수증 처리')
                         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
                         if width == 390 and shots:
                             page.screenshot(path=os.path.join(shots, 'p0-start-390.png'), full_page=True)
@@ -69,9 +182,9 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     for index, colour in enumerate((b'\xff\x00\x00', b'\x00\xff\x00', b'\x00\x00\xff'), start=1):
                         page.set_input_files('#img-file', files=[{'name': f'p{index}.png', 'mimeType': 'image/png',
                                                                  'buffer': review.make_png(colour)}])
-                        with page.expect_navigation():
-                            page.click('#img-go')
-                        page.wait_for_load_state()
+                        page.click('#img-go')
+                        page.wait_for_function("document.querySelectorAll('#upload-results p').length >= " + str(index))
+                        page.wait_for_function("[...document.querySelectorAll('#upload-results p')].every(p=>p.textContent.includes('원본 저장됨'))")
                     self.photos = [s for s in page.eval_on_selector_all('.photo-check', 'els=>els.map(e=>e.value)')]
                     self.assertEqual(len(self.photos), 3)
                     self.assertEqual(page.eval_on_selector_all('.photo-check:checked', 'els=>els.length'), 3)
@@ -82,6 +195,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertEqual(page.locator('.receipt-region-box:not([hidden])').count(), 2)
                     self.assertEqual(page.get_by_text('영역 미확인', exact=False).count(), 1)
                     self.assertIn('후보', page.locator('.photo-state').first.inner_text())
+                    self.assertIn('후보 2건', page.locator(f'[data-upload-page="{self.photos[0]}"]').first.inner_text())
                     if shots:
                         page.screenshot(path=os.path.join(shots, 'p1-results-390.png'), full_page=True)
                     self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
@@ -96,6 +210,8 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                     self.assertEqual(len(candidates), 3)
                     self.assertEqual({candidate['merchant'] for candidate in candidates},
                                      {'SHOP A', 'FERRY', 'CAFE'})
+                    self.assertIn('등록된 영수증 2건', page.locator(f'[data-upload-page="{self.photos[0]}"]').first.inner_text())
+                    self.assertIn('trip=' + self.trip, page.locator('[data-receipt-link]').first.get_attribute('href'))
                     self.assertEqual({c['merchant']: c['box'] for c in candidates},
                                      {'SHOP A': [0.1, 0.1, 0.4, 0.4], 'FERRY': [0.6, 0.1, 0.9, 0.4], 'CAFE': None})
                     self.assertTrue(all(candidate['trip_id'] == self.trip for candidate in candidates))
