@@ -52,8 +52,8 @@ def test_cleanup_reasons_are_exclusive_and_filtered_on_the_full_population(tmp_p
         all_html = render_expense_cleanup(board, 'csrf')
         assert cleanup_total(board) == 26
         assert "거래·장부 상태 상세 · 26건 · 사용자 요청 아님" in all_html
-        assert "분류 상태 3건" in all_html
-        assert "내부 기록 상태 22건" in all_html
+        assert "cleanup_reason=classification#expense-cleanup'>분류 상태 <span class='cleanup-filter-count'>3건</span>" in all_html
+        assert "cleanup_reason=recording#expense-cleanup'>내부 기록 상태 <span class='cleanup-filter-count'>22건</span>" in all_html
         classification = render_expense_cleanup(board, 'csrf', reason='classification')
         assert f"data-transaction='{ids[0]}'" in classification
         assert f"data-transaction='{ids[1]}'" in classification

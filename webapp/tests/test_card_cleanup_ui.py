@@ -307,9 +307,9 @@ def test_cleanup_render_exposes_filter_controls_and_preserves_non_owner_boundary
         store.conn.commit()
 
         c_pop = card_flow.render_expense_cleanup(store, "csrf-test")
-        assert "전체 거래·장부 행 3건" in c_pop
-        assert "분류 상태 2건" in c_pop
-        assert "원본·보호 상태 1건" in c_pop
+        assert "cleanup_reason=all#expense-cleanup' aria-current='page'>전체 거래·장부 행 <span class='cleanup-filter-count'>3건</span>" in c_pop
+        assert "cleanup_reason=classification#expense-cleanup'>분류 상태 <span class='cleanup-filter-count'>2건</span>" in c_pop
+        assert "cleanup_reason=evidence#expense-cleanup'>원본·보호 상태 <span class='cleanup-filter-count'>1건</span>" in c_pop
         assert "결제·환불 확인 0건" not in c_pop
         assert "<p class='cleanup-filter-total'>" not in c_pop
     finally:

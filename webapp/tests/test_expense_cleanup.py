@@ -586,9 +586,9 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         assert '\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74' in html
         assert '\uac70\ub798\u00b7\uc7a5\ubd80 \uc0c1\ud0dc \uc0c1\uc138 \u00b7 5\uac74 \u00b7 \uc0ac\uc6a9\uc790 \uc694\uccad \uc544\ub2d8' in html
         assert "<details class='cleanup-diagnostics'>" in html
-        assert '\ubd84\ub958 \uc0c1\ud0dc 3\uac74' in html
-        assert '\ub0b4\ubd80 \uae30\ub85d \uc0c1\ud0dc 1\uac74' in html
-        assert '\uc6d0\ubcf8\u00b7\ubcf4\ud638 \uc0c1\ud0dc 1\uac74' in html
+        assert "cleanup_reason=classification#expense-cleanup'>분류 상태 <span class='cleanup-filter-count'>3건</span>" in html
+        assert "cleanup_reason=recording#expense-cleanup'>내부 기록 상태 <span class='cleanup-filter-count'>1건</span>" in html
+        assert "cleanup_reason=evidence#expense-cleanup'>원본·보호 상태 <span class='cleanup-filter-count'>1건</span>" in html
         assert '\ucc98\ub9ac \ud544\uc694\ud55c \uac70\ub798' not in html
         assert '\ubd84\ub958\u00b7\ubc30\uc815 \ud544\uc694 3\uac74' not in html
         assert '\uae30\ub85d \ub300\uae30' not in html
