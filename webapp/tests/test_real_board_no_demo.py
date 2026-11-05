@@ -239,17 +239,15 @@ class RealStoreBoardTests(unittest.TestCase):
         self.assertIn("실제 지출", bundle)
         self.assert_no_example_data(bundle, "the fragment")
 
-    def test_the_badge_reports_the_persisted_count_not_synthetic_data(self):
-        """The badge said 합성 자료 on a store serving its own rows, which is false.
-
-        It now reports the number of rows the store holds, which is the number the
-        board is rendering and the reader can check.
-        """
+    def test_real_data_keeps_accurate_counts_without_a_global_header_badge(self):
+        """UIR01 removes global counts from titles; real rows stay visible."""
         self.assertEqual(board_mod.data_status_mark(), "장부 기록 0건")
         self.expense()
         self.assertEqual(board_mod.data_status_mark(), "여행 1개 · 장부 기록 1건")
         _status, page = self.get(f"/board?tab={self.trip}")
-        self.assertIn("장부 기록 1건", page)
+        self.assertIn("실제 지출", page)
+        self.assertNotIn("장부 기록 1건", page)
+        self.assertNotIn("<span class='synth'>", page)
         self.assertNotIn(board_mod.SYNTHETIC_MARK, page)
 
     def test_a_seeded_store_still_says_synthetic_data(self):
@@ -265,6 +263,9 @@ class RealStoreBoardTests(unittest.TestCase):
             board_mod.bind_store(seeded)
             self.assertEqual(board_mod.data_status_mark(),
                              board_mod.SYNTHETIC_MARK)
+            # Removing global counts must retain the warning on example data.
+            page = ledger_design._head_html(seeded.get_trip("trip-demo-a"))
+            self.assertIn(f"<span class='synth'>{board_mod.SYNTHETIC_MARK}</span>", page)
             # and one row of its own takes it off the example board
             seeded.create_manual_expense(
                 fields={"display_tab_id": "trip-demo-a",
