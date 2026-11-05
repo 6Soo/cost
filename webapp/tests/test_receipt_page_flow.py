@@ -97,6 +97,26 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
             finally:
                 browser.close()
 
+    def test_upload_timeout_reports_unknown_storage_and_keeps_retry(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.evaluate("""() => {
+                  const real = window.setTimeout;
+                  window.setTimeout = (fn, ms, ...args) => real(fn, ms === 120000 ? 20 : ms, ...args);
+                }""")
+                page.route('**/api/receipts/image', lambda route: None)
+                page.set_input_files('#img-file', {'name': 'timeout.png', 'mimeType': 'image/png', 'buffer': review.PNG})
+                page.click('#img-go')
+                page.get_by_role('button', name='다시 시도').wait_for()
+                self.assertIn('저장 여부 확인 필요', page.locator('#upload-results').inner_text())
+                self.assertIn('응답 시간이 초과', page.locator('#upload-results').inner_text())
+                self.assertTrue(page.evaluate("() => {const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented}"))
+            finally:
+                browser.close()
+
     def test_mixed_upload_failure_retry_and_pdf_page_recovery(self):
         from app import local_receipt_ocr
         rendered = {'pages': [
