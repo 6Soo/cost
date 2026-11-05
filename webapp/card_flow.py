@@ -3606,7 +3606,7 @@ el('upload').onclick=async()=>{
   await Promise.all(received.files.map(processFile));
   notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
   if(generation!==batchGeneration)return;
-  await refreshCoverageSummary();
+  if(typeof refreshCoverageSummary==='function')await refreshCoverageSummary();
   const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
@@ -3631,9 +3631,10 @@ function loadCardReviewBatches(){call('/api/imports').then(j=>{
   const items=coverageNode('div','batch-list');
   for(const b of files){
    const wrap=coverageNode('p','');const button=coverageNode('button','batch-choice',
-     b.filename+' · 거래 발생기간 '+(b.period_start||'확인 불가')+' ~ '+(b.period_end||'확인 불가')+
+     b.display_name+' · 거래 발생기간 '+(b.period_start||'확인 불가')+' ~ '+(b.period_end||'확인 불가')+
      ' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':''));
-   button.type='button';button.addEventListener('click',()=>loadBatch(b.batch_id));wrap.append(button);items.append(wrap);
+   button.dataset.batch=b.batch_id;button.type='button';
+   button.addEventListener('click',()=>loadBatch(b.batch_id));wrap.append(button);items.append(wrap);
   }group.append(items);container.append(group);
  }
  if(!groups.size)container.append(coverageNode('p','','아직 저장된 카드 자료가 없습니다.'));
