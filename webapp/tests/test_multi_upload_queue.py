@@ -55,11 +55,11 @@ const context={el,localStorage,document:{createElement:element},Date,Error,JSON,
   invalidateProposal(){},appendCoverageForm(){},render:j=>{rendered=j},renderUploadSystemError(){},loadBatch:async batch=>{context.loaded=batch},
   renderUploadSelection:()=>Array.from({length:10},(_,i)=>({name:(i+1)+'.csv',arrayBuffer:async()=>Buffer.from('synthetic '+i)})),
   call:async(url,data)=>{assert.equal(url,'/api/imports/upload-batch');return {files:data.files.map(file=>{const n=Number(file.name.split('.')[0]);posts.push(n);return {filename:file.name,status_url:identity(n),batch_id:String(n)}})}},
-  fetch:async url=>{const n=Number(url.split('/').at(-1));
-    if(!url.includes('upload-status')){
+  fetch:async url=>{const n=Number(url.split('?')[0].split('/').at(-1));
+    if(url.includes('?batch=')){
       if(mode==='recovery-offline'||mode==='recovery-refresh-offline')throw Error('offline');
       if(mode==='recovery-auth')return {ok:false,status:401};
-      return {ok:true,status:200,json:async()=>({batch_id:String(n),rows:[{classification_state:mode==='recovery-pending'?'unclassified':'classified'}],preview:{},summary:{}})};
+      return {ok:true,status:200,json:async()=>({status:'saved',result:{batch_id:String(n),recovery:{pending:mode==='recovery-pending'}}})};
     }
     if(mode==='recovery-refresh-offline'&&n===9)return {ok:true,status:200,json:async()=>({status:'done',result:{refresh_required:true}})};
     if((mode==='restart-expired'||mode.startsWith('recovery-'))&&n===9)return {ok:false,status:404};
@@ -95,7 +95,8 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
   }
   await finished;
   assert.deepEqual(posts,[1,2,3,4,5,6,7,8,9,10]);
-  assert.equal(rendered.batch_id,'10');
+  assert.equal(rendered.batch_id,mode==='refresh-required'?'9':'10');
+  assert.ok(!rendered.recovered_upload,'Counts-only recovery must not reach the full transaction renderer');
   assert.ok(!rendered.refresh_required,'Unavailable projection must never reach the renderer');
   assert.equal(el('upload').disabled,false);assert.equal(el('file').disabled,false);
   assert.ok(!el('status').textContent.includes('미업로드'));

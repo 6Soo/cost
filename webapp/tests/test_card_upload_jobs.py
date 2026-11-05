@@ -12,6 +12,42 @@ from webapp import card_flow, card_upload_jobs, ledger_board
 from webapp.ledger_store import LedgerStore
 
 
+def test_durable_summary_is_read_only_handles_duplicates_and_retains_incomplete(tmp_path):
+    import sqlite3
+    path = tmp_path/'counts.sqlite'
+    conn = sqlite3.connect(path)
+    conn.executescript('''CREATE TABLE import_batches(batch_id TEXT,status TEXT,row_count INTEGER,error_count INTEGER);
+        CREATE TABLE import_batch_rows(batch_id TEXT,transaction_id TEXT);
+        CREATE TABLE transactions(transaction_id TEXT,classification_state TEXT);''')
+    batch = 'batch-'+'a'*24
+    conn.execute('INSERT INTO import_batches VALUES (?,?,?,?)', (batch,'parsed',3,0))
+    # Two identical source rows may collapse into one transaction; source count
+    # equality must not be a completion condition.
+    conn.executemany('INSERT INTO import_batch_rows VALUES (?,?)', [(batch,'one'),(batch,'two')])
+    conn.executemany('INSERT INTO transactions VALUES (?,?)', [('one','classified'),('two','classified')])
+    conn.commit()
+    board = SimpleNamespace(path=path)
+    before = path.read_bytes()
+    result, code = card_upload_jobs.status(board, 'expired', saved_batch=batch)
+    assert code == 200 and result['status'] == 'saved'
+    assert result['result']['recovery'] == {'pending':False, 'source_rows':3,
+        'transaction_count':2, 'classified_count':2, 'error_count':0}
+    assert 'rows' not in result['result'] and 'upload_summary' not in result['result']
+    assert path.read_bytes() == before
+    conn.execute("UPDATE transactions SET classification_state='needs_review' WHERE transaction_id='two'")
+    conn.commit()
+    assert card_upload_jobs.saved_status(board,batch)[0]['result']['recovery']['pending']
+    conn.execute("DELETE FROM transactions WHERE transaction_id='two'")
+    conn.commit()
+    assert card_upload_jobs.saved_status(board,batch)[0]['result']['recovery']['pending']
+    assert card_upload_jobs.saved_status(board,'batch-'+'b'*24)[1] == 404
+    assert card_upload_jobs.saved_status(board,"' OR 1=1")[1] == 400
+    conn.close()
+    missing = tmp_path/'missing.sqlite'
+    assert card_upload_jobs.saved_status(SimpleNamespace(path=missing),batch)[1] == 503
+    assert not missing.exists()
+
+
 @pytest.mark.parametrize('batch_upload', [False, True])
 def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypatch, batch_upload):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
@@ -67,6 +103,13 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
         assert entered.wait(3)
         with urlopen(base+ack['status_url'], timeout=2) as response:
             assert json.load(response)['status'] == 'running'
+        # Durable recovery must bypass the writer lock as well, using its own
+        # read-only connection while classify owns the shared store connection.
+        with urlopen(base+ack['status_url']+'?batch='+ack['batch_id'], timeout=2) as response:
+            saved = json.load(response)
+        assert saved['status'] == 'saved'
+        assert saved['result']['recovery']['pending'] is True
+        assert saved['result']['recovery']['transaction_count'] == 1
         with urlopen(base+'/import', timeout=2) as response:
             assert b'awaitUpload' in response.read()
         release.set()

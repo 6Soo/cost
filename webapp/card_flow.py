@@ -2053,7 +2053,8 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         if current_role() != 'owner':
             handler._send_json({'code': 'FORBIDDEN'}, 403)
         else:
-            result, code = card_upload_jobs.status(board, parsed.path.rsplit('/', 1)[-1])
+            saved_batch = ((query or {}).get('batch') or [None])[0]
+            result, code = card_upload_jobs.status(board, parsed.path.rsplit('/', 1)[-1], saved_batch=saved_batch)
             handler._send_json(result, code)
         return True
     try:
@@ -3456,12 +3457,12 @@ function uploadRow(entry,name,message,tone='pending'){
 function uploadResultList(root){root.hidden=false;root.innerHTML='<h3>파일별 처리 결과</h3><p class="upload-result-notice" role="status"></p><ul class="upload-result-list"></ul>';return {note:root.querySelector('p'),list:root.querySelector('ul')}}
 function uploadErrorRow(entry,job,error){uploadRow(entry,job.filename,(error.savedBatch?'':'접수 실패 · ')+error.message,error.auth?'auth':error.savedBatch?'pending':'error');if(error.savedBatch)savedUploadLink(entry,error.savedBatch)}
 async function recoverUpload(job){
- const response=await fetch('/api/imports/'+encodeURIComponent(job.batch_id),{cache:'no-store',signal:AbortSignal.timeout(10000)});
+ const response=await fetch(job.status_url+'?batch='+encodeURIComponent(job.batch_id),{cache:'no-store',signal:AbortSignal.timeout(10000)});
  if(response.status===401||response.status===403)throw Object.assign(Error(response.status===401?'로그인 필요':'조회 권한 필요'),{terminal:true,auth:true});
  if(!response.ok)throw Error('저장된 결과 조회 재시도 중');
- const result=await response.json();
- if(result.batch_id!==job.batch_id||!Array.isArray(result.rows)||!result.preview||result.refresh_required)throw Error('저장된 결과 조회 재시도 중');
- if(result.summary?.channel!=='approval'&&result.rows.some(row=>row.classification_state!=='classified'))throw Object.assign(Error('접수 완료 · 분류 결과 확인 필요'),{terminal:true});
+ const state=await response.json(),result=state.result;
+ if(state.status!=='saved'||result?.batch_id!==job.batch_id||typeof result.recovery?.pending!=='boolean')throw Error('저장된 결과 조회 재시도 중');
+ if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 분류 결과 확인 필요'),{terminal:true});
  saveUploadJob(job,true);return {...result,recovered_upload:true};
 }
 function readUploadJobs(){try{const saved=JSON.parse(localStorage.getItem(uploadJobKey)||'null');return (Array.isArray(saved)?saved:saved?[saved]:[]).filter(job=>job?.status_url&&new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))}catch{return []}}
@@ -3534,7 +3535,7 @@ el('upload').onclick=async()=>{
   await Promise.all(received.files.map(processFile));
   notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
   if(generation!==batchGeneration)return;
-  const completed=results.filter(Boolean);if(completed.length)render(completed[completed.length-1],true);
+  const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
   el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
