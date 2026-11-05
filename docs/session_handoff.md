@@ -1,11 +1,12 @@
 ## 2026-11-05 통합 후속 실행 인계 — 자율 지출정리·WebLedgerHost HDD I/O — PARTIAL
 
-- [통합 실행계획](specs/autonomy-io-unified-followup-20261105.md) 및 [운영 기록](operations.md#2026-11-05-pr-636636-pr-644644-통합-실행-partial)을 기준으로 한다. #646은 `40ea7f9d`, #652는 `f7ff4ec4`로 병합·CI 통과했다. 운영 앱 SHA는 PR #653 `79a3c573`; 문서 PR #654/#655/#656 이후 최신 main은 `015312c4fb1c313021eca6dbf6e3c7360d315e94`이다.
-- **현재 Board 운영:** PR #653의 공식 전환 evidence는 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`, 1,383 files·blob mismatch0·runtime SHA 확인, 단일 listener·8751, health/ready 200·보호 API 401·보호13표 불변을 기록한다. 첫 `f7ff4ec4` 배포 시도는 포트 점유에서 안전 중단됐지만 PR #653이 뒤이어 8751로 전환을 완료했다. 현재 task Running이며 자율정리 worker·AI 분류·Gateway·OTA 핵심 파일 해시가 main과 일치한다. 8752는 비활성이다.
-- **Gateway:** `WebLedger-Gateway` 예약 작업의 다음 실행 경로는 검증된 릴리스 `f7ff4ec4`로 갱신했다. 현재 PID는 재시작하지 않았고, 실행 중 파일과 검증 파일 SHA-256이 일치한다. task principal·trigger·settings 및 route는 그대로다.
-- **자율 지출정리:** 운영 `autonomous_ai_review=true`; 08:53 KST 마지막 상태는 `state=idle`, passes333, P2 적용0, 재시도18, dead20, blocked400, due0, failures0이며 이후 상태 파일 갱신은 없다. 정상 네트워크 경로의 격리 synthetic OpenCode 호출은 timeout. 프록시 우회·한도 초기화·강제 재처리는 하지 않았다. #652 descendant 코드는 현재 main과 일치하지만 운영 처리 효과는 미확인이다.
-- **HDD/UI:** D: 격리 Gateway 15분 A/B에서 status 원자 교체는 886→31(-96.5%), NTFS USN은 6,202→216건이었다. 물리 전체 쓰기는 132.9→221.0 MB, busy 0.672→0.945%로 개선을 입증하지 못했다. 상세는 [HDD 명세](specs/webledger-idle-io-optimization-20261105.md). 320/390px 화면에 가로 넘침은 없었지만 인증 지출정리 UI는 미확인이다.
-- 남은 수락 단계는 승인된 outbound 경로에서 실제 P2 성공 증명 및 후속 자동 코드 결함 재처리 확인이다. 현재 P2 적용0/due0, 상태 파일은 08:53:56 이후 갱신되지 않았다. 로그인 UI는 확인하지 않았다. 금융/Google 원본 쓰기 및 강제 재처리는 수행하지 않는다.
+- 최신 실행 기록은 [통합 실행계획](specs/autonomy-io-unified-followup-20261105.md), [운영 기록](operations.md#2026-11-05-pr-658-결함-묶음-회귀-수정-배포) 및 Paseo 이어받기 run `8cae2b83-859c-47a7-ab80-d69aeed04f9e`를 기준으로 한다. PR #646·#652·#658이 병합됐다. 앱 운영 SHA는 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`이다.
+- **현재 Board/Gateway:** 공식 단일 작성자 전환이 완료됐다. 앱 task/process SHA가 `b3b1bb90`과 일치하고 route는 8752, Gateway는 8790이다. health/ready 200, 비인증 보호 API 401, 보호 테이블 13개 전후 동일. 배포 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-b3b1bb9098b2c88d23ba5653bcd7e90afd684135.json`이다. Google 및 금융 업무 쓰기 0.
+- **결함 탐지·재처리:** PR #658은 PR #631에서 해결된 과거 날짜 alias 충돌 108건이 코드 결함 대기열로 다시 묶이는 오탐을 지문으로 제외한다. 합성 회귀와 장애 복구 검증, PR/main CI, 운영 배포를 완료했다. 운영 DB 읽기 전용 재평가에서 과거 108건 묶음은 새 코드에서 제외됐고 거래 원행·충돌 플래그·Google에는 쓰지 않았다.
+- **동시 복구:** 합성 통합 검사에서 Gateway가 응답하는 동안 워커 provider 실패를 재시도한 뒤 성공 처리했다. 금액 합계·거래 수·보호 테이블 집계는 동일했다. 실제 배포에서는 보호13표 불변과 인증 경계도 확인했다.
+- **P1→P2:** 미완료. 마지막 관측에서도 P2 적용은 0건이며 격리 정상 네트워크 provider 호출이 timeout됐다. 인증/프록시 우회·일일 한도 초기화·강제 금융 재처리는 하지 않았다.
+- **HDD/UI:** D: NTFS USN 비교에서 Gateway status 6,202→216, OTA snapshot 82→44, 항공권 로그 90→44, 자율정리 status 222→147 기록으로 대상 파일 활동은 감소했다. 물리 디스크 전체 쓰기는 132.9→221.0 MB, 평균 busy는 0.672→0.945%로 증가해 전체 HDD 쓰기량 개선은 입증되지 않았다. 상세는 [HDD 명세](specs/webledger-idle-io-optimization-20261105.md). 인증 지출정리 UI는 미검증이다.
+- **남은 항목:** 승인된 일반 provider 경로에서 무인 P2 성공을 확인하고, process별 쓰기 바이트로 HDD 전후를 다시 측정해야 한다. 금융/Google 원본 쓰기, 대량 재처리, 우회는 수행하지 않는다.
 
 ## 2026-11-05 지출 정리 문구·인라인 편집 및 여행 장부 뷰어 UI 개편 — 완료
 
