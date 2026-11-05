@@ -126,6 +126,9 @@ body.site-standalone:has(#img-file){max-width:none}
  .site-app>.nav-mask{position:fixed;inset:0;background:var(--shell-overlay,rgba(16,24,40,.38));z-index:44}
  #site-content{margin-left:0;width:100%;padding:12px}
 }
+@media (prefers-reduced-motion: reduce) and (width >= 760px) {
+ .site-app>#nav{transition:none}
+}
 @media (prefers-reduced-motion: reduce) and (width < 760px) {
  .site-app>#nav{transform:none;opacity:0;visibility:hidden;transition-property:opacity,visibility;transition-duration:150ms,0s;transition-delay:0s,150ms}
  .site-app>#nav.open{opacity:1;visibility:visible;transition-delay:0s}
