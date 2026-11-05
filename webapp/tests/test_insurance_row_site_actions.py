@@ -36,13 +36,14 @@ def test_closed_and_async_insurance_rows_keep_same_height_and_keyboard_disclosur
                     page.wait_for_function("[...document.querySelectorAll('.participant-link-details > summary')].every(s=>!s.classList.contains('site-action'))")
                     heights=page.locator('#income-tbl tbody tr').evaluate_all('(rows)=>rows.map(r=>r.getBoundingClientRect().height)')
                     assert max(heights)-min(heights)<1,heights
-                    assert heights[0]==(93 if width<760 else 45),heights
+                    assert heights[0]==(72 if width<760 else 36),heights
                     candidate=page.locator('#candidate button')
                     assert 'site-action' not in (candidate.get_attribute('class') or '')
                     controls=page.locator('#linked summary,#unlinked button,#candidate button')
                     styles=controls.evaluate_all("els=>els.map(el=>{const s=getComputedStyle(el);return [s.minHeight,s.padding,s.border,s.borderRadius,s.font,s.color,s.backgroundColor]})")
                     assert all(style==styles[0] for style in styles),styles
-                    assert controls.evaluate_all("els=>els.every(el=>el.getBoundingClientRect().height===44)")
+                    assert controls.evaluate_all("els=>els.every(el=>el.getBoundingClientRect().height===24)")
+                    assert controls.evaluate_all("els=>els.every(el=>{const s=getComputedStyle(el);return s.borderWidth==='0px' && s.backgroundColor==='rgba(0, 0, 0, 0)' && s.color===getComputedStyle(el.closest('td')).color})")
                     assert 'site-action' not in (page.locator('#unlinked button').get_attribute('class') or '')
             summary=page.locator('#linked summary')
             summary.focus();page.keyboard.press('Enter')
