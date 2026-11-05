@@ -60,7 +60,7 @@ STYLE = """
 .trip-management-controls{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
 .page-hd>.act{flex:1 1 340px;max-width:100%;justify-content:flex-end}.page-hd{flex-wrap:wrap}
 .trip-management-controls form{margin:0}.trip-management-controls button,.trip-settings>summary{min-height:44px}
-.trip-settings{position:relative}.trip-settings>summary{padding:10px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.trip-settings{position:relative}.trip-settings>summary{margin:0;padding:10px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
 .trip-settings>div{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--paper);width:min(360px,100%);box-sizing:border-box}
 .trip-info-form{display:grid;gap:12px}.trip-info-form label{display:grid;gap:4px}
 .trip-info-form input{min-width:0;max-width:100%;min-height:44px;box-sizing:border-box}
