@@ -192,6 +192,7 @@ def start(board, handler, flow, received, source_file, inspection):
 def process(board, handler, flow, received, source_file, inspection, progress=lambda message: None):
     from . import ota_payment_review
     from .card_completion_worker import finish_jobs
+    from app.db import StoreError
     recovery = getattr(board, '_card_completion_worker', None)
     try:
         progress('카드 분류 중')
@@ -238,6 +239,7 @@ def process(board, handler, flow, received, source_file, inspection, progress=la
             # Sparse transaction dates are never promoted to query metadata.
             proof = coverage['evidence']
             if (coverage['available'] and not recorded['coverage_confirmed']
+                    and recorded.get('upload_summary', {}).get('status', 'passed') in ('passed', 'empty')
                     and coverage.get('metadata', {}).get('full_query_explicit')
                     and not coverage.get('blocked')
                     and all(proof.get(k) for k in ('card_id','date_basis','start_date','end_date'))):
