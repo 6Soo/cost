@@ -24,9 +24,52 @@ def batch_inspection(board, batch_id):
 
 
 def get_coverage_summary(board, **filters):
+    """One read-only view for card periods, gaps and uploaded source files.
+
+    Query periods come only from validated coverage events, never transaction
+    date minima/maxima or source filenames. Unconfirmed files remain visible
+    for the owner without being represented as covered intervals.
+    """
     if not available(board.conn):
-        return dict(available=False, coverages=[], gaps=[], rechecks=[])
-    return dict(CoverageStore(board.conn).summary(**filters), available=True)
+        return dict(available=False, coverages=[], gaps=[], rechecks=[], files=[],
+                    summary=dict(cards=0, axes=0, gaps=0, recheck_files=0))
+    store = CoverageStore(board.conn)
+    result = dict(store.summary(**filters), available=True)
+    events = store._records()
+    by_batch = {}
+    for entry in events:
+        by_batch.setdefault(entry.get('batch_id'), []).append(entry)
+    # Read small metadata only. In particular, never load stored source bytes
+    # or recompute all card classifications on each dashboard refresh.
+    rows = board.conn.execute(
+        'SELECT b.batch_id,b.filename,b.status,b.row_count,b.error_count,b.received_at,'
+        'COUNT(DISTINCT x.transaction_id) '
+        'FROM import_batches b LEFT JOIN import_batch_rows x ON x.batch_id=b.batch_id '
+        'GROUP BY b.batch_id ORDER BY b.received_at DESC,b.batch_id DESC LIMIT 201'
+    ).fetchall()
+    files = []
+    for batch_id, filename, status, rows_count, errors, received_at, unique_count in rows[:200]:
+        proofs = by_batch.get(batch_id, [])
+        confirmed = [p for p in proofs if p.get('confirmed')]
+        latest = proofs[-1] if proofs else {}
+        files.append(dict(batch_id=batch_id, filename=filename,
+                          status=status, row_count=rows_count, unique_rows=unique_count,
+                          error_count=errors, received_at=received_at,
+                          card_id=latest.get('card_id', ''), issuer=latest.get('issuer', ''),
+                          card_tail=latest.get('card_tail', ''),
+                          date_basis=latest.get('date_basis', ''),
+                          source_scope=latest.get('identity_scope', ''),
+                          confirmed_periods=[dict(start=p['start_date'], end=p['end_date'],
+                                                  date_basis=p['date_basis']) for p in confirmed],
+                          coverage_status='confirmed' if confirmed else
+                                          ('recheck' if proofs else 'unknown')))
+    result['files'] = files
+    result['has_more_files'] = len(rows) > 200
+    result['summary'] = dict(cards=len(set(c['card_id'] for c in result['coverages'])),
+                             axes=len(result['coverages']),
+                             gaps=sum(len(g['gaps']) for g in result['gaps']),
+                             recheck_files=sum(f['coverage_status'] != 'confirmed' for f in files))
+    return result
 
 
 def record_coverage(board, batch_id, evidence):
