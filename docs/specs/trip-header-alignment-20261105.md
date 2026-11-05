@@ -1,21 +1,30 @@
-# 여행 상단 버튼 정렬 교정 (2026-11-05)
+﻿# 여행 헤더·본문 작업 배치 교정 (2026-11-05)
 
-상태: PARTIAL — 정렬 수정·브라우저·독립 리뷰·PR CI 완료. 사용자 추가 답변에 따른 배치·구성 최종 요구 확인 중, PR #690 DRAFT, 병합·운영 미반영.
+상태: IMPLEMENTED — 최신 사용자 배치 구현·표적 검사 완료, 최종 영향 QA·독립 리뷰·병합·운영 배포 진행 중.
 
-목적: 첨부 화면에서 여행 관리만 아래로 내려간 문제를 수정한다. 변경 동작은 여행 헤더 펼침 버튼의 바깥 여백 제거이며 직접 영향은 `/board`의 여행 관리 열기/닫기다. 금융·Google·원본·API·DB 업무 쓰기는 변경하지 않는다. 종료 조건은 정렬/키보드/반응형 확인, 독립 리뷰, CI 정상 병합과 검증 SHA 운영 반영이다.
+## 최신 수락 계약
 
-원인: 공통 `summary.site-action`의 `margin:8px 0`가 여행 상단에도 적용됐다. 브라우저 1440px에서 마감/예약/출력 top68px, 여행 관리 top76px로 8px 차이를 재현했다. 기존 헤더 검사는 문구·노출만 확인해 이 차이를 검출하지 않았다. 최초 도입/배포 당시 전체 검증 과정을 이번 조사로 단정하지 않는다.
+사용자 최종 답변: **헤더에는 XLSX 출력만, 나머지는 본문 작업 영역으로 이동.** 이전의 여행 관리 상단 통합 기록보다 이 답변을 우선한다. 헤더의 마감/여행 관리/예약·참가자를 모두 제거하고 본문 `여행 작업` 툴바에 이동한다. 기존 보험가입내역·여행 검토·수기 지출 추가와 같은 영역에서 사용하며 좁은 화면은 줄바꿈한다. 기능·권한·CSRF·revision·동일 여행 복귀·원본/금융/Google 보호를 유지한다.
 
-수정: `trip_management_ui.py`의 `.trip-settings>summary`에 `margin:0`을 지정한다. 공통 펼침 버튼의 여백·테마·native details 동작은 유지한다.
+## 원인과 수정
 
-검증: 새 geometry 회귀는 수정 전 320/390/760/1440px 모두 8px 차이로 실패했고 수정 후 1 passed + 4 subtests passed다. 높이 동등성, 가로 넘침, Enter로 열기/닫기, 정보 저장 버튼 접근을 확인했다. 초기 합성 fixture의 requests 테이블 누락은 테스트 안에서 기존 schema와 같은 빈 테이블을 생성해 해결했다. 고객 데이터는 사용하지 않는다.
+초기 첨부에는 `summary.site-action`의 margin8px 때문에 여행 관리가 다른 버튼보다 8px 내려가는 문제도 있었다. 정렬만 수정한 첫 범위는 사용자의 배치·구성 지시를 충족하지 않아 PR690을 초안으로 유지했다. 최종 답변으로 제품 요구를 확정해 배치까지 수정했다.
 
-로컬 증거: `.local-archive/trip-header-align-20261105/`의 before/after PNG, browser-results.json. `better-interface`, better-layout/ui/typography/colors/accessibility/writing 지침을 읽어 대상 영역에 적용했다. 별도 Luna medium interface-review Approve. Ego 4폭×라이트/다크 8조건 높이44px·정렬·넘침0·Enter 열닫 확인, 렌더링 문자 대비 light17.85/dark13.98. 실제 스크린리더·실기기 검증은 미실행이다.
+- `ledger_design.py`: `_head_html`에는 XLSX만 표시, `_trip_actions`로 기존 관리폼과 예약 링크를 이동. 기존 endpoint와 필드·기능을 재사용한다.
+- `ledger_design.css`: 본문 툴바의 flex-wrap을 허용해 작은 화면에서 겹침 없이 배치한다.
+- `trip_management_ui.py`: 펼침 버튼의 바깥 여백0을 유지한다.
+- 회귀: 헤더 출력 전용, 본문 관리/예약 위치, 버튼 높이·정렬·넘침, 키보드 열닫, 예약 iframe과 여행 맥락을 실제 제품 서버에서 검사한다. 기존 툴바 검사는 줄바꿈과 이동된 직접 링크를 반영한다.
 
-## 최신 사용자 범위 교정과 재개
+## 검증 근거
 
-사용자는 최초 질문에 ‘버튼 배치·구성도 변경 지시했음’이라고 답했다. 정렬만 수정한 것을 전체 완료로 판단하지 않는다. 기록상 헤더 XLSX 단독(#638~640)과 이후 마감·여행관리 상단 통합(#642)이 함께 남아 최종 위치를 확인하는 질문을 전달했다. 답변 전 배치 관련 변경·병합·배포는 실행하지 않는다. 이미 확인한 margin0 교정은 보존한다.
+기존 정렬 변경2436f8ac는 308 passed·66 subtests·skip0, 필수브라우저30개 전건, CI42036855880 SUCCESS였다. 이는 최종 배치 변경의 검증을 대체하지 않는다. 병렬 root user_action_queue 미커밋 영향의 QA는 중단했고 사용자/타 작업 변경을 보존했다.
 
-코드 커밋2436f8ac, [PR690](https://github.com/6Soo/cost/pull/690), CI42036855880 SUCCESS. 보험 선행8a206b7c는 별도PR689로 통합하며 중복diff를 제거해 확인한다. 병렬 root user_action_queue 미커밋은 타 작업으로 보존했다. root QA는 이 미커밋 영향으로 중단했고 별도 C:/AX/cost-trip-header-qa-20261105의 정확2436f8ac에서 영향QA를 재실행해 308 passed·66 subtests passed·skip0·필수브라우저30개 누락0·compile통과를 확인했다. 결과 .local-archive/trip-header-align-20261105/isolated-quality.log. 검사 head는 2436f8ac7b74d20617d12a1cab8330c0e155f194, base는 ae64bd19c29f6a5347212f53c25408f870e283ac다. 재개 시 TaskSpace36을 재사용하고 정확 검사 worktree는 C:/AX/cost-trip-header-qa-20261105다.
+최종 배치 표적: 13 passed·9 subtests passed. 헤더/본문/마감·예약·권한·동일 여행 연결 검사를 포함한다. 추가 geometry2검사·4subtests도 통과했다. 최종 브라우저 증거는 `.local-archive/trip-header-align-20261105/placement-*.png`, `placement-results.json`; 이전 정렬 PNG와 결과도 별도 보존한다. 실고객 자료는 사용하지 않는다.
 
-다음 작업: 사용자 배치 답변 확인 → ledger_design.py _head_html/_trip_actions 해당 영역만 수정 → 영향 검사와 독립 리뷰 → 최종범위 PR본문 갱신 → 정상병합·조율된 단일배포. 추가 동시작성자는 해당 함수 소유권을 먼저 조율한다. 운영·Google·실고객 자료 쓰기0.
+`better-interface`, better-layout/ui/typography/colors/accessibility/writing 및 ui-ux-pro-max 지침을 읽어 적용했다. 정렬 단계 독립 Luna medium interface-review Approve는 최종 배치 변경을 포함하지 않아 다시 검토한다. 실제 스크린리더·실기기는 미검증이다.
+
+## 작업·배포 경계
+
+[PR690](https://github.com/6Soo/cost/pull/690)을 최신 범위로 갱신한다. 선행 보험PR689와 항공PR684는 최신 main 병합으로 보존했고 해당 코드 재구현은 없다. 작업공간 `C:/AX/cost-trip-header-qa-20261105`, root는 타 작업 user_action_queue 변경을 보존하므로 수정하지 않는다. Ego TaskSpace36 재사용.
+
+다음: 최종 영향QA → 독립 UI 리뷰 → PR CI 정상 병합 → 검증 main SHA 고정 공식 단일배포 → health/ready·보호API·보호13표·배치 경로 확인 → 운영 SHA 기록. 금융·Google·고객 원본·분류·여행 배정·환불 업무 쓰기와 마이그레이션은 수행하지 않는다.

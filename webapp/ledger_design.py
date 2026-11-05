@@ -418,15 +418,12 @@ def _head_html(trip) -> str:
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
-    from . import trip_management_ui
     return (
         "<div class='page-hd trip-header'><div>"
         f"<h1>{title}{_context_badge()}</h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
-        + trip_management_ui.controls(board, trip)
-        + (_reserve_link_link_html() if trip and not trip.get('is_unclassified') else '')
         + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
@@ -1889,6 +1886,11 @@ def _trip_actions(tab_id: str, back: str) -> str:
     if board.current_role() != 'owner':
         return ''
     from .trip_insurance_policy import domestic_trip
+    from . import trip_management_ui
+    trip = _selected_trip(tab_id)
+    management = trip_management_ui.controls(board, trip)
+    reservation_link = (_reserve_link_link_html()
+                        if trip and not trip.get('is_unclassified') else '')
     links = []
     if _is_trip_tab(tab_id):
         if not domestic_trip(tab_id):
@@ -1897,7 +1899,8 @@ def _trip_actions(tab_id: str, back: str) -> str:
     controls = ''.join(
         f"<a class='btn' role='button' href='#{target}' data-trip-panel='{target}' aria-controls='{target}'>"
         f"{ui_icons.icon(icon)}<span>{label}</span></a>" for icon, label, target in links)
-    return ("<div class='trip-actions' role='group' aria-label='여행 작업'>" + controls
+    return ("<div class='trip-actions' role='group' aria-label='여행 작업'>"
+            + management + reservation_link + controls
             + f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
             + f"{ui_icons.icon('pencil')}<span>수기 지출 추가</span></a></div>")
 
