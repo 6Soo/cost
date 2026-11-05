@@ -339,6 +339,8 @@ thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
 td.c-party{white-space:normal;line-height:1.35;padding:0 6px}
 .party-line{display:flex;align-items:center;gap:6px;min-width:0}
 td.c-stay{white-space:nowrap;overflow:visible;text-overflow:clip;font-size:13px;line-height:1.6;padding:8px 10px;font-variant-numeric:tabular-nums}
+td.c-flight-dates{white-space:normal;overflow-wrap:anywhere}
+.m-service{font-size:13px;line-height:1.6;color:var(--ink);overflow-wrap:anywhere}
 .party-copy{display:block;min-width:0;flex:1}
 .party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
 .category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}

@@ -945,6 +945,76 @@ def _passenger_text(row) -> str:
     return f"\uD0D1\uC2B9\uC790: {names[0]} \uC678 {len(names) - 1}\uBA85"
 
 
+def _load_flight_dates():
+    """Fresh display evidence and explicit empty overrides; never reconcile on a read."""
+    from . import ota_payment_review
+    store = board._active_store()
+    if store is None or not ota_payment_review.enabled():
+        return {}, set()
+    with store._lock:
+        manual = {str(r[0]) for r in store.conn.execute(
+            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
+    for attribute in ('_flight_booking_service', '_ota_snapshot_service'):
+        service = getattr(store, attribute, None)
+        if service is not None:
+            current, state = service.display_context()
+            if current and state.get('fresh'):
+                return (current.get('data') or {}).get('passengers') or {}, manual
+    return {}, manual
+
+
+def _flight_date_labels(row):
+    """Departure days of the saved booking, independent of payment and passenger count."""
+    from datetime import date
+    unknown = ('이용일 미확인', '이용일 미확인')
+    stored = str(row.get('service_period') or '').strip()
+    if stored:
+        match = _STAY_PATTERN.fullmatch(stored)
+        if not match:
+            return unknown
+        try:
+            days = [date.fromisoformat(value) for value in match.groups()]
+        except ValueError:
+            return unknown
+        if days[1] < days[0]:
+            return unknown
+        days = list(dict.fromkeys(days))
+        separator = '–'
+    else:
+        index, manual = read_scope.remember('flight_service_dates', _load_flight_dates)
+        if str(row.get('row_id') or '') in manual:
+            return unknown
+        # A number mentioned in prose is not a saved reservation relationship.
+        ref = str(row.get('reservation_no') or '').strip()
+        found = index.get(ref) if ref else None
+        if (not found or found.get('conflict') or not found.get('source_digests')
+                or found.get('cancellation_status') != 'NONE'
+                or any(found.get(flag) for flag in
+                       ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+            return unknown
+        legs = found.get('legs') or []
+        if not legs or any(not leg.get('departure_on') for leg in legs):
+            return unknown
+        try:
+            days = sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
+        except (ValueError, TypeError):
+            return unknown
+        separator = ' · '
+    crosses_year = len({day.year for day in days}) > 1
+    fmt = '%y.%m.%d' if crosses_year else '%m.%d'
+    return (separator.join(day.strftime(fmt) for day in days),
+            '항공 이용일: ' + ' · '.join(day.isoformat() for day in days))
+
+
+def _service_date_labels(row):
+    item = str(row.get('item') or '').strip()
+    if item == '숙박비':
+        return _compact_stay(row), _stay_text(row)
+    if item in ('항공료', '항공권'):
+        return _flight_date_labels(row)
+    return '', ''
+
+
 def _row_item(row) -> str:
     """분류: the typed 항목, or the income kind, or "-" when the row has neither.
 
@@ -1117,6 +1187,8 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
         rid = row["row_id"]
         amount = board._shown_amount(row)
         item = row.get('item') or ''
+        service_dates, service_title = _service_date_labels(row)
+        service_class = 'c-stay c-flight-dates' if item in ('항공료', '항공권') else 'c-stay'
         # A keyboard reader reaches a row the way a pointer reader does, so the row
         # itself is focusable and Enter or Space opens it. `tabindex` is what
         # makes that possible; the click path is unchanged underneath.
@@ -1155,7 +1227,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}{match_description}</td>"
             f"{_party_cell(row)}"
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
-            f"<td class='c-stay' title='{board.esc(_stay_text(row)) if item == '숙박비' else ''}'>{board.esc(_compact_stay(row)) if item == '숙박비' else ''}</td>"
+            f"<td class='{service_class}' title='{board.esc(service_title)}'>{board.esc(service_dates)}</td>"
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
             + (_amount_group_cell(amount_groups, rid) if amount_groups is not None and kind == 'expense'
                else "<td class='gemn-desktop gemn-status-cell'></td>" if amount_groups is not None else '')
@@ -1292,6 +1364,10 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         main_text = _row_party_main(row)
         sub_text = _row_party_sub(row)
         headline = " \u00b7 ".join(text for text in (main_text, sub_text) if text)
+        service_dates, service_title = _service_date_labels(row) if is_expense else ('', '')
+        service_label = service_dates if service_dates.startswith('이용일') else '이용일 ' + service_dates
+        service_hint = (f"<span class='m-service tnum' title='{board.esc(service_title)}'>"
+                        f"{board.esc(service_label)}</span>" if service_dates else '')
         tag_cls = "tag in" if kind == "수입" else "tag"
         return (
             f"<button class='{cls}' type='button' data-id='{board.esc(rid)}' data-kind='{'expense' if is_expense else 'income'}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' aria-expanded='false'"
@@ -1302,7 +1378,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             f"<span class='m-cat category-line'>{_category_icon(row)}{board.esc(cat)}</span>"
             f"<span class='a tnum {_row_amount_class(row)}'>"
             f"{_money(board._shown_amount(row))}</span></span>"
-            f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span>{match_hint}</button>{move}")
+            f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span>{service_hint}{match_hint}</button>{move}")
 
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
