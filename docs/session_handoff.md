@@ -1,3 +1,11 @@
+## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
+
+- 원인: 이용일 출력이 숙박비로 제한돼 항공 예약 여정이 수집돼도 항공료는 공란이었다. [PR #686](https://github.com/6Soo/cost/pull/686)으로 저장 기간 우선·검증된 fresh 여정 출발일 보완 및 PC/모바일 표시를 수정했다. 금액·결제일·예약 관계·분류·여행·원본·Google 쓰기 없음.
+- 최종 제품/배포 SHA `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` (이전 `1b8aafc06ef3d692b6f7e8f691bb16a755ab2263`). 1,412 blobs 불일치0, task/process SHA 일치, Gateway8790→8751, health/ready200·보호API401·보호13표 불변. 공식 단일 작성자 전환 성공, 금융 apply NOT_RUN.
+- 검증: 표적99 passed, 최종 Windows 영향303 passed+64 subtests·skip0·필수브라우저19전건실행·compile 통과. PR CI42032276925/main CI42033651257 SUCCESS. 앞선 검사2실패는 실행 도중 main 변경으로 메모리/디스크 자산이 달라진 검사이며 고정757f8e06에서 전체 영향 검사를 다시 통과했다. 독립 UI 리뷰 Approve, 합성1440/390/320px·다크/200%·키보드 및 운영1440/390px 수락. 물리기기·수동 스크린리더·번역/RTL 미검증.
+- 인증 운영 장부: 저장 예약 연결이 있는 항공료1행에서 `06.30 · 07.04` 및 전체날짜 툴팁/모바일 표시 확인·가로 넘침0. 최초 배포 직후는 예약 근거 워밍 중으로 미확인, fresh 갱신 후 표시를 확인했다. 나머지 항공료/환불2행은 설명에 번호만 있고 저장 reservation_no가 공란이므로 이용일 미확인 유지. 설명을 예약 관계로 승격하거나 환불/금융 연결을 변경하지 않았다.
+- 상세: [항공 이용일 명세](specs/ledger-flight-service-dates-20261105.md). 비공개 증거 `.local-archive/flight-service-dates-20261105/`의 final-impact-summary/log, interface-review, production-browser.json, production-*-target.png, deploy-evidence.json 및 호스트 동일 SHA deploy-evidence. 고객 원문/화면은 Git에 포함하지 않았다. 이번 요청의 표시 수정 미결0. 후속 문서 커밋으로 재배포하지 않는다.
+
 ## 2026-11-05 보험 명단 버튼 UI 통일 — COMPLETE
 
 - [PR #682](https://github.com/6Soo/cost/pull/682)로 연결·미연결·후보 버튼 스타일 통일, 운영 SHA `1b8aafc06ef3d692b6f7e8f691bb16a755ab2263` 배포. 1,409 blobs 불일치0·runtime SHA 일치·Gateway8790→8752·health/ready200·보호API401·보호13표 불변. 금융/Google/연결 데이터 쓰기 없음.
