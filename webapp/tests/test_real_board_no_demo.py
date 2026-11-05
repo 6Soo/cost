@@ -217,10 +217,10 @@ class RealStoreBoardTests(unittest.TestCase):
         self.assertIn("분류대기", page)
 
     def test_the_default_tab_follows_the_data(self):
-        """With a real trip present, `/board` opens on it."""
+        """A trip grouped under past trips remains explicitly accessible."""
         self.make_trip()
-        self.assertEqual(board_mod.default_board_tab(), self.trip)
-        _status, page = self.get("/board")
+        self.assertEqual(board_mod.default_board_tab(), "unclassified")
+        _status, page = self.get(f"/board?tab={self.trip}")
         self.assertIn("2026-05 실제여행", page)
 
     def test_a_persisted_row_is_shown_and_no_example_is_added(self):
@@ -336,7 +336,7 @@ class RealStoreBoardTests(unittest.TestCase):
             for row in board_mod._expense_rows():
                 self.assertIsNotNone(seeded.get_row(row["row_id"]),
                                      f"{row['row_id']} is not in the seeded store")
-            self.assertEqual(board_mod.default_board_tab(), "trip-demo-a")
+            self.assertEqual(board_mod.default_board_tab(), "unclassified")
         finally:
             board_mod.bind_store(self.store)
             seeded.close()
@@ -354,7 +354,7 @@ class RealStoreBoardTests(unittest.TestCase):
             self.assertTrue(board_mod._income_rows())
             self.assertEqual(board_mod.data_status_mark(),
                              board_mod.SYNTHETIC_MARK)
-            self.assertEqual(board_mod.default_board_tab(), "trip-demo-a")
+            self.assertEqual(board_mod.default_board_tab(), "unclassified")
         finally:
             board_mod.bind_store(self.store)
 

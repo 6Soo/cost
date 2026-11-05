@@ -847,23 +847,20 @@ def _all_tab_ids() -> list:
     return [t["tab_id"] for t in live_trips(include_archived=True)]
 
 
+def is_previous_trip(trip) -> bool:
+    """Match the sidebar's previous-trip grouping."""
+    try:
+        return dt.date.fromisoformat(trip.get("starts_on") or "") <= dt.date(2026, 6, 25)
+    except (TypeError, ValueError):
+        return False
+
+
 def default_board_tab() -> str:
-    """Which tab `/board` opens on when the request names none.
-
-    It used to default to `trip-demo-a`, one of this module's example trips. On a
-    store that has never been seeded that trip does not exist, so `/board` opened
-    on a trip the reader has never heard of, showing the head "여행을 선택해 주세요"
-    and a rail with no selected tab. It is also a hard-coded example id in a code
-    path a real deployment runs.
-
-    So the default is a question about the data rather than a constant: the first
-    real trip, and the 분류대기 bucket when there is no trip at all. An empty store
-    opens on 분류대기, which is a screen that exists and says so, instead of on a
-    trip that does not.
-    """
-    trips = live_trips()
-    if trips:
-        return trips[0]["tab_id"]
+    """Select the first open trip in the sidebar, or the existing empty view."""
+    for trip in live_trips(include_archived=True):
+        if (not trip.get("archived") and not trip.get("deleted")
+                and not trip.get("visual_closed") and not is_previous_trip(trip)):
+            return trip["tab_id"]
     return "unclassified"
 
 
