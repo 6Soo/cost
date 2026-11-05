@@ -9,6 +9,43 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class SiteShellBrowserTests(LinkBrowserFixture):
+    def test_account_navigation_is_direct_on_native_and_wrapped_pages(self):
+        # Use the actual menu renderer: a reduced fake missed the singleton
+        # management disclosure after its other two destinations moved away.
+        page, base = self.prepare_pages(1440)
+        with patch.dict(os.environ, {'WEBLEDGER_FLIGHT_PASSENGER_MATCHING': '1'}):
+            for width in (320, 390, 1440):
+                for path in ('/board', '/access/admin', '/flight-passengers'):
+                    with self.subTest(width=width, path=path):
+                        page.set_viewport_size({'width': width, 'height': 900})
+                        response = page.goto(base + path)
+                        self.assertEqual(response.status, 200)
+                        if width < 760:
+                            page.get_by_role('button', name='전체 메뉴 열기').click()
+                            page.wait_for_function("document.querySelector('#nav').getBoundingClientRect().left >= -0.5")
+                        account = page.locator('#nav a[href="/access/admin"]')
+                        self.assertEqual(account.count(), 1)
+                        self.assertTrue(account.is_visible())
+                        self.assertEqual(account.locator('xpath=ancestor::details').count(), 0)
+                        self.assertEqual(page.locator('#nav .nav-management').count(), 0)
+                        primary = page.get_by_role('navigation', name='주요 메뉴', exact=True)
+                        self.assertEqual(primary.locator('a[href="/access/admin"]').count(), 1)
+                        flight = primary.locator('a[href="/flight-passengers"]')
+                        self.assertEqual(flight.count(), 1)
+                        spacing = account.evaluate('''a=>{
+                            const f=a.previousElementSibling.getBoundingClientRect(), r=a.getBoundingClientRect();
+                            return {alignment:r.left-f.left,gap:r.top-f.bottom};
+                        }''')
+                        self.assertEqual(spacing['alignment'], 0)
+                        self.assertLessEqual(spacing['gap'], 4.5)
+                        flight.focus()
+                        page.keyboard.press('Tab')
+                        self.assertTrue(account.evaluate('e=>e===document.activeElement'))
+                        self.assertNotEqual(account.evaluate('e=>getComputedStyle(e).outlineStyle'), 'none')
+                        if path == '/access/admin':
+                            self.assertEqual(account.get_attribute('aria-current'), 'page')
+                        self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+
     def test_default_open_trip_overrides_remembered_closed_trip(self):
         store = self.server.card_store
         trips = [store.create_trip(
