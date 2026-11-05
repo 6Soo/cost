@@ -24,9 +24,71 @@ def batch_inspection(board, batch_id):
 
 
 def get_coverage_summary(board, **filters):
+    """Owner-only read projection: card/query coverage and the actual uploaded files.
+
+    Never infer a queried period from the first/last transaction date.
+    Files without rows must remain visible; unknown/weak card identity is never
+    merged across uploads. This GET does not parse original blobs or write DB.
+    """
     if not available(board.conn):
-        return dict(available=False, coverages=[], gaps=[], rechecks=[])
-    return dict(CoverageStore(board.conn).summary(**filters), available=True)
+        return dict(available=False, coverages=[], gaps=[], rechecks=[],
+                    cards=[], files=[], overview={})
+    store = CoverageStore(board.conn)
+    result = store.summary(**filters)
+    records_by_batch = {}
+    for evidence in store._records():
+        if evidence.get('confirmed'):
+            records_by_batch.setdefault(evidence['batch_id'], []).append(evidence)
+    selected = {}
+    gap_lookup = {(g['card_id'], g['date_basis']): g['gaps'] for g in result['gaps']}
+    for coverage in result['coverages']:
+        key = (coverage['card_id'], coverage['date_basis'])
+        selected[key] = dict(coverage, gaps=gap_lookup.get(key, []), files=[],
+                             status=('GAPS_FOUND' if gap_lookup.get(key) else
+                                     'BASELINE_UNSET' if not coverage.get('management_start')
+                                     else 'COVERAGE_COMPLETE'))
+    rows = board.conn.execute(
+        "SELECT b.batch_id,b.filename,b.status,b.row_count,b.error_count,b.received_at,"
+        "COUNT(DISTINCT t.transaction_id),"
+        "MIN(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
+        "MAX(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))) "
+        "FROM import_batches b LEFT JOIN import_batch_rows r ON r.batch_id=b.batch_id "
+        "LEFT JOIN transactions t ON t.transaction_id=r.transaction_id "
+        "GROUP BY b.batch_id ORDER BY b.received_at DESC,b.batch_id DESC"
+    ).fetchall()
+    files, review_count = [], 0
+    filtered = any(filters.get(k) for k in ('issuer', 'card_tail', 'date_basis'))
+    for row in rows:
+        batch_id, filename, status, source_rows, errors, received_at, unique, first, last = row
+        evidences = records_by_batch.get(batch_id, [])
+        file = dict(batch_id=batch_id, filename=filename, status=status,
+                    source_rows=source_rows, error_count=errors, received_at=received_at,
+                    unique_transactions=unique, transaction_start=first or '',
+                    transaction_end=last or '', query_periods=[
+                        dict(start=e['start_date'], end=e['end_date'],
+                             date_basis=e['date_basis'], card_id=e['card_id'])
+                        for e in evidences],
+                    coverage_status='confirmed' if evidences else 'needs_review',
+                    zero_rows=source_rows == 0)
+        matched = False
+        for evidence in evidences:
+            key = (evidence['card_id'], evidence['date_basis'])
+            if key in selected:
+                selected[key]['files'].append(file)
+                matched = True
+        if matched or not filtered:
+            files.append(file)
+            if not evidences:
+                review_count += 1
+    cards = sorted(selected.values(), key=lambda c: (
+        c['issuer'], c['card_tail'], c['date_basis'], c['card_id']))
+    result.update(cards=cards, files=files, overview=dict(
+        card_count=len({c['card_id'] for c in cards}),
+        covered_bases=len(cards),
+        gap_count=sum(len(c['gaps']) for c in cards),
+        files_need_review=review_count,
+        file_count=len(files)))
+    return result
 
 
 def record_coverage(board, batch_id, evidence):
