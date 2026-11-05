@@ -17,6 +17,13 @@ from webapp import cards_all
 from webapp import card_transactions as ct
 
 
+def test_unavailable_card_page_offers_recovery():
+    page = cards_all._error_page('카드 자료를 읽을 수 없어요.')
+    assert '카드 자료를 읽을 수 없어요.' in page
+    assert '문제가 계속되면 관리자에게 문의해 주세요.' in page
+    assert "href=''>다시 불러오기</a>" in page
+
+
 CARD_SCHEMA = """
 CREATE TABLE IF NOT EXISTS transactions (
     transaction_id TEXT PRIMARY KEY,

@@ -320,6 +320,23 @@ class LinkScreenTests(LinkBrowserFixture):
         self.assertIn("reservation:test:11", page.inner_text(".linktable tbody tr:visible"))
         self.assertTrue(page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
+    def test_mobile_dark_table_labels_have_readable_contrast(self):
+        page = self.open_screen()
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.emulate_media(color_scheme='dark')
+        page.reload()
+        cell = page.locator('.linktable tbody td[data-label]').first
+        cell.wait_for(state='visible')
+        contrast = cell.evaluate('''element => {
+          const rgb = s => s.match(/[\\d.]+/g).slice(0, 3).map(Number);
+          const lum = c => c.map(x => { x /= 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; })
+            .reduce((sum, x, i) => sum + x * [.2126, .7152, .0722][i], 0);
+          const foreground = lum(rgb(getComputedStyle(element, '::before').color));
+          const background = lum(rgb(getComputedStyle(element.closest('table')).backgroundColor));
+          return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+        }''')
+        self.assertGreaterEqual(contrast, 4.5)
+
     def test_a_saved_draft_alone_grants_nothing(self):
         page = self.open_screen()
         page.wait_for_function("() => window.__reserveLink.state() !== null",

@@ -40,15 +40,15 @@ th { background:var(--soft); }
 .bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
   padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color:var(--text);
   font: inherit; font-weight: 600; cursor: pointer; }
-.bar button:not(:disabled):hover { background:var(--accent-soft); border-color:var(--accent); }
+@media (hover:hover) { .bar button:not(:disabled):hover { background:var(--accent-soft); border-color:var(--accent); } }
 .bar button:disabled { opacity:.62; cursor:not-allowed; }
 .bar button .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
 .backbar a.back { display: inline-flex; align-items: center; gap: 6px; }
 .backbar a.back .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .bar button { transition: none; } }
 .note { color: var(--muted); }
-.err { color: #A1262F; }
-.warntext { color: #8A5100; }
+.err { color: var(--shell-danger, #A1262F); }
+.warntext { color: var(--shell-warn, #8A5100); }
 .link-help { margin:.35rem 0 .75rem; color:var(--muted); }
 .link-tools { display:flex; align-items:end; gap:.75rem; flex-wrap:wrap; margin:.75rem 0; }
 .link-tools label { display:flex; flex-direction:column; gap:.25rem; color:var(--muted); font-size:.85rem; }
@@ -66,11 +66,11 @@ th { background:var(--soft); }
 .linktable .chosen.empty { color:var(--muted); }
 .linktable .clear-link { margin-top:.5rem; min-height:36px; padding:5px 9px; border:1px solid var(--border);
   border-radius:7px; background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
-.linktable .clear-link:hover { background:var(--accent-soft); border-color:var(--accent); }
+@media (hover:hover) { .linktable .clear-link:hover { background:var(--accent-soft); border-color:var(--accent); } }
 .empty-filter { padding:1rem; border:1px dashed var(--border); color:var(--muted); }
 fieldset { margin: 0.5rem 0; }
 a.back { color: var(--accent); text-decoration: none; }
-a.back:hover { text-decoration: underline; }
+@media (hover:hover) { a.back:hover { text-decoration: underline; } }
 .backbar { margin: 0.25rem 0 0.75rem; display: flex; gap: 1rem; flex-wrap: wrap; }
 
 /* The source key is an opaque identifier that happens to be long, and the target
@@ -124,7 +124,7 @@ a.back:hover { text-decoration: underline; }
     content: attr(data-label);
     display: block;
     font-size: 0.75rem;
-    color: #555;
+    color: var(--muted);
     margin-bottom: 0.15rem;
   }
 }
@@ -430,8 +430,8 @@ function renderUnconfigured(payload) {
 function renderUnreadable(payload) {
   clearAll("");
   add(el("rows"), "p", "err",
-      "설정된 원천을 검증하지 못했어요. " + text(payload.code));
-  setState(text(payload.code), "err");
+      "설정된 원천을 검증하지 못했어요. 관리자에게 문의해 주세요. " + text(payload.code));
+  setState("원천을 확인하지 못했어요. 관리자에게 문의해 주세요. " + text(payload.code), "err");
 }
 
 function loadPlan(options) {
@@ -445,7 +445,7 @@ function loadPlan(options) {
                            headers: {"Accept": "application/json"}})
     .then(function(response) {
       if (response.status === 401 || response.status === 403) {
-        clearAll("이 화면의 권한이 없어 예약을 다룰 수 없어요.", "err");
+        clearAll("이 화면의 권한이 없어 예약을 다룰 수 없어요. 관리자에게 문의해 주세요.", "err");
         return null;
       }
       if (!response.ok) { throw new Error("status " + response.status); }
@@ -459,7 +459,7 @@ function loadPlan(options) {
       renderPlan(payload);
     })
     .catch(function() {
-      clearAll("반영 계획을 세우지 못했습니다.", "err");
+      clearAll("반영 계획을 세우지 못했습니다. 관리자에게 문의해 주세요.", "err");
     });
 }
 
@@ -490,7 +490,7 @@ function saveLinks() {
         // Permission was lost. The source and the draft both go: a screen that may
         // no longer be shown must keep neither, and the draft most of all, since it
         // is the owner's work over a roster they may no longer be allowed to see.
-        clearAll("\uc774 \ud654\uba74\uc758 \uad8c\ud55c\uc774 \uc5c6\uc5b4 \uc608\uc57d\uc744 \ub2e4\ub8ec\uc5b4\uc694.", "err");
+        clearAll("이 화면의 권한이 없어 예약을 다룰 수 없어요. 관리자에게 문의해 주세요.", "err");
         return null;
       }
       return response.json().then(function(body) {
@@ -505,7 +505,7 @@ function saveLinks() {
         // source is not a reason to throw it away.
         el("saveBtn").disabled = false;
         setState("\uc810\uc5b0\uc744 \uc800\uc7a5\ud558\uc9c0 \ubabb\ud588\uc5b4\uc694. \ucf54\ub4dc: "
-                + text(result.body.code), "err", "refused");
+                + text(result.body.code) + " 관리자에게 문의해 주세요.", "err", "refused");
         return;
       }
       // Re-read *first*, then report.
@@ -522,7 +522,7 @@ function saveLinks() {
     })
     .catch(function() {
       el("saveBtn").disabled = false;
-      setState("연결을 저장하지 못했습니다.", "err");
+      setState("연결을 저장하지 못했습니다. 관리자에게 문의해 주세요.", "err");
     });
 }
 
@@ -561,7 +561,7 @@ function runApply() {
     .then(function(result) {
       if (result.status !== 200) {
         el("applyBtn").disabled = false;
-        setState("적용하지 못했어요. 코드: " + text(result.body.code), "err");
+        setState("적용하지 못했어요. 코드: " + text(result.body.code) + " 관리자에게 문의해 주세요.", "err");
         return;
       }
       applied = true;
@@ -572,7 +572,7 @@ function runApply() {
     })
     .catch(function() {
       el("applyBtn").disabled = false;
-      setState("명단을 적용하지 못했습니다.", "err");
+      setState("명단을 적용하지 못했습니다. 관리자에게 문의해 주세요.", "err");
     });
 }
 

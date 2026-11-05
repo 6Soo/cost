@@ -9,6 +9,32 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class OtaCatalogBrowserTests(LinkBrowserFixture):
+    def test_mobile_dark_row_labels_have_readable_contrast(self):
+        source = self.tmp / 'ota-dark.sqlite'
+        source_database(source)
+        env = patch.dict(os.environ, {
+            'WEBLEDGER_OTA_SOURCES_JSON': json.dumps({'portal_databases': [str(source)], 'mail_directories': []}),
+            'WEBLEDGER_REVIEW_CONFIG': '',
+        })
+        env.start()
+        self.addCleanup(env.stop)
+        context = self.browser.new_context(viewport={'width': 390, 'height': 844}, color_scheme='dark')
+        self.addCleanup(context.close)
+        context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
+        page = context.new_page()
+        page.goto(f'http://127.0.0.1:{self.port}/ota')
+        cell = page.locator('main.card-catalog tbody tr td[data-label]').first
+        cell.wait_for(state='visible')
+        contrast = cell.evaluate('''element => {
+          const rgb = s => s.match(/[\\d.]+/g).slice(0, 3).map(Number);
+          const lum = c => c.map(x => { x /= 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; })
+            .reduce((sum, x, i) => sum + x * [.2126, .7152, .0722][i], 0);
+          const foreground = lum(rgb(getComputedStyle(element, '::before').color));
+          const background = lum(rgb(getComputedStyle(element.closest('tr')).backgroundColor));
+          return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+        }''')
+        self.assertGreaterEqual(contrast, 4.5)
+
     def test_empty_state_message_stays_wide_at_mobile(self):
         env = patch.dict(os.environ, {
             'WEBLEDGER_OTA_SOURCES_JSON': json.dumps({'portal_databases': [], 'mail_directories': []}),

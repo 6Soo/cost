@@ -19,10 +19,18 @@
    const button=document.getElementById('site-theme-toggle');
    if(button){const label=theme==='dark'?'라이트모드로 전환':'다크모드로 전환';button.setAttribute('aria-label',label);button.title=label}
  };
+ const applyWithoutTransition=()=>{
+   const style=document.createElement('style');
+   style.textContent='*,*::before,*::after{transition:none!important}';
+   document.head.append(style);
+   void document.documentElement.offsetHeight;
+   apply();
+   requestAnimationFrame(()=>requestAnimationFrame(()=>style.remove()));
+ };
  apply();
  document.addEventListener('DOMContentLoaded',()=>{apply();document.getElementById('site-theme-toggle')?.addEventListener('click',()=>{
-   choice=root.dataset.theme==='dark'?'light':'dark';try{localStorage.setItem(key,choice)}catch{}apply();
+   choice=root.dataset.theme==='dark'?'light':'dark';try{localStorage.setItem(key,choice)}catch{}applyWithoutTransition();
  })});
- system.addEventListener('change',()=>{if(!choice)apply()});
- addEventListener('storage',event=>{if(event.key===key||event.key===null){choice=valid(event.newValue)?event.newValue:null;apply()}});
+ system.addEventListener('change',()=>{if(!choice)applyWithoutTransition()});
+ addEventListener('storage',event=>{if(event.key===key||event.key===null){choice=valid(event.newValue)?event.newValue:null;applyWithoutTransition()}});
 })();
