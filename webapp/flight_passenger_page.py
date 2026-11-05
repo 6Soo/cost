@@ -503,19 +503,36 @@ def _search_trip_metadata(board, index, cards):
         trips = list(getter(include_archived=True))
         rules = trip_flight_read.read_booking_trip_rules()
         rows = trip_flight_read.confirmed_card_trip_rows(board, cards)
-        manual, authorities, authority_revision = trip_flight_read.build_authority_maps(
-            index, trips, booking_trip_rules=rules, confirmed_card_links=cards, expense_rows=rows)
-        projection = trip_flight_read.project_trip_bookings(index, trips,
-            source_generation=authority_revision, user_assignments=manual,
-            authority_trip_ids=authorities)
+        # Search indexes namespace colliding references (e.g. jeju:ABC123).
+        # The existing assignment model consumes actual PNRs, isolated by provider.
+        providers, original_keys = defaultdict(dict), defaultdict(list)
+        for ref, evidence in index.items():
+            if not isinstance(evidence, dict):
+                continue
+            provider = str(evidence.get('provider') or 'trip').lower()
+            actual_ref = str(evidence.get('booking_ref') or str(ref).removeprefix(provider + ':'))
+            providers[provider][actual_ref] = evidence
+            original_keys[(provider, actual_ref)].append(str(ref))
+        bookings, authority_revisions = [], []
+        for provider, provider_index in sorted(providers.items()):
+            provider_cards = {ref: cards[original] for ref in provider_index
+                              for original in original_keys[(provider, ref)] if original in cards}
+            manual, authorities, authority_revision = trip_flight_read.build_authority_maps(
+                provider_index, trips, booking_trip_rules=rules,
+                confirmed_card_links=provider_cards, expense_rows=rows)
+            projection = trip_flight_read.project_trip_bookings(provider_index, trips,
+                source_generation=authority_revision, user_assignments=manual,
+                authority_trip_ids=authorities)
+            bookings.extend(projection['bookings'])
+            authority_revisions.append((provider, authority_revision))
     except (OSError, ValueError, TypeError, AttributeError, sqlite3.Error):
         return unavailable, 'TRIP_AUTHORITY_UNAVAILABLE'
     by_id = {str(t.get('tab_id')): t for t in trips}
     metadata = {}
-    for booking in projection['bookings']:
+    for booking in bookings:
         tab_id = booking['assigned_trip_tab_id']
         trip = by_id.get(tab_id, {})
-        metadata[(booking['provider'], booking['booking_ref'])] = {
+        value = {
             'assigned_trip_tab_id': tab_id,
             'assigned_trip_title': str(trip.get('display_title') or trip.get('display_key')
                                        or trip.get('title') or tab_id),
@@ -525,8 +542,10 @@ def _search_trip_metadata(board, index, cards):
             'assignment_conflict': booking['assignment_conflict'],
             'trip_assignment_available': True,
         }
+        for original in original_keys[(booking['provider'], booking['booking_ref'])]:
+            metadata[(booking['provider'], original)] = value
     # Include titles as well as authority revisions in pagination's stale-source boundary.
-    digest = hashlib.sha256(json.dumps([authority_revision, sorted(metadata.items())],
+    digest = hashlib.sha256(json.dumps([authority_revisions, sorted(metadata.items())],
         sort_keys=True, ensure_ascii=True).encode()).hexdigest()
     return metadata, digest
 

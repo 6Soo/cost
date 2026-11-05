@@ -161,6 +161,35 @@ def test_search_unreadable_assignment_does_not_invent_unassigned_or_date_group()
     assert all(not row.get('assigned_trip_tab_id') for row in result['reservations'])
 
 
+def test_same_reference_across_providers_keeps_each_manual_trip_and_card_authority_separate():
+    from webapp import trip_flight_read
+    from copy import deepcopy
+    base = dict(_index()['SYNTH-100'], booking_ref='ABC123')
+    index = {'ABC123': dict(deepcopy(base), provider='trip'),
+             'jeju:ABC123': dict(deepcopy(base), provider='jeju')}
+    before = deepcopy(index)
+    trips = [dict(tab_id='trip-a', display_title='여행 A', starts_on='2026-11-07', ends_on='2026-11-12'),
+             dict(tab_id='trip-b', display_title='여행 B', starts_on='2026-12-01', ends_on='2026-12-10')]
+    board = SimpleNamespace(list_trips=lambda **kwargs: trips)
+    rules = {('jeju', 'ABC123'): dict(trip_tab_id='trip-b', revision=1, status='active')}
+    links = {'ABC123': [dict(transaction_id='trip-only-card', link_source='USER_CONFIRMED')]}
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value=index), \
+         patch.object(page, '_confirmed_card_index', return_value=links), \
+         patch.object(trip_flight_read, 'read_booking_trip_rules', return_value=rules), \
+         patch.object(trip_flight_read, 'confirmed_card_trip_rows', return_value=[
+             dict(source_kind='카드', source_event_id='trip-only-card', display_tab_id='trip-a')]):
+        result = page._name_search(board, 'ALPHA')
+    rows = {r['provider']: r for r in result['reservations']}
+    assert rows['jeju']['booking_ref'] == 'ABC123'
+    assert rows['jeju']['assigned_trip_tab_id'] == 'trip-b'
+    assert rows['jeju']['assignment_status'] == 'USER_CONFIRMED'
+    assert rows['jeju']['linked_cards'] == []
+    assert rows['trip']['assigned_trip_tab_id'] == 'trip-a'
+    assert rows['trip']['assignment_status'] == 'AUTHORITY_VERIFIED'
+    assert rows['trip']['linked_cards'] is links['ABC123']
+    assert index == before
+
+
 def test_search_rejects_non_object_json_without_creating_assignment_store(tmp_path):
     with patch.dict(os.environ, {page.FEATURE_FLAG: "1", page.DB_ENV: str(tmp_path / "unused.sqlite")}):
         for payload in ([], None, "KIM ALPHA", {"name": []}):
@@ -533,7 +562,7 @@ def test_browser_refresh_wait_stays_busy_and_announces_once_until_ready(outcome)
             assert screen.evaluate('window.notices.filter(t=>t.includes("자동으로 조회")).length') == 1
             with screen.expect_response('**/api/flight-passengers/name-search'):
                 screen.clock.fast_forward(120000 if outcome == 'TIMEOUT' else 2000)
-            expected = {'VERIFIED': '예약이 없습니다', 'UNAVAILABLE': '최신 수집 상태', 'TIMEOUT': '다시 시도'}
+            expected = {'VERIFIED': '예약이 없습니다', 'UNAVAILABLE': '예약 조회를 눌러 다시 시도', 'TIMEOUT': '다시 시도'}
             expect(status).to_contain_text(expected[outcome])
             expect(screen.locator('form button[type=submit]')).to_be_enabled()
             expect(screen.locator('#fb-results')).to_have_attribute('aria-busy', 'false')
