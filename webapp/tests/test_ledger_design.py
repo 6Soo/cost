@@ -26,6 +26,42 @@ def overflow(page):
 
 
 class DesignScreenTests(unittest.TestCase):
+    def test_header_only_exports_and_body_actions_align_and_remain_keyboard_accessible(self):
+        self.store.conn.execute('CREATE TABLE IF NOT EXISTS requests(request_id TEXT PRIMARY KEY, scope TEXT NOT NULL, payload_sha256 TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)')
+        self.store.conn.commit()
+        for width in (320, 390, 760, 1440):
+            with self.subTest(width=width):
+                page = self._page(width)
+                self._board(page, '?tab=trip-demo-a')
+                self.assertEqual(page.locator('.trip-header .act').inner_text().strip(), 'XLSX 출력')
+                self.assertEqual(page.locator('.trip-header button, .trip-header summary').count(), 0)
+                self.assertEqual(page.locator('.trip-actions .trip-close-form button').count(), 1)
+                self.assertEqual(page.locator('.trip-actions #trip-settings>summary').count(), 1)
+                self.assertEqual(page.locator('.trip-actions #reserve-link').count(), 1)
+                controls = '.trip-close-form button, #trip-settings>summary, #reserve-link'
+                boxes = page.locator(controls).evaluate_all(
+                    'els=>els.map(e=>{const r=e.getBoundingClientRect();return {top:r.top,height:r.height}})')
+                self.assertEqual(len(boxes), 3)
+                self.assertAlmostEqual(boxes[0]['top'], boxes[1]['top'], delta=1)
+                self.assertTrue(all(abs(b['height'] - boxes[0]['height']) <= 1 for b in boxes))
+                self.assertEqual(overflow(page), 0)
+                summary = page.locator('#trip-settings>summary')
+                summary.focus()
+                page.keyboard.press('Enter')
+                self.assertTrue(page.locator('#trip-settings').evaluate('e=>e.open'))
+                self.assertTrue(page.get_by_role('button', name='정보 저장', exact=True).is_visible())
+                self.assertEqual(overflow(page), 0)
+                page.keyboard.press('Enter')
+                self.assertFalse(page.locator('#trip-settings').evaluate('e=>e.open'))
+                page.locator('#reserve-link').click()
+                page.wait_for_function("""() => {
+                    const panel = document.getElementById('trip-reservations');
+                    return panel.open && panel.querySelector('iframe').getAttribute('src')?.includes('trip=trip-demo-a');
+                }""")
+                self.assertTrue(page.locator('#trip-reservations').evaluate('e=>e.open'))
+                self.assertIn('trip=trip-demo-a', page.locator('#trip-reservations iframe').get_attribute('src'))
+                page.close()
+
     def test_manual_expense_dialog_preserves_errors_and_saves_selected_trip(self):
         for width in (390, 1280):
             with self.subTest(width=width):
@@ -282,7 +318,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("0408_예시여행A", nav)
         self.assertNotIn("미배정 지출", nav)
         # The action bar contains management, reservation link, and export, but no secondary actions.
-        self.assertEqual(page.inner_text(".act").replace("\n", " ").strip(), "마감 여행 관리 예약·참가자 XLSX 출력")
+        self.assertEqual(page.inner_text(".act").strip(), "XLSX 출력")
         self.assertEqual(page.locator('.secondary-actions').count(), 0)
         self.assertTrue(page.locator('#reserve-link').is_visible())
         self.assertEqual(page.locator('.act a[href="/import#newupload"]').count(), 0)

@@ -83,18 +83,14 @@ class OwnerEntryLinkTests(_Base):
         self.assertIn("href='#trip-reservations'", markup)
         self.assertIn(OWNER_LINK, markup)
 
-    def test_the_entry_link_is_in_the_header_action_rail(self):
-        """It belongs beside the export button, not buried in a row.
-
-        The rail is the only part of the header that is a set of destinations. A
-        link inside a table cell would read as part of one trip's data. The
-        review button is a fixed neighbour but not a reliable one: it is drawn
-        only when a review is configured, so it is not asserted here.
-        """
+    def test_the_entry_link_is_in_body_actions_while_header_only_exports(self):
+        """Trip work belongs in the body; the header retains only export."""
         markup = self.header("owner")
         head = markup[markup.index("page-hd"):markup.index("id='q-form'")]
-        self.assertIn(f"id='{ENTRY_ID}'", head)
+        self.assertNotIn(f"id='{ENTRY_ID}'", head)
         self.assertIn("href='/export?tab=", head)
+        self.assertLess(markup.index("<div class='trip-actions'"),
+                        markup.index(f"id='{ENTRY_ID}'"))
 
     def test_the_entry_link_comes_before_the_review_link_when_both_are_drawn(self):
         """Linking first, then comparing against the real source.
@@ -189,8 +185,10 @@ class LinkIdempotenceTests(_Base):
         self.assertEqual(markup.count("href='#trip-reservations'"), 1)
         sidebar = markup.split("<div class='nav-mask'")[0]
         self.assertEqual(sidebar.count("href='/reserve-links'"), 0)
-        act = markup.split("<div class='act'>")[1].split("id='q-form'")[0]
-        self.assertEqual(act.count("href='#trip-reservations'"), 1)
+        head = markup.split("<div class='act'>")[1].split("id='q-form'")[0]
+        self.assertEqual(head.count("href='#trip-reservations'"), 0)
+        body_actions = ledger_design._trip_actions('trip-demo-a', '/board?tab=trip-demo-a')
+        self.assertEqual(body_actions.count("href='#trip-reservations'"), 1)
 
 
 class ReturnLinkTests(unittest.TestCase):

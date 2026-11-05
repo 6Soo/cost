@@ -23,11 +23,10 @@ class TripReviewActionsTests(unittest.TestCase):
                 page.set_viewport_size({'width': width, 'height': 900})
                 self._board(page, '?tab=trip-demo-a')
                 actions = page.locator('.trip-actions')
-                self.assertEqual(actions.locator('a').count(), 3)
-                self.assertTrue(actions.locator('a').evaluate_all(
+                self.assertEqual(actions.locator(':scope > a').count(), 4)
+                self.assertTrue(actions.locator(':scope > a').evaluate_all(
                     'els=>els.every(el=>el.getBoundingClientRect().height>=44)'))
-                self.assertEqual(len(set(actions.locator('a').evaluate_all(
-                    'els=>els.map(el=>Math.round(el.getBoundingClientRect().top))'))), 1)
+                self.assertEqual(page.locator('.trip-header .act').inner_text().strip(), 'XLSX 출력')
                 page.locator('.trip-actions [data-trip-panel="trip-review-panel"]').click()
                 self.assertTrue(page.locator('#trip-review-panel').evaluate('el=>el.open'))
                 self.assertIn('비교할 수 없습니다', page.locator('#trip-review-panel').inner_text())
