@@ -119,9 +119,46 @@ def test_page_renders_usable_name_only_ui_and_unknown_card_status():
     assert 'name="name"' in html
     assert 'name="booking_ref"' not in html
     assert 'name="tour_id"' not in html
-    assert '결제 확인' in html
-    assert '연결 근거 없음' in html
+    assert '카드 결제' in html
+    assert '연결된 카드 결제가 없습니다. 미결제를 뜻하지는 않습니다.' in html
     assert '/api/flight-passengers/name-search' in html
+
+
+def test_search_trip_group_reuses_manual_authority_and_revision_without_writes():
+    from copy import deepcopy
+    from webapp import trip_flight_read
+    index = _index()
+    before = deepcopy(index)
+    trips = [dict(tab_id='trip-a', display_title='11월 시즈오카', starts_on='2026-11-07', ends_on='2026-11-12'),
+             dict(tab_id='trip-b', display_title='12월 도쿄', starts_on='2026-12-01', ends_on='2026-12-10')]
+    board = SimpleNamespace(list_trips=lambda **kwargs: deepcopy(trips))
+    rules = {('trip', 'SYNTH-100'): dict(trip_tab_id='trip-b', revision=1, status='active')}
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value=index), \
+         patch.object(page, '_confirmed_card_index', return_value={}), \
+         patch.object(trip_flight_read, 'read_booking_trip_rules', return_value=rules):
+        result = page._name_search(board, 'KIM ALPHA')
+        row = next(r for r in result['reservations'] if r['booking_ref'] == 'SYNTH-100')
+        assert row['assigned_trip_tab_id'] == 'trip-b'  # Manual override beats matching dates.
+        assert row['assigned_trip_title'] == '12월 도쿄'
+        assert row['assignment_status'] == 'USER_CONFIRMED'
+        assert row['assignment_conflict'] is True
+        assert row['trip_assignment_available'] is True
+        trips[1]['display_title'] = '수정된 여행 이름'
+        with pytest.raises(LookupError, match='SOURCE_CHANGED'):
+            page._name_search(board, 'KIM ALPHA', offset=1, revision=result['revision'])
+    assert index == before
+
+
+def test_search_unreadable_assignment_does_not_invent_unassigned_or_date_group():
+    from webapp import trip_flight_read
+    board = SimpleNamespace(list_trips=lambda **kwargs: [dict(tab_id='trip-a', starts_on='2026-11-07', ends_on='2026-11-12')])
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value=_index()), \
+         patch.object(page, '_confirmed_card_index', return_value={}), \
+         patch.object(trip_flight_read, 'read_booking_trip_rules', side_effect=ValueError('FLIGHT_AUTHORITY_UNAVAILABLE')):
+        result = page._name_search(board, 'KIM ALPHA')
+    assert result['reservations']
+    assert all(row['trip_assignment_available'] is False for row in result['reservations'])
+    assert all(not row.get('assigned_trip_tab_id') for row in result['reservations'])
 
 
 def test_search_rejects_non_object_json_without_creating_assignment_store(tmp_path):
@@ -357,16 +394,16 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
         if screen.locator('.fb-booking-choice > summary').count():
             screen.locator('.fb-booking-choice > summary').first.click()
         screen.locator('.fb-more-details > summary').first.click()
-        screen.get_by_text('카드 거래 보기', exact=True).click()
-        screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-03-07')
-        screen.get_by_role('button', name='지정 날짜 원행 조회', exact=True).click()
+        expect(screen.get_by_label('조회 날짜', exact=True)).to_be_visible()
+        screen.get_by_label('조회 날짜', exact=True).fill('2026-03-07')
+        screen.get_by_role('button', name='카드 내역 조회', exact=True).click()
         expect(screen.locator('.fb-date-row')).to_have_count(1)
-        assert screen.get_by_text('예약일이나 결제 연결이 확정된 것은 아닙니다.', exact=True).is_visible()
+        assert screen.get_by_text('카드 이용 날짜를 선택해 조회하세요. 조회만으로 예약과 카드 결제가 연결되지는 않습니다.', exact=True).is_visible()
         assert screen.locator('.fb-date-row').get_by_text('중복 원행 · 원본 오류', exact=True).is_visible()
         assert 'SYNTH-MANUAL-TRIP' not in screen.locator('.fb-date-row').inner_text()
         assert '기존 분류 상태' not in screen.locator('.fb-date-row').inner_text()
         assert screen.locator('.fb-date-row').get_by_text('-100원', exact=True).is_visible()
-        screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-04-01')
+        screen.get_by_label('조회 날짜', exact=True).fill('2026-04-01')
         screen.get_by_role('button', name='카드 원행 더 보기', exact=True).click()
         expect(screen.locator('.fb-date-row')).to_have_count(2)
         assert 'date=2026-03-07' in requests[-1][1]

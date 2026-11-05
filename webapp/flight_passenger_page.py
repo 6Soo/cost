@@ -112,121 +112,65 @@ def _page(csrf):
     token = _escape_csrf_json(csrf)
     return """<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>항공권 예약 확인</title>
 <style>
-:root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--good:#047857;--warn:#a16207}
-@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--paper:#1e293b;--ink:#f8fafc;--mut:#cbd5e1;--line:#334155;--hover:#334155;--focus:#93c5fd;--good:#6ee7b7;--warn:#fbbf24}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 system-ui,"Malgun Gothic",sans-serif}
-#flight-booking-page{max-width:880px;margin:32px auto;padding:0 22px 64px}
-#flight-booking-page h1{font-size:26px;margin:0 0 6px}#flight-booking-page h2{font-size:17px;margin:0 0 12px}
-#flight-booking-page p{margin:0 0 14px}.fb-muted{color:var(--mut)}.fb-panel{border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:20px;margin-top:18px}
-#flight-booking-page form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}#flight-booking-page label{display:grid;gap:6px;flex:1 1 250px;font-weight:650}
-#flight-booking-page input{font:inherit;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);min-width:0;width:100%}
-#flight-booking-page button{font:inherit;min-height:44px;padding:10px 16px;border:1px solid var(--line);border-radius:9px;background:var(--hover);color:var(--ink);font-weight:650;cursor:pointer}
-#flight-booking-page button:disabled{opacity:.55;cursor:wait}#flight-booking-page button:focus-visible,#flight-booking-page input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-.fb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.fb-field{min-width:0}.fb-field small{display:block;color:var(--mut)}.fb-field strong{overflow-wrap:anywhere}
-.fb-status{font-size:12px;display:inline-block;border:1px solid var(--line);border-radius:100px;padding:3px 9px;margin:0 0 10px;color:var(--mut)}
-.fb-ticket{border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:14px;background:var(--paper)}
-.fb-ticket h3{font-size:17px;margin:0 0 12px;overflow-wrap:anywhere}.fb-ticket p{overflow-wrap:anywhere}.fb-ticket summary,.fb-ticket a{display:block;min-height:44px;padding:10px 0}.fb-section{border-top:1px solid var(--line);margin-top:15px;padding-top:14px}
-.fb-note{border-left:3px solid var(--warn);padding:9px 12px;background:var(--hover);color:var(--ink);font-size:13px}
-.fb-date-row{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:var(--paper)}
-#fb-status{min-height:24px;margin-top:12px}#fb-results{margin-top:16px}
-@media(max-width:600px){#flight-booking-page{margin:18px auto;padding:0 12px 36px}.fb-grid{grid-template-columns:minmax(0,1fr)}.fb-panel{padding:14px}#flight-booking-page form{display:grid}#flight-booking-page h1{font-size:22px}}
-
-/* Reservation-first layout; use the shared shell's semantic theme tokens. */
-#flight-booking-page{font-size:15px}
-#flight-booking-page :is(summary,a){min-height:44px;padding:10px 0;overflow-wrap:anywhere}
-#flight-booking-page summary{cursor:pointer;font-weight:650}
-#flight-booking-page :is(button,input,summary,a):focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+:root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--warn:#a16207}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--paper:#1e293b;--ink:#f8fafc;--mut:#cbd5e1;--line:#334155;--hover:#334155;--focus:#93c5fd;--warn:#fbbf24}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:0.9375rem/1.5 system-ui,"Malgun Gothic",sans-serif}
+#flight-booking-page{max-width:880px;margin:24px auto;padding:0 20px 48px}
+#flight-booking-page h1{font-size:1.5rem;line-height:1.3;margin:0 0 12px}
+#flight-booking-page h2,#flight-booking-page h3{font-size:1rem;line-height:1.4;margin:0 0 8px;overflow-wrap:anywhere}
+#flight-booking-page p{margin:0 0 12px;overflow-wrap:anywhere}.fb-muted{color:var(--mut)}
+.fb-panel,.fb-ticket,.fb-booking-choice{background:var(--paper);border:1px solid var(--line);border-radius:10px}
+.fb-panel{padding:14px}.fb-ticket,.fb-booking-choice{margin:12px 0;min-width:0}
+.fb-booking-choice .fb-ticket{margin:0;border:0;border-radius:0}.fb-booking-choice .fb-hero{display:none}
+#flight-booking-page form{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+#flight-booking-page label{display:grid;gap:6px;flex:1 1 180px;min-width:0;font-size:0.875rem;font-weight:600}
+#flight-booking-page input,#flight-booking-page button{font:inherit;min-height:44px;padding:9px 12px;border:1px solid var(--mut);border-radius:7px;background:var(--paper);color:var(--ink)}
+#flight-booking-page input{width:100%;min-width:0;font-size:1rem}
+#flight-booking-page button{cursor:pointer;font-weight:600;overflow-wrap:anywhere}
+#flight-booking-page button:disabled{opacity:.6;cursor:wait}
 #flight-booking-page #fb-submit{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-#flight-booking-page #fb-search-help{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-#flight-booking-page summary{display:flex;align-items:center;gap:10px;list-style:none;min-height:44px;line-height:1.5}
+#flight-booking-page :is(button,input,summary,a):focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+#flight-booking-page #fb-search{flex-wrap:nowrap}#flight-booking-page #fb-submit{flex-shrink:0;white-space:nowrap}
+#flight-booking-page #fb-search-help{display:block;margin-top:8px;font-size:0.8125rem;color:var(--mut)}
+#fb-status{margin:8px 0 0!important;font-size:0.875rem}#fb-status:empty{display:none}#fb-results{margin-top:12px}
+#flight-booking-page summary{display:flex;align-items:center;gap:12px;min-height:44px;padding:10px 0;list-style:none;font-weight:600;cursor:pointer;line-height:1.5;overflow-wrap:anywhere}
 #flight-booking-page summary::-webkit-details-marker{display:none}
-#flight-booking-page summary::after{content:'';flex:0 0 7px;width:7px;height:7px;margin-left:auto;margin-right:4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
+#flight-booking-page summary::after{content:'';flex:0 0 7px;width:7px;height:7px;margin-inline-start:auto;margin-inline-end:4px;border-inline-end:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
 #flight-booking-page details[open]>summary::after{transform:rotate(225deg)}
-#flight-booking-page a.site-action{display:inline-flex;align-items:center;gap:8px}
-#flight-booking-page #fb-search{display:flex;flex-wrap:nowrap;align-items:flex-end}
-#flight-booking-page #fb-search label{flex:1;min-width:0;font-size:13px}
-#flight-booking-page #fb-submit{flex:0 0 auto;white-space:nowrap}
-#flight-booking-page .fb-search-panel{padding:14px;margin-top:8px}
-#flight-booking-page #fb-status:empty{display:none}
-#flight-booking-page #fb-status{min-height:0;margin:8px 0 0;font-size:13px}
-.fb-booking-choice{margin:12px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper)}
-#flight-booking-page .fb-booking-choice>summary{padding:12px 16px}
-.fb-choice-copy{min-width:0}.fb-choice-copy strong,.fb-choice-copy small{display:block;overflow-wrap:anywhere}.fb-choice-copy small{color:var(--mut);font-weight:400}
-.fb-booking-choice .fb-ticket{margin:0;border:0;border-radius:0}
-.fb-booking-choice .fb-hero{display:none}
-#flight-booking-page .fb-hero{padding:14px 18px;background:var(--paper)}
-#flight-booking-page .fb-hero h3{font-size:18px;margin:0}
-#flight-booking-page .fb-hero .fb-status{margin-bottom:6px}
-#flight-booking-page .fb-ticket>.fb-note{margin:10px 18px}
-#flight-booking-page .fb-ticket>.fb-section{padding:14px 18px}
-.fb-more-details>summary{font-size:13px;color:var(--mut)}
-.fb-more-details .fb-summary{padding:0 0 14px}
-.fb-ticket{padding:0;overflow:hidden;margin-top:24px;border-radius:16px}
-.fb-hero{padding:24px;background:var(--hover);border-bottom:1px solid var(--line)}
-.fb-ticket .fb-hero h3{font-size:22px;line-height:1.45;margin:4px 0 8px;overflow-wrap:anywhere}
-.fb-eyebrow{font-size:13px;color:var(--mut);margin:0!important}
-.fb-hero-subtitle{color:var(--mut);margin:0!important}
-.fb-hero .fb-status{color:var(--ink);background:var(--paper);margin-bottom:12px;font-size:13px}
-.fb-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));padding:6px 24px 18px;gap:16px}
-.fb-summary-item{grid-column:span 2;min-width:0;padding-top:14px}
-.fb-summary-item:nth-child(-n+2){grid-column:span 3}
-.fb-summary-copy small{display:block;color:var(--mut);font-size:13px;margin-bottom:4px}
-.fb-summary-copy strong{display:block;overflow-wrap:anywhere;font-size:16px}
-.fb-summary-detail{font-size:13px;color:var(--mut)}
-.fb-ticket>.fb-section{margin:0;padding:22px 24px;border-top:1px solid var(--line)}
-.fb-ticket>.fb-note{margin:16px 24px}
-.fb-heading{margin-bottom:16px}.fb-heading h2{margin-bottom:6px!important}.fb-heading p{font-size:13px;margin-bottom:0!important}
-.fb-flight-card{border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0;background:var(--paper);min-width:0}
-.fb-flight-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--line)}
-.fb-flight-badge{color:var(--mut)}.fb-flight-title{font-size:16px}.fb-flight-date{color:var(--mut)}
-.fb-flight-number{margin-left:auto;font-weight:700;padding:3px 10px;border-radius:6px;background:var(--hover);overflow-wrap:anywhere;max-width:100%}
-.fb-route{display:grid;grid-template-columns:minmax(0,1fr) 32px minmax(0,1fr);gap:10px;align-items:center;padding:22px 0}
-.fb-route-stop{min-width:0}.fb-route-stop:last-child{text-align:right}.fb-route-stop small{display:block;color:var(--mut)}
-.fb-route-stop strong{display:block;font-size:22px;overflow-wrap:anywhere}.fb-airport-code{color:var(--mut);font-size:13px;overflow-wrap:anywhere}
-.fb-route-arrow{color:var(--mut);text-align:center;font-size:24px}
-.fb-flight-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;border-top:1px solid var(--line);padding-top:14px}
-.fb-payment-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
-.fb-amount{font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.fb-date-row{padding:16px}.fb-date-row .fb-grid{margin-top:10px}.fb-date-row p{margin-top:10px!important}
-.fb-payment-detail{margin-top:8px}.fb-date-filter>summary{color:var(--ink)}
-.fb-card-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px}.fb-card-detail dd{margin:0;overflow-wrap:anywhere}.fb-card-detail dt{color:var(--mut)}
+#flight-booking-page .fb-booking-choice>summary{padding:14px 16px}
+.fb-choice-copy{min-width:0}.fb-choice-copy strong,.fb-choice-copy small{display:block;overflow-wrap:anywhere}
+.fb-choice-copy strong{font-size:1rem}.fb-choice-copy small{font-size:0.8125rem;color:var(--mut);font-weight:400;margin-top:3px}
+.fb-trip-group{margin:24px 0}.fb-group-heading{display:flex;align-items:baseline;gap:8px 12px;flex-wrap:wrap;padding-bottom:4px}.fb-group-heading h2{margin:0!important}.fb-group-count{font-size:0.8125rem;color:var(--mut)}.fb-group-heading a{color:var(--ink);font-size:0.8125rem;min-height:44px;display:inline-flex;align-items:center;margin-inline-start:auto;text-underline-offset:3px}.fb-group-unavailable{font-size:0.875rem;color:var(--mut)}
+.fb-hero{padding:16px}.fb-hero h3{font-size:1.125rem!important;margin:0!important}.fb-hero-subtitle{color:var(--mut);font-size:0.875rem;margin:4px 0 0!important}
+.fb-section{padding:14px 16px;border-top:1px solid var(--line)}.fb-heading{margin-bottom:4px}
+.fb-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px 16px}
+.fb-summary-item,.fb-field{min-width:0}.fb-summary small,.fb-field small{display:block;color:var(--mut);font-size:0.8125rem;font-weight:400;margin-bottom:3px}
+.fb-summary strong,.fb-field strong{display:block;overflow-wrap:anywhere;font-size:0.9375rem}.fb-summary-detail{font-size:0.8125rem;color:var(--mut);display:block;margin-top:2px}
+.fb-reservation-warning{margin:0 16px 12px;padding:12px;border-inline-start:3px solid var(--warn);background:var(--hover)}
+.fb-reservation-warning h3{font-size:0.9375rem!important}.fb-reservation-warning p{font-size:0.875rem}
+.fb-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#flight-booking-page .fb-actions a{display:inline-flex;align-items:center;min-height:44px;padding:8px 10px;text-decoration:underline;text-underline-offset:3px;color:var(--ink);font-weight:600}
+#flight-booking-page .fb-actions button{font-size:0.875rem}.fb-copy-status{font-size:0.8125rem;margin:8px 0 0!important;min-height:0}
+.fb-note{padding:9px 12px;border-inline-start:3px solid var(--warn);background:var(--hover);font-size:0.875rem}
+.fb-flight-card{padding:10px 0;min-width:0}.fb-flight-card+.fb-flight-card{border-top:1px solid var(--line)}
+.fb-flight-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:0.8125rem}.fb-flight-title,.fb-flight-date{color:var(--mut);font-weight:400}
+.fb-flight-number{margin-inline-start:auto;font-weight:600;overflow-wrap:anywhere;max-width:100%}
+.fb-route{display:grid;grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr);gap:8px;align-items:center;padding-top:6px}
+.fb-route-stop{min-width:0}.fb-route-stop:last-child{text-align:end}.fb-route-stop strong{display:block;font-size:0.875rem;overflow-wrap:anywhere}
+.fb-time{display:block;font-size:1.25rem;line-height:1.3;font-variant-numeric:tabular-nums}.fb-airport-code{font-size:0.8125rem;color:var(--mut)}.fb-route-arrow{color:var(--mut);text-align:center}
+.fb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fb-payment-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.fb-amount{font-size:1.125rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.fb-date-row{border:1px solid var(--line);padding:12px;border-radius:7px;margin:12px 0}.fb-date-row .fb-grid{margin-top:10px}
+.fb-date-filter{margin-top:8px}.fb-date-filter form{margin:8px 0}.fb-date-filter>.fb-note{font-size:0.8125rem;background:none;border:0;padding:0;color:var(--mut)}
+.fb-date-status{font-size:0.875rem;margin:8px 0!important}.fb-date-filter button{flex-shrink:0}.fb-more-details{font-size:0.875rem}.fb-more-details>summary{color:var(--mut)}
+.fb-card-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px}.fb-card-detail dd{margin:0;overflow-wrap:anywhere}.fb-card-detail dt{color:var(--mut)}
+.fb-passengers{padding:0 16px 12px;overflow-wrap:anywhere;font-size:0.875rem}.fb-passengers p{margin:0!important}.fb-passengers small{color:var(--mut)}
 #flight-booking-page [hidden]{display:none!important}
-/* Keep each flight's time and route in one continuous row. */
-#flight-booking-page .fb-ticket>.fb-section{padding:10px 14px}
-#flight-booking-page .fb-heading{margin-bottom:4px}
-#flight-booking-page .fb-heading h2{font-size:14px;margin:0!important}
-#flight-booking-page .fb-flight-card{border:0;border-radius:0;padding:10px 0;margin:0;border-bottom:1px solid var(--line)}
-#flight-booking-page .fb-flight-card:last-child{border-bottom:0}
-#flight-booking-page .fb-flight-bar{padding:0;border:0;gap:8px;font-size:12px}
-#flight-booking-page .fb-flight-title{font-size:12px;font-weight:400;color:var(--mut)}
-#flight-booking-page .fb-flight-number{font-size:12px;padding:0;background:none}
-#flight-booking-page .fb-route{padding:6px 0 0;gap:8px;grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr)}
-#flight-booking-page .fb-route-stop strong{font-size:14px;line-height:1.5}
-.fb-time{display:block;font-size:21px;line-height:1.3;font-variant-numeric:tabular-nums}
-#flight-booking-page .fb-airport-code{font-size:12px}
-#flight-booking-page .fb-more-details>summary{font-weight:400}
-#flight-booking-page .fb-passengers{padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px;overflow-wrap:anywhere}
-#flight-booking-page .fb-passengers p{margin:0}
-#flight-booking-page .fb-passengers small{color:var(--mut)}
-@media(max-width:600px){
- #flight-booking-page>h1{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
- .fb-hero{padding:18px}.fb-ticket .fb-hero h3{font-size:19px}.fb-summary{padding:0 18px 18px;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
- .fb-summary-item,.fb-summary-item:nth-child(-n+2){grid-column:span 1}.fb-summary-item:nth-child(2){grid-column:1/-1;grid-row:1}
- .fb-ticket>.fb-section{padding:18px}.fb-route-stop strong{font-size:19px}.fb-flight-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
- .fb-flight-card{padding:12px}.fb-flight-number{margin-left:0}.fb-date-row{padding:12px}
- #flight-booking-page{padding:0 8px 24px;margin:8px auto}
- #flight-booking-page .fb-search-panel{padding:10px;border-radius:8px}
- #flight-booking-page #fb-results{margin-top:8px}
- #flight-booking-page .fb-booking-choice{margin:8px 0;border-radius:8px}
- #flight-booking-page .fb-booking-choice>summary{padding:10px 12px}
- #flight-booking-page .fb-ticket>.fb-note{margin:8px 12px;padding:6px 8px;font-size:12px}
- #flight-booking-page .fb-heading{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-}
+@media(max-width:600px){#flight-booking-page{margin:12px auto;padding:0 12px 32px}#flight-booking-page h1{font-size:1.25rem}.fb-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.fb-summary-item:first-child{grid-column:1/-1}.fb-grid{grid-template-columns:minmax(0,1fr)}#flight-booking-page .fb-booking-choice>summary{padding:12px}.fb-section{padding:12px}.fb-summary,.fb-hero{padding:12px}.fb-reservation-warning{margin-inline:12px}.fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}.fb-date-filter label{width:100%}.fb-date-filter form button{justify-self:start}}
 </style></head><body><main id="flight-booking-page">
 <h1>항공권 예약 확인</h1>
 <section class="fb-panel fb-search-panel" aria-label="항공권 조회">
 <form id="fb-search"><label for="fb-name">항공권 검색<input id="fb-name" name="name" placeholder="예: 22일 시즈오카, fuk, 탑승객 이름" aria-describedby="fb-search-help" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
-<span id="fb-search-help" class="sr-only">이름·행선지·공항 코드·여행 중 날짜로 검색</span>
+<span id="fb-search-help">이름·행선지·공항 코드·여행 중 날짜로 검색</span>
 <p class="fb-muted" id="fb-status" role="status" aria-live="polite"></p></section>
 <section id="fb-results" aria-label="예약 조회 결과"></section><button id="fb-more" type="button" hidden>예약 더 보기</button></main>
 <script>
@@ -261,59 +205,76 @@ function cardTransaction(parent,tx,candidate=false){
 }
 function manualDateFilter(parent,confirmedDay=null,basis='EXPLICIT_LABEL'){
 const details=document.createElement('details');details.className='fb-date-filter';parent.append(details);
-text(details,'summary','카드 거래 보기');
-text(details,'p',confirmedDay?(basis==='FIRST_RECEIVED'?'별도 예약일이 없어 보관된 인증 메일의 최초 수신일을 예약일 기준으로 사용합니다. 결제 연결은 미확정입니다.':'원본 예약 시각과 시간대를 한국 시간으로 환산한 날짜입니다. 결제 연결이 확정된 것은 아닙니다.'):'예약일이나 결제 연결이 확정된 것은 아닙니다.','fb-note');
-const filter=document.createElement('form'),label=text(filter,'label','조회 날짜 (직접 지정 필터)');
+text(details,'summary','날짜로 카드 내역 조회');
+text(details,'p',confirmedDay?(basis==='FIRST_RECEIVED'?'별도 예약일이 없어 보관된 인증 메일의 최초 수신일을 예약일 기준으로 사용합니다. 결제 연결은 미확정입니다.':'원본 예약 시각과 시간대를 한국 시간으로 환산한 날짜입니다. 결제 연결이 확정된 것은 아닙니다.'):'카드 이용 날짜를 선택해 조회하세요. 조회만으로 예약과 카드 결제가 연결되지는 않습니다.','fb-note');
+const filter=document.createElement('form'),label=text(filter,'label','조회 날짜');
 const dateInput=document.createElement('input');dateInput.type='date';dateInput.required=true;dateInput.min='2000-01-01';dateInput.max='2100-12-31';label.append(dateInput);
-const search=text(filter,'button','지정 날짜 원행 조회');search.type='submit';details.append(filter);
-const note=text(details,'p','날짜를 직접 지정해 조회해 주세요.','fb-date-status');note.setAttribute('role','status');note.setAttribute('aria-live','polite');
+const search=text(filter,'button','카드 내역 조회');search.type='submit';details.append(filter);
+const note=text(details,'p','조회할 날짜를 선택하세요.','fb-date-status');note.setAttribute('role','status');note.setAttribute('aria-live','polite');
 const rows=document.createElement('div');details.append(rows);
 const next=text(details,'button','카드 원행 더 보기');next.type='button';next.hidden=true;
-let activeDay='',cursor=null,revision=null;
+let activeDay='',cursor=null,revision=null,version=0,controller=null;
 const render=tx=>{
  cardTransaction(rows,tx,true);
 };
 async function load(reset){
- if(reset){activeDay=dateInput.value;cursor=null;revision=null;rows.replaceChildren();next.hidden=true}
- const requestedDay=activeDay;search.disabled=true;next.disabled=true;note.textContent='카드 원행을 읽고 있습니다.';
+ if(reset){version++;if(controller)controller.abort();activeDay=dateInput.value;cursor=null;revision=null;rows.replaceChildren();next.hidden=true}
+ const requestedDay=activeDay,requestVersion=version;controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);search.disabled=true;next.disabled=true;note.textContent='카드 원행을 읽고 있습니다.';
  try{
   const query=new URLSearchParams({date:requestedDay});if(cursor){query.set('cursor',cursor);query.set('revision',revision)}
-  const response=await fetch('/api/cards/transactions/day?'+query,{cache:'no-store'});const data=await response.json();
+  const response=await fetch('/api/cards/transactions/day?'+query,{cache:'no-store',signal:controller.signal});const data=await response.json();if(requestVersion!==version)return;
   if(response.status===409&&data.code==='SOURCE_CHANGED'){rows.replaceChildren();cursor=null;revision=null;next.hidden=true;throw Error('카드 자료가 변경됐습니다. 지정 날짜로 다시 조회해 주세요.')}
   if(!response.ok)throw Error('카드 원행을 불러오지 못했습니다. 날짜와 접근 권한을 확인해 주세요.');
   if(data.filter_semantics!=='USER_DATE_FILTER'||data.date!==requestedDay)throw Error('지정한 날짜의 응답을 확인할 수 없습니다. 다시 조회해 주세요.');
   for(const tx of data.items||[])render(tx);
   cursor=data.cursor;revision=data.revision;next.hidden=!(data.has_more&&cursor);
-  note.textContent=(confirmedDay&&requestedDay===confirmedDay?(basis==='FIRST_RECEIVED'?'최초 인증 메일 수신일 기준 ':'예약 시각의 한국 날짜 '):'직접 지정한 날짜 ')+requestedDay+' · '+(data.total_count?rows.children.length+' / '+data.total_count+'건':'현재 조회 범위에서 결과 없음')+'. 결제 연결을 확정하지 않습니다.';
- }catch(error){note.textContent=error.message}finally{search.disabled=false;next.disabled=false}
+  note.textContent=(confirmedDay&&requestedDay===confirmedDay?(basis==='FIRST_RECEIVED'?'최초 인증 메일 수신일 기준 ':'예약 시각의 한국 날짜 '):'직접 지정한 날짜 ')+requestedDay+' · '+(data.total_count?rows.children.length+' / '+data.total_count+'건':'카드 내역이 없습니다. 다른 날짜를 선택해 다시 조회하세요')+'. 결제 연결을 확정하지 않습니다.';
+ }catch(error){if(requestVersion===version)note.textContent=error.name==='AbortError'?'카드 조회 응답이 지연되고 있습니다. 카드 내역 조회를 눌러 다시 시도하세요.':error.message}finally{clearTimeout(timeout);if(requestVersion===version){search.disabled=false;next.disabled=false}}
 }
 filter.addEventListener('submit',event=>{event.preventDefault();if(dateInput.value&&filter.reportValidity())load(true)});
 next.addEventListener('click',()=>load(false));
-if(confirmedDay){dateInput.value=confirmedDay;details.addEventListener('toggle',()=>{if(details.open&&!activeDay)load(true)})}
+if(confirmedDay){dateInput.value=confirmedDay;const loadVisible=()=>{if(details.open&&details.checkVisibility()&&!activeDay)load(true)};details.addEventListener('toggle',loadVisible);details.addEventListener('fb-visible',loadVisible)}
+}
+function passengerNames(b){return Array.isArray(b.passengers)&&b.passengers.length?b.passengers:[b.passenger_name].filter(Boolean)}
+function passengerTitle(b){const people=passengerNames(b);return people.slice(0,3).join(' · ')+(people.length>3?' 외 '+(people.length-3)+'명':'')||'탑승객 미확인'}
+function providerInfo(b){return ({trip:{name:'Trip.com',url:'https://kr.trip.com/'},jeju:{name:'제주항공',url:'https://www.jejuair.net/'},asiana:{name:'아시아나항공',url:'https://flyasiana.com/'},skyticket:{name:'스카이티켓',url:'https://ko.skyticket.com/'}})[b.provider]||{name:b.provider||'예약처 미확인'}}
+function reservationWarning(card,b){
+ const conflict=b.conflict||b.cancellation_status==='CONFLICT',cancelled=b.cancelled;
+ if(!conflict&&!cancelled&&b.source_verified&&b.booking_date_status!=='CONFLICT')return;
+ const warning=text(card,'section','','fb-reservation-warning');
+ text(warning,'h3',conflict?'예약 자료가 서로 일치하지 않습니다':cancelled?'취소·변경 자료가 포함된 예약입니다':b.booking_date_status==='CONFLICT'?'예약일 근거가 서로 다릅니다':'예약 원본을 검증하지 못했습니다');
+ text(warning,'p',conflict||cancelled?'아래 일정은 저장된 자료입니다. 예약처에서 예약번호와 탑승객명으로 현재 일정·취소 여부를 대조하세요.':'예약처에서 예약번호와 탑승객명을 대조하세요. 카드 내역은 아래에서 날짜를 지정해 조회할 수 있습니다.');
+ const provider=providerInfo(b),actions=text(warning,'div','','fb-actions');
+ if(provider.url){const link=text(actions,'a',provider.name+'에서 예약 확인');link.href=provider.url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label',provider.name+'에서 예약 확인 (새 탭)')}
+ if(b.booking_ref){const copy=text(actions,'button','예약번호 복사');copy.type='button';const status=text(warning,'p','','fb-copy-status');status.setAttribute('role','status');copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(String(b.booking_ref));status.textContent='예약번호를 복사했습니다.'}catch{status.textContent='복사하지 못했습니다. 예약번호 '+b.booking_ref+'를 직접 선택해 복사하세요.'}})}
+ if(!provider.url)text(warning,'p','예약처를 확인할 수 없습니다. 보관한 예약 확인서의 예약번호와 탑승객명을 대조하세요.','fb-muted');
 }
 function showBooking(b){
 const card=document.createElement('article');card.className='fb-ticket';
 const hero=document.createElement('header');hero.className='fb-hero';
-text(hero,'h3',b.passengers?.length?b.passengers.join(' · '):b.passenger_name||'탑승객 미확인');
-const legs=Array.isArray(b.legs)?b.legs:[],firstLeg=legs[0];
+text(hero,'h3',passengerTitle(b));
+const routeLeg=(b.legs||[])[0];if(routeLeg)text(hero,'p',[routeLeg.origin_city,routeLeg.destination_city].filter(Boolean).join(' → '),'fb-hero-subtitle');
+const legs=Array.isArray(b.legs)?b.legs:[];
 card.append(hero);
-const people=Array.isArray(b.passengers)&&b.passengers.length?b.passengers:[b.passenger_name].filter(Boolean);
-if(people.length>3){const roster=text(card,'section','','fb-passengers');text(roster,'small','탑승객 '+people.length+'명');text(roster,'p',people.join(' · '));hero.hidden=true}
-if(b.conflict||b.cancelled)text(card,'p',b.conflict||b.cancellation_status==='CONFLICT'?'자료 충돌 · 현재 유효한 일정인지 원본 확인이 필요합니다.':'취소·변경 자료 · 현재 유효한 항공권인지 확인이 필요합니다.','fb-note');
+const people=passengerNames(b);
+if(people.length>3){const roster=text(card,'section','','fb-passengers');text(roster,'small','탑승객 '+people.length+'명');text(roster,'p',people.join(' · '));}
+reservationWarning(card,b);
 const summary=document.createElement('section');summary.className='fb-summary';
-function summaryItem(label,value,symbol,extra){
+function summaryItem(label,value,extra){
  const wrap=document.createElement('div');wrap.className='fb-summary-item';
  const content=document.createElement('div');content.className='fb-summary-copy';
  text(content,'small',label);text(content,'strong',value||'확인되지 않음');
  if(extra)text(content,'span',extra,'fb-summary-detail');
  wrap.append(content);summary.append(wrap);
 }
-summaryItem('예약일',b.booking_date_status==='CONFLICT'?'근거 날짜 충돌':b.reserved_on||'확인되지 않음','▦',
+summaryItem('예약번호',b.booking_ref);
+summaryItem('예약일',b.booking_date_status==='CONFLICT'?'근거 날짜 충돌':b.reserved_on||'확인되지 않음',
  b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일 기준':b.booking_date_status==='EXPLICIT_LABEL'?'원본 명시 확인':null);
-summaryItem('예약처',({trip:'Trip.com',jeju:'제주항공',asiana:'아시아나항공',skyticket:'스카이티켓'})[b.provider]||b.provider||'확인되지 않음','');
+summaryItem('예약처',providerInfo(b).name);
+card.append(summary);
 const segments=document.createElement('section');segments.className='fb-section fb-itinerary';
 const heading=document.createElement('div');heading.className='fb-heading';
-const headingCopy=document.createElement('div');text(headingCopy,'h2','탑승권·여정 정보');
+const headingCopy=document.createElement('div');text(headingCopy,'h3','탑승권·여정 정보');
 heading.append(headingCopy);segments.append(heading);
 let legCount=0;
 for(const [legIndex,leg] of (Array.isArray(b.legs)?b.legs:[]).entries()){
@@ -343,27 +304,52 @@ for(const [legIndex,leg] of (Array.isArray(b.legs)?b.legs:[]).entries()){
 }
 if(!legCount)text(segments,'p','확인된 상세 여정 정보가 없습니다.','fb-muted');
 card.append(segments);
-const moreDetails=text(card,'details','','fb-section fb-more-details');text(moreDetails,'summary','예약·결제 상세');
-moreDetails.append(summary);field(summary,'예약번호',b.booking_ref);summary.lastElementChild.classList.add('fb-summary-item');
-const linked=document.createElement('div');linked.className='fb-section';text(linked,'h2','결제 확인');
+
+const linked=document.createElement('div');linked.className='fb-section fb-payments';text(linked,'h3','카드 결제');
 if(Array.isArray(b.linked_cards)&&b.linked_cards.length){
 text(linked,'p','연결 확인 · 예약 전체의 결제 완료를 뜻하지 않습니다.','fb-muted');
 for(const tx of b.linked_cards)cardTransaction(linked,tx);
-}else{text(linked,'p',b.conflict||b.cancelled||!b.source_verified||b.booking_date_status==='CONFLICT'?'확인 불가 · 원본 상태를 확인해 주세요.':b.booking_card_day?'카드 거래 후보 · 날짜가 같아도 연결은 확정되지 않습니다.':'연결 근거 없음 · 미결제를 뜻하지 않습니다.','fb-muted')}
-moreDetails.append(linked);
+}else{text(linked,'p','연결된 카드 결제가 없습니다. 미결제를 뜻하지는 않습니다.','fb-muted')}
+card.append(linked);
 const candidateDay=['EXPLICIT_LABEL','FIRST_RECEIVED'].includes(b.booking_date_status)&&b.source_verified&&!b.conflict&&!b.cancelled&&!(b.linked_cards||[]).length?b.booking_card_day:null;
 const candidates=linked;
 manualDateFilter(candidates,candidateDay,b.booking_date_status);
-if(b.reserved_on&&!b.booking_card_day)text(candidates,'p','예약일 표기는 있지만 시간대 근거가 없어 자동 날짜 조회를 보류합니다. 날짜를 직접 선택해 주세요.','fb-muted');
-const evidence=text(moreDetails,'details','','fb-section fb-evidence');text(evidence,'summary','예약일 근거');
+if(!(b.linked_cards||[]).length)candidates.querySelector('.fb-date-filter').open=true;
+if(b.reserved_on&&!b.booking_card_day)text(candidates,'p','예약일 원문은 '+b.reserved_on+'입니다. 카드 이용 날짜와 다를 수 있어 자동 조회하지 않았습니다.','fb-muted');
+const evidence=text(card,'details','','fb-section fb-more-details fb-evidence');text(evidence,'summary','예약일 근거');
 text(evidence,'p',b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일 기준입니다. 실제 예약 생성일·발권일·결제일과 다를 수 있습니다.':b.booking_date_status==='EXPLICIT_LABEL'?'원본에 명시된 예약일입니다. 발권일·결제일과 구분합니다.':'예약일을 확정할 수 있는 원본 근거가 없습니다.','fb-muted');
 const dateTimes=(b.booking_date_evidence||[]).map(f=>f.timestamp).filter(Boolean);
 if(dateTimes.length)field(evidence,'근거 시각·시간대',[...new Set(dateTimes)].join(' / '));
 text(evidence,'p','예약 확인 자료에서 조회한 정보입니다. 실제 탑승·현재 운항 여부는 항공사에서 확인하세요.','fb-muted');
 return card}
 let refreshAttempts=0,refreshTimer=null,refreshStarted=0;
+const bookingGroups=new Map();
+function groupForBooking(b){
+ const unavailable=b.trip_assignment_available===false;
+ const id=b.assigned_trip_tab_id||'',conflict=!id&&b.assignment_status==='CONFLICT';
+ const key=id?'trip:'+id:unavailable?'unavailable':conflict?'conflict':'unassigned';
+ if(!bookingGroups.has(key)){
+  const section=text(resultRoot,'section','','fb-trip-group');section.dataset.tripId=id;
+  const head=text(section,'header','','fb-group-heading');
+  text(head,'h2',id?b.assigned_trip_title||id:unavailable?'여행 배정 확인 불가':conflict?'여행 배정 충돌':'여행 미배정');
+  const count=text(head,'span','','fb-group-count');
+  if(id){const link=text(head,'a','여행 장부');link.href='/board?'+new URLSearchParams({tab:id})}
+  if(unavailable)text(section,'p','여행 배정 자료를 읽지 못했습니다. 예약 조회를 눌러 다시 시도하세요.','fb-group-unavailable');
+  const list=text(section,'div','','fb-trip-bookings');
+  bookingGroups.set(key,{section,list,count,order:id?'0'+(b.assigned_trip_starts_on||''):'1'+key});
+ }
+ const group=bookingGroups.get(key);
+ return group;
+}
+function updateGroups(){
+ const ordered=[...bookingGroups.values()].sort((a,b)=>{
+  if(a.order[0]!==b.order[0])return a.order[0].localeCompare(b.order[0]);
+  return b.order.localeCompare(a.order);
+ });
+ for(const group of ordered){group.count.textContent=group.list.querySelectorAll('.fb-ticket').length+'건 표시';resultRoot.append(group.section)}
+}
 async function loadBookings(reset,poll=false){
-if(reset){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}
+if(reset){resultRoot.replaceChildren();bookingGroups.clear();nextOffset=null;sourceRevision=null;more.hidden=true}
 let waiting=false;
 resultRoot.setAttribute('aria-busy','true');submit.disabled=true;more.disabled=true;
 if(!poll)status.textContent='항공권 예약 내역을 찾고 있습니다.';
@@ -371,7 +357,7 @@ const controller=new AbortController(),requestTimer=setTimeout(()=>controller.ab
 try{
 const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:searchName,offset:reset?0:nextOffset,revision:reset?null:sourceRevision}),cache:'no-store',signal:controller.signal});
 if(response.status===401||response.redirected)throw Error('로그인이 필요합니다. 새로고침 후 로그인해 주세요.');
-const data=await response.json();if(!response.ok){if(data.code==='SOURCE_CHANGED'){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}throw new Error(({'INVALID_NAME':'검색어와 날짜를 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다. 예약 조회 또는 더 보기를 눌러 다시 시도하세요.')}
+const data=await response.json();if(!response.ok){if(data.code==='SOURCE_CHANGED'){resultRoot.replaceChildren();bookingGroups.clear();nextOffset=null;sourceRevision=null;more.hidden=true}throw new Error(({'INVALID_NAME':'검색어와 날짜를 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러오지 못했습니다. 잠시 후 예약 조회를 눌러 다시 시도하세요.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다. 예약 조회 또는 더 보기를 눌러 다시 시도하세요.')}
 if(data.source_status==='LOADING'){
  const notice='항공권 자료를 준비하고 있습니다. 완료되면 자동으로 조회합니다. 최대 2분 정도 기다려 주세요.';
  if(refreshAttempts++<60&&Date.now()-refreshStarted<120000){
@@ -380,21 +366,20 @@ if(data.source_status==='LOADING'){
  }else status.textContent='항공권 자료 준비가 지연되고 있습니다. 예약 조회를 눌러 다시 시도해 주세요.';
  return;
 }
-for(const booking of data.reservations||[]){const ticket=showBooking(booking);if((data.total??data.reservations.length)>1){
+for(const booking of data.reservations||[]){const group=groupForBooking(booking),ticket=showBooking(booking);if((data.total??data.reservations.length)>1){
  const item=document.createElement('details');item.className='fb-booking-choice';
  const summary=text(item,'summary',''),copy=text(summary,'span','','fb-choice-copy');
  const legs=booking.legs||[],first=legs.find(leg=>leg.segments?.length)||legs[0];
  const route=first?[first.origin_city||first.segments?.[0]?.departure_airport,first.destination_city||first.segments?.at(-1)?.arrival_airport].filter(Boolean).join(' → '):'';
  const days=[...new Set(legs.map(leg=>leg.departure_on).filter(Boolean))].sort();
- text(copy,'strong',route||'여정 미확인');
- const people=booking.passengers?.length?booking.passengers:[booking.passenger_name].filter(Boolean);
- const names=people.slice(0,3).join(' · ')+(people.length>3?' 외 '+(people.length-3)+'명':'');
- text(copy,'small',[days.length>1?days[0]+' ~ '+days.at(-1):days[0],people.length>1?'탑승객 '+people.length+'명':null,names||'탑승객 미확인',booking.conflict?'자료 충돌':booking.cancelled?'취소·변경 자료':''].filter(Boolean).join(' · '));
- item.addEventListener('toggle',()=>{if(item.open)resultRoot.querySelectorAll('.fb-booking-choice').forEach(other=>{if(other!==item)other.open=false})});item.append(ticket);resultRoot.append(item)
- }else resultRoot.append(ticket)}
+ text(copy,'strong',passengerTitle(booking));
+ text(copy,'small',[days.length>1?days[0]+' ~ '+days.at(-1):days[0],route||'여정 미확인',booking.conflict?'자료 충돌':booking.cancelled?'취소·변경 자료':''].filter(Boolean).join(' · '));
+ item.addEventListener('toggle',()=>{if(item.open){resultRoot.querySelectorAll('.fb-booking-choice').forEach(other=>{if(other!==item)other.open=false});ticket.querySelector('.fb-date-filter')?.dispatchEvent(new Event('fb-visible'))}});item.append(ticket);group.list.append(item)
+ }else group.list.append(ticket)}
+updateGroups();
 sourceRevision=data.revision;nextOffset=data.next_offset??null;more.hidden=nextOffset===null;
 const count=resultRoot.querySelectorAll('.fb-ticket').length;
-status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?(data.total??count)===count?'예약 '+count+'건':'예약 '+count+' / '+data.total+'건':'검색 조건에 맞는 항공권 예약이 없습니다. 날짜나 행선지를 바꿔 검색해 주세요.';
+status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 잠시 후 예약 조회를 눌러 다시 시도하세요.':count?(data.total??count)===count?'예약 '+count+'건':'예약 '+count+' / '+data.total+'건':'검색 조건에 맞는 항공권 예약이 없습니다. 탑승객 이름·행선지·날짜를 바꿔 검색하세요.';
 }catch(error){status.textContent=error.name==='AbortError'?'항공권 조회 응답이 지연되고 있습니다. 예약 조회를 눌러 다시 시도해 주세요.':error.message}finally{clearTimeout(requestTimer);if(!waiting){submit.disabled=false;more.disabled=false;resultRoot.setAttribute('aria-busy','false')}}}
 form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;clearTimeout(refreshTimer);refreshAttempts=0;refreshStarted=Date.now();searchName=form.elements.name.value.trim();loadBookings(true)});
 more.addEventListener('click',()=>{if(nextOffset!==null&&!more.disabled)loadBookings(false)});
@@ -490,6 +475,7 @@ def _name_search(board, name, *, offset=0, revision=None):
     from .flight_booking_projection import query_booking_reservations
     index = passenger_index_for(board)
     cards = _confirmed_card_index(board, index)
+    trip_metadata, trip_revision = _search_trip_metadata(board, index, cards)
     return query_booking_reservations(
         index,
         query_tokens=query,
@@ -499,7 +485,50 @@ def _name_search(board, name, *, offset=0, revision=None):
         revision=revision,
         fallback_status_fn=lambda: source_status(board),
         name_key_fn=_name_key,
+        trip_metadata=trip_metadata,
+        trip_revision=trip_revision,
     )
+
+
+def _search_trip_metadata(board, index, cards):
+    """Reuse the ledger's read-only booking assignment projection; never save assignments."""
+    from . import trip_flight_read
+    getter = getattr(board, 'live_trips', None) or getattr(board, 'list_trips', None)
+    unavailable = {(str(e.get('provider') or 'trip').lower(), str(ref)):
+                   {'trip_assignment_available': False}
+                   for ref, e in index.items() if isinstance(e, dict)}
+    if not callable(getter):
+        return unavailable, 'TRIP_AUTHORITY_UNAVAILABLE'
+    try:
+        trips = list(getter(include_archived=True))
+        rules = trip_flight_read.read_booking_trip_rules()
+        rows = trip_flight_read.confirmed_card_trip_rows(board, cards)
+        manual, authorities, authority_revision = trip_flight_read.build_authority_maps(
+            index, trips, booking_trip_rules=rules, confirmed_card_links=cards, expense_rows=rows)
+        projection = trip_flight_read.project_trip_bookings(index, trips,
+            source_generation=authority_revision, user_assignments=manual,
+            authority_trip_ids=authorities)
+    except (OSError, ValueError, TypeError, AttributeError, sqlite3.Error):
+        return unavailable, 'TRIP_AUTHORITY_UNAVAILABLE'
+    by_id = {str(t.get('tab_id')): t for t in trips}
+    metadata = {}
+    for booking in projection['bookings']:
+        tab_id = booking['assigned_trip_tab_id']
+        trip = by_id.get(tab_id, {})
+        metadata[(booking['provider'], booking['booking_ref'])] = {
+            'assigned_trip_tab_id': tab_id,
+            'assigned_trip_title': str(trip.get('display_title') or trip.get('display_key')
+                                       or trip.get('title') or tab_id),
+            'assigned_trip_starts_on': str(trip.get('starts_on') or trip.get('start_on') or ''),
+            'assignment_status': booking['assignment_status'],
+            'assignment_basis': booking['assignment_basis'],
+            'assignment_conflict': booking['assignment_conflict'],
+            'trip_assignment_available': True,
+        }
+    # Include titles as well as authority revisions in pagination's stale-source boundary.
+    digest = hashlib.sha256(json.dumps([authority_revision, sorted(metadata.items())],
+        sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    return metadata, digest
 
 
 def _passenger_evidence(board, booking_ref):
