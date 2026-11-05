@@ -1,6 +1,6 @@
 ## 2026-11-05 통합 후속 실행 인계 — 자율 지출정리·WebLedgerHost HDD I/O — PARTIAL
 
-- [통합 실행계획](specs/autonomy-io-unified-followup-20261105.md) 및 [운영 기록](operations.md#2026-11-05-pr-636636-pr-644644-통합-실행-partial)을 기준으로 한다. #646은 `40ea7f9d`, #652는 `f7ff4ec4`로 정상 병합·CI 통과했다. 최신 main은 후속 PR #653을 포함한 `79a3c573`이다.
+- [통합 실행계획](specs/autonomy-io-unified-followup-20261105.md) 및 [운영 기록](operations.md#2026-11-05-pr-636636-pr-644644-통합-실행-partial)을 기준으로 한다. #646은 `40ea7f9d`, #652는 `f7ff4ec4`로 병합·CI 통과했다. 운영 앱 SHA는 PR #653 `79a3c573`; 문서 PR #654/#655/#656 이후 최신 main은 `015312c4fb1c313021eca6dbf6e3c7360d315e94`이다.
 - **현재 Board 운영:** PR #653의 공식 전환 evidence는 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`, 1,383 files·blob mismatch0·runtime SHA 확인, 단일 listener·8751, health/ready 200·보호 API 401·보호13표 불변을 기록한다. 첫 `f7ff4ec4` 배포 시도는 포트 점유에서 안전 중단됐지만 PR #653이 뒤이어 8751로 전환을 완료했다. 현재 task Running이며 자율정리 worker·AI 분류·Gateway·OTA 핵심 파일 해시가 main과 일치한다. 8752는 비활성이다.
 - **Gateway:** `WebLedger-Gateway` 예약 작업의 다음 실행 경로는 검증된 릴리스 `f7ff4ec4`로 갱신했다. 현재 PID는 재시작하지 않았고, 실행 중 파일과 검증 파일 SHA-256이 일치한다. task principal·trigger·settings 및 route는 그대로다.
 - **자율 지출정리:** 운영 `autonomous_ai_review=true`; 08:53 KST 마지막 상태는 `state=idle`, passes333, P2 적용0, 재시도18, dead20, blocked400, due0, failures0이며 이후 상태 파일 갱신은 없다. 정상 네트워크 경로의 격리 synthetic OpenCode 호출은 timeout. 프록시 우회·한도 초기화·강제 재처리는 하지 않았다. #652 descendant 코드는 현재 main과 일치하지만 운영 처리 효과는 미확인이다.
