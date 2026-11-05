@@ -3474,9 +3474,10 @@ async function awaitUpload(job,entry){
    if(r.status===401||r.status===403)throw Object.assign(Error(r.status===401?'로그인 필요':'조회 권한 필요'),{terminal:true,auth:true});
    if(r.status===404)return await recoverUpload(job);
    if(!r.ok)throw Error('진행 상태 연결 재시도 중');
-   const state=await r.json();errors=0;
+   const state=await r.json();
    if(state.status==='done'){if(state.result?.refresh_required)return await recoverUpload(job);saveUploadJob(job,true);return state.result}
    if(state.status==='error'){saveUploadJob(job,true);throw Object.assign(Error(state.message),{terminal:true})}
+   errors=0;
    uploadRow(entry,job.filename,(state.message||'처리 중')+' · '+Math.floor((Date.now()-started)/1000)+'초');
   }catch(e){
    if(e.terminal){e.savedBatch=job.batch_id;throw e}

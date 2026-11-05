@@ -32,7 +32,7 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'background', 'restart-expired', 'recovery-offline', 'recovery-pending', 'recovery-auth'])
+@pytest.mark.parametrize('mode', ['mixed', 'success', 'legacy-resume', 'refresh-required', 'background', 'restart-expired', 'recovery-offline', 'recovery-refresh-offline', 'recovery-pending', 'recovery-auth'])
 def test_all_ten_files_are_attempted_and_unresolved_jobs_survive(mode):
     source = page('synthetic-csrf')
     source = source[source.index("const uploadJobKey="):source.index("el('ruleform').onsubmit=")]
@@ -57,10 +57,11 @@ const context={el,localStorage,document:{createElement:element},Date,Error,JSON,
   call:async(url,data)=>{assert.equal(url,'/api/imports/upload-batch');return {files:data.files.map(file=>{const n=Number(file.name.split('.')[0]);posts.push(n);return {filename:file.name,status_url:identity(n),batch_id:String(n)}})}},
   fetch:async url=>{const n=Number(url.split('/').at(-1));
     if(!url.includes('upload-status')){
-      if(mode==='recovery-offline')throw Error('offline');
+      if(mode==='recovery-offline'||mode==='recovery-refresh-offline')throw Error('offline');
       if(mode==='recovery-auth')return {ok:false,status:401};
       return {ok:true,status:200,json:async()=>({batch_id:String(n),rows:[{classification_state:mode==='recovery-pending'?'unclassified':'classified'}],preview:{},summary:{}})};
     }
+    if(mode==='recovery-refresh-offline'&&n===9)return {ok:true,status:200,json:async()=>({status:'done',result:{refresh_required:true}})};
     if((mode==='restart-expired'||mode.startsWith('recovery-'))&&n===9)return {ok:false,status:404};
     if(mode==='background')await new Promise(resolve=>{waiting.push(resolve)});
     if(mode==='mixed'&&(n===2||n===4))throw Error('temporary disconnect');
