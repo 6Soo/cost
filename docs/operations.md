@@ -1,3 +1,19 @@
+## 2026-11-05 PR #665 통합 사용자 확인함 구현 및 운영 배포 — 완료
+
+- [PR #665](https://github.com/6Soo/cost/pull/665) 설계 명세에 따라 통합 사용자 작업함 기반, 카드 비용 항목 도메인 어댑터, 분산 보류 UX 제거를 구현하고 [PR #674](https://github.com/6Soo/cost/pull/674)로 정상 main 병합 및 운영 전환을 완료했다.
+- 병합 및 공식 배포 SHA: `aaa96c5c8eef567d76f8e6f9da28be2e5587642f` (이전 운영 SHA: `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`).
+- `deploy_verified_release.ps1 -Apply`를 통한 공식 단일 작성자 연속 전환:
+  - 1,403 tracked blobs 일치 (blob_mismatches: 0)
+  - task 및 runtime SHA 일치 (`aaa96c5c8eef567d76f8e6f9da28be2e5587642f`)
+  - Gateway 8790 → backend 8751 단일 loopback listener 무중단 전환 (`ledger-route.json`: port 8751, paused: false)
+  - `/healthz`: 200, `/readyz`: 200, 보호 API 3개: 401
+  - 금융 보호 13개 테이블 불변 검증 PASS (`unchanged: true`, `tables: 13`)
+  - 금융/Google 원본 자동 쓰기 및 DB 마이그레이션: 0건 (`financial_apply: NOT_RUN`)
+- 검증 근거:
+  - Windows 영향 QA: **948 passed · 60 subtests passed · skip 0 · 필수 브라우저 38개 전건 실행 통과**
+  - GitHub Actions CI (PR #674, run `41994267844`): SUCCESS
+  - 배포 증빙: `D:/WebLedgerHost/releases/deploy-evidence-aaa96c5c8eef567d76f8e6f9da28be2e5587642f.json` 및 `C:/AX/cost/.local-archive/unified-action-queue-20261105/deploy-evidence.json`
+
 ## 2026-11-05 업로드 결과 복구·정렬 UI 배포 — 완료
 
 - [PR668](https://github.com/6Soo/cost/pull/668)의 `f9b6a2e7` 배포 후 실자료 상세 조회 약97초를 확인해 [PR672](https://github.com/6Soo/cost/pull/672)에서 소유자 전용 진행 API의 별도 read-only SQLite 집계로 보완했다. 최종 운영 `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`는 이전 검증 `f9b6a2e7bc33403a848d7750f2268643c5071f66`에서 공식 단일 작성자 전환했다. 중간에 반영된 사이드바 릴리스도 보존했다.
