@@ -1,5 +1,7 @@
 """Short upload acknowledgement and lock-free status; financial writes stay serialized."""
 import re
+import sqlite3
+from pathlib import Path
 import threading
 import time
 import uuid
@@ -60,7 +62,37 @@ def running(board):
                    for job in getattr(board, '_upload_jobs', {}).values())
 
 
-def status(board, identity):
+def saved_status(board, batch_id):
+    """Read only durable counts on a separate connection, never the writer's."""
+    if not re.fullmatch(r'batch-[a-f0-9]{24}', batch_id):
+        return {'code': 'INVALID_UPLOAD_BATCH'}, 400
+    connection = None
+    try:
+        connection = sqlite3.connect(Path(board.path).resolve().as_uri()+'?mode=ro', uri=True, timeout=1)
+        connection.execute('PRAGMA query_only=ON')
+        connection.execute('BEGIN')
+        batch = connection.execute('SELECT status,row_count,error_count FROM import_batches WHERE batch_id=?', (batch_id,)).fetchone()
+        if batch is None:
+            return {'code': 'UPLOAD_BATCH_NOT_FOUND'}, 404
+        total, classified = connection.execute(
+            "SELECT COUNT(*),COALESCE(SUM(t.classification_state='classified'),0) "
+            'FROM import_batch_rows b LEFT JOIN transactions t USING(transaction_id) WHERE b.batch_id=?', (batch_id,)).fetchone()
+        approval = batch[0] == 'approval_evidence'
+        # These counts describe classification only, never ledger/Google/refund completion.
+        pending = batch[0] not in ('parsed', 'classified', 'approval_evidence') or batch[2] > 0 or (not approval and ((total == 0 and batch[1] > 0) or classified < total))
+        return {'status': 'saved', 'result': {'batch_id': batch_id, 'recovered_upload': True,
+            'recovery': {'pending': pending, 'source_rows': batch[1], 'transaction_count': total,
+                         'classified_count': classified, 'error_count': batch[2]}}}, 200
+    except (sqlite3.Error, OSError, ValueError, AttributeError):
+        return {'code': 'UPLOAD_SAVED_STATUS_UNAVAILABLE'}, 503
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def status(board, identity, *, saved_batch=None):
+    if saved_batch is not None:
+        return saved_status(board, saved_batch)
     with _guard:
         job = getattr(board, '_upload_jobs', {}).get(identity)
         if job is None:
