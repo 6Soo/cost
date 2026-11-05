@@ -4,15 +4,15 @@
 - 최종 운영 `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`(이전 검증 `f9b6a2e7`), 1,399 blobs·runtime SHA·health/ready200·보호API401·보호13표 불변 PASS. Windows 영향334+46 subtests 및 후속327+30 subtests·skip0(중복 합산 금지), 최종 상태 후속18 passed·PR CI 성공. Ego27 인증 저장 결과 복구313ms·상세 링크·체크포인트0·가로 넘침0 수락. 합성375/390px·다크도 확인했다.
 - 운영 자료 재업로드·원본/금융/분류/여행/환불/Google 쓰기0. 근거 `.local-archive/upload-results-20261105/` 및 동일 SHA 호스트 deploy-evidence. 미결0·다음 기능 명령 없음. 전체 상세 조회의 일반 성능 개선이나 카드 관리 화면 명세 전체를 완료했다고 주장하지 않으며 기록만의 후속으로 재배포하지 않는다.
 
-## 2026-11-05 PR #665 통합 사용자 확인함 구현 — PARTIAL · 운영 미배포
+## 2026-11-05 PR #665 통합 사용자 확인함 구현 — PROGRESS
 
-- 기준 명세는 병합된 [PR #665](https://github.com/6Soo/cost/pull/665)의 `docs/specs/unified-expense-action-queue-20261105.md`다. 기존 사용자 변경이 있던 `C:/AX/cost`는 보존하고 별도 worktree `C:/AX/cost-unified-action-queue`의 `feat/unified-expense-action-queue-20261105`에서 작업했다. 기반 구현은 `a054954a`, QA 기준선 오류 기대값 교정은 `d399982c`, 화면별 중복 보류 동선 제거는 `50bf2b29`, 브라우저 계약 교정은 `da6a3fc9`다.
-- 현재 구현: 기존 `requests` 저장소를 쓰는 통합 task 저장/멱등 group key/revision·digest stale 거부, owner 메뉴 건수와 `/my-actions`, CSRF owner 답변 경로를 추가했다. 스키마·고객 DB·Google 변경은 없다. 최신 main sidebar 변경에서 생긴 브라우저 테스트 기대 수 7→9 기준선 오류도 수정했다.
-- 검증: `python tools/run_quality_checks.py --base origin/main --run`, base `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`, SHA `8520ff4d888d12b44ad11be1fb5f6ec40cc055d4`: 574 passed·46 subtests·skip 0·필수 브라우저 9개 실행·compile 통과. 타깃 owner/access/server isolation 112 passed. 결과 `.local` 저장소의 `quality-artifacts/run-summary.json`, `junit.xml`, `pytest.log`에 있다.
-- 추가 구현: `/import`의 owner별 “내 확인 필요/자동 진행·대기” 보조 대기열과 요청 필드를 제거했다. 여행 자동분류 화면의 사용자 “검토 보류” 버튼 및 POST 경로, 카드 세부 화면의 보류 해제 체크박스/전송 필드도 제거했다. 기존 transaction_review_holds 및 기록 검증은 유지했다. 화면 계약에 맞게 3개 테스트를 갱신했다.
-- 검증: 표적 76 passed, 이어 `python tools/run_quality_checks.py --base origin/main --run`을 SHA `da6a3fc9`에서 재실행해 **938 passed·60 subtests·skip 0**, 영향 pytest 대상 53개 및 py_compile 통과. 첫 실행의 `#holds` 구 UI assertion 실패는 새 계약대로 테스트를 고친 뒤 해당 브라우저 시나리오와 전체 영향 QA를 다시 통과했다. 결과 `quality-artifacts/run-summary.json`, `junit.xml`, `pytest.log`.
-- **미완료·배포 차단:** P3 task를 실제 카드/환불/OTA/영수증/예약/Google 흐름에서 등록하는 source adapter와 중복 그룹화가 없다. 작업함 답변 저장은 기존 P1/P2 입력으로 소비되지 않고, task를 근거 재검증 후 `RESOLVED`로 닫는 경로도 없다. 영수증 확인 목록, OTA·여행·Google의 화면별 확인 경로와 다른 사용자 보류 문구/상태도 남아 있다. 따라서 새 작업함은 현재 테스트 fixture 밖에서 비어 있으며 운영 사용자가 답변해도 업무 처리가 되지 않는다. PR 작성·병합·운영 배포는 아직 실행하지 않는다.
-- 재개: 모든 관련 도메인 P3 adapter 및 answer consumer를 기존 권한·금융 보호 API에 연결하고, 원본 revision 재검증·자동 재평가·해결/재질문 상태 전이를 구현한다. 이어 중복 작업 집계, 화면별 작업 목록/보류 affordance 제거, 전체 수락 및 보호 회귀, 영향 QA/CI, PR, 고정 SHA 배포와 운영 최소 스모크를 수행한다. **현재 HEAD:** worktree에서 `git status --short --branch; git log -3 --oneline`.
+- 기준 명세는 병합된 [PR #665](https://github.com/6Soo/cost/pull/665)의 `docs/specs/unified-expense-action-queue-20261105.md`다. 기존 사용자 변경이 있던 `C:/AX/cost`는 보존하고 별도 worktree `C:/AX/cost-unified-action-queue`의 `feat/unified-expense-action-queue-20261105`에서 작업했다. 기반 구현은 `a054954a`, QA 기준선 오류 기대값 교정은 `d399982c`, 화면별 중복 보류 동선 제거는 `50bf2b29`, 브라우저 계약 교정은 `da6a3fc9`, 도메인 어댑터 및 답변 소비 연결은 `a8c264fd`다.
+- 구현 내용:
+  1. 통합 작업함 기반: 기존 `requests` 테이블을 재사용하는 멱등 작업 등록·조회·답변 API(`webapp/user_action_queue.py`), 소유자 주요 메뉴 상단 '내 확인 필요 N건' 직결 링크, `/my-actions` 화면 및 CSRF/revision/digest stale 검증.
+  2. 도메인 어댑터 및 답변 소비: `webapp/user_action_adapters.py`를 통해 자율 정리 워커의 P1/P2 완료 후 항목 미분류 거래를 P3 작업으로 등록(`register_card_item_tasks`). 작업함 답변 제출 시 `AutonomousCleanupWorker` 실행 시점에 revision/source_hash/금융 보호 잠금 검증 후 기존 `save_decision` 파이프라인으로 안전 반영하고 작업을 `RESOLVED` 처리(`apply_card_item_answers`). stale/보호 발생 시 `SUPERSEDED` 전이.
+  3. 보류 UX 제거: `/import` 화면의 소유자별 “내 확인 필요/자동 진행·대기” 필터 및 요청 필드 제거, 여행 자동분류 화면의 “검토 보류” 버튼 제거, 카드 세부 화면의 보류 해제 체크박스/필드 제거, 내부 사유(manual hold) 노출 및 '보류·오류' 칩 제거. 금융 안전 잠금(transaction_review_holds) 데이터 및 검증 로직은 유지.
+- 검증: `python tools/run_quality_checks.py --base origin/main --run`, base `2c382756fff934bd28b40b836f73bcf5bfd3ace2`, SHA `a8c264fd5b2d72dab664eb0035dcd8c7e9209ee4`: **948 passed · 60 subtests passed · skip 0 · 필수 브라우저 38개 전건 실행 통과 · compile 통과**. 결과 `quality-artifacts/run-summary.json`, `junit.xml`, `pytest.log`.
+- 후속 과제: PR 게시, GitHub Actions CI 확인, main 병합 후 고정 SHA 공식 배포 전환(`deploy_verified_release.ps1`) 및 운영 검증.
 
 ## 2026-11-05 단일 계정 메뉴 구조 교정 — COMPLETE
 
