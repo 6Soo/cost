@@ -59,7 +59,7 @@ def test_render_cleanup_breakdown():
     html = card_cleanup_ui.render_cleanup_breakdown({"no_item": 12, "no_trip": 5, "protected": 3}, ledger_total=7)
     assert "항목 미분류 12건" in html
     assert "여행 미배정 12건" in html
-    assert "보류·오류 3건" in html
+    assert "보류·오류" not in html
 
 
 def test_render_cleanup_snapshot_note():
@@ -113,9 +113,9 @@ def test_render_cleanup_card_review_branches():
         evidence="<p>근거</p>",
         held=True,
     )
-    assert "금융 보호 근거" in rev_held
+    assert "거래 근거 자세히 보기" in rev_held
     assert "보류 해제" not in rev_held
-    assert "내 확인 필요" in rev_held
+    assert "내 확인 필요" not in rev_held
     assert "<p>근거</p>" in rev_held
 
     # Normal form branch
@@ -142,6 +142,7 @@ def test_render_cleanup_card_review_branches():
     assert "<label>비용 항목<input" in rev_norm
     assert "COST의 여행·항목에 저장됩니다." in rev_norm
     assert "<p class='cleanup-finance-status'>내부 비용 기록 준비 가능</p>" in rev_norm
+
 
 
 def test_render_cleanup_card_row_preserves_none_and_falsey():

@@ -9,7 +9,7 @@ GROUP_OF_STATUS = {'기록 완료': 'booked', '기존 기록': 'booked',
                    '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
 
 REASON_LABELS = {'classification': '분류·배정 필요', 'recording': '기록 상태 확인', 'evidence': '근거 충돌',
-                 'finance': '결제·환불 확인', 'manual': '사용자 보류'}
+                 'finance': '결제·환불 확인'}
 
 
 def reason_category(row, preview=None, hold=None):
@@ -23,8 +23,8 @@ def reason_category(row, preview=None, hold=None):
             or hold.get('kind') in ('refund_pending', 'cancelled')):
         return 'finance'
     if hold and hold.get('kind') not in ('trip_needed', 'classification_needed', 'existing_ledger'):
-        if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold'):
-            return 'manual'
+        if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold', 'evidence_pending'):
+            return 'evidence'
         return 'evidence'
     if row.get('item') and row.get('display_tab_id') not in (None, '', 'unclassified'):
         return 'recording'
@@ -70,6 +70,8 @@ def next_action(row, preview=None, extra_hold=None):
         return action('기존 기록', '장부 보기', hold['reason'], False,
                       '/board?' + urlencode({'tab': row.get('display_tab_id') or 'unclassified'}))
     if hold and hold.get('kind') not in ('trip_needed', 'classification_needed'):
+        if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold', 'evidence_pending'):
+            return action('', '거래 상세 보기', required=False)
         if 'OTA-first' in (hold.get('reason') or ''):
             return action('예약 연결 확인 필요', '예약 연결 확인',
                           '이 결제가 어느 예약인지 아직 확인되지 않았습니다. 예약번호와 이용일을 확인해 주세요.', target=href + '#ota-review')

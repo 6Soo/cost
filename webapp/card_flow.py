@@ -2993,28 +2993,6 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
     basis_by_card = (dict(board.conn.execute(
         'SELECT transaction_id,classification_basis FROM transactions WHERE transaction_id IN (' +
         ','.join('?' for _ in inference_ids) + ')', inference_ids)) if inference_ids else {})
-    AUTO_STATE_LABELS = {
-        'awaiting_agent': '자율 처리: 자동 검토·기록 중',
-        'ai_retry': '자율 처리: 자동 검토 재시도 예정',
-        'ai_dead': '자율 처리: 자동 검토 실패 · 원인 조사 중',
-        'blocked': '자율 처리: 자동 검토 보류 · 연결 에이전트 대기',
-        'p2_applied': '자율 처리: AI 검토·반영 완료',
-        'no_ai_needed': '자율 처리: 코드 규칙으로 처리 완료',
-        'p1_pending': '자율 처리: 자동 분류 처리 대기',
-    }
-    auto_states = {}
-    if rows_card:
-        keys = ['autonomous-cleanup:' + row[0] for row in rows_card]
-        for rid, raw in board.conn.execute(
-                'SELECT request_id, response_json FROM requests WHERE scope = ? AND request_id IN (' +
-                ','.join('?' for _ in keys) + ')', ['autonomous_cleanup_job', *keys]).fetchall():
-            try:
-                state = json.loads(raw)
-            except ValueError:
-                continue
-            if isinstance(state, dict):
-                auto_states[rid.split(':', 1)[1]] = state
-
     from app.review_holds import active_holds
     from .card_actions import reason_category, REASON_LABELS
     from app.classification_provenance import label as provenance_label
@@ -3132,15 +3110,10 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
             detail=detail, is_cancellation=tid in cancellation_ids,
             evidence=evidence, conflict_reason=conflict_reason,
             parse_error=parse_error, held=held, reason=reason, item=item, esc=esc)
-        auto_job = auto_states.get(tid)
-        if auto_job:
-            auto_label = AUTO_STATE_LABELS.get(auto_job.get('status') or '', '')
-            if auto_label:
-                evidence += "<p class='cleanup-auto-state'>" + esc(auto_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
                  '취소·환불 확인' if tid in cancellation_ids else
-                 '보류 중' if held else '분류 필요' if not item else
+                 '검토 중' if held else '분류 필요' if not item else
                  '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '내부 기록 상태 확인')
         if not protected and tid not in cancellation_ids and tid in original_refunds:
             offset_link = original_refunds[tid][0][1]
@@ -3222,7 +3195,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
         nav = (f"<nav class='cleanup-pages'><p class='muted'>{total}건 중 {min((page-1)*20+1,total)}~{min(page*20,total)}건 · {page}/{pages}페이지</p>"
                f"{previous} · {following}</nav>")
     labels = [('all', '전체', counts['all'])] + [(key, REASON_LABELS[key], counts.get(key, 0))
-              for key in ('classification', 'recording', 'evidence', 'finance', 'manual')]
+              for key in ('classification', 'recording', 'evidence', 'finance')]
     chips = []
     for key, label, count in labels:
         if not count and key not in ('all', selected_reason):

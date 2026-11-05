@@ -154,12 +154,11 @@ def render_cleanup_breakdown(
     card_breakdown: Mapping[str, int],
     ledger_total: int,
 ) -> str:
-    """Assemble reason breakdown counter chips markup."""
+    """Assemble non-protective cleanup counters without exposing safety holds."""
     return (
         "<div class='cleanup-breakdown' aria-label='지출 정리 사유별 건수'>"
         f"<span>항목 미분류 {card_breakdown.get('no_item', 0):,}건</span>"
-        f"<span>여행 미배정 {card_breakdown.get('no_trip', 0) + ledger_total:,}건</span>"
-        f"<span>보류·오류 {card_breakdown.get('protected', 0):,}건</span></div>"
+        f"<span>여행 미배정 {card_breakdown.get('no_trip', 0) + ledger_total:,}건</span></div>"
     )
 
 
@@ -209,8 +208,8 @@ def render_cleanup_card_review(
         )
     elif held:
         review = (
-            f"<details class='cleanup-review'><summary>금융 보호 근거</summary>{evidence}"
-            "<p class='cleanup-protected'>현재 근거로는 자동 기록할 수 없습니다. 필요한 사용자 답변은 내 확인 필요에서 확인해 주세요.</p>"
+            f"<details class='cleanup-review'><summary>거래 근거 자세히 보기</summary>{evidence}"
+            "<p class='cleanup-protected'>거래 근거를 확인하고 있습니다.</p>"
             f"<p><a href='{esc(detail)}'>원본 자료 보기</a></p></details>"
         )
     else:

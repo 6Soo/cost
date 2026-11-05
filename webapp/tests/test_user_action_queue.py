@@ -75,3 +75,114 @@ def test_owner_navigation_exposes_single_queue_with_action_count(conn, monkeypat
     nav = ledger_design._nav_html("", "")
     assert nav.count("/my-actions") == 1
     assert "내 확인 필요 1건" in nav
+
+
+def test_answer_options_keep_internal_values_and_render_human_labels(conn):
+    task = _register(conn, answer_options=({"value": "meal", "label": "식비"},))
+    page = queue.render(conn, "csrf-token")
+    assert "value='meal'>식비</option>" in page
+    answered = queue.answer(conn, action_id=task["action_id"], expected_revision=task["revision"],
+                            expected_digest=queue._digest(task), value="meal")
+    assert answered["answer"]["value"] == "meal"
+
+
+def test_pending_answers_only_returns_reprocessing_tasks(conn):
+    task = _register(conn)
+    queue.answer(conn, action_id=task["action_id"], expected_revision=task["revision"],
+                 expected_digest=queue._digest(task), value="아니오")
+    assert queue.pending_answers(conn) == []
+    queue.set_state(conn, task["action_id"], queue.REPROCESSING)
+    assert [item["action_id"] for item in queue.pending_answers(conn)] == [task["action_id"]]
+
+
+def test_card_action_adapter_registers_only_terminal_p3_rows_and_applies_answer(conn):
+    from webapp import user_action_adapters as adapter
+
+    row = ("tx-1", "batch-1", 4, "needs_review", "", "", "unclassified", "", "hash-1", "2026-01-01")
+    jobs = {"tx-1": {"status": "no_ai_needed"}}
+    assert adapter.register_card_item_tasks(conn, [row], lambda _conn, tx: jobs[tx]) == 1
+    task = queue.list_tasks(conn)[0]
+    assert task["answer_effect"]["kind"] == "card_item"
+    assert task["action_url"] == "/import?batch=batch-1&transaction=tx-1"
+    assert adapter.register_card_item_tasks(conn, [row], lambda _conn, tx: {"status": "ai_retry"}) == 0
+
+    conn.executescript("""
+        CREATE TABLE transactions(transaction_id TEXT PRIMARY KEY, revision INTEGER, source_hash TEXT,
+            classification_state TEXT, classification_source TEXT, item TEXT, display_tab_id TEXT,
+            trip_id TEXT, parse_error TEXT, conflict_reason TEXT, duplicate_of TEXT,
+            transaction_direction TEXT, amount_krw INTEGER, decided_at TEXT, issuer TEXT, card_tail TEXT,
+            approval_number TEXT, original_approval_number TEXT);
+        CREATE TABLE import_batch_rows(batch_id TEXT, transaction_id TEXT);
+        CREATE TABLE review_decisions(transaction_id TEXT, item TEXT);
+        CREATE TABLE ledger_entries(transaction_id TEXT);
+        CREATE TABLE board_rows(row_id TEXT);
+        CREATE TABLE board_manual_overrides(row_id TEXT);
+        CREATE TABLE transaction_review_holds(transaction_id TEXT);
+        CREATE TABLE transaction_company_exclusions(transaction_id TEXT, excluded INTEGER);
+    """)
+    conn.execute("INSERT INTO transactions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 ("tx-1", 4, "hash-1", "needs_review", "", "", "unclassified", "", "", "", "", "purchase", 1200, None, "issuer", "1234", "", ""))
+    conn.execute("INSERT INTO import_batch_rows VALUES('batch-1','tx-1')")
+    queue.answer(conn, action_id=task["action_id"], expected_revision=task["revision"],
+                 expected_digest=queue._digest(task), value="식비")
+    queue.set_state(conn, task["action_id"], queue.REPROCESSING)
+
+    class Pipeline:
+        def save_decision(self, transaction_id, revision, **kwargs):
+            assert (transaction_id, revision, kwargs["item"]) == ("tx-1", 4, "식비")
+            conn.execute("UPDATE transactions SET revision=revision+1,classification_state='classified',"
+                         "classification_source='user_decision',item=?,decided_at='saved' WHERE transaction_id=?",
+                         (kwargs["item"], transaction_id))
+
+    class Flow:
+        pipeline = Pipeline()
+        tab_valid = staticmethod(lambda _tab: True)
+        trip_valid = staticmethod(lambda _trip: True)
+
+    assert adapter.apply_card_item_answers(conn, Flow()) == 1
+    assert queue.pending_answers(conn) == []
+    assert conn.execute("SELECT classification_source,item FROM transactions WHERE transaction_id='tx-1'").fetchone() == ("user_decision", "식비")
+    assert conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0
+
+
+def test_card_action_answer_is_superseded_if_a_protective_hold_appears(conn):
+    from webapp import user_action_adapters as adapter
+
+    conn.executescript("""
+        CREATE TABLE transactions(transaction_id TEXT PRIMARY KEY, revision INTEGER, source_hash TEXT,
+            classification_state TEXT, classification_source TEXT, item TEXT, display_tab_id TEXT,
+            trip_id TEXT, parse_error TEXT, conflict_reason TEXT, duplicate_of TEXT,
+            transaction_direction TEXT, amount_krw INTEGER, decided_at TEXT, issuer TEXT, card_tail TEXT,
+            approval_number TEXT, original_approval_number TEXT);
+        CREATE TABLE import_batch_rows(batch_id TEXT, transaction_id TEXT);
+        CREATE TABLE review_decisions(transaction_id TEXT, item TEXT);
+        CREATE TABLE ledger_entries(transaction_id TEXT);
+        CREATE TABLE board_rows(row_id TEXT);
+        CREATE TABLE board_manual_overrides(row_id TEXT);
+        CREATE TABLE transaction_review_holds(transaction_id TEXT);
+        CREATE TABLE transaction_company_exclusions(transaction_id TEXT, excluded INTEGER);
+    """)
+    row = ("tx-2", "batch-2", 1, "needs_review", "", "", "unclassified", "", "hash-2", "2026-01-01")
+    adapter.register_card_item_tasks(conn, [row], lambda *_: {"status": "p2_applied"})
+    task = queue.list_tasks(conn)[0]
+    conn.execute("INSERT INTO transactions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 ("tx-2", 1, "hash-2", "needs_review", "", "", "unclassified", "", "", "", "", "purchase", 1200, None, "issuer", "1234", "", ""))
+    conn.execute("INSERT INTO import_batch_rows VALUES('batch-2','tx-2')")
+    conn.execute("INSERT INTO transaction_review_holds VALUES('tx-2')")
+    queue.answer(conn, action_id=task["action_id"], expected_revision=task["revision"],
+                 expected_digest=queue._digest(task), value="식비")
+    queue.set_state(conn, task["action_id"], queue.REPROCESSING)
+
+    class Flow:
+        class Pipeline:
+            @staticmethod
+            def save_decision(*_args, **_kwargs):
+                raise AssertionError("protected transaction must never be changed")
+        pipeline = Pipeline()
+        tab_valid = staticmethod(lambda _tab: True)
+        trip_valid = staticmethod(lambda _trip: True)
+
+    assert adapter.apply_card_item_answers(conn, Flow()) == 0
+    stored = conn.execute("SELECT response_json FROM requests WHERE request_id=?",
+                          ("user-action:" + task["action_id"],)).fetchone()
+    assert queue._decode(stored)["state"] == queue.SUPERSEDED

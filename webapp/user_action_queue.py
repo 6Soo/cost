@@ -39,6 +39,13 @@ def _decode(row):
     return task if isinstance(task, dict) and task.get("scope") == SCOPE else None
 
 
+def _option(option):
+    if isinstance(option, dict):
+        value = str(option.get("value", ""))
+        return value, str(option.get("label", value))
+    return str(option), str(option)
+
+
 def list_tasks(conn):
     try:
         rows = conn.execute("SELECT response_json FROM requests WHERE scope=? AND json_extract(response_json,'$.state')=?",
@@ -50,6 +57,19 @@ def list_tasks(conn):
     tasks = [task for (raw,) in rows if (task := _decode((raw,))) and task.get("state") in _OPEN_STATES]
     tasks.sort(key=lambda task: (-int(task.get("priority", 0)), task.get("created_at", ""), task.get("action_id", "")))
     return tasks
+
+
+def pending_answers(conn):
+    """Return submitted actions that still need their domain effect applied."""
+    try:
+        rows = conn.execute(
+            "SELECT response_json FROM requests WHERE scope=? AND json_extract(response_json,'$.state')=?",
+            (SCOPE, REPROCESSING)).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table: requests" not in str(exc).lower():
+            raise
+        return []
+    return [task for (raw,) in rows if (task := _decode((raw,))) and task.get("state") == REPROCESSING]
 
 
 def open_count(conn):
@@ -64,7 +84,7 @@ def open_count(conn):
 
 def register(conn, *, group_key, task_type, title, question, evidence_summary,
              recommendation="", source_refs=(), source_revision="", priority=0,
-             answer_options=()):
+             answer_options=(), answer_effect=None, action_url=""):
     """Upsert one human decision. Callers must register only actionable P3 work."""
     group_key = str(group_key or "").strip()
     if not group_key or len(group_key) > 500:
@@ -82,7 +102,14 @@ def register(conn, *, group_key, task_type, title, question, evidence_summary,
         "recommendation": str(recommendation or "")[:1500],
         "source_refs": [str(ref)[:300] for ref in source_refs][:30],
         "source_revision": str(source_revision)[:300], "priority": max(0, min(100, int(priority))),
-        "answer_options": [str(option)[:300] for option in answer_options][:12],
+        "answer_options": [
+            ({"value": str(option.get("value", ""))[:300],
+              "label": str(option.get("label", option.get("value", "")))[:300]}
+             if isinstance(option, dict) else
+             {"value": str(option)[:300], "label": str(option)[:300]})
+            for option in answer_options][:12],
+        "answer_effect": dict(answer_effect or {}),
+        "action_url": str(action_url or "")[:1000],
     }
     if old and all(old.get(key) == value for key, value in incoming.items()):
         return old
@@ -114,7 +141,7 @@ def answer(conn, *, action_id, expected_revision, expected_digest, value, actor=
     if not value or len(value) > 2000:
         raise ValueError("ANSWER_REQUIRED")
     options = task.get("answer_options") or []
-    if options and value not in options:
+    if options and value not in {_option(option)[0] for option in options}:
         raise ValueError("ANSWER_INVALID")
     task["answer"] = {"value": value, "source": "USER", "actor": str(actor)[:100], "answered_at": _now()}
     task["state"] = ANSWERED
@@ -149,7 +176,7 @@ def render(conn, csrf, *, answered=False):
         esc = lambda value: html.escape(str(value or ""), quote=True)
         options = task.get("answer_options") or []
         answer_control = ("<select name='answer' required aria-label='질문에 대한 답변'><option value=''>답변을 선택하세요</option>"
-                          + "".join(f"<option value='{esc(option)}'>{esc(option)}</option>" for option in options)
+                          + "".join(f"<option value='{esc(_option(option)[0])}'>{esc(_option(option)[1])}</option>" for option in options)
                           + "</select>" if options else "<textarea name='answer' required maxlength='2000' aria-label='질문에 대한 답변'></textarea>")
         cards.append("<article class='action-card' data-action-id='" + esc(task["action_id"]) + "'>"
                      + "<p class='action-kind'>" + esc(task.get("task_type")) + "</p><h2>" + esc(task.get("title")) + "</h2>"
@@ -161,7 +188,8 @@ def render(conn, csrf, *, answered=False):
                      + "<input type='hidden' name='digest' value='" + esc(_digest(task)) + "'>"
                      + "<label>" + esc(task.get("question")) + answer_control + "</label>"
                      + "<button type='submit'>답변하고 자동 재검토</button></form>"
-                     + "<p><a href='/import?transaction=" + esc((task.get("source_refs") or [""])[0]) + "'>원본 거래 보기</a></p></article>")
+                     + "<p><a href='" + esc(task.get("action_url") or
+                         ('/import?transaction=' + str((task.get("source_refs") or [""])[0]))) + "'>원본 거래 보기</a></p></article>")
     body = "".join(cards) if cards else "<p class='queue-empty'>현재 답변이 필요한 작업이 없습니다.</p>"
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>내 확인 필요</title><style>main{max-width:880px;margin:0 auto;padding:20px}.action-card{border:1px solid var(--shell-line,#ccd);padding:16px;margin:12px 0;border-radius:8px}"

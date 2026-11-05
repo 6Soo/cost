@@ -48,13 +48,13 @@ def test_history_distinguishes_absent_current_and_stale_holds(card_db_path):
         conn.execute("INSERT INTO transaction_review_holds VALUES ('TX-A-01','h1','manual_hold','확인할 합성 사유')")
     row = card_transactions.transaction_detail('TX-A-01', card_db_path)
     detail = cards_all.card_detail_html(row)
-    assert '사용자 보류' in detail and '확인할 합성 사유' in detail
-    assert 'transaction=TX-A-01' in detail and '사유 확인' in detail
+    assert '사용자 보류' not in detail and '확인할 합성 사유' not in detail
+    assert 'transaction=TX-A-01' in detail and '거래 상세 보기' in detail
     with closing(sqlite3.connect(card_db_path)) as conn, conn:
         conn.execute("UPDATE transaction_review_holds SET source_hash='old'")
     row = card_transactions.transaction_detail('TX-A-01', card_db_path)
-    assert row['next_action']['reason_category'] == 'evidence'
-    assert '보류한 원본이 달라' in cards_all.card_detail_html(row)
+    assert row['next_action']['reason_category'] == ''
+    assert '보류한 원본이 달라' not in cards_all.card_detail_html(row)
 
 
 def test_history_review_button_opens_exact_editable_transaction(flow, monkeypatch):
