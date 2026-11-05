@@ -149,4 +149,5 @@ def test_card_management_markup_links_to_gap_and_source_metadata():
     assert 'await refreshCoverageSummary()' in html
     assert 'card.periods?.[0]?.start' in html
     assert '조회기간과 별개' in html
-    assert 'data-batch' not in html  # dynamic data never serialized from raw card files
+    assert 'function loadCardReviewBatches' in html
+    assert 'data-batch' in html  # saved-tab focus and selection contract is preserved
