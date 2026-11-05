@@ -1,3 +1,11 @@
+## 2026-11-05 여행 헤더 출력 전용·본문 작업 이동 — COMPLETE
+
+- 최신 사용자 결정 **헤더에는 XLSX 출력만, 나머지는 본문 작업 영역으로 이동**을 [PR #690](https://github.com/6Soo/cost/pull/690)으로 구현·병합·운영 반영했다. 마감·여행 관리·예약·참가자는 본문 `여행 작업`으로 이동하고 기존 기능/권한/CSRF/revision/여행 맥락을 유지한다. [상세 명세·검증](specs/trip-header-alignment-20261105.md).
+- Windows 최종 영향 base8095d8ec → headb4e3903c: **387 passed+99 subtests, skip0·필수브라우저29전건·compile PASS**. 첫 `--base origin/main --run`은 병합 후 NO_CHANGES였으므로 통과 근거로 사용하지 않고 원래 base SHA를 고정해 재실행했다. PR CI42044031101·병합 CI42044789877 SUCCESS. 독립 interface-review Approve 및 최종 테스트4줄 변경 후 승인 유지. 합성320/390/760/1440px×라이트/다크8조건·200%·키보드 확인.
+- 23:36 KST 공식 단일 작성자 배포: 운영 **`5ede21297b93c648fb631c111b3150bcdc6df739`**, 이전6a6095bd. 1415blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8752/healthready200/보호API3개401/보호13표전후불변. 금융 apply NOT_RUN, Google/원본/분류/여행 배정/환불/스키마 쓰기 없음.
+- 인증 운영1440/390px에서 헤더XLSX단독·본문관리/예약/마감·가로넘침0·키보드열닫/포커스 확인. 운영1440px 시각 확인 완료. 운영390px 저장 이미지는 리사이즈 직후 이전 프레임이 남은 캡처여서 시각 수락 근거에서 제외하며, 해당 폭은 DOM/키보드 결과와 합성390px 시각 근거로 구분한다. 물리기기·수동 스크린리더 미검증.
+- 비공개 증거 `.local-archive/trip-header-align-20261105/`의 placement-run-summary/junit/final-quality/interface-review/results, production-browser.json, deploy-evidence.json; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-5ede21297b93c648fb631c111b3150bcdc6df739.json`. 고객 원문/화면은 Git에 넣지 않는다. 배포 잠금 반납·현재 요청 미결0·다음 기능 명령 없음. 이 문서 기록으로 재배포하지 않는다.
+
 ## 2026-11-05 보험 명단 파란 강조·박스 제거와 행 높이 복구 — COMPLETE
 
 - [PR #689](https://github.com/6Soo/cost/pull/689), 구현8a206b7c·병합a88257a8·운영 `6a6095bdf3ede9f16d5c6d075d35ef6ee1a011df`. 최신 사용자 요청에 따라 이전44px/테두리 버튼 외형을 텍스트 동작으로 대체했다. 연결/미연결/후보 native 동작·포커스는 유지, 데스크톱45→36px·모바일 전체행93→72px. [검사 범위·미검증·배포 근거](specs/insurance-plain-actions-20261105.md).

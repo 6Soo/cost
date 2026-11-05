@@ -1,6 +1,6 @@
-﻿# 여행 헤더·본문 작업 배치 교정 (2026-11-05)
+# 여행 헤더·본문 작업 배치 교정 (2026-11-05)
 
-상태: IMPLEMENTED — 최신 사용자 배치 구현·표적 검사 완료, 최종 영향 QA·독립 리뷰·병합·운영 배포 진행 중.
+상태: COMPLETE — 최신 사용자 배치 구현·최종 영향 QA·독립 리뷰·병합·운영 배포 및 실제 화면 확인 완료.
 
 ## 최신 수락 계약
 
@@ -21,10 +21,19 @@
 
 최종 배치 표적: 13 passed·9 subtests passed. 헤더/본문/마감·예약·권한·동일 여행 연결 검사를 포함한다. 추가 geometry2검사·4subtests도 통과했다. 최종 브라우저 증거는 `.local-archive/trip-header-align-20261105/placement-*.png`, `placement-results.json`; 이전 정렬 PNG와 결과도 별도 보존한다. 실고객 자료는 사용하지 않는다.
 
-`better-interface`, better-layout/ui/typography/colors/accessibility/writing 및 ui-ux-pro-max 지침을 읽어 적용했다. 정렬 단계 독립 Luna medium interface-review Approve는 최종 배치 변경을 포함하지 않아 다시 검토한다. 실제 스크린리더·실기기는 미검증이다.
+`better-interface`, better-layout/ui/typography/colors/accessibility/writing 및 ui-ux-pro-max 지침을 읽어 적용했다. 정렬 단계 리뷰와 별도로 최종 배치 변경의 독립 Luna interface-review를 다시 받아 Approve를 확인했다. 실제 스크린리더·실기기는 미검증이다.
 
 ## 작업·배포 경계
 
-[PR690](https://github.com/6Soo/cost/pull/690)을 최신 범위로 갱신한다. 선행 보험PR689와 항공PR684는 최신 main 병합으로 보존했고 해당 코드 재구현은 없다. 작업공간 `C:/AX/cost-trip-header-qa-20261105`, root는 타 작업 user_action_queue 변경을 보존하므로 수정하지 않는다. Ego TaskSpace36 재사용.
+[PR690](https://github.com/6Soo/cost/pull/690)을 최신 범위로 갱신해 정상 병합했다. 선행 보험PR689와 항공PR684는 최신 main 병합으로 보존했고 해당 코드 재구현은 없다. 작업공간 `C:/AX/cost-trip-header-qa-20261105`, root는 타 작업 user_action_queue 변경을 보존하므로 수정하지 않는다. Ego TaskSpace36 재사용.
 
-다음: 최종 영향QA → 독립 UI 리뷰 → PR CI 정상 병합 → 검증 main SHA 고정 공식 단일배포 → health/ready·보호API·보호13표·배치 경로 확인 → 운영 SHA 기록. 금융·Google·고객 원본·분류·여행 배정·환불 업무 쓰기와 마이그레이션은 수행하지 않는다.
+완료: 최종 영향QA → 독립 UI 리뷰 → PR CI 정상 병합 → 검증 main SHA 고정 공식 단일배포 → health/ready·보호API·보호13표·배치 경로 확인 → 운영 SHA 기록. 금융·Google·고객 원본·분류·여행 배정·환불 업무 쓰기와 마이그레이션은 수행하지 않는다.
+
+## 최종 수락·배포 (2026-11-05 23:36 KST)
+
+- 최종 제품 b4e3903c, 병합/운영 `5ede21297b93c648fb631c111b3150bcdc6df739`. PR CI42044031101와 main CI42044789877 SUCCESS. Windows 최종 영향 base8095d8ec 고정 387 passed+99subtests·skip0·필수browser29/compile PASS. 이전 인계 실행은 종료 근거가 없어 재실행했으며 합산하지 않는다. 병합 후 origin/main 기준 NO_CHANGES는 제품 검사 통과 근거가 아니다.
+- 독립 최종 interface-review Approve, 테스트 위치 계약 갱신과 비동기 예약 패널 준비 대기4줄 보완 후에도 승인 유지. 합성8조건·키보드·200% 확인, 최종 UI는 승인 배치 그대로다.
+- 공식 배포 이전6a6095bd→5ede2129, 1415 tracked blobs불일치0·runtime SHA검증·listener1·gateway8790→8752·health/ready200·보호API401·보호13표불변. financial_apply NOT_RUN. 공식 잠금 반납.
+- 인증 운영1440/390px DOM에서 헤더XLSX단독/본문관리·마감·예약 및 overflow0·키보드열닫/포커스 확인. 1440px 운영 화면 시각 확인. 390px 운영 PNG는 리사이즈 직후 이전 프레임이 남아 시각 수락 근거로 제외한다. 390px 시각 검증은 합성 동일 크기 전후 화면이며 실제 물리기기·스크린리더는 미검증이다.
+- 비공개 증거는 `.local-archive/trip-header-align-20261105/`의 placement-run-summary.json, placement-junit.xml, placement-final-quality.log, placement-interface-review.md, placement-results.json, production-browser.json 및 deploy-evidence.json. 호스트 동일SHA deploy-evidence도 보존한다. 고객 원문/화면 Git포함 없음.
+- 현재 요청 미결0. root의 타 작업 미커밋 파일과 사용자 자료는 보존한다. 기록만의 후속 커밋으로 재배포하지 않는다.
