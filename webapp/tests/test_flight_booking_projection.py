@@ -30,7 +30,11 @@ def _existing_fields(result):
     """Compare the legacy contract; new passenger/status fields change the revision."""
     return {**{k: v for k, v in result.items() if k not in ('revision', 'reservations')},
             'reservations': [{k: v for k, v in row.items()
-                              if k not in ('passengers', 'cancellation_status')}
+                              if k not in ('passengers', 'cancellation_status',
+                                           'assigned_trip_tab_id', 'assigned_trip_title',
+                                           'assigned_trip_starts_on', 'assignment_status',
+                                           'assignment_basis', 'assignment_conflict',
+                                           'trip_assignment_available')}
                              for row in result['reservations']]}
 
 
@@ -397,7 +401,8 @@ def test_baseline_equivalence_with_main_ed48263(baseline_name_search_fn):
         baseline_res = baseline_name_search_fn(board, "alpha kim")
         curr_page_res = flight_passenger_page._name_search(board, "alpha kim")
         curr_proj_res = flight_booking_projection.query_booking_reservations(index, "alpha kim")
-        assert curr_page_res == curr_proj_res
+        assert _existing_fields(curr_page_res) == _existing_fields(curr_proj_res)
+        assert all(row['trip_assignment_available'] is False for row in curr_page_res['reservations'])
 
         assert _existing_fields(baseline_res) == _existing_fields(curr_page_res)
         assert _existing_fields(baseline_res) == _existing_fields(curr_proj_res)
