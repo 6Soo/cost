@@ -6,6 +6,8 @@
 
 **2026-11-05 신규 UX 결정:** 지출 관련 사용자 작업은 최상위 [내 확인 필요 통합 작업함](specs/unified-expense-action-queue-20261105.md) 하나로 통합한다. 사용자에게 보류함·보류 해제·보류 필터를 제공하지 않으며, P1/P2 자동 처리와 내부 금융 안전 잠금은 유지한다. **현재 상태는 SPEC_ONLY**다. 기존 코드에는 보류 UI가 남아 있으므로 문서 반영을 구현 완료로 해석하지 않는다.
 
+**2026-11-05 카드 업로드 UX 결정:** [카드별 조회기간·누락 관리 UX 명세](specs/card-upload-management-ux-20261105.md)를 새 정본으로 추가했다. 기존 조회기간 계산·비동기 업로드는 재사용하고, 카드별 조회 범위 대시보드·누락 기간별 업로드·파일별 증빙/0건 조회 표시로 전환한다. **SPEC_ONLY**이며 런타임 코드는 아직 변경하지 않았다.
+
 **2026-11-05 12시경 GitHub·운영 기록 대조: 전체 PARTIAL.** [자율 지출정리·WebLedgerHost 통합 실행/남은 수락](specs/autonomy-io-unified-followup-20261105.md)을 **현재 실행 진입점**으로 사용한다. 상세 업무 계약은 [자율 지출정리](specs/autonomous-expense-cleanup-20261105.md)와 [HDD I/O](specs/webledger-idle-io-optimization-20261105.md)이며, 확정 운영 근거는 [운영 기록](operations.md)이다.
 
 - **구현/배포 완료:** #636·#644 명세, #643·#646·#647·#652·#658 코드 병합. 최근 운영 앱 SHA `b3b1bb9098b2c88d23ba5653bcd7e90afd684135` (#658)·Gateway 8790→backend 8752·health/ready 200·보호13표 불변은 마지막 호스트 수락 기록 기준이다. #659~#661은 **문서 전용 변경**이며 앱을 다시 배포했다는 뜻이 아니다.
@@ -45,6 +47,7 @@
 | Travel INS 보험 명단 수신·운영 DB 일치·여행별 참가자 조회·결제 재개 결함 | [보험→COST 참가자 연동 개선 명세](specs/insurance-participant-integration-20261028.md) |
 | 카드 전체 내역·공통 테마·항공권 검색·모바일·아이콘 라이선스 | [화면·항공권·디자인](specs/ui.md) |
 | 지출 정리 통합 사용자 작업함·자동 처리·보류 UX 제거 | [통합 작업함 재설계 정본](specs/unified-expense-action-queue-20261105.md) · [구형 상태 필터 명세(역사·일부 대체)](specs/expense-cleanup-status-filter-actions-20261028.md) |
+| 카드 업로드·카드별 조회기간·미수집 구간·파일 관리 | [카드 자료 관리 UX 정본](specs/card-upload-management-ux-20261105.md) · [기존 조회기간 엔진 구현/검증 기록](specs/card-upload-coverage-implementation-20261102.md) · [다중 파일 비동기 업로드](specs/card-upload-background-navigation-20261104.md) |
 | 비공개 클라우드 Gmail 원문 수집·Drive 가져오기·전환/복구 게이트 | [클라우드 수집 전환](specs/cloud-mail-cutover.md) |
 | 여행별 항공권 목록·연속 여행의 출발 여행 귀속 | [항공권 여행별 조회/귀속 명세](specs/trip-flight-booking-overview-20261028.md) |
 | 영수증 이미지 추출·검토·모델 전송 경계 | [영수증](specs/receipts.md) |
