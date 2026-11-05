@@ -6,7 +6,7 @@
 
 | 영역 | 결과 | 근거와 남은 차단 |
 | --- | --- | --- |
-| 코드·CI·운영 반영 | PR #646 정상 병합 `40ea7f9d`; 복구 PR #652 정상 병합 `f7ff4ec4`, Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311`. PR #653 `79a3c573`은 공식 운영 배포 evidence 보유. | 현재 main `79a3c573`; 공식 evidence 1,383 files·blob mismatch0·runtime SHA·단일 listener·health/ready 200·보호 API 401·보호13표 불변. |
+| 코드·CI·운영 반영 | PR #646 정상 병합 `40ea7f9d`; 복구 PR #652 정상 병합 `f7ff4ec4`, Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311`. PR #653 `79a3c573`은 공식 운영 배포 evidence 보유. | 앱 SHA `79a3c573`; 문서 PR #654/#655/#656 이후 최신 main `015312c4`. 공식 evidence 1,383 files·blob mismatch0·runtime SHA·단일 listener·health/ready 200·보호 API 401·보호13표 불변. |
 | P1→P2 운영 | 게이트 `autonomous_ai_review=true`; 마지막 운영 상태 파일(08:53 KST)은 `state=idle`, `passes=333`, `p2_applied=0`, `ai_retry=18`, `ai_dead=20`, `blocked=400`, `candidates=400`, `due=0`, `failures=0`. 현재 Board checkout에는 PR #652 descendant 코드가 해시 일치로 포함돼 있다. | 무인 P2 성공 0건. 격리 synthetic OpenCode 호출은 정상 네트워크 경로에서 timeout. 프록시/인증 우회, 한도 초기화, 강제 재처리는 하지 않았다. |
 | 공통 결함 자동화 | PR #652에는 실패 사유 분리, 유사 코드 오류 fingerprint 묶음, 관련 코드 변경 후 재평가 추적이 포함되며 현재 checkout 파일 해시가 main과 일치한다. | 실제 운영 결함 자동 재현→검증 가능한 코드 수정 PR/CI→허용 배포→금융 건 재평가까지 이어지는 성공 기록은 없다. 모델이 운영 코드를 임의 수정하게 하지는 않는다. |
 | 배포·데이터 보호 | 첫 배포기 시도는 8751 점유에서 중단됐으나 PR #653의 공식 전환이 `79a3c573`로 완료됐다. 후속 관측의 task/route 8751, 4개 핵심 파일 hash 일치, health/ready 200, 보호 API 401, 보호13표 동일이 공식 evidence와 별도 비교에서 확인됐다. | 공식 전환 evidence와 현재 검사가 일치. DB/Google 쓰기 없음. 증거는 호스트 deploy-evidence와 `protection-check-79a3-20261105`. |
