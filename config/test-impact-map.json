@@ -959,14 +959,6 @@
     },
     {
       "name": "card-upload-coverage-management",
-      "patterns": [
-        "app/card_upload_coverage.py",
-        "webapp/card_upload_coverage.py",
-        "webapp/tests/test_card_upload_coverage_ui.py",
-        "webapp/tests/test_card_upload_coverage_api.py",
-        "tests/card_pipeline/test_card_upload_coverage.py",
-        "tests/card_pipeline/test_card_upload_coverage_review.py"
-      ],
       "tests": [
         "tests/card_pipeline/test_card_upload_coverage.py",
         "tests/card_pipeline/test_card_upload_coverage_review.py",
@@ -976,6 +968,14 @@
         "webapp/tests/test_card_flow.py",
         "webapp/tests/test_card_flow_browser.py",
         "webapp/tests/test_access_control_phase7.py"
+      ],
+      "paths": [
+        "app/card_upload_coverage.py",
+        "webapp/card_upload_coverage.py",
+        "webapp/tests/test_card_upload_coverage_ui.py",
+        "webapp/tests/test_card_upload_coverage_api.py",
+        "tests/card_pipeline/test_card_upload_coverage.py",
+        "tests/card_pipeline/test_card_upload_coverage_review.py"
       ]
     }
   ]
