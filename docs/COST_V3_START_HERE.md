@@ -4,10 +4,12 @@
 
 ## 최신 개발 현황 확인
 
-**현재 단일 에이전트 실행 큐:** [자율 지출정리·WebLedgerHost HDD I/O 통합 미결 실행계획](specs/autonomy-io-unified-followup-20261105.md). #636·#644의 상세 명세를 대체하지 않고, 최신 #643/#647 구현·#646 열린 PR, 운영 활성화/안전 배포/실측 검증의 **미완료 항목만** 한 실행 순서로 묶는다. 중복 구현이나 문서만으로 완료 선언 금지.
+**2026-11-05 12시경 GitHub·운영 기록 대조: 전체 PARTIAL.** [자율 지출정리·WebLedgerHost 통합 실행/남은 수락](specs/autonomy-io-unified-followup-20261105.md)을 **현재 실행 진입점**으로 사용한다. 상세 업무 계약은 [자율 지출정리](specs/autonomous-expense-cleanup-20261105.md)와 [HDD I/O](specs/webledger-idle-io-optimization-20261105.md)이며, 확정 운영 근거는 [운영 기록](operations.md)이다.
 
-**2026-11-05 진행 현황:** [자율 지출정리 관리자 명세](specs/autonomous-expense-cleanup-20261105.md) #636 병합, 후속 코드 [#643](https://github.com/6Soo/cost/pull/643)·Windows OpenCode 실행 오류 수정 [#647](https://github.com/6Soo/cost/pull/647) 병합. **운영 무인 AI 게이트 활성화/실자료 자동 실행 및 코드 결함 자동 PR·배포는 아직 입증되지 않았다.** [WebLedgerHost HDD I/O 정본 명세](specs/webledger-idle-io-optimization-20261105.md)는 [#644](https://github.com/6Soo/cost/pull/644)로 병합됐고 [최적화 구현 #646](https://github.com/6Soo/cost/pull/646)도 열린 코드 PR이다. 코드·운영 상태를 혼동하지 않는다.
-
+- **구현/배포 완료:** #636·#644 명세, #643·#646·#647·#652·#658 코드 병합. 최근 운영 앱 SHA `b3b1bb9098b2c88d23ba5653bcd7e90afd684135` (#658)·Gateway 8790→backend 8752·health/ready 200·보호13표 불변은 마지막 호스트 수락 기록 기준이다. #659~#661은 **문서 전용 변경**이며 앱을 다시 배포했다는 뜻이 아니다.
+- **자율 지출정리 BLOCKED:** AI 게이트는 켜져 있으나 **운영 P2 적용 0건**. 정식 OpenCode provider 경로 timeout/오래된 상태 파일 확인 필요. 승인 없는 네트워크·인증 우회, 한도 초기화, 금융 대량 재처리 금지. 합성 성공은 운영 성공이 아니다.
+- **HDD PARTIAL:** 격리 Gateway status 파일 변경 60초 `58→2`(약 -96.6%), 15분 `886→31`(-96.5%). **D: 전체 기록 바이트는 비교 구간에 132.9→221.0MB로 증가**해 전체 물리 HDD 소음·쓰기 감소는 입증되지 않았다. #660/#661은 실측/스냅샷 no-op 소스 점검을 문서에 남긴 후속 기록이다.
+- **문서 중복·열린 PR:** #567·#630은 최신 인계/통합 지도와 목적이 중복되는 과거 문서 제안이고, #607은 후속 항공권 UI 구현과 요구사항 대조가 필요하다. #651은 별도 UI 스킬 워크플로우 문서 PR이다. **열린 PR이라는 이유로 미구현으로 단정하거나 재개발하지 말 것.** 이번 점검에서 해당 PR을 임의 병합·종료하지 않았다.
 
 [2026-10-28 18:30 기준 구현현황·명세 차이 감사](specs/implementation-status-audit-20261028.md)는 GitHub 병합과 실제 운영 배포를 구분한다. 최신 실행 큐 자체는 [현재 상태](session_handoff.md), 제품 정책은 [오너 확정 결정](specs/owner-product-decisions-20261028.md)를 따른다. 완료한 하위 추출을 전체 리팩토링 완료로 보고하거나 별도 SPEC_ONLY를 이미 실행 중이라고 해석하지 않는다.
 
