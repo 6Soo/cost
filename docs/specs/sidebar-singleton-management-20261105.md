@@ -41,3 +41,10 @@ Python HTML 렌더러와 기존 CSS/JS 셸을 사용한다. 저장소 AGENTS.md,
 - 미검증: 수동 스크린리더, 물리 모바일, RTL·번역. 검토 결과는 이 공유 메뉴 흐름에 한정하며 전체 관리자 UI 무결함 판정으로 확대하지 않는다.
 
 검토 범위에서 발견한 MEDIUM 구조 결함을 수정했고 남은 HIGH/MEDIUM 결함은 확인되지 않았다. **Approve — 위에 명시한 공유 메뉴와 검사 범위만 해당.**
+
+## 최종 병합·배포 결과
+
+- [PR #667](https://github.com/6Soo/cost/pull/667), Windows 영향 검사 head `6760276a`: 226 passed·42 subtests passed, JUnit268건 실행·fail/error/skip0·필수 브라우저 누락0. PR CI41980136732 및 병합 CI41980825360 성공. 병합 `936fdc14d6f897416d837a23d806a21ad9f7a9a5`의 전체 트리는 검사한 head와 동일하다.
+- 2026-11-05 15:35 KST 공식 배포:1398 blobs 일치·task/process SHA·단일 listener·health/ready200·보호API401·13표 불변. 금융·Google·원본·스키마 쓰기 없음. 근거 `.local-archive/sidebar-structure-20261105/deploy-evidence.json` 및 호스트 동일SHA audit/evidence.
+- 운영 로그인 계정 화면에서 직접 계정 링크와 선택 표시,390px 리플로·정렬차이0px·항공/계정 간격4px·가로 넘침0을 확인했다. 메뉴 부분만 캡처해 고객 자료를 배제했다. 운영 항공과 추가 장부 재탐색은 시간 초과로 수락하지 않았으며 합성 검증과 구분한다. 이후 별도 PR668 운영 `f9b6a2e7`이 이 변경을 포함했다.
+- 이번 메뉴 교정의 요구사항은 완료. 미검증 범위는 위와 같으며 다른 작업의 성능·업무 미결은 별도다. 문서 후속만으로 코드 검사·재배포·재시작하지 않는다.
