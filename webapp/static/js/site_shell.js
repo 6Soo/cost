@@ -77,8 +77,9 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  const filterPaths=new Set(['/cards/all','/ota','/reserve-links','/trips','/flight-passengers']);
  if(filterPaths.has(path)&&location.search)sessionStorage.setItem('cost-view:'+path,location.search);
  nav.querySelectorAll('.site-links a[href]').forEach(a=>{const u=new URL(a.href,location.href);if(filterPaths.has(u.pathname)&&!u.search){const saved=sessionStorage.getItem('cost-view:'+u.pathname);if(saved&&saved.startsWith('?'))a.search=saved}});
- const params=new URLSearchParams(location.search),main=document.querySelector('main'),explicit=params.get('trip')||params.get('tab');
- if(path==='/board'&&params.get('tab'))sessionStorage.setItem('cost-workflow-return',location.pathname+location.search);
+ const params=new URLSearchParams(location.search),main=document.querySelector('main'),rendered=path==='/board'?nav.querySelector('a.nv.sel[href]'):null,
+ explicit=params.get('trip')||params.get('tab')||(rendered?new URL(rendered.href).searchParams.get('tab'):null);
+ if(path==='/board'&&explicit){const current=new URL(location.href);current.searchParams.set('tab',explicit);sessionStorage.setItem('cost-workflow-return',current.pathname+current.search)}
  const stored=sessionStorage.getItem('cost-workflow-return');
  let back=explicit&&(!stored||new URL(stored,location.origin).searchParams.get('tab')!==explicit)?'/board?'+new URLSearchParams({tab:explicit}):stored;
  if(back){const selected=new URL(back,location.origin).searchParams.get('tab');if(selected)nav.querySelectorAll('.site-links a[href]').forEach(a=>{const u=new URL(a.href);if(['/receipts','/trips','/reserve-links','/flight-passengers'].includes(u.pathname)&&(!u.search||(path==='/board'&&explicit&&u.pathname==='/trips')))a.search=new URLSearchParams({trip:selected}).toString()})}
@@ -107,9 +108,10 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  nav.querySelectorAll('a[href]').forEach(a=>{const u=new URL(a.href,location.href);
  if(u.pathname===path&&(!u.search||a.closest('.site-links')) || path.startsWith('/google-ledger/')&&u.pathname==='/google-ledger'){a.setAttribute('aria-current','page');const group=a.closest('.nav-management');if(group)group.open=true}});
  try{nav.scrollTop=Number(sessionStorage.getItem('cost-nav-scroll')||0);
- const selected=new URLSearchParams(location.search).get('tab');
+ const rendered=path==='/board'?nav.querySelector('a.nv.sel[href]'):null;
+ const selected=new URLSearchParams(location.search).get('tab')||(rendered?new URL(rendered.href).searchParams.get('tab'):null);
  if(selected)sessionStorage.setItem('cost-nav-trip',selected);
- const lastTrip=sessionStorage.getItem('cost-nav-trip');
+ const lastTrip=path==='/board'?selected:sessionStorage.getItem('cost-nav-trip');
  if(lastTrip)nav.querySelectorAll('a.nv[href]').forEach(a=>{const current=new URL(a.href).searchParams.get('tab')===lastTrip;
  a.classList.toggle('sel',current);if(current)a.setAttribute('aria-pressed','true');else a.removeAttribute('aria-pressed')});
  nav.addEventListener('scroll',()=>{try{sessionStorage.setItem('cost-nav-scroll',String(nav.scrollTop))}catch{}})}catch{}
