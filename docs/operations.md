@@ -8,6 +8,13 @@
 - HDD 수락 재분석: 비교 구간 NTFS USN에서 `gateway-status.json` 6,202→216, `ota-snapshot.log` 82→44, `flight-search.log` 90→44, 자율정리 status 222→147 기록. 물리 D: 전체 쓰기는 132.9→221.0 MB, 평균 busy 0.672→0.945%로 증가해 디스크 전체 개선은 입증되지 않았다. 측정 세부는 통합 명세를 따른다.
 - **미완료:** P2 실제 적용은 0건이며 정상 provider 경로 timeout이 해소되지 않았다. Google Sheets·금융 원본 쓰기, 인증/프록시 우회, 한도 초기화 및 강제 재처리는 수행하지 않았다. process별 쓰기 바이트 전후 측정도 남아 있다.
 
+## 2026-11-05 PR #659 문서 통합 및 격리 Gateway I/O 재측정
+
+- 문서 최신화 PR [#659](https://github.com/6Soo/cost/pull/659)은 main SHA `7ee7d1b6f2828a521696db277b3e5b272e5aead2`로 병합됐고 impact CI `41945397409` 성공. 문서 전용이므로 앱 재배포는 하지 않았다.
+- D: `D:/WebLedgerHost/scratch-io-ab-20261105-0105/status-count-ab.json`에 격리 idle A/B를 기록했다. 같은 60초 동안 구형 Gateway status 파일 mtime 변경 58회, 신형 30초 heartbeat 2회(-96.6%). 각기 별도 loopback 포트·scratch route/status를 썼고 운영 8790/8752 listener는 유지됐다.
+- 같은 격리 구간의 Windows process `IOWriteBytes`는 두 버전 모두 0으로 보고돼 프로세스 write bytes 계측에 사용할 수 없었다. 이전 실제 호스트 15분 PhysicalDisk 비교도 D: 쓰기 132.9→221.0 MB, busy 0.672→0.945%로 증가했다. 따라서 Gateway status 갱신 감소는 재현됐지만 process별 HDD bytes 및 전체 물리 디스크 감소는 미입증이다.
+- 호스트의 read-only 상태는 `state=running`, `passes=41`, `p2_applied=0`, `ai_retry=98`, `ai_dead=200`, `blocked=120`, `candidates=400`, `due=200`, `failures=0`이었다. 상태 파일 최종 갱신은 2026-11-05 00:50:32 UTC로 현재 관측 시점보다 오래됐으며 최신 무인 P2 성공 증거가 아니다. 허용된 provider 경로 timeout은 해소되지 않았다. 우회·cap reset·금융 재처리는 하지 않았고 P2는 BLOCKED 유지.
+
 ## 2026-11-05 PR #636·#644 통합 실행 — PARTIAL
 
 - PR #646 정상 병합 `40ea7f9d`; 통합 복구 PR #652 정상 병합 `f7ff4ec41093d7e983bd8970bb3bf437e30d0718`. PR #652 Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311` 성공. 앱 운영 SHA는 PR #653 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`; 이후 문서 PR #654/#655/#656 반영 후 최신 main은 `015312c4fb1c313021eca6dbf6e3c7360d315e94`.
