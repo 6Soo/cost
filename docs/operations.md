@@ -1,5 +1,15 @@
 ## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
 
+## 2026-11-05 항공권 여행 그룹·탑승객 중심 UI #684 — 운영 완료
+
+- 사용자 요청: 배정된 여행별 그룹·탑승객 중심 항공권 결과·구체적인 원본 확인/카드 조회 동선, 이후 `fix/flight-passenger-grouped-release-20261105` 병합·정리. [상세 명세](specs/flight-passenger-trip-grouping-20261105.md).
+- [PR #684](https://github.com/6Soo/cost/pull/684) 최종 코드 `c02244d2edb66afb684657213bbe66407464dbe3`, 병합·운영 SHA `ae64bd19c29f6a5347212f53c25408f870e283ac`. PR CI42036009335·main CI42036639901 SUCCESS. 초기 Linux 확대 실패를 검사 제외 없이 본문 container 재배치·버튼 nowrap 교정으로 해결했다. 독립 리뷰의 버튼 잘림 Block도 수정 후 Approve로 해소했다.
+- 최종 Windows 영향 검사: `python tools/run_quality_checks.py --base origin/main --run`, base `4c2e9656f4674a378da6dda6369697b4f4793f10` → head `c02244d2edb66afb684657213bbe66407464dbe3`, **324 passed + 16 subtests, skip0·필수 browser 누락0·compile PASS**. 같은 입력390/1440px 전후 화면,320/390/760/1440px·200% 확대(745≤760px), 독립 interface-review Approve. 화면 상태·명암·키보드 기존 검증은 상세 명세와 로컬 근거에 보존한다.
+- 공식 `deploy_verified_release.ps1 -Apply` 단일 작성자 전환: 이전 `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` → `ae64bd19c29f6a5347212f53c25408f870e283ac`, gateway8790→8752, 1,413 tracked blobs 불일치0·runtime SHA 일치·listener1·health/ready200·보호 API3개401·금융 보호13표 내용/스키마 전후 불변. 금융 apply NOT_RUN·Google/원본/스키마/실제 여행 배정 쓰기0. 인증된 실제 `/flight-passengers` 읽기 스모크에서 검색 입력·예약 조회 버튼·최종 container CSS 확인.
+- 보존·정리: 해당 임시 workspace만 정리하는 범위이며 타 작업공간·미커밋·stash6개는 유지한다. 미추적 QA3파일61,678bytes를 기본 폴더에 SHA256 검증 복사했다. 공식 workspace archive와 병합된 코드/기록 브랜치 정리는 이 기록 병합 후 진행하며, 최종 결과는 로컬 checkpoint에 기록한다.
+- 근거: `.local-archive/flight-passenger-ux-20261105/`의 `preserved-worktree/manifest.json`, `review-final.md`, `container-checks.json`, `production-smoke.json`, `deploy-evidence.json`; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-ae64bd19c29f6a5347212f53c25408f870e283ac.json`. 수동 스크린리더·물리기기·실고객 카드조회·예약처 외부 로그인은 미실행. 보관 메뉴 질문은 읽기 설명만 수행했고 메뉴/여행 보관값은 변경하지 않았다. 병렬 #689/#690은 이 운영 SHA에 포함하지 않았으며 그 완료를 주장하지 않는다.
+
+
 - 원인: 이용일 출력이 숙박비로 제한돼 항공 예약 여정이 수집돼도 항공료는 공란이었다. [PR #686](https://github.com/6Soo/cost/pull/686)으로 저장 기간 우선·검증된 fresh 여정 출발일 보완 및 PC/모바일 표시를 수정했다. 금액·결제일·예약 관계·분류·여행·원본·Google 쓰기 없음.
 - 최종 제품/배포 SHA `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` (이전 `1b8aafc06ef3d692b6f7e8f691bb16a755ab2263`). 1,412 blobs 불일치0, task/process SHA 일치, Gateway8790→8751, health/ready200·보호API401·보호13표 불변. 공식 단일 작성자 전환 성공, 금융 apply NOT_RUN.
 - 검증: 표적99 passed, 최종 Windows 영향303 passed+64 subtests·skip0·필수브라우저19전건실행·compile 통과. PR CI42032276925/main CI42033651257 SUCCESS. 앞선 검사2실패는 실행 도중 main 변경으로 메모리/디스크 자산이 달라진 검사이며 고정757f8e06에서 전체 영향 검사를 다시 통과했다. 독립 UI 리뷰 Approve, 합성1440/390/320px·다크/200%·키보드 및 운영1440/390px 수락. 물리기기·수동 스크린리더·번역/RTL 미검증.
