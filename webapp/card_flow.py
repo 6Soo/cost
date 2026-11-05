@@ -3346,17 +3346,176 @@ let rules=[];
 function renderRules(list){rules=list;const term=el('rulefilter').value.toLowerCase(),matches=list.filter(r=>(r.conditions.merchant_normalized+' '+r.effects.item).toLowerCase().includes(term));el('rulelist').innerHTML='<p class="small">'+matches.length+'개 규칙 중 '+Math.min(40,matches.length)+'개 표시 · 검색으로 찾을 수 있습니다.</p>'+matches.slice(0,40).map(r=>'<p><button data-rule="'+rules.indexOf(r)+'">'+esc(r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized)+' → '+esc(r.effects.item)+' · 수정</button></p>').join('');document.querySelectorAll('[data-rule]').forEach(b=>b.onclick=()=>{const r=rules[Number(b.dataset.rule)],f=el('ruleform');f.elements.rule_id.value=r.rule_id;f.elements.version.value=r.version;f.elements.merchant.value=r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized;f.elements.merchant.readOnly=r.conditions.merchant_normalized==='*';f.elements.card_kind.value=r.conditions.card_kind||'';f.elements.direction.value=r.conditions.transaction_direction||'purchase';f.elements.rule_country.value=['JP','TW','AT','IT','FR'].includes(r.optional.travel_country)?'overseas':r.optional.travel_country||'';f.elements.rule_item.value=r.effects.item||'';f.elements.rule_description.value=r.effects.description||'';f.elements.rule_country.disabled=!!r.optional.inferred_assignment;el('rule_scope').textContent=r.origin==='owner-country-exception-20261003'?'사용자 지정 예외: 조지아·카자흐스탄 거래를 유럽 여행에 배정합니다.':r.optional.inferred_assignment?'이번 거래에만 적용한 추론입니다. 여행은 미리보기의 수정에서 바꿀 수 있습니다.':r.optional.source_hash?'예약 자료로 확인된 해당 원본 거래에만 적용합니다.':r.note||''})}
 async function call(url,body,headers={}){const r=await fetch(url,body==null?{cache:'no-store'}:{method:'POST',headers:{'X-CSRF-Token':csrf,...headers},body}).catch(()=>{throw Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')});if(!(r.headers.get('Content-Type')||'').includes('application/json'))throw Error(r.status===401?'로그인이 필요합니다. 화면을 다시 열어 주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');const j=await r.json();if(!r.ok)throw Error(j.message||j.code);return j}
 
-async function refreshCoverageSummary(){
- const root=el('coverage-summary');if(!root)return;
- try{const data=await call('/api/cards/coverage/summary');root.replaceChildren();
-  const note=document.createElement('p');note.textContent=data.available?'조회 확인은 현재 확보한 조회 결과의 범위입니다. 카드사의 지연 매입·정정은 다시 조회할 수 있습니다.':'조회기간 저장 기능 준비 전입니다. 기존 카드 업로드는 사용할 수 있습니다.';root.append(note);
-  for(const [kind,label] of [['coverages','조회 확인'],['gaps','미확인'],['rechecks','재확인 필요']])for(const card of data[kind]||[]){
-   const row=document.createElement('p');const intervals=card.periods||card.gaps||[];
-   row.textContent=[card.issuer,'끝'+card.card_tail,card.date_basis,label,intervals.map(p=>p.start+' ~ '+p.end).join(', ')||card.reason||'조회 조건 확인 필요'].join(' · ');root.append(row);
-  }
-  if(data.available&&!(data.coverages||[]).length){const empty=document.createElement('p');empty.textContent='조회 확인 기록 없음 · 과거 거래일만으로 확인 처리하지 않습니다.';root.append(empty);}
- }catch(error){root.textContent=error.message;}
+let coverageUploadTarget=null;
+function beginCoverageGap(card,period){
+ coverageUploadTarget={card_id:card.card_id,issuer:card.issuer,card_tail:card.card_tail,
+   identity_scope:card.identity_scope,date_basis:card.date_basis,start:period.start,end:period.end};
+ const upload=el('newupload'),target=el('coverage-upload-target');
+ upload.open=true;target.hidden=false;
+ target.textContent=[card.issuer,'끝'+card.card_tail,card.date_basis+' 기준',
+   period.start+' ~ '+period.end+' 자료를 추가합니다.',
+   card.identity_scope==='source_file'?'끝4만 확인된 파일은 다른 파일과 자동 병합하지 않습니다.':'',
+   '카드사에서 이 기간 전체 조회 파일을 다운로드한 뒤 추가하세요.'].filter(Boolean).join(' · ');
+ upload.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+ const drop=el('upload-drop');if(drop)drop.focus({preventScroll:true});
 }
+function clearCoverageGap(){
+ coverageUploadTarget=null;
+ const target=el('coverage-upload-target');if(target){target.hidden=true;target.textContent='';}
+}
+const coverageNode=(tag,value,cls)=>{
+ const node=document.createElement(tag);if(value!==undefined&&value!==null)node.textContent=String(value);
+ if(cls)node.className=cls;return node;
+};
+function coverageDays(start,end){
+ const a=Date.parse(start+'T00:00:00Z'),b=Date.parse(end+'T00:00:00Z');
+ return Number.isFinite(a)&&Number.isFinite(b)?Math.max(0,Math.floor((b-a)/86400000)+1):0;
+}
+async function refreshCoverageSummary(){
+ const root=el('coverage-summary'),overview=el('coverage-overview');
+ if(!root||!overview)return;
+ try{
+  const data=await call('/api/cards/coverage/summary');
+  root.replaceChildren();overview.replaceChildren();
+  if(!data.available){
+   root.append(coverageNode('p','조회기간 관리 기능을 사용할 수 없습니다. 기존 카드 파일 업로드는 계속 가능합니다.'));
+   return;
+  }
+  const cards=data.coverages||[],gaps=data.gaps||[],files=data.files||[];
+  const metrics=[
+   ['관리 카드',data.summary?.cards??new Set(cards.map(c=>c.card_id)).size],
+   ['조회 기준별 확인',data.summary?.axes??cards.length],
+   ['미수집 기간',data.summary?.gaps??gaps.reduce((n,g)=>n+g.gaps.length,0)],
+   ['조회조건 확인 필요',data.summary?.recheck_files??files.filter(f=>f.coverage_status!=='confirmed').length]
+  ];
+  for(const [label,value] of metrics){
+   const item=coverageNode('div',null,'coverage-metric');item.append(coverageNode('strong',value),coverageNode('span',label));overview.append(item);
+  }
+  const note=coverageNode('p','조회기간은 카드 파일의 명시적 조회조건 또는 사용자가 확인한 전체 조회 증빙만 기준으로 계산합니다. 거래가 없는 날을 누락으로 판단하지 않습니다.','small');root.append(note);
+  if(!cards.length){
+   root.append(coverageNode('p','확인된 카드 조회기간이 없습니다. 기존 파일의 실제 조회조건을 확인하거나 새로운 파일을 업로드하세요.'));
+  }
+  const ordered=[...cards].sort((a,b)=>String(a.issuer).localeCompare(String(b.issuer),'ko')
+     ||String(a.card_tail).localeCompare(String(b.card_tail),'ko')
+     ||String(a.date_basis).localeCompare(String(b.date_basis),'ko'));
+  for(const card of ordered){
+   const gapsForCard=gaps.find(g=>g.card_id===card.card_id&&g.date_basis===card.date_basis);
+   const missing=gapsForCard?.gaps||[];
+   const related=files.filter(f=>f.card_id===card.card_id&&f.date_basis===card.date_basis);
+   const section=coverageNode('article',null,'coverage-card');
+   section.append(coverageNode('h3',[card.issuer,'끝'+card.card_tail,card.date_basis+' 기준'].join(' · ')));
+   const periodRows=card.periods||[];
+   section.append(coverageNode('p',[
+     card.identity_scope==='source_file'?'파일별 식별(끝4자리만 확인됨)':'카드 식별 확인',
+     card.management_start?'관리 시작 '+card.management_start:'관리 시작일 미설정 · 첫 확인 기간 이전은 알 수 없음',
+     missing.length?'미수집 '+missing.length+'곳':'확인된 조회기간 내 공백 없음',
+     related.length?'증빙 파일 '+related.length+'개':''
+   ].filter(Boolean).join(' · '),'coverage-meta'));
+   if(periodRows.length){
+    const timeline=coverageNode('div',null,'coverage-timeline');
+    timeline.setAttribute('role','img');timeline.setAttribute('aria-label','확인된 조회기간과 미수집 기간 타임라인');
+    const start=card.management_start||periodRows[0].start;
+    const end=new Date().toISOString().slice(0,10);
+    const segments=[];
+    for(const p of periodRows){
+     const a=p.start<start?start:p.start,b=p.end>end?end:p.end;
+     if(a<=b)segments.push({start:a,end:b,type:'covered'});
+    }
+    for(const p of missing)segments.push({start:p.start,end:p.end,type:'gap'});
+    segments.sort((a,b)=>a.start.localeCompare(b.start));
+    let cursor=start;
+    for(const part of segments){
+     if(part.end<cursor)continue;
+     if(part.start>cursor){
+      const blank=coverageNode('span',null,'unverified');
+      blank.style.flex=String(coverageDays(cursor,new Date(Date.parse(part.start+'T00:00:00Z')-86400000).toISOString().slice(0,10)))+' 1 0';
+      blank.title='범위 확인 중';timeline.append(blank);
+     }
+     const piece=coverageNode('span',null,part.type);
+     piece.style.flex=String(coverageDays(part.start,part.end))+' 1 0';
+     piece.title=(part.type==='gap'?'미수집':'조회 확인')+' '+part.start+' ~ '+part.end;
+     timeline.append(piece);
+     cursor=new Date(Date.parse(part.end+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+    }
+    section.append(timeline);
+    const title=coverageNode('strong','확인된 조회기간');section.append(title);
+    const list=coverageNode('ul',null,'coverage-date-list');
+    for(const p of periodRows){
+     const li=coverageNode('li',p.start+' ~ '+p.end+' · '+card.date_basis);
+     list.append(li);
+    }
+    section.append(list);
+   }
+   if(missing.length){
+    section.append(coverageNode('strong','미수집 기간 '+missing.length+'곳'));
+    const list=coverageNode('ul',null,'coverage-gap-list');
+    for(const period of missing){
+     const li=coverageNode('li');
+     li.append(coverageNode('span',period.start+' ~ '+period.end));
+     const button=coverageNode('button','이 기간 자료 추가');
+     button.type='button';button.addEventListener('click',()=>beginCoverageGap(card,period));
+     li.append(button);list.append(li);
+    }
+    section.append(list);
+   }else{
+    section.append(coverageNode('p','현재 확인된 범위에는 중간 공백이 없습니다. 관리 시작일이 없으면 그 이전 기간은 확인되지 않은 상태입니다.','small'));
+   }
+   const baselineDetails=coverageNode('details',null,'coverage-baseline');
+   const baselineSummary=coverageNode('summary',card.management_start?'관리 시작일 변경':'관리 시작일 설정 · 이전 기간 확인');
+   baselineDetails.append(baselineSummary);
+   const form=coverageNode('form');
+   const label=coverageNode('label','관리 시작일');
+   const dateInput=coverageNode('input');dateInput.type='date';dateInput.required=true;
+   dateInput.value=card.management_start||'';label.append(dateInput);form.append(label);
+   const save=coverageNode('button','시작일 저장');save.type='submit';form.append(save);
+   const message=coverageNode('p',null,'small');message.setAttribute('role','status');form.append(message);
+   form.addEventListener('submit',async e=>{
+    e.preventDefault();if(!form.reportValidity()||save.disabled)return;
+    save.disabled=true;message.textContent='관리 기간을 저장하고 있습니다.';
+    try{
+     await call('/api/cards/coverage/baseline',JSON.stringify({
+      card_id:card.card_id,issuer:card.issuer,card_tail:card.card_tail,date_basis:card.date_basis,
+      management_start:dateInput.value,expected_revision:card.baseline_revision||0
+     }),{'Content-Type':'application/json'});
+     await refreshCoverageSummary();
+    }catch(error){message.textContent=error.message;save.disabled=false;}
+   });
+   baselineDetails.append(form);section.append(baselineDetails);
+   const detail=coverageNode('details');const summary=coverageNode('summary','증빙 파일 '+related.length+'개 보기');detail.append(summary);
+   const detailsList=coverageNode('ul',null,'coverage-file-list');
+   for(const f of related.slice(0,12)){
+    const li=coverageNode('li');
+    const btn=coverageNode('button',f.filename);
+    btn.type='button';btn.addEventListener('click',()=>loadBatch(f.batch_id));
+    li.append(btn,coverageNode('small',[
+      f.confirmed_periods.map(x=>x.start+' ~ '+x.end).join(', ')||'실제 조회기간 확인 필요',
+      f.row_count+'개 원행',f.status
+    ].join(' · ')));detailsList.append(li);
+   }
+   if(related.length>12)detailsList.append(coverageNode('li','최근 12개 파일만 표시합니다. 나머지는 아래 전체 파일 상세를 확인하세요.'));
+   detail.append(detailsList);section.append(detail);root.append(section);
+  }
+  const needsFiles=files.filter(f=>f.coverage_status!=='confirmed');
+  if(needsFiles.length){
+   const details=coverageNode('details');
+   details.append(coverageNode('summary','조회기간 확인이 필요한 파일 '+needsFiles.length+'개'));
+   const ul=coverageNode('ul',null,'coverage-file-list');
+   for(const f of needsFiles.slice(0,20)){
+    const li=coverageNode('li'),button=coverageNode('button',f.filename);
+    button.type='button';button.addEventListener('click',()=>loadBatch(f.batch_id));
+    li.append(button,coverageNode('small','업로드 저장됨 · '+f.row_count+'개 원행 · 조회조건 증빙 필요'));
+    ul.append(li);
+   }
+   if(needsFiles.length>20)ul.append(coverageNode('li','최근 20개만 표시합니다. 업로드 파일 상세 목록에서 나머지를 확인하세요.'));
+   details.append(ul);root.append(details);
+  }
+  if(data.has_more_files)root.append(coverageNode('p','최근 파일 200개만 요약에 표시했습니다. 이전 파일은 기존 자료에서 조회할 수 있습니다.','small'));
+ }catch(error){root.textContent=error.message;overview.replaceChildren();}
+}
+el('coverage-new-file').addEventListener('click',()=>{
+ clearCoverageGap();const upload=el('newupload');upload.open=true;
+ upload.scrollIntoView({block:'start'});el('upload-drop').focus({preventScroll:true});
+});
 function appendCoverageForm(root,j){
  if(!j.batch_id||!j.coverage_evidence)return;
  const batch=j.batch_id,cov=j.coverage_evidence,details=document.createElement('details');details.className='batch-coverage';
