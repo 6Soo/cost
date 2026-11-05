@@ -58,6 +58,8 @@ def test_missing_or_invalid_legs_are_not_replaced_by_card_date(evidence, legs):
 
 def test_description_number_is_not_a_booking_relationship(evidence):
     assert design._flight_date_labels(row(reservation_no='', description='예약 SYN-REF'))[0] == '이용일 미확인'
+    mobile = design._mobile_html([], [row(reservation_no='')], selected='', unclassified=False)
+    assert '이용일 미확인' in mobile and '이용일 이용일' not in mobile
 
 
 def test_manual_period_and_empty_override_win(evidence):

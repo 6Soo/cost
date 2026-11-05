@@ -1365,8 +1365,9 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         sub_text = _row_party_sub(row)
         headline = " \u00b7 ".join(text for text in (main_text, sub_text) if text)
         service_dates, service_title = _service_date_labels(row) if is_expense else ('', '')
+        service_label = service_dates if service_dates.startswith('이용일') else '이용일 ' + service_dates
         service_hint = (f"<span class='m-service tnum' title='{board.esc(service_title)}'>"
-                        f"이용일 {board.esc(service_dates)}</span>" if service_dates else '')
+                        f"{board.esc(service_label)}</span>" if service_dates else '')
         tag_cls = "tag in" if kind == "수입" else "tag"
         return (
             f"<button class='{cls}' type='button' data-id='{board.esc(rid)}' data-kind='{'expense' if is_expense else 'income'}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' aria-expanded='false'"
