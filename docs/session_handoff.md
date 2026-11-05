@@ -1,3 +1,11 @@
+## 2026-11-06 여행 항공권 예약 UI 개선 — COMPLETE
+
+- [PR #695](https://github.com/6Soo/cost/pull/695) 병합·운영 SHA `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7` (이전 `5ede21297b93c648fb631c111b3150bcdc6df739`). 경로 우선 전체 행 선택·선택됨 표시, 넓은 패널 목록/상세 병렬 배치, 모바일 세로 배치, 가는편/오는편·탑승객·근거 구분. 금융·원본·분류·여행 배정·환불·Google 쓰기 없음.
+- Windows 영향 QA123 passed·skip0·필수 브라우저 전부 실행 at `333c5b783a762469b5443a07a511cf9fe43d75cd`; 별도 표적42 passed·최종 브라우저8 passed. PR CI42053458285/main CI42053848046 SUCCESS. 독립 interface-review MEDIUM 수정·재검토 완료, 잔여 HIGH/MEDIUM0. 합성1363/680/390/320px·다크·200% CSS 확대·키보드·대비 검증.
+- 공식 단일 작성자 배포: 1,417 blobs 불일치0·task/process SHA 일치·Gateway8790→8751·health/ready200·보호API401·보호13표 불변·금융apply NOT_RUN. 코드 전환이며 별도 전체DB 백업/복원·마이그레이션·대량 재처리 없음.
+- 인증 운영 브라우저 PC/모바일에서 예약3건·선택1건·새 workspace 표시·상세 정상·가로 넘침0 확인. 배포 전 source unavailable 및 최초 접속 timeout은 재시도/워밍 후 해소됐으며 실제 예약 조회까지 수락했다. 고객 화면은 비공개 로컬에만 보존.
+- [수락·검증 기록](specs/flight-booking-panel-ui-20261106.md), 비공개 증거 `.local-archive/flight-ui-20261106/` (impact-summary/log, junit, interface-review, 합성 전후/운영 화면, production-browser, deploy-evidence). 물리기기·수동 스크린리더·RTL/번역 미검증. 이번 요청의 남은 작업/차단 없음. 후속 기록은 문서 전용이며 재배포하지 않는다.
+
 ## 2026-11-05 영수증 모바일 UI 단일 업로드·결과/다음 행동 명세 — SPEC_ONLY
 
 - 사용자 제공 iPhone Safari 다크 화면에서 `영수증 정리`의 중복 장부 복귀 버튼, 별도 사진/PDF 등록, 과도한 중첩 박스, 업로드 후 결과/행동 부재를 지적. 스크린샷의 선택 파일명은 서버 업로드 완료 증거가 아님.

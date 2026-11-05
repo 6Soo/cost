@@ -1,6 +1,6 @@
-﻿# 여행 항공권 예약 패널 UI 개선 (2026-11-06)
+# 여행 항공권 예약 패널 UI 개선 (2026-11-06)
 
-상태: IMPLEMENTED / 표적·브라우저 검증 완료 / 병합·운영 반영 대기.
+상태: COMPLETE / 구현·검증·병합·운영 배포·인증 브라우저 수락 완료.
 
 ## 요청과 종료 조건
 
@@ -32,4 +32,8 @@
 
 ## 병합·운영
 
-대기. 실제 QA·CI·SHA·공식 배포·보호13표·health/ready·보호 API와 영향 화면 smoke 후 갱신한다.
+- PR #695, 구현 검증 SHA `333c5b783a762469b5443a07a511cf9fe43d75cd`, 병합·배포 SHA `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7`.
+- 최종 영향 QA123 passed·skip0·필수 브라우저 전체 실행. PR CI42053458285/main CI42053848046 SUCCESS.
+- 공식 배포 이전 `5ede21297b93c648fb631c111b3150bcdc6df739`, blobs1417 불일치0·task/process SHA 일치·health/ready200·보호API401·보호13표 불변·금융apply NOT_RUN.
+- 인증 운영 PC/모바일: 예약3건·선택1건·새 UI·상세 표시·가로 넘침0. 배포 전 source unavailable은 재시도/워밍 후 해소되어 실제 조회 수락 완료.
+- 기록 정리 PR은 문서 전용으로 앱 재배포하지 않음. 남은 작업·차단 없음.
