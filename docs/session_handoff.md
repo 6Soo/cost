@@ -1,13 +1,11 @@
-## 2026-11-05 통합 후속 실행 인계 — 자율 지출정리·WebLedgerHost HDD I/O
+## 2026-11-05 통합 후속 실행 인계 — 자율 지출정리·WebLedgerHost HDD I/O — PARTIAL
 
-- **ACTION PLAN, 구현·운영 미결** — [단일 주 에이전트 통합 실행 문서](specs/autonomy-io-unified-followup-20261105.md) 작성. #636·#644 명세와 #643/#647 병합 코드를 재사용하고, 열린 #646 검증·병합/안전한 Gateway 프로세스 교체·15분 D: 실측, 호스트 무인 AI 게이트/실제 P2 수락·자동 결함 수정 루프, 두 작업 동시 작동/데이터 보호 검증에 집중한다. 기존 아래 기록은 시점별 이력이고 지금 운영 자동 실행·성능 효과를 확정한 게 아니다.
-- 문서 작업에는 서버 재시작·운영 배포·금융 또는 Google 쓰기를 포함하지 않는다. 정확한 현재 운영 SHA·호스트 설정은 구현 에이전트가 첫 단계에서 읽기 전용 확인한다. 별개 UI/항공권/과거 docs PR은 이번 실행 대상이 아니다.
-
-## 2026-11-05 PR #636·#644 현황 대조·문서 정합화
-
-- **자율 지출정리 PARTIAL** — 명세 [#636](https://github.com/6Soo/cost/pull/636) 병합 후 구현 [#643](https://github.com/6Soo/cost/pull/643), Windows OpenCode 실제 실행기·무료 모델 수정 [#647](https://github.com/6Soo/cost/pull/647)이 병합됐다. 격리 합성 호스트에서 2건의 실제 무료 모델 P2 호출/적용을 확인했으나, 운영 설정 `autonomous_ai_review` 게이트 활성 여부·실제 신규 지출 자동 호출·운영 SHA·사용자 최초 지적 감소는 미확인이다. 원인 묶음 기록은 코드 결함의 자율 수정/PR·배포가 아니다. [최신 구현·미결 정리](specs/autonomous-expense-cleanup-20261105.md#구현운영-상태-대조-2026-11-05)를 따른다. 과거 아래 `SPEC_ONLY` 문구는 작성 당시 이력이다.
-- **HDD I/O PARTIAL** — [명세 #644](https://github.com/6Soo/cost/pull/644) **명세 병합 완료**, [후속 구현 #646](https://github.com/6Soo/cost/pull/646) **열림/미병합**. #646은 이벤트 기반 Gateway status + 30초 heartbeat, route cache 250ms, OTA 체크 로그 변경 때만 기록·시간별 heartbeat 및 5MiB 순환을 제안한다. PR 제목의 ‘~97%’는 **파일 정기 쓰기 빈도 추정/테스트**에 관한 것으로 운영 HDD 총 I/O·소음 개선 실측이 아니다. 게이트웨이 process 안전 업데이트, 15분 전후 NTFS/성능 카운터 비교, 연결 drain/상태 신선도·보호13표·배포 수락이 남았다.
-- **문서 작업 한정:** 최신 상태 표시를 업데이트하고 기존 금융·무중단 배포 계약과 연결했다. 이 기록만으로 운영 기능 활성화, Gateway 재시작, 금융/Google 쓰기, PR #646의 코드 병합을 수행하지 않는다. 명세 PR #644는 별도로 CI 통과 후 병합됐다.
+- [통합 실행계획](specs/autonomy-io-unified-followup-20261105.md) 및 [운영 기록](operations.md#2026-11-05-pr-636636-pr-644644-통합-실행-partial)을 기준으로 한다. #646은 `40ea7f9d`, #652는 `f7ff4ec4`로 정상 병합·CI 통과했다. 최신 main은 후속 PR #653을 포함한 `79a3c573`이다.
+- **현재 Board 운영:** PR #653의 공식 전환 evidence는 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`, 1,383 files·blob mismatch0·runtime SHA 확인, 단일 listener·8751, health/ready 200·보호 API 401·보호13표 불변을 기록한다. 첫 `f7ff4ec4` 배포 시도는 포트 점유에서 안전 중단됐지만 PR #653이 뒤이어 8751로 전환을 완료했다. 현재 task Running이며 자율정리 worker·AI 분류·Gateway·OTA 핵심 파일 해시가 main과 일치한다. 8752는 비활성이다.
+- **Gateway:** `WebLedger-Gateway` 예약 작업의 다음 실행 경로는 검증된 릴리스 `f7ff4ec4`로 갱신했다. 현재 PID는 재시작하지 않았고, 실행 중 파일과 검증 파일 SHA-256이 일치한다. task principal·trigger·settings 및 route는 그대로다.
+- **자율 지출정리:** 운영 `autonomous_ai_review=true`; 08:53 KST 마지막 상태는 `state=idle`, passes333, P2 적용0, 재시도18, dead20, blocked400, due0, failures0이며 이후 상태 파일 갱신은 없다. 정상 네트워크 경로의 격리 synthetic OpenCode 호출은 timeout. 프록시 우회·한도 초기화·강제 재처리는 하지 않았다. #652 descendant 코드는 현재 main과 일치하지만 운영 처리 효과는 미확인이다.
+- **HDD/UI:** D: 격리 Gateway 15분 A/B에서 status 원자 교체는 886→31(-96.5%), NTFS USN은 6,202→216건이었다. 물리 전체 쓰기는 132.9→221.0 MB, busy 0.672→0.945%로 개선을 입증하지 못했다. 상세는 [HDD 명세](specs/webledger-idle-io-optimization-20261105.md). 320/390px 화면에 가로 넘침은 없었지만 인증 지출정리 UI는 미확인이다.
+- 남은 수락 단계는 승인된 outbound 경로에서 실제 P2 성공 증명 및 후속 자동 코드 결함 재처리 확인이다. 현재 P2 적용0/due0, 상태 파일은 08:53:56 이후 갱신되지 않았다. 로그인 UI는 확인하지 않았다. 금융/Google 원본 쓰기 및 강제 재처리는 수행하지 않는다.
 
 ## 2026-11-05 지출 정리 문구·인라인 편집 및 여행 장부 뷰어 UI 개편 — 완료
 

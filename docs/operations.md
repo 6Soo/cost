@@ -1,3 +1,14 @@
+## 2026-11-05 PR #636·#644 통합 실행 — PARTIAL
+
+- PR #646 정상 병합 `40ea7f9d`; 통합 복구 PR #652 정상 병합 `f7ff4ec41093d7e983bd8970bb3bf437e30d0718`. PR #652 Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311` 성공. 현 main은 후속 PR #653 포함 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`.
+- #652는 긴 P2 요청 임시 파일 전달, 실행 오류 분류, 코드 결함 묶음 및 판단 코드 변경 후 자동 재평가 fingerprint를 추가했다. 뒤이은 호스트 확인에서 Board는 descendant main `79a3c573`를 실행하고 관련 핵심 파일 해시가 main과 일치했다. P2 정상 연결 호출은 timeout됐고 보호된 대기열 이력은 그대로다.
+- 운영 설정은 `automatic_card_completion=true`, `autonomous_ai_review=true`. 08:53 KST 마지막 상태 파일은 `state=idle`, `passes=333`, `p2_applied=0`, `ai_retry=18`, `ai_dead=20`, `blocked=400`, `candidates=400`, `due=0`, `failures=0`; 이후 갱신은 관측되지 않았다. 격리 synthetic OpenCode 호출은 정상 네트워크 경로에서 timeout. 프록시 우회·한도 초기화·금융 원본 재처리는 하지 않았다.
+- `f7ff4ec4` 코드 전용 릴리스 후보 1,345 tracked blobs 일치. 첫 `deploy_verified_release.ps1 -Apply`는 8751 점유 검사에서 후보 준비 전 fail-closed했으나, 이어진 PR #653의 공식 배포가 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`로 완료됐다. 호스트 evidence는 1,383 tracked files·blob mismatch 0·runtime SHA 확인·단일 listener·8751·health/ready 200·보호 API 401·13표 불변을 기록한다. 자율정리 worker·AI 분류·Gateway·OTA 4개 핵심 파일도 `origin/main`과 SHA-256 일치하고, 별도 현재 비교 `protection-check-79a3-20261105`도 13표 동일이다. Gateway는 8790에서 응답한다.
+- `WebLedger-Gateway` 작업의 다음 실행 경로를 정식 릴리스 `f7ff4ec4`로 갱신했다. 현재 PID는 바꾸지 않았으며 실행 중 Gateway 코드 SHA-256이 릴리스와 일치한다. principal·trigger·settings·interpreter·working directory·route와 현재 PID는 유지됐다.
+- 실제 D: HDD에서 격리 Gateway 15분 구형/신형 A/B를 측정했다. status 원자 교체는 886→31회(-96.5%), NTFS USN 관련 기록은 6,202→216건. 물리 D: 전체 쓰기는 132.9→221.0 MB, 평균 busy 0.672→0.945%여서 전체 HDD 감소를 입증하지 못했다. 상세 수치·범위는 [유휴 HDD 명세](specs/webledger-idle-io-optimization-20261105.md#2026-11-05-구현운영실측-결과), 원시 수락 자료는 `C:/AX/cost/.local-archive/autonomy-io-20261105-acceptance/`에 있다. 소음은 측정하지 않았다.
+- 브라우저 구조 검사에서 320/390px 가로 넘침은 없었으나 인증 지출정리 화면이 브라우저 세션에 없어 실제 로그인 UI와 지출 검토 목록은 미검증이다. Google Sheets 및 금융 원본 쓰기 0.
+- **남은 차단:** 실제 무인 P2 적용과 결함 자동 재처리 성공이 관측되지 않았고, 상태 파일은 08:53:56 KST 이후 갱신되지 않았다. 승인된 네트워크 경로에서 P2 요청·반영을 증명해야 한다. 상세 단계는 [현재 인계](session_handoff.md)와 통합 계획을 참조한다.
+
 ## 2026-11-05 지출 정리 문구·인라인 편집 및 여행 장부 뷰어 UI 개편 배포 완료
 
 - COMPLETE — 사용자 “검토필요 장부기록가능이 대체 무슨 정보를 제공하는지 알수가없고 여행항목수정 버튼을 눌러서 단 두 줄의 버튼만 제공할거면 왜 만들었으며 UI까지 다 박살냄” 피드백 해결.

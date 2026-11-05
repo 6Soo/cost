@@ -1,13 +1,23 @@
 # WebLedgerHost 상시 HDD I/O 경량화 및 운영 안전성 명세 (2026-11-05)
 
-**2026-11-05 진행 현황: PARTIAL · 상세 명세 PR #644 병합 완료, 코드 구현 PR #646은 열림/미병합. 운영 배포·HDD 실측 수락은 미완료.** 사용자가 제공한 Windows 성능 카운터·NTFS USN 분석과 현재 `main`의 `tools/ledger_gateway.py`, [무중단 배포 계약](continuous-deployment-20261102.md), [운영 증거](../operations.md)를 근거로 한 **개발 요구사항**이다. 사용자의 현장 로그는 원인 후보에 대한 증거이지, 전체 쓰기량이나 소음 감소의 실제 개선 수치를 뜻하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
+**2026-11-05 실행 판정: PARTIAL · 명세 #644 및 구현 #646 병합, Board는 PR #653 SHA `79a3c573`로 공식 운영 배포됐다.** 호스트 배포 evidence는 1,383 files·blob mismatch0·runtime SHA 확인·단일 listener·8751·health/ready 200·보호 API 401·보호13표 불변을 기록한다. 첫 #652 후보 전환은 포트 검사에서 중단됐으며 뒤이은 #653 배포로 운영 반영이 완료됐다. HDD 실측은 실제 D: HDD에서 했으나, 물리 디스크 전체 수치는 다른 운영 작업을 포함하므로 Gateway status 파일 횟수와 혼동하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
+
+## 2026-11-05 구현·운영·실측 결과
+
+- PR #646은 `40ea7f9d`로 병합됐다. Gateway status 이벤트 게시/30초 heartbeat, route stat cache 250ms, OTA/항공 check-only 로그 억제·시간별 heartbeat·5MiB 순환이 main에 포함됐다. 서비스의 기존 `ota_snapshot.json`은 동일한 입력 키와 역할에서 `_publish_if_active()`가 재쓰기하지 않으며, 변경 입력·역할 복귀 때 재게시한다. 관련 OTA 스냅샷 테스트와 #646 영향 CI를 재사용했다.
+- 실행 중 `WebLedger-Gateway`는 기존 PID를 유지했다. 실행 중인 스크립트와 병합본 `tools/ledger_gateway.py`의 SHA-256은 동일했고, 예약 작업의 다음 실행 파일을 공식 릴리스 `f7ff4ec4` 경로로 갱신했다. task principal·trigger·settings·interpreter·working directory·실행 PID는 변경되지 않았고 재시작은 없었다.
+- 실제 D: HDD (`ST1000DM003`)에서 운영 포트와 별도인 loopback Gateway를 각각 구형/신형 코드로 15분간 무연결 실행했다. NTFS USN 기준 `gateway-status.json` 원자 교체/임시파일 생성은 **886→31회(-96.5%)**, 관련 USN 기록은 **6,202→216건**이었다. 이 격리 경로에서는 정기 status 파일 쓰기가 크게 줄었다.
+- 같은 구간의 물리 D: 전체 카운터는 구형 **132.9 MB / 약 7,061 write ops / busy 0.672%**, 신형 **221.0 MB / 약 6,671 write ops / busy 0.945%**였다(각 90개 수집 구간 중 유효 89개). 전체 쓰기 바이트와 busy 비율은 감소하지 않았고 오히려 증가했다. 카운터에는 다른 호스트 작업이 섞이므로 이 증가는 Gateway 원인으로 단정하지 않으며, **전체 HDD 활동 감소는 입증되지 않았다.** 소음 측정도 하지 않았다.
+- 운영 Gateway의 같은 15분 관측 구간에는 status 교체 885회, 자율정리 상태 49회, 카드완료 상태 30회, OTA 스냅샷 1회, OTA/항공 로그 append 각 44회가 있었다. 이벤트 트래픽이 있는 운영 관측이며 변경 전 대조군이 아니므로 개선 전후율로 해석하지 않는다.
+- Board task의 현재 checkout은 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`, active route 8751이며 task Running이다. 배포 코드의 자율정리 worker, AI 분류, Gateway, OTA 스냅샷 4개 핵심 파일이 `origin/main`과 SHA-256 일치한다. Gateway 8790과 Board 8751 health/ready 200, 비인증 보호 API 401이다. 8752는 더 이상 활성 포트가 아니다.
+- 320px·390px 화면 구조 수락에서 가로 넘침은 없었으나 브라우저 세션에 인증 지출정리 화면이 없어 로그인 화면/검토 목록은 **UNVERIFIED**다. 외부 로그인·인증 우회는 하지 않았다.
 
 ## 후속 PR #646 구현 대조 및 남은 수락
 
-- [PR #646](https://github.com/6Soo/cost/pull/646)은 상태파일 event publish + 30초 heartbeat, route stat cache(250ms), `tools/gateway_route.py`의 status freshness 상한 정합화, `webapp/ota_snapshot.py` 체크 로그 change-only·시간별 heartbeat·5MiB log rotation 및 관련 테스트를 추가했다. **코드 PR이 열려 있으며 main/운영 반영으로 간주하지 않는다.**
-- ‘약 97% 유휴 I/O 감소’는 기존 1초 대비 30초 **정기 상태 publish 호출 빈도의 이론적 감소(약 96.7%)**를 반올림한 것에 가깝다. 연결 시작·종료 이벤트, 반복 route stat, WAL/OTA 갱신·다른 프로세스를 포함한 **실제 D: 물리 HDD 총 쓰기·헤드 소음 감소 수치가 아니다.**
-- **수락 미달/입증 필요:** 동일 유휴 15분 기준 실제 NTFS/성능 카운터 전후 비교; GPU나 SSD 개발 작업 제외; route pause 순간/연결 중 전환, drain 최신성, status 파일 쓰기 실패, 무중단 Gateway **프로세스 자체** 교체와 복구; 운영 SHA·작업/프로세스·보호13표 수락. OTA/항공권 **스냅샷 전체 재저장 방지**는 #646 변경 파일에서 직접 확인되지 않으므로 완료 처리하지 않는다. 모든 `flight-search.log` 기록기가 제어되는지 별도 점검 필요.
-- 기존 서술의 '현행 코드 1초 기록'은 **명세 작성 당시 main 기준 baseline**이다. #646이 병합·배포되어 실제 호스트가 교체되면 현행 상태와 baseline을 구분해 수치를 기록할 것.
+- [PR #646](https://github.com/6Soo/cost/pull/646)은 `40ea7f9d`로 병합됐다: 상태파일 event publish + 30초 heartbeat, route stat cache(250ms), `tools/gateway_route.py` status freshness 정합화, `webapp/ota_snapshot.py` check 로그 change-only·시간별 heartbeat·5MiB rotation 및 관련 테스트. 현재 Gateway 코드 SHA-256은 검증 릴리스 코드와 같다. 작업의 다음 실행 경로도 공식 `f7ff4ec4` 릴리스로 갱신했으며 현재 프로세스를 재시작하지 않았다.
+- 기존 1초 대비 30초 **정기 상태 publish 빈도**의 이론적 감소는 약 96.7%다. 실제 D: A/B에서 격리 무연결 경로의 status 교체는 886→31회(-96.5%)였다. 물리 디스크 전체 바이트는 132.9→221.0 MB로 증가했고 busy 평균도 0.672→0.945%로 증가해, **전체 HDD 쓰기 감소나 소음 개선을 수락하지 않는다.**
+- **남은 수락:** 현재 Board task/route는 `79a3c573`/8751이고 핵심 파일 해시가 main과 일치한다. 앞선 배포기 시도는 8751 점유 검사에서 중단됐지만 후속 실행 전환을 확인했다. 두 시스템 동시 장애복구, 운영 유휴 전후 HDD 총 I/O, 인증 UI는 미검증이다. 기존 연결 drain/failure 안전성은 #646 CI와 합성 테스트 근거를 재사용. OTA 스냅샷은 동일 입력 key·동일 writer role에서는 persist를 생략하고, 변경 입력이나 role 재취득 때 게시한다. 운영 항공권·예약 데이터는 테스트에 쓰지 않았다.
+- 기존 서술의 '현행 코드 1초 기록'은 **명세 작성 당시 main 기준 baseline**이다. 실측 결과는 위의 현재 운영 상태와 별도로 해석한다.
 
 ## 1. 조사 사실 및 검증할 가설
 
