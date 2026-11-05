@@ -15,7 +15,7 @@ def regression_document():
     row=lambda key,cell: f"<tr id='{key}'><td>합성</td><td class='income-total'>1,000원</td><td class='participant-insurance-cell'>{cell}</td></tr>"
     body=("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>"+ledger_design_assets.STYLE+
         "</style></head><body><main id='main'><section id='google-trip-income'><table id='income-tbl'><tbody>"+
-        row('linked',linked)+row('unlinked','미연결')+row('refunded','환불완료')+row('candidate',"<div class='participant-cell-content'><button class='insurance-review-status insurance-candidate-button'>보험 명단 후보 1건</button></div>")+row('async','미연결')+
+        row('linked',linked)+row('unlinked',panel.connect_button())+row('refunded','환불완료')+row('candidate',"<div class='participant-cell-content'><button class='insurance-review-status insurance-candidate-button'>보험 명단 후보 1건</button></div>")+row('async',panel.connect_button())+
         "</tbody></table></section><template id='linked-template'>"+linked+"</template></main></body></html>")
     with patch('webapp.ledger_design._nav_html',return_value='<aside id="nav"></aside>'):
         return site_shell.wrap_document(body,'/board')
@@ -31,14 +31,19 @@ def test_closed_and_async_insurance_rows_keep_same_height_and_keyboard_disclosur
             for width in (320,390,1440):
                 page.set_viewport_size({'width':width,'height':900})
                 for theme in ('light','dark'):
-                    page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
+                    if page.locator('html').get_attribute('data-theme') != theme:
+                        page.locator('#site-theme-toggle').click()
                     page.wait_for_function("[...document.querySelectorAll('.participant-link-details > summary')].every(s=>!s.classList.contains('site-action'))")
                     heights=page.locator('#income-tbl tbody tr').evaluate_all('(rows)=>rows.map(r=>r.getBoundingClientRect().height)')
                     assert max(heights)-min(heights)<1,heights
                     assert heights[0]==(93 if width<760 else 45),heights
                     candidate=page.locator('#candidate button')
                     assert 'site-action' not in (candidate.get_attribute('class') or '')
-                    assert candidate.evaluate("el=>getComputedStyle(el).borderTopWidth") == '0px'
+                    controls=page.locator('#linked summary,#unlinked button,#candidate button')
+                    styles=controls.evaluate_all("els=>els.map(el=>{const s=getComputedStyle(el);return [s.minHeight,s.padding,s.border,s.borderRadius,s.font,s.color,s.backgroundColor]})")
+                    assert all(style==styles[0] for style in styles),styles
+                    assert controls.evaluate_all("els=>els.every(el=>el.getBoundingClientRect().height===44)")
+                    assert 'site-action' not in (page.locator('#unlinked button').get_attribute('class') or '')
             summary=page.locator('#linked summary')
             summary.focus();page.keyboard.press('Enter')
             assert page.locator('#linked details').get_attribute('open') is not None
