@@ -1,3 +1,13 @@
+## 2026-11-05 PR #658 결함 묶음 회귀 수정·배포
+
+- 운영 DB의 읽기 전용 집계에서 PR #631에서 이미 해결한 날짜 alias 충돌 108건이 #652 결함 탐지기에 `pending_code_fix`로 다시 분류되는 것을 발견했다. 고객 원문은 출력하지 않고 opaque SHA-256 지문과 건수만 대조했다.
+- 회귀 수정 PR [#658](https://github.com/6Soo/cost/pull/658)은 이 확인된 과거 충돌 지문만 코드 결함 묶음에서 제외하며 거래 원행·충돌 표시·금융 결정은 변경하지 않는다. 같은 PR의 합성 통합 검사는 Gateway 응답 중 워커 실패→재시도→복구, 금액/거래 수 및 보호 테이블 불변을 확인한다.
+- 검증: 타깃 검사 4 passed. 영향 QA `242 passed`, skip 0, base `8e1d1db9`, 검사 SHA `15cdc9dd2f9338c4d39917b38e457998c7435ef0`. PR CI `41943273672` 및 main CI `41943503301` 성공. 병합 SHA `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`.
+- 배포: `deploy_verified_release.ps1` 공식 단일 작성자 전환 완료. 1,383 tracked files·blob mismatch 0·runtime SHA 일치·Gateway 8790→backend 8752·health/ready 200·보호 API 401·13개 보호 테이블 불변. 이전 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`를 보존했고 금융 apply는 `NOT_RUN`.
+- 배포본의 지문 규칙을 사용한 읽기 전용 운영 재평가에서 반복 충돌 그룹 1개(108건)가 제외되고 미해결 transaction conflict 그룹은 0개였다. 원본·충돌 플래그·기존 번들 기록을 쓰거나 삭제하지 않았다. 근거: `D:/WebLedgerHost/releases/deploy-evidence-b3b1bb9098b2c88d23ba5653bcd7e90afd684135.json`, `C:/AX/cost/.local-archive/autonomy-defect-fix-20261105/`, 배포 후 read-only query.
+- HDD 수락 재분석: 비교 구간 NTFS USN에서 `gateway-status.json` 6,202→216, `ota-snapshot.log` 82→44, `flight-search.log` 90→44, 자율정리 status 222→147 기록. 물리 D: 전체 쓰기는 132.9→221.0 MB, 평균 busy 0.672→0.945%로 증가해 디스크 전체 개선은 입증되지 않았다. 측정 세부는 통합 명세를 따른다.
+- **미완료:** P2 실제 적용은 0건이며 정상 provider 경로 timeout이 해소되지 않았다. Google Sheets·금융 원본 쓰기, 인증/프록시 우회, 한도 초기화 및 강제 재처리는 수행하지 않았다. process별 쓰기 바이트 전후 측정도 남아 있다.
+
 ## 2026-11-05 PR #636·#644 통합 실행 — PARTIAL
 
 - PR #646 정상 병합 `40ea7f9d`; 통합 복구 PR #652 정상 병합 `f7ff4ec41093d7e983bd8970bb3bf437e30d0718`. PR #652 Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311` 성공. 앱 운영 SHA는 PR #653 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`; 이후 문서 PR #654/#655/#656 반영 후 최신 main은 `015312c4fb1c313021eca6dbf6e3c7360d315e94`.

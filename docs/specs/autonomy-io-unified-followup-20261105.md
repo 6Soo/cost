@@ -13,7 +13,19 @@
 | Gateway 운영 경로 | `WebLedger-Gateway` 작업의 다음 실행 경로는 검증 릴리스 `f7ff4ec4`; 실행 중 프로세스 파일 해시는 해당 릴리스와 일치. Board는 공식 배포된 `79a3c573`에서 route 8751로 응답. | 공개 경로 유지, 8790/8751 health·ready 200, 보호 API 401. |
 | HDD·UI | D: 격리 Gateway 15분 A/B에서 정기 status 원자 교체 886→31회(-96.5%); 320/390px 구조 검사에서 가로 넘침 없음. | D: 물리 전체 쓰기량은 132.9→221.0 MB, busy 0.672→0.945%여서 전체 HDD 개선은 입증되지 않았다. 인증 지출정리 UI는 브라우저 세션에서 확인되지 않아 로그인 수락은 미검증. |
 
-**전체 판정은 PARTIAL**이다. 운영 모델 호출·P2 적용·자동 결함 수정/PR/재처리의 성공 근거가 없으므로 “무인 P1→P2 완료”라고 보고하지 않는다.
+**최초 실행 당시 판정은 PARTIAL**이었다. 아래 추가 실행 기록이 이후 상태를 갱신한다.
+
+## 추가 실행 결과 — 2026-11-05 최신
+
+| 항목 | 확인된 결과 | 남은 제약 |
+| --- | --- | --- |
+| 결함 재현·수정·PR·배포·재평가 | 운영 DB 읽기 전용 집계에서 PR #631이 해결했던 날짜 alias 충돌 108건이 #652 원인 묶음에 다시 `pending_code_fix`로 분류되는 오탐을 지문으로 확인했다. PR #658에서 해당 검증 지문만 제외했고 합성 회귀 및 통합 검사, PR CI `41943273672`, main CI `41943503301`, 영향 QA 242 passed·skip0 통과. 병합/배포 SHA `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`. 배포 코드의 규칙을 사용한 운영 DB 읽기 전용 재평가에서 반복 그룹 1개(108건)가 제외되고 남은 반복 transaction-conflict 그룹은 0개였다. | 거래 원행·conflict flag·과거 bundle 이력은 수정/삭제하지 않았다. 다른 worker 오류 묶음은 유지했으며, 모델이 소스 코드를 임의 수정하지 않는다. |
+| 안전 배포·데이터 보호 | 공식 `deploy_verified_release.ps1` 단일 작성자 전환 성공. 1,383 files·blob mismatch0·runtime SHA 일치·Gateway 8790→backend 8752·health/ready200·보호 API401·13개 보호 테이블 전후 동일. financial apply `NOT_RUN`. | Google Sheets 및 금융 원본 쓰기 없음. |
+| 동시 작동·복구 | 합성 통합 검사에서 Gateway 응답 중 워커 provider 오류를 `ai_retry`로 기록하고, 같은 합성 건을 재시도해 P2 성공까지 확인했다. 금액 합계·거래 수 및 보호 테이블 스냅샷은 동일했다. 타깃 4 passed. | 운영의 실패를 일부러 유도하지 않았다. 운영 배포는 별도 health/ready·권한·13표 보호 검사를 통과했다. |
+| OTA·항공권·로그 HDD 활동 | 실제 D: 비교 구간 NTFS USN: Gateway `gateway-status.json` 6,202→216, OTA `ota-snapshot.log` 82→44, 항공권 `flight-search.log` 90→44, 자율정리 status 222→147 기록. 대상 파일 변경 활동은 비교 구간에서 감소했다. | 물리 D: 전체 쓰기는 132.9→221.0 MB, 평균 busy 0.672→0.945%로 증가했다. 이는 물리 전체 HDD 감소의 증거가 아니며 process별 실제 write bytes A/B가 남아 있다. |
+| 무인 P1→P2 | 최신 확인에서도 실제 P2 적용 성공은 0건이다. 격리 합성 호출은 허용된 일반 provider 경로에서 timeout됐다. | 인증/프록시 우회, daily cap reset, forced retry 및 금융 대량 재처리는 하지 않았다. 사용자 추가 권한 없이 P2 작동 완료로 판정하지 않는다. |
+
+**현재 전체 판정은 PARTIAL**이다. 실제 무인 P2 성공과 process별 HDD write-byte 감소가 입증되지 않았다. PR #658 결함 수정·운영 배포와 합성 동시 복구 검증은 완료됐지만 이를 P2 성공이나 전체 HDD 개선으로 대신하지 않는다. 운영·인계 최신 기록은 [운영 기록](../operations.md#2026-11-05-pr-658-결함-묶음-회귀-수정-배포) 및 [현재 인계](../session_handoff.md)를 따른다.
 
 ## 실행 시작 시점의 baseline (위 실제 실행 결과가 최신 상태)
 

@@ -1,6 +1,6 @@
 # COST 자율 지출정리 관리자: P1→P2 선처리·코드 결함 자율 개선 (2026-11-05)
 
-**현재 판정(2026-11-05 실행): PARTIAL · #636·#643·#647 병합, 실행 복구/자동 재평가 코드 PR #652 병합(`f7ff4ec4`) 및 현재 Board `79a3c573` checkout에서 코드 일치 확인. 운영 AI opt-in은 켜져 있고 P1/P2 작업 경로가 배포된 앱에 있으나, 실제 무인 P2 적용은 0건이며 AI 호출도 정상 네트워크 경로에서 성공하지 못했다.** 최신 승인 요청은 카드 지출정리 건수를 사용자가 반복 확인하지 않아도 P1→P2가 처리하고, 실제 사용자 판단만 최종 표시하는 것이다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
+**현재 판정(2026-11-05 실행): PARTIAL · #636·#643·#647·#652 및 회귀 수정 PR #658 병합. 앱 SHA `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`로 공식 운영 전환됐고, 보호 13표 불변·단일 listener·health/ready를 확인했다.** 운영 AI opt-in은 켜져 있으나 실제 무인 P2 적용은 0건이며 승인된 일반 provider 경로가 timeout됐다. 최신 승인 요청은 카드 지출정리 건수를 사용자가 반복 확인하지 않아도 P1→P2가 처리하고, 실제 사용자 판단만 최종 표시하는 것이다. 기존 [금융·분류 계약](finance.md#p1-p2-p3-20261029), [코드/AI 추론 실행 경계](status-and-inference-stages-20261102.md), [금번 108건 가짜 충돌 교정](cleanup-export-conflicts-20261105.md), [다중 업로드 작업자](card-upload-background-navigation-20261104.md), [능동 QA](autonomous-qa-20261102.md) 및 [운영 기록](../operations.md)을 재사용한다.
 
 ## 2026-11-05 최신 운영 수락
 
@@ -8,6 +8,11 @@
 - 격리 synthetic scratch에서 OpenCode를 기본 호스트 네트워크 설정으로 호출했으나 timeout됐다. `NO_PROXY` 등 프록시 우회는 사용하지 않았고, 운영 한도·대기 작업을 수동 초기화하지 않았다. 정상 승인된 outbound 경로가 확보될 때까지 실제 모델 P2 성공은 **BLOCKED/UNVERIFIED**다. 새 일일 한도나 재시도 요청을 강제하지 않았다.
 - PR #652는 긴 요청을 임시 파일로 전달하고 실행 오류 이유를 안전하게 분리하며, 반복 코드 오류 묶음·판단 코드 fingerprint 기반 재평가를 추가했다. Windows 영향 QA 550 passed·35 subtests·skip 0, PR CI `41933059071`, main CI `41933524311` 통과. 금융 원본·Google 기록은 변경하지 않았다.
 - `f7ff4ec4` 공식 전환 시도는 8751 점유 검사에서 중단됐으나, 뒤이은 읽기 전용 확인에서 Board task가 `79a3c57340cfadeb227e3748966a4baf0fd6ca63` checkout, route 8751, Running으로 관측됐다. P2 worker·분류·Gateway·OTA 4개 파일은 `origin/main`과 바이트 해시가 일치하고 health/ready 200, 보호 API 401이다. 이 현재 실행 상태가 확인되어도 운영 P2 적용 0건과 due0이므로 코드 재평가·무인 재처리의 수락 근거는 아니다.
+- PR #658은 PR #631에서 해결한 날짜 alias 충돌 108건이 #652 결함 묶음에서 재등장하는 오탐을 지문으로 제외한다. 타깃 통합 검사 4 passed, 영향 QA 242 passed·skip0, PR CI `41943273672`, main CI `41943503301` 통과. 배포 SHA는 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`이며 health/ready·보호 API·보호13표를 확인했다. 배포본 규칙을 사용한 운영 DB 읽기 전용 재평가에서 알려진 108건 그룹은 제외됐고 원행·충돌 플래그·bundle 이력은 수정하지 않았다.
+- 실제 P1→P2 성공은 계속 0건이다. 인증/프록시 우회, 일일 cap reset, 강제 재시도 및 금융 대량 재처리는 수행하지 않았다. 전체 후속 수락은 [통합 명세](autonomy-io-unified-followup-20261105.md)와 [운영 기록](../operations.md#2026-11-05-pr-658-결함-묶음-회귀-수정-배포)을 따른다.
+- 후속 결함 회귀 PR #658은 PR #631에서 이미 해결한 과거 날짜 alias 충돌 108건이 반복 코드 결함으로 다시 묶이는 오탐을 확인된 opaque fingerprint로 제외했다. 타깃 통합검사 4 passed, 영향 QA 242 passed·skip0, PR CI `41943273672`, main CI `41943503301` 통과. 운영 DB 읽기 전용 재평가에서 해당 108건 그룹을 새 코드가 제외했고 거래 원행·충돌 플래그·기존 bundle 이력을 수정하지 않았다.
+- PR #658 공식 운영 SHA는 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`; 1,383 files·blob mismatch0·runtime SHA 일치·route8752·health/ready200·보호 API401·13표 불변을 확인했다. 합성 통합 검사에서 Gateway 응답 중 worker 오류→재시도→P2 성공을 확인했고 합성 금융 스냅샷은 변하지 않았다.
+- 실제 P2 적용은 계속 0건이다. 프록시/인증 우회·일일 한도 초기화·강제 재처리 없이 승인된 일반 provider 응답을 기다린다.
 
 ## 구현·운영 상태 대조 (2026-11-05)
 
@@ -16,14 +21,14 @@
 | 설계 승인·정본 명세 | **COMPLETE** | [#636](https://github.com/6Soo/cost/pull/636) 병합; 본 문서는 목표 계약이다 |
 | 신규 거래 변화 탐지, P1→P2 작업자, 지문·멱등·복구·재시도 | **CODE MERGED** | [#643](https://github.com/6Soo/cost/pull/643): `webapp/autonomous_cleanup_worker.py`, `app/connected_agent_provider.py`, 기존 `requests` 스코프 기반 durable 상태; 60초 sweep 및 업로드 wake; 합성 테스트 |
 | 실제 연결 OpenCode 호출 경로 | **코드 수정/합성 실행 검증** | [#647](https://github.com/6Soo/cost/pull/647): Windows npm `.CMD` 인수 파싱 오류 수정, 실행 파일 경로와 무료 모델 목록 변경. 격리 호스트에서 **합성 2건 실제 무료모델 P2 처리** 확인. 운영 자료 자동 처리/무인 지속 실행 검증과 구별 |
-| 운영 무인 AI 활성화 | **UNVERIFIED** | 코드에는 `config/card-flow.json`의 `autonomous_ai_review: true` 또는 `WEBLEDGER_AUTONOMOUS_AI_REVIEW=1` opt-in 게이트가 있다. 호스트 설정과 현재 프로세스의 실제 활성화·운영 수락 증거를 확인하기 전에는 작동 중으로 표시하지 말 것 |
+| 운영 무인 AI opt-in / 실행 | **OPT-IN ENABLED · P2 UNVERIFIED** | 호스트 `autonomous_ai_review=true` 및 worker 실행은 확인했다. 마지막 운영 지표에서 P2 적용은 0건이고 일반 provider 경로 호출은 timeout됐다. opt-in 설정을 실제 P2 성공으로 간주하지 않는다 |
 | ‘내 확인 필요’ UI 및 원인 묶음 | **CODE MERGED** | [#643](https://github.com/6Soo/cost/pull/643): `cleanup_owner=user|auto|all` 및 원인 묶음·실행 지표. **원인 묶음 기록은 자동 코드 수정/PR 생성이 아님** |
-| 결함 재현→코드 수정→PR/CI→안전 배포→재평가의 무인 연결 | **미구현/미입증** | 기존 QA/배포 도구의 존재와 지속 자동 패치 운영은 별개. 위험 변경의 권한 게이트를 유지하며 별도 구현·E2E 증거 필요 |
+| 반복 결함 발견→재현→수정 PR/CI→안전 배포→재평가 | **특정 실제 회귀 흐름 완료** | PR #658에서 검증된 과거 108건 오탐을 회귀 테스트로 재현·수정하고 CI·운영 배포 및 읽기 전용 재평가 완료. 모델 자율 소스 수정이나 자동 PR 생성은 추가하지 않았으며 위험 코드 변경은 검토·게이트를 거친다 |
 | 실제 운영 전 범위 수락 | **PENDING** | 정확한 실행 SHA, 활성 게이트, 보호 13표, 인증 운영 UI 읽기, 사용자 첫 지적 없는 신규 지출 처리, 재시작 복구, 7일 지표를 검증 |
 
 **불일치 주의:** 본 명세의 30분 보완 검사는 요구사항이고 구현 #643의 주기 sweep는 **60초**다. 불필요한 유휴 디스크 스캔을 늘릴 수 있으므로 [HDD I/O 최적화 명세 PR #644](https://github.com/6Soo/cost/pull/644) 및 [구현 PR #646](https://github.com/6Soo/cost/pull/646)의 부하·상태 갱신과 함께 실제 측정해 주기를 정한다. 호스트에서 실패·재시도·방치된 작업을 신뢰성 있게 회복하되 원본·수동 결정·Google 읽기 전용 보호를 약화하지 않는다.
 
-**완료 조건 재확인:** #643/#647 병합 자체는 서비스가 운영에서 자동으로 AI를 호출한다는 증거가 아니다. 별도 무인 호스트 활성화·현행 무료 모델 가용성·실제 신규 지출 시점의 실행 근거를 확보해야 하며, 자동 코드 결함 수정은 아직 다음 개발 범위다.
+**완료 조건 재확인:** #643/#647 병합 자체는 서비스가 운영에서 자동으로 AI를 호출한다는 증거가 아니다. 무인 호스트 실행 코드는 배포됐지만 실제 신규 지출의 연결 P2 성공은 0건이다. 일반 provider 경로의 정상 응답을 확인해야 한다. 코드 결함 대응은 이번 PR #658의 한 패턴만 end-to-end로 검증했으며 모델이 운영 코드를 자율 수정하지 않는다.
 
 ## 1. 목표 및 비목표
 

@@ -1,6 +1,6 @@
 # WebLedgerHost 상시 HDD I/O 경량화 및 운영 안전성 명세 (2026-11-05)
 
-**2026-11-05 실행 판정: PARTIAL · 명세 #644 및 구현 #646 병합, Board는 PR #653 SHA `79a3c573`로 공식 운영 배포됐다.** 호스트 배포 evidence는 1,383 files·blob mismatch0·runtime SHA 확인·단일 listener·8751·health/ready 200·보호 API 401·보호13표 불변을 기록한다. 첫 #652 후보 전환은 포트 검사에서 중단됐으며 뒤이은 #653 배포로 운영 반영이 완료됐다. HDD 실측은 실제 D: HDD에서 했으나, 물리 디스크 전체 수치는 다른 운영 작업을 포함하므로 Gateway status 파일 횟수와 혼동하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
+**2026-11-05 실행 판정: PARTIAL · 명세 #644 및 구현 #646 병합. 현재 Board는 PR #658 포함 SHA `b3b1bb90`으로 공식 운영 배포됐다.** 최신 호스트 evidence는 1,383 files·blob mismatch0·runtime SHA 확인·단일 listener·8752·health/ready 200·보호 API 401·보호13표 불변을 기록한다. HDD 실측은 실제 D: HDD에서 했으나, 물리 디스크 전체 수치는 다른 운영 작업을 포함하므로 Gateway status 파일 횟수와 혼동하지 않는다. **목표는 WebLedgerHost 24시간 운영 기능을 없애는 것이 아니라 유휴 시 불필요한 HDD 접근을 줄이는 것**이다.
 
 ## 2026-11-05 구현·운영·실측 결과
 
@@ -9,14 +9,15 @@
 - 실제 D: HDD (`ST1000DM003`)에서 운영 포트와 별도인 loopback Gateway를 각각 구형/신형 코드로 15분간 무연결 실행했다. NTFS USN 기준 `gateway-status.json` 원자 교체/임시파일 생성은 **886→31회(-96.5%)**, 관련 USN 기록은 **6,202→216건**이었다. 이 격리 경로에서는 정기 status 파일 쓰기가 크게 줄었다.
 - 같은 구간의 물리 D: 전체 카운터는 구형 **132.9 MB / 약 7,061 write ops / busy 0.672%**, 신형 **221.0 MB / 약 6,671 write ops / busy 0.945%**였다(각 90개 수집 구간 중 유효 89개). 전체 쓰기 바이트와 busy 비율은 감소하지 않았고 오히려 증가했다. 카운터에는 다른 호스트 작업이 섞이므로 이 증가는 Gateway 원인으로 단정하지 않으며, **전체 HDD 활동 감소는 입증되지 않았다.** 소음 측정도 하지 않았다.
 - 운영 Gateway의 같은 15분 관측 구간에는 status 교체 885회, 자율정리 상태 49회, 카드완료 상태 30회, OTA 스냅샷 1회, OTA/항공 로그 append 각 44회가 있었다. 이벤트 트래픽이 있는 운영 관측이며 변경 전 대조군이 아니므로 개선 전후율로 해석하지 않는다.
-- Board task의 현재 checkout은 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`, active route 8751이며 task Running이다. 배포 코드의 자율정리 worker, AI 분류, Gateway, OTA 스냅샷 4개 핵심 파일이 `origin/main`과 SHA-256 일치한다. Gateway 8790과 Board 8751 health/ready 200, 비인증 보호 API 401이다. 8752는 더 이상 활성 포트가 아니다.
+- 후속 동일 길이 D: USN 비교에서 `gateway-status.json` 6,202→216, `ota-snapshot.log` 82→44, `flight-search.log` 90→44, `autonomous-cleanup-status.json` 222→147 records로 관찰됐다. 이는 파일 변경 저널의 레코드 수이지 물리 write bytes가 아니다. 물리 D: 전체 카운터는 여전히 132.9→221.0 MB, busy 0.672→0.945%로 증가했으므로 process별 write-byte 절감 및 전체 HDD 개선은 수락하지 않는다. 원시 자료는 `C:/AX/cost/.local-archive/autonomy-io-20261105-acceptance/controlled-before-usn.csv`, `controlled-after-usn.csv`, `controlled-before.csv`, `controlled-after.csv`다.
+- PR #653 측정 당시 Board는 `79a3c57340cfadeb227e3748966a4baf0fd6ca63`/route8751이었다. 이후 PR #658 배포로 현재 Board는 `b3b1bb9098b2c88d23ba5653bcd7e90afd684135`/route8752에서 실행한다. Gateway8790 유지, 단일 listener·health/ready200·비인증 보호 API401·13표 불변은 최신 공식 evidence에서 확인했다.
 - 320px·390px 화면 구조 수락에서 가로 넘침은 없었으나 브라우저 세션에 인증 지출정리 화면이 없어 로그인 화면/검토 목록은 **UNVERIFIED**다. 외부 로그인·인증 우회는 하지 않았다.
 
 ## 후속 PR #646 구현 대조 및 남은 수락
 
 - [PR #646](https://github.com/6Soo/cost/pull/646)은 `40ea7f9d`로 병합됐다: 상태파일 event publish + 30초 heartbeat, route stat cache(250ms), `tools/gateway_route.py` status freshness 정합화, `webapp/ota_snapshot.py` check 로그 change-only·시간별 heartbeat·5MiB rotation 및 관련 테스트. 현재 Gateway 코드 SHA-256은 검증 릴리스 코드와 같다. 작업의 다음 실행 경로도 공식 `f7ff4ec4` 릴리스로 갱신했으며 현재 프로세스를 재시작하지 않았다.
 - 기존 1초 대비 30초 **정기 상태 publish 빈도**의 이론적 감소는 약 96.7%다. 실제 D: A/B에서 격리 무연결 경로의 status 교체는 886→31회(-96.5%)였다. 물리 디스크 전체 바이트는 132.9→221.0 MB로 증가했고 busy 평균도 0.672→0.945%로 증가해, **전체 HDD 쓰기 감소나 소음 개선을 수락하지 않는다.**
-- **남은 수락:** 현재 Board task/route는 `79a3c573`/8751이고 핵심 파일 해시가 main과 일치한다. 앞선 배포기 시도는 8751 점유 검사에서 중단됐지만 후속 실행 전환을 확인했다. 두 시스템 동시 장애복구, 운영 유휴 전후 HDD 총 I/O, 인증 UI는 미검증이다. 기존 연결 drain/failure 안전성은 #646 CI와 합성 테스트 근거를 재사용. OTA 스냅샷은 동일 입력 key·동일 writer role에서는 persist를 생략하고, 변경 입력이나 role 재취득 때 게시한다. 운영 항공권·예약 데이터는 테스트에 쓰지 않았다.
+- **남은 수락:** 현재 Board task/process SHA `b3b1bb90`/route8752, Gateway8790이다. 워커와 Gateway를 합성 실패·재시도·성공 시나리오로 함께 검증했고 배포 보호13표도 통과했다. OTA/항공 로그 및 status USN 활동은 비교 구간에서 감소했지만 물리 디스크 전체 쓰기와 busy는 증가했고 process별 write bytes를 대조하지 못해 전체 HDD 감소는 미검증이다. 인증 지출정리 UI도 미검증이다. OTA 스냅샷은 동일 입력 key·동일 writer role에서는 persist를 생략하고, 변경 입력이나 role 재취득 때 게시한다. 운영 항공권·예약 데이터는 테스트에 쓰지 않았다.
 - 기존 서술의 '현행 코드 1초 기록'은 **명세 작성 당시 main 기준 baseline**이다. 실측 결과는 위의 현재 운영 상태와 별도로 해석한다.
 
 ## 1. 조사 사실 및 검증할 가설
