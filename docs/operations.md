@@ -1,3 +1,9 @@
+## 2026-11-05 보험 명단 버튼 UI 통일 운영 배포 — COMPLETE
+
+- [PR #682](https://github.com/6Soo/cost/pull/682), 운영 SHA `1b8aafc06ef3d692b6f7e8f691bb16a755ab2263`, 이전 `aaa96c5c8eef567d76f8e6f9da28be2e5587642f`. 공식 `deploy_verified_release.ps1 -Apply` 단일 작성자 전환 완료, 1,409 blobs 불일치0·task/process SHA 일치·Gateway8790→backend8752·health/ready200·보호API401·보호13표 불변·금융apply NOT_RUN. 잠금/작성권 반납 완료.
+- 표적21·별도 카드업로드 인접24 통과, 합성 ego8폭/테마 조합·키보드·독립 UI 리뷰 Approve, PR CI42029891492/main CI42031450310 SUCCESS. Windows 영향QA는209통과+36subtests·기존배치실패1·skip0/필수브라우저21전건실행이며 기존 실패를 전체통과로 보고하지 않는다. 변경 전에도 같은 실패를 재현했다. [상세 검증·미검증·증거](specs/insurance-button-ui-consistency-20261105.md).
+- 증거 `D:/WebLedgerHost/releases/deploy-evidence-1b8aafc06ef3d692b6f7e8f691bb16a755ab2263.json`, `.local-archive/button-ui-20261105/`. 실제 고객 데이터/Google/참가자 연결/스키마 쓰기와 대량 재처리 없음. 후속 문서는 재배포하지 않는다.
+
 ## 2026-11-05 PR·임시 작업공간·브랜치 통합 정리 — COMPLETE
 
 - 사용자 “임시워크스페이스, 브랜치, pr등 모두 병합하고 운영배포 후 삭제” 범위 완료. [PR676](https://github.com/6Soo/cost/pull/676) 병합 `48e246cdc92532e4dbd653c588883aae97537b56`; 기존 #567·#607·#630·#651 모두 MERGED, 열린 PR0. 날짜별 문서는 보관 상태로 구분하고 최신 구현을 보존했다. [상세 기록](specs/merge-cleanup-20261105.md).
