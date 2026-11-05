@@ -285,6 +285,91 @@ def test_cause_bundles_group_repeated_signatures(setup):
     assert bundle is not None and bundle[0] == signature and bundle[1] >= 9
 
 
+def test_resolved_transaction_conflict_fingerprint_is_not_reopened_as_code_defect(setup, monkeypatch):
+    import hashlib
+    from webapp import autonomous_cleanup_worker as worker_module
+
+    board = setup
+    signature = 'synthetic-resolved-date-alias-conflict'
+    batch, rows = receive(board, 9)
+    for row in rows:
+        board.conn.execute("UPDATE transactions SET conflict_reason = ? WHERE transaction_id = ?",
+                           (signature, row['transaction_id']))
+    board.conn.commit()
+    monkeypatch.setattr(worker_module, 'RESOLVED_TRANSACTION_CONFLICT_FINGERPRINTS',
+                        frozenset({hashlib.sha256(signature.encode('utf-8')).hexdigest()}))
+
+    assert detect_bundles(board.conn) == 0
+    assert board.conn.execute("SELECT COUNT(*) FROM requests WHERE scope = ?", (BUNDLE_SCOPE,)).fetchone()[0] == 0
+
+
+def test_gateway_and_cleanup_worker_recover_together_without_financial_side_effects(setup, tmp_path):
+    import threading
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from tools.ledger_gateway import Gateway, atomic_json
+
+    board = setup
+    trip = create_trip(board)
+    batch, rows = receive(board, 1, suffix='GATEWAY-RECOVERY-')
+    ids = make_weak_rows(board, batch, rows, trip)
+    before = financial_snapshot(board)
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'synthetic healthy')
+
+        def log_message(self, *_args):
+            pass
+
+    backend = ThreadingHTTPServer(('127.0.0.1', 0), HealthHandler)
+    backend_thread = threading.Thread(target=backend.serve_forever, daemon=True)
+    backend_thread.start()
+    route, status = tmp_path / 'gateway-route.json', tmp_path / 'gateway-status.json'
+    atomic_json(route, {'port': backend.server_address[1], 'paused': False, 'generation': 'synthetic'})
+    gateway = Gateway(0, route, status)
+    gateway_thread = threading.Thread(target=lambda: gateway.serve_forever(poll_interval=.01), daemon=True)
+    gateway_thread.start()
+    calls = []
+
+    class SyntheticExecutionFailure(Exception):
+        code = 'AGENT_EXECUTION_FAILED'
+
+    def fail_once_then_recover(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise SyntheticExecutionFailure()
+        return response_for(request)
+
+    worker = AutonomousCleanupWorker(board, board._lock, provider=fail_once_then_recover)
+    gateway_url = f'http://127.0.0.1:{gateway.server_address[1]}/healthz'
+    try:
+        assert worker.sweep_once() is True
+        assert load_job(board.conn, ids[0])['status'] == 'ai_retry'
+        with urllib.request.urlopen(gateway_url, timeout=3) as response:
+            assert response.read() == b'synthetic healthy'
+
+        retry = load_job(board.conn, ids[0])
+        retry['not_before'] = 0
+        save_job(board.conn, ids[0], retry['fingerprint'], retry)
+        board.conn.commit()
+        assert worker.sweep_once() is True
+        assert load_job(board.conn, ids[0])['status'] == 'p2_applied'
+        with urllib.request.urlopen(gateway_url, timeout=3) as response:
+            assert response.read() == b'synthetic healthy'
+        assert len(calls) == 2
+        assert financial_snapshot(board) == before
+    finally:
+        gateway.shutdown()
+        gateway.server_close()
+        gateway_thread.join(timeout=3)
+        backend.shutdown()
+        backend.server_close()
+        backend_thread.join(timeout=3)
+
+
 def test_cause_bundles_group_repeated_provider_code_failures_but_not_rate_limits(setup):
     from webapp.autonomous_cleanup_worker import code_fingerprint
 
