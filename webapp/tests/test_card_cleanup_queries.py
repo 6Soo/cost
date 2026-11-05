@@ -51,18 +51,18 @@ def test_cleanup_reasons_are_exclusive_and_filtered_on_the_full_population(tmp_p
 
         all_html = render_expense_cleanup(board, 'csrf')
         assert cleanup_total(board) == 26
-        assert "전체 26건" in all_html
-        assert "분류·배정 필요 3건" in all_html
-        assert "기록 상태 확인 22건" in all_html
+        assert "거래·장부 상태 상세 · 26건 · 사용자 요청 아님" in all_html
+        assert "분류 상태 3건" in all_html
+        assert "내부 기록 상태 22건" in all_html
         classification = render_expense_cleanup(board, 'csrf', reason='classification')
         assert f"data-transaction='{ids[0]}'" in classification
         assert f"data-transaction='{ids[1]}'" in classification
         assert "data-row-id='cleanup-ledger'" in classification
         second = render_expense_cleanup(board, 'csrf', reason='recording', page=2)
-        assert "기록 상태 확인 22건 중 21~22건 표시" in second
+        assert "내부 기록 상태 22건 중 21~22건 표시" in second
         protected = render_expense_cleanup(board, 'csrf', reason='evidence')
         assert f"data-transaction='{ids[3]}'" in protected
-        assert "근거 충돌 1건" in protected
+        assert "원본·보호 상태 1건" in protected
         assert f"cleanup_reason=recording#expense-cleanup" in second
         assert render_expense_cleanup(board, 'csrf', reason='no_trip') == render_expense_cleanup(board, 'csrf', reason='classification')
     finally:
@@ -77,9 +77,9 @@ def test_cleanup_empty_filter_and_invalid_reason_fall_back_safely(tmp_path, monk
         card_rows(board, 1)
         monkeypatch.setattr('webapp.card_flow._ota_entries_by_card', lambda _board, **kw: {'__snapshot_status__': {'fresh': True, 'status': 'ready'}})
         empty = render_expense_cleanup(board, 'csrf', reason='finance')
-        assert '결제·환불 확인 거래가 없습니다.' in empty
+        assert '금융 관계 상태에 해당하는 항목이 없습니다.' in empty
         assert "aria-current='page'" in empty
-        assert "결제·환불 확인 0건" in empty
+        assert "금융 관계 상태 0건" in empty
         assert "data-kind='card'" not in empty
         assert render_expense_cleanup(board, 'csrf', reason='unexpected') == render_expense_cleanup(board, 'csrf')
     finally:

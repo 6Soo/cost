@@ -3039,6 +3039,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             if (blocked == 'review_hold' and not held
                     and preview_row.get('reason') == '비용 항목과 배정 내용을 확인해 주세요.'):
                 finance_label = '여행·항목을 확인하고 변경 저장을 눌러 주세요.'
+            if (tid in cancellation_ids
+                    and finance_label == '여행·항목을 확인하고 변경 저장을 눌러 주세요.'):
+                # A linked refund row is read-only here; do not carry the
+                # purchase-side edit prompt into its financial status text.
+                finance_label = '금융 관계 원행은 이 목록에서 여행·항목을 변경하지 않습니다.'
             if blocked:
                 reason = finance_label
         elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):
@@ -3088,6 +3093,24 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                 evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
             if preview_row and preview_row.get('blocked'):
                 reason += ' ' + finance_label
+        elif tid in original_refunds and original_refunds[tid]:
+            # Keep the purchase-side refund relationship visible after removing
+            # duplicate refund-group actions from this diagnostic list.
+            linked_refunds = original_refunds[tid]
+            link = linked_refunds[0][1]
+            refund_count = int(link.get('refund_count') or len(linked_refunds))
+            if link.get('inferred'):
+                reason = (f'원결제 추론 연결 · 취소·환불 {refund_count}건. '
+                          '별도 근거 검증 전 장부 기록 보류 · 실제 카드 환급 완료 아님.')
+            elif link.get('status') == 'full' and link.get('net_krw') == 0:
+                reason = (f'환불 상쇄 확인 · 원승인번호 기준 원결제 확정 연결 · 취소·환불 {refund_count}건. '
+                          '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
+            elif link.get('status') == 'partial':
+                reason = (f'부분 환불 연결 {refund_count}건 · 현재 순액 {link.get("net_krw")}원. '
+                          '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
+            elif link.get('status') == 'excess':
+                reason = (f'환불 합계가 원결제를 넘어 금액 충돌이 있습니다 · 연결 {refund_count}건. '
+                          '쌍 전체 내부 기록을 보류합니다.')
         # Keep financial, cancellation and evidence rows read-only in this detail.
         category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
             item=item, display_tab_id=current_tab,
@@ -3095,8 +3118,6 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             review_hold=cleanup_holds.get(tid)),
             dict(preview_row or {}, **({'refund_link': original_refunds[tid][0][1]} if tid in original_refunds else {})))
         finance_related = (category == 'finance' or tid in cancellation_ids or tid in original_refunds)
-        if finance_related and finance_label == '여행·항목을 확인하고 변경 저장을 눌러 주세요.':
-            finance_label = '금융 관계 원행은 이 목록에서 여행·항목을 변경하지 않습니다.'
         review = card_cleanup_ui.render_cleanup_card_review(
             detail=detail, is_cancellation=tid in cancellation_ids,
             evidence=evidence, conflict_reason=conflict_reason,
