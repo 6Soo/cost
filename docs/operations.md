@@ -1,3 +1,12 @@
+## 2026-11-05 PR·임시 작업공간·브랜치 통합 정리 — COMPLETE
+
+- 사용자 “임시워크스페이스, 브랜치, pr등 모두 병합하고 운영배포 후 삭제” 범위 완료. [PR676](https://github.com/6Soo/cost/pull/676) 병합 `48e246cdc92532e4dbd653c588883aae97537b56`; 기존 #567·#607·#630·#651 모두 MERGED, 열린 PR0. 날짜별 문서는 보관 상태로 구분하고 최신 구현을 보존했다. [상세 기록](specs/merge-cleanup-20261105.md).
+- 임시 worktree26개 정리(Paseo 소유1개는 공식 archive), 기본 `C:/AX/cost`만 유지. 로컬 임시 브랜치104개·원격113개 삭제, 양쪽 main만 유지. 이전에 archive된 작업공간의 잔여 폴더9개는 파일 해시를 확인해 로컬 보관함으로 이동했다.
+- 원본·QA·미커밋 사본7,603개/402,099,913 bytes 해시 확인, Git bundle·보관 ref와 기존 stash5개 유지. 기본 폴더의 미커밋 변경은 추가 복구 stash와 파일/patch로 보존했다. 자동 재적용으로 최신 구현을 덮지 않았다. 복구 위치 `.local-archive/merge-cleanup-20261105/preserved/`, stash ID `user-stash-sha.txt`, 전체 ref `before-cleanup.bundle`.
+- 운영 앱 `aaa96c5c8eef567d76f8e6f9da28be2e5587642f` 유지. 비문서 blobs1,298개 불일치0, main과 차이는 Markdown뿐이므로 앱 재배포/재시작 없이 task/process SHA·단일 loopback8751·health/ready200·보호API401 확인. 기존 공식 배포의 보호13표 불변 근거를 재사용하며 이번 문서 정리로 DB를 새로 읽거나 쓰지 않았다.
+- 마지막 빈 임시 폴더를 잡은 기존 cloudflared30624는 새 임시 replica의4연결·ready200 확인 후 종료했다. 공식 Board 감독자의 새 tunnel4844가4연결/ready200으로 인계받은 뒤 임시 replica24328도 종료했다. 공개 ledger.foresttour.kr health/ready200·보호API401 확인, 빈 폴더 삭제 완료. Board/Gateway Running, 앱 서버 재시작·설정/DB/Google/원본 변경 없음.
+- 검증: 문서 영향 검사 DOCS_CHECKED·diff/링크/상태 확인, PR CI42005627007·main CI42006033443 SUCCESS. 새 코드 테스트·빌드·브라우저·DB 검사는 문서 전용 변경이므로 미실행. 증거 `.local-archive/merge-cleanup-20261105/`의 inventory/preservation/runtime/code-equivalence/worktree-cleanup/remnants/tunnel-handover 결과. 과거 별도 기능 PARTIAL·미검증은 이번 정리로 완료로 바꾸지 않는다. 현재 정리 요청 미결0·다음 기능 명령 없음.
+
 ## 2026-11-05 PR #665 통합 사용자 확인함 구현 및 운영 배포 — 완료
 
 - [PR #665](https://github.com/6Soo/cost/pull/665) 설계 명세에 따라 통합 사용자 작업함 기반, 카드 비용 항목 도메인 어댑터, 분산 보류 UX 제거를 구현하고 [PR #674](https://github.com/6Soo/cost/pull/674)로 정상 main 병합 및 운영 전환을 완료했다.
