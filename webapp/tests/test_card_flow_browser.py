@@ -1006,7 +1006,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                             page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).first.wait_for()
                             self.assertGreater(page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).count(),0)
                             self.assertGreater(page.get_by_text('메일 있음 · 연결 확인 필요 · 분류 확인 권장',exact=True).count(),0)
-                            page.locator('#holds summary').click()
+                            self.assertEqual(page.locator('#holds summary').count(),0)
                             self.assertGreater(page.get_by_text('취소 메일 있음 · 환불 확인 필요',exact=True).count(),0)
                             self.assertGreater(page.get_by_text('메일 연결 없음 · 분류 확인 권장',exact=True).count(),0)
                             self.assertEqual(page.get_by_text('확인 권장',exact=True).count(),0)
