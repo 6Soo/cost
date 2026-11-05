@@ -1,6 +1,6 @@
 """Canonical read-only reason classification for the expense cleanup queue."""
 
-REASONS = ('all', 'classification', 'recording', 'evidence', 'finance', 'manual')
+REASONS = ('all', 'classification', 'recording', 'evidence', 'finance')
 OWNERS = ('all', 'user', 'auto')
 LEGACY_REASONS = {'no_item': 'classification', 'no_trip': 'classification',
                   'protected': 'evidence', 'other_review': 'classification'}
@@ -17,7 +17,7 @@ def card_reason_sql(alias='t'):
         " (SELECT r.issuer,r.card_tail,r.original_approval_number FROM transactions r"
         " WHERE r.transaction_direction IN ('cancellation','refund'))) THEN 'finance'"
         f" WHEN EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id"
-        f" AND h.source_hash={t}.source_hash AND h.kind IN ('manual','manual_hold','owner_hold','user_hold','review_hold')) THEN 'manual'"
+        f" AND h.source_hash={t}.source_hash AND h.kind IN ('manual','manual_hold','owner_hold','user_hold','review_hold')) THEN 'evidence'"
         f" WHEN EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id={t}.transaction_id"
         " AND h.kind NOT IN ('trip_needed','classification_needed','existing_ledger')) THEN 'evidence'"
         f" WHEN COALESCE({t}.item,'')!='' AND COALESCE({t}.display_tab_id,'') NOT IN ('','unclassified') THEN 'recording'"

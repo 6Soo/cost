@@ -453,7 +453,7 @@ def test_pending_job_ids_requires_fingerprint_match_or_expiry(setup):
     assert ids[0] in pending_job_ids(board.conn, fingerprints, now=1000)
 
 
-def test_cleanup_owner_ctas_split_user_and_auto(tmp_path, monkeypatch):
+def test_cleanup_no_longer_exposes_a_second_owner_action_queue(tmp_path, monkeypatch):
     import webapp.card_flow as card_flow
     from webapp import ledger_board
 
@@ -479,18 +479,18 @@ def test_cleanup_owner_ctas_split_user_and_auto(tmp_path, monkeypatch):
         board.conn.commit()
 
         html = card_flow.render_expense_cleanup(board, 'token')
-        assert '내 확인 필요 1건' in html
-        assert '자동 진행·대기 1건' in html
-        assert "cleanup_owner=user" in html and "cleanup_owner=auto" in html
+        assert '내 확인 필요' not in html
+        assert '자동 진행·대기' not in html
+        assert 'cleanup_owner=' not in html
 
         user_html = card_flow.render_expense_cleanup(board, 'token', owner='user')
         assert 'SYNTHETIC USER CASE' in user_html
-        assert 'SYNTHETIC AUTO CASE' not in user_html
-        assert "aria-current='page'" in user_html
+        assert 'SYNTHETIC AUTO CASE' in user_html
+        assert "cleanup_owner=" not in user_html
 
         auto_html = card_flow.render_expense_cleanup(board, 'token', owner='auto')
         assert 'SYNTHETIC AUTO CASE' in auto_html
-        assert 'SYNTHETIC USER CASE' not in auto_html
+        assert 'SYNTHETIC USER CASE' in auto_html
     finally:
         ledger_board.bind_store(None)
         board.close()

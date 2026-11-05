@@ -334,6 +334,11 @@
       "name": "admin-ui-ux-review-evidence",
       "paths": ["quality-artifacts/admin-ui-ux/**"],
       "tests": ["webapp/tests/test_ota_catalog_browser.py", "webapp/tests/test_card_catalog_browser.py", "webapp/tests/test_expense_workspace.py"]
+    },
+    {
+      "name": "unified-user-action-queue",
+      "paths": ["webapp/user_action_queue.py", "webapp/user_action_adapters.py", "webapp/ledger_board.py", "webapp/ledger_design.py", "webapp/access_control.py", "webapp/tests/test_user_action_queue.py"],
+      "tests": ["webapp/tests/test_user_action_queue.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_flow.py"]
     }
   ]
 }

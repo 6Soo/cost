@@ -36,19 +36,21 @@ def test_origin_uses_actual_execution_not_decided_or_p2_text(source, expected):
     assert label(dict(classification_source=source, decided_at='synthetic-user-decision')) == '직접'
 
 
-def test_three_primary_states_and_four_reasons_keep_exact_protection():
+def test_three_primary_states_keep_financial_protection_without_user_hold_state():
     row = dict(batch_id='b', transaction_id='t', item='숙박비', display_tab_id='A',
                classification_state='classified', classification_source='inference')
     assert next_action(row, dict(already_booked=True))['state_label'] == '완료'
     assert next_action(dict(row, duplicate_of='other'))['state_label'] == '제외'
     cases = [(dict(row, item=''), {}, 'classification'),
              (dict(row, parse_error='unreadable'), {}, 'evidence'),
-             (row, dict(blocked='refund_exceeds_original'), 'finance'),
-             (dict(row, review_hold=dict(kind='manual_hold', reason='owner stop')), {}, 'manual')]
+             (row, dict(blocked='refund_exceeds_original'), 'finance')]
     for source, preview, category in cases:
         result = next_action(source, preview)
         assert result['state_label'] == '처리 필요' and result['reason_category'] == category
         assert result['required'] and result['status']
+    protected = next_action(dict(row, review_hold=dict(kind='manual_hold', reason='owner stop')), {})
+    assert protected['reason_category'] == '' and protected['required'] is False
+    assert 'owner stop' not in protected['reason']
 
 
 def test_p1_then_real_p2_updates_source_and_audit_without_human_or_financial_writes(setup):

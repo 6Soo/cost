@@ -3453,6 +3453,18 @@ class Handler(BaseHTTPRequestHandler):
         if self._auth_routes(query):
             return
         resolve_role(self.headers, self._cookies())
+        if parsed.path == '/my-actions':
+            if current_role() != 'owner':
+                self._send_json({'code': 'OWNER_REQUIRED'}, code=403)
+                return
+            store = _active_store()
+            if store is None:
+                self._send("<h1>저장소를 사용할 수 없어요</h1>", code=503)
+                return
+            from . import user_action_queue
+            self._send(user_action_queue.render(store.conn, CSRF_TOKEN,
+                                                answered=(query.get('answered', [''])[0] == '1')))
+            return
         from . import google_ledger_page as _gl
         from . import google_ledger_actions as _gla
         if parsed.path == '/demo/preview':
@@ -3908,6 +3920,38 @@ class Handler(BaseHTTPRequestHandler):
 
         # The write gates below read the session this request resolved, never a leftover from another one.
         resolve_role(self.headers, self._cookies())
+        if parsed.path == '/api/user-actions/answer':
+            if current_role() != 'owner':
+                self._send_json({'code': 'OWNER_REQUIRED'}, code=403)
+                return
+            if _active_store() is None:
+                self._send_json({'code': 'STORE_UNBOUND'}, code=503)
+                return
+            try:
+                payload = read_payload()
+                check_csrf(payload)
+                from . import user_action_queue
+                task = user_action_queue.answer(
+                    _active_store().conn,
+                    action_id=payload.get('action_id', ''),
+                    expected_revision=payload.get('revision', ''),
+                    expected_digest=payload.get('digest', ''),
+                    value=payload.get('answer', ''),
+                )
+                user_action_queue.set_state(_active_store().conn, task['action_id'], user_action_queue.REPROCESSING)
+                worker = getattr(_active_store(), '_autonomous_cleanup_worker', None)
+                if worker is not None:
+                    worker.wake()
+                self._auth_redirect('/my-actions?answered=1')
+            except SaveError as exc:
+                self._send_json({'code': exc.code, 'message': exc.message}, code=403)
+            except ValueError as exc:
+                code = str(exc)
+                status = 409 if code in ('STALE_ACTION', 'ACTION_NOT_OPEN') else 400
+                self._send_json({'code': code}, code=status)
+            except Exception:
+                self._send_json({'code': 'ACTION_SAVE_FAILED'}, code=500)
+            return
         if parsed.path == '/api/rows/bulk-trip':
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED', 'message': '소유자만 변경할 수 있어요'}, code=403)

@@ -225,8 +225,7 @@ def enrich_status(conn, items):
     if 'transaction_review_holds' in tables:
         joins += ' LEFT JOIN transaction_review_holds h ON h.transaction_id=t.transaction_id'
         held = ("CASE WHEN h.transaction_id IS NULL THEN NULL WHEN h.source_hash=t.source_hash THEN h.kind "
-                "ELSE 'evidence_pending' END,CASE WHEN h.source_hash=t.source_hash THEN h.reason "
-                "ELSE '보류한 원본이 달라 다시 확인해야 합니다' END")
+                "ELSE 'evidence_pending' END,CASE WHEN h.source_hash=t.source_hash THEN h.reason ELSE NULL END")
     excluded = '0'
     if 'transaction_company_exclusions' in tables:
         joins += ' LEFT JOIN transaction_company_exclusions e ON e.transaction_id=t.transaction_id'

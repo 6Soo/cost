@@ -539,7 +539,8 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
         assert '이 지시로 규칙 제안하기' not in first
         assert '근거 보기' in first and '여행·항목 수정' in first and '변경 저장' in first
         assert '<form' not in held
-        assert 'data-cleanup-propose' not in held and '보류 중' in held
+        assert 'data-cleanup-propose' not in held and '보류 중' not in held
+        assert '보류 해제' not in held and '내 확인 필요' not in held
         assert "'rule-proposal/approve'" not in first  # HTML은 서버 승인 없이 기록하지 않는다.
         assert 'resolve_hold:' not in html
     finally:
