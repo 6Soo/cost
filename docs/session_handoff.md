@@ -4,6 +4,14 @@
 - 최종 운영 `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`(이전 검증 `f9b6a2e7`), 1,399 blobs·runtime SHA·health/ready200·보호API401·보호13표 불변 PASS. Windows 영향334+46 subtests 및 후속327+30 subtests·skip0(중복 합산 금지), 최종 상태 후속18 passed·PR CI 성공. Ego27 인증 저장 결과 복구313ms·상세 링크·체크포인트0·가로 넘침0 수락. 합성375/390px·다크도 확인했다.
 - 운영 자료 재업로드·원본/금융/분류/여행/환불/Google 쓰기0. 근거 `.local-archive/upload-results-20261105/` 및 동일 SHA 호스트 deploy-evidence. 미결0·다음 기능 명령 없음. 전체 상세 조회의 일반 성능 개선이나 카드 관리 화면 명세 전체를 완료했다고 주장하지 않으며 기록만의 후속으로 재배포하지 않는다.
 
+## 2026-11-05 PR #665 통합 사용자 확인함 구현 — PARTIAL · 운영 미배포
+
+- 기준 명세는 병합된 [PR #665](https://github.com/6Soo/cost/pull/665)의 `docs/specs/unified-expense-action-queue-20261105.md`다. 기존 사용자 변경이 있던 `C:/AX/cost`는 보존하고 별도 worktree `C:/AX/cost-unified-action-queue`의 `feat/unified-expense-action-queue-20261105`에서 작업했다. 기반 구현 커밋 `c9429844`, QA 기준선 오류 기대값 교정 `8520ff4d`이며 최신 검증 SHA `8520ff4d888d12b44ad11be1fb5f6ec40cc055d4`다.
+- 현재 구현: 기존 `requests` 저장소를 쓰는 통합 task 저장/멱등 group key/revision·digest stale 거부, owner 메뉴 건수와 `/my-actions`, CSRF owner 답변 경로를 추가했다. 스키마·고객 DB·Google 변경은 없다. 최신 main sidebar 변경에서 생긴 브라우저 테스트 기대 수 7→9 기준선 오류도 수정했다.
+- 검증: `python tools/run_quality_checks.py --base origin/main --run`, base `01e9db6427c7afe9a89b04c48f70a1c3a1f4a039`, SHA `8520ff4d888d12b44ad11be1fb5f6ec40cc055d4`: 574 passed·46 subtests·skip 0·필수 브라우저 9개 실행·compile 통과. 타깃 owner/access/server isolation 112 passed. 결과 `.local` 저장소의 `quality-artifacts/run-summary.json`, `junit.xml`, `pytest.log`에 있다.
+- **미완료·배포 차단:** 카드/환불/OTA/영수증/예약/Google 도메인의 P3 source adapter 및 중복 그룹화가 아직 연결되지 않았다. 답변은 내부 저장 후 worker를 깨우지만 답변 사실이 기존 P1/P2 실행 입력으로 전달되지 않으며, task가 실제 해결을 검증해 `RESOLVED` 되는 경로도 없다. `/import` 등의 별도 작업/보류 UI도 아직 제거되지 않았다. 지금 배포하면 작업함이 비어 보이거나 답변을 완료로 오인할 수 있으므로 PR 작성·병합·운영 배포는 실행하지 않았다.
+- 재개: 먼저 현재 main과 열린 PR을 다시 확인하고, source adapter별 P3 조건·answer consumer·자동 재처리/종료·기존 화면 단일 task link·보류 UI 제거를 구현한다. 명세 7절 전체 수락 및 보호 회귀를 통과한 뒤 영향 QA/CI, PR, 고정 SHA 배포와 최소 운영 수락을 수행한다. **현재 HEAD:** worktree에서 `git status --short --branch; git log -2 --oneline`.
+
 ## 2026-11-05 단일 계정 메뉴 구조 교정 — COMPLETE
 
 - 현재 요청: 첨부 사이드바의 발생 원인과 `better-ui` 검토 누락을 설명하고 수정. [PR667](https://github.com/6Soo/cost/pull/667) 및 [원인·검증 기록](specs/sidebar-singleton-management-20261105.md). 세 항목 그룹에서 두 항목을 이동한 뒤 남긴 접기 컨테이너가 원인이다. 이전 검토는 실제 펼친 메뉴의 필요성을 확인하지 않았고 일부 셸 검사는 축약된 가짜 메뉴를 사용했다. 계정 링크를 평탄화하고 실제 렌더러의9개 회귀 조건을 추가했다.
