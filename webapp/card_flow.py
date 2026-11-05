@@ -3592,7 +3592,8 @@ el('upload').onclick=async()=>{
     uploadRow(entry,f.name,'접수 완료 · 분류 대기');let j=await awaitUpload(job,entry);results[i]=j;uploadRow(entry,f.name,uploadOutcome(j),'saved');
     if(j.batch_id)savedUploadLink(entry,j.batch_id);
     appendCoverageForm(entry,j);
-    if(selectedCoverageGap){
+    if(typeof selectedCoverageGap!=='undefined' && selectedCoverageGap &&
+       typeof coverageNode==='function'){
       const cov=j.coverage_evidence||{},gap=selectedCoverageGap;
       const matched=cov.card_id===gap.card_id&&cov.date_basis===gap.date_basis&&
         cov.start_date&&cov.end_date&&cov.start_date<=gap.start&&cov.end_date>=gap.end&&
