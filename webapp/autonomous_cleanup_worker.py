@@ -31,6 +31,12 @@ METRICS_FILE = 'autonomous-cleanup-metrics.jsonl'
 TERMINAL = ('no_ai_needed', 'p2_applied', 'ai_dead')
 CODE_DEFECT_REASONS = ('AGENT_EXECUTION_FAILED', 'AGENT_COMMAND_LINE_TOO_LONG',
                        'AGENT_RESPONSE_INVALID', 'AGENT_EXECUTION_MISMATCH')
+# PR #631 verified and resolved this historical date-alias conflict pattern.
+# Preserve its transaction conflict records, but do not reopen them as a code
+# defect whenever the autonomous worker groups repeated causes.
+RESOLVED_TRANSACTION_CONFLICT_FINGERPRINTS = frozenset({
+    '349b777b720eec2918cce955a216ef52ae021a6ad0b8d94b0c33232793a4f9cc',
+})
 CODE_FINGERPRINT_FILES = (
     'app/connected_agent_provider.py', 'app/ai_classification.py',
     'app/automatic_classification.py', 'app/rules.py',
@@ -166,11 +172,20 @@ def pending_job_ids(conn, fingerprints, now=None):
 
 
 def detect_bundles(conn):
-    rows = [('transaction', signature, count) for signature, count in conn.execute(
+    rows = []
+    transaction_groups = conn.execute(
         "SELECT COALESCE(NULLIF(conflict_reason,''), NULLIF(parse_error,'')) signature, COUNT(*) count"
+        ", SUM(CASE WHEN COALESCE(conflict_reason,'') != '' THEN 1 ELSE 0 END) conflict_count"
+        ", SUM(CASE WHEN COALESCE(parse_error,'') != '' THEN 1 ELSE 0 END) parse_error_count"
         " FROM transactions"
         " WHERE COALESCE(conflict_reason,'') != '' OR COALESCE(parse_error,'') != ''"
-        " GROUP BY signature HAVING COUNT(*) >= 8").fetchall()]
+        " GROUP BY signature HAVING COUNT(*) >= 8").fetchall()
+    for signature, count, conflict_count, parse_error_count in transaction_groups:
+        fingerprint_value = hashlib.sha256(str(signature).encode('utf-8')).hexdigest()
+        if (fingerprint_value in RESOLVED_TRANSACTION_CONFLICT_FINGERPRINTS
+                and conflict_count == count and parse_error_count == 0):
+            continue
+        rows.append(('transaction', signature, count))
     placeholders = ','.join('?' for _ in CODE_DEFECT_REASONS)
     rows.extend(('worker', reason, count) for reason, count in conn.execute(
         "SELECT json_extract(response_json,'$.reason'), COUNT(*) FROM requests"

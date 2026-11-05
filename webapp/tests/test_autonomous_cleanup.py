@@ -285,6 +285,24 @@ def test_cause_bundles_group_repeated_signatures(setup):
     assert bundle is not None and bundle[0] == signature and bundle[1] >= 9
 
 
+def test_resolved_transaction_conflict_fingerprint_is_not_reopened_as_code_defect(setup, monkeypatch):
+    import hashlib
+    from webapp import autonomous_cleanup_worker as worker_module
+
+    board = setup
+    signature = 'synthetic-resolved-date-alias-conflict'
+    batch, rows = receive(board, 9)
+    for row in rows:
+        board.conn.execute("UPDATE transactions SET conflict_reason = ? WHERE transaction_id = ?",
+                           (signature, row['transaction_id']))
+    board.conn.commit()
+    monkeypatch.setattr(worker_module, 'RESOLVED_TRANSACTION_CONFLICT_FINGERPRINTS',
+                        frozenset({hashlib.sha256(signature.encode('utf-8')).hexdigest()}))
+
+    assert detect_bundles(board.conn) == 0
+    assert board.conn.execute("SELECT COUNT(*) FROM requests WHERE scope = ?", (BUNDLE_SCOPE,)).fetchone()[0] == 0
+
+
 def test_cause_bundles_group_repeated_provider_code_failures_but_not_rate_limits(setup):
     from webapp.autonomous_cleanup_worker import code_fingerprint
 
