@@ -10,6 +10,7 @@ import sqlite3
 from .db import StoreError
 
 COVERAGE_KIND = 'card.query_coverage.v1'
+BASELINE_KIND = 'card.query_baseline.v1'
 
 DATE_BASIS_ALIASES = {
  '승인일': ('승인일', '승인일자', 'approval_date', 'approvaldate'),
@@ -212,6 +213,51 @@ class CoverageStore:
                 continue
         return list(records.values())
 
+    def _baselines(self):
+        """Latest audited owner baseline for each card and query-date axis."""
+        if not self.available():
+            return {}
+        result = {}
+        for subject, raw in self.conn.execute(
+                'SELECT subject,detail_json FROM change_log WHERE kind=? ORDER BY entry_id',
+                (BASELINE_KIND,)):
+            try:
+                value = json.loads(raw)
+                if (isinstance(value, dict) and
+                        subject == _digest(json.dumps(
+                            [value.get('card_id'), value.get('date_basis')] ))) :
+                    result[value['card_id'], value['date_basis']] = value
+            except (KeyError, ValueError, TypeError):
+                continue
+        return result
+
+    def set_management_start(self, card_id, date_basis, start, expected_revision):
+        """Change only a card/query-axis baseline, never financial rows or files."""
+        basis = normalize_date_basis(date_basis)
+        parsed = parse_iso_date(start)
+        if (not basis or not parsed or parsed > date.today().isoformat()
+                or type(expected_revision) is not int or expected_revision < 0):
+            raise StoreError('INVALID_COVERAGE_PERIOD', '관리 시작일을 확인해 주세요.')
+        if not any(r.get('confirmed') and r['card_id'] == card_id and
+                   r['date_basis'] == basis for r in self._records()):
+            raise StoreError('COVERAGE_CARD_NOT_FOUND', '조회 확인된 카드·기준을 찾을 수 없습니다.')
+        key = (card_id, basis)
+        current = self._baselines().get(key)
+        revision = current['revision'] if current else 0
+        if revision != expected_revision:
+            raise StoreError('REVISION_CONFLICT', '다른 화면에서 관리 시작일이 바뀌었습니다.')
+        if current and current['management_start'] == parsed:
+            return dict(card_id=card_id, date_basis=basis, management_start=parsed,
+                        revision=revision, changed=False)
+        now = datetime.now(timezone.utc).isoformat()
+        value = dict(card_id=card_id, date_basis=basis,
+                     management_start=parsed, revision=revision+1, updated_at=now)
+        subject = _digest(json.dumps([card_id, basis]))
+        self.conn.execute(
+            'INSERT INTO change_log(at,kind,subject,detail_json) VALUES(?,?,?,?)',
+            (now, BASELINE_KIND, subject, json.dumps(value, ensure_ascii=False, sort_keys=True)))
+        return dict(value, changed=True)
+
     def record(self, batch_id, evidence):
         if not self.available():
             raise StoreError('COVERAGE_NOT_READY', '조회기간 저장 구조를 준비해 주세요.')
@@ -278,11 +324,15 @@ class CoverageStore:
             key = tuple(record[k] for k in ('card_id','issuer','card_tail','identity_scope','date_basis'))
             groups[key].append(tuple(record[k] for k in ('start_date','end_date','management_start','reason')))
         coverages, gaps = [], []
+        baselines = self._baselines()
         for (card_id, card_issuer, tail, scope, basis), values in groups.items():
             intervals = merge_periods([Period(value[0], value[1]) for value in values])
-            management = min((value[2] for value in values if value[2]), default=None)
+            previous = baselines.get((card_id, basis))
+            management = (previous['management_start'] if previous else
+                          min((value[2] for value in values if value[2]), default=None))
             info = dict(card_id=card_id, issuer=card_issuer, card_tail=tail, identity_scope=scope, date_basis=basis,
-                        management_start=management, reason=values[-1][3])
+                        management_start=management, management_revision=previous['revision'] if previous else 0,
+                        reason=values[-1][3])
             coverages.append(dict(info, periods=[vars(period) for period in intervals]))
             missing = find_gaps(intervals, management, through)
             if missing:
