@@ -123,8 +123,11 @@ def inspect(content, filename, parsed=None):
             remember('issuer', value)
         elif label in ('카드번호', 'maskedcardno'):
             remember('card_mask', re.sub(r'[\s-]', '', value).upper())
-        elif label in ('조회유형', 'querytype') and value not in ('전체', 'all'):
-            metadata['restricted'] = True
+        elif label in ('조회유형', 'querytype'):
+            if value.strip().casefold() in ('전체', 'all'):
+                metadata['full_query_declared'] = True
+            else:
+                metadata['restricted'] = True
         elif label in ('조회필터', 'queryfilter') and value.casefold() not in ('전체', 'all', '없음', 'none'):
             metadata['restricted'] = True
         elif label in ('다운로드상태', 'downloadstatus') and value not in ('완료', 'complete'):
