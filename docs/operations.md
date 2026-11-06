@@ -1,3 +1,13 @@
+## 2026-11-06 수입 직접 선택·검증된 UI 묶음 코드 배포
+
+- 제품 SHA `2dd1b1605eb7122ebb630d1cff4b0596f157c3bc`를 이전 `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608`에서 공식 단일 작성자로 전환했다. PR699/700/701/702/703/704만 검토·검사 근거와 대조했으며 변경 비문서37파일의 최종 blob이 검증된 head 중 하나와 일치한다. 카드 IA 미검증 브랜치는 제외했다.
+- 1,421 blobs 전부 일치·task/process SHA 검증·단일 loopback8751·Gateway8790/paused false·health/ready200·보호 API401·보호13표 내용과 스키마 불변 PASS. 이전 릴리스/task XML 복구점을 유지한 코드 전용 배포이며 별도 전체 DB 백업·복원이나 마이그레이션을 실행하지 않았다. 실제 고객 수입 연결/영수증 업로드·금융/여행/Google 업무 쓰기·재처리 없음.
+- 정확 head의 PR CI 모두 SUCCESS, 최종 main CI42167620679 SUCCESS. Windows 영향 #701240+40subtests, #703639+65, #704511+56 및 기존 #699793+52/#700311+30/#702280+43 근거 보존·skip0·필수 브라우저 누락0·compile0. 검사 범위는 겹치며 합산하지 않는다. 중간 main a6의 CI42167339347은 최종 main에 의해 대체되어 취소했으며 성공으로 계산하지 않았다.
+- #703의 첫 QA/CI 실패는 기준 b0에서도 재현한 오래된 합성 UI 동선이었다. 공개 탭·현재 저장 문구·여행 장부 복사·명시 여행 선택·실제 clipboard 완료 후7열/금액·현재 합계를 검증하도록 테스트만 보정했고 최종639건을 재실행했다. 원래 실패와 통과 증거를 각각 보존했다.
+- 인증 운영 읽기 수락: 수입1440/390/320px에서 중복 설명/select/별도 연결 submit0·참가자10개/44px·초점/Escape·넘침0, 지출 PC/모바일 그룹 및 관측 숙박 이용일 정렬, 영수증1440/390px 단일 파일 입력/PDF/직접 입력과 /my-actions, 보험 삭제 페이지410/링크0/기존 선택 동작을 확인했다. 실제 연결·업로드는 하지 않았다. 지출은 기존 Google 대조 내부 순서를 각 화면에서 유지한다. 첫 운영 verifier의 추가 조건인 전체 행 ID 동일성은 명세에 없으므로 잘못된 검사로 기록하고 양 화면의 승인된 그룹/날짜 순서를 각각 확인했다. 제품 코드는 바꾸지 않았다.
+- 미검증은 실제 Safari/HEIC·스크린리더·브라우저/OS 자체 확대·실제 AI/OCR·운영의 가림 이름 후보 상태다. 해당 후보는 현 자료에 없어 합성6조건/보호 검사와 구분한다. 영수증 긴 이름 HIGH·복구 버튼 MEDIUM 및 PDF 바이너리 오류는 #703의 정상 합성 경로·독립 리뷰로 해소했다.
+- 비공개 증거 `C:/AX/cost/.local-archive/coordination-20261106/`의 final-review.json, release-audit.json, deploy-evidence.json, protection-before/after.json, production-routes.json, verified-qa; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-2dd1b1605eb7122ebb630d1cff4b0596f157c3bc.json`. 수입·지출·보험 별도 production JSON과 영수증 최종 리뷰 경로는 [현재 상태](session_handoff.md)에 기록했다. 고객 원문·화면은 Git에 포함하지 않았다. 문서만 변경한 후속 커밋으로 재배포하지 않는다.
+
 ## 2026-11-06 미연결 수입 행 아래 연결 메뉴 — COMPLETE
 
 - [PR #696](https://github.com/6Soo/cost/pull/696) 병합·운영 SHA `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608` (이전 `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7`). 미연결 버튼이 별도 보험 공용 폼으로 이동하던 동작을 원행 직후 전체 열 펼침·수입 고정 연결 폼으로 변경했다. 행별 독립 토글·Escape 포커스 복귀·44px 조작·행 안 오류 안내를 제공한다.
