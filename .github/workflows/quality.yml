@@ -29,7 +29,9 @@ concurrency:
 
 jobs:
   impact-checks:
-    runs-on: ubuntu-latest
+    # Ubuntu 26.04 'latest' lacks packages required by Playwright --with-deps.
+    # Pin a supported runner instead of skipping browser protection checks.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
