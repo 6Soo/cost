@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '30 3 * * 1-5'
+    - cron: '30 3 * * 1'
   workflow_dispatch:
     inputs:
       base:
@@ -20,10 +20,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   impact-checks:
@@ -33,7 +35,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # For pull_request, github.sha is GitHub's merge-branch commit, so
+          # CI checks the base+PR result that can later be compared by tree.
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
@@ -48,36 +52,55 @@ jobs:
           MANUAL_BASE: ${{ inputs.base }}
           MANUAL_AUDIT: ${{ inputs.audit }}
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" ]]; then base="$PR_BASE";
           elif [[ "$EVENT_NAME" == "push" ]]; then base="$PUSH_BEFORE";
           else base="${MANUAL_BASE:-$GITHUB_SHA}"; fi
           audit=false
           if [[ "$EVENT_NAME" == "schedule" || "$MANUAL_AUDIT" == "true" ]]; then audit=true; fi
-          if [[ "$audit" == "true" ]]; then
+          reuse=false
+          if [[ "$EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" && "$audit" == "false" ]]; then
+            python tools/reuse_quality_evidence.py --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --output quality-plan.json
+            cat quality-plan.json
+            reuse=$(python -c "import json; p=json.load(open('quality-plan.json', encoding='utf-8')); print(str(p.get('status') == 'REUSED_VERIFIED').lower())")
+          fi
+          if [[ "$reuse" == "true" ]]; then
+            status=REUSED_VERIFIED
+            browser=false
+          elif [[ "$audit" == "true" ]]; then
             python tools/run_quality_checks.py --head HEAD --audit --plan-json > quality-plan.json
+            status=AUDIT
+            browser=$(python -c "import json; print(str(json.load(open('quality-plan.json', encoding='utf-8')).get('browser_required', False)).lower())")
           else
             python tools/run_quality_checks.py --base "$base" --head HEAD --plan-json > quality-plan.json
+            status=$(python -c "import json; print(json.load(open('quality-plan.json', encoding='utf-8'))['status'])")
+            browser=$(python -c "import json; print(str(json.load(open('quality-plan.json', encoding='utf-8')).get('browser_required', False)).lower())")
           fi
-          cat quality-plan.json
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "audit=$audit" >> "$GITHUB_OUTPUT"
-          python -c "import json; p=json.load(open('quality-plan.json', encoding='utf-8')); print('status='+p['status']); print('browser='+str(p.get('browser_required', False)).lower())" >> "$GITHUB_OUTPUT"
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"
       - name: Install test dependencies
-        if: steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'AUDIT'
+        if: steps.plan.outputs.reuse != 'true' && (steps.plan.outputs.status == 'SELECTED' || steps.plan.outputs.status == 'AUDIT')
         run: python -m pip install -r requirements-dev.txt
       - name: Install Chromium for selected browser tests
-        if: steps.plan.outputs.browser == 'true'
+        if: steps.plan.outputs.reuse != 'true' && steps.plan.outputs.browser == 'true'
         run: python -m playwright install --with-deps chromium
       - name: Run data protection gate and impact tests
+        if: steps.plan.outputs.reuse != 'true'
         run: |
           if [[ "${{ steps.plan.outputs.audit }}" == "true" ]]; then
             python tools/run_quality_checks.py --head HEAD --audit --run
           else
             python tools/run_quality_checks.py --base "${{ steps.plan.outputs.base }}" --head HEAD --run
           fi
+      - name: Report verified PR evidence reuse
+        if: steps.plan.outputs.reuse == 'true'
+        run: cat quality-plan.json
       - name: Upload quality plan and test evidence
-        if: always()
+        if: always() && (steps.plan.outputs.status != 'DOCS_ONLY' || steps.plan.outcome != 'success')
         uses: actions/upload-artifact@v4
         with:
           name: quality-evidence-${{ github.run_id }}-${{ github.run_attempt }}

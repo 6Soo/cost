@@ -1,13 +1,13 @@
 # COST GitHub Actions 최소 테스트 범위·분당 사용량 절감 계약 (2026-11-06)
 
-> **2026-11-06 후속 실행 상태(검증된 실제 workflow): NOT_IMPLEMENTED.** 문서 PR #709는 main `e793442cc`에 병합되고 CI42190952237 SUCCESS. 그러나 `.github/workflows/quality.yml`은 여전히 pull_request+main push+평일 5일 schedule audit이며 `tools/run_quality_checks.py` 영향 선택기는 그대로다. **첫 구현은 CI만** 수정해 ① docs-only 최소 검사 ② schedule 주 1회 ③ 중복 browser/설치/PR→main 검증의 증거 기반 축소 ④ unknown/0 test fail-closed/보호 검사 유지 순서로 진행한다. 실제 코드 변경 전에는 Actions 절감 COMPLETE 금지. 운영 Windows 호스트·금융 DB·Google을 CI 절감 작업에 건드리지 않는다.
+> **2026-11-06 구현 상태: CI_ONLY_PR_PENDING.** PR #709의 문서 결정에 따라 workflow를 수정했다: 주간 audit, PR에서 GitHub merge-branch tree 검사, 동일 tree·실제 PR artifact·0 skip 증거가 확인될 때만 main의 중복 테스트 재사용, 불일치·만료·API 실패 시 기존 영향 검사 실행, 문서 전용 성공 시 패키지/Chromium 설치와 artifact 업로드 생략. PR만 취소하고 main/schedule/manual 검사는 서로 취소하지 않는다. 최종 Actions 절감률은 저장소별 billable minutes API가 404여서 아직 측정할 수 없다. CI 전용 변경이며 운영 Windows 호스트·금융 DB·Google은 건드리지 않는다.
 
 
-> **정본 상태: 사용자 지시에 따른 신규 실행 명세 / SPEC_ONLY.** 이 문서 병합은 CI 스크립트·운영 서버·금융 자료·배포 변경을 뜻하지 않는다. 기존 `tools/run_quality_checks.py`, `tools/select_targeted_tests.py`, `config/test-impact-map.json`, `.github/workflows/quality.yml`의 현재 동작부터 검증한 뒤, **보호 범위를 줄이지 않고 중복과 불필요한 테스트만 제거**한다.
+> **정본: 사용자 승인 실행 명세.** 아래 설계·검증 계약은 현재 구현 상태를 판정하는 기준이다. Git 병합이나 Actions 경과시간만으로 실제 billable 사용량 절감을 주장하지 않는다.
 
 ## 1. 실제 baseline과 가장 큰 낭비
 
-- 현재 `.github/workflows/quality.yml`은 `pull_request`, `main push`, **월~금 03:30 UTC 정기 `--audit`**, `workflow_dispatch`에서 실행한다. PR과 squash 병합 뒤 서로 다른 커밋에 대해 같은 대상 테스트가 중복 실행될 수 있다. 정기 AUDIT는 매일 실행된다.
+- **변경 전 기준:** `.github/workflows/quality.yml`은 `pull_request`, `main push`, **월~금 03:30 UTC 정기 `--audit`**, `workflow_dispatch`에서 실행했다. 최근 PR #706 검사 약 14분 41초와 병합 뒤 main 검사 약 4분 55초가 각각 실행됐고 비슷한 크기의 quality artifact를 남겼다. 이 값은 경과시간이며 billable runner minutes가 아니다.
 - 현재 영향 선택은 이미 `run_quality_checks.py` + `select_targeted_tests.py` + `test-impact-map.json`에 구현돼 있으며 문서-only는 `DOCS_ONLY`, 변경 없음은 `NO_CHANGES`, 알려진 코드 경로는 `SELECTED`, 예외/미등록 경로는 fail-closed로 구분한다. **영향 테스트 선택 시스템을 다시 만들지 않는다.**
 - 일부 업무 파일(예: `webapp/card_flow.py`, `webapp/ledger_board.py`)은 여러 영향 그룹에 매칭되어 하나의 가벼운 UI 변경에도 방대한 테스트 및 브라우저 설치가 선택될 수 있다. 테스트 그룹은 안전 경계를 기준으로 중복 제거하고, 근거 없는 `safe_fallback` 전체 실행 대신 누락 경로는 `UNKNOWN_IMPACT`로 차단한 뒤 매핑을 추가한다.
 - `Install Chromium`, pip 설치, 아티팩트 업로드는 **실제로 해당 검사 실행이 필요한 때에만** 한다. 문서-only는 Node/Chromium/pytest/서버 시동 없이 변경 문서 참조·링크와 diff/비밀값 점검만 한다.
