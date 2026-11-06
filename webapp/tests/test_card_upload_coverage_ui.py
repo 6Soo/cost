@@ -51,7 +51,7 @@ def test_unverified_coverage_can_be_opened_for_explicit_review():
 
 def test_pending_coverage_renders_grouped_details_instead_of_23_open_rows():
     assert "'카드 식별 확인 필요'" in SCRIPT
-    assert "'표시용)'" in SCRIPT
+    assert "' (표시용)'" in SCRIPT
     assert "for (const [label, files] of groups)" in SCRIPT
     assert "renderFile(file, group, true)" in SCRIPT
     assert "'조회기간 확인'" in SCRIPT
