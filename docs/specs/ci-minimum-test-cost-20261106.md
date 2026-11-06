@@ -1,5 +1,8 @@
 # COST GitHub Actions 최소 테스트 범위·분당 사용량 절감 계약 (2026-11-06)
 
+> **2026-11-06 후속 실행 상태(검증된 실제 workflow): NOT_IMPLEMENTED.** 문서 PR #709는 main `e793442cc`에 병합되고 CI42190952237 SUCCESS. 그러나 `.github/workflows/quality.yml`은 여전히 pull_request+main push+평일 5일 schedule audit이며 `tools/run_quality_checks.py` 영향 선택기는 그대로다. **첫 구현은 CI만** 수정해 ① docs-only 최소 검사 ② schedule 주 1회 ③ 중복 browser/설치/PR→main 검증의 증거 기반 축소 ④ unknown/0 test fail-closed/보호 검사 유지 순서로 진행한다. 실제 코드 변경 전에는 Actions 절감 COMPLETE 금지. 운영 Windows 호스트·금융 DB·Google을 CI 절감 작업에 건드리지 않는다.
+
+
 > **정본 상태: 사용자 지시에 따른 신규 실행 명세 / SPEC_ONLY.** 이 문서 병합은 CI 스크립트·운영 서버·금융 자료·배포 변경을 뜻하지 않는다. 기존 `tools/run_quality_checks.py`, `tools/select_targeted_tests.py`, `config/test-impact-map.json`, `.github/workflows/quality.yml`의 현재 동작부터 검증한 뒤, **보호 범위를 줄이지 않고 중복과 불필요한 테스트만 제거**한다.
 
 ## 1. 실제 baseline과 가장 큰 낭비

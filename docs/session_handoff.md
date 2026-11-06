@@ -1,3 +1,12 @@
+## 2026-11-06 최신 GitHub 개발 상태·명세 정합성 체크포인트 — 현황 인수 / 코드 변경 아님
+
+- **읽기 전용 확인 기준선:** GitHub `main` `e793442ccca53162b713112cfd6a9eb4b3412b97` (#709 CI 최소화 명세), 열린 PR 0, 최신 main Actions run 42190952237 SUCCESS. **실제 운영 Windows 배포 SHA는 `fd8a8995989ed56565f6d9b858ef132a953543e2`**(#706; [operations.md](operations.md)). 문서 최신 HEAD와 배포된 프로그램 SHA가 달라도 문서-only push를 이유로 재배포하지 않는다.
+- **이미 구현/배포된 것:** [#699](https://github.com/6Soo/cost/pull/699) 지출 금융 원행 6개 vs `내 확인 필요` 사람 업무 0개 **표시 분리**; [#700](https://github.com/6Soo/cost/pull/700)·[#703](https://github.com/6Soo/cost/pull/703) 영수증 사진/PDF **단일 선택·복구·후속 행동** 코드 구현·합성 검사 후 운영 코드 묶음 SHA `2dd1b1605...`에 반영; 수입/보험 이름 버튼 최신 #706 운영 적용. **실고객 영수증 업로드·실제 iPhone Safari/HEIC·외부 AI/OCR·스크린리더는 별도 미검증**. 구형 2026-11-05 SPEC_ONLY 표시는 구현 전 스냅샷이다.
+- **실제 미구현:** `webapp/ledger_design.py` 사이드바와 `webapp/cards_all.py` 제목이 아직 **'지출 정리' + '카드 전체 내역'**을 별도로 제공한다. [카드 내역으로 통합하는 IA-CARD-01~12](specs/unified-expense-action-queue-20261105.md)는 최신 소스 기준 구현 미확인/미완료. `/import` 업로드·기존 링크는 이관/보존; #679 카드 수집기간 엔진은 재구현 금지.
+- **CI 비용 최적화는 설계만:** [CI-COST-01~10](specs/ci-minimum-test-cost-20261106.md) 문서 #709는 병합됐지만 실제 `.github/workflows/quality.yml`은 여전히 PR+main push+**월~금 03:30 UTC audit**. 영향 기반 실행기는 이미 존재. 중복·정기 감사/설치 범위 축소 코드 **미적용**. 여기서부터 첫 구현 에이전트의 우선순위는 **CI 실행 분량 절감**이며 기능 개발을 혼합하지 않는다.
+- **보호와 우선순위:** CI-COST 명세의 unknown/skip·보호 13표·환불/Google·운영 SHA/단일 작성자 fail-closed. 작업을 분리한다: A) CI-only PR 구현·증거, B) 카드 IA UI-only 후속 PR, C) 실제 외부/실자료 검증은 권한·접근 허용 범위 내에서만. 사용자 미승인 금융·원본·Google 쓰기 없음.
+- **이 기록은 기존 완료 기록을 부정하지 않는다.** 이번 문서 갱신 자체는 코드/QA/배포·실자료 검증을 수행한 것이 아니다.
+
 ## 2026-11-06 수입 이름 버튼 기본색 적용·참가자 제목 제거 운영 배포 — COMPLETE
 
 - 최신 사용자 요청: `참가자라는 단어 제외해 / 파란색 말고 기본 색으로`.
