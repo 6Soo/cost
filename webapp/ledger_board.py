@@ -121,8 +121,12 @@ def _store_request_locked(method):
         # The liveness probe reads no store, so it must not queue behind a slow page.
         from . import card_upload_jobs
         path = urlparse(self.path).path
+        request_query = parse_qs(urlparse(self.path).query)
+        legacy_import_shell = (path == '/import'
+                               and not (request_query.get('batch') and request_query.get('transaction')))
+        upload_panel_shell = path == '/cards/all' and request_query.get('panel') == ['upload']
         self._upload_shell_only = (getattr(self, 'command', '') == 'GET'
-                                   and path == '/import' and card_upload_jobs.running(_active_store()))
+                                   and (legacy_import_shell or upload_panel_shell))
         status_read = (getattr(self, 'command', '') == 'GET'
                        and (card_upload_jobs.owns_route(path)
                             or self._upload_shell_only))
@@ -1333,7 +1337,7 @@ def board_page(tab_id: str, query: str = "") -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/cards/all?panel=upload'>카드 업로드</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     side = (
@@ -1351,7 +1355,7 @@ def income_new_page() -> str:
     top = (
         "<div class='top'><h1>웹 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import#newupload'>카드 가져오기</a> · "
+        "<p><a href='/board'>장부</a> · <a href='/cards/all?panel=upload'>카드 업로드</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     body = (
@@ -3572,7 +3576,11 @@ class Handler(BaseHTTPRequestHandler):
             from app import request_metrics
             search_request = "q" in query and bool(query.get("q", [""])[0])
             started = time.perf_counter()
-            html_page = cards_all.cards_all_page(query, db_path=_get_card_db_path())
+            owner = _participant_owner_request()
+            upload_workspace = query.get('panel', [''])[0] == 'upload'
+            html_page = cards_all.cards_all_page(
+                query, db_path=None if upload_workspace else _get_card_db_path(), owner=owner,
+                csrf=CSRF_TOKEN if owner else "")
             if search_request:
                 request_metrics.record(request_metrics.measurement(
                     "card_search", "card_search", (time.perf_counter() - started) * 1000,
@@ -3587,7 +3595,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)
-            self.send_header('Location', '/import')
+            self.send_header('Location', '/my-actions')
             self.send_header('Content-Length', '0')
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
@@ -3705,7 +3713,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(detail_page(row_id, edit=query.get("edit", [""])[0] == "1"))
         elif parsed.path == "/import":
-            self._send(import_page())
+            self.send_response(302)
+            self.send_header('Location', '/cards/all?panel=upload')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
         elif parsed.path == "/income/new":
             self._send(income_new_page())
         elif parsed.path == "/expense/new":
@@ -3732,7 +3744,7 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/rules":
             case_id = query.get("case", [""])[0]
             if not case_id:
-                self._send(layout("규칙 대화", "<div class='body'><h1>검토할 거래를 선택해 주세요</h1><p>지출 정리에서 거래의 분류 규칙을 열 수 있습니다.</p><a href='/import'>지출 정리로 돌아가기</a></div>"), code=404)
+                self._send(layout("규칙 대화", "<div class='body'><h1>검토할 거래를 선택해 주세요</h1><p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p><a href='/cards/all'>카드 내역으로 돌아가기</a></div>"), code=404)
                 return
             self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/api/tabs":

@@ -5,7 +5,7 @@ import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlencode
 
 from app.db import decided_sql
 from app.reconciliation import (GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
@@ -26,6 +26,44 @@ _GOOGLE_PERIOD_CACHE = {}
 # 시트에 종료일이 적히지 않은 탭. 다음 여행 직전일로 정한 종료일(사용자 확정 규칙, reconciliation.open_trip_end)은
 # 여행 기간으로 검증에 그대로 쓴다. 다만 옮긴 시트의 해시 확인된 원본 제목에 종료일이 적혀 있으면 그쪽이 앞선다.
 _GUESSED_PERIOD_FLAGS = frozenset({'PERIOD_END_FROM_NEXT_TRIP', 'PERIOD_END_MISSING'})
+
+
+def _redirect_legacy_import(handler, parsed, query):
+    """Keep legacy GET parameters while routing the old page into card history."""
+    from . import card_cleanup_queries
+
+    query = query or {}
+    reasons = query.get('cleanup_reason') or []
+    if len(reasons) > 1:
+        handler._send('잘못된 카드 확인 링크입니다.', 400)
+        return True
+    if reasons:
+        reason = card_cleanup_queries.LEGACY_REASONS.get(reasons[0], reasons[0])
+        if reason not in card_cleanup_queries.REASONS:
+            handler._send('잘못된 카드 확인 링크입니다.', 400)
+            return True
+
+    params = [(key, value) for key, values in query.items() for value in values]
+    has_cleanup = bool(reasons or query.get('cleanup_page'))
+    has_target = bool(query.get('batch') or query.get('transaction'))
+    if has_cleanup:
+        params.append(('legacy_cleanup', '1'))
+    elif has_target:
+        if not query.get('panel'):
+            params.append(('panel', 'upload'))
+    elif query.get('scope') != ['all']:
+        if not query.get('panel'):
+            params.append(('panel', 'upload'))
+        if query:
+            params.append(('legacy_import', '1'))
+
+    location = '/cards/all' + (('?' + urlencode(params)) if params else '')
+    handler.send_response(302)
+    handler.send_header('Location', location)
+    handler.send_header('Cache-Control', 'no-store')
+    handler.send_header('Content-Length', '0')
+    handler.end_headers()
+    return True
 
 
 def _google_periods():
@@ -346,7 +384,12 @@ def home_page(board):
             "FROM transactions t WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
-    cleanup = cleanup_total(board)
+    from . import user_action_queue
+    try:
+        action_snapshot = user_action_queue.open_snapshot(board.conn)
+        open_action_count = action_snapshot.count
+    except (user_action_queue.QueueReadUnavailable, AttributeError, RuntimeError):
+        open_action_count = None
 
     trips = board.list_trips()
     registered = registrations(board)
@@ -417,10 +460,10 @@ def home_page(board):
             "}"
             "</style>"
             "<section class='home-overview' aria-label='장부 상태와 주요 작업'>"
-            f"<p class='home-status'>{'조회 기간 내 카드 거래' if review_from else '저장된 카드 거래 전체'} <b>{saved:,}</b> · 정리할 지출 <b>{cleanup:,}</b> · 장부 <b>{posted:,}</b></p>"
-            f"<a class='home-review btn primary' href='/import'>{ui_icons.icon('check')}지출 정리 {cleanup:,}건</a>"
+            f"<p class='home-status'>{'조회 기간 내 카드 거래' if review_from else '저장된 카드 거래 전체'} <b>{saved:,}</b> · 내 확인 필요 <b>{open_action_count if open_action_count is not None else '확인 불가'}</b> · 장부 <b>{posted:,}</b></p>"
+            f"<a class='home-review btn primary' href='/my-actions'>{ui_icons.icon('check')}{'직접 답할 작업 없음' if open_action_count == 0 else f'내 확인 필요 {open_action_count:,}건' if open_action_count is not None else '내 확인 필요 보기'}</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
-            f"<a class='btn' href='/import#newupload'>{ui_icons.icon('upload')}새 카드 가져오기</a>"
+            f"<a class='btn' href='/cards/all?panel=upload'>{ui_icons.icon('upload')}카드 업로드</a>"
             f"<a class='btn' href='/board?tab={esc(board_tab)}'>{ui_icons.icon('book-open')}장부</a>"
             "</nav></section>"
             + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips)}</h2>"
@@ -2043,11 +2086,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
     from . import card_upload_jobs
-    if raw is None and parsed.path == '/import' and getattr(handler, '_upload_shell_only', False):
-        # A reload during an upload needs only the UI shell. It must not query
-        # cleanup rows on the connection currently owned by the classifier.
-        handler._send(page(csrf))
-        return True
+    if raw is None and parsed.path == '/import':
+        legacy_detail = bool((query or {}).get('batch') and (query or {}).get('transaction'))
+        if not legacy_detail:
+            return _redirect_legacy_import(handler, parsed, query)
     if raw is None and card_upload_jobs.owns_route(parsed.path):
         from .ledger_board import current_role
         if current_role() != 'owner':
@@ -2064,13 +2106,14 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         if refund_cleanup_action.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
             return True
         if parsed.path == '/cards':
-            # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
+            # 오래된 카드 링크는 정식 카드 내역으로 보낸다.
             if raw is not None:
                 handler._send_json({'code': 'METHOD_NOT_ALLOWED'}, 405)
             else:
-                location = '/import?scope=all' + (('&' + parsed.query) if parsed.query else '')
+                location = '/cards/all' + (('?' + parsed.query) if parsed.query else '')
                 handler.send_response(302)
                 handler.send_header('Location', location)
+                handler.send_header('Cache-Control', 'no-store')
                 handler.send_header('Content-Length', '0')
                 handler.end_headers()
             return True
@@ -2099,32 +2142,8 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         if raw is None:
             if parsed.path == '/':
                 handler._send(home_page(board))
-            elif parsed.path == '/import' and (query or {}).get('scope') == ['all']:
-                from . import card_catalog
-                handler._send(card_catalog.render_html(card_catalog.catalog(board, query or {}), query or {}, csrf=csrf))
             elif parsed.path == '/import':
                 body = page(csrf)
-                from . import card_cleanup_queries
-                reason_values = (query or {}).get('cleanup_reason') or ['all']
-                if len(reason_values) > 1:
-                    handler._send('잘못된 지출 정리 필터입니다.', 400)
-                    return True
-                cleanup_reason = reason_values[0]
-                cleanup_reason = card_cleanup_queries.LEGACY_REASONS.get(cleanup_reason, cleanup_reason)
-                if cleanup_reason not in card_cleanup_queries.REASONS:
-                    handler._send('잘못된 지출 정리 필터입니다.', 400)
-                    return True
-                try:
-                    raw_page = ((query or {}).get('cleanup_page') or ['1'])[0]
-                    cleanup_page = int(raw_page) if raw_page.isdigit() and len(raw_page) <= 7 else 1
-                except (TypeError, ValueError, AttributeError):
-                    cleanup_page = 1
-                cleanup = render_expense_cleanup(
-                    board, csrf, page=cleanup_page, reason=cleanup_reason,
-                    diagnostics_open=bool((query or {}).get('cleanup_reason') or
-                                          (query or {}).get('cleanup_page')),
-                )
-                body = body.replace('<!--EXPENSE_CLEANUP-->', cleanup, 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
                 handler._send(body)
@@ -3263,11 +3282,11 @@ def page(csrf):
            ('항공료', '숙박비', '교통비', '식비', '현지경비')},
     }, ensure_ascii=False))
     from .expense_workspace import decorate
-    return decorate(document + separator + script)
+    return decorate(document + separator + script, page_title='카드 거래 상세')
 
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>지출 정리</title><style>
+<title>카드 거래 상세</title><style>
 #upload-results .upload-result-list{list-style:none;padding:0;margin:0;border:1px solid var(--shell-line);border-radius:8px;overflow:hidden}#upload-results .upload-result-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,.7fr) auto;align-items:center;gap:8px 16px;padding:10px 14px;border-bottom:1px solid var(--shell-line);font-size:14px;line-height:1.5}#upload-results .upload-result-row:last-child{border-bottom:0}#upload-results .upload-result-name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}#upload-results .upload-result-state{color:var(--shell-muted)}#upload-results [data-state=auth] .upload-result-state{color:var(--shell-warn)}#upload-results .upload-result-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;white-space:nowrap;border:1px solid var(--shell-line);border-radius:6px;text-decoration:none;font-weight:600}#upload-results .upload-result-link:hover{background:var(--shell-hover)}#upload-results .upload-result-link:focus-visible{outline:2px solid var(--shell-accent);outline-offset:2px}#upload-results .upload-result-notice{margin:0 0 12px;color:var(--shell-muted)}#upload-results .upload-result-row>details{grid-column:1/-1}@media(max-width:600px){#upload-results .upload-result-row{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px}#upload-results .upload-result-name{grid-column:1}#upload-results .upload-result-state{grid-column:1;font-size:13px}#upload-results .upload-result-link{grid-column:2;grid-row:1/3}}
 @font-face{font-family:"Pretendard Variable";src:url("/assets/fonts/PretendardVariable.woff2") format("woff2-variations"),url("/assets/fonts/PretendardVariable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
 *{box-sizing:border-box}body{margin:0;padding:16px;font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;background:var(--shell-bg);color:var(--shell-ink)}main{max-width:900px;margin:auto;min-width:0}
@@ -3306,7 +3325,7 @@ article,section{background:var(--shell-paper);border:1px solid var(--shell-line)
 .gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
 @media(max-width:740px){.coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:360px){.coverage-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.coverage-period{display:block}.coverage-period button{width:100%;margin-top:8px}}
-</style><body><main><h1>지출 정리</h1><details id="saved-materials"><summary>기존 업로드 파일 상세</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
+</style><body><main><h1>카드 거래 상세</h1><details id="saved-materials"><summary>기존 업로드 파일 상세</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
 <details id="newupload"><summary>카드 자료 관리·업로드</summary><section><h2>카드별 조회기간</h2><p class="small">거래가 없던 날짜와 아직 조회하지 않은 날짜는 다릅니다. 카드사가 실제로 조회한 기간을 기준으로 공백을 계산합니다.</p><div id="coverage-summary" class="coverage-dashboard" aria-live="polite"><p>카드별 수집 현황을 불러오는 중입니다.</p></div><h2>카드 파일 추가</h2><p id="gap-upload-context" class="gap-upload-context" role="status" hidden></p><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일을 먼저 한 번에 접수한 뒤 백그라운드에서 분류하며, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">전체 파일 접수가 끝나면 다른 페이지로 이동할 수 있습니다. 분류는 백그라운드에서 계속되며 결과는 저장됩니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><label for="rule-text">분류 지시</label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>
@@ -3554,7 +3573,7 @@ async function awaitUpload(job,entry){
   await new Promise(resolve=>setTimeout(resolve,Math.min(10000,errors?1000*2**errors:1500)));
  }
 }
-function savedUploadLink(entry,batch){const link=document.createElement('a');link.className='upload-result-link';link.href='/import?batch='+encodeURIComponent(batch)+'#summary';link.textContent='상세 보기';link.setAttribute('aria-label',(entry.querySelector('strong')?.textContent||'카드 파일')+' 상세 결과');entry.append(link)}
+function savedUploadLink(entry,batch){const link=document.createElement('a');link.className='upload-result-link';link.href='/cards/all?panel=upload&batch='+encodeURIComponent(batch)+'#summary';link.textContent='처리 결과 보기';link.setAttribute('aria-label',(entry.querySelector('strong')?.textContent||'카드 파일')+' 처리 결과');entry.append(link)}
 async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return;
  const root=el('upload-results');el('newupload').open=true;const {note,list}=uploadResultList(root);
  note.textContent=jobs.length+'개 파일 접수 완료 · 저장된 결과를 확인하고 있습니다.';

@@ -123,7 +123,7 @@ def work_menu_html() -> str:
                 f"<span><strong>{title}</strong>"
                 f"</span></{tag}>")
 
-    actions = action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
+    actions = action('list', '카드 내역', '연도·월별 카드 거래 조회 · 상세 연결', '/cards/all')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
@@ -133,7 +133,8 @@ def work_menu_html() -> str:
             f"<h2>자료 확인</h2><nav class='work-actions'>{actions}</nav></section>")
 
 
-def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> str:
+def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
+              quick_view: bool = False) -> str:
     """The whole trip rail: the brand link, the search box, the region, the footer.
 
     The search box sits outside the swappable region on purpose. It holds what the
@@ -144,7 +145,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     if board.current_role() == 'owner':
         from . import flight_passenger_page, receipt_review
         from . import user_action_queue
-        active_store = board._active_store()
+        active_store = None if quick_view else board._active_store()
         action_snapshot = None
         if getattr(active_store, "conn", None) is not None:
             try:
@@ -161,8 +162,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    + action_link
                    + f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
-                   f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
-                   f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 전체 내역</span></a>"
+                   f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
@@ -185,11 +185,13 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         "<label class='sr' for='tripq'>여행 검색</label>"
         f"<input id='tripq' name='q' type='search' placeholder='여행 이름·코드'"
         f" value='{board.esc(query)}' autocomplete='off'></form>")
+    region = (nav_region(tab_id, query, kind, archived, quick_view=True)
+              if quick_view else nav_region(tab_id, query, kind, archived))
     return (
         "<aside class='nav' id='nav' aria-label='여행 목록'>"
         "<div class='nav-hd'><a class='brand brand-link' href='/' aria-label='숲길여행 회계 홈으로 이동'><img src='/assets/brand/wallet-favicon-v2.png' alt='' width='20' height='20'>숲길여행 회계</a></div>"
         f"{primary}{search}"
-        + nav_region(tab_id, query, kind, archived)
+        + region
         + ("<footer class='nav-ft' aria-label='여행 메뉴 안내'>"
            "<a class='all-trips-link' href='/trips'>"
            "<span>전체 여행 보기</span>"
@@ -219,7 +221,7 @@ def _quarter_groups(trips):
 
 
 def _nav_region_inner(tab_id: str, query: str, kind: str = "",
-                      archived: str = "") -> str:
+                      archived: str = "", quick_view: bool = False) -> str:
     """The trip rail region's contents, without the region's own element.
 
     One renderer for this markup. The page puts it inside `nav_region`, and a live
@@ -228,6 +230,9 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     """
     state = state_query(tab_id, query, kind, archived)
     drawer_open = archived in ("1", "open", "true")
+    if quick_view:
+        return ("<div id='live-nav'><p class='nav-sec' role='status'>"
+                "카드 업로드를 마치면 여행 목록을 다시 불러옵니다.</p></div>")
 
     def entry(label, href, count, current, warn=False, archived_row=False, icon="", closed=False):
         cls = "nv sel" if current else ("nv nv-arch" if archived_row else "nv")
@@ -293,7 +298,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                                 None, tab_id == tab))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
-    # 미배정 지출은 지출 정리(/import) 맨 위에서 처리한다. 여행 레일에는 따로 두지 않는다.
+    # 미배정 지출은 통합 사용자 작업함에서 확인한다. 여행 레일에는 따로 두지 않는다.
     arch_head = ""
     if board.current_role() == 'owner':
         sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(
@@ -376,7 +381,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
 
 
 def nav_region(tab_id: str, query: str = "", kind: str = "",
-               archived: str = "") -> str:
+               archived: str = "", *, quick_view: bool = False) -> str:
     """The trip rail's own element: the one region a live refresh replaces.
 
     This is the single renderer for that region, and the full page embeds exactly
@@ -388,8 +393,7 @@ def nav_region(tab_id: str, query: str = "", kind: str = "",
     It returns the region's *outer* element, so a caller that only wants the inner
     markup has to say so rather than guess where the region ended.
     """
-    return (f"<div id='live-nav'>{_nav_region_inner(tab_id, query, kind, archived)}"
-            "</div>")
+    return _nav_region_inner(tab_id, query, kind, archived, quick_view=quick_view)
 
 
 def nav_part(tab_id: str, query: str = "", kind: str = "",
@@ -1600,12 +1604,14 @@ def _last_saved_at(tab_id: str) -> str:
 
 def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           meta: str = "", body: str, query: str = "", kind: str = "",
-          archived: str = "", aside: str = "", home: bool = False) -> str:
+          archived: str = "", aside: str = "", home: bool = False,
+          quick_view: bool = False) -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
     # Reserve the status slot for actual unsaved edits, not routine timestamps.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
+    context_badge = "" if quick_view else _context_badge()
     main_class = "main home-main" if home else "main"
     from . import ui_icons as _icons
     global_state = "" if home else (
@@ -1620,7 +1626,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
-        f"<h1>{heading}{_context_badge()}</h1>"
+        f"<h1>{heading}{context_badge}</h1>"
         + (f"<p class='period'>{period}</p>" if period else "")
         + (f"<p class='meta'>{meta}</p>" if meta else "")
         + global_state
@@ -1636,7 +1642,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         f"<div class='page-body'>{body}</div>"
         "</main>")
     slot = f"<div id='panel-slot'>{aside}</div>" if aside else "<div id='panel-slot'></div>"
-    return f"<div class='app'>{_nav_html(tab_id, query, kind, archived)}{main}{slot}</div>"
+    return f"<div class='app'>{_nav_html(tab_id, query, kind, archived, quick_view=quick_view)}{main}{slot}</div>"
 
 
 def _selected_trip(tab_id: str):

@@ -24,6 +24,14 @@ def test_unavailable_card_page_offers_recovery():
     assert "href=''>다시 불러오기</a>" in page
 
 
+def test_legacy_cleanup_link_has_recovery_action_on_card_history(card_db_path):
+    page = cards_all.cards_all_page(
+        {'legacy_cleanup': ['1']}, db_path=card_db_path, owner=True)
+    assert "class='card-legacy-notice'" in page
+    assert '내 확인 필요 열기' in page
+    assert '거래와 근거를 확인할 수 있습니다' in page
+
+
 CARD_SCHEMA = """
 CREATE TABLE IF NOT EXISTS transactions (
     transaction_id TEXT PRIMARY KEY,
@@ -327,12 +335,16 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
         return_value=[{"tab_id": "T-A", "display_key": "0630_오제"}],
     ):
         result = cards_all.cards_all_page(
-            {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
+            {"year": ["2026"], "month": ["3"]}, db_path=card_db_path,
+            owner=True, csrf='synthetic-csrf')
     assert "id=\"card-all-design\"" in result
     assert "조회 조건" in result
     assert "월별 카드 거래 확인" not in result
     assert "CARD TRANSACTION HISTORY" not in result
-    assert "카드 전체 내역" in result
+    assert "카드 내역" in result
+    assert "카드 전체 내역" not in result
+    assert "id='card-upload-open'" in result
+    assert "data-csrf='synthetic-csrf'" in result
     assert "0630_오제" in result
     assert "title='T-A'" in result
 
@@ -461,7 +473,8 @@ def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
     from webapp.ledger_board import Handler
     source = inspect.getsource(Handler)
     assert 'parsed.path == "/cards/all"' in source
-    assert 'cards_all.cards_all_page(query, db_path=_get_card_db_path())' in source
+    assert 'cards_all.cards_all_page(' in source
+    assert 'owner=owner' in source and 'csrf=CSRF_TOKEN if owner else ""' in source
 
 
 def test_real_cards_all_handler_records_search_and_render_metrics(card_db_path, monkeypatch):
@@ -521,9 +534,9 @@ def test_real_cards_all_initial_render_records_once_and_excludes_send_time(card_
     from webapp import cards_all
     original = cards_all.cards_all_page
 
-    def delayed_render(query, *, db_path=None):
+    def delayed_render(query, *, db_path=None, owner=False, csrf=''):
         time.sleep(0.04)
-        return original(query, db_path=db_path)
+        return original(query, db_path=db_path, owner=owner, csrf=csrf)
 
     monkeypatch.setattr(cards_all, "cards_all_page", delayed_render)
     before = request_metrics.summary()
@@ -557,7 +570,8 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
         def serve_page(route):
             parsed = urlsplit(route.request.url)
             query = parse_qs(parsed.query)
-            original = cards_all.cards_all_page(query, db_path=card_db_path)
+            original = cards_all.cards_all_page(
+                query, db_path=card_db_path, owner=True, csrf='synthetic-csrf')
             document = site_shell.wrap_document(original, parsed.path)
             route.fulfill(status=200, content_type='text/html; charset=utf-8', body=document)
 
@@ -574,7 +588,23 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 expect(page.locator(':root')).to_have_css('--shell-bg', '#0F172A')
                 page.emulate_media(color_scheme='light')
                 expect(page.locator(':root')).to_have_css('--shell-bg', '#F8FAFC')
-                assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
+                assert page.get_by_role('heading', name='카드 내역').is_visible()
+                upload_button = page.get_by_role('button', name='카드 업로드', exact=True)
+                coverage_button = page.get_by_role('button', name='수집 현황', exact=True)
+                assert upload_button.is_visible() and coverage_button.is_visible()
+                assert upload_button.evaluate('(element) => element.getBoundingClientRect().height') >= 44
+                upload_button.click()
+                expect(page.locator('#card-upload-panel')).to_be_visible()
+                expect(page).to_have_url(re.compile(r'panel=upload'))
+                assert page.locator('#card-upload-files').get_attribute('multiple') is not None
+                page.keyboard.press('Escape')
+                expect(page.locator('#card-upload-panel')).to_be_hidden()
+                assert page.evaluate('document.activeElement.id') == 'card-upload-open'
+                page.route('**/api/cards/coverage/summary', lambda route: route.fulfill(
+                    status=200, content_type='application/json',
+                    body='{"available":true,"cards":[],"gaps":[],"files":[],"overview":{}}'))
+                coverage_button.click()
+                expect(page.locator('#card-coverage-panel')).to_be_visible()
                 period = page.get_by_label('조회 기간', exact=True)
                 period.select_option('2026-03')
                 expect(page.get_by_role('heading', name='2026년 3월 · 전체 3건')).to_be_visible()
@@ -628,6 +658,20 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator('tr[data-tx-id]').count() == 0
                 page.goto('http://cost.test/cards/all?year=2026&q=합성')
                 assert page.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
+                page.goto('http://cost.test/cards/all?panel=upload')
+                expect(page.locator('#card-upload-panel')).to_be_visible()
+                assert page.get_by_role('heading', name='카드 내역', exact=True).count() == 1
+                expect(page.get_by_role('heading', name='업로드 후 확인', exact=True)).to_be_visible()
+                page.get_by_role('button', name='업로드 닫기', exact=True).click()
+                expect(page).to_have_url('http://cost.test/cards/all')
+                expect(page.get_by_role('heading', name='카드 내역', exact=True)).to_be_visible()
+
+                page.route('http://cost.test/my-actions', lambda route: route.fulfill(
+                    status=200, content_type='text/html; charset=utf-8',
+                    body='<!doctype html><html lang="ko"><h1>내 확인 필요</h1></html>'))
+                page.goto('http://cost.test/cards/all?cleanup_reason=recording&legacy_cleanup=1#expense-cleanup')
+                expect(page).to_have_url('http://cost.test/my-actions')
+                expect(page.get_by_role('heading', name='내 확인 필요', exact=True)).to_be_visible()
             finally:
                 browser.close()
 

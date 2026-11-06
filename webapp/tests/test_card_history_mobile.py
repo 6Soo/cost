@@ -35,7 +35,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             page.goto('http://cost.test/cards/all?year=2026&month=3')
             for theme in ('light', 'dark'):
                 page.emulate_media(color_scheme=theme)
-                for width in (320, 375, 390, 430, 600, 759, 760, 1280):
+                for width in (320, 375, 390, 430, 600, 759, 760, 768, 1280, 1440):
                     page.set_viewport_size({'width': width, 'height': 844})
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     rows = page.locator('tr[data-tx-id]')
@@ -44,6 +44,8 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                     assert page.locator('.detail-cell, .preserved').count() == 0
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
                     if width <= 759:
+                        assert all(reason.is_hidden() for reason in page.locator(
+                            '.card-all-action-reason').all())
                         assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'grid'
                         assert rows.first.locator('.use-datetime').is_hidden()
                         assert page.locator('.card-all-table thead').is_hidden()
@@ -111,11 +113,15 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                 if cell == 'td.use-datetime':
                     page.screenshot(path=str(output / 'detail-loading.png'), full_page=True)
                 from webapp import card_transactions as ct
-                pending.pop().fulfill(json={'html': cards_all.card_detail_html(ct.transaction_detail('TX-B-01', card_db_path))})
+                detail_data = ct.transaction_detail('TX-B-01', card_db_path)
+                pending.pop().fulfill(json={'html': cards_all.card_detail_html(detail_data)})
                 expect(detail).to_contain_text('AGODA')
+                if detail_data.get('next_action', {}).get('reason_label'):
+                    expect(detail.locator('.card-all-action')).to_contain_text(
+                        detail_data['next_action']['reason_label'])
                 expect(detail.locator('.card-all-spinner')).to_have_count(0)
                 assert page.url == original
-                for expanded_width in (320, 390, 600, 759, 760, 1280):
+                for expanded_width in (320, 390, 600, 759, 760, 768, 1280, 1440):
                     page.set_viewport_size({'width': expanded_width, 'height': 844})
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
                 page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})

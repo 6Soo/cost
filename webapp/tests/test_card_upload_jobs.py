@@ -3,6 +3,7 @@ import json
 import threading
 import time
 from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.request import Request, urlopen
 
 import pytest
@@ -113,8 +114,10 @@ def test_http_ack_and_progress_while_classifier_holds_writer(tmp_path, monkeypat
         assert saved['status'] == 'saved'
         assert saved['result']['recovery']['pending'] is True
         assert saved['result']['recovery']['transaction_count'] == 1
-        with urlopen(base+'/import', timeout=2) as response:
-            assert b'awaitUpload' in response.read()
+        with patch.object(ledger_board, '_get_card_db_path', side_effect=AssertionError('upload view must not open the card DB')):
+            with urlopen(base+'/import', timeout=2) as response:
+                page = response.read()
+                assert b'card-all-page-loading' in page
         release.set()
         deadline = time.monotonic()+5
         while time.monotonic() < deadline:

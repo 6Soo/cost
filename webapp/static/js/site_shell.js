@@ -75,8 +75,16 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  // Restore only a view's own GET filters; stored state never performs a write.
  try{
  const filterPaths=new Set(['/cards/all','/ota','/reserve-links','/trips','/flight-passengers']);
- if(filterPaths.has(path)&&location.search)sessionStorage.setItem('cost-view:'+path,location.search);
- nav.querySelectorAll('.site-links a[href]').forEach(a=>{const u=new URL(a.href,location.href);if(filterPaths.has(u.pathname)&&!u.search){const saved=sessionStorage.getItem('cost-view:'+u.pathname);if(saved&&saved.startsWith('?'))a.search=saved}});
+ const savedViewSearch=(pathname,search)=>{
+  if(pathname!=='/cards/all')return search;
+  const source=new URLSearchParams(search),view=new URLSearchParams();
+  for(const key of ['year','month','period','cursor','undated','unassigned','card','q'])
+   for(const value of source.getAll(key))view.append(key,value);
+  const query=view.toString();return query?'?'+query:'';
+ };
+ if(filterPaths.has(path)&&location.search){const saved=savedViewSearch(path,location.search),key='cost-view:'+path;
+  if(saved)sessionStorage.setItem(key,saved);else sessionStorage.removeItem(key)}
+ nav.querySelectorAll('.site-links a[href]').forEach(a=>{const u=new URL(a.href,location.href);if(filterPaths.has(u.pathname)&&!u.search){const saved=sessionStorage.getItem('cost-view:'+u.pathname);if(saved&&saved.startsWith('?')){const clean=savedViewSearch(u.pathname,saved);if(clean)a.search=clean}}});
  const params=new URLSearchParams(location.search),main=document.querySelector('main'),rendered=path==='/board'?nav.querySelector('a.nv.sel[href]'):null,
  explicit=params.get('trip')||params.get('tab')||(rendered?new URL(rendered.href).searchParams.get('tab'):null);
  if(path==='/board'&&explicit){const current=new URL(location.href);current.searchParams.set('tab',explicit);sessionStorage.setItem('cost-workflow-return',current.pathname+current.search)}

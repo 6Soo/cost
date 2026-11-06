@@ -362,7 +362,9 @@ class SignedSessionHttpTests(unittest.TestCase):
             status, body, _ = self.request(path, cookie=owner)
             self.assertEqual(status, 200, body)
             if path.startswith('/api/'):
-                self.assertEqual(json.loads(body), {"candidates": [], "holds": [], "images": [], "pdfs": []})
+                self.assertEqual(json.loads(body), {
+                    "candidates": [], "holds": [], "images": [], "pdfs": [], "uploads": []
+                })
             else:
                 self.assertIn('영수증', body)
             viewer_status, viewer_body, _ = self.request(path, cookie=viewer)
@@ -416,10 +418,10 @@ class SignedSessionHttpTests(unittest.TestCase):
         before = self.server.card_store.conn.total_changes
         status, body, headers = self.request('/cards', cookie=self.cookie(OWNER))
         self.assertEqual(status, 302, body)
-        self.assertEqual(headers.get('Location'), '/import?scope=all')
-        status, body, _ = self.request('/import?scope=all', cookie=self.cookie(OWNER))
-        self.assertEqual(status, 200, body)
-        self.assertIn('전체 카드 거래 검색', body)
+        self.assertEqual(headers.get('Location'), '/cards/all')
+        status, body, headers = self.request('/import?scope=all', cookie=self.cookie(OWNER))
+        self.assertEqual(status, 302, body)
+        self.assertEqual(headers.get('Location'), '/cards/all?scope=all')
         for user in (VIEWER, None):
             status, body, _ = self.request('/import?scope=all', cookie=self.cookie(user) if user else None)
             self.assertNotEqual(status, 200)
