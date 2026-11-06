@@ -209,9 +209,11 @@
     }
     if (selectedGap) {
       const matched = result.coverage_confirmed === true && gapCoveredBy(evidence);
-      entry.append(node('span', 'card-upload-result-note', matched ?
+      const gapNote = node('span', 'card-upload-result-note', matched ?
         '선택한 누락 기간의 전체 조회를 확인했습니다.' :
-        '선택한 누락 기간 전체의 조회 증빙은 아직 확보되지 않았습니다. 현황에서 기간을 다시 확인해 주세요.'));
+        '선택한 누락 기간 전체의 조회 증빙은 아직 확보되지 않았습니다. 현황에서 기간을 다시 확인해 주세요.');
+      gapNote.dataset.gapCoverageOutcome = 'true';
+      entry.append(gapNote);
     }
   }
   function appendCoverageForm(entry, batchId, evidence) {
@@ -262,9 +264,10 @@
         if (selectedGap) {
           const savedEvidence = result.coverage_evidence || result.evidence || confirmation;
           const matched = gapCoveredBy(savedEvidence);
-          entry.append(node('span', 'card-upload-result-note', matched ?
+          const gapNote = entry.querySelector('[data-gap-coverage-outcome]');
+          if (gapNote) gapNote.textContent = matched ?
             '선택한 누락 기간의 조회 확인을 저장했습니다.' :
-            '선택한 누락 기간과 다른 범위입니다. 남은 누락 기간은 현황에 계속 표시됩니다.'));
+            '선택한 누락 기간과 다른 범위입니다. 남은 누락 기간은 현황에 계속 표시됩니다.';
         }
         await refreshCoverage();
       } catch (error) { message.textContent = error.message; }

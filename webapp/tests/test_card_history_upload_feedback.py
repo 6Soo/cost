@@ -148,8 +148,12 @@ def test_manual_coverage_message_uses_submitted_dates_and_basis(card_db_path, mo
             form.locator('input[type="checkbox"]').check()
             form.get_by_role("button", name="조회기간 확인 저장").click()
             expect(form.locator("[role=status]")).to_have_text("조회기간 확인을 저장했습니다.")
+            gap_note = page.locator("[data-gap-coverage-outcome]")
+            expect(gap_note).to_have_count(1)
+            expect(gap_note).to_have_text(
+                "선택한 누락 기간과 다른 범위입니다. 남은 누락 기간은 현황에 계속 표시됩니다.")
             expect(page.locator(".card-upload-result-note").filter(
-                has_text="선택한 누락 기간과 다른 범위입니다.")).to_be_visible()
+                has_text="선택한 누락 기간 전체의 조회 증빙은 아직 확보되지 않았습니다.")).to_have_count(0)
             assert submitted and submitted[0]["date_basis"] == "승인일"
             assert submitted[0]["start_date"] == "2026-05-01"
             assert submitted[0]["end_date"] == "2026-05-31"
