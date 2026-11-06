@@ -212,9 +212,9 @@ def test_no_match_button_opens_roster_and_preselects_income_without_writing():
             assert dialog.evaluate('(row)=>row.previousElementSibling.contains(document.querySelector(".insurance-candidate-button"))')
             assert dialog.locator('td').get_attribute('colspan') == '1'
             dialog.locator('[data-insurance-connect-ref]').click()
-            assert not dialog.is_visible()
-            assert page.locator('.participant-keyboard-link [name=income_ref]').input_value() == ref
-            assert page.locator('.participant-keyboard-link [name=participant_id]').input_value() == ''
+            assert dialog.is_visible()
+            assert dialog.locator('.participant-keyboard-link [name=income_ref]').input_value() == ref
+            assert dialog.locator('.participant-keyboard-link [name=participant_id]').input_value() == ''
             assert set(requests) == {'GET'}
             assert value == before
         finally:
