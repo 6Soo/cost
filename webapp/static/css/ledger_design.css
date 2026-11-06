@@ -48,6 +48,16 @@
 .participant-insurance-cell.participant-drop-target{outline:3px solid var(--focus);outline-offset:-3px;background:var(--hover)}
 .participant-keyboard-link{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px}
 .participant-keyboard-link label{display:grid;gap:5px}.participant-keyboard-link select{min-height:44px;max-width:100%}
+.insurance-candidate-row .participant-keyboard-link{margin-top:0;min-width:0}
+.insurance-candidate-row .participant-keyboard-link label{min-width:0;max-width:100%}
+.insurance-candidate-row .participant-keyboard-link select{font:inherit;font-size:16px;width:100%;min-width:0}
+.insurance-candidate-row .participant-keyboard-link button{min-height:44px;padding:8px 12px;font:inherit;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--focus);cursor:pointer}
+.insurance-candidate-row .participant-keyboard-link button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.insurance-candidate-row .participant-inline-choices{display:flex;flex-wrap:wrap;gap:8px;min-width:0;width:100%;margin:0;padding:0;border:0}
+.insurance-candidate-row .participant-inline-choices legend{padding:0;margin-bottom:6px;font:inherit;color:var(--mut)}
+.insurance-candidate-row .participant-inline-choices button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.insurance-candidate-row .participant-inline-choices button:disabled{opacity:.6;cursor:wait}
+.participant-match-reason{display:block;font-size:12px;color:var(--mut);white-space:normal}
 .participant-trip-search{display:flex;gap:8px;align-items:end;margin:8px 0}.participant-trip-search input{min-height:44px}
 .participant-row-connect{min-height:44px;margin-left:6px}
 @media(prefers-color-scheme:dark){.participant-trip-panel{background:var(--paper);color:var(--ink)}}
@@ -712,7 +722,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 @media(max-width:1100px){.trip-workflow-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.trip-workflow>summary{padding:12px 14px}.trip-workflow-grid{grid-template-columns:minmax(0,1fr);padding:12px;gap:8px}.trip-workflow .trip-workflow-card{min-height:76px;padding:12px}}
 @media(prefers-reduced-motion:reduce){.trip-workflow-toggle,.trip-workflow .trip-workflow-card{transition:none}}
-.trip-actions{display:flex;align-items:center;gap:8px;margin:16px 0;min-width:0}
+.trip-actions{display:flex;align-items:flex-start;flex-wrap:wrap;gap:8px;margin:16px 0;min-width:0}
 .trip-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;height:auto;padding:10px 16px;white-space:nowrap;text-decoration:none}
 .trip-actions [aria-expanded=true]{background:var(--hover);border-color:var(--focus);color:var(--focus)}
 .trip-actions [data-manual-open]{margin-left:auto}

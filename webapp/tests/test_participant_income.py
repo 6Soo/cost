@@ -564,7 +564,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 page.wait_for_function("document.querySelector('#participant-trip-panel')?.dataset.loaded === '1'")
                 self.assertIn(PARTICIPANT, page.locator('.participant-insurance-cell').first.inner_text())
-                page.locator('#participant-trip-panel summary').click()
+                page.locator('.trip-actions [data-trip-panel="participant-trip-panel"]').click()
                 page.locator('#participant-trip-panel .participant-cards li').first.wait_for()
                 self.assertNotIn(PARTICIPANT, page.locator('#participant-trip-panel .participant-cards').inner_text())
                 self.assertIn('미연결-합성', page.locator('#participant-trip-panel .participant-cards').inner_text())
@@ -583,10 +583,14 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(connect.get_attribute('aria-label'),
                                  '미연결 · 이 수입에 보험 참가자 연결')
                 connect.click()
-                form = page.locator('#participant-trip-panel .participant-keyboard-link')
+                form = income_table.locator('.insurance-candidate-row .participant-keyboard-link')
                 form.wait_for(state='visible')
                 self.assertEqual(form.locator('[name=income_ref]').input_value(), row_ref)
                 self.assertEqual(form.locator('[name=participant_id]').input_value(), '')
+                self.assertEqual(form.locator('select').count(), 0)
+                self.assertEqual(form.locator('.participant-selected-income').count(), 0)
+                self.assertEqual(form.get_by_role('button', name='수입에 연결', exact=True).count(), 0)
+                self.assertGreater(form.locator('button[data-pick-participant]').count(), 0)
                 self.assertEqual(json.loads(self.call(
                     f'/api/participants/state?trip={self.trip}', OWNER)[1])['counts']['linked_income_rows'], 1)
                 card = page.locator('#participant-trip-panel .participant-cards li[draggable=true]').first
@@ -606,16 +610,18 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(page.locator('#participant-link-confirm').count(), 1)
                 self.assertEqual(json.loads(self.call(
                     f'/api/participants/state?trip={self.trip}', OWNER)[1])['counts']['linked_income_rows'], 1)
-                # A second explicit drop followed by confirmation uses the same
-                # current fingerprinted write contract exactly once.
-                page.evaluate("""([source,target])=>{
-                    const data={clearData(){},setData(){},effectAllowed:''};
-                    for(const type of ['dragstart']){const e=new Event(type,{bubbles:true,cancelable:true});Object.defineProperty(e,'dataTransfer',{value:data});source.dispatchEvent(e);}
-                    const e=new Event('drop',{bubbles:true,cancelable:true});Object.defineProperty(e,'dataTransfer',{value:data});target.dispatchEvent(e);
-                }""", [card.element_handle(), target.element_handle()])
+                # A named inline choice submits the fixed income and participant
+                # directly, without a duplicate summary or second connect step.
+                candidate = income_table.locator('.insurance-candidate-row button[data-pick-participant]').first
+                submitted = []
+                page.on('request', lambda request: submitted.append(request.post_data)
+                        if '/api/participants/link' in request.url and request.method == 'POST' else None)
                 with page.expect_response(lambda r: '/api/participants/link' in r.url and r.request.method == 'POST') as saved:
-                    page.locator('#participant-link-confirm button[value=confirm]').click()
+                    candidate.focus()
+                    candidate.press('Enter')
                 self.assertEqual(saved.value.status, 200)
+                self.assertEqual(len(submitted), 1)
+                self.assertIn('income_ref=main%7C', submitted[0])
                 page.wait_for_load_state('networkidle')
                 self.assertIn('/board?', page.url)
                 after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])

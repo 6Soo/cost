@@ -145,11 +145,22 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         from . import flight_passenger_page, receipt_review
         from . import user_action_queue
         active_store = board._active_store()
-        action_count = (user_action_queue.open_count(active_store.conn)
-                        if getattr(active_store, "conn", None) is not None else 0)
+        action_snapshot = None
+        if getattr(active_store, "conn", None) is not None:
+            try:
+                action_snapshot = user_action_queue.open_snapshot(active_store.conn)
+            except user_action_queue.QueueReadUnavailable:
+                pass
+        action_link = (
+            "<a href='/my-actions'" + user_action_queue.queue_data_attrs(action_snapshot) +
+            f">{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_snapshot.count:,}건</span></a>"
+            if action_snapshot is not None else
+            f"<a href='/my-actions' aria-label='내 확인 필요 수를 확인할 수 없음'>{_icons.icon('check', 18)}"
+            "<span class='nm'>업무 수 확인 불가</span></a>"
+        )
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/my-actions'>{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_count:,}건</span></a>"
-                   f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
+                   + action_link
+                   + f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
                    f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 전체 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
@@ -418,15 +429,12 @@ def _head_html(trip) -> str:
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
-    from . import trip_management_ui
     return (
         "<div class='page-hd trip-header'><div>"
         f"<h1>{title}{_context_badge()}</h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
-        + trip_management_ui.controls(board, trip)
-        + (_reserve_link_link_html() if trip and not trip.get('is_unclassified') else '')
         + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
@@ -1274,7 +1282,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     from .expense_amount_group_service import sort_for_display
     if amount_groups is not None and not amount_groups.get('available'):
         amount_groups = None
-    expenses = sort_for_display(expenses, amount_groups)
+    expenses = _group_expenses_for_display(sort_for_display(expenses, amount_groups))
     enabled = amount_groups is not None
     extra_col = "<col class='gemn-desktop gemn-column'>" if enabled else ''
     extra_header = gemn.header_cell() if enabled else ''
@@ -1319,6 +1327,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
                   move_back="/board", match_annotations=None) -> str:
+    expenses = _group_expenses_for_display(expenses)
     match_annotations = match_annotations or {}
     def item(row, is_expense=False):
         rid = row["row_id"]
@@ -1665,6 +1674,27 @@ def _sort_expenses_for_display(rows: list) -> list:
                                       _expense_category_rank(r.get("item"))))
 
 
+def _group_expenses_for_display(rows: list) -> list:
+    """Airfare, lodging by service start, then the rest; never reorder copy data."""
+    from datetime import date, timedelta
+
+    def key(row):
+        rank = min(_expense_category_rank(row.get('item')), 2)
+        start_on = ''
+        if rank == 1:
+            match = _STAY_PATTERN.fullmatch(_stay_period(row))
+            if match:
+                try:
+                    start, end = (date.fromisoformat(value) for value in match.groups())
+                    if start <= end <= start + timedelta(days=_MAX_STAY_DAYS):
+                        start_on = start.isoformat()
+                except ValueError:
+                    pass
+        return rank, not bool(start_on), start_on
+
+    return sorted(rows, key=key)
+
+
 def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
     """A quarter's cost tab: rows waiting for confirmation, the booked rows, and the one action that books the waiting rows."""
     from app import quarter_tab
@@ -1889,6 +1919,11 @@ def _trip_actions(tab_id: str, back: str) -> str:
     if board.current_role() != 'owner':
         return ''
     from .trip_insurance_policy import domestic_trip
+    from . import trip_management_ui
+    trip = _selected_trip(tab_id)
+    management = trip_management_ui.controls(board, trip)
+    reservation_link = (_reserve_link_link_html()
+                        if trip and not trip.get('is_unclassified') else '')
     links = []
     if _is_trip_tab(tab_id):
         if not domestic_trip(tab_id):
@@ -1897,7 +1932,8 @@ def _trip_actions(tab_id: str, back: str) -> str:
     controls = ''.join(
         f"<a class='btn' role='button' href='#{target}' data-trip-panel='{target}' aria-controls='{target}'>"
         f"{ui_icons.icon(icon)}<span>{label}</span></a>" for icon, label, target in links)
-    return ("<div class='trip-actions' role='group' aria-label='여행 작업'>" + controls
+    return ("<div class='trip-actions' role='group' aria-label='여행 작업'>"
+            + management + reservation_link + controls
             + f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
             + f"{ui_icons.icon('pencil')}<span>수기 지출 추가</span></a></div>")
 

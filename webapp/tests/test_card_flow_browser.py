@@ -79,7 +79,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                         self.assertEqual(page.request.get(base + '/import?cleanup_reason=bad').status, 400)
                         self.assertEqual(page.request.get(base + '/import?cleanup_reason=no_item&cleanup_reason=no_trip').status, 400)
                         self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 20)
-                        self.assertIn('전체 24건', page.locator('#expense-cleanup').inner_text())
+                        self.assertIn('거래·장부 상태 상세 · 24건 · 사용자 요청 아님',
+                                      page.locator('#expense-cleanup').inner_text())
 
                         for reason, expected_count, expected_id in (
                                 ('classification', 2, ids[0]), ('no_item', 2, ids[0]),
@@ -93,7 +94,7 @@ class CardFlowBrowserTests(unittest.TestCase):
 
                         response = page.goto(base + '/import?cleanup_reason=classification#expense-cleanup')
                         self.assertEqual(response.status, 200, page.locator('body').inner_text())
-                        self.assertIn('분류·배정 필요', page.locator('#expense-cleanup').inner_text())
+                        self.assertIn('분류 상태', page.locator('#expense-cleanup').inner_text())
                         self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 2)
                         page.goto(base + '/import?cleanup_reason=recording#expense-cleanup')
                         self.assertIn('21건 중 1~20건 표시', page.locator('#expense-cleanup').inner_text())
@@ -105,7 +106,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                         board.conn.execute('DELETE FROM transaction_review_holds WHERE transaction_id=?', (ids[2],))
                         board.conn.commit()
                         page.goto(base + '/import?cleanup_reason=evidence#expense-cleanup')
-                        self.assertIn('근거 충돌 거래가 없습니다.', page.locator('#expense-cleanup').inner_text())
+                        self.assertIn('원본·보호 상태에 해당하는 항목이 없습니다.',
+                                      page.locator('#expense-cleanup').inner_text())
                         self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 0)
 
                         page.goto(base + '/import?cleanup_reason=classification#expense-cleanup')
@@ -136,11 +138,12 @@ class CardFlowBrowserTests(unittest.TestCase):
                             item.locator('button[type=submit]').click()
                         page.wait_for_url('**/import?cleanup_reason=classification#expense-cleanup')
                         self.assertEqual(page.locator("#expense-cleanup .cleanup-row[data-transaction='" + ids[1] + "']").count(), 0)
-                        self.assertIn('전체 23건', page.locator('#expense-cleanup').inner_text())
+                        self.assertIn('거래·장부 상태 상세 · 23건 · 사용자 요청 아님',
+                                      page.locator('#expense-cleanup').inner_text())
 
                         response = page.reload()
                         self.assertEqual(response.status, 200, page.locator('body').inner_text())
-                        self.assertIn('분류·배정 필요', page.locator('#expense-cleanup').inner_text())
+                        self.assertIn('분류 상태', page.locator('#expense-cleanup').inner_text())
                         classification_link = page.locator(".cleanup-breakdown a[href*='cleanup_reason=classification']")
                         box = classification_link.first.bounding_box()
                         self.assertGreaterEqual(box['height'], 44)
@@ -158,6 +161,10 @@ class CardFlowBrowserTests(unittest.TestCase):
                             for width in (320, 375, 390):
                                 page.set_viewport_size({'width':width,'height':844})
                                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                                count_label = page.locator(
+                                    ".cleanup-breakdown a[aria-current='page'] .cleanup-filter-count")
+                                self.assertEqual(count_label.evaluate(
+                                    '(element) => getComputedStyle(element).whiteSpace'), 'nowrap')
                             page.evaluate("document.documentElement.style.zoom='200%'")
                             page.set_viewport_size({'width':390,'height':844})
                             self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390,

@@ -1,4 +1,51 @@
+## 2026-11-06 미연결 수입 행 아래 연결 메뉴 — COMPLETE
+
+- [PR #696](https://github.com/6Soo/cost/pull/696) 병합·운영 SHA `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608` (이전 `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7`). 미연결 버튼이 별도 보험 공용 폼으로 이동하던 동작을 원행 직후 전체 열 펼침·수입 고정 연결 폼으로 변경했다. 행별 독립 토글·Escape 포커스 복귀·44px 조작·행 안 오류 안내를 제공한다.
+- 자동 연결 누락 진단은 같은 여행 확정 명단의 동일 가림 이름 복수 후보였다. 양방향 유일성·수동 결정 보호를 유지하고 후보 수/연결 불가 사유를 표시하며 텍스트 단일 대조가 확정 명단의 모호성을 덮지 못하게 했다. 임의 인물 병합·실제 연결 저장·금융/Google/원본 쓰기 없음.
+- Windows 영향380 passed+40 subtests·skip0·필수 브라우저26개 전건실행·compile 통과 at09e06da2. 먼저 병합된 항공 UI를 통합한 efa39e27에서 인접63 passed·skip0. 본 변경 소스는 동일하다. 최종 PR CI42055763965/main CI42056702798 SUCCESS. 최초 CI42054134558은 Ubuntu 글꼴 다운로드 중 통합 push로 취소되어 성공으로 계산하지 않았다. 초기 작은 저장 버튼은44px로 고치고 최종 재검증했다.
+- 독립 interface-review 최종 Approve. 합성1440/390/320px·다크·200%·키보드·넘침0과 취소 무저장/CSRF·지문/409 검증. 인증 운영 PC1440/모바일390에서 원행 아래 폼·고정 수입·중복 후보 사유·Escape 복귀·넘침0·44px 이상을 확인했다. 고객 화면/원문은 비공개 로컬에만 보존했다. 물리 기기·수동 스크린리더 미검증.
+- 공식 단일 작성자 배포: 1418 blobs 불일치0·task/process SHA 일치·Gateway8790→8752·health/ready200·보호API401·보호13표 불변. 금융 apply NOT_RUN. 별도 전체DB 백업/복원·마이그레이션·재처리 없음. [범위와 수락](specs/insurance-unlinked-inline-20261106.md), 비공개 `.local-archive/income-inline-20261106/`의 QA·integration·interface-review·browser·release/deploy 증거. 이 UI 요청의 구현·배포 미결0. 동일 가림 이름만으로 실제 인물을 지정하는 연결은 수행하지 않았다. 후속 문서만으로 재배포하지 않는다.
+
+## 2026-11-06 여행 항공권 예약 UI 개선 — COMPLETE
+
+- [PR #695](https://github.com/6Soo/cost/pull/695) 병합·운영 SHA `658aeeefbe867d0ae81bd4f108f2bc29d54fd3e7` (이전 `5ede21297b93c648fb631c111b3150bcdc6df739`). 경로 우선 전체 행 선택·선택됨 표시, 넓은 패널 목록/상세 병렬 배치, 모바일 세로 배치, 가는편/오는편·탑승객·근거 구분. 금융·원본·분류·여행 배정·환불·Google 쓰기 없음.
+- Windows 영향 QA123 passed·skip0·필수 브라우저 전부 실행 at `333c5b783a762469b5443a07a511cf9fe43d75cd`; 별도 표적42 passed·최종 브라우저8 passed. PR CI42053458285/main CI42053848046 SUCCESS. 독립 interface-review MEDIUM 수정·재검토 완료, 잔여 HIGH/MEDIUM0. 합성1363/680/390/320px·다크·200% CSS 확대·키보드·대비 검증.
+- 공식 단일 작성자 배포: 1,417 blobs 불일치0·task/process SHA 일치·Gateway8790→8751·health/ready200·보호API401·보호13표 불변·금융apply NOT_RUN. 코드 전환이며 별도 전체DB 백업/복원·마이그레이션·대량 재처리 없음.
+- 인증 운영 브라우저 PC/모바일에서 예약3건·선택1건·새 workspace 표시·상세 정상·가로 넘침0 확인. 배포 전 source unavailable 및 최초 접속 timeout은 재시도/워밍 후 해소됐으며 실제 예약 조회까지 수락했다. 고객 화면은 비공개 로컬에만 보존.
+- [수락·검증 기록](specs/flight-booking-panel-ui-20261106.md), 비공개 증거 `.local-archive/flight-ui-20261106/` (impact-summary/log, junit, interface-review, 합성 전후/운영 화면, production-browser, deploy-evidence). 물리기기·수동 스크린리더·RTL/번역 미검증. 이번 요청의 남은 작업/차단 없음. 후속 기록은 문서 전용이며 재배포하지 않는다.
+
+## 2026-11-05 영수증 모바일 UI 단일 업로드·결과/다음 행동 명세 — SPEC_ONLY
+
+- 사용자 제공 iPhone Safari 다크 화면에서 `영수증 정리`의 중복 장부 복귀 버튼, 별도 사진/PDF 등록, 과도한 중첩 박스, 업로드 후 결과/행동 부재를 지적. 스크린샷의 선택 파일명은 서버 업로드 완료 증거가 아님.
+- `webapp/receipt_review.py` 소스 대조: `#img-file/#img-go` 와 `#pdf-file/#pdf-go` 별도 UI, 이미지/PDF 각각 저장 API 호출 후 `location.reload()`, AI 활성시에만 분석 UI, 후보 0건이면 검토/복사 구획 숨김, 페이지 자체 복귀 링크 + 공통 셸. 백엔드 PDF 원본+10페이지 이미지 변환/사진 저장/owner·CSRF는 기존 구현을 재사용한다.
+- [영수증 단일 등록+결과·수정·다음 행동 UX 정본](specs/receipt-unified-upload-ux-20261105.md) 작성. JPG/PNG/PDF/지원 iPhone 사진을 사용자 한 경로로 선택, 파일별 진짜 저장 상태·원본 미리보기·분석(명시 승인 필요)·직접 입력·후보 수정/등록·Google 복사까지 연결. 모바일·공통 디자인·권한·데이터 보호 **RCPT-UX-01~16** 수락 필수.
+- **이번 작업은 문서 전용**으로 UI 코드·실제 서버·운영 고객 자료·금융/Google 쓰기·배포·브라우저 QA를 변경/수행하지 않았다. 다음 구현은 기존 사용자 미추적 자료와 현재 운영 SHA를 확인하고 중복/환불 및 금융 보호를 유지하며 진행한다.
+
+## 2026-11-05 여행 헤더 출력 전용·본문 작업 이동 — COMPLETE
+
+- 최신 사용자 결정 **헤더에는 XLSX 출력만, 나머지는 본문 작업 영역으로 이동**을 [PR #690](https://github.com/6Soo/cost/pull/690)으로 구현·병합·운영 반영했다. 마감·여행 관리·예약·참가자는 본문 `여행 작업`으로 이동하고 기존 기능/권한/CSRF/revision/여행 맥락을 유지한다. [상세 명세·검증](specs/trip-header-alignment-20261105.md).
+- Windows 최종 영향 base8095d8ec → headb4e3903c: **387 passed+99 subtests, skip0·필수브라우저29전건·compile PASS**. 첫 `--base origin/main --run`은 병합 후 NO_CHANGES였으므로 통과 근거로 사용하지 않고 원래 base SHA를 고정해 재실행했다. PR CI42044031101·병합 CI42044789877 SUCCESS. 독립 interface-review Approve 및 최종 테스트4줄 변경 후 승인 유지. 합성320/390/760/1440px×라이트/다크8조건·200%·키보드 확인.
+- 23:36 KST 공식 단일 작성자 배포: 운영 **`5ede21297b93c648fb631c111b3150bcdc6df739`**, 이전6a6095bd. 1415blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8752/healthready200/보호API3개401/보호13표전후불변. 금융 apply NOT_RUN, Google/원본/분류/여행 배정/환불/스키마 쓰기 없음.
+- 인증 운영1440/390px에서 헤더XLSX단독·본문관리/예약/마감·가로넘침0·키보드열닫/포커스 확인. 운영1440px 시각 확인 완료. 운영390px 저장 이미지는 리사이즈 직후 이전 프레임이 남은 캡처여서 시각 수락 근거에서 제외하며, 해당 폭은 DOM/키보드 결과와 합성390px 시각 근거로 구분한다. 물리기기·수동 스크린리더 미검증.
+- 비공개 증거 `.local-archive/trip-header-align-20261105/`의 placement-run-summary/junit/final-quality/interface-review/results, production-browser.json, deploy-evidence.json; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-5ede21297b93c648fb631c111b3150bcdc6df739.json`. 고객 원문/화면은 Git에 넣지 않는다. 배포 잠금 반납·현재 요청 미결0·다음 기능 명령 없음. 이 문서 기록으로 재배포하지 않는다.
+
+## 2026-11-05 보험 명단 파란 강조·박스 제거와 행 높이 복구 — COMPLETE
+
+- [PR #689](https://github.com/6Soo/cost/pull/689), 구현8a206b7c·병합a88257a8·운영 `6a6095bdf3ede9f16d5c6d075d35ef6ee1a011df`. 최신 사용자 요청에 따라 이전44px/테두리 버튼 외형을 텍스트 동작으로 대체했다. 연결/미연결/후보 native 동작·포커스는 유지, 데스크톱45→36px·모바일 전체행93→72px. [검사 범위·미검증·배포 근거](specs/insurance-plain-actions-20261105.md).
+- Windows 영향208 passed+36subtests·skip0·필수browser20전건·compile통과, 표적22·Ego8폭/테마·키보드/hover/CSS200%/긴이름·독립Luna interface-review Approve. PR CI42036622325 SUCCESS. 병합a882 CI는 후속 문서 병합으로 취소됐고 통과로 간주하지 않는다. Markdown3개만 추가한6a6095bd의CI42037790866 SUCCESS 및 보험검증blob동일성을 확인했다.
+- 공식 단일 작성자 배포 완료: 이전ae64bd19→6a6095bd, 1414blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8751/healthready200/보호API401/보호13표불변/financialapply NOT_RUN. 코드외 금융/Google/원본/연결데이터/스키마 쓰기0. 증거 `.local-archive/insurance-plain-20261105/`, 호스트동일SHA deploy-evidence. 작성권·잠금반납, 요청미결0·다음기능명령없음. 문서기록으로재배포하지않는다.
+
 ## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
+
+## 2026-11-05 항공권 여행 그룹·탑승객 중심 UI #684 — 운영 완료
+
+- 사용자 요청: 배정된 여행별 그룹·탑승객 중심 항공권 결과·구체적인 원본 확인/카드 조회 동선, 이후 `fix/flight-passenger-grouped-release-20261105` 병합·정리. [상세 명세](specs/flight-passenger-trip-grouping-20261105.md).
+- [PR #684](https://github.com/6Soo/cost/pull/684) 최종 코드 `c02244d2edb66afb684657213bbe66407464dbe3`, 병합·운영 SHA `ae64bd19c29f6a5347212f53c25408f870e283ac`. PR CI42036009335·main CI42036639901 SUCCESS. 초기 Linux 확대 실패를 검사 제외 없이 본문 container 재배치·버튼 nowrap 교정으로 해결했다. 독립 리뷰의 버튼 잘림 Block도 수정 후 Approve로 해소했다.
+- 최종 Windows 영향 검사: `python tools/run_quality_checks.py --base origin/main --run`, base `4c2e9656f4674a378da6dda6369697b4f4793f10` → head `c02244d2edb66afb684657213bbe66407464dbe3`, **324 passed + 16 subtests, skip0·필수 browser 누락0·compile PASS**. 같은 입력390/1440px 전후 화면,320/390/760/1440px·200% 확대(745≤760px), 독립 interface-review Approve. 화면 상태·명암·키보드 기존 검증은 상세 명세와 로컬 근거에 보존한다.
+- 공식 `deploy_verified_release.ps1 -Apply` 단일 작성자 전환: 이전 `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` → `ae64bd19c29f6a5347212f53c25408f870e283ac`, gateway8790→8752, 1,413 tracked blobs 불일치0·runtime SHA 일치·listener1·health/ready200·보호 API3개401·금융 보호13표 내용/스키마 전후 불변. 금융 apply NOT_RUN·Google/원본/스키마/실제 여행 배정 쓰기0. 인증된 실제 `/flight-passengers` 읽기 스모크에서 검색 입력·예약 조회 버튼·최종 container CSS 확인.
+- 보존·정리: 해당 임시 workspace만 정리하는 범위이며 타 작업공간·미커밋·stash6개는 유지한다. 미추적 QA3파일61,678bytes를 기본 폴더에 SHA256 검증 복사했다. 공식 workspace archive와 병합된 코드/기록 브랜치 정리는 이 기록 병합 후 진행하며, 최종 결과는 로컬 checkpoint에 기록한다.
+- 근거: `.local-archive/flight-passenger-ux-20261105/`의 `preserved-worktree/manifest.json`, `review-final.md`, `container-checks.json`, `production-smoke.json`, `deploy-evidence.json`; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-ae64bd19c29f6a5347212f53c25408f870e283ac.json`. 수동 스크린리더·물리기기·실고객 카드조회·예약처 외부 로그인은 미실행. 보관 메뉴 질문은 읽기 설명만 수행했고 메뉴/여행 보관값은 변경하지 않았다. 병렬 #689/#690은 이 운영 SHA에 포함하지 않았으며 그 완료를 주장하지 않는다.
+
 
 - 원인: 이용일 출력이 숙박비로 제한돼 항공 예약 여정이 수집돼도 항공료는 공란이었다. [PR #686](https://github.com/6Soo/cost/pull/686)으로 저장 기간 우선·검증된 fresh 여정 출발일 보완 및 PC/모바일 표시를 수정했다. 금액·결제일·예약 관계·분류·여행·원본·Google 쓰기 없음.
 - 최종 제품/배포 SHA `bd75f63f380d7bcd0e4424ade74fb1360cfe541e` (이전 `1b8aafc06ef3d692b6f7e8f691bb16a755ab2263`). 1,412 blobs 불일치0, task/process SHA 일치, Gateway8790→8751, health/ready200·보호API401·보호13표 불변. 공식 단일 작성자 전환 성공, 금융 apply NOT_RUN.

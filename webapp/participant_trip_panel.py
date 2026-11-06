@@ -14,7 +14,7 @@ def _esc(value) -> str:
 def connect_button() -> str:
     from . import ui_icons
     return ("<button type='button' class='participant-row-connect' data-connect-income "
-            "aria-label='미연결 · 이 수입에 보험 참가자 연결'>"
+            "aria-expanded='false' aria-label='미연결 · 이 수입에 보험 참가자 연결'>"
             f"{ui_icons.icon('link', 14)}<span>미연결</span></button>")
 
 
@@ -132,10 +132,14 @@ def _review_markup(state, data):
         if items:
             roster_cards.append(candidate_group(contract, items))
     templates, evidence = [], []
+    ambiguous_refs = {row.get('ref') for row in state.get('unlinked_income') or []
+                      if len(row.get('candidates') or []) > 1}
     for income in data['income_rows_page']:
         if is_refunded_income(income):
             continue
         ref = income['ref']
+        if ref in ambiguous_refs:
+            continue  # Confirmed roster ambiguity must not become a single text hit.
         if data['links_by_ref'].get(ref):
             continue  # Explicit confirmed participant links always win.
         hits = by_ref.get(ref, [])
@@ -243,6 +247,11 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
                 f"<div class='participant-link-actions'><p>{label}</p>{actions}</div></details>")
         elif google.get('available'):
             status_markup = connect_button()
+            candidates = next((item.get('candidates') or [] for item in state.get('unlinked_income') or []
+                               if item.get('ref') == row['ref']), [])
+            if len(candidates) > 1:
+                status_markup += ("<span class='participant-match-reason'>"
+                                  f"이름 일치 후보 {len(candidates)}명 · 자동 연결 불가</span>")
         else:
             status_markup = f"<span class='participant-link-status'>{state_label}</span>"
         rows.append(f"<template class='participant-income-status' data-income-ref='{_esc(row['ref'])}'>"

@@ -45,7 +45,7 @@ def test_render_preserves_contract_and_uses_design_tokens():
     assert rendered.startswith("<!doctype html>")
     assert "<html lang='ko'>" in rendered
     main = rendered.split('<main>', 1)[1].split('</main>', 1)[0]
-    assert '<h1>영수증 정리</h1>' in main
+    assert '<h1>영수증 처리</h1>' in main
     assert "id='selected-trip'" in main and "id='copy-tsv'" in main
 
     # CSRF token must appear in the inline script and in the JS post helper.
@@ -124,7 +124,7 @@ def test_render_preserves_contract_and_uses_design_tokens():
     assert 'aria-pressed=' in rendered
 
     # The photo strip must not break at 375px: grid minmax must include 100% guard.
-    assert "minmax(min(100px,100%),1fr)" in rendered or "minmax(100px,1fr)" in rendered
+    assert "minmax(min(148px,100%),1fr)" in rendered
 
 
 def test_browser_receipt_screen_fits_required_viewports():
@@ -166,7 +166,7 @@ def test_browser_receipt_screen_fits_required_viewports():
             for width in (375, 759, 1280):
                 page.set_viewport_size({'width': width, 'height': 812})
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-            assert page.get_by_role('heading', name='영수증 정리').is_visible()
+            assert page.get_by_role('heading', name='영수증 처리').is_visible()
             assert page.locator('#step-review').is_visible()
 
             page.emulate_media(color_scheme='dark')

@@ -92,11 +92,15 @@ CLEANUP_STYLE = (
     "#expense-cleanup .cleanup-pages{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--shell-line);padding:12px 0}"
     "#expense-cleanup .cleanup-pages a{min-height:44px;display:inline-flex;align-items:center;padding:8px 12px;border:1px solid var(--shell-line);border-radius:9px}"
     "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:var(--shell-muted);margin:6px 0 0}"
-    "#expense-cleanup .cleanup-refund-action{display:inline-flex;align-items:center;justify-content:center;"
-    "min-height:44px;margin-top:12px;padding:9px 14px;border:1px solid var(--shell-accent);"
-    "border-radius:10px;background:var(--shell-hover);color:var(--shell-accent);font-weight:750;cursor:pointer}"
-    "#expense-cleanup .cleanup-refund-action:disabled{opacity:.55;cursor:wait}"
-    "#expense-cleanup .cleanup-refund-status{font-size:13px;margin:8px 0;overflow-wrap:anywhere}"
+    "#expense-cleanup .action-queue-summary{display:grid;gap:4px;border:1px solid var(--shell-line);"
+    "border-radius:12px;padding:14px;margin:12px 0;background:var(--shell-paper)}"
+    "#expense-cleanup .action-queue-summary h2,#expense-cleanup .action-queue-summary p{margin:0}"
+    "#expense-cleanup .action-queue-summary a{display:inline-flex;align-items:center;min-height:44px;overflow-wrap:anywhere}"
+    "#expense-cleanup .action-queue-summary h2 a{color:var(--shell-accent);text-underline-offset:3px}"
+    "#expense-cleanup .cleanup-review a{display:inline-flex;align-items:center;min-height:44px}"
+    "#expense-cleanup .cleanup-diagnostics{border-top:1px solid var(--shell-line);margin-top:16px;padding-top:8px}"
+    "#expense-cleanup .cleanup-diagnostics>summary{min-height:44px;font-weight:700}"
+    "#expense-cleanup .cleanup-diagnostic-note{color:var(--shell-muted);font-size:13px}"
     "@media(max-width:550px){#expense-cleanup .cleanup-list{gap:0}#expense-cleanup .cleanup-row{padding:12px 0;border:0;border-bottom:1px solid var(--shell-line);border-radius:0}"
     "#expense-cleanup .cleanup-info{flex-wrap:wrap}#expense-cleanup .cleanup-receipt-icon{display:none}"
     "#expense-cleanup .cleanup-card-head{margin-bottom:5px}#expense-cleanup .cleanup-amount{font-size:19px;margin:4px 0}"
@@ -188,6 +192,7 @@ def render_cleanup_card_review(
     conflict_reason: object = None,
     parse_error: object = None,
     held: bool = False,
+    finance_related: bool = False,
     reason: object = None,
     item: object = None,
     finance_label: object = None,
@@ -211,6 +216,13 @@ def render_cleanup_card_review(
             f"<details class='cleanup-review'><summary>거래 근거 자세히 보기</summary>{evidence}"
             "<p class='cleanup-protected'>거래 근거를 확인하고 있습니다.</p>"
             f"<p><a href='{esc(detail)}'>원본 자료 보기</a></p></details>"
+        )
+    elif finance_related:
+        review = (
+            "<p class='cleanup-review-note'>금융 관계와 원본 증빙을 읽기 전용으로 표시합니다. "
+            "실제 카드 환급 여부나 내부 기록 완료를 대신 확정하지 않습니다.</p>"
+            f"<details class='cleanup-review'><summary>거래 근거 자세히 보기</summary>{evidence}"
+            f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>"
         )
     else:
         review = (
@@ -246,11 +258,6 @@ def render_cleanup_card_row(
         + (f"<p class='cleanup-assignment'>{esc(row.assignment_text)}</p>"
            if row.assignment_text else "")
         + f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}"
-        + ("<div class='cleanup-refund-tool'>"
-           f"<button type='button' class='cleanup-refund-action' "
-           f"data-original='{esc(row.refund_group_original)}'>원결제·환불 묶음 기록</button>"
-           "<p class='cleanup-refund-status' role='status'></p></div>"
-           if row.refund_group_original else "")
         + "</li>"
     )
 
@@ -264,7 +271,7 @@ def render_cleanup_ledger_row(
     return (
         f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row.row_id)}' data-revision='{int(row.revision)}'>"
         "<div class='cleanup-card-head'><h3>여행 지정</h3>"
-        "<span class='cleanup-badge'>처리 필요 · 분류·배정 필요</span></div>"
+        "<span class='cleanup-badge'>장부 배정 상태</span></div>"
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
         f"<div class='cleanup-title'><strong>{esc(row.merchant_or_desc)}</strong>"
         f"<small>{esc(row.occurred_on or '')} · {esc(row.item or '항목 없음')}</small></div></div>"
@@ -276,7 +283,7 @@ def render_cleanup_ledger_row(
 
 def render_cleanup_empty() -> str:
     """Fallback <li> markup when there are no cleanup items."""
-    return '<li class="muted">정리할 지출이 없습니다.</li>'
+    return '<li class="muted">조회 조건에 맞는 거래·장부 행이 없습니다.</li>'
 
 
 def render_cleanup_pagination(
@@ -304,6 +311,8 @@ def render_cleanup_pagination(
 def render_cleanup_section(
     *,
     total: int,
+    action_summary_html: str,
+    diagnostics_open: bool,
     breakdown_html: str,
     note_html: str,
     options_html: str,
@@ -313,12 +322,19 @@ def render_cleanup_section(
     style_html: str = CLEANUP_STYLE,
 ) -> str:
     """Assemble the top-level <section id='expense-cleanup'> container."""
+    open_attr = " open" if diagnostics_open else ""
     return (
         style_html
-        + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-        f"<h2>처리 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>"
+        + "<section id='expense-cleanup' aria-label='지출 처리 현황'>"
+        + action_summary_html
+        + f"<details class='cleanup-diagnostics'{open_attr}>"
+        f"<summary>거래·장부 상태 상세 · {total:,}건 · 사용자 요청 아님</summary>"
+        "<p class='cleanup-diagnostic-note'>아래 건수는 거래·장부 행 수입니다. 내 확인 필요 작업 수와 다를 수 있습니다.</p>"
         f"{breakdown_html}{note_html}"
         f"<template id='cleanup-trip-options'>{options_html}</template>"
         f"<ul class='cleanup-list'>{body_html}</ul>{nav_html}"
-        f"<script>{script_html}</script></section>"
+        f"<script>{script_html}</script></details>"
+        "<script>(()=>{if(location.hash==='#expense-cleanup'){"
+        "const d=document.querySelector('#expense-cleanup .cleanup-diagnostics');if(d)d.open=true"
+        "}})();</script></section>"
     )

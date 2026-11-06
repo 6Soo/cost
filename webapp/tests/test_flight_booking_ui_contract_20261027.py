@@ -8,7 +8,7 @@ def test_booking_route_cards_keep_existing_workflows():
     for marker in (
         "fb-hero", "fb-summary", "fb-summary-item",
         "fb-itinerary", "fb-flight-card", "fb-flight-bar",
-        "fb-route-stop", "fb-flight-facts",
+        "fb-route-stop", "fb-trip-group", "fb-reservation-warning",
         "가는편", "오는편", "탑승권·여정 정보",
         "/api/flight-passengers/name-search",
         "/api/cards/transactions/day",
