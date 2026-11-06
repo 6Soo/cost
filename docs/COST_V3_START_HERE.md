@@ -6,6 +6,8 @@
 
 **2026-11-05 영수증 처리 UX 최신 요구(SPEC_ONLY):** [통합 영수증 등록 UX·결과/후속 행동 상세 명세](specs/receipt-unified-upload-ux-20261105.md). iPhone Safari 실제 화면의 JPG·PDF 분리, 중복 복귀, 결과/다음 행동 부재, 다크모드 중첩 박스 결함을 수정한다. 사진/PDF를 한 파일 입력/등록 흐름으로 통일하고 서버 저장·추출·후보 검토/등록·Google 복사를 단계별로 표시한다. **명세만 반영됐으며 운영 UI는 아직 그대로다.**
 
+**2026-11-06 CI 사용량 절감 명세(SPEC_ONLY):** [기존 영향 기반 QA를 재사용하는 최소 테스트 범위·중복 PR/main 및 정기 감사 축소 정본](specs/ci-minimum-test-cost-20261106.md). 문서-only 무거운 테스트 금지, 필요한 금융·권한 보호만 실행, 변경 범위가 불명확하면 fail-closed. 실제 GitHub Actions/운영 실행 시간 절감은 후속 workflow 구현·측정 전까지 미완료.
+
 ## 최신 개발 현황 확인
 
 **2026-11-05 병합·배포·임시 작업공간 정리:** [정리 범위·검증 및 보존 기록](specs/merge-cleanup-20261105.md). [11/03 지도](specs/current-development-map-20261103.md)와 [11/04 지도](specs/development-status-20261104.md)는 보관 기록이며 현재 실행 큐가 아니다.
