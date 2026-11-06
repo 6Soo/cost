@@ -1,3 +1,11 @@
+## 2026-11-07 최신 COST 카드 진입 속도 인계 — #714 운영 배포·실측 PENDING
+
+- **원격 main 확인 시점:** `1bf39df19c3f2c1720cda8852b27f047c0be414a`(#715 docs), 열린 PR 0, Actions run `42274783804` SUCCESS. [#714](https://github.com/6Soo/cost/pull/714) 코드 병합 SHA `c4e87bfa745f6590d9bd024d0713c8864f935e7d`, PR CI `42274285504`·main CI `42274512661` SUCCESS. **#714의 운영 배포·실제 카드 페이지 로딩시간은 아직 검증 기록이 없다.**
+- **마지막 운영 증거:** [#713](https://github.com/6Soo/cost/pull/713) 배포 코드 SHA `ceb014f1ca716792e9df7eaee591cc00294aa866`, health/ready200, 보호API401, 보호13표 불변. [#712](https://github.com/6Soo/cost/pull/712) 카드 7881과 #713 카드 내역 IA·업로드/수집 현황은 이미 적용됐으며 재구현 금지. Windows 실제 task/process SHA가 바뀌었을 수 있으므로 배포 전 **직접 읽기 확인** 필수.
+- **현재 단일 실행 정본:** [card-history-latency-release-20261107.md](specs/card-history-latency-release-20261107.md) **LAT-01~08**: 같은 인증/기간 조건으로 cold/warm TTFB·브라우저/DB lock/query 분리 계측, SHA 고정 후보·릴리스 전체 Git blob 감사/ReviewEvidence/13표 precheck, `deploy_verified_release.ps1` preview → 승인된 단일 writer apply, 복구점/health/ready/보호 불변, 배포 후 같은 조건 재측정과 운영 기록. 운영 인증이 없는 401은 UI 속도 수락이 아님.
+- **코드 상태 vs 운영 상태:** #714 코드·GitHub CI는 PASS. 이 문서의 작업은 **명세/기록만**이며 Windows 호스트/DB·Google·브라우저를 수정·접속하지 않았다. #710 CI 코드와 #713 UX 재구현 금지. 만약 #714가 이미 운영에 있으면 재배포 없이 검증·계측. 성능이 여전히 느리면 실제 lock vs SQL 병목을 읽기 진단하고 새 별도 PR.
+- 아래 #711 및 2026-11-06의 '카드 IA/CI 미구현'은 역사적 인계다. 신규 담당자는 **최상단 이 절의 상태를 우선**한다.
+
 ## 2026-11-07 PR #712·#713 카드 작업 — 구현·검증·운영 완료
 
 - [PR #712](https://github.com/6Soo/cost/pull/712) 국민카드 끝번호 `7881` 안드레 전용 식별 규칙을 병합 SHA `4611305d82156301f5ce32e46942d45de46baed4`에 반영했다. 기존 카드 거래 행은 없었고 실제 카드·거래 자료는 변경하지 않았다.

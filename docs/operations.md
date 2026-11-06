@@ -1,3 +1,10 @@
+## 2026-11-07 #714 카드 내역 로딩 개선: CODE MERGED / OPERATING DEPLOYMENT PENDING
+
+- #714 [카드 조회 집계 최적화 PR](https://github.com/6Soo/cost/pull/714) merge SHA `c4e87bfa745f6590d9bd024d0713c8864f935e7d`, PR run 42274285504·main run 42274512661 **SUCCESS**. 기존 12개월+미날짜 13개 집계 SQL을 단일 그룹 집계로 바꾸고 조회에 이미 산출한 총건수 재사용; 기존 DB/금융 원본 쓰기·스키마 변경 없음.
+- 현재 원격 main은 마지막 확인상 `1bf39df19c3f2c1720cda8852b27f047c0be414a`(#715 **문서-only**). 마지막 실제 배포 증거는 **이전 #713 코드 SHA `ceb014f1ca716792e9df7eaee591cc00294aa866`**다. **운영 서버에서 #714를 실제 실행 중이라는 증거 없음.** Windows task/process/리뷰/릴리스 파일·DB 잠금/성능 측정 접근을 이번 문서 작업에서는 수행하지 않음.
+- 다음 호스트 에이전트는 [단일 실행 계약과 LAT-01~08](specs/card-history-latency-release-20261107.md)으로 기존 런타임 재확인→배포 전 익명화 응답시간·lock wait·card_query 표본→후보 정확 SHA 파일 감사·단일 writer/복구점/보호13표→공식 `deploy_verified_release.ps1` **3개 필수 인자 preview + 검증 후 -Apply**→health/ready200·보호 API401·13표 불변→동일 인증/기간 조건으로 배포 후 계측→성능 결과/미확인 별도 기록. 이미 후보 운영이면 재배포 생략.
+- **이번 변경은 문서만 기록한 것이며 배포·성능 개선 실측 완료 선언 아님.** 원본/금융/Google 처리·DB 마이그레이션/복원·운영 재시작 0.
+
 ## 2026-11-07 Kookmin 카드 등록·카드 내역 UI 운영 배포 — COMPLETE
 
 - [PR #712](https://github.com/6Soo/cost/pull/712) 병합 SHA `4611305d82156301f5ce32e46942d45de46baed4`에 국민카드 끝번호 `7881`을 안드레 전용 카드로 식별하는 규칙을 추가했다. 기존 카드 거래 행은 없었고 실제 카드/거래 DB 쓰기는 하지 않았다.
