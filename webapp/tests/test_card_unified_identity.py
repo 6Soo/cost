@@ -52,3 +52,30 @@ def test_unified_card_filter_counts_pages_undated_and_labels(card_db_path, monke
     assert "data-tx-id='TX-A-02'" in page and "data-tx-id='TX-A-01'" in next_page
     with closing(sqlite3.connect(card_db_path)) as conn:
         assert list(conn.iterdump()) == before
+
+
+def test_registered_new_card_is_selectable_without_creating_history(card_db_path):
+    with closing(sqlite3.connect(card_db_path)) as conn:
+        before = list(conn.iterdump())
+        assert conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE issuer='국민' AND card_tail='7881'"
+        ).fetchone()[0] == 0
+
+    identity = ct.card_identity('국민', '국내', '7881')
+    assert identity['card_label'] == '국민카드 · •••• 7881 안드레'
+    assert ct.card_identity('국민', '해외', '7881') == identity
+    options = ct.card_options(card_db_path)
+    assert options.count(identity) == 1
+
+    summary = ct.year_summary(card_db_path, 2026, card=identity['card_key'])
+    assert summary['months'][3] == 0
+    assert ct.list_for_month(card_db_path, 2026, 3, card=identity['card_key'])['items'] == []
+    page = cards_all.cards_all_page(
+        {'period': ['2026-03'], 'card': [identity['card_key']]}, db_path=card_db_path)
+    assert f"<option value='{identity['card_key']}' selected>" in page
+    assert identity['card_label'] in page
+    assert '0건' in page
+    assert 'data-tx-id=' not in page
+
+    with closing(sqlite3.connect(card_db_path)) as conn:
+        assert list(conn.iterdump()) == before
