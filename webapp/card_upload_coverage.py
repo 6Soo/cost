@@ -32,13 +32,16 @@ def get_coverage_summary(board, **filters):
     """
     if not available(board.conn):
         return dict(available=False, coverages=[], gaps=[], rechecks=[],
-                    cards=[], files=[], overview={})
+                    cards=[], files=[], overview={}, coverage_state='unavailable')
     store = CoverageStore(board.conn)
     result = store.summary(**filters)
     records_by_batch = {}
+    rechecks_by_batch = {}
     for evidence in store._records():
         if evidence.get('confirmed'):
             records_by_batch.setdefault(evidence['batch_id'], []).append(evidence)
+        else:
+            rechecks_by_batch.setdefault(evidence['batch_id'], []).append(evidence)
     selected = {}
     gap_lookup = {(g['card_id'], g['date_basis']): g['gaps'] for g in result['gaps']}
     for coverage in result['coverages']:
@@ -51,7 +54,10 @@ def get_coverage_summary(board, **filters):
         "SELECT b.batch_id,b.filename,b.status,b.row_count,b.error_count,b.received_at,"
         "COUNT(DISTINCT t.transaction_id),"
         "MIN(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
-        "MAX(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))) "
+        "MAX(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
+        "COUNT(DISTINCT CASE WHEN t.issuer != '' AND t.card_tail != '' "
+        "THEN t.issuer || char(31) || t.card_tail END),"
+        "MIN(NULLIF(t.issuer,'')),MIN(NULLIF(t.card_tail,'')) "
         "FROM import_batches b LEFT JOIN import_batch_rows r ON r.batch_id=b.batch_id "
         "LEFT JOIN transactions t ON t.transaction_id=r.transaction_id "
         "GROUP BY b.batch_id ORDER BY b.received_at DESC,b.batch_id DESC"
@@ -59,16 +65,26 @@ def get_coverage_summary(board, **filters):
     files, review_count = [], 0
     filtered = any(filters.get(k) for k in ('issuer', 'card_tail', 'date_basis'))
     for row in rows:
-        batch_id, filename, status, source_rows, errors, received_at, unique, first, last = row
+        (batch_id, filename, status, source_rows, errors, received_at,
+         unique, first, last, card_pairs, issuer_hint, tail_hint) = row
         evidences = records_by_batch.get(batch_id, [])
+        # Card/last-four are DISPLAY hints from linked transactions, not a
+        # shared physical-card identity or queried-period evidence.
+        single_hint = card_pairs == 1 and bool(issuer_hint and tail_hint)
         file = dict(batch_id=batch_id, filename=filename, status=status,
                     source_rows=source_rows, error_count=errors, received_at=received_at,
                     unique_transactions=unique, transaction_start=first or '',
-                    transaction_end=last or '', query_periods=[
+                    transaction_end=last or '',
+                    issuer_hint=issuer_hint if single_hint else '',
+                    card_tail_hint=tail_hint if single_hint else '',
+                    card_hint_scope='display_only' if single_hint else 'unknown',
+                    query_periods=[
                         dict(start=e['start_date'], end=e['end_date'],
                              date_basis=e['date_basis'], card_id=e['card_id'])
                         for e in evidences],
-                    coverage_status='confirmed' if evidences else 'needs_review',
+                    coverage_status=('confirmed' if evidences else
+                                     'needs_recheck' if rechecks_by_batch.get(batch_id) else
+                                     'needs_review'),
                     zero_rows=source_rows == 0)
         matched = False
         for evidence in evidences:
@@ -82,10 +98,16 @@ def get_coverage_summary(board, **filters):
                 review_count += 1
     cards = sorted(selected.values(), key=lambda c: (
         c['issuer'], c['card_tail'], c['date_basis'], c['card_id']))
-    result.update(cards=cards, files=files, overview=dict(
+    # An empty coverage set cannot prove there are zero missing intervals.
+    # State and gap_count are intentionally separate so the UI says "not yet
+    # assessable" rather than a misleading "no gaps".
+    coverage_state = ('needs_evidence' if not cards else
+                      'partial' if review_count else 'confirmed')
+    result.update(cards=cards, files=files, coverage_state=coverage_state, overview=dict(
         card_count=len({c['card_id'] for c in cards}),
         covered_bases=len(cards),
         gap_count=sum(len(c['gaps']) for c in cards),
+        gaps_assessable=bool(cards),
         files_need_review=review_count,
         file_count=len(files)))
     return result
