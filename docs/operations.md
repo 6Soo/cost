@@ -1,3 +1,11 @@
+## 2026-11-06 수입 이름 버튼 기본색 적용·참가자 제목 제거 운영 배포 — COMPLETE
+
+- [PR #706](https://github.com/6Soo/cost/pull/706), 운영 SHA `fd8a8995989ed56565f6d9b858ef132a953543e2`, 이전 `2dd1b1605eb7122ebb630d1cff4b0596f157c3bc`. 공식 `deploy_verified_release.ps1 -Apply` 단일 작성자 전환 완료.
+- 1,421 blobs 불일치0·task/process SHA 일치·Gateway8790→backend8752·health/ready200·보호API401·보호13표 불변 PASS, financial apply NOT_RUN.
+- Windows 영향 QA 498 passed·skip0·필수 브라우저 전건 실행, PR CI 42170697000 SUCCESS, main CI 42172212286 SUCCESS.
+- 배포된 릴리스에 대한 Playwright 브라우저 직접 실행 검증(4건 passed): '참가자' legend 제거 확인, `aria-label='연결할 이름'` 확인, 이름 버튼 및 선택 버튼 기본 글자색(`var(--ink)`) 및 초점 아웃라인 색상 일치 확인, `.site-action` 파란색 스타일 제외 확인.
+- 비공개 증거 `C:/AX/cost/.local-archive/insurance-name-default-color-20261106/` 및 `D:/WebLedgerHost/releases/deploy-evidence-fd8a8995989ed56565f6d9b858ef132a953543e2.json`. 실제 고객 수입 연결 쓰기·스키마 변경 없음. 문서 후속 커밋으로 재배포하지 않는다.
+
 ## 2026-11-06 수입 직접 선택·검증된 UI 묶음 코드 배포
 
 - 제품 SHA `2dd1b1605eb7122ebb630d1cff4b0596f157c3bc`를 이전 `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608`에서 공식 단일 작성자로 전환했다. PR699/700/701/702/703/704만 검토·검사 근거와 대조했으며 변경 비문서37파일의 최종 blob이 검증된 head 중 하나와 일치한다. 카드 IA 미검증 브랜치는 제외했다.
