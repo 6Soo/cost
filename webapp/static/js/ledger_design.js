@@ -140,8 +140,7 @@
    if(reason){var explanation=document.createElement('p');explanation.textContent=reason.textContent+'입니다. 가림 이름만으로 구별할 수 없어 직접 연결이 필요합니다.';content.appendChild(explanation);}
    var notice=root.querySelector('.participant-connect-notice');
    if(!form){
-    var empty=document.createElement('p');empty.textContent='연결할 보험 참가자가 없습니다. 보험 명단 상세에서 자료를 확인해 주세요.';content.appendChild(empty);
-    var link=document.createElement('a');link.href='/participants/insurance-match?'+new URLSearchParams({trip:root.dataset.trip||''});link.textContent='보험 명단 상세';content.appendChild(link);return;
+    var empty=document.createElement('p');empty.tabIndex=-1;empty.textContent='연결할 보험 참가자가 없습니다. 이 여행의 보험가입내역과 수입 자료를 확인해 주세요.';content.appendChild(empty);empty.focus();return;
    }
    var localForm=form.cloneNode(true);localForm.hidden=false;content.appendChild(localForm);
    var localStatus=document.createElement('p');localStatus.className='participant-inline-status';localStatus.setAttribute('role','status');content.appendChild(localStatus);
@@ -221,11 +220,17 @@
     }
     return;
    }
-   var candidateConnect=e.target.closest('[data-insurance-connect-ref]');
+   var candidateConnect=e.target.closest('[data-insurance-participant]');
    if(candidateConnect){
-    var targetCell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(candidateConnect.dataset.insuranceConnectRef)+'"]');
-    closeCandidates(candidateConnect.closest('.insurance-candidate-row'),false);
-    if(targetCell)choose(targetCell);
+    var candidateRow=candidateConnect.closest('.insurance-candidate-row');
+    var targetCell=candidateRow&&candidateRow.previousElementSibling.querySelector('.participant-insurance-cell');
+    if(targetCell){
+     var participantId=candidateConnect.dataset.insuranceParticipant;
+     closeCandidates(candidateRow,false);
+     var selectedForm=choose(targetCell,participantId);
+     var pick=selectedForm&&Array.from(selectedForm.querySelectorAll('[data-pick-participant]')).find(function(button){return button.dataset.pickParticipant===participantId;});
+     if(pick)selectedForm.requestSubmit(pick);
+    }
     return;
    }
    if(e.target.closest('.participant-review-retry')){loadPanel();return;}

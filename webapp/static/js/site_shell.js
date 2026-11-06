@@ -16,7 +16,7 @@
  function decorateAction(el){
   if(el.closest('#nav,[role="tablist"],.site-theme-bar')||el.matches('#btn-menu,.site-menu-toggle'))return;
   // Insurance row controls share their own sizing, icons and focus styles.
-  if(el.matches('.participant-row-connect,.participant-link-details > summary,.insurance-candidate-button'))return;
+  if(el.matches('.participant-row-connect,.participant-link-details > summary,.insurance-candidate-button,.insurance-participant-name'))return;
   // Flight disclosures own their layout and single trailing chevron.
   if(el.matches('#flight-booking-page summary'))return;
   if(el.matches('.card-all-row-toggle,.cleanup-review > summary'))return;

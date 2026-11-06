@@ -18,9 +18,9 @@ class InsuranceMatchHttpTests(unittest.TestCase):
                 for path in ('/participants/insurance-match', '/api/participants/insurance-match'):
                     loader.reset_mock()
                     code, body, headers = self.request(path, cookie=self.cookie(user) if user else None)
-                    self.assertEqual(code, expected, body)
+                    self.assertEqual(code, 410 if user == signed.OWNER and path == "/participants/insurance-match" else expected, body)
                     self.assertEqual(headers.get('Cache-Control'), 'no-store')
-                    self.assertEqual(loader.call_count, int(user == signed.OWNER))
+                    self.assertEqual(loader.call_count, int(user == signed.OWNER and path.startswith("/api/")))
                     if user != signed.OWNER:
                         self.assertNotIn('private-ref-1', body)
                         self.assertNotIn('김*람', body)
@@ -34,5 +34,5 @@ class InsuranceMatchHttpTests(unittest.TestCase):
         with patch('webapp.insurance_income_match_service.build_state', side_effect=OSError('private.pdf')):
             for path in ('/participants/insurance-match', '/api/participants/insurance-match'):
                 code, body, _ = self.request(path, cookie=self.cookie(signed.OWNER))
-                self.assertEqual(code, 503)
+                self.assertEqual(code, 503 if path.startswith("/api/") else 410)
                 self.assertNotIn('private.pdf', body)

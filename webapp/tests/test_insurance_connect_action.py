@@ -47,7 +47,7 @@ def test_no_selectable_roster_keeps_action_and_explains_missing_form_without_inv
     assert 'data-connect-income' in body
     assert 'participant-connect-notice' in body
     assert "class='participant-keyboard-link'" not in body
-    assert '보험 명단 상세' in body
+    assert '/participants/insurance-match' not in body
 
 
 def test_initial_income_cell_uses_same_action_and_refund_stays_status_only():
@@ -77,7 +77,7 @@ def test_ambiguous_confirmed_masked_people_explain_why_auto_connection_is_blocke
     assert state == before
 
 
-def test_inline_connection_toggles_and_submits_only_its_own_income_after_confirmation():
+def test_inline_connection_toggles_and_name_submits_only_its_own_income():
     from playwright.sync_api import sync_playwright
     from webapp import ledger_design_assets
     state = sample_state(2)
@@ -104,26 +104,24 @@ def test_inline_connection_toggles_and_submits_only_its_own_income_after_confirm
             # Lazy loading from the row must keep the separate panel closed.
             page.locator('[data-connect-income]').first.click()
             inline = page.locator('.insurance-candidate-row')
-            inline.locator('select').wait_for()
+            inline.locator('[data-pick-participant]').first.wait_for()
             assert not page.locator('#participant-trip-panel').evaluate('(node)=>node.open')
             assert inline.locator('td').get_attribute('colspan') == '2'
-            assert inline.locator('button[type=submit]').bounding_box()['height'] >= 44
+            assert inline.locator('button[type=submit]').first.bounding_box()['height'] >= 44
+            assert inline.locator('select').count() == 0
             assert inline.locator('[name=income_ref]').input_value() == state['income_rows'][0]['ref']
             page.locator('[data-connect-income]').nth(1).click()
             assert inline.count() == 2
             assert len(set(inline.evaluate_all('(rows)=>rows.map(row=>row.id)'))) == 2
-            inline.nth(1).locator('select').press('Escape')
+            inline.nth(1).locator('[data-pick-participant]').first.press('Escape')
             assert inline.count() == 1
             assert page.locator('[data-connect-income]').nth(1).evaluate('(node)=>node===document.activeElement')
-            inline.locator('select').select_option('person-0')
-            inline.locator('button[type=submit]').click()
-            page.locator('#participant-link-confirm button[value=cancel]').click()
             assert writes == []
-            inline.locator('button[type=submit]').click()
-            page.locator('#participant-link-confirm button[value=confirm]').click()
+            inline.locator('[data-pick-participant="person-0"]').click()
             page.wait_for_function("document.querySelector('.participant-inline-status').textContent.includes('자료가 변경')")
             from urllib.parse import parse_qs
             saved = parse_qs(writes[0])
+            assert len(writes) == 1 and page.locator('dialog[open]').count() == 0
             assert saved['income_ref'] == [state['income_rows'][0]['ref']]
             assert saved['csrf'] == ['synthetic-csrf']
             assert saved['input_fingerprint'] == ['synthetic-fingerprint']
