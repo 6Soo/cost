@@ -2684,7 +2684,7 @@ class Handler(BaseHTTPRequestHandler):
             return True
         # These endpoints own raw file bytes, not JSON or form data. Check
         # capability before dispatch; their upload handlers still enforce CSRF.
-        if path in ('/api/receipts/image', '/api/imports', '/api/imports/upload-batch'):
+        if path in ('/api/receipts/image', '/api/receipts/pdf', '/api/imports', '/api/imports/upload-batch'):
             if not is_owner_session(session):
                 deny_for_viewer(action=True)
             return False
