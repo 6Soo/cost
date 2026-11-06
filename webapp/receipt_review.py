@@ -1400,7 +1400,7 @@ button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
 .photo-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(148px,100%),1fr));gap:10px;margin-top:10px}
 .photo{border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--paper);display:flex;flex-direction:column;gap:4px;min-width:0}
 .photo>button[data-image-sha]{padding:0;border:0;min-height:0;width:100%;background:none}
-#selected-files:empty{display:none}#selected-files li,#upload-results p{overflow-wrap:anywhere}
+#selected-files:empty{display:none}#selected-files li,#upload-results p,.receipt-saved-files li{overflow-wrap:anywhere}
 .photo img{width:100%;height:auto;border-radius:6px;display:block}
 #manual-preview{display:block;max-width:100%;max-height:300px;object-fit:contain;margin:8px 0}#manual-preview[hidden]{display:none}
 .photo button[aria-pressed=true] img{outline:2px solid var(--grn-dk);outline-offset:2px}
@@ -1653,7 +1653,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             f"<button type='button' id='img-go' disabled>{ui_icons.icon('upload')}등록 및 확인</button></div>"
             "<ul id='selected-files' aria-label='선택한 파일'></ul>"
             "<div id='upload-results' aria-live='polite'></div>"
-            + ("<section aria-label='저장된 파일'><h3>저장된 파일</h3><ul>" + ''.join(uploaded_results) + "</ul></section>" if uploaded_results else "")
+            + ("<section class='receipt-saved-files' aria-label='저장된 파일'><h3>저장된 파일</h3><ul>" + ''.join(uploaded_results) + "</ul></section>" if uploaded_results else "")
             + (f"<details><summary>저장된 PDF 원본 {len(data.get('pdfs', []))}건</summary><ul>{pdf_results}</ul></details>" if pdf_results else "") +
             f"<input type='hidden' id='image-sha' value='{latest}'>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"

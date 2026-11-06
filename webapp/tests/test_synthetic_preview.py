@@ -11,6 +11,44 @@ from webapp import google_ledger_page, ledger_board
 from webapp.tests.test_receipt_review import PNG
 
 
+def test_saved_receipt_filename_reflows_after_upload_and_reload():
+    """A saved filename remains readable at mobile width and enlarged text."""
+    name = 'synthetic_trip_20270803_receipt_' + '1234567890' * 13 + '.png'
+    with preview_server() as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with sync_playwright() as api:
+                browser = api.chromium.launch()
+                try:
+                    page = browser.new_page(viewport={'width': 320, 'height': 900})
+                    base = f'http://127.0.0.1:{server.server_address[1]}'
+                    page.goto(base + '/preview')
+                    page.goto(base + '/receipts')
+                    page.locator('#selected-trip').select_option(index=1)
+                    page.locator('#img-file').set_input_files(
+                        dict(name=name, mimeType='image/png', buffer=PNG))
+                    page.locator('#img-go').click()
+                    page.locator('#upload-results').get_by_text(name + ' · 원본 저장됨', exact=False).wait_for()
+                    page.reload()
+                    stored = page.locator('section[aria-label="저장된 파일"] > ul > li').first
+                    assert name in stored.inner_text()
+                    for theme in ('light', 'dark'):
+                        if page.locator('html').get_attribute('data-theme') != theme:
+                            page.locator('#site-theme-toggle').click()
+                        for width, zoom in ((320, '100%'), (640, '200%')):
+                            page.set_viewport_size({'width': width, 'height': 900})
+                            page.evaluate('(zoom)=>document.documentElement.style.zoom=zoom', zoom)
+                            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                            assert stored.evaluate('(el)=>el.scrollWidth <= el.clientWidth + 1')
+                    assert page.request.get(base + '/api/receipts').json()['uploads'][0]['name'] == name
+                finally:
+                    browser.close()
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+
 def test_preview_completes_card_and_manual_receipt_without_operational_files():
     with tempfile.TemporaryDirectory() as directory:
         original_db = Path(directory) / 'do-not-open.sqlite'
