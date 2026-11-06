@@ -1,5 +1,8 @@
 # COST GitHub Actions 최소 테스트 범위·분당 사용량 절감 계약 (2026-11-06)
 
+> **2026-11-06 최신 정정(이전 'CI_ONLY_PR_PENDING'보다 우선): CODE_MERGED, CI_PASS, BILLABLE_EFFECT_UNVERIFIED.** [#710](https://github.com/6Soo/cost/pull/710) main `dd2c8bea24a31b44d5144fabd10d0d6ceab0ec50` 및 Actions 42227886027 SUCCESS. 실제 `.github/workflows/quality.yml`에는 주 1회 월요일 03:30 UTC 감사, PR merge-tree 기준 검사, main 동일 tree/증거 artifact 기반 재사용·실패 시 영향 테스트 fallback, docs-only 패키지/Chromium/artifact 절감, PR만 취소/main 보존이 **구현됨**. 기존 상단 'CI_ONLY_PR_PENDING' 문장은 병합 전 기록. 이전 기획 프롬프트 재실행 금지. 계정 과금 데이터 권한 부족으로 7/30일 실제 청구분 절감률은 아직 미확인. [후속 구현 범위 정본](cost-pr-only-implementation-brief-20261106.md#6-ci-710-구현-상태-남은-일과-잘못된-재작업-방지).
+
+
 > **2026-11-06 구현 상태: CI_ONLY_PR_PENDING.** PR #709의 문서 결정에 따라 workflow를 수정했다: 주간 audit, PR에서 GitHub merge-branch tree 검사, 동일 tree·실제 PR artifact·0 skip 증거가 확인될 때만 main의 중복 테스트 재사용, 불일치·만료·API 실패 시 기존 영향 검사 실행, 문서 전용 성공 시 패키지/Chromium 설치와 artifact 업로드 생략. PR만 취소하고 main/schedule/manual 검사는 서로 취소하지 않는다. 최종 Actions 절감률은 저장소별 billable minutes API가 404여서 아직 측정할 수 없다. CI 전용 변경이며 운영 Windows 호스트·금융 DB·Google은 건드리지 않는다.
 
 
