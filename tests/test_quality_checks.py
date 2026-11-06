@@ -145,7 +145,7 @@ def test_browser_modules_require_every_test_even_when_playwright_is_in_helpers()
                "webapp/tests/test_expense_copy_states.py", "webapp/tests/test_card_catalog_browser.py"]
     cases = quality.collect_browser_tests(targets)
     expected = {
-        "webapp.tests.test_card_flow_browser::CardFlowBrowserTests::test_cleanup_filters_save_stale_empty_and_responsive_browser_contract",
+        "webapp.tests.test_card_flow_browser::CardFlowBrowserTests::test_legacy_cleanup_links_migrate_to_actions_and_history",
         "webapp.tests.test_site_shell_browser::SiteShellBrowserTests::test_theme_keyboard_motion_and_responsive_contract",
         "webapp.tests.test_expense_copy_states::test_integrated_labels_escape_source_text_and_are_visible_on_mobile",
         "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click",
