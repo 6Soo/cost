@@ -257,6 +257,14 @@ CARD_ALL_STYLE = """
 .card-all-page .card-coverage-file p{margin:4px 0}
 .card-all-page .card-coverage-empty{padding:14px;border:1px dashed var(--ca-border);border-radius:8px}
 .card-all-page .card-coverage-pending{margin-top:14px}
+.card-all-page .card-coverage-guidance{margin:8px 0 12px;padding:10px 12px;border-inline-start:3px solid var(--ca-accent);background:var(--ca-soft);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.card-all-page .card-coverage-review{margin-top:16px;border-top:1px solid var(--ca-border);padding-top:12px}
+.card-all-page .card-coverage-review>h3{margin:0 0 6px;font-size:15px}
+.card-all-page .card-coverage-review>.card-workspace-muted{margin:0 0 8px}
+.card-all-page .card-coverage-review>.card-coverage-files{margin-top:0;padding:0 0 2px}
+.card-all-page .card-coverage-file-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+.card-all-page .card-coverage-file-actions .card-upload-result-link{white-space:normal}
+
 .card-all-page .card-linked-transaction{margin:0 0 12px;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
 .card-all-page .card-linked-transaction[hidden]{display:none}
 .card-all-page .card-linked-transaction-content{min-width:0;overflow-wrap:anywhere}
