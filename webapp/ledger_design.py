@@ -1282,7 +1282,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     from .expense_amount_group_service import sort_for_display
     if amount_groups is not None and not amount_groups.get('available'):
         amount_groups = None
-    expenses = sort_for_display(expenses, amount_groups)
+    expenses = _group_expenses_for_display(sort_for_display(expenses, amount_groups))
     enabled = amount_groups is not None
     extra_col = "<col class='gemn-desktop gemn-column'>" if enabled else ''
     extra_header = gemn.header_cell() if enabled else ''
@@ -1327,6 +1327,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
                   move_back="/board", match_annotations=None) -> str:
+    expenses = _group_expenses_for_display(expenses)
     match_annotations = match_annotations or {}
     def item(row, is_expense=False):
         rid = row["row_id"]
@@ -1671,6 +1672,27 @@ def _sort_expenses_for_display(rows: list) -> list:
     """화면 날짜 오름차순. 같은 날짜에는 기존 분류 순서를 유지한다."""
     return sorted(rows, key=lambda r: (not bool(r.get('occurred_on')), r.get('occurred_on') or '',
                                       _expense_category_rank(r.get("item"))))
+
+
+def _group_expenses_for_display(rows: list) -> list:
+    """Airfare, lodging by service start, then the rest; never reorder copy data."""
+    from datetime import date, timedelta
+
+    def key(row):
+        rank = min(_expense_category_rank(row.get('item')), 2)
+        start_on = ''
+        if rank == 1:
+            match = _STAY_PATTERN.fullmatch(_stay_period(row))
+            if match:
+                try:
+                    start, end = (date.fromisoformat(value) for value in match.groups())
+                    if start <= end <= start + timedelta(days=_MAX_STAY_DAYS):
+                        start_on = start.isoformat()
+                except ValueError:
+                    pass
+        return rank, not bool(start_on), start_on
+
+    return sorted(rows, key=key)
 
 
 def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
