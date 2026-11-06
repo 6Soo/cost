@@ -74,13 +74,18 @@ def context(tmp_path, monkeypatch):
         board.close()
 
 
-def test_existing_full_refund_is_actionable_inline_but_get_remains_read_only(context):
+def test_refund_group_is_read_only_inline_and_guarded_api_remains_available(context):
     board, original, refund, unrelated = context
     start = list(board.conn.iterdump())
     html = card_flow.render_expense_cleanup(board, "synthetic-csrf")
-    assert f"data-original='{original}'" in html
-    assert "원결제·환불 묶음 기록" in html
-    assert "전액 상쇄" not in html
+    assert "\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74" in html
+    assert "cleanup-refund-action" not in html
+    assert "data-original=" not in html
+    assert "\uc6d0\uacb0\uc81c\u00b7\ud658\ubd88 \ubb36\uc74c \uae30\ub85d" not in html
+    for member in (original, refund):
+        row = html.split(f"data-transaction='{member}'", 1)[1].split("</li>", 1)[0]
+        assert "<form" not in row
+        assert "\ubcc0\uacbd \uc800\uc7a5" not in row
     assert list(board.conn.iterdump()) == start
     status, preview = _post(board, original, "preview")
     assert status == 200
@@ -107,7 +112,7 @@ def test_existing_full_refund_is_actionable_inline_but_get_remains_read_only(con
     assert f"data-transaction='{refund}'" not in again
 
 
-def test_inline_apply_retry_is_idempotent(context):
+def test_guarded_refund_apply_retry_is_idempotent(context):
     board, original, refund, _ = context
     _, preview = _post(board, original, "preview")
     request = {"digest": preview["digest"], "request_id": "owner-retry-request-001"}
@@ -125,7 +130,7 @@ def test_inline_apply_retry_is_idempotent(context):
 
 
 @pytest.mark.parametrize('booked_side', ['original', 'refund'])
-def test_inline_completes_only_missing_side_of_recorded_group(context, monkeypatch, booked_side):
+def test_guarded_apply_completes_only_missing_side_of_recorded_group(context, monkeypatch, booked_side):
     board, original, refund, unrelated = context
     recorded = original if booked_side == 'original' else refund
     board.conn.execute(
@@ -148,7 +153,7 @@ def test_inline_completes_only_missing_side_of_recorded_group(context, monkeypat
     assert board.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (unrelated,)).fetchone() is None
 
 
-def test_inline_keeps_legacy_projection_without_ledger_blocked(context, monkeypatch):
+def test_guarded_preview_keeps_legacy_projection_without_ledger_blocked(context, monkeypatch):
     board, original, refund, _ = context
     monkeypatch.setattr(CardFlow, '_already_projected',
                         lambda self, source, entry, *a: entry['transaction_id'] == original)
@@ -157,7 +162,7 @@ def test_inline_keeps_legacy_projection_without_ledger_blocked(context, monkeypa
     assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
 
 
-def test_inline_apply_same_request_id_with_changed_digest_conflicts(context):
+def test_guarded_apply_same_request_id_with_changed_digest_conflicts(context):
     board, original, _, _ = context
     _, preview = _post(board, original, "preview")
     first = {"digest": preview["digest"], "request_id": "owner-scope-conflict-001"}
@@ -168,7 +173,7 @@ def test_inline_apply_same_request_id_with_changed_digest_conflicts(context):
     assert result["code"] == "REQUEST_ID_REUSED"
 
 
-def test_inline_apply_new_request_id_replays_without_duplicate_financial_writes(context):
+def test_guarded_apply_new_request_id_replays_without_duplicate_financial_writes(context):
     board, original, _, _ = context
     _, preview = _post(board, original, "preview")
     assert _post(
@@ -185,7 +190,7 @@ def test_inline_apply_new_request_id_replays_without_duplicate_financial_writes(
     assert {table: board.conn.execute('SELECT * FROM ' + table).fetchall() for table in tables} == before
 
 
-def test_inline_apply_rolls_back_partial_write_failure(context, monkeypatch):
+def test_guarded_apply_rolls_back_partial_write_failure(context, monkeypatch):
     board, original, refund, _ = context
     _, preview = _post(board, original, "preview")
     before = list(board.conn.iterdump())
@@ -230,7 +235,7 @@ def test_unconfirmed_group_cannot_commit_and_requires_token(context, monkeypatch
 
 
 @pytest.mark.parametrize("scenario", ["unmatched", "manual_hold", "over_refund"])
-def test_refund_money_guards_still_block_inline_action(context, scenario):
+def test_refund_money_guards_still_block_guarded_action(context, scenario):
     board, original, refund, unrelated = context
     if scenario == "unmatched":
         board.conn.execute(

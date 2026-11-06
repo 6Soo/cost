@@ -1,5 +1,6 @@
-"""Same complete HTML and read-only state, with fewer repeated SQL reads."""
+"""Same read-only state and row population, with fewer repeated SQL reads."""
 import ast
+import re
 import subprocess
 
 import pytest
@@ -18,7 +19,22 @@ def baseline_renderer():
     # accidentally exercise the new aggregation on both sides.
     names = {'render_expense_cleanup', '_cleanup_counts'}
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
+    from types import SimpleNamespace
+    from webapp import card_actions
     namespace = dict(vars(card_flow))
+    namespace["REASON_LABELS"] = {**card_actions.REASON_LABELS, "manual": "Synthetic manual"}
+    for node in nodes:
+        node.body = [child for child in node.body if not (
+            isinstance(child, ast.ImportFrom) and child.level == 1 and child.module == "card_cleanup_ui")]
+        for child in ast.walk(node):
+            if isinstance(child, ast.ImportFrom) and child.module == "card_actions":
+                child.names = [alias for alias in child.names if alias.name != "REASON_LABELS"]
+    legacy_ui = SimpleNamespace(**vars(card_flow.card_cleanup_ui))
+    render_section = legacy_ui.render_cleanup_section
+    def render_legacy_section(**kwargs):
+        return render_section(action_summary_html="", diagnostics_open=True, **kwargs)
+    legacy_ui.render_cleanup_section = render_legacy_section
+    namespace["card_cleanup_ui"] = legacy_ui
     exec(compile(ast.Module(body=nodes, type_ignores=[]), '<baseline-cleanup>', 'exec'), namespace)
     return namespace['render_expense_cleanup']
 
@@ -58,7 +74,7 @@ def render_with_queries(renderer, board, **options):
 
 @pytest.mark.parametrize('reason,page', [('all', 1), ('all', 2), ('all', 3), ('classification', 1),
                                        ('evidence', 1), ('finance', 1), ('manual', 2), ('invalid', 1)])
-def test_cleanup_html_and_financial_state_equal_baseline_with_fewer_reads(population, reason, page):
+def test_cleanup_keeps_financial_state_and_row_population_with_fewer_reads(population, reason, page):
     board = population
     tables = [r[0] for r in board.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
     def snapshot():
@@ -66,6 +82,9 @@ def test_cleanup_html_and_financial_state_equal_baseline_with_fewer_reads(popula
     before = snapshot()
     previous, old_queries = render_with_queries(baseline_renderer(), board, reason=reason, page=page)
     actual, new_queries = render_with_queries(card_flow.render_expense_cleanup, board, reason=reason, page=page)
-    assert actual == previous
+    assert re.findall(r"data-transaction='([^']+)'", actual) == re.findall(r"data-transaction='([^']+)'", previous)
+    assert "\uac70\ub798\u00b7\uc7a5\ubd80 \uc0c1\ud0dc \uc0c1\uc138" in actual
+    assert "\uc0ac\uc6a9\uc790 \uc694\uccad \uc544\ub2d8" in actual
+    assert "\ucc98\ub9ac \ud544\uc694\ud55c \uac70\ub798" not in actual
     assert snapshot() == before
     assert len(new_queries) < len(old_queries)

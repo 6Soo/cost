@@ -445,7 +445,7 @@ def test_cleanup_counts_all_cards_but_renders_only_one_page(tmp_path, monkeypatc
         assert cleanup_total(board) == 301
         html = render_expense_cleanup(board, 'token')
         assert html.count("class='cleanup-row'") == 20
-        assert "id='cleanup-count' data-total='301'>301건" in html
+        assert "\uac70\ub798\u00b7\uc7a5\ubd80 \uc0c1\ud0dc \uc0c1\uc138 \u00b7 301\uac74 \u00b7 \uc0ac\uc6a9\uc790 \uc694\uccad \uc544\ub2d8" in html
         assert '다음 20건' in html
     finally:
         ledger_board.bind_store(None)
@@ -534,7 +534,7 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
         first = first.split("</li>", 1)[0]
         held = html.split(f"data-transaction='{protected['transaction_id']}'", 1)[1]
         held = held.split("</li>", 1)[0]
-        assert '처리 필요 · 분류·배정 필요' in first and "class='cleanup-badge'" in first
+        assert '\ubd84\ub958 \uc0c1\ud0dc' in first and "class='cleanup-badge'" in first
         assert 'AI에게 처리 방법 알려주기' not in first
         assert '이 지시로 규칙 제안하기' not in first
         assert '근거 보기' in first and '여행·항목 수정' in first and '변경 저장' in first
@@ -583,11 +583,15 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         }
         assert cleanup_total(board) == 5
         html = render_expense_cleanup(board, 'token')
-        assert '처리 필요한 거래 <span id=\'cleanup-count\' data-total=\'5\'>5건' in html
-        assert '분류·배정 필요 3건' in html
-        assert '기록 상태 확인 1건' in html
-        assert '기록 대기' not in html
-        assert '근거 충돌 1건' in html
+        assert '\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74' in html
+        assert '\uac70\ub798\u00b7\uc7a5\ubd80 \uc0c1\ud0dc \uc0c1\uc138 \u00b7 5\uac74 \u00b7 \uc0ac\uc6a9\uc790 \uc694\uccad \uc544\ub2d8' in html
+        assert "<details class='cleanup-diagnostics'>" in html
+        assert "cleanup_reason=classification#expense-cleanup'>분류 상태 <span class='cleanup-filter-count'>3건</span>" in html
+        assert "cleanup_reason=recording#expense-cleanup'>내부 기록 상태 <span class='cleanup-filter-count'>1건</span>" in html
+        assert "cleanup_reason=evidence#expense-cleanup'>원본·보호 상태 <span class='cleanup-filter-count'>1건</span>" in html
+        assert '\ucc98\ub9ac \ud544\uc694\ud55c \uac70\ub798' not in html
+        assert '\ubd84\ub958\u00b7\ubc30\uc815 \ud544\uc694 3\uac74' not in html
+        assert '\uae30\ub85d \ub300\uae30' not in html
         assert '사용자 보류 0건' not in html
     finally:
         ledger_board.bind_store(None)

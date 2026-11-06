@@ -2224,7 +2224,9 @@ class Handler(BaseHTTPRequestHandler):
         """
         token = _REQUEST_STORE.set(getattr(self.server, "card_store", None))
         try:
-            super().handle_one_request()
+            from . import user_action_queue
+            with user_action_queue.request_snapshot_scope():
+                super().handle_one_request()
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             self.close_connection = True
         finally:
@@ -3462,8 +3464,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send("<h1>저장소를 사용할 수 없어요</h1>", code=503)
                 return
             from . import user_action_queue
-            self._send(user_action_queue.render(store.conn, CSRF_TOKEN,
-                                                answered=(query.get('answered', [''])[0] == '1')))
+            try:
+                action_snapshot = user_action_queue.open_snapshot(store.conn)
+            except user_action_queue.QueueReadUnavailable:
+                self._send(user_action_queue.render_unavailable(), code=503)
+                return
+            self._send(user_action_queue.render(
+                store.conn, CSRF_TOKEN,
+                answered=(query.get('answered', [''])[0] == '1'),
+                snapshot=action_snapshot,
+            ))
             return
         from . import google_ledger_page as _gl
         from . import google_ledger_actions as _gla

@@ -2119,7 +2119,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                     cleanup_page = int(raw_page) if raw_page.isdigit() and len(raw_page) <= 7 else 1
                 except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
-                cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
+                cleanup = render_expense_cleanup(
+                    board, csrf, page=cleanup_page, reason=cleanup_reason,
+                    diagnostics_open=bool((query or {}).get('cleanup_reason') or
+                                          (query or {}).get('cleanup_page')),
+                )
                 body = body.replace('<!--EXPENSE_CLEANUP-->', cleanup, 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
@@ -2312,32 +2316,6 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
     if(!response.ok)throw Error(result.message||'저장하지 못했어요');
     location.reload();
   }catch(err){button.disabled=false;error.textContent=err.message}
-}));
-document.querySelectorAll('#expense-cleanup .cleanup-refund-action').forEach(button=>button.addEventListener('click',async()=>{
-  const tool=button.closest('.cleanup-refund-tool'),message=tool.querySelector('.cleanup-refund-status');
-  const base='/api/maintenance/refund-pair/'+encodeURIComponent(button.dataset.original);
-  const post=async (action,payload)=>{
-    const response=await fetch(base+'/'+action,{method:'POST',
-      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
-      body:JSON.stringify(payload),cache:'no-store'});
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw Error(data.message||data.code||'환불 묶음을 처리하지 못했어요');
-    return data;
-  };
-  button.disabled=true;message.textContent='이 원결제·취소 묶음의 금융 보호 조건을 확인하고 있어요.';
-  try{
-    const preview=await post('preview',{});
-    if(!preview.recordable)throw Error(preview.message||preview.reason||'기록할 수 없는 묶음입니다');
-    message.textContent=preview.members+'건 중 '+preview.to_book+'건 기록 가능 · 순액 '+preview.net_krw.toLocaleString()+'원';
-    if(!window.confirm('원결제·취소 '+preview.members+'건의 순액 '
-         +preview.net_krw.toLocaleString()+'원을 확인했어. 미기록 '
-         +preview.to_book+'건을 함께 장부에 기록할까? 실제 카드사 환급 완료 판단과는 별개야.')){
-      button.disabled=false;return;
-    }
-    const result=await post('apply',{digest:preview.digest,request_id:crypto.randomUUID().replace(/-/g,'')});
-    message.textContent=result.message||'처리했습니다. 목록을 새로 불러옵니다.';
-    window.location.reload();
-  }catch(error){button.disabled=false;message.textContent=error.message||'기록 처리 중 오류가 발생했어요';}
 }));
 })();"""
 
@@ -2905,11 +2883,16 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
 
 @read_scope.scoped
 @refund_read_only_scope()
-def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
-    """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
+def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', diagnostics_open=False):
+    """Render the shared action count and a collapsible transaction-status detail."""
     from . import ledger_board, ota_catalog
     if ledger_board.current_role() != 'owner':
         return ''
+    from . import user_action_queue
+    try:
+        action_snapshot = user_action_queue.open_snapshot(board.conn)
+    except user_action_queue.QueueReadUnavailable:
+        action_snapshot = None
     esc = ledger_board.esc
     flow = CardFlow(board)
     from functools import cache
@@ -2994,7 +2977,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
         'SELECT transaction_id,classification_basis FROM transactions WHERE transaction_id IN (' +
         ','.join('?' for _ in inference_ids) + ')', inference_ids)) if inference_ids else {})
     from app.review_holds import active_holds
-    from .card_actions import reason_category, REASON_LABELS
+    from .card_actions import reason_category
     from app.classification_provenance import label as provenance_label
     cleanup_holds = active_holds(board.conn)
 
@@ -3040,7 +3023,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
             blocked = preview_row.get('blocked')
             blocked_labels = {
                 'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
-                'refund_pair_incomplete': '기록 보류: 원결제와 환불을 함께 확인해야 합니다.',
+                'refund_pair_incomplete': '원결제·환불 그룹 근거가 완성되지 않아 COST 내부 기록을 보류합니다.',
                 'refund_inferred': '기록 보류: 원결제 추론 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
                 'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
@@ -3056,6 +3039,11 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
             if (blocked == 'review_hold' and not held
                     and preview_row.get('reason') == '비용 항목과 배정 내용을 확인해 주세요.'):
                 finance_label = '여행·항목을 확인하고 변경 저장을 눌러 주세요.'
+            if (tid in cancellation_ids
+                    and finance_label == '여행·항목을 확인하고 변경 저장을 눌러 주세요.'):
+                # A linked refund row is read-only here; do not carry the
+                # purchase-side edit prompt into its financial status text.
+                finance_label = '금융 관계 원행은 이 목록에서 여행·항목을 변경하지 않습니다.'
             if blocked:
                 reason = finance_label
         elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):
@@ -3087,15 +3075,15 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
         if tid in cancellation_ids:
             link = refund_by_id.get(tid)
             if link is None:
-                reason = '취소 거래의 원결제 연결을 확인할 수 없습니다. 원결제와 함께 확인하기 전에는 기록하지 않습니다.'
+                reason = '취소 원행에 연결된 원결제 근거가 없어 금융 연결 상태를 확인할 수 없습니다.'
             else:
                 status = link.get('status')
                 if link.get('inferred'):
                     reason = '원결제 추론 연결. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
                 elif status == 'full':
-                    reason = '취소·환불 금액을 원결제와 함께 기록해야 합니다.'
+                    reason = '원결제와 전액 취소·환불 관계가 연결되어 있습니다. 내부 기록 상태는 별도 표시입니다.'
                 elif status == 'partial':
-                    reason = f'일부 환불이 확인됐습니다. 남은 금액 {link.get("net_krw")}원을 함께 확인해야 합니다.'
+                    reason = f'부분 환불 {link.get("refund_count", 0)}건 연결 · 현재 순액 {link.get("net_krw")}원. 실제 카드 환급 여부는 별도입니다.'
                 elif status == 'excess':
                     reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록을 보류합니다.'
                 else:
@@ -3105,33 +3093,40 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
                 evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
             if preview_row and preview_row.get('blocked'):
                 reason += ' ' + finance_label
-        # The renderer owns cancellation > conflict > hold > edit precedence.
-        review = card_cleanup_ui.render_cleanup_card_review(
-            detail=detail, is_cancellation=tid in cancellation_ids,
-            evidence=evidence, conflict_reason=conflict_reason,
-            parse_error=parse_error, held=held, reason=reason, item=item, esc=esc)
-        protected = bool(held or conflict_reason or parse_error)
-        label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
-                 '취소·환불 확인' if tid in cancellation_ids else
-                 '검토 중' if held else '분류 필요' if not item else
-                 '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '내부 기록 상태 확인')
-        if not protected and tid not in cancellation_ids and tid in original_refunds:
-            offset_link = original_refunds[tid][0][1]
-            if offset_link.get('inferred'):
-                label = '환불 추론 연결 · 기록 보류'
-            elif preview_row and preview_row.get('blocked'):
-                label = '기록 보류'
-            elif offset_link.get('status') == 'full':
-                label = '환불 상쇄 확인'
-            if label not in reason:
-                reason = label + ' · ' + reason
+        elif tid in original_refunds and original_refunds[tid]:
+            # Keep the purchase-side refund relationship visible after removing
+            # duplicate refund-group actions from this diagnostic list.
+            linked_refunds = original_refunds[tid]
+            link = linked_refunds[0][1]
+            refund_count = int(link.get('refund_count') or len(linked_refunds))
+            if link.get('inferred'):
+                reason = (f'원결제 추론 연결 · 취소·환불 {refund_count}건. '
+                          '별도 근거 검증 전 장부 기록 보류 · 실제 카드 환급 완료 아님.')
+            elif link.get('status') == 'full' and link.get('net_krw') == 0:
+                reason = (f'환불 상쇄 확인 · 원승인번호 기준 원결제 확정 연결 · 취소·환불 {refund_count}건. '
+                          '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
+            elif link.get('status') == 'partial':
+                reason = (f'부분 환불 연결 {refund_count}건 · 현재 순액 {link.get("net_krw")}원. '
+                          '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
+            elif link.get('status') == 'excess':
+                reason = (f'환불 합계가 원결제를 넘어 금액 충돌이 있습니다 · 연결 {refund_count}건. '
+                          '쌍 전체 내부 기록을 보류합니다.')
+        # Keep financial, cancellation and evidence rows read-only in this detail.
         category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
             item=item, display_tab_id=current_tab,
             transaction_direction='cancellation' if tid in cancellation_ids else 'purchase',
             review_hold=cleanup_holds.get(tid)),
             dict(preview_row or {}, **({'refund_link': original_refunds[tid][0][1]} if tid in original_refunds else {})))
-        # Keep the editor and actionable reason visible; only evidence collapses.
-        label = '처리 필요 · ' + REASON_LABELS[category]
+        finance_related = (category == 'finance' or tid in cancellation_ids or tid in original_refunds)
+        review = card_cleanup_ui.render_cleanup_card_review(
+            detail=detail, is_cancellation=tid in cancellation_ids,
+            evidence=evidence, conflict_reason=conflict_reason,
+            parse_error=parse_error, held=held, finance_related=finance_related,
+            reason=reason, item=item, esc=esc)
+        protected = bool(held or conflict_reason or parse_error)
+        # The disclosure is a transaction diagnostic, not a second human task list.
+        label = {'classification': '분류 상태', 'recording': '내부 기록 상태',
+                 'evidence': '원본·보호 상태', 'finance': '금융 관계 상태'}[category]
         if item:
             label += ' · ' + provenance_label({'classification_source': source})
         card_row = card_cleanup_ui.CleanupCardRow(
@@ -3194,26 +3189,34 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
                      if page < pages else '<span>다음 20건</span>')
         nav = (f"<nav class='cleanup-pages'><p class='muted'>{total}건 중 {min((page-1)*20+1,total)}~{min(page*20,total)}건 · {page}/{pages}페이지</p>"
                f"{previous} · {following}</nav>")
-    labels = [('all', '전체', counts['all'])] + [(key, REASON_LABELS[key], counts.get(key, 0))
-              for key in ('classification', 'recording', 'evidence', 'finance')]
+    diagnostic_labels = {
+        'classification': '분류 상태', 'recording': '내부 기록 상태',
+        'evidence': '원본·보호 상태', 'finance': '금융 관계 상태',
+    }
+    labels = [('all', '전체 거래·장부 행', counts['all'])] + [
+        (key, diagnostic_labels[key], counts.get(key, 0))
+        for key in ('classification', 'recording', 'evidence', 'finance')]
     chips = []
     for key, label, count in labels:
         if not count and key not in ('all', selected_reason):
             continue
-        query_part = ('' if key == 'all' else '?cleanup_reason=' + key)
+        query_part = '?cleanup_reason=' + key
         current = " aria-current='page'" if key == selected_reason else ''
-        chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} {count:,}건</a>")
-    breakdown = (f"<p class='cleanup-filter-total'>{esc(dict((key, label) for key, label, _ in labels).get(selected_reason, '전체'))} "
+        chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} "
+                     f"<span class='cleanup-filter-count'>{count:,}건</span></a>")
+    breakdown = (f"<p class='cleanup-filter-total'>{esc(dict((key, label) for key, label, _ in labels).get(selected_reason, '전체 거래·장부 행'))} "
                  f"{total:,}건 중 {min((page-1)*20+1,total) if total else 0}~{min(page*20,total)}건 표시</p>"
-                 + "<nav class='cleanup-breakdown' aria-label='지출 정리 상태 필터'>" + ''.join(chips) + '</nav>')
+                 + "<nav class='cleanup-breakdown' aria-label='거래·장부 상태 필터'>" + ''.join(chips) + '</nav>')
     if pages == 1 and selected_reason == 'all' and selected_owner == 'all':
         breakdown = breakdown[breakdown.index("<nav"):]
     if total == 0:
         empty_labels = dict((key, label) for key, label, _ in labels)
-        body = f"<li class='muted'>{empty_labels.get(selected_reason, '지출')} 거래가 없습니다.</li>"
+        body = f"<li class='muted'>{esc(empty_labels.get(selected_reason, '거래·장부 행'))}에 해당하는 항목이 없습니다.</li>"
     script_html = CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))
     return card_cleanup_ui.render_cleanup_section(
         total=all_total,
+        action_summary_html=user_action_queue.render_queue_summary(action_snapshot),
+        diagnostics_open=(diagnostics_open or selected_reason != 'all' or page > 1),
         breakdown_html=breakdown,
         note_html=note,
         options_html=options,
@@ -3222,6 +3225,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all'):
         script_html=script_html,
         style_html=card_cleanup_ui.CLEANUP_STYLE +
         "<style>#expense-cleanup .cleanup-breakdown a{display:inline-flex;align-items:center;min-height:44px;padding:7px 12px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
+        "#expense-cleanup .cleanup-breakdown .cleanup-filter-count{white-space:nowrap}"
         "#expense-cleanup .cleanup-breakdown a[aria-current='page']{border:2px solid var(--shell-accent);font-weight:750}"
         "#expense-cleanup .cleanup-owner{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 8px}"
         "#expense-cleanup .cleanup-owner a{display:inline-flex;align-items:center;min-height:44px;padding:7px 14px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
