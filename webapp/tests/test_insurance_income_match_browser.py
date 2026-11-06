@@ -8,7 +8,7 @@ from webapp.tests.test_participant_trip_panel import sample_state
 
 @pytest.mark.parametrize('matched', [False, True])
 @pytest.mark.parametrize('ambiguous', [False, True])
-def test_name_selects_its_income_and_only_unique_confirmed_person_without_saving(matched, ambiguous):
+def test_name_action_keeps_income_and_never_guesses_ambiguous_identity(matched, ambiguous):
     value = sample_state(2)
     value['google']['generation'] = 'one'
     value['roster']['participants'][0]['display_name'] = '김민수'
@@ -29,9 +29,14 @@ def test_name_selects_its_income_and_only_unique_confirmed_person_without_saving
         try:
             page = browser.new_page(viewport={'width': 390, 'height': 900})
             requests = []
+            writes = []
             def serve(route):
                 requests.append(route.request.method)
-                route.fulfill(content_type='text/html', body=response if '/trip-panel?' in route.request.url else document)
+                if route.request.method == 'POST':
+                    writes.append(route.request.post_data)
+                    route.fulfill(status=409, content_type='application/json', body='{"code":"STALE_INPUT"}')
+                else:
+                    route.fulfill(content_type='text/html', body=response if '/trip-panel?' in route.request.url else document)
             page.route('http://synthetic.test/**', serve)
             page.goto('http://synthetic.test/')
             page.locator('#participant-trip-panel summary').click()
@@ -42,13 +47,25 @@ def test_name_selects_its_income_and_only_unique_confirmed_person_without_saving
             assert name.inner_text() == '김*수'
             name.focus()
             page.keyboard.press('Enter')
-            assert page.locator('.insurance-candidate-row').count() == 0
-            form = page.locator('.participant-keyboard-link')
+            assert page.locator('.insurance-candidate-row').count() == 1
+            form = page.locator('.insurance-candidate-row .participant-keyboard-link')
             assert form.locator('[name=income_ref]').input_value() == value['income_rows'][1]['ref']
             assert form.locator('[name=participant_id]').input_value() == ('' if ambiguous else 'person-0')
-            assert form.locator('[name=participant_id]').evaluate('(el)=>el===document.activeElement')
+            assert form.locator('select').count() == 0
             assert page.locator('dialog[open]').count() == 0
-            assert set(requests) == {'GET'}
+            if ambiguous:
+                assert writes == []
+                assert form.locator('[data-pick-participant]').first.evaluate('(el)=>el===document.activeElement')
+            else:
+                page.wait_for_function("document.querySelector('.participant-inline-status').textContent.includes('자료가 변경')")
+                from urllib.parse import parse_qs
+                saved = parse_qs(writes[0])
+                assert len(writes) == 1
+                assert saved['income_ref'] == [value['income_rows'][1]['ref']]
+                assert saved['participant_id'] == ['person-0']
+                assert saved['csrf'] == ['synthetic-csrf']
+                assert saved['input_fingerprint'] == ['synthetic-fingerprint']
+                assert form.locator('[data-pick-participant]:disabled').count() == 0
             assert value == before
         finally:
             browser.close()
