@@ -37,7 +37,8 @@ def test_unverified_coverage_can_be_opened_for_explicit_review():
     assert "overview.gaps_assessable !== true" in SCRIPT
     assert "'분석 전'" in SCRIPT
     assert "data.coverage_state === 'needs_evidence'" in SCRIPT
-    assert "new Map()" in SCRIPT and "card_hint_scope" not in SCRIPT
+    assert "const groups = new Map()" in SCRIPT
+    assert "group.append(node('summary'" in SCRIPT
     assert "reviewParams.set('review', 'coverage')" in SCRIPT
     assert "request('/api/imports/' + encodeURIComponent(batchId) + '/coverage')" in SCRIPT
     assert "appendCoverageForm(batchRoot, batchId, evidence)" in SCRIPT
@@ -51,7 +52,7 @@ def test_unverified_coverage_can_be_opened_for_explicit_review():
 def test_pending_coverage_renders_grouped_details_instead_of_23_open_rows():
     assert "'카드 식별 확인 필요'" in SCRIPT
     assert "'표시용)'" in SCRIPT
-    assert "'카드 내역'" not in SCRIPT or "renderCoverage" in SCRIPT
+    assert "for (const [label, files] of groups)" in SCRIPT
     assert "renderFile(file, group, true)" in SCRIPT
     assert "'조회기간 확인'" in SCRIPT
     assert "'처리 결과'" in SCRIPT
