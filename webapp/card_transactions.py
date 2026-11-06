@@ -19,6 +19,12 @@ _UNDATED_CURSOR_DATE = "0000-00-00"
 _DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATE_TIME_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$")
 
+# Issuer values follow the card statement parser's canonical codes. This list
+# contains only explicit last-four identities; it never stores a full PAN.
+REGISTERED_CARD_IDENTITIES = (
+    {"issuer": "국민", "issuer_label": "국민카드", "tail": "7881", "holder": "안드레"},
+)
+
 
 def card_identity(issuer, kind, last4):
     """Only an explicit last4 identifies a card; never recover a PAN's suffix."""
@@ -29,8 +35,12 @@ def card_identity(issuer, kind, last4):
     # Keep issuer separation because a last4 alone is not globally unique.
     issuer = str(issuer or '').strip()
     key = hashlib.sha256(json.dumps([issuer, tail], ensure_ascii=True).encode()).hexdigest()[:24]
-    number = '•••• ' + tail + (' 김동언' if tail == '4850' else '')
-    return {'card_key': key, 'card_label': ' · '.join(filter(None, [issuer, number]))}
+    registered = next((card for card in REGISTERED_CARD_IDENTITIES
+                       if card['issuer'] == issuer and card['tail'] == tail), None)
+    holder = registered['holder'] if registered else ('김동언' if tail == '4850' else '')
+    issuer_label = registered['issuer_label'] if registered else issuer
+    number = '•••• ' + tail + (f' {holder}' if holder else '')
+    return {'card_key': key, 'card_label': ' · '.join(filter(None, [issuer_label, number]))}
 
 
 def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
@@ -77,6 +87,8 @@ def card_options(db_path=None):
         options = {identity['card_key']: identity for issuer, kind, tail in conn.execute(
             'SELECT DISTINCT issuer,card_kind,card_tail FROM transactions')
             for identity in [card_identity(issuer, kind, tail)]}
+        options.update({identity['card_key']: identity for card in REGISTERED_CARD_IDENTITIES
+                        for identity in [card_identity(card['issuer'], '', card['tail'])]})
         return sorted(options.values(), key=lambda value: (value['card_key'] == 'missing', value['card_label']))
     finally:
         conn.close()
