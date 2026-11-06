@@ -30,3 +30,31 @@ def test_legacy_transaction_workspace_uses_card_detail_heading():
     assert '<h1>지출 정리</h1>' not in html
     assert 'coverage_id: hash' not in html
     assert "replaceWith('<span" not in html
+
+
+def test_unverified_coverage_can_be_opened_for_explicit_review():
+    """The review action must reach the existing original-inspection form."""
+    assert "overview.gaps_assessable !== true" in SCRIPT
+    assert "'분석 전'" in SCRIPT
+    assert "data.coverage_state === 'needs_evidence'" in SCRIPT
+    assert "new Map()" in SCRIPT and "card_hint_scope" not in SCRIPT
+    assert "reviewParams.set('review', 'coverage')" in SCRIPT
+    assert "request('/api/imports/' + encodeURIComponent(batchId) + '/coverage')" in SCRIPT
+    assert "appendCoverageForm(batchRoot, batchId, evidence)" in SCRIPT
+    assert "details.open = true" in SCRIPT
+    # A GET never auto-confirms the actual queried period.
+    assert "/coverage/confirm" in SCRIPT
+    assert "confirmation.complete = checkbox.checked" in SCRIPT
+    assert "card.issuer" in SCRIPT
+
+
+def test_pending_coverage_renders_grouped_details_instead_of_23_open_rows():
+    assert "'카드 식별 확인 필요'" in SCRIPT
+    assert "'표시용)'" in SCRIPT
+    assert "'카드 내역'" not in SCRIPT or "renderCoverage" in SCRIPT
+    assert "renderFile(file, group, true)" in SCRIPT
+    assert "'조회기간 확인'" in SCRIPT
+    assert "'처리 결과'" in SCRIPT
+    from webapp.cards_all import CARD_ALL_STYLE
+    assert ".card-coverage-file-actions" in CARD_ALL_STYLE
+    assert ".card-coverage-review" in CARD_ALL_STYLE
