@@ -256,6 +256,40 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
             finally:
                 browser.close()
 
+    def test_failed_file_recovery_waits_for_the_remaining_upload(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                pending = []
+                def hold_second_file(route):
+                    if 'waiting.png' in route.request.headers.get('x-receipt-filename', ''):
+                        pending.append(route)
+                    else:
+                        route.continue_()
+                page.route('**/api/receipts/image', hold_second_file)
+                page.set_input_files('#img-file', [
+                    {'name': 'bad.png', 'mimeType': 'image/png', 'buffer': b'invalid'},
+                    {'name': 'waiting.png', 'mimeType': 'image/png', 'buffer': review.PNG},
+                ])
+                page.click('#img-go')
+                retry = page.get_by_role('button', name='다시 시도', exact=True)
+                remove = page.get_by_role('button', name='실패 파일 제거', exact=True)
+                retry.wait_for()
+                page.wait_for_function("document.querySelectorAll('#upload-results p').length===2")
+                self.assertTrue(retry.is_disabled())
+                self.assertTrue(remove.is_disabled())
+                self.assertEqual(len(pending), 1)
+                pending[0].continue_()
+                page.wait_for_function("document.querySelectorAll('#upload-results p')[1].textContent.includes('원본 저장됨')")
+                page.wait_for_function("[...document.querySelectorAll('#upload-results button')].filter(b=>b.textContent==='다시 시도'||b.textContent==='실패 파일 제거').every(b=>!b.disabled)")
+                remove.click()
+                self.assertEqual(page.locator('#upload-results p').count(), 1)
+                self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+            finally:
+                browser.close()
+
     def test_mixed_upload_failure_retry_and_pdf_page_recovery(self):
         from app import local_receipt_ocr
         rendered = {'pages': [
