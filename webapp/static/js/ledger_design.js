@@ -158,7 +158,7 @@
    var options=Array.from(participant.options).filter(function(option){return option.value;});
    var chosen=document.createElement('input');chosen.type='hidden';chosen.name='participant_id';chosen.value=id||'';
    var group=document.createElement('fieldset');group.className='participant-inline-choices';
-   var legend=document.createElement('legend');legend.textContent='참가자';group.appendChild(legend);
+   group.setAttribute('aria-label','연결할 이름');
    options.forEach(function(option){
     var pick=document.createElement('button');pick.type='submit';pick.dataset.pickParticipant=option.value;pick.textContent=option.textContent;
     group.appendChild(pick);
