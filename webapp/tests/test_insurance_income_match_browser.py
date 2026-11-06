@@ -1,8 +1,9 @@
 """Name actions in the trip ledger replace the standalone comparison page."""
 import copy
+from unittest.mock import patch
 import pytest
 from playwright.sync_api import sync_playwright
-from webapp import ledger_design_assets, participant_trip_panel as panel
+from webapp import ledger_design_assets, participant_trip_panel as panel, site_shell
 from webapp.tests.test_participant_trip_panel import sample_state
 
 
@@ -20,10 +21,12 @@ def test_name_action_keeps_income_and_never_guesses_ambiguous_identity(matched, 
     before = copy.deepcopy(value)
     response = panel.render(value, csrf='synthetic-csrf')
     rows = ''.join(f"<tr><td>합성</td><td class='participant-insurance-cell' data-income-ref='{row['ref']}'></td></tr>" for row in value['income_rows'])
-    document = ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-                '<style>' + ledger_design_assets.STYLE + '</style><main id="main"><section id="google-trip-income">'
+    document = ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<style>' + ledger_design_assets.STYLE + '</style></head><body><main id="main"><section id="google-trip-income">'
                 '<table id="income-tbl" data-google-generation="one"><tbody>' + rows + '</tbody></table></section>'
-                + panel.shell(trip_id='trip-synthetic') + '</main><script>' + ledger_design_assets.SCRIPT + '</script>')
+                + panel.shell(trip_id='trip-synthetic') + '</main><script>' + ledger_design_assets.SCRIPT + '</script></body></html>')
+    with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
+        document = site_shell.wrap_document(document, '/board')
     with sync_playwright() as api:
         browser = api.chromium.launch()
         try:
@@ -45,13 +48,18 @@ def test_name_action_keeps_income_and_never_guesses_ambiguous_identity(matched, 
             assert candidate.locator('footer,a').count() == 0
             name = candidate.locator('.insurance-participant-name')
             assert name.inner_text() == '김*수'
+            assert name.evaluate('(el)=>getComputedStyle(el).color===getComputedStyle(el.closest("td")).color')
             name.focus()
+            assert name.evaluate('(el)=>getComputedStyle(el).outlineColor===getComputedStyle(el.closest("td")).color')
             page.keyboard.press('Enter')
             assert page.locator('.insurance-candidate-row').count() == 1
             form = page.locator('.insurance-candidate-row .participant-keyboard-link')
             assert form.locator('[name=income_ref]').input_value() == value['income_rows'][1]['ref']
             assert form.locator('[name=participant_id]').input_value() == ('' if ambiguous else 'person-0')
             assert form.locator('select').count() == 0
+            assert form.locator('legend').count() == 0
+            assert form.locator('fieldset').get_attribute('aria-label') == '연결할 이름'
+            assert form.locator('[data-pick-participant]').evaluate_all('els=>els.every(el=>!el.classList.contains("site-action")&&getComputedStyle(el).color===getComputedStyle(el.closest("td")).color)')
             assert page.locator('dialog[open]').count() == 0
             if ambiguous:
                 assert writes == []
@@ -66,6 +74,8 @@ def test_name_action_keeps_income_and_never_guesses_ambiguous_identity(matched, 
                 assert saved['csrf'] == ['synthetic-csrf']
                 assert saved['input_fingerprint'] == ['synthetic-fingerprint']
                 assert form.locator('[data-pick-participant]:disabled').count() == 0
+            form.locator('[data-pick-participant]').first.focus()
+            assert page.evaluate('getComputedStyle(document.activeElement).outlineColor===getComputedStyle(document.activeElement.closest("td")).color')
             assert value == before
         finally:
             browser.close()

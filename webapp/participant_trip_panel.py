@@ -114,7 +114,7 @@ def _review_markup(state, data):
                      and candidates[0].get('participant_id') in selectable_ids else '')
         return ("<button type='button' class='insurance-participant-name' "
                 f"data-insurance-participant='{_esc(person_id)}' "
-                f"aria-label='{_esc(name)} · 이 수입에 연결할 참가자 선택'>{_esc(name)}</button>")
+                f"aria-label='{_esc(name)} · 이 수입에 연결'>{_esc(name)}</button>")
     def candidate_group(contract, items):
         start, end = contract.get('travel_start'), contract.get('travel_end')
         same_period = bool(start and end and start == period.get('start') and end == period.get('end'))
