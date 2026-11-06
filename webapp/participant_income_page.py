@@ -280,8 +280,7 @@ def render_page(state: dict, *, csrf: str = "") -> str:
         summary = "<p class='small'>참가 인원은 아직 확인할 수 없습니다. Google 수입 기록을 먼저 확인하세요.</p>"
     checked_at = google_ledger_page.format_display_time(google.get('synced_at'))
     summary += f"<p class='small'>마지막 Google 확인 {esc(checked_at)}</p>"
-    match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
-    match_link = f"<a class='participant-match-link' href='{esc(match_href)}'>보험 명단과 수입 글자 대조</a>"
+    match_link = ''
     if not google.get('available') or not configured or blocked or index_note:
         trip_href = '/board?' + urlencode({'tab': state.get('trip_id') or ''})
         match_link += (f" <a class='participant-source-action' href='{esc(trip_href)}'>여행 수입·명단 확인</a>"

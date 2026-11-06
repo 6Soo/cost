@@ -122,7 +122,7 @@
    root.open=true;
    var notice=root.querySelector('.participant-connect-notice');
    if(!form){
-    if(notice){notice.hidden=false;notice.textContent='연결할 보험 참가자가 없습니다. 보험 명단 상세에서 자료를 확인해 주세요.';notice.focus();}
+    if(notice){notice.hidden=false;notice.textContent='연결할 보험 참가자가 없습니다. 이 여행의 보험가입내역과 수입 자료를 확인해 주세요.';notice.focus();}
     root.scrollIntoView({block:'nearest'});return;
    }
    var income=form.querySelector('[name=income_ref]');
@@ -182,11 +182,15 @@
     }
     return;
    }
-   var candidateConnect=e.target.closest('[data-insurance-connect-ref]');
+   var candidateConnect=e.target.closest('[data-insurance-participant]');
    if(candidateConnect){
-    var targetCell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(candidateConnect.dataset.insuranceConnectRef)+'"]');
-    closeCandidates(candidateConnect.closest('.insurance-candidate-row'),false);
-    if(targetCell)choose(targetCell);
+    var candidateRow=candidateConnect.closest('.insurance-candidate-row');
+    var targetCell=candidateRow&&candidateRow.previousElementSibling.querySelector('.participant-insurance-cell');
+    if(targetCell){
+     var participantId=candidateConnect.dataset.insuranceParticipant;
+     closeCandidates(candidateRow,false);
+     choose(targetCell,participantId);
+    }
     return;
    }
    if(e.target.closest('.participant-review-retry')){loadPanel();return;}

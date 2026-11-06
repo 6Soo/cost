@@ -22,8 +22,9 @@
 .insurance-candidate-list p{margin:2px 0 0;font-size:12px;color:var(--mut)}
 .insurance-candidate-group+.insurance-candidate-group{margin-top:8px}
 .insurance-period-difference{margin:0 0 4px;font-size:12px;color:var(--mut)}
-.insurance-candidate-content footer{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px}
-.insurance-candidate-content footer .btn{font-size:12px;min-height:44px;padding:4px 0;background:transparent;border:0;color:var(--focus);white-space:normal}
+.insurance-participant-name{font:inherit;font-weight:500;min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--focus);cursor:pointer;white-space:normal;overflow-wrap:anywhere;text-align:start;max-width:100%}
+.insurance-participant-name:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media(hover:hover){.insurance-participant-name:hover{background:var(--hover);border-color:var(--focus)}}
 #google-trip-income #income-tbl .insurance-candidate-row>td{height:auto;overflow:visible;padding:8px 16px;background:var(--hover);border-bottom:1px solid var(--line-strong);white-space:normal;text-align:left}
 #google-trip-income .participant-insurance-cell .insurance-candidate-button[aria-expanded=true]::after{transform:rotate(45deg)}
 @media(max-width:899px){#google-trip-income #income-tbl tbody tr.insurance-candidate-row{display:block}#google-trip-income #income-tbl .insurance-candidate-row>td{display:block;width:100%;min-width:0}}

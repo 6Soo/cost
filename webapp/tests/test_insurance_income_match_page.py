@@ -29,45 +29,13 @@ class Handler:
 
 
 class InsuranceIncomeMatchPageTests(unittest.TestCase):
-    def test_routes_and_masked_candidate_display(self):
-        self.assertTrue(page.owns_route(page.PAGE_PATH))
-        document = page.render_page(state())
-        self.assertIn("보험 명단 · 수입 글자 대조", document)
-        self.assertIn("김*람", document)
-        self.assertIn("후보 확인", document)
-        self.assertIn("가람&lt;합성&gt;", document)
-        self.assertIn("글자 대조는 보험 가입 완료", document)
-        self.assertIn("candidate-choice", document)
-        self.assertIn("50", document)
-        self.assertIn("가입 완료 또는 기간 종료(조회 자료)", document)
-        self.assertNotIn("completed_or_expired", document)
-        self.assertNotIn(">contract-syn<", document)
-        self.assertIn("value='contract-syn'", document)
-
-    def test_amount_keeps_fraction_and_negative_sign(self):
-        self.assertEqual(page._amount("1234.50"), "1,234.50원")
-        self.assertEqual(page._amount("-1234.5"), "-1,234.5원")
-        self.assertEqual(page._amount(None), "금액 미기재")
-        self.assertEqual(page._amount("0"), "0원")
-
-    def test_contract_scope_and_unavailable_freshness_are_shown_safely(self):
-        payload = state()
-        payload["contracts"][0]["scope_label"] = "연결된 여행 기간 자료"
-        doc = page.render_page(payload)
-        self.assertIn("연결된 여행 기간 자료", doc)
-        payload.update(available=False, code="STALE", message="다시 동기화 필요",
-                       inputs_freshness="오래된 자료 <확인>")
-        doc = page.render_page(payload)
-        self.assertIn("자료 최신성: 오래된 자료 &lt;확인&gt;", doc)
-
-    def test_all_rows_are_accounted_for_by_bounded_pagination(self):
-        rows = [{"review_row_id": f"r{i}", "masked_name": f"이*{i}",
-                 "match_state": "unmatched", "candidate_count": 0, "matches": []}
-                for i in range(159)]
-        doc = page.render_page(state(rows))
-        self.assertIn("전체 159건", doc)
-        self.assertIn("1 / 4", doc)
-        self.assertIn("data-page-size='50'", doc)
+    def test_removed_page_never_loads_private_sources(self):
+        handler = Handler()
+        page.dispatch(handler, urlsplit(page.PAGE_PATH), is_owner=True,
+                      state_loader=lambda **kw: self.fail("removed page must not load sources"))
+        self.assertEqual(handler.sent[0][2], 410)
+        self.assertEqual(handler.sent[0][1]["code"], "PAGE_REMOVED")
+        self.assertFalse(hasattr(page, "render_page"))
 
     def test_non_owner_is_refused_before_loader(self):
         handler, called = Handler(), []
@@ -100,10 +68,10 @@ class InsuranceIncomeMatchPageTests(unittest.TestCase):
         self.assertNotIn("source.pdf", repr(handler.sent[0][1]))
         self.assertEqual(handler.sent[0][1]["code"], "SOURCE_UNAVAILABLE")
 
-    def test_html_error_status_matches_api_status(self):
+    def test_api_error_status_matches_source_status(self):
         for code, expected in (("INVALID_FILTER", 400), ("SOURCE_UNAVAILABLE", 503)):
             handler = Handler()
-            page.dispatch(handler, urlsplit(page.PAGE_PATH), is_owner=True,
+            page.dispatch(handler, urlsplit(page.ROUTES[1]), is_owner=True,
                           state_loader=lambda **kw: {"available": False, "code": code})
             self.assertEqual(handler.sent[0][2], expected)
 

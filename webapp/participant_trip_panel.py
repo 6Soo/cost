@@ -103,6 +103,18 @@ def _review_markup(state, data):
     else:
         notice = review.get('message') or '보험 명단 자료 연결을 확인해 주세요.'
     period = review.get('trip_period') or {}
+    def name_button(row):
+        name = row.get('masked_name') or '가림 이름 없음'
+        candidates = [person for person in people
+                      if person.get('active', True) and person.get('state') == 'confirmed'
+                      and (name == person.get('display_name') or
+                           unique_identity_name_match(name, person.get('display_name') or ''))]
+        selectable_ids = {person.get('participant_id') for person in data['selectable_participants']}
+        person_id = (candidates[0].get('participant_id') if len(candidates) == 1
+                     and candidates[0].get('participant_id') in selectable_ids else '')
+        return ("<button type='button' class='insurance-participant-name' "
+                f"data-insurance-participant='{_esc(person_id)}' "
+                f"aria-label='{_esc(name)} · 이 수입에 연결할 참가자 선택'>{_esc(name)}</button>")
     def candidate_group(contract, items):
         start, end = contract.get('travel_start'), contract.get('travel_end')
         same_period = bool(start and end and start == period.get('start') and end == period.get('end'))
@@ -116,7 +128,7 @@ def _review_markup(state, data):
         for row in contract.get('rows') or []:
             if linked_row(row):
                 continue
-            items.append("<li><strong>" + _esc(row.get('masked_name') or '가림 이름 없음') + '</strong></li>')
+            items.append('<li>' + name_button(row) + '</li>')
         if items:
             roster_cards.append(candidate_group(contract, items))
     templates, evidence = [], []
@@ -154,22 +166,14 @@ def _review_markup(state, data):
                 if row.get('mask_length_unknown'):
                     reason += ' 가림 기호의 글자 수는 확인되지 않았습니다.'
                 group = card_groups.setdefault(id(contract), (contract, []))
-                group[1].append("<li><strong>" + _esc(row.get('masked_name') or '가림 이름 없음')
-                                + '</strong><p>' + _esc(reason) + '</p></li>')
+                group[1].append('<li>' + name_button(row)
+                                + '<p>' + _esc(reason) + '</p></li>')
             cards = [candidate_group(contract, items) for contract, items in card_groups.values()]
             no_match = not hits
             roster = ("<div data-insurance-roster></div>" if no_match else
                       ''.join(cards))
-            connect = (f"<button type='button' class='btn' data-insurance-connect-ref='{_esc(ref)}'>"
-                       "이 수입에 참가자 연결하기</button>"
-                       if no_match and state.get('configured') and data['selectable_participants']
-                       and (state.get('google') or {}).get('available') else '')
             evidence.append(f"<template id='{evidence_id}'>"
-                            f"{roster}"
-                            "<footer>"
-                            f"{connect}"
-                            f"<a class='btn' href='/participants/insurance-match?{_esc(urlencode({'trip': state.get('trip_id') or ''}))}'>"
-                            "전체 명단 대조</a></footer></template>")
+                            f"{roster}</template>")
         templates.append(f"<template class='participant-income-status' data-income-ref='{_esc(ref)}' "
                          f"data-google-generation='{_esc(generation)}'>"
                          f"{status_html}</template>")
@@ -190,8 +194,6 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
            participant_offset: int = 0, search: str = "") -> str:
     """Render names only after the caller has established owner access."""
     from .google_ledger_page import is_refunded_income
-    match_href = '/participants/insurance-match?' + urlencode({'trip': state.get('trip_id') or ''})
-    match_link = f"<p><a class='btn' href='{_esc(match_href)}'>보험 명단 상세</a></p>"
     data = project(state, income_offset=income_offset,
                    participant_offset=participant_offset, search=search)
     participant_offset = data['participant_offset']
@@ -200,7 +202,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         return ("<details class='participant-trip-panel' id='participant-trip-panel'>"
                 "<summary>보험가입내역</summary><div class='participant-trip-content'>"
                 "<p class='participant-connect-notice' role='status' tabindex='-1' hidden></p>"
-                + review_html + match_link
+                + review_html
                 + "<p class='participant-review-note'>가림 이름의 글자 대조 결과입니다. 참가자 확정·입금 수령을 확인한 결과는 아닙니다.</p>"
                 + '</div></details>')
     google = state.get("google") or {}
@@ -303,7 +305,6 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
         + (f"<p class='participant-review-note'>{_esc(status)}</p>" if roster.get('scope') != 'complete' or not google.get('available') else '')
         + "<div class='participant-toolbar'>" + search_form
         + "<div class='participant-source-links'>"
-        f"<a class='btn' href='{_esc(match_href)}'>보험 명단 상세</a>"
         f"<a class='btn' href='/participants?{_esc(urlencode({'trip':state.get('trip_id') or ''}))}'>전체 연결 관리</a></div></div>"
         f"{''.join(rows)}{review_html}"
         "<h3>수입 미연결 참가자</h3>"

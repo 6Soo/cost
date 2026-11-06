@@ -47,7 +47,7 @@ def test_no_selectable_roster_keeps_action_and_explains_missing_form_without_inv
     assert 'data-connect-income' in body
     assert 'participant-connect-notice' in body
     assert "class='participant-keyboard-link'" not in body
-    assert '보험 명단 상세' in body
+    assert '/participants/insurance-match' not in body
 
 
 def test_initial_income_cell_uses_same_action_and_refund_stays_status_only():

@@ -154,7 +154,7 @@ def test_candidate_rows_toggle_independently_and_keep_income_table_usable():
             buttons.nth(0).click()
             assert page.locator('.insurance-candidate-row').count() == 1
             assert buttons.nth(0).get_attribute('aria-expanded') == 'false'
-            page.locator('.insurance-candidate-row a').focus()
+            page.locator('.insurance-candidate-row .insurance-participant-name').first.focus()
             page.keyboard.press('Escape')
             assert page.locator('.insurance-candidate-row').count() == 0
             assert buttons.nth(1).evaluate('(el)=>el===document.activeElement')
@@ -211,7 +211,8 @@ def test_no_match_button_opens_roster_and_preselects_income_without_writing():
             assert dialog.locator('.insurance-candidate-list li:visible').count() == 1
             assert dialog.evaluate('(row)=>row.previousElementSibling.contains(document.querySelector(".insurance-candidate-button"))')
             assert dialog.locator('td').get_attribute('colspan') == '1'
-            dialog.locator('[data-insurance-connect-ref]').click()
+            assert dialog.locator('footer').count() == 0
+            dialog.locator('.insurance-participant-name').click()
             assert not dialog.is_visible()
             assert page.locator('.participant-keyboard-link [name=income_ref]').input_value() == ref
             assert page.locator('.participant-keyboard-link [name=participant_id]').input_value() == ''
@@ -327,7 +328,8 @@ def test_browser_loading_retry_and_candidate_dialog_are_actionable_and_readonly(
             assert dialog.is_visible() and dialog.locator('.insurance-candidate-list li').count()==2
             assert '가*다' in dialog.inner_text() and '1,000원' not in dialog.inner_text()
             assert dialog.locator('.insurance-selected-income').count() == 0
-            assert dialog.locator('a').get_attribute('href').endswith('trip=trip-a')
+            assert dialog.locator('a,footer').count() == 0
+            assert dialog.locator('.insurance-participant-name').count() == 2
             assert page.locator('#participant-trip-panel').get_attribute('aria-busy')=='false'
             for width in (320,390,1280):
                 page.set_viewport_size({'width':width,'height':844})
