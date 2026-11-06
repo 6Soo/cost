@@ -196,6 +196,13 @@ def test_row_status_and_trip_badges_keep_text_without_combining_states(data):
     assert 'ota-badge ok' in markup and '예약 확정' in markup
     assert 'ota-badge bad' in markup and '취소' in markup
     assert 'ota-badge idle' in markup and '미확인' in markup
+    inferred = dict(result)
+    inferred['rows'] = [dict(result['rows'][0], trips=[{
+        'name': '합성 여행', 'source': 'period', 'confidence': '낮음', 'basis': '합성 일정'
+    }])]
+    inferred_markup = ota_catalog.render_html(inferred, {})
+    assert 'details class="ota-assignment-evidence"' in inferred_markup
+    assert '.ota-assignment-evidence>summary{display:inline-flex' in ota_catalog.OTA_STYLE
     combined = {'rows': [{'provider': 'agoda', 'booking_ref': 'X1', 'label': '합성',
                           'period': '2026-11-01 ~ 2026-11-02', 'status': '예약 확정 / 취소',
                           'conflict': False, 'trips': []}],
