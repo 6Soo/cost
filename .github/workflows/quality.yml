@@ -29,7 +29,9 @@ concurrency:
 
 jobs:
   impact-checks:
-    runs-on: ubuntu-latest
+    # Ubuntu 26.04 'latest' lacks packages required by Playwright --with-deps.
+    # Pin a supported runner instead of skipping browser protection checks.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +89,10 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Install Chromium for selected browser tests
         if: steps.plan.outputs.reuse != 'true' && steps.plan.outputs.browser == 'true'
-        run: python -m playwright install --with-deps chromium
+        # GitHub ubuntu-24.04 already provides browser system libraries.
+        # Avoid apt-based --with-deps, which can fail on changing mirror images;
+        # required browser tests still execute normally and remain fail-closed.
+        run: python -m playwright install chromium
       - name: Run data protection gate and impact tests
         if: steps.plan.outputs.reuse != 'true'
         run: |

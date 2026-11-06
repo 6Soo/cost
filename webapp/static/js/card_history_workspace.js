@@ -427,7 +427,7 @@
   function cardText(card) {
     return [card.issuer, card.card_tail ? '끝' + card.card_tail : '', card.date_basis].filter(Boolean).join(' · ');
   }
-  function renderFile(file, parent) {
+  function renderFile(file, parent, needsReview = false) {
     const item = node('div', 'card-coverage-file');
     item.append(node('strong', '', file.filename || '이름 없는 원본'));
     const periods = (file.query_periods || []).map(period =>
@@ -439,9 +439,19 @@
     if (file.transaction_start) item.append(node('p', 'card-workspace-muted',
       '거래 발생기간: ' + file.transaction_start + ' ~ ' + file.transaction_end + ' (조회기간과 별개)'));
     if (/^batch-[a-f0-9]{24}$/.test(file.batch_id || '')) {
-      const link = node('a', 'card-upload-result-link', '업로드 처리 결과 보기');
-      const params = new URLSearchParams(location.search); params.set('panel', 'upload'); params.set('batch', file.batch_id);
-      link.href = '/cards/all?' + params.toString(); item.append(link);
+      const actions = node('div', 'card-coverage-file-actions');
+      const params = new URLSearchParams(location.search);
+      params.set('panel', 'upload'); params.set('batch', file.batch_id);
+      if (needsReview) {
+        const review = node('a', 'card-upload-result-link', '조회기간 확인');
+        const reviewParams = new URLSearchParams(params);
+        reviewParams.set('review', 'coverage');
+        review.href = '/cards/all?' + reviewParams.toString();
+        actions.append(review);
+      }
+      const link = node('a', 'card-upload-result-link', '처리 결과');
+      link.href = '/cards/all?' + params.toString(); actions.append(link);
+      item.append(actions);
     }
     parent.append(item);
   }
@@ -478,11 +488,22 @@
     const overview = data.overview || {};
     const metrics = node('div', 'card-coverage-metrics');
     for (const [key, label] of [['card_count', '관리 카드'], ['covered_bases', '조회 기준'],
-      ['gap_count', '미수집 구간'], ['files_need_review', '조회 확인 필요 파일']]) {
+      ['gap_count', '미수집 구간'], ['files_need_review', '조회기간 미확인 파일']]) {
       const metric = node('div', 'card-coverage-metric');
-      metric.append(node('strong', '', overview[key] ?? 0), node('span', '', label)); metrics.append(metric);
+      const unknownGap = key === 'gap_count' && overview.gaps_assessable !== true &&
+        !(data.cards || []).length;
+      metric.append(node('strong', '', unknownGap ? '분석 전' : (overview[key] ?? 0)),
+        node('span', '', label));
+      metrics.append(metric);
     }
     coverageRoot.append(metrics);
+    if (data.coverage_state === 'needs_evidence') {
+      coverageRoot.append(node('p', 'card-coverage-guidance',
+        '업로드 기록은 있지만 확인된 조회기간은 없습니다. 미수집 구간 0건이 아니라 아직 판단할 수 없는 상태입니다. 원본의 실제 조회조건을 확인해 주세요.'));
+    } else if (data.coverage_state === 'partial') {
+      coverageRoot.append(node('p', 'card-coverage-guidance',
+        '조회기간이 확인된 카드와 미확인 파일이 함께 있습니다. 확인 전 파일은 누락 구간 계산에 포함하지 않습니다.'));
+    }
     const cards = node('div', 'card-coverage-cards');
     for (const card of data.cards || []) {
       const box = node('section', 'card-coverage-card');
@@ -514,11 +535,26 @@
     coverageRoot.append(cards);
     const pending = (data.files || []).filter(file => file.coverage_status !== 'confirmed');
     if (pending.length) {
-      const section = node('details', 'card-coverage-files card-coverage-pending');
-      section.append(node('summary', '', '조회 확인이 필요한 파일 ' + pending.length + '개'));
-      section.append(node('p', 'card-workspace-muted', '거래 발생일로 조회기간을 추정하지 않습니다. 원본 조회 조건을 확인해 주세요.'));
-      for (const file of pending) renderFile(file, section);
-      coverageRoot.append(section);
+      const review = node('section', 'card-coverage-review');
+      review.append(node('h3', '', '조회기간 확인이 필요한 파일 ' + pending.length + '개'));
+      review.append(node('p', 'card-workspace-muted',
+        '거래 분류와 조회기간 확인은 별개입니다. 거래 발생일로 조회기간을 추정하지 않으며, 아래 카드는 보기 편하게 묶은 것일 뿐 동일한 실물 카드로 확정하거나 조회기간을 합치지 않습니다.'));
+      const groups = new Map();
+      for (const file of pending) {
+        const issuer = String(file.issuer_hint || '').trim();
+        const tail = String(file.card_tail_hint || '').trim();
+        const label = issuer && /^\d{4}$/.test(tail) ?
+          issuer + ' · 끝' + tail + ' (표시용)' : '카드 식별 확인 필요';
+        if (!groups.has(label)) groups.set(label, []);
+        groups.get(label).push(file);
+      }
+      for (const [label, files] of groups) {
+        const group = node('details', 'card-coverage-files card-coverage-pending');
+        group.append(node('summary', '', label + ' · ' + files.length + '개 파일 보기'));
+        for (const file of files) renderFile(file, group, true);
+        review.append(group);
+      }
+      coverageRoot.append(review);
     }
     if (!(data.cards || []).length && !pending.length) {
       coverageRoot.append(node('p', 'card-coverage-empty', '확인된 조회기간이 없습니다. 카드사에서 받은 전체 결과 파일을 업로드하면 현황을 확인할 수 있습니다.'));
@@ -548,19 +584,60 @@
     if (!batchRoot) return;
     const batchId = query().get('batch') || '';
     if (!/^batch-[a-f0-9]{24}$/.test(batchId)) { batchRoot.hidden = true; return; }
-    batchRoot.hidden = false; batchRoot.replaceChildren(node('p', 'card-workspace-status', '저장된 파일의 처리 결과를 불러오고 있습니다.'));
+    batchRoot.hidden = false;
+    batchRoot.replaceChildren(node('p', 'card-workspace-status',
+      '저장된 파일과 조회기간 근거를 불러오고 있습니다.'));
     try {
       const data = await request('/api/imports/' + encodeURIComponent(batchId));
       batchRoot.replaceChildren(node('h3', '', '파일 처리 결과'));
-      batchRoot.append(node('p', 'card-workspace-muted', '파일 ' + batchId + ' · 분류 및 금융 상태는 조회기간 확인과 별개입니다.'));
+      batchRoot.append(node('p', 'card-workspace-muted',
+        '원본 저장 및 거래 분류 상태는 조회기간 확인과 별개입니다.'));
       if (data.upload_summary) {
         const summary = data.upload_summary;
-        batchRoot.append(node('p', 'card-coverage-state', '원천 행 ' + (summary.source_rows ?? summary.row_count ?? '확인 불가') +
-          ' · 처리 오류 ' + (summary.error_count ?? '확인 불가') + ' · 상태 ' + (summary.status || '확인 필요')));
-      } else if (data.status) batchRoot.append(node('p', 'card-coverage-state', '저장 상태 ' + data.status));
+        batchRoot.append(node('p', 'card-coverage-state', '원천 행 ' +
+          (summary.source_rows ?? summary.row_count ?? '확인 불가') +
+          ' · 처리 오류 ' + (summary.error_count ?? '확인 불가') +
+          ' · 상태 ' + (summary.status || '확인 필요')));
+      } else if (data.status) batchRoot.append(node('p', 'card-coverage-state',
+        '저장 상태 ' + data.status));
       else batchRoot.append(node('p', 'card-workspace-muted', '상세 처리 상태를 확인했습니다.'));
+
+      // Reading stored evidence is explicit and per-file, never a bulk
+      // confirmation or a GET that writes to the coverage/finance ledger.
+      const report = await request('/api/imports/' + encodeURIComponent(batchId) + '/coverage');
+      const confirmed = (report.records || []).filter(row => row.confirmed === true);
+      if (confirmed.length) {
+        batchRoot.append(node('p', 'card-coverage-state',
+          '조회기간 확인 완료 · ' + confirmed.length + '개 근거가 저장돼 있습니다.'));
+        for (const item of confirmed) {
+          batchRoot.append(node('p', 'card-workspace-muted',
+            [item.issuer, item.card_tail ? '끝' + item.card_tail : '',
+              item.date_basis, item.start_date + ' ~ ' + item.end_date].filter(Boolean).join(' · ')));
+        }
+      } else {
+        const evidence = report.evidence || {};
+        if (report.available === false || report.blocked || !evidence.card_id) {
+          batchRoot.append(node('p', 'card-workspace-error',
+            '이 원본은 조회기간을 확정할 수 없습니다. ' +
+            (evidence.reason || '카드 식별 근거가 부족합니다.') +
+            ' 카드사에서 전체 조회 원본을 다시 내려받아 확인해 주세요.'));
+        } else {
+          batchRoot.append(node('p', 'card-workspace-muted',
+            '파일에 명시된 조회조건 또는 카드사에서 실제 선택한 전체 조회기간을 확인해 주세요. 거래 발생일은 사용하지 않습니다.'));
+          appendCoverageForm(batchRoot, batchId, evidence);
+          if (query().get('review') === 'coverage') {
+            const details = batchRoot.querySelector('.card-upload-coverage-confirm');
+            if (details) {
+              details.open = true;
+              details.querySelector('summary')?.focus({preventScroll: true});
+              details.scrollIntoView({block: 'nearest'});
+            }
+          }
+        }
+      }
     } catch (error) {
-      batchRoot.replaceChildren(node('p', 'card-workspace-error', error.message + ' 페이지를 새로고침해 다시 확인해 주세요.'));
+      batchRoot.replaceChildren(node('p', 'card-workspace-error',
+        error.message + ' 해당 원본을 다시 확인해 주세요.'));
     }
   }
   async function showLinkedTransaction() {
