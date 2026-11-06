@@ -35,6 +35,18 @@
 - Windows 영향208 passed+36subtests·skip0·필수browser20전건·compile통과, 표적22·Ego8폭/테마·키보드/hover/CSS200%/긴이름·독립Luna interface-review Approve. PR CI42036622325 SUCCESS. 병합a882 CI는 후속 문서 병합으로 취소됐고 통과로 간주하지 않는다. Markdown3개만 추가한6a6095bd의CI42037790866 SUCCESS 및 보험검증blob동일성을 확인했다.
 - 공식 단일 작성자 배포 완료: 이전ae64bd19→6a6095bd, 1414blobs불일치0/runtimeSHA일치/listener1/Gateway8790→8751/healthready200/보호API401/보호13표불변/financialapply NOT_RUN. 코드외 금융/Google/원본/연결데이터/스키마 쓰기0. 증거 `.local-archive/insurance-plain-20261105/`, 호스트동일SHA deploy-evidence. 작성권·잠금반납, 요청미결0·다음기능명령없음. 문서기록으로재배포하지않는다.
 
+## 2026-11-06 수입 행 참가자 직접 선택·검증된 UI 묶음 배포 — 현재 교정 요청 COMPLETE
+
+- 최신 사용자 교정인 중복 수입 설명·선택창·별도 `수입에 연결` 버튼 삭제와 참가자 이름 버튼의 직접 연결을 [PR #701](https://github.com/6Soo/cost/pull/701)로 반영했다. 함께 검증된 #699 작업 수/금융 진단 구분, #700 영수증 흐름, #702 지출 표시 순서, #703 영수증 복구/PDF/파일명 보완, 별도 승인된 #704 보험 후보 이름 동작을 직렬 병합했다. 카드 IA 통합 미검증 브랜치는 포함하지 않았다.
+- 고정 운영 SHA `2dd1b1605eb7122ebb630d1cff4b0596f157c3bc`, 이전 `c8e4cfa4e003dd08a3a8b813386ea1d2c5d57608`. 1,421 Git blobs 불일치0·task/process SHA 일치·Gateway8790→8751·health/ready200·보호 API401·보호13표 내용/스키마 불변 PASS. 코드 전용 전환이며 이전 검증 릴리스와 task XML을 보존했다. 실제 고객 연결/업로드·금융/여행/Google 업무 쓰기·재처리·마이그레이션 없음.
+- 재사용한 Windows 영향 근거: #699 793+52subtests, #700 311+30, #701 240+40, #702 280+43, #704 511+56. #703 최종 `199f371c`는 639+65·skip0·필수 브라우저 누락0·compile0. 실행 범위가 겹치므로 합산하지 않는다. 각 PR CI와 최종 main CI42167620679 SUCCESS. 이전 #703의 기존 합성 시나리오 실패는 기준 b0에서도 1failed/45.23초로 재현했다. 공개 메뉴·현재 저장/복사/여행 선택을 따르도록 테스트만 고쳐 전체 영향 검사를 통과했고, skip·강제 클릭·clipboard mock은 추가하지 않았다.
+- 운영 읽기 수락: 수입 행1440/390/320px에서 참가자 버튼10개·44px, 반복 설명/select/별도 submit0, 가로 넘침0, 첫 선택 초점·Escape 복귀 확인. 실제 연결은 실행하지 않았다. PC/모바일 지출은 항공→숙박→나머지 및 관측된 숙박 이용일/미상 마지막 순서를 각각 확인했다. 내부 Google 대조 순서는 각 화면에서 보존하므로 전체 행 ID 배열의 PC/모바일 일치는 수락 조건이 아니다. 영수증1440/390px 단일 입력/PDF 허용/직접 입력·/my-actions 진입과 보험 페이지410·삭제 링크0를 확인했다.
+- UI 독립 리뷰의 영수증 긴 이름 HIGH·복구 상태 MEDIUM은 #703에서 해소했다. PDF 정상 owner/비인증/viewer/잘못된 CSRF는 합성 정상 HTTP 경로로 검증했다. 운영에는 가림 이름 후보 상태가 없어 새 후보 이름 버튼은 합성 검증과 구분한다. iPhone Safari/HEIC·실제 스크린리더·OS/브라우저 자체200% 확대·실제 OCR/AI provider·실제 고객 업로드/연결은 미검증이다. CSS 확대 검증을 OS 확대 검증으로 보고하지 않는다.
+- 증거: `C:/AX/cost/.local-archive/coordination-20261106/`의 final-review/release-audit/deploy-evidence/protection-before/after/production-routes 및 verified-qa, `income-buttons-20261106/production-after.json`, `expense-order-20261106/production-after.json`, `insurance-name-actions-20261106/production-browser.json`, `C:/AX/tmp/receipt-ui-review-20261106/`의 최종·독립 리뷰. 고객 원문·운영 화면은 Git에 포함하지 않았다. [운영 기록](operations.md)·[수입 행 명세](specs/insurance-unlinked-inline-20261106.md)·[보험 이름 동작 명세](specs/insurance-name-actions-20261106.md)를 참조한다.
+- 별도 미결을 완료로 바꾸지 않는다: 카드 IA 브랜치 `67eb55c4`는 저장된 영향 검사42failed/655passed+93subtests로 미병합·이번 릴리스 제외다. P2 기본/추가 승인 무료 모델 합성 호출은 각각47.94/38.03초 timeout이며 원인·실제 적용 완료는 입증되지 않았다. HDD30.6초 샘플은 D 물리 쓰기106,496bytes이나 파일별 귀속·전후 개선은 미입증이다. 이 재고는 현재 수입 교정의 새 구현 지시가 아니다.
+- 배포 뒤 별도 사용자 추가 교정은 진행 중이다: 이름 위의 `참가자` 문구 제거(접근성 이름 유지)·두 이름 버튼의 기본 잉크색 적용은 6ad88f32 소유 `fix/insurance-name-default-color-20261106`에서 검증한다. 현재 운영2dd에 이미 반영됐다고 말하지 않는다. 추가 작업의 호스트 단일 작성권은 해당 담당자에게 이관했으며 공유 문서 작성만 이 기록의 PR 완료까지 직렬 유지한다.
+- 현재 교정의 남은 구현/검사/배포0. 기존 root의 사용자 user_action_queue 미커밋·미추적 로그·stash를 보존했다. 문서 후속만으로 재검사·재배포·서버 재시작하지 않는다. 다음 기능 명령 없음.
+
 ## 2026-11-05 여행 장부 항공 이용일 누락 수정 — COMPLETE
 
 ## 2026-11-05 항공권 여행 그룹·탑승객 중심 UI #684 — 운영 완료

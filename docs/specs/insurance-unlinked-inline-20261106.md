@@ -9,7 +9,7 @@
 - 모바일 줄바꿈, 키보드 Enter 선택·Escape 닫기/포커스 복귀, stale409 무저장, 기존 환불·수동 연결·원본·Google 보호를 검증한다. 운영에서 실제 고객 연결을 시험하지 않는다.
 - 누락 원인: 행 아래로 공용 폼을 복제하면서 `.participant-selected-income`의 원행 정보와 별도 제출 버튼까지 그대로 노출했다. 종전 수락은 위치·원수입 고정·확인/취소·접근성에 집중했고, 원행과의 정보 중복 및 참가자 선택 뒤 불필요한 제출 단계를 검사하지 않았다. 이번 회귀 검사는 행 아래 select/반복 설명/별도 연결 버튼이 없고 참가자 Enter 선택이 한 POST만 실행하는지 확인한다.
 
-구현/검증 진행: 수입행 참가자 버튼·오류 재활성 구현, 표적47건 통과. 동일1440/390px 전후 및320px 합성Ego 수락에서 반복 설명·별도 연결 버튼·select0, 버튼44px, 가로넘침0,409재시도 및Escape복귀 확인. 영향 QA·독립최종리뷰·CI·병합·운영수락은 후속 실제 근거로 갱신한다. 비공개 증거 `C:/AX/cost/.local-archive/income-buttons-20261106/`. 실제 고객 연결·금융/Google/원본 쓰기 없음.
+상태: **현재 교정 COMPLETE — PR #701 병합 b0bcd392, 운영 `2dd1b1605eb7122ebb630d1cff4b0596f157c3bc` 수락.** 표적47건, Windows 영향240+40subtests·skip0·필수 브라우저21개 전건 실행·compile 통과, 독립 리뷰 Approve, PR/main CI SUCCESS. 합성1440/390px 전후 및320px/다크/CSS200%에서409 재활성·단일 POST·Escape를 검증했다. 운영1440/390/320px에서는 참가자 버튼10개/44px·반복 설명/select/별도 submit0·넘침0·첫 초점/Escape 복귀를 실제 읽기 확인했다. 실제 고객 이름 버튼은 누르지 않았다. 배포는1,421 blobs 일치·health/ready200·보호API401·보호13표 불변이다. 함께 배포된 #704의 후보 이름 동작/독립 페이지 제거는 [별도 명세](insurance-name-actions-20261106.md)를 따른다. 비공개 증거 `C:/AX/cost/.local-archive/income-buttons-20261106/` 및 coordination-20261106. 실제 고객 연결·금융/Google/원본 쓰기 없음. 물리 기기·실제 스크린리더·OS 자체 확대는 미검증이며 CSS 확대와 구분한다.
 
 ## PR #696 당시 구현·수락 이력
 
