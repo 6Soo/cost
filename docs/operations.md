@@ -1,3 +1,12 @@
+## 2026-11-07 Kookmin 카드 등록·카드 내역 UI 운영 배포 — COMPLETE
+
+- [PR #712](https://github.com/6Soo/cost/pull/712) 병합 SHA `4611305d82156301f5ce32e46942d45de46baed4`에 국민카드 끝번호 `7881`을 안드레 전용 카드로 식별하는 규칙을 추가했다. 기존 카드 거래 행은 없었고 실제 카드/거래 DB 쓰기는 하지 않았다.
+- [PR #713](https://github.com/6Soo/cost/pull/713) 리뷰 SHA `d3aa1021aa48c566de8240d3233e89eb25f59a8f`를 수정·검증한 뒤 `ceb014f1ca716792e9df7eaee591cc00294aa866`로 병합·배포했다. 기존 PR 리뷰의 네 가지 MEDIUM UI 문제를 수정했고, 각 재현 방법·심각도·해결을 [PR 리뷰 기록](https://github.com/6Soo/cost/pull/713#issuecomment-6692044785)에 남겼다.
+- 로컬 `interface-review` PASS: 합성 데이터로 모바일390×844·데스크톱1440×900의 변경 전후를 비교했다. 카드·OTA 화면 일관성, 업로드/수집 패널, 성공·실패·미확인 피드백, 키보드 초점·Escape 복귀, 목록 의미구조 및 가로 넘침을 확인했다. 표적59건 통과, `git diff --check` 통과. 영향 QA는 base `4611305d82156301f5ce32e46942d45de46baed4` → reviewed SHA `d3aa1021aa48c566de8240d3233e89eb25f59a8f`에서 **840건·126 subtests·필수 browser55건 실행, skip0·누락0·compile PASS**. PR CI `42268319284` 및 merge SHA의 main CI `42270062595` SUCCESS.
+- 공식 단일 작성자 코드 배포: 이전 `fd8a8995989ed56565f6d9b858ef132a953543e2` → 운영 `ceb014f1ca716792e9df7eaee591cc00294aa866`. 1,427 tracked files·blob mismatch0·runtime SHA 일치·listener1·Gateway8790→backend8751·route unpaused. `/healthz`·`/readyz` 200, OTA/refund 보호 API401, 보호13표 전후 불변. 금융 apply `NOT_RUN`, 실제 카드/거래·Google·금융 데이터 쓰기 없음.
+- 운영 browser smoke는 별도 ego-browser 공간에서 읽기 요청만 실행했다. 인증 없는 `/cards/all`·`/ota`는 401이어서 인증된 운영 화면의 실제 렌더링은 미검증이다. 해당 화면의 UI 수락 근거는 위 로컬 합성 interface-review이며, 사용자 소유 브라우저나 인증 정보를 사용하지 않았다.
+- 상세 비공개 증거: `C:/AX/cost/.local-archive/pr712-713-20261107/`의 `interface-review-d3aa1021.md`, impact 결과, `postdeploy-smoke.json`; 호스트 `D:/WebLedgerHost/releases/deploy-evidence-ceb014f1ca716792e9df7eaee591cc00294aa866.json`. 이 기록은 문서 전용이며 재배포하지 않는다.
+
 ## 2026-11-06 수입 이름 버튼 기본색 적용·참가자 제목 제거 운영 배포 — COMPLETE
 
 - [PR #706](https://github.com/6Soo/cost/pull/706), 운영 SHA `fd8a8995989ed56565f6d9b858ef132a953543e2`, 이전 `2dd1b1605eb7122ebb630d1cff4b0596f157c3bc`. 공식 `deploy_verified_release.ps1 -Apply` 단일 작성자 전환 완료.

@@ -1,3 +1,11 @@
+## 2026-11-07 PR #712·#713 카드 작업 — 구현·검증·운영 완료
+
+- [PR #712](https://github.com/6Soo/cost/pull/712) 국민카드 끝번호 `7881` 안드레 전용 식별 규칙을 병합 SHA `4611305d82156301f5ce32e46942d45de46baed4`에 반영했다. 기존 카드 거래 행은 없었고 실제 카드·거래 자료는 변경하지 않았다.
+- [PR #713](https://github.com/6Soo/cost/pull/713)은 리뷰 SHA `d3aa1021aa48c566de8240d3233e89eb25f59a8f`에서 수정·검증했고, PR CI `42268319284` 및 merge SHA `ceb014f1ca716792e9df7eaee591cc00294aa866`의 main CI `42270062595`가 SUCCESS다. 최종 코드를 해당 SHA로 공식 코드 전용 배포했다.
+- Local `interface-review` PASS: 390×844·1440×900 전후 화면, 카드/OTA 일관성, 업로드·수집 상태, 초점/Escape·목록 의미구조를 검사했다. 네 MEDIUM 발견을 고쳐 [PR #713에 재현 방법과 해결을 기록](https://github.com/6Soo/cost/pull/713#issuecomment-6692044785)했다. 표적59건, 영향840건+126 subtests, 필수 browser55건, skip0·누락0·compile PASS.
+- 운영 런타임: SHA `ceb014f1ca716792e9df7eaee591cc00294aa866`, 1,427 tracked blobs 불일치0, gateway8790→backend8751, health/ready200, 보호 API401, 보호13표 불변, financial apply `NOT_RUN`. 인증 없는 ego-browser 요청의 `/cards/all`·`/ota` 응답은 401이어서 로그인된 운영 화면 렌더링은 미검증이다. 사용자 소유 브라우저 공간과 인증정보는 사용하지 않았다.
+- [운영 증거](operations.md)와 비공개 로컬 `.local-archive/pr712-713-20261107/`을 참조한다. 이 작업 범위의 미결 구현·검사·배포는 없다. 아래 이전 인계는 당시의 역사 기록이며, 현재 사용자 지시와 대조 없이 자동 과제로 재실행하지 않는다.
+
 ## 2026-11-06 22:51 KST COST 최신 PR 단독 구현 인수 — SPEC_ONLY 명세 연결
 
 - [PR 단독 실행 명세](specs/cost-pr-only-implementation-brief-20261106.md)에서 첫 구현 에이전트가 이전 채팅 없이 코드 변경 범위·라우트 호환·금융 보호·테스트 16개를 확인할 수 있다. **해당 문서 PR은 코드 구현 아님.**
