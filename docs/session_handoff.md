@@ -1,3 +1,12 @@
+## 2026-11-06 22:51 KST COST 최신 PR 단독 구현 인수 — SPEC_ONLY 명세 연결
+
+- [PR 단독 실행 명세](specs/cost-pr-only-implementation-brief-20261106.md)에서 첫 구현 에이전트가 이전 채팅 없이 코드 변경 범위·라우트 호환·금융 보호·테스트 16개를 확인할 수 있다. **해당 문서 PR은 코드 구현 아님.**
+- 원격 main `dd2c8bea24a31b44d5144fabd10d0d6ceab0ec50`(PR #710 CI 최소화 코드 병합), 최근 main Actions run 42227886027 SUCCESS, 열려 있는 PR 0(관측 당시). **#710은 구현·CI 성공, billable 절감률 미측정**. 이전 11/06 09~18시의 'CI 코드 미구현' 인계는 과거 스냅샷.
+- #699 사람 P3 0건과 내부 금융 6원행 UX 구분, #700/#703 영수증 이미지/PDF 단일 업로드·내구적 복구는 이미 코드/운영 배포됨. 실기기 Safari·실제 고객 업로드·외부 OCR은 미검증. **남은 첫 P0 제품 코드**는 `/cards/all`과 `/import`의 카드 조회/업로드·수집 기간 통합, `지출 정리` 메뉴 제거와 `카드 내역`으로 명명 통일. 현재 `webapp/ledger_design.py`·`webapp/cards_all.py`에서 구형 메뉴/제목 직접 확인.
+- 과거 카드 IA 실행 42 failed/655 passed + 93 subtests는 미병합·미배포. 구형 브랜치 강제 병합·실패 검사 skip 금지; baseline/현 계약 분리하여 원인 해결. 자율 P2 운영 성공·billable 비용 절감·실고객 금융 쓰기/13표 보호는 개별 실제 증거 없이는 완료로 선언하지 않는다.
+- 이번 변경은 문서·PR 본문만이며 CI 도구/제품 코드/운영 Windows/금융 DB/Google에 변경 없음. 다음 에이전트는 카드 IA **별도 코드 PR**, 이후 P2 **별도 진단 PR**. SHOP 등 다른 저장소 작업 없음.
+
+
 ## 2026-11-06 최신 GitHub 개발 상태·명세 정합성 체크포인트 — 현황 인수 / 코드 변경 아님
 
 - **읽기 전용 확인 기준선:** GitHub `main` `e793442ccca53162b713112cfd6a9eb4b3412b97` (#709 CI 최소화 명세), 열린 PR 0, 최신 main Actions run 42190952237 SUCCESS. **실제 운영 Windows 배포 SHA는 `fd8a8995989ed56565f6d9b858ef132a953543e2`**(#706; [operations.md](operations.md)). 문서 최신 HEAD와 배포된 프로그램 SHA가 달라도 문서-only push를 이유로 재배포하지 않는다.
