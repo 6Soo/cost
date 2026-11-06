@@ -125,6 +125,60 @@ def ledger_db_path():
     os.unlink(path)
 
 
+
+def test_year_summary_scans_transactions_once_and_preserves_year_boundaries(card_db_path, monkeypatch):
+    """A landing page must not rescan the full card table for every month."""
+    original_connect = ct._connect
+    executed = []
+
+    def instrumented_connect(db_path):
+        connection = original_connect(db_path)
+        connection.set_trace_callback(executed.append)
+        return connection
+
+    monkeypatch.setattr(ct, "_connect", instrumented_connect)
+    result = ct.year_summary(db_path=card_db_path, year=2026)
+    assert result["months"][3] == 3
+    assert result["months"][4] == 1
+    assert sum(result["months"].values()) == 4
+    assert result["undated_count"] == 1
+    # 2025/2024 transactions are neither 2026 months nor undated.
+    scans = [sql for sql in executed if "FROM transactions" in sql
+             and "GROUP BY period_bucket" in sql]
+    assert len(scans) == 1, executed
+    assert not any("COUNT(DISTINCT transaction_id)" in sql and
+                   "GROUP BY period_bucket" not in sql for sql in executed)
+
+
+def test_list_reuses_summary_counts_without_extra_full_counts(card_db_path, monkeypatch):
+    """Default list, pagination, and undated view may reuse trusted matching totals."""
+    summary = ct.year_summary(db_path=card_db_path, year=2026)
+    original_connect = ct._connect
+    executed = []
+
+    def instrumented_connect(db_path):
+        connection = original_connect(db_path)
+        connection.set_trace_callback(executed.append)
+        return connection
+
+    monkeypatch.setattr(ct, "_connect", instrumented_connect)
+    dated = ct.search_for_year(
+        db_path=card_db_path, year=2026,
+        known_total=sum(summary["months"].values()), per_page=2)
+    undated = ct.undated_list(
+        db_path=card_db_path, year=2026,
+        known_total=summary["undated_count"], per_page=1)
+    assert dated["total_count"] == 4 and dated["has_more"]
+    assert dated["cursor"]
+    page2 = ct.search_for_year(
+        db_path=card_db_path, year=2026, cursor=dated["cursor"],
+        known_total=4, per_page=2)
+    assert {row["transaction_id"] for row in dated["items"] + page2["items"]} == {
+        "TX-A-01", "TX-A-02", "TX-B-01", "TX-DUP-01"}
+    assert undated["total_count"] == 1 and len(undated["items"]) == 1
+    # Only the bounded page query remains; the separate COUNT is redundant.
+    assert not any("COUNT(DISTINCT transaction_id)" in sql for sql in executed)
+
 def test_date_validity_is_consistent_for_year_summary_and_lists(card_db_path):
     conn = sqlite3.connect(card_db_path)
     values = [
