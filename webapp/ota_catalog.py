@@ -1087,7 +1087,7 @@ def render_html(data, query, *, csrf=''):
             trip_cell = (f"<span class='ota-badge trip ok'>{ui_icons.icon('check', 14)}"
                          f"<span>{names}{esc(suffix)}</span></span>")
             if any(t.get('source') == 'period' for t in row['trips']):
-                trip_cell += '<details><summary>배정 근거</summary><p>' + esc(inferred.get('basis')) + '</p></details>'
+                trip_cell += '<details class="ota-assignment-evidence"><summary>배정 근거</summary><p>' + esc(inferred.get('basis')) + '</p></details>'
         else:
             trip_cell = (f"<span class='ota-badge trip idle'>{ui_icons.icon('map', 14)}"
                          "<span>여행 미배정</span></span>")
@@ -1156,7 +1156,7 @@ def render_html(data, query, *, csrf=''):
         + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
         + f"<details class='catalog-tools'{' open' if value('state') == 'excluded' else ''}><summary>추가 조회·관리</summary><nav class='catalog-actions' aria-label='OTA 추가 조회'>"
         f"<a class='catalog-btn' href='{esc(url(state='excluded', page=1))}'>취소·배정 해제 {data.get('excluded_count', 0):,}건</a>"
-        f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
+        f"<a class='catalog-btn' href='/cards/all'>{ui_icons.icon('credit-card')}카드 내역 확인</a></nav>"
         + reason_block + problem_block + '</details>'
         + '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)
@@ -1174,6 +1174,8 @@ OTA_STYLE = (
     ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
     ".card-catalog svg.ic:first-child{margin-right:6px}"
+    ".card-catalog .ota-assignment-evidence>summary{display:inline-flex;align-items:center;white-space:nowrap;cursor:pointer}"
+    "@media(width < 1024px){.card-catalog td .ota-assignment-evidence{grid-column:2}}"
     "@media(prefers-reduced-motion:reduce){.card-catalog svg.ic{transition:none}}"
     ".ota-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;"
     "font-size:12px;font-weight:600;white-space:nowrap;max-width:100%}"

@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from . import card_transactions as _ct
 from . import ledger_design as _design
 from . import ui_icons
+from .card_history_assets import SCRIPT as CARD_HISTORY_WORKSPACE_SCRIPT
 from app import request_metrics
 
 DEFAULT_YEAR = 2026
@@ -183,7 +184,7 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-table thead{display:none}
  .card-all-page .card-all-table tbody tr.date-group{display:block;margin:10px 0 0;border:0}
  .card-all-page .card-all-table tbody tr.date-group th{display:block;padding:7px 2px 5px;border:0;background:transparent;font-size:12px;font-weight:700;color:var(--ca-muted);text-align:left}
- .card-all-page .card-all-table tbody tr[data-tx-id]{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,46%);grid-template-areas:"merchant amount" "merchant trip";column-gap:12px;align-items:start;width:100%;min-height:44px;padding:6px 2px;border-bottom:1px solid var(--ca-border)}
+ .card-all-page .card-all-table tbody tr[data-tx-id]{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,46%);grid-template-areas:"merchant amount" "merchant trip";column-gap:12px;align-items:start;width:100%;min-height:44px;padding:4px 2px;border-bottom:1px solid var(--ca-border)}
  .card-all-page .card-all-table tbody tr[data-tx-id]>td{display:block;padding:0;border:0;min-width:0;vertical-align:initial}
  .card-all-page .card-all-table tbody tr[data-tx-id]>.use-datetime{display:none}
  .card-all-page .card-all-table tbody tr[data-tx-id]>.merchant{grid-area:merchant;font-size:13px;font-weight:700;line-height:1.35;overflow-wrap:anywhere}
@@ -196,10 +197,87 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-table .card-all-trip-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.35;font-weight:600}
  .card-all-page .card-all-table .card-all-trip-source{display:none}
  .card-all-page .card-all-table .card-all-badges{max-width:135px}
+ .card-all-page .card-all-table .card-all-action-reason{display:none}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>.amount-cell{display:flex;align-items:center;justify-content:flex-end;gap:4px}
+ .card-all-page .card-all-table tbody tr[data-tx-id]>.amount-cell>.amount{flex:1 1 auto;min-width:0}
+ .card-all-page .card-all-table .amount-cell .card-all-badges{display:flex;flex:0 1 auto;max-width:88px;margin:0}
+ .card-all-page .card-all-table .card-all-badge{margin:0}
  .card-all-page .card-all-table a.card-all-badge.card-review-action{min-width:44px;min-height:44px;align-items:center;justify-content:center}
  .card-all-page .card-all-table tbody tr.card-all-expanded:not([hidden]){display:block;width:100%;border-bottom:1px solid var(--ca-border)}
  .card-all-page .card-all-table tbody tr.card-all-expanded>td{display:block;width:100%;padding:10px 4px}
  .card-all-page .card-all-table tbody tr.card-all-expanded[hidden]{display:none}
+}
+
+.card-all-page .card-history-workspace{margin:0 0 14px;min-width:0}
+.card-all-page .card-history-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.card-all-page .card-history-actions button{min-height:44px;padding:8px 14px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper);color:var(--ca-ink);font:inherit;font-weight:700;cursor:pointer}
+.card-all-page .card-history-actions #card-upload-open{background:var(--ca-accent);border-color:var(--ca-accent);color:#fff}
+.card-all-page .card-history-actions button[aria-expanded=true]{outline:2px solid var(--focus,#2563eb);outline-offset:2px}
+.card-all-page .card-history-actions button:focus-visible,.card-all-page .card-workspace-panel :is(button,a,input,select,summary):focus-visible{outline:2px solid var(--focus,#2563eb);outline-offset:3px}
+.card-all-page .card-workspace-panel{min-width:0;margin:10px 0 16px;padding:16px;border:1px solid var(--ca-border);border-radius:10px;background:var(--ca-paper)}
+.card-all-page .card-workspace-panel[hidden]{display:none}
+.card-all-page .card-workspace-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.card-all-page .card-workspace-panel-actions{display:flex;align-items:flex-start;gap:8px;flex:0 0 auto}
+.card-all-page .card-workspace-panel h2,.card-all-page .card-workspace-panel h3{margin:0 0 8px;line-height:1.3}
+.card-all-page .card-workspace-panel h2{font-size:18px}
+.card-all-page .card-workspace-panel h3{font-size:15px}
+.card-all-page .card-workspace-panel p{line-height:1.5}
+.card-all-page .card-workspace-panel :is(button,a){min-height:44px}
+.card-all-page .card-workspace-panel :is(input[type=file],input[type=date],select){min-height:44px;max-width:100%;font:inherit}
+.card-all-page .card-workspace-muted{color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
+.card-all-page .card-workspace-status{min-height:1.5em;margin:8px 0;color:var(--ca-ink);font-size:13px}
+.card-all-page .card-workspace-error{padding:12px;border-inline-start:3px solid var(--warn,#b45309);background:var(--ca-soft);overflow-wrap:anywhere}
+.card-all-page .card-workspace-secondary,.card-all-page .card-upload-result-link{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid var(--ca-border);border-radius:7px;background:var(--ca-paper);color:var(--ca-ink);font:inherit;font-weight:650;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.card-all-page .card-upload-form{display:grid;gap:8px;max-width:760px}
+.card-all-page .card-upload-form label{font-weight:650}
+.card-all-page .card-upload-form input[type=file]{display:block;width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:7px;background:var(--ca-paper);color:var(--ca-ink)}
+.card-all-page .card-upload-results{display:grid;gap:8px;margin:12px 0 0;padding:0;list-style:none}
+.card-all-page .card-upload-results[hidden]{display:none}
+.card-all-page .card-upload-result{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:8px 14px;align-items:start;padding:10px 0;border-bottom:1px solid var(--ca-border);min-width:0}
+.card-all-page .card-upload-result-name{overflow-wrap:anywhere}
+.card-all-page .card-upload-result-state,.card-all-page .card-upload-result-note{color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
+.card-all-page .card-upload-result-link,.card-all-page .card-upload-coverage-confirm{grid-column:1/-1;width:fit-content;max-width:100%}
+.card-all-page .card-upload-coverage-form,.card-all-page .card-coverage-baseline-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin:10px 0}
+.card-all-page .card-upload-coverage-form>label,.card-all-page .card-coverage-baseline-form>label{display:grid;gap:4px;min-width:0;font-size:13px}
+.card-all-page .card-upload-coverage-form .card-upload-coverage-check{grid-column:1/-1;display:flex;align-items:flex-start;gap:8px}
+.card-all-page .card-upload-coverage-form .card-workspace-status,.card-all-page .card-upload-coverage-form button,.card-all-page .card-coverage-baseline-form button{grid-column:1/-1}
+.card-all-page .card-coverage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 14px}
+.card-all-page .card-coverage-metric{display:grid;gap:4px;min-width:0;padding:10px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-soft)}
+.card-all-page .card-coverage-metric strong{font-size:18px;font-variant-numeric:tabular-nums}
+.card-all-page .card-coverage-metric span{font-size:12px;color:var(--ca-muted)}
+.card-all-page .card-coverage-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.card-all-page .card-coverage-card{min-width:0;margin:0;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
+.card-all-page .card-coverage-state{font-weight:700}
+.card-all-page .card-coverage-period{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:8px 0;border-bottom:1px solid var(--ca-border);font-size:13px;overflow-wrap:anywhere}
+.card-all-page .card-coverage-period.is-missing{border-inline-start:3px solid var(--warn,#b45309);padding-inline-start:8px}
+.card-all-page .card-coverage-period button{flex:0 0 auto}
+.card-all-page .card-coverage-baseline,.card-all-page .card-coverage-files{margin-top:10px;border-top:1px solid var(--ca-border);padding-top:8px}
+.card-all-page .card-coverage-baseline summary,.card-all-page .card-coverage-files summary,.card-all-page .card-upload-coverage-confirm summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:650}
+.card-all-page .card-coverage-file{padding:8px 0;border-bottom:1px solid var(--ca-border);overflow-wrap:anywhere}
+.card-all-page .card-coverage-file p{margin:4px 0}
+.card-all-page .card-coverage-empty{padding:14px;border:1px dashed var(--ca-border);border-radius:8px}
+.card-all-page .card-coverage-pending{margin-top:14px}
+.card-all-page .card-linked-transaction{margin:0 0 12px;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
+.card-all-page .card-linked-transaction[hidden]{display:none}
+.card-all-page .card-linked-transaction-content{min-width:0;overflow-wrap:anywhere}
+.card-all-page .card-legacy-notice{margin:0 0 12px;padding:12px;border-inline-start:3px solid var(--ca-accent);background:var(--ca-soft)}
+@media(max-width:760px){
+ .card-all-page .card-workspace-panel{padding:12px}
+ .card-all-page .card-workspace-panel>header{display:block}
+ .card-all-page .card-workspace-panel-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:8px}
+ .card-all-page .card-workspace-panel-actions button{width:100%;white-space:nowrap}
+ .card-all-page .card-coverage-cards{grid-template-columns:minmax(0,1fr)}
+ .card-all-page .card-coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .card-all-page .card-history-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .card-all-page .card-history-actions button{width:100%;min-width:0}
+ .card-all-page .card-upload-result{grid-template-columns:minmax(0,1fr)}
+ .card-all-page .card-upload-result-link,.card-all-page .card-upload-coverage-confirm{grid-column:1}
+}
+@media(max-width:420px){
+ .card-all-page .card-history-actions{grid-template-columns:minmax(0,1fr)}
+ .card-all-page .card-upload-coverage-form,.card-all-page .card-coverage-baseline-form{grid-template-columns:minmax(0,1fr)}
+ .card-all-page .card-coverage-period{align-items:flex-start;flex-direction:column}
+ .card-all-page .card-coverage-period button{width:100%}
 }
 
 </style>
@@ -263,8 +341,22 @@ document.addEventListener('submit', function(event) {
 document.addEventListener('click', function(event) {
     if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const link = event.target.closest('.card-all-page a[href]');
-    if (link && link.origin === location.origin && !link.target && !link.hasAttribute('download'))
+    if (link && link.origin === location.origin && !link.target && !link.hasAttribute('download')) {
+        const current = new URL(location.href).searchParams;
+        const destination = new URL(link.href);
+        let changed = false;
+        for (const key of ['panel', 'batch', 'transaction', 'gap_card', 'gap_start', 'gap_end',
+                           'gap_issuer', 'gap_tail', 'gap_basis', 'legacy_cleanup', 'legacy_import']) {
+            if (current.has(key) && !destination.searchParams.has(key)) {
+                destination.searchParams.set(key, current.get(key));
+                changed = true;
+            }
+        }
+        if (changed) {
+            link.href = destination.pathname + destination.search + destination.hash;
+        }
         document.querySelector('.card-all-page-loading').hidden = false;
+    }
 });
 window.addEventListener('pageshow', function() {
     const loading = document.querySelector('.card-all-page-loading');
@@ -301,6 +393,62 @@ def _filter_state(query_params):
 def _hidden_filters(state):
     return ''.join(f"<input type='hidden' name='{_esc(key)}' value='{_esc(value)}'>"
                    for key, value in (state or {}).items())
+
+
+def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
+    if not owner:
+        return ""
+    active = _first(query_params, 'panel', '')
+    active = active if active in ('upload', 'coverage') else ''
+    batch = str(_first(query_params, 'batch', '') or '')
+    transaction = str(_first(query_params, 'transaction', '') or '')
+    batch = batch if re.fullmatch(r'batch-[a-f0-9]{24}', batch) else ''
+    show_transaction = bool(transaction and len(transaction) <= 200)
+    legacy_cleanup = _first(query_params, 'legacy_cleanup') == '1'
+    legacy_import = _first(query_params, 'legacy_import') == '1'
+    if legacy_cleanup:
+        notice = ("<aside class='card-legacy-notice' role='status'><strong>거래 확인 업무는 내 확인 필요에서 처리합니다.</strong> "
+                  "카드 내역에서는 거래와 근거를 확인할 수 있습니다. "
+                  "<a href='/my-actions'>내 확인 필요 열기</a></aside>")
+    elif legacy_import:
+        notice = ("<aside class='card-legacy-notice' role='status'>이전 카드 처리 화면은 카드 내역으로 통합했습니다. "
+                  "업로드와 조회기간은 이 화면에서 확인할 수 있습니다.</aside>")
+    else:
+        notice = ""
+    transaction_panel = (
+        "<section id='card-linked-transaction' class='card-linked-transaction' tabindex='-1' hidden>"
+        "<h2>연결된 카드 거래</h2><p class='card-workspace-status' role='status' aria-live='polite'></p>"
+        "</section>" if show_transaction else "")
+    return (
+        "<section class='card-history-workspace' data-card-history-workspace data-csrf='" + _esc(csrf) + "'>"
+        + notice + transaction_panel +
+        "<div class='card-history-actions' role='group' aria-label='카드 자료 관리'>"
+        f"<button id='card-upload-open' type='button' aria-controls='card-upload-panel' aria-expanded='{str(active == 'upload').lower()}'>카드 업로드</button>"
+        f"<button id='card-coverage-open' type='button' aria-controls='card-coverage-panel' aria-expanded='{str(active == 'coverage').lower()}'>수집 현황</button>"
+        "</div>"
+        f"<section id='card-upload-panel' class='card-workspace-panel' aria-labelledby='card-upload-heading' tabindex='-1'{'' if active == 'upload' else ' hidden'}>"
+        "<header><div><h2 id='card-upload-heading'>카드 업로드</h2><p class='card-workspace-muted'>원본 파일을 먼저 저장한 뒤 백그라운드에서 처리합니다. 화면을 새로 열어도 저장된 처리 상태를 확인할 수 있습니다.</p></div>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' data-card-panel-close='upload'>업로드 닫기</button></div></header>"
+        "<div id='card-gap-context' class='card-legacy-notice' role='status' hidden></div>"
+        "<form class='card-upload-form' onsubmit='return false'>"
+        "<label for='card-upload-files'>업로드할 카드 파일 선택</label>"
+        "<input id='card-upload-files' type='file' accept='.xls,.xlsx,.csv' multiple aria-describedby='card-upload-help'>"
+        "<p id='card-upload-selection' class='card-workspace-muted'>선택된 파일 없음</p>"
+        "<p id='card-upload-help' class='card-workspace-muted'>XLS, XLSX, CSV 파일을 한 번에 최대 100개, 합계 99MB까지 선택할 수 있습니다.</p>"
+        "<button id='card-upload-submit' type='button' class='card-workspace-secondary'>선택한 파일 업로드</button></form>"
+        "<p id='card-upload-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
+        "<p id='card-upload-resume-status' class='card-workspace-status' role='status' aria-live='polite' hidden></p>"
+        "<ol id='card-upload-results' class='card-upload-results' aria-label='파일별 처리 결과' hidden></ol>"
+        f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
+        "</section>"
+        f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
+        "<header><div><h2 id='card-coverage-heading'>수집 현황</h2><p class='card-workspace-muted'>거래 발생기간과 실제 조회기간은 다릅니다. 조회 기준별로 확인된 기간과 누락 구간을 표시합니다.</p></div>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
+        "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
+        "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
+        "<div id='card-coverage-summary'></div></section>"
+        "</section>"
+    )
 
 
 def _trip_context():
@@ -466,7 +614,7 @@ def _status_badges(item: dict) -> str:
         if action['group'] == 'review':
             text = f"<a class='card-all-badge review card-review-action' href='{_esc(action['href'])}'>{text}</a>"
             if action.get('reason_label'):
-                text += f"<span class='card-all-badge'>{_esc(action['reason_label'])}</span>"
+                text += f"<span class='card-all-badge card-all-action-reason'>{_esc(action['reason_label'])}</span>"
             return text
         return f"<span class='card-all-badge'>{text}</span>"
     badges: list[str] = []
@@ -784,20 +932,46 @@ def _error_page(message: str) -> str:
             f"<p>{_esc(message)}</p>"
             "<p>다시 불러온 뒤에도 문제가 계속되면 관리자에게 문의해 주세요.</p>"
             "<a class='site-action' href=''>다시 불러오기</a></section></div>")
-    fragment = _design.shell("카드 전체 내역", tab_id="", heading="카드 전체 내역",
+    fragment = _design.shell("카드 내역", tab_id="", heading="카드 내역",
                              meta="저장된 카드 거래를 연도와 월로 확인해요.",
                              body=body, home=True)
-    return _design.render(fragment, title="카드 전체 내역")
+    return _design.render(fragment, title="카드 내역")
 
 
-def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
+def _upload_workspace_page(query_params, *, owner: bool, csrf: str) -> str:
+    """Render direct upload deep links without waiting on the card writer."""
+    body = (
+        CARD_ALL_STYLE
+        + "<div class='card-all-page' data-card-upload-quick-view='true'>"
+        "<div class='card-all-page-loading' role='status' hidden>"
+        "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
+        + _workspace_html(query_params, owner=owner, csrf=csrf)
+        + "<section class='card-all-detail card-all-empty' role='status'>"
+        "<h2>업로드 후 확인</h2>"
+        "<p>업로드를 마친 뒤 이 화면에서 거래와 수집 현황을 확인할 수 있습니다.</p>"
+        "<p>업로드 패널을 닫으면 카드 내역을 다시 불러옵니다.</p>"
+        "</section></div>" + CARD_ALL_SCRIPT
+        + (f"<script>{CARD_HISTORY_WORKSPACE_SCRIPT}</script>" if owner else "")
+    )
+    fragment = _design.shell(
+        "카드 내역", tab_id="", heading="카드 내역",
+        meta="카드 거래와 실제 조회기간을 확인해요.", body=body, home=True,
+        quick_view=True)
+    return _design.render(fragment, title="카드 내역")
+
+
+def cards_all_page(query_params: dict, *, db_path: str | None = None,
+                   owner: bool = False, csrf: str = "") -> str:
     operation = 'card_search' if _first(query_params, 'q', '') else 'first_render'
     with request_metrics.card_scope(operation):
-        return _cards_all_page(query_params, db_path=db_path)
+        return _cards_all_page(query_params, db_path=db_path, owner=owner, csrf=csrf)
 
 
-def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
-    """카드 전체 내역 페이지를 그린다. 읽기만 수행한다."""
+def _cards_all_page(query_params: dict, *, db_path: str | None = None,
+                    owner: bool = False, csrf: str = "") -> str:
+    """카드 내역 페이지를 그린다. 조회 데이터는 읽기만 수행한다."""
+    if _first(query_params, 'panel') == 'upload':
+        return _upload_workspace_page(query_params, owner=owner, csrf=csrf)
     year, selected_month, cursor, undated_cursor, show_undated = _request_params(query_params)
     filter_state = _filter_state(query_params)
     trip_names = {}
@@ -886,15 +1060,23 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         options = "<option value=''>전체 카드</option>" + ''.join(
             f"<option value='{_esc(option['card_key'])}'{' selected' if option['card_key'] == selected_card else ''}>{_esc(option['card_label'])}</option>"
             for option in card_options)
+        hidden_filter_state = {'undated': '1'} if show_undated else {}
+        active_panel = _first(query_params, 'panel', '')
+        if owner:
+            for key in ('panel', 'batch', 'transaction', 'gap_card', 'gap_start', 'gap_end',
+                        'gap_issuer', 'gap_tail', 'gap_basis', 'legacy_cleanup', 'legacy_import'):
+                value = str(_first(query_params, key, '') or '')
+                if value and len(value) <= 220:
+                    hidden_filter_state[key] = value
         filter_form = (
             "<form method='get' action='/cards/all' class='card-all-filters' aria-label='조회 조건'>"
-            + _hidden_filters({'undated': '1'} if show_undated else {})
+            + _hidden_filters(hidden_filter_state)
             + _period_select(year, selected_month, years)
             + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
             + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
             + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='카드사·끝4자리·가맹점·내용·분류·금액·승인번호'></label>"
             + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
-            + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>")
+            + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {}), **({'panel': active_panel} if owner and active_panel in ('upload', 'coverage') else {})}))}'>필터 초기화</a></form>")
 
         if selected_month is not None:
             detail = _month_detail(year, selected_month, items, next_cursor,
@@ -911,12 +1093,14 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             + "<div class='card-all-page'>"
             "<div class='card-all-page-loading' role='status' hidden>"
             "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
-            f"{filter_form}"
-            f"{detail}"
-            f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)}"
-            "</div>" + CARD_ALL_SCRIPT)
+            + _workspace_html(query_params, owner=owner, csrf=csrf)
+            + filter_form
+            + detail
+            + _undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)
+            + "</div>" + CARD_ALL_SCRIPT
+            + (f"<script>{CARD_HISTORY_WORKSPACE_SCRIPT}</script>" if owner else ""))
         fragment = _design.shell(
-            "카드 전체 내역", tab_id="", heading="카드 전체 내역",
-            meta="카드 거래를 연도와 월로 확인해요.",
+            "카드 내역", tab_id="", heading="카드 내역",
+            meta="카드 거래와 실제 조회기간을 확인해요.",
             body=body, home=True)
-        return _design.render(fragment, title="카드 전체 내역")
+        return _design.render(fragment, title="카드 내역")

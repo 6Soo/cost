@@ -189,7 +189,9 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     assert code == 202, body
     ack = json.loads(body)
     assert ack['source_rows_persisted'] is True
-    assert service.request('/import', cookie=service.cookie(OWNER))[0] == 200
+    legacy_code, _, legacy_headers = service.request('/import', cookie=service.cookie(OWNER))
+    assert legacy_code == 302
+    assert legacy_headers.get('Location') == '/cards/all?panel=upload'
     assert len(held_upload_threads) == 1
     state_code, state_body, _ = service.request('/api/imports/' + ack['batch_id'],
                                                  cookie=service.cookie(OWNER))
@@ -550,11 +552,15 @@ def test_unprepared_quarter_copy_stays_rejected_without_writes(service):
     ('other_review', 'classification'),
 ])
 def test_import_cleanup_keeps_legacy_filter_bookmarks(service, legacy, canonical):
-    code, body, _ = service.request(
+    code, _, headers = service.request(
         '/import?cleanup_reason=' + quote(legacy), cookie=service.cookie(OWNER))
-    assert code == 200, body[:500]
-    assert (f"href='/import?cleanup_reason={canonical}#expense-cleanup' "
-            "aria-current='page'") in body
+    assert code == 302
+    target = f'/cards/all?cleanup_reason={canonical}&legacy_cleanup=1'
+    assert headers.get('Location') == target
+    page_code, body, _ = service.request(target, cookie=service.cookie(OWNER))
+    assert page_code == 200, body[:500]
+    assert '거래 확인 업무는 내 확인 필요에서 처리합니다.' in body
+    assert "href='/my-actions'" in body
 
     invalid_code, _, _ = service.request(
         '/import?cleanup_reason=unknown', cookie=service.cookie(OWNER))

@@ -37,12 +37,15 @@ def _panel_tag(markup: str, panel_id: str, view: str) -> str:
     return markup[:match.start()] + tag + markup[match.end():]
 
 
-def decorate(markup: str) -> str:
+def decorate(markup: str, *, page_title: str = '지출 정리') -> str:
     from .ui_icons import icon
 
+    if page_title not in {'지출 정리', '카드 거래 상세'}:
+        raise ValueError('unsupported expense workspace page title')
     if '<!--EXPENSE_CLEANUP-->' in markup:
         raise ValueError('expense workspace cleanup marker already exists in source markup')
-    title_match = _required_match(markup, r'<h1\b[^>]*>\s*지출 정리\s*</h1\s*>', 'page heading')
+    title_match = _required_match(
+        markup, rf'<h1\b[^>]*>\s*{re.escape(page_title)}\s*</h1\s*>', 'page heading')
     for target in ('saved-materials', 'newupload', 'rules'):
         _required_match(markup, _tag_with_id_pattern('details', target), f'{target} panel')
     status_tag = _tag_with_id_pattern('p', 'status')
@@ -54,22 +57,23 @@ def decorate(markup: str) -> str:
         'style/body boundary')
     _required_match(markup, r'</body\s*>', 'body closing tag')
 
+    task_label = '정리할 지출' if page_title == '지출 정리' else '카드 거래'
     tabs = [
         f'<button type="button" id="expense-tab-{key}" role="tab" '
         f'aria-controls="{panel}" aria-selected="{str(key == "cleanup").lower()}" '
         f'tabindex="{0 if key == "cleanup" else -1}" data-expense-view="{key}">'
         f'{icon(symbol)}<span>{label}</span></button>'
         for key, panel, symbol, label in (
-            ('cleanup', 'expense-overview', 'list', '정리할 지출'),
+            ('cleanup', 'expense-overview', 'list', task_label),
             ('upload', 'newupload', 'upload', '카드 업로드'),
             ('saved', 'saved-materials', 'list', '저장된 자료'),
             ('rules', 'rules', 'pencil', '분류 규칙'),
         )
     ]
     heading = (
-        '<header class="expense-heading"><div><h1>지출 정리</h1>'
+        f'<header class="expense-heading"><div><h1>{page_title}</h1>'
         '</div></header>'
-        '<nav class="expense-tabs" role="tablist" aria-label="지출 정리 작업">' + ''.join(tabs[:2])
+        f'<nav class="expense-tabs" role="tablist" aria-label="{page_title} 도구">' + ''.join(tabs[:2])
         + '<details class="expense-tools"><summary>자료·규칙 관리</summary><div>'
         + ''.join(tabs[2:]) + '</div></details></nav>'
         '<section id="expense-overview" role="tabpanel" aria-labelledby="expense-tab-cleanup">'
@@ -80,7 +84,7 @@ def decorate(markup: str) -> str:
     source_opening = re.match(r'<h1\b[^>]*>', source_heading, re.I).group()
     source_closing = re.search(r'</h1\s*>$', source_heading, re.I).group()
     source_contents = source_heading[len(source_opening):-len(source_closing)]
-    heading = heading.replace('<h1>지출 정리</h1>', source_opening + source_contents + source_closing, 1)
+    heading = heading.replace(f'<h1>{page_title}</h1>', source_opening + source_contents + source_closing, 1)
     markup = markup[:title_match.start()] + heading + markup[title_match.end():]
     # Keep original IDs, details.open and event handlers used by upload/review.
     # Only their presentation changes; financial actions stay in card_flow.

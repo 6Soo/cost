@@ -141,7 +141,7 @@ class SiteShellBrowserTests(LinkBrowserFixture):
             with self.subTest(width=width):
                 page, base = self.prepare_pages(width)
                 appearances = []
-                for path in ('/board', '/cards', '/import'):
+                for path in ('/board', '/cards/all'):
                     page.goto(base + path)
                     appearances.append(page.evaluate('''() => {
                       const selectors=['#nav','#nav .brand','#nav .brand small','#nav .nav-q input',
@@ -178,16 +178,23 @@ class SiteShellBrowserTests(LinkBrowserFixture):
     def test_same_sidebar_on_all_work_screens_at_desktop(self):
         page, base = self.prepare_pages(1440)
         menu = None
-        # The Google ledger route was deliberately removed; exercise live destinations only.
-        for path in ('/', '/board', '/import', '/cards', '/receipts', '/reserve-links', '/trips', '/access/admin'):
+        # The transient upload shell shares primary navigation but omits the
+        # live trip rail while the card writer is busy.
+        for path in ('/', '/board', '/import', '/cards', '/cards/all?panel=upload', '/receipts', '/reserve-links', '/trips', '/access/admin'):
             with self.subTest(path=path):
                 response = page.goto(base + path)
                 self.assertEqual(response.status, 200, f"{path} returned HTTP {response.status}")
                 self.assertEqual(page.locator('#nav').count(), 1)
-                links = page.locator('#nav a[href]').evaluate_all('(items)=>items.map(a=>a.getAttribute("href"))')
+                links = page.locator('#nav .site-links a[href]').evaluate_all(
+                    '(items)=>items.map(a=>a.getAttribute("href"))')
                 if menu is None:
                     menu = links
                 self.assertEqual(links, menu)
+                self.assertEqual(page.locator('#nav a[href="/cards/all"]').count(), 1)
+                self.assertEqual(page.locator('#nav a[href="/import"]').count(), 0)
+                if path == '/cards/all?panel=upload':
+                    self.assertEqual(page.evaluate("sessionStorage.getItem('cost-view:/cards/all')"), None)
+                    self.assertIn('여행 목록을 다시 불러옵니다', page.locator('#live-nav').inner_text())
                 self.assertEqual(page.locator('#nav').bounding_box()['x'], 0)
                 main = page.locator('#site-content') if page.locator('#site-content').count() else page.locator('#main')
                 self.assertGreaterEqual(main.bounding_box()['x'], 232)
@@ -233,13 +240,10 @@ class SiteShellBrowserTests(LinkBrowserFixture):
         self.assertNotIn('open', page.locator('#nav').get_attribute('class'))
         page.get_by_role('button', name='전체 메뉴 열기').click()
         self.assertEqual(page.get_by_label('여행 검색').input_value(), 'Synthetic draft')
-        page.locator('#nav a[href="/import"]').first.click()
-        self.assertEqual(page.url, base + '/import')
+        page.locator('#nav a[href="/cards/all"]').first.click()
+        self.assertEqual(page.url, base + '/cards/all')
         self.assertEqual(page.locator('#nav').count(), 1)
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
-        page.get_by_role('button', name='전체 메뉴 열기').click()
-        page.locator('#nav a[href="/cards/all"]').click()
-        self.assertEqual(page.url, base + '/cards/all')
         self.assertEqual(page.locator('#nav a[href="/cards/all"]').get_attribute('aria-current'), 'page')
         page.goto(base + '/board')
         page.get_by_role('button', name='전체 메뉴 열기').click()
