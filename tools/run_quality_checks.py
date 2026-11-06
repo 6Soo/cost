@@ -174,13 +174,16 @@ def plan(base: str, head: str, *, audit: bool = False, root: Path = ROOT) -> dic
     if checked_out_sha.lower() != head_sha.lower():
         raise ValueError("HEAD_MISMATCH")
     if audit:
-        return {"base_sha": head_sha, "head_sha": head_sha, **audit_plan(root=root)}
+        tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
+        return {"base_sha": head_sha, "head_sha": head_sha, "head_tree_sha": tree_sha,
+                **audit_plan(root=root)}
     base_sha = _git(["rev-parse", "--verify", f"{base}^{{commit}}"], root=root)
     if not re.fullmatch(r"[0-9a-fA-F]{40}", base_sha):
         raise ValueError("INVALID_COMMIT_ID")
     paths = changed_paths(base_sha, head_sha, root=root)
     if not paths:
-        return {"base_sha": base_sha, "head_sha": head_sha,
+        tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
+        return {"base_sha": base_sha, "head_sha": head_sha, "head_tree_sha": tree_sha,
                 **build_plan([], {}, root=root)}
     selector = subprocess.run(
         [sys.executable, str(SELECTOR), "--base", base_sha], cwd=root,
@@ -192,7 +195,8 @@ def plan(base: str, head: str, *, audit: bool = False, root: Path = ROOT) -> dic
         raise ValueError("SELECTOR_MALFORMED") from exc
     if selector.returncode not in (0, 2):
         raise ValueError("SELECTOR_FAILED")
-    return {"base_sha": base_sha, "head_sha": head_sha,
+    tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
+    return {"base_sha": base_sha, "head_sha": head_sha, "head_tree_sha": tree_sha,
             **build_plan(paths, payload, root=root)}
 
 
@@ -277,7 +281,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
 
 
 def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha: str,
-                         head_sha: str, *, root: Path = ROOT) -> int:
+                         head_sha: str, *, head_tree_sha: str | None = None,
+                         root: Path = ROOT) -> int:
     artifact_dir = root / "quality-artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     summary_path = artifact_dir / "run-summary.json"
@@ -324,7 +329,10 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                           and case_count > 0 and executed_case_count > 0
                           and not missing_browser and not browser_skipped
                           and not nonbrowser_skipped) else "FAILED"
+    if head_tree_sha is None:
+        head_tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
     summary = {"status": status, "base_sha": base_sha, "head_sha": head_sha,
+               "head_tree_sha": head_tree_sha,
                "test_case_count": case_count, "executed_case_count": executed_case_count,
                "browser_required": bool(browser_tests),
                "browser_tests": browser_tests, "browser_executed": sorted(browser_executed),
@@ -360,7 +368,8 @@ def main(argv: list[str] | None = None) -> int:
             if result.get("document_paths"):
                 check_documentation(result["base_sha"], result["head_sha"], result["document_paths"])
             return _write_run_artifacts(result["pytest_targets"], result["browser_tests"],
-                                        result["base_sha"], result["head_sha"])
+                                        result["base_sha"], result["head_sha"],
+                                        head_tree_sha=result["head_tree_sha"])
         if args.run and result["status"] == "DOCS_ONLY":
             check_documentation(result["base_sha"], result["head_sha"], result["document_paths"])
             print(json.dumps({"status": "DOCS_CHECKED", "tests_executed": 0}, ensure_ascii=False))

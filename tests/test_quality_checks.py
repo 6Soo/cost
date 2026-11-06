@@ -12,6 +12,10 @@ SPEC.loader.exec_module(quality)
 SELECTOR_SPEC = importlib.util.spec_from_file_location("select_targeted_tests", ROOT / "tools/select_targeted_tests.py")
 selector_tool = importlib.util.module_from_spec(SELECTOR_SPEC)
 SELECTOR_SPEC.loader.exec_module(selector_tool)
+REUSE_SPEC = importlib.util.spec_from_file_location(
+    "reuse_quality_evidence", ROOT / "tools/reuse_quality_evidence.py")
+reuse_quality = importlib.util.module_from_spec(REUSE_SPEC)
+REUSE_SPEC.loader.exec_module(reuse_quality)
 
 
 def selector(paths, status="SELECTED", targets=None):
@@ -19,11 +23,81 @@ def selector(paths, status="SELECTED", targets=None):
             "pytest_commands": [["python", "-m", "pytest", *(targets or ["tests/test_cost_audit.py"]), "-q"]]}
 
 
+class _ReuseEvidenceAPI:
+    def __init__(self, *, changed_path="webapp/example.py", tree=None, skipped=0, expired=False):
+        self.changed_path = changed_path
+        self.tree = tree or "b" * 40
+        self.skipped = skipped
+        self.expired = expired
+        self.tested_merge = "a" * 40
+        self.plan = {"status": "SELECTED", "head_sha": self.tested_merge, "head_tree_sha": self.tree,
+                     "base_sha": "c" * 40,
+                     "pytest_targets": ["tests/test_cost_audit.py"], "browser_tests": [],
+                     "browser_required": False, "unknown_paths": []}
+        self.summary = {"status": "PASSED", "head_sha": self.tested_merge, "head_tree_sha": self.tree,
+                        "base_sha": "c" * 40,
+                        "browser_required": False,
+                        "pytest_targets": self.plan["pytest_targets"], "test_case_count": 4,
+                        "executed_case_count": 4, "skip_count": skipped,
+                        "skipped_test_cases": [], "nonbrowser_skipped_test_cases": [],
+                        "browser_skipped": [], "missing_browser_tests": [], "browser_executed": []}
+
+    def json(self, url):
+        if "/commits/merge-1/pulls" in url:
+            return [{"number": 42, "merged_at": "2026-11-06T00:00:00Z", "merge_commit_sha": "merge-1",
+                     "base": {"ref": "main", "repo": {"full_name": "6Soo/cost"}},
+                     "head": {"sha": "head-1", "repo": {"full_name": "6Soo/cost"}}}]
+        if "/pulls/42/files" in url:
+            return [{"filename": self.changed_path}]
+        if "/actions/workflows/quality.yml/runs?" in url:
+            return {"workflow_runs": [{"id": 900, "path": ".github/workflows/quality.yml",
+                    "head_sha": "head-1", "event": "pull_request", "status": "completed",
+                    "conclusion": "success", "run_attempt": 1}]}
+        if "/actions/runs/900/artifacts" in url:
+            return {"artifacts": [{"name": "quality-evidence-900-1", "expired": self.expired,
+                    "created_at": "2026-11-06T00:00:00Z", "archive_download_url": "artifact-1"}]}
+        raise AssertionError(url)
+
+    def artifact(self, url):
+        import io
+        import zipfile
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as archive:
+            archive.writestr("quality-plan.json", json.dumps(self.plan))
+            archive.writestr("quality-artifacts/run-summary.json", json.dumps(self.summary))
+        return payload.getvalue()
+
+
+def test_main_quality_evidence_reuse_requires_exact_tree_and_complete_pr_proof():
+    api = _ReuseEvidenceAPI()
+    result = reuse_quality.find_reusable_evidence(api, "6Soo/cost", "merge-1", "b" * 40)
+    assert result["status"] == "REUSED_VERIFIED"
+    assert result["reuse"]["pull_request"] == 42
+    assert result["reuse"]["skipped_test_count"] == 0
+
+
+@pytest.mark.parametrize("api,tree", [
+    (_ReuseEvidenceAPI(), "c" * 40),
+    (_ReuseEvidenceAPI(changed_path=".github/workflows/quality.yml"), "b" * 40),
+    (_ReuseEvidenceAPI(skipped=1), "b" * 40),
+    (_ReuseEvidenceAPI(expired=True), "b" * 40),
+])
+def test_main_quality_evidence_reuse_fails_closed(api, tree):
+    assert reuse_quality.find_reusable_evidence(api, "6Soo/cost", "merge-1", tree) is None
+
+
 def test_docs_only_and_empty_changes_do_not_schedule_code_checks():
     assert quality.build_plan([], {})["steps"] == []
     docs = quality.build_plan(["docs/specs/change.md"], {})
     assert docs["status"] == "DOCS_ONLY"
     assert docs["steps"] == ["documentation-diff-and-links"]
+
+
+def test_quality_plan_records_exact_checked_out_tree():
+    plan = quality.plan("HEAD", "HEAD")
+    expected = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT,
+                              capture_output=True, text=True, check=True).stdout.strip()
+    assert plan["head_tree_sha"] == expected
 
 
 def test_product_change_uses_existing_impact_group_and_data_protection_gate():
@@ -172,7 +246,7 @@ def test_core_business_acceptance_is_targeted_and_audited_with_browser_cases_req
     plan = quality.build_plan(["webapp/owner_metadata.py"], selector([], targets=sorted(required)))
     assert required <= set(plan["pytest_targets"])
     required_browser_cases = {
-        "webapp.tests.test_insurance_income_match_browser::test_candidate_selection_stays_in_its_row_and_narrow_page_does_not_overflow",
+        "webapp.tests.test_insurance_income_match_browser::test_name_action_keeps_income_and_never_guesses_ambiguous_identity",
         "webapp.tests.test_flight_booking_name_search::test_browser_name_search_renders_verified_itinerary_and_secondary_participant_flow",
         "webapp.tests.test_rule_review::RuleReviewTests::test_browser_reports_committed_approval_when_refresh_fails",
         "webapp.tests.test_rule_dialog_screen::RuleDialogScreenTests::test_full_flow_at_1440",
@@ -326,7 +400,8 @@ def test_malformed_junit_fails_run_and_preserves_failure_artifacts(tmp_path):
 
     browser = ["webapp.tests.required_browser::test_required"]
     with patch.object(quality.subprocess, "run", side_effect=run):
-        result = quality._write_run_artifacts([], browser, "a" * 40, "b" * 40, root=tmp_path)
+        result = quality._write_run_artifacts([], browser, "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
 
     artifacts = tmp_path / "quality-artifacts"
     summary = json.loads((artifacts / "run-summary.json").read_text(encoding="utf-8"))
@@ -359,7 +434,8 @@ def test_selected_nonbrowser_skip_fails_quality_run_even_when_another_case_passe
         return subprocess.CompletedProcess(command, 0, "", "")
 
     with patch.object(quality.subprocess, "run", side_effect=run):
-        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40, root=tmp_path)
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
     assert result == 1
     summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
     assert summary["status"] == "FAILED"
@@ -389,7 +465,8 @@ def test_redirected_pytest_uses_utf8_and_keeps_failure_artifacts(tmp_path, monke
         return real_run([quality.sys.executable, "-c", "print('검사 실패');raise SystemExit(1)"], **kwargs)
 
     monkeypatch.setattr(quality.subprocess, "run", run)
-    assert quality._write_run_artifacts([], [], "a" * 40, "b" * 40, root=tmp_path) == 1
+    assert quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                        head_tree_sha="c" * 40, root=tmp_path) == 1
     artifacts = tmp_path / "quality-artifacts"
     assert "검사 실패" in (artifacts / "pytest.log").read_text(encoding="utf-8")
     summary = json.loads((artifacts / "run-summary.json").read_text(encoding="utf-8"))
