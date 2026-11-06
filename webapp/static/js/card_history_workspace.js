@@ -161,14 +161,16 @@
   function resultEntry(name, message, state = 'pending') {
     const entry = node('li', 'card-upload-result');
     entry.dataset.state = state;
+    entry.dataset.outcome = state;
     entry.append(node('strong', 'card-upload-result-name', name || '카드 파일'));
     entry.append(node('span', 'card-upload-result-state', message));
     uploadResults.hidden = false;
     uploadResults.append(entry);
     return entry;
   }
-  function updateEntry(entry, message, state = 'pending') {
+  function updateEntry(entry, message, state = 'pending', outcome = state) {
     entry.dataset.state = state;
+    entry.dataset.outcome = outcome;
     entry.querySelector('.card-upload-result-state').textContent = message;
   }
   function batchLink(entry, batchId) {
@@ -187,6 +189,11 @@
     if (status) return '분류 결과를 확인해 주세요.';
     return '파일 처리 결과를 확인했습니다.';
   }
+  function gapCoveredBy(evidence, gap = selectedGap) {
+    return Boolean(gap && evidence?.card_id === gap.card_id &&
+      evidence.date_basis === gap.date_basis && evidence.start_date <= gap.start &&
+      evidence.end_date >= gap.end);
+  }
   function showCoverageEvidence(entry, result, batchId) {
     const evidence = result.coverage_evidence || {};
     if (result.coverage_confirmed) {
@@ -201,9 +208,7 @@
       entry.append(node('span', 'card-upload-result-note', '조회기간을 확인할 수 없습니다. 업로드 결과는 저장되어 있습니다.'));
     }
     if (selectedGap) {
-      const matched = result.coverage_confirmed === true && evidence.card_id === selectedGap.card_id &&
-        evidence.date_basis === selectedGap.date_basis && evidence.start_date <= selectedGap.start &&
-        evidence.end_date >= selectedGap.end;
+      const matched = result.coverage_confirmed === true && gapCoveredBy(evidence);
       entry.append(node('span', 'card-upload-result-note', matched ?
         '선택한 누락 기간의 전체 조회를 확인했습니다.' :
         '선택한 누락 기간 전체의 조회 증빙은 아직 확보되지 않았습니다. 현황에서 기간을 다시 확인해 주세요.'));
@@ -255,9 +260,8 @@
         message.textContent = '조회기간 확인을 저장했습니다.';
         save.textContent = '조회기간 확인 저장';
         if (selectedGap) {
-          const matched = evidence.card_id === selectedGap.card_id &&
-            evidence.date_basis === selectedGap.date_basis && evidence.start_date <= selectedGap.start &&
-            evidence.end_date >= selectedGap.end;
+          const savedEvidence = result.coverage_evidence || result.evidence || confirmation;
+          const matched = gapCoveredBy(savedEvidence);
           entry.append(node('span', 'card-upload-result-note', matched ?
             '선택한 누락 기간의 조회 확인을 저장했습니다.' :
             '선택한 누락 기간과 다른 범위입니다. 남은 누락 기간은 현황에 계속 표시됩니다.'));
@@ -299,22 +303,32 @@
           }
           if (state.status === 'error') {
             saveJob(job, true);
-            throw new Error(state.message || '파일 처리에 실패했습니다. 저장된 파일의 결과를 확인해 주세요.');
+            const error = new Error(state.message || '파일 처리에 실패했습니다. 저장된 파일의 결과를 확인해 주세요.');
+            error.cardUploadStatus = 'server-error';
+            throw error;
           }
           failures = 0;
           updateEntry(entry, (state.message || '파일 처리 중') + ' · ' + Math.floor((Date.now() - started) / 1000) + '초');
         }
       } catch (error) {
-        if (error.message && /로그인|권한|파일 처리에 실패했습니다/.test(error.message)) throw error;
+        if (error.cardUploadStatus === 'server-error') throw error;
+        if (error.message && /로그인|권한/.test(error.message)) {
+          error.cardUploadStatus = 'unknown';
+          throw error;
+        }
         failures += 1;
         updateEntry(entry, error.message || '처리 상태를 다시 확인하고 있습니다.');
-        if (failures >= 5) throw new Error('파일은 접수됐습니다. 연결을 확인한 뒤 처리 결과 링크에서 다시 확인해 주세요.');
+        if (failures >= 5) {
+          const unknown = new Error('저장된 처리 상태를 확인하지 못했습니다. 다시 조회하거나 처리 결과를 확인해 주세요.');
+          unknown.cardUploadStatus = 'unknown';
+          throw unknown;
+        }
       }
       await new Promise(resolve => setTimeout(resolve, Math.min(10000, failures ? 1000 * 2 ** failures : 1500)));
     }
   }
   async function showResult(entry, job, result) {
-    updateEntry(entry, uploadOutcome(result), 'saved');
+    updateEntry(entry, uploadOutcome(result), 'saved', 'saved');
     batchLink(entry, result.batch_id || job.batch_id);
     showCoverageEvidence(entry, result, result.batch_id || job.batch_id);
   }
@@ -338,12 +352,26 @@
       while (cursor < jobs.length) {
         const index = cursor++; const job = jobs[index];
         try { await showResult(entries[index], job, await awaitUpload(job, entries[index])); }
-        catch (error) { updateEntry(entries[index], error.message, 'error'); batchLink(entries[index], job.batch_id); }
+        catch (error) {
+          const outcome = error.cardUploadStatus === 'server-error' ? 'server-error' : 'unknown';
+          updateEntry(entries[index], error.message, 'error', outcome);
+          batchLink(entries[index], job.batch_id);
+        }
       }
     };
     await Promise.all(Array.from({length: Math.min(4, jobs.length)}, worker));
-    note.textContent = jobs.length + '개 파일의 저장 상태를 확인했습니다. 업로드된 파일은 다시 올릴 필요가 없습니다.';
+    const outcomes = entries.map(entry => entry.dataset.outcome);
+    const saved = outcomes.filter(outcome => outcome === 'saved').length;
+    const serverErrors = outcomes.filter(outcome => outcome === 'server-error').length;
+    const unknown = outcomes.filter(outcome => outcome === 'unknown').length;
+    note.textContent = `처리 상태 확인: 완료 ${saved}개 · 서버 오류 ${serverErrors}개 · 상태 미확인 ${unknown}개.`;
     delete uploadResults.dataset.resuming;
+    if (unknown) {
+      const retry = node('button', 'card-workspace-secondary', '미확인 상태 다시 조회');
+      retry.type = 'button';
+      retry.addEventListener('click', resumeUploads);
+      uploadResults.append(retry);
+    }
     await refreshCoverage();
   }
 
