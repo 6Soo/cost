@@ -125,5 +125,3 @@ def test_empty_import_has_no_inferred_card_identity(board):
     assert item['issuer_hint'] == ''
     assert item['card_tail_hint'] == ''
     assert summary['overview']['gaps_assessable'] is False
-
-
