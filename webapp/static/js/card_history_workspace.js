@@ -339,6 +339,8 @@
     const jobs = readJobs();
     if (!jobs.length || uploadResults.dataset.resuming === 'true') return;
     uploadResults.dataset.resuming = 'true';
+    const previousRetry = byId('card-upload-resume-retry');
+    if (previousRetry) previousRetry.remove();
     if (panelName() !== 'upload') {
       const url = new URL(location.href); url.searchParams.set('panel', 'upload');
       history.replaceState({}, '', url);
@@ -347,8 +349,9 @@
       coverageButton.setAttribute('aria-expanded', 'false');
     }
     uploadResults.replaceChildren();
-    const note = node('p', 'card-workspace-status', jobs.length + '개 파일의 저장된 처리 상태를 확인하고 있습니다.');
-    note.setAttribute('role', 'status'); uploadResults.append(note);
+    const note = byId('card-upload-resume-status');
+    note.hidden = false;
+    note.textContent = jobs.length + '개 파일의 저장된 처리 상태를 확인하고 있습니다.';
     const entries = jobs.map(job => resultEntry(job.filename, '저장된 처리 상태를 확인하고 있습니다.'));
     let cursor = 0;
     const worker = async () => {
@@ -371,9 +374,10 @@
     delete uploadResults.dataset.resuming;
     if (unknown) {
       const retry = node('button', 'card-workspace-secondary', '미확인 상태 다시 조회');
+      retry.id = 'card-upload-resume-retry';
       retry.type = 'button';
       retry.addEventListener('click', resumeUploads);
-      uploadResults.append(retry);
+      uploadResults.after(retry);
     }
     await refreshCoverage();
   }

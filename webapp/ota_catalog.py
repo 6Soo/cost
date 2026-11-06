@@ -1156,7 +1156,7 @@ def render_html(data, query, *, csrf=''):
         + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
         + f"<details class='catalog-tools'{' open' if value('state') == 'excluded' else ''}><summary>추가 조회·관리</summary><nav class='catalog-actions' aria-label='OTA 추가 조회'>"
         f"<a class='catalog-btn' href='{esc(url(state='excluded', page=1))}'>취소·배정 해제 {data.get('excluded_count', 0):,}건</a>"
-        f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
+        f"<a class='catalog-btn' href='/cards/all'>{ui_icons.icon('credit-card')}카드 내역 확인</a></nav>"
         + reason_block + problem_block + '</details>'
         + '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)

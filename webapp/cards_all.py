@@ -209,7 +209,7 @@ CARD_ALL_STYLE = """
 }
 
 .card-all-page .card-history-workspace{margin:0 0 14px;min-width:0}
-.card-all-page .card-history-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.card-all-page .card-history-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 0 10px}
 .card-all-page .card-history-actions button{min-height:44px;padding:8px 14px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper);color:var(--ca-ink);font:inherit;font-weight:700;cursor:pointer}
 .card-all-page .card-history-actions #card-upload-open{background:var(--ca-accent);border-color:var(--ca-accent);color:#fff}
 .card-all-page .card-history-actions button[aria-expanded=true]{outline:2px solid var(--focus,#2563eb);outline-offset:2px}
@@ -217,6 +217,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-workspace-panel{min-width:0;margin:10px 0 16px;padding:16px;border:1px solid var(--ca-border);border-radius:10px;background:var(--ca-paper)}
 .card-all-page .card-workspace-panel[hidden]{display:none}
 .card-all-page .card-workspace-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.card-all-page .card-workspace-panel-actions{display:flex;align-items:flex-start;gap:8px;flex:0 0 auto}
 .card-all-page .card-workspace-panel h2,.card-all-page .card-workspace-panel h3{margin:0 0 8px;line-height:1.3}
 .card-all-page .card-workspace-panel h2{font-size:18px}
 .card-all-page .card-workspace-panel h3{font-size:15px}
@@ -262,6 +263,9 @@ CARD_ALL_STYLE = """
 .card-all-page .card-legacy-notice{margin:0 0 12px;padding:12px;border-inline-start:3px solid var(--ca-accent);background:var(--ca-soft)}
 @media(max-width:760px){
  .card-all-page .card-workspace-panel{padding:12px}
+ .card-all-page .card-workspace-panel>header{display:block}
+ .card-all-page .card-workspace-panel-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:8px}
+ .card-all-page .card-workspace-panel-actions button{width:100%;white-space:nowrap}
  .card-all-page .card-coverage-cards{grid-template-columns:minmax(0,1fr)}
  .card-all-page .card-coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
  .card-all-page .card-history-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -424,7 +428,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         "</div>"
         f"<section id='card-upload-panel' class='card-workspace-panel' aria-labelledby='card-upload-heading' tabindex='-1'{'' if active == 'upload' else ' hidden'}>"
         "<header><div><h2 id='card-upload-heading'>카드 업로드</h2><p class='card-workspace-muted'>원본 파일을 먼저 저장한 뒤 백그라운드에서 처리합니다. 화면을 새로 열어도 저장된 처리 상태를 확인할 수 있습니다.</p></div>"
-        "<button type='button' class='card-workspace-secondary' data-card-panel-close='upload'>업로드 닫기</button></header>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' data-card-panel-close='upload'>업로드 닫기</button></div></header>"
         "<div id='card-gap-context' class='card-legacy-notice' role='status' hidden></div>"
         "<form class='card-upload-form' onsubmit='return false'>"
         "<label for='card-upload-files'>업로드할 카드 파일 선택</label>"
@@ -433,13 +437,14 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         "<p id='card-upload-help' class='card-workspace-muted'>XLS, XLSX, CSV 파일을 한 번에 최대 100개, 합계 99MB까지 선택할 수 있습니다.</p>"
         "<button id='card-upload-submit' type='button' class='card-workspace-secondary'>선택한 파일 업로드</button></form>"
         "<p id='card-upload-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
+        "<p id='card-upload-resume-status' class='card-workspace-status' role='status' aria-live='polite' hidden></p>"
         "<ol id='card-upload-results' class='card-upload-results' aria-label='파일별 처리 결과' hidden></ol>"
         f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
         "</section>"
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
         "<header><div><h2 id='card-coverage-heading'>수집 현황</h2><p class='card-workspace-muted'>거래 발생기간과 실제 조회기간은 다릅니다. 조회 기준별로 확인된 기간과 누락 구간을 표시합니다.</p></div>"
-        "<button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
-        "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></header>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
+        "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
         "<div id='card-coverage-summary'></div></section>"
         "</section>"

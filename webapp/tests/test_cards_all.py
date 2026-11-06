@@ -593,18 +593,30 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 coverage_button = page.get_by_role('button', name='수집 현황', exact=True)
                 assert upload_button.is_visible() and coverage_button.is_visible()
                 assert upload_button.evaluate('(element) => element.getBoundingClientRect().height') >= 44
-                upload_button.click()
+                assert upload_button.evaluate('(e) => getComputedStyle(e.parentElement).justifyContent') == 'flex-end'
+                upload_button.focus()
+                page.keyboard.press('Enter')
                 expect(page.locator('#card-upload-panel')).to_be_visible()
                 expect(page).to_have_url(re.compile(r'panel=upload'))
                 assert page.locator('#card-upload-files').get_attribute('multiple') is not None
+                assert page.locator('#card-upload-panel').evaluate(
+                    "e => e.matches(':focus-visible') && getComputedStyle(e).outlineStyle !== 'none'")
                 page.keyboard.press('Escape')
                 expect(page.locator('#card-upload-panel')).to_be_hidden()
                 assert page.evaluate('document.activeElement.id') == 'card-upload-open'
                 page.route('**/api/cards/coverage/summary', lambda route: route.fulfill(
                     status=200, content_type='application/json',
                     body='{"available":true,"cards":[],"gaps":[],"files":[],"overview":{}}'))
+                page.set_viewport_size({'width': 390, 'height': 812})
                 coverage_button.click()
                 expect(page.locator('#card-coverage-panel')).to_be_visible()
+                header_actions = page.locator('#card-coverage-panel .card-workspace-panel-actions button')
+                assert header_actions.count() == 2
+                for button in header_actions.all():
+                    box = button.bounding_box()
+                    assert box and box['width'] >= 300 and box['x'] >= 0 and box['x'] + box['width'] <= 390
+                    assert button.evaluate('(e) => getComputedStyle(e).whiteSpace') == 'nowrap'
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 period = page.get_by_label('조회 기간', exact=True)
                 period.select_option('2026-03')
                 expect(page.get_by_role('heading', name='2026년 3월 · 전체 3건')).to_be_visible()

@@ -60,7 +60,7 @@ def test_terminal_server_error_is_shown_once_without_transient_retry(card_db_pat
             entry = page.locator(".card-upload-result").first
             expect(entry).to_have_attribute("data-outcome", "server-error")
             expect(entry.locator(".card-upload-result-state")).to_have_text("parser rejected synthetic input")
-            expect(page.locator("#card-upload-results > [role=status]")).to_contain_text("서버 오류 1개")
+            expect(page.locator("#card-upload-resume-status")).to_contain_text("서버 오류 1개")
             assert len(calls) == 1
         finally:
             browser.close()
@@ -98,14 +98,17 @@ def test_unknown_resume_state_is_counted_and_can_be_checked_again(card_db_path, 
                               routes=[("**/api/imports/upload-status/**", status)])
             entry = page.locator('.card-upload-result[data-outcome="unknown"]')
             expect(entry).to_have_attribute("data-outcome", "unknown")
-            expect(page.locator("#card-upload-results > [role=status]")).to_contain_text(
+            expect(page.locator("#card-upload-resume-status")).to_contain_text(
                 "완료 1개 · 서버 오류 1개 · 상태 미확인 1개")
             expect(page.get_by_role("button", name="미확인 상태 다시 조회")).to_be_visible()
+            assert page.locator("#card-upload-results").evaluate(
+                "e => [...e.children].every(child => child.tagName === 'LI')")
+            assert page.locator("#card-upload-results #card-upload-resume-retry").count() == 0
             assert page.evaluate("JSON.parse(localStorage.getItem('cost-card-upload-job')).length") == 1
 
             page.get_by_role("button", name="미확인 상태 다시 조회").click()
             expect(page.locator(".card-upload-result").first).to_have_attribute("data-outcome", "saved")
-            expect(page.locator("#card-upload-results > [role=status]")).to_contain_text("완료 1개")
+            expect(page.locator("#card-upload-resume-status")).to_contain_text("완료 1개")
             expect(page.get_by_role("button", name="미확인 상태 다시 조회")).to_have_count(0)
             assert calls == {"error": 1, "done": 1, "unknown": 6}
         finally:
