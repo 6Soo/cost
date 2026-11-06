@@ -90,6 +90,8 @@
   function write(target){
    if(busy)return;
    busy=true;
+   var choices=target.querySelectorAll('[data-pick-participant]');
+   choices.forEach(function(button){button.disabled=true;});
    var status=target.closest('.insurance-candidate-row')?.querySelector('.participant-inline-status')||root.querySelector('.participant-write-status');
    if(status)status.textContent='저장 중입니다.';
    fetch(target.action,{method:'POST',credentials:'same-origin',
@@ -97,7 +99,7 @@
     body:new URLSearchParams(new FormData(target)).toString()})
     .then(function(r){return r.json().then(function(body){if(!r.ok)throw new Error(body.code==='STALE_INPUT'?'자료가 변경되었습니다. 새로고침 후 확인해 주세요.':'연결을 저장하지 못했습니다. 새로고침 후 확인해 주세요.');return body;});})
     .then(function(){location.reload();})
-    .catch(function(error){busy=false;if(status)status.textContent=error.message;});
+    .catch(function(error){busy=false;choices.forEach(function(button){button.disabled=false;});if(status)status.textContent=error.message;});
   }
   function bindPanel(){
    dlg=root.querySelector('#participant-link-confirm');
@@ -150,11 +152,22 @@
     return;
    }
    if(notice)notice.hidden=true;
-   localForm.querySelector('[name=participant_id]').value=id||'';
    var selected=localForm.querySelector('.participant-selected-income');
-   if(selected){selected.hidden=false;selected.textContent=(income.selectedOptions[0]||{}).textContent+' 수입에 연결합니다.';}
+   if(selected)selected.remove();
    var lockedIncome=document.createElement('input');lockedIncome.type='hidden';lockedIncome.name='income_ref';lockedIncome.value=income.value;income.closest('label').replaceWith(lockedIncome);
-   localForm.querySelector('[name=participant_id]').focus({preventScroll:true});
+   var participant=localForm.querySelector('[name=participant_id]');
+   var options=Array.from(participant.options).filter(function(option){return option.value;});
+   var chosen=document.createElement('input');chosen.type='hidden';chosen.name='participant_id';chosen.value=id||'';
+   var group=document.createElement('fieldset');group.className='participant-inline-choices';
+   var legend=document.createElement('legend');legend.textContent='참가자';group.appendChild(legend);
+   options.forEach(function(option){
+    var pick=document.createElement('button');pick.type='submit';pick.dataset.pickParticipant=option.value;pick.textContent=option.textContent;
+    group.appendChild(pick);
+   });
+   localForm.querySelector('button[type=submit]').remove();
+   participant.closest('label').replaceWith(chosen);localForm.appendChild(group);
+   var first=Array.from(group.querySelectorAll('button')).find(function(button){return button.dataset.pickParticipant===id;})||group.querySelector('button');
+   if(first)first.focus({preventScroll:true});
    row.scrollIntoView({block:'nearest'});
    return localForm;
   }
@@ -165,6 +178,12 @@
    e.preventDefault();
    if(busy)return;
    var person=target.querySelector('[name=participant_id]');
+   var pick=e.submitter;
+   if(pick&&pick.hasAttribute('data-pick-participant')){
+    person.value=pick.dataset.pickParticipant;
+    if(person.value)write(target);
+    return;
+   }
    var label=person.tagName==='SELECT'?(person.selectedOptions[0]||{}).textContent:'';
    if(!person.value)return;
    ask(target.action.endsWith('/unlink')?'이 참가자 연결을 해제할까요?':'이 수입 기록을 '+(label||'선택한')+' 보험 참가자와 연결할까요?',function(){write(target);});
