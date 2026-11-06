@@ -543,7 +543,7 @@
       for (const file of pending) {
         const issuer = String(file.issuer_hint || '').trim();
         const tail = String(file.card_tail_hint || '').trim();
-        const label = issuer && /^\\d{4}$/.test(tail) ?
+        const label = issuer && /^\d{4}$/.test(tail) ?
           issuer + ' · 끝' + tail + ' (표시용)' : '카드 식별 확인 필요';
         if (!groups.has(label)) groups.set(label, []);
         groups.get(label).push(file);
@@ -609,13 +609,14 @@
       if (confirmed.length) {
         batchRoot.append(node('p', 'card-coverage-state',
           '조회기간 확인 완료 · ' + confirmed.length + '개 근거가 저장돼 있습니다.'));
-        const inspectAgain = node('details', 'card-upload-coverage-confirm');
-        inspectAgain.append(node('summary', '', '원본 조회조건 다시 확인'));
-        const snapshot = node('p', 'card-workspace-muted', '기존 조회 근거를 변경하지 않고 원본을 확인합니다.');
-        inspectAgain.append(snapshot); batchRoot.append(inspectAgain);
+        for (const item of confirmed) {
+          batchRoot.append(node('p', 'card-workspace-muted',
+            [item.issuer, item.card_tail ? '끝' + item.card_tail : '',
+              item.date_basis, item.start_date + ' ~ ' + item.end_date].filter(Boolean).join(' · ')));
+        }
       } else {
         const evidence = report.evidence || {};
-        if (report.blocked || !evidence.card_id) {
+        if (report.available === false || report.blocked || !evidence.card_id) {
           batchRoot.append(node('p', 'card-workspace-error',
             '이 원본은 조회기간을 확정할 수 없습니다. ' +
             (evidence.reason || '카드 식별 근거가 부족합니다.') +
