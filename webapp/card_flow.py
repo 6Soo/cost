@@ -43,7 +43,10 @@ def _redirect_legacy_import(handler, parsed, query):
             handler._send('잘못된 카드 확인 링크입니다.', 400)
             return True
 
-    params = [(key, value) for key, values in query.items() for value in values]
+    params = [
+        (key, reason if key == 'cleanup_reason' and reasons else value)
+        for key, values in query.items() for value in values
+    ]
     has_cleanup = bool(reasons or query.get('cleanup_page'))
     has_target = bool(query.get('batch') or query.get('transaction'))
     if has_cleanup:

@@ -77,9 +77,9 @@ def test_decorator_accepts_heading_and_attribute_variants_without_losing_source_
     source = source.replace('<details id="saved-materials">', '<details data-kind=saved id=saved-materials role=group>', 1)
     source = source.replace('<p id="status" role="status"></p>', '<p role=status id=status data-fixture=kept>synthetic status</p>', 1)
     source = source.replace('</style><body>', '</style> \n<body data-fixture="variant">', 1)
-    result = decorate(source)
+    result = decorate(source, page_title='카드 거래 상세')
 
-    assert '<h1 class="source-heading" data-owner="legacy">  지출 정리 </h1>' in result
+    assert '<h1 class="source-heading" data-owner="legacy">  카드 거래 상세 </h1>' in result
     assert '<details data-kind=saved id=saved-materials role="tabpanel" aria-labelledby="expense-tab-saved">' in result
     assert '<p role=status id=status data-fixture=kept>synthetic status</p>' in result
     assert '<body data-fixture="variant">' in result

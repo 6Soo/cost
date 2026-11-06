@@ -238,7 +238,8 @@ class BoardApiTests(unittest.TestCase):
 
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/import") as response:
             self.assertEqual(response.status, 200)
-            self.assertIn("카드 가져오기", response.read().decode("utf-8"))
+            self.assertTrue(response.geturl().endswith("/cards/all?panel=upload"))
+            self.assertIn("카드 업로드", response.read().decode("utf-8"))
         csv_body = (
             "occurred_on,merchant,amount_krw,currency,card_last4,approval_no,"
             "cancel_flag,suggested_tab,memo\n"

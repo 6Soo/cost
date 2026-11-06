@@ -101,7 +101,8 @@ def test_upload_queue_continues_after_failure_and_preserves_each_outcome():
             expect(outcomes.locator('li').filter(has_text='broken.csv')).to_contain_text('파일 형식 오류')
             expect(outcomes.locator('li').filter(has_text='last.csv')).to_contain_text('분류 미완료')
             assert outcomes.locator("a").evaluate_all("xs => xs.map(x => x.getAttribute('href'))") == [
-                "/import?batch=1#summary", "/import?batch=3#summary"]
+                "/cards/all?panel=upload&batch=1#summary",
+                "/cards/all?panel=upload&batch=3#summary"]
             expect(screen.locator("#file")).to_be_enabled()
             expect(screen.locator("#upload")).to_be_enabled()
             assert screen.evaluate("document.documentElement.scrollWidth <= innerWidth"), screen.evaluate("Array.from(document.querySelectorAll('*')).filter(e => e.getBoundingClientRect().right > innerWidth).map(e => [e.tagName,e.id,e.className,e.getBoundingClientRect().width])")
