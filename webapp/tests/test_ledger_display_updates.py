@@ -104,3 +104,38 @@ def test_party_cell_escapes_non_digit_text():
     assert '<script>' not in cell
     # Escaped form preserved
     assert '&amp;' in cell
+
+
+def test_screen_order_uses_lodging_service_start_and_keeps_unknown_dates_last(monkeypatch):
+    periods = {
+        'late': '2026-11-09 ~ 2026-11-10',
+        'early': '2026-11-01 ~ 2026-11-02',
+        'same': '2026-11-01 ~ 2026-11-03',
+        'invalid': '2026-02-30 ~ 2026-03-01',
+        'reversed': '2026-11-08 ~ 2026-11-01',
+        'long': '2026-01-01 ~ 2028-01-01',
+    }
+    monkeypatch.setattr(design, '_stay_period', lambda row: periods.get(row['row_id'], ''))
+    rows = [expense('food', '식비'), expense('late', '숙박비'),
+            expense('air-b', '항공료'), expense('unknown', '숙박비'),
+            expense('early', '숙박비'), expense('other', '기타경비'),
+            expense('same', '숙박비'), expense('air-a', '항공권'),
+            expense('invalid', '숙박비'), expense('reversed', '숙박비'),
+            expense('long', '숙박비')]
+    before = deepcopy(rows)
+    expected = ['air-b', 'air-a', 'early', 'same', 'late', 'unknown',
+                'invalid', 'reversed', 'long', 'food', 'other']
+    assert [r['row_id'] for r in design._group_expenses_for_display(rows)] == expected
+    assert rows == before
+    assert design._group_expenses_for_display([]) == []
+
+
+def test_screen_order_resolves_the_same_lodging_evidence_as_the_date_label(monkeypatch):
+    monkeypatch.setattr(design, '_ledger_stay_index', lambda: {'synthetic': {}})
+    from webapp import ledger_stay_evidence
+    monkeypatch.setattr(ledger_stay_evidence, 'period_for', lambda row, index: '2026-10-02 ~ 2026-10-03')
+    inferred = expense('card-synthetic', '숙박비')
+    stored = expense('stored', '숙박비', service_period='2026-10-05 ~ 2026-10-06')
+    before = deepcopy([stored, inferred])
+    assert design._group_expenses_for_display([stored, inferred]) == [inferred, stored]
+    assert [stored, inferred] == before

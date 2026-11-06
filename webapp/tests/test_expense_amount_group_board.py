@@ -124,3 +124,28 @@ def test_full_and_live_renderers_sort_table_but_keep_original_copy_order(monkeyp
         assert positions == sorted(positions)
         assert "class='gemn-desktop gemn-summary'" not in markup
     assert copied == [['cost-0', 'cost-1', 'cost-2']] * 2
+
+
+def test_expense_categories_and_stay_dates_override_google_order_in_full_and_live_views(monkeypatch):
+    costs, _ = fixture_state()
+    for row, item, period in zip(costs, ['숙박비', '항공료', '숙박비'],
+                                 ['2026-11-09 ~ 2026-11-10', '', '2026-11-01 ~ 2026-11-02']):
+        row.update(item=item, service_period=period)
+    google = [{'ref': 'g', 'row_number': 1, 'trip_id': 'trip-synthetic',
+               'amount_krw': 50000, 'currency': 'KRW'}]
+    state = reconcile_expense_amount_groups('trip-synthetic', costs, google)
+    monkeypatch.setattr(design, '_STORE_missing', lambda: False)
+    monkeypatch.setattr(design, '_selected_rows', lambda *a: ([], costs, [], costs))
+    monkeypatch.setattr(design, '_amount_group_state', lambda *a: state)
+    monkeypatch.setattr(design, '_google_match_annotations', lambda *a: {})
+    copied = []
+    monkeypatch.setattr(design, '_trip_copy_html', lambda tid, rows, preview=None: copied.append(deepcopy(rows)) or '')
+    before = deepcopy(costs)
+    for renderer in (design.rows_region, design.rows_part):
+        markup = renderer('trip-synthetic')
+        # Both the desktop table and mobile cards use the same category/date order.
+        import re
+        ids = re.findall("data-id='(cost-[0-9]+)'", markup)
+        assert ids == ['cost-1', 'cost-2', 'cost-0'] * 2
+    assert copied == [before, before]
+    assert costs == before
