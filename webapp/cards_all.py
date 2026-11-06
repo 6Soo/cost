@@ -1008,7 +1008,8 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
             has_more = bool(result.get("has_more"))
         elif not show_undated:
             result = _ct.search_for_year(db_path=card_db_path, year=year,
-                                         cursor=cursor, per_page=PAGE_SIZE, **filters)
+                                         cursor=cursor, per_page=PAGE_SIZE,
+                                         known_total=sum(months.values()), **filters)
             search_items = result.get("items") or []
             search_next_cursor = result.get("cursor")
             search_has_more = bool(result.get("has_more"))
@@ -1021,7 +1022,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
         if show_undated:
             undated_result = _ct.undated_list(
                 db_path=card_db_path, year=year, cursor=undated_cursor,
-                per_page=UNDATED_PAGE_SIZE, **filters)
+                per_page=UNDATED_PAGE_SIZE, known_total=undated_count, **filters)
             # 날짜 유효성의 권위는 API에 둔다. 무효한 달력 날짜도 API가
             # 날짜 확인 필요 목록으로 돌려줬다면 화면에서 제외하지 않는다.
             undated_items = undated_result.get("items") or []
