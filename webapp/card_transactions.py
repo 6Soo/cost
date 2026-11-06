@@ -316,16 +316,23 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> 
     try:
         cur = conn.cursor()
         extra, filter_params = _filter_clause(**filters)
-        months = {}
-        for m in range(1, 13):
-            cur.execute(
-                "SELECT COUNT(DISTINCT transaction_id) FROM transactions "
-                f"WHERE {_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?" + extra,
-                [str(year), f"{m:02d}", *filter_params])
-            months[m] = cur.fetchone()[0] or 0
-        cur.execute(f"SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE NOT ({_VALID_DATE_SQL})" + extra, filter_params)
-        undated = cur.fetchone()[0] or 0
-        return {"year": year, "months": months, "undated_count": undated}
+        # The old implementation rescanned every card row 13 times: once per
+        # calendar month and once for undated rows. Validity uses a Python SQL
+        # function, so this was especially slow on the default card-history
+        # landing page. Group all buckets in a single read-only scan instead.
+        # Other years are a separate bucket, never miscounted as undated.
+        cur.execute(
+            "SELECT CASE WHEN NOT (" + _VALID_DATE_SQL + ") THEN 'undated' "
+            "WHEN substr(approval_date, 1, 4) = ? THEN substr(approval_date, 6, 2) "
+            "ELSE 'other' END AS period_bucket, "
+            "COUNT(DISTINCT transaction_id) FROM transactions WHERE 1=1"
+            + extra + " GROUP BY period_bucket",
+            [str(year), *filter_params],
+        )
+        buckets = dict(cur.fetchall())
+        months = {month: int(buckets.get(f"{month:02d}", 0)) for month in range(1, 13)}
+        return {"year": year, "months": months,
+                "undated_count": int(buckets.get("undated", 0))}
     finally:
         conn.close()
 
@@ -419,7 +426,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         conn.close()
 
 @request_metrics.card_stage('card_query')
-def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Optional[str] = None, per_page: int = 100, **filters) -> Dict[str, Any]:
+def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Optional[str] = None, per_page: int = 100, *, known_total: Optional[int] = None, **filters) -> Dict[str, Any]:
     """List undated transactions (null/empty/invalid approval_date only).
 
     Does NOT include transactions from other years with valid dates.
@@ -439,8 +446,14 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         where = f"NOT ({_VALID_DATE_SQL})"
         extra, params = _filter_clause(**filters)
         where += extra
-        cur.execute('SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE ' + where, params)
-        undated_total = cur.fetchone()[0] or 0
+        # The containing page has already counted these same rows via
+        # year_summary with exactly the same filters. Keep the standalone API
+        # contract unchanged when no trusted precomputed total is provided.
+        if known_total is None:
+            cur.execute('SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE ' + where, params)
+            undated_total = cur.fetchone()[0] or 0
+        else:
+            undated_total = known_total
         if cursor:
             parts = cursor.split("|", 1)
             if len(parts) != 2:
@@ -501,6 +514,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
 @request_metrics.card_stage('card_query')
 def search_for_year(db_path: Optional[str] = None, year: int = 2026,
                     cursor: Optional[str] = None, per_page: int = 100,
+                    *, known_total: Optional[int] = None,
                     **filters) -> Dict[str, Any]:
     """Search valid dated transactions across every month in ``year``.
 
@@ -521,8 +535,13 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
         where += extra
         params.extend(filter_params)
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE " + where, params)
-        total = cur.fetchone()[0] or 0
+        if known_total is None:
+            cur.execute("SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE " + where, params)
+            total = cur.fetchone()[0] or 0
+        else:
+            # Caller already counted the same year/filter population. Only
+            # page rows need querying, even for cursor-based pagination.
+            total = known_total
         if cursor:
             parts = cursor.split("|", 1)
             if len(parts) != 2:
