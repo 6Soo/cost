@@ -50,6 +50,7 @@ def test_name_action_keeps_income_and_never_guesses_ambiguous_identity(matched, 
             assert name.inner_text() == '김*수'
             assert name.evaluate('(el)=>getComputedStyle(el).color===getComputedStyle(el.closest("td")).color')
             name.focus()
+            assert name.evaluate('(el)=>getComputedStyle(el).outlineColor===getComputedStyle(el.closest("td")).color')
             page.keyboard.press('Enter')
             assert page.locator('.insurance-candidate-row').count() == 1
             form = page.locator('.insurance-candidate-row .participant-keyboard-link')
@@ -73,6 +74,8 @@ def test_name_action_keeps_income_and_never_guesses_ambiguous_identity(matched, 
                 assert saved['csrf'] == ['synthetic-csrf']
                 assert saved['input_fingerprint'] == ['synthetic-fingerprint']
                 assert form.locator('[data-pick-participant]:disabled').count() == 0
+            form.locator('[data-pick-participant]').first.focus()
+            assert page.evaluate('getComputedStyle(document.activeElement).outlineColor===getComputedStyle(document.activeElement.closest("td")).color')
             assert value == before
         finally:
             browser.close()
