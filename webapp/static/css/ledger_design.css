@@ -210,10 +210,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .participant-link-actions button{color:var(--neg);text-align:left;width:100%}
 @media(width < 760px){
  #google-trip-income #income-tbl,#google-trip-income #income-tbl caption,#google-trip-income #income-tbl thead,#google-trip-income #income-tbl tbody,#google-trip-income #income-tbl tfoot{display:block;width:100%}
- #google-trip-income #income-tbl thead tr,#google-trip-income #income-tbl tbody tr{display:grid;grid-template-columns:26% 32% 42%}
+ #google-trip-income #income-tbl thead tr{display:grid;grid-template-columns:20% 34% 46%}
+ #google-trip-income #income-tbl tbody tr{display:grid;grid-template-columns:20% 34% 14% 32%;align-items:center}
  #google-trip-income #income-tbl .income-date,#google-trip-income #income-tbl .income-person,#google-trip-income #income-tbl .income-total{width:auto;min-width:0}
  #google-trip-income #income-tbl thead th:last-child:not(.income-total){display:none}
- #google-trip-income #income-tbl td.participant-insurance-cell{grid-column:1/-1;width:auto;min-width:0;height:auto;min-height:36px;border-bottom:1px solid var(--line-strong);padding:5px 10px}
+ #google-trip-income #income-tbl td.participant-insurance-cell{grid-column:3;width:auto;min-width:0;height:36px;min-height:0;border-bottom:0;padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+ #google-trip-income #income-tbl td.participant-insurance-cell>*{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  #google-trip-income #income-tbl .income-foot-row{display:grid;grid-template-columns:58% 42%}
  #google-trip-income #income-tbl .income-foot-row>td{display:flex;align-items:center}
  #google-trip-income #income-tbl .income-foot-row>.income-total{justify-content:flex-end}
@@ -239,9 +241,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
  #google-trip-income .google-income-scroll{overflow:visible;margin:6px 0 12px;border:0;border-radius:0;background:transparent}
  #google-trip-income table{min-width:0;width:100%;table-layout:fixed}
  #google-trip-income .income-breakdown{display:none}
- #google-trip-income .income-date{width:25%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- #google-trip-income .income-person{width:39%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- #google-trip-income .income-total{width:36%;overflow:visible;text-overflow:clip;font-size:12px;padding-left:2px;padding-right:2px}
+ #google-trip-income .income-date{grid-column:1;grid-row:1;width:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #google-trip-income .income-person{grid-column:2;grid-row:1;width:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #google-trip-income .income-total{grid-column:4;grid-row:1;width:auto;overflow:visible;text-overflow:clip;font-size:12px;padding-left:2px;padding-right:2px}
+ #google-trip-income #income-tbl td.participant-insurance-cell{grid-row:1}
  #google-trip-income td,#google-trip-income th{padding:0 2px}
  #google-trip-income caption{padding:8px 2px}
  .income-meta-bar{flex-direction:column;align-items:flex-start}
