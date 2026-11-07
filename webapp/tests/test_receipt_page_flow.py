@@ -118,6 +118,154 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
             finally:
                 browser.close()
 
+    def test_lost_upload_response_recovers_committed_original_without_retry(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+
+                def lose_response(route):
+                    route.fetch()
+                    route.abort()
+
+                page.route('**/api/receipts/image', lose_response, times=1)
+                page.set_input_files('#img-file', {
+                    'name': 'response-lost.png', 'mimeType': 'image/png', 'buffer': review.PNG,
+                })
+                page.click('#img-go')
+                page.get_by_text('저장 결과 복구됨', exact=False).wait_for(timeout=30000)
+                self.assertEqual(page.get_by_role('button', name='다시 시도').count(), 0)
+                self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+                self.assertIsNone(page.locator('#manual-preview').get_attribute('hidden'))
+                page.reload()
+                self.assertIn('response-lost.png', page.locator('section[aria-label="저장된 파일"]').inner_text())
+            finally:
+                browser.close()
+
+    def test_lost_pdf_response_recovers_all_pages_and_continues_batch(self):
+        from app import local_receipt_ocr
+        rendered = {'pages': [
+            {'image': review.PNG, 'text': '', 'suggestions': {}},
+            {'image': review.make_png(b'\x00\xff\x00'), 'text': '', 'suggestions': {}},
+        ]}
+        with patch.object(local_receipt_ocr, 'recognize_pdf', return_value=rendered), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 1280, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+
+                def lose_response(route):
+                    route.fetch()
+                    route.abort()
+
+                page.route('**/api/receipts/pdf', lose_response, times=1)
+                page.set_input_files('#img-file', [
+                    {'name': 'lost.pdf', 'mimeType': 'application/pdf', 'buffer': b'%PDF-1.7 synthetic'},
+                    {'name': 'next.png', 'mimeType': 'image/png', 'buffer': review.PNG},
+                ])
+                page.click('#img-go')
+                page.get_by_text('저장 결과 복구됨', exact=False).wait_for()
+                page.locator('#upload-results p').filter(has_text='next.png').locator('img').wait_for()
+                self.assertEqual(page.locator('#upload-results [data-manual-image]').count(), 3)
+                self.assertEqual(page.get_by_role('button', name='다시 시도').count(), 0)
+                data = self.request('/api/receipts')[1]
+                self.assertEqual(len(data['pdfs']), 1)
+                self.assertEqual(len(data['images']), 2)
+                self.assertEqual(len(data['uploads']), 2)
+                page.reload()
+                self.assertIn('lost.pdf', page.locator('section[aria-label="저장된 파일"]').inner_text())
+            finally:
+                browser.close()
+
+    def test_safari_network_error_recovers_normalized_image_bytes(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.evaluate("""() => {
+                    const fetch = window.fetch.bind(window);
+                    window.fetch = async (url, options) => {
+                        const result = await fetch(url, options);
+                        if (url === '/api/receipts/image' && options?.method === 'POST')
+                            throw new TypeError('Load failed');
+                        return result;
+                    };
+                }""")
+                page.set_input_files('#img-file', {
+                    'name': 'converted.heic', 'mimeType': '', 'buffer': review.PNG,
+                })
+                page.click('#img-go')
+                page.get_by_text('저장 결과 복구됨', exact=False).wait_for()
+                data = self.request('/api/receipts')[1]
+                self.assertEqual(len(data['images']), 1)
+                self.assertNotEqual(data['images'][0], hashlib.sha256(review.PNG).hexdigest())
+                self.assertEqual(page.get_by_role('button', name='다시 시도').count(), 0)
+            finally:
+                browser.close()
+
+    def test_committed_upload_recovers_truncated_or_stalled_response_body(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                for stalled in (False, True):
+                    with self.subTest(stalled=stalled):
+                        page = browser.new_page(viewport={'width': 390, 'height': 900})
+                        page.goto(self.base + '/receipts?trip=' + self.trip)
+                        page.evaluate("""stalled => {
+                            const fetch = window.fetch.bind(window), timer = window.setTimeout;
+                            window.setTimeout = (fn, ms, ...args) => timer(fn, ms === 120000 ? 100 : ms, ...args);
+                            window.fetch = async (url, options) => {
+                                const result = await fetch(url, options);
+                                if (url !== '/api/receipts/image' || options?.method !== 'POST') return result;
+                                window.uploadHeadersReceived = true;
+                                if (!stalled) return new Response('{', {status: 200});
+                                return new Response(new ReadableStream({start(controller) {
+                                    options.signal.addEventListener('abort', () =>
+                                        controller.error(new DOMException('Timed out', 'AbortError')));
+                                }}), {status: 200});
+                            };
+                        }""", stalled)
+                        page.set_input_files('#img-file', {
+                            'name': 'lost-body.png', 'mimeType': 'image/png', 'buffer': review.PNG,
+                        })
+                        page.click('#img-go')
+                        page.get_by_text('저장 결과 복구됨', exact=False).wait_for()
+                        self.assertTrue(page.evaluate('window.uploadHeadersReceived'))
+                        self.assertEqual(page.get_by_role('button', name='다시 시도').count(), 0)
+                        self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+                        page.close()
+            finally:
+                browser.close()
+
+    def test_failed_storage_lookup_keeps_retry_and_processes_next_file(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.route('**/api/receipts/image', lambda route: route.abort(), times=1)
+                page.evaluate("""() => {
+                    const fetch = window.fetch.bind(window);
+                    window.fetch = (url, options) => url === '/api/receipts'
+                        ? Promise.resolve(new Response('{}', {status: 503})) : fetch(url, options);
+                }""")
+                page.set_input_files('#img-file', [
+                    {'name': 'unsaved.png', 'mimeType': 'image/png', 'buffer': review.PNG},
+                    {'name': 'saved.png', 'mimeType': 'image/png', 'buffer': review.make_png(b'\x00\xff\x00')},
+                ])
+                page.click('#img-go')
+                page.get_by_role('button', name='다시 시도').wait_for()
+                page.wait_for_function("document.querySelector('[data-upload-recovery]').disabled === false")
+                self.assertIn('저장 여부 확인 필요', page.locator('#upload-results').inner_text())
+                self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+                page.get_by_role('button', name='다시 시도').click()
+                page.locator('#upload-results p').filter(has_text='unsaved.png').locator('img').wait_for()
+                self.assertEqual(len(self.request('/api/receipts')[1]['images']), 2)
+            finally:
+                browser.close()
+
     def test_analysis_drafts_and_zero_results_recover_without_session_or_job_memory(self):
         from webapp import receipt_vision_jobs
         answer = {'receipts': [receipt('SYNTHETIC', '2026-10-12', 100)], 'label': 'fixture', 'lesson': None}
