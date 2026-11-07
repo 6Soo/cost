@@ -34,8 +34,8 @@ from webapp.ledger_store import LedgerStore
 
 TRIP = "trip-demo-a"
 ALL_ROWS = ["income-demo-i1", "income-demo-i2", "income-demo-i3",
-            "expense-demo-c1", "expense-demo-c2", "expense-demo-c4"]
-HEADERS = ["날짜", "거래처·내용", "분류", "구분", "메모", "금액"]
+            "expense-demo-c1", "expense-demo-c4", "expense-demo-c2"]
+HEADERS = ["날짜", "거래처·내용", "분류", "이용일", "금액"]
 
 
 def board_url(tab=TRIP, **state):
@@ -106,7 +106,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
 
     def _open(self, page, row_id):
         page.click(f"#tbl tr[data-id='{row_id}']")
-        page.wait_for_selector("#panel")
+        page.wait_for_selector(f"#panel[data-row='{row_id}']")
         return page.get_attribute("#panel", "data-row")
 
     def _panel_row(self, page):
@@ -118,21 +118,21 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
             "els=>els.map(e=>e.getAttribute('data-id'))")
 
     # ------------------------------------------------------------------ the table
-    def test_the_six_columns_are_read_in_order_with_income_above_expense(self):
+    def test_the_columns_are_read_in_order_with_income_above_expense(self):
         page = self._page()
         self._board(page, board_url())
         self.assertEqual(overflow(page), 0)
         self.assertEqual(
             page.eval_on_selector_all("#tbl thead th", "els=>els.map(e=>e.innerText)"),
             HEADERS)
-        # six columns, and the memo head keeps its id
+        # Service dates occupy their own column; memo stays in the detail panel.
         self.assertEqual(page.eval_on_selector_all(
-            "#tbl thead th", "els=>els.length"), 6)
-        self.assertEqual(page.inner_text("#tbl thead th#h5"), "메모")
+            "#tbl thead th", "els=>els.length"), 5)
+        self.assertEqual(page.locator("#tbl thead th.c-note").count(), 0)
         # income is above expense, and both sections are on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
-        self.assertEqual(order, ["수입", "지출"])
+        self.assertEqual(order, ["수입 (COST 기록) 수입내역 보기", "지출"])
         tops = page.eval_on_selector_all(
             "tbody.grp th:first-child",
             "els=>els.map(e=>e.getBoundingClientRect().top)")
@@ -141,8 +141,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         row = page.inner_text("tr[data-id='expense-demo-c2']")
         self.assertIn("예시 숙소 취소", row)
         self.assertIn("예시 숙소 추소", row)
-        self.assertEqual(
-            page.inner_text("tr[data-id='expense-demo-c2'] td.c-note"), "")
+        self.assertEqual(page.locator("tr[data-id='expense-demo-c2'] td.c-note").count(), 0)
         income = page.inner_text("tr[data-id='income-demo-i1']")
         self.assertIn("김예시", income)
         self.assertIn("예시별명", income)
@@ -150,7 +149,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         cells = page.eval_on_selector_all(
             "tr[data-id='expense-demo-c1'] td",
             "els=>els.map(e=>e.className)")
-        self.assertEqual(len(cells), 6)
+        self.assertEqual(len(cells), 5)
         self.assertIn("c-amt", cells[-1])
         self.assertIn("num", cells[-1])
 
@@ -166,29 +165,29 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertEqual(page.eval_on_selector(
             ".tag", "e=>getComputedStyle(e).borderRadius"), "6px")
         self.assertEqual(page.eval_on_selector(
-            ".act .btn", "e=>getComputedStyle(e).borderRadius"), "7px")
+            ".act .btn", "e=>getComputedStyle(e).borderRadius"), "8px")
         # the amount column is tabular, so digits stack column-wise
         self.assertIn("tabular-nums", page.eval_on_selector(
             "td.c-amt", "e=>getComputedStyle(e).fontVariantNumeric"))
         self.assertEqual(page.eval_on_selector(
             "#tbl thead th:last-child", "e=>getComputedStyle(e).textAlign"), "right")
 
-    def test_filters_use_the_shared_blue_focus_treatment(self):
+    def test_sidebar_search_keeps_the_shared_blue_focus_treatment(self):
         page = self._page()
         self._board(page, board_url())
-        page.focus("#q")
+        page.focus("#tripq")
         self.assertEqual(page.eval_on_selector(
-            "#q", "e=>getComputedStyle(e).borderColor"), "rgb(34, 102, 245)")
+            "#tripq", "e=>getComputedStyle(e).borderColor"), "rgb(34, 102, 245)")
         self.assertIn("rgba(34, 102, 245, 0.12)", page.eval_on_selector(
-            "#q", "e=>getComputedStyle(e).boxShadow"))
+            "#tripq", "e=>getComputedStyle(e).boxShadow"))
 
-    def test_a_waiting_row_says_so_in_words_and_the_rows_are_focusable(self):
+    def test_unassigned_rows_are_focusable_without_invented_waiting_state(self):
         page = self._page()
         self._board(page, "?tab=unclassified")
         row = page.inner_text("tr[data-id='expense-demo-c3']")
-        self.assertIn("대기", row)
-        self.assertEqual(page.eval_on_selector(
-            "tr[data-id='expense-demo-c3'] .tag", "e=>e.className"), "tag wait")
+        self.assertIn("예시 이동", row)
+        self.assertNotIn("대기", row)
+        self.assertEqual(page.locator("tr[data-id='expense-demo-c3'] .tag.wait").count(), 0)
         # a keyboard reader can reach a row, so it can open one
         self.assertEqual(page.eval_on_selector(
             "tr[data-id='expense-demo-c3']", "e=>e.getAttribute('tabindex')"), "0")
@@ -211,8 +210,10 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertEqual(self._selected_rows(page), ["expense-demo-c1"])
         self.assertEqual(page.evaluate(
             "new URL(location.href).searchParams.get('row')"), "expense-demo-c1")
-        # and the same row again is not re-fetched, so nothing typed is thrown away
+        # Toggling the same row still asks before discarding a draft.
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "같은 행을 다시 누름")
+        page.on("dialog", lambda dialog: dialog.dismiss())
         self._open(page, "expense-demo-c1")
         self.assertEqual(page.input_value("#f-description"), "같은 행을 다시 누름")
 
@@ -253,7 +254,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self._board(page, board_url(q="숙소"))
         self.assertEqual(page.eval_on_selector_all(
             ".tw tr[data-id]", "els=>els.map(e=>e.getAttribute('data-id'))"),
-            ["expense-demo-c1", "expense-demo-c2", "expense-demo-c4"])
+            ["expense-demo-c1", "expense-demo-c4", "expense-demo-c2"])
         self._open(page, "expense-demo-c1")
         self.assertEqual(page.inner_text("#p-count"), "1 / 3")
         # first of three: nothing before it, so that button is not offered
@@ -262,18 +263,18 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         page.click("#p-next")
         page.wait_for_function(
             "() => document.getElementById('panel').getAttribute('data-row')"
-            " === 'expense-demo-c2'")
+            " === 'expense-demo-c4'")
         page.click("#p-next")
         page.wait_for_function(
             "() => document.getElementById('panel').getAttribute('data-row')"
-            " === 'expense-demo-c4'")
+            " === 'expense-demo-c2'")
         self.assertEqual(page.inner_text("#p-count"), "3 / 3")
         # last of three: a walk past the end is not offered, so nothing has to
         # refuse it. The hidden button is asserted, never clicked: it is not
         # reachable, and pressing it is not a behaviour this screen has.
         self.assertTrue(page.is_visible("#p-prev"))
         self.assertTrue(page.is_hidden("#p-next"))
-        self.assertEqual(self._panel_row(page), "expense-demo-c4")
+        self.assertEqual(self._panel_row(page), "expense-demo-c2")
         self.assertEqual(self.store.get_row("expense-demo-c4")["revision"], 1)
 
     def test_a_one_row_list_is_told_so_rather_than_walked(self):
@@ -297,6 +298,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         page = self._page()
         self._board(page, board_url())
         self._open(page, "expense-demo-c1")
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "버려질 값")
         answers = [False, True]
         asked = []
@@ -320,6 +322,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         page = self._page()
         self._board(page, board_url())
         self._open(page, "expense-demo-c1")
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "닫히기 전에 버려질 값")
         # one handler for both presses: the first refuses, the second accepts
         answers = [False, True]
@@ -362,7 +365,8 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self._board(page, board_url())
         self._open(page, "expense-demo-c1")
         before_revision = self.store.get_row("expense-demo-c1")["revision"]
-        before_request = page.input_value("input[name='client_request_id']")
+        before_request = page.input_value("#panel input[name='client_request_id']")
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "새로운 저장")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
@@ -371,10 +375,10 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         stored = self.store.get_row("expense-demo-c1")
         self.assertEqual(stored["revision"], before_revision + 1)
         self.assertEqual(
-            page.input_value("input[name='expected_revision']"),
+            page.input_value("#panel input[name='expected_revision']"),
             str(stored["revision"]))
         self.assertNotEqual(
-            page.input_value("input[name='client_request_id']"), before_request)
+            page.input_value("#panel input[name='client_request_id']"), before_request)
         # the panel stayed on the same row and the walk still knows where it is
         self.assertEqual(self._panel_row(page), "expense-demo-c1")
         self.assertEqual(page.inner_text("#p-count"), "4 / 6")
@@ -384,6 +388,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         page = self._page()
         self._board(page, board_url())
         self._open(page, "expense-demo-c1")
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "입력을 보존합니다")
         page.on("dialog", lambda dialog: dialog.accept())
         page.route("**/board?**", lambda route: route.fulfill(status=503, body="unavailable"))
@@ -395,7 +400,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertFalse(page.locator("#panel-slot").evaluate("el => el.inert"))
         page.unroute("**/board?**")
         page.click("#p-next")
-        page.wait_for_function("() => document.querySelector('#panel').dataset.row === 'expense-demo-c2'")
+        page.wait_for_function("() => document.querySelector('#panel').dataset.row === 'expense-demo-c4'")
 
     # ------------------------------------------------------- the folded source
     def test_the_source_identifiers_and_the_fixed_fields_are_folded(self):
@@ -413,8 +418,12 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
             self.assertTrue(page.is_hidden(field), field)
             self.assertIsNone(page.get_attribute(field, "name"), field)
         # the first form is what a reader came to change
-        for field in ("#f-display_tab_id", "#f-item", "#f-description",
-                      "#f-operator_note"):
+        for field in ("#f-display_tab_id", "#f-item"):
+            self.assertTrue(page.is_visible(field), field)
+        for field in ("#f-description", "#f-operator_note"):
+            self.assertTrue(page.is_hidden(field), field)
+        page.locator("#panel .p-extra > summary").click()
+        for field in ("#f-description", "#f-operator_note"):
             self.assertTrue(page.is_visible(field), field)
         # they do not lead the panel: the amount and the fields do
         self.assertNotIn("revision", page.inner_text("#panel .p-hd"))
@@ -429,7 +438,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertEqual(page.input_value("#f-occurred_on"), "2026-04-09")
         detail = page.inner_text("#panel .p-src")
         self.assertIn("SRC-C1", detail)
-        self.assertIn("revision 1", detail)
+        self.assertEqual(page.input_value("#panel input[name=expected_revision]"), "1")
         self.assertIn("카드", detail)
 
     def test_an_income_row_keeps_its_editable_date_and_amount_in_the_open_form(self):
@@ -464,7 +473,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertIn("저장", footer)
         self.assertIn("취소", footer)
         self.assertEqual(page.locator("#panel button[type='submit']").count(), 1)
-        self.assertEqual(page.input_value("input[name='return_to']"),
+        self.assertEqual(page.input_value("#panel input[name='return_to']"),
                          f"/board?tab={TRIP}")
         # the editable-fields policy is untouched: a locked field carries no name
         self.assertIsNone(page.get_attribute("#f-amount_krw", "name"))
@@ -480,6 +489,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         panel = page.inner_text("#panel")
         self.assertNotIn("확인 완료", panel)
         # the only completion this screen claims is a save it actually made
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "저장 사실만 말한다")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
@@ -555,25 +565,23 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertTrue(all(delta <= 0 for delta in spill), spill)
         self.assertEqual(overflow(page), 0)
 
-    def test_the_search_and_the_filter_still_own_the_view(self):
+    def test_legacy_filter_links_keep_row_navigation_without_search_menu(self):
         page = self._page()
-        self._board(page, board_url())
-        page.fill("#q", "교통")
-        page.click("#q-go")
+        self._board(page, board_url(q='교통'))
+        self.assertEqual(page.locator('#q-form, #q, #kind, #q-go').count(), 0)
         page.wait_for_load_state()
         # the term matches nothing in this trip, so the empty answer is the table's
         self.assertIn("내역이 없어요", page.inner_text(".tw"))
         self.assertEqual(
             page.evaluate("new URL(location.href).searchParams.get('q')"), "교통")
-        page.click("#q-clear")
+        self._board(page, board_url())
         page.wait_for_load_state()
         self.assertEqual(page.eval_on_selector_all(
             ".tw tr[data-id]", "els=>els.length"), len(ALL_ROWS))
-        with page.expect_navigation():
-            page.select_option("#kind", "ex")
+        self._board(page, board_url(kind='ex'))
         self.assertEqual(page.eval_on_selector_all(
             ".tw tr[data-id]", "els=>els.map(e=>e.getAttribute('data-id'))"),
-            ["expense-demo-c1", "expense-demo-c2", "expense-demo-c4"])
+            ["expense-demo-c1", "expense-demo-c4", "expense-demo-c2"])
         self._open(page, "expense-demo-c1")
         # the walk counts the filtered list, not the whole tab
         self.assertEqual(page.inner_text("#p-count"), "1 / 3")

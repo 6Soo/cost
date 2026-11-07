@@ -34,7 +34,7 @@ def controls(board, trip):
                    "이 담당자가 맞다고 확인해요</label>")
     inputs = ''.join(
         f"<label>{label}<input name='{key}' value='{esc(str(trip.get(key) or ''))}'{kind}></label>"
-        for key, label, kind in [('display_key', '표시 이름', ''), ('prepared_on', '작성일', " type='date'"),
+        for key, label, kind in [('display_key', '표시 이름', ''),
                                  ('prepared_by_name', '담당자', '')])
     edit = form(fields + hidden('assignee_form', '1'), inputs + confirm + "<button class='btn' type='submit'>정보 저장</button>")
     archive = form(fields + hidden('archived', int(not trip.get('archived'))),

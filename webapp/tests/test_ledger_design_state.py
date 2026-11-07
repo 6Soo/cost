@@ -74,11 +74,11 @@ class ViewStateTests(unittest.TestCase):
             return response.status, response.read().decode("utf-8")
 
     # ------------------------------------------------------- search and filter
-    def test_the_search_and_the_filter_live_in_the_url(self):
+    def test_legacy_search_url_survives_without_body_search_controls(self):
         page = self._page(1440)
-        page.goto(self._url("?tab=trip-demo-a"))
-        page.fill("#q", "숙소")
-        page.click("#q-go")
+        page.goto(self._url("?tab=trip-demo-a&q=숙소"))
+        self.assertEqual(page.locator('#q-form, #q, #kind, #q-go, #q-clear').count(), 0)
+        self.assertEqual(page.locator('#tripq').count(), 1)
         page.wait_for_load_state()
         self.assertEqual(
             page.evaluate("new URL(location.href).searchParams.get('q')"), "숙소")
@@ -90,19 +90,17 @@ class ViewStateTests(unittest.TestCase):
         # a refresh keeps the same state
         page.reload()
         page.wait_for_load_state()
-        self.assertEqual(page.input_value("#q"), "숙소")
+        self.assertEqual(page.locator('#q-form').count(), 0)
         self.assertIn("예시 숙소", page.inner_text(".tw"))
         # and so does going back to the list without a search
-        page.click("#q-clear")
+        page.goto(self._url("?tab=trip-demo-a"))
         page.wait_for_load_state()
         self.assertIsNone(
             page.evaluate("new URL(location.href).searchParams.get('q')"))
 
     def test_the_filter_keeps_itself_when_the_trip_changes(self):
         page = self._page(1440)
-        page.goto(self._url("?tab=trip-demo-a"))
-        with page.expect_navigation():
-            page.select_option("#kind", "ex")
+        page.goto(self._url("?tab=trip-demo-a&kind=ex"))
         page.wait_for_load_state()
         self.assertEqual(
             page.evaluate("new URL(location.href).searchParams.get('kind')"), "ex")

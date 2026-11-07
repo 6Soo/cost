@@ -86,7 +86,7 @@ class OwnerEntryLinkTests(_Base):
     def test_the_entry_link_is_in_body_actions_while_header_only_exports(self):
         """Trip work belongs in the body; the header retains only export."""
         markup = self.header("owner")
-        head = markup[markup.index("page-hd"):markup.index("id='q-form'")]
+        head = ledger_design._head_html(self.store.get_trip('trip-demo-a'))
         self.assertNotIn(f"id='{ENTRY_ID}'", head)
         self.assertIn("href='/export?tab=", head)
         self.assertLess(markup.index("<div class='trip-actions'"),
@@ -185,7 +185,7 @@ class LinkIdempotenceTests(_Base):
         self.assertEqual(markup.count("href='#trip-reservations'"), 1)
         sidebar = markup.split("<div class='nav-mask'")[0]
         self.assertEqual(sidebar.count("href='/reserve-links'"), 0)
-        head = markup.split("<div class='act'>")[1].split("id='q-form'")[0]
+        head = ledger_design._head_html(self.store.get_trip('trip-demo-a'))
         self.assertEqual(head.count("href='#trip-reservations'"), 0)
         body_actions = ledger_design._trip_actions('trip-demo-a', '/board?tab=trip-demo-a')
         self.assertEqual(body_actions.count("href='#trip-reservations'"), 1)
