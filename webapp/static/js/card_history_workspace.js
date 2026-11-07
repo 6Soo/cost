@@ -412,7 +412,11 @@
       }
       for (const period of timeline) {
         const line = node('div', 'card-coverage-period' + (period.missing ? ' is-missing' : ''));
-        line.append(node('span', '', (period.missing ? '거래일자 공백 ' : '거래가 있는 날짜 ') + period.start + ' ~ ' + period.end));
+        const label = node('span');
+        label.append(document.createTextNode(period.missing ? '거래일자 공백 ' : '거래가 있는 날짜 '),
+          node('span', 'card-coverage-dates', period.start), document.createTextNode(' ~ '),
+          node('span', 'card-coverage-dates', period.end));
+        line.append(label);
         if (period.missing) {
           const add = node('button', 'card-workspace-secondary', '이 기간 자료 추가'); add.type = 'button';
           add.addEventListener('click', () => openGap(card, period)); line.append(add);

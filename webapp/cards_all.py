@@ -251,6 +251,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-coverage-period{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:8px 0;border-bottom:1px solid var(--ca-border);font-size:13px;overflow-wrap:anywhere}
 .card-all-page .card-coverage-period.is-missing{border-inline-start:3px solid var(--warn,#b45309);padding-inline-start:8px}
 .card-all-page .card-coverage-period button{flex:0 0 auto}
+.card-all-page .card-coverage-dates{display:inline-block;white-space:nowrap;font-variant-numeric:tabular-nums}
 .card-all-page .card-coverage-baseline,.card-all-page .card-coverage-files{margin-top:10px;border-top:1px solid var(--ca-border);padding-top:8px}
 .card-all-page .card-coverage-baseline summary,.card-all-page .card-coverage-files summary,.card-all-page .card-upload-coverage-confirm summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:650}
 .card-all-page .card-coverage-file{padding:8px 0;border-bottom:1px solid var(--ca-border);overflow-wrap:anywhere}
