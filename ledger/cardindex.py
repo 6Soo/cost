@@ -96,7 +96,7 @@ def account(uptype, merchant, desc):
     if any(k in su for k in ['ENEOS','IDEMITSU','GASSTAND','GAS ','JA-SS','JASS','ESSO','SHELL','TOTAL','SINOOIL','AZS']): return '교통비'  # 주유
     if 'REPARK' in su or 'PARK' in su and 'HOTEL' not in su: return '교통비'  # 주차
     if any(k in su for k in ['SEVEN','LAWSON','FAMILYMART','MART','CU','GS25','MONOP','CARREFOUR','SUPERMERC','STARBUCKS','MCDON','BURGER','CAFE','KING']): return '식비'
-    if any(k in su for k in ['마이트립','고투게이트','제주항공','대한항공','아시아나','ANA','진에어','스카이티켓','VOLOTEA','FLIX','SNCF','에어','AIR']): return '항공료'
+    if any(k in su for k in ['마이트립','고투게이트','제주항공','대한항공','아시아나','ANA','진에어','스카이티켓','어드벤처코리아','VOLOTEA','FLIX','SNCF','에어','AIR']): return '항공료'
     if any(k in su for k in ['HOTEL','호텔','AGODA','아고다','BOOKING','부킹','MERCURE','RESORT','HOSTEL','INN','RYOKAN']): return '숙박비'
     # 4) 트립닷컴 등 OTA PG: desc가 사람이름(한글2~4자)만이면 항공, 아니면 숙박
     if any(k in su for k in ['트립닷컴','TRIP.COM','TRIP','아고다','AGODA']):
