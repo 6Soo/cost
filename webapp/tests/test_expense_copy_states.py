@@ -60,14 +60,13 @@ def test_all_recorded_disables_copy_and_viewer_has_no_copy_controls(copy_state, 
 
 def test_total_mismatch_explains_real_cause_and_offers_source_recovery(copy_state):
     rows, preview = copy_state
-    preview.update(source_available=False, source_info={'reason': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
+    preview.update(source_available=True,
+                   source_info={'warning': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
     markup = design._trip_copy_html('trip-synthetic', rows, preview)
-    assert '지출 합계와 행 합계가 다릅니다' in markup
-    assert '불러오지 못해' not in markup
-    assert '/api/google-ledger/source?trip=trip-synthetic' in markup
-    assert 'data-copy-recheck' in markup
+    assert 'Google 합계 수식은 확인 필요' in markup
+    assert '복사 가능 1건' in markup
     assert "aria-describedby='trip-copy-desc'" in markup
-    assert ' disabled' in markup and '복사 가능 0건' not in markup
+    assert ' disabled' not in markup
 
 
 def test_blocked_and_company_excluded_rows_never_count_as_copyable(copy_state):

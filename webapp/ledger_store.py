@@ -2860,6 +2860,48 @@ class LedgerStore:
         income += sum(r[0] for r in alloc_rows)
         return {"income": income, "expense": expense, "profit": income - expense}
 
+    def trip_management_summaries(self) -> dict[str, dict[str, int]]:
+        """Return the lightweight totals used by the trips management page.
+
+        The page shows one count and total per trip.  Calling
+        ``preview_tab_delete`` for every trip made that read an N+1 query
+        pattern and also built every row object repeatedly.  Keep the delete
+        preview as the authoritative detailed path, but aggregate this
+        display-only projection in one pass over the stored rows.
+        """
+        summaries = {tab_id: dict(income_count=0, income_total=0,
+                                  expense_count=0, expense_total=0)
+                     for (tab_id,) in self.conn.execute('SELECT tab_id FROM trip_tabs WHERE deleted=0')}
+        rows = self.conn.execute(
+            'SELECT row_id,row_kind,display_tab_id,payload_json FROM board_rows '
+            'WHERE display_tab_id IS NOT NULL').fetchall()
+        split = self.split_source_ids()
+        corrections = dict(self.conn.execute(
+            'SELECT row_id,corrected_amount_krw FROM income_corrections ORDER BY rowid'))
+        for row_id, kind, tab_id, payload_json in rows:
+            if row_id in split:
+                continue
+            record = json.loads(payload_json)
+            amount = record['amount_krw']
+            if kind == 'income' and record.get('source_kind') == '은행':
+                amount = corrections.get(row_id, amount)
+            if kind not in ('income', 'expense') or type(amount) is not int:
+                raise ValueError('TRIP_SUMMARY_ROW_UNREADABLE')
+            bucket = summaries.setdefault(tab_id, dict(income_count=0, income_total=0,
+                                                      expense_count=0, expense_total=0))
+            bucket[kind + '_count'] += 1
+            bucket[kind + '_total'] += amount
+        allocations = self.conn.execute(
+            'SELECT a.display_tab_id,COUNT(*),COALESCE(SUM(a.amount_krw),0) '
+            'FROM income_allocations a JOIN board_rows b ON b.row_id=a.source_row_id '
+            'WHERE a.active=1 AND a.display_tab_id IS NOT NULL GROUP BY a.display_tab_id').fetchall()
+        for tab_id, count, total in allocations:
+            bucket = summaries.setdefault(tab_id, dict(income_count=0, income_total=0,
+                                                      expense_count=0, expense_total=0))
+            bucket['income_count'] += count
+            bucket['income_total'] += total
+        return summaries
+
     def find_bank_candidates(self, row_id: str) -> list:
         """R06: 직접 수입과 날짜·금액·입금자가 같은 미연결 은행 행을 후보로."""
         current = self.get_row(row_id)

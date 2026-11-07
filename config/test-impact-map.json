@@ -9,6 +9,16 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "card-final-destination-and-merchant",
+      "paths": ["app/automatic_classification.py", "ledger/cardindex.py", "tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py"],
+      "tests": ["tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py", "tests/card_pipeline/test_quarter_costs.py", "tests/card_pipeline/test_quarter_tab.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py", "webapp/tests/test_user_action_queue.py", "webapp/tests/test_receipt_page_flow.py"]
+    },
+    {
+      "name": "trip-management-aggregate",
+      "paths": ["webapp/tests/test_trip_management_performance.py"],
+      "tests": ["webapp/tests/test_trip_management_performance.py", "webapp/tests/test_ledger_store.py"]
+    },
+    {
       "name": "card-transaction-date-gaps",
       "paths": ["webapp/card_upload_coverage.py", "webapp/cards_all.py", "webapp/static/js/card_history_workspace.js", "webapp/tests/test_card_upload_coverage*.py", "webapp/tests/test_card_upload_management.py", "webapp/tests/test_card_history_upload_feedback.py", "tests/card_pipeline/test_card_upload_coverage*.py"],
       "tests": ["webapp/tests/test_card_upload_coverage_api.py", "webapp/tests/test_card_upload_coverage_ui.py", "webapp/tests/test_card_upload_management.py", "webapp/tests/test_card_history_upload_feedback.py", "tests/card_pipeline/test_card_upload_coverage.py", "tests/card_pipeline/test_card_upload_coverage_review.py", "webapp/tests/test_signed_session_http.py"]

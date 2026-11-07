@@ -1412,12 +1412,14 @@ class CardFlow:
                 if self.board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else set())
         fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
         # 장부 기록 여부가 게이트 결과를 바꾸므로 열린 거래 집합도 지문에 넣는다.
-        open_digest=hashlib.sha256(json.dumps([open_ids, sorted(inference_excluded_ids)],separators=(',',':')).encode()).hexdigest()
+        gate_enabled = ota_exact.enabled()
+        open_digest=(hashlib.sha256(json.dumps([open_ids, sorted(inference_excluded_ids)],separators=(',',':')).encode()).hexdigest()
+                     if gate_enabled else None)
         # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
         key = (str([str(path) for path in mail_dirs]),
                str([str(path) for path in portal_dbs]),
                str([str(path) for path in sources['reference_documents']]),
-               sources['manifest_stamp'], stamps, fingerprint, open_digest)
+               sources['manifest_stamp'], stamps, fingerprint, gate_enabled, open_digest)
         cache=getattr(self.board,'_card_review_mail_cache',None)
         if cache and cache.get('key')==key:
             return cache['report']
@@ -1871,11 +1873,22 @@ class CardFlow:
         result['trips'] = [dict(id=t['tab_id'],name=t['display_key'],available=available[t['tab_id']]) for t in trips]
         result['refund_groups'] = self.refund_group_views(result['preview'], result['trips'])
         from .card_actions import next_action
+        from .card_transactions import _open_user_action_ids
         originals = {r['transaction_id']: r for r in result['rows']}
         guards = self.automatic_holds(batch_id)
+        open_user_actions = _open_user_action_ids(self.board.conn)
         for row in result['preview']['rows']:
             source = dict(originals[row['transaction_id']], batch_id=batch_id)
-            row['next_action'] = next_action(source, row, guards.get(row['transaction_id']))
+            row['user_action_lookup_unavailable'] = open_user_actions is None
+            row['user_action_required'] = (None if open_user_actions is None else
+                                           row['transaction_id'] in open_user_actions)
+            source['user_action_lookup_unavailable'] = row['user_action_lookup_unavailable']
+            row['next_action'] = next_action(
+                source,
+                row,
+                guards.get(row['transaction_id']),
+                user_action_required=row['user_action_required'],
+            )
         from . import quarter_ledger
         result['quarter_targets'] = quarter_ledger.targets(result['rows'])
         # 원본 전체 셀은 요청했을 때만 제공한다. 검토 화면에는 필요한 필드만 있다.

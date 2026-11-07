@@ -249,6 +249,7 @@ def enrich_status(conn, items):
         ' FROM transactions t' + joins + ' WHERE t.transaction_id IN (SELECT value FROM json_each(?))',
         (json.dumps([i['transaction_id'] for i in items]),)).fetchall()
     index = {row[0]: row for row in values}
+    open_user_actions = _open_user_action_ids(conn)
     for item in items:
         row = index[item['transaction_id']]
         _, _, batch, basis, decided_at, parse_error, direction, recorded, excluded, kind, reason = row
@@ -258,7 +259,37 @@ def enrich_status(conn, items):
         if kind:
             item['review_hold'] = dict(kind=kind, reason=reason or '')
         source = dict(item, trip_name='환불' if item.get('refund_tab_member') else '')
-        item['next_action'] = next_action(source, dict(already_booked=bool(recorded)))
+        item['user_action_lookup_unavailable'] = open_user_actions is None
+        item['user_action_required'] = (None if open_user_actions is None else
+                                        item['transaction_id'] in open_user_actions)
+        source['user_action_lookup_unavailable'] = item['user_action_lookup_unavailable']
+        item['next_action'] = next_action(
+            source,
+            dict(already_booked=bool(recorded)),
+            user_action_required=item['user_action_required'],
+        )
+
+
+def _open_user_action_ids(conn):
+    """Return transactions with durable, owner-facing P3 tasks.
+
+    Internal autonomous-cleanup jobs deliberately do not count.  The card
+    history is read-only, so this only projects the existing request log once
+    per page.
+    """
+    from . import user_action_queue
+    try:
+        snapshot = user_action_queue.open_snapshot(conn)
+    except user_action_queue.QueueReadUnavailable:
+        return None
+    result = set()
+    for task in snapshot.tasks:
+        refs = task.get('source_refs') or ()
+        if not isinstance(refs, (list, tuple)) or any(not isinstance(ref, str) for ref in refs):
+            return None
+        result.update(ref for ref in refs if ref.strip())
+    return result
+
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
