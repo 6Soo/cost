@@ -1811,7 +1811,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
         f"</button>"
         f"{recovery}</div>"
-        f"<p class='copy-status' id='copy-status' data-google-sync-status role='status' aria-live='polite' aria-atomic='true'></p>"
+        f"<p class='copy-status' id='copy-status'{(' data-google-sync-status' if recovery else '')} role='status' aria-live='polite' aria-atomic='true'></p>"
         f"</section>"
     )
 

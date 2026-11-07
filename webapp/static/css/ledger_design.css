@@ -665,7 +665,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-copy-title{display:block;font-size:14px;line-height:1.5;color:var(--ink)}
 .trip-copy-box,.trip-copy-recovery{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .trip-copy-box{flex:0 1 auto;min-width:0}
-.trip-copy-box .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;max-width:100%;padding:8px 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;line-height:1.5;color:var(--ink);cursor:pointer;white-space:normal;text-align:center;text-decoration:none}
+.trip-copy-box .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:auto;min-height:44px;max-width:100%;padding:8px 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;line-height:1.5;color:var(--ink);cursor:pointer;white-space:normal;text-align:center;text-decoration:none}
 .trip-copy-box .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media(hover:hover){.trip-copy-box .btn:hover{background:var(--hover)}}
 .trip-copy-box .btn:disabled{opacity:.55;cursor:default}
