@@ -26,7 +26,10 @@ def source(*, first='2026-04-01', last='2026-04-10', full=False,
                      '이용금액', '승인일', '매입일', '승인번호'])
     if rows:
         writer.writerow(['SYNTH', card, '신용', 'SHOP', '10',
-                         '2026-04-03', '2026-04-08', 'SYNTH-A'])
+                         first, last, 'SYNTH-A'])
+        if first != last:
+            writer.writerow(['SYNTH', card, '신용', 'SHOP-2', '11',
+                             last, last, 'SYNTH-B'])
     return data.getvalue().encode('utf-8-sig')
 
 
@@ -59,56 +62,39 @@ def test_zero_row_file_visible_and_not_mistaken_for_transaction_date(ctx):
     batch, raw = uploaded(ctx, rows=False, full=True)
     assert confirmed(ctx, batch, raw)['confirmed']
     dashboard = card_upload_coverage.get_coverage_summary(board, through='2026-04-10')
-    assert dashboard['overview']['card_count'] == 1
-    assert dashboard['overview']['covered_bases'] == 1
+    assert dashboard['overview']['card_count'] == 0
+    assert dashboard['overview']['covered_bases'] == 0
     assert dashboard['overview']['gap_count'] == 0
     assert dashboard['files'][0]['batch_id'] == batch
     assert dashboard['files'][0]['zero_rows'] is True
     assert dashboard['files'][0]['source_rows'] == 0
-    assert dashboard['files'][0]['query_periods'][0]['start'] == '2026-04-01'
+    assert dashboard['files'][0]['query_periods'] == []
     assert not dashboard['files'][0]['transaction_start']
-    assert batch in [file['batch_id'] for file in
-                     dashboard['cards'][0]['files']]
+    assert dashboard['files'][0]['coverage_status'] == 'no_transaction_dates'
     assert any(row['batch_id'] == batch for row in card_flow.batch_catalog(board))
 
 
-def test_gap_dates_and_baseline_are_card_basis_specific(ctx):
+def test_gap_dates_use_transaction_date_intervals(ctx):
     board, _ = ctx
     first, raw1 = uploaded(ctx, first='2026-04-01', last='2026-04-10')
     second, raw2 = uploaded(ctx, first='2026-04-15', last='2026-04-20')
-    confirmed(ctx, first, raw1)
-    confirmed(ctx, second, raw2)
     dashboard = card_upload_coverage.get_coverage_summary(board, through='2026-04-20')
     card = dashboard['cards'][0]
-    assert card['gaps'] == [{'start': '2026-04-11', 'end': '2026-04-14'}]
-    assert dashboard['overview']['gap_count'] == 1
-    store = CoverageStore(board.conn)
-    before = board.conn.execute('SELECT COUNT(*) FROM change_log').fetchone()[0]
-    saved = store.set_management_start(card['card_id'], '이용일',
-                                       '2026-03-01', 0)
-    assert saved['revision'] == 1 and saved['changed']
-    new = card_upload_coverage.get_coverage_summary(board, through='2026-04-20')['cards'][0]
-    assert new['management_revision'] == 1
-    assert new['management_start'] == '2026-03-01'
-    assert new['gaps'] == [{'start': '2026-03-01', 'end': '2026-03-31'},
-                           {'start': '2026-04-11', 'end': '2026-04-14'}]
-    repeated = store.set_management_start(card['card_id'], '이용일',
-                                          '2026-03-01', 1)
-    assert repeated['changed'] is False
-    assert board.conn.execute('SELECT COUNT(*) FROM change_log').fetchone()[0] == before + 1
-    with pytest.raises(StoreError, match='다른 화면'):
-        store.set_management_start(card['card_id'], '이용일',
-                                   '2026-02-01', 0)
+    assert card['gaps'] == [{'start': '2026-04-02', 'end': '2026-04-09'},
+                            {'start': '2026-04-11', 'end': '2026-04-14'},
+                            {'start': '2026-04-16', 'end': '2026-04-19'}]
+    assert dashboard['overview']['gap_count'] == 3
+    assert card['date_basis'] == '거래일자'
 
 
-def test_missing_metadata_only_needs_review_and_never_backfills(ctx):
+def test_missing_query_metadata_does_not_block_transaction_date_view(ctx):
     board, _ = ctx
     batch, _ = uploaded(ctx, full=False)
     dashboard = card_upload_coverage.get_coverage_summary(board)
-    assert not dashboard['cards']
-    assert dashboard['overview']['files_need_review'] == 1
+    assert dashboard['cards']
+    assert dashboard['overview']['files_need_review'] == 0
     assert dashboard['files'][0]['batch_id'] == batch
-    assert dashboard['files'][0]['coverage_status'] == 'needs_review'
+    assert dashboard['files'][0]['coverage_status'] == 'transaction_dates'
 
 
 def test_declared_full_query_is_required_for_automatic_confirmation(ctx, monkeypatch):
@@ -144,10 +130,32 @@ def test_card_management_markup_links_to_gap_and_source_metadata():
     html = card_flow.page('synthetic-csrf')
     assert 'id="coverage-summary"' in html
     assert 'id="gap-upload-context"' in html
-    assert 'function openMissingCoverage' in html
-    assert '관리 시작일 저장' in html
-    assert 'await refreshCoverageSummary()' in html
-    assert 'card.periods?.[0]?.start' in html
-    assert '조회기간과 별개' in html
+    assert '/cards/all?panel=coverage' in html
+    assert '관리 시작일 저장' not in html
+    assert '조회기간과 별개' not in html
+    assert '/coverage/confirm' not in html
     assert 'function loadCardReviewBatches' in html
     assert 'data-batch' in html  # saved-tab focus and selection contract is preserved
+
+
+def test_legacy_baseline_records_keep_revision_and_conflict_protection(ctx):
+    board, _ = ctx
+    batch, raw = uploaded(ctx)
+    confirmed(ctx, batch, raw)
+    card = CoverageStore(board.conn).summary()["coverages"][0]
+    store = CoverageStore(board.conn)
+    before = board.conn.execute('SELECT COUNT(*) FROM change_log').fetchone()[0]
+    saved = store.set_management_start(card['card_id'], '이용일',
+                                       '2026-03-01', 0)
+    assert saved['revision'] == 1 and saved['changed']
+    new = card_upload_coverage.get_coverage_summary(board, through='2026-04-20')['cards'][0]
+    assert 'management_start' not in new
+    assert new['gaps'] == [{'start': '2026-04-02', 'end': '2026-04-09'}]
+    repeated = store.set_management_start(card['card_id'], '이용일',
+                                          '2026-03-01', 1)
+    assert repeated['changed'] is False
+    assert board.conn.execute('SELECT COUNT(*) FROM change_log').fetchone()[0] == before + 1
+    with pytest.raises(StoreError, match='다른 화면'):
+        store.set_management_start(card['card_id'], '이용일',
+                                   '2026-02-01', 0)
+

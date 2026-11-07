@@ -29,3 +29,9 @@ def test_coverage_after_the_requested_window_cannot_create_future_gaps():
     periods = [Period('2026-05-01', '2026-05-10')]
     gaps = find_gaps(periods, '2026-04-01', '2026-04-10')
     assert [(gap.start, gap.end) for gap in gaps] == [('2026-04-01', '2026-04-10')]
+
+
+def test_transaction_date_intervals_are_the_only_dashboard_gap_basis():
+    periods = [Period('2026-04-01', '2026-04-10'), Period('2026-04-15', '2026-04-20')]
+    assert [(gap.start, gap.end) for gap in find_gaps(periods, '2026-04-01', '2026-04-20')] == [
+        ('2026-04-11', '2026-04-14')]

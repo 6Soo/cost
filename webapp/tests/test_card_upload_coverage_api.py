@@ -83,8 +83,8 @@ def test_get_on_confirm_and_post_on_summary_are_rejected(board):
     assert request(board, '/api/cards/coverage/summary', raw=b'{}').status == 405
 
 
-def test_legacy_uploaded_file_is_unverified_not_a_zero_gap(board):
-    """Classified import rows alone must never confirm an actual query interval."""
+def test_transaction_dates_make_legacy_uploaded_file_assessable(board):
+    """Observed transaction dates are enough for the dashboard gap view."""
     raw = (
         '카드사,카드번호,카드종류,가맹점,이용금액,승인일,매입일,승인번호\\n'
         'SYNTH,1234-56**-****-1111,신용,SHOP,10,2026-04-03,2026-04-08,SYNTH-A\\n'
@@ -93,13 +93,13 @@ def test_legacy_uploaded_file_is_unverified_not_a_zero_gap(board):
     before = list(board.conn.iterdump())
     summary = coverage.get_coverage_summary(board)
 
-    assert summary['overview']['card_count'] == 0
+    assert summary['overview']['card_count'] == 1
     assert summary['overview']['gap_count'] == 0
-    assert summary['overview']['gaps_assessable'] is False
-    assert summary['overview']['files_need_review'] == 1
-    assert summary['coverage_state'] == 'needs_evidence'
+    assert summary['overview']['gaps_assessable'] is True
+    assert summary['overview']['files_need_review'] == 0
+    assert summary['coverage_state'] == 'transaction_dates'
     source = next(row for row in summary['files'] if row['batch_id'] == batch_id)
-    assert source['coverage_status'] == 'needs_review'
+    assert source['coverage_status'] == 'transaction_dates'
     assert source['query_periods'] == []
     assert source['issuer_hint'] == 'SYNTH'
     assert source['card_tail_hint'] == '1111'
@@ -110,8 +110,6 @@ def test_legacy_uploaded_file_is_unverified_not_a_zero_gap(board):
 
     inspected = coverage.batch_inspection(board, batch_id)
     assert inspected['evidence']['card_id']
-    assert not inspected['evidence']['start_date']
-    assert not inspected['evidence']['end_date']
     assert inspected['records'] == []
 
 
@@ -125,3 +123,38 @@ def test_empty_import_has_no_inferred_card_identity(board):
     assert item['issuer_hint'] == ''
     assert item['card_tail_hint'] == ''
     assert summary['overview']['gaps_assessable'] is False
+
+
+def test_gap_uses_each_observed_day_and_an_overlapping_upload_fills_it(board):
+    header = '카드사,카드번호,카드종류,가맹점,이용금액,승인일,매입일,승인번호\n'
+    rows = ('SYNTH,1234-56**-****-1111,신용,SHOP,10,2026-04-01,2026-04-10,A\n'
+            'SYNTH,1234-56**-****-1111,신용,SHOP,11,2026-04-03,2026-04-10,B\n')
+    pipeline = Pipeline(board.conn)
+    pipeline.receive((header + rows).encode('utf-8-sig'), 'first.csv')
+    assert coverage.get_coverage_summary(board)['cards'][0]['gaps'] == [
+        {'start': '2026-04-02', 'end': '2026-04-02'}]
+    pipeline.receive((header +
+        'SYNTH,1234-56**-****-1111,신용,SHOP,12,2026-04-02,2026-04-10,C\n'
+        + rows).encode('utf-8-sig'), 'overlap.csv')
+    before = list(board.conn.iterdump())
+    summary = coverage.get_coverage_summary(board, date_basis='거래일자')
+    assert summary['cards'][0]['gaps'] == []
+    assert summary['cards'][0]['periods'] == [{'start': '2026-04-01', 'end': '2026-04-03'}]
+    assert summary['overview']['file_count'] == 2
+    assert coverage.get_coverage_summary(board, date_basis='unknown')['cards'] == []
+    assert coverage.get_coverage_summary(board, issuer='OTHER')['cards'] == []
+    assert list(board.conn.iterdump()) == before
+
+
+def test_mixed_card_file_keeps_groups_separate_and_file_total_unique(board):
+    raw = ('카드사,카드번호,카드종류,가맹점,이용금액,승인일,매입일,승인번호\n'
+           'SYNTH,1234-56**-****-1111,신용,A,10,2026-04-01,2026-04-01,A\n'
+           'SYNTH,1234-56**-****-2222,신용,B,11,2026-04-03,2026-04-03,B\n')
+    Pipeline(board.conn).receive(raw.encode('utf-8-sig'), 'mixed.csv')
+    summary = coverage.get_coverage_summary(board)
+    assert summary['overview']['card_count'] == 2
+    assert summary['overview']['file_count'] == 1
+    assert summary['overview']['gap_count'] == 0
+    assert summary['files'][0]['unique_transactions'] == 2
+    assert summary['files'][0]['card_tail_hint'] == ''
+    assert coverage.get_coverage_summary(board, card_tail='1111')['overview']['card_count'] == 1

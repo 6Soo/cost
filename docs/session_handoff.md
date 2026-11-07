@@ -1373,3 +1373,8 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 - COMPLETE — [PR #653](https://github.com/6Soo/cost/pull/653) 병합 및 운영 배포 완료. 고정 운영 SHA `79a3c57340cfadeb227e3748966a4baf0fd6ca63`.
 - 영향 QA 699 passed·61 subtests·skip 0, PR CI `41935646283` 성공. 데스크톱/모바일 비교 및 예외 상태 검토 완료. 보호 테이블 13개 전후 불변, health/ready 200, 보호 API 401. 금융/Google/원본 데이터 쓰기와 DB 변경 없음.
 - 배포 증거: `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`; 작업 archive: `C:/AX/cost-admin-ui-ux-20261105/.local-archive/admin-ui-ux-deploy-20261105/`. 상세 운영 이력은 [운영 기록](operations.md#2026-11-05-cost-관리자-uiux-종합-개선-배포-완료).
+
+## 2026-11-08 카드 내역 거래일자 공백 전환
+
+최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. 현재 구현·표적 검증을 진행 중이며 인증 운영 수락은 미검증이다. 기존 main의 다른 로컬 커밋은 별도 보존한다.
+
