@@ -122,11 +122,14 @@ def test_source_change_clears_stale_rows_and_reopening_fetches_a_new_list():
             page.get_by_role("button", name="2026-11-07 · SYNTH-PNR").click()
             page.get_by_text("예약 자료가 갱신됐습니다. 목록을 새로 열어 주세요.").wait_for()
             assert page.locator(".trip-flight-items li").count() == 0
+            assert page.locator("summary svg[aria-hidden='true']").count() == 2
+            assert page.locator("summary").inner_text() == "항공권 예약"
             page.locator("summary").click()
             page.locator("summary").click()
             page.get_by_role("button", name="2026-11-07 · SYNTH-PNR").wait_for()
             assert len(calls) == 3
             assert "cursor" not in calls[-1]
+            assert page.locator("summary svg[aria-hidden='true']").count() == 2
         finally:
             browser.close()
 
@@ -202,6 +205,39 @@ def test_history_filter_exposes_cancelled_booking_and_returns_to_current():
             assert page.get_by_role('button', name='2026-11-07 · CANCELLED').count() == 0
             assert calls[-3].get('status') == ['all'] and calls[-1].get('status') == ['active']
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        finally:
+            browser.close()
+
+
+def test_summary_keeps_icons_and_full_counts_at_narrow_width_with_keyboard():
+    html = ("<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
+            "<body style='font:16px sans-serif'>" + render_trip_flights("trip-A", total=123, passenger_count=456))
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 320, "height": 640}, reduced_motion="reduce")
+            page.route("http://test.local/", lambda route: route.fulfill(
+                content_type="text/html; charset=utf-8", body=html))
+            page.route("http://test.local/api/trips/trip-A/flight-bookings**", lambda route: route.fulfill(
+                json={"items": [], "source_generation": "g", "next_cursor": None,
+                      "total_bookings": 0, "verified_passenger_count": 0, "evidence_status": "FRESH"}))
+            page.goto("http://test.local")
+            page.keyboard.press("Tab")
+            assert page.locator("summary").evaluate("e => e === document.activeElement && e.matches(':focus-visible')")
+            assert page.locator("summary").evaluate("e => parseFloat(getComputedStyle(e).outlineWidth) >= 2")
+            assert page.locator("summary").bounding_box()["height"] >= 44
+            label = page.locator(".trip-flight-summary-label")
+            assert label.inner_text() == "항공권 예약 123건 · 현재 예약 탑승객 456명"
+            assert label.evaluate("e => e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight")
+            page.keyboard.press("Enter")
+            page.get_by_text("이 여행에 연결된 항공권 예약이 없습니다.").wait_for()
+            assert page.locator("summary svg[aria-hidden='true']").count() == 2
+            assert label.inner_text() == "항공권 예약 0건 · 현재 예약 탑승객 0명"
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert page.locator(".trip-flight-summary-chevron").evaluate(
+                "e => getComputedStyle(e).transform === 'matrix(-1, 0, 0, -1, 0, 0)'")
+            page.keyboard.press("Space")
+            assert not page.locator("details").evaluate("e => e.open")
         finally:
             browser.close()
 
