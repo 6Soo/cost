@@ -341,6 +341,20 @@ class TripMetaTests(unittest.TestCase):
         finally:
             store.close()
 
+    def test_trip_management_summaries_match_delete_preview_totals(self):
+        store = make_store()
+        try:
+            summaries = store.trip_management_summaries()
+            for tab_id in ("trip-demo-a", "trip-demo-b"):
+                preview = store.preview_tab_delete(tab_id)
+                summary = summaries[tab_id]
+                self.assertEqual(summary["income_count"], preview["income_count"])
+                self.assertEqual(summary["income_total"], preview["income_total"])
+                self.assertEqual(summary["expense_count"], preview["expense_count"])
+                self.assertEqual(summary["expense_total"], preview["expense_total"])
+        finally:
+            store.close()
+
     def test_delete_moves_and_stale_rejected(self):
         store = make_store()
         try:
