@@ -236,14 +236,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .income-meta-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
 .income-warning{color:var(--warn);font-weight:500}
 @media(width < 760px){
- #google-trip-income .google-income-scroll{overflow:visible}
+ #google-trip-income .google-income-scroll{overflow:visible;margin:6px 0 12px;border:0;border-radius:0;background:transparent}
  #google-trip-income table{min-width:0;width:100%;table-layout:fixed}
  #google-trip-income .income-breakdown{display:none}
- #google-trip-income .income-date{width:26%;white-space:normal;overflow-wrap:anywhere}
- #google-trip-income .income-person{width:32%;white-space:normal;overflow-wrap:anywhere}
- #google-trip-income .income-total{width:42%;overflow:visible;text-overflow:clip;font-size:12px}
- #google-trip-income td,#google-trip-income th{padding:0 5px}
- #google-trip-income caption{padding:8px 5px}
+ #google-trip-income .income-date{width:25%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #google-trip-income .income-person{width:39%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #google-trip-income .income-total{width:36%;overflow:visible;text-overflow:clip;font-size:12px;padding-left:2px;padding-right:2px}
+ #google-trip-income td,#google-trip-income th{padding:0 2px}
+ #google-trip-income caption{padding:8px 2px}
  .income-meta-bar{flex-direction:column;align-items:flex-start}
 }
 .main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 24px;font-size:12px;line-height:1.6}

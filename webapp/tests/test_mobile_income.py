@@ -64,6 +64,11 @@ class MobileIncomeTests(state.unittest.TestCase):
                     self.assertTrue(page.locator('#google-trip-income > summary').inner_text().startswith('수입'))
                     self.assertNotIn('수입 내역이 없어요',page.locator('main').inner_text())
                     self.assertNotIn('수입 (COST 기록)',page.locator('main').inner_text())
+                    scroll = page.locator('#google-trip-income .google-income-scroll')
+                    self.assertEqual(scroll.evaluate('el => getComputedStyle(el).borderTopWidth'), '0px')
+                    self.assertEqual(scroll.evaluate('el => getComputedStyle(el).borderRadius'), '0px')
+                    for cell in table.locator('tbody .income-date, tbody .income-person, tbody .income-total').all():
+                        self.assertEqual(cell.evaluate('el => getComputedStyle(el).whiteSpace'), 'nowrap')
                     expense = page.locator('.lst button[data-id]').first
                     self.assertEqual(expense.evaluate('el=>getComputedStyle(el).backgroundColor'),'rgba(0, 0, 0, 0)')
                     for cell in table.locator('tbody .income-total').all():
