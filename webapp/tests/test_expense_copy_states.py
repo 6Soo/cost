@@ -58,6 +58,18 @@ def test_all_recorded_disables_copy_and_viewer_has_no_copy_controls(copy_state, 
     assert design._google_match_annotations('trip-synthetic', rows, preview) == {}
 
 
+def test_total_mismatch_explains_real_cause_and_offers_source_recovery(copy_state):
+    rows, preview = copy_state
+    preview.update(source_available=False, source_info={'reason': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
+    markup = design._trip_copy_html('trip-synthetic', rows, preview)
+    assert '지출 합계와 행 합계가 다릅니다' in markup
+    assert '불러오지 못해' not in markup
+    assert '/api/google-ledger/source?trip=trip-synthetic' in markup
+    assert 'data-copy-recheck' in markup
+    assert "aria-describedby='trip-copy-desc'" in markup
+    assert ' disabled' in markup and '복사 가능 0건' not in markup
+
+
 def test_blocked_and_company_excluded_rows_never_count_as_copyable(copy_state):
     rows, preview = copy_state
     for flag in ('blocked', 'excluded_from_company'):
@@ -115,6 +127,42 @@ def test_internal_copy_labels_do_not_inflate_transaction_rows(copy_state):
         finally:
             browser.close()
     assert rows == before
+
+
+def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_state):
+    from playwright.sync_api import sync_playwright
+    rows, preview = copy_state
+    preview.update(source_available=False, source_info={'reason': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
+    markup = ("<div class='income-sync'><span data-google-sync-status>수입 안내</span></div>"
+              "<input name='csrf' value='stale-token'>" + design._trip_copy_html('trip-synthetic', rows, preview))
+    document = design.render("<main id='main'>" + markup + '</main>')
+    calls = []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': 320, 'height': 850})
+            page.route('http://synthetic.test/board**', lambda route: route.fulfill(
+                content_type='text/html', body=document))
+            def sync(route):
+                calls.append(route.request.headers.get('x-csrf-token'))
+                route.fulfill(status=503, json={'code': 'UNAVAILABLE'})
+            page.route('http://synthetic.test/api/google-ledger/sync', sync)
+            url = 'http://synthetic.test/board?tab=trip-synthetic&q=Cafe&kind=ex'
+            page.goto(url)
+            page.get_by_role('button', name='장부 동기화').click()
+            page.wait_for_function("document.getElementById('copy-status').textContent.includes('동기화를 시작하지 못했습니다')")
+            assert calls == [board.CSRF_TOKEN]
+            assert page.locator('.income-sync [data-google-sync-status]').inner_text() == '수입 안내'
+            assert page.get_by_role('button', name='장부 동기화').is_enabled()
+            assert page.get_by_role('button', name='지출내용 복사').is_disabled()
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            for control in page.locator('.trip-copy-box .btn').all():
+                assert control.bounding_box()['height'] >= 44
+            with page.expect_navigation():
+                page.get_by_role('button', name='다시 확인').click()
+            assert page.url == url
+        finally:
+            browser.close()
 
 
 def test_copy_evidence_is_escaped_and_available_in_collapsed_detail(copy_state, monkeypatch):

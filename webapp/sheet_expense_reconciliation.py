@@ -189,9 +189,14 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
         if copy_info.get('layout') != 'rev':
             raise ValueError('SOURCE_LAYOUT_UNSUPPORTED')
         if (source_info.get('status') != 'ok' or source_info.get('stale')
-                or not (copy_info.get('expense') or {}).get('verified')
                 or set(trip.get('review') or ()) & BLOCKING_TRIP_FLAGS):
             raise ValueError('SOURCE_NOT_VERIFIED')
+        expense = copy_info.get('expense') or {}
+        if not expense.get('verified'):
+            total, row_sum = expense.get('sheet_total'), expense.get('row_sum')
+            if type(total) is int and type(row_sum) is int and total != row_sum:
+                raise ValueError('SOURCE_EXPENSE_TOTAL_MISMATCH')
+            raise ValueError('SOURCE_EXPENSE_UNVERIFIED')
         sheet_id = copy_info.get('sheet')
         source_rows = all_rows.get(source) or {}
         source_hash = source_rows.get('content_sha256')
@@ -262,7 +267,8 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
         candidates = {'COST_TRIP_UNAVAILABLE', 'GOOGLE_SOURCE_DISABLED', 'TRIP_MAPPING_UNAVAILABLE',
                       'GOOGLE_TRIP_UNAVAILABLE', 'SOURCE_NOT_SELECTED', 'SOURCE_NOT_VERIFIED',
                       'SOURCE_FINGERPRINT_MISMATCH', 'SHEET_ROWS_UNAVAILABLE',
-                      'LINKS_UNAVAILABLE', 'RECONCILIATION_INVALID', 'SOURCE_LAYOUT_UNSUPPORTED'}
+                      'LINKS_UNAVAILABLE', 'RECONCILIATION_INVALID', 'SOURCE_LAYOUT_UNSUPPORTED',
+                      'SOURCE_EXPENSE_TOTAL_MISMATCH', 'SOURCE_EXPENSE_UNVERIFIED'}
         code = getattr(error, 'code', None)
         reason = code if code in candidates else (str(error) if isinstance(error, ValueError)
                                                    and str(error) in candidates else 'SOURCE_UNAVAILABLE')
