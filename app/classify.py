@@ -422,6 +422,13 @@ def _classify_transaction(transaction: dict, *, rules: list,
                 return dict(classification_state=STATE_CLASSIFIED,classification_source='card_category',
                             classification_basis='카드사 업종: '+industry + (' · 검증된 여행 기간의 현지 사용' if trip else ''),
                             item=item,description='',display_tab_id=trip or DEFAULT_TAB,trip_id=trip,rule_id='')
+    from .ota_matching_defaults import provider_for_merchant
+    if provider_for_merchant(merchant_normalized) == 'skyticket':
+        return {"classification_state": STATE_CLASSIFIED,
+                "classification_source": "provider_default",
+                "classification_basis": "사용자 규칙: 어드벤처코리아 결제는 스카이티켓 항공권 예약 결제",
+                "item": "항공료", "description": "", "display_tab_id": DEFAULT_TAB,
+                "trip_id": "", "rule_id": "user-approved-adventure-korea-is-skyticket-airfare-2026-11-08"}
     if pattern:
         item, description, tabs = pattern
         trip = _verified_local_trip(transaction, item, trip_resolver)

@@ -9,7 +9,7 @@
     "asiana": ["아시아나항공", "flyasiana"],
     "jeju": ["제주항공", "jejuair", "jeju air"],
     "traveloka": ["traveloka", "트래블로카"],
-    "skyticket": ["skyticket", "스카이티켓", "주식회사 어드벤처코리아"]
+    "skyticket": ["skyticket", "스카이티켓", "주식회사 어드벤처코리아", "어드벤처코리아"]
   },
   "provider_merchant_alias_records": {
     "agoda": [
@@ -37,7 +37,9 @@
     "booking": [{"alias": "booking.com", "status": "approved", "version": 2,
                  "source": "owner-approved-2026-10-16-booking-descriptor"}],
     "gotogate": [{"alias": "이니시스(일반)-고투게이트코리아유", "status": "approved", "version": 1,
-                   "source": "owner-provided-card-screenshot-2026-10-30"}]
+                   "source": "owner-provided-card-screenshot-2026-10-30"}],
+    "skyticket": [{"alias": "어드벤처코리아", "status": "approved", "version": 1,
+                   "source": "user-approved-adventure-korea-is-skyticket-airfare-2026-11-08"}]
   },
   "trip_flight_charge_delta": {
     "enabled": true,

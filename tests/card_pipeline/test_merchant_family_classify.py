@@ -3,6 +3,8 @@
 import pytest
 
 from app.classify import classify_transaction
+from app.ota_matching_defaults import provider_for_merchant
+from ledger.cardindex import account
 
 
 def transaction(merchant, **changes):
@@ -35,6 +37,15 @@ def test_recognizes_restaurant_suffixes_and_hotel_branch_variations(merchant, it
     assert result['classification_state'] == 'classified'
     assert result['item'] == item
     assert result['trip_id'] == ''
+
+
+def test_adventure_korea_is_skyticket_airfare():
+    result = classify_transaction(transaction('어드벤처코리아'), rules=[])
+    assert result['classification_state'] == 'classified'
+    assert result['item'] == '항공료'
+    assert result['trip_id'] == ''
+    assert provider_for_merchant('어드벤처코리아') == 'skyticket'
+    assert account('', '어드벤처코리아', '') == '항공료'
 
 
 @pytest.mark.parametrize('merchant', ['토요코인 편의점', '국밥거리', '호텔예약확인', '토요코인상사'])
