@@ -81,7 +81,7 @@ def test_blocked_and_company_excluded_rows_never_count_as_copyable(copy_state):
         assert annotations['row-2']['label'] == '복사 제외 · 거래 상세 확인'
 
 
-def test_integrated_labels_escape_source_text_and_are_visible_on_mobile(copy_state):
+def test_internal_copy_labels_do_not_inflate_transaction_rows(copy_state):
     from playwright.sync_api import sync_playwright
     rows, preview = copy_state
     before = deepcopy(rows)
@@ -105,13 +105,24 @@ def test_integrated_labels_escape_source_text_and_are_visible_on_mobile(copy_sta
                     page.set_viewport_size({'width': width, 'height': 850})
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     scope = page.locator('.lst') if width < 760 else page.locator('#tbl')
-                    labels = scope.locator('.expense-copy-state')
-                    assert labels.count() == 3
-                    assert all(labels.nth(i).is_visible() for i in range(3))
-                    # Status labels describe each row; the trip summary may still say
-                    # how many expenses can be copied and the copy action stays available.
-                    assert all('복사 가능' not in label.inner_text()
-                               for label in labels.all())
+                    assert scope.locator('.expense-copy-state').count() == 0
+                    visible_text = scope.evaluate('''element => {
+                        const copy = element.cloneNode(true);
+                        copy.querySelectorAll('.sr').forEach(node => node.remove());
+                        return copy.textContent;
+                    }''')
+                    assert '장부에 있음' not in visible_text
+                    assert '복사 제외' not in visible_text
+                    assert '대조 후보' not in visible_text
+                    dates = scope.locator('.d' if width < 760 else '.c-date')
+                    assert dates.count() == len(rows)
+                    assert all(date.inner_text() == '2026-10-01' for date in dates.all())
+                    # The same transaction stays the same height regardless of its
+                    # internal copy status; no extra status column or mobile line.
+                    selector = '.li' if width < 760 else 'tr[data-id]'
+                    heights = scope.locator(selector).evaluate_all(
+                        'rows => rows.map(row => row.getBoundingClientRect().height)')
+                    assert max(heights) - min(heights) < 1
                     assert page.get_by_role('button', name='지출내용 복사').is_enabled()
         finally:
             browser.close()
@@ -152,3 +163,32 @@ def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_
             assert page.url == url
         finally:
             browser.close()
+
+
+def test_copy_evidence_is_escaped_and_available_in_collapsed_detail(copy_state, monkeypatch):
+    rows, preview = copy_state
+    preview['results'][3]['basis'] = ['<img src=x onerror=alert(1)>']
+    monkeypatch.setattr(design, '_selected_rows', lambda tab: ([], rows, [], rows))
+    monkeypatch.setattr(design, '_expense_copy_preview', lambda tab, costs: preview)
+    detail = design._google_match_detail(rows[3])
+    assert "<details class='p-src google-match-detail'>" in detail
+    assert '<summary>Google 장부 대조 근거</summary>' in detail
+    assert '중복 확인 필요 · 복사 제외' in detail
+    assert '<details open' not in detail
+    assert '<img' not in detail
+    # Candidate evidence is also escaped, without changing the copy outcome.
+    preview['sheet_rows'] = [{'amount_krw': 1000, 'date': '2026-10-01'}]
+    detail = design._google_match_detail(rows[3])
+    assert 'Google 장부 대조 후보: 복수 후보' in detail
+    assert '같은 거래로 확정된 것은 아닙니다' in detail
+    assert preview['results'][3]['status'] == 'REVIEW_CONFLICT'
+    monkeypatch.setattr(board, 'current_role', lambda: 'viewer')
+    assert design._google_match_detail(rows[3]) == ''
+
+
+def test_unavailable_source_does_not_add_detail_or_user_task(copy_state, monkeypatch):
+    rows, preview = copy_state
+    preview['source_available'] = False
+    monkeypatch.setattr(design, '_selected_rows', lambda tab: ([], rows, [], rows))
+    monkeypatch.setattr(design, '_expense_copy_preview', lambda tab, costs: preview)
+    assert design._google_match_detail(rows[0]) == ''
