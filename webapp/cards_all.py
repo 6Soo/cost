@@ -421,7 +421,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
                   "<a href='/my-actions'>내 확인 필요 열기</a></aside>")
     elif legacy_import:
         notice = ("<aside class='card-legacy-notice' role='status'>이전 카드 처리 화면은 카드 내역으로 통합했습니다. "
-                  "업로드와 조회기간은 이 화면에서 확인할 수 있습니다.</aside>")
+                  "업로드와 거래일자 공백은 이 화면에서 확인할 수 있습니다.</aside>")
     else:
         notice = ""
     transaction_panel = (
@@ -618,7 +618,7 @@ def _classification_source_label(source) -> str:
 def _status_badges(item: dict) -> str:
     """읽기 투영이 실제로 돌려주는 상태만 배지로 표시한다."""
     action = item.get('next_action')
-    if action:
+    if action and action.get('state_label'):
         text = _esc(action['state_label'])
         if action['group'] == 'review':
             text = f"<a class='card-all-badge review card-review-action' href='{_esc(action['href'])}'>{text}</a>"
@@ -790,7 +790,8 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                    f"{merchant_markup}</button>")
             status = _status_badges(item)
             status_markup = f"<div class='card-all-badges'>{status}</div>" if status else ""
-            if not trip_id and not status and not item.get('refund_tab_member'):
+            if (not trip_id and not status and not item.get('refund_tab_member')
+                    and item.get('user_action_required') is not False):
                 trip_markup += _review_action(item)
             rows.append(
                 f"<tr role='row' data-tx-id='{_esc(tid)}'{row_attrs}>"

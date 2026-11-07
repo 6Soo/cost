@@ -1871,11 +1871,19 @@ class CardFlow:
         result['trips'] = [dict(id=t['tab_id'],name=t['display_key'],available=available[t['tab_id']]) for t in trips]
         result['refund_groups'] = self.refund_group_views(result['preview'], result['trips'])
         from .card_actions import next_action
+        from .card_transactions import _open_user_action_ids
         originals = {r['transaction_id']: r for r in result['rows']}
         guards = self.automatic_holds(batch_id)
+        open_user_actions = _open_user_action_ids(self.board.conn)
         for row in result['preview']['rows']:
             source = dict(originals[row['transaction_id']], batch_id=batch_id)
-            row['next_action'] = next_action(source, row, guards.get(row['transaction_id']))
+            row['user_action_required'] = row['transaction_id'] in open_user_actions
+            row['next_action'] = next_action(
+                source,
+                row,
+                guards.get(row['transaction_id']),
+                user_action_required=row['user_action_required'],
+            )
         from . import quarter_ledger
         result['quarter_targets'] = quarter_ledger.targets(result['rows'])
         # 원본 전체 셀은 요청했을 때만 제공한다. 검토 화면에는 필요한 필드만 있다.
