@@ -2,29 +2,38 @@
 
 > **2026-11-07 최신 운영 후보 우선 정정:** #714 단독 배포가 아니라 **#714 + #717을 한 번에** 배포한다. 검증된 마지막 제품 코드 SHA는 #717 merge **`fbda50cbe01d5021ab341ed82337badb2e8c59a0`**이고, #714 성능 최적화는 그 조상이다. #717 PR CI run **42299212267 SUCCESS**(239 passed + 26 subtests), main run **42299550620 SUCCESS**. 기존 아래 #714 전용 후보·`main 1bf39...` 설명은 당시 스냅샷이므로 **현재 배포 지시가 아니다**. [수집 현황 CVR-01~08](card-coverage-pending-review-ux-20261107.md) 추가 수락 필요. 이 문서 갱신 자체는 운영 미배포 상태이다.
 >
-> **2026-11-07 실제 운영 결과:** 지정 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 이전 `ceb014f1ca716792e9df7eaee591cc00294aa866`에서 공식 스크립트로 단일 전환했다. 1,429 tracked blobs mismatch0, task/process SHA 일치, Gateway8790→8752, health/ready200, 보호 API401, 보호13표 전후 불변 PASS, financial apply NOT_RUN. **인증된 사용자 화면·성능은 `AUTH_UI_BLOCKED`**: 실제 화면과 request-metrics endpoint가 익명 요청에 401을 반환해 카드별 화면·23개 파일·390/1440·cold/warm 카드 진입시간 및 lock/query 지표를 측정하지 못했다. 세부 내용은 [운영 기록](../operations.md)과 비공개 로컬 `C:/AX/cost/.local-archive/card-history-release-20261107/`에 있다. 이 문서 후속은 재배포 근거가 아니다.
+> **2026-11-07 배포 실행 당시 실제 운영 결과:** 지정 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 이전 `ceb014f1ca716792e9df7eaee591cc00294aa866`에서 공식 스크립트로 단일 전환했다. 1,429 tracked blobs mismatch0, task/process SHA 일치, Gateway8790→8752, health/ready200, 보호 API401, 보호13표 전후 불변 PASS, financial apply NOT_RUN. **인증된 사용자 화면·성능은 `AUTH_UI_BLOCKED`**: 실제 화면과 request-metrics endpoint가 익명 요청에 401을 반환해 카드별 화면·23개 파일·390/1440·cold/warm 카드 진입시간 및 lock/query 지표를 측정하지 못했다. 세부 내용은 [운영 기록](../operations.md)과 비공개 로컬 `C:/AX/cost/.local-archive/card-history-release-20261107/`에 있다. 이 문서 후속은 재배포 근거가 아니다.
+>
+> **2026-11-07 인증 UI 후속 수락:** 사용자가 승인한 로그인 세션에서 `/cards/all?panel=coverage` GET 200. 23개 파일/6개 검토 그룹/조회기간 확인 링크 23개, 현재 확인된 조회기간 0개. 1440×900 및 390×844 캡처의 가로 넘침은 0px, 조회기간 확인 POST는 0회다. 비공개 증거는 `C:/AX/cost/.local-archive/ego-auth-20261107/`.
+>
+> **현재 후속 속도 상태: `CURRENT_ONLY / LAT-06 PARTIAL / LAT-07 UNMEASURED`.** 실제 카드 내역 navigation entry 1회: HTTP 200, TTFB 964.5ms, DOMContentLoaded 1,476.9ms, load 1,663.1ms (time origin `2026-11-07T11:08:25.814Z`). 인증된 request-metrics GET 200이었지만 응답 집계를 보관하지 않았다. 배포 전 동일 조건 baseline, cold/warm 각 5회, median/p95 및 `card_query`/`db_lock_wait`/render 분리는 확보되지 않았다. 이 단일 수치로 배포 전후 개선율 또는 완전 해결을 주장하지 않는다.
+>
+> **현재 상태: CODE_MERGED / PR_CI_PASS / MAIN_CI_PASS / PROD_DEPLOYED / AUTHENTICATED_UI_ACCEPTED / LATENCY_CURRENT_ONLY.** 배포는 이미 완료됐으므로 재적용하지 않는다. 남은 LAT-06/07은 비교 baseline과 반복 표본을 얻을 수 있을 때만 읽기 전용으로 수행한다. 이후 문서 업데이트로 재배포하지 않는다.
 >
 > **운영 호스트 실행 추가 게이트:** 실제 current runtime SHA, single writer, restore point, release-audit 전체 Git tree blob mismatch0, candidate exact SHA ReviewEvidence PASS, 보호 13표 pre/post, authenticated `/cards/all?panel=coverage`의 실제 파일 23개 읽기/접힌 카드별 그룹/확인 링크, 390/1440 UI와 업로드 원본 확인 폼은 **GET 읽기 검증만**. 23개를 자동 확정하거나 `POST /coverage/confirm`을 시험 삼아 실행 금지. 배포 전후 같은 인증/기간/필터의 TTFB·db_lock_wait/card_query·화면 표시 실측은 #714 LAT-01~08 그대로 수행. 인증 불가면 UI는 미검증. `deploy_verified_release.ps1` 필수 3인자 preview와 `-Apply`는 실제 검증·단일 writer 보장 시에만 사용. 이미 후보 SHA 런타임이면 재배포하지 않는다.
 
-> **현재 상태: CODE_MERGED / PR_CI_PASS / MAIN_CI_PASS / PROD_DEPLOYED / AUTH_UI_AND_PERFORMANCE_ACCEPTANCE_BLOCKED.**
-> 제품 코드는 운영 반영됐지만 인증된 화면·속도는 아직 수락되지 않았다. 인증 없이 확인할 수 없는 항목은 통과로 보고하지 않는다. 이전 시점의 '카드 내역 통합 미구현' 및 'CI 최소화 미구현' 명세보다 **이 상태 표가 우선**한다. **COST만** 범위에 포함하며 다른 저장소를 수정하지 않는다.
+
 
 ## 1. 현재 확정 사실 (GitHub 2026-11-07 기준)
 
 | 대상 | 상태 | 정확한 근거 |
 | --- | --- | --- |
 | 카드 등록 #712 | 병합·운영 배포 기록 완료 | PR #712 merge SHA `4611305d82156301f5ce32e46942d45de46baed4` |
-| 카드 내역/업로드/수집 현황 IA #713 | 병합·운영 배포 기록 완료 | PR #713 merge SHA **`ceb014f1ca716792e9df7eaee591cc00294aa866`**, 로컬 합성 `interface-review` PASS, PR/main CI 성공, 보호 13표 불변; 운영 인증 브라우저는 **401로 인해 미확인** |
-| 카드 내역 초기 조회 성능 #714 | **코드 병합·PR/main CI 성공, 미배포** | PR #714 merge SHA **`c4e87bfa745f6590d9bd024d0713c8864f935e7d`**, PR run `42274285504` SUCCESS, main run `42274512661` SUCCESS |
+| 카드 내역/업로드/수집 현황 IA #713 | 병합·운영 배포 기록 완료 | PR #713 merge SHA **`ceb014f1ca716792e9df7eaee591cc00294aa866`**, 로컬 합성 `interface-review` PASS, PR/main CI 성공, 보호 13표 불변; 배포 당시 익명 브라우저 요청은 401; 인증 UI 후속은 상단 #718 상태 참조 |
+| 카드 내역 초기 조회 성능 #714 | 코드 병합·CI 성공·#717과 합본 운영 배포 | 코드 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`에 포함; 운영 증거는 `../operations.md` #718 항목 |
 | 최근 기록 문서 #715 | 병합·문서 변경만 | main **`1bf39df19c3f2c1720cda8852b27f047c0be414a`**, run `42274783804` SUCCESS. #714 성능 코드 포함하지만 문서 커밋을 운영 기능 배포 증거로 취급 금지 |
 | GitHub 열린 PR | **0 (확인 시점)** | 작업 직전 최신 GitHub와 Windows 실제 런타임을 다시 조회 |
-| 알려진 운영 앱 SHA | **`ceb014f1ca716792e9df7eaee591cc00294aa866`** (마지막 검증 기록) | `docs/operations.md`, `docs/session_handoff.md`; **현재 호스트 읽기 확인 전에는 여전히 이 SHA라고 가정 금지** |
+| 운영 앱 SHA (배포 증거 기준) | **`fbda50cbe01d5021ab341ed82337badb2e8c59a0`** | task/process 및 post-deploy smoke evidence; `docs/operations.md` #718 |
 
 **핵심:** #714를 다시 개발하거나 #712·#713을 다시 병합하면 안 된다. #714에서 `card_transactions.year_summary()`의 연도별 12개월+미날짜 13개 집계 쿼리를 **한 개의 GROUP BY 집계 SQL**로 통합하고, `search_for_year`·`undated_list`에 이미 계산한 해당 필터의 `known_total`을 전달해 중복 COUNT를 없앴다. 원본/스키마/금융 쓰기는 없다. 별도 API는 기존 계산 계약 유지. 실제 CPU/디스크/락 기여도와 운영 체감 개선율은 미측정이다.
 
-## 2. 에이전트가 이번 작업에서 실제 할 일
+## 2. 이번 실행 상태 — 배포 완료, 속도 수락 PARTIAL
 
-**유일한 1순위**: #714 변경을 포함하는 검증된 **정확한 코드 SHA**를 Windows 운영에 안전하게 전환하고, 동일 사용자 여정의 **배포 전후 응답 지연을 측정**해 사용자가 느낀 '카드 내역 진입이 느림' 문제가 해결됐는지 판단한다.
+> **배포 목표는 완료됐다.** 제품 코드 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`가 운영에 적용됐고, 인증된 카드 내역 UI의 읽기 검증도 완료됐다. 이 명세를 근거로 같은 릴리스를 다시 배포하지 않는다.
+>
+> **남은 성능 수락:** 현재 보유한 탐색 측정은 단일 `CURRENT_ONLY` 표본이다. 배포 전 동등 조건 baseline과 cold/warm 반복 분포, `card_query`·`db_lock_wait` 세부값이 없다. 추가 표본을 얻기 전까지 개선율이나 성능 완료를 주장하지 않는다.
+
+**배포 당시 목표 (완료):** #714 변경을 포함하는 검증된 **정확한 코드 SHA**를 Windows 운영에 안전하게 전환하고, 동일 사용자 여정의 **배포 전후 응답 지연을 측정**해 사용자가 느낀 '카드 내역 진입이 느림' 문제가 해결됐는지 판단한다. 실제로 확보된 측정 범위와 미완료 항목은 위의 CURRENT_ONLY 상태 및 LAT-06/07 표기를 따른다.
 
 **수정하지 않을 범위**: IA·영수증 UI·메뉴·카드 7881·P1/P2/P3 업무 로직·여행/환불/OTA 회계/Google·업로드 데이터/원본·API 권한/스키마 및 다른 저장소. 이 문서 변경을 이유로 새 코드 PR, DB 마이그레이션, 작업 큐 재처리, 브라우저/AI 설정 업데이트를 하지 않는다.
 
