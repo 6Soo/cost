@@ -94,11 +94,18 @@ def catalog(board, query):
             row['trip_name'] = '환불'
     from app.review_holds import active_holds
     from .card_actions import next_action
+    from .card_transactions import _open_user_action_ids
     holds = active_holds(board.conn)
     booked = {r[0] for r in board.conn.execute('SELECT transaction_id FROM ledger_entries')}
+    open_user_actions = _open_user_action_ids(board.conn)
     for row in rows:
         row['review_hold'] = holds.get(row['transaction_id'])
-        row['next_action'] = next_action(row, {'already_booked': row['transaction_id'] in booked})
+        row['user_action_required'] = row['transaction_id'] in open_user_actions
+        row['next_action'] = next_action(
+            row,
+            {'already_booked': row['transaction_id'] in booked},
+            user_action_required=row['user_action_required'],
+        )
     if any(re.search(r'toyoko|토요코인', row.get('merchant') or '', re.I) for row in rows):
         from .card_flow import CardFlow
         notes = CardFlow(board)._ota_candidate_notes(rows)

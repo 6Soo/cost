@@ -31,17 +31,17 @@ def reason_category(row, preview=None, hold=None):
     return 'classification'
 
 
-def next_action(row, preview=None, extra_hold=None):
+def next_action(row, preview=None, extra_hold=None, *, user_action_required=None):
     preview = preview or {}
     href = '/import?' + urlencode({'batch': row['batch_id'], 'transaction': row['transaction_id']})
     def action(status, label, reason='', required=True, target=None):
         result = dict(status=status, label=label, reason=reason, required=required, href=target or href)
-        group = GROUP_OF_STATUS.get(status, 'review')
+        group = GROUP_OF_STATUS.get(status, '' if not status and not required else 'review')
         if group:
             result['group'] = group
         from app.classification_provenance import origin, LABELS
         category = reason_category(row, preview, extra_hold) if group == 'review' and required else ''
-        result.update(state=group, state_label=GROUP_LABELS[group],
+        result.update(state=group, state_label=GROUP_LABELS.get(group, ''),
                       reason_category=category, reason_label=REASON_LABELS.get(category, ''),
                       source=origin(row), source_label=LABELS[origin(row)])
         return result
@@ -82,6 +82,12 @@ def next_action(row, preview=None, extra_hold=None):
         return action('여행 지정 필요', '여행 지정', '예약 이용일과 숙소를 확인하고 여행을 선택해 주세요.')
     if preview.get('blocked'):
         return action('확인 필요', '문제 확인', preview.get('reason') or '배정 내용을 확인해 주세요.')
-    if row.get('classification_state') not in ('classified',):
+    # `classification_state` is an internal P1/P2 pipeline state.  It is not
+    # itself proof that the owner has a P3 question to answer.  Read surfaces
+    # pass the durable action-queue result here; an explicit False suppresses
+    # the old misleading "처리 필요" badge while automation is pending or
+    # has failed internally.
+    if (row.get('classification_state') not in ('classified',)
+            and user_action_required is not False):
         return action('분류 확인 필요', '분류 확인', '비용 항목과 배정 내용을 확인해 주세요.')
     return action('', '처리 결과 확인', required=False)

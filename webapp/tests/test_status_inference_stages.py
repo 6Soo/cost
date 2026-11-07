@@ -53,6 +53,23 @@ def test_three_primary_states_keep_financial_protection_without_user_hold_state(
     assert 'owner stop' not in protected['reason']
 
 
+def test_internal_classification_state_is_not_user_action_without_open_p3():
+    row = dict(batch_id='b', transaction_id='t', item='숙박비', display_tab_id='A',
+               classification_state='needs_review', classification_source='inference')
+    action = next_action(row, {}, user_action_required=False)
+    assert action['required'] is False
+    assert action['state_label'] == ''
+    assert action.get('group', '') == ''
+
+
+def test_open_p3_keeps_classification_action_for_unresolved_item():
+    row = dict(batch_id='b', transaction_id='t', item='', display_tab_id='A',
+               classification_state='needs_review', classification_source='inference')
+    action = next_action(row, {}, user_action_required=True)
+    assert action['required'] is True
+    assert action['state_label'] == '처리 필요'
+
+
 def test_p1_then_real_p2_updates_source_and_audit_without_human_or_financial_writes(setup):
     board, flow, batch, rows = setup
     c, ids, request = prepared(setup)

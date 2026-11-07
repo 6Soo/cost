@@ -420,7 +420,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
                   "<a href='/my-actions'>내 확인 필요 열기</a></aside>")
     elif legacy_import:
         notice = ("<aside class='card-legacy-notice' role='status'>이전 카드 처리 화면은 카드 내역으로 통합했습니다. "
-                  "업로드와 조회기간은 이 화면에서 확인할 수 있습니다.</aside>")
+                  "업로드와 거래일자 공백은 이 화면에서 확인할 수 있습니다.</aside>")
     else:
         notice = ""
     transaction_panel = (
@@ -450,7 +450,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
         "</section>"
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
-        "<header><div><h2 id='card-coverage-heading'>수집 현황</h2><p class='card-workspace-muted'>거래 발생기간과 실제 조회기간은 다릅니다. 조회 기준별로 확인된 기간과 누락 구간을 표시합니다.</p></div>"
+        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>업로드된 카드 거래의 실제 거래일자 범위를 합쳐 기간 사이 공백을 표시합니다.</p></div>"
         "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
         "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
@@ -617,7 +617,7 @@ def _classification_source_label(source) -> str:
 def _status_badges(item: dict) -> str:
     """읽기 투영이 실제로 돌려주는 상태만 배지로 표시한다."""
     action = item.get('next_action')
-    if action:
+    if action and action.get('state_label'):
         text = _esc(action['state_label'])
         if action['group'] == 'review':
             text = f"<a class='card-all-badge review card-review-action' href='{_esc(action['href'])}'>{text}</a>"
@@ -789,7 +789,8 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                    f"{merchant_markup}</button>")
             status = _status_badges(item)
             status_markup = f"<div class='card-all-badges'>{status}</div>" if status else ""
-            if not trip_id and not status and not item.get('refund_tab_member'):
+            if (not trip_id and not status and not item.get('refund_tab_member')
+                    and item.get('user_action_required') is not False):
                 trip_markup += _review_action(item)
             rows.append(
                 f"<tr role='row' data-tx-id='{_esc(tid)}'{row_attrs}>"
