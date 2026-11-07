@@ -1227,21 +1227,22 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
                 match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
                                      f"{board.esc(label)}</span>")
             if match.get('status') and match.get('status') != 'NEW_EXPENSE':
-                match_description = (f"<span class='expense-copy-state' id='{board.esc(hint_id)}'>"
+                match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
             if match.get('display_candidate'):
                 candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
                                    '금액+' + '+'.join(match['reasons']))
                 match_attributes = f" aria-describedby='{board.esc(hint_id)} {board.esc(hint_id)}-candidate'"
-                match_description += (f"<span class='expense-copy-state' "
+                match_description += (f"<span class='sr' "
                                       f"id='{board.esc(hint_id)}-candidate'>Google 장부 대조 후보: "
                                       f"{board.esc(candidate_label)}</span>")
         body.append(
             f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
             f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
-            f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}{match_description}</td>"
-            f"{_party_cell(row)}"
+            f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
+            + _party_cell(row).replace('</td>', match_description + '</td>')
+            +
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='{service_class}' title='{board.esc(service_title)}'>{board.esc(service_dates)}</td>"
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
@@ -1368,11 +1369,11 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                 match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
                               f"{board.esc(reason)}</span>")
             if match.get('status') and match.get('status') != 'NEW_EXPENSE':
-                match_hint = (f"<span class='expense-copy-state'>{board.esc(reason)}</span>")
+                match_hint = (f"<span class='sr'>{board.esc(reason)}</span>")
             if match.get('display_candidate'):
                 candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
                                    '금액+' + '+'.join(match['reasons']))
-                match_hint += (f"<span class='expense-copy-state'>Google 장부 대조 후보: "
+                match_hint += (f"<span class='sr'>Google 장부 대조 후보: "
                                f"{board.esc(candidate_label)}</span>")
         # Two-line business summary only: date, kind tag, category, vendor,
         # purpose, amount. The origin detail lives in the edit panel, so no
@@ -1413,7 +1414,27 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
 
 
 # --------------------------------------------------------------- edit panel
-def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> str:
+def _google_match_detail(row):
+    """Read-only evidence on demand; never turn a display candidate into a copy decision."""
+    tab_id = row.get('display_tab_id') or ''
+    if row.get('row_kind') != 'expense' or board.current_role() != 'owner' or not _is_trip_tab(tab_id):
+        return ''
+    _, expenses, _, _ = _selected_rows(tab_id)
+    preview = _expense_copy_preview(tab_id, expenses)
+    match = _google_match_annotations(tab_id, [row], preview, expenses).get(row['row_id'])
+    if not match:
+        return ''
+    lines = [board.esc(match['label'])]
+    if match.get('display_candidate'):
+        reason = ('복수 후보' if match.get('candidate_multiple') else
+                  '금액+' + '+'.join(match.get('reasons') or []))
+        lines.append('Google 장부 대조 후보: ' + board.esc(reason))
+        lines.append('후보는 비교 단서이며, 같은 거래로 확정된 것은 아닙니다.')
+    return ("<details class='p-src google-match-detail'><summary>Google 장부 대조 근거</summary>"
+            + ''.join(f"<p class='p-sub'>{line}</p>" for line in lines) + '</details>')
+
+
+def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, google_match_detail='') -> str:
     allowed, fixed = board.editable_fields(kind, row.get("source_kind", ""),
                                            bool(row.get("is_allocation")))
     rev = row.get("revision", 1)
@@ -1538,6 +1559,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
            + ("<details class='p-extra'><summary>추가 정보·변경 이유</summary><div class='p-extra-fields'>"
               + "".join(extra_fields) + "</div></details>" if compact_expense else "")
            + note)
+        + google_match_detail
         + "<details class='p-src'>"
         "<summary>원본 정보</summary>"
         f"<p class='p-sub'>{board.esc(row.get('source_event_id') or row['row_id'])}"
@@ -1986,7 +2008,8 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
                 "<p class='muted'>없는 거래예요</p></div></aside>")
     return _panel_html(row, kind, csrf=board.CSRF_TOKEN,
                        rule_case=board.learning_case_id(row_id),
-                       error=error, message=message, back=back, draft=draft or {})
+                       error=error, message=message, back=back, draft=draft or {},
+                       google_match_detail=_google_match_detail(row))
 
 
 def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
