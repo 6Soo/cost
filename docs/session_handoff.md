@@ -1,3 +1,9 @@
+## 2026-11-07 여행 작성일·담당자·본문 검색 정리 — PARTIAL / CI 계정 제한
+
+- 사용자 “작성일 항목 삭제 / 담당자는 날짜 오른쪽 위로 / 여행 탭 내 검색 메뉴 전체 삭제” 및 후속 “본문 검색 영역만 삭제” 구현. 작성일 표시·여행 내 입력 제거, 담당자를 날짜 위 오른편으로 이동, 본문 검색/필터 제거. 사이드바 여행 검색·기존 검색 URL·메타데이터 저장/API·모바일 메뉴 유지. [PR #724](https://github.com/6Soo/cost/pull/724), [구현·검증·재개 명세](specs/trip-header-search-20261107.md).
+- PC/모바일320px·다크·긴 이름 합성 화면, 메뉴 키보드/Escape/포커스 복귀, 실제 배경 대비5.7053:1 확인. 잘못 저장된 동일 전후 화면은 baseline/candidate 동일1440/390px 비교로 교체. 독립 UI 리뷰 Approve·신규 HIGH/MEDIUM0. 고정 SHA `1912c6a91f5fbcf9ddefe9b1e39321ac552791f9` Windows 영향QA420 passed·105subtests·skip0·필수브라우저31개 전건실행·컴파일통과. 테스트 제외 없음. 물리기기/스크린리더/200%/번역·RTL 미검증.
+- **BLOCKED_CI_ACCOUNT_BILLING:** CI42369790657은 계정 결제/사용 한도 문제로 runner0·steps0에서 시작 실패. 녹색 CI 필수 규칙에 따라 병합·배포하지 않음. 운영 DB/금융/분류/여행 배정/Google/원본 쓰기0. 계정 소유자의 Billing & plans 조치 후 최신 PR CI 재실행→SUCCESS→정상 병합→main CI→공식 단일 작성자 배포/보호 검사 순서. 과거 호스트 SHA를 현재 값으로 재사용하지 않는다.
+
 ## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
 
 - [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.
