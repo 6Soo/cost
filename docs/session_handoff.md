@@ -1,8 +1,17 @@
-## 2026-11-08 영수증 업로드 응답 유실 복구 — 병합 완료 / 통합 배포 대기
+## 2026-11-08 미커밋 전체 검토·통합 운영 배포 — COMPLETE
+
+- 사용자 `미커밋 변경사항까지 모두 검토해서 배포`와 `모두 확인해서 메인으로 병합 운영배포해` 범위. [PR #735](https://github.com/6Soo/cost/pull/735), 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`. [28파일 판정·수락 기록](specs/review-all-uncommitted-release-20261108.md). 원래 로컬8커밋의 이력과 미커밋25·미추적3파일을 모두 검토했다. 유효 변경은 통합하고 원본/권한/환불 보호 제거는 제외·보존했다. 영수증 PR733도 같은 SHA로 운영 반영했다.
+- 어드벤처코리아 항공료, 여행 관리 단일 집계, 모바일 수입/보험/금액, 실제 OPEN 사용자 작업, 행별 지출 복사, 정상 구매의 유효한 결제 분기 fallback을 반영했다. 조회 실패를 0건으로 숨기지 않고 정상 P1/P2를 사용자 업무로 만들지 않는다. 메일 캐시의 disabled-gate 의존성과 짧은 보험 문구에서 긴 날짜/이름이 겹치는 결함도 수정했다.
+- 최종 Windows 영향 QA **1166 passed +133 subtests, skip0, 필수 브라우저 72/72, compile PASS**. 초기6실패와 모바일 겹침 red는 보존했고 최종 고정SHA에서 교정 후 통과했다. 독립 실제 `gpt-6.1-sol / medium` 정확SHA 승인·interface-review Approve. CI42411351988/job128519990700은 결제/사용 한도로 steps0에서 차단돼 기존 승인 예외를 적용했으며 CI 녹색으로 보고하지 않는다.
+- 공식 SHA 고정 git archive·tracked blob mismatch0, 단일 배포 lock·PREVIEW/APPLY 완료. 이전 `d97158484d17f974668dafffafdb1a7b462a7249`에서 전환했고 runtime/task/process SHA 일치, loopback backend, health/ready200·보호 API401·보호 테이블13개 불변을 확인했다. 운영 분류/여행 교정·재처리·원본/금융/Google 쓰기·마이그레이션은 실행하지 않았다.
+- 인증 GET 수락: 카드·여행·영수증 영향 화면 main/heading 및 coverage API200 확인. 고객 원본 파일 확인 POST는 실행하지 않았다. 합성 1440/390/320 동일크기 전후 및 짧은 보험 stress에서 페이지 넘침0·텍스트 행 침범0, 키보드 포커스와 light7.5777:1/dark5.7053:1 대비 확인. 전체 고객 화면 시각 수락·실제 기기·스크린리더 음성·RTL/OS확대는 미검증이다. 과거 고객 영수증 파일을 복구했다고 주장하지 않는다.
+- root main은 보존 stash `484adc3acd41374568e1ac39e4f18d4d0d2a8b60` 생성 후 정상 fast-forward했다. 기존 stash6개와 원본28파일 snapshot은 모두 보존했다. 비공개 근거 `.local-archive/uncommitted-release-20261108/` 및 `.local-archive/all-main-review-20261108/`. 이 후속 기록은 문서 전용이며 재배포하지 않는다.
+
+## 2026-11-08 영수증 업로드 응답 유실 복구 — 통합 운영 반영 COMPLETE
 
 - 사용자 다량 영수증 업로드 경로 조사 후 `수정해` 범위. [수락·검증 기록](specs/receipt-upload-recovery-20261108.md). [PR #733](https://github.com/6Soo/cost/pull/733) 병합 `6ddbc7ef9feb796e444704a87ab7733cde8a8e82`, 검수 HEAD `859e74837fc40a5f2a1bbae9c7ac36060efa569d`와 tree 동일. 사진/PDF 실제 전송 SHA로 저장 결과를 복구하고 본문 유실·Safari 형식 오류·일괄 처리·재시도를 보완했다. 고객의 과거 파일을 실제 복구한 것으로 보고하지 않는다.
 - 최종 Windows 영향 **307 passed +32 subtests, skip0, browser37/37, compile PASS**. 실제 Sol medium 최종 SHA APPROVE·독립 Luna medium APPROVE. CI42408750254/job128512087070은 결제/사용 한도로 steps0 차단되어 기존 사용자 승인 예외를 적용했고 녹색으로 보고하지 않는다. 합성 ego390/1440 동일 크기 전후·320/390/1440 넘침0·키보드 직접 입력/미리보기 확인; 고객 업로드·실기기/Safari·스크린리더·200% 실제 확대·다크 테마 미검증.
-- **운영 반영 PENDING_EXTERNAL_SINGLE_WRITER:** 최신 사용자 `미커밋 변경사항까지 모두 검토해서 배포`를 수행하는 Cost V168 담당자에게 병합 SHA와 비공개 `.local-archive/receipt-recovery-20261108/`의 정확한 QA/검수 근거를 전달했다. 이 작업에서 배포·서버 재시작·운영 DB/원본/금융/Google 쓰기0. 통합 최종 SHA의 실제 배포 근거가 생겨야 운영 COMPLETE로 전환한다. 다른 root 미커밋·미배포 변경은 보존했다. 문서-only 후속은 재배포하지 않는다.
+- **운영 반영 COMPLETE:** PR735 통합 릴리스 `d043892777dc50d1e61d3478440f4148719fd39f`에 포함해 단일 작성자로 배포했다. 통합 QA1166+133·skip0·browser72 및 보호13표 불변·health/ready200·보호API401·인증 `/receipts` GET 화면의 업로드 입력 확인. 고객 과거 파일의 실제 복구/업로드 POST는 실행하지 않았다. 상세는 위 통합 배포 기록이며 영수증만 별도 재배포하지 않는다.
 
 ## 2026-11-08 남은 작업공간 4곳 통합·정리
 
