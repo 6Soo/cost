@@ -1,3 +1,13 @@
+## 2026-11-08 카드 내역 거래일자 공백 전환 #731 운영 완료
+
+- 최신 사용자 결정에 따라 조회기간 대시보드·확인/관리 시작일 폼을 폐기하고 실제 거래일 사이 공백으로 전환했다. 카드사·끝4자리 표시 그룹별 첫/마지막 거래일 내부만 계산하며, 정상 미사용일일 수 있으므로 자료 누락으로 단정하지 않는다. [수락 계약](specs/card-transaction-date-gaps-20261108.md), [PR #731](https://github.com/6Soo/cost/pull/731).
+- 정확한 검수 HEAD `4c2120fd6ab0d9f2a06a9f35d6b78b2e35b50fae`: Windows 영향 QA **503 passed +100 subtests, skip0, browser35/35, compile/데이터 보호 PASS**. 초기 red3은 기준 커밋에도 존재하는 오래된 브라우저 테스트명2와 구 조회기간 표시를 기대한 인증 HTTP 검사1이며, 검사를 제외하지 않고 현재 동작·보호 계약에 맞게 고쳐 green으로 재검증했다.
+- Sol `gpt-6.1-sol` / `medium`의 실제 Paseo runtimeInfo를 확인하고 위 HEAD 최종 PASS 및 병합 SHA 동일 트리 검수를 받았다. GitHub run42407181997/job128507289518은 결제 실패/지출 한도로 steps0에서 차단됐다. 2026-11-07 사용자 승인 예외를 적용했고 CI를 녹색으로 표시하지 않는다.
+- 운영 SHA **`d97158484d17f974668dafffafdb1a7b462a7249`**, 이전 `3dfcd72405d602504b6b8842d53e957aba31f929`. 승인 HEAD와 병합 SHA tree `a1e3a385e328c2aaca4a89bfa35b35468927de2b` 동일. 공식 PREVIEW→APPLY 1회, 1,435 tracked blobs mismatch0/list mismatch0. 단일 task/process SHA 일치, Gateway8790→loopback8752, health/ready200·보호API401, 보호13표 전후 불변. 롤백 릴리스와 task 복구점 유지. 운영 DB/원본/분류/환불/Google 쓰기·스키마 변경 없음, financial_apply NOT_RUN.
+- ego-browser 합성 전후1440/390/320px, 긴 파일명·22구간 접기/펼치기·공백→업로드·포커스/Escape·빈 상태/오류 재시도 PASS, 다크 요약 라벨 대비4.04→9.90:1 수정. 720 CSS px의200% 상당 reflow 확인; 실제 브라우저 확대·스크린리더·실기기·RTL 미검증.
+- 인증된 운영 GET/API·DOM에서 **23파일/27표시그룹/515공백/날짜없는파일0**, 거래일자 상태·coverage panel 및 구 조회기간/관리 시작일 폼0 확인. 운영 DB mode=ro 사전 집계156ms. 이는 전체 고객 화면의 독립 시각 수락·전후 운영 진입성능 측정 완료를 뜻하지 않는다. 고객 파일명·거래 원문은 보고서/Git에 넣지 않았다.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d97158484d17f974668dafffafdb1a7b462a7249.json`, 비공개 `C:/AX/cost/.local-archive/transaction-gaps-20261108/`의 배포/사후 smoke/보호표·QA·독립 검토·브라우저 기록. 기존 main의 다른 미배포 로컬 커밋8개는 포함하지 않고 보존했다. 이 운영 기록 등 문서-only 후속은 재배포하지 않는다.
+
 ## 2026-11-07 여행 지출 복사 오류 안내 #722 — 병합 완료 / 배포 미실행
 
 - PR #722를 CI42368009226 SUCCESS에서 병합했다. 제품 SHA `0faf1453c37db34e3e43cc8f1cc2b33ced417b79`; 후보 Windows 영향303 passed+69 subtests·skip0·필수브라우저20/20·compile 통과, 병합 후 인접19 passed+12 subtests. 독립 리뷰와 합성 ego 근거는 `.local-archive/trip-copy-fix-20261107/`에 보존했다.
