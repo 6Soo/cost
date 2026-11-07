@@ -172,11 +172,15 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 #google-trip-income .google-income-help{font-size:12.5px;color:var(--mut);margin-bottom:0}
 #google-trip-income .btn{margin:0 8px 6px 0;height:28px;font-size:12px;padding:0 10px}
 #google-trip-income .google-income-scroll{overflow-x:auto;margin:6px 0 12px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
-#google-trip-income table{font-size:13px;min-width:700px;width:100%;border-collapse:collapse}
+#google-trip-income table{font-size:13px;min-width:860px;width:100%;border-collapse:collapse;table-layout:auto}
 #google-trip-income caption{padding:8px 12px;text-align:left;font-weight:600}
 #google-trip-income td,#google-trip-income th{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#google-trip-income td.participant-insurance-cell{width:260px;min-width:220px;height:36px;padding:0 10px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.5;vertical-align:middle;overflow-wrap:anywhere}
-#google-trip-income thead th:last-child:not(.income-total){width:260px}
+#google-trip-income td.participant-insurance-cell{width:210px;min-width:210px;height:36px;padding:0 10px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.5;vertical-align:middle;overflow-wrap:anywhere}
+#google-trip-income thead th:last-child:not(.income-total){width:210px;min-width:210px}
+#google-trip-income .income-date{width:90px;min-width:90px}
+#google-trip-income .income-person{width:120px;min-width:120px}
+#google-trip-income .income-breakdown{width:105px;min-width:105px}
+#google-trip-income .income-total{width:125px;min-width:125px}
 .participant-cell-content{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .participant-cell-content>.insurance-review-status,.participant-link-status,.participant-link-details{flex:1 1 140px;min-width:0}
 .participant-insurance-cell button{font:inherit;min-height:44px;min-width:44px;padding:6px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--focus);cursor:pointer;white-space:normal;line-height:1.5}
