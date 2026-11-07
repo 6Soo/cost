@@ -169,3 +169,28 @@ def test_export_reloads_source_and_only_passes_new_expenses_to_tsv(sources, monk
     assert result['tsv'].split('\t')[1] == 'Synthetic Cafe'
     assert len(result['matched']) == 1 and result['matched'][0]['transaction_id'] == 'manual'
     assert result['held_results'] == []
+
+
+@pytest.mark.parametrize(('block', 'reason'), [
+    ({'sheet_total': 1000, 'row_sum': 2000, 'verified': False}, 'SOURCE_EXPENSE_TOTAL_MISMATCH'),
+    ({'sheet_total': None, 'row_sum': None, 'verified': False}, 'SOURCE_EXPENSE_UNVERIFIED'),
+])
+def test_unverified_expense_has_specific_cause_and_never_exports(sources, monkeypatch, block, reason):
+    def unexpected(*args, **kwargs):
+        raise AssertionError('Unverified source must never reach the matching engine')
+    import app.sheet_expense_dedup as engine
+    monkeypatch.setattr(engine, 'reconcile', unexpected)
+    snapshot = json.loads(sources.read_text(encoding='utf-8'))
+    snapshot['trips'][0]['copies']['main']['expense'] = block
+    sources.write_text(json.dumps(snapshot), encoding='utf-8')
+    board = Board()
+    before = list(board.conn.iterdump())
+    result = preview_for_trip(board, TRIP_ID, [_cost()])
+    assert result['source_available'] is False
+    assert result['source_info']['reason'] == reason
+    from webapp.sheet_expense_review import _public_payload
+    from webapp.expense_copy_state import source_message
+    assert _public_payload(result, TRIP_ID)['message'] == source_message(reason)
+    exported = export_for_trip(board, [_cost()], TRIP_ID)
+    assert exported['source_available'] is False and exported['tsv'] == ''
+    assert list(board.conn.iterdump()) == before

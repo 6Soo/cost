@@ -1802,11 +1802,9 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     if not expenses:
         description = '복사할 지출이 없습니다.'
     elif not available:
+        from .expense_copy_state import source_message
         reason = (preview.get('source_info') or {}).get('reason')
-        if reason == 'SOURCE_LAYOUT_UNSUPPORTED':
-            description = '이 여행의 Google 시트는 표준 지출 양식이 아니어서 중복 확인과 복사를 보류합니다.'
-        else:
-            description = 'Google 장부를 불러오지 못해 중복 여부를 확인할 수 없습니다. 장부 동기화 후 다시 시도해 주세요.'
+        description = source_message(reason)
     else:
         recorded = matched.get('MATCHED_MANUAL', 0) + matched.get('MATCHED_EXISTING', 0)
         excluded = max(0, len(expenses) - recorded - count)
@@ -1814,15 +1812,28 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         if excluded:
             description += f' · 확인 필요 {excluded}건 제외'
     disabled = ' disabled' if not available or not count else ''
+    recovery = ''
+    if expenses and not available:
+        from urllib.parse import quote
+        reason = (preview.get('source_info') or {}).get('reason')
+        source_href = '/api/google-ledger/source?trip=' + quote(tab_id, safe='')
+        source_action = (f"<a class='btn' href='{board.esc(source_href)}' target='_blank' rel='noopener'>Google 원본 확인 ↗</a>"
+                         if reason in {'SOURCE_EXPENSE_TOTAL_MISMATCH', 'SOURCE_EXPENSE_UNVERIFIED',
+                                       'SOURCE_LAYOUT_UNSUPPORTED'} else
+                         "<a class='btn' href='/google-ledger'>장부 연결 설정</a>")
+        recovery = ("<div class='trip-copy-recovery'>" + source_action +
+                    f"<button type='button' class='btn' data-google-sync data-csrf='{board.esc(board.CSRF_TOKEN)}'>장부 동기화</button>"
+                    "<button type='button' class='btn' data-copy-recheck>다시 확인</button></div>")
     return (
         f"<section class='trip-copy-wrap' id='trip-expense-copy' aria-label='지출내용 복사'>"
+        f"<div class='trip-copy-info'><strong class='trip-copy-title'>지출내용 복사</strong>"
+        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p></div>"
         f"<div class='trip-copy-box'>"
-        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
+        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' aria-describedby='trip-copy-desc' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
         f"</button>"
-        f"<span class='trip-copy-desc'>{board.esc(description)}</span>"
-        f"<span class='copy-status' id='copy-status' role='status' aria-live='polite'></span>"
-        f"</div>"
+        f"{recovery}</div>"
+        f"<p class='copy-status' id='copy-status'{(' data-google-sync-status' if recovery else '')} role='status' aria-live='polite' aria-atomic='true'></p>"
         f"</section>"
     )
 

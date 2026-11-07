@@ -44,13 +44,14 @@
  document.addEventListener('click',async function(event){
   var button=event.target.closest('[data-google-sync]');
   if(!button||button.disabled)return;
-  var status=document.querySelector('[data-google-sync-status]');
+  var scope=button.closest('.trip-copy-wrap,.income-sync')||document;
+  var status=scope.querySelector('[data-google-sync-status]');
   var token=document.querySelector('input[name="csrf"]');
   button.disabled=true;button.setAttribute('aria-busy','true');
   if(status)status.textContent='Google 장부를 읽고 있습니다…';
   try{
    var response=await fetch('/api/google-ledger/sync',{method:'POST',credentials:'same-origin',
-    headers:{'X-CSRF-Token':token?token.value:''},body:'{}'});
+    headers:{'X-CSRF-Token':button.getAttribute('data-csrf')||(token?token.value:'')},body:'{}'});
    if(!response.ok)throw new Error('동기화를 시작하지 못했습니다. 화면을 새로 연 뒤 다시 눌러 주세요.');
    var result=await response.json(),deadline=Date.now()+180000;
    while(result.status==='running'&&Date.now()<deadline){
@@ -842,6 +843,7 @@ document.addEventListener('keydown',function(e){
 
   // Trip tab expense copy button (contract: Google 7-column B:H TSV copy)
   document.addEventListener('click',async function(e){
+   if(e.target.closest&&e.target.closest('[data-copy-recheck]')){location.reload();return;}
    var btn=e.target.closest&&e.target.closest('#copy-trip-expenses,[data-copy-trip-tsv]');
    if(!btn||btn.disabled) return;
    var tab=btn.getAttribute('data-tab');
