@@ -244,7 +244,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-coverage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 14px}
 .card-all-page .card-coverage-metric{display:grid;gap:4px;min-width:0;padding:10px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-soft)}
 .card-all-page .card-coverage-metric strong{font-size:18px;font-variant-numeric:tabular-nums}
-.card-all-page .card-coverage-metric span{font-size:12px;color:var(--ca-muted)}
+.card-all-page .card-coverage-metric span{font-size:12px;color:var(--ca-ink)}
 .card-all-page .card-coverage-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .card-all-page .card-coverage-card{min-width:0;margin:0;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
 .card-all-page .card-coverage-state{font-weight:700}
