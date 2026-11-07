@@ -2,6 +2,8 @@
 from html import escape
 from urllib.parse import quote
 
+from . import ui_icons
+
 
 def render_flight_section(trip_tab_id: str, *, total: int | None = None, passenger_count: int | None = None,
                           endpoint: str = "") -> str:
@@ -11,7 +13,9 @@ def render_flight_section(trip_tab_id: str, *, total: int | None = None, passeng
     summary = ("항공권 예약" if total is None else
                f"항공권 예약 {int(total)}건" + (f" · 현재 예약 탑승객 {int(passenger_count)}명" if passenger_count is not None else ""))
     return (f'<section class="trip-flight" data-trip="{trip}" data-endpoint="{url}">'
-            f'<details><summary>{summary}</summary>'
+            f'<details><summary><span class="trip-flight-summary-icon">{ui_icons.icon("list", 16)}</span>'
+            f'<span class="trip-flight-summary-label">{escape(summary)}</span>'
+            f'<span class="trip-flight-summary-chevron">{ui_icons.icon("chevron-down", 16)}</span></summary>'
             '<div class="trip-flight-body">'
             '<p class="trip-flight-status" role="status" aria-live="polite">펼치면 예약 목록을 불러옵니다.</p>'
             '<div class="trip-flight-toolbar"><label class="trip-flight-filter">예약 상태 <select aria-label="예약 상태">'
@@ -34,8 +38,10 @@ STYLE = """<style>
 .trip-flight{margin:20px 0;border:1px solid var(--line,#d6dce3);border-radius:12px;background:var(--paper,#fff);color:var(--ink,#172b42);font:inherit;container-type:inline-size}
 .trip-flight>details>summary{display:flex;align-items:center;gap:12px;width:100%;margin:0;padding:16px 20px;min-height:56px;box-sizing:border-box;border:0;border-radius:12px;font-size:15px;font-weight:650;cursor:pointer;list-style:none;overflow-wrap:anywhere}
 .trip-flight summary::-webkit-details-marker{display:none}
-.trip-flight>details>summary::after{content:'⌄';margin-inline-start:auto;color:var(--mut,#536375);flex-shrink:0}
-.trip-flight>details[open]>summary::after{content:'⌃'}
+.trip-flight>details>summary::marker{content:""}
+.trip-flight-summary-icon,.trip-flight-summary-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;color:var(--mut,#536375)}
+.trip-flight-summary-label{min-width:0;flex:1;overflow-wrap:anywhere}
+.trip-flight>details[open]>summary .trip-flight-summary-chevron{transform:rotate(180deg)}
 .trip-flight-body{padding:0 20px 20px;min-width:0}
 .trip-flight-toolbar{display:flex;justify-content:flex-end;margin-block-end:12px}
 .trip-flight-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--mut,#536375);margin:0}
@@ -81,7 +87,8 @@ document.querySelectorAll('.trip-flight').forEach(section=>{
  const labels={AUTO_INFERRED:'출발일 기준 자동 배정',USER_CONFIRMED:'수동 배정',AUTHORITY_VERIFIED:'연결 근거로 배정',VERIFIED_GUIDE_BRIDGE:'가이드 예약 근거',UNRESOLVED:'배정 근거 확인 필요',CONFLICT:'귀속 충돌'};
  function setBusy(value){busy=value;section.setAttribute('aria-busy',String(value));more.disabled=value;retry.disabled=value;filter.disabled=value;list.querySelectorAll('button').forEach(b=>b.disabled=value)}
  function message(value,state='ready'){status.textContent=value;section.dataset.state=state}
- function resetSource(){selectedKey='';loaded=false;cursor='';generation='';list.replaceChildren();more.hidden=true;detail.replaceChildren();detail.hidden=true;section.querySelector('summary').textContent='항공권 예약'}
+ function setSummary(value){section.querySelector('.trip-flight-summary-label').textContent=value}
+ function resetSource(){selectedKey='';loaded=false;cursor='';generation='';list.replaceChildren();more.hidden=true;detail.replaceChildren();detail.hidden=true;setSummary('항공권 예약')}
  function failed(e,action,fallback){
   if(e.message==='SOURCE_CHANGED')resetSource();
   retryAction=e.message==='SOURCE_CHANGED'?load:action;retry.hidden=false;
@@ -104,7 +111,7 @@ document.querySelectorAll('.trip-flight').forEach(section=>{
     append(foot,'span',assignment(b)+(b.booking_status==='CANCELLED'?' · 취소':b.booking_status==='CONFLICT'?' · 예약 상태 충돌':'')).className='trip-flight-ref';
     title.addEventListener('click',()=>loadDetail(b.booking_key));list.append(li)}
    cursor=d.next_cursor||'';more.hidden=!cursor;
-   section.querySelector('summary').textContent='항공권 예약 '+d.total_bookings+'건'+(d.verified_passenger_count!=null?' · 현재 예약 탑승객 '+d.verified_passenger_count+'명':'');
+   setSummary('항공권 예약 '+d.total_bookings+'건'+(d.verified_passenger_count!=null?' · 현재 예약 탑승객 '+d.verified_passenger_count+'명':''));
    message(d.total_bookings?'예약 '+d.total_bookings+'건 중 '+list.children.length+'건 · 예약을 선택하면 여정과 탑승객을 확인할 수 있습니다.':'이 여행에 연결된 항공권 예약이 없습니다.',d.total_bookings?'ready':'empty');loaded=true;
   }catch(e){failed(e,load,'예약 자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}finally{setBusy(false)}
  }
