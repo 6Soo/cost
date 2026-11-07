@@ -66,7 +66,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         page.goto(f"http://127.0.0.1:{self.port}/board{query}")
         page.wait_for_load_state()
 
-    def test_work_menu_and_trip_selection_at_mobile_and_desktop(self):
+    def test_primary_navigation_and_trip_selection_at_mobile_and_desktop(self):
         with mock.patch.object(board_mod, '_receipts_owner_request', return_value=True), mock.patch.dict(os.environ, {
             'WEBLEDGER_CARD_FLOW': '1',
             'WEBLEDGER_RECEIPTS_STORE': str(Path(self.tmp) / 'receipts.json'),
@@ -85,15 +85,23 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                         self.assertLessEqual(page.locator('#nav').bounding_box()['x'] +
                                              page.locator('#nav').bounding_box()['width'], 0)
                         page.click('.site-menu-toggle')
+                    previous = page.locator('#previous-trips')
+                    if previous.get_attribute('open') is None:
+                        previous.locator(':scope > summary').click()
+                    quarter = page.locator('#nav .prev-q').filter(
+                        has=page.locator('a[href*="tab=trip-demo-b"]'))
+                    if quarter.get_attribute('open') is None:
+                        quarter.locator(':scope > summary').click()
                     page.locator('#nav a[href*="tab=trip-demo-b"]').first.click()
                     page.wait_for_url('**/board?**tab=trip-demo-b**')
-                    # 지금 할 업무 메뉴는 홈 본문에만 한 번 있다.
+                    # Root now opens the ledger; primary destinations live in its sidebar.
                     page.goto(f'http://127.0.0.1:{self.port}/')
-                    self.assertEqual(page.locator('#work-menu').count(), 1)
-                    self.assertIn('카드 내역', page.locator('#work-menu').inner_text())
-                    self.assertIn('OTA 내역', page.locator('#work-menu').inner_text())
-                    self.assertEqual(page.locator('#work-menu a[href="/cards/all"]').count(), 1)
-                    page.locator('#work-menu a[href="/receipts"]').click()
+                    self.assertEqual(page.locator('#work-menu').count(), 0)
+                    self.assertEqual(page.locator('#nav a[href="/cards/all"]').count(), 1)
+                    self.assertEqual(page.locator('#nav a[href="/ota"]').count(), 1)
+                    if width < 760:
+                        page.click('.site-menu-toggle')
+                    page.locator('#nav a[href="/receipts"]').click()
                     page.wait_for_url('**/receipts')
                     self.assertTrue(page.locator('#img-file').is_visible())
                     page.close()
