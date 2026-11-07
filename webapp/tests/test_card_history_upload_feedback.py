@@ -115,7 +115,7 @@ def test_unknown_resume_state_is_counted_and_can_be_checked_again(card_db_path, 
             browser.close()
 
 
-def test_manual_coverage_message_uses_submitted_dates_and_basis(card_db_path, monkeypatch):
+def test_upload_with_legacy_gap_needs_no_period_confirmation(card_db_path, monkeypatch):
     calls = []
     evidence = {"card_id": "synthetic-card", "issuer": "SYNTH", "card_tail": "1234",
                 "date_basis": "이용일", "start_date": "2026-04-01", "end_date": "2026-04-30"}
@@ -142,24 +142,11 @@ def test_manual_coverage_message_uses_submitted_dates_and_basis(card_db_path, mo
                 ("**/api/imports/upload-status/**", status),
                 ("**/api/imports/*/coverage/confirm", confirm),
             ])
-            form = page.locator(".card-upload-coverage-form")
-            page.locator(".card-upload-coverage-confirm summary").click()
-            expect(form).to_be_visible()
-            form.locator('[name="date_basis"]').select_option("승인일")
-            form.locator('[name="start_date"]').fill("2026-05-01")
-            form.locator('[name="end_date"]').fill("2026-05-31")
-            form.locator('input[type="checkbox"]').check()
-            form.get_by_role("button", name="조회기간 확인 저장").click()
-            expect(form.locator("[role=status]")).to_have_text("조회기간 확인을 저장했습니다.")
-            gap_note = page.locator("[data-gap-coverage-outcome]")
-            expect(gap_note).to_have_count(1)
-            expect(gap_note).to_have_text(
-                "선택한 누락 기간과 다른 범위입니다. 남은 누락 기간은 현황에 계속 표시됩니다.")
-            expect(page.locator(".card-upload-result-note").filter(
-                has_text="선택한 누락 기간 전체의 조회 증빙은 아직 확보되지 않았습니다.")).to_have_count(0)
-            assert submitted and submitted[0]["date_basis"] == "승인일"
-            assert submitted[0]["start_date"] == "2026-05-01"
-            assert submitted[0]["end_date"] == "2026-05-31"
+            expect(page.locator(".card-upload-coverage-form")).to_have_count(0)
+            expect(page.locator("[data-gap-coverage-outcome]")).to_have_text(
+                "업로드 후 거래일자 공백 현황을 다시 계산합니다.")
+            expect(page.locator("#card-gap-context")).to_contain_text("거래일자 기준")
+            assert submitted == []
             assert len(calls) == 1
         finally:
             browser.close()

@@ -1,4 +1,5 @@
 """Read-only inspection and owner-scoped query coverage writes."""
+import hashlib
 import json
 import sqlite3
 from app.card_upload_coverage import CoverageStore, inspect
@@ -24,91 +25,92 @@ def batch_inspection(board, batch_id):
 
 
 def get_coverage_summary(board, **filters):
-    """Owner-only read projection: card/query coverage and the actual uploaded files.
+    """Owner-only read projection based on observed transaction dates.
 
-    Never infer a queried period from the first/last transaction date.
-    Files without rows must remain visible; unknown/weak card identity is never
-    merged across uploads. This GET does not parse original blobs or write DB.
+    Query-period evidence is intentionally not part of this dashboard anymore.
+    Each observed transaction day contributes one date; gaps are days between
+    the first and last observations with no transactions. This GET does not parse original
+    blobs or write DB.
     """
     if not available(board.conn):
         return dict(available=False, coverages=[], gaps=[], rechecks=[],
                     cards=[], files=[], overview={}, coverage_state='unavailable')
-    store = CoverageStore(board.conn)
-    result = store.summary(**filters)
-    records_by_batch = {}
-    rechecks_by_batch = {}
-    for evidence in store._records():
-        if evidence.get('confirmed'):
-            records_by_batch.setdefault(evidence['batch_id'], []).append(evidence)
-        else:
-            rechecks_by_batch.setdefault(evidence['batch_id'], []).append(evidence)
+    from app.card_upload_coverage import Period, find_gaps, merge_periods, parse_iso_date
+
+    date_basis = '거래일자'
     selected = {}
-    gap_lookup = {(g['card_id'], g['date_basis']): g['gaps'] for g in result['gaps']}
-    for coverage in result['coverages']:
-        key = (coverage['card_id'], coverage['date_basis'])
-        selected[key] = dict(coverage, gaps=gap_lookup.get(key, []), files=[],
-                             status=('GAPS_FOUND' if gap_lookup.get(key) else
-                                     'BASELINE_UNSET' if not coverage.get('management_start')
-                                     else 'COVERAGE_COMPLETE'))
+    file_rows = {}
     rows = board.conn.execute(
         "SELECT b.batch_id,b.filename,b.status,b.row_count,b.error_count,b.received_at,"
         "COUNT(DISTINCT t.transaction_id),"
-        "MIN(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
-        "MAX(COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
-        "COUNT(DISTINCT CASE WHEN t.issuer != '' AND t.card_tail != '' "
-        "THEN t.issuer || char(31) || t.card_tail END),"
-        "MIN(NULLIF(t.issuer,'')),MIN(NULLIF(t.card_tail,'')) "
+        "GROUP_CONCAT(DISTINCT COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
+        "t.issuer,t.card_tail "
         "FROM import_batches b LEFT JOIN import_batch_rows r ON r.batch_id=b.batch_id "
         "LEFT JOIN transactions t ON t.transaction_id=r.transaction_id "
-        "GROUP BY b.batch_id ORDER BY b.received_at DESC,b.batch_id DESC"
+        "GROUP BY b.batch_id,t.issuer,t.card_tail ORDER BY b.received_at DESC,b.batch_id DESC"
     ).fetchall()
-    files, review_count = [], 0
-    filtered = any(filters.get(k) for k in ('issuer', 'card_tail', 'date_basis'))
     for row in rows:
         (batch_id, filename, status, source_rows, errors, received_at,
-         unique, first, last, card_pairs, issuer_hint, tail_hint) = row
-        evidences = records_by_batch.get(batch_id, [])
-        # Card/last-four are DISPLAY hints from linked transactions, not a
-        # shared physical-card identity or queried-period evidence.
-        single_hint = card_pairs == 1 and bool(issuer_hint and tail_hint)
-        file = dict(batch_id=batch_id, filename=filename, status=status,
-                    source_rows=source_rows, error_count=errors, received_at=received_at,
-                    unique_transactions=unique, transaction_start=first or '',
-                    transaction_end=last or '',
-                    issuer_hint=issuer_hint if single_hint else '',
-                    card_tail_hint=tail_hint if single_hint else '',
-                    card_hint_scope='display_only' if single_hint else 'unknown',
-                    query_periods=[
-                        dict(start=e['start_date'], end=e['end_date'],
-                             date_basis=e['date_basis'], card_id=e['card_id'])
-                        for e in evidences],
-                    coverage_status=('confirmed' if evidences else
-                                     'needs_recheck' if rechecks_by_batch.get(batch_id) else
-                                     'needs_review'),
-                    zero_rows=source_rows == 0)
-        matched = False
-        for evidence in evidences:
-            key = (evidence['card_id'], evidence['date_basis'])
-            if key in selected:
-                selected[key]['files'].append(file)
-                matched = True
-        if matched or not filtered:
-            files.append(file)
-            if not evidences:
-                review_count += 1
-    cards = sorted(selected.values(), key=lambda c: (
-        c['issuer'], c['card_tail'], c['date_basis'], c['card_id']))
-    # An empty coverage set cannot prove there are zero missing intervals.
-    # State and gap_count are intentionally separate so the UI says "not yet
-    # assessable" rather than a misleading "no gaps".
-    coverage_state = ('needs_evidence' if not cards else
-                      'partial' if review_count else 'confirmed')
-    result.update(cards=cards, files=files, coverage_state=coverage_state, overview=dict(
+         unique, observed_dates, issuer, tail) = row
+        dates = sorted({parsed for value in (observed_dates or '').split(',')
+                        if (parsed := parse_iso_date(value))})
+        first, last = (dates[0], dates[-1]) if dates else ('', '')
+        if filters.get('issuer') and filters['issuer'] != issuer:
+            continue
+        if filters.get('card_tail') and filters['card_tail'] != tail:
+            continue
+        if filters.get('date_basis') and filters['date_basis'] != date_basis:
+            continue
+        file = file_rows.setdefault(batch_id, dict(batch_id=batch_id, filename=filename, status=status,
+            source_rows=source_rows, error_count=errors, received_at=received_at, unique_transactions=0,
+            transaction_start='', transaction_end='', issuer_hint='', card_tail_hint='',
+            card_hint_scope='unknown', query_periods=[], transaction_periods=[],
+            coverage_status='no_transaction_dates', zero_rows=source_rows == 0, card_ids=[], hints=set()))
+        file['unique_transactions'] += unique or 0
+        file['transaction_start'] = min(x for x in (file['transaction_start'], first or '') if x) if (file['transaction_start'] or first) else ''
+        file['transaction_end'] = max(file['transaction_end'], last or '')
+        if issuer and tail:
+            file['hints'].add((issuer, tail))
+        if first and last:
+            key_source = [issuer or '', tail or '', batch_id if not (issuer and tail) else '']
+            card_id = hashlib.sha256(json.dumps(key_source, ensure_ascii=False).encode()).hexdigest()
+            if card_id not in selected:
+                selected[card_id] = dict(card_id=card_id, issuer=issuer or '', card_tail=tail or '',
+                                         identity_scope='display_only' if issuer and tail else 'source_file',
+                                         date_basis=date_basis, periods=[], files=[])
+            if card_id not in file['card_ids']:
+                file['card_ids'].append(card_id)
+            selected[card_id]['periods'].extend(Period(day, day) for day in dates)
+            file['transaction_periods'].append({'start': first, 'end': last, 'card_id': card_id})
+            file['coverage_status'] = 'transaction_dates'
+    files = list(file_rows.values())
+    for file in files:
+        file.pop('card_ids', None)
+        hints = file.pop('hints')
+        if len(hints) == 1:
+            file['issuer_hint'], file['card_tail_hint'] = next(iter(hints))
+            file['card_hint_scope'] = 'display_only'
+    cards = []
+    for card in selected.values():
+        periods = merge_periods(card.pop('periods'))
+        card['periods'] = [vars(period) for period in periods]
+        if periods:
+            card['gaps'] = [vars(gap) for gap in find_gaps(periods, periods[0].start, periods[-1].end)]
+            for file in files:
+                if any(item['card_id'] == card['card_id'] for item in file['transaction_periods']):
+                    card['files'].append(file)
+        else:
+            card['gaps'] = []
+        card['status'] = 'TRANSACTION_GAPS' if card['gaps'] else 'TRANSACTION_DATES'
+        cards.append(card)
+    cards.sort(key=lambda c: (c['issuer'], c['card_tail'], c['card_id']))
+    result = dict(available=True, coverages=[], gaps=[], rechecks=[], cards=cards, files=files,
+        coverage_state='transaction_dates' if cards else 'needs_transactions', overview=dict(
         card_count=len({c['card_id'] for c in cards}),
         covered_bases=len(cards),
         gap_count=sum(len(c['gaps']) for c in cards),
         gaps_assessable=bool(cards),
-        files_need_review=review_count,
+        files_need_review=sum(1 for f in files if not f['transaction_start']),
         file_count=len(files)))
     return result
 

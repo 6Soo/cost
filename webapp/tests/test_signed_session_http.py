@@ -301,8 +301,16 @@ class SignedSessionHttpTests(unittest.TestCase):
         status, body, _ = self.request('/api/cards/coverage/summary?through=2026-04-10',
                                        cookie=self.cookie(OWNER))
         self.assertEqual(status, 200, body)
-        self.assertEqual(json.loads(body)['coverages'][0]['periods'],
-                         [{'start': '2026-04-01', 'end': '2026-04-10'}])
+        # A confirmed legacy query period with no transactions is preserved,
+        # but cannot create observed transaction days in the new dashboard.
+        summary = json.loads(body)
+        self.assertEqual(summary['cards'], [])
+        self.assertEqual(summary['overview']['file_count'], 1)
+        self.assertEqual(summary['coverage_state'], 'needs_transactions')
+        status, body, _ = self.request(batch_path, cookie=self.cookie(OWNER))
+        self.assertEqual(status, 200, body)
+        self.assertTrue(json.loads(body)['records'][0]['confirmed'])
+        self.assertEqual(json.loads(body)['records'][0]['start_date'], '2026-04-01')
         for user, expected in ((OWNER, 200), (VIEWER, 403), (None, 401)):
             status, body, _ = self.request(batch_path, cookie=self.cookie(user) if user else None)
             self.assertEqual(status, expected, body)

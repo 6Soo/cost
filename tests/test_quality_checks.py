@@ -121,7 +121,7 @@ def test_playwright_detection_uses_ast_not_test_filename():
     targets, unknown = selector_tool.select_targets(["webapp/static/css/site_shell.css"], impact_map["groups"])
     assert unknown == []
     plan = quality.build_plan(["webapp/static/css/site_shell.css"], selector([], targets=targets))
-    assert "webapp.tests.test_expense_copy_states::test_integrated_labels_escape_source_text_and_are_visible_on_mobile" in plan["browser_tests"]
+    assert "webapp.tests.test_site_shell_browser::SiteShellBrowserTests::test_theme_keyboard_motion_and_responsive_contract" in plan["browser_tests"]
     assert plan["browser_required"] is True
     assert len(plan["browser_tests"]) >= 3
     assert "webapp.tests.test_site_tokens::test_dynamic_override_propagation" in plan["browser_tests"]
@@ -142,18 +142,19 @@ def test_card_catalog_fixture_browser_tests_are_mapped_and_required():
 
 def test_browser_modules_require_every_test_even_when_playwright_is_in_helpers():
     targets = ["webapp/tests/test_card_flow_browser.py", "webapp/tests/test_site_shell_browser.py",
-               "webapp/tests/test_expense_copy_states.py", "webapp/tests/test_card_catalog_browser.py"]
+               "webapp/tests/test_card_history_upload_feedback.py", "webapp/tests/test_card_catalog_browser.py"]
     cases = quality.collect_browser_tests(targets)
     expected = {
         "webapp.tests.test_card_flow_browser::CardFlowBrowserTests::test_legacy_cleanup_links_migrate_to_actions_and_history",
         "webapp.tests.test_site_shell_browser::SiteShellBrowserTests::test_theme_keyboard_motion_and_responsive_contract",
-        "webapp.tests.test_expense_copy_states::test_integrated_labels_escape_source_text_and_are_visible_on_mobile",
+        "webapp.tests.test_card_history_upload_feedback::test_upload_with_legacy_gap_needs_no_period_confirmation",
         "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_header_buttons_sort_and_filter_without_search_click",
         "webapp.tests.test_card_catalog_browser::CardCatalogBrowserTests::test_menu_search_and_source_review_at_390",
     }
     assert expected <= set(cases)
     assert len([case for case in cases if case.startswith("webapp.tests.test_card_flow_browser::")]) == 16
     assert len([case for case in cases if case.startswith("webapp.tests.test_site_shell_browser::")]) == 9
+    assert len([case for case in cases if case.startswith("webapp.tests.test_card_history_upload_feedback::")]) == 3
 
 
 def test_selected_browser_module_parse_error_fails_closed(tmp_path):

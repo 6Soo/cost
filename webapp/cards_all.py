@@ -244,13 +244,14 @@ CARD_ALL_STYLE = """
 .card-all-page .card-coverage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 14px}
 .card-all-page .card-coverage-metric{display:grid;gap:4px;min-width:0;padding:10px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-soft)}
 .card-all-page .card-coverage-metric strong{font-size:18px;font-variant-numeric:tabular-nums}
-.card-all-page .card-coverage-metric span{font-size:12px;color:var(--ca-muted)}
+.card-all-page .card-coverage-metric span{font-size:12px;color:var(--ca-ink)}
 .card-all-page .card-coverage-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .card-all-page .card-coverage-card{min-width:0;margin:0;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
 .card-all-page .card-coverage-state{font-weight:700}
 .card-all-page .card-coverage-period{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:8px 0;border-bottom:1px solid var(--ca-border);font-size:13px;overflow-wrap:anywhere}
 .card-all-page .card-coverage-period.is-missing{border-inline-start:3px solid var(--warn,#b45309);padding-inline-start:8px}
 .card-all-page .card-coverage-period button{flex:0 0 auto}
+.card-all-page .card-coverage-dates{display:inline-block;white-space:nowrap;font-variant-numeric:tabular-nums}
 .card-all-page .card-coverage-baseline,.card-all-page .card-coverage-files{margin-top:10px;border-top:1px solid var(--ca-border);padding-top:8px}
 .card-all-page .card-coverage-baseline summary,.card-all-page .card-coverage-files summary,.card-all-page .card-upload-coverage-confirm summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:650}
 .card-all-page .card-coverage-file{padding:8px 0;border-bottom:1px solid var(--ca-border);overflow-wrap:anywhere}
@@ -450,7 +451,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
         "</section>"
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
-        "<header><div><h2 id='card-coverage-heading'>수집 현황</h2><p class='card-workspace-muted'>거래 발생기간과 실제 조회기간은 다릅니다. 조회 기준별로 확인된 기간과 누락 구간을 표시합니다.</p></div>"
+        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>카드별 첫 거래일부터 마지막 거래일까지 거래가 없는 날짜를 확인합니다.</p></div>"
         "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
         "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
@@ -963,7 +964,7 @@ def _upload_workspace_page(query_params, *, owner: bool, csrf: str) -> str:
     )
     fragment = _design.shell(
         "카드 내역", tab_id="", heading="카드 내역",
-        meta="카드 거래와 실제 조회기간을 확인해요.", body=body, home=True,
+        meta="카드 거래와 거래일자 공백을 확인해요.", body=body, home=True,
         quick_view=True)
     return _design.render(fragment, title="카드 내역")
 
@@ -1110,6 +1111,6 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
             + (f"<script>{CARD_HISTORY_WORKSPACE_SCRIPT}</script>" if owner else ""))
         fragment = _design.shell(
             "카드 내역", tab_id="", heading="카드 내역",
-            meta="카드 거래와 실제 조회기간을 확인해요.",
+            meta="카드 거래와 거래일자 공백을 확인해요.",
             body=body, home=True)
         return _design.render(fragment, title="카드 내역")
