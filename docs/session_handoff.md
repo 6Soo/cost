@@ -1,3 +1,13 @@
+## 2026-11-07 여행 수입표 여백·금액 잘림 — 구현/병합 COMPLETE, 배포 BLOCKED
+
+- 사용자 `여백 문제 수정`: 여행 상세 수입·참가자 표의 날짜·이름·금액 열 최소 폭을 확보하고 보험 열 폭을 조정했다. 760px 이상은 표 내부 가로 스크롤, 작은 모바일은 기존 요약 행을 유지한다. [PR #723](https://github.com/6Soo/cost/pull/723), 구현 `662058042228898b5d3863bd34e9e1031c617aa9`, 정상 병합 `b01d36a39dbc1b51b272d3e94b049ed35a498453`.
+- Windows 영향 QA: 구현 SHA에서 **211 passed·53 subtests passed·skip 0**, compile 통과·필수 브라우저 누락 0. 표적 37 passed·14 subtests passed. 병합 SHA의 수입/항공권/복사 상태 인접 통합 **19 passed·12 subtests passed·skip 0**. 실행 간 중복이 있어 전체 회귀로 합산하지 않는다.
+- Ego 합성 320/390/760/800/900/1280px·light/dark Before/After 24장: 760~900px 금액 셀 잘림 3~4개→0, 페이지 가로 넘침 0. 키보드 focus-visible·CSS 200% 통과. 실측 금액 대비 light 7.58:1/dark 5.71:1. 최종 커밋 독립 수동 UI 리뷰 Approve, HIGH/MEDIUM 없음. `interface-review` 스킬은 제공되지 않아 실행했다고 주장하지 않는다. 실물기기·수동 스크린리더·실제 OS 확대는 미검증이다.
+- PR CI [42367961796](https://github.com/6Soo/cost/actions/runs/42367961796) SUCCESS 후 병합했다. **main CI [42369271238](https://github.com/6Soo/cost/actions/runs/42369271238)는 테스트 시작 전 GitHub 계정 결제 실패 또는 사용 한도 때문에 차단됐다.** job steps 0개이며 코드 검사 실패로 해석하지 않는다. 계정 설정·한도·결제를 변경하거나 CI를 우회하지 않았다. main CI 녹색 확인 전 고정 배포·서버 재시작·사후 운영 수락은 미실행이다.
+- 마지막 읽기 확인 운영 SHA는 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`이며 이번 수정은 운영 배포 완료가 아니다. 운영 수입표의 배포 전 행 수/내용 해시만 비공개 로컬에 보존했다. 금융/원본/Google/DB/API/권한·연결 쓰기 0. 기존 root checkout은 다른 세션이 커밋했으므로 소유 변경을 역적용하거나 삭제하지 않았다.
+- 근거: 비공개 `.local-archive/income-spacing-20261107/`의 targeted.xml/log, impact.xml/log·run-summary.json, integration.xml·integration-summary.json, browser-results.json·전후 PNG, stress-results.json·contrast.json, interface-review.md, production-baseline.json, checkpoint.md. 고객 화면/원문은 Git 미포함.
+- 재개: 계정 실행 제한 해소 → `gh run rerun 42369271238 --failed` → 해당 run 성공 확인 → 현재 runtime SHA 재확인 → 검증 후보/보호13표 기준선 및 공식 lock 배포 → health/ready·보호 API·로그인된 대상 화면 수락 → 상태 문서/공식 임시 workspace 정리. 배포 후보 `b01d36a39dbc1b51b272d3e94b049ed35a498453`, 준비 스크립트 `.local-archive/income-spacing-20261107/prepare-release.py`. 사용자 변경/미추적 파일을 포함한 기존 workspace는 보존한다. 후속 문서만으로 재배포하지 않는다.
+
 ## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
 
 - [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.
