@@ -75,19 +75,27 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
         browser = pw.chromium.launch()
         try:
             page = browser.new_page(viewport={'width': 390, 'height': 844})
-            page.set_content(receipt_review.render_html(
-                {'candidates': [], 'holds': [], 'images': []}, csrf='synthetic', trips=SYNTHETIC_TRIPS))
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            document = receipt_review.render_html(
+                {'candidates': [], 'holds': [], 'images': []}, csrf='synthetic', trips=SYNTHETIC_TRIPS)
+            # Receipt drafts use origin storage; about:blank denies that API.
+            page.route('https://ui.test/**', lambda route: route.fulfill(
+                content_type='text/html', body=document))
+            page.goto('https://ui.test/receipts')
+            assert not errors, errors
             assert not page.locator('#step-review').is_visible()
             assert not page.locator('#step-copy').is_visible()
             assert page.locator('#receipt-holds').count() == 0
-            assert not page.locator('#pdf-file').is_visible()
-            page.locator('#receipt-pdf > summary').click()
-            assert page.locator('#pdf-file').is_visible()
-            assert page.locator('#pdf-go').is_disabled()
-            page.locator('#receipt-manual-open').click()
+            assert page.locator('#img-file').is_visible()
+            assert 'application/pdf' in page.locator('#img-file').get_attribute('accept')
+            assert page.locator('#img-go').is_disabled()
+            assert not page.locator('#r-merchant').is_visible()
+            page.locator('#other-methods > summary').click()
             assert page.locator('#r-merchant').is_visible()
-            page.set_content(receipt_review.render_html(
-                {'candidates': [SYNTHETIC_CANDIDATE], 'holds': [], 'images': []}, csrf='synthetic', trips=SYNTHETIC_TRIPS))
+            document = receipt_review.render_html(
+                {'candidates': [SYNTHETIC_CANDIDATE], 'holds': [], 'images': []}, csrf='synthetic', trips=SYNTHETIC_TRIPS)
+            page.goto('https://ui.test/receipts')
             assert page.locator('#step-review').is_visible()
             assert page.locator('#copy-trip').is_visible()
             page.locator('#copy-trip').select_option('trip-syn')

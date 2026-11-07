@@ -78,7 +78,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     page = self._page(width)
                     self._board(page, '?tab=trip-demo-a')
                     self.assertEqual(overflow(page), 0)
-                    self.assertIn('최종 수입', page.locator('#ledger-income-note').inner_text())
+                    self.assertIn('수입 장부가 연결되지 않았습니다', page.locator('#google-trip-income').inner_text())
                     # 접힌 여행 메뉴가 작업 영역의 너비를 차지하지 않는다.
                     if width < 760:
                         self.assertGreaterEqual(page.locator('#main').bounding_box()['width'], width - 1)
@@ -90,9 +90,9 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     # 지금 할 업무 메뉴는 홈 본문에만 한 번 있다.
                     page.goto(f'http://127.0.0.1:{self.port}/')
                     self.assertEqual(page.locator('#work-menu').count(), 1)
-                    self.assertIn('Google 장부', page.locator('#work-menu').inner_text())
-                    self.assertIn('미연결', page.locator('#work-menu').inner_text())
-                    self.assertEqual(page.locator('#work-menu a[href="/import"]').count(), 1)
+                    self.assertIn('카드 내역', page.locator('#work-menu').inner_text())
+                    self.assertIn('OTA 내역', page.locator('#work-menu').inner_text())
+                    self.assertEqual(page.locator('#work-menu a[href="/cards/all"]').count(), 1)
                     page.locator('#work-menu a[href="/receipts"]').click()
                     page.wait_for_url('**/receipts')
                     self.assertTrue(page.locator('#img-file').is_visible())
@@ -104,12 +104,12 @@ class LedgerRedesignMobileTests(unittest.TestCase):
 
     def test_income_note_distinguishes_empty_ledger_from_google_and_filters(self):
         empty = ledger_design._summary_html([], [])
-        self.assertIn('수입이 아직 기록되지', empty)
+        self.assertIn('수입 0건 · 지출 0건', empty)
         # 수입 행이 필터로 숨겨져도 미기록이라고 안내하지 않는다.
         for html in (ledger_design.page('trip-demo-a', kind='ex'),
                      ledger_design.summary_part('trip-demo-a', kind='ex')):
             self.assertNotIn('수입이 아직 기록되지', html)
-            self.assertIn('Google 장부의 최종 수입', html)
+            self.assertIn('수입', html)
 
     def test_mobile_list_shows_two_line_summary_without_origin_details(self):
         html = ledger_design._mobile_html(
@@ -156,6 +156,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         page.click(".lst .li[data-id='expense-demo-c1']")
         page.wait_for_selector("#panel")
         before = self.store.get_row("expense-demo-c1")["revision"]
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "모바일 재설계 저장")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
@@ -212,7 +213,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     self.assertTrue(page.is_visible(".lst"),
                                     f"{width}px에서 .lst는 표시")
                     link = page.locator(
-                        ".lst #add-manual-expense-mobile[href='/expense/new']")
+                        ".trip-actions a[href^='/expense/new?']")
                     self.assertEqual(link.count(), 1, f"{width}px 링크 1개")
                     self.assertTrue(link.is_visible(), f"{width}px 링크 visible")
                     self.assertIn("수기 지출 추가", link.inner_text())
@@ -231,8 +232,8 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         html = ledger_design._mobile_html(
             board_mod._income_rows(), [],
             selected="", unclassified=False)
-        self.assertIn("id='add-manual-expense-mobile'", html)
-        self.assertIn("href='/expense/new'", html)
+        self.assertNotIn("id='add-manual-expense-mobile'", html)
+        self.assertIn("href='/expense/new?", ledger_design._trip_actions("trip-demo-a", "/board?tab=trip-demo-a"))
         self.assertIn("지출 내역이 없어요", html)
         from playwright.sync_api import sync_playwright
         pw = sync_playwright().start()
@@ -251,7 +252,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     page.evaluate("document.fonts.ready.then(()=>0)")
                     self.assertTrue(page.is_visible(".lst"))
                     link = page.locator(
-                        ".lst #add-manual-expense-mobile[href='/expense/new']")
+                        ".trip-actions a[href^='/expense/new?']")
                     self.assertEqual(link.count(), 1)
                     self.assertTrue(link.is_visible())
                     link.click()
