@@ -172,8 +172,10 @@ def _public_payload(preview, trip_id, page=1):
     preview_digest = str(preview.get("preview_digest") or "")
     source_digest = str(preview.get("source_digest") or "")
     source_available = bool(preview.get("source_available"))
+    from .expense_copy_state import source_message
     return {
         "code": "OK" if source_available else "SOURCE_UNAVAILABLE",
+        "message": "" if source_available else source_message(info.get("reason")),
         "trip_id": trip_id,
         "source_available": source_available,
         "source_info": {key: info.get(key) for key in ("sheet_id", "source", "layout", "synced_at")},
