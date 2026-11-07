@@ -2,10 +2,12 @@
 
 > **2026-11-07 최신 운영 후보 우선 정정:** #714 단독 배포가 아니라 **#714 + #717을 한 번에** 배포한다. 검증된 마지막 제품 코드 SHA는 #717 merge **`fbda50cbe01d5021ab341ed82337badb2e8c59a0`**이고, #714 성능 최적화는 그 조상이다. #717 PR CI run **42299212267 SUCCESS**(239 passed + 26 subtests), main run **42299550620 SUCCESS**. 기존 아래 #714 전용 후보·`main 1bf39...` 설명은 당시 스냅샷이므로 **현재 배포 지시가 아니다**. [수집 현황 CVR-01~08](card-coverage-pending-review-ux-20261107.md) 추가 수락 필요. 이 문서 갱신 자체는 운영 미배포 상태이다.
 >
+> **2026-11-07 실제 운영 결과:** 지정 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 이전 `ceb014f1ca716792e9df7eaee591cc00294aa866`에서 공식 스크립트로 단일 전환했다. 1,429 tracked blobs mismatch0, task/process SHA 일치, Gateway8790→8752, health/ready200, 보호 API401, 보호13표 전후 불변 PASS, financial apply NOT_RUN. **인증된 사용자 화면·성능은 `AUTH_UI_BLOCKED`**: 실제 화면과 request-metrics endpoint가 익명 요청에 401을 반환해 카드별 화면·23개 파일·390/1440·cold/warm 카드 진입시간 및 lock/query 지표를 측정하지 못했다. 세부 내용은 [운영 기록](../operations.md)과 비공개 로컬 `C:/AX/cost/.local-archive/card-history-release-20261107/`에 있다. 이 문서 후속은 재배포 근거가 아니다.
+>
 > **운영 호스트 실행 추가 게이트:** 실제 current runtime SHA, single writer, restore point, release-audit 전체 Git tree blob mismatch0, candidate exact SHA ReviewEvidence PASS, 보호 13표 pre/post, authenticated `/cards/all?panel=coverage`의 실제 파일 23개 읽기/접힌 카드별 그룹/확인 링크, 390/1440 UI와 업로드 원본 확인 폼은 **GET 읽기 검증만**. 23개를 자동 확정하거나 `POST /coverage/confirm`을 시험 삼아 실행 금지. 배포 전후 같은 인증/기간/필터의 TTFB·db_lock_wait/card_query·화면 표시 실측은 #714 LAT-01~08 그대로 수행. 인증 불가면 UI는 미검증. `deploy_verified_release.ps1` 필수 3인자 preview와 `-Apply`는 실제 검증·단일 writer 보장 시에만 사용. 이미 후보 SHA 런타임이면 재배포하지 않는다.
 
-> **상태: CODE_MERGED / PR_CI_PASS / MAIN_CI_PASS / PROD_DEPLOY_PENDING / PROD_PERFORMANCE_UNVERIFIED.**
-> 이 문서는 **실제 운영 배포 또는 성능 측정 수행 증거가 아니다**. 다음 Windows 호스트 접근 가능한 에이전트에게 전달할 유일한 실행 계약이다. 이전 시점의 '카드 내역 통합 미구현' 및 'CI 최소화 미구현' 명세보다 **이 상태 표가 우선**한다. **COST만** 범위에 포함하며 다른 저장소를 수정하지 않는다.
+> **현재 상태: CODE_MERGED / PR_CI_PASS / MAIN_CI_PASS / PROD_DEPLOYED / AUTH_UI_AND_PERFORMANCE_ACCEPTANCE_BLOCKED.**
+> 제품 코드는 운영 반영됐지만 인증된 화면·속도는 아직 수락되지 않았다. 인증 없이 확인할 수 없는 항목은 통과로 보고하지 않는다. 이전 시점의 '카드 내역 통합 미구현' 및 'CI 최소화 미구현' 명세보다 **이 상태 표가 우선**한다. **COST만** 범위에 포함하며 다른 저장소를 수정하지 않는다.
 
 ## 1. 현재 확정 사실 (GitHub 2026-11-07 기준)
 
