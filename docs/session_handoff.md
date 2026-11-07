@@ -1,3 +1,9 @@
+## 2026-11-08 영수증 업로드 응답 유실 복구 — 병합 완료 / 통합 배포 대기
+
+- 사용자 다량 영수증 업로드 경로 조사 후 `수정해` 범위. [수락·검증 기록](specs/receipt-upload-recovery-20261108.md). [PR #733](https://github.com/6Soo/cost/pull/733) 병합 `6ddbc7ef9feb796e444704a87ab7733cde8a8e82`, 검수 HEAD `859e74837fc40a5f2a1bbae9c7ac36060efa569d`와 tree 동일. 사진/PDF 실제 전송 SHA로 저장 결과를 복구하고 본문 유실·Safari 형식 오류·일괄 처리·재시도를 보완했다. 고객의 과거 파일을 실제 복구한 것으로 보고하지 않는다.
+- 최종 Windows 영향 **307 passed +32 subtests, skip0, browser37/37, compile PASS**. 실제 Sol medium 최종 SHA APPROVE·독립 Luna medium APPROVE. CI42408750254/job128512087070은 결제/사용 한도로 steps0 차단되어 기존 사용자 승인 예외를 적용했고 녹색으로 보고하지 않는다. 합성 ego390/1440 동일 크기 전후·320/390/1440 넘침0·키보드 직접 입력/미리보기 확인; 고객 업로드·실기기/Safari·스크린리더·200% 실제 확대·다크 테마 미검증.
+- **운영 반영 PENDING_EXTERNAL_SINGLE_WRITER:** 최신 사용자 `미커밋 변경사항까지 모두 검토해서 배포`를 수행하는 Cost V168 담당자에게 병합 SHA와 비공개 `.local-archive/receipt-recovery-20261108/`의 정확한 QA/검수 근거를 전달했다. 이 작업에서 배포·서버 재시작·운영 DB/원본/금융/Google 쓰기0. 통합 최종 SHA의 실제 배포 근거가 생겨야 운영 COMPLETE로 전환한다. 다른 root 미커밋·미배포 변경은 보존했다. 문서-only 후속은 재배포하지 않는다.
+
 ## 2026-11-08 남은 작업공간 4곳 통합·정리
 
 - 사용자 후속 `4곳도 진행해` 범위: root·card-coverage·pr683·pr685의 변경 판정 및 통합/정리. [판정·검증·보존 계약](specs/remaining-workspace-integration-20261108.md). root 수입표는 #723, 카드 대안들은 #713/714/717로 대체됐으며 초기 queue 누락=0 fallback은 최신 오류 계약과 충돌해 제외했다.
