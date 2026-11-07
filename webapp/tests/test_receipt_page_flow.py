@@ -205,6 +205,40 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
             finally:
                 browser.close()
 
+    def test_committed_upload_recovers_truncated_or_stalled_response_body(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                for stalled in (False, True):
+                    with self.subTest(stalled=stalled):
+                        page = browser.new_page(viewport={'width': 390, 'height': 900})
+                        page.goto(self.base + '/receipts?trip=' + self.trip)
+                        page.evaluate("""stalled => {
+                            const fetch = window.fetch.bind(window), timer = window.setTimeout;
+                            window.setTimeout = (fn, ms, ...args) => timer(fn, ms === 120000 ? 100 : ms, ...args);
+                            window.fetch = async (url, options) => {
+                                const result = await fetch(url, options);
+                                if (url !== '/api/receipts/image' || options?.method !== 'POST') return result;
+                                window.uploadHeadersReceived = true;
+                                if (!stalled) return new Response('{', {status: 200});
+                                return new Response(new ReadableStream({start(controller) {
+                                    options.signal.addEventListener('abort', () =>
+                                        controller.error(new DOMException('Timed out', 'AbortError')));
+                                }}), {status: 200});
+                            };
+                        }""", stalled)
+                        page.set_input_files('#img-file', {
+                            'name': 'lost-body.png', 'mimeType': 'image/png', 'buffer': review.PNG,
+                        })
+                        page.click('#img-go')
+                        page.get_by_text('저장 결과 복구됨', exact=False).wait_for()
+                        self.assertTrue(page.evaluate('window.uploadHeadersReceived'))
+                        self.assertEqual(page.get_by_role('button', name='다시 시도').count(), 0)
+                        self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+                        page.close()
+            finally:
+                browser.close()
+
     def test_failed_storage_lookup_keeps_retry_and_processes_next_file(self):
         with sync_playwright() as api:
             browser = api.chromium.launch()
