@@ -101,8 +101,8 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     self.assertEqual(page.locator('#nav a[href="/ota"]').count(), 1)
                     if width < 760:
                         page.click('.site-menu-toggle')
-                    page.locator('#nav a[href="/receipts"]').click()
-                    page.wait_for_url('**/receipts')
+                    page.locator('#nav').get_by_role('link', name='영수증 처리', exact=True).click()
+                    page.wait_for_url('**/receipts**')
                     self.assertTrue(page.locator('#img-file').is_visible())
                     page.close()
 
