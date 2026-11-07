@@ -431,14 +431,18 @@ def _head_html(trip) -> str:
         if is_domestic(trip):
             title += " <span class='trip-region-badge'>국내여행</span>"
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
-        meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
-                f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
+        meta = (f"<span class='trip-assignee'>{_icons.icon('users')}담당자 "
+                f"<b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
     return (
         "<div class='page-hd trip-header'><div>"
-        f"<h1>{title}{_context_badge()}</h1>"
+        f"<div class='trip-title-row'><h1>{title}{_context_badge()}</h1>"
+        f"{meta if trip and not trip.get('is_unclassified') else ''}</div>"
         f"<p class='period'>{period}</p>"
-        f"<p class='meta'>{meta}</p></div>"
+        f"{f'<p class=meta>{meta}</p>' if trip and trip.get('is_unclassified') else ''}</div>"
         "<div class='act'>"
+        + (f"<button class='icon' id='btn-menu' type='button' aria-label='전체 메뉴 열기' "
+           f"aria-controls='nav' aria-expanded='false'>{_icons.icon('menu')}</button>"
+           if trip and not trip.get('is_unclassified') else '')
         + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
@@ -1890,7 +1894,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     main = (
         f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'><div class='main-wrap'>"
         f"{_head_html(trip)}"
-        f"{_bar_html(query, kind, tab_id, archived)}{status}"
+        f"{'' if _is_trip_tab(tab_id) else _bar_html(query, kind, tab_id, archived)}{status}"
         # APP_SPEC 4.1: the same global state line the shared shell carries.
         f"<p class='meta' id='global-state' data-role='"
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"

@@ -173,14 +173,14 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertEqual(page.eval_on_selector(
             "#tbl thead th:last-child", "e=>getComputedStyle(e).textAlign"), "right")
 
-    def test_filters_use_the_shared_blue_focus_treatment(self):
+    def test_sidebar_search_keeps_the_shared_blue_focus_treatment(self):
         page = self._page()
         self._board(page, board_url())
-        page.focus("#q")
+        page.focus("#tripq")
         self.assertEqual(page.eval_on_selector(
-            "#q", "e=>getComputedStyle(e).borderColor"), "rgb(34, 102, 245)")
+            "#tripq", "e=>getComputedStyle(e).borderColor"), "rgb(34, 102, 245)")
         self.assertIn("rgba(34, 102, 245, 0.12)", page.eval_on_selector(
-            "#q", "e=>getComputedStyle(e).boxShadow"))
+            "#tripq", "e=>getComputedStyle(e).boxShadow"))
 
     def test_a_waiting_row_says_so_in_words_and_the_rows_are_focusable(self):
         page = self._page()
@@ -555,22 +555,20 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertTrue(all(delta <= 0 for delta in spill), spill)
         self.assertEqual(overflow(page), 0)
 
-    def test_the_search_and_the_filter_still_own_the_view(self):
+    def test_legacy_filter_links_keep_row_navigation_without_search_menu(self):
         page = self._page()
-        self._board(page, board_url())
-        page.fill("#q", "교통")
-        page.click("#q-go")
+        self._board(page, board_url(q='교통'))
+        self.assertEqual(page.locator('#q-form, #q, #kind, #q-go').count(), 0)
         page.wait_for_load_state()
         # the term matches nothing in this trip, so the empty answer is the table's
         self.assertIn("내역이 없어요", page.inner_text(".tw"))
         self.assertEqual(
             page.evaluate("new URL(location.href).searchParams.get('q')"), "교통")
-        page.click("#q-clear")
+        self._board(page, board_url())
         page.wait_for_load_state()
         self.assertEqual(page.eval_on_selector_all(
             ".tw tr[data-id]", "els=>els.length"), len(ALL_ROWS))
-        with page.expect_navigation():
-            page.select_option("#kind", "ex")
+        self._board(page, board_url(kind='ex'))
         self.assertEqual(page.eval_on_selector_all(
             ".tw tr[data-id]", "els=>els.map(e=>e.getAttribute('data-id'))"),
             ["expense-demo-c1", "expense-demo-c2", "expense-demo-c4"])

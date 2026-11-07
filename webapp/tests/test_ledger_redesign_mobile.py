@@ -143,10 +143,9 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         page = self._page()
         self._board(page, "?tab=trip-demo-a")
         self.assertEqual(overflow(page), 0)
-        # 검색·필터
-        page.fill("#q", "예시 숙소")
-        page.select_option("#kind", "")
-        page.click("#q-go")
+        # The trip body has no search menu; legacy filter links still render.
+        self.assertEqual(page.locator('#q-form, #q, #kind, #q-go').count(), 0)
+        self._board(page, "?tab=trip-demo-a&q=예시 숙소")
         page.wait_for_load_state()
         self.assertIn("tab=trip-demo-a", page.url)
         self.assertGreaterEqual(page.locator(".lst .li").count(), 1)
@@ -168,7 +167,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
             "e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom};}")
         self.assertLessEqual(box["bottom"], page.evaluate("window.innerHeight"))
         # 터치 44px
-        for selector in (".lst .li", "#q", "#kind"):
+        for selector in (".lst .li",):
             box = page.eval_on_selector(
                 selector, "e=>e.getBoundingClientRect().height")
             self.assertGreaterEqual(box, 40, selector)

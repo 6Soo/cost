@@ -317,6 +317,11 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
  border-bottom:1px solid var(--line)}
 .page-hd h1{font-size:21px;font-weight:700;letter-spacing:-.018em;line-height:1.25}
 .trip-region-badge{display:inline-block;vertical-align:middle;font-size:12px;font-weight:500;line-height:1.5;padding:2px 8px;border:1px solid var(--line);border-radius:12px;color:var(--mut);white-space:nowrap}
+.trip-title-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 16px;min-width:0}
+.trip-title-row h1{min-width:0;overflow-wrap:anywhere}
+.trip-assignee{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;max-width:100%;font-size:12.5px;color:var(--mut);overflow-wrap:anywhere}
+.trip-assignee svg{flex-shrink:0}
+.trip-assignee b{min-width:0}
 .period{font-size:13px;color:var(--mut);margin-top:3px}
 .meta{font-size:12.5px;color:var(--mut);margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .meta a{color:var(--mut)}
