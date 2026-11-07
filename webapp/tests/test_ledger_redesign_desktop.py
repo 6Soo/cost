@@ -132,7 +132,7 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         # income is above expense, and both sections are on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
-        self.assertEqual(order, ["수입 (COST 기록)", "지출"])
+        self.assertEqual(order, ["수입 (COST 기록) 수입내역 보기", "지출"])
         tops = page.eval_on_selector_all(
             "tbody.grp th:first-child",
             "els=>els.map(e=>e.getBoundingClientRect().top)")
