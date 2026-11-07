@@ -157,7 +157,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
             f">{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_snapshot.count:,}건</span></a>"
             if action_snapshot is not None else
             f"<a href='/my-actions' aria-label='내 확인 필요 수를 확인할 수 없음'>{_icons.icon('check', 18)}"
-            "<span class='nm'>내 확인 필요 수를 확인할 수 없음</span></a>"
+            "<span class='nm action-count-unavailable'>내 확인 필요 수를 확인할 수 없음</span></a>"
         )
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    + action_link

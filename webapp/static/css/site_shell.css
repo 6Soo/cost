@@ -17,6 +17,7 @@ body{font-family:"Pretendard Variable",system-ui,sans-serif;font-size:var(--shel
 .site-menu-toggle .ic,.catalog-btn .ic,.header-button .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
 #nav .site-links a{display:flex;align-items:center;gap:8px}
 #nav .site-links .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nav .site-links a .nm.action-count-unavailable{white-space:normal;overflow-wrap:anywhere}
 #nav .nv .ic,#nav .work-action .ic{width:18px;height:18px;flex:0 0 auto;pointer-events:none}
 #nav .nv .nv-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 20px;color:var(--shell-muted,#475569)}
 #nav .nv .nv-icon .ic{width:18px;height:18px;display:block;flex:none}
