@@ -1,3 +1,11 @@
+## 2026-11-07 #717 수집 현황 UX + #714 로딩 최적화 — **한 번의 운영 배포 대기 / 이 문서 수정은 배포 아님**
+
+- **최신 원격 main의 검증된 제품 코드 커밋:** `fbda50cbe01d5021ab341ed82337badb2e8c59a0` (#717). #717 PR impact run **42299212267 SUCCESS** (239 passed, 26 subtests), 병합 main run **42299550620 SUCCESS**; 열린 PR 0 확인. **#714 쿼리 최적화도 이 SHA에 이미 포함**. #714와 #717을 별도로 두 번 배포하지 마라. 이후 문서-only main commit은 운영 코드 후보를 자동 변경하는 근거가 아니다.
+- **실제 Windows 운영 SHA는 이번 대화 환경에서 조회 불가.** 마지막 호스트 근거는 #713 `ceb014f1ca716792e9df7eaee591cc00294aa866`, health/ready200·보호 API401·보호 13표 불변. 이미 #714/#717이 적용됐다면 재배포하지 않는다. 차이 확인 없이 `main`만 기준으로 강제 전환하지 않는다.
+- **수집 현황에 반영할 기능:** 확인된 조회기간 증거 0이면 미수집 구간 `분석 전`, 분류 완료이지만 조회기간 미확인 원본은 카드사·끝4자리 **표시용 그룹으로 접기**, 각 파일의 `조회기간 확인` CTA가 `/cards/all?panel=upload&batch=<id>&review=coverage`에서 **원본 읽기 → 명시적 수동 확인**으로 연결. 분류 완료는 조회기간 확정 아님. 23개 파일의 조회기간을 자동 채우거나 동일 실물 카드로 병합하지 않는다.
+- **호스트 실행 지시:** [운영 배포·실측 게이트 LAT-01~08 및 #717 추가 수락](specs/card-history-latency-release-20261107.md), [수집 현황 CVR-01~08](specs/card-coverage-pending-review-ux-20261107.md) 사용. 실제 SHA/단일 writer/기존 릴리스/13표 보호 baseline/정확한 blob 전수감사/검토 JSON 준비 → `tools/deploy_verified_release.ps1` 필수 3인자 **preview** → 모든 게이트 PASS일 때만 **-Apply** → runtime SHA·listener·health/ready·보호 API401·13표 불변 확인 → 인증 owner GET 수집 현황, 모바일 390 및 데스크톱 화면·로딩 전후 계측. 인증이 없으면 `AUTH_UI_UNVERIFIED`로 남기고 인증 우회 금지.
+- 이 문서 수정은 Windows/DB/Google/운영 트래픽에 변경이 없는 **DOCS_ONLY** 기록이며, 배포·고객 원본 23건의 실제 확인 및 실운영 성능 개선은 아직 미검증이다. 아래 #714 단독 인계와 옛 카드 IA 미구현 부분은 **이전 시점 기록**이다.
+
 ## 2026-11-07 최신 COST 카드 진입 속도 인계 — #714 운영 배포·실측 PENDING
 
 - **원격 main 확인 시점:** `1bf39df19c3f2c1720cda8852b27f047c0be414a`(#715 docs), 열린 PR 0, Actions run `42274783804` SUCCESS. [#714](https://github.com/6Soo/cost/pull/714) 코드 병합 SHA `c4e87bfa745f6590d9bd024d0713c8864f935e7d`, PR CI `42274285504`·main CI `42274512661` SUCCESS. **#714의 운영 배포·실제 카드 페이지 로딩시간은 아직 검증 기록이 없다.**

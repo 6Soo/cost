@@ -1,3 +1,10 @@
+## 2026-11-07 #717 수집 현황 UX + #714 카드 로딩 개선 — **배포 준비 / 실제 운영 미확인**
+
+- 최신 검증 코드 후보: `fbda50cbe01d5021ab341ed82337badb2e8c59a0` (#717 merge; #714 성능 코드 포함), PR run **42299212267 SUCCESS**(239 tests + 26 subtests), main run **42299550620 SUCCESS**. #717: 미확인 기간의 `분석 전` 상태, 파일별 조회기간 확인 폼·표시용 그룹 개선. #714: 월별/미날짜 집계 13→1회·중복 count 제거. 코드·CI 완료 ≠ 운영 배포·실측 완료.
+- 마지막으로 검증된 Windows 운영 기록: #713 `ceb014f1ca716792e9df7eaee591cc00294aa866`. **이번 실행에서는 Windows 실운영 호스트 접근 불가**하여 실제 현재 SHA/데이터·수집 현황 23건·TTFB·보호 13표를 조회하지 못했다. `main`에 반영됐다는 사실만으로 배포했다고 기록하지 않는다.
+- 후속 호스트 담당자는 [운영 인계 정본](specs/card-history-latency-release-20261107.md) LAT-01~08 + [#717 조회기간 UX 수락](specs/card-coverage-pending-review-ux-20261107.md) CVR-01~08을 따른다. 후보 SHA와 현 운영 SHA를 비교해 **한 번만** 코드 전환. 단일 writer·기존 릴리스 복구점·전체 blob 해시·실제 review evidence·13표 사전 검사 후 `deploy_verified_release.ps1` `-CandidateSha`/`-PreviousSha`/`-ReviewEvidence` preview, 승인 범위와 게이트 PASS 시 `-Apply`. 사후 runtime/Gateway/health·ready/401/13표 불변 확인, 인증 owner UI 수집 현황·카드 로딩 전후만 읽기 검증. 고객 23개를 임의로 확정·금융/Google 쓰기·재처리 금지.
+- **이 절은 문서-only 인계 기록이며 운영 서버 배포 명령 실행 0, 금융 apply 0, 실운영 성능 측정 0.** 후속 문서-only SHA를 이유로 새 배포 금지.
+
 ## 2026-11-07 #714 카드 내역 로딩 개선: CODE MERGED / OPERATING DEPLOYMENT PENDING
 
 - #714 [카드 조회 집계 최적화 PR](https://github.com/6Soo/cost/pull/714) merge SHA `c4e87bfa745f6590d9bd024d0713c8864f935e7d`, PR run 42274285504·main run 42274512661 **SUCCESS**. 기존 12개월+미날짜 13개 집계 SQL을 단일 그룹 집계로 바꾸고 조회에 이미 산출한 총건수 재사용; 기존 DB/금융 원본 쓰기·스키마 변경 없음.
