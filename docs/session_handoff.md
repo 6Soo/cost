@@ -6,19 +6,38 @@
 - 다음: 계정 소유자의 Actions 결제/한도 복구 → `gh run rerun 42373392603` 및 성공 확인 → 현재 운영 SHA/다른 배포 작성자 재확인 → 공식 SHA 고정 릴리스 blob/리뷰/보호13표 게이트 → `tools/deploy_verified_release.ps1 -Apply` → 최소 운영 GET 수락. Google 원본 교정은 COST가 수행하지 않는다.
 - 비공개 근거 `.local-archive/trip-copy-fix-20261107/` 의 final-impact-summary.json·final-impact-junit.xml·final-impact-pytest.log. 기본 폴더의 `269954f1`과 기존 미추적 로그는 다른 작업 변경을 포함하므로 보존하고 이 PR에 합치지 않았다. 작업공간은 미배포 상태와 QA 산출물 보존을 위해 유지한다.
 
+## 2026-11-07 여행 수입표 여백·금액 잘림 — 구현/병합 COMPLETE, 배포 BLOCKED
+
+- 사용자 `여백 문제 수정`: 여행 상세 수입·참가자 표의 날짜·이름·금액 열 최소 폭을 확보하고 보험 열 폭을 조정했다. 760px 이상은 표 내부 가로 스크롤, 작은 모바일은 기존 요약 행을 유지한다. [PR #723](https://github.com/6Soo/cost/pull/723), 구현 `662058042228898b5d3863bd34e9e1031c617aa9`, 정상 병합 `b01d36a39dbc1b51b272d3e94b049ed35a498453`.
+- Windows 영향 QA: 구현 SHA에서 **211 passed·53 subtests passed·skip 0**, compile 통과·필수 브라우저 누락 0. 표적 37 passed·14 subtests passed. 병합 SHA의 수입/항공권/복사 상태 인접 통합 **19 passed·12 subtests passed·skip 0**. 실행 간 중복이 있어 전체 회귀로 합산하지 않는다.
+- Ego 합성 320/390/760/800/900/1280px·light/dark Before/After 24장: 760~900px 금액 셀 잘림 3~4개→0, 페이지 가로 넘침 0. 키보드 focus-visible·CSS 200% 통과. 실측 금액 대비 light 7.58:1/dark 5.71:1. 최종 커밋 독립 수동 UI 리뷰 Approve, HIGH/MEDIUM 없음. `interface-review` 스킬은 제공되지 않아 실행했다고 주장하지 않는다. 실물기기·수동 스크린리더·실제 OS 확대는 미검증이다.
+- PR CI [42367961796](https://github.com/6Soo/cost/actions/runs/42367961796) SUCCESS 후 병합했다. **main CI [42369271238](https://github.com/6Soo/cost/actions/runs/42369271238)는 테스트 시작 전 GitHub 계정 결제 실패 또는 사용 한도 때문에 차단됐다.** job steps 0개이며 코드 검사 실패로 해석하지 않는다. 계정 설정·한도·결제를 변경하거나 CI를 우회하지 않았다. main CI 녹색 확인 전 고정 배포·서버 재시작·사후 운영 수락은 미실행이다.
+- 마지막 읽기 확인 운영 SHA는 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`이며 이번 수정은 운영 배포 완료가 아니다. 운영 수입표의 배포 전 행 수/내용 해시만 비공개 로컬에 보존했다. 금융/원본/Google/DB/API/권한·연결 쓰기 0. 기존 root checkout은 다른 세션이 커밋했으므로 소유 변경을 역적용하거나 삭제하지 않았다.
+- 근거: 비공개 `.local-archive/income-spacing-20261107/`의 targeted.xml/log, impact.xml/log·run-summary.json, integration.xml·integration-summary.json, browser-results.json·전후 PNG, stress-results.json·contrast.json, interface-review.md, production-baseline.json, checkpoint.md. 고객 화면/원문은 Git 미포함.
+- 재개: 계정 실행 제한 해소 → `gh run rerun 42369271238 --failed` → 해당 run 성공 확인 → 현재 runtime SHA 재확인 → 검증 후보/보호13표 기준선 및 공식 lock 배포 → health/ready·보호 API·로그인된 대상 화면 수락 → 상태 문서/공식 임시 workspace 정리. 배포 후보 `b01d36a39dbc1b51b272d3e94b049ed35a498453`, 준비 스크립트 `.local-archive/income-spacing-20261107/prepare-release.py`. 사용자 변경/미추적 파일을 포함한 기존 workspace는 보존한다. 후속 문서만으로 재배포하지 않는다.
+
+## 2026-11-07 장부 날짜 칸 대조 문구 제거 — 코드·배포 COMPLETE / 인증 UI 수락 미검증
+
+- [PR #720](https://github.com/6Soo/cost/pull/720), 구현 `0d179b9f`, 운영 SHA `f06b2630f118eb79098d111c4128c0e65783ce49`. 날짜 칸은 날짜만, PC·모바일의 긴 복사/대조 문구는 제거했다. 새 상태 열·배지 없음. 기존 후보 강조·접근성 설명·복사 건수/금액/제외 판정은 유지하고 전체 근거는 거래 상세의 접힌 읽기 전용 정보로 옮겼다. 금융/분류/여행/Google/원본/스키마 쓰기·작업 생성 0.
+- Windows 영향 QA `0d179b9f46a4bc991c8d186763e774fc1d6ddbb1`: 294 passed+69subtests, skip0·필수 브라우저 19개 누락0·compile 통과. 표적14 및 별도 인접3 통과. 병합 중 추가된 별도 #721 항공summary2파일은 해당 녹색 CI와 동일하며 최종 f06에서 인접 브라우저9개 통과, own 제품blob은 원검사SHA와 동일하다. 독립 interface-review Approve. 합성 ego64 light/dark 1440/390/320px·날짜 한 줄·새 열0·overflow0·상세 Enter/클릭·텍스트 대비 7.24/6.96:1 확인. 긴 문구 행 높이 PC98.8→56.7px, 모바일107.1→68.3px.
+- 공식 단일 작성자 전환: tracked blobs1430 불일치0·task/process SHA 일치·Gateway8790→loopback8752·health/ready200·보호API401·보호13표 불변. 이전 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40` 복구 릴리스 보존. 금융 apply NOT_RUN.
+- **실제 운영 계정 화면 수락 미검증**: 독립 ego 세션에서 인증된 장부를 열지 못했다. 합성 화면 검증과 운영 배포 성공을 실제 고객 화면 수락으로 바꾸어 보고하지 않는다. 물리기기·수동 스크린리더·번역/RTL 미검증.
+- 정본 [날짜 칸 문구 제거](specs/ledger-date-copy-hints-20261107.md), 비공개 증거 `C:/AX/cost/.local-archive/date-status-20261107/` 및 호스트 동일 SHA release/deploy audit. 후속 문서 전용 변경에는 재배포·재시작·코드 검사를 반복하지 않는다.
+
 ## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
 
 - [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.
 - Windows 영향124 passed·skip0·필수브라우저6함수 전건실행·compile통과, PR/main CI SUCCESS, 독립 UI Approve, ego1440/657/390/320·두테마·키보드·CSS200% 수락. 운영 인증 UI 미검증: 인증된 항공권 요약 화면 접근 불가 (격리 세션; 인증 우회/로그인 정보 변경 없음). 합성 검증과 구분한다.
 - 정확 Git blobs1429 불일치0·task/process SHA일치·health/ready200·보호API401·보호13표불변, 금융/Google/분류/원본 업무 쓰기0. [상세·미검증·근거](specs/flight-summary-icons-20261107.md). 미결은 운영 인증 UI 여부와 상세 미검증 목록으로 한정하며 과거 작업을 재개하지 않는다. 문서 후속 재배포 없음.
 
-## 2026-11-07 #718 인수: #714 + #717 단일 운영 배포 — **DEPLOYED / UI·속도 수락 미검증**
+## 2026-11-07 #718 인수: #714 + #717 단일 운영 배포 — **DEPLOYED / 인증 UI 확인 / LATENCY CURRENT_ONLY**
 
 - PR #718은 문서-only로 `0b11c3a395505f4cc8d59b52ada06f623764db6c`에 병합됐다. 열린 PR 0건. 지정 제품 코드 `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 #714와 #717 합본으로 한 번만 운영 반영했다. 두 PR의 CI와 main CI는 모두 성공했고, 후속 main run `42344844143`도 성공했다.
 - Windows 런타임은 이전 `ceb014f1ca716792e9df7eaee591cc00294aa866`에서 `fbda50cbe01d5021ab341ed82337badb2e8c59a0`로 전환됐다. 공식 release script PREVIEW→`-Apply`; 1,429 tracked files·blob mismatch0·기존 릴리스와 task XML 복구점 유지. Task/process SHA 일치, Gateway 8790→loopback 8752, route unpaused, backend listener 1개.
 - 사후 health/ready 200, OTA/refund 보호 API 401, 보호 테이블 13개 전후 불변 PASS, financial apply `NOT_RUN`. 실제 고객 파일·금융 원본·Google 장부 write 및 기간 확인 POST 0.
-- **남은 운영 수락은 인증된 화면과 속도다 (`AUTH_UI_BLOCKED`).** 격리 ego-browser에서 `/cards/all?panel=coverage` 및 익명 `/api/maintenance/request-metrics`는 401이었다. 실제 23개 파일, 카드별 그룹/CTA, 390/1440 화면, 로그인 상태 cold/warm 진입시간·card_query·db_lock_wait는 미검증이다. 인증 우회·사용자 소유 브라우저 접근을 하지 않는다. 필요한 후속은 허가된 로그인 세션에서 GET 전용 화면 확인과 동일 조건 성능 표본 수집이며, 파일 확인 POST 금지다.
-- 상세 운영 결과는 [operations.md](operations.md), 실행·QA 근거는 로컬 `C:/AX/cost/.local-archive/card-history-release-20261107/`, 호스트 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-fbda50cbe01d5021ab341ed82337badb2e8c59a0.json`에 있다. 문서-only 후속 커밋으로 재배포하지 않는다.
+- 인증된 기존 사용자 세션의 읽기 전용 화면 검증: `/cards/all?panel=coverage` 200, 파일 23개/검토 그룹 6개/조회기간 확인 링크 23개, 이미 확인된 조회기간 0개. 1440×900·390×844 가로 넘침 0px. 익명 요청 401과 구분되며 확인 POST는 실행하지 않았다.
+- 속도는 `CURRENT_ONLY`: 실제 탐색 1회 TTFB 964.5ms, DOMContentLoaded 1,476.9ms, load 1,663.1ms. 인증된 metrics GET 200이나 집계 payload는 보관되지 않았다. 배포 전 baseline 및 cold/warm 5회 표본·`card_query`/`db_lock_wait`는 미완료이며 개선율은 주장하지 않는다.
+- 세부 증거는 [operations.md](operations.md) 및 비공개 로컬 `.local-archive/ego-auth-20261107/`에 있다. LAT-06/07 추가 비교 계측이 별도 읽기 전용 브라우저 작업에서 가능해질 때만 이어가고, 그 전까지는 이 제한을 유지한다. 배포는 이미 완료됐으며 문서 변경으로 재배포하지 않는다.
 
 ## 2026-11-07 #714 단독 카드 진입 속도 인계 — 배포 전 스냅샷 (위 결과로 대체)
 

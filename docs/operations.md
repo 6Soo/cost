@@ -4,19 +4,40 @@
 - main CI42373392603 impact-checks는 steps0으로 시작하지 못했다. check128405949179 annotation은 계정 결제 실패 또는 지출 한도 조정을 요구한다. `BLOCKED_CI_BILLING`으로 배포 미실행, 결제·한도 변경 없음. 확인 당시 Board task SHA `f06b2630f118eb79098d111c4128c0e65783ce49`, route8752/paused false. 배포/재시작·운영 DB/원본/Google 쓰기0; 새 코드 운영 수락 미실행.
 - 계정 소유자의 Actions 결제/한도 복구 후 `gh run rerun 42373392603` 및 성공 확인이 재개 조건이다. 이후 현재 운영 SHA를 다시 읽고 공식 blob/review/보호13표·단일 작성자 게이트와 최소 GET 수락을 따른다. 이 문서는 배포 성공 근거가 아니다. 상세는 [현재 상태](session_handoff.md) 및 비공개 checkpoint를 따른다.
 
+## 2026-11-07 여행 수입표 여백·금액 잘림 — 구현/병합 COMPLETE, 배포 BLOCKED
+
+- 사용자 `여백 문제 수정`: 여행 상세 수입·참가자 표의 날짜·이름·금액 열 최소 폭을 확보하고 보험 열 폭을 조정했다. 760px 이상은 표 내부 가로 스크롤, 작은 모바일은 기존 요약 행을 유지한다. [PR #723](https://github.com/6Soo/cost/pull/723), 구현 `662058042228898b5d3863bd34e9e1031c617aa9`, 정상 병합 `b01d36a39dbc1b51b272d3e94b049ed35a498453`.
+- Windows 영향 QA: 구현 SHA에서 **211 passed·53 subtests passed·skip 0**, compile 통과·필수 브라우저 누락 0. 표적 37 passed·14 subtests passed. 병합 SHA의 수입/항공권/복사 상태 인접 통합 **19 passed·12 subtests passed·skip 0**. 실행 간 중복이 있어 전체 회귀로 합산하지 않는다.
+- Ego 합성 320/390/760/800/900/1280px·light/dark Before/After 24장: 760~900px 금액 셀 잘림 3~4개→0, 페이지 가로 넘침 0. 키보드 focus-visible·CSS 200% 통과. 실측 금액 대비 light 7.58:1/dark 5.71:1. 최종 커밋 독립 수동 UI 리뷰 Approve, HIGH/MEDIUM 없음. `interface-review` 스킬은 제공되지 않아 실행했다고 주장하지 않는다. 실물기기·수동 스크린리더·실제 OS 확대는 미검증이다.
+- PR CI [42367961796](https://github.com/6Soo/cost/actions/runs/42367961796) SUCCESS 후 병합했다. **main CI [42369271238](https://github.com/6Soo/cost/actions/runs/42369271238)는 테스트 시작 전 GitHub 계정 결제 실패 또는 사용 한도 때문에 차단됐다.** job steps 0개이며 코드 검사 실패로 해석하지 않는다. 계정 설정·한도·결제를 변경하거나 CI를 우회하지 않았다. main CI 녹색 확인 전 고정 배포·서버 재시작·사후 운영 수락은 미실행이다.
+- 마지막 읽기 확인 운영 SHA는 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`이며 이번 수정은 운영 배포 완료가 아니다. 운영 수입표의 배포 전 행 수/내용 해시만 비공개 로컬에 보존했다. 금융/원본/Google/DB/API/권한·연결 쓰기 0. 기존 root checkout은 다른 세션이 커밋했으므로 소유 변경을 역적용하거나 삭제하지 않았다.
+- 근거: 비공개 `.local-archive/income-spacing-20261107/`의 targeted.xml/log, impact.xml/log·run-summary.json, integration.xml·integration-summary.json, browser-results.json·전후 PNG, stress-results.json·contrast.json, interface-review.md, production-baseline.json, checkpoint.md. 고객 화면/원문은 Git 미포함.
+- 재개: 계정 실행 제한 해소 → `gh run rerun 42369271238 --failed` → 해당 run 성공 확인 → 현재 runtime SHA 재확인 → 검증 후보/보호13표 기준선 및 공식 lock 배포 → health/ready·보호 API·로그인된 대상 화면 수락 → 상태 문서/공식 임시 workspace 정리. 배포 후보 `b01d36a39dbc1b51b272d3e94b049ed35a498453`, 준비 스크립트 `.local-archive/income-spacing-20261107/prepare-release.py`. 사용자 변경/미추적 파일을 포함한 기존 workspace는 보존한다. 후속 문서만으로 재배포하지 않는다.
+
+## 2026-11-07 장부 날짜 칸 대조 문구 제거 — 코드·배포 COMPLETE / 인증 UI 수락 미검증
+
+- [PR #720](https://github.com/6Soo/cost/pull/720), 구현 `0d179b9f`, 운영 SHA `f06b2630f118eb79098d111c4128c0e65783ce49`. 날짜 칸은 날짜만, PC·모바일의 긴 복사/대조 문구는 제거했다. 새 상태 열·배지 없음. 기존 후보 강조·접근성 설명·복사 건수/금액/제외 판정은 유지하고 전체 근거는 거래 상세의 접힌 읽기 전용 정보로 옮겼다. 금융/분류/여행/Google/원본/스키마 쓰기·작업 생성 0.
+- Windows 영향 QA `0d179b9f46a4bc991c8d186763e774fc1d6ddbb1`: 294 passed+69subtests, skip0·필수 브라우저 19개 누락0·compile 통과. 표적14 및 별도 인접3 통과. 병합 중 추가된 별도 #721 항공summary2파일은 해당 녹색 CI와 동일하며 최종 f06에서 인접 브라우저9개 통과, own 제품blob은 원검사SHA와 동일하다. 독립 interface-review Approve. 합성 ego64 light/dark 1440/390/320px·날짜 한 줄·새 열0·overflow0·상세 Enter/클릭·텍스트 대비 7.24/6.96:1 확인. 긴 문구 행 높이 PC98.8→56.7px, 모바일107.1→68.3px.
+- 공식 단일 작성자 전환: tracked blobs1430 불일치0·task/process SHA 일치·Gateway8790→loopback8752·health/ready200·보호API401·보호13표 불변. 이전 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40` 복구 릴리스 보존. 금융 apply NOT_RUN.
+- **실제 운영 계정 화면 수락 미검증**: 독립 ego 세션에서 인증된 장부를 열지 못했다. 합성 화면 검증과 운영 배포 성공을 실제 고객 화면 수락으로 바꾸어 보고하지 않는다. 물리기기·수동 스크린리더·번역/RTL 미검증.
+- 정본 [날짜 칸 문구 제거](specs/ledger-date-copy-hints-20261107.md), 비공개 증거 `C:/AX/cost/.local-archive/date-status-20261107/` 및 호스트 동일 SHA release/deploy audit. 후속 문서 전용 변경에는 재배포·재시작·코드 검사를 반복하지 않는다.
+
 ## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
 
 - [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.
 - Windows 영향124 passed·skip0·필수브라우저6함수 전건실행·compile통과, PR/main CI SUCCESS, 독립 UI Approve, ego1440/657/390/320·두테마·키보드·CSS200% 수락. 운영 인증 UI 미검증: 인증된 항공권 요약 화면 접근 불가 (격리 세션; 인증 우회/로그인 정보 변경 없음). 합성 검증과 구분한다.
 - 정확 Git blobs1429 불일치0·task/process SHA일치·health/ready200·보호API401·보호13표불변, 금융/Google/분류/원본 업무 쓰기0. [상세·미검증·근거](specs/flight-summary-icons-20261107.md). 미결은 운영 인증 UI 여부와 상세 미검증 목록으로 한정하며 과거 작업을 재개하지 않는다. 문서 후속 재배포 없음.
 
-## 2026-11-07 #718 인수: #714 + #717 단일 운영 배포 — **DEPLOYED / UI·속도 수락 미검증**
+## 2026-11-07 #718 인수: #714 + #717 단일 운영 배포 — **DEPLOYED / 인증 UI 확인 / LATENCY CURRENT_ONLY**
 
 - [PR #718](https://github.com/6Soo/cost/pull/718)은 문서-only 인계로 `0b11c3a395505f4cc8d59b52ada06f623764db6c`에 병합됐다. 열린 PR은 0건이었다. 실제 제품 코드는 지정 SHA **`fbda50cbe01d5021ab341ed82337badb2e8c59a0`**로 #714와 #717을 한 번에 배포했다. #714 PR/main runs `42274285504`/`42274512661`, #717 PR/main runs `42299212267`/`42299550620` 모두 SUCCESS; 후속 main run `42344844143`도 SUCCESS.
 - 운영 SHA 전환: `ceb014f1ca716792e9df7eaee591cc00294aa866` → `fbda50cbe01d5021ab341ed82337badb2e8c59a0`. 공식 `tools/deploy_verified_release.ps1`에 세 필수 인자를 넣은 PREVIEW(`executed: []`) 후 `-Apply`를 한 번 실행했다. 1,429 tracked files, Git blob mismatch 0, 직전 릴리스·task XML 복구점 보존. WebLedger-Board task/process SHA 일치, Gateway 8790→loopback backend 8752, route unpaused, backend listener 1개·기존 8751 listener 0개.
 - 배포 후 `/healthz`·`/readyz` 200, OTA·refund 보호 API 401, 보호 테이블 13개 전후 불변 PASS. `financial_apply=NOT_RUN`; 금융 원본·Google 장부·카드 파일 확인 POST 및 재처리 쓰기 0. 호스트 배포 증거 `D:/WebLedgerHost/releases/deploy-evidence-fbda50cbe01d5021ab341ed82337badb2e8c59a0.json`, 로컬 검증 근거 `C:/AX/cost/.local-archive/card-history-release-20261107/`.
-- **실제 사용자 UI 및 속도는 미검증(`AUTH_UI_BLOCKED`).** 격리 ego-browser의 `/cards/all?panel=coverage`와 익명 GET은 401, `/api/maintenance/request-metrics`도 401이었다. 인증된 화면의 390/1440 표시, 실제 23개 파일의 카드 그룹·조회기간 확인 CTA, 로그인 상태 cold/warm TTFB·화면 표시시간·`card_query`/`db_lock_wait`는 측정하지 못했다. 파일 원문을 읽거나 23개를 확정하는 POST는 실행하지 않았다. 인증된 UI 수락을 이 배포 완료와 혼동하지 않는다.
-- 후속 문서 변경은 이 기록을 최신 상태로 유지하며 재배포하지 않는다. 화면·성능 수락에는 허가된 인증 세션이 필요하다.
+- **인증된 사용자 화면은 읽기 전용으로 확인했다.** 사용자가 승인한 기존 로그인 세션에서 `/cards/all?panel=coverage`가 200으로 열리고, 23개 파일이 6개 검토 그룹에 표시되며 파일별 조회기간 확인 링크 23개가 존재했다. 실제 조회기간이 확인된 기준은 0개라 고객 조회기간을 확정했다고 보지 않는다. 1440×900과 390×844 캡처에서 가로 넘침은 각각 0px였다. 기간 확인 POST와 원본 파일 열기는 실행하지 않았다. 익명 요청의 기존 401은 유효하며 이번 인증 요청의 200과 범위가 다르다.
+- **성능 결과는 `CURRENT_ONLY`다.** 한 번의 실제 `/cards/all` 탐색에서 HTTP 200, TTFB 964.5ms, DOMContentLoaded 1,476.9ms, load 1,663.1ms를 기록했다(탐색 기준 시각 `2026-11-07T11:08:25.814Z`). 인증된 `/api/maintenance/request-metrics` GET은 200이었으나 응답 집계 JSON은 보관되지 않았다. 배포 전 동등 조건 baseline, cold/warm 각 5회 표본, 중앙값/p95 및 `card_query`·`db_lock_wait` 분리는 미완료다. 따라서 전후 개선이나 완전 해결을 주장하지 않으며 LAT-06/07 성능 수락은 PARTIAL이다.
+- 비공개 브라우저 증거: `C:/AX/cost/.local-archive/ego-auth-20261107/authenticated-followup.json`, `desktop-coverage-1440x900.png`, `mobile-coverage-390x844.png`. 고객 파일명·거래 원문은 기록하지 않았다.
+- 배포는 이미 완료됐으며 후속은 문서-only다. 추가 성능 표본 없이 배포 또는 재시작하지 않는다. LAT-06/07의 남은 비교 계측은 [실행 명세](specs/card-history-latency-release-20261107.md)에 제한과 함께 인계한다.
+- 후속 문서 변경만으로 운영을 재배포하지 않는다.
 
 ## 2026-11-07 #717 + #714 배포 준비 기록 — **당시 스냅샷, 위 배포 결과로 대체**
 
