@@ -210,9 +210,10 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self.assertEqual(self._selected_rows(page), ["expense-demo-c1"])
         self.assertEqual(page.evaluate(
             "new URL(location.href).searchParams.get('row')"), "expense-demo-c1")
-        # and the same row again is not re-fetched, so nothing typed is thrown away
+        # Toggling the same row still asks before discarding a draft.
         page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", "같은 행을 다시 누름")
+        page.on("dialog", lambda dialog: dialog.dismiss())
         self._open(page, "expense-demo-c1")
         self.assertEqual(page.input_value("#f-description"), "같은 행을 다시 누름")
 

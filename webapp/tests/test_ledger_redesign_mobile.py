@@ -84,7 +84,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                         self.assertGreaterEqual(page.locator('#main').bounding_box()['width'], width - 1)
                         self.assertLessEqual(page.locator('#nav').bounding_box()['x'] +
                                              page.locator('#nav').bounding_box()['width'], 0)
-                        page.click('#btn-menu')
+                        page.click('.site-menu-toggle')
                     page.locator('#nav a[href*="tab=trip-demo-b"]').first.click()
                     page.wait_for_url('**/board?**tab=trip-demo-b**')
                     # 지금 할 업무 메뉴는 홈 본문에만 한 번 있다.
@@ -109,7 +109,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         for html in (ledger_design.page('trip-demo-a', kind='ex'),
                      ledger_design.summary_part('trip-demo-a', kind='ex')):
             self.assertNotIn('수입이 아직 기록되지', html)
-            self.assertIn('수입', html)
+            self.assertIn('지출 3건', html)
 
     def test_mobile_list_shows_two_line_summary_without_origin_details(self):
         html = ledger_design._mobile_html(
@@ -186,7 +186,7 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         # 여행 drawer 유지
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
         page.wait_for_load_state()
-        page.click("#btn-menu")
+        page.click(".site-menu-toggle")
         self.assertTrue(page.is_visible(".nav.open"))
         page.click("#nav-mask")
 
@@ -219,9 +219,11 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     self.assertIn("수기 지출 추가", link.inner_text())
                     self.assertIn("btn", link.get_attribute("class"))
                     link.click()
-                    page.wait_for_load_state()
-                    self.assertIn("/expense/new", page.url, f"{width}px 진입")
-                    self.assertIn("수기 지출 추가", page.content())
+                    page.wait_for_selector('#manual-expense-dialog[open]')
+                    self.assertIn("/expense/new?tab=trip-demo-a", link.get_attribute('href'))
+                    self.assertEqual(page.locator('#manual-expense-dialog select[name=display_tab_id]').input_value(), 'trip-demo-a')
+                    page.locator('[data-manual-close]').click()
+                    self.assertFalse(page.locator('#manual-expense-dialog').is_visible())
                     ctx.close()
         finally:
             browser.close()
@@ -256,9 +258,10 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     self.assertEqual(link.count(), 1)
                     self.assertTrue(link.is_visible())
                     link.click()
-                    page.wait_for_load_state()
-                    self.assertIn("/expense/new", page.url)
-                    self.assertIn("수기 지출 추가", page.content())
+                    page.wait_for_selector('#manual-expense-dialog[open]')
+                    self.assertEqual(page.locator('#manual-expense-dialog select[name=display_tab_id]').input_value(), 'trip-demo-a')
+                    page.locator('[data-manual-close]').click()
+                    self.assertFalse(page.locator('#manual-expense-dialog').is_visible())
                     ctx.close()
         finally:
             browser.close()
