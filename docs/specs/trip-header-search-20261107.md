@@ -1,6 +1,6 @@
 # 여행 장부 작성일·담당자·본문 검색 정리
 
-상태: **PARTIAL — 구현·로컬 영향 QA·브라우저·독립 리뷰 완료, CI 계정 제한으로 병합·운영 배포 차단**.
+상태: **구현·검증 COMPLETE / 사용자 CI 예외에 따른 최종 검수 후 병합 대상 / 운영 배포 미실행**.
 
 ## 승인 범위와 구현
 
@@ -11,7 +11,7 @@
 | 작성일 표시·입력 제거 | 여행 헤더 및 여행 내 관리 폼의 `prepared_on` 입력 제거. 저장 값·기존 API 유지 | 구현·합성 화면 확인 |
 | 담당자 위치 | 제목 행의 오른쪽, 날짜 위에 배치. 모바일 줄바꿈·긴 이름 허용 | 구현·합성 화면 확인 |
 | 본문 검색만 제거 | 실제 여행의 검색창·수입/지출 필터·검색/초기화 버튼 제거. 사이드바 여행 검색·기존 q/kind URL·다른 탭 검색·모바일 메뉴 유지 | 구현·합성 화면 확인 |
-| 병합·운영 수락 | [PR #724](https://github.com/6Soo/cost/pull/724) 열림. 호스팅 CI 녹색 이후만 병합 | BLOCKED_CI_ACCOUNT_BILLING |
+| 병합·운영 수락 | [PR #724](https://github.com/6Soo/cost/pull/724): 사용자 승인 CI 예외에 따라 Sol medium 이상 최종 SHA 검수 후 정상 병합. 운영 수락은 별도 | CI_EXCEPTION_REVIEW / DEPLOY_NOT_RUN |
 
 최초 구현 커밋 `4eb6f3c622895edfa1f225241440fa344bdac5a1`. 이후 최신 main을 정상 병합하고 기존 UI 테스트를 현재 계약에 맞췄다. 제품 코드의 범위는 `ledger_design.py`, `trip_management_ui.py`, `ledger_design.css`의 표시 변경이다. 금융 금액·원본/ID·분류·환불·여행 배정·Google·스키마 변경은 없다.
 
@@ -27,8 +27,12 @@
 - 비공개 증거: `C:/AX/cost/.local-archive/trip-header-20261107/`의 `verified-*.png`, `verified-comparison.json`, `resume-browser.json`, `browser-results.json`, `independent-review.md`, `baseline-legacy.xml`, `ci-failed.log`, `ci-billing-block.json`, `checkpoint.md`. 고객 원문/화면은 Git에 포함하지 않는다.
 - 최종 QA: 같은 폴더의 `final-impact-summary.json`, `final-impact.xml`, `final-impact.log`. 최종 테스트 전후 제품 동작 변경은 없으며, 최신 테스트 수정은 감독자 읽기 검토로 범위/의미를 확인했다. 독립 UI 리뷰 범위와 실제 최종 QA SHA를 구분한다.
 
-## 실제 병합·배포 차단
+## CI 차단 이력과 최신 사용자 병합 예외
 
 [CI42369790657](https://github.com/6Soo/cost/actions/runs/42369790657)은 runner0·steps0으로 시작되지 않았다. GitHub annotation은 최근 계정 결제 실패 또는 사용 한도 증액 필요를 명시한다. 기존 CI 실패와 구분하며 녹색으로 간주하지 않는다. 과금 변경·CI 우회·강제 병합·운영 재배포는 하지 않았다.
 
-계정 소유자의 GitHub Billing & plans 조치가 필요하다. 해소 후 최신 PR head의 실패한 CI를 재실행하고 SUCCESS 확인 → 정상 main 병합 → main CI 및 검증 SHA 확인 → 공식 단일 작성자 배포/보호13표/health·ready·보호API·영향 화면 스모크 순서로 재개한다. 실행 직전 현재 호스트 SHA와 동시 배포 여부를 새로 확인하며 과거 `PreviousSha`를 재사용하지 않는다.
+2026-11-07 사용자가 “예외 명시한다. 단 sol med 이상의 모델이 최종검수를 진행했을 경우로 한정”을 승인했다. 현재 감독자 세션의 실제 Paseo runtime은 `gpt-6.1-sol / medium`이며, 최종 SHA·판정은 PR의 Final review 댓글과 비공개 `.local-archive/ci-exception-20261107/`에 기록한다. 결제/한도로 검사가 시작되지 않은 경우에만 적용하고 실제 실패·skip을 통과 처리하지 않는다. CI는 녹색이 아니다.
+
+최신 main `0faf1453` 통합 검사 SHA `332f0eb937b9d04a05ca919d212025d8209c462d`: Windows 영향 QA **422 passed·105 subtests passed·skip0**, 필수 브라우저 32개 전건실행, compile 통과. 그 뒤 main 통합은 AGENTS와 문서만 변경했으며 제품·테스트 blob은 동일하다. 기존 합성 UI/독립 리뷰 근거를 재사용했다. 최종 제품·테스트 diff에서 검색 URL, 메뉴 키보드 경로, 메타데이터 생략 보존, 저장/revision/draft 보호와 기존 인접 화면 계약을 확인했다.
+
+이번 요청은 병합·정리다. 운영 배포·서버 재시작·금융/원본/Google 쓰기는 실행하지 않았다. 운영 반영은 최신 후보와 현재 호스트 SHA를 다시 확인하고 별도 배포 보호 조건을 따른다. 과거 후보 SHA를 현재 운영 값으로 재사용하지 않는다.
