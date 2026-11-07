@@ -1,3 +1,9 @@
+## 2026-11-07 여행 지출 복사 오류 안내 #722 — 병합 완료 / 배포 미실행
+
+- PR #722를 CI42368009226 SUCCESS에서 병합했다. 제품 SHA `0faf1453c37db34e3e43cc8f1cc2b33ced417b79`; 후보 Windows 영향303 passed+69 subtests·skip0·필수브라우저20/20·compile 통과, 병합 후 인접19 passed+12 subtests. 독립 리뷰와 합성 ego 근거는 `.local-archive/trip-copy-fix-20261107/`에 보존했다.
+- main CI42373392603 impact-checks는 steps0으로 시작하지 못했다. check128405949179 annotation은 계정 결제 실패 또는 지출 한도 조정을 요구한다. `BLOCKED_CI_BILLING`으로 배포 미실행, 결제·한도 변경 없음. 확인 당시 Board task SHA `f06b2630f118eb79098d111c4128c0e65783ce49`, route8752/paused false. 배포/재시작·운영 DB/원본/Google 쓰기0; 새 코드 운영 수락 미실행.
+- 계정 소유자의 Actions 결제/한도 복구 후 `gh run rerun 42373392603` 및 성공 확인이 재개 조건이다. 이후 현재 운영 SHA를 다시 읽고 공식 blob/review/보호13표·단일 작성자 게이트와 최소 GET 수락을 따른다. 이 문서는 배포 성공 근거가 아니다. 상세는 [현재 상태](session_handoff.md) 및 비공개 checkpoint를 따른다.
+
 ## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
 
 - [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.

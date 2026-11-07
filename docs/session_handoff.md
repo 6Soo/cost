@@ -1,3 +1,11 @@
+## 2026-11-07 여행 지출 복사·Google 조회 오류 안내 — 병합 완료 / 배포 BLOCKED
+
+- 사용자 `고쳐` 및 `둘 다` 범위: [PR #722](https://github.com/6Soo/cost/pull/722) 병합 SHA `0faf1453c37db34e3e43cc8f1cc2b33ced417b79`. 정상 조회 후 합계 불일치를 조회 실패로 표시하던 안내를 구분하고, 복사 카드에 원본 확인·기존 동기화·다시 확인 및 반응형/키보드 복구 동선을 제공했다. 미검증 복사 차단·중복/owner/CSRF 보호 유지. 실제 Google 합계 수식 교정·최종 장부 쓰기 없음.
+- 후보 `bc8d2d10` Windows 영향303 passed+69 subtests·skip0·필수브라우저20/20·compile 통과, PR CI42368009226 SUCCESS에서 정상 병합. 추가 main 수입표 CSS/테스트와 통합한 병합 SHA 인접19 passed+12 subtests. 독립 리뷰 HIGH/MEDIUM 없음·독립 표적14 passed, 기존 ego1440/390/320px·두테마·키보드·200% 텍스트 근거 재사용. 실제 기기/스크린리더 미검증.
+- **BLOCKED_CI_BILLING**: [main CI42373392603](https://github.com/6Soo/cost/actions/runs/42373392603)는 job 실행 전 계정 결제 실패 또는 지출 한도 오류로 실패했다(steps0, check annotation 확인). 결제/한도 변경·검사 우회·재배포·서버 재시작 없음. 확인 당시 Board task 운영 SHA `f06b2630f118eb79098d111c4128c0e65783ce49`, route8752/paused false. 새 코드 운영 수락 미실행, 전체 작업 PARTIAL.
+- 다음: 계정 소유자의 Actions 결제/한도 복구 → `gh run rerun 42373392603` 및 성공 확인 → 현재 운영 SHA/다른 배포 작성자 재확인 → 공식 SHA 고정 릴리스 blob/리뷰/보호13표 게이트 → `tools/deploy_verified_release.ps1 -Apply` → 최소 운영 GET 수락. Google 원본 교정은 COST가 수행하지 않는다.
+- 비공개 근거 `.local-archive/trip-copy-fix-20261107/` 및 source worktree quality-artifacts/run-summary.json. 기본 폴더의 `269954f1`과 기존 미추적 로그는 다른 작업 변경을 포함하므로 보존하고 이 PR에 합치지 않았다. 작업공간은 미배포 상태와 QA 산출물 보존을 위해 유지한다.
+
 ## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
 
 - [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.
