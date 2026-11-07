@@ -1,6 +1,6 @@
 # COST 카드 내역 > 수집 현황: 기존 파일 조회기간 확인 UX 개선 (2026-11-07)
 
-> **최신 상태: CODE_MERGED / PR_AND_MAIN_CI_PASS / WINDOWS_PROD_UNVERIFIED.** #717 merge SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`가 최신 검증 코드 후보이며 #714 성능 수정 포함. PR CI 42299212267, main CI 42299550620 SUCCESS. 기존 아래 `#717 계획`·`CODE_PR_UNDER_REVIEW`는 작성 당시 표현이므로 최신 상태를 이 문단으로 덮어쓴다. **실제 Windows 운영 배포/23개 파일 검증은 수행하지 않았다.** [#714와 병합한 단일 운영 배포·수락](card-history-latency-release-20261107.md) 참조.
+> **최신 상태: CODE_MERGED / PR_AND_MAIN_CI_PASS / PROD_CODE_DEPLOYED / PROD_UI_ACCEPTANCE_UNVERIFIED.** #717 merge SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`는 #714와 한 번에 운영 배포됐다. PR CI 42299212267 및 main CI 42299550620 SUCCESS. 격리 브라우저의 실제 `/cards/all?panel=coverage` 요청이 401을 반환해 **운영의 23개 파일, 카드별 접힘 그룹, 개별 조회기간 확인 링크, 390/1440 렌더링은 확인하지 못했다**. 원본 이름/내용은 읽지 않았고 확인 POST도 실행하지 않았다. [배포·측정 상태](card-history-latency-release-20261107.md) 참조.
 
 ## 사용자 문제
 모바일 390px 실운영 화면에 **관리 카드 0 / 조회 기준 0 / 미수집 구간 0 / 조회 확인 필요 파일 23**이 노출된다. 기존 원본 거래는 분류 `classified`이고 각 파일에 거래 발생기간이 기록되어 있지만, 실제 카드사 **전체 조회기간 증빙**은 아직 없다. **0은 누락 구간 없음의 증거가 아니라 계산할 근거 없음**이다. 이전 UI는 23개 파일을 하나하나 펼쳐 보이면서 `업로드 처리 결과 보기`로 이동시켜도 조회기간 확인 폼에 연결되지 않았다.
