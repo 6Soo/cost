@@ -1153,7 +1153,8 @@ def _expense_copy_preview(tab_id, rows):
     if board.current_role() != 'owner' or not _is_trip_tab(tab_id) or not rows:
         return {}
     from .sheet_expense_reconciliation import preview_for_trip
-    return preview_for_trip(board._active_store(), tab_id, cost_rows=rows, include_sheet_rows=True)
+    return preview_for_trip(board._active_store(), tab_id, cost_rows=rows,
+                            include_sheet_rows=True, allow_total_mismatch=True)
 
 
 def _google_match_annotations(tab_id, rows, preview=None, candidate_rows=None):
@@ -1768,7 +1769,8 @@ def tsv_for_trip_expenses(tab_id: str, query: str = "", kind: str = "") -> dict:
         raise ValueError("INVALID_TRIP_TAB")
     _, expenses, _, _ = _selected_rows(tab_id, query, kind)
     from .sheet_expense_reconciliation import export_for_trip
-    return export_for_trip(board._active_store(), expenses, tab_id)
+    return export_for_trip(board._active_store(), expenses, tab_id,
+                           allow_total_mismatch=True)
 
 
 def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
@@ -1815,6 +1817,8 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         description = f'복사 가능 {count}건 · {_money(total)} · 장부에 있음 {recorded}건 제외'
         if excluded:
             description += f' · 확인 필요 {excluded}건 제외'
+        if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
+            description += ' · Google 합계 수식은 확인 필요'
     disabled = ' disabled' if not available or not count else ''
     recovery = ''
     if expenses and not available:
