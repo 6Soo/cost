@@ -129,6 +129,19 @@ def infer_item(row):
     return '기타경비', '업종·용도 단서 부족 · 업무 카드 지출 기본 분류'
 
 
+def _quarter_destination(row):
+    """Use an observed payment quarter only after no real trip can be inferred."""
+    if row.get('transaction_direction') != 'purchase':
+        return None
+    raw = row.get('approval_date') or row.get('posting_date') or ''
+    try:
+        occurred = datetime.fromisoformat(str(raw)[:10]).date()
+    except (TypeError, ValueError):
+        return None
+    year, quarter = quarter_of(occurred)
+    return f'quarter:{year}:{quarter}', f'{year}년 {quarter}분기 기타비용'
+
+
 def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
     """Pick the best real trip, resolving weak ties deterministically and explaining them."""
     # Reuse only this plan's validation; independent calls revalidate authority.
@@ -353,6 +366,7 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         if chosen['item'] in ('', '기타경비', '현지경비', '여행경비') and fact.get('item'):
             chosen['item'] = fact['item']
         item_basis += ' · 예약 이용기간 근거 우선: ' + fact['basis']
+    quarter_assigned = False
     special = (chosen.get('display_tab_id') == 'refunds' or chosen['item'] == '분기 기타비용')
     if special:
         target, trip_basis = chosen.get('trip_id') or '', '환불/분기 비용 기존 배정 유지'
@@ -371,10 +385,18 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
                 trip_basis = next((candidate['basis'] for candidate in ranked if candidate['trip_id'] == target),
                                   '유효 여행 유지 · 이용일 단서 없음')
         else:
-            chosen['display_tab_id'] = chosen.get('display_tab_id') or 'unclassified'
+            quarter = _quarter_destination(chosen)
+            if quarter and chosen.get('display_tab_id') in (None, '', 'unclassified'):
+                chosen.update(display_tab_id=quarter[0], trip_id='',
+                              description=chosen.get('description') or quarter[1])
+                trip_basis = '실제 여행 후보 없음 · 결제일 기준 분기 기타비용'
+                quarter_assigned = True
+            else:
+                chosen['display_tab_id'] = chosen.get('display_tab_id') or 'unclassified'
     from .trip_selection import is_fukutake_purchase
     owner_item_correction = is_fukutake_purchase(row) and chosen['item'] != row['item']
-    needs_completion = (owner_item_correction or reconsider or row['classification_state'] != 'classified' or not row['item']
+    needs_completion = ((quarter_assigned and chosen['display_tab_id'] != row['display_tab_id'])
+                        or owner_item_correction or reconsider or row['classification_state'] != 'classified' or not row['item']
                         or (not special and valid and not (row['trip_id'] in valid or row['display_tab_id'] in valid))
                         or (existing_tab and row['display_tab_id'] in (None, '', 'unclassified')
                             and chosen['display_tab_id'] != row['display_tab_id']))

@@ -1478,7 +1478,10 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     reserve_trips = registrations(store)
     # The management list only needs display totals.  Build them once for all
     # trips; the detailed delete preview below remains lazy and unchanged.
-    trip_summaries = store.trip_management_summaries()
+    try:
+        trip_summaries = store.trip_management_summaries()
+    except (sqlite3.Error, ValueError, KeyError, TypeError):
+        trip_summaries = None
     for t in live_trips(include_archived=True):
         if t.get("deleted"):
             continue
@@ -1490,6 +1493,8 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 status = registration['departure_status']
                 kind = ('출발일·댓글 확인 필요' if status != 'scheduled' else
                         '출발 예정' if t['starts_on'] >= today() else '출발한 여행')
+            if trip_summaries is None:
+                raise ValueError('여행 집계를 읽지 못했습니다. 새로고침해 다시 확인해 주세요.')
             preview = trip_summaries.get(t["tab_id"], {
                 "income_count": 0, "income_total": 0,
                 "expense_count": 0, "expense_total": 0,

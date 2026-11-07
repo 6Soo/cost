@@ -175,7 +175,7 @@ def test_expense_total_mismatch_keeps_row_reconciliation_available(sources, monk
     _engine(monkeypatch, ['NEW_EXPENSE'])
     snapshot = json.loads(sources.read_text(encoding='utf-8'))
     snapshot['trips'][0]['copies']['main']['expense'] = {
-        'sheet_total': 1000, 'row_sum': 2000, 'verified': False}
+        'sheet_total': 1000, 'row_sum': 12000, 'verified': False}
     sources.write_text(json.dumps(snapshot), encoding='utf-8')
     result = preview_for_trip(Board(), TRIP_ID, [_cost()], allow_total_mismatch=True)
     assert result['source_available'] is True
@@ -207,3 +207,18 @@ def test_unverified_expense_without_row_sum_still_fails_closed(sources, monkeypa
     exported = export_for_trip(board, [_cost()], TRIP_ID)
     assert exported['source_available'] is False and exported['tsv'] == ''
     assert list(board.conn.iterdump()) == before
+
+
+@pytest.mark.parametrize('row_sum', [2000, None])
+def test_total_warning_does_not_allow_unverified_detail_sum(sources, monkeypatch, row_sum):
+    def unexpected(*args, **kwargs):
+        raise AssertionError('Unverified rows must not reach the matching engine')
+    import app.sheet_expense_dedup as engine
+    monkeypatch.setattr(engine, 'reconcile', unexpected)
+    snapshot = json.loads(sources.read_text(encoding='utf-8'))
+    snapshot['trips'][0]['copies']['main']['expense'] = dict(
+        sheet_total=1000, row_sum=row_sum, verified=False)
+    sources.write_text(json.dumps(snapshot), encoding='utf-8')
+    result = preview_for_trip(Board(), TRIP_ID, [_cost()], allow_total_mismatch=True)
+    assert result['source_available'] is False
+    assert result['source_info']['reason'] == 'SOURCE_EXPENSE_UNVERIFIED'

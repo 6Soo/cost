@@ -203,6 +203,8 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
                 # deduplicable. Keep reconciling those rows; only the
                 # aggregate warning is carried to the caller.
                 expense_warning = 'SOURCE_EXPENSE_TOTAL_MISMATCH'
+            elif type(total) is int and type(row_sum) is int and total != row_sum:
+                raise ValueError('SOURCE_EXPENSE_TOTAL_MISMATCH')
             else:
                 raise ValueError('SOURCE_EXPENSE_UNVERIFIED')
         sheet_id = copy_info.get('sheet')
@@ -215,6 +217,11 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
         detail = google_ledger_page.owner_rows(all_rows, google_key, source)
         if detail is None:
             raise ValueError('SHEET_ROWS_UNAVAILABLE')
+        if expense_warning:
+            amounts = [row.get('amount') for row in detail['expense']]
+            if (any(type(value) is not int for value in amounts)
+                    or sum(amounts) != expense.get('row_sum')):
+                raise ValueError('SOURCE_EXPENSE_UNVERIFIED')
         sheet_rows = _sheet_rows(detail['expense'], trip_id=trip_id, google_key=google_key,
                                  sheet_id=sheet_id, source=source)
         source_digest = _digest({'snapshot_source_digest': (snapshot.get('sources', {}).get(source) or {}).get('content_sha256'),
