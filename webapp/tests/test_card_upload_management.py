@@ -158,4 +158,3 @@ def test_legacy_baseline_records_keep_revision_and_conflict_protection(ctx):
     with pytest.raises(StoreError, match='다른 화면'):
         store.set_management_start(card['card_id'], '이용일',
                                    '2026-02-01', 0)
-

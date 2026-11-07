@@ -1377,4 +1377,3 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 2026-11-08 카드 내역 거래일자 공백 전환
 
 최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. 현재 구현·표적 검증을 진행 중이며 인증 운영 수락은 미검증이다. 기존 main의 다른 로컬 커밋은 별도 보존한다.
-
