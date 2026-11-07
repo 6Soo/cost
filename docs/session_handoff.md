@@ -1,3 +1,9 @@
+## 2026-11-07 항공권 예약 요약 아이콘 — 코드 배포 COMPLETE
+
+- [PR #721](https://github.com/6Soo/cost/pull/721), 운영 `7c29ff3356f048aecfcdc5c1b6751a160e9acb40`. 목록/chevron 공통 SVG 정렬·로드/필터/자료 갱신 후 유지·모바일 전체 숫자 표시. 최신 항공권 카드·금융/여행/원본/API/Google 보호 유지.
+- Windows 영향124 passed·skip0·필수브라우저6함수 전건실행·compile통과, PR/main CI SUCCESS, 독립 UI Approve, ego1440/657/390/320·두테마·키보드·CSS200% 수락. 운영 인증 UI 미검증: 인증된 항공권 요약 화면 접근 불가 (격리 세션; 인증 우회/로그인 정보 변경 없음). 합성 검증과 구분한다.
+- 정확 Git blobs1429 불일치0·task/process SHA일치·health/ready200·보호API401·보호13표불변, 금융/Google/분류/원본 업무 쓰기0. [상세·미검증·근거](specs/flight-summary-icons-20261107.md). 미결은 운영 인증 UI 여부와 상세 미검증 목록으로 한정하며 과거 작업을 재개하지 않는다. 문서 후속 재배포 없음.
+
 ## 2026-11-07 #718 인수: #714 + #717 단일 운영 배포 — **DEPLOYED / UI·속도 수락 미검증**
 
 - PR #718은 문서-only로 `0b11c3a395505f4cc8d59b52ada06f623764db6c`에 병합됐다. 열린 PR 0건. 지정 제품 코드 `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 #714와 #717 합본으로 한 번만 운영 반영했다. 두 PR의 CI와 main CI는 모두 성공했고, 후속 main run `42344844143`도 성공했다.
