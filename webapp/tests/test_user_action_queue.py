@@ -123,7 +123,7 @@ def test_request_snapshot_scope_reuses_queue_read_failure_until_response_finishe
                 "payload_sha256 TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)"
             )
             nav = ledger_design._nav_html("", "")
-            assert "업무 수 확인 불가" in nav
+            assert "내 확인 필요 수를 확인할 수 없음" in nav
             assert "내 확인 필요 0건" not in nav
 
         assert "내 확인 필요 0건" in ledger_design._nav_html("", "")
@@ -180,7 +180,7 @@ def test_owner_navigation_does_not_claim_zero_when_queue_read_fails(monkeypatch)
     monkeypatch.setattr(ledger_design, "nav_region", lambda *args: "")
     try:
         nav = ledger_design._nav_html("", "")
-        assert "\uc5c5\ubb34 \uc218 \ud655\uc778 \ubd88\uac00" in nav
+        assert "내 확인 필요 수를 확인할 수 없음" in nav
         assert "\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74" not in nav
         assert "data-action-count='0'" not in nav
     finally:
