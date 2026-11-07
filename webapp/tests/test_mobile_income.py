@@ -69,6 +69,9 @@ class MobileIncomeTests(state.unittest.TestCase):
                     self.assertEqual(scroll.evaluate('el => getComputedStyle(el).borderRadius'), '0px')
                     for cell in table.locator('tbody .income-date, tbody .income-person, tbody .income-total').all():
                         self.assertEqual(cell.evaluate('el => getComputedStyle(el).whiteSpace'), 'nowrap')
+                    insurance = table.locator('tbody .participant-insurance-cell').first
+                    self.assertEqual(insurance.evaluate('el => getComputedStyle(el).whiteSpace'), 'nowrap')
+                    self.assertEqual(insurance.bounding_box()['y'], insurance.locator('..').bounding_box()['y'])
                     expense = page.locator('.lst button[data-id]').first
                     self.assertEqual(expense.evaluate('el=>getComputedStyle(el).backgroundColor'),'rgba(0, 0, 0, 0)')
                     for cell in table.locator('tbody .income-total').all():
