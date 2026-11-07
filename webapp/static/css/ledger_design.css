@@ -663,13 +663,18 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
   .lg{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;
    background:var(--bg);font-size:12px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
 }
-.trip-copy-wrap{margin:24px 0 16px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
-.trip-copy-box{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
-.trip-copy-box .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap}
+.trip-copy-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:16px 24px;margin:24px 0 16px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+.trip-copy-info{flex:1 1 320px;min-width:0}
+.trip-copy-title{display:block;font-size:14px;line-height:1.5;color:var(--ink)}
+.trip-copy-box,.trip-copy-recovery{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.trip-copy-box{flex:0 1 auto;min-width:0}
+.trip-copy-box .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:auto;min-height:44px;max-width:100%;padding:8px 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;line-height:1.5;color:var(--ink);cursor:pointer;white-space:normal;text-align:center;text-decoration:none}
+.trip-copy-box .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media(hover:hover){.trip-copy-box .btn:hover{background:var(--hover)}}
 .trip-copy-box .btn:disabled{opacity:.55;cursor:default}
-.trip-copy-desc{font-size:13px;color:var(--mut)}
-.copy-status{font-size:13px;font-weight:500;margin-left:4px}
+.trip-copy-desc{margin:4px 0 0;font-size:13px;line-height:1.6;color:var(--mut);overflow-wrap:anywhere}
+.trip-copy-wrap .copy-status{flex-basis:100%;margin:0;font-size:13px;font-weight:500;line-height:1.6;overflow-wrap:anywhere}
+.trip-copy-wrap .copy-status:empty{flex-basis:0}
 .copy-status.success{color:var(--grn)}
 .copy-status.err{color:var(--bad)}
 .copy-status.loading{color:var(--ink)}
@@ -691,10 +696,11 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 @media(prefers-color-scheme:dark){.participant-trip-panel{background:var(--paper);color:var(--ink)}}
 @media(max-width:600px){
  .trip-copy-wrap{margin:16px 8px;padding:12px}
- .trip-copy-box{flex-direction:column;align-items:stretch;gap:8px}
+ .trip-copy-info{flex-basis:100%}
+ .trip-copy-box{width:100%;align-items:stretch;gap:8px}
+ .trip-copy-recovery{width:100%}
+ .trip-copy-recovery .btn{flex:1 1 120px}
  .trip-copy-box .btn{width:100%;justify-content:center}
- .trip-copy-desc{text-align:center}
- .copy-status{text-align:center}
  .participant-trip-content{padding:10px 8px}.participant-cards{grid-template-columns:1fr}
  .participant-trip-search,.participant-keyboard-link{align-items:stretch;flex-direction:column}
  .participant-keyboard-link select{width:100%}
