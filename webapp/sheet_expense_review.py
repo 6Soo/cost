@@ -47,12 +47,12 @@ def _preview_for_trip(board, trip_id):
     # The projection module is owned by the read-projection worker and is
     # intentionally imported only when the route is used.
     from .sheet_expense_reconciliation import preview_for_trip
-    return preview_for_trip(board, trip_id)
+    return preview_for_trip(board, trip_id, allow_total_mismatch=True)
 
 
 def _export_for_trip(board, trip_id, rows=None):
     from .sheet_expense_reconciliation import export_for_trip
-    return export_for_trip(board, rows, trip_id)
+    return export_for_trip(board, rows, trip_id, allow_total_mismatch=True)
 
 
 def _link_store():

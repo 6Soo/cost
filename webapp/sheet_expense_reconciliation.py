@@ -147,7 +147,8 @@ def _sheet_rows(rows, *, trip_id, google_key, sheet_id, source):
     return projected
 
 
-def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False):
+def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False,
+                     allow_total_mismatch=False):
     """Reconcile one COST trip against a fresh, selected, verified Google snapshot.
 
     This function only reads the COST store and local Google snapshots/settings.
@@ -192,11 +193,18 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
                 or set(trip.get('review') or ()) & BLOCKING_TRIP_FLAGS):
             raise ValueError('SOURCE_NOT_VERIFIED')
         expense = copy_info.get('expense') or {}
+        expense_warning = ''
         if not expense.get('verified'):
             total, row_sum = expense.get('sheet_total'), expense.get('row_sum')
-            if type(total) is int and type(row_sum) is int and total != row_sum:
-                raise ValueError('SOURCE_EXPENSE_TOTAL_MISMATCH')
-            raise ValueError('SOURCE_EXPENSE_UNVERIFIED')
+            if (type(total) is int and type(row_sum) is int and total != row_sum
+                    and allow_total_mismatch):
+                # The aggregate formula can be stale or have the wrong range
+                # while the individual rows remain readable and safely
+                # deduplicable. Keep reconciling those rows; only the
+                # aggregate warning is carried to the caller.
+                expense_warning = 'SOURCE_EXPENSE_TOTAL_MISMATCH'
+            else:
+                raise ValueError('SOURCE_EXPENSE_UNVERIFIED')
         sheet_id = copy_info.get('sheet')
         source_rows = all_rows.get(source) or {}
         source_hash = source_rows.get('content_sha256')
@@ -260,7 +268,8 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
         return {**result, **({'sheet_rows': sheet_rows} if include_sheet_rows else {}),
                 'cost_rows': costs, 'source_available': True, 'source_digest': source_digest,
                 'source_info': {'trip_key': google_key, 'sheet_id': sheet_id, 'source': source,
-                                'layout': copy_info.get('layout'), 'synced_at': snapshot.get('synced_at')},
+                'layout': copy_info.get('layout'), 'synced_at': snapshot.get('synced_at'),
+                                **({'warning': expense_warning} if expense_warning else {})},
                 'revision': revision, 'links_path': str(links_path),
                 'preview_digest': _digest(payload)}
     except Exception as error:
@@ -281,9 +290,10 @@ def preview_for_trip(board, trip_id, cost_rows=None, *, include_sheet_rows=False
         return _unavailable(costs, reason, trip_id=trip_id, links_path=links_path)
 
 
-def export_for_trip(board, preview_rows, trip_id):
+def export_for_trip(board, preview_rows, trip_id, *, allow_total_mismatch=False):
     """Refresh source and matching immediately before producing NEW_EXPENSE TSV rows."""
-    fresh = preview_for_trip(board, trip_id, cost_rows=preview_rows)
+    fresh = preview_for_trip(board, trip_id, cost_rows=preview_rows,
+                            allow_total_mismatch=allow_total_mismatch)
     rows = list(fresh.get('cost_rows') or ())
     if not fresh['source_available']:
         return {'tsv': '', 'row_count': 0, 'total_krw': 0, 'held': [],
