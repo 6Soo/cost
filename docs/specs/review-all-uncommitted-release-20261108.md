@@ -1,6 +1,6 @@
 # 미커밋·미배포 코드 통합 검토 (2026-11-08)
 
-상태: 구현·검토 및 표적 검사 진행, 최종 영향 QA·정확 SHA 검수·단일 운영 배포는 아직 미완료.
+상태: **COMPLETE** — PR735 병합·운영 `d043892777dc50d1e61d3478440f4148719fd39f` 배포·보호13표 및 영향 경로 최소 수락 완료. 전체 고객 화면의 시각 수락은 별도 미검증.
 
 사용자 승인: “미커밋 변경사항까지 모두 검토해서 배포”. 시작 시 root HEAD `b2763e3f`의 미배포8커밋, tracked25파일/untracked3파일을 SHA256 snapshot으로 보관하고 검토했다. 기존 stash6개는 보존하며 과거 작업을 재실행하지 않는다. 현재 실행 범위는 이 snapshot과 병합된 영수증 복구 PR733이다. 고객 원본은 Git/보고서에 넣지 않는다.
 
@@ -52,3 +52,12 @@
 - 호스팅 CI가 결제/사용 한도로 시작 전에 차단된 경우에만 사용자 승인 Sol medium 이상 정확 SHA 검수 예외를 적용한다. 실제 실패는 수정 후 재검증한다.
 - PR 정상 병합 후 검증된 병합 SHA를 고정하고 공식 보호13표·파일 blob·단일 lease·PREVIEW/APPLY로 한 번 배포한다. health/ready·보호API·task/process SHA·영향 읽기 smoke 후 결과를 운영 기록에 남긴다.
 - 원본 root 및 진행 중 작성자를 덮지 않는다. 검토에서 제외한 snapshot·임시 진단·기존 stash는 복구 가능하게 보존한다.
+
+## 최종 수락·운영 근거
+
+- 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 `d043892777dc50d1e61d3478440f4148719fd39f`. Windows 영향 1166 passed +133 subtests, skip0, browser72/72, compile PASS.
+- Sol medium 독립 최종 승인 및 interface-review Approve. P3 조회 오류/빈 상태, 실제 큐0일 때 P1/P2 업무 숨김, 메일 캐시와 모바일 행 겹침을 수정·재검증했다. 짧은 보험 문구의 Range 텍스트 경계와 큰 금액/긴 이름을 검증했다.
+- 최종 CI는 결제 차단 steps0이며 사용자 승인 예외를 적용했다. CI 녹색 아님. merged tree는 검수 HEAD와 동일, tracked blobs mismatch0·runtime SHA일치·health/ready200·보호API401·보호13표 불변.
+- 인증 GET 수락: 카드·여행·영수증 영향 화면 main/heading 및 coverage API200 확인. 고객 원본 파일 확인 POST는 실행하지 않았다.
+- 원래8커밋/28파일·기존stash6개는 보존하고 root main을 정상 fast-forward했다. 기존 고객 파일 실제 복구·운영 재분류/재처리·Google 쓰기는 하지 않았다.
+- 상세 [운영 기록](../operations.md)·[현재 상태](../session_handoff.md). 비공개 final-qa/와 deploy-evidence.json, root-reconciliation.json 및 독립 final-review.json에 정확SHA 근거를 보존했다. 문서 후속으로 재배포하지 않는다.

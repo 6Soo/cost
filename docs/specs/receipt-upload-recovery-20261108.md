@@ -1,6 +1,6 @@
 # 영수증 업로드 응답 유실 복구 (2026-11-08)
 
-상태: **구현·검증·PR #733 병합 COMPLETE / 운영 반영은 통합 배포 담당 작업에 대기**.
+상태: **구현·검증·PR #733 병합 및 PR #735 통합 운영 반영 COMPLETE**. 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`.
 
 사용자 요청: 다량 업로드한 영수증의 행방과 업로드 페이지·처리 경로를 조사한 뒤 `수정해`. 서버 저장 후 응답이 끊기면 브라우저가 실패·재시도만 남기는 경로를 수정했다. 과거 사용자가 올린 파일의 실제 복구나 당시 누락 원인의 확정은 이 수정의 검증 결과가 아니다.
 
@@ -15,7 +15,7 @@
 | 새로고침·기존 동선 | COMPLETE(합성). 저장 파일명·PDF 페이지 재조회, 직접 입력과 키보드 포커스 유지. 저장 성공은 분석·지출 등록 완료를 뜻하지 않는다. |
 | 보호 경계 | COMPLETE(검사). 서버 저장/API/CSRF·소유자 계약 변경 없음. 자동 AI 분석·금융 등록·원본 수정·Google 쓰기 추가 없음. |
 | 고객 과거 업로드 파일 | UNVERIFIED. 실제 고객 원본을 복구했다고 보고하지 않는다. |
-| 운영 반영 | PENDING_EXTERNAL_SINGLE_WRITER. 최신 사용자 `미커밋 변경사항까지 모두 검토해서 배포`에 따라 Cost V168 통합 배포 담당자가 최종 SHA 1회 배포에 포함한다. 이 영수증 작업에서 별도 배포·재시작·운영 DB/원본 쓰기 0. |
+| 운영 반영 | COMPLETE. PR735 통합 릴리스 `d043892777dc50d1e61d3478440f4148719fd39f`로 단일 배포. 통합 QA1166+133·skip0·browser72/72, runtime SHA·보호13표 불변·health/ready200·보호API401 및 인증 영수증 GET 업로드 입력 확인. 고객 과거 원본의 실제 복구나 업로드 POST는 실행하지 않음. |
 
 ## 검증과 병합
 
@@ -32,4 +32,4 @@ ego-browser 합성 390/1440px 동일 크기 전후: 응답 유실 뒤 기존 실
 
 비공개 근거: `C:/AX/cost/.local-archive/receipt-recovery-20261108/`의 `run-summary.json`, `pytest.log`, `junit.xml`, `primary-review.json`, `interface-review.md`, `browser.json`, `ui-evidence.json`, 동일 크기 전후 PNG, CI job/annotation, `checkpoint.json`. 합성 fixture 서버·브라우저 작업은 종료했다. 별도 배포 준비 스크립트는 실행하지 않았다.
 
-다음 실행: 통합 담당자는 위 병합 SHA와 검증 근거를 보존하고, 통합 후 정확한 최종 SHA의 영향·보호 검사 및 공식 단일 작성자 배포 게이트를 실행한다. 실제 배포/스모크 결과를 [현재 상태](../session_handoff.md)와 [운영 기록](../operations.md)에 기록해야 운영 반영 완료로 전환한다. 이 문서-only 후속 때문에 재배포하지 않는다.
+통합 배포 결과는 [현재 상태](../session_handoff.md)와 [운영 기록](../operations.md), 비공개 `.local-archive/uncommitted-release-20261108/deploy-evidence.json`에 기록했다. 원래 영수증 검증 근거와 upstream blob을 보존했고 별도 영수증 배포는 하지 않았다. 실제 고객의 과거 파일 복구·실제 기기/Safari·스크린리더 수락은 여전히 미검증이다. 이 문서-only 후속 때문에 재배포하지 않는다.
