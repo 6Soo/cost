@@ -1476,6 +1476,9 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     cards = []
     from app.reserve_trips import registrations
     reserve_trips = registrations(store)
+    # The management list only needs display totals.  Build them once for all
+    # trips; the detailed delete preview below remains lazy and unchanged.
+    trip_summaries = store.trip_management_summaries()
     for t in live_trips(include_archived=True):
         if t.get("deleted"):
             continue
@@ -1487,7 +1490,10 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 status = registration['departure_status']
                 kind = ('출발일·댓글 확인 필요' if status != 'scheduled' else
                         '출발 예정' if t['starts_on'] >= today() else '출발한 여행')
-            preview = _active_store().preview_tab_delete(t["tab_id"])
+            preview = trip_summaries.get(t["tab_id"], {
+                "income_count": 0, "income_total": 0,
+                "expense_count": 0, "expense_total": 0,
+            })
             counts = (f"수입 {preview['income_count']}건 {preview['income_total']:,}원 · "
                       f"지출 {preview['expense_count']}건 {preview['expense_total']:,}원")
         except Exception as exc:
