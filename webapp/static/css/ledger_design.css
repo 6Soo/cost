@@ -213,6 +213,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
  #google-trip-income #income-tbl thead tr{display:grid;grid-template-columns:20% 34% 46%}
  #google-trip-income #income-tbl tbody tr{display:grid;grid-template-columns:20% 34% 32% 14%;align-items:center}
  #google-trip-income #income-tbl .income-date,#google-trip-income #income-tbl .income-person,#google-trip-income #income-tbl .income-total{width:auto;min-width:0}
+ #google-trip-income #income-tbl td.income-date,#google-trip-income #income-tbl td.income-person{height:auto;min-height:36px}
  #google-trip-income #income-tbl thead th:last-child:not(.income-total){display:none}
  #google-trip-income #income-tbl td.participant-insurance-cell{grid-column:4;width:auto;min-width:0;height:auto;min-height:36px;border-bottom:0;padding:0 2px;white-space:normal;overflow:visible;overflow-wrap:anywhere;font-size:11px}
  #google-trip-income #income-tbl td.participant-insurance-cell>*{max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}

@@ -45,7 +45,8 @@ class MobileIncomeTests(state.unittest.TestCase):
              patch.object(google.google_authority, 'load_consistent', return_value=(snapshot, rows)), \
              patch.object(google, 'snapshot_for_display', side_effect=lambda s:s), \
              patch.object(google, 'load_mapping', return_value={key:'trip-demo-a'}), \
-             patch.object(google, 'load_choices', return_value={'choices':{key:'main'}}):
+             patch.object(google, 'load_choices', return_value={'choices':{key:'main'}}), \
+             patch.object(google, '_participant_insurance_cell', return_value='보험 확인'):
             page = self._page(390)
             for width in (320,390):
                 with self.subTest(width=width):
@@ -69,9 +70,16 @@ class MobileIncomeTests(state.unittest.TestCase):
                     self.assertEqual(scroll.evaluate('el => getComputedStyle(el).borderRadius'), '0px')
                     for cell in table.locator('tbody .income-date, tbody .income-person, tbody .income-total').all():
                         self.assertTrue(cell.evaluate('el => el.scrollWidth <= el.clientWidth'))
+                        self.assertTrue(cell.evaluate('''el => {
+                            const row=el.closest('tr').getBoundingClientRect();
+                            const range=document.createRange();range.selectNodeContents(el);
+                            return [...range.getClientRects()].every(r=>r.top>=row.top-1 && r.bottom<=row.bottom+1);
+                        }'''))
                     insurance = table.locator('tbody .participant-insurance-cell').first
                     self.assertTrue(insurance.evaluate('el => el.scrollWidth <= el.clientWidth'))
-                    self.assertEqual(insurance.bounding_box()['y'], insurance.locator('..').bounding_box()['y'])
+                    box, row_box = insurance.bounding_box(), insurance.locator('..').bounding_box()
+                    self.assertGreaterEqual(box['y'], row_box['y'])
+                    self.assertLessEqual(box['y']+box['height'], row_box['y']+row_box['height'])
                     expense = page.locator('.lst button[data-id]').first
                     self.assertEqual(expense.evaluate('el=>getComputedStyle(el).backgroundColor'),'rgba(0, 0, 0, 0)')
                     for cell in table.locator('tbody .income-total').all():
