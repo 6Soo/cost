@@ -47,5 +47,7 @@ def test_source_protections_cannot_receive_quarter_destinations(destination_stor
 
 def test_invalid_date_never_invents_the_current_quarter():
     for raw in ('', '2026-02-31', 'not-a-date'):
-        assert policy._quarter_destination({'transaction_direction':'purchase', 'approval_date':raw}) is None
-    assert policy._quarter_destination({'transaction_direction':'refund', 'approval_date':'2026-11-08'}) is None
+        assert policy._quarter_destination({'transaction_direction':'purchase', 'approval_date':raw, 'amount_krw':12000}) is None
+    assert policy._quarter_destination({'transaction_direction':'refund', 'approval_date':'2026-11-08', 'amount_krw':12000}) is None
+
+    assert policy._quarter_destination({'transaction_direction':'purchase', 'approval_date':'2026-11-08', 'amount_krw':12000})

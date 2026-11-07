@@ -1412,12 +1412,14 @@ class CardFlow:
                 if self.board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else set())
         fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
         # 장부 기록 여부가 게이트 결과를 바꾸므로 열린 거래 집합도 지문에 넣는다.
-        open_digest=hashlib.sha256(json.dumps([open_ids, sorted(inference_excluded_ids)],separators=(',',':')).encode()).hexdigest()
+        gate_enabled = ota_exact.enabled()
+        open_digest=(hashlib.sha256(json.dumps([open_ids, sorted(inference_excluded_ids)],separators=(',',':')).encode()).hexdigest()
+                     if gate_enabled else None)
         # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
         key = (str([str(path) for path in mail_dirs]),
                str([str(path) for path in portal_dbs]),
                str([str(path) for path in sources['reference_documents']]),
-               sources['manifest_stamp'], stamps, fingerprint, open_digest)
+               sources['manifest_stamp'], stamps, fingerprint, gate_enabled, open_digest)
         cache=getattr(self.board,'_card_review_mail_cache',None)
         if cache and cache.get('key')==key:
             return cache['report']
@@ -1877,7 +1879,10 @@ class CardFlow:
         open_user_actions = _open_user_action_ids(self.board.conn)
         for row in result['preview']['rows']:
             source = dict(originals[row['transaction_id']], batch_id=batch_id)
-            row['user_action_required'] = row['transaction_id'] in open_user_actions
+            row['user_action_lookup_unavailable'] = open_user_actions is None
+            row['user_action_required'] = (None if open_user_actions is None else
+                                           row['transaction_id'] in open_user_actions)
+            source['user_action_lookup_unavailable'] = row['user_action_lookup_unavailable']
             row['next_action'] = next_action(
                 source,
                 row,

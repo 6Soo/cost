@@ -618,9 +618,11 @@ def _classification_source_label(source) -> str:
 def _status_badges(item: dict) -> str:
     """읽기 투영이 실제로 돌려주는 상태만 배지로 표시한다."""
     action = item.get('next_action')
-    if action and action.get('state_label'):
+    if action is not None:
+        if not action.get('state_label'):
+            return ""
         text = _esc(action['state_label'])
-        if action['group'] == 'review':
+        if action['group'] in ('review', 'unknown'):
             text = f"<a class='card-all-badge review card-review-action' href='{_esc(action['href'])}'>{text}</a>"
             if action.get('reason_label'):
                 text += f"<span class='card-all-badge card-all-action-reason'>{_esc(action['reason_label'])}</span>"

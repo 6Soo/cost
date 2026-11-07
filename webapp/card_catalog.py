@@ -100,7 +100,9 @@ def catalog(board, query):
     open_user_actions = _open_user_action_ids(board.conn)
     for row in rows:
         row['review_hold'] = holds.get(row['transaction_id'])
-        row['user_action_required'] = row['transaction_id'] in open_user_actions
+        row['user_action_lookup_unavailable'] = open_user_actions is None
+        row['user_action_required'] = (None if open_user_actions is None else
+                                       row['transaction_id'] in open_user_actions)
         row['next_action'] = next_action(
             row,
             {'already_booked': row['transaction_id'] in booked},

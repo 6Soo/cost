@@ -903,6 +903,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                             'optional':{'source_hash':auto['source_hash'],'amount_range':{'min':200,'max':200}},
                             'effects':{'item':'소모품'}})
             pipe.classify_batch(batch)
+            originals = server.card_store.conn.execute('SELECT transaction_id,source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             errors=[]
             try:
@@ -927,7 +928,10 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(rule['optional'],{'source_hash':auto['source_hash'],'amount_range':{'min':200,'max':200}})
                     self.assertEqual(rule['effects']['item'],'사무용품')
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
-                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
+                    self.assertEqual(server.card_store.conn.execute('SELECT transaction_id,source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall(), originals)
+                    recorded = server.card_store.conn.execute("SELECT row_id FROM board_rows WHERE row_kind='expense'").fetchall()
+                    self.assertEqual({r[0] for r in recorded}, {'card-'+r[0] for r in originals})
+                    self.assertEqual(len(recorded),len(originals))
                     self.assertEqual(errors,[])
                     browser.close()
             finally:

@@ -259,7 +259,10 @@ def enrich_status(conn, items):
         if kind:
             item['review_hold'] = dict(kind=kind, reason=reason or '')
         source = dict(item, trip_name='환불' if item.get('refund_tab_member') else '')
-        item['user_action_required'] = item['transaction_id'] in open_user_actions
+        item['user_action_lookup_unavailable'] = open_user_actions is None
+        item['user_action_required'] = (None if open_user_actions is None else
+                                        item['transaction_id'] in open_user_actions)
+        source['user_action_lookup_unavailable'] = item['user_action_lookup_unavailable']
         item['next_action'] = next_action(
             source,
             dict(already_booked=bool(recorded)),
@@ -274,22 +277,19 @@ def _open_user_action_ids(conn):
     history is read-only, so this only projects the existing request log once
     per page.
     """
+    from . import user_action_queue
     try:
-        rows = conn.execute(
-            "SELECT response_json FROM requests WHERE scope='user_action_task_v1'"
-        ).fetchall()
-    except sqlite3.Error:
-        return set()
+        snapshot = user_action_queue.open_snapshot(conn)
+    except user_action_queue.QueueReadUnavailable:
+        return None
     result = set()
-    for (raw,) in rows:
-        try:
-            task = json.loads(raw)
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(task, dict) or task.get('state') != 'OPEN':
-            continue
-        result.update(str(ref) for ref in (task.get('source_refs') or ()) if str(ref).strip())
+    for task in snapshot.tasks:
+        refs = task.get('source_refs') or ()
+        if not isinstance(refs, (list, tuple)) or any(not isinstance(ref, str) for ref in refs):
+            return None
+        result.update(ref for ref in refs if ref.strip())
     return result
+
 
 
 def _connect(db_path: str) -> sqlite3.Connection:

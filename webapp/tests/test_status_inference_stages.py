@@ -70,6 +70,18 @@ def test_open_p3_keeps_classification_action_for_unresolved_item():
     assert action['state_label'] == '처리 필요'
 
 
+@pytest.mark.parametrize('item,tab', [('', 'unclassified'), ('숙박비', ''), ('', 'A')])
+def test_pending_automation_without_open_p3_is_not_human_work(item, tab):
+    row = dict(batch_id='b', transaction_id='t', item=item, display_tab_id=tab,
+               classification_state='needs_review', classification_source='inference')
+    assert next_action(row, user_action_required=False)['required'] is False
+    assert next_action(row, user_action_required=False)['state_label'] == ''
+    assert next_action(row, user_action_required=True)['required'] is True
+    for preview in ({'blocked':'preview_unavailable'}, {'blocked':'refund_exceeds_original'}):
+        assert next_action(row, preview, user_action_required=False)['required'] is True
+    assert next_action(dict(row, parse_error='synthetic'), user_action_required=False)['required'] is True
+
+
 def test_p1_then_real_p2_updates_source_and_audit_without_human_or_financial_writes(setup):
     board, flow, batch, rows = setup
     c, ids, request = prepared(setup)
@@ -233,3 +245,43 @@ def test_ai_request_rejects_changed_rules_and_protects_source_bound_ota_authorit
         ai.apply(c,TRIPS,request,response(request),request_id='rules-changed')
     current = ai.prepare(c,TRIPS,ids,reconsider=True)
     assert current['protected'] == 1 and len(current['cases']) == 1
+
+
+def test_card_action_lookup_keeps_unavailable_distinct_from_empty():
+    from webapp.card_transactions import _open_user_action_ids
+    from webapp import user_action_queue as queue
+    from app.db import Store
+    conn = sqlite3.connect(':memory:')
+    try:
+        assert _open_user_action_ids(conn) is None
+        Store(conn)
+        assert _open_user_action_ids(conn) == set()
+        queue.register(conn, group_key='synthetic-action', task_type='synthetic',
+            title='synthetic title', question='synthetic question', evidence_summary='synthetic evidence',
+            source_refs=('synthetic-transaction',), answer_options=('A','B'))
+        assert _open_user_action_ids(conn) == {'synthetic-transaction'}
+        # Match the canonical reader: invalid JSON records are ignored, valid OPEN tasks remain.
+        conn.execute("INSERT INTO requests VALUES ('invalid',?, '', 'not-json', '')", (queue.SCOPE,))
+        assert _open_user_action_ids(conn) == {'synthetic-transaction'}
+        conn.set_authorizer(lambda action, *args: sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ else sqlite3.SQLITE_OK)
+        assert _open_user_action_ids(conn) is None
+    finally:
+        conn.close()
+    row = dict(batch_id='b', transaction_id='t', item='', display_tab_id='',
+               classification_state='needs_review', user_action_lookup_unavailable=True)
+    result = next_action(row, {}, user_action_required=None)
+    assert result['state'] == 'unknown' and result['state_label'] == '조회 실패'
+    assert result['required'] is False and result['href'] == '/my-actions'
+
+
+def test_rendered_card_badge_respects_blank_action_and_offers_unknown_recovery():
+    from webapp.cards_all import _status_badges
+    row = dict(batch_id='b', transaction_id='t', item='숙박비', display_tab_id='A',
+               classification_state='needs_review', classification_source='inference')
+    row['next_action'] = next_action(row, {}, user_action_required=False)
+    assert _status_badges(row) == ''
+    row['user_action_lookup_unavailable'] = True
+    row['next_action'] = next_action(row, {}, user_action_required=None)
+    html = _status_badges(row)
+    assert "href='/my-actions'" in html and '조회 실패' in html
+    assert '<a ' in html

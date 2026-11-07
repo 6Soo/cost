@@ -131,7 +131,8 @@ def infer_item(row):
 
 def _quarter_destination(row):
     """Use an observed payment quarter only after no real trip can be inferred."""
-    if row.get('transaction_direction') != 'purchase':
+    if (row.get('transaction_direction') != 'purchase'
+            or type(row.get('amount_krw')) is not int or row['amount_krw'] <= 0):
         return None
     raw = row.get('approval_date') or row.get('posting_date') or ''
     try:
