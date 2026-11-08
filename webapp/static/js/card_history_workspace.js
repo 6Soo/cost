@@ -354,13 +354,18 @@
   function cardText(card) {
     return [card.issuer, card.card_tail ? '끝' + card.card_tail : '', card.date_basis].filter(Boolean).join(' · ');
   }
+  function fileStatus(status) {
+    return ({parsed: '원본 저장됨', uploaded: '원본 저장됨', classified: '거래 분류됨',
+      failed: '파일 읽기 오류', error: '파일 읽기 오류', queued: '업로드 중',
+      processing: '파일 읽는 중'})[status] || '파일 정보';
+  }
   function renderFile(file, parent) {
     const item = node('div', 'card-coverage-file');
     item.append(node('strong', '', file.filename || '이름 없는 원본'));
     item.append(node('p', 'card-workspace-muted',
       (file.transaction_start ? '거래일자: ' + file.transaction_start + ' ~ ' + file.transaction_end : '거래일자 없음') +
       ' · 원천 ' + (file.source_rows ?? 0) + '행 · 고유 거래 ' + (file.unique_transactions ?? 0) + '건' +
-      (file.zero_rows ? ' · 거래 0건' : '') + ' · 처리 상태 ' + (file.status || '확인 필요')));
+      (file.zero_rows ? ' · 거래 0건' : '') + ' · ' + fileStatus(file.status)));
     if (/^batch-[a-f0-9]{24}$/.test(file.batch_id || '')) {
       const actions = node('div', 'card-coverage-file-actions');
       const params = new URLSearchParams(location.search);
@@ -440,7 +445,7 @@
         const issuer = String(file.issuer_hint || '').trim();
         const tail = String(file.card_tail_hint || '').trim();
         const label = issuer && /^\d{4}$/.test(tail) ?
-          issuer + ' · 끝' + tail + ' (표시용)' : '카드 식별 확인 필요';
+          issuer + ' · 끝' + tail + ' (표시용)' : '카드 식별 정보 없음';
         if (!groups.has(label)) groups.set(label, []);
         groups.get(label).push(file);
       }
@@ -493,9 +498,9 @@
         batchRoot.append(node('p', 'card-coverage-state', '원천 행 ' +
           (summary.source_rows ?? summary.row_count ?? '확인 불가') +
           ' · 처리 오류 ' + (summary.error_count ?? '확인 불가') +
-          ' · 상태 ' + (summary.status || '확인 필요')));
+          ' · ' + fileStatus(summary.status)));
       } else if (data.status) batchRoot.append(node('p', 'card-coverage-state',
-        '저장 상태 ' + data.status));
+        fileStatus(data.status)));
       else batchRoot.append(node('p', 'card-workspace-muted', '상세 처리 상태를 확인했습니다.'));
 
       batchRoot.append(node('p', 'card-workspace-muted',
@@ -534,5 +539,5 @@
     if (panelName() !== 'upload') setPanel('upload', {replace: true, focus: false});
     uploadPanel.scrollIntoView({block: 'start'});
   }
-  if (location.hash === '#expense-cleanup') location.replace('/my-actions');
+  if (location.hash === '#expense-cleanup') location.replace('/cards/all');
 })();

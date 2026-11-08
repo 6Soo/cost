@@ -1282,8 +1282,8 @@ def tabs_html(selected: str, query: str = "") -> str:
         cls = "tab sel" if selected == "unclassified" else "tab"
         items.append(
             f"<a class='{cls}' href='/board?tab=unclassified'>"
-            f"<div>분류대기</div><div class='amt'>{len(unc)}건</div>"
-            f"<small>미배정 {unc_total:,}원</small></a>"
+            f"<div>기타비용</div><div class='amt'>{len(unc)}건</div>"
+            f"<small>기타비용 {unc_total:,}원</small></a>"
         )
     return "".join(items) if items else "<p class='muted'>여행 탭을 추가해 주세요</p>"
 
@@ -1294,9 +1294,9 @@ def board_page(tab_id: str, query: str = "") -> str:
         rows = _unclassified_rows()
         unc_total = sum(_shown_amount(r) for r in rows)
         inc_rows = [r for r in _income_rows() if r["display_tab_id"] is None]
-        head = "<h2>분류대기</h2>"
+        head = "<h2>기타비용</h2>"
         tables = income_table(inc_rows) + expense_table(rows)
-        summary = f"<div class='card'><span class='muted'>미배정</span><div class='big'>{unc_total:,}원</div></div>"
+        summary = f"<div class='card'><span class='muted'>기타비용</span><div class='big'>{unc_total:,}원</div></div>"
     elif trip is None:
         head = "<h2>여행을 선택해 주세요</h2>"
         tables = ""
@@ -1404,7 +1404,7 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
         for t in trips
     )
     if not any(t['tab_id'] == selected_tab for t in trips):
-        options = "<option value='' selected>미배정</option>" + options
+        options = "<option value='' selected>기타비용</option>" + options
     close = ("<button type='button' data-manual-close>닫기</button>" if modal
              else f"<a href='/board?{esc(urlencode({'tab': selected_tab}))}'>장부로 돌아가기</a>")
     return (
@@ -2239,9 +2239,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         token = _REQUEST_STORE.set(getattr(self.server, "card_store", None))
         try:
-            from . import user_action_queue
-            with user_action_queue.request_snapshot_scope():
-                super().handle_one_request()
+            super().handle_one_request()
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             self.close_connection = True
         finally:
@@ -3474,21 +3472,7 @@ class Handler(BaseHTTPRequestHandler):
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED'}, code=403)
                 return
-            store = _active_store()
-            if store is None:
-                self._send("<h1>저장소를 사용할 수 없어요</h1>", code=503)
-                return
-            from . import user_action_queue
-            try:
-                action_snapshot = user_action_queue.open_snapshot(store.conn)
-            except user_action_queue.QueueReadUnavailable:
-                self._send(user_action_queue.render_unavailable(), code=503)
-                return
-            self._send(user_action_queue.render(
-                store.conn, CSRF_TOKEN,
-                answered=(query.get('answered', [''])[0] == '1'),
-                snapshot=action_snapshot,
-            ))
+            self._auth_redirect('/cards/all')
             return
         from . import google_ledger_page as _gl
         from . import google_ledger_actions as _gla
@@ -3606,7 +3590,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)
-            self.send_header('Location', '/my-actions')
+            self.send_header('Location', '/cards/all')
             self.send_header('Content-Length', '0')
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
@@ -3957,33 +3941,16 @@ class Handler(BaseHTTPRequestHandler):
             if current_role() != 'owner':
                 self._send_json({'code': 'OWNER_REQUIRED'}, code=403)
                 return
-            if _active_store() is None:
-                self._send_json({'code': 'STORE_UNBOUND'}, code=503)
-                return
             try:
-                payload = read_payload()
-                check_csrf(payload)
-                from . import user_action_queue
-                task = user_action_queue.answer(
-                    _active_store().conn,
-                    action_id=payload.get('action_id', ''),
-                    expected_revision=payload.get('revision', ''),
-                    expected_digest=payload.get('digest', ''),
-                    value=payload.get('answer', ''),
-                )
-                user_action_queue.set_state(_active_store().conn, task['action_id'], user_action_queue.REPROCESSING)
-                worker = getattr(_active_store(), '_autonomous_cleanup_worker', None)
-                if worker is not None:
-                    worker.wake()
-                self._auth_redirect('/my-actions?answered=1')
+                check_csrf(read_payload())
             except SaveError as exc:
-                self._send_json({'code': exc.code, 'message': exc.message}, code=403)
-            except ValueError as exc:
-                code = str(exc)
-                status = 409 if code in ('STALE_ACTION', 'ACTION_NOT_OPEN') else 400
-                self._send_json({'code': code}, code=status)
-            except Exception:
-                self._send_json({'code': 'ACTION_SAVE_FAILED'}, code=500)
+                self._send_json({'code': exc.code, 'message': str(exc)}, code=403)
+                return
+            except (ValueError, TypeError, AttributeError):
+                self._send_json({'code': 'INVALID_REQUEST'}, code=400)
+                return
+            self._send_json({'code': 'CARD_ACTIONS_RETIRED',
+                             'message': '카드 비용은 여행 또는 분기 기타비용으로 자동 배속됩니다.'}, code=410)
             return
         if parsed.path == '/api/rows/bulk-trip':
             if current_role() != 'owner':

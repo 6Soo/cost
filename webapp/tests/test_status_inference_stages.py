@@ -36,21 +36,19 @@ def test_origin_uses_actual_execution_not_decided_or_p2_text(source, expected):
     assert label(dict(classification_source=source, decided_at='synthetic-user-decision')) == '직접'
 
 
-def test_three_primary_states_keep_financial_protection_without_user_hold_state():
-    row = dict(batch_id='b', transaction_id='t', item='숙박비', display_tab_id='A',
-               classification_state='classified', classification_source='inference')
-    assert next_action(row, dict(already_booked=True))['state_label'] == '완료'
-    assert next_action(dict(row, duplicate_of='other'))['state_label'] == '제외'
-    cases = [(dict(row, item=''), {}, 'classification'),
-             (dict(row, parse_error='unreadable'), {}, 'evidence'),
-             (row, dict(blocked='refund_exceeds_original'), 'finance')]
-    for source, preview, category in cases:
-        result = next_action(source, preview)
-        assert result['state_label'] == '처리 필요' and result['reason_category'] == category
-        assert result['required'] and result['status']
-    protected = next_action(dict(row, review_hold=dict(kind='manual_hold', reason='owner stop')), {})
-    assert protected['reason_category'] == '' and protected['required'] is False
-    assert 'owner stop' not in protected['reason']
+def test_financial_facts_are_visible_without_human_classification_work():
+    row = dict(batch_id='b',transaction_id='t',item='숙박비',display_tab_id='A',classification_state='classified')
+    assert next_action(row,{'already_booked':True})['state_label'] == '완료'
+    assert next_action(dict(row,duplicate_of='original'))['state_label'] == '제외'
+    assert next_action(dict(row,item=''))['state_label'] == ''
+    for source,preview,status,category in [
+        (dict(row,parse_error='unreadable'),{},'원본 오류','evidence'),
+        (row,{'blocked':'refund_exceeds_original'},'환불 금액 불일치','finance')]:
+        result=next_action(source,preview)
+        assert result['state_label'] == status and result['reason_category'] == category
+        assert not result['required'] and result['protection']
+    protected=next_action(dict(row,review_hold={'kind':'manual_hold','reason':'private old decision'}))
+    assert not protected['required'] and 'private old decision' not in protected['reason']
 
 
 def test_internal_classification_state_is_not_user_action_without_open_p3():
@@ -62,24 +60,23 @@ def test_internal_classification_state_is_not_user_action_without_open_p3():
     assert action.get('group', '') == ''
 
 
-def test_open_p3_keeps_classification_action_for_unresolved_item():
-    row = dict(batch_id='b', transaction_id='t', item='', display_tab_id='A',
-               classification_state='needs_review', classification_source='inference')
-    action = next_action(row, {}, user_action_required=True)
-    assert action['required'] is True
-    assert action['state_label'] == '처리 필요'
+def test_historical_open_p3_never_recreates_classification_question():
+    row=dict(batch_id='b',transaction_id='t',item='',display_tab_id='A',classification_state='needs_review')
+    assert next_action(row,user_action_required=True) == next_action(row,user_action_required=False)
+    assert not next_action(row,user_action_required=True)['required']
+    assert next_action(row,user_action_required=True)['state_label'] == ''
 
 
 @pytest.mark.parametrize('item,tab', [('', 'unclassified'), ('숙박비', ''), ('', 'A')])
-def test_pending_automation_without_open_p3_is_not_human_work(item, tab):
-    row = dict(batch_id='b', transaction_id='t', item=item, display_tab_id=tab,
-               classification_state='needs_review', classification_source='inference')
-    assert next_action(row, user_action_required=False)['required'] is False
-    assert next_action(row, user_action_required=False)['state_label'] == ''
-    assert next_action(row, user_action_required=True)['required'] is True
-    for preview in ({'blocked':'preview_unavailable'}, {'blocked':'refund_exceeds_original'}):
-        assert next_action(row, preview, user_action_required=False)['required'] is True
-    assert next_action(dict(row, parse_error='synthetic'), user_action_required=False)['required'] is True
+def test_pending_automation_without_open_p3_is_not_human_work(item,tab):
+    row=dict(batch_id='b',transaction_id='t',item=item,display_tab_id=tab,classification_state='needs_review')
+    for legacy_flag in (False,True,None):
+        assert not next_action(row,user_action_required=legacy_flag)['required']
+        assert next_action(row,user_action_required=legacy_flag)['state_label'] == ''
+    for preview in ({'blocked':'preview_unavailable'},{'blocked':'refund_exceeds_original'}):
+        result=next_action(row,preview)
+        assert not result['required'] and result['protection'] == preview['blocked']
+    assert next_action(dict(row,parse_error='synthetic'))['protection'] == 'source_conflict'
 
 
 def test_p1_then_real_p2_updates_source_and_audit_without_human_or_financial_writes(setup):
@@ -247,41 +244,17 @@ def test_ai_request_rejects_changed_rules_and_protects_source_bound_ota_authorit
     assert current['protected'] == 1 and len(current['cases']) == 1
 
 
-def test_card_action_lookup_keeps_unavailable_distinct_from_empty():
-    from webapp.card_transactions import _open_user_action_ids
-    from webapp import user_action_queue as queue
-    from app.db import Store
-    conn = sqlite3.connect(':memory:')
-    try:
-        assert _open_user_action_ids(conn) is None
-        Store(conn)
-        assert _open_user_action_ids(conn) == set()
-        queue.register(conn, group_key='synthetic-action', task_type='synthetic',
-            title='synthetic title', question='synthetic question', evidence_summary='synthetic evidence',
-            source_refs=('synthetic-transaction',), answer_options=('A','B'))
-        assert _open_user_action_ids(conn) == {'synthetic-transaction'}
-        # Match the canonical reader: invalid JSON records are ignored, valid OPEN tasks remain.
-        conn.execute("INSERT INTO requests VALUES ('invalid',?, '', 'not-json', '')", (queue.SCOPE,))
-        assert _open_user_action_ids(conn) == {'synthetic-transaction'}
-        conn.set_authorizer(lambda action, *args: sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ else sqlite3.SQLITE_OK)
-        assert _open_user_action_ids(conn) is None
-    finally:
-        conn.close()
-    row = dict(batch_id='b', transaction_id='t', item='', display_tab_id='',
-               classification_state='needs_review', user_action_lookup_unavailable=True)
-    result = next_action(row, {}, user_action_required=None)
-    assert result['state'] == 'unknown' and result['state_label'] == '조회 실패'
-    assert result['required'] is False and result['href'] == '/my-actions'
+def test_retired_queue_failure_cannot_reintroduce_question_or_recovery_link():
+    row=dict(batch_id='b',transaction_id='t',item='',display_tab_id='',classification_state='needs_review',
+             user_action_lookup_unavailable=True)
+    result=next_action(row)
+    assert not result['required'] and result['state_label'] == ''
+    assert result['href'].startswith('/import?') and '/my-actions' not in result['href']
 
 
-def test_rendered_card_badge_respects_blank_action_and_offers_unknown_recovery():
+def test_rendered_card_badge_never_recreates_retired_workflow():
     from webapp.cards_all import _status_badges
-    row = dict(batch_id='b', transaction_id='t', item='숙박비', display_tab_id='A',
-               classification_state='needs_review', classification_source='inference')
-    row['next_action'] = next_action(row, {}, user_action_required=False)
+    row=dict(batch_id='b',transaction_id='t',item='숙박비',display_tab_id='A',classification_state='needs_review',
+             user_action_lookup_unavailable=True)
+    row['next_action']=next_action(row)
     assert _status_badges(row) == ''
-    row['user_action_lookup_unavailable'] = True
-    row['next_action'] = next_action(row, {}, user_action_required=None)
-    html = _status_badges(row)
-    assert "href='/my-actions'" in html and '조회 실패' in html
-    assert '<a ' in html

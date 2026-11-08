@@ -1346,10 +1346,10 @@ class CardFlowTests(unittest.TestCase):
             html = home_page(self.board)
         finally:
             ledger_board.bind_store(previous)
-        self.assertIn("저장된 카드 거래 전체 <b>2</b> · 내 확인 필요 <b>0</b> · 장부 <b>0</b>", html)
+        self.assertIn("저장된 카드 거래 전체 <b>2</b> · 장부 <b>0</b>", html)
         self.assertNotIn("장부 반영 대기", html)
-        self.assertIn("class='home-review btn primary' href='/my-actions'>", html)
-        self.assertIn("직접 답할 작업 없음</a>", html)
+        self.assertNotIn("href='/my-actions'", html)
+        self.assertNotIn("직접 답할 작업", html)
         self.assertIn("class='home-secondary'", html)
         self.assertIn("href='/cards/all?panel=upload'", html)
         self.assertIn("카드 업로드</a>", html)

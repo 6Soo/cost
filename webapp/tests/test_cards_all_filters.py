@@ -26,15 +26,15 @@ def test_reviewed_refunds_without_payment_links_are_not_unassigned(card_db_path,
     items = ct.list_for_month(card_db_path, 2026, 3)['items']
     assert {r['transaction_id'] for r in items if r['refund_tab_member']} == {'TX-A-01', 'TX-A-02'}
     filtered = ct.list_for_month(card_db_path, 2026, 3, unassigned=True)['items']
-    assert [r['transaction_id'] for r in filtered] == ['TX-B-01']
-    assert ct.year_summary(card_db_path, 2026, unassigned=True)['months'][3] == 1
+    assert {r['transaction_id'] for r in filtered} == {'TX-A-01','TX-A-02','TX-B-01'}
+    assert ct.year_summary(card_db_path, 2026, unassigned=True)['months'][3] == 3
     assert ct.year_summary(card_db_path, 2026, unassigned=True)['months'][4] == 2
     page = cards_all.cards_all_page({'period': ['2026-03']}, db_path=card_db_path)
-    assert page.count("href='/board?tab=refunds'>취소·환불</a>") == 2
+    assert page.count("data-tx-id=") == 3 and '미배정' not in page
     for tid in ('TX-A-01', 'TX-A-02'):
         detail = ct.transaction_detail(tid, card_db_path)
         assert detail['refund_tab_member']
-        assert '<dt>배정</dt><dd>취소·환불</dd>' in cards_all.card_detail_html(detail)
+        assert '2026년 1분기 기타비용' in cards_all.card_detail_html(detail)
     with closing(sqlite3.connect(card_db_path)) as conn:
         assert '\n'.join(conn.iterdump()) == before
 
@@ -64,18 +64,19 @@ def test_year_period_lists_all_months_with_stable_pagination(card_db_path, monke
     assert "data-tx-id='TX-A-02'" not in second
 
 
-def test_unassigned_counts_and_pages_share_valid_trip_and_search_contract(card_db_path):
+def test_retired_unassigned_filter_keeps_all_rows_with_search_and_pagination(card_db_path):
     filters = dict(unassigned=True, valid_trip_ids={'T-A', 'T-D'})
     summary = ct.year_summary(card_db_path, 2026, **filters)
-    assert summary['months'][3] == 2 and summary['months'][4] == 1
+    assert summary['months'][3] == 3 and summary['months'][4] == 2
     assert summary['months'][2] == 0 and summary['undated_count'] == 2
     first = ct.list_for_month(card_db_path, 2026, 3, per_page=1, **filters)
     second = ct.list_for_month(card_db_path, 2026, 3, per_page=1, cursor=first['cursor'], **filters)
-    assert [row['transaction_id'] for row in first['items'] + second['items']] == ['TX-A-02', 'TX-B-01']
-    assert first['has_more'] and not second['has_more']
+    third = ct.list_for_month(card_db_path,2026,3,per_page=1,cursor=second['cursor'],**filters)
+    assert {row['transaction_id'] for page in (first,second,third) for row in page['items']} == {'TX-A-01','TX-A-02','TX-B-01'}
+    assert first['has_more'] and second['has_more'] and not third['has_more']
     assert ct.year_summary(card_db_path, 2025, **filters)['months'][6] == 1
     assert ct.list_for_month(card_db_path, 2026, 3, search='AGODA', **filters)['count'] == 1
-    assert ct.year_summary(card_db_path, 2026, search='MERCURE', **filters)['months'][3] == 0
+    assert ct.year_summary(card_db_path, 2026, search='MERCURE', **filters)['months'][3] == 1
     # Search is literal and parameterized, including wildcard and quote characters.
     assert ct.list_for_month(card_db_path, 2026, 3, search="%' OR 1=1 --", **filters)['items'] == []
 
@@ -108,12 +109,12 @@ def test_year_search_pagination_preserves_filters_and_never_writes(card_db_path,
     href = re.search(r"href='([^']*cursor=[^']*)'", first).group(1)
     next_query = parse_qs(urlsplit(html.unescape(href)).query)
     assert next_query['q'] == ['0'] and next_query['card'] == [key]
-    assert next_query['unassigned'] == ['1'] and 'month' not in next_query
+    assert 'unassigned' not in next_query and 'month' not in next_query
     second = cards_all.cards_all_page(next_query, db_path=card_db_path)
     assert '검색 결과 · 2건' in first and '검색 결과 · 2건' in second
     assert "data-tx-id='TX-A-02'" in first and "data-tx-id='TX-A-01'" in second
     assert "data-tx-id='TX-A-02'" not in second
-    assert '미배정' in first
+    assert '미배정' not in first and '기타비용' in first
     assert ct.search_for_year(card_db_path, 2026, search='MERCHANT')['items'] == []
     with closing(sqlite3.connect(card_db_path)) as conn:
         assert conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
@@ -127,7 +128,7 @@ def test_valid_display_destination_and_dangling_override_are_counted_consistentl
     result = ct.list_for_month(card_db_path, 2026, 3, **filters)
     # A valid stored trip is an assignment even when the display destination is stale;
     # the separate conflict indicator must still retain the discrepancy.
-    assert {row['transaction_id'] for row in result['items']} == {'TX-B-01'}
+    assert {row['transaction_id'] for row in result['items']} == {'TX-A-01','TX-A-02','TX-B-01'}
     from app.assignment_status import row_assignment
     verdict = row_assignment({'display_tab_id': 'MISSING', 'trip_id': 'VALID'}, {'VALID'})
     assert verdict['status'] == 'ASSIGNED'
@@ -162,7 +163,7 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
         before = conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
     page = cards_all.cards_all_page(query, db_path=card_db_path)
     assert "data-tx-id='TX-A-02'" in page and "data-tx-id='TX-A-01'" not in page
-    assert '미배정 1건' in page and '•••• 1234' in page and '카드 식별' in page
+    assert '전체 1건' in page and '미배정' not in page and '•••• 1234' in page and '카드 식별' in page
     assert "class='btn' type='submit'" in page and "aria-hidden='true'" in page
     assert '>조회</button>' in page and "<svg class='ic'" in page
     assert "aria-label='카드별 조회'" in page and '카드사·끝4자리·가맹점' in page
@@ -171,7 +172,7 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
             continue
         assert "name='cursor'" not in form and "name='undated_cursor'" not in form
     period_form = re.search(r"<form[^>]*class='card-all-filters'.*?</form>", page, re.S).group(0)
-    assert "name='unassigned' value='1'" in period_form and key in period_form and 'LAWSON' in period_form
+    assert "name='unassigned'" not in period_form and key in period_form and 'LAWSON' in period_form
     assert "value='2026-03' selected" in period_form
     assert "name='year'" not in period_form and "name='month'" not in period_form
     reset = re.search(r"href='([^']*)'>필터 초기화", page).group(1)
@@ -182,7 +183,7 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
         assert conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
 
 
-def test_filtered_next_page_keeps_card_search_and_unassigned_scope(card_db_path, monkeypatch):
+def test_filtered_next_page_keeps_card_scope_without_retired_unassigned_state(card_db_path, monkeypatch):
     monkeypatch.setattr(cards_all, '_trip_context', lambda: ({}, set()))
     monkeypatch.setattr(cards_all, 'PAGE_SIZE', 1)
     key = ct.card_identity('CARD', 'credit', '1234')['card_key']
@@ -190,7 +191,7 @@ def test_filtered_next_page_keeps_card_search_and_unassigned_scope(card_db_path,
     first = cards_all.cards_all_page(query, db_path=card_db_path)
     href = re.search(r"href='([^']*cursor=[^']*)'", first).group(1)
     next_query = parse_qs(urlsplit(html.unescape(href)).query)
-    assert next_query['card'] == [key] and next_query['unassigned'] == ['1']
+    assert next_query['card'] == [key] and 'unassigned' not in next_query
     second = cards_all.cards_all_page(next_query, db_path=card_db_path)
     assert "data-tx-id='TX-A-02'" in first and "data-tx-id='TX-A-01'" in second
     assert "data-tx-id='TX-A-02'" not in second

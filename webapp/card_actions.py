@@ -1,99 +1,57 @@
-"""카드 거래의 실제 다음 행동을 같은 기준으로 표시한다."""
+"""Card detail information, independent of the retired human action queue."""
 from urllib.parse import urlencode
-from app import quarter_costs
 
-
-#: The visible states a person sees for a card row, whichever screen shows it.
-GROUP_LABELS = {'review': '처리 필요', 'booked': '완료', 'excluded': '제외', 'unknown': '조회 실패'}
+GROUP_LABELS = {'booked': '완료', 'excluded': '제외'}
 GROUP_OF_STATUS = {'기록 완료': 'booked', '기존 기록': 'booked',
-                   '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded', '사용자 작업 조회 실패': 'unknown'}
-
-REASON_LABELS = {'classification': '분류·배정 필요', 'recording': '기록 상태 확인', 'evidence': '근거 충돌',
-                 'finance': '결제·환불 확인'}
+                   '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
+REASON_LABELS = {'evidence': '원본 정보', 'finance': '결제·환불 정보'}
 
 
 def reason_category(row, preview=None, hold=None):
     preview = preview or {}
-    blocked = str(preview.get('blocked') or '')
-    hold = row.get('review_hold') or preview.get('review_hold') or hold or {}
-    if row.get('conflict_reason') or row.get('parse_error') or blocked in ('source_conflict', 'duplicate_possible', 'preview_unavailable'):
-        return 'evidence'
-    if (blocked.startswith('refund_') or preview.get('refund_link')
-            or row.get('transaction_direction') in ('cancellation', 'refund')
-            or hold.get('kind') in ('refund_pending', 'cancelled')):
+    if (row.get('transaction_direction') in ('refund', 'cancellation')
+            or str(preview.get('blocked') or '').startswith('refund_')):
         return 'finance'
-    if hold and hold.get('kind') not in ('trip_needed', 'classification_needed', 'existing_ledger'):
-        if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold', 'evidence_pending'):
-            return 'evidence'
-        return 'evidence'
-    if row.get('item') and row.get('display_tab_id') not in (None, '', 'unclassified'):
-        return 'recording'
-    return 'classification'
+    return 'evidence' if row.get('parse_error') or row.get('conflict_reason') or preview.get('blocked') else ''
 
 
 def next_action(row, preview=None, extra_hold=None, *, user_action_required=None):
+    """Describe existing facts, never require a classification answer.
+
+    The old user_action_required argument is ignored. Financial preview/commit
+    protection remains authoritative and is never relaxed by this projection.
+    """
     preview = preview or {}
     href = '/import?' + urlencode({'batch': row['batch_id'], 'transaction': row['transaction_id']})
-    def action(status, label, reason='', required=True, target=None):
-        result = dict(status=status, label=label, reason=reason, required=required, href=target or href)
-        group = GROUP_OF_STATUS.get(status, '' if not status and not required else 'review')
-        if group:
-            result['group'] = group
+
+    def info(status='', label='거래 상세', reason='', target=None, protection=''):
         from app.classification_provenance import origin, LABELS
-        category = reason_category(row, preview, extra_hold) if group == 'review' and required else ''
-        result.update(state=group, state_label=GROUP_LABELS.get(group, ''),
-                      reason_category=category, reason_label=REASON_LABELS.get(category, ''),
-                      source=origin(row), source_label=LABELS[origin(row)])
-        return result
+        group = GROUP_OF_STATUS.get(status, '')
+        return dict(status=status, label=label, reason=reason, required=False,
+                    href=target or href, group=group, state=group,
+                    state_label=GROUP_LABELS.get(group, status),
+                    reason_category=reason_category(row, preview, extra_hold), reason_label='',
+                    protection=protection, source=origin(row), source_label=LABELS[origin(row)])
+
     if preview.get('already_booked'):
-        return action('기록 완료', '장부 보기', required=False,
-                      target='/board?' + urlencode({'tab': row.get('display_tab_id') or 'unclassified',
-                                                    'row': 'card-' + row['transaction_id']}))
+        return info('기록 완료', '장부 보기', target='/board?' + urlencode({
+            'tab':row.get('display_tab_id') or '', 'row':'card-' + row['transaction_id']}))
     if row.get('duplicate_of'):
-        return action('중복 제외', '중복 내역 확인', '같은 거래가 이미 있어 추가로 기록하지 않습니다.', False)
+        return info('중복 제외', reason='같은 원거래는 한 번만 집계합니다.', protection='duplicate')
     if row.get('company_excluded') or preview.get('excluded_from_company'):
-        return action('회사 경비 제외', '제외 내역 보기', required=False)
+        return info('회사 경비 제외')
     if row.get('conflict_reason') or row.get('parse_error'):
-        return action('원본 확인 필요', '원본 확인', row.get('conflict_reason') or row.get('parse_error'))
-    if preview.get('blocked') == 'refund_inferred' or (preview.get('refund_link') or {}).get('basis', '').endswith('_inferred'):
-        return action('환불 추론 연결', '환불 근거 확인',
-                      preview.get('reason') or '원결제 추론 연결은 별도 근거 검증 전 장부 기록을 보류합니다. 환급 완료 아님.',
-                      target=href + '#preview')
+        return info('원본 오류', reason='원본 값의 오류로 금융 기록에 반영하지 않습니다.', protection='source_conflict')
     if row.get('trip_name') == '환불':
-        return action('전액 환불', '환불 보기', required=False, target='/board?tab=refunds')
-    if preview.get('blocked') in ('refund_pair_partially_booked', 'refund_original_missing', 'refund_pair_incomplete', 'refund_pair_mismatch', 'refund_exceeds_original'):
-        return action('환불 기록 확인 필요', '환불 기록 확인',
-                      '원결제와 환불의 기록 상태를 함께 확인해 주세요. 일부만 기록돼 있거나 서로 맞지 않아 자동 반영하지 않습니다.',
-                      target=href + '#preview')
-    hold = row.get('review_hold') or preview.get('review_hold') or extra_hold
-    if hold and hold.get('kind') == 'existing_ledger':
-        return action('기존 기록', '장부 보기', hold['reason'], False,
-                      '/board?' + urlencode({'tab': row.get('display_tab_id') or 'unclassified'}))
-    if hold and hold.get('kind') not in ('trip_needed', 'classification_needed'):
-        if hold.get('kind') in ('manual', 'manual_hold', 'owner_hold', 'user_hold', 'review_hold', 'evidence_pending'):
-            return action('', '거래 상세 보기', required=False)
-        if 'OTA-first' in (hold.get('reason') or ''):
-            return action('예약 연결 확인 필요', '예약 연결 확인',
-                          '이 결제가 어느 예약인지 아직 확인되지 않았습니다. 예약번호와 이용일을 확인해 주세요.', target=href + '#ota-review')
-        return action('확인 필요', '사유 확인', hold.get('reason') or '예약과 결제 근거를 확인해 주세요.')
-    if row.get('user_action_lookup_unavailable'):
-        return action('사용자 작업 조회 실패', '작업함 다시 확인',
-                      '작업 수를 읽지 못했습니다. 내 확인 필요에서 다시 확인해 주세요.',
-                      required=False, target='/my-actions')
-    if user_action_required is False and not preview.get('blocked'):
-        return action('', '처리 결과 확인', required=False)
-    if not row.get('item'):
-        return action('비용 항목 선택 필요', '비용 항목 선택', '이 거래의 비용 항목을 선택해 주세요.')
-    if row.get('display_tab_id') in (None, '', 'unclassified') and not quarter_costs.destination(row):
-        return action('여행 지정 필요', '여행 지정', '예약 이용일과 숙소를 확인하고 여행을 선택해 주세요.')
-    if preview.get('blocked'):
-        return action('확인 필요', '문제 확인', preview.get('reason') or '배정 내용을 확인해 주세요.')
-    # `classification_state` is an internal P1/P2 pipeline state.  It is not
-    # itself proof that the owner has a P3 question to answer.  Read surfaces
-    # pass the durable action-queue result here; an explicit False suppresses
-    # the old misleading "처리 필요" badge while automation is pending or
-    # has failed internally.
-    if (row.get('classification_state') not in ('classified',)
-            and user_action_required is not False):
-        return action('분류 확인 필요', '분류 확인', '비용 항목과 배정 내용을 확인해 주세요.')
-    return action('', '처리 결과 확인', required=False)
+        return info('전액 환불', '환불 내역', target='/board?tab=refunds')
+    blocked = str(preview.get('blocked') or '')
+    if blocked == 'refund_exceeds_original':
+        return info('환불 금액 불일치', reason='환불 합계가 원결제 금액을 초과합니다.', target=href+'#preview', protection=blocked)
+    if blocked.startswith('refund_') or (preview.get('refund_link') or {}).get('basis', '').endswith('_inferred'):
+        return info('환불 연결 근거', reason='원결제·취소 관계와 실제 환급은 별개의 정보입니다.', target=href+'#preview', protection=blocked or 'refund_inferred')
+    hold = row.get('review_hold') or preview.get('review_hold') or extra_hold or {}
+    if hold.get('kind') == 'existing_ledger':
+        return info('기존 기록', '장부 보기', target='/board?' + urlencode({'tab':row.get('display_tab_id') or ''}))
+    if blocked:
+        return info('원본 정보', reason='금융 기록의 원본 보호 조건이 적용됩니다.', protection=blocked)
+    return info()

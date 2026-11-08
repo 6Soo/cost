@@ -9,7 +9,7 @@ from app.db import decided_sql
 from . import ui_icons
 
 PAGE_SIZE = 50
-STATES = {'review': '처리 필요', 'booked': '완료', 'excluded': '제외'}
+STATES = {'booked': '완료', 'excluded': '제외'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"
 
 from .card_catalog_assets import CATALOG_SCRIPT, CATALOG_STYLE
@@ -55,8 +55,7 @@ def catalog(board, query):
         " WHEN COALESCE(t.conflict_reason,'')!='' OR COALESCE(t.parse_error,'')!='' THEN 'review'"
         " WHEN EXISTS (SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id"
         " AND h.source_hash=t.source_hash AND h.kind='existing_ledger') THEN 'booked' ELSE 'review' END")
-    if state in STATES or state == 'needs_review':
-        state = 'review' if state == 'needs_review' else state
+    if state in STATES:
         where.append('(' + state_sql + ')=?')
         params.extend((json.dumps(sorted(complete)), state))
     elif state == 'classified':  # Existing bookmarks remain usable.
@@ -94,19 +93,13 @@ def catalog(board, query):
             row['trip_name'] = '환불'
     from app.review_holds import active_holds
     from .card_actions import next_action
-    from .card_transactions import _open_user_action_ids
     holds = active_holds(board.conn)
     booked = {r[0] for r in board.conn.execute('SELECT transaction_id FROM ledger_entries')}
-    open_user_actions = _open_user_action_ids(board.conn)
     for row in rows:
         row['review_hold'] = holds.get(row['transaction_id'])
-        row['user_action_lookup_unavailable'] = open_user_actions is None
-        row['user_action_required'] = (None if open_user_actions is None else
-                                       row['transaction_id'] in open_user_actions)
         row['next_action'] = next_action(
             row,
             {'already_booked': row['transaction_id'] in booked},
-            user_action_required=row['user_action_required'],
         )
     if any(re.search(r'toyoko|토요코인', row.get('merchant') or '', re.I) for row in rows):
         from .card_flow import CardFlow
@@ -118,77 +111,17 @@ def catalog(board, query):
 
 
 def render_html(data, query, *, csrf=''):
-    esc = lambda value: html.escape('' if value is None else str(value), quote=True)
-    value = lambda key: str((query.get(key) or [''])[0])
-    def link(page):
-        return '/import?' + urlencode({**{k: value(k) for k in ('q', 'card', 'state', 'month', 'sort', 'origin')},
-                                       'scope': 'all', 'page': page})
-    def choices(name, label, options, selected):
-        return f'<h2>{esc(label)}</h2>' + ''.join(
-            f"<button type='button' class='filter-option' data-filter='{name}' data-value='{esc(k)}' "
-            f"aria-pressed='{'true' if k == selected else 'false'}'>{esc(text)}</button>" for k, text in options)
-    def heading(key, label, selected, contents, icon_name):
-        return (f"<th class='has-filter' scope='col'><button type='button' class='header-button' "
-                f"aria-label='{label}' popovertarget='filter-{key}' aria-expanded='false' aria-controls='filter-{key}'>"
-                f"{ui_icons.icon(icon_name, 14)}{label}<span class='header-value' aria-hidden='true'>{esc(selected)}</span>"
-                f"{ui_icons.icon('chevron-down', 14)}</button>"
-                f"<div id='filter-{key}' class='header-menu' popover aria-label='{label} 정렬 및 필터'>{contents}</div></th>")
-    sort = 'desc' if value('sort') == 'desc' else 'asc'
-    date_controls = choices('sort', '거래일 정렬', [('desc', '내림차순 · 최신 거래 먼저'), ('asc', '오름차순 · 오래된 거래 먼저')], sort)
-    date_controls += choices('month', '조회 월', [('', '전체 월')]
-                             + [(m, m.replace('-', '년 ') + '월') for m in data.get('months', [])], value('month'))
-    date_heading = heading('date', '거래일', ('오름차순' if sort == 'asc' else '내림차순')
-                           + (' · ' + value('month') if value('month') else ''), date_controls, 'calendar-days')
-    card_heading = heading('card', '카드', value('card'), choices('card', '카드 선택',
-                           [('', '모든 카드')] + [(c, c) for c in data['cards'] if c], value('card')), 'credit-card')
-    from app.classification_provenance import LABELS
-    state_controls = choices('state', '처리 상태', [('', '모든 상태'), *STATES.items()], value('state'))
-    state_controls += choices('origin', '분류 출처', [('', '모든 출처'), *LABELS.items()], value('origin'))
-    state_heading = heading('state', '상태', STATES.get(value('state'), ''), state_controls, 'list-filter')
-    hidden_filters = ''.join(f"<input type='hidden' name='{name}' value='{esc(value(name))}'>"
-                             for name in ('sort', 'month', 'card', 'state', 'origin'))
-    rows = []
-    for r in data['rows']:
-        from app import quarter_costs
-        quarter = quarter_costs.destination(r)
-        from .card_actions import next_action
-        action = r.get('next_action') or next_action(r)
-        state = action['state_label']
-        if r.get('classification_state') == 'classified':
-            state += ' · ' + action['source_label']
-        direction = {'purchase': '결제', 'cancellation': '취소', 'refund': '환불'}.get(
-            r['transaction_direction'], r['transaction_direction'])
-        amount = f"{r['amount_krw']:,}원" if type(r['amount_krw']) is int else '금액 미확인'
-        cells = [('거래일', r['approval_date'] or r['posting_date']),
-                 ('카드', r['issuer'] + ' · ' + r['card_tail']), ('지급처', r['merchant']),
-                 ('거래 구분', direction), ('원본 금액', amount),
-                 ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or
-                  (quarter['name'] + ' · 여행 외 비용' if quarter else '여행 확인 필요')), ('상태', state)]
-        row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
-        details = [action.get('status'), action.get('reason'), r.get('classification_basis')]
-        details.extend(r.get('ota_candidate_notes') or ())
-        evidence = ("<details><summary>근거 보기</summary>" + ''.join(
-            f"<p class='small'>{esc(note)}</p>" for note in details if note) + '</details>')
-        rows.append(f"<tr data-transaction='{esc(r['transaction_id'])}'>" + row +
-                    f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason_label'])}</p>"
-                    f"{evidence}<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
+    """Compatibility document for the retired duplicate catalog interface."""
+    kept = {}
+    for key in ('year','month','card','q','sort','origin'):
+        value = query.get(key)
+        if isinstance(value,(tuple,list)):
+            value = value[0] if value else ''
+        if value:
+            kept[key] = str(value)
+    target = '/cards/all' + ('?' + urlencode(kept) if kept else '')
+    escaped = html.escape(target,quote=True)
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>전체 카드 거래 검색</title>"
-        f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
-        "<nav class='catalog-actions' aria-label='전체 카드 거래 탐색'>"
-        f"<a class='catalog-btn' href='/import'>{ui_icons.icon('list')}정리할 지출 보기</a></nav>"
-        "<h1>전체 카드 거래 검색</h1>"
-        f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
-        ""
-        "<form id='card-filters' method='get' action='/import'><input name='q' aria-label='카드 거래 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
-        f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button>"
-        f"<a class='catalog-btn' href='/import?scope=all'>{ui_icons.icon('rotate-ccw')}초기화</a>"
-        + hidden_filters + "<input type='hidden' name='scope' value='all'></form>"
-        + "<table><thead><tr>" + date_heading + card_heading
-        + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '거래 구분', '원본 금액', '분류', '여행'))
-        + state_heading + "<th scope='col'>다음 행동</th>"
-        + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td class="catalog-message" colspan="9"><span class="catalog-message-text">조건에 맞는 카드 내역이 없습니다.</span></td></tr>')
-        + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
-        + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>{ui_icons.icon('chevron-left')}이전</a>" if data['page'] > 1 else '')
-        + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음{ui_icons.icon('chevron-right')}</a>" if data['page'] < data['pages'] else '')
-        + '</nav><script>' + CATALOG_SCRIPT + '</script></main></body></html>')
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>카드 내역</title></head><body><main><h1>카드 내역</h1>"
+            f"<p><a href='{escaped}'>카드 내역 열기</a></p></main></body></html>")
