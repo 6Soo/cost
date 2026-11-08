@@ -62,6 +62,15 @@ def sha(value):
     return hashlib.sha256(value.encode('utf-8')).hexdigest()
 
 
+def encoded_sha256(value):
+    """Hash the exact canonical JSON without joining an entire source in memory."""
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    for fragment in encoder.iterencode(value):
+        digest.update(fragment.encode('utf-8'))
+    return digest.hexdigest()
+
+
 def packed(value):
     return zlib.compress(encoded(value).encode('utf-8'))
 
@@ -109,11 +118,11 @@ def _entries(conn, revision):
             if not blob:
                 raise ValueError('OTA_STORE_RAW_BLOB_MISSING')
             decoded = unpacked(blob[0])
-            if sha(encoded(decoded)) != value['ota_blob_sha256']:
+            if encoded_sha256(decoded) != value['ota_blob_sha256']:
                 raise ValueError('OTA_STORE_RAW_HASH_MISMATCH')
             entries[key] = decoded
     expected = conn.execute('SELECT sha256 FROM ota_source_revisions WHERE revision_id=?', (revision,)).fetchone()
-    if not expected or sha(encoded(entries)) != expected[0]:
+    if not expected or encoded_sha256(entries) != expected[0]:
         raise ValueError('OTA_STORE_RAW_HASH_MISMATCH')
     return entries
 
@@ -282,16 +291,20 @@ def direct_facts(conn):
 
 
 def mail_bundles(path):
+    return list(iter_mail_bundles(path))
+
+
+def iter_mail_bundles(path):
+    """Verify and release one source scope at a time, retaining legacy ordering."""
     with closing(connect_read(path)) as conn:
-        bundles = []
         for source in conn.execute("SELECT * FROM ota_sources WHERE kind='mail_directory' ORDER BY ordinal"):
             entries = _entries(conn, source['current_revision'])
             collection = {key:value for key,value in entries.get('collection', {}).items()
                           if key in ('after', 'before', 'query_exhausted', 'fetched')}
             messages = [message for key in sorted(entries) if key.startswith('gmail') and key.endswith('.json')
                         for message in entries[key]['responses']]
-            bundles.append((source['locator'], collection, messages))
-        return bundles
+            del entries
+            yield source['locator'], collection, messages
 
 
 def reference_bundles(path):
