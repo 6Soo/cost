@@ -7,7 +7,7 @@ const COST_CLOUD_MAIL = {
   manifest: 'cloud-mail-manifest.json',
   schema: 'cost-cloud-mail-v1',
   budgetMs: 240000,
-  queryRevision: 3,
+  queryRevision: 4,
 };
 
 function costMailJson_(response) {
@@ -89,7 +89,7 @@ function costMailQuery_(after) {
   const recipients = ['kew2000@hanmail.net', 'kew2000@daum.net'];
   return 'after:' + after.replace(/-/g, '/') + ' (' + suppliers.map(x => 'from:' + x).concat(
     recipients.map(x => 'to:' + x + ' OR cc:' + x)).join(' OR ')
-    + ' OR subject:토요코인 OR (from:nicepg.co.kr ("자연휴양림" OR "휴양시설")))';
+    + ' OR subject:토요코인 OR (from:nicepg.co.kr ("자연휴양림" OR "휴양시설" OR "산림치유원" OR "숲나들e")))';
 }
 
 function costMailOriginal_(document, id) {
