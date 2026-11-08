@@ -185,6 +185,16 @@ def _valid_use_date(value: Any) -> bool:
 _DATE_VALUE_SQL = "COALESCE(NULLIF(approval_date,''),NULLIF(posting_date,''))"
 _VALID_DATE_SQL = f"COST_VALID_USE_DATE({_DATE_VALUE_SQL}) = 1"
 
+def _date_value_sql(conn: sqlite3.Connection) -> str:
+    """Use the posting fallback when the real schema provides it.
+
+    A few read-only access checks use a deliberately minimal transactions
+    table with only approval_date. Keep those checks safe without weakening
+    the production schema contract.
+    """
+    columns = {row[1] for row in conn.execute('PRAGMA table_info(transactions)')}
+    return _DATE_VALUE_SQL if 'posting_date' in columns else 'approval_date'
+
 def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
     """Resolve the card transactions database path.
 
@@ -311,7 +321,9 @@ def _connect(db_path: str) -> sqlite3.Connection:
 def _get_available_years(conn: sqlite3.Connection) -> List[int]:
     """Get years from valid use/approval dates, with posting fallback."""
     cur = conn.cursor()
-    cur.execute(f"SELECT DISTINCT substr({_DATE_VALUE_SQL}, 1, 4) FROM transactions WHERE {_VALID_DATE_SQL} ORDER BY 1")
+    date_sql = _date_value_sql(conn)
+    valid_sql = f"COST_VALID_USE_DATE({date_sql}) = 1"
+    cur.execute(f"SELECT DISTINCT substr({date_sql}, 1, 4) FROM transactions WHERE {valid_sql} ORDER BY 1")
     return [int(row[0]) for row in cur.fetchall()]
 @request_metrics.card_stage('card_query')
 def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> Dict[str, Any]:
@@ -324,6 +336,8 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> 
     conn = _connect(resolved_path)
     try:
         cur = conn.cursor()
+        date_sql = _date_value_sql(conn)
+        valid_sql = f"COST_VALID_USE_DATE({date_sql}) = 1"
         extra, filter_params = _filter_clause(**filters)
         # The old implementation rescanned every card row 13 times: once per
         # calendar month and once for undated rows. Validity uses a Python SQL
@@ -331,8 +345,8 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> 
         # landing page. Group all buckets in a single read-only scan instead.
         # Other years are a separate bucket, never miscounted as undated.
         cur.execute(
-            "SELECT CASE WHEN NOT (" + _VALID_DATE_SQL + ") THEN 'undated' "
-            "WHEN substr(" + _DATE_VALUE_SQL + ", 1, 4) = ? THEN substr(" + _DATE_VALUE_SQL + ", 6, 2) "
+            "SELECT CASE WHEN NOT (" + valid_sql + ") THEN 'undated' "
+            "WHEN substr(" + date_sql + ", 1, 4) = ? THEN substr(" + date_sql + ", 6, 2) "
             "ELSE 'other' END AS period_bucket, "
             "COUNT(DISTINCT transaction_id) FROM transactions WHERE 1=1"
             + extra + " GROUP BY period_bucket",
@@ -364,8 +378,10 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
     conn = _connect(resolved_path)
     try:
         cur = conn.cursor()
+        date_sql = _date_value_sql(conn)
+        valid_sql = f"COST_VALID_USE_DATE({date_sql}) = 1"
         params = [str(year), f"{month:02d}"]
-        where = f"{_VALID_DATE_SQL} AND substr({_DATE_VALUE_SQL}, 1, 4) = ? AND substr({_DATE_VALUE_SQL}, 6, 2) = ?"
+        where = f"{valid_sql} AND substr({date_sql}, 1, 4) = ? AND substr({date_sql}, 6, 2) = ?"
         extra, filter_params = _filter_clause(**filters)
         where += extra
         params.extend(filter_params)
@@ -379,19 +395,19 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
             c_date_only = int(len(c_date) == 10)
             c_time = c_date[11:] if not c_date_only else ""
             where += (
-                f" AND (substr({_DATE_VALUE_SQL}, 1, 10), "
-                f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END, "
-                f"substr({_DATE_VALUE_SQL}, 12), transaction_id) > (?, ?, ?, ?)"
+                f" AND (substr({date_sql}, 1, 10), "
+                f"CASE WHEN length({date_sql}) = 10 THEN 1 ELSE 0 END, "
+                f"substr({date_sql}, 12), transaction_id) > (?, ?, ?, ?)"
             )
             params += [c_date[:10], c_date_only, c_time, c_id]
         sql = (
-            f"SELECT transaction_id, {_DATE_VALUE_SQL} AS approval_date, approval_number, amount_krw, "
+            f"SELECT transaction_id, {date_sql} AS approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
             "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             "FROM transactions WHERE " + where +
-            f" ORDER BY substr({_DATE_VALUE_SQL}, 1, 10) ASC, "
-            f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END ASC, "
-            f"substr({_DATE_VALUE_SQL}, 12) ASC, transaction_id ASC LIMIT ?"
+            f" ORDER BY substr({date_sql}, 1, 10) ASC, "
+            f"CASE WHEN length({date_sql}) = 10 THEN 1 ELSE 0 END ASC, "
+            f"substr({date_sql}, 12) ASC, transaction_id ASC LIMIT ?"
         )
         cur.execute(sql, params + [per_page + 1])
         rows = cur.fetchall()
@@ -449,10 +465,12 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
     conn = _connect(resolved_path)
     try:
         cur = conn.cursor()
+        date_sql = _date_value_sql(conn)
+        valid_sql = f"COST_VALID_USE_DATE({date_sql}) = 1"
         params = []
         # Only truly null/empty/invalid dates - NOT "NOT LIKE year-%".
         # The OR group must be parenthesized so a cursor filter cannot reopen it.
-        where = f"NOT ({_VALID_DATE_SQL})"
+        where = f"NOT ({valid_sql})"
         extra, params = _filter_clause(**filters)
         where += extra
         # The containing page has already counted these same rows via
@@ -538,8 +556,10 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
 
     conn = _connect(_resolve_card_db_path(db_path))
     try:
+        date_sql = _date_value_sql(conn)
+        valid_sql = f"COST_VALID_USE_DATE({date_sql}) = 1"
         params = [str(year)]
-        where = f"{_VALID_DATE_SQL} AND substr({_DATE_VALUE_SQL}, 1, 4) = ?"
+        where = f"{valid_sql} AND substr({date_sql}, 1, 4) = ?"
         extra, filter_params = _filter_clause(**filters)
         where += extra
         params.extend(filter_params)
@@ -561,19 +581,19 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
             c_date_only = int(len(c_date) == 10)
             c_time = c_date[11:] if not c_date_only else ""
             where += (
-                f" AND (substr({_DATE_VALUE_SQL}, 1, 10), "
-                f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END, "
-                f"substr({_DATE_VALUE_SQL}, 12), transaction_id) > (?, ?, ?, ?)"
+                f" AND (substr({date_sql}, 1, 10), "
+                f"CASE WHEN length({date_sql}) = 10 THEN 1 ELSE 0 END, "
+                f"substr({date_sql}, 12), transaction_id) > (?, ?, ?, ?)"
             )
             params.extend([c_date[:10], c_date_only, c_time, c_id])
         sql = (
-            f"SELECT transaction_id, {_DATE_VALUE_SQL} AS approval_date, approval_number, amount_krw, "
+            f"SELECT transaction_id, {date_sql} AS approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
             "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             "FROM transactions WHERE " + where +
-            f" ORDER BY substr({_DATE_VALUE_SQL}, 1, 10) ASC, "
-            f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END ASC, "
-            f"substr({_DATE_VALUE_SQL}, 12) ASC, transaction_id ASC LIMIT ?"
+            f" ORDER BY substr({date_sql}, 1, 10) ASC, "
+            f"CASE WHEN length({date_sql}) = 10 THEN 1 ELSE 0 END ASC, "
+            f"substr({date_sql}, 12) ASC, transaction_id ASC LIMIT ?"
         )
         cur.execute(sql, params + [per_page + 1])
         rows = cur.fetchall()
