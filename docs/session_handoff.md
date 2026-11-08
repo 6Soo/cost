@@ -1,3 +1,11 @@
+## 2026-11-09 여행 장부 이용일 경고 — 조사 완료 / 표시 보완 Draft / 배포 미실행
+
+- 최신 요청 `이용일 확인필요라고 떠있는건들 조사`의 대상은 카드 목록 날짜 경고가 아닌 여행 장부다. 인증 ego-browser GET으로 여행68개·지출2860행을 전수 확인해 숙박비353행/항공료49행 경고를 조사했다. [원인별 집계·수정·검증 한계](specs/ledger-service-date-investigation-20261109.md).
+- [Draft PR #759](https://github.com/6Soo/cost/pull/759), 코드 SHA `221849f10f80b24e482a58cf2cfa8902ad56c2c2`: M:N 동일 이용기간과 항목 메타데이터 누락의 표시 보완. 표적71pass·독립64pass/정확SHA 코드APPROVE·합성1440/390/320 전후 넘침0. 금융·원본·예약 연결·여행 배정·Google 쓰기 없음.
+- **필수 영향 QA245pass/1fail·skip0·compilePASS**. 기존 `test_toyoko_reconciliation.py`85행이 호환 링크 화면에 예약번호를 기대하며 기준 모듈에서도 실패한다. 테스트 제외나 범위 밖 수정 없음. 실제 실패에 CI 인프라 예외를 적용하지 않았으며 병합·배포·재시작 미실행이다.
+- 보관 worker 입력 기준73행은 표시 보완 후보(새 경로71행 추가)지만 운영 snapshot과 세대가 달라 운영 해결 건수로 주장하지 않는다. 나머지 원인과 항공료49행도 개별 조사 기록에 보존했다. 운영은 조사 당시 `d96f08809b8201238e8399d053140ab20e3a91fc`이며 이전 카드 날짜0건 보고는 이 요구의 완료 근거가 아니다.
+- 정확한 재개점: 비공개 `C:/AX/cost/.local-archive/service-date-investigation-20261109/CHECKPOINT.md`. 기존 검사 실패 별도 처리→필수 영향QA→최종SHA검수/정상병합→공식 단일배포→같은68장부 실제감소 수락이 남았다. 배포 보호 경계 유지.
+
 ## 2026-11-09 산림치유원 NICE 메일 — 운영 수집 전환·누락 원문 복구 완료
 
 - [PR #752](https://github.com/6Soo/cost/pull/752)의 수집·파서 수정은 통합 운영 SHA `d96f08809b8201238e8399d053140ab20e3a91fc`에 포함되어 있다. 제품 검수 HEAD `d337121f45335a3fdd1486afb97e7ad53ba1d1d8` 영향 QA411 passed·skip0·compile PASS·필수 브라우저1/1, 독립 gpt-6.1-sol/medium 승인 근거를 유지한다. CI는 결제/사용 한도의 steps0 차단으로 녹색이 아니었다.
@@ -1478,4 +1486,3 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 2026-11-08 카드 내역 거래일자 공백 전환
 
 최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. PR #731 병합 및 운영 SHA `d97158484d17f974668dafffafdb1a7b462a7249` 배포 완료. 최종 영향 QA503+100 subtests, skip0/browser35, Sol medium 검수 PASS. health/ready200·보호API401·보호13표 불변. 인증 운영 API·DOM으로23파일/27표시그룹/515공백 및 구 폼0 확인; 전체 고객 화면 시각 수락은 미검증이다. 실제 작업 근거는 운영 기록에 보존하며 문서-only 후속은 재배포하지 않는다. 기존 main의 다른 로컬 커밋8개는 별도 보존한다.
-
