@@ -283,7 +283,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit', 'rollback_cleanup', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
+@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit', 'job_exit_at_stop', 'backend_exit_at_stop', 'failure_artifact_write', 'rollback_cleanup', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -337,6 +337,16 @@ $global:stalePorts=@{}
 $global:staleSupervisors=@{}
 $global:activationFailed=$false
 $global:unknownCandidate=$false
+if($Failure -eq 'failure_artifact_write'){
+ function Set-Content {
+  [CmdletBinding()]param([Parameter(Position=0)]$Path,$LiteralPath,$Encoding,[Parameter(ValueFromPipeline)]$Value)
+  process{
+   $target=if($LiteralPath){$LiteralPath}else{$Path}
+   if($target.EndsWith('.failure.json')){throw 'SYNTHETIC_ARTIFACT_WRITE_FAILED'}
+   Microsoft.PowerShell.Management\Set-Content -LiteralPath $target -Value $Value -Encoding $Encoding
+  }
+ }
+}
 function Get-ScheduledTask {
     param($TaskName)
     if($TaskName -eq 'WebLedger-Board'){return $global:board}
@@ -419,6 +429,11 @@ function Get-CimInstance {
 function Stop-Process {
     param($Id)
     $global:events.Add('kill:'+$Id)
+    if(($Failure -eq 'job_exit_at_stop' -and $Id -in @(28751,28752)) -or ($Failure -eq 'backend_exit_at_stop' -and $Id -in @(8751,8752))){
+     $port=if($Id -gt 20000){[int]$Id-20000}else{[int]$Id}
+     $global:supervisors[$port]=$false;$global:ports.Remove($port)
+     throw 'SYNTHETIC_PROCESS_ALREADY_EXITED'
+    }
     if($Id -in @(28751,28752)){$global:supervisors[[int]$Id-20000]=$false;if($Id -eq 28752 -and $global:starting){$global:ports.Remove(8752)};return}
     if($global:supervisors[[int]$Id]){return} # A surviving supervisor restarts its backend.
     $global:ports.Remove([int]$Id)
@@ -433,7 +448,7 @@ function Invoke-SyntheticRoute {
     $action=$args[1]
     $global:events.Add('route:'+$action)
     if($action -eq 'pause' -and $Failure -eq 'drain'){throw 'SYNTHETIC_DRAIN_TIMEOUT'}
-    if($action -eq 'activate' -and $Failure -eq 'rollback_cleanup' -and -not $global:activationFailed){$global:activationFailed=$true;throw 'SYNTHETIC_ACTIVATE_FAILURE'}
+    if($action -eq 'activate' -and $Failure -in @('rollback_cleanup','failure_artifact_write') -and -not $global:activationFailed){$global:activationFailed=$true;throw 'SYNTHETIC_ACTIVATE_FAILURE'}
     $global:LASTEXITCODE=0
 }
 try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText='' } catch { $outcome='FAILED';$errorText=$_.Exception.Message }
@@ -445,21 +460,24 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert not report['prepared_exists']
-    if not failure or failure in ('owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit'):
+    if not failure or failure in ('owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit', 'job_exit_at_stop', 'backend_exit_at_stop'):
         assert report['outcome'] == 'PASS', report
         assert new in report['board'] and report['new_alive'] and not report['old_alive']
         assert '--role Board --port 8752 --' in report['board']
         assert report['board'].count('webledger_task_entry.pyw') == 1
         assert 'webledger_board_job.pyw' not in report['board']
-        stop_event = 'stop:WebLedger-Board' if failure in ('job_exit_before_listener_query', 'supervisor_snapshot_exit') else 'kill:8751'
+        stop_event = 'kill:28751' if failure == 'job_exit_at_stop' else 'stop:WebLedger-Board' if failure in ('job_exit_before_listener_query', 'supervisor_snapshot_exit') else 'kill:8751'
         assert report['events'].index('route:pause') < report['events'].index(stop_event) < report['events'].index('route:activate')
         if failure in ('job_exit_before_listener_query', 'supervisor_snapshot_exit'):
             assert not any(event.startswith('kill:') for event in report['events'])
-        elif failure != 'supervisor_exits':
+        elif failure not in ('supervisor_exits', 'job_exit_at_stop'):
             assert report['events'].index('kill:28751') < report['events'].index('kill:8751')
             assert 'kill:28752' in report['events']
     else:
         assert report['outcome'] == 'FAILED', report
+        if failure == 'failure_artifact_write':
+            assert 'FAILURE_EVIDENCE_WRITE_FAILED' in result.stdout
+            assert 'SYNTHETIC_ACTIVATE_FAILURE' in report['error']
         if failure in ('multiple_supervisors', 'late_duplicate', 'late_replacement'):
             assert 'SUPERVISOR_AMBIGUOUS' in report['error']
         if failure in ('late_duplicate', 'late_replacement'):

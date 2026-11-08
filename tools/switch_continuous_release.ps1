@@ -41,6 +41,15 @@ function Route-Control([string]$Action,[int]$Port=0) {
     & $python @parameters
     if($LASTEXITCODE -ne 0){throw "ROUTE_CONTROL_FAILED_$Action"}
 }
+function Write-FailureEvidence([string]$Path,[hashtable]$Record) {
+    try {$Record | ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding UTF8}
+    catch {
+        # Diagnostics must never prevent cleanup or restoring the prior task.
+        # Preserve both error identities in the captured command output when
+        # the artifact cannot be written (for example, a full/read-only disk).
+        Write-Warning ('FAILURE_EVIDENCE_WRITE_FAILED: original='+$Record.original_error+'; recording='+$_.FullyQualifiedErrorId) -WarningAction Continue
+    }
+}
 function Wait-Backend([int]$Port,[string]$Sha) {
     for($attempt=0;$attempt -lt 120;$attempt++) {
         $listeners=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
@@ -84,7 +93,14 @@ function Stop-Backend([int]$Port,[string]$Sha) {
         }
         if($listener.LocalAddress -ne '127.0.0.1' -or -not $process.CommandLine.Contains($Sha) -or -not $process.CommandLine.Contains('launch_web_ledger.py')){throw 'BACKEND_STOP_IDENTITY_FAILED'}
         $parent=Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ParentProcessId)"
-        Stop-Process -Id $process.ProcessId -ErrorAction Stop
+        try {Stop-Process -Id $process.ProcessId -ErrorAction Stop}
+        catch {
+            $stopError=$_
+            $remaining=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+            $sameProcess=Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ProcessId)"
+            if($sameProcess -or $remaining.Count){throw $stopError}
+            continue
+        }
         if($parent -and $parent.CommandLine -and $parent.CommandLine.Contains($Sha) -and $parent.CommandLine.Contains('launch_web_ledger.py')){Stop-Process -Id $parent.ProcessId -ErrorAction SilentlyContinue}
     }
 }
@@ -145,7 +161,11 @@ function Get-VerifiedSupervisorProcess($Identity) {
 function Stop-VerifiedSupervisor($Identity) {
     $process=Get-VerifiedSupervisorProcess $Identity
     if(-not $process){return}
-    Stop-Process -Id $process.ProcessId -ErrorAction Stop
+    try {Stop-Process -Id $process.ProcessId -ErrorAction Stop}
+    catch {
+        $stopError=$_
+        if(Get-VerifiedSupervisorProcess $Identity){throw $stopError}
+    }
 }
 function Assert-EntryIdentity([string]$Sha) {
     foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
@@ -255,7 +275,7 @@ try {
     $originalError=$_.FullyQualifiedErrorId
     $originalMessage=$_.Exception.Message
     $failurePath="$hostRoot\releases\continuous-switch-$CandidateSha.failure.json"
-    @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$false} | ConvertTo-Json | Set-Content -LiteralPath $failurePath -Encoding UTF8
+    Write-FailureEvidence $failurePath @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$false}
     $cleanupUnknown=$false
     if($switched){
         $paused=$true
@@ -282,7 +302,7 @@ try {
         Wait-Backend $oldPort $PreviousSha
         Route-Control 'activate' $oldPort
     } elseif($paused) {Route-Control 'resume'}
-    @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$true;candidate_cleanup_verified=(-not $cleanupUnknown)} | ConvertTo-Json | Set-Content -LiteralPath $failurePath -Encoding UTF8
+    Write-FailureEvidence $failurePath @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$true;candidate_cleanup_verified=(-not $cleanupUnknown)}
     if($cleanupUnknown){throw 'CONTINUOUS_SWITCH_FAILED_CANDIDATE_SUPERVISOR_UNVERIFIED'}
     throw "CONTINUOUS_SWITCH_FAILED_$originalError"
 } finally {
