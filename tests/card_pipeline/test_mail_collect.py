@@ -135,6 +135,56 @@ def test_historical_window_is_idempotent_and_preserves_recurring_watermark(tmp_p
     assert mail_collect.collect_window(client, tmp_path, '2026-09-16', '2026-09-19')['fetched'] == 0
 
 
+def test_daily_history_recovers_old_daum_import_without_replacing_original_or_cursor(tmp_path):
+    class DelayedGmail(FakeGmail):
+        def list_ids(self, query):
+            self.queries.append(query)
+            return ['recent', 'late-old-date'] if 'after:2026/04/01 ' in query else ['recent']
+
+    client = DelayedGmail([])
+    (tmp_path / 'collection.json').write_text('{"before":"2026-11-08"}', encoding='utf-8')
+    mail_collect.collect(client, tmp_path, datetime(2026, 11, 9, 9))
+    cursor = (tmp_path / 'collection.json').read_bytes()
+    original, = tmp_path.glob('gmail-auto-*.json')
+    original_bytes = original.read_bytes()
+    result = mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 9))
+    assert result['fetched'] == 1 and result['skipped'] is False
+    assert 'after:2026/04/01 ' in client.queries[-1]
+    assert 'before:2026/11/10' in client.queries[-1]
+    assert mail_collect.stored_ids(tmp_path) == {'recent', 'late-old-date'}
+    assert original.read_bytes() == original_bytes
+    assert (tmp_path / 'collection.json').read_bytes() == cursor
+    queries = len(client.queries)
+    assert mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 10))['skipped'] is True
+    assert len(client.queries) == queries
+    assert mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 10, 9))['fetched'] == 0
+    assert len(client.queries) == queries + 1
+
+
+def test_daily_history_retries_failed_import_before_marking_complete(tmp_path, monkeypatch):
+    import pytest
+    cursor = '{"before":"2026-11-08"}'
+    (tmp_path / 'collection.json').write_text(cursor, encoding='utf-8')
+    client = FakeGmail(['old-date'])
+
+    def fail(_directory):
+        raise ValueError('synthetic import failure')
+
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', fail)
+    with pytest.raises(ValueError, match='synthetic import failure'):
+        mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 9))
+    assert not (tmp_path / 'history-reconciliation.json').exists()
+    original, = tmp_path.glob('gmail-window-*.json')
+    before = original.read_bytes()
+    calls = []
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', lambda directory: calls.append(directory))
+    result = mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 10))
+    assert result['fetched'] == 0 and calls == [tmp_path]
+    assert original.read_bytes() == before
+    assert (tmp_path / 'collection.json').read_text(encoding='utf-8') == cursor
+    assert json.loads((tmp_path / 'history-reconciliation.json').read_text(encoding='utf-8'))['completed_on'] == '2026-11-09'
+
+
 def test_forest_recovery_fetches_only_scoped_receipts_and_keeps_originals_and_watermark(tmp_path):
     state = '{"before":"2026-10-31","message_ids":["existing"]}'
     (tmp_path / 'collection.json').write_text(state, encoding='utf-8')

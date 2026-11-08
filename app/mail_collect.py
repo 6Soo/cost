@@ -14,6 +14,7 @@ SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
+HISTORY_START = '2026-04-01'
 API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 
@@ -173,6 +174,40 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     return {'matched': len(listed), 'fetched': len(messages), 'query': query}
 
 
+def reconcile_history(client, directory: Path, now: datetime | None = None) -> dict:
+    """Recover late POP imports once a day, without advancing the recurring cursor.
+
+    Gmail can retain an old message date when Daum imports a reservation later.
+    A successful recent-window poll therefore does not prove historical coverage.
+    Existing original IDs remain immutable through collect_window().
+    """
+    directory = Path(directory)
+    now = now or datetime.now()
+    checkpoint = directory / 'history-reconciliation.json'
+    state = json.loads(checkpoint.read_text(encoding='utf-8')) if checkpoint.is_file() else {}
+    today = now.date().isoformat()
+    if state.get('completed_on') == today and state.get('after') == HISTORY_START:
+        return {'matched': 0, 'fetched': 0, 'skipped': True}
+    before = (now.date() + timedelta(days=1)).isoformat()
+    result = collect_window(client, directory, HISTORY_START, before)
+    # An import failure must leave the previous checkpoint intact so the next
+    # scheduled run retries both missing originals and the unified-store import.
+    import tempfile
+    fd, temporary = tempfile.mkstemp(prefix='.mail-history-', suffix='.tmp', dir=directory)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as output:
+            json.dump({'after': HISTORY_START, 'before': before, 'completed_on': today,
+                       'completed_at': now.isoformat(timespec='seconds'),
+                       'matched': result['matched'], 'fetched': result['fetched']}, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, checkpoint)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return dict(result, skipped=False)
+
+
 def owner_record(message_id: str, headers: dict, body: str) -> dict:
     """소유자 Gmail MCP로 읽은 메일을 저장 형식으로 만든다. 발신 인증 헤더는 없고 owner_collected로 표시한다."""
     from base64 import urlsafe_b64encode
@@ -306,6 +341,9 @@ def main(argv=None) -> int:
                              forest_only=args.forest_receipts_only)
               if args.after else collect(client, Path(args.directory)))
     print(f"matched {result['matched']} fetched {result['fetched']}")
+    if not args.after:
+        historical = reconcile_history(client, Path(args.directory))
+        print(f"history matched {historical['matched']} fetched {historical['fetched']}")
     return 0
 
 
