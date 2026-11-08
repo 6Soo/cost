@@ -52,7 +52,8 @@ def test_query_preserves_always_collected_recipients_and_after_boundary():
     assert query.startswith('after:2026/10/02 (')
     assert 'to:kew2000@hanmail.net OR cc:kew2000@hanmail.net' in query
     assert 'to:kew2000@daum.net OR cc:kew2000@daum.net' in query
-    assert 'subject:토요코인 OR (from:nicepg.co.kr ("자연휴양림" OR "휴양시설"))' in query
+    assert 'subject:토요코인 OR ' + mail_collect.forest_receipt_query() in query
+    assert '"산림치유원"' in query and '"숲나들e"' in query
     assert query.endswith(')))')
 
 
@@ -132,6 +133,21 @@ def test_historical_window_is_idempotent_and_preserves_recurring_watermark(tmp_p
     assert 'before:2026/09/19' in client.queries[0]
     assert (tmp_path / 'collection.json').read_text(encoding='utf-8') == state
     assert mail_collect.collect_window(client, tmp_path, '2026-09-16', '2026-09-19')['fetched'] == 0
+
+
+def test_forest_recovery_fetches_only_scoped_receipts_and_keeps_originals_and_watermark(tmp_path):
+    state = '{"before":"2026-10-31","message_ids":["existing"]}'
+    (tmp_path / 'collection.json').write_text(state, encoding='utf-8')
+    original = json.dumps({'responses': [{'id': 'existing'}]})
+    (tmp_path / 'gmail-existing.json').write_text(original, encoding='utf-8')
+    client = FakeGmail(['existing', 'missing', 'missing'])
+    result = mail_collect.collect_window(client, tmp_path, '2026-06-30', '2026-09-01', forest_only=True)
+    assert result['matched'] == 2 and result['fetched'] == 1
+    assert client.queries == ['after:2026/06/30 ' + mail_collect.forest_receipt_query() + ' before:2026/09/01']
+    assert 'to:' not in client.queries[0] and 'subject:토요코인' not in client.queries[0]
+    assert (tmp_path / 'gmail-existing.json').read_text(encoding='utf-8') == original
+    assert (tmp_path / 'collection.json').read_text(encoding='utf-8') == state
+    assert mail_collect.collect_window(client, tmp_path, '2026-06-30', '2026-09-01', forest_only=True)['fetched'] == 0
 
 
 def test_historical_window_retries_import_without_replacing_original(tmp_path, monkeypatch):

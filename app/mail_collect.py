@@ -21,8 +21,12 @@ def build_query(after: str) -> str:
     senders = ' OR '.join(f'from:{domain}' for domain in SUPPLIER_DOMAINS)
     recipients = ' OR '.join(f'to:{address} OR cc:{address}' for address in ALWAYS_RECIPIENTS)
     # Toyoko Inn sender addresses vary; subject matching is a separate discovery path.
-    forest_receipts = '(from:nicepg.co.kr ("자연휴양림" OR "휴양시설"))'
+    forest_receipts = forest_receipt_query()
     return f'after:{after.replace("-", "/")} ({senders} OR {recipients} OR subject:토요코인 OR {forest_receipts})'
+
+
+def forest_receipt_query() -> str:
+    return '(from:nicepg.co.kr ("자연휴양림" OR "휴양시설" OR "산림치유원" OR "숲나들e"))'
 
 
 class GmailApi:
@@ -140,7 +144,7 @@ def collect(client, directory: Path, now: datetime | None = None) -> dict:
     return {'matched': len(listed), 'fetched': len(messages), 'query': query}
 
 
-def collect_window(client, directory: Path, after: str, before: str) -> dict:
+def collect_window(client, directory: Path, after: str, before: str, *, forest_only=False) -> dict:
     """Append a bounded historical query without changing the recurring watermark."""
     import tempfile
     import uuid
@@ -148,7 +152,9 @@ def collect_window(client, directory: Path, after: str, before: str) -> dict:
     start, end = date.fromisoformat(after), date.fromisoformat(before)
     if start >= end:
         raise ValueError('MAIL_WINDOW_INVALID')
-    query = build_query(start.isoformat()) + ' before:' + end.isoformat().replace('-', '/')
+    query = (f'after:{start.isoformat().replace("-", "/")} {forest_receipt_query()}'
+             if forest_only else build_query(start.isoformat()))
+    query += ' before:' + end.isoformat().replace('-', '/')
     listed = list(dict.fromkeys(client.list_ids(query)))
     stored = stored_ids(directory)
     messages = [client.get_full(message_id) for message_id in listed if message_id not in stored]
@@ -285,6 +291,8 @@ def main(argv=None) -> int:
     parser.add_argument('--authorize', action='store_true')
     parser.add_argument('--after', help='historical window lower bound (exclusive, YYYY-MM-DD)')
     parser.add_argument('--before', help='historical window upper bound (exclusive, YYYY-MM-DD)')
+    parser.add_argument('--forest-receipts-only', action='store_true',
+                        help='Recover only NICE forest receipts in the explicit historical window')
     args = parser.parse_args(argv)
     if args.authorize:
         authorize(Path(args.client_file), Path(args.token_file))
@@ -292,7 +300,10 @@ def main(argv=None) -> int:
     client = GmailApi(args.token_file, args.client_file, owner_domains=args.owner_domain)
     if bool(args.after) != bool(args.before):
         parser.error('--after and --before must be used together')
-    result = (collect_window(client, Path(args.directory), args.after, args.before)
+    if args.forest_receipts_only and not args.after:
+        parser.error('--forest-receipts-only requires --after and --before')
+    result = (collect_window(client, Path(args.directory), args.after, args.before,
+                             forest_only=args.forest_receipts_only)
               if args.after else collect(client, Path(args.directory)))
     print(f"matched {result['matched']} fetched {result['fetched']}")
     return 0

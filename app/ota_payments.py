@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import re
+import threading
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -50,6 +51,7 @@ def _event_id(source_ids):
 
 
 _MAIL_EVENT_MEMO = {}
+_MAIL_EVENT_LOCK = threading.RLock()
 
 
 def _mail_events(directories, *, read_only=False):
@@ -59,14 +61,15 @@ def _mail_events(directories, *, read_only=False):
     everyone else gets a copy, so the memo cannot be changed from outside.
     """
     from app import ota_sources
-    key = (tuple(str(Path(d)) for d in (directories or [])),
-           json.dumps(ota_sources.mail_stamps(directories), sort_keys=True))
-    if key not in _MAIL_EVENT_MEMO:
-        _MAIL_EVENT_MEMO.clear()
-        _MAIL_EVENT_MEMO[key] = _parse_mail_events(directories)
-    if read_only:
-        return _MAIL_EVENT_MEMO[key]
-    return copy.deepcopy(_MAIL_EVENT_MEMO[key])
+    with _MAIL_EVENT_LOCK:
+        key = (tuple(str(Path(d)) for d in (directories or [])),
+               json.dumps(ota_sources.mail_stamps(directories), sort_keys=True))
+        if key not in _MAIL_EVENT_MEMO:
+            _MAIL_EVENT_MEMO.clear()
+            _MAIL_EVENT_MEMO[key] = _parse_mail_events(directories)
+        if read_only:
+            return _MAIL_EVENT_MEMO[key]
+        return copy.deepcopy(_MAIL_EVENT_MEMO[key])
 
 
 def _parse_mail_events(directories):

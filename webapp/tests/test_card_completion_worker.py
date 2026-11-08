@@ -184,17 +184,21 @@ def test_transient_recording_failure_backs_off_and_retries_saved_classification(
     assert snapshot_originals(board)==original
 
 
-def test_new_trip_evidence_resumes_a_waiting_row_without_an_owner_request(setup):
+def test_no_trip_finishes_in_quarter_and_new_trip_does_not_duplicate_entry(setup):
     board = setup
     receive(board, 1, card='1234')
     worker = CardCompletionWorker(board, threading.RLock())
     assert worker.sweep_once()
     assert not worker.sweep_once()
-    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
+    # The final-destination contract completes in the payment quarter when no
+    # actual trip exists. It must never leave an owner-facing waiting row.
+    original = board.conn.execute('SELECT trip_id,amount_krw FROM ledger_entries').fetchall()
+    assert original == [('', 10000)]  # Only actual trips occupy ledger trip_id.
+    assert board.conn.execute('SELECT display_tab_id FROM transactions').fetchone()[0] == 'quarter:2026:4'
     board.create_trip(starts_on='2026-10-14', ends_on='2026-10-17',
                       destination='합성', client_request_id='new-synthetic-authority')
-    assert worker.sweep_once()
-    assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    assert not worker.sweep_once()
+    assert board.conn.execute('SELECT trip_id,amount_krw FROM ledger_entries').fetchall() == original
 
 
 @pytest.mark.parametrize('day,next_start,previous_end,destination', [

@@ -94,8 +94,8 @@
     },
     {
       "name": "continuous-release-gateway",
-      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py"],
-      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
+      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/switch_verified_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "tools/webledger_windows_lifecycle.py", "tools/webledger_task_entry.pyw", "tests/test_webledger_job_lifecycle.py", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py"],
+      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "tests/test_webledger_job_lifecycle.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
     },
     {
       "name": "participant-runtime-identity",
@@ -207,6 +207,11 @@
       "paths": ["webapp/card_flow.py", "webapp/card_actions.py", "webapp/ledger_store.py",
                 "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py"],
       "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
+    },
+    {
+      "name": "ota-mail-load-lifetime",
+      "paths": ["app/ota_mail.py", "app/ota_payments.py", "app/ota_store.py", "tools/benchmark_ota_mail_load.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py"],
+      "tests": ["tests/card_pipeline/test_ota_mail_load_lifetime.py", "tests/card_pipeline/test_ota_sources_registry.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ota_catalog.py", "webapp/tests/test_ota_reconcile_child.py"]
     },
     {
       "name": "ota-reconciliation",
@@ -354,6 +359,11 @@
       "name": "admin-ui-ux-review-evidence",
       "paths": ["quality-artifacts/admin-ui-ux/**"],
       "tests": ["webapp/tests/test_ota_catalog_browser.py", "webapp/tests/test_card_catalog_browser.py", "webapp/tests/test_expense_workspace.py"]
+    },
+    {
+      "name": "forest-payment-receipts",
+      "paths": ["app/forest_payment_mail.py", "tests/card_pipeline/test_forest_payment_mail.py"],
+      "tests": ["tests/card_pipeline/test_forest_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py", "webapp/tests/test_forest_reconciliation.py"]
     },
     {
       "name": "unified-user-action-queue",

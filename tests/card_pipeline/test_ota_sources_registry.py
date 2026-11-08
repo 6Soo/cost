@@ -511,7 +511,7 @@ def test_registered_missing_source_cannot_supply_ledger_authority(tmp_path):
     assert ledger_metadata(report,row)['booking_ref']==''
 
 
-def test_registered_missing_source_blocks_new_classification_without_writes(source_flow,tmp_path):
+def test_missing_source_blocks_evidence_authority_but_completes_expense_destination(source_flow,tmp_path):
     from app import StoreError
     raw=('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,'
          'Date,Post Date,Authorization Code,Cancel,Status\n'
@@ -520,9 +520,21 @@ def test_registered_missing_source_blocks_new_classification_without_writes(sour
     sources_file(tmp_path,schema_version=ota_sources.SCHEMA_VERSION,portal_databases=[str(tmp_path/'missing.sqlite')])
     before=source_flow.board.conn.execute('SELECT * FROM transactions').fetchall()
     with pytest.raises(StoreError) as error:
-        source_flow.classify(batch)
+        source_flow._classify_evidence(batch)
     assert error.value.code=='OTA_EVIDENCE_UNAVAILABLE'
     assert before==source_flow.board.conn.execute('SELECT * FROM transactions').fetchall()
+    # DEST-03 completes ordinary expense classification without pretending the
+    # unavailable reservation evidence became a verified booking/payment link.
+    financial = ('transaction_id,source_hash,amount_krw,raw_row_json')
+    original = source_flow.board.conn.execute('SELECT '+financial+' FROM transactions').fetchall()
+    result = source_flow.classify(batch)
+    assert result['booking_evidence_unavailable'] is True
+    row = source_flow.pipeline.get_batch(batch)['rows'][0]
+    assert row['classification_state'] == 'classified'
+    assert row['display_tab_id'] == 'quarter:2026:3'
+    assert source_flow.board.conn.execute('SELECT '+financial+' FROM transactions').fetchall() == original
+    assert source_flow._ota_report()['ota_source_inventory']['missing']
+    assert source_flow.preview_metadata()(dict(card(),item='숙박비'))['booking_ref'] == ''
 
 
 def test_preview_without_readable_manifest_keeps_authority_empty_and_review_reports_error(source_flow,tmp_path,monkeypatch):

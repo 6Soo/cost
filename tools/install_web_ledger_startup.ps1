@@ -72,6 +72,9 @@ param(
     [ValidateRange(1, 65535)]
     [int]$BoardPort = 8751,
 
+    [ValidateSet('Board', 'Prepared')]
+    [string]$LifecycleRole = 'Board',
+
     [string]$Python = "python",
     [string]$CloudflareExe = "cloudflared",
     [string]$CloudflareConfigPath = "",
@@ -205,35 +208,28 @@ function Get-TaskPlan {
     param()
 
     $runner = Join-Path $Checkout "tools\start_web_ledger_host.ps1"
-    $arguments = @(
-        "-NoProfile",
-        "-WindowStyle", "Hidden",
-        "-ExecutionPolicy", "Bypass",
-        "-File", $runner,
-        "-Mode", "Run",
-        "-Checkout", $Checkout,
-        "-LauncherPath", $LauncherPath,
-        "-DataRoot", $DataRoot,
-        "-ReviewConfig", $ReviewConfig,
-        "-ReserveSourceConfig", $ReserveSourceConfig,
-        "-OAuthFile", $OAuthFile,
-        "-SessionSecretFile", $SessionSecretFile,
-        "-BoardPort", "$BoardPort",
-        "-Python", $Python,
-        "-CloudflareExe", $CloudflareExe,
-        "-CloudflareConfigPath", $CloudflareConfigPath,
-        "-TunnelId", $TunnelId,
-        "-EntryPort", "$EntryPort"
+    $lifecycleEntry = Join-Path $Checkout "tools\webledger_task_entry.pyw"
+    $runnerArguments = @(
+        "powershell", "-NoProfile", "-WindowStyle", "Hidden",
+        "-ExecutionPolicy", "Bypass", "-File", $runner,
+        "-Mode", "Run", "-Checkout", $Checkout,
+        "-LauncherPath", $LauncherPath, "-DataRoot", $DataRoot,
+        "-ReviewConfig", $ReviewConfig, "-ReserveSourceConfig", $ReserveSourceConfig,
+        "-OAuthFile", $OAuthFile, "-SessionSecretFile", $SessionSecretFile,
+        "-BoardPort", "$BoardPort", "-Python", $Python,
+        "-CloudflareExe", $CloudflareExe, "-CloudflareConfigPath", $CloudflareConfigPath,
+        "-TunnelId", $TunnelId, "-EntryPort", "$EntryPort",
+        "-LifecycleRole", $LifecycleRole
     )
-    if ($DisableEntry) { $arguments += "-DisableEntry" }
-    if ($MigrateLegacyEntry) { $arguments += "-MigrateLegacyEntry" }
+    if ($DisableEntry) { $runnerArguments += "-DisableEntry" }
+    if ($MigrateLegacyEntry) { $runnerArguments += "-MigrateLegacyEntry" }
 
     return [pscustomobject]@{
         Name        = $TaskName
         Description = $script:Description
         Owner       = $script:Owner
-        Executable  = "powershell"
-        Arguments   = $arguments
+        Executable  = $Python
+        Arguments   = @($lifecycleEntry, "--role", $LifecycleRole, "--port", "$BoardPort", "--") + $runnerArguments
         WorkingDir  = $Checkout
         RunLevel    = $RunLevel
     }

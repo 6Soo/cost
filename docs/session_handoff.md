@@ -1,4 +1,4 @@
-## 2026-11-08 여행 지출 복사 포커스 오류 복구 — 운영 배포 완료 / 인증 화면 수락 차단
+## 2026-11-08 여행 지출 복사 포커스 오류 복구 — 당시 운영 배포 / 후속 복사 수락으로 대체 예정
 
 - [PR #749](https://github.com/6Soo/cost/pull/749) 운영 SHA `068de5da50611255dd4ef23d12f2a8272fe4b616`, 검수 코드 `4cc5ac3699948c828885fd46d84597e842618a71`와 webapp/tests tree 동일. 이전 운영 SHA `e1c60ad037eb6651d68058ea90ac57327e64ce20`. 아래 #744의 포커스 복원만으로 해결되지 않던 `Document is not focused` 오류에 대한 후속이다.
 - 두 클립보드 API가 모두 거부해도 전체 TSV를 선택된 읽기 전용 입력에 남기고 직접 복사하거나 새 클릭으로 재시도할 수 있다. 재시도는 서버 재조회 없이 준비된 내용을 사용하고 성공 여부를 실제 결과대로 표시한다. 제외된 거래의 일자·가맹점·금액·상세 링크도 같은 최신 GET 응답에서 갱신한다. Google 대조·복사 대상 규칙, API 계약과 금융 처리는 변경하지 않았다.
@@ -7,6 +7,16 @@
 - 공식 보호 배포 증거: 1,447 tracked blobs mismatch0, runtime SHA verified, listener1·backend8752, health/ready200·보호 API3개401, 보호13표 전후 불변, financial_apply NOT_RUN. 완료 시각 2026-11-08 23:04 KST. 코드 전용 배포로 원본/금융/Google 쓰기·재처리·마이그레이션 없음. 중단 후 증거를 확인했으므로 재배포하지 않았다.
 - **AUTH_UI_BLOCKED:** 재개 시 이전 인증 TaskSpace18이 `task space not found: 18`로 없어 운영 화면의 최종 복사→native 붙여넣기 해시 비교와 운영1440/390 캡처는 실행하지 못했다. 위 합성 검증을 인증 운영 수락으로 대체하지 않는다. 실기기/Safari·스크린리더 음성·실제200%확대·RTL도 미검증이다. 남은 작업은 허가된 인증 ego 세션에서 운영 GET/복사·붙여넣기 일치와 화면 확인이며 코드 재구현·재배포는 필요 없다.
 - 근거: `D:/WebLedgerHost/releases/deploy-evidence-068de5da50611255dd4ef23d12f2a8272fe4b616.json`, 비공개 `.local-archive/expense-copy-actionable-20261108/`의 deploy-evidence/release-audit/quality-final/junit-final/deploy-review 및 ego 결과. 고객 원문은 추적 문서에 포함하지 않는다. 후속 문서 전용 변경은 코드 검사·배포·서버 재시작을 반복하지 않는다.
+
+
+## 2026-11-09 산림치유원 NICE 메일 — 코드 병합 완료 / 운영 복구 대기
+
+- 사용자 요청은 메일 조사에서 발견한 문제 전체 해결이다. [PR #752](https://github.com/6Soo/cost/pull/752), 검수 SHA `d337121f45335a3fdd1486afb97e7ad53ba1d1d8`, 정상 main 병합 `25d41ff933a35fc42122e2d4da6264a6a6f4a45f`(동일 tree). Windows/CloudMail 검색의 산림치유원 누락, NICE 취소금액·취소요청일시 파싱을 교정하고 수수료와 결제금액 구분 및 과거 forest-only 복구 경로를 검증했다. 금융 원행·수동 결정·환급 확정·Google 최종 장부는 변경하지 않았다.
+- 정확 검수 SHA의 영향 QA **411 passed, skip0, compile PASS, 필수 브라우저1/1**. 독립 실제 `gpt-6.1-sol / medium`은 제품 HIGH/MEDIUM 결함 없음·CI 예외 병합 승인을 기록했다. CI42492278382/job128767045020은 billing/spending-limit으로 steps0에서 차단됐으며 녹색 CI가 아니다.
+- 대상 누락 원문30건은 인증 Gmail 읽기와 정확 ID 집합·원본 payload digest 재열람30/30으로 확인했다. 보관소 추가 복구·운영 배포·예약 작업 변경은 **미실행**이다. 과거 `pg_mail_index.json`은 운영 입력이 아니며 고객 자료를 Git에서 수작업으로 덮어쓰지 않는다.
+- 실제 운영 Windows Job/mutex 감독기 정식 통합과 단일 배포 순서를 조정 중이다. 기존 기동 보호를 제거하거나 구 배포 경로로 우회하지 않는다. 통합 코드 배포의 보호13표 전후 확인 종료 후 MailCollect의 구버전 working directory를 검증 릴리스로 고정한다. 그 뒤 별도 자료 복구 보호 구간에서 OTA 백업·별도 복원 동등성·단일 작성자·기존 원문 불변·반복0쓰기·watermark 불변을 확인해30건만 추가한다.
+- 실제 숙박일은 보관자료와 별도 예약메일 검색에서 근거를 찾지 못해 사용자에게 필수 사실을 질문한 상태다. 결제일/주문번호를 숙박일/예약번호로 만들지 않는다. 코드 병합을 실자료 복구·은행 환급·예약 유지·이용일 확정 완료로 보고하지 않는다.
+- 비공개 인계: `C:/AX/cost/.local-archive/forest-receipts-20261108/checkpoint.md`에 QA/JUnit·독립 검수·원본 동등성 manifest·복구/사후 수락 명령을 보존했다. 임시 작업공간은 후속 운영 복구에 사용 중이며 루트의 다른 작업·미추적 파일은 보존했다. 이 상태 기록은 문서 전용이며 재배포하지 않는다.
 
 ## 2026-11-08 수집 현황·빈 기간 업로드 UX — 운영 완료
 
