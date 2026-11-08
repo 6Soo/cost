@@ -1,4 +1,13 @@
-﻿## 2026-11-08 Google 장부 지출내용 복사 대조·클립보드 오류 — 운영 배포 COMPLETE
+﻿## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 — 운영 배포 COMPLETE
+
+- 사용자 최신 교정에 따라 한 파일 내 최초~최종 거래일 전체를 기본 조회기간으로 간주한다. 내부 무거래일은 공백이 아니며 같은 카드사 파일들의 범위를 합친 뒤 파일 사이 빈 구간만 공백으로 표시한다. 예: 1~10일·15~20일 두 파일이면 공백11~14일 한곳, 같은 카드사 다른 카드 파일10~15일을 추가하면 공백0이다. [현행 명세](specs/card-transaction-date-gaps-20261108.md), [PR #745](https://github.com/6Soo/cost/pull/745).
+- 코드 `20df129ec70f29d2c298cc9179edb7afa2e14580`: 영향 QA **236 passed +70 subtests·skip0·browser19/19·compile PASS**. 초기234통과/2실패는 구 내부공백 기대값이었으며 skip/제외 없이 새 계약과 파일 연결 회귀로 교정했다. 실제 독립 `gpt-6.1-sol / medium` 정확한 운영 병합 SHA **`a0d257c45fef1767d25d5269bbac0007c22e4f2e` APPROVE**, 검증 코드와 merge tree 동일.
+- GitHub run42467211707/job128689384202는 결제/사용한도 annotation·steps0으로 시작 실패했다. CI 녹색으로 보고하지 않고2026-11-07 사용자 승인 예외(실제 Sol medium 정확SHA 승인·로컬 검증)를 적용했다.
+- 실제 ego 합성 전후1440/390/320에서 페이지·패널 넘침0, 파일 범위/공백1→연결파일 후0, 빈자료·오류 재시도·키보드 포커스·공백 업로드 맥락을 확인했다. 두테마 안내문 대비 최소5.7053/7.5777이다. 독립 source interface와 별도 렌더링 검수 범위를 구분했다. 인증 고객 운영 시각 수락·실기기/Safari·AT음성·실제200%브라우저 확대·RTL은 미검증이다.
+- 이전 실제 runtime `aa7d6a648118c907421e32234ca3837cc11c42a9`에서 공식 PREVIEW→APPLY 전환. 1,445 tracked blobs mismatch0·task/process/runtime SHA 일치, Gateway8790→loopback8752·health/ready200·보호 API401·보호13표 전후 불변·financial_apply NOT_RUN. 배포 코드의 합성 인메모리 범위/GET불변과 coverage API·화면 익명401도 PASS. 원본/금융/고객DB/Google 쓰기·재처리·스키마 변경 없음.
+- 호스트 근거 `D:/WebLedgerHost/releases/deploy-evidence-a0d257c45fef1767d25d5269bbac0007c22e4f2e.json`, 비공개 `.local-archive/card-file-span-20261108/`의 quality-green·independent-review·ui-review·ego evidence·release-impact-smoke·보호 snapshot. 이전 검증 릴리스/task XML을 복구점으로 유지했고 코드 전용이므로 전체 DB 백업/복원 반복은 생략했다. 이 문서 후속으로 재배포하지 않는다.
+
+## 2026-11-08 Google 장부 지출내용 복사 대조·클립보드 오류 — 운영 배포 COMPLETE
 
 - 사용자 화면의 `장부에 있음`/`확인 필요`가 서로 다른 의미를 섞어 보이던 문제를 `Google 장부 일치`와 `Google 대조 보류`로 명확히 나눴다. `Google 장부 일치`는 `MATCHED_MANUAL` 또는 `MATCHED_EXISTING`으로 이미 Google 행과 확인된 건이고, `Google 대조 보류`는 `REVIEW_CONFLICT`로 후보가 여러 개이거나 금액·날짜·가맹점·승인번호만으로 Google 한 행을 안전하게 확정할 수 없는 건이다. 보류 건은 중복 복사를 막기 위해 제외하며 화면에서 사유별 건수를 펼쳐 볼 수 있다. `NEW_EXPENSE`만 복사 대상으로 유지한다.
 - 브라우저가 포커스를 잃었을 때 `navigator.clipboard.writeText`가 `Document is not focused`로 실패하던 오류를 버튼 포커스 복원과 textarea 선택·`execCommand('copy')` fallback으로 수정했다. COST는 Google 장부에 쓰지 않는다.

@@ -1,4 +1,11 @@
-﻿## 2026-11-08 Google 장부 지출내용 복사 대조·클립보드 오류 — 운영 완료
+﻿## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 교정 — 운영 완료
+
+- 최신 사용자 결정: 거래일자는 자료의 조회기간 공백을 메우는 근거다. **한 파일의 최초~최종 거래일 전체**를 기본 조회기간으로 삼고 내부 무거래일은 공백으로 세지 않는다. 같은 카드사의 모든 카드 파일 범위를 합친 뒤 파일 사이 빈 구간만 표시한다. 아래 #742와 과거 거래일별 공백 계산을 이 기준이 대체한다. [현행 계약](specs/card-transaction-date-gaps-20261108.md).
+- [PR #745](https://github.com/6Soo/cost/pull/745), 운영 SHA `a0d257c45fef1767d25d5269bbac0007c22e4f2e`, 검증 코드 `20df129ec70f29d2c298cc9179edb7afa2e14580`와 tree 동일. 영향 QA **236 passed +70 subtests, skip0, 필수 browser19/19, compile PASS**. 독립 실제 `gpt-6.1-sol / medium` 정확한 병합 SHA APPROVE. CI는 steps0 결제/사용한도 차단으로 녹색이 아니며 기존 승인 예외를 적용했다.
+- ego 합성 전후1440/390/320에서 넘침0, 내부 빈 날짜 제외·파일사이 공백1·같은 카드사 다른 카드 파일로 해소 후0, 빈자료·오류 복구·키보드 포커스·업로드 맥락 확인. 인증 운영 고객 화면·실기기/Safari·스크린리더 음성·실제 브라우저200%확대·RTL은 미검증이다.
+- 공식 고정 SHA 배포: 1,445 blobs mismatch0, task/process/runtime SHA 일치, Gateway8790→loopback8752, health/ready200, 영향 coverage API/화면과 보호 API401, 보호13표 전후 불변, `financial_apply=NOT_RUN`. 고객 원본·DB/금융/Google 쓰기·재처리·마이그레이션 없음. 호스트 증거 `D:/WebLedgerHost/releases/deploy-evidence-a0d257c45fef1767d25d5269bbac0007c22e4f2e.json`, 비공개 `.local-archive/card-file-span-20261108/`. 후속 문서 변경은 재배포하지 않는다.
+
+## 2026-11-08 Google 장부 지출내용 복사 대조·클립보드 오류 — 운영 완료
 
 - PR #744 병합·운영 SHA `aa7d6a648118c907421e32234ca3837cc11c42a9`, 이전 실제 runtime `8341f266531a389a406eb8ce6486759366f03e87`. `Google 장부 일치`는 이미 대조된 `MATCHED_MANUAL`/`MATCHED_EXISTING`, `Google 대조 보류`는 `REVIEW_CONFLICT`로 안전한 단일 Google 행을 확정하지 못한 후보다. 보류 사유별 펼침 정보를 추가했고 `NEW_EXPENSE`만 복사한다.
 - 클립보드 문서 포커스 오류에 버튼 포커스 복원과 textarea 선택 fallback을 추가했다. 표적 `19 passed·skip0`, health/ready200, 보호 API401, 보호13표 불변, `financial_apply=NOT_RUN`. Google 최종 장부 쓰기와 고객 원본·금융 데이터 변경은 없었다.
