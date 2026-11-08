@@ -78,12 +78,13 @@ try {
     [IO.File]::WriteAllText((Join-Path $evidenceDir 'deploy-evidence.json'),$json,[Text.UTF8Encoding]::new($false))
     $evidence|ConvertTo-Json -Compress -Depth 6
 } catch {
+    $deploymentFailure=$_
     $failedTask=Get-ScheduledTask -TaskName WebLedger-Board
     if($failedTask.Actions[0].Arguments.Contains($CandidateSha)) {
         $rollbackGate=@{status='PASS';candidate_sha=$PreviousSha;previous_sha=$CandidateSha;schema='unchanged'}
         [IO.File]::WriteAllText($gatePath,($rollbackGate|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
         & (Join-Path $PSScriptRoot 'switch_verified_release.ps1') -PreviousSha $CandidateSha -CandidateSha $PreviousSha
     }
-    throw 'DEPLOYMENT_FAILED_VERIFY_PRIOR_RELEASE'
+    throw "DEPLOYMENT_FAILED_VERIFY_PRIOR_RELEASE: $($deploymentFailure.Exception.Message)"
 }
 } finally {$releaseLease.Dispose()}
