@@ -1,4 +1,13 @@
-﻿## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 교정 — 운영 완료
+﻿## 2026-11-08 수집 현황·빈 기간 업로드 UX — 운영 완료
+
+- 최신 요청 “제발 의도에맞게 UX UI 좀 신경쓰라고”의 대상은 카드 수집 기간 확인→빈 기간 자료 업로드 흐름이다. 빈 기간이 있는 카드사를 먼저 보여주고 날짜 옆에 `이 기간 업로드`를 배치했다. 네 개 집계 타일·반복 계산 설명을 없애고 카드사별 기간을 짧은 목록으로, 업로드 파일은 모든 기간 요약 아래 한곳의 접힌 목록으로 정리했다. 파일 처리 결과 접근은 유지한다.
+- [PR #747](https://github.com/6Soo/cost/pull/747), 운영 SHA `e1c60ad037eb6651d68058ea90ac57327e64ce20`, 검증 코드 `e905a0d6a8324f048ce249197e447e65113d15e8`와 tree 동일. 영향 검사 **238 passed +70 subtests·skip0·browser20/20·compile PASS**, 실제 독립 `gpt-6.1-sol / medium` 정확한 운영 SHA 코드·interface-review APPROVE. CI run42469738253은 결제/사용한도 steps0 시작 실패로 녹색이 아니며 기존2026-11-07 승인 예외를 적용했다.
+- 합성 예외 상태 및 **인증 운영 화면** 전후1440/390, 운영1440/390/320·두 테마·파일23개 접힘/키보드 펼침·Enter 업로드의 기간 맥락/파일 입력 포커스·넘침0 PASS. 운영 GET200·카드사3/파일23/공백1 및 기간/공백 projection SHA-256이 배포 전후 동일하다. 실측 라벨 대비17.0629/9.8968, 업로드5.3097/7.6095. 고객 원문과 화면은 비공개 증거에만 보존한다.
+- 공식 단일 코드 전용 배포:1,446 blobs mismatch0·task/process/runtime SHA 일치·Gateway8790→loopback8751·health/ready200·보호 API401·보호13표 불변·financial_apply NOT_RUN. 단일 작성자 잠금을 기다린 뒤 정상 전환했다. 원본/금융/Google 쓰기·실제 업로드 POST·재처리·스키마 변경 없음. 이전 검증 릴리스/task XML을 복구점으로 보존했다.
+- 호스트 `D:/WebLedgerHost/releases/deploy-evidence-e1c60ad037eb6651d68058ea90ac57327e64ce20.json`, 비공개 `.local-archive/coverage-intent-ux-20261108/`의 QA·리뷰·ego-final·production-after·보호 snapshot이 근거다. 남은 필수 작업 없음. 실기기/Safari·스크린리더 음성·실제 브라우저200%확대·RTL은 미검증이다. 후속 문서만으로 검사·배포·재시작을 반복하지 않는다.
+
+
+## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 교정 — 운영 완료
 
 - 최신 사용자 결정: 거래일자는 자료의 조회기간 공백을 메우는 근거다. **한 파일의 최초~최종 거래일 전체**를 기본 조회기간으로 삼고 내부 무거래일은 공백으로 세지 않는다. 같은 카드사의 모든 카드 파일 범위를 합친 뒤 파일 사이 빈 구간만 표시한다. 아래 #742와 과거 거래일별 공백 계산을 이 기준이 대체한다. [현행 계약](specs/card-transaction-date-gaps-20261108.md).
 - [PR #745](https://github.com/6Soo/cost/pull/745), 운영 SHA `a0d257c45fef1767d25d5269bbac0007c22e4f2e`, 검증 코드 `20df129ec70f29d2c298cc9179edb7afa2e14580`와 tree 동일. 영향 QA **236 passed +70 subtests, skip0, 필수 browser19/19, compile PASS**. 독립 실제 `gpt-6.1-sol / medium` 정확한 병합 SHA APPROVE. CI는 steps0 결제/사용한도 차단으로 녹색이 아니며 기존 승인 예외를 적용했다.

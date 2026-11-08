@@ -1,4 +1,13 @@
-﻿## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 — 운영 배포 COMPLETE
+﻿## 2026-11-08 수집 현황·빈 기간 업로드 UX — 운영 배포 COMPLETE
+
+- [PR #747](https://github.com/6Soo/cost/pull/747) 운영 SHA **`e1c60ad037eb6651d68058ea90ac57327e64ce20`**, 이전 검증 `a0d257c45fef1767d25d5269bbac0007c22e4f2e`. 빈 기간→업로드를 우선 배치하고 카드사별 기간을 짧은 목록으로 정리했다. 집계 타일·반복 설명·동일 높이 두 열을 제거하고 파일은 모든 기간 요약 아래 접었다. API·파일별 최초~최종일/카드사별 합집합 계산·DB·금융·owner/CSRF·Google 계약은 그대로다.
+- 검증 코드 `e905a0d6a8324f048ce249197e447e65113d15e8`와 merge tree 동일. 영향 QA **238 passed +70 subtests·skip0·browser20/20·compile PASS**, 실제 독립 `gpt-6.1-sol / medium` 정확한 병합 SHA 코드/interface-review APPROVE. 초기 다크 라벨4.038:1 결함은 기존 ink 토큰으로9.8968:1로 고치고 두 테마 회귀를 추가했다. 초기 중단 QA를 통과로 세지 않았다. GitHub run42469738253/job128697483478는 결제/사용한도 annotation·steps0 시작 실패다. 기존2026-11-07 승인 예외를 적용했고 CI 녹색으로 보고하지 않는다.
+- 합성 ego1440/390/320·두 테마·긴 파일명·공백해소/빈자료/날짜없음/불가/다수기간/오류복구·키보드 PASS. **인증 운영** 전후1440/390 및 배포후1440/390/320·두 테마에서 빈 기간 우선·파일23개 접힘·키보드 펼침·Enter 업로드의 기간 맥락/입력 포커스·넘침0 확인. 전후 GET200·카드사3/파일23/공백1 및 기간/공백 projection SHA-256 동일. 운영 대비light/dark 라벨17.0629/9.8968, 업로드5.3097/7.6095. 실제 기기/Safari·AT음성·실제200%확대·RTL은 미검증이다.
+- 공식 PREVIEW→단일 APPLY:1,446 blobs mismatch0·task/process/runtime SHA 일치·Gateway8790→단일loopback8751·health/ready200·보호 API401·보호13표 불변·financial_apply NOT_RUN. 배포기는 기존 단일 작성자 잠금 해제를 기다린 뒤 전환했고 기존 처리 강제 종료나 잠금 우회를 하지 않았다. 코드 전용으로 이전 릴리스/task XML을 유지하고 전체 DB 백업/복원 반복은 생략했다. 원본/금융/Google 쓰기·운영 업로드 POST·마이그레이션·재처리 없음.
+- 근거:호스트 `D:/WebLedgerHost/releases/deploy-evidence-e1c60ad037eb6651d68058ea90ac57327e64ce20.json`, 같은 SHA release-audit/continuous-switch, 비공개 `.local-archive/coverage-intent-ux-20261108/`의 quality-green·independent-review·production-baseline/after·동일크기 전후·보호 snapshot. 고객 원문/스크린샷은 추적 기록에서 제외한다. 후속 문서 전용 변경은 재검사·재배포·재시작하지 않는다.
+
+
+## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 — 운영 배포 COMPLETE
 
 - 사용자 최신 교정에 따라 한 파일 내 최초~최종 거래일 전체를 기본 조회기간으로 간주한다. 내부 무거래일은 공백이 아니며 같은 카드사 파일들의 범위를 합친 뒤 파일 사이 빈 구간만 공백으로 표시한다. 예: 1~10일·15~20일 두 파일이면 공백11~14일 한곳, 같은 카드사 다른 카드 파일10~15일을 추가하면 공백0이다. [현행 명세](specs/card-transaction-date-gaps-20261108.md), [PR #745](https://github.com/6Soo/cost/pull/745).
 - 코드 `20df129ec70f29d2c298cc9179edb7afa2e14580`: 영향 QA **236 passed +70 subtests·skip0·browser19/19·compile PASS**. 초기234통과/2실패는 구 내부공백 기대값이었으며 skip/제외 없이 새 계약과 파일 연결 회귀로 교정했다. 실제 독립 `gpt-6.1-sol / medium` 정확한 운영 병합 SHA **`a0d257c45fef1767d25d5269bbac0007c22e4f2e` APPROVE**, 검증 코드와 merge tree 동일.
