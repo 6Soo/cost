@@ -90,3 +90,42 @@ def test_cancellation_uses_only_explicit_cancel_date_and_does_not_guess_ambiguou
     assert event['reservation_status'] == 'unknown'
     result, = ota_payments.match_ota_payment_events([event], [card()])
     assert result['status'] == 'NOT_CARD_CHARGE' and result['transaction_id'] is None
+
+
+@pytest.mark.parametrize('merchant', ['합성산림치유원', '합성 산림 치유원'])
+def test_healing_center_receipt_reads_payment_amount_instead_of_zero_safety_fee(merchant):
+    body = BODY.replace('합성자연휴양림', merchant).replace(
+        '결제금액\n30,000', '안심결제 수수료\n0 원\n결제금액\n30,000')
+    mail = receipt(body)
+    original = deepcopy(mail)
+    event, = forest_payment_mail.collect({mail['id']: mail})
+    assert event['amount_krw'] == 30000
+    assert event['service_period'] is None and event['booking_ref'] is None
+    assert ota_payments.match_ota_payment_events([event], [card()])[0]['status'] == 'MATCHED_AUTO'
+    assert mail == original
+
+
+def test_nice_cancellation_amount_and_request_time_preserve_original_payment_identity():
+    charge = receipt(BODY.replace('합성자연휴양림', '합성산림치유원'))
+    body = BODY.replace('합성자연휴양림', '합성산림치유원').replace(
+        '결제금액', '취소금액') + '\n취소요청일시\n2026-10-02 11:00:00'
+    cancellation = receipt(body)
+    next(h for h in cancellation['payload']['headers'] if h['name'].lower() == 'subject')['value'] = '결제취소 안내'
+    paid, = forest_payment_mail.collect({charge['id']: charge})
+    cancelled, = forest_payment_mail.collect({cancellation['id']: cancellation})
+    assert cancelled['payment_id'] == paid['payment_id']
+    assert cancelled['amount_krw'] == 30000 and cancelled['cancelled_on'] == '2026-10-02'
+    assert cancelled['paid_on'] is None and cancelled['reservation_status'] == 'unknown'
+    assert cancelled['event_type'] == 'cancellation_notice'
+    assert not ota_payments._event_is_paid(cancelled)
+    assert ota_payments.match_ota_payment_events([cancelled], [card()])[0]['status'] == 'NOT_CARD_CHARGE'
+
+
+def test_partial_cancel_uses_cancellation_amount_and_conflicting_dates_stay_unknown():
+    body = BODY + '\n취소금액\n10,000 원\n취소요청일시\n2026-10-02 11:00:00\n취소일시\n2026-10-03 11:00:00'
+    mail = receipt(body)
+    next(h for h in mail['payload']['headers'] if h['name'].lower() == 'subject')['value'] = '결제취소 안내'
+    event, = forest_payment_mail.collect({mail['id']: mail})
+    assert event['amount_krw'] == 10000 and event['cancelled_on'] is None
+    assert event['refund_status'] == 'none_displayed' and event['reservation_status'] == 'unknown'
+    assert not ota_payments._event_is_paid(event)
