@@ -4,7 +4,8 @@ import re
 from app import ota_mail
 
 DOMAINS = ('nicepg.co.kr',)
-LABELS = ('결제수단', '상점명', '상품명', '주문번호', '결제일시', '승인번호', '결제금액')
+LABELS = ('결제수단', '상점명', '상품명', '주문번호', '결제일시', '승인번호', '결제금액', '취소금액')
+IDENTITY_LABELS = LABELS[:-2]
 
 
 def _fields(text):
@@ -32,20 +33,23 @@ def collect(messages, inventory=()):
             continue
         text = ota_mail.message_text(message)
         fields = _fields(text)
-        if any(len(fields.get(label, ())) != 1 for label in LABELS if label != '결제금액'):
+        if any(len(fields.get(label, ())) != 1 for label in IDENTITY_LABELS):
             continue
-        if not fields.get('결제금액'):
+        # A cancellation can show both the original payment and a partial
+        # cancellation amount. Only the latter describes this notice.
+        amount_label = '취소금액' if cancelled and fields.get('취소금액') else '결제금액'
+        if not fields.get(amount_label) or (not cancelled and fields.get('취소금액')):
             continue
-        values = {label: next(iter(fields[label])) for label in LABELS}
+        values = {label: next(iter(fields[label])) for label in IDENTITY_LABELS}
         if any(not value for value in values.values()):
             continue
         merchant = values['상점명'].splitlines()[0].strip()
-        if not re.search(r'자연\s*휴양림|휴양시설|숲나들e', merchant):
+        if not re.search(r'자연\s*휴양림|휴양시설|산림\s*치유원|숲나들e', merchant):
             continue
         method = values['결제수단']
         if not re.search(r'신용\s*카드|체크\s*카드', method):
             continue
-        amounts = [re.match(r'([0-9][0-9,]*)\s*원\b', raw, re.I) for raw in fields['결제금액']]
+        amounts = [re.match(r'([0-9][0-9,]*)\s*원\b', raw, re.I) for raw in fields[amount_label]]
         approval = re.fullmatch(r'[0-9]{6,12}', values['승인번호'].splitlines()[0].strip())
         order = re.fullmatch(r'[A-Za-z0-9_-]{6,64}', values['주문번호'].splitlines()[0].strip())
         stamp = re.fullmatch(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}', values['결제일시'].splitlines()[0].strip())
@@ -92,7 +96,7 @@ def collect(messages, inventory=()):
             # A gateway cancellation notice is evidence, not proof that the
             # bank has refunded or that the accommodation was cancelled.
             cancelled_on = None
-            explicit = set(re.findall(r'취소\s*일시\s*[:：]?\s*(\d{4}-\d{2}-\d{2})', text))
+            explicit = set(re.findall(r'취소\s*(?:요청\s*)?일시\s*[:：]?\s*(\d{4}-\d{2}-\d{2})', text))
             if len(explicit) == 1:
                 try:
                     cancelled_on = datetime.fromisoformat(next(iter(explicit))).date().isoformat()

@@ -417,6 +417,22 @@ def test_undated_separate_list(card_db_path):
     assert "TX-2024-01" not in ids  # Valid date from another year
 
 
+def test_posting_date_fills_missing_use_date_in_history_projection(card_db_path):
+    conn = sqlite3.connect(card_db_path)
+    conn.execute("UPDATE transactions SET approval_date='', posting_date='2026-03-08' WHERE transaction_id='TX-UND-01'")
+    conn.commit()
+    conn.close()
+
+    dated = ct.list_for_month(db_path=card_db_path, year=2026, month=3, per_page=100)
+    row = next(item for item in dated['items'] if item['transaction_id'] == 'TX-UND-01')
+    assert row['use_date'] == '2026-03-08'
+    assert row['approval_date'] == '2026-03-08'
+    assert ct.undated_list(db_path=card_db_path, year=2026)['total_count'] == 0
+    detail = ct.transaction_detail('TX-UND-01', db_path=card_db_path)
+    assert detail['approval_date'] == ''
+    assert detail['posting_date'] == '2026-03-08'
+
+
 @pytest.fixture
 def undated_mixed_db_path():
     """Synthetic DB with 120 undated rows: NULL, empty, and invalid approval_date."""
