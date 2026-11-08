@@ -44,20 +44,18 @@ def get_coverage_summary(board, **filters):
         "SELECT b.batch_id,b.filename,b.status,b.row_count,b.error_count,b.received_at,"
         "COUNT(DISTINCT t.transaction_id),"
         "GROUP_CONCAT(DISTINCT COALESCE(NULLIF(t.approval_date,''),NULLIF(t.posting_date,''))),"
-        "t.issuer,t.card_tail "
+        "t.issuer "
         "FROM import_batches b LEFT JOIN import_batch_rows r ON r.batch_id=b.batch_id "
         "LEFT JOIN transactions t ON t.transaction_id=r.transaction_id "
-        "GROUP BY b.batch_id,t.issuer,t.card_tail ORDER BY b.received_at DESC,b.batch_id DESC"
+        "GROUP BY b.batch_id,t.issuer ORDER BY b.received_at DESC,b.batch_id DESC"
     ).fetchall()
     for row in rows:
         (batch_id, filename, status, source_rows, errors, received_at,
-         unique, observed_dates, issuer, tail) = row
+         unique, observed_dates, issuer) = row
         dates = sorted({parsed for value in (observed_dates or '').split(',')
                         if (parsed := parse_iso_date(value))})
         first, last = (dates[0], dates[-1]) if dates else ('', '')
         if filters.get('issuer') and filters['issuer'] != issuer:
-            continue
-        if filters.get('card_tail') and filters['card_tail'] != tail:
             continue
         if filters.get('date_basis') and filters['date_basis'] != date_basis:
             continue
@@ -69,14 +67,14 @@ def get_coverage_summary(board, **filters):
         file['unique_transactions'] += unique or 0
         file['transaction_start'] = min(x for x in (file['transaction_start'], first or '') if x) if (file['transaction_start'] or first) else ''
         file['transaction_end'] = max(file['transaction_end'], last or '')
-        if issuer and tail:
-            file['hints'].add((issuer, tail))
+        if issuer:
+            file['hints'].add(issuer)
         if first and last:
-            key_source = [issuer or '', tail or '', batch_id if not (issuer and tail) else '']
+            key_source = [issuer or '', batch_id if not issuer else '']
             card_id = hashlib.sha256(json.dumps(key_source, ensure_ascii=False).encode()).hexdigest()
             if card_id not in selected:
-                selected[card_id] = dict(card_id=card_id, issuer=issuer or '', card_tail=tail or '',
-                                         identity_scope='display_only' if issuer and tail else 'source_file',
+                selected[card_id] = dict(card_id=card_id, issuer=issuer or '', card_tail='',
+                                         identity_scope='issuer' if issuer else 'source_file',
                                          date_basis=date_basis, periods=[], files=[])
             if card_id not in file['card_ids']:
                 file['card_ids'].append(card_id)
@@ -88,8 +86,8 @@ def get_coverage_summary(board, **filters):
         file.pop('card_ids', None)
         hints = file.pop('hints')
         if len(hints) == 1:
-            file['issuer_hint'], file['card_tail_hint'] = next(iter(hints))
-            file['card_hint_scope'] = 'display_only'
+            file['issuer_hint'] = next(iter(hints))
+            file['card_hint_scope'] = 'issuer'
     cards = []
     for card in selected.values():
         periods = merge_periods(card.pop('periods'))

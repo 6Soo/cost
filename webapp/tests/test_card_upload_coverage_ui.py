@@ -40,8 +40,8 @@ def test_unverified_coverage_can_be_opened_for_explicit_review():
 
 
 def test_pending_coverage_renders_grouped_details_instead_of_23_open_rows():
-    assert "'카드 식별 확인 필요'" in SCRIPT
-    assert "' (표시용)'" in SCRIPT
+    assert "'카드사 식별 정보 없음'" in SCRIPT
+    assert "같은 카드사의 모든 카드 거래일자를 합쳐" in SCRIPT
     assert "for (const [label, files] of groups)" in SCRIPT
     assert "renderFile(file, group)" in SCRIPT
     assert "'거래일자가 없는 파일 '" in SCRIPT
