@@ -63,11 +63,15 @@ result hash and source_unchanged before interpreting resource differences.
 - Initial candidate `00d16813`: impact QA 246 passed, 4 subtests passed, skip 0,
   compile passed. Includes financial exact-link/refund/Google-readonly/access
   protections and ten synthetic browser cases.
-- Expanded adjacent mail/store/registry run: 87 passed, one failed. The failure,
+- Initial expanded adjacent mail/store/registry run: 87 passed, one failed. The failure,
   `test_registered_missing_source_blocks_new_classification_without_writes`,
   also fails on baseline `3b22f027` (DID NOT RAISE StoreError). It concerns missing
-  sources blocking new classification, not memo retention. It remains visible
-  in the expanded impact selection; no test is excluded or marked passed.
+  sources blocking all expense classification, an obsolete pre-DEST expectation.
+  The updated regression retains the evidence-stage rejection and zero-write
+  assertion, then verifies public classification completes in the payment quarter
+  while preserving original financial fields, the missing-source diagnostic and
+  empty booking authority. Four missing-source cases pass; the initial red result
+  is retained separately. No test is skipped or removed from impact selection.
 - Final SHA impact QA is recorded in the PR. No customer source, financial
   original, Google ledger, authentication setting or operating task is changed.
 - Operating peak memory/CPU, restart/crash lifecycle acceptance and long-running
