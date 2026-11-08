@@ -3,7 +3,7 @@
 - 운영 통합 SHA `d96f08809b8201238e8399d053140ab20e3a91fc`의 최종 보호13표 검사와 잠금 해제 후 별도 원문 복구 구간을 실행했다. [PR #752](https://github.com/6Soo/cost/pull/752) 파서의 실제 운영 blob 동등성을 확인했고 MailCollect를 구43907dd에서 d96 릴리스 working directory로 고정했다. 실행파일·인자·자격증명은 보존했고 기존 hourly 수집 정상 종료 후 전환, 최종 Enabled/Ready를 확인했다.
 - 인증 Gmail API 정확 집합·원본 payload digest30/30 재검증 → OTA 백업 및 별도 복원 내용/무결성 동등성 → 기존 원문 불변 원자 추가30건 → 반복 import 쓰기0·watermark 불변·금융 보호13표 불변 PASS. 원본 메시지/원본 blob/원본 entry의 기존 행 해시를 보존했다. 금융 원행·수동 결정·환불 확정·Google 최종 장부 쓰기0.
 - 운영 d96 모듈의 읽기 수락은 원문30/30·추출30·금액0 오인식0 및 대상 결제11/취소 안내6/잔여5 대조 PASS. 실제 은행 환급이나 예약 유지를 확정하지 않는다. health/ready200·보호 API401, 수집 Enabled/Ready 확인. 추가 서버 배포·재시작 없음. 실제 고객 화면의 독립 시각 수락은 미실행이다.
-- 숙박일은 직접 근거가 없어 사용자 필수 사실 미응답으로 남는다. 결제일이나 PG 주문번호로 대체하지 않는다. 비공개 근거 `C:/AX/cost/.local-archive/forest-receipts-20261108/`, 백업과 별도 복원 `D:/WebLedgerHost/data/backups/forest-mail-20261108T201146Z/`. 아래 복구 대기 기록은 실행 전 이력이며 현재 명령이 아니다. 이 문서 전용 후속은 재배포하지 않는다.
+- 최신 사용자 지시에 따라 숙박일 필수 질문을 철회하고 지리적 귀속을 완료로 확인했다. 전북 진안/호남권 근거로 해당 7월 거래는 기존 `1115_호남`에 code_inference/classified로 귀속되어 있으며, 원결제·취소 동일 여행·미배정0을 읽기 검증했다. 이미 올바른 귀속이라 추가 금융/원문/수동 이력 쓰기는 하지 않았다. 실제 숙박일·예약 유지·은행 환급 사실을 만들지 않는다. 비공개 귀속 근거 `C:/AX/cost/.local-archive/forest-trip-geography-20261109/`, 원문 복구 근거 `C:/AX/cost/.local-archive/forest-receipts-20261108/`, 백업/별도 복원 `D:/WebLedgerHost/data/backups/forest-mail-20261108T201146Z/`. 아래 대기 기록은 실행 전 이력이며 현재 명령이 아니다. 이 문서 전용 후속은 재배포하지 않는다.
 
 ## 2026-11-09 여행 지출 실제 복사·Job 수명주기·OTA 메모리 — 운영 수락 완료
 
