@@ -26,7 +26,9 @@ def test_trip_copy_excludes_existing_and_ambiguous_rows_without_mutation(copy_st
     rows, preview = copy_state
     before = deepcopy((rows, preview))
     markup = design._trip_copy_html('trip-synthetic', rows, preview)
-    assert '복사 가능 1건 · 1,000원 · 장부에 있음 2건 제외 · 확인 필요 1건 제외' in markup
+    assert '복사 가능 1건 · 1,000원 · Google 장부 일치 2건 제외 · Google 대조 보류 1건 제외' in markup
+    assert 'Google 대조 보류 건의 정체와 사유 보기' in markup
+    assert 'Google 원장 대조를 확정하지 못함' in markup
     assert ' disabled' not in markup
     assert 'expense-reconciliation' not in markup and '수기 지출 대조' not in markup
     assert 'trip-expense-copy' in markup
@@ -51,7 +53,7 @@ def test_all_recorded_disables_copy_and_viewer_has_no_copy_controls(copy_state, 
     rows, preview = copy_state
     markup = design._trip_copy_html('trip-synthetic', rows[:2], {
         **preview, 'results': preview['results'][:2]})
-    assert '복사 가능 0건' in markup and '장부에 있음 2건 제외' in markup
+    assert '복사 가능 0건' in markup and 'Google 장부 일치 2건 제외' in markup
     assert ' disabled' in markup
     monkeypatch.setattr(board, 'current_role', lambda: 'viewer')
     assert design._trip_copy_html('trip-synthetic', rows, preview) == ''

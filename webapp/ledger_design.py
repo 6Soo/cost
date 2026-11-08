@@ -1788,6 +1788,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
                and not row.get('blocked') and not row.get('excluded_from_company')]
     result = _trip_expense_tsv(tab_id, allowed)
     count, total = result['row_count'], result['total_krw']
+    held_detail = ''
     if not expenses:
         description = '복사할 지출이 없습니다.'
     elif not available:
@@ -1796,12 +1797,34 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         description = source_message(reason)
     else:
         recorded = matched.get('MATCHED_MANUAL', 0) + matched.get('MATCHED_EXISTING', 0)
-        excluded = max(0, len(expenses) - recorded - count)
-        description = f'복사 가능 {count}건 · {_money(total)} · 장부에 있음 {recorded}건 제외'
-        if excluded:
-            description += f' · 확인 필요 {excluded}건 제외'
+        held_results = [item for item in (preview.get('results') or [])
+                        if item.get('status') == 'REVIEW_CONFLICT']
+        held_reasons = {}
+        reason_labels = {
+            'MULTIPLE_OR_CONFLICTING_CANDIDATES': 'Google 원장 후보가 여러 개이거나 값이 충돌함',
+            'INSUFFICIENT_UNIQUE_EVIDENCE': '금액·날짜·가맹점으로 Google 원장 한 행을 확정할 수 없음',
+            'STRONG_ID_CONFLICT_OR_AMBIGUITY': '승인번호·거래 ID 후보가 충돌하거나 모호함',
+            'SHEET_ROW_OCCUPIED_BY_EXISTING_LINK': 'Google 원장 행이 다른 COST 거래에 이미 연결됨',
+            'EXISTING_LINK_STALE': '저장된 연결의 Google 원본이 바뀜',
+            'TRIP_ID_MISMATCH': '다른 여행의 Google 행으로 확인됨',
+        }
+        for item in held_results:
+            reason = str(item.get('reason') or 'REVIEW_CONFLICT')
+            held_reasons[reason] = held_reasons.get(reason, 0) + 1
+        held_count = len(held_results)
+        description = f'복사 가능 {count}건 · {_money(total)} · Google 장부 일치 {recorded}건 제외'
+        if held_count:
+            description += f' · Google 대조 보류 {held_count}건 제외'
         if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
             description += ' · Google 합계 수식은 확인 필요'
+        if held_reasons:
+            details = ''.join(
+                f"<li>{board.esc(reason_labels.get(reason, 'Google 원장 대조를 확정하지 못함'))} · {count}건</li>"
+                for reason, count in sorted(held_reasons.items()))
+            held_detail = ("<details class='trip-copy-hold-details'>"
+                           "<summary>Google 대조 보류 건의 정체와 사유 보기</summary>"
+                           f"<p>이 건들은 Google에 없다고 확정할 수 없어 중복 복사를 막기 위해 보류했습니다.</p>"
+                           f"<ul>{details}</ul></details>")
     disabled = ' disabled' if not available or not count else ''
     recovery = ''
     if expenses and not available:
@@ -1818,7 +1841,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     return (
         f"<section class='trip-copy-wrap' id='trip-expense-copy' aria-label='지출내용 복사'>"
         f"<div class='trip-copy-info'><strong class='trip-copy-title'>지출내용 복사</strong>"
-        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p></div>"
+        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p>{held_detail}</div>"
         f"<div class='trip-copy-box'>"
         f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' aria-describedby='trip-copy-desc' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
