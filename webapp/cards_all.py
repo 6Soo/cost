@@ -448,7 +448,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
         "</section>"
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
-        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>카드사별 모든 카드의 거래일자를 합쳐 첫 거래일부터 마지막 거래일까지 공백을 확인합니다.</p></div>"
+        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>각 파일의 첫 거래일부터 마지막 거래일까지를 기본 조회기간으로 보고, 파일 사이 공백만 확인합니다. 한 파일 안의 거래 없는 날은 공백으로 세지 않습니다.</p></div>"
         "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
         "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"

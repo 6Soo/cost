@@ -124,7 +124,7 @@
     const context = byId('card-gap-context');
     if (!selectedGap) { context.hidden = true; context.textContent = ''; return; }
     context.hidden = false;
-    context.textContent = `${selectedGap.issuer || '카드사'} · 거래일자 기준 ${selectedGap.start} ~ ${selectedGap.end} 자료를 추가합니다. 업로드 뒤 거래일자 공백을 다시 계산합니다.`;
+    context.textContent = `${selectedGap.issuer || '카드사'} · 파일 조회기간 사이 ${selectedGap.start} ~ ${selectedGap.end} 자료를 추가합니다. 업로드 뒤 공백을 다시 계산합니다.`;
   }
   function openGap(card, gap) {
     const url = new URL(location.href);
@@ -385,7 +385,7 @@
     const overview = data.overview || {};
     const metrics = node('div', 'card-coverage-metrics');
     for (const [key, label] of [['card_count', '카드사 그룹'], ['file_count', '업로드 파일'],
-      ['gap_count', '거래일자 공백'], ['files_need_review', '거래일자 없는 파일']]) {
+      ['gap_count', '파일 사이 공백'], ['files_need_review', '거래일자 없는 파일']]) {
       const metric = node('div', 'card-coverage-metric');
       metric.append(node('strong', '', overview[key] ?? 0),
         node('span', '', label));
@@ -397,28 +397,28 @@
         '업로드 기록은 있지만 거래일자를 읽을 수 있는 파일이 없습니다. 거래가 포함된 카드 자료를 추가하면 공백을 계산합니다.'));
     } else if (data.coverage_state === 'transaction_dates') {
       coverageRoot.append(node('p', 'card-coverage-guidance',
-        '같은 카드사의 모든 카드 거래일자를 합쳐 첫 거래일부터 마지막 거래일까지 공백을 표시합니다. 정상적으로 사용하지 않은 날일 수 있으며, 자료 누락을 뜻하지는 않습니다.'));
+        '각 파일의 첫 거래일부터 마지막 거래일까지를 파일별 기본 조회기간으로 보고, 파일 사이에 비는 구간만 공백으로 표시합니다. 한 파일 안의 거래 없는 날은 공백으로 세지 않습니다.'));
     }
     const cards = node('div', 'card-coverage-cards');
     for (const card of data.cards || []) {
       const box = node('section', 'card-coverage-card');
       box.append(node('h3', '', cardText(card)));
       box.append(node('p', 'card-workspace-muted', card.identity_scope === 'source_file' ?
-        '파일 단위 식별4자리가 같은 다른 카드와 합치지 않습니다.' : '거래일자 기준 카드 공백'));
+        '파일 단위 식별4자리가 같은 다른 카드와 합치지 않습니다.' : '파일별 기본 조회기간의 합집합'));
       const gaps = card.gaps || [];
-      box.append(node('p', 'card-coverage-state', gaps.length ? '거래일자 공백 ' + gaps.length + '곳' :
-        '첫 거래일~마지막 거래일 사이 공백 없음'));
+      box.append(node('p', 'card-coverage-state', gaps.length ? '파일 사이 공백 ' + gaps.length + '곳' :
+        '파일별 기본 조회기간 사이 공백 없음'));
       const timeline = [...(card.periods || []).map(period => ({...period, missing: false})),
         ...gaps.map(period => ({...period, missing: true}))].sort((a, b) => a.start.localeCompare(b.start));
       const ranges = timeline.length > 12 ? node('details', 'card-coverage-files') : box;
       if (ranges !== box) {
-        ranges.append(node('summary', '', '거래일자·공백 ' + timeline.length + '개 구간 보기'));
+        ranges.append(node('summary', '', '파일 조회기간·공백 ' + timeline.length + '개 구간 보기'));
         box.append(ranges);
       }
       for (const period of timeline) {
         const line = node('div', 'card-coverage-period' + (period.missing ? ' is-missing' : ''));
         const label = node('span');
-        label.append(document.createTextNode(period.missing ? '거래일자 공백 ' : '거래가 있는 날짜 '),
+        label.append(document.createTextNode(period.missing ? '파일 사이 공백 ' : '파일 기본 조회기간 '),
           node('span', 'card-coverage-dates', period.start), document.createTextNode(' ~ '),
           node('span', 'card-coverage-dates', period.end));
         line.append(label);

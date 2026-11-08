@@ -145,7 +145,7 @@ def test_upload_with_legacy_gap_needs_no_period_confirmation(card_db_path, monke
             expect(page.locator(".card-upload-coverage-form")).to_have_count(0)
             expect(page.locator("[data-gap-coverage-outcome]")).to_have_text(
                 "업로드 후 거래일자 공백 현황을 다시 계산합니다.")
-            expect(page.locator("#card-gap-context")).to_contain_text("거래일자 기준")
+            expect(page.locator("#card-gap-context")).to_contain_text("파일 조회기간 사이")
             assert submitted == []
             assert len(calls) == 1
         finally:

@@ -28,9 +28,10 @@ def get_coverage_summary(board, **filters):
     """Owner-only read projection based on observed transaction dates.
 
     Query-period evidence is intentionally not part of this dashboard anymore.
-    Each observed transaction day contributes one date; gaps are days between
-    the first and last observations with no transactions. This GET does not parse original
-    blobs or write DB.
+    A file's observed transaction dates define one default span from its first
+    to its last date. Empty days inside that span are not meaningful coverage
+    gaps; only gaps between spans from separate files remain assessable. This
+    GET does not parse original blobs or write DB.
     """
     if not available(board.conn):
         return dict(available=False, coverages=[], gaps=[], rechecks=[],
@@ -78,7 +79,9 @@ def get_coverage_summary(board, **filters):
                                          date_basis=date_basis, periods=[], files=[])
             if card_id not in file['card_ids']:
                 file['card_ids'].append(card_id)
-            selected[card_id]['periods'].extend(Period(day, day) for day in dates)
+            # A file is the unit of the default query period. Do not turn
+            # sparse transaction rows in one file into artificial gaps.
+            selected[card_id]['periods'].append(Period(first, last))
             file['transaction_periods'].append({'start': first, 'end': last, 'card_id': card_id})
             file['coverage_status'] = 'transaction_dates'
     files = list(file_rows.values())
