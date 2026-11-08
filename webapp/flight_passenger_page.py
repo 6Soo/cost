@@ -355,7 +355,7 @@ function groupForBooking(b){
   const head=text(section,'header','','fb-group-heading');
   text(head,'h2',id?b.assigned_trip_title||id:unavailable?'여행 배정 확인 불가':conflict?'여행 배정 충돌':'여행 미배정');
   const count=text(head,'span','','fb-group-count');
-  if(id){const link=text(head,'a','여행 장부');link.href='/board?'+new URLSearchParams({tab:id})}
+  if(id){const link=text(head,'a','여행별 비용');link.href='/board?'+new URLSearchParams({tab:id})}
   if(unavailable)text(section,'p','여행 배정 자료를 읽지 못했습니다. 예약 조회를 눌러 다시 시도하세요.','fb-group-unavailable');
   const list=text(section,'div','','fb-trip-bookings');
   bookingGroups.set(key,{section,list,count,order:id?'0'+(b.assigned_trip_starts_on||''):'1'+key});

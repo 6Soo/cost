@@ -97,8 +97,8 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  const existing=[...document.querySelectorAll('a[href="/board"],a[href="/board?tab="]')].find(a=>!a.closest('#nav'));
  document.querySelectorAll('a[href="/board"],a[href="/board?tab="]').forEach(a=>{if(!a.closest('#nav'))a.href=back});
  const host=document.querySelector('#site-content')||main;
- if(existing){existing.setAttribute('aria-label',explicit?'선택한 여행 장부로 돌아가기':'최근 여행 장부로 돌아가기')}
- else if(host){const bar=document.createElement('nav');bar.className='workflow-return';bar.setAttribute('aria-label','현재 업무로 돌아가기');const link=document.createElement('a');link.href=back;link.textContent=explicit?'선택한 여행 장부로 돌아가기':'최근 여행 장부로 돌아가기';bar.append(link);const header=host.querySelector('.site-topbar');if(header)header.after(bar);else host.prepend(bar)}
+ if(existing){existing.setAttribute('aria-label',explicit?'선택한 여행별 비용으로 돌아가기':'최근 여행별 비용으로 돌아가기')}
+ else if(host){const bar=document.createElement('nav');bar.className='workflow-return';bar.setAttribute('aria-label','현재 업무로 돌아가기');const link=document.createElement('a');link.href=back;link.textContent=explicit?'선택한 여행별 비용으로 돌아가기':'최근 여행별 비용으로 돌아가기';bar.append(link);const header=host.querySelector('.site-topbar');if(header)header.after(bar);else host.prepend(bar)}
  }
  }catch{}
  const tripFilter=document.getElementById('trip-management-filter');

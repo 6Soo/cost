@@ -630,7 +630,7 @@ def _detail_href(transaction_id) -> str:
 
 
 def _review_action(item: dict) -> str:
-    """Keep links to source evidence while removing classification work links."""
+    """Keep one read-only transaction link while removing classification work links."""
     tid, batch = item.get('transaction_id'), item.get('batch_id')
     if not tid or not batch:
         return ""
@@ -639,7 +639,7 @@ def _review_action(item: dict) -> str:
         return f"<a class='card-all-link card-review-action' href='{_esc(href + '#preview')}'>중복 근거 확인</a>"
     if item.get('conflict_reason') or item.get('parse_error'):
         return f"<a class='card-all-link card-review-action' href='{_esc(href)}'>원본 문제 확인</a>"
-    return ""
+    return f"<a class='card-all-link card-review-action' href='{_esc(href)}'>거래 상세 보기</a>"
 
 
 def card_detail_html(item: dict) -> str:
@@ -663,8 +663,10 @@ def card_detail_html(item: dict) -> str:
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
     action_html = ''
-    basis = item.get('classification_basis')
-    basis_html = (f"<details><summary>저장된 분류 근거 보기</summary><p>{_esc(basis)}</p></details>"
+    basis = str(item.get('classification_basis') or '').strip()
+    if basis in ('아직 분류하지 않았어요', '분류 대기', '미분류'):
+        basis = '저장된 근거 없음 · 카드 날짜 기준 귀속을 표시합니다.'
+    basis_html = (f"<details><summary>저장된 귀속 근거 보기</summary><p>{_esc(basis)}</p></details>"
                   if basis else '')
     return action_html + "<dl class='card-detail-fields'>" + ''.join(
         f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>' + basis_html + _review_action(item)

@@ -1502,7 +1502,9 @@ class CardFlowTests(unittest.TestCase):
     def test_mobile_page_has_answer_preview_and_no_cell_column(self):
         html = page('synthetic')
         self.assertIn('width=device-width',html)
-        self.assertIn('내 답변·수정 이유',html)
+        self.assertIn('거래 귀속 수정',html)
+        self.assertIn('id="edit-panel"',html)
+        self.assertNotIn('내 답변·수정 이유',html)
         self.assertIn('거래 처리 결과',html)
         self.assertNotIn('<th>칸</th>',html)
 
@@ -1900,8 +1902,8 @@ if __name__ == '__main__':
 
 
 def test_import_summary_counts_match_the_metric_tiles():
-    # The header and the tiles must use the same row states, or "확인 필요" shows two different numbers.
+    # The header and tiles expose durable record states; the retired question count is not a UI metric.
     from webapp.card_flow import PAGE as page
     assert "기록 가능" not in page and "['ready','기록 가능']" not in page
-    assert "확인 필요 '+reviewCounts.review" in page
+    assert "확인 필요 '+reviewCounts.review" not in page
     assert "자동분류 '+(counts.classified" not in page and "'+(counts.needs_review" not in page

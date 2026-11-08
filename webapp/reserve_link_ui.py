@@ -142,7 +142,7 @@ a.back { color: var(--accent); text-decoration: none; }
      reach. The review link is the configured comparison screen, which is where
      an owner checks this linking against the real source. -->
 <nav class="backbar" aria-label="돌아가기">
-  <a class="back" id="back-board" href="/board">__ICON_CHEVRON_LEFT__장부로 돌아가기</a>
+  <a class="back" id="back-board" href="/board">__ICON_CHEVRON_LEFT__여행별 비용으로 돌아가기</a>
   <a class="back" id="back-review" href="/review">__ICON_SEARCH__실제 자료 검토</a>
 </nav>
 <p id="state" role="status" aria-live="polite">불러오는 중입니다.</p>

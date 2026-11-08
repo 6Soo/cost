@@ -421,7 +421,7 @@ def _insert_row(store, batch_id: str, row: ParsedRow, now: str,
          row.posting_date, row.merchant, row.merchant_normalized, row.amount_krw,
          row.foreign_amount, row.foreign_currency, row.description_raw,
          row.row_index, canonical(row.raw), row.parse_error,
-         "needs_review", "아직 분류하지 않았어요", now))
+         "needs_review", "저장된 근거 없음 · 카드 날짜 기준 귀속을 표시합니다.", now))
     if drift:
         store.conn.execute("UPDATE transactions SET conflict_reason=? WHERE transaction_id=?",
                            ("다른 파일에 금액·날짜가 같고 가맹점 표기만 다른 거래가 있습니다. 같은 결제인지 확인이 필요합니다",

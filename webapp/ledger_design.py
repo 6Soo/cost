@@ -145,7 +145,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
     if board.current_role() == 'owner':
         from . import flight_passenger_page, receipt_review
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   + f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
+                   + f"<a href='/trips'>{_icons.icon('list', 18)}<span class='nm'>여행 관리</span></a>"
                    f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
         if receipt_review.enabled():
@@ -160,7 +160,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
                     "<span class='nm'>계정·권한 관리</span></a></nav>")
     else:
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
+                   f"<a href='/trips'>{_icons.icon('list', 18)}<span class='nm'>여행 관리</span></a>")
         primary += '</nav>'
     search = (
         "<form class='nav-q' method='get' action='/board'>"

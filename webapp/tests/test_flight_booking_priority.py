@@ -164,7 +164,7 @@ def test_browser_trip_groups_merge_next_page_and_keep_passenger_titles_and_unass
             expect(groups.nth(2).locator('header h2')).to_have_text('여행 미배정')
             a = page.locator('.fb-trip-group[data-trip-id="trip-a"]')
             expect(a.locator('.fb-choice-copy strong')).to_have_text('KIM ALPHA')
-            expect(a.get_by_role('link', name='여행 장부')).to_have_attribute('href', '/board?tab=trip-a')
+            expect(a.get_by_role('link', name='여행별 비용')).to_have_attribute('href', '/board?tab=trip-a')
             page.get_by_role('button', name='예약 더 보기').click()
             expect(groups).to_have_count(3)
             expect(a.locator('.fb-choice-copy strong')).to_have_text(['KIM ALPHA', 'CHOI DELTA'])
