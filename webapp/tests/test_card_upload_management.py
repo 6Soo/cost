@@ -74,16 +74,16 @@ def test_zero_row_file_visible_and_not_mistaken_for_transaction_date(ctx):
     assert any(row['batch_id'] == batch for row in card_flow.batch_catalog(board))
 
 
-def test_gap_dates_use_transaction_date_intervals(ctx):
+def test_gap_dates_use_file_spans_between_transaction_endpoints(ctx):
     board, _ = ctx
     first, raw1 = uploaded(ctx, first='2026-04-01', last='2026-04-10')
     second, raw2 = uploaded(ctx, first='2026-04-15', last='2026-04-20')
     dashboard = card_upload_coverage.get_coverage_summary(board, through='2026-04-20')
     card = dashboard['cards'][0]
-    assert card['gaps'] == [{'start': '2026-04-02', 'end': '2026-04-09'},
-                            {'start': '2026-04-11', 'end': '2026-04-14'},
-                            {'start': '2026-04-16', 'end': '2026-04-19'}]
-    assert dashboard['overview']['gap_count'] == 3
+    assert card['periods'] == [{'start': '2026-04-01', 'end': '2026-04-10'},
+                               {'start': '2026-04-15', 'end': '2026-04-20'}]
+    assert card['gaps'] == [{'start': '2026-04-11', 'end': '2026-04-14'}]
+    assert dashboard['overview']['gap_count'] == 1
     assert card['date_basis'] == '거래일자'
 
 
@@ -150,7 +150,8 @@ def test_legacy_baseline_records_keep_revision_and_conflict_protection(ctx):
     assert saved['revision'] == 1 and saved['changed']
     new = card_upload_coverage.get_coverage_summary(board, through='2026-04-20')['cards'][0]
     assert 'management_start' not in new
-    assert new['gaps'] == [{'start': '2026-04-02', 'end': '2026-04-09'}]
+    assert new['periods'] == [{'start': '2026-04-01', 'end': '2026-04-10'}]
+    assert new['gaps'] == []
     repeated = store.set_management_start(card['card_id'], '이용일',
                                           '2026-03-01', 1)
     assert repeated['changed'] is False

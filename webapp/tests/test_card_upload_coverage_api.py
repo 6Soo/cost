@@ -125,24 +125,46 @@ def test_empty_import_has_no_inferred_card_identity(board):
     assert summary['overview']['gaps_assessable'] is False
 
 
-def test_gap_uses_each_observed_day_and_an_overlapping_upload_fills_it(board):
+def test_file_span_ignores_sparse_days_but_separate_files_leave_gaps(board):
     header = '카드사,카드번호,카드종류,가맹점,이용금액,승인일,매입일,승인번호\n'
     rows = ('SYNTH,1234-56**-****-1111,신용,SHOP,10,2026-04-01,2026-04-10,A\n'
             'SYNTH,1234-56**-****-1111,신용,SHOP,11,2026-04-03,2026-04-10,B\n')
     pipeline = Pipeline(board.conn)
     pipeline.receive((header + rows).encode('utf-8-sig'), 'first.csv')
-    assert coverage.get_coverage_summary(board)['cards'][0]['gaps'] == [
-        {'start': '2026-04-02', 'end': '2026-04-02'}]
+    first_summary = coverage.get_coverage_summary(board)
+    assert first_summary['cards'][0]['gaps'] == []
+    assert first_summary['cards'][0]['periods'] == [
+        {'start': '2026-04-01', 'end': '2026-04-03'}]
     pipeline.receive((header +
-        'SYNTH,1234-56**-****-1111,신용,SHOP,12,2026-04-02,2026-04-10,C\n'
-        + rows).encode('utf-8-sig'), 'overlap.csv')
+        'SYNTH,1234-56**-****-1111,신용,SHOP,12,2026-04-05,2026-04-10,C\n'
+        'SYNTH,1234-56**-****-1111,신용,SHOP,13,2026-04-06,2026-04-10,D\n'
+        ).encode('utf-8-sig'), 'later.csv')
     before = list(board.conn.iterdump())
     summary = coverage.get_coverage_summary(board, date_basis='거래일자')
-    assert summary['cards'][0]['gaps'] == []
-    assert summary['cards'][0]['periods'] == [{'start': '2026-04-01', 'end': '2026-04-03'}]
+    assert summary['cards'][0]['gaps'] == [
+        {'start': '2026-04-04', 'end': '2026-04-04'}]
+    assert summary['cards'][0]['periods'] == [
+        {'start': '2026-04-01', 'end': '2026-04-03'},
+        {'start': '2026-04-05', 'end': '2026-04-06'}]
     assert summary['overview']['file_count'] == 2
     assert coverage.get_coverage_summary(board, date_basis='unknown')['cards'] == []
     assert coverage.get_coverage_summary(board, issuer='OTHER')['cards'] == []
+    assert list(board.conn.iterdump()) == before
+
+    # Another card from the same issuer can bridge the file spans. Its sparse
+    # endpoints cover the whole interval, while duplicate rows stay unique.
+    pipeline.receive((header +
+        'SYNTH,1234-56**-****-2222,신용,SHOP,14,2026-04-03,2026-04-10,E\n'
+        'SYNTH,1234-56**-****-2222,신용,SHOP,15,2026-04-05,2026-04-10,F\n'
+        + rows).encode('utf-8-sig'), 'bridge.csv')
+    before = list(board.conn.iterdump())
+    filled = coverage.get_coverage_summary(board)
+    assert filled['overview']['card_count'] == 1
+    assert filled['overview']['file_count'] == 3
+    assert filled['overview']['gap_count'] == 0
+    assert filled['cards'][0]['periods'] == [
+        {'start': '2026-04-01', 'end': '2026-04-06'}]
+    assert filled['cards'][0]['gaps'] == []
     assert list(board.conn.iterdump()) == before
 
 
@@ -154,12 +176,11 @@ def test_mixed_card_file_unions_cards_by_issuer_and_keeps_file_total_unique(boar
     summary = coverage.get_coverage_summary(board)
     assert summary['overview']['card_count'] == 1
     assert summary['overview']['file_count'] == 1
-    assert summary['overview']['gap_count'] == 1
+    assert summary['overview']['gap_count'] == 0
     assert summary['cards'][0]['issuer'] == 'SYNTH'
     assert summary['cards'][0]['periods'] == [
-        {'start': '2026-04-01', 'end': '2026-04-01'},
-        {'start': '2026-04-03', 'end': '2026-04-03'}]
-    assert summary['cards'][0]['gaps'] == [{'start': '2026-04-02', 'end': '2026-04-02'}]
+        {'start': '2026-04-01', 'end': '2026-04-03'}]
+    assert summary['cards'][0]['gaps'] == []
     assert summary['files'][0]['unique_transactions'] == 2
     assert summary['files'][0]['card_tail_hint'] == ''
     assert coverage.get_coverage_summary(board, card_tail='1111')['overview']['card_count'] == 1

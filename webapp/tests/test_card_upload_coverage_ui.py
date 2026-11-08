@@ -33,15 +33,17 @@ def test_legacy_transaction_workspace_uses_card_detail_heading():
 
 
 def test_unverified_coverage_can_be_opened_for_explicit_review():
-    """The dashboard exposes transaction-date gaps without a query-period form."""
+    """The dashboard exposes file-span gaps without a query-period form."""
     assert "data.coverage_state === 'needs_transactions'" in SCRIPT
     assert "거래일자 공백" in SCRIPT
-    assert "조회기간" not in SCRIPT
+    assert "파일 기본 조회기간" in SCRIPT
+    assert "한 파일 안의 거래 없는 날은 공백으로 세지 않습니다." in SCRIPT
+    assert '/coverage/confirm' not in SCRIPT
 
 
 def test_pending_coverage_renders_grouped_details_instead_of_23_open_rows():
     assert "'카드사 식별 정보 없음'" in SCRIPT
-    assert "같은 카드사의 모든 카드 거래일자를 합쳐" in SCRIPT
+    assert "각 파일의 첫 거래일부터 마지막 거래일까지를 파일별 기본 조회기간으로 보고" in SCRIPT
     assert "for (const [label, files] of groups)" in SCRIPT
     assert "renderFile(file, group)" in SCRIPT
     assert "'거래일자가 없는 파일 '" in SCRIPT
