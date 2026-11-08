@@ -1,7 +1,13 @@
-﻿## 2026-11-08 카드사별 거래일자 합집합 공백 — 운영 완료
+﻿## 2026-11-08 Google 장부 지출내용 복사 대조·클립보드 오류 — 운영 완료
 
-- PR #742 병합·운영 SHA `8341f266531a389c962e094f4bc671e76a72b86f`. 같은 카드사의 모든 카드 거래일자를 합집합해 카드사별 조회기간과 공백을 계산한다.
-- 커버리지 표적 49 passed·skip0, blob mismatch0, health/ready200, 보호 API401, 보호13표 불변, 금융 적용 미실행. 배포 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-8341f266531a389c962e094f4bc671e76f03e87.json`이다.
+- PR #744 병합·운영 SHA `aa7d6a648118c907421e32234ca3837cc11c42a9`, 이전 실제 runtime `8341f266531a389a406eb8ce6486759366f03e87`. `Google 장부 일치`는 이미 대조된 `MATCHED_MANUAL`/`MATCHED_EXISTING`, `Google 대조 보류`는 `REVIEW_CONFLICT`로 안전한 단일 Google 행을 확정하지 못한 후보다. 보류 사유별 펼침 정보를 추가했고 `NEW_EXPENSE`만 복사한다.
+- 클립보드 문서 포커스 오류에 버튼 포커스 복원과 textarea 선택 fallback을 추가했다. 표적 `19 passed·skip0`, health/ready200, 보호 API401, 보호13표 불변, `financial_apply=NOT_RUN`. Google 최종 장부 쓰기와 고객 원본·금융 데이터 변경은 없었다.
+- 배포 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-aa7d6a648118c907421e32234ca3837cc11c42a9.json`, 상세 근거는 `.local-archive/google-expense-copy-fix-20261108/`다. impact-checks는 billing/infrastructure steps0으로 녹색이 아니며 이를 성공으로 보고하지 않는다.
+
+## 2026-11-08 카드사별 거래일자 합집합 공백 — 운영 완료
+
+- PR #742 병합·운영 SHA `8341f266531a389a406eb8ce6486759366f03e87`. 같은 카드사의 모든 카드 거래일자를 합집합해 카드사별 조회기간과 공백을 계산한다.
+- 커버리지 표적 49 passed·skip0, blob mismatch0, health/ready200, 보호 API401, 보호13표 불변, 금융 적용 미실행. 배포 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-8341f266531a389a406eb8ce6486759366f03e87.json`이다.
 
 ## 2026-11-08 여행 장부 독립 메뉴 제거 — 운영 완료
 
@@ -1414,6 +1420,4 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 2026-11-08 카드 내역 거래일자 공백 전환
 
 최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. PR #731 병합 및 운영 SHA `d97158484d17f974668dafffafdb1a7b462a7249` 배포 완료. 최종 영향 QA503+100 subtests, skip0/browser35, Sol medium 검수 PASS. health/ready200·보호API401·보호13표 불변. 인증 운영 API·DOM으로23파일/27표시그룹/515공백 및 구 폼0 확인; 전체 고객 화면 시각 수락은 미검증이다. 실제 작업 근거는 운영 기록에 보존하며 문서-only 후속은 재배포하지 않는다. 기존 main의 다른 로컬 커밋8개는 별도 보존한다.
-
-
 

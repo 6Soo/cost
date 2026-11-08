@@ -1,4 +1,11 @@
-﻿## 2026-11-08 카드사별 거래일자 합집합 공백 — 운영 배포 COMPLETE
+﻿## 2026-11-08 Google 장부 지출내용 복사 대조·클립보드 오류 — 운영 배포 COMPLETE
+
+- 사용자 화면의 `장부에 있음`/`확인 필요`가 서로 다른 의미를 섞어 보이던 문제를 `Google 장부 일치`와 `Google 대조 보류`로 명확히 나눴다. `Google 장부 일치`는 `MATCHED_MANUAL` 또는 `MATCHED_EXISTING`으로 이미 Google 행과 확인된 건이고, `Google 대조 보류`는 `REVIEW_CONFLICT`로 후보가 여러 개이거나 금액·날짜·가맹점·승인번호만으로 Google 한 행을 안전하게 확정할 수 없는 건이다. 보류 건은 중복 복사를 막기 위해 제외하며 화면에서 사유별 건수를 펼쳐 볼 수 있다. `NEW_EXPENSE`만 복사 대상으로 유지한다.
+- 브라우저가 포커스를 잃었을 때 `navigator.clipboard.writeText`가 `Document is not focused`로 실패하던 오류를 버튼 포커스 복원과 textarea 선택·`execCommand('copy')` fallback으로 수정했다. COST는 Google 장부에 쓰지 않는다.
+- [PR #744](https://github.com/6Soo/cost/pull/744), 구현·운영 SHA **`aa7d6a648118c907421e32234ca3837cc11c42a9`**, 이전 실제 runtime `8341f266531a389a406eb8ce6486759366f03e87`. 표적 검사 `19 passed·skip 0`, tracked blobs 1,445·mismatch0, runtime/task/process SHA 일치, Gateway8790→loopback8751, health/ready200, 보호 API401, 보호 테이블13개 전후 불변, `financial_apply=NOT_RUN`이다.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-aa7d6a648118c907421e32234ca3837cc11c42a9.json`, 비공개 `.local-archive/google-expense-copy-fix-20261108/`. GitHub impact-checks는 결제·인프라 제한으로 steps0에서 시작하지 못해 녹색으로 보고하지 않았다. 고객 원본·금융·Google 장부 쓰기·스키마 변경은 실행하지 않았다.
+
+## 2026-11-08 카드사별 거래일자 합집합 공백 — 운영 배포 COMPLETE
 
 - 사용자 결정에 따라 거래일자 공백의 그룹 기준을 카드 끝4자리에서 카드사로 변경했다. 같은 카드사의 모든 카드 거래일자를 합집합하고, 카드사 그룹의 최소·최대 거래일 사이를 공백으로 계산한다. [PR #742](https://github.com/6Soo/cost/pull/742).
 - 커버리지/API/UI 표적 **49 passed, skip0**, compileall·diff-check PASS. 같은 카드사의 서로 다른 끝4자리 합성 거래가 하나의 카드사 그룹과 공백으로 합쳐지는 회귀를 확인했다. GitHub impact-checks는 billing 차단으로 steps0이어서 CI 녹색으로 보고하지 않았다.
@@ -1442,6 +1449,4 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
 - 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
-
-
 
