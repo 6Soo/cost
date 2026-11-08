@@ -1,4 +1,9 @@
-﻿## 2026-11-08 여행 장부 독립 메뉴 제거 — 운영 완료
+﻿## 2026-11-08 카드사별 거래일자 합집합 공백 — 운영 완료
+
+- PR #742 병합·운영 SHA `8341f266531a389c962e094f4bc671e76a72b86f`. 같은 카드사의 모든 카드 거래일자를 합집합해 카드사별 조회기간과 공백을 계산한다.
+- 커버리지 표적 49 passed·skip0, blob mismatch0, health/ready200, 보호 API401, 보호13표 불변, 금융 적용 미실행. 배포 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-8341f266531a389c962e094f4bc671e76f03e87.json`이다.
+
+## 2026-11-08 여행 장부 독립 메뉴 제거 — 운영 완료
 
 - PR #740 병합·운영 SHA `43f49f91ecdd189c962e094f4bc671e76a72b86f`. 전역 `여행 장부` 메뉴를 제거하고 `여행 관리`에서 여행을 선택하는 구조로 바꿨다. `/board` 기능은 유지한다.
 - 표적 42 passed·skip0, 브라우저 2 passed·9 subtests. 공식 배포 evidence는 `D:/WebLedgerHost/releases/deploy-evidence-43f49f91ecdd189c962e094f4bc671e76a72b86f.json`이며 보호13표 불변·health/ready200·보호 API401·금융 적용 미실행이다.
@@ -1409,5 +1414,6 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 2026-11-08 카드 내역 거래일자 공백 전환
 
 최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. PR #731 병합 및 운영 SHA `d97158484d17f974668dafffafdb1a7b462a7249` 배포 완료. 최종 영향 QA503+100 subtests, skip0/browser35, Sol medium 검수 PASS. health/ready200·보호API401·보호13표 불변. 인증 운영 API·DOM으로23파일/27표시그룹/515공백 및 구 폼0 확인; 전체 고객 화면 시각 수락은 미검증이다. 실제 작업 근거는 운영 기록에 보존하며 문서-only 후속은 재배포하지 않는다. 기존 main의 다른 로컬 커밋8개는 별도 보존한다.
+
 
 
