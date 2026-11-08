@@ -1474,3 +1474,4 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
 - 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
+
