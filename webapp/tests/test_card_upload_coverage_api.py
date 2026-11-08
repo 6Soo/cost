@@ -151,6 +151,22 @@ def test_file_span_ignores_sparse_days_but_separate_files_leave_gaps(board):
     assert coverage.get_coverage_summary(board, issuer='OTHER')['cards'] == []
     assert list(board.conn.iterdump()) == before
 
+    # Another card from the same issuer can bridge the file spans. Its sparse
+    # endpoints cover the whole interval, while duplicate rows stay unique.
+    pipeline.receive((header +
+        'SYNTH,1234-56**-****-2222,신용,SHOP,14,2026-04-03,2026-04-10,E\n'
+        'SYNTH,1234-56**-****-2222,신용,SHOP,15,2026-04-05,2026-04-10,F\n'
+        + rows).encode('utf-8-sig'), 'bridge.csv')
+    before = list(board.conn.iterdump())
+    filled = coverage.get_coverage_summary(board)
+    assert filled['overview']['card_count'] == 1
+    assert filled['overview']['file_count'] == 3
+    assert filled['overview']['gap_count'] == 0
+    assert filled['cards'][0]['periods'] == [
+        {'start': '2026-04-01', 'end': '2026-04-06'}]
+    assert filled['cards'][0]['gaps'] == []
+    assert list(board.conn.iterdump()) == before
+
 
 def test_mixed_card_file_unions_cards_by_issuer_and_keeps_file_total_unique(board):
     raw = ('카드사,카드번호,카드종류,가맹점,이용금액,승인일,매입일,승인번호\n'
