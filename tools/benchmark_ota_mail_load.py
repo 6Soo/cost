@@ -1,4 +1,4 @@
-﻿"""Fixed synthetic input, fresh process per phase; no operating source is opened."""
+"""Fixed synthetic input, fresh process per phase; no operating source is opened."""
 import argparse
 import ctypes
 from ctypes import wintypes
@@ -123,4 +123,3 @@ else:
 if opts.output:
     Path(opts.output).write_text(json.dumps(report, indent=2), encoding='utf-8')
 print(json.dumps(report))
-
