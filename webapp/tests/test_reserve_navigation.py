@@ -213,7 +213,7 @@ class ReturnLinkTests(unittest.TestCase):
     def test_the_ledger_return_link_is_present_and_points_at_the_board(self):
         self.assertIn("id=\"back-board\"", self.document)
         self.assertIn('href="/board"', self.document)
-        self.assertIn("장부로 돌아가기", self.document)
+        self.assertIn("여행별 비용으로 돌아가기", self.document)
 
     def test_the_real_source_review_return_link_is_present(self):
         """The linking screen decides what belongs together; the review screen

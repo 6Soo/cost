@@ -121,6 +121,16 @@ def test_flight_passenger_link_is_owner_only_and_feature_gated():
     assert "href='/access/admin'" in disabled
 
 
+def test_trip_costs_are_reached_from_trip_management_not_a_standalone_ledger_menu():
+    with patch.object(ledger_board, 'current_role', return_value='owner'), \
+            patch('webapp.ledger_design.nav_region', return_value=''):
+        html = ledger_design._nav_html('', '')
+    assert "href='/trips'" in html
+    assert "여행 관리" in html
+    assert "href='/board'" not in html
+    assert "여행 장부" not in html
+
+
 def test_cleanup_preserves_errors_confirmation_and_scripts():
     original = ("<p>자동 추출은 연결되지 않았습니다. 사진을 보고 입력하세요.</p>"
                 "<p role='alert'>자동 추출은 연결되지 않았습니다. 설정을 확인하세요.</p>"

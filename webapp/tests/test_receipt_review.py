@@ -119,7 +119,7 @@ class ReceiptReviewTests(unittest.TestCase):
                     with self.subTest(width=width):
                         pg = browser.new_page(viewport={'width': width, 'height': 900})
                         pg.goto(self.base + '/receipts?trip=' + self.trip)
-                        self.assertTrue(pg.get_by_role('link', name='선택한 여행 장부로 돌아가기').is_visible())
+                        self.assertTrue(pg.get_by_role('link', name='선택한 여행별 비용으로 돌아가기').is_visible())
                         # The reading notes sit in the collapsed "직접 입력 / 다른 방법" group, so the text is checked in the DOM.
                         other = pg.locator('#other-methods')
                         self.assertEqual(other.locator('summary').inner_text(), '직접 입력 / 다른 방법')
@@ -414,10 +414,8 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.click('#copy-tsv')
                 self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-                back = page.locator('.site-links a[href^="/board"]')
+                back = page.locator('.workflow-return a[href^="/board"]')
                 self.assertIn('tab=' + self.trip, back.get_attribute('href'))
-                if width < 768:
-                    page.locator('.site-menu-toggle').click()
                 back.click()
                 self.assertEqual(page.evaluate('new URL(location.href).searchParams.get("tab")'), self.trip)
                 self.assertEqual(page.evaluate('location.pathname'), '/board')

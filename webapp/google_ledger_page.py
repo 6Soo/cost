@@ -761,7 +761,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "li{overflow-wrap:anywhere}h1{font-size:22px}}"
         "</style></head><body>"
         "<nav aria-label='장부 이동'>"
-        f"<a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a>"
+        f"<a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}여행별 비용으로 돌아가기</a>"
         + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
         "<h1>수입 장부</h1>"
@@ -799,7 +799,7 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
         f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"
-        f"<a href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a>"
+        f"<a href='/board'>{ui_icons.icon('chevron-left')}여행별 비용으로 돌아가기</a>"
         "</body></html>", 503)
 
 
