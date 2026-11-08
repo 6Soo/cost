@@ -82,7 +82,11 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         assert states[tid] == 'RESERVATION_INFERRED' and generation == 7
         assert any('예약 추론' in note and '숙박 2026-10-01~2026-10-03' in note for note in notes[tid])
         listing = card_catalog.catalog(board, {})
-        assert '1234567' in card_catalog.render_html(listing, {})
+        listed_card = next(row for row in listing['rows'] if row['transaction_id'] == tid)
+        assert listed_card['ota_candidate_notes'] == notes[tid]
+        # The retired catalog now links to the shared card page. Verify the
+        # candidate data above rather than requiring its old duplicate UI.
+        assert "href='/cards/all'" in card_catalog.render_html(listing, {})
         page_html = ota_payment_review.render_import_section('synthetic-csrf')
         assert 'reservation/preview' in page_html and '예약 관계 확정' in page_html
         assert '이 거래로 결제 연결 확정' in page_html

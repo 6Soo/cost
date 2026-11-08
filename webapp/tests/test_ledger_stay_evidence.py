@@ -118,6 +118,73 @@ def test_incomplete_stay_is_not_guessed_or_crashed(context, period):
     assert stays.stay_index(store) == {}
 
 
+def linked_group(data):
+    data['events'].append(dict(data['events'][0], ota_event_id='e2', booking_ref='B2'))
+    relation = dict(status='LINKED', event_ids=['e1', 'e2'], transaction_ids=['t1'],
+                    individual_payment_verified=False)
+    data['results'] = [dict(ota_event_id=eid, status='MATCHED_GROUP', payment_relation=relation)
+                       for eid in ['e1', 'e2']]
+
+
+def test_linked_many_to_many_shared_period_is_display_only(context):
+    store, data, _, _ = context
+    linked_group(data)
+    before = deepcopy(data)
+    changes = store.conn.total_changes
+    metadata = stays.stay_index(store)['t1']
+    assert metadata['booking_ref'] == ''
+    assert metadata['booking_refs'] == ['B1', 'B2']
+    assert metadata['ota_evidence']['payment_verified'] is False
+    assert stays.period_for(card(reservation_no='B2'), {'t1': metadata}) == '2026-07-05~2026-07-07'
+    assert stays.period_for(card(reservation_no='OTHER'), {'t1': metadata}) == ''
+    assert data == before and store.conn.total_changes == changes
+    from app.ota_core_projection import card_matches
+    assert card_matches([], data) == []
+
+
+def test_linked_missing_event_category_uses_period_without_reclassifying(context):
+    store, data, _, _ = context
+    del data['events'][0]['item']
+    assert stays.stay_index(store)['t1']['service_period'] == '2026-07-05~2026-07-07'
+    assert 'item' not in data['events'][0]
+
+
+@pytest.mark.parametrize('change', ['different_period', 'missing_event', 'cancelled', 'conflict',
+                                  'missing_digest', 'stale_link', 'changed_digest', 'unlinked',
+                                  'manual', 'refund', 'duplicate', 'ordered', 'invalid_period'])
+def test_group_period_requires_every_observation_to_be_safe(context, change):
+    store, data, _, _ = context
+    linked_group(data)
+    event = data['events'][1]
+    if change == 'different_period':
+        event['service_period'] = {'starts_on':'2026-07-06', 'ends_on':'2026-07-07'}
+    elif change == 'missing_event':
+        data['events'].pop()
+    elif change == 'cancelled':
+        event['reservation_status'] = 'cancelled'
+    elif change == 'conflict':
+        event['service_period_conflict'] = True
+    elif change == 'missing_digest':
+        event['source_digest'] = ''
+    elif change == 'stale_link':
+        data['links'] = {'e2': {'status':'STALE'}}
+    elif change == 'changed_digest':
+        data['links'] = {'e2': {'source_digest':'other'}}
+    elif change == 'unlinked':
+        data['results'][0]['payment_relation']['status'] = 'UNLINKED'
+    elif change == 'manual':
+        store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    elif change == 'refund':
+        data['transactions'][0]['transaction_direction'] = 'refund'
+    elif change == 'duplicate':
+        data['transactions'][0]['duplicate_of'] = 'other'
+    elif change == 'ordered':
+        data['results'][0].update(allocation_basis='auto_stable_order', individual_payment_evidence=False)
+    elif change == 'invalid_period':
+        event['service_period'] = {'starts_on':'2026-07-09', 'ends_on':'2026-07-07'}
+    assert stays.stay_index(store) == {}
+
+
 @pytest.mark.parametrize('where', ['events', 'results'])
 def test_alternate_period_conflict_is_protected(context, where):
     store, data, _, _ = context
