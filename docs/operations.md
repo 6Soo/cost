@@ -1,4 +1,11 @@
-﻿## 2026-11-08 여행 장부 독립 메뉴 제거 — 운영 배포 COMPLETE
+﻿## 2026-11-08 카드사별 거래일자 합집합 공백 — 운영 배포 COMPLETE
+
+- 사용자 결정에 따라 거래일자 공백의 그룹 기준을 카드 끝4자리에서 카드사로 변경했다. 같은 카드사의 모든 카드 거래일자를 합집합하고, 카드사 그룹의 최소·최대 거래일 사이를 공백으로 계산한다. [PR #742](https://github.com/6Soo/cost/pull/742).
+- 커버리지/API/UI 표적 **49 passed, skip0**, compileall·diff-check PASS. 같은 카드사의 서로 다른 끝4자리 합성 거래가 하나의 카드사 그룹과 공백으로 합쳐지는 회귀를 확인했다. GitHub impact-checks는 billing 차단으로 steps0이어서 CI 녹색으로 보고하지 않았다.
+- 운영 SHA **`8341f266531a389a406eb8ce6486759366f03e87`**, 이전 `43f49f91ecdd189c962e094f4bc671e76a72b86f`. 공식 PREVIEW→APPLY 완료, tracked blobs 1,445·mismatch0, runtime/task/process SHA 일치, Gateway8790→loopback8752, health/ready200, 보호 API401, 보호 테이블13개 전후 불변, `financial_apply=NOT_RUN`.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-8341f266531a389a406eb8ce6486759366f03e87.json`, 비공개 `.local-archive/issuer-date-union-20261108/`. 고객 원본·금융·Google 쓰기와 스키마 변경은 실행하지 않았다.
+
+## 2026-11-08 여행 장부 독립 메뉴 제거 — 운영 배포 COMPLETE
 
 - 사용자 결정에 따라 `여행 장부`를 전역 메뉴에서 제거하고 `여행 관리`를 여행 선택 진입점으로 사용한다. `/board`와 여행별 비용·수입·지출·환불·출력 기능은 유지하며, 항공권·영수증·예약 연결·Google 복귀 문구를 `여행별 비용`으로 통일했다. 카드 폐지 질문 UI 후속도 함께 반영했다. [PR #740](https://github.com/6Soo/cost/pull/740).
 - 표적 QA **42 passed, skip0**, 공통 사이드바 브라우저 **2 passed + 9 subtests**, compileall/diff-check PASS. GitHub impact-checks는 billing 차단으로 steps0이어서 CI 녹색으로 보고하지 않고 승인 예외를 적용했다.
@@ -1435,5 +1442,6 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
 - 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
+
 
 
