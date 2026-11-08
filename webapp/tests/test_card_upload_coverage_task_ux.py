@@ -51,6 +51,24 @@ def test_missing_period_precedes_files_and_keeps_upload_context(card_db_path, mo
             expect(sources.locator('.card-coverage-file').first).not_to_be_visible()
             assert page.locator('.card-coverage-metrics').count() == 0
             assert not page.locator('#card-coverage-summary').inner_text().count('합집합')
+            for theme, next_label in [('dark', '라이트모드로 전환'), ('light', '다크모드로 전환')]:
+                page.emulate_media(color_scheme=theme)
+                expect(page.locator('#site-theme-toggle')).to_have_attribute('aria-label', next_label)
+                contrasts = page.locator('.card-coverage-period.is-missing').evaluate('''root => {
+                    const rgb = value => value.match(/[\\d.]+/g).map(Number);
+                    const luminance = color => color.slice(0, 3).map(n => {
+                        n /= 255; return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4;
+                    }).reduce((sum, n, i) => sum + n * [.2126, .7152, .0722][i], 0);
+                    return [...root.querySelectorAll('.card-coverage-label,button')].map(element => {
+                        let surface = element;
+                        while (getComputedStyle(surface).backgroundColor === 'rgba(0, 0, 0, 0)')
+                            surface = surface.parentElement;
+                        const fg = luminance(rgb(getComputedStyle(element).color));
+                        const bg = luminance(rgb(getComputedStyle(surface).backgroundColor));
+                        return (Math.max(fg, bg) + .05) / (Math.min(fg, bg) + .05);
+                    });
+                }''')
+                assert min(contrasts) >= 4.5
             # Expanding file details cannot move the period summary above them.
             first_top = cards.first.bounding_box()['y']
             sources.locator('summary').click()

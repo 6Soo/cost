@@ -251,6 +251,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-coverage-period{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;overflow-wrap:anywhere}
 .card-all-page .card-coverage-period.is-missing{margin:0 0 16px;padding:12px;border:1px solid var(--ca-border);border-inline-start:3px solid var(--shell-warn,var(--warn,#b45309));border-radius:6px;background:var(--ca-soft)}
 .card-all-page .card-coverage-gap-label{display:grid;gap:4px;min-width:0}
+.card-all-page .card-coverage-gap-label .card-coverage-label{color:var(--ca-ink)}
 .card-all-page .card-coverage-label{color:var(--ca-muted);font-size:12px;line-height:1.5}
 .card-all-page .card-coverage-gap-label .card-coverage-date-range{font-size:15px;font-weight:650;line-height:1.5}
 .card-all-page .card-coverage-period button{flex:0 0 auto}
