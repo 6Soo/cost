@@ -72,7 +72,8 @@ try{
         $newArguments=$newArguments -replace '(?i) -ParticipantDb "[^"]+"',''
         $newArguments+=' -ParticipantSyncConfig "'+$ParticipantSyncConfig+'"'
     }
-    $new=New-ScheduledTaskAction -Execute $old.Execute -Argument $newArguments
+    $newArguments=$newArguments -replace '(?i)\s-LifecycleRole\s+(?:"[^"]+"|\S+)', ''
+    $new=New-ScheduledTaskAction -Execute $old.Execute -Argument ($newArguments+' -LifecycleRole Board')
     Set-ScheduledTask -TaskName WebLedger-Board -Action $new | Out-Null
     Start-ScheduledTask -TaskName WebLedger-Board
     $startInfo=Get-ScheduledTaskInfo -TaskName WebLedger-Board
