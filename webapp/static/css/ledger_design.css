@@ -682,6 +682,15 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 @media(hover:hover){.trip-copy-box .btn:hover{background:var(--hover)}}
 .trip-copy-box .btn:disabled{opacity:.55;cursor:default}
 .trip-copy-desc{margin:4px 0 0;font-size:13px;line-height:1.6;color:var(--mut);overflow-wrap:anywhere}
+.trip-copy-manual{flex-basis:100%;display:grid;gap:8px;min-width:0;padding-top:8px}
+.trip-copy-manual[hidden]{display:none}
+.trip-copy-excluded{overflow-wrap:anywhere}
+.trip-copy-excluded li{margin-block:8px}
+.trip-copy-excluded a{display:inline-block;text-decoration:underline;text-underline-offset:3px}
+.trip-copy-manual label{font-size:14px;font-weight:600;color:var(--ink)}
+.trip-copy-manual p{margin:0;font-size:13px;line-height:1.6;color:var(--mut)}
+.trip-copy-manual textarea{box-sizing:border-box;width:100%;min-width:0;min-height:140px;resize:vertical;padding:12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--paper);color:var(--ink);font:inherit;font-size:16px;line-height:1.5;white-space:pre;overflow:auto}
+.trip-copy-manual textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .trip-copy-wrap .copy-status{flex-basis:100%;margin:0;font-size:13px;font-weight:500;line-height:1.6;overflow-wrap:anywhere}
 .trip-copy-wrap .copy-status:empty{flex-basis:0}
 .copy-status.success{color:var(--grn)}

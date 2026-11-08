@@ -1788,7 +1788,8 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
                and not row.get('blocked') and not row.get('excluded_from_company')]
     result = _trip_expense_tsv(tab_id, allowed)
     count, total = result['row_count'], result['total_krw']
-    held_detail = ''
+    held_detail = ("<details class='trip-copy-hold-details' hidden>"
+                   "<summary>복사 제외 거래 보기</summary></details>")
     if not expenses:
         description = '복사할 지출이 없습니다.'
     elif not available:
@@ -1818,13 +1819,26 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
             description += ' · Google 합계 수식은 확인 필요'
         if held_reasons:
+            from urllib.parse import quote
+            rows_by_id = {str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''): row
+                          for row in expenses}
+            transactions = []
+            for item in held_results:
+                row = rows_by_id.get(str(item.get('transaction_id') or ''), {})
+                label = ' · '.join(str(value) for value in (
+                    row.get('occurred_on') or '날짜 없음',
+                    row.get('source_merchant') or row.get('description') or '상호 없음',
+                    _money(row.get('display_amount_krw', row.get('amount_krw')) or 0)))
+                detail_link = (f" <a href='/row?id={quote(str(row['row_id']), safe='')}'>거래 상세 보기</a>"
+                               if row.get('row_id') else '')
+                transactions.append(f"<li>{board.esc(label)}{detail_link}</li>")
             details = ''.join(
                 f"<li>{board.esc(reason_labels.get(reason, 'Google 원장 대조를 확정하지 못함'))} · {count}건</li>"
                 for reason, count in sorted(held_reasons.items()))
             held_detail = ("<details class='trip-copy-hold-details'>"
                            "<summary>Google 대조 보류 건의 정체와 사유 보기</summary>"
                            f"<p>이 건들은 Google에 없다고 확정할 수 없어 중복 복사를 막기 위해 보류했습니다.</p>"
-                           f"<ul>{details}</ul></details>")
+                           f"<ul>{details}</ul><ul class='trip-copy-excluded'>{''.join(transactions)}</ul></details>")
     disabled = ' disabled' if not available or not count else ''
     recovery = ''
     if expenses and not available:
@@ -1848,6 +1862,12 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         f"</button>"
         f"{recovery}</div>"
         f"<p class='copy-status' id='copy-status'{(' data-google-sync-status' if recovery else '')} role='status' aria-live='polite' aria-atomic='true'></p>"
+        "<div class='trip-copy-manual' hidden>"
+        "<label for='trip-copy-text'>Google 시트에 붙여넣을 지출내용</label>"
+        "<p id='trip-copy-text-help'>날짜부터 금액까지 7개 열입니다. 선택된 내용을 복사해 Google 시트의 B열부터 붙여넣으세요.</p>"
+        "<textarea id='trip-copy-text' rows='7' readonly spellcheck='false' aria-describedby='trip-copy-text-help'></textarea>"
+        "<div class='trip-copy-box'><button type='button' class='btn' data-copy-prepared>다시 복사</button>"
+        "<button type='button' class='btn' data-copy-text-close>닫기</button></div></div>"
         f"</section>"
     )
 
