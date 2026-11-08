@@ -53,6 +53,89 @@ def stay_index(store):
     # and ledger_metadata, which supply financial/booking writes elsewhere.
     for tid, metadata in _toyoko_candidate_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _linked_candidate_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _linked_candidate_periods(data, manual):
+    """Display a shared period from core links, without inventing individual bookings.
+
+    Core M:N relations may contain several observations of one stay. They do not
+    enter card_matches(), whose metadata is also used for financial writes.
+    """
+    from datetime import date
+
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    claims = defaultdict(list)
+    for record in data.get('results', []):
+        if record.get('status') in ('MATCHED_AUTO', 'MATCHED_USER'):
+            identities = [record.get('transaction_id')]
+            event_ids = [record.get('ota_event_id')]
+        elif record.get('status') == 'MATCHED_GROUP':
+            relation = record.get('payment_relation') or {}
+            if relation.get('status') != 'LINKED':
+                continue
+            identities = relation.get('transaction_ids') or []
+            event_ids = relation.get('event_ids') or []
+            if not event_ids or record.get('ota_event_id') not in event_ids:
+                continue
+        else:
+            continue
+        for tid in identities:
+            if tid:
+                claims[str(tid)].append((record, event_ids))
+    result = {}
+    flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    for tid, records in claims.items():
+        card = cards.get(tid) or {}
+        if ('card-' + tid in manual or not card.get('source_hash')
+                or card.get('transaction_direction') != 'purchase'
+                or any(card.get(key) for key in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                                'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        periods, refs = set(), set()
+        unsafe = False
+        for record, event_ids in records:
+            if (any(record.get(key) for key in flags)
+                    or (record.get('reservation_link') or {}).get('status') == 'STALE'
+                    or (record.get('allocation_basis') in
+                        ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
+                        and record.get('individual_payment_evidence') is False)):
+                unsafe = True
+                break
+            for eid in event_ids:
+                event = events.get(str(eid)) or {}
+                period = event.get('service_period') or {}
+                link = (data.get('links') or {}).get(str(eid)) or {}
+                if (not event.get('source_digest') or not event.get('provider')
+                        or not event.get('booking_ref') or event.get('item') not in (None, '', '숙박비')
+                        or event.get('reservation_status') not in ('observed', 'confirmed', 'completed')
+                        or any(event.get(key) or link.get(key) for key in flags)
+                        or (link.get('source_digest') and link['source_digest'] != event['source_digest'])
+                        or link.get('status') == 'STALE' or not isinstance(period, dict)):
+                    unsafe = True
+                    break
+                try:
+                    start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+                    valid = 0 <= (end - start).days <= 366
+                except (KeyError, TypeError, ValueError):
+                    valid = False
+                if not valid:
+                    unsafe = True
+                    break
+                periods.add((start.isoformat(), end.isoformat()))
+                refs.add(str(event['booking_ref']))
+            if unsafe:
+                break
+        if unsafe or len(periods) != 1:
+            continue
+        start, end = next(iter(periods))
+        result[tid] = {'booking_ref': next(iter(refs)) if len(refs) == 1 else '',
+                       'booking_refs': sorted(refs), 'service_period': start + '~' + end,
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 
@@ -125,6 +208,7 @@ def period_for(row, index):
         return ''
     found = index.get(tid) or {}
     reservation = str(row.get('reservation_no') or '').strip()
-    if reservation and reservation != found.get('booking_ref'):
+    if (reservation and reservation != found.get('booking_ref')
+            and reservation not in (found.get('booking_refs') or ())):
         return ''
     return found.get('service_period') or ''
