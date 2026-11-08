@@ -892,14 +892,21 @@ document.addEventListener('keydown',function(e){
     detail.appendChild(list);
    }
    async function copyText(value){
-    // A retry comes directly from a fresh gesture, without another server wait.
-    // Document focus and clipboard permission can still be lost while fetching.
-    // Keep the prepared text available if either clipboard method is refused.
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-     try{await navigator.clipboard.writeText(value);return true;}catch(error){}
-    }
+    // Select the real, visible TSV before copying. Native copy completes in the
+    // current gesture and cannot leave the UI waiting on a clipboard promise.
     selectPrepared();
-    try{return document.execCommand('copy');}catch(error){return false;}
+    try{if(document.execCommand('copy'))return true;}catch(error){}
+    if(!navigator.clipboard||!navigator.clipboard.writeText)return false;
+    // Some browsers neither resolve nor reject writeText after an async fetch.
+    // Bound that optional attempt; a late settlement must not change the UI.
+    var clipboardTimer;
+    try{
+     return await Promise.race([
+      navigator.clipboard.writeText(value).then(function(){return true;},function(){return false;}),
+      new Promise(function(resolve){clipboardTimer=setTimeout(function(){resolve(false);},1500);})
+     ]);
+    }catch(error){return false;}
+    finally{clearTimeout(clipboardTimer);}
    }
    btn.disabled=true;
    wrap.setAttribute('aria-busy','true');
@@ -940,6 +947,8 @@ document.addEventListener('keydown',function(e){
      prepared.dataset.held=String((data.held||[]).length);
     }
     if(!prepared.value)return;
+    clearTimeout(timer);
+    notice('복사할 내용이 준비됐습니다. 클립보드에 복사하고 있습니다…','loading');
     if(!await copyText(prepared.value)){
      selectPrepared();
      notice('복사할 내용이 준비됐습니다. 선택된 내용을 복사(Ctrl+C 또는 ⌘C)하거나 다시 복사를 누른 뒤 Google 시트에 붙여넣으세요.');
