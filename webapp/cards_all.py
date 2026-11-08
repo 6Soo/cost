@@ -241,20 +241,31 @@ CARD_ALL_STYLE = """
 .card-all-page .card-upload-coverage-form>label,.card-all-page .card-coverage-baseline-form>label{display:grid;gap:4px;min-width:0;font-size:13px}
 .card-all-page .card-upload-coverage-form .card-upload-coverage-check{grid-column:1/-1;display:flex;align-items:flex-start;gap:8px}
 .card-all-page .card-upload-coverage-form .card-workspace-status,.card-all-page .card-upload-coverage-form button,.card-all-page .card-coverage-baseline-form button{grid-column:1/-1}
-.card-all-page .card-coverage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 14px}
-.card-all-page .card-coverage-metric{display:grid;gap:4px;min-width:0;padding:10px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-soft)}
-.card-all-page .card-coverage-metric strong{font-size:18px;font-variant-numeric:tabular-nums}
-.card-all-page .card-coverage-metric span{font-size:12px;color:var(--ca-ink)}
-.card-all-page .card-coverage-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.card-all-page .card-coverage-card{min-width:0;margin:0;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
-.card-all-page .card-coverage-state{font-weight:700}
-.card-all-page .card-coverage-period{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:8px 0;border-bottom:1px solid var(--ca-border);font-size:13px;overflow-wrap:anywhere}
-.card-all-page .card-coverage-period.is-missing{border-inline-start:3px solid var(--warn,#b45309);padding-inline-start:8px}
+.card-all-page #card-coverage-status.is-quiet{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.card-all-page .card-coverage-cards{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:12px}
+.card-all-page .card-coverage-card{min-width:0;margin:0;padding:16px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
+.card-all-page .card-coverage-card-heading{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin-bottom:12px}
+.card-all-page .card-coverage-card-heading h3{margin:0;font-size:16px;overflow-wrap:anywhere}
+.card-all-page .card-coverage-state{color:var(--ca-muted);font-size:12px;line-height:1.5}
+.card-all-page .card-coverage-state.has-gap{padding:3px 8px;border-radius:5px;background:var(--ca-soft);color:var(--ca-ink);font-weight:650}
+.card-all-page .card-coverage-period{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;overflow-wrap:anywhere}
+.card-all-page .card-coverage-period.is-missing{margin:0 0 16px;padding:12px;border:1px solid var(--ca-border);border-inline-start:3px solid var(--shell-warn,var(--warn,#b45309));border-radius:6px;background:var(--ca-soft)}
+.card-all-page .card-coverage-gap-label{display:grid;gap:4px;min-width:0}
+.card-all-page .card-coverage-label{color:var(--ca-muted);font-size:12px;line-height:1.5}
+.card-all-page .card-coverage-gap-label .card-coverage-date-range{font-size:15px;font-weight:650;line-height:1.5}
 .card-all-page .card-coverage-period button{flex:0 0 auto}
+.card-all-page .card-workspace-secondary.card-coverage-add{background:var(--ca-accent);border-color:var(--ca-accent);color:var(--ca-paper);text-decoration:none;font-size:14px}
+.card-all-page .card-coverage-ranges{display:grid;grid-template-columns:88px minmax(0,1fr);align-items:baseline;gap:8px 12px;font-size:13px;line-height:1.5}
+.card-all-page details.card-coverage-ranges{display:block}
+.card-all-page details.card-coverage-ranges .card-coverage-range-values{margin-top:8px}
+.card-all-page .card-coverage-range-values{display:flex;flex-wrap:wrap;gap:6px 20px;min-width:0}
+.card-all-page .card-coverage-date-range{max-width:100%;font-variant-numeric:tabular-nums}
 .card-all-page .card-coverage-dates{display:inline-block;white-space:nowrap;font-variant-numeric:tabular-nums}
 .card-all-page .card-coverage-baseline,.card-all-page .card-coverage-files{margin-top:10px;border-top:1px solid var(--ca-border);padding-top:8px}
 .card-all-page .card-coverage-baseline summary,.card-all-page .card-coverage-files summary,.card-all-page .card-upload-coverage-confirm summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:650}
-.card-all-page .card-coverage-file{padding:8px 0;border-bottom:1px solid var(--ca-border);overflow-wrap:anywhere}
+.card-all-page .card-coverage-file{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;min-width:0;padding:12px 0;border-bottom:1px solid var(--ca-border);overflow-wrap:anywhere}
+.card-all-page .card-coverage-file-info{flex:1;min-width:0}
+.card-all-page .card-coverage-file-info>strong{display:block;font-size:13px;font-weight:600;line-height:1.5}
 .card-all-page .card-coverage-file p{margin:4px 0}
 .card-all-page .card-coverage-empty{padding:14px;border:1px dashed var(--ca-border);border-radius:8px}
 .card-all-page .card-coverage-pending{margin-top:14px}
@@ -263,8 +274,18 @@ CARD_ALL_STYLE = """
 .card-all-page .card-coverage-review>h3{margin:0 0 6px;font-size:15px}
 .card-all-page .card-coverage-review>.card-workspace-muted{margin:0 0 8px}
 .card-all-page .card-coverage-review>.card-coverage-files{margin-top:0;padding:0 0 2px}
-.card-all-page .card-coverage-file-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+.card-all-page .card-coverage-file-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto;flex-wrap:wrap}
 .card-all-page .card-coverage-file-actions .card-upload-result-link{white-space:normal}
+.card-all-page .card-coverage-file-link{display:inline-flex;align-items:center;min-height:44px;font-size:13px;text-underline-offset:3px;color:var(--ca-ink)}
+.card-all-page .card-coverage-disclosure{margin-top:16px;border-top:1px solid var(--ca-border);padding-top:8px}
+.card-all-page .card-coverage-method{margin-top:0;border-top:0;padding-top:0}
+.card-all-page #card-coverage-summary summary{display:flex;align-items:center;justify-content:flex-start;gap:8px;min-height:44px;margin:0;padding:8px 4px;border:0;border-radius:4px;background:transparent;font-size:13px;font-weight:600;line-height:1.5;list-style:none;cursor:pointer}
+.card-all-page #card-coverage-summary summary::-webkit-details-marker{display:none}
+.card-all-page #card-coverage-summary summary::before{display:none}
+.card-all-page #card-coverage-summary summary::after{margin-inline-start:4px}
+.card-all-page #card-coverage-summary .card-coverage-method>summary{color:var(--ca-muted);font-weight:400}
+.card-all-page .card-coverage-card-heading .card-workspace-muted{margin:4px 0 0}
+.card-all-page .card-coverage-source-name{display:block;margin-top:4px;color:var(--ca-muted);font-size:13px;font-weight:400;line-height:1.5}
 
 .card-all-page .card-linked-transaction{margin:0 0 12px;padding:12px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper)}
 .card-all-page .card-linked-transaction[hidden]{display:none}
@@ -276,11 +297,19 @@ CARD_ALL_STYLE = """
  .card-all-page .card-workspace-panel-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:8px}
  .card-all-page .card-workspace-panel-actions button{width:100%;white-space:nowrap}
  .card-all-page .card-coverage-cards{grid-template-columns:minmax(0,1fr)}
- .card-all-page .card-coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
  .card-all-page .card-history-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .card-all-page .card-history-actions button{width:100%;min-width:0}
  .card-all-page .card-upload-result{grid-template-columns:minmax(0,1fr)}
  .card-all-page .card-upload-result-link,.card-all-page .card-upload-coverage-confirm{grid-column:1}
+}
+@media(max-width:600px){
+ .card-all-page #card-coverage-panel .card-workspace-panel-actions{display:flex;justify-content:flex-end;gap:8px}
+ .card-all-page #card-coverage-panel .card-workspace-panel-actions button{width:auto}
+ .card-all-page .card-coverage-card{padding:12px}
+ .card-all-page .card-coverage-ranges{grid-template-columns:minmax(0,1fr);gap:4px}
+ .card-all-page .card-coverage-period{align-items:stretch;flex-direction:column}
+ .card-all-page .card-coverage-period button{width:100%}
+ .card-all-page .card-coverage-file{align-items:flex-start;flex-direction:column;gap:0}
 }
 @media(max-width:420px){
  .card-all-page .card-history-actions{grid-template-columns:minmax(0,1fr)}
@@ -448,9 +477,9 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
         "</section>"
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
-        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>각 파일의 첫 거래일부터 마지막 거래일까지를 기본 조회기간으로 보고, 파일 사이 공백만 확인합니다. 한 파일 안의 거래 없는 날은 공백으로 세지 않습니다.</p></div>"
-        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
-        "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
+        "<header><div><h2 id='card-coverage-heading'>수집 현황</h2><p class='card-workspace-muted'>카드사별 수집 기간을 확인하고, 빈 기간의 자료를 업로드하세요.</p></div>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh' aria-label='수집 현황 새로고침'>새로고침</button>"
+        "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage' aria-label='수집 현황 닫기'>닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
         "<div id='card-coverage-summary'></div></section>"
         "</section>"

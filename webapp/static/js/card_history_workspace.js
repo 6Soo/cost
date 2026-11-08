@@ -352,7 +352,7 @@
   });
 
   function cardText(card) {
-    return [card.issuer, card.date_basis].filter(Boolean).join(' · ');
+    return card.issuer || '카드사 미상';
   }
   function fileStatus(status) {
     return ({parsed: '원본 저장됨', uploaded: '원본 저장됨', classified: '거래 분류됨',
@@ -361,16 +361,21 @@
   }
   function renderFile(file, parent) {
     const item = node('div', 'card-coverage-file');
-    item.append(node('strong', '', file.filename || '이름 없는 원본'));
-    item.append(node('p', 'card-workspace-muted',
+    const info = node('div', 'card-coverage-file-info');
+    info.append(node('strong', '', file.filename || '이름 없는 원본'));
+    info.append(node('p', 'card-workspace-muted',
+      (file.issuer_hint ? file.issuer_hint + ' · ' : '') +
       (file.transaction_start ? '거래일자: ' + file.transaction_start + ' ~ ' + file.transaction_end : '거래일자 없음') +
-      ' · 원천 ' + (file.source_rows ?? 0) + '행 · 고유 거래 ' + (file.unique_transactions ?? 0) + '건' +
-      (file.zero_rows ? ' · 거래 0건' : '') + ' · ' + fileStatus(file.status)));
+      ' · ' + (file.unique_transactions ?? 0) + '건' +
+      (file.source_rows !== file.unique_transactions ? ' · 원천 ' + (file.source_rows ?? 0) + '행' : '') +
+      (/^(failed|error|queued|processing)$/.test(file.status || '') ? ' · ' + fileStatus(file.status) : '')));
+    item.append(info);
     if (/^batch-[a-f0-9]{24}$/.test(file.batch_id || '')) {
       const actions = node('div', 'card-coverage-file-actions');
       const params = new URLSearchParams(location.search);
       params.set('panel', 'upload'); params.set('batch', file.batch_id); params.delete('review');
-      const link = node('a', 'card-upload-result-link', '처리 결과');
+      const link = node('a', 'card-coverage-file-link', '처리 결과');
+      link.setAttribute('aria-label', (file.filename || '이름 없는 원본') + ' 처리 결과');
       link.href = '/cards/all?' + params.toString(); actions.append(link);
       item.append(actions);
     }
@@ -379,67 +384,58 @@
   function renderCoverage(data) {
     coverageRoot.replaceChildren();
     if (!data.available) {
-      coverageRoot.append(node('p', 'card-workspace-error', '거래일자 공백 기능을 사용할 수 없습니다. 카드 파일 업로드는 계속할 수 있습니다.'));
+      const message = node('div', 'card-workspace-error');
+      message.append(node('p', '', '수집 기간을 불러올 수 없습니다. 카드 파일 업로드는 계속할 수 있습니다.'));
+      const upload = node('button', 'card-workspace-secondary', '카드 파일 업로드'); upload.type = 'button';
+      upload.addEventListener('click', () => { setPanel('upload'); uploadInput.focus(); });
+      message.append(upload); coverageRoot.append(message);
       return;
     }
-    const overview = data.overview || {};
-    const metrics = node('div', 'card-coverage-metrics');
-    for (const [key, label] of [['card_count', '카드사 그룹'], ['file_count', '업로드 파일'],
-      ['gap_count', '파일 사이 공백'], ['files_need_review', '거래일자 없는 파일']]) {
-      const metric = node('div', 'card-coverage-metric');
-      metric.append(node('strong', '', overview[key] ?? 0),
-        node('span', '', label));
-      metrics.append(metric);
-    }
-    coverageRoot.append(metrics);
     if (data.coverage_state === 'needs_transactions' && (data.files || []).length) {
       coverageRoot.append(node('p', 'card-coverage-guidance',
-        '업로드 기록은 있지만 거래일자를 읽을 수 있는 파일이 없습니다. 거래가 포함된 카드 자료를 추가하면 공백을 계산합니다.'));
-    } else if (data.coverage_state === 'transaction_dates') {
-      coverageRoot.append(node('p', 'card-coverage-guidance',
-        '각 파일의 첫 거래일부터 마지막 거래일까지를 파일별 기본 조회기간으로 보고, 파일 사이에 비는 구간만 공백으로 표시합니다. 한 파일 안의 거래 없는 날은 공백으로 세지 않습니다.'));
+        '파일에서 거래일자를 찾지 못했습니다. 아래 업로드 파일의 처리 결과를 확인해 주세요.'));
     }
     const cards = node('div', 'card-coverage-cards');
-    for (const card of data.cards || []) {
+    // Missing periods stay ahead of supporting source files, even when a
+    // statement is expanded. This is a collection task, not a file dashboard.
+    const ordered = [...(data.cards || [])].sort((a, b) =>
+      Number(Boolean((b.gaps || []).length)) - Number(Boolean((a.gaps || []).length)));
+    for (const card of ordered) {
       const box = node('section', 'card-coverage-card');
-      box.append(node('h3', '', cardText(card)));
-      box.append(node('p', 'card-workspace-muted', card.identity_scope === 'source_file' ?
-        '파일 단위 식별4자리가 같은 다른 카드와 합치지 않습니다.' : '파일별 기본 조회기간의 합집합'));
       const gaps = card.gaps || [];
-      box.append(node('p', 'card-coverage-state', gaps.length ? '파일 사이 공백 ' + gaps.length + '곳' :
-        '파일별 기본 조회기간 사이 공백 없음'));
-      const timeline = [...(card.periods || []).map(period => ({...period, missing: false})),
-        ...gaps.map(period => ({...period, missing: true}))].sort((a, b) => a.start.localeCompare(b.start));
-      const ranges = timeline.length > 12 ? node('details', 'card-coverage-files') : box;
-      if (ranges !== box) {
-        ranges.append(node('summary', '', '파일 조회기간·공백 ' + timeline.length + '개 구간 보기'));
-        box.append(ranges);
+      const header = node('header', 'card-coverage-card-heading');
+      header.append(node('h3', '', cardText(card)), node('span',
+        'card-coverage-state' + (gaps.length ? ' has-gap' : ''),
+        gaps.length ? '빈 기간 ' + gaps.length + '곳' : '기간 사이 공백 없음'));
+      box.append(header);
+      if (card.identity_scope === 'source_file') {
+        header.firstElementChild.append(node('span', 'card-coverage-source-name',
+          (card.files || [])[0]?.filename || '카드사를 식별하지 못한 파일'));
       }
-      for (const period of timeline) {
-        const line = node('div', 'card-coverage-period' + (period.missing ? ' is-missing' : ''));
-        const label = node('span');
-        label.append(document.createTextNode(period.missing ? '파일 사이 공백 ' : '파일 기본 조회기간 '),
-          node('span', 'card-coverage-dates', period.start), document.createTextNode(' ~ '),
-          node('span', 'card-coverage-dates', period.end));
-        line.append(label);
-        if (period.missing) {
-          const add = node('button', 'card-workspace-secondary', '이 기간 자료 추가'); add.type = 'button';
-          add.addEventListener('click', () => openGap(card, period)); line.append(add);
-        }
-        ranges.append(line);
+      for (const gap of gaps) {
+        const line = node('div', 'card-coverage-period is-missing');
+        const label = node('div', 'card-coverage-gap-label');
+        label.append(node('span', 'card-coverage-label', '비어 있는 기간'), dateRange(gap));
+        const add = node('button', 'card-workspace-secondary card-coverage-add', '이 기간 업로드'); add.type = 'button';
+        add.setAttribute('aria-label', cardText(card) + ' ' + gap.start + ' ~ ' + gap.end + ' 이 기간 업로드');
+        add.addEventListener('click', () => openGap(card, gap));
+        line.append(label, add); box.append(line);
       }
-      const files = node('details', 'card-coverage-files');
-      files.append(node('summary', '', (card.files || []).length + '개 파일 상세'));
-      for (const file of card.files || []) renderFile(file, files);
-      box.append(files); cards.append(box);
+      const periods = card.periods || [];
+      const ranges = node(periods.length > 6 ? 'details' : 'div', 'card-coverage-ranges');
+      ranges.append(node(periods.length > 6 ? 'summary' : 'span', 'card-coverage-label',
+        '수집된 기간' + (periods.length > 6 ? ' ' + periods.length + '개' : '')));
+      const values = node('div', 'card-coverage-range-values');
+      for (const period of periods) values.append(dateRange(period));
+      ranges.append(values); box.append(ranges); cards.append(box);
     }
     coverageRoot.append(cards);
     const pending = (data.files || []).filter(file => file.coverage_status === 'no_transaction_dates');
     if (pending.length) {
-      const review = node('section', 'card-coverage-review');
-      review.append(node('h3', '', '거래일자가 없는 파일 ' + pending.length + '개'));
+      const review = node('details', 'card-coverage-review card-coverage-disclosure');
+      review.append(node('summary', '', '기간을 확인할 수 없는 파일 ' + pending.length + '개'));
       review.append(node('p', 'card-workspace-muted',
-        '거래일자가 없는 파일은 공백 계산에서 제외합니다. 파일에 거래가 추가되면 현황을 다시 계산합니다.'));
+        '거래가 없거나 거래일자를 읽지 못한 파일입니다. 처리 결과를 확인해 주세요. 이 파일은 기간 계산에 포함되지 않습니다.'));
       const groups = new Map();
       for (const file of pending) {
         const issuer = String(file.issuer_hint || '').trim();
@@ -455,18 +451,39 @@
       }
       coverageRoot.append(review);
     }
+    const dated = (data.files || []).filter(file => file.coverage_status !== 'no_transaction_dates');
+    if (dated.length) {
+      const files = node('details', 'card-coverage-sources card-coverage-disclosure');
+      files.append(node('summary', '', '업로드 파일 ' + dated.length + '개'));
+      for (const file of dated) renderFile(file, files);
+      coverageRoot.append(files);
+    }
+    if (ordered.length) {
+      const method = node('details', 'card-coverage-method card-coverage-disclosure');
+      method.append(node('summary', '', '기간 계산 기준'), node('p', 'card-workspace-muted',
+        '각 파일의 첫 거래일부터 마지막 거래일까지를 수집된 기간으로 봅니다. 한 파일 안의 거래 없는 날은 공백으로 세지 않습니다. 같은 카드사의 모든 카드를 함께 봅니다.'));
+      coverageRoot.append(method);
+    }
     if (!(data.cards || []).length && !pending.length) {
       coverageRoot.append(node('p', 'card-coverage-empty', '거래일자가 있는 카드 자료가 없습니다. 카드 내역 파일을 업로드하면 공백을 계산할 수 있습니다.'));
     }
   }
+  function dateRange(period) {
+    const range = node('span', 'card-coverage-date-range');
+    range.append(node('span', 'card-coverage-dates', period.start),
+      document.createTextNode(' ~ '), node('span', 'card-coverage-dates', period.end));
+    return range;
+  }
   async function refreshCoverage() {
     if (!coverageRoot) return;
     const status = byId('card-coverage-status');
-    if (status) status.textContent = '수집 현황을 불러오고 있습니다.';
+    if (status) { status.classList.remove('is-quiet'); status.textContent = '수집 현황을 불러오고 있습니다.'; }
     coverageRoot.setAttribute('aria-busy', 'true');
+    const restoreFocus = coverageRoot.contains(document.activeElement);
     try {
       renderCoverage(await request('/api/cards/coverage/summary'));
-      if (status) status.textContent = '수집 현황을 불러왔습니다.';
+      if (status) { status.textContent = '수집 현황을 불러왔습니다.'; status.classList.add('is-quiet'); }
+      if (restoreFocus) coveragePanel.focus({preventScroll: true});
     }
     catch (error) {
       coverageRoot.replaceChildren();
