@@ -155,7 +155,7 @@ try {
     $oldSupervisor=Get-BackendSupervisor $oldPort $PreviousSha
     Assert-EntryIdentity $PreviousSha
     $newArguments=$old.Arguments.Replace($PreviousSha,$CandidateSha) -replace "-BoardPort $oldPort( |$)","-BoardPort $newPort`$1"
-    $newArguments=$newArguments -replace "(?i)(--port\s+)$oldPort(\s|$)", ('$1'+$newPort+'$2')
+    $newArguments=$newArguments -replace "(?i)(--port\s+)$oldPort(\s|$)", ('${1}'+$newPort+'${2}')
     if($canPrepare) {
         if($newArguments -notmatch '(?i)-DeploymentRoute\s'){$newArguments+=' -DeploymentRoute "'+$route+'"'}
     } else {
