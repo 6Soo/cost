@@ -1,4 +1,14 @@
-﻿## 2026-11-08 수집 현황·빈 기간 업로드 UX — 운영 완료
+## 2026-11-08 여행 지출 복사 포커스 오류 복구 — 운영 배포 완료 / 인증 화면 수락 차단
+
+- [PR #749](https://github.com/6Soo/cost/pull/749) 운영 SHA `068de5da50611255dd4ef23d12f2a8272fe4b616`, 검수 코드 `4cc5ac3699948c828885fd46d84597e842618a71`와 webapp/tests tree 동일. 이전 운영 SHA `e1c60ad037eb6651d68058ea90ac57327e64ce20`. 아래 #744의 포커스 복원만으로 해결되지 않던 `Document is not focused` 오류에 대한 후속이다.
+- 두 클립보드 API가 모두 거부해도 전체 TSV를 선택된 읽기 전용 입력에 남기고 직접 복사하거나 새 클릭으로 재시도할 수 있다. 재시도는 서버 재조회 없이 준비된 내용을 사용하고 성공 여부를 실제 결과대로 표시한다. 제외된 거래의 일자·가맹점·금액·상세 링크도 같은 최신 GET 응답에서 갱신한다. Google 대조·복사 대상 규칙, API 계약과 금융 처리는 변경하지 않았다.
+- 정확한 코드 SHA의 영향 QA **305 passed +69 subtests, skip0, 필수 browser22/22, compile PASS**. TSV 경계 추가10건 통과. 실제 독립 `gpt-6.1-sol / medium` 최종 APPROVE 및 HIGH/MEDIUM 없음. CI run42473632476/job128709986234는 결제/사용한도 annotation·steps0 시작 차단으로 녹색이 아니며 2026-11-07 사용자 승인 예외를 적용했다.
+- 합성 ego1440/390/320 동일 크기 전후·실제 운영 테마 초기화와 두 테마·키보드·페이지 넘침0 확인. 두 API 강제 거부 뒤 선택 텍스트 보존, 새 클릭 재시도 뒤 native Ctrl+V 내용 일치, TSV GET1회·POST0 확인. 실제 측정 안내문 대비 light7.5777/dark5.7053 이상. 초기 테마 적용이 잘못된 캡처는 근거에서 제외하고 재생성했다.
+- 공식 보호 배포 증거: 1,447 tracked blobs mismatch0, runtime SHA verified, listener1·backend8752, health/ready200·보호 API3개401, 보호13표 전후 불변, financial_apply NOT_RUN. 완료 시각 2026-11-08 23:04 KST. 코드 전용 배포로 원본/금융/Google 쓰기·재처리·마이그레이션 없음. 중단 후 증거를 확인했으므로 재배포하지 않았다.
+- **AUTH_UI_BLOCKED:** 재개 시 이전 인증 TaskSpace18이 `task space not found: 18`로 없어 운영 화면의 최종 복사→native 붙여넣기 해시 비교와 운영1440/390 캡처는 실행하지 못했다. 위 합성 검증을 인증 운영 수락으로 대체하지 않는다. 실기기/Safari·스크린리더 음성·실제200%확대·RTL도 미검증이다. 남은 작업은 허가된 인증 ego 세션에서 운영 GET/복사·붙여넣기 일치와 화면 확인이며 코드 재구현·재배포는 필요 없다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-068de5da50611255dd4ef23d12f2a8272fe4b616.json`, 비공개 `.local-archive/expense-copy-actionable-20261108/`의 deploy-evidence/release-audit/quality-final/junit-final/deploy-review 및 ego 결과. 고객 원문은 추적 문서에 포함하지 않는다. 후속 문서 전용 변경은 코드 검사·배포·서버 재시작을 반복하지 않는다.
+
+## 2026-11-08 수집 현황·빈 기간 업로드 UX — 운영 완료
 
 - 최신 요청 “제발 의도에맞게 UX UI 좀 신경쓰라고”의 대상은 카드 수집 기간 확인→빈 기간 자료 업로드 흐름이다. 빈 기간이 있는 카드사를 먼저 보여주고 날짜 옆에 `이 기간 업로드`를 배치했다. 네 개 집계 타일·반복 계산 설명을 없애고 카드사별 기간을 짧은 목록으로, 업로드 파일은 모든 기간 요약 아래 한곳의 접힌 목록으로 정리했다. 파일 처리 결과 접근은 유지한다.
 - [PR #747](https://github.com/6Soo/cost/pull/747), 운영 SHA `e1c60ad037eb6651d68058ea90ac57327e64ce20`, 검증 코드 `e905a0d6a8324f048ce249197e447e65113d15e8`와 tree 동일. 영향 검사 **238 passed +70 subtests·skip0·browser20/20·compile PASS**, 실제 독립 `gpt-6.1-sol / medium` 정확한 운영 SHA 코드·interface-review APPROVE. CI run42469738253은 결제/사용한도 steps0 시작 실패로 녹색이 아니며 기존2026-11-07 승인 예외를 적용했다.
