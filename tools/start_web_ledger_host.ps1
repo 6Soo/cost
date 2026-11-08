@@ -82,6 +82,9 @@ param(
     [ValidateRange(1, 65535)]
     [int]$BoardPort = 8751,
 
+    [ValidateSet('Board', 'Prepared')]
+    [string]$LifecycleRole = 'Board',
+
     [string]$Python = "python",
 
     [string]$CloudflareExe = "cloudflared",
@@ -145,6 +148,12 @@ if ($Mode -eq "Run") {
 #: The ownership marker, reported in every line so a log says which subsystem
 #: answered, and matching the marker the installer writes into the task.
 $script:Owner = "LOCAL-HOST-002"
+
+# The role is part of the task identity. It lets the lifecycle wrapper use a
+# port scoped mutex during an intentional blue/green overlap and makes an
+# accidentally copied Prepared action fail identity checks instead of silently
+# becoming the steady state board.
+$env:WEBLEDGER_LIFECYCLE_ROLE = $LifecycleRole
 
 $script:LegacyEntryName = "serve_review.py"
 

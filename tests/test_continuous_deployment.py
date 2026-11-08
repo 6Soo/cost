@@ -283,7 +283,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
+@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -295,6 +295,13 @@ def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path,
     candidate = root / 'releases' / new / 'webapp'
     candidate.mkdir(parents=True)
     (candidate / 'deployment_role.py').touch()
+    candidate_tools = candidate.parent / 'tools'
+    candidate_tools.mkdir()
+    (candidate_tools / 'webledger_task_entry.pyw').touch()
+    (candidate_tools / 'start_web_ledger_host.ps1').write_text(
+        'param([string]$LifecycleRole)', encoding='utf-8')
+    (root / 'venv/Scripts').mkdir(parents=True)
+    (root / 'venv/Scripts/pythonw.exe').touch()
     atomic_json(root / 'config/ledger-route.json', dict(port=8751, paused=False))
     atomic_json(root / 'config/v2-deploy-gate.json', dict(status='PASS', candidate_sha=new))
     source = (Path(__file__).resolve().parents[1] / 'tools/switch_continuous_release.ps1').read_text(encoding='utf-8')
@@ -312,6 +319,14 @@ $global:events=[Collections.Generic.List[string]]::new()
 $global:oldSha=$Old
 $global:newSha=$New
 $global:board=[pscustomobject]@{State='Running';Actions=@([pscustomobject]@{Execute='powershell';Arguments="-File $Old/start.ps1 -BoardPort 8751"});Principal=@{};Settings=@{}}
+if($Failure -eq 'owned_wrapper'){
+ $global:board.Actions[0].Execute=$Root+'\venv\Scripts\pythonw.exe'
+ $global:board.Actions[0].Arguments='"'+$Root+'\releases\'+$Old+'\tools\webledger_task_entry.pyw" --role Board --port 8751 -- "powershell" -File '+$Old+'/start.ps1 -BoardPort 8751'
+}
+if($Failure -eq 'legacy_wrapper'){
+ $global:board.Actions[0].Execute=$Root+'\venv\Scripts\pythonw.exe'
+ $global:board.Actions[0].Arguments='"C:\ProgramData\AX\WindowlessTasks\webledger_board_job.pyw" "C:\logs\board.log" "-" "powershell" -File '+$Old+'/start.ps1 -BoardPort 8751'
+}
 $global:prepared=$null
 $global:ports=@{8751=$Old}
 $global:supervisors=@{8751=$true;8752=$false}
@@ -408,9 +423,12 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert not report['prepared_exists']
-    if not failure or failure in ('direct_parent', 'adopted_backend', 'supervisor_exits'):
+    if not failure or failure in ('owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits'):
         assert report['outcome'] == 'PASS', report
         assert new in report['board'] and report['new_alive'] and not report['old_alive']
+        assert '--role Board --port 8752 --' in report['board']
+        assert report['board'].count('webledger_task_entry.pyw') == 1
+        assert 'webledger_board_job.pyw' not in report['board']
         assert report['events'].index('route:pause') < report['events'].index('kill:8751') < report['events'].index('route:activate')
         if failure != 'supervisor_exits':
             assert report['events'].index('kill:28751') < report['events'].index('kill:8751')
