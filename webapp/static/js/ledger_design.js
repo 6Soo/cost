@@ -882,18 +882,24 @@ document.addEventListener('keydown',function(e){
      return;
     }
     var textToCopy=data.tsv;
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-     await navigator.clipboard.writeText(textToCopy);
-    }else{
+    btn.focus({preventScroll:true});
+    async function copyWithFocusFallback(value){
+     var primaryError=null;
+     if(navigator.clipboard&&navigator.clipboard.writeText){
+      try{await navigator.clipboard.writeText(value);return;}
+      catch(error){primaryError=error;}
+     }
      var ta=document.createElement('textarea');
-     ta.value=textToCopy;
-     ta.style.position='fixed';
-     ta.style.opacity='0';
+     ta.value=value;
+     ta.setAttribute('readonly','');
+     ta.style.position='fixed';ta.style.left='-9999px';ta.style.top='0';ta.style.opacity='0';
      document.body.appendChild(ta);
-     ta.select();
-     try{if(!document.execCommand('copy')) throw new Error('클립보드 복사가 허용되지 않았습니다.');}
+     ta.focus();ta.select();ta.setSelectionRange(0,ta.value.length);
+     try{if(document.execCommand('copy'))return;}
      finally{document.body.removeChild(ta);}
+     throw primaryError||new Error('클립보드 복사가 허용되지 않았습니다. 이 화면을 활성화한 뒤 다시 시도해 주세요.');
     }
+    await copyWithFocusFallback(textToCopy);
     try{
      localStorage.setItem('gcopy-trip:'+tab,new Date().toLocaleString('ko-KR'));
     }catch(err){}
