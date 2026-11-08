@@ -356,6 +356,11 @@
       "tests": ["webapp/tests/test_ota_catalog_browser.py", "webapp/tests/test_card_catalog_browser.py", "webapp/tests/test_expense_workspace.py"]
     },
     {
+      "name": "forest-payment-receipts",
+      "paths": ["app/forest_payment_mail.py", "tests/card_pipeline/test_forest_payment_mail.py"],
+      "tests": ["tests/card_pipeline/test_forest_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py", "webapp/tests/test_forest_reconciliation.py"]
+    },
+    {
       "name": "unified-user-action-queue",
       "paths": ["webapp/user_action_queue.py", "webapp/user_action_adapters.py", "webapp/ledger_board.py", "webapp/ledger_design.py", "webapp/access_control.py", "webapp/tests/test_user_action_queue.py"],
       "tests": ["webapp/tests/test_user_action_queue.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_flow.py"]
