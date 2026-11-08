@@ -917,7 +917,9 @@ document.addEventListener('keydown',function(e){
      // writes neither reconciliation links nor financial/Google records.
      var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv'+(params.size?'?'+params.toString():''),
                          {credentials:'same-origin',cache:'no-store',signal:controller.signal});
-     data=await res.json();
+     try{data=await res.json();}catch(parseError){
+      throw new Error('복사할 내용을 받지 못했습니다. 잠시 후 다시 복사해 주세요.');
+     }
      if(!res.ok)throw new Error(data.message||'지출내용을 준비하지 못했습니다. 다시 복사해 주세요.');
      if(!data.source_available){
       throw new Error('Google 장부를 확인하지 못했습니다. 장부를 동기화한 뒤 다시 복사해 주세요.');

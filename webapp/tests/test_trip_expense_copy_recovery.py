@@ -109,3 +109,41 @@ def test_excluded_transactions_are_identifiable_and_escaped(copy_state):
     assert '2026-10-01 · &lt;img src=x&gt; · 1,000원' in markup
     assert "href='/row?id=row%263'" in markup
     assert '<img src=x>' not in markup
+
+
+@pytest.mark.parametrize('code,body', [(502, '<!DOCTYPE html><title>Bad Gateway</title>'),
+                                     (200, '<!DOCTYPE html><title>Unexpected login page</title>')])
+def test_html_response_has_recovery_message_and_retry_fetches_fresh_content(copy_state, code, body):
+    rows, preview = copy_state
+    document = design.render("<main id='main'>" + design._trip_copy_html(
+        'trip-synthetic', rows, preview) + '</main>')
+    calls = []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': 320, 'height': 1000})
+            page.route('http://127.0.0.1:9876/board**', lambda route: route.fulfill(
+                content_type='text/html; charset=utf-8', body=document))
+
+            def api(route):
+                calls.append(route.request.method)
+                if len(calls) == 1:
+                    route.fulfill(status=code, content_type='text/html', body=body)
+                else:
+                    route.fulfill(json={'source_available': True, 'row_count': 0, 'held': []})
+
+            page.route('http://127.0.0.1:9876/api/**', api)
+            page.goto('http://127.0.0.1:9876/board')
+            button = page.get_by_role('button', name='지출내용 복사', exact=True)
+            button.click()
+            expect(page.locator('#copy-status')).to_contain_text('잠시 후 다시 복사해 주세요')
+            expect(page.locator('#copy-status')).not_to_contain_text('Unexpected token')
+            expect(button).to_be_enabled()
+            expect(page.locator('.trip-copy-manual')).not_to_be_visible()
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            button.focus()
+            button.press('Enter')
+            expect(page.locator('#copy-status')).to_contain_text('복사할 지출이 없습니다')
+            assert calls == ['GET', 'GET']
+        finally:
+            browser.close()
