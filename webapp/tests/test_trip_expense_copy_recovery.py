@@ -9,6 +9,71 @@ from webapp.tests.test_expense_copy_states import copy_state
 
 
 @pytest.mark.parametrize('width', [1440, 390, 320])
+def test_pending_clipboard_recovers_and_native_retry_pastes_exact_tsv(copy_state, width):
+    rows, preview = copy_state
+    tsv = '2026-10-01\t합성 거래처\t식비\t\t\t카드\t1000'
+    document = design.render("<main id='main'>" + design._trip_copy_html(
+        'trip-synthetic', rows, preview) + '</main>')
+    calls = []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': width, 'height': 1000},
+                                    permissions=['clipboard-read', 'clipboard-write'])
+            page.route('http://127.0.0.1:9876/board**', lambda route: route.fulfill(
+                content_type='text/html; charset=utf-8', body=document))
+
+            def api(route):
+                calls.append(route.request.method)
+                route.fulfill(json=dict(tsv=tsv, row_count=1, total_krw=1000,
+                                        source_available=True, held=[], matched=[]))
+
+            page.route('http://127.0.0.1:9876/api/**', api)
+            page.goto('http://127.0.0.1:9876/board')
+            page.evaluate('''() => {
+                window.originalExec = document.execCommand.bind(document);
+                window.clipboardCalls = 0;
+                navigator.clipboard.writeText = () => {
+                    window.clipboardCalls++;
+                    return new Promise(resolve => {window.resolveClipboard = resolve;});
+                };
+                document.execCommand = () => false;
+            }''')
+            button = page.get_by_role('button', name='지출내용 복사', exact=True)
+            button.click()
+            content = page.get_by_role('textbox', name='Google 시트에 붙여넣을 지출내용')
+            expect(content).to_be_visible(timeout=3000)
+            expect(button).to_be_enabled(timeout=4000)
+            expect(content).to_have_value(tsv)
+            expect(content).to_be_focused()
+            expect(page.locator('#copy-status')).to_contain_text('선택된 내용을 복사')
+            expect(page.locator('.trip-copy-wrap')).not_to_have_attribute('aria-busy', 'true')
+            assert page.evaluate('window.clipboardCalls') == 1
+            # A late API resolution must not announce success or hide recovery.
+            page.evaluate('window.resolveClipboard()')
+            expect(content).to_be_visible()
+            expect(page.locator('#copy-status')).not_to_contain_text('복사되었습니다')
+            page.evaluate('document.execCommand = window.originalExec')
+            retry = page.get_by_role('button', name='다시 복사', exact=True)
+            retry.focus()
+            retry.press('Enter')
+            expect(page.locator('#copy-status')).to_contain_text('지출내용이 복사되었습니다')
+            assert page.evaluate('window.clipboardCalls') == 1
+            page.evaluate('''() => {
+                const input = document.createElement('textarea');
+                input.id = 'paste-verification';
+                document.body.appendChild(input);
+                input.focus();
+            }''')
+            page.keyboard.press('Control+V')
+            expect(page.locator('#paste-verification')).to_have_value(tsv)
+            assert calls == ['GET']
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize('width', [1440, 390, 320])
 def test_unfocused_clipboard_leaves_selectable_tsv_and_retry_copies(copy_state, width):
     rows, preview = copy_state
     tsv = '2026-10-01\t합성 거래처\t식비\t\t\t카드\t1000'
@@ -109,3 +174,41 @@ def test_excluded_transactions_are_identifiable_and_escaped(copy_state):
     assert '2026-10-01 · &lt;img src=x&gt; · 1,000원' in markup
     assert "href='/row?id=row%263'" in markup
     assert '<img src=x>' not in markup
+
+
+@pytest.mark.parametrize('code,body', [(502, '<!DOCTYPE html><title>Bad Gateway</title>'),
+                                     (200, '<!DOCTYPE html><title>Unexpected login page</title>')])
+def test_html_response_has_recovery_message_and_retry_fetches_fresh_content(copy_state, code, body):
+    rows, preview = copy_state
+    document = design.render("<main id='main'>" + design._trip_copy_html(
+        'trip-synthetic', rows, preview) + '</main>')
+    calls = []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={'width': 320, 'height': 1000})
+            page.route('http://127.0.0.1:9876/board**', lambda route: route.fulfill(
+                content_type='text/html; charset=utf-8', body=document))
+
+            def api(route):
+                calls.append(route.request.method)
+                if len(calls) == 1:
+                    route.fulfill(status=code, content_type='text/html', body=body)
+                else:
+                    route.fulfill(json={'source_available': True, 'row_count': 0, 'held': []})
+
+            page.route('http://127.0.0.1:9876/api/**', api)
+            page.goto('http://127.0.0.1:9876/board')
+            button = page.get_by_role('button', name='지출내용 복사', exact=True)
+            button.click()
+            expect(page.locator('#copy-status')).to_contain_text('잠시 후 다시 복사해 주세요')
+            expect(page.locator('#copy-status')).not_to_contain_text('Unexpected token')
+            expect(button).to_be_enabled()
+            expect(page.locator('.trip-copy-manual')).not_to_be_visible()
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            button.focus()
+            button.press('Enter')
+            expect(page.locator('#copy-status')).to_contain_text('복사할 지출이 없습니다')
+            assert calls == ['GET', 'GET']
+        finally:
+            browser.close()

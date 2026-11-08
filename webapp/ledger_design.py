@@ -1746,6 +1746,7 @@ def _is_trip_tab(tab_id: str) -> bool:
     return _selected_trip(tab_id) is not None
 
 
+@read_scope.scoped
 def tsv_for_trip_expenses(tab_id: str, query: str = "", kind: str = "") -> dict:
     """Builds Google Sheets 7-column TSV (B:H) for the trip's expenses."""
     if not _is_trip_tab(tab_id):

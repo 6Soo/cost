@@ -101,6 +101,19 @@ class TripExpenseCopyButtonTests(unittest.TestCase):
             # Col 6: amount int
             self.assertNotEqual(cols[6], "")
 
+    def test_export_reads_each_tab_once_and_reloads_on_the_next_request(self):
+        from collections import Counter
+        with patch.object(self.store, 'list_tab_rows', wraps=self.store.list_tab_rows) as read:
+            first = design.tsv_for_trip_expenses('trip-demo-a')
+            first_reads = Counter(call.args[0] for call in read.call_args_list)
+            self.assertTrue(first_reads)
+            self.assertEqual(set(first_reads.values()), {1})
+            read.reset_mock()
+            second = design.tsv_for_trip_expenses('trip-demo-a')
+            second_reads = Counter(call.args[0] for call in read.call_args_list)
+            self.assertEqual(second_reads, first_reads)
+            self.assertEqual(second['tsv'], first['tsv'])
+
     def test_copy_button_only_at_bottom_of_trip_tabs(self):
         # 1. Real trip tab: copy button is present at bottom of rows_region and rows_part
         html_trip = design.rows_region("trip-demo-a")
