@@ -9,6 +9,7 @@ import re
 import unicodedata
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
+import threading
 
 
 def as_directories(directory):
@@ -31,6 +32,7 @@ def collection_of(directory):
 
 
 _MESSAGES_MEMO = {}
+_MESSAGES_LOCK = threading.RLock()
 # id(message) -> (message, body text computed while loading it); the stored message keeps the id valid.
 _BODY_TEXT = {}
 
@@ -51,13 +53,14 @@ def load_messages_from(directories):
     """
     from app import ota_sources
     listed = as_directories(directories)
-    key = (tuple(str(Path(d)) for d in listed),
-           json.dumps(ota_sources.mail_stamps(listed), sort_keys=True))
-    if key not in _MESSAGES_MEMO:
-        _MESSAGES_MEMO.clear()
-        _BODY_TEXT.clear()
-        _MESSAGES_MEMO[key] = _load_messages_uncached(directories)
-    return _MESSAGES_MEMO[key]
+    with _MESSAGES_LOCK:
+        key = (tuple(str(Path(d)) for d in listed),
+               json.dumps(ota_sources.mail_stamps(listed), sort_keys=True))
+        if key not in _MESSAGES_MEMO:
+            _MESSAGES_MEMO.clear()
+            _BODY_TEXT.clear()
+            _MESSAGES_MEMO[key] = _load_messages_uncached(directories)
+        return _MESSAGES_MEMO[key]
 
 
 def _core_digest(core):
@@ -74,18 +77,19 @@ def _load_messages_uncached(directories):
     messages = {}
     fingerprints = {}
     inventory = []
+    body_cache = {}
     def bundles():
-        from app.ota_store import is_store, mail_bundles
+        from app.ota_store import is_store, iter_mail_bundles
         for directory in as_directories(directories):
             path = Path(directory)
             if path.is_file() and is_store(path):
-                yield from mail_bundles(path)
+                yield from iter_mail_bundles(path)
             elif not path.is_dir():
                 yield str(path), None, []
             else:
-                messages = [message for file_path in sorted(path.glob('gmail*.json'))
-                            for message in json.loads(file_path.read_text(encoding='utf-8'))['responses']]
-                yield str(path), collection_of(path), messages
+                loaded = (message for file_path in sorted(path.glob('gmail*.json'))
+                          for message in json.loads(file_path.read_text(encoding='utf-8'))['responses'])
+                yield str(path), collection_of(path), loaded
     for directory, collection, loaded in bundles():
         path=Path(directory)
         entry={'kind':'mail_directory','path':str(path),'messages':0,
@@ -101,15 +105,20 @@ def _load_messages_uncached(directories):
             core = dict(id=identity,internal_date=message.get('internal_date'),
                         headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
                         text=body_text(payload))
-            _BODY_TEXT[id(message)] = (message, core['text'])
-            if identity in fingerprints:
-                if _core_digest(fingerprints[identity]) != _core_digest(core):
-                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
-            else:
-                fingerprints[identity] = core
+            digest = _core_digest(core)
+            if identity in fingerprints and fingerprints[identity] != digest:
+                raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+            fingerprints[identity] = digest
+            previous = messages.get(identity)
+            if previous is not None:
+                body_cache.pop(id(previous), None)
+            body_cache[id(message)] = (message, core['text'])
             messages[identity] = message
             entry['messages']+=1
         inventory.append(entry)
+    # Failed/conflicting loads never publish partial bodies. Only the same
+    # canonical message objects returned above remain strongly referenced.
+    _BODY_TEXT.update(body_cache)
     return messages, inventory
 
 
