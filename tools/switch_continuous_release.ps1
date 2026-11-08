@@ -137,6 +137,7 @@ try {
     $oldSupervisor=Get-BackendSupervisor $oldPort $PreviousSha
     Assert-EntryIdentity $PreviousSha
     $newArguments=$old.Arguments.Replace($PreviousSha,$CandidateSha) -replace "-BoardPort $oldPort( |$)","-BoardPort $newPort`$1"
+    $newArguments=$newArguments -replace "(?i)(--port\s+)$oldPort(\s|$)", ('$1'+$newPort+'$2')
     if($canPrepare) {
         if($newArguments -notmatch '(?i)-DeploymentRoute\s'){$newArguments+=' -DeploymentRoute "'+$route+'"'}
     } else {
@@ -144,8 +145,14 @@ try {
         # in parallel. Keep new client connections queued until it is ready.
         $newArguments=$newArguments -replace '(?i)\s-DeploymentRoute\s+(?:"[^"]+"|\S+)',''
     }
-    $newAction=New-ScheduledTaskAction -Execute $old.Execute -Argument $newArguments
-    $preparedAction=New-ScheduledTaskAction -Execute $old.Execute -Argument ($newArguments+' -DisableEntry')
+    # The steady-state task and the intentional candidate have distinct role
+    # identities. Their port-scoped lifecycle mutexes may coexist on 8751/8752,
+    # while a copied action for the same port is refused before bind.
+    $newArguments=$newArguments -replace '(?i)\s-LifecycleRole\s+(?:"[^"]+"|\S+)', ''
+    $newArguments=$newArguments -replace '(?i)(--role\s+)(?:Board|Prepared)', '$1Board'
+    $newAction=New-ScheduledTaskAction -Execute $old.Execute -Argument ($newArguments+' -LifecycleRole Board')
+    $preparedArguments=$newArguments -replace '(?i)(--role\s+)(?:Board|Prepared)', '$1Prepared'
+    $preparedAction=New-ScheduledTaskAction -Execute $old.Execute -Argument ($preparedArguments+' -DisableEntry -LifecycleRole Prepared')
     $evidence="$hostRoot\releases\continuous-switch-$CandidateSha.json"
     Export-ScheduledTask -TaskName WebLedger-Board | Set-Content "$evidence.task.xml" -Encoding UTF8
     if($canPrepare) {
