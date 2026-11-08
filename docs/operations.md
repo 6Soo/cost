@@ -1,4 +1,11 @@
-﻿## 2026-11-08 카드 최종 귀속·P3 작업 기능 폐지 — 운영 배포 COMPLETE
+﻿## 2026-11-08 여행 장부 독립 메뉴 제거 — 운영 배포 COMPLETE
+
+- 사용자 결정에 따라 `여행 장부`를 전역 메뉴에서 제거하고 `여행 관리`를 여행 선택 진입점으로 사용한다. `/board`와 여행별 비용·수입·지출·환불·출력 기능은 유지하며, 항공권·영수증·예약 연결·Google 복귀 문구를 `여행별 비용`으로 통일했다. 카드 폐지 질문 UI 후속도 함께 반영했다. [PR #740](https://github.com/6Soo/cost/pull/740).
+- 표적 QA **42 passed, skip0**, 공통 사이드바 브라우저 **2 passed + 9 subtests**, compileall/diff-check PASS. GitHub impact-checks는 billing 차단으로 steps0이어서 CI 녹색으로 보고하지 않고 승인 예외를 적용했다.
+- 운영 SHA **`43f49f91ecdd189c962e094f4bc671e76a72b86f`**, 이전 `e90c4b6c0e718e0d98da65ed44f5bb29257cc3cd`. 공식 PREVIEW→APPLY 완료, tracked blobs 1,445·mismatch0, task/process/runtime SHA 일치, Gateway8790→loopback8751, health/ready200, 보호 API401, 보호 테이블13개 전후 불변, `financial_apply=NOT_RUN`.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-43f49f91ecdd189c962e094f4bc671e76a72b86f.json`, 비공개 `.local-archive/trip-management-ledger-20261108/`. 실제 금융·Google·고객 원본 쓰기와 스키마 변경은 실행하지 않았다.
+
+## 2026-11-08 카드 최종 귀속·P3 작업 기능 폐지 — 운영 배포 COMPLETE
 
 - 최신 실행 정본에 따라 카드의 미배정·확인필요·처리필요·미분류 작업 UI와 P3 질문/답변 경로를 폐지하고, 실제 여행 또는 결제일·매입일 기준 기타비용 귀속을 적용했다. 원본 오류·충돌·중복·환불·수동 교정·owner/CSRF 보호와 감사 이력은 유지했다.
 - PR [#737](https://github.com/6Soo/cost/pull/737), 병합·운영 SHA `e90c4b6c0e718e0d98da65ed44f5bb29257cc3cd`, 이전 실제 runtime `d043892777dc50d1e61d3478440f4148719fd39f`. 영향 QA 121 passed·skip0, compileall·diff-check PASS. GitHub impact-checks는 billing/infrastructure로 steps0에서 실패해 CI 녹색으로 보고하지 않고 승인된 예외를 적용했다.
@@ -1428,4 +1435,5 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
 - 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
+
 
