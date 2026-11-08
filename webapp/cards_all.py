@@ -152,8 +152,8 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-filters>label:has(input[type=search]){grid-column:1/-1}
  .card-all-page .card-all-filters>label:has(select[name=period]){grid-column:1;grid-row:1}
  .card-all-page .card-all-filters>label:has(select[name=card]){grid-column:2;grid-row:1}
- .card-all-page .card-all-filters>.card-all-unassigned{grid-column:1/-1;display:flex;flex-direction:row;align-items:center;min-height:44px;font-size:12px}
- .card-all-page .card-all-filters>.card-all-unassigned{grid-row:2}
+
+
  .card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
  .card-all-page .card-all-filters :is(input[type=search],select){min-height:44px;font-size:16px;padding:5px 8px}
  .card-all-page .card-all-filters button,.card-all-page .card-all-filters>.card-all-link{grid-column:auto;width:100%;min-height:44px;padding:5px 8px}
@@ -390,8 +390,6 @@ def _first(query_params: dict | None, key: str, default=None):
 
 def _filter_state(query_params):
     state = {}
-    if _first(query_params, 'unassigned') == '1':
-        state['unassigned'] = '1'
     for name in ('card', 'q'):
         value = str(_first(query_params, name, '') or '').strip()[:200]
         if value:
@@ -416,9 +414,8 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
     legacy_cleanup = _first(query_params, 'legacy_cleanup') == '1'
     legacy_import = _first(query_params, 'legacy_import') == '1'
     if legacy_cleanup:
-        notice = ("<aside class='card-legacy-notice' role='status'><strong>거래 확인 업무는 내 확인 필요에서 처리합니다.</strong> "
-                  "카드 내역에서는 거래와 근거를 확인할 수 있습니다. "
-                  "<a href='/my-actions'>내 확인 필요 열기</a></aside>")
+        notice = ("<aside class='card-legacy-notice' role='status'>이전 거래 화면을 카드 내역으로 통합했습니다. "
+                  "거래와 원본 근거를 이 화면에서 확인할 수 있습니다.</aside>")
     elif legacy_import:
         notice = ("<aside class='card-legacy-notice' role='status'>이전 카드 처리 화면은 카드 내역으로 통합했습니다. "
                   "업로드와 거래일자 공백은 이 화면에서 확인할 수 있습니다.</aside>")
@@ -602,7 +599,7 @@ def _get_trip_display(trip_id, classification_source) -> str:
     """현재 유효한 배정과 출처만 표시한다. 확정/추정을 섞지 않는다."""
     trip = str(trip_id or "").strip()
     if not trip:
-        return "미배정"
+        return "기타비용"
     source = str(classification_source or "").strip()
     if source in ('manual', 'user_decision', 'user_exception', 'previous_decision',
                   'inference', 'auto_inferred', 'code_inference', 'ai_inference'):
@@ -616,30 +613,12 @@ def _classification_source_label(source) -> str:
 
 
 def _status_badges(item: dict) -> str:
-    """읽기 투영이 실제로 돌려주는 상태만 배지로 표시한다."""
-    action = item.get('next_action')
-    if action is not None:
-        if not action.get('state_label'):
-            return ""
-        text = _esc(action['state_label'])
-        if action['group'] in ('review', 'unknown'):
-            text = f"<a class='card-all-badge review card-review-action' href='{_esc(action['href'])}'>{text}</a>"
-            if action.get('reason_label'):
-                text += f"<span class='card-all-badge card-all-action-reason'>{_esc(action['reason_label'])}</span>"
-            return text
-        return f"<span class='card-all-badge'>{text}</span>"
+    """Show source and safety facts only; classification is already resolved."""
     badges: list[str] = []
     if str(item.get("duplicate_of") or "").strip():
         badges.append("<span class='card-all-badge duplicate'>중복 출처</span>")
     if str(item.get("conflict_reason") or "").strip():
         badges.append("<span class='card-all-badge conflict'>원본 충돌</span>")
-    state = str(item.get("classification_state") or "").strip()
-    if state == "needs_review":
-        if item.get('batch_id') and item.get('transaction_id'):
-            href = '/import?' + urlencode({'batch': item['batch_id'], 'transaction': item['transaction_id']})
-            badges.append(f"<a class='card-all-badge review card-review-action' href='{_esc(href)}'>분류 검토</a>")
-        else:
-            badges.append("<span class='card-all-badge review'>검토 필요</span>")
     return "".join(badges)
 
 
@@ -651,16 +630,16 @@ def _detail_href(transaction_id) -> str:
 
 
 def _review_action(item: dict) -> str:
-    """Open the existing revision/CSRF-protected editor for this exact source."""
+    """Keep links to source evidence while removing classification work links."""
     tid, batch = item.get('transaction_id'), item.get('batch_id')
     if not tid or not batch:
         return ""
     href = '/import?' + urlencode({'batch': batch, 'transaction': tid})
     if item.get('duplicate_of'):
         return f"<a class='card-all-link card-review-action' href='{_esc(href + '#preview')}'>중복 근거 확인</a>"
-    label = ('원본 문제 확인' if item.get('conflict_reason') or item.get('parse_error') else
-             '분류 수정' if item.get('classification_state') == 'classified' else '분류 검토')
-    return f"<a class='card-all-link card-review-action' href='{_esc(href)}'>{label}</a>"
+    if item.get('conflict_reason') or item.get('parse_error'):
+        return f"<a class='card-all-link card-review-action' href='{_esc(href)}'>원본 문제 확인</a>"
+    return ""
 
 
 def card_detail_html(item: dict) -> str:
@@ -668,35 +647,22 @@ def card_detail_html(item: dict) -> str:
     from app.assignment_status import assignment_conflict_label, row_assignment
     from app.quarter_tab import parse_tab
     assignment = row_assignment(item, _trip_context()[0].keys())
-    destination = assignment['destination']
-    quarter = parse_tab(destination)
-    if item.get('refund_tab_member'):
-        destination = '취소·환불'
-    elif quarter:
-        destination = f'{quarter[0]}년 {quarter[1]}분기 기타비용'
-    elif destination in ('', 'unclassified'):
-        destination = '미배정'
-    else:
-        destination = _trip_context()[0].get(destination, destination)
+    # The refund tab is a financial relationship view, not a user destination.
+    # Keep the card's actual travel or source-date quarter destination visible
+    # in the detail panel; the list still links refund members to the protected
+    # refund view separately.
+    from app.card_destination import display_destination
+    destination = display_destination(item, trip_names=_trip_context()[0])
     from app.classification_provenance import label
     source = label(item)
-    fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or '날짜 확인 필요'),
+    fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or item.get('posting_date') or '원본 날짜 오류'),
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
               ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
-    action = item.get('next_action') or {}
     action_html = ''
-    if action:
-        reason = action.get('reason') or ('이 거래는 COST에 기록되어 있습니다.' if action.get('group') == 'booked' else
-                  '분류와 배정 내용을 확인하거나 수정할 수 있습니다.' if action.get('group') == 'review' else
-                  '이 거래의 처리 내용을 확인할 수 있습니다.')
-        heading = ' · '.join(filter(None, (action.get('state_label'), action.get('reason_label'))))
-        link = (f"<a class='card-all-link card-review-action' href='{_esc(action['href'])}'>"
-                f"{_esc(action.get('label') or '거래 확인')}</a>" if action.get('href') else '')
-        action_html = f"<div class='card-all-action'><strong>{_esc(heading)}</strong><p>{_esc(reason)}</p>{link}</div>"
     basis = item.get('classification_basis')
     basis_html = (f"<details><summary>저장된 분류 근거 보기</summary><p>{_esc(basis)}</p></details>"
                   if basis else '')
@@ -770,15 +736,13 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             if assignment['status'] != 'ASSIGNED' or (not quarter and item.get('trip_assignment_valid') is False):
                 trip_id = ''
             quarter = parse_tab(trip_id)
-            trip_name = (f"{quarter[0]}년 {quarter[1]}분기 기타비용" if quarter
-                         else (trip_names or {}).get(trip_id, trip_id))
+            from app.card_destination import display_destination
+            trip_name = display_destination(item, trip_names=trip_names)
             source = str(item.get("classification_source") or "").strip()
             if item.get('refund_tab_member'):
                 trip_markup = "<a class='card-all-link' href='/board?tab=refunds'>취소·환불</a>"
-            elif not trip_id:
-                trip_markup = "<span class='card-all-trip-name unassigned'>미배정</span>"
             else:
-                trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>"
+                trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_name)}'>"
                                f"{_esc(trip_name)}</span>")
                 from app.classification_provenance import origin, label
                 if origin(item) != 'unknown':
@@ -792,9 +756,6 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                    f"{merchant_markup}</button>")
             status = _status_badges(item)
             status_markup = f"<div class='card-all-badges'>{status}</div>" if status else ""
-            if (not trip_id and not status and not item.get('refund_tab_member')
-                    and item.get('user_action_required') is not False):
-                trip_markup += _review_action(item)
             rows.append(
                 f"<tr role='row' data-tx-id='{_esc(tid)}'{row_attrs}>"
                 f"<td role='cell' class='use-datetime' title='{_esc(_format_use_date(approved))}'>{_esc(date_text)}</td>"
@@ -991,9 +952,8 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
     if not card_db_path:
         return _error_page("카드 원본 DB가 연결되지 않았어요. 운영 설정을 확인해 주세요.")
     try:
-        trip_names, valid_trip_ids = _trip_context() if filter_state.get('unassigned') else ({}, set())
-        filters = {'unassigned': filter_state.get('unassigned') == '1', 'valid_trip_ids': valid_trip_ids,
-                   'card': filter_state.get('card', ''), 'search': filter_state.get('q', '')}
+        trip_names, valid_trip_ids = _trip_context()
+        filters = {'card': filter_state.get('card', ''), 'search': filter_state.get('q', '')}
         years = _available_years(card_db_path)
         summary = _ct.year_summary(db_path=card_db_path, year=year, **filters)
         card_options = _ct.card_options(db_path=card_db_path)
@@ -1065,9 +1025,6 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
         except (RuntimeError, AttributeError, TypeError):
             pass
 
-    if filters['unassigned']:
-        for item in [*items, *search_items, *undated_items]:
-            item['trip_assignment_valid'] = False
     with request_metrics.card_phase('card_render'):
         selected_card = filter_state.get('card', '')
         options = "<option value=''>전체 카드</option>" + ''.join(
@@ -1085,7 +1042,6 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
             "<form method='get' action='/cards/all' class='card-all-filters' aria-label='조회 조건'>"
             + _hidden_filters(hidden_filter_state)
             + _period_select(year, selected_month, years)
-            + f"<label class='card-all-unassigned'><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
             + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
             + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='카드사·끝4자리·가맹점·내용·분류·금액·승인번호'></label>"
             + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"

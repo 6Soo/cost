@@ -376,11 +376,6 @@ class AutonomousCleanupWorker:
                 self.status.update(state='retry', error='context_' + type(exc).__name__)
                 self.status['failures'] += 1
                 return False
-            from . import user_action_adapters
-            answered = user_action_adapters.apply_card_item_answers(self.board.conn, flow)
-            if answered:
-                self.board.conn.commit()
-                rows = detection_candidates(self.board.conn)
             inputs_digest = _digest(inputs)
             fingerprints = {row[0]: fingerprint(row, inputs_digest) for row in rows}
             due_ids = pending_job_ids(self.board.conn, fingerprints, now)
@@ -388,7 +383,7 @@ class AutonomousCleanupWorker:
             if not due_ids:
                 self._finish(rows)
                 self.status['state'] = 'idle'
-                return bool(answered)
+                return False
             due_rows = [row for row in rows if row[0] in due_ids][: self.chunk]
             ids = [row[0] for row in due_rows]
             self.status['passes'] += 1
@@ -530,9 +525,6 @@ class AutonomousCleanupWorker:
 
     def _finish(self, all_rows):
         bundles = detect_bundles(self.board.conn)
-        from . import user_action_adapters
-        current_rows = detection_candidates(self.board.conn)
-        user_action_adapters.register_card_item_tasks(self.board.conn, current_rows, load_job)
         self.board.conn.commit()
         self.status['suspected_defects'] = bundles
         counts = job_counts(self.board.conn)

@@ -161,8 +161,8 @@ def render_cleanup_breakdown(
     """Assemble non-protective cleanup counters without exposing safety holds."""
     return (
         "<div class='cleanup-breakdown' aria-label='지출 정리 사유별 건수'>"
-        f"<span>항목 미분류 {card_breakdown.get('no_item', 0):,}건</span>"
-        f"<span>여행 미배정 {card_breakdown.get('no_trip', 0) + ledger_total:,}건</span></div>"
+        f"<span>카드 자료 {sum(card_breakdown.values()):,}건</span>"
+        f"<span>장부 자료 {ledger_total:,}건</span></div>"
     )
 
 
@@ -329,7 +329,7 @@ def render_cleanup_section(
         + action_summary_html
         + f"<details class='cleanup-diagnostics'{open_attr}>"
         f"<summary>거래·장부 상태 상세 · {total:,}건 · 사용자 요청 아님</summary>"
-        "<p class='cleanup-diagnostic-note'>아래 건수는 거래·장부 행 수입니다. 내 확인 필요 작업 수와 다를 수 있습니다.</p>"
+        "<p class='cleanup-diagnostic-note'>아래 내용은 금융 원본과 내부 기록 상태를 보여주는 읽기 자료입니다.</p>"
         f"{breakdown_html}{note_html}"
         f"<template id='cleanup-trip-options'>{options_html}</template>"
         f"<ul class='cleanup-list'>{body_html}</ul>{nav_html}"

@@ -134,13 +134,8 @@ def _quarter_destination(row):
     if (row.get('transaction_direction') != 'purchase'
             or type(row.get('amount_krw')) is not int or row['amount_krw'] <= 0):
         return None
-    raw = row.get('approval_date') or row.get('posting_date') or ''
-    try:
-        occurred = datetime.fromisoformat(str(raw)[:10]).date()
-    except (TypeError, ValueError):
-        return None
-    year, quarter = quarter_of(occurred)
-    return f'quarter:{year}:{quarter}', f'{year}년 {quarter}분기 기타비용'
+    from .card_destination import observed_quarter
+    return observed_quarter(row)
 
 
 def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
@@ -339,11 +334,16 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
             and row.get('card_tail') == '3820' and row.get('transaction_direction') == 'purchase'):
         owner_policy = _card3820_owner_policy(chosen, trips, _canonical=valid)
         if owner_policy is None:
-            return None, True
-        chosen.update({key: owner_policy[key] for key in FIELDS if key in owner_policy})
-        chosen.update(classification_state='classified', classification_source=owner_policy['source'],
-                      classification_basis=owner_policy['basis'])
-        return chosen, False
+            # No special-card match must not leave a human classification task.
+            # Valid ordinary purchases still use the shared real-trip/quarter
+            # inference below. Source/date/money guards remain authoritative.
+            if _quarter_destination(chosen) is None:
+                return None, True
+        else:
+            chosen.update({key: owner_policy[key] for key in FIELDS if key in owner_policy})
+            chosen.update(classification_state='classified', classification_source=owner_policy['source'],
+                          classification_basis=owner_policy['basis'])
+            return chosen, False
 
     link = links.get(tid)
     original = resolved.get((link or {}).get('original_id'))

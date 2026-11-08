@@ -124,7 +124,7 @@ def work_menu_html() -> str:
                 f"</span></{tag}>")
 
     actions = action('list', '카드 내역', '연도·월별 카드 거래 조회 · 상세 연결', '/cards/all')
-    actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
+    actions += action('list', 'OTA records', 'Search and usage month', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
     else:
@@ -144,23 +144,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
     from . import ui_icons as _icons
     if board.current_role() == 'owner':
         from . import flight_passenger_page, receipt_review
-        from . import user_action_queue
-        active_store = None if quick_view else board._active_store()
-        action_snapshot = None
-        if getattr(active_store, "conn", None) is not None:
-            try:
-                action_snapshot = user_action_queue.open_snapshot(active_store.conn)
-            except user_action_queue.QueueReadUnavailable:
-                pass
-        action_link = (
-            "<a href='/my-actions'" + user_action_queue.queue_data_attrs(action_snapshot) +
-            f">{_icons.icon('check', 18)}<span class='nm'>내 확인 필요 {action_snapshot.count:,}건</span></a>"
-            if action_snapshot is not None else
-            f"<a href='/my-actions' aria-label='내 확인 필요 수를 확인할 수 없음'>{_icons.icon('check', 18)}"
-            "<span class='nm action-count-unavailable'>내 확인 필요 수를 확인할 수 없음</span></a>"
-        )
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   + action_link
                    + f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
@@ -298,7 +282,6 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                                 None, tab_id == tab))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
-    # 미배정 지출은 통합 사용자 작업함에서 확인한다. 여행 레일에는 따로 두지 않는다.
     arch_head = ""
     if board.current_role() == 'owner':
         sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(

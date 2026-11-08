@@ -1,5 +1,7 @@
 # COST 작업 지침
 
+- **2026-11-08 최신 사용자 결정 — UI/UX 최우선, 카드 작업함·분류 대기 상태 폐지:** 현재 작업의 실행 정본은 [카드 최종 귀속·작업 기능 폐지](docs/specs/card-destination-only-ux-20261108.md)다. `직접 답할 작업`/`내 확인 필요` 및 미배정·확인필요·처리필요·미분류 UI/필터/관련 P3 기능을 삭제하고 실제 여행 또는 결제일 기준 분기 기타비용으로 끝낸다. 아래 과거의 P3 작업함 유지 문구보다 이 결정이 우선한다. 금융 원본·권한·수동 교정·환불·감사 이력은 별도로 보존한다. 현재 IMPLEMENTING이며 이전 #735 배포 성공은 이 요구의 완료 근거가 아니다.
+
 - **2026-11-07 최신 배포 완료 (#714 + #717 한 번에):** PR #718은 문서-only로 `0b11c3a395505f4cc8d59b52ada06f623764db6c`에 병합됐다. 지정 코드 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 Windows에 한 번 배포했고 이전 `ceb014f1ca716792e9df7eaee591cc00294aa866`에서 전환했다. 1,429 tracked blobs mismatch0, task/process SHA 일치, Gateway8790→loopback8752·health/ready200·보호 API401·보호13표 불변 PASS. 상세는 [운영 기록](docs/operations.md)과 [LAT 정본](docs/specs/card-history-latency-release-20261107.md). 문서-only 후속은 재배포하지 않는다.
 
 - **2026-11-07 남은 수락 범위: 실제 화면·카드 진입 성능만 미검증.** 독립 ego-browser의 `/cards/all?panel=coverage`와 `/api/maintenance/request-metrics` 요청은 401을 반환해 인증 UI·23개 파일·390/1440·전후 속도·query/lock 지표를 확인하지 못했다 (`AUTH_UI_BLOCKED`). 허가된 인증 세션이 생길 때까지 이 항목을 완료로 보고하지 않는다. 고객 파일 확인 POST, 금융·Google·원본 쓰기 금지. #714/#717 코드 재구현·분리 재배포 금지.
