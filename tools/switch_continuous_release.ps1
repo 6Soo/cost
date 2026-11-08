@@ -67,7 +67,21 @@ function Wait-BoardTask {
 function Stop-Backend([int]$Port,[string]$Sha) {
     $listeners=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
     foreach($listener in $listeners) {
-        $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
+        # Closing an owned task kills its Job. TCP and CIM snapshots can still
+        # describe a listener whose process has already gone. Wait for that
+        # exact listener to disappear rather than treating a stale PID as live.
+        $current=@($listener)
+        for($settle=0;$settle -lt 120;$settle++) {
+            $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
+            if($process -and $process.CommandLine){break}
+            $current=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Where-Object {$_.OwningProcess -eq $listener.OwningProcess})
+            if(-not $current.Count){break}
+            Start-Sleep -Milliseconds 500
+        }
+        if(-not $process -or -not $process.CommandLine){
+            if(-not $current.Count){continue}
+            throw 'BACKEND_STOP_IDENTITY_UNAVAILABLE'
+        }
         if($listener.LocalAddress -ne '127.0.0.1' -or -not $process.CommandLine.Contains($Sha) -or -not $process.CommandLine.Contains('launch_web_ledger.py')){throw 'BACKEND_STOP_IDENTITY_FAILED'}
         $parent=Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ParentProcessId)"
         Stop-Process -Id $process.ProcessId -ErrorAction Stop
@@ -111,13 +125,18 @@ function Wait-PreparedSupervisor([int]$Port,[string]$Sha) {
 }
 function Get-VerifiedSupervisorProcess($Identity) {
     if(-not $Identity){return $null}
-    $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($Identity.pid)"
-    $candidates=@(Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -in @('powershell.exe','pwsh.exe') -and $_.CommandLine -and
-        $_.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -and
-        $_.CommandLine -match "-BoardPort $($Identity.port)( |$)"
-    })
-    if(-not $process){if($candidates.Count){throw 'SUPERVISOR_AMBIGUOUS'};return $null}
+    for($settle=0;$settle -lt 120;$settle++) {
+        $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($Identity.pid)"
+        $candidates=@(Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -in @('powershell.exe','pwsh.exe') -and $_.CommandLine -and
+            $_.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -and
+            $_.CommandLine -match "-BoardPort $($Identity.port)( |$)"
+        })
+        if(-not $process){if($candidates.Count){throw 'SUPERVISOR_AMBIGUOUS'};return $null}
+        if($process.CommandLine -and $candidates.Count){break}
+        Start-Sleep -Milliseconds 500
+    }
+    if(-not $process.CommandLine){throw 'SUPERVISOR_EXIT_IDENTITY_UNAVAILABLE'}
     $isPrepared=$process.CommandLine -match '(?i)(^|\s)-DisableEntry(\s|$)'
     if(($Identity.created -and $process.CreationDate -ne $Identity.created) -or $process.Name -notin @('powershell.exe','pwsh.exe') -or -not $process.CommandLine.Contains("$($Identity.sha)\tools\start_web_ledger_host.ps1") -or $process.CommandLine -notmatch "-BoardPort $($Identity.port)( |$)" -or ([bool]$Identity.prepared -ne [bool]$isPrepared)){throw 'SUPERVISOR_IDENTITY_CHANGED'}
     if($candidates.Count -ne 1 -or $candidates[0].ProcessId -ne $Identity.pid){throw 'SUPERVISOR_AMBIGUOUS'}
@@ -234,6 +253,9 @@ try {
     @{status='PASS';sha=$CandidateSha;previous_sha=$PreviousSha;backend_port=$newPort;gateway_port=8790;prepared_before_stop=[bool]$canPrepare;drained=$true;full_backup='NOT_REQUIRED_CODE_ONLY';at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content $evidence -Encoding UTF8
 } catch {
     $originalError=$_.FullyQualifiedErrorId
+    $originalMessage=$_.Exception.Message
+    $failurePath="$hostRoot\releases\continuous-switch-$CandidateSha.failure.json"
+    @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$false} | ConvertTo-Json | Set-Content -LiteralPath $failurePath -Encoding UTF8
     $cleanupUnknown=$false
     if($switched){
         $paused=$true
@@ -249,7 +271,9 @@ try {
     }
     if($candidateStarted) {
         if($switched -or -not $canPrepare){Stop-ScheduledTask -TaskName WebLedger-Board -ErrorAction SilentlyContinue}
-        if(-not $cleanupUnknown){Stop-Backend $newPort $CandidateSha}
+        # A failed candidate cleanup must not bypass restoring the verified
+        # serving task. Never kill an unverified candidate process to recover.
+        if(-not $cleanupUnknown){try {Stop-Backend $newPort $CandidateSha} catch {$cleanupUnknown=$true}}
     }
     if($oldStopped) {
         Set-ScheduledTask -TaskName WebLedger-Board -Action $old | Out-Null
@@ -258,6 +282,7 @@ try {
         Wait-Backend $oldPort $PreviousSha
         Route-Control 'activate' $oldPort
     } elseif($paused) {Route-Control 'resume'}
+    @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$true;candidate_cleanup_verified=(-not $cleanupUnknown)} | ConvertTo-Json | Set-Content -LiteralPath $failurePath -Encoding UTF8
     if($cleanupUnknown){throw 'CONTINUOUS_SWITCH_FAILED_CANDIDATE_SUPERVISOR_UNVERIFIED'}
     throw "CONTINUOUS_SWITCH_FAILED_$originalError"
 } finally {

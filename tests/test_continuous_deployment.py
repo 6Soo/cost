@@ -283,7 +283,7 @@ function Start-Process {
     assert f'ROLE={route};PORT=8752' in result.stdout
 
 
-@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
+@pytest.mark.parametrize('failure', ['', 'owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit', 'rollback_cleanup', 'prepare', 'before_listen', 'drain', 'takeover', 'identity', 'candidate_identity', 'multiple_supervisors', 'late_duplicate', 'late_replacement', 'foreign_entry', 'late_foreign_entry'])
 def test_windows_switch_preserves_serving_backend_or_completes_handoff(tmp_path, failure):
     """Execute the switch script with synthetic task/process and route APIs."""
     shell = shutil.which('powershell') or shutil.which('pwsh')
@@ -333,6 +333,10 @@ $global:supervisors=@{8751=$true;8752=$false}
 $global:starting=$false
 $global:oldStopped=$false
 $global:takeoverFailed=$false
+$global:stalePorts=@{}
+$global:staleSupervisors=@{}
+$global:activationFailed=$false
+$global:unknownCandidate=$false
 function Get-ScheduledTask {
     param($TaskName)
     if($TaskName -eq 'WebLedger-Board'){return $global:board}
@@ -359,6 +363,14 @@ function Stop-ScheduledTask {
     $global:events.Add('stop:'+$TaskName)
     if($TaskName -eq 'WebLedger-Board'){$global:oldStopped=$true}
     if($Failure -eq 'supervisor_exits'){$port=if($TaskName -eq 'WebLedger-Board'){8751}else{8752};$global:supervisors[$port]=$false}
+    if($Failure -in @('job_exit_before_listener_query','supervisor_snapshot_exit')){
+        $port=if($TaskName -eq 'WebLedger-Board'){8751}else{8752}
+        $global:supervisors[$port]=$false
+        $global:ports.Remove($port)
+        $global:stalePorts[$port]=$true
+        if($Failure -eq 'supervisor_snapshot_exit'){$global:staleSupervisors[$port+20000]=$true}
+    }
+    if($Failure -eq 'rollback_cleanup' -and $TaskName -eq 'WebLedger-Prepared'){$global:unknownCandidate=$true}
     (Get-ScheduledTask $TaskName).State='Ready'
 }
 function Set-ScheduledTask {param($TaskName,$Action); $global:board.Actions=@($Action)}
@@ -366,6 +378,10 @@ function Unregister-ScheduledTask {param($TaskName,[switch]$Confirm); $global:pr
 function Export-ScheduledTask {param($TaskName); '<synthetic/>'}
 function Get-NetTCPConnection {
     param($LocalPort,$State)
+    if($global:stalePorts.ContainsKey([int]$LocalPort)){
+        $global:stalePorts.Remove([int]$LocalPort)
+        [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=[int]$LocalPort};return
+    }
     if($LocalPort -eq 56069 -and ($Failure -eq 'foreign_entry' -or ($Failure -eq 'late_foreign_entry' -and $global:prepared))){
         [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=56069};return
     }
@@ -382,6 +398,11 @@ function Get-CimInstance {
         return
     }
     $processId=[int]($Filter -replace 'ProcessId=','')
+    if($global:staleSupervisors.ContainsKey($processId)){
+        $global:staleSupervisors.Remove($processId)
+        return [pscustomobject]@{ProcessId=$processId;Name='powershell.exe';CommandLine=$null}
+    }
+    if($processId -eq 8752 -and $global:unknownCandidate){return [pscustomobject]@{ProcessId=8752;ParentProcessId=99999;CommandLine='unrelated backend';Name='python.exe'}}
     if($processId -eq 28751 -and $Failure -eq 'late_replacement' -and $global:oldStopped){return}
     if($processId -eq 56069){$line='other-release serve_review_entry.py';$parent=99999}
     elseif($processId -eq 8790){$line='ledger_gateway.py';$parent=99999}
@@ -412,6 +433,7 @@ function Invoke-SyntheticRoute {
     $action=$args[1]
     $global:events.Add('route:'+$action)
     if($action -eq 'pause' -and $Failure -eq 'drain'){throw 'SYNTHETIC_DRAIN_TIMEOUT'}
+    if($action -eq 'activate' -and $Failure -eq 'rollback_cleanup' -and -not $global:activationFailed){$global:activationFailed=$true;throw 'SYNTHETIC_ACTIVATE_FAILURE'}
     $global:LASTEXITCODE=0
 }
 try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText='' } catch { $outcome='FAILED';$errorText=$_.Exception.Message }
@@ -423,14 +445,17 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert not report['prepared_exists']
-    if not failure or failure in ('owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits'):
+    if not failure or failure in ('owned_wrapper', 'legacy_wrapper', 'direct_parent', 'adopted_backend', 'supervisor_exits', 'job_exit_before_listener_query', 'supervisor_snapshot_exit'):
         assert report['outcome'] == 'PASS', report
         assert new in report['board'] and report['new_alive'] and not report['old_alive']
         assert '--role Board --port 8752 --' in report['board']
         assert report['board'].count('webledger_task_entry.pyw') == 1
         assert 'webledger_board_job.pyw' not in report['board']
-        assert report['events'].index('route:pause') < report['events'].index('kill:8751') < report['events'].index('route:activate')
-        if failure != 'supervisor_exits':
+        stop_event = 'stop:WebLedger-Board' if failure in ('job_exit_before_listener_query', 'supervisor_snapshot_exit') else 'kill:8751'
+        assert report['events'].index('route:pause') < report['events'].index(stop_event) < report['events'].index('route:activate')
+        if failure in ('job_exit_before_listener_query', 'supervisor_snapshot_exit'):
+            assert not any(event.startswith('kill:') for event in report['events'])
+        elif failure != 'supervisor_exits':
             assert report['events'].index('kill:28751') < report['events'].index('kill:8751')
             assert 'kill:28752' in report['events']
     else:
@@ -440,7 +465,7 @@ try { & $Switch -PreviousSha $Old -CandidateSha $New; $outcome='PASS';$errorText
         if failure in ('late_duplicate', 'late_replacement'):
             assert 'kill:28751' not in report['events'] and 'kill:8751' not in report['events']
         assert old in report['board'] and report['old_alive'], report
-        if failure == 'candidate_identity':
+        if failure in ('candidate_identity', 'rollback_cleanup'):
             assert report['new_alive'] and 'kill:8752' not in report['events']
         else:
             assert not report['new_alive'], report
