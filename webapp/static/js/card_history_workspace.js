@@ -117,14 +117,14 @@
     const end = params.get('gap_end') || '';
     if (!cardId || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return null;
     return {card_id: cardId, issuer: params.get('gap_issuer') || '',
-      card_tail: params.get('gap_tail') || '', date_basis: params.get('gap_basis') || '', start, end};
+      date_basis: params.get('gap_basis') || '', start, end};
   }
   function showGapContext() {
     selectedGap = currentGap();
     const context = byId('card-gap-context');
     if (!selectedGap) { context.hidden = true; context.textContent = ''; return; }
     context.hidden = false;
-    context.textContent = `${selectedGap.issuer} · 끝${selectedGap.card_tail} · 거래일자 기준 ${selectedGap.start} ~ ${selectedGap.end} 자료를 추가합니다. 업로드 뒤 거래일자 공백을 다시 계산합니다.`;
+    context.textContent = `${selectedGap.issuer || '카드사'} · 거래일자 기준 ${selectedGap.start} ~ ${selectedGap.end} 자료를 추가합니다. 업로드 뒤 거래일자 공백을 다시 계산합니다.`;
   }
   function openGap(card, gap) {
     const url = new URL(location.href);
@@ -132,7 +132,7 @@
     url.searchParams.set('gap_start', gap.start);
     url.searchParams.set('gap_end', gap.end);
     url.searchParams.set('gap_issuer', card.issuer || '');
-    url.searchParams.set('gap_tail', card.card_tail || '');
+
     url.searchParams.set('gap_basis', card.date_basis || '');
     history.pushState({}, '', url);
     showGapContext();
@@ -191,7 +191,7 @@
   }
   function showCoverageEvidence(entry, result, batchId) {
     if (batchId) {
-      entry.append(node('p', 'card-upload-result-note', '거래일자가 확인되면 카드별 공백 현황에 반영됩니다.'));
+      entry.append(node('p', 'card-upload-result-note', '거래일자가 확인되면 카드사별 공백 현황에 반영됩니다.'));
     } else {
       entry.append(node('span', 'card-upload-result-note', '거래일자를 확인할 수 없습니다. 업로드 결과는 저장되어 있습니다.'));
     }
@@ -352,7 +352,7 @@
   });
 
   function cardText(card) {
-    return [card.issuer, card.card_tail ? '끝' + card.card_tail : '', card.date_basis].filter(Boolean).join(' · ');
+    return [card.issuer, card.date_basis].filter(Boolean).join(' · ');
   }
   function fileStatus(status) {
     return ({parsed: '원본 저장됨', uploaded: '원본 저장됨', classified: '거래 분류됨',
@@ -384,7 +384,7 @@
     }
     const overview = data.overview || {};
     const metrics = node('div', 'card-coverage-metrics');
-    for (const [key, label] of [['card_count', '카드 그룹'], ['file_count', '업로드 파일'],
+    for (const [key, label] of [['card_count', '카드사 그룹'], ['file_count', '업로드 파일'],
       ['gap_count', '거래일자 공백'], ['files_need_review', '거래일자 없는 파일']]) {
       const metric = node('div', 'card-coverage-metric');
       metric.append(node('strong', '', overview[key] ?? 0),
@@ -397,14 +397,14 @@
         '업로드 기록은 있지만 거래일자를 읽을 수 있는 파일이 없습니다. 거래가 포함된 카드 자료를 추가하면 공백을 계산합니다.'));
     } else if (data.coverage_state === 'transaction_dates') {
       coverageRoot.append(node('p', 'card-coverage-guidance',
-        '카드별 첫 거래일부터 마지막 거래일까지 거래가 없는 날짜를 표시합니다. 정상적으로 사용하지 않은 날일 수 있으며, 자료 누락을 뜻하지는 않습니다. 카드사·끝4자리로 묶은 표시용 그룹입니다.'));
+        '같은 카드사의 모든 카드 거래일자를 합쳐 첫 거래일부터 마지막 거래일까지 공백을 표시합니다. 정상적으로 사용하지 않은 날일 수 있으며, 자료 누락을 뜻하지는 않습니다.'));
     }
     const cards = node('div', 'card-coverage-cards');
     for (const card of data.cards || []) {
       const box = node('section', 'card-coverage-card');
       box.append(node('h3', '', cardText(card)));
       box.append(node('p', 'card-workspace-muted', card.identity_scope === 'source_file' ?
-        '파일 단위 식별 · 끝4자리가 같은 다른 카드와 합치지 않습니다.' : '거래일자 기준 카드 공백'));
+        '파일 단위 식별4자리가 같은 다른 카드와 합치지 않습니다.' : '거래일자 기준 카드 공백'));
       const gaps = card.gaps || [];
       box.append(node('p', 'card-coverage-state', gaps.length ? '거래일자 공백 ' + gaps.length + '곳' :
         '첫 거래일~마지막 거래일 사이 공백 없음'));
@@ -443,9 +443,7 @@
       const groups = new Map();
       for (const file of pending) {
         const issuer = String(file.issuer_hint || '').trim();
-        const tail = String(file.card_tail_hint || '').trim();
-        const label = issuer && /^\d{4}$/.test(tail) ?
-          issuer + ' · 끝' + tail + ' (표시용)' : '카드 식별 정보 없음';
+        const label = issuer || '카드사 식별 정보 없음';
         if (!groups.has(label)) groups.set(label, []);
         groups.get(label).push(file);
       }
@@ -504,7 +502,7 @@
       else batchRoot.append(node('p', 'card-workspace-muted', '상세 처리 상태를 확인했습니다.'));
 
       batchRoot.append(node('p', 'card-workspace-muted',
-        '거래일자는 카드 거래 원행에서 읽어 카드별 거래일자 공백 현황에 반영합니다.'));
+        '거래일자는 카드 거래 원행에서 읽어 카드사별 거래일자 공백 현황에 반영합니다.'));
     } catch (error) {
       batchRoot.replaceChildren(node('p', 'card-workspace-error',
         error.message + ' 해당 원본을 다시 확인해 주세요.'));

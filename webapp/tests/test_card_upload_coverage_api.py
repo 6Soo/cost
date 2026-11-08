@@ -102,8 +102,8 @@ def test_transaction_dates_make_legacy_uploaded_file_assessable(board):
     assert source['coverage_status'] == 'transaction_dates'
     assert source['query_periods'] == []
     assert source['issuer_hint'] == 'SYNTH'
-    assert source['card_tail_hint'] == '1111'
-    assert source['card_hint_scope'] == 'display_only'
+    assert source['card_tail_hint'] == ''
+    assert source['card_hint_scope'] == 'issuer'
     assert source['transaction_start'] == '2026-04-03'
     # Reading the summary cannot promote any uploaded original to coverage.
     assert list(board.conn.iterdump()) == before
@@ -146,15 +146,20 @@ def test_gap_uses_each_observed_day_and_an_overlapping_upload_fills_it(board):
     assert list(board.conn.iterdump()) == before
 
 
-def test_mixed_card_file_keeps_groups_separate_and_file_total_unique(board):
+def test_mixed_card_file_unions_cards_by_issuer_and_keeps_file_total_unique(board):
     raw = ('카드사,카드번호,카드종류,가맹점,이용금액,승인일,매입일,승인번호\n'
            'SYNTH,1234-56**-****-1111,신용,A,10,2026-04-01,2026-04-01,A\n'
            'SYNTH,1234-56**-****-2222,신용,B,11,2026-04-03,2026-04-03,B\n')
     Pipeline(board.conn).receive(raw.encode('utf-8-sig'), 'mixed.csv')
     summary = coverage.get_coverage_summary(board)
-    assert summary['overview']['card_count'] == 2
+    assert summary['overview']['card_count'] == 1
     assert summary['overview']['file_count'] == 1
-    assert summary['overview']['gap_count'] == 0
+    assert summary['overview']['gap_count'] == 1
+    assert summary['cards'][0]['issuer'] == 'SYNTH'
+    assert summary['cards'][0]['periods'] == [
+        {'start': '2026-04-01', 'end': '2026-04-01'},
+        {'start': '2026-04-03', 'end': '2026-04-03'}]
+    assert summary['cards'][0]['gaps'] == [{'start': '2026-04-02', 'end': '2026-04-02'}]
     assert summary['files'][0]['unique_transactions'] == 2
     assert summary['files'][0]['card_tail_hint'] == ''
     assert coverage.get_coverage_summary(board, card_tail='1111')['overview']['card_count'] == 1

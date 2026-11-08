@@ -355,7 +355,7 @@ document.addEventListener('click', function(event) {
         const destination = new URL(link.href);
         let changed = false;
         for (const key of ['panel', 'batch', 'transaction', 'gap_card', 'gap_start', 'gap_end',
-                           'gap_issuer', 'gap_tail', 'gap_basis', 'legacy_cleanup', 'legacy_import']) {
+                           'gap_issuer', 'gap_basis', 'legacy_cleanup', 'legacy_import']) {
             if (current.has(key) && !destination.searchParams.has(key)) {
                 destination.searchParams.set(key, current.get(key));
                 changed = true;
@@ -448,7 +448,7 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
         f"<section id='card-upload-batch' class='card-upload-batch' aria-live='off'{'' if batch else ' hidden'}></section>"
         "</section>"
         f"<section id='card-coverage-panel' class='card-workspace-panel' aria-labelledby='card-coverage-heading' tabindex='-1'{'' if active == 'coverage' else ' hidden'}>"
-        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>카드별 첫 거래일부터 마지막 거래일까지 거래가 없는 날짜를 확인합니다.</p></div>"
+        "<header><div><h2 id='card-coverage-heading'>거래일자 공백</h2><p class='card-workspace-muted'>카드사별 모든 카드의 거래일자를 합쳐 첫 거래일부터 마지막 거래일까지 공백을 확인합니다.</p></div>"
         "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' id='card-coverage-refresh'>수집 현황 새로고침</button>"
         "<button type='button' class='card-workspace-secondary' data-card-panel-close='coverage'>현황 닫기</button></div></header>"
         "<p id='card-coverage-status' class='card-workspace-status' role='status' aria-live='polite'></p>"
@@ -1036,7 +1036,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
         active_panel = _first(query_params, 'panel', '')
         if owner:
             for key in ('panel', 'batch', 'transaction', 'gap_card', 'gap_start', 'gap_end',
-                        'gap_issuer', 'gap_tail', 'gap_basis', 'legacy_cleanup', 'legacy_import'):
+                        'gap_issuer', 'gap_basis', 'legacy_cleanup', 'legacy_import'):
                 value = str(_first(query_params, key, '') or '')
                 if value and len(value) <= 220:
                     hidden_filter_state[key] = value
