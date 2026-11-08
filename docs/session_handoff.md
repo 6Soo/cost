@@ -1,3 +1,9 @@
+﻿## 2026-11-08 카드 최종 귀속·P3 작업 기능 폐지 — 운영 완료
+
+- PR #737 병합 SHA와 운영 SHA는 `e90c4b6c0e718e0d98da65ed44f5bb29257cc3cd`다. 카드 P3 작업함·분류 대기 UI/답변 경로를 폐지하고 실제 여행 또는 결제일·매입일 기준 기타비용 귀속을 적용했다.
+- 121 passed·skip0, compileall/diff-check PASS. 공식 배포는 이전 실제 runtime `d043892777dc50d1e61d3478440f4148719fd39f`에서 전환했으며 blob mismatch0·health/ready200·보호 API401·보호13표 불변·financial_apply NOT_RUN이다. GitHub impact-checks는 steps0 billing 차단으로 녹색이 아니며 승인 예외 근거를 보존했다.
+- 배포 증거는 `D:/WebLedgerHost/releases/deploy-evidence-e90c4b6c0e718e0d98da65ed44f5bb29257cc3cd.json` 및 `.local-archive/card-destination-ux-20261108/`에 있다. 고객 원본/Google/금융 쓰기와 스키마 변경은 실행하지 않았다.
+
 ## 2026-11-08 카드 최종 귀속·P3 작업 기능 폐지 — IMPLEMENTING
 
 - 최신 사용자 지시: UX/UI 최우선으로 미배정/확인필요/처리필요/미분류와 관련 P3 기능·UI 잔재를 삭제하고 P1/P2 이후 여행 또는 결제일 분기 기타비용으로 종결한다. [단일 실행 정본](specs/card-destination-only-ux-20261108.md).
@@ -1398,3 +1404,4 @@ worktree root는 `C:/Users/kkokk/.paseo/worktrees/28lt5mey/`다. 실행 중 chil
 ## 2026-11-08 카드 내역 거래일자 공백 전환
 
 최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. PR #731 병합 및 운영 SHA `d97158484d17f974668dafffafdb1a7b462a7249` 배포 완료. 최종 영향 QA503+100 subtests, skip0/browser35, Sol medium 검수 PASS. health/ready200·보호API401·보호13표 불변. 인증 운영 API·DOM으로23파일/27표시그룹/515공백 및 구 폼0 확인; 전체 고객 화면 시각 수락은 미검증이다. 실제 작업 근거는 운영 기록에 보존하며 문서-only 후속은 재배포하지 않는다. 기존 main의 다른 로컬 커밋8개는 별도 보존한다.
+

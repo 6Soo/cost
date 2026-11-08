@@ -1,3 +1,10 @@
+﻿## 2026-11-08 카드 최종 귀속·P3 작업 기능 폐지 — 운영 배포 COMPLETE
+
+- 최신 실행 정본에 따라 카드의 미배정·확인필요·처리필요·미분류 작업 UI와 P3 질문/답변 경로를 폐지하고, 실제 여행 또는 결제일·매입일 기준 기타비용 귀속을 적용했다. 원본 오류·충돌·중복·환불·수동 교정·owner/CSRF 보호와 감사 이력은 유지했다.
+- PR [#737](https://github.com/6Soo/cost/pull/737), 병합·운영 SHA `e90c4b6c0e718e0d98da65ed44f5bb29257cc3cd`, 이전 실제 runtime `d043892777dc50d1e61d3478440f4148719fd39f`. 영향 QA 121 passed·skip0, compileall·diff-check PASS. GitHub impact-checks는 billing/infrastructure로 steps0에서 실패해 CI 녹색으로 보고하지 않고 승인된 예외를 적용했다.
+- 공식 `deploy_verified_release.ps1` PREVIEW→APPLY 완료. 1,445 tracked blobs mismatch0, task/process SHA와 runtime SHA 일치, Gateway8790→loopback8752, health/ready200, 보호 API401, 보호 테이블13개 전후 불변, `financial_apply=NOT_RUN`. 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-e90c4b6c0e718e0d98da65ed44f5bb29257cc3cd.json`, 비공개 `.local-archive/card-destination-ux-20261108/`.
+- 첫 APPLY는 문서상의 이전 SHA가 실제 task SHA와 달라 `TASK_SHA_INVALID`로 전환 전 중단됐고, 현재 task/runtime을 재확인한 실제 이전 SHA로 재시도해 통과했다. 고객 원본·Google 장부·금융 적용·스키마 변경은 실행하지 않았다. 이 기록 후속 문서 변경으로 재배포하지 않는다.
+
 ## 2026-11-08 미커밋 전체 검토·통합 운영 배포 — COMPLETE
 
 - 사용자 `미커밋 변경사항까지 모두 검토해서 배포`와 `모두 확인해서 메인으로 병합 운영배포해` 범위. [PR #735](https://github.com/6Soo/cost/pull/735), 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`. [28파일 판정·수락 기록](specs/review-all-uncommitted-release-20261108.md). 원래 로컬8커밋의 이력과 미커밋25·미추적3파일을 모두 검토했다. 유효 변경은 통합하고 원본/권한/환불 보호 제거는 제외·보존했다. 영수증 PR733도 같은 SHA로 운영 반영했다.
@@ -1421,3 +1428,4 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
 - 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
+
