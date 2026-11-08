@@ -193,7 +193,8 @@ def test_no_trip_finishes_in_quarter_and_new_trip_does_not_duplicate_entry(setup
     # The final-destination contract completes in the payment quarter when no
     # actual trip exists. It must never leave an owner-facing waiting row.
     original = board.conn.execute('SELECT trip_id,amount_krw FROM ledger_entries').fetchall()
-    assert len(original) == 1 and original[0][0] == 'quarter:2026:4'
+    assert original == [('', 10000)]  # Only actual trips occupy ledger trip_id.
+    assert board.conn.execute('SELECT display_tab_id FROM transactions').fetchone()[0] == 'quarter:2026:4'
     board.create_trip(starts_on='2026-10-14', ends_on='2026-10-17',
                       destination='합성', client_request_id='new-synthetic-authority')
     assert not worker.sweep_once()
