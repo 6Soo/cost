@@ -17,6 +17,24 @@ $switched=$false
 $candidateStarted=$false
 $oldSupervisor=$null
 $preparedSupervisor=$null
+function ConvertTo-OwnedTaskArguments([string]$Executable,[string]$Arguments,[string]$Entry,[int]$Port,[string]$Role,[string]$ArgumentEntry='') {
+    if($Role -notin @('Board','Prepared') -or $Port -lt 1 -or $Port -gt 65535 -or $Executable.Contains('"') -or $Entry.Contains('"')){throw 'LIFECYCLE_ACTION_INVALID'}
+    if(-not $ArgumentEntry){$ArgumentEntry=$Entry}
+    $owned='^\s*"?'+[regex]::Escape($ArgumentEntry)+'"?\s+--role\s+(?:Board|Prepared)\s+--port\s+\d+\s+--\s+(?<command>.+)$'
+    if($Arguments -match $owned) {
+        $command=$Matches.command
+    } else {
+        if($Arguments -match '(?i)webledger_task_entry\.pyw'){throw 'LIFECYCLE_ENTRY_IDENTITY_INVALID'}
+        # Migrate the PC emergency wrapper without nesting its fixed-8752 mutex
+        # inside the new port-scoped owner. Keep the original hidden launcher,
+        # log destination and supervisor command inside the owned process tree.
+        $legacy='^\s*"C:\\ProgramData\\AX\\WindowlessTasks\\webledger_board_job\.pyw"(?=\s)'
+        $inner=$Arguments -replace $legacy,'"C:\ProgramData\AX\WindowlessTasks\windowless_command.pyw"'
+        if($inner -match '(?i)webledger_board_job\.pyw'){throw 'LEGACY_LIFECYCLE_IDENTITY_INVALID'}
+        $command='"'+$Executable+'" '+$inner
+    }
+    return '"'+$Entry+'" --role '+$Role+' --port '+$Port+' -- '+$command
+}
 function Route-Control([string]$Action,[int]$Port=0) {
     $parameters=@($controller,$Action,'--route',$route,'--status',$status)
     if($Port){$parameters+=@('--port',[string]$Port)}
@@ -150,9 +168,25 @@ try {
     # while a copied action for the same port is refused before bind.
     $newArguments=$newArguments -replace '(?i)\s-LifecycleRole\s+(?:"[^"]+"|\S+)', ''
     $newArguments=$newArguments -replace '(?i)(--role\s+)(?:Board|Prepared)', '$1Board'
-    $newAction=New-ScheduledTaskAction -Execute $old.Execute -Argument ($newArguments+' -LifecycleRole Board')
+    $lifecycleEntry="$hostRoot\releases\$CandidateSha\tools\webledger_task_entry.pyw"
+    $argumentEntry=$lifecycleEntry
+    if(-not (Test-Path -LiteralPath $lifecycleEntry -PathType Leaf)){
+        # A rollback to a pre-lifecycle application keeps the already verified
+        # owner helper. Its application checkout and launcher still use the
+        # rollback SHA; never return to an unowned supervisor.
+        $lifecycleEntry="$hostRoot\releases\$PreviousSha\tools\webledger_task_entry.pyw"
+        if(-not (Test-Path -LiteralPath $lifecycleEntry -PathType Leaf)){throw 'LIFECYCLE_ENTRY_MISSING'}
+    }
+    $taskPython=if($old.Execute -match '(?i)pythonw\.exe$'){$old.Execute}else{Join-Path (Split-Path $python -Parent) 'pythonw.exe'}
+    if(-not (Test-Path -LiteralPath $taskPython -PathType Leaf)){throw 'HIDDEN_PYTHON_MISSING'}
+    $supportsLifecycle=[bool](Select-String -LiteralPath "$hostRoot\releases\$CandidateSha\tools\start_web_ledger_host.ps1" -Pattern '\$LifecycleRole' -Quiet)
+    $boardRunner=$newArguments+$(if($supportsLifecycle){' -LifecycleRole Board'}else{''})
+    $boardArguments=ConvertTo-OwnedTaskArguments $old.Execute $boardRunner $lifecycleEntry $newPort 'Board' $argumentEntry
+    $newAction=New-ScheduledTaskAction -Execute $taskPython -Argument $boardArguments
     $preparedArguments=$newArguments -replace '(?i)(--role\s+)(?:Board|Prepared)', '$1Prepared'
-    $preparedAction=New-ScheduledTaskAction -Execute $old.Execute -Argument ($preparedArguments+' -DisableEntry -LifecycleRole Prepared')
+    $preparedRunner=$preparedArguments+' -DisableEntry'+$(if($supportsLifecycle){' -LifecycleRole Prepared'}else{''})
+    $preparedOwned=ConvertTo-OwnedTaskArguments $old.Execute $preparedRunner $lifecycleEntry $newPort 'Prepared' $argumentEntry
+    $preparedAction=New-ScheduledTaskAction -Execute $taskPython -Argument $preparedOwned
     $evidence="$hostRoot\releases\continuous-switch-$CandidateSha.json"
     Export-ScheduledTask -TaskName WebLedger-Board | Set-Content "$evidence.task.xml" -Encoding UTF8
     if($canPrepare) {
