@@ -119,13 +119,15 @@ def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100)
         if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{64}', revision):
             raise ValueError('cursor revision required')
         cursor_values = (int(len(stamp) == 10), stamp[11:] if len(stamp) > 10 else '', tid)
-    fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
+    fields = ('transaction_id', 'approval_date', 'posting_date', 'approval_number', 'amount_krw',
               'foreign_amount', 'foreign_currency', 'merchant', 'transaction_direction',
               'transaction_kind', 'classification_state', 'trip_id', 'display_tab_id', 'item',
               'duplicate_of', 'conflict_reason', 'parse_error', 'revision', 'issuer', 'card_tail')
-    order = 'CASE WHEN length(approval_date)=10 THEN 1 ELSE 0 END, substr(approval_date,12), transaction_id'
-    where = _VALID_DATE_SQL + ' AND substr(approval_date,1,10)=?'
-    select = 'SELECT ' + ','.join(fields) + ' FROM transactions WHERE '
+    order = (f'CASE WHEN length({_DATE_VALUE_SQL})=10 THEN 1 ELSE 0 END, '
+             f'substr({_DATE_VALUE_SQL},12), transaction_id')
+    where = _VALID_DATE_SQL + f' AND substr({_DATE_VALUE_SQL},1,10)=?'
+    select = ('SELECT transaction_id, ' + _DATE_VALUE_SQL + ' AS approval_date, posting_date, '
+              + ','.join(fields[3:]) + ' FROM transactions WHERE ')
     conn = _connect(_resolve_card_db_path(db_path))
     try:
         conn.execute('BEGIN')
@@ -139,7 +141,8 @@ def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100)
             raise DaySourceChanged('date filter source changed')
         params = [day]
         if cursor_values:
-            where += ' AND (CASE WHEN length(approval_date)=10 THEN 1 ELSE 0 END, substr(approval_date,12), transaction_id) > (?,?,?)'
+            where += (f' AND (CASE WHEN length({_DATE_VALUE_SQL})=10 THEN 1 ELSE 0 END, '
+                        f'substr({_DATE_VALUE_SQL},12), transaction_id) > (?,?,?)')
             params.extend(cursor_values)
         rows = conn.execute(select + where + ' ORDER BY ' + order + ' LIMIT ?', params + [per_page + 1]).fetchall()
         items = [dict(zip(fields, row)) for row in rows[:per_page]]
@@ -174,7 +177,13 @@ def _valid_use_date(value: Any) -> bool:
         return False
     return parsed.tzinfo is None
 
-_VALID_DATE_SQL = "COST_VALID_USE_DATE(approval_date) = 1"
+# `approval_date` is the normalized use/approval date. Older acquired-card
+# rows can have it empty while retaining a valid `posting_date`; those rows
+# are still dateable for read-only history display. Keep the source columns
+# intact and use the same fallback everywhere the history is grouped or
+# counted.
+_DATE_VALUE_SQL = "COALESCE(NULLIF(approval_date,''),NULLIF(posting_date,''))"
+_VALID_DATE_SQL = f"COST_VALID_USE_DATE({_DATE_VALUE_SQL}) = 1"
 
 def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
     """Resolve the card transactions database path.
@@ -202,7 +211,7 @@ def transaction_detail(transaction_id: str, db_path=None):
     """Read one source row, including cards that have never become ledger rows."""
     if not isinstance(transaction_id, str) or not transaction_id.strip() or len(transaction_id) > 256:
         raise ValueError('invalid transaction id')
-    fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
+    fields = ('transaction_id', 'approval_date', 'posting_date', 'approval_number', 'amount_krw',
               'foreign_amount', 'foreign_currency', 'merchant', 'description',
               'classification_state', 'classification_source', 'trip_id', 'display_tab_id',
               'item', 'duplicate_of', 'conflict_reason', 'issuer', 'card_kind', 'card_tail', 'batch_id', 'parse_error')
@@ -300,16 +309,16 @@ def _connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 def _get_available_years(conn: sqlite3.Connection) -> List[int]:
-    """Get years only from valid card-use dates."""
+    """Get years from valid use/approval dates, with posting fallback."""
     cur = conn.cursor()
-    cur.execute(f"SELECT DISTINCT substr(approval_date, 1, 4) FROM transactions WHERE {_VALID_DATE_SQL} ORDER BY 1")
+    cur.execute(f"SELECT DISTINCT substr({_DATE_VALUE_SQL}, 1, 4) FROM transactions WHERE {_VALID_DATE_SQL} ORDER BY 1")
     return [int(row[0]) for row in cur.fetchall()]
 @request_metrics.card_stage('card_query')
 def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> Dict[str, Any]:
     """Get monthly transaction counts and undated count for a year.
 
-    Undated count only includes truly null/empty/invalid approval_date values,
-    not valid dates from other years.
+    Undated count only includes rows with no valid use/approval or posting
+    date, not valid dates from other years.
     """
     resolved_path = _resolve_card_db_path(db_path)
     conn = _connect(resolved_path)
@@ -323,7 +332,7 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> 
         # Other years are a separate bucket, never miscounted as undated.
         cur.execute(
             "SELECT CASE WHEN NOT (" + _VALID_DATE_SQL + ") THEN 'undated' "
-            "WHEN substr(approval_date, 1, 4) = ? THEN substr(approval_date, 6, 2) "
+            "WHEN substr(" + _DATE_VALUE_SQL + ", 1, 4) = ? THEN substr(" + _DATE_VALUE_SQL + ", 6, 2) "
             "ELSE 'other' END AS period_bucket, "
             "COUNT(DISTINCT transaction_id) FROM transactions WHERE 1=1"
             + extra + " GROUP BY period_bucket",
@@ -356,7 +365,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
     try:
         cur = conn.cursor()
         params = [str(year), f"{month:02d}"]
-        where = f"{_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?"
+        where = f"{_VALID_DATE_SQL} AND substr({_DATE_VALUE_SQL}, 1, 4) = ? AND substr({_DATE_VALUE_SQL}, 6, 2) = ?"
         extra, filter_params = _filter_clause(**filters)
         where += extra
         params.extend(filter_params)
@@ -370,19 +379,19 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
             c_date_only = int(len(c_date) == 10)
             c_time = c_date[11:] if not c_date_only else ""
             where += (
-                " AND (substr(approval_date, 1, 10), "
-                "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END, "
-                "substr(approval_date, 12), transaction_id) > (?, ?, ?, ?)"
+                f" AND (substr({_DATE_VALUE_SQL}, 1, 10), "
+                f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END, "
+                f"substr({_DATE_VALUE_SQL}, 12), transaction_id) > (?, ?, ?, ?)"
             )
             params += [c_date[:10], c_date_only, c_time, c_id]
         sql = (
-            "SELECT transaction_id, approval_date, approval_number, amount_krw, "
+            f"SELECT transaction_id, {_DATE_VALUE_SQL} AS approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
             "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             "FROM transactions WHERE " + where +
-            " ORDER BY substr(approval_date, 1, 10) ASC, "
-            "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
-            "substr(approval_date, 12) ASC, transaction_id ASC LIMIT ?"
+            f" ORDER BY substr({_DATE_VALUE_SQL}, 1, 10) ASC, "
+            f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END ASC, "
+            f"substr({_DATE_VALUE_SQL}, 12) ASC, transaction_id ASC LIMIT ?"
         )
         cur.execute(sql, params + [per_page + 1])
         rows = cur.fetchall()
@@ -427,7 +436,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
 
 @request_metrics.card_stage('card_query')
 def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Optional[str] = None, per_page: int = 100, *, known_total: Optional[int] = None, **filters) -> Dict[str, Any]:
-    """List undated transactions (null/empty/invalid approval_date only).
+    """List transactions with no valid use/approval or posting date.
 
     Does NOT include transactions from other years with valid dates.
     """
@@ -530,7 +539,7 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
     conn = _connect(_resolve_card_db_path(db_path))
     try:
         params = [str(year)]
-        where = f"{_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ?"
+        where = f"{_VALID_DATE_SQL} AND substr({_DATE_VALUE_SQL}, 1, 4) = ?"
         extra, filter_params = _filter_clause(**filters)
         where += extra
         params.extend(filter_params)
@@ -552,19 +561,19 @@ def search_for_year(db_path: Optional[str] = None, year: int = 2026,
             c_date_only = int(len(c_date) == 10)
             c_time = c_date[11:] if not c_date_only else ""
             where += (
-                " AND (substr(approval_date, 1, 10), "
-                "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END, "
-                "substr(approval_date, 12), transaction_id) > (?, ?, ?, ?)"
+                f" AND (substr({_DATE_VALUE_SQL}, 1, 10), "
+                f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END, "
+                f"substr({_DATE_VALUE_SQL}, 12), transaction_id) > (?, ?, ?, ?)"
             )
             params.extend([c_date[:10], c_date_only, c_time, c_id])
         sql = (
-            "SELECT transaction_id, approval_date, approval_number, amount_krw, "
+            f"SELECT transaction_id, {_DATE_VALUE_SQL} AS approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
             "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id, COST_REFUND_TAB_MEMBER(transaction_id), batch_id "
             "FROM transactions WHERE " + where +
-            " ORDER BY substr(approval_date, 1, 10) ASC, "
-            "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
-            "substr(approval_date, 12) ASC, transaction_id ASC LIMIT ?"
+            f" ORDER BY substr({_DATE_VALUE_SQL}, 1, 10) ASC, "
+            f"CASE WHEN length({_DATE_VALUE_SQL}) = 10 THEN 1 ELSE 0 END ASC, "
+            f"substr({_DATE_VALUE_SQL}, 12) ASC, transaction_id ASC LIMIT ?"
         )
         cur.execute(sql, params + [per_page + 1])
         rows = cur.fetchall()
