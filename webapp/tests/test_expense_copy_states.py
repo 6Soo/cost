@@ -157,7 +157,7 @@ def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_
             assert page.get_by_role('button', name='장부 동기화').is_enabled()
             assert page.get_by_role('button', name='지출내용 복사').is_disabled()
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            for control in page.locator('.trip-copy-box .btn').all():
+            for control in page.locator('.trip-copy-box .btn:visible').all():
                 assert control.bounding_box()['height'] >= 44
             with page.expect_navigation():
                 page.get_by_role('button', name='다시 확인').click()

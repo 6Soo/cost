@@ -844,84 +844,118 @@ document.addEventListener('keydown',function(e){
   // Trip tab expense copy button (contract: Google 7-column B:H TSV copy)
   document.addEventListener('click',async function(e){
    if(e.target.closest&&e.target.closest('[data-copy-recheck]')){location.reload();return;}
+   var close=e.target.closest&&e.target.closest('[data-copy-text-close]');
+   if(close){
+    var card=close.closest('.trip-copy-wrap');
+    card.querySelector('.trip-copy-manual').hidden=true;
+    card.querySelector('#copy-trip-expenses,[data-copy-trip-tsv]').focus();
+    return;
+   }
+   var retry=e.target.closest&&e.target.closest('[data-copy-prepared]');
    var btn=e.target.closest&&e.target.closest('#copy-trip-expenses,[data-copy-trip-tsv]');
+   btn=retry||btn;
    if(!btn||btn.disabled) return;
-   var tab=btn.getAttribute('data-tab');
-   if(!tab) return;
    var wrap=btn.closest('.trip-copy-wrap')||btn.parentNode;
+   if(wrap.getAttribute('aria-busy')==='true')return;
+   var original=wrap.querySelector('#copy-trip-expenses,[data-copy-trip-tsv]');
+   var tab=original&&original.getAttribute('data-tab');
+   if(!tab) return;
    var status=wrap&&wrap.querySelector('.copy-status');
+   var manual=wrap.querySelector('.trip-copy-manual');
+   var prepared=manual&&manual.querySelector('textarea');
+   function notice(message,state){
+    if(status){status.textContent=message;status.className='copy-status'+(state?' '+state:'');}
+   }
+   function selectPrepared(){
+    manual.hidden=false;prepared.focus();prepared.select();prepared.setSelectionRange(0,prepared.value.length);
+   }
+   function updateExclusions(data){
+    var detail=wrap.querySelector('.trip-copy-hold-details');
+    if(!detail)return;
+    var held=data.held||[],rows=(data.reconciliation||{}).cost_rows||[];
+    detail.replaceChildren();detail.hidden=!held.length;
+    var summary=document.createElement('summary');
+    summary.textContent='복사 제외 거래 '+held.length+'건 보기';detail.appendChild(summary);
+    var explanation=document.createElement('p');
+    explanation.textContent='이번 복사에서 제외된 거래입니다. 거래 상세에서 Google 장부 대조 근거와 원본을 비교하세요.';
+    detail.appendChild(explanation);
+    var list=document.createElement('ul');list.className='trip-copy-excluded';
+    held.forEach(function(item){
+     var row=rows.find(function(row){return String(row.transaction_id)===String(item.transaction_id);})||{};
+     var li=document.createElement('li');
+     li.textContent=[row.occurred_on||row.date||'날짜 없음',row.merchant||item.transaction_id||'거래 식별 정보 없음',
+      row.amount_krw==null?'금액 없음':Number(row.amount_krw).toLocaleString('ko-KR')+'원'].join(' · ');
+     if(row.row_id){var link=document.createElement('a');link.href='/row?id='+encodeURIComponent(row.row_id);
+      link.textContent='거래 상세 보기';li.appendChild(document.createTextNode(' '));li.appendChild(link);}
+     list.appendChild(li);
+    });
+    detail.appendChild(list);
+   }
+   async function copyText(value){
+    // A retry comes directly from a fresh gesture, without another server wait.
+    // Document focus and clipboard permission can still be lost while fetching.
+    // Keep the prepared text available if either clipboard method is refused.
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+     try{await navigator.clipboard.writeText(value);return true;}catch(error){}
+    }
+    selectPrepared();
+    try{return document.execCommand('copy');}catch(error){return false;}
+   }
    btn.disabled=true;
+   wrap.setAttribute('aria-busy','true');
+   var timer;
    try{
-    if(status){
-     status.textContent='복사 중...';
-     status.className='copy-status loading';
-    }
-    var filters=new URLSearchParams(location.search);
-    var params=new URLSearchParams();
-    ['q','kind'].forEach(function(key){if(filters.has(key)) params.set(key,filters.get(key));});
-     var check=await fetch('/api/google-ledger/expense-reconciliation?trip='+encodeURIComponent(tab));
-     var preview=await check.json();
-     if(!check.ok||!preview.source_available) throw new Error(preview.message||'Google 원본을 확인하지 못했습니다. 동기화 후 다시 복사해 주세요.');
-     var res=await fetch('/api/google-ledger/expense-reconciliation',{
-      method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/json','X-CSRF-Token':btn.getAttribute('data-csrf')||''},
-      body:JSON.stringify({action:'export',scope:'board',trip_id:tab,expected_revision:preview.links_revision,
-       preview_digest:preview.preview_digest,request_id:'export:'+crypto.randomUUID(),
-       query:filters.get('q')||'',kind:filters.get('kind')||''})
-     });
-    if(!res.ok){
-     var errJson=await res.json().catch(function(){return {};});
-     throw new Error(errJson.message||('복사 요청 실패 ('+res.status+')'));
-    }
-    var data=await res.json();
-    if(!data.tsv||data.row_count===0){
-     if(status){
-      status.textContent=data.held&&data.held.length?'복사 가능한 지출이 없습니다. 중복 여부 또는 거래 상세 확인이 필요한 '+data.held.length+'건을 제외했습니다.':data.matched_count?'모든 지출이 장부에 있어 복사할 항목이 없습니다.':'복사할 지출이 없습니다.';
-      status.className='copy-status';
+    var data;
+    if(!retry){
+     notice('Google 장부와 대조해 복사할 내용을 준비하고 있습니다…','loading');
+     manual.hidden=true;prepared.value='';
+     var filters=new URLSearchParams(location.search),params=new URLSearchParams();
+     ['q','kind'].forEach(function(key){if(filters.has(key)) params.set(key,filters.get(key));});
+     var controller=new AbortController();
+     timer=setTimeout(function(){controller.abort();},45000);
+     // The existing owner-only GET returns freshly deduplicated B:H TSV and
+     // writes neither reconciliation links nor financial/Google records.
+     var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv'+(params.size?'?'+params.toString():''),
+                         {credentials:'same-origin',cache:'no-store',signal:controller.signal});
+     data=await res.json();
+     if(!res.ok)throw new Error(data.message||'지출내용을 준비하지 못했습니다. 다시 복사해 주세요.');
+     if(!data.source_available){
+      throw new Error('Google 장부를 확인하지 못했습니다. 장부를 동기화한 뒤 다시 복사해 주세요.');
      }
+     updateExclusions(data);
+     if(data.row_count===0){
+      notice(data.held&&data.held.length?'복사할 수 있는 지출이 없습니다. 아래 제외 내역에서 거래와 Google 기록을 비교해 주세요.':
+             data.matched&&data.matched.length?'모든 지출이 장부에 있어 복사할 항목이 없습니다.':'복사할 지출이 없습니다.');
+      return;
+     }
+     if(typeof data.tsv!=='string'||!data.tsv||!Number.isInteger(data.row_count)||data.row_count<1){
+      throw new Error('복사할 내용을 확인하지 못했습니다. 다시 복사해 주세요.');
+     }
+     prepared.value=data.tsv;
+     prepared.dataset.count=String(data.row_count);
+     prepared.dataset.total=String(data.total_krw||0);
+     prepared.dataset.matched=String((data.matched||[]).length);
+     prepared.dataset.held=String((data.held||[]).length);
+    }
+    if(!prepared.value)return;
+    if(!await copyText(prepared.value)){
+     selectPrepared();
+     notice('복사할 내용이 준비됐습니다. 선택된 내용을 복사(Ctrl+C 또는 ⌘C)하거나 다시 복사를 누른 뒤 Google 시트에 붙여넣으세요.');
      return;
     }
-    var textToCopy=data.tsv;
-    btn.focus({preventScroll:true});
-    async function copyWithFocusFallback(value){
-     var primaryError=null;
-     if(navigator.clipboard&&navigator.clipboard.writeText){
-      try{await navigator.clipboard.writeText(value);return;}
-      catch(error){primaryError=error;}
-     }
-     var ta=document.createElement('textarea');
-     ta.value=value;
-     ta.setAttribute('readonly','');
-     ta.style.position='fixed';ta.style.left='-9999px';ta.style.top='0';ta.style.opacity='0';
-     document.body.appendChild(ta);
-     ta.focus();ta.select();ta.setSelectionRange(0,ta.value.length);
-     try{if(document.execCommand('copy'))return;}
-     finally{document.body.removeChild(ta);}
-     throw primaryError||new Error('클립보드 복사가 허용되지 않았습니다. 이 화면을 활성화한 뒤 다시 시도해 주세요.');
-    }
-    await copyWithFocusFallback(textToCopy);
-    try{
-     localStorage.setItem('gcopy-trip:'+tab,new Date().toLocaleString('ko-KR'));
-    }catch(err){}
-    if(status){
-     var countStr=data.row_count+'건';
-     var sumStr=data.total_krw?(' · '+Number(data.total_krw).toLocaleString('ko-KR')+'원'):'';
-     status.textContent='지출내용이 복사되었습니다! ('+countStr+sumStr+') Google 시트에 붙여넣으세요.'+(data.matched_count?' 장부에 있는 '+data.matched_count+'건 제외.':'')+(data.held&&data.held.length?' 중복 여부 또는 거래 상세 확인 필요 '+data.held.length+'건 제외.':'');
-     status.className='copy-status success';
-    }
+    manual.hidden=true;
+    try{localStorage.setItem('gcopy-trip:'+tab,new Date().toLocaleString('ko-KR'));}catch(error){}
+    var sum=Number(prepared.dataset.total||0),held=Number(prepared.dataset.held||0),matched=Number(prepared.dataset.matched||0);
+    notice('지출내용이 복사되었습니다. '+prepared.dataset.count+'건'+(sum?' · '+sum.toLocaleString('ko-KR')+'원':'')+
+           '. Google 시트에 붙여넣으세요.'+(matched?' 이미 기록된 '+matched+'건 제외.':'')+
+           (held?' 중복 가능성 등으로 제외된 '+held+'건은 아래 내역에서 확인하세요.':''),'success');
    }catch(err){
-    if(status){
-     status.textContent='복사 실패: '+(err.message||'클립보드 접근 오류');
-     status.className='copy-status err';
-    }
+    notice(err.name==='AbortError'?'내용 준비가 지연되고 있습니다. 잠시 후 다시 복사해 주세요.':
+           err instanceof TypeError?'연결을 확인한 뒤 다시 복사해 주세요.':(err.message||'내용을 준비하지 못했습니다. 다시 복사해 주세요.'),'err');
    }finally{
-    btn.disabled=false;
-    setTimeout(function(){
-     if(status&&status.classList.contains('success')){
-      status.textContent='';
-      status.className='copy-status';
-     }
-    },5000);
+    clearTimeout(timer);btn.disabled=false;wrap.removeAttribute('aria-busy');
+    if(!manual.hidden)prepared.focus({preventScroll:true});
+    else original.focus({preventScroll:true});
    }
   });
  })();
