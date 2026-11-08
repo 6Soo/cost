@@ -209,6 +209,11 @@
       "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
     },
     {
+      "name": "ota-mail-load-lifetime",
+      "paths": ["app/ota_mail.py", "app/ota_payments.py", "app/ota_store.py", "tools/benchmark_ota_mail_load.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py"],
+      "tests": ["tests/card_pipeline/test_ota_mail_load_lifetime.py", "tests/card_pipeline/test_ota_sources_registry.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ota_catalog.py", "webapp/tests/test_ota_reconcile_child.py"]
+    },
+    {
       "name": "ota-reconciliation",
       "paths": ["app/ota_*.py", "webapp/ota_*.py", "tests/card_pipeline/test_ota*.py",
                 "webapp/tests/test_ota*.py"],

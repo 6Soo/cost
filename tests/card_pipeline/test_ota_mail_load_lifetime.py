@@ -45,6 +45,37 @@ def test_conflicting_body_does_not_retain_a_partial_failed_load(tmp_path):
     assert not ota_mail._MESSAGES_MEMO
 
 
+def test_changed_source_replaces_cached_messages_and_bodies(tmp_path):
+    directory = write_mail(tmp_path / 'mail', [message('original', identity='one')])
+    first, _ = ota_mail.load_messages_from([directory])
+    write_mail(directory, [message('a different longer body', identity='two')])
+    second, _ = ota_mail.load_messages_from([directory])
+    assert set(first) == {'one'} and set(second) == {'two'}
+    assert set(ota_mail._BODY_TEXT) == {id(second['two'])}
+    # A caller still reading the old snapshot falls back to its own payload.
+    assert ota_mail.message_text(first['one']) == ota_mail.body_text(first['one']['payload'])
+
+
+def test_failed_payment_parse_retries_and_invalidates_on_source_change(tmp_path, monkeypatch):
+    directory = write_mail(tmp_path / 'mail', [message('body', identity='one')])
+    calls = []
+
+    def parse(directories):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ValueError('synthetic failure')
+        return [{'source_ids': [f'parse-{len(calls)}']}]
+
+    monkeypatch.setattr(ota_payments, '_parse_mail_events', parse)
+    with pytest.raises(ValueError, match='synthetic failure'):
+        ota_payments._mail_events([directory])
+    assert not ota_payments._MAIL_EVENT_MEMO
+    assert ota_payments._mail_events([directory])[0]['source_ids'] == ['parse-2']
+    assert ota_payments._mail_events([directory])[0]['source_ids'] == ['parse-2']
+    write_mail(directory, [message('changed source', identity='two')])
+    assert ota_payments._mail_events([directory])[0]['source_ids'] == ['parse-3']
+
+
 def test_simultaneous_identical_mail_loads_share_one_parse(tmp_path, monkeypatch):
     directory = write_mail(tmp_path / 'mail', [message('synthetic', identity='one')])
     original = ota_mail._load_messages_uncached
