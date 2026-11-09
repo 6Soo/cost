@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "ledger-render-read-cost",
+      "paths": ["webapp/read_scope.py", "webapp/ledger_store_records.py"],
+      "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_read_scope_and_probe.py", "webapp/tests/test_navigation_read_performance.py", "tests/test_board_read_projection.py", "webapp/tests/test_ledger_design.py", "webapp/tests/test_cleanup_query_equivalence.py"]
+    },
+    {
       "name": "card-destination-only-ux",
       "paths": ["app/card_destination.py", "tests/card_pipeline/test_final_card_destination.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py"],
       "tests": ["tests/card_pipeline/test_final_card_destination.py", "tests/card_pipeline/test_card_destination_contract.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_autonomous_cleanup.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py"]
