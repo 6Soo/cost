@@ -159,3 +159,13 @@ def test_a_second_worker_is_refused_while_one_runs(tmp_path):
     finally:
         first.kill()
         first.wait(10)
+
+
+@pytest.mark.parametrize("module", ["tools.ingest_participant_roster", "tools.refresh_review_source"])
+def test_every_watch_tool_takes_its_arguments_from_the_worker(module):
+    import importlib
+    import inspect
+
+    sys.path.insert(0, str(worker.ROOT))
+    main = importlib.import_module(module).main
+    assert "argv" in inspect.signature(main).parameters, f"{module}.main must accept argv"

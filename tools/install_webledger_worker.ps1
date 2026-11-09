@@ -10,9 +10,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $legacy = @('COST-InsuranceRosterSync', 'WebLedger-SourceRefresh', 'WebLedger-MailCollect', 'WebLedger-GoogleAuthority')
 $configPath = "$HostRoot\config\worker.json"
-if (-not $Evidence) { $Evidence = "$HostRoot\logs\worker-install" }
 
 if ($Rollback) {
+    # Only the folder written by the -Apply being undone holds what was there before it.
+    if (-not $Evidence) { throw 'ROLLBACK_EVIDENCE_REQUIRED' }
     foreach ($name in @('WebLedger-Gateway') + $legacy) {
         $xml = Join-Path $Evidence "$name.xml"
         if (-not (Test-Path -LiteralPath $xml -PathType Leaf)) { throw "ROLLBACK_EVIDENCE_MISSING_$name" }
@@ -100,6 +101,12 @@ $plan = [ordered]@{
 }
 if (-not $Apply) { $plan | ConvertTo-Json -Depth 6; return }
 if (-not (Test-Path -LiteralPath "$release\tools\webledger_worker.py" -PathType Leaf)) { throw 'RELEASE_HAS_NO_WORKER' }
+# A second -Apply would export the already-disabled tasks as the state to restore.
+if (Get-ScheduledTask -TaskName 'WebLedger-Worker' -ErrorAction SilentlyContinue) { throw 'ALREADY_INSTALLED' }
+foreach ($name in $legacy) { if ((Get-ScheduledTask -TaskName $name).State -eq 'Disabled') { throw "ALREADY_DISABLED_$name" } }
+if (-not $Evidence) { $Evidence = "$HostRoot\logs\worker-install-" + (Get-Date -Format 'yyyyMMddTHHmmss') }
+if ((Test-Path -LiteralPath $Evidence) -and @(Get-ChildItem -LiteralPath $Evidence -Filter '*.xml').Count) { throw 'EVIDENCE_EXISTS' }
+$installedAt = (Get-Date).ToUniversalTime().AddSeconds(-2)
 
 New-Item -ItemType Directory -Force -Path $Evidence | Out-Null
 foreach ($name in @('WebLedger-Gateway', 'WebLedger-Board') + $legacy) {
@@ -134,7 +141,12 @@ $workerLog = $config.log
 $started = $false
 for ($attempt = 0; $attempt -lt 60 -and -not $started; $attempt++) {
     Start-Sleep -Milliseconds 500
-    $started = (Test-Path -LiteralPath $workerLog) -and ((Get-Content -LiteralPath $workerLog -Tail 20) -match '"event": "ready"')
+    # This install's worker: a ready line from this release written after it began, and still running.
+    $readyLines = @(if (Test-Path -LiteralPath $workerLog) { Get-Content -LiteralPath $workerLog -Tail 50 -Encoding UTF8 } else { @() }) | ForEach-Object {
+        try { $_ | ConvertFrom-Json } catch { $null }
+    } | Where-Object { $_ -and $_.event -eq 'ready' -and $_.release -eq $sha -and ([DateTime]::Parse($_.at).ToUniversalTime() -ge $installedAt) }
+    $alive = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains("$release\tools\webledger_worker.py") }).Count -eq 1
+    $started = @($readyLines).Count -gt 0 -and $alive
 }
 if (-not $started) { throw 'WORKER_NOT_READY_RUN_WITH_ROLLBACK' }
 @{ status = 'APPLIED'; release = $sha; evidence = $Evidence; at = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress

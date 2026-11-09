@@ -1,0 +1,68 @@
+$ C:\Users\kkokk\AppData\Local\Programs\Python\Python314\python.exe -m pytest tests/card_pipeline/test_google_tsv.py tests/card_pipeline/test_ota_exact_gate.py tests/card_pipeline/test_ota_payments.py tests/card_pipeline/test_partial_refund.py tests/test_continuous_deployment.py tests/test_quality_checks.py tests/test_refactor_call_map.py tests/test_run_targeted_checks.py tests/test_verified_release.py tests/test_webledger_job_lifecycle.py tests/test_webledger_worker.py webapp/tests/test_access_control_phase7.py webapp/tests/test_card_completion_worker.py webapp/tests/test_google_ledger_page.py webapp/tests/test_ops_safety.py webapp/tests/test_ota_payment_review.py webapp/tests/test_ota_payment_review_browser.py webapp/tests/test_ota_snapshot_service.py webapp/tests/test_priority_trip_assignment.py webapp/tests/test_python_launch.py webapp/tests/test_targeted_test_selector.py -q -ra --junitxml=C:\AX\cost-process-20261109\quality-artifacts\junit.xml
+$ py_compile
+
+$ pytest
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+.........................................................F.............. [ 45%]
+........................................................................ [ 60%]
+........................................................................ [ 75%]
+.................................................................... [ 89%]
+....................................................                     [100%]
+================================== FAILURES ===================================
+_ test_core_business_acceptance_is_targeted_and_audited_with_browser_cases_required _
+
+    def test_core_business_acceptance_is_targeted_and_audited_with_browser_cases_required():
+        impact_map = json.loads((ROOT / "config/test-impact-map.json").read_text(encoding="utf-8"))
+        required = {
+            "webapp/tests/test_insurance_income_match_http.py",
+            "webapp/tests/test_insurance_income_match_browser.py",
+            "webapp/tests/test_owner_metadata.py",
+            "webapp/tests/test_flight_booking_name_search.py",
+            "webapp/tests/test_rule_review.py",
+            "webapp/tests/test_rule_dialog_screen.py",
+            "webapp/tests/test_trip_history_browser.py",
+            "webapp/tests/test_trip_expense_copy_button.py",
+        }
+        group = next(group for group in impact_map["groups"]
+                     if group["name"] == "core-business-acceptance")
+        assert "core-business-acceptance" in impact_map["audit_groups"]
+        assert required == set(group["tests"])
+        assert required <= set(group["paths"])
+    
+        source_routes = {
+            "webapp/ledger_board.py": {
+                "webapp/tests/test_insurance_income_match_http.py",
+                "webapp/tests/test_owner_metadata.py",
+                "webapp/tests/test_trip_history_browser.py",
+                "webapp/tests/test_trip_expense_copy_button.py",
+            },
+            "webapp/ledger_store.py": {"webapp/tests/test_owner_metadata.py"},
+            "webapp/flight_passenger_page.py": {"webapp/tests/test_flight_booking_name_search.py"},
+            "app/review.py": {"webapp/tests/test_rule_review.py"},
+        }
+        for source, expected in source_routes.items():
+            selected, unknown = selector_tool.select_targets([source], impact_map["groups"])
+            assert unknown == []
+            assert expected <= set(selected), source
+    
+        plan = quality.build_plan(["webapp/owner_metadata.py"], selector([], targets=sorted(required)))
+        assert required <= set(plan["pytest_targets"])
+        required_browser_cases = {
+            "webapp.tests.test_insurance_income_match_browser::test_name_action_keeps_income_and_never_guesses_ambiguous_identity",
+            "webapp.tests.test_flight_booking_name_search::test_browser_name_search_renders_verified_itinerary_and_secondary_participant_flow",
+            "webapp.tests.test_rule_review::RuleReviewTests::test_browser_reports_committed_approval_when_refresh_fails",
+            "webapp.tests.test_rule_dialog_screen::RuleDialogScreenTests::test_full_flow_at_1440",
+            "webapp.tests.test_trip_history_browser::TripHistoryBrowserTests::test_previous_trips_open_and_link_to_existing_ledger_at_both_widths",
+            "webapp.tests.test_trip_expense_copy_button::TripExpenseCopyBrowserTests::test_browser_copy_trip_expenses_interaction",
+        }
+>       assert required_browser_cases <= set(plan["browser_tests"])
+E       AssertionError: assert {'webapp.test..._both_widths'} <= {'webapp.test...dentity', ...}
+E         
+E         Extra items in the left set:
+E         'webapp.tests.test_rule_review::RuleReviewTests::test_browser_reports_committed_approval_when_refresh_fails'
+
+tests\test_quality_checks.py:257: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_quality_checks.py::test_core_business_acceptance_is_targeted_and_audited_with_browser_cases_required
+1 failed, 479 passed, 4 subtests passed in 190.06s (0:03:10)
