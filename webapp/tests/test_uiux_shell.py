@@ -97,6 +97,27 @@ def test_uxa06_profile_inputs_are_labelled_and_button_copy_is_updated():
     assert "기본 정보 저장" in source
 
 
+def test_unclassified_copy_uses_connection_language_without_changing_contracts():
+    source = (ROOT / "webapp/ledger_board.py").read_text(encoding="utf-8")
+    for copy in (
+        "여행 연결 해제",
+        "여행 연결 없음: 수입",
+        "내보내기에 포함되지 않습니다",
+        "여행 연결 없음 목록 열기",
+        "여행 연결 없음</option>",
+    ):
+        assert copy in source
+    for legacy_copy in (
+        "분류대기로 이동",
+        "분류대기 열기",
+        "분류대기 거래가 포함될 수 있습니다.",
+        "분류대기: 수입",
+    ):
+        assert legacy_copy not in source
+    assert '"classification_basis": "목적지 없음, 분류대기"' in source
+    assert '"tab_id": "unclassified", "display_key": "분류대기"' in source
+
+
 def test_uxa08_expense_page_has_one_main_heading_and_primary_save_button():
     page = ledger_board.expense_new_page()
     assert page.count("<main id='main'>") == 1

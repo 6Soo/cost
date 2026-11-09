@@ -1613,7 +1613,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 "<input type='hidden' name='return_to' value="
                 f"'{esc('/trips?preview_tab=' + preview_tab)}'>"
                 "<p><label>처리 방법</label><select name='mode'>"
-                "<option value='move-unclassified'>분류대기로 이동</option>"
+                "<option value='move-unclassified'>여행 연결 해제</option>"
                 "<option value='move-trip'>다른 여행으로 이동</option></select></p>"
                 f"<p><label>목적지</label><select name='destination'>{dest_options}</select></p>"
                 f"<button type='submit'>{ui_icons.icon('alert-triangle')}내역 이동 후 삭제 확정</button></form>"
@@ -1706,7 +1706,7 @@ def export_page(selected_tab: str = "") -> str:
         lines = []
         for tc in trip_counts:
             if tc["tab_id"] is None:
-                lines.append(f"<li>분류대기: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행 (출력에 들어가지 않아요)</li>")
+                lines.append(f"<li>여행 연결 없음: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행 (내보내기에 포함되지 않습니다)</li>")
             else:
                 lines.append(
                     f"<li>{esc(tc['display_key'])}: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행"
@@ -1758,7 +1758,6 @@ def export_page(selected_tab: str = "") -> str:
         "<p class='export-selection-tools'><button type='button' data-export-select='all'>전체 선택</button> "
         "<button type='button' data-export-select='none'>선택 해제</button> <span id='export-selection-count' role='status'></span></p>"
         f"{options}{archived}"
-        "<p class='muted'>분류대기 거래가 포함될 수 있습니다.</p>"
         f"{progress_note}"
         + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
             + str(len(unconfirmed))
@@ -1813,8 +1812,8 @@ def import_page() -> str:
         "m.textContent='완료';"
         "document.getElementById('res').innerHTML="
         "'<p>원본 '+p.source_rows+'행 · 새 사건 '+p.new_events+'건 · 여행 배치 '+p.placed_trips"
-        "+'건 · 분류대기 '+p.placed_unclassified+'건 · 오류 '+p.parse_errors+'건 · 충돌 '+p.conflicts+'건</p>'"
-        "+'<p><a href=\"/board\">여행 탭에서 보기</a> · <a href=\"/board?tab=unclassified\">분류대기 열기</a></p>';};"
+        "+'건 · 여행 연결 없음 '+p.placed_unclassified+'건 · 오류 '+p.parse_errors+'건 · 충돌 '+p.conflicts+'건</p>'"
+        "+'<p><a href=\"/board\">여행 탭에서 보기</a> · <a href=\"/board?tab=unclassified\">여행 연결 없음 목록 열기</a></p>';};"
         "document.getElementById('bup').onclick=async()=>{"
         "const f=document.getElementById('bf').files[0];if(!f){return;}"
         "const m=document.getElementById('bmsg');m.textContent='읽는 중';"
@@ -1827,7 +1826,7 @@ def import_page() -> str:
         "m.textContent='완료';"
         "document.getElementById('bres').innerHTML="
         "'<p>원본 '+j.result.source_rows+'행 · 새 입금 '+j.result.new_events+'건 · 제외 '+j.result.excluded_rows+'건</p>'"
-        "+'<p><a href=\"/board?tab=unclassified\">분류대기 열기</a></p>';};"
+        "+'<p><a href=\"/board?tab=unclassified\">여행 연결 없음 목록 열기</a></p>';};"
         "</script></div>"
     )
     return ledger_design.render(ledger_design.shell(
@@ -1902,7 +1901,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 options = (
                     "<option value='unclassified'"
                     f"{' selected' if row['display_tab_id'] is None else ''}>"
-                    "분류대기</option>"
+                    "여행 연결 없음</option>"
                     + "".join(
                         f"<option value='{esc(t['tab_id'])}'"
                         f"{' selected' if row['display_tab_id'] == t['tab_id'] else ''}>"
@@ -1979,7 +1978,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             options = (
                 "<option value='unclassified'"
                 f"{' selected' if row['display_tab_id'] is None else ''}>"
-                "분류대기</option>"
+                "여행 연결 없음</option>"
                 + "".join(
                     f"<option value='{esc(t['tab_id'])}'"
                     f"{' selected' if row['display_tab_id'] == t['tab_id'] else ''}>"
@@ -2078,7 +2077,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 remainder = _active_store().split_remainder(row["row_id"])
                 lines = "".join(
                     f"<li>{esc(a['customer_name'])} · "
-                    f"{esc(next((t['display_key'] for t in live_trips(include_archived=True) if t['tab_id'] == a['display_tab_id']), '분류대기'))} · "
+                    f"{esc(next((t['display_key'] for t in live_trips(include_archived=True) if t['tab_id'] == a['display_tab_id']), '여행 연결 없음'))} · "
                     f"{esc(INCOME_KIND_LABEL.get(a['income_kind'], ''))} · {a['amount_krw']:,}원</li>"
                     for a in allocs
                 )
