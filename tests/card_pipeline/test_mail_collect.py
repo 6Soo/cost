@@ -158,7 +158,7 @@ def test_daily_history_recovers_old_daum_import_without_replacing_original_or_cu
     assert mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 10))['skipped'] is True
     assert len(client.queries) == queries
     assert mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 10, 9))['fetched'] == 0
-    assert len(client.queries) == queries + 1
+    assert len(client.queries) == queries + 2
 
 
 def test_daily_history_retries_failed_import_before_marking_complete(tmp_path, monkeypatch):
@@ -318,3 +318,20 @@ def test_gmail_request_retries_a_transient_token_refresh_failure(monkeypatch):
     monkeypatch.setattr(api, '_access_token', refresh)
     assert api._get('https://example.invalid/m1') == {'id': 'm1'}
     assert len(attempts) == 2 and len(calls) == 1
+
+
+def test_daily_history_reads_supplier_mail_a_year_before_the_ledger_without_other_mail(tmp_path):
+    class EarlyBooking(FakeGmail):
+        def list_ids(self, query):
+            self.queries.append(query)
+            return ['booked-in-january'] if 'after:2025/04/01 ' in query else []
+
+    client = EarlyBooking([])
+    (tmp_path / 'collection.json').write_text('{"before":"2026-11-08"}', encoding='utf-8')
+    result = mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 9))
+    early = next(q for q in client.queries if 'after:2025/04/01 ' in q)
+    assert 'before:2026/04/01' in early and 'from:booking.com' in early
+    assert 'to:' not in early and 'cc:' not in early and 'nicepg' not in early
+    assert result['fetched'] == 1 and mail_collect.stored_ids(tmp_path) == {'booked-in-january'}
+    checkpoint = json.loads((tmp_path / 'history-reconciliation.json').read_text(encoding='utf-8'))
+    assert checkpoint['supplier_after'] == '2025-04-01'
