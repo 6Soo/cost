@@ -67,6 +67,78 @@ def stay_index(store):
         result.setdefault(tid, metadata)
     for tid, metadata in _rakuten_candidate_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _skyticket_candidate_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _skyticket_candidate_periods(data, manual):
+    """A paid skyticket mail without a payment day names its departure days for the one card it equals.
+
+    The mail carries no card tail or charge day, so the core keeps it undated and
+    unlinked. Merchant, exact KRW total and a one-to-one pairing only inform this
+    read-only display; no payment, trip or reservation relation is created.
+    """
+    from datetime import date
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    occupied = set()
+    for record in data.get('results', []):
+        if record.get('transaction_id'):
+            occupied.add(str(record['transaction_id']))
+        occupied.update(str(tid) for tid in record.get('reserved_card_ids') or ())
+        relation = record.get('payment_relation') or {}
+        if relation.get('status') == 'LINKED':
+            occupied.update(str(tid) for tid in relation.get('transaction_ids') or ())
+    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                    if isinstance(link, dict) and link.get('transaction_id'))
+    by_booking = defaultdict(list)
+    for event in events.values():
+        by_booking[(event.get('provider'), event.get('booking_ref'))].append(event)
+    claims = defaultdict(set)
+    chosen = {}
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        if event.get('provider') != 'skyticket' or record.get('status') != 'HOLD_DATE_UNKNOWN':
+            continue
+        trace = record.get('candidate_search') or {}
+        candidates = trace.get('candidates') or ()
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            valid = 0 <= (end - start).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        related = by_booking[(event.get('provider'), event.get('booking_ref'))]
+        if (not valid or trace.get('status') != 'CANDIDATES_FOUND' or len(candidates) != 1
+                or event.get('event_type') != 'charge' or event.get('evidence_status') != 'paid_verified'
+                or event.get('payment_status') != 'paid' or event.get('evidence_kind') != 'authenticated_payment_mail'
+                or str(event.get('currency') or '').upper() != 'KRW'
+                or not event.get('source_digest') or not event.get('booking_ref')
+                or any(e.get('evidence_status') != 'paid_verified' or e.get('event_type') != 'charge'
+                       or e.get('service_period') != period or e.get('refund_status')
+                       or e.get('period_conflict') or e.get('service_period_conflict')
+                       or e.get('reservation_status') in ('cancelled', 'refunded') for e in related)
+                or any(record.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))):
+            continue
+        candidate = candidates[0]
+        tid = str(candidate.get('transaction_id') or '')
+        if candidate.get('basis') != 'EXACT_AMOUNT_AND_CARD_EVIDENCE' or candidate.get('resolution_allowed') is not False or not tid:
+            continue
+        claims[tid].add(str(event.get('booking_ref')))
+        chosen[tid] = (start.isoformat() + '~' + end.isoformat(), str(event.get('booking_ref')))
+    result = {}
+    for tid, (period, booking_ref) in chosen.items():
+        card = cards.get(tid) or {}
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref], 'service_period': period,
+                       'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 
