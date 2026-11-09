@@ -400,7 +400,7 @@ class OtaStore:
                 old = self.conn.execute('SELECT core_sha256, payload_json FROM ota_messages WHERE message_id=?',
                                         (message_id,)).fetchone()
                 # The stored digest omits a REST-only receipt time, so an equal digest alone is not enough there.
-                if old and (old[0] != digest or core['internal_date'] in (None, '')):
+                if old and (old[0] != digest or ota_mail.needs_original_comparison(core, message)):
                     kept = unpacked(old[1])
                     kept_core = dict(id=message_id, internal_date=kept.get('internal_date'),
                         headers={h['name'].lower(): h['value'] for h in kept['payload'].get('headers', [])},

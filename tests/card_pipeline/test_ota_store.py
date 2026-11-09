@@ -365,3 +365,19 @@ def test_a_kept_rest_copy_still_conflicts_with_a_different_receipt_time(tmp_path
             store.import_mail(write_mail(tmp_path / 'two', [moved]))
     finally:
         store.close()
+
+
+def test_a_copy_contradicting_its_own_receipt_time_is_never_the_same_original(tmp_path):
+    first = message('예약번호: BOOK12345 총 금액 30,000원', identity='both')
+    first.update(internal_date='1000', internalDate='1000')
+    changed = copy.deepcopy(first)
+    changed['internalDate'] = '2000'
+    with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+        ota_mail.load_messages_from([write_mail(tmp_path / 'pair', [first, changed])])
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(write_mail(tmp_path / 'one', [first]))
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(write_mail(tmp_path / 'two', [changed]))
+    finally:
+        store.close()

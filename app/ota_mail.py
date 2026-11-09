@@ -81,11 +81,25 @@ def same_original_core(first, second):
             if name in _ADDRESS_HEADERS:
                 value = sorted((label.strip(), address.lower()) for label, address in getaddresses([value]))
             headers[name] = value
-        return core['id'], headers, core['text'], mail_internal_date(message)
+        return core['id'], headers, core['text'], receipt_times(message)
 
     (core_a, message_a), (core_b, message_b) = first, second
     left, right = normalized(core_a, message_a), normalized(core_b, message_b)
-    return left[:3] == right[:3] and (left[3] in (None, '') or right[3] in (None, '') or str(left[3]) == str(right[3]))
+    # One copy may lack a spelling; any time both copies state must agree, and a copy
+    # that contradicts itself only matches an identical contradiction.
+    times_match = not left[3] or not right[3] or left[3] == right[3]
+    return left[:3] == right[:3] and times_match
+
+
+def receipt_times(message):
+    """Every receipt time the message states, under either field spelling."""
+    return frozenset(str(value) for value in (message.get('internal_date'), message.get('internalDate'))
+                     if value not in (None, ''))
+
+
+def needs_original_comparison(core, message):
+    """The stored digest carries only internal_date; a missing or self-contradicting time needs the kept copy."""
+    return core['internal_date'] in (None, '') or len(receipt_times(message)) > 1
 
 
 def _load_messages_uncached(directories):
@@ -129,7 +143,8 @@ def _load_messages_uncached(directories):
             digest = _core_digest(core)
             if identity in fingerprints:
                 kept_digest, kept_core, kept = fingerprints[identity]
-                if ((kept_digest != digest or core['internal_date'] in (None, ''))
+                if ((kept_digest != digest or needs_original_comparison(core, message)
+                     or needs_original_comparison(kept_core, kept))
                         and not same_original_core((kept_core, kept), (core, message))):
                     raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
             fingerprints[identity] = (digest, core, message)
