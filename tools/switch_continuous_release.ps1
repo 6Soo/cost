@@ -194,18 +194,23 @@ function Switch-WorkerRelease([string]$From,[string]$To) {
     # Known before anything stops, so a failure part-way still restores it.
     $script:workerPrevious=$previousAction
     Stop-ScheduledTask -TaskName WebLedger-Worker
-    for($attempt=0;$attempt -lt 60 -and (Get-WorkerProcess $From).Count;$attempt++){Start-Sleep -Milliseconds 250}
-    if((Get-WorkerProcess $From).Count){throw 'WORKER_DID_NOT_STOP'}
+    # Windows PowerShell unrolls a one-element array returned by a function, and
+    # a single CimInstance has no Count; always count inside @().
+    for($attempt=0;$attempt -lt 60 -and @(Get-WorkerProcess $From).Count;$attempt++){Start-Sleep -Milliseconds 250}
+    if(@(Get-WorkerProcess $From).Count){throw 'WORKER_DID_NOT_STOP'}
     $action=New-ScheduledTaskAction -Execute $previousAction.Execute -Argument $previousAction.Arguments.Replace($From,$To)
     Set-ScheduledTask -TaskName WebLedger-Worker -Action $action | Out-Null
     Start-ScheduledTask -TaskName WebLedger-Worker
-    for($attempt=0;$attempt -lt 60 -and -not (Get-WorkerProcess $To).Count;$attempt++){Start-Sleep -Milliseconds 250}
-    if(-not (Get-WorkerProcess $To).Count){throw 'WORKER_DID_NOT_START'}
+    for($attempt=0;$attempt -lt 60 -and -not @(Get-WorkerProcess $To).Count;$attempt++){Start-Sleep -Milliseconds 250}
+    if(-not @(Get-WorkerProcess $To).Count){throw 'WORKER_DID_NOT_START'}
     return $previousAction
 }
-function Restore-WorkerRelease($Action,[string]$Sha) {
+function Restore-WorkerRelease($Action,[string]$Candidate) {
     if(-not $Action){return}
     Stop-ScheduledTask -TaskName WebLedger-Worker -ErrorAction SilentlyContinue
+    # The previous worker refuses to start while the candidate still holds its single-instance lock.
+    for($attempt=0;$attempt -lt 60 -and @(Get-WorkerProcess $Candidate).Count;$attempt++){Start-Sleep -Milliseconds 250}
+    if(@(Get-WorkerProcess $Candidate).Count){throw 'CANDIDATE_WORKER_DID_NOT_STOP'}
     Set-ScheduledTask -TaskName WebLedger-Worker -Action $Action | Out-Null
     Start-ScheduledTask -TaskName WebLedger-Worker
 }
@@ -294,8 +299,10 @@ try {
     # Keep the private entry port available to the new supervisor.
     foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
         $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($entry.OwningProcess)"
-        if($entry.LocalAddress -ne '127.0.0.1' -or -not $process.CommandLine.Contains($PreviousSha) -or -not $process.CommandLine.Contains('serve_review_entry.py')){throw 'ENTRY_IDENTITY_FAILED'}
-        Stop-Process -Id $process.ProcessId
+        # The entry may exit with its stopped supervisor between the two queries.
+        if(-not $process){continue}
+        if($entry.LocalAddress -ne '127.0.0.1' -or -not $process.CommandLine -or -not $process.CommandLine.Contains($PreviousSha) -or -not $process.CommandLine.Contains('serve_review_entry.py')){throw 'ENTRY_IDENTITY_FAILED'}
+        try {Stop-Process -Id $process.ProcessId -ErrorAction Stop} catch {if(Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue){throw}}
     }
     Set-ScheduledTask -TaskName WebLedger-Board -Action $newAction | Out-Null
     if(-not $canPrepare) {
@@ -322,7 +329,7 @@ try {
     $failurePath="$hostRoot\releases\continuous-switch-$CandidateSha.failure.json"
     Write-FailureEvidence $failurePath @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$false}
     $cleanupUnknown=$false
-    if($workerPrevious){try {Restore-WorkerRelease $workerPrevious $PreviousSha} catch {$cleanupUnknown=$true}}
+    if($workerPrevious){try {Restore-WorkerRelease $workerPrevious $CandidateSha} catch {$cleanupUnknown=$true}}
     if($switched){
         $paused=$true
         try {Route-Control 'pause'} catch {Route-Control 'resume'; throw 'ROLLBACK_DRAIN_FAILED_CANDIDATE_PRESERVED'}
