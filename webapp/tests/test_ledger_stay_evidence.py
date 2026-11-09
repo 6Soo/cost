@@ -640,6 +640,8 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
 @pytest.mark.parametrize('values', [
     dict(merchant='NICE*결제대행'), dict(merchant='KCP 트래블로버'), dict(merchant='AGODA.COM'),
     dict(merchant='TRIP.COM'), dict(merchant='RAKUTENTRAVELKOKUNAISH'), dict(merchant='(주)어드벤처코리아'), dict(merchant='KG INICIS'),
+    dict(merchant='호텔스닷컴'), dict(merchant='인터파크투어'), dict(merchant='마이리얼트립'), dict(merchant='호텔엔조이'),
+    dict(merchant='이스타항공_ARS-이스타항공㈜'),
     dict(day='2026-07-04'), dict(day='2026-07-13'), dict(tab=''), dict(tab='unknown'),
     dict(reservation_no='R1'), dict(amount_krw=-90000)])
 def test_a_booking_or_a_charge_outside_its_trip_keeps_the_unknown_date(onsite, values):

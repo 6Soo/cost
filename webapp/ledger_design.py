@@ -1011,7 +1011,9 @@ def _flight_date_labels(row):
 _BOOKING_CHANNEL = re.compile(
     r'(?i)nice|kcp|inicis|이니시스|토스|카카오페이|네이버페이|페이코|payco|paypal|klook|클룩|booking|agoda|아고다'
     r'|trip\.?com|트립|expedia|hotels\.com|인터넷상거래|결제대행|ksnet|다날|스마트로|나이스|쿠팡|야놀자|여기어때'
-    r'|airbnb|에어비앤비|rakuten(?!\s*pay)|라쿠텐(?!\s*페이)|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b')
+    r'|airbnb|에어비앤비|rakuten(?!\s*pay)|라쿠텐(?!\s*페이)|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b'
+    r'|호텔스닷컴|인터파크|마이리얼트립|myrealtrip|호텔엔조이|하나투어|모두투어|노랑풍선|참좋은여행|데일리호텔'
+    r'|놀유니버스|위메프|티몬|11번가|g마켓|지마켓|옥션|네이버|kkday|hostelworld|hotelscombined|ikyu|一休|jtb|\bars\b|_ars')
 
 
 def _onsite_payment_label(row, kind):
