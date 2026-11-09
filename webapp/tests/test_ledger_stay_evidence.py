@@ -143,6 +143,52 @@ def rakuten_candidates(data):
     data['results'][0]['candidate_search']=ota_payments.search_card_candidates(event,data['transactions'])
 
 
+def agoda_recorded(data, **event_values):
+    data['events'] = [dict(ota_event_id='a1', provider='agoda', booking_ref='1744399422', item='숙박비',
+        event_type='charge', payment_status='paid', evidence_status='paid_verified', paid_on=None,
+        verified_portal_snapshot=True, reservation_status='completed', refund_status='none_displayed',
+        card_last4='8835', currency='KRW', amount=94401, amount_krw=94401, source_digest='d',
+        service_period={'starts_on': '2026-07-08', 'ends_on': '2026-07-09'}, **event_values)]
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=94401, merchant='AGODA_NICE-Agoda', card_tail='8835', approval_date='2026-07-05')]
+    data['results'] = [dict(ota_event_id='a1', status='HOLD_DATE_UNKNOWN', transaction_id=None)]
+
+
+def test_recorded_card_reads_the_mutually_unique_agoda_portal_stay(context):
+    store, data, _, _ = context
+    agoda_recorded(data)
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert stays.period_for(card(reservation_no=''), found) == '2026-07-08~2026-07-09'
+    assert found['t1']['ota_evidence']['kind'] == 'reservation_period_inferred'
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(card_tail='1111'),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['transactions'][0].update(ota_review_held=True),
+    lambda d: d['events'][0].update(refund_status='refund_requested'),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(evidence_changed=True),
+    lambda d: d['links'].update(other={'transaction_id': 't1'}),
+])
+def test_recorded_card_agoda_pairing_stays_unknown_when_ambiguous_or_unsafe(context, mutation):
+    store, data, _, _ = context
+    agoda_recorded(data)
+    data['links'] = {}
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_recorded_card_agoda_pairing_keeps_manual_empty_period(context):
+    store, data, _, _ = context
+    agoda_recorded(data)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 def skyticket_candidates(data, tmp_path):
     import json
     from app import ota_payments

@@ -69,6 +69,48 @@ def stay_index(store):
         result.setdefault(tid, metadata)
     for tid, metadata in _skyticket_candidate_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _agoda_recorded_card_periods(data, manual):
+    """The owner-approved mutually unique Agoda pairing, read for cards already on a ledger.
+
+    The core applies it only to still-open cards, so a recorded card never learns its
+    stay. This display reads the same pairing without opening, linking or rewriting it.
+    """
+    from app import ota_inference
+    from datetime import date
+    occupied = set()
+    for record in data.get('results', []):
+        if record.get('transaction_id'):
+            occupied.add(str(record['transaction_id']))
+        occupied.update(str(tid) for tid in record.get('reserved_card_ids') or ())
+        relation = record.get('payment_relation') or {}
+        if relation.get('status') == 'LINKED':
+            occupied.update(str(tid) for tid in relation.get('transaction_ids') or ())
+    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                    if isinstance(link, dict) and link.get('transaction_id'))
+    cards = [dict(card, ota_inference_eligible=True) for card in data.get('transactions', [])]
+    events = [event for event in data.get('events', [])
+              if not any(event.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))]
+    result = {}
+    for identity, row in ota_inference.unique_pairs(events, cards, occupied=occupied).items():
+        tid = str(row['transaction_id'])
+        event = next(e for e in events if e.get('ota_event_id') == identity)
+        period = event['service_period']
+        try:
+            valid = 0 <= (date.fromisoformat(period['ends_on']) - date.fromisoformat(period['starts_on'])).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if (not valid or 'card-' + tid in manual or not row.get('source_hash')
+                or any(row.get(k) for k in ('ota_review_held', 'reservation_refund_blocked'))
+                or row.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': str(event['booking_ref']), 'booking_refs': [str(event['booking_ref'])],
+                       'service_period': period['starts_on'] + '~' + period['ends_on'],
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 
