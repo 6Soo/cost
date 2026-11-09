@@ -359,8 +359,12 @@ class OtaSnapshotService:
                                           if type(value) is str and value.strip())
             changed_to = self._verify_key_fn() if self._verify_key_fn is not None else key
             source_changed = changed_to != key
-            if source_changed:
+            with self._lock:
+                holds_complete = self._has_data_locked()
+            if source_changed and holds_complete:
                 raise ValueError('SOURCE_CHANGED_DURING_RECONCILIATION')
+            # With no complete generation held (a fresh start), a result one input behind is shown
+            # rather than nothing; it is published as not fresh and reconciled again at once.
         except Exception as exc:
             with self._lock:
                 self._refreshing = False
@@ -380,7 +384,8 @@ class OtaSnapshotService:
             return
         if owns_tracing:
             tracemalloc.stop()
-        self._log("refresh_done", key=key[:12], seconds=round(self._clock() - started, 2))
+        self._log("refresh_done", key=key[:12], seconds=round(self._clock() - started, 2),
+                  **({"outdated_by": changed_to[:12]} if source_changed else {}))
         with self._lock:
             generation = (current or {}).get("generation", 0) + 1
             generated_at = _now_iso()
@@ -439,10 +444,18 @@ class OtaSnapshotService:
             self._failed_key = None
             self._source_changes = 0
             self._checked_at = self._clock()
+            if source_changed:
+                self._checked_key = changed_to
+                self._seen_key = changed_to
+                self._seen_since = self._clock()
+                self._source_changed_retry = True
             published = self._current
-            self._pending_publish = published
+            if not source_changed:
+                self._pending_publish = published
         self._first_ready.set()
-        self._publish_if_active()
+        if not source_changed:
+            # A result one input behind stays in memory for display only and is never written out.
+            self._publish_if_active()
 
     def _publish_if_active(self):
         """Publish shared files only while this release owns the writer role."""
