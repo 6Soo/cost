@@ -13,6 +13,7 @@ def evidence(monkeypatch):
                  legs=[{'departure_on': '2026-06-30'}, {'departure_on': '2026-07-04'}])
     manual = set()
     monkeypatch.setattr(design, '_load_flight_dates', lambda: ({'SYN-REF': found}, manual))
+    monkeypatch.setattr(design, '_ledger_stay_index', lambda: {})
     return found, manual
 
 

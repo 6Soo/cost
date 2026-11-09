@@ -31,7 +31,7 @@ def collect(messages):
         headers, domain = authenticated
         provider = ('trip' if domain in ('trip.com', 'trip.co.kr') else 'agoda'
                     if domain in ('agoda.com', 'agoda-messaging.com') else domain.split('.')[0])
-        text = ota_mail.message_text(message)
+        text = ota_mail.message_text(message).translate(ota_mail._format_char_table())
         subject = headers.get('subject', '')
         refs = set(re.findall(
             r'(?:예약\s*(?:번호|코드|ID)|booking\s*(?:reference|number|ID)|reservation\s*(?:number|ID))'
@@ -39,6 +39,10 @@ def collect(messages):
         if len(refs) != 1:
             continue
         period = ota_mail.service_period(text)
+        item = '숙박비' if period else ''
+        if provider == 'trip' and '항공권 예약 확정' in subject:
+            period = ota_mail.flight_period(text)
+            item = '항공료' if period else ''
         cancelled = ota_mail.reservation_cancelled(subject)
         refund_pending = bool(re.search(
             r'환불(?:을)?\s*요청(?:했습니다|하였습니다|했|됨|완료|되었습니다)|'
@@ -52,7 +56,7 @@ def collect(messages):
             continue
         groups[(provider, next(iter(refs)))].append({
             'source_id': 'mail:' + message['id'], 'source_digest': _digest(message),
-            'period': period, 'cancelled': cancelled, 'refund_pending': refund_pending,
+            'period': period, 'item': item, 'cancelled': cancelled, 'refund_pending': refund_pending,
             'booking_changed': change, 'booking_totals_krw': [int(n.replace(',', '')) for n in totals]})
     return groups
 
@@ -70,7 +74,9 @@ def attach(event, observations):
     if len(periods) == 1:
         result['service_period'] = json.loads(next(iter(periods)))
         if not result.get('item'):
-            result['item'] = '숙박비'
+            items = {o.get('item', '숙박비') for o in observations if o['period']}
+            if len(items) == 1:
+                result['item'] = next(iter(items))
     elif len(periods) > 1:
         result['service_period'] = None
         result['service_period_conflict'] = True

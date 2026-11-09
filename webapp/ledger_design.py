@@ -966,7 +966,7 @@ def _flight_date_labels(row):
     """Departure days of the saved booking, independent of payment and passenger count."""
     from datetime import date
     unknown = ('이용일 미확인', '이용일 미확인')
-    stored = str(row.get('service_period') or '').strip()
+    stored = _stay_period(row)
     if stored:
         match = _STAY_PATTERN.fullmatch(stored)
         if not match:

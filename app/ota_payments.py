@@ -19,7 +19,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 14
+PARSER_VERSION = 15
 MATCHER_VERSION = 5
 
 
@@ -168,14 +168,18 @@ def _parse_mail_events(directories):
 
 
 def extract_payment_fact(message):
-    """Prefer a richer signed payment fact only for the same active reservation."""
+    """Keep explicit payments and completed refunds ahead of reservation-only facts."""
     from app import airline_payment_mail
     fact = ota_mail.extract_mail(message)
-    if fact and fact.get('paid_amount_krw') is None and fact.get('reservation_status') != 'cancelled':
+    if fact and fact.get('paid_amount_krw') is None:
         richer = _extract_signed_payment_message(message)
         if (richer and richer.get('provider') == fact.get('provider')
                 and richer.get('booking_ref') == fact.get('booking_ref')
-                and richer.get('evidence_status') == 'paid_verified'):
+                and (richer.get('evidence_status') == 'refund_verified'
+                     or (richer.get('evidence_status') == 'paid_verified'
+                         and fact.get('reservation_status') != 'cancelled'))):
+            if fact.get('reservation_status') == 'cancelled':
+                richer['reservation_status'] = 'cancelled'
             return richer
     return fact or airline_payment_mail.extract(message) or _extract_signed_payment_message(message)
 
@@ -213,6 +217,26 @@ def _trip_japanese_paid_stay(message, headers, text):
             'paid_on_semantics': 'mail_sent_proxy', 'source_binding_ids': []}
 
 
+def _trip_refund_flight_period(text):
+    """Read the two reciprocal flight rows, excluding refund and processing dates."""
+    sections = text.split('항공편 정보')
+    if len(sections) != 2:
+        return None
+    section = sections[1].split('탑승객 정보', 1)[0]
+    rows = re.findall(r'^\s*([^\n|]+?)\s+-\s+([^\n|]+?)\s*\|\s*'
+                      r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*$', section, re.M)
+    if len(rows) != 2 or (rows[0][0].strip(), rows[0][1].strip()) != (
+            rows[1][1].strip(), rows[1][0].strip()):
+        return None
+    try:
+        days = [date(*map(int, row[2:])) for row in rows]
+    except ValueError:
+        return None
+    if days[1] < days[0]:
+        return None
+    return {'starts_on': days[0].isoformat(), 'ends_on': days[1].isoformat()}
+
+
 def _extract_signed_payment_message(message):
     """지원 공급자의 서명된 결제·환불 메일을 카드 없이 읽는다."""
     authenticated = ota_mail.authenticated_headers(message, (
@@ -222,7 +246,7 @@ def _extract_signed_payment_message(message):
         return None
     headers, domain = authenticated
     subject = headers.get("subject", "")
-    text = ota_mail.body_text(message.get("payload", {}))
+    text = ota_mail.body_text(message.get("payload", {})).translate(ota_mail._format_char_table())
     if (domain in ('trip.com', 'trip.co.kr')
             and '\u304a\u652f\u6255\u3044\u304c\u5b8c\u4e86\u3044\u305f\u3057\u307e\u3057\u305f' in subject):
         return _trip_japanese_paid_stay(message, headers, text)
@@ -267,8 +291,11 @@ def _extract_signed_payment_message(message):
         r"결제\s*(?:예정|될 예정)|scheduled payment|payment is scheduled|will be charged",
         combined, re.I))
     if is_refund:
-        complete = bool(re.search(r"환불\s*(?:이|가)?\s*(?:완료|처리)|refund\s+(?:completed|processed|issued|successful)",
-                                  combined, re.I))
+        complete = bool(re.search(
+            r"환불\s*(?:이|가)?\s*(?:처리(?:가)?\s*)?완료"
+            r"(?!\s*(?:예정|요청|대기|중|될|되면|되지|전|시))"
+            r"(?:되었습니다|됐습니다|했습니다|되었음|됨|(?:[ \t]*안내)?[ \t]*(?=[:：\n]|$))|"
+            r"refund\s+(?:completed|processed|issued|successful)\b", combined, re.I))
         label = r"(?:환불(?:된)?\s*금액|refund(?:ed)?\s+amount|amount\s+refunded)"
         event_type = "refund"
     else:
@@ -326,11 +353,14 @@ def _extract_signed_payment_message(message):
     payment_id = re.search(r"(?:payment|결제)\s*(?:id|reference|번호)\s*[:#：]?\s*([A-Za-z0-9_-]{4,64})",
                            text, re.I)
     period = ota_mail.service_period(text)
+    flight_refund = provider == 'trip' and is_refund and '항공편 정보' in text
+    if flight_refund:
+        period = _trip_refund_flight_period(text)
     status = ("scheduled" if scheduled else "refund_verified" if is_refund and complete else
               "paid_verified" if complete else "not_card_charge")
     if event_type == "reservation":
         status = "not_card_charge"
-    return {"provider": provider, "booking_ref": next(iter(refs)), "item": "",
+    return {"provider": provider, "booking_ref": next(iter(refs)), "item": "항공료" if flight_refund else "",
             "paid_amount_krw": int(amount) if amount is not None and currency == "KRW" and amount == amount.to_integral_value() else None,
             "amount": str(amount) if amount is not None else None, "currency": currency,
             "paid_on": paid_on.isoformat() if paid_on else None,

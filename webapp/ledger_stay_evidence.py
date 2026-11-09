@@ -1,4 +1,4 @@
-"""Read current OTA stay evidence for old card ledger rows without rewriting them."""
+"""Read current OTA service dates for old card ledger rows without rewriting them."""
 from app.ota_core_projection import card_matches
 from app.ota_mail import ledger_metadata
 from collections import defaultdict
@@ -35,16 +35,26 @@ def stay_index(store):
         event_id = str(fact.get('ota_event_id'))
         event = events.get(event_id) or {}
         period = fact.get('period')
-        if (fact.get('item') != '숙박비' or 'card-' + tid in manual
+        if (fact.get('item') not in ('숙박비', '항공료') or 'card-' + tid in manual
                 or not tid or not card.get('source_hash')
                 or event_id in blocked or event.get('period_conflict')
                 or fact.get('reservation_status') == 'refunded'
                 or not isinstance(period, dict)
                 or not period.get('starts_on') or not period.get('ends_on')):
             continue
+        if fact.get('item') == '항공료':
+            if (event.get('event_type') != 'charge'
+                    or event.get('evidence_status') != 'paid_verified'
+                    or event.get('payment_status') != 'paid'
+                    or not event.get('source_digest')
+                    or any(card.get(key) for key in ('ota_review_held', 'reservation_refund_blocked'))
+                    or any(obj.get('refund_status') in ('refund_pending', 'refund_requested',
+                                                       'refunded', 'refund_completed')
+                           for obj in (card, event))):
+                continue
         metadata = ledger_metadata({'matches': by_source[card.get('source_hash')]}, {
             'transaction_id': tid, 'source_hash': card.get('source_hash'),
-            'transaction_direction': card.get('transaction_direction'), 'item': '숙박비',
+            'transaction_direction': card.get('transaction_direction'), 'item': fact['item'],
         })
         if metadata.get('service_period'):
             result[tid] = metadata
