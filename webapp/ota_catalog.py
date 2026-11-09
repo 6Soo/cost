@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode
 
 from app import ota_payments, ota_portal, ota_sources
 from app.reconciliation import covers_stay, handover_days, overlaps_stay, shared_days
-from . import ui_icons
+from . import ui_icons, ui_components
 from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
 PAGE_SIZE = 50
@@ -1017,7 +1017,7 @@ def _state_label(card):
     if card['state'] == 'classified':
         return '분류됨' + (f" · {card['tab']}" if card['tab'] and card['tab'] != 'unclassified' else '')
     if card['state'] == 'needs_review':
-        return '확인 필요'
+        return '상태 미확인'
     return card['state'] or '미확인'
 
 
@@ -1053,7 +1053,7 @@ def _booking_ref_display(entry):
     return entry.get('booking_ref') or '원문 미제공'
 
 
-def render_html(data, query, *, csrf=''):
+def _render_html_legacy(data, query, *, csrf=''):
     esc = lambda v: html.escape(str(v or ''), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
 
@@ -1075,7 +1075,25 @@ def render_html(data, query, *, csrf=''):
     date_controls = choices('sort', [('desc', '내림차순 · 최근 이용 먼저'), ('asc', '오름차순 · 이른 이용 먼저')], sort)
     date_controls += choices('month', [('', '전체 월')] + [(m, m + '월') for m in data['months']], value('month'))
     provider_controls = choices('provider', [('', '모든 OTA')] + [(p, PROVIDERS.get(p, p)) for p in data['providers']], value('provider'))
-    state_controls = choices('state', [('', '전체 내역'), ('unassigned', '여행 연결 없음'), ('excluded', '취소·배정 해제')], value('state'))
+    state_controls = choices('state', [('', '전체'), ('unassigned', '연결 없음'), ('excluded', '취소·배정 해제')], value('state'))
+    state_value = value('state')
+    state_options = ''.join(
+        f"<option value='{esc(key)}'{' selected' if key == state_value else ''}>{esc(label)}</option>"
+        for key, label in (('', '전체'), ('unassigned', '연결 없음'), ('excluded', '취소·배정 해제'))
+    )
+    tabs_items = [
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+    ]
+    try:
+        from . import flight_passenger_page
+        if flight_passenger_page.enabled():
+            tabs_items.append({'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'})
+    except Exception:
+        pass
+    tabs = ui_components.section_tabs(tabs_items, 'ota').replace('aria-label="섹션"', 'aria-label="거래 종류"')
+    header = ui_components.page_header('거래', meta='OTA 예약', breadcrumb=())
     # 단일 상태에만 badge를 붙인다. 'A / B'처럼 합쳐진 문자열은 임의로
     # 확정하지 않고 문구 그대로 둔다. 수집됨(observed) 등 나머지 원값도
     # badge 없이 문구만 표시한다.
@@ -1108,7 +1126,7 @@ def render_html(data, query, *, csrf=''):
                            f"{ui_icons.icon(icon, 14)}{esc(status)}</span>")
         else:
             status_cell = esc(status)
-        conflict = (f"<br><strong>{ui_icons.icon('alert-triangle', 16)}기간 확인 필요</strong>"
+        conflict = (f"<br><strong>{ui_icons.icon('alert-triangle', 16)}기간 정보 없음</strong>"
                     if row['conflict'] else '')
         body.append('<tr>' + ''.join(f"<td data-label='{label}'>{text}</td>" for label, text in (
             ('이용일', esc(row['period'] or '미확인') + conflict),
@@ -1119,10 +1137,19 @@ def render_html(data, query, *, csrf=''):
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
               if row.get('card_candidates') else '') +
              ("<br><small>예약 관계: " + esc(' / '.join(
-                 f"{'예약 코드 추론' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 재확인 필요' if link.get('status') == 'STALE' else '예약 관계 확인 필요'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
+                 f"{'예약 코드 추론' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 재확인 필요' if link.get('status') == 'STALE' else '예약 관계 미확인'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
                  for link in row.get('reservation_links') or ())) + "</small>"
               if row.get('reservation_links') else '')),
             ('여행 배정', trip_cell))) + '</tr>')
+    mobile_rows = []
+    for row in data['rows']:
+        names = ' · '.join(str(t['name']) for t in row['trips']) or '여행 연결 없음'
+        mobile_rows.append(ui_components.list_row(
+            row.get('label') or '예약 내용 없음',
+            row.get('period') or '이용일 원문 없음',
+            ' · '.join(filter(None, [PROVIDERS.get(row.get('provider'), row.get('provider')), names])),
+            ('a', detail_url(row['provider'], row['booking_ref'])),
+        ))
     hidden = ''.join(f"<input type='hidden' name='{k}' value='{esc(value(k))}'>" for k in ('state', 'provider', 'month', 'sort'))
     problems = data.get('trip_problems') or []
     reasons = data.get('reasons') or []
@@ -1134,7 +1161,7 @@ def render_html(data, query, *, csrf=''):
     problem_block = ''
     if problems:
         items = ''.join(f"<li><strong>{esc(t['name'])}</strong> · {esc(t['reason'])}</li>" for t in problems[:30])
-        problem_block = (f"<details class='trip-check'><summary id='trip-check-title'>여행 일정 확인 필요 {len(problems):,}개 / 전체 {data.get('trip_count', 0):,}개</summary>"
+        problem_block = (f"<details class='trip-check'><summary id='trip-check-title'>여행 일정 점검 필요 {len(problems):,}개 / 전체 {data.get('trip_count', 0):,}개</summary>"
                          "<p class='small'>일정 원본이 확인되지 않은 여행에는 예약을 배정할 수 없습니다. "
                          "원본을 다시 확인해 일정을 맞춘 뒤 배정해 주세요.</p>"
                          f"<ul>{items}</ul></details>")
@@ -1172,9 +1199,82 @@ def render_html(data, query, *, csrf=''):
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
         + '</nav><script>' + CATALOG_SCRIPT + '</script>' + refresh_script + '</main></body></html>')
 
+def render_html(data, query, *, csrf=''):
+    """Render the OTA catalog inside the shared transaction workspace language."""
+    document = _render_html_legacy(data, query, csrf=csrf)
+    current_state = str((query.get('state') or [''])[0])
+    tabs_items = [
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+    ]
+    try:
+        from . import flight_passenger_page
+        if flight_passenger_page.enabled():
+            tabs_items.append({'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'})
+    except Exception:
+        pass
+    tabs = ui_components.section_tabs(tabs_items, 'ota').replace('aria-label="섹션"', 'aria-label="거래 종류"')
+    header = ui_components.page_header('거래', meta='OTA 예약', breadcrumb=())
+    document = document.replace('<h1>OTA 내역</h1>', header + tabs, 1)
+    document = document.replace("<form id='card-filters'", "<form id='card-filters' class='filter-bar' role='search' aria-label='조회 조건'", 1)
+    document = document.replace("<input name='q' aria-label=", "<input type='search' name='q' aria-label=", 1)
+    document = re.sub(
+        r"<input type='search' name='q' aria-label='OTA 내역 검색' placeholder='([^']*)' value='([^']*)'>",
+        r"<div class='field'><label for='ota-q'>검색</label><input id='ota-q' type='search' name='q' aria-label='OTA 내역 검색' placeholder='\1' value='\2'></div>",
+        document, count=1)
+    document = document.replace("<button class='catalog-btn primary' type='submit'>", "<button class='btn' type='submit'>", 1)
+    document = re.sub(r"(<button class='btn' type='submit'>.*?</svg>)검색(</button>)", r"\1조회\2", document, count=1, flags=re.S)
+    document = document.replace("<a class='catalog-btn' href='/ota'>초기화</a>", "<a class='btn ghost' href='/ota'>초기화</a>", 1)
+    document = re.sub(r"<input type='hidden' name='state'[^>]*>", '', document, count=1)
+    # The two prominent state links become one disclosed selector. Keep the
+    # exact state values because the catalog query is the compatibility gate.
+    document = re.sub(r"<nav class='catalog-actions' aria-label='OTA 내역 선택'>.*?</nav>", '', document, count=1, flags=re.S)
+    state_options = ''.join(
+        f"<option value='{html.escape(key, quote=True)}'{' selected' if key == current_state else ''}>{html.escape(label)}</option>"
+        for key, label in (('', '전체'), ('unassigned', '연결 없음'), ('excluded', '취소·배정 해제'))
+    )
+    state_block = ("<div class='field'><label for='ota-state'>여행 연결</label>"
+                   f"<select id='ota-state' name='state' form='card-filters' aria-label='여행 연결' "
+                   f"onchange='this.form.requestSubmit()'>{state_options}</select></div>")
+    document = document.replace('추가 조회·관리', '추가 조회', 1)
+    document = re.sub(r"<nav class='catalog-actions' aria-label='OTA 추가 조회'>.*?</nav>", state_block, document, count=1, flags=re.S)
+    document = document.replace('여행 배정', '여행')
+    # A state heading is now a plain column; its former popover remains only
+    # for date/provider, so there is no duplicate state control.
+    document = re.sub(r"<th class='has-filter'><button[^>]+aria-label='여행'[^>]*>.*?</div></th>", '<th>여행</th>', document, count=1, flags=re.S)
+    document = document.replace("조건에 맞는 OTA 예약이 없습니다.", "조회된 OTA 예약이 없습니다.")
+    # Mobile uses the shared two-line list row without changing the desktop
+    # table or its pagination contract.
+    mobile = []
+    for row in data.get('rows') or []:
+        names = ' · '.join(str(t.get('name') or '') for t in row.get('trips') or []) or '여행 연결 없음'
+        mobile.append(ui_components.list_row(
+            row.get('label') or '예약 내용 없음', row.get('period') or '이용일 원문 없음',
+            ' · '.join(filter(None, [PROVIDERS.get(row.get('provider'), row.get('provider')), names])),
+            ('a', detail_url(row.get('provider'), row.get('booking_ref'))),
+        ))
+    mobile_html = "<ul class='ota-mobile-list' aria-label='OTA 예약 목록'>" + ''.join(mobile) + '</ul>'
+    # The optional reason summary can contain its own table. Append the mobile
+    # list after the catalog table, never inside that summary table.
+    table_end = document.rfind('</table>')
+    if table_end >= 0:
+        table_end += len('</table>')
+        document = document[:table_end] + mobile_html + document[table_end:]
+    if not data.get('rows') and data.get('refresh_state', 'ready') == 'ready':
+        action = "<a class='btn ghost' href='/ota'>조회 조건 초기화</a>"
+        empty = ui_components.empty_state(
+            '조회된 OTA 예약이 없습니다.' if data.get('all_count') else 'OTA 예약 자료가 없습니다.',
+            '검색어를 지우거나 조회 조건을 초기화해 주세요.', action)
+        document = document.replace("</table>" + mobile_html, "</table>" + mobile_html + empty, 1)
+    return document
+
 
 OTA_STYLE = (
     ""
+    ".ota-mobile-list{display:none;list-style:none;margin:0;padding:0;border:1px solid var(--cc-border);border-radius:var(--r-lg);background:var(--cc-surface)}"
+    ".ota-mobile-list .lr-hit{color:var(--cc-text)}"
+    "@media(width < 1024px){.card-catalog>table{display:none}.ota-mobile-list{display:block}.card-catalog .catalog-tools{margin:8px 0 16px}}"
     ".card-catalog td:before{display:none}@media(width < 1024px){.card-catalog td:before{display:block;content:attr(data-label);font-size:var(--t-caption);color:var(--cc-muted);margin-bottom:4px}}"
     ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,var(--c-focus));outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"

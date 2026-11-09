@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 
 from app import flight_passenger_matching, reservation_authority
+from . import ui_components
 
 ROUTES = ('/flight-passengers', '/api/flight-passengers/candidates', '/api/flight-passengers/assign', '/api/flight-passengers/name-search')
 FEATURE_FLAG = 'WEBLEDGER_FLIGHT_PASSENGER_MATCHING'
@@ -43,6 +44,17 @@ def _escape_csrf_json(csrf):
     return json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
 
 
+def _transaction_header(title: str, meta: str = '', *, search_id: str = 'fb-search') -> str:
+    tabs = ui_components.section_tabs([
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+        {'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'},
+    ], 'flight').replace('aria-label="섹션"', 'aria-label="거래 종류"')
+    actions = f"<a class='btn primary' href='#{search_id}'>예약 조회</a>"
+    return ui_components.page_header(title, meta=meta, actions=actions, breadcrumb=()) + tabs
+
+
 def _legacy_page(csrf):
     token = _escape_csrf_json(csrf)
     return """<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>항공권 참가자 후보</title>
@@ -63,6 +75,9 @@ h1,h2,p{margin:0}
 #flight-passenger-page input[name='booking_ref'],#flight-passenger-page input[name='tour_id']{width:100%;min-width:0;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:0 9px;background:var(--paper);font-weight:500;font-size:var(--t-body-sm);color:var(--ink)}
 #flight-passenger-page input:focus{border-color:var(--focus)!important;box-shadow:0 0 0 3px color-mix(in srgb, var(--c-focus) 12%, transparent);outline:none}
 #flight-passenger-page button{min-height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--paper);font-size:var(--t-body-sm);font-weight:600;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+#flight-passenger-page .filter-bar :is(button,a){min-height:40px;text-decoration:none}
+#flight-passenger-page .filter-bar a{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--paper);color:var(--ink);font-weight:600}
+@media(max-width:1023px){#flight-passenger-page .filter-bar :is(button,a){min-height:44px}}
 #flight-passenger-page button:hover{background:var(--hover)}
 #flight-passenger-page button[type='button'][disabled]{opacity:.45;cursor:default}
 #flight-passenger-page section#results{margin-top:18px}
@@ -78,9 +93,8 @@ h1,h2,p{margin:0}
 #status[role='status']:not(:empty){font-weight:500;color:var(--ink)}
 @media(max-width:375px){#flight-passenger-page form{flex-direction:column;align-items:stretch;padding:12px}#flight-passenger-page form label{margin:0 0 4px;font-size:var(--t-caption)}#flight-passenger-page article{padding:12px}#flight-passenger-page{padding:0 10px}}
 </style>
-""" + "</head><body><main id='flight-passenger-page'>" + """
-<h1>항공권 참가자 연결</h1>
-<form id='search' aria-label='항공권 참가자 연결 검색'><label for='f-booking'>항공권 예약번호<input id='f-booking' name='booking_ref' required autocomplete='off'></label><label for='f-tour'>예약 시스템 여행 ID<input id='f-tour' name='tour_id' required autocomplete='off'></label><button id='search-submit' type='submit'>연결 후보 찾기</button></form>
+""" + "</head><body><main id='flight-passenger-page'>" + _transaction_header('항공권 참가자 연결', '예약 자료와 참가자 연결 후보를 확인합니다.', search_id='search') + """
+<form id='search' class='filter-bar' role='search' aria-label='항공권 참가자 연결 검색'><label for='f-booking'>항공권 예약번호<input id='f-booking' type='search' name='booking_ref' required autocomplete='off'></label><label for='f-tour'>예약 시스템 여행 ID<input id='f-tour' type='search' name='tour_id' required autocomplete='off'></label><button id='search-submit' class='btn' type='submit'>연결 후보 찾기</button><a class='btn ghost' href='/flight-passengers'>초기화</a></form>
 <p id='status' role='status' aria-live='polite'></p><section id='results' aria-label='후보 결과'></section>
 </main><script>
 const csrf=""" + token + """;
@@ -126,7 +140,8 @@ def _page(csrf):
 .fb-booking-choice .fb-ticket{margin:0;border:0;border-radius:0}.fb-booking-choice .fb-hero{display:none}
 #flight-booking-page form{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
 #flight-booking-page label{display:grid;gap:6px;flex:1 1 180px;min-width:0;font-size:var(--t-body-sm);font-weight:600}
-#flight-booking-page input,#flight-booking-page button{font:inherit;min-height:44px;max-width:100%;padding:9px 12px;border:1px solid var(--mut);border-radius:var(--r-sm);background:var(--paper);color:var(--ink)}
+#flight-booking-page input,#flight-booking-page button,#flight-booking-page .filter-bar a{font:inherit;min-height:44px;max-width:100%;padding:9px 12px;border:1px solid var(--mut);border-radius:var(--r-sm);background:var(--paper);color:var(--ink)}
+#flight-booking-page .filter-bar a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-weight:600}
 #flight-booking-page input{width:100%;min-width:0;font-size:var(--t-body)}
 #flight-booking-page button{cursor:pointer;font-weight:600;overflow-wrap:anywhere}
 #flight-booking-page button:disabled{opacity:.6;cursor:wait}
@@ -191,9 +206,9 @@ def _page(csrf):
 @container flight-search (max-width:20rem){#flight-booking-page #fb-search{display:grid;grid-template-columns:minmax(0,1fr)}#flight-booking-page #fb-submit{justify-self:start}}
 @media(max-width:600px){#flight-booking-page{margin:12px auto;padding:0 12px 32px}#flight-booking-page h1{font-size:var(--t-h1)}.fb-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.fb-summary-item:first-child{grid-column:1/-1}.fb-grid{grid-template-columns:minmax(0,1fr)}#flight-booking-page .fb-booking-choice>summary{padding:12px}.fb-section{padding:12px}.fb-summary,.fb-hero{padding:12px}.fb-reservation-warning{margin-inline:12px}.fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}.fb-date-filter label{width:100%}.fb-date-filter form button{justify-self:start}}
 </style></head><body><main id="flight-booking-page">
-<h1>항공권 예약 확인</h1>
+""" + _transaction_header('항공권 예약 확인', '항공권 예약 자료를 조회합니다.') + """
 <section class="fb-panel fb-search-panel" aria-label="항공권 조회">
-<form id="fb-search"><label for="fb-name">항공권 검색<input id="fb-name" name="name" placeholder="예: 22일 시즈오카, fuk, 탑승객 이름" aria-describedby="fb-search-help" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
+<form id="fb-search" class="filter-bar" role="search"><label for="fb-name">항공권 검색<input id="fb-name" type="search" name="name" placeholder="예: 22일 시즈오카, fuk, 탑승객 이름" aria-describedby="fb-search-help" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit" class="btn">예약 조회</button><a class="btn ghost" href="/flight-passengers">초기화</a></form>
 <span id="fb-search-help">이름·행선지·공항 코드·여행 중 날짜로 검색</span>
 <p class="fb-muted" id="fb-status" role="status" aria-live="polite"></p></section>
 <section id="fb-results" aria-label="예약 조회 결과"></section><button id="fb-more" type="button" hidden>예약 더 보기</button></main>
