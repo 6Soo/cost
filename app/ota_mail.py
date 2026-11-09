@@ -160,6 +160,35 @@ def flight_period(text):
     return dates if dates['ends_on'] >= dates['starts_on'] else None
 
 
+def rental_period(text):
+    """Only the labeled pickup/return days; deposit and cancellation dates are unrelated."""
+    days = []
+    for label in (r'인수(?:\s*(?:시간|일시))?', r'반납(?:\s*(?:시간|일시))?'):
+        values = set(re.findall(label + r'\s*[:：]\s*(\d{4}-\d{2}-\d{2})', text))
+        if len(values) != 1:
+            return None
+        try:
+            days.append(datetime.date.fromisoformat(next(iter(values))))
+        except ValueError:
+            return None
+    if not 0 <= (days[1] - days[0]).days <= 366:
+        return None
+    return {'starts_on': days[0].isoformat(), 'ends_on': days[1].isoformat()}
+
+
+def trip_rental_confirmation(subject):
+    return bool(re.search(r'렌터카\s*예약(?:이|가)?\s*확정'
+                          r'(?:되었습니다|됐습니다|[ \t]*(?:안내[ \t]*)?(?=[(:：\n]|$))', subject))
+
+
+def payment_failed(text):
+    return bool(re.search(
+        r'결제(?:가|는|이)?\s*(?:실패|미완료|취소(?:되었습니다|됐습니다|완료)|'
+        r'(?:완료\s*)?되지\s*않|이루어지지\s*않|처리\s*중)|'
+        r'payment\s*(?:(?:was\s+|is\s+)?(?:failed|cancelled|declined|unsuccessful|pending)|'
+        r'(?:was\s+|is\s+)?not\s+(?:completed|successful|received))', text, re.I))
+
+
 def service_period(text):
     # Without any check-in or check-out wording no date can be read; the scan below would find nothing.
     if not re.search(r'check|체크', text, re.I):
@@ -319,7 +348,10 @@ def extract_mail(message):
     if len(refs)!=1:
         return None
     item = ''
-    if '항공권 예약 확정' in subject:
+    rental_confirmed = provider == 'trip' and trip_rental_confirmation(subject)
+    if rental_confirmed:
+        item = '렌터카'
+    elif '항공권 예약 확정' in subject:
         item = '항공료'
     elif '예약 확정 안내' in subject and '체크인' in text and '체크아웃' in text:
         item = '숙박비'
@@ -335,7 +367,16 @@ def extract_mail(message):
         return None
     paid = set()
     preauthorized = set()
-    if provider=='trip' and ('결제 완료 안내' in subject or item=='숙박비'):
+    if rental_confirmed:
+        if (not cancelled and not payment_failed(text) and scheduled_charge_day(text) is None
+                and not re.search(r'결제\s*(?:예정|될\s*예정)|will be charged|scheduled payment', text, re.I)):
+            amounts = {decimal_amount(n) for n in re.findall(
+                r'온라인\s*선결제\s*[:：]?\s*(?:KRW|₩)\s*'
+                r'((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)(?![0-9.,])', text, re.I)}
+            paid = {int(n) for n in amounts if n.is_finite() and n > 0 and n == n.to_integral_value()}
+            if len(amounts) != 1:
+                paid = set()
+    elif provider=='trip' and ('결제 완료 안내' in subject or item=='숙박비'):
         if item=='숙박비' and not re.search('온라인 사전 결제',text):
             preauthorized = {int(n.replace(',','')) for n in re.findall(
                 r'(?:총\s*금액\s*)?사전\s*승인(?:\s*금액)?\s*[:：]?\s*([0-9][0-9,]*)\s*원',text)}
@@ -356,7 +397,8 @@ def extract_mail(message):
             paid = {int(n.replace(',','')) for n in re.findall(r'결제\s*금액\s*₩\s*([0-9][0-9,]*)',text)}
     flight_confirmed = '항공권 예약 확정' in subject
     confirmation = '확정' in subject
-    period = service_period(text) if item=='숙박비' else flight_period(text) if flight_confirmed else None
+    period = (rental_period(text) if rental_confirmed else service_period(text) if item=='숙박비'
+              else flight_period(text) if flight_confirmed else None)
     digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
     return dict(provider=provider,booking_ref=next(iter(refs)),item=item,
                 paid_amount_krw=next(iter(paid)) if len(paid)==1 else None,

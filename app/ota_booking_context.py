@@ -43,6 +43,9 @@ def collect(messages):
         if provider == 'trip' and '항공권 예약 확정' in subject:
             period = ota_mail.flight_period(text)
             item = '항공료' if period else ''
+        elif provider == 'trip' and ota_mail.trip_rental_confirmation(subject):
+            period = ota_mail.rental_period(text)
+            item = '렌터카' if period else ''
         cancelled = ota_mail.reservation_cancelled(subject)
         refund_pending = bool(re.search(
             r'환불(?:을)?\s*요청(?:했습니다|하였습니다|했|됨|완료|되었습니다)|'

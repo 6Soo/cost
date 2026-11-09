@@ -76,6 +76,32 @@ def test_verified_flight_dates_reach_both_ledger_views_without_saved_booking_num
     assert value['reservation_no'] == value['service_period'] == ''
 
 
+def test_verified_rental_pickup_return_reach_existing_card_views_without_stay_nights(context):
+    store, data, _, calls = context
+    data['events'][0].update(provider='trip', item='렌터카', event_type='charge',
+                             evidence_status='paid_verified', payment_status='paid')
+    value = dict(card(), item='렌터카', row_kind='expense', reservation_no='', service_period='',
+                 occurred_on='2026-06-01', amount_krw=1000, description='Synthetic rental')
+    before = deepcopy(data)
+    changes = store.conn.total_changes
+    @scoped
+    def render():
+        return (design._service_date_labels(value),
+                design._table_html([value], kind='expense', selected='', unclassified=False),
+                design._mobile_html([], [value], selected='', unclassified=False))
+    labels, desktop, mobile = render()
+    assert labels == ('07.05–07.07', '렌터카 인수 2026-07-05 · 반납 2026-07-07')
+    assert labels[0] in desktop and labels[0] in mobile and '2박' not in desktop + mobile
+    assert calls == [1] and data == before and store.conn.total_changes == changes
+
+
+@pytest.mark.parametrize('period', ['', '2026-07-07~2026-07-05', '2026-02-30~2026-03-01',
+                                   '2026-01-01~2028-01-01'])
+def test_rental_period_display_rejects_invalid_explicit_period(context, period):
+    assert design._service_date_labels(dict(card(), item='렌터카', row_id='manual',
+                                             service_period=period))[0] == '이용일 미확인'
+
+
 @pytest.mark.parametrize('field,value', [('ota_review_held', True), ('reservation_refund_blocked', True),
     ('refund_status', 'refund_pending'), ('transaction_direction', 'cancellation')])
 def test_linked_flight_display_preserves_card_financial_holds(context, field, value):
@@ -104,6 +130,68 @@ def test_linked_flight_dates_preserve_empty_override_and_saved_other_booking(con
     assert stays.period_for(dict(card(), item='항공료', reservation_no='OTHER'), stays.stay_index(store)) == ''
     store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
     assert stays.stay_index(store) == {}
+
+
+def rakuten_candidates(data):
+    from app import ota_rakuten_mail,ota_payments
+    from tests.card_pipeline.test_ota_rakuten_mail import mail
+    event=ota_rakuten_mail.collect({'rakuten':mail()},[])[0]
+    data['events']=[event]
+    data['transactions'][0].update(merchant='Rakuten Travel Singapore',card_tail='1234',
+        approval_date='2026-05-01',foreign_currency='KRW',foreign_amount='120000',amount_krw=124000)
+    data['results']=ota_payments.match_ota_payment_events(data['events'],data['transactions'])
+    data['results'][0]['candidate_search']=ota_payments.search_card_candidates(event,data['transactions'])
+
+
+def test_rakuten_quote_displays_original_period_without_confirming_payment_or_rewriting_ledger(context):
+    store,data,_,calls=context
+    rakuten_candidates(data)
+    before=deepcopy(data);changes=store.conn.total_changes
+    value=card(row_kind='expense',occurred_on='2026-05-01',amount_krw=124000,reservation_no='')
+    @scoped
+    def render():return (design._stay_text(value),
+        design._table_html([value],kind='expense',selected='',unclassified=False),
+        design._mobile_html([],[value],selected='',unclassified=False))
+    label,desktop,mobile=render()
+    assert label=='8월 14일(금) ~ 8월 16일(일) · 2박 · 예약 근거 추론'
+    assert '08.14' in desktop and '08.14' in mobile and '124,000' in desktop and '124,000' in mobile
+    assert calls==[1] and store.conn.total_changes==changes and data==before
+    assert data['results'][0]['transaction_id'] is None
+    assert data['events'][0]['paid_on'] is None and data['events'][0]['payment_event_id'] is None
+
+
+@pytest.mark.parametrize('field,value',[('reservation_status','cancelled'),('source_digest',''),
+    ('source_trust','untrusted'),('evidence_status','paid_verified'),('service_period_conflict',True),
+    ('reservation_amount_conflict',True),('evidence_changed',True),('refund_status','refund_pending')])
+def test_rakuten_unsafe_source_never_fills_period(context,field,value):
+    store,data,_,_=context;rakuten_candidates(data)
+    data['events'][0][field]=value
+    assert stays.stay_index(store)=={}
+
+
+@pytest.mark.parametrize('field,value',[('ota_review_held',True),('reservation_refund_blocked',True),
+    ('duplicate_of','other'),('parse_error','bad'),('conflict_reason','hold'),
+    ('transaction_direction','cancellation'),('refund_status','refund_requested')])
+def test_rakuten_card_financial_guards_remain_after_candidate_snapshot(context,field,value):
+    store,data,_,_=context;rakuten_candidates(data)
+    data['transactions'][0][field]=value
+    assert stays.stay_index(store)=={}
+
+
+def test_rakuten_different_periods_existing_links_and_manual_override_are_preserved(context):
+    store,data,_,_=context;rakuten_candidates(data)
+    assert stays.period_for(card(reservation_no='OTHER'),stays.stay_index(store))==''
+    other=deepcopy(data['events'][0]);other.update(ota_event_id='other',booking_ref='OTHER',
+        service_period={'starts_on':'2026-08-15','ends_on':'2026-08-16'})
+    data['events'].append(other)
+    data['results'].append(dict(data['results'][0],ota_event_id='other'))
+    assert stays.stay_index(store)=={}
+    data['events'].pop();data['results'].pop()
+    data['links']={'other':{'transaction_id':'t1'}}
+    assert stays.stay_index(store)=={}
+    data['links']={}
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store)=={}
 
 
 @pytest.mark.parametrize('override', ['2026-08-01~2026-08-02', 'invalid'])

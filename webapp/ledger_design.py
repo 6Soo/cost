@@ -1011,6 +1011,18 @@ def _service_date_labels(row):
         return _compact_stay(row), _stay_text(row)
     if item in ('항공료', '항공권'):
         return _flight_date_labels(row)
+    if item == '렌터카':
+        match = _STAY_PATTERN.fullmatch(_stay_period(row))
+        try:
+            start, end = (date.fromisoformat(value) for value in match.groups()) if match else (None, None)
+            valid = start is not None and 0 <= (end - start).days <= _MAX_STAY_DAYS
+        except ValueError:
+            valid = False
+        if not valid:
+            return '이용일 미확인', '렌터카 인수·반납일 미확인'
+        fmt = '%y.%m.%d' if start.year != end.year else '%m.%d'
+        return (start.strftime(fmt) + '–' + end.strftime(fmt),
+                '렌터카 인수 ' + start.isoformat() + ' · 반납 ' + end.isoformat())
     return '', ''
 
 

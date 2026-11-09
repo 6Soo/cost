@@ -1505,4 +1505,11 @@ PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50
 - 운영 전환 결과: 1,383 tracked files, blob mismatch 0, task/process SHA 일치, gateway 8790 → backend 8751, 단일 loopback listener, health/ready 200, 보호 API 401. 보호 테이블 13개 전후 불변 PASS. `WebLedger-SourceRefresh`는 기존 `Ready` 상태로 유지됐다.
 - 코드 전용 반영이며 금융/Google/원본 데이터 쓰기·DB 변경·마이그레이션·재처리 없음. 배포 중 활성 라우트 밖에 남아 있던 이전 릴리스 감독 프로세스를 SHA와 포트 소유자로 검증해 정리한 뒤 무중단 전환을 완료했다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-79a3c57340cfadeb227e3748966a4baf0fd6ca63.json`, 로컬 `.local-archive/admin-ui-ux-deploy-20261105/`.
+## 2026-11-09 항공 이용일·완료 환불 근본 원인 수정 배포
+
+- [PR #762](https://github.com/6Soo/cost/pull/762)의 최종 검수 코드 `7a2b126a063d8032bcba18b5d9b60bc7636ae866`를 병합한 `c202fe6edd4841b94e4dcc5ba20d6064c39e6d4a`를 이전 검증 `d96f08809b8201238e8399d053140ab20e3a91fc`에서 공식 단일 코드 배포했다. 이전 #759/#761의 병합 코드도 포함된다. 항공 예약 일정 문맥·기존 카드의 날짜 표시·명시 완료 환불 추출을 수정하며, 처리 중/예정/부정 환불을 완료로 승격하지 않는다.
+- 영향 QA697 passed+47 subtests·skip0·compile PASS, 독립 검수210 passed/APPROVE 및 부정11/완료5 추가 파이프라인 PASS. 검수 runtimeInfo의 `codex/gpt-6.1-sol`·`medium`과 정확 SHA를 기록했다. CI run42555491219/job128960134984는 Billing/spending limit로 steps0 시작 불가였고 기존 2026-11-07 예외로 병합했다. 녹색 CI 또는 실제 실행 통과로 보고하지 않는다.
+- 1,454 tracked blobs mismatch0, task/process/runtime SHA 일치, Gateway8790→loopback8751·listener1·health/ready200·보호 API401, 보호13표 전후 불변 PASS. 코드 전용이므로 전체 백업/복원은 반복하지 않았고 이전 릴리스/작업 복구점을 보존했다. 금융/Google/원문/여행 배정 쓰기·마이그레이션·대량 재처리0.
+- 배포 릴리스의 호스트 Python으로 보존 원문 재추출 PASS. 날짜 표시 합성 PC1440/모바일390 before/after·넘침0과 독립 source/screenshot 검수 근거를 보존했다. 인증 운영 68장부의 실제 경고 감소·전체402행 원문 조사 완료·실기기/스크린리더는 미검증이다. 다음 원문의 렌터카 양식 누락은 별도 수정 중이며 이번 배포 완료에 포함하지 않는다.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-c202fe6edd4841b94e4dcc5ba20d6064c39e6d4a.json`; 비공개 `.local-archive/service-date-row-audit-20261109/`의 최종 SHA 검수/실행모델 증명/QA/합성 화면/`deploy-flight-refund-c202fe6edd4841b94e4dcc5ba20d6064c39e6d4a/`. 문서 전용 후속에는 재배포/재시작하지 않는다.
 

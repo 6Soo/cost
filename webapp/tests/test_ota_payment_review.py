@@ -1761,3 +1761,25 @@ class OtaPaymentReviewTests(unittest.TestCase):
 
             backend.close()
             board_conn.close()
+
+
+def test_rakuten_reservation_public_quote_is_allowlisted_and_candidates_are_readonly(tmp_path):
+    from tests.card_pipeline.test_ota_rakuten_mail import load, mail, row
+    from app import ota_payments
+    event = load(tmp_path, [mail()])[0]
+    transaction = row()
+    result = ota_payments.match_ota_payment_events([event], [transaction])[0]
+    result['candidate_search'] = ota_payments.search_card_candidates(event, [transaction])
+    backend = object.__new__(ota_payment_review.CoreOtaPaymentBackend)
+    backend._event_rows = lambda *args: []
+    data, candidates, count = backend._build_event_card_rows(
+        event, result, {event['ota_event_id']: event},
+        {transaction['transaction_id']: transaction}, [transaction], {}, [], {}, {}, build_rows=True)
+    assert count == 1 and candidates[0]['selection_disabled'] is True
+    assert '예약일·예약 원금액·카드 끝자리' in candidates[0]['selection_disabled_reason']
+    event['reservation_amount']['private'] = 'source-path-secret'
+    public = ota_payment_review.public_snapshot({'events': [event]})['events'][0]
+    assert public['reservation_amount'] == {'amount': '120000', 'currency': 'KRW'}
+    assert public['reservation_on'] == '2026-05-01' and public['paid_on'] == '미확인'
+    assert 'source-path-secret' not in json.dumps(public)
+    assert result['status'] == 'RESERVATION_ONLY' and result['transaction_id'] is None
