@@ -116,11 +116,16 @@ def extract(message):
         reserved_dates = set(re.findall(r'예약일자\s*\(GMT\)\s*[:：]?\s*(20\d{2}-\d{2}-\d{2})', text))
         provider = 'asiana'
     else:
-        if not re.search(r'구입\s*완료\s*안내', subject):
+        # 국내·일본선 안내는 '구입 완료'와 '결제 금액', 해외 항공권 안내는 '구매 완료'와 줄 맨 앞의 '합계'를 쓴다.
+        if not re.search(r'(?:구입|구매)\s*완료\s*안내', subject):
             return None
         refs = set(re.findall(r'신청번호\s*[:：]?\s*([0-9]{6,20})', subject + '\n' + text))
         amounts = set(re.findall(r'결제\s*금액\s*[:：]\s*KRW\s*([0-9,]+)', text, re.I))
+        amounts |= set(re.findall(r'^[ \t　]*합계[ \t　]*[:：][ \t　]*KRW[ \t　]*([0-9,]+)[ \t　]*$',
+                                  text, re.I | re.M))
         days = set(re.findall(r'\b(20\d{2})-(\d{1,2})-(\d{1,2})\s+[^\n]{0,80}출발\s*-', text))
+        days |= set(re.findall(r'\b(20\d{2})-(\d{1,2})-(\d{1,2})\s+\d{4}\s+\[[^\]\n]{1,40}\][^\n]{0,40}출발\s*$',
+                               text, re.M))
         reserved_dates = set()
         provider = 'skyticket'
     if len(refs) != 1 or len(amounts) != 1:
@@ -137,11 +142,16 @@ def extract(message):
         return None
     if amount <= 0 or paid_on is None:
         return None
-    # More than one date is retained without a fabricated journey period.
-    day = next(iter(parsed_days)) if len(parsed_days) == 1 else None
+    # One 신청번호 is one purchase: a skyticket round trip spans its first to last departure day.
+    # Other providers keep more than one date without a fabricated journey period.
+    period = None
+    if len(parsed_days) == 1 or (provider == 'skyticket' and parsed_days):
+        first, last = min(parsed_days), max(parsed_days)
+        if (date.fromisoformat(last) - date.fromisoformat(first)).days <= 366:
+            period = {'starts_on': first, 'ends_on': last}
     return {'provider': provider, 'booking_ref': next(iter(refs)), 'item': '항공료',
             'paid_amount_krw': amount, 'paid_on': None,
-            'period': {'starts_on': day, 'ends_on': day} if day else None,
+            'period': period,
             'reserved_dates': sorted(reserved_dates),
             'source_sha256': hashlib.sha256(json.dumps(message, ensure_ascii=False, sort_keys=True,
                                                        separators=(',', ':')).encode()).hexdigest(),

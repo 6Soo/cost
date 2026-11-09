@@ -35,6 +35,39 @@ def test_synthetic_skyticket_and_cancel_and_ambiguous_amount():
            '신청번호 12345678\n결제 금액: KRW 106,999\n결제 금액: KRW 100,000')) is None
 
 
+OVERSEAS_SKYTICKET_BODY = (
+    '■신청번호\n32779155\n\n■예약번호\nEY4U3M\n\n■비행 스케줄\n【일정 1】\n제주항공 7C1601편　이코노미등급\n'
+    '　2026-08-06 0705 [서울]인천출발\n　2026-08-06 0900 [시즈오카]시즈오카도착\n【일정 2】\n'
+    '제주항공 7C1604편　이코노미등급\n　2026-08-11 1810 [시즈오카]시즈오카출발\n'
+    '　2026-08-11 2025 [서울]인천도착\n\n■항공권 요금\n＜성인＞\n　항공료　　　　　　　　：KRW 195,894×2명\n'
+    '　제세공과금등 합계　　 ：KRW 172,226×2명\n　취급수수료　　　　　　：KRW 0×2명\n'
+    '　포인트 할인　　　　　　：KRW 0（사용한 포인트：0）\n\n　합계　　　　　　　　 ：KRW 736,240\n')
+
+
+def test_overseas_skyticket_purchase_notice_reads_total_and_round_trip_days():
+    m = message('kaigai@skyticket.com', '【skyticket】구매 완료 안내 <신청번호：32779155>', OVERSEAS_SKYTICKET_BODY)
+    fact = airline_payment_mail.extract(m)
+    assert (fact['provider'], fact['booking_ref'], fact['paid_amount_krw']) == ('skyticket', '32779155', 736240)
+    assert fact['period'] == {'starts_on': '2026-08-06', 'ends_on': '2026-08-11'}
+    assert fact['paid_on'] is None
+    assert ota_payments.provider_compatible(fact, {'merchant': '인터넷상거래_1-주식회사 어드벤처코리아'})
+    # A per-passenger sub-total is never the purchase total.
+    only_subtotal = OVERSEAS_SKYTICKET_BODY.replace('　합계　　　　　　　　 ：KRW 736,240\n', '')
+    assert airline_payment_mail.extract(message('kaigai@skyticket.com',
+        '【skyticket】구매 완료 안내 <신청번호：32779155>', only_subtotal)) is None
+    # Two different totals are ambiguous.
+    two_totals = OVERSEAS_SKYTICKET_BODY + '　합계　　　　　　　　 ：KRW 700,000\n'
+    assert airline_payment_mail.extract(message('kaigai@skyticket.com',
+        '【skyticket】구매 완료 안내 <신청번호：32779155>', two_totals)) is None
+
+
+def test_skyticket_round_trip_in_the_domestic_format_spans_both_days():
+    m = message('info@skyticket.com', '【skyticket】구입 완료 안내【신청번호：12345678】',
+                '신청번호 12345678\n2026-11-09 아오모리 출발 - 도쿄 도착\n2026-11-12 도쿄 출발 - 아오모리 도착\n'
+                '결제 금액：KRW 206,999')
+    assert airline_payment_mail.extract(m)['period'] == {'starts_on': '2026-11-09', 'ends_on': '2026-11-12'}
+
+
 def test_cancellation_notice_blocks_automatic_payment_match(tmp_path):
     purchase = message('info@skyticket.com', '구입 완료 안내 신청번호:12345678',
                        '신청번호 12345678\n결제 금액: KRW 106,999')
