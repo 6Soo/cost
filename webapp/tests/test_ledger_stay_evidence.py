@@ -54,6 +54,58 @@ def test_existing_card_reads_linked_stay_without_writes_or_card_date_guess(conte
     assert data == before and row['service_period'] == ''
 
 
+def test_verified_flight_dates_reach_both_ledger_views_without_saved_booking_number(context, monkeypatch):
+    store, data, _, calls = context
+    data['events'][0].update(provider='trip', item='항공료', event_type='charge',
+                             evidence_status='paid_verified', payment_status='paid')
+    data['transactions'][0]['item'] = '항공료'
+    monkeypatch.setattr(design, '_load_flight_dates', lambda: ({}, set()))
+    value = dict(card(), item='항공료', row_kind='expense', reservation_no='', service_period='',
+                 occurred_on='2026-06-01', amount_krw=1000, description='Synthetic flight')
+    before = deepcopy(data)
+    changes = store.conn.total_changes
+    @scoped
+    def render():
+        return (design._flight_date_labels(value),
+                design._table_html([value], kind='expense', selected='', unclassified=False),
+                design._mobile_html([], [value], selected='', unclassified=False))
+    labels, desktop, mobile = render()
+    assert labels[0] == '07.05–07.07'
+    assert labels[0] in desktop and labels[0] in mobile
+    assert calls == [1] and data == before and store.conn.total_changes == changes
+    assert value['reservation_no'] == value['service_period'] == ''
+
+
+@pytest.mark.parametrize('field,value', [('ota_review_held', True), ('reservation_refund_blocked', True),
+    ('refund_status', 'refund_pending'), ('transaction_direction', 'cancellation')])
+def test_linked_flight_display_preserves_card_financial_holds(context, field, value):
+    store, data, _, _ = context
+    data['events'][0].update(provider='trip', item='항공료', event_type='charge',
+                             evidence_status='paid_verified', payment_status='paid')
+    data['transactions'][0][field] = value
+    assert stays.stay_index(store) == {}
+
+
+@pytest.mark.parametrize('field,value', [('refund_status', 'refund_pending'),
+    ('evidence_status', 'not_card_charge'), ('payment_status', 'scheduled'),
+    ('event_type', 'refund'), ('source_digest', '')])
+def test_linked_flight_dates_require_verified_active_charge(context, field, value):
+    store, data, _, _ = context
+    data['events'][0].update(provider='trip', item='항공료', event_type='charge',
+                             evidence_status='paid_verified', payment_status='paid')
+    data['events'][0][field] = value
+    assert stays.stay_index(store) == {}
+
+
+def test_linked_flight_dates_preserve_empty_override_and_saved_other_booking(context):
+    store, data, _, _ = context
+    data['events'][0].update(provider='trip', item='항공료', event_type='charge',
+                             evidence_status='paid_verified', payment_status='paid')
+    assert stays.period_for(dict(card(), item='항공료', reservation_no='OTHER'), stays.stay_index(store)) == ''
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 @pytest.mark.parametrize('override', ['2026-08-01~2026-08-02', 'invalid'])
 def test_stored_dates_and_invalid_explicit_values_are_preserved(context, override):
     assert stays.period_for(card(service_period=override), stays.stay_index(context[0])) == override
