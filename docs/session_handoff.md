@@ -3,7 +3,7 @@
 ## 2026-11-09 작업공간 통합 정리 — 현재 정본
 
 - **코드 기준:** `origin/main`은 [PR #763](https://github.com/6Soo/cost/pull/763) 병합 `00499a52`(코드 트리는 검수 SHA `2723125a`와 동일)다. 작성 시점(2026-11-09 오후)에 열린 PR은 이 정리 PR([#764](https://github.com/6Soo/cost/pull/764))과 다른 담당의 코드 PR [#765](https://github.com/6Soo/cost/pull/765)(skyticket 해외 구매 메일·항공료 일수)뿐이다. 호스팅 CI는 결제 한도로 시작되지 못해 녹색이 아니며, 2026-11-07 승인 예외(`sol medium` 이상의 최종 SHA 독립 검수)로 병합했다.
-- **운영 기준:** 정리 시작 시 Board task는 `c202fe6edd4841b94e4dcc5ba20d6064c39e6d4a`(#762)였다. #763의 렌터카·라쿠텐 예약 근거 수정은 병합됐고, 이 정리 PR 병합 뒤 단일 코드 배포로 반영한다. 배포 결과는 [운영 기록](operations.md) 맨 위 최신 절에 남긴다. 아래 11월 9일 절의 "배포 전" 표현은 당시 상태다.
+- **운영 기준:** Board task는 `d67a1312d6e592648db0ed6ea95e49ff5aa9d053`(PR #764 병합, #763 코드 포함)로 단일 코드 배포됐다(이전 `c202fe6e`). 1,459 blobs mismatch0·health/ready200·보호 API401·보호13표 불변. 상세는 [운영 기록](operations.md) 맨 위 절이다. 아래 11월 9일 절의 배포 전 표현은 당시 상태다.
 - **정리 결과:** 병합 완료된 로컬·원격 브랜치와 임시 worktree 6곳(`cost-copy-docs`, `cost-copy-qa`, `cost-release-date`, Paseo 2곳, 기준선 사본), 오래된 stash 7개를 제거했다. 미커밋 변경·미추적 스크립트·stash 내용은 삭제하지 않고 비공개 `C:/AX/cost/.local-archive/cleanup-20261109/`에 patch·zip·목록으로 보관했다(복원 방법: patch는 `git apply`, 미추적은 zip/폴더 복사).
 - **보존한 미병합 작업(병합 승인 아님):** (1) `fix/flight-passenger-names-20261108`(원격 유지, 11커밋): 항공 탑승객 한글 표기·공유 숙박 기간 근거·카드 레거시 날짜 등. 이 중 `5e14e8d2`는 main에 이미 반영됐고 나머지는 오래된 기준(`91dbc581`)에서 갈라져 main 변경과 겹치므로 영향 QA 없이 병합하지 않는다. (2) `fix/mobile-income-single-line-20261109`(로컬 전용, 1커밋): 모바일 수입 연결 상태 한 줄 CSS와 worktree의 미커밋 CSS/테스트 변경(patch 보관). 두 브랜치는 `unmerged-branches.bundle`로도 보관했다. 둘 다 별도 검증된 PR로만 병합한다.
 - **진행 중인 별도 작업:** 이용일 경고 402행 개별 조사·어드벤처코리아 항공료 표시는 다른 담당이 `C:/AX/cost`에서 계속 진행한다. 그 작업의 미커밋 코드 변경은 이번 정리 대상에서 제외했고 `fix/ota-rental-source-period-20261109` 로컬 브랜치도 그 작업이 쓰므로 삭제하지 않았다.
