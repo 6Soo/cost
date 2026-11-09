@@ -17,8 +17,10 @@ def stay_index(store):
     service = getattr(store, '_ota_snapshot_service', None)
     if service is None:
         return {}
-    current, state = service.display_context()
-    if not current or not state.get('fresh'):
+    # The last complete generation stays on screen while the next one is computed or retried;
+    # a refresh takes minutes and dropping every date meanwhile hid verified evidence.
+    current, _state = service.display_context()
+    if not current or current.get('data') is None:
         return {}
     with store._lock:
         manual = {str(r[0]) for r in store.conn.execute(
