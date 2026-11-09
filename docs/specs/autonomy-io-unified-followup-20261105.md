@@ -41,7 +41,7 @@
 | OTA·항공권·로그 HDD 활동 | 실제 D: 비교 구간 NTFS USN: Gateway `gateway-status.json` 6,202→216, OTA `ota-snapshot.log` 82→44, 항공권 `flight-search.log` 90→44, 자율정리 status 222→147 기록. 별도 60초 격리 A/B에서 Gateway status 파일 변경 58→2회(-96.6%). 소스상 content-hash가 같은 OTA/항공권 snapshot은 held 처리되어 재발행되지 않는다. | 물리 D: 전체 쓰기는 132.9→221.0 MB, 평균 busy 0.672→0.945%로 증가했다. Windows process write-byte counter는 0으로 계측 불능. HDD 전체 감소는 입증되지 않았다. |
 | 무인 P1→P2 | 호스트 status는 `state=running`, `passes=41`, `p2_applied=0`, `ai_retry=98`, `ai_dead=200`, `blocked=120`, `candidates=400`, `due=200`, `failures=0`; 파일 최종 갱신은 2026-11-05 00:50:32 UTC로 이번 관측 시점보다 오래됐다. 성공 근거는 없고 정상 provider 경로 호출은 timeout됐다. | 인증/프록시 우회, daily cap reset, forced retry 및 금융 대량 재처리는 하지 않았다. 사용자 추가 권한 없이 P2 작동 완료로 판정하지 않는다. |
 
-**현재 전체 판정은 PARTIAL**이다. 실제 무인 P2 성공과 HDD 전체 물리 write-byte 감소가 입증되지 않았다. PR #658 결함 수정·운영 배포와 합성 동시 복구 검증은 완료됐지만 이를 P2 성공이나 전체 HDD 개선으로 대신하지 않는다. 문서 PR #659는 SHA `7ee7d1b6f2828a521696db277b3e5b272e5aead2`로 병합됐으며 main impact CI `41945878531` 성공. 운영·인계 최신 기록은 [운영 기록](../operations.md#2026-11-05-pr-659-문서-통합-및-격리-gateway-io-재측정) 및 [현재 인계](../session_handoff.md)를 따른다.
+**현재 전체 판정은 PARTIAL**이다. 실제 무인 P2 성공과 HDD 전체 물리 write-byte 감소가 입증되지 않았다. PR #658 결함 수정·운영 배포와 합성 동시 복구 검증은 완료됐지만 이를 P2 성공이나 전체 HDD 개선으로 대신하지 않는다. 문서 PR #659는 SHA `7ee7d1b6f2828a521696db277b3e5b272e5aead2`로 병합됐으며 main impact CI `41945878531` 성공. 운영·인계 최신 기록은 [운영 기록](../history/operations-20261028-20261107.md#2026-11-05-pr-659-문서-통합-및-격리-gateway-io-재측정) 및 [현재 인계](../session_handoff.md)를 따른다.
 
 ## 실행 시작 시점의 baseline (위 실제 실행 결과가 최신 상태)
 
