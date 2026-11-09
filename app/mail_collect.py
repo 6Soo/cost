@@ -3,6 +3,8 @@
 메일 원본 헤더(발신 인증)를 그대로 저장해야 예약 근거로 쓸 수 있으므로 Gmail API의 full 형식을 저장한다."""
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -14,6 +16,8 @@ SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
+RETRY_ATTEMPTS = 5
+RETRY_BASE_SECONDS = 2
 HISTORY_START = '2026-04-01'
 API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
@@ -50,9 +54,19 @@ class GmailApi:
         return self._access
 
     def _get(self, url: str) -> dict:
-        request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + self._access_token()})
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return json.loads(response.read())
+        # A dropped connection or DNS failure for one message must not abort the whole collection.
+        for attempt in range(RETRY_ATTEMPTS):
+            try:
+                request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + self._access_token()})
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    return json.loads(response.read())
+            except urllib.error.HTTPError as error:
+                if error.code not in (429, 500, 502, 503, 504) or attempt == RETRY_ATTEMPTS - 1:
+                    raise
+            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                if attempt == RETRY_ATTEMPTS - 1:
+                    raise
+            time.sleep(RETRY_BASE_SECONDS * 2 ** attempt)
 
     def list_ids(self, query: str) -> list:
         ids, page = [], None

@@ -67,6 +67,41 @@ def _core_digest(core):
     return hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
+_ADDRESS_HEADERS = ('from', 'to', 'cc', 'bcc', 'reply-to', 'sender', 'delivered-to', 'return-path')
+
+
+def same_original_core(first, second):
+    """The same message rendered by two extractors: header folding, quoting and the date spelling differ only."""
+    from email.utils import getaddresses
+
+    def normalized(core, message):
+        headers = {}
+        for name, value in core['headers'].items():
+            value = ' '.join(str(value).split())
+            if name in _ADDRESS_HEADERS:
+                value = sorted((label.strip(), address.lower()) for label, address in getaddresses([value]))
+            headers[name] = value
+        return core['id'], headers, core['text'], receipt_times(message)
+
+    (core_a, message_a), (core_b, message_b) = first, second
+    left, right = normalized(core_a, message_a), normalized(core_b, message_b)
+    # One copy may lack a spelling; any time both copies state must agree, and a copy
+    # that contradicts itself only matches an identical contradiction.
+    times_match = not left[3] or not right[3] or left[3] == right[3]
+    return left[:3] == right[:3] and times_match
+
+
+def receipt_times(message):
+    """Every receipt time the message states, under either field spelling."""
+    return frozenset(str(value) for value in (message.get('internal_date'), message.get('internalDate'))
+                     if value not in (None, ''))
+
+
+def needs_original_comparison(core, message):
+    """The stored digest carries only internal_date; a missing or self-contradicting time needs the kept copy."""
+    return core['internal_date'] in (None, '') or len(receipt_times(message)) > 1
+
+
 def _load_messages_uncached(directories):
     """여러 디렉터리를 함께 읽는다.
 
@@ -106,9 +141,13 @@ def _load_messages_uncached(directories):
                         headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
                         text=body_text(payload))
             digest = _core_digest(core)
-            if identity in fingerprints and fingerprints[identity] != digest:
-                raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
-            fingerprints[identity] = digest
+            if identity in fingerprints:
+                kept_digest, kept_core, kept = fingerprints[identity]
+                if ((kept_digest != digest or needs_original_comparison(core, message)
+                     or needs_original_comparison(kept_core, kept))
+                        and not same_original_core((kept_core, kept), (core, message))):
+                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+            fingerprints[identity] = (digest, core, message)
             previous = messages.get(identity)
             if previous is not None:
                 body_cache.pop(id(previous), None)

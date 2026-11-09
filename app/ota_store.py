@@ -397,9 +397,16 @@ class OtaStore:
                     headers={h['name'].lower(): h['value'] for h in message['payload'].get('headers', [])},
                     text=ota_mail.body_text(message['payload']))
                 digest = ota_mail._core_digest(core)
-                old = self.conn.execute('SELECT core_sha256 FROM ota_messages WHERE message_id=?', (message_id,)).fetchone()
-                if old and old[0] != digest:
-                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+                old = self.conn.execute('SELECT core_sha256, payload_json FROM ota_messages WHERE message_id=?',
+                                        (message_id,)).fetchone()
+                # The stored digest omits a REST-only receipt time, so an equal digest alone is not enough there.
+                if old and (old[0] != digest or ota_mail.needs_original_comparison(core, message)):
+                    kept = unpacked(old[1])
+                    kept_core = dict(id=message_id, internal_date=kept.get('internal_date'),
+                        headers={h['name'].lower(): h['value'] for h in kept['payload'].get('headers', [])},
+                        text=ota_mail.body_text(kept['payload']))
+                    if not ota_mail.same_original_core((kept_core, kept), (core, message)):
+                        raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
                 self.conn.execute('INSERT OR IGNORE INTO ota_messages VALUES(?,?,?)',
                                   (message_id, digest, packed(message)))
                 self.conn.execute('INSERT OR IGNORE INTO ota_mail_origins VALUES(?,?)', (message_id, source))

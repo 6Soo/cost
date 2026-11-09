@@ -63,6 +63,41 @@ def test_same_message_id_changed_body_rolls_back_whole_source(tmp_path):
         store.close()
 
 
+def test_refetched_gmail_copy_without_the_archived_date_spelling_is_the_same_original(tmp_path):
+    archived = message('예약번호: BOOK12345\n총 금액 30,000원', identity='same')
+    archived.update(internal_date='1788942857000', internalDate='1788942857000')
+    refetched = copy.deepcopy(archived)
+    del refetched['internal_date']
+    refetched['labelIds'] = ['INBOX']
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(write_mail(tmp_path / 'one', [archived]))
+        store.import_mail(write_mail(tmp_path / 'two', [refetched]))
+        assert store.conn.execute("SELECT COUNT(*) FROM ota_messages WHERE message_id='same'").fetchone()[0] == 1
+        # Two different receipt times remain a conflict.
+        # Another extractor's header folding and address quoting are the same original.
+        refolded = copy.deepcopy(refetched)
+        for header in refolded['payload']['headers']:
+            if header['name'].lower() == 'from':
+                header['value'] = '<' + header['value'].split('<')[-1].rstrip('>') + '>'
+            header['value'] = header['value'].replace(' ', '\t', 1)
+        store.import_mail(write_mail(tmp_path / 'refolded', [refolded]))
+        # Two copies in one source differing only in header folding load as one message.
+        folded = copy.deepcopy(refetched)
+        folded['payload']['headers'] = [dict(h, value=h['value'].replace(' ', '\r\n\t', 1))
+                                        for h in folded['payload']['headers']]
+        both = write_mail(tmp_path / 'both', [refetched, folded])
+        assert list(ota_mail.load_messages_from([both])[0]) == ['same']
+        moved = copy.deepcopy(refetched)
+        moved['internalDate'] = '1788999999000'
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            ota_mail.load_messages_from([write_mail(tmp_path / 'pair', [refetched, moved])])
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(write_mail(tmp_path / 'three', [moved]))
+    finally:
+        store.close()
+
+
 def test_all_providers_share_store_but_accounts_and_real_observations_stay_separate(tmp_path):
     store = OtaStore(tmp_path / 'store.sqlite')
     try:
@@ -315,3 +350,34 @@ def test_invalid_unified_target_never_silently_falls_back_to_legacy(tmp_path, ta
     with pytest.raises(ota_sources.OtaSourcesError):
         ota_sources.resolve_sources(tmp_path, mail_default=tmp_path / 'old-mail',
                                     portal_default=tmp_path / 'old-portal.sqlite')
+
+
+def test_a_kept_rest_copy_still_conflicts_with_a_different_receipt_time(tmp_path):
+    kept = message('예약번호: BOOK12345 총 금액 30,000원', identity='rest')
+    del kept['internal_date']
+    kept['internalDate'] = '1788942857000'
+    moved = copy.deepcopy(kept)
+    moved['internalDate'] = '1788999999000'
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(write_mail(tmp_path / 'one', [kept]))
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(write_mail(tmp_path / 'two', [moved]))
+    finally:
+        store.close()
+
+
+def test_a_copy_contradicting_its_own_receipt_time_is_never_the_same_original(tmp_path):
+    first = message('예약번호: BOOK12345 총 금액 30,000원', identity='both')
+    first.update(internal_date='1000', internalDate='1000')
+    changed = copy.deepcopy(first)
+    changed['internalDate'] = '2000'
+    with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+        ota_mail.load_messages_from([write_mail(tmp_path / 'pair', [first, changed])])
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(write_mail(tmp_path / 'one', [first]))
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(write_mail(tmp_path / 'two', [changed]))
+    finally:
+        store.close()
