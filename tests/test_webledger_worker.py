@@ -118,7 +118,7 @@ def test_stopping_the_worker_stops_the_job_it_started(tmp_path):
     tool.write_text(f"import os, time; open(r'{pid_file}', 'w').write(str(os.getpid())); time.sleep(120)",
                     encoding="utf-8")
     config = tmp_path / "worker.json"
-    config.write_text(json.dumps({"log": str(tmp_path / "worker.log"), "jobs": [
+    config.write_text(json.dumps({"log": str(tmp_path / "worker.log"), "instance_name": r"Local\webledger-worker-test-" + tmp_path.name, "jobs": [
         {"name": "slow", "kind": "process", "python": sys.executable, "argv": [str(tool)],
          "every_seconds": 3600, "timeout_seconds": 600, "log": str(tmp_path / "slow.log")}]}), encoding="utf-8")
     owner = subprocess.Popen([sys.executable, str(worker.ROOT / "tools" / "webledger_worker.py"), "--config", str(config)])
@@ -133,7 +133,7 @@ def test_stopping_the_worker_stops_the_job_it_started(tmp_path):
         owner.wait(10)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        alive = subprocess.run(["tasklist", "/FI", f"PID eq {child}", "/NH"], capture_output=True, text=True).stdout
+        alive = subprocess.run(["tasklist", "/FI", f"PID eq {child}", "/NH"], capture_output=True, text=True, errors="replace").stdout
         if str(child) not in alive:
             return
         time.sleep(0.2)
@@ -145,7 +145,7 @@ def test_a_second_worker_is_refused_while_one_runs(tmp_path):
     import time
 
     config = tmp_path / "worker.json"
-    config.write_text(json.dumps({"log": str(tmp_path / "worker.log"), "jobs": [
+    config.write_text(json.dumps({"log": str(tmp_path / "worker.log"), "instance_name": r"Local\webledger-worker-test-" + tmp_path.name, "jobs": [
         {"name": "idle", "kind": "watch", "module": "time", "argv": []}]}), encoding="utf-8")
     first = subprocess.Popen([sys.executable, str(worker.ROOT / "tools" / "webledger_worker.py"), "--config", str(config)])
     try:

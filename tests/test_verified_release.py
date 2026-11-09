@@ -70,7 +70,8 @@ def test_invalid_or_identical_release_is_rejected_before_host_access(candidate, 
     result = subprocess.run([shell, '-NoProfile', '-File',
         str(ROOT / 'tools/deploy_verified_release.ps1'), '-CandidateSha', candidate,
         '-PreviousSha', previous, '-ReviewEvidence', 'Z:/nonexistent/private-review.json', '-Apply'],
-        capture_output=True, text=True)
+        # Windows PowerShell writes errors in the console code page; the checked codes are ASCII.
+        capture_output=True, text=True, errors='replace')
     assert result.returncode != 0
     assert 'INVALID_SHA' in result.stderr or 'IDENTICAL_RELEASE_SHA' in result.stderr
     assert 'WebLedger-Board' not in result.stderr
