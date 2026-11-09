@@ -249,7 +249,7 @@ def test_core_business_acceptance_is_targeted_and_audited_with_browser_cases_req
     required_browser_cases = {
         "webapp.tests.test_insurance_income_match_browser::test_name_action_keeps_income_and_never_guesses_ambiguous_identity",
         "webapp.tests.test_flight_booking_name_search::test_browser_name_search_renders_verified_itinerary_and_secondary_participant_flow",
-        "webapp.tests.test_rule_review::RuleReviewTests::test_browser_reports_committed_approval_when_refresh_fails",
+        "webapp.tests.test_rule_review::RuleReviewTests::test_browser_reports_saved_rule_when_followup_state_request_fails",
         "webapp.tests.test_rule_dialog_screen::RuleDialogScreenTests::test_full_flow_at_1440",
         "webapp.tests.test_trip_history_browser::TripHistoryBrowserTests::test_previous_trips_open_and_link_to_existing_ledger_at_both_widths",
         "webapp.tests.test_trip_expense_copy_button::TripExpenseCopyBrowserTests::test_browser_copy_trip_expenses_interaction",
