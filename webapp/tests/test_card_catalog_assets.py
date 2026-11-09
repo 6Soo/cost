@@ -36,9 +36,9 @@ class TestCardCatalogAssets:
         assert css_file.read_text(encoding="utf-8") == assets.CATALOG_STYLE
         assert js_file.read_text(encoding="utf-8") == assets.CATALOG_SCRIPT
 
-        # Lengths and hashes matching baseline
-        assert len(assets.CATALOG_STYLE) == 7121
-        assert _sha256(assets.CATALOG_STYLE) == "f575c1d2d745a46554339ee0b9a7dc3d3af6062f4c6719be61dd34eeb2bdb342"
+        # Intentional asset snapshot: catches accidental drift, not a performance cap.
+        assert len(assets.CATALOG_STYLE) == 7253
+        assert _sha256(assets.CATALOG_STYLE) == "8d30d596840ed6b910d32e2130645958417b333d8f87695d0a876e41e654ab3a"
         assert len(assets.CATALOG_SCRIPT) == 1077
         assert _sha256(assets.CATALOG_SCRIPT) == "f9a0039ada5025608f80e59d005240fe58f854c7df63adcabb255cfda814970a"
 

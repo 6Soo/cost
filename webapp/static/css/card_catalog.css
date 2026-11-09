@@ -1,4 +1,4 @@
-﻿
+
 :root{--cc-bg:var(--c-bg);--cc-surface:var(--c-surface);--cc-text:var(--c-text);--cc-muted:var(--c-text-secondary);
  --cc-border:var(--c-border);--cc-soft:var(--c-surface-sunken);--cc-accent:var(--c-accent-text);--cc-accent-bg:var(--c-accent-subtle);--cc-focus:var(--c-focus)}
 body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
