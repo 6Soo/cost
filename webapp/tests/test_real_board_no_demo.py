@@ -214,7 +214,7 @@ class RealStoreBoardTests(unittest.TestCase):
         self.assertEqual(board_mod.default_board_tab(), "unclassified")
         _status, page = self.get("/board")
         self.assert_no_example_data(page, "/board")
-        self.assertIn("분류대기", page)
+        self.assertIn("이전 귀속 목록", page)
 
     def test_the_default_tab_follows_the_data(self):
         """A trip grouped under past trips remains explicitly accessible."""

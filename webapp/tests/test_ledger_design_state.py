@@ -300,7 +300,7 @@ class ViewStateTests(unittest.TestCase):
         page.goto(f"http://127.0.0.1:{self.port}/trips?preview_tab=trip-demo-b")
         body = page.inner_text(".page-body")
         self.assertIn("삭제 미리보기", body)
-        self.assertIn("분류대기로 이동", body)
+        self.assertIn("여행 연결 해제", body)
         self.assertIn("내역 이동 후 삭제 확정", body)
         self.assertEqual(
             page.input_value(".page-body form[action='/api/trips/trip-demo-b/delete'] "

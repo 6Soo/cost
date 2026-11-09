@@ -681,7 +681,23 @@ def dispatch(handler, parsed, *, is_owner, board, raw=None, csrf='', query=None,
     if not owns_route(parsed.path):
         return False
     if not enabled():
-        _send(handler, {'code': 'FEATURE_DISABLED'}, 404)
+        from . import error_page
+        if (parsed.path == ROUTES[0]
+                and str(getattr(handler, "command", "GET")).upper() == "GET"
+                and raw is None
+                and error_page.wants_html(handler, parsed.path)):
+            error_page.send(
+                handler,
+                error_page.render(
+                    404,
+                    "이 기능은 사용하도록 설정되지 않았습니다",
+                    "관리자가 기능을 켜면 이 화면을 쓸 수 있습니다.",
+                    [("홈으로", "/")],
+                ),
+                404,
+            )
+        else:
+            _send(handler, {'code': 'FEATURE_DISABLED'}, 404)
         return True
     if not is_owner:
         _send(handler, {'code': 'ACTION_FORBIDDEN'}, 403)

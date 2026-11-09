@@ -116,11 +116,5 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  nav.querySelectorAll('a[href]').forEach(a=>{const u=new URL(a.href,location.href);
  if(u.pathname===path&&(!u.search||a.closest('.site-links')) || path.startsWith('/google-ledger/')&&u.pathname==='/google-ledger'){a.setAttribute('aria-current','page')}});
  try{nav.scrollTop=Number(sessionStorage.getItem('cost-nav-scroll')||0);
- const rendered=path==='/board'?nav.querySelector('a.nv.sel[href]'):null;
- const selected=new URLSearchParams(location.search).get('tab')||(rendered?new URL(rendered.href).searchParams.get('tab'):null);
- if(selected)sessionStorage.setItem('cost-nav-trip',selected);
- const lastTrip=path==='/board'?selected:sessionStorage.getItem('cost-nav-trip');
- if(lastTrip)nav.querySelectorAll('a.nv[href]').forEach(a=>{const current=new URL(a.href).searchParams.get('tab')===lastTrip;
- a.classList.toggle('sel',current);if(current)a.setAttribute('aria-pressed','true');else a.removeAttribute('aria-pressed')});
  nav.addEventListener('scroll',()=>{try{sessionStorage.setItem('cost-nav-scroll',String(nav.scrollTop))}catch{}})}catch{}
 })();
