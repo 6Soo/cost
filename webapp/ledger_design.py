@@ -836,7 +836,18 @@ def _trip_periods():
     return periods
 
 
+_UNKNOWN_SERVICE_DATES = ('이용일 확인 필요', '이용일 미확인')
+
+
 def _service_date_labels(row):
+    labels = _service_date_labels_for(row)
+    # A cancellation or refund has no service day of its own; only an unknown date is replaced.
+    if labels[0] in _UNKNOWN_SERVICE_DATES and (row.get('display_amount_krw', row.get('amount_krw')) or 0) < 0:
+        return '취소·환불', '취소·환불 거래라 별도 이용일이 없음'
+    return labels
+
+
+def _service_date_labels_for(row):
     item = str(row.get('item') or '').strip()
     if item == '숙박비':
         compact, full = _compact_stay(row), _stay_text(row)
