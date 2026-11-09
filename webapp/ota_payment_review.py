@@ -1928,7 +1928,7 @@ def reconcile_in_child(board) -> dict:
     request_path = workdir / f"ota-reconcile-{token}.in"
     result_path = workdir / f"ota-reconcile-{token}.out"
     from app.python_launch import child_environment, python_command, sweep_stale_child_files
-    sweep_stale_child_files(workdir, "ota-reconcile-*")
+    sweep_stale_child_files(workdir)
     request_path.write_bytes(pickle.dumps(
         {"authority": getattr(board, "_reservation_authority", None)},
         protocol=pickle.HIGHEST_PROTOCOL))

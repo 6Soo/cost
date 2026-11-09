@@ -611,7 +611,7 @@ def _source_rows_in_child(board, sources, warnings):
     bootstrap = ('import sys; sys.path.insert(0, sys.argv[1]); '
                  'from webapp import ota_catalog_sources_child as child; child.run(*sys.argv[2:])')
     from app.python_launch import sweep_stale_child_files
-    sweep_stale_child_files(Path(board.path).parent, 'ota-catalog-worker-*')
+    sweep_stale_child_files(Path(board.path).parent)
     with tempfile.TemporaryDirectory(prefix='ota-catalog-worker-', dir=Path(board.path).parent) as directory:
         request, result = Path(directory) / 'request', Path(directory) / 'result'
         request.write_bytes(pickle.dumps(sources, protocol=pickle.HIGHEST_PROTOCOL))
