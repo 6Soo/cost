@@ -945,7 +945,7 @@ def _passenger_text(row) -> str:
 
 
 def _load_flight_dates():
-    """Fresh display evidence and explicit empty overrides; never reconcile on a read."""
+    """The last complete display evidence and explicit empty overrides; never reconcile on a read."""
     from . import ota_payment_review
     store = board._active_store()
     if store is None or not ota_payment_review.enabled():
@@ -956,8 +956,9 @@ def _load_flight_dates():
     for attribute in ('_flight_booking_service', '_ota_snapshot_service'):
         service = getattr(store, attribute, None)
         if service is not None:
-            current, state = service.display_context()
-            if current and state.get('fresh'):
+            current, _state = service.display_context()
+            # As for stays: the last complete generation is shown while the next one is computed.
+            if current and current.get('data') is not None:
                 return (current.get('data') or {}).get('passengers') or {}, manual
     return {}, manual
 

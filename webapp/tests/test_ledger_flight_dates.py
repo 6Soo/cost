@@ -77,7 +77,7 @@ def test_one_way_and_cross_year_dates_do_not_imply_hotel_nights(evidence):
     assert design._flight_date_labels(row())[0] == '12.31'
 
 
-def test_loader_uses_fresh_snapshot_only_and_never_reconciles(monkeypatch):
+def test_loader_uses_a_complete_snapshot_only_and_never_reconciles(monkeypatch):
     from types import SimpleNamespace
     import sqlite3
     from threading import RLock
@@ -86,13 +86,15 @@ def test_loader_uses_fresh_snapshot_only_and_never_reconciles(monkeypatch):
     conn.execute('CREATE TABLE board_manual_overrides(row_id TEXT, field TEXT)')
     conn.execute("INSERT INTO board_manual_overrides VALUES ('manual','service_period')")
     state = {'fresh': False}
-    service = SimpleNamespace(display_context=lambda: ({'data': {'passengers': {'SYN': {}}}}, state))
+    held = {'data': None}
+    service = SimpleNamespace(display_context=lambda: (held, state))
     store = SimpleNamespace(conn=conn, _lock=RLock(), _flight_booking_service=service)
     monkeypatch.setattr(design.board, '_active_store', lambda: store)
     monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
     changes = conn.total_changes
     assert design._load_flight_dates() == ({}, {'manual'})
-    state['fresh'] = True
+    # A refresh in progress (not fresh) keeps the last complete generation on screen.
+    held['data'] = {'passengers': {'SYN': {}}}
     assert design._load_flight_dates() == ({'SYN': {}}, {'manual'})
     assert conn.total_changes == changes
     conn.close()

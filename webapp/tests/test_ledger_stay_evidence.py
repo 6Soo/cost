@@ -331,9 +331,19 @@ def test_cancelled_and_pending_reservations_are_not_used(context, status):
     assert stays.stay_index(store) == {}
 
 
-def test_stale_or_unstarted_service_is_not_used(context):
-    store, _, state, _ = context
-    state['fresh'] = False
+def test_a_refreshing_service_keeps_the_last_complete_generation(context):
+    store, data, state, _ = context
+    fresh = stays.stay_index(store)
+    assert fresh
+    state.update(fresh=False, status='refreshing')
+    assert stays.stay_index(store) == fresh
+    state.update(status='error')
+    assert stays.stay_index(store) == fresh
+
+
+def test_an_incomplete_or_unstarted_service_is_not_used(context, monkeypatch):
+    store, _, _, _ = context
+    monkeypatch.setattr(store._ota_snapshot_service, 'display_context', lambda: ({'data': None}, {'fresh': False}))
     assert stays.stay_index(store) == {}
     del store._ota_snapshot_service
     assert stays.stay_index(store) == {}
