@@ -14,6 +14,7 @@ the net is derived from them and never stored over either.
 from __future__ import annotations
 
 import json
+import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date
@@ -26,11 +27,14 @@ __all__ = ["count_held_cancellations", "refund_group", "refund_links", "refund_r
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
 _READ_ANALYSIS = ContextVar('refund_read_analysis', default=None)
+# The last analysis of committed data; a commit anywhere or a local write moves its key.
+_COMMITTED = {}
+_COMMITTED_LOCK = threading.Lock()
 
 
 @contextmanager
 def read_only_scope():
-    """Reuse global refund evidence within one display, never across requests."""
+    """Reuse global refund evidence within one display, including uncommitted reads."""
     token = _READ_ANALYSIS.set({})
     try:
         yield
@@ -42,26 +46,39 @@ def _read_analysis(conn):
     memo = _READ_ANALYSIS.get()
     # Also discard display evidence after a local write or another connection's commit.
     key = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
-    if memo is None or key not in memo:
-        numbered = _number_links(conn)
-        taken = {link['original_id'] for link in numbered.values()}
-        foreign = _foreign_links(conn, taken)
-        held = {}
-        if _settings().get('enabled'):
-            purchases, cancels = _foreign_pool(conn, taken)
-            for group, refunds in cancels.items():
-                if purchases.get(group):
-                    for tid, _amount, _when in refunds:
-                        if tid not in foreign:
-                            held[tid] = {'purchases': len(purchases[group]),
-                                         'cancellations': len(refunds)}
-        taken.update(link['original_id'] for link in foreign.values())
-        inferred = _amount_inferred_links(conn, taken, occupied_refunds=set(numbered) | set(foreign))
-        result = ({**numbered, **foreign, **inferred}, held)
-        if memo is None:
-            return result
-        memo[key] = result
-    return memo[key]
+    if memo is not None:
+        if key not in memo:
+            memo[key] = _analyse(conn)
+        return memo[key]
+    if conn.in_transaction:
+        # Uncommitted evidence can be rolled back without moving the key, so it is never kept.
+        return _analyse(conn)
+    with _COMMITTED_LOCK:
+        if key in _COMMITTED:
+            return _COMMITTED[key]
+    result = _analyse(conn)
+    with _COMMITTED_LOCK:
+        _COMMITTED.clear()
+        _COMMITTED[key] = result
+    return result
+
+
+def _analyse(conn):
+    numbered = _number_links(conn)
+    taken = {link['original_id'] for link in numbered.values()}
+    foreign = _foreign_links(conn, taken)
+    held = {}
+    if _settings().get('enabled'):
+        purchases, cancels = _foreign_pool(conn, taken)
+        for group, refunds in cancels.items():
+            if purchases.get(group):
+                for tid, _amount, _when in refunds:
+                    if tid not in foreign:
+                        held[tid] = {'purchases': len(purchases[group]),
+                                     'cancellations': len(refunds)}
+    taken.update(link['original_id'] for link in foreign.values())
+    inferred = _amount_inferred_links(conn, taken, occupied_refunds=set(numbered) | set(foreign))
+    return {**numbered, **foreign, **inferred}, held
 
 
 @lru_cache(maxsize=1)

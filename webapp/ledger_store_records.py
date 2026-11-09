@@ -217,6 +217,16 @@ def fetch_tab_board_rows(conn: Any, tab_id: str | None) -> list[tuple]:
     ).fetchall()
 
 
+def fetch_board_rows_by_tab(conn: Any) -> dict[str | None, list[tuple]]:
+    """Every saved row in one scan, grouped by tab in row_id order; display_tab_id has no index."""
+    grouped: dict[str | None, list[tuple]] = {}
+    for row in conn.execute(
+        "SELECT row_id, row_kind, display_tab_id, revision, payload_json FROM board_rows ORDER BY row_id"
+    ):
+        grouped.setdefault(row[2], []).append(row)
+    return grouped
+
+
 def fetch_active_tab_allocations(conn: Any, tab_id: str | None) -> list[tuple]:
     try:
         return conn.execute(

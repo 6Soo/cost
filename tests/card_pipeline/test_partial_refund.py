@@ -413,3 +413,38 @@ def test_a_fully_offset_pair_leaves_the_trip_for_the_refund_tab():
     rows = by_approval(pipe, result)
     assert rows['100']['display_tab_id'] == REFUND_TAB and rows['200']['display_tab_id'] == REFUND_TAB
     assert rows['100']['trip_id'] == '' and rows['200']['trip_id'] == ''
+
+
+def test_committed_refund_analysis_is_reused_until_a_write_or_another_commit(tmp_path, monkeypatch):
+    from app import partial_refund
+    pipe, _ = build(refunds=(-700000,))
+    conn = pipe.store.conn
+    path = tmp_path / 'refunds.sqlite'
+    conn.execute(f"VACUUM INTO '{path}'")
+    conn = sqlite3.connect(path, isolation_level=None)
+    other = sqlite3.connect(path, isolation_level=None)
+    calls = []
+    original = partial_refund._analyse
+    monkeypatch.setattr(partial_refund, '_analyse', lambda c: calls.append(1) or original(c))
+    ids = [r[0] for r in conn.execute('SELECT transaction_id FROM transactions')]
+    first = partial_refund.refund_links(conn, ids)
+    assert first and partial_refund.refund_links(conn, ids) == first and len(calls) == 1
+    conn.execute("UPDATE transactions SET merchant=merchant||'' WHERE 1=1")
+    partial_refund.refund_links(conn, ids)
+    assert len(calls) == 2
+    other.execute("UPDATE transactions SET original_approval_number='999' WHERE transaction_direction='cancellation'")
+    assert partial_refund.refund_links(conn, ids) == {}
+    assert len(calls) == 3
+
+
+def test_an_uncommitted_refund_read_is_not_kept_after_rollback():
+    from app import partial_refund
+    pipe, _ = build(refunds=(-700000,))
+    conn = pipe.store.conn
+    ids = [r[0] for r in conn.execute('SELECT transaction_id FROM transactions')]
+    before = partial_refund.refund_links(conn, ids)
+    conn.execute('BEGIN')
+    conn.execute("UPDATE transactions SET original_approval_number='999' WHERE transaction_direction='cancellation'")
+    assert partial_refund.refund_links(conn, ids) == {}
+    conn.execute('ROLLBACK')
+    assert partial_refund.refund_links(conn, ids) == before
