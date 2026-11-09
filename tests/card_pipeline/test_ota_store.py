@@ -63,6 +63,33 @@ def test_same_message_id_changed_body_rolls_back_whole_source(tmp_path):
         store.close()
 
 
+def test_refetched_gmail_copy_without_the_archived_date_spelling_is_the_same_original(tmp_path):
+    archived = message('예약번호: BOOK12345\n총 금액 30,000원', identity='same')
+    archived.update(internal_date='1788942857000', internalDate='1788942857000')
+    refetched = copy.deepcopy(archived)
+    del refetched['internal_date']
+    refetched['labelIds'] = ['INBOX']
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(write_mail(tmp_path / 'one', [archived]))
+        store.import_mail(write_mail(tmp_path / 'two', [refetched]))
+        assert store.conn.execute("SELECT COUNT(*) FROM ota_messages WHERE message_id='same'").fetchone()[0] == 1
+        # Two different receipt times remain a conflict.
+        # Another extractor's header folding and address quoting are the same original.
+        refolded = copy.deepcopy(refetched)
+        for header in refolded['payload']['headers']:
+            if header['name'].lower() == 'from':
+                header['value'] = '<' + header['value'].split('<')[-1].rstrip('>') + '>'
+            header['value'] = header['value'].replace(' ', '\t', 1)
+        store.import_mail(write_mail(tmp_path / 'refolded', [refolded]))
+        moved = copy.deepcopy(refetched)
+        moved['internalDate'] = '1788999999000'
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(write_mail(tmp_path / 'three', [moved]))
+    finally:
+        store.close()
+
+
 def test_all_providers_share_store_but_accounts_and_real_observations_stay_separate(tmp_path):
     store = OtaStore(tmp_path / 'store.sqlite')
     try:
