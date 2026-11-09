@@ -1005,25 +1005,8 @@ def _flight_date_labels(row):
             '항공 이용일: ' + ' · '.join(day.isoformat() for day in days))
 
 
-def _evidence_item(row) -> str:
-    """The item the mail evidence assigns to a card row, for a row whose typed item is a different category."""
-    row_id = str(row.get('row_id') or '')
-    if not row_id.startswith('card-') or str(row.get('service_period') or '').strip():
-        return ''
-    from . import ledger_stay_evidence
-    index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
-    tid = str(row.get('source_event_id') or row_id[5:])
-    found = index.get(tid) or {}
-    if ledger_stay_evidence.period_for(row, index) and found.get('item') == '항공료':
-        return '항공료'
-    return ''
-
-
 def _service_date_labels(row):
     item = str(row.get('item') or '').strip()
-    if item in ('', '여행상품비', '기타비용'):
-        # A generic typed category such as 여행상품비 does not hide the airfare the mail proves.
-        item = _evidence_item(row) or item
     if item == '숙박비':
         return _compact_stay(row), _stay_text(row)
     if item in ('항공료', '항공권'):

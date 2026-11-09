@@ -74,6 +74,20 @@ def stay_index(store):
     return result
 
 
+def _occupied_cards(data):
+    """Cards another result, reservation link, linked payment relation or saved link already claims."""
+    results = data.get('results', [])
+    occupied = {str(r['transaction_id']) for r in results if r.get('transaction_id')}
+    occupied.update(str(tid) for r in results for tid in r.get('reserved_card_ids') or ())
+    occupied.update(str(tid) for r in results if (r.get('payment_relation') or {}).get('status') == 'LINKED'
+                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
+    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id')) for r in results
+                    if (r.get('reservation_link') or {}).get('transaction_id'))
+    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                    if isinstance(link, dict) and link.get('transaction_id'))
+    return occupied
+
+
 def _agoda_recorded_card_periods(data, manual):
     """The owner-approved mutually unique Agoda pairing, read for cards already on a ledger.
 
@@ -82,16 +96,7 @@ def _agoda_recorded_card_periods(data, manual):
     """
     from app import ota_inference
     from datetime import date
-    occupied = set()
-    for record in data.get('results', []):
-        if record.get('transaction_id'):
-            occupied.add(str(record['transaction_id']))
-        occupied.update(str(tid) for tid in record.get('reserved_card_ids') or ())
-        relation = record.get('payment_relation') or {}
-        if relation.get('status') == 'LINKED':
-            occupied.update(str(tid) for tid in relation.get('transaction_ids') or ())
-    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
-                    if isinstance(link, dict) and link.get('transaction_id'))
+    occupied = _occupied_cards(data)
     cards = [dict(card, ota_inference_eligible=True) for card in data.get('transactions', [])]
     events = [event for event in data.get('events', [])
               if not any(event.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))]
@@ -124,16 +129,7 @@ def _skyticket_candidate_periods(data, manual):
     from datetime import date
     events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
     cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
-    occupied = set()
-    for record in data.get('results', []):
-        if record.get('transaction_id'):
-            occupied.add(str(record['transaction_id']))
-        occupied.update(str(tid) for tid in record.get('reserved_card_ids') or ())
-        relation = record.get('payment_relation') or {}
-        if relation.get('status') == 'LINKED':
-            occupied.update(str(tid) for tid in relation.get('transaction_ids') or ())
-    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
-                    if isinstance(link, dict) and link.get('transaction_id'))
+    occupied = _occupied_cards(data)
     by_booking = defaultdict(list)
     for event in events.values():
         by_booking[(event.get('provider'), event.get('booking_ref'))].append(event)
@@ -189,15 +185,7 @@ def _rakuten_candidate_periods(data, manual):
     from datetime import date
     events={str(e.get('ota_event_id')):e for e in data.get('events',[])}
     cards={str(c.get('transaction_id')):c for c in data.get('transactions',[])}
-    occupied={str(r.get('transaction_id')) for r in data.get('results',[]) if r.get('transaction_id')}
-    occupied.update(str(tid) for r in data.get('results',[]) for tid in r.get('reserved_card_ids') or ())
-    occupied.update(str(tid) for r in data.get('results',[])
-                    if (r.get('payment_relation') or {}).get('status')=='LINKED'
-                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
-    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id')) for r in data.get('results',[])
-                    if (r.get('reservation_link') or {}).get('transaction_id'))
-    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
-                    if isinstance(link,dict) and link.get('transaction_id'))
+    occupied=_occupied_cards(data)
     choices=defaultdict(set);refs=defaultdict(set);blocked=set()
     flags=('evidence_missing','evidence_changed','period_conflict','service_period_conflict','reservation_amount_conflict')
     for record in data.get('results',[]):
@@ -324,18 +312,7 @@ def _linked_candidate_periods(data, manual):
 def _toyoko_candidate_periods(data, manual):
     events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
     cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
-    occupied = {str(r.get('transaction_id')) for r in data.get('results', [])
-                if r.get('transaction_id')}
-    occupied.update(str(tid) for r in data.get('results', [])
-                    for tid in r.get('reserved_card_ids') or ())
-    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id'))
-                    for r in data.get('results', [])
-                    if (r.get('reservation_link') or {}).get('transaction_id'))
-    occupied.update(str(tid) for r in data.get('results', [])
-                    if (r.get('payment_relation') or {}).get('status') == 'LINKED'
-                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
-    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
-                    if isinstance(link, dict) and link.get('transaction_id'))
+    occupied = _occupied_cards(data)
     periods, blocked = defaultdict(set), set()
     for record in data.get('results', []):
         event = events.get(str(record.get('ota_event_id'))) or {}

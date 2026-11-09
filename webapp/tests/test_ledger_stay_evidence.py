@@ -205,11 +205,11 @@ def skyticket_candidates(data, tmp_path):
     assert [r['status'] for r in data['results']] == ['HOLD_DATE_UNKNOWN']
 
 
-def test_unlinked_skyticket_total_shows_airfare_days_even_when_the_typed_item_is_a_tour_product(context, tmp_path):
+def test_unlinked_skyticket_total_shows_airfare_days_on_the_airfare_row(context, tmp_path):
     store, data, _, calls = context
     skyticket_candidates(data, tmp_path)
     before = deepcopy(data)
-    value = dict(card(row_kind='expense', occurred_on='2026-07-08', amount_krw=736240, reservation_no=''), item='여행상품비')
+    value = dict(card(row_kind='expense', occurred_on='2026-07-08', amount_krw=736240, reservation_no=''), item='항공료')
     @scoped
     def render():
         return (design._service_date_labels(value),
@@ -219,8 +219,8 @@ def test_unlinked_skyticket_total_shows_airfare_days_even_when_the_typed_item_is
     assert labels[0] == '08.06–08.11' and '2026-08-06' in labels[1] and '2026-08-11' in labels[1]
     assert '08.06–08.11' in desktop and '08.06–08.11' in mobile
     assert data == before and data['results'][0]['transaction_id'] is None
-    # Other items keep showing nothing.
-    other = dict(card(row_kind='expense', amount_krw=736240, reservation_no=''), item='식비')
+    # A row typed as another category shows no service date; its category is corrected instead.
+    other = dict(card(row_kind='expense', amount_krw=736240, reservation_no=''), item='여행상품비')
     @scoped
     def render_other():
         return design._service_date_labels(other)
