@@ -16,6 +16,7 @@ SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
+WINDOW_CHUNK = 200
 RETRY_ATTEMPTS = 5
 RETRY_BASE_SECONDS = 2
 HISTORY_START = '2026-04-01'
@@ -183,8 +184,11 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     query += ' before:' + end.isoformat().replace('-', '/')
     listed = list(dict.fromkeys(client.list_ids(query)))
     stored = stored_ids(directory)
-    messages = [client.get_full(message_id) for message_id in listed if message_id not in stored]
-    if messages:
+    missing = [message_id for message_id in listed if message_id not in stored]
+    # Each chunk is saved as it completes, so a run stopped by the job timeout keeps its progress
+    # and the next run fetches only what is still missing.
+    for offset in range(0, len(missing), WINDOW_CHUNK):
+        messages = [client.get_full(message_id) for message_id in missing[offset:offset + WINDOW_CHUNK]]
         path = directory / f'gmail-window-{uuid.uuid4().hex}.json'
         fd, temporary = tempfile.mkstemp(prefix='.mail-window-', suffix='.tmp', dir=directory)
         try:
@@ -197,7 +201,7 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
             os.unlink(temporary)
     if sync:
         sync_unified_store(directory)
-    return {'matched': len(listed), 'fetched': len(messages), 'query': query}
+    return {'matched': len(listed), 'fetched': len(missing), 'query': query}
 
 
 def reconcile_history(client, directory: Path, now: datetime | None = None) -> dict:

@@ -346,3 +346,23 @@ def test_supplier_and_forest_scopes_cannot_be_combined(tmp_path):
         mail_collect.main(['--directory', str(tmp_path), '--token-file', 't', '--client-file', 'c',
                            '--after', '2025-04-01', '--before', '2026-04-01',
                            '--forest-receipts-only', '--suppliers-only'])
+
+
+def test_a_long_window_keeps_each_saved_chunk_when_a_later_fetch_fails(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setattr(mail_collect, 'WINDOW_CHUNK', 2)
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', lambda directory: None)
+
+    class Stops(FakeGmail):
+        def get_full(self, message_id):
+            if message_id == 'e':
+                raise TimeoutError('job timeout')
+            return super().get_full(message_id)
+
+    client = Stops(['a', 'b', 'c', 'd', 'e'])
+    with pytest.raises(TimeoutError):
+        mail_collect.collect_window(client, tmp_path, '2025-04-01', '2026-04-01', suppliers_only=True)
+    assert mail_collect.stored_ids(tmp_path) == {'a', 'b', 'c', 'd'}
+    resumed = mail_collect.collect_window(FakeGmail(['a', 'b', 'c', 'd', 'e']), tmp_path,
+                                          '2025-04-01', '2026-04-01', suppliers_only=True)
+    assert resumed['fetched'] == 1 and mail_collect.stored_ids(tmp_path) == {'a', 'b', 'c', 'd', 'e'}
