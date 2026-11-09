@@ -2096,91 +2096,92 @@ def render_import_section(csrf: str) -> str:
 <details id="ota-proposals-panel"><summary>검토 질문</summary><div id="ota-proposals"></div><button type="button" id="ota-proposals-prev" disabled>이전</button><button type="button" id="ota-proposals-next" disabled>다음</button></details>
 </details>
 <style>
-#ota-review{{max-width:100%;min-width:0;overflow-wrap:anywhere;color:#1f2a24}}
+@import url('/static/css/tokens.css');
+#ota-review{{max-width:100%;min-width:0;overflow-wrap:anywhere;color:var(--c-text)}}
 #ota-review:not([open]){{padding:12px 16px}}
 #ota-review>summary{{cursor:pointer;list-style:revert;min-height:44px;align-items:center}}
 #ota-review *,#ota-review *::before,#ota-review *::after{{box-sizing:border-box;min-width:0}}
 #ota-review .ota-icon{{width:1em;height:1em;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.125em}}
 #ota-review .ota-title{{display:flex;align-items:center;gap:8px;margin:0 0 6px}}
-#ota-review .ota-lead{{color:#5b6660;margin:0 0 12px}}
-#ota-review #ota-status{{padding:10px 12px;border-radius:8px;background:#f1f5f2;color:#33413a;font-size:14px}}
-#ota-review #ota-freshness{{color:#5b6660;font-size:13px}}
+#ota-review .ota-lead{{color:var(--c-text-secondary);margin:0 0 12px}}
+#ota-review #ota-status{{padding:10px 12px;border-radius:var(--r-md);background:var(--c-surface-sunken);color:var(--c-text-secondary);font-size:var(--t-body-sm)}}
+#ota-review #ota-freshness{{color:var(--c-text-secondary);font-size:var(--t-meta)}}
 #ota-review #ota-queue-controls,#ota-review #ota-page-nav{{display:flex;flex-wrap:wrap;align-items:center;gap:8px}}
 #ota-review #ota-queue-controls label{{display:flex;flex:1 1 180px;flex-direction:column;gap:4px}}
 #ota-review #ota-queue-controls input,#ota-review #ota-queue-controls select{{width:100%;max-width:100%;min-height:44px}}
 #ota-review .ota-queue-row>summary{{cursor:pointer;padding:12px 0;min-height:44px}}
-#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{border:1px solid #dce3dd;border-radius:10px;background:#fff;padding:14px;margin:12px 0;box-shadow:0 1px 2px rgba(20,40,30,.06)}}
-#ota-review .ota-event{{border-left:4px solid #c7872b}}
-#ota-review .ota-event h3{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:16px;margin:0 0 10px;overflow-wrap:anywhere}}
-#ota-review .ota-event h4,#ota-review #ota-proposals h3{{display:flex;align-items:center;gap:6px;font-size:15px;margin:14px 0 6px}}
-#ota-review .ota-chip{{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:650;white-space:nowrap;background:#fdf0d5;color:#7a4a00}}
-#ota-review .ota-facts,#ota-review .ota-card-facts{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;font-size:14px}}
-#ota-review .ota-facts strong{{display:inline-flex;align-items:center;gap:4px;color:#5b6660;font-weight:600}}
-#ota-review .ota-card-facts{{color:#33413a}}
+#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{border:1px solid var(--c-border);border-radius:var(--r-lg);background:var(--c-surface);padding:14px;margin:12px 0;box-shadow:0 1px 2px color-mix(in srgb, var(--c-text) 6%, transparent)}}
+#ota-review .ota-event{{border-left:4px solid var(--c-warn-text)}}
+#ota-review .ota-event h3{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:var(--t-body);margin:0 0 10px;overflow-wrap:anywhere}}
+#ota-review .ota-event h4,#ota-review #ota-proposals h3{{display:flex;align-items:center;gap:6px;font-size:var(--t-body-sm);margin:14px 0 6px}}
+#ota-review .ota-chip{{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:var(--t-caption);font-weight:650;white-space:nowrap;background:var(--c-warn-subtle);color:var(--c-warn-text)}}
+#ota-review .ota-facts,#ota-review .ota-card-facts{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;font-size:var(--t-body-sm)}}
+#ota-review .ota-facts strong{{display:inline-flex;align-items:center;gap:4px;color:var(--c-text-secondary);font-weight:600}}
+#ota-review .ota-card-facts{{color:var(--c-text-secondary)}}
 #ota-review .ota-card-row{{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;cursor:pointer}}
-#ota-review .ota-card-row:has(input:checked){{border-color:#2f7d56;box-shadow:0 0 0 2px #cfe8da}}
-#ota-review .ota-card-row:has(input:disabled){{background:#f6f7f6;border-style:dashed;cursor:default}}
-#ota-review .ota-card-row:has(input:disabled) .ota-card-facts{{color:#6b7570}}
-#ota-review .ota-card-row input[type=radio]{{width:22px;height:22px;margin:4px 0 0;min-height:0;padding:0;accent-color:#2f7d56}}
-#ota-review .ota-card-title{{display:flex;align-items:center;gap:6px;font-size:15px;margin:0 0 8px}}
+#ota-review .ota-card-row:has(input:checked){{border-color:var(--c-accent-solid);box-shadow:0 0 0 2px var(--c-accent-subtle)}}
+#ota-review .ota-card-row:has(input:disabled){{background:var(--c-surface-sunken);border-style:dashed;cursor:default}}
+#ota-review .ota-card-row:has(input:disabled) .ota-card-facts{{color:var(--c-text-tertiary)}}
+#ota-review .ota-card-row input[type=radio]{{width:22px;height:22px;margin:4px 0 0;min-height:0;padding:0;accent-color:var(--c-accent-solid)}}
+#ota-review .ota-card-title{{display:flex;align-items:center;gap:6px;font-size:var(--t-body-sm);margin:0 0 8px}}
 #ota-review .ota-value{{overflow-wrap:anywhere}}
-#ota-review .ota-match{{font-style:normal;color:#1c7a52;font-weight:650;margin-left:6px}}
-#ota-review .ota-blocked,#ota-review .ota-ok{{display:flex;align-items:flex-start;gap:6px;margin-top:8px;padding:8px 10px;border-radius:8px;font-size:13px}}
-#ota-review .ota-blocked{{background:#fdf0d5;color:#7a4a00}}
-#ota-review .ota-ok{{background:#e2f3e8;color:#1d5c3a}}
+#ota-review .ota-match{{font-style:normal;color:var(--c-accent-text);font-weight:650;margin-left:6px}}
+#ota-review .ota-blocked,#ota-review .ota-ok{{display:flex;align-items:flex-start;gap:6px;margin-top:8px;padding:8px 10px;border-radius:var(--r-md);font-size:var(--t-meta)}}
+#ota-review .ota-blocked{{background:var(--c-warn-subtle);color:var(--c-warn-text)}}
+#ota-review .ota-ok{{background:var(--c-accent-subtle);color:var(--c-accent-text)}}
 #ota-review .ota-verdict{{font-weight:650;margin:8px 0}}
-#ota-review .ota-preview{{margin-top:10px;padding:12px;border-radius:8px;background:#f1f5f2}}
-#ota-review .ota-preview strong{{display:inline-flex;align-items:center;gap:6px;font-size:15px}}
-#ota-review .ota-preview p{{margin:6px 0 10px;font-size:14px;color:#33413a}}
+#ota-review .ota-preview{{margin-top:10px;padding:12px;border-radius:var(--r-md);background:var(--c-surface-sunken)}}
+#ota-review .ota-preview strong{{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-body-sm)}}
+#ota-review .ota-preview p{{margin:6px 0 10px;font-size:var(--t-body-sm);color:var(--c-text-secondary)}}
 #ota-review .ota-ids{{margin:8px 0}}
-#ota-review button,#ota-review select,#ota-review input:not([type=radio]):not([type=checkbox]){{font:inherit;max-width:100%;min-height:42px;padding:8px;border:1px solid #9aa79d;border-radius:6px;background:#fff}}
+#ota-review button,#ota-review select,#ota-review input:not([type=radio]):not([type=checkbox]){{font:inherit;max-width:100%;min-height:42px;padding:8px;border:1px solid var(--c-border-control);border-radius:var(--r-sm);background:var(--c-surface)}}
 #ota-review button{{display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-weight:650}}
-#ota-review button.ota-primary{{background:#2f7d56;border-color:#2f7d56;color:#fff}}
+#ota-review button.ota-primary{{background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}}
 #ota-review button:disabled{{opacity:.5;cursor:not-allowed}}
 #ota-review .ota-actions{{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}}
 #ota-review #ota-queue-controls{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}}
 #ota-review #ota-queue-controls label{{display:grid;gap:4px}}
-#ota-review .ota-queue-row{{border:1px solid var(--ota-line);border-radius:10px;padding:12px;margin:8px 0;background:var(--ota-bg)}}
+#ota-review .ota-queue-row{{border:1px solid var(--ota-line);border-radius:var(--r-lg);padding:12px;margin:8px 0;background:var(--ota-bg)}}
 #ota-review .ota-queue-row>summary{{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
 #ota-review .ota-proposal-fields{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
 #ota-review [hidden]{{display:none!important}}
 @media(max-width:550px){{#ota-review{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:minmax(0,1fr)}}#ota-review .ota-actions button{{width:100%}}#ota-review #ota-queue-controls{{grid-template-columns:1fr}}}}
 
 /* 2026-10-27: use the same semantic shell tokens as expense cleanup. */
-#ota-review{{--ota-bg:var(--shell-paper,var(--paper,#fff));--ota-ink:var(--shell-ink,var(--ink,#18212c));--ota-muted:var(--shell-muted,var(--mut,#64748b));--ota-line:var(--shell-line,var(--line,#dce3dd));--ota-hover:var(--shell-hover,var(--hover,#edf2ee));--ota-warn:var(--shell-warn,#e5a146);--ota-warn-bg:var(--shell-warn-bg,var(--ota-hover));--ota-radius:var(--ui-radius,12px);--ota-control:var(--shell-control-min,44px);color:var(--ota-ink);border:1px solid var(--ota-line);border-radius:var(--ota-radius);background:var(--ota-bg);padding:clamp(12px,2vw,20px);margin:clamp(14px,2vw,20px) 0}}
-#ota-review .ota-title{{font-size:18px;line-height:1.45;font-weight:750;margin-bottom:12px;color:var(--ota-ink)}}
+#ota-review{{--ota-bg:var(--shell-paper,var(--paper,var(--c-surface)));--ota-ink:var(--shell-ink,var(--ink,var(--c-text)));--ota-muted:var(--shell-muted,var(--mut,var(--c-text-secondary)));--ota-line:var(--shell-line,var(--line,var(--c-border)));--ota-hover:var(--shell-hover,var(--hover,var(--c-surface-sunken)));--ota-warn:var(--shell-warn,var(--c-warn-text));--ota-warn-bg:var(--shell-warn-bg,var(--ota-hover));--ota-radius:var(--ui-radius,var(--r-lg));--ota-control:var(--shell-control-min,44px);color:var(--ota-ink);border:1px solid var(--ota-line);border-radius:var(--r-lg);background:var(--ota-bg);padding:clamp(12px,2vw,20px);margin:clamp(14px,2vw,20px) 0}}
+#ota-review .ota-title{{font-size:var(--t-h3);line-height:1.45;font-weight:750;margin-bottom:12px;color:var(--ota-ink)}}
 #ota-review{{min-width:0;overflow-wrap:anywhere}}
 #ota-review .ota-event h3{{flex-wrap:wrap}}
 #ota-review .ota-event h3>span{{min-width:0;max-width:100%;white-space:normal}}
 #ota-review #ota-status{{background:var(--ota-hover);color:var(--ota-ink)}}
 #ota-review #ota-freshness,#ota-review .ota-lead{{color:var(--ota-muted)}}
-#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{background:var(--ota-bg);border-color:var(--ota-line);border-radius:12px;box-shadow:none;margin:10px 0;padding:16px}}
+#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{background:var(--ota-bg);border-color:var(--ota-line);border-radius:var(--r-lg);box-shadow:none;margin:10px 0;padding:16px}}
 #ota-review .ota-event{{border-left:3px solid var(--ota-warn);}}
-#ota-review .ota-event h3{{font-size:15px;margin:0 0 10px}}
-#ota-review .ota-event .ota-overview{{font-size:18px;line-height:1.5;font-weight:800;font-variant-numeric:tabular-nums;margin:0 0 5px;color:var(--ota-ink)}}
-#ota-review .ota-chip{{color:var(--ota-warn);background:var(--ota-warn-bg);border:1px solid var(--ota-line);font-size:11px}}
-#ota-review .ota-verdict{{font-size:13px;color:var(--ota-muted);font-weight:500;line-height:1.5;margin:0 0 12px}}
-#ota-review .ota-more{{background:var(--ota-hover);border:1px solid var(--ota-line);border-radius:10px;padding:0 12px;margin:10px 0}}
+#ota-review .ota-event h3{{font-size:var(--t-body-sm);margin:0 0 10px}}
+#ota-review .ota-event .ota-overview{{font-size:var(--t-h3);line-height:1.5;font-weight:800;font-variant-numeric:tabular-nums;margin:0 0 5px;color:var(--ota-ink)}}
+#ota-review .ota-chip{{color:var(--ota-warn);background:var(--ota-warn-bg);border:1px solid var(--ota-line);font-size:var(--t-caption)}}
+#ota-review .ota-verdict{{font-size:var(--t-meta);color:var(--ota-muted);font-weight:500;line-height:1.5;margin:0 0 12px}}
+#ota-review .ota-more{{background:var(--ota-hover);border:1px solid var(--ota-line);border-radius:var(--r-lg);padding:0 12px;margin:10px 0}}
 #ota-review .ota-more summary{{min-height:44px;display:flex;align-items:center;font-weight:650;cursor:pointer;color:var(--ota-ink)}}
 #ota-review .ota-facts{{padding:4px 0 14px;gap:9px 14px;line-height:1.5}}
-#ota-review .ota-facts strong{{display:flex;color:var(--ota-muted);font-size:12px;line-height:1.3;gap:6px}}
-#ota-review .ota-facts .ota-value{{display:block;font-size:13px;margin:3px 0 0;overflow-wrap:anywhere}}
+#ota-review .ota-facts strong{{display:flex;color:var(--ota-muted);font-size:var(--t-caption);line-height:1.3;gap:6px}}
+#ota-review .ota-facts .ota-value{{display:block;font-size:var(--t-meta);margin:3px 0 0;overflow-wrap:anywhere}}
 #ota-review .ota-card-facts,#ota-review .ota-preview p{{color:var(--ota-ink)}}
-#ota-review .ota-card-row:has(input:checked){{border-color:var(--shell-accent,#1c7a52);box-shadow:inset 0 0 0 1px var(--shell-accent,#1c7a52)}}
+#ota-review .ota-card-row:has(input:checked){{border-color:var(--shell-accent,var(--c-accent-text));box-shadow:inset 0 0 0 1px var(--shell-accent,var(--c-accent-text))}}
 #ota-review .ota-card-row:has(input:disabled){{background:var(--ota-hover)}}
 #ota-review .ota-card-row:has(input:disabled) .ota-card-facts{{color:var(--ota-muted)}}
 #ota-review .ota-blocked{{background:var(--ota-warn-bg);color:var(--ota-warn)}}
-#ota-review .ota-ok{{background:var(--ota-hover);color:var(--shell-accent,#1c7a52)}}
+#ota-review .ota-ok{{background:var(--ota-hover);color:var(--shell-accent,var(--c-accent-text))}}
 #ota-review .ota-preview{{background:var(--ota-hover)}}
-#ota-review button,#ota-review select,#ota-review input:not([type=radio]):not([type=checkbox]){{border-color:var(--ota-line);background:var(--ota-bg);color:var(--ota-ink);border-radius:9px;min-height:var(--ota-control);max-width:100%}}
-#ota-review button.ota-primary{{background:var(--shell-accent,#1c7a52);border-color:var(--shell-accent,#1c7a52);color:#fff}}
-#ota-review button:focus-visible,#ota-review summary:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
+#ota-review button,#ota-review select,#ota-review input:not([type=radio]):not([type=checkbox]){{border-color:var(--ota-line);background:var(--ota-bg);color:var(--ota-ink);border-radius:var(--r-md);min-height:var(--ota-control);max-width:100%}}
+#ota-review button.ota-primary{{background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}}
+#ota-review button:focus-visible,#ota-review summary:focus-visible{{outline:2px solid var(--shell-focus,var(--c-focus));outline-offset:2px}}
 #ota-review .ota-actions{{gap:10px;margin-top:12px}}
 #ota-review h4[role=button]{{min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;cursor:pointer}}
-#ota-review h4[role=button]:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
+#ota-review h4[role=button]:focus-visible{{outline:2px solid var(--shell-focus,var(--c-focus));outline-offset:2px}}
 @media(width < 760px){{#ota-review{{padding:12px;margin:14px 0}}#ota-review .ota-event,#ota-review .ota-card-row{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:1fr}}#ota-review .ota-actions button{{width:100%}}#ota-review #ota-queue-controls{{grid-template-columns:1fr}}}}
-@media(width < 420px){{#ota-review{{padding:10px;border-radius:var(--ota-radius)}}#ota-review .ota-title{{font-size:16px}}#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{padding:10px}}#ota-review .ota-page-nav{{width:100%}}#ota-review #ota-page-nav button,#ota-review #ota-proposals-panel>button{{flex:1 1 0}}}}
-#ota-review :where(button,input,select,summary):focus-visible{{outline:2px solid var(--shell-focus,#2266F5);outline-offset:2px}}
+@media(width < 420px){{#ota-review{{padding:10px;border-radius:var(--r-lg)}}#ota-review .ota-title{{font-size:var(--t-body)}}#ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{padding:10px}}#ota-review .ota-page-nav{{width:100%}}#ota-review #ota-page-nav button,#ota-review #ota-proposals-panel>button{{flex:1 1 0}}}}
+#ota-review :where(button,input,select,summary):focus-visible{{outline:2px solid var(--shell-focus,var(--c-focus));outline-offset:2px}}
 #ota-review :where(input,select){{min-width:0}}
 #ota-review .ota-actions,#ota-review #ota-page-nav{{min-width:0;overflow-wrap:anywhere}}
 </style>

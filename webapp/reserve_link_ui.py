@@ -22,23 +22,20 @@ _DOCUMENT = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>예약 명단·여행 연결</title>
 <style>
-:root { color-scheme: light; --bg:#F7F9FC; --surface:#fff; --text:#182230; --muted:#596579;
-  --border:#D0D5DD; --soft:#F2F4F7; --accent:#1A5C43; --accent-soft:#E5F2EA; --focus:#185ADB; }
-@media (prefers-color-scheme: dark) {
-  :root { color-scheme: dark; --bg:#111820; --surface:#1B2632; --text:#E7EDF4; --muted:#B1BECC;
-    --border:#465666; --soft:#293744; --accent:#9AE0B8; --accent-soft:#244536; --focus:#93BEFF; }
-}
+@import url('/static/css/tokens.css');
+:root { --bg:var(--c-bg); --surface:var(--c-surface); --text:var(--c-text); --muted:var(--c-text-secondary); --border:var(--c-border-control); --soft:var(--c-surface-sunken); --accent:var(--c-accent-solid); --accent-soft:var(--c-accent-subtle); --focus:var(--c-focus,Highlight); }
+
 body { font-family: system-ui, sans-serif; margin: 1.5rem; background:var(--bg); color:var(--text); }
-h1 { font-size: 1.25rem; }
+h1 { font-size: var(--t-h1); }
 table { border-collapse: collapse; margin: 0.5rem 0; background:var(--surface); }
 th, td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; }
 th { background:var(--soft); }
-.linktable select, input, textarea { max-width:100%; min-height:44px; border:1px solid var(--border); border-radius:8px;
+.linktable select, input, textarea { max-width:100%; min-height:44px; border:1px solid var(--border); border-radius:var(--r-md);
   background:var(--surface); color:var(--text); padding:8px 10px; font:inherit; }
 :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
 .bar { margin: 0.75rem 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
-  padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color:var(--text);
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color:var(--text);
   font: inherit; font-weight: 600; cursor: pointer; }
 @media (hover:hover) { .bar button:not(:disabled):hover { background:var(--accent-soft); border-color:var(--accent); } }
 .bar button:disabled { opacity:.62; cursor:not-allowed; }
@@ -47,25 +44,25 @@ th { background:var(--soft); }
 .backbar a.back .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .bar button { transition: none; } }
 .note { color: var(--muted); }
-.err { color: var(--shell-danger, #A1262F); }
-.warntext { color: var(--shell-warn, #8A5100); }
+.err { color: var(--shell-danger, var(--c-danger-text)); }
+.warntext { color: var(--shell-warn, var(--c-warn-text)); }
 .link-help { margin:.35rem 0 .75rem; color:var(--muted); }
 .link-tools { display:flex; align-items:end; gap:.75rem; flex-wrap:wrap; margin:.75rem 0; }
-.link-tools label { display:flex; flex-direction:column; gap:.25rem; color:var(--muted); font-size:.85rem; }
+.link-tools label { display:flex; flex-direction:column; gap:.25rem; color:var(--muted); font-size:var(--t-meta); }
 .link-tools input, .link-tools select { min-width:15rem; min-height:40px; }
 .link-tools .page { display:flex; align-items:center; gap:.5rem; margin-left:auto; }
-.link-tools button { min-height:40px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;
+.link-tools button { min-height:40px; padding:6px 10px; border:1px solid var(--border); border-radius:var(--r-md);
   background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
 .link-tools button:disabled { opacity:.5; cursor:not-allowed; }
 .page-count { min-width:5rem; text-align:center; color:var(--muted); }
 .linktable tbody tr.is-hidden { display:none; }
 .linktable .picker select { min-height:88px; }
 .linktable .source-name { font-weight:700; display:block; }
-.linktable .source-code { display:block; margin-top:.25rem; color:var(--muted); font-size:.82rem; }
+.linktable .source-code { display:block; margin-top:.25rem; color:var(--muted); font-size:var(--t-meta); }
 .linktable .chosen { min-width:13rem; }
 .linktable .chosen.empty { color:var(--muted); }
 .linktable .clear-link { margin-top:.5rem; min-height:36px; padding:5px 9px; border:1px solid var(--border);
-  border-radius:7px; background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
+  border-radius:var(--r-sm); background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
 @media (hover:hover) { .linktable .clear-link:hover { background:var(--accent-soft); border-color:var(--accent); } }
 .empty-filter { padding:1rem; border:1px dashed var(--border); color:var(--muted); }
 fieldset { margin: 0.5rem 0; }
@@ -115,7 +112,7 @@ a.back { color: var(--accent); text-decoration: none; }
   }
   .linktable tr {
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--r-lg);
     margin: 0.75rem 0;
     padding: 0.25rem;
   }
@@ -123,13 +120,13 @@ a.back { color: var(--accent); text-decoration: none; }
   .linktable td::before {
     content: attr(data-label);
     display: block;
-    font-size: 0.75rem;
+    font-size: var(--t-caption);
     color: var(--muted);
     margin-bottom: 0.15rem;
   }
 }
 @media (max-width:700px) { .link-tools .page { margin-left:0; width:100%; justify-content:space-between; } }
-@media (max-width:375px) { body { margin:.625rem; } h1 { font-size:1.15rem; } .linktable td { padding:.4rem; } .link-tools input, .link-tools select { min-width:0; width:100%; } }
+@media (max-width:375px) { body { margin:.625rem; } h1 { font-size:var(--t-h3); } .linktable td { padding:.4rem; } .link-tools input, .link-tools select { min-width:0; width:100%; } }
 </style>
 </head>
 <body>
@@ -633,7 +630,7 @@ def render_reserve_link_ui(csrf_token: str = "", payload_json: str = "", *,
         markup = markup.replace('<body>', '<body data-trip-reservation-embed="1">')
         markup = markup.replace('</head>', '<style>'
                                 + 'body{margin:0;padding:8px;box-sizing:border-box} .backbar{display:none}'
-                                + 'h1{font-size:1rem}.link-tools input,.link-tools select{min-width:0;max-width:100%}'
+                                + 'h1{font-size:var(--t-body)}.link-tools input,.link-tools select{min-width:0;max-width:100%}'
                                 + '</style><script>' + site_theme.BOOTSTRAP + '</script></head>')
     for token, name in (
             ("__ICON_CHEVRON_LEFT__", "chevron-left"),

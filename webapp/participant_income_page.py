@@ -432,15 +432,15 @@ def render_page(state: dict, *, csrf: str = "") -> str:
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>참가자·수입 대조</title>"
-            "<style>.participant-page{max-width:1200px;margin:auto;padding:24px;min-width:0}"
-            ".participant-page h1{font-size:clamp(22px,4vw,30px);margin:0 0 16px}.participant-page .small{font-size:13px;color:var(--shell-muted,#64748b);line-height:1.6}"
+            "<style>@import url('/static/css/tokens.css');.participant-page{max-width:1200px;margin:auto;padding:24px;min-width:0}"
+            ".participant-page h1{font-size:var(--t-h1);margin:0 0 16px}.participant-page .small{font-size:var(--t-meta);color:var(--shell-muted,var(--c-text-secondary));line-height:1.6}"
             ".participant-page p{overflow-wrap:anywhere}.participant-page .participant-match-link{display:inline-flex;align-items:center;min-height:44px}"
-            ".participant-table-wrap{max-width:100%;overflow-x:auto;margin:20px 0;border:1px solid var(--shell-line,#cbd5e1);border-radius:8px}"
-            ".participant-page table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}"
-            ".participant-page caption{text-align:left;font-weight:700;padding:12px}.participant-page th,.participant-page td{padding:10px;text-align:left;vertical-align:top;border-top:1px solid var(--shell-line,#cbd5e1);overflow-wrap:anywhere}"
+            ".participant-table-wrap{max-width:100%;overflow-x:auto;margin:20px 0;border:1px solid var(--shell-line,var(--c-border));border-radius:var(--r-md)}"
+            ".participant-page table{border-collapse:collapse;width:100%;min-width:760px;font-size:var(--t-body-sm)}"
+            ".participant-page caption{text-align:left;font-weight:700;padding:12px}.participant-page th,.participant-page td{padding:10px;text-align:left;vertical-align:top;border-top:1px solid var(--shell-line,var(--c-border));overflow-wrap:anywhere}"
             ".participant-page th{white-space:nowrap}.participant-page form{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}"
-            ".participant-page :is(input,select,button){font:inherit;min-height:44px;max-width:100%}.participant-page :focus-visible{outline:2px solid var(--shell-focus,#2563eb);outline-offset:2px}"
-            "@media(max-width:759px){.participant-page{padding:16px 10px}.participant-page :is(input,select){font-size:16px}}"
+            ".participant-page :is(input,select,button){font:inherit;min-height:44px;max-width:100%}.participant-page :focus-visible{outline:2px solid var(--shell-focus,var(--c-focus));outline-offset:2px}"
+            "@media(max-width:759px){.participant-page{padding:16px 10px}.participant-page :is(input,select){font-size:var(--t-body)}}"
             "</style></head><body>" + body + "</body></html>")
 
 

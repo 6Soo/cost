@@ -37,7 +37,9 @@ def test_card_catalog_filters_and_popover_use_theme_tokens_without_fixed_light_c
 
 
 def test_reservation_link_ui_has_dark_tokens_mobile_layout_and_large_controls():
-    assert "prefers-color-scheme: dark" in _DOCUMENT
+    assert "@import url('/static/css/tokens.css')" in _DOCUMENT
+    assert "--bg:var(--c-bg)" in _DOCUMENT
+    assert "prefers-color-scheme" not in _DOCUMENT
     assert "@media (max-width:375px)" in _DOCUMENT
     assert "min-height:44px" in _DOCUMENT
     assert ":focus-visible" in _DOCUMENT
@@ -48,4 +50,4 @@ def test_reservation_link_ui_has_dark_tokens_mobile_layout_and_large_controls():
 def test_reservation_link_ui_does_not_add_manual_theme_preference_storage():
     assert "localStorage" not in _DOCUMENT
     assert "theme-toggle" not in _DOCUMENT
-    assert "prefers-color-scheme" in _DOCUMENT
+    assert "prefers-color-scheme" not in _DOCUMENT
