@@ -1005,10 +1005,63 @@ def _flight_date_labels(row):
             '항공 이용일: ' + ' · '.join(day.isoformat() for day in days))
 
 
+# Payment intermediaries and booking sites: a charge through them is a booking, not an on-site stay.
+_BOOKING_CHANNEL = re.compile(
+    r'(?i)nice|kcp|inicis|이니시스|토스|카카오페이|네이버페이|페이코|payco|paypal|klook|클룩|booking|agoda|아고다'
+    r'|trip\.?com|트립|expedia|hotels\.com|인터넷상거래|결제대행|ksnet|다날|스마트로|나이스|쿠팡|야놀자|여기어때'
+    r'|airbnb|에어비앤비|rakuten|라쿠텐|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b')
+
+
+def _onsite_payment_label(row, kind):
+    """A lodging or rental paid at the property: the card's use date is its use date.
+
+    Only a direct (non-booking-channel) merchant charged inside the row's own trip
+    period qualifies; no stay length is inferred from it.
+    """
+    from app.ota_matching_defaults import provider_for_merchant
+    if (not str(row.get('row_id') or '').startswith('card-') or str(row.get('reservation_no') or '').strip()
+            or (row.get('amount_krw') or 0) <= 0):
+        return None
+    merchant = str(row.get('source_merchant') or '')
+    if not merchant or provider_for_merchant(merchant) or _BOOKING_CHANNEL.search(merchant):
+        return None
+    try:
+        day = date.fromisoformat(str(row.get('occurred_on') or ''))
+    except ValueError:
+        return None
+    trip = read_scope.remember('trip_periods', _trip_periods).get(str(row.get('display_tab_id') or ''))
+    if not trip:
+        return None
+    starts, ends = trip
+    if day < starts or (ends is not None and day > ends):
+        return None
+    what = '숙박 기간' if kind == 'lodging' else '인수·반납일'
+    return (f"{day:%m.%d} 현장 결제",
+            f"현장 결제한 카드 이용일 {day.isoformat()} 기준 · {what}은 원문에 없음")
+
+
+def _trip_periods():
+    periods = {}
+    for trip in board.live_trips(include_archived=True):
+        try:
+            starts = date.fromisoformat(str(trip.get('starts_on') or ''))
+        except ValueError:
+            continue
+        try:
+            ends = date.fromisoformat(str(trip.get('ends_on') or '')) if trip.get('ends_on') else None
+        except ValueError:
+            ends = None
+        periods[str(trip['tab_id'])] = (starts, ends)
+    return periods
+
+
 def _service_date_labels(row):
     item = str(row.get('item') or '').strip()
     if item == '숙박비':
-        return _compact_stay(row), _stay_text(row)
+        compact, full = _compact_stay(row), _stay_text(row)
+        if full == '이용일 확인 필요':
+            return _onsite_payment_label(row, 'lodging') or (compact, full)
+        return compact, full
     if item in ('항공료', '항공권'):
         return _flight_date_labels(row)
     if item == '렌터카':
@@ -1019,7 +1072,7 @@ def _service_date_labels(row):
         except ValueError:
             valid = False
         if not valid:
-            return '이용일 미확인', '렌터카 인수·반납일 미확인'
+            return _onsite_payment_label(row, 'rental') or ('이용일 미확인', '렌터카 인수·반납일 미확인')
         fmt = '%y.%m.%d' if start.year != end.year else '%m.%d'
         return (start.strftime(fmt) + '–' + end.strftime(fmt),
                 '렌터카 인수 ' + start.isoformat() + ' · 반납 ' + end.isoformat())
