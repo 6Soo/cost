@@ -366,3 +366,18 @@ def test_a_long_window_keeps_each_saved_chunk_when_a_later_fetch_fails(tmp_path,
     resumed = mail_collect.collect_window(FakeGmail(['a', 'b', 'c', 'd', 'e']), tmp_path,
                                           '2025-04-01', '2026-04-01', suppliers_only=True)
     assert resumed['fetched'] == 1 and mail_collect.stored_ids(tmp_path) == {'a', 'b', 'c', 'd', 'e'}
+
+
+def test_a_killed_run_leaves_no_old_partial_chunk_behind(tmp_path, monkeypatch):
+    import os
+    import time
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', lambda directory: None)
+    old = tmp_path / '.mail-window-killed.tmp'
+    recent = tmp_path / '.mail-window-writing.tmp'
+    for path in (old, recent):
+        path.write_text('{"responses": [', encoding='utf-8')
+    stale = time.time() - mail_collect.STALE_TEMPORARY_SECONDS - 60
+    os.utime(old, (stale, stale))
+    mail_collect.collect_window(FakeGmail(['a']), tmp_path, '2025-04-01', '2026-04-01', suppliers_only=True)
+    assert not old.exists() and recent.exists()
+    assert mail_collect.stored_ids(tmp_path) == {'a'}

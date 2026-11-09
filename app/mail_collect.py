@@ -185,6 +185,7 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     listed = list(dict.fromkeys(client.list_ids(query)))
     stored = stored_ids(directory)
     missing = [message_id for message_id in listed if message_id not in stored]
+    _sweep_stale_window_temporaries(directory)
     # Each chunk is saved as it completes, so a run stopped by the job timeout keeps its progress
     # and the next run fetches only what is still missing.
     for offset in range(0, len(missing), WINDOW_CHUNK):
@@ -202,6 +203,21 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     if sync:
         sync_unified_store(directory)
     return {'matched': len(listed), 'fetched': len(missing), 'query': query}
+
+
+STALE_TEMPORARY_SECONDS = 2 * 3600
+
+
+def _sweep_stale_window_temporaries(directory: Path) -> None:
+    """Remove partial chunk files a killed run left; a live write is far younger than the job timeout."""
+    import time
+    limit = time.time() - STALE_TEMPORARY_SECONDS
+    for path in directory.glob('.mail-window-*.tmp'):
+        try:
+            if path.is_file() and not path.is_symlink() and path.stat().st_mtime < limit:
+                path.unlink()
+        except OSError:
+            continue
 
 
 def reconcile_history(client, directory: Path, now: datetime | None = None) -> dict:
