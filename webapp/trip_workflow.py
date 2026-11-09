@@ -1,10 +1,10 @@
 """Owner-only review links projected from existing sources, never saved state."""
 from __future__ import annotations
 
-import html
 from urllib.parse import urlencode
 
-from . import expense_amount_group_service as groups, google_ledger_page as google, receipt_review, ui_icons
+from . import expense_amount_group_service as groups, google_ledger_page as google, receipt_review
+from .ui_components import steps
 
 
 def _receipts(trip_id):
@@ -63,39 +63,58 @@ def render(board, trip_id, cost_rows, amount_groups):
     state = build_state(board, trip_id, cost_rows, amount_groups)
     if state is None:
         return ''
-    esc = lambda value: html.escape(str(value), quote=True)
-    closure = {'closed':'보관 장부 이동 확인', 'open':'메인 장부 · 미마감', 'unknown':'마감 확인 필요'}[state['closure']]
-    if state['duplicate_copy']:
-        closure += ' · 사본 중복 검토'
-    receipt = state['receipts']
-    receipt_text = (f"이 여행 영수증 {receipt['count']}건. 금액·여행·결제수단을 확인하세요."
-                    if receipt['available'] else '자료를 읽지 못해 건수를 확인할 수 없습니다. 영수증 화면에서 확인하세요.')
+
+    # PR-4 replaces the old equal-weight review cards with one ordered list.  The
+    # values below are projections of the existing state only; no new aggregation
+    # or user task is created here.
+    missing_service_dates = 0
+    try:
+        from . import ledger_design
+        for row in cost_rows or ():
+            if row.get('row_kind') != 'expense':
+                continue
+            compact, _title = ledger_design._service_date_labels(row)
+            if not compact or '미확인' in compact or '확인 필요' in compact:
+                missing_service_dates += 1
+    except Exception:
+        missing_service_dates = sum(
+            1 for row in cost_rows or ()
+            if row.get('row_kind') == 'expense' and not row.get('service_period'))
+
+    expense_note = f"{len(cost_rows or [])}건"
+    if missing_service_dates:
+        expense_note += f" · 이용일 원문 없음 {missing_service_dates}건"
+    receipt = state.get('receipts') or {}
+    receipt_note = (f"{receipt.get('count', 0)}건" if receipt.get('available')
+                    else '자료를 읽지 못했습니다')
+    domestic = False
+    try:
+        from .trip_insurance_policy import domestic_trip
+        domestic = domestic_trip(trip_id)
+    except Exception:
+        pass
+    income_note = '수입 확인' if domestic else '보험 후보 비교'
     summary = (amount_groups or {}).get('summary') or {}
-    copy_text = (f"미기록 {summary.get('unrecorded', 0)}그룹 · 부분 일치 {summary.get('partial', 0)}그룹. "
-                 '장부 표시를 대조한 뒤 복사 가능한 지출을 확인하세요.' if state['google_available']
-                 else 'Google 장부와 비교할 수 없습니다. 비교 자료를 확인한 뒤 복사 여부를 판단하세요.')
-    links = [('users', '보험 후보 비교', '수입의 보험 등록 후보를 비교하고, 맞는 참가자를 연결하거나 기존 연결을 교정하세요.', '#participant-trip-panel'),
-             ('table', '지출 검토·복사', copy_text, '#trip-expense-copy'),
-             ('receipt', '영수증 확인', receipt_text, '/receipts?' + urlencode({'trip': trip_id})),
-             ('archive', '수입·마감 확인', closure + ' · 수입 내역과 출처를 확인하세요. 마감과 지출 기록은 별개입니다.', '#trip-income')]
-    from .trip_insurance_policy import domestic_trip
-    domestic = domestic_trip(trip_id)
-    if domestic:
-        links = links[1:]
-    cards = [
-        f"<a class='trip-workflow-card' href='{esc(href)}'"
-        + (" data-trip-panel='participant-trip-panel'" if href == '#participant-trip-panel' else '') + ">"
-        f"<span class='trip-workflow-icon'>{ui_icons.icon(icon, 18)}</span>"
-        f"<span class='trip-workflow-copy'><strong>{esc(label)}</strong>"
-        f"<span>{esc(text)}</span></span>"
-        f"<span class='trip-workflow-arrow'>{ui_icons.icon('chevron-right', 16)}</span></a>"
-        for icon, label, text, href in links]
-    return ("<details class='trip-workflow' id='trip-review-panel' aria-label='여행 검토'><summary>"
-            f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
-            f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
-            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards) + '</nav>'
-            + "<details class='trip-workflow-tools'><summary>전체 여행 자료에서 더 찾기</summary>"
-            "<p>아래 화면은 전체 여행 자료를 엽니다. 현재 여행으로 자동 필터되지 않습니다.</p>"
-            "<nav class='trip-review-sources' aria-label='전체 자료 도구'>"
-            "<a href='/cards/all'>카드 원본 찾기</a><a href='/ota'>OTA·환불 근거 찾기</a>"
-            "<a href='/google-ledger'>Google 장부 사본·마감 관리</a></nav></details></details>")
+    if state.get('google_available'):
+        google_note = (f"미기록 {summary.get('unrecorded', 0)}그룹 · "
+                       f"부분 일치 {summary.get('partial', 0)}그룹")
+        google_done = not summary.get('unrecorded', 0) and not summary.get('partial', 0)
+    else:
+        google_note = '비교 불가'
+        google_done = False
+    closure_label = {'closed': '마감', 'open': '미마감', 'unknown': '확인 중'}.get(
+        state.get('closure'), '확인 중')
+    items = [
+        {'label': '지출', 'note': expense_note, 'href': '#view-expense',
+         'state': 'done' if not missing_service_dates else 'todo'},
+        {'label': '영수증', 'note': receipt_note,
+         'href': '/receipts?' + urlencode({'trip': trip_id}),
+         'state': 'done' if receipt.get('available') else 'todo'},
+        {'label': '수입·참가자', 'note': income_note, 'href': '#view-income', 'state': 'todo'},
+        {'label': 'Google 복사', 'note': google_note,
+         'href': '#copy-trip-expenses', 'state': 'done' if google_done else 'todo'},
+        {'label': '마감', 'note': closure_label, 'href': '#trip-close',
+         'state': 'done' if state.get('closure') == 'closed' else 'todo'},
+    ]
+    return (f"<section class='settlement-steps' id='trip-steps' aria-label='정산 단계'>"
+            f"{steps(items)}</section>")
