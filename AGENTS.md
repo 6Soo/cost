@@ -2,13 +2,13 @@
 
 - **2026-11-08 최신 사용자 결정 — UI/UX 최우선, 카드 작업함·분류 대기 상태 폐지:** 현재 작업의 실행 정본은 [카드 최종 귀속·작업 기능 폐지](docs/specs/card-destination-only-ux-20261108.md)다. `직접 답할 작업`/`내 확인 필요` 및 미배정·확인필요·처리필요·미분류 UI/필터/관련 P3 기능을 삭제하고 실제 여행 또는 결제일 기준 분기 기타비용으로 끝낸다. 아래 과거의 P3 작업함 유지 문구보다 이 결정이 우선한다. 금융 원본·권한·수동 교정·환불·감사 이력은 별도로 보존한다. 현재 IMPLEMENTING이며 이전 #735 배포 성공은 이 요구의 완료 근거가 아니다.
 
-- **2026-11-07 최신 배포 완료 (#714 + #717 한 번에):** PR #718은 문서-only로 `0b11c3a395505f4cc8d59b52ada06f623764db6c`에 병합됐다. 지정 코드 SHA `fbda50cbe01d5021ab341ed82337badb2e8c59a0`를 Windows에 한 번 배포했고 이전 `ceb014f1ca716792e9df7eaee591cc00294aa866`에서 전환했다. 1,429 tracked blobs mismatch0, task/process SHA 일치, Gateway8790→loopback8752·health/ready200·보호 API401·보호13표 불변 PASS. 상세는 [운영 기록](docs/operations.md)과 [LAT 정본](docs/specs/card-history-latency-release-20261107.md). 문서-only 후속은 재배포하지 않는다.
+- **2026-11-09 현재 상태 정본:** 최신 코드·운영 SHA·열린 PR·보존한 미병합 브랜치(`fix/flight-passenger-names-20261108`, `fix/mobile-income-single-line-20261109`)·작업공간 정리 결과는 [현재 상태](docs/session_handoff.md)와 [운영 기록](docs/operations.md) 맨 위 절만 따른다. 2026-11-07 이전 인계·배포 기록은 [docs/history](docs/history/README.md)에 원문 보관되어 있으며 현재 작업 큐가 아니다. #714+#717은 2026-11-07 `fbda50cb`로 이미 배포됐다([LAT 정본](docs/specs/card-history-latency-release-20261107.md)). 문서-only 후속은 재배포하지 않는다.
 
 - **2026-11-07 남은 수락 범위: 실제 화면·카드 진입 성능만 미검증.** 독립 ego-browser의 `/cards/all?panel=coverage`와 `/api/maintenance/request-metrics` 요청은 401을 반환해 인증 UI·23개 파일·390/1440·전후 속도·query/lock 지표를 확인하지 못했다 (`AUTH_UI_BLOCKED`). 허가된 인증 세션이 생길 때까지 이 항목을 완료로 보고하지 않는다. 고객 파일 확인 POST, 금융·Google·원본 쓰기 금지. #714/#717 코드 재구현·분리 재배포 금지.
 
 - **2026-11-06 PR만 읽고 구현하는 COST 최신 실행 명세:** [자기완결 PR 구현 지시·실제 코드 위치·16개 인수 테스트](docs/specs/cost-pr-only-implementation-brief-20261106.md)를 구현 작업의 단일 시작점으로 삼는다. **#710 CI 최적화는 이미 코드 병합·main CI 통과**, #699의 0/6 사용자 업무와 금융 원행 구분·#700/#703 영수증 단일 JPG/PDF 등록은 이미 구현/운영 배포 기록이 있다. 2026-11-06 당시 신규 P0은 **카드 내역 IA 통합**(이후 #713 병합·운영 적용 완료)(지출 정리 메뉴 폐지, 카드 내역에 업로드·수집 현황·거래 상세 결합). 과거 카드 IA 42 failed 시도 무비판 병합 금지. P2 연결 AI 진단은 별도 PR. 문서/CI-only 변경으로 Windows 운영 재배포 금지. PR만 읽고 실행할 수 있도록 범위·완료/미검증 근거를 PR에 직접 작성한다.
 
-- **2026-11-06 HEAD 기록은 당시 스냅샷:** [인수 체크포인트](docs/session_handoff.md#2026-11-06-최신-github-개발-상태명세-정합성-체크포인트--현황-인수--코드-변경-아님). #699/#700/#703/#710/#712/#713 완료 범위는 보존하며, #714+#717 코드는 이미 함께 운영 반영됐다. 남은 인증 UI·성능 수락 외에 과거 SPEC_ONLY/ACTIVE 문구를 새 개발 과제로 재실행하지 않는다.
+- **2026-11-06 HEAD 기록은 당시 스냅샷:** [인수 체크포인트](docs/history/session_handoff-through-20261107.md#2026-11-06-최신-github-개발-상태명세-정합성-체크포인트--현황-인수--코드-변경-아님). #699/#700/#703/#710/#712/#713 완료 범위는 보존하며, #714+#717 코드는 이미 함께 운영 반영됐다. 남은 인증 UI·성능 수락 외에 과거 SPEC_ONLY/ACTIVE 문구를 새 개발 과제로 재실행하지 않는다.
 
 - **2026-11-06 최신 CI 분 절감 정책(명세만 확정):** [COST 최소 테스트 범위·PR/main 중복 및 정기 audit 최적화](docs/specs/ci-minimum-test-cost-20261106.md) CI-COST-01~10을 새로운 작업의 테스트 선택·후속 CI 변경 요구 정본으로 따른다. 기존 run_quality_checks/impact map을 재사용, 문서-only 초경량·UI/기능 해당 경계·금융/원본/권한/Google 필수 보호검사는 유지. 불필요한 전체 회귀/중복 브라우저/PR→main·평일 5회 audit을 축소하되, skip/0건/unknown fail-closed·정확한 SHA/단일 배포/보호 13표는 완화하지 않는다. 이 항목은 **2026-11-06 이전 정책 결정의 역사 기록**이며 Actions workflow는 이후 #710에서 실제 수정·병합됐다.
 
