@@ -72,6 +72,37 @@ def _mail_events(directories, *, read_only=False):
         return copy.deepcopy(_MAIL_EVENT_MEMO[key])
 
 
+def _trip_price_change_charges(collected):
+    """The card charge of a Trip.com lodging price change: the new total less the total already charged.
+
+    The change notice states the new total, not what was charged now. Only a rise over
+    one earlier explicit total of the same booking, with the same stay and no
+    cancellation, becomes a charge; a repeated or lower total never does.
+    """
+    by_booking = defaultdict(list)
+    cancelled = {fact.get('booking_ref') for _, _, fact in collected
+                 if fact.get('provider') == 'trip' and fact.get('reservation_status') == 'cancelled'}
+    for message_id, message, fact in collected:
+        if (fact.get('provider') == 'trip' and fact.get('item') == '숙박비' and fact.get('booking_ref')
+                and fact['booking_ref'] not in cancelled
+                and (fact.get('updated_total_krw') or fact.get('paid_amount_krw'))):
+            by_booking[fact['booking_ref']].append((ota_mail.mail_internal_date(message), message_id, fact))
+    deltas = {}
+    for items in by_booking.values():
+        total, period = None, None
+        for _, message_id, fact in sorted(items, key=lambda item: (int(item[0] or 0), item[1])):
+            new_total = fact.get('updated_total_krw')
+            if new_total is None:
+                if fact.get('paid_amount_krw'):
+                    total, period = fact['paid_amount_krw'], fact.get('period')
+                continue
+            if total is not None and new_total > total and period and fact.get('period') == period:
+                deltas[message_id] = new_total - total
+            if total is None or new_total > total:
+                total, period = new_total, fact.get('period') or period
+    return deltas
+
+
 def _parse_mail_events(directories):
     from app import ota_booking_context
     try:
@@ -87,13 +118,19 @@ def _parse_mail_events(directories):
     airline_cancellations = {value for message in messages.values()
                              for value in airline_payment_mail.cancellation_references(message)}
     def payment_facts():
+        collected = []
         for message_id, message in sorted(messages.items()):
             facts = airline_payment_mail.jeju_payment_facts(message)
             if not facts:
                 fact = extract_payment_fact(message)
                 facts = [fact] if fact else []
             for fact in facts:
-                yield message_id, message, fact
+                collected.append((message_id, message, fact))
+        deltas = _trip_price_change_charges(collected)
+        for message_id, message, fact in collected:
+            if message_id in deltas:
+                fact = dict(fact, paid_amount_krw=deltas[message_id], paid_on_semantics='mail_sent_proxy')
+            yield message_id, message, fact
 
     for message_id, message, fact in payment_facts():
         amount = fact.get("paid_amount_krw")
