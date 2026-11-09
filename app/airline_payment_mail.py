@@ -106,7 +106,8 @@ def extract(message):
         return None
     headers, domain = authenticated
     subject = headers.get('subject', '')
-    text = ota_mail.message_text(message)
+    # Real mail bodies end lines with CRLF; the line-anchored totals below read LF lines.
+    text = ota_mail.message_text(message).replace('\r\n', '\n').replace('\r', '\n')
     if domain == 'flyasiana.com':
         if not re.search(r'항공권\s*발급이\s*완료', subject):
             return None
