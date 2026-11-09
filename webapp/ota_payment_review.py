@@ -1920,7 +1920,6 @@ def reconcile_in_child(board) -> dict:
     """
     import pickle
     import subprocess
-    import sys
     import uuid
 
     root = str(Path(__file__).resolve().parents[1])
@@ -1931,11 +1930,14 @@ def reconcile_in_child(board) -> dict:
     request_path.write_bytes(pickle.dumps(
         {"authority": getattr(board, "_reservation_authority", None)},
         protocol=pickle.HIGHEST_PROTOCOL))
+    from app.python_launch import child_environment, python_command
+
+    interpreter, extra_env = python_command()
     try:
         process = subprocess.Popen(
-            [sys.executable, "-I", "-c", CHILD_BOOTSTRAP, root, str(board.path),
+            [*interpreter, "-I", "-c", CHILD_BOOTSTRAP, root, str(board.path),
              str(request_path), str(result_path)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=child_environment(extra_env))
         try:
             _, stderr = process.communicate(timeout=CHILD_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:

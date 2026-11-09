@@ -565,3 +565,48 @@ class CheckLogPolicyTests(unittest.TestCase):
             svc._log("probe")
         self.assertEqual(log_path.read_text(encoding="utf-8").count("probe"), 1)
         self.assertEqual(log_path.with_name(log_path.name + ".1").read_text(encoding="utf-8"), "x" * 64)
+
+
+def test_a_burst_of_changes_during_reconciliation_waits_for_inputs_to_settle():
+    clock = FakeClock()
+    source = {'key': 'k0', 'next': []}
+    runs = []
+
+    def reconcile():
+        runs.append(source['key'])
+        if source['next']:
+            source['key'] = source['next'].pop(0)
+        return {'public': {}, 'results': [], 'links': {}, 'data': {}}
+
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=reconcile, clock=clock, start=False)
+    svc.check_now()
+    assert runs == ['k0'] and svc.held()[1] is True
+    # Inputs keep changing while two runs are in flight; both results are thrown away.
+    source.update(key='k1', next=['k2', 'k3'])
+    svc.check_now()
+    assert svc._source_changed_retry is True, 'the first lost run is retried at once'
+    svc._source_changed_retry = False
+    svc.check_now()
+    assert runs == ['k0', 'k1', 'k2']
+    assert svc._source_changed_retry is False, 'a second lost run does not retry at once'
+    # The newest input has not held still for the settle window yet.
+    clock.now += 10
+    svc.check_now()
+    assert runs == ['k0', 'k1', 'k2']
+    clock.now += 21
+    svc.check_now()
+    assert runs == ['k0', 'k1', 'k2', 'k3']
+    assert svc.held()[1] is True
+    assert svc._source_changes == 0
+
+
+def test_the_first_build_never_waits_for_inputs_to_settle():
+    clock = FakeClock()
+    source = {'key': 'k1'}
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=lambda: {'public': {}, 'results': [], 'links': {}, 'data': {}},
+                             clock=clock, start=False)
+    svc._source_changes = 5
+    svc.check_now()
+    assert svc.held()[1] is True

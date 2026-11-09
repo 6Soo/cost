@@ -606,7 +606,6 @@ def _source_rows_in_child(board, sources, warnings):
     """Parse large mail bundles outside the HTTP process's interpreter lock."""
     import pickle
     import subprocess
-    import sys
     import tempfile
     root = str(Path(__file__).resolve().parents[1])
     bootstrap = ('import sys; sys.path.insert(0, sys.argv[1]); '
@@ -614,9 +613,11 @@ def _source_rows_in_child(board, sources, warnings):
     with tempfile.TemporaryDirectory(prefix='ota-catalog-worker-', dir=Path(board.path).parent) as directory:
         request, result = Path(directory) / 'request', Path(directory) / 'result'
         request.write_bytes(pickle.dumps(sources, protocol=pickle.HIGHEST_PROTOCOL))
+        from app.python_launch import child_environment, python_command
+        interpreter, extra_env = python_command()
         process = subprocess.Popen(
-            [sys.executable, '-I', '-c', bootstrap, root, str(board.path), str(request), str(result)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            [*interpreter, '-I', '-c', bootstrap, root, str(board.path), str(request), str(result)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_environment(extra_env))
         try:
             process.communicate(timeout=900)
         except subprocess.TimeoutExpired:
