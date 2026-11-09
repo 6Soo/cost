@@ -358,6 +358,7 @@ def extract_mail(message):
     if len(refs)!=1:
         return None
     item = ''
+    updated_booking = False
     rental_confirmed = provider == 'trip' and trip_rental_confirmation(subject)
     if rental_confirmed:
         item = '렌터카'
@@ -365,6 +366,11 @@ def extract_mail(message):
         item = '항공료'
     elif '예약 확정 안내' in subject and '체크인' in text and '체크아웃' in text:
         item = '숙박비'
+    elif (provider == 'trip' and re.search(r'예약이\s*업데이트되었습니다', subject)
+          and '체크인' in text and '체크아웃' in text):
+        # 변경 안내의 총액은 새 예약 총액이다. 이번에 청구된 금액이 아니므로 아래에서 별도 필드로 옮긴다.
+        item = '숙박비'
+        updated_booking = True
     elif '예약확정' in subject:
         if '렌터카' in subject:
             item = '렌터카'
@@ -404,6 +410,10 @@ def extract_mail(message):
         if not paid and re.search(r'전액을\s*결제\s*완료',text) and re.search(r'추가\s*결제\s*금액은\s*없습니다',text):
             # 포인트를 뺀 실제 결제액이 "결제 금액"으로 적힌 전액 결제 양식이다.
             paid = {int(n.replace(',','')) for n in re.findall(r'결제\s*금액\s*₩\s*([0-9][0-9,]*)',text)}
+    updated_total = next(iter(paid)) if updated_booking and len(paid) == 1 else None
+    if updated_booking:
+        paid = set()
+        preauthorized = set()
     flight_confirmed = '항공권 예약 확정' in subject
     confirmation = '확정' in subject
     period = (rental_period(text) if rental_confirmed else service_period(text) if item=='숙박비'
@@ -415,7 +425,8 @@ def extract_mail(message):
                 preauthorized_amount_krw=next(iter(preauthorized)) if len(preauthorized)==1 else None,
                 preauthorized_on=paid_on.isoformat() if paid_on and preauthorized else None,
                 reservation_status='cancelled' if cancelled else 'confirmed' if confirmation else 'observed',
-                message_id=message['id'],ignored_zero_cost_guides=sorted(set(ignored_guides)))
+                message_id=message['id'],ignored_zero_cost_guides=sorted(set(ignored_guides)),
+                updated_total_krw=updated_total)
 
 
 def shared_lodging_period(facts, *, paid_on, amount_krw):
