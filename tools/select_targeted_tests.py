@@ -104,8 +104,9 @@ def main(argv=None):
         impact_map = json.loads(MAP_PATH.read_text(encoding="utf-8"))
         validate_impact_map(impact_map)
         paths = changed_paths(args.base)
-        document_paths = [p for p in paths if p.lower().endswith(('.md', '.tsv')) and
-                          (p.startswith('docs/') or '/' not in p)]
+        document_paths = [p for p in paths if (p.lower().endswith(('.md', '.tsv')) and
+                          (p.startswith('docs/') or '/' not in p))
+                          or (p.startswith('docs/') and p.lower().endswith('.png'))]
         code_paths = [p for p in paths if p not in document_paths]
         targets, unknown = select_targets(code_paths, impact_map["groups"])
         if unknown:
