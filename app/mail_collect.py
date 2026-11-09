@@ -16,10 +16,18 @@ SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
+WINDOW_CHUNK = 200
 RETRY_ATTEMPTS = 5
 RETRY_BASE_SECONDS = 2
 HISTORY_START = '2026-04-01'
+# A stay inside the ledger can be booked up to a year before it; only supplier mail is read that far back.
+SUPPLIER_HISTORY_START = '2025-04-01'
 API = 'https://gmail.googleapis.com/gmail/v1/users/me'
+
+
+def supplier_query() -> str:
+    senders = ' OR '.join(f'from:{domain}' for domain in SUPPLIER_DOMAINS)
+    return f'({senders} OR subject:토요코인)'
 
 
 def build_query(after: str) -> str:
@@ -159,7 +167,8 @@ def collect(client, directory: Path, now: datetime | None = None) -> dict:
     return {'matched': len(listed), 'fetched': len(messages), 'query': query}
 
 
-def collect_window(client, directory: Path, after: str, before: str, *, forest_only=False) -> dict:
+def collect_window(client, directory: Path, after: str, before: str, *, forest_only=False,
+                   suppliers_only=False, sync=True) -> dict:
     """Append a bounded historical query without changing the recurring watermark."""
     import tempfile
     import uuid
@@ -167,13 +176,20 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     start, end = date.fromisoformat(after), date.fromisoformat(before)
     if start >= end:
         raise ValueError('MAIL_WINDOW_INVALID')
-    query = (f'after:{start.isoformat().replace("-", "/")} {forest_receipt_query()}'
-             if forest_only else build_query(start.isoformat()))
+    if forest_only and suppliers_only:
+        raise ValueError('MAIL_WINDOW_SCOPE_CONFLICT')
+    since = start.isoformat().replace("-", "/")
+    query = (f'after:{since} {forest_receipt_query()}' if forest_only
+             else f'after:{since} {supplier_query()}' if suppliers_only else build_query(start.isoformat()))
     query += ' before:' + end.isoformat().replace('-', '/')
     listed = list(dict.fromkeys(client.list_ids(query)))
     stored = stored_ids(directory)
-    messages = [client.get_full(message_id) for message_id in listed if message_id not in stored]
-    if messages:
+    missing = [message_id for message_id in listed if message_id not in stored]
+    _sweep_stale_window_temporaries(directory)
+    # Each chunk is saved as it completes, so a run stopped by the job timeout keeps its progress
+    # and the next run fetches only what is still missing.
+    for offset in range(0, len(missing), WINDOW_CHUNK):
+        messages = [client.get_full(message_id) for message_id in missing[offset:offset + WINDOW_CHUNK]]
         path = directory / f'gmail-window-{uuid.uuid4().hex}.json'
         fd, temporary = tempfile.mkstemp(prefix='.mail-window-', suffix='.tmp', dir=directory)
         try:
@@ -184,8 +200,24 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
             os.link(temporary, path)
         finally:
             os.unlink(temporary)
-    sync_unified_store(directory)
-    return {'matched': len(listed), 'fetched': len(messages), 'query': query}
+    if sync:
+        sync_unified_store(directory)
+    return {'matched': len(listed), 'fetched': len(missing), 'query': query}
+
+
+STALE_TEMPORARY_SECONDS = 2 * 3600
+
+
+def _sweep_stale_window_temporaries(directory: Path) -> None:
+    """Remove partial chunk files a killed run left; a live write is far younger than the job timeout."""
+    import time
+    limit = time.time() - STALE_TEMPORARY_SECONDS
+    for path in directory.glob('.mail-window-*.tmp'):
+        try:
+            if path.is_file() and not path.is_symlink() and path.stat().st_mtime < limit:
+                path.unlink()
+        except OSError:
+            continue
 
 
 def reconcile_history(client, directory: Path, now: datetime | None = None) -> dict:
@@ -200,17 +232,23 @@ def reconcile_history(client, directory: Path, now: datetime | None = None) -> d
     checkpoint = directory / 'history-reconciliation.json'
     state = json.loads(checkpoint.read_text(encoding='utf-8')) if checkpoint.is_file() else {}
     today = now.date().isoformat()
-    if state.get('completed_on') == today and state.get('after') == HISTORY_START:
+    if (state.get('completed_on') == today and state.get('after') == HISTORY_START
+            and state.get('supplier_after') == SUPPLIER_HISTORY_START):
         return {'matched': 0, 'fetched': 0, 'skipped': True}
     before = (now.date() + timedelta(days=1)).isoformat()
+    earlier = collect_window(client, directory, SUPPLIER_HISTORY_START, HISTORY_START,
+                             suppliers_only=True, sync=False)
     result = collect_window(client, directory, HISTORY_START, before)
+    result = dict(result, matched=result['matched'] + earlier['matched'],
+                  fetched=result['fetched'] + earlier['fetched'])
     # An import failure must leave the previous checkpoint intact so the next
     # scheduled run retries both missing originals and the unified-store import.
     import tempfile
     fd, temporary = tempfile.mkstemp(prefix='.mail-history-', suffix='.tmp', dir=directory)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as output:
-            json.dump({'after': HISTORY_START, 'before': before, 'completed_on': today,
+            json.dump({'after': HISTORY_START, 'supplier_after': SUPPLIER_HISTORY_START,
+                       'before': before, 'completed_on': today,
                        'completed_at': now.isoformat(timespec='seconds'),
                        'matched': result['matched'], 'fetched': result['fetched']}, output)
             output.flush()
@@ -340,19 +378,23 @@ def main(argv=None) -> int:
     parser.add_argument('--authorize', action='store_true')
     parser.add_argument('--after', help='historical window lower bound (exclusive, YYYY-MM-DD)')
     parser.add_argument('--before', help='historical window upper bound (exclusive, YYYY-MM-DD)')
+    parser.add_argument('--suppliers-only', action='store_true',
+                        help='Recover only supplier-sent mail in the explicit historical window')
     parser.add_argument('--forest-receipts-only', action='store_true',
                         help='Recover only NICE forest receipts in the explicit historical window')
     args = parser.parse_args(argv)
     if args.authorize:
         authorize(Path(args.client_file), Path(args.token_file))
         return 0
-    client = GmailApi(args.token_file, args.client_file, owner_domains=args.owner_domain)
     if bool(args.after) != bool(args.before):
         parser.error('--after and --before must be used together')
-    if args.forest_receipts_only and not args.after:
-        parser.error('--forest-receipts-only requires --after and --before')
+    if args.forest_receipts_only and args.suppliers_only:
+        parser.error('--forest-receipts-only and --suppliers-only cannot be combined')
+    if (args.forest_receipts_only or args.suppliers_only) and not args.after:
+        parser.error('--forest-receipts-only and --suppliers-only require --after and --before')
+    client = GmailApi(args.token_file, args.client_file, owner_domains=args.owner_domain)
     result = (collect_window(client, Path(args.directory), args.after, args.before,
-                             forest_only=args.forest_receipts_only)
+                             forest_only=args.forest_receipts_only, suppliers_only=args.suppliers_only)
               if args.after else collect(client, Path(args.directory)))
     print(f"matched {result['matched']} fetched {result['fetched']}")
     if not args.after:

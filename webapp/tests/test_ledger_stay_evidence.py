@@ -646,3 +646,58 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     dict(reservation_no='R1'), dict(amount_krw=-90000)])
 def test_a_booking_or_a_charge_outside_its_trip_keeps_the_unknown_date(onsite, values):
     assert onsite(**values) == ('이용일 확인 필요', '이용일 확인 필요')
+
+
+def _charge_without_stay(data, *periods, status='observed'):
+    data['events'][0].update(provider='booking', item='', event_type='charge', service_period=None)
+    for index, period in enumerate(periods):
+        data['events'].append(dict(ota_event_id=f'r{index}', provider='booking', booking_ref='B1', item='숙박비',
+                                   event_type='reservation', reservation_status=status, source_digest=f'd{index}',
+                                   service_period=dict(zip(('starts_on', 'ends_on'), period))))
+        data['results'].append(dict(ota_event_id=f'r{index}', status='RESERVATION_ONLY'))
+
+
+def test_a_linked_charge_without_a_stay_reads_its_own_reservation_period(context):
+    store, data, _, _ = context
+    _charge_without_stay(data, ('2026-07-05', '2026-07-07'))
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert found['t1']['service_period'] == '2026-07-05~2026-07-07'
+    assert found['t1']['ota_evidence']['kind'] == 'reservation_period_inferred'
+    assert data == before
+
+
+@pytest.mark.parametrize('periods,status', [
+    ((('2026-07-05', '2026-07-07'), ('2026-07-06', '2026-07-08')), 'observed'),
+    ((('2026-07-05', '2026-07-07'),), 'cancelled'),
+    ((), 'observed')])
+def test_a_linked_charge_stays_unknown_without_one_stated_reservation_period(context, periods, status):
+    store, data, _, _ = context
+    _charge_without_stay(data, *periods, status=status)
+    assert 't1' not in stays.stay_index(store)
+
+
+@pytest.mark.parametrize('link', [dict(status='STALE'), dict(source_digest='older'), dict(evidence_changed=True)])
+def test_a_stale_or_changed_reservation_does_not_lend_its_period(context, link):
+    store, data, _, _ = context
+    _charge_without_stay(data, ('2026-07-05', '2026-07-07'))
+    data['links'] = {'r0': link}
+    assert 't1' not in stays.stay_index(store)
+
+
+def test_a_reservation_showing_no_refund_still_lends_its_period(context):
+    store, data, _, _ = context
+    _charge_without_stay(data, ('2026-07-05', '2026-07-07'))
+    data['events'][-1]['refund_status'] = 'none_displayed'
+    assert stays.stay_index(store)['t1']['service_period'] == '2026-07-05~2026-07-07'
+    data['events'][-1]['refund_status'] = 'refund_requested'
+    assert 't1' not in stays.stay_index(store)
+
+
+def test_a_cancelled_revision_of_the_booking_withholds_the_period(context):
+    store, data, _, _ = context
+    _charge_without_stay(data, ('2026-07-05', '2026-07-07'))
+    data['events'].append(dict(ota_event_id='rc', provider='booking', booking_ref='B1', item='숙박비',
+                               event_type='reservation', reservation_status='cancelled', source_digest='dc',
+                               service_period={'starts_on': '2026-07-05', 'ends_on': '2026-07-07'}))
+    assert 't1' not in stays.stay_index(store)

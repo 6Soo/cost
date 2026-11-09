@@ -356,6 +356,27 @@ def _linked_candidate_periods(data, manual):
                 claims[str(tid)].append((record, event_ids))
     result = {}
     flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    # A payment receipt may omit the stay its own reservation mail states (Booking.com charges).
+    # Any stale, changed, conflicting or cancelled observation of the booking withholds it entirely.
+    stated, withheld = defaultdict(set), set()
+    for event_id, event in events.items():
+        if not event.get('provider') or not event.get('booking_ref'):
+            continue
+        key = (str(event['provider']), str(event['booking_ref']))
+        period = event.get('service_period') or {}
+        link = (data.get('links') or {}).get(event_id) or {}
+        link = link if isinstance(link, dict) else {}
+        if (any(event.get(k) or link.get(k) for k in flags) or link.get('status') == 'STALE'
+                or (link.get('source_digest') and link['source_digest'] != event.get('source_digest'))
+                or event.get('reservation_status') in ('cancelled', 'refunded')
+                or event.get('refund_status') not in (None, '', 'none_displayed')):
+            withheld.add(key)
+        elif (event.get('source_digest') and event.get('item') in (None, '', '숙박비')
+                and event.get('reservation_status') in ('observed', 'confirmed', 'completed')
+                and isinstance(period, dict) and period.get('starts_on') and period.get('ends_on')):
+            stated[key].add((str(period['starts_on']), str(period['ends_on'])))
+    for key in withheld:
+        stated.pop(key, None)
     for tid, records in claims.items():
         card = cards.get(tid) or {}
         if ('card-' + tid in manual or not card.get('source_hash')
@@ -377,6 +398,9 @@ def _linked_candidate_periods(data, manual):
             for eid in event_ids:
                 event = events.get(str(eid)) or {}
                 period = event.get('service_period') or {}
+                if not period:
+                    same = stated.get((str(event.get('provider')), str(event.get('booking_ref'))), ())
+                    period = dict(zip(('starts_on', 'ends_on'), next(iter(same)))) if len(same) == 1 else None
                 link = (data.get('links') or {}).get(str(eid)) or {}
                 if (not event.get('source_digest') or not event.get('provider')
                         or not event.get('booking_ref') or event.get('item') not in (None, '', '숙박비')
