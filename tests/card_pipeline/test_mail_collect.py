@@ -301,3 +301,20 @@ def test_gmail_request_does_not_retry_a_permanent_error_and_stops_after_the_limi
     with pytest.raises(TimeoutError):
         api._get('https://example.invalid/m1')
     assert len(calls) == mail_collect.RETRY_ATTEMPTS
+
+
+def test_gmail_request_retries_a_transient_token_refresh_failure(monkeypatch):
+    import urllib.error
+    from app import mail_collect
+    api, calls = _api_with([{'id': 'm1'}], monkeypatch)
+    api._access = None
+    attempts = []
+
+    def refresh():
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise urllib.error.URLError('getaddrinfo failed')
+        return 'token'
+    monkeypatch.setattr(api, '_access_token', refresh)
+    assert api._get('https://example.invalid/m1') == {'id': 'm1'}
+    assert len(attempts) == 2 and len(calls) == 1

@@ -56,8 +56,8 @@ class GmailApi:
     def _get(self, url: str) -> dict:
         # A dropped connection or DNS failure for one message must not abort the whole collection.
         for attempt in range(RETRY_ATTEMPTS):
-            request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + self._access_token()})
             try:
+                request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + self._access_token()})
                 with urllib.request.urlopen(request, timeout=60) as response:
                     return json.loads(response.read())
             except urllib.error.HTTPError as error:
