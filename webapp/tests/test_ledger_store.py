@@ -513,3 +513,30 @@ class CrashRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RenderReadTests(unittest.TestCase):
+    """A render reads saved rows in one scan and sees exactly what per-tab reads see."""
+
+    def test_a_render_reads_every_tab_in_one_scan_with_the_same_rows(self):
+        from webapp import read_scope
+        store = make_store()
+        try:
+            tabs = [t["tab_id"] for t in store.list_trips(include_archived=True)] + [None]
+            direct = {tab: store.list_tab_rows(tab) for tab in tabs}
+            scans = []
+            store.conn.set_trace_callback(
+                lambda sql: scans.append(sql) if "FROM board_rows" in sql and "payload_json" in sql else None)
+
+            @read_scope.scoped
+            def render():
+                return {tab: store.list_tab_rows(tab) for tab in tabs}
+
+            self.assertEqual(render(), direct)
+            self.assertEqual(len(scans), 1)
+            scans.clear()
+            self.assertEqual(render(), direct, "a later render must read again")
+            self.assertEqual(len(scans), 1)
+        finally:
+            store.conn.set_trace_callback(None)
+            store.close()

@@ -45,6 +45,7 @@ from .ledger_store_records import (
     fetch_latest_allocation_history_row,
     fetch_latest_correction,
     fetch_split_source_ids,
+    fetch_board_rows_by_tab,
     fetch_tab_board_rows,
     fetch_visible_row_counts,
     format_correction_record,
@@ -424,7 +425,13 @@ class LedgerStore:
     def list_tab_rows(self, tab_id: str | None):
         from . import read_scope
         split = read_scope.remember(('split_source_ids', id(self)), self.split_source_ids)
-        rows = fetch_tab_board_rows(self.conn, tab_id)
+        if read_scope.active():
+            # A render reads every tab; one scan replaces a full scan per tab.
+            grouped = read_scope.remember(('board_rows_by_tab', id(self)),
+                                          lambda: fetch_board_rows_by_tab(self.conn))
+            rows = grouped.get(tab_id, [])
+        else:
+            rows = fetch_tab_board_rows(self.conn, tab_id)
         out = []
         for row_id, kind, display, revision, payload_json in rows:
             if row_id in split:

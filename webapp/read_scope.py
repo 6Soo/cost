@@ -20,6 +20,10 @@ def scoped(render):
     return wrapped
 
 
+def active():
+    return _MEMO.get() is not None
+
+
 def remember(key, compute):
     memo = _MEMO.get()
     if memo is None:
