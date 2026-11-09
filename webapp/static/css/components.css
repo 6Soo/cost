@@ -139,7 +139,7 @@
 .steps li[data-state=done] { border-color: var(--c-accent-text); background: var(--c-accent-subtle); }
 .step-note { display: block; margin-top: var(--s-1); color: var(--c-text-secondary); font-size: var(--t-meta); }
 
-@media (max-width: 1023px) {
+@media (width < 1024px) {
   .btn, .btn.primary, .btn.ghost, .btn.danger { min-height: 44px; }
   .icon-btn { width: 44px; min-width: 44px; min-height: 44px; }
   .field input, .field select, .field textarea { font-size: var(--t-body); }
