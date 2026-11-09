@@ -335,3 +335,14 @@ def test_daily_history_reads_supplier_mail_a_year_before_the_ledger_without_othe
     assert result['fetched'] == 1 and mail_collect.stored_ids(tmp_path) == {'booked-in-january'}
     checkpoint = json.loads((tmp_path / 'history-reconciliation.json').read_text(encoding='utf-8'))
     assert checkpoint['supplier_after'] == '2025-04-01'
+
+
+def test_supplier_and_forest_scopes_cannot_be_combined(tmp_path):
+    import pytest
+    with pytest.raises(ValueError, match='MAIL_WINDOW_SCOPE_CONFLICT'):
+        mail_collect.collect_window(FakeGmail([]), tmp_path, '2025-04-01', '2026-04-01',
+                                    forest_only=True, suppliers_only=True)
+    with pytest.raises(SystemExit):
+        mail_collect.main(['--directory', str(tmp_path), '--token-file', 't', '--client-file', 'c',
+                           '--after', '2025-04-01', '--before', '2026-04-01',
+                           '--forest-receipts-only', '--suppliers-only'])

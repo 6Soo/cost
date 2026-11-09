@@ -175,6 +175,8 @@ def collect_window(client, directory: Path, after: str, before: str, *, forest_o
     start, end = date.fromisoformat(after), date.fromisoformat(before)
     if start >= end:
         raise ValueError('MAIL_WINDOW_INVALID')
+    if forest_only and suppliers_only:
+        raise ValueError('MAIL_WINDOW_SCOPE_CONFLICT')
     since = start.isoformat().replace("-", "/")
     query = (f'after:{since} {forest_receipt_query()}' if forest_only
              else f'after:{since} {supplier_query()}' if suppliers_only else build_query(start.isoformat()))
@@ -364,11 +366,13 @@ def main(argv=None) -> int:
     if args.authorize:
         authorize(Path(args.client_file), Path(args.token_file))
         return 0
-    client = GmailApi(args.token_file, args.client_file, owner_domains=args.owner_domain)
     if bool(args.after) != bool(args.before):
         parser.error('--after and --before must be used together')
+    if args.forest_receipts_only and args.suppliers_only:
+        parser.error('--forest-receipts-only and --suppliers-only cannot be combined')
     if (args.forest_receipts_only or args.suppliers_only) and not args.after:
         parser.error('--forest-receipts-only and --suppliers-only require --after and --before')
+    client = GmailApi(args.token_file, args.client_file, owner_domains=args.owner_domain)
     result = (collect_window(client, Path(args.directory), args.after, args.before,
                              forest_only=args.forest_receipts_only, suppliers_only=args.suppliers_only)
               if args.after else collect(client, Path(args.directory)))
