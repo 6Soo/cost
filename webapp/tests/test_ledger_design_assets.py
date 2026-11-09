@@ -29,7 +29,11 @@ class TestLedgerDesignAssets:
         assert css_file.is_file()
         assert js_file.is_file()
 
-        assert css_file.read_text(encoding="utf-8") == assets.STYLE
+        expected = (
+            assets.TOKENS_STYLE + "\n" + assets.COMPONENTS_STYLE + "\n"
+            + css_file.read_text(encoding="utf-8")
+        )
+        assert expected == assets.STYLE
         assert js_file.read_text(encoding="utf-8") == assets.SCRIPT
 
     def test_rendering_causes_zero_extra_disk_io(self):

@@ -74,10 +74,29 @@ def _seed(server, root):
         tab_id=trip['tab_id'], known_keys={schedule['trip_code']}, known_tab_ids={trip['tab_id']})
 
 
+# Production gateway and board ports on the operations host.
+RESERVED_PORTS = frozenset({8751, 8752, 8790})
+
+
+def _refuse_busy_port(port):
+    # Windows lets a reuse-address socket share a listening port, which would
+    # take traffic meant for the production gateway, so refuse before binding.
+    if not port:
+        return
+    if port in RESERVED_PORTS:
+        raise SystemExit(f'포트 {port}는 운영 서비스용이라 미리보기에 쓸 수 없습니다.')
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        if probe.connect_ex(('127.0.0.1', port)) == 0:
+            raise SystemExit(f'포트 {port}가 이미 사용 중입니다. 다른 포트를 지정하세요.')
+
+
 @contextmanager
 def preview_server(port=0):
+    _refuse_busy_port(port)
     # Ignore inherited production paths and credentials. The tool accepts no data path or host.
-    original = {key: value for key, value in os.environ.items() if key.startswith('WEBLEDGER_')}
+    original ={key: value for key, value in os.environ.items() if key.startswith('WEBLEDGER_')}
     for key in original:
         os.environ.pop(key)
     from webapp import access_control, ledger_board as board

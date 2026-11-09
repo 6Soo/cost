@@ -23,7 +23,12 @@ def test_site_assets_module_owns_static_files():
     assert (css_dir / "site_theme.css").is_file()
     assert (js_dir / "site_theme.js").is_file()
 
-    assert site_assets.SHELL_STYLE == (css_dir / "site_shell.css").read_text(encoding="utf-8")
+    assert site_assets.TOKENS_STYLE == (css_dir / "tokens.css").read_text(encoding="utf-8")
+    assert site_assets.COMPONENTS_STYLE == (css_dir / "components.css").read_text(encoding="utf-8")
+    assert site_assets.SHELL_STYLE == (
+        site_assets.TOKENS_STYLE + "\n" + site_assets.COMPONENTS_STYLE + "\n"
+        + (css_dir / "site_shell.css").read_text(encoding="utf-8")
+    )
     assert site_assets.SHELL_SCRIPT == (js_dir / "site_shell.js").read_text(encoding="utf-8").replace(
         '__ACTION_ICONS__', json.dumps(ui_icons.ICONS, ensure_ascii=True))
     assert site_assets.THEME_STYLE == (css_dir / "site_theme.css").read_text(encoding="utf-8")
@@ -60,13 +65,11 @@ def test_css_cascade_order_and_tokens_preserved():
         wrapped = site_shell.wrap_document(doc, "/cards")
 
     style_block = wrapped.split('<style id="site-shell-style">', 1)[1].split('</style>', 1)[0]
-    # Shell style precedes theme style
-    shell_part, theme_part = style_block.split(':root{--shell-theme-control-size:var(--shell-control-min,44px)', 1)
-    assert "--shell-bg:#F8FAFC" in shell_part
-    assert "@media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A" in shell_part
-    assert "@media(prefers-reduced-motion:reduce)" in shell_part
-    assert "--bg:var(--shell-bg)" in theme_part
-    assert "#site-theme-toggle" in theme_part
+    # Tokens/components/shell precede the theme behavior stylesheet.
+    assert style_block.index(site_assets.TOKENS_STYLE) == 0
+    assert style_block.index(site_assets.COMPONENTS_STYLE) > 0
+    assert style_block.index("#site-theme-toggle") > style_block.index(site_assets.COMPONENTS_STYLE)
+    assert style_block.index(site_assets.THEME_STYLE) > style_block.index("#site-theme-toggle")
 
 
 def test_shared_components_alias_live_ledger_and_review_consumers():

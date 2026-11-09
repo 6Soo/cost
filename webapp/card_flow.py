@@ -419,10 +419,12 @@ def home_page(board):
     if next_run and dt.datetime.fromisoformat(next_run).astimezone(KST) <= dt.datetime.now(KST):
         next_note = ''
     body = ("<style>"
-            ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
-            ".home-status{font-size:13px;color:var(--mut);margin:0 0 12px}"
-            ".home-status b{color:var(--ink);font-weight:700}"
-            ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:#fff}"
+             ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
+             ".home-status{font-size:13px;color:var(--mut);margin:0 0 12px}"
+             ".home-status b{color:var(--ink);font-weight:700}"
+             ".page-body a.btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}"
+             ".page-body a.btn.primary:hover{background:var(--grn-hover,var(--grn-dk));border-color:var(--grn-hover,var(--grn-dk));color:#fff}"
+             ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:#fff}"
             ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:#fff}"
             ".home-primary{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 0 10px!important}"
             ".home-secondary{display:flex;gap:10px;flex-wrap:wrap}"

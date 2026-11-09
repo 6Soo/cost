@@ -35,5 +35,5 @@ class TripHistoryBrowserTests(LinkBrowserFixture):
                 # Default collapsed for any selected/previous trip (new rule);
                 # user click opens it.
                 self.assertFalse(page.locator("#previous-trips").evaluate("el=>el.open"))
-                self.assertEqual(page.locator("#previous-trips a[aria-pressed='true']").count(), 1)
+                self.assertEqual(page.locator("#previous-trips a[aria-current='page']").count(), 1)
                 self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), width)

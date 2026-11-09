@@ -60,7 +60,7 @@ def collect_export_page_summaries(
     unc_exp = sum(1 for r in unc if r["row_kind"] != "income")
     trip_counts.append({
         "tab_id": None,
-        "display_key": "분류대기",
+        "display_key": "이전 귀속 목록",
         "archived": False,
         "income_count": unc_inc,
         "expense_count": unc_exp,
