@@ -1389,7 +1389,7 @@ MANUAL_EXPENSE_STYLE = """<style>
 .mx-field input:focus,.mx-field select:focus{outline:2px solid #3B82F6;outline-offset:-1px}
 .mx-amount input{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .mx-actions{display:flex;justify-content:flex-end;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
-.btn.primary{height:42px;padding:0 24px;border:0;border-radius:9px;background:var(--shell-accent);color:var(--shell-paper);font:inherit;font-size:14.5px;font-weight:600;cursor:pointer}
+.mx-actions .btn.primary{min-height:42px;padding:0 24px}
 @media (max-width:640px){.mx-grid{grid-template-columns:1fr}.mx-card{margin:12px;padding:20px}}
 </style>"""
 

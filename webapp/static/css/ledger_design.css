@@ -737,7 +737,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-review-holds ul{margin:8px 0 0;padding:0;list-style:none}
 .trip-review-holds a,.trip-review-sources a{display:flex;align-items:center;min-height:44px;color:var(--focus);font-size:13px;overflow-wrap:anywhere}
 .trip-review-sources{display:flex;flex-wrap:wrap;gap:8px 24px}
-@media(max-width:600px){.trip-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:6px}.trip-actions .btn{padding:10px 8px;gap:5px;min-width:0}.trip-actions .ic{display:none}.trip-actions [data-manual-open]{margin-left:0}}
+@media(max-width:600px){.trip-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr));gap:6px;align-items:stretch}.trip-actions>*{min-width:0}.trip-actions>.trip-management-controls{display:contents}.trip-actions .btn{padding:10px 8px;gap:5px;min-width:0}.trip-actions .ic{display:none}.trip-actions [data-manual-open]{margin-left:0}}
 #manual-expense-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);box-sizing:border-box;overflow:auto}
 #manual-expense-dialog::backdrop{background:rgb(0 0 0 / .45)}
 #manual-expense-dialog .mx-card{margin:0;border:0;box-shadow:none;max-width:none}
@@ -921,6 +921,8 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  .panel[data-edit-kind='expense'] .p-ft .primary{order:2}
  .panel[data-edit-kind='expense'] .p-ft #p-cancel{order:3}
 }
+/* Touch-width footers have no hardware Esc; the hint would clip 취소. */
+@media(width <= 390px){.panel .p-ft .kbd{display:none}}
 @media (prefers-reduced-motion: reduce) and (width < 760px) {
  .nav{transform:none;opacity:0;visibility:hidden;transition-property:opacity,visibility;transition-duration:150ms,0s;transition-delay:0s,150ms}
  .nav.open{opacity:1;visibility:visible;transition-delay:0s}
