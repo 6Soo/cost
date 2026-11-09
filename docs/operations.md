@@ -55,6 +55,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 | 5 | `086acc679ea4639ef96793ae2be39d1a63de8ea9` | cee973fb | #777 | PASS 18:43Z |
 | 6 | `094e52c9929843fb0b9b17b07e482eaf1c95ce6c` | 086acc67 | #778 | PASS 19:31Z |
 | 7 | `f5758929bf091b4fd4a43b4227709e8ad4197596` | 094e52c9 | #780 | PASS 19:54Z, 1,485 blobs mismatch0 |
+| 8 | `9ad0a454ae323cb6ee61c2a4827dca3bf34caa15` | f5758929 | #779(다른 세션 UI 1차, 검수 ff198354)·#782 | PASS 20:27Z, 1,494 blobs mismatch0, 다른 세션과 조율해 단일 작성자 배포 |
 
 - 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`. 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
 - 성능 수락(인증 ego-browser, 같은 3개 여행 장부): 7334f1ae 3.2–9.6s(1건 502/38s), 요청 지표 잠금 대기 p50 1,211ms·p95 51,959ms → cee973fb 0.9–1.0s, 잠금 대기 p50 0.003ms·p95 197ms, first_render p50 777ms.
