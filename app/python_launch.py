@@ -51,3 +51,29 @@ def child_environment(extra: dict[str, str], base: dict[str, str] | None = None)
     env = dict(os.environ if base is None else base)
     env.update(extra)
     return env
+
+
+STALE_CHILD_SECONDS = 2 * 3600
+
+
+def sweep_stale_child_files(directory, pattern: str, *, older_than: float = STALE_CHILD_SECONDS) -> int:
+    """Remove exchange files a killed child or restarted parent never cleaned up.
+
+    A running exchange is far younger than the child timeout, so only leftovers are this old.
+    """
+    import shutil
+    import time
+    removed = 0
+    limit = time.time() - older_than
+    for path in Path(directory).glob(pattern):
+        try:
+            if path.stat().st_mtime > limit:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed

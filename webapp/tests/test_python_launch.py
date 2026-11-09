@@ -53,3 +53,24 @@ def test_the_child_is_a_direct_child_with_the_same_environment():
                             env=child_environment(extra)).stdout.split()
     assert output[0] == sys.prefix
     assert int(output[1]) == os.getpid()
+
+
+def test_sweep_removes_only_old_child_exchange_leftovers(tmp_path):
+    import os
+    import time
+    from app.python_launch import sweep_stale_child_files
+    old_file = tmp_path / 'ota-reconcile-old.in'
+    old_dir = tmp_path / 'ota-catalog-worker-old'
+    fresh = tmp_path / 'ota-reconcile-fresh.in'
+    other = tmp_path / 'ota-snapshot.json'
+    for path in (old_file, fresh, other):
+        path.write_text('x', encoding='utf-8')
+    old_dir.mkdir()
+    (old_dir / 'request').write_text('x', encoding='utf-8')
+    stale = time.time() - 3 * 3600
+    for path in (old_file, old_dir, other):
+        os.utime(path, (stale, stale))
+    assert sweep_stale_child_files(tmp_path, 'ota-reconcile-*') == 1
+    assert sweep_stale_child_files(tmp_path, 'ota-catalog-worker-*') == 1
+    assert not old_file.exists() and not old_dir.exists()
+    assert fresh.exists() and other.exists()
