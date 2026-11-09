@@ -197,7 +197,7 @@ def test_search_month_sort_pagination_and_html_escape(data, monkeypatch):
     markup = ota_catalog.render_html(ota_catalog.catalog(board, query, sources=sources), query)
     assert query['q'][0] not in markup and '&lt;script&gt;' in markup
     assert '<h1>OTA 내역</h1>' in markup
-    assert '전체 예약</a>' in markup and '여행 미배정</a>' in markup
+    assert '전체 예약</a>' in markup and '여행 연결 없음</a>' in markup
     assert "<a class='catalog-btn' href='/cards/all'>" in markup
     assert '카드 내역 확인</a>' in markup
     assert '/import#ota-review' not in markup
@@ -209,7 +209,7 @@ def test_row_status_and_trip_badges_keep_text_without_combining_states(data):
     result = ota_catalog.catalog(board, {}, sources=sources)
     markup = ota_catalog.render_html(result, {})
     assert 'ota-badge trip ok' in markup and '합성 여행' in markup
-    assert 'ota-badge trip idle' in markup and '여행 미배정' in markup
+    assert 'ota-badge trip idle' in markup and '여행 연결 없음' in markup
     assert 'ota-badge ok' in markup and '예약 확정' in markup
     assert 'ota-badge bad' in markup and '취소' in markup
     assert 'ota-badge idle' in markup and '미확인' in markup

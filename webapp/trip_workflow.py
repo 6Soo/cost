@@ -68,7 +68,7 @@ def render(board, trip_id, cost_rows, amount_groups):
     if state['duplicate_copy']:
         closure += ' · 사본 중복 검토'
     receipt = state['receipts']
-    receipt_text = (f"이 여행 {receipt['count']}건 · 보류 {receipt['held']}건. 영수증의 금액·여행·결제수단을 확인하세요."
+    receipt_text = (f"이 여행 영수증 {receipt['count']}건. 금액·여행·결제수단을 확인하세요."
                     if receipt['available'] else '자료를 읽지 못해 건수를 확인할 수 없습니다. 영수증 화면에서 확인하세요.')
     summary = (amount_groups or {}).get('summary') or {}
     copy_text = (f"미기록 {summary.get('unrecorded', 0)}그룹 · 부분 일치 {summary.get('partial', 0)}그룹. "
@@ -90,18 +90,10 @@ def render(board, trip_id, cost_rows, amount_groups):
         f"<span>{esc(text)}</span></span>"
         f"<span class='trip-workflow-arrow'>{ui_icons.icon('chevron-right', 16)}</span></a>"
         for icon, label, text, href in links]
-    held = [row for row in cost_rows if row.get('blocked')]
-    held_links = ''.join(
-        f"<li><a href='/board?{esc(urlencode({'tab': trip_id, 'row': row['row_id']}))}'>"
-        f"{esc(row.get('source_merchant') or row.get('description') or row.get('item') or '지출')} · 상세에서 보류 근거 확인</a></li>"
-        for row in held if row.get('row_id'))
-    holds = (f"<section class='trip-review-holds' aria-label='이 여행 보류 지출'><h3>보류 지출 {len(held)}건</h3>"
-             + (f"<p>각 거래의 근거를 확인하고 필요한 항목을 교정하세요.</p><ul>{held_links}</ul>" if held
-                else '<p>이 여행 지출에 보류 표시가 없습니다.</p>') + '</section>')
     return ("<details class='trip-workflow' id='trip-review-panel' aria-label='여행 검토'><summary>"
             f"<span class='trip-workflow-heading'>{ui_icons.icon('list-filter', 18)}여행 검토</span>"
             f"<span class='trip-workflow-toggle'>{ui_icons.icon('chevron-down', 16)}</span></summary>"
-            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards) + '</nav>' + holds
+            "<nav class='trip-workflow-grid' aria-label='이 여행 검토 작업'>" + ''.join(cards) + '</nav>'
             + "<details class='trip-workflow-tools'><summary>전체 여행 자료에서 더 찾기</summary>"
             "<p>아래 화면은 전체 여행 자료를 엽니다. 현재 여행으로 자동 필터되지 않습니다.</p>"
             "<nav class='trip-review-sources' aria-label='전체 자료 도구'>"

@@ -96,7 +96,7 @@ class ExportSummaryCallCountTests(unittest.TestCase):
              "income_count": 1, "expense_count": 1},
             {"tab_id": "t-b", "display_key": "합성 B", "archived": True,
              "income_count": 0, "expense_count": 1},
-            {"tab_id": None, "display_key": "분류대기", "archived": False,
+            {"tab_id": None, "display_key": "이전 귀속 목록", "archived": False,
              "income_count": 1, "expense_count": 1},
         ])
         self.assertEqual(summary, {
