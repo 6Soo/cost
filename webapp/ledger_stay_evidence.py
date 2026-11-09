@@ -67,6 +67,167 @@ def stay_index(store):
         result.setdefault(tid, metadata)
     for tid, metadata in _rakuten_candidate_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _skyticket_candidate_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    for tid, metadata in _trip_price_change_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _trip_price_change_periods(data, manual):
+    """A Trip.com lodging price change's stay, for the one card charged its rise on the notice day.
+
+    The rise is reservation evidence only; no payment or relation is created.
+    """
+    from datetime import date
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    occupied = _occupied_cards(data)
+    claims, chosen = defaultdict(set), {}
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        if (event.get('provider') != 'trip' or not event.get('price_change_amount_krw')
+                or record.get('status') != 'RESERVATION_ONLY'):
+            continue
+        trace = record.get('candidate_search') or {}
+        candidates = trace.get('candidates') or ()
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            valid = 0 <= (end - start).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if (not valid or trace.get('status') != 'CANDIDATES_FOUND' or len(candidates) != 1
+                or not event.get('source_digest') or not event.get('booking_ref')
+                or event.get('reservation_status') == 'cancelled' or event.get('refund_status')
+                or any(obj.get(k) for obj in (event, record)
+                       for k in ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+            continue
+        candidate = candidates[0]
+        tid = str(candidate.get('transaction_id') or '')
+        if candidate.get('basis') != 'PRICE_CHANGE_RISE_AND_DAY' or candidate.get('payment_verified') is not False or not tid:
+            continue
+        claims[tid].add(str(event['ota_event_id']))
+        chosen[tid] = (start.isoformat() + '~' + end.isoformat(), str(event['booking_ref']))
+    result = {}
+    for tid, (period, booking_ref) in chosen.items():
+        card = cards.get(tid) or {}
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref], 'service_period': period,
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
+def _occupied_cards(data):
+    """Cards another result, reservation link, linked payment relation or saved link already claims."""
+    results = data.get('results', [])
+    occupied = {str(r['transaction_id']) for r in results if r.get('transaction_id')}
+    occupied.update(str(tid) for r in results for tid in r.get('reserved_card_ids') or ())
+    occupied.update(str(tid) for r in results if (r.get('payment_relation') or {}).get('status') == 'LINKED'
+                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
+    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id')) for r in results
+                    if (r.get('reservation_link') or {}).get('transaction_id'))
+    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                    if isinstance(link, dict) and link.get('transaction_id'))
+    return occupied
+
+
+def _agoda_recorded_card_periods(data, manual):
+    """The owner-approved mutually unique Agoda pairing, read for cards already on a ledger.
+
+    The core applies it only to still-open cards, so a recorded card never learns its
+    stay. This display reads the same pairing without opening, linking or rewriting it.
+    """
+    from app import ota_inference
+    from datetime import date
+    occupied = _occupied_cards(data)
+    cards = [dict(card, ota_inference_eligible=True) for card in data.get('transactions', [])]
+    events = [event for event in data.get('events', [])
+              if not any(event.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))]
+    result = {}
+    for identity, row in ota_inference.unique_pairs(events, cards, occupied=occupied).items():
+        tid = str(row['transaction_id'])
+        event = next(e for e in events if e.get('ota_event_id') == identity)
+        period = event['service_period']
+        try:
+            valid = 0 <= (date.fromisoformat(period['ends_on']) - date.fromisoformat(period['starts_on'])).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if (not valid or 'card-' + tid in manual or not row.get('source_hash')
+                or any(row.get(k) for k in ('ota_review_held', 'reservation_refund_blocked'))
+                or row.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': str(event['booking_ref']), 'booking_refs': [str(event['booking_ref'])],
+                       'service_period': period['starts_on'] + '~' + period['ends_on'],
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
+def _skyticket_candidate_periods(data, manual):
+    """A paid skyticket mail without a payment day names its departure days for the one card it equals.
+
+    The mail carries no card tail or charge day, so the core keeps it undated and
+    unlinked. Merchant, exact KRW total and a one-to-one pairing only inform this
+    read-only display; no payment, trip or reservation relation is created.
+    """
+    from datetime import date
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    occupied = _occupied_cards(data)
+    by_booking = defaultdict(list)
+    for event in events.values():
+        by_booking[(event.get('provider'), event.get('booking_ref'))].append(event)
+    claims = defaultdict(set)
+    chosen = {}
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        if event.get('provider') != 'skyticket' or record.get('status') != 'HOLD_DATE_UNKNOWN':
+            continue
+        trace = record.get('candidate_search') or {}
+        candidates = trace.get('candidates') or ()
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            valid = 0 <= (end - start).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        related = by_booking[(event.get('provider'), event.get('booking_ref'))]
+        if (not valid or trace.get('status') != 'CANDIDATES_FOUND' or len(candidates) != 1
+                or event.get('event_type') != 'charge' or event.get('evidence_status') != 'paid_verified'
+                or event.get('payment_status') != 'paid' or event.get('evidence_kind') != 'authenticated_payment_mail'
+                or str(event.get('currency') or '').upper() != 'KRW'
+                or not event.get('source_digest') or not event.get('booking_ref')
+                or any(e.get('evidence_status') != 'paid_verified' or e.get('event_type') != 'charge'
+                       or e.get('service_period') != period or e.get('refund_status')
+                       or e.get('period_conflict') or e.get('service_period_conflict')
+                       or e.get('reservation_status') in ('cancelled', 'refunded') for e in related)
+                or any(record.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))):
+            continue
+        candidate = candidates[0]
+        tid = str(candidate.get('transaction_id') or '')
+        if candidate.get('basis') != 'EXACT_AMOUNT_AND_CARD_EVIDENCE' or candidate.get('resolution_allowed') is not False or not tid:
+            continue
+        claims[tid].add(str(event.get('booking_ref')))
+        chosen[tid] = (start.isoformat() + '~' + end.isoformat(), str(event.get('booking_ref')))
+    result = {}
+    for tid, (period, booking_ref) in chosen.items():
+        card = cards.get(tid) or {}
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref], 'service_period': period,
+                       'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 
@@ -75,15 +236,7 @@ def _rakuten_candidate_periods(data, manual):
     from datetime import date
     events={str(e.get('ota_event_id')):e for e in data.get('events',[])}
     cards={str(c.get('transaction_id')):c for c in data.get('transactions',[])}
-    occupied={str(r.get('transaction_id')) for r in data.get('results',[]) if r.get('transaction_id')}
-    occupied.update(str(tid) for r in data.get('results',[]) for tid in r.get('reserved_card_ids') or ())
-    occupied.update(str(tid) for r in data.get('results',[])
-                    if (r.get('payment_relation') or {}).get('status')=='LINKED'
-                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
-    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id')) for r in data.get('results',[])
-                    if (r.get('reservation_link') or {}).get('transaction_id'))
-    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
-                    if isinstance(link,dict) and link.get('transaction_id'))
+    occupied=_occupied_cards(data)
     choices=defaultdict(set);refs=defaultdict(set);blocked=set()
     flags=('evidence_missing','evidence_changed','period_conflict','service_period_conflict','reservation_amount_conflict')
     for record in data.get('results',[]):
@@ -210,18 +363,7 @@ def _linked_candidate_periods(data, manual):
 def _toyoko_candidate_periods(data, manual):
     events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
     cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
-    occupied = {str(r.get('transaction_id')) for r in data.get('results', [])
-                if r.get('transaction_id')}
-    occupied.update(str(tid) for r in data.get('results', [])
-                    for tid in r.get('reserved_card_ids') or ())
-    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id'))
-                    for r in data.get('results', [])
-                    if (r.get('reservation_link') or {}).get('transaction_id'))
-    occupied.update(str(tid) for r in data.get('results', [])
-                    if (r.get('payment_relation') or {}).get('status') == 'LINKED'
-                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
-    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
-                    if isinstance(link, dict) and link.get('transaction_id'))
+    occupied = _occupied_cards(data)
     periods, blocked = defaultdict(set), set()
     for record in data.get('results', []):
         event = events.get(str(record.get('ota_event_id'))) or {}

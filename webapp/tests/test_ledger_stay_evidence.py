@@ -143,6 +143,117 @@ def rakuten_candidates(data):
     data['results'][0]['candidate_search']=ota_payments.search_card_candidates(event,data['transactions'])
 
 
+def agoda_recorded(data, **event_values):
+    data['events'] = [dict(ota_event_id='a1', provider='agoda', booking_ref='1744399422', item='숙박비',
+        event_type='charge', payment_status='paid', evidence_status='paid_verified', paid_on=None,
+        verified_portal_snapshot=True, reservation_status='completed', refund_status='none_displayed',
+        card_last4='8835', currency='KRW', amount=94401, amount_krw=94401, source_digest='d',
+        service_period={'starts_on': '2026-07-08', 'ends_on': '2026-07-09'}, **event_values)]
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=94401, merchant='AGODA_NICE-Agoda', card_tail='8835', approval_date='2026-07-05')]
+    data['results'] = [dict(ota_event_id='a1', status='HOLD_DATE_UNKNOWN', transaction_id=None)]
+
+
+def test_recorded_card_reads_the_mutually_unique_agoda_portal_stay(context):
+    store, data, _, _ = context
+    agoda_recorded(data)
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert stays.period_for(card(reservation_no=''), found) == '2026-07-08~2026-07-09'
+    assert found['t1']['ota_evidence']['kind'] == 'reservation_period_inferred'
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(card_tail='1111'),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['transactions'][0].update(ota_review_held=True),
+    lambda d: d['events'][0].update(refund_status='refund_requested'),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(evidence_changed=True),
+    lambda d: d['links'].update(other={'transaction_id': 't1'}),
+])
+def test_recorded_card_agoda_pairing_stays_unknown_when_ambiguous_or_unsafe(context, mutation):
+    store, data, _, _ = context
+    agoda_recorded(data)
+    data['links'] = {}
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_recorded_card_agoda_pairing_keeps_manual_empty_period(context):
+    store, data, _, _ = context
+    agoda_recorded(data)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
+def skyticket_candidates(data, tmp_path):
+    import json
+    from app import ota_payments
+    from tests.card_pipeline.test_airline_payment_mail import OVERSEAS_SKYTICKET_BODY, message
+    original = message('kaigai@skyticket.com', '【skyticket】구매 완료 안내 <신청번호：32779155>', OVERSEAS_SKYTICKET_BODY)
+    (tmp_path / 'gmail-synthetic.json').write_text(json.dumps({'responses': [original]}), encoding='utf-8')
+    data['events'] = ota_payments._parse_mail_events([tmp_path])
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=736240, merchant='인터넷상거래_1-주식회사 어드벤처코리아', card_tail='3820',
+        approval_date='2026-07-08')]
+    data['results'] = ota_payments.match_ota_payment_events(data['events'], data['transactions'])
+    for record, event in zip(data['results'], data['events']):
+        record['candidate_search'] = ota_payments.search_card_candidates(event, data['transactions'])
+    assert [r['status'] for r in data['results']] == ['HOLD_DATE_UNKNOWN']
+
+
+def test_unlinked_skyticket_total_shows_airfare_days_on_the_airfare_row(context, tmp_path):
+    store, data, _, calls = context
+    skyticket_candidates(data, tmp_path)
+    before = deepcopy(data)
+    value = dict(card(row_kind='expense', occurred_on='2026-07-08', amount_krw=736240, reservation_no=''), item='항공료')
+    @scoped
+    def render():
+        return (design._service_date_labels(value),
+                design._table_html([value], kind='expense', selected='', unclassified=False),
+                design._mobile_html([], [value], selected='', unclassified=False))
+    labels, desktop, mobile = render()
+    assert labels[0] == '08.06–08.11' and '2026-08-06' in labels[1] and '2026-08-11' in labels[1]
+    assert '08.06–08.11' in desktop and '08.06–08.11' in mobile
+    assert data == before and data['results'][0]['transaction_id'] is None
+    # A row typed as another category shows no service date; its category is corrected instead.
+    other = dict(card(row_kind='expense', amount_krw=736240, reservation_no=''), item='여행상품비')
+    @scoped
+    def render_other():
+        return design._service_date_labels(other)
+    assert render_other() == ('', '')
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'][0].update(refund_status='refund_requested'),
+    lambda d: d['transactions'][0].update(parse_error='bad'),
+    lambda d: d['events'][0].update(refund_status='refund_requested'),
+    lambda d: d['events'][0].update(source_digest=''),
+    lambda d: d['events'][0].update(service_period_conflict=True),
+    lambda d: d['results'][0].update(evidence_changed=True),
+    lambda d: d['links'].update(other={'transaction_id': 't1'}),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='99999999')) or
+              d['results'].append(dict(d['results'][0], ota_event_id='dup')),
+])
+def test_unlinked_skyticket_total_stays_unknown_when_evidence_is_unsafe_or_ambiguous(context, tmp_path, mutation):
+    store, data, _, _ = context
+    skyticket_candidates(data, tmp_path)
+    data['links'] = {}
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_unlinked_skyticket_total_keeps_manual_empty_period(context, tmp_path):
+    store, data, _, _ = context
+    skyticket_candidates(data, tmp_path)
+    assert stays.period_for(card(reservation_no='OTHER'), stays.stay_index(store)) == ''
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 def test_rakuten_quote_displays_original_period_without_confirming_payment_or_rewriting_ledger(context):
     store,data,_,calls=context
     rakuten_candidates(data)
@@ -433,3 +544,36 @@ def test_existing_relations_cannot_be_replaced_with_reservation_inference(contex
     toyoko_candidates(data)
     data['results'].append(dict(ota_event_id='other', status='MATCHED_GROUP', **relation))
     assert stays.stay_index(store) == {}
+
+
+def trip_rise(data, tmp_path, *extra_cards):
+    from app import ota_payments
+    from tests.card_pipeline.test_trip_price_change_charge import confirmation, update, events_for
+    data['events'] = events_for(tmp_path, confirmation(119965), update(167572))
+    card = dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase', merchant='트립닷컴(구)_NICE',
+                approval_date='2026-07-11', amount_krw=47607, card_tail='8835')
+    data['transactions'] = [card, *extra_cards]
+    data['results'] = ota_payments.match_ota_payment_events(data['events'], data['transactions'])
+    for record, event in zip(data['results'], data['events']):
+        record['candidate_search'] = ota_payments.search_card_candidates(event, data['transactions'])
+
+
+def test_trip_price_change_rise_shows_its_stay_for_the_one_card_charged_that_day(context, tmp_path):
+    store, data, _, _ = context
+    trip_rise(data, tmp_path)
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert stays.period_for(card(reservation_no=''), found) == '2026-08-03~2026-08-04'
+    assert found['t1']['ota_evidence'] == {'kind': 'reservation_period_inferred', 'payment_verified': False}
+    assert data == before and all(r['transaction_id'] != 't1' for r in data['results'])
+
+
+def test_trip_price_change_rise_shows_nothing_when_two_cards_match_or_the_card_is_protected(context, tmp_path):
+    store, data, _, _ = context
+    other = dict(transaction_id='t2', source_hash='s2', transaction_direction='purchase', merchant='트립닷컴(구)_NICE',
+                 approval_date='2026-07-11', amount_krw=47607, card_tail='8835')
+    trip_rise(data, tmp_path, other)
+    assert 't1' not in stays.stay_index(store)
+    trip_rise(data, tmp_path)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert 't1' not in stays.stay_index(store)

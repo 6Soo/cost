@@ -72,6 +72,40 @@ def _mail_events(directories, *, read_only=False):
         return copy.deepcopy(_MAIL_EVENT_MEMO[key])
 
 
+def _trip_price_change_amounts(collected):
+    """The rise a Trip.com lodging change notice adds over the latest stated total of the same stay.
+
+    The notice states the new total, not a charge. Only a booking whose every notice
+    keeps the first confirmed stay, with no cancellation, yields a rise; any other
+    change of stay drops the booking. The rise stays reservation evidence, never a payment.
+    """
+    by_booking = defaultdict(list)
+    cancelled = {fact.get('booking_ref') for _, _, fact in collected
+                 if fact.get('provider') == 'trip' and fact.get('reservation_status') == 'cancelled'}
+    for message_id, message, fact in collected:
+        if (fact.get('provider') == 'trip' and fact.get('item') == '숙박비' and fact.get('booking_ref')
+                and fact['booking_ref'] not in cancelled
+                and (fact.get('updated_total_krw') or fact.get('paid_amount_krw'))):
+            by_booking[fact['booking_ref']].append((ota_mail.mail_internal_date(message), message_id, fact))
+    rises = {}
+    for items in by_booking.values():
+        ordered = sorted(items, key=lambda item: (int(item[0] or 0), item[1]))
+        first = ordered[0][2]
+        period = first.get('period')
+        if first.get('updated_total_krw') is not None or not first.get('paid_amount_krw') or not period:
+            continue
+        if any(fact.get('period') != period for _, _, fact in ordered):
+            continue
+        total, found = None, {}
+        for _, message_id, fact in ordered:
+            stated = fact.get('updated_total_krw') or fact.get('paid_amount_krw')
+            if fact.get('updated_total_krw') is not None and total is not None and stated > total:
+                found[message_id] = stated - total
+            total = stated
+        rises.update(found)
+    return rises
+
+
 def _parse_mail_events(directories):
     from app import ota_booking_context
     try:
@@ -87,13 +121,20 @@ def _parse_mail_events(directories):
     airline_cancellations = {value for message in messages.values()
                              for value in airline_payment_mail.cancellation_references(message)}
     def payment_facts():
+        collected = []
         for message_id, message in sorted(messages.items()):
             facts = airline_payment_mail.jeju_payment_facts(message)
             if not facts:
                 fact = extract_payment_fact(message)
                 facts = [fact] if fact else []
             for fact in facts:
-                yield message_id, message, fact
+                collected.append((message_id, message, fact))
+        rises = _trip_price_change_amounts(collected)
+        for message_id, message, fact in collected:
+            if message_id in rises:
+                fact = dict(fact, event_type='reservation', evidence_status='reservation_only',
+                            price_change_amount_krw=rises[message_id], price_change_on=fact.get('paid_on'))
+            yield message_id, message, fact
 
     for message_id, message, fact in payment_facts():
         amount = fact.get("paid_amount_krw")
@@ -146,6 +187,9 @@ def _parse_mail_events(directories):
             "card_issuer": ota_booking_context.payment_issuer(text),
             "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
         }
+        if fact.get("price_change_amount_krw"):
+            event.update(price_change_amount_krw=fact["price_change_amount_krw"],
+                         price_change_on=fact.get("price_change_on"))
         if status in ("paid_verified", "refund_verified"):
             payment_identity = (("payment_id", str(payment_id)) if payment_id else
                                 ("binding", event["source_binding_ids"][0])
@@ -1256,6 +1300,28 @@ def pair_check(event, row, rules=None):
 
 
 @provider_resolution_scope()
+def _price_change_candidates(event, transactions, rules):
+    """Trip.com cards charged the rise of a price change on its notice day; never a verified payment."""
+    empty = {"status": "NO_CANDIDATE", "candidates": [], "rejected": [], "comparisons": 0, "reservation_only": True}
+    amount, day = event.get("price_change_amount_krw"), event.get("price_change_on")
+    if (not amount or not day or event.get("reservation_status") == "cancelled"
+            or any(event.get(k) for k in ("evidence_missing", "evidence_changed", "period_conflict",
+                                          "service_period_conflict"))):
+        return empty
+    candidates, comparisons = [], 0
+    for row in transactions:
+        if _direction(row) != "purchase" or not provider_compatible(event, row, rules):
+            continue
+        comparisons += 1
+        if (row.get("approval_date") != day or _card_amount(row) != amount or not row.get("source_hash")
+                or any(row.get(k) for k in ("duplicate_of", "parse_error", "conflict_reason"))):
+            continue
+        candidates.append({"transaction_id": row["transaction_id"], "basis": "PRICE_CHANGE_RISE_AND_DAY",
+                           "payment_verified": False, "resolution_allowed": False})
+    return {"status": "CANDIDATES_FOUND" if candidates else "NO_CANDIDATE", "candidates": candidates,
+            "rejected": [], "comparisons": comparisons, "reservation_only": True}
+
+
 def search_card_candidates(event, transactions, *, existing_links=None, rules=None,
                            max_comparisons=250000):
     """Find evidence-based diagnostic candidates without promoting them to matches.
@@ -1272,6 +1338,9 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
     if (event.get('provider') == 'trip' and event.get('event_type') == 'reservation'
             and event.get('evidence_status') == 'preauthorized'):
         return _preauthorization_candidates(event, transactions, links, rules, max_comparisons)
+    if (event.get('provider') == 'trip' and event.get('event_type') == 'reservation'
+            and event.get('price_change_amount_krw')):
+        return _price_change_candidates(event, transactions, rules)
     if event.get('provider') == 'forest' and event.get('event_type') == 'reservation':
         from app import forest_mail
         return forest_mail.search_candidates(event, transactions, max_comparisons=max_comparisons)
@@ -1687,7 +1756,8 @@ def _assemble_ota_match_results(context):
             if event.get("evidence_status") in ("conflict", "evidence_conflict", "refund_conflict"):
                 status = "HOLD_EVIDENCE_CONFLICT"
             elif (event.get('event_type') == 'reservation' and
-                  (event.get('provider') in ('toyoko', 'forest', 'rakuten') or event.get('evidence_status') == 'preauthorized')):
+                  (event.get('provider') in ('toyoko', 'forest', 'rakuten') or event.get('evidence_status') == 'preauthorized'
+                   or event.get('price_change_amount_krw'))):
                 status = 'RESERVATION_ONLY'
             else:
                 status = ("PENDING_PAYMENT" if event.get("event_type") == "scheduled_charge" or
