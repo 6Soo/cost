@@ -9,17 +9,13 @@ from webapp import flight_passenger_page as page
 
 def test_design_tokens_and_accessibility_markup_present():
     document = page._legacy_page('csrf-synth')
-    # Design token variables must be declared in the style block
-    assert '--bg:#F8FAFC' in document
-    assert '--ink:#0F172A' in document
-    assert '--focus:#2266F5' in document
-    assert '--paper:#FFFFFF' in document
-    assert '@media(prefers-color-scheme:dark)' in document
-    dark_tokens = document.split('@media(prefers-color-scheme:dark)', 1)[1].split('}', 1)[0]
-    assert '--grn:#86EFAC' in dark_tokens
-    assert '--warn:#FDBA74' in dark_tokens
-    assert '--neg:#FCA5A5' in dark_tokens
-    assert '--bad:#FCA5A5' in dark_tokens
+    # Page styles consume the shared semantic token sheet.
+    assert "@import url('/static/css/tokens.css')" in document
+    assert '--bg:var(--c-bg)' in document
+    assert '--ink:var(--c-text)' in document
+    assert '--focus:var(--c-focus' in document
+    assert '--paper:var(--c-surface)' in document
+    assert '@media(prefers-color-scheme:dark)' not in document
     # Access improvements: label associations via for/id and aria-label on form
     assert "for='f-booking'" in document
     assert "id='f-booking'" in document
@@ -70,6 +66,6 @@ def test_save_full_fixture_with_css():
     assert fixture_path.stat().st_size > 2000
     # Verify the saved file contains the same design tokens
     content = fixture_path.read_text(encoding='utf-8')
-    assert '--bg:#F8FAFC' in content
-    assert '--focus:#2266F5' in content
+    assert '--bg:var(--c-bg)' in content
+    assert '--focus:var(--c-focus' in content
     assert 'overflow:hidden' in content or '@media(max-width:375px)' in content

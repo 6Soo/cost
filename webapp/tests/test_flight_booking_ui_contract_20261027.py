@@ -17,6 +17,7 @@ def test_booking_route_cards_keep_existing_workflows():
     ):
         assert marker in html
     assert "@media(max-width:600px)" in html
-    assert "@media(prefers-color-scheme:dark)" in html
+    assert "@import url('/static/css/tokens.css')" in html
+    assert "@media(prefers-color-scheme:dark)" not in html
     assert "textContent=String(value" in html  # No untrusted reservation innerHTML.
     assert "/flight-passengers?view=participants" not in html

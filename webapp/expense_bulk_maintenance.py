@@ -330,10 +330,11 @@ def _render_page(csrf):
     return """<!doctype html><html lang='ko'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>지출 정리 유지관리</title>
 <style>
-main{max-width:900px;margin:24px auto;padding:0 16px;color:var(--ink,#202521)}
-section{border:1px solid var(--line,#e3e7e3);border-radius:8px;padding:20px;margin:16px 0;background:var(--paper,#fff)}
+@import url('/static/css/tokens.css');
+main{max-width:900px;margin:24px auto;padding:0 16px;color:var(--ink,var(--c-text))}
+section{border:1px solid var(--line,var(--c-border));border-radius:var(--r-md);padding:20px;margin:16px 0;background:var(--paper,var(--c-surface))}
 button{min-height:44px;padding:0 16px}label{display:flex;gap:10px;align-items:flex-start;margin:16px 0}
-pre{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:var(--shell-warn,#8a5a12)}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:var(--shell-warn,var(--c-warn-text))}
 </style></head><body><main><h1>지출 정리 유지관리</h1>
 <p>owner 전용 작업입니다. 미리보기는 저장소의 메모리 복제본에서 실행하며 자료를 바꾸지 않습니다. 등록된 OTA 근거 파일과 현재 보관된 스냅샷은 읽기만 하며 외부 요청이나 갱신 워커를 시작하지 않습니다.</p>
 <section><h2>1. 변경 예상 확인</h2><p>미리보기에는 대상 거래 ID와 변경 종류만 표시합니다. 가맹점, 원문, 예약번호와 금액은 표시하거나 기록하지 않습니다.</p>

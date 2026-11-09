@@ -47,35 +47,36 @@ def _legacy_page(csrf):
     token = _escape_csrf_json(csrf)
     return """<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>항공권 참가자 후보</title>
 <style>
-:root{--bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;--line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;--sel:#ECF5EF;--grn:#1C7A52;--warn:#B54708;--neg:#B42318;--bad:#B42318}
-@media(prefers-color-scheme:dark){:root{--bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;--line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#2266F5;--sel:#1E3A5F;--grn:#86EFAC;--warn:#FDBA74;--neg:#FCA5A5;--bad:#FCA5A5}}
+@import url('/static/css/tokens.css');
+:root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-surface-sunken);--focus:var(--c-focus,Highlight);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
+
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",Apple SD Gothic Neo,sans-serif;word-break:keep-all;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 var(--t-body-sm)/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",Apple SD Gothic Neo,sans-serif;word-break:keep-all;-webkit-text-size-adjust:100%}
 h1,h2,p{margin:0}
 #flight-passenger-page{max-width:760px;margin:32px auto;padding:0 16px;color:var(--ink)}
 @media(max-width:390px){#flight-passenger-page{margin:20px 12px;padding:0}}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 #flight-passenger-page button,#flight-passenger-page input{font:inherit;color:inherit}
-#flight-passenger-page label{display:block;font-size:13px;color:var(--mut);margin:0 0 6px;font-weight:500}
-#flight-passenger-page form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px 14px 10px}
-#flight-passenger-page form label{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;flex:1 1 220px;margin:0;padding:0;font-size:13px;color:var(--ink);font-weight:500;white-space:normal}
-#flight-passenger-page input[name='booking_ref'],#flight-passenger-page input[name='tour_id']{width:100%;min-width:0;height:40px;border:1px solid var(--line-strong);border-radius:7px;padding:0 9px;background:var(--paper);font-weight:500;font-size:14px;color:var(--ink)}
-#flight-passenger-page input:focus{border-color:var(--focus)!important;box-shadow:0 0 0 3px rgba(34,102,245,.12);outline:none}
-#flight-passenger-page button{min-height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+#flight-passenger-page label{display:block;font-size:var(--t-meta);color:var(--mut);margin:0 0 6px;font-weight:500}
+#flight-passenger-page form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 14px 10px}
+#flight-passenger-page form label{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;flex:1 1 220px;margin:0;padding:0;font-size:var(--t-meta);color:var(--ink);font-weight:500;white-space:normal}
+#flight-passenger-page input[name='booking_ref'],#flight-passenger-page input[name='tour_id']{width:100%;min-width:0;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:0 9px;background:var(--paper);font-weight:500;font-size:var(--t-body-sm);color:var(--ink)}
+#flight-passenger-page input:focus{border-color:var(--focus)!important;box-shadow:0 0 0 3px color-mix(in srgb, var(--c-focus) 12%, transparent);outline:none}
+#flight-passenger-page button{min-height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--paper);font-size:var(--t-body-sm);font-weight:600;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
 #flight-passenger-page button:hover{background:var(--hover)}
 #flight-passenger-page button[type='button'][disabled]{opacity:.45;cursor:default}
 #flight-passenger-page section#results{margin-top:18px}
-#flight-passenger-page article{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:14px;margin:0 0 12px;overflow:hidden}
-#flight-passenger-page article h2{font-size:15px;font-weight:700;margin:0 0 6px;color:var(--ink)}
-#flight-passenger-page article p{font-size:13px;color:var(--mut);margin:4px 0;line-height:1.45}
-#flight-passenger-page article label{display:flex;align-items:center;gap:8px;min-height:44px;margin:0;padding:6px 8px;font-size:13.5px;color:var(--ink);cursor:pointer;white-space:normal;border-radius:6px}
+#flight-passenger-page article{border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);padding:14px;margin:0 0 12px;overflow:hidden}
+#flight-passenger-page article h2{font-size:var(--t-body-sm);font-weight:700;margin:0 0 6px;color:var(--ink)}
+#flight-passenger-page article p{font-size:var(--t-meta);color:var(--mut);margin:4px 0;line-height:1.45}
+#flight-passenger-page article label{display:flex;align-items:center;gap:8px;min-height:44px;margin:0;padding:6px 8px;font-size:var(--t-meta);color:var(--ink);cursor:pointer;white-space:normal;border-radius:var(--r-sm)}
 #flight-passenger-page article label:hover{background:var(--hover)}
 #flight-passenger-page article input[type='radio']{accent-color:var(--grn);flex:0 0 auto;width:18px;height:18px;margin:0}
-#flight-passenger-page article .empty{color:var(--mut);font-size:13.5px;margin:6px 0}
-#flight-passenger-page article .warning{color:var(--warn);font-size:13px;font-weight:600;margin:4px 0}
-#status[role='status']{min-height:24px;font-size:13px;color:var(--mut);margin:10px 0 6px}
+#flight-passenger-page article .empty{color:var(--mut);font-size:var(--t-meta);margin:6px 0}
+#flight-passenger-page article .warning{color:var(--warn);font-size:var(--t-meta);font-weight:600;margin:4px 0}
+#status[role='status']{min-height:24px;font-size:var(--t-meta);color:var(--mut);margin:10px 0 6px}
 #status[role='status']:not(:empty){font-weight:500;color:var(--ink)}
-@media(max-width:375px){#flight-passenger-page form{flex-direction:column;align-items:stretch;padding:12px}#flight-passenger-page form label{margin:0 0 4px;font-size:12px}#flight-passenger-page article{padding:12px}#flight-passenger-page{padding:0 10px}}
+@media(max-width:375px){#flight-passenger-page form{flex-direction:column;align-items:stretch;padding:12px}#flight-passenger-page form label{margin:0 0 4px;font-size:var(--t-caption)}#flight-passenger-page article{padding:12px}#flight-passenger-page{padding:0 10px}}
 </style>
 """ + "</head><body><main id='flight-passenger-page'>" + """
 <h1>항공권 참가자 연결</h1>
@@ -112,60 +113,61 @@ def _page(csrf):
     token = _escape_csrf_json(csrf)
     return """<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>항공권 예약 확인</title>
 <style>
-:root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--warn:#a16207}
-@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--paper:#1e293b;--ink:#f8fafc;--mut:#cbd5e1;--line:#334155;--hover:#334155;--focus:#93c5fd;--warn:#fbbf24}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:0.9375rem/1.5 system-ui,"Malgun Gothic",sans-serif}
+@import url('/static/css/tokens.css');
+:root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-surface-sunken);--focus:var(--c-focus,Highlight);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
+
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:var(--t-body-sm)/1.5 system-ui,"Malgun Gothic",sans-serif}
 #flight-booking-page{max-width:880px;min-width:0;margin:24px auto;padding:0 20px 48px}
-#flight-booking-page h1{font-size:1.5rem;line-height:1.3;margin:0 0 12px}
-#flight-booking-page h2,#flight-booking-page h3{font-size:1rem;line-height:1.4;margin:0 0 8px;overflow-wrap:anywhere}
+#flight-booking-page h1{font-size:var(--t-h1);line-height:1.3;margin:0 0 12px}
+#flight-booking-page h2,#flight-booking-page h3{font-size:var(--t-body);line-height:1.4;margin:0 0 8px;overflow-wrap:anywhere}
 #flight-booking-page p{margin:0 0 12px;overflow-wrap:anywhere}.fb-muted{color:var(--mut)}
-.fb-panel,.fb-ticket,.fb-booking-choice{background:var(--paper);border:1px solid var(--line);border-radius:10px}
+.fb-panel,.fb-ticket,.fb-booking-choice{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-lg)}
 .fb-panel{padding:14px}.fb-search-panel{container:flight-search / inline-size}.fb-ticket,.fb-booking-choice{margin:12px 0;min-width:0}
 .fb-booking-choice .fb-ticket{margin:0;border:0;border-radius:0}.fb-booking-choice .fb-hero{display:none}
 #flight-booking-page form{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
-#flight-booking-page label{display:grid;gap:6px;flex:1 1 180px;min-width:0;font-size:0.875rem;font-weight:600}
-#flight-booking-page input,#flight-booking-page button{font:inherit;min-height:44px;max-width:100%;padding:9px 12px;border:1px solid var(--mut);border-radius:7px;background:var(--paper);color:var(--ink)}
-#flight-booking-page input{width:100%;min-width:0;font-size:1rem}
+#flight-booking-page label{display:grid;gap:6px;flex:1 1 180px;min-width:0;font-size:var(--t-body-sm);font-weight:600}
+#flight-booking-page input,#flight-booking-page button{font:inherit;min-height:44px;max-width:100%;padding:9px 12px;border:1px solid var(--mut);border-radius:var(--r-sm);background:var(--paper);color:var(--ink)}
+#flight-booking-page input{width:100%;min-width:0;font-size:var(--t-body)}
 #flight-booking-page button{cursor:pointer;font-weight:600;overflow-wrap:anywhere}
 #flight-booking-page button:disabled{opacity:.6;cursor:wait}
 #flight-booking-page #fb-submit{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 #flight-booking-page :is(button,input,summary,a):focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 #flight-booking-page #fb-search{flex-wrap:nowrap}#flight-booking-page #fb-submit{flex-shrink:0;white-space:nowrap}
-#flight-booking-page #fb-search-help{display:block;margin-top:8px;font-size:0.8125rem;color:var(--mut)}
-#fb-status{margin:8px 0 0!important;font-size:0.875rem}#fb-status:empty{display:none}#fb-results{margin-top:12px}
+#flight-booking-page #fb-search-help{display:block;margin-top:8px;font-size:var(--t-meta);color:var(--mut)}
+#fb-status{margin:8px 0 0!important;font-size:var(--t-body-sm)}#fb-status:empty{display:none}#fb-results{margin-top:12px}
 #flight-booking-page summary{display:flex;align-items:center;gap:12px;min-height:44px;padding:10px 0;list-style:none;font-weight:600;cursor:pointer;line-height:1.5;overflow-wrap:anywhere}
 #flight-booking-page summary::-webkit-details-marker{display:none}
 #flight-booking-page summary::after{content:'';flex:0 0 7px;width:7px;height:7px;margin-inline-start:auto;margin-inline-end:4px;border-inline-end:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
 #flight-booking-page details[open]>summary::after{transform:rotate(225deg)}
 #flight-booking-page .fb-booking-choice>summary{padding:14px 16px}
 .fb-choice-copy{min-width:0}.fb-choice-copy strong,.fb-choice-copy small{display:block;overflow-wrap:anywhere}
-.fb-choice-copy strong{font-size:1rem}.fb-choice-copy small{font-size:0.8125rem;color:var(--mut);font-weight:400;margin-top:3px}
-.fb-trip-group{margin:24px 0}.fb-group-heading{display:flex;align-items:baseline;gap:8px 12px;flex-wrap:wrap;padding-bottom:4px}.fb-group-heading h2{margin:0!important}.fb-group-count{font-size:0.8125rem;color:var(--mut)}.fb-group-heading a{color:var(--ink);font-size:0.8125rem;min-height:44px;display:inline-flex;align-items:center;margin-inline-start:auto;text-underline-offset:3px}.fb-group-unavailable{font-size:0.875rem;color:var(--mut)}
+.fb-choice-copy strong{font-size:var(--t-body)}.fb-choice-copy small{font-size:var(--t-meta);color:var(--mut);font-weight:400;margin-top:3px}
+.fb-trip-group{margin:24px 0}.fb-group-heading{display:flex;align-items:baseline;gap:8px 12px;flex-wrap:wrap;padding-bottom:4px}.fb-group-heading h2{margin:0!important}.fb-group-count{font-size:var(--t-meta);color:var(--mut)}.fb-group-heading a{color:var(--ink);font-size:var(--t-meta);min-height:44px;display:inline-flex;align-items:center;margin-inline-start:auto;text-underline-offset:3px}.fb-group-unavailable{font-size:var(--t-body-sm);color:var(--mut)}
 .fb-group-heading>*{min-width:0;max-width:100%}
-.fb-hero{padding:16px}.fb-hero h3{font-size:1.125rem!important;margin:0!important}.fb-hero-subtitle{color:var(--mut);font-size:0.875rem;margin:4px 0 0!important}
+.fb-hero{padding:16px}.fb-hero h3{font-size:var(--t-h3)!important;margin:0!important}.fb-hero-subtitle{color:var(--mut);font-size:var(--t-body-sm);margin:4px 0 0!important}
 .fb-section{padding:14px 16px;border-top:1px solid var(--line)}.fb-heading{margin-bottom:4px}
 .fb-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px 16px}
-.fb-summary-item,.fb-field{min-width:0}.fb-summary small,.fb-field small{display:block;color:var(--mut);font-size:0.8125rem;font-weight:400;margin-bottom:3px}
-.fb-summary strong,.fb-field strong{display:block;overflow-wrap:anywhere;font-size:0.9375rem}.fb-summary-detail{font-size:0.8125rem;color:var(--mut);display:block;margin-top:2px}
+.fb-summary-item,.fb-field{min-width:0}.fb-summary small,.fb-field small{display:block;color:var(--mut);font-size:var(--t-meta);font-weight:400;margin-bottom:3px}
+.fb-summary strong,.fb-field strong{display:block;overflow-wrap:anywhere;font-size:var(--t-body-sm)}.fb-summary-detail{font-size:var(--t-meta);color:var(--mut);display:block;margin-top:2px}
 .fb-reservation-warning{margin:0 16px 12px;padding:12px;border-inline-start:3px solid var(--warn);background:var(--hover)}
-.fb-reservation-warning h3{font-size:0.9375rem!important}.fb-reservation-warning p{font-size:0.875rem}
+.fb-reservation-warning h3{font-size:var(--t-body-sm)!important}.fb-reservation-warning p{font-size:var(--t-body-sm)}
 .fb-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 #flight-booking-page .fb-actions a{display:inline-flex;align-items:center;min-width:0;max-width:100%;min-height:44px;padding:8px 10px;text-decoration:underline;text-underline-offset:3px;color:var(--ink);font-weight:600}
 #flight-booking-page .fb-actions .site-action-label{min-width:0;white-space:normal;overflow-wrap:anywhere}
-#flight-booking-page .fb-actions button{font-size:0.875rem}.fb-copy-status{font-size:0.8125rem;margin:8px 0 0!important;min-height:0}
-.fb-note{padding:9px 12px;border-inline-start:3px solid var(--warn);background:var(--hover);font-size:0.875rem}
+#flight-booking-page .fb-actions button{font-size:var(--t-body-sm)}.fb-copy-status{font-size:var(--t-meta);margin:8px 0 0!important;min-height:0}
+.fb-note{padding:9px 12px;border-inline-start:3px solid var(--warn);background:var(--hover);font-size:var(--t-body-sm)}
 .fb-flight-card{padding:10px 0;min-width:0}.fb-flight-card+.fb-flight-card{border-top:1px solid var(--line)}
-.fb-flight-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:0.8125rem}.fb-flight-title,.fb-flight-date{color:var(--mut);font-weight:400}
+.fb-flight-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:var(--t-meta)}.fb-flight-title,.fb-flight-date{color:var(--mut);font-weight:400}
 .fb-flight-number{margin-inline-start:auto;font-weight:600;overflow-wrap:anywhere;max-width:100%}
 .fb-route{display:grid;grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr);gap:8px;align-items:center;padding-top:6px}
-.fb-route-stop{min-width:0}.fb-route-stop:last-child{text-align:end}.fb-route-stop strong{display:block;font-size:0.875rem;overflow-wrap:anywhere}
-.fb-time{display:block;font-size:1.25rem;line-height:1.3;font-variant-numeric:tabular-nums}.fb-airport-code{font-size:0.8125rem;color:var(--mut)}.fb-route-arrow{color:var(--mut);text-align:center}
+.fb-route-stop{min-width:0}.fb-route-stop:last-child{text-align:end}.fb-route-stop strong{display:block;font-size:var(--t-body-sm);overflow-wrap:anywhere}
+.fb-time{display:block;font-size:var(--t-h1);line-height:1.3;font-variant-numeric:tabular-nums}.fb-airport-code{font-size:var(--t-meta);color:var(--mut)}.fb-route-arrow{color:var(--mut);text-align:center}
 .fb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fb-payment-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.fb-amount{font-size:1.125rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.fb-date-row{border:1px solid var(--line);padding:12px;border-radius:7px;margin:12px 0}.fb-date-row .fb-grid{margin-top:10px}
-.fb-date-filter{margin-top:8px}.fb-date-filter form{margin:8px 0}.fb-date-filter>.fb-note{font-size:0.8125rem;background:none;border:0;padding:0;color:var(--mut)}
-.fb-date-status{font-size:0.875rem;margin:8px 0!important}.fb-date-filter button{flex-shrink:0}.fb-more-details{font-size:0.875rem}.fb-more-details>summary{color:var(--mut)}
+.fb-amount{font-size:var(--t-h3);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.fb-date-row{border:1px solid var(--line);padding:12px;border-radius:var(--r-sm);margin:12px 0}.fb-date-row .fb-grid{margin-top:10px}
+.fb-date-filter{margin-top:8px}.fb-date-filter form{margin:8px 0}.fb-date-filter>.fb-note{font-size:var(--t-meta);background:none;border:0;padding:0;color:var(--mut)}
+.fb-date-status{font-size:var(--t-body-sm);margin:8px 0!important}.fb-date-filter button{flex-shrink:0}.fb-more-details{font-size:var(--t-body-sm)}.fb-more-details>summary{color:var(--mut)}
 .fb-card-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px}.fb-card-detail dd{margin:0;overflow-wrap:anywhere}.fb-card-detail dt{color:var(--mut)}
-.fb-passengers{padding:0 16px 12px;overflow-wrap:anywhere;font-size:0.875rem}.fb-passengers p{margin:0!important}.fb-passengers small{color:var(--mut)}
+.fb-passengers{padding:0 16px 12px;overflow-wrap:anywhere;font-size:var(--t-body-sm)}.fb-passengers p{margin:0!important}.fb-passengers small{color:var(--mut)}
 #flight-booking-page [hidden]{display:none!important}
 #site-content:has(#flight-booking-page){container:flight-content / inline-size}
 @container flight-content (max-width:30rem){
@@ -187,7 +189,7 @@ def _page(csrf):
  #flight-booking-page .fb-actions a,#flight-booking-page .fb-actions button,#flight-booking-page #fb-submit{display:block}
 }
 @container flight-search (max-width:20rem){#flight-booking-page #fb-search{display:grid;grid-template-columns:minmax(0,1fr)}#flight-booking-page #fb-submit{justify-self:start}}
-@media(max-width:600px){#flight-booking-page{margin:12px auto;padding:0 12px 32px}#flight-booking-page h1{font-size:1.25rem}.fb-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.fb-summary-item:first-child{grid-column:1/-1}.fb-grid{grid-template-columns:minmax(0,1fr)}#flight-booking-page .fb-booking-choice>summary{padding:12px}.fb-section{padding:12px}.fb-summary,.fb-hero{padding:12px}.fb-reservation-warning{margin-inline:12px}.fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}.fb-date-filter label{width:100%}.fb-date-filter form button{justify-self:start}}
+@media(max-width:600px){#flight-booking-page{margin:12px auto;padding:0 12px 32px}#flight-booking-page h1{font-size:var(--t-h1)}.fb-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.fb-summary-item:first-child{grid-column:1/-1}.fb-grid{grid-template-columns:minmax(0,1fr)}#flight-booking-page .fb-booking-choice>summary{padding:12px}.fb-section{padding:12px}.fb-summary,.fb-hero{padding:12px}.fb-reservation-warning{margin-inline:12px}.fb-date-filter form{display:grid;grid-template-columns:minmax(0,1fr)}.fb-date-filter label{width:100%}.fb-date-filter form button{justify-self:start}}
 </style></head><body><main id="flight-booking-page">
 <h1>항공권 예약 확인</h1>
 <section class="fb-panel fb-search-panel" aria-label="항공권 조회">
