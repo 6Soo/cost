@@ -1006,10 +1006,11 @@ def _flight_date_labels(row):
 
 
 # Payment intermediaries and booking sites: a charge through them is a booking, not an on-site stay.
+# Rakuten Pay is a wallet used at the property itself, unlike Rakuten Travel.
 _BOOKING_CHANNEL = re.compile(
     r'(?i)nice|kcp|inicis|이니시스|토스|카카오페이|네이버페이|페이코|payco|paypal|klook|클룩|booking|agoda|아고다'
     r'|trip\.?com|트립|expedia|hotels\.com|인터넷상거래|결제대행|ksnet|다날|스마트로|나이스|쿠팡|야놀자|여기어때'
-    r'|airbnb|에어비앤비|rakuten|라쿠텐|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b')
+    r'|airbnb|에어비앤비|rakuten(?!\s*pay)|라쿠텐(?!\s*페이)|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b')
 
 
 def _onsite_payment_label(row, kind):
