@@ -603,3 +603,32 @@ def test_index_is_built_once_per_snapshot_generation_and_rebuilt_on_manual_chang
     stays.stay_index(store)
     assert len(builds) == 3
     conn.close()
+
+
+def _charge_without_stay(data, *periods, status='observed'):
+    data['events'][0].update(provider='booking', item='', event_type='charge', service_period=None)
+    for index, period in enumerate(periods):
+        data['events'].append(dict(ota_event_id=f'r{index}', provider='booking', booking_ref='B1', item='숙박비',
+                                   event_type='reservation', reservation_status=status, source_digest=f'd{index}',
+                                   service_period=dict(zip(('starts_on', 'ends_on'), period))))
+        data['results'].append(dict(ota_event_id=f'r{index}', status='RESERVATION_ONLY'))
+
+
+def test_a_linked_charge_without_a_stay_reads_its_own_reservation_period(context):
+    store, data, _, _ = context
+    _charge_without_stay(data, ('2026-07-05', '2026-07-07'))
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert found['t1']['service_period'] == '2026-07-05~2026-07-07'
+    assert found['t1']['ota_evidence']['kind'] == 'reservation_period_inferred'
+    assert data == before
+
+
+@pytest.mark.parametrize('periods,status', [
+    ((('2026-07-05', '2026-07-07'), ('2026-07-06', '2026-07-08')), 'observed'),
+    ((('2026-07-05', '2026-07-07'),), 'cancelled'),
+    ((), 'observed')])
+def test_a_linked_charge_stays_unknown_without_one_stated_reservation_period(context, periods, status):
+    store, data, _, _ = context
+    _charge_without_stay(data, *periods, status=status)
+    assert 't1' not in stays.stay_index(store)
