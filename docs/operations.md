@@ -43,6 +43,13 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 
 과거 기록의 운영 SHA·미구현·HOLD는 해당 시점의 근거다. 현재 런타임 또는 새 개발 권한으로 해석하지 않는다. 콘솔 창 다음 예약 실행 수락은 여전히 NOT_RUN이다.
 
+## 2026-11-09 작업공간 통합 정리 + #763 코드 단일 운영 배포 — COMPLETE
+
+- [PR #764](https://github.com/6Soo/cost/pull/764) 병합 `d67a1312d6e592648db0ed6ea95e49ff5aa9d053`(트리는 #763 검수 SHA `2723125a85fc95625b92114a5feb3e7c49468f78`과 docs·AGENTS.md 외 동일)를 이전 검증 `c202fe6edd4841b94e4dcc5ba20d6064c39e6d4a`에서 공식 단일 코드 배포했다(`tools/deploy_verified_release.ps1` PREVIEW→`-Apply`). #763의 렌터카 선결제 구분·라쿠텐 예약 근거 수정이 운영에 반영됐다.
+- 결과: 1,459 tracked blobs mismatch0, task/process/runtime SHA 일치, listener1(127.0.0.1:8752)·Gateway8790 경유 health/ready200·보호 API401, 보호13표 전후 불변, financial_apply NOT_RUN. 독립 재확인에서도 Board task 인자·8752 listener 프로세스에 배포 SHA가 있고 Gateway/SourceRefresh Running, MailCollect Ready였다. 이전 검증 릴리스와 task XML을 복구점으로 유지했고 전체 DB 백업/복원은 코드 전용이라 생략했다.
+- 검수: 2723125a 영향 QA 729 passed·skip0·compile PASS, #763 독립 검수 APPROVE, 문서 통합분은 `codex/gpt-6.1-sol`·medium의 최종 SHA 검수 APPROVE. 호스팅 CI는 결제 한도로 시작되지 못해 녹색이 아니며 2026-11-07 승인 예외를 적용했다.
+- 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d67a1312d6e592648db0ed6ea95e49ff5aa9d053.json`, 비공개 `.local-archive/cleanup-20261109/deploy-d67a1312d6e592648db0ed6ea95e49ff5aa9d053/`(review/protection/zip). 미검증: 인증 운영 화면, 실기기, 이용일 경고 402행의 실제 감소. 이 문서 전용 후속은 재배포하지 않는다.
+- 호스트의 `releases/2723125a85fc95625b92114a5feb3e7c49468f78`는 다른 세션이 준비한 미감사 후보 폴더다(전환 이력 없음). 롤백 보존 정책이 정해질 때까지 삭제하지 않았다.
 ## 2026-11-09 산림치유원 NICE 메일 — 전용 자료 복구 수락 완료
 
 - 운영 통합 SHA `d96f08809b8201238e8399d053140ab20e3a91fc`의 최종 보호13표 검사와 잠금 해제 후 별도 원문 복구 구간을 실행했다. [PR #752](https://github.com/6Soo/cost/pull/752) 파서의 실제 운영 blob 동등성을 확인했고 MailCollect를 구43907dd에서 d96 릴리스 working directory로 고정했다. 실행파일·인자·자격증명은 보존했고 기존 hourly 수집 정상 종료 후 전환, 최종 Enabled/Ready를 확인했다.
