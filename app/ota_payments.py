@@ -291,8 +291,11 @@ def _extract_signed_payment_message(message):
         r"결제\s*(?:예정|될 예정)|scheduled payment|payment is scheduled|will be charged",
         combined, re.I))
     if is_refund:
-        complete = bool(re.search(r"환불\s*(?:이|가)?\s*(?:완료|처리)|refund\s+(?:completed|processed|issued|successful)",
-                                  combined, re.I))
+        complete = bool(re.search(
+            r"환불\s*(?:이|가)?\s*(?:처리(?:가)?\s*)?완료"
+            r"(?!\s*(?:예정|요청|대기|중|될|되면|되지|전|시))"
+            r"(?:되었습니다|됐습니다|했습니다|되었음|됨|(?:[ \t]*안내)?[ \t]*(?=[:：\n]|$))|"
+            r"refund\s+(?:completed|processed|issued|successful)\b", combined, re.I))
         label = r"(?:환불(?:된)?\s*금액|refund(?:ed)?\s+amount|amount\s+refunded)"
         event_type = "refund"
     else:

@@ -251,3 +251,27 @@ def test_completed_refund_retains_explicit_reservation_cancellation(tmp_path):
                   if e['event_type'] == 'refund')
     assert refund['reservation_status'] == 'cancelled'
     assert refund['evidence_status'] == 'refund_verified' and refund['amount_krw'] == 41234
+
+
+@pytest.mark.parametrize('wording', ['환불 처리 중입니다.', '환불 처리 예정입니다.',
+    '환불 처리 대기 중입니다.', '환불 완료 예정입니다.', '환불이 완료되지 않았습니다.',
+    '환불이 완료될 예정입니다.', '환불 완료 요청입니다.', '환불 완료 전입니다.',
+    '환불 완료가 아닙니다.', '환불 완료 시 알려드립니다.', '환불 완료\n예정입니다.'])
+def test_pending_or_negated_refund_never_becomes_completed_payment(tmp_path, wording):
+    from app.ota_payments import _extract_signed_payment_message
+    mail = flight_refund('예약 취소 완료 · 환불 안내')
+    mail['payload']['body']['content'] = mail['payload']['body']['content'].replace(
+        '취소 요청이 처리되어 환불이 완료되었습니다.', wording)
+    direct = _extract_signed_payment_message(mail)
+    assert direct is None or direct['evidence_status'] != 'refund_verified'
+    events = load(tmp_path, [mail])
+    assert not any(e['event_type'] == 'refund' or e.get('refund_status') == 'refunded' for e in events)
+    assert not any(e['payment_status'] == 'paid' for e in events)
+
+
+def test_explicit_refund_processing_completed_is_still_a_completed_refund(tmp_path):
+    mail = flight_refund('예약 취소 완료 · 환불 안내')
+    mail['payload']['body']['content'] = mail['payload']['body']['content'].replace(
+        '취소 요청이 처리되어 환불이 완료되었습니다.', '환불 처리 완료')
+    event = next(e for e in load(tmp_path, [mail]) if e['event_type'] == 'refund')
+    assert event['evidence_status'] == 'refund_verified' and event['amount_krw'] == 41234
