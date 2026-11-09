@@ -19,7 +19,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 13
+PARSER_VERSION = 14
 MATCHER_VERSION = 5
 
 
@@ -236,12 +236,18 @@ def _extract_signed_payment_message(message):
         and bool(re.search(r"온라인\s*사전\s*결제\s*[0-9][0-9,]*\s*원", text))
         and not ota_mail.reservation_cancelled(subject)
     )
+    agoda_body_paid = (
+        domain in ("agoda.com", "agoda-messaging.com")
+        and bool(re.search(r"^\s*예약 확정 및 결제 완료\s*$", text, re.M))
+        and not ota_mail.reservation_cancelled(subject)
+    )
     receipt_day = None
     booking_receipt = domain == "booking.com" and "영수증" in subject
     if booking_receipt:
         dates = set(re.findall(r"결제일\s*[:：]?\s*(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)", text))
         paid_dates = set(re.findall(
-            r"(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)에\s*결제된\s*금액\s*[¥￥]\s*[0-9][0-9,]*", text))
+            r"(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)에\s*결제된\s*금액\s*"
+            r"(?:KRW|USD|EUR|GBP|JPY|[₩$€£¥￥])\s*[0-9][0-9,.]*", text))
         if len(dates) == len(paid_dates) == 1:
             try:
                 parse_day = lambda value: date(*map(int, re.findall(r"\d+", value)))
@@ -268,7 +274,7 @@ def _extract_signed_payment_message(message):
     else:
         complete = bool(re.search(
             r"결제.*완료|결제가 완료|payment.*(?:confirm|received|successful|completed)",
-            subject, re.I)) or trip_prepaid or receipt_day is not None
+            subject, re.I)) or trip_prepaid or agoda_body_paid or receipt_day is not None
         label = r"(?:총\s*(?:지불\s*)?(?:금액|요금)|total(?:\s+price)?|결제\s*(?:완료|금액)|paid\s+amount|payment\s+amount|charged)"
         event_type = "scheduled_charge" if scheduled else "charge"
         if trip_prepaid:
@@ -288,14 +294,14 @@ def _extract_signed_payment_message(message):
     elif scheduled:
         event_type = "scheduled_charge"
     values = []
-    pattern = re.compile(label + r"\s*[:：]?\s*(KRW|USD|EUR|GBP|JPY|₩|\$|€|£|¥)?\s*([0-9][0-9.,]*)(?:\s*(KRW|USD|EUR|GBP|JPY|원|₩|\$|€|£|¥))?", re.I)
+    pattern = re.compile(label + r"\s*[:：]?\s*(KRW|USD|EUR|GBP|JPY|₩|\$|€|£|¥|￥)?\s*([0-9][0-9.,]*)(?:\s*(KRW|USD|EUR|GBP|JPY|원|₩|\$|€|£|¥|￥))?", re.I)
     for prefix_currency, raw, suffix_currency in pattern.findall(text):
         try:
             amount = ota_mail.decimal_amount(raw)
         except (InvalidOperation, ValueError):
             continue
         currency = (prefix_currency or suffix_currency).upper()
-        currency = {"₩": "KRW", "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY"}.get(currency, currency)
+        currency = {"₩": "KRW", "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "￥": "JPY"}.get(currency, currency)
         if currency == "원":
             currency = "KRW"
         if currency:

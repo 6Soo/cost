@@ -633,6 +633,55 @@ def test_booking_receipt_with_conflicting_paid_dates_does_not_create_charge(tmp_
     assert events[0]['evidence_status'] == 'not_card_charge'
 
 
+@pytest.mark.parametrize('currency,unit,amount', [
+    ('EUR', '€\u00a0', '105.53'), ('USD', 'USD ', '120.50'),
+    ('GBP', '£', '90.25'), ('JPY', '￥', '11318'), ('KRW', '₩ ', '319156'),
+])
+def test_booking_explicit_receipt_keeps_currency_and_matches_payment_day(tmp_path, currency, unit, amount):
+    receipt = message(
+        '예약 번호 5374676720\n결제일 2026년 5월 13일\n'
+        '체크인: 2026년 5월 19일\n체크아웃: 2026년 5월 20일\n'
+        f'2026년 5월 13일에 결제된 금액 {unit}{amount}\n현장 세금 €5.00',
+        subject='고객님의 영수증입니다', identity='currency-receipt', domain='booking.com', sent='2026-05-14')
+    (tmp_path / 'gmail-receipt.json').write_text(json.dumps({'responses': [receipt]}), encoding='utf8')
+    actual, = build_ota_payment_events({'mail_directories': [tmp_path]})
+    assert (actual['evidence_status'], actual['currency'], actual['amount'], actual['paid_on']) == (
+        'paid_verified', currency, amount, '2026-05-13')
+    assert actual['paid_on_semantics'] == 'explicit_charge_date'
+    candidate = card('receipt-card', merchant='BOOKING.COM', approval_date='2026-05-13',
+                     foreign_currency=currency, foreign_amount=amount,
+                     amount_krw=int(amount) if currency == 'KRW' else 999999)
+    assert match_ota_payment_events([actual], [candidate])[0]['transaction_id'] == 'receipt-card'
+
+
+@pytest.mark.parametrize('currency,unit,amount', [('KRW', '₩', '319156'), ('JPY', '¥', '11318')])
+def test_agoda_body_paid_confirmation_is_payment_evidence_without_paid_subject(tmp_path, currency, unit, amount):
+    receipt = message(
+        '예약 번호: 1234567890\n체크인: 2026년 10월 29일\n체크아웃: 2026년 10월 30일\n'
+        f'예약 확정 및 결제 완료\n결제 정보\n객실 {unit} 5000\n세금 {unit} 1000\n총 금액\n{unit} {amount}',
+        subject='예약 확정 안내', identity='agoda-body-paid', domain='agoda.com', sent='2026-10-22')
+    (tmp_path / 'gmail-agoda.json').write_text(json.dumps({'responses': [receipt]}), encoding='utf8')
+    actual, = build_ota_payment_events({'mail_directories': [tmp_path]})
+    assert (actual['evidence_status'], actual['event_type'], actual['payment_status']) == (
+        'paid_verified', 'charge', 'paid')
+    assert (actual['currency'], actual['amount'], actual['paid_on']) == (currency, amount, '2026-10-22')
+    assert actual['service_period'] == {'starts_on': '2026-10-29', 'ends_on': '2026-10-30'}
+    assert actual['paid_on_semantics'] == 'mail_sent_proxy'
+    candidate = card('agoda-card', merchant='AGODA', approval_date='2026-10-22',
+                     foreign_currency=currency, foreign_amount=amount,
+                     amount_krw=int(amount) if currency == 'KRW' else 999999)
+    assert match_ota_payment_events([actual], [candidate])[0]['transaction_id'] == 'agoda-card'
+
+
+@pytest.mark.parametrize('marker', ['예약 확정', '예약 확정 및 결제 완료 예정', '예약 확정 및 결제 완료되지 않았습니다'])
+def test_agoda_body_without_completed_payment_never_creates_paid_charge(tmp_path, marker):
+    notice = message(f'예약 번호: 1234567890\n{marker}\n총 금액 ₩ 319156',
+                     subject='예약 확정 안내', domain='agoda.com')
+    (tmp_path / 'gmail-notice.json').write_text(json.dumps({'responses': [notice]}), encoding='utf8')
+    assert all(e['evidence_status'] != 'paid_verified'
+               for e in build_ota_payment_events({'mail_directories': [tmp_path]}))
+
+
 def test_booking_payment_receipt_subject_and_amount_label_variants_are_extracted(tmp_path):
     import json
     labels = ['총 금액', '총 지불 금액', '총 요금']
