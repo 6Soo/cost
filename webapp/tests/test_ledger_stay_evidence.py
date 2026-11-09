@@ -685,6 +685,15 @@ def test_a_stale_or_changed_reservation_does_not_lend_its_period(context, link):
     assert 't1' not in stays.stay_index(store)
 
 
+def test_a_reservation_showing_no_refund_still_lends_its_period(context):
+    store, data, _, _ = context
+    _charge_without_stay(data, ('2026-07-05', '2026-07-07'))
+    data['events'][-1]['refund_status'] = 'none_displayed'
+    assert stays.stay_index(store)['t1']['service_period'] == '2026-07-05~2026-07-07'
+    data['events'][-1]['refund_status'] = 'refund_requested'
+    assert 't1' not in stays.stay_index(store)
+
+
 def test_a_cancelled_revision_of_the_booking_withholds_the_period(context):
     store, data, _, _ = context
     _charge_without_stay(data, ('2026-07-05', '2026-07-07'))

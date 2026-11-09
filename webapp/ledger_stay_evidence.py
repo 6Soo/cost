@@ -368,7 +368,8 @@ def _linked_candidate_periods(data, manual):
         link = link if isinstance(link, dict) else {}
         if (any(event.get(k) or link.get(k) for k in flags) or link.get('status') == 'STALE'
                 or (link.get('source_digest') and link['source_digest'] != event.get('source_digest'))
-                or event.get('reservation_status') in ('cancelled', 'refunded') or event.get('refund_status')):
+                or event.get('reservation_status') in ('cancelled', 'refunded')
+                or event.get('refund_status') not in (None, '', 'none_displayed')):
             withheld.add(key)
         elif (event.get('source_digest') and event.get('item') in (None, '', '숙박비')
                 and event.get('reservation_status') in ('observed', 'confirmed', 'completed')
