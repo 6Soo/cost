@@ -188,13 +188,14 @@ def _agoda_recorded_card_periods_in_scope(data, manual, ota_inference, date):
     # undated Agoda event can take part, so the rest are left out before the full check.
     keys = {(str(e.get('card_last4') or ''), amount) for e in events
             if e.get('provider') == 'agoda' and not e.get('paid_on')
-            for amount in (_decimal(e.get('amount')), _decimal(e.get('amount_krw'))) if amount is not None}
+            for amount in (_decimal(e.get('amount'), absolute=True), _decimal(e.get('amount_krw'), absolute=True))
+            if amount is not None}
     tails = {tail for tail, _ in keys}
     cards = [dict(card, ota_inference_eligible=True) for card in data.get('transactions', [])
              if str(card.get('card_tail') or card.get('card_last4') or '') in tails
              and any((str(card.get('card_tail') or card.get('card_last4') or ''), amount) in keys
                      for amount in (_decimal(card.get('amount_krw'), absolute=True),
-                                    _decimal(card.get('foreign_amount'))) if amount is not None)]
+                                    _decimal(card.get('foreign_amount'), absolute=True)) if amount is not None)]
     result = {}
     for identity, row in ota_inference.unique_pairs(events, cards, occupied=occupied).items():
         tid = str(row['transaction_id'])
