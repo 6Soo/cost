@@ -1,6 +1,24 @@
 # 현재 상태
 
-## 2026-11-09 작업공간 통합 정리 — 현재 정본
+## 2026-11-10 장부 이용일 경고 근본 원인 수정·성능 회복 — 현재 정본
+
+- **운영:** Board·Worker는 `f5758929bf091b4fd4a43b4227709e8ad4197596`(아래 PR 모두 포함)로 공식 단일 코드 배포됐다. 이번 작업의 배포 순서: 2ef58a92 → 4151d805 → 7334f1ae → cee973fb → 086acc67 → 094e52c9 → f5758929(이전 검증 복구점 094e52c9). 각 배포: tracked blob mismatch0, health/ready200, 보호 API401, 보호13표 전후 불변, `worker_switched=true`. 근거: `D:/WebLedgerHost/releases/deploy-evidence-<SHA>.json`, `continuous-switch-<SHA>.json`, 비공개 `.local-archive/service-date-row-audit-20261109/deploy-<SHA8>/`.
+- **병합 PR(모두 독립 `codex/gpt-6.1-sol`·`medium` 최종 SHA APPROVE, 호스팅 CI는 결제 한도로 미시작=NOT_GREEN, 2026-11-07 예외):**
+  - [#772](https://github.com/6Soo/cost/pull/772) 장부 이용일 인덱스를 스냅숏 세대당 1회 계산(운영 규모 257.6s→약 8s, 결과 동일 325쌍).
+  - [#774](https://github.com/6Soo/cost/pull/774) 렌더당 `board_rows` 1회 스캔(`display_tab_id` 무인덱스로 탭 55개 각각 전체 스캔하던 1.2s→0.04s), 커밋된 부분환불 분석을 변경(total_changes/data_version) 전까지 재사용(페이지당 0.68s). 운영 실측: 여행 장부 3.5–9s(잠금 대기 p50 1.2s·p95 52s) → **약 1s**(p50 0.003ms·p95 0.2s). 영향 QA 483 passed/10 failed — 10건(`test_card_flow_browser.py` 9, `test_read_scope_and_probe.py::test_store_lock_wait_is_recorded_for_real_http_request` 1)은 **기준 main에서 동일 재현되는 기존 실패**로 별도 과제.
+  - [#775](https://github.com/6Soo/cost/pull/775) ① OTA 재계산(5–9분, 잦은 `SOURCE_CHANGED_DURING_RECONCILIATION` 실패) 동안 장부 OTA 이용일이 전부 사라지던 결함 → 마지막 완결 세대를 화면 표시용으로 유지(쓰기·연결 경로는 계속 fresh 요구). ② 여행 기간 안의 직접 가맹점 숙박·렌터카 카드 결제는 `MM.DD 현장 결제`로 카드 이용일 기준임을 표시(예약·PG·국내 여행사·마켓·ARS 채널 제외, 숙박 일수 추론 없음).
+  - [#776](https://github.com/6Soo/cost/pull/776) ① 기간 없는 Booking.com 결제 이벤트가 같은 예약번호의 유일한 유효 예약 기간을 표시(낡은 링크·digest 불일치·취소/환불 관측이 하나라도 있으면 보류). ② **어드벤처코리아(skyticket) 736,240원 근본 원인**: 실제 원본 본문이 CRLF라 `합계` 줄 정규식이 금액을 못 읽음 → 줄 끝 정규화(운영 원본으로 None→32779155·736,240·08-06~08-11 확인).
+  - [#777](https://github.com/6Soo/cost/pull/777) 4월 이후 숙박을 그 전에 예약한 확정 메일 미수집(예: Booking 6475326931 확정 2026-01-03 수신) → 일일 과거 대조에 2025-04-01~2026-04-01 **공급사 발신 메일만** 보충 창 추가. 첫 운영 실행에서 보충 대상이 5,073건(미보유 4,848건, 1건 약 0.76–1.5초)이라 작업 제한 1800초에 걸려 진행분을 모두 잃는 결함을 발견 → [#778](https://github.com/6Soo/cost/pull/778) 200건 묶음 원자 저장·강제 종료 임시 파일 정리. 이후 매시간 실행마다 이어 받으며, 작성 시점 1,200건 저장. **보충 완료→통합 저장소 가져오기→OTA 재계산→장부 재집계는 이 문서 작성 뒤 진행**된다(완료 기준: `D:/WebLedgerHost/data/ota-mail/history-reconciliation.json`에 `supplier_after: 2025-04-01`과 오늘 `completed_on`).
+  - [#780](https://github.com/6Soo/cost/pull/780) 이용일 근거가 없는 환불·취소(음수) 행은 경고 대신 `취소·환불`로 표시(이미 날짜가 있는 행·양수 행·내보내기/Google 복사 경로 영향 없음).
+- **장부 교정(인증 UI 저장, 수동 교정 이력 보존):** 어드벤처코리아 3행(0f51f590·6f0bba7a·be95a2ba) 항목 `여행상품비→항공료`. Rakuten 21315095021090은 전액 환불 취소라 환불 탭으로 이동(이용일 미표시가 정상).
+- **장부 이용일 경고(인증 ego-browser 68여행·2,859행 전수, fresh 스냅숏 기준):** 최초 519 → 440 → 344 → **222**(cee973fb) → #780 배포 후 환불·취소 24행은 `취소·환불`로 바뀌어 경고에서 빠진다. #777 보충 완료 뒤 재집계 필요. 재계산 창과 겹친 집계(425)는 원인①의 증상이었다.
+- **남은 경고 원인(코드로 단정 불가·수집 공백):** Agoda 35(확정 메일이 이 메일함에 오지 않고 포털 수집은 10/21이 마지막 — 전용 Paseo IAB 수집 필요), Trip 33(같은 금액 카드 2장↔예약 2건 등 카드별 대응 근거 없음·예약 근거 없음), 숲나들e/산림휴양시설 20(사전 예약 결제, 이용일 원문 없음), 결제일이 여행 기간 밖인 직접 결제 16, 항공 직접/고투게이트 등 35(예약 확정서 미수집 또는 확정서에 일정 없음), 취소된 skyticket 예약(32071219·32329533·32071020)은 날짜 미표시가 정상.
+- **프로세스 점검 결과:** 운영 상시 프로세스는 Board 1(Gateway 8790→8751/8752)·Worker 1(mail-collect 매시 30분 약 1.5–3.5분, review-source·roster·google-authority 감시). OTA 스냅숏 재계산은 Board 안에서 60초마다 입력 지문(원천 약 1.2GB SHA-256 2회)을 계산하고 입력 변경 시 5–9분 재계산한다. 원본 내용 기반 지문은 기존 계약(크기·시각 같아도 내용 변경 감지) 때문에 유지했다. 재기동 직후에는 디스크에 공개 요약만 있어 첫 재계산 완료(약 7–15분)까지 OTA 이용일이 비어 보인다 — 후속 과제.
+- **Gateway:** `WebLedger-Gateway` 작업은 `releases/f7ff4ec4…/tools/ledger_gateway.py`를 실행한다. 이후 `ledger_gateway.py` 변경이 없어(diff 0) 동작상 문제는 없으나, 7일 보존 정리에서 이 릴리스 폴더는 실행 중 자산으로 보존해야 한다.
+- **운영 장애 1건(복구 완료):** 2026-11-10 04:00–04:06 KST 다른 Claude 세션의 합성 미리보기(`run_synthetic_preview --port 8790`)가 운영 Gateway 포트를 차지하고 운영 Gateway(PID 9964)가 종료돼 공개 장부 인증 요청이 401이었다. 미리보기 프로세스만 종료하고 `WebLedger-Gateway` 작업을 재시작해 복구(Gateway PID 19504, 인증 장부 200). 해당 세션에 운영 포트(8790/8751/8752) 사용 금지를 전달했고 확인 답신을 받았다. healthz는 미리보기도 200이라 인증 GET으로 확인해야 한다.
+- **미검증/후속:** 재기동 직후 OTA 이용일 공백, 재계산 실패 원인 입력 성분 미확정, 기존 실패 테스트 10건, 실기기·스크린리더.
+
+## 2026-11-09 작업공간 통합 정리 — 당시 정본(최신은 위 2026-11-10 절)
 
 - **코드 기준:** `origin/main`은 [PR #763](https://github.com/6Soo/cost/pull/763) 병합 `00499a52`(코드 트리는 검수 SHA `2723125a`와 동일)다. 작성 시점(2026-11-09 오후)에 열린 PR은 이 정리 PR([#764](https://github.com/6Soo/cost/pull/764))과 다른 담당의 코드 PR [#765](https://github.com/6Soo/cost/pull/765)(skyticket 해외 구매 메일·항공료 일수)뿐이다. 호스팅 CI는 결제 한도로 시작되지 못해 녹색이 아니며, 2026-11-07 승인 예외(`sol medium` 이상의 최종 SHA 독립 검수)로 병합했다.
 - **운영 기준:** Board task는 `d67a1312d6e592648db0ed6ea95e49ff5aa9d053`(PR #764 병합, #763 코드 포함)로 단일 코드 배포됐다(이전 `c202fe6e`). 1,459 blobs mismatch0·health/ready200·보호 API401·보호13표 불변. 상세는 [운영 기록](operations.md) 맨 위 절이다. 아래 11월 9일 절의 배포 전 표현은 당시 상태다.
