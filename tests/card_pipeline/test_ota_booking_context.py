@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.ota_payments import build_ota_payment_events, match_ota_payment_events
 from tests.card_pipeline.test_booking_mail import message
 from tests.card_pipeline.test_ota_payments import card
@@ -159,3 +161,93 @@ def test_lodging_without_online_payment_or_unambiguous_preauthorization_stays_un
     assert event['payment_status'] != 'paid'
     mail['payload']['headers'][-1]['value'] = 'dkim=fail'
     assert load(tmp_path, [mail]) == []
+
+
+def test_flight_confirmation_enriches_existing_payment_without_changing_its_amount(tmp_path):
+    paid = message('예약번호: 1234567890123456\n총 금액 145,000원\n운임',
+                   subject='[트립닷컴] 결제 완료 안내', identity='flight-paid')
+    confirmed = message('예약번호: 1234567890123456\n가는편: 합성노선 | 2026년 6월 4일\n'
+                        '오는편: 합성노선 | 2026년 6월 8일',
+                        subject='[트립닷컴] 항공권 예약 확정 안내', identity='flight-confirmation')
+    original = next(e for e in load(tmp_path, [paid]) if e['event_type'] == 'charge')
+    joined = next(e for e in load(tmp_path, [paid, confirmed]) if e['source_ids'] == ['mail:flight-paid'])
+    assert joined['service_period'] == {'starts_on': '2026-06-04', 'ends_on': '2026-06-08'}
+    assert joined['item'] == '항공료'
+    for key in ('amount_krw', 'paid_on', 'source_ids', 'ota_event_id'):
+        assert joined[key] == original[key]
+
+
+def flight_refund(subject='환불 완료: 합성출발 - 합성도착'):
+    return message('예약번호: 1234567890123456\n취소 요청이 처리되어 환불이 완료되었습니다.\n'
+                   '환불 금액: 41,234원\n항공편 정보\n'
+                   '합성출발 - 합성도착 | 2026년 6월 4일\n합성도착 - 합성출발 | 2026년 6월 8일\n'
+                   '탑승객 정보', subject=subject, identity='flight-refund', sent='2026-06-04')
+
+
+def test_completed_flight_refund_preserves_actual_amount_and_itinerary(tmp_path):
+    refund = next(e for e in load(tmp_path, [flight_refund()]) if e['event_type'] == 'refund')
+    assert refund['amount_krw'] == 41234
+    assert refund['evidence_status'] == 'refund_verified'
+    assert refund['refund_status'] == 'refunded'
+    assert refund['paid_on'] == '2026-06-04'
+    assert refund['item'] == '항공료'
+    assert refund['service_period'] == {'starts_on': '2026-06-04', 'ends_on': '2026-06-08'}
+
+
+@pytest.mark.parametrize('change', ['unsigned', 'requested', 'ambiguous_amount'])
+def test_flight_refund_requires_completed_authenticated_unique_amount(tmp_path, change):
+    mail = flight_refund()
+    if change == 'unsigned':
+        mail['payload']['headers'][-1]['value'] = 'dkim=fail'
+    elif change == 'requested':
+        mail = flight_refund('항공권 취소 요청 접수')
+        mail['payload']['body']['content'] = mail['payload']['body']['content'].replace(
+            '취소 요청이 처리되어 환불이 완료되었습니다.', '환불을 요청했습니다.')
+    else:
+        mail['payload']['body']['content'] += '\n환불 금액: 41,235원'
+    assert not any(e['event_type'] == 'refund' for e in load(tmp_path, [mail]))
+
+
+@pytest.mark.parametrize('change', ['extra_leg', 'reversed', 'invalid', 'not_reciprocal'])
+def test_refund_does_not_guess_invalid_or_ambiguous_flight_dates(tmp_path, change):
+    mail = flight_refund()
+    body = mail['payload']['body']['content']
+    if change == 'extra_leg':
+        body = body.replace('탑승객 정보', '합성다른출발 - 합성다른도착 | 2026년 6월 9일\n탑승객 정보')
+    elif change == 'reversed':
+        body = body.replace('2026년 6월 8일', '2026년 6월 3일')
+    elif change == 'invalid':
+        body = body.replace('2026년 6월 8일', '2026년 6월 31일')
+    else:
+        body = body.replace('합성도착 - 합성출발 |', '합성도착 - 합성다른도착 |')
+    mail['payload']['body']['content'] = body
+    refund = next(e for e in load(tmp_path, [mail]) if e['event_type'] == 'refund')
+    assert refund['amount_krw'] == 41234 and refund['service_period'] is None
+
+
+def test_refund_and_confirmation_read_format_characters_in_booking_number(tmp_path):
+    mail = flight_refund()
+    mail['payload']['body']['content'] = mail['payload']['body']['content'].replace(
+        '1234567890123456', '1234\u200c5678\u200c90123456')
+    refund = next(e for e in load(tmp_path, [mail]) if e['event_type'] == 'refund')
+    assert refund['booking_ref'] == '1234567890123456'
+
+
+def test_conflicting_flight_confirmations_do_not_choose_one_itinerary(tmp_path):
+    paid = message('예약번호: 1234567890123456\n총 금액 145,000원\n운임',
+                   subject='결제 완료 안내', identity='flight-paid')
+    confirmations = [message('예약번호: 1234\u200c567890123456\n가는편: 합성노선 | 2026년 6월 '
+                             + day + '일\n오는편: 합성노선 | 2026년 6월 8일',
+                             subject='항공권 예약 확정 안내', identity='flight-'+day)
+                     for day in ['4', '5']]
+    event = next(e for e in load(tmp_path, [paid, *confirmations])
+                 if e['source_ids'] == ['mail:flight-paid'])
+    assert event['service_period'] is None and event['service_period_conflict']
+    assert event['amount_krw'] == 145000
+
+
+def test_completed_refund_retains_explicit_reservation_cancellation(tmp_path):
+    refund = next(e for e in load(tmp_path, [flight_refund('예약 취소 완료 · 환불 완료')])
+                  if e['event_type'] == 'refund')
+    assert refund['reservation_status'] == 'cancelled'
+    assert refund['evidence_status'] == 'refund_verified' and refund['amount_krw'] == 41234
