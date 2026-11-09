@@ -160,12 +160,12 @@ def own_children() -> None:
     own_children.job = job  # closed only when this process ends
 
 
-def single_instance() -> bool:
+def single_instance(name: str = MUTEX_NAME) -> bool:
     if os.name != "nt":
         return True
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.CreateMutexW.restype = ctypes.c_void_p
-    handle = kernel.CreateMutexW(None, False, MUTEX_NAME)
+    handle = kernel.CreateMutexW(None, False, name)
     single_instance.handle = handle  # held for the life of the process
     return bool(handle) and ctypes.get_last_error() != 183
 
@@ -196,7 +196,8 @@ def main(argv=None) -> int:
     log = Log(Path(config["log"]))
     # Tools print their results; with pythonw there is no console to print to.
     sys.stdout = sys.stderr = log
-    if not single_instance():
+    # A test or second host can name its own instance; the default is the host's one worker.
+    if not single_instance(config.get("instance_name") or MUTEX_NAME):
         log.note("worker", "refused", reason="ALREADY_RUNNING")
         return 75
     own_children()
