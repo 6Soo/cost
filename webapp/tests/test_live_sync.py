@@ -441,13 +441,13 @@ class LiveSyncStateTests(unittest.TestCase):
             inner = region[len("<div id='live-nav'>") if "live-nav" in region
                            else len("<div id='live-rows'>"):-len("</div>")]
             self.assertEqual(part, inner)
-        # the sidebar elements that sit outside the region are not inside it
+        # the removed sidebar elements are not inside the region or the page
         for chrome in ("nav-mask", "tripq"):
             self.assertNotIn(chrome, nav_region, chrome)
             self.assertNotIn(chrome, rows_region, chrome)
-        # and they are on the page exactly once
+        # and they are absent from the unified shell
         for chrome in ("id='nav-mask'", "id='tripq'"):
-            self.assertEqual(page.count(chrome), 1, chrome)
+            self.assertEqual(page.count(chrome), 0, chrome)
         # the board-only record note is on the page once and never in a fragment
         self.assertNotIn("ledger-note", nav_region)
         self.assertNotIn("ledger-note", rows_region)
@@ -519,18 +519,18 @@ class LiveSyncStateTests(unittest.TestCase):
             duplicates = sorted({i for i in ids if ids.count(i) > 1})
             self.assertEqual(duplicates, [],
                              f"round {round_number}: {duplicates}")
-            # the sidebar chrome is still exactly one of each
-            self.assertEqual(page.count("id='nav-mask'"), 1,
+            # the removed sidebar chrome stays absent
+            self.assertEqual(page.count("id='nav-mask'"), 0,
                              f"round {round_number}")
             self.assertEqual(page.count("id='ledger-note'"), 0,
                              f"round {round_number}")
-            # and the search box the region must not swallow is still there
-            self.assertEqual(page.count("id='tripq'"), 1,
+            # and the removed search box remains absent
+            self.assertEqual(page.count("id='tripq'"), 0,
                              f"round {round_number}")
 
     # --------------------------------------- the view state a fragment needs
-    def test_a_fragment_keeps_the_archived_drawer_and_the_selected_row(self):
-        """The drawer state and the open row are part of the view, not extras.
+    def test_a_fragment_keeps_the_selected_row_without_an_archived_drawer(self):
+        """The selected row is part of the view; archived trips leave the shell.
 
         A refresh that dropped `arch` would close a drawer the user opened, and one
         that dropped `row` would come back with nothing selected. Both are checked
@@ -544,8 +544,8 @@ class LiveSyncStateTests(unittest.TestCase):
             tab_id=TRIP_B, expected_revision=self.store.get_trip(TRIP_B)["revision"],
             archived=True, client_request_id="live-arch-1", actor=OWNER)
         html = ledger_design.page(TRIP_A, archived="1", selected=ROW_A)
-        # the drawer is open on screen, and the row is the selected one
-        self.assertIn("id='archived'", html)
+        # the old drawer is gone, while the selected row remains visible
+        self.assertNotIn("id='archived'", html)
         self.assertIn("aria-selected=\"true\"", html)
         # and a fragment asked with the same state agrees
         page = normalise_requests(html)
@@ -553,11 +553,7 @@ class LiveSyncStateTests(unittest.TestCase):
             ledger_design.nav_part(TRIP_A, archived="1")), page)
         self.assertIn(normalise_requests(
             ledger_design.rows_part(TRIP_A, selected=ROW_A, archived="1")), page)
-        # a fragment asked WITHOUT the state would not agree, which is what makes
-        # the two assertions above about the state and not about the renderer
-        self.assertNotIn(
-            normalise_requests(ledger_design.nav_part(TRIP_A)),
-            page.replace("/board?tab=trip-demo-a&arch=1", "/board?tab=trip-demo-a"))
+        self.assertIn(normalise_requests(ledger_design.nav_part(TRIP_A)), page)
 
     def test_the_client_state_url_carries_the_view_state(self):
         """The poll URL has to carry what the screen is showing.
