@@ -182,11 +182,21 @@ def trip_rental_confirmation(subject):
 
 
 def payment_failed(text):
-    return bool(re.search(
-        r'결제(?:가|는|이)?\s*(?:실패|미완료|취소(?:되었습니다|됐습니다|완료)|'
-        r'(?:완료\s*)?되지\s*않|이루어지지\s*않|처리\s*중)|'
+    """Uncompleted transaction statements; a conditional help instruction is not a status."""
+    pattern = re.compile(
+        r'결제(?:가|는|이|에)?\s*(?:실패|미완료|취소(?:되었습니다|됐습니다|완료)|'
+        r'(?:완료\s*)?되지\s*않|이루어지지\s*않|(?:처리|진행)\s*중|'
+        r'(?:(?:완료|처리|진행)(?:가|는|이)?\s*)?(?:될\s*)?(?:예정|대기))|'
         r'payment\s*(?:(?:was\s+|is\s+)?(?:failed|cancelled|declined|unsuccessful|pending)|'
-        r'(?:was\s+|is\s+)?not\s+(?:completed|successful|received))', text, re.I))
+        r'(?:was\s+|is\s+)?not\s+(?:completed|successful|received))|'
+        r'will\s+be\s+charged|scheduled\s+payment', re.I)
+    for match in pattern.finditer(text):
+        if re.match(r'\s*(?:시(?:에는|에)?\b|할\s*경우|하면|할\s*때)', text[match.end():]):
+            continue
+        if re.search(r'\bif\s+(?:(?:your|the)\s+)?$', text[max(0, match.start()-24):match.start()], re.I):
+            continue
+        return True
+    return False
 
 
 def service_period(text):
@@ -368,8 +378,7 @@ def extract_mail(message):
     paid = set()
     preauthorized = set()
     if rental_confirmed:
-        if (not cancelled and not payment_failed(text) and scheduled_charge_day(text) is None
-                and not re.search(r'결제\s*(?:예정|될\s*예정)|will be charged|scheduled payment', text, re.I)):
+        if not cancelled and not payment_failed(text) and scheduled_charge_day(text) is None:
             amounts = {decimal_amount(n) for n in re.findall(
                 r'온라인\s*선결제\s*[:：]?\s*(?:KRW|₩)\s*'
                 r'((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)(?![0-9.,])', text, re.I)}

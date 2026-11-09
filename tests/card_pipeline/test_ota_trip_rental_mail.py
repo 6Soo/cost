@@ -75,6 +75,26 @@ def test_rental_context_enriches_separate_receipt_without_altering_charge(tmp_pa
 
 @pytest.mark.parametrize('wording',['결제 실패','결제 미완료','결제되지 않았습니다','결제가 취소되었습니다',
     '결제가 완료되지 않았습니다','결제가 이루어지지 않았습니다','결제 처리 중',
+    '결제 대기 중입니다.','결제 완료 예정입니다.','결제가 완료될 예정입니다.',
+    '결제 처리가 될 예정입니다.','결제가 진행될 예정입니다.',
     'payment not completed','payment unsuccessful','payment pending'])
 def test_prepaid_amount_does_not_override_payment_failure(tmp_path,wording):
-    assert not any(ota_payments._event_is_paid(e) for e in load(tmp_path,rental(BODY+'\n'+wording)))
+    events=load(tmp_path,rental(BODY+'\n'+wording))
+    assert not any(ota_payments._event_is_paid(e) for e in events)
+    results=ota_payments.match_ota_payment_events(events,[card('rental',merchant='TRIP.COM',
+        approval_date='2026-07-10',amount_krw=123456)])
+    assert not any(r['status']=='MATCHED_AUTO' for r in results)
+
+
+@pytest.mark.parametrize('wording',['결제 실패 시 고객센터에 문의하세요.',
+    '결제가 실패할 경우 고객센터에 문의하세요.', 'If payment failed, please contact support.'])
+def test_conditional_support_instructions_preserve_actual_online_prepaid_evidence(tmp_path,wording):
+    events=load(tmp_path,rental(BODY+'\n'+wording))
+    assert any(ota_payments._event_is_paid(e) for e in events)
+    assert ota_payments.match_ota_payment_events(events,[card('rental',merchant='TRIP.COM',
+        approval_date='2026-07-10',amount_krw=123456)])[0]['status']=='MATCHED_AUTO'
+
+
+def test_conditional_instructions_do_not_hide_a_separate_actual_payment_failure(tmp_path):
+    events=load(tmp_path,rental(BODY+'\n결제 실패 시 문의하세요.\n결제가 실패했습니다.'))
+    assert not any(ota_payments._event_is_paid(e) for e in events)

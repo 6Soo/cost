@@ -2208,7 +2208,8 @@ def render_import_section(csrf: str) -> str:
       if(event.evidence_status==='preauthorized')facts.push(['사전승인',`사전승인액 · 실제 결제 미확인 (${{event.preauthorized_on||'날짜 미확인'}})`]);
       if(reservationReadOnly){{
         facts.push(['예약일',event.reservation_on]);
-        facts.push(['기간 추론 근거','공급자·예약일·예약 원금액·카드 끝자리 일치 · 결제 완료 미확인']);
+        facts.push(['메일 카드 끝자리',event.card_last4]);
+        facts.push(['기간 후보 비교 기준','공급자·예약일·예약 원금액·카드 끝자리 · 결제 완료 미확인']);
       }}
       if(event.card_issuer)facts.push(['메일의 결제 카드사',event.card_issuer]);
       if(event.payment_evidence_basis)facts.push(['결제 검증 근거',event.payment_evidence_basis]);
