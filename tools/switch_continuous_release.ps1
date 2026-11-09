@@ -16,13 +16,16 @@ $oldStopped=$false
 $switched=$false
 $candidateStarted=$false
 $oldSupervisor=$null
+$workerPrevious=$null
 $preparedSupervisor=$null
-function ConvertTo-OwnedTaskArguments([string]$Executable,[string]$Arguments,[string]$Entry,[int]$Port,[string]$Role,[string]$ArgumentEntry='') {
+function ConvertTo-OwnedTaskArguments([string]$Executable,[string]$Arguments,[string]$Entry,[int]$Port,[string]$Role,[string]$ArgumentEntry='',[bool]$OwnerLogs=$false) {
     if($Role -notin @('Board','Prepared') -or $Port -lt 1 -or $Port -gt 65535 -or $Executable.Contains('"') -or $Entry.Contains('"')){throw 'LIFECYCLE_ACTION_INVALID'}
     if(-not $ArgumentEntry){$ArgumentEntry=$Entry}
-    $owned='^\s*"?'+[regex]::Escape($ArgumentEntry)+'"?\s+--role\s+(?:Board|Prepared)\s+--port\s+\d+\s+--\s+(?<command>.+)$'
+    $owned='^\s*"?'+[regex]::Escape($ArgumentEntry)+'"?\s+--role\s+(?:Board|Prepared)\s+--port\s+\d+(?:\s+--log\s+"(?<log>[^"]+)")?\s+--\s+(?<command>.+)$'
+    $log=$null
     if($Arguments -match $owned) {
         $command=$Matches.command
+        if($Matches.log){$log=$Matches.log}
     } else {
         if($Arguments -match '(?i)webledger_task_entry\.pyw'){throw 'LIFECYCLE_ENTRY_IDENTITY_INVALID'}
         # Migrate the PC emergency wrapper without nesting its fixed-8752 mutex
@@ -33,7 +36,18 @@ function ConvertTo-OwnedTaskArguments([string]$Executable,[string]$Arguments,[st
         if($inner -match '(?i)webledger_board_job\.pyw'){throw 'LEGACY_LIFECYCLE_IDENTITY_INVALID'}
         $command='"'+$Executable+'" '+$inner
     }
-    return '"'+$Entry+'" --role '+$Role+' --port '+$Port+' -- '+$command
+    # An owner that writes the child's log itself replaces the hidden-console
+    # wrapper process; an older owner (rollback) gets the wrapper back.
+    $wrapper='^\s*"[^"]*pythonw\.exe"\s+"C:\\ProgramData\\AX\\WindowlessTasks\\windowless_command\.pyw"\s+"(?<log>[^"]+)"\s+"-"\s+(?<rest>.+)$'
+    if($OwnerLogs) {
+        if(-not $log -and $command -match $wrapper){$log=$Matches.log;$command=$Matches.rest}
+    } elseif($log) {
+        $command='"'+$Executable+'" "C:\ProgramData\AX\WindowlessTasks\windowless_command.pyw" "'+$log+'" "-" '+$command
+        $log=$null
+    }
+    if($log -and $log.Contains('"')){throw 'LIFECYCLE_ACTION_INVALID'}
+    $logArgument=if($log){' --log "'+$log+'"'}else{''}
+    return '"'+$Entry+'" --role '+$Role+' --port '+$Port+$logArgument+' -- '+$command
 }
 function Route-Control([string]$Action,[int]$Port=0) {
     $parameters=@($controller,$Action,'--route',$route,'--status',$status)
@@ -167,6 +181,34 @@ function Stop-VerifiedSupervisor($Identity) {
         if(Get-VerifiedSupervisorProcess $Identity){throw $stopError}
     }
 }
+function Get-WorkerProcess([string]$Sha) {
+    @(Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -and $_.CommandLine.Contains("$Sha\tools\webledger_worker.py")})
+}
+function Switch-WorkerRelease([string]$From,[string]$To) {
+    # The background worker runs from the board's release. A worker pinned to
+    # another release, or a candidate without one, is left as it is.
+    $worker=Get-ScheduledTask -TaskName WebLedger-Worker -ErrorAction SilentlyContinue
+    if(-not $worker -or $worker.Actions.Count -ne 1 -or -not $worker.Actions[0].Arguments.Contains("$From\tools\webledger_worker.py")){return $null}
+    if(-not (Test-Path -LiteralPath "$hostRoot\releases\$To\tools\webledger_worker.py" -PathType Leaf)){return $null}
+    $previousAction=$worker.Actions[0]
+    # Known before anything stops, so a failure part-way still restores it.
+    $script:workerPrevious=$previousAction
+    Stop-ScheduledTask -TaskName WebLedger-Worker
+    for($attempt=0;$attempt -lt 60 -and (Get-WorkerProcess $From).Count;$attempt++){Start-Sleep -Milliseconds 250}
+    if((Get-WorkerProcess $From).Count){throw 'WORKER_DID_NOT_STOP'}
+    $action=New-ScheduledTaskAction -Execute $previousAction.Execute -Argument $previousAction.Arguments.Replace($From,$To)
+    Set-ScheduledTask -TaskName WebLedger-Worker -Action $action | Out-Null
+    Start-ScheduledTask -TaskName WebLedger-Worker
+    for($attempt=0;$attempt -lt 60 -and -not (Get-WorkerProcess $To).Count;$attempt++){Start-Sleep -Milliseconds 250}
+    if(-not (Get-WorkerProcess $To).Count){throw 'WORKER_DID_NOT_START'}
+    return $previousAction
+}
+function Restore-WorkerRelease($Action,[string]$Sha) {
+    if(-not $Action){return}
+    Stop-ScheduledTask -TaskName WebLedger-Worker -ErrorAction SilentlyContinue
+    Set-ScheduledTask -TaskName WebLedger-Worker -Action $Action | Out-Null
+    Start-ScheduledTask -TaskName WebLedger-Worker
+}
 function Assert-EntryIdentity([string]$Sha) {
     foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
         $process=Get-CimInstance Win32_Process -Filter "ProcessId=$($entry.OwningProcess)"
@@ -219,12 +261,14 @@ try {
     $taskPython=if($old.Execute -match '(?i)pythonw\.exe$'){$old.Execute}else{Join-Path (Split-Path $python -Parent) 'pythonw.exe'}
     if(-not (Test-Path -LiteralPath $taskPython -PathType Leaf)){throw 'HIDDEN_PYTHON_MISSING'}
     $supportsLifecycle=[bool](Select-String -LiteralPath "$hostRoot\releases\$CandidateSha\tools\start_web_ledger_host.ps1" -Pattern '\$LifecycleRole' -Quiet)
+    $ownerModule=Join-Path (Split-Path $lifecycleEntry -Parent) 'webledger_windows_lifecycle.py'
+    $ownerLogs=(Test-Path -LiteralPath $ownerModule -PathType Leaf) -and [bool](Select-String -LiteralPath $ownerModule -Pattern '"--log"' -SimpleMatch -Quiet)
     $boardRunner=$newArguments+$(if($supportsLifecycle){' -LifecycleRole Board'}else{''})
-    $boardArguments=ConvertTo-OwnedTaskArguments $old.Execute $boardRunner $lifecycleEntry $newPort 'Board' $argumentEntry
+    $boardArguments=ConvertTo-OwnedTaskArguments $old.Execute $boardRunner $lifecycleEntry $newPort 'Board' $argumentEntry $ownerLogs
     $newAction=New-ScheduledTaskAction -Execute $taskPython -Argument $boardArguments
     $preparedArguments=$newArguments -replace '(?i)(--role\s+)(?:Board|Prepared)', '$1Prepared'
     $preparedRunner=$preparedArguments+' -DisableEntry'+$(if($supportsLifecycle){' -LifecycleRole Prepared'}else{''})
-    $preparedOwned=ConvertTo-OwnedTaskArguments $old.Execute $preparedRunner $lifecycleEntry $newPort 'Prepared' $argumentEntry
+    $preparedOwned=ConvertTo-OwnedTaskArguments $old.Execute $preparedRunner $lifecycleEntry $newPort 'Prepared' $argumentEntry $ownerLogs
     $preparedAction=New-ScheduledTaskAction -Execute $taskPython -Argument $preparedOwned
     $evidence="$hostRoot\releases\continuous-switch-$CandidateSha.json"
     Export-ScheduledTask -TaskName WebLedger-Board | Set-Content "$evidence.task.xml" -Encoding UTF8
@@ -270,13 +314,15 @@ try {
     }
     Wait-BoardTask
     Wait-Backend $newPort $CandidateSha
-    @{status='PASS';sha=$CandidateSha;previous_sha=$PreviousSha;backend_port=$newPort;gateway_port=8790;prepared_before_stop=[bool]$canPrepare;drained=$true;full_backup='NOT_REQUIRED_CODE_ONLY';at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content $evidence -Encoding UTF8
+    Switch-WorkerRelease $PreviousSha $CandidateSha | Out-Null
+    @{status='PASS';sha=$CandidateSha;previous_sha=$PreviousSha;backend_port=$newPort;gateway_port=8790;prepared_before_stop=[bool]$canPrepare;drained=$true;worker_switched=[bool]$workerPrevious;full_backup='NOT_REQUIRED_CODE_ONLY';at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content $evidence -Encoding UTF8
 } catch {
     $originalError=$_.FullyQualifiedErrorId
     $originalMessage=$_.Exception.Message
     $failurePath="$hostRoot\releases\continuous-switch-$CandidateSha.failure.json"
     Write-FailureEvidence $failurePath @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$false}
     $cleanupUnknown=$false
+    if($workerPrevious){try {Restore-WorkerRelease $workerPrevious $PreviousSha} catch {$cleanupUnknown=$true}}
     if($switched){
         $paused=$true
         try {Route-Control 'pause'} catch {Route-Control 'resume'; throw 'ROLLBACK_DRAIN_FAILED_CANDIDATE_PRESERVED'}

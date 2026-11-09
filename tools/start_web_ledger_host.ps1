@@ -526,7 +526,7 @@ function Get-HostPlan {
     $entry = Join-Path $Checkout "tools\serve_review_entry.py"
 
     $children = @(
-        New-HostChild -Name "board" -Exe $Python -Marker $launcher `
+        New-HostChild -Name "board" -Exe $script:ChildPython -Marker $launcher `
             -Port $BoardPort `
             -Arguments @(
             $launcher,
@@ -546,7 +546,7 @@ function Get-HostPlan {
     )
 
     if ($WithEntry) {
-        $children += New-HostChild -Name "entry" -Exe $Python `
+        $children += New-HostChild -Name "entry" -Exe $script:ChildPython `
             -Marker $entry -Port $EntryPort `
             -Arguments @($entry, "--port", "$EntryPort")
     }
@@ -638,7 +638,16 @@ function Start-HostChild {
         $start["RedirectStandardError"] = "D:\WebLedgerHost\logs\host-board-$stamp.err.log"
     }
     if ($Checkout) { $start["WorkingDirectory"] = $Checkout }
-    $Child.Process = Start-Process @start
+    if ($script:VenvLauncher -and $Child.Exe -eq $script:ChildPython) {
+        # The base interpreter runs as the venv for this one child; Python
+        # removes the variable at startup, so nothing it starts inherits it.
+        $env:__PYVENV_LAUNCHER__ = $script:VenvLauncher
+    }
+    try {
+        $Child.Process = Start-Process @start
+    } finally {
+        Remove-Item Env:\__PYVENV_LAUNCHER__ -ErrorAction SilentlyContinue
+    }
     $Child.Started = $true
     $Child.StartedByUs = $true
     $Child.EverStarted = $true
@@ -910,6 +919,25 @@ if ($ReserveSourceConfig) {
     $env:WEBLEDGER_RESERVE_SOURCE = ($reserveSourceJson | ConvertTo-Json -Compress -Depth 4)
 } else {
     Remove-Item Env:\WEBLEDGER_RESERVE_SOURCE -ErrorAction SilentlyContinue
+}
+
+# A venv's Scripts\python.exe is a launcher that starts the base interpreter as
+# a second process. Starting the base interpreter as that venv keeps one
+# process per child; anything that is not a readable venv is used as given.
+# The interpreter is asked once which base it launches; no file is read here.
+$script:ChildPython = $Python
+$script:VenvLauncher = $null
+if ([IO.Path]::IsPathRooted($Python) -and (Split-Path (Split-Path $Python -Parent) -Leaf) -eq "Scripts") {
+    try {
+        $venvBase = (& $Python -I -c "import sys; print(getattr(sys, '_base_executable', sys.executable))" 2>$null |
+                Select-Object -First 1)
+    } catch {
+        $venvBase = $null
+    }
+    if ($venvBase -and $venvBase.Trim() -ne $Python -and (Test-Path -LiteralPath $venvBase.Trim() -PathType Leaf)) {
+        $script:ChildPython = $venvBase.Trim()
+        $script:VenvLauncher = $Python
+    }
 }
 
 $plan = Get-HostPlan -WithEntry (-not $DisableEntry)

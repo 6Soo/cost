@@ -31,7 +31,7 @@ def _load_mapping(path: Path | None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--batch-dir', type=Path,
                         help='manifest.json과 participants.json이 있는 배치 폴더')
@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--watch', action='store_true')
     parser.add_argument('--interval', type=int, default=60)
     parser.add_argument('--report-dir', type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.config:
         from app.participant_sync import load_config, sync_once
         if args.batch_dir or args.db or args.mapping or args.interval < 5:

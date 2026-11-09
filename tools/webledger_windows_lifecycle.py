@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import ctypes
 from ctypes import wintypes
+import datetime
 import os
+from pathlib import Path
 import subprocess
 from typing import Sequence
 
@@ -20,6 +22,9 @@ from typing import Sequence
 ERROR_ALREADY_EXISTS = 183
 CREATE_SUSPENDED = 0x00000004
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
+CREATE_NO_WINDOW = 0x08000000
+STARTF_USESTDHANDLES = 0x00000100
+LOG_LIMIT_BYTES = 2 * 1024 * 1024
 INFINITE = 0xFFFFFFFF
 WAIT_OBJECT_0 = 0
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
@@ -121,10 +126,26 @@ def _environment_block(env: dict[str, str]) -> ctypes.Array:
     return ctypes.create_unicode_buffer("\0".join(f"{key}={value}" for key, value in sorted(env.items())) + "\0\0")
 
 
+def _open_log(path: str | os.PathLike[str]):
+    """The child's console output, appended to `path` and rotated once past the size limit."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and target.stat().st_size > LOG_LIMIT_BYTES:
+        target.replace(target.with_suffix(".previous.log"))
+    stream = target.open("ab", buffering=0)
+    stream.write(f"\nSTART {datetime.datetime.now().astimezone().isoformat()}\n".encode("utf-8"))
+    return stream
+
+
 def run_owned(command: Sequence[str], *, port: int, role: str,
               cwd: str | os.PathLike[str] | None = None,
-              env: dict[str, str] | None = None) -> int:
-    """Run one logical worker with fail-closed mutex and Job ownership."""
+              env: dict[str, str] | None = None,
+              log: str | os.PathLike[str] | None = None) -> int:
+    """Run one logical worker with fail-closed mutex and Job ownership.
+
+    With `log`, the child gets no console and writes its output there, which is what the separate
+    hidden-console wrapper used to do as an extra process.
+    """
     if role not in {"Board", "Prepared"}:
         raise ValueError("ROLE_INVALID")
     kernel = _kernel()
@@ -137,6 +158,7 @@ def run_owned(command: Sequence[str], *, port: int, role: str,
 
     job = kernel.CreateJobObjectW(None, None)
     process_info = _ProcessInformation()
+    stream = null_input = None
     try:
         if not job:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -148,13 +170,24 @@ def run_owned(command: Sequence[str], *, port: int, role: str,
 
         startup = _StartupInfo()
         startup.cb = ctypes.sizeof(startup)
+        flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT
+        if log is not None:
+            import msvcrt
+
+            stream = _open_log(log)
+            null_input = open(os.devnull, "rb")
+            output, empty = msvcrt.get_osfhandle(stream.fileno()), msvcrt.get_osfhandle(null_input.fileno())
+            os.set_handle_inheritable(output, True)
+            os.set_handle_inheritable(empty, True)
+            startup.dwFlags = STARTF_USESTDHANDLES
+            startup.hStdInput, startup.hStdOutput, startup.hStdError = empty, output, output
+            flags |= CREATE_NO_WINDOW
         command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(list(command)))
         merged = os.environ.copy()
         if env:
             merged.update(env)
         env_block = _environment_block(merged)
-        ok = kernel.CreateProcessW(None, command_line, None, None, False,
-                                   CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+        ok = kernel.CreateProcessW(None, command_line, None, None, log is not None, flags,
                                    env_block, os.fspath(cwd) if cwd else None,
                                    ctypes.byref(startup), ctypes.byref(process_info))
         if not ok:
@@ -170,8 +203,14 @@ def run_owned(command: Sequence[str], *, port: int, role: str,
         code = wintypes.DWORD()
         if not kernel.GetExitCodeProcess(process_info.hProcess, ctypes.byref(code)):
             raise ctypes.WinError(ctypes.get_last_error())
+        if stream is not None:
+            stream.write(f"EXIT {int(code.value)}\n".encode("ascii"))
         return int(code.value)
     finally:
+        if stream is not None:
+            stream.close()
+        if null_input is not None:
+            null_input.close()
         if process_info.hThread:
             kernel.CloseHandle(process_info.hThread)
         if process_info.hProcess:
@@ -185,11 +224,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--role", choices=("Board", "Prepared"), required=True)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--log", help="Append the child's output here and give it no console.")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if not args.command or args.command[0] != "--":
         parser.error("COMMAND_REQUIRED_AFTER_DOUBLE_DASH")
-    return run_owned(args.command[1:], port=args.port, role=args.role)
+    return run_owned(args.command[1:], port=args.port, role=args.role, log=args.log)
 
 
 if __name__ == "__main__":

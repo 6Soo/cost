@@ -28,6 +28,10 @@ CHECK_SECONDS = 60
 FRESH_SECONDS = 150
 RETRY_SECONDS = 60
 RETRY_CAP_SECONDS = 900
+# Inputs that keep changing during a multi-minute reconciliation throw its result away. After the
+# second such loss in a row, a new run waits until the inputs have held still this long.
+SETTLE_SECONDS = 30
+SETTLE_CAP_SECONDS = 300
 FIRST_WAIT_SECONDS = 3
 LOG_HEARTBEAT_SECONDS = 3600
 MAX_DIAGNOSTIC_LOG_BYTES = 5 * 1024 * 1024
@@ -146,6 +150,9 @@ class OtaSnapshotService:
         self._failed_at = None
         self._failures = 0
         self._source_changed_retry = False
+        self._source_changes = 0
+        self._seen_key = None
+        self._seen_since = None
         self._thread = None
         self._last_check_sig = None
         self._last_check_log_at = 0.0
@@ -249,6 +256,15 @@ class OtaSnapshotService:
         """
         return min(self._retry_seconds * 2 ** max(self._failures - 1, 0), RETRY_CAP_SECONDS)
 
+    def _settle_window(self):
+        """How long the inputs must hold still before another run, once runs keep being outdated.
+
+        The first change during a run is retried at once; only a burst of changes waits.
+        """
+        if self._source_changes < 2:
+            return 0
+        return min(SETTLE_SECONDS * 2 ** (self._source_changes - 2), SETTLE_CAP_SECONDS)
+
     def check_now(self):
         """One pass: read the input digest, and reconcile only if it differs from the held result."""
         if self._stopping:
@@ -265,12 +281,17 @@ class OtaSnapshotService:
             self._checked_key = key
             self._checked_at = self._clock()
             current = self._current
+            if key != self._seen_key:
+                self._seen_key = key
+                self._seen_since = self._clock()
             failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_window()
             held = current is not None and current["key"] == key and current.get("data") is not None
+            settling = (current is not None and not held
+                        and self._clock() - self._seen_since < self._settle_window())
             if held and not self._refreshing:
                 # A successful key check revalidates this already-held snapshot.
                 self._error = None
-            skip = held or failed or self._refreshing or self._stopping
+            skip = held or failed or settling or self._refreshing or self._stopping
             publish_held = held and not self._refreshing and not self._stopping
             if skip:
                 self._log_check(key, held, failed, (current or {}).get("generation", 0))
@@ -336,7 +357,8 @@ class OtaSnapshotService:
             else:
                 ambiguous_ids = frozenset(value for value in ambiguous_ids
                                           if type(value) is str and value.strip())
-            source_changed = self._verify_key_fn is not None and self._verify_key_fn() != key
+            changed_to = self._verify_key_fn() if self._verify_key_fn is not None else key
+            source_changed = changed_to != key
             if source_changed:
                 raise ValueError('SOURCE_CHANGED_DURING_RECONCILIATION')
         except Exception as exc:
@@ -347,7 +369,11 @@ class OtaSnapshotService:
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
                 if isinstance(exc, ValueError) and str(exc) == 'SOURCE_CHANGED_DURING_RECONCILIATION':
-                    self._source_changed_retry = True
+                    self._source_changes += 1
+                    self._source_changed_retry = self._source_changes < 2
+                    # The settle window counts from when the change was seen, not the next check.
+                    self._seen_key = changed_to
+                    self._seen_since = self._clock()
             self._log("refresh_failed", key=key[:12], code=type(exc).__name__, message=str(exc)[:200])
             if owns_tracing:
                 tracemalloc.stop()
@@ -411,6 +437,7 @@ class OtaSnapshotService:
             self._refreshing = False
             self._error = None
             self._failed_key = None
+            self._source_changes = 0
             self._checked_at = self._clock()
             published = self._current
             self._pending_publish = published
