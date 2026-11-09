@@ -33,7 +33,7 @@ def test_no_manual_toggle_or_localstorage_in_css():
     assert site_shell.BUTTON.count('id="site-theme-toggle"') == 1
     assert 'data-theme-icon="light"' in site_shell.BUTTON
     assert 'data-theme-icon="dark"' in site_shell.BUTTON
-    assert 'aria-label="다크모드로 전환"' in site_shell.BUTTON
+    assert 'aria-label="어두운 화면으로 전환"' in site_shell.BUTTON
     assert 'localStorage' in site_theme.BOOTSTRAP
     assert 'localstorage' not in site_assets.SHELL_STYLE.lower()
     assert 'localstorage' not in site_assets.THEME_STYLE.lower()
@@ -68,14 +68,14 @@ def test_synthetic_site_shell_theme_mobile_and_keyboard_accessibility():
     shell = site_assets.SHELL_STYLE + "\n" + site_assets.SHELL_SCRIPT
     assert "--shell-bg: var(--c-bg)" in shell and "--shell-ink: var(--c-text)" in shell
     assert "--c-bg: #0F172A" in shell and "--c-text: #F8FAFC" in shell
-    assert "background:var(--shell-paper,#fff)" in shell
-    assert "width:min(var(--shell-drawer-width,min(300px,85vw)),100%)" in shell
-    assert "#nav a:focus-visible,#nav button:focus-visible" in shell
-    assert "e.key==='Tab'" in shell and "e.key==='Escape'" in shell
-    assert 'aria-controls="nav" aria-expanded="false"' in site_shell.MENU_TOGGLE
+    assert "background:var(--c-surface)" in shell
+    assert "grid-template-columns:240px" in shell
+    assert "#nav :focus-visible" in shell
+    assert "event.key==='Escape'" in shell
+    assert site_shell.MENU_TOGGLE == ''
+    assert "site-more-dialog" in shell
     assert "--c-text-tertiary: #94A3B8" in shell and "--c-warn-text: #FBBF24" in shell
-    assert "#nav .nav-sec" in shell and "color:var(--shell-muted,#667085)" in shell
-    assert "#nav .ct.warn{color:var(--shell-warn,#B54708)}" in shell
+    assert "#nav .nav-sec" in shell
 
 
 def test_synthetic_dark_palette_keeps_focus_and_status_contrast():
