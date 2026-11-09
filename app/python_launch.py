@@ -9,6 +9,7 @@ the current interpreter is used unchanged.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -51,3 +52,51 @@ def child_environment(extra: dict[str, str], base: dict[str, str] | None = None)
     env = dict(os.environ if base is None else base)
     env.update(extra)
     return env
+
+
+STALE_CHILD_SECONDS = 2 * 3600
+# Only the exact names the two child launchers create: a uuid4 hex exchange file, or a
+# tempfile directory holding nothing but the request and result files.
+_RECONCILE_EXCHANGE = re.compile(r"ota-reconcile-[0-9a-f]{32}\.(?:in|out)")
+_CATALOG_EXCHANGE = re.compile(r"ota-catalog-worker-[a-z0-9_]{8}")
+_CATALOG_FILES = {"request", "result"}
+
+
+def _is_exchange(path: Path) -> bool:
+    if path.is_symlink():
+        return False
+    if path.is_file():
+        return bool(_RECONCILE_EXCHANGE.fullmatch(path.name))
+    if path.is_dir() and _CATALOG_EXCHANGE.fullmatch(path.name):
+        children = list(path.iterdir())
+        return all(child.is_file() and not child.is_symlink() and child.name in _CATALOG_FILES
+                   for child in children)
+    return False
+
+
+def sweep_stale_child_files(directory, *, older_than: float = STALE_CHILD_SECONDS) -> int:
+    """Remove exchanges a killed child or restarted parent never cleaned up.
+
+    A running exchange is far younger than the child timeout, so only leftovers are this old.
+    """
+    import shutil
+    import time
+    removed = 0
+    limit = time.time() - older_than
+    for pattern in ("ota-reconcile-*", "ota-catalog-worker-*"):
+        for path in Path(directory).glob(pattern):
+            try:
+                if not _is_exchange(path):
+                    continue
+                newest = max([path.stat().st_mtime, *(child.stat().st_mtime for child in path.iterdir())]
+                             if path.is_dir() else [path.stat().st_mtime])
+                if newest > limit:
+                    continue
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+                removed += 1
+            except OSError:
+                continue
+    return removed
