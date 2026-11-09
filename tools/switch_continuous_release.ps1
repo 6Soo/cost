@@ -201,11 +201,19 @@ function Switch-WorkerRelease([string]$From,[string]$To) {
     $action=New-ScheduledTaskAction -Execute $previousAction.Execute -Argument $previousAction.Arguments.Replace($From,$To)
     Set-ScheduledTask -TaskName WebLedger-Worker -Action $action | Out-Null
     Start-ScheduledTask -TaskName WebLedger-Worker
-    for($attempt=0;$attempt -lt 60 -and -not @(Get-WorkerProcess $To).Count;$attempt++){Start-Sleep -Milliseconds 250}
-    if(-not @(Get-WorkerProcess $To).Count){throw 'WORKER_DID_NOT_START'}
+    if(-not (Wait-WorkerRunning $To)){throw 'WORKER_DID_NOT_START'}
     return $previousAction
 }
-function Restore-WorkerRelease($Action,[string]$Candidate) {
+function Wait-WorkerRunning([string]$Sha) {
+    # A worker refused by the single-instance lock exits at once; require it to stay up.
+    for($attempt=0;$attempt -lt 60 -and -not @(Get-WorkerProcess $Sha).Count;$attempt++){Start-Sleep -Milliseconds 250}
+    for($check=0;$check -lt 8;$check++){
+        if(-not @(Get-WorkerProcess $Sha).Count){return $false}
+        Start-Sleep -Milliseconds 500
+    }
+    return $true
+}
+function Restore-WorkerRelease($Action,[string]$Candidate,[string]$Previous) {
     if(-not $Action){return}
     Stop-ScheduledTask -TaskName WebLedger-Worker -ErrorAction SilentlyContinue
     # The previous worker refuses to start while the candidate still holds its single-instance lock.
@@ -213,6 +221,7 @@ function Restore-WorkerRelease($Action,[string]$Candidate) {
     if(@(Get-WorkerProcess $Candidate).Count){throw 'CANDIDATE_WORKER_DID_NOT_STOP'}
     Set-ScheduledTask -TaskName WebLedger-Worker -Action $Action | Out-Null
     Start-ScheduledTask -TaskName WebLedger-Worker
+    if(-not (Wait-WorkerRunning $Previous)){throw 'PREVIOUS_WORKER_DID_NOT_START'}
 }
 function Assert-EntryIdentity([string]$Sha) {
     foreach($entry in @(Get-NetTCPConnection -LocalPort 56069 -State Listen -ErrorAction SilentlyContinue)) {
@@ -329,7 +338,7 @@ try {
     $failurePath="$hostRoot\releases\continuous-switch-$CandidateSha.failure.json"
     Write-FailureEvidence $failurePath @{status='FAILED';original_error=$originalError;message=$originalMessage;rollback_completed=$false}
     $cleanupUnknown=$false
-    if($workerPrevious){try {Restore-WorkerRelease $workerPrevious $CandidateSha} catch {$cleanupUnknown=$true}}
+    if($workerPrevious){try {Restore-WorkerRelease $workerPrevious $CandidateSha $PreviousSha} catch {$cleanupUnknown=$true}}
     if($switched){
         $paused=$true
         try {Route-Control 'pause'} catch {Route-Control 'resume'; throw 'ROLLBACK_DRAIN_FAILED_CANDIDATE_PRESERVED'}

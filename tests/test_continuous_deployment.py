@@ -647,7 +647,7 @@ param($Switch,$Root,$Old,$New)
 $ErrorActionPreference='Stop'
 $hostRoot=$Root
 $source=[IO.File]::ReadAllText($Switch)
-foreach($name in 'Get-WorkerProcess','Switch-WorkerRelease','Restore-WorkerRelease') {
+foreach($name in 'Get-WorkerProcess','Wait-WorkerRunning','Switch-WorkerRelease','Restore-WorkerRelease') {
     $match=[regex]::Match($source,"(?ms)^function $name\(.*?^}\r?$")
     if(-not $match.Success){throw "MISSING_$name"}
     . ([scriptblock]::Create($match.Value))
@@ -659,15 +659,22 @@ $global:running.Add($global:action.Arguments)
 function Get-CimInstance { foreach($line in @($global:running)){ New-CimInstance -ClassName Win32_Process -ClientOnly -Property @{CommandLine=$line} } }
 function Get-ScheduledTask { [pscustomobject]@{Actions=@($global:action)} }
 function Stop-ScheduledTask { $global:running.Clear() }
-function Start-ScheduledTask { if($global:running.Count){throw 'ALREADY_RUNNING'}; $global:running.Add($global:action.Arguments) }
+function Start-ScheduledTask { if($global:running.Count){throw 'ALREADY_RUNNING'}; if(-not $global:refused){$global:running.Add($global:action.Arguments)} }
 function Set-ScheduledTask { param($TaskName,$Action) $global:action=$Action }
 function New-ScheduledTaskAction { param($Execute,$Argument) [pscustomobject]@{Execute=$Execute;Arguments=$Argument} }
 function Start-Sleep {}
 $single=Get-WorkerProcess $Old
+$singleCount=@(Get-WorkerProcess $Old).Count
 $previous=Switch-WorkerRelease $Old $New
 $afterSwitch=@($global:running)
-Restore-WorkerRelease $previous $New
-[pscustomobject]@{single_count=@(Get-WorkerProcess $Old).Count;unrolled_type=$single.GetType().Name;after_switch=$afterSwitch;after_restore=@($global:running)} | ConvertTo-Json -Compress
+Restore-WorkerRelease $previous $New $Old
+$afterRestore=@($global:running)
+# A worker refused by a foreign single-instance holder exits at once; restore must report it.
+$previous=Switch-WorkerRelease $Old $New
+$global:refused=$true
+$refusal=''
+try {Restore-WorkerRelease $previous $New $Old} catch {$refusal=$_.Exception.Message}
+[pscustomobject]@{single_count=$singleCount;unrolled_type=$single.GetType().Name;after_switch=$afterSwitch;after_restore=$afterRestore;refusal=$refusal} | ConvertTo-Json -Compress
 ''', encoding='utf-8')
     result = subprocess.run([shell, '-NoProfile', '-File', str(harness), '-Switch', str(script),
                              '-Root', str(tmp_path), '-Old', old, '-New', new],
@@ -680,3 +687,4 @@ Restore-WorkerRelease $previous $New
     restored = report['after_restore'] if isinstance(report['after_restore'], list) else [report['after_restore']]
     assert len(switched) == 1 and new in switched[0]
     assert len(restored) == 1 and old in restored[0]
+    assert report['refusal'] == 'PREVIOUS_WORKER_DID_NOT_START'
