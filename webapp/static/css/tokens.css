@@ -1,0 +1,229 @@
+/* COST design tokens. Components consume semantic roles; legacy names below
+   remain aliases so existing pages can migrate without changing their markup. */
+:root {
+  color-scheme: light;
+  --c-bg: #F8FAFC;
+  --c-surface: #FFFFFF;
+  --c-surface-sunken: #F1F5F9;
+  --c-text: #0F172A;
+  --c-text-secondary: #475569;
+  --c-text-tertiary: #64748B;
+  --c-border: #E2E8F0;
+  --c-border-control: #64748B;
+  --c-accent-solid: #1C7A52;
+  --c-accent-solid-hover: #166444;
+  --c-on-accent: #FFFFFF;
+  --c-accent-text: #1C7A52;
+  --c-accent-subtle: #ECF5EF;
+  --c-focus: #2266F5;
+  --c-warn-text: #B54708;
+  --c-warn-subtle: #FFF4E5;
+  --c-danger-text: #B42318;
+  --c-danger-subtle: #FEF3F2;
+}
+
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --c-bg: #0F172A;
+  --c-surface: #1E293B;
+  --c-surface-sunken: #172033;
+  --c-text: #F8FAFC;
+  --c-text-secondary: #CBD5E1;
+  --c-text-tertiary: #94A3B8;
+  --c-border: #334155;
+  --c-border-control: #94A3B8;
+  --c-accent-solid: #15803D;
+  --c-accent-solid-hover: #166534;
+  --c-on-accent: #FFFFFF;
+  --c-accent-text: #4ADE80;
+  --c-accent-subtle: #14532D;
+  --c-focus: #93C5FD;
+  --c-warn-text: #FBBF24;
+  --c-warn-subtle: #332D20;
+  --c-danger-text: #FDA4AF;
+  --c-danger-subtle: #3B1D24;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    color-scheme: dark;
+    --c-bg: #0F172A;
+    --c-surface: #1E293B;
+    --c-surface-sunken: #172033;
+    --c-text: #F8FAFC;
+    --c-text-secondary: #CBD5E1;
+    --c-text-tertiary: #94A3B8;
+    --c-border: #334155;
+    --c-border-control: #94A3B8;
+    --c-accent-solid: #15803D;
+    --c-accent-solid-hover: #166534;
+    --c-on-accent: #FFFFFF;
+    --c-accent-text: #4ADE80;
+    --c-accent-subtle: #14532D;
+    --c-focus: #93C5FD;
+    --c-warn-text: #FBBF24;
+    --c-warn-subtle: #332D20;
+    --c-danger-text: #FDA4AF;
+    --c-danger-subtle: #3B1D24;
+  }
+}
+
+:root {
+  --t-caption: 0.75rem;
+  --t-meta: 0.8125rem;
+  --t-body-sm: 0.875rem;
+  --t-body: 1rem;
+  --t-h3: 1.125rem;
+  --t-h1: 1.5rem;
+  --t-kpi: 1.75rem;
+  --lh-caption: 1.4;
+  --lh-meta: 1.45;
+  --lh-body-sm: 1.5;
+  --lh-body: 1.55;
+  --lh-h3: 1.35;
+  --lh-h1: 1.25;
+  --lh-kpi: 1.15;
+  --fw-caption: 500;
+  --fw-meta: 400;
+  --fw-body-sm: 400;
+  --fw-body: 400;
+  --fw-h3: 650;
+  --fw-h1: 700;
+  --fw-kpi: 700;
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+  --sh-1: 0 1px 2px rgb(15 23 42 / .06);
+  --sh-pop: 0 8px 24px rgb(15 23 42 / .14), 0 2px 6px rgb(15 23 42 / .08);
+  --motion-fast: 150ms ease-out;
+  --motion-drawer-in: 200ms ease-out;
+  --motion-drawer-out: 150ms ease-out;
+  --bp-desktop: 1024px;
+  --bp-wide: 1440px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    --sh-1: 0 1px 2px rgb(0 0 0 / .12);
+    --sh-pop: 0 8px 24px rgb(0 0 0 / .28), 0 2px 6px rgb(0 0 0 / .16);
+  }
+}
+:root[data-theme=dark] {
+  --sh-1: 0 1px 2px rgb(0 0 0 / .12);
+  --sh-pop: 0 8px 24px rgb(0 0 0 / .28), 0 2px 6px rgb(0 0 0 / .16);
+}
+
+/* Shared shell aliases. The values intentionally point at the semantic layer. */
+:root {
+  --shell-bg: var(--c-bg);
+  --shell-paper: var(--c-surface);
+  --shell-ink: var(--c-text);
+  --shell-muted: var(--c-text-secondary);
+  --shell-warn: var(--c-warn-text);
+  --shell-warn-bg: var(--c-warn-subtle);
+  --shell-danger: var(--c-danger-text);
+  --shell-line: var(--c-border);
+  --shell-line-strong: var(--c-border-control);
+  --shell-hover: var(--c-surface-sunken);
+  --shell-selected: var(--c-accent-subtle);
+  --shell-accent: var(--c-accent-text);
+  --shell-focus: var(--c-focus);
+  --shell-overlay: rgb(16 24 40 / .38);
+  --shell-nav-width: 232px;
+  --shell-drawer-width: min(300px, 85vw);
+  --shell-topbar-height: 56px;
+  --shell-control-min: 44px;
+  --shell-theme-control-size: var(--shell-control-min);
+  --shell-title-size: var(--t-h1);
+  --shell-body-size: var(--t-body);
+  --shell-secondary-size: var(--t-meta);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) { --shell-overlay: rgb(0 0 0 / .62); }
+}
+:root[data-theme=dark] { --shell-overlay: rgb(0 0 0 / .62); }
+
+/* Legacy palette aliases. Keep these at the end of the file during migration. */
+:root {
+  --bg: var(--c-bg);
+  --paper: var(--c-surface);
+  --ink: var(--c-text);
+  --mut: var(--c-text-secondary);
+  --line: var(--c-border);
+  --line2: var(--c-border);
+  --line-strong: var(--c-border-control);
+  --hover: var(--c-surface-sunken);
+  --sel: var(--c-accent-subtle);
+  --focus: var(--c-focus);
+  --grn: var(--c-accent-solid);
+  --grn-dk: var(--c-accent-solid-hover);
+  --grn-hover: var(--c-accent-solid-hover);
+  --grn-lt: var(--c-accent-subtle);
+  --warn: var(--c-warn-text);
+  --neg: var(--c-danger-text);
+  --bad: var(--c-danger-text);
+  --text-muted: var(--c-text-tertiary);
+  --surface-muted: var(--c-surface-sunken);
+  --bg-overlay: var(--shell-overlay);
+
+  /* Existing page-local variable names have semantic defaults. Local values
+     declared by a page still override these aliases. */
+  --accent: var(--c-accent-text);
+  --accent-soft: var(--c-accent-subtle);
+  --border: var(--c-border);
+  --muted: var(--c-text-secondary);
+  --surface: var(--c-surface);
+  --text: var(--c-text);
+  --soft: var(--c-surface-sunken);
+  --danger: var(--c-danger-text);
+  --action-icon: none;
+  --bulk-bar-height: 230px;
+  --mobile-bar-height: 56px;
+  --ota-bg: var(--c-surface);
+  --ota-control: var(--shell-control-min);
+  --ota-hover: var(--c-surface-sunken);
+  --ota-ink: var(--c-text);
+  --ota-line: var(--c-border);
+  --ota-muted: var(--c-text-secondary);
+  --ota-radius: var(--r-lg);
+  --ota-warn: var(--c-warn-text);
+  --ota-warn-bg: var(--c-warn-subtle);
+  --ui-accent: var(--c-accent-text);
+  --ui-bg: var(--c-bg);
+  --ui-control: var(--shell-control-min);
+  --ui-error: var(--c-danger-text);
+  --ui-focus: var(--c-focus);
+  --ui-ink: var(--c-text);
+  --ui-line: var(--c-border);
+  --ui-muted: var(--c-text-secondary);
+  --ui-ok: var(--c-accent-text);
+  --ui-paper: var(--c-surface);
+  --ui-radius: var(--r-lg);
+  --ui-warn-bg: var(--c-warn-subtle);
+  --ui-warn-ink: var(--c-warn-text);
+  --ca-accent: var(--c-accent-text);
+  --ca-border: var(--c-border);
+  --ca-ink: var(--c-text);
+  --ca-muted: var(--c-text-secondary);
+  --ca-paper: var(--c-surface);
+  --ca-soft: var(--c-surface-sunken);
+  --cc-accent: var(--c-accent-text);
+  --cc-accent-bg: var(--c-accent-subtle);
+  --cc-bg: var(--c-bg);
+  --cc-border: var(--c-border);
+  --cc-focus: var(--c-focus);
+  --cc-muted: var(--c-text-secondary);
+  --cc-soft: var(--c-surface-sunken);
+  --cc-surface: var(--c-surface);
+  --cc-text: var(--c-text);
+}

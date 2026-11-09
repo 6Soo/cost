@@ -34,8 +34,9 @@ def test_sidebar_scrollbar_brand_and_footer_style_use_shell_tokens():
 
 
 def test_shell_theme_tokens_cover_native_navigation_documents():
-    assert ':root{--shell-bg:#F8FAFC' in site_shell.STYLE
-    assert '@media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A' in site_shell.STYLE
+    assert '--shell-bg: var(--c-bg)' in site_shell.STYLE
+    assert '--c-bg: #F8FAFC' in site_shell.STYLE
+    assert '--c-bg: #0F172A' in site_shell.STYLE
     assert 'body.site-standalone,body:has(.site-topbar)' not in site_shell.STYLE
 
 
