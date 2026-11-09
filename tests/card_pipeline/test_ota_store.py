@@ -82,8 +82,16 @@ def test_refetched_gmail_copy_without_the_archived_date_spelling_is_the_same_ori
                 header['value'] = '<' + header['value'].split('<')[-1].rstrip('>') + '>'
             header['value'] = header['value'].replace(' ', '\t', 1)
         store.import_mail(write_mail(tmp_path / 'refolded', [refolded]))
+        # Two copies in one source differing only in header folding load as one message.
+        folded = copy.deepcopy(refetched)
+        folded['payload']['headers'] = [dict(h, value=h['value'].replace(' ', '\r\n\t', 1))
+                                        for h in folded['payload']['headers']]
+        both = write_mail(tmp_path / 'both', [refetched, folded])
+        assert list(ota_mail.load_messages_from([both])[0]) == ['same']
         moved = copy.deepcopy(refetched)
         moved['internalDate'] = '1788999999000'
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            ota_mail.load_messages_from([write_mail(tmp_path / 'pair', [refetched, moved])])
         with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
             store.import_mail(write_mail(tmp_path / 'three', [moved]))
     finally:
@@ -342,3 +350,18 @@ def test_invalid_unified_target_never_silently_falls_back_to_legacy(tmp_path, ta
     with pytest.raises(ota_sources.OtaSourcesError):
         ota_sources.resolve_sources(tmp_path, mail_default=tmp_path / 'old-mail',
                                     portal_default=tmp_path / 'old-portal.sqlite')
+
+
+def test_a_kept_rest_copy_still_conflicts_with_a_different_receipt_time(tmp_path):
+    kept = message('예약번호: BOOK12345 총 금액 30,000원', identity='rest')
+    del kept['internal_date']
+    kept['internalDate'] = '1788942857000'
+    moved = copy.deepcopy(kept)
+    moved['internalDate'] = '1788999999000'
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(write_mail(tmp_path / 'one', [kept]))
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(write_mail(tmp_path / 'two', [moved]))
+    finally:
+        store.close()

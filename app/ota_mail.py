@@ -88,23 +88,6 @@ def same_original_core(first, second):
     return left[:3] == right[:3] and (left[3] in (None, '') or right[3] in (None, '') or str(left[3]) == str(right[3]))
 
 
-def equivalent_core_digests(core, message):
-    """Digests under which the same original may already be kept.
-
-    Archived copies store the receipt time as internal_date, Gmail REST copies only as
-    internalDate. One spelling missing is not a content conflict; two different times are.
-    """
-    digests = {_core_digest(core)}
-    snake, camel = message.get('internal_date'), message.get('internalDate')
-    if snake not in (None, '') and camel not in (None, '') and str(snake) != str(camel):
-        return digests
-    date = mail_internal_date(message)
-    for value in (None, '' if date is None else str(date)):
-        if value != '':
-            digests.add(_core_digest(dict(core, internal_date=value)))
-    return digests
-
-
 def _load_messages_uncached(directories):
     """여러 디렉터리를 함께 읽는다.
 
@@ -143,10 +126,13 @@ def _load_messages_uncached(directories):
             core = dict(id=identity,internal_date=message.get('internal_date'),
                         headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
                         text=body_text(payload))
-            digests = equivalent_core_digests(core, message)
-            if identity in fingerprints and not fingerprints[identity] & digests:
-                raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
-            fingerprints[identity] = digests
+            digest = _core_digest(core)
+            if identity in fingerprints:
+                kept_digest, kept_core, kept = fingerprints[identity]
+                if ((kept_digest != digest or core['internal_date'] in (None, ''))
+                        and not same_original_core((kept_core, kept), (core, message))):
+                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+            fingerprints[identity] = (digest, core, message)
             previous = messages.get(identity)
             if previous is not None:
                 body_cache.pop(id(previous), None)
