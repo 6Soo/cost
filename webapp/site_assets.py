@@ -14,11 +14,15 @@ CSS_DIR = STATIC_DIR / "css"
 JS_DIR = STATIC_DIR / "js"
 
 _SHELL_CSS_PATH = CSS_DIR / "site_shell.css"
+_TOKENS_CSS_PATH = CSS_DIR / "tokens.css"
+_COMPONENTS_CSS_PATH = CSS_DIR / "components.css"
 _SHELL_JS_PATH = JS_DIR / "site_shell.js"
 _THEME_CSS_PATH = CSS_DIR / "site_theme.css"
 _THEME_JS_PATH = JS_DIR / "site_theme.js"
 
-SHELL_STYLE = _SHELL_CSS_PATH.read_text(encoding="utf-8")
+TOKENS_STYLE = _TOKENS_CSS_PATH.read_text(encoding="utf-8")
+COMPONENTS_STYLE = _COMPONENTS_CSS_PATH.read_text(encoding="utf-8")
+SHELL_STYLE = TOKENS_STYLE + "\n" + COMPONENTS_STYLE + "\n" + _SHELL_CSS_PATH.read_text(encoding="utf-8")
 SHELL_SCRIPT = _SHELL_JS_PATH.read_text(encoding="utf-8").replace(
     '__ACTION_ICONS__', json.dumps(ui_icons.ICONS, ensure_ascii=True))
 THEME_STYLE = _THEME_CSS_PATH.read_text(encoding="utf-8")

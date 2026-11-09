@@ -63,31 +63,6 @@
 @media(prefers-color-scheme:dark){.participant-trip-panel{background:var(--paper);color:var(--ink)}}
 @media(max-width:600px){.participant-trip-content{padding:10px 8px}.participant-cards{grid-template-columns:1fr}.participant-trip-search,.participant-keyboard-link{align-items:stretch;flex-direction:column}.participant-keyboard-link select{width:100%}}
 *{box-sizing:border-box}
-:root{
- --bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;
- --line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;
- --sel:#ECF5EF;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;
- --warn:#B54708;--neg:#B42318;--bad:#B42318;
- --text-muted:#94A3B8;--surface-muted:#F1F5F9;
-}
-/* Dark theme (B안) - system preference only, no manual toggle */
-@media (prefers-color-scheme: dark) {
- :root{
-  --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
-  --line2:#1E293B;--line-strong:#475569;--hover:#334155;--focus:#3B82F6;
-  --sel:#1C7A52;--grn:#22C55E;--grn-dk:#16A34A;--grn-lt:#14532D;
-  --warn:#F59E0B;--neg:#EF4444;--bad:#EF4444;
-  --text-muted:#64748B;--surface-muted:#334155;
- }
-}
-@media(prefers-color-scheme:dark){
-:root{
- --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
- --line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#93C5FD;
- --sel:#1E3A5F;--grn:#1C7A52;--grn-dk:#A7F3D0;--grn-hover:#166444;--grn-lt:#14532D;
- --warn:#FBBF24;--neg:#FDA4AF;--bad:#FDA4AF;
-}
-}
 html,body{height:100%}
 /* Keep the ledger shell inside the viewport. Only its nav and main panes scroll. */
 body:has(>.app){overflow:hidden}
@@ -132,7 +107,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .work-action>span{flex:1 1 auto;min-width:0}
 .work-action strong,.work-action small{display:block}
 .work-action small{font-size:12px;color:var(--mut);margin-top:3px}
-@media(hover:hover){a.work-action:hover{background:var(--hover);border-color:var(--grn)}}
+@media(hover:hover){a.work-action:hover{background:var(--hover);border-color:var(--c-accent-text)}}
 .nav .work-menu{padding:10px 12px;flex:none}
 .nav .work-actions{display:grid;grid-template-columns:1fr}
 .nav .work-action{padding:8px 10px;font-size:12px}
@@ -288,14 +263,14 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
  border:0;border-left:2px solid transparent;border-radius:7px;background:transparent;
  font-size:14px;font-weight:400;text-align:left;cursor:pointer;color:var(--ink);text-decoration:none;transition:scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
 @media(hover:hover){.nv:hover{background:var(--hover)}}
-.nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
+.nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--c-accent-text);font-weight:600}
 .nv.nv-closed{color:var(--mut);background:var(--hover)}
-.nv.nv-closed[aria-pressed="true"],.nv.nv-closed.sel{background:var(--sel);border-left-color:var(--grn)}
+.nv.nv-closed[aria-pressed="true"],.nv.nv-closed.sel{background:var(--sel);border-left-color:var(--c-accent-text)}
 .nv .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The refund icon is its own aligned element, never fused to label text. */
 .nv .nv-icon{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;color:var(--mut)}
 .nv .nv-icon .ic{width:18px;height:18px;display:block;flex:none}
-.nv.sel .nv-icon{color:var(--grn)}
+.nv.sel .nv-icon{color:var(--c-accent-text)}
 .nv .ct{flex:0 0 auto;margin-left:8px;font-size:12px;color:var(--mut);white-space:nowrap}
 .nv .ct.warn{color:var(--warn)}
 .nav-arch .nm{color:var(--mut)}
@@ -341,7 +316,7 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 #kind{height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
  padding:0 6px;font-weight:500}
 .crumb{font-size:12.5px;color:var(--mut)}
-.status{padding:7px 24px;font-size:12.5px;color:var(--grn);border-bottom:1px solid var(--line2);
+.status{padding:7px 24px;font-size:12.5px;color:var(--c-accent-text);border-bottom:1px solid var(--line2);
  min-height:30px}
 .status.hint{color:var(--mut)}
 .status.err{color:var(--neg)}
@@ -395,16 +370,16 @@ tbody.colhead{display:none}
 tr[data-id]{cursor:pointer}
 @media(hover:hover){tr[data-id]:hover{background:var(--hover)}}
 tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
+tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--c-accent-text)}
 .google-match-candidate td{font-weight:700}
 .google-match-candidate .m-row,.google-match-candidate .party-line{font-weight:700}
 .num{text-align:right}
-.a-in{color:var(--grn);font-weight:500}
+.a-in{color:var(--c-accent-text);font-weight:500}
 .a-ex{font-weight:500}
 .a-neg{color:var(--neg);font-weight:500}
 .tag{display:inline-block;font-size:11px;line-height:17px;padding:0 6px;border:1px solid var(--line);
  border-radius:6px;color:var(--mut);font-weight:500}
-.tag.in{border-color:#CFE3D7;background:var(--grn-lt);color:var(--grn-dk)}
+.tag.in{border-color:#CFE3D7;background:var(--grn-lt);color:var(--c-accent-text)}
 /* Waiting and cancelled are said in words, not by colour alone, and both come
    from the row itself: no travel assigned, or a cancellation in the source. */
 .tag.wait{border-color:#E8D8B4;background:#FBF4E6;color:var(--warn)}
@@ -457,7 +432,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .p-src>summary{cursor:pointer;padding:7px 10px;font-size:12px;color:var(--mut);
  list-style:none;user-select:none}
 .p-src>summary::-webkit-details-marker{display:none}
-.p-src>summary::after{content:" 더보기";color:var(--grn-dk)}
+.p-src>summary::after{content:" 더보기";color:var(--c-accent-text)}
 .p-src[open]>summary::after{content:" 접기"}
 .p-src[open]>summary{border-bottom:1px solid var(--line2)}
 .p-src .p-sub{margin:0;padding:9px 10px;line-height:1.7}
@@ -473,7 +448,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .src{font-size:12px;color:var(--mut);background:var(--bg);border:1px solid var(--line);
  border-radius:8px;padding:12px;line-height:1.7}
 .p-links{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;font-size:12.5px}
-.p-links a{color:var(--grn-dk)}
+.p-links a{color:var(--c-accent-text)}
 .sect{margin:0;padding:20px 24px;border-bottom:1px solid var(--line)}
 .sect h2{font-size:16px;font-weight:700;margin-bottom:10px}
 /* The actual-source preview. Cards rather than a table, at every width: it
@@ -539,7 +514,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-weight:500}
 .page-body input[type=radio],.page-body input[type=checkbox]{
  width:18px;height:18px;min-width:0;max-width:18px;margin:0;padding:0;
- accent-color:var(--grn);flex:0 0 auto}
+ accent-color:var(--c-accent-solid);flex:0 0 auto}
 /* the label is the target, so the whole row is comfortable to tap */
 .opt{display:inline-flex;align-items:center;gap:8px;min-height:44px;
  margin:0 18px 0 0;padding:0 8px 0 0;cursor:pointer;white-space:nowrap}
@@ -555,7 +530,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .page-body .card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:0 0 12px}
 .page-body table{border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .page-body td,.page-body th{border-bottom:1px solid var(--line2);height:auto;padding:7px 10px}
-.page-body a{color:var(--grn-dk)}
+.page-body a{color:var(--c-accent-text)}
 @media (width < 760px){
  .page-body input,.page-body select,.page-body textarea{min-width:0;width:100%;font-size:16px}
  .page-body button,.page-body a.btn{height:44px;width:100%;justify-content:center}
@@ -589,8 +564,8 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .btn{transition:scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
 @media(hover:hover){.btn:hover{background:var(--hover)}}
-.btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
-@media(hover:hover){.btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}}
+.btn.primary{background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}
+@media(hover:hover){.btn.primary:hover{background:var(--c-accent-solid-hover);border-color:var(--c-accent-solid-hover)}}
 .btn[disabled]{opacity:.45;cursor:default}
 @media(hover:hover){.btn[disabled]:hover{background:var(--paper)}}
 /* 작은 선형 아이콘: 문구 왼쪽 16px, 장식은 클릭을 부모 버튼에 전달한다. */
@@ -663,7 +638,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
   .li .mobile-party .t{white-space:normal;overflow:visible;text-overflow:clip}
   .li .a{margin-left:auto;flex:0 0 auto;white-space:nowrap;font-size:15px;font-weight:600}
   .li .tag{flex:0 0 auto}
-  .li[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
+  .li[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--c-accent-text)}
   .li.pend{white-space:normal;padding-top:12px;padding-bottom:4px}
   .lst form[data-js-move]{display:flex;gap:8px;align-items:center;padding:0 16px 12px;
    border-bottom:1px solid var(--line2);max-width:100%}
@@ -693,7 +668,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-copy-manual textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .trip-copy-wrap .copy-status{flex-basis:100%;margin:0;font-size:13px;font-weight:500;line-height:1.6;overflow-wrap:anywhere}
 .trip-copy-wrap .copy-status:empty{flex-basis:0}
-.copy-status.success{color:var(--grn)}
+.copy-status.success{color:var(--c-accent-text)}
 .copy-status.err{color:var(--bad)}
 .copy-status.loading{color:var(--ink)}
 .participant-trip-panel{margin:16px 0;border:1px solid var(--line-strong);border-radius:12px;background:var(--paper);color:var(--ink);overflow:hidden}
@@ -762,7 +737,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .trip-review-holds ul{margin:8px 0 0;padding:0;list-style:none}
 .trip-review-holds a,.trip-review-sources a{display:flex;align-items:center;min-height:44px;color:var(--focus);font-size:13px;overflow-wrap:anywhere}
 .trip-review-sources{display:flex;flex-wrap:wrap;gap:8px 24px}
-@media(max-width:600px){.trip-actions{gap:6px}.trip-actions .btn{padding:10px 8px;gap:5px;font-size:12px;flex:1;min-width:0}.trip-actions .ic{display:none}.trip-actions [data-manual-open]{margin-left:0}}
+@media(max-width:600px){.trip-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:6px}.trip-actions .btn{padding:10px 8px;gap:5px;min-width:0}.trip-actions .ic{display:none}.trip-actions [data-manual-open]{margin-left:0}}
 #manual-expense-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);box-sizing:border-box;overflow:auto}
 #manual-expense-dialog::backdrop{background:rgb(0 0 0 / .45)}
 #manual-expense-dialog .mx-card{margin:0;border:0;box-shadow:none;max-width:none}

@@ -6,7 +6,7 @@ from webapp import ota_payment_review, site_assets, site_shell, site_theme
 def test_shared_shell_assets_are_the_only_standalone_shell_source():
     assert site_shell.STYLE is site_assets.SHELL_STYLE
     assert site_shell.SCRIPT is site_assets.SHELL_SCRIPT
-    assert "--shell-control-min:44px" in site_shell.STYLE
+    assert "--shell-control-min: 44px" in site_assets.TOKENS_STYLE
     assert "#site-theme-toggle" in site_theme.STYLE
 
 
