@@ -577,3 +577,29 @@ def test_trip_price_change_rise_shows_nothing_when_two_cards_match_or_the_card_i
     trip_rise(data, tmp_path)
     store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
     assert 't1' not in stays.stay_index(store)
+
+
+def test_index_is_built_once_per_snapshot_generation_and_rebuilt_on_manual_change(monkeypatch):
+    import sqlite3 as _sqlite3
+    from threading import RLock as _RLock
+    from types import SimpleNamespace as _NS
+    from webapp import ota_payment_review
+    monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
+    current = {'key': 'k1', 'data': {'events': [], 'transactions': [], 'results': []}}
+    conn = _sqlite3.connect(':memory:')
+    conn.execute('CREATE TABLE board_manual_overrides(row_id TEXT, field TEXT)')
+    store = _NS(conn=conn, _lock=_RLock(), _ota_snapshot_service=_NS(
+        display_context=lambda: (current, {'fresh': True})))
+    builds = []
+    real = stays._build_index
+    monkeypatch.setattr(stays, '_build_index', lambda data, manual: builds.append(1) or real(data, manual))
+    stays.stay_index(store)
+    stays.stay_index(store)
+    assert len(builds) == 1
+    conn.execute("INSERT INTO board_manual_overrides VALUES ('card-x','service_period')")
+    stays.stay_index(store)
+    assert len(builds) == 2
+    current = {'key': 'k2', 'data': {'events': [], 'transactions': [], 'results': []}}
+    stays.stay_index(store)
+    assert len(builds) == 3
+    conn.close()

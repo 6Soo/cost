@@ -2,6 +2,10 @@
 from app.ota_core_projection import card_matches
 from app.ota_mail import ledger_metadata
 from collections import defaultdict
+import threading
+
+_INDEX_LOCK = threading.Lock()
+_INDEX_MEMO = {}
 
 
 def stay_index(store):
@@ -16,7 +20,23 @@ def stay_index(store):
     current, state = service.display_context()
     if not current or not state.get('fresh'):
         return {}
-    data = current.get('data') or {}
+    with store._lock:
+        manual = {str(r[0]) for r in store.conn.execute(
+            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
+    # One snapshot generation and the same manual overrides give the same index; build it once.
+    memo_key = (id(store), id(current), current.get('key'), frozenset(manual))
+    with _INDEX_LOCK:
+        if _INDEX_MEMO.get('key') == memo_key and _INDEX_MEMO.get('current') is current:
+            return _INDEX_MEMO['result']
+    from app.ota_matching_defaults import provider_resolution_scope
+    with provider_resolution_scope():
+        result = _build_index(current.get('data') or {}, manual)
+    with _INDEX_LOCK:
+        _INDEX_MEMO.update(key=memo_key, current=current, result=result)
+    return result
+
+
+def _build_index(data, manual):
     facts = card_matches([], data)
     events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
     blocked = {str(r.get('ota_event_id')) for r in data.get('results', [])
@@ -25,9 +45,6 @@ def stay_index(store):
     for fact in facts:
         by_source[fact.get('source_hash')].append(fact)
     cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
-    with store._lock:
-        manual = {str(r[0]) for r in store.conn.execute(
-            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
     result = {}
     for fact in facts:
         tid = str(fact.get('transaction_id') or '')
@@ -139,6 +156,17 @@ def _occupied_cards(data):
     return occupied
 
 
+def _decimal(value, *, absolute=False):
+    from decimal import Decimal, InvalidOperation
+    try:
+        number = Decimal(str(value).replace(',', '').strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not number.is_finite():
+        return None
+    return abs(number).normalize() if absolute else number.normalize()
+
+
 def _agoda_recorded_card_periods(data, manual):
     """The owner-approved mutually unique Agoda pairing, read for cards already on a ledger.
 
@@ -146,11 +174,28 @@ def _agoda_recorded_card_periods(data, manual):
     stay. This display reads the same pairing without opening, linking or rewriting it.
     """
     from app import ota_inference
+    from app.ota_matching_defaults import provider_resolution_scope
     from datetime import date
+    with provider_resolution_scope():
+        return _agoda_recorded_card_periods_in_scope(data, manual, ota_inference, date)
+
+
+def _agoda_recorded_card_periods_in_scope(data, manual, ota_inference, date):
     occupied = _occupied_cards(data)
-    cards = [dict(card, ota_inference_eligible=True) for card in data.get('transactions', [])]
     events = [event for event in data.get('events', [])
               if not any(event.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))]
+    # The pairing compares card tail and exact amount; only cards sharing both with an
+    # undated Agoda event can take part, so the rest are left out before the full check.
+    keys = {(str(e.get('card_last4') or ''), amount) for e in events
+            if e.get('provider') == 'agoda' and not e.get('paid_on')
+            for amount in (_decimal(e.get('amount'), absolute=True), _decimal(e.get('amount_krw'), absolute=True))
+            if amount is not None}
+    tails = {tail for tail, _ in keys}
+    cards = [dict(card, ota_inference_eligible=True) for card in data.get('transactions', [])
+             if str(card.get('card_tail') or card.get('card_last4') or '') in tails
+             and any((str(card.get('card_tail') or card.get('card_last4') or ''), amount) in keys
+                     for amount in (_decimal(card.get('amount_krw'), absolute=True),
+                                    _decimal(card.get('foreign_amount'), absolute=True)) if amount is not None)]
     result = {}
     for identity, row in ota_inference.unique_pairs(events, cards, occupied=occupied).items():
         tid = str(row['transaction_id'])
