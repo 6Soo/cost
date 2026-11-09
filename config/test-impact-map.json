@@ -94,8 +94,8 @@
     },
     {
       "name": "continuous-release-gateway",
-      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/switch_verified_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "tools/webledger_windows_lifecycle.py", "tools/webledger_task_entry.pyw", "tests/test_webledger_job_lifecycle.py", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py"],
-      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "tests/test_webledger_job_lifecycle.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
+      "paths": ["tools/ledger_gateway.py", "tools/gateway_route.py", "tools/switch_continuous_release.ps1", "tools/switch_verified_release.ps1", "tools/install_ledger_gateway.ps1", "tools/start_web_ledger_host.ps1", "tools/install_web_ledger_startup.ps1", "tools/webledger_windows_lifecycle.py", "tools/webledger_task_entry.pyw", "tests/test_webledger_job_lifecycle.py", "webapp/deployment_role.py", "webapp/card_completion_worker.py", "webapp/google_ledger_page.py", "tests/test_continuous_deployment.py", "tools/webledger_worker.py", "tools/install_webledger_worker.ps1", "tests/test_webledger_worker.py", "app/python_launch.py", "webapp/tests/test_python_launch.py"],
+      "tests": ["tests/test_continuous_deployment.py", "tests/test_verified_release.py", "tests/test_webledger_job_lifecycle.py", "tests/test_webledger_worker.py", "webapp/tests/test_python_launch.py", "webapp/tests/test_card_completion_worker.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_ops_safety.py"]
     },
     {
       "name": "participant-runtime-identity",
