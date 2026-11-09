@@ -17,4 +17,4 @@
 - 검사 SHA `10b92ca8bde80e263590aec22a2d177d7522049c`: Windows 영향 QA 386 passed·16 subtests·skip0·필수 브라우저 누락0, PR CI41761912476 success. 병합/운영 `8ce17a9a6d37ef4959b34811a3e5fa9469594f88`와 tree 동일.
 - 배포: 이전 검증 `2663f08e9fd478adba52cba2218a5a528046aa81`, 1,319 blobs 불일치0·런타임 SHA 일치·listener1·health/ready200·보호API401·보호13표 내용/스키마 전후 불변. gateway8790→backend8751.
 - 운영 인증 읽기 검색2개와 모바일 수락 완료. 실제 금융 저장·원본 변경·Google 쓰기·마이그레이션·실기기·모든 예약 조합 검사는 미실행. Ego45 종료 및 소유 합성 서버8876 종료.
-- 근거 `C:/AX/cost/.local-archive/flight-route-search-20261104/`의 windows-final/·synthetic-browser.json·live-acceptance.json·review.json·deploy-evidence.json. [운영 기록](../operations.md#2026-11-04-항공권-날짜행선지-검색). 문서 후속으로 재배포하지 않는다.
+- 근거 `C:/AX/cost/.local-archive/flight-route-search-20261104/`의 windows-final/·synthetic-browser.json·live-acceptance.json·review.json·deploy-evidence.json. [운영 기록](../history/operations-20261028-20261107.md#2026-11-04-항공권-날짜행선지-검색). 문서 후속으로 재배포하지 않는다.

@@ -9,6 +9,8 @@
 | 정책 변경·예전 상태표·세션 인계 | [제품·인계](product-and-handoffs.md) |
 | 변경별 구현 계획·검토·테스트·화면 감사 | [구현·감사](implementation-and-audits.md) |
 | 2026-10-27까지 실제 배포·운영 검증 전문 | [운영 이력](operations-through-20261027.md) |
+| 2026-10-28~11-07 직전 릴리스·배포 기록 | [운영 기록 10/28~11/07](operations-20261028-20261107.md) |
+| 2026-11-07 이전 인계·상태표 | [이전 인계](session_handoff-through-20261107.md) |
 | 은퇴한 OTA-first 정책·실험·옛 실행 계획 | [구형 OTA](ota-legacy.md) |
 | 2026-10-29 계약으로 대체된 잠정 여행 귀속 설계 | [이전 PA-01~06 명세](provisional-assignment-review-first-20261028.md) |
 
