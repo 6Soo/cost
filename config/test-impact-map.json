@@ -369,6 +369,11 @@
       "name": "unified-user-action-queue",
       "paths": ["webapp/user_action_queue.py", "webapp/user_action_adapters.py", "webapp/ledger_board.py", "webapp/ledger_design.py", "webapp/access_control.py", "webapp/tests/test_user_action_queue.py"],
       "tests": ["webapp/tests/test_user_action_queue.py", "webapp/tests/test_site_shell.py", "webapp/tests/test_card_flow.py"]
+    },
+    {
+      "name": "trip-price-change-charge",
+      "paths": ["tests/card_pipeline/test_trip_price_change_charge.py"],
+      "tests": ["tests/card_pipeline/test_trip_price_change_charge.py", "tests/card_pipeline/test_ota_payments.py"]
     }
   ]
 }
