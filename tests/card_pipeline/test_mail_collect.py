@@ -260,3 +260,44 @@ def test_new_and_owner_mail_are_automatically_added_to_configured_unified_db(tmp
     mail_collect.write_owner_batch(directory, [record], datetime(2026, 10, 15, 10, 0))
     messages, _ = ota_mail.load_messages_from([tmp_path / 'ota.sqlite'])
     assert set(messages) == {'new-auto', 'new-owner'}
+
+
+def _api_with(responses, monkeypatch):
+    import io
+    import urllib.error
+    from app import mail_collect
+    api = object.__new__(mail_collect.GmailApi)
+    api._access = 'token'
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return io.BytesIO(json.dumps(result).encode())
+    monkeypatch.setattr(mail_collect.urllib.request, 'urlopen', fake_urlopen)
+    monkeypatch.setattr(mail_collect.time, 'sleep', lambda seconds: None)
+    return api, calls
+
+
+def test_gmail_request_retries_a_dropped_connection_and_dns_failure(monkeypatch):
+    import urllib.error
+    api, calls = _api_with([ConnectionResetError(), urllib.error.URLError('getaddrinfo failed'), {'id': 'm1'}], monkeypatch)
+    assert api._get('https://example.invalid/m1') == {'id': 'm1'}
+    assert len(calls) == 3
+
+
+def test_gmail_request_does_not_retry_a_permanent_error_and_stops_after_the_limit(monkeypatch):
+    import urllib.error
+    import pytest
+    from app import mail_collect
+    missing = urllib.error.HTTPError('u', 404, 'Not Found', {}, None)
+    api, calls = _api_with([missing], monkeypatch)
+    with pytest.raises(urllib.error.HTTPError):
+        api._get('https://example.invalid/m1')
+    assert len(calls) == 1
+    api, calls = _api_with([TimeoutError()] * mail_collect.RETRY_ATTEMPTS, monkeypatch)
+    with pytest.raises(TimeoutError):
+        api._get('https://example.invalid/m1')
+    assert len(calls) == mail_collect.RETRY_ATTEMPTS
