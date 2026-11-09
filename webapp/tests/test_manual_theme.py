@@ -27,14 +27,14 @@ def test_theme_button_overrides_system_and_preserves_only_local_choice():
         button = page.locator('#site-theme-toggle')
         assert button.count() == 1
         assert button.inner_text() == ''
-        assert button.get_attribute('aria-label') == '라이트모드로 전환'
+        assert button.get_attribute('aria-label') == '밝은 화면으로 전환'
         assert page.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(15, 23, 42)'
         page.locator('#draft').fill('keep this text')
         requests = []
         page.on('request', lambda request: requests.append(request.url))
         button.focus()
         page.keyboard.press('Enter')
-        assert button.get_attribute('aria-label') == '다크모드로 전환'
+        assert button.get_attribute('aria-label') == '어두운 화면으로 전환'
         assert page.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(248, 250, 252)'
         assert page.locator('#draft').input_value() == 'keep this text'
         assert requests == []
@@ -102,7 +102,7 @@ def test_real_page_palettes_follow_choice_with_invalid_storage_and_cross_tab_upd
             page.locator('#site-theme-toggle').click()
             assert page.locator('html').get_attribute('data-theme') == 'dark'
             assert page.evaluate('getComputedStyle(document.body).backgroundColor') == 'rgb(15, 23, 42)'
-            assert page.evaluate("getComputedStyle(document.querySelector('#nav')).backgroundColor") == 'rgb(15, 23, 42)'
+            assert page.evaluate("getComputedStyle(document.querySelector('#nav')).backgroundColor") == 'rgb(30, 41, 59)'
             if name == 'import':
                 assert page.locator('#card').evaluate('e=>getComputedStyle(e).backgroundColor') == 'rgb(30, 41, 59)'
                 assert page.locator('#draft').evaluate('e=>getComputedStyle(e).backgroundColor') == 'rgb(30, 41, 59)'

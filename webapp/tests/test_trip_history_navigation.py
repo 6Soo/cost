@@ -18,7 +18,7 @@ def render(trips, selected="", query="", role="owner", allowed=()):
         return ledger_design.nav_region(selected, query)
 
 
-def test_june_25_inclusive_moves_to_last_previous_trips_without_mutating_records():
+def test_previous_and_archived_trips_are_removed_from_shared_sidebar():
     trips = [trip("early", "2026-04-01"), trip("boundary", "2026-06-25"),
              trip("later", "2026-06-26"), trip("next-year", "2027-06-25"),
              trip("unknown", ""), trip("invalid", "2026-02-31"),
@@ -26,43 +26,36 @@ def test_june_25_inclusive_moves_to_last_previous_trips_without_mutating_records
              trip("deleted", "2026-06-20", deleted=True)]
     before = deepcopy(trips)
     html = render(trips)
-    main, previous = html.split("<details", 1)
-    for key in ("early", "boundary", "old-archived"):
-        assert f"tab={key}" not in main
-        assert f"tab={key}" in previous
+    for key in ("early", "boundary", "old-archived", "deleted"):
+        assert f"tab={key}" not in html
     for key in ("later", "next-year", "unknown", "invalid"):
-        assert f"tab={key}" in main
-        assert f"tab={key}" not in previous
-    assert "이전 여행" in previous
-    assert 'id="previous-trips"' in previous
-    assert html.endswith("</details></div>")
-    assert "tab=deleted" not in html
+        assert f"tab={key}" in html
+    assert "이전 여행" not in html
+    assert "보관 목록" not in html
+    assert "여행 전체 보기" in html
     assert trips == before
 
 
-def test_previous_trip_and_quarter_groups_are_initially_closed():
+def test_sidebar_lists_active_trips_and_current_quarter_only():
     markup = render([trip("old-1", "2026-05-01")])
-    assert '<details id="previous-trips">' in markup
-    assert '<details id="previous-trips" open' not in markup
-    assert "<details class='prev-q'>" in markup
-    assert "<details class='prev-q' open>" not in markup
+    assert "old-1" not in markup
+    assert "이번 분기 기타비용" in markup
+    assert "<details" not in markup
 
 
-def test_refund_nav_has_independent_icon_and_legible_label():
+def test_shared_sidebar_does_not_render_refund_section():
     markup = render([trip("current-1", "2026-10-01")])
     assert "nv-icon" in markup
-    assert "<span class='nm'>환불</span>" in markup
-    assert "rotate-ccw" not in markup or "<svg" in markup
+    assert "<span class='nm'>환불</span>" not in markup
 
 
-def test_selected_or_searched_previous_trip_stays_collapsed_and_viewer_cannot_see_other_trips():
+def test_viewer_sees_only_allowed_active_trips_without_history_drawer():
     trips = [trip("allowed-old", "2026-06-25"), trip("secret-old", "2026-06-24")]
     html = render(trips, selected="allowed-old", role="viewer", allowed=("allowed-old",))
-    assert '<details id="previous-trips">' in html
-    assert '<details id="previous-trips" open' not in html
+    assert '<details' not in html
     assert 'secret-old' not in html
-    assert 'aria-current="page"' in html
+    assert 'allowed-old' not in html
+    assert 'aria-current="page"' not in html
     html = render(trips, query="allowed-old")
-    assert '<details id="previous-trips">' in html
-    assert '<details id="previous-trips" open' not in html
+    assert '<details' not in html
     assert 'tab=secret-old' not in html
