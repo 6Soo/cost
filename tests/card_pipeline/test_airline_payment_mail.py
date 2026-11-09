@@ -61,6 +61,14 @@ def test_overseas_skyticket_purchase_notice_reads_total_and_round_trip_days():
         '【skyticket】구매 완료 안내 <신청번호：32779155>', two_totals)) is None
 
 
+def test_overseas_skyticket_notice_with_crlf_lines_reads_its_total():
+    m = message('kaigai@skyticket.com', '【skyticket】구매 완료 안내 <신청번호：32779155>',
+                OVERSEAS_SKYTICKET_BODY.replace('\n', '\r\n'))
+    fact = airline_payment_mail.extract(m)
+    assert fact['paid_amount_krw'] == 736240
+    assert fact['period'] == {'starts_on': '2026-08-06', 'ends_on': '2026-08-11'}
+
+
 def test_skyticket_round_trip_in_the_domestic_format_spans_both_days():
     m = message('info@skyticket.com', '【skyticket】구입 완료 안내【신청번호：12345678】',
                 '신청번호 12345678\n2026-11-09 아오모리 출발 - 도쿄 도착\n2026-11-12 도쿄 출발 - 아오모리 도착\n'

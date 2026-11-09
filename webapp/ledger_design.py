@@ -103,87 +103,25 @@ def _money(value) -> str:
 
 
 def work_menu_html() -> str:
-    """Owner work entry points for the home body, with honest states.
-
-    This lives in the home body only. The sidebar carries the stable primary
-    menu (including the single 미배정 지출 entry in the trip region), so this
-    menu must not repeat those links. 미배정 지출 is intentionally absent
-    here: its one entry point is the sidebar region.
-    """
-    if board.current_role() != 'owner':
-        return ''
-    from . import google_ledger_page, receipt_review, ui_icons
-
-    def action(icon, title, note, href=''):
-        if not href:
-            return ''
-        tag = 'a' if href else 'div'
-        link = f" href='{board.esc(href)}'" if href else ''
-        return (f"<{tag} class='work-action'{link}>{ui_icons.icon(icon)}"
-                f"<span><strong>{title}</strong>"
-                f"</span></{tag}>")
-
-    actions = action('list', '카드 내역', '연도·월별 카드 거래 조회 · 상세 연결', '/cards/all')
-    actions += action('list', 'OTA records', 'Search and usage month', '/ota')
-    if receipt_review.enabled():
-        actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
-    else:
-        actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
-    return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
-            f"<h2>자료 확인</h2><nav class='work-actions'>{actions}</nav></section>")
+    """The home no longer owns a second navigation menu."""
+    return ''
 
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
               quick_view: bool = False) -> str:
-    """The whole trip rail: the brand link, the search box, the region, the footer.
+    """Thin wrapper around the application shell sidebar.
 
-    The search box sits outside the swappable region on purpose. It holds what the
-    user typed, and a refresh that replaced it would take the caret and the text
-    with it.
+    live_nav is supplied by the same renderer used by nav_region so the
+    live fragment and the initial document never disagree.
     """
-    from . import ui_icons as _icons
-    if board.current_role() == 'owner':
-        from . import flight_passenger_page, receipt_review
-        primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   + f"<a href='/trips'>{_icons.icon('list', 18)}<span class='nm'>여행 관리</span></a>"
-                   f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
-                   f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
-        if receipt_review.enabled():
-            primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
-                        "<span class='nm'>영수증 처리</span></a>")
-        if flight_passenger_page.enabled():
-            primary += (f"<a href='/flight-passengers'>{_icons.icon('airplane', 18)}"
-                        "<span class='nm'>항공권 예약 확인</span></a>")
-        # Account access is the only remaining administrative destination.
-        # Keep it directly reachable instead of a one-item disclosure group.
-        primary += (f"<a href='/access/admin'>{_icons.icon('users', 18)}"
-                    "<span class='nm'>계정·권한 관리</span></a></nav>")
-    else:
-        primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/trips'>{_icons.icon('list', 18)}<span class='nm'>여행 관리</span></a>")
-        primary += '</nav>'
-    search = (
-        "<form class='nav-q' method='get' action='/board'>"
-        f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
-        f"{f'<input type=hidden name=kind value={board.esc(kind)}>' if kind else ''}"
-        "<label class='sr' for='tripq'>여행 검색</label>"
-        f"<input id='tripq' name='q' type='search' placeholder='여행 이름·코드'"
-        f" value='{board.esc(query)}' autocomplete='off'></form>")
-    region = (nav_region(tab_id, query, kind, archived, quick_view=True)
-              if quick_view else nav_region(tab_id, query, kind, archived))
-    return (
-        "<aside class='nav' id='nav' aria-label='여행 목록'>"
-        "<div class='nav-hd'><a class='brand brand-link' href='/' aria-label='숲길여행 회계 홈으로 이동'><img src='/assets/brand/wallet-favicon-v2.png' alt='' width='20' height='20'>숲길여행 회계</a></div>"
-        f"{primary}{search}"
-        + region
-        + ("<footer class='nav-ft' aria-label='여행 메뉴 안내'>"
-           "<a class='all-trips-link' href='/trips'>"
-           "<span>전체 여행 보기</span>"
-           f"{_icons.icon('chevron-right', 16)}</a>"
-           "</footer>")
-        + "</aside>"
-        "<div class='nav-mask' id='nav-mask' hidden></div>")
-
+    from . import site_shell
+    # aria-current="page" is assigned by the server shell for one section link.
+    return site_shell.sidebar(
+        section=site_shell.section_for('/board', {'tab': [tab_id]}),
+        tab_id=tab_id,
+        role=board.current_role(),
+        live_nav=nav_region(tab_id, query, kind, archived),
+    )
 
 _CURRENT_YEAR = 2026
 _FOCUS_ON_OPEN = ("var d=this.parentNode;setTimeout(function(){if(d.open){"
@@ -204,192 +142,31 @@ def _quarter_groups(trips):
     return sorted(found | {(_CURRENT_YEAR, 1), (_CURRENT_YEAR, 2)})
 
 
-def _nav_region_inner(tab_id: str, query: str, kind: str = "",
+def _nav_region_inner(tab_id: str, query: str = "", kind: str = "",
                       archived: str = "", quick_view: bool = False) -> str:
-    """The trip rail region's contents, without the region's own element.
+    """Return the live navigation region from the shared shell renderer."""
+    from . import site_shell
+    return site_shell._active_trip_nav(tab_id, role=board.current_role())
 
-    One renderer for this markup. The page puts it inside `nav_region`, and a live
-    fragment carries the same string, so a refreshed rail and a freshly loaded one
-    cannot disagree about the selected trip, the archived drawer, or a total.
-    """
-    state = state_query(tab_id, query, kind, archived)
-    drawer_open = archived in ("1", "open", "true")
-    if quick_view:
-        return ("<div id='live-nav'><p class='nav-sec' role='status'>"
-                "카드 업로드를 마치면 여행 목록을 다시 불러옵니다.</p></div>")
-
-    def entry(label, href, count, current, warn=False, archived_row=False, icon="", closed=False):
-        cls = "nv sel" if current else ("nv nv-arch" if archived_row else "nv")
-        if closed:
-            cls += " nv-closed"
-        badge = (f"<span class='ct{' warn' if warn else ''}'>{count}</span>"
-                 if count is not None else "")
-        icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
-        accessible = f" aria-label='{label} · 마감'" if closed else ''
-        return (f"<li><a class='{cls}' href='{href}'{accessible}"
-                f"{' aria-current=\"page\"' if current else ''}>"
-                f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
-
-    sections = []
-    trips = board.live_trips(include_archived=True)
-    # A viewer's rail lists only the trips its allowlist names. The rail is
-    # rendered by the shared chrome, so without this the `+ 탭 추가` control was
-    # correctly hidden from a viewer while the trip names beside it were not:
-    # a trip the viewer may not read was still named, and its total was still
-    # shown. The role is decided on the server for this request, so the filter
-    # is the server's own answer and not anything the request asked for.
-    if board.current_role() == "viewer":
-        allowed = board.viewer_visible_tabs(board.current_request_session())
-        trips = [t for t in trips if t["tab_id"] in allowed]
-    # Display grouping only: never archive or rewrite a trip or its ledger.
-    previous_trip = board.is_previous_trip
-
-    previous_rows = [t for t in trips if not t.get("deleted") and previous_trip(t)]
-    active = [t for t in trips if not t.get("archived") and not t.get("deleted")
-              and not previous_trip(t)]
-    archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")
-                     and not previous_trip(t)]
-    def short_date(value):
-        parts = str(value or '').split('-')
-        if len(parts) == 3 and parts[0].isdigit() and len(parts[0]) == 4:
-            return f"{parts[1]}.{parts[2]}"
-        return str(value or '')
-
-    def trip_entry(trip):
-        # 금액 badge를 표시하지 않는다. 수입 합계는 장부 화면의 합계 영역이
-        # 맡고, 목록에는 일정과 이동 상태만 둔다. Google 집계 금액과의 혼동을
-        # 막기 위한 표시 변경이며 집계 로직은 그대로 둔다.
-        start, end = trip.get("starts_on") or "", trip.get("ends_on") or ""
-        if start and end:
-            dates = f"{short_date(start)}~{short_date(end)}"
-        else:
-            dates = short_date(start or end) or None
-        return entry(
-            board.esc(trip.get('display_title') or trip["display_key"]) + (' · 안드레' if trip.get('owner_id') == 'andre' else ''),
-            f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
-            dates, trip["tab_id"] == tab_id, closed=trip.get('visual_closed', False))
-
-    listed = []
-    for trip in active:
-        if query and query not in (trip["display_key"] + trip["destination"]):
-            continue
-        listed.append(trip_entry(trip))
-    if board.current_role() == "owner":
-        from app import quarter_tab
-        for quarter in (3, 4):
-            tab = quarter_tab.tab_id_for(_CURRENT_YEAR, quarter)
-            listed.append(entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
-                                None, tab_id == tab))
-    sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
-                     f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
-    arch_head = ""
-    if board.current_role() == 'owner':
-        sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(
-            "환불", f"/board?{state_query('refunds')}",
-            None, tab_id == 'refunds', icon=ui_icons.icon('rotate-ccw', 18)) + "</ul>"))
-    if archived_rows:
-        toggle_state = state_query(tab_id, query, kind, "" if drawer_open else "1")
-        arch_head = (
-            "<h2 class='nav-sec'>보관 목록</h2>"
-            "<a class='nv nav-toggle' id='arch-toggle'"
-            f" href='/board?{board.esc(toggle_state)}'"
-            f" aria-expanded='{'true' if drawer_open else 'false'}'"
-            " aria-controls='archived'>"
-            f"<span class='nm'>보관 {len(archived_rows)}개</span>"
-            f"<span class='ct'>{'접기' if drawer_open else '펼치기'}</span></a>")
-    if archived_rows and drawer_open:
-        rows = []
-        for trip in archived_rows:
-            href = f"/board?{state_query(trip['tab_id'], query, kind, archived)}"
-            closed_label = (f" aria-label='{board.esc(trip['display_key'])} · 마감'"
-                            if trip.get('visual_closed') else '')
-            view = (
-                f"<a class='btn arch-view' href='{href}'>보기</a>")
-            restore = (
-                "<form method='post' class='arch-restore' "
-                f"action='/api/trips/{board.esc(trip['tab_id'])}/meta'>"
-                f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
-                f"<input type='hidden' name='expected_revision' value='{trip.get('revision', 1)}'>"
-                "<input type='hidden' name='client_request_id' value='"
-                f"{uuid.uuid4().hex}'>"
-                "<input type='hidden' name='archived' value='0'>"
-                "<input type='hidden' name='return_to' value='"
-                f"/board?{board.esc(state_query(tab_id, query, kind, archived))}'>"
-                "<button class='btn' type='submit'>복원</button></form>")
-            rows.append(
-                "<li class='arch-row'>"
-                f"<a class='nv nv-arch{' nv-closed' if trip.get('visual_closed') else ''}' href='{href}'{closed_label}>"
-                f"<span class='nm'>{board.esc(trip['display_key'])}</span></a>"
-                f"{view}{restore}</li>")
-        arch_head += f"<ul class='nav-list' id='archived'>{''.join(rows)}</ul>"
-    previous = ""
-    matching_previous = [t for t in previous_rows
-                         if not query or query in (t["display_key"] + t["destination"])]
-    from app import quarter_tab
-    show_quarters = board.current_role() == "owner"
-    if matching_previous or show_quarters:
-        # Default collapsed: the server never auto-opens for a selected trip or
-        # a search. The user expands with one click (native details/summary).
-        # Each quarter opens with the list, and focus moves into a group the
-        # user has just opened, only after that user action.
-        store = board._active_store()
-        quarters = _quarter_groups(matching_previous)
-        if show_quarters:
-            quarters = sorted(set(quarters) | {(_CURRENT_YEAR, n) for n in (1, 2)})
-        groups = []
-        for year, quarter in quarters:
-            members = [t for t in matching_previous if _quarter_of(t) == (year, quarter)]
-            label = f"{quarter}분기" if year == _CURRENT_YEAR else f"{year}년 {quarter}분기"
-            cost = ""
-            if show_quarters and year == _CURRENT_YEAR and quarter <= 2:
-                tab = quarter_tab.tab_id_for(year, quarter)
-                count = 0  # nothing waits for a person on a quarter tab
-                cost = entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
-                             count or None, tab_id == tab)
-            rows = cost + ''.join(trip_entry(t) for t in members)
-            body = ('<ul class="nav-list">' + rows + '</ul>' if rows
-                    else "<p class='nav-sec'>여행 없음</p>")
-            groups.append(
-                "<details class='prev-q'>"
-                f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span>"
-                f"<span class='nm'>{label}</span><span class='ct'>{len(members)}개</span></summary>"
-                f"{body}</details>")
-        previous = (
-            '<details id="previous-trips">'
-            f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span><span class='nm'>이전 여행</span>"
-            f'<span class="ct">{len(matching_previous)}개</span></summary>'
-            '<p class="nav-sec">2026년 6월 25일까지 여행</p>'
-            + ''.join(groups) + '</details>')
-    return "".join(head + body for head, body in sections) + arch_head + previous
 
 
 def nav_region(tab_id: str, query: str = "", kind: str = "",
                archived: str = "", *, quick_view: bool = False) -> str:
-    """The trip rail's own element: the one region a live refresh replaces.
+    inner = _nav_region_inner(tab_id, query, kind, archived, quick_view=quick_view)
+    if inner.startswith("<div id='live-nav'"):
+        return inner
+    return "<div id='live-nav'><nav aria-label='진행 중 여행'>" + inner + "</nav></div>"
 
-    This is the single renderer for that region, and the full page embeds exactly
-    what this returns. The alternative — rendering the whole rail and slicing the
-    region back out of the string — is how a fragment ends up carrying the sidebar
-    footer and the mask element that sit after it, which then arrive as a second
-    `nav-mask` and a stray footer on every refresh.
-
-    It returns the region's *outer* element, so a caller that only wants the inner
-    markup has to say so rather than guess where the region ended.
-    """
-    return _nav_region_inner(tab_id, query, kind, archived, quick_view=quick_view)
 
 
 def nav_part(tab_id: str, query: str = "", kind: str = "",
              archived: str = "") -> str:
-    """The swappable part of the trip rail, for a live refresh.
+    markup = nav_region(tab_id, query, kind, archived)
+    if markup.startswith("<div id='live-nav'"):
+        opening = markup.find('>') + 1
+        return markup[opening:-len("</div>")]
+    return markup
 
-    The inner markup only, without the region's own element: the live sync adds
-    that wrapper itself, so a bundle written here and a page rendered here cannot
-    end up with two elements carrying the same id.
-    """
-    if _STORE_missing():
-        return ""
-    return _nav_region_inner(tab_id, query, kind, archived)
 
 
 def _context_badge() -> str:
@@ -1059,7 +836,18 @@ def _trip_periods():
     return periods
 
 
+_UNKNOWN_SERVICE_DATES = ('이용일 확인 필요', '이용일 미확인')
+
+
 def _service_date_labels(row):
+    labels = _service_date_labels_for(row)
+    # A cancellation or refund has no service day of its own; only an unknown date is replaced.
+    if labels[0] in _UNKNOWN_SERVICE_DATES and (row.get('display_amount_krw', row.get('amount_krw')) or 0) < 0:
+        return '취소·환불', '취소·환불 거래라 별도 이용일이 없음'
+    return labels
+
+
+def _service_date_labels_for(row):
     item = str(row.get('item') or '').strip()
     if item == '숙박비':
         compact, full = _compact_stay(row), _stay_text(row)

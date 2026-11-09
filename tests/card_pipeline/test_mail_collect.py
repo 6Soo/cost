@@ -158,7 +158,7 @@ def test_daily_history_recovers_old_daum_import_without_replacing_original_or_cu
     assert mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 10))['skipped'] is True
     assert len(client.queries) == queries
     assert mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 10, 9))['fetched'] == 0
-    assert len(client.queries) == queries + 1
+    assert len(client.queries) == queries + 2
 
 
 def test_daily_history_retries_failed_import_before_marking_complete(tmp_path, monkeypatch):
@@ -318,3 +318,66 @@ def test_gmail_request_retries_a_transient_token_refresh_failure(monkeypatch):
     monkeypatch.setattr(api, '_access_token', refresh)
     assert api._get('https://example.invalid/m1') == {'id': 'm1'}
     assert len(attempts) == 2 and len(calls) == 1
+
+
+def test_daily_history_reads_supplier_mail_a_year_before_the_ledger_without_other_mail(tmp_path):
+    class EarlyBooking(FakeGmail):
+        def list_ids(self, query):
+            self.queries.append(query)
+            return ['booked-in-january'] if 'after:2025/04/01 ' in query else []
+
+    client = EarlyBooking([])
+    (tmp_path / 'collection.json').write_text('{"before":"2026-11-08"}', encoding='utf-8')
+    result = mail_collect.reconcile_history(client, tmp_path, datetime(2026, 11, 9, 9))
+    early = next(q for q in client.queries if 'after:2025/04/01 ' in q)
+    assert 'before:2026/04/01' in early and 'from:booking.com' in early
+    assert 'to:' not in early and 'cc:' not in early and 'nicepg' not in early
+    assert result['fetched'] == 1 and mail_collect.stored_ids(tmp_path) == {'booked-in-january'}
+    checkpoint = json.loads((tmp_path / 'history-reconciliation.json').read_text(encoding='utf-8'))
+    assert checkpoint['supplier_after'] == '2025-04-01'
+
+
+def test_supplier_and_forest_scopes_cannot_be_combined(tmp_path):
+    import pytest
+    with pytest.raises(ValueError, match='MAIL_WINDOW_SCOPE_CONFLICT'):
+        mail_collect.collect_window(FakeGmail([]), tmp_path, '2025-04-01', '2026-04-01',
+                                    forest_only=True, suppliers_only=True)
+    with pytest.raises(SystemExit):
+        mail_collect.main(['--directory', str(tmp_path), '--token-file', 't', '--client-file', 'c',
+                           '--after', '2025-04-01', '--before', '2026-04-01',
+                           '--forest-receipts-only', '--suppliers-only'])
+
+
+def test_a_long_window_keeps_each_saved_chunk_when_a_later_fetch_fails(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setattr(mail_collect, 'WINDOW_CHUNK', 2)
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', lambda directory: None)
+
+    class Stops(FakeGmail):
+        def get_full(self, message_id):
+            if message_id == 'e':
+                raise TimeoutError('job timeout')
+            return super().get_full(message_id)
+
+    client = Stops(['a', 'b', 'c', 'd', 'e'])
+    with pytest.raises(TimeoutError):
+        mail_collect.collect_window(client, tmp_path, '2025-04-01', '2026-04-01', suppliers_only=True)
+    assert mail_collect.stored_ids(tmp_path) == {'a', 'b', 'c', 'd'}
+    resumed = mail_collect.collect_window(FakeGmail(['a', 'b', 'c', 'd', 'e']), tmp_path,
+                                          '2025-04-01', '2026-04-01', suppliers_only=True)
+    assert resumed['fetched'] == 1 and mail_collect.stored_ids(tmp_path) == {'a', 'b', 'c', 'd', 'e'}
+
+
+def test_a_killed_run_leaves_no_old_partial_chunk_behind(tmp_path, monkeypatch):
+    import os
+    import time
+    monkeypatch.setattr(mail_collect, 'sync_unified_store', lambda directory: None)
+    old = tmp_path / '.mail-window-killed.tmp'
+    recent = tmp_path / '.mail-window-writing.tmp'
+    for path in (old, recent):
+        path.write_text('{"responses": [', encoding='utf-8')
+    stale = time.time() - mail_collect.STALE_TEMPORARY_SECONDS - 60
+    os.utime(old, (stale, stale))
+    mail_collect.collect_window(FakeGmail(['a']), tmp_path, '2025-04-01', '2026-04-01', suppliers_only=True)
+    assert not old.exists() and recent.exists()
+    assert mail_collect.stored_ids(tmp_path) == {'a'}

@@ -20,14 +20,14 @@ def test_single_theme_toggle_contract_across_native_and_standalone():
     assert wrapped_native.count('id="site-shell-style"') == 1
 
     # 2. Standalone page (/flight-passengers booking)
-    with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
+    with patch('webapp.site_shell._role', return_value='owner'), patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
         wrapped_flight = site_shell.wrap_document(flight_page._page('csrf-synth'), '/flight-passengers')
     assert wrapped_flight.count('id="site-theme-toggle"') == 1
     assert wrapped_flight.count('id="site-content"') == 1
-    assert wrapped_flight.count('class="site-menu-toggle"') == 1
+    assert wrapped_flight.count("id='site-more-dialog'") == 1
 
     # 3. Standalone legacy view (/flight-passengers?view=participants)
-    with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
+    with patch('webapp.site_shell._role', return_value='owner'), patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
         wrapped_legacy = site_shell.wrap_document(flight_page._legacy_page('csrf-synth'), '/flight-passengers?view=participants')
     assert wrapped_legacy.count('id="site-theme-toggle"') == 1
     assert wrapped_legacy.count('id="site-content"') == 1
@@ -87,15 +87,14 @@ def test_browser_viewports_theme_and_keyboard_accessibility():
             page.keyboard.press('Space')
             assert page.locator('html').get_attribute('data-theme') == 'light'
 
-            # 5. Mobile menu keyboard navigation
-            menu = page.get_by_role('button', name='전체 메뉴 열기')
+            # 5. Mobile more-dialog keyboard navigation
+            menu = page.locator('.site-more-toggle')
             menu.focus()
             assert menu.evaluate('(el)=>el===document.activeElement')
             menu.press('Enter')
-            assert page.locator('#nav').evaluate('(el)=>el.classList.contains("open")')
+            assert page.locator('#site-more-dialog').evaluate('(el)=>el.open')
             page.keyboard.press('Escape')
-            assert not page.locator('#nav').evaluate('(el)=>el.classList.contains("open")')
-            assert menu.evaluate('(el)=>el===document.activeElement')
+            assert not page.locator('#site-more-dialog').evaluate('(el)=>el.open')
 
         finally:
             try:
