@@ -18,11 +18,11 @@ def layout(title: str, body: str, gate_banner: str = "") -> str:
     style = (
         "<style>body{font-family:'Malgun Gothic',sans-serif;margin:16px}"
         "nav a{margin-right:12px}table{border-collapse:collapse;width:100%}"
-        "td,th{border:1px solid #ccc;padding:4px 8px;font-size:13px;text-align:left}"
-        ".banner{background:#eef;padding:6px 10px;margin-bottom:8px;font-size:13px}"
-        ".badge{display:inline-block;padding:1px 6px;border-radius:8px;"
-        "background:#dde;font-size:12px}.pass{background:#cfc}.fail{background:#fcc}"
-        ".warn{background:#fec}form label{display:block;margin-top:8px}</style>"
+        "td,th{border:1px solid var(--c-border);padding:4px 8px;font-size:var(--t-meta);text-align:left}"
+        ".banner{background:var(--c-accent-subtle);padding:6px 10px;margin-bottom:8px;font-size:var(--t-meta)}"
+        ".badge{display:inline-block;padding:1px 6px;border-radius:var(--r-md);"
+        "background:var(--c-surface-sunken);font-size:var(--t-caption)}.pass{background:var(--c-accent-subtle)}.fail{background:var(--c-danger-subtle)}"
+        ".warn{background:var(--c-warn-subtle)}form label{display:block;margin-top:8px}</style>"
     )
     return (
         f"<!doctype html><html><head><meta charset='utf-8'><title>{esc(title)}"

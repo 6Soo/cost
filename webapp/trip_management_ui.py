@@ -60,16 +60,17 @@ STYLE = """
 .trip-management-controls{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
 .page-hd>.act{flex:1 1 340px;max-width:100%;justify-content:flex-end}.page-hd{flex-wrap:wrap}
 .trip-management-controls form{margin:0}.trip-management-controls button,.trip-settings>summary{min-height:44px}
-.trip-settings{position:relative}.trip-settings>summary{margin:0;padding:10px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
-.trip-settings>div{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--paper);width:min(360px,100%);box-sizing:border-box}
+.trip-settings{position:relative}.trip-settings>summary{margin:0;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer}
+.trip-settings>div{padding:16px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);width:min(360px,100%);box-sizing:border-box}
 .trip-info-form{display:grid;gap:12px}.trip-info-form label{display:grid;gap:4px}
 .trip-info-form input{min-width:0;max-width:100%;min-height:44px;box-sizing:border-box}
 .trip-info-form .trip-assignee-confirm{display:flex;align-items:center;gap:8px}
 .trip-settings .trip-info-form+form{margin-top:16px}
-.trip-reservations{margin:20px 0;border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.trip-reservations{margin:20px 0;border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;min-width:0}
 .trip-reservations>summary{min-height:44px;cursor:pointer;font-weight:600}
 .trip-reservations iframe{display:block;width:100%;min-height:240px;border:0}
 @media(max-width:640px){.trip-management-controls{width:100%}.trip-settings{flex:1}.trip-settings>div{width:100%}}
+.trip-management-controls details>summary{list-style:none}.trip-management-controls details>summary::-webkit-details-marker{display:none}.trip-management-controls details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.trip-management-controls details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.trip-management-controls details>summary::after{transition:none}}
 """
 
 SCRIPT = """
