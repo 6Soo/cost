@@ -19,7 +19,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 15
+PARSER_VERSION = 16
 MATCHER_VERSION = 5
 
 
@@ -162,9 +162,10 @@ def _parse_mail_events(directories):
             event, context.get((event['provider'], event['booking_ref']), ()))
         from app.ota_mail_reservation_identity import attest
         attest(events[event['ota_event_id']], message, text)
-    from app import forest_mail, forest_payment_mail, toyoko_mail
+    from app import forest_mail, forest_payment_mail, toyoko_mail, ota_rakuten_mail
     return (list(events.values()) + toyoko_mail.collect(messages, inventory)
-            + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory))
+            + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory)
+            + ota_rakuten_mail.collect(messages, inventory))
 
 
 def extract_payment_fact(message):
@@ -302,6 +303,8 @@ def _extract_signed_payment_message(message):
         complete = bool(re.search(
             r"결제.*완료|결제가 완료|payment.*(?:confirm|received|successful|completed)",
             subject, re.I)) or trip_prepaid or agoda_body_paid or receipt_day is not None
+        if ota_mail.payment_failed(text):
+            complete = False
         label = r"(?:총\s*(?:지불\s*)?(?:금액|요금)|total(?:\s+price)?|결제\s*(?:완료|금액)|paid\s+amount|payment\s+amount|charged)"
         event_type = "scheduled_charge" if scheduled else "charge"
         if trip_prepaid:
@@ -1275,6 +1278,9 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
     if event.get('provider') == 'toyoko' and event.get('event_type') == 'reservation':
         from app import toyoko_mail
         return toyoko_mail.search_candidates(event, transactions, max_comparisons=max_comparisons)
+    if event.get('provider') == 'rakuten' and event.get('event_type') == 'reservation':
+        from app import ota_rakuten_mail
+        return ota_rakuten_mail.search_candidates(event, transactions, max_comparisons=max_comparisons)
     if not _event_is_paid(event):
         return {"status": "PAYMENT_STATE_UNVERIFIED", "candidates": [], "comparisons": 0}
     expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
@@ -1681,7 +1687,7 @@ def _assemble_ota_match_results(context):
             if event.get("evidence_status") in ("conflict", "evidence_conflict", "refund_conflict"):
                 status = "HOLD_EVIDENCE_CONFLICT"
             elif (event.get('event_type') == 'reservation' and
-                  (event.get('provider') in ('toyoko', 'forest') or event.get('evidence_status') == 'preauthorized')):
+                  (event.get('provider') in ('toyoko', 'forest', 'rakuten') or event.get('evidence_status') == 'preauthorized')):
                 status = 'RESERVATION_ONLY'
             else:
                 status = ("PENDING_PAYMENT" if event.get("event_type") == "scheduled_charge" or

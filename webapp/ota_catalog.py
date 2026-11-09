@@ -28,7 +28,8 @@ from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
 PAGE_SIZE = 50
 PROVIDERS = {'agoda': 'Agoda', 'trip': 'Trip.com', 'klook': 'Klook', 'booking': 'Booking.com',
-             'toyoko': '토요코인', 'forest': '숲나들e', 'jeju': '제주항공', 'traveloka': 'Traveloka'}
+             'toyoko': '토요코인', 'forest': '숲나들e', 'jeju': '제주항공', 'traveloka': 'Traveloka',
+             'rakuten': '라쿠텐 트래블'}
 STATUSES = {'confirmed': '예약 확정', 'completed': '이용 완료', 'cancelled': '취소',
             'canceled': '취소', 'unknown': '미확인', 'observed': '수집됨', 'upcoming': '예정'}
 PRODUCTS = {'lodging': '숙박', 'flight': '항공', 'rental': '렌터카', 'package': '패키지', 'unknown': '미확인'}
@@ -431,6 +432,7 @@ def _canonical(value):
 #: The modules whose logic decides the index. A saved index made by other code is never read.
 _LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/ota_catalog_sources_child.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py', 'app/forest_mail.py',
                 'app/ota_booking_context.py', 'app/ota_core_projection.py', 'app/toyoko_mail.py', 'app/airline_payment_mail.py',
+                'app/ota_rakuten_mail.py',
                 'app/ota_inference.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
                 'app/ota_sources.py', 'app/ota_store.py', 'app/booking_evidence.py', 'app/ota_matching_defaults.py',

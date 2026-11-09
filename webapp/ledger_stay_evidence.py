@@ -35,14 +35,14 @@ def stay_index(store):
         event_id = str(fact.get('ota_event_id'))
         event = events.get(event_id) or {}
         period = fact.get('period')
-        if (fact.get('item') not in ('숙박비', '항공료') or 'card-' + tid in manual
+        if (fact.get('item') not in ('숙박비', '항공료', '렌터카') or 'card-' + tid in manual
                 or not tid or not card.get('source_hash')
                 or event_id in blocked or event.get('period_conflict')
                 or fact.get('reservation_status') == 'refunded'
                 or not isinstance(period, dict)
                 or not period.get('starts_on') or not period.get('ends_on')):
             continue
-        if fact.get('item') == '항공료':
+        if fact.get('item') in ('항공료', '렌터카'):
             if (event.get('event_type') != 'charge'
                     or event.get('evidence_status') != 'paid_verified'
                     or event.get('payment_status') != 'paid'
@@ -65,6 +65,64 @@ def stay_index(store):
         result.setdefault(tid, metadata)
     for tid, metadata in _linked_candidate_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _rakuten_candidate_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _rakuten_candidate_periods(data, manual):
+    """A quoted booking amount can corroborate dates without verifying an OTA payment."""
+    from datetime import date
+    events={str(e.get('ota_event_id')):e for e in data.get('events',[])}
+    cards={str(c.get('transaction_id')):c for c in data.get('transactions',[])}
+    occupied={str(r.get('transaction_id')) for r in data.get('results',[]) if r.get('transaction_id')}
+    occupied.update(str(tid) for r in data.get('results',[]) for tid in r.get('reserved_card_ids') or ())
+    occupied.update(str(tid) for r in data.get('results',[])
+                    if (r.get('payment_relation') or {}).get('status')=='LINKED'
+                    for tid in (r.get('payment_relation') or {}).get('transaction_ids') or ())
+    occupied.update(str((r.get('reservation_link') or {}).get('transaction_id')) for r in data.get('results',[])
+                    if (r.get('reservation_link') or {}).get('transaction_id'))
+    occupied.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                    if isinstance(link,dict) and link.get('transaction_id'))
+    choices=defaultdict(set);refs=defaultdict(set);blocked=set()
+    flags=('evidence_missing','evidence_changed','period_conflict','service_period_conflict','reservation_amount_conflict')
+    for record in data.get('results',[]):
+        event=events.get(str(record.get('ota_event_id'))) or {}
+        if event.get('provider')!='rakuten':continue
+        trace=record.get('candidate_search') or {}
+        unsafe=(record.get('status')!='RESERVATION_ONLY' or trace.get('status')!='CANDIDATES_FOUND'
+                or event.get('source_trust')!='authenticated_mail' or not event.get('source_digest')
+                or event.get('event_type')!='reservation' or event.get('evidence_status')!='reservation_only'
+                or event.get('item')!='숙박비' or not event.get('booking_ref')
+                or event.get('reservation_status') not in ('observed','confirmed','completed')
+                or event.get('refund_status') in ('refund_pending','refund_requested','refunded','refund_completed')
+                or any(obj.get(k) for obj in (event,record) for k in flags))
+        period=event.get('service_period') or {}
+        try:
+            start,end=(date.fromisoformat(period[k]) for k in ('starts_on','ends_on'))
+            unsafe=unsafe or not 0<=(end-start).days<=366
+        except (KeyError,TypeError,ValueError):unsafe=True
+        for candidate in trace.get('candidates') or ():
+            if any(candidate.get(k)!='MATCH' for k in ('provider_status','card_tail_status','reservation_date_status','amount_status')):
+                continue
+            if candidate.get('payment_verified') is not False or candidate.get('resolution_allowed') is not False:
+                continue
+            tid=str(candidate.get('transaction_id') or '')
+            if unsafe:blocked.add(tid)
+            else:
+                choices[tid].add((start.isoformat(),end.isoformat()))
+                refs[tid].add(str(event.get('booking_ref') or ''))
+    result={}
+    for tid,periods in choices.items():
+        card=cards.get(tid) or {}
+        if (len(periods)!=1 or tid in blocked or tid in occupied or 'card-'+tid in manual
+                or card.get('transaction_direction')!='purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of','parse_error','conflict_reason','ota_review_held','reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending','refund_requested','refunded','refund_completed')):continue
+        start,end=next(iter(periods))
+        result[tid]={'booking_ref':next(iter(refs[tid])) if len(refs[tid])==1 else '',
+            'booking_refs':sorted(refs[tid]),'service_period':start+'~'+end,
+            'ota_evidence':{'kind':'reservation_period_inferred','payment_verified':False}}
     return result
 
 

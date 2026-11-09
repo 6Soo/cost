@@ -17,6 +17,23 @@ def test_catalog_build_computes_unchanged_trip_boundaries_once(data, monkeypatch
     assert len(calls) == 1
 
 
+def test_rakuten_booking_is_visible_without_creating_payment_or_board_changes(data, tmp_path, monkeypatch):
+    from tests.card_pipeline.test_ota_rakuten_mail import load, mail
+    board, _ = data
+    events = load(tmp_path, [mail()])
+    monkeypatch.setattr(ota_catalog.ota_payments, '_mail_events', lambda *a, **kw: events)
+    sources = {'portal_databases': [], 'mail_directories': [tmp_path], 'missing': []}
+    before = board.conn.total_changes
+    warnings = []
+    rows = ota_catalog._rows_from_sources(board, sources, warnings)
+    row = rows['rakuten', '12345678901234']
+    assert row['periods'] == {('2026-08-14', '2026-08-16')}
+    assert row['statuses'] == {'confirmed'} and not warnings
+    assert ota_catalog.PROVIDERS['rakuten'] == '라쿠텐 트래블'
+    assert events[0]['paid_on'] is None and events[0]['payment_event_id'] is None
+    assert board.conn.total_changes == before
+
+
 def test_stale_catalog_keeps_rows_labeled_while_refresh_is_requested(data, monkeypatch):
     board, sources = data
     expected = ota_catalog.catalog(board, {}, sources=sources)
