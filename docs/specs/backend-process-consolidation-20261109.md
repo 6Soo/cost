@@ -28,10 +28,11 @@
 ```powershell
 # 미리보기: 현재 작업 정의에서 만든 워커 설정과 변경 대상만 출력
 powershell -File D:\WebLedgerHost\releases\<SHA>\tools\install_webledger_worker.ps1
-# 적용: 작업 XML을 D:\WebLedgerHost\logs\worker-install에 먼저 저장
+# 적용: 작업 XML을 실행별 폴더 D:\WebLedgerHost\logs\worker-install-<시각>에 먼저 저장(출력의 evidence).
+# 이미 설치됐거나 기존 작업이 비활성이면 거부한다.
 powershell -File D:\WebLedgerHost\releases\<SHA>\tools\install_webledger_worker.ps1 -Apply
-# 되돌리기: 저장한 XML로 다섯 작업을 복원하고 워커 작업을 지움
-powershell -File D:\WebLedgerHost\releases\<SHA>\tools\install_webledger_worker.ps1 -Rollback
+# 되돌리기: 그 -Apply가 남긴 폴더를 지정해야 한다. 저장한 XML로 다섯 작업을 복원하고 워커 작업을 지운다.
+powershell -File D:\WebLedgerHost\releases\<SHA>\tools\install_webledger_worker.ps1 -Rollback -Evidence D:\WebLedgerHost\logs\worker-install-<시각>
 ```
 
 설정 `D:\WebLedgerHost\config\worker.json`은 호스트 파일이다(경로·자격 증명 위치). `release:<경로>` 인수는 워커가 실행 중인 릴리스 안의 파일이다.
