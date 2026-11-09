@@ -83,7 +83,7 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 self.assertEqual(
                     rows.first.locator('td').first.evaluate('e=>getComputedStyle(e).display'),
                     'grid' if width < 1024 else 'table-cell')
-                page.locator('main').get_by_role('link', name='여행 미배정', exact=True).click()
+                page.locator('main').get_by_role('link', name='여행 연결 없음', exact=True).click()
                 self.assertEqual(rows.count(), 1)
                 self.assertIn('BOOK-1', rows.inner_text())
                 self.assertNotIn('BOOK-2', rows.inner_text())
