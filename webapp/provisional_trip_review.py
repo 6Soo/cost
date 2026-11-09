@@ -171,15 +171,15 @@ def render(csrf):
 <button type="button" data-trip-prev>이전 20건</button><button type="button" data-trip-next>다음 20건</button>
 <button type="button" data-trip-propose>선택한 교정으로 제한 규칙 제안</button><div data-trip-proposals></div>
 </details><style>
-#provisional-trip-review{margin:16px 0;border:1px solid var(--shell-line);border-radius:12px;padding:16px}
+#provisional-trip-review{margin:16px 0;border:1px solid var(--shell-line);border-radius:var(--r-lg);padding:16px}
 #provisional-trip-review [data-trip-items]{list-style:none;padding:0;display:grid;gap:12px}
-#provisional-trip-review li{border:1px solid var(--shell-line);border-radius:12px;padding:12px;min-width:0}
+#provisional-trip-review li{border:1px solid var(--shell-line);border-radius:var(--r-lg);padding:12px;min-width:0}
 #provisional-trip-review h3,#provisional-trip-review p{overflow-wrap:anywhere}
 #provisional-trip-review form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 #provisional-trip-review input,#provisional-trip-review select{min-width:0;max-width:100%}
 #provisional-trip-review form input,#provisional-trip-review form select{flex:1 1 140px}
 #provisional-trip-review button{min-height:44px;white-space:normal}
-</style>""" + CLIENT_SCRIPT.replace("__CSRF__", json.dumps(csrf))
+#provisional-trip-review details>summary{list-style:none}#provisional-trip-review details>summary::-webkit-details-marker{display:none}#provisional-trip-review details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}#provisional-trip-review details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){#provisional-trip-review details>summary::after{transition:none}}</style>""" + CLIENT_SCRIPT.replace("__CSRF__", json.dumps(csrf))
 
 
 CLIENT_SCRIPT = r"""<script>(()=>{
