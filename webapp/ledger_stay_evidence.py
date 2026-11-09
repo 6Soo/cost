@@ -71,6 +71,57 @@ def stay_index(store):
         result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _trip_price_change_periods(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _trip_price_change_periods(data, manual):
+    """A Trip.com lodging price change's stay, for the one card charged its rise on the notice day.
+
+    The rise is reservation evidence only; no payment or relation is created.
+    """
+    from datetime import date
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    occupied = _occupied_cards(data)
+    claims, chosen = defaultdict(set), {}
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        if (event.get('provider') != 'trip' or not event.get('price_change_amount_krw')
+                or record.get('status') != 'RESERVATION_ONLY'):
+            continue
+        trace = record.get('candidate_search') or {}
+        candidates = trace.get('candidates') or ()
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            valid = 0 <= (end - start).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if (not valid or trace.get('status') != 'CANDIDATES_FOUND' or len(candidates) != 1
+                or not event.get('source_digest') or not event.get('booking_ref')
+                or event.get('reservation_status') == 'cancelled' or event.get('refund_status')
+                or any(obj.get(k) for obj in (event, record)
+                       for k in ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+            continue
+        candidate = candidates[0]
+        tid = str(candidate.get('transaction_id') or '')
+        if candidate.get('basis') != 'PRICE_CHANGE_RISE_AND_DAY' or candidate.get('payment_verified') is not False or not tid:
+            continue
+        claims[tid].add(str(event['ota_event_id']))
+        chosen[tid] = (start.isoformat() + '~' + end.isoformat(), str(event['booking_ref']))
+    result = {}
+    for tid, (period, booking_ref) in chosen.items():
+        card = cards.get(tid) or {}
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref], 'service_period': period,
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 

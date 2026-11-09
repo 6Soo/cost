@@ -544,3 +544,36 @@ def test_existing_relations_cannot_be_replaced_with_reservation_inference(contex
     toyoko_candidates(data)
     data['results'].append(dict(ota_event_id='other', status='MATCHED_GROUP', **relation))
     assert stays.stay_index(store) == {}
+
+
+def trip_rise(data, tmp_path, *extra_cards):
+    from app import ota_payments
+    from tests.card_pipeline.test_trip_price_change_charge import confirmation, update, events_for
+    data['events'] = events_for(tmp_path, confirmation(119965), update(167572))
+    card = dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase', merchant='트립닷컴(구)_NICE',
+                approval_date='2026-07-11', amount_krw=47607, card_tail='8835')
+    data['transactions'] = [card, *extra_cards]
+    data['results'] = ota_payments.match_ota_payment_events(data['events'], data['transactions'])
+    for record, event in zip(data['results'], data['events']):
+        record['candidate_search'] = ota_payments.search_card_candidates(event, data['transactions'])
+
+
+def test_trip_price_change_rise_shows_its_stay_for_the_one_card_charged_that_day(context, tmp_path):
+    store, data, _, _ = context
+    trip_rise(data, tmp_path)
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert stays.period_for(card(reservation_no=''), found) == '2026-08-03~2026-08-04'
+    assert found['t1']['ota_evidence'] == {'kind': 'reservation_period_inferred', 'payment_verified': False}
+    assert data == before and all(r['transaction_id'] != 't1' for r in data['results'])
+
+
+def test_trip_price_change_rise_shows_nothing_when_two_cards_match_or_the_card_is_protected(context, tmp_path):
+    store, data, _, _ = context
+    other = dict(transaction_id='t2', source_hash='s2', transaction_direction='purchase', merchant='트립닷컴(구)_NICE',
+                 approval_date='2026-07-11', amount_krw=47607, card_tail='8835')
+    trip_rise(data, tmp_path, other)
+    assert 't1' not in stays.stay_index(store)
+    trip_rise(data, tmp_path)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert 't1' not in stays.stay_index(store)
