@@ -1389,8 +1389,7 @@ MANUAL_EXPENSE_STYLE = """<style>
 .mx-field input:focus,.mx-field select:focus{outline:2px solid #3B82F6;outline-offset:-1px}
 .mx-amount input{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .mx-actions{display:flex;justify-content:flex-end;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
-.mx-submit{height:42px;padding:0 24px;border:0;border-radius:9px;background:#1D4ED8;color:#fff;font:inherit;font-size:14.5px;font-weight:600;cursor:pointer}
-.mx-submit:hover{background:#1E40AF}
+.btn.primary{height:42px;padding:0 24px;border:0;border-radius:9px;background:var(--shell-accent);color:var(--shell-paper);font:inherit;font-size:14.5px;font-weight:600;cursor:pointer}
 @media (max-width:640px){.mx-grid{grid-template-columns:1fr}.mx-card{margin:12px;padding:20px}}
 </style>"""
 
@@ -1407,8 +1406,10 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
         options = "<option value='' selected>기타비용</option>" + options
     close = ("<button type='button' data-manual-close>닫기</button>" if modal
              else f"<a href='/board?{esc(urlencode({'tab': selected_tab}))}'>장부로 돌아가기</a>")
+    heading = ("<h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
+               if modal else "")
     return (
-        "<section class='mx-card'><h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
+        f"<section class='mx-card'>{heading}"
         f"<form method='post' action='/api/expenses/manual' class='mx-form'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1424,13 +1425,18 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
         "<div class='mx-field wide'><label for='mx-memo'>메모</label><input id='mx-memo' name='operator_note'></div>"
         "</div>"
         "<p class='mx-error' role='alert'></p>"
-        f"<div class='mx-actions'>{close}<button class='mx-submit' type='submit'>저장</button></div>"
+        f"<div class='mx-actions'>{close}<button class='btn primary' type='submit'>저장</button></div>"
         "</form></section>"
     )
 
 
 def expense_new_page(selected_tab: str = "") -> str:
-    return layout("수기 지출 추가", f"<div class='wrap'>{MANUAL_EXPENSE_STYLE}{manual_expense_form(selected_tab)}</div>")
+    return layout(
+        "수기 지출 추가",
+        "<main id='main'><h1>수기 지출 추가</h1>"
+        "<p class='mx-sub'>현금·계좌이체</p>"
+        f"<div class='wrap'>{MANUAL_EXPENSE_STYLE}{manual_expense_form(selected_tab)}</div></main>",
+    )
 
 
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
@@ -1578,12 +1584,12 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<input type='hidden' name='expected_revision' value='{profile['revision']}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
             "<input type='hidden' name='return_to' value='/trips'>"
-            "<p><label>회사명</label>"
-            f"<input name='company_name' value='{esc(profile['company_name'])}'></p>"
-            "<p><label>기본 담당자명</label>"
-            f"<input name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
+            "<p><label for='owner-company-name'>회사명</label>"
+            f"<input id='owner-company-name' name='company_name' value='{esc(profile['company_name'])}'></p>"
+            "<p><label for='owner-assignee-name'>기본 담당자명</label>"
+            f"<input id='owner-assignee-name' name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
             "<p class='muted'>새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.</p>"
-            f"<button type='submit'>{ui_icons.icon('save')}출처 정보 저장</button></form></details>")
+            f"<button type='submit'>{ui_icons.icon('save')}기본 정보 저장</button></form></details>")
     preview_html = ""
     if preview_tab:
         try:
@@ -2251,7 +2257,12 @@ class Handler(BaseHTTPRequestHandler):
         started = time.perf_counter()
         text = social_preview.decorate(text)
         if not ACCESS_ENFORCEMENT or current_request_session() is not None:
-            text = site_shell.wrap_document(text, self.path, status=code)
+            # Error pages are complete documents too, but non-2xx status codes
+            # normally bypass the shell so JSON/API responses stay untouched.
+            # The explicit marker lets browser error pages opt into the same
+            # navigation chrome without changing that status behavior globally.
+            shell_status = 200 if 'data-error-page="1"' in text else code
+            text = site_shell.wrap_document(text, self.path, status=shell_status)
         body = text.encode("utf-8")
         stage = "payload_serialize"
         request_metrics.record(request_metrics.measurement(
@@ -3702,9 +3713,22 @@ class Handler(BaseHTTPRequestHandler):
             # apart by probing ids. find_row also resolves an allocation row
             # beside its source, so both kinds keep their detail page.
             if find_row(row_id)[1] is None:
-                self._send_json(
-                    {"code": "RESOURCE_NOT_FOUND",
-                     "message": "없는 행이에요"}, code=404)
+                from . import error_page
+                if error_page.wants_html(self, parsed.path):
+                    error_page.send(
+                        self,
+                        error_page.render(
+                            404,
+                            "거래를 찾을 수 없습니다",
+                            "삭제되었거나 다른 여행으로 옮겨졌을 수 있습니다.",
+                            [("카드 거래 보기", "/cards/all")],
+                        ),
+                        404,
+                    )
+                else:
+                    self._send_json(
+                        {"code": "RESOURCE_NOT_FOUND",
+                         "message": "없는 행이에요"}, code=404)
                 return
             self._send(detail_page(row_id, edit=query.get("edit", [""])[0] == "1"))
         elif parsed.path == "/import":
@@ -3899,8 +3923,23 @@ class Handler(BaseHTTPRequestHandler):
                 # Unexpected errors
                 self._send_json({"code": "INTERNAL_ERROR", "message": "요청을 처리하지 못했어요"}, code=500)
         else:
-
-            self._send(layout("없음", "<p>없는 주소예요.</p>"), code=404)
+            from . import error_page
+            if error_page.wants_html(self, parsed.path):
+                error_page.send(
+                    self,
+                    error_page.render(
+                        404,
+                        "페이지를 찾을 수 없습니다",
+                        "주소가 바뀌었거나 없는 화면입니다.",
+                        [("홈으로", "/"), ("여행 목록", "/trips")],
+                    ),
+                    404,
+                )
+            else:
+                self._send_json(
+                    {"code": "RESOURCE_NOT_FOUND", "message": "없는 주소예요"},
+                    code=404,
+                )
 
     @_store_request_locked
     def do_POST(self) -> None:

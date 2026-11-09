@@ -227,7 +227,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
         accessible = f" aria-label='{label} · 마감'" if closed else ''
         return (f"<li><a class='{cls}' href='{href}'{accessible}"
-                f"{' aria-pressed=\"true\"' if current else ''}>"
+                f"{' aria-current=\"page\"' if current else ''}>"
                 f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
 
     sections = []

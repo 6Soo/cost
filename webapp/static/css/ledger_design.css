@@ -288,14 +288,14 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
  border:0;border-left:2px solid transparent;border-radius:7px;background:transparent;
  font-size:14px;font-weight:400;text-align:left;cursor:pointer;color:var(--ink);text-decoration:none;transition:scale 150ms ease-out;-webkit-tap-highlight-color:transparent}
 @media(hover:hover){.nv:hover{background:var(--hover)}}
-.nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
+.nv[aria-current="page"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
 .nv.nv-closed{color:var(--mut);background:var(--hover)}
-.nv.nv-closed[aria-pressed="true"],.nv.nv-closed.sel{background:var(--sel);border-left-color:var(--grn)}
+.nv.nv-closed[aria-current="page"],.nv.nv-closed.sel{background:var(--sel);border-left-color:var(--grn)}
 .nv .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The refund icon is its own aligned element, never fused to label text. */
 .nv .nv-icon{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;color:var(--mut)}
 .nv .nv-icon .ic{width:18px;height:18px;display:block;flex:none}
-.nv.sel .nv-icon{color:var(--grn)}
+.nv.sel .nv-icon,.nv[aria-current="page"] .nv-icon{color:var(--grn)}
 .nv .ct{flex:0 0 auto;margin-left:8px;font-size:12px;color:var(--mut);white-space:nowrap}
 .nv .ct.warn{color:var(--warn)}
 .nav-arch .nm{color:var(--mut)}
