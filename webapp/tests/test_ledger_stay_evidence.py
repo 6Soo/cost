@@ -310,6 +310,49 @@ def test_unlinked_asiana_ticket_keeps_manual_empty_period(context, tmp_path):
     assert stays.stay_index(store) == {}
 
 
+def airbnb_stay(data):
+    from app import airbnb_mail
+    from tests.card_pipeline.test_airbnb_mail import confirmed
+    data['events'] = airbnb_mail.collect({'m1': confirmed()})
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=261401, merchant='AIRBNB * HMSYNTH001', card_tail='8835', approval_date='2026-05-12')]
+    data['results'] = []
+
+
+def test_an_airbnb_card_reads_the_stay_of_the_code_in_its_descriptor(context):
+    store, data, _, _ = context
+    airbnb_stay(data)
+    before = deepcopy(data)
+    value = dict(card(row_kind='expense', occurred_on='2026-05-12', amount_krw=261401, reservation_no=''))
+    labels = scoped(lambda: design._service_date_labels(value))()
+    assert labels[0].startswith('05.16–05.17') and '추론' in labels[0]
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'][0].update(merchant='AIRBNB * HMSYNTH002'),
+    lambda d: d['transactions'][0].update(merchant='AIRBNB * INC'),
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(service_period=None, service_period_conflict=True),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup')),
+    lambda d: d['results'].append(dict(ota_event_id='other', transaction_id='t1')),
+])
+def test_an_airbnb_card_stays_unknown_when_the_code_pairing_is_unsafe(context, mutation):
+    store, data, _, _ = context
+    airbnb_stay(data)
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_an_airbnb_card_keeps_a_manual_empty_period(context):
+    store, data, _, _ = context
+    airbnb_stay(data)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 def test_rakuten_quote_displays_original_period_without_confirming_payment_or_rewriting_ledger(context):
     store,data,_,calls=context
     rakuten_candidates(data)

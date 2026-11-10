@@ -90,6 +90,8 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _airline_exact_amount_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _airbnb_code_periods(data, manual).items():
+        result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
         result.setdefault(tid, metadata)
     for tid, metadata in _trip_price_change_periods(data, manual).items():
@@ -523,6 +525,52 @@ def _airline_exact_amount_periods(data, manual):
             continue
         result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
                        'service_period': start.isoformat() + '~' + end.isoformat(), 'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
+def _airbnb_code_periods(data, manual):
+    """An Airbnb card descriptor carries the reservation code its confirmation mail names.
+
+    The code identifies the stay, not the amount paid; the card total (exchange and
+    fees) is never compared. Only this read-only display reads the stay dates.
+    """
+    import re
+    from datetime import date
+    reservations = defaultdict(list)
+    for event in data.get('events', []):
+        if event.get('provider') == 'airbnb':
+            reservations[str(event.get('booking_ref') or '')].append(event)
+    if not reservations:
+        return {}
+    occupied = _occupied_cards(data)
+    claims = defaultdict(list)
+    for card in data.get('transactions', []):
+        found = re.match(r'\s*airbnb\s*\*\s*(HM[A-Z0-9]{8})\b', str(card.get('merchant') or ''), re.I)
+        if found:
+            claims[found.group(1).upper()].append(card)
+    result = {}
+    for code, cards in claims.items():
+        events = reservations.get(code) or []
+        if len(events) != 1 or len(cards) != 1:
+            continue
+        event, card = events[0], cards[0]
+        period = event.get('service_period') or {}
+        try:
+            valid = 0 < (date.fromisoformat(period['ends_on']) - date.fromisoformat(period['starts_on'])).days <= 60
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        tid = str(card.get('transaction_id') or '')
+        if (not valid or event.get('reservation_status') != 'observed' or event.get('service_period_conflict')
+                or event.get('evidence_kind') != 'authenticated_reservation_mail' or not event.get('source_digest')
+                or not tid or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': code, 'booking_refs': [code], 'item': '숙박비',
+                       'service_period': period['starts_on'] + '~' + period['ends_on'],
                        'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
