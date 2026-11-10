@@ -1,0 +1,29 @@
+{
+  "request_digest": "digest-syn-final-001",
+  "execution": {
+    "kind": "connected_agent",
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "run_id": "run-syn-0001"
+  },
+  "results": [
+    {
+      "transaction_id": "txn-syn-001",
+      "trip_id": "trip-syn-007",
+      "item": "숙박",
+      "service_start": "2026-09-02",
+      "service_end": "2026-09-06",
+      "evidence_refs": [
+        "evidence/syn-mail-001",
+        "evidence/syn-card-001"
+      ],
+      "basis": "카드 승인일과 체크인 메일의 숙박 기간이 일치한다.",
+      "uncertainty": "결제자와 여행자가 동일인인지 확인하지 못했다.",
+      "rule_ids": [
+        "TRIP-001",
+        "FIN-002"
+      ]
+    }
+  ],
+  "more_evidence": []
+}

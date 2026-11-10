@@ -1,0 +1,18 @@
+{
+  "request_digest": "digest-syn-kind-004",
+  "execution": {
+    "kind": "connected_agent",
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "run_id": "run-syn-0004"
+  },
+  "results": [],
+  "more_evidence": [
+    {
+      "kind": "bank_statement",
+      "query": "입금 내역",
+      "why": "예비 요청이다.",
+      "transaction_id": "txn-syn-004"
+    }
+  ]
+}
