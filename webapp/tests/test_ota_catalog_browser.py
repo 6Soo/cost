@@ -72,11 +72,10 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
                 page = context.new_page()
                 page.goto(f'http://127.0.0.1:{self.port}/board')
-                if width < 760:
-                    page.get_by_role('button', name='전체 메뉴 열기', exact=True).click()
-                self.assertEqual(page.locator('#nav a[href="/ota"]').count(), 1)
+                self.assertEqual(page.locator('#nav a[href="/cards/all"]').count(), 1)
                 self.assertEqual(page.locator('#nav a[href*="state=unassigned"]').count(), 0)
-                page.locator('#nav').get_by_role('link', name='OTA 내역', exact=False).click()
+                # OTA is a 거래 sub-tab now (spec §5.1), not a sidebar entry.
+                page.goto(f'http://127.0.0.1:{self.port}/ota')
                 self.assertEqual(page.locator('#nav').count(), 1)
                 self.assertIn('전체 3건', page.inner_text('#card-count'))
                 rows = page.locator('main.card-catalog > table tbody tr')

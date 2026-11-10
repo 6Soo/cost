@@ -310,9 +310,15 @@ def wrap_document(document, path, *, status=200):
         live_nav = None
     content = raw
     if not re.search(r'<main\b[^>]*\bid=["\']main["\']', content, re.I):
-        if re.search(r'<main\b', content, re.I):
+        own_main = re.search(r'<main\b([^>]*)>', content, re.I)
+        if own_main and not re.search(r'\bid\s*=', own_main.group(1), re.I):
             content = re.sub(r'<main\b([^>]*)>', r"<main id='main'\1>", content, count=1, flags=re.I)
         else:
+            # A page main with its own id keeps it (a second id attribute would be
+            # ignored and drop every #page-id rule), so it becomes a div inside.
+            if own_main:
+                content = re.sub(r'<main\b', '<div', content, flags=re.I)
+                content = re.sub(r'</main\s*>', '</div>', content, flags=re.I)
             content = "<main id='main' class='page'>" + content + '</main>'
     if not re.search(r'<h1\b', content, re.I):
         content = re.sub(r'(<main\b[^>]*>)', r'\1<h1>' + _esc(title) + '</h1>', content, count=1, flags=re.I)
