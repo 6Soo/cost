@@ -9,12 +9,12 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료·archive | `docs/decisions-20261111-a` | COMPLETE — #795 병합 `6c160d54` | 통합 문서 링크·diff PASS, 최종 sol medium 검수, 배포 없음 |
 | B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료·archive | `ops/m1-baseline-20261111` | COMPLETE — #795 병합 `6c160d54`, 관리자 실제 재현 exit 0 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
-| D1 | Windows P2 조사·도구 없는 어댑터 결정 | §6.2·§6.3·§6.6 | sol high `90a8007b` 조사 완료, 관리자 반영 | `research/p2-isolation-20261111` → 관리자 문서 PR | 방향 결정 COMPLETE — Fable이 stdin 직접 주입 승인 | 보고서만 통합, probe 제외. OS 격리 수락 아님. 실제 도구 미실행·예약 Worker 완료는 D5에서 검증 |
+| D1 | Windows P2 조사·도구 없는 어댑터 결정 | §6.2·§6.3·§6.6 | sol high `90a8007b` 조사 완료·archive | `research/p2-isolation-20261111` → #796 | COMPLETE — 문서 병합 `1ad1364d`, stdin 직접 주입 승인 | 최종 `5e78bf06` sol medium 승인·문서 검사 통과. probe 제외, OS 격리 수락 아님. 실제 도구 미실행·예약 Worker 완료는 D5 검증 |
 | A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | COMPLETE — #795 병합 `6c160d54` | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
-| C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | sol high `0fc54139`, 관리자 검수 | `ui/wave3-20261110` | 소유 실행 완료: 2,001 passed·82 failed, 동일 main `7aa6c418` 실패 비교·수정 중 | 새 실패 0, 390/1440 실제 렌더링, 최종 SHA 독립 검수 |
-| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | sol high `0d6af74c`, 합성 스키마 EXAONE high `f9fa4608` | `feat/p2-tool-free-runtime-20261111`, `feat/p2-synthetic-schema-fixtures-20261111` | 구현 중 — D2 `08421e98` 표적 7 passed, 관리자 검수 전 | 합성 표적 검사·영향 QA·실제 도구 미실행·최종 SHA 독립 검수, D5 전 고객 원문 미실행 |
-| E1 | OTA 3곳 조회 수집 스크립트 | §7 | EXAONE high `10e0d786` | `feat/ota-collection-scripts-20261111` | 구현 중 | 코드·합성 자료만, 고객/운영/로그인 세션 접근 금지. 표적 검사·영향 QA·실환경 미검증 구분 |
-| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `ee120bb5` | `feat/kb-card-collection-script-20261111` | 구현 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. DB 반영 경계는 관리자 후속 |
+| C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | Terra high `db482a8c`(6fc69ce8 후속), 관리자 검수 | `ui/wave3-20261110` | `3340b0fb` 고정 149파일 검사 중. 독립 검수 REQUEST_CHANGES: 수입 연결 동작·보호 단언 삭제 복구 필요 | 기존 검사 완료 뒤 원 단언·사용자 탭 전환 복구, 새 실패 0, 390/1440 렌더링, 최종 SHA 검수 |
+| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` | `be3a3090` 독립 sol medium APPROVE·관리자 표적70 passed. 최종 영향892 passed·기준선3 failed·skip0 | 같은 base1ad 비교 근거 포함 후 통합. 예약 V2 합성1건 LastResult0·CLI1/tool0/판정이력 저장·원본불변/금융0. 고객50·배포 미실행 |
+| E1 | OTA 3곳 조회 수집 스크립트 | §7 | sol high `92cc66bd`(a4320a9d 후속) | `feat/ota-collection-scripts-20261111` | 536739a8 Node48·영향84 통과 후 manifest 예약번호 노출 반려. `c7b0112a` 신규회귀4 통과 보고·최종QA/재검수 중 | 원본/importer 계약 유지, 요약 식별값0·명시적 ego 진입·합성검사·최종 독립검수. 고객/운영/실사이트 금지 |
+| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44`(ee120bb5 후속) | `feat/kb-card-collection-script-20261111` | 구현 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. DB 반영 경계는 관리자 후속 |
 | E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료 | `research/card-login-paths-20261111` | PARTIAL로 닫음 — 정적 `6cd43469`·공개 안내 `cfd94b32`·참조 정정 `729b3a89`, 미통합 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음 |
 
 ## 대기
@@ -47,6 +47,11 @@
 - **최신 실행 기준(2026-11-11 Fable 결정):** [도구 없는 P2 실행 계획](../superpowers/plans/2026-11-11-p2-tool-free-runtime.md). D1은 OS 격리 복구 대신 stdin 직접 주입·도구 미실행·코드 검증으로 결정됐다. 사건 폴더는 Worker 기록용, 모델 cwd는 빈 폴더다. 아래의 과거 격리 BLOCKED·D2 미착수 기록을 현재 지시로 재실행하지 않는다.
 - C 장기 검사 수명 문제는 exec 세션에 의존하지 않는 Hidden PowerShell 소유 프로세스로 분리해 최종 exit 1까지 수집했다. 58분 22초 결과 82 failed·2,001 passed이며 통과로 취급하지 않는다. 실패 nodeID를 같은 main `7aa6c418`에서 파일별 대조 중이다. C-FIX 모바일 CSS 미커밋 변경은 C 작업자가 보존·통합한다. 최종 최신 main `6c160d54` 통합·재검증·렌더링·독립 검수·배포는 남았다.
 - C 테스트 예외 승인: Fable은 `test_board_render_helpers.py`의 split_page/allocation_detail 동등성 검사에서 폐지된 `분류대기(미배정 배분)` 기대 문구만 `귀속을 선택하세요`로 치환하도록 승인했다(SPEC §1.2·§2, PROC-003). 같은 유형의 폐지된 대기·보류 문구 검사도 문구만 갱신하고 목록을 보고한다. 호출 순서·나머지 HTML 바이트 동등·내부 value·금융 보호 단언과 그 밖의 테스트 변경 금지는 유지한다.
+- C 정적 단언 예외 추가 승인: `test_system_theme_contract.py::test_synthetic_site_shell_theme_mobile_and_keyboard_accessibility`의 `grid-template-columns:240px` 단언은 토큰 기반 grid 선언과 토큰 정의 확인으로 갱신한다. 승인된 재설계로 바뀐 구현 세부 문자열·숫자의 정적 단언도 단언 단위로 정렬할 수 있으나, 동작·금융·권한 검사와 실제 390/1440 기하·키보드 검사는 유지한다. CSS에 검사용 문자열을 넣지 않으며 변경한 ID·옛 기대·새 기대·이유를 C PR·완료 보고에 남긴다.
+- C 기준선 대조 완료: 34개 파일의 동일 main 검사에서 고유 nodeID 78건은 main PASS 45·기존 FAIL 32·wave3 이름 변경 1이었다. 전체 82 failed는 메서드 75건과 실패 subtest 7건이며 부모 메서드가 일부 겹친다. 작업자 파일별 exit/JUnit 근거를 관리자 수락 전이다. 여행 목록 390/1440 합성 캡처는 관리자가 직접 확인했고 모바일 이름·기간이 읽힌다. 데스크톱 메뉴 넘침은 별도 새 회귀로 수정 중이다.
+- C 사전 독립 검수 반려: 새 드로어가 기존 로딩·저장·미저장 보호를 우회하고 이전/다음·일괄 교정 시 편집폼을 modal 밖으로 옮기는 경로, 수입 KPI의 COST 우선/Google fallback 역전을 확인했다. 해당 후보는 배포하지 않는다. 작업자가 새 회귀 검사로 수정하고 안정 SHA의 전체 영향 plan을 파일별 실행·합산한다. 중단된 ecc90037 배치 9파일은 중단 근거로만 보존한다.
+- C 후속 `4db0d3a0`의 새 회귀 13건은 관리자 직접 통과했으나 실제 일괄 편집의 두 번째 행 선택이 드로어 capture 처리에 막혀 독립 검수에서 다시 반려됐다. 전체 149파일 검사는 16파일 완료 뒤 안전 종료했고 새 최종 SHA에서 이어 검증한다. Fable `b0540653` 승인으로 사라진 TaskSpace 21·25를 대신할 **TaskSpace 1**(`cost-wave3-final-synthetic-replacement-20261111`) 한 개를 만들었다. 합성 포트만 사용하고 이 공간도 사라지면 추가 생성하지 않는다.
+- D 사전 독립 검수 반려: link+refund 단건의 필수 정책 본문만 207124 bytes여서 초기 상한196608 bytes로는 실행 불가였다. 관리자가 구현 상한을262144 bytes로 조정했고 필수 정책·스키마 보존, 근거 절단 명시, 기본 단건 완주와 배치 축소를 검증한다. 실제 예약 Worker 합성은 새 소유 작업으로만 하며 기존 운영 예약 작업을 바꾸지 않는다. 실제 Principal은 kkokk/Interactive/Highest이고 개발 세션의 CODEX_HOME을 복제해 동일 맥락이라고 주장하지 않는다.
 - E1/E2는 1시간 반 경과 시 실제 활동을 확인했고 둘 다 코드·합성 검사 디버깅이 진행 중이었다. 산출물 없는 정지로 판단하지 않아 중복 배정하지 않았다. E2의 Temp 전체 접근은 거부하고 본인 worktree 내부 임시 경로로 계속하도록 했다. 완료 후 관리자가 통과 조건을 직접 실행한다.
 - 관리자 현재 브랜치는 `integration/wave3-collection-20261111`이다. A/B는 #795로 완료했다. D1 보고서와 승인 명세 변경은 이번 문서 PR에 넣으며 문서만으로 재배포하지 않는다. D2~D4 본체와 합성 스키마는 파일 소유권을 분리했다. D5 전 고객 원문 P2는 아직 실행하지 않는다.
 
