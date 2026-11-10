@@ -214,6 +214,75 @@ def _agoda_recorded_card_periods_in_scope(data, manual, ota_inference, date):
         result[tid] = {'booking_ref': str(event['booking_ref']), 'booking_refs': [str(event['booking_ref'])],
                        'service_period': period['starts_on'] + '~' + period['ends_on'],
                        'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    for tid, metadata in _agoda_identical_room_periods(events, cards, occupied, manual, date).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _agoda_identical_room_periods(events, cards, occupied, manual, date):
+    """Identical rooms booked together: N equal cards and N equal bookings pair only as a group.
+
+    When every booking in the group states the same stay, each card's stay is known even though
+    which card paid which room is not. Display only; no link or payment is created.
+    """
+    import re
+    from app import ota_payments as payments
+    eligible = [e for e in events
+                if e.get('provider') == 'agoda' and not e.get('paid_on') and e.get('event_type') == 'charge'
+                and e.get('verified_portal_snapshot') is True and payments._event_is_paid(e)
+                and e.get('reservation_status') in ('confirmed', 'completed')
+                and e.get('refund_status') in (None, '', 'none_displayed')
+                and re.fullmatch(r'\d{4}', str(e.get('card_last4') or ''))]
+    groups = defaultdict(list)
+    for event in eligible:
+        groups[(event['card_last4'], str(event.get('currency') or '').upper(),
+                _decimal(event.get('amount'), absolute=True))].append(event)
+    result = {}
+    for (_, _, amount), group in groups.items():
+        refs = {str(e.get('booking_ref')) for e in group}
+        if amount is None or len(group) < 2 or len(refs) != len(group):
+            continue
+        periods = {(str((e.get('service_period') or {}).get('starts_on')), str((e.get('service_period') or {}).get('ends_on')))
+                   for e in group}
+        if len(periods) != 1:
+            continue
+        start, end = next(iter(periods))
+        try:
+            if not 0 < (date.fromisoformat(end) - date.fromisoformat(start)).days <= 366:
+                continue
+        except ValueError:
+            continue
+        related = [e for e in events if e.get('provider') == 'agoda' and str(e.get('booking_ref')) in refs]
+        if any(e.get('reservation_status') == 'cancelled' or e.get('event_type') == 'refund'
+               or e.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')
+               or e.get('service_period_conflict')
+               or (e.get('service_period') and (str(e['service_period'].get('starts_on')),
+                                                str(e['service_period'].get('ends_on'))) != (start, end))
+               for e in related):
+            continue
+        sample = group[0]
+
+        def same_amount(row):
+            # Some card files give the foreign amount without its currency.
+            return payments._amount_matches(sample, row, []) or (
+                not str(row.get('foreign_currency') or '').strip()
+                and str(sample.get('currency') or '').upper() not in ('', 'KRW')
+                and _decimal(row.get('foreign_amount'), absolute=True) == amount)
+
+        matched = [row for row in cards if payments._direction(row) == 'purchase' and not row.get('duplicate_of')
+                   and payments.provider_compatible(sample, row, ())
+                   and payments._strict_card_identity(sample, row) and same_amount(row)]
+        if (len(matched) != len(group)
+                or any(str(row['transaction_id']) in occupied for row in matched)):
+            continue
+        for row in matched:
+            tid = str(row['transaction_id'])
+            if ('card-' + tid in manual or not row.get('source_hash')
+                    or any(row.get(k) for k in ('ota_review_held', 'reservation_refund_blocked', 'parse_error', 'conflict_reason'))
+                    or row.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+                continue
+            result[tid] = {'booking_ref': '', 'booking_refs': sorted(refs), 'service_period': start + '~' + end,
+                           'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 
 

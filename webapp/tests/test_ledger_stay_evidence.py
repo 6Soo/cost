@@ -709,3 +709,48 @@ def test_a_refund_without_a_known_date_reads_as_a_refund(onsite, item):
         '취소·환불', '취소·환불 거래라 별도 이용일이 없음')
     # A purchase with the same missing evidence still asks for its date.
     assert onsite(item=item, merchant='AGODA.COM')[0] in ('이용일 확인 필요', '이용일 미확인')
+
+
+def identical_rooms(data, rooms=3, cards=3):
+    agoda_recorded(data)
+    base, card_row = data['events'][0], data['transactions'][0]
+    data['events'] = [dict(base, ota_event_id=f'a{n}', booking_ref=f'17443994{n:02d}') for n in range(rooms)]
+    data['transactions'] = [dict(card_row, transaction_id=f't{n}', source_hash=f's{n}') for n in range(cards)]
+    data['results'] = [dict(ota_event_id=f'a{n}', status='HOLD_DATE_UNKNOWN', transaction_id=None) for n in range(rooms)]
+    data['links'] = {}
+
+
+def test_identical_rooms_booked_together_give_every_card_their_shared_stay(context):
+    store, data, _, _ = context
+    identical_rooms(data)
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert {tid: found[tid]['service_period'] for tid in found} == {f't{n}': '2026-07-08~2026-07-09' for n in range(3)}
+    assert found['t0']['booking_ref'] == '' and len(found['t0']['booking_refs']) == 3
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'].pop(),
+    lambda d: d['events'][2].update(service_period={'starts_on': '2026-07-09', 'ends_on': '2026-07-10'}),
+    lambda d: d['events'][1].update(reservation_status='cancelled'),
+    lambda d: d['events'][1].update(refund_status='refund_requested'),
+    lambda d: d['links'].update(other={'transaction_id': 't0'}),
+])
+def test_identical_rooms_stay_unknown_unless_counts_stays_and_status_all_agree(context, mutation):
+    store, data, _, _ = context
+    identical_rooms(data)
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_identical_rooms_read_a_card_foreign_amount_given_without_its_currency(context):
+    store, data, _, _ = context
+    identical_rooms(data)
+    for event in data['events']:
+        event.update(currency='JPY', amount=24332, amount_krw=None)
+    for row in data['transactions']:
+        row.update(amount_krw=211334, foreign_amount='24332.000', foreign_currency='')
+    assert len(stays.stay_index(store)) == 3
+    data['transactions'][0]['foreign_amount'] = '24333.000'
+    assert stays.stay_index(store) == {}
