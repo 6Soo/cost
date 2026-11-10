@@ -94,14 +94,14 @@ def detection_sql(*, after=False):
         " WHERE t.transaction_direction = 'purchase' AND t.amount_krw > 0"
         " AND (COALESCE(t.item,'') IN ('기타경비','현지경비','여행경비')"
         "      OR COALESCE(t.display_tab_id,'') = '' OR COALESCE(t.display_tab_id,'') = 'unclassified'"
-        "      OR (t.classification_source IN ('inference','auto_inferred','code_inference')"
+        "      OR (t.classification_source IN ('inference','auto_inferred','code_inference','pattern','card_category','provider_default')"
         "          AND t.classification_basis NOT LIKE '%P2_METADATA%')"
         "      OR " + missing_assignment_sql() + ")"
         " AND COALESCE(t.parse_error,'') = '' AND COALESCE(t.conflict_reason,'') = ''"
         " AND COALESCE(t.duplicate_of,'') = '' AND t.decided_at IS NULL"
         " AND COALESCE(t.classification_source,'') NOT IN"
         " ('user_decision','user_exception','owner_booking','manual','manual_hold','ai_inference',"
-        "  'guide_airfare_evidence','refund_original','rule','pattern','auto','card_category')"
+        "  'guide_airfare_evidence','refund_original','rule','auto')"
         " AND t.transaction_id NOT IN (SELECT transaction_id FROM ledger_entries)"
         " AND t.transaction_id NOT IN (SELECT substr(row_id, 6) FROM board_rows WHERE row_id LIKE 'card-%')"
         " AND t.transaction_id NOT IN (SELECT transaction_id FROM review_decisions)"
@@ -128,7 +128,7 @@ def _options(path):
     try:
         value = json.loads(Path(path).read_text(encoding='utf-8-sig'))
         return value if isinstance(value, dict) else {}
-    except FileNotFoundError:
+    except (OSError, ValueError, TypeError):
         return {}
 
 
@@ -477,6 +477,7 @@ class AutonomousCleanupWorker:
             try:
                 plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids)
                 automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids)
+                self.board.conn.commit()
             except Exception as exc:
                 for row in due_rows:
                     self._retry_or_dead(row, fingerprints[row[0]], now, 'p1_' + type(exc).__name__,
@@ -666,7 +667,7 @@ class AutonomousCleanupWorker:
             code = failure_code(exc)
             with self.runtime_lock, self.board._lock:
                 for row in due_rows:
-                    if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW'):
+                    if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW', 'AGENT_AUTH_REQUIRED'):
                         attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
                         save_job(self.board.conn, row[0], fingerprints[row[0]], dict(status='blocked', reason=code,
                             attempts=attempts, not_before=now + max(60, getattr(exc, 'retry_after', None) or BLOCKED_RETRY_SECONDS)))

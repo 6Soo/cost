@@ -155,3 +155,67 @@ def test_first_batch_p2_gate_never_prevents_p1_publication(setup):
     worker.sweep_once()
     state, item, tab = setup.conn.execute('SELECT classification_state,item,display_tab_id FROM transactions').fetchone()
     assert state == 'classified' and item and tab
+
+
+@pytest.mark.parametrize('source', ['pattern','card_category','provider_default'])
+def test_weak_category_p1_with_unknown_period_is_eligible_unless_exact_or_manual(setup, source):
+    from app import ai_classification
+    from webapp.card_classification_completion import context
+    from webapp.card_flow import CardFlow
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    ids = make_weak_rows(setup, batch, rows, trip, item='숙박비')
+    setup.conn.execute('UPDATE transactions SET classification_source=?', (source,))
+    trips, nets = context(CardFlow(setup))
+    assert [r[0] for r in detection_candidates(setup.conn)] == ids
+    assert len(ai_classification.prepare(setup.conn, trips, ids, nets=nets)['cases']) == 1
+    row = rows[0]
+    # Existing source-bound exact OTA rule, not a source-label exemption.
+    setup.conn.execute("INSERT INTO cost_classification_rules VALUES (?,?,?,?,?,?,?,?,?,?,?)", (
+        'synthetic-exact', 1, 'active', '{}', '{}', json.dumps({'source_hash':row['source_hash']}),
+        '', 'owner-ota-booking', 'synthetic-exact-hash', 'synthetic', 'synthetic'))
+    assert ai_classification.prepare(setup.conn, trips, ids, nets=nets)['cases'] == []
+    setup.conn.execute("DELETE FROM cost_classification_rules WHERE rule_id='synthetic-exact'")
+    setup.conn.execute("INSERT INTO board_manual_overrides VALUES (?,'service_period','synthetic-manual')", ('card-'+ids[0],))
+    assert ai_classification.prepare(setup.conn, trips, ids, nets=nets)['cases'] == []
+
+
+def test_default_worker_full_ota_refund_context_fits_cli_stdin_and_applies(setup, tmp_path, monkeypatch):
+    import subprocess
+    from datetime import timedelta
+    from app import frontier_agent_provider as frontier, p2_case
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    ids = make_weak_rows(setup, batch, rows, trip)
+    class Repository(SyntheticRepository):
+        def select(self, case, row):
+            return [dict(ref='portal:synthetic',kind='portal',transaction_id=case['transaction_id'],
+                         content=dict(reservation_status='cancelled',text='합성 취소 예약 원문'))]
+    now = datetime.now(timezone(timedelta(hours=9)))
+    config = tmp_path / 'default-worker-config.json'
+    config.write_text(json.dumps(dict(autonomous_ai_review=True, autonomous_ai_review_daily_cap=1,
+        autonomous_ai_review_window=dict(start=(now-timedelta(hours=1)).strftime('%H:%M'),end=(now+timedelta(hours=1)).strftime('%H:%M')))))
+    monkeypatch.setattr(frontier, '_executable', lambda: 'synthetic-codex.exe')
+    sizes=[]
+    def runner(command, *, cwd, env, timeout, input_bytes):
+        sizes.append(len(input_bytes))
+        assert len(input_bytes) <= 262144
+        decoded = input_bytes.decode()
+        bundle = json.loads(decoded.split('\n',1)[1].split('\nEXECUTION:',1)[0])
+        assert {'CORE','process','trip','item','date','link','refund'} == set(bundle['policy'])
+        execution = json.loads(decoded.split('\nEXECUTION:',1)[1].split('\n',1)[0])
+        answer = rich_response(dict(digest=bundle['request_digest'],cases=bundle['cases']))
+        answer['execution']=execution
+        answer['results'][0]['evidence_refs']=['portal:synthetic']
+        from jsonschema import Draft202012Validator
+        Draft202012Validator(json.loads(frontier.schema_path().read_text())).validate(answer)
+        raw = '\n'.join(json.dumps(e) for e in [dict(type='thread.started',thread_id='synthetic'),
+            dict(type='turn.started'),dict(type='item.completed',item=dict(type='agent_message',text=json.dumps(answer))),
+            dict(type='turn.completed',usage={})]).encode()
+        return subprocess.CompletedProcess(command,0,raw,b'')
+    monkeypatch.setattr(frontier, '_run_bounded', runner)
+    worker = AutonomousCleanupWorker(setup,setup._lock,agent_config=config,evidence_repository=Repository(),chunk=1)
+    assert worker.provider is None
+    worker.sweep_once()
+    assert len(sizes) == 1 and sizes[0] > 200000
+    assert load_job(setup.conn, ids[0])['status']=='p2_applied'

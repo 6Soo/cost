@@ -70,6 +70,8 @@ def _error(value):
     text = json.dumps(value).lower()
     if any(word in text for word in ('rate limit', 'usage limit', 'quota', '429', 'limit reached')):
         raise AgentUnavailable('AGENT_RATE_LIMITED', 300)
+    if any(word in text for word in ('401', '403', 'not logged in', 'authentication failed', 'login expired', 'unauthorized')):
+        raise AgentUnavailable('AGENT_AUTH_REQUIRED', 300)
     raise AgentUnavailable('AGENT_EXECUTION_FAILED')
 
 

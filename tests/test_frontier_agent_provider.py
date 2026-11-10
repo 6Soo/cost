@@ -35,6 +35,8 @@ def test_rate_limit_and_incomplete_turn():
         provider.parse_events(b'{"type":"turn.failed","error":{"message":"usage limit reached"}}')
     with pytest.raises(AgentUnavailable, match='AGENT_RESPONSE_INVALID'):
         provider.parse_events(b'{"type":"thread.started","thread_id":"x"}')
+    with pytest.raises(AgentUnavailable, match='AGENT_AUTH_REQUIRED'):
+        provider.parse_events(b'{"type":"turn.failed","error":{"message":"401 unauthorized"}}')
 
 
 def test_only_exact_pre_turn_code_mode_disabled_notice_is_allowed():

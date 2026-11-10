@@ -103,12 +103,17 @@ def test_policy_contract_includes_exceptions_process_and_attribution_domains(set
 def test_ota_and_refund_policy_domains_are_included(setup):
     request, trips = prepared(setup)
     tid = request['cases'][0]['transaction_id']
-    setup.conn.execute("UPDATE transactions SET merchant='SYNTHETIC 예약',description_raw='refund 취소' WHERE transaction_id=?", (tid,))
-    # Full required policies exceed the small prompt budget; no silent omission.
+    setup.conn.execute("UPDATE transactions SET merchant='SYNTHETIC 예약' WHERE transaction_id=?", (tid,))
+    # Default budget fits all current rules for an actual cancellation event.
     bundle = p2_case.assemble(setup.conn, trips, request, repository=Evidence([
-        dict(ref='portal:one', kind='portal', content='합성 예약')]), max_bytes=400000)
+        dict(ref='portal:one', kind='portal', content={'reservation_status':'cancelled','text':'합성 예약'})]))
     assert 'LINK-002' in bundle['policy']['link']
     assert 'RFND-018' in bundle['policy']['refund']
-    with pytest.raises(ValueError, match='P2_PROMPT_BASE_TOO_LARGE'):
-        p2_case.assemble(setup.conn, trips, request, repository=Evidence([
-            dict(ref='portal:one', kind='portal', content='합성 예약')]))
+    assert len(p2_case.prompt(bundle).encode()) <= p2_case.MAX_BYTES
+
+
+def test_refund_policy_text_is_not_an_actual_refund_event(setup):
+    request, trips = prepared(setup)
+    bundle = p2_case.assemble(setup.conn, trips, request, repository=Evidence([
+        dict(ref='portal:policy', kind='portal', content={'reservation_status':'confirmed','text':'Free cancellation. 환불 가능, refund policy and cancellation policy.'})]))
+    assert 'link' in bundle['policy'] and 'refund' not in bundle['policy']

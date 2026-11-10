@@ -13,7 +13,7 @@ import heapq
 
 from .automatic_classification import _read
 
-MAX_BYTES = 196608
+MAX_BYTES = 262144
 MAX_EVIDENCE = 32
 KINDS = frozenset({'mail_search', 'portal_lookup', 'card_search'})
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,7 +64,7 @@ def policy_context(areas=()):
     for area in sorted(set(areas) | {'process', 'trip', 'item', 'date'}):
         path = ROOT / 'docs/policy' / (area + '.md')
         if not path.is_file():
-            continue
+            raise ValueError('P2_POLICY_MISSING')
         rules = []
         for section in re.split(r'(?m)(?=^### [A-Z]+-\d+)', path.read_text(encoding='utf-8'))[1:]:
             if area == 'process' and not re.search(r'(?m)^\*(일반|사용자 예외)', section):
@@ -94,6 +94,20 @@ def _evidence(item, ids):
                 source_sha256=digest(item['content']), truncated=False)
 
 
+def refund_context(value):
+    """Actual event state, never the mere presence of a refund-policy sentence."""
+    if isinstance(value, dict):
+        if (value.get('transaction_direction') in ('refund', 'cancellation')
+                or value.get('event_type') in ('refund', 'cancellation', 'cancellation_notice')
+                or value.get('reservation_status') in ('cancelled', 'canceled')
+                or value.get('refund_status') in ('refund_requested','refund_pending','refunded','refund_completed')):
+            return True
+        return any(refund_context(v) for v in value.values() if isinstance(v, (dict, list)))
+    if isinstance(value, list):
+        return any(refund_context(v) for v in value)
+    return False
+
+
 def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extra=()):
     ids = {c['transaction_id'] for c in request['cases']}
     rows = {r['transaction_id']: r for r in _read(conn, ids)}
@@ -117,7 +131,16 @@ def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extr
     areas = []
     if any(is_booking_or_online(row) for row in rows.values()) or any(e['kind'] == 'portal' for e in ordered):
         areas.append('link')
-    if re.search(r'(?i)취소|환불|refund|cancel', encoded([cases, ordered])):
+    context_values = list(rows.values())
+    for raw in evidence:
+        content = raw.get('content')
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except ValueError:
+                content = {}
+        context_values.append(content)
+    if refund_context(context_values):
         areas.append('refund')
     policy = policy_context(areas)
     bundle = dict(version='p2-tool-free-v1', request_digest=request['digest'], cases=cases,
@@ -177,7 +200,10 @@ class Repository:
             visible = '\n'.join(str(h.get('value', '')) for h in headers
                                 if str(h.get('name', '')).lower() in ('subject', 'from', 'date'))
             if relevant(row, visible + '\n' + text):
-                yield dict(ref='mail:' + digest(identity), kind='mail', content=visible + '\n' + text,
+                from .ota_payments import extract_payment_fact
+                fact = extract_payment_fact(message) or {}
+                context = {key: fact.get(key) for key in ('event_type','reservation_status','refund_status') if fact.get(key)}
+                yield dict(ref='mail:' + digest(identity), kind='mail', content=dict(headers=visible, text=text, event_context=context),
                            transaction_id=row['transaction_id'])
         for index, path in enumerate(ota_portal.as_databases(self.sources.get('portal_databases'))):
             if not path.is_file():

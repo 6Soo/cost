@@ -17,6 +17,7 @@ from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .trip_selection import regional_trips
 
 VERSION = 'connected-agent-inference-v1'
+INFERRED_SOURCES = CODE_SOURCES | {'pattern', 'card_category', 'provider_default'}
 ITEMS = ('주차비', '주유비', '통행료', '항공료', '렌터카', '숙박비', '식비',
          '편의점', '교통비', '입장료', '여행경비', '현지경비', '기타경비', '분기 기타비용')
 
@@ -46,14 +47,14 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
         if row['source_hash'] in authoritative:
             protected += 1
             continue
-        if row['classification_source'] not in CODE_SOURCES | {'ai_inference'}:
+        if row['classification_source'] not in INFERRED_SOURCES | {'ai_inference'}:
             # Exact/manual booking, airfare and refund authority stay in P1.
             # P2 is an attribution review, never a replacement payment matcher.
             protected += 1
             continue
         if row['classification_source'] == 'ai_inference' and not reconsider:
             continue
-        weak = (row['classification_source'] in CODE_SOURCES
+        weak = (row['classification_source'] in INFERRED_SOURCES
                 and row['item'] in ('기타경비', '현지경비', '여행경비'))
         service_unknown = 'P2_METADATA' not in str(row.get('classification_basis') or '')
         if not reconsider and not weak and not service_unknown and row['classification_state'] == 'classified' and row['trip_id'] in valid:
