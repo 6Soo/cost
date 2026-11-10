@@ -331,6 +331,26 @@ a.brand:focus-visible{outline:2px solid var(--c-focus);outline-offset:2px}
 table{width:100%;table-layout:fixed;border-collapse:collapse}
 th,td{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);
  text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trips-page .trip-meta{white-space:normal;overflow-wrap:anywhere}
+.trips-page .trip-meta input:not([type=hidden]):not([type=checkbox]){display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+/* Trip identity and dates need the row width on phones, rather than one sixth
+   of it. Keep the existing table and action forms intact on larger screens. */
+@media (width < 640px){
+ .trips-page .data-table{display:block;border:0;background:transparent}
+ .trips-page .data-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .trips-page .data-table tbody{display:grid;gap:var(--s-3)}
+ .trips-page .trip-management-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:var(--s-3);border:1px solid var(--c-border);border-radius:var(--r-lg);background:var(--c-surface)}
+ .trips-page .data-table td{display:block;min-width:0;height:auto;padding:var(--s-1) 0;border:0;text-align:left;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+ .trips-page .trip-management-row>td:first-child,.trips-page .trip-period,.trips-page .trip-management-row>td:last-child{grid-column:1/-1}
+ .trips-page .trip-management-row>td:first-child{font-weight:600}
+ .trips-page .trip-management-row>td:nth-child(2)::before{content:'기간 '}
+ .trips-page .trip-management-row>td:nth-child(3)::before{content:'담당자 '}
+ .trips-page .trip-management-row>td:nth-child(4)::before{content:'지출 '}
+ .trips-page .trip-management-row>td:nth-child(5)::before{content:'상태 '}
+ .trips-page .trip-management-row>td::before{margin-right:var(--s-1);color:var(--c-text-secondary);font-size:var(--t-caption)}
+ .trips-page .trip-meta>summary{width:100%;min-height:44px;box-sizing:border-box}
+ .trips-page .trip-meta input:not([type=hidden]):not([type=checkbox]){width:100%;min-width:0;box-sizing:border-box}
+}
 thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
  font-size:var(--t-meta);font-weight:600;color:var(--mut);border-bottom:1px solid var(--line);
  box-shadow:0 1px 0 var(--line)}
