@@ -11,11 +11,11 @@
 | B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료·archive | `ops/m1-baseline-20261111` | COMPLETE — #795 병합 `6c160d54`, 관리자 실제 재현 exit 0 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
 | D1 | Windows P2 조사·도구 없는 어댑터 결정 | §6.2·§6.3·§6.6 | sol high `90a8007b` 조사 완료·archive | `research/p2-isolation-20261111` → #796 | COMPLETE — 문서 병합 `1ad1364d`, stdin 직접 주입 승인 | 최종 `5e78bf06` sol medium 승인·문서 검사 통과. probe 제외, OS 격리 수락 아님. 실제 도구 미실행·예약 Worker 완료는 D5 검증 |
 | A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | COMPLETE — #795 병합 `6c160d54` | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
-| C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | Terra high `db482a8c`(6fc69ce8 후속), 관리자 검수 | `ui/wave3-20261110` | `3340b0fb` 고정 149파일 검사 중. 독립 검수 REQUEST_CHANGES: 수입 연결 동작·보호 단언 삭제 복구 필요 | 기존 검사 완료 뒤 원 단언·사용자 탭 전환 복구, 새 실패 0, 390/1440 렌더링, 최종 SHA 검수 |
-| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` | `be3a3090` 독립 sol medium APPROVE·관리자 표적70 passed. 최종 영향892 passed·기준선3 failed·skip0 | 같은 base1ad 비교 근거 포함 후 통합. 예약 V2 합성1건 LastResult0·CLI1/tool0/판정이력 저장·원본불변/금융0. 고객50·배포 미실행 |
-| E1 | OTA 3곳 조회 수집 스크립트 | §7 | sol high `92cc66bd`(a4320a9d 후속) | `feat/ota-collection-scripts-20261111` | 536739a8 Node48·영향84 통과 후 manifest 예약번호 노출 반려. `c7b0112a` 신규회귀4 통과 보고·최종QA/재검수 중 | 원본/importer 계약 유지, 요약 식별값0·명시적 ego 진입·합성검사·최종 독립검수. 고객/운영/실사이트 금지 |
-| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44`(ee120bb5 후속) | `feat/kb-card-collection-script-20261111` | 구현 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. DB 반영 경계는 관리자 후속 |
-| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료 | `research/card-login-paths-20261111` | PARTIAL로 닫음 — 정적 `6cd43469`·공개 안내 `cfd94b32`·참조 정정 `729b3a89`, 미통합 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음 |
+| C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | Terra high `670fdf64` 구현 종료, 관리자 검수 | `ui/wave3-20261110` → draft #799 | `e1219d9b` push·독립 sol medium 코드 APPROVE. fe399 추가48파일의 신규30 회귀 복구, 최종 관리자227pass·작업자55pass/skip0. 최종 렌더링 BLOCKED(TaskSpace1 소실), 병합·배포 미실행 | 기존3340 149파일(2143pass/34fail·기존32/신규2)·fe399 48파일(1089pass/39fail·정확a050대조 기존9/신규30) 보존. 새 전체QA pass 주장 없음. 최종390/1440 수락 필요 |
+| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` → #797 | COMPLETE — 병합·운영 `bd4646a1`, 최종 b20ce252 독립 sol medium APPROVE | 관리자70pass, 영향892pass/기존UI3fail·skip0, 같은base1ad 직접대조. 예약합성LastResult0·CLI1/tool0. 공식배포후 보호13불변. 고객first50은 D5 |
+| E1 | OTA 3곳 조회 수집 스크립트 | §7 | sol high `92cc66bd`, 관리자 검수 | `integration/ota-collection-release-20261111` → #798 | COMPLETE — 구현·합성검수 범위, 병합 `a050d65f` | 최종 a11d5ea8 독립 sol medium APPROVE·Node52·영향84pass/skip0. 원본/importer 유지·manifest 식별값0. 실사이트·예약등록·운영수집 미실행 |
+| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44`(ee120bb5 후속) | `feat/kb-card-collection-script-20261111` | 1차 독립 사전검수 REQUEST_CHANGES — 실제 ego 접착 코드·기간 입력/조회·spaceName 전파·0건 처리 보완 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. 실제 Page seam 합성 회귀·최종 SHA 검수·관리자 수락 필요 |
+| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료 | `research/card-login-paths-20261111` | PARTIAL로 닫음 — 최종 `729b3a89`의 [조사 보고서](artifacts/card-login-paths-20261111.md) 통합 준비 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음. 보고서의 추가 조사 제안은 현재 실행 지시가 아님 |
 
 ## 대기
 
@@ -23,7 +23,8 @@
 
 | ID | 작업 | 명세 절 | 선행 작업 | 등급(틀리면 비싼가) |
 | --- | --- | --- | --- | --- |
-| D5 | 합성 검증·배포·첫 약 50건 후 Fable 보고 | §6.8 | D2~D4 | 전체 반영 금지, 첫 묶음에서 중단 |
+| D5 | 합성 검증·배포·첫 약 50건 후 Fable 보고 | §6.8 | D2~D4·합성·배포 COMPLETE | 05:04 KST first50 제한 실행 시작, 05:39 KST 호출예약0·작업대상20. 제어의 예산60회/고유50건/야간/finally off 유지. 종료·보호 대조·보고 남음. 전체 반영 금지 |
+| D5-FIX | 근거 조립의 반복 읽기·조립 중 실행예산·호출 전 비활성화 확인 | §6.2~§6.6 | D5 실측 호출0, 정확 live stack 미측정 | Terra high `f4e9ebbc`, `fix/p2-case-assembly-budget-20261111`. 합성 재현 뒤 최소 수정·신선도 보호·표적/영향검사·독립검수. 운영 제어·고객 자료 접근 금지 |
 | GAP | CODE_GAPS 중 P2 연결 밖 항목 | §10 M2 | D 경로 범위 확정 | 증상별 패치 금지, 후속 배정 |
 
 ## 완료
