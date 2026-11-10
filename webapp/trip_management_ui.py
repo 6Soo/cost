@@ -75,7 +75,7 @@ STYLE = """
 .trip-reservations>summary{min-height:44px;cursor:pointer;font-weight:600}
 .trip-reservations iframe{display:block;width:100%;min-height:240px;border:0}
 @media(max-width:640px){.trip-management-controls{width:100%}.trip-settings{flex:1}.trip-settings>div{width:100%}}
-.trip-management-controls details>summary{list-style:none}.trip-management-controls details>summary::-webkit-details-marker{display:none}.trip-management-controls details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.trip-management-controls details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.trip-management-controls details>summary::after{transition:none}}
+.trip-management-controls details>summary{list-style:none}.trip-management-controls details>summary::-webkit-details-marker{display:none}
 """
 
 SCRIPT = """

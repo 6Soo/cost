@@ -76,7 +76,7 @@ class DesignScreenTests(unittest.TestCase):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-b')
-                trigger = '.trip-actions #add-manual-expense'
+                trigger = '#add-manual-expense'
                 page.click(trigger)
                 self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
                 self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-b')
@@ -827,7 +827,8 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(page.locator('.nav a[href="/cards/all"]').get_attribute('aria-current'), 'page')
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
         page.wait_for_load_state()
-        page.click(".act a[href^='/export?tab=']")
+        page.locator('#trip-settings > summary').click()
+        page.click("#trip-settings a[href^='/export?tab=']")
         page.wait_for_load_state()
         self.assertIn("출력", page.inner_text("body"))
         status, body = self._api("/api/exports/xlsx", {
