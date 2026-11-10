@@ -1,6 +1,14 @@
 # 현재 상태
 
-## 2026-11-10 장부 이용일 경고 근본 원인 수정·성능 회복 — 현재 정본
+## 2026-11-10 OTA 포털 직접 조사·자동 보강 — 현재 정본
+
+- **운영:** `998dd46100a8bd11304532f741e15f162fd9c3c6`([#784](https://github.com/6Soo/cost/pull/784)), 이전 `895a412e`([#783](https://github.com/6Soo/cost/pull/783)+[#781](https://github.com/6Soo/cost/pull/781)) ← `9ad0a454`. 두 배포 모두 blob 불일치0·보호13표 불변·worker_switched=true·Gateway 유지. 다른 세션(UI/UX)과 배포 순서를 메시지로 조율했다.
+- **사용자 지시:** Agoda·Trip.com·Booking.com을 ego lite로 직접 조사하고 자동 보강 방법과 이후 수집 절차를 문서화. 절차·결과 정본: [OTA 포털 직접 수집 절차](specs/ota-portal-browser-collection-20261110.md). AGENTS.md의 Agoda 수집 규칙을 이 결정으로 갱신했다.
+- **자동 보강:** Agoda 예약 상세 API 응답을 `agoda-api-v1` 포털 근거로 읽는 파서·수입 도구(#783)와 동일 객실 묶음 표시 규칙(#784). 운영 저장소에 1,418건 수입(백업 `D:/WebLedgerHost/data/backups/ota-evidence-before-agoda-api-20261110.sqlite`). 장부 경고 182 → **175**(Agoda 35→28).
+- **장부 교정:** Booking.com에서 산 항공권 2건(카드 가맹점 `Booking.com`+숫자)이 국내여행 숙박비로 들어가 있어 항목 `항공료`·해당 해외여행으로 이동(근거: Booking 여행 페이지). 카드 행 이용일은 화면에서 직접 고칠 수 없어 날짜는 미표시로 남는다.
+- **차단·후속:** Trip.com은 ego lite가 예약에 쓰지 않은 Google 계정으로 로그인돼 있어 주문 0건 — **사용자가 예약 계정으로 로그인해야** 조회 가능(TaskSpace `ota portal audit 20261110`). Booking 숙소 결제의 정확 대사(숙소 통화 금액)와 Booking 항공권 출발일 파서, 취소 예약 결제의 "취소된 예약" 표시, 남은 Agoda(다른 계정 추정) 15행은 후속.
+
+## 2026-11-10 장부 이용일 경고 근본 원인 수정·성능 회복 — 당시 정본(최신은 위 절)
 
 - **운영:** Board·Worker는 `9ad0a454ae323cb6ee61c2a4827dca3bf34caa15`(아래 PR과 다른 세션의 UI 1차 #779 포함)로 공식 단일 코드 배포됐다. 이번 작업의 배포 순서: 2ef58a92 → 4151d805 → 7334f1ae → cee973fb → 086acc67 → 094e52c9 → f5758929 → 9ad0a454(이전 검증 복구점 f5758929). 9ad0a454는 다른 세션(UI/UX)과 조율해 이 세션이 단일 작성자로 배포했다. 각 배포: tracked blob mismatch0, health/ready200, 보호 API401, 보호13표 전후 불변, `worker_switched=true`(이 절의 2ef58a92 이후 배포 기준). 근거: `D:/WebLedgerHost/releases/deploy-evidence-<SHA>.json`, `continuous-switch-<SHA>.json`, 비공개 `.local-archive/service-date-row-audit-20261109/deploy-<SHA8>/`.
 - **병합 PR(모두 독립 `codex/gpt-6.1-sol`·`medium` 최종 SHA APPROVE, 호스팅 CI는 결제 한도로 미시작=NOT_GREEN, 2026-11-07 예외):**
