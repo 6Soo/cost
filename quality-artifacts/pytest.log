@@ -1,0 +1,12 @@
+$ C:\Users\kkokk\AppData\Local\Programs\Python\Python314\python.exe -m pytest tests/card_pipeline/test_agoda_api_capture.py tests/card_pipeline/test_agoda_capture.py tests/card_pipeline/test_google_tsv.py tests/card_pipeline/test_ota_exact_gate.py tests/card_pipeline/test_ota_mail_load_lifetime.py tests/card_pipeline/test_ota_payments.py tests/card_pipeline/test_ota_portal_scheduled_card_date.py tests/card_pipeline/test_ota_sources_registry.py tests/card_pipeline/test_ota_store.py tests/card_pipeline/test_partial_refund.py tests/test_quality_checks.py tests/test_refactor_call_map.py tests/test_run_targeted_checks.py webapp/tests/test_access_control_phase7.py webapp/tests/test_ota_catalog.py webapp/tests/test_ota_payment_review.py webapp/tests/test_ota_payment_review_browser.py webapp/tests/test_ota_reconcile_child.py webapp/tests/test_priority_trip_assignment.py webapp/tests/test_targeted_test_selector.py -q -ra --junitxml=C:\AX\cost-wt-agoda\quality-artifacts\junit.xml
+$ py_compile
+
+$ pytest
+........................................................................ [ 14%]
+........................................................................ [ 29%]
+........................................................................ [ 44%]
+........................................................................ [ 59%]
+........................................................................ [ 73%]
+........................................................................ [ 88%]
+.......................................................              [100%]
+487 passed, 4 subtests passed in 138.10s (0:02:18)
