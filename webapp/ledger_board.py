@@ -3802,7 +3802,7 @@ class Handler(BaseHTTPRequestHandler):
                     "분류 규칙은 거래 상세에서 엽니다",
                     "<div class='body'><h1>분류 규칙은 거래 상세에서 엽니다</h1>"
                     "<p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p>"
-                    "<a class='btn primary' href='/cards/all'>카드 거래 보기</a></div>"))
+                    "<a class='btn primary' href='/cards/all'>카드 거래 보기</a></div>"), code=404)
                 return
             self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/api/tabs":

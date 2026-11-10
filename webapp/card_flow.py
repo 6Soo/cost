@@ -1,4 +1,4 @@
-﻿"""카드 파일부터 장부까지 이어지는 단일 사용자 흐름."""
+"""카드 파일부터 장부까지 이어지는 단일 사용자 흐름."""
 import hashlib
 import json
 import os
@@ -3485,7 +3485,7 @@ async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return
  note.textContent=checked+'개 결과 조회 · '+waiting+'개 조회 대기. 접수된 파일은 다시 올릴 필요가 없습니다.'+(auth?' 로그인 또는 소유자 권한을 확인한 뒤 이 화면을 다시 열어 주세요.':'');
 }
 resumeUpload();
-function uploadOutcome(j){const summary=j.upload_summary||j.recovery||{};let text='처리 완료';const count=summary.transaction_count??summary.unique_transactions??summary.saved_count;const duplicate=summary.duplicate_count??summary.duplicate_rows??summary.duplicates;if(Number.isFinite(Number(count)))text+=' · 거래 '+Number(count).toLocaleString('ko-KR')+'건 저장';if(Number.isFinite(Number(duplicate)))text+=' · 중복 '+Number(duplicate).toLocaleString('ko-KR')+'건';return text}
+function uploadOutcome(j){if(j.recovered_upload)return '저장된 결과 조회 완료';const summary=j.upload_summary||j.recovery||{};let text='처리 완료';const count=summary.transaction_count??summary.unique_transactions??summary.saved_count;const duplicate=summary.duplicate_count??summary.duplicate_rows??summary.duplicates;if(Number.isFinite(Number(count)))text+=' · 거래 '+Number(count).toLocaleString('ko-KR')+'건 저장';if(Number.isFinite(Number(duplicate)))text+=' · 중복 '+Number(duplicate).toLocaleString('ko-KR')+'건';return text}
 el('upload').onclick=async()=>{
  if(el('upload').disabled)return;
  const files=renderUploadSelection();if(!files.length){el('status').textContent='업로드할 카드 파일을 먼저 선택해 주세요.';uploadDrop.focus();return}
