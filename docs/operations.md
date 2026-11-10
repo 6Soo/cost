@@ -58,6 +58,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 | 8 | `9ad0a454ae323cb6ee61c2a4827dca3bf34caa15` | f5758929 | #779(다른 세션 UI 1차, 검수 ff198354)·#782 | PASS 20:27Z, 1,494 blobs mismatch0, 다른 세션과 조율해 단일 작성자 배포 |
 | 9 | `895a412eabc19fecda37d34245f0cd0e42e32649` | 9ad0a454 | #783(Agoda 상세 API 포털 근거)·#781(문서) | PASS 05:48Z, 1,498 blobs mismatch0. 이후 별도 단계로 OTA 저장소 백업→Agoda 상세 1,418건 수입 |
 | 10 | `998dd46100a8bd11304532f741e15f162fd9c3c6` | 895a412e | #784(동일 객실 표시) | PASS 06:22Z |
+| 11 | `374462fe922a67b53758d7e1d8bb46c5e4eedaf6` | 998dd461 | #787(Trip 주문·사전승인)·#785/#786(문서) | PASS 08:06Z, 1,501 blobs mismatch0. 이후 OTA 저장소 백업→Trip 상세 502건 수입 |
 
 - 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`(단, 0번 3dd0750e는 `false` — #767 시점 Worker 전환 도구 결함으로, #769 이후 1~8번은 모두 `true`). 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
 - 성능 수락(인증 ego-browser, 같은 3개 여행 장부): 7334f1ae 3.2–9.6s(1건 502/38s), 요청 지표 잠금 대기 p50 1,211ms·p95 51,959ms → cee973fb 0.9–1.0s, 잠금 대기 p50 0.003ms·p95 197ms, first_render p50 777ms.
@@ -182,3 +183,4 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 - ego-browser 합성 전후1440/390/320px, 긴 파일명·22구간 접기/펼치기·공백→업로드·포커스/Escape·빈 상태/오류 재시도 PASS, 다크 요약 라벨 대비4.04→9.90:1 수정. 720 CSS px의200% 상당 reflow 확인; 실제 브라우저 확대·스크린리더·실기기·RTL 미검증.
 - 인증된 운영 GET/API·DOM에서 **23파일/27표시그룹/515공백/날짜없는파일0**, 거래일자 상태·coverage panel 및 구 조회기간/관리 시작일 폼0 확인. 운영 DB mode=ro 사전 집계156ms. 이는 전체 고객 화면의 독립 시각 수락·전후 운영 진입성능 측정 완료를 뜻하지 않는다. 고객 파일명·거래 원문은 보고서/Git에 넣지 않았다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d97158484d17f974668dafffafdb1a7b462a7249.json`, 비공개 `C:/AX/cost/.local-archive/transaction-gaps-20261108/`의 배포/사후 smoke/보호표·QA·독립 검토·브라우저 기록. 기존 main의 다른 미배포 로컬 커밋8개는 포함하지 않고 보존했다. 이 운영 기록 등 문서-only 후속은 재배포하지 않는다.
+- 2026-11-10 17:06 KST Gmail 수집 토큰 만료(테스트 상태 OAuth 앱 7일) → 재인증·프로덕션 게시로 복구. 수집이 HTTP 400으로 실패하면 운영 릴리스에서 `python -m app.mail_collect --authorize …`로 재인증한다(현재 상태 문서 참고).
