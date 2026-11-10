@@ -1383,7 +1383,7 @@ if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 PAGE_CSS = r"""*{box-sizing:border-box}
 :root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-bg);--focus:var(--c-focus);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--grn-dk:var(--c-accent-solid-hover);--grn-lt:var(--c-accent-subtle);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
 
-body{font-family:system-ui,sans-serif;margin:0;padding:12px 12px 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
+body{font-family:system-ui,sans-serif;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
 h1{font-size:var(--t-h1);margin:6px 0 10px}h2{font-size:var(--t-body);margin:0 0 8px}h3{font-size:var(--t-body-sm);margin:6px 0}
 section,details{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);padding:14px;margin:12px 0;min-width:0}
 details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
@@ -1436,7 +1436,9 @@ tr{border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper
 td{border:0;border-bottom:1px solid var(--line2);padding:8px 0;overflow-wrap:break-word}td:last-child{border:0}
 td::before{content:attr(data-label);display:block;font-size:var(--t-meta);font-weight:600;margin-bottom:6px;overflow-wrap:break-word}
 input,select,button{min-height:44px;font-size:var(--t-body)}td button{width:100%}}
-@media(min-width:760px){body{margin:16px auto;max-width:960px;padding:0 16px 80px}.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
+@media(min-width:760px){.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
+.steps{list-style:none;padding:0;margin:0 0 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.steps li{padding:10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);font-size:var(--t-meta)}.steps li a{color:var(--ink);text-decoration:none;font-weight:600}.steps li[data-step-state=done]{border-color:var(--grn)}.step-note{display:block;color:var(--mut);margin-top:4px}@media(width < 760px){.steps{grid-template-columns:1fr 1fr}}
+.file-drop{display:flex;align-items:center;justify-content:center;min-height:88px;padding:16px;border:1px dashed var(--line-strong);border-radius:var(--r-md);background:var(--paper);cursor:pointer;text-align:center}.file-drop input{position:absolute;width:1px;height:1px;opacity:0}.field-error{color:var(--neg);font-size:var(--t-body-sm);margin:6px 0}.field-error:empty{display:none}
 tr[hidden]{display:none!important}
 #receipt-pdf,#other-methods:not([open]),#step-group:not([open]){padding:0;border:0;background:transparent}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"""
@@ -1486,6 +1488,7 @@ def _notes_html() -> str:
 
 
 def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
+    from . import ui_components
     trips = trips or []
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
@@ -1539,7 +1542,8 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "return [...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,'0')).join('')};"
         "const recoverUpload=async(body,isPdf)=>{const sha=await bodySha(body);"
         "const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);let saved;"
-        "try{saved=await fetch('/api/receipts',{signal:controller.signal,cache:'no-store',headers:{'X-CSRF-Token':csrf}}).then(readResponse)}finally{clearTimeout(timer)}"
+        "const readSaved=()=>fetch('/api/receipts',{signal:controller.signal,cache:'no-store',headers:{'X-CSRF-Token':csrf}}).then(readResponse);"
+        "try{saved=await readSaved();if(isPdf&&!(saved.pdfs||[]).some(item=>item.sha256===sha)){for(const wait of [80,160,320]){await new Promise(resolve=>setTimeout(resolve,wait));saved=await readSaved();if((saved.pdfs||[]).some(item=>item.sha256===sha))break}}}finally{clearTimeout(timer)}"
         "if(!isPdf)return (saved.images||[]).includes(sha)?{sha256:sha,duplicate:true,recovered:true}:null;"
         "const pdf=(saved.pdfs||[]).find(item=>item.sha256===sha);"
         "return pdf?{...pdf,duplicate:true,recovered:true}:null};"
@@ -1572,7 +1576,8 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
         "say('선택한 사진의 영수증 값을 입력해 주세요.')});"
-        "const openManualFor=sha=>{document.getElementById('image-sha').value=sha;const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(sha);preview.hidden=false;document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
+         "const openManualFor=sha=>{document.getElementById('image-sha').value=sha;const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(sha);preview.hidden=false;document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
+         "const manualOpen=document.getElementById('manual-open');if(manualOpen)manualOpen.onclick=()=>{document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
         "document.addEventListener('click',event=>{const button=event.target.closest('[data-manual-image],[data-image-sha]');if(!button)return;const sha=button.dataset.manualImage||button.dataset.imageSha;"
         "if(sha!==document.getElementById('image-sha').value&&manualHasInput()){event.preventDefault();event.stopImmediatePropagation();say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.')}},true);"
         "document.addEventListener('click',event=>{const button=event.target.closest('[data-manual-image]');if(button)openManualFor(button.dataset.manualImage)});"
@@ -1600,7 +1605,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const current=document.getElementById('image-sha').value;if(current){const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(current);preview.hidden=false}"
         "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent=file.name+(uncertain?' · 저장 여부 확인 필요: ':' · 실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.dataset.uploadRecovery='1';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='실패 파일 제거';remove.dataset.uploadRecovery='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove()};row.append(' ',retry,' ',remove)}}}"
         "finally{restore();receiptBusy=false;results.querySelectorAll('[data-upload-recovery]').forEach(button=>button.disabled=false);document.dispatchEvent(new Event('receipt-workflow-change'))}};"
-        "document.getElementById('img-go').onclick=()=>{if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
+        "document.getElementById('img-go').onclick=()=>{if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
@@ -1611,7 +1616,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
         "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
-        "if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}"
+        "if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}"
         "if(!document.getElementById('r-currency').value){say('통화를 선택해 주세요.');return}"
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
@@ -1655,38 +1660,54 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                   "<div id='vision-results' aria-live='polite'></div>"
                   + (_rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요") if ai else '')
                   + "</section>")
+    workflow_steps = ui_components.steps([
+        {"label": "1. 여행 선택", "state": "todo", "href": "#step-trip"},
+        {"label": "2. 파일 등록", "state": "todo", "href": "#step-photos"},
+        {"label": "3. 결과 확인·수정", "state": "todo", "href": "#step-review"},
+        {"label": "4. 장부용 복사", "state": "todo", "href": "#step-copy"},
+    ]).replace(' data-state=', ' data-step-state=', 1_000)
+    workflow_steps = workflow_steps.replace(
+        '<ol class="steps">', '<ol class="steps" aria-label="영수증 등록 단계">', 1)
+    file_drop_html = ui_components.file_drop(
+        "img-file", "image/*,application/pdf,.pdf", multiple=True,
+        label="JPG·PNG·HEIC·PDF 파일을 선택하세요",
+    ).replace('name="img-file"', 'name="img-file" id="img-file"', 1).replace(
+        '<ul aria-live="polite"></ul>', '', 1)
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 처리</title>"
             f"<style>{PAGE_CSS}</style></head><body>"
+            "<p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
             "<main><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
-            "<section id='step-trip'><h2>여행 선택</h2><label>검토할 여행"
-            "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
-            "</select></label></section>"
-            "<section id='step-photos'><h2>영수증 파일 등록</h2>"
-            "<div><label>영수증 파일 선택<input id='img-file' type='file' multiple accept='image/*,application/pdf,.pdf'></label> "
-            f"<button type='button' id='img-go' disabled>{ui_icons.icon('upload')}등록 및 확인</button></div>"
-            "<ul id='selected-files' aria-label='선택한 파일'></ul>"
+            + workflow_steps
+             + "<section id='step-trip'><h2>1. 여행 선택</h2><div class='field'><label for='selected-trip'>여행</label>"
+             "<select id='selected-trip'><option value=''>여행을 선택하세요</option>" + trip_options +
+             "</select><p id='trip-error' class='field-error' role='alert'></p></div></section>"
+             "<section id='step-photos'><h2>2. 파일 등록</h2>"
+             + file_drop_html
+             + "<ul id='selected-files' aria-live='polite'></ul>"
+             + f"<p id='file-error' class='field-error' role='alert'></p><button type='button' id='img-go'>{ui_icons.icon('upload')}등록</button>"
             "<div id='upload-results' aria-live='polite'></div>"
             + ("<section class='receipt-saved-files' aria-label='저장된 파일'><h3>저장된 파일</h3><ul>" + ''.join(uploaded_results) + "</ul></section>" if uploaded_results else "")
             + (f"<details><summary>저장된 PDF 원본 {len(data.get('pdfs', []))}건</summary><ul>{pdf_results}</ul></details>" if pdf_results else "") +
             f"<input type='hidden' id='image-sha' value='{latest}'>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
-            + ai_section
-            + "<section id='step-review'><h2>후보 검토</h2>" +
+            + "<section id='step-results'><h2>3. 결과 확인·수정</h2>" + ai_section
+            + "<section id='step-review'><h3>후보 검토</h3>" +
             "<p class='hint'>분류가 끝난 영수증만 지출로 복사됩니다.</p>"
             "<p id='receipt-visible-count' role='status'></p>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table></section>"
+            f"</tr></thead><tbody>{rows}</tbody></table></section></section>"
             "<details id='step-group'><summary>승선권 등 선택 묶기</summary>"
             "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></details>"
-            + "<section id='step-copy'><h2>장부용 내역 복사</h2>" +
+            + "<section id='step-copy'><h2>4. 장부용 복사</h2>" +
             f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
             f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
             "</section>"
-            + (f"<section id='receipt-holds'><h2>확인 필요</h2><ul>{holds}</ul></section>" if holds else '') +
-            "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
+             + (f"<section id='receipt-holds'><h2>확인 필요</h2><ul>{holds}</ul></section>" if holds else '') +
+             "<button type='button' class='btn' id='manual-open'>직접 입력</button>"
+             "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
             + (f"<img id='manual-preview' alt='직접 입력할 영수증 원본' src='/api/receipts/image/{html.escape(latest)}'>" if latest else
                "<img id='manual-preview' alt='직접 입력할 영수증 원본' hidden>")
             + ocr +
@@ -1708,7 +1729,7 @@ const update=()=>{
  if(receiptBusy)return;
  const checked=[...document.querySelectorAll('[data-group-select]:checked')],photos=document.querySelectorAll('.photo-check:checked').length;
  const state=(id,enabled)=>{const el=byId(id);if(el)el.disabled=!enabled};
- state('img-go',selectedFiles.length>0);
+ state('img-go',true);
  state('vision-go',!!trip.value&&photos>0);
  state('rescan-go',!!trip.value&&!!byId('image-sha').value);
  state('ocr-go',!!byId('image-sha').value);

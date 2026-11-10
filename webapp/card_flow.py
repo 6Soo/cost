@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -370,7 +371,8 @@ def batch_catalog(board):
 
 @read_scope.scoped
 def home_page(board):
-    from . import ledger_board, ledger_design, ui_icons
+    from . import ledger_board, ledger_design, receipt_review, ui_icons
+    from . import card_upload_coverage
     from app.reserve_trips import registrations, sync_status, today, KST
     import datetime as dt
     esc = ledger_board.esc
@@ -387,92 +389,101 @@ def home_page(board):
             "FROM transactions t WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
-    trips = board.list_trips()
-    registered = registrations(board)
-    upcoming = sorted((t for t in trips if t['tab_id'] in registered
-                       and registered[t['tab_id']]['departure_status']=='scheduled'
-                       and t['starts_on'] >= today()), key=lambda t:(t['starts_on'], t['display_key']))
-    # A manually created trip is still a usable ledger entry point even when
-    # no reservation feed has registered its departure. Do not call it scheduled.
-    listed_trips = upcoming or sorted(
-        (t for t in trips if not t.get('deleted') and not t.get('archived')),
-        key=lambda t:(t['starts_on'], t['display_key']))
-    trip_heading = '출발 예정 여행' if upcoming else '등록된 여행'
+        last_transaction_row = board.conn.execute(
+            "SELECT MAX(COALESCE(NULLIF(approval_date,''),NULLIF(posting_date,''))) FROM transactions").fetchone()
+    last_transaction = (last_transaction_row[0] if last_transaction_row else '') or ''
+    trips = [t for t in board.list_trips()
+             if not t.get('deleted') and not t.get('archived')
+             and not ledger_board.is_previous_trip(t)]
+    listed_trips = sorted(trips, key=lambda t:(t['starts_on'], t['display_key']))
+    trip_heading = '진행 중 여행'
     posted = board.visible_row_count()
-    board_tab = upcoming[0]['tab_id'] if upcoming else ledger_board.default_board_tab()
+    try:
+        trip_summaries = board.trip_management_summaries()
+    except (AttributeError, sqlite3.Error, ValueError, KeyError, TypeError):
+        trip_summaries = {}
     def short_date(value):
         parts = str(value).split('-')
         return f"{parts[1]}.{parts[2]}" if len(parts) == 3 else str(value)
 
+    def trip_expense_count(trip):
+        summary = trip_summaries.get(trip['tab_id'], {}) if isinstance(trip_summaries, dict) else {}
+        return int(summary.get('expense_count', 0) or 0)
     items = ''.join(
-        f"<li><a class='home-trip' href='/board?tab={esc(t['tab_id'])}'>"
-        f"<strong>{esc(t['display_key'])}</strong>"
-        f"<span class='home-date' title='{esc(t['starts_on'])} ~ {esc(t['ends_on'])}'>"
-        f"<span class='home-date-full'>{esc(t['starts_on'])} ~ {esc(t['ends_on'])}</span>"
-        f"<span class='home-date-short' aria-hidden='true'>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</span>"
-        "</span></a></li>"
-        for t in listed_trips[:6])
+        f"<tr><th scope='row'><a href='/board?tab={esc(t['tab_id'])}'>{esc(t['display_key'])}</a></th>"
+        f"<td>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</td>"
+        f"<td>{trip_expense_count(t)}건</td>"
+        f"<td>{'마감' if t.get('visual_closed') else '미마감'}</td></tr>"
+        for t in listed_trips[:8])
     state = sync_status(board)
     next_run = state.get('next_run_at')
     next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
                  if next_run else '')
     if next_run and dt.datetime.fromisoformat(next_run).astimezone(KST) <= dt.datetime.now(KST):
         next_note = ''
+    coverage = {}
+    try:
+        coverage = card_upload_coverage.get_coverage_summary(board)
+    except Exception:
+        coverage = {}
+    gap_count = int((coverage.get('overview') or {}).get('gap_count') or 0)
+    receipt_count = 0
+    if receipt_review.enabled():
+        try:
+            receipt_count = len(receipt_review.load(receipt_review._store_path()).get('candidates', []))
+        except Exception:
+            receipt_count = 0
     body = ("<style>"
              ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
              ".home-status{font-size:var(--t-meta);color:var(--mut);margin:0 0 12px}"
+             ".home-status-list{list-style:none;padding:0;margin:0;display:grid;gap:10px}"
+             ".home-status-list li{display:flex;gap:12px;flex-wrap:wrap;align-items:baseline}"
+             ".home-status-list span{color:var(--mut);min-width:104px}"
              ".home-status b{color:var(--ink);font-weight:700}"
              ".page-body a.btn.primary{background:var(--grn);border-color:var(--grn);color:var(--c-on-accent)}"
              ".page-body a.btn.primary:hover{background:var(--grn-hover,var(--grn-dk));border-color:var(--grn-hover,var(--grn-dk));color:var(--c-on-accent)}"
              ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:var(--c-on-accent)}"
             ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:var(--c-on-accent)}"
             ".home-primary{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 0 10px!important}"
-            ".home-secondary{display:flex;gap:10px;flex-wrap:wrap}"
             ".home-travel-section{padding:18px 24px 22px}"
             ".home-travel-heading{font-size:var(--t-h3)!important;margin:0 0 8px!important}"
-            ".home-trips{list-style:none!important;margin:0 0 8px!important;padding:0!important;border-top:1px solid var(--line)}"
-            ".home-trips li{margin:0!important}"
-            ".home-trip{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:42px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:var(--t-meta);text-decoration:none}"
-            ".home-trip strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--ink)}"
-            ".home-date{flex:0 0 auto;font-size:var(--t-meta);color:var(--mut);white-space:nowrap}"
-            ".home-date-short{display:none}"
+            ".home-trips{margin:0 0 8px!important}"
             ".home-all{font-size:var(--t-meta);margin:8px 0 0!important}"
             "@media(width < 760px){"
             ".home-main .page-hd{padding:20px 16px 6px;border-bottom:0;display:block}"
             ".home-main .page-hd h1{font-size:var(--t-h1);line-height:1.2}"
             ".home-main .page-hd .synth,.home-main .page-hd .meta,.home-main .page-hd .act{display:none}"
             ".home-overview{padding:0 16px 10px;border-bottom:0}"
+            ".home-status-list li{display:grid;grid-template-columns:88px minmax(0,1fr);gap:6px}"
+            ".home-status-list li a{grid-column:2}"
             ".home-status{font-size:var(--t-meta);line-height:1.35;margin:0 0 12px;white-space:normal}"
             ".home-primary{display:flex;width:100%;min-height:46px;margin:0 0 8px!important;justify-content:center;font-size:var(--t-body-sm)}"
-            ".home-secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:0}"
             ".home-main .work-action{min-height:44px;padding:8px}"
             ".home-main .work-action small{display:none}"
-            ".page-body .home-secondary .btn{width:100%;height:36px;margin:0;padding:0 5px;font-size:var(--t-meta);font-weight:600;background:var(--paper);border-color:var(--line-strong);color:var(--ink)}"
             ".home-travel-section{padding:12px 16px 18px}"
             ".home-travel-heading{font-size:var(--t-h3)!important;line-height:1.25;margin:0 0 6px!important}"
-            ".home-trip{min-height:48px;padding:0;font-size:var(--t-body-sm)}"
-            ".home-date{font-size:var(--t-meta)}"
-            ".home-date-full{display:none}"
-            ".home-date-short{display:inline}"
             ".home-all{margin:7px 0 0!important;font-size:var(--t-meta)}"
             ".home-next-note{display:none}"
             "}"
             "</style>"
-            "<section class='home-overview' aria-label='카드 자료와 장부 현황'>"
-            f"<p class='home-status'>{'조회 기간 내 카드 거래' if review_from else '저장된 카드 거래 전체'} <b>{saved:,}</b> · 장부 <b>{posted:,}</b></p>"
+            "<section class='home-overview' aria-label='자료 상태'>"
+                "<h2 class='home-travel-heading'>자료 상태</h2><ul class='home-status-list'>"
+            + f"<li><span>카드 자료</span><strong>{'저장된 카드 거래 전체' if not review_from else '조회 기간 내 카드 거래'} <b>{saved}</b> · 장부 <b>{posted}</b></strong>"
+            + (f" · 마지막 거래 {esc(last_transaction)}" if last_transaction else "")
+            + (f" <a href='/cards/all?panel=coverage'>빈 기간 {gap_count}곳 보기</a>" if gap_count else "") + "</li>"
+            + (f"<li><span>영수증</span><strong>이번 달 등록 {receipt_count}건</strong> <a href='/receipts'>영수증 열기</a></li>" if receipt_review.enabled() else "")
+            + (f"<li><span>여행 일정 조회</span><strong>다음 조회 {esc(next_note)}</strong></li>" if next_note else "")
+            + "</ul>"
             f"<a class='btn primary home-primary' href='/cards/all?panel=upload'>{ui_icons.icon('upload')}카드 업로드</a>"
-            "<nav class='home-secondary' aria-label='장부 보조 작업'>"
-            f"<a class='btn' href='/cards/all'>{ui_icons.icon('credit-card')}카드 내역</a>"
-            f"<a class='btn' href='/board?tab={esc(board_tab)}'>{ui_icons.icon('book-open')}장부</a>"
-            "</nav></section>"
-            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips)}</h2>"
-            + (f"<ul class='home-trips'>{items}</ul>"
-               if items else "<p>등록된 여행이 없습니다. 전체 여행 보기에서 여행을 추가해 주세요.</p>")
+            "</section>"
+            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips[:8])}</h2>"
+            + ("<div class='data-table-wrap'><table class='data-table'><thead><tr><th>여행</th><th>기간</th><th>지출</th><th>마감</th></tr></thead><tbody>" + items + "</tbody></table></div>"
+               if items else "<p>진행 중인 여행이 없습니다. 여행은 Google 시트 탭으로 만듭니다.</p>")
             + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"
             + (f"<p class='muted home-next-note'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
             + "</section>")
     return ledger_design.render(ledger_design.shell(
-        '장부 현황', tab_id='', heading='장부 현황', body=body, home=True))
+        '정산 현황', tab_id='', heading='정산 현황', body=body, home=True))
 
 
 class CardFlow:

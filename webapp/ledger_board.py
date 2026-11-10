@@ -28,7 +28,8 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import board_export_helpers, board_http_shapes, board_learning_dialog, board_read_projection, board_render_helpers, read_scope, ui_icons
+from . import (board_export_helpers, board_http_shapes, board_learning_dialog,
+               board_read_projection, board_render_helpers, read_scope, ui_icons)
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -501,7 +502,7 @@ def access_control_allowed():
     return set(access_control.VIEWER_ROW_FIELDS)
 
 
-def access_control_render_owner_admin(session, store) -> str:
+def access_control_render_owner_admin(session, store, view: str = "", return_to: str = "") -> str:
     """The owner's account-management entry point and the pending count.
 
     SPEC 16.2: the owner gets an entry point and a pending count. No mail is
@@ -521,15 +522,34 @@ def access_control_render_owner_admin(session, store) -> str:
         f" {esc('(' + p['disambiguator'] + ')') if p['disambiguator'] else ''}"
         f"{' · 비활성' if not p['is_active'] else ''}</li>"
         for p in store.list_reservation_persons())
-    body = (
-        "<div class='sect'><h2>계정 관리</h2>"
-        f"<p>대기 신청 {len(pending)}건</p>"
-        f"<ul>{rows}</ul>"
-        "<h3>예약 담당자 후보</h3>"
-        f"<ul>{people}</ul>"
-        "</div>")
+    profile = store.owner_profile() if hasattr(store, "owner_profile") else {"company_name": "", "assignee_name": "", "revision": 0}
+    tabs = ("<nav class='section-tabs' aria-label='관리 하위 메뉴'>"
+            f"<a href='/access/admin' aria-current={'page' if view != 'profile' else 'false'}>계정·권한</a>"
+            f"<a href='/access/admin?view=profile&return_to={esc(return_to or '/access/admin')}"
+            f" aria-current={'page' if view == 'profile' else 'false'}>기본 정보</a>"
+            "<a href='/google-ledger'>Google 장부 연결</a></nav>")
+    if view == "profile":
+        body = ("<section class='sect'><h2>기본 정보</h2>"
+                "<p class='muted'>새 여행에 사용할 회사명과 기본 담당자명을 관리합니다.</p>"
+                "<form method='post' action='/api/owner-profile' id='owner-profile-form'>"
+                f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
+                f"<input type='hidden' name='expected_revision' value='{profile.get('revision', 0)}'>"
+                f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+                f"<input type='hidden' name='return_to' value='{esc(return_to or '/access/admin?view=profile')}'>"
+                f"<p><label for='owner-company-name'>회사명</label><input id='owner-company-name' name='company_name' value='{esc(profile.get('company_name', ''))}'></p>"
+                f"<p><label for='owner-assignee-name'>기본 담당자명</label><input id='owner-assignee-name' name='assignee_name' value='{esc(profile.get('assignee_name', ''))}'></p>"
+                "<div class='form-actions'><button class='btn primary' type='submit'>기본 정보 저장</button>"
+                "<a class='btn ghost' href='/access/admin'>취소</a></div></form></section>")
+    else:
+        body = (
+            "<section class='sect'><h2>계정·권한 <span class='sr'>계정 관리</span></h2>"
+            f"<p>대기 신청 {len(pending)}건</p>"
+            f"<ul>{rows}</ul>"
+            "<h3>예약 담당자 후보</h3>"
+            f"<ul>{people}</ul>"
+            "</section>")
     return ledger_design.render(ledger_design.shell(
-        "계정 관리", tab_id="", heading="계정 관리", body=body))
+        "관리", tab_id="", heading="관리", body=tabs + body))
 
 
 def _operator_choice(case_id, form):
@@ -1349,32 +1369,29 @@ def board_page(tab_id: str, query: str = "") -> str:
 
 
 def income_new_page() -> str:
+    from . import ledger_design
     options = "".join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t['display_key'])}</option>" for t in live_trips()
     )
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/cards/all?panel=upload'>카드 업로드</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
     body = (
-        "<div class='body'><h2>수입 직접 입력</h2>"
+        "<section class='sect manual-income-page'><p class='muted'>Google 장부에 반영할 수입을 직접 기록합니다.</p>"
         f"<form method='post' action='/api/income'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-        f"<p><label>여행</label><select name='display_tab_id'>{options}</select></p>"
-        "<p><label>거래일자</label><input name='occurred_on' placeholder='2026-04-01'></p>"
-        "<p><label>금액(원)</label><input name='amount_krw'></p>"
-        "<p><label>입금 종류</label><select name='income_kind'>"
+        f"<p><label for='income-trip'>여행</label><select id='income-trip' name='display_tab_id'><option value=''>여행을 선택하세요</option>{options}</select></p>"
+        "<p><label for='income-date'>거래일자</label><input id='income-date' name='occurred_on' placeholder='2026-04-01'></p>"
+        "<p><label for='income-amount'>금액(원)</label><input id='income-amount' name='amount_krw' inputmode='numeric'></p>"
+        "<p><label for='income-kind'>입금 종류</label><select id='income-kind' name='income_kind'>"
         "<option value='deposit'>예약금</option><option value='balance'>잔금</option>"
         "<option value='additional'>추가금</option></select></p>"
-        "<p><label>이름</label><input name='customer_name'></p>"
-        "<p><label>닉네임</label><input name='nickname'></p>"
-        "<p><label>메모</label><input name='operator_note'></p>"
-        "<button type='submit'>저장</button></form></div>"
+        "<p><label for='income-name'>이름</label><input id='income-name' name='customer_name'></p>"
+        "<p><label for='income-nickname'>닉네임</label><input id='income-nickname' name='nickname'></p>"
+        "<p><label for='income-note'>메모</label><input id='income-note' name='operator_note'></p>"
+        "<div class='form-actions'><button class='btn primary' type='submit'>저장</button>"
+        "<a class='btn ghost' href='/board'>취소</a></div></form></section>"
     )
-    return layout("수입 직접 입력", f"{top}<div class='wrap'>{body}</div>")
+    return ledger_design.render(ledger_design.shell(
+        "수입 직접 입력", tab_id="", heading="수입 직접 입력", body=body))
 
 
 MANUAL_EXPENSE_STYLE = """<style>
@@ -1405,7 +1422,7 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
     if not any(t['tab_id'] == selected_tab for t in trips):
         options = "<option value='' selected>기타비용</option>" + options
     close = ("<button type='button' data-manual-close>닫기</button>" if modal
-             else f"<a href='/board?{esc(urlencode({'tab': selected_tab}))}'>장부로 돌아가기</a>")
+             else f"<a class='btn ghost' href='/board?{esc(urlencode({'tab': selected_tab}))}'>취소</a>")
     heading = ("<h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
                if modal else "")
     return (
@@ -1431,12 +1448,12 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
 
 
 def expense_new_page(selected_tab: str = "") -> str:
-    return layout(
-        "수기 지출 추가",
-        "<main id='main'><h1>수기 지출 추가</h1>"
-        "<p class='mx-sub'>현금·계좌이체</p>"
-        f"<div class='wrap'>{MANUAL_EXPENSE_STYLE}{manual_expense_form(selected_tab)}</div></main>",
-    )
+    from . import ledger_design
+    body = (f"{MANUAL_EXPENSE_STYLE}<section class='sect manual-expense-page'>"
+            "<p class='mx-sub'>현금·계좌이체</p>"
+            f"{manual_expense_form(selected_tab)}</section>")
+    return ledger_design.render(ledger_design.shell(
+        "수기 지출 추가", tab_id=selected_tab, heading="수기 지출 추가", body=body))
 
 
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
@@ -1463,7 +1480,7 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     )
 
 
-def trips_page(preview_tab: str = "", role: str = "") -> str:
+def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: str = "") -> str:
     from . import ledger_design, google_ledger_page
     from .sheets_export import _assignee_confirmed
 
@@ -1473,8 +1490,9 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         # passes the role it decided on the server, so nothing is guessed here.
         role = "viewer" if ACCESS_ENFORCEMENT else "owner"
     if _active_store() is None:
-        body = "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>"
-        return layout("여행 관리", f"{top}<div class='wrap'>{body}</div>")
+        body = "<section class='sect'><p>저장소가 연결되지 않았습니다.</p></section>"
+        return ledger_design.render(ledger_design.shell(
+            "여행", tab_id="", heading="여행", body=body))
     store = _active_store()
     profile = (store.owner_profile() if store is not None
                and hasattr(store, "owner_profile")
@@ -1488,9 +1506,36 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         trip_summaries = store.trip_management_summaries()
     except (sqlite3.Error, ValueError, KeyError, TypeError):
         trip_summaries = None
-    for t in live_trips(include_archived=True):
-        if t.get("deleted"):
-            continue
+    all_trips = [t for t in live_trips(include_archived=True) if not t.get("deleted")]
+    state = state if state in {"", "active", "closed", "previous", "archived", "quarter"} else "active"
+    if state == "quarter":
+        from app import quarter_tab
+        quarter_rows = []
+        for year, quarter in ((dt.date.today().year, q) for q in range(1, 5)):
+            start_month = (quarter - 1) * 3 + 1
+            start = dt.date(year, start_month, 1)
+            end = dt.date(year + (1 if quarter == 4 else 0), 1 if quarter == 4 else start_month + 3, 1) - dt.timedelta(days=1)
+            tab_id = quarter_tab.tab_id_for(year, quarter)
+            quarter_rows.append({"tab_id": tab_id, "display_key": f"{year}년 {quarter}분기 기타비용",
+                                 "display_title": f"{year}년 {quarter}분기 기타비용", "starts_on": start.isoformat(),
+                                 "ends_on": end.isoformat(), "destination": "분기 기타비용", "archived": False,
+                                 "visual_closed": False, "prepared_on": "", "prepared_by_name": "", "revision": 0,
+                                 "owner_alias": "", "owner_id": ""})
+        all_trips = quarter_rows
+    elif state == "active":
+        all_trips = [t for t in all_trips if not t.get("archived") and not t.get("visual_closed") and not is_previous_trip(t)]
+    elif state == "closed":
+        all_trips = [t for t in all_trips if t.get("visual_closed") and not t.get("archived") and not is_previous_trip(t)]
+    elif state == "previous":
+        all_trips = [t for t in all_trips if is_previous_trip(t) and not t.get("archived")]
+    elif state == "archived":
+        all_trips = [t for t in all_trips if t.get("archived")]
+    if search:
+        needle = search.casefold()
+        all_trips = [t for t in all_trips if needle in " ".join(str(t.get(k, "")) for k in ("display_key", "display_title", "destination", "prepared_by_name", "owner_name")).casefold()]
+    for t in all_trips:
+        preview = {"income_count": 0, "income_total": 0,
+                   "expense_count": 0, "expense_total": 0}
         try:
             kind = "보관됨" if t["archived"] else "활성"
             registration = reserve_trips.get(t['tab_id'])
@@ -1521,10 +1566,11 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 " <span class='muted warntext'>· 담당자 확인이 필요해요"
                 " (출처가 기록되지 않은 값이에요)</span>")
         cards.append(
-            f"<article class='card trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
-            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">✓ 마감</span>' if t.get('visual_closed') else ''} <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
-            f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
-            "<details class='trip-meta'><summary>여행 관리</summary>"
+            f"<tr class='trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t.get('archived')))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
+            f"<td><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">마감</span>' if t.get('visual_closed') else ''}</td>"
+            f"<td>{esc(t['starts_on'])}–{esc(t['ends_on'])}</td><td>{esc(assignee_shown or '—')}</td>"
+            f"<td class='num'>{esc(str(preview.get('expense_count', 0)))}건</td><td>{'마감' if t.get('visual_closed') else '미마감'}</td>"
+            f"<td><details class='trip-meta'><summary class='icon-btn' aria-label='{esc(t.get('display_key') or t['tab_id'])} 작업'>⋯</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
             # APP_SPEC 3 keeps the schedule authority and the tab kind apart from
@@ -1562,7 +1608,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<input type='hidden' name='archived' value='{'0' if t['archived'] else '1'}'>"
             "<input type='hidden' name='return_to' value='/trips'>"
             f"<button type='submit'>{ui_icons.icon('archive')}{'복원' if t['archived'] else '보관'}</button></form>"
-            f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
             + (f"<form method='post' class='trip-close-form' action='/api/trips/{esc(t['tab_id'])}/meta'>"
                f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
                f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1570,26 +1615,11 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
                "<input type='hidden' name='return_to' value='/trips'>"
                f"<button type='submit'>{ui_icons.icon('rotate-ccw' if t.get('visual_closed') else 'check')}{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
-            + "</details></article>"
+            + "</details></td></tr>"
         )
-    profile_html = ""
-    if role == "owner":
-        # The owner's own company name and default assignee. Owner-only, because
-        # it is the source for what every new trip is stamped with, and an empty
-        # field is a legitimate state rather than something to guess at.
-        profile_html = (
-            "<details class='card'><summary>회사·담당자 정보</summary>"
-            "<form method='post' action='/api/owner-profile' id='owner-profile-form'>"
-            f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
-            f"<input type='hidden' name='expected_revision' value='{profile['revision']}'>"
-            f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-            "<input type='hidden' name='return_to' value='/trips'>"
-            "<p><label for='owner-company-name'>회사명</label>"
-            f"<input id='owner-company-name' name='company_name' value='{esc(profile['company_name'])}'></p>"
-            "<p><label for='owner-assignee-name'>기본 담당자명</label>"
-            f"<input id='owner-assignee-name' name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
-            "<p class='muted'>새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.</p>"
-            f"<button type='submit'>{ui_icons.icon('save')}기본 정보 저장</button></form></details>")
+    profile_html = ("<p class='muted'>회사·담당자 정보는 "
+                    "<a href='/access/admin?view=profile&return_to=/trips'>관리 › 기본 정보</a>에서 수정합니다.</p>"
+                    if role == "owner" else "")
     preview_html = ""
     if preview_tab:
         try:
@@ -1622,21 +1652,25 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             )
         except Exception as exc:
             preview_html = f"<div class='card'><p>미리보기 실패: {esc(str(exc))}</p></div>"
-    body = ("<div class='sect'><form id='trip-management-filter' role='search'>"
-            "<label for='trip-management-search'>여행 찾기</label> "
-            "<input id='trip-management-search' type='search' placeholder='여행 이름·코드·담당자'> "
-            "<details class='trip-filter-tools'><summary>상세 조건</summary><div>"
-            "<label for='trip-management-owner'>담당자</label> <select id='trip-management-owner'>"
-            "<option value=''>전체</option><option value='aslan'>아슬란</option><option value='andre'>김동언(안드레)</option></select> "
-            "<label for='trip-management-state'>상태</label> <select id='trip-management-state'>"
-            "<option value=''>전체</option><option value='0'>활성</option><option value='1'>보관</option></select> "
-            "<label for='trip-management-closed'>마감</label> <select id='trip-management-closed'>"
-            "<option value=''>전체</option><option value='0'>미마감</option><option value='1'>마감</option></select> "
-            "<button type='reset'>초기화</button></div></details><p id='trip-management-count' role='status'></p></form>"
-            f"{profile_html}{preview_html}{''.join(cards)}"
-            "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></div>")
+    tabs = "".join(
+        f"<a class='btn{' primary' if state == key else ''}' href='/trips?state={key}' aria-current={'page' if state == key else 'false'}>{label}</a>"
+        for key, label in (("active", "진행 중"), ("closed", "마감"), ("previous", "이전"), ("archived", "보관"), ("quarter", "분기 기타비용")))
+    body = ("<section class='sect trips-page'><form id='trip-management-filter' class='filter-bar' role='search' method='get'>"
+            "<label for='trip-management-search'>여행 이름·코드·담당자</label>"
+            f"<input id='trip-management-search' name='q' type='search' placeholder='여행 이름·코드·담당자' value='{esc(search)}'>"
+            f"<input type='hidden' name='state' value='{esc(state)}'><button class='btn primary' type='submit'>조회</button>"
+            "<a class='btn ghost' href='/trips'>초기화</a>"
+            "<select id='trip-management-state' hidden><option value=''>서버 상태</option><option value='0'>활성</option><option value='1'>보관</option></select>"
+            "<select id='trip-management-closed' hidden><option value=''>마감</option><option value='0'>미마감</option><option value='1'>마감</option></select>"
+            "<select id='trip-management-owner' hidden><option value=''>담당자</option></select></form>"
+            f"<nav class='section-tabs' aria-label='여행 상태'>{tabs}</nav>"
+            f"{profile_html}{preview_html}"
+            "<p id='trip-management-count' role='status'>결과 " + str(len(cards)) + "개</p>"
+            "<div class='data-table-wrap'><table class='data-table'><thead><tr><th>여행</th><th>기간</th><th>담당자</th><th>지출</th><th>마감</th><th><span class='sr'>작업</span></th></tr></thead><tbody>"
+            + ''.join(cards) + "</tbody></table></div>"
+            "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></section>")
     return ledger_design.render(ledger_design.shell(
-        "여행 관리", tab_id="", heading="여행 관리", body=body))
+        "여행", tab_id="", heading="여행", body=body))
 
 
 def export_page(selected_tab: str = "") -> str:
@@ -1668,10 +1702,10 @@ def export_page(selected_tab: str = "") -> str:
             note = (" <span class='muted warntext'>담당자 확인이 필요해요"
                     " (출처가 기록되지 않은 값이 있어요) · "
                     "<a href='/trips'>여행 관리에서 확인</a></span>")
-        return (f"<label><input type='checkbox' name='tab_ids'"
+        return (f"<label class='check-list-row'><input type='checkbox' name='tab_ids'"
                 f" value='{esc(tab_id)}'"
                 + (" checked>" if checked else ">")
-                + f" {esc(trip['display_key'])}{esc(suffix)}{note}</label><br>")
+                + f" <span>{esc(trip['display_key'])}{esc(suffix)}</span>{note}</label>")
 
     options = "".join(trip_option(t) for t in active_trips)
     archived = ""
@@ -1750,7 +1784,7 @@ def export_page(selected_tab: str = "") -> str:
             )
             jobs_html = f"<h3>최근 출력</h3><ul>{items}</ul>"
     body = (
-        "<div class='sect'><h2>선택 탭 출력</h2>"
+        "<section class='sect export-page'><h2>XLSX 내보내기</h2>"
         f"<details class='export-diagnostics'><summary>출력 전 검토·여행별 건수</summary>{review_note}{counts}</details>"
         f"<form method='post' action='/api/exports/xlsx'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
@@ -1764,14 +1798,14 @@ def export_page(selected_tab: str = "") -> str:
             + "개가 있어요. 해당 여행을 선택하면 확인 전에는 출력할 수 없어요. "
             "<a href='/trips'>여행 관리에서 확인</a></p>")
            if unconfirmed else "")
-        + "<button type='submit'>출력</button></form>"
+        + "<button class='btn primary' type='submit'>XLSX 내보내기</button></form>"
         f"{jobs_html}"
-        "</div>"
+        "</section>"
     )
     from . import ledger_design
 
     return ledger_design.render(ledger_design.shell(
-        '선택 탭 출력', tab_id=selected_tab, heading='선택 탭 출력', body=body))
+        'XLSX 내보내기', tab_id=selected_tab, heading='XLSX 내보내기', body=body))
 
 
 def import_page() -> str:
@@ -2511,7 +2545,9 @@ class Handler(BaseHTTPRequestHandler):
             if not is_owner_session(session):
                 # the account management screen is an owner action
                 deny_for_viewer(action=True)
-            self._send(access_control_render_owner_admin(session, _ACCESS))
+            self._send(access_control_render_owner_admin(
+                session, _ACCESS, view=query.get("view", [""])[0],
+                return_to=query.get("return_to", [""])[0]))
             return True
         if path == "/access/providers":
             if not is_owner_session(session):
@@ -3762,7 +3798,11 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/rules":
             case_id = query.get("case", [""])[0]
             if not case_id:
-                self._send(layout("규칙 대화", "<div class='body'><h1>검토할 거래를 선택해 주세요</h1><p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p><a href='/cards/all'>카드 내역으로 돌아가기</a></div>"), code=404)
+                self._send(layout(
+                    "분류 규칙은 거래 상세에서 엽니다",
+                    "<div class='body'><h1>분류 규칙은 거래 상세에서 엽니다</h1>"
+                    "<p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p>"
+                    "<a class='btn primary' href='/cards/all'>카드 거래 보기</a></div>"))
                 return
             self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/api/tabs":
@@ -3785,7 +3825,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif parsed.path == "/trips":
             self._send(trips_page(query.get("preview_tab", [""])[0],
-                                  role=resolve_role(self.headers, self._cookies())))
+                                  role=resolve_role(self.headers, self._cookies()),
+                                  state=query.get("state", ["active"])[0],
+                                  search=query.get("q", [""])[0]))
         elif parsed.path.startswith("/api/imports/"):
             if _IMPORTER is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
@@ -4849,7 +4891,7 @@ class Handler(BaseHTTPRequestHandler):
             tab_ids = [t for t in (raw_tabs or []) if isinstance(t, str)]
             valid = {t["tab_id"] for t in live_trips(include_archived=True)}
             if not tab_ids or any(t not in valid for t in tab_ids):
-                raise SaveError("INVALID_VALUE", "출력할 여행을 골라 주세요")
+                raise SaveError("INVALID_VALUE", "내보낼 여행을 하나 이상 선택하세요.")
             seen = set()
             ordered = [t for t in tab_ids if not (t in seen or seen.add(t))]
             job_id = f"xlsx-{payload.get('client_request_id') or uuid.uuid4().hex}"

@@ -171,7 +171,8 @@ def test_unclassified_copy_uses_connection_language_without_changing_contracts()
 
 def test_uxa08_expense_page_has_one_main_heading_and_primary_save_button():
     page = ledger_board.expense_new_page()
-    assert page.count("<main id='main'>") == 1
+    assert page.count("<main ") == 1
+    assert "id='main'" in page
     assert page.count("<h1>") == 1
     assert "class='btn primary'" in page
     assert "background:#1D4ED8" not in page
