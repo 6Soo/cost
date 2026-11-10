@@ -71,15 +71,15 @@ def allocation_revert_status(allocation: Optional[Dict[str, Any]], *, store: Any
     from .ledger_store import SaveError
 
     if allocation is None:
-        return {"revertible": False, "reason": "없는 배분 행입니다."}
+        return {"revertible": False, "reason": "없는 배분 행이에요"}
     stored = store.get_allocation(allocation["row_id"])
     if stored is not None:
         allocation = {**allocation, **stored}
     if not allocation.get("active"):
-        return {"revertible": False, "reason": "비활성 배분은 되돌릴 수 없습니다."}
+        return {"revertible": False, "reason": "비활성 배분은 되돌릴 수 없어요"}
     source = store.get_row(allocation["source_row_id"])
     if source is None:
-        return {"revertible": False, "reason": "원천 입금 행이 없습니다."}
+        return {"revertible": False, "reason": "원천 입금 행이 없어요"}
     if source["revision"] != allocation["source_revision"]:
         return {"revertible": False, "reason": "원천 입금이 바뀌어서 최신 상태를 확인해 주세요"}
     try:
@@ -131,7 +131,7 @@ def allocation_history_html(
             "<h3>이 배분 행 되돌리기</h3>"
             f"<p class='muted'>{esc(status['reason'])}</p>"
         )
-    history = f"<ul>{items}</ul>" if items else "<p class='muted'>아직 이 배분 행의 변경 이력이 없습니다.</p>"
+    history = f"<ul>{items}</ul>" if items else "<p class='muted'>아직 이 배분 행의 변경 이력이 없어요.</p>"
     return f"<h3>배분 행 변경 이력</h3>{history}{revert_html}"
 
 
@@ -206,7 +206,7 @@ def history_html(
         return ""
     items = store.list_history(row_id)
     if not items:
-        return "<h3>변경 이력</h3><p class='muted'>직접 수정된 변경이 없습니다.</p>"
+        return "<h3>변경 이력</h3><p class='muted'>직접 수정된 변경이 없어요</p>"
     lis = "".join(
         f"<li>rev {h['revision']} · {esc(h['change_mode'])} · {esc(h['actor'])} · "
         f"{esc(h['created_at'])} · 요청 {esc(h['event_id'] or '감사 기록 없음')}</li>"
@@ -257,12 +257,12 @@ def split_page(
     if store is None:
         return ledger_design.render(ledger_design.shell(
             '배분 추정', tab_id='', heading='배분 추정',
-            body="<div class='sect'><p>저장소가 연결되지 않았습니다.</p></div>"))
+            body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
     source = store.get_row(source_id)
     if source is None or source["row_kind"] != "income":
         return ledger_design.render(ledger_design.shell(
             '배분 편집', tab_id='', heading='배분 편집',
-            body="<div class='sect'><p>없는 수입 행입니다.</p></div>"))
+            body="<div class='sect'><p>없는 수입 행이에요.</p></div>"))
     reflected = store.display_amount(source)
     allocs = store.active_allocations(source_id)
     remainder = reflected - sum(a["amount_krw"] for a in allocs)
@@ -348,7 +348,7 @@ def income_table(
         "<div class='card'><h3>수입 내용</h3><div class='scrollx'><table>"
         "<tr><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th><th>잔금</th>"
         f"<th>추가금</th><th>금액</th><th></th></tr>{trs}</table></div></div>"
-    ).format(trs=trs if trs else "<tr><td colspan='8' class='muted'>아직 입력한 입금이 없습니다.</td></tr>")
+    ).format(trs=trs if trs else "<tr><td colspan='8' class='muted'>아직 입력한 입금이 없어요</td></tr>")
 
 
 def expense_table(
@@ -370,4 +370,4 @@ def expense_table(
         "<div class='card'><h3>지출 내용</h3><div class='scrollx'><table>"
         "<tr><th>거래일자</th><th>항목</th><th>내용</th><th>기간</th><th>예약번호</th>"
         f"<th>증빙유형</th><th>금액(원)</th><th></th></tr>{trs}</table></div></div>"
-    ).format(trs=trs if trs else "<tr><td colspan='8' class='muted'>아직 연결된 지출이 없습니다.</td></tr>")
+    ).format(trs=trs if trs else "<tr><td colspan='8' class='muted'>아직 연결된 지출이 없어요</td></tr>")

@@ -230,7 +230,7 @@ def _bottom_nav(section, role):
         href, ' aria-current="page"' if section == key else '', ui_icons.icon(icon, 18), label)
         for href, label, icon, key in links)
     return ("<nav class='site-bottom-nav' aria-label='하단 메뉴'>" + items +
-            "<button type='button' class='site-more-bottom' aria-label='더보기' aria-haspopup='dialog' aria-controls='site-more-dialog'>" +
+            "<button type='button' class='site-more-bottom site-more-toggle' aria-label='더보기' aria-haspopup='dialog' aria-controls='site-more-dialog'>" +
             ui_icons.icon('menu', 18) + '<span>더보기</span></button></nav>')
 
 

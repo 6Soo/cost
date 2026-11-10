@@ -249,11 +249,13 @@ def test_baseline_equivalence_render_refund_evidence(tmp_path, baseline_ns):
 
         # Case 3: Inferred link simulation
         inferred_link = dict(link, inferred=True, status="full", basis="kakao_same_card_exact_amount_inferred")
-        assert baseline_ns["_render_refund_evidence"](board, ids["200"], inferred_link) == card_flow._render_refund_evidence(board, ids["200"], inferred_link)
+        expected = baseline_ns["_render_refund_evidence"](board, ids["200"], inferred_link)
+        assert expected.replace('장부 기록 보류', '기록 전 확인') == card_flow._render_refund_evidence(board, ids["200"], inferred_link)
 
         # Case 4: Excess refund link simulation
         excess_link = dict(link, status="excess")
-        assert baseline_ns["_render_refund_evidence"](board, ids["200"], excess_link) == card_flow._render_refund_evidence(board, ids["200"], excess_link)
+        expected = baseline_ns["_render_refund_evidence"](board, ids["200"], excess_link)
+        assert expected.replace('기록을 보류합니다.', '기록 전 확인이 필요합니다.') == card_flow._render_refund_evidence(board, ids["200"], excess_link)
     finally:
         board.close()
 

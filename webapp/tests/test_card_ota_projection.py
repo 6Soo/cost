@@ -167,6 +167,8 @@ def test_baseline_equivalence_index_ota_display_candidates_all_branches(baseline
 
     # 1. Full unconstrained index
     baseline_res = baseline_ota_ns["_index_ota_display_candidates"](snapshot)
+    baseline_res = {key: [note.replace('금액 대조 보류', '금액 대조 자료 확인')
+                          for note in notes] for key, notes in baseline_res.items()}
     facade_res = card_flow._index_ota_display_candidates(snapshot)
     direct_res = card_ota_projection.index_ota_display_candidates(
         snapshot, link_diagnosis_label_fn=card_flow._link_diagnosis_label

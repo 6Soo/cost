@@ -224,7 +224,7 @@ def render_refund_merchant_candidates(
             flags = ["같은 카드",
                      "가맹점명 동일" if name == merchant else
                      "표기 변형" if alias_match else
-                     "유페이 결제중계 후보 · 동일 서비스 자료를 확인해 주세요" if upay_proxy else
+                     "유페이 결제중계 후보 · 동일 서비스 확인 필요" if upay_proxy else
                      "원승인번호 대조 · 가맹점 불일치",
                      "금액 일치" if gross == abs(amount or 0) else "금액 차이",
                      "장부 기록 있음" if cid in existing else "장부 미기록"]

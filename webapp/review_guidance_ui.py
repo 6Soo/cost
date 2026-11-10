@@ -69,7 +69,7 @@ function renderGuidance(card, row) {
   var resultBox = add(section, "p", "guidance-result"); resultBox.setAttribute("role", "status");
   function showReviewResult(saved) {
     var result = saved.review_result;
-    resultBox.textContent = result ? "검토 결과 · 추가 자료 확인: " + result.summary : "";
+    resultBox.textContent = result ? "검토 결과 · 추가 확인 필요: " + result.summary : "";
   }
   var rule = null, item = null, description = null, candidate = null, existing = null, future = null, previewButton = null, applyButton = null, previewBox = null;
   if (blockKindOf(row) === "expense") {

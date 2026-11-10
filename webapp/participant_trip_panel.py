@@ -144,7 +144,7 @@ def _review_markup(state, data):
             continue  # Explicit confirmed participant links always win.
         hits = by_ref.get(ref, [])
         if not review.get('available') or counts.get('source_unavailable'):
-            label = '보험·수입 자료를 확인해 주세요'
+            label = '보험·수입 자료 확인 필요'
         elif not counts.get('contracts'):
             label = '해당 여행 명단을 확인해 주세요'
         elif len(hits) == 1 and hits[0].get('match_state') == 'matched':
@@ -152,7 +152,7 @@ def _review_markup(state, data):
         elif hits:
             label = f"보험 명단 후보 {len(hits)}건"
         elif truncated:
-            label = '후보 목록을 확인해 주세요'
+            label = '후보 목록 확인 필요'
         else:
             label = '이름 일치 없음'
         generation = (state.get('google') or {}).get('generation') or ''
@@ -215,7 +215,7 @@ def render(state: dict, *, csrf: str = "", income_offset: int = 0,
     status = ("보험가입 확정 명단" if roster.get("scope") == "complete"
               else "부분 명단 · 전체 인원은 확정하지 않음")
     if not google.get("available"):
-        status += " · Google 수입 자료를 확인해 주세요"
+        status += " · Google 수입 자료 확인 필요"
     links_by_ref = data["links_by_ref"]
     rows = []
     for row in data["rows"]:

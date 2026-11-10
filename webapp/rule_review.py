@@ -53,7 +53,7 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
         trip_notice = ('여행 배정은 이번 분류 제안에 포함되지 않습니다. 예약 이용기간과 여러 여행이 '
                        '겹치는 경우에는 기존 승인 규칙을 적용합니다. 상세 검토에서 확인해 주세요.')
         if re.search(r'여러|복수|겹치', text) and '미배정' in text:
-            trip_notice += ' 여러 여행이면 귀속 전으로 남기라는 요청은 기존 승인 규칙과 달라 적용하지 않습니다.'
+            trip_notice += ' 여러 여행이면 미배정하라는 요청은 기존 승인 규칙과 달라 적용하지 않습니다.'
     return {"text": text, "transaction_id": transaction_id, "status": proposal["status"],
             "kind": proposal.get("kind"), "skipped_decided": proposal.get("skipped_decided", 0),
             "needs_confirmation": bool(proposal.get("needs_confirmation")),

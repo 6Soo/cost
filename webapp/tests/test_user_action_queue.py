@@ -62,7 +62,7 @@ def test_stale_digest_is_rejected_and_changed_evidence_reopens_without_old_answe
 def test_render_has_one_action_and_does_not_expose_internal_queue_states(conn):
     task = _register(conn)
     page = queue.render(conn, "csrf-token")
-    assert "내 확인 필요 1건" in page
+    assert "지출 자료 확인 1건" in page
     assert "카드 환불이 실제 반영됐나요?" in page
     assert "답변하고 자동 재검토" in page
     assert "보류 해제" not in page
@@ -133,8 +133,8 @@ def test_open_snapshot_deduplicates_valid_actions_and_shares_count_revision(conn
     import_summary = queue.render_queue_summary(snapshot)
     assert attrs in actions_page
     assert attrs in import_summary
-    assert f"\ub0b4 \ud655\uc778 \ud544\uc694 {snapshot.count}\uac74" in actions_page
-    assert f"\ub0b4 \ud655\uc778 \ud544\uc694 {snapshot.count}\uac74" in import_summary
+    assert f"지출 자료 확인 {snapshot.count}건" in actions_page
+    assert f"지출 자료 확인 {snapshot.count}건" in import_summary
     assert snapshot.revision in actions_page and snapshot.revision in import_summary
 
 

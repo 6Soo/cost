@@ -2828,7 +2828,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
         title = ('환불 기록 완료' if len(recorded) == 2 else
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         if link.get('inferred'):
-            title = '원결제 자동 연결 · 기록 전 확인 (환급 완료 아님)'
+            title = '원결제 추론 연결 · 기록 전 확인 (환급 완료 아님)'
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
                  else '동일 카드·카카오 가맹점·기간·동액 기준 원결제 연결'
@@ -3446,7 +3446,7 @@ async function recoverUpload(job){
  if(!response.ok)throw Error('저장된 결과 조회 재시도 중');
  const state=await response.json(),result=state.result;
  if(state.status!=='saved'||result?.batch_id!==job.batch_id||typeof result.recovery?.pending!=='boolean')throw Error('저장된 결과 조회 재시도 중');
- if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 처리 결과를 확인해 주세요'),{terminal:true});
+ if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 처리 결과 확인 필요'),{terminal:true});
  saveUploadJob(job,true);return {...result,recovered_upload:true};
 }
 function readUploadJobs(){try{const saved=JSON.parse(localStorage.getItem(uploadJobKey)||'null');return (Array.isArray(saved)?saved:saved?[saved]:[]).filter(job=>job?.status_url&&new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))}catch{return []}}

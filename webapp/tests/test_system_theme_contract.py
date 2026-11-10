@@ -69,7 +69,8 @@ def test_synthetic_site_shell_theme_mobile_and_keyboard_accessibility():
     assert "--shell-bg: var(--c-bg)" in shell and "--shell-ink: var(--c-text)" in shell
     assert "--c-bg: #0F172A" in shell and "--c-text: #F8FAFC" in shell
     assert "background:var(--c-surface)" in shell
-    assert "grid-template-columns:240px" in shell
+    assert "grid-template-columns:var(--shell-nav-width," in shell
+    assert "--shell-nav-width:" in shell
     assert "#nav :focus-visible" in shell
     assert "event.key==='Escape'" in shell
     assert site_shell.MENU_TOGGLE == ''

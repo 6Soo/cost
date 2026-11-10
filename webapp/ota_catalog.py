@@ -1343,7 +1343,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
             f"<td>{esc(card['merchant'] or state.get('merchant') or '미확인')}</td>"
             f"<td>{esc(amount_text)}</td>"
             f"<td>{esc(_state_label(state or None))}"
-            + ("<br><small>자동 연결 · 아고다 결제일 원문 없음</small>" if card.get('inferred_link') else '')
+            + ("<br><small>코드 추론 · 아고다 결제일 미확인</small>" if card.get('inferred_link') else '')
             + ("<br><small>사용자 승인 순서 배정 · 개별 결제 근거 미확인</small>"
                if card.get('allocation_basis') == 'user_approved_stable_order' else
                "<br><small>반복 거래 순서 배정 · 개별 결제 근거 미확인</small>"

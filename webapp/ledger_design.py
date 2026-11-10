@@ -609,7 +609,7 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
         elif google_income.get('numeric_gap') or not google_income.get('verified'):
             income_status = ("<b class='warn'>합계 차이 있음</b>"
-                             if google_income.get('numeric_gap') else "<b>수입 장부를 확인해 주세요</b>")
+                             if google_income.get('numeric_gap') else "<b>수입 장부 확인 필요</b>")
             income_notice = f"<div><i>{ui_icons.icon('book-open')}수입</i>{income_status}</div>"
             if filtered is not None and whole is not None:
                 return (
@@ -1166,7 +1166,7 @@ def _google_match_annotations(tab_id, rows, preview=None, candidate_rows=None):
         labels = {'MATCHED_MANUAL': '장부에 있음 · 복사 제외',
                   'MATCHED_EXISTING': '장부에 있음 · 복사 제외',
                   'NEW_EXPENSE': '복사 가능',
-                  'REVIEW_CONFLICT': '중복을 확인해 주세요 · 복사 제외'}
+                  'REVIEW_CONFLICT': '중복 확인 필요 · 복사 제외'}
         annotations = {}
         for row in rows:
             item = by_id.get(str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''))
@@ -2019,6 +2019,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<div id='live-sum'>{_trip_kpi_html(tab_id) if _is_trip_tab(tab_id) else summary_part(tab_id, kind, query)}</div>"
         f"{workflow}"
         f"{tabs}"
+        f"{_source_preview_html(trip)}"
         "<p class='meta' id='global-state' data-role='"
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}>"
         "<span id='unsaved-count' hidden></span></p>"

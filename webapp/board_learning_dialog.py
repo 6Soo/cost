@@ -70,13 +70,13 @@ def rule_dialog_page(
     if store is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>저장소가 연결되지 않았습니다.</p></div>"))
+            body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
     state = store.dialog_page_state(case_id)
     row = store.get_row(state["row_id"]) if state.get("row_id") else None
     if row is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>대화에 연결된 행이 없습니다.</p></div>"))
+            body="<div class='sect'><p>대화에 연결된 행이 없어요.</p></div>"))
     row_id = esc(row["row_id"])
     dialog = state["dialog_state"]
     conv = state["conversation"] or {}
@@ -101,7 +101,7 @@ def rule_dialog_page(
         parts.append(f"<p class='muted'>{esc(notice)}</p>")
     if "PREVIEW_STALE" in notice:
         parts.append(
-            "<p class='muted'>선택한 행이 바뀌었습니다. 아래에서 새 미리보기를 다시 받아 주세요."
+            "<p class='muted'>선택한 행이 바뀌었어요. 아래에서 새 미리보기를 다시 받아 주세요."
             " 일부 행만 적용되지는 않습니다.</p>")
     if dialog == "closed":
         parts.append(

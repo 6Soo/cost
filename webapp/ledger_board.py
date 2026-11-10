@@ -1571,7 +1571,7 @@ def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: s
                 getattr(store, "conn", None), t["tab_id"],
                 t.get("assignee_source") or "", assignee_shown):
             assignee_note = (
-                " <span class='muted warntext'>· 담당자 출처를 확인해 주세요"
+                " <span class='muted warntext'>· 담당자 확인이 필요해요"
                 " (출처가 기록되지 않은 값입니다.)</span>")
         cards.append(
             f"<tr class='trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t.get('archived')))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
@@ -1606,7 +1606,7 @@ def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: s
             # an un-ticked form indistinguishable from a plain JSON caller.
             + f"<input type='hidden' name='assignee_form' value='1'>"
             + (f"<label class='muted'><input type='checkbox' name='assignee_confirmed' value='1'>"
-               "이 담당자가 맞으면 확인하세요</label>" if assignee_note else "")
+               "이 담당자가 맞다고 확인해요</label>" if assignee_note else "")
             + "</p>"
             f"<button type='submit'>{ui_icons.icon('save')}정보 저장</button></form>"
             f"<form method='post' action='/api/trips/{esc(t['tab_id'])}/meta'>"
@@ -1707,7 +1707,7 @@ def export_page(selected_tab: str = "") -> str:
             # unticking one would decide the owner's selection for them, and the
             # export they did not expect would be missing a trip. The note is
             # what is added.
-            note = (" <span class='muted warntext'>담당자 출처를 확인해 주세요"
+            note = (" <span class='muted warntext'>담당자 확인이 필요해요"
                     " (출처가 기록되지 않은 값입니다.) · "
                     "<a href='/trips'>여행에서 확인</a></span>")
         return (f"<label class='check-list-row'><input type='checkbox' name='tab_ids'"
@@ -1803,7 +1803,7 @@ def export_page(selected_tab: str = "") -> str:
         f"{progress_note}"
         + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
             + str(len(unconfirmed))
-             + "개가 있습니다. 해당 여행을 선택하면 확인 전에는 출력할 수 없습니다. "
+             + "개가 있어요. 해당 여행을 선택하면 확인 전에는 출력할 수 없습니다. "
             "<a href='/trips'>여행 관리에서 확인</a></p>")
            if unconfirmed else "")
         + "<button class='btn primary' type='submit'>XLSX 내보내기</button></form>"
@@ -2135,7 +2135,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
 
     return ledger_design.render(ledger_design.shell(
         "행 상세", tab_id=row.get("display_tab_id") or "",
-        heading=f"거래 {esc(row_id)}",
+        heading=f"{'수입' if kind == 'income' else '지출'} 상세 {esc(row_id)}",
         meta=(f"<span>구분 <b>{'수입' if kind == 'income' else '지출'}</b></span>"
               + ("<span><a href='/trips'>여행 관리</a></span>" if kind != "income" else "")),
         body=(f"<div class='sect'>{body}{rule_dialog_link(row_id)}"
