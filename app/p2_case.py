@@ -215,11 +215,30 @@ class Repository:
     def __init__(self, conn, sources):
         self.conn, self.sources = conn, sources
         self._rows = {}
+        self._snapshot = None
+        self._check = lambda: None
+
+    def begin_snapshot(self, check=None):
+        """Start a request-local view; call again before freshness validation."""
+        self._snapshot = {}
+        self._check = check or (lambda: None)
+
+    def end_snapshot(self):
+        self._snapshot = None
+        self._check = lambda: None
 
     def _source_evidence(self, row):
         from . import ota_mail, ota_portal
-        messages, _ = ota_mail.load_messages_from(self.sources.get('mail_directories', []))
+        self._check()
+        if self._snapshot is None or 'messages' not in self._snapshot:
+            messages, _ = ota_mail.load_messages_from(self.sources.get('mail_directories', []))
+            self._check()
+            if self._snapshot is not None:
+                self._snapshot['messages'] = messages
+        else:
+            messages = self._snapshot['messages']
         for identity in sorted(messages):
+            self._check()
             message = messages[identity]
             text = ota_mail.message_text(message)
             headers = message.get('payload', {}).get('headers', [])
@@ -232,9 +251,17 @@ class Repository:
                 yield dict(ref='mail:' + digest(identity), kind='mail', content=dict(headers=visible, text=text, event_context=context),
                            transaction_id=row['transaction_id'])
         for index, path in enumerate(ota_portal.as_databases(self.sources.get('portal_databases'))):
-            if not path.is_file():
-                continue
-            for record in ota_portal._read_records(path.resolve(), index):
+            self._check()
+            key = ('portal', index, str(path.resolve()))
+            if self._snapshot is None or key not in self._snapshot:
+                records = ota_portal._read_records(path.resolve(), index) if path.is_file() else []
+                self._check()
+                if self._snapshot is not None:
+                    self._snapshot[key] = records
+            else:
+                records = self._snapshot[key]
+            for record in records:
+                self._check()
                 if relevant(row, encoded(record)):
                     # Locator is not needed by the model. Preserve content and source identity.
                     yield dict(ref='portal:' + digest([index, record]), kind='portal',
