@@ -8,7 +8,7 @@
 | ID | 작업 | 명세 절 | 작업자 | 브랜치 | 상태 | 통과 조건 |
 | --- | --- | --- | --- | --- | --- | --- |
 | A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료 | `docs/decisions-20261111-a` | `b002c7fe`를 통합 `d63d1b57`, 최종 SHA 검수·PR 병합 대기 | 통합 문서 링크·diff PASS, 테스트·배포 없음 |
-| B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33`(승계) | `ops/m1-baseline-20261111` | 진행 중 | mode=ro 집계 재현, 원문 출력 없음 |
+| B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료 | `ops/m1-baseline-20261111` | `f3703981`·`096a1039` 통합 `ef90643f`·`8c878048`, #795 최종 검수 대기 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
 | D1 | Windows P2 사건 폴더 격리·비대화형 조사 | §6.3·§6.6 | sol high `90a8007b` | `research/p2-isolation-20261111` | 조사 저장 `5469f5a5`, 격리 수락 BLOCKED·영향 QA 미통과 | 모델 경로는 probe 본문 미실행, 실제 예약 작업 미검증. 고객 원문 실행 금지 |
 | A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | 작성 완료·통합 검수 대기 | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
 | C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | 관리자(검증) | `ui/wave3-20261110` | main `7aa6c418` 통합 `40c20e8e`, 중단된 영향 검사 재실행 중 | 새 실패 0, 390/1440 실제 렌더링, 최종 SHA 독립 검수 |
@@ -47,7 +47,7 @@
 ## 재개 정보
 
 - 관리자 통합 브랜치: `integration/decisions-m1-20261111`, 기준 main `7aa6c418132a304c83fe08e4fd461481c927aef0`.
-- A 소유: link.md·DECISION_POLICY·SPEC·MANAGER·handoff 맨 위 절·archive README(필요 시 AGENTS의 현재 작업자 표기만). B 소유: operations 및 합성 집계 도구. D1 소유: 격리 보고서·probe 도구. 관리자는 BOARD와 세무 검토 의견. E1 소유: collect_ota_portals.mjs·ota_collection 디렉터리·전용 사용법.
+- A 완료, 현재 공유 문서는 관리자 단독 소유. B 완료: operations·집계 도구·안전성 검사·전용 영향 매핑만 통합했다. D1 소유: 격리 보고서·probe 도구(미통합). E1/E2는 각각 전용 수집 도구·합성 검사·사용법만 수정하며 금융 적용·운영 DB는 관리자 후속이다.
 - 첫 보고 시점은 A·B 병합 및 세무 검토 완료. 문서 변경은 배포하지 않는다. 현재 기록된 운영 SHA `965bca058a74a54bf69bc4d70a0d05f8997786c3`는 배포 직전 실제 상태와 재대조한다.
 - 2026-11-11 연속 관리자 `54f4a460`: 원래 A~E 지시·저장 인계·실제 worktree를 대조했다. A/B/D1은 기존 작업자 재사용, 중복 배정 없음. A-R은 `fa82fc19`에 저장됐으며 최종 검수 전이다. B 최종 커밋을 통합한 뒤 문서 링크·허용 집계 재현 → 독립 최종 SHA 검수 → PR 병합이 다음 순서다. C는 기존 main 실패와 비교 전에는 통과로 표시하지 않는다. D2~D5/E3는 미착수, E1/E2는 진행 중이며 이번 인계로 완료 처리하지 않는다.
 - C 재개 근거: 이전 pytest 로그는 36%에서 종료됐고 process/junit/summary가 없어 통과로 쓰지 않았다. 중단 로그는 비공개 `.local-archive/manager-resume-20261111/wave3-incomplete-40c20e8e.log`. 현재 실행은 exec session `76900`, 로그 `wave3-qa-retry-40c20e8e.log`와 wave3의 `quality-artifacts/`를 확인한다. 같은 main 비교용 workspace `wks_ede9d71ea86e35fe`(`qa-wave3-main-7aa6c418-20261111`)를 만들었으며 아직 비교 검사는 실행하지 않았다.
