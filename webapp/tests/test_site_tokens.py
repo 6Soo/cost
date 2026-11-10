@@ -48,33 +48,33 @@ def test_canonical_single_ownership_of_geometry_and_control_tokens():
     shell_css = site_assets.SHELL_STYLE
     theme_css = site_assets.THEME_STYLE
 
-    # Canonical definitions exist strictly in site_shell.css
-    assert "--shell-nav-width:232px" in shell_css
-    assert "--shell-drawer-width:min(300px,85vw)" in shell_css
-    assert "--shell-topbar-height:56px" in shell_css
-    assert "--shell-control-min:44px" in shell_css
+    # Canonical definitions live in the shared token stylesheet.
+    token_css = site_assets.TOKENS_STYLE
+    assert "--shell-nav-width: 232px" in token_css
+    assert "--shell-drawer-width: min(300px, 85vw)" in token_css
+    assert "--shell-topbar-height: 56px" in token_css
+    assert "--shell-control-min: 44px" in token_css
 
     # site_theme.css must NOT duplicate geometry/control literals
     assert "--shell-nav-width" not in theme_css
     assert "--shell-drawer-width" not in theme_css
     assert "--shell-topbar-height" not in theme_css
 
-    # site_theme.css references canonical token instead of duplicating literal
-    assert ":root{--shell-theme-control-size:var(--shell-control-min,44px)" in theme_css
+    # site_theme.css contains behavior only; geometry is owned by tokens.css.
+    assert "--shell-theme-control-size:" not in theme_css
 
-    # The palette bridge in site_theme.css preserves strictly the established 8 aliases
-    # to avoid clobbering native ledger's existing --sel, --line-strong, --hover, or --grn
+    # The legacy palette bridge is at the end of tokens.css.
     for alias in (
-        "--bg:var(--shell-bg)",
-        "--paper:var(--shell-paper)",
-        "--ink:var(--shell-ink)",
-        "--mut:var(--shell-muted)",
-        "--line:var(--shell-line)",
-        "--focus:var(--shell-focus)",
-        "--warn:var(--shell-warn)",
-        "--bad:var(--shell-danger)",
+        "--bg: var(--c-bg)",
+        "--paper: var(--c-surface)",
+        "--ink: var(--c-text)",
+        "--mut: var(--c-text-secondary)",
+        "--line: var(--c-border)",
+        "--focus: var(--c-focus)",
+        "--warn: var(--c-warn-text)",
+        "--bad: var(--c-danger-text)",
     ):
-        assert alias in theme_css, f"Missing canonical palette bridge alias: {alias}"
+        assert alias in token_css, f"Missing canonical palette bridge alias: {alias}"
 
     # Verify pollutive aliases are not declared in theme_css
     assert "--sel:var(" not in theme_css

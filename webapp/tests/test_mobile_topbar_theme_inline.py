@@ -19,7 +19,8 @@ def test_native_header_uses_current_title_and_shared_typography_tokens():
     header = result.split('<header class="site-topbar">', 1)[1].split('</header>', 1)[0]
     assert '장부 &amp; 여행' in header
     assert result.count('id="site-theme-toggle"') == 1
-    assert '--shell-title-size:24px' in result
+    assert '--shell-title-size: var(--t-h1)' in result
+    assert '--t-h1: 1.5rem' in result
 
 
 def test_theme_remains_visible_on_desktop_and_shares_mobile_row():

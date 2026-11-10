@@ -227,7 +227,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
         accessible = f" aria-label='{label} · 마감'" if closed else ''
         return (f"<li><a class='{cls}' href='{href}'{accessible}"
-                f"{' aria-pressed=\"true\"' if current else ''}>"
+                f"{' aria-current=\"page\"' if current else ''}>"
                 f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
 
     sections = []
@@ -403,9 +403,9 @@ def _head_html(trip) -> str:
     if trip is None:
         title, period, meta = "여행을 선택해 주세요", "", ""
     elif trip.get("is_unclassified"):
-        title = "분류대기"
-        period = "여행을 정하지 않은 내역이에요"
-        meta = "이 목록을 정리하면 여행 합계가 함께 갱신돼요"
+        title = "이전 귀속 목록"
+        period = "여행을 정하지 않은 내역입니다"
+        meta = "이 목록을 정리하면 여행 합계가 함께 갱신됩니다"
     else:
         title = board.esc(trip.get('display_title') or trip["display_key"])
         if trip.get('owner_id') == 'andre':
@@ -1136,7 +1136,7 @@ def _move_form(row, move_back: str) -> str:
         f"<input type='hidden' name='return_to' value='{board.esc(move_back)}'>"
         "<label class='sr' for='move-" + board.esc(rid) + "'>이동할 여행</label>"
         f"<select class='psel' id='move-{board.esc(rid)}' name='display_tab_id'>"
-        f"{_trip_options('', '분류대기(여행 미정)')}</select>"
+        f"{_trip_options('', '여행 연결 없음')}</select>"
         f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
 
 
@@ -1417,7 +1417,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                 f"<input type='hidden' name='return_to' value='{board.esc(move_back)}'>"
                 f"<label class='sr' for='mobile-move-{board.esc(rid)}'>이동할 여행</label>"
                 f"<select class='psel' id='mobile-move-{board.esc(rid)}' name='display_tab_id'>"
-                f"{_trip_options('', '분류대기(여행 미정)')}</select>"
+                f"{_trip_options('', '여행 연결 없음')}</select>"
                 f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
         kind = _row_kind_meter(row)
         cls = "li pend" if unclassified else "li"
@@ -1549,7 +1549,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
         "<input id='f-trip-search' type='search' autocomplete='off' placeholder='여행 이름 검색'>"
         "<label for='f-display_tab_id'>여행</label>"
         f"<select id='f-display_tab_id' name='display_tab_id'{' disabled' if 'display_tab_id' not in allowed else ''}>"
-        f"{_trip_options(current_tab, '분류대기(여행 미정)')}</select></div>")
+        f"{_trip_options(current_tab, '여행 연결 없음')}</select></div>")
     for name, label in (("item", "항목"), ("customer_name", "이름"),
                         ("nickname", "닉네임"), ("customer_id", "고객 ID"),
                         ("income_kind", "입금 종류")):
@@ -1737,7 +1737,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
 
 def _selected_trip(tab_id: str):
     if tab_id == "unclassified":
-        return {"display_key": "분류대기", "is_unclassified": True}
+        return {"display_key": "이전 귀속 목록", "is_unclassified": True}
     return next((t for t in board.live_trips(include_archived=True)
                  if t["tab_id"] == tab_id), None)
 
@@ -1896,7 +1896,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         held_count = len(held_results)
         description = f'복사 가능 {count}건 · {_money(total)} · Google 장부 일치 {recorded}건 제외'
         if held_count:
-            description += f' · Google 대조 보류 {held_count}건 제외'
+            description += f' · Google 대조가 끝나지 않은 {held_count}건 제외'
         if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
             description += ' · Google 합계 수식은 확인 필요'
         if held_reasons:
@@ -1917,8 +1917,8 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
                 f"<li>{board.esc(reason_labels.get(reason, 'Google 원장 대조를 확정하지 못함'))} · {count}건</li>"
                 for reason, count in sorted(held_reasons.items()))
             held_detail = ("<details class='trip-copy-hold-details'>"
-                           "<summary>Google 대조 보류 건의 정체와 사유 보기</summary>"
-                           f"<p>이 건들은 Google에 없다고 확정할 수 없어 중복 복사를 막기 위해 보류했습니다.</p>"
+                           "<summary>Google 대조 제외 건의 정체와 사유 보기</summary>"
+                           f"<p>이 건들은 Google에 없다고 확정할 수 없어 중복 복사를 막기 위해 제외했습니다.</p>"
                            f"<ul>{details}</ul><ul class='trip-copy-excluded'>{''.join(transactions)}</ul></details>")
     disabled = ' disabled' if not available or not count else ''
     recovery = ''

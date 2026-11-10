@@ -20,7 +20,20 @@ def dispatch(handler, parsed, *, is_owner: bool, query=None, raw=None, csrf: str
         handler._send_json({"code": "METHOD_NOT_ALLOWED", "message": "조회만 할 수 있습니다"}, 405)
         return True
     if parsed.path == PAGE_PATH:
-        handler._send_json({"code": "PAGE_REMOVED", "message": "삭제된 페이지입니다"}, 410)
+        from . import error_page
+        if error_page.wants_html(handler, parsed.path):
+            error_page.send(
+                handler,
+                error_page.render(
+                    410,
+                    "이 화면은 정리되었습니다",
+                    "같은 기능은 여행 장부의 참가자·보험 탭에 있습니다.",
+                    [("여행 목록", "/trips")],
+                ),
+                410,
+            )
+        else:
+            handler._send_json({"code": "PAGE_REMOVED", "message": "삭제된 페이지입니다"}, 410)
         return True
     query = query or {}
     if state_loader is None:

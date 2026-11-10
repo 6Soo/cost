@@ -350,6 +350,7 @@ def test_worker_promptly_retries_changed_input():
         assert published.wait(5), 'changed input should be retried before the regular check interval'
         assert calls == ['before', 'after']
         assert svc.held()[1] is True
+        assert svc.held()[0]['key'] == 'after'
     finally:
         svc.stop()
 
@@ -398,7 +399,9 @@ def test_ota_service_factory_checks_local_key_again_before_publication(tmp_path,
     monkeypatch.setattr(review, 'reconcile_in_child', reconcile)
     service = review.snapshot_service(SimpleNamespace())
     service.check_now()
-    assert service.view()['status'] == 'error'
+    # With nothing held yet, the result one input behind is shown but is neither fresh nor written out.
+    current, state = service.display_context()
+    assert current['data'] == {} and state['fresh'] is False and state['status'] == 'refreshing'
     assert service.held()[1] is False
     assert not (tmp_path / review.SNAPSHOT_FILE).exists()
 
@@ -610,3 +613,34 @@ def test_the_first_build_never_waits_for_inputs_to_settle():
     svc._source_changes = 5
     svc.check_now()
     assert svc.held()[1] is True
+
+
+def test_a_first_result_overtaken_by_new_input_is_shown_until_the_next_run():
+    source = {'key': 'k0'}
+    runs = []
+
+    def reconcile():
+        runs.append(source['key'])
+        if len(runs) == 1:
+            source['key'] = 'k1'
+        return {'public': {}, 'results': [], 'links': {}, 'data': {'run': len(runs)}}
+
+    published = []
+    svc = OtaSnapshotService(key_fn=lambda: source['key'], verify_key_fn=lambda: source['key'],
+                             reconcile_fn=reconcile, on_published=published.append, start=False)
+    svc.check_now()
+    current, state = svc.display_context()
+    assert current['data'] == {'run': 1} and state['fresh'] is False
+    assert svc.action_context()[0] is None and published == []
+    svc.check_now()
+    current, state = svc.display_context()
+    assert runs == ['k0', 'k1'] and current['data'] == {'run': 2} and state['fresh'] is True
+    assert [p['key'] for p in published] == ['k1']
+    # Once a complete generation is held, a change during a run discards that run as before.
+    source['key'] = 'k2'
+    def changing():
+        source['key'] = 'k3'
+        return {'public': {}, 'results': [], 'links': {}, 'data': {'run': 3}}
+    svc._reconcile_fn = changing
+    svc.check_now()
+    assert svc.display_context()[0]['data'] == {'run': 2}

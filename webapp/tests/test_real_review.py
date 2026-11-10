@@ -310,7 +310,7 @@ class ConfiguredReviewTests(ReviewTestCase):
         status, page = self.get("/board?tab=unclassified")
         self.assertEqual(status, 200)
         self.assertNotIn("/review' ", page)
-        self.assertIn("분류대기", page)
+        self.assertIn("이전 귀속 목록", page)
 
     def test_a_viewer_is_not_redirected(self):
         # A viewer with no assignment is refused the unassigned bucket itself,

@@ -580,7 +580,7 @@ def _rows_from_sources(board, sources, warnings):
             identity_kind='reservation_observation' if observed else 'supplier_booking',
             supplier_booking_ref=event.get('booking_ref'))
     if invalid_provider_bookings:
-        warnings.append(f'공급자 표기가 잘못된 예약 {len(invalid_provider_bookings)}건은 자동 배정에서 보류했습니다.')
+        warnings.append(f'공급자 표기가 잘못된 예약 {len(invalid_provider_bookings)}건은 자동 연결에서 제외했습니다.')
     _join_by_booking_number(merged)
     _saved_board_links(board, merged)
     return merged
@@ -1037,14 +1037,14 @@ def _summary(entry, rule_active):
     if entry.get('revoked'):
         return '사용자가 배정을 해제한 예약입니다. 자동으로 다시 배정하지 않습니다.'
     if entry.get('conflict'):
-        return '이용기간 원본이 충돌하여 자동 배정을 보류했습니다. 근거를 확인해 여행을 수정할 수 있습니다.'
+        return '이용기간 원본이 충돌하여 자동 연결을 진행하지 않았습니다. 근거를 확인해 여행을 수정할 수 있습니다.'
     if not entry['stay']:
-        return '이용기간이 없어 여행 미배정입니다.'
+        return '이용기간이 없어 여행 연결 없음 상태입니다.'
     if any(c['valid'] for c in entry['candidates']):
-        return '같은 조건의 여행이 둘 이상이고 수입-비용 차액도 같아 여행 미배정입니다.'
+        return '같은 조건의 여행이 둘 이상이고 수입-비용 차액도 같아 여행 연결 없음 상태입니다.'
     if entry['candidates']:
-        return '이용기간과 겹치는 여행의 일정 원본이 확인되지 않아 여행 미배정입니다.'
-    return '이용기간과 겹치는 여행이 없어 여행 미배정입니다.'
+        return '이용기간과 겹치는 여행의 일정 원본이 확인되지 않아 여행 연결 없음 상태입니다.'
+    return '이용기간과 겹치는 여행이 없어 여행 연결 없음 상태입니다.'
 
 
 def _booking_ref_display(entry):
@@ -1075,7 +1075,7 @@ def render_html(data, query, *, csrf=''):
     date_controls = choices('sort', [('desc', '내림차순 · 최근 이용 먼저'), ('asc', '오름차순 · 이른 이용 먼저')], sort)
     date_controls += choices('month', [('', '전체 월')] + [(m, m + '월') for m in data['months']], value('month'))
     provider_controls = choices('provider', [('', '모든 OTA')] + [(p, PROVIDERS.get(p, p)) for p in data['providers']], value('provider'))
-    state_controls = choices('state', [('', '전체 내역'), ('unassigned', '여행 미배정'), ('excluded', '취소·배정 해제')], value('state'))
+    state_controls = choices('state', [('', '전체 내역'), ('unassigned', '여행 연결 없음'), ('excluded', '취소·배정 해제')], value('state'))
     # 단일 상태에만 badge를 붙인다. 'A / B'처럼 합쳐진 문자열은 임의로
     # 확정하지 않고 문구 그대로 둔다. 수집됨(observed) 등 나머지 원값도
     # badge 없이 문구만 표시한다.
@@ -1095,7 +1095,7 @@ def render_html(data, query, *, csrf=''):
                 trip_cell += '<details class="ota-assignment-evidence"><summary>배정 근거</summary><p>' + esc(inferred.get('basis')) + '</p></details>'
         else:
             trip_cell = (f"<span class='ota-badge trip idle'>{ui_icons.icon('map', 14)}"
-                         "<span>여행 미배정</span></span>")
+                         "<span>여행 연결 없음</span></span>")
         if not names and row.get('reason') in ('cancelled', 'revoked'):
             trip_cell = "<span class='ota-badge trip idle'>배정 제외 · " + esc(UNASSIGNED_REASONS[row['reason']]) + '</span>'
         if not names:
@@ -1129,7 +1129,7 @@ def render_html(data, query, *, csrf=''):
     reason_block = ''
     if reasons:
         items = ''.join(f"<tr><td>{esc(r['label'])}</td><td>{r['count']:,}건</td></tr>" for r in reasons)
-        reason_block = (f"<details class='trip-check'><summary id='reason-title'>여행 미배정 사유 · {data['unassigned_count']:,}건</summary>"
+        reason_block = (f"<details class='trip-check'><summary id='reason-title'>여행 연결 없음 사유 · {data['unassigned_count']:,}건</summary>"
                         f"<table><tbody>{items}</tbody></table></details>")
     problem_block = ''
     if problems:
@@ -1154,7 +1154,7 @@ def render_html(data, query, *, csrf=''):
         + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if not value('state') else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
-        f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
+        f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 연결 없음</a>"
         "</nav>"
         + refresh_note
         + ('' if loading else f"<p id='card-count'>검색 결과 {data['total']:,}건 · 전체 {data['all_count']:,}건</p>")

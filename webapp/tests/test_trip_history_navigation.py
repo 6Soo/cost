@@ -61,7 +61,7 @@ def test_selected_or_searched_previous_trip_stays_collapsed_and_viewer_cannot_se
     assert '<details id="previous-trips">' in html
     assert '<details id="previous-trips" open' not in html
     assert 'secret-old' not in html
-    assert 'aria-pressed="true"' in html
+    assert 'aria-current="page"' in html
     html = render(trips, query="allowed-old")
     assert '<details id="previous-trips">' in html
     assert '<details id="previous-trips" open' not in html

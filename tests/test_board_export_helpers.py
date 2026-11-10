@@ -143,7 +143,7 @@ def test_collect_export_page_summaries_query_count_and_sequence(tmp_path):
         # Check counts
         assert len(trip_counts) == len(trips) + 1
         assert trip_counts[-1]["tab_id"] is None
-        assert trip_counts[-1]["display_key"] == "분류대기"
+        assert trip_counts[-1]["display_key"] == "이전 귀속 목록"
         assert "review_total" in rc
         assert "conflict_total" in rc
     finally:

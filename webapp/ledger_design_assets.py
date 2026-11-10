@@ -11,7 +11,11 @@ CSS_DIR = STATIC_DIR / "css"
 JS_DIR = STATIC_DIR / "js"
 
 _CSS_PATH = CSS_DIR / "ledger_design.css"
+_TOKENS_CSS_PATH = CSS_DIR / "tokens.css"
+_COMPONENTS_CSS_PATH = CSS_DIR / "components.css"
 _JS_PATH = JS_DIR / "ledger_design.js"
 
-STYLE = _CSS_PATH.read_text(encoding="utf-8")
+TOKENS_STYLE = _TOKENS_CSS_PATH.read_text(encoding="utf-8")
+COMPONENTS_STYLE = _COMPONENTS_CSS_PATH.read_text(encoding="utf-8")
+STYLE = TOKENS_STYLE + "\n" + COMPONENTS_STYLE + "\n" + _CSS_PATH.read_text(encoding="utf-8")
 SCRIPT = _JS_PATH.read_text(encoding="utf-8")
