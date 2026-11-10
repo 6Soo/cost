@@ -14,6 +14,11 @@
       "tests": ["tests/test_p2_case.py", "tests/test_frontier_agent_provider.py", "tests/test_p2_runtime.py", "tests/test_p2_worker_boundaries.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_autonomous_cleanup.py"]
     },
     {
+      "name": "ota-collection-script-synthetic",
+      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
+      "tests": ["tests/test_ota_collection_script.py"]
+    },
+    {
       "name": "m1-baseline-readonly-tool",
       "paths": ["docs/agents/artifacts/m1-baseline-20261111.py", "tests/test_m1_baseline_readonly.py"],
       "tests": ["tests/test_m1_baseline_readonly.py"]
