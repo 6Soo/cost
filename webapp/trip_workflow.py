@@ -30,7 +30,19 @@ def build_state(board, trip_id, cost_rows, amount_groups):
         return None
     if trip_id in ('unclassified', 'refunds') or not trip_id or parse_tab(trip_id) or trip_id.startswith('quarter:'):
         return None
-    state = {'closure': 'unknown', 'duplicate_copy': False,
+    trip_loader = getattr(board, 'live_trips', None) or getattr(board, 'list_trips', None)
+    app_closed = False
+    if callable(trip_loader):
+        try:
+            trips = trip_loader(include_archived=True)
+        except TypeError:
+            trips = trip_loader()
+        try:
+            trip = next((item for item in trips if item.get('tab_id') == trip_id), None)
+        except (AttributeError, TypeError):
+            trip = None
+        app_closed = bool(trip and trip.get('visual_closed'))
+    state = {'closure': 'unknown', 'app_closed': app_closed, 'duplicate_copy': False,
              'google_available': bool(amount_groups and amount_groups.get('available')),
              'last_success_at': (amount_groups or {}).get('last_success_at'),
              'displayed_holds': sum(bool(r.get('blocked')) for r in cost_rows),
@@ -102,8 +114,15 @@ def render(board, trip_id, cost_rows, amount_groups):
     else:
         google_note = '비교 불가'
         google_done = False
-    closure_label = {'closed': '마감', 'open': '미마감', 'unknown': '확인 중'}.get(
-        state.get('closure'), '확인 중')
+    google_closure_note = {
+        'closed': 'Google 보관 장부 이동 확인',
+        'open': 'Google 메인 장부',
+    }.get(state.get('closure'))
+    closure_note = '마감' if state.get('app_closed') else {
+        'open': '미마감', 'unknown': '확인 중', 'closed': '미마감',
+    }.get(state.get('closure'), '확인 중')
+    if google_closure_note:
+        closure_note += f' · {google_closure_note}'
     items = [
         {'label': '지출', 'note': expense_note, 'href': '#view-expense', 'state': 'todo'},
         {'label': '영수증', 'note': receipt_note,
@@ -111,8 +130,8 @@ def render(board, trip_id, cost_rows, amount_groups):
         {'label': '수입·참가자', 'note': income_note, 'href': '#view-income', 'state': 'todo'},
         {'label': 'Google 복사', 'note': google_note,
          'href': '#copy-trip-expenses', 'state': 'done' if google_done else 'todo'},
-        {'label': closure_label, 'note': '', 'href': '#trip-close',
-         'state': 'done' if state.get('closure') == 'closed' else 'todo'},
+        {'label': '마감', 'note': closure_note, 'href': '#trip-close',
+         'state': 'done' if state.get('app_closed') else 'todo'},
     ]
     return (f"<section class='settlement-steps' id='trip-steps' aria-label='정산 단계'>"
             f"{steps(items)}</section>")
