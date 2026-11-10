@@ -316,8 +316,10 @@ class Repository:
                 self._check()
                 index = (stamp, _Index(build(), cost))
                 self.read_bytes += cost
-                self._check()
+                # Keep a completed build even if this round is then cancelled, so
+                # an aborted round is never followed by the same full read again.
                 _INDEXES[key] = index
+                self._check()
         if self._snapshot is not None:
             self._snapshot[key] = index[1]
         return index[1], cost
