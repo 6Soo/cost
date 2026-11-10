@@ -45,9 +45,9 @@ def test_sidebar_marks_closed_trip_without_visible_label():
     with patch.object(ledger_board, 'live_trips', return_value=[trip]), \
          patch.object(ledger_board, 'current_role', return_value='owner'):
         html = ledger_design.nav_region('example', '')
-    # Closed trips are reached from the 여행 목록 state filter, so the shared
-    # sidebar contains neither a closed row nor a status-only badge.
-    assert "tab=example" not in html
+    # A selected closed trip remains reachable in the shared shell; it is not
+    # advertised with a status-only badge in primary navigation.
+    assert "tab=example" in html
     assert "nv-closed" not in html
 
 

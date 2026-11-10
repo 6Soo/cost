@@ -176,7 +176,7 @@ def _context_badge() -> str:
     return f"<span class='synth'>{board.esc(mark)}</span>" if mark == board.SYNTHETIC_MARK else ''
 
 
-def _head_html(trip) -> str:
+def _head_html(trip, query: str = "", kind: str = "", archived: str = "") -> str:
     if trip is None:
         title, meta = "여행을 선택해 주세요", ""
         actions = ""
@@ -205,11 +205,11 @@ def _head_html(trip) -> str:
     header = header.replace('</h1>', _context_badge() + '</h1>', 1)
     header = header.replace("<header class=\"page-header\">", "<header class=\"page-header trip-header\">")
     if trip and not trip.get('is_unclassified'):
-        header += _trip_switch_dialog(trip)
+        header += _trip_switch_dialog(trip, query=query, kind=kind, archived=archived)
     return header
 
 
-def _trip_switch_dialog(trip) -> str:
+def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str = "") -> str:
     """Searchable trip switcher; links preserve the existing GET contract."""
     current = str(trip.get('tab_id') or '')
     entries = []
@@ -218,14 +218,14 @@ def _trip_switch_dialog(trip) -> str:
             continue
         label = str(item.get('display_title') or item.get('display_key') or '')
         entries.append(
-            f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id']))}'"
+            f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
             f"{' aria-current=\"page\"' if item.get('tab_id') == current else ''}>{board.esc(label)}</a></li>")
     try:
         from app import quarter_tab
         for quarter in (1, 2, 3, 4):
             tab = quarter_tab.tab_id_for(2026, quarter)
             label = f"2026년 {quarter}분기 기타비용"
-            entries.append(f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(tab))}'>{label}</a></li>")
+            entries.append(f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(tab, query, kind, archived))}'>{label}</a></li>")
     except Exception:
         pass
     return (
@@ -1959,7 +1959,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
                            reservations_html=reservations_html)
     main = (
         f"<main class='main ledger-workspace' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
-        f"{_head_html(trip)}{status}"
+        f"{_head_html(trip, query=query, kind=kind, archived=archived)}{status}"
         f"<div id='live-sum'>{_trip_kpi_html(tab_id) if _is_trip_tab(tab_id) else summary_part(tab_id, kind, query)}</div>"
         f"{workflow}"
         f"{tabs}"

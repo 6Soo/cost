@@ -88,7 +88,7 @@ class OwnerEntryLinkTests(_Base):
         markup = self.header("owner")
         head = ledger_design._head_html(self.store.get_trip('trip-demo-a'))
         self.assertNotIn(f"id='{ENTRY_ID}'", head)
-        self.assertNotIn("href='/export?tab=", head)
+        self.assertIn("href='/export?tab=", head)
         self.assertIn("aria-controls=\"view-reservations\"", markup)
 
     def test_the_entry_link_comes_before_the_review_link_when_both_are_drawn(self):

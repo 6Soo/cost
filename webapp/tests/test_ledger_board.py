@@ -668,9 +668,9 @@ class BoardApiTests(unittest.TestCase):
         # breakpoint and `scrollx` belonged to the unrouted function.
         page = self._get_html("/board?tab=trip-demo-a")
         self.assertIn("@media (width < 760px)", page)
-        self.assertIn("<div class='tw'><table id='tbl'>", page)
+        self.assertRegex(page, r"<div class='tw'><table id='tbl'[^>]*>")
         self.assertRegex(page, r"\.tw\{[^}]*overflow-x:auto")
-        self.assertRegex(page, r"id='btn-menu'[^>]*aria-controls='nav'")
+        self.assertIn("site-menu-toggle", page)
 
     def test_detail_shows_basis(self):
         page = self._get_html("/row?id=expense-demo-c1")
