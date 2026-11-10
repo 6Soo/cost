@@ -13,6 +13,6 @@
 
 ## 현재 기준
 
-국민 국내·해외 매입 원본과 승인 보조 자료의 역할은 [카드 수집 문서](../docs/history/specs-20261110/finance.md#src-docs-card-downloads-md)를 따른다. 실제 비용 전기는 [현재 카드 파이프라인](../docs/history/specs-20261110/finance.md#src-docs-card-pipeline-md)의 미리보기·중복 방지 절차를 사용한다. 사용자 확정과 일정 근거는 [업무 규칙](../docs/history/specs-20261110/finance.md#src-docs-business-rules-md)을 따른다.
+국민 국내·해외 매입 원본과 승인 보조 자료의 역할은 [카드 수집 문서](../docs/specs/finance.md#src-docs-card-downloads-md)를 따른다. 실제 비용 전기는 [현재 카드 파이프라인](../docs/specs/finance.md#src-docs-card-pipeline-md)의 미리보기·중복 방지 절차를 사용한다. 사용자 확정과 일정 근거는 [업무 규칙](../docs/specs/finance.md#src-docs-business-rules-md)을 따른다.
 
 과거 48개 여행 목록과 2026-08-29 대사 보고서는 그 시점의 산출물이다. 현재 여행 40개와 권위 검증 상태, 장부 기록 수는 [운영 문서](../docs/operations.md)를 따른다. 과거 종료용 일정이나 카드 결제일을 새로운 OTA 이용기간으로 사용하지 않는다.

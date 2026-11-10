@@ -6,7 +6,7 @@
 - 문서 안의 ACTIVE·READY·IMPLEMENTING·미구현 표시, "최신 결정", "현재 정본" 같은 표현은 작성 당시의 상태다. 지금의 상태는 [현재 상태](../../session_handoff.md)에서 확인한다.
 - 여기 흩어져 있던 판정 규칙은 규칙집으로 옮겼다. 규칙집의 각 규칙 "출처"에 적힌 `docs/specs/<파일>:<줄>`은 이 폴더의 같은 이름 파일을 가리킨다(줄 번호는 커밋 `b0340d0d` 기준).
 - 두 문서는 절차서로 쓰고 있어 `docs/playbooks/`로 옮겼다: [카드 원본 수집 안내](../../playbooks/card-downloads.md), [OTA 포털 직접 수집 절차](../../playbooks/ota-portal-collection.md).
-- 코드 주석 몇 곳이 옛 경로(`docs/specs/ota-review-queue-performance-20261027.md` 등)를 가리킨다. 같은 이름으로 이 폴더에 있다.
+- 코드 주석 몇 곳과 `ledger/README.md`, `webapp/README.md`가 옛 경로(`docs/specs/…`)를 가리킨다. 같은 이름으로 이 폴더에 있다. 문서 전용 검사 범위 밖의 파일이라 이번에 고치지 않았고, M2의 코드 변경 때 함께 고친다.
 
 ## 자주 찾던 문서
 
