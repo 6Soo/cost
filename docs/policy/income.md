@@ -1,0 +1,327 @@
+# 판정 규칙 — 수입·참가자
+
+> [판정 규칙집](../DECISION_POLICY.md)의 영역별 상세 규칙이다. 핵심 원칙과 읽는 법은 규칙집 본문에 있다.
+> 규칙 ID는 바꾸지 않는다. 규칙을 고칠 때는 같은 ID의 내용을 고치고 옛 내용을 "대체된 옛 규칙"에 남긴다.
+
+### INC-001 · 참가자 권위
+
+*일반 · 결정 2026-10-28*
+
+가입 완료 증빙과 연결돼 수신·등록된 보험 확정 명단을 해당 여행의 확정 참가자 목록으로 사용한다. 입금 여부와 독립적으로 참가 확정을 보존한다.
+
+- 조건·예외: 수입 연결만으로 보험 효력·입금·실제 탑승을 새로 확정하지 않는다.
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:8`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:25`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:33`, `docs/specs/participants.md:365`, `docs/specs/participants.md:369`
+
+### INC-002 · 보험 가입 전 명단
+
+*보호 · 결정 2026-10-28*
+
+보험사 가입 대기·결제 직전·명단 전사만 한 배치는 가입 완료 증빙을 통과하기 전 확정 참가 인원에 넣지 않는다.
+
+- 조건·예외: owner_confirmed_insurance는 수신 근거 유형이며 보험사 API의 효력 검증이나 입금 확인이 아니다.
+- 출처: `docs/specs/insurance-participant-integration-20261028.md:3`, `docs/specs/insurance-participant-integration-20261028.md:55`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:28`
+
+### INC-003 · 부분 명단
+
+*보호*
+
+부분 명단과 판독 불명 항목은 확실한 항목과 분리해 처리한다. 명확한 참가자는 등록하되 전체 여행 인원·전체 대조 완료를 선언하지 않는다.
+
+- 조건·예외: 원문 전체성 확인과 개별 가입 확정은 별도다.
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:37`, `docs/specs/participants.md:382`, `docs/specs/participants.md:627`
+
+### INC-004 · 수입 우선 도착
+
+*일반*
+
+수입이 보험 명단보다 먼저 들어와도 원본 입금행을 정상 보존한다. 수입만으로 참가자를 만들거나 인원에 넣지 않고 명단 도착 시 다시 대조한다.
+
+- 출처: `docs/specs/owner-product-decisions-20261028.md:11`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:35`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:90`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:145`, `docs/specs/participants.md:520`
+
+### INC-005 · 이름만 있는 참가자
+
+*보호*
+
+확정 참가자가 수입에 없으면 COST 대조표에 이름만 표시한다. 수입 사건·거래일·예약금·잔금·추가금·총액·0원 입금을 생성하지 않는다.
+
+- 조건·예외: Google 이름행이 있으면 그 행에 연결하고 금액은 공란으로 유지한다.
+- 출처: `docs/specs/participants.md:370`, `docs/specs/participants.md:374`, `docs/specs/participants.md:493`, `docs/specs/participants.md:516`, `docs/specs/participants.md:517`
+
+### INC-006 · 입금과 참가 관계 분리
+
+*보호*
+
+참가자↔수입 연결은 관계 결정이며 입금 수령·완납·보험료 납부·보험 효력·실제 탑승 확인이 아니다.
+
+- 조건·예외: 이름 일치는 허용한 대조 기준이며 법적 본인 확인을 뜻하지 않는다.
+- 출처: `docs/specs/implementation-status-audit-20261028.md:49`, `docs/specs/insurance-participant-integration-20261028.md:45`, `docs/specs/insurance-participant-integration-20261028.md:104`, `docs/specs/owner-product-decisions-20261028.md:27`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:82`
+
+### INC-007 · 원본 수입 보존
+
+*보호 · 결정 2026-10-28*
+
+Google 수입의 원문 이름/닉네임·날짜·금액·부호와 실제 행을 보존한다. 보험 실명으로 원문을 바꾸거나 로컬 연결로 원문 수입을 수정하지 않는다.
+
+- 조건·예외: COST 연결은 전용 로컬 DB 감사 이력으로만 저장한다. 구조화 명단·원본 사진의 접근/전송 경계는 분리하고 실명·민감 식별자를 공개하지 않는다.
+- 출처: `docs/specs/flight-booking-compact-spa-20261104.md:14`, `docs/specs/flight-booking-compact-spa-20261104.md:24`, `docs/specs/flight-booking-focused-spa-ux-20261104.md:3`, `docs/specs/participants.md:511`, `docs/specs/owner-product-decisions-20261028.md:11`
+
+### INC-008 · 여행 일치
+
+*보호*
+
+참가자 등록·수입 연결은 검증된 Google 여행 키와 COST trip_id가 같은 경우에만 수행한다. 보험 행사명·기간·파일명으로 여행이나 날짜를 만들지 않는다.
+
+- 조건·예외: 다른 여행 동일인은 별도 관계이며 자동 이동하지 않는다.
+- 출처: `docs/specs/andre-multi-owner-ledger-20261101.md:22`, `docs/specs/sheet-manual-expense-dedup-20261029.md:28`, `docs/specs/insurance-participant-integration-20261028.md:51`, `docs/specs/insurance-participant-integration-20261028.md:128`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:24`
+
+### INC-009 · 수입 실패와 참가 확정
+
+*일반*
+
+검증된 명단의 참가 확정은 수입 조회 실패와 독립적으로 저장할 수 있다. 수입 대조 불가를 수입 명단 없음이나 0명으로 바꾸지 않는다.
+
+- 조건·예외: 명단DB 자체가 없으면 수입만 조회하고 참가 등록 성공을 만들지 않는다.
+- 출처: `docs/specs/participant-income-mobile-recovery-20261030.md:5`, `docs/specs/participants.md:474`, `docs/history/operations-20261028-20261107.md:1329`, `docs/history/session_handoff-through-20261107.md:847`
+
+### INC-010 · 등록 멱등
+
+*보호*
+
+같은 batch ID·정규화 지문은 기존 결과를 반환하고 같은 ID에 다른 내용은 SOURCE_ID_CONFLICT로 처리한다. 동시 재수신도 유일키·요청 ID로 중복 등록/감사를 막는다.
+
+- 조건·예외: 명단 단위 트랜잭션으로 처리한다.
+- 출처: `docs/specs/participants.md:475`, `docs/specs/participants.md:480`, `docs/specs/participants.md:569`
+
+### INC-011 · 참가자 항목 식별
+
+*보호*
+
+이름 대신 안정 참가자 ID와 roster_id+source_item_id로 항목을 식별한다. 재촬영·순서 변경에도 원본 항목 identity를 유지하고 같은 이름을 자동 병합하지 않는다.
+
+- 조건·예외: 같은 사람의 여러 증빙은 검증 후 하나의 참가자 ID에 연결할 수 있다.
+- 출처: `docs/specs/insurance-participant-integration-20261028.md:109`, `docs/specs/participants.md:481`, `docs/specs/participants.md:482`, `docs/specs/participants.md:485`
+
+### INC-012 · 명단 정정 이력
+
+*보호*
+
+바뀐 이름·여행·삭제 표시는 새 revision의 정정으로 보존하고 기존 수동 확정을 덮지 않는다. 다음 배치에서 빠졌다는 이유만으로 기존 참가자·입금 연결을 삭제하지 않는다.
+
+- 조건·예외: 명시 철회·불참 정정은 과거 근거와 함께 이력화한다.
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:36`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:135`, `docs/specs/participants.md:482`, `docs/specs/participants.md:483`, `docs/specs/participants.md:614`
+
+### INC-013 · 참가 중복과 인원
+
+*보호*
+
+확정 인원은 활성 참가자 ID의 고유 수이다. 안정 ID 없는 중복 의심·동명이인은 확인 전 정확 인원으로 합산하지 않고 보험행·수입행·입금횟수로 인원을 대체하지 않는다.
+
+- 출처: `docs/specs/participants.md:485`, `docs/specs/participants.md:486`
+
+### INC-014 · 수입 이름 인덱스
+
+*보호*
+
+수입 이름/닉네임 행과 실제 금액행을 고유 원행으로 함께 보존한다. 이름만 있는 행·이름 없는 금액행을 잃지 않고 이름행을 새 0원 수입으로 만들지 않는다.
+
+- 조건·예외: 회계 합계·기존 원문 금액·오류 상태는 유지한다.
+- 출처: `docs/specs/participants.md:394`, `docs/specs/participants.md:493`, `docs/specs/participants.md:499`, `docs/specs/participants.md:501`, `docs/specs/participants.md:590`
+
+### INC-015 · 수입 명단 없음 판정
+
+*보호*
+
+최신 정상 Google snapshot과 같은 세대의 완전한 이름 대조 자료에서 일치자가 없을 때만 수입 명단 없음을 새로 판정한다. stale·오류·구형 양식·인덱스 누락은 부재의 증거가 아니다.
+
+- 조건·예외: 이름 인덱스가 별도 없더라도 같은 세대의 완전한 원본 이름행으로 대조 가능한 경우를 구분한다.
+- 출처: `docs/specs/participants.md:501`, `docs/history/session_handoff-through-20261107.md:847`, `docs/history/implementation-and-audits.md:759`
+
+### INC-016 · 이름과 금액 상태
+
+*보호*
+
+이름행을 읽을 수 있으나 금액 검증에 문제가 있으면 관계 연결과 금액 검증 상태를 분리한다. 미검증 금액을 확정 입금액으로 표시하지 않는다.
+
+- 출처: `docs/specs/participants.md:502`
+
+### INC-017 · 자동 연결 우선순위
+
+*보호*
+
+기존 수동 결정→같은 여행의 검증된 명시 참가자 연결→안전한 유일 이름 일치→미연결 순서로 대조한다. 재처리·새 명단은 수동 연결과 해제를 덮지 않는다.
+
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:84`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:109`, `docs/specs/participants.md:393`, `docs/specs/participants.md:507`, `docs/specs/participants.md:515`
+
+### INC-018 · 안전한 이름 정규화
+
+*보호*
+
+이름 원문을 보존하고 비교값만 NFC·앞뒤/연속 공백 정리·영문 대소문자 통일한다. 유사발음·성만 일치·부분문자열·한글 내부 공백 삭제·자동 영문역변환으로 신원을 확정하지 않는다.
+
+- 조건·예외: 별칭·한글/영문명 대응은 원문에 있거나 사용자가 검증한 관계만 쓴다.
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:91`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:133`, `docs/specs/participants.md:509`, `docs/history/product-and-handoffs.md:472`
+
+### INC-019 · 단일 가림 이름 예외
+
+*사용자 예외 · 결정 2026-11-03*
+
+두 글자 이름에서 단일 가림 기호의 위치·전체 길이가 일치하고 같은 여행의 명단↔수입 후보가 양방향으로 유일하면 추가 확인 없이 자동 연결한다.
+
+- 조건·예외: 반복 가림·세 글자 이상·중복 후보로 확대하지 않고 수동 연결/해제와 최신 원문 검증을 유지한다.
+- 출처: `docs/specs/insurance-unlinked-inline-20261106.md:24`, `docs/specs/participants.md:511`, `docs/specs/ledger-sort-insurance-followup-20261030.md:6`, `docs/history/session_handoff-through-20261107.md:1359`
+
+### INC-020 · 동명이인·복수 후보
+
+*보호*
+
+같은 여행에 동명이인·복수 수입행·이름/닉네임 상충·참가자 ID 누락이 있으면 해당 관계를 자동 확정하지 않는다. 근거와 실제 후보를 유지하고 수동 동일인 확인 후 연결한다.
+
+- 조건·예외: 가림 이름만으로 새 인물을 만들거나 임의 후보를 저장하지 않는다.
+- 출처: `docs/specs/insurance-name-actions-20261106.md:10`, `docs/specs/insurance-name-actions-20261106.md:19`, `docs/specs/insurance-participant-integration-20261028.md:108`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:77`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:132`
+
+### INC-021 · 복수 입금 연결
+
+*일반*
+
+검증된 참가자 ID 또는 명시 수동 관계가 있으면 한 참가자에 여러 원본 입금행을 연결할 수 있다. 이름만 같다는 이유로 분할입금이라고 합치지 않고 각 원행을 보존한다.
+
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:83`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:111`, `docs/specs/participants.md:519`, `docs/specs/participants.md:537`
+
+### INC-022 · 공동 입금
+
+*보호 · 결정 2026-10-28*
+
+owner가 공동입금임을 확인하면 하나의 income_ref에 여러 참가자를 연결할 수 있다. 개인별 금액을 복제·균등 분배하거나 자동 완납으로 판정하지 않는다.
+
+- 조건·예외: 관계 추가/교체는 명시 결정이며 조용한 기존 연결 교체는 금지한다.
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:110`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:143`, `docs/specs/participants.md:528`
+
+### INC-023 · 합계 한 번
+
+*보호*
+
+여행·연결 수입 합계는 고유 원본 수입행을 한 번만 센다. 여러 참가자에 연결해도 금액을 늘리지 않고 H 총액과 E:G 구성액을 동시에 더하지 않는다.
+
+- 조건·예외: 명단에서 금액을 만들어 합계에 더하지 않는다.
+- 출처: `docs/specs/participants.md:529`, `docs/specs/participants.md:539`
+
+### INC-024 · 미납 추정 금지
+
+*보호*
+
+입금 기록이 없다는 사실은 미납 증거가 아니다. 현금·대리입금·별도 정산 가능성을 금액/완납 추론으로 대신하지 않는다.
+
+- 출처: `docs/specs/participants.md:532`
+
+### INC-025 · 입금 취소와 참가 독립
+
+*보호*
+
+취소·환불·추가입금·실제 0원은 Google 원문대로 보존한다. 수입 취소가 참가 확정을 자동 취소하지 않고 참가 확정이 환불을 숨기지 않는다.
+
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:149`, `docs/specs/participants.md:530`, `docs/specs/participants.md:617`
+
+### INC-026 · 수동 관계 변경 보호
+
+*보호*
+
+수동 연결/해제는 actor·CSRF·참가/결정 revision·입력 fingerprint·같은 여행을 검증해 저장한다. 기존 다른 참가자 연결을 교체하거나 공동 연결할 때 조용히 덮지 않는다.
+
+- 조건·예외: 해제 후 자동 이름 연결이 다시 붙지 않아야 한다.
+- 출처: `docs/specs/ui.md:1028`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:148`, `docs/specs/participants.md:571`, `docs/specs/ui.md:712`
+
+### INC-027 · 원행 변경 stale
+
+*보호*
+
+행 위치·이름·금액·원본 지문이 바뀌면 기존 관계를 재검증한다. 유일 대응을 증명하지 못하면 다른 사람/입금행으로 링크를 조용히 옮기지 않는다.
+
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:125`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:146`
+
+### INC-028 · 새 자료 재대조
+
+*일반*
+
+새 명단·Google 변경은 영향을 받는 항목만 재대조하고 이전 완료/정정 이력을 보존한다. 수입 명단 없음은 새 수입이 생기면 다시 평가한다.
+
+- 조건·예외: 관계 대조 완료는 전액 수금이나 회계 마감 완료가 아니다.
+- 출처: `docs/specs/participants.md:553`, `docs/specs/participants.md:567`
+
+### INC-029 · 명단 접근 권한
+
+*보호*
+
+보험/참가자 명단·수동 연결은 owner-only를 기본으로 한다. 전체 보험 사진·주민번호·증권번호·타 여행 신원을 DOM·viewer/public API에 노출하지 않는다.
+
+- 출처: `docs/specs/unified-expense-action-queue-20261105.md:74`, `docs/specs/status-and-inference-stages-20261102.md:30`, `docs/specs/insurance-participant-integration-20261028.md:105`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:65`, `docs/specs/google-ledger.md:614`
+
+### INC-030 · 연결 조회 비쓰기
+
+*보호*
+
+후보 조회·가림 글자 비교·보험 탭 표시는 신원/가입/입금 사실이나 실제 연결 저장을 만들지 않는다. 기존 수신·연결 API와 권한을 재사용한다.
+
+- 조건·예외: 후보 수·조회 성공만으로 등록 수락을 완료로 보고하지 않는다.
+- 대체된 옛 규칙:
+  - 사용자 확인함·대기/보류 작업의 화면·상태 계약은 폐지됨. 원문의 금융/원본/감사 보호 부분은 계속 유지한다. — 2026-11-05, docs/specs/unified-expense-action-queue-20261105.md:268
+- 출처: `docs/specs/insurance-name-actions-20261106.md:19`, `docs/specs/insurance-inline-comparison-20261105.md:14`, `docs/specs/insurance-plain-actions-20261105.md:5`, `docs/specs/unified-expense-action-queue-20261105.md:268`, `docs/specs/flight-booking-focused-spa-ux-20261104.md:40`
+
+### INC-031 · 보험 효력과 등록 수락
+
+*보호*
+
+보험 확인증·가입 근거·등록 영수증의 수락은 각각 확인한다. 파일 수신·명단 전사·과거 체크포인트·사람 수만으로 실제 가입 효력이나 전달 성공을 꾸미지 않는다.
+
+- 출처: `docs/specs/insurance-trip-review-ux-20261031.md:11`, `docs/specs/core-workflow-remaining-implementation-20261030.md:78`, `docs/specs/implementation-status-audit-20261028.md:38`, `docs/history/session_handoff-through-20261107.md:1263`, `docs/history/operations-20261028-20261107.md:746`
+
+### INC-032 · 역할과 유료 참가 구분
+
+*보호*
+
+대장·가이드도 명단에 있으면 참가자로 보존하되 직원/대장/일반 참가 역할과 유료 참가·완납은 별개로 판정한다. 이름이나 입금 유무로 역할을 추정하지 않는다.
+
+- 출처: `docs/specs/participants.md:205`, `docs/specs/participants.md:392`, `docs/specs/participants.md:399`
+
+### INC-033 · 항공권 사람 연결
+
+*보호*
+
+항공권 이름 후보는 보조 연결 근거이며 같은 이름·당일 카드·음차만으로 보험 참가자·입금자·실제 탑승을 한 사람으로 확정하지 않는다.
+
+- 조건·예외: 실제 탑승 확정은 추가 원천 사실이 필요하다.
+- 출처: `docs/specs/flight-booking-focused-spa-ux-20261104.md:21`, `docs/specs/implementation-status-audit-20261028.md:78`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:29`, `docs/specs/participants.md:185`, `docs/specs/participants.md:199`
+
+### INC-034 · 여행별 관계 독립
+
+*보호*
+
+같은 이름/사람이라도 여행별 참가·수입 관계는 독립 관리한다. 다른 여행의 관계·별칭을 자동 전파하거나 명단/수입을 여행 간 이동하지 않는다.
+
+- 출처: `docs/specs/participant-income-authority-and-drag-link-20261028.md:134`, `docs/specs/participant-income-authority-and-drag-link-20261028.md:150`, `docs/specs/participants.md:521`, `docs/specs/participants.md:543`
+
+### INC-035 · 국내 여행 보험 범위
+
+*일반 · 결정 2026-11-02*
+
+실제 여행의 검증된 destination이 KR인 경우 국내여행으로 판정하고 해당 여행의 보험 가입 대상 아님을 적용한다. 국내 카드 결제나 보험 자료 부재만으로 국내여행이라고 추정하지 않는다.
+
+- 조건·예외: 수입·참가자 관리와 기존 수동 연결은 보존한다.
+- 출처: `docs/specs/ui.md:1026`, `docs/history/operations-20261028-20261107.md:540`, `docs/history/session_handoff-through-20261107.md:592`
+
+### INC-036 · 등록 무결성과 일부 처리
+
+*보호*
+
+구조·권한·원본 무결성이 깨진 명단 배치는 쓰지 않는다. 유효 배치 내 일부 판독 불명은 해당 항목 근거/상태와 함께 보존하고 확실한 항목을 독립 처리한다.
+
+- 조건·예외: 명단 수신은 명단 단위 원자 처리이며 필수 시나리오 실패를 성공으로 바꾸지 않는다.
+- 출처: `docs/specs/participants.md:589`
+
+### INC-037 · 마감과 정본 사본
+
+*보호 · 결정 2026-10-11*
+
+정상 읽기에서 실제 여행의 보관 탭을 확인할 때만 마감으로 판정한다. main/archive 동시 존재 시 마감과 금액 정본 선택을 분리하고 유사 사본·다른 여행을 합치지 않는다.
+
+- 조건·예외: 기본 금액 정본은 main이며 사용자 선택과 한 사본 집계를 유지한다.
+- 출처: `docs/specs/google-ledger.md:185`
