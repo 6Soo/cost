@@ -230,7 +230,12 @@ def _resume_owned_process(process):
         kernel.CloseHandle(snapshot)
 
 
-def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
+# Scoped to the calling worker thread; child-output reader threads do not use it.
+from contextvars import ContextVar
+_process_check = ContextVar('p2_process_check', default=None)
+
+
+def _run_bounded(command, *, cwd, env, timeout, input_bytes=None, check=None):
     process = subprocess.Popen(command, executable=command[0], cwd=cwd, env=env,
                                stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -278,6 +283,9 @@ def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
     started = time.monotonic()
     try:
         while process.poll() is None:
+            callback = check or _process_check.get()
+            if callback is not None:
+                callback()
             if exceeded.wait(.02):
                 raise AgentUnavailable('AGENT_RESPONSE_TOO_LARGE')
             if time.monotonic() - started >= timeout:

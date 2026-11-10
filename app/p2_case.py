@@ -210,6 +210,75 @@ def relevant(row, text):
     return merchant and (amount_match or bool(tail and tail in text) or bool(day and day in text))
 
 
+# Source read budgets. A (re)build of the evidence index is the only source I/O;
+# an unchanged source is answered from the process-wide index with no reads.
+EVIDENCE_CASE_BYTES = 2 << 30
+EVIDENCE_ROUND_BYTES = 3 << 30
+EVIDENCE_CASE_SECONDS = 120
+_INDEX_LOCK = __import__('threading').Lock()
+_INDEXES = {}
+
+
+def _stamp(paths):
+    """Cheap change stamp (no content read): path, size and modification time."""
+    stamp = []
+    for path in paths:
+        try:
+            stat = Path(path).stat()
+        except OSError:
+            continue
+        stamp.append((str(Path(path).resolve()), stat.st_size, stat.st_mtime_ns))
+    return tuple(sorted(stamp))
+
+
+class _Index:
+    """Exact candidate index for `relevant`: every match passes through one of the
+    keyed values below, so candidates are a superset and `relevant` decides."""
+    def __init__(self, entries, read_bytes):
+        from collections import defaultdict
+        self.entries, self.read_bytes = entries, read_bytes
+        self.amounts, self.digit_runs = defaultdict(set), defaultdict(set)
+        self.dates, self.words = defaultdict(set), defaultdict(set)
+        for number, (text, *_) in enumerate(entries):
+            for run in set(re.findall(r'\d+', text.replace(',', ''))):
+                self.amounts[run].add(number)
+            for run in set(re.findall(r'\d+', text)):
+                self.digit_runs[run].add(number)
+            for day in set(re.findall(r'(?=(\d{4}-\d{2}-\d{2}))', text)):
+                self.dates[day].add(number)
+            for word in set(re.findall(r'\w{6,}', text.casefold())):
+                self.words[word].add(number)
+
+    def candidates(self, row):
+        every = range(len(self.entries))
+        found = set()
+        approval = str(row.get('approval_number') or '').casefold()
+        if len(approval) >= 6:
+            if not re.fullmatch(r'\w+', approval):
+                return every
+            for word, numbers in self.words.items():
+                if approval in word:
+                    found |= numbers
+        amount = str(row.get('amount_krw') or '')
+        if amount:
+            if not re.fullmatch(r'[0-9]+', amount):
+                return every
+            found |= self.amounts.get(amount, set())
+        tail = str(row.get('card_tail') or '')
+        if tail:
+            if not re.fullmatch(r'[0-9]+', tail):
+                return every
+            for run, numbers in self.digit_runs.items():
+                if tail in run:
+                    found |= numbers
+        day = str(row.get('approval_date') or '')[:10]
+        if day:
+            if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', day):
+                return every
+            found |= self.dates.get(day, set())
+        return sorted(found)
+
+
 class Repository:
     """Explicit registered sources only. No paths/URLs are accepted from P2."""
     def __init__(self, conn, sources):
@@ -217,60 +286,103 @@ class Repository:
         self._rows = {}
         self._snapshot = None
         self._check = lambda: None
+        self.read_bytes = 0
 
-    def begin_snapshot(self, check=None):
-        """Start a request-local view; call again before freshness validation."""
+    def begin_snapshot(self, check=None, *, new_round=True):
+        """Start a request-local view; call again (new_round=False) before freshness validation."""
         self._snapshot = {}
         self._check = check or (lambda: None)
+        if new_round:
+            self.read_bytes = 0
 
     def end_snapshot(self):
         self._snapshot = None
         self._check = lambda: None
 
-    def _source_evidence(self, row):
-        from . import ota_mail, ota_portal
-        self._check()
-        if self._snapshot is None or 'messages' not in self._snapshot:
-            messages, _ = ota_mail.load_messages_from(self.sources.get('mail_directories', []))
-            self._check()
-            if self._snapshot is not None:
-                self._snapshot['messages'] = messages
-        else:
-            messages = self._snapshot['messages']
+    def _index(self, key, paths, build, case_used):
+        """Pinned per snapshot; rebuilt only when the stat stamp changes, within budget."""
+        if self._snapshot is not None and key in self._snapshot:
+            return self._snapshot[key], 0
+        stamp = (key, _stamp(paths))
+        if not stamp[1]:
+            return _Index([], 0), 0  # nothing registered on disk: nothing to read
+        with _INDEX_LOCK:
+            index = _INDEXES.get(key)
+            cost = 0
+            if index is None or index[0] != stamp:
+                cost = sum(item[1] for item in stamp[1])
+                if case_used + cost > EVIDENCE_CASE_BYTES or self.read_bytes + cost > EVIDENCE_ROUND_BYTES:
+                    raise ValueError('P2_READ_BUDGET_EXCEEDED')
+                self._check()
+                index = (stamp, _Index(build(), cost))
+                self.read_bytes += cost
+                self._check()
+                _INDEXES[key] = index
+        if self._snapshot is not None:
+            self._snapshot[key] = index[1]
+        return index[1], cost
+
+    def _mail_entries(self):
+        from . import ota_mail
+        from .ota_payments import extract_payment_fact
+        messages, _ = ota_mail._load_messages_uncached(self.sources.get('mail_directories', []))
+        entries = []
         for identity in sorted(messages):
-            self._check()
             message = messages[identity]
-            text = ota_mail.message_text(message)
+            text = ota_mail.body_text(message.get('payload', {}))
             headers = message.get('payload', {}).get('headers', [])
             visible = '\n'.join(str(h.get('value', '')) for h in headers
                                 if str(h.get('name', '')).lower() in ('subject', 'from', 'date'))
-            if relevant(row, visible + '\n' + text):
-                from .ota_payments import extract_payment_fact
+            # Payment context is derived only for a matched message, as before.
+            def context(message=message):
                 fact = extract_payment_fact(message) or {}
-                context = {key: fact.get(key) for key in ('event_type','reservation_status','refund_status') if fact.get(key)}
-                yield dict(ref='mail:' + digest(identity), kind='mail', content=dict(headers=visible, text=text, event_context=context),
-                           transaction_id=row['transaction_id'])
-        for index, path in enumerate(ota_portal.as_databases(self.sources.get('portal_databases'))):
+                return {key: fact.get(key) for key in ('event_type', 'reservation_status', 'refund_status') if fact.get(key)}
+            entries.append((visible + '\n' + text, dict(ref='mail:' + digest(identity), kind='mail',
+                            content=dict(headers=visible, text=text)), context))
+        return entries
+
+    def _source_evidence(self, row):
+        from . import ota_mail, ota_portal, ota_sources
+        started, used = __import__('time').monotonic(), [0]
+        def check():
             self._check()
-            key = ('portal', index, str(path.resolve()))
-            if self._snapshot is None or key not in self._snapshot:
-                records = ota_portal._read_records(path.resolve(), index) if path.is_file() else []
-                self._check()
-                if self._snapshot is not None:
-                    self._snapshot[key] = records
-            else:
-                records = self._snapshot[key]
-            for record in records:
-                self._check()
-                if relevant(row, encoded(record)):
-                    # Locator is not needed by the model. Preserve content and source identity.
-                    yield dict(ref='portal:' + digest([index, record]), kind='portal',
-                               content={k: v for k, v in record.items() if k not in ('database', '_source_locator')},
-                               transaction_id=row['transaction_id'])
+            if __import__('time').monotonic() - started > EVIDENCE_CASE_SECONDS:
+                raise ValueError('P2_READ_TIME_EXCEEDED')
+        check()
+        directories = ota_mail.as_directories(self.sources.get('mail_directories', []))
+        sources = [(('mail', tuple(str(Path(d).resolve()) for d in directories)),
+                    ota_sources.mail_stamps_paths(directories), self._mail_entries)]
+        for index, path in enumerate(ota_portal.as_databases(self.sources.get('portal_databases'))):
+            resolved = path.resolve()
+            def portal(resolved=resolved, index=index):
+                records = ota_portal._read_records(resolved, index) if resolved.is_file() else []
+                return [(encoded(record), dict(ref='portal:' + digest([index, record]), kind='portal',
+                         content={k: v for k, v in record.items() if k not in ('database', '_source_locator')}),
+                         None) for record in records]
+            sources.append((('portal', index, str(resolved)), [resolved, Path(str(resolved) + '-wal')], portal))
+        for key, paths, build in sources:
+            check()
+            index, cost = self._index(key, paths, build, used[0])
+            used[0] += cost
+            for number in index.candidates(row):
+                check()
+                text, item, context = index.entries[number]
+                if relevant(row, text):
+                    if context is not None:
+                        item = dict(item, content=dict(item['content'], event_context=context()))
+                    yield dict(item, transaction_id=row['transaction_id'])
 
     def select(self, case, row):
+        return self.source_items(row) + self.history(row)
+
+    def source_items(self, row):
+        """File-backed evidence; safe to gather outside writer locks."""
         self._rows[row['transaction_id']] = row
-        output = heapq.nsmallest(MAX_EVIDENCE, self._source_evidence(row), key=lambda e: e['ref'])
+        return heapq.nsmallest(MAX_EVIDENCE, self._source_evidence(row), key=lambda e: e['ref'])
+
+    def history(self, row):
+        """Ledger-backed evidence; re-read under the writer lock before apply."""
+        output = []
         cursor = self.conn.execute(
             'SELECT transaction_id,source_hash,approval_date,merchant,item,trip_id,classification_basis '
             'FROM transactions WHERE merchant_normalized=? AND transaction_id!=? '
