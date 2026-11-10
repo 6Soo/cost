@@ -1,0 +1,18 @@
+{
+  "request_digest": "digest-syn-more-002",
+  "execution": {
+    "kind": "connected_agent",
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "run_id": "run-syn-0002"
+  },
+  "results": [],
+  "more_evidence": [
+    {
+      "kind": "mail_search",
+      "query": "체크인 확정 메일",
+      "why": "숙박 기간을 확정할 원문이 필요하다.",
+      "transaction_id": "txn-syn-002"
+    }
+  ]
+}

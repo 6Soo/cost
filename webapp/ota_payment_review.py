@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -1912,7 +1913,7 @@ class OtaReconcileChildError(RuntimeError):
     """The child process ended with an error; the message names the original exception."""
 
 
-def reconcile_in_child(board) -> dict:
+def reconcile_in_child(board, *, cancel_event=None) -> dict:
     """reconcile(board) in a separate process, with the same result.
 
     The child reads the same board database and gets the reservation authority this
@@ -1935,15 +1936,30 @@ def reconcile_in_child(board) -> dict:
 
     interpreter, extra_env = python_command()
     try:
+        if cancel_event is not None and cancel_event.is_set():
+            raise OtaReconcileChildError("the reconciliation was cancelled")
         process = subprocess.Popen(
             [*interpreter, "-I", "-c", CHILD_BOOTSTRAP, root, str(board.path),
              str(request_path), str(result_path)],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=child_environment(extra_env))
-        try:
-            _, stderr = process.communicate(timeout=CHILD_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            _stop_process_tree(process.pid)
-            raise OtaReconcileChildError("the reconciliation process timed out")
+        deadline = time.monotonic() + CHILD_TIMEOUT_SECONDS
+        while True:
+            cancelled = cancel_event is not None and cancel_event.is_set()
+            remaining = deadline - time.monotonic()
+            if cancelled or remaining <= 0:
+                _stop_process_tree(process.pid)
+                if process.poll() is None:
+                    process.kill()
+                process.communicate()
+                raise OtaReconcileChildError("the reconciliation was cancelled" if cancelled
+                                             else "the reconciliation process timed out")
+            try:
+                _, stderr = process.communicate(timeout=min(remaining, .1) if cancel_event is not None else remaining)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if cancel_event is not None and cancel_event.is_set():
+            raise OtaReconcileChildError("the reconciliation was cancelled")
         if process.returncode != 0 or not result_path.exists():
             tail = (stderr or b"").decode("utf-8", "replace").strip().splitlines()
             reason = tail[-1][:200] if tail else f"exit {process.returncode}"
@@ -2019,9 +2035,10 @@ def passenger_index_for(board, *, require_fresh=False) -> dict:
 def snapshot_service(board):
     service = getattr(board, "_ota_snapshot_service", None)
     if service is None:
+        cancel_event = threading.Event()
         service = ota_snapshot.OtaSnapshotService(
             key_fn=lambda: input_key(board), verify_key_fn=lambda: current_input_key(board),
-            reconcile_fn=lambda: reconcile_in_child(board),
+            reconcile_fn=lambda: reconcile_in_child(board, cancel_event=cancel_event), cancel_event=cancel_event,
             persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE,
             log_path=Path(review_db_path()).parent / "ota-snapshot.log",
             on_published=lambda current: _write_passenger_index(

@@ -15,7 +15,7 @@
 - 고객 원문은 구독 프론티어 P2에만 제공한다. 무료 작업자는 코드와 순수 합성 자료만 사용한다.
 - 파일·셸·네트워크 도구 실행 불가, read-only/never 유지, full-access/bypass 대체 금지. OS 격리 성공을 주장하지 않는다.
 - 원문·금액·부호·ID·수동 교정·정확 연결·환불·중복·원본 충돌 보호, Google 자동쓰기 금지를 유지한다.
-- 프롬프트 상한은 초기 196608 UTF-8 bytes, 필수 CORE/스키마 보존, 근거 절단 사실 표시. 추가 조회·문의는 최대 2회.
+- 프롬프트 상한은 262144 UTF-8 bytes, 필수 CORE/스키마 보존, 근거 절단 사실 표시. 초기 196608 bytes는 link·refund가 함께 필요한 단건의 필수 정책 본문 207124 bytes도 담지 못해 독립 검수 후 상향했다. 추가 조회·문의는 최대 2회.
 - 본체 sol 소유: app/p2_case.py, app/frontier_agent_provider.py, 기존 provider/분류/Worker 연결과 관련 신규 검사. EXAONE 소유: app/p2_output.schema.json, tests/fixtures/p2_tool_free/, tests/test_p2_output_schema_fixtures.py. 공유 명세·BOARD·handoff는 관리자만 쓴다.
 
 ## 검수 초점
@@ -30,7 +30,7 @@
 
 **Files:** app/p2_case.py, app/p2_output.schema.json, tests/test_p2_case.py, tests/test_p2_output_schema_fixtures.py, tests/fixtures/p2_tool_free/.
 
-**Interfaces:** `assemble(conn, trips, request, *, repository=None, max_bytes=196608)`는 기존 `ai_classification.prepare` 요청을 보존한다. repository의 `select(case, raw_transaction)`와 `lookup(kind, query, transaction_id)`는 `{ref,kind,content,transaction_id}` 목록을 반환한다.
+**Interfaces:** `assemble(conn, trips, request, *, repository=None, max_bytes=262144)`는 기존 `ai_classification.prepare` 요청을 보존한다. repository의 `select(case, raw_transaction)`와 `lookup(kind, query, transaction_id)`는 `{ref,kind,content,transaction_id}` 목록을 반환한다.
 
 - [ ] 합성 원문·CORE/영역 선택·프롬프트 상한/절단·악성 문자열을 검증하는 실패 테스트부터 작성한다.
 - [ ] 최소 조립기를 구현하고 `python -m pytest tests/test_p2_case.py -q`로 확인한다.
