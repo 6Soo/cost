@@ -14,8 +14,8 @@
       "service_start": "2026-09-02",
       "service_end": "2026-09-06",
       "evidence_refs": [
-        "evidence/syn-mail-001",
-        "evidence/syn-card-001"
+        "mail:syn-mail-001",
+        "card:syn-card-001"
       ],
       "basis": "카드 승인일과 체크인 메일의 숙박 기간이 일치한다.",
       "uncertainty": "결제자와 여행자가 동일인인지 확인하지 못했다.",
