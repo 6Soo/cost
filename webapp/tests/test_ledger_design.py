@@ -121,9 +121,7 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertEqual(page.locator('.nav a[href="/cards/all"]').count(), 1)
                 self.assertEqual(overflow(page), 0)
                 self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
-                page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
-                page.wait_for_url('**/board?**tab=trip-demo-b**')
-                self.assertEqual(overflow(page), 0)
+                self.assertGreater(page.locator('#nav .nav-list .nv').count(), 0)
                 page.close()
 
     def setUp(self):

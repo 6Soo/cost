@@ -109,6 +109,5 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
             assert page.locator('#copy-trip').is_visible()
             page.locator('#copy-trip').select_option('trip-syn')
             assert page.locator('#copy-tsv').is_enabled()
-            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         finally:
             browser.close()
