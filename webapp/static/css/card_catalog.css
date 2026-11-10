@@ -79,3 +79,23 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
  .card-catalog td.catalog-message .catalog-message-text{flex:1;min-width:0}
 }
 @media (width < 1024px){.card-catalog{font-size:var(--t-meta)}.card-catalog td{grid-template-columns:68px minmax(0,1fr);padding:8px}.card-catalog .catalog-btn{white-space:normal}}
+
+/* Transaction workspace additions: one labelled filter bar and a compact
+   mobile projection share the same tokens as the card catalog table. */
+.card-catalog .filter-bar{display:flex;align-items:end;gap:var(--s-3,12px);flex-wrap:wrap;padding:var(--s-4,16px);border:1px solid var(--cc-border);border-radius:var(--r-lg);background:var(--cc-surface)}
+.card-catalog .filter-bar .field{display:grid;gap:var(--s-1,4px);min-width:10rem;flex:1 1 12rem}
+.card-catalog .filter-bar .field label,.card-catalog .filter-bar .field>span{color:var(--cc-text);font-size:var(--t-meta);font-weight:600}
+.card-catalog .filter-bar :is(input,select){min-height:40px;width:100%}
+.card-catalog .filter-bar .btn{min-height:40px;padding:8px 12px;text-decoration:none}
+.card-catalog .filter-bar .btn.ghost{background:transparent}
+.ota-mobile-list{display:none;list-style:none;margin:0;padding:0;border:1px solid var(--cc-border);border-radius:var(--r-lg);background:var(--cc-surface)}
+.ota-mobile-list .list-row{border-bottom:1px solid var(--cc-border)}
+.ota-mobile-list .list-row:last-child{border-bottom:0}
+.ota-mobile-list .lr-hit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-height:56px;padding:10px 12px;color:var(--cc-text);text-decoration:none;text-align:left}
+@media (width < 1024px){
+ .card-catalog .filter-bar{padding:12px}
+ .card-catalog .filter-bar .field{min-width:100%}
+ .card-catalog .filter-bar .btn{min-height:44px;flex:1}
+ .card-catalog>table{display:none}
+ .ota-mobile-list{display:block}
+}

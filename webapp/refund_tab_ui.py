@@ -14,6 +14,8 @@ Strictly presentation/projection only:
 import html
 from urllib.parse import quote
 
+from . import ui_components
+
 
 def assemble_refund_groups(sources, links, *, is_preserved_fn=None):
     """Assemble complete, sorted refund groups outside preserved history periods."""
@@ -51,9 +53,9 @@ def render_refund_line(source, index, row=None, trip=''):
     money = lambda amount: f'{amount:,}원'
     state = '장부 기록됨' if row else '미기록'
     detail = (f"<a href='/row?id={quote(row['row_id'])}&amp;back={quote('/board?tab=refunds', safe='')}'>자료 검토</a>"
-              if row else "<a href='/import'>지출 정리</a>")
+              if row else "<a href='/cards/all'>카드 거래 보기</a>")
     return (f"<div class='refund-line'><span>{'원결제' if index == 0 else '환불'} · "
-            f"{esc(source['occurred_on'] or '날짜 확인 필요')}</span>"
+            f"{esc(source['occurred_on'] or '이용일 원문 없음')}</span>"
             f"<strong>{money(source['amount_krw'])}</strong>"
             f"<span>{esc(source['merchant'])} · {esc(row.get('item') or source['item']) if row else esc(source['item'])}</span>"
             f"<span>{esc(state)}{' · ' + esc(trip) if trip else ''} · {detail}</span></div>")
@@ -65,14 +67,14 @@ def render_refund_card(group, saved=None, trip_names=None):
     names = trip_names or {}
     money = lambda amount: f'{amount:,}원'
     net = sum(r['amount_krw'] for r in group)
-    title = '전액 환불' if net == 0 else '초과 환불 확인 필요' if net < 0 else '부분 환불'
+    title = '전액 환불' if net == 0 else '초과 환불 검토 필요' if net < 0 else '부분 환불'
     if group[0].get('inferred'):
         title = '원결제 추론 연결 · 기록 보류 · 환급 완료 아님'
     rows = []
     for index, source in enumerate([group[0]] + sorted(group[1:], key=lambda r: (
             not bool(r['occurred_on']), r['occurred_on'], r['transaction_id']))):
         row = saved.get(source['transaction_id'])
-        trip = names.get(row.get('display_tab_id'), '미배정') if row else ''
+        trip = names.get(row.get('display_tab_id'), '여행 연결 없음') if row else ''
         rows.append(render_refund_line(source, index, row=row, trip=trip))
     return (f"<section class='ui-card refund-card'><h2 class='ui-card__heading'>{title} · 순액 {money(net)}</h2>"
             f"{''.join(rows)}</section>")
@@ -86,6 +88,12 @@ def render_refund_tab(visible, saved=None, trip_names=None):
     gross = sum(g[0]['amount_krw'] for g in visible)
     refund = sum(r['amount_krw'] for g in visible for r in g[1:])
     cards = [render_refund_card(group, saved=saved, trip_names=trip_names) for group in visible]
-    return (f"<div class='sum tnum'><span>카드 환불 {len(visible)}쌍</span><div>원결제 <b>{money(gross)}</b></div>"
-            f"<div>환불 <b>{money(refund)}</b></div><div>순액 <b>{money(gross + refund)}</b></div></div>"
-            + (''.join(cards) or "<p class='ui-state'>환불 쌍이 없습니다.</p>"))
+    kpis = (f"<dl class='kpi-row' aria-label='환불 쌍 {len(visible)}개'>" + ui_components.kpi('환불 쌍', f'{len(visible)}개') +
+            ui_components.kpi('원결제', money(gross)) +
+            ui_components.kpi('환불', money(refund)) +
+            ui_components.kpi('순액', money(gross + refund)) + '</dl>')
+    empty = ui_components.empty_state(
+        '환불·취소 거래가 없습니다.',
+        '카드 거래에서 원결제와 취소 관계를 확인할 수 있습니다.',
+        "<a class='btn ghost' href='/cards/all'>카드 거래 보기</a>")
+    return kpis + (''.join(cards) or empty)

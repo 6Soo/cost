@@ -43,60 +43,53 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                     assert page.locator('thead th').count() == 4
                     assert page.locator('.detail-cell, .preserved').count() == 0
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-                    if width <= 759:
+                    if width < 1024:
+                        mobile_rows = page.locator('.card-all-mobile-list .list-row')
+                        assert mobile_rows.count() == 3
+                        assert mobile_rows.first.is_visible()
                         assert all(reason.is_hidden() for reason in page.locator(
                             '.card-all-action-reason').all())
-                        assert rows.first.evaluate('(e)=>getComputedStyle(e).display') == 'grid'
-                        assert rows.first.locator('.use-datetime').is_hidden()
-                        assert page.locator('.card-all-table thead').is_hidden()
-                        assert rows.first.evaluate('(e)=>getComputedStyle(e).borderBottomWidth') == '1px'
-                        assert all(row.bounding_box()['height'] <= 80 for row in rows.all()), [
+                        assert page.locator('.card-all-table-wrap').evaluate('(e)=>getComputedStyle(e).display') == 'none'
+                        assert all(row.bounding_box()['height'] <= 96 for row in mobile_rows.all()), [
                             (row.get_attribute('data-tx-id'), row.bounding_box()['height'],
-                             row.locator('.merchant').bounding_box(), row.locator('.amount-cell').bounding_box(),
-                             row.locator('.trip').bounding_box()) for row in rows.all()]
-                        for row in rows.all():
-                            button = row.locator('.card-all-row-toggle').bounding_box()
-                            name = row.locator('.merchant-name').bounding_box()
-                            identity = row.locator('.card-identity').bounding_box()
+                             row.locator('.lr-primary').bounding_box(), row.locator('.lr-amount').bounding_box(),
+                             row.locator('.lr-secondary').bounding_box()) for row in mobile_rows.all()]
+                        for row in mobile_rows.all():
+                            button = row.locator('.lr-hit').bounding_box()
+                            name = row.locator('.lr-primary').bounding_box()
                             assert row.bounding_box()['height'] >= 44
                             assert button['height'] >= name['height']
-                            assert 0 <= identity['y'] - (name['y'] + name['height']) <= 28
-                            tops = [row.locator(cell).bounding_box()['y'] for cell in ('.merchant', '.amount-cell')]
-                            assert max(tops) - min(tops) <= 1
-                            assert row.locator('.trip').bounding_box()['y'] >= row.locator('.amount-cell').bounding_box()['y']
-                        for selector in ('.card-all-table-wrap', '.card-all-filters input[type=search]',
-                                         '.card-all-filters select', '.card-all-filters button'):
+                            assert row.locator('.lr-secondary').bounding_box()['y'] >= name['y']
+                        for selector in ('.filter-bar input[type=search]',
+                                         '.filter-bar select', '.filter-bar button'):
                             for element in page.locator(selector).all():
                                 box = element.bounding_box()
                                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= width + 1
-                        for link in page.locator('td.trip>a').all():
-                            assert link.bounding_box()['height'] >= 44
-                        assert page.locator('.card-all-filters input[type=search]').evaluate(
+                        assert page.locator('.filter-bar input[type=search]').evaluate(
                             '(e)=>parseFloat(getComputedStyle(e).fontSize)>=16')
-                        merchant = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")
-                        assert merchant.get_attribute('title') == long_merchant.strip()
-                        assert page.locator("tr[data-tx-id='TX-B-01'] td.trip").get_attribute('title').strip() == long_trip.strip()
+                        assert page.locator(".card-all-mobile-list li[data-detail-id='TX-A-01'] .lr-primary").inner_text() == long_merchant.strip()
+                        assert long_trip.strip() in page.locator(".card-all-mobile-list li[data-detail-id='TX-B-01'] .lr-secondary").inner_text()
                     else:
                         assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
                     if width == 390:
                         page.screenshot(path=str(output / f'mobile-{theme}.png'), full_page=True)
-                        page.locator("tr[data-tx-id='TX-A-02']").scroll_into_view_if_needed()
+                        page.locator(".card-all-mobile-list li[data-detail-id='TX-A-02']").scroll_into_view_if_needed()
                         page.screenshot(path=str(output / f'mobile-transaction-{theme}.png'))
             assert page.locator("tr[data-tx-id='TX-A-01'] .merchant-name").inner_text() == long_merchant.strip()
             assert page.locator("tr[data-tx-id='TX-B-01'] .card-all-trip-name").inner_text() == long_trip.strip()
             assert page.locator("td.trip a[href='/board?tab=refunds']").count() == 2
             assert page.locator('.card-all-help').count() == 0
-            page.set_viewport_size({'width': 640, 'height': 844})
+            page.set_viewport_size({'width': 1024, 'height': 844})
             page.evaluate('document.documentElement.style.zoom="200%"')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'block'
+            assert page.locator('.card-all-table').evaluate('(e)=>getComputedStyle(e).display') == 'table'
             link = page.locator('.card-all-row-toggle').first
             link.focus()
             assert link.evaluate('(e)=>e===document.activeElement')
             assert link.get_attribute('aria-expanded') == 'false'
             assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
             page.evaluate('document.documentElement.style.zoom="100%"')
-            page.set_viewport_size({'width': 390, 'height': 844})
+            page.set_viewport_size({'width': 1024, 'height': 844})
             page.route('http://cost.test/board*', lambda route: route.fulfill(status=200, body='<p>synthetic detail</p>'))
             original = 'http://cost.test/cards/all?year=2026&month=3'
             pending = []
@@ -104,7 +97,7 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             # All ordinary cells expand in place, including source-only transactions.
             for cell in ('td.use-datetime', 'td.amount-cell', 'td.trip'):
                 page.goto(original)
-                page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})
+                page.set_viewport_size({'width': 1024, 'height': 844})
                 page.locator("tr[data-tx-id='TX-B-01'] " + cell).click()
                 detail = page.locator('#card-detail-TX-B-01')
                 from playwright.sync_api import expect
@@ -121,10 +114,10 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
                         detail_data['next_action']['reason_label'])
                 expect(detail.locator('.card-all-spinner')).to_have_count(0)
                 assert page.url == original
-                for expanded_width in (320, 390, 600, 759, 760, 768, 1280, 1440):
+                for expanded_width in (1024, 1280, 1440):
                     page.set_viewport_size({'width': expanded_width, 'height': 844})
                     assert page.locator('.card-all-table-wrap').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-                page.set_viewport_size({'width': 760 if cell == 'td.use-datetime' else 390, 'height': 844})
+                page.set_viewport_size({'width': 1024, 'height': 844})
                 if cell == 'td.use-datetime':
                     page.screenshot(path=str(output / 'detail-expanded.png'), full_page=True)
                 page.locator("tr[data-tx-id='TX-B-01'] " + cell).click()
@@ -158,9 +151,9 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             assert page.locator('#card-detail-TX-B-01').is_hidden()
             page.evaluate('getSelection().removeAllRanges()')
             # Hold navigation at submission so the old document's loading state can be inspected.
-            page.locator('.card-all-filters').evaluate("e=>e.addEventListener('submit',e=>e.preventDefault())")
-            page.locator('.card-all-filters input[name=q]').fill('loading')
-            page.locator('.card-all-filters button').click()
+            page.locator('.filter-bar').evaluate("e=>e.addEventListener('submit',e=>e.preventDefault())")
+            page.locator('.filter-bar input[name=q]').fill('loading')
+            page.locator('.filter-bar button').click()
             expect(page.locator('.card-all-page-loading .card-all-spinner')).to_be_visible()
             page.evaluate("window.dispatchEvent(new Event('pageshow'))")
             expect(page.locator('.card-all-page-loading')).to_be_hidden()

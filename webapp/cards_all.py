@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from . import card_transactions as _ct
 from . import ledger_design as _design
 from . import ui_icons
+from . import ui_components
 from .card_history_assets import SCRIPT as CARD_HISTORY_WORKSPACE_SCRIPT
 from app import request_metrics
 
@@ -78,8 +79,17 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .merchant{min-width:0}
 .card-all-page .card-all-table tr[data-detail-id]{cursor:pointer}
 .card-all-page .card-all-table tr[data-detail-id]:focus-within{outline:2px solid var(--focus,var(--c-focus));outline-offset:-2px;background:var(--ca-soft)}
-.card-all-page .card-all-row-toggle{display:block;width:100%;height:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;appearance:none;-webkit-appearance:none;background:none;color:inherit;text-align:left;font:inherit;line-height:inherit;cursor:pointer;overflow-wrap:anywhere;min-width:0}
-.card-all-page .card-all-row-toggle:focus-visible{outline:2px solid var(--focus,var(--c-focus));outline-offset:2px}
+ .card-all-page .card-all-row-toggle{display:block;width:100%;height:auto;min-height:44px;margin:0;padding:0;border:0;border-radius:0;appearance:none;-webkit-appearance:none;background:none;color:inherit;text-align:left;font:inherit;line-height:inherit;cursor:pointer;overflow-wrap:anywhere;min-width:0}
+ .card-all-page .card-all-row-toggle:focus-visible{outline:2px solid var(--focus,var(--c-focus));outline-offset:2px}
+ .card-all-page .card-all-mobile-list{display:none;list-style:none;margin:0;padding:0}
+ .card-all-page .card-all-mobile-list .list-row{margin:0;border-bottom:1px solid var(--ca-border);background:var(--ca-paper)}
+ .card-all-page .card-all-mobile-list .list-row:last-child{border-bottom:0}
+ .card-all-page .card-all-mobile-list .lr-hit{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"primary amount" "secondary secondary";align-items:baseline;width:100%;min-height:56px;gap:3px 12px;padding:10px 12px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
+ .card-all-page .card-all-mobile-list .lr-primary{grid-area:primary;font-weight:700;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+ .card-all-page .card-all-mobile-list .lr-amount{grid-area:amount;text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+ .card-all-page .card-all-mobile-list .lr-secondary{grid-area:secondary;color:var(--ca-muted);font-size:var(--t-caption);overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
+ .card-all-page .card-all-mobile-expanded{padding:0 12px 12px;background:var(--ca-soft)}
+ .card-all-page .card-all-mobile-expanded[hidden]{display:none}
 .card-all-page .card-all-expanded td{padding:12px;background:var(--ca-soft)}
 .card-all-page .card-all-expanded[hidden]{display:none}
 .card-all-page .card-all-expanded-content{min-width:0;overflow-wrap:anywhere}
@@ -99,11 +109,11 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .amount-cell{text-align:right}
 .card-all-page .card-all-table .amount-cell .amount{text-align:right;font-weight:750;font-variant-numeric:tabular-nums}
 .card-all-page .card-all-table .amount-cell .card-all-badges{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:3px}
-.card-all-page .card-all-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:var(--t-meta)}
-.card-all-page .card-all-filters>label{display:inline-flex;align-items:center;gap:7px;min-width:0}
-.card-all-page .card-all-filters :is(input[type=search],select){min-height:42px;max-width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
-.card-all-page .card-all-filters input[type=search]{width:min(360px,100%)}
-.card-all-page .card-all-filters button{min-height:42px;padding:8px 14px;font:inherit}
+.card-all-page .filter-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:var(--t-meta)}
+.card-all-page .filter-bar>label{display:inline-flex;align-items:center;gap:7px;min-width:0}
+.card-all-page .filter-bar :is(input[type=search],select){min-height:42px;max-width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
+.card-all-page .filter-bar input[type=search]{width:min(360px,100%)}
+.card-all-page .filter-bar button{min-height:42px;padding:8px 14px;font:inherit}
 .card-all-page .card-all-table .trip{min-width:0;overflow-wrap:anywhere}
 .card-all-page .card-all-trip-name{display:block;font-weight:700;line-height:1.4}
 .card-all-page .card-all-trip-name.unassigned{color:var(--ca-muted);font-weight:500}
@@ -125,9 +135,9 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-stat{display:flex;gap:7px;align-items:baseline;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
 .card-all-page .card-all-stat-value{font-size:var(--t-body-sm)}
 .card-all-page .card-all-toolbar{display:none}
-.card-all-page .card-all-filters{margin:0 0 8px;gap:8px;padding:0;border:0;background:transparent}
-.card-all-page .card-all-filters :is(input[type=search],select){min-height:42px;padding:6px 9px}
-.card-all-page .card-all-filters button{min-height:44px}
+.card-all-page .filter-bar{margin:0 0 8px;gap:8px;padding:0;border:0;background:transparent}
+.card-all-page .filter-bar :is(input[type=search],select){min-height:42px;padding:6px 9px}
+.card-all-page .filter-bar button{min-height:44px}
 .card-all-page .card-all-help{margin:0 0 10px}
 .card-all-page .card-all-help summary{min-height:44px}
 .card-all-page :is(.card-all-detail,.card-all-undated){border:0;border-radius:0;background:transparent;padding:0;margin:0 0 20px}
@@ -147,17 +157,17 @@ CARD_ALL_STYLE = """
  .card-all-page .card-all-stat{display:flex;gap:4px;padding:0}
  .card-all-page .card-all-stat-label{font-size:var(--t-caption)}
  .card-all-page .card-all-stat-value{font-size:var(--t-caption)}
- .card-all-page .card-all-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0;border:0;border-radius:0;background:transparent;margin:0 0 5px}
- .card-all-page .card-all-filters>label{grid-column:auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;font-size:var(--t-caption)}
- .card-all-page .card-all-filters>label:has(input[type=search]){grid-column:1/-1}
- .card-all-page .card-all-filters>label:has(select[name=period]){grid-column:1;grid-row:1}
- .card-all-page .card-all-filters>label:has(select[name=card]){grid-column:2;grid-row:1}
+ .card-all-page .filter-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0;border:0;border-radius:0;background:transparent;margin:0 0 5px}
+ .card-all-page .filter-bar>label{grid-column:auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;font-size:var(--t-caption)}
+ .card-all-page .filter-bar>label:has(input[type=search]){grid-column:1/-1}
+ .card-all-page .filter-bar>label:has(select[name=period]){grid-column:1;grid-row:1}
+ .card-all-page .filter-bar>label:has(select[name=card]){grid-column:2;grid-row:1}
 
 
- .card-all-page .card-all-filters input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
- .card-all-page .card-all-filters :is(input[type=search],select){min-height:44px;font-size:var(--t-body);padding:5px 8px}
- .card-all-page .card-all-filters button,.card-all-page .card-all-filters>.card-all-link{grid-column:auto;width:100%;min-height:44px;padding:5px 8px}
- .card-all-page .card-all-filters>.card-all-link{display:flex;align-items:center;justify-content:center}
+ .card-all-page .filter-bar input[type=checkbox]{width:20px;height:20px;accent-color:var(--ca-accent);flex-shrink:0}
+ .card-all-page .filter-bar :is(input[type=search],select){min-height:44px;font-size:var(--t-body);padding:5px 8px}
+ .card-all-page .filter-bar button,.card-all-page .filter-bar>.card-all-link{grid-column:auto;width:100%;min-height:44px;padding:5px 8px}
+ .card-all-page .filter-bar>.card-all-link{display:flex;align-items:center;justify-content:center}
  .card-all-page .card-all-help{padding:0;margin:0 0 8px}
  .card-all-page .card-all-detail,.card-all-page .card-all-undated{padding:0;margin:0 0 14px}
  .card-all-page :is(.card-all-detail,.card-all-undated) h2{font-size:var(--t-body-sm);margin:6px 0 8px}
@@ -319,7 +329,29 @@ CARD_ALL_STYLE = """
  .card-all-page .card-coverage-period button{width:100%}
 }
 
-.card-all-page details>summary{list-style:none}.card-all-page details>summary::-webkit-details-marker{display:none}.card-all-page details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.card-all-page details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.card-all-page details>summary::after{transition:none}}</style>
+ .card-all-page .ph-actions{justify-content:flex-end}
+ .card-all-page .ph-actions .btn{min-height:44px}
+ @media (width < 1024px){.card-all-page .ph-actions .btn{min-height:44px}}
+ @media (width < 1024px){.card-all-page .card-all-table-wrap{display:none}.card-all-page .card-all-mobile-list{display:block;border:1px solid var(--ca-border);border-radius:var(--r-lg);overflow:hidden;background:var(--ca-paper)}}
+ .card-all-page .filter-bar{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:var(--t-meta);min-width:0}
+ .card-all-page .filter-bar .field{display:flex;align-items:center;gap:7px;min-width:0}
+ .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{box-sizing:border-box;min-width:0;max-width:100%;min-height:42px;padding:8px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit}
+ .card-all-page .filter-bar .field input[type=search]{width:min(360px,100%)}
+ .card-all-page .filter-bar button,.card-all-page .filter-bar>.btn{min-height:42px;padding:8px 14px;font:inherit}
+ @media(max-width:759px){
+  .card-all-page .filter-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;margin:0 0 8px}
+  .card-all-page .filter-bar .field{display:flex;flex-direction:column;align-items:stretch;gap:3px;min-width:0;font-size:var(--t-caption)}
+  .card-all-page .filter-bar .field:has(input[type=search]){grid-column:1/-1}
+  .card-all-page .filter-bar .field:has(select[name=period]){grid-column:1;grid-row:1}
+  .card-all-page .filter-bar .field:has(select[name=card]){grid-column:2;grid-row:1}
+  .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{width:100%;min-height:44px;font-size:var(--t-body);padding:5px 8px}
+ .card-all-page .filter-bar button,.card-all-page .filter-bar>.btn{width:100%;min-height:44px;padding:5px 8px}
+ .card-all-page .filter-bar>.btn{display:flex;align-items:center;justify-content:center}
+ }
+ @media (width < 1024px){
+  .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{min-height:44px;font-size:var(--t-body)}
+ }
+ .card-all-page details>summary{list-style:none}.card-all-page details>summary::-webkit-details-marker{display:none}.card-all-page details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.card-all-page details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.card-all-page details>summary::after{transition:none}}</style>
 """
 
 CARD_ALL_SCRIPT = """
@@ -327,10 +359,10 @@ CARD_ALL_SCRIPT = """
 document.addEventListener('click', async function(event) {
     if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const target = event.target instanceof Element ? event.target : event.target.parentElement;
-    const row = target && target.closest('.card-all-table tr[data-detail-id]');
-    if (!row || window.getSelection().toString()) return;
-    if (target.closest('a,input,select,textarea,summary') || (target.closest('button') && !target.closest('.card-all-row-toggle'))) return;
-    const toggle = row.querySelector('.card-all-row-toggle');
+     const row = target && target.closest('.card-all-table tr[data-detail-id], .card-all-mobile-list li[data-detail-id]');
+     if (!row || window.getSelection().toString()) return;
+     if (target.closest('a,input,select,textarea,summary') || (target.closest('button') && !target.closest('.card-all-row-toggle,.card-all-mobile-row-toggle'))) return;
+     const toggle = row.querySelector('.card-all-row-toggle,.card-all-mobile-row-toggle');
     const detail = document.getElementById(toggle.getAttribute('aria-controls'));
     detail.hidden = !detail.hidden;
     toggle.setAttribute('aria-expanded', String(!detail.hidden));
@@ -364,17 +396,18 @@ document.addEventListener('click', async function(event) {
 });
 document.addEventListener('keydown', function(event) {
     if (event.key !== 'Escape') return;
-    const row = event.target.closest('.card-all-table tr');
-    if (!row) return;
-    const detail = row.classList.contains('card-all-expanded') ? row : row.nextElementSibling;
-    if (!detail || !detail.classList.contains('card-all-expanded') || detail.hidden) return;
-    detail.hidden = true;
-    const toggle = detail.previousElementSibling.querySelector('.card-all-row-toggle');
-    toggle.setAttribute('aria-expanded', 'false');
+     const row = event.target.closest('.card-all-table tr[data-detail-id], .card-all-mobile-list li[data-detail-id]');
+     if (!row) return;
+     const detail = row.classList.contains('card-all-expanded') ? row :
+                    row.querySelector('.card-all-mobile-expanded') || row.nextElementSibling;
+     if (!detail || (!detail.classList.contains('card-all-expanded') && !detail.classList.contains('card-all-mobile-expanded')) || detail.hidden) return;
+     detail.hidden = true;
+     const toggle = row.querySelector('.card-all-row-toggle,.card-all-mobile-row-toggle');
+     toggle.setAttribute('aria-expanded', 'false');
     toggle.focus();
 });
 document.addEventListener('submit', function(event) {
-    if (!event.target.matches('.card-all-filters')) return;
+    if (!event.target.matches('.filter-bar')) return;
     document.querySelector('.card-all-page-loading').hidden = false;
 });
 document.addEventListener('click', function(event) {
@@ -458,17 +491,15 @@ def _workspace_html(query_params, *, owner: bool, csrf: str) -> str:
     return (
         "<section class='card-history-workspace' data-card-history-workspace data-csrf='" + _esc(csrf) + "'>"
         + notice + transaction_panel +
-        "<div class='card-history-actions' role='group' aria-label='카드 자료 관리'>"
-        f"<button id='card-upload-open' type='button' aria-controls='card-upload-panel' aria-expanded='{str(active == 'upload').lower()}'>카드 업로드</button>"
-        f"<button id='card-coverage-open' type='button' aria-controls='card-coverage-panel' aria-expanded='{str(active == 'coverage').lower()}'>수집 현황</button>"
-        "</div>"
         f"<section id='card-upload-panel' class='card-workspace-panel' aria-labelledby='card-upload-heading' tabindex='-1'{'' if active == 'upload' else ' hidden'}>"
         "<header><div><h2 id='card-upload-heading'>카드 업로드</h2><p class='card-workspace-muted'>원본 파일을 먼저 저장한 뒤 백그라운드에서 처리합니다. 화면을 새로 열어도 저장된 처리 상태를 확인할 수 있습니다.</p></div>"
-        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' data-card-panel-close='upload'>업로드 닫기</button></div></header>"
+        "<div class='card-workspace-panel-actions'><button type='button' class='card-workspace-secondary' data-card-panel-close='upload'>닫기</button></div></header>"
         "<div id='card-gap-context' class='card-legacy-notice' role='status' hidden></div>"
         "<form class='card-upload-form' onsubmit='return false'>"
         "<label for='card-upload-files'>업로드할 카드 파일 선택</label>"
-        "<input id='card-upload-files' type='file' accept='.xls,.xlsx,.csv' multiple aria-describedby='card-upload-help'>"
+        + ui_components.file_drop('files', '.xls,.xlsx,.csv', True, '파일을 선택하거나 이곳에 끌어다 놓으세요')
+          .replace("<input class=\"sr-only-focusable\"", "<input id='card-upload-files' class=\"sr-only-focusable\" aria-describedby='card-upload-help'")
+          .replace("<ul aria-live='polite'>", "<ul id='card-upload-file-list' aria-live='polite'>") +
         "<p id='card-upload-selection' class='card-workspace-muted'>선택된 파일 없음</p>"
         "<p id='card-upload-help' class='card-workspace-muted'>XLS, XLSX, CSV 파일을 한 번에 최대 100개, 합계 99MB까지 선택할 수 있습니다.</p>"
         "<button id='card-upload-submit' type='button' class='card-workspace-secondary'>선택한 파일 업로드</button></form>"
@@ -633,13 +664,24 @@ def _get_trip_display(trip_id, classification_source) -> str:
     source = str(classification_source or "").strip()
     if source in ('manual', 'user_decision', 'user_exception', 'previous_decision',
                   'inference', 'auto_inferred', 'code_inference', 'ai_inference'):
-        return f"{trip} · {_classification_source_label(source)}"
+        label = '수동' if source in ('manual', 'user_decision', 'user_exception', 'previous_decision') else '자동'
+        return f"{trip} · {label}"
     return trip
 
 
 def _classification_source_label(source) -> str:
     from app.assignment_status import classification_source_label
     return classification_source_label(source)
+
+
+def _classification_chip(item: dict) -> str:
+    """Render the short provenance cue while leaving the full basis in detail."""
+    source = str(item.get('classification_source') or '').strip().lower()
+    if source in {'manual', 'user_decision', 'user_exception', 'previous_decision'}:
+        return "<span class='chip chip-neutral'>수동</span>"
+    if source in {'inference', 'auto_inferred', 'code_inference', 'ai_inference', 'guide_airfare_evidence'}:
+        return "<span class='chip chip-accent' title='규칙 기반 자동 귀속'>자동</span>"
+    return ''
 
 
 def _status_badges(item: dict) -> str:
@@ -674,6 +716,7 @@ def _review_action(item: dict) -> str:
 
 def card_detail_html(item: dict) -> str:
     """Escaped source facts; a ledger row is not required and nothing is written."""
+    tid = str(item.get('transaction_id') or '').strip()
     from app.assignment_status import assignment_conflict_label, row_assignment
     from app.quarter_tab import parse_tab
     assignment = row_assignment(item, _trip_context()[0].keys())
@@ -685,10 +728,15 @@ def card_detail_html(item: dict) -> str:
     destination = display_destination(item, trip_names=_trip_context()[0])
     from app.classification_provenance import label
     source = label(item)
+    source_key = str(item.get('classification_source') or '').strip().lower()
+    if source_key in {'manual', 'user_decision', 'user_exception', 'previous_decision'}:
+        source = '수동'
+    elif source_key in {'inference', 'auto_inferred', 'code_inference', 'ai_inference', 'guide_airfare_evidence'}:
+        source = '자동'
     fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or item.get('posting_date') or '원본 날짜 오류'),
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),
               ('카드', item.get('card_label')), ('승인번호', item.get('approval_number')),
-              ('배정', destination), ('항목', item.get('item')), ('분류 출처', source),
+              ('귀속', destination), ('항목', item.get('item')), ('분류 출처', source),
               ('거래 내용', item.get('description')), ('중복 출처', item.get('duplicate_of')),
               ('원본 충돌', item.get('conflict_reason')),
               ('배정 충돌', assignment_conflict_label(assignment['conflicts']))]
@@ -698,8 +746,17 @@ def card_detail_html(item: dict) -> str:
         basis = '저장된 근거 없음 · 카드 날짜 기준 귀속을 표시합니다.'
     basis_html = (f"<details><summary>저장된 귀속 근거 보기</summary><p>{_esc(basis)}</p></details>"
                   if basis else '')
-    return action_html + "<dl class='card-detail-fields'>" + ''.join(
-        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, '')) + '</dl>' + basis_html + _review_action(item)
+    destination_tab = str(item.get('display_tab_id') or item.get('trip_id') or '').strip()
+    if item.get('refund_tab_member'):
+        destination_tab = 'refunds'
+    ledger_link = ''
+    if destination_tab and tid:
+        ledger_link = ("<a class='card-all-ledger-link' href='/board?" +
+                       _esc(urlencode({'tab': destination_tab, 'row': 'card-' + tid})) +
+                       "'>이 여행 장부에서 보기</a>")
+    return (action_html + "<dl class='card-detail-fields'>" + ''.join(
+        f'<dt>{_esc(label)}</dt><dd>{_esc(value)}</dd>' for label, value in fields if value not in (None, ''))
+        + '</dl>' + basis_html + _review_action(item) + ledger_link)
 
 
 def _group_by_date(items: list[dict]) -> list[tuple[str, list[tuple[str, str, dict]]]]:
@@ -708,18 +765,18 @@ def _group_by_date(items: list[dict]) -> list[tuple[str, list[tuple[str, str, di
     for item in items:
         date_part, time_part = _split_datetime(
             item.get("use_date") or item.get("approval_date"))
-        key = date_part or "날짜 확인 필요"
+        key = date_part or "이용일 원문 없음"
         grouped.setdefault(key, []).append((date_part, time_part, item))
     ordered: list[tuple[str, list[tuple[str, str, dict]]]] = []
-    for key in sorted(k for k in grouped if k != "날짜 확인 필요"):
+    for key in sorted(k for k in grouped if k != "이용일 원문 없음"):
         rows = grouped[key]
         rows.sort(key=lambda row: (row[1] == "", row[1],
                                    str(row[2].get("transaction_id") or "")))
         ordered.append((key, rows))
-    if "날짜 확인 필요" in grouped:
-        rows = sorted(grouped["날짜 확인 필요"],
+    if "이용일 원문 없음" in grouped:
+        rows = sorted(grouped["이용일 원문 없음"],
                       key=lambda row: str(row[2].get("transaction_id") or ""))
-        ordered.append(("날짜 확인 필요", rows))
+        ordered.append(("이용일 원문 없음", rows))
     return ordered
 
 
@@ -752,7 +809,7 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             approved = item.get("use_date") or item.get("approval_date")
             date_text = _period_date(approved, year, month)
             if not date_text:
-                date_text = "날짜 확인 필요"
+                date_text = "이용일 원문 없음"
             merchant = str(item.get("merchant") or "").strip() or "가맹점 미상"
             card_label = item.get('card_label') or '식별 정보 없음'
             amount = _format_amount(item.get("amount_krw"),
@@ -778,7 +835,7 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                                f"{_esc(trip_name)}</span>")
                 from app.classification_provenance import origin, label
                 if origin(item) != 'unknown':
-                    trip_markup += f"<span class='card-all-trip-source'>{_esc(label(item))}</span>"
+                    trip_markup += f"<span class='card-all-trip-source'>{_classification_chip(item)}</span>"
             detail_id = 'card-detail-' + tid
             merchant_markup = f"<span class='merchant-name'>{_esc(merchant)}</span>"
             row_attrs = f" data-detail-id='{_esc(tid)}'" if tid and include_detail_link else ''
@@ -802,6 +859,41 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
     return "".join(rows)
 
 
+def _render_mobile_rows(items: list[dict], *, trip_names: dict[str, str] | None = None,
+                        year: int | None = None, month: int | None = None) -> str:
+    """Render the compact shared list-row projection used below the mobile breakpoint."""
+    rows: list[str] = []
+    for _date_key, entries in _group_by_date(items):
+        for _date_part, _time_part, item in entries:
+            tid = str(item.get('transaction_id') or '').strip()
+            if not tid:
+                continue
+            approved = item.get('use_date') or item.get('approval_date')
+            date_text = _period_date(approved, year, month) or '이용일 원문 없음'
+            merchant = str(item.get('merchant') or '').strip() or '가맹점 미상'
+            amount = _format_amount(item.get('amount_krw'), item.get('foreign_amount'),
+                                    item.get('foreign_currency'))
+            from app.card_destination import display_destination
+            trip_name = display_destination(item, trip_names=trip_names)
+            secondary = ' · '.join(value for value in (date_text, trip_name) if value)
+            detail_id = 'card-mobile-detail-' + tid
+            row = ui_components.list_row(
+                merchant, amount, secondary, {'tag': 'button'})
+            row = row.replace(
+                '<li class="list-row">',
+                f"<li class='list-row' data-detail-id='{_esc(tid)}'>", 1)
+            row = row.replace(
+                '<button type="button" class="lr-hit">',
+                f"<button type='button' class='lr-hit card-all-mobile-row-toggle' "
+                f"aria-expanded='false' aria-controls='{_esc(detail_id)}'>", 1)
+            row = row.replace('</button></li>',
+                             f"</button><div class='card-all-mobile-expanded' id='{_esc(detail_id)}' "
+                             "hidden><div class='card-all-expanded-content' aria-live='polite'></div></div></li>", 1)
+            rows.append(row)
+    return ("<ul class='card-all-mobile-list' aria-label='카드 거래 목록'>" +
+            ''.join(rows) + '</ul>')
+
+
 def _transactions_table(items: list[dict], label: str, *,
                         trip_names: dict[str, str] | None = None,
                         year: int | None = None, month: int | None = None) -> str:
@@ -814,56 +906,61 @@ def _transactions_table(items: list[dict], label: str, *,
         "<th scope='col'>이용일시</th>"
         "<th scope='col'>가맹점명</th>"
         "<th scope='col' class='amount'>금액</th>"
-        "<th scope='col'>배정</th>"
+        "<th scope='col'>귀속</th>"
         "</tr></thead>"
         f"<tbody>{_render_month_rows(items, trip_names=trip_names, year=year, month=month)}</tbody>"
-        "</table></div>")
+        "</table></div>" + _render_mobile_rows(items, trip_names=trip_names, year=year, month=month))
 
 
 def _undated_section(year: int, items: list[dict], count: int, *,
                      expanded: bool, cursor: str | None, has_more: bool,
                      trip_names: dict[str, str] | None = None, filter_state=None) -> str:
-    heading = f"<h2>날짜 확인 필요 · {count:,}건</h2>"
+    heading = f"<h2>이용일 원문 없음 · {count:,}건</h2>"
     note = "<p class='card-all-muted'>이용일이 없는 거래는 연도와 관계없이 표시합니다.</p>"
     if count == 0:
         return (f"<section class='card-all-undated' aria-labelledby='undated-heading'>"
                 f"<div id='undated-heading'>{heading}</div>"
-                "<p class='card-all-muted'>날짜 확인이 필요한 거래가 없어.</p>"
-                "</section>")
+                + ui_components.empty_state('이용일 원문이 없는 카드 거래가 없습니다.',
+                    '기간을 바꾸거나 카드 자료를 추가하면 다시 확인할 수 있습니다.',
+                    "<a class='btn ghost' href='/cards/all'>카드 내역으로 돌아가기</a>")
+                + "</section>")
     if not expanded:
         href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "undated": "1"})
         return (f"<section class='card-all-undated' aria-labelledby='undated-heading'>"
                 f"<div id='undated-heading'>{heading}</div>{note}"
-                f"<a class='card-all-link' href='{_esc(href)}'>날짜 확인 필요 목록 보기</a>"
+                f"<a class='card-all-link' href='{_esc(href)}'>이용일 원문 없음 목록 보기</a>"
                 "</section>")
     more = ""
     if has_more and cursor:
         href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "undated": "1",
                                          "undated_cursor": cursor})
         more = ("<div class='card-all-pagination'>"
-                f"<a class='card-all-link' href='{_esc(href)}'>다음 날짜 확인 필요 거래 100건 보기</a>"
+        f"<a class='card-all-link' href='{_esc(href)}'>다음 이용일 원문 없음 거래 100건 보기</a>"
                 "</div>")
     return (f"<section class='card-all-undated' aria-labelledby='undated-heading'>"
             f"<div id='undated-heading'>{heading}</div>{note}"
-            f"{_transactions_table(items, '날짜 확인 필요 거래', trip_names=trip_names)}{more}"
+            f"{_transactions_table(items, '이용일 원문 없음 거래', trip_names=trip_names)}{more}"
             "</section>")
 
 
 def _month_detail(year: int, month: int, items: list[dict], cursor, has_more: bool,
                   total: int, *, trip_names: dict[str, str] | None = None, filter_state=None) -> str:
-    count_label = '미배정' if (filter_state or {}).get('unassigned') else '전체'
+    count_label = '연결 없음' if (filter_state or {}).get('unassigned') else '전체'
     if not items:
         if total:
             start = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "month": month})
             return ("<section class='card-all-detail'>"
                     f"<h2>{year}년 {month}월 · {count_label} {total:,}건</h2>"
-                    "<p class='card-all-muted'>이 위치에는 표시할 거래가 더 없어. "
+                    "<p class='card-all-muted'>이 위치에는 표시할 거래가 더 없습니다. "
                     f"<a class='card-all-link' href='{_esc(start)}'>처음부터 보기</a></p>"
                     "</section>")
         return ("<section class='card-all-detail card-all-empty'>"
                 f"<h2>{year}년 {month}월</h2>"
-                + ("<p>이 달에 조회 조건에 맞는 카드 거래가 없어.</p>" if filter_state else
-                   "<p>이 달에 저장된 카드 거래가 없어.</p>")
+                + ui_components.empty_state(
+                    '이 기간의 카드 거래가 없습니다.',
+                    '조회 조건을 바꾸거나 카드 자료를 추가해 주세요.',
+                    "<a class='btn ghost' href='/cards/all?panel=upload'>카드 업로드</a>" if not filter_state else
+                    "<a class='btn ghost' href='/cards/all'>조회 조건 초기화</a>")
                 + "</section>")
     more = ""
     if has_more and cursor:
@@ -889,8 +986,9 @@ def _search_detail(year: int, items: list[dict], cursor, has_more: bool,
         return ("<section class='card-all-detail card-all-search-result' "
                 "aria-live='polite' aria-labelledby='search-heading'>"
                 f"<h2 id='search-heading'>{heading}</h2>"
-                f"<p class='card-all-muted'>{message}</p>"
-                "</section>")
+                + ui_components.empty_state('검색 결과가 없습니다.', message,
+                    "<a class='btn ghost' href='/cards/all'>조회 조건 초기화</a>")
+                + "</section>")
     more = ""
     if has_more and cursor:
         href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year,
@@ -914,8 +1012,35 @@ def _period_select(year: int, month: int | None, years: list[int]) -> str:
         options = ''.join(f"<option value='{key}'{' selected' if key == selected else ''}>{label}</option>"
                           for key, label in periods)
         groups.append(f"<optgroup label='{value}년'>{options}</optgroup>")
-    return ("<label>기간 <select name='period' aria-label='조회 기간' onchange='this.form.requestSubmit()'>"
-            + ''.join(groups) + '</select></label>')
+    return ("<select id='card-period' name='period' aria-label='조회 기간' onchange='this.form.requestSubmit()'>"
+            + ''.join(groups) + '</select>')
+
+
+def _transaction_tabs(current: str) -> str:
+    items = [
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+    ]
+    try:
+        from . import flight_passenger_page
+        if flight_passenger_page.enabled():
+            items.append({'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'})
+    except Exception:
+        pass
+    return ui_components.section_tabs(items, current).replace('aria-label="섹션"', 'aria-label="거래 종류"')
+
+
+def _transaction_header(*, owner: bool = False, active_panel: str = '') -> str:
+    actions = ''
+    if owner:
+        actions = ("<button id='card-upload-open' class='btn primary' type='button' "
+                   "aria-controls='card-upload-panel' aria-expanded='" +
+                   str(active_panel == 'upload').lower() + "'>카드 업로드</button>"
+                   "<button id='card-coverage-open' class='btn' type='button' "
+                   "aria-controls='card-coverage-panel' aria-expanded='" +
+                   str(active_panel == 'coverage').lower() + "'>수집 현황 <span aria-hidden='true' class='chevron-down'>⌄</span></button>")
+    return ui_components.page_header('거래', meta='카드 거래와 예약 자료를 확인합니다.', actions=actions, breadcrumb=())
 
 
 def _available_years(db_path: str | None) -> list[int]:
@@ -943,12 +1068,26 @@ def _error_page(message: str) -> str:
     return _design.render(fragment, title="카드 내역")
 
 
+def _strip_legacy_shell_header(fragment: str) -> str:
+    """Leave document title ownership to the app shell and transaction header."""
+    start = fragment.find("<div class='page-hd'>")
+    marker = "</div></div><div class='page-body'>"
+    if start < 0:
+        return fragment
+    end = fragment.find(marker, start)
+    if end < 0:
+        return fragment
+    return fragment[:start] + fragment[end + len("</div></div>"):]
+
+
 def _upload_workspace_page(query_params, *, owner: bool, csrf: str) -> str:
     """Render direct upload deep links without waiting on the card writer."""
     body = (
         CARD_ALL_STYLE
         + "<div class='card-all-page' data-card-upload-quick-view='true'>"
-        "<div class='card-all-page-loading' role='status' hidden>"
+        + _transaction_header(owner=owner, active_panel=_first(query_params, 'panel', ''))
+        + _transaction_tabs('cards')
+        + "<div class='card-all-page-loading' role='status' hidden>"
         "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
         + _workspace_html(query_params, owner=owner, csrf=csrf)
         + "<section class='card-all-detail card-all-empty' role='status'>"
@@ -962,6 +1101,7 @@ def _upload_workspace_page(query_params, *, owner: bool, csrf: str) -> str:
         "카드 내역", tab_id="", heading="카드 내역",
         meta="카드 거래와 거래일자 공백을 확인해요.", body=body, home=True,
         quick_view=True)
+    fragment = _strip_legacy_shell_header(fragment)
     return _design.render(fragment, title="카드 내역")
 
 
@@ -1070,14 +1210,20 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
                 value = str(_first(query_params, key, '') or '')
                 if value and len(value) <= 220:
                     hidden_filter_state[key] = value
-        filter_form = (
-            "<form method='get' action='/cards/all' class='card-all-filters' aria-label='조회 조건'>"
-            + _hidden_filters(hidden_filter_state)
-            + _period_select(year, selected_month, years)
-            + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
-            + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='카드사·끝4자리·가맹점·내용·분류·금액·승인번호'></label>"
-            + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
-            + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {}), **({'panel': active_panel} if owner and active_panel in ('upload', 'coverage') else {})}))}'>필터 초기화</a></form>")
+        reset_href = '/cards/all?' + urlencode({
+            'year': year,
+            **({'month': selected_month} if selected_month else {}),
+            **({'panel': active_panel} if owner and active_panel in ('upload', 'coverage') else {}),
+        })
+        filter_form = ui_components.filter_bar([
+            {'label': '기간', 'control_html': _period_select(year, selected_month, years)},
+            {'label': '카드', 'control_html': f"<select id='card-filter' name='card' aria-label='카드별 조회'>{options}</select>"},
+            {'label': '검색', 'control_html': f"<input id='card-q' type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='카드사·끝4자리·가맹점·내용·분류·금액·승인번호'>"},
+        ], submit_label='조회', reset_href=reset_href)
+        filter_form = filter_form.replace('<form class="filter-bar"', "<form class='filter-bar' action='/cards/all' aria-label='조회 조건'")
+        filter_form = filter_form.replace('<button class="btn primary"', '<button class="btn"')
+        filter_form = filter_form.replace('</form>', _hidden_filters(hidden_filter_state) + '</form>')
+        filter_form = filter_form.replace('>초기화</a>', '>' + ui_icons.icon('rotate-ccw', 14) + '초기화</a>')
 
         if selected_month is not None:
             detail = _month_detail(year, selected_month, items, next_cursor,
@@ -1092,7 +1238,9 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
         body = (
             CARD_ALL_STYLE
             + "<div class='card-all-page'>"
-            "<div class='card-all-page-loading' role='status' hidden>"
+            + _transaction_header(owner=owner, active_panel=active_panel)
+            + _transaction_tabs('cards')
+            + "<div class='card-all-page-loading' role='status' hidden>"
             "<span class='card-all-spinner' aria-hidden='true'></span>불러오는 중</div>"
             + _workspace_html(query_params, owner=owner, csrf=csrf)
             + filter_form
@@ -1104,4 +1252,5 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
             "카드 내역", tab_id="", heading="카드 내역",
             meta="카드 거래와 거래일자 공백을 확인해요.",
             body=body, home=True)
+        fragment = _strip_legacy_shell_header(fragment)
         return _design.render(fragment, title="카드 내역")
