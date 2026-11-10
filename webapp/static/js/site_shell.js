@@ -53,10 +53,20 @@
  observer.observe(document.body,{childList:true,subtree:true,characterData:true});
  const dialog=document.getElementById('site-more-dialog');
  const openers=document.querySelectorAll('.site-more-bottom');
+ const themeBar=document.querySelector('.site-theme-bar');
+ const themeSlot=document.querySelector('.site-more-theme-slot');
+ const topbar=document.querySelector('.site-topbar');
+ const mobileQuery=window.matchMedia('(max-width:1023px)');
+ const placeTheme=()=>{
+  if(!themeBar||!themeSlot||!topbar)return;
+  if(mobileQuery.matches&&dialog?.open)themeSlot.append(themeBar);else topbar.append(themeBar);
+ };
+ placeTheme();
+ mobileQuery.addEventListener?.('change',placeTheme);
  const closeDialog=()=>{if(dialog&&dialog.open)dialog.close();if(dialog)dialog.inert=true};
  if(dialog)dialog.inert=true;
- openers.forEach(button=>button.addEventListener('click',()=>{if(dialog&&!dialog.open){dialog.inert=false;dialog.showModal()}}));
- dialog?.addEventListener('close',()=>{dialog.inert=true});
+ openers.forEach(button=>button.addEventListener('click',()=>{if(dialog&&!dialog.open){dialog.inert=false;dialog.showModal();placeTheme()}}));
+ dialog?.addEventListener('close',()=>{dialog.inert=true;placeTheme()});
  dialog?.addEventListener('cancel',event=>{event.preventDefault();closeDialog()});
  dialog?.addEventListener('click',event=>{if(event.target===dialog)closeDialog()});
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&dialog?.open)closeDialog()});
