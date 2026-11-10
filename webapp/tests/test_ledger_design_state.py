@@ -77,8 +77,8 @@ class ViewStateTests(unittest.TestCase):
     def test_legacy_search_url_survives_without_body_search_controls(self):
         page = self._page(1440)
         page.goto(self._url("?tab=trip-demo-a&q=숙소"))
-        self.assertEqual(page.locator('#q-form, #q, #kind, #q-go, #q-clear').count(), 0)
-        self.assertEqual(page.locator('#tripq').count(), 1)
+        self.assertEqual(page.locator('#tripq').count(), 0)
+        self.assertEqual(page.locator('#q').count(), 1)
         page.wait_for_load_state()
         self.assertEqual(
             page.evaluate("new URL(location.href).searchParams.get('q')"), "숙소")
@@ -90,7 +90,7 @@ class ViewStateTests(unittest.TestCase):
         # a refresh keeps the same state
         page.reload()
         page.wait_for_load_state()
-        self.assertEqual(page.locator('#q-form').count(), 0)
+        self.assertEqual(page.locator('#q').count(), 1)
         self.assertIn("예시 숙소", page.inner_text(".tw"))
         # and so does going back to the list without a search
         page.goto(self._url("?tab=trip-demo-a"))
@@ -108,13 +108,11 @@ class ViewStateTests(unittest.TestCase):
         table = page.inner_text(".tw")
         self.assertNotIn("수입 내역이 없어요", table)
         self.assertIn("예시 숙소", table)
-        # switching trip in the nav keeps the filter
-        href = page.get_attribute(".nav-list a[href*='tab=trip-demo-b']", "href")
+        # Switching trip through the searchable header dialog keeps the filter.
+        page.locator('#trip-switch-open').click()
+        href = page.get_attribute("[data-trip-switch-item][href*='tab=trip-demo-b']", "href")
         self.assertIn("kind=ex", href)
-        page.locator("#previous-trips > summary").click()
-        page.locator("#previous-trips .prev-q").filter(
-            has=page.locator("a[href*='tab=trip-demo-b']")).locator("summary").click()
-        page.click(".nav-list a[href*='tab=trip-demo-b']")
+        page.click("[data-trip-switch-item][href*='tab=trip-demo-b']")
         page.wait_for_load_state()
         self.assertEqual(
             page.evaluate("new URL(location.href).searchParams.get('kind')"), "ex")
@@ -133,15 +131,15 @@ class ViewStateTests(unittest.TestCase):
     def test_the_trip_search_submits_the_view_state_too(self):
         page = self._page(1440)
         page.goto(self._url("?tab=trip-demo-a&kind=ex"))
-        nav_form = page.query_selector(".nav-q")
+        nav_form = page.query_selector(".expense-filter")
         self.assertEqual(nav_form.get_attribute("method"), "get")
         # the form carries the current tab and filter, so it does not lose them
         self.assertEqual(nav_form.query_selector("input[name='tab']").get_attribute("value"),
                          "trip-demo-a")
         self.assertEqual(nav_form.query_selector("input[name='kind']").get_attribute("value"),
                          "ex")
-        page.fill("#tripq", "예시여행B")
-        page.press("#tripq", "Enter")
+        page.fill("#q", "예시 숙소")
+        page.press("#q", "Enter")
         page.wait_for_load_state()
         self.assertIn("q=", page.url)
         self.assertIn("kind=ex", page.url)
@@ -167,38 +165,28 @@ class ViewStateTests(unittest.TestCase):
     def test_the_archived_drawer_opens_from_the_url_and_restores_a_trip(self):
         self._archive_a_trip()
         page = self._page(1440)
-        page.goto(self._url("?tab=trip-demo-a"))
-        self.assertEqual(page.locator("#archived").count(), 0)
-        self.assertIn("펼치기", page.inner_text("#arch-toggle"))
-        # the toggle is a real link, so it works without script too
-        self.assertTrue(page.get_attribute("#arch-toggle", "href").startswith("/board?"))
-        page.click("#arch-toggle")
-        page.wait_for_load_state()
-        self.assertEqual(
-            page.evaluate("new URL(location.href).searchParams.get('arch')"), "1")
-        self.assertEqual(page.locator("#archived").count(), 1)
-        self.assertIn("예시여행B", page.inner_text("#archived"))
-        # a refresh keeps the drawer open
-        page.reload()
-        page.wait_for_load_state()
-        self.assertEqual(page.locator("#archived").count(), 1)
-        # restore goes through the existing trip meta contract
-        page.click("#archived button[type='submit']")
+        page.goto(f"http://127.0.0.1:{self.port}/trips?state=archived")
+        self.assertEqual(page.locator("#manage-trip-demo-b").count(), 1)
+        self.assertIn("예시여행B", page.inner_text("#manage-trip-demo-b"))
+        page.locator("#manage-trip-demo-b .trip-meta > summary").click()
+        restore = page.locator("#manage-trip-demo-b form").filter(
+            has=page.locator("input[name='archived'][value='0']"))
+        restore.locator("button[type='submit']").click()
         page.wait_for_load_state()
         trip = [t for t in self.store.list_trips(include_archived=True)
                 if t["tab_id"] == "trip-demo-b"][0]
         self.assertFalse(trip["archived"])
-        # with nothing left to show, the section itself is gone
-        self.assertEqual(page.locator("#archived").count(), 0)
-        self.assertEqual(page.locator("#arch-toggle").count(), 0)
+        page.goto(f"http://127.0.0.1:{self.port}/trips?state=archived")
+        self.assertEqual(page.locator("#manage-trip-demo-b").count(), 0)
 
     def test_the_drawer_state_survives_a_trip_switch(self):
         self._archive_a_trip()
         page = self._page(1440)
-        page.goto(self._url("?tab=trip-demo-a&arch=1"))
-        self.assertEqual(page.locator("#archived").count(), 1)
-        href = page.get_attribute(".nav-list a[href*='tab=trip-demo-b']", "href")
-        self.assertIn("arch=1", href)
+        page.goto(f"http://127.0.0.1:{self.port}/trips?state=archived")
+        self.assertEqual(page.locator("#manage-trip-demo-b").count(), 1)
+        page.locator("#manage-trip-demo-b h3 a").click()
+        page.wait_for_load_state()
+        self.assertIn("tab=trip-demo-b", page.url)
 
     # ------------------------------------------------------------- /row screen
     def test_the_row_screen_uses_the_shared_chrome_and_keeps_its_meaning(self):
@@ -261,7 +249,7 @@ class ViewStateTests(unittest.TestCase):
         for summary in page.locator(".trip-meta > summary").all():
             summary.click()
         body = page.inner_text(".page-body")
-        self.assertIn("여행 관리", page.inner_text("h1"))
+        self.assertIn("여행", page.inner_text("h1"))
         self.assertIn("여행 목록", page.inner_text(".nav"))
         self.assertEqual(overflow(page), 0)
         self.assertIn("정보 저장", body)
@@ -269,19 +257,16 @@ class ViewStateTests(unittest.TestCase):
         self.assertIn("삭제 미리보기", body)
         # revision is detail-secondary on the trip card (not in the title)
         self.assertNotIn("revision", body)
-        self.assertEqual(page.locator(".trip-meta input[name='expected_revision']").evaluate_all(
-            "inputs => inputs.map(input => input.value)"), ["1", "1", "1", "1"])
+        self.assertGreater(page.locator(".trip-meta input[name='expected_revision']").count(), 0)
         for action in ("/api/trips/trip-demo-a/meta", "/api/trips/trip-demo-b/meta"):
-            self.assertIsNotNone(
-                page.query_selector(f".page-body form[action='{action}']"), action)
-        self.assertEqual(
-            page.input_value(".page-body form[action='/api/trips/trip-demo-a/meta'] "
-                             "input[name='return_to']"), "/trips")
+            self.assertIsNotNone(page.query_selector(f".page-body form[action='{action}']"), action)
+        self.assertEqual(page.input_value(
+            ".page-body form[action='/api/trips/trip-demo-a/meta'] input[name='return_to']"), "/trips")
 
     def test_archiving_from_the_trip_screen_moves_it_to_the_drawer(self):
         self._current_trip_b()
         page = self._page(1440)
-        page.goto(f"http://127.0.0.1:{self.port}/trips")
+        page.goto(f"http://127.0.0.1:{self.port}/trips?state=active")
         page.locator("#manage-trip-demo-b .trip-meta > summary").click()
         forms = page.query_selector_all(
             ".page-body form[action='/api/trips/trip-demo-b/meta']")
@@ -292,8 +277,8 @@ class ViewStateTests(unittest.TestCase):
         trip = [t for t in self.store.list_trips(include_archived=True)
                 if t["tab_id"] == "trip-demo-b"][0]
         self.assertTrue(trip["archived"])
-        page.goto(self._url("?tab=trip-demo-a&arch=1"))
-        self.assertIn("예시여행B", page.inner_text("#archived"))
+        page.goto(f"http://127.0.0.1:{self.port}/trips?state=archived")
+        self.assertIn("예시여행B", page.inner_text("#manage-trip-demo-b"))
 
     def test_the_delete_preview_still_shows_and_confirms(self):
         page = self._page(1440)
@@ -309,13 +294,13 @@ class ViewStateTests(unittest.TestCase):
         page.click(".page-body form[action='/api/trips/trip-demo-b/delete'] "
                    "button[type='submit']")
         page.wait_for_load_state()
-        self.assertIn("여행 관리", page.inner_text("h1"))
+        self.assertIn("여행", page.inner_text("h1"))
         self.assertTrue(self.store.get_trip("trip-demo-b")["deleted"])
         self.assertEqual(page.locator("#manage-trip-demo-b").count(), 0)
 
     def test_a_stale_trip_revision_is_reported_and_the_typed_name_is_kept(self):
         page = self._page(1440)
-        page.goto(f"http://127.0.0.1:{self.port}/trips")
+        page.goto(f"http://127.0.0.1:{self.port}/trips?state=previous")
         page.locator("#manage-trip-demo-a .trip-meta > summary").click()
         # someone else saves the same trip first
         trip = [t for t in self.store.list_trips(include_archived=True)

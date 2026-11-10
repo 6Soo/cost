@@ -15,25 +15,12 @@ class TripHistoryBrowserTests(LinkBrowserFixture):
         for width in (390, 1440):
             with self.subTest(width=width):
                 page, base = self.prepare_pages(width)
-                page.goto(base + "/cards")
-                if width == 390:
-                    page.get_by_role("button", name="전체 메뉴 열기").click()
-                history = page.locator("#previous-trips")
-                self.assertEqual(history.count(), 1)
-                self.assertFalse(history.evaluate("el=>el.open"))
-                self.assertEqual(page.locator(f"#trips a[href*='tab={old['tab_id']}']").count(), 0)
-                self.assertEqual(page.locator(f"#trips a[href*='tab={new['tab_id']}']").count(), 1)
-                history.locator(":scope > summary").click()
-                self.assertTrue(history.evaluate("el=>el.open"))
-                old_quarter = history.locator(".prev-q").filter(has=page.locator(
-                    f"a[href*='tab={old['tab_id']}']"))
-                old_quarter.locator(":scope > summary").click()
-                old_link = history.locator(f"a[href*='tab={old['tab_id']}']")
+                page.goto(base + "/trips?state=previous")
+                self.assertEqual(page.locator(f"#manage-{old['tab_id']}").count(), 1)
+                self.assertEqual(page.locator(f"#manage-{new['tab_id']}").count(), 0)
+                old_link = page.locator(f"#manage-{old['tab_id']} h3 a")
                 self.assertTrue(old_link.is_visible())
                 old_link.click()
                 page.wait_for_url("**/board?tab=" + old['tab_id'])
-                # Default collapsed for any selected/previous trip (new rule);
-                # user click opens it.
-                self.assertFalse(page.locator("#previous-trips").evaluate("el=>el.open"))
-                self.assertEqual(page.locator("#previous-trips a[aria-current='page']").count(), 1)
+                self.assertEqual(page.locator("#previous-trips, #archived").count(), 0)
                 self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), width)

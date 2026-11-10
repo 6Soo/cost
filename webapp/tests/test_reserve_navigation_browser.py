@@ -75,7 +75,7 @@ class OwnerNavigationTests(NavigationBrowserFixture):
                       {'source_event_key': 'reservation:cafeParse:BRAVO', 'target_tab_id': 'COST-TRIP-BRAVO'}],
         }, owner_id=OWNER)
         _, page = self.board_page()
-        page.click('#reserve-link')
+        page.get_by_role('tab', name='예약 연결').click()
         frame = page.frame_locator('#trip-reservations iframe')
         frame.locator('#linkFilter').wait_for()
         self.assertEqual(frame.locator('.linktable tbody tr:not(.is-hidden)').count(), 1)
@@ -94,11 +94,8 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         response, page = self.board_page()
         self.wait_ready(page)
         self.assertEqual(response.status, 200)
-        link = page.query_selector("#reserve-link")
-        self.assertIsNotNone(link, "the owner ledger carries no entry link")
-        self.assertEqual(link.get_attribute("href"), "#trip-reservations")
-        self.assertIn("예약·참가자", link.inner_text())
-
+        link = page.get_by_role('tab', name='예약 연결')
+        self.assertTrue(link.is_visible(), "the owner ledger carries no reservation tab")
         link.click()
         frame = page.frame_locator('#trip-reservations iframe')
         frame.locator('#linkFilter').wait_for()

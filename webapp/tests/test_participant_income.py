@@ -564,7 +564,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 page.wait_for_function("document.querySelector('#participant-trip-panel')?.dataset.loaded === '1'")
                 self.assertIn(PARTICIPANT, page.locator('.participant-insurance-cell').first.inner_text())
-                page.locator('.trip-actions [data-trip-panel="participant-trip-panel"]').click()
+                page.locator('[role=tab][aria-controls="view-participants"]').click()
                 page.locator('#participant-trip-panel .participant-cards li').first.wait_for()
                 self.assertNotIn(PARTICIPANT, page.locator('#participant-trip-panel .participant-cards').inner_text())
                 self.assertIn('미연결-합성', page.locator('#participant-trip-panel .participant-cards').inner_text())

@@ -79,18 +79,17 @@ class _Base(unittest.TestCase):
 class OwnerEntryLinkTests(_Base):
     def test_an_owner_is_shown_the_entry_link(self):
         markup = self.header("owner")
-        self.assertIn(f"id='{ENTRY_ID}'", markup)
-        self.assertIn("href='#trip-reservations'", markup)
-        self.assertIn(OWNER_LINK, markup)
+        self.assertIn("aria-controls=\"view-reservations\"", markup)
+        self.assertIn("예약 연결", markup)
+        self.assertIn("id='trip-reservations'", markup)
 
     def test_the_entry_link_is_in_body_actions_while_header_only_exports(self):
         """Trip work belongs in the body; the header retains only export."""
         markup = self.header("owner")
         head = ledger_design._head_html(self.store.get_trip('trip-demo-a'))
         self.assertNotIn(f"id='{ENTRY_ID}'", head)
-        self.assertIn("href='/export?tab=", head)
-        self.assertLess(markup.index("<div class='trip-actions'"),
-                        markup.index(f"id='{ENTRY_ID}'"))
+        self.assertNotIn("href='/export?tab=", head)
+        self.assertIn("aria-controls=\"view-reservations\"", markup)
 
     def test_the_entry_link_comes_before_the_review_link_when_both_are_drawn(self):
         """Linking first, then comparing against the real source.
@@ -148,7 +147,7 @@ class OwnerEntryLinkTests(_Base):
             else os.environ.pop(reserve_link_mod.CONFIG_ENV, None))
         self.assertIsNone(os.environ.get(reserve_link_mod.CONFIG_ENV))
         markup = self.header("owner")
-        self.assertIn(f"id='{ENTRY_ID}'", markup)
+        self.assertIn("aria-controls=\"view-reservations\"", markup)
 
 
 class ViewerSeesNoEntryLinkTests(_Base):
@@ -167,9 +166,8 @@ class ViewerSeesNoEntryLinkTests(_Base):
     def test_a_viewer_keeps_export_without_import_in_trip_header(self):
         """Export remains available after removing global actions."""
         markup = self.header("viewer")
-        self.assertIn("href='/export?tab=", markup)
-        head = markup.split("trip-header", 1)[1].split("id='q-form'", 1)[0]
-        self.assertNotIn("카드 가져오기", head)
+        self.assertNotIn("href='/export?tab=", markup)
+        self.assertIn("aria-controls=\"view-reservations\"", markup)
 
 
 class LinkIdempotenceTests(_Base):
@@ -181,14 +179,14 @@ class LinkIdempotenceTests(_Base):
         bug that looks fine in the page and is not.
         """
         markup = self.header("owner")
-        self.assertEqual(markup.count(f"id='{ENTRY_ID}'"), 1)
-        self.assertEqual(markup.count("href='#trip-reservations'"), 1)
+        self.assertEqual(markup.count("aria-controls=\"view-reservations\""), 1)
+        self.assertEqual(markup.count("id='trip-reservations'"), 1)
         sidebar = markup.split("<div class='nav-mask'")[0]
         self.assertEqual(sidebar.count("href='/reserve-links'"), 0)
         head = ledger_design._head_html(self.store.get_trip('trip-demo-a'))
         self.assertEqual(head.count("href='#trip-reservations'"), 0)
         body_actions = ledger_design._trip_actions('trip-demo-a', '/board?tab=trip-demo-a')
-        self.assertEqual(body_actions.count("href='#trip-reservations'"), 1)
+        self.assertEqual(body_actions, "")
 
 
 class ReturnLinkTests(unittest.TestCase):

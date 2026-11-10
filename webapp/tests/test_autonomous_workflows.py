@@ -119,7 +119,7 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
     trip = next(item for item in service.server.card_store.list_trips()
                 if item['tab_id'] == trip_id)
     trips_code, trips_html, _ = service.request(
-        '/trips?trip=' + quote(trip_id), cookie=service.cookie(OWNER))
+        '/trips?state=quarter', cookie=service.cookie(OWNER))
     assert trips_code == 200, trips_html[:500]
     assert f"id='manage-{trip_id}'" in trips_html
     assert f'name=\'prepared_on\' value=\'{trip["prepared_on"]}\'' in trips_html
@@ -394,7 +394,7 @@ def test_trip_metadata_stale_http_edit_preserves_saved_state(service):
     tab_id = created['tab_id']
     current = store.get_trip(tab_id)
     page_code, page_html, _ = service.request(
-        f'/trips?trip={quote(tab_id)}', cookie=service.cookie(OWNER))
+        '/trips?state=previous', cookie=service.cookie(OWNER))
     assert page_code == 200, page_html[:500]
     assert f"name='display_key' value='{current['display_key']}'" in page_html
 
@@ -462,7 +462,7 @@ def test_trip_metadata_conflict_keeps_browser_draft_and_latest_saved_value(servi
             context.add_cookies([{'name': google_oidc.COOKIE_NAME,
                                   'value': service.cookie(OWNER), 'url': base}])
             page = context.new_page()
-            page.goto(f'{base}/trips?trip={quote(tab_id)}')
+            page.goto(f'{base}/trips?state=previous')
             row = page.locator(f'[id="manage-{tab_id}"]')
             row.locator('.trip-meta > summary').click()
             form = row.locator('form').first

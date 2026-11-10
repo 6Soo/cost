@@ -636,7 +636,7 @@ class BoardApiTests(unittest.TestCase):
         and requires 후보 and 자동분류 rows to look like ordinary rows.
         """
         page = self._get_html("/board?tab=trip-demo-a")
-        table = re.search(r"<table id='tbl'>.*?</table>", page, re.S).group()
+        table = re.search(r"<table id='tbl'[^>]*>.*?</table>", page, re.S).group()
         headers = re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)
         self.assertIn("거래처·내용", headers)
         self.assertIn("금액", headers)
@@ -667,7 +667,7 @@ class BoardApiTests(unittest.TestCase):
         # The narrow-screen rules live in the served stylesheet. The old 760px
         # breakpoint and `scrollx` belonged to the unrouted function.
         page = self._get_html("/board?tab=trip-demo-a")
-        self.assertIn("@media(width < 760px)", page)
+        self.assertIn("@media (width < 760px)", page)
         self.assertIn("<div class='tw'><table id='tbl'>", page)
         self.assertRegex(page, r"\.tw\{[^}]*overflow-x:auto")
         self.assertRegex(page, r"id='btn-menu'[^>]*aria-controls='nav'")

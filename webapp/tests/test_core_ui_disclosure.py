@@ -22,12 +22,14 @@ def test_trip_header_and_management_disclose_secondary_actions(tmp_path):
             try:
                 page = browser.new_page(viewport={'width': 1440, 'height': 900})
                 page.set_content(document)
-                assert page.get_by_role('link', name='XLSX 출력').is_visible()
+                assert page.locator('#trip-settings > summary').is_visible()
+                page.locator('#trip-settings > summary').click()
+                assert page.locator('#trip-settings .trip-more-menu a[href^="/export?"]').is_visible()
                 assert page.locator('.secondary-actions').count() == 0
                 assert not page.locator('.act a[href="/import#newupload"]').is_visible()
                 page.set_content(trips)
                 row = page.locator('#manage-trip-demo-a')
-                assert row.locator('h3 a').is_visible()
+                assert row.locator('td:first-child a').is_visible()
                 assert not row.locator('.trip-close-form button').is_visible()
                 row.locator('.trip-meta > summary').click()
                 assert row.locator('.trip-close-form button').is_visible()
@@ -89,7 +91,11 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
             assert page.locator('#receipt-holds').count() == 0
             assert page.locator('#img-file').is_visible()
             assert 'application/pdf' in page.locator('#img-file').get_attribute('accept')
-            assert page.locator('#img-go').is_disabled()
+            # Unified upload keeps the action available so missing files get
+            # an inline validation message instead of a dead control.
+            assert page.locator('#img-go').is_enabled()
+            page.locator('#img-go').click()
+            assert page.locator('#file-error').is_visible()
             assert not page.locator('#r-merchant').is_visible()
             page.locator('#other-methods > summary').click()
             assert page.locator('#r-merchant').is_visible()
