@@ -1,0 +1,11 @@
+{
+  "request_digest": 12345,
+  "execution": {
+    "kind": "connected_agent",
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "run_id": "run-syn-0005"
+  },
+  "results": [],
+  "more_evidence": []
+}

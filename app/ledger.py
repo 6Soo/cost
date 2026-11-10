@@ -263,6 +263,15 @@ def preview(store, batch_id: str, *, trip_validator=None,
     # Before the digest: only rows a commit would book, so provenance shows in
     # the preview and changes to it are a stale preview.
     _merge_metadata(ready_now, entry_metadata)
+    # Existing authoritative OTA metadata wins. P2 adds a display period only;
+    # it cannot alter payment/approval dates or assert a financial connection.
+    from .ai_classification import service_metadata
+    for entry in ready_now:
+        if not entry.get('service_period') and not entry.get('booking_ref') and not entry.get('ota_evidence'):
+            metadata = service_metadata(store.conn, entry['transaction_id'])
+            for key in METADATA_KEYS:
+                if key in metadata:
+                    entry[key] = metadata[key]
     result = {
         "batch_id": batch_id,
         "version": PREVIEW_VERSION,

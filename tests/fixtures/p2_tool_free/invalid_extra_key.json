@@ -1,0 +1,25 @@
+{
+  "request_digest": "digest-syn-extra-003",
+  "execution": {
+    "kind": "connected_agent",
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "run_id": "run-syn-0003"
+  },
+  "results": [
+    {
+      "transaction_id": "txn-syn-003",
+      "trip_id": "trip-syn-008",
+      "item": "항공",
+      "service_start": "2026-09-01",
+      "service_end": "",
+      "evidence_refs": [],
+      "basis": "항공권 승인 기록만 확인했다.",
+      "uncertainty": "탑승 구간과 공급자 표기를 확정하지 못했다.",
+      "rule_ids": [],
+      "extra_key": "unexpected"
+    }
+  ],
+  "more_evidence": [],
+  "extra_top_level": true
+}

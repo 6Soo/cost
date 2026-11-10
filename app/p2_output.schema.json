@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "P2 connected-agent output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_digest",
+    "execution",
+    "results",
+    "more_evidence"
+  ],
+  "properties": {
+    "request_digest": {
+      "type": "string"
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "provider",
+        "model",
+        "run_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "connected_agent"
+        },
+        "provider": {
+          "const": "codex"
+        },
+        "model": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "transaction_id",
+          "trip_id",
+          "item",
+          "service_start",
+          "service_end",
+          "evidence_refs",
+          "basis",
+          "uncertainty",
+          "rule_ids"
+        ],
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "trip_id": {
+            "type": "string"
+          },
+          "item": {
+            "type": "string"
+          },
+          "service_start": {
+            "type": "string"
+          },
+          "service_end": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "basis": {
+            "type": "string"
+          },
+          "uncertainty": {
+            "type": "string"
+          },
+          "rule_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "more_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "query",
+          "why",
+          "transaction_id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mail_search",
+              "portal_lookup",
+              "card_search"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "transaction_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
