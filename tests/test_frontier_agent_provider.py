@@ -86,6 +86,33 @@ def test_made_up_execution_identity_is_rejected(monkeypatch, tmp_path):
         provider.run_agent({'digest': 'digest'}, bundle={}, runner=runner)
 
 
+def test_bounded_subprocess_audit_reports_actual_executable(tmp_path):
+    import os
+    from pathlib import Path
+    root = str(Path(__file__).resolve().parents[1])
+    script = r'''
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+from app.connected_agent_provider import _run_bounded
+events = []
+def audit(event, args):
+    if event == 'subprocess.Popen':
+        events.append((args[0], args[1], args[2]))
+sys.addaudithook(audit)
+child = 'import os,sys; print(os.getcwd()); print(sys.argv[1])'
+result = _run_bounded([sys.executable, '-c', child, 'synthetic argument'],
+                      cwd=sys.argv[2], env=dict(os.environ), timeout=10)
+assert result.returncode == 0
+assert result.stdout.decode().splitlines() == [sys.argv[2], 'synthetic argument']
+assert len(events) == 1 and os.path.samefile(events[0][0], sys.executable)
+assert events[0][2] == sys.argv[2]
+assert 'synthetic argument' in str(events[0][1])
+'''
+    result = subprocess.run([sys.executable, '-c', script, root, str(tmp_path)],
+                            capture_output=True, text=True, timeout=20, env=dict(os.environ))
+    assert result.returncode == 0, result.stderr
+
+
 def test_bounded_subprocess_stdin_and_actual_output_cap(tmp_path):
     from app.connected_agent_provider import _run_bounded
     import os

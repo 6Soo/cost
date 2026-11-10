@@ -231,7 +231,7 @@ def _resume_owned_process(process):
 
 
 def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
-    process = subprocess.Popen(command, cwd=cwd, env=env,
+    process = subprocess.Popen(command, executable=command[0], cwd=cwd, env=env,
                                stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                creationflags=(getattr(subprocess, 'CREATE_NO_WINDOW', 0)
