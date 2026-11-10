@@ -39,6 +39,11 @@ def sanitize(value):
     if isinstance(value, (list, tuple)):
         return [sanitize(v) for v in value]
     if isinstance(value, str):
+        if value.lstrip().startswith(('{', '[')):
+            try:
+                return encoded(sanitize(json.loads(value)))
+            except ValueError:
+                pass
         return re.sub(r'(?im)\b(authorization|cookie|password|access_token|api_key)\s*[:=]\s*[^\r\n]+',
                       '[REDACTED]', value)
     return value

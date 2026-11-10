@@ -152,11 +152,50 @@ def _provider_error(event):
     raise AgentUnavailable('AGENT_PROVIDER_ERROR')
 
 
+def _owned_job(process):
+    """Own descendants for cleanup even when their parent exits first (Windows)."""
+    if os.name != 'nt':
+        return None
+    import ctypes
+    from ctypes import wintypes as wt
+    class Basic(ctypes.Structure):
+        _fields_ = [('process_time', ctypes.c_int64), ('job_time', ctypes.c_int64),
+                    ('flags', wt.DWORD), ('min_ws', ctypes.c_size_t), ('max_ws', ctypes.c_size_t),
+                    ('active_limit', wt.DWORD), ('affinity', ctypes.c_size_t),
+                    ('priority', wt.DWORD), ('scheduling', wt.DWORD)]
+    class IO(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in ('read_ops','write_ops','other_ops','read_bytes','write_bytes','other_bytes')]
+    class Extended(ctypes.Structure):
+        _fields_ = [('basic', Basic), ('io', IO), ('process_memory', ctypes.c_size_t),
+                    ('job_memory', ctypes.c_size_t), ('peak_process', ctypes.c_size_t), ('peak_job', ctypes.c_size_t)]
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateJobObjectW.argtypes, kernel.CreateJobObjectW.restype = [wt.LPVOID, wt.LPCWSTR], wt.HANDLE
+    kernel.SetInformationJobObject.argtypes = [wt.HANDLE, ctypes.c_int, wt.LPVOID, wt.DWORD]
+    kernel.AssignProcessToJobObject.argtypes = [wt.HANDLE, wt.HANDLE]
+    kernel.CloseHandle.argtypes = [wt.HANDLE]
+    handle = kernel.CreateJobObjectW(None, None)
+    info = Extended()
+    info.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: lifecycle, not sandbox.
+    if not handle or not kernel.SetInformationJobObject(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+        if handle:
+            kernel.CloseHandle(handle)
+        process.kill()
+        process.wait()
+        raise AgentUnavailable('AGENT_PROCESS_BOUNDARY_UNAVAILABLE')
+    if not kernel.AssignProcessToJobObject(handle, wt.HANDLE(int(process._handle))):
+        kernel.CloseHandle(handle)
+        process.kill()
+        process.wait()
+        raise AgentUnavailable('AGENT_PROCESS_BOUNDARY_UNAVAILABLE')
+    return lambda: kernel.CloseHandle(handle)
+
+
 def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
     process = subprocess.Popen(command, cwd=cwd, env=env,
                                stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    close_job = _owned_job(process)
     chunks, size, exceeded = [[], []], [0], threading.Event()
     mutex = threading.Lock()
 
@@ -202,7 +241,10 @@ def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
             raise AgentUnavailable('AGENT_RESPONSE_TOO_LARGE')
         return subprocess.CompletedProcess(command, process.returncode, b''.join(chunks[0]), b''.join(chunks[1]))
     except BaseException:
-        if os.name == 'nt':
+        if close_job:
+            close_job()
+            close_job = None
+        elif os.name == 'nt' and process.poll() is None:
             subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -212,6 +254,9 @@ def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
         except subprocess.TimeoutExpired:
             process.kill()
         raise
+    finally:
+        if close_job:
+            close_job()
 
 
 def run_agent(request, *, model=None, runner=None, timeout=TIMEOUT_SECONDS):

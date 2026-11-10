@@ -1,5 +1,7 @@
 import json
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -73,3 +75,19 @@ def test_made_up_execution_identity_is_rejected(monkeypatch, tmp_path):
             results=[], more_evidence=[])), b'')
     with pytest.raises(AgentUnavailable, match='AGENT_EXECUTION_MISMATCH'):
         provider.run_agent({'digest': 'digest'}, bundle={}, runner=runner)
+
+
+def test_bounded_subprocess_stdin_and_actual_output_cap(tmp_path):
+    from app.connected_agent_provider import _run_bounded
+    import os
+    result = _run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())'],
+                          cwd=tmp_path, env=dict(os.environ), timeout=5, input_bytes='합성 stdin'.encode())
+    assert result.stdout.decode() == '합성 stdin'
+    with pytest.raises(AgentUnavailable, match='AGENT_RESPONSE_TOO_LARGE'):
+        _run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"x"*1000000)'],
+                     cwd=tmp_path, env=dict(os.environ), timeout=5)
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_bounded([sys.executable, '-c', 'import time; time.sleep(15)'],
+                     cwd=tmp_path, env=dict(os.environ), timeout=.1)
+    assert time.monotonic() - started < 5

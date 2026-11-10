@@ -57,9 +57,13 @@ def preview(conn, corrections, trips):
         if row['transaction_direction'] != 'purchase':
             raise ValueError('CORRECTION_REQUIRES_PURCHASE')
         trip = correction['trip_id']
-        if trip not in valid or not correction['item'] or not correction['basis']:
+        from .quarter_costs import _tab_of
+        quarter = source == 'ai_inference' and trip == _tab_of(row) and correction['item'] == '분기 기타비용'
+        if (trip not in valid and not quarter) or not correction['item'] or not correction['basis']:
             raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
         ledger = _row(conn, 'ledger_entries', 'transaction_id', tid)
+        if ledger and source == 'ai_inference':
+            raise ValueError('CORRECTION_PROTECTED')
         board = _row(conn, 'board_rows', 'row_id', 'card-'+tid)
         if board and board['row_kind'] != 'expense':
             raise ValueError('CORRECTION_PROJECTION_CONFLICT')
@@ -96,6 +100,8 @@ def apply(conn, expected, corrections, trips, *, request_id):
                 after = dict(classification_state='classified',classification_source=source,
                     classification_basis=basis+' · '+fix['basis'],item=fix['item'],
                     description=fix.get('description',old['description']) or '',display_tab_id=trip,trip_id=trip)
+                if source == 'ai_inference' and trip.startswith('quarter:'):
+                    after['trip_id'] = ''
                 conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
                     ',revision=revision+1 WHERE transaction_id=? AND revision=?',
                     (*[after[k] for k in FIELDS],tid,old['revision']))

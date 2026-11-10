@@ -65,3 +65,18 @@ def test_partial_more_evidence_cannot_apply(setup):
     answer['more_evidence'] = [dict(kind='mail_search', transaction_id=request['cases'][0]['transaction_id'], query='예약', why='기간')]
     with pytest.raises(ValueError, match='AI_MORE_EVIDENCE_PENDING'):
         ai_classification.apply(setup.conn, trips, request, answer, bundle=bundle, request_id='pending')
+
+
+def test_quarter_decision_without_actual_trip_is_supported(setup):
+    from webapp.tests.test_autonomous_cleanup import receive, make_weak_rows
+    batch, rows = receive(setup, 1)
+    ids = make_weak_rows(setup, batch, rows, '', item='분기 기타비용')
+    from app import automatic_classification
+    plan = automatic_classification.plan(setup.conn, [], transaction_ids=ids)
+    automatic_classification.apply(setup.conn, plan, [], transaction_ids=ids)
+    request = ai_classification.prepare(setup.conn, [], ids)
+    bundle = p2_case.assemble(setup.conn, [], request)
+    answer = response(request, bundle)
+    answer['results'][0]['item'] = '분기 기타비용'
+    ai_classification.apply(setup.conn, [], request, answer, bundle=bundle, request_id='quarter')
+    assert setup.conn.execute('SELECT display_tab_id,trip_id FROM transactions').fetchone() == ('quarter:2026:4', '')

@@ -18,7 +18,8 @@ from . import p2_case
 
 MODEL = 'gpt-6.1-sol'
 TIMEOUT_SECONDS = 180
-# Verified with Codex 0.160.0 `features list` and strict-config. Ignore user
+# Feature names checked against Codex 0.160.0 `features list`; exec uses
+# strict-config to reject unsupported keys on each invocation. Ignore user
 # config keeps authentication but removes user MCP/plugin/provider hooks.
 DISABLED_FEATURES = (
     'shell_tool', 'unified_exec', 'unified_exec_tty', 'shell_snapshot',
@@ -96,7 +97,8 @@ def parse_events(raw):
         raise AgentUnavailable('AGENT_RESPONSE_INVALID') from None
 
 
-def run_agent(request, *, bundle=None, repository=None, runner=None, model=MODEL, timeout=TIMEOUT_SECONDS):
+def run_agent(request, *, bundle=None, repository=None, runner=None, model=MODEL, timeout=TIMEOUT_SECONDS,
+              evidence_rounds_remaining=2):
     if model != MODEL:
         raise AgentUnavailable('AGENT_MODEL_NOT_ALLOWED')
     if bundle is None:
@@ -108,6 +110,8 @@ def run_agent(request, *, bundle=None, repository=None, runner=None, model=MODEL
     schema = schema_path()
     text = (p2_case.prompt(bundle) + '\nEXECUTION:' + json.dumps(execution) + '\n'
             + 'Copy request_digest=' + request['digest'] + ' and EXECUTION exactly.\n'
+            + f'more_evidence rounds remaining: {evidence_rounds_remaining}. '
+            + ('Return all final decisions and empty more_evidence now.\n' if not evidence_rounds_remaining else '\n')
             + 'OUTPUT_SCHEMA:' + schema.read_text(encoding='utf-8'))
     input_bytes = text.encode('utf-8')
     if len(input_bytes) > p2_case.MAX_BYTES:

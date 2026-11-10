@@ -18,7 +18,7 @@ from .trip_selection import regional_trips
 
 VERSION = 'connected-agent-inference-v1'
 ITEMS = ('주차비', '주유비', '통행료', '항공료', '렌터카', '숙박비', '식비',
-         '편의점', '교통비', '입장료', '여행경비', '현지경비', '기타경비')
+         '편의점', '교통비', '입장료', '여행경비', '현지경비', '기타경비', '분기 기타비용')
 
 
 def _digest(value):
@@ -55,17 +55,29 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
             continue
         weak = (row['classification_source'] in CODE_SOURCES
                 and row['item'] in ('기타경비', '현지경비', '여행경비'))
-        if not reconsider and not weak and row['classification_state'] == 'classified' and row['trip_id'] in valid:
+        service_unknown = 'P2_METADATA' not in str(row.get('classification_basis') or '')
+        if not reconsider and not weak and not service_unknown and row['classification_state'] == 'classified' and row['trip_id'] in valid:
             continue
         candidates = regional_trips(row, valid.values(), booking_agnostic=True)
         if '예약 이용기간' in str(row.get('classification_basis') or '') and row['trip_id'] in valid:
             candidates = [valid[row['trip_id']]]
         allowed = {trip['trip_id'] for trip in candidates}
+        from .quarter_costs import _tab_of
+        quarter = _tab_of(row)
+        candidate_trips = dict(valid)
+        if quarter:
+            allowed.add(quarter)
+            candidate_trips[quarter] = dict(starts_on='', ends_on='', destination='분기 기타비용')
         if not allowed:
             continue  # An AI cannot invent an actual trip.
-        target = row['trip_id'] if row['trip_id'] in allowed else sorted(allowed)[0]
+        ordered = sorted(allowed, key=lambda key: (key.startswith('quarter:'), key))
+        target = row['trip_id'] if row['trip_id'] in allowed else ordered[0]
         probe = dict(transaction_id=tid, source_hash=row['source_hash'], revision=row['revision'],
-                     trip_id=target, item=row['item'] or '기타경비', basis='eligibility check')
+                     trip_id=target, item='분기 기타비용' if target == quarter else row['item'] or '기타경비', basis='eligibility check')
+        if target == quarter:
+            # Read-only protection probe; never applied or presented as a run.
+            probe.update(classification_source='ai_inference', execution=dict(kind='connected_agent',
+                provider='eligibility', model='eligibility', run_id='eligibility'))
         try:
             binding = correction.preview(conn, [probe], trips)['digest']
         except ValueError as exc:
@@ -82,10 +94,10 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
             country=code.merchant_country(row),
             occurred_on=row['approval_date'] or '',
             allowed_items=sorted(set(ITEMS) | {row['item']} - {''}),
-            trips=[dict(trip_id=key, starts_on=valid[key]['starts_on'], ends_on=valid[key]['ends_on'],
-                        destination=valid[key].get('destination', ''),
+            trips=[dict(trip_id=key, starts_on=candidate_trips[key]['starts_on'], ends_on=candidate_trips[key]['ends_on'],
+                        destination=candidate_trips[key].get('destination', ''),
                         code_score=next((r['score'] for r in ranking if r['trip_id'] == key), 0))
-                   for key in sorted(allowed)]))
+                   for key in ordered]))
     request = dict(version=VERSION, reconsider=bool(reconsider), scope=sorted(selected), cases=cases,
                    protected=protected, trip_context=_digest(trips), nets_context=_digest(nets or {}),
                    rules_context=_digest(rules))

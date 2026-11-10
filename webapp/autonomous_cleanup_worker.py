@@ -11,9 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import threading
+import uuid
 
 from app.partial_refund import read_only_scope as refund_evidence_scope
 from .deployment_role import active_writer
@@ -41,6 +42,7 @@ CODE_FINGERPRINT_FILES = (
     'app/connected_agent_provider.py', 'app/ai_classification.py',
     'app/automatic_classification.py', 'app/rules.py',
     'webapp/autonomous_cleanup_worker.py', 'webapp/card_classification_completion.py',
+    'app/p2_case.py', 'app/frontier_agent_provider.py',
 )
 
 
@@ -71,12 +73,13 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def detection_sql():
+def detection_sql(*, after=False):
     from .card_classification_completion import missing_assignment_sql
     return (
         "SELECT t.transaction_id, b.batch_id, t.revision, t.classification_state,"
         " t.classification_source, t.item, t.display_tab_id, t.trip_id, t.source_hash, t.approval_date"
-        " FROM import_batch_rows b JOIN transactions t USING(transaction_id)"
+        " FROM (SELECT transaction_id,MIN(batch_id) batch_id FROM import_batch_rows GROUP BY transaction_id) b"
+        " JOIN transactions t USING(transaction_id)"
         " LEFT JOIN (SELECT DISTINCT issuer, card_tail, original_approval_number"
         "   FROM transactions"
         "   WHERE COALESCE(original_approval_number,'')!=''"
@@ -85,11 +88,14 @@ def detection_sql():
         " WHERE t.transaction_direction = 'purchase' AND t.amount_krw > 0"
         " AND (COALESCE(t.item,'') IN ('기타경비','현지경비','여행경비')"
         "      OR COALESCE(t.display_tab_id,'') = '' OR COALESCE(t.display_tab_id,'') = 'unclassified'"
+        "      OR (t.classification_source IN ('inference','auto_inferred','code_inference')"
+        "          AND t.classification_basis NOT LIKE '%P2_METADATA%')"
         "      OR " + missing_assignment_sql() + ")"
         " AND COALESCE(t.parse_error,'') = '' AND COALESCE(t.conflict_reason,'') = ''"
         " AND COALESCE(t.duplicate_of,'') = '' AND t.decided_at IS NULL"
         " AND COALESCE(t.classification_source,'') NOT IN"
-        " ('user_decision','user_exception','owner_booking','manual','manual_hold','ai_inference')"
+        " ('user_decision','user_exception','owner_booking','manual','manual_hold','ai_inference',"
+        "  'guide_airfare_evidence','refund_original','rule','pattern','auto','card_category')"
         " AND t.transaction_id NOT IN (SELECT transaction_id FROM ledger_entries)"
         " AND t.transaction_id NOT IN (SELECT substr(row_id, 6) FROM board_rows WHERE row_id LIKE 'card-%')"
         " AND t.transaction_id NOT IN (SELECT transaction_id FROM review_decisions)"
@@ -97,11 +103,70 @@ def detection_sql():
         " AND t.transaction_id NOT IN (SELECT transaction_id FROM transaction_review_holds)"
         " AND t.transaction_id NOT IN (SELECT transaction_id FROM transaction_company_exclusions WHERE excluded = 1)"
         " AND f.original_approval_number IS NULL"
-        " ORDER BY t.approval_date DESC, t.transaction_id LIMIT 400")
+        + (" AND (t.approval_date < ? OR (t.approval_date = ? AND t.transaction_id > ?))" if after else "")
+        + " ORDER BY t.approval_date DESC, t.transaction_id LIMIT 400")
 
 
 def detection_candidates(conn):
-    return conn.execute(detection_sql()).fetchall()
+    rows, after = [], None
+    while True:
+        page = conn.execute(detection_sql(after=after is not None), after or ()).fetchall()
+        rows.extend(page)
+        if len(page) < 400:
+            return rows
+        last = page[-1]
+        after = (last[9], last[9], last[0])
+
+
+def _options(path):
+    try:
+        value = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        return value if isinstance(value, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def p2_window_open(config_path, *, now=None):
+    """Local KST 22:00 inclusive to 06:00 exclusive; a configured window overrides."""
+    try:
+        window = _options(config_path).get('autonomous_ai_review_window', {'start': '22:00', 'end': '06:00'})
+        start = datetime.strptime(window['start'], '%H:%M').time()
+        end = datetime.strptime(window['end'], '%H:%M').time()
+        local = (now or datetime.now(timezone.utc)).astimezone(timezone(timedelta(hours=9))).time()
+        if start < end:
+            return start <= local < end
+        return local >= start or local < end if start > end else False
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
+CALL_SCOPE = 'p2_call_reservation'
+
+
+def reserved_cases(conn):
+    return {r[0] for r in conn.execute(
+        "SELECT DISTINCT value FROM requests,json_each(requests.response_json,'$.transaction_ids') WHERE scope=?", (CALL_SCOPE,))}
+
+
+def reserved_calls_today(conn):
+    today = datetime.now(timezone(timedelta(hours=9))).date().isoformat()
+    return conn.execute("SELECT COUNT(*) FROM requests WHERE scope=? AND json_extract(response_json,'$.local_date')=?",
+                        (CALL_SCOPE, today)).fetchone()[0]
+
+
+def reserve_call(conn, ids, model):
+    from app.db import utc_now
+    key = 'p2-call:' + uuid.uuid4().hex
+    payload = dict(transaction_ids=ids, model=model, outcome='started',
+                   local_date=datetime.now(timezone(timedelta(hours=9))).date().isoformat())
+    conn.execute('INSERT INTO requests VALUES (?,?,?,?,?)',
+                 (key, CALL_SCOPE, _digest(payload), json.dumps(payload), utc_now()))
+    return key
+
+
+def finish_call(conn, key, outcome, duration_ms):
+    conn.execute("UPDATE requests SET response_json=json_set(response_json,'$.outcome',?,'$.duration_ms',?) "
+                 "WHERE request_id=? AND scope=?", (outcome, duration_ms, key, CALL_SCOPE))
 
 
 def fingerprint(row, inputs_digest):
@@ -234,7 +299,8 @@ def p2_calls_today(board):
     path = metrics_path(board)
     if not path.is_file():
         return 0
-    today = datetime.now(timezone.utc).date().isoformat()
+    zone = timezone(timedelta(hours=9))
+    today = datetime.now(zone).date()
     count = 0
     try:
         with path.open('r', encoding='utf-8') as handle:
@@ -245,8 +311,12 @@ def p2_calls_today(board):
                     event = json.loads(line)
                 except ValueError:
                     continue
-                if event.get('kind') == 'p2_call' and str(event.get('ts', ''))[:10] == today:
-                    count += 1
+                try:
+                    at = datetime.fromisoformat(str(event.get('ts', '')).replace('Z', '+00:00')).astimezone(zone).date()
+                except ValueError:
+                    continue
+                if event.get('kind') == 'p2_call' and at == today:
+                    count += int(event.get('calls', 1))
     except OSError:
         return 0
     return count
@@ -263,13 +333,14 @@ def job_counts(conn):
 
 class AutonomousCleanupWorker:
     def __init__(self, board, runtime_lock, *, interval=INTERVAL, chunk=CHUNK, clock=time.monotonic,
-                 flow_factory=None, provider=None, agent_config=None, agent_model=None):
+                 flow_factory=None, provider=None, agent_config=None, agent_model=None, evidence_repository=None):
         self.board, self.runtime_lock = board, runtime_lock
         self.interval, self.chunk, self.clock = interval, chunk, clock
         self.flow_factory = flow_factory
         self.provider = provider
         self.agent_config = agent_config
         self.agent_model = agent_model
+        self.evidence_repository = evidence_repository
         self.decision_code_fingerprint = code_fingerprint()
         self._stop, self._wake = threading.Event(), threading.Event()
         self._thread = None
@@ -384,7 +455,27 @@ class AutonomousCleanupWorker:
                 self._finish(rows)
                 self.status['state'] = 'idle'
                 return False
-            due_rows = [row for row in rows if row[0] in due_ids][: self.chunk]
+            due_rows = [row for row in rows if row[0] in due_ids]
+            if not _options(self._config_path()).get('autonomous_p2_full_rollout', False):
+                reserved = reserved_cases(self.board.conn)
+                remaining = max(0, 50 - len(reserved))
+                eligible = []
+                for row in due_rows:
+                    if row[0] in reserved:
+                        eligible.append(row)
+                    elif remaining:
+                        eligible.append(row)
+                        remaining -= 1
+                    else:
+                        save_job(self.board.conn, row[0], fingerprints[row[0]],
+                                 {'status': 'blocked', 'reason': 'AGENT_FIRST_BATCH_LIMIT', 'attempts': 0,
+                                  'not_before': now + BLOCKED_RETRY_SECONDS})
+                due_rows = eligible
+            due_rows = due_rows[:max(1, min(50, self.chunk))]
+            if not due_rows:
+                self.board.conn.commit()
+                self._finish(rows)
+                return False
             ids = [row[0] for row in due_rows]
             self.status['passes'] += 1
             self.status['state'] = 'running'
@@ -425,27 +516,33 @@ class AutonomousCleanupWorker:
                 return True
             # Claim under the lock; the provider call runs unlocked so the HTTP path
             # stays responsive. apply() re-validates freshness in a fresh transaction.
+            self.board.conn.commit()  # P1 is published before any P2 gate/call.
             claim = (request, due_rows, fingerprints, now, rows)
         return self._call_agent(*claim)
 
     def _call_agent(self, request, due_rows, fingerprints, now, all_rows):
-        from app import ai_classification, connected_agent_provider
+        from app import ai_classification, connected_agent_provider, frontier_agent_provider, p2_case
 
         batch_ids = [row[0] for row in due_rows]
+        gate = None
         if not self.agent_enabled():
+            gate = 'AGENT_NOT_ENABLED'
+        elif (self.provider is None or 'autonomous_ai_review_window' in _options(self._config_path())) and not p2_window_open(self._config_path()):
+            gate = 'AGENT_OUTSIDE_WINDOW'
+        if gate:
             with self.runtime_lock, self.board._lock:
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]],
-                             {'status': 'blocked', 'reason': 'AGENT_NOT_ENABLED', 'attempts': 0,
+                             {'status': 'blocked', 'reason': gate, 'attempts': 0,
                               'not_before': now + BLOCKED_RETRY_SECONDS})
                 self.status['blocked'] += len(batch_ids)
                 self.board.conn.commit()
                 append_metric(self.board, {'kind': 'p2_blocked', 'cases': len(request['cases']),
-                                           'reason': 'AGENT_NOT_ENABLED'})
+                                           'reason': gate})
                 self._finish(all_rows)
             return True
         cap = connected_agent_provider.daily_cap(self._config_path())
-        if p2_calls_today(self.board) >= cap:
+        if max(p2_calls_today(self.board), reserved_calls_today(self.board.conn)) >= cap:
             with self.runtime_lock, self.board._lock:
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]],
@@ -458,20 +555,96 @@ class AutonomousCleanupWorker:
                 self._finish(all_rows)
             return True
         started = time.monotonic()
+        bundle = None
+        repository = self.evidence_repository
+        model = self.agent_model or frontier_agent_provider.configured_model(self._config_path())
+        extra, lookups = [], []
+        call_count = 0
         try:
-            if self.provider is not None:
-                response = self.provider(request)
-            else:
-                model = self.agent_model or connected_agent_provider.configured_model(self._config_path())
-                response = connected_agent_provider.run_agent(request, model=model)
+            if self.provider is None and repository is None:
+                from app import ota_sources, ota_portal
+                from .ota_payment_review import SOURCES_ENV
+                import os
+                raw = os.environ.get(SOURCES_ENV, '').strip()
+                sources = json.loads(raw) if raw else ota_sources.resolve_sources(
+                    self.board.path.parent, mail_default=os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or self.board.path.parent / 'ota-mail',
+                    portal_default=ota_portal.evidence_path(self.board.path.parent))
+                repository = p2_case.Repository(self.board.conn, sources)
+            if repository is not None:
+                with self.runtime_lock, self.board._lock:
+                    trips, _ = self._fresh_context()
+                    bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository, max_bytes=p2_case.MAX_BYTES - 12288)
+            retried_format, rounds = False, 0
+            while True:
+                elapsed = time.monotonic() - started
+                if elapsed >= frontier_agent_provider.TIMEOUT_SECONDS:
+                    raise connected_agent_provider.AgentUnavailable('AGENT_TIMEOUT')
+                with self.runtime_lock, self.board._lock:
+                    if self.provider is None and not p2_window_open(self._config_path()):
+                        raise connected_agent_provider.AgentUnavailable('AGENT_OUTSIDE_WINDOW', BLOCKED_RETRY_SECONDS)
+                    if reserved_calls_today(self.board.conn) >= cap:
+                        raise connected_agent_provider.AgentUnavailable('AGENT_DAILY_CAP', BLOCKED_RETRY_SECONDS)
+                    reservation = reserve_call(self.board.conn, [c['transaction_id'] for c in request['cases']], model)
+                    self.board.conn.commit()
+                call_count += 1
+                call_started, outcome = time.monotonic(), 'failed'
+                try:
+                    response = (self.provider(request) if self.provider is not None else frontier_agent_provider.run_agent(
+                        request, bundle=bundle, model=model, timeout=frontier_agent_provider.TIMEOUT_SECONDS - elapsed,
+                        evidence_rounds_remaining=2-rounds))
+                    if bundle is not None:
+                        queries = response.get('more_evidence')
+                        if not isinstance(queries, list) or len(queries) > 8:
+                            raise ValueError('AI_RESPONSE_SCHEMA_INVALID')
+                        if queries:
+                            if rounds >= 2:
+                                raise ValueError('AI_MORE_EVIDENCE_LIMIT')
+                            ids = {c['transaction_id'] for c in request['cases']}
+                            with self.runtime_lock, self.board._lock:
+                                for query in queries:
+                                    if set(query) != {'kind', 'query', 'transaction_id', 'why'} or not isinstance(query['why'], str) or len(query['why']) > 1000:
+                                        raise ValueError('P2_LOOKUP_INVALID')
+                                    p2_case.validate_lookup(query['kind'], query['query'], query['transaction_id'], ids)
+                                    extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
+                                    lookups.append(query)
+                                trips, _ = self._fresh_context()
+                                bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository,
+                                    max_bytes=p2_case.MAX_BYTES - 12288, extra=extra)
+                            rounds += 1
+                            outcome = 'more_evidence'
+                            continue
+                        with self.runtime_lock, self.board._lock:
+                            trips, nets = self._fresh_context()
+                            ai_classification.preview(self.board.conn, trips, request, response, nets=nets, bundle=bundle)
+                    outcome = 'validated'
+                    break
+                except Exception as exc:
+                    code = getattr(exc, 'code', str(exc))
+                    format_errors = {'AGENT_RESPONSE_INVALID', 'AI_RESPONSE_SCHEMA_INVALID', 'AI_RESULTS_INCOMPLETE',
+                        'AI_REASON_REQUIRED', 'AI_SERVICE_PERIOD_INVALID', 'AI_SERVICE_UNCERTAINTY_REQUIRED'}
+                    if not retried_format and code in format_errors:
+                        retried_format = True
+                        outcome = 'format_retry'
+                        continue
+                    raise
+                finally:
+                    with self.runtime_lock, self.board._lock:
+                        finish_call(self.board.conn, reservation, outcome, int((time.monotonic()-call_started)*1000))
+                        self.board.conn.commit()
         except Exception as exc:
             code = getattr(exc, 'code', type(exc).__name__)
             with self.runtime_lock, self.board._lock:
                 for row in due_rows:
-                    self._retry_or_dead(row, fingerprints[row[0]], now, str(code))
+                    if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW'):
+                        attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
+                        save_job(self.board.conn, row[0], fingerprints[row[0]], dict(status='blocked', reason=code,
+                            attempts=attempts, not_before=now + max(60, getattr(exc, 'retry_after', None) or BLOCKED_RETRY_SECONDS)))
+                    else:
+                        self._retry_or_dead(row, fingerprints[row[0]], now, str(code))
                 self.board.conn.commit()
                 append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
                                            'outcome': 'unavailable:' + str(code),
+                                           'model': model, 'calls': call_count,
                                            'duration_ms': int((time.monotonic() - started) * 1000)})
                 self._finish(all_rows)
             return True
@@ -479,9 +652,17 @@ class AutonomousCleanupWorker:
         with self.runtime_lock, self.board._lock:
             try:
                 trips, nets = self._fresh_context()
+                if bundle is not None:
+                    fresh_extra = []
+                    for query in lookups:
+                        fresh_extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
+                    current_bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository,
+                        max_bytes=p2_case.MAX_BYTES - 12288, extra=fresh_extra)
+                    if current_bundle != bundle:
+                        raise ValueError('AI_EVIDENCE_STALE')
                 result = ai_classification.apply(
                     self.board.conn, trips, request, response,
-                    request_id='connected-agent:' + response['execution']['run_id'], nets=nets)
+                    request_id='connected-agent:' + response['execution']['run_id'], nets=nets, bundle=bundle)
             except Exception as exc:
                 self.board.conn.rollback()
                 for row in due_rows:
@@ -498,6 +679,7 @@ class AutonomousCleanupWorker:
             self.board.conn.commit()
             self.status['p2_applied'] += len(batch_ids)
             append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']), 'applied': applied,
+                                       'calls': call_count,
                                        'outcome': 'applied',
                                        'run_id': response.get('execution', {}).get('run_id'),
                                        'model': response.get('execution', {}).get('model'),

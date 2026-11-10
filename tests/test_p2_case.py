@@ -66,3 +66,23 @@ def test_secrets_removed_without_mutating_repository(setup):
     assert 'DO-NOT-EXPORT' not in json.dumps(bundle)
     assert 'secret' not in json.dumps(bundle)
     assert repo.items == original
+
+
+def test_registered_unparsed_mail_is_selected_but_unrelated_mail_is_not_exported(setup, tmp_path):
+    import base64
+    request, trips = prepared(setup)
+    directory = tmp_path / 'mail'
+    directory.mkdir()
+    def message(identity, text):
+        return dict(id=identity, internalDate='1791000000000', payload=dict(headers=[
+            dict(name='Subject', value='Synthetic reservation')],
+            mimeType='text/plain', body=dict(data=base64.urlsafe_b64encode(text.encode()).decode())))
+    path = directory / 'gmail-fixture.json'
+    path.write_text(json.dumps(dict(responses=[message('relevant', 'AUTONOMY 10000 예약 이용기간: 2026-10-01'),
+                                             message('unrelated', 'UNRELATED PRIVATE LETTER 2026-10-03')]), ensure_ascii=False), encoding='utf-8')
+    before = path.read_bytes()
+    repo = p2_case.Repository(setup.conn, {'mail_directories': [directory]})
+    bundle = p2_case.assemble(setup.conn, trips, request, repository=repo)
+    assert any('예약 이용기간' in e['content'] for e in bundle['evidence'])
+    assert 'UNRELATED PRIVATE LETTER' not in p2_case.prompt(bundle)
+    assert path.read_bytes() == before
