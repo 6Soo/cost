@@ -6,13 +6,6 @@ export function retryBackoff(attempt) {
   return Math.min(RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1), RETRY_CAP_MS);
 }
 
-function headerValue(headers, name) {
-  if (!headers) return null;
-  if (typeof headers.get === 'function') return headers.get(name);
-  const direct = headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
-  return direct === undefined || direct === null ? null : String(direct);
-}
-
 const LOGIN_MARKERS = /(sign[- ]?in|log[- ]?in|signin|로그인|계정에 로그인|회원 로그인)/i;
 const LOGIN_PAGE_CONTENT = /^\s*(?:<!doctype\s+html|<html|<head|<body|window\.)/i;
 
@@ -36,10 +29,12 @@ export async function requestJson({
   retryDelay: delay = retryBackoff,
   signal,
   provider = null,
+  beforeAttempt = null,
 }) {
   const payload = json !== undefined ? json : body;
   let lastFailure = null;
   for (let attempt = 1; attempt <= attemptCap; attempt += 1) {
+    if (beforeAttempt) await beforeAttempt(attempt);
     try {
       const init = { method, headers: { accept: 'application/json', ...headers }, signal };
       if (payload !== undefined) {
@@ -96,11 +91,10 @@ export async function requestJson({
       try {
         return { status, json: JSON.parse(text), attempts: attempt };
       } catch {
-        const contentType = headerValue(response?.headers, 'content-type');
         throw new OtaError('RESPONSE_NOT_JSON', {
           cls: 'shape',
           status,
-          diagnostic: `non_json_body${contentType ? `:${contentType}` : ''}`,
+          diagnostic: 'non_json_body',
           resume: 'response was not JSON; login state or template may have changed - verify without guessing',
           provider,
         });

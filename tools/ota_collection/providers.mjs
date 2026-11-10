@@ -19,10 +19,10 @@ export const PROVIDER_ACCESS = Object.freeze({
   }),
   trip: Object.freeze({
     origin: 'https://kr.trip.com',
-    hosts: ['kr.trip.com'],
+    hosts: ['kr.trip.com', 'online.trip.com'],
     entry: '/account/signin',
     urls: {
-      list: '/restapi/soa2/26974/getAllOrders.json',
+      list: 'https://online.trip.com/restapi/soa2/26974/getAllOrders.json',
       detail: '/restapi/soa2/27453/GetOrderDetailOnline',
     },
   }),
@@ -39,8 +39,14 @@ const TRIP_LOGIN_STATUSES = [401, 403];
 const BOOKING_LOGIN_STATUSES = [401, 403];
 
 const AGODA_PHASES = ['Upcoming', 'Completed', 'Cancelled'];
-const AGODA_ID = /\d{6,20}/;
-const TRIP_ID = /\d{8,20}/;
+// Negative lookahead also rejects a trailing newline (JS $ alone accepts it).
+const AGODA_ID = /^\d{6,20}(?![\s\S])/;
+const TRIP_ID = /^\d{8,20}(?![\s\S])/;
+
+function validId(value, pattern) {
+  if (typeof value !== 'string' && !(typeof value === 'number' && Number.isSafeInteger(value))) return false;
+  return pattern.test(String(value));
+}
 
 function dig(...values) {
   for (const value of values) {
@@ -57,7 +63,8 @@ export function resolveAccess(name, opts = {}) {
   if (typeof override === 'string' && override.trim()) {
     try {
       const parsed = new URL(override);
-      if (parsed.protocol !== 'https:' || !descriptor.hosts.includes(parsed.hostname)) {
+      if (parsed.protocol !== 'https:' || !descriptor.hosts.includes(parsed.hostname)
+        || parsed.username || parsed.password || parsed.port) {
         return { error: 'CONFIG', diagnostics: [`origin_override_not_documented:${parsed.hostname}`] };
       }
       origin = `${parsed.protocol}//${parsed.host}`;
@@ -75,7 +82,12 @@ export function resolveAccess(name, opts = {}) {
   const urls = {};
   for (const [key, value] of Object.entries(templates)) {
     try {
-      urls[key] = new URL(value, origin).href;
+      const parsed = new URL(value, origin);
+      const observed = new URL(key === 'entry' ? descriptor.entry : descriptor.urls[key], descriptor.origin);
+      if (parsed.origin !== observed.origin || parsed.pathname !== observed.pathname || parsed.username || parsed.password) {
+        return { error: 'CONFIG', diagnostics: [`url_template_not_documented:${key}`] };
+      }
+      urls[key] = parsed.href;
     } catch {
       return { error: 'CONFIG', diagnostics: [`url_template_invalid:${key}`] };
     }
@@ -93,7 +105,11 @@ export function assertAllowedUrl(href, access) {
   const provider = access?.provider ?? null;
   try {
     const parsed = new URL(href, access?.origin);
-    if (parsed.protocol !== 'https:' || !access?.hosts?.includes(parsed.hostname)) {
+    const endpoint = Object.values(access?.urls ?? {}).some((value) => {
+      const observed = new URL(value);
+      return parsed.origin === observed.origin && parsed.pathname === observed.pathname;
+    });
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !endpoint) {
       throw new OtaError('URL_NOT_ALLOWED', { cls: 'config', diagnostic: `url_host:${parsed.hostname}`, provider });
     }
     return parsed.href;
@@ -122,8 +138,8 @@ export async function enterProvider(ctx) {
       await ctx.goto(navigation.entry);
       navigation.verified = true;
     } catch (error) {
-      navigation.diagnostics.push('page_navigation_failed');
-      navigation.resume.push('navigation to the observed entry failed; do not assume the session origin applies to requests');
+      throw new OtaError('NAVIGATION_FAILED', { diagnostic: 'page_navigation_failed',
+        resume: 'navigation to the observed entry failed; no requests were sent', provider: ctx.provider });
     }
   } else if (navigation.entry) {
     navigation.diagnostics.push('page_navigation_unverified');
@@ -145,21 +161,30 @@ function loginOutcome(error) {
   };
 }
 
+function isStopped(status) {
+  return status === STATUS.LOGIN_REQUIRED || status === STATUS.INTERRUPTED;
+}
+
+function unattempted(entry) {
+  return { item: entry, status: STATUS.SKIPPED, diagnostic: 'detail_not_attempted_after_stop',
+    resume: null, file: null, record: null };
+}
+
 async function listWithBudget(ctx, loadPage, { pageLimit = LIST_PAGE_LIMIT } = {}) {
   const items = [];
   const diagnostics = [];
   const resume = [];
   let requests = 0;
   let cursor = null;
+  let invalidItems = 0;
   const budget = ctx.budget;
   for (;;) {
     if (budget && typeof budget.listRequests === 'function' && budget.listRequests() >= pageLimit) {
       diagnostics.push(`list_limit_${pageLimit}_reached`);
       resume.push(`list request limit ${pageLimit} reached for this provider run; stopping is not an error state, and missing pages are not reported as complete`);
-      return { status: STATUS.PARTIAL, items, diagnostics, resume, requests, cursor, invalidItems: 0 };
+      return { status: STATUS.PARTIAL, items, diagnostics, resume, requests, cursor, invalidItems };
     }
     requests += 1;
-    if (budget && typeof budget.bumpList === 'function') budget.bumpList();
     let page;
     try {
       page = await loadPage(cursor);
@@ -167,14 +192,14 @@ async function listWithBudget(ctx, loadPage, { pageLimit = LIST_PAGE_LIMIT } = {
       const failure = loginOutcome(error);
       if (failure.diagnostic) diagnostics.push(String(failure.diagnostic));
       if (failure.resume) resume.push(failure.resume);
-      return { status: failure.status, items, diagnostics, resume, requests, cursor, invalidItems: 0, cls: failure.cls };
+      return { status: failure.status, items, diagnostics, resume, requests, cursor, invalidItems, cls: failure.cls };
     }
     if (!page || typeof page !== 'object') {
       diagnostics.push('page_result_invalid');
       resume.push('provider page result was not an object; verify the observed template');
-      return { status: STATUS.CAPTURE_REQUIRED, items, diagnostics, resume, requests, cursor, invalidItems: 0 };
+      return { status: STATUS.CAPTURE_REQUIRED, items, diagnostics, resume, requests, cursor, invalidItems };
     }
-    const invalidItems = Number(page.invalidItems) || 0;
+    invalidItems += Number(page.invalidItems) || 0;
     if (invalidItems > 0) diagnostics.push('items_invalid');
     items.push(...(page.items ?? []));
     if (page.shapeError) {
@@ -211,7 +236,7 @@ function agodaListPage(ctx, url, body, phase) {
   return ctx.requestJson(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    json: { ...body, bookingPhase: phase },
+    json: { ...body, bookingPhase: phase, includeArchive: true },
     authStatuses: AGODA_LOGIN_STATUSES,
     provider: 'agoda',
   }).then(({ json }) => {
@@ -223,7 +248,7 @@ function agodaListPage(ctx, url, body, phase) {
     let invalid = 0;
     for (const entry of list) {
       if (entry && typeof entry === 'object') {
-        if (AGODA_ID.test(String(entry.bookingId ?? ''))) items.push(entry);
+        if (validId(entry.bookingId, AGODA_ID)) items.push(entry);
         else invalid += 1;
       } else {
         invalid += 1;
@@ -244,10 +269,14 @@ function agodaListPage(ctx, url, body, phase) {
 }
 
 function tripListPage(ctx, url, cursor) {
+  const body = { OrderStatusClassify: 'All', Count: TRIP_COUNT };
+  // Only the caller's observed top-level request field may carry the opaque
+  // response token. Never derive a request field from response field names.
+  if (cursor !== null && cursor !== undefined) body[ctx.opts.tripOffsetField] = cursor;
   return ctx.requestJson(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    json: { OrderStatusClassify: 'All', Count: TRIP_COUNT },
+    json: body,
     authStatuses: TRIP_LOGIN_STATUSES,
     provider: 'trip',
   }).then(({ json }) => {
@@ -258,8 +287,8 @@ function tripListPage(ctx, url, cursor) {
     if (!list) return { items: [], done: false, hasMore: false, shapeError: 'response_shape' };
     const rawCursor = dig(json?.Offset, json?.data?.Offset, json?.NextOffset, json?.nextOffset, json?.next_offset);
     const next = typeof rawCursor === 'string' && rawCursor.trim() ? rawCursor : (rawCursor === null || rawCursor === undefined ? null : String(rawCursor));
-    const invalid = list.filter((entry) => !entry || typeof entry !== 'object' || !TRIP_ID.test(String(entry.OrderID ?? ''))).length;
-    const items = list.filter((entry) => entry && typeof entry === 'object' && TRIP_ID.test(String(entry.OrderID ?? '')));
+    const items = list.filter((entry) => entry && typeof entry === 'object' && validId(entry.OrderID, TRIP_ID));
+    const invalid = list.length - items.length;
     if (items.length === 0) {
       return { items, invalidItems: invalid, done: true, hasMore: false, next: null, shapeError: null, resumeHold: null, resume: null };
     }
@@ -349,8 +378,10 @@ export const providers = Object.freeze({
       }
       const page = await listWithBudget(ctx, (cursor) => agodaListPage(ctx, access.urls.list, { pageIndex: cursor ?? 1, pageSize: AGODA_PAGE_SIZE }, phase));
       const outcomes = [];
+      let stopped = isStopped(page.status);
       const token = ctx.opts?.agodaDetailToken;
       for (const entry of page.items) {
+        if (stopped) { outcomes.push(unattempted(entry)); continue; }
         const id = String(entry.bookingId);
         if (typeof token !== 'string' || !token.trim()) {
           outcomes.push({ item: entry, status: STATUS.CAPTURE_REQUIRED, diagnostic: 'detail_token_unobserved', resume: 'supply the token observed in a live details request; never guessed', file: null, record: null });
@@ -366,12 +397,14 @@ export const providers = Object.freeze({
           });
           const details = res.json?.BookingDetails;
           if (!details || typeof details !== 'object') {
+            ctx.countValidationFailure?.();
             outcomes.push({ item: entry, status: STATUS.CAPTURE_REQUIRED, diagnostic: 'detail_shape_missing', resume: 'details payload shape not recognized; verify against live response', file: null, record: null });
             continue;
           }
           // The importer contract requires the detail to attest the list booking id; a missing or different id is invalid, not success.
           const attested = String(details?.BookingQueryData?.CancellationReasonData?.BookingID ?? '');
           if (attested !== id) {
+            ctx.countValidationFailure?.();
             outcomes.push({ item: entry, status: STATUS.INVALID, diagnostic: 'detail_identity_mismatch', resume: null, file: null, record: null });
             continue;
           }
@@ -386,6 +419,7 @@ export const providers = Object.freeze({
         } catch (error) {
           const failure = loginOutcome(error);
           outcomes.push({ item: entry, status: failure.status, diagnostic: failure.diagnostic, resume: failure.resume, cls: failure.cls, file: null, record: null });
+          stopped = isStopped(failure.status);
         }
       }
       return {
@@ -409,7 +443,9 @@ export const providers = Object.freeze({
       }
       const page = await listWithBudget(ctx, (cursor) => tripListPage(ctx, access.urls.list, cursor));
       const outcomes = [];
+      let stopped = isStopped(page.status);
       for (const entry of page.items) {
+        if (stopped) { outcomes.push(unattempted(entry)); continue; }
         const orderId = String(entry.OrderID);
         const signature = extractTripSignature(entry);
         if (!signature) {
@@ -428,10 +464,12 @@ export const providers = Object.freeze({
           const common = detail?.orderCommonInfo;
           const detailIds = walkOrderIds(detail);
           if (!common || typeof common !== 'object') {
+            ctx.countValidationFailure?.();
             outcomes.push({ item: entry, status: STATUS.CAPTURE_REQUIRED, diagnostic: 'detail_shape_missing', resume: 'orderCommonInfo absent; verify against live response', file: null, record: null, orderId });
             continue;
           }
           if (String(common.orderId ?? '') !== orderId || detailIds.size !== 1 || !detailIds.has(orderId)) {
+            ctx.countValidationFailure?.();
             outcomes.push({ item: entry, status: STATUS.INVALID, diagnostic: 'detail_identity_mismatch', resume: null, file: null, record: null, orderId });
             continue;
           }
@@ -447,6 +485,7 @@ export const providers = Object.freeze({
         } catch (error) {
           const failure = loginOutcome(error);
           outcomes.push({ item: entry, status: failure.status, diagnostic: failure.diagnostic, resume: failure.resume, cls: failure.cls, file: null, record: null, orderId });
+          stopped = isStopped(failure.status);
         }
       }
       return {

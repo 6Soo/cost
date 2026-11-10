@@ -13,9 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { PROVIDER_LIST, STATUS, TOOL_NAME, TOOL_VERSION } from './ota_collection/constants.mjs';
 import { adaptPageFetch } from './ota_collection/http.mjs';
 import { runCollection } from './ota_collection/collector.mjs';
-import { resolveArchiveRoot, utcStamp } from './ota_collection/storage.mjs';
+import { resolveArchiveRoot, safeChildPath, utcStamp } from './ota_collection/storage.mjs';
 
-export const EGO_RUN_COMMAND = "ego-browser nodejs -e \"await import('file:///C:/absolute/path/tools/ota_collection/entry-runner.mjs')\"";
+export const EGO_RUN_COMMAND = "ego-browser nodejs -e \"const { mainEgo } = await import('file:///C:/absolute/path/tools/ota_collection/entry-runner.mjs'); await mainEgo({ taskSpace: globalThis.taskSpace })\"";
 
 export function parseProviders(value = null) {
   if (value === null || value === undefined || value === '') return [...PROVIDER_LIST];
@@ -44,7 +44,7 @@ export function buildPlanText(providers = PROVIDER_LIST) {
     '',
     '공급자 절차(모두 읽기 전용 조회)',
     '- agoda: 목록 POST /api/ko-kr/mmbc/v2/GetBookingsList (bookingPhase 기본 Completed, Upcoming/Completed/Cancelled 선택, pageIndex 1부터, pageSize 40, includeArchive true, pagination.totalPages까지; 목록 요청 최대 5). 상세 POST /api/ko-kr/mmbc/eb/details 는 화면에서 관측한 token이 필요하다. 미지정이면 CAPTURE_REQUIRED, 추측하지 않는다. 상세 시도 최대 3(지수 백오프).',
-    '- trip: 목록 POST /restapi/soa2/26974/getAllOrders.json (kr.trip.com; OrderStatusClassify All, Count 20, 날짜 조건 비움; 응답 Offset으로 페이지네이션, 토큰 누락 시 PARTIAL). 상세 POST /restapi/soa2/27453/GetOrderDetailOnline (orderId + FrontHead.sign; sign은 목록 OrderActions[].ActionURLH5에서 읽음, 없으면 CAPTURE_REQUIRED).',
+    '- trip: 목록 POST https://online.trip.com/restapi/soa2/26974/getAllOrders.json (OrderStatusClassify All, Count 20, 날짜 조건 비움; 응답 Offset으로 페이지네이션, 토큰 누락 시 PARTIAL). 상세 POST https://kr.trip.com/restapi/soa2/27453/GetOrderDetailOnline (orderId + FrontHead.sign; sign은 목록 OrderActions[].ActionURLH5에서 읽음, 없으면 CAPTURE_REQUIRED).',
     '- booking: 목록 POST https://secure.booking.com/dml/graphql?lang=ko operationName UserTrips. query 텍스트는 화면 관측이 필요하다. 미지정이면 CAPTURE_REQUIRED. 관측 절차상 두 번째 커서 페이지 요청은 오류가 나므로 1페이지(50건)까지만 수집하며 이후를 성공으로 표시하지 않는다. 여행 상세(tab=bookings 화면 텍스트, 일부 confirm 링크)는 안정 템플릿이 없어 미지원으로 상태화한다.',
     '',
     '공통 규칙',
@@ -152,6 +152,9 @@ export async function runEgoJob({
   runId = null,
 } = {}) {
   const selected = parseProviders(Array.isArray(providers) ? providers.join(',') : providers);
+  if (!runId) runId = `run-${utcStamp()}-${Math.random().toString(16).slice(2, 8)}`;
+  const base = resolveArchiveRoot({ archiveDir });
+  const root = safeChildPath(base.root, runId);
   const goalName = `ota portal collection${selected.length === PROVIDER_LIST.length && selected.every((name, index) => name === PROVIDER_LIST[index]) ? '' : ` ${selected.join(',')}`}`;
 
   let handle = task;
@@ -176,14 +179,11 @@ export async function runEgoJob({
     targetPage = await firstPageOf(handle);
   }
   if (!access && targetPage && typeof targetPage.fetch === 'function') {
-    access = targetPage.fetch.bind(targetPage);
+    access = adaptPageFetch(targetPage.fetch.bind(targetPage));
   }
   if (typeof access !== 'function') {
     throw new Error('no browser page available; run entry-runner.mjs under ego-browser nodejs or pass fetchImpl');
   }
-  if (!runId) runId = `run-${utcStamp()}-${Math.random().toString(16).slice(2, 8)}`;
-  const base = resolveArchiveRoot({ archiveDir });
-  const root = path.join(path.resolve(base.root), runId);
   const outcome = await runCollection({
     providers: selected,
     archiveRoot: root,

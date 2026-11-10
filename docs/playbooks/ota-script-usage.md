@@ -14,7 +14,8 @@ import만으로는 TaskSpace나 브라우저가 기동하지 않는다. 진입�
 - 원자료: 새 실행 디렉터리 아래 `provider/...` (기본 `.local-archive/ota-portal/<시각>/run-<무작위>/`,
   `--archive` 또는 `OTA_ARCHIVE_DIR`로 지정 가능). 기존 파일 덮어쓰기를 시도하지 않고 거부한다(신규 파일 생성만).
 - 요약/manifest: 건수·상태·원인 코드만. 자격증명·계정 식별자·요청 헤더/본문·관측 토큰/쿼리는 기록하지 않는다.
-- 한도 준수: 동시 요청 ≤ 6, 목록 요청 공급자당 ≤ 5, 상세 시도 ≤ 3(지수 백오프), 실패 30건 초과 시 중단.
+- 한도 준수: 동시 요청 ≤ 6(현재 공급자 실행은 순차), 목록 요청 공급자당 재시도 포함 ≤ 5, 상세 시도 ≤ 3(지수 백오프).
+  재시도를 소진한 요청 실패와 상세 응답 검증 실패를 실행 전체에서 누적하여 31번째 실패에서 중단한다.
 
 ## 실행
 
@@ -40,9 +41,10 @@ Git Bash/WSL 등에서는 대응 명령으로 같은 명시적 호출을 평가�
 - **Agoda**: 목록 `POST /api/ko-kr/mmbc/v2/GetBookingsList`, `bookingPhase` Upcoming/Completed/Cancelled 선택, pageIndex 1부터, pageSize 40, `includeArchive: true`, `pagination.totalPages`까지.
   상세 `POST /api/ko-kr/mmbc/eb/details`는 화면에서 관측한 상세 token이 필요하다. 미지정이면 `CAPTURE_REQUIRED`이고 토큰을 추측하지 않는다.
   저장 형식은 `tools/import_agoda_api_details.py`가 읽는 `{observed_at, list, detail}` 문서 집합과 같다.
-- **Trip.com**: 목록 `POST /restapi/soa2/26974/getAllOrders.json`(OrderStatusClassify All, Count 20, 날짜 조건 비움), 응답 `Offset`으로 페이지네이션.
-  상세 `POST /restapi/soa2/27453/GetOrderDetailOnline`은 `orderId`와 목록 `OrderActions[].ActionURLH5`의 `tripsignature`가 필요하다.
-  다음 페이지 요청 필드를 화면에서 관측하지 못했으면 다음 페이지를 요청하지 않고 `PARTIAL`로 남긴다(추측 금지).
+- **Trip.com**: 로그인 entry는 `https://kr.trip.com/account/signin`, 목록은 `POST https://online.trip.com/restapi/soa2/26974/getAllOrders.json`(OrderStatusClassify All, Count 20, 날짜 조건 비움), 응답 `Offset`으로 페이지네이션.
+  상세 `POST https://kr.trip.com/restapi/soa2/27453/GetOrderDetailOnline`은 `orderId`와 목록 `OrderActions[].ActionURLH5`의 `tripsignature`가 필요하다.
+  다음 페이지 요청 필드는 화면에서 관측한 이름을 `opts.tripOffsetField`로 제공한다. 응답 커서는 그 이름으로 다음 본문에 넣는다.
+  필드를 관측하지 못했으면 다음 페이지를 요청하지 않고 `PARTIAL`로 남긴다(추측 금지). 각 API의 host와 path는 서로 바꿔 쓸 수 없다.
   저장 형식은 `tools/import_trip_api_details.py`가 읽는 문서+orders 형식과 같다.
 - **Booking.com**: 목록 `POST https://secure.booking.com/dml/graphql?lang=ko` `operationName: UserTrips`이며 query 텍스트는 화면 관측이 필요하다(미지정 시 `CAPTURE_REQUIRED`).
   관측 절차상 두 번째 커서 페이지 요청이 서버 오류를 내므로 1페이지까지만 수집하고 이후를 성공으로 표시하지 않는다.
@@ -53,6 +55,7 @@ Git Bash/WSL 등에서는 대응 명령으로 같은 명시적 호출을 평가�
 - 로그인/재인증(필요 시 이메일 인증번호 포함)은 **사용자 작업**이다. 스크립트는 자격증명·쿠키·OTP를 읽거나 자동화하지 않고,
   포털 화면 로그인만 시도하지 않는다.
 - 세션 만료/인증 신호는 `LOGIN_REQUIRED`로 멈추고 상태만 남긴다. 중단 상태는 멈춤이지 실패 판정이 아니며, 같은 값을 성공한 횟수로 바꾸지 않는다.
+  앞선 페이지·상세에서 얻은 원자료는 보존하고, 미시도 상세는 `details_skipped`, 이후 공급자는 `INTERRUPTED`로 기록한다.
 - 로그인 유예·우회·계정 전환 시도 금지. 예약 변경·취소·결제·메시지 전송·쿠폰 사용 금지(읽기만).
 - 요청은 공급자 origin 정합성 검사를 통과해야 한다. 문서화된 entry/템플릿 밖의 URL·도메인 전환은 코드상 허용되지 않는다.
 - 어댑터가 login 상태를 직접 판정할 수 없는 제공자는 `AUTH_UNKNOWN`으로 남긴다(성공으로 표시하지 않음).
@@ -75,3 +78,12 @@ manifest `status`는 가장 나쁜 공급자 상태를 쓴다(로그인 5 > 중�
 합성 fixture 테스트가 만료·인증·잘못된 ID·pagination·재시도 한도·민감값 미기록·덮어쓰기 거부를 실제 실행으로 확인한다:
 `node --test "tests/ota_collection/*.test.mjs"`(모의 fetch만 사용, 실제 포털/로그인/고객 자료 없음).
 영향 기반 검사는 `python tools/run_quality_checks.py --base origin/main --run`이며, 결과(성공·건너뜀·미매핑)를 그대로 기록한다.
+
+### 2026-11-11 E1 재검수 변경 기록
+
+- 요구사항별 구현 완료: ID 전체 검증(문자열 또는 안전한 정수), 저장 경로의 논리적 containment와 물리적 junction/symlink 거부, 관측된 Trip 다음 페이지 본문, 실행 전체 실패 한도, 로그인 즉시 중단.
+- 공개 API 합성 회귀 11건은 제품 수정 전 11 fail·0 skip, 수정 후 통과했다. 목록 2페이지 인증 만료, 기존 원본 덮어쓰기 거부와 부분 저장 집계도 포함한다.
+- 추가 합성 경계: 재시도를 포함한 목록 한도, 상세 검증 실패 누적, 공급자 간 실패 누적, 실제 진입 함수의 page.fetch 응답, run ID 경로 탈출, 탐색 실패 후 요청 금지, manifest 민감값 제외, API별 정확한 host/path, Windows junction·파일 hard link, 페이지 간 invalid 집계·includeArchive.
+- 기존 테스트 변경 예외는 한 줄이다. test ID `an injected TaskSpace page is navigated per provider before its requests`의 `allowedHosts`: old `[www.agoda.com, kr.trip.com, secure.booking.com]` → new `[www.agoda.com, kr.trip.com, online.trip.com, secure.booking.com]`.
+  근거: [정본 관측 절차](ota-portal-collection.md)의 목록 API host는 `online.trip.com`, 로그인·상세는 `kr.trip.com`. Fable의 명시 승인을 관리자가 전달했다. main 원래 테스트나 나머지 기존 단언은 수정하지 않았다. 새 회귀는 host 교환·외부 도메인·다른 path·userinfo를 모두 거부하는지 확인한다.
+- 실사이트·로그인·브라우저·운영 DB·고객 자료·유료 API·모델 호출·push·배포는 실행하지 않았다. 실제 세션 응답과 인증 인계, 실제 수입 도구와의 end-to-end 동작은 미검증이다.

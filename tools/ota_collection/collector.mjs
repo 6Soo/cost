@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { MAX_FAILURES, PROVIDER_LIST, STATUS, maxStatus } from './constants.mjs';
+import { LIST_PAGE_LIMIT, MAX_ATTEMPTS, MAX_FAILURES, PROVIDER_LIST, STATUS, maxStatus } from './constants.mjs';
 import { ensureRunDirectory, relativeArtifact, saveArtifacts, sha256 } from './storage.mjs';
 import { buildManifest } from './manifest.mjs';
-import { isOtaError, statusForError, toOtaError } from './errors.mjs';
+import { OtaError, isOtaError, statusForError, toOtaError } from './errors.mjs';
 import { makeRequester } from './http.mjs';
 import {
   enterProvider,
@@ -55,6 +55,8 @@ function detailCounts(outcomes, listed, invalidItems) {
     details_capture: 0,
     details_skipped: 0,
     details_login_required: 0,
+    details_failed: 0,
+    details_interrupted: 0,
     items_invalid: invalidItems,
   };
   for (const outcome of outcomes ?? []) {
@@ -73,8 +75,13 @@ function detailCounts(outcomes, listed, invalidItems) {
       case STATUS.LOGIN_REQUIRED:
         counts.details_login_required += 1;
         break;
-      case STATUS.SKIPPED:
+      case STATUS.FAILED:
+        counts.details_failed += 1;
+        break;
       case STATUS.INTERRUPTED:
+        counts.details_interrupted += 1;
+        break;
+      case STATUS.SKIPPED:
       default:
         counts.details_skipped += 1;
         break;
@@ -132,14 +139,41 @@ async function runOneProvider(name, ctxBase, archiveRoot) {
     const url = assertAllowedUrl(href, access);
     return fetchImpl(url, init);
   };
+  // List request caps are per provider; the failure limit covers the whole run.
   const budget = createBudget();
+  budget.spike = ctxBase.failureBudget.spike;
+  budget.failures = ctxBase.failureBudget.failures;
+  budget.failureLimitReached = ctxBase.failureBudget.failureLimitReached;
+  const requester = makeRequester(guardedFetch, { provider: name });
+  const limitError = () => new OtaError('FAILURE_LIMIT', {
+    cls: 'abort', diagnostic: 'failure_limit_exceeded', resume: 'failure count exceeded 30; stopped the entire run',
+  });
   const ctx = {
     provider: name,
     budget,
     access,
     clock: ctxBase.clock ?? (() => new Date()),
     opts,
-    requestJson: makeRequester(guardedFetch, { provider: name }),
+    async requestJson(url, init) {
+      if (budget.failureLimitReached()) throw limitError();
+      const isList = url === access.urls.list;
+      const remaining = LIST_PAGE_LIMIT - budget.listRequests();
+      if (isList && remaining <= 0) throw new OtaError('LIST_LIMIT', { diagnostic: 'list_limit_5_reached' });
+      try { return await requester(url, { ...init,
+        attemptCap: isList ? Math.min(MAX_ATTEMPTS, remaining) : MAX_ATTEMPTS,
+        beforeAttempt: isList ? () => budget.bumpList() : null,
+      }); } catch (error) {
+        if (error?.code !== 'LOGIN_REQUIRED' && error?.cls !== 'abort') {
+          budget.spike();
+          if (budget.failureLimitReached()) throw limitError();
+        }
+        throw error;
+      }
+    },
+    countValidationFailure() {
+      budget.spike();
+      if (budget.failureLimitReached()) throw limitError();
+    },
     goto: typeof ctxBase.goto === 'function' ? ctxBase.goto : null,
     async save(files) {
       return saveArtifacts({ root: archiveRoot, provider: name, files });
@@ -190,13 +224,17 @@ async function finalize(name, result, navigation, archiveRoot, ctx) {
       saved = await ctx.save(files);
     } catch (error) {
       const ota = toOtaError(error);
+      const written = Array.isArray(ota.savedFiles) ? ota.savedFiles : [];
+      const counts = detailCounts(outcomes, listed, invalidItems);
+      counts.details_saved = new Set(outcomes.filter((outcome) => outcome?.record && written.includes(outcome.file))
+        .map((outcome) => outcome.file)).size;
       return {
         provider: name,
-        status: STATUS.FAILED,
-        counts: detailCounts(outcomes, listed, invalidItems),
-        files: [],
-        diagnostics: unique([...(Array.isArray(result?.diagnostics) ? result.diagnostics : []), ota.diagnostic ?? ota.code ?? 'write_failed']),
-        resume: unique([...(Array.isArray(result?.resume) ? result.resume : []), ota.resume ? [ota.resume] : [],
+        status: status === STATUS.LOGIN_REQUIRED || status === STATUS.INTERRUPTED ? status : STATUS.FAILED,
+        counts,
+        files: written,
+        diagnostics: unique([...diagnostics, ota.diagnostic ?? ota.code ?? 'write_failed']),
+        resume: unique([...resume, ota.resume ? [ota.resume] : [],
           'written files were kept in place; use a fresh run directory so saved responses are never overwritten']),
       };
     }
@@ -206,7 +244,9 @@ async function finalize(name, result, navigation, archiveRoot, ctx) {
     status,
     counts: detailCounts(outcomes, listed, invalidItems),
     files: saved.map(relativeArtifact),
-    navigation: { provider: name, origin: ctx.access?.origin ?? null, entry: ctx.access?.urls?.entry ?? null, verified: Boolean(navigation?.verified) },
+    navigation: { provider: name, origin: ctx.access?.origin ?? null,
+      entry: ctx.access?.urls?.entry ? new URL(ctx.access.urls.entry).origin + new URL(ctx.access.urls.entry).pathname : null,
+      verified: Boolean(navigation?.verified) },
     diagnostics,
     resume,
     savedCount: files.length,
@@ -229,8 +269,17 @@ export async function runCollection({
   await ensureRunDirectory(archiveRoot);
   const list = Array.isArray(providers) && providers.length ? providers : [...PROVIDER_LIST];
   const rows = [];
+  const failureBudget = createBudget();
+  let stopped = false;
   for (const name of list) {
-    rows.push(await runOneProvider(name, { clock, opts, fetchImpl, goto }, archiveRoot));
+    if (stopped) {
+      rows.push({ provider: name, status: STATUS.INTERRUPTED, counts: detailCounts([], 0, 0), files: [],
+        diagnostics: ['run_stopped'], resume: ['not attempted after login expiry or interruption'] });
+      continue;
+    }
+    const row = await runOneProvider(name, { clock, opts, fetchImpl, goto, failureBudget }, archiveRoot);
+    rows.push(row);
+    stopped = row.status === STATUS.LOGIN_REQUIRED || row.status === STATUS.INTERRUPTED || failureBudget.failureLimitReached();
   }
   const manifest = buildManifest({ runId, startedAt, archiveRoot, rows });
   const manifestBytes = `${JSON.stringify(manifest, null, 2)}\n`;

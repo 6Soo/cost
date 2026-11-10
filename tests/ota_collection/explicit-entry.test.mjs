@@ -86,7 +86,7 @@ test('an injected TaskSpace page is navigated per provider before its requests',
       'https://secure.booking.com/mytrips.ko.html',
     ]);
 
-    const allowedHosts = new Set(['www.agoda.com', 'kr.trip.com', 'secure.booking.com']);
+    const allowedHosts = new Set(['www.agoda.com', 'kr.trip.com', 'online.trip.com', 'secure.booking.com']);
     assert.ok(calls.length > 0);
     for (const call of calls) {
       const { hostname } = new URL(call.url);
