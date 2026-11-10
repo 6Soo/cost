@@ -30,7 +30,7 @@ STATE_LABELS = {
     income.STATE_NAME_MATCH: "참가 확정 · 이름 일치",
     income.STATE_INCOME_PRESENT: "참가 확정 · 수입 명단 있음 · 입금액 미기재",
     income.STATE_NO_INCOME: "참가 확정 · 수입 명단 없음",
-    income.STATE_NEEDS_CHECK: "참가 확정 · 연결 확인 필요",
+    income.STATE_NEEDS_CHECK: "참가 확정 · 연결 자료 확인",
     income.STATE_MANUAL: "참가 확정 · 수동 연결",
     income.STATE_JOINT: "참가 확정 · 공동 입금 · 개인별 금액 미확정",
     income.STATE_UNVERIFIED: "참가 확정 · 확인 대기",
@@ -40,20 +40,20 @@ STATE_LABELS = {
 
 BLOCKING_LABELS = {
     "STORE_UNAVAILABLE": "참가 명단 연결 필요",
-    "INCOME_INDEX_UNAVAILABLE": "전체 이름 대조 확인 필요",
+    "INCOME_INDEX_UNAVAILABLE": "전체 이름 대조 자료 확인",
     "ROSTER_INCOMPLETE": "전체 명단 미수신",
     "TRANSCRIPTION_PENDING": "판독 대기 항목 있음",
     "CONNECTION_PENDING": "연결 확인 대상 있음",
     "INCOME_UNCLASSIFIED": "명단과 미연결 수입 있음",
     "INPUT_CHANGED": "Google 수입 확인 대기",
-    "CORRECTION_PENDING": "이름 정정 확인 필요",
-    "DUPLICATE_UNRESOLVED": "같은 이름 참가자 확인 필요",
+    "CORRECTION_PENDING": "이름 정정 자료 확인",
+    "DUPLICATE_UNRESOLVED": "같은 이름 참가자 자료 확인",
 }
 
 #: 참가자 근거 설명. 내부 상태 문자열을 그대로 보여 주지 않는다.
 PARTICIPANT_EVIDENCE = {
     "confirmed": "명단으로 참가 확정",
-    "correction_pending": "이름이 바뀌어 정정 확인 필요",
+    "correction_pending": "이름이 바뀌어 정정 자료 확인",
     "merged": "같은 사람으로 확인되어 다른 참가자에 합쳐짐",
 }
 
@@ -276,7 +276,7 @@ def render_page(state: dict, *, csrf: str = "") -> str:
     if not configured:
         status = "참가 명단 연결 필요"
         if not google.get('available'):
-            status += " · Google 수입 자료 확인 필요"
+            status += " · Google 수입 자료를 확인해 주세요"
         summary = "<p class='small'>참가 인원은 아직 확인할 수 없습니다. Google 수입 기록을 먼저 확인하세요.</p>"
     checked_at = google_ledger_page.format_display_time(google.get('synced_at'))
     summary += f"<p class='small'>마지막 Google 확인 {esc(checked_at)}</p>"

@@ -944,7 +944,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             state = receipt_vision_jobs.lookup(job.group(1))
             if state is None:
                 handler._send_json({"code": "VISION_JOB_EXPIRED",
-                                    "message": "분석 기록이 사라졌어요. 다시 분석해 주세요."}, 404)
+                                    "message": "분석 기록이 사라졌습니다. 다시 분석해 주세요."}, 404)
             else:
                 handler._send_json(state)
             return True
@@ -1120,7 +1120,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<td data-label='상호·날짜·여행'>{source}"
         f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
         f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
-        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미배정</option>"
+        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행을 선택하세요</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
         + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
@@ -1130,7 +1130,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select></label>"
         f"<button type='button' data-edit='{identity}'>{ui_icons.icon('pencil')}수정</button></td>"
-        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if classified else '분류 확인 필요'))}</td>"
+        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if classified else '분류 상태를 확인해 주세요.'))}</td>"
         f"<td data-label='분류'><label>지급처<input data-payee='{identity}' aria-label='지급처' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'></label>"
         f"<label>비용 분류<input data-category='{identity}' aria-label='비용 분류' value='{html.escape(candidate.get('category') or '')}' placeholder='식비·숙박비 등'></label>"
         "</td></tr>")
@@ -1234,20 +1234,20 @@ const renderPending=()=>{
  for(const group of pending){
   const section=document.createElement('div');section.className='result-group';
   const head=document.createElement('h3');
-  head.textContent='사진 '+photoNumber(group.sha)+(group.status==='unknown'?' · 분석 상태 확인 필요':(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건');
+  head.textContent='사진 '+photoNumber(group.sha)+(group.status==='unknown'?' · 분석 상태를 확인해 주세요':(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건');
   section.append(head);
-  if(group.status==='unknown'){const note=document.createElement('p');note.textContent='분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않습니다.';section.append(note);if(group.jobId){const check=document.createElement('button');check.type='button';check.textContent='분석 상태 확인';check.disabled=receiptBusy;check.onclick=()=>resumeJob(group);section.append(check)}const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;section.append(manual);const close=document.createElement('button');close.type='button';close.textContent='확인 필요 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(close)}
+  if(group.status==='unknown'){const note=document.createElement('p');note.textContent='분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않습니다.';section.append(note);if(group.jobId){const check=document.createElement('button');check.type='button';check.textContent='분석 상태 확인';check.disabled=receiptBusy;check.onclick=()=>resumeJob(group);section.append(check)}const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;section.append(manual);const close=document.createElement('button');close.type='button';close.textContent='분석 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(close)}
   if(group.empty){const note=document.createElement('p');note.textContent='영수증 후보 0건 · 원본 저장됨';const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;const close=document.createElement('button');close.type='button';close.textContent='0건 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(note,manual,close)}
   group.receipts.forEach((receipt,index)=>section.append(receiptCard(group,index,receipt)));
   box.append(section);
-  setPhotoState(group.sha,group.status==='unknown'?'분석 상태 확인 필요':group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
+  setPhotoState(group.sha,group.status==='unknown'?'분석 상태를 확인해 주세요':group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
  }
  if(pending.some(group=>group.receipts.length)){const go=document.createElement('button');go.type='button';go.id='vision-register';go.className='primary';
   go.textContent='선택한 영수증 등록';go.disabled=receiptBusy;go.onclick=registerPending;box.append(go)}
 };
 const pollJob=async(state,label)=>{const t0=Date.now();
  while(state.status==='queued'||state.status==='running'){
-  if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');
+  if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있습니다. 잠시 후 다시 시도해 주세요.');
   say(label+' 분석 중 · '+Math.round((Date.now()-t0)/1000)+'초 경과');
   await new Promise(r=>setTimeout(r,2000));
   state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse);
@@ -1289,7 +1289,7 @@ if(visionGo)visionGo.onclick=async()=>{
    try{
     await flushDraft();const queued=await post('/api/receipts/vision',{image:sha});attempt.jobId=queued.job_id;storePending();await flushDraft();
     const state=await pollJob(queued,label);found+=await completeJob(attempt,state);
-   }catch(error){failed.push(label+' · '+(error.message||'실패'));if(!attempt.receipts.length&&!attempt.empty){attempt.status='unknown';setPhotoState(sha,'분석 상태 확인 필요');storePending();try{await flushDraft()}catch{}}}
+   }catch(error){failed.push(label+' · '+(error.message||'실패'));if(!attempt.receipts.length&&!attempt.empty){attempt.status='unknown';setPhotoState(sha,'분석 상태를 확인해 주세요');storePending();try{await flushDraft()}catch{}}}
   }
   say((failed.length?'분석을 마쳤습니다. 실패한 사진: '+failed.join(' / ')+' ':'분석을 마쳤습니다. ')+(found?'결과를 확인한 뒤 등록하세요.':'인식된 영수증이 없습니다. 직접 입력할 수 있습니다.'));
  }finally{restore();receiptBusy=false;renderPending()}
@@ -1383,7 +1383,7 @@ if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 PAGE_CSS = r"""*{box-sizing:border-box}
 :root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-bg);--focus:var(--c-focus);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--grn-dk:var(--c-accent-solid-hover);--grn-lt:var(--c-accent-subtle);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
 
-body{font-family:system-ui,sans-serif;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
+body{font-family:"Pretendard Variable",system-ui,sans-serif;letter-spacing:normal;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
 h1{font-size:var(--t-h1);margin:6px 0 10px}h2{font-size:var(--t-body);margin:0 0 8px}h3{font-size:var(--t-body-sm);margin:6px 0}
 section,details{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);padding:14px;margin:12px 0;min-width:0}
 details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
@@ -1560,7 +1560,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "['payment','payment'],['payee','payee'],['category','category']]){const input=row.querySelector('[data-'+field+']');"
         "input.value=(field==='total'&&result.currency==='KRW'?result.total_original:result[key])??'';originalValues.set(input,input.value)}"
         "row.querySelector('[data-amount]').textContent=result.amount_krw==null?'':result.amount_krw.toLocaleString('ko-KR')+'원';"
-        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'분류됨':'분류 확인 필요');"
+        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'분류됨':'분류 상태를 확인해 주세요.');"
         "say('영수증 변경을 저장했습니다.')};"
         "const save=async(action,onSaved,manual=false)=>{if(receiptBusy)return;"
         "if(!onSaved&&(selectedFiles.length||failedFiles.size)){say('선택한 파일을 먼저 등록하거나 제거해 주세요. 입력값은 유지합니다.');return}"
@@ -1577,7 +1577,6 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
         "say('선택한 사진의 영수증 값을 입력해 주세요.')});"
          "const openManualFor=sha=>{document.getElementById('image-sha').value=sha;const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(sha);preview.hidden=false;document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
-         "const manualOpen=document.getElementById('manual-open');if(manualOpen)manualOpen.onclick=()=>{document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
         "document.addEventListener('click',event=>{const button=event.target.closest('[data-manual-image],[data-image-sha]');if(!button)return;const sha=button.dataset.manualImage||button.dataset.imageSha;"
         "if(sha!==document.getElementById('image-sha').value&&manualHasInput()){event.preventDefault();event.stopImmediatePropagation();say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.')}},true);"
         "document.addEventListener('click',event=>{const button=event.target.closest('[data-manual-image]');if(button)openManualFor(button.dataset.manualImage)});"
@@ -1585,7 +1584,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const normalizeReceiptImage=async file=>{const limit=5*1024*1024;if((file.type==='image/jpeg'||file.type==='image/png')&&file.size<=limit)return file;if(!file.type.startsWith('image/')&&!(!file.type&&/\\.(jpe?g|png|heic|heif)$/i.test(file.name)))throw new Error('사진 형식만 등록할 수 있습니다.');const url=URL.createObjectURL(file);const img=new Image();try{await new Promise((ok,fail)=>{img.onload=ok;img.onerror=()=>fail(new Error('이 사진을 열 수 없습니다. iPhone에서 JPEG로 내보내 다시 시도하세요.'));img.src=url;});if(!img.naturalWidth||!img.naturalHeight)throw new Error('사진 크기를 확인할 수 없습니다.');for(const maxSide of [3000,2600,2200]){const scale=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));const context=canvas.getContext('2d');if(!context)throw new Error('사진 변환을 사용할 수 없습니다.');context.drawImage(img,0,0,canvas.width,canvas.height);for(const quality of [.92,.82,.72]){const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',quality));if(blob&&blob.size>0&&blob.size<=limit)return blob;}}throw new Error('사진이 5MB 제한을 넘었습니다. 더 작은 사진으로 다시 촬영해 주세요.');}finally{URL.revokeObjectURL(url)}};"
         "let selectedFiles=[];const failedFiles=new Set();const renderSelectedFiles=()=>{const list=document.getElementById('selected-files');list.replaceChildren();"
         "selectedFiles.forEach((file,index)=>{const row=document.createElement('li');const label=document.createElement('span');"
-        "label.textContent=file.name+' · '+(file.type||'형식 확인 필요')+' · '+Math.ceil(file.size/1024)+'KB · 선택됨';"
+        "label.textContent=file.name+' · '+(file.type||'형식을 확인해 주세요')+' · '+Math.ceil(file.size/1024)+'KB · 선택됨';"
         "const remove=document.createElement('button');remove.type='button';remove.textContent='선택 제거';"
         "remove.setAttribute('aria-label',file.name+' 선택 제거');remove.onclick=()=>{selectedFiles.splice(index,1);renderSelectedFiles();document.dispatchEvent(new Event('receipt-workflow-change'))};row.append(label,' ',remove);list.append(row)})};"
         "document.getElementById('img-file').addEventListener('change',event=>{selectedFiles.push(...event.target.files);event.target.value='';renderSelectedFiles();document.dispatchEvent(new Event('receipt-workflow-change'))});"
@@ -1603,7 +1602,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "headers:{'Content-Type':pdf?'application/pdf':'application/octet-stream','X-CSRF-Token':csrf,'X-Receipt-Filename':encodeURIComponent(file.name),'X-Receipt-Language':document.getElementById('ocr-language')?.value||'ja'},body});try{result=await readResponse(r)}catch(error){if(r.ok)error.uploadUncertain=true;throw error}}finally{clearTimeout(timer)}"
         "showUploaded(file,result,pdf,row);"
         "const current=document.getElementById('image-sha').value;if(current){const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(current);preview.hidden=false}"
-        "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent=file.name+(uncertain?' · 저장 여부 확인 필요: ':' · 실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.dataset.uploadRecovery='1';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='실패 파일 제거';remove.dataset.uploadRecovery='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove()};row.append(' ',retry,' ',remove)}}}"
+        "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent=file.name+(uncertain?' · 저장 여부를 확인해 주세요: ':' · 실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.dataset.uploadRecovery='1';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='실패 파일 제거';remove.dataset.uploadRecovery='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove()};row.append(' ',retry,' ',remove)}}}"
         "finally{restore();receiptBusy=false;results.querySelectorAll('[data-upload-recovery]').forEach(button=>button.disabled=false);document.dispatchEvent(new Event('receipt-workflow-change'))}};"
         "document.getElementById('img-go').onclick=()=>{if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
@@ -1642,7 +1641,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "if(previous&&!confirm('이 여행은 '+previous+'에 이미 구글 시트용으로 복사했습니다. 카드와 영수증을 각각 복사했다면 중복 붙여넣기에 주의하세요. 계속할까요?'))return;"
         "receiptBusy=true;const restore=lockControls();try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
         "const x=await readResponse(response);"
-        "if(!x.row_count){say('복사할 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
+        "if(!x.row_count){say('복사할 영수증이 없습니다. 처리되지 않은 '+x.held.length+'건');return}"
         "await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}"
         "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning)}"
         "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{restore();receiptBusy=false}};")
@@ -1705,8 +1704,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
             f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
             "</section>"
-             + (f"<section id='receipt-holds'><h2>확인 필요</h2><ul>{holds}</ul></section>" if holds else '') +
-             "<button type='button' class='btn' id='manual-open'>직접 입력</button>"
+             + (f"<section id='receipt-holds'><h2>추가 확인 결과</h2><ul>{holds}</ul></section>" if holds else '') +
              "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
             + (f"<img id='manual-preview' alt='직접 입력할 영수증 원본' src='/api/receipts/image/{html.escape(latest)}'>" if latest else
                "<img id='manual-preview' alt='직접 입력할 영수증 원본' hidden>")

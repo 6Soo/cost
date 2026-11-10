@@ -117,7 +117,7 @@ legend{font-size:13px;font-weight:600;padding:0 4px}
 <select id="kind">
 <option value="expense">지출</option>
 <option value="income">입금</option>
-<option value="unknown">구분 확인 필요</option>
+<option value="unknown">구분을 확인해 주세요</option>
 <option value="all">전체</option>
 </select>
 <label for="q">찾기</label>
@@ -181,7 +181,7 @@ var REFRESH_LABELS = {
 function refreshLabel(code) {
   if (typeof code !== "string" || code === "") { return ""; }
   if (REFRESH_LABELS[code]) { return REFRESH_LABELS[code]; }
-  if (code === REFRESH_OK_CODE) { return "실제 자료는 갱신됐어요."; }
+  if (code === REFRESH_OK_CODE) { return "실제 자료가 갱신됐습니다."; }
   return "실제 자료를 갱신하지 못했습니다. 코드: " + code;
 }
 // ---------------------------------------------------------------- ledger apply
@@ -211,7 +211,7 @@ function renderApplyPlan(plan) {
       + "이미 반영한 거래 " + text(shown.already_applied_transactions || 0) + "건, "
       + "충돌 거래 " + text(shown.conflict_transactions || 0) + "건");
   add(counts, "p", "counts-line",
-      "승인한 검토 행 " + text(shown.approved_refs || 0) + "행 중 계속 보류 "
+      "승인한 검토 행 " + text(shown.approved_refs || 0) + "행 중 추가 자료 확인 "
       + text(shown.held_refs || 0) + "행");
   var list = el("planList");
   clear(list);
@@ -268,7 +268,7 @@ function loadPlan() {
       renderApplyPlan(plan);
       setStatus("새로 반영할 거래 "
                 + text((plan.counts || {}).applicable_transactions || 0)
-                + "건을 확인했어요. 실행은 따로 눌러야 해요.", "ok");
+                + "건을 확인했습니다. 실행은 별도로 눌러야 합니다.", "ok");
     })
     .catch(function() {
       setStatus("반영 계획을 세우지 못했습니다.", "err");
@@ -319,7 +319,7 @@ function runApply() {
       if (result.status !== 200) {
         applyPlanState = null;
         el("applyBtn").disabled = true;
-        setStatus("반영하지 못했어요. 코드: " + text(result.body.code), "err");
+        setStatus("반영하지 못했습니다. 코드: " + text(result.body.code), "err");
         return;
       }
       applyPlanState.applied = true;
@@ -393,7 +393,7 @@ function evidenceLabel(status) {
   // The old pair — one word, "충분"/"부족" — is read as proof that the bank
   // record is verified and that the schedule is authoritative, and this screen
   // is not where either of those is established.
-  return status === "available" ? "원본 항목 확인됨" : "원본 머리글 확인 필요";
+  return status === "available" ? "원본 항목 확인됨" : "원본 머리글을 확인해 주세요";
 }
 
 // The block a source row is. A row from before the kind existed has none, and
@@ -466,19 +466,19 @@ function renderCounts() {
     ["검토 원천 " + text(rows.length) + "건", 0],
     ["입금 " + text(income) + "건", 0],
     ["지출 " + text(expense) + "건", 0],
-    ["구분 확인 필요 " + text(unknown) + "건", 0],
+    ["구분 확인 " + text(unknown) + "건", 0],
     // Scoped to card expenses, and labelled as such.
     ["카드 지출 결정 " + text(selected) + "건", 0],
     ["카드 지출 거부 " + text(rejected) + "건", 0],
-    ["카드 지출 보류 " + text(held) + "건", 0],
-    [savedRevision ? "저장된 상태예요" : "아직 저장된 결정이 없어요", 0]
+    ["카드 지출 자료 확인 " + text(held) + "건", 0],
+    [savedRevision ? "저장된 상태입니다" : "아직 저장된 결정이 없습니다", 0]
   ];
   for (i = 0; i < parts.length; i++) {
     var span = add(box, "span", "muted");
     add(span, "b", null, parts[i][0]);
   }
   var kindCounts = {expense: expense, income: income, unknown: unknown, all: rows.length};
-  var kindNames = {expense: "지출", income: "입금", unknown: "구분 확인 필요", all: "전체"};
+  var kindNames = {expense: "지출", income: "입금", unknown: "구분 확인", all: "전체"};
   var options = el("kind").options;
   for (i = 0; i < options.length; i++) {
     options[i].textContent = kindNames[options[i].value] + " "
@@ -592,7 +592,7 @@ function buildCard(row, ordinal, total) {
   }
   add(card, "h2", null, text(ordinal + 1) + ". " + text(heading));
   add(card, "span", "badge", blockKindOf(row) === "income" ? "입금" :
-      (blockKindOf(row) === "unknown" ? "구분 확인 필요" : "지출"));
+      (blockKindOf(row) === "unknown" ? "구분 확인" : "지출"));
   var summary = add(card, "div", "transaction-summary");
   add(summary, "span", null, source.date);
   add(summary, "b", null, wonText(source.amount));
@@ -650,7 +650,7 @@ function buildCard(row, ordinal, total) {
     });
     return input;
   }
-option("", "확인 보류", "", false);
+option("", "지금은 선택하지 않음", "", false);
   option("REJECT", "같은 거래가 아님", "", false);
   for (var c = 0; c < candidates.length; c++) {
     var key = candidateKeyOf(candidates[c]);
@@ -812,8 +812,8 @@ function load(why) {
         // This is the same for an automatic refresh and for a reload the user
         // clicked: in both cases the model that arrives is older than what they
         // have decided since asking for it.
-        showConflict("불러오는 중에 결정한 내용이 있어요.");
-        setStatus("결정한 내용을 지우지 않기 위해 새 자료를 적용하지 않았어요. 저장을 시도하면 새 자료 기준으로 확인해요.", "warn");
+        showConflict("불러오는 중에 결정한 내용이 있습니다.");
+        setStatus("결정한 내용을 지우지 않기 위해 새 자료를 적용하지 않았습니다. 저장을 시도하면 새 자료 기준으로 확인합니다.", "warn");
         return;
       }
       var previousRows = rows.length;
@@ -844,7 +844,7 @@ function load(why) {
       // After the render, because rendering changes the page's height.
       window.scrollTo(0, loadCapturedScroll);
       if (previousRows !== rows.length) {
-        setStatus((why || "새 자료로 갱신했어요.") + " (" + text(rows.length) + "건)", "ok");
+        setStatus((why || "새 자료로 갱신했습니다.") + " (" + text(rows.length) + "건)", "ok");
         return;
       }
       setStatus(why || ("검토 원천 " + text(rows.length) + "건을 불러왔습니다."),
@@ -865,7 +865,7 @@ function save() {
     // against the one on screen now would be a save against a binding that is
     // being replaced, which is the ambiguity the binding check exists to prevent.
     // Editing stays available; the draft is untouched.
-    setStatus("새 자료를 불러오는 중이라 저장하지 않았어요. 잠시 후 다시 시도해 주세요.", "warn");
+    setStatus("새 자료를 불러오는 중이라 저장하지 않았습니다. 잠시 후 다시 시도해 주세요.", "warn");
     return;
   }
   saving = true;
@@ -919,17 +919,17 @@ function save() {
           // changes. The rows on screen are still the ones the decision was made
           // against, so they stay until the user asks for the new ones. A second
           // device gets the same treatment, and the difference is only the words.
-          showConflict("새 자료가 반영되어 저장하지 못했어요. 결정한 내용은 그대로 있어요.");
-          setStatus("결정한 내용을 지우지 않았어요. 저장하려면 새 자료로 다시 불러온 뒤 확인해 주세요.", "warn");
+          showConflict("새 자료가 반영되어 저장하지 못했습니다. 결정한 내용은 그대로 있습니다.");
+          setStatus("결정한 내용을 지우지 않았습니다. 저장하려면 새 자료로 다시 불러온 뒤 확인해 주세요.", "warn");
           return;
         }
-        showConflict("다른 기기에서 더 최근 결정을 저장했어요.");
+        showConflict("다른 기기에서 더 최근 결정을 저장했습니다.");
         setStatus("다른 기기의 저장을 확인해 주세요.", "warn");
         return;
       }
       if (result.status !== 200) {
         var code = (result.body && result.body.code) || "UNKNOWN";
-        setStatus("결정을 저장하지 못했어요: " + code, "err");
+        setStatus("결정을 저장하지 못했습니다: " + code, "err");
         return;
       }
       savedRevision = result.body.revision;
@@ -939,10 +939,10 @@ function save() {
       savedChoices = sentByRef;
       renderPage();
       if (isDirty()) {
-        setStatus("보낸 결정은 저장했어요. 저장 중에 바꾼 결정은 아직 저장하지 않았어요.",
+        setStatus("보낸 결정은 저장했습니다. 저장 중에 바꾼 결정은 아직 저장하지 않았습니다.",
                   "warn");
       } else {
-        setStatus("결정을 저장했어요.", "ok");
+        setStatus("결정을 저장했습니다.", "ok");
       }
     })
     .catch(function() {
@@ -967,7 +967,7 @@ function download(filename, content, mime) {
 }
 function exportChoices() {
   if (loading) {
-    setStatus("새 자료를 불러오는 중이라 내보내지 않았어요. 잠시 후 다시 시도해 주세요.", "warn");
+    setStatus("새 자료를 불러오는 중이라 내보내지 않았습니다. 잠시 후 다시 시도해 주세요.", "warn");
     return;
   }
   setStatus("내보내는 중입니다...", "");
@@ -991,7 +991,7 @@ function exportChoices() {
       if (!result) { return; }
       if (result.status !== 200) {
         var code = (result.body && result.body.code) || "UNKNOWN";
-        setStatus("내보내지 못했어요: " + code, "err");
+        setStatus("내보내지 못했습니다: " + code, "err");
         return;
       }
       download("decisions.csv", result.body.decision_csv || "", "text/csv");
@@ -1043,22 +1043,22 @@ function pollSavedRevision() {
         // stay on screen and the conflict is stated rather than quietly resolved
         // in either direction.
         if (isDirty()) {
-          showConflict("새 자료가 반영됐어요. 이 기기에 저장하지 않은 결정이 있어요.");
-          setStatus("새 자료는 읽었지만 저장하지 않은 결정은 그대로 두었어요. 다시 불러오면 지워져요.", "warn");
+          showConflict("새 자료가 반영됐습니다. 이 기기에 저장하지 않은 결정이 있습니다.");
+          setStatus("새 자료는 읽었지만 저장하지 않은 결정은 그대로 두었습니다. 다시 불러오면 지워집니다.", "warn");
           return;
         }
-        load("새 자료로 갱신했어요.");
+        load("새 자료로 갱신했습니다.");
         return;
       }
       if (state.revision === savedRevision) { return; }
       if (isDirty()) {
-        showConflict("이 기기에 저장하지 않은 결정이 있고, 다른 기기에서 더 최근 결정을 저장했어요.");
-        setStatus("다른 기기의 저장이 감지됐어요. 내 결정은 그대로 두었습니다.", "warn");
+        showConflict("이 기기에 저장하지 않은 결정이 있고, 다른 기기에서 더 최근 결정을 저장했습니다.");
+        setStatus("다른 기기의 저장이 감지됐습니다. 내 결정은 그대로 두었습니다.", "warn");
         return;
       }
       // The saved set moved and this page has nothing pending, so the full
       // comparison is read and applied. Only now, and only when something moved.
-      load("다른 기기의 결정을 불러왔어요.");
+      load("다른 기기의 결정을 불러왔습니다.");
     })
     .catch(function() { return; })
     .then(function() { polling = false; });

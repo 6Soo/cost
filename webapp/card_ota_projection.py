@@ -54,7 +54,7 @@ def index_ota_display_candidates(
                       ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order'))
         result_kind = ('묶음 대응' if group_only else
                        '확정 연결' if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') else
-                       '금액 대조 보류' if result.get('status') == 'HOLD_AMOUNT_UNVERIFIED' else
+                       '금액 대조 자료 확인' if result.get('status') == 'HOLD_AMOUNT_UNVERIFIED' else
                        '금액 비교' if result.get('status') == 'HOLD_AMOUNT_MISMATCH' else '후보')
         for kind, values in ((result_kind, result.get('candidates') or ()),
                              ('후보', trace.get('candidates') or ()),
@@ -76,7 +76,7 @@ def index_ota_display_candidates(
                     if kind == '제외' and not (isinstance(value, dict) and
                                                value.get('display_relevant') is True):
                         continue
-                    reason = ('결제일 확인 필요' if why == 'payment_date_unknown' else
+                    reason = ('결제일 원문 없음' if why == 'payment_date_unknown' else
                               OTA_REASON.get(str(why), link_diagnosis_label_fn(why)) if why else '')
                     period = event.get('service_period') or {}
                     date_note = (event.get('paid_on') or

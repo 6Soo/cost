@@ -1058,12 +1058,12 @@ def _default_db_path():
 def _error_page(message: str) -> str:
     body = (CARD_ALL_STYLE + "<div class='card-all-page'>"
             "<section class='card-all-detail card-all-empty' role='alert'>"
-            "<h2>카드를 불러오지 못했어요</h2>"
+            "<h2>카드를 불러오지 못했습니다.</h2>"
             f"<p>{_esc(message)}</p>"
             "<p>다시 불러온 뒤에도 문제가 계속되면 관리자에게 문의해 주세요.</p>"
             "<a class='site-action' href=''>다시 불러오기</a></section></div>")
     fragment = _design.shell("카드 내역", tab_id="", heading="카드 내역",
-                             meta="저장된 카드 거래를 연도와 월로 확인해요.",
+            meta="저장된 카드 거래를 연도와 월로 확인합니다.",
                              body=body, home=True)
     return _design.render(fragment, title="카드 내역")
 
@@ -1099,7 +1099,7 @@ def _upload_workspace_page(query_params, *, owner: bool, csrf: str) -> str:
     )
     fragment = _design.shell(
         "카드 내역", tab_id="", heading="카드 내역",
-        meta="카드 거래와 거래일자 공백을 확인해요.", body=body, home=True,
+        meta="카드 거래와 거래일자 공백을 확인합니다.", body=body, home=True,
         quick_view=True)
     fragment = _strip_legacy_shell_header(fragment)
     return _design.render(fragment, title="카드 내역")
@@ -1122,7 +1122,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
     trip_names = {}
     card_db_path = db_path or _default_db_path()
     if not card_db_path:
-        return _error_page("카드 원본 DB가 연결되지 않았어요. 운영 설정을 확인해 주세요.")
+        return _error_page("카드 원본 DB가 연결되지 않았습니다. 운영 설정을 확인해 주세요.")
     try:
         trip_names, valid_trip_ids = _trip_context()
         filters = {'card': filter_state.get('card', ''), 'search': filter_state.get('q', '')}
@@ -1177,11 +1177,11 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
             undated_has_more = bool(undated_result.get("has_more"))
             undated_next_cursor = undated_result.get("cursor")
     except RuntimeError:
-        return _error_page("카드 원본 DB 경로를 확인할 수 없어요.")
+        return _error_page("카드 원본 DB 경로를 확인할 수 없습니다.")
     except sqlite3.OperationalError:
-        return _error_page("카드 원본 DB에서 거래 표를 읽을 수 없어요.")
+        return _error_page("카드 원본 DB에서 거래 표를 읽을 수 없습니다.")
     except (ValueError, TypeError):
-        return _error_page("조회 조건을 확인하지 못했어요.")
+        return _error_page("조회 조건을 확인하지 못했습니다.")
 
     with request_metrics.card_phase('trip_labels'):
         # Only an already-authorized owner page resolves ledger display labels.
@@ -1250,7 +1250,7 @@ def _cards_all_page(query_params: dict, *, db_path: str | None = None,
             + (f"<script>{CARD_HISTORY_WORKSPACE_SCRIPT}</script>" if owner else ""))
         fragment = _design.shell(
             "카드 내역", tab_id="", heading="카드 내역",
-            meta="카드 거래와 거래일자 공백을 확인해요.",
+            meta="카드 거래와 거래일자 공백을 확인합니다.",
             body=body, home=True)
         fragment = _strip_legacy_shell_header(fragment)
         return _design.render(fragment, title="카드 내역")

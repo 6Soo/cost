@@ -2,15 +2,16 @@
 from webapp import site_shell
 
 
-def test_standalone_header_theme_is_inline_not_before_menu():
+def test_standalone_header_uses_bottom_more_sheet_for_menu_and_theme():
     doc = '<!doctype html><html><head><title>Flight</title></head><body><main>예약</main></body></html>'
     html = site_shell.wrap_document(doc, '/flight-passengers')
     header = html.split('<header class="site-topbar">', 1)[1].split('</header>', 1)[0]
-    assert 'site-menu-toggle' in header
+    assert 'site-menu-toggle' not in header
     assert 'Flight' in header
     assert 'site-theme-toggle' in header
     assert html.count('id="site-theme-toggle"') == 1
-    assert 'site-topbar>.site-theme-bar' in html
+    assert 'site-more-bottom' in html
+    assert 'site-more-theme-slot' in html
 
 
 def test_native_header_uses_current_title_and_shared_typography_tokens():
@@ -35,10 +36,13 @@ def test_theme_remains_visible_on_desktop_and_shares_mobile_row():
         for width in (375, 1280):
             page.set_viewport_size({'width': width, 'height': 800})
             button = page.locator('#site-theme-toggle')
+            if width < 1024:
+                assert page.locator('.site-more-bottom').count() == 1
+                page.locator('.site-more-bottom').click()
             assert button.count() == 1 and button.is_visible()
             box = button.bounding_box()
             assert box['width'] >= 44 and box['height'] >= 44
-            if width == 375:
-                menu = page.locator('.site-menu-toggle').bounding_box()
-                assert abs(menu['y'] - box['y']) < 10
+            if width < 1024:
+                assert page.locator('.site-more-theme-slot #site-theme-toggle').count() == 1
+                page.locator('.site-more-close button').click()
         browser.close()

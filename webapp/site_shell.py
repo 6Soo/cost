@@ -217,9 +217,8 @@ def sidebar(section='trips', tab_id='', role=None, live_nav=None):
 def _topbar(title, back_href='', role='owner'):
     back = ("<a class='site-back' href='" + _esc(back_href) + "' aria-label='이전'>" + ui_icons.icon('chevron-left', 20) + "</a>"
             if back_href else "<a class='site-brand-mobile' href='/' aria-label='숲길여행 회계 홈으로 이동'>숲길여행 회계</a>")
-    more = ("<button class='icon-btn site-more-toggle' id='site-more-toggle' type='button' aria-label='더보기' aria-haspopup='dialog' aria-controls='site-more-dialog'>"
-            + ui_icons.icon('menu', 20) + "</button>") if role != 'viewer' else ''
-    return "<header class='site-topbar'>" + back + "<span class='site-topbar-title'>" + _esc(title) + "</span>" + more + site_theme.BUTTON + "</header>"
+    theme = site_theme.BUTTON if role != 'viewer' else ''
+    return '<header class="site-topbar">' + back + "<span class='site-topbar-title'>" + _esc(title) + "</span>" + theme + "</header>"
 
 
 def _bottom_nav(section, role):
@@ -235,21 +234,24 @@ def _bottom_nav(section, role):
             ui_icons.icon('menu', 18) + '<span>더보기</span></button></nav>')
 
 
-def _more_dialog(role):
+def _more_dialog(role, current_path=''):
     if role == 'viewer':
         return ''
+    admin_current = " aria-current='page'" if current_path == '/access/admin' else ''
+    google_current = " aria-current='page'" if current_path == '/google-ledger' or str(current_path or '').startswith('/google-ledger/') else ''
     return ("<dialog id='site-more-dialog' class='site-more-dialog' inert aria-labelledby='site-more-title'>"
             "<form method='dialog' class='site-more-close'><button class='icon-btn' value='close' aria-label='더보기 닫기'>" +
             ui_icons.icon('x-circle', 18) + "</button></form><h2 id='site-more-title'>더보기</h2>"
-            "<nav aria-label='추가 메뉴'><a href='/access/admin'>계정·권한</a><a href='/google-ledger'>Google 장부 연결</a></nav></dialog>")
+            "<div class='site-more-theme-slot' aria-label='화면 테마'></div>"
+            "<nav aria-label='추가 메뉴'><a href='/access/admin'" + admin_current + ">계정·권한</a><a href='/google-ledger'" + google_current + ">Google 장부 연결</a></nav></dialog>")
 
 
-def app_shell(content, section='trips', title='', breadcrumb='', role=None, tab_id='', live_nav=None, back_href=''):
+def app_shell(content, section='trips', title='', breadcrumb='', role=None, tab_id='', live_nav=None, back_href='', current_path=''):
     role = role or _role()
     return ("<div class='site-app'>" + sidebar(section, tab_id, role, live_nav) + "<div id=\"site-content\">"
             "<a class='skip-link' href='#main'>본문으로 건너뛰기</a>" +
             _topbar(title, back_href, role) + (breadcrumb or '') + content +
-            _bottom_nav(section, role) + _more_dialog(role) + "</div></div>")
+            _bottom_nav(section, role) + _more_dialog(role, current_path) + "</div></div>")
 
 
 MENU_TOGGLE = ''
@@ -323,7 +325,7 @@ def wrap_document(document, path, *, status=200):
     if not re.search(r'<h1\b', content, re.I):
         content = re.sub(r'(<main\b[^>]*>)', r'\1<h1>' + _esc(title) + '</h1>', content, count=1, flags=re.I)
     content = re.sub(r'<header\b[^>]*class=["\'][^"\']*site-topbar[^"\']*["\'][^>]*>.*?</header\s*>', '', content, flags=re.I | re.S)
-    shell = app_shell(content, section, title, breadcrumb, role, nav_tab_id, live_nav, back_href)
+    shell = app_shell(content, section, title, breadcrumb, role, nav_tab_id, live_nav, back_href, page_path)
     title_html = '<title>' + _esc(title) + ' · 숲길여행 회계</title>'
     if title_match:
         document = document[:title_match.start()] + title_html + document[title_match.end():]

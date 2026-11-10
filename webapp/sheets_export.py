@@ -467,7 +467,7 @@ def _assignee_source(store, tab_id: str) -> str:
 #: from. The alternative — printing the stored value — would put a name on an
 #: exported document that nobody claimed, which is the same claim the empty
 #: assignee used to make.
-UNCONFIRMED_ASSIGNEE_TEXT = "확인 필요"
+UNCONFIRMED_ASSIGNEE_TEXT = "담당자 출처를 확인해 주세요"
 
 
 def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPLATE_VERSION):

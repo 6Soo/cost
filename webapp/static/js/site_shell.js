@@ -13,7 +13,7 @@
  const actionLink=/검색|조회|초기화|돌아가기|장부로|장부 보기|상세|검토|다운로드|내보내기|추가|업로드|수정|관리|전체 보기|더 보기|이전|다음|새 창|원본|설정/;
  function decorate(el){
   if(el.hasAttribute('data-no-action-icon'))return;
-  if(el.closest('#nav,[role="tablist"],.site-theme-bar,.site-bottom-nav,.site-more-dialog')||el.matches('.site-back,.site-more-toggle,.site-more-bottom,#site-theme-toggle'))return;
+  if(el.closest('#nav,[role="tablist"],.site-theme-bar,.site-bottom-nav,.site-more-dialog')||el.matches('.site-back,.site-more-bottom,#site-theme-toggle'))return;
   if(el.matches('.participant-row-connect,.participant-link-details > summary,.insurance-candidate-button,.insurance-participant-name,[data-pick-participant]'))return;
   if(el.matches('#flight-booking-page summary,.card-all-row-toggle,.cleanup-review > summary'))return;
   if(el.tagName==='SUMMARY'&&el.querySelector('svg,img,button,[role="button"]'))return;
@@ -52,7 +52,17 @@
  });
  observer.observe(document.body,{childList:true,subtree:true,characterData:true});
  const dialog=document.getElementById('site-more-dialog');
- const openers=document.querySelectorAll('.site-more-toggle,.site-more-bottom');
+ const openers=document.querySelectorAll('.site-more-bottom');
+ const themeBar=document.querySelector('.site-theme-bar');
+ const themeSlot=document.querySelector('.site-more-theme-slot');
+ const topbar=document.querySelector('.site-topbar');
+ const mobileQuery=window.matchMedia('(max-width:1023px)');
+ const placeTheme=()=>{
+  if(!themeBar||!themeSlot||!topbar)return;
+  if(mobileQuery.matches)themeSlot.append(themeBar);else topbar.append(themeBar);
+ };
+ placeTheme();
+ mobileQuery.addEventListener?.('change',placeTheme);
  const closeDialog=()=>{if(dialog&&dialog.open)dialog.close();if(dialog)dialog.inert=true};
  if(dialog)dialog.inert=true;
  openers.forEach(button=>button.addEventListener('click',()=>{if(dialog&&!dialog.open){dialog.inert=false;dialog.showModal()}}));

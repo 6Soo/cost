@@ -116,9 +116,9 @@ def render_ota_snapshot_evidence(
     if status == 'GROUP_LINKED':
         lines.append(f"<span class='cleanup-protected-hint'>{esc('예약·카드 관계 연결됨 · 카드 원행 금액은 한 번만 집계')}</span>")
     elif status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
-        lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용')}</span>")
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용됩니다.')}</span>")
     elif status in ('RESERVATION_NEEDS_REVIEW', 'RESERVATION_STALE'):
-        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 사용자 재확인 필요')}</span>")
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 원본 자료를 확인해 주세요')}</span>")
 
     items = ''.join(f"<li>{line}</li>" for line in lines)
     return (f"<details class='cleanup-evidence cleanup-ota-snapshot' open><summary>{esc('OTA 연결 근거')}</summary>"
@@ -224,7 +224,7 @@ def render_refund_merchant_candidates(
             flags = ["같은 카드",
                      "가맹점명 동일" if name == merchant else
                      "표기 변형" if alias_match else
-                     "유페이 결제중계 후보 · 동일 서비스 확인 필요" if upay_proxy else
+                     "유페이 결제중계 후보 · 동일 서비스 자료를 확인해 주세요" if upay_proxy else
                      "원승인번호 대조 · 가맹점 불일치",
                      "금액 일치" if gross == abs(amount or 0) else "금액 차이",
                      "장부 기록 있음" if cid in existing else "장부 미기록"]

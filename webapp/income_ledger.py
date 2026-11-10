@@ -315,7 +315,7 @@ class BankImporter:
                                     batch_id=batch_id,
                                     client_request_id=f"{batch_id}-{position}",
                                 )
-                                status, note = "placed", "분류대기 수입"
+                                status, note = "placed", "귀속 전 수입"
                                 credit += 1
                                 created += 1
                 self.conn.execute(
