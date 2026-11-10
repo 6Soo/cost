@@ -208,8 +208,8 @@ export async function runEgoJob({
   return outcome;
 }
 
-const isEgoLike = typeof globalThis.taskSpace === 'function';
-
-if (!isEgoLike && isDirectInvocation()) {
+// CLI convenience only: importing this module (including inside ego-browser)
+// never starts a TaskSpace or a run.
+if (typeof process !== 'undefined' && process.argv && isDirectInvocation()) {
   process.exitCode = await mainDirect(process.argv.slice(2));
 }

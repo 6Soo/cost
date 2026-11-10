@@ -19,15 +19,17 @@ import만으로는 TaskSpace나 브라우저가 기동하지 않는다. 진입�
 ## 실행
 
 ```
-ego-browser nodejs -e "await import('file:///C:/절대/path/tools/ota_collection/entry-runner.mjs')"
+ego-browser nodejs -e "const { mainEgo } = await import('file:///C:/절대/path/tools/ota_collection/entry-runner.mjs'); await mainEgo({ taskSpace: globalThis.taskSpace })"
 ```
 
-Git Bash/WSL 등에서는 대응 명령으로 같은 파일을 evaluate한다. Windows PowerShell 5.1에서
-`-e` 문장에 따옴표/여러 줄이 들어가면 깨지므로 위처럼 UTF-8 `.mjs` 파일로 둔다.
+Git Bash/WSL 등에서는 대응 명령으로 같은 명시적 호출을 평가한다. Windows PowerShell 5.1에서
+`-e` 문장에 따옴표/여러 줄이 들어가면 깨지므로 위처럼 UTF-8 `.mjs` 파일로 둔다. 이 문서는 실행 장소를
+명시적으로 지정한다: import만으로는 아무 일도 일어나지 않고(무부수효과), `mainEgo`와 `runEgoJob`은
+제작자가 주입한 page/fetch/task로도 호출할 수 있다.
 
-- TaskSpace는 목표 단위로 하나 만들고 재사용한다. 이미 있는 TaskSpace ID/핸들을 주입하면 그것을 재사용한다.
+- TaskSpace는 목표 단위로 하나 만들고 재사용한다(기본 안정 이름). 이미 있는 TaskSpace ID/핸들을 주입하면 그것을 재사용한다.
   사용자 소유 이름 충돌(EGO_TASK_SPACE_NAME_IN_USE) 등은 실패로 보고하며 다른 이름으로 우회 만들지 않는다.
-- 페이지가 없으면 주입된 page/fetch로 돌릴 수 있고, 주입이 없으면 진입점이 명확히 실패한다.
+- `taskSpace` 생략 시 ego 환경의 전역 taskSpace를 해석해 쓴다; 그마저 없으면 명확한 오류로 멈춘다.
   공급자 문서에 없는 URL/도메인은 쓰지 않는다.
 - 스크립트를 다시 돌리면 새 실행 디렉터리가 생기므로 원자료가 겹치지 않는다.
 - 계획만 보려면: `node tools/collect_ota_portals.mjs --plan [--provider agoda,trip,booking]`

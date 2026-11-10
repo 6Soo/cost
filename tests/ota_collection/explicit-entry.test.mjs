@@ -152,11 +152,87 @@ test('name reuse uses the stable goal name and an unresolved conflict is not wor
   }
 });
 
-test('explicit entry refuses to run without the ego-browser factory', async () => {
-  await assert.rejects(mainEgo({ providers: 'agoda' }), /taskSpace\(\) factory/);
-  const result = spawnSync(process.execPath, [ENTRY_PATH], { encoding: 'utf8' });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /entry-runner requires the ego-browser taskSpace/);
+test('importing both entry modules has no browser side effects, even with an ego-like global present', () => {
+  const script = [
+    "globalThis.__factoryCalls = 0;",
+    "globalThis.taskSpace = async () => { globalThis.__factoryCalls += 1; throw new Error('factory must not be called on import'); };",
+    `const collectUrl = ${JSON.stringify(pathToFileURL(COLLECT_PATH).href)};`,
+    `const entryUrl = ${JSON.stringify(pathToFileURL(ENTRY_PATH).href)};`,
+    'const collect = await import(collectUrl);',
+    'const entry = await import(entryUrl);',
+    "if (typeof collect.runEgoJob !== 'function' || typeof entry.mainEgo !== 'function') throw new Error('missing expected exports');",
+    "console.log('IMPORT_OK factoryCalls=' + globalThis.__factoryCalls);",
+  ].join('\n');
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /IMPORT_OK factoryCalls=0/);
+});
+
+test('mainEgo without an ego-like factory fails loudly', async () => {
+  const dir = await makeTempDir();
+  const previous = globalThis.taskSpace;
+  try {
+    delete globalThis.taskSpace;
+    await assert.rejects(
+      mainEgo({ providers: 'agoda', archiveDir: dir }),
+      /no ego-browser taskSpace/,
+    );
+  } finally {
+    if (previous !== undefined) globalThis.taskSpace = previous;
+    await cleanup(dir);
+  }
+});
+
+test('documented instance: global factory used once per run and a name resumes instead of duplicating', async () => {
+  const dir = await makeTempDir();
+  const names = [];
+  const finished = [];
+  const page = makePage([], []);
+  const previous = globalThis.taskSpace;
+  globalThis.taskSpace = async (id) => {
+    names.push(String(id));
+    if (String(id) === '42' || String(id).startsWith('ota portal collection')) {
+      return { page: () => page, finish: async () => { finished.push(1); } };
+    }
+    throw new Error(`unexpected name ${id}`);
+  };
+  const opts = { agodaDetailToken: 'synthetic-token' };
+  try {
+    const clock = () => new Date('2026-11-11T00:00:00.000Z');
+    const first = await mainEgo({ providers: 'agoda', archiveDir: dir, opts, clock });
+    const second = await mainEgo({ providers: 'agoda', archiveDir: dir, opts, clock });
+    assert.deepEqual(names, ['ota portal collection agoda', 'ota portal collection agoda']);
+    assert.notEqual(first.archiveRoot, second.archiveRoot);
+    assert.equal(finished.length, 2, 'one completion call per run');
+
+    const third = await mainEgo({ taskSpaceId: '42', providers: 'agoda', archiveDir: dir, opts, clock, taskSpace: undefined });
+    assert.equal(names[2], '42');
+    assert.ok(third.rows.length === 1);
+  } finally {
+    if (previous === undefined) delete globalThis.taskSpace;
+    else globalThis.taskSpace = previous;
+    await cleanup(dir);
+  }
+});
+
+test('a user-owned space conflict is reported, never worked around', async () => {
+  const dir = await makeTempDir();
+  const seen = [];
+  const conflict = async (name) => {
+    seen.push(String(name));
+    const error = new Error('space is user-owned');
+    error.code = 'EGO_TASK_SPACE_NAME_IN_USE';
+    throw error;
+  };
+  try {
+    await assert.rejects(
+      mainEgo({ taskSpace: conflict, providers: 'agoda', archiveDir: dir, opts: { agodaDetailToken: 'synthetic-token' } }),
+      (error) => { assert.match(error.message, /EGO_TASK_SPACE_NAME_IN_USE/); assert.match(error.message, /ask the user/); return true; },
+    );
+    assert.deepEqual(seen, ['ota portal collection agoda']);
+  } finally {
+    await cleanup(dir);
+  }
 });
 
 test('runEgoJob without an injected page or fetch fails cleanly instead of guessing browser access', async () => {
