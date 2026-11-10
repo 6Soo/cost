@@ -215,6 +215,22 @@ def rental_period(text):
     return {'starts_on': days[0].isoformat(), 'ends_on': days[1].isoformat()}
 
 
+def klook_rental_period(text):
+    """A Klook rental's labelled pickup and return days; other dates in the notice are unrelated."""
+    days = []
+    for label in ('픽업', '반납'):
+        values = set(re.findall(label + r'\s*날짜\s*및\s*시간\s*[:：]\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일', text))
+        if len(values) != 1:
+            return None
+        try:
+            days.append(datetime.date(*map(int, next(iter(values)))))
+        except ValueError:
+            return None
+    if not 0 <= (days[1] - days[0]).days <= 366:
+        return None
+    return {'starts_on': days[0].isoformat(), 'ends_on': days[1].isoformat()}
+
+
 def trip_rental_confirmation(subject):
     return bool(re.search(r'렌터카\s*예약(?:이|가)?\s*확정'
                           r'(?:되었습니다|됐습니다|[ \t]*(?:안내[ \t]*)?(?=[(:：\n]|$))', subject))
@@ -410,6 +426,9 @@ def extract_mail(message):
         # 변경 안내의 총액은 새 예약 총액이다. 이번에 청구된 금액이 아니므로 아래에서 별도 필드로 옮긴다.
         item = '숙박비'
         updated_booking = True
+    elif (provider == 'klook' and '예약내역 안내' in subject and re.search(r'렌터카\s*-', text)
+          and klook_rental_period(text)):
+        item = '렌터카'
     elif '예약확정' in subject:
         if '렌터카' in subject:
             item = '렌터카'
@@ -455,7 +474,9 @@ def extract_mail(message):
         preauthorized = set()
     flight_confirmed = '항공권 예약 확정' in subject
     confirmation = '확정' in subject
-    period = (rental_period(text) if rental_confirmed else service_period(text) if item=='숙박비'
+    period = (rental_period(text) if rental_confirmed
+              else klook_rental_period(text) if provider == 'klook' and item == '렌터카'
+              else service_period(text) if item=='숙박비'
               else flight_period(text) if flight_confirmed else None)
     digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
     return dict(provider=provider,booking_ref=next(iter(refs)),item=item,
