@@ -57,7 +57,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 | 7 | `f5758929bf091b4fd4a43b4227709e8ad4197596` | 094e52c9 | #780 | PASS 19:54Z, 1,485 blobs mismatch0 |
 | 8 | `9ad0a454ae323cb6ee61c2a4827dca3bf34caa15` | f5758929 | #779(다른 세션 UI 1차, 검수 ff198354)·#782 | PASS 20:27Z, 1,494 blobs mismatch0, 다른 세션과 조율해 단일 작성자 배포 |
 
-- 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`. 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
+- 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`(단, 0번 3dd0750e는 `false` — #767 시점 Worker 전환 도구 결함으로, #769 이후 1~8번은 모두 `true`). 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
 - 성능 수락(인증 ego-browser, 같은 3개 여행 장부): 7334f1ae 3.2–9.6s(1건 502/38s), 요청 지표 잠금 대기 p50 1,211ms·p95 51,959ms → cee973fb 0.9–1.0s, 잠금 대기 p50 0.003ms·p95 197ms, first_render p50 777ms.
 - 진단 방법: Python 3.14 `sys.remote_exec`로 운영 Board 프로세스에 읽기 전용 스택 샘플러·스냅숏 진단 스레드를 주입했다(데이터 쓰기 없음, 결과는 비공개 scratch에만 저장). 한 번 주입이 다음 주입에 덮여 실행되지 않은 사례가 있어, 주입 간 결과 파일 생성을 확인한 뒤 다음 주입을 해야 한다.
 - 재기동 직후 OTA 스냅숏은 공개 요약만 디스크에 있어 첫 재계산(이번 7분 9초, 직전 1회 SOURCE_CHANGED 실패 포함 약 16분)까지 장부 OTA 이용일이 비어 보인다. 배포 직후 경고 집계는 `refresh_done` 이후에 한다.
