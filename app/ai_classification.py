@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from datetime import date
 
 from . import automatic_classification as code
 from . import classification_correction as correction
@@ -90,12 +92,62 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
     return dict(request, digest=_digest(request))
 
 
-def preview(conn, trips, request, response, *, nets=None):
+def _p2_metadata(conn, request, response, bundle):
+    from . import p2_case
+    if response.get('more_evidence'):
+        raise ValueError('AI_MORE_EVIDENCE_PENDING')
+    if (bundle.get('request_digest') != request['digest']
+            or bundle.get('digest') != p2_case.digest({k: v for k, v in bundle.items() if k != 'digest'})):
+        raise ValueError('AI_CASE_INVALID')
+    current = {r['transaction_id']: p2_case.sanitize(r) for r in code._read(
+        conn, [c['transaction_id'] for c in request['cases']])}
+    if any(current.get(c['transaction_id']) != c['transaction'] for c in bundle['cases']):
+        raise ValueError('AI_CASE_STALE')
+    if p2_case.policy_context(bundle['policy'].keys() - {'CORE'}) != bundle['policy']:
+        raise ValueError('AI_POLICY_STALE')
+    refs = {}
+    for evidence in bundle['evidence']:
+        refs.setdefault(evidence['transaction_id'], set()).add(evidence['ref'])
+    rule_ids = set(re.findall(r'\b[A-Z]+-\d{3}\b', p2_case.encoded(bundle['policy'])))
+    expected_keys = {'transaction_id','trip_id','item','service_start','service_end',
+                     'evidence_refs','basis','uncertainty','rule_ids'}
+    metadata = {}
+    if set(response) != {'request_digest', 'execution', 'results', 'more_evidence'}:
+        raise ValueError('AI_RESPONSE_SCHEMA_INVALID')
+    if not isinstance(response['more_evidence'], list) or not isinstance(response['results'], list):
+        raise ValueError('AI_RESPONSE_SCHEMA_INVALID')
+    for result in response['results']:
+        if not isinstance(result, dict) or set(result) != expected_keys:
+            raise ValueError('AI_RESPONSE_SCHEMA_INVALID')
+        start, end = result['service_start'], result['service_end']
+        try:
+            if any(not isinstance(d, str) or (d and (len(d) != 10 or date.fromisoformat(d).isoformat() != d)) for d in (start, end)):
+                raise ValueError()
+            if bool(start) != bool(end) or (start and end < start):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise ValueError('AI_SERVICE_PERIOD_INVALID') from None
+        if not start and not result['uncertainty']:
+            raise ValueError('AI_SERVICE_UNCERTAINTY_REQUIRED')
+        for key, allowed in (('evidence_refs', refs.get(result['transaction_id'], set())), ('rule_ids', rule_ids)):
+            value = result[key]
+            if (not isinstance(value, list) or len(value) > 32
+                    or any(not isinstance(v, str) or v not in allowed for v in value)
+                    or len(set(value)) != len(value)):
+                raise ValueError('AI_EVIDENCE_INVALID')
+        metadata[result['transaction_id']] = dict(
+            service_start=start, service_end=end, evidence_refs=result['evidence_refs'],
+            rule_ids=result['rule_ids'], uncertainty=result['uncertainty'], case_digest=bundle['digest'])
+    return metadata
+
+
+def preview(conn, trips, request, response, *, nets=None, bundle=None):
     """Validate an actual agent result, not a relabelled deterministic fallback."""
     if (request.get('version') != VERSION or response.get('request_digest') != request.get('digest')
             or request.get('digest') != _digest({k: v for k, v in request.items() if k != 'digest'})):
         raise ValueError('AI_REQUEST_INVALID')
     ids = [case['transaction_id'] for case in request['cases']]
+    metadata = _p2_metadata(conn, request, response, bundle) if bundle is not None else {}
     current = prepare(conn, trips, request['scope'], reconsider=request['reconsider'], nets=nets)
     if current != request:
         raise ValueError('AI_REQUEST_STALE')
@@ -127,13 +179,15 @@ def preview(conn, trips, request, response, *, nets=None):
                           basis=result['basis'] + (' · 불확실성: ' + result['uncertainty'] if result['uncertainty'] else ''),
                           classification_source='ai_inference',
                           execution={key: execution[key] for key in ('kind','provider','model','run_id')}))
+        if tid in metadata:
+            fixes[-1]['p2_metadata'] = metadata[tid]
     expected = correction.preview(conn, fixes, trips)
     return dict(expected, corrections=fixes, request_digest=request['digest'])
 
 
-def apply(conn, trips, request, response, *, request_id, nets=None):
+def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None):
     """Revalidate and atomically apply AI provenance, attribution and audit."""
-    payload = _digest([request, response])
+    payload = _digest([request, response, bundle]) if bundle is not None else _digest([request, response])
     nested = conn.in_transaction
     conn.execute('SAVEPOINT ai_classification' if nested else 'BEGIN IMMEDIATE')
     try:
@@ -145,7 +199,7 @@ def apply(conn, trips, request, response, *, request_id, nets=None):
         else:
             if not isinstance(request_id, str) or not request_id.strip():
                 raise ValueError('AI_REQUEST_ID_REQUIRED')
-            expected = preview(conn, trips, request, response, nets=nets)
+            expected = preview(conn, trips, request, response, nets=nets, bundle=bundle)
             result = correction.apply(conn, expected, expected['corrections'], trips,
                                       request_id='ai:' + request_id)
             result['digest'] = expected['digest']

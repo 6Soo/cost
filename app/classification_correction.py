@@ -91,6 +91,8 @@ def apply(conn, expected, corrections, trips, *, request_id):
                 source = fix.get('classification_source', 'inference')
                 basis = ('AI_INFERRED · ' + json.dumps(fix['execution'], ensure_ascii=False, sort_keys=True)
                          if source == 'ai_inference' else 'CODE_INFERRED')
+                if fix.get('p2_metadata'):
+                    basis += ' · P2_METADATA ' + json.dumps(fix['p2_metadata'], ensure_ascii=False, sort_keys=True)
                 after = dict(classification_state='classified',classification_source=source,
                     classification_basis=basis+' · '+fix['basis'],item=fix['item'],
                     description=fix.get('description',old['description']) or '',display_tab_id=trip,trip_id=trip)
@@ -117,6 +119,8 @@ def apply(conn, expected, corrections, trips, *, request_id):
                     previous_ledger=target['ledger'],previous_board=target['board'],
                     source='agent_evidence_review' if source == 'ai_inference' else 'code_inference',
                     execution=fix.get('execution'), user_booking_or_refund_confirmation=False)
+                if fix.get('p2_metadata'):
+                    detail['p2_metadata'] = fix['p2_metadata']
                 conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                     (utc_now(),'card.classification_corrected',tid,json.dumps(detail,ensure_ascii=False,sort_keys=True)))
             result = dict(applied=current['count'],replay=False)

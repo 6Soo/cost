@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+import threading
 
 MODEL = 'opencode/glm-5.3-flash-free'
 SPACE_BUNNY = 'opencode/deepseek-v4.1-flash-free'
@@ -151,18 +152,63 @@ def _provider_error(event):
     raise AgentUnavailable('AGENT_PROVIDER_ERROR')
 
 
-def _run_bounded(command, *, cwd, env, timeout):
-    process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
+    process = subprocess.Popen(command, cwd=cwd, env=env,
+                               stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    try:
-        stdout, _ = process.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(command, process.returncode, stdout, b'')
-    except subprocess.TimeoutExpired:
-        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    chunks, size, exceeded = [[], []], [0], threading.Event()
+    mutex = threading.Lock()
+
+    def read(pipe, index):
         try:
-            process.communicate(timeout=10)
+            while block := pipe.read(8192):
+                with mutex:
+                    size[0] += len(block)
+                    if size[0] > MAX_OUTPUT_BYTES:
+                        exceeded.set()
+                    else:
+                        chunks[index].append(block)
+        finally:
+            pipe.close()
+
+    def write():
+        try:
+            process.stdin.write(input_bytes)
+            process.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        finally:
+            process.stdin.close()
+
+    threads = [threading.Thread(target=read, args=(process.stdout, 0), daemon=True),
+               threading.Thread(target=read, args=(process.stderr, 1), daemon=True)]
+    if input_bytes is not None:
+        threads.append(threading.Thread(target=write, daemon=True))
+    for thread in threads:
+        thread.start()
+    started = time.monotonic()
+    try:
+        while process.poll() is None:
+            if exceeded.wait(.02):
+                raise AgentUnavailable('AGENT_RESPONSE_TOO_LARGE')
+            if time.monotonic() - started >= timeout:
+                raise subprocess.TimeoutExpired(command, timeout)
+        for thread in threads:
+            thread.join(timeout=max(.1, timeout - (time.monotonic() - started)))
+        if any(thread.is_alive() for thread in threads):
+            raise subprocess.TimeoutExpired(command, timeout)
+        if exceeded.is_set():
+            raise AgentUnavailable('AGENT_RESPONSE_TOO_LARGE')
+        return subprocess.CompletedProcess(command, process.returncode, b''.join(chunks[0]), b''.join(chunks[1]))
+    except BaseException:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        try:
+            process.kill()
+            process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
         raise
