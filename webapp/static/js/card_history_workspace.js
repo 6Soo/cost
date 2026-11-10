@@ -101,7 +101,7 @@
     (active === 'coverage' ? coverageButton : uploadButton).focus();
   });
   document.addEventListener('submit', event => {
-    if (!event.target.matches('.card-all-filters')) return;
+    if (!event.target.matches('.filter-bar')) return;
     const active = panelName();
     if (active && !event.target.elements.panel) {
       const field = document.createElement('input');

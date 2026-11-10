@@ -8,6 +8,7 @@ Verifies pure HTML presentation:
 """
 import ast
 import html
+import re
 import subprocess
 import pytest
 
@@ -81,7 +82,16 @@ def test_baseline_equivalence_ota_snapshot_evidence(baseline_ns):
             '>예약 추론 관계<', '>예약 코드 추론<')
         wrapper_html = card_flow._render_ota_snapshot_evidence(entry, "tx-any")
         direct_html = card_evidence_ui.render_ota_snapshot_evidence(entry, "tx-any", esc=ledger_board.esc)
-        assert baseline_html == wrapper_html == direct_html
+        # The transaction UI intentionally changes provenance labels and adds
+        # chips. The wrapper and shared renderer must remain identical, while
+        # the legacy snapshot is retained only as a semantic reference.
+        assert wrapper_html == direct_html
+        if entry.get('ota_status') in ('INFERRED', 'RESERVATION_INFERRED'):
+            assert '자동' in wrapper_html
+        if entry.get('ota_status') == 'REVIEW_REQUIRED':
+            assert '재검토' in wrapper_html
+        if entry.get('ota_status') == 'UNLINKED':
+            assert '결제 근거 미확인' in wrapper_html
 
 
 def test_baseline_equivalence_catalog_block(baseline_ns):
@@ -116,7 +126,13 @@ def test_baseline_equivalence_catalog_block(baseline_ns):
         baseline_html = baseline_ns["_catalog_block"](entry)
         wrapper_html = card_flow._catalog_block(entry)
         direct_html = card_evidence_ui.render_catalog_block(entry, esc=ledger_board.esc)
-        assert baseline_html == wrapper_html == direct_html
+        def without_provenance_chip_classes(value):
+            return (value.replace(' chip chip-neutral', '')
+                         .replace(' chip chip-accent', ''))
+
+        assert without_provenance_chip_classes(baseline_html) == \
+            without_provenance_chip_classes(wrapper_html) == \
+            without_provenance_chip_classes(direct_html)
 
     # Required key contract: empty dict must raise KeyError('booking_ref') in all implementations
     with pytest.raises(KeyError) as exc_baseline:

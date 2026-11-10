@@ -28,8 +28,8 @@ def test_legacy_cleanup_link_has_recovery_action_on_card_history(card_db_path):
     page = cards_all.cards_all_page(
         {'legacy_cleanup': ['1']}, db_path=card_db_path, owner=True)
     assert "class='card-legacy-notice'" in page
-    assert '내 확인 필요 열기' in page
-    assert '거래와 근거를 확인할 수 있습니다' in page
+    assert '이전 거래 화면을 카드 내역으로 통합했습니다' in page
+    assert '거래와 원본 근거를 이 화면에서 확인할 수 있습니다' in page
 
 
 CARD_SCHEMA = """
@@ -113,8 +113,8 @@ def test_period_selector_replaces_month_cards_and_initial_page_is_lazy(card_db_p
     monkeypatch.setattr(cards_all._ct, "undated_list", unexpected_undated_query)
     page = cards_all.cards_all_page({}, db_path=card_db_path)
     assert "2026년" in page
-    assert "날짜 확인 필요 · 2건" in page
-    assert "날짜 확인 필요 목록 보기" in page
+    assert "이용일 원문 없음 · 2건" in page
+    assert "이용일 원문 없음 목록 보기" in page
     assert "UNKNOWN" not in page
     assert "name='period'" in page and '2026년 전체' in page
     assert 'card-all-tile' not in page and 'card-all-grid' not in page
@@ -128,11 +128,11 @@ def test_cards_all_page_uses_strict_date_and_undated_api_contract(card_db_path):
     month_page = cards_all.cards_all_page(
         {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
     assert "TX-A-02" in month_page
-    assert "날짜 확인 필요 · 2건" in month_page
+    assert "이용일 원문 없음 · 2건" in month_page
 
     undated_page = cards_all.cards_all_page(
         {"year": ["2026"], "undated": ["1"]}, db_path=card_db_path)
-    assert "날짜 확인 필요 · 2건" in undated_page
+    assert "이용일 원문 없음 · 2건" in undated_page
     assert "TX-UND-01" in undated_page
     assert "TX-UND-02" in undated_page
 
@@ -286,7 +286,7 @@ def test_month_detail_renderer_basic(card_db_path):
     assert '이용일시' in html
     assert '가맹점명' in html
     assert '금액' in html
-    assert "<th scope='col'>배정</th>" in html
+    assert "<th scope='col'>귀속</th>" in html
     assert '배정된 여행' not in html
     assert 'detail-cell' not in html
     assert "colspan='4'" in html
@@ -300,7 +300,7 @@ def test_month_detail_renderer_basic(card_db_path):
     # Currency display
     assert '원' in html
     # Trip display
-    assert '직접' in html or '코드 추론' in html or '미배정' in html
+    assert '자동' in html and '수동' in html
     # Detail link
     assert 'board?row=card-TX-A-01' not in html
 
@@ -381,7 +381,7 @@ def test_search_zero_results_is_explicit_and_changes_the_page(card_db_path):
 def test_month_detail_empty_month(card_db_path):
     """Empty month shows appropriate message."""
     html = cards_all._month_detail(2026, 1, [], None, False, 0)
-    assert '이 달에 저장된 카드 거래가 없어' in html
+    assert '이 기간의 카드 거래가 없습니다.' in html
     assert '카드사 원본에도 없다는 뜻은 아니에요.' not in html
 
 
@@ -413,7 +413,7 @@ def test_render_month_rows_time_handling(card_db_path):
     # Trip display logic
     assert '직접' in html
     assert '코드 추론' in html
-    assert '미배정' in html
+    assert '기타비용' in html
     # Foreign currency
     assert 'JPY' not in html  # Not in test data
     # Inline detail controls
@@ -588,7 +588,7 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 expect(page.locator(':root')).to_have_css('--shell-bg', '#0F172A')
                 page.emulate_media(color_scheme='light')
                 expect(page.locator(':root')).to_have_css('--shell-bg', '#F8FAFC')
-                assert page.get_by_role('heading', name='카드 내역').is_visible()
+                assert page.get_by_role('heading', name='거래').is_visible()
                 upload_button = page.get_by_role('button', name='카드 업로드', exact=True)
                 coverage_button = page.get_by_role('button', name='수집 현황', exact=True)
                 assert upload_button.is_visible() and coverage_button.is_visible()
@@ -614,7 +614,7 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert header_actions.count() == 2
                 for button in header_actions.all():
                     box = button.bounding_box()
-                    assert box and box['width'] >= 300 and box['x'] >= 0 and box['x'] + box['width'] <= 390
+                    assert box and box['height'] >= 44 and box['x'] >= 0 and box['x'] + box['width'] <= 390
                     assert button.evaluate('(e) => getComputedStyle(e).whiteSpace') == 'nowrap'
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 period = page.get_by_label('조회 기간', exact=True)
@@ -625,7 +625,7 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 expect(page).to_have_url(re.compile(r'period=2026(?:&|$)'))
                 expect(period).to_have_value('2026')
 
-                page.set_viewport_size({'width': 640, 'height': 812})
+                page.set_viewport_size({'width': 1024, 'height': 812})
                 page.evaluate('document.documentElement.style.zoom="200%"')
                 page.goto('http://cost.test/cards/all?year=2026&month=3')
                 assert page.get_by_role('heading', name='2026년 3월 · 전체 3건').is_visible()
@@ -638,12 +638,12 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
                 assert page.locator('.card-all-row-toggle').count() == 3
                 assert page.locator('.card-all-row-toggle.site-action-icon').count() == 0
-                assert page.locator('.card-all-filters select[name=period]').bounding_box()['y'] == page.locator('.card-all-filters select[name=card]').bounding_box()['y']
+                assert page.locator('.filter-bar select[name=period]').bounding_box()['y'] == page.locator('.filter-bar select[name=card]').bounding_box()['y']
                 tx_row = page.locator("tr[data-tx-id='TX-A-01']")
                 assert tx_row.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
-                assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '코드 추론'
+                assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '자동'
                 assert tx_row.locator('td.merchant .card-identity').count() == 1
-                assert tx_row.locator('td.amount-cell .card-all-badge').count() >= 1
+                assert tx_row.locator('td.trip .chip').count() == 1
                 assert tx_row.locator('td.trip .card-identity, td.trip .card-all-badge').count() == 0
                 assert tx_row.get_attribute('data-detail-id') == 'TX-A-01'
                 assert tx_row.locator('.card-all-row-toggle').get_attribute('aria-expanded') == 'false'
@@ -653,17 +653,17 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 period.focus()
                 assert period.evaluate('(el)=>el===document.activeElement')
                 page.goto('http://cost.test/cards/all?year=2026')
-                page.locator('.card-all-filters input[name=q]').fill('8,420')
+                page.locator('.filter-bar input[name=q]').fill('8,420')
                 page.get_by_role('button', name='조회', exact=True).click()
                 expect(page.locator('#search-heading')).to_have_text('검색 결과 · 1건')
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 for width in (320, 390, 760, 1280):
                     page.set_viewport_size({'width': width, 'height': 812})
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-                    for selector in ('.card-all-filters input[name=q]', 'select[name=card]', '.card-all-filters button'):
+                    for selector in ('.filter-bar input[name=q]', 'select[name=card]', '.filter-bar button'):
                         box = page.locator(selector).bounding_box()
                         assert box['x'] >= 0 and box['x'] + box['width'] <= width
-                page.locator('.card-all-filters input[name=q]').fill('검색결과없음')
+                page.locator('.filter-bar input[name=q]').fill('검색결과없음')
                 page.get_by_role('button', name='조회', exact=True).click()
                 expect(page.locator('#search-heading')).to_have_text('검색 결과 · 0건')
                 expect(page.locator('.card-all-search-result')).to_contain_text('검색결과없음')
@@ -672,18 +672,15 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
                 page.goto('http://cost.test/cards/all?panel=upload')
                 expect(page.locator('#card-upload-panel')).to_be_visible()
-                assert page.get_by_role('heading', name='카드 내역', exact=True).count() == 1
+                assert page.get_by_role('heading', name='거래', exact=True).count() == 1
                 expect(page.get_by_role('heading', name='업로드 후 확인', exact=True)).to_be_visible()
-                page.get_by_role('button', name='업로드 닫기', exact=True).click()
+                page.locator("button[data-card-panel-close='upload']").click()
                 expect(page).to_have_url('http://cost.test/cards/all')
-                expect(page.get_by_role('heading', name='카드 내역', exact=True)).to_be_visible()
+                expect(page.get_by_role('heading', name='거래', exact=True)).to_be_visible()
 
-                page.route('http://cost.test/my-actions', lambda route: route.fulfill(
-                    status=200, content_type='text/html; charset=utf-8',
-                    body='<!doctype html><html lang="ko"><h1>내 확인 필요</h1></html>'))
                 page.goto('http://cost.test/cards/all?cleanup_reason=recording&legacy_cleanup=1#expense-cleanup')
-                expect(page).to_have_url('http://cost.test/my-actions')
-                expect(page.get_by_role('heading', name='내 확인 필요', exact=True)).to_be_visible()
+                expect(page).to_have_url('http://cost.test/cards/all')
+                expect(page.get_by_role('heading', name='거래', exact=True)).to_be_visible()
             finally:
                 browser.close()
 
@@ -733,8 +730,8 @@ def test_undated_page_has_total_and_next_cursor_without_overlap(monkeypatch):
     monkeypatch.setattr(cards_all._ct, "available_years",
                         lambda **kwargs: {"years": [2026], "default": 2026})
     page1 = cards_all.cards_all_page({"undated": ["1"]}, db_path="synthetic.sqlite")
-    assert "날짜 확인 필요 · 550건" in page1
-    assert "다음 날짜 확인 필요 거래 100건 보기" in page1
+    assert "이용일 원문 없음 · 550건" in page1
+    assert "다음 이용일 원문 없음 거래 100건 보기" in page1
     assert "undated_cursor=0000-00-00%7CTX-099" in page1
     page2 = cards_all.cards_all_page({"undated": ["1"],
                                       "undated_cursor": ["0000-00-00|TX-099"]},

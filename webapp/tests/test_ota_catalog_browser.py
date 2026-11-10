@@ -23,14 +23,14 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
         context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
         page = context.new_page()
         page.goto(f'http://127.0.0.1:{self.port}/ota')
-        cell = page.locator('main.card-catalog tbody tr td[data-label]').first
+        cell = page.locator('main.card-catalog .ota-mobile-list .lr-secondary').first
         cell.wait_for(state='visible')
         contrast = cell.evaluate('''element => {
           const rgb = s => s.match(/[\\d.]+/g).slice(0, 3).map(Number);
           const lum = c => c.map(x => { x /= 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; })
             .reduce((sum, x, i) => sum + x * [.2126, .7152, .0722][i], 0);
-          const foreground = lum(rgb(getComputedStyle(element, '::before').color));
-          const background = lum(rgb(getComputedStyle(element.closest('tr')).backgroundColor));
+          const foreground = lum(rgb(getComputedStyle(element).color));
+          const background = lum(rgb(getComputedStyle(element.closest('.list-row')).backgroundColor));
           return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
         }''')
         self.assertGreaterEqual(contrast, 4.5)
@@ -47,10 +47,12 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
         context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
         page = context.new_page()
         page.goto(f'http://127.0.0.1:{self.port}/ota')
-        page.get_by_text('조회된 OTA 예약이 없습니다.', exact=False).wait_for(state='visible')
-        cell = page.locator('main.card-catalog tbody td[colspan="7"]')
-        self.assertIn('조회된 OTA 예약이 없습니다.', cell.inner_text())
-        self.assertLess(cell.bounding_box()['height'], 100)
+        empty = page.locator('main.card-catalog .empty-state')
+        empty.wait_for(state='visible')
+        self.assertIn('OTA 예약 자료가 없습니다.', empty.inner_text())
+        box = empty.bounding_box()
+        self.assertLessEqual(box['width'], 390)
+        self.assertLess(box['height'], 220)
 
     def test_shared_menu_all_unassigned_search_and_header_filters(self):
         source = self.tmp / 'ota.sqlite'
@@ -137,8 +139,7 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
         context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
         page = context.new_page()
         page.goto(f'http://127.0.0.1:{self.port}/ota')
-        badge = page.locator('td[data-label="여행 배정"] .ota-badge.trip')
-        badge.wait_for(state='visible')
-        self.assertTrue(badge.is_visible())
-        self.assertIn('합성 긴 여행 이름', badge.inner_text())
+        row = page.locator('main.card-catalog .ota-mobile-list .list-row').first
+        row.wait_for(state='visible')
+        self.assertIn('합성 긴 여행 이름', row.inner_text())
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)

@@ -5,7 +5,8 @@ from webapp.cards_all import _workspace_html
 
 def test_card_history_owner_workspace_contains_upload_and_coverage_controls():
     html = _workspace_html({}, owner=True, csrf='synthetic-csrf')
-    assert "id='card-upload-open'" in html and "id='card-coverage-open'" in html
+    assert "id='card-upload-open'" not in html and "id='card-coverage-open'" not in html
+    assert "id='card-upload-panel'" in html and "id='card-coverage-panel'" in html
     assert "id='card-upload-files'" in html and 'multiple' in html
     assert "id='card-coverage-summary'" in html
     assert 'X-CSRF-Token' in SCRIPT
