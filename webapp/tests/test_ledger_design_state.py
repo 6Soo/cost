@@ -257,7 +257,8 @@ class ViewStateTests(unittest.TestCase):
         self.assertIn("작업", body)
         # revision is detail-secondary on the trip card (not in the title)
         self.assertNotIn("revision", body)
-        self.assertGreater(page.locator(".trip-meta input[name='expected_revision']").count(), 0)
+        self.assertEqual(page.locator(".trip-meta input[name='expected_revision']").evaluate_all(
+            "inputs => inputs.map(input => input.value)"), ["1", "1", "1", "1"])
         for action in ("/api/trips/trip-demo-a/meta", "/api/trips/trip-demo-b/meta"):
             self.assertIsNotNone(page.query_selector(f".page-body form[action='{action}']"), action)
         self.assertEqual(page.input_value(

@@ -267,7 +267,7 @@ def test_render_refund_summary_and_empty_tab():
     assert 'class="empty-state"' in refund_tab_ui.render_refund_tab([])
 
 
-def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_path):
+def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_path, monkeypatch):
     """Keep the financial projection equal while allowing the approved new shell."""
     # 1. Empty store before transactions table exists
     empty_db = tmp_path / "empty.sqlite"
@@ -300,6 +300,12 @@ def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_pa
     # Compare the underlying projection for each filter. The page shell, empty
     # state, KPI labels, and classes intentionally changed in PR-5.
     cases = (("", ""), ("합성항공", ""), ("NonExistent", ""), ("", "in"), ("", "out"))
+    # Exercise the recorded-row link as well as the unrecorded refund lines.
+    saved_row = {'source_event_id': pair.original, 'row_id': 'synthetic-ledger-row',
+                 'item': '항공료', 'display_tab_id': 'trip-synthetic'}
+    monkeypatch.setattr(ledger_board, '_expense_rows', lambda: [saved_row])
+    monkeypatch.setattr(ledger_board, 'live_trips',
+                        lambda **kwargs: [{'tab_id': 'trip-synthetic', 'display_key': '합성여행'}])
     saved = {r.get('source_event_id'): r for r in ledger_board._expense_rows()}
     for query, kind in cases:
         base_groups = baseline_refund_tab_ast["groups"](store)
@@ -308,6 +314,25 @@ def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_pa
             saved=saved,
         )
         curr_html = refund_tab.render(store, query=query, kind=kind)
+        base_html = baseline_refund_tab_ast["render"](store, query=query, kind=kind)
+        import re
+
+        def cards(markup):
+            return re.findall(r"<section class='(?:ui-card )?refund-card'>.*?</section>", markup, re.S)
+
+        def normalize_card(markup):
+            return (_normalize_refund_ui(markup)
+                    .replace('초과 환불 확인 필요', '초과 환불 검토 필요')
+                    .replace('기록 보류', '기록 전 확인')
+                    .replace('날짜 확인 필요', '이용일 원문 없음')
+                    .replace("<a href='/import'>지출 정리</a>",
+                             "<a href='/cards/all'>카드 거래 보기</a>"))
+
+        assert [normalize_card(card) for card in cards(base_html)] == [
+            normalize_card(card) for card in cards(curr_html)
+        ]
+        if expected:
+            assert '/row?id=synthetic-ledger-row' in curr_html
         assert f"환불 쌍 {len(expected)}개" in curr_html
         assert curr_html.count("class='ui-card refund-card'") == len(expected)
         assert "<h1>거래</h1>" in curr_html

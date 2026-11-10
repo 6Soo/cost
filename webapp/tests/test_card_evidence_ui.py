@@ -82,6 +82,22 @@ def test_baseline_equivalence_ota_snapshot_evidence(baseline_ns):
             '>예약 추론 관계<', '>예약 코드 추론<')
         wrapper_html = card_flow._render_ota_snapshot_evidence(entry, "tx-any")
         direct_html = card_evidence_ui.render_ota_snapshot_evidence(entry, "tx-any", esc=ledger_board.esc)
+        # Normalize only the approved badge presentation and copy changes.
+        for old, new in (
+            ('>코드 추론<', '>자동<'), ('>예약 코드 추론<', '>자동<'),
+            ('그룹 부분 대응·보류', '그룹 부분 대응·재검토'),
+            ('결제 근거 확인 필요', '결제 근거 미확인'),
+            ('장부 기록은 금융 검증 후 허용</span>', '장부 기록은 금융 검증 후 허용됩니다.</span>'),
+            ('사용자 재확인 필요', '원본 자료를 확인해 주세요'),
+        ):
+            baseline_html = baseline_html.replace(old, new)
+        if entry.get('ota_status') == 'RESERVATION_INFERRED':
+            baseline_html = baseline_html.replace('cleanup-ota-badge-idle', 'cleanup-ota-badge-warn')
+        def normalize(value):
+            value = re.sub(r' chip chip-(?:neutral|accent|warn|danger)', '', value)
+            return value.replace(" title='규칙 기반 자동 귀속'", '')
+
+        assert normalize(baseline_html) == normalize(wrapper_html) == normalize(direct_html)
         # The transaction UI intentionally changes provenance labels and adds
         # chips. The wrapper and shared renderer must remain identical, while
         # the legacy snapshot is retained only as a semantic reference.

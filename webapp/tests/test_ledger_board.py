@@ -239,7 +239,8 @@ class BoardApiTests(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/import") as response:
             self.assertEqual(response.status, 200)
             self.assertTrue(response.geturl().endswith("/cards/all?panel=upload"))
-            # The 카드 업로드 header action is owner-only (spec §6.5); this server has no owner session.`n            self.assertIn("업로드 후 확인", response.read().decode("utf-8"))
+            # The 카드 업로드 header action is owner-only (spec §6.5); this server has no owner session.
+            self.assertIn("업로드 후 확인", response.read().decode("utf-8"))
         csv_body = (
             "occurred_on,merchant,amount_krw,currency,card_last4,approval_no,"
             "cancel_flag,suggested_tab,memo\n"
