@@ -186,8 +186,8 @@ Agoda/Trip/Klook/Booking raw + verified mail + 카드 매입
 }
 ```
 
-`event_kind`: `reservation | payment_claim | paid_charge | refund_claim | completed_refund | scheduled_charge | card_posting`.  
-`payment_date.semantics`: `explicit_charge | mail_sent_proxy | scheduled | observed_at_only | missing`. 출처의 관측일이나 숙박 체크인 날짜를 실제 카드 청구일로 합성 금지. 실제 카드 매입이 별도 입증된 **예정 결제**는 기존 사용자 승인 예외(날짜·금액·카드 일치 + 충돌 없음) 전용 평가로 처리.  
+`event_kind`: `reservation | payment_claim | paid_charge | refund_claim | completed_refund | scheduled_charge | card_posting`.
+`payment_date.semantics`: `explicit_charge | mail_sent_proxy | scheduled | observed_at_only | missing`. 출처의 관측일이나 숙박 체크인 날짜를 실제 카드 청구일로 합성 금지. 실제 카드 매입이 별도 입증된 **예정 결제**는 기존 사용자 승인 예외(날짜·금액·카드 일치 + 충돌 없음) 전용 평가로 처리.
 원화/외화 금액 비교는 `Decimal`로 유한값, 원화 실제 매입액을 OTA 환산값으로 덮지 않는다. 카드사/끝4 명시적 불일치, 통화·금액 모순, 구매/환불 방향 불일치는 hard blocker.
 
 <a id="src-docs-ota-card-reconciliation-policy-a-v3-md--33-extractionoutcome-원본을-읽었는데도-버린-이유"></a>
@@ -195,7 +195,7 @@ Agoda/Trip/Klook/Booking raw + verified mail + 카드 매입
 
 원본 한 행을 읽을 때마다 `observation_id, parser_version, outcome, reason_codes, extracted_event_ids, source_digest`를 남긴다.
 
-`outcome`은 `CHARGE_EXTRACTED | CLAIM_ONLY | RESERVATION_ONLY | SKIPPED | CONFLICT`.  
+`outcome`은 `CHARGE_EXTRACTED | CLAIM_ONLY | RESERVATION_ONLY | SKIPPED | CONFLICT`.
 대표 사유 `REQUIRED_EVIDENCE_ROLE_MISSING, PAYMENT_COMPONENT_MISSING, PAYMENT_STATE_UNVERIFIED, CARD_HINT_MISSING, REFUND_CONFLICT, INVALID_PERIOD, AMOUNT_MISSING, MULTIPLE_BOOKING_REFS, UNSUPPORTED_MAIL_TEMPLATE`.
 
 **중요:** 파서 결과가 `SKIPPED`라도 원본 자체는 감사 자료에 남는다. 그러나 이를 `paid_charge`로 승격시키거나 금액을 추측하지 않는다.
@@ -366,7 +366,7 @@ UI는 **카드 비용 상태 / OTA 연결 상태 / 여행 배정 상태**를 별
 #### 11. 구현 인수 지시
 
 R0~R6 코드 구현은 [단일 진입점의 현재 상태표](../product-and-handoffs.md#src-docs-cost-v3-start-here-md--2026-10-23-코드-상태와-운영-경계)와 Git 이력에서 확인한다. 완료한 경로를 다시 만들지 않는다. 새 필수 결함이 실제 소비 경로에서 확인되면 작은 수정과 표적 검사로 진행한다. 운영 전수 진단·DB 전환·배포는 별도 권한 없이 수행하지 않는다.
- 
+
 
 
 <a id="src-docs-ota-card-reconciliation-policy-a-v3-md--12-구현-가능한-핵심-db-ddl-예시-새-db-또는-기존-review-db-재사용"></a>
