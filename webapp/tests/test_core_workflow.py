@@ -56,9 +56,9 @@ def workflow_context(monkeypatch):
                                          ('no_archive','unknown')])
 def test_closure_requires_current_google_archive_evidence(workflow_context, case, expected):
     board, trip, payload = workflow_context
-    # The settlement step must follow build_state.closure, not the visual list
-    # marker, so exercise both sources with deliberately different values.
-    trip['visual_closed'] = case in {'open', 'stale', 'identity', 'no_archive'}
+    # Google closure evidence is shown as a note; completion follows the app's
+    # explicit visual_closed marker.
+    trip['visual_closed'] = case in {'closed', 'duplicate'}
     if case == 'open':
         trip['closure']='open'; trip['copies']={'main':{'sheet':'main'}}
     if case == 'stale': payload['sources']['archive']['stale']=True
@@ -71,13 +71,16 @@ def test_closure_requires_current_google_archive_evidence(workflow_context, case
     assert state['google_available'] is True  # Amount-group equality never changes closure evidence.
     assert state['displayed_holds'] == 1
     markup = workflow.render(board,'trip',[],{'available':False})
-    closure_label = {'closed': '마감', 'open': '미마감', 'unknown': '확인 중'}[expected]
-    assert f'href="#trip-close">{closure_label}</a>' in markup
+    assert 'href="#trip-close">마감</a>' in markup
+    expected_note = ('마감 · Google 보관 장부 이동 확인' if case in {'closed', 'duplicate'}
+                     else '미마감 · Google 메인 장부' if expected == 'open'
+                     else '확인 중')
+    assert expected_note in markup
     assert ('<span class="step-state">완료</span>' in markup
-            if expected == 'closed' else '<span class="step-state">완료</span>' not in markup)
+            if case in {'closed', 'duplicate'} else '<span class="step-state">완료</span>' not in markup)
     assert 'expense-reconciliation' not in markup
     assert 'form' not in markup and '<details' not in markup
-    assert ('data-state="done"' in markup if expected == 'closed'
+    assert ('data-state="done"' in markup if case in {'closed', 'duplicate'}
             else 'data-state="todo"' in markup)
 
 
