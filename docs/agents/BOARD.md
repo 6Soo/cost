@@ -7,15 +7,16 @@
 
 | ID | 작업 | 명세 절 | 작업자 | 브랜치 | 상태 | 통과 조건 |
 | --- | --- | --- | --- | --- | --- | --- |
+| INC-P2 | 읽기 과다·준비 응답 장애의 승인된 롤백 | §13·Fable 장애 복구 지시 | 관리자 `c89bbda2` | `docs/p2-pilot-stop-20261111` | 06:13:42 KST 운영 `965bca05` 롤백 완료. health/ready 정상·데이터 불변. 읽기량 감소 실측, 평상 기준선 미검증 | 5DB SQLite 백업/별도복원 PASS, Board/Worker/listener SHA 일치, 8751/8790 health/ready200·401, 보호13표·원본/수동/관련14표 불변, P2/fulloff. 두10초 읽기5.54MB/s·395B/s. [장애 기록](../operations.md) |
 | A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료·archive | `docs/decisions-20261111-a` | COMPLETE — #795 병합 `6c160d54` | 통합 문서 링크·diff PASS, 최종 sol medium 검수, 배포 없음 |
 | B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료·archive | `ops/m1-baseline-20261111` | COMPLETE — #795 병합 `6c160d54`, 관리자 실제 재현 exit 0 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
 | D1 | Windows P2 조사·도구 없는 어댑터 결정 | §6.2·§6.3·§6.6 | sol high `90a8007b` 조사 완료·archive | `research/p2-isolation-20261111` → #796 | COMPLETE — 문서 병합 `1ad1364d`, stdin 직접 주입 승인 | 최종 `5e78bf06` sol medium 승인·문서 검사 통과. probe 제외, OS 격리 수락 아님. 실제 도구 미실행·예약 Worker 완료는 D5 검증 |
 | A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | COMPLETE — #795 병합 `6c160d54` | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
 | C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | Terra high `670fdf64` 구현 종료, 관리자 검수 | `ui/wave3-20261110` → draft #799 | `e1219d9b` push·독립 sol medium 코드 APPROVE. fe399 추가48파일의 신규30 회귀 복구, 최종 관리자227pass·작업자55pass/skip0. 최종 렌더링 BLOCKED(TaskSpace1 소실), 병합·배포 미실행 | 기존3340 149파일(2143pass/34fail·기존32/신규2)·fe399 48파일(1089pass/39fail·정확a050대조 기존9/신규30) 보존. 새 전체QA pass 주장 없음. 최종390/1440 수락 필요 |
-| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` → #797 | COMPLETE — 병합·운영 `bd4646a1`, 최종 b20ce252 독립 sol medium APPROVE | 관리자70pass, 영향892pass/기존UI3fail·skip0, 같은base1ad 직접대조. 예약합성LastResult0·CLI1/tool0. 공식배포후 보호13불변. 고객first50은 D5 |
+| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` → #797 | 병합 완료/운영 롤백 — `bd4646a1`의 읽기·준비 장애로 06:13:42 KST `965bca05` 복구. P2 재배포 금지 | 기존 합성·표적·독립검수 근거 보존. 운영 규모 off/on 읽기·소요·잠금 실측과 Fable 승인 전 완료로 재가동하지 않음 |
 | E1 | OTA 3곳 조회 수집 스크립트 | §7 | sol high `92cc66bd`, 관리자 검수 | `integration/ota-collection-release-20261111` → #798 | COMPLETE — 구현·합성검수 범위, 병합 `a050d65f` | 최종 a11d5ea8 독립 sol medium APPROVE·Node52·영향84pass/skip0. 원본/importer 유지·manifest 식별값0. 실사이트·예약등록·운영수집 미실행 |
-| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44`(ee120bb5 후속) | `feat/kb-card-collection-script-20261111` | 1차 독립 사전검수 REQUEST_CHANGES — 실제 ego 접착 코드·기간 입력/조회·spaceName 전파·0건 처리 보완 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. 실제 Page seam 합성 회귀·최종 SHA 검수·관리자 수락 필요 |
-| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료 | `research/card-login-paths-20261111` | PARTIAL로 닫음 — 최종 `729b3a89`의 [조사 보고서](artifacts/card-login-paths-20261111.md) 통합 준비 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음. 보고서의 추가 조사 제안은 현재 실행 지시가 아님 |
+| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44`(ee120bb5 후속) | `feat/kb-card-collection-script-20261111` | 운영 복구 동안 일시중지 — 작업자 파일 보존·대기 응답 수령. 1차 사전검수 보완과 최종 수락 미완료 | 복구 판단 후 같은 작업자 재개. 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. 실제 Page seam 합성 회귀·최종 SHA 검수·관리자 수락 필요 |
+| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료·archive | `research/card-login-paths-20261111` → #800 | PARTIAL로 닫음 — 최종 `729b3a89`의 [조사 보고서](artifacts/card-login-paths-20261111.md)를 `0308eed3`에 원문 보존 병합 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음. 보고서의 추가 조사 제안은 현재 실행 지시가 아님 |
 
 ## 대기
 
@@ -23,8 +24,8 @@
 
 | ID | 작업 | 명세 절 | 선행 작업 | 등급(틀리면 비싼가) |
 | --- | --- | --- | --- | --- |
-| D5 | 합성 검증·배포·첫 약 50건 후 Fable 보고 | §6.8 | D2~D4·합성·배포 COMPLETE | 05:04 KST first50 제한 실행 시작, 05:39 KST 호출예약0·작업대상20. 제어의 예산60회/고유50건/야간/finally off 유지. 종료·보호 대조·보고 남음. 전체 반영 금지 |
-| D5-FIX | 근거 조립의 반복 읽기·조립 중 실행예산·호출 전 비활성화 확인 | §6.2~§6.6 | D5 실측 호출0, 정확 live stack 미측정 | Terra high `f4e9ebbc`, `fix/p2-case-assembly-budget-20261111`. 합성 재현 뒤 최소 수정·신선도 보호·표적/영향검사·독립검수. 운영 제어·고객 자료 접근 금지 |
+| D5 | 합성 검증·배포·첫 약 50건 후 Fable 보고 | §6.8 | D2~D4·합성·배포 COMPLETE | 첫 묶음 미완료 — 05:04~05:59:19 KST 제어55분 제한 종료, 호출/고유/처리0. finally off·fullfalse·원본/수동/관련14표 불변. 성공률/표본 산출불가. [종료 보고서](artifacts/p2-first-batch-20261111.md). 야간 밖 재실행·전체확대 금지 |
+| D5-FIX | 근거 조립·실행 예산·쓰기 잠금 장애의 근본 해결 | §6.2~§6.6 | #801 병합 `83d87f88`, 소스 검수 근거 보존 | 운영 배포 취소/재배포 BLOCKED — Fable 지시로 직전검증965 복구. off 조립0·회차50·조립/호출의 route/DB 쓰기잠금 분리·색인/읽기/시간예산·창종료 중단을 운영 밖에서 해결. 후보2000+/근거1GB+ 합성 off/on 실측·독립검수·Fable 승인 필수 |
 | GAP | CODE_GAPS 중 P2 연결 밖 항목 | §10 M2 | D 경로 범위 확정 | 증상별 패치 금지, 후속 배정 |
 
 ## 완료

@@ -2,6 +2,19 @@
 
 > 이 문서는 현재 유효한 운영 절차와 2026-11-08 이후 배포 기록만 둔다. 2026-11-07 이전 기록은 [10/28~11/07](history/operations-20261028-20261107.md), 2026-10-27까지는 [운영 이력](history/operations-through-20261027.md)에 원문 그대로 보관한다. 2026-11-09 작업공간 통합 정리 상태는 [현재 상태](session_handoff.md)를 본다.
 
+## 2026-11-11 P2 조립 읽기 과다·준비 응답 장애 — 965bca05 롤백 완료, 읽기 기준선 미검증
+
+- **현재 운영은 `965bca058a74a54bf69bc4d70a0d05f8997786c3`**, 공식 롤백 완료 06:13:42 KST, 이전 `bd4646a1`이다. 다음 공식 배포의 `-PreviousSha`는 `965bca05`다. Board·Worker·listener SHA 일치, 파일1,503개·blob 불일치0·운영 backend8751을 확인했다. 8751과 Gateway8790의 health/ready는 모두200, 비인증 OTA API는401이다. 보호13표와 원본7,336·수동교정 대상255·관련14표의 비공개 지문은 모두 불변이다. P2/전체확대 플래그는 off다.
+- **읽기량 평상 기준선은 미검증**이다. 06:14:47~06:15:08 KST 같은 Board PID2460의 10초 간격 두 구간 읽기 증가가 약123.3MB/s·355.4MB/s였다. 이후 06:15:41~06:16:01은 약5.35MB/s·0B/s, 06:17:19~06:17:40은 약5.54MB/s·395B/s로 줄었다. 초기 증가가 시작 후 준비 작업인지는 미확정이고 평상 기준선 없이 완전 정상화를 단정하지 않는다. 06:03:54 준비 실패 실측부터 공식 롤백의 응답 정상 확인까지는 최소9분48초다. 실제 장애 시작과 읽기량 증상의 정확한 종료는 미확정이다.
+
+- 대상 릴리스 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`. 05:04:16 KST 제한 제어 시작 후 호출은 0건이었고, 05:59:19 제어 종료와 P2 비활성화 뒤에도 Board PID34256의 디스크 읽기가 계속 증가했다. 06:03:54 관리자 실측에서 `/healthz`는 200, `/readyz`는 3초 시간 초과였고, 06:08 Fable은 15초 시간 초과와 초당 약116MB·누적 약207GB 읽기를 확인해 운영 장애로 판단했다. 준비 응답 장애의 실제 시작 시각은 미확정이다.
+- 원인 범위: 구 P2의 `sweep_once()`가 `active_writer`/route lock을 조립·호출까지 유지하고, 실행 중 조립은 설정 off만으로 즉시 중단되지 않는 구조다. 근거 반복 읽기를 소스에서 확인했지만 운영 live stack과 전체 읽기의 세부 원인은 아직 측정하지 않았다. `83d87f88`의 협조적 보완만으로 장애가 해결됐다고 보지 않는다.
+- Fable의 명시적 장애 복구 지시로 대기 중인 `83d87f88` 배포는 전환 전에 취소했다. 정상 취소 옵션이 없어 관리자가 시작한 배포 프로세스와 그 자식만 정체성 대조 후 종료했고, 같은 배포가 만든 Prepared 예약 작업을 중지·등록 해제했다. 기존 운영 route와 Gateway는 유지했다.
+- 06:10:35~06:11:21 KST에 **5개 운영 DB를 SQLite backup API로 백업하고 별도 DB로 복원**했다. 모두 `quick_check=ok`, 복원 스키마·모든 테이블 행수 동등이다. 원본 DB 파일의 파일시스템 복사·운영 DB 쓰기·복원 서버 시작은 0이다. 이 검사는 전체 셀값의 재해시 검사와 구분한다. 비공개 근거: `.local-archive/manager-resume-20261111/incident-rollback/backup-result.json`.
+- P2 off·전체확대 false와 PID/예약 작업/SHA를 확인하고 `WebLedger-Board`만 중지해 지정된 PID34256의 종료와 route lock 해제를 확인했다. 잠금 파일 삭제·우회는 하지 않았다. 06:12:08 KST 같은 SHA를 비활성 상태로 재시작한 뒤 공식 도구로 직전 검증 릴리스 `965bca058a74a54bf69bc4d70a0d05f8997786c3` 롤백을 완료했다. `-PreviousSha`는 `bd4646a1`이며 신선 보호13표 기준과 이전 검증 릴리스 근거를 사용했다. 복구의 고객 데이터 변경·모델 호출·Google 쓰기는 0이다. 읽기량 감소 실측과 평상 기준선 미검증을 구분한다.
+- 공식 증거는 `D:/WebLedgerHost/releases/deploy-evidence-965bca058a74a54bf69bc4d70a0d05f8997786c3.json`, 비공개 추가 근거는 `.local-archive/manager-resume-20261111/incident-rollback/`의 `post-verification.json`, `raw-manual-after.json`, `protection-before.json`, `protection-after.json`이다. 이전 965 배포 증거는 `prior-965-deploy-evidence.json`으로 보존했다. 공식 배포의 `fresh_backup_restore=false`는 `BackupProducts` 미사용이고 별도 SQLite 백업·복원 검증 성공과 구분한다.
+- **P2 재배포 금지:** 운영 밖에서 off 시 조립/근거 읽기 방지, 첫묶음50의 회차 제한, 조립/모델 호출의 route/DB 쓰기 잠금 분리, 색인 조회와 건당/회차당 읽기·시간 예산, 시범 창 종료 시 진행 회차 중단을 해결한다. 후보2,000건 이상·근거1GB 이상 합성 자료에서 off/on 읽기량·소요·잠금 시간을 실측하고 독립 검수 및 Fable 승인을 받기 전 P2 코드를 다시 운영에 올리지 않는다.
+
 ## 2026-11-11 도구 없는 P2 코드 배포 — 첫 묶음 가동 전
 
 - 운영 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`([PR #797](https://github.com/6Soo/cost/pull/797)), 이전 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, 전환 완료 2026-11-11 04:56:02 KST. `tools/deploy_verified_release.ps1`의 정확 SHA 배포이며 파일 1,543개·blob 불일치 0, Board·Worker와 listener SHA 일치, backend 8752다. 다음 배포 `-PreviousSha`는 `bd4646a1`이다.
