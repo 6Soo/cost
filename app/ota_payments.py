@@ -19,7 +19,7 @@ from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 16
+PARSER_VERSION = 17
 MATCHER_VERSION = 5
 
 
@@ -206,10 +206,10 @@ def _parse_mail_events(directories):
             event, context.get((event['provider'], event['booking_ref']), ()))
         from app.ota_mail_reservation_identity import attest
         attest(events[event['ota_event_id']], message, text)
-    from app import forest_mail, forest_payment_mail, toyoko_mail, ota_rakuten_mail
+    from app import airbnb_mail, forest_mail, forest_payment_mail, toyoko_mail, ota_rakuten_mail
     return (list(events.values()) + toyoko_mail.collect(messages, inventory)
             + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory)
-            + ota_rakuten_mail.collect(messages, inventory))
+            + ota_rakuten_mail.collect(messages, inventory) + airbnb_mail.collect(messages, inventory))
 
 
 def extract_payment_fact(message):
@@ -423,6 +423,45 @@ def _extract_signed_payment_message(message):
             "source_binding_ids": []}
 
 
+def _trip_reservation_events(databases):
+    """Trip.com hotel orders read from the signed-in account, as reservation evidence only.
+
+    They carry the stay and, for pay-at-property orders, the card pre-authorization Trip holds as
+    a guarantee. They never claim a payment, so matching treats them like any reservation.
+    """
+    from contextlib import closing
+    from app.ota_store import connect_read, direct_facts, is_store
+    events = []
+    for path in ota_portal.as_databases(databases):
+        if not is_store(Path(path)):
+            continue
+        with closing(connect_read(path)) as conn:
+            for booking, fact, conflicts in direct_facts(conn):
+                if booking['provider'] != 'trip' or fact.get('evidence_format') != 'trip-api-v1' or conflicts:
+                    continue
+                start, end = fact.get('service_start_on'), fact.get('service_end_on')
+                digest = hashlib.sha256(json.dumps(fact, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+                source_id = 'trip-api:' + str(fact['booking_number'])
+                event = {
+                    'provider': 'trip', 'booking_ref': str(fact['booking_number']), 'event_type': 'reservation',
+                    'evidence_status': 'reservation_only', 'payment_status': 'not_card_charge',
+                    'evidence_kind': 'portal_preauthorization' if fact.get('preauthorization_amount_krw') else 'portal_reservation',
+                    'item': '숙박비', 'service_period': {'starts_on': start, 'ends_on': end} if start and end else None,
+                    'reservation_status': fact.get('reservation_status'), 'amount': None, 'currency': '', 'amount_krw': None,
+                    'card_last4': fact.get('card_last4'), 'paid_on': None, 'paid_on_semantics': 'missing',
+                    'booked_on': fact.get('booked_on'), 'pay_at_property': bool(fact.get('pay_at_property')),
+                    'preauthorization_amount_krw': fact.get('preauthorization_amount_krw'),
+                    'preauthorization_refunded_krw': fact.get('preauthorization_refunded_krw'),
+                    'preauthorization_refund': fact.get('preauthorization_refund'),
+                    'source_digest': digest, 'source_digests': [digest], 'source_ids': [source_id],
+                    'identity_source_ids': [source_id],
+                    'observation_ids': ['obs_' + _digest([source_id, digest, 'trip_reservation'])],
+                }
+                event['ota_event_id'] = _event_id(event['identity_source_ids'])
+                events.append(event)
+    return events
+
+
 def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=None):
     grouped = defaultdict(list)
     database_paths = [Path(item).resolve() for item in ota_portal.as_databases(databases)]
@@ -525,7 +564,7 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
         # 상품 근거나 이용기간이 없으면 가맹점 이름만으로 숙박이라고 만들지 않는다.
         item = fact.get("item")
         if (not item and period and (fact.get("product_type") == "lodging"
-                or (fact.get("evidence_format") == "agoda-aside-v1"
+                or (fact.get("evidence_format") in ota_portal.DETAIL_FORMATS
                     and fact.get("reservation_status") == "completed"))):
             item = "숙박비"
         emitted_charges = 0
@@ -564,7 +603,7 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
                     component_index, "portal_payment_claim", "charge"])],
                 "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
                 "evidence_kind": "portal_payment_claim",
-                "verified_portal_snapshot": fact.get('evidence_format') == 'agoda-aside-v1',
+                "verified_portal_snapshot": fact.get('evidence_format') in ota_portal.DETAIL_FORMATS,
                 "_portal_reservation_provenance": {
                     "provider": "agoda", "identity": reservation_identity,
                     "source_digest": digest, "source_lineage_id": source_lineage_id,
@@ -736,6 +775,7 @@ def build_ota_payment_events(sources, *, extraction_outcomes=None):
     events.extend(_portal_events(sources.get("portal_databases"),
                                  source_lineage_ids=sources.get("source_lineage_ids"),
                                  extraction_outcomes=extraction_outcomes))
+    events.extend(_trip_reservation_events(sources.get("portal_databases")))
     events = _merge_proven_duplicate_payments(events)
     # 참고 문서는 진단에만 쓰며 금전 이벤트를 공급하지 않는다.
     events.sort(key=lambda event: event["ota_event_id"])

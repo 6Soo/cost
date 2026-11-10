@@ -17,7 +17,7 @@ import unicodedata
 import urllib.parse
 from urllib.parse import urlencode
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -912,14 +912,16 @@ _BOOKING_CHANNEL = re.compile(
     r'|trip\.?com|트립|expedia|hotels\.com|인터넷상거래|결제대행|ksnet|다날|스마트로|나이스|쿠팡|야놀자|여기어때'
     r'|airbnb|에어비앤비|rakuten(?!\s*pay)|라쿠텐(?!\s*페이)|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b'
     r'|호텔스닷컴|인터파크|마이리얼트립|myrealtrip|호텔엔조이|하나투어|모두투어|노랑풍선|참좋은여행|데일리호텔'
-    r'|놀유니버스|위메프|티몬|11번가|g마켓|지마켓|옥션|네이버|kkday|hostelworld|hotelscombined|ikyu|一休|jtb|\bars\b|_ars')
+    r'|놀유니버스|위메프|티몬|11번가|g마켓|지마켓|옥션|네이버|kkday|hostelworld|hotelscombined|ikyu|一休|jtb|\bars\b|_ars'
+    r'|discovercars|rentalcars|economybookings|tabirai|たびらい')
 
 
 def _onsite_payment_label(row, kind):
     """A lodging or rental paid at the property: the card's use date is its use date.
 
     Only a direct (non-booking-channel) merchant charged inside the row's own trip
-    period qualifies; no stay length is inferred from it.
+    period, or on the eve of its start (arrival the night before), qualifies;
+    no stay length is inferred from it.
     """
     from app.ota_matching_defaults import provider_for_merchant
     if (not str(row.get('row_id') or '').startswith('card-') or str(row.get('reservation_no') or '').strip()
@@ -936,7 +938,7 @@ def _onsite_payment_label(row, kind):
     if not trip:
         return None
     starts, ends = trip
-    if day < starts or (ends is not None and day > ends):
+    if day < starts - timedelta(days=1) or (ends is not None and day > ends):
         return None
     what = '숙박 기간' if kind == 'lodging' else '인수·반납일'
     return (f"{day:%m.%d} 현장 결제",
@@ -969,8 +971,38 @@ def _service_date_labels(row):
     return labels
 
 
+_PREAUTH_REFUND = {'refunded': '환불 완료', 'partly_refunded': '일부 환불', 'not_refunded': '환불 전'}
+
+
+def _preauthorization_labels(row):
+    """A Trip.com guarantee hold for a pay-at-property hotel: not a stay, and refunded after checkout."""
+    if not str(row.get('row_id') or '').startswith('card-') or str(row.get('service_period') or '').strip():
+        return None
+    index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
+    found = index.get(str(row.get('source_event_id') or str(row['row_id'])[5:])) or {}
+    evidence = found.get('ota_evidence') or {}
+    if evidence.get('kind') != 'card_preauthorization':
+        return None
+    refund = _PREAUTH_REFUND.get(evidence.get('refund'), '환불 확인 필요')
+    periods = evidence.get('periods') or []
+    cancelled = evidence.get('cancelled')
+    # A cancelled order was never stayed: its dates are the original booking, not a use date.
+    label = '숙박' if cancelled in (None, 'none') else '원래 숙박'
+    if len(periods) == 1 and cancelled in (None, 'none'):
+        start, end = (date.fromisoformat(value) for value in periods[0].split('~'))
+        compact = f"{start:%m.%d}–{end:%m.%d} 사전승인"
+    else:
+        compact = '사전승인(취소)' if cancelled == 'all' else '사전승인'
+    stay = (label + ' ' + ' 또는 '.join(p.replace('~', '–') for p in periods)) if periods else '숙박일 미상'
+    kind = {'all': '취소된 예약 보증', 'some': '현장 결제 숙박 보증, 일부 취소'}.get(cancelled, '현장 결제 숙박 보증')
+    return compact, f"카드 사전승인({kind}) · {stay} · {refund}"
+
+
 def _service_date_labels_for(row):
     item = str(row.get('item') or '').strip()
+    preauthorization = _preauthorization_labels(row) if item == '숙박비' else None
+    if preauthorization:
+        return preauthorization
     if item == '숙박비':
         compact, full = _compact_stay(row), _stay_text(row)
         if full == '이용일 원문 없음':

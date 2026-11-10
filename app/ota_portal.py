@@ -39,6 +39,8 @@ LEGACY_PAYMENT_STATE='paid_today'
 # 예약은 확정되어도 결제는 아직 예정인 경우. 실제 결제 근거로 쓰지 않는다.
 SCHEDULED_MARKERS=('결제될 예정','결제 예정입니다','결제 예정','will be charged',
                    'payment is scheduled','scheduled to be charged')
+# Signed-in Agoda booking-detail evidence: the page snapshot and the page's own detail API.
+DETAIL_FORMATS=('agoda-aside-v1','agoda-api-v1')
 REQUIRED_EVIDENCE_ROLES={'identity','service_period','portal_payment_claim',
                          'portal_card_observation','lifecycle'}
 # 같은 예약에 대해 자료끼리 정면으로 어긋난다는 뜻인 사유만 상충으로 본다.
@@ -86,7 +88,7 @@ def payment_verdict(fact, booking_status):
     if scheduled_payment(fact):
         return 'scheduled'
     # Aside의 명시 결제 표시를 읽는다. 수집일이나 예약 완료를 결제일로 바꾸지 않는다.
-    if (fact.get('evidence_format') == 'agoda-aside-v1'
+    if (fact.get('evidence_format') in DETAIL_FORMATS
             and fact.get('portal_payment_state') == 'paid_observed'
             and fact.get('payment_status') == 'paid'
             and re.fullmatch(r'\d{4}', str(fact.get('card_last4') or ''))
@@ -213,7 +215,7 @@ def collect_portal_facts(databases):
         if len(amounts)!=1:
             note(booking,'amount_ambiguous',card_last4,amounts,period,roles)
             continue
-        if fact.get('evidence_format') == 'agoda-aside-v1' and not fact.get('paid_on'):
+        if fact.get('evidence_format') in DETAIL_FORMATS and not fact.get('paid_on'):
             # 결제일 없는 새 관측이 기존 예정일·카드 원행의 검증된 연결을 가로채지 않는다.
             note(booking,'payment_date_unknown',card_last4,amounts,period,roles)
             continue

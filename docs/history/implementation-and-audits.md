@@ -520,7 +520,7 @@ AUDIT-01 및 UI-01 개발과 합성 검토를 완료했다. 작업 브랜치는 
 <a id="src-docs-expense-cleanup-task-index-md--nav-구현과-합성-검증-완료"></a>
 #### NAV: 구현과 합성 검증 완료
 
-- 명세: [스크롤 메뉴](../specs/ui.md#src-docs-expense-cleanup-navigation-spec-md).
+- 명세: [스크롤 메뉴](specs-20261110/ui.md#src-docs-expense-cleanup-navigation-spec-md).
 - 모바일 공용 상단 메뉴를 고정한다. 장부 검색 막대도 고정하고 표 머리글은 실제 막대 높이 아래에 둔다. 데스크톱의 기존 독립 스크롤은 유지한다.
 - 표적 검사 `tests/test_ledger_navigation_scroll.py`: 3 passed.
 - Aside 합성 `/import`를 폭 390px의 같은 출처 iframe으로 확인했다. 스크롤 8509.6px에서 메뉴 막대 top=0, 버튼 top=8px이었다. 메뉴 열기 후 마스크와 expanded=true를 확인했고 Escape 후 닫힘과 마스크 숨김을 확인했다. 스크롤 위치는 유지됐다. 실제 모바일 기기 검증과 운영 배포는 하지 않았다.
@@ -718,7 +718,7 @@ Python urllib의 로컬 import 요청은 기본 설정과 프록시 제외 설�
 
 > 작업 단위: 보험가입 명단 기반 참가자 확정과 수입 대조
 > 갱신일: 2026-10-20 KST
-> 현재 명세: [버전 1.0](../specs/participants.md#src-docs-participant-income-reconciliation-spec-md)
+> 현재 명세: [버전 1.0](specs-20261110/participants.md#src-docs-participant-income-reconciliation-spec-md)
 
 이 인덱스는 이 기능의 현재 요청과 실행 범위만 관리한다. 다른 독립 작업의 승인·진행 상태를 변경하지 않는다. 과거 ACTIVE 문서를 구현 지시로 읽지 않는다.
 
@@ -829,7 +829,7 @@ webapp/tests/test_participant_income.py -q` → 27 passed. 나머지 통과 근�
 <a id="src-docs-participant-income-task-index-md--변경-파일과-보호-범위"></a>
 #### 변경 파일과 보호 범위
 
-이 문서 작업의 파일은 이 인덱스, [상세 명세](../specs/participants.md#src-docs-participant-income-reconciliation-spec-md), [README](../../README.md), [상위 목표 명세](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md)다. 원본 명단과 실명은 포함하지 않는다.
+이 문서 작업의 파일은 이 인덱스, [상세 명세](specs-20261110/participants.md#src-docs-participant-income-reconciliation-spec-md), [README](../../README.md), [상위 목표 명세](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md)다. 원본 명단과 실명은 포함하지 않는다.
 
 작업 시작 시 `main`의 HEAD는 `8aaf09c`였다. 기존 변경 `app/ota_portal.py`, `docs/session_handoff.md`와 미추적 `app/agoda_capture.py`, `docs/trip-booking-mail-investigation.md`, `tests/card_pipeline/test_agoda_capture.py`, `tools/ingest_agoda_aside.py`는 별도 작업으로 보존한다. 기존 변경은 이번 커밋에 포함하지 않는다.
 

@@ -56,6 +56,10 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 | 6 | `094e52c9929843fb0b9b17b07e482eaf1c95ce6c` | 086acc67 | #778 | PASS 19:31Z |
 | 7 | `f5758929bf091b4fd4a43b4227709e8ad4197596` | 094e52c9 | #780 | PASS 19:54Z, 1,485 blobs mismatch0 |
 | 8 | `9ad0a454ae323cb6ee61c2a4827dca3bf34caa15` | f5758929 | #779(다른 세션 UI 1차, 검수 ff198354)·#782 | PASS 20:27Z, 1,494 blobs mismatch0, 다른 세션과 조율해 단일 작성자 배포 |
+| 9 | `895a412eabc19fecda37d34245f0cd0e42e32649` | 9ad0a454 | #783(Agoda 상세 API 포털 근거)·#781(문서) | PASS 05:48Z, 1,498 blobs mismatch0. 이후 별도 단계로 OTA 저장소 백업→Agoda 상세 1,418건 수입 |
+| 10 | `998dd46100a8bd11304532f741e15f162fd9c3c6` | 895a412e | #784(동일 객실 표시) | PASS 06:22Z |
+| 11 | `374462fe922a67b53758d7e1d8bb46c5e4eedaf6` | 998dd461 | #787(Trip 주문·사전승인)·#785/#786(문서) | PASS 08:06Z, 1,501 blobs mismatch0. 이후 OTA 저장소 백업→Trip 상세 502건 수입 |
+| 12 | `965bca058a74a54bf69bc4d70a0d05f8997786c3` | 374462fe | #790(현장결제 전날·렌터카 중개사)·#791(아시아나·에어비앤비·Klook 이용일, PARSER_VERSION 17) | PASS 11:07Z, 1,503 blobs mismatch0, health/ready 200·보호 API 401·보호13표 불변. 첫 시도는 릴리스 폴더 `DEPLOYED_COMMIT` 누락으로 전환 전 중단(운영 무변경) → 마커 작성 후 재실행. 스냅샷 재계산 11:18Z 완료, 경고 145→132 |
 
 - 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`(단, 0번 3dd0750e는 `false` — #767 시점 Worker 전환 도구 결함으로, #769 이후 1~8번은 모두 `true`). 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
 - 성능 수락(인증 ego-browser, 같은 3개 여행 장부): 7334f1ae 3.2–9.6s(1건 502/38s), 요청 지표 잠금 대기 p50 1,211ms·p95 51,959ms → cee973fb 0.9–1.0s, 잠금 대기 p50 0.003ms·p95 197ms, first_render p50 777ms.
@@ -88,7 +92,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 - **인증 운영 native 수락 PASS:** ego-browser의 실제 1440px·390px에서 각각 **17행·7열** 준비 값과 OS Ctrl+V 결과가 정확히 일치했다. 버튼 활성 복귀·오류 없음·페이지 넘침0, 키보드 실행을 확인했다. 복사부터 붙여넣기 비교까지 각각 2,728ms·2,828ms인 단일 표본이며 이전 다른 여행/상태의 지연과 같은 입력 성능 비교라고 주장하지 않는다. 동일 크기 운영 전후 캡처와 합성 1440/390/320·두 테마 전후·예외 상태 근거를 보존했다. 고객 원문/화면은 비공개 산출물에만 둔다. TaskSpace0을 마치고 사용자 결과 탭은 유지했다.
 - 공식 코드 전용 배포: **1,453 tracked blobs mismatch0**, task/process/runtime SHA 일치, Gateway8790→loopback8752·listener1·health/ready200·보호 API401. fresh 보호13표 전후 불변과 운영 재기동/복사 뒤 최종 불변을 확인했고 단일 작성자 잠금을 해제했다. 실제 운영 stop/start 두 회차에서 이전 프로세스14개가 매번 전부 종료되고 새 소유자1개가 유지됐다. Running 중 추가 시작도 같은 소유자를 유지했다. 자식 crash/descendant kill/mutex 재사용·경쟁은 별도의 실제 Windows 합성 Job 검사로 검증했으며 운영 자식을 의도적으로 crash한 것은 아니다.
 - 첫 후보 `c2f7bdd7`의 전환은 **FAILED**였고 이전 db7 서비스·ready200·보호13표 불변으로 복구했다. 기존 도구가 첫 예외를 가려 실제 최초 원인은 미확정이다. 합성으로 확인한 stale TCP/CIM 조회, 검증 직후 PID 종료, 후보 cleanup 오류의 복귀 건너뜀, 실패 기록 쓰기의 복귀 차단을 수정해 새 불변 릴리스 d96을 배포했다. 실패 c2를 수정하거나 성공으로 재분류하지 않았다. unknown/reused PID 종료 금지는 유지한다.
-- OTA 동일 합성 입력80개·4범위320관측에서 본문 보존320→80, catalog peak private503,541,760→450,428,928 bytes, reconcile507,183,104→453,758,976 bytes(약11%)이며 결과/원본 해시가 동일했다. catalog wall time은 단일 표본에서 개선되지 않았다. [재현 명세](specs/ota-mail-load-lifetime-20261109.md). 운영 warm 중 private1,826.7MiB(db7)→1,019.3MiB(d96), warm 완료 후296.9MiB·10프로세스·소유자1·CPU0.015625초/12.6256초로 수렴했다. 이는 같은 입력을 통제한 운영 효과율이나 장기 누수 완치 증명이 아니며 venv 부모/자식 쌍을 중복 보드로 세지 않는다.
+- OTA 동일 합성 입력80개·4범위320관측에서 본문 보존320→80, catalog peak private503,541,760→450,428,928 bytes, reconcile507,183,104→453,758,976 bytes(약11%)이며 결과/원본 해시가 동일했다. catalog wall time은 단일 표본에서 개선되지 않았다. [재현 명세](history/specs-20261110/ota-mail-load-lifetime-20261109.md). 운영 warm 중 private1,826.7MiB(db7)→1,019.3MiB(d96), warm 완료 후296.9MiB·10프로세스·소유자1·CPU0.015625초/12.6256초로 수렴했다. 이는 같은 입력을 통제한 운영 효과율이나 장기 누수 완치 증명이 아니며 venv 부모/자식 쌍을 중복 보드로 세지 않는다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d96f08809b8201238e8399d053140ab20e3a91fc.json`; 비공개 `.local-archive/copy-paste-resume-20261109/`의 `production-copy-acceptance.json`, `release-d96f0880/`, `runtime-before.json`, `runtime-after.json`, `runtime-after-warm.json`; 합성 계측은 `.local-archive/webledger-root-20261109/`. PC 담당에게 A–F 최종 결과를, 원문 복구 담당에게 최종 SHA·after13 PASS·lock release를 전달했다. 원문30건 복구는 그 담당의 별도 승인 구간이며 이번 코드 배포의 완료 범위로 꾸미지 않는다.
 - 남은 필수 복사/배포 작업은 없다. 실기기/Safari·스크린리더 음성·실제200% 확대와 장시간 운영 누수 검증은 미실행이다. 이 후속 문서 변경으로 코드 검사·재배포·서버 재시작을 반복하지 않는다. 아래 11월8일 AUTH_UI_BLOCKED 기록은 당시 이력이며 현재 복사 수락 상태를 대체하지 않는다.
 
@@ -127,7 +131,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 
 ## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 — 운영 배포 COMPLETE
 
-- 사용자 최신 교정에 따라 한 파일 내 최초~최종 거래일 전체를 기본 조회기간으로 간주한다. 내부 무거래일은 공백이 아니며 같은 카드사 파일들의 범위를 합친 뒤 파일 사이 빈 구간만 공백으로 표시한다. 예: 1~10일·15~20일 두 파일이면 공백11~14일 한곳, 같은 카드사 다른 카드 파일10~15일을 추가하면 공백0이다. [현행 명세](specs/card-transaction-date-gaps-20261108.md), [PR #745](https://github.com/6Soo/cost/pull/745).
+- 사용자 최신 교정에 따라 한 파일 내 최초~최종 거래일 전체를 기본 조회기간으로 간주한다. 내부 무거래일은 공백이 아니며 같은 카드사 파일들의 범위를 합친 뒤 파일 사이 빈 구간만 공백으로 표시한다. 예: 1~10일·15~20일 두 파일이면 공백11~14일 한곳, 같은 카드사 다른 카드 파일10~15일을 추가하면 공백0이다. [현행 명세](history/specs-20261110/card-transaction-date-gaps-20261108.md), [PR #745](https://github.com/6Soo/cost/pull/745).
 - 코드 `20df129ec70f29d2c298cc9179edb7afa2e14580`: 영향 QA **236 passed +70 subtests·skip0·browser19/19·compile PASS**. 초기234통과/2실패는 구 내부공백 기대값이었으며 skip/제외 없이 새 계약과 파일 연결 회귀로 교정했다. 실제 독립 `gpt-6.1-sol / medium` 정확한 운영 병합 SHA **`a0d257c45fef1767d25d5269bbac0007c22e4f2e` APPROVE**, 검증 코드와 merge tree 동일.
 - GitHub run42467211707/job128689384202는 결제/사용한도 annotation·steps0으로 시작 실패했다. CI 녹색으로 보고하지 않고2026-11-07 사용자 승인 예외(실제 Sol medium 정확SHA 승인·로컬 검증)를 적용했다.
 - 실제 ego 합성 전후1440/390/320에서 페이지·패널 넘침0, 파일 범위/공백1→연결파일 후0, 빈자료·오류 재시도·키보드 포커스·공백 업로드 맥락을 확인했다. 두테마 안내문 대비 최소5.7053/7.5777이다. 독립 source interface와 별도 렌더링 검수 범위를 구분했다. 인증 고객 운영 시각 수락·실기기/Safari·AT음성·실제200%브라우저 확대·RTL은 미검증이다.
@@ -164,7 +168,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 
 ## 2026-11-08 미커밋 전체 검토·통합 운영 배포 — COMPLETE
 
-- 사용자 `미커밋 변경사항까지 모두 검토해서 배포`와 `모두 확인해서 메인으로 병합 운영배포해` 범위. [PR #735](https://github.com/6Soo/cost/pull/735), 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`. [28파일 판정·수락 기록](specs/review-all-uncommitted-release-20261108.md). 원래 로컬8커밋의 이력과 미커밋25·미추적3파일을 모두 검토했다. 유효 변경은 통합하고 원본/권한/환불 보호 제거는 제외·보존했다. 영수증 PR733도 같은 SHA로 운영 반영했다.
+- 사용자 `미커밋 변경사항까지 모두 검토해서 배포`와 `모두 확인해서 메인으로 병합 운영배포해` 범위. [PR #735](https://github.com/6Soo/cost/pull/735), 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`. [28파일 판정·수락 기록](history/specs-20261110/review-all-uncommitted-release-20261108.md). 원래 로컬8커밋의 이력과 미커밋25·미추적3파일을 모두 검토했다. 유효 변경은 통합하고 원본/권한/환불 보호 제거는 제외·보존했다. 영수증 PR733도 같은 SHA로 운영 반영했다.
 - 어드벤처코리아 항공료, 여행 관리 단일 집계, 모바일 수입/보험/금액, 실제 OPEN 사용자 작업, 행별 지출 복사, 정상 구매의 유효한 결제 분기 fallback을 반영했다. 조회 실패를 0건으로 숨기지 않고 정상 P1/P2를 사용자 업무로 만들지 않는다. 메일 캐시의 disabled-gate 의존성과 짧은 보험 문구에서 긴 날짜/이름이 겹치는 결함도 수정했다.
 - 최종 Windows 영향 QA **1166 passed +133 subtests, skip0, 필수 브라우저 72/72, compile PASS**. 초기6실패와 모바일 겹침 red는 보존했고 최종 고정SHA에서 교정 후 통과했다. 독립 실제 `gpt-6.1-sol / medium` 정확SHA 승인·interface-review Approve. CI42411351988/job128519990700은 결제/사용 한도로 steps0에서 차단돼 기존 승인 예외를 적용했으며 CI 녹색으로 보고하지 않는다.
 - 공식 SHA 고정 git archive·tracked blob mismatch0, 단일 배포 lock·PREVIEW/APPLY 완료. 이전 `d97158484d17f974668dafffafdb1a7b462a7249`에서 전환했고 runtime/task/process SHA 일치, loopback backend, health/ready200·보호 API401·보호 테이블13개 불변을 확인했다. 운영 분류/여행 교정·재처리·원본/금융/Google 쓰기·마이그레이션은 실행하지 않았다.
@@ -173,10 +177,11 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 
 ## 2026-11-08 카드 내역 거래일자 공백 전환 #731 운영 완료
 
-- 최신 사용자 결정에 따라 조회기간 대시보드·확인/관리 시작일 폼을 폐기하고 실제 거래일 사이 공백으로 전환했다. 카드사·끝4자리 표시 그룹별 첫/마지막 거래일 내부만 계산하며, 정상 미사용일일 수 있으므로 자료 누락으로 단정하지 않는다. [수락 계약](specs/card-transaction-date-gaps-20261108.md), [PR #731](https://github.com/6Soo/cost/pull/731).
+- 최신 사용자 결정에 따라 조회기간 대시보드·확인/관리 시작일 폼을 폐기하고 실제 거래일 사이 공백으로 전환했다. 카드사·끝4자리 표시 그룹별 첫/마지막 거래일 내부만 계산하며, 정상 미사용일일 수 있으므로 자료 누락으로 단정하지 않는다. [수락 계약](history/specs-20261110/card-transaction-date-gaps-20261108.md), [PR #731](https://github.com/6Soo/cost/pull/731).
 - 정확한 검수 HEAD `4c2120fd6ab0d9f2a06a9f35d6b78b2e35b50fae`: Windows 영향 QA **503 passed +100 subtests, skip0, browser35/35, compile/데이터 보호 PASS**. 초기 red3은 기준 커밋에도 존재하는 오래된 브라우저 테스트명2와 구 조회기간 표시를 기대한 인증 HTTP 검사1이며, 검사를 제외하지 않고 현재 동작·보호 계약에 맞게 고쳐 green으로 재검증했다.
 - Sol `gpt-6.1-sol` / `medium`의 실제 Paseo runtimeInfo를 확인하고 위 HEAD 최종 PASS 및 병합 SHA 동일 트리 검수를 받았다. GitHub run42407181997/job128507289518은 결제 실패/지출 한도로 steps0에서 차단됐다. 2026-11-07 사용자 승인 예외를 적용했고 CI를 녹색으로 표시하지 않는다.
 - 운영 SHA **`d97158484d17f974668dafffafdb1a7b462a7249`**, 이전 `3dfcd72405d602504b6b8842d53e957aba31f929`. 승인 HEAD와 병합 SHA tree `a1e3a385e328c2aaca4a89bfa35b35468927de2b` 동일. 공식 PREVIEW→APPLY 1회, 1,435 tracked blobs mismatch0/list mismatch0. 단일 task/process SHA 일치, Gateway8790→loopback8752, health/ready200·보호API401, 보호13표 전후 불변. 롤백 릴리스와 task 복구점 유지. 운영 DB/원본/분류/환불/Google 쓰기·스키마 변경 없음, financial_apply NOT_RUN.
 - ego-browser 합성 전후1440/390/320px, 긴 파일명·22구간 접기/펼치기·공백→업로드·포커스/Escape·빈 상태/오류 재시도 PASS, 다크 요약 라벨 대비4.04→9.90:1 수정. 720 CSS px의200% 상당 reflow 확인; 실제 브라우저 확대·스크린리더·실기기·RTL 미검증.
 - 인증된 운영 GET/API·DOM에서 **23파일/27표시그룹/515공백/날짜없는파일0**, 거래일자 상태·coverage panel 및 구 조회기간/관리 시작일 폼0 확인. 운영 DB mode=ro 사전 집계156ms. 이는 전체 고객 화면의 독립 시각 수락·전후 운영 진입성능 측정 완료를 뜻하지 않는다. 고객 파일명·거래 원문은 보고서/Git에 넣지 않았다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d97158484d17f974668dafffafdb1a7b462a7249.json`, 비공개 `C:/AX/cost/.local-archive/transaction-gaps-20261108/`의 배포/사후 smoke/보호표·QA·독립 검토·브라우저 기록. 기존 main의 다른 미배포 로컬 커밋8개는 포함하지 않고 보존했다. 이 운영 기록 등 문서-only 후속은 재배포하지 않는다.
+- 2026-11-10 17:06 KST Gmail 수집 토큰 만료(테스트 상태 OAuth 앱 7일) → 재인증·프로덕션 게시로 복구. 수집이 HTTP 400으로 실패하면 운영 릴리스에서 `python -m app.mail_collect --authorize …`로 재인증한다(현재 상태 문서 참고).

@@ -9,6 +9,16 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "trip-api-reservation-evidence",
+      "paths": ["app/trip_api_capture.py", "tools/import_trip_api_details.py", "tests/card_pipeline/test_trip_api_capture.py"],
+      "tests": ["tests/card_pipeline/test_trip_api_capture.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ledger_stay_evidence.py"]
+    },
+    {
+      "name": "agoda-api-portal-evidence",
+      "paths": ["app/agoda_api_capture.py", "tools/import_agoda_api_details.py", "tests/card_pipeline/test_agoda_api_capture.py"],
+      "tests": ["tests/card_pipeline/test_agoda_api_capture.py", "tests/card_pipeline/test_agoda_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_portal_scheduled_card_date.py"]
+    },
+    {
       "name": "synthetic-preview-tool",
       "paths": ["tools/run_synthetic_preview.py"],
       "tests": ["webapp/tests/test_synthetic_preview.py", "webapp/tests/test_receipt_pdf.py"]
@@ -45,8 +55,8 @@
     },
     {
       "name": "airline-mail-collection",
-      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py"],
-      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
+      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
+      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
     },
     {
       "name": "export-source-equivalence",

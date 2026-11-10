@@ -254,6 +254,105 @@ def test_unlinked_skyticket_total_keeps_manual_empty_period(context, tmp_path):
     assert stays.stay_index(store) == {}
 
 
+def asiana_ticket(data, tmp_path):
+    import json
+    from app import ota_payments
+    from tests.card_pipeline.test_airline_payment_mail import message
+    original = message('noreply@flyasiana.com', '[아시아나항공] 항공권 발급이 완료 되었습니다.',
+                       '예약번호 ABC123\n예약일자(GMT) 2026-09-17\n출발\n도쿄 (NRT)\n2026.11.09 (월) 13:20\n'
+                       '총 지불금액 (결제완료) KRW 131,800')
+    (tmp_path / 'gmail-synthetic.json').write_text(json.dumps({'responses': [original]}), encoding='utf-8')
+    data['events'] = ota_payments._parse_mail_events([tmp_path])
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=131800, merchant='아시아나항공', card_tail='8835', approval_date='2026-09-17')]
+    data['results'] = ota_payments.match_ota_payment_events(data['events'], data['transactions'])
+    assert [r['status'] for r in data['results']] == ['HOLD_DATE_UNKNOWN']
+
+
+def test_unlinked_asiana_ticket_shows_its_departure_day_on_the_equal_airline_card(context, tmp_path):
+    store, data, _, _ = context
+    asiana_ticket(data, tmp_path)
+    before = deepcopy(data)
+    value = dict(card(row_kind='expense', occurred_on='2026-09-17', amount_krw=131800, reservation_no=''), item='항공료')
+    labels = scoped(lambda: design._service_date_labels(value))()
+    assert labels[0] == '11.09' and '2026-11-09' in labels[1]
+    assert stays.stay_index(store)['t1']['ota_evidence'] == {'kind': 'reservation_period_inferred',
+                                                             'payment_verified': False}
+    assert data == before and data['results'][0]['transaction_id'] is None
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(amount_krw=131000),
+    lambda d: d['transactions'][0].update(merchant='다른 항공사'),
+    lambda d: d['transactions'][0].update(approval_date='2026-11-10'),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['transactions'][0].update(ota_review_held=True),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(service_period_conflict=True),
+    lambda d: d['results'][0].update(evidence_changed=True),
+    lambda d: d['links'].update(other={'transaction_id': 't1'}),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='XYZ789')) or
+              d['results'].append(dict(d['results'][0], ota_event_id='dup')),
+])
+def test_unlinked_asiana_ticket_stays_unknown_when_ambiguous_or_unsafe(context, tmp_path, mutation):
+    store, data, _, _ = context
+    asiana_ticket(data, tmp_path)
+    data['links'] = {}
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_unlinked_asiana_ticket_keeps_manual_empty_period(context, tmp_path):
+    store, data, _, _ = context
+    asiana_ticket(data, tmp_path)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
+def airbnb_stay(data):
+    from app import airbnb_mail
+    from tests.card_pipeline.test_airbnb_mail import confirmed
+    data['events'] = airbnb_mail.collect({'m1': confirmed()})
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=261401, merchant='AIRBNB * HMSYNTH001', card_tail='8835', approval_date='2026-05-12')]
+    data['results'] = []
+
+
+def test_an_airbnb_card_reads_the_stay_of_the_code_in_its_descriptor(context):
+    store, data, _, _ = context
+    airbnb_stay(data)
+    before = deepcopy(data)
+    value = dict(card(row_kind='expense', occurred_on='2026-05-12', amount_krw=261401, reservation_no=''))
+    labels = scoped(lambda: design._service_date_labels(value))()
+    assert labels[0].startswith('05.16–05.17') and '추론' in labels[0]
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'][0].update(merchant='AIRBNB * HMSYNTH002'),
+    lambda d: d['transactions'][0].update(merchant='AIRBNB * INC'),
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(service_period=None, service_period_conflict=True),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup')),
+    lambda d: d['results'].append(dict(ota_event_id='other', transaction_id='t1')),
+])
+def test_an_airbnb_card_stays_unknown_when_the_code_pairing_is_unsafe(context, mutation):
+    store, data, _, _ = context
+    airbnb_stay(data)
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_an_airbnb_card_keeps_a_manual_empty_period(context):
+    store, data, _, _ = context
+    airbnb_stay(data)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 def test_rakuten_quote_displays_original_period_without_confirming_payment_or_rewriting_ledger(context):
     store,data,_,calls=context
     rakuten_candidates(data)
@@ -633,8 +732,12 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     assert onsite() == ('07.08 현장 결제', '현장 결제한 카드 이용일 2026-07-08 기준 · 숙박 기간은 원문에 없음')
     assert onsite(day='2026-08-20', tab='trip-open')[0] == '08.20 현장 결제'
     assert onsite(merchant='RAKUTENPAY SYNTHHOTEL')[0] == '07.08 현장 결제'
+    # Arrival the night before the trip's first day is still that trip's stay.
+    assert onsite(day='2026-07-04')[0] == '07.04 현장 결제'
     assert onsite(item='렌터카', merchant='SYNTH RENT A CAR') == (
         '07.08 현장 결제', '현장 결제한 카드 이용일 2026-07-08 기준 · 인수·반납일은 원문에 없음')
+    # A rental broker charge is a booking, not a pickup at the counter.
+    assert onsite(item='렌터카', merchant='DISCOVERCARS*COM') == ('이용일 미확인', '렌터카 인수·반납일 미확인')
 
 
 @pytest.mark.parametrize('values', [
@@ -642,7 +745,7 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     dict(merchant='TRIP.COM'), dict(merchant='RAKUTENTRAVELKOKUNAISH'), dict(merchant='(주)어드벤처코리아'), dict(merchant='KG INICIS'),
     dict(merchant='호텔스닷컴'), dict(merchant='인터파크투어'), dict(merchant='마이리얼트립'), dict(merchant='호텔엔조이'),
     dict(merchant='이스타항공_ARS-이스타항공㈜'),
-    dict(day='2026-07-04'), dict(day='2026-07-13'), dict(tab=''), dict(tab='unknown'),
+    dict(day='2026-07-03'), dict(day='2026-07-13'), dict(tab=''), dict(tab='unknown'),
     dict(reservation_no='R1')])
 def test_a_booking_or_a_charge_outside_its_trip_keeps_the_unknown_date(onsite, values):
     assert onsite(**values) == ('이용일 확인 필요', '이용일 확인 필요')
@@ -709,3 +812,112 @@ def test_a_refund_without_a_known_date_reads_as_a_refund(onsite, item):
         '취소·환불', '취소·환불 거래라 별도 이용일이 없음')
     # A purchase with the same missing evidence still asks for its date.
     assert onsite(item=item, merchant='AGODA.COM')[0] in ('이용일 확인 필요', '이용일 미확인')
+
+
+def identical_rooms(data, rooms=3, cards=3):
+    agoda_recorded(data)
+    base, card_row = data['events'][0], data['transactions'][0]
+    data['events'] = [dict(base, ota_event_id=f'a{n}', booking_ref=f'17443994{n:02d}') for n in range(rooms)]
+    data['transactions'] = [dict(card_row, transaction_id=f't{n}', source_hash=f's{n}') for n in range(cards)]
+    data['results'] = [dict(ota_event_id=f'a{n}', status='HOLD_DATE_UNKNOWN', transaction_id=None) for n in range(rooms)]
+    data['links'] = {}
+
+
+def test_identical_rooms_booked_together_give_every_card_their_shared_stay(context):
+    store, data, _, _ = context
+    identical_rooms(data)
+    before = deepcopy(data)
+    found = stays.stay_index(store)
+    assert {tid: found[tid]['service_period'] for tid in found} == {f't{n}': '2026-07-08~2026-07-09' for n in range(3)}
+    assert found['t0']['booking_ref'] == '' and len(found['t0']['booking_refs']) == 3
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'].pop(),
+    lambda d: d['events'][2].update(service_period={'starts_on': '2026-07-09', 'ends_on': '2026-07-10'}),
+    lambda d: d['events'][1].update(reservation_status='cancelled'),
+    lambda d: d['events'][1].update(refund_status='refund_requested'),
+    lambda d: d['links'].update(other={'transaction_id': 't0'}),
+])
+def test_identical_rooms_stay_unknown_unless_counts_stays_and_status_all_agree(context, mutation):
+    store, data, _, _ = context
+    identical_rooms(data)
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_identical_rooms_read_a_card_foreign_amount_given_without_its_currency(context):
+    store, data, _, _ = context
+    identical_rooms(data)
+    for event in data['events']:
+        event.update(currency='JPY', amount=24332, amount_krw=None)
+    for row in data['transactions']:
+        row.update(amount_krw=211334, foreign_amount='24332.000', foreign_currency='')
+    assert len(stays.stay_index(store)) == 3
+    data['transactions'][0]['foreign_amount'] = '24333.000'
+    assert stays.stay_index(store) == {}
+
+
+def trip_holds(data, holds, cards):
+    data['events'] = [dict(ota_event_id=f'h{n}', provider='trip', booking_ref=f'14008000000000{n:02d}',
+        event_type='reservation', evidence_kind='portal_preauthorization', item='숙박비',
+        reservation_status='completed', booked_on='2026-07-31', preauthorization_amount_krw=amount,
+        preauthorization_refunded_krw=amount, preauthorization_refund='refunded', card_last4='8835',
+        service_period={'starts_on': start, 'ends_on': end}, source_digest=f'd{n}')
+        for n, (amount, start, end) in enumerate(holds)]
+    data['transactions'] = [dict(transaction_id=f't{n}', source_hash=f's{n}', transaction_direction='purchase',
+        amount_krw=amount, merchant='트립닷컴(구)_NICE', card_tail='8835', approval_date=day)
+        for n, (amount, day) in enumerate(cards)]
+    data['results'] = [dict(ota_event_id=f'h{n}', status='NOT_CARD_CHARGE', transaction_id=None) for n in range(len(holds))]
+    data['links'] = {}
+
+
+def preauth_labels(store, tid, **values):
+    value = dict(row_id='card-' + tid, source_event_id=tid, item='숙박비', row_kind='expense', reservation_no='',
+                 service_period='', occurred_on='2026-07-31', amount_krw=421614, source_merchant='트립닷컴(구)_NICE', **values)
+    return scoped(lambda: design._service_date_labels(value))()
+
+
+def test_a_trip_guarantee_hold_reads_as_a_refunded_pre_authorization(context):
+    store, data, _, _ = context
+    trip_holds(data, [(421614, '2026-10-22', '2026-10-23')], [(421614, '2026-07-31')])
+    found = stays.stay_index(store)
+    assert found['t0']['ota_evidence']['kind'] == 'card_preauthorization'
+    assert stays.period_for(dict(row_id='card-t0', source_event_id='t0'), found) == ''
+    assert preauth_labels(store, 't0') == (
+        '10.22–10.23 사전승인', '카드 사전승인(현장 결제 숙박 보증) · 숙박 2026-10-22–2026-10-23 · 환불 완료')
+
+
+def test_equal_holds_for_two_nights_pair_only_as_a_group(context):
+    store, data, _, _ = context
+    trip_holds(data, [(140538, '2026-10-21', '2026-10-22'), (140538, '2026-10-22', '2026-10-23')],
+               [(140538, '2026-07-31'), (140538, '2026-07-31')])
+    compact, full = preauth_labels(store, 't1')
+    assert compact == '사전승인' and '2026-10-21–2026-10-22 또는 2026-10-22–2026-10-23' in full
+
+
+@pytest.mark.parametrize('cards', [
+    [(140538, '2026-07-31')],                              # fewer cards than holds
+    [(140538, '2026-07-31'), (140538, '2026-10-30')],      # one charged after check-in
+    [(140538, '2026-07-31'), (140539, '2026-07-31')],      # different amount
+])
+def test_holds_without_an_exact_group_are_not_labelled(context, cards):
+    store, data, _, _ = context
+    trip_holds(data, [(140538, '2026-10-21', '2026-10-22'), (140538, '2026-10-22', '2026-10-23')], cards)
+    assert stays.stay_index(store) == {}
+
+
+def test_a_cancelled_orders_hold_reads_as_a_cancelled_booking_guarantee(context):
+    store, data, _, _ = context
+    trip_holds(data, [(281076, '2026-10-21', '2026-10-22')], [(281076, '2026-07-31')])
+    data['events'][0].update(reservation_status='cancelled', preauthorization_refund='partly_refunded')
+    assert preauth_labels(store, 't0') == (
+        '사전승인(취소)', '카드 사전승인(취소된 예약 보증) · 원래 숙박 2026-10-21–2026-10-22 · 일부 환불')
+
+
+def test_an_order_of_unknown_state_is_not_used(context):
+    store, data, _, _ = context
+    trip_holds(data, [(281076, '2026-10-21', '2026-10-22')], [(281076, '2026-07-31')])
+    data['events'][0]['reservation_status'] = 'unknown'
+    assert stays.stay_index(store) == {}
