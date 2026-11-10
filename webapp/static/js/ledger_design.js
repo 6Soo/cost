@@ -52,48 +52,11 @@
 (function(){
   function drawer(){return document.getElementById('ledger-drawer');}
   function rowSelector(){return '.tw tr[data-id],.lst .list-row[data-id]';}
-  function rowIds(){return Array.from(document.querySelectorAll(rowSelector())).filter(function(row){return row.getClientRects().length;});}
-  function setRow(id){
-    var url=new URL(location.href);
-    if(id)url.searchParams.set('row',id);else url.searchParams.delete('row');
-    history.replaceState(null,'',url.toString());
-  }
-  var opener=null;
   function closeDrawer(){
-    var dialog=drawer();if(!dialog||!dialog.open)return;
-    var form=dialog.querySelector('form[data-js-save]');
-    if(form&&form.dataset.dirty==='1'&&!window.confirm('저장하지 않은 변경이 있습니다. 닫을까요?'))return;
-    dialog.close();setRow('');
-    document.querySelectorAll('[data-id][aria-selected=true]').forEach(function(row){row.removeAttribute('aria-selected');row.setAttribute('aria-expanded','false');});
-    if(opener&&opener.isConnected)opener.focus({preventScroll:true});
-  }
-  function markOpen(id){
-    document.querySelectorAll('[data-id]').forEach(function(row){
-      var selected=row.dataset.id===id;
-      if(selected)row.setAttribute('aria-selected','true');else row.removeAttribute('aria-selected');
-      row.setAttribute('aria-expanded',selected?'true':'false');
-    });
+    document.dispatchEvent(new Event('ledger:close-panel'));
   }
   function showDrawer(id){
-    var dialog=drawer();if(!dialog||!id)return;
-    var existing=dialog.querySelector('#panel');
-    if(existing&&existing.dataset.row===id){closeDrawer();return;}
-    var row=Array.from(document.querySelectorAll(rowSelector())).find(function(item){return item.dataset.id===id;});
-    if(row)opener=row;
-    var slot=dialog.querySelector('#panel-slot');
-    var url=new URL(location.href);url.searchParams.set('row',id);
-    slot.setAttribute('aria-busy','true');
-    fetch(url.toString(),{headers:{'X-Part':'panel'},credentials:'same-origin'}).then(function(response){
-      if(!response.ok)throw new Error('PANEL_LOAD_FAILED');return response.text();
-    }).then(function(markup){
-      var probe=document.createElement('div');probe.innerHTML=markup;
-      if(!probe.querySelector('#panel'))throw new Error('PANEL_LOAD_FAILED');
-      slot.innerHTML=markup;markOpen(id);setRow(id);
-      if(!dialog.open)dialog.showModal();
-      var panel=slot.querySelector('#panel');if(panel)panel.focus({preventScroll:true});
-    }).catch(function(){
-      var status=document.getElementById('status');if(status){status.textContent='거래 상세를 불러오지 못했습니다. 다시 시도해 주세요.';status.setAttribute('role','alert');}
-    }).finally(function(){slot.removeAttribute('aria-busy');});
+    document.dispatchEvent(new CustomEvent('ledger:open-row',{detail:{id:id}}));
   }
   function activateTab(button,focus){
     var root=button.closest('.view-tabs');if(!root)return;
@@ -473,12 +436,22 @@ function goBack(){location.href=main.dataset.base;}
     {height:height+'px',opacity:1,overflow:'hidden'}
    ],{duration:220,easing:'cubic-bezier(.22,1,.36,1)'});
   }
+  var drawerOpener=null;
   function placeEditor(id){
    cancelEditorExit();
    var slot=document.getElementById('panel-slot');
    var rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]'), target=null;
    for(var i=0;i<rows.length;i++) if(rows[i].dataset.id===id&&rows[i].getClientRects().length){target=rows[i];break;}
    if(!slot||!target)return false;
+   var dialog=document.getElementById('ledger-drawer');
+   if(dialog){
+    drawerOpener=target;
+    if(!dialog.contains(slot))(dialog.querySelector('.drawer-body')||dialog).appendChild(slot);
+    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+    target.setAttribute('aria-expanded','true');target.setAttribute('aria-controls','panel');
+    if(!dialog.open)dialog.showModal();
+    return true;
+   }
    var old=slot.closest('.inline-editor-row,.inline-editor-mobile');
    if(old){document.querySelector('.app').appendChild(slot);old.remove();}
    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
@@ -496,6 +469,15 @@ function goBack(){location.href=main.dataset.base;}
    var slot=document.getElementById('panel-slot');
    if(!slot){if(done)done();return;}
    cancelEditorExit();
+   var dialog=document.getElementById('ledger-drawer');
+   if(dialog&&dialog.contains(slot)){
+    if(dialog.open)dialog.close();
+    slot.innerHTML='';
+    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+    if(drawerOpener&&drawerOpener.isConnected)drawerOpener.focus({preventScroll:true});
+    if(done)done();
+    return;
+   }
    var wrapper=slot.closest('.inline-editor-row,.inline-editor-mobile');
    function finish(){
     editorExitAnimation=null;
@@ -543,7 +525,7 @@ function goBack(){location.href=main.dataset.base;}
    if(!form||!select)return;
    var initial=select.querySelector('option[selected]');
    var values=select.innerHTML,chosen=select.value!==(initial?initial.value:'')?select.value:'';
-   if(form.getAttribute('data-dirty')&&!window.confirm('여행 선택을 유지하고 다른 편집 내용은 취소할까요?'))return;
+   if(!canLeavePanel('여행 선택을 유지하고 다른 편집 내용은 취소할까요?'))return;
    var row=Array.from(document.querySelectorAll('[data-id]')).find(function(el){return el.dataset.id===id&&el.getClientRects().length;});
    if(!row)return;
    releasePanel();removeEditor();setRowParam('');
@@ -692,7 +674,7 @@ function goBack(){location.href=main.dataset.base;}
   // another row, and the previous/next buttons all pass through here. A save in
   // flight is not interrupted — the answer is not on screen yet — and a typed edit
   // is only dropped after the reader says so.
-  function canLeavePanel(){
+  function canLeavePanel(message){
    if(panelLoading) return false;
    if(document.querySelector('form[data-saving="1"]')){
     var slot=(panelForm()&&panelForm().querySelector('.f-msg'))||
@@ -702,9 +684,13 @@ function goBack(){location.href=main.dataset.base;}
    }
    var f=panelForm();
    if(f&&f.getAttribute('data-dirty')&&!window.confirm(
-    '저장하지 않은 변경이 있어요. 저장하지 않고 이동할까요?')) return false;
+    message||'저장하지 않은 변경이 있어요. 저장하지 않고 이동할까요?')) return false;
    return true;
   }
+  document.addEventListener('ledger:open-row',function(event){openPanel(event.detail&&event.detail.id);});
+  document.addEventListener('ledger:close-panel',closePanel);
+  var ledgerDrawer=document.getElementById('ledger-drawer');
+  if(ledgerDrawer)ledgerDrawer.addEventListener('cancel',function(event){event.preventDefault();closePanel();});
   // Leaving is a decision, so the dirty mark goes with it and a change that was
   // held back for this panel is asked for again straight away.
   function releasePanel(){

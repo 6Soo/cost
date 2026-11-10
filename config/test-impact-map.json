@@ -273,8 +273,8 @@
     },
     {
       "name": "ledger-design-assets",
-      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/static/css/ledger_design.css", "webapp/static/js/ledger_design.js", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py"],
-      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/static/css/ledger_design.css", "webapp/static/js/ledger_design.js", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py", "webapp/tests/test_wave3_editor_lifecycle_browser.py", "webapp/tests/test_wave3_income_priority.py"],
+      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py", "webapp/tests/test_wave3_editor_lifecycle_browser.py", "webapp/tests/test_wave3_income_priority.py"]
     },
     {
       "name": "card-catalog-assets",
@@ -318,7 +318,7 @@
     },
     {
       "name": "card-ota-projection",
-      "paths": ["webapp/card_ota_projection.py", "webapp/tests/test_card_ota_projection.py"],
+      "paths": ["webapp/card_ota_projection.py", "webapp/tests/test_card_ota_projection.py", "tests/card_pipeline/test_trip_currency_comparison.py"],
       "tests": ["webapp/tests/test_card_ota_projection.py", "webapp/tests/test_ota_card_evidence_relevance.py", "tests/card_pipeline/test_trip_currency_comparison.py"]
     },
     {

@@ -247,10 +247,10 @@ def _trip_kpi_html(tab_id: str) -> str:
     income = None
     from .google_ledger_page import get_trip_income_summary
     google_income = get_trip_income_summary(tab_id)
-    if google_income and google_income.get('show_rows'):
-        income = int(google_income.get('amount') or 0)
-    elif incomes:
+    if incomes:
         income = sum(board._shown_amount(row) for row in incomes)
+    elif google_income and not _whole_income and google_income.get('show_rows'):
+        income = int(google_income.get('amount') or 0)
     balance = income - expense if income is not None else None
 
     def amount(value):
