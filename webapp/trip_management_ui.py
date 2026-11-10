@@ -43,7 +43,7 @@ def controls(board, trip):
     # every existing form field and POST target, but put the secondary actions in
     # one disclosure menu in the trip header.
     return ("<details class='trip-more' id='trip-settings'>"
-            "<summary class='icon-btn' aria-label='여행 더보기' aria-haspopup='menu'>⋯<span class='sr'>더보기</span></summary>"
+            "<summary class='icon-btn' data-no-action-icon aria-label='여행 작업' aria-haspopup='menu' aria-expanded='false'>⋯<span class='sr'>여행 작업</span></summary>"
             "<div class='trip-more-menu' role='menu'>"
             "<a class='btn' role='menuitem' href='/export?" + esc(urlencode({'tab': tid})) + "'>XLSX 내보내기</a>"
             + close_form.replace("<form ", "<form id='trip-close' ", 1)

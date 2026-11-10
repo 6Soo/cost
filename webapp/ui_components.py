@@ -220,7 +220,9 @@ def steps(items: Iterable[Any]) -> str:
             label, state, note, href = item, "todo", "", ""
         label_html = f'<a href="{_attr(href)}">{_text(label)}</a>' if href else _text(label)
         note_html = f'<span class="step-note">{_text(note)}</span>' if note else ""
-        rows.append(f'<li data-state="{_attr(state)}">{label_html}{note_html}</li>')
+        # Completion is stated in words, never by colour alone.
+        done_html = '<span class="step-state">완료</span>' if state == "done" else ""
+        rows.append(f'<li data-state="{_attr(state)}">{label_html}{done_html}{note_html}</li>')
     return f'<ol class="steps">{"".join(rows)}</ol>'
 
 

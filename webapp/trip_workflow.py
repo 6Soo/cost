@@ -105,15 +105,13 @@ def render(board, trip_id, cost_rows, amount_groups):
     closure_label = {'closed': '마감', 'open': '미마감', 'unknown': '확인 중'}.get(
         state.get('closure'), '확인 중')
     items = [
-        {'label': '지출', 'note': expense_note, 'href': '#view-expense',
-         'state': 'done' if not missing_service_dates else 'todo'},
+        {'label': '지출', 'note': expense_note, 'href': '#view-expense', 'state': 'todo'},
         {'label': '영수증', 'note': receipt_note,
-         'href': '/receipts?' + urlencode({'trip': trip_id}),
-         'state': 'done' if receipt.get('available') else 'todo'},
+         'href': '/receipts?' + urlencode({'trip': trip_id}), 'state': 'todo'},
         {'label': '수입·참가자', 'note': income_note, 'href': '#view-income', 'state': 'todo'},
         {'label': 'Google 복사', 'note': google_note,
          'href': '#copy-trip-expenses', 'state': 'done' if google_done else 'todo'},
-        {'label': '마감', 'note': closure_label, 'href': '#trip-close',
+        {'label': closure_label, 'note': '', 'href': '#trip-close',
          'state': 'done' if state.get('closure') == 'closed' else 'todo'},
     ]
     return (f"<section class='settlement-steps' id='trip-steps' aria-label='정산 단계'>"

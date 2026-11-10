@@ -192,7 +192,7 @@ def _head_html(trip) -> str:
         region = ui_components.chip('국내여행', 'accent') if is_domestic(trip) else ''
         state = ui_components.chip(status, 'neutral' if trip.get('visual_closed') else 'warn')
         trip_switch = (
-            "<button class='btn' id='trip-switch-open' type='button' aria-haspopup='dialog' "
+            "<button class='btn' id='trip-switch-open' data-no-action-icon type='button' aria-haspopup='dialog' "
             "aria-controls='trip-switch-dialog'>여행 전환</button>"
         )
         from . import trip_management_ui
@@ -257,17 +257,23 @@ def _trip_kpi_html(tab_id: str) -> str:
         text = _money(value)
         return text.replace('-', '−', 1) if text.startswith('-') else text
 
-    income_note = ("<a class='kpi-link' href='/google-ledger'>장부 사본 선택 필요</a>"
+    income_note = ("장부 사본 선택 필요"
                    if income is None else f"수입 {len(incomes) or int((google_income or {}).get('count') or 0)}건")
     balance_note = '수입과 지출의 차액' if balance is not None else '수입을 확인하면 계산됩니다'
+    income_kpi = ui_components.kpi('수입', amount(income), income_note)
+    if income is None:
+        income_kpi = income_kpi.replace(
+            "<small>장부 사본 선택 필요</small>",
+            "<small><a class='kpi-link' href='/google-ledger'>장부 사본 선택 필요</a></small>",
+            1)
     return (
         "<dl class='kpi-row' id='sum' aria-label='여행 요약'>"
-        + ui_components.kpi('수입', amount(income), income_note if income is not None else '')
+        + income_kpi
         + f"<div class='kpi'><dt>지출</dt><dd>{board.esc(amount(expense))}</dd>"
           f"<small>{len(expenses)}건</small></div>"
         + f"<div class='kpi'><dt>차액</dt><dd>{board.esc(amount(balance))}</dd>"
-          f"<small>{board.esc(balance_note)}</small></div></dl>"
-        + ("<p class='kpi-cause'><a href='/google-ledger'>장부 사본 선택 필요</a></p>" if income is None else ""))
+        f"<small>{board.esc(balance_note)}</small></div></dl>"
+    )
 
 
 def _expense_toolbar_html(tab_id: str, query: str, kind: str, back: str) -> str:
@@ -1754,7 +1760,7 @@ def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
 
 
 def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
-    """Renders the expense copy controls at the bottom of the trip tab only."""
+    """Renders the expense copy controls in the trip expense tool area."""
     if not _is_trip_tab(tab_id) or board.current_role() != 'owner':
         return ""
     preview = _expense_copy_preview(tab_id, expenses) if preview is None else preview
@@ -2080,11 +2086,11 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
     return (f"<div id='live-rows'>"
+            f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
             f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
-            f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
             f"</div>")
 
 
@@ -2112,11 +2118,11 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     copy_preview = _expense_copy_preview(tab_id, expenses)
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
-    return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
+    return (f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
+            f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches)}"
-            f"{_trip_copy_html(tab_id, expenses, copy_preview)}")
+                            move_back=back, match_annotations=matches)}")
 
 
 def viewer_trips_html(trips) -> str:

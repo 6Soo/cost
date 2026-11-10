@@ -951,7 +951,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .settlement-steps{margin:0 0 var(--s-5);padding:var(--s-4);border:1px solid var(--c-border);border-radius:var(--r-lg);background:var(--c-surface-sunken)}
 .settlement-steps .steps{grid-template-columns:repeat(5,minmax(0,1fr))}
 .settlement-steps .steps li{display:grid;gap:var(--s-1);min-height:4.5rem}
-.settlement-steps .steps li>a{color:var(--c-text);font-weight:650;text-decoration:none}
+.settlement-steps .steps li>a{display:flex;align-items:center;min-height:44px;color:var(--c-text);font-weight:650;text-decoration:none}
 .settlement-steps .steps li[data-state=done]{border-color:var(--c-accent-text)}
 .settlement-steps .steps li[data-state=done]>a::before{content:'✓ ';color:var(--c-accent-text)}
 .view-tabs{min-width:0}
@@ -970,6 +970,8 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .expense-toolbar-copy .trip-copy-title{font-size:var(--t-body-sm);font-weight:650}
 .expense-toolbar-copy .btn-copy-tsv{background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}
 .expense-toolbar-copy .btn-copy-tsv:hover{background:var(--c-accent-solid-hover);border-color:var(--c-accent-solid-hover)}
+.ledger-workspace .kpi dd{font-variant-numeric:tabular-nums}
+.ledger-workspace .kpi small{overflow-wrap:anywhere}
 .kpi-cause{margin:calc(var(--s-2) * -1) 0 var(--s-4);color:var(--c-text-secondary);font-size:var(--t-meta)}
 .kpi-link,.kpi-cause a{color:var(--c-accent-text);text-decoration:underline;text-underline-offset:2px}
 .expense-rows tr[data-category]{transition:background-color var(--motion-fast)}
@@ -990,6 +992,10 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 @media (width < 1024px){
  .ledger-workspace{padding:var(--s-4) var(--s-3) calc(var(--s-7) + var(--s-4))}
  .ledger-workspace .trip-header .ph-actions{justify-content:flex-start}
+ .ledger-workspace .kpi-row{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-2)}
+ .ledger-workspace .kpi{padding:var(--s-2);border-radius:var(--r-md)}
+ .ledger-workspace .kpi dd{font-size:var(--t-h3);line-height:1.25}
+ .ledger-workspace .kpi dt,.ledger-workspace .kpi small{font-size:var(--t-caption)}
  .settlement-steps .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
  .expense-toolbar{align-items:stretch}
  .expense-filter{flex-basis:100%;align-items:stretch}

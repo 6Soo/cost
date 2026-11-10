@@ -1,6 +1,13 @@
 
 (function(){
  document.addEventListener('DOMContentLoaded',function(){
+  var tripMore=document.getElementById('trip-settings');
+  if(tripMore){
+   var tripMoreSummary=tripMore.querySelector('summary');
+   var syncTripMore=function(){if(tripMoreSummary)tripMoreSummary.setAttribute('aria-expanded',String(tripMore.open));};
+   tripMore.addEventListener('toggle',syncTripMore);
+   syncTripMore();
+  }
   if(!document.querySelector('.trip-actions'))return;
   document.documentElement.classList.add('trip-actions-ready');
   function sync(){
@@ -116,15 +123,30 @@
     var body=table.querySelector('tbody.expense-rows[data-kind=expense]');if(!body)return;
     body.querySelectorAll('.group-row').forEach(function(row){row.remove();});
     var rows=Array.from(body.querySelectorAll(':scope > tr[data-id]'));
-    if(!toggle.checked)return;
-    var groups=new Map();rows.forEach(function(row){var key=row.dataset.category||'기타';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);});
+    var entries=rows.map(function(row,index){
+      if(row.dataset.ledgerOrder===undefined)row.dataset.ledgerOrder=String(index);
+      return {row:row,move:body.querySelector('[data-move-for="'+CSS.escape(row.dataset.id)+'"]')};
+    });
+    // Detach the data rows and their optional move forms before rebuilding the
+    // body. Otherwise new group headers would be appended after the original
+    // rows and the grouping toggle would appear to do nothing.
+    entries.forEach(function(entry){
+      entry.row.remove();
+      if(entry.move)entry.move.remove();
+    });
+    if(!toggle.checked){
+      entries.sort(function(a,b){return Number(a.row.dataset.ledgerOrder)-Number(b.row.dataset.ledgerOrder);});
+      entries.forEach(function(entry){body.appendChild(entry.row);if(entry.move)body.appendChild(entry.move);});
+      return;
+    }
+    var groups=new Map();entries.forEach(function(entry){var key=entry.row.dataset.category||'기타';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(entry);});
     groups.forEach(function(items,key){
-      items.sort(function(a,b){var ad=a.querySelector('.c-date')?.getAttribute('title')||'';var bd=b.querySelector('.c-date')?.getAttribute('title')||'';return ad.localeCompare(bd);});
-      var total=items.reduce(function(sum,row){return sum+Number(row.dataset.amount||0);},0);
+      items.sort(function(a,b){return Number(a.row.dataset.ledgerOrder)-Number(b.row.dataset.ledgerOrder);});
+      var total=items.reduce(function(sum,entry){return sum+Number(entry.row.dataset.amount||0);},0);
       var head=document.createElement('tr');head.className='group-row';
       var cell=document.createElement('th');cell.scope='rowgroup';cell.colSpan=table.querySelectorAll('thead th').length;cell.textContent=key+' · '+items.length+'건';
       var totalSpan=document.createElement('span');totalSpan.className='group-total';totalSpan.textContent=new Intl.NumberFormat('ko-KR').format(total)+'원';cell.appendChild(totalSpan);head.appendChild(cell);body.appendChild(head);
-      items.forEach(function(row){body.appendChild(row);var move=body.querySelector('[data-move-for="'+CSS.escape(row.dataset.id)+'"]');if(move)body.appendChild(move);});
+      items.forEach(function(entry){body.appendChild(entry.row);if(entry.move)body.appendChild(entry.move);});
     });
     }finally{grouping=false;}
   }
