@@ -345,8 +345,11 @@ CARD_ALL_STYLE = """
   .card-all-page .filter-bar .field:has(select[name=period]){grid-column:1;grid-row:1}
   .card-all-page .filter-bar .field:has(select[name=card]){grid-column:2;grid-row:1}
   .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{width:100%;min-height:44px;font-size:var(--t-body);padding:5px 8px}
-  .card-all-page .filter-bar button,.card-all-page .filter-bar>.btn{width:100%;min-height:44px;padding:5px 8px}
-  .card-all-page .filter-bar>.btn{display:flex;align-items:center;justify-content:center}
+ .card-all-page .filter-bar button,.card-all-page .filter-bar>.btn{width:100%;min-height:44px;padding:5px 8px}
+ .card-all-page .filter-bar>.btn{display:flex;align-items:center;justify-content:center}
+ }
+ @media (width < 1024px){
+  .card-all-page .filter-bar .field input,.card-all-page .filter-bar .field select{min-height:44px;font-size:var(--t-body)}
  }
  .card-all-page details>summary{list-style:none}.card-all-page details>summary::-webkit-details-marker{display:none}.card-all-page details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.card-all-page details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.card-all-page details>summary::after{transition:none}}</style>
 """
