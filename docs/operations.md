@@ -2,6 +2,16 @@
 
 > 이 문서는 현재 유효한 운영 절차와 2026-11-08 이후 배포 기록만 둔다. 2026-11-07 이전 기록은 [10/28~11/07](history/operations-20261028-20261107.md), 2026-10-27까지는 [운영 이력](history/operations-through-20261027.md)에 원문 그대로 보관한다. 2026-11-09 작업공간 통합 정리 상태는 [현재 상태](session_handoff.md)를 본다.
 
+## 2026-11-11 도구 없는 P2 코드 배포 — 첫 묶음 가동 전
+
+- 운영 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`([PR #797](https://github.com/6Soo/cost/pull/797)), 이전 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, 전환 완료 2026-11-11 04:56:02 KST. `tools/deploy_verified_release.ps1`의 정확 SHA 배포이며 파일 1,543개·blob 불일치 0, Board·Worker와 listener SHA 일치, backend 8752다. 다음 배포 `-PreviousSha`는 `bd4646a1`이다.
+- health/ready 200, 인증 없는 OTA API 두 경로와 합성 환불 미리보기 API 401, 보호 테이블 13개 전체 불변. 금융 반영·Google 쓰기·고객 P2 호출은 이 배포에서 하지 않았다. P2는 `autonomous_ai_review=false`, `autonomous_p2_full_rollout=false`로 배포했다.
+- 직전 백업·복원 검증은 04:51:58 KST 완료: DB 5개·파일 45개, DB의 모든 테이블/열·원본 파일 해시·복원 review binding 동등, 운영 상태 불변, 복원 서버 시작·실제 가져오기·요청 replay는 미실행이다. 첫 백업 실패는 상태 파일의 동시 갱신 경로를 확인하고 기록을 보존했다. v2 검증 중 관리 중인 Board·Worker·Gateway를 잠시 정지하고 모두 원래 SHA로 복구한 뒤 코드 배포를 수행했다.
+- continuous code 배포 도구의 `fresh_backup_restore=false`는 `BackupProducts` 미사용을 뜻한다. 별도 `restore-evidence-v2.json`의 신선 백업·복원 통과와 구분한다. 이 값을 임의로 변경하지 않는다.
+- 배포 증거: `D:/WebLedgerHost/releases/deploy-evidence-bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c.json`. 비공개 로컬 근거: `.local-archive/manager-resume-20261111/p2-release/`의 `restore-evidence-v2.json`, `safety-ready-v2.json`, `review-evidence.json`, `protection-before.json`, `protection-after.json`, `deploy-evidence.json`.
+- 05:04 KST에 첫 50건 제한 제어를 시작했다. 비활성 상태로 배포하면 `enabled_for()`가 Worker를 생성하지 않으므로, 독립 sol medium 검수를 통과한 제어가 gateway drain 뒤 같은 배포의 Board 예약 작업만 재시작하고 ready·route resume을 확인했다. 고유 사건 50건·호출 예산 60회·야간 22~06시·한도/인증 오류 종료·finally 비활성화·원본/수동/금융 보호 전후 대조를 유지한다. 고객 결과와 종료는 아직 미확정이다.
+- 별도 OTA 코드 PR #798은 main에 병합했으나 이 운영 릴리스에는 포함하지 않았다. 첫 50건 가동·표본 검수·종료 결과는 별도 기록하며, 전체 미해결 건으로 확대하지 않는다.
+
 ## 2026-11-11 M1 읽기 전용 기준선
 
 [통합 명세 §10 M1](SPEC.md#10-로드맵)의 집계다. 재현 도구는 [m1-baseline-20261111.py](agents/artifacts/m1-baseline-20261111.py)이며 저장소 루트에서 다음 명령을 실행한다. SQLite는 모두 URI `mode=ro`와 `query_only=ON`으로 열고, 집계 연결에는 읽기 트랜잭션을 둔다. 도구는 고객 원문·금액·원본 식별자를 출력하지 않는다. 파일 쓰기·네트워크·외부 프로세스 호출은 프로세스 내 가드로 거절한다. 운영 앱·Worker를 시작하거나 운영 데이터를 갱신하지 않는다.

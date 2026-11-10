@@ -1,5 +1,14 @@
 # 현재 상태
 
+## 2026-11-11 P2 코드 운영 배포·OTA 수집 스크립트 병합
+
+- **현재 운영 SHA는 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`**([PR #797](https://github.com/6Soo/cost/pull/797))다. 공식 배포 도구로 2026-11-11 04:56 KST에 전환했고 Board·Worker 예약 작업과 실제 listener의 SHA를 확인했다. health/ready 200·비인증 API 401·보호 13표 불변이다. 이전 운영은 `965bca05`이며 다음 배포의 `-PreviousSha`는 `bd4646a1`이다.
+- 배포 전 **5개 DB·45개 파일의 신선 백업과 별도 복원 대조**를 완료했다. 모든 DB 테이블·열, 원본 파일 해시, review binding이 일치하고 운영 상태는 불변이다. 최초 백업 실패 기록은 보존한다. 게이트웨이 상태 파일의 동시 갱신을 막은 v2 검증은 04:51:58 KST 완료됐다. continuous code 배포는 `BackupProducts`를 사용하지 않았으며 별도 복원 검증 근거로 구분한다.
+- P2는 비활성 상태로 배포했다. startup 조건상 Worker가 생성되지 않아 독립 sol medium 검수를 통과한 제어로 같은 배포의 Board 예약 작업만 재시작했다. 05:04 KST에 **첫 50건 제한 실행을 시작**했고 gateway drain·재시작 ready·route resume을 확인했다. 고유 사건 50건·호출 예산 60회·야간 시간·한도/인증 오류 종료와 finally 비활성화·전후 보호 비교를 유지한다. 첫 50건 완료는 아직 아니며 전체 실행은 금지한다.
+- OTA 수집 코드 [PR #798](https://github.com/6Soo/cost/pull/798)은 `a050d65f045c07c8469883bc95a211939222e82e`로 병합했다. 최종 `a11d5ea8` 독립 gpt-6.1-sol medium APPROVE, 표적 Node wrapper 1건(내부 52건)과 최종 영향 84건·실패/오류/skip 0·compile 0을 확인했다. CI는 steps 0의 결제 한도 차단이며 녹색으로 보고하지 않는다. 원본 importer 구조를 보존하고 manifest에서 원본 파일명·예약번호를 제외했다. 실사이트 수집·예약 등록·운영 DB 가져오기는 실행하지 않았다. 운영은 여전히 P2의 `bd4646a1`이다.
+- C `3340b0fb` 고정 검사는 149파일 전부 완료됐다. 고유 2,177건 중 2,143 passed·34 failed·skip 0이며 신규 실패 2건(390 닫기 selector·font token)이 있어 통과가 아니다. 후속 `d40b2c64`가 이 결과를 보존하고 신규 실패와 수입 연결 보호 단언을 복구한다. E2는 기존 `60d8fb44`가 실제 ego entry와 합성 완주를 보완 중이다. E3는 로그인 세션 확인이 남은 PARTIAL이다. A/B/A-R/D1 완료 항목은 재실행하지 않는다.
+- 비공개 근거: `.local-archive/manager-resume-20261111/resume-453dc562.md`, `p2-release/`, `ota-integration-final/`. 기존 미추적 QA 파일 3개는 원래 해시로 복원했다. 고객 원문·식별자를 Git에 포함하지 않는다.
+
 ## 2026-11-11 재개 검수 — D 예약 합성 통과·C/E1 수정 요구
 
 - D 최종 후보 `be3a3090dadd2d0b882d6211677af8016df9f68b`는 독립 `gpt-6.1-sol` medium 소스 검수 APPROVE, 관리자 직접 P2 표적 검사 **70 passed**다. 최종 영향 검사는 895 실행·892 통과·기준선 UI 실패 3·skip 0이며 실패 상태 자체를 통과로 바꾸지 않는다. 같은 base `1ad1364d` 대조 근거를 최종 병합 기록에 포함한다.
