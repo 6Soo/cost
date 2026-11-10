@@ -219,6 +219,7 @@ def measure(args):
         counts['provider_calls'] += 1
         counts['provider_cases'] += len(request['cases'])
         result = helpers.response_for(request)
+        result['execution']['run_id'] = 'synthetic-scale-' + str(counts['provider_calls'])
         result['more_evidence'] = []
         for item in result['results']:
             item.update(service_start='', service_end='', evidence_refs=[], rule_ids=['PROC-001'])

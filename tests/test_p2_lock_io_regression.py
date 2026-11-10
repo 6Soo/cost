@@ -217,3 +217,42 @@ def test_index_candidates_match_full_scan(tmp_path, monkeypatch):
     monkeypatch.setattr(p2_case._Index, 'candidates', lambda self, row: range(len(self.entries)))
     assert indexed == [[e['ref'] for e in repo._source_evidence(row)] for row in rows]
     assert any(indexed) and not all(indexed)
+
+def test_no_bundle_assembly_runs_under_board_lock(setup, monkeypatch):
+    from app import p2_case
+    from tests.test_p2_worker_boundaries import rich_response
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 2)
+    make_weak_rows(setup, batch, rows, trip)
+    held, original = [], p2_case.assemble
+    def assemble(*args, **kwargs):
+        held.append(setup._lock._is_owned())
+        return original(*args, **kwargs)
+    monkeypatch.setattr(p2_case, 'assemble', assemble)
+    class Repository:
+        def select(self, case, row):
+            return []
+    AutonomousCleanupWorker(setup, setup._lock, provider=rich_response, evidence_repository=Repository()).sweep_once()
+    assert held and not any(held)
+    assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 2
+
+
+def test_ledger_change_after_unlocked_rebuild_refuses_apply(setup, monkeypatch):
+    # Only history evidence differs between the unlocked rebuild (read snapshot)
+    # and the writer connection; apply's own revision binding cannot see it.
+    from app import p2_case
+    from webapp.autonomous_cleanup_worker import load_job
+    from tests.test_p2_worker_boundaries import rich_response
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    ids = make_weak_rows(setup, batch, rows, trip)
+    repository = p2_case.Repository(setup.conn, {})
+    def history(row):
+        if repository.conn is setup.conn:
+            return [dict(ref='history:changed', kind='history', transaction_id=row['transaction_id'], content={'x': 1})]
+        return []
+    monkeypatch.setattr(repository, 'history', history)
+    AutonomousCleanupWorker(setup, setup._lock, provider=rich_response, evidence_repository=repository).sweep_once()
+    assert load_job(setup.conn, ids[0])['status'] == 'ai_retry'
+    assert load_job(setup.conn, ids[0])['reason'] == 'apply_AI_EVIDENCE_STALE'
+    assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 0

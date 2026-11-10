@@ -592,14 +592,19 @@ class AutonomousCleanupWorker:
                 repository.conn = self.board.conn
             reader.close()
 
-    def _gather_unlocked(self, request, repository, lookups, check_budget):
+    def _verify_fresh_unlocked(self, request, bundle, repository, lookups, check_budget, bundle_limit, trips):
+        """Rebuild the bundle from a read snapshot outside the writer locks.
+
+        Returns the ledger inputs that rebuild used. The caller re-reads only those
+        under the writer lock and must find them unchanged before apply."""
         from app import p2_case
         owned = isinstance(repository, p2_case.Repository)
         if owned:
             repository.begin_snapshot(check_budget, new_round=False)
         gathered = []
         with self._read_view(repository) as reader:
-            rows = {r['transaction_id']: r for r in p2_case._read(reader, [c['transaction_id'] for c in request['cases']])}
+            ledger = self._ledger_inputs(reader, request, repository, lookups)
+            rows = {r['transaction_id']: r for r in ledger[0]}
             for case in sorted(request['cases'], key=lambda c: c['transaction_id']):
                 row = rows.get(case['transaction_id'])
                 if row is None:
@@ -608,21 +613,24 @@ class AutonomousCleanupWorker:
             for query in lookups:
                 if not owned or query['kind'] != 'card_search':
                     gathered.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
-        return gathered
+            current = p2_case.assemble(reader, trips, request, repository=None, max_bytes=bundle_limit,
+                                       extra=gathered + ledger[1])
+        if current != bundle:
+            raise ValueError('AI_EVIDENCE_STALE')
+        return ledger
 
-    def _ledger_evidence(self, request, repository, lookups):
-        """Ledger-backed evidence re-read on the writer connection (caller holds the lock)."""
+    def _ledger_inputs(self, conn, request, repository, lookups):
+        """Case rows plus ledger-backed evidence (history, card lookups) read on `conn`."""
         from app import p2_case
-        if not isinstance(repository, p2_case.Repository):
-            return []
-        output = []
-        for row in p2_case._read(self.board.conn, [c['transaction_id'] for c in request['cases']]):
-            output.extend(repository.history(row))
-        for query in lookups:
-            if query['kind'] == 'card_search':
-                output.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
-        return output
-
+        rows = p2_case._read(conn, [c['transaction_id'] for c in request['cases']])
+        evidence = []
+        if isinstance(repository, p2_case.Repository):
+            for row in rows:
+                evidence.extend(repository.history(row))
+            for query in lookups:
+                if query['kind'] == 'card_search':
+                    evidence.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
+        return rows, evidence
     def _call_agent_impl(self, request, due_rows, fingerprints, now, all_rows):
         from app import ai_classification, connected_agent_provider, frontier_agent_provider, p2_case
 
@@ -789,12 +797,13 @@ class AutonomousCleanupWorker:
                 self._finish(all_rows)
             return True
         response = {key: value for key, value in response.items() if not key.startswith('_')}
-        gathered = stale = None
+        ledger = stale = None
         try:
             if bundle is not None:
-                # Re-read file evidence outside the writer locks. Only ledger rows,
-                # history and card lookups are re-read under the lock below.
-                gathered = self._gather_unlocked(request, repository, lookups, check_budget)
+                # Re-read sources and rebuild the bundle outside the writer locks;
+                # under the lock only the ledger inputs are re-read and compared.
+                ledger = self._verify_fresh_unlocked(request, bundle, repository, lookups, check_budget,
+                                                     bundle_limit, trips)
         except Exception as exc:
             stale = exc
         with self._writer_locks():
@@ -802,12 +811,8 @@ class AutonomousCleanupWorker:
                 if stale is not None:
                     raise stale
                 trips, nets = self._fresh_context()
-                if bundle is not None:
-                    current_bundle = p2_case.assemble(self.board.conn, trips, request, repository=None,
-                        max_bytes=bundle_limit,
-                        extra=gathered + self._ledger_evidence(request, repository, lookups))
-                    if current_bundle != bundle:
-                        raise ValueError('AI_EVIDENCE_STALE')
+                if bundle is not None and self._ledger_inputs(self.board.conn, request, repository, lookups) != ledger:
+                    raise ValueError('AI_EVIDENCE_STALE')
                 check_budget(force=True)
                 result = ai_classification.apply(
                     self.board.conn, trips, request, response,
