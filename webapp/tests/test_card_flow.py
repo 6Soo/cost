@@ -1350,7 +1350,7 @@ class CardFlowTests(unittest.TestCase):
         self.assertNotIn("장부 반영 대기", html)
         self.assertNotIn("href='/my-actions'", html)
         self.assertNotIn("직접 답할 작업", html)
-        self.assertIn("class='home-secondary'", html)
+        self.assertNotIn("class='home-secondary'", html)
         self.assertIn("href='/cards/all?panel=upload'", html)
         self.assertIn("카드 업로드</a>", html)
         self.assertNotIn("지출 정리", html)

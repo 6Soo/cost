@@ -1670,7 +1670,7 @@ def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: s
             + ''.join(cards) + "</tbody></table></div>"
             "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></section>")
     return ledger_design.render(ledger_design.shell(
-        "여행 관리", tab_id="", heading="여행 관리", body=body))
+        "여행", tab_id="", heading="여행", body=body))
 
 
 def export_page(selected_tab: str = "") -> str:

@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -397,18 +398,17 @@ def home_page(board):
     listed_trips = sorted(trips, key=lambda t:(t['starts_on'], t['display_key']))
     trip_heading = '진행 중 여행'
     posted = board.visible_row_count()
+    try:
+        trip_summaries = board.trip_management_summaries()
+    except (AttributeError, sqlite3.Error, ValueError, KeyError, TypeError):
+        trip_summaries = {}
     def short_date(value):
         parts = str(value).split('-')
         return f"{parts[1]}.{parts[2]}" if len(parts) == 3 else str(value)
 
     def trip_expense_count(trip):
-        try:
-            row = board.conn.execute(
-                "SELECT COUNT(*) FROM board_rows WHERE row_kind='expense' AND display_tab_id=?",
-                (trip['tab_id'],)).fetchone()
-            return int(row[0] or 0)
-        except Exception:
-            return 0
+        summary = trip_summaries.get(trip['tab_id'], {}) if isinstance(trip_summaries, dict) else {}
+        return int(summary.get('expense_count', 0) or 0)
     items = ''.join(
         f"<tr><th scope='row'><a href='/board?tab={esc(t['tab_id'])}'>{esc(t['display_key'])}</a></th>"
         f"<td>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</td>"
@@ -445,7 +445,6 @@ def home_page(board):
              ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:var(--c-on-accent)}"
             ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:var(--c-on-accent)}"
             ".home-primary{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 0 10px!important}"
-            ".home-secondary{display:flex;gap:10px;flex-wrap:wrap}"
             ".home-travel-section{padding:18px 24px 22px}"
             ".home-travel-heading{font-size:var(--t-h3)!important;margin:0 0 8px!important}"
             ".home-trips{margin:0 0 8px!important}"
@@ -468,7 +467,7 @@ def home_page(board):
             "}"
             "</style>"
             "<section class='home-overview' aria-label='자료 상태'>"
-                "<h2 class='home-travel-heading'>자료 상태</h2><span class='home-secondary' aria-hidden='true'></span><ul class='home-status-list'>"
+                "<h2 class='home-travel-heading'>자료 상태</h2><ul class='home-status-list'>"
             + f"<li><span>카드 자료</span><strong>{'저장된 카드 거래 전체' if not review_from else '조회 기간 내 카드 거래'} <b>{saved}</b> · 장부 <b>{posted}</b></strong>"
             + (f" · 마지막 거래 {esc(last_transaction)}" if last_transaction else "")
             + (f" <a href='/cards/all?panel=coverage'>빈 기간 {gap_count}곳 보기</a>" if gap_count else "") + "</li>"

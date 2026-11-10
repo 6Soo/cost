@@ -8,7 +8,9 @@ def test_receipt_page_can_upload_iphone_heic_and_multiple_photos():
         csrf="test-csrf",
         trips=[{"id": "test-trip", "name": "합성 여행"}],
     )
-    assert "type='file' multiple accept='image/*,application/pdf,.pdf'" in html
+    assert 'type="file"' in html
+    assert 'accept="image/*,application/pdf,.pdf"' in html
+    assert 'multiple' in html
     assert "normalizeReceiptImage=async file" in html
     assert "canvas.toBlob(resolve,'image/jpeg',quality)" in html
     assert "await normalizeReceiptImage(file)" in html
