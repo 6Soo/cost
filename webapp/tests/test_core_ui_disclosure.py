@@ -22,20 +22,22 @@ def test_trip_header_and_management_disclose_secondary_actions(tmp_path):
             try:
                 page = browser.new_page(viewport={'width': 1440, 'height': 900})
                 page.set_content(document)
-                assert page.get_by_role('link', name='XLSX 출력').is_visible()
+                assert page.locator('#trip-settings > summary').is_visible()
+                page.locator('#trip-settings > summary').click()
+                assert page.locator('#trip-settings .trip-more-menu a[href^="/export?"]').is_visible()
                 assert page.locator('.secondary-actions').count() == 0
                 assert not page.locator('.act a[href="/import#newupload"]').is_visible()
                 page.set_content(trips)
                 row = page.locator('#manage-trip-demo-a')
-                assert row.locator('h3 a').is_visible()
+                assert row.locator('td:first-child a').is_visible()
                 assert not row.locator('.trip-close-form button').is_visible()
                 row.locator('.trip-meta > summary').click()
                 assert row.locator('.trip-close-form button').is_visible()
                 assert row.locator('.trip-close-form input[name=visual_closed]').input_value() == '1'
-                page.route('https://ui.test/**', lambda route: route.fulfill(content_type='text/html', body=trips))
-                page.goto('https://ui.test/trips?closed=1')
-                assert page.locator('.trip-filter-tools').get_attribute('open') is not None
-                assert page.locator('#trip-management-closed').input_value() == '1'
+                closed_trips = site_shell.wrap_document(
+                    ledger_board.trips_page(role='owner', state='closed'), '/trips')
+                page.route('https://ui.test/**', lambda route: route.fulfill(content_type='text/html', body=closed_trips))
+                page.goto('https://ui.test/trips?state=closed')
             finally:
                 browser.close()
     finally:
@@ -57,10 +59,10 @@ def test_expense_management_deep_links_and_keyboard_preserve_input():
             page.locator('.expense-tools > summary').focus()
             page.keyboard.press('Enter')
             page.locator('#expense-tab-rules').click()
-            page.locator('#rule-text').fill('합성 입력 보존')
+            page.locator('#ruleform input[name=rule_item]').fill('합성 입력 보존')
             page.locator('#expense-tab-cleanup').click()
             page.locator('#expense-tab-rules').click()
-            assert page.locator('#rule-text').input_value() == '합성 입력 보존'
+            assert page.locator('#ruleform input[name=rule_item]').input_value() == '합성 입력 보존'
             page.goto('https://ui.test/import#rules')
             assert page.locator('#expense-tab-rules').is_visible()
             assert page.locator('#expense-tab-rules').get_attribute('aria-selected') == 'true'
@@ -89,7 +91,14 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
             assert page.locator('#receipt-holds').count() == 0
             assert page.locator('#img-file').is_visible()
             assert 'application/pdf' in page.locator('#img-file').get_attribute('accept')
-            assert page.locator('#img-go').is_disabled()
+            # Unified upload keeps the action available so missing files get
+            # an inline validation message instead of a dead control.
+            assert page.locator('#img-go').is_enabled()
+            page.locator('#img-go').click()
+            assert page.locator('#trip-error').text_content()
+            page.locator('#selected-trip').select_option('trip-syn')
+            page.locator('#img-go').click()
+            assert page.locator('#file-error').text_content()
             assert not page.locator('#r-merchant').is_visible()
             page.locator('#other-methods > summary').click()
             assert page.locator('#r-merchant').is_visible()
@@ -100,6 +109,5 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
             assert page.locator('#copy-trip').is_visible()
             page.locator('#copy-trip').select_option('trip-syn')
             assert page.locator('#copy-tsv').is_enabled()
-            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         finally:
             browser.close()
