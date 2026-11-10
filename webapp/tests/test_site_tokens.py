@@ -87,15 +87,14 @@ def test_tokens_actively_consumed_and_synchronized():
     """Verify geometry and control tokens are actively consumed across multiple elements."""
     shell_css = site_assets.SHELL_STYLE
 
-    # --shell-nav-width consumed in lockstep by #nav and #site-content
+    # --shell-nav-width drives the desktop grid and nav geometry.
+    assert "grid-template-columns:var(--shell-nav-width,232px)" in shell_css
     assert "width:var(--shell-nav-width,232px)" in shell_css
     assert "flex:0 0 var(--shell-nav-width,232px)" in shell_css
-    assert "margin-left:var(--shell-nav-width,232px)" in shell_css
-    assert "width:calc(100% - var(--shell-nav-width,232px))" in shell_css
 
-    # --shell-drawer-width consumed by mobile drawer selectors
-    assert "width:min(var(--shell-drawer-width,min(300px,85vw)),100%)" in shell_css
-    assert "width:var(--shell-drawer-width,min(300px,85vw))" in shell_css
+    # Mobile uses the full-width bottom sheet; the drawer token is no longer
+    # consumed by a hidden side drawer.
+    assert ".site-more-dialog" in shell_css
 
     # --shell-topbar-height consumed by topbar
     assert "min-height:var(--shell-topbar-height,56px)" in shell_css
@@ -130,22 +129,23 @@ def test_dynamic_override_propagation():
             # Default desktop navigation width is 232px
             assert round(page.locator("#nav").bounding_box()["width"]) == 232
 
-            # Dynamically override --shell-nav-width on :root -> both #nav and #site-content track synchronously
+            # Dynamically override --shell-nav-width on :root -> nav and grid track synchronously
             page.evaluate("() => document.documentElement.style.setProperty('--shell-nav-width', '260px')")
             assert round(page.locator("#nav").bounding_box()["width"]) == 260
-            content_ml = page.locator("#site-content").evaluate("el => parseFloat(getComputedStyle(el).marginLeft)")
-            assert round(content_ml) == 260
+            grid = page.locator('.site-app').evaluate("el => getComputedStyle(el).gridTemplateColumns.split(' ')[0]")
+            assert round(float(grid.replace('px', ''))) == 260
 
             # Switch to mobile viewport
             page.set_viewport_size({"width": 375, "height": 800})
 
-            # Default control size is 44px
-            assert round(page.locator(".site-menu-toggle").bounding_box()["height"]) >= 44
+            # Default control size is 44px. Mobile theme lives in the more sheet.
+            page.locator('.site-more-bottom').click()
+            assert round(page.locator(".site-more-bottom").bounding_box()["height"]) >= 44
             assert round(page.locator("#site-theme-toggle").bounding_box()["height"]) >= 44
 
             # Dynamically override --shell-control-min on :root -> both controls scale up
             page.evaluate("() => document.documentElement.style.setProperty('--shell-control-min', '52px')")
-            assert round(page.locator(".site-menu-toggle").bounding_box()["height"]) >= 52
+            assert round(page.locator(".site-more-bottom").bounding_box()["height"]) >= 52
             assert round(page.locator("#site-theme-toggle").bounding_box()["height"]) >= 52
             assert round(page.locator("#site-theme-toggle").bounding_box()["width"]) >= 52
         finally:
@@ -227,23 +227,18 @@ def test_chromium_true_baseline_differential_matrix():
                         assert c_base == c_curr, f"Standalone color diff at w={width}, s={scale}, t={theme}: {c_base} vs {c_curr}"
 
                         # 2. Normalized geometry (raw bounding box / scale)
-                        if width >= 760:
+                        if width >= 1024:
                             # Desktop: sidebar width normalized is 232px on both
                             nav_base_w = p_base_std.locator("#nav").bounding_box()["width"] / scale
                             nav_curr_w = p_curr_std.locator("#nav").bounding_box()["width"] / scale
                             assert round(nav_base_w) == 232 == round(nav_curr_w)
                         else:
-                            # Mobile (<760, including 759):
-                            # Theme toggle is 44px on both
-                            toggle_base_w = p_base_std.locator("#site-theme-toggle").bounding_box()["width"] / scale
+                            # Mobile uses the bottom navigation and opens the more sheet
+                            # before measuring the relocated theme control.
+                            p_curr_std.locator('.site-more-bottom').click()
                             toggle_curr_w = p_curr_std.locator("#site-theme-toggle").bounding_box()["width"] / scale
-                            assert round(toggle_base_w) == 44 == round(toggle_curr_w)
-
-                            # Menu toggle: strictly expected 40px -> 44px upgrade difference
-                            menu_base_h = p_base_std.locator(".site-menu-toggle").bounding_box()["height"] / scale
-                            menu_curr_h = p_curr_std.locator(".site-menu-toggle").bounding_box()["height"] / scale
-                            assert round(menu_base_h) == 40, f"Expected baseline menu height 40, got {menu_base_h}"
-                            assert round(menu_curr_h) == 44, f"Expected candidate menu height 44, got {menu_curr_h}"
+                            assert round(toggle_curr_w) == 44
+                            p_curr_std.locator('.site-more-close button').click()
 
             # Matrix 2: Native Ledger Pages Differential
             p_base_nat = context.new_page()
@@ -272,10 +267,20 @@ def test_chromium_true_baseline_differential_matrix():
                         nat_c_curr = p_curr_nat.evaluate("() => ({ sel: getComputedStyle(document.documentElement).getPropertyValue('--sel').trim(), grn: getComputedStyle(document.documentElement).getPropertyValue('--grn').trim(), lineStrong: getComputedStyle(document.documentElement).getPropertyValue('--line-strong').trim(), hover: getComputedStyle(document.documentElement).getPropertyValue('--hover').trim() })")
                         assert nat_c_base == nat_c_curr, f"Native color diff at w={width}, s={scale}, t={theme}: {nat_c_base} vs {nat_c_curr}"
 
-                        if width >= 760:
-                            nat_nav_base = p_base_nat.locator("#nav").bounding_box()["width"] / scale
-                            nat_nav_curr = p_curr_nat.locator("#nav").bounding_box()["width"] / scale
+                        if width >= 1024:
+                            # The native fixture contains both the shell aside and
+                            # its demo nav; measure the shell aside explicitly.
+                            nat_nav_base = p_base_nat.locator("aside#nav").bounding_box()["width"] / scale
+                            nat_nav_curr = p_curr_nat.locator("aside#nav").bounding_box()["width"] / scale
                             assert round(nat_nav_base) == 232 == round(nat_nav_curr)
+                        else:
+                            # Mobile navigation uses the bottom bar and more sheet;
+                            # the relocated theme control still consumes the shared
+                            # control token at every narrow viewport.
+                            p_curr_nat.locator(".site-more-bottom").click()
+                            toggle_curr_w = p_curr_nat.locator("#site-theme-toggle").bounding_box()["width"] / scale
+                            assert round(toggle_curr_w) == 44
+                            p_curr_nat.locator(".site-more-close button").click()
 
             # Accessibility: reduced motion check
             p_curr_std.emulate_media(reduced_motion="reduce")

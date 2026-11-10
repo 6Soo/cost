@@ -218,7 +218,7 @@ def _topbar(title, back_href='', role='owner'):
     back = ("<a class='site-back' href='" + _esc(back_href) + "' aria-label='이전'>" + ui_icons.icon('chevron-left', 20) + "</a>"
             if back_href else "<a class='site-brand-mobile' href='/' aria-label='숲길여행 회계 홈으로 이동'>숲길여행 회계</a>")
     theme = site_theme.BUTTON if role != 'viewer' else ''
-    return "<header class='site-topbar'>" + back + "<span class='site-topbar-title'>" + _esc(title) + "</span>" + theme + "</header>"
+    return '<header class="site-topbar">' + back + "<span class='site-topbar-title'>" + _esc(title) + "</span>" + theme + "</header>"
 
 
 def _bottom_nav(section, role):
