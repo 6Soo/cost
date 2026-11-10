@@ -59,10 +59,10 @@ def test_expense_management_deep_links_and_keyboard_preserve_input():
             page.locator('.expense-tools > summary').focus()
             page.keyboard.press('Enter')
             page.locator('#expense-tab-rules').click()
-            page.locator('#rule-text').fill('합성 입력 보존')
+            page.locator('#ruleform input[name=rule_item]').fill('합성 입력 보존')
             page.locator('#expense-tab-cleanup').click()
             page.locator('#expense-tab-rules').click()
-            assert page.locator('#rule-text').input_value() == '합성 입력 보존'
+            assert page.locator('#ruleform input[name=rule_item]').input_value() == '합성 입력 보존'
             page.goto('https://ui.test/import#rules')
             assert page.locator('#expense-tab-rules').is_visible()
             assert page.locator('#expense-tab-rules').get_attribute('aria-selected') == 'true'
