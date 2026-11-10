@@ -51,6 +51,9 @@
 - 첫 보고 시점은 A·B 병합 및 세무 검토 완료. 문서 변경은 배포하지 않는다. 현재 기록된 운영 SHA `965bca058a74a54bf69bc4d70a0d05f8997786c3`는 배포 직전 실제 상태와 재대조한다.
 - 2026-11-11 연속 관리자 `54f4a460`: 원래 A~E 지시·저장 인계·실제 worktree를 대조했다. A/B/D1은 기존 작업자 재사용, 중복 배정 없음. A-R은 `fa82fc19`에 저장됐으며 최종 검수 전이다. B 최종 커밋을 통합한 뒤 문서 링크·허용 집계 재현 → 독립 최종 SHA 검수 → PR 병합이 다음 순서다. C는 기존 main 실패와 비교 전에는 통과로 표시하지 않는다. D2~D5는 미착수, E1~E3는 진행 중이며 이번 인계로 완료 처리하지 않는다.
 - C 재개 근거: 이전 pytest 로그는 36%에서 종료됐고 process/junit/summary가 없어 통과로 쓰지 않았다. 중단 로그는 비공개 `.local-archive/manager-resume-20261111/wave3-incomplete-40c20e8e.log`. 현재 실행은 exec session `76900`, 로그 `wave3-qa-retry-40c20e8e.log`와 wave3의 `quality-artifacts/`를 확인한다. 같은 main 비교용 workspace `wks_ede9d71ea86e35fe`(`qa-wave3-main-7aa6c418-20261111`)를 만들었으며 아직 비교 검사는 실행하지 않았다.
+- 2026-11-11 재개 관리자 `daebb5d1`: 원래 A~E 지시와 Luna 중단 결정을 인계 원문에서 복구했다. A/B 통합 HEAD `f7996137`의 독립 `gpt-6.1-sol` medium **APPROVE**를 실제 검수 기록에서 확인했고, 동일 코드 `8c878048` 이후 문서 차이는 `DOCS_CHECKED`·diff check PASS다. 최종 병합 상태는 [PR #795](https://github.com/6Soo/cost/pull/795)의 기록으로 확인한다.
+- 실행 수명 재대조: 위 exec session의 wave3 재시도도 53%에서 최종 결과 없이 종료됐고, 관리자 M1 재현 출력은 비어 있었다. 두 실행을 통과로 쓰지 않았다. 01:35:12에 관리자 소유 Hidden PowerShell 실행으로 다시 시작했다. 비공개 `.local-archive/manager-resume-20261111/owned-processes.json`과 `m1-owned-exit.json`·`wave3-owned-exit.json`이 종료 근거다. M1 출력은 `m1-owned-output.json`, wave3 결과는 해당 worktree의 `quality-artifacts/`에 있다. 종료 JSON이 없으면 완료가 아니다.
+- C 합성 화면: 운영 포트·고객 자료 없이 8796에서 장부 1440/390, 카드·여행 목록·영수증 각각 1440/390을 캡처하고 직접 시각 검수했다. 카드·여행·영수증의 실제 너비와 문서 너비가 같음은 비공개 `render-matrix-2.json`에 기록했다. 모바일 여행 목록의 이름·기간 말줄임은 추가 검토 대상이다. Google 원본 미선택 상태의 장부 복사 비활성만 확인했으며 실제 복사·제외 목록·전체 기능 수락은 남아 있다. 홈 390 캡처는 브라우저 시간 초과로 미완료다. 원래 요청의 A/B 병합·세무 검토 첫 보고 시점과 C·D·E 전체 완료를 구분한다.
 
 ## 최고 관리자에게 올린 일
 
