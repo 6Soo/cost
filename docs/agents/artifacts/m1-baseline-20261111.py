@@ -1,7 +1,8 @@
 """M1 aggregate-only audit. No application startup, network calls or data writes.
 
-Run from any directory with python -I <this-file>. Each database is opened with
-mode=ro, query_only=ON and a read transaction. Trips are pseudonymized locally;
+Run from any directory with python -I <this-file>. Every database connection uses
+mode=ro and query_only=ON; aggregate connections also hold a read transaction.
+Trips are pseudonymized locally;
 no mapping, raw rows, amounts, account names or source identifiers are emitted.
 """
 from __future__ import annotations
