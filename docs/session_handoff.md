@@ -1,5 +1,11 @@
 # 현재 상태
 
+## 2026-11-11 A·B 병합 완료와 E3 후속 조사 수령
+
+- A·B·Google 7열 검토는 [PR #795](https://github.com/6Soo/cost/pull/795), 병합 `6c160d5405b2cc40adfcd78e8f0a5450193132cf`로 완료했다. 승인 최종 `3127b6db`와 병합 트리 차이 0, 독립 sol medium 승인·CI 결제/한도 시작 차단·코드 영향 92 passed·가드 9 passed 근거를 PR에 남겼다. 관리자 M1 읽기 전용 재현도 exit 0이며 입력 지문 불변을 확인했다. 운영 표시 세대는 미검증이다. 완료된 A·B worktree는 안전 확인 뒤 공식 archive했다.
+- E3는 `research/card-login-paths-20261111`의 `729b3a89`(선행 `6cd43469`·`cfd94b32`)에 보존했다. 공개 안내 조사 후에도 하나·기업의 로그인 수단·실제 조회 조건·기간·양식은 NOT_VERIFIED여서 PARTIAL이다. 문서 diff·인용 경로를 확인하고 기업 파서 참조만 정정했다. 미통합이며, 수집 준비 완료나 M2 완료로 취급하지 않는다.
+- 다음 통합은 `integration/wave3-collection-20261111`에서 관리한다. C의 실행 중 QA 결과와 같은 main SHA의 실패 비교, 별도 모바일 여행 목록 수정 검수, E1/E2 결과 검수가 남았다. D1 격리 미검증으로 고객 원문 P2·첫 50건은 차단한다. 이번 조사 수령에 운영 코드 테스트·배포·Google 쓰기는 실행하지 않았다. 상세 다음 명령은 비공개 `.local-archive/manager-resume-20261111/continuation-checkpoint.md`에 있다.
+
 ## 2026-11-11 A·B 통합과 P2 격리 차단 — 관리자 실행 상태
 
 - 사용자 결정 문서 `b002c7fe`는 통합 커밋 `d63d1b57`, M1 기준선 `f3703981`·`096a1039`는 통합 `ef90643f`·`8c878048`에 있다. 최종 검수와 병합 근거는 [PR #795](https://github.com/6Soo/cost/pull/795)에 남긴다. 현재 병합 여부와 최종 SHA는 이 PR의 기록을 확인한다.

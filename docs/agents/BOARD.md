@@ -7,14 +7,14 @@
 
 | ID | 작업 | 명세 절 | 작업자 | 브랜치 | 상태 | 통과 조건 |
 | --- | --- | --- | --- | --- | --- | --- |
-| A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료 | `docs/decisions-20261111-a` | `b002c7fe`를 통합 `d63d1b57`, 최종 SHA 검수·PR 병합 대기 | 통합 문서 링크·diff PASS, 테스트·배포 없음 |
-| B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료 | `ops/m1-baseline-20261111` | `f3703981`·`096a1039` 통합 `ef90643f`·`8c878048`, #795 최종 검수 대기 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
+| A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료·archive | `docs/decisions-20261111-a` | COMPLETE — #795 병합 `6c160d54` | 통합 문서 링크·diff PASS, 최종 sol medium 검수, 배포 없음 |
+| B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료·archive | `ops/m1-baseline-20261111` | COMPLETE — #795 병합 `6c160d54`, 관리자 실제 재현 exit 0 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
 | D1 | Windows P2 사건 폴더 격리·비대화형 조사 | §6.3·§6.6 | sol high `90a8007b` | `research/p2-isolation-20261111` | 조사 저장 `5469f5a5`, 격리 수락 BLOCKED·영향 QA 미통과 | 모델 경로는 probe 본문 미실행, 실제 예약 작업 미검증. 고객 원문 실행 금지 |
-| A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | 작성 완료·통합 검수 대기 | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
+| A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | COMPLETE — #795 병합 `6c160d54` | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
 | C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | 관리자(검증) | `ui/wave3-20261110` | main `7aa6c418` 통합 `40c20e8e`, 중단된 영향 검사 재실행 중 | 새 실패 0, 390/1440 실제 렌더링, 최종 SHA 독립 검수 |
 | E1 | OTA 3곳 조회 수집 스크립트 | §7 | EXAONE high `10e0d786` | `feat/ota-collection-scripts-20261111` | 구현 중 | 코드·합성 자료만, 고객/운영/로그인 세션 접근 금지. 표적 검사·영향 QA·실환경 미검증 구분 |
 | E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `ee120bb5` | `feat/kb-card-collection-script-20261111` | 구현 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. DB 반영 경계는 관리자 후속 |
-| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE으로 이관 배정, 기존 ANUS `f6aa9d05` 종료 | `research/card-login-paths-20261111` | ANUS 두 실행 모두 산출물·커밋 없음. 같은 worktree를 보존하고 EXAONE으로 넘긴다 | 공개 안내·정적 코드만, 고객·운영·로그인 세션 접근 금지. 확인·NOT_VERIFIED 구분 |
+| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 후속 보고 완료, 기존 ANUS 종료 | `research/card-login-paths-20261111` | PARTIAL — 정적 `6cd43469`·공개 안내 `cfd94b32`·참조 정정 `729b3a89`, 미통합 | 하나 DOM 미렌더, 양사 로그인 수단·실제 조회 요건/기간/양식 NOT_VERIFIED. 고객·운영·로그인 세션 접근 금지 유지 |
 
 ## 대기
 
