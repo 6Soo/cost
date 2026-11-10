@@ -200,7 +200,8 @@
   function ask(message,submit){
    if(!dlg){if(window.confirm(message))submit();return;}
    root.open=true;
-   dlg.querySelector('p').textContent=message;pending=submit;dlg.showModal();
+   dlg.querySelector('p').textContent=message;pending=submit;
+   document.body.appendChild(dlg);dlg.showModal();
   }
   function write(target){
    if(busy)return;
@@ -219,7 +220,7 @@
   function bindPanel(){
    dlg=root.querySelector('#participant-link-confirm');
    form=root.querySelector('.participant-keyboard-link');
-   if(dlg)dlg.addEventListener('close',function(){var action=pending;pending=null;if(dlg.returnValue==='confirm'&&action)action();});
+   if(dlg){var dialogParent=dlg.parentNode;dlg.addEventListener('close',function(){var action=pending;pending=null;dialogParent.appendChild(dlg);if(dlg.returnValue==='confirm'&&action)action();});}
    root.querySelectorAll('.participant-income-status').forEach(function(template){
     var cell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(template.dataset.incomeRef)+'"]');
     if(!cell||cell.dataset.incomeRefundComplete==='1')return;

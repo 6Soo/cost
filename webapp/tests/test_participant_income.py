@@ -583,11 +583,58 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(connect.count(), 1)
                 self.assertEqual(connect.get_attribute('aria-label'),
                                  '미연결 · 이 수입에 보험 참가자 연결')
-                page.evaluate("document.querySelector('#google-trip-income .participant-row-connect').click()")
+                page.locator('[role=tab][aria-controls="view-income"]').click()
+                connect.click()
                 form = income_table.locator('.insurance-candidate-row .participant-keyboard-link')
-                form.wait_for(state='attached')
+                form.wait_for(state='visible')
                 self.assertEqual(form.count(), 1)
                 self.assertEqual(income_table.locator('.participant-row-connect').count(), 1)
+                self.assertEqual(form.locator('[name=income_ref]').input_value(), row_ref)
+                self.assertEqual(form.locator('[name=participant_id]').input_value(), '')
+                self.assertEqual(form.locator('select').count(), 0)
+                self.assertEqual(form.locator('.participant-selected-income').count(), 0)
+                self.assertEqual(form.get_by_role('button', name='수입에 연결', exact=True).count(), 0)
+                self.assertGreater(form.locator('button[data-pick-participant]').count(), 0)
+                self.assertEqual(json.loads(self.call(
+                    f'/api/participants/state?trip={self.trip}', OWNER)[1])['counts']['linked_income_rows'], 1)
+                card = page.locator('#participant-trip-panel .participant-cards li[draggable=true]').first
+                page.evaluate("""([source,target])=>{
+                    const data={clearData(){},setData(){},effectAllowed:''};
+                    const start=new Event('dragstart',{bubbles:true,cancelable:true});
+                    Object.defineProperty(start,'dataTransfer',{value:data});source.dispatchEvent(start);
+                    const over=new Event('dragover',{bubbles:true,cancelable:true});
+                    Object.defineProperty(over,'dataTransfer',{value:data});target.dispatchEvent(over);
+                    const drop=new Event('drop',{bubbles:true,cancelable:true});
+                    Object.defineProperty(drop,'dataTransfer',{value:data});target.dispatchEvent(drop);
+                }""", [card.element_handle(), target.element_handle()])
+                dialog = page.locator('#participant-link-confirm')
+                dialog.wait_for(state='visible')
+                self.assertIn('연결할까요', dialog.inner_text())
+                page.locator('#participant-link-confirm button[value=cancel]').click()
+                self.assertEqual(page.locator('#participant-link-confirm').count(), 1)
+                self.assertEqual(json.loads(self.call(
+                    f'/api/participants/state?trip={self.trip}', OWNER)[1])['counts']['linked_income_rows'], 1)
+                # A named inline choice submits the fixed income and participant
+                # directly, without a duplicate summary or second connect step.
+                candidate = income_table.locator('.insurance-candidate-row button[data-pick-participant]').first
+                expected_participant = candidate.get_attribute('data-pick-participant')
+                self.assertTrue(expected_participant)
+                submitted = []
+                page.on('request', lambda request: submitted.append(request.post_data)
+                        if '/api/participants/link' in request.url and request.method == 'POST' else None)
+                with page.expect_response(lambda r: '/api/participants/link' in r.url and r.request.method == 'POST') as saved:
+                    candidate.focus()
+                    candidate.press('Enter')
+                self.assertEqual(saved.value.status, 200)
+                self.assertEqual(len(submitted), 1)
+                from urllib.parse import parse_qs
+                posted = parse_qs(submitted[0])
+                self.assertEqual(posted['income_ref'], [row_ref])
+                self.assertEqual(posted['participant_id'], [expected_participant])
+                page.wait_for_load_state('networkidle')
+                self.assertIn('/board?', page.url)
+                after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+                self.assertEqual(after['counts']['linked_income_rows'], 2)
             finally:
                 browser.close()
 

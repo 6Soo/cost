@@ -308,7 +308,7 @@ class DesignScreenTests(unittest.TestCase):
         # the nav drawer opens from the one button
         page.click('.site-more-toggle')
         self.assertTrue(page.locator('#site-more-dialog').evaluate('e=>e.open'))
-        page.locator('#site-more-dialog button').click()
+        page.locator('#site-more-dialog .site-more-close button').click()
         self.assertFalse(page.locator('#site-more-dialog').evaluate('e=>e.open'))
 
     def test_the_panel_footer_stays_reachable_and_two_saves_work_at_390(self):
