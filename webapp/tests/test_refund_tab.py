@@ -65,7 +65,8 @@ def test_booked_pair_moves_only_in_owner_display_and_preserves_totals(pair, monk
     assert '0원' in design.summary_part('unclassified')
     assert '장부 기록됨' in refund_tab.render(pair.board)
     assert '자료 검토' in design.page('refunds')
-    assert 'tab=refunds' in design.nav_part('unclassified')
+    # Refunds moved from the sidebar to the 거래 section tabs (UI/UX spec §5.3).
+    assert 'tab=refunds' not in design.nav_part('unclassified')
     monkeypatch.setattr(board, 'current_role', lambda: 'viewer')
     assert len(design._selected_rows('unclassified')[1]) == 2
     assert before == conn.execute('SELECT * FROM board_rows ORDER BY row_id').fetchall()
