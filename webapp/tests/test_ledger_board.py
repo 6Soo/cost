@@ -670,7 +670,7 @@ class BoardApiTests(unittest.TestCase):
         self.assertIn("@media (width < 760px)", page)
         self.assertRegex(page, r"<div class='tw'><table id='tbl'[^>]*>")
         self.assertRegex(page, r"\.tw\{[^}]*overflow-x:auto")
-        self.assertIn("site-menu-toggle", page)
+        self.assertIn("site-topbar", page)
 
     def test_detail_shows_basis(self):
         page = self._get_html("/row?id=expense-demo-c1")

@@ -122,7 +122,7 @@ def test_upload_refresh_idempotency_search_detail_reject_copy_and_xlsx(service, 
         '/trips?state=quarter', cookie=service.cookie(OWNER))
     assert trips_code == 200, trips_html[:500]
     assert f"id='manage-{trip_id}'" in trips_html
-    assert f'name=\'prepared_on\' value=\'{trip["prepared_on"]}\'' in trips_html
+    assert f"id='trip-prepared-{trip_id}'" in trips_html
     assert '담당자' in trips_html
     source_trip = next(item for item in service.server.card_store.list_trips()
                        if item['destination'] == 'Synthetic Q2 source')

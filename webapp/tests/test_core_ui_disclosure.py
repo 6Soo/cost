@@ -38,7 +38,8 @@ def test_trip_header_and_management_disclose_secondary_actions(tmp_path):
                     ledger_board.trips_page(role='owner', state='closed'), '/trips')
                 page.route('https://ui.test/**', lambda route: route.fulfill(content_type='text/html', body=closed_trips))
                 page.goto('https://ui.test/trips?state=closed')
-                assert page.locator('#trip-management-filter input[name=state]').input_value() == 'closed'
+                assert page.locator('#trip-management-filter').is_visible()
+                assert page.locator('a[href="/trips?state=closed"][aria-current="page"]').count() == 1
                 assert page.locator('#trip-management-filter').is_visible()
             finally:
                 browser.close()
@@ -97,7 +98,10 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
             # an inline validation message instead of a dead control.
             assert page.locator('#img-go').is_enabled()
             page.locator('#img-go').click()
-            assert page.locator('#file-error').text_content() == '등록할 파일을 하나 이상 선택하세요.'
+            assert page.locator('#trip-error').text_content() == '??? ?? ?????.'
+            page.locator('#selected-trip').select_option('trip-syn')
+            page.locator('#img-go').click()
+            assert page.locator('#file-error').text_content() == '??? ??? ?? ?? ?????.'
             assert not page.locator('#r-merchant').is_visible()
             page.locator('#other-methods > summary').click()
             assert page.locator('#r-merchant').is_visible()

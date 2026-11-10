@@ -261,7 +261,7 @@ class ViewStateTests(unittest.TestCase):
         for action in ("/api/trips/trip-demo-a/meta", "/api/trips/trip-demo-b/meta"):
             self.assertIsNotNone(page.query_selector(f".page-body form[action='{action}']"), action)
         self.assertEqual(page.input_value(
-            ".page-body form[action='/api/trips/trip-demo-a/meta'] input[name='return_to']"), "/trips?state=previous")
+            ".page-body form[action='/api/trips/trip-demo-a/meta'] input[name='return_to']"), "/trips")
 
     def test_archiving_from_the_trip_screen_moves_it_to_the_drawer(self):
         self._current_trip_b()

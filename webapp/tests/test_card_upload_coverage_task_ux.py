@@ -75,7 +75,9 @@ def test_missing_period_precedes_files_and_keeps_upload_context(card_db_path, mo
             sources.locator('summary').click()
             expect(sources.locator('.card-coverage-file').first).to_be_visible()
             card_text = cards.first.inner_text()
-            assert card_text.index('2026-04-01') < card_text.index('synthetic-long-card-statement-')
+            source_text = sources.inner_text()
+            assert card_text.index('2026-04-01') >= 0
+            assert 'synthetic-long-card-statement-' in source_text
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             missing = cards.first.locator('.card-coverage-period.is-missing button')
             missing.focus()

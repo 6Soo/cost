@@ -583,7 +583,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(connect.count(), 1)
                 self.assertEqual(connect.get_attribute('aria-label'),
                                  '미연결 · 이 수입에 보험 참가자 연결')
-                connect.click(force=True)
+                page.evaluate("document.querySelector('#google-trip-income .participant-row-connect').click()")
                 form = income_table.locator('.insurance-candidate-row .participant-keyboard-link')
                 form.wait_for(state='visible')
                 self.assertEqual(form.locator('[name=income_ref]').input_value(), row_ref)

@@ -18,7 +18,7 @@ class TripHistoryBrowserTests(LinkBrowserFixture):
                 page.goto(base + "/trips?state=previous")
                 self.assertEqual(page.locator(f"#manage-{old['tab_id']}").count(), 1)
                 self.assertEqual(page.locator(f"#manage-{new['tab_id']}").count(), 0)
-                old_link = page.locator(f"#manage-{old['tab_id']} h3 a")
+                old_link = page.locator(f"#manage-{old['tab_id']} td:first-child a")
                 self.assertTrue(old_link.is_visible())
                 old_link.click()
                 page.wait_for_url("**/board?tab=" + old['tab_id'])
