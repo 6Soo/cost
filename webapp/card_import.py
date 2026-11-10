@@ -375,7 +375,7 @@ class CardImporter:
                 continue
             if same_file_digests:
                 self._mark(batch_id, row_index, "duplicate-candidate",
-                           "같은 파일의 동일 내용이에요. 사용자 확인이 필요해요")
+                           "같은 파일의 동일 내용입니다. 사용자 확인이 필요합니다.")
                 self._bump(batch_id, "duplicate_candidates")
                 continue
             conflict = False
@@ -417,7 +417,7 @@ class CardImporter:
                     client_request_id=f"{batch_id}-{row_index}",
                 )
                 self._mark(batch_id, row_index, "placed",
-                           "여행 탭 배치" if event["display_tab_id"] else "분류대기")
+                           "여행 탭 배치" if event["display_tab_id"] else "귀속 전")
                 self._bump(batch_id, "new_events")
                 self._bump(batch_id, "placed_trips" if event["display_tab_id"] else "placed_unclassified")
             self.conn.execute(

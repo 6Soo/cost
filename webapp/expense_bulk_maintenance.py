@@ -339,7 +339,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:var(--shell-warn,
 <p>owner 전용 작업입니다. 미리보기는 저장소의 메모리 복제본에서 실행하며 자료를 바꾸지 않습니다. 등록된 OTA 근거 파일과 현재 보관된 스냅샷은 읽기만 하며 외부 요청이나 갱신 워커를 시작하지 않습니다.</p>
 <section><h2>1. 변경 예상 확인</h2><p>미리보기에는 대상 거래 ID와 변경 종류만 표시합니다. 가맹점, 원문, 예약번호와 금액은 표시하거나 기록하지 않습니다.</p>
 <button id='preview' type='button'>읽기 전용 미리보기</button><pre id='result' role='status' aria-live='polite'></pre></section>
-<section><h2>2. 명시적 적용 확인</h2><p class='warning'>분류, 확인된 지출의 장부 기록, 기존 미배정 지출의 여행 배정을 한 번에 실행합니다. 미리보기에서 OTA 스냅샷 갱신이 표시되면 등록 자료를 다시 읽는 별도 작업도 실행됩니다. 운영 대량 재처리는 별도 운영 승인 대상입니다.</p>
+<section><h2>2. 명시적 적용 확인</h2><p class='warning'>분류, 확인된 지출의 장부 기록, 기존 귀속 전 지출의 여행 배정을 한 번에 실행합니다. 미리보기에서 OTA 스냅샷 갱신이 표시되면 등록 자료를 다시 읽는 별도 작업도 실행됩니다. 운영 대량 재처리는 별도 운영 승인 대상입니다.</p>
 <label><input id='confirm' type='checkbox' disabled><span>미리보기 내용을 확인했고 표시된 모든 변경 및 자료 확인 범위를 승인합니다.</span></label>
 <button id='apply' type='button' disabled>확인한 미리보기 적용</button><p id='apply-status' role='status' aria-live='polite'></p></section>
 <p><a href='/import'>일반 지출 정리로 돌아가기</a></p></main><script>

@@ -186,7 +186,7 @@ def test_browser_wrapped_flight_page_responsive_theme_and_zoom(renderer, heading
 
             browser_page.evaluate('document.documentElement.style.zoom="100%"')
             browser_page.set_viewport_size({'width': 390, 'height': 812})
-            menu = browser_page.locator('#site-more-toggle')
+            menu = browser_page.locator('.site-more-bottom')
             menu.focus()
             menu.press('Enter')
             sheet = browser_page.locator('#site-more-dialog')

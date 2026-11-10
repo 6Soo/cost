@@ -623,7 +623,7 @@ class ReceiptReviewTests(unittest.TestCase):
                 with page.expect_request('**/api/receipts/tsv?*'):
                     page.click('#copy-tsv')
                 pending.pop().fulfill(json={'row_count': 0, 'held': [], 'tsv': ''})
-                page.get_by_text('복사할 영수증이 없습니다. 보류 0건', exact=True).wait_for()
+                page.get_by_text('복사할 영수증이 없습니다. 처리되지 않은 0건', exact=True).wait_for()
                 self.assertTrue(page.locator('#copy-trip').is_enabled())
                 self.assertTrue(page.locator('#copy-tsv').is_enabled())
                 self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')

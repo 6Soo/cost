@@ -70,13 +70,13 @@ def rule_dialog_page(
     if store is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
+            body="<div class='sect'><p>저장소가 연결되지 않았습니다.</p></div>"))
     state = store.dialog_page_state(case_id)
     row = store.get_row(state["row_id"]) if state.get("row_id") else None
     if row is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>대화에 연결된 행이 없어요.</p></div>"))
+            body="<div class='sect'><p>대화에 연결된 행이 없습니다.</p></div>"))
     row_id = esc(row["row_id"])
     dialog = state["dialog_state"]
     conv = state["conversation"] or {}
@@ -101,7 +101,7 @@ def rule_dialog_page(
         parts.append(f"<p class='muted'>{esc(notice)}</p>")
     if "PREVIEW_STALE" in notice:
         parts.append(
-            "<p class='muted'>선택한 행이 바뀌었어요. 아래에서 새 미리보기를 다시 받아 주세요."
+            "<p class='muted'>선택한 행이 바뀌었습니다. 아래에서 새 미리보기를 다시 받아 주세요."
             " 일부 행만 적용되지는 않습니다.</p>")
     if dialog == "closed":
         parts.append(
@@ -164,7 +164,7 @@ def rule_dialog_page(
                    if question["question_key"] == "trip_move_reason" else "")
                 + "<button class='btn' type='submit'>답변 저장</button></div></form>")
     if not state["open_questions"]:
-        parts.append("<p class='muted'>더 물을 질문이 없어요.</p>")
+        parts.append("<p class='muted'>더 물을 질문이 없습니다.</p>")
 
     if state["should_not_create_rule"]:
         parts.append(
@@ -227,8 +227,8 @@ def rule_dialog_page(
             counts = preview.get("counts", {})
             amounts = preview.get("amounts", {})
             rows_html = "".join(
-                f"<tr><td>{esc(c['row_id'])}</td><td>{esc(c['from_tab_id'] or '분류대기')}"
-                f"</td><td>{esc(c['to_tab_id'] or '분류대기')}</td>"
+                f"<tr><td>{esc(c['row_id'])}</td><td>{esc(c['from_tab_id'] or '귀속 없음')}"
+                f"</td><td>{esc(c['to_tab_id'] or '귀속 없음')}</td>"
                 f"<td style='text-align:right'>{esc(c['amount_krw'])}</td></tr>"
                 for c in preview.get("candidates", []))
             excluded_html = "".join(

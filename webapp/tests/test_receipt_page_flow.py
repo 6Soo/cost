@@ -112,7 +112,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 page.set_input_files('#img-file', {'name': 'timeout.png', 'mimeType': 'image/png', 'buffer': review.PNG})
                 page.click('#img-go')
                 page.get_by_role('button', name='다시 시도').wait_for()
-                self.assertIn('저장 여부 확인 필요', page.locator('#upload-results').inner_text())
+                self.assertIn('저장 여부를 확인해 주세요', page.locator('#upload-results').inner_text())
                 self.assertIn('응답 시간이 초과', page.locator('#upload-results').inner_text())
                 self.assertTrue(page.evaluate("() => {const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented}"))
             finally:
@@ -258,7 +258,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 page.click('#img-go')
                 page.get_by_role('button', name='다시 시도').wait_for()
                 page.wait_for_function("document.querySelector('[data-upload-recovery]').disabled === false")
-                self.assertIn('저장 여부 확인 필요', page.locator('#upload-results').inner_text())
+                self.assertIn('저장 여부를 확인해 주세요', page.locator('#upload-results').inner_text())
                 self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
                 page.get_by_role('button', name='다시 시도').click()
                 page.locator('#upload-results p').filter(has_text='unsaved.png').locator('img').wait_for()

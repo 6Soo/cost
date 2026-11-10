@@ -448,6 +448,7 @@ def home_page(board):
             ".home-travel-section{padding:18px 24px 22px}"
             ".home-travel-heading{font-size:var(--t-h3)!important;margin:0 0 8px!important}"
             ".home-trips{margin:0 0 8px!important}"
+            ".home-trips tbody th,.home-trips tbody td{background:var(--c-surface)}"
             ".home-all{font-size:var(--t-meta);margin:8px 0 0!important}"
             "@media(width < 760px){"
             ".home-main .page-hd{padding:20px 16px 6px;border-bottom:0;display:block}"
@@ -477,7 +478,7 @@ def home_page(board):
             f"<a class='btn primary home-primary' href='/cards/all?panel=upload'>{ui_icons.icon('upload')}카드 업로드</a>"
             "</section>"
             + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips[:8])}</h2>"
-            + ("<div class='data-table-wrap'><table class='data-table'><thead><tr><th>여행</th><th>기간</th><th>지출</th><th>마감</th></tr></thead><tbody>" + items + "</tbody></table></div>"
+            + ("<div class='data-table-wrap'><table class='data-table home-trips'><thead><tr><th>여행</th><th>기간</th><th>지출</th><th>마감</th></tr></thead><tbody>" + items + "</tbody></table></div>"
                if items else "<p>진행 중인 여행이 없습니다. 여행은 Google 시트 탭으로 만듭니다.</p>")
             + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"
             + (f"<p class='muted home-next-note'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
@@ -1653,7 +1654,7 @@ class CardFlow:
             if link.get('inferred'):
                 for member in (refund, link['original_id']):
                     holds.setdefault(member, {'kind': 'refund_inferred',
-                        'reason': '원결제 추론 연결 · 별도 근거 검증 전 장부 기록 보류 (환급 완료 아님)'})
+                        'reason': '원결제 자동 연결 · 별도 근거 검증 전 기록을 준비합니다 (환급 완료 아님)'})
                 continue
             # A classified full offset belongs in refunds, so an automatic trip
             # request cannot block it. Persisted/manual/financial holds remain.
@@ -2345,7 +2346,7 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
       headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
       body:JSON.stringify({csrf:csrf,expected_revision:Number(item.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
   try{const response=await request;const result=await response.json().catch(()=>({}));
-    if(!response.ok)throw Error(result.message||'저장하지 못했어요');
+    if(!response.ok)throw Error(result.message||'저장하지 못했습니다.');
     location.reload();
   }catch(err){button.disabled=false;error.textContent=err.message}
 }));
@@ -2730,15 +2731,15 @@ def ota_catalog_summary(entry) -> str:
         if status:
             label_map = {
                 'EXACT': 'OTA 결제 확정 연결',
-                'INFERRED': 'OTA 결제 코드 추론',
+                'INFERRED': 'OTA 결제 자동 연결',
                 'GROUP_RECONCILED': 'OTA 반복 결제 그룹 대응 (개별 연결 미확정)',
                 'GROUP_LINKED': 'OTA M:N 연결',
                 'USER_CONFIRMED': '사용자 확정 OTA 연결',
-                'RESERVATION_INFERRED': '예약 코드 추론 · 결제 미검증',
+                'RESERVATION_INFERRED': '예약 자동 연결 · 결제 미검증',
                 'RESERVATION_CONFIRMED': '사용자 확인 예약 관계 · 결제 미검증',
-                'RESERVATION_NEEDS_REVIEW': '예약 후보 경합/충돌 · 사용자 확인 필요',
-                'RESERVATION_STALE': '저장된 예약 관계 근거 변경 · 재확인 필요',
-                'REVIEW_REQUIRED': 'OTA 그룹 부분 대응 · 개별 연결 보류',
+                'RESERVATION_NEEDS_REVIEW': '예약 후보 경합/충돌 · 자료를 확인해 주세요',
+                'RESERVATION_STALE': '저장된 예약 관계 근거 변경 · 원본을 확인해 주세요',
+                'REVIEW_REQUIRED': 'OTA 그룹 부분 대응 · 개별 연결 전 확인',
                 'CANDIDATE': 'OTA 예약 후보 존재 · 연결 미확정',
                 'MULTIPLE_CANDIDATES': 'OTA 복수 후보 · 개별 연결 미확정',
                 'UNLINKED': 'OTA 연결 미확정', 'UNKNOWN': 'OTA 상태 확인 대기',
@@ -2827,7 +2828,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
         title = ('환불 기록 완료' if len(recorded) == 2 else
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         if link.get('inferred'):
-            title = '원결제 추론 연결 · 장부 기록 보류 (환급 완료 아님)'
+            title = '원결제 자동 연결 · 기록 전 확인 (환급 완료 아님)'
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
                  else '동일 카드·카카오 가맹점·기간·동액 기준 원결제 연결'
@@ -2840,7 +2841,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                  if link.get('inferred')
                  else '원승인번호 기준 원결제 확정 연결')
         lines = [{'full': '순액 0원', 'partial': '부분 환불',
-                  'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
+                  'excess': '환불 합계가 원결제를 초과해 기록 전 확인이 필요합니다.'}.get(link['status'], '연결 상태를 확인해 주세요'),
                  f"{basis} · 취소/환불 {link['refund_count']}건",
                  f"원결제 {link['gross_krw']:,}원 · 환불 합계 {link['refunds_total_krw']:,}원 · 순액 {link['net_krw']:,}원"]
         if link['original_id'] in recorded and tid not in recorded:
@@ -2860,12 +2861,12 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                     (row[0], row[1], foreign[0], foreign[1]))
                     if _foreign_amount(candidate[3]) == _foreign_amount(foreign[2])]
         if any(any(v for v in candidate) for candidate in originals):
-            title, lines = '원결제 원본 충돌 확인 필요', ['원결제 후보의 중복·원본 오류를 먼저 확인해 주세요.']
+            title, lines = '원결제 원본 충돌 · 확인해 주세요', ['원결제 후보의 중복·원본 오류를 먼저 확인해 주세요.']
         elif len(originals) > 1 or tid in (count_held_cancellations(board.conn)
                                          if held_cancellations is None else held_cancellations):
             title, lines = '원결제 후보를 하나로 정할 수 없습니다', ['승인 정보와 원결제·환불 건수를 함께 확인해 주세요.']
         elif originals:
-            title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
+            title, lines = '원결제 후보의 대응을 확인해 주세요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
         else:
             title, lines = '원결제 자료 미확인', ['승인 참조 또는 동일 카드·가맹점·날짜·금액 등의 조건을 충족하는 원결제가 없습니다. 원승인번호는 필수조건이 아닙니다. 아래 가맹점 검색 결과를 비교해 주세요.']
         if row and not str(row[2] or '').strip():
@@ -3047,20 +3048,20 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
         if preview_row:
             blocked = preview_row.get('blocked')
             blocked_labels = {
-                'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
-                'refund_pair_incomplete': '원결제·환불 그룹 근거가 완성되지 않아 COST 내부 기록을 보류합니다.',
-                'refund_inferred': '기록 보류: 원결제 추론 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
-                'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
-                'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
-                'review_hold': '기록 보류: ' + str(preview_row.get('reason') or '검토 보류 사유를 확인해 주세요.'),
+                'trip_no_longer_valid': '기록 전 확인: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
+                'refund_pair_incomplete': '원결제·환불 그룹 근거가 완성되지 않아 COST 내부 기록 전 확인이 필요합니다.',
+                'refund_inferred': '기록 전 확인: 원결제 자동 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
+                'source_conflict': '기록 전 확인: 카드 원본 간 충돌을 확인해야 합니다.',
+                'duplicate_possible': '기록 전 확인: 중복 가능성이 있습니다.',
+                'review_hold': '기록 전 확인: ' + str(preview_row.get('reason') or '검토 사유를 확인해 주세요.'),
                 'item_missing': '기록 준비 전: 비용 항목 확인이 필요합니다.',
                 'trip_needed': '기록 준비 전: 유효한 여행 배정이 필요합니다.',
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
-                'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
+                'trip_no_longer_valid': '기록 전 확인: 배정된 여행이 현재 유효하지 않습니다.',
             }
             finance_label = ('COST 내부 기록 있음' if preview_row.get('already_booked') else
                              blocked_labels.get(blocked, '' if not blocked else
-                                                '기록 보류: 금융 검토가 필요합니다.'))
+                                                '기록 전 금융 검토가 필요합니다.'))
             if (blocked == 'review_hold' and not held
                     and preview_row.get('reason') == '비용 항목과 배정 내용을 확인해 주세요.'):
                 finance_label = '여행·항목을 확인하고 변경 저장을 눌러 주세요.'
@@ -3088,7 +3089,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             example = pairs[0][1]
             if example.get('inferred'):
                 reason = ('원결제와 취소의 동일 카드·동액 기준 추론 연결. '
-                          '별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.')
+                          '별도 근거 검증 전 기록을 준비합니다 · 환급 완료 아님.')
             elif example.get('status') == 'full':
                 reason = f"원결제와 취소·환불 {example['refund_count']}건의 금액을 함께 확인할 수 있습니다."
             elif example.get('status') == 'partial':
@@ -3104,15 +3105,15 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             else:
                 status = link.get('status')
                 if link.get('inferred'):
-                    reason = '원결제 추론 연결. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
+                    reason = '원결제 추론 연결. 별도 근거 검증 전 기록을 준비합니다 · 환급 완료 아님.'
                 elif status == 'full':
                     reason = '원결제와 전액 취소·환불 관계가 연결되어 있습니다. 내부 기록 상태는 별도 표시입니다.'
                 elif status == 'partial':
                     reason = f'부분 환불 {link.get("refund_count", 0)}건 연결 · 현재 순액 {link.get("net_krw")}원. 실제 카드 환급 여부는 별도입니다.'
                 elif status == 'excess':
-                    reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록을 보류합니다.'
+                    reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록 전 확인이 필요합니다.'
                 else:
-                    reason = '원결제 연결을 확인해야 하며 비용 기록을 보류합니다.'
+                    reason = '원결제 연결과 비용 기록을 확인해야 합니다.'
             evidence = _render_refund_evidence(board, tid, link, held_cancellations=held_refunds)
             if finance_label:
                 evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
@@ -3126,7 +3127,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             refund_count = int(link.get('refund_count') or len(linked_refunds))
             if link.get('inferred'):
                 reason = (f'원결제 추론 연결 · 취소·환불 {refund_count}건. '
-                          '별도 근거 검증 전 장부 기록 보류 · 실제 카드 환급 완료 아님.')
+                          '별도 근거 검증 전 기록을 준비합니다 · 실제 카드 환급 완료 아님.')
             elif link.get('status') == 'full' and link.get('net_krw') == 0:
                 reason = (f'환불 상쇄 확인 · 원승인번호 기준 원결제 확정 연결 · 취소·환불 {refund_count}건. '
                           '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
@@ -3135,7 +3136,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                           '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
             elif link.get('status') == 'excess':
                 reason = (f'환불 합계가 원결제를 넘어 금액 충돌이 있습니다 · 연결 {refund_count}건. '
-                          '쌍 전체 내부 기록을 보류합니다.')
+                          '쌍 전체 내부 기록 전 확인이 필요합니다.')
         # Keep financial, cancellation and evidence rows read-only in this detail.
         category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
             item=item, display_tab_id=current_tab,
@@ -3352,7 +3353,7 @@ const reviewIcons=__REVIEW_ICONS__;let reviewState='all';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group==='excluded'?'excluded':'');
-const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA 코드 추론',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 코드 추론 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계 확인 필요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 재확인 필요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA 자동 연결',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 자동 연결 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계를 확인해 주세요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 원본을 확인해 주세요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA 자료를 확인해 주세요',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
 otaLabels.GROUP_LINKED='OTA M:N 연결';
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
  const reviewLabel=r=>[reviewStatus(r)==='booked'?'기록 완료':reviewStatus(r)==='excluded'?'기록 제외':'',r.next_action?.reason_label].filter(Boolean).join(' / ');
@@ -3416,7 +3417,7 @@ if(j.ota_reconciliation?.enabled&&!j.ota_reconciliation.fresh){const notice=docu
 
 const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;const edit=el('edit-panel');
 if(ed){edit.hidden=false;edit.innerHTML='<article><h2>거래 귀속 수정 · '+esc(ed.merchant)+'</h2><p class="small">저장된 귀속과 항목을 수정합니다. 원본과 금융 보호 상태는 유지됩니다.</p>'+answerForm(j,ed)+'</article>';}else{edit.hidden=true;edit.replaceChildren();}
-const otaCandidateReason=note=>{const text=String(note||'');return text.startsWith('OTA 후보(미확정):')?text.split(' · ').slice(2).join(' · '):'예약 후보 근거가 있으나 결제 연결은 검증되지 않았습니다.'};const completedGroups=new Set(completedRefundGroups(j));const groups=(j.refund_groups||[]).map(g=>completedGroups.has(g)?renderCompletedRefund(g):g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'분기 기타비용')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p={...j.preview,rows:otherReviewRows(j)};el('preview').className='';el('preview').innerHTML=(groups?'<section aria-label="환불 처리 결과">'+groups+'</section>':'')+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+(completedGroups.size?'<h2>그 외 거래 처리 결과</h2><p>위 전액 환불과 별개인 거래입니다.</p>':'<h2>거래 처리 결과</h2>')+'<p>완료 '+p.rows.filter(r=>r.already_booked).length+'</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>귀속</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(r.ota_link_status==='UNLINKED'&&r.ota_candidate_notes?.length?'<br><span class=\"ota-candidate-note\"><strong>OTA 후보 근거 · 결제 미검증</strong>'+r.ota_candidate_notes.map(otaCandidateReason).filter(Boolean).map(reason=>'<span>'+esc(reason)+'</span>').join('')+'</span>':'')+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({inference:'자동',code_inference:'자동',ai_inference:'AI 추론',user_exception:'직접',guide_airfare_evidence:'자동'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'코드 추론')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">귀속</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||destinationLabel(j,r))+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
+const otaCandidateReason=note=>{const text=String(note||'');return text.startsWith('OTA 후보(미확정):')?text.split(' · ').slice(2).join(' · '):'예약 후보 근거가 있으나 결제 연결은 검증되지 않았습니다.'};const completedGroups=new Set(completedRefundGroups(j));const groups=(j.refund_groups||[]).map(g=>completedGroups.has(g)?renderCompletedRefund(g):g.error?'<p class=small>환불 쌍 자료 확인: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'분기 기타비용')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p={...j.preview,rows:otherReviewRows(j)};el('preview').className='';el('preview').innerHTML=(groups?'<section aria-label="환불 처리 결과">'+groups+'</section>':'')+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+(completedGroups.size?'<h2>그 외 거래 처리 결과</h2><p>위 전액 환불과 별개인 거래입니다.</p>':'<h2>거래 처리 결과</h2>')+'<p>완료 '+p.rows.filter(r=>r.already_booked).length+'</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>귀속</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(r.ota_link_status==='UNLINKED'&&r.ota_candidate_notes?.length?'<br><span class=\"ota-candidate-note\"><strong>OTA 후보 근거 · 결제 미검증</strong>'+r.ota_candidate_notes.map(otaCandidateReason).filter(Boolean).map(reason=>'<span>'+esc(reason)+'</span>').join('')+'</span>':'')+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({inference:'자동',code_inference:'자동',ai_inference:'AI 추론',user_exception:'직접',guide_airfare_evidence:'자동'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'자동 연결')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">귀속</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||destinationLabel(j,r))+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
  document.querySelectorAll('[data-group-commit]').forEach(b=>b.hidden=true);el('preview').insertAdjacentHTML('beforeend',(j.quarter_targets||[]).map(t=>'<section class="quarter-copy"><h2>'+esc(t.name)+'</h2><p class="small">여행 외 비용 · '+t.transaction_ids.length+'건 · 원본과 기록 상태는 그대로 유지합니다.</p>'+(t.available?'<a href="'+esc(t.href)+'" target="_blank" rel="noopener noreferrer">Google 분기 원본 열기</a><p><button type="button" data-google-copy="'+esc(t.id)+'">__ICON_COPY__'+esc(t.name)+' 지출 7열 복사</button></p>':'<p role="status">'+esc(t.reason)+'</p>')+'</section>').join(''));
 document.querySelector('[data-review-date]').onclick=()=>{el('review-date').open=true;el('review-date').scrollIntoView({block:'center'});};
 document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f),batch=model.batch_id,generation=batchGeneration,button=f.querySelector('button');if(button.disabled)return;button.disabled=true;try{const j=await call('/api/imports/'+model.batch_id+'/decision',mutationBody(f,{transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule')}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.trip_move_learning?.status==='opened'){location.assign(j.trip_move_learning.url);return}if(editing===r.transaction_id)editing='';if(!j.refresh_required)render(j);el('status').textContent=j.refresh_required?'분류는 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 주세요.':j.ledger_recording?.status==='held'?'분류 완료 · 금융 보호 검사에서 기록할 수 없습니다: '+j.ledger_recording.reason:'저장했습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message}finally{button.disabled=false}})
@@ -3445,7 +3446,7 @@ async function recoverUpload(job){
  if(!response.ok)throw Error('저장된 결과 조회 재시도 중');
  const state=await response.json(),result=state.result;
  if(state.status!=='saved'||result?.batch_id!==job.batch_id||typeof result.recovery?.pending!=='boolean')throw Error('저장된 결과 조회 재시도 중');
- if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 처리 결과 확인 필요'),{terminal:true});
+ if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 처리 결과를 확인해 주세요'),{terminal:true});
  saveUploadJob(job,true);return {...result,recovered_upload:true};
 }
 function readUploadJobs(){try{const saved=JSON.parse(localStorage.getItem(uploadJobKey)||'null');return (Array.isArray(saved)?saved:saved?[saved]:[]).filter(job=>job?.status_url&&new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))}catch{return []}}
@@ -3504,7 +3505,7 @@ el('upload').onclick=async()=>{
   notice.textContent=accepted+'개 파일 접수 완료 · 다른 페이지로 이동해도 처리는 계속됩니다. 이 화면으로 돌아오면 진행 상태를 이어서 확인합니다.';
   if(generation===batchGeneration)el('status').textContent=notice.textContent;
   uploadInput.value='';renderUploadSelection();
- }catch(error){notice.textContent=error.message;entries.forEach((entry,i)=>entry.textContent=files[i].name+' · 접수 확인 필요');if(generation===batchGeneration){el('status').textContent=error.message;renderUploadSystemError(error.message)}return;
+ }catch(error){notice.textContent=error.message;entries.forEach((entry,i)=>entry.textContent=files[i].name+' · 접수 결과를 확인해 주세요');if(generation===batchGeneration){el('status').textContent=error.message;renderUploadSystemError(error.message)}return;
  }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드'}
  const processFile=async (job,i)=>{
    const f=files[i],entry=entries[i];
@@ -3516,12 +3517,12 @@ el('upload').onclick=async()=>{
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});uploadErrorRow(entry,{filename:f.name},e)}
   };
   await Promise.all(received.files.map(processFile));
-  notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
+  notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과를 확인해 주세요':'');
   if(generation!==batchGeneration)return;
   if(typeof refreshCoverageSummary==='function')await refreshCoverageSummary();
   const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
-  el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 처리 미완료':'')+' · 파일별 결과를 확인해 주세요.';
+  el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과를 확인해 주세요':'')+(incomplete?' · '+incomplete+'개 파일 처리 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
 };
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(j.rules)renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(j.refresh_required){el('status').textContent='규칙은 저장됐지만 분류 갱신을 확인하지 못했습니다. 규칙을 다시 저장하지 말고 거래를 새로고침해 주세요.';return}try{if(model)render(await call('/api/imports/'+model.batch_id+'/auto-record','{}',{'Content-Type':'application/json'}))}catch(error){if(error.message==='소유자만 자동 반영할 수 있습니다.'){let refreshed=false;try{const updated=await call('/api/imports/'+model.batch_id);render(updated);refreshed=true}catch{}el('status').textContent=refreshed?'규칙은 저장되고 분류도 다시 계산됐습니다. 자동 장부 기록은 소유자만 할 수 있습니다.':'규칙은 저장되고 분류도 다시 계산됐지만 화면을 갱신하지 못했습니다. 자동 장부 기록은 소유자만 할 수 있습니다. 새로고침해서 확인해 주세요.';return}el('status').textContent='규칙은 저장됐습니다. 자동 기록 결과를 확인하지 못했습니다: '+error.message+' 규칙을 다시 저장하지 말고 최신 거래를 확인해 주세요.';return}el('status').textContent='규칙을 저장했습니다.'}catch(e){el('status').textContent=e.message}};

@@ -498,7 +498,7 @@ def _source_preview_html(trip) -> str:
         if income:
             decision_text = "입금 원본 조회"
         badge = {"income": "입금",
-                 "expense": "지출"}.get(block_kind, "구분 확인 필요")
+                 "expense": "지출"}.get(block_kind, "구분을 확인해 주세요")
         evidence = source.get("evidence_status") == "available"
         content = str(source.get("description") or labelled or "-")
         if income:
@@ -527,7 +527,7 @@ def _source_preview_html(trip) -> str:
             + f"<p class='src-line'><span>검토 상태</span>"
               f"<b>{board.esc(decision_text)}</b>"
             + ("" if evidence else
-               " <span class='muted'>· 원본 머리글 확인 필요</span>")
+               " <span class='muted'>· 원본 머리글을 확인해 주세요</span>")
             + "</p></li>")
     # Percent-encoded, not just escaped. A sheet name is free text and can hold
     # `&`, `+`, `#` or a space, all of which mean something else inside a query
@@ -607,7 +607,7 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
         elif google_income.get('numeric_gap') or not google_income.get('verified'):
             income_status = ("<b class='warn'>합계 차이 있음</b>"
-                             if google_income.get('numeric_gap') else "<b>확인 필요</b>")
+                             if google_income.get('numeric_gap') else "<b>수입 장부를 확인해 주세요</b>")
             income_notice = f"<div><i>{ui_icons.icon('book-open')}수입</i>{income_status}</div>"
             if filtered is not None and whole is not None:
                 return (
@@ -717,7 +717,7 @@ def _row_party_sub(row) -> str:
     if item == "숙박비":
         period = _stay_period(row)
         match = _STAY_PATTERN.fullmatch(period)
-        if match and _stay_text(row) != "이용일 확인 필요":
+        if match and _stay_text(row) != "이용일 원문 없음":
             from datetime import date
             start, end = (date.fromisoformat(value) for value in match.groups())
             # Only a whole description segment repeating the displayed period is redundant.
@@ -769,7 +769,7 @@ def _stay_text(row) -> str:
     rather than guessed. The card's approval or payment date is a different fact.
     """
     from datetime import date, timedelta
-    unknown = "\uC774\uC6A9\uC77C \uD655\uC778 \uD544\uC694"
+    unknown = "이용일 원문 없음"
     period = _stay_period(row)
     match = _STAY_PATTERN.fullmatch(period)
     if not match:
@@ -807,7 +807,7 @@ def _compact_stay(row) -> str:
     """Compact table label; keep complete dates and inference in the tooltip."""
     full = _stay_text(row)
     match = _STAY_PATTERN.fullmatch(_stay_period(row))
-    if full == '이용일 확인 필요' or not match:
+    if full == '이용일 원문 없음' or not match:
         return full
     from datetime import date
     start, end = (date.fromisoformat(value) for value in match.groups())
@@ -956,7 +956,7 @@ def _trip_periods():
     return periods
 
 
-_UNKNOWN_SERVICE_DATES = ('이용일 확인 필요', '이용일 미확인')
+_UNKNOWN_SERVICE_DATES = ('이용일 원문 없음', '이용일 미확인')
 
 
 def _service_date_labels(row):
@@ -971,7 +971,7 @@ def _service_date_labels_for(row):
     item = str(row.get('item') or '').strip()
     if item == '숙박비':
         compact, full = _compact_stay(row), _stay_text(row)
-        if full == '이용일 확인 필요':
+        if full == '이용일 원문 없음':
             return _onsite_payment_label(row, 'lodging') or (compact, full)
         return compact, full
     if item in ('항공료', '항공권'):
@@ -984,7 +984,7 @@ def _service_date_labels_for(row):
         except ValueError:
             valid = False
         if not valid:
-            return _onsite_payment_label(row, 'rental') or ('이용일 미확인', '렌터카 인수·반납일 미확인')
+            return _onsite_payment_label(row, 'rental') or ('이용일 원문 없음', '렌터카 인수·반납일 원문 없음')
         fmt = '%y.%m.%d' if start.year != end.year else '%m.%d'
         return (start.strftime(fmt) + '–' + end.strftime(fmt),
                 '렌터카 인수 ' + start.isoformat() + ' · 반납 ' + end.isoformat())
@@ -1132,7 +1132,7 @@ def _google_match_annotations(tab_id, rows, preview=None, candidate_rows=None):
         labels = {'MATCHED_MANUAL': '장부에 있음 · 복사 제외',
                   'MATCHED_EXISTING': '장부에 있음 · 복사 제외',
                   'NEW_EXPENSE': '복사 가능',
-                  'REVIEW_CONFLICT': '중복 확인 필요 · 복사 제외'}
+                  'REVIEW_CONFLICT': '중복을 확인해 주세요 · 복사 제외'}
         annotations = {}
         for row in rows:
             item = by_id.get(str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''))
@@ -1156,7 +1156,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
     if not rows:
         colspan = 6 if amount_groups is not None else 5
         return (f"<tbody><tr class='empty'><td colspan='{colspan}'>"
-                f"{'수입 내역이 없어요' if kind == 'income' else '지출 내역이 없어요'}"
+                f"{'수입 내역이 없습니다.' if kind == 'income' else '지출 내역이 없습니다.'}"
                 "</td></tr></tbody>")
     body = []
     match_annotations = match_annotations or {}
@@ -1176,7 +1176,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
         match_description = ''
         match_class = ''
         if match:
-            label = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
+            label = match.get('label') or ('복수 후보를 확인해 주세요' if match['multiple'] else
                      '금액+' + '+'.join(match['reasons']))
             hint_id = 'google-match-' + str(rid)
             match_class = (' class="google-match-candidate"' if match.get('display_candidate')
@@ -1191,7 +1191,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
                 match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
             if match.get('display_candidate'):
-                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
+                candidate_label = ('복수 후보 · 확인해 주세요' if match['candidate_multiple'] else
                                    '금액+' + '+'.join(match['reasons']))
                 match_attributes = f" aria-describedby='{board.esc(hint_id)} {board.esc(hint_id)}-candidate'"
                 match_description += (f"<span class='sr' "
@@ -1314,7 +1314,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         + "</table></div>")
     if amount_groups is None:
         return head + groups
-    warning = ("<p class='gemn-total-warning' role='status'>시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교</p>"
+    warning = ("<p class='gemn-total-warning' role='status'>시트 합계 수식을 확인해 주세요 · 개별 지출 행 기준 비교</p>"
                if amount_groups.get('total_warning') else '')
     return gemn.styles() + warning + head + groups + gemn.render_groups(amount_groups)
 
@@ -1338,7 +1338,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         match = match_annotations.get(rid) if is_expense else None
         match_hint = ''
         if match:
-            reason = match.get('label') or ('복수 후보 확인 필요' if match.get('multiple') else
+            reason = match.get('label') or ('복수 후보를 확인해 주세요' if match.get('multiple') else
                       '금액+' + '+'.join(match.get('reasons') or []))
             match_hint = f"<span class='sr'>{board.esc(reason)}</span>"
         move = ''
@@ -1498,7 +1498,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
     if row.get("row_kind") == "income":
         links.append(f"<a href='/income/{board.esc(row['row_id'])}/split'>배분</a>")
     links.append(f"<a href='/trips'>여행 관리</a>")
-    links.append(f"<a href='/export'>선택 탭 출력</a>")
+    links.append(f"<a href='/export'>XLSX 내보내기</a>")
     links.append(rule_link)
     from . import ui_icons as _panel_icons
     return (
@@ -1616,7 +1616,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
     export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
-                  if tab_id and title != '선택 탭 출력' else "")
+                  if tab_id and title != 'XLSX 내보내기' else "")
     # bare: the body renders its own page_header (the 거래 tabs); keep only the
     # live-status slots the cross-screen refresh writes to.
     if bare:
@@ -1640,7 +1640,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
         + f"{export_btn}"
-        + (f"<a class='btn' href='{board.esc(back)}'>장부</a>" if not home else "")
+        + (f"<a class='btn' href='{board.esc(back)}'>장부</a>" if not home and heading != '여행' else "")
         + "</div></div>"
         f"<div class='page-body'>{body}</div>"
         "</main>")
@@ -1811,7 +1811,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         if held_count:
             description += f' · Google 대조가 끝나지 않은 {held_count}건 제외'
         if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
-            description += ' · Google 합계 수식은 확인 필요'
+            description += ' · Google 합계 수식을 확인해 주세요'
         if held_reasons:
             from urllib.parse import quote
             rows_by_id = {str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''): row
@@ -1910,7 +1910,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
          draft: dict = None, back: str = "", participant_query: dict = None) -> str:
     """The main ledger screen in the new design."""
     if _STORE_missing():
-        return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
+        return board.layout("여행 장부", "<div class='body'><p>저장소가 연결되지 않았습니다.</p></div>")
     from app import quarter_tab
     if quarter_tab.parse_tab(tab_id):
         year, quarter = quarter_tab.parse_tab(tab_id)
@@ -2184,7 +2184,7 @@ def _STORE_missing() -> bool:
     return getattr(board, "_STORE", None) is None
 
 
-def render(page_html: str, title: str = "웹 장부", live_config: str = "") -> str:
+def render(page_html: str, title: str = "숲길여행 회계", live_config: str = "") -> str:
     """Wrap a design fragment in the document with the design stylesheet.
 
     `live_config` is the JSON the cross-screen refresh script reads. It is

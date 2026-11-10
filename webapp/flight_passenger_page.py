@@ -109,7 +109,7 @@ if(data.cancellation_status==='CANCELLED'||data.cancellation_status==='CONFLICT'
 for(const passenger of data.passengers||[]){const article=document.createElement('article'), title=document.createElement('h2');
 if(passenger.assignment){const saved=document.createElement('p');saved.className=passenger.assignment.stale?'warning':'success';saved.textContent=passenger.assignment.stale?'이전 연결의 근거가 변경됐습니다. 최신 자료를 확인하고 다시 선택해 주세요.':'저장된 COST 연결: '+(passenger.assignment.candidate?.name_kr||'참가자')+' · 사용자가 확인했습니다.';article.append(saved)}
 for(const old of passenger.stale_assignments||[]){const notice=document.createElement('p');notice.textContent='저장된 COST 연결 이력이 있지만 원본이 바뀌었거나 현재 승객 제안과 일치하지 않아 다시 확인해야 합니다.';article.append(notice)}
-const stateLabel=({EXACT_CANDIDATE:'후보 1명',AMBIGUOUS:'복수 후보',UNMATCHED:'후보 없음',CANCELLED_EVIDENCE:'취소 확인',CONFLICTING_EVIDENCE:'자료 충돌'})[passenger.status]||'상태 확인 필요';title.textContent=passenger.passenger_name_en+' · '+stateLabel;article.append(title);
+const stateLabel=({EXACT_CANDIDATE:'후보 1명',AMBIGUOUS:'복수 후보',UNMATCHED:'후보 없음',CANCELLED_EVIDENCE:'취소 확인',CONFLICTING_EVIDENCE:'자료 충돌'})[passenger.status]||'상태를 확인해 주세요';title.textContent=passenger.passenger_name_en+' · '+stateLabel;article.append(title);
 if(!passenger.candidates.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='연결할 참가자 후보가 없습니다. 예약 명단과 영문 이름을 확인해 주세요.';const source=document.createElement('a');source.href='/reserve-links';source.textContent='예약 명단·여행 연결 확인';article.append(empty,source)}
 if(passenger.candidates.length>1){const warning=document.createElement('p');warning.className='warning';warning.textContent='같은 영문 이름의 후보가 '+passenger.candidates.length+'명입니다. 예약 정보를 확인한 뒤 한 명을 선택해 주세요.';article.append(warning)}
 for(const [index,candidate] of (passenger.cancellation_status==='NONE'&&!passenger.evidence_conflict?passenger.candidates:[]).entries()){const label=document.createElement('label'), radio=document.createElement('input');radio.type='radio';radio.name=passenger.proposal_id;radio.value=candidate.reference_id;
@@ -220,17 +220,17 @@ function text(parent,tag,value,klass){const e=document.createElement(tag);if(kla
 function field(parent,label,value){const wrap=document.createElement('div');wrap.className='fb-field';text(wrap,'small',label);text(wrap,'strong',value||'확인되지 않음');parent.append(wrap)}
 function money(value,currency='KRW'){
  if(value==null||value==='')return '';
- const n=Number(value);if(!Number.isFinite(n))return '금액 확인 필요';
+ const n=Number(value);if(!Number.isFinite(n))return '금액을 확인해 주세요';
  return new Intl.NumberFormat('ko-KR',{maximumFractionDigits:2}).format(n)+(currency==='KRW'?'원':' '+currency);
 }
 function cardTransaction(parent,tx,candidate=false){
  const row=document.createElement('article');row.className='fb-date-row';
  const head=text(row,'div','','fb-payment-head');text(head,'h3',tx.merchant||'가맹점 미확인');
  const currency=tx.foreign_currency||tx.currency;
- text(head,'strong',money(tx.amount_krw)||money(tx.foreign_amount,currency)||'금액 확인 필요','fb-amount');
+ text(head,'strong',money(tx.amount_krw)||money(tx.foreign_amount,currency)||'금액을 확인해 주세요','fb-amount');
  const grid=text(row,'div','','fb-grid');field(grid,'거래일',tx.approval_date);
  const direction=tx.transaction_direction||tx.direction||tx.event_type;
- field(grid,'거래 유형',({purchase:'결제',charge:'결제',refund:'취소·환불',cancel:'취소',cancellation:'취소'})[direction]||'유형 확인 필요');
+ field(grid,'거래 유형',({purchase:'결제',charge:'결제',refund:'취소·환불',cancel:'취소',cancellation:'취소'})[direction]||'유형을 확인해 주세요');
  if(tx.card_tail||tx.issuer)field(grid,'결제 카드',[tx.issuer,tx.card_tail?'끝 '+tx.card_tail:''].filter(Boolean).join(' · '));
  if(tx.foreign_amount!=null&&currency)field(grid,'외화 금액',money(tx.foreign_amount,currency));
  const protections=[];if(tx.duplicate_of)protections.push('중복 원행');if(tx.conflict_reason)protections.push('원본 충돌');if(tx.parse_error)protections.push('원본 오류');
@@ -370,7 +370,7 @@ function groupForBooking(b){
  if(!bookingGroups.has(key)){
   const section=text(resultRoot,'section','','fb-trip-group');section.dataset.tripId=id;
   const head=text(section,'header','','fb-group-heading');
-  text(head,'h2',id?b.assigned_trip_title||id:unavailable?'여행 배정 확인 불가':conflict?'여행 배정 충돌':'여행 미배정');
+  text(head,'h2',id?b.assigned_trip_title||id:unavailable?'여행 귀속을 확인할 수 없습니다':conflict?'여행 귀속 충돌':'여행 귀속 없음');
   const count=text(head,'span','','fb-group-count');
   if(id){const link=text(head,'a','여행별 비용');link.href='/board?'+new URLSearchParams({tab:id})}
   if(unavailable)text(section,'p','여행 배정 자료를 읽지 못했습니다. 예약 조회를 눌러 다시 시도하세요.','fb-group-unavailable');

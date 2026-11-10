@@ -69,7 +69,7 @@ def render_refund_card(group, saved=None, trip_names=None):
     net = sum(r['amount_krw'] for r in group)
     title = '전액 환불' if net == 0 else '초과 환불 검토 필요' if net < 0 else '부분 환불'
     if group[0].get('inferred'):
-        title = '원결제 추론 연결 · 기록 보류 · 환급 완료 아님'
+        title = '원결제 자동 연결 · 기록 전 확인 · 환급 완료 아님'
     rows = []
     for index, source in enumerate([group[0]] + sorted(group[1:], key=lambda r: (
             not bool(r['occurred_on']), r['occurred_on'], r['transaction_id']))):

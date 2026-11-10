@@ -181,13 +181,13 @@ def render_queue_summary(snapshot):
     """Render the shared action count for the import page, without inventing zero on failure."""
     if snapshot is None:
         return ("<section class='action-queue-summary' aria-labelledby='action-queue-title'>"
-                "<h2 id='action-queue-title'>내 확인 필요</h2>"
+                "<h2 id='action-queue-title'>지출 자료 확인</h2>"
                 "<p role='alert'>작업 수를 확인할 수 없습니다. 거래 상태와 구분해 다시 불러와 주세요.</p>"
-                "<p><a href='/my-actions'>내 확인 필요 다시 확인</a></p></section>")
+                "<p><a href='/my-actions'>지출 자료 확인 다시 열기</a></p></section>")
     empty = "현재 직접 답할 작업이 없습니다." if snapshot.count == 0 else "답변이나 자료 제출이 필요한 사용자 작업입니다."
     return ("<section class='action-queue-summary' aria-labelledby='action-queue-title'" +
             queue_data_attrs(snapshot) + ">"
-            "<h2 id='action-queue-title'><a href='/my-actions'>내 확인 필요 " +
+            "<h2 id='action-queue-title'><a href='/my-actions'>지출 자료 확인 " +
             str(snapshot.count) + "건</a></h2><p>" + empty + "</p></section>")
 
 
@@ -281,9 +281,9 @@ def set_state(conn, action_id, state):
 def render_unavailable():
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>내 확인 필요</title><style>main{max-width:880px;margin:0 auto;padding:20px}"
-            "a{display:inline-flex;align-items:center;min-height:44px}</style></head><body><main><h1>내 확인 필요</h1>"
-            "<p role='alert'>작업 목록을 불러오지 못했습니다. 현재 작업 수를 확인할 수 없어요.</p>"
+            "<title>지출 자료 확인</title><style>main{max-width:880px;margin:0 auto;padding:20px}"
+            "a{display:inline-flex;align-items:center;min-height:44px}</style></head><body><main><h1>지출 자료 확인</h1>"
+            "<p role='alert'>작업 목록을 불러오지 못했습니다. 현재 작업 수를 확인할 수 없습니다.</p>"
             "<p><a href='/my-actions'>다시 불러오기</a></p></main></body></html>")
 
 
@@ -315,9 +315,9 @@ def render(conn, csrf, *, answered=False, snapshot=None):
                          ('/import?transaction=' + str((task.get("source_refs") or [""])[0]))) + "'>원본 거래 보기</a></p></article>")
     body = "".join(cards) if cards else "<p class='queue-empty'>현재 직접 답할 작업이 없습니다.</p>"
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>내 확인 필요</title><style>main{max-width:880px;margin:0 auto;padding:20px}.action-card{border:1px solid var(--shell-line,var(--c-border));padding:16px;margin:12px 0;border-radius:var(--r-md)}"
+            "<title>지출 자료 확인</title><style>main{max-width:880px;margin:0 auto;padding:20px}.action-card{border:1px solid var(--shell-line,var(--c-border));padding:16px;margin:12px 0;border-radius:var(--r-md)}"
             ".action-card button{min-height:44px}.action-card textarea{display:block;width:100%;min-height:70px}.action-card select{display:block;min-height:44px;max-width:100%}.action-kind{color:var(--shell-muted,var(--c-text-secondary))}</style></head>"
-            "<body><main" + queue_data_attrs(snapshot) + "><h1>내 확인 필요 " + str(snapshot.count) +
+            "<body><main" + queue_data_attrs(snapshot) + "><h1>지출 자료 확인 " + str(snapshot.count) +
             "건</h1><p>자동 검토로 해결되지 않아 답변이 필요한 작업만 표시합니다.</p>"
             + ("<p role='status'>답변을 저장했습니다. 관련 자동 검토를 다시 확인하고 있습니다.</p>" if answered else "")
             + body + "</main></body></html>")

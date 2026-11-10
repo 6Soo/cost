@@ -189,7 +189,7 @@ def build_state(query=None, *, review=None, trips=None, context=None):
             matched = {'rows': [dict(row, match_state='source_unavailable', matches=[], candidate_count=0)
                                 for row in contract['rows']],
                        'counts': {'source_unavailable': len(contract['rows'])}}
-            scope += ' · 수입 연결 또는 최신 자료 확인 필요'
+            scope += ' · 수입 연결 또는 최신 자료를 확인해 주세요'
         contracts.append({key: contract[key] for key in ('contract_key', 'travel_start', 'travel_end', 'insurance_status')}
                          | {'trip_options': options, 'scope_label': scope, **matched})
         totals['contracts'] += 1

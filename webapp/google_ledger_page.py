@@ -390,7 +390,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         elif show_rows:
             message = f"수입 {_money(rows_total)}"
         else:
-            message = '수입 확인 필요'
+            message = '수입 자료를 확인해 주세요'
         return panel(message, body)
     except (google_authority.SnapshotError, ValueError, OSError):
         return panel('수입 내역을 불러오지 못했습니다. 새로고침해 주세요.')
@@ -795,7 +795,7 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         "body{font-family:system-ui,sans-serif;margin:16px;line-height:1.6;color:var(--shell-ink)}"
         "h1{font-size:var(--t-h1)}a{display:inline-flex;align-items:center;min-height:44px;"
         "padding:8px 12px;margin:8px 8px 0 0;border:1px solid var(--shell-line-strong);border-radius:var(--r-md);color:var(--shell-accent)}"
-        "</style></head><body><h1>수입 장부를 아직 표시할 수 없어요</h1>"
+        "</style></head><body><h1>수입 장부를 아직 표시할 수 없습니다.</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
         f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"

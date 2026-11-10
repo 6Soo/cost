@@ -249,7 +249,7 @@ function renderDecisionGroup(card, row, idx, candidates, insufficient) {
     }
     if (found) { blankChecked = false; }
   }
-  makeOption("", "보류 (나중에 결정)", false, blankChecked);
+  makeOption("", "지금은 선택하지 않음", false, blankChecked);
   makeOption("REJECT", "거부", false, existing === "REJECT");
   for (var i = 0; i < candidates.length; i++) {
     var key = candidateKeyOf(candidates[i]);
@@ -259,7 +259,7 @@ function renderDecisionGroup(card, row, idx, candidates, insufficient) {
   if (insufficient) {
     var note = document.createElement("p");
     note.className = "confirm-note";
-    note.textContent = "추가 확인 필요: 증빙이 부족하거나 후보가 없어 승인이 제한됩니다. 이 상태는 백엔드에서 다시 확인합니다.";
+  note.textContent = "추가 자료 확인: 증빙이 부족하거나 후보가 없어 승인이 제한됩니다. 이 상태는 서버에서 다시 확인합니다.";
     group.appendChild(note);
   }
   card.appendChild(group);
