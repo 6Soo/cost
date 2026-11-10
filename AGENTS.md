@@ -10,7 +10,7 @@
 | 실제 배포 근거 | [운영 기록](docs/operations.md) 맨 위 절 |
 | 구현 작업을 배정·검수하는 법 | [중간 관리자 지침](docs/agents/MANAGER.md), [작업판](docs/agents/BOARD.md) |
 
-`docs/specs/`와 `docs/history/`는 **근거 기록**이다. 거기 남은 ACTIVE·READY·미구현 표시는 작업 지시가 아니다. 통합 명세나 규칙집과 다르면 통합 명세와 규칙집이 우선한다.
+`docs/history/`(과거 명세는 `docs/history/specs-20261110/`)는 **근거 기록**이다. 거기 남은 ACTIVE·READY·미구현 표시는 작업 지시가 아니다. 통합 명세나 규칙집과 다르면 통합 명세와 규칙집이 우선한다.
 
 ## 지금의 규칙 (2026-11-10 사용자 결정)
 

@@ -20,6 +20,6 @@
 | 실제 릴리스와 실행 증거 | [운영 기록](operations.md) |
 | 구현 작업의 배정과 진행 | [중간 관리자 지침](agents/MANAGER.md), [작업판](agents/BOARD.md) |
 | 반복 작업의 절차 | [절차서](playbooks/README.md) |
-| 과거 명세·인계·실험 | `docs/specs/`, [보관함](history/README.md) — 근거 기록이며 작업 지시가 아니다 |
+| 과거 명세·인계·실험 | [보관함](history/README.md), [과거 명세](history/specs-20261110/README.md) — 근거 기록이며 작업 지시가 아니다 |
 
 과거 명세에 남은 "미구현·READY·ACTIVE" 표시로 작업을 시작하지 않는다. 과거 명세에 흩어져 있던 판정 규칙은 규칙집으로 옮겼고, 각 규칙의 "출처"가 원래 위치를 가리킨다.
