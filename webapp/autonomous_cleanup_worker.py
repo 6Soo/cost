@@ -631,6 +631,7 @@ class AutonomousCleanupWorker:
                 if query['kind'] == 'card_search':
                     evidence.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
         return rows, evidence
+
     def _call_agent_impl(self, request, due_rows, fingerprints, now, all_rows):
         from app import ai_classification, connected_agent_provider, frontier_agent_provider, p2_case
 

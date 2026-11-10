@@ -116,6 +116,12 @@ class TimedLock:
             if depth == 0:
                 self.local.since = time.perf_counter()
                 self.stats[self.name]['wait'].append(self.local.since - started)
+                frame, self.local.site = sys._getframe(1), '?'
+                while frame is not None:
+                    if frame.f_code.co_filename.endswith('autonomous_cleanup_worker.py'):
+                        self.local.site = frame.f_code.co_name + ':' + str(frame.f_lineno)
+                        break
+                    frame = frame.f_back
             self.local.depth = depth + 1
         return ok
 
@@ -123,7 +129,10 @@ class TimedLock:
         if threading.get_ident() == self.owner[0]:
             self.local.depth -= 1
             if self.local.depth == 0:
-                self.stats[self.name]['hold'].append(time.perf_counter() - self.local.since)
+                held = time.perf_counter() - self.local.since
+                self.stats[self.name]['hold'].append(held)
+                sites = self.stats.setdefault('sites', {}).setdefault(self.name, {})
+                sites[self.local.site] = round(max(sites.get(self.local.site, 0), held), 4)
         return self.inner.release()
 
     __enter__ = acquire
@@ -281,7 +290,8 @@ def measure(args):
         assembled_cases=len(counts['assembled_cases']), select_calls=counts['select_calls'],
         provider_calls=counts['provider_calls'], provider_cases=counts['provider_cases'],
         reservations=reservations, ai_applied=applied, jobs=jobs,
-        worker_locks={name: {k: _summary(v) for k, v in value.items()} for name, value in stats.items()},
+        worker_locks={name: {k: _summary(v) for k, v in value.items()} for name, value in stats.items() if name != 'sites'},
+        worker_lock_max_hold_by_site=stats.get('sites', {}),
         competitor_thread_route_board_wait=_summary(competitor['board']),
         competitor_process_route_wait=_summary(outside['route']),
         competitor_process_db_write_wait=_summary(outside['db_write']))
