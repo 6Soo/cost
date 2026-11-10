@@ -108,6 +108,27 @@ def refund_context(value):
     return False
 
 
+def unparsed_source_context(value):
+    """An unknown source event may need refund rules; it proves no event."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return True
+    if not isinstance(value, dict):
+        return True
+    context = value.get('event_context', value)
+    if not isinstance(context, dict):
+        return True
+    known = {
+        'event_type': {'booking', 'reservation', 'confirmation', 'payment', 'refund', 'cancellation', 'cancellation_notice'},
+        'reservation_status': {'confirmed', 'cancelled', 'canceled'},
+        'refund_status': {'refund_requested', 'refund_pending', 'refunded', 'refund_completed'},
+    }
+    states = [(key, context.get(key)) for key in known if context.get(key)]
+    return not states or any(not isinstance(state, str) or state not in known[key] for key, state in states)
+
+
 def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extra=()):
     ids = {c['transaction_id'] for c in request['cases']}
     rows = {r['transaction_id']: r for r in _read(conn, ids)}
@@ -140,12 +161,17 @@ def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extr
             except ValueError:
                 content = {}
         context_values.append(content)
-    if refund_context(context_values):
+    actual_refund = refund_context(context_values)
+    potential_refund = any(raw.get('kind') in ('mail', 'portal') and
+                           unparsed_source_context(raw.get('content')) for raw in evidence)
+    if actual_refund or potential_refund:
         areas.append('refund')
     policy = policy_context(areas)
     bundle = dict(version='p2-tool-free-v1', request_digest=request['digest'], cases=cases,
                   policy=policy, policy_digest=digest(policy), evidence=ordered[:MAX_EVIDENCE],
                   omitted_evidence=max(0, len(ordered) - MAX_EVIDENCE), truncated=len(ordered) > MAX_EVIDENCE)
+    if potential_refund and not actual_refund:
+        bundle['policy_selection'] = {'refund': 'unparsed_source_potential_not_fact'}
     # Policy and case envelope cannot be silently clipped. Refuse an oversized
     # base, allowing the worker to retry a smaller batch instead.
     for item in bundle['evidence']:

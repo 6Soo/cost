@@ -117,3 +117,16 @@ def test_refund_policy_text_is_not_an_actual_refund_event(setup):
     bundle = p2_case.assemble(setup.conn, trips, request, repository=Evidence([
         dict(ref='portal:policy', kind='portal', content={'reservation_status':'confirmed','text':'Free cancellation. 환불 가능, refund policy and cancellation policy.'})]))
     assert 'link' in bundle['policy'] and 'refund' not in bundle['policy']
+
+
+@pytest.mark.parametrize('kind,content', [('mail','Unparsed notice: reservation cancelled, refund requested.'),
+    ('portal', {'text':'미파싱 취소 통지 원문','event_context':{}}),
+    ('mail', {'text':'합성 원문','event_context':{'event_type':'unknown'}})])
+def test_unparsed_related_source_conservatively_receives_refund_rules_without_claiming_refund(setup, kind, content):
+    request, trips = prepared(setup)
+    bundle = p2_case.assemble(setup.conn, trips, request, repository=Evidence([
+        dict(ref=kind+':unparsed',kind=kind,content=content)]))
+    assert 'RFND-018' in bundle['policy']['refund']
+    assert bundle['policy_selection']['refund'] == 'unparsed_source_potential_not_fact'
+    assert bundle['cases'][0]['transaction']['transaction_direction'] == 'purchase'
+    assert len(p2_case.prompt(bundle).encode()) <= 262144
