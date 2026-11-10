@@ -1,6 +1,13 @@
 # 현재 상태
 
-## 2026-11-10 OTA 포털 직접 조사·자동 보강 — 현재 정본
+## 2026-11-10 Trip.com 사전승인 반영·Gmail 수집 복구 — 현재 정본
+
+- **운영:** `374462fe922a67b53758d7e1d8bb46c5e4eedaf6`([#787](https://github.com/6Soo/cost/pull/787) Trip 주문·카드 사전승인 근거), 이전 `998dd461`. blob 불일치0·보호13표 불변·worker_switched=true.
+- **Trip 반영:** 사용자가 알려 준 이메일 인증번호로 예약 계정 로그인 → 호텔 주문 상세 502건을 `trip-api-v1`로 수입(백업 `D:/WebLedgerHost/data/backups/ota-evidence-before-trip-api-20261110.sqlite`). 현장결제 호텔의 카드 사전승인은 장부에서 `MM.DD–MM.DD 사전승인`/`사전승인(취소)`와 환불 상태로 표시. 장부 경고 175 → **154**(Trip 38→17).
+- **확인 필요(금융):** 사전승인은 체크아웃 후 환불되는 보증금인데 카드 명세에 환불 행이 들어온 것은 일부뿐이라, 현재 숙박비 합계에 환불된 보증금이 포함돼 있다. 금액·분류는 자동으로 바꾸지 않았다 — 환불이 찍힌 카드 명세 업로드 또는 사전승인 행 처리 결정 필요.
+- **Gmail 수집 장애·복구:** 17:06 KST부터 수집 토큰 갱신이 400으로 실패(OAuth 앱 "테스트 중" 상태의 7일 만료). 사용자 지시로 ego lite에서 재인증하고, Google 인증 플랫폼(프로젝트 `exemplary-vista-312906`) 브랜딩에 홈페이지·개인정보처리방침 링크(`foresttour.kr`)를 넣어 **프로덕션으로 게시**한 뒤 다시 재인증(18:17 KST). 수동 1회 수집 정상(신규 11건). 이전 토큰은 `secrets/gmail-collector-token.{expired,testing}-20261110.json`.
+
+## 2026-11-10 OTA 포털 직접 조사·자동 보강 — 당시 정본
 
 - **운영:** `998dd46100a8bd11304532f741e15f162fd9c3c6`([#784](https://github.com/6Soo/cost/pull/784)), 이전 `895a412e`([#783](https://github.com/6Soo/cost/pull/783)+[#781](https://github.com/6Soo/cost/pull/781)) ← `9ad0a454`. 두 배포 모두 blob 불일치0·보호13표 불변·worker_switched=true·Gateway 유지. 다른 세션(UI/UX)과 배포 순서를 메시지로 조율했다.
 - **사용자 지시:** Agoda·Trip.com·Booking.com을 ego lite로 직접 조사하고 자동 보강 방법과 이후 수집 절차를 문서화. 절차·결과 정본: [OTA 포털 직접 수집 절차](specs/ota-portal-browser-collection-20261110.md). AGENTS.md의 Agoda 수집 규칙을 이 결정으로 갱신했다.
