@@ -43,6 +43,28 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 
 과거 기록의 운영 SHA·미구현·HOLD는 해당 시점의 근거다. 현재 런타임 또는 새 개발 권한으로 해석하지 않는다. 콘솔 창 다음 예약 실행 수락은 여전히 NOT_RUN이다.
 
+## 2026-11-10 장부 이용일·성능 코드 배포 연속 기록 — COMPLETE
+
+| 순서 | 운영 SHA | 이전 | 포함 PR | 결과 |
+|---|---|---|---|---|
+| 0 | `3dd0750e…` | d67a1312 | #767(백엔드 작업 Worker 통합) | PASS 2026-11-09T08:55Z |
+| 1 | `2ef58a9242e8fdf1687b729a91a1f36558ec00af` | 3dd0750e | #768/#769(메일 재시도·동일 원본 비교, 워커 전환 보강) | PASS 13:26Z, 1,465 blobs mismatch0 |
+| 2 | `4151d805b577ea2f1206e94c239fb56d6dd2322c` | 2ef58a92 | #770/#771(skyticket 해외 구매·Trip 가격 변경 근거, 자식 교환 파일 정리) | PASS, 이후 장부 12–46s 지연 발견. 2ef58a92 롤백 시도는 HTTP 스모크 실패로 자동 복귀(4151d805 유지) |
+| 3 | `7334f1ae2c20e04e60348a4898a54b5ab08e7d00` | 4151d805 | #772(이용일 인덱스 세대당 1회) | PASS |
+| 4 | `cee973fbacc8137c3f3552c4329caf9d53166535` | 7334f1ae | #774/#775/#776 | PASS 18:07Z, 1,485 blobs mismatch0 |
+| 5 | `086acc679ea4639ef96793ae2be39d1a63de8ea9` | cee973fb | #777 | PASS 18:43Z |
+| 6 | `094e52c9929843fb0b9b17b07e482eaf1c95ce6c` | 086acc67 | #778 | PASS 19:31Z |
+| 7 | `f5758929bf091b4fd4a43b4227709e8ad4197596` | 094e52c9 | #780 | PASS 19:54Z, 1,485 blobs mismatch0 |
+| 8 | `9ad0a454ae323cb6ee61c2a4827dca3bf34caa15` | f5758929 | #779(다른 세션 UI 1차, 검수 ff198354)·#782 | PASS 20:27Z, 1,494 blobs mismatch0, 다른 세션과 조율해 단일 작성자 배포 |
+
+- 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`(단, 0번 3dd0750e는 `false` — #767 시점 Worker 전환 도구 결함으로, #769 이후 1~8번은 모두 `true`). 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
+- 성능 수락(인증 ego-browser, 같은 3개 여행 장부): 7334f1ae 3.2–9.6s(1건 502/38s), 요청 지표 잠금 대기 p50 1,211ms·p95 51,959ms → cee973fb 0.9–1.0s, 잠금 대기 p50 0.003ms·p95 197ms, first_render p50 777ms.
+- 진단 방법: Python 3.14 `sys.remote_exec`로 운영 Board 프로세스에 읽기 전용 스택 샘플러·스냅숏 진단 스레드를 주입했다(데이터 쓰기 없음, 결과는 비공개 scratch에만 저장). 한 번 주입이 다음 주입에 덮여 실행되지 않은 사례가 있어, 주입 간 결과 파일 생성을 확인한 뒤 다음 주입을 해야 한다.
+- 재기동 직후 OTA 스냅숏은 공개 요약만 디스크에 있어 첫 재계산(이번 7분 9초, 직전 1회 SOURCE_CHANGED 실패 포함 약 16분)까지 장부 OTA 이용일이 비어 보인다. 배포 직후 경고 집계는 `refresh_done` 이후에 한다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-<SHA>.json`, 비공개 `C:/AX/cost/.local-archive/service-date-row-audit-20261109/deploy-<SHA8>/`(review.json, protection-before, apply.log).
+- Worker 재시작(배포)은 실행 중 `mail-collect`를 끊는다. #778 이후에는 저장된 200건 묶음이 보존되고 재시작 직후 수집이 다시 시작된다.
+- Gateway 포트 점유 장애(04:00–04:06 KST)와 복구 절차는 [현재 상태](session_handoff.md) 2026-11-10 절.
+
 ## 2026-11-09 작업공간 통합 정리 + #763 코드 단일 운영 배포 — COMPLETE
 
 - [PR #764](https://github.com/6Soo/cost/pull/764) 병합 `d67a1312d6e592648db0ed6ea95e49ff5aa9d053`(트리는 #763 검수 SHA `2723125a85fc95625b92114a5feb3e7c49468f78`과 docs·AGENTS.md 외 동일)를 이전 검증 `c202fe6edd4841b94e4dcc5ba20d6064c39e6d4a`에서 공식 단일 코드 배포했다(`tools/deploy_verified_release.ps1` PREVIEW→`-Apply`). #763의 렌터카 선결제 구분·라쿠텐 예약 근거 수정이 운영에 반영됐다.
