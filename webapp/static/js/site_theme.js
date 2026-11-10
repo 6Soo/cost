@@ -17,7 +17,9 @@
        (_,value)=>value===theme?'(min-width:0px)':'(max-width:0px)');
    }
    const button=document.getElementById('site-theme-toggle');
-   if(button){const label=theme==='dark'?'라이트모드로 전환':'다크모드로 전환';button.setAttribute('aria-label',label);button.title=label}
+   if(button){const label=theme==='dark'?'밝은 화면으로 전환':'어두운 화면으로 전환';button.setAttribute('aria-label',label);button.title=label;
+    const light=button.querySelector('[data-theme-icon="light"]'),dark=button.querySelector('[data-theme-icon="dark"]');
+    if(light)light.hidden=theme==='dark';if(dark)dark.hidden=theme!=='dark';}
  };
  const applyWithoutTransition=()=>{
    const style=document.createElement('style');

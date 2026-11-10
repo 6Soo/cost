@@ -117,4 +117,13 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');syncNav();i
  if(u.pathname===path&&(!u.search||a.closest('.site-links')) || path.startsWith('/google-ledger/')&&u.pathname==='/google-ledger'){a.setAttribute('aria-current','page')}});
  try{nav.scrollTop=Number(sessionStorage.getItem('cost-nav-scroll')||0);
  nav.addEventListener('scroll',()=>{try{sessionStorage.setItem('cost-nav-scroll',String(nav.scrollTop))}catch{}})}catch{}
+ const dialog=document.getElementById('site-more-dialog');
+ const openers=document.querySelectorAll('.site-more-toggle,.site-more-bottom');
+ const closeDialog=()=>{if(dialog&&dialog.open)dialog.close();if(dialog)dialog.inert=true};
+ if(dialog)dialog.inert=true;
+ openers.forEach(button=>button.addEventListener('click',()=>{if(dialog&&!dialog.open){dialog.inert=false;dialog.showModal()}}));
+ dialog?.addEventListener('close',()=>{dialog.inert=true});
+ dialog?.addEventListener('cancel',event=>{event.preventDefault();closeDialog()});
+ dialog?.addEventListener('click',event=>{if(event.target===dialog)closeDialog()});
+ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&dialog?.open)closeDialog()});
 })();

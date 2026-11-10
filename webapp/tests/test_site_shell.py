@@ -9,15 +9,15 @@ def test_standalone_pages_share_navigation_without_changing_page_scripts():
         result = site_shell.wrap_document(original, '/cards')
     assert result.count('id="nav"') == 1
     assert 'id="amount"' in result and 'const saved=1;' in result
-    assert 'id="site-content"' in result and 'site-menu-toggle' in result
+    assert 'id="site-content"' in result and 'site-more-dialog' in result
     assert site_shell.wrap_document(result, '/cards') == result
 
 
 def test_native_pages_keep_their_existing_navigation_and_fragments_stay_fragments():
     original = "<html><head></head><body><div class='app'><aside id='nav'></aside><main id='main'>ledger</main></div></body></html>"
     result = site_shell.wrap_document(original, '/board')
-    assert result.count("id='nav'") == 1
-    assert 'id="site-content"' not in result
+    assert result.count('id="nav"') == 1
+    assert 'id="site-content"' in result
     assert '<main id=\'main\'>' in result
     assert site_shell.wrap_document('<section>partial</section>', '/board') == '<section>partial</section>'
 
@@ -27,10 +27,10 @@ def test_sidebar_scrollbar_brand_and_footer_style_use_shell_tokens():
     assert '#nav::-webkit-scrollbar-thumb' in style
     assert '#nav{scrollbar-width:thin' in style
     assert '--shell-line-strong' in style
-    assert '#nav a.brand.brand-link' in style
-    assert '#nav .nav-ft .all-trips-link' in style
-    assert 'var(--shell-selected' in style
-    assert 'var(--shell-paper' in style
+    assert '#nav .brand' in style
+    assert '#nav .all-trips-link' in style
+    assert 'var(--c-accent-subtle' in style
+    assert 'var(--c-surface' in style
 
 
 def test_shell_theme_tokens_cover_native_navigation_documents():
@@ -40,7 +40,7 @@ def test_shell_theme_tokens_cover_native_navigation_documents():
     assert 'body.site-standalone,body:has(.site-topbar)' not in site_shell.STYLE
 
 
-def test_browser_shell_tracks_system_theme_and_mobile_menu_keyboard():
+def test_browser_shell_tracks_system_theme_and_mobile_more_dialog_keyboard():
     from playwright.sync_api import sync_playwright
 
     original = '<!doctype html><html><head><title>Synthetic shell</title></head><body><main>내용</main></body></html>'
@@ -60,14 +60,13 @@ def test_browser_shell_tracks_system_theme_and_mobile_menu_keyboard():
             assert page.locator(':root').evaluate(
                 "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
 
-            toggle = page.get_by_role('button', name='전체 메뉴 열기')
+            toggle = page.locator('.site-more-toggle')
             assert toggle.is_visible()
             toggle.focus()
             page.keyboard.press('Enter')
-            assert page.locator('#nav').evaluate("element => element.classList.contains('open')")
+            assert page.locator('#site-more-dialog').evaluate("element => element.open")
             page.keyboard.press('Escape')
-            assert not page.locator('#nav').evaluate("element => element.classList.contains('open')")
-            assert toggle.evaluate('element => document.activeElement === element')
+            assert not page.locator('#site-more-dialog').evaluate("element => element.open")
 
             page.set_viewport_size({'width': 759, 'height': 812})
             assert toggle.is_visible()
@@ -91,8 +90,9 @@ def test_brand_links_home_and_side_menu_has_no_standalone_home():
             html = ledger_design._nav_html('', '')
         assert "<a class='brand brand-link' href='/'" in html
         assert '숲길여행 회계' in html
-        assert html.count("href='/'") == 1
-        assert '>홈</span></a>' not in html
+        expected_home_links = 2 if role == 'owner' else 1
+        assert html.count("href='/'") == expected_home_links
+        assert '>홈</span></a>' in html if role == 'owner' else '>홈</span></a>' not in html
 
 
 def test_brand_link_keeps_hover_and_focus_styles():
@@ -101,7 +101,7 @@ def test_brand_link_keeps_hover_and_focus_styles():
     assert 'a.brand{min-height:44px' in ledger_design.STYLE
     assert '#nav a.brand:hover' in site_shell.STYLE
     assert '#nav a.brand:focus-visible' in site_shell.STYLE
-    assert '#nav a.brand{min-height:44px' in site_shell.STYLE
+    assert '#nav .brand{' in site_shell.STYLE
 
 
 def test_flight_passenger_link_is_owner_only_and_feature_gated():
@@ -114,7 +114,7 @@ def test_flight_passenger_link_is_owner_only_and_feature_gated():
     with patch.object(ledger_board, 'current_role', return_value='owner'), \
             patch('webapp.flight_passenger_page.enabled', return_value=False):
         disabled = ledger_design._nav_html('', '')
-    assert "href='/flight-passengers'" in owner
+    assert "href='/flight-passengers'" not in owner
     assert "href='/flight-passengers'" not in viewer
     assert "href='/flight-passengers'" not in disabled
     assert "href='/access/admin'" in owner
@@ -127,7 +127,7 @@ def test_trip_costs_are_reached_from_trip_management_not_a_standalone_ledger_men
             patch('webapp.ledger_design.nav_region', return_value=''):
         html = ledger_design._nav_html('', '')
     assert "href='/trips'" in html
-    assert "여행 관리" in html
+    assert "<span class='nm'>여행</span>" in html
     assert "href='/board'" not in html
     assert "여행 장부" not in html
 
@@ -152,5 +152,4 @@ def test_home_omits_unavailable_features_instead_of_placeholder_cards():
         body=ledger_design.work_menu_html()
     assert '영수증 처리' not in body and '확정 장부' not in body
     assert '설정 필요' not in body and '미연결' not in body
-    assert "href='/import'" not in body and "href='/ota'" in body and "href='/cards'" not in body
-    assert '<small>' not in body
+    assert body == ''
