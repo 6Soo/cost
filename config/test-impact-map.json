@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "p2-tool-free-runtime",
+      "paths": ["app/p2_case.py", "app/frontier_agent_provider.py", "app/p2_output.schema.json", "app/ai_classification.py", "tests/test_p2_case.py", "tests/test_frontier_agent_provider.py", "tests/test_p2_runtime.py", "tests/test_p2_worker_boundaries.py", "tests/test_p2_output_schema_fixtures.py", "tests/fixtures/p2_tool_free/**"],
+      "tests": ["tests/test_p2_case.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_autonomous_cleanup.py"]
+    },
+    {
       "name": "m1-baseline-readonly-tool",
       "paths": ["docs/agents/artifacts/m1-baseline-20261111.py", "tests/test_m1_baseline_readonly.py"],
       "tests": ["tests/test_m1_baseline_readonly.py"]
