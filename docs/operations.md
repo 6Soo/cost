@@ -59,6 +59,7 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 | 9 | `895a412eabc19fecda37d34245f0cd0e42e32649` | 9ad0a454 | #783(Agoda 상세 API 포털 근거)·#781(문서) | PASS 05:48Z, 1,498 blobs mismatch0. 이후 별도 단계로 OTA 저장소 백업→Agoda 상세 1,418건 수입 |
 | 10 | `998dd46100a8bd11304532f741e15f162fd9c3c6` | 895a412e | #784(동일 객실 표시) | PASS 06:22Z |
 | 11 | `374462fe922a67b53758d7e1d8bb46c5e4eedaf6` | 998dd461 | #787(Trip 주문·사전승인)·#785/#786(문서) | PASS 08:06Z, 1,501 blobs mismatch0. 이후 OTA 저장소 백업→Trip 상세 502건 수입 |
+| 12 | `965bca058a74a54bf69bc4d70a0d05f8997786c3` | 374462fe | #790(현장결제 전날·렌터카 중개사)·#791(아시아나·에어비앤비·Klook 이용일, PARSER_VERSION 17) | PASS 11:07Z, 1,503 blobs mismatch0, health/ready 200·보호 API 401·보호13표 불변. 첫 시도는 릴리스 폴더 `DEPLOYED_COMMIT` 누락으로 전환 전 중단(운영 무변경) → 마커 작성 후 재실행. 스냅샷 재계산 11:18Z 완료, 경고 145→132 |
 
 - 공통: 후보 릴리스 자체의 `tools/deploy_verified_release.ps1 -Apply`, 사전 `verify_protected_release_state.py --phase before`, 보호13표 전후 불변, runtime SHA 일치, listener1, health/ready200, 보호 API401, `continuous-switch-<SHA>.json`의 `worker_switched=true`(단, 0번 3dd0750e는 `false` — #767 시점 Worker 전환 도구 결함으로, #769 이후 1~8번은 모두 `true`). 금융 적용·고객 원본 쓰기·Google 쓰기·마이그레이션 없음.
 - 성능 수락(인증 ego-browser, 같은 3개 여행 장부): 7334f1ae 3.2–9.6s(1건 502/38s), 요청 지표 잠금 대기 p50 1,211ms·p95 51,959ms → cee973fb 0.9–1.0s, 잠금 대기 p50 0.003ms·p95 197ms, first_render p50 777ms.
