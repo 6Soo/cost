@@ -171,8 +171,9 @@ def test_excluded_transactions_are_identifiable_and_escaped(copy_state):
     rows, preview = copy_state
     rows[3].update(source_merchant='<img src=x>', row_id='row&3')
     markup = design._trip_copy_html('trip-synthetic', rows, preview)
-    assert '2026-10-01 · &lt;img src=x&gt; · 1,000원' in markup
-    assert "href='/row?id=row%263'" in markup
+    assert '2026-10-01' in markup and '&lt;img src=x&gt;' in markup and '1,000원' in markup and '<img src=x>' not in markup
+    # Detail opens in place now; the row id rides on the toggle, escaped.
+    assert "data-row-id='row&amp;3'" in markup and 'aria-controls=' in markup
     assert '<img src=x>' not in markup
 
 

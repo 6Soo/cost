@@ -1809,33 +1809,56 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
             reason = str(item.get('reason') or 'REVIEW_CONFLICT')
             held_reasons[reason] = held_reasons.get(reason, 0) + 1
         held_count = len(held_results)
-        description = f'복사 가능 {count}건 · {_money(total)} · Google 장부 일치 {recorded}건 제외'
+        warning = (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH'
+        description = f'붙여넣을 지출 {count}건 · {_money(total)}'
+        facts = []
+        if recorded:
+            facts.append(('이미 Google에 있음', f'{recorded}건 · 복사에서 뺐습니다', ''))
         if held_count:
-            description += f' · Google 대조가 끝나지 않은 {held_count}건 제외'
-        if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
-            description += ' · Google 합계 수식은 확인 필요'
-        if held_reasons:
-            from urllib.parse import quote
+            facts.append(('Google 행을 확정하지 못함', f'{held_count}건 · 중복을 막기 위해 뺐습니다', 'warn'))
+        if warning:
+            facts.append(('Google 합계 수식', 'Google 시트의 지출 합계 수식이 행 합계와 다릅니다. 붙여넣은 뒤 합계를 확인하세요.', 'warn'))
+        fact_html = ''.join(
+            f"<div class='copy-fact{' copy-fact-warn' if tone else ''}'><dt>{board.esc(label)}</dt><dd>{board.esc(value)}</dd></div>"
+            for label, value, tone in facts)
+        if held_results:
             rows_by_id = {str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''): row
                           for row in expenses}
-            transactions = []
-            for item in held_results:
-                row = rows_by_id.get(str(item.get('transaction_id') or ''), {})
-                label = ' · '.join(str(value) for value in (
-                    row.get('occurred_on') or '날짜 없음',
-                    row.get('source_merchant') or row.get('description') or '상호 없음',
-                    _money(row.get('display_amount_krw', row.get('amount_krw')) or 0)))
-                detail_link = (f" <a href='/row?id={quote(str(row['row_id']), safe='')}'>거래 상세 보기</a>"
-                               if row.get('row_id') else '')
-                transactions.append(f"<li>{board.esc(label)}{detail_link}</li>")
-            details = ''.join(
-                f"<li>{board.esc(reason_labels.get(reason, 'Google 원장 대조를 확정하지 못함'))} · {count}건</li>"
-                for reason, count in sorted(held_reasons.items()))
+            items = []
+            for index, item in enumerate(held_results):
+                tx_id = str(item.get('transaction_id') or '')
+                row = rows_by_id.get(tx_id, {})
+                reason = reason_labels.get(str(item.get('reason') or ''), 'Google 원장 대조를 확정하지 못함')
+                merchant = row.get('source_merchant') or row.get('description') or '상호 없음'
+                amount = row.get('display_amount_krw', row.get('amount_krw')) or 0
+                panel_id = f'copy-held-detail-{index}'
+                items.append(
+                    "<li class='copy-held-item'>"
+                    "<div class='copy-held-row'>"
+                    f"<span class='copy-held-date tnum'>{board.esc(row.get('occurred_on') or '날짜 없음')}</span>"
+                    f"<span class='copy-held-merchant' title='{board.esc(merchant)}'>{board.esc(merchant)}</span>"
+                    f"<span class='copy-held-amount tnum'>{board.esc(_money(amount))}</span>"
+                    f"<span class='chip chip-warn copy-held-reason'>{board.esc(reason)}</span>"
+                    f"<button type='button' class='btn ghost copy-held-toggle' data-no-action-icon aria-expanded='false' "
+                    f"aria-controls='{panel_id}' data-transaction-id='{board.esc(tx_id)}' "
+                    f"data-row-id='{board.esc(row.get('row_id') or '')}' "
+                    f"aria-label='{board.esc(merchant)} 거래 상세'>상세 <span class='chevron-down' aria-hidden='true'>⌄</span></button>"
+                    "</div>"
+                    f"<div class='copy-held-detail' id='{panel_id}' hidden aria-live='polite'></div>"
+                    "</li>")
             held_detail = ("<details class='trip-copy-hold-details'>"
-                           "<summary>Google 대조 제외 건의 정체와 사유 보기</summary>"
-                           f"<p>이 건들은 Google에 없다고 확정할 수 없어 중복 복사를 막기 위해 제외했습니다.</p>"
-                           f"<ul>{details}</ul><ul class='trip-copy-excluded'>{''.join(transactions)}</ul></details>")
+                           f"<summary>제외된 {held_count}건 보기</summary>"
+                           "<p class='copy-held-help'>Google 시트에서 이 거래와 같은 행을 하나로 확정하지 못해 이번 복사에서 뺐습니다. "
+                           "Google 시트에 이미 있으면 그대로 두고, 없으면 상세를 확인한 뒤 직접 추가하세요.</p>"
+                           f"<ul class='copy-held-list'>{''.join(items)}</ul></details>")
+        if warning:
+            from urllib.parse import quote as _quote
+            fact_html += ("<div class='copy-fact copy-fact-action'><dt class='sr'>원본</dt><dd>"
+                          f"<a class='btn ghost' href='/api/google-ledger/source?trip={_quote(tab_id, safe='')}' target='_blank' rel='noopener'>Google 원본 확인 ↗</a></dd></div>")
+        held_detail = f"<dl class='copy-facts'>{fact_html}</dl>" + held_detail
     disabled = ' disabled' if not available or not count else ''
+    paste_hint = ("<p class='copy-paste-hint'>복사한 뒤 Google 시트 지출 표의 B열 첫 빈 행에 붙여넣으세요.</p>"
+                  if available and count else '')
     recovery = ''
     if expenses and not available:
         from urllib.parse import quote
@@ -1851,12 +1874,13 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
     return (
         f"<section class='trip-copy-wrap expense-toolbar expense-toolbar-copy' id='trip-expense-copy' aria-label='Google 장부용 복사'>"
         f"<div class='trip-copy-info'><strong class='trip-copy-title'>Google 장부용 복사</strong>"
-        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p>{held_detail}</div>"
+        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p></div>"
         f"<div class='trip-copy-box'>"
         f"<button type='button' class='btn primary btn-copy-tsv' id='copy-trip-expenses' aria-describedby='trip-copy-desc' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
         f"{ui_icons.icon('copy', 16)}<span>Google 장부용 복사</span>"
         f"</button>"
         f"{recovery}</div>"
+        f"{paste_hint}{held_detail}"
         f"<p class='copy-status' id='copy-status'{(' data-google-sync-status' if recovery else '')} role='status' aria-live='polite' aria-atomic='true'></p>"
         "<div class='trip-copy-manual' hidden>"
         "<label for='trip-copy-text'>Google 시트에 붙여넣을 지출내용</label>"

@@ -969,7 +969,7 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
 .group-toggle{display:flex;align-items:center;min-height:40px;white-space:nowrap}
 .group-toggle input{width:1.1rem;height:1.1rem;margin:0}
 .expense-toolbar>.btn{white-space:nowrap}
-.expense-toolbar-copy{margin:var(--s-4) 0;padding:var(--s-3);border:1px solid var(--c-accent-text);border-radius:var(--r-lg);background:var(--c-accent-subtle)}
+.expense-toolbar-copy{margin:var(--s-4) 0;padding:var(--s-4);border:1px solid var(--c-border);border-inline-start:3px solid var(--c-accent-solid);border-radius:var(--r-lg);background:var(--c-surface)}
 .expense-toolbar-copy .trip-copy-title{font-size:var(--t-body-sm);font-weight:650}
 .expense-toolbar-copy .btn-copy-tsv{background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}
 .expense-toolbar-copy .btn-copy-tsv:hover{background:var(--c-accent-solid-hover);border-color:var(--c-accent-solid-hover)}
@@ -1015,3 +1015,37 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  .expense-filter .btn{grid-column:2}
  .trip-header .ph-actions{width:100%}
 }
+
+/* Google copy: facts, then excluded rows that open their detail in place. */
+.copy-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:var(--s-2) var(--s-4);margin:var(--s-2) 0 var(--s-3)}
+.copy-fact{min-width:0}
+.copy-fact dt{font-size:var(--t-caption);color:var(--c-text-secondary);font-weight:600}
+.copy-fact dd{margin:2px 0 0;font-size:var(--t-body-sm);color:var(--c-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.copy-fact-warn dd{color:var(--c-warn-text)}
+.copy-paste-hint{margin:var(--s-2) 0 0;font-size:var(--t-meta);color:var(--c-text-secondary)}
+.trip-copy-hold-details>summary{display:inline-flex;align-items:center;gap:var(--s-2);min-height:40px;cursor:pointer;font-weight:600;color:var(--c-text)}
+.copy-held-help{margin:var(--s-2) 0;font-size:var(--t-meta);color:var(--c-text-secondary);max-width:68ch}
+.copy-held-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--c-border)}
+.copy-held-item{border-bottom:1px solid var(--c-border)}
+.copy-held-row{display:grid;grid-template-columns:6.5rem minmax(0,1fr) auto auto auto;align-items:center;gap:var(--s-3);min-height:48px;padding:var(--s-1) 0}
+.copy-held-date{font-size:var(--t-meta);color:var(--c-text-secondary)}
+.copy-held-merchant{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-body-sm)}
+.copy-held-amount{text-align:end;font-weight:600;font-size:var(--t-body-sm);white-space:nowrap}
+.copy-held-reason{white-space:nowrap;font-size:var(--t-caption)}
+.copy-held-toggle{white-space:nowrap;flex-direction:row;min-height:40px}
+.copy-held-toggle .chevron-down{display:inline-block}
+@media(prefers-reduced-motion:no-preference){.copy-held-toggle .chevron-down{transition:transform var(--motion-fast)}}
+.copy-held-toggle[aria-expanded=true] .chevron-down{transform:rotate(180deg)}
+.copy-held-detail{margin:0 0 var(--s-3);padding:var(--s-3);border-radius:var(--r-md);background:var(--c-surface-sunken)}
+.copy-held-detail .btn{margin-top:var(--s-2)}
+.copy-held-note{margin:0;font-size:var(--t-meta);color:var(--c-text-secondary)}
+@media (width < 1024px){
+ .copy-held-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'m a' 'd t' 'r r';row-gap:var(--s-1)}
+ .copy-held-merchant{grid-area:m}.copy-held-amount{grid-area:a}.copy-held-date{grid-area:d}
+ .copy-held-toggle{grid-area:t;justify-self:end;min-height:44px}.copy-held-reason{grid-area:r;justify-self:start;white-space:normal}
+}.trip-copy-wrap>.copy-paste-hint{flex-basis:100%;margin:calc(var(--s-2) * -1) 0 0;text-align:end}
+.trip-copy-wrap>.copy-facts,.trip-copy-wrap>.trip-copy-hold-details{flex-basis:100%;min-width:0;margin:0}
+.copy-held-row{grid-template-columns:6.5rem minmax(8rem,1fr) 7.5rem minmax(0,18rem) 5.5rem}
+.copy-held-reason{justify-self:start;max-width:100%;white-space:normal;line-height:1.4}
+.copy-held-toggle{justify-self:end}
+@media (width < 1024px){.trip-copy-wrap>.copy-paste-hint{text-align:start;margin:0}.copy-held-row{grid-template-columns:minmax(0,1fr) auto}}

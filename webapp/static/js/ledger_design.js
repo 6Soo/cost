@@ -1154,3 +1154,39 @@ document.addEventListener('keydown',function(e){
   });
  });
 })();
+
+/* Excluded-from-copy rows: open the transaction detail in place (no page change). */
+(function(){
+ function rowButton(rowId){
+  var row=rowId&&document.querySelector('[data-id="'+CSS.escape(rowId)+'"]');
+  if(!row)return null;
+  var b=document.createElement('button');b.type='button';b.className='btn';b.textContent='장부 행 상세 열기';
+  b.addEventListener('click',function(){row.scrollIntoView({block:'center'});row.click();});
+  return b;
+ }
+ function message(panel,text,rowId){
+  panel.replaceChildren();
+  var p=document.createElement('p');p.className='copy-held-note';p.textContent=text;panel.append(p);
+  var b=rowButton(rowId);if(b)panel.append(b);
+ }
+ document.addEventListener('click',async function(event){
+  var button=event.target.closest&&event.target.closest('.copy-held-toggle');
+  if(!button)return;
+  var panel=document.getElementById(button.getAttribute('aria-controls'));
+  if(!panel)return;
+  var open=button.getAttribute('aria-expanded')==='true';
+  button.setAttribute('aria-expanded',String(!open));panel.hidden=open;
+  if(open||panel.dataset.loaded==='1')return;
+  var id=button.dataset.transactionId,rowId=button.dataset.rowId;
+  if(!id){message(panel,'카드 거래가 아니어서 이 자리에서 상세를 불러올 수 없습니다.',rowId);return;}
+  panel.setAttribute('aria-busy','true');message(panel,'상세를 불러오는 중입니다.',null);
+  try{
+   var response=await fetch('/api/cards/transactions/detail?'+new URLSearchParams({id:id}),{headers:{'Accept':'application/json'},credentials:'same-origin'});
+   if(response.status===404){message(panel,'카드 거래 상세가 없는 행입니다. 장부 행 상세에서 확인하세요.',rowId);}
+   else if(!response.ok){message(panel,'상세를 불러오지 못했습니다. 잠시 뒤 다시 펼쳐 보세요.',rowId);panel.removeAttribute('aria-busy');return;}
+   else{var data=await response.json();panel.innerHTML=data.html||'';var b=rowButton(rowId);if(b)panel.append(b);}
+   panel.dataset.loaded='1';
+  }catch(error){message(panel,'연결이 끊겨 상세를 불러오지 못했습니다. 다시 펼쳐 보세요.',rowId);}
+  panel.removeAttribute('aria-busy');
+ });
+})();
