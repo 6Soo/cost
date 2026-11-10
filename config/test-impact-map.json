@@ -55,8 +55,8 @@
     },
     {
       "name": "airline-mail-collection",
-      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py"],
-      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
+      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
+      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
     },
     {
       "name": "export-source-equivalence",

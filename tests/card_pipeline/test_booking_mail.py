@@ -34,6 +34,18 @@ def test_klook_full_payment_layout_uses_the_card_amount_after_points():
     assert extract_mail(m)['paid_amount_krw']==65865
 
 
+def test_klook_rental_notice_reads_its_labelled_pickup_and_return_days():
+    body=('예약번호: SYN765432\n클룩에서 전액을 결제 완료했습니다. 추가 결제 금액은 없습니다.\n'
+          '2026년 9월 17일 렌터카 - 합성 준중형차\n픽업 날짜 및 시간: 2026년 9월 28일 10:00 AM\n'
+          '반납 날짜 및 시간: 2026년 10월 1일 15:00 PM\n결제 금액 ₩ 65,865')
+    fact=extract_mail(message(body,subject='[Klook] 클룩 예약내역 안내',domain='klook.com'))
+    assert (fact['item'],fact['period'],fact['paid_amount_krw'])==('렌터카',{'starts_on':'2026-09-28','ends_on':'2026-10-01'},65865)
+    # Without a rental product, or with a second pickup day, no rental period is guessed.
+    assert extract_mail(message(body.replace('렌터카 -','투어 -'),subject='[Klook] 클룩 예약내역 안내',domain='klook.com'))['period'] is None
+    twice=body+'\n픽업 날짜 및 시간: 2026년 9월 29일 10:00 AM'
+    assert extract_mail(message(twice,subject='[Klook] 클룩 예약내역 안내',domain='klook.com'))['item']==''
+
+
 def test_paid_train_and_zero_price_guide_are_not_two_paid_bookings(tmp_path):
     receipt=message('예약번호: TRAIN12345\n기차표\n총 금액\n₩ 37,600\n티켓 발급 수수료: ₩ 3,800\n'
                     '예약번호: GUIDE12345\n이딸로 & 트랜이탈리아 티켓 수령 가이드\n'
