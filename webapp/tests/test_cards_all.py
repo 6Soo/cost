@@ -317,12 +317,12 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
     rendered = cards_all._render_month_rows(
         [row], trip_names={"opaque-tab-1": "0630_오제"})
     assert "0630_오제" in rendered
-    assert "title='opaque-tab-1'" in rendered
-    assert "직접" in rendered
+    assert "title='0630_오제'" in rendered
+    assert "수동" in rendered
     assert "<span class='card-all-trip-name'" in rendered
     assert row["trip_id"] == "opaque-tab-1"
     fallback = cards_all._render_month_rows([row])
-    assert "opaque-tab-1" in fallback
+    assert ">기타비용</span>" in fallback
 
     quarter_row = dict(row, display_tab_id='quarter:2026:3')
     quarter_html = cards_all._render_month_rows([quarter_row])
@@ -346,7 +346,7 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
     assert "id='card-upload-open'" in result
     assert "data-csrf='synthetic-csrf'" in result
     assert "0630_오제" in result
-    assert "title='T-A'" in result
+    assert "title='0630_오제'" in result
 
 
 def test_initial_month_prompt_removed_but_month_selection_remains_accessible(card_db_path):
@@ -411,8 +411,8 @@ def test_render_month_rows_time_handling(card_db_path):
     # Merchant fallback
     assert '가맹점 미상' in html
     # Trip display logic
-    assert '직접' in html
-    assert '코드 추론' in html
+    assert '수동' in html
+    assert '자동' in html
     assert '기타비용' in html
     # Foreign currency
     assert 'JPY' not in html  # Not in test data
