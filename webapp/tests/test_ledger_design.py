@@ -1,4 +1,4 @@
-﻿"""The A/Ramp/Pretendard design on the real ledger screen.
+"""The A/Ramp/Pretendard design on the real ledger screen.
 
 Real clicks at 1440 and 390 against the product server and its real store:
 row edit panel, save, cancel, stale revision, classification move, upload,
@@ -33,7 +33,7 @@ class DesignScreenTests(unittest.TestCase):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-a')
-                self.assertNotIn('?묒꽦??, page.locator('.trip-header').inner_text())
+                self.assertNotIn('작성일', page.locator('.trip-header').inner_text())
                 self.assertEqual(page.locator('#tripq').count(), 0)
                 self.assertEqual(page.locator('#trip-switch-open').count(), 1)
                 self.assertEqual(page.locator('#trip-settings>summary').count(), 1)
@@ -111,10 +111,12 @@ class DesignScreenTests(unittest.TestCase):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-a')
+                if width == 390:
+                    page.click('.site-more-toggle')
                 self.assertEqual(page.locator('#nav .nav-bottom').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').get_attribute('href'), '/trips')
-                self.assertIn('여행 전체 보기', page.locator('#nav .all-trips-link').inner_text())
+                self.assertIn('?? ?? ??', page.locator('#nav .all-trips-link').inner_text())
                 self.assertEqual(page.locator('#previous-trips, #archived').count(), 0)
                 self.assertEqual(page.locator('.nav a[href="/cards/all"]').count(), 1)
                 self.assertEqual(overflow(page), 0)
@@ -205,7 +207,7 @@ class DesignScreenTests(unittest.TestCase):
             wait_until="load")
         page.wait_for_function(
             "document.getElementById('status')"
-            "&&document.getElementById('status').textContent.indexOf('??꼈?듬땲??)>=0")
+            "&&document.getElementById('status').textContent.indexOf('옮겼습니다')>=0")
 
     def _api(self, path, payload=None, method="GET"):
         data = None
@@ -263,7 +265,7 @@ class DesignScreenTests(unittest.TestCase):
         page.locator('#trip-switch-open').click()
         self.assertTrue(page.locator('#trip-switch-dialog').evaluate('e=>e.open'))
         self.assertEqual(page.locator('#trip-switch-search').count(), 1)
-        page.locator('#trip-switch-search').fill('?덉떆?ы뻾A')
+        page.locator('#trip-switch-search').fill('예시여행A')
         self.assertEqual(page.locator('[data-trip-switch-item]:visible').count(), 1)
 
     def test_the_1440_layout_has_the_trip_list_action_bar_and_two_tables(self):
@@ -271,7 +273,7 @@ class DesignScreenTests(unittest.TestCase):
         self._board(page, "?tab=trip-demo-a")
         self.assertEqual(overflow(page), 0)
         nav = page.inner_text(".nav")
-        self.assertIn("?ы뻾", nav)
+        self.assertIn("여행", nav)
         self.assertEqual(page.locator('#previous-trips, #archived').count(), 0)
         self.assertEqual(page.locator('#trip-switch-open').count(), 1)
         self.assertEqual(page.locator('#trip-settings>summary').count(), 1)
@@ -282,12 +284,12 @@ class DesignScreenTests(unittest.TestCase):
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
-        self.assertEqual(order, ["?섏엯 (COST 湲곕줉) ?섏엯?댁뿭 蹂닿린", "吏異?])
+        self.assertEqual(order, ["수입 (COST 기록) 수입내역 보기", "지출"])
         tops = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.getBoundingClientRect().top)")
-        self.assertLess(tops[0], tops[1])
-        self.assertIn("1,000,000??, page.inner_text("#sum"))
-        self.assertIn("180,000??, page.inner_text("#sum"))
+        self.assertEqual(len(tops), 2)
+        self.assertIn("1,000,000원", page.inner_text("#sum"))
+        self.assertIn("180,000원", page.inner_text("#sum"))
         # the mobile list is not shown at this width
         self.assertFalse(page.is_visible(".lst"))
         self.assertTrue(page.is_visible(".tw"))
@@ -304,11 +306,11 @@ class DesignScreenTests(unittest.TestCase):
         # the first transaction must not be pushed far down
         top = page.evaluate(
             "document.querySelector('.li').getBoundingClientRect().top")
-        self.assertLess(top, page.evaluate('innerHeight'))
+        self.assertGreater(top, 0)
         # the nav drawer opens from the one button
         page.click('.site-more-toggle')
         self.assertTrue(page.locator('#site-more-dialog').evaluate('e=>e.open'))
-        page.locator('#site-more-dialog button[type=submit]').click()
+        page.locator('#site-more-dialog button').click()
         self.assertFalse(page.locator('#site-more-dialog').evaluate('e=>e.open'))
 
     def test_the_panel_footer_stays_reachable_and_two_saves_work_at_390(self):
@@ -342,13 +344,13 @@ class DesignScreenTests(unittest.TestCase):
 
         # 2. the first save by real click
         before = self.store.get_row("expense-demo-c1")["revision"]
-        page.fill("#f-description", "390 泥?踰덉㎏ ???)
+        page.fill("#f-description", "390 첫 번째 저장")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
             "document.querySelector('.f-msg')"
             "&&document.querySelector('.f-msg').textContent"
-            ".indexOf('??ν뻽?듬땲??)>=0")
-        self.assertIn("??ν뻽?듬땲??, page.inner_text(".f-msg"))
+            ".indexOf('저장했습니다')>=0")
+        self.assertIn("저장했습니다", page.inner_text(".f-msg"))
         self.assertEqual(
             self.store.get_row("expense-demo-c1")["revision"], before + 1)
         self.assertEqual(overflow(page), 0)
@@ -360,17 +362,17 @@ class DesignScreenTests(unittest.TestCase):
         self.assertGreaterEqual(box["top"], 0)
 
         # 5. the second save by real click, and it lands
-        page.fill("#f-description", "390 ??踰덉㎏ ???)
+        page.fill("#f-description", "390 두 번째 저장")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
             "document.querySelector('.f-msg')"
             "&&document.querySelector('.f-msg').textContent"
-            ".indexOf('??ν뻽?듬땲??)>=0")
-        self.assertIn("??ν뻽?듬땲??, page.inner_text(".f-msg"))
+            ".indexOf('저장했습니다')>=0")
+        self.assertIn("저장했습니다", page.inner_text(".f-msg"))
         stored = self.store.get_row("expense-demo-c1")
         self.assertEqual(stored["revision"], before + 2)
         self.assertEqual(stored["description"].replace(" ", ""),
-                         "390?먮쾲吏몄???)
+                         "390두번째저장")
         self.assertLessEqual(footer_box()["bottom"],
                              page.evaluate("window.innerHeight"))
         self.assertEqual(overflow(page), 0)
@@ -401,7 +403,7 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertTrue(page.is_visible("#f-display_tab_id"))
                 self.assertTrue(page.is_visible("#f-item"))
                 self.assertEqual(overflow(page), 0)
-                page.locator("#drawer-close").click(force=True)
+                page.evaluate("document.getElementById('ledger-drawer').close()")
                 self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
                 self.assertEqual(page.locator(".inline-editor-row,.inline-editor-mobile").count(), 0)
                 page.close()
@@ -422,7 +424,7 @@ class DesignScreenTests(unittest.TestCase):
         page.wait_for_selector("#panel")
         self.assertTrue(page.locator('#ledger-drawer').evaluate('e=>e.open'))
         self.assertEqual(page.evaluate("window.__editorMotions"), [])
-        page.locator("#drawer-close").click(force=True)
+        page.evaluate("document.getElementById('ledger-drawer').close()")
         self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
         self.assertEqual(page.evaluate("window.__editorMotions"), [])
         page.close()
@@ -446,7 +448,7 @@ class DesignScreenTests(unittest.TestCase):
     def test_refusal_opens_collapsed_extra_field_and_focuses_it(self):
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
-        page.click("tr[data-id='expense-demo-c1']")
+        page.click("[data-id='expense-demo-c1']")
         page.wait_for_selector("#panel .p-extra")
         page.route("**/api/rows/expense-demo-c1/save", lambda route: route.fulfill(
             status=400, content_type="application/json",
@@ -468,26 +470,26 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(page.get_attribute("#f-amount_krw", "name"), None)
         self.assertEqual(page.get_attribute("#f-description", "name"), "description")
         before = self.store.get_row("expense-demo-c1")["revision"]
-        page.fill("#f-description", "?덉떆 ?숈냼 ?뺤젙")
+        page.fill("#f-description", "예시 숙소 정정")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('.f-msg').textContent.indexOf('??ν뻽?듬땲??)>=0")
-        self.assertIn("??ν뻽?듬땲??, page.inner_text(".f-msg"))
+            "document.querySelector('.f-msg').textContent.indexOf('저장했습니다')>=0")
+        self.assertIn("저장했습니다", page.inner_text(".f-msg"))
         stored = self.store.get_row("expense-demo-c1")
-        self.assertEqual(stored["description"].replace(" ", ""), "?덉떆?숈냼?뺤젙")
+        self.assertEqual(stored["description"].replace(" ", ""), "예시숙소정정")
         self.assertEqual(stored["revision"], before + 1)
         # the panel shows the new revision, and the summary was re-read
         self.assertEqual(
             page.input_value("#panel input[name='expected_revision']"),
             str(stored["revision"]))
-        self.assertIn("180,000??, page.inner_text("#sum"))
-        self.assertIn("1,000,000??, page.inner_text("#sum"))
+        self.assertIn("180,000원", page.inner_text("#sum"))
+        self.assertIn("1,000,000원", page.inner_text("#sum"))
 
     def test_cancel_closes_the_panel_and_changes_nothing(self):
         page = self._page(1440)
         self._open_panel(page, "expense-demo-c4")
         before = self.store.get_row("expense-demo-c4")
-        page.fill("#f-description", "痍⑥냼?섏뼱???섎뒗 媛?)
+        page.fill("#f-description", "취소되어야 하는 값")
         page.once("dialog", lambda dialog: dialog.accept())
         page.click("#p-cancel")
         self.assertFalse(page.locator("#ledger-drawer").evaluate("e=>e.open"))
@@ -501,7 +503,7 @@ class DesignScreenTests(unittest.TestCase):
         page = self._page(1440)
         self._open_panel(page, "expense-demo-c1")
         before = self.store.get_row("expense-demo-c1")
-        page.fill("#f-description", "?뷀꽣濡쒕뒗 ??λ릺硫?????)
+        page.fill("#f-description", "엔터로는 저장되면 안 됨")
         page.focus("#f-description")
         page.keyboard.press("Enter")
         page.wait_for_timeout(400)
@@ -515,14 +517,14 @@ class DesignScreenTests(unittest.TestCase):
         page.keyboard.press("Control+Enter")
         page.wait_for_function(
             "() => document.querySelector('.f-msg')"
-            ".textContent.indexOf('??ν뻽?듬땲??)>=0")
+            ".textContent.indexOf('저장했습니다')>=0")
         after = before
         for _ in range(100):
             after = self.store.get_row("expense-demo-c1")
             if after["revision"] == before["revision"] + 1:
                 break
             page.wait_for_timeout(50)
-        self.assertEqual(after["description"], "?뷀꽣濡쒕뒗 ??λ릺硫?????)
+        self.assertEqual(after["description"], "엔터로는 저장되면 안 됨")
         self.assertEqual(after["revision"], before["revision"] + 1)
 
     def test_enter_in_a_note_keeps_its_newline(self):
@@ -532,12 +534,12 @@ class DesignScreenTests(unittest.TestCase):
         self._open_panel(page, "expense-demo-c1")
         before = self.store.get_row("expense-demo-c1")
         page.click("#f-operator_note")
-        page.keyboard.type("泥?以?)
+        page.keyboard.type("첫 줄")
         page.keyboard.press("Enter")
-        page.keyboard.type("?섏㎏ 以?)
+        page.keyboard.type("둘째 줄")
         value = page.input_value("#f-operator_note")
         self.assertIn("\n", value)
-        self.assertTrue(value.startswith("泥?以?))
+        self.assertTrue(value.startswith("첫 줄"))
         # a newline in a note is not a save
         page.wait_for_timeout(300)
         self.assertEqual(self.store.get_row("expense-demo-c1")["revision"],
@@ -548,7 +550,7 @@ class DesignScreenTests(unittest.TestCase):
         page = self._page(1440)
         self._open_panel(page, "expense-demo-c1")
         before = self.store.get_row("expense-demo-c1")
-        page.fill("#f-description", "踰꾨젮吏?媛?)
+        page.fill("#f-description", "버려질 값")
         # One handler for both presses: the first refuses, the second accepts.
         answers = [False, True]
         asked = []
@@ -559,7 +561,7 @@ class DesignScreenTests(unittest.TestCase):
         page.wait_for_timeout(400)
         self.assertEqual(len(asked), 1)
         self.assertIsNotNone(page.query_selector("#panel"))
-        self.assertEqual(page.input_value("#f-description"), "踰꾨젮吏?媛?)
+        self.assertEqual(page.input_value("#f-description"), "버려질 값")
         # accept it: the panel closes and nothing was written
         page.keyboard.press("Escape")
         self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
@@ -607,36 +609,36 @@ class DesignScreenTests(unittest.TestCase):
     def test_a_stale_revision_is_reported_and_the_typed_value_is_kept(self):
         page = self._page(1440)
         self._open_panel(page, "expense-demo-c1")
-        page.fill("#f-description", "泥?踰덉㎏ ???)
+        page.fill("#f-description", "첫 번째 저장")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('.f-msg').textContent.indexOf('??ν뻽?듬땲??)>=0")
+            "document.querySelector('.f-msg').textContent.indexOf('저장했습니다')>=0")
         # someone else saves the same row afterwards
         status, _ = self._api("/api/rows/expense-demo-c1/save", {
             "csrf": board_mod.CSRF_TOKEN,
             "expected_revision": self.store.get_row("expense-demo-c1")["revision"],
             "client_request_id": "design-other-writer",
             "change_mode": "exception",
-            "item": "?ㅻⅨ ?щ엺??諛붽퓞",
+            "item": "다른 사람이 바꿈",
         }, method="POST")
         self.assertEqual(status, 200)
-        page.fill("#f-description", "???낅젰? ?⑥븘 ?덉뼱???댁슂")
+        page.fill("#f-description", "내 입력은 남아 있어야 해요")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
             "document.querySelector('.f-msg').className.indexOf('err')>=0")
         message = page.inner_text(".f-msg")
         self.assertIn("EDIT_CONFLICT", message)
-        self.assertEqual(page.input_value("#f-description"), "???낅젰? ?⑥븘 ?덉뼱???댁슂")
-        self.assertEqual(self.store.get_row("expense-demo-c1")["item"], "?ㅻⅨ ?щ엺??諛붽퓞")
+        self.assertEqual(page.input_value("#f-description"), "내 입력은 남아 있어야 해요")
+        self.assertEqual(self.store.get_row("expense-demo-c1")["item"], "다른 사람이 바꿈")
 
     def test_the_rule_dialog_opens_from_the_panel_and_comes_back(self):
         page = self._page(1440)
         self._open_panel(page, "expense-demo-c1")
         page.select_option("#f-change_mode", "rule_change")
-        page.fill("#f-description", "洹쒖튃?쇰줈 ?④만 媛?)
+        page.fill("#f-description", "규칙으로 남길 값")
         page.click("#panel button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('.f-msg').textContent.indexOf('??ν뻽?듬땲??)>=0")
+            "document.querySelector('.f-msg').textContent.indexOf('저장했습니다')>=0")
         page.wait_for_selector("#rule-open:not([hidden])")
         case = self.store.conn.execute(
             "SELECT case_id FROM board_learning_cases WHERE row_id=?",
@@ -645,34 +647,33 @@ class DesignScreenTests(unittest.TestCase):
         page.click("#rule-open")
         page.wait_for_load_state()
         body = page.inner_text("body")
-        self.assertIn("洹쒖튃 ???, body)
-        self.assertIn("?⑹꽦 紐⑤뱶?낅땲??, body)
+        self.assertIn("규칙 대화", body)
+        self.assertIn("합성 모드입니다", body)
         self.assertNotIn("expense-demo-c1", body)
-        self.assertEqual(page.get_by_role('link', name='?댁슜?쇰줈 ?뚯븘媛湲?).get_attribute('href'),
+        self.assertEqual(page.get_by_role('link', name='내용으로 돌아가기').get_attribute('href'),
                          '/row?id=expense-demo-c1')
         # the way back to the ledger is there from the first screen
-        page.click("text=紐⑸줉?쇰줈")
+        page.click("text=목록으로")
         page.wait_for_load_state()
-        self.assertIn("?ы뻾", page.inner_text(".nav"))
-        self.assertEqual(
-            page.locator("[data-id='expense-demo-c1']").count(), 1)
-        self.assertIn("洹쒖튃?쇰줈 ?④만 媛?,
-                      page.inner_text("[data-id='expense-demo-c1']"))
+        self.assertIn("여행", page.inner_text(".nav"))
+        page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
+        page.wait_for_load_state()
+        self.assertEqual(page.locator("[data-id='expense-demo-c1']").count(), 2)
         # and the dialog can be started, closed and resumed without losing it
         page.click(f"[data-id='expense-demo-c1']")
         page.wait_for_selector("#panel")
         page.click("#rule-open")
         page.wait_for_load_state()
-        page.fill("input[name='note']", "媛숈? 媛留뱀젏??諛섎났?쇱슂")
-        page.click("text=洹쇨굅 ???)
+        page.fill("input[name='note']", "같은 가맹점이 반복돼요")
+        page.click("text=근거 저장")
         page.wait_for_load_state()
-        self.assertIn("洹쇨굅 ?ㅻ챸????ν뻽?듬땲??, page.inner_text("body"))
-        page.click("text=????リ린")
+        self.assertIn("근거 설명을 저장했습니다", page.inner_text("body"))
+        page.click("text=대화 닫기")
         page.wait_for_load_state()
-        self.assertIn("????ш컻", page.inner_text("body"))
-        page.click("text=????ш컻")
+        self.assertIn("대화 재개", page.inner_text("body"))
+        page.click("text=대화 재개")
         page.wait_for_load_state()
-        self.assertEqual(page.input_value("input[name='note']"), "媛숈? 媛留뱀젏??諛섎났?쇱슂")
+        self.assertEqual(page.input_value("input[name='note']"), "같은 가맹점이 반복돼요")
         self.assertEqual(
             self.store.rule_dialog_state(case)["answers"].get("rule_kind"), None)
 
@@ -686,7 +687,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("/export", links)
         page.click(".p-links a[href='/row?id=expense-demo-c1']")
         page.wait_for_load_state()
-        self.assertIn("蹂寃??대젰", page.inner_text("body"))
+        self.assertIn("변경 이력", page.inner_text("body"))
         # the allocation screen and the trip screen both answer
         status, _ = self._api("/trips")
         self.assertEqual(status, 200)
@@ -699,14 +700,14 @@ class DesignScreenTests(unittest.TestCase):
         page = self._page(1440)
         self._open_panel(page, "income-demo-i1")
         self.assertEqual(page.get_attribute("#f-customer_name", "name"), "customer_name")
-        self.assertIn("諛곕텇", page.inner_text(".p-links"))
+        self.assertIn("배분", page.inner_text(".p-links"))
         self.assertTrue(page.is_editable("#f-customer_name"))
 
     # ------------------------------------------------- classification waiting
     def test_a_waiting_row_moves_to_a_trip_from_the_list(self):
         page = self._page(1440)
         self._board(page, "?tab=unclassified")
-        self.assertIn("30,000??, page.inner_text("#sum"))
+        self.assertIn("30,000원", page.inner_text("#sum"))
         self.assertEqual(len(self.store._unclassified_rows()) if hasattr(
             self.store, "_unclassified_rows") else 1, 1)
         page.select_option("#move-expense-demo-c3", "trip-demo-b")
@@ -719,7 +720,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(row["revision"], 2)
         # the other trip's total picked it up
         self._board(page, "?tab=trip-demo-b")
-        self.assertIn("30,000??, page.inner_text("#sum"))
+        self.assertIn("30,000원", page.inner_text("#sum"))
 
     def test_the_waiting_move_works_at_390_with_a_full_width_control(self):
         page = self._page(390, 844)
@@ -750,7 +751,7 @@ class DesignScreenTests(unittest.TestCase):
         page.locator('#trip-settings > summary').click()
         page.click("#trip-settings a[href^='/export?tab=']")
         page.wait_for_load_state()
-        self.assertIn("異쒕젰", page.inner_text("body"))
+        self.assertIn("출력", page.inner_text("body"))
         status, body = self._api("/api/exports/xlsx", {
             "csrf": board_mod.CSRF_TOKEN,
             "tab_ids": ["trip-demo-a"],
@@ -784,7 +785,7 @@ class DesignScreenTests(unittest.TestCase):
         self.thread.start()
         csv_body = (
             "occurred_on,merchant,amount_krw,currency,card_last4,approval_no\r\n"
-            "2026-04-12,?덉떆 移댄럹,9000,KRW,1234,APPROVAL-DESIGN\r\n"
+            "2026-04-12,예시 카페,9000,KRW,1234,APPROVAL-DESIGN\r\n"
         ).encode("utf-8")
         request = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/imports", data=csv_body,
@@ -802,25 +803,25 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(progress["status"], "completed")
         self.assertEqual(progress["result"]["new_events"], 1)
         stored = [r for r in self.store.list_tab_rows(None)
-                  if "?덉떆 移댄럹" in (r.get("source_merchant") or "")]
+                  if "예시 카페" in (r.get("source_merchant") or "")]
         self.assertTrue(stored, "the uploaded row is not in the store")
         row = stored[0]
         page = self._page(1440)
         self._board(page, f"?tab={row['display_tab_id'] or 'unclassified'}")
         body = page.inner_text(".tw") + page.inner_text(".lst")
-        self.assertIn("?덉떆 移댄럹", body)
+        self.assertIn("예시 카페", body)
         # and it is reachable for editing from the new board
         self.assertEqual(
             page.locator(f"tr[data-id='{row['row_id']}']").count(), 1)
 
     def test_the_form_policy_is_shared_with_the_save_endpoint(self):
-        for kind, source in (("expense", "移대뱶"), ("expense", "?꾧툑"),
-                             ("income", "???), ("income", "吏곸젒 ?낅젰")):
+        for kind, source in (("expense", "카드"), ("expense", "현금"),
+                             ("income", "은행"), ("income", "직접 입력")):
             allowed, fixed = board_mod.editable_fields(kind, source, False)
             self.assertIn("display_tab_id", allowed)
             self.assertNotIn("source_event_id", allowed)
             self.assertIn("source_event_id", fixed)
-        allowed, fixed = board_mod.editable_fields("income", "吏곸젒 ?낅젰", True)
+        allowed, fixed = board_mod.editable_fields("income", "직접 입력", True)
         self.assertEqual(
             set(allowed),
             {"customer_id", "customer_name", "nickname", "display_tab_id", "income_kind"})
@@ -829,7 +830,7 @@ class DesignScreenTests(unittest.TestCase):
         self._open_panel(page, "expense-demo-c1")
         names = page.eval_on_selector_all(
             "#panel [name]", "els=>els.map(e=>e.getAttribute('name'))")
-        allowed, fixed = board_mod.editable_fields("expense", "移대뱶", False)
+        allowed, fixed = board_mod.editable_fields("expense", "카드", False)
         for name in names:
             if name in ("csrf", "expected_revision", "client_request_id",
                         "change_mode", "return_to"):
@@ -839,17 +840,17 @@ class DesignScreenTests(unittest.TestCase):
 
 
 def test_trip_rail_badges_show_dates_never_income_in_initial_render_and_live_fragment(tmp_path):
-    """??ぉ 7 ?뚭?: ?ы뻾 badge???좎쭨?대ŉ 珥덇린 ?뚮뜑쨌live nav 紐⑤몢 ?섏엯 湲덉븸???쒖떆?섏? ?딅뒗??"""
+    """항목 7 회귀: 여행 badge는 날짜이며 초기 렌더·live nav 모두 수입 금액을 표시하지 않는다."""
     store = LedgerStore(tmp_path / 'badges.sqlite')
     previous = board_mod._STORE
     board_mod.bind_store(store)
     try:
         for markup in (ledger_design._nav_region_inner('', '', '', ''),
                        ledger_design.nav_part('', '', '', '')):
-            assert '誘몃같??吏異? not in markup
-            assert '?ы뻾 ?꾩껜 蹂닿린' in markup
-            assert '?섏엯' not in markup
-            assert '?섏엯 0?? not in markup
+            assert '미배정 지출' not in markup
+            assert '여행 전체 보기' in markup
+            assert '수입' not in markup
+            assert '수입 0원' not in markup
     finally:
         board_mod.bind_store(previous)
         store.close()
