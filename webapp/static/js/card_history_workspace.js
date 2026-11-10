@@ -182,6 +182,7 @@
     entry.append(link);
   }
   function uploadOutcome(result) {
+    if (result.recovered_upload) return '저장된 결과 조회 완료';
     const summary = result.upload_summary || result.recovery || {};
     let outcome = '처리 완료';
     const count = summary.transaction_count ?? summary.unique_transactions ?? summary.saved_count;

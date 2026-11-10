@@ -201,6 +201,8 @@ def _head_html(trip) -> str:
         meta = (f"{trip.get('starts_on') or ''} – {trip.get('ends_on') or ''} · "
                 f"담당자 {trip.get('prepared_by_name') or '-'}")
     header = ui_components.page_header(title, meta=meta, actions=actions, breadcrumb=())
+    # Example-data warning stays beside the title (store isolation and synthetic previews rely on it).
+    header = header.replace('</h1>', _context_badge() + '</h1>', 1)
     header = header.replace("<header class=\"page-header\">", "<header class=\"page-header trip-header\">")
     if trip and not trip.get('is_unclassified'):
         header += _trip_switch_dialog(trip)

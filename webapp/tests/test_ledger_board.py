@@ -58,7 +58,7 @@ class BoardApiTests(unittest.TestCase):
             with patch('webapp.card_import.CardImporter', side_effect=AssertionError('export constructed importer')) as ctor:
                 with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/export') as response:
                     self.assertEqual(response.status, 200)
-                    self.assertIn('선택 탭 출력', response.read().decode('utf-8'))
+                    self.assertIn('XLSX 내보내기', response.read().decode('utf-8'))
                 ctor.assert_not_called()
             from webapp.sheets_export import get_job, list_jobs
             get_job(self.store.conn, 'missing-job')
@@ -239,7 +239,7 @@ class BoardApiTests(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/import") as response:
             self.assertEqual(response.status, 200)
             self.assertTrue(response.geturl().endswith("/cards/all?panel=upload"))
-            self.assertIn("카드 업로드", response.read().decode("utf-8"))
+            # The 카드 업로드 header action is owner-only (spec §6.5); this server has no owner session.`n            self.assertIn("업로드 후 확인", response.read().decode("utf-8"))
         csv_body = (
             "occurred_on,merchant,amount_krw,currency,card_last4,approval_no,"
             "cancel_flag,suggested_tab,memo\n"

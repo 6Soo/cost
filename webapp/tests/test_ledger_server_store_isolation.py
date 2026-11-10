@@ -43,7 +43,7 @@ class LedgerServerStoreIsolationTests(unittest.TestCase):
 
             def fetch(server):
                 with urllib.request.urlopen(
-                        f"http://127.0.0.1:{server.server_address[1]}/trips",
+                        f"http://127.0.0.1:{server.server_address[1]}/trips?state=previous",
                         timeout=5) as response:
                     return response.read().decode("utf-8")
 
@@ -80,7 +80,7 @@ class LedgerServerStoreIsolationTests(unittest.TestCase):
         def fetch(_):
             start.wait(timeout=5)
             with urllib.request.urlopen(
-                    f"http://127.0.0.1:{server.server_address[1]}/trips",
+                    f"http://127.0.0.1:{server.server_address[1]}/trips?state=previous",
                     timeout=5) as response:
                 return response.status
 

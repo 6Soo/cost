@@ -203,7 +203,7 @@ def test_export_page_smoke_with_store(tmp_path, monkeypatch):
 
     try:
         html_page = ledger_board.export_page()
-        assert "선택 탭 출력" in html_page
+        assert "XLSX 내보내기" in html_page
         assert "mock-csrf-export" in html_page
         assert "/api/exports/xlsx" in html_page
     finally:
