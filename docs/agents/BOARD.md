@@ -14,7 +14,7 @@
 | C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | 관리자(검증) | `ui/wave3-20261110` | main `7aa6c418` 통합 `40c20e8e`, 중단된 영향 검사 재실행 중 | 새 실패 0, 390/1440 실제 렌더링, 최종 SHA 독립 검수 |
 | E1 | OTA 3곳 조회 수집 스크립트 | §7 | EXAONE high `10e0d786` | `feat/ota-collection-scripts-20261111` | 구현 중 | 코드·합성 자료만, 고객/운영/로그인 세션 접근 금지. 표적 검사·영향 QA·실환경 미검증 구분 |
 | E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `ee120bb5` | `feat/kb-card-collection-script-20261111` | 구현 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. DB 반영 경계는 관리자 후속 |
-| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | ANUS Free Auto high `f6aa9d05` | `research/card-login-paths-20261111` | 첫 실행은 읽기 뒤 산출물 없이 종료, 같은 세션에 미완료 작업 재개 전달 | 공개 안내·정적 코드만, 고객·운영·로그인 세션 접근 금지. 확인·NOT_VERIFIED 구분 |
+| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE으로 이관 배정, 기존 ANUS `f6aa9d05` 종료 | `research/card-login-paths-20261111` | ANUS 두 실행 모두 산출물·커밋 없음. 같은 worktree를 보존하고 EXAONE으로 넘긴다 | 공개 안내·정적 코드만, 고객·운영·로그인 세션 접근 금지. 확인·NOT_VERIFIED 구분 |
 
 ## 대기
 
@@ -42,7 +42,7 @@
 | --- | --- | --- |
 | | | |
 
-공급자 확인(2026-11-11): 구성 프로필 0개. 사용자 결정으로 Luna 신규 배정·오류 후 재실행을 중단한다(Codex 사용량 공유). 기존 A는 완료됐다. EXAONE은 `opencode/exaone/k-exaone_v2.5`(high 지원, input/output 0), ANUS는 `anus/anus/free`(high 지원) 목록 확인. 구현은 EXAONE 여러 개와 ANUS 1개, 운영 폴더·금융 보호·최종 검수는 sol/terra만 맡는다. EXAONE 2개를 E1/E2에 실행했고 최종 SHA 검수가 끝난 뒤 ANUS 1개를 E3에 배정했다. EXAONE 품질은 구현/검사 완료 전이라 미확정이며 ANUS는 첫 실행 산출물 누락을 확인해 같은 작업의 완료를 다시 지시했다. 무료 작업자는 고객 자료·운영 폴더 없이 코드·합성 작업만 수행한다. 한도/호출 실패는 품질 반려로 세지 않는다.
+공급자 확인(2026-11-11): 구성 프로필 0개. 사용자 결정으로 Luna 신규 배정·오류 후 재실행을 중단한다(Codex 사용량 공유). 기존 A는 완료됐다. EXAONE은 `opencode/exaone/k-exaone_v2.5`(high 지원, input/output 0), ANUS는 `anus/anus/free`(high 지원) 목록 확인. 구현은 EXAONE 여러 개와 ANUS 1개, 운영 폴더·금융 보호·최종 검수는 sol/terra만 맡는다. EXAONE 2개를 E1/E2에 실행했고 ANUS 1개를 E3에 배정했다. EXAONE 품질은 구현/검사 완료 전이라 미확정이다. ANUS는 재개 지시 뒤에도 도구 실행·산출물 없이 종료해 E3를 EXAONE으로 이관한다(실행 환경과 모델 중 어느 원인인지는 미확정, 모델 전체 제외 결정은 아님). 무료 작업자는 고객 자료·운영 폴더 없이 코드·합성 작업만 수행한다. 한도/호출 실패는 품질 반려로 세지 않는다.
 
 ## 재개 정보
 
