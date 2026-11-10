@@ -3798,7 +3798,11 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/rules":
             case_id = query.get("case", [""])[0]
             if not case_id:
-                self._send(layout("규칙 대화", "<div class='body'><h1>검토할 거래를 선택해 주세요</h1><p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p><a href='/cards/all'>카드 내역으로 돌아가기</a></div>"), code=404)
+                self._send(layout(
+                    "분류 규칙은 거래 상세에서 엽니다",
+                    "<div class='body'><h1>분류 규칙은 거래 상세에서 엽니다</h1>"
+                    "<p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p>"
+                    "<a class='btn primary' href='/cards/all'>카드 거래 보기</a></div>"))
                 return
             self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/api/tabs":
