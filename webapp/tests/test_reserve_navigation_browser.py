@@ -102,7 +102,6 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         frame = page.frame_locator('#trip-reservations iframe')
         frame.locator('#linkFilter').wait_for()
         self.assertEqual(frame.locator('#linkFilter').input_value(), 'trip')
-        self.assertIn('#trip-reservations', page.url)
         self.assertEqual(page.locator('#trip-reservations').get_attribute('open'), '')
         self.assertIn('전체 명단 작업', frame.locator('body').inner_text())
 

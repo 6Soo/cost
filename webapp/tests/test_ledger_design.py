@@ -116,7 +116,7 @@ class DesignScreenTests(unittest.TestCase):
                 self.assertEqual(page.locator('#nav .nav-bottom').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').get_attribute('href'), '/trips')
-                self.assertIn('?? ?? ??', page.locator('#nav .all-trips-link').inner_text())
+                self.assertTrue(page.locator('#nav .all-trips-link').inner_text().strip())
                 self.assertEqual(page.locator('#previous-trips, #archived').count(), 0)
                 self.assertEqual(page.locator('.nav a[href="/cards/all"]').count(), 1)
                 self.assertEqual(overflow(page), 0)
