@@ -84,17 +84,24 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 self.assertEqual(
                     rows.first.locator('td').first.evaluate('e=>getComputedStyle(e).display'),
                     'grid' if width < 1024 else 'table-cell')
-                page.locator('main').get_by_role('link', name='여행 연결 없음', exact=True).click()
+                page.locator('details.catalog-tools > summary').click()
+                state = page.get_by_label('여행 연결', exact=True)
+                with page.expect_navigation():
+                    state.select_option('unassigned')
                 self.assertEqual(rows.count(), 1)
                 self.assertIn('BOOK-1', rows.inner_text())
                 self.assertNotIn('BOOK-2', rows.inner_text())
                 page.get_by_label('OTA 내역 검색').fill('BOOK-1')
-                page.get_by_role('button', name='검색', exact=True).click()
+                page.get_by_role('button', name='조회', exact=True).click()
                 self.assertEqual(rows.count(), 1)
                 page.reload()
                 self.assertEqual(page.get_by_label('OTA 내역 검색').input_value(), 'BOOK-1')
-                self.assertEqual(page.locator('input[name="state"]').input_value(), 'unassigned')
+                self.assertEqual(page.get_by_label('여행 연결', exact=True).input_value(), 'unassigned')
                 page.get_by_role('link', name='초기화', exact=True).click()
+                if width < 1024:
+                    self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                    context.close()
+                    continue
                 page.get_by_role('button', name='이용일', exact=True).click()
                 with page.expect_navigation():
                     page.locator("#filter-date [data-filter='sort'][data-value='asc']").click()
