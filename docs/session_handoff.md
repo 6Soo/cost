@@ -1,13 +1,24 @@
 # 현재 상태
 
-## 2026-11-10 Trip.com 사전승인 반영·Gmail 수집 복구 — 현재 정본
+## 2026-11-10 저녁 브랜치·작업공간 통합 정리 + UI/UX 재설계 진행 현황 — 현재 정본
+
+- **운영:** `374462fe922a67b53758d7e1d8bb46c5e4eedaf6`([#787](https://github.com/6Soo/cost/pull/787), 2026-11-10T08:06Z, 이전 `998dd461`). 다음 코드 배포는 `-PreviousSha 374462fe…`로 하고, 배포 전후로 같은 날 배포한 다른 cost 세션들(cost-48·cost-82·cost-a2)에 알린다. 운영 포트 8790/8751/8752는 미리보기에 쓰지 않는다(`tools/run_synthetic_preview.py`가 거부한다).
+- **UI/UX 재설계([명세](specs/uiux-full-audit-redesign-20261110.md)) 진행 상태:**
+  - **운영 반영:** PR-1(HIGH 즉시 수정)과 PR-2 기반(토큰·컴포넌트·오류 화면)은 [#779](https://github.com/6Soo/cost/pull/779)로 병합, `9ad0a454`부터 운영에 있다(UXA-01~08·10).
+  - **미병합·미검증(원격 `ui/wave3-20261110`, `68ab82ba`, main 대비 58커밋):** PR-2 전수 토큰 치환, PR-3 앱 셸·내비(사이드바 진행 중 여행·하단 탭·더보기 시트·브레드크럼), PR-4 여행 장부(정산 단계·탭·서랍), PR-5 거래 허브, PR-6 홈·여행 목록·영수증·관리, PR-7 문구·셸 다듬기, 장부 'Google 장부용 복사' 영역 재설계(사실 목록·제외 거래별 사유·같은 페이지 상세 펼침), 기존 테스트 정렬. 이 브랜치의 마지막 전체 QA(`bcc88cce`, main `f786ffcf` 기준)는 1881 passed/128 failed였고 그중 **main에서는 통과하는 새 실패 69건**이 있었다. 이후 기능 회귀 5건(예시 자료 표시·`/rules` 404·업로드 복구 문구 등)을 고치고 나머지 61건 정리(테스트 정렬·셸 정리)를 병합했으나 **병합 후 재검증은 끝내지 못했다.**
+  - **다음 실행(이 순서):** ① `git switch ui/wave3-20261110 && git merge origin/main` ② `python tools/run_quality_checks.py --base origin/main --run` ③ 실패 ID를 같은 main SHA 기준 worktree에서 재실행해 '새 실패 0' 확인(기준 main에도 있는 실패는 기존 실패로 분리) ④ PR 생성 → `codex gpt-6.1-sol medium` 최종 SHA 검수(CI 결제 한도 예외) → 병합 → 공식 `deploy_verified_release.ps1` 배포.
+  - **작업 중 확인한 함정:** Windows에서 미리보기 서버가 운영 포트에 중복 바인딩된다(04:00–04:06 사고, 가드 추가). 셸이 페이지 `<main>`에 id를 덧붙이면 페이지 고유 id 규칙이 사라진다(셸에서 보존). `.page-body a.btn` 리셋이 `.btn.primary`를 이겨 주 버튼이 흰 상자가 된다(복원 규칙). 사이트 셸 JS가 '상세'·'관리' 등 문구의 링크에 아이콘을 자동으로 붙이므로 좁은 버튼은 `data-no-action-icon`을 쓴다.
+- **정리 결과:** 병합 완료된 로컬 브랜치 33개·원격 브랜치 21개와 임시 worktree(`cost-ui-*`, `cost-w3-before`, `cost-base-check`, `cost-process-20261109`, Paseo UI 워크스페이스 12개)를 제거했다. 삭제 전 모두 main 또는 `ui/wave3-20261110`에 커밋이 포함됐는지(남은 커밋 0)와 미커밋 변경 0을 확인했다. 메인 체크아웃 `C:/AX/cost`는 `main`(`374462fe`)으로 옮겼다.
+- **보존한 미병합 브랜치(병합 승인 아님):** `ui/wave3-20261110`(위), `fix/flight-passenger-names-20261108`(11커밋, 오래된 기준), `fix/skyticket-overseas-purchase-dates-20261109`(8커밋, PR #765는 CLOSED, 로컬 전용이던 1커밋 `d50e76f2`를 원격에 보존), `fix/mobile-income-single-line-20261109`(1커밋, 원격에 새로 보존). 다른 세션의 열린 PR [#788](https://github.com/6Soo/cost/pull/788)과 그 worktree `C:/AX/cost-wt-trip`은 건드리지 않았다.
+
+## 2026-11-10 Trip.com 사전승인 반영·Gmail 수집 복구 — 현재 정본(OTA·Gmail)
 
 - **운영:** `374462fe922a67b53758d7e1d8bb46c5e4eedaf6`([#787](https://github.com/6Soo/cost/pull/787) Trip 주문·카드 사전승인 근거), 이전 `998dd461`. blob 불일치0·보호13표 불변·worker_switched=true.
 - **Trip 반영:** 사용자가 알려 준 이메일 인증번호로 예약 계정 로그인 → 호텔 주문 상세 502건을 `trip-api-v1`로 수입(백업 `D:/WebLedgerHost/data/backups/ota-evidence-before-trip-api-20261110.sqlite`). 현장결제 호텔의 카드 사전승인은 장부에서 `MM.DD–MM.DD 사전승인`/`사전승인(취소)`와 환불 상태로 표시. 장부 경고 175 → **154**(Trip 38→17).
 - **확인 필요(금융):** 사전승인은 체크아웃 후 환불되는 보증금인데 카드 명세에 환불 행이 들어온 것은 일부뿐이라, 현재 숙박비 합계에 환불된 보증금이 포함돼 있다. 금액·분류는 자동으로 바꾸지 않았다 — 환불이 찍힌 카드 명세 업로드 또는 사전승인 행 처리 결정 필요.
 - **Gmail 수집 장애·복구:** 17:06 KST부터 수집 토큰 갱신이 400으로 실패(OAuth 앱 "테스트 중" 상태의 7일 만료). 사용자 지시로 ego lite에서 재인증하고, Google 인증 플랫폼(프로젝트 `exemplary-vista-312906`) 브랜딩에 홈페이지·개인정보처리방침 링크(`foresttour.kr`)를 넣어 **프로덕션으로 게시**한 뒤 다시 재인증(18:17 KST). 수동 1회 수집 정상(신규 11건). 이전 토큰은 `secrets/gmail-collector-token.{expired,testing}-20261110.json`.
 
-## 2026-11-10 OTA 포털 직접 조사·자동 보강 — 당시 정본
+## 2026-11-10 OTA 포털 직접 조사·자동 보강 — 당시 정본(최신은 위 절)
 
 - **운영:** `998dd46100a8bd11304532f741e15f162fd9c3c6`([#784](https://github.com/6Soo/cost/pull/784)), 이전 `895a412e`([#783](https://github.com/6Soo/cost/pull/783)+[#781](https://github.com/6Soo/cost/pull/781)) ← `9ad0a454`. 두 배포 모두 blob 불일치0·보호13표 불변·worker_switched=true·Gateway 유지. 다른 세션(UI/UX)과 배포 순서를 메시지로 조율했다.
 - **사용자 지시:** Agoda·Trip.com·Booking.com을 ego lite로 직접 조사하고 자동 보강 방법과 이후 수집 절차를 문서화. 절차·결과 정본: [OTA 포털 직접 수집 절차](specs/ota-portal-browser-collection-20261110.md). AGENTS.md의 Agoda 수집 규칙을 이 결정으로 갱신했다.
