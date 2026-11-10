@@ -525,7 +525,7 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
         # 상품 근거나 이용기간이 없으면 가맹점 이름만으로 숙박이라고 만들지 않는다.
         item = fact.get("item")
         if (not item and period and (fact.get("product_type") == "lodging"
-                or (fact.get("evidence_format") == "agoda-aside-v1"
+                or (fact.get("evidence_format") in ota_portal.DETAIL_FORMATS
                     and fact.get("reservation_status") == "completed"))):
             item = "숙박비"
         emitted_charges = 0
@@ -564,7 +564,7 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
                     component_index, "portal_payment_claim", "charge"])],
                 "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
                 "evidence_kind": "portal_payment_claim",
-                "verified_portal_snapshot": fact.get('evidence_format') == 'agoda-aside-v1',
+                "verified_portal_snapshot": fact.get('evidence_format') in ota_portal.DETAIL_FORMATS,
                 "_portal_reservation_provenance": {
                     "provider": "agoda", "identity": reservation_identity,
                     "source_digest": digest, "source_lineage_id": source_lineage_id,

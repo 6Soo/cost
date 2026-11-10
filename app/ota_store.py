@@ -150,7 +150,7 @@ def portal_rows(path, outer_index, *, scheduled=False):
                     for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal")
                     for row in _scheduled_details(_entries(conn, source['current_revision']))]
         for booking, fact, conflicts in direct_facts(conn):
-            if booking['provider'] != 'agoda' or fact.get('evidence_format') != 'agoda-aside-v1':
+            if booking['provider'] != 'agoda' or fact.get('evidence_format') not in ('agoda-aside-v1', 'agoda-api-v1'):
                 continue
             # 새 Aside 양식은 예정일 대사의 입력이 아니다. 명시 취소·환불·충돌은 차단 근거로 유지한다.
             if scheduled and not (conflicts or fact['reservation_status'] in ('cancelled','refunded')
