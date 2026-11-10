@@ -190,12 +190,61 @@ def _owned_job(process):
     return lambda: kernel.CloseHandle(handle)
 
 
+def _resume_owned_process(process):
+    """Resume only our suspended primary thread, after its Job is assigned."""
+    if os.name != 'nt':
+        return
+    import ctypes
+    from ctypes import wintypes as wt
+    class ThreadEntry(ctypes.Structure):
+        _fields_ = [('size', wt.DWORD), ('usage', wt.DWORD), ('thread_id', wt.DWORD),
+                    ('owner_pid', wt.DWORD), ('base_priority', wt.LONG),
+                    ('delta_priority', wt.LONG), ('flags', wt.DWORD)]
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateToolhelp32Snapshot.argtypes, kernel.CreateToolhelp32Snapshot.restype = [wt.DWORD, wt.DWORD], wt.HANDLE
+    kernel.Thread32First.argtypes = kernel.Thread32Next.argtypes = [wt.HANDLE, ctypes.POINTER(ThreadEntry)]
+    kernel.OpenThread.argtypes, kernel.OpenThread.restype = [wt.DWORD, wt.BOOL, wt.DWORD], wt.HANDLE
+    kernel.ResumeThread.argtypes, kernel.ResumeThread.restype = [wt.HANDLE], wt.DWORD
+    kernel.CloseHandle.argtypes = [wt.HANDLE]
+    snapshot = kernel.CreateToolhelp32Snapshot(4, 0)  # TH32CS_SNAPTHREAD
+    if snapshot == ctypes.c_void_p(-1).value:
+        raise AgentUnavailable('AGENT_PROCESS_BOUNDARY_UNAVAILABLE')
+    try:
+        entry = ThreadEntry()
+        entry.size = ctypes.sizeof(entry)
+        found = kernel.Thread32First(snapshot, ctypes.byref(entry))
+        while found:
+            if entry.owner_pid == process.pid:
+                handle = kernel.OpenThread(2, False, entry.thread_id)  # THREAD_SUSPEND_RESUME
+                if not handle:
+                    raise AgentUnavailable('AGENT_PROCESS_BOUNDARY_UNAVAILABLE')
+                try:
+                    if kernel.ResumeThread(handle) == 0xFFFFFFFF:
+                        raise AgentUnavailable('AGENT_PROCESS_BOUNDARY_UNAVAILABLE')
+                    return
+                finally:
+                    kernel.CloseHandle(handle)
+            found = kernel.Thread32Next(snapshot, ctypes.byref(entry))
+        raise AgentUnavailable('AGENT_PROCESS_BOUNDARY_UNAVAILABLE')
+    finally:
+        kernel.CloseHandle(snapshot)
+
+
 def _run_bounded(command, *, cwd, env, timeout, input_bytes=None):
     process = subprocess.Popen(command, cwd=cwd, env=env,
                                stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                               creationflags=(getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                                              | (4 if os.name == 'nt' else 0)))  # CREATE_SUSPENDED
     close_job = _owned_job(process)
+    try:
+        _resume_owned_process(process)
+    except BaseException:
+        if close_job:
+            close_job()
+        process.kill()
+        process.wait()
+        raise
     chunks, size, exceeded = [[], []], [0], threading.Event()
     mutex = threading.Lock()
 

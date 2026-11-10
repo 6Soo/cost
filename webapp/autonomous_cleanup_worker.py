@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import threading
 import uuid
+import re
 
 from app.partial_refund import read_only_scope as refund_evidence_scope
 from .deployment_role import active_writer
@@ -71,6 +72,11 @@ def code_fingerprint(root=None):
 
 def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def failure_code(exc):
+    candidate = getattr(exc, 'code', None) or str(exc)
+    return candidate if isinstance(candidate, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{2,80}', candidate) else type(exc).__name__
 
 
 def detection_sql(*, after=False):
@@ -456,21 +462,6 @@ class AutonomousCleanupWorker:
                 self.status['state'] = 'idle'
                 return False
             due_rows = [row for row in rows if row[0] in due_ids]
-            if not _options(self._config_path()).get('autonomous_p2_full_rollout', False):
-                reserved = reserved_cases(self.board.conn)
-                remaining = max(0, 50 - len(reserved))
-                eligible = []
-                for row in due_rows:
-                    if row[0] in reserved:
-                        eligible.append(row)
-                    elif remaining:
-                        eligible.append(row)
-                        remaining -= 1
-                    else:
-                        save_job(self.board.conn, row[0], fingerprints[row[0]],
-                                 {'status': 'blocked', 'reason': 'AGENT_FIRST_BATCH_LIMIT', 'attempts': 0,
-                                  'not_before': now + BLOCKED_RETRY_SECONDS})
-                due_rows = eligible
             due_rows = due_rows[:max(1, min(50, self.chunk))]
             if not due_rows:
                 self.board.conn.commit()
@@ -493,6 +484,27 @@ class AutonomousCleanupWorker:
                 self.board.conn.commit()
                 self._finish(rows)
                 return True
+            # Rollout controls P2 only. P1 above must publish for every due chunk.
+            if _options(self._config_path()).get('autonomous_p2_full_rollout') is not True:
+                reserved = reserved_cases(self.board.conn)
+                remaining = max(0, 50 - len(reserved))
+                eligible = []
+                for row in due_rows:
+                    if row[0] in reserved:
+                        eligible.append(row)
+                    elif remaining:
+                        eligible.append(row)
+                        remaining -= 1
+                    else:
+                        save_job(self.board.conn, row[0], fingerprints[row[0]],
+                                 {'status': 'blocked', 'reason': 'AGENT_FIRST_BATCH_LIMIT', 'attempts': 0,
+                                  'not_before': now + BLOCKED_RETRY_SECONDS})
+                due_rows = eligible
+            if not due_rows:
+                self.board.conn.commit()
+                self._finish(rows)
+                return True
+            ids = [row[0] for row in due_rows]
             try:
                 request = ai_classification.prepare(self.board.conn, trips, ids, nets=nets)
             except ValueError as exc:
@@ -560,7 +572,10 @@ class AutonomousCleanupWorker:
         model = self.agent_model or frontier_agent_provider.configured_model(self._config_path())
         extra, lookups = [], []
         call_count = 0
+        bundle_limit = p2_case.MAX_BYTES - 2048
         try:
+            if self.provider is None:
+                bundle_limit = frontier_agent_provider.bundle_budget()
             if self.provider is None and repository is None:
                 from app import ota_sources, ota_portal
                 from .ota_payment_review import SOURCES_ENV
@@ -573,7 +588,23 @@ class AutonomousCleanupWorker:
             if repository is not None:
                 with self.runtime_lock, self.board._lock:
                     trips, _ = self._fresh_context()
-                    bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository, max_bytes=p2_case.MAX_BYTES - 12288)
+                    while True:
+                        try:
+                            bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository, max_bytes=bundle_limit)
+                            break
+                        except ValueError as exc:
+                            if str(exc) != 'P2_PROMPT_BASE_TOO_LARGE' or len(request['cases']) < 2:
+                                raise
+                            keep = {c['transaction_id'] for c in request['cases'][:max(1, len(request['cases'])//2)]}
+                            for row in due_rows:
+                                if row[0] not in keep:
+                                    attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
+                                    save_job(self.board.conn, row[0], fingerprints[row[0]], dict(status='ai_retry',
+                                        reason='P2_BATCH_SPLIT', attempts=attempts, not_before=now+1))
+                            due_rows = [row for row in due_rows if row[0] in keep]
+                            batch_ids = [row[0] for row in due_rows]
+                            request = ai_classification.prepare(self.board.conn, trips, batch_ids, nets=self._fresh_context()[1])
+                            self.board.conn.commit()
             retried_format, rounds = False, 0
             while True:
                 elapsed = time.monotonic() - started
@@ -609,7 +640,7 @@ class AutonomousCleanupWorker:
                                     lookups.append(query)
                                 trips, _ = self._fresh_context()
                                 bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository,
-                                    max_bytes=p2_case.MAX_BYTES - 12288, extra=extra)
+                                    max_bytes=bundle_limit, extra=extra)
                             rounds += 1
                             outcome = 'more_evidence'
                             continue
@@ -632,7 +663,7 @@ class AutonomousCleanupWorker:
                         finish_call(self.board.conn, reservation, outcome, int((time.monotonic()-call_started)*1000))
                         self.board.conn.commit()
         except Exception as exc:
-            code = getattr(exc, 'code', type(exc).__name__)
+            code = failure_code(exc)
             with self.runtime_lock, self.board._lock:
                 for row in due_rows:
                     if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW'):
@@ -657,7 +688,7 @@ class AutonomousCleanupWorker:
                     for query in lookups:
                         fresh_extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
                     current_bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository,
-                        max_bytes=p2_case.MAX_BYTES - 12288, extra=fresh_extra)
+                        max_bytes=bundle_limit, extra=fresh_extra)
                     if current_bundle != bundle:
                         raise ValueError('AI_EVIDENCE_STALE')
                 result = ai_classification.apply(
@@ -666,10 +697,10 @@ class AutonomousCleanupWorker:
             except Exception as exc:
                 self.board.conn.rollback()
                 for row in due_rows:
-                    self._retry_or_dead(row, fingerprints[row[0]], now, 'apply_' + type(exc).__name__)
+                    self._retry_or_dead(row, fingerprints[row[0]], now, 'apply_' + failure_code(exc))
                 self.board.conn.commit()
                 append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
-                                           'outcome': 'apply_failed:' + type(exc).__name__,
+                                           'outcome': 'apply_failed:' + failure_code(exc),
                                            'duration_ms': int((time.monotonic() - started) * 1000)})
                 self._finish(all_rows)
                 return True

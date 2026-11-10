@@ -42,8 +42,8 @@ def test_bundle_is_deterministic_bound_and_read_only(setup):
 def test_unicode_evidence_truncation_is_explicit_and_within_bytes(setup):
     request, trips = prepared(setup)
     bundle = p2_case.assemble(setup.conn, trips, request, repository=Evidence([
-        dict(ref='mail:big', kind='mail', content='한글' * 150000)]), max_bytes=110000)
-    assert len(p2_case.prompt(bundle).encode('utf-8')) <= 110000
+        dict(ref='mail:big', kind='mail', content='한글' * 150000)]), max_bytes=196608)
+    assert len(p2_case.prompt(bundle).encode('utf-8')) <= 196608
     assert bundle['evidence'][0]['truncated'] is True
     assert bundle['evidence'][0]['source_sha256']
     assert bundle['truncated'] is True
@@ -86,3 +86,29 @@ def test_registered_unparsed_mail_is_selected_but_unrelated_mail_is_not_exported
     assert any('예약 이용기간' in e['content'] for e in bundle['evidence'])
     assert 'UNRELATED PRIVATE LETTER' not in p2_case.prompt(bundle)
     assert path.read_bytes() == before
+
+
+def test_policy_contract_includes_exceptions_process_and_attribution_domains(setup):
+    request, trips = prepared(setup)
+    bundle = p2_case.assemble(setup.conn, trips, request)
+    assert {'CORE', 'process', 'trip', 'item', 'date'} <= set(bundle['policy'])
+    assert '## 5. 사용자 예외' in bundle['policy']['CORE']
+    for name, identity in [('process', 'PROC-001'), ('trip', 'TRIP-069'), ('date', 'DATE-001')]:
+        assert identity in bundle['policy'][name]
+    assert '대체된 옛 규칙:' not in json.dumps(bundle['policy'], ensure_ascii=False)
+    with pytest.raises(ValueError, match='P2_PROMPT_BASE_TOO_LARGE'):
+        p2_case.assemble(setup.conn, trips, request, max_bytes=110000)
+
+
+def test_ota_and_refund_policy_domains_are_included(setup):
+    request, trips = prepared(setup)
+    tid = request['cases'][0]['transaction_id']
+    setup.conn.execute("UPDATE transactions SET merchant='SYNTHETIC 예약',description_raw='refund 취소' WHERE transaction_id=?", (tid,))
+    # Full required policies exceed the small prompt budget; no silent omission.
+    bundle = p2_case.assemble(setup.conn, trips, request, repository=Evidence([
+        dict(ref='portal:one', kind='portal', content='합성 예약')]), max_bytes=400000)
+    assert 'LINK-002' in bundle['policy']['link']
+    assert 'RFND-018' in bundle['policy']['refund']
+    with pytest.raises(ValueError, match='P2_PROMPT_BASE_TOO_LARGE'):
+        p2_case.assemble(setup.conn, trips, request, repository=Evidence([
+            dict(ref='portal:one', kind='portal', content='합성 예약')]))

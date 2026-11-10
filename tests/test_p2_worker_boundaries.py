@@ -143,3 +143,15 @@ def test_format_error_retries_once_with_each_call_reserved(setup):
     assert len(calls) == 2
     assert load_job(setup.conn, ids[0])['status'] == 'p2_applied'
     assert worker_module.reserved_calls_today(setup.conn) == 2
+
+
+def test_first_batch_p2_gate_never_prevents_p1_publication(setup):
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    setup.conn.execute("UPDATE transactions SET classification_state='needs_review',item='',trip_id='',display_tab_id='',classification_source=''")
+    worker_module.reserve_call(setup.conn, ['synthetic-used-' + str(i) for i in range(50)], 'synthetic')
+    setup.conn.commit()
+    worker = AutonomousCleanupWorker(setup, setup._lock, provider=response_for)
+    worker.sweep_once()
+    state, item, tab = setup.conn.execute('SELECT classification_state,item,display_tab_id FROM transactions').fetchone()
+    assert state == 'classified' and item and tab

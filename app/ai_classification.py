@@ -111,8 +111,9 @@ def _p2_metadata(conn, request, response, bundle):
     if (bundle.get('request_digest') != request['digest']
             or bundle.get('digest') != p2_case.digest({k: v for k, v in bundle.items() if k != 'digest'})):
         raise ValueError('AI_CASE_INVALID')
-    current = {r['transaction_id']: p2_case.sanitize(r) for r in code._read(
+    originals = {r['transaction_id']: r for r in code._read(
         conn, [c['transaction_id'] for c in request['cases']])}
+    current = {tid: p2_case.sanitize(r) for tid, r in originals.items()}
     if any(current.get(c['transaction_id']) != c['transaction'] for c in bundle['cases']):
         raise ValueError('AI_CASE_STALE')
     if p2_case.policy_context(bundle['policy'].keys() - {'CORE'}) != bundle['policy']:
@@ -149,8 +150,57 @@ def _p2_metadata(conn, request, response, bundle):
                 raise ValueError('AI_EVIDENCE_INVALID')
         metadata[result['transaction_id']] = dict(
             service_start=start, service_end=end, evidence_refs=result['evidence_refs'],
-            rule_ids=result['rule_ids'], uncertainty=result['uncertainty'], case_digest=bundle['digest'])
+            rule_ids=result['rule_ids'], uncertainty=result['uncertainty'], case_digest=bundle['digest'],
+            source_hash=current[result['transaction_id']]['source_hash'],
+            raw_digest=_digest(originals[result['transaction_id']]['raw_row_json']),
+            decision_revision=current[result['transaction_id']]['revision'] + 1,
+            item=result['item'], execution=response.get('execution'))
     return metadata
+
+
+def service_metadata(conn, transaction_id):
+    """Read an audited P2 period bound to the current source and decision only.
+
+    An explicit manual period correction, including an empty value, wins.
+    Returned provenance never asserts a verified reservation/payment link.
+    """
+    import sqlite3
+    try:
+        cursor = conn.execute('SELECT source_hash,raw_row_json,revision,item,classification_source,classification_basis,'
+            'decided_at,parse_error,duplicate_of,conflict_reason,transaction_direction FROM transactions WHERE transaction_id=?', (transaction_id,))
+        values = cursor.fetchone()
+        if not values:
+            return {}
+        row = dict(zip((d[0] for d in cursor.description), values))
+        if (row['classification_source'] != 'ai_inference' or row['transaction_direction'] != 'purchase'
+                or any(row[k] for k in ('decided_at','parse_error','duplicate_of','conflict_reason'))
+                or row['item'] not in ('숙박비','항공료','렌터카')):
+            return {}
+        if conn.execute("SELECT 1 FROM board_manual_overrides WHERE row_id=? AND field='service_period'", ('card-'+transaction_id,)).fetchone():
+            return {}
+        if conn.execute('SELECT 1 FROM review_decisions WHERE transaction_id=?', (transaction_id,)).fetchone():
+            return {}
+        raw = row['classification_basis'].split(' · P2_METADATA ', 1)[1]
+        meta, _ = json.JSONDecoder().raw_decode(raw)
+        execution = meta['execution']
+        if (meta['source_hash'] != row['source_hash'] or meta['raw_digest'] != _digest(row['raw_row_json'])
+                or meta['decision_revision'] != row['revision'] or meta['item'] != row['item']
+                or execution.get('kind') != 'connected_agent' or execution.get('provider') != 'codex'
+                or execution.get('model') != 'gpt-6.1-sol' or not execution.get('run_id')):
+            return {}
+        start, end = meta['service_start'], meta['service_end']
+        if not start or not end or not 0 <= (date.fromisoformat(end)-date.fromisoformat(start)).days <= 366:
+            return {}
+        audit = conn.execute("SELECT detail_json FROM change_log WHERE kind='card.classification_corrected' AND subject=? ORDER BY entry_id DESC LIMIT 1", (transaction_id,)).fetchone()
+        detail = json.loads(audit[0]) if audit else {}
+        if (detail.get('p2_metadata') != meta or detail.get('source_hash') != row['source_hash']
+                or detail.get('execution') != execution or (detail.get('after') or {}).get('classification_basis') != row['classification_basis']):
+            return {}
+        return dict(service_period=start+'~'+end, ota_evidence=dict(kind='reservation_period_inferred',
+            source='P2', payment_verified=False, execution=execution, source_hash=row['source_hash'],
+            decision_revision=row['revision'], item=row['item'], evidence_refs=meta['evidence_refs']))
+    except (sqlite3.Error, ValueError, KeyError, TypeError, IndexError, AttributeError):
+        return {}
 
 
 def preview(conn, trips, request, response, *, nets=None, bundle=None):

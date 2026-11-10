@@ -11,17 +11,20 @@ _INDEX_MEMO = {}
 def stay_index(store):
     from . import ota_payment_review
 
-    if store is None or not ota_payment_review.enabled():
+    if store is None:
         return {}
+    p2 = _p2_index(store)
+    if not ota_payment_review.enabled():
+        return p2
     # Reading a ledger must not start reconciliation or turn stale evidence into fact.
     service = getattr(store, '_ota_snapshot_service', None)
     if service is None:
-        return {}
+        return p2
     # The last complete generation stays on screen while the next one is computed or retried;
     # a refresh takes minutes and dropping every date meanwhile hid verified evidence.
     current, _state = service.display_context()
     if not current or current.get('data') is None:
-        return {}
+        return p2
     with store._lock:
         manual = {str(r[0]) for r in store.conn.execute(
             "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
@@ -29,12 +32,33 @@ def stay_index(store):
     memo_key = (id(store), id(current), current.get('key'), frozenset(manual))
     with _INDEX_LOCK:
         if _INDEX_MEMO.get('key') == memo_key and _INDEX_MEMO.get('current') is current:
-            return _INDEX_MEMO['result']
+            return _with_p2(_INDEX_MEMO['result'], p2, current.get('data') or {})
     from app.ota_matching_defaults import provider_resolution_scope
     with provider_resolution_scope():
         result = _build_index(current.get('data') or {}, manual)
     with _INDEX_LOCK:
         _INDEX_MEMO.update(key=memo_key, current=current, result=result)
+    return _with_p2(result, p2, current.get('data') or {})
+
+
+def _p2_index(store):
+    from app.ai_classification import service_metadata
+    with store._lock:
+        if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
+            return {}
+        ids = [r[0] for r in store.conn.execute("SELECT transaction_id FROM transactions WHERE classification_source='ai_inference' AND item IN ('숙박비','항공료','렌터카')")]
+        return {tid: metadata for tid in ids if (metadata := service_metadata(store.conn, tid))}
+
+
+def _with_p2(exact, p2, data):
+    result = dict(exact)
+    occupied = _occupied_cards(data)
+    occupied.update(str(row.get('transaction_id')) for row in data.get('transactions', ())
+                    if any(row.get(k) for k in ('period_conflict','service_period_conflict','ota_review_held',
+                                                'reservation_refund_blocked','evidence_missing','evidence_changed')))
+    for tid, metadata in p2.items():
+        if tid not in occupied:
+            result.setdefault(tid, metadata)
     return result
 
 
@@ -785,6 +809,11 @@ def period_for(row, index):
     if row_id != 'card-' + tid:
         return ''
     found = index.get(tid) or {}
+    evidence = found.get('ota_evidence') or {}
+    if evidence.get('source') == 'P2':
+        if ((row.get('source_fact_digest') and row['source_fact_digest'] != evidence.get('source_hash'))
+                or (row.get('item') and row['item'] != evidence.get('item'))):
+            return ''
     if (found.get('ota_evidence') or {}).get('kind') == 'card_preauthorization':
         # A guarantee hold is not a stay; its dates are shown only by the pre-authorization label.
         return ''

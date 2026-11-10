@@ -31,13 +31,20 @@ DISABLED_FEATURES = (
     'skill_search', 'skill_mcp_dependency_install', 'workspace_dependencies',
     'request_permissions_tool', 'default_mode_request_user_input', 'auth_elicitation',
     'tool_suggest', 'tool_call_mcp_elicitation', 'sleep_tool', 'goals', 'memories',
-    'standalone_web_search', 'web_search_cached', 'web_search_request',
+    'standalone_web_search',
     'realtime_conversation', 'daemon_auto_start',
 )
+CODE_MODE_DISABLED_NOTICE = ('Code Mode is unavailable because code-mode host is disabled. '
+    'Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.')
 
 
 def schema_path():
     return Path(__file__).with_name('p2_output.schema.json')
+
+
+def bundle_budget():
+    # Reserve actual schema UTF-8 bytes plus bounded execution/instruction text.
+    return p2_case.MAX_BYTES - len(schema_path().read_bytes()) - 2048
 
 
 def _executable():
@@ -69,7 +76,7 @@ def _error(value):
 def parse_events(raw):
     if len(raw) > MAX_OUTPUT_BYTES:
         raise AgentUnavailable('AGENT_RESPONSE_TOO_LARGE')
-    final, complete = None, False
+    final, complete, turn_started = None, False, False
     try:
         for line in raw.decode('utf-8-sig').splitlines():
             if not line.strip():
@@ -80,12 +87,18 @@ def parse_events(raw):
                 _error(event)
             if kind in ('item.started', 'item.updated', 'item.completed'):
                 item = event['item']
+                if item.get('type') == 'error':
+                    if not turn_started and item.get('message') == CODE_MODE_DISABLED_NOTICE:
+                        continue
+                    _error(item)
                 if item.get('type') not in ('agent_message', 'reasoning'):
                     raise AgentUnavailable('AGENT_TOOL_EXECUTION_DETECTED')
                 if kind == 'item.completed' and item.get('type') == 'agent_message':
                     final = item['text']
             elif kind == 'turn.completed':
                 complete = True
+            elif kind == 'turn.started':
+                turn_started = True
             elif kind not in ('thread.started', 'turn.started'):
                 # Fail closed for newly introduced event/tool surfaces.
                 raise AgentUnavailable('AGENT_TOOL_EXECUTION_DETECTED')

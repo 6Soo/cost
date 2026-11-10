@@ -80,3 +80,64 @@ def test_quarter_decision_without_actual_trip_is_supported(setup):
     answer['results'][0]['item'] = '분기 기타비용'
     ai_classification.apply(setup.conn, [], request, answer, bundle=bundle, request_id='quarter')
     assert setup.conn.execute('SELECT display_tab_id,trip_id FROM transactions').fetchone() == ('quarter:2026:4', '')
+
+
+def test_p2_period_reaches_existing_preview_and_actual_stay_label(setup, monkeypatch):
+    from app import ledger
+    from webapp import ledger_design, ledger_stay_evidence, ota_payment_review
+    from webapp.read_scope import scoped
+    request, trips = prepared(setup)
+    bundle = p2_case.assemble(setup.conn, trips, request)
+    answer = response(request, bundle)
+    answer['results'][0]['item'] = '숙박비'
+    ai_classification.apply(setup.conn, trips, request, answer, bundle=bundle, request_id='display-period')
+    tid = request['cases'][0]['transaction_id']
+    batch = setup.conn.execute('SELECT batch_id FROM transactions WHERE transaction_id=?',(tid,)).fetchone()[0]
+    preview = ledger.preview(setup, batch, trip_validator=lambda _: True, tab_validator=lambda _: True)
+    entry = next(row for row in preview['rows'] if row['transaction_id'] == tid)
+    assert entry['service_period'] == '2026-10-02~2026-10-03'
+    assert entry['ota_evidence']['execution']['model'] == 'gpt-6.1-sol'
+    assert entry['occurred_on'] == '2026-10-03'  # Approval date stays original.
+    monkeypatch.setattr(ota_payment_review, 'enabled', lambda: False)
+    monkeypatch.setattr(ledger_design.board, '_active_store', lambda: setup)
+    row = dict(row_id='card-'+tid, source_event_id=tid, item='숙박비',service_period='')
+    before = setup.conn.total_changes
+    @scoped
+    def render():
+        return ledger_design._stay_text(row)
+    assert render() == '10월 2일(금) ~ 10월 3일(토) · 1박 · 예약 근거 추론'
+    assert setup.conn.total_changes == before
+    setup.conn.execute("INSERT INTO board_manual_overrides VALUES (?,'service_period','synthetic-empty-correction')", ('card-'+tid,))
+    assert ledger_stay_evidence.period_for(row, ledger_stay_evidence.stay_index(setup)) == ''
+
+
+@pytest.mark.parametrize('mutation', ['source', 'revision', 'item', 'run_id'])
+def test_stale_or_forged_saved_period_is_not_displayed(setup, mutation):
+    request, trips = prepared(setup)
+    bundle = p2_case.assemble(setup.conn, trips, request)
+    answer = response(request, bundle)
+    answer['results'][0]['item'] = '숙박비'
+    ai_classification.apply(setup.conn, trips, request, answer, bundle=bundle, request_id='period-stale')
+    tid = request['cases'][0]['transaction_id']
+    assert ai_classification.service_metadata(setup.conn, tid)['service_period']
+    if mutation == 'source':
+        setup.conn.execute("UPDATE transactions SET source_hash='changed'")
+    elif mutation == 'revision':
+        setup.conn.execute('UPDATE transactions SET revision=revision+1')
+    elif mutation == 'item':
+        setup.conn.execute("UPDATE transactions SET item='식비'")
+    else:
+        setup.conn.execute("UPDATE transactions SET classification_basis=replace(classification_basis,'synthetic','forged')")
+    assert ai_classification.service_metadata(setup.conn, tid) == {}
+
+
+def test_exact_ota_or_explicit_stored_period_wins_over_p2():
+    from webapp import ledger_stay_evidence as stays
+    inferred = dict(service_period='2026-10-02~2026-10-03',
+        ota_evidence=dict(source='P2', kind='reservation_period_inferred', item='숙박비', source_hash='synthetic'))
+    exact = dict(service_period='2026-10-04~2026-10-05', booking_ref='synthetic-booking', ota_evidence=dict(kind='exact'))
+    combined = stays._with_p2({'synthetic': exact}, {'synthetic': inferred}, {})
+    row = dict(row_id='card-synthetic', source_event_id='synthetic', item='숙박비')
+    assert stays.period_for(row, combined) == '2026-10-04~2026-10-05'
+    assert stays.period_for(dict(row, service_period='2026-10-06~2026-10-07'), combined) == '2026-10-06~2026-10-07'
+    assert stays._with_p2({}, {'synthetic': inferred}, {'transactions': [dict(transaction_id='synthetic', period_conflict=True)]}) == {}
