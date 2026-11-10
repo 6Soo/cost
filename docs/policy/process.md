@@ -2,6 +2,7 @@
 
 > [판정 규칙집](../DECISION_POLICY.md)의 영역별 상세 규칙이다. 핵심 원칙과 읽는 법은 규칙집 본문에 있다.
 > 규칙 ID는 바꾸지 않는다. 규칙을 고칠 때는 같은 ID의 내용을 고치고 옛 내용을 "대체된 옛 규칙"에 남긴다.
+> "출처"의 파일과 줄 번호는 커밋 `b0340d0d`(2026-11-10) 기준이다. 그 뒤 줄어든 `AGENTS.md`·`docs/COST_V3_START_HERE.md`의 줄은 `git show b0340d0d:<경로>`로 본다.
 
 ### PROC-001 · P1 선행·P2 판정 완료
 
@@ -13,7 +14,7 @@
 - 대체된 옛 규칙:
   - AI 호출은 새 카드 처리 흐름에 없다. — docs/history/ota-legacy.md:126
   - 규칙과 이전 사용자 결정, 명확한 업종으로 분류하고 나머지를 사람에게 질문한다. — docs/history/ota-legacy.md:126
-- 출처: `MERGE.md:20`, `docs/specs/card-destination-only-ux-20261108.md:8`, `docs/specs/finance.md:3`, `docs/specs/autonomous-expense-cleanup-20261105.md:47`, `docs/specs/autonomous-expense-cleanup-20261105.md:48`
+- 출처: `2026-11-10 사용자 결정(통합 명세 부록 A D15)`, `docs/specs/card-destination-only-ux-20261108.md:8`, `docs/specs/finance.md:3`, `docs/specs/autonomous-expense-cleanup-20261105.md:47`, `docs/specs/autonomous-expense-cleanup-20261105.md:48`
 
 ### PROC-002 · 전 원행 자동 평가
 
@@ -39,7 +40,7 @@
   - 내 확인 필요 0건과 금융 대사 원행 6건은 합법적으로 공존한다. — 2026-11-06, docs/specs/cost-pr-only-implementation-brief-20261106.md:71
   - P1 안전 처리 뒤 진짜 P3를 노출한다. — 2026-11-06, docs/specs/cost-pr-only-implementation-brief-20261106.md:141
   - 그 밖에 143건
-- 출처: `MERGE.md:20`, `docs/specs/uiux-full-audit-redesign-20261110.md:87`, `docs/specs/uiux-full-audit-redesign-20261110.md:753`, `docs/specs/card-destination-only-ux-20261108.md:7`, `docs/specs/card-destination-only-ux-20261108.md:9`
+- 출처: `2026-11-10 사용자 결정(통합 명세 부록 A D15)`, `docs/specs/uiux-full-audit-redesign-20261110.md:87`, `docs/specs/uiux-full-audit-redesign-20261110.md:753`, `docs/specs/card-destination-only-ux-20261108.md:7`, `docs/specs/card-destination-only-ux-20261108.md:9`
 
 ### PROC-004 · 분기 기타비용 종결
 
@@ -689,7 +690,7 @@ P2 미실행·timeout·한도·잘못된 응답·오래된 원본·코드 결함
 - 대체된 옛 규칙:
   - 자동 배정 → 사용자가 월별로 장부를 확인하고 오류를 발견하면 수정. — 2026-10-14, C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-auto-assign-monthly-review.md:8
   - 자동 배정 후 월별 검토 (승인 대기 금지) — OTA 묶음·별칭을 승인받지 않고 자동 배정, 사용자는 월별 장부에서 수정. — 2026-10-14, C:/Users/kkokk/.claude/projects/C--AX-cost/memory/MEMORY.md:8
-- 출처: `MERGE.md:20`
+- 출처: `2026-11-10 사용자 결정(통합 명세 부록 A D15)`
 
 ### PROC-069 · 세무 판단과 분류 분리
 
