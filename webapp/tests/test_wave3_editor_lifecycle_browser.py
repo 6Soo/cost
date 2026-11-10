@@ -111,3 +111,70 @@ def test_bulk_edit_closes_the_drawer_and_exposes_interactive_controls(screen):
     assert page.locator('#ledger-drawer #panel-slot').count() == 1
     page.click('[data-bulk-end]')
     assert page.locator('.bulk-bar').count() == 0
+
+@pytest.mark.parametrize('width', [390, 1440])
+def test_bulk_row_clicks_and_shift_range_then_normal_edit(screen, width):
+    page = screen._page(width)
+    screen._board(page, '?tab=trip-demo-a')
+    selector = '.lst .li[data-kind="expense"]' if width < 760 else '.tw tr[data-kind="expense"]'
+    rows = page.locator(selector).filter(visible=True)
+    assert rows.count() >= 3
+    ids = [rows.nth(i).get_attribute('data-id') for i in range(3)]
+    amounts = [int(rows.nth(i).get_attribute('data-amount')) for i in range(3)]
+    rows.nth(0).click()
+    page.wait_for_selector('#ledger-drawer #panel')
+    page.click('#bulk-start')
+    def check(selected):
+        expected = sum(amounts[i] for i in selected)
+        assert page.locator('[data-bulk-count]').inner_text() == f'선택 {len(selected)}건 · 합계 {expected:,}원'
+        assert not page.locator('#ledger-drawer').evaluate('dialog => dialog.open')
+        for i in range(3):
+            assert (rows.nth(i).get_attribute('data-bulk-selected') == 'true') == (i in selected)
+    check({0})
+    rows.nth(1).click()
+    check({0, 1})
+    rows.nth(1).click()
+    check({0})
+    rows.nth(2).evaluate("row => row.scrollIntoView({block: 'center'})")
+    assert rows.nth(2).evaluate("el => el.getBoundingClientRect().bottom") <= page.locator('.bulk-bar').evaluate("el => el.getBoundingClientRect().top")
+    rows.nth(2).click(modifiers=['Shift'])
+    check({0, 1, 2})
+    page.click('[data-bulk-end]')
+    rows.nth(1).click()
+    page.wait_for_selector(f'#ledger-drawer #panel[data-row="{ids[1]}"]')
+    page.locator('#panel .p-extra > summary').click()
+    page.fill('#f-description', 'Synthetic bulk follow-up edit')
+    page.click('#panel button[type=submit]')
+    page.wait_for_function("document.querySelector('#panel form')?.getAttribute('data-saving') !== '1'")
+    assert screen.store.get_row(ids[1])['description'] == 'Synthetic bulk follow-up edit'
+
+@pytest.mark.parametrize('width', [320, 390])
+def test_home_trip_identity_and_period_are_readable(screen, width):
+    from webapp.card_flow import home_page
+    from webapp.tests.test_card_flow import CardFlowTests
+    case = CardFlowTests(methodName='runTest')
+    case.setUp()
+    screen.addCleanup(case.tearDown)
+    case.board.create_trip(starts_on='2099-08-03', ends_on='2099-08-31',
+                           destination='합성 여행 이름이 길어도 전부 읽혀야 합니다 1234567890',
+                           client_request_id='synthetic-home-trip')
+    page = screen._page(width)
+    page.goto(f'http://127.0.0.1:{screen.port}/')
+    page.set_content(home_page(case.board))
+    row = page.locator('.home-trips tbody tr').first
+    assert row.count() == 1
+    name = row.locator('th a')
+    period = row.locator('td').first
+    for cell in (name.locator('..'), period):
+        assert cell.evaluate("el => { const s=getComputedStyle(el); return s.textOverflow !== 'ellipsis' && s.whiteSpace !== 'nowrap' && el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight; }")
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+
+def test_sidebar_long_trip_label_and_period_do_not_overflow(screen):
+    page = screen._page(1440)
+    screen._board(page, '?tab=trip-demo-a')
+    link = page.locator('#nav .nav-list .nv').first
+    link.locator('.nm').evaluate("el => el.textContent = '합성 여행의 매우 긴 이름 1234567890ABCDEFGHIJKLMN'")
+    link.evaluate("el => { if (!el.querySelector('.ct')) el.insertAdjacentHTML('beforeend', '<span class=ct></span>'); }")
+    link.locator('.ct').evaluate("el => el.textContent = '08.03~08.31'")
+    assert page.locator('#nav').evaluate('el => el.scrollWidth <= el.clientWidth')
+    assert link.locator('.ct').inner_text() == '08.03~08.31'

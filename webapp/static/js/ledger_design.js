@@ -55,8 +55,8 @@
   function closeDrawer(){
     document.dispatchEvent(new Event('ledger:close-panel'));
   }
-  function showDrawer(id){
-    document.dispatchEvent(new CustomEvent('ledger:open-row',{detail:{id:id}}));
+  function showDrawer(row,range){
+    document.dispatchEvent(new CustomEvent('ledger:open-row',{detail:{id:row.dataset.id,row:row,range:range}}));
   }
   function activateTab(button,focus){
     var root=button.closest('.view-tabs');if(!root)return;
@@ -122,14 +122,14 @@
     if(target.closest&&target.closest('[data-trip-switch-close]')){var d=document.getElementById('trip-switch-dialog');if(d)d.close();return;}
     if(target.closest&&target.closest('[data-drawer-close],#drawer-close,#p-close,#p-cancel')){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
     var row=target.closest&&target.closest(rowSelector());
-    if(row&&!target.closest('form,select,input,textarea,a:not(.lr-hit)')){event.preventDefault();event.stopImmediatePropagation();showDrawer(row.dataset.id);return;}
+    if(row&&!target.closest('form,select,input,textarea,a:not(.lr-hit)')){event.preventDefault();event.stopImmediatePropagation();showDrawer(row,event.shiftKey);return;}
   },true);
   document.addEventListener('keydown',function(event){
     if(event.key==='Escape'&&drawer()&&drawer().open){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
     if((event.key==='Enter'||event.key===' '||event.key==='Spacebar')){
       var row=event.target.closest&&event.target.closest(rowSelector());
       if(row&&!event.target.closest('button,select,input,textarea,a')){
-        event.preventDefault();event.stopImmediatePropagation();showDrawer(row.dataset.id);return;
+        event.preventDefault();event.stopImmediatePropagation();showDrawer(row,event.shiftKey);return;
       }
     }
     var tab=event.target.closest&&event.target.closest('[role=tab]');if(!tab)return;
@@ -535,12 +535,13 @@ function goBack(){location.href=main.dataset.base;}
    var empty=bar.querySelector('select option[value=""]');if(empty)empty.textContent='변경할 여행 선택';
    bar.querySelector('select').value=chosen;
    bulk={selected:new Map(),bar:bar,anchor:id,saving:false};document.body.classList.add('bulk-selecting');
-   if(window.ResizeObserver){bulk.observer=new ResizeObserver(function(){main.style.setProperty('--bulk-bar-height',(bar.getBoundingClientRect().height+24)+'px');});bulk.observer.observe(bar);}
+   var scrollArea=main.closest('.main')||main;
+   if(window.ResizeObserver){bulk.observer=new ResizeObserver(function(){scrollArea.style.setProperty('--bulk-bar-height',(bar.getBoundingClientRect().height+24)+'px');});bulk.observer.observe(bar);}
    bulkToggle(row,false);bar.querySelector('select').focus();
   }
   function endBulk(){
    if(!bulk||bulk.saving)return;
-   var bar=bulk.bar;if(bulk.observer)bulk.observer.disconnect();bulk=null;document.body.classList.remove('bulk-selecting');main.style.removeProperty('--bulk-bar-height');bar.remove();
+   var bar=bulk.bar;if(bulk.observer)bulk.observer.disconnect();bulk=null;document.body.classList.remove('bulk-selecting');(main.closest('.main')||main).style.removeProperty('--bulk-bar-height');bar.remove();
    document.querySelectorAll('[data-id]').forEach(function(row){delete row.dataset.bulkSelected;row.removeAttribute('aria-selected');row.removeAttribute('aria-pressed');});
    window.dispatchEvent(new Event('ledger:saved'));
   }
@@ -687,7 +688,11 @@ function goBack(){location.href=main.dataset.base;}
     message||'저장하지 않은 변경이 있어요. 저장하지 않고 이동할까요?')) return false;
    return true;
   }
-  document.addEventListener('ledger:open-row',function(event){openPanel(event.detail&&event.detail.id);});
+  document.addEventListener('ledger:open-row',function(event){
+   var detail=event.detail||{};
+   if(bulk){if(detail.row)bulkToggle(detail.row,detail.range);return;}
+   openPanel(detail.id);
+  });
   document.addEventListener('ledger:close-panel',closePanel);
   var ledgerDrawer=document.getElementById('ledger-drawer');
   if(ledgerDrawer)ledgerDrawer.addEventListener('cancel',function(event){event.preventDefault();closePanel();});
