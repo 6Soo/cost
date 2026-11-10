@@ -534,6 +534,14 @@ class AutonomousCleanupWorker:
         return self._call_agent(*claim)
 
     def _call_agent(self, request, due_rows, fingerprints, now, all_rows):
+        from app import p2_case
+        try:
+            return self._call_agent_impl(request, due_rows, fingerprints, now, all_rows)
+        finally:
+            if isinstance(self.evidence_repository, p2_case.Repository):
+                self.evidence_repository.end_snapshot()
+
+    def _call_agent_impl(self, request, due_rows, fingerprints, now, all_rows):
         from app import ai_classification, connected_agent_provider, frontier_agent_provider, p2_case
 
         batch_ids = [row[0] for row in due_rows]
@@ -575,6 +583,19 @@ class AutonomousCleanupWorker:
         call_count = 0
         bundle_limit = p2_case.MAX_BYTES - 2048
         try:
+            last_gate_check = [0.0]
+            def check_budget(force=False):
+                current = time.monotonic()
+                if self._stop.is_set():
+                    raise connected_agent_provider.AgentUnavailable('AGENT_STOPPED')
+                if current - started >= frontier_agent_provider.TIMEOUT_SECONDS:
+                    raise connected_agent_provider.AgentUnavailable('AGENT_TIMEOUT')
+                if force or current - last_gate_check[0] >= .25:
+                    last_gate_check[0] = current
+                    if not self.agent_enabled():
+                        raise connected_agent_provider.AgentUnavailable('AGENT_NOT_ENABLED', BLOCKED_RETRY_SECONDS)
+                    if (self.provider is None or 'autonomous_ai_review_window' in _options(self._config_path())) and not p2_window_open(self._config_path()):
+                        raise connected_agent_provider.AgentUnavailable('AGENT_OUTSIDE_WINDOW', BLOCKED_RETRY_SECONDS)
             if self.provider is None:
                 bundle_limit = frontier_agent_provider.bundle_budget()
             if self.provider is None and repository is None:
@@ -587,6 +608,8 @@ class AutonomousCleanupWorker:
                     portal_default=ota_portal.evidence_path(self.board.path.parent))
                 repository = p2_case.Repository(self.board.conn, sources)
             if repository is not None:
+                if isinstance(repository, p2_case.Repository):
+                    repository.begin_snapshot(check_budget)
                 with self.runtime_lock, self.board._lock:
                     trips, _ = self._fresh_context()
                     while True:
@@ -608,12 +631,8 @@ class AutonomousCleanupWorker:
                             self.board.conn.commit()
             retried_format, rounds = False, 0
             while True:
-                elapsed = time.monotonic() - started
-                if elapsed >= frontier_agent_provider.TIMEOUT_SECONDS:
-                    raise connected_agent_provider.AgentUnavailable('AGENT_TIMEOUT')
                 with self.runtime_lock, self.board._lock:
-                    if self.provider is None and not p2_window_open(self._config_path()):
-                        raise connected_agent_provider.AgentUnavailable('AGENT_OUTSIDE_WINDOW', BLOCKED_RETRY_SECONDS)
+                    check_budget(force=True)
                     if reserved_calls_today(self.board.conn) >= cap:
                         raise connected_agent_provider.AgentUnavailable('AGENT_DAILY_CAP', BLOCKED_RETRY_SECONDS)
                     reservation = reserve_call(self.board.conn, [c['transaction_id'] for c in request['cases']], model)
@@ -621,6 +640,8 @@ class AutonomousCleanupWorker:
                 call_count += 1
                 call_started, outcome = time.monotonic(), 'failed'
                 try:
+                    check_budget(force=True)
+                    elapsed = time.monotonic() - started
                     response = (self.provider(request) if self.provider is not None else frontier_agent_provider.run_agent(
                         request, bundle=bundle, model=model, timeout=frontier_agent_provider.TIMEOUT_SECONDS - elapsed,
                         evidence_rounds_remaining=2-rounds))
@@ -667,7 +688,7 @@ class AutonomousCleanupWorker:
             code = failure_code(exc)
             with self.runtime_lock, self.board._lock:
                 for row in due_rows:
-                    if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW', 'AGENT_AUTH_REQUIRED'):
+                    if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW', 'AGENT_AUTH_REQUIRED', 'AGENT_NOT_ENABLED', 'AGENT_STOPPED'):
                         attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
                         save_job(self.board.conn, row[0], fingerprints[row[0]], dict(status='blocked', reason=code,
                             attempts=attempts, not_before=now + max(60, getattr(exc, 'retry_after', None) or BLOCKED_RETRY_SECONDS)))
@@ -685,6 +706,8 @@ class AutonomousCleanupWorker:
             try:
                 trips, nets = self._fresh_context()
                 if bundle is not None:
+                    if isinstance(repository, p2_case.Repository):
+                        repository.begin_snapshot(check_budget)
                     fresh_extra = []
                     for query in lookups:
                         fresh_extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
