@@ -41,7 +41,7 @@
 
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](../COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
 
-> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md) §0~§12. 지출 정리 일괄 실행 버튼의 일반 UI 제거·관리자 유지보수 분리는 §12에 따르며, 기능/서버 쓰기 변경은 아직 구현되지 않았다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
+> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md) §0~§12. 지출 정리 일괄 실행 버튼의 일반 UI 제거·관리자 유지보수 분리는 §12에 따르며, 기능/서버 쓰기 변경은 아직 구현되지 않았다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
 
 > **2026-10-25 당시의 현황 기록:** 이전 기준 `main d4c5934de07`과 열린 #105/#110은 **최신 상태 아님**. 2026-10-26에는 #111/#110/#105/#112 명세가 병합됐다. 최신 기준은 위 개발 큐 및 인계 §0.14; 해당 기능 실제 코드는 아직 미구현.
 >
@@ -60,26 +60,26 @@
 5. **도구 접근 제약:** GitHub 병합만 가능하고 **Windows 운영 호스트에 실행 접근이 없는 세션이라면 병합을 배포로 가장하지 않는다.** 배포 가능한 작업 환경에서 같은 작업 흐름을 계속 실행하도록 정확한 SHA·실행 명령·근거를 남기고 `DEPLOY_BLOCKED_NO_HOST_ACCESS`로 종료한다. 사용자가 '자동'이라고 했더라도 물리적 접근 없이 완료를 주장하지 않는다.
 6. **기존 대기 PR:** 새로운 작업 요청 때 현재 open PR의 관련성/충돌을 확인하되, 예전의 미검증 실코드 PR을 자동으로 일괄 병합하지 않는다. 안전한 개별 검증 후 필요 PR만 병합한다. 웹 UI 변경은 관련 Chromium/375px·데스크톱 확인이 가능하면 해당 경로만 검사하고, 전체 회귀를 매번 반복하지 않는다.
 
-> **최신 UI 테마 계약:** [통합 UI 명세 v1.3 §13](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)에서 우상단 해/초승달 단일 버튼으로 수동 라이트·다크 선택을 승인했다. 기존 시스템 테마만 허용하는 문구보다 최신 §13이 우선한다. `THEME-TOGGLE-01`은 구현·검증 전까지 미완료다.
+> **최신 UI 테마 계약:** [통합 UI 명세 v1.3 §13](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)에서 우상단 해/초승달 단일 버튼으로 수동 라이트·다크 선택을 승인했다. 기존 시스템 테마만 허용하는 문구보다 최신 §13이 우선한다. `THEME-TOGGLE-01`은 구현·검증 전까지 미완료다.
 
 <a id="src-agents-md--단일-v3-구현-진입점"></a>
 #### 단일 V3 구현 진입점
 
-**[COST V3 START HERE](../COST_V3_START_HERE.md)**가 활성 개발·정책 충돌·R0~R6 우선순위의 단일 목록이다. 상세 OTA는 [A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md), 여행/AI/영문명은 [V3 기능 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)만 사용한다. `docs/archive/` 구문과 이전 `ota-first-*` HOLD 규칙/과거 플레이북을 다음 작업으로 실행하지 않는다. 현재 배포 증거는 운영 기록과 별개다.
+**[COST V3 START HERE](../COST_V3_START_HERE.md)**가 활성 개발·정책 충돌·R0~R6 우선순위의 단일 목록이다. 상세 OTA는 [A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md), 여행/AI/영문명은 [V3 기능 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)만 사용한다. `docs/archive/` 구문과 이전 `ota-first-*` HOLD 규칙/과거 플레이북을 다음 작업으로 실행하지 않는다. 현재 배포 증거는 운영 기록과 별개다.
 
 <a id="src-agents-md--2026-10-23-ota-카드-대사-최종-a-정책-최신-우선-규칙"></a>
 #### 2026-10-23 OTA-카드 대사 최종 A 정책 (최신 우선 규칙)
 
 **OTA 예약 매칭 여부와 카드의 금융적 유효성을 분리한다.** 실제 카드 매입 원본이 정상이고 중복·원본 충돌·미해결 환불/취소 문제가 없으면, 정확한 OTA 예약번호를 찾지 못했거나 OTA 결제일이 없어도 **가장 개연성 있는 authoritative 여행에 우선 배정하고 내부 경비 기록 준비를 허용**한다. 낮은 추론의 예약 후보/여행은 근거와 불확실성 표시. 미확정 OTA 예약번호를 확정인 것처럼 기록하거나 Google 복사 F열에 입력하지 않는다. 기존 owner의 A→B 이동은 AI 재대사로 뒤집지 않는다. Google 직접 쓰기 금지. 카드 중복·금액·취소/환불·기존 전기·수동 links/frozen groups 보호는 그대로.
 
-**최신 구현 계약:** [OTA–카드 진단/대사 통합/A 정책/테스트 단계 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md). 옛 `ota_authority_unresolved`처럼 OTA 연결 미확정만으로 정상 카드 비용 준비를 막는 판단은 최신 A 정책에 의해 대체됐다. **R0~R6 코드·합성 검사 수행 이력은 [현재 인계](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md)를 따른다.** 새로운 에이전트가 R0부터 재구현하지 않는다. 개발과 실제 운영 인증·배포는 구별하며 실DB 변경, 직접 Google 쓰기, 무단 전체 회귀 금지.
+**최신 구현 계약:** [OTA–카드 진단/대사 통합/A 정책/테스트 단계 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md). 옛 `ota_authority_unresolved`처럼 OTA 연결 미확정만으로 정상 카드 비용 준비를 막는 판단은 최신 A 정책에 의해 대체됐다. **R0~R6 코드·합성 검사 수행 이력은 [현재 인계](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md)를 따른다.** 새로운 에이전트가 R0부터 재구현하지 않는다. 개발과 실제 운영 인증·배포는 구별하며 실DB 변경, 직접 Google 쓰기, 무단 전체 회귀 금지.
 
 <a id="src-agents-md--2026-10-23-최신-사용자-승인-추론-우선배정-및-cost-웹-내-대화학습"></a>
 #### 2026-10-23 최신 사용자 승인: 추론 우선배정 및 COST 웹 내 대화학습
 
 **여행 귀속에 관한 종전 '신뢰도가 낮으면 미배정' 정책보다 이 절이 우선한다.** 원본이 유효하고 권위 있는 여행 후보가 하나라도 있으면 낮은 추론이라도 최선 후보에 `AUTO_INFERRED`로 자동 배정하고 근거·불확실성을 함께 기록한다. 사용자는 해당 거래를 여행 A에서 B로 **즉시 이동**하며, 그 수동 귀속은 AI·배치 재분류보다 우선하여 유지한다. 이동 후 비동기 AI가 근거를 분석해 예상 답변 **1/2**, 직접 입력 **3**을 제시하고, 필요 시 추가 질문 후 미리보기 가능한 재사용 규칙을 제안한다. 사용자 승인 전 일반화 규칙은 적용하지 않는다. AI 실패는 이동을 취소하지 않는다.
 
-**회계·개인정보 보호는 완화하지 않는다.** 원본 금액·카드 ID·중복·환불·취소·실제로 확인되지 않은 참가자 신원은 추론으로 확정하지 않는다. 여행 권위나 후보가 전혀 없다면 여행을 창작하지 않는다. Google 최종 장부에는 COST가 자동 쓰기하지 않는다. 기술·API·테스트 상세: [COST V3 구현 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md). 구현·배포 완료된 상태라는 의미가 아니다.
+**회계·개인정보 보호는 완화하지 않는다.** 원본 금액·카드 ID·중복·환불·취소·실제로 확인되지 않은 참가자 신원은 추론으로 확정하지 않는다. 여행 권위나 후보가 전혀 없다면 여행을 창작하지 않는다. Google 최종 장부에는 COST가 자동 쓰기하지 않는다. 기술·API·테스트 상세: [COST V3 구현 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md). 구현·배포 완료된 상태라는 의미가 아니다.
 
 
 
@@ -114,7 +114,7 @@
 <a id="src-agents-md--후속-목표-업무-명세-아직-운영-전환-아님"></a>
 #### 후속 목표 업무 명세 (아직 운영 전환 아님)
 
-[Google 정본 기반 COST 목표 명세](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md)에 앞으로의 역할 분리와 사용자 합의사항을 기록한다. **수입·은행 이체는 사용자 Google 직접 입력 → COST 읽기**, **카드·현지 영수증은 COST 지출 검토 → 사용자 Google 붙여넣기**이며, Google 최종 장부에 COST가 자동 쓰기하지 않는다. 현재 SQLite 운영 경로·기존 사용자 확정·OTA/환불 보호는 개편 전까지 그대로 유지한다. 명세의 미확정 질문을 확인하지 않고 Render 이전이나 대규모 장부 마이그레이션을 시작하지 않는다.
+[Google 정본 기반 COST 목표 명세](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md)에 앞으로의 역할 분리와 사용자 합의사항을 기록한다. **수입·은행 이체는 사용자 Google 직접 입력 → COST 읽기**, **카드·현지 영수증은 COST 지출 검토 → 사용자 Google 붙여넣기**이며, Google 최종 장부에 COST가 자동 쓰기하지 않는다. 현재 SQLite 운영 경로·기존 사용자 확정·OTA/환불 보호는 개편 전까지 그대로 유지한다. 명세의 미확정 질문을 확인하지 않고 Render 이전이나 대규모 장부 마이그레이션을 시작하지 않는다.
 
 <a id="src-agents-md--검증-최소화재검증-금지-작업-우선-원칙"></a>
 #### 검증 최소화·재검증 금지 (작업 우선 원칙)
@@ -169,11 +169,11 @@
 | 읽는 목적 | 문서 |
 | --- | --- |
 | **첫 진입, 모든 구현 우선순위·충돌 해결** | [COST V3 START HERE](../COST_V3_START_HERE.md) |
-| OTA↔카드 미매칭 R0~R6, 금융 readiness | [OTA–카드 통합 정책 A](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) |
-| 여행 자동 귀속·A→B 이동·AI 대화·항공권 탑승자 | [V3 AI 및 참가자 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) |
-| Google B:H 출력, 업무 정본·읽기 권한 | [Google 목표](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md), [실측 열](../specs/google-ledger.md#src-docs-google-workbook-layout-md) |
-| 보존되는 회계·여행 사용자 결정 | [규칙](../specs/finance.md#src-docs-reconciliation-rules-md), [업무 보호](../specs/finance.md#src-docs-business-rules-md), [카드 입력](../specs/finance.md#src-docs-card-pipeline-md) |
-| 현재 코드 구조 / 새 세션 | [구조](../specs/platform.md#src-docs-architecture-md), [인계](../session_handoff.md), [에이전트 지침](../../AGENTS.md) |
+| OTA↔카드 미매칭 R0~R6, 금융 readiness | [OTA–카드 통합 정책 A](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) |
+| 여행 자동 귀속·A→B 이동·AI 대화·항공권 탑승자 | [V3 AI 및 참가자 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) |
+| Google B:H 출력, 업무 정본·읽기 권한 | [Google 목표](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md), [실측 열](specs-20261110/google-ledger.md#src-docs-google-workbook-layout-md) |
+| 보존되는 회계·여행 사용자 결정 | [규칙](specs-20261110/finance.md#src-docs-reconciliation-rules-md), [업무 보호](specs-20261110/finance.md#src-docs-business-rules-md), [카드 입력](specs-20261110/finance.md#src-docs-card-pipeline-md) |
+| 현재 코드 구조 / 새 세션 | [구조](specs-20261110/platform.md#src-docs-architecture-md), [인계](../session_handoff.md), [에이전트 지침](../../AGENTS.md) |
 | 과거 실행·검증 증거 | [운영 기록](../operations.md), [2026-10-08 OTA 검증](ota-legacy.md#src-docs-ota-first-verification-report-md) |
 | 은퇴시킨 구형 OTA/병렬 개발 문서 전문 | [레거시 문서 보관함](ota-legacy.md#src-docs-archive-ota-legacy-20261023-readme-md) |
 
@@ -557,12 +557,12 @@ PR #153은 `a9626059893a02931926ca009f9d04226ffd7e60`에 `main` 병합·운영 �
 <a id="src-docs-cost-ready-dev-queue-20261026-md--신규-사용자-승인-theme-toggle-01-2026-10-26"></a>
 #### 신규 사용자 승인: THEME-TOGGLE-01 (2026-10-26)
 
-**READY / SPEC_ONLY / CODE_NOT_IMPLEMENTED.** [통합 UI 명세 v1.3 §13](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)을 따라 모든 로그인 업무 화면 우상단에 **아이콘 하나**로 라이트(해) ↔ 다크(초승달)를 즉시 전환한다. 첫 방문은 시스템 테마, 사용자가 선택한 뒤엔 localStorage 한 키에 `light|dark`를 보존하고 다른 화면에서도 적용. **기존 '수동 테마 금지' 정책은 이 신규 승인으로 폐기**한다. 기본 V21 다크모드·메뉴 코드는 재구현하지 않는다. 합성 Chromium에서 dark 시스템 + light 선택, light 시스템 + dark 선택, 아이콘·접근성·선택 유지·모바일을 검증. 기존 금융/Google/DB 데이터 변경 금지. 우선순위 **P1 (새 승인 기능)**. 운영 배포·운영 브라우저 수락은 별도 게이트.
+**READY / SPEC_ONLY / CODE_NOT_IMPLEMENTED.** [통합 UI 명세 v1.3 §13](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)을 따라 모든 로그인 업무 화면 우상단에 **아이콘 하나**로 라이트(해) ↔ 다크(초승달)를 즉시 전환한다. 첫 방문은 시스템 테마, 사용자가 선택한 뒤엔 localStorage 한 키에 `light|dark`를 보존하고 다른 화면에서도 적용. **기존 '수동 테마 금지' 정책은 이 신규 승인으로 폐기**한다. 기본 V21 다크모드·메뉴 코드는 재구현하지 않는다. 합성 Chromium에서 dark 시스템 + light 선택, light 시스템 + dark 선택, 아이콘·접근성·선택 유지·모바일을 검증. 기존 금융/Google/DB 데이터 변경 금지. 우선순위 **P1 (새 승인 기능)**. 운영 배포·운영 브라우저 수락은 별도 게이트.
 
 <a id="src-docs-cost-ready-dev-queue-20261026-md--신규-승인-항공권-예약-확인-2026-10-26"></a>
 #### 신규 승인: 항공권 예약 확인 (2026-10-26)
 
-사용자가 기존 **'항공권 참가자 연결'**을 **'항공권 예약 확인'** 업무 보조 메뉴로 전환하도록 승인했다. [전용 명세](../specs/ui.md#src-docs-flight-booking-verification-spec-20261026-md)의 순서는 `FLIGHT-VERIFY-DATA-01` → `FLIGHT-VERIFY-API-01` + `FLIGHT-VERIFY-CARD-01` → `FLIGHT-VERIFY-UI-01`이다. **탑승객 이름 하나**로 검색하고 항공권 근거·검증된 카드 관계를 표시한다. 미연결 카드 후보는 검증된 예약일을 확인했을 때만 모든 당일 카드 원행을 보여준다. 예약일이 확인되지 않으면 임의 날짜 후보를 만들지 않는다. 기존 참가자 연결은 보조 기능으로 보존한다. 이름 구성요소 검색은 PR #155로 구현·운영 배포됐고, 최신 generation 370 색인에는 첨부된 항공권의 두 구간을 함께 가진 검증 예약 그룹이 없어 **DEPLOYED / TARGET_ACCEPTANCE_PARTIAL**이다. 코드 재작성은 하지 말고 원본 수집/파싱 범위가 필요한 경우에만 별도 확인한다. [운영 상태](../operations.md) 첫 절을 따른다.
+사용자가 기존 **'항공권 참가자 연결'**을 **'항공권 예약 확인'** 업무 보조 메뉴로 전환하도록 승인했다. [전용 명세](specs-20261110/ui.md#src-docs-flight-booking-verification-spec-20261026-md)의 순서는 `FLIGHT-VERIFY-DATA-01` → `FLIGHT-VERIFY-API-01` + `FLIGHT-VERIFY-CARD-01` → `FLIGHT-VERIFY-UI-01`이다. **탑승객 이름 하나**로 검색하고 항공권 근거·검증된 카드 관계를 표시한다. 미연결 카드 후보는 검증된 예약일을 확인했을 때만 모든 당일 카드 원행을 보여준다. 예약일이 확인되지 않으면 임의 날짜 후보를 만들지 않는다. 기존 참가자 연결은 보조 기능으로 보존한다. 이름 구성요소 검색은 PR #155로 구현·운영 배포됐고, 최신 generation 370 색인에는 첨부된 항공권의 두 구간을 함께 가진 검증 예약 그룹이 없어 **DEPLOYED / TARGET_ACCEPTANCE_PARTIAL**이다. 코드 재작성은 하지 말고 원본 수집/파싱 범위가 필요한 경우에만 별도 확인한다. [운영 상태](../operations.md) 첫 절을 따른다.
 
 <a id="src-docs-cost-ready-dev-queue-20261026-md--1-pr-정리기준선-중복-개발-금지"></a>
 #### 1. PR 정리·기준선 (중복 개발 금지)
@@ -571,9 +571,9 @@ PR #153은 `a9626059893a02931926ca009f9d04226ffd7e60`에 `main` 병합·운영 �
 | --- | --- | --- |
 | PR #103, #104, #109 | 병합됨. 공통 테마/카드 전체 내역/API/항공권·영수증 화면 원형이 `main`에 존재 | 기능 전체 재작성 금지; 미검증 UI·회귀만 표적 검사 |
 | PR #111 | 병합됨. 개발 현황·인계 당시 기준 문서 | 이 문서와 인계 §0.14가 더 최신인 경우 우선 |
-| PR #110 | 병합됨. [오제 수입·거래 대조 명세](../specs/google-ledger.md#src-docs-trip-income-visibility-and-ledger-match-spec-20261025-md) | **명세만 완료, 코드 미구현** |
-| PR #105 | 병합됨. [통합 UI 명세 §12](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md--12-지출-정리-화면의-전체-지출-자동-정리-버튼-개선-계약-2026-10-25-결정) | **명세만 완료, 코드 미구현** |
-| PR #112 | 병합됨. [통합 UI 명세 §4.5~4.7](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md) | **명세만 완료, 코드 미구현** |
+| PR #110 | 병합됨. [오제 수입·거래 대조 명세](specs-20261110/google-ledger.md#src-docs-trip-income-visibility-and-ledger-match-spec-20261025-md) | **명세만 완료, 코드 미구현** |
+| PR #105 | 병합됨. [통합 UI 명세 §12](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md--12-지출-정리-화면의-전체-지출-자동-정리-버튼-개선-계약-2026-10-25-결정) | **명세만 완료, 코드 미구현** |
+| PR #112 | 병합됨. [통합 UI 명세 §4.5~4.7](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md) | **명세만 완료, 코드 미구현** |
 | PR #106 / #107 | 기존 항공권·영수증 초안, ahead 0(현재 main 조상)로 **중복 초안 종료**, 브랜치 삭제하지 않음 | 추가 병합/동일 코드 재구현 금지 |
 | PR #108 | 아직 독자 커밋 존재, 최신 main과 충돌 | **HOLD**. `ledger_board.py` 및 거래 날짜 테스트 차이를 검토할 뿐, 전체 병합/복구로 최신 기능 되돌리지 않음 |
 
@@ -1237,7 +1237,7 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
 
 1. **가장 먼저:** 6Soo/cost와 6Soo/reservation의 origin/main, 작업 트리, 열린 PR, GitHub Actions, 실제 Vercel 대상 SHA를 조회한다. 원격 SHA를 고정값으로 믿지 않는다. 로컬 미커밋·미추적·stash, 사용 중인 worktree를 보존한다.
-2. **읽기 순서:** 이 문서 → [COST V3 진입점](../COST_V3_START_HERE.md) → [OTA A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) → [추론/AI/참가자/N:M 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) → 해당 기능의 실제 소스와 검증. 필요할 때만 [Google 정본 계약](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md), [정본 회계 규칙](../specs/finance.md#src-docs-reconciliation-rules-md), [운영 이력](../operations.md)을 읽는다.
+2. **읽기 순서:** 이 문서 → [COST V3 진입점](../COST_V3_START_HERE.md) → [OTA A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) → [추론/AI/참가자/N:M 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) → 해당 기능의 실제 소스와 검증. 필요할 때만 [Google 정본 계약](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md), [정본 회계 규칙](specs-20261110/finance.md#src-docs-reconciliation-rules-md), [운영 이력](../operations.md)을 읽는다.
 3. **실행 흐름:** 승인 명세 기준 갭 확인 → 안전한 코드 구현 → 직접 영향 테스트 및 종단 검사 → diff/개인정보 확인 → 허용된 Git 반영 → 다음 실행 가능 항목. 작은 단위 완료나 최종 보고가 전체 종료 조건이 아니다.
 4. **BLOCKED 판정:** 실제로 필요한 비밀정보/운영 권한만 차단한다. 그러한 권한 없이도 가능한 CI 원인 분석, 코드·계약 수정, 합성/Preview 검증, 문서 정리는 계속한다. 과금·운영 DB 변경·고객자료 전송을 자동 승인받은 것으로 간주하지 않는다.
 5. **작업 큐와 종료:** 아래 우선순위 표는 이 문서의 과거 상태 기록이다. 최신 상태와 재개 기준은 0.9절을 따른다. 로컬 작업 큐는 필수 전제조건이 아니다. 완료 항목을 다시 선택하지 않고, DEFERRED 점검을 실행 큐에 올리지 않는다. 실행 가능한 승인 작업이 없으면 COMPLETE/BLOCKED/DEFERRED 상태를 기록하고 종료한다. 후속 프롬프트는 명시적 인계나 새 사용자 요청에만 작성한다.
@@ -1322,7 +1322,7 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 **보호할 실제 사용자 수용 기준:** 유효한 카드의 OTA 날짜/매칭 미확정→존재하는 실제 여행으로 추론 귀속→COST 내부 비용 준비→Google B:H 수동 복사 F 예약번호 공란; 중복·환불·원본 충돌은 비용 생성 금지; 2:2 그룹은 개별 예약 결제 동일시 금지/2:3 보류; 수동 여행 A→B 영구 우선; 승인 없는 AI 규칙 미적용; 참가자 한/영 후보는 사용자가 확인해야만 COST 연결, 원본 갱신 stale; 운영 Google 자동 쓰기 0. 필요한 실제 운영 시연에는 계정/운영 데이터 권한과 비파괴 범위를 먼저 확인한다.
 
-**참고:** Google 정본 기반 전체 향후 제품 구상에는 별도 미확정 의사결정/선택 기능이 [목표 업무 명세](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md)에 있다. 이것을 'V3에서 이미 구현됐음'으로 표시하거나 새 승인 없이 자동 개발 큐에 넣지 않는다.
+**참고:** Google 정본 기반 전체 향후 제품 구상에는 별도 미확정 의사결정/선택 기능이 [목표 업무 명세](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md)에 있다. 이것을 'V3에서 이미 구현됐음'으로 표시하거나 새 승인 없이 자동 개발 큐에 넣지 않는다.
 
 <a id="src-docs-cost-v3-current-handoff-md--p3--일부러-유지한-r6-복구-경로-무작정-미완료-아님"></a>
 ##### P3 — 일부러 유지한 R6 복구 경로 (무작정 미완료 아님)
@@ -1426,17 +1426,17 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 > **상태:** 사용자 확정 *기능·금융 정책 계약*. COST V3 주요 경로는 Git main과 합성 검증에 반영됐으나 COST 운영 호스트/실서비스 완전 검증은 별개다. 과거 R0부터 구현하라는 지시는 새 세션의 재구현 명령이 아니다.  
 > **목적:** 이 문서만으로 작업 우선순위·현재 vs 미래·위험 경계·권위·진입 파일을 결정한다. 세부 구현은 **두 개의 부속 명세**를 참조하되 과거 문서의 목표·TODO를 구현 지시로 혼용하지 않는다.
 
-> **카드 전체 내역·전체 웹 UI 신규 개발:** [통합 UI 구현 명세 v1.3](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)를 참조한다. 시스템 테마 기본값과 우상단 단일 해/초승달 수동 전환은 §13의 최신 정책을 따른다. **'전체 지출 자동 정리' 버튼은 같은 명세 §12:** 일반 지출 정리 화면에서 노출을 제거하고, 기존 일괄 재분류·장부 기록/여행 배정 기능은 보존하되 owner 유지보수 경로의 읽기 전용 미리보기·명시 확인·쓰기 게이트·감사 기록 후에만 제공한다. 아직 구현·배포된 변경이 아니다. 이 항목은 기존 금융 정책이나 최신 운영 인계를 대체하지 않는다.
+> **카드 전체 내역·전체 웹 UI 신규 개발:** [통합 UI 구현 명세 v1.3](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)를 참조한다. 시스템 테마 기본값과 우상단 단일 해/초승달 수동 전환은 §13의 최신 정책을 따른다. **'전체 지출 자동 정리' 버튼은 같은 명세 §12:** 일반 지출 정리 화면에서 노출을 제거하고, 기존 일괄 재분류·장부 기록/여행 배정 기능은 보존하되 owner 유지보수 경로의 읽기 전용 미리보기·명시 확인·쓰기 게이트·감사 기록 후에만 제공한다. 아직 구현·배포된 변경이 아니다. 이 항목은 기존 금융 정책이나 최신 운영 인계를 대체하지 않는다.
 
 > **2026-10-25 최신 개발 기준(과거 UI '구현 전' 문구보다 우선):** `main` SHA `d4c5934de07`에 **PR #103(감사), #104(시스템 테마), #109(V21 카드 전체 내역·UI 통합)**가 병합됐다. `/cards/all`과 `/api/cards/transactions/*` 코드, 모바일 대응 CSS 후보, 항공권·영수증 변경도 `main`에 존재한다. **이는 소스 반영과 PR이 보고한 표적 테스트의 범위**이며 브라우저 최종 수락·운영 배포 완료를 뜻하지 않는다. 상태표, 남은 검증 및 중복 PR 주의는 [CURRENT HANDOFF §0.13](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md)에 기록한다. 위 2026-10-24 UI 명세의 '신규 개발/미구현' 표기는 *최초 작성 시점의 목표 설명*으로 읽고 구현 완료의 현재 판정은 §0.13을 따를 것.
 >
-> **2026-10-25 당시 미병합 명세 이력 (2026-10-26 최신화):** PR #105(지출 자동 정리)와 PR #110(오제 수입·볼드)는 **이미 병합**되었다. [통합 UI 명세 §12](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)와 [여행 수입·거래 볼드 명세](../specs/google-ledger.md#src-docs-trip-income-visibility-and-ledger-match-spec-20261025-md)는 `main` 정본이다. 기능 코드는 아직 미구현이다. **`0625_아키타`=회계 2분기 마지막, `0630_오제`=회계 3분기 첫 여행**으로 유지한다. 상태는 [CURRENT HANDOFF §0.14](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md)에서 관리한다.
+> **2026-10-25 당시 미병합 명세 이력 (2026-10-26 최신화):** PR #105(지출 자동 정리)와 PR #110(오제 수입·볼드)는 **이미 병합**되었다. [통합 UI 명세 §12](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)와 [여행 수입·거래 볼드 명세](specs-20261110/google-ledger.md#src-docs-trip-income-visibility-and-ledger-match-spec-20261025-md)는 `main` 정본이다. 기능 코드는 아직 미구현이다. **`0625_아키타`=회계 2분기 마지막, `0630_오제`=회계 3분기 첫 여행**으로 유지한다. 상태는 [CURRENT HANDOFF §0.14](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md)에서 관리한다.
 >
 > **2026-10-26 최우선 개발 진입점:** [COST READY DEV QUEUE](product-and-handoffs.md#src-docs-cost-ready-dev-queue-20261026-md) → [CURRENT HANDOFF §0.14](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md) → 아래 금융·도메인 규칙과 각 상세 명세를 참조한다. GitHub `main` 문서 병합: **PR #111(현황), #110(오제 수입·볼드), #105(전체 지출 자동 정리), #112(사이드메뉴·항공 UI)** 전부 **MERGED**. `main` 코드에서 신규 기능이 이미 구현되었다는 뜻은 아니다. 지금 시작할 P0는 `SIDEBAR-DARK-01`, `FLIGHT-SHELL-01`; 기존 V21 카드 전체 내역/항공·영수증 원형은 재구현 금지. 과거 인계 §0.13의 'PR 미병합' 문구와 아래 오래된 작성 시점 설명은 **역사 기록**으로 읽을 것.
 >
 > **2026-10-26 최신 운영 기본 승인:** 단독 개발 상황에 맞춰 **안전한 비파괴 작업은 코드 구현·표적 검사 이후 PR을 자동 병합하고 가능한 같은 작업에서 운영 배포·상태 검사까지 수행**한다. 사용자에게 매번 병합/배포 승인을 다시 묻지 않는다. [AGENTS.md의 개인 개발 자동 병합·배포 정책](../../AGENTS.md)이 과거 별도 배포 승인 문구보다 우선한다. 금융/Google/운영 원본 쓰기·마이그레이션 등 고위험 조치는 자동 승인에서 제외한다. 도구가 운영 PC에 접근하지 못하면 배포 불가를 명시하고 완료 주장 금지.
 >
-> **2026-10-26 최신 UI 테마 요구:** [통합 UI §13](../specs/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)과 개발 큐의 `THEME-TOGGLE-01`에 따라 우상단 해/초승달 버튼으로 라이트·다크 테마를 수동 전환한다. 기존 시스템 테마만 허용 문구는 대체됐다. 구현과 검증은 아직 남아 있다.
+> **2026-10-26 최신 UI 테마 요구:** [통합 UI §13](specs-20261110/ui.md#src-docs-card-all-transactions-and-ui-design-system-spec-v1-md)과 개발 큐의 `THEME-TOGGLE-01`에 따라 우상단 해/초승달 버튼으로 라이트·다크 테마를 수동 전환한다. 기존 시스템 테마만 허용 문구는 대체됐다. 구현과 검증은 아직 남아 있다.
 >
 > **2026-10-27 항공권 현재 상태:** #155 완전 이름 구성요소 검색과 #163 인증된 평탄화 메일 파싱을 운영 배포했다. 첨부 예약의 원본은 이미 보관·인증돼 있었고 기존 파서의 형식 누락을 수정했다. 실제 최신 결과·전체 미결은 [현재 미결표](product-and-handoffs.md#src-docs-cost-pending-work-and-flight-booking-date-20261027-md)와 [운영 기록](../operations.md) 첫 절을 따른다. 아래 과거 P0·미구현·OPEN 문구를 완료 작업의 재실행 지시로 사용하지 않는다.
 
@@ -1446,10 +1446,10 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 #### 1. 문서 권위와 충돌 해결
 
 **최신 목표 정책의 우선순위(위→아래):**
-1. 사용자 2026-10-23 확정 **목표** 정책: 본 문서의 `§2~§5`와 [OTA–카드 A 정책 세부 구현](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md).
-2. [COST V3 AI·참가자·여행 추론 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md). 동일한 OTA readiness 항목이 충돌하면 **1번 우선**.
-3. [Google 정본 목표 업무 계약](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md), [Google B:H 7열 구조 실측](../specs/google-ledger.md#src-docs-google-workbook-layout-md): Google 최종 정본, 수입·이체는 사용자 직접 Google 작성, 카드·영수증은 COST 작성→사용자 복사, Google 직접 쓰기 금지.
-4. [사용자 확정 여행·금융 불변조건](../specs/finance.md#src-docs-reconciliation-rules-md), [업무 규칙](../specs/finance.md#src-docs-business-rules-md), [카드 처리 기준](../specs/finance.md#src-docs-card-pipeline-md): **금액·중복·취소·환불·여행 기간·사용자 결정 보호를 계속 보존**. 단 “낮은 추론→미배정” 및 “OTA 링크 미확정→정상 카드 내부 준비 차단”은 최신 사용자 정책으로 **대체**.
+1. 사용자 2026-10-23 확정 **목표** 정책: 본 문서의 `§2~§5`와 [OTA–카드 A 정책 세부 구현](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md).
+2. [COST V3 AI·참가자·여행 추론 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md). 동일한 OTA readiness 항목이 충돌하면 **1번 우선**.
+3. [Google 정본 목표 업무 계약](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md), [Google B:H 7열 구조 실측](specs-20261110/google-ledger.md#src-docs-google-workbook-layout-md): Google 최종 정본, 수입·이체는 사용자 직접 Google 작성, 카드·영수증은 COST 작성→사용자 복사, Google 직접 쓰기 금지.
+4. [사용자 확정 여행·금융 불변조건](specs-20261110/finance.md#src-docs-reconciliation-rules-md), [업무 규칙](specs-20261110/finance.md#src-docs-business-rules-md), [카드 처리 기준](specs-20261110/finance.md#src-docs-card-pipeline-md): **금액·중복·취소·환불·여행 기간·사용자 결정 보호를 계속 보존**. 단 “낮은 추론→미배정” 및 “OTA 링크 미확정→정상 카드 내부 준비 차단”은 최신 사용자 정책으로 **대체**.
 5. [AGENTS.md](../../AGENTS.md): 실행 방식/권한/테스트/배포 제한 요약. AGENTS의 구형 예시나 기록보다 이 문서의 최신 목표 정책이 우선.
 6. [README](../../README.md), [기존 운영 코드·로그](../operations.md): **현재 실제로 배포된 동작·검증 기록의 사실적 근거**. 목표 명세만으로 배포 완료를 주장하지 않는다.
 
@@ -1533,13 +1533,13 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 | 작업 | **읽을 유일한 세부 명세** | 보조 권위 |
 | --- | --- | --- |
-| R0~R4: OTA↔카드 미매칭, 소스 충돌, N:M, 비용 준비 | [OTA–카드 통합 A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) | 실제 `app/ota_payments.py` 등 현재 코드 |
-| **OTA·카드 리팩터링(L0→L3, 사용자 승인 2026-10-24)** | **[A 정책 §16 — 중급 모델 실행 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md--16-2026-10-24-카드ota-대사-구조-경량화-실행-명세-중급-모델용)** | 행동 불변·작은 PR·L0 감사 후 L1 projection부터. 별도 승인 없이 solver/legacy fallback/운영 DB 변경 금지 |
-| R5: 여행 자동 배정, 사용자 A→B, AI 1/2/3 대화 규칙 | [COST V3 구현](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) | `webapp/ledger_store.py` 사용자 override |
-| 항공권 영어 이름/여행 참가자 | [COST V3 구현 §4](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) | `6Soo/reservation` 실제 schema/API |
-| Google 수입/지출/B:H/권한 | [Google 정본 목표](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md) | [실측 B:H 열](../specs/google-ledger.md#src-docs-google-workbook-layout-md) |
-| 카드 원본/취소/환불 안전 | [확정 업무 규칙](../specs/finance.md#src-docs-business-rules-md), [원행 처리](../specs/finance.md#src-docs-card-pipeline-md) | 기존 보호 테스트·운영 코드 |
-| 정확한 사용자 확정 예외/여행 종료일 | [사용자 확정 규칙](../specs/finance.md#src-docs-reconciliation-rules-md) | `tests/test_owner_rules.py` |
+| R0~R4: OTA↔카드 미매칭, 소스 충돌, N:M, 비용 준비 | [OTA–카드 통합 A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) | 실제 `app/ota_payments.py` 등 현재 코드 |
+| **OTA·카드 리팩터링(L0→L3, 사용자 승인 2026-10-24)** | **[A 정책 §16 — 중급 모델 실행 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md--16-2026-10-24-카드ota-대사-구조-경량화-실행-명세-중급-모델용)** | 행동 불변·작은 PR·L0 감사 후 L1 projection부터. 별도 승인 없이 solver/legacy fallback/운영 DB 변경 금지 |
+| R5: 여행 자동 배정, 사용자 A→B, AI 1/2/3 대화 규칙 | [COST V3 구현](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) | `webapp/ledger_store.py` 사용자 override |
+| 항공권 영어 이름/여행 참가자 | [COST V3 구현 §4](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) | `6Soo/reservation` 실제 schema/API |
+| Google 수입/지출/B:H/권한 | [Google 정본 목표](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md) | [실측 B:H 열](specs-20261110/google-ledger.md#src-docs-google-workbook-layout-md) |
+| 카드 원본/취소/환불 안전 | [확정 업무 규칙](specs-20261110/finance.md#src-docs-business-rules-md), [원행 처리](specs-20261110/finance.md#src-docs-card-pipeline-md) | 기존 보호 테스트·운영 코드 |
+| 정확한 사용자 확정 예외/여행 종료일 | [사용자 확정 규칙](specs-20261110/finance.md#src-docs-reconciliation-rules-md) | `tests/test_owner_rules.py` |
 | 어떤 것이 실제 배포됐나 | [운영 이력](../operations.md) | 검증 가능한 live 상태·git SHA |
 
 <a id="src-docs-cost-v3-start-here-md--6-레거시-문서-처리-원칙"></a>
@@ -1557,11 +1557,11 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 | 분류 | 문서 | 취급 |
 | --- | --- | --- |
-| **활성 최상위** | [README](../../README.md), [AGENTS](../../AGENTS.md), 이 문서, [인계](../session_handoff.md), [구조](../specs/platform.md#src-docs-architecture-md) | 개발 착수/권위 판단용 |
-| **활성 기능 계약** | [OTA 대사 A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md), [여행·AI·참가자](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md), [Google 정본 목표](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md) | 목표와 보호 계약이다. 구현 여부와 운영 상태는 위 코드 상태 및 실제 배포 증거로 구분한다. |
-| **활성 금융·도메인 불변조건** | [여행·대사](../specs/finance.md#src-docs-reconciliation-rules-md), [비용 규칙](../specs/finance.md#src-docs-business-rules-md), [카드 파이프라인](../specs/finance.md#src-docs-card-pipeline-md), [회사 비용 제외](../specs/finance.md#src-docs-company-expense-exclusion-md), [카드 다운로드](../specs/finance.md#src-docs-card-downloads-md), [Google 양식 실측](../specs/google-ledger.md#src-docs-google-workbook-layout-md), [열람 권한/데모](../specs/google-ledger.md#src-docs-access-and-top3-demo-md) | 보호 규칙/확정 요구는 유지하되 본 문서의 최신 A 정책 충돌만 대체 |
-| **실행/통합 점검 자료** | [SQLite 리허설](../specs/platform.md#src-docs-schema-rehearsal-md), [Google 동기화 사전 점검](../specs/google-ledger.md#src-docs-google-authority-sync-readiness-md) | 환경/권한별 사전 검토; 읽기만 해도 작업을 자동 시작하면 안 됨 |
-| **별도 기능 제안/제한적 이력** | [영수증 Muse/OpenCode](../specs/receipts.md#src-docs-receipt-muse-opencode-md), [UI 디자인](../specs/ui.md#src-docs-design-cost-saas-ui-refresh-md), [아이콘 라이선스](../specs/ui.md#src-docs-design-icon-license-md), [OTA 아이콘](../specs/ui.md#src-docs-design-ota-icons-md) | 별도 기능 요청 시 참고; 과거 모델 ID·브랜치·가격을 현재 사실로 단정 금지 |
+| **활성 최상위** | [README](../../README.md), [AGENTS](../../AGENTS.md), 이 문서, [인계](../session_handoff.md), [구조](specs-20261110/platform.md#src-docs-architecture-md) | 개발 착수/권위 판단용 |
+| **활성 기능 계약** | [OTA 대사 A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md), [여행·AI·참가자](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md), [Google 정본 목표](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md) | 목표와 보호 계약이다. 구현 여부와 운영 상태는 위 코드 상태 및 실제 배포 증거로 구분한다. |
+| **활성 금융·도메인 불변조건** | [여행·대사](specs-20261110/finance.md#src-docs-reconciliation-rules-md), [비용 규칙](specs-20261110/finance.md#src-docs-business-rules-md), [카드 파이프라인](specs-20261110/finance.md#src-docs-card-pipeline-md), [회사 비용 제외](specs-20261110/finance.md#src-docs-company-expense-exclusion-md), [카드 다운로드](specs-20261110/finance.md#src-docs-card-downloads-md), [Google 양식 실측](specs-20261110/google-ledger.md#src-docs-google-workbook-layout-md), [열람 권한/데모](specs-20261110/google-ledger.md#src-docs-access-and-top3-demo-md) | 보호 규칙/확정 요구는 유지하되 본 문서의 최신 A 정책 충돌만 대체 |
+| **실행/통합 점검 자료** | [SQLite 리허설](specs-20261110/platform.md#src-docs-schema-rehearsal-md), [Google 동기화 사전 점검](specs-20261110/google-ledger.md#src-docs-google-authority-sync-readiness-md) | 환경/권한별 사전 검토; 읽기만 해도 작업을 자동 시작하면 안 됨 |
+| **별도 기능 제안/제한적 이력** | [영수증 Muse/OpenCode](specs-20261110/receipts.md#src-docs-receipt-muse-opencode-md), [UI 디자인](specs-20261110/ui.md#src-docs-design-cost-saas-ui-refresh-md), [아이콘 라이선스](specs-20261110/ui.md#src-docs-design-icon-license-md), [OTA 아이콘](specs-20261110/ui.md#src-docs-design-ota-icons-md) | 별도 기능 요청 시 참고; 과거 모델 ID·브랜치·가격을 현재 사실로 단정 금지 |
 | **날짜별 실측/운영 기록** | [운영 보고](../operations.md), [OTA-first 10/08 검증](ota-legacy.md#src-docs-ota-first-verification-report-md), [10/12 세션](implementation-and-audits.md#src-docs-session-takeover-20261012-md), [10/20 인계](implementation-and-audits.md#src-docs-handoff-session-20261020-booking-evidence-md), [웹 디자인 검증](implementation-and-audits.md#src-webapp-design-review-md) | 과거 SHA·숫자/판정·완료 보고는 그 당시만 유효 |
 | **서브모듈 설명** | [웹](../../webapp/README.md), [과거 원장 도구](../../ledger/README.md) | 소스 경로 및 사용법; 오래된 기능 지원 설명은 실제 코드로 확인 |
 | **역사 보관** | [11개 원문 보관함](ota-legacy.md#src-docs-archive-ota-legacy-20261023-readme-md), [10/07 이전 운영](operations-through-20261027.md#src-docs-history-operations-through-20261007-md), [10/07 이전 인계](operations-through-20261027.md#src-docs-history-handoff-through-20261007-md), [08/29 대사](../../outputs/final_reconciliation_report_20260829.md), [48개 여행](../../outputs/trip_tabs_48.md) | 이력/원문만; 현재 TODO 또는 현재 운영 지표 아님 |
@@ -1626,10 +1626,10 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 1. [**COST V3 최신 단일 재개 문서**](product-and-handoffs.md#src-docs-cost-v3-current-handoff-md) — 0.11절의 미결 처리 상태와 실제 운영 SHA·복구·검사 근거를 따른다. 0.10절 이전은 이전 단계 기록이다.
 2. [COST V3 단일 구현 진입점](../COST_V3_START_HERE.md) — 가장 높은 목표 정책 권위, 단계별 작업 범위, 현재 코드와 운영 상태 구분.
-3. [OTA–카드 정책 A 통합 구현](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) — R0 진단부터 R6 전환까지.
-4. [V3 사용자 수정·AI 대화·탑승자 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) — OTA 링크와 여행 A→B·학습은 독립.
+3. [OTA–카드 정책 A 통합 구현](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) — R0 진단부터 R6 전환까지.
+4. [V3 사용자 수정·AI 대화·탑승자 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md) — OTA 링크와 여행 A→B·학습은 독립.
 5. [운영 상태 증거](../operations.md) — 당시 실제 릴리스·검증, 최신 라이브 상태는 다시 확인.
-6. [사용자 확정 회계 규칙](../specs/finance.md#src-docs-reconciliation-rules-md) 및 [Google 최종 정본 계약](../specs/google-ledger.md#src-docs-target-workflow-google-authority-md).
+6. [사용자 확정 회계 규칙](specs-20261110/finance.md#src-docs-reconciliation-rules-md) 및 [Google 최종 정본 계약](specs-20261110/google-ledger.md#src-docs-target-workflow-google-authority-md).
 
 <a id="src-docs-session-handoff-md--현재-병합운영-상태-2026-10-24"></a>
 #### 현재 병합·운영 상태 (2026-10-24)
@@ -1676,16 +1676,16 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 ## 2026-10-28 제품 오너 추가 결정: 수입-보험 통합·우선 잠정 배정 (SPEC_ONLY)
 
-[오너 결정 5개](../specs/owner-product-decisions-20261028.md)를 확정했다. [보험 확정 참가자 중심의 수입 표 드래그 연결 상세](../specs/participant-income-authority-and-drag-link-20261028.md)의 **PIR-01~06**, [소수 근거 여행 우선 잠정 귀속·검토/교정](../specs/provisional-assignment-review-first-20261028.md)의 **PA-01~06**을 신규 개발 큐에 추가한다. 여행 탭 순서는 **수입 → 보험가입내역 → 지출**(항공권 보조 영역), 수입의 `보험 등록` 체크는 검증 참가자와 연결된 경우에만, 실명 보험 명단과 닉네임 선입금은 드래그/키보드로 owner가 연결한다. 오래된 OTA 미해결을 90일 등 연령 기준으로 자동 숨기거나 완료 처리하지 않는다. **Trip.com부터 항공권 조회 확대·owner-only 보험 열람·기존 Travel INS 로컬 전송 유지**가 승인된 기본안이다. 기존 RF-101/102/103/201/202 병렬 개발 파일 소유권을 확인하고 충돌 없이 이어 구현해야 한다. 이번 PR은 **명세만 변경**, 데이터/앱/테스트/운영 배포·실자료 수락은 미실행이다.
+[오너 결정 5개](specs-20261110/owner-product-decisions-20261028.md)를 확정했다. [보험 확정 참가자 중심의 수입 표 드래그 연결 상세](specs-20261110/participant-income-authority-and-drag-link-20261028.md)의 **PIR-01~06**, [소수 근거 여행 우선 잠정 귀속·검토/교정](specs-20261110/provisional-assignment-review-first-20261028.md)의 **PA-01~06**을 신규 개발 큐에 추가한다. 여행 탭 순서는 **수입 → 보험가입내역 → 지출**(항공권 보조 영역), 수입의 `보험 등록` 체크는 검증 참가자와 연결된 경우에만, 실명 보험 명단과 닉네임 선입금은 드래그/키보드로 owner가 연결한다. 오래된 OTA 미해결을 90일 등 연령 기준으로 자동 숨기거나 완료 처리하지 않는다. **Trip.com부터 항공권 조회 확대·owner-only 보험 열람·기존 Travel INS 로컬 전송 유지**가 승인된 기본안이다. 기존 RF-101/102/103/201/202 병렬 개발 파일 소유권을 확인하고 충돌 없이 이어 구현해야 한다. 이번 PR은 **명세만 변경**, 데이터/앱/테스트/운영 배포·실자료 수락은 미실행이다.
 
 
 ## 2026-10-28 신규 지출 정리 상태 필터 (SPEC_ONLY)
 
-현재 `/import` 상단 `항목 미분류`, `여행 미배정`, `보류·오류`는 `webapp/card_flow.py::render_expense_cleanup`에서 `<span>`으로 출력되는 비동작 표시다. 사용자 요청에 따라 [지출 정리 상태 칩 클릭 필터 상세 명세](../specs/expense-cleanup-status-filter-actions-20261028.md)를 작성했다. **ECF-01~04 미구현**: 전체/카테고리 서버 쿼리, 20건 필터별 페이지, 선택·건수/이동·저장 뒤 갱신, 보호/기타 검토 정확성, 브라우저/회계 안전 수락. RF-103 `card_flow.py` 작업자 소유권과 충돌하므로 현 PR/작업자 진행을 먼저 확인해 단일 작성자로 구현한다. **이번 PR은 문서만 수정**했고 실제 버튼 기능·테스트·운영 배포 완료는 아니다.
+현재 `/import` 상단 `항목 미분류`, `여행 미배정`, `보류·오류`는 `webapp/card_flow.py::render_expense_cleanup`에서 `<span>`으로 출력되는 비동작 표시다. 사용자 요청에 따라 [지출 정리 상태 칩 클릭 필터 상세 명세](specs-20261110/expense-cleanup-status-filter-actions-20261028.md)를 작성했다. **ECF-01~04 미구현**: 전체/카테고리 서버 쿼리, 20건 필터별 페이지, 선택·건수/이동·저장 뒤 갱신, 보호/기타 검토 정확성, 브라우저/회계 안전 수락. RF-103 `card_flow.py` 작업자 소유권과 충돌하므로 현 PR/작업자 진행을 먼저 확인해 단일 작성자로 구현한다. **이번 PR은 문서만 수정**했고 실제 버튼 기능·테스트·운영 배포 완료는 아니다.
 
 ## 2026-10-28 사용자 재지시 — 전면 리팩토링 병렬 실구현
 
-최신 지시: Supervisor는 단일 백필 대기에 매달리지 않고 **AGY Gemini 3.8 Flash Medium** 작업자에게 대량 구현을 병렬 위임한다. 실행 정본은 [리팩토링 마스터](../specs/refactor-master-20261027.md)이며 아래 기존 완료 구현은 재사용한다. 별도 SPEC_ONLY 항공권/보험 명세를 이번 지시만으로 새 기능 구현에 포함하지 않는다. 기존 PEND-04 클라우드 전환도 승인 범위 안에서 계속 수행한다.
+최신 지시: Supervisor는 단일 백필 대기에 매달리지 않고 **AGY Gemini 3.8 Flash Medium** 작업자에게 대량 구현을 병렬 위임한다. 실행 정본은 [리팩토링 마스터](specs-20261110/refactor-master-20261027.md)이며 아래 기존 완료 구현은 재사용한다. 별도 SPEC_ONLY 항공권/보험 명세를 이번 지시만으로 새 기능 구현에 포함하지 않는다. 기존 PEND-04 클라우드 전환도 승인 범위 안에서 계속 수행한다.
 
 - 시작 SHA `2384cfd`, 열린 PR 없음, 사용자 미추적 5경로 보존. 지정 모델의 실제 ID `antigravity/gemini-3.8-flash-medium`과 full-access 실행 가능을 확인했다. 기존 무료 우선순서보다 최신 사용자 지정이 우선한다.
 - 각 작업자는 별도 Paseo worktree의 단독 작성자이며 운영 데이터/인증/고객 원문을 읽거나 수정하지 않는다. Supervisor만 통합·공통 기록·PR·배포·운영 검증을 수행한다. 작업자 재위임·push·PR·배포는 하지 않는다.
@@ -1710,12 +1710,12 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 ## 2026-10-28 Travel INS → COST 보험가입 명단 연동 감사 (SPEC_ONLY)
 
-양쪽 실제 코드 분석 내용을 [보험 명단 수신·운영 DB·여행별 참가자 조회 구현 명세](../specs/insurance-participant-integration-20261028.md)에 추가했다. 기존 COST 수신기/참가자 전용 SQLite/owner 전용 `/participants`/Google 수입 대조는 구현됨. Travel INS `tools/payment_pause.py`에서 필수 `confirmation_reference` 누락과 미지원 `owner_attested` 전달로 실제 `finish_registration` 호출이 실패할 수 있는 **미수정 P0 결함**, 웹 `WEBLEDGER_PARTICIPANT_DB`와 로컬 전달기의 파일 동일성 **운영 미확인 P0**, 보험사 확인 후 공통 전달 흐름과 여행별 보험 참가자 표시 **부분 구현/미구현**을 각각 기록했다. 이번 커밋은 문서만 수정한다. 운영 참가자 DB·보험/금융 원본·기존 완료 작업은 변경하지 않고, 테스트·배포·실자료 수락은 수행하지 않았다.
+양쪽 실제 코드 분석 내용을 [보험 명단 수신·운영 DB·여행별 참가자 조회 구현 명세](specs-20261110/insurance-participant-integration-20261028.md)에 추가했다. 기존 COST 수신기/참가자 전용 SQLite/owner 전용 `/participants`/Google 수입 대조는 구현됨. Travel INS `tools/payment_pause.py`에서 필수 `confirmation_reference` 누락과 미지원 `owner_attested` 전달로 실제 `finish_registration` 호출이 실패할 수 있는 **미수정 P0 결함**, 웹 `WEBLEDGER_PARTICIPANT_DB`와 로컬 전달기의 파일 동일성 **운영 미확인 P0**, 보험사 확인 후 공통 전달 흐름과 여행별 보험 참가자 표시 **부분 구현/미구현**을 각각 기록했다. 이번 커밋은 문서만 수정한다. 운영 참가자 DB·보험/금융 원본·기존 완료 작업은 변경하지 않고, 테스트·배포·실자료 수락은 수행하지 않았다.
 
 
 ## 2026-10-28 “미결작업 모두 진행” 후속 실행
 
-현재 지시는 미결 항목 전부 진행이다. 이미 끝난 대사 코드를 재실행하지 않고 미연결의 추가 원본 탐색, 미수락 UI 경계, 실제 클라우드 수집 전환 공백을 처리했다. 현재 추가 실행 계약은 [클라우드 전환 절차](../specs/cloud-mail-cutover.md)이며 금융/OTA의 기존 보호 계약을 유지한다.
+현재 지시는 미결 항목 전부 진행이다. 이미 끝난 대사 코드를 재실행하지 않고 미연결의 추가 원본 탐색, 미수락 UI 경계, 실제 클라우드 수집 전환 공백을 처리했다. 현재 추가 실행 계약은 [클라우드 전환 절차](specs-20261110/cloud-mail-cutover.md)이며 금융/OTA의 기존 보호 계약을 유지한다.
 
 | ID | 상태 | 실제 결과 / 남은 게이트 |
 | --- | --- | --- |
@@ -1748,7 +1748,7 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 ## 2026-10-28 신규 여행별 항공권 예약 조회 (SPEC_ONLY)
 
-[출발 여행 귀속·여행 탭 항공권 조회 명세](../specs/trip-flight-booking-overview-20261028.md)를 작성했다. 연속 여행 시 귀국일이 첫 여행을 초과해도 **최초 출발 여행에 예약 전체를 귀속**, 기존 확정 회계 관계/사용자 결정을 우선 재사용하고 수입·지출과 독립된 항공권 목록을 같은 여행에서 확인한다. **명세 작성만 완료:** 코드/테스트/운영 배포·실자료 수락은 미실행이다. 기존 ALL 작업의 완료 상태를 변경하지 않는다.
+[출발 여행 귀속·여행 탭 항공권 조회 명세](specs-20261110/trip-flight-booking-overview-20261028.md)를 작성했다. 연속 여행 시 귀국일이 첫 여행을 초과해도 **최초 출발 여행에 예약 전체를 귀속**, 기존 확정 회계 관계/사용자 결정을 우선 재사용하고 수입·지출과 독립된 항공권 목록을 같은 여행에서 확인한다. **명세 작성만 완료:** 코드/테스트/운영 배포·실자료 수락은 미실행이다. 기존 ALL 작업의 완료 상태를 변경하지 않는다.
 
 ## 2026-10-28 전체 진행 재지시 — 현재 실행 큐
 
@@ -1969,7 +1969,7 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
-사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](../specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](../specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](../specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
+사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs-20261110/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs-20261110/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs-20261110/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
 
 ## 마지막 확인된 릴리스
 
@@ -1993,7 +1993,7 @@ PR #117(스크롤), #119(항공권 예약 확인), #126(수동 테마)이 정상
 | 항공권 이름 검색 | 완전 이름 구성요소 검색, 인증된 평탄화 메일 파싱, 메일 전용 색인, 최초 수신일 기준. 실제 대상 예약1건·여정2편 표시 수락. 당일 카드0건은 미결제나 결제 연결 확정이 아니다. |
 | 원승인번호 복수 환불 | 1:N 링크·합계·순액 표시, 공백 정규화와 원결제 중복 보호. 실제 확정2건 패널 수락 근거가 있다. 실제 기장/환급 완료와 구분한다. |
 | 일반 UI | 사이드바·스크롤·아이콘 수동 테마·항공권 화면·수입 표시의 코드/표적 검증 및 배포 이력이 있다. 실기기·모든 오류 상태의 포괄 수락을 뜻하지 않는다. |
-| 문서 정리 | 시작/상태/운영의 역할을 분리하고 상세 명세는 주제별로 통합했다. 과거 결정·테스트·배포 기록은 [보관함](../history/README.md)에 보존했다. |
+| 문서 정리 | 시작/상태/운영의 역할을 분리하고 상세 명세는 주제별로 통합했다. 과거 결정·테스트·배포 기록은 [보관함](README.md)에 보존했다. |
 
 ## 남은 확인과 차단
 

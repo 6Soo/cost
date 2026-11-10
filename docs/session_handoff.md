@@ -2,7 +2,7 @@
 
 ## 2026-11-11 통합 명세·판정 규칙집 확정, 증상별 패치 동결 — 현재 정본(작업 방향)
 
-- **정본 교체:** 실행 정본은 [통합 명세](SPEC.md)와 [판정 규칙집](DECISION_POLICY.md)(+`docs/policy/`)이다. `docs/specs/`와 `docs/history/`는 근거 기록이다. [작업 지침](../AGENTS.md)은 한 쪽으로 줄였다.
+- **정본 교체:** 실행 정본은 [통합 명세](SPEC.md)와 [판정 규칙집](DECISION_POLICY.md)(+`docs/policy/`)이다. `docs/history/`(과거 명세는 `docs/history/specs-20261110/`)는 근거 기록이다. [작업 지침](../AGENTS.md)은 한 쪽으로 줄였다.
 - **현재 단계: M0(문서).** 이 절을 담은 문서 PR이 병합되면 M0의 문서 부분이 끝난다. 코드·운영은 바뀌지 않았다. 아래 절들의 운영 SHA와 배포 기록은 그대로 유효하다.
 - **증상별 패치 동결(통합 명세 §12.1):** 공급자별 파서 수정, 이용일 경고 수치를 쫓는 수정, 기록만을 위한 문서 PR을 하지 않는다. 예외는 운영 장애와 로드맵 작업이다. 아래 절의 "남은 반복 원인(다음 작업)" 목록(이스타·ANA·Volotea 파서 등)은 **파서 패치로 하지 않고** M2에서 P2가 원문을 읽어 판정한다.
 - **사용자 결정 요지(2026-11-10~11):**
@@ -12,7 +12,7 @@
   - 필요한 산출물은 여행별 손익, 세무·증빙 자료, 직원·가이드 지출 정산이다.
   - 전체 결정은 통합 명세 부록 A에 있다.
 - **다음 작업:**
-  1. 과거 명세 112개와 `docs/luna-*-handoff.md`를 `docs/history/`로 내리는 문서 PR(링크 갱신 포함).
+  1. (완료) 과거 명세 112개와 인계 문서를 `docs/history/specs-20261110/`로 내렸다. 절차서 두 개는 `docs/playbooks/`로 옮겼다.
   2. M1 기준선: 판정 상태·주체별 건수 등을 [운영 기록](operations.md)에 남긴다(운영 DB는 읽기 전용).
   3. M2 작업을 [작업판](agents/BOARD.md)에 올린다. 첫 작업은 Windows에서 에이전트 CLI의 사건 폴더 격리 확인이다(통합 명세 §6.6).
 - **사용자 확인 대기:**
@@ -55,7 +55,7 @@
 ## 2026-11-10 저녁 브랜치·작업공간 통합 정리 + UI/UX 재설계 진행 현황 — 현재 정본
 
 - **운영:** `965bca058a74a54bf69bc4d70a0d05f8997786c3`(맨 위 절, 2026-11-10T11:07Z, 이전 `374462fe`). 다음 코드 배포는 `-PreviousSha 965bca05…`로 하고, 배포 전후로 같은 날 배포한 다른 cost 세션들(cost-48·cost-82·cost-a2)에 알린다. 운영 포트 8790/8751/8752는 미리보기에 쓰지 않는다(`tools/run_synthetic_preview.py`가 거부한다).
-- **UI/UX 재설계([명세](specs/uiux-full-audit-redesign-20261110.md)) 진행 상태:**
+- **UI/UX 재설계([명세](history/specs-20261110/uiux-full-audit-redesign-20261110.md)) 진행 상태:**
   - **운영 반영:** PR-1(HIGH 즉시 수정)과 PR-2 기반(토큰·컴포넌트·오류 화면)은 [#779](https://github.com/6Soo/cost/pull/779)로 병합, `9ad0a454`부터 운영에 있다(UXA-01~08·10).
   - **미병합·미검증(원격 `ui/wave3-20261110`, `68ab82ba`, main 대비 58커밋):** PR-2 전수 토큰 치환, PR-3 앱 셸·내비(사이드바 진행 중 여행·하단 탭·더보기 시트·브레드크럼), PR-4 여행 장부(정산 단계·탭·서랍), PR-5 거래 허브, PR-6 홈·여행 목록·영수증·관리, PR-7 문구·셸 다듬기, 장부 'Google 장부용 복사' 영역 재설계(사실 목록·제외 거래별 사유·같은 페이지 상세 펼침), 기존 테스트 정렬. 이 브랜치의 마지막 전체 QA(`bcc88cce`, main `f786ffcf` 기준)는 1881 passed/128 failed였고 그중 **main에서는 통과하는 새 실패 69건**이 있었다. 이후 기능 회귀 5건(예시 자료 표시·`/rules` 404·업로드 복구 문구 등)을 고치고 나머지 61건 정리(테스트 정렬·셸 정리)를 병합했으나 **병합 후 재검증은 끝내지 못했다.**
   - **다음 실행(이 순서):** ① `git switch ui/wave3-20261110 && git merge origin/main` ② `python tools/run_quality_checks.py --base origin/main --run` ③ 실패 ID를 같은 main SHA 기준 worktree에서 재실행해 '새 실패 0' 확인(기준 main에도 있는 실패는 기존 실패로 분리) ④ PR 생성 → `codex gpt-6.1-sol medium` 최종 SHA 검수(CI 결제 한도 예외) → 병합 → 공식 `deploy_verified_release.ps1` 배포.
@@ -73,7 +73,7 @@
 ## 2026-11-10 OTA 포털 직접 조사·자동 보강 — 당시 정본(최신은 위 절)
 
 - **운영:** `998dd46100a8bd11304532f741e15f162fd9c3c6`([#784](https://github.com/6Soo/cost/pull/784)), 이전 `895a412e`([#783](https://github.com/6Soo/cost/pull/783)+[#781](https://github.com/6Soo/cost/pull/781)) ← `9ad0a454`. 두 배포 모두 blob 불일치0·보호13표 불변·worker_switched=true·Gateway 유지. 다른 세션(UI/UX)과 배포 순서를 메시지로 조율했다.
-- **사용자 지시:** Agoda·Trip.com·Booking.com을 ego lite로 직접 조사하고 자동 보강 방법과 이후 수집 절차를 문서화. 절차·결과 정본: [OTA 포털 직접 수집 절차](specs/ota-portal-browser-collection-20261110.md). AGENTS.md의 Agoda 수집 규칙을 이 결정으로 갱신했다.
+- **사용자 지시:** Agoda·Trip.com·Booking.com을 ego lite로 직접 조사하고 자동 보강 방법과 이후 수집 절차를 문서화. 절차·결과 정본: [OTA 포털 직접 수집 절차](playbooks/ota-portal-collection.md). AGENTS.md의 Agoda 수집 규칙을 이 결정으로 갱신했다.
 - **자동 보강:** Agoda 예약 상세 API 응답을 `agoda-api-v1` 포털 근거로 읽는 파서·수입 도구(#783)와 동일 객실 묶음 표시 규칙(#784). 운영 저장소에 1,418건 수입(백업 `D:/WebLedgerHost/data/backups/ota-evidence-before-agoda-api-20261110.sqlite`). 장부 경고 182 → **175**(Agoda 35→28).
 - **장부 교정:** Booking.com에서 산 항공권 2건(카드 가맹점 `Booking.com`+숫자)이 국내여행 숙박비로 들어가 있어 항목 `항공료`·해당 해외여행으로 이동(근거: Booking 여행 페이지). 카드 행 이용일은 화면에서 직접 고칠 수 없어 날짜는 미표시로 남는다.
 - **Trip.com(사용자가 알려 준 이메일 인증번호로 예약 계정 로그인 후 조사):** 주문 1,002건·호텔 상세 502건. Trip "숙박비" 경고 38행 중 23행은 현장결제 호텔의 **카드 사전승인**(대부분 체크아웃 후 환불 완료)으로 실제 숙박비가 아니다. 자동 반영(사전승인 표시·환불 짝)은 후속 구현.
@@ -121,7 +121,7 @@
 
 ## 2026-11-09 여행 장부 이용일 경고 — 초기 조사·Draft 당시 기록
 
-- 최신 요청 `이용일 확인필요라고 떠있는건들 조사`의 대상은 카드 목록 날짜 경고가 아닌 여행 장부다. 인증 ego-browser GET으로 여행68개·지출2860행을 전수 확인해 숙박비353행/항공료49행 경고를 조사했다. [원인별 집계·수정·검증 한계](specs/ledger-service-date-investigation-20261109.md).
+- 최신 요청 `이용일 확인필요라고 떠있는건들 조사`의 대상은 카드 목록 날짜 경고가 아닌 여행 장부다. 인증 ego-browser GET으로 여행68개·지출2860행을 전수 확인해 숙박비353행/항공료49행 경고를 조사했다. [원인별 집계·수정·검증 한계](history/specs-20261110/ledger-service-date-investigation-20261109.md).
 - [Draft PR #759](https://github.com/6Soo/cost/pull/759), 코드 SHA `221849f10f80b24e482a58cf2cfa8902ad56c2c2`: M:N 동일 이용기간과 항목 메타데이터 누락의 표시 보완. 표적71pass·독립64pass/정확SHA 코드APPROVE·합성1440/390/320 전후 넘침0. 금융·원본·예약 연결·여행 배정·Google 쓰기 없음.
 - **필수 영향 QA245pass/1fail·skip0·compilePASS**. 기존 `test_toyoko_reconciliation.py`85행이 호환 링크 화면에 예약번호를 기대하며 기준 모듈에서도 실패한다. 테스트 제외나 범위 밖 수정 없음. 실제 실패에 CI 인프라 예외를 적용하지 않았으며 병합·배포·재시작 미실행이다.
 - 보관 worker 입력 기준73행은 표시 보완 후보(새 경로71행 추가)지만 운영 snapshot과 세대가 달라 운영 해결 건수로 주장하지 않는다. 나머지 원인과 항공료49행도 개별 조사 기록에 보존했다. 운영은 조사 당시 `d96f08809b8201238e8399d053140ab20e3a91fc`이며 이전 카드 날짜0건 보고는 이 요구의 완료 근거가 아니다.
@@ -145,7 +145,7 @@
 - **인증 운영 native 수락 PASS:** ego-browser의 실제 1440px·390px에서 각각 **17행·7열** 준비 값과 OS Ctrl+V 결과가 정확히 일치했다. 버튼 활성 복귀·오류 없음·페이지 넘침0, 키보드 실행을 확인했다. 복사부터 붙여넣기 비교까지 각각 2,728ms·2,828ms인 단일 표본이며 이전 다른 여행/상태의 지연과 같은 입력 성능 비교라고 주장하지 않는다. 동일 크기 운영 전후 캡처와 합성 1440/390/320·두 테마 전후·예외 상태 근거를 보존했다. 고객 원문/화면은 비공개 산출물에만 둔다. TaskSpace0을 마치고 사용자 결과 탭은 유지했다.
 - 공식 코드 전용 배포: **1,453 tracked blobs mismatch0**, task/process/runtime SHA 일치, Gateway8790→loopback8752·listener1·health/ready200·보호 API401. fresh 보호13표 전후 불변과 운영 재기동/복사 뒤 최종 불변을 확인했고 단일 작성자 잠금을 해제했다. 실제 운영 stop/start 두 회차에서 이전 프로세스14개가 매번 전부 종료되고 새 소유자1개가 유지됐다. Running 중 추가 시작도 같은 소유자를 유지했다. 자식 crash/descendant kill/mutex 재사용·경쟁은 별도의 실제 Windows 합성 Job 검사로 검증했으며 운영 자식을 의도적으로 crash한 것은 아니다.
 - 첫 후보 `c2f7bdd7`의 전환은 **FAILED**였고 이전 db7 서비스·ready200·보호13표 불변으로 복구했다. 기존 도구가 첫 예외를 가려 실제 최초 원인은 미확정이다. 합성으로 확인한 stale TCP/CIM 조회, 검증 직후 PID 종료, 후보 cleanup 오류의 복귀 건너뜀, 실패 기록 쓰기의 복귀 차단을 수정해 새 불변 릴리스 d96을 배포했다. 실패 c2를 수정하거나 성공으로 재분류하지 않았다. unknown/reused PID 종료 금지는 유지한다.
-- OTA 동일 합성 입력80개·4범위320관측에서 본문 보존320→80, catalog peak private503,541,760→450,428,928 bytes, reconcile507,183,104→453,758,976 bytes(약11%)이며 결과/원본 해시가 동일했다. catalog wall time은 단일 표본에서 개선되지 않았다. [재현 명세](specs/ota-mail-load-lifetime-20261109.md). 운영 warm 중 private1,826.7MiB(db7)→1,019.3MiB(d96), warm 완료 후296.9MiB·10프로세스·소유자1·CPU0.015625초/12.6256초로 수렴했다. 이는 같은 입력을 통제한 운영 효과율이나 장기 누수 완치 증명이 아니며 venv 부모/자식 쌍을 중복 보드로 세지 않는다.
+- OTA 동일 합성 입력80개·4범위320관측에서 본문 보존320→80, catalog peak private503,541,760→450,428,928 bytes, reconcile507,183,104→453,758,976 bytes(약11%)이며 결과/원본 해시가 동일했다. catalog wall time은 단일 표본에서 개선되지 않았다. [재현 명세](history/specs-20261110/ota-mail-load-lifetime-20261109.md). 운영 warm 중 private1,826.7MiB(db7)→1,019.3MiB(d96), warm 완료 후296.9MiB·10프로세스·소유자1·CPU0.015625초/12.6256초로 수렴했다. 이는 같은 입력을 통제한 운영 효과율이나 장기 누수 완치 증명이 아니며 venv 부모/자식 쌍을 중복 보드로 세지 않는다.
 - 근거: 호스트 `D:/WebLedgerHost/releases/deploy-evidence-d96f08809b8201238e8399d053140ab20e3a91fc.json`; 비공개 `.local-archive/copy-paste-resume-20261109/`의 `production-copy-acceptance.json`, `release-d96f0880/`, `runtime-before.json`, `runtime-after.json`, `runtime-after-warm.json`; 합성 계측은 `.local-archive/webledger-root-20261109/`. PC 담당에게 A–F 최종 결과를, 원문 복구 담당에게 최종 SHA·after13 PASS·lock release를 전달했다. 원문30건 복구는 그 담당의 별도 승인 구간이며 이번 코드 배포의 완료 범위로 꾸미지 않는다.
 - 남은 필수 복사/배포 작업은 없다. 실기기/Safari·스크린리더 음성·실제200% 확대와 장시간 운영 누수 검증은 미실행이다. 이 후속 문서 변경으로 코드 검사·재배포·서버 재시작을 반복하지 않는다. 아래 11월8일 AUTH_UI_BLOCKED 기록은 당시 이력이며 현재 복사 수락 상태를 대체하지 않는다.
 
@@ -178,7 +178,7 @@
 
 ## 2026-11-08 파일별 기본 조회기간·파일 사이 공백 교정 — 운영 완료
 
-- 최신 사용자 결정: 거래일자는 자료의 조회기간 공백을 메우는 근거다. **한 파일의 최초~최종 거래일 전체**를 기본 조회기간으로 삼고 내부 무거래일은 공백으로 세지 않는다. 같은 카드사의 모든 카드 파일 범위를 합친 뒤 파일 사이 빈 구간만 표시한다. 아래 #742와 과거 거래일별 공백 계산을 이 기준이 대체한다. [현행 계약](specs/card-transaction-date-gaps-20261108.md).
+- 최신 사용자 결정: 거래일자는 자료의 조회기간 공백을 메우는 근거다. **한 파일의 최초~최종 거래일 전체**를 기본 조회기간으로 삼고 내부 무거래일은 공백으로 세지 않는다. 같은 카드사의 모든 카드 파일 범위를 합친 뒤 파일 사이 빈 구간만 표시한다. 아래 #742와 과거 거래일별 공백 계산을 이 기준이 대체한다. [현행 계약](history/specs-20261110/card-transaction-date-gaps-20261108.md).
 - [PR #745](https://github.com/6Soo/cost/pull/745), 운영 SHA `a0d257c45fef1767d25d5269bbac0007c22e4f2e`, 검증 코드 `20df129ec70f29d2c298cc9179edb7afa2e14580`와 tree 동일. 영향 QA **236 passed +70 subtests, skip0, 필수 browser19/19, compile PASS**. 독립 실제 `gpt-6.1-sol / medium` 정확한 병합 SHA APPROVE. CI는 steps0 결제/사용한도 차단으로 녹색이 아니며 기존 승인 예외를 적용했다.
 - ego 합성 전후1440/390/320에서 넘침0, 내부 빈 날짜 제외·파일사이 공백1·같은 카드사 다른 카드 파일로 해소 후0, 빈자료·오류 복구·키보드 포커스·업로드 맥락 확인. 인증 운영 고객 화면·실기기/Safari·스크린리더 음성·실제 브라우저200%확대·RTL은 미검증이다.
 - 공식 고정 SHA 배포: 1,445 blobs mismatch0, task/process/runtime SHA 일치, Gateway8790→loopback8752, health/ready200, 영향 coverage API/화면과 보호 API401, 보호13표 전후 불변, `financial_apply=NOT_RUN`. 고객 원본·DB/금융/Google 쓰기·재처리·마이그레이션 없음. 호스트 증거 `D:/WebLedgerHost/releases/deploy-evidence-a0d257c45fef1767d25d5269bbac0007c22e4f2e.json`, 비공개 `.local-archive/card-file-span-20261108/`. 후속 문서 변경은 재배포하지 않는다.
@@ -207,13 +207,13 @@
 
 ## 2026-11-08 카드 최종 귀속·P3 작업 기능 폐지 — IMPLEMENTING
 
-- 최신 사용자 지시: UX/UI 최우선으로 미배정/확인필요/처리필요/미분류와 관련 P3 기능·UI 잔재를 삭제하고 P1/P2 이후 여행 또는 결제일 분기 기타비용으로 종결한다. [단일 실행 정본](specs/card-destination-only-ux-20261108.md).
+- 최신 사용자 지시: UX/UI 최우선으로 미배정/확인필요/처리필요/미분류와 관련 P3 기능·UI 잔재를 삭제하고 P1/P2 이후 여행 또는 결제일 분기 기타비용으로 종결한다. [단일 실행 정본](history/specs-20261110/card-destination-only-ux-20261108.md).
 - 이전 #735 통합은 11월8일04:24 KST 별도 사용자 원문을 수집하지 못해 과거 작업함 유지 계약으로 제거 변경을 제외했다. 코드 배포·보호 검사는 성공했지만 최신 제품 계약 수락은 미완료였다. 이번 변경은 그 요구 누락을 교정한다. 기존 보호13표·원본·수동교정·환불·권한은 유지한다.
 - 현재 브랜치 `fix/card-destination-ux-20261108`, 기준 `d6d22a94415da70f83c88d770067775675b79ca9`. 구현·합성 전후·표적/영향 QA·독립 검수·단일 배포를 수행 중이며 아직 완료를 주장하지 않는다.
 
 ## 2026-11-08 미커밋 전체 검토·통합 운영 배포 — 기술 배포 COMPLETE / 최신 제품 계약 누락은 위 후속 참조
 
-- 사용자 `미커밋 변경사항까지 모두 검토해서 배포`와 `모두 확인해서 메인으로 병합 운영배포해` 범위. [PR #735](https://github.com/6Soo/cost/pull/735), 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`. [28파일 판정·수락 기록](specs/review-all-uncommitted-release-20261108.md). 원래 로컬8커밋의 이력과 미커밋25·미추적3파일을 모두 검토했다. 유효 변경은 통합하고 원본/권한/환불 보호 제거는 제외·보존했다. 영수증 PR733도 같은 SHA로 운영 반영했다.
+- 사용자 `미커밋 변경사항까지 모두 검토해서 배포`와 `모두 확인해서 메인으로 병합 운영배포해` 범위. [PR #735](https://github.com/6Soo/cost/pull/735), 검수 HEAD `1ee5c6983f11e59bb1a2b52f3df90f1eab487165`, 운영 SHA `d043892777dc50d1e61d3478440f4148719fd39f`. [28파일 판정·수락 기록](history/specs-20261110/review-all-uncommitted-release-20261108.md). 원래 로컬8커밋의 이력과 미커밋25·미추적3파일을 모두 검토했다. 유효 변경은 통합하고 원본/권한/환불 보호 제거는 제외·보존했다. 영수증 PR733도 같은 SHA로 운영 반영했다.
 - 어드벤처코리아 항공료, 여행 관리 단일 집계, 모바일 수입/보험/금액, 실제 OPEN 사용자 작업, 행별 지출 복사, 정상 구매의 유효한 결제 분기 fallback을 반영했다. 조회 실패를 0건으로 숨기지 않고 정상 P1/P2를 사용자 업무로 만들지 않는다. 메일 캐시의 disabled-gate 의존성과 짧은 보험 문구에서 긴 날짜/이름이 겹치는 결함도 수정했다.
 - 최종 Windows 영향 QA **1166 passed +133 subtests, skip0, 필수 브라우저 72/72, compile PASS**. 초기6실패와 모바일 겹침 red는 보존했고 최종 고정SHA에서 교정 후 통과했다. 독립 실제 `gpt-6.1-sol / medium` 정확SHA 승인·interface-review Approve. CI42411351988/job128519990700은 결제/사용 한도로 steps0에서 차단돼 기존 승인 예외를 적용했으며 CI 녹색으로 보고하지 않는다.
 - 공식 SHA 고정 git archive·tracked blob mismatch0, 단일 배포 lock·PREVIEW/APPLY 완료. 이전 `d97158484d17f974668dafffafdb1a7b462a7249`에서 전환했고 runtime/task/process SHA 일치, loopback backend, health/ready200·보호 API401·보호 테이블13개 불변을 확인했다. 운영 분류/여행 교정·재처리·원본/금융/Google 쓰기·마이그레이션은 실행하지 않았다.
@@ -222,13 +222,13 @@
 
 ## 2026-11-08 영수증 업로드 응답 유실 복구 — 통합 운영 반영 COMPLETE
 
-- 사용자 다량 영수증 업로드 경로 조사 후 `수정해` 범위. [수락·검증 기록](specs/receipt-upload-recovery-20261108.md). [PR #733](https://github.com/6Soo/cost/pull/733) 병합 `6ddbc7ef9feb796e444704a87ab7733cde8a8e82`, 검수 HEAD `859e74837fc40a5f2a1bbae9c7ac36060efa569d`와 tree 동일. 사진/PDF 실제 전송 SHA로 저장 결과를 복구하고 본문 유실·Safari 형식 오류·일괄 처리·재시도를 보완했다. 고객의 과거 파일을 실제 복구한 것으로 보고하지 않는다.
+- 사용자 다량 영수증 업로드 경로 조사 후 `수정해` 범위. [수락·검증 기록](history/specs-20261110/receipt-upload-recovery-20261108.md). [PR #733](https://github.com/6Soo/cost/pull/733) 병합 `6ddbc7ef9feb796e444704a87ab7733cde8a8e82`, 검수 HEAD `859e74837fc40a5f2a1bbae9c7ac36060efa569d`와 tree 동일. 사진/PDF 실제 전송 SHA로 저장 결과를 복구하고 본문 유실·Safari 형식 오류·일괄 처리·재시도를 보완했다. 고객의 과거 파일을 실제 복구한 것으로 보고하지 않는다.
 - 최종 Windows 영향 **307 passed +32 subtests, skip0, browser37/37, compile PASS**. 실제 Sol medium 최종 SHA APPROVE·독립 Luna medium APPROVE. CI42408750254/job128512087070은 결제/사용 한도로 steps0 차단되어 기존 사용자 승인 예외를 적용했고 녹색으로 보고하지 않는다. 합성 ego390/1440 동일 크기 전후·320/390/1440 넘침0·키보드 직접 입력/미리보기 확인; 고객 업로드·실기기/Safari·스크린리더·200% 실제 확대·다크 테마 미검증.
 - **운영 반영 COMPLETE:** PR735 통합 릴리스 `d043892777dc50d1e61d3478440f4148719fd39f`에 포함해 단일 작성자로 배포했다. 통합 QA1166+133·skip0·browser72 및 보호13표 불변·health/ready200·보호API401·인증 `/receipts` GET 화면의 업로드 입력 확인. 고객 과거 파일의 실제 복구/업로드 POST는 실행하지 않았다. 상세는 위 통합 배포 기록이며 영수증만 별도 재배포하지 않는다.
 
 ## 2026-11-08 남은 작업공간 4곳 통합·정리
 
-- 사용자 후속 `4곳도 진행해` 범위: root·card-coverage·pr683·pr685의 변경 판정 및 통합/정리. [판정·검증·보존 계약](specs/remaining-workspace-integration-20261108.md). root 수입표는 #723, 카드 대안들은 #713/714/717로 대체됐으며 초기 queue 누락=0 fallback은 최신 오류 계약과 충돌해 제외했다.
+- 사용자 후속 `4곳도 진행해` 범위: root·card-coverage·pr683·pr685의 변경 판정 및 통합/정리. [판정·검증·보존 계약](history/specs-20261110/remaining-workspace-integration-20261108.md). root 수입표는 #723, 카드 대안들은 #713/714/717로 대체됐으며 초기 queue 누락=0 fallback은 최신 오류 계약과 충돌해 제외했다.
 - pr683의 유효한 오류 메뉴 문구를 접근성 이름과 통일했다. 첫 영향 검사에서 발견된 PC 사이드바11px 넘침을 해당 문구 전용 줄바꿈으로 수정했다. 제품 SHA `ea80f7d90a3fda526e9f36d16adf725ac27fd29f`: 298개 검사·skip0·필수 브라우저21개 전건실행·compile 통과. 표적14+2subtests 통과. 합성1440/390/320·두테마·키보드 진입/포커스·CSS200%·대비17.06 확인. 실제 운영 UI/물리기기/스크린리더/번역·RTL 미검증.
 - 별도 실제 `gpt-6.1-sol / medium` 제품 검수 APPROVE. 문서 후속 최종 SHA별 판정과 병합 상태는 PR 댓글/merge 기록으로 확정한다. CI 인프라 차단 예외는 최신 사용자 승인대로 적용하고 실제 실패를 녹색으로 간주하지 않는다.
 - 모든 파일/미추적·무시 파일·Git 이력의 복구 사본 및 SHA256 대조 후 세 임시 worktree를 정리하고 기본 root main 하나를 남기는 범위다. stash6개 보존. 실제 정리 영수증과 최종 SHA는 비공개 `.local-archive/remaining-four-20261108/summary.json`에 기록한다. 아래의 4곳 보존 설명은 이번 통합 전 스냅샷이다.
@@ -236,4 +236,4 @@
 
 ## 2026-11-08 카드 내역 거래일자 공백 전환
 
-최신 요청과 수락 계약: [거래일자 공백 전환](specs/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. PR #731 병합 및 운영 SHA `d97158484d17f974668dafffafdb1a7b462a7249` 배포 완료. 최종 영향 QA503+100 subtests, skip0/browser35, Sol medium 검수 PASS. health/ready200·보호API401·보호13표 불변. 인증 운영 API·DOM으로23파일/27표시그룹/515공백 및 구 폼0 확인; 전체 고객 화면 시각 수락은 미검증이다. 실제 작업 근거는 운영 기록에 보존하며 문서-only 후속은 재배포하지 않는다. 기존 main의 다른 로컬 커밋8개는 별도 보존한다.
+최신 요청과 수락 계약: [거래일자 공백 전환](history/specs-20261110/card-transaction-date-gaps-20261108.md). 조회기간 기반 대시보드를 폐기하고 실제 거래일 사이 공백으로 전환한다. PR #731 병합 및 운영 SHA `d97158484d17f974668dafffafdb1a7b462a7249` 배포 완료. 최종 영향 QA503+100 subtests, skip0/browser35, Sol medium 검수 PASS. health/ready200·보호API401·보호13표 불변. 인증 운영 API·DOM으로23파일/27표시그룹/515공백 및 구 폼0 확인; 전체 고객 화면 시각 수락은 미검증이다. 실제 작업 근거는 운영 기록에 보존하며 문서-only 후속은 재배포하지 않는다. 기존 main의 다른 로컬 커밋8개는 별도 보존한다.

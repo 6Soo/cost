@@ -46,8 +46,8 @@
 #### 지금 개발할 때 읽을 문서
 
 - **단일 현행 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **OTA 매칭·readiness·R0~R6:** [OTA–카드 정책 A](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
-- **여행 추론·사용자 교정·AI 대화·항공권:** [V3 기능 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
+- **OTA 매칭·readiness·R0~R6:** [OTA–카드 정책 A](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **여행 추론·사용자 교정·AI 대화·항공권:** [V3 기능 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
 - **실제 운영 이력:** [operations.md](../operations.md)
 
 <a id="src-docs-archive-ota-legacy-20261023-readme-md--변경하지-않고-보존한-원본-11개"></a>
@@ -1417,7 +1417,7 @@ python tools/match_booking_mail.py --mail-dir <보존메일폴더> --database <�
 
 새 최우선 정책: **카드 실제 매입이 정상이고 중복·원본 충돌·미해결 취소·환불이 없다면 OTA 예약 연결 정확도가 낮거나 미연결이어도 최선 여행에 자동 배정하고 내부 경비 기록 준비/미리보기를 허용한다.** Google 자동 쓰기 금지, 추정 예약번호 Google 출력 F열은 공란, 사용자 여행 A→B 이동은 AI·재대사로 덮어쓰지 않는다. 카드 원본/금액/수동 링크/부분환불 보호는 유지.
 
-[OTA 매칭 정책 A 최종 구현 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) **먼저 읽기**: 실제 코드의 결제일 미기록 후보 전면 배제, `paid_today` 및 카드4자리 미존재 시 결제 이벤트 누락, 서로 다른 포털 DB 간 동일 record ID 충돌, NICE alias/OTA 판별 불일치, legacy vs OTA-first 이중 대사 및 readiness와 OTA hold 혼재에 대한 원인 추적·설계·API/SQL/테스트·rollout 계약이 기록돼 있다.
+[OTA 매칭 정책 A 최종 구현 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md) **먼저 읽기**: 실제 코드의 결제일 미기록 후보 전면 배제, `paid_today` 및 카드4자리 미존재 시 결제 이벤트 누락, 서로 다른 포털 DB 간 동일 record ID 충돌, NICE alias/OTA 판별 불일치, legacy vs OTA-first 이중 대사 및 readiness와 OTA hold 혼재에 대한 원인 추적·설계·API/SQL/테스트·rollout 계약이 기록돼 있다.
 
 **다음 개발 과제는 R0: 읽기 전용 P0 전수 진단 CLI, ExtractionOutcome·MatchTrace 및 합성 표적 테스트만.** 실행 가능한 운영 원본은 이 GitHub 문서에 없다. 운영 DB를 읽어 실제 몇 건이 미매칭인지 확인한 결과는 아직 없다. R1~R6는 작은 별도 PR로 구현·검증 후 단계적으로 적용하며, 기존 PR #87 B의 Decimal 정규화 코드는 push했으나 아직 pytest 검증·병합·배포되지 않았다. 이번 작업은 문서·지침 갱신만이며 실제 동작 변경은 없다.
 
@@ -1427,7 +1427,7 @@ python tools/match_booking_mail.py --mail-dir <보존메일폴더> --database <�
 
 새 최상위 정책은 **유효한 여행 후보가 하나 이상일 때 낮은 추론도 실제 여행으로 우선 배정**, 사용자가 거래를 여행 A에서 B로 즉시 이동한 뒤 **웹 내 AI가 예상 답안 1·2/사용자 자유답 3으로 이유를 확인, 필요시 추가질문 후 재사용 규칙을 승인받아 학습**하는 방식이다. 수동 이동은 모든 추론보다 우선하고 AI 실패 시에도 B에 유지한다. 기존 카드·환불·중복·Google 정본·고객 신원 안전은 유지한다.
 
-세부 API/SQL/알고리즘/테스트/단계 계획은 [V3 구현 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)를 반드시 먼저 읽는다. A의 항공권 영어 이름→한글 후보 및 reservation 참가자 연동, B의 N:M 대사, 테스트 경계 축소 설계가 모두 포함돼 있다. B의 `30000` vs `30000.00` Decimal 금액 정규화 코드와 합성 테스트 3개는 [PR #87](https://github.com/6Soo/cost/pull/87)에 push된 상태이며, **테스트 미실행·미병합·미배포**다. 최신 main 운영 동작에 이미 반영됐다고 쓰지 말 것. A와 대화학습/구조 개편은 구현 명세 단계다. 현행 운영 배포 확인은 계속 operations.md를 따른다.
+세부 API/SQL/알고리즘/테스트/단계 계획은 [V3 구현 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)를 반드시 먼저 읽는다. A의 항공권 영어 이름→한글 후보 및 reservation 참가자 연동, B의 N:M 대사, 테스트 경계 축소 설계가 모두 포함돼 있다. B의 `30000` vs `30000.00` Decimal 금액 정규화 코드와 합성 테스트 3개는 [PR #87](https://github.com/6Soo/cost/pull/87)에 push된 상태이며, **테스트 미실행·미병합·미배포**다. 최신 main 운영 동작에 이미 반영됐다고 쓰지 말 것. A와 대화학습/구조 개편은 구현 명세 단계다. 현행 운영 배포 확인은 계속 operations.md를 따른다.
 
 
 <a id="src-docs-archive-ota-legacy-20261023-session-handoff-md--최신-채팅-세션-인계-진입점"></a>
@@ -1461,12 +1461,12 @@ python tools/match_booking_mail.py --mail-dir <보존메일폴더> --database <�
 
 현재 운영은 `b3c6432`다. 자동 기록·행별 다음 행동·실제 보류 사유 우선·해당 거래 이동·문제 있는 묶음과 정상 거래의 처리 분리는 구현·검사·운영 반영까지 COMPLETE다. 정상 17건이 실제 기록됐고 기존 원문·장부·확정·보류·제외 행은 모두 보존됐다. 두 사진 거래의 실제 문제는 예약 결제 연결 미확정으로, 각각 ‘예약 연결 확인’과 이유가 표시되며 보호를 우회하지 않았다. 원래 14건의 여행 지정이나 예약 연결을 UX 작업의 완료로 해석하지 않는다.
 
-핵심 구현 `9da6610`과 후속 수정, 운영 `b9dbb95`, 통합 `4864c70` 및 PR #85 최신 HEAD를 따른다. 계속 요청 사이 현재 운영에 추가돼 있던 `1ce47f6`의 성능 수정도 통합해 보존했다. 최신 근거는 [운영 문서](../operations.md) 첫 절, 적용 규칙은 [업무 규칙](../specs/finance.md#src-docs-business-rules-md) 첫 절이다. 이 요청의 남은 코드 작업은 없으며 다음 요청에서 과거 과제를 자동 재실행하지 않는다. 사용자 checkout의 기존 변경 5개와 stash는 보존한다.
+핵심 구현 `9da6610`과 후속 수정, 운영 `b9dbb95`, 통합 `4864c70` 및 PR #85 최신 HEAD를 따른다. 계속 요청 사이 현재 운영에 추가돼 있던 `1ce47f6`의 성능 수정도 통합해 보존했다. 최신 근거는 [운영 문서](../operations.md) 첫 절, 적용 규칙은 [업무 규칙](specs-20261110/finance.md#src-docs-business-rules-md) 첫 절이다. 이 요청의 남은 코드 작업은 없으며 다음 요청에서 과거 과제를 자동 재실행하지 않는다. 사용자 checkout의 기존 변경 5개와 stash는 보존한다.
 
 <a id="src-docs-archive-ota-legacy-20261023-session-handoff-md--2026-10-13-환불과거-내역-요청"></a>
 #### 2026-10-13 환불·과거 내역 요청
 
-현재 운영은 `6615ebf`다. 전액 환불 107쌍·219행의 환불 탭 표시, 부분 환불의 기존 여행과 잔액 유지, 카드·OTA 과거 자료 제외는 구현·검사·운영 반영까지 COMPLETE다. 구현 `b0d9732`와 시간 포함 날짜 수정 `9ff42cd`, PR #85의 `integration/cost-final` 최신 HEAD를 따른다. [운영 문서](../operations.md)의 첫 절과 [업무 규칙](../specs/finance.md#src-docs-business-rules-md)의 첫 절에 기준을 기록했다. 원본과 장부·결정·보류의 전체 행 해시는 배포 전후 동일하다.
+현재 운영은 `6615ebf`다. 전액 환불 107쌍·219행의 환불 탭 표시, 부분 환불의 기존 여행과 잔액 유지, 카드·OTA 과거 자료 제외는 구현·검사·운영 반영까지 COMPLETE다. 구현 `b0d9732`와 시간 포함 날짜 수정 `9ff42cd`, PR #85의 `integration/cost-final` 최신 HEAD를 따른다. [운영 문서](../operations.md)의 첫 절과 [업무 규칙](specs-20261110/finance.md#src-docs-business-rules-md)의 첫 절에 기준을 기록했다. 원본과 장부·결정·보류의 전체 행 해시는 배포 전후 동일하다.
 
 PARTIAL은 여행을 지정하지 않은 부분 환불 원결제 14건의 새로운 여행 지정이다. 공통 경비·분기 비용·사용자 확정이 포함돼 기존 결정을 덮거나 결제일만으로 여행을 지정하지 않았다. 재개할 때 `.local-archive/refund-tab-history-20261013/partial-refund-awaiting-trip.json`과 현재 자료를 대조한 뒤 여행 비용에 해당하는 자료의 이용기간 또는 사용자가 지정한 여행을 받아 원결제와 환불을 함께 처리한다. 이미 구현한 탭·표시 정리를 반복하지 않는다. 사용자 checkout의 기존 변경과 stash를 보존한다.
 
@@ -1581,7 +1581,7 @@ OTA-first 격리 pilot은 성공했고 Trip.com 항공료 표기와 정확 가�
 | 카드 무인 로그인 | 기존 공식 자동입력의 입력란 탐지 실패 상태다. 암호를 출력하거나 외부 제품·보안 설정을 우회하지 않는다. 재부팅·복구·재설치는 하지 않는다. |
 | 실제 로그인 브라우저 | 이번 도구 환경에는 로그인된 브라우저가 없었다. 현재의 서버·렌더러 검사와 구분해 남긴다. |
 
-여행 시트 누락 목록은 에히메, 교토, 나가센도, 아오모리, 오사카, 알펜루트, 부산, 6월 북해도, 레분토와 리시리, 묘코, 아키타, 도고, 야쿠시마다. 앞의 11개는 보관용 26Q1 워크북에서 corroborating evidence를 찾았지만 운영 authority로 쓰지 않는다. 도고·야쿠시마는 추가 Drive 검색에서도 명시 시트를 찾지 못했다. 보관 워크북 SHA-256은 `4d073fba4a95c10fb9a821ae98e3880a1781c1c9291a627220dcebaa953f72c2`다. Drive 연결은 읽기 전용이었고 쓰기는 하지 않았다. 일정 차단 926건과 기존 보류 16건은 이 자료만으로 해제하지 않는다. 보류 해제나 새 환불 행 생성은 기존 [업무 규칙](../specs/finance.md#src-docs-business-rules-md)을 따른다.
+여행 시트 누락 목록은 에히메, 교토, 나가센도, 아오모리, 오사카, 알펜루트, 부산, 6월 북해도, 레분토와 리시리, 묘코, 아키타, 도고, 야쿠시마다. 앞의 11개는 보관용 26Q1 워크북에서 corroborating evidence를 찾았지만 운영 authority로 쓰지 않는다. 도고·야쿠시마는 추가 Drive 검색에서도 명시 시트를 찾지 못했다. 보관 워크북 SHA-256은 `4d073fba4a95c10fb9a821ae98e3880a1781c1c9291a627220dcebaa953f72c2`다. Drive 연결은 읽기 전용이었고 쓰기는 하지 않았다. 일정 차단 926건과 기존 보류 16건은 이 자료만으로 해제하지 않는다. 보류 해제나 새 환불 행 생성은 기존 [업무 규칙](specs-20261110/finance.md#src-docs-business-rules-md)을 따른다.
 
 <a id="src-docs-archive-ota-legacy-20261023-session-handoff-md--바로-읽을-로컬-증거"></a>
 #### 바로 읽을 로컬 증거
@@ -1650,7 +1650,7 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 > 이 파일은 과거 에이전트 실행/긴 체크포인트의 보관 경로입니다. **후속 개발을 지시하는 활성 TODO가 아닙니다.**
 
 - **현재 구현 진입:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **정확한 작업 범위와 테스트:** [OTA–카드 정책 A 구현](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **정확한 작업 범위와 테스트:** [OTA–카드 정책 A 구현](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
 - **변경 전 전체 실행 기록:** [autonomous-cycle-checkpoint.md 원문](ota-legacy.md#src-docs-archive-ota-legacy-20261023-autonomous-cycle-checkpoint-md)
 - **당시 운영 증거:** [operations.md](../operations.md)
 
@@ -1670,8 +1670,8 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 > **과거 구현·정책 기록입니다. 최신 COST V3 구현 지시가 아닙니다.** 현재 목표 정책과 다른 `HOLD`/자동배정/전체 검증 지시가 포함될 수 있습니다.
 
 - **공식 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
-- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
+- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
 - **보존한 과거 원문:** [autonomous-implementation-playbook.md](ota-legacy.md#src-docs-archive-ota-legacy-20261023-autonomous-implementation-playbook-md)
 
 이전의 정책 표·실험 TODO와 당시 운영 건수를 최신 요구로 사용하지 마세요. **현재 코드의 실행 사실**은 해당 코드와 [운영 이력](../operations.md)에서 확인합니다. 승인된 가맹점·날짜 허용·수동 결정의 실제 실행 값은 `config/ota-matching-defaults.json`과 저장된 사용자 규칙을 검증한 다음 새 명세에 따라 개편합니다.
@@ -1690,7 +1690,7 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 > **보관된 과거 설계/실행 기록 (2026-10-08~10-16); 신규 개발의 최종 요구사항 아님.** 과거 OTA-first 코어의 단독 설계·합성 검사 결과입니다. 현재 `COST V3`에서는 낮은 추론도 여행에 우선 배정하고, 카드 원본이 금융적으로 유효하면 OTA 링크가 미확정이어도 내부 경비 준비를 허용합니다. 원본·환불·수동 확정 보호는 유지합니다.
 
 - **현재 단일 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
 - **삭제하지 않고 보관한 전문:** [ota-first-core.md 원문](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-first-core-md)
 - **당시 운영·검증 사실:** [운영 이력](../operations.md)
 
@@ -1710,7 +1710,7 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 > **보관된 과거 설계/실행 기록 (2026-10-09); 신규 개발의 최종 요구사항 아님.** 2026-10-09 격리 OTA 검토 파일럿의 실제 실행 증거입니다. 현재 `COST V3`에서는 낮은 추론도 여행에 우선 배정하고, 카드 원본이 금융적으로 유효하면 OTA 링크가 미확정이어도 내부 경비 준비를 허용합니다. 원본·환불·수동 확정 보호는 유지합니다.
 
 - **현재 단일 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
 - **삭제하지 않고 보관한 전문:** [ota-first-isolated-review-pilot.md 원문](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-first-isolated-review-pilot-md)
 - **당시 운영·검증 사실:** [운영 이력](../operations.md)
 
@@ -1730,7 +1730,7 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 > **보관된 과거 설계/실행 기록 (2026-10); 신규 개발의 최종 요구사항 아님.** 구형 OTA HOLD 중심 검토 UI 명세·실행 기록입니다. 현재 `COST V3`에서는 낮은 추론도 여행에 우선 배정하고, 카드 원본이 금융적으로 유효하면 OTA 링크가 미확정이어도 내부 경비 준비를 허용합니다. 원본·환불·수동 확정 보호는 유지합니다.
 
 - **현재 단일 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
 - **삭제하지 않고 보관한 전문:** [ota-first-ui.md 원문](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-first-ui-md)
 - **당시 운영·검증 사실:** [운영 이력](../operations.md)
 
@@ -1750,7 +1750,7 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 > **보관된 과거 설계/실행 기록 (2026-10); 신규 개발의 최종 요구사항 아님.** 과거 OTA-first 검증 체크리스트입니다. 현재 `COST V3`에서는 낮은 추론도 여행에 우선 배정하고, 카드 원본이 금융적으로 유효하면 OTA 링크가 미확정이어도 내부 경비 준비를 허용합니다. 원본·환불·수동 확정 보호는 유지합니다.
 
 - **현재 단일 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **현행 목표 OTA 대사 계약:** [OTA–카드 A 정책](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
 - **삭제하지 않고 보관한 전문:** [ota-first-verification-plan.md 원문](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-first-verification-plan-md)
 - **당시 운영·검증 사실:** [운영 이력](../operations.md)
 
@@ -1767,7 +1767,7 @@ PR #22 통합 revision의 전체 회귀는 **2516 passed / 3 skipped / 2400 subt
 <a id="src-docs-ota-first-verification-report-md--ota-기준-대조-구현과-읽기-전용-검증"></a>
 ### OTA 기준 대조 구현과 읽기 전용 검증
 
-> **과거 시점의 검증 보고서 (2026-10-08).** 수치는 해당 당시 원본/코드 스냅샷에만 해당하며 최신 운영 매칭률·현재 개발 지시가 아니다. 2026-10-23 사용자 최종 목표는 [COST V3 단일 진입점](../COST_V3_START_HERE.md)과 [OTA 정책 A](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)이다. 본문 원래 검증 기록은 역사 증거로 유지한다.
+> **과거 시점의 검증 보고서 (2026-10-08).** 수치는 해당 당시 원본/코드 스냅샷에만 해당하며 최신 운영 매칭률·현재 개발 지시가 아니다. 2026-10-23 사용자 최종 목표는 [COST V3 단일 진입점](../COST_V3_START_HERE.md)과 [OTA 정책 A](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)이다. 본문 원래 검증 기록은 역사 증거로 유지한다.
 
 
 2026-10-08에 확인했습니다. 운영 대조 권위를 바꾸지 않았으며, 운영 코드·데이터베이스·원본 자료도 수정하지 않았습니다. 운영 자료 검증은 로컬에서 읽기 전용으로 수행했습니다.
@@ -1899,8 +1899,8 @@ merge 전 선택 안전성과 거래 방향 표시 보완은 관련 표적 검�
 > **과거 구현·정책 기록입니다. 최신 COST V3 구현 지시가 아닙니다.** 기존 업체별 승인 규칙 및 실험 제안 이력을 기록하던 파일이며, 현재 목표 정책과 다른 `HOLD`/자동배정/전체 검증 지시가 포함될 수 있습니다.
 
 - **공식 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
-- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
+- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
 - **보존한 과거 원문:** [ota-matching-rule-defaults.md](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-matching-rule-defaults-md)
 
 이전의 정책 표·실험 TODO와 당시 운영 건수를 최신 요구로 사용하지 마세요. **현재 코드의 실행 사실**은 해당 코드와 [운영 이력](../operations.md)에서 확인합니다. 승인된 가맹점·날짜 허용·수동 결정의 실제 실행 값은 `config/ota-matching-defaults.json`과 저장된 사용자 규칙을 검증한 다음 새 명세에 따라 개편합니다.
@@ -1919,8 +1919,8 @@ merge 전 선택 안전성과 거래 방향 표시 보완은 관련 표적 검�
 > **과거 구현·정책 기록입니다. 최신 COST V3 구현 지시가 아닙니다.** 기존 정확 매칭/결제일 용어와 과거 HOLD 정책을 기록하던 파일이며, 현재 목표 정책과 다른 `HOLD`/자동배정/전체 검증 지시가 포함될 수 있습니다.
 
 - **공식 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
-- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
+- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
 - **보존한 과거 원문:** [ota-matching-terms.md](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-matching-terms-md)
 
 이전의 정책 표·실험 TODO와 당시 운영 건수를 최신 요구로 사용하지 마세요. **현재 코드의 실행 사실**은 해당 코드와 [운영 이력](../operations.md)에서 확인합니다. 승인된 가맹점·날짜 허용·수동 결정의 실제 실행 값은 `config/ota-matching-defaults.json`과 저장된 사용자 규칙을 검증한 다음 새 명세에 따라 개편합니다.
@@ -1939,8 +1939,8 @@ merge 전 선택 안전성과 거래 방향 표시 보완은 관련 표적 검�
 > **과거 구현·정책 기록입니다. 최신 COST V3 구현 지시가 아닙니다.** 과거 OTA 메일 대사 구조와 기간별 처리 현황을 기록하던 파일이며, 현재 목표 정책과 다른 `HOLD`/자동배정/전체 검증 지시가 포함될 수 있습니다.
 
 - **공식 개발 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](../specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
-- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](../specs/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
+- **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](specs-20261110/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)
+- **V3 여행 귀속·AI·참가자:** [V3 상세 명세](specs-20261110/participants.md#src-docs-cost-v3-inference-ai-passenger-nm-test-architecture-md)
 - **보존한 과거 원문:** [ota_mail.md](ota-legacy.md#src-docs-archive-ota-legacy-20261023-ota-mail-md)
 
 이전의 정책 표·실험 TODO와 당시 운영 건수를 최신 요구로 사용하지 마세요. **현재 코드의 실행 사실**은 해당 코드와 [운영 이력](../operations.md)에서 확인합니다. 승인된 가맹점·날짜 허용·수동 결정의 실제 실행 값은 `config/ota-matching-defaults.json`과 저장된 사용자 규칙을 검증한 다음 새 명세에 따라 개편합니다.
