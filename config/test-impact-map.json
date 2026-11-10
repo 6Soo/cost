@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "ota-collection-script-synthetic",
+      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
+      "tests": ["tests/test_ota_collection_script.py"]
+    },
+    {
       "name": "trip-api-reservation-evidence",
       "paths": ["app/trip_api_capture.py", "tools/import_trip_api_details.py", "tests/card_pipeline/test_trip_api_capture.py"],
       "tests": ["tests/card_pipeline/test_trip_api_capture.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ledger_stay_evidence.py"]
