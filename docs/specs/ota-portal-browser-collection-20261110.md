@@ -50,14 +50,21 @@
 - 결과: 카드 가맹점 `Booking.com<숫자 11자리>`(원화) 결제는 **Booking.com에서 산 항공권**이었다(숙박비로 잘못 분류). `BKG*BOOKING.COM HOTEL`(엔화)은 숙소 결제이며, 화면의 원화 표시 요금은 환산값이라 카드 금액과 정확히 맞지 않는다 → 정확 대사에는 숙소 통화 금액이 있는 확인 페이지가 필요하다.
 - 후속: Booking 항공권 확정 메일/확인 페이지에서 출발일을 읽는 파서, `Booking.com\d{11}` 가맹점의 항공료 분류 규칙.
 
-## 5. Trip.com (로그인 필요)
+## 5. Trip.com (조사 완료, 자동 반영은 후속)
 
 | 단계 | 요청 | 비고 |
 |---|---|---|
-| 로그인 확인 | `https://kr.trip.com/membersinfo/profile/` | 연동 이메일 확인. 2026-11-10 ego lite는 **예약에 쓰지 않은 Google 계정**으로 로그인돼 있었다 |
-| 주문 목록 | `POST https://online.trip.com/restapi/soa2/26974/getAllOrders.json` | 화면 요청 재사용. 다른 계정이면 `OrderEnities: []` |
+| 로그인 | `https://kr.trip.com/account/signin` → 이메일 입력 → "이메일 계정으로 계속하기" | 비밀번호 없이 **예약 계정 이메일로 인증번호**가 온다. 에이전트는 번호를 요청만 하고, 사용자가 알려 준 번호를 입력한다. 다른 계정이 로그인돼 있으면 화면에 "이미 다음의 계정으로 로그인하셨습니다"가 나오며 그 아래 이메일 로그인으로 진행한다. `membersinfo/profile/`에서 연동 이메일을 확인 |
+| 주문 목록 | `POST https://online.trip.com/restapi/soa2/26974/getAllOrders.json` | 화면 요청 본문 재사용. `OrderStatusClassify: "All"`, `Count` 20, 날짜 조건 비움, 응답 `Offset` 토큰으로 다음 페이지. 2026-11-10 실측 1,002건(호텔 736·항공 241·렌터카 18 등). 주문의 `OrderActions[].ActionURLH5`(OrderDetail)에 `tripsignature`가 있다 |
+| 호텔 주문 상세 | `POST https://kr.trip.com/restapi/soa2/27453/GetOrderDetailOnline` | 화면 요청 본문의 `orderId`와 `FrontHead.sign`(=tripsignature)만 바꿔 호출. 장부 범위 호텔 주문 502건, 동시 6건 |
 
-- 예약 계정으로 로그인된 뒤 주문 목록·상세 응답을 같은 방식으로 저장하고, Agoda와 같은 사실 구조로 바꾸는 수입기를 추가한다(`OtaStore.import_direct(provider='trip', …)`는 이미 존재하지만 결제 대사 경로는 아직 Agoda 형식만 읽는다).
+- 상세 해석:
+  - `orderCommonInfo.checkInDate/checkOutDate`(YYYYMMDD), `orderStatusCode`(2003 확정·2005 체크아웃 완료·2006 취소 등)
+  - `priceInfo.tripPriceDetail.additionalInfo.payType` 5 = **현장 결제 + 카드 보증**. 이때 `preAuthorizationInfo`(KRW 금액)가 카드에 잡히는 **사전승인**이고, `priceSummary`의 `현장 결제 JPY…`가 실제 숙박비(호텔이 현장에서 받음)다.
+  - `paymentDetailInfo.subItemList`: 카드사·금액(KRW). `refundInfo.refundDetialInfo.itemInfo`: 환불 카드 끝자리·금액·`환불 완료`(SUCCESS).
+  - 엔화 요금을 Trip이 원화로 받는 경우 같은 날 주문들은 같은 환율이 적용된다(실측 8.8971).
+- 결과: 장부의 Trip "숙박비" 경고 중 23행은 숙박비가 아니라 **카드 사전승인**이며 대부분 체크아웃 후 환불 완료(취소 주문은 일부 환불·잔액 존재). 카드 원행에는 승인일만 있어 장부가 이를 숙박비로 분류하고 있었다.
+- 자동 보강안(후속 구현): 상세를 `trip-api-v1` 사실로 바꿔 `OtaStore.import_direct(provider='trip')`로 넣고, 결제 대사에서 `payType=5`의 사전승인을 "보증(환불 예정/완료)"으로, 같은 금액의 카드 취소 원행과 짝지어 표시한다. 장부에는 "카드 사전승인 · 숙박 MM.DD–MM.DD 현장 결제 · 환불 완료"처럼 표시하고 숙박비 합계에서 순액 0이 되게 한다. 실제 숙박비는 호텔 현장결제 카드 원행(현장 결제 표시 규칙)이 담당한다.
 
 ## 6. 2026-11-10 결과 요약 (식별자 없음)
 
@@ -65,7 +72,7 @@
 |---|---|---|
 | Agoda | 33(카드) + 캐시 사용 수동행 2 | 18행을 상세 근거로 특정(청구 후 미갱신된 나중결제 10, 취소 예약의 청구 8). 15행(주로 다른 카드의 원화 청구)은 이 계정 예약 어디에도 금액·환산율이 맞지 않음 → 다른 계정 예약 추정, 미해결 |
 | Booking.com | 11 | 원화 3행은 항공권(그중 2행 항목·여행 교정 완료), 0613 2행은 이미 연결됐지만 묶음 연결 조건으로 미표시, 나머지 엔화 숙소 결제는 정확 금액 근거 필요 |
-| Trip.com | 38 | 다른 계정 로그인으로 조회 불가 — 예약 계정 로그인 필요 |
+| Trip.com | 38 | 예약 계정 로그인 후 조회: 23행은 현장결제 호텔의 카드 사전승인(대부분 환불 완료), 3행은 실제 Trip 결제, 12행은 항공·렌터카 또는 범위 밖 주문 |
 
 - 근본 원인: 포털 근거가 2026-10-21 화면 캡처에서 멈춰 있어, 이후 청구된 나중결제·취소 예약 결제가 대사되지 않았다. 이 절차를 주기적으로(예: 주 1회, 또는 나중결제 청구 시점 이후) 반복하고 수입 도구로 넣으면 자동 보강된다.
 
