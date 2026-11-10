@@ -112,6 +112,37 @@ def test_bulk_edit_closes_the_drawer_and_exposes_interactive_controls(screen):
     page.click('[data-bulk-end]')
     assert page.locator('.bulk-bar').count() == 0
 
+@pytest.mark.parametrize('theme', ['light', 'dark'])
+@pytest.mark.parametrize('width', [390, 1440])
+def test_drawer_header_and_footer_stay_on_screen_and_close_by_real_click(screen, width, theme):
+    page = screen._page(width)
+    screen._board(page, '?tab=trip-demo-a')
+    page.evaluate('(theme) => localStorage.setItem("cost-theme", theme)', theme)
+    page.reload()
+    page.wait_for_function('(theme) => document.documentElement.dataset.theme === theme', arg=theme)
+    page.click('[role=tab][aria-controls="view-expense"]')
+    selector = ('.lst .list-row' if width < 760 else '.tw tr') + '[data-id="expense-demo-c1"]'
+    page.click(selector)
+    page.wait_for_selector('#ledger-drawer[open] #panel[data-row="expense-demo-c1"]')
+    page.evaluate('() => Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))')
+    box = page.evaluate('''() => {
+        const rect = s => { const r = document.querySelector(s).getBoundingClientRect();
+            return {top: r.top, left: r.left, right: r.right, bottom: r.bottom}; };
+        const close = document.querySelector('#drawer-close').getBoundingClientRect();
+        const hit = document.elementFromPoint(close.left + close.width / 2, close.top + close.height / 2);
+        return {title: rect('#ledger-drawer-title'), close: rect('#drawer-close'),
+                count: rect('#panel .p-count'), drawer: rect('#ledger-drawer'),
+                hitsClose: !!hit && !!hit.closest('#drawer-close')};
+    }''')
+    assert box['title']['top'] >= box['drawer']['top'] >= 0, box
+    assert box['close']['top'] >= box['drawer']['top'] and box['close']['right'] <= width, box
+    assert box['count']['right'] <= box['drawer']['right'] <= width, box
+    assert box['count']['bottom'] <= 900, box
+    assert box['hitsClose'], box
+    page.click('#drawer-close')
+    assert not page.locator('#ledger-drawer').evaluate('dialog => dialog.open')
+
+
 @pytest.mark.parametrize('width', [390, 1440])
 def test_bulk_row_clicks_and_shift_range_then_normal_edit(screen, width):
     page = screen._page(width)

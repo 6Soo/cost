@@ -1017,10 +1017,16 @@ body.bulk-selecting #site-content main#main{padding-bottom:var(--bulk-bar-height
 .lst .list-row .lr-primary{display:block;min-width:0}
 .lst .list-row .lr-secondary{display:block}
 .lst .list-row .m-service,.lst .list-row .sr{display:none}
-.drawer .panel{margin:calc(var(--s-4) * -1);border:0;border-radius:0;box-shadow:none}
-.drawer .panel .p-hd{position:sticky;top:calc(var(--s-4) * -1);z-index:1;background:var(--c-surface)}
-.drawer[open]{display:flex;flex-direction:column}
-.drawer .drawer-body{min-height:0;flex:1}
+/* Inside the drawer the editor is ordinary flow under the drawer header. The
+   narrow-screen sheet rules (.panel position:fixed, 400px, z-index 30/60) are
+   for the old inline editor; here they would lift the panel over the header
+   and its close button. The body hosts the panel edge to edge and the panel's
+   own .p-bd is the only scroller, so the header and footer stay on screen. */
+.drawer[open]{display:flex;flex-direction:column;overflow:hidden}
+.drawer .drawer-body{min-height:0;flex:1 1 auto}
+.drawer #panel-slot.drawer-body{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.drawer .panel{position:static;inset:auto;z-index:auto;width:auto;flex:1 1 auto;min-width:0;min-height:0;
+ margin:0;border:0;border-radius:0;box-shadow:none}
 @media (width < 1024px){
  .ledger-workspace{padding:var(--s-4) var(--s-3) calc(var(--s-7) + var(--s-4))}
  .ledger-workspace .trip-header .ph-actions{justify-content:flex-start}
