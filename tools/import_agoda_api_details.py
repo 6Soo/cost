@@ -41,15 +41,24 @@ def main(argv=None) -> int:
         'payment': dict(collections.Counter(fact['payment_status'] for _, fact in parsed)),
         'inserted': 0,
     }
-    if args.apply and parsed:
+    # Any unreadable record stops the run before anything is written; the batch commits as one.
+    if args.apply and parsed and not errors:
         from app.ota_store import OtaStore
         store = OtaStore(args.store)
         try:
-            for record, fact in parsed:
-                snapshot = {'list': record['list'], 'detail': record['detail'], 'observed_at': record['observed_at']}
-                summary['inserted'] += bool(store.import_direct(
-                    provider='agoda', account_key=args.account_key,
-                    source_key='agoda-api:' + fact['booking_number'], snapshot=snapshot, facts=[fact]))
+            # One explicit transaction: each import_direct nests as a savepoint inside it.
+            store.conn.execute('BEGIN IMMEDIATE')
+            try:
+                for record, fact in parsed:
+                    snapshot = {'list': record['list'], 'detail': record['detail'], 'observed_at': record['observed_at']}
+                    summary['inserted'] += bool(store.import_direct(
+                        provider='agoda', account_key=args.account_key,
+                        source_key='agoda-api:' + fact['booking_number'], snapshot=snapshot, facts=[fact]))
+                store.conn.commit()
+            except BaseException:
+                store.conn.rollback()
+                summary['inserted'] = 0
+                raise
         finally:
             store.close()
     print(json.dumps(summary, ensure_ascii=False))

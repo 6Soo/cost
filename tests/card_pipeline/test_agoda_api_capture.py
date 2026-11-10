@@ -112,3 +112,48 @@ def test_a_scheduled_api_observation_creates_no_charge(tmp_path):
         assert ota_payments._portal_events([store.path]) == []
     finally:
         store.close()
+
+
+def test_the_import_tool_writes_nothing_when_any_record_is_unreadable(tmp_path):
+    import json
+    from tools import import_agoda_api_details as tool
+    folder = tmp_path / 'details'
+    folder.mkdir()
+    (folder / '1.json').write_text(json.dumps(record()), encoding='utf-8')
+    broken = record(**{'detail.BookingDetails.BookingQueryData.CancellationReasonData.BookingID': 999})
+    (folder / '2.json').write_text(json.dumps(broken), encoding='utf-8')
+    store = tmp_path / 'store.sqlite'
+    assert tool.main(['--directory', str(folder), '--store', str(store), '--apply']) == 1
+    assert not store.exists() or ota_payments._portal_events([store]) == []
+    (folder / '2.json').unlink()
+    assert tool.main(['--directory', str(folder), '--store', str(store), '--apply']) == 0
+    assert len(ota_payments._portal_events([store])) == 1
+    # Re-running the same directory adds nothing.
+    assert tool.main(['--directory', str(folder), '--store', str(store), '--apply']) == 0
+    assert len(ota_payments._portal_events([store])) == 1
+
+
+def test_a_failure_part_way_through_the_import_leaves_the_store_unchanged(tmp_path, monkeypatch):
+    import json
+    from app.ota_store import OtaStore as Store
+    from tools import import_agoda_api_details as tool
+    folder = tmp_path / 'details'
+    folder.mkdir()
+    for number in ('1234567890', '1234567891'):
+        raw = record(**{'list.bookingId': int(number),
+                        'detail.BookingDetails.BookingQueryData.CancellationReasonData.BookingID': int(number)})
+        (folder / f'{number}.json').write_text(json.dumps(raw), encoding='utf-8')
+    original = Store.import_direct
+    calls = []
+
+    def flaky(self, **kwargs):
+        calls.append(kwargs['source_key'])
+        if len(calls) == 2:
+            raise RuntimeError('disk full')
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(Store, 'import_direct', flaky)
+    store = tmp_path / 'store.sqlite'
+    with pytest.raises(RuntimeError):
+        tool.main(['--directory', str(folder), '--store', str(store), '--apply'])
+    assert len(calls) == 2 and ota_payments._portal_events([store]) == []
