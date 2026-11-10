@@ -65,6 +65,7 @@ body.site-shell-body{margin:0;min-width:0;background:var(--c-bg);color:var(--c-t
 .site-more-dialog[open]{animation:site-dialog-in var(--motion-fast)}
 @keyframes site-dialog-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 #nav :focus-visible,#site-content :focus-visible,.site-bottom-nav :focus-visible,.site-more-dialog :focus-visible{outline:2px solid var(--c-focus);outline-offset:2px}
+.site-more-dialog a:focus,.site-more-dialog button:focus{outline:2px solid var(--c-focus);outline-offset:2px}
 @media (min-width:1024px){
  .site-topbar{position:fixed;left:0;bottom:16px;z-index:30;width:var(--shell-nav-width,232px);justify-content:center;border:0;background:transparent;pointer-events:none}
  .site-topbar>*{display:none}

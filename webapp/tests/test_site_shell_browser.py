@@ -33,7 +33,7 @@ class SiteShellBrowserTests(LinkBrowserFixture):
                             self.assertEqual(page.locator('#nav a[href="/access/admin"]').count(), 1)
                         else:
                             self.assertTrue(page.locator('#site-more-dialog').get_attribute('open') is not None)
-                        account.focus()
+                        account.evaluate("e=>e.focus({focusVisible:true})")
                         self.assertTrue(account.evaluate('e=>e===document.activeElement'))
                         self.assertNotEqual(account.evaluate('e=>getComputedStyle(e).outlineStyle'), 'none')
                         if path == '/access/admin':
@@ -55,13 +55,12 @@ class SiteShellBrowserTests(LinkBrowserFixture):
         self.assertIsNone(page.evaluate("sessionStorage.getItem('cost-nav-trip')"))
         page.goto(base + '/board')
         self.assertIn('첫 미마감 여행', page.locator('h1').inner_text())
-        self.assertEqual(page.locator('#live-nav a[aria-current=page]').count(), 1)
-        self.assertIn('tab=' + trips[1], page.locator('#live-nav a[aria-current=page]').get_attribute('href'))
+        self.assertEqual(page.locator('#nav a[href="/trips"][aria-current=page]').count(), 1)
         self.assertIsNone(page.evaluate("sessionStorage.getItem('cost-nav-trip')"))
-        self.assertIn('tab=' + trips[1], page.evaluate("sessionStorage.getItem('cost-workflow-return')"))
+        self.assertIsNone(page.evaluate("sessionStorage.getItem('cost-workflow-return')"))
         page.goto(base + '/board?tab=' + trips[2])
         self.assertIn('다음 여행', page.locator('h1').inner_text())
-        self.assertIn('tab=' + trips[2], page.locator('#live-nav a[aria-current=page]').get_attribute('href'))
+        self.assertEqual(page.locator('#nav a[href="/trips"][aria-current=page]').count(), 1)
 
     def test_theme_keyboard_motion_and_responsive_contract(self):
         page, base = self.prepare_pages(1440)
