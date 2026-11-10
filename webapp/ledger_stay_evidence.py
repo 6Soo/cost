@@ -88,6 +88,8 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _skyticket_candidate_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _airline_exact_amount_periods(data, manual).items():
+        result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
         result.setdefault(tid, metadata)
     for tid, metadata in _trip_price_change_periods(data, manual).items():
@@ -437,6 +439,90 @@ def _skyticket_candidate_periods(data, manual):
             continue
         result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref], 'service_period': period,
                        'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
+def _airline_exact_amount_periods(data, manual):
+    """An undated Asiana ticket mail names its departure day for the one card that equals it.
+
+    The mail has no card tail or charge day and Asiana carries no approved descriptor
+    record, so the core never forms a candidate. A card of the airline's own merchant
+    name, the exact KRW total, bought before departure, paired one-to-one with the mail,
+    only informs this read-only display; no payment, trip or reservation relation is made.
+    """
+    from datetime import date
+    import re
+    from app.ota_matching_defaults import load_defaults
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    by_booking = defaultdict(list)
+    for event in events.values():
+        by_booking[(event.get('provider'), event.get('booking_ref'))].append(event)
+    held = {}
+    for record in data.get('results', []):
+        event = events.get(str(record.get('ota_event_id'))) or {}
+        if event.get('provider') != 'asiana' or record.get('status') != 'HOLD_DATE_UNKNOWN':
+            continue
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            valid = 0 <= (end - start).days <= 366
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        amount = _decimal(event.get('amount_krw'))
+        related = by_booking[(event.get('provider'), event.get('booking_ref'))]
+        if (not valid or amount is None or amount <= 0 or event.get('paid_on')
+                or event.get('event_type') != 'charge' or event.get('evidence_status') != 'paid_verified'
+                or event.get('payment_status') != 'paid' or event.get('evidence_kind') != 'authenticated_payment_mail'
+                or str(event.get('currency') or '').upper() != 'KRW'
+                or not event.get('source_digest') or not event.get('booking_ref')
+                or any(e.get('evidence_status') != 'paid_verified' or e.get('event_type') != 'charge'
+                       or e.get('service_period') != period or e.get('refund_status')
+                       or e.get('period_conflict') or e.get('service_period_conflict')
+                       or e.get('reservation_status') in ('cancelled', 'refunded') for e in related)
+                or any(record.get(key) for key in ('evidence_missing', 'evidence_changed', 'period_conflict'))):
+            continue
+        held[str(event.get('ota_event_id'))] = (amount, start, end, str(event.get('booking_ref')))
+    if not held:
+        return {}
+    aliases = [str(a).casefold() for a in load_defaults().get('provider_merchant_aliases', {}).get('asiana', ()) if a]
+    occupied = _occupied_cards(data)
+    cards = {}
+    for card in data.get('transactions', []):
+        merchant = str(card.get('merchant') or '').casefold()
+        if any(re.search(rf"(?<![^\W_]){re.escape(alias)}(?![^\W_])", merchant) for alias in aliases):
+            cards[str(card.get('transaction_id'))] = card
+    # Every Asiana-named card, eligible or not, counts against uniqueness: an excluded twin still makes the pairing ambiguous.
+    matches = defaultdict(set)
+    claims = defaultdict(set)
+    for event_id, (amount, start, _end, _ref) in held.items():
+        for tid, card in cards.items():
+            try:
+                bought = date.fromisoformat(str(card.get('approval_date') or ''))
+            except ValueError:
+                continue
+            if _decimal(card.get('amount_krw')) == amount and bought <= start:
+                matches[event_id].add(tid)
+                claims[tid].add(event_id)
+    same_amount = defaultdict(set)
+    for event in events.values():
+        if event.get('provider') == 'asiana':
+            same_amount[_decimal(event.get('amount_krw'))].add(str(event.get('ota_event_id')))
+    result = {}
+    for event_id, tids in matches.items():
+        amount, start, end, booking_ref = held[event_id]
+        if len(tids) != 1 or len(same_amount[amount]) != 1:
+            continue
+        tid = next(iter(tids))
+        card = cards[tid]
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
+                       'service_period': start.isoformat() + '~' + end.isoformat(), 'item': '항공료',
                        'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 

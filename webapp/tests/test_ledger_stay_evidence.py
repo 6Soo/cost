@@ -254,6 +254,62 @@ def test_unlinked_skyticket_total_keeps_manual_empty_period(context, tmp_path):
     assert stays.stay_index(store) == {}
 
 
+def asiana_ticket(data, tmp_path):
+    import json
+    from app import ota_payments
+    from tests.card_pipeline.test_airline_payment_mail import message
+    original = message('noreply@flyasiana.com', '[아시아나항공] 항공권 발급이 완료 되었습니다.',
+                       '예약번호 ABC123\n예약일자(GMT) 2026-09-17\n출발\n도쿄 (NRT)\n2026.11.09 (월) 13:20\n'
+                       '총 지불금액 (결제완료) KRW 131,800')
+    (tmp_path / 'gmail-synthetic.json').write_text(json.dumps({'responses': [original]}), encoding='utf-8')
+    data['events'] = ota_payments._parse_mail_events([tmp_path])
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=131800, merchant='아시아나항공', card_tail='8835', approval_date='2026-09-17')]
+    data['results'] = ota_payments.match_ota_payment_events(data['events'], data['transactions'])
+    assert [r['status'] for r in data['results']] == ['HOLD_DATE_UNKNOWN']
+
+
+def test_unlinked_asiana_ticket_shows_its_departure_day_on_the_equal_airline_card(context, tmp_path):
+    store, data, _, _ = context
+    asiana_ticket(data, tmp_path)
+    before = deepcopy(data)
+    value = dict(card(row_kind='expense', occurred_on='2026-09-17', amount_krw=131800, reservation_no=''), item='항공료')
+    labels = scoped(lambda: design._service_date_labels(value))()
+    assert labels[0] == '11.09' and '2026-11-09' in labels[1]
+    assert stays.stay_index(store)['t1']['ota_evidence'] == {'kind': 'reservation_period_inferred',
+                                                             'payment_verified': False}
+    assert data == before and data['results'][0]['transaction_id'] is None
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(amount_krw=131000),
+    lambda d: d['transactions'][0].update(merchant='다른 항공사'),
+    lambda d: d['transactions'][0].update(approval_date='2026-11-10'),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['transactions'][0].update(ota_review_held=True),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(service_period_conflict=True),
+    lambda d: d['results'][0].update(evidence_changed=True),
+    lambda d: d['links'].update(other={'transaction_id': 't1'}),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='XYZ789')) or
+              d['results'].append(dict(d['results'][0], ota_event_id='dup')),
+])
+def test_unlinked_asiana_ticket_stays_unknown_when_ambiguous_or_unsafe(context, tmp_path, mutation):
+    store, data, _, _ = context
+    asiana_ticket(data, tmp_path)
+    data['links'] = {}
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_unlinked_asiana_ticket_keeps_manual_empty_period(context, tmp_path):
+    store, data, _, _ = context
+    asiana_ticket(data, tmp_path)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 def test_rakuten_quote_displays_original_period_without_confirming_payment_or_rewriting_ledger(context):
     store,data,_,calls=context
     rakuten_candidates(data)
