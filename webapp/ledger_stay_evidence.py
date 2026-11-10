@@ -92,6 +92,95 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _trip_price_change_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _trip_preauthorization_cards(data, manual).items():
+        result.setdefault(tid, metadata)
+    return result
+
+
+def _trip_preauthorization_cards(data, manual):
+    """Cards that are Trip.com's guarantee hold for a pay-at-property hotel, not a lodging payment.
+
+    The account's order states the KRW pre-authorization, the stay and the refund. A Trip card
+    charge of exactly that amount, approved between booking and check-in, is that hold. Equal
+    holds pair only as a group: as many cards as orders, all candidates to all. Display only.
+    """
+    from datetime import date, timedelta
+    from app.ota_matching_defaults import provider_for_merchant
+    holds = [e for e in data.get('events', [])
+             if e.get('provider') == 'trip' and e.get('evidence_kind') == 'portal_preauthorization'
+             and isinstance(e.get('preauthorization_amount_krw'), int) and e['preauthorization_amount_krw'] > 0]
+    if not holds:
+        return {}
+    occupied = _occupied_cards(data)
+
+    def window(event):
+        period = event.get('service_period') or {}
+        try:
+            booked = date.fromisoformat(str(event.get('booked_on')))
+            start = date.fromisoformat(str(period.get('starts_on'))) if period.get('starts_on') else booked + timedelta(days=366)
+        except ValueError:
+            return None
+        return booked - timedelta(days=1), start
+
+    cards = {}
+    for row in data.get('transactions', []):
+        tid = str(row.get('transaction_id') or '')
+        if (not tid or row.get('transaction_direction') != 'purchase' or row.get('duplicate_of')
+                or row.get('parse_error') or row.get('conflict_reason') or not row.get('source_hash')
+                or tid in occupied or 'card-' + tid in manual
+                or provider_for_merchant(str(row.get('merchant') or '')) != 'trip'):
+            continue
+        cards[tid] = row
+    candidates = defaultdict(set)   # card -> holds
+    reverse = defaultdict(set)      # hold -> cards
+    by_id = {}
+    for event in holds:
+        span = window(event)
+        if not span:
+            continue
+        hold_id = str(event['ota_event_id'])
+        by_id[hold_id] = event
+        for tid, row in cards.items():
+            try:
+                day = date.fromisoformat(str(row.get('approval_date') or row.get('posting_date') or ''))
+            except ValueError:
+                continue
+            if (int(row.get('amount_krw') or 0) == event['preauthorization_amount_krw']
+                    and span[0] <= day <= span[1]
+                    and (not event.get('card_last4') or str(row.get('card_tail') or '') == event['card_last4'])):
+                candidates[tid].add(hold_id)
+                reverse[hold_id].add(tid)
+    result, seen = {}, set()
+    for start_card in list(candidates):
+        if start_card in seen:
+            continue
+        group_cards, group_holds, todo = set(), set(), [start_card]
+        while todo:
+            tid = todo.pop()
+            if tid in group_cards:
+                continue
+            group_cards.add(tid)
+            for hold in candidates[tid]:
+                if hold not in group_holds:
+                    group_holds.add(hold)
+                    todo.extend(reverse[hold])
+        seen |= group_cards
+        if len(group_cards) != len(group_holds):
+            continue
+        events = [by_id[h] for h in sorted(group_holds)]
+        periods = sorted({(e['service_period']['starts_on'], e['service_period']['ends_on'])
+                          for e in events if e.get('service_period')})
+        refunds = {e.get('preauthorization_refund') for e in events}
+        refund = ('refunded' if refunds == {'refunded'} else 'not_refunded' if refunds == {'not_refunded'}
+                  else 'partly_refunded')
+        refs = sorted(str(e['booking_ref']) for e in events)
+        for tid in group_cards:
+            result[tid] = {'booking_ref': refs[0] if len(refs) == 1 else '', 'booking_refs': refs,
+                           'service_period': (periods[0][0] + '~' + periods[0][1]) if len(periods) == 1 else '',
+                           'ota_evidence': {'kind': 'card_preauthorization', 'refund': refund,
+                                            'refunded_krw': events[0].get('preauthorization_refunded_krw') if len(events) == 1 else None,
+                                            'periods': [a + '~' + b for a, b in periods],
+                                            'payment_verified': False}}
     return result
 
 
@@ -557,6 +646,9 @@ def period_for(row, index):
     if row_id != 'card-' + tid:
         return ''
     found = index.get(tid) or {}
+    if (found.get('ota_evidence') or {}).get('kind') == 'card_preauthorization':
+        # A guarantee hold is not a stay; its dates are shown only by the pre-authorization label.
+        return ''
     reservation = str(row.get('reservation_no') or '').strip()
     if (reservation and reservation != found.get('booking_ref')
             and reservation not in (found.get('booking_refs') or ())):

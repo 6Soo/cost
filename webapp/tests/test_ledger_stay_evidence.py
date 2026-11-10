@@ -754,3 +754,52 @@ def test_identical_rooms_read_a_card_foreign_amount_given_without_its_currency(c
     assert len(stays.stay_index(store)) == 3
     data['transactions'][0]['foreign_amount'] = '24333.000'
     assert stays.stay_index(store) == {}
+
+
+def trip_holds(data, holds, cards):
+    data['events'] = [dict(ota_event_id=f'h{n}', provider='trip', booking_ref=f'14008000000000{n:02d}',
+        event_type='reservation', evidence_kind='portal_preauthorization', item='숙박비',
+        reservation_status='completed', booked_on='2026-07-31', preauthorization_amount_krw=amount,
+        preauthorization_refunded_krw=amount, preauthorization_refund='refunded', card_last4='8835',
+        service_period={'starts_on': start, 'ends_on': end}, source_digest=f'd{n}')
+        for n, (amount, start, end) in enumerate(holds)]
+    data['transactions'] = [dict(transaction_id=f't{n}', source_hash=f's{n}', transaction_direction='purchase',
+        amount_krw=amount, merchant='트립닷컴(구)_NICE', card_tail='8835', approval_date=day)
+        for n, (amount, day) in enumerate(cards)]
+    data['results'] = [dict(ota_event_id=f'h{n}', status='NOT_CARD_CHARGE', transaction_id=None) for n in range(len(holds))]
+    data['links'] = {}
+
+
+def preauth_labels(store, tid, **values):
+    value = dict(row_id='card-' + tid, source_event_id=tid, item='숙박비', row_kind='expense', reservation_no='',
+                 service_period='', occurred_on='2026-07-31', amount_krw=421614, source_merchant='트립닷컴(구)_NICE', **values)
+    return scoped(lambda: design._service_date_labels(value))()
+
+
+def test_a_trip_guarantee_hold_reads_as_a_refunded_pre_authorization(context):
+    store, data, _, _ = context
+    trip_holds(data, [(421614, '2026-10-22', '2026-10-23')], [(421614, '2026-07-31')])
+    found = stays.stay_index(store)
+    assert found['t0']['ota_evidence']['kind'] == 'card_preauthorization'
+    assert stays.period_for(dict(row_id='card-t0', source_event_id='t0'), found) == ''
+    assert preauth_labels(store, 't0') == (
+        '10.22–10.23 사전승인', '카드 사전승인(현장 결제 숙박 보증) · 숙박 2026-10-22–2026-10-23 · 환불 완료')
+
+
+def test_equal_holds_for_two_nights_pair_only_as_a_group(context):
+    store, data, _, _ = context
+    trip_holds(data, [(140538, '2026-10-21', '2026-10-22'), (140538, '2026-10-22', '2026-10-23')],
+               [(140538, '2026-07-31'), (140538, '2026-07-31')])
+    compact, full = preauth_labels(store, 't1')
+    assert compact == '사전승인' and '2026-10-21–2026-10-22 또는 2026-10-22–2026-10-23' in full
+
+
+@pytest.mark.parametrize('cards', [
+    [(140538, '2026-07-31')],                              # fewer cards than holds
+    [(140538, '2026-07-31'), (140538, '2026-10-30')],      # one charged after check-in
+    [(140538, '2026-07-31'), (140539, '2026-07-31')],      # different amount
+])
+def test_holds_without_an_exact_group_are_not_labelled(context, cards):
+    store, data, _, _ = context
+    trip_holds(data, [(140538, '2026-10-21', '2026-10-22'), (140538, '2026-10-22', '2026-10-23')], cards)
+    assert stays.stay_index(store) == {}

@@ -1070,8 +1070,35 @@ def _service_date_labels(row):
     return labels
 
 
+_PREAUTH_REFUND = {'refunded': '환불 완료', 'partly_refunded': '일부 환불', 'not_refunded': '환불 전'}
+
+
+def _preauthorization_labels(row):
+    """A Trip.com guarantee hold for a pay-at-property hotel: not a stay, and refunded after checkout."""
+    if not str(row.get('row_id') or '').startswith('card-') or str(row.get('service_period') or '').strip():
+        return None
+    index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
+    found = index.get(str(row.get('source_event_id') or str(row['row_id'])[5:])) or {}
+    evidence = found.get('ota_evidence') or {}
+    if evidence.get('kind') != 'card_preauthorization':
+        return None
+    refund = _PREAUTH_REFUND.get(evidence.get('refund'), '환불 확인 필요')
+    periods = evidence.get('periods') or []
+    if len(periods) == 1:
+        start, end = (date.fromisoformat(value) for value in periods[0].split('~'))
+        stay = f"숙박 {periods[0].replace('~', '–')}"
+        compact = f"{start:%m.%d}–{end:%m.%d} 사전승인"
+    else:
+        stay = '숙박 ' + ' 또는 '.join(p.replace('~', '–') for p in periods) if periods else '숙박일 미상'
+        compact = '사전승인'
+    return compact, f"카드 사전승인(현장 결제 숙박 보증) · {stay} · {refund}"
+
+
 def _service_date_labels_for(row):
     item = str(row.get('item') or '').strip()
+    preauthorization = _preauthorization_labels(row) if item == '숙박비' else None
+    if preauthorization:
+        return preauthorization
     if item == '숙박비':
         compact, full = _compact_stay(row), _stay_text(row)
         if full == '이용일 확인 필요':
