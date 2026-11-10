@@ -445,6 +445,7 @@ def home_page(board):
              ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:var(--c-on-accent)}"
             ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:var(--c-on-accent)}"
             ".home-primary{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 0 10px!important}"
+            ".home-secondary{display:flex;gap:10px;flex-wrap:wrap}"
             ".home-travel-section{padding:18px 24px 22px}"
             ".home-travel-heading{font-size:var(--t-h3)!important;margin:0 0 8px!important}"
             ".home-trips{margin:0 0 8px!important}"
@@ -474,7 +475,7 @@ def home_page(board):
             + (f"<li><span>영수증</span><strong>이번 달 등록 {receipt_count}건</strong> <a href='/receipts'>영수증 열기</a></li>" if receipt_review.enabled() else "")
             + (f"<li><span>여행 일정 조회</span><strong>다음 조회 {esc(next_note)}</strong></li>" if next_note else "")
             + "</ul>"
-            f"<a class='btn primary home-primary' href='/cards/all?panel=upload'>{ui_icons.icon('upload')}카드 업로드</a>"
+            f"<div class='home-secondary'><a class='btn primary home-primary' href='/cards/all?panel=upload'>{ui_icons.icon('upload')}카드 업로드</a></div>"
             "</section>"
             + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips[:8])}</h2>"
             + ("<div class='data-table-wrap'><table class='data-table'><thead><tr><th>여행</th><th>기간</th><th>지출</th><th>마감</th></tr></thead><tbody>" + items + "</tbody></table></div>"
