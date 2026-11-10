@@ -12,7 +12,7 @@ def record(order_id=1400800000000001, preauth=421614, refunds=((421614, 'SUCCESS
         'observed_at': '2026-11-10T06:00:00+00:00',
         'order': {'OrderID': order_id, 'BookingDate': '/Date(1785427200000+0800)/'},
         'detail': {
-            'orderCommonInfo': {'orderStatusCode': status, 'checkInDate': check_in, 'checkOutDate': check_out},
+            'orderCommonInfo': {'orderId': order_id, 'orderStatusCode': status, 'checkInDate': check_in, 'checkOutDate': check_out},
             'priceInfo': {
                 'tripPriceDetail': {'additionalInfo': {'payType': pay_type},
                                     'preAuthorizationInfo': {'currency': 'KRW', 'amount': preauth}},
@@ -45,9 +45,14 @@ def test_refund_progress_and_prepaid_orders(kwargs, refund):
         assert fact['preauthorization_amount_krw'] is None
 
 
-def test_a_response_for_another_order_is_refused():
+@pytest.mark.parametrize('break_identity', [
+    lambda d: d['priceInfo']['refundInfo']['refundProgressModalParam'].update(orderID=1),
+    lambda d: d['orderCommonInfo'].update(orderId=1),
+    lambda d: (d['orderCommonInfo'].pop('orderId'), d['priceInfo'].pop('refundInfo')),
+])
+def test_a_response_for_another_order_or_without_its_order_is_refused(break_identity):
     raw = record()
-    raw['detail']['priceInfo']['refundInfo']['refundProgressModalParam']['orderID'] = 1
+    break_identity(raw['detail'])
     with pytest.raises(ValueError, match='TRIP_API_ORDER_IDENTITY_MISMATCH'):
         parse_hotel_detail(raw)
 

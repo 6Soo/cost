@@ -40,6 +40,17 @@ def _won(value):
     return number if number >= 0 else None
 
 
+def _order_ids(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key.lower() == 'orderid' and isinstance(value, (int, str)) and str(value).isdigit():
+                yield str(value)
+            yield from _order_ids(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _order_ids(value)
+
+
 def parse_hotel_detail(record):
     """One saved record as a Trip reservation fact. A response for another order raises."""
     order, detail = record.get('order') or {}, record.get('detail') or {}
@@ -47,14 +58,13 @@ def parse_hotel_detail(record):
     if not re.fullmatch(r'\d{8,20}', number):
         raise ValueError('TRIP_API_ORDER_REQUIRED')
     price = detail.get('priceInfo') or {}
-    refund_param = ((price.get('refundInfo') or detail.get('refundInfo') or {}).get('refundProgressModalParam') or {})
     hotel_map = ((detail.get('hotelMapInfo') or {}).get('hotelMapParam') or {})
-    identities = {str(v) for v in (refund_param.get('orderID'),) if v}
-    if identities and identities != {number}:
-        raise ValueError('TRIP_API_ORDER_IDENTITY_MISMATCH')
     common = detail.get('orderCommonInfo') or {}
     if not common:
         raise ValueError('TRIP_API_DETAIL_REQUIRED')
+    # The detail must name its own order, and every order id it carries must be the listed one.
+    if str(common.get('orderId') or '') != number or set(_order_ids(detail)) != {number}:
+        raise ValueError('TRIP_API_ORDER_IDENTITY_MISMATCH')
     start, end = _ymd(common.get('checkInDate') or hotel_map.get('checkInDate')), _ymd(common.get('checkOutDate') or hotel_map.get('checkOutDate'))
     if start and end and end < start:
         raise ValueError('TRIP_API_INVALID_SERVICE_PERIOD')

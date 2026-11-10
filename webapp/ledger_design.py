@@ -1084,14 +1084,17 @@ def _preauthorization_labels(row):
         return None
     refund = _PREAUTH_REFUND.get(evidence.get('refund'), '환불 확인 필요')
     periods = evidence.get('periods') or []
-    if len(periods) == 1:
+    cancelled = evidence.get('cancelled')
+    # A cancelled order was never stayed: its dates are the original booking, not a use date.
+    label = '숙박' if cancelled in (None, 'none') else '원래 숙박'
+    if len(periods) == 1 and cancelled in (None, 'none'):
         start, end = (date.fromisoformat(value) for value in periods[0].split('~'))
-        stay = f"숙박 {periods[0].replace('~', '–')}"
         compact = f"{start:%m.%d}–{end:%m.%d} 사전승인"
     else:
-        stay = '숙박 ' + ' 또는 '.join(p.replace('~', '–') for p in periods) if periods else '숙박일 미상'
-        compact = '사전승인'
-    return compact, f"카드 사전승인(현장 결제 숙박 보증) · {stay} · {refund}"
+        compact = '사전승인(취소)' if cancelled == 'all' else '사전승인'
+    stay = (label + ' ' + ' 또는 '.join(p.replace('~', '–') for p in periods)) if periods else '숙박일 미상'
+    kind = {'all': '취소된 예약 보증', 'some': '현장 결제 숙박 보증, 일부 취소'}.get(cancelled, '현장 결제 숙박 보증')
+    return compact, f"카드 사전승인({kind}) · {stay} · {refund}"
 
 
 def _service_date_labels_for(row):

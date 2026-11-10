@@ -108,6 +108,8 @@ def _trip_preauthorization_cards(data, manual):
     from app.ota_matching_defaults import provider_for_merchant
     holds = [e for e in data.get('events', [])
              if e.get('provider') == 'trip' and e.get('evidence_kind') == 'portal_preauthorization'
+             # A cancelled order's hold was still charged; an order of unknown state is not used.
+             and e.get('reservation_status') in ('confirmed', 'completed', 'cancelled')
              and isinstance(e.get('preauthorization_amount_krw'), int) and e['preauthorization_amount_krw'] > 0]
     if not holds:
         return {}
@@ -178,6 +180,9 @@ def _trip_preauthorization_cards(data, manual):
             result[tid] = {'booking_ref': refs[0] if len(refs) == 1 else '', 'booking_refs': refs,
                            'service_period': (periods[0][0] + '~' + periods[0][1]) if len(periods) == 1 else '',
                            'ota_evidence': {'kind': 'card_preauthorization', 'refund': refund,
+                                            'cancelled': ('all' if all(e.get('reservation_status') == 'cancelled' for e in events)
+                                                          else 'some' if any(e.get('reservation_status') == 'cancelled' for e in events)
+                                                          else 'none'),
                                             'refunded_krw': events[0].get('preauthorization_refunded_krw') if len(events) == 1 else None,
                                             'periods': [a + '~' + b for a, b in periods],
                                             'payment_verified': False}}

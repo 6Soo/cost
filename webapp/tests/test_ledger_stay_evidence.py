@@ -803,3 +803,18 @@ def test_holds_without_an_exact_group_are_not_labelled(context, cards):
     store, data, _, _ = context
     trip_holds(data, [(140538, '2026-10-21', '2026-10-22'), (140538, '2026-10-22', '2026-10-23')], cards)
     assert stays.stay_index(store) == {}
+
+
+def test_a_cancelled_orders_hold_reads_as_a_cancelled_booking_guarantee(context):
+    store, data, _, _ = context
+    trip_holds(data, [(281076, '2026-10-21', '2026-10-22')], [(281076, '2026-07-31')])
+    data['events'][0].update(reservation_status='cancelled', preauthorization_refund='partly_refunded')
+    assert preauth_labels(store, 't0') == (
+        '사전승인(취소)', '카드 사전승인(취소된 예약 보증) · 원래 숙박 2026-10-21–2026-10-22 · 일부 환불')
+
+
+def test_an_order_of_unknown_state_is_not_used(context):
+    store, data, _, _ = context
+    trip_holds(data, [(281076, '2026-10-21', '2026-10-22')], [(281076, '2026-07-31')])
+    data['events'][0]['reservation_status'] = 'unknown'
+    assert stays.stay_index(store) == {}
