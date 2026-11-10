@@ -86,7 +86,6 @@ def test_baseline_equivalence_ota_snapshot_evidence(baseline_ns):
         for old, new in (
             ('>코드 추론<', '>자동<'), ('>예약 코드 추론<', '>자동<'),
             ('그룹 부분 대응·보류', '그룹 부분 대응·재검토'),
-            ('결제 근거 확인 필요', '결제 근거 미확인'),
             ('장부 기록은 금융 검증 후 허용</span>', '장부 기록은 금융 검증 후 허용됩니다.</span>'),
             ('사용자 재확인 필요', '원본 자료를 확인해 주세요'),
         ):
@@ -107,7 +106,7 @@ def test_baseline_equivalence_ota_snapshot_evidence(baseline_ns):
         if entry.get('ota_status') == 'REVIEW_REQUIRED':
             assert '재검토' in wrapper_html
         if entry.get('ota_status') == 'UNLINKED':
-            assert '결제 근거 미확인' in wrapper_html
+            assert '결제 근거 확인 필요' in wrapper_html
 
 
 def test_baseline_equivalence_catalog_block(baseline_ns):

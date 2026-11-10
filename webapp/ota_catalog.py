@@ -1137,7 +1137,7 @@ def _render_html_legacy(data, query, *, csrf=''):
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
               if row.get('card_candidates') else '') +
              ("<br><small>예약 관계: " + esc(' / '.join(
-                 f"{'자동 연결' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 원본을 확인해 주세요' if link.get('status') == 'STALE' else '예약 관계 미확인'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
+                 f"{'예약 코드 추론' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 원본을 확인해 주세요' if link.get('status') == 'STALE' else '예약 관계 미확인'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
                  for link in row.get('reservation_links') or ())) + "</small>"
               if row.get('reservation_links') else '')),
             ('여행 배정', trip_cell))) + '</tr>')

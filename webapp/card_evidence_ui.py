@@ -81,7 +81,7 @@ def render_ota_snapshot_evidence(
         'REVIEW_REQUIRED': ('그룹 부분 대응·재검토', 'bad'),
         'CANDIDATE': ('후보 존재·미연결', 'idle'),
         'MULTIPLE_CANDIDATES': ('복수 후보·개별 미확정', 'warn'),
-        'UNLINKED': ('OTA 결제 연결 없음 · 결제 근거 미확인', 'idle'),
+        'UNLINKED': ('OTA 결제 연결 없음 · 결제 근거 확인 필요', 'idle'),
     }
     label, tone = status_labels.get(status, ('연결 상태 확인 대기', 'idle'))
     # Keep the legacy evidence hook for callers and styles while exposing the

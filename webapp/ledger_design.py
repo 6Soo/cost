@@ -719,7 +719,7 @@ def _row_party_sub(row) -> str:
     if item == "숙박비":
         period = _stay_period(row)
         match = _STAY_PATTERN.fullmatch(period)
-        if match and _stay_text(row) != "이용일 원문 없음":
+        if match and _stay_text(row) != "이용일 확인 필요":
             from datetime import date
             start, end = (date.fromisoformat(value) for value in match.groups())
             # Only a whole description segment repeating the displayed period is redundant.
@@ -771,7 +771,7 @@ def _stay_text(row) -> str:
     rather than guessed. The card's approval or payment date is a different fact.
     """
     from datetime import date, timedelta
-    unknown = "이용일 원문 없음"
+    unknown = "이용일 확인 필요"
     period = _stay_period(row)
     match = _STAY_PATTERN.fullmatch(period)
     if not match:
@@ -809,7 +809,7 @@ def _compact_stay(row) -> str:
     """Compact table label; keep complete dates and inference in the tooltip."""
     full = _stay_text(row)
     match = _STAY_PATTERN.fullmatch(_stay_period(row))
-    if full == '이용일 원문 없음' or not match:
+    if full == '이용일 확인 필요' or not match:
         return full
     from datetime import date
     start, end = (date.fromisoformat(value) for value in match.groups())
@@ -960,7 +960,7 @@ def _trip_periods():
     return periods
 
 
-_UNKNOWN_SERVICE_DATES = ('이용일 원문 없음', '이용일 미확인')
+_UNKNOWN_SERVICE_DATES = ('이용일 확인 필요', '이용일 미확인')
 
 
 def _service_date_labels(row):
@@ -1005,7 +1005,7 @@ def _service_date_labels_for(row):
         return preauthorization
     if item == '숙박비':
         compact, full = _compact_stay(row), _stay_text(row)
-        if full == '이용일 원문 없음':
+        if full == '이용일 확인 필요':
             return _onsite_payment_label(row, 'lodging') or (compact, full)
         return compact, full
     if item in ('항공료', '항공권'):
@@ -1018,7 +1018,7 @@ def _service_date_labels_for(row):
         except ValueError:
             valid = False
         if not valid:
-            return _onsite_payment_label(row, 'rental') or ('이용일 원문 없음', '렌터카 인수·반납일 원문 없음')
+            return _onsite_payment_label(row, 'rental') or ('이용일 미확인', '렌터카 인수·반납일 미확인')
         fmt = '%y.%m.%d' if start.year != end.year else '%m.%d'
         return (start.strftime(fmt) + '–' + end.strftime(fmt),
                 '렌터카 인수 ' + start.isoformat() + ' · 반납 ' + end.isoformat())
