@@ -393,7 +393,7 @@ def test_ota_service_factory_checks_local_key_again_before_publication(tmp_path,
     monkeypatch.setattr(review, 'review_db_path', lambda: str(tmp_path / 'review.sqlite'))
     monkeypatch.setattr(review, 'input_key', lambda board: state['key'])
     monkeypatch.setattr(review, 'current_input_key', lambda board: state['key'])
-    def reconcile(_board):
+    def reconcile(_board, *, cancel_event=None):
         state['key'] = 'after'
         return {'public': {}, 'results': [], 'links': {}, 'data': {}}
     monkeypatch.setattr(review, 'reconcile_in_child', reconcile)

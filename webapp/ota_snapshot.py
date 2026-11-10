@@ -117,7 +117,7 @@ class OtaSnapshotService:
     def __init__(self, *, key_fn, reconcile_fn, persist_path=None, log_path=None, clock=time.monotonic,
                  check_seconds=CHECK_SECONDS, fresh_seconds=FRESH_SECONDS, retry_seconds=RETRY_SECONDS,
                  first_wait_seconds=FIRST_WAIT_SECONDS, start=True, on_published=None,
-                 profile_memory=False, verify_key_fn=None):
+                 profile_memory=False, verify_key_fn=None, cancel_event=None):
         self._key_fn = key_fn
         self._verify_key_fn = verify_key_fn
         self._reconcile_fn = reconcile_fn
@@ -139,6 +139,7 @@ class OtaSnapshotService:
         self._role_inactive = True
         self._wake = threading.Event()
         self._stopping = False
+        self._cancel_event = cancel_event
         self._current = None
         self._checked_key = None
         self._checked_at = None
@@ -180,6 +181,8 @@ class OtaSnapshotService:
         with self._lock:
             self._stopping = True
             thread = self._thread
+        if self._cancel_event is not None:
+            self._cancel_event.set()
         self._wake.set()
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout)
