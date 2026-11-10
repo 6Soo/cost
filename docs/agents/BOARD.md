@@ -7,7 +7,7 @@
 
 | ID | 작업 | 명세 절 | 작업자 | 브랜치 | 상태 | 통과 조건 |
 | --- | --- | --- | --- | --- | --- | --- |
-| INC-P2 | 읽기 과다·준비 응답 장애의 승인된 롤백 | §13·Fable 장애 복구 지시 | 관리자 `c89bbda2` | `docs/p2-pilot-stop-20261111` | 06:13:42 KST 운영 `965bca05` 롤백 완료. health/ready 정상·데이터 불변. 읽기량 감소 실측, 평상 기준선 미검증 | 5DB SQLite 백업/별도복원 PASS, Board/Worker/listener SHA 일치, 8751/8790 health/ready200·401, 보호13표·원본/수동/관련14표 불변, P2/fulloff. 두10초 읽기5.54MB/s·395B/s. [장애 기록](../operations.md) |
+| INC-P2 | 읽기 과다·준비 응답 장애의 승인된 롤백 | §13·Fable 장애 복구 지시 | 관리자 `c89bbda2` | `docs/p2-pilot-stop-20261111` | 06:13:42 KST 운영 `965bca05` 롤백 완료. health/ready 정상·데이터 불변. 읽기량 감소 실측, 평상 기준선 미검증 | 5DB SQLite 백업/별도복원 PASS, Board/Worker/listener SHA 일치, 8751/8790 health/ready200·401, 보호13표·원본/수동/관련14표 불변, P2/fulloff. 두10초 읽기5.54MB/s·395B/s, +15분 실측117.42MB/s·5.36MB/s(재상승 1구간). [장애 기록](../operations.md) |
 | A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료·archive | `docs/decisions-20261111-a` | COMPLETE — #795 병합 `6c160d54` | 통합 문서 링크·diff PASS, 최종 sol medium 검수, 배포 없음 |
 | B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료·archive | `ops/m1-baseline-20261111` | COMPLETE — #795 병합 `6c160d54`, 관리자 실제 재현 exit 0 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
 | D1 | Windows P2 조사·도구 없는 어댑터 결정 | §6.2·§6.3·§6.6 | sol high `90a8007b` 조사 완료·archive | `research/p2-isolation-20261111` → #796 | COMPLETE — 문서 병합 `1ad1364d`, stdin 직접 주입 승인 | 최종 `5e78bf06` sol medium 승인·문서 검사 통과. probe 제외, OS 격리 수락 아님. 실제 도구 미실행·예약 Worker 완료는 D5 검증 |
