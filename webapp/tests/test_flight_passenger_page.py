@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import sqlite3
 import tempfile
@@ -124,14 +125,16 @@ def test_handler_wraps_flight_page_with_shared_navigation():
     with patch.object(ledger_board, 'ACCESS_ENFORCEMENT', False):
         ledger_board.Handler._send(response, page._legacy_page('csrf-synth'))
     rendered = response.wfile.getvalue().decode('utf-8')
-    assert rendered.count("id='nav'") == 1
+    assert len(re.findall(r'id=["\x27]nav["\x27]', rendered)) == 1
     assert rendered.count('id="site-content"') == 1
-    assert rendered.count('class="site-menu-toggle"') == 1
-    assert rendered.count('<main id=\'flight-passenger-page\'>') == 1
-    assert '<head>' in rendered and '<body class="site-standalone">' in rendered
+    # New shell (UI/UX spec §6.1): bottom tabs + more sheet, page main kept as a div.
+    assert rendered.count("class='site-bottom-nav'") == 1
+    assert rendered.count("<div id='flight-passenger-page'>") == 1
+    assert "<main id='main' class='page'>" in rendered
+    assert '<head>' in rendered and '<body class="site-shell-body">' in rendered
     assert '</body></html>' in rendered
     assert '#flight-passenger-page form' in rendered
-    assert "id='nav'" in rendered and "class='site-links'" in rendered
+    assert re.search(r'id=["\x27]nav["\x27]', rendered) and "class='site-links'" in rendered
 
 
 @pytest.mark.parametrize('renderer,heading,field', [
@@ -182,12 +185,14 @@ def test_browser_wrapped_flight_page_responsive_theme_and_zoom(renderer, heading
             assert booking_ref.evaluate('(el)=>el===document.activeElement')
 
             browser_page.evaluate('document.documentElement.style.zoom="100%"')
-            menu = browser_page.get_by_role('button', name='전체 메뉴 열기')
+            browser_page.set_viewport_size({'width': 390, 'height': 812})
+            menu = browser_page.locator('#site-more-toggle')
             menu.focus()
             menu.press('Enter')
-            assert browser_page.locator('#nav').evaluate('(el)=>el.classList.contains("open")')
-            browser_page.locator('#nav').press('Escape')
-            assert not browser_page.locator('#nav').evaluate('(el)=>el.classList.contains("open")')
+            sheet = browser_page.locator('#site-more-dialog')
+            assert sheet.evaluate('(el)=>el.open')
+            browser_page.keyboard.press('Escape')
+            assert not sheet.evaluate('(el)=>el.open')
             assert menu.evaluate('(el)=>el===document.activeElement')
         finally:
             browser.close()

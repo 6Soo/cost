@@ -51,7 +51,7 @@ def test_missing_period_precedes_files_and_keeps_upload_context(card_db_path, mo
             expect(sources.locator('.card-coverage-file').first).not_to_be_visible()
             assert page.locator('.card-coverage-metrics').count() == 0
             assert not page.locator('#card-coverage-summary').inner_text().count('합집합')
-            for theme, next_label in [('dark', '라이트모드로 전환'), ('light', '다크모드로 전환')]:
+            for theme, next_label in [('dark', '밝은 화면으로 전환'), ('light', '어두운 화면으로 전환')]:
                 page.emulate_media(color_scheme=theme)
                 expect(page.locator('#site-theme-toggle')).to_have_attribute('aria-label', next_label)
                 contrasts = page.locator('.card-coverage-period.is-missing').evaluate('''root => {
