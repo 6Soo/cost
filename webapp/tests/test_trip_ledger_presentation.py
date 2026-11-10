@@ -64,21 +64,21 @@ def test_browser_expense_table_keeps_long_party_and_service_dates_reachable(monk
                     choose_theme(theme)
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     if width == 375:
-                        date = page.locator('.li .d')
+                        date = page.locator('.li .lr-secondary')
                         merchant_text = page.locator('.li .mobile-party .t')
-                        assert date.is_visible() and date.inner_text() == '2026-06-30'
+                        assert date.is_visible() and date.inner_text().startswith('06-30')
                         assert merchant_text.is_visible()
                         assert ' '.join(merchant.split()) in ' '.join(merchant_text.inner_text().split())
                         date_box, merchant_box = date.bounding_box(), merchant_text.bounding_box()
                         assert 0 <= date_box['x'] < width and date_box['x'] + date_box['width'] <= width
-                        assert date_box['y'] + date_box['height'] <= merchant_box['y']
+                        assert merchant_box['y'] + merchant_box['height'] <= date_box['y']
                         assert merchant_box['x'] >= 0 and merchant_box['x'] + merchant_box['width'] <= width
                         assert merchant_text.evaluate('(el) => getComputedStyle(el).whiteSpace') == 'normal'
                     else:
                         date_cell = page.locator('.c-date')
                         stay_cell = page.locator('.c-stay')
                         amount_cell = page.locator('.c-amt')
-                        assert date_cell.is_visible() and date_cell.inner_text() == '2026-06-30'
+                        assert date_cell.is_visible() and date_cell.inner_text() == '06-30'
                         assert stay_cell.is_visible() and stay_cell.inner_text() == '06.30–07.01 · 1박'
                         assert '6월 30일(화) ~ 7월 1일(수)' in stay_cell.get_attribute('title')
                         date_box = date_cell.bounding_box()
@@ -97,13 +97,13 @@ def test_browser_expense_table_keeps_long_party_and_service_dates_reachable(monk
             page.evaluate('document.documentElement.style.zoom="200%"')
             for theme in ('dark', 'light'):
                 choose_theme(theme)
-                date = page.locator('.li .d')
+                date = page.locator('.li .lr-secondary')
                 merchant_text = page.locator('.li .mobile-party .t')
-                assert date.is_visible() and date.inner_text() == '2026-06-30'
+                assert date.is_visible() and date.inner_text().startswith('06-30')
                 assert merchant_text.is_visible()
                 assert ' '.join(merchant.split()) in ' '.join(merchant_text.inner_text().split())
                 date_box, merchant_box = date.bounding_box(), merchant_text.bounding_box()
-                assert date_box['y'] + date_box['height'] <= merchant_box['y']
+                assert merchant_box['y'] + merchant_box['height'] <= date_box['y']
                 assert merchant_box['x'] + merchant_box['width'] <= page.evaluate('innerWidth')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         finally:

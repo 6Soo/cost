@@ -1,6 +1,13 @@
 
 (function(){
  document.addEventListener('DOMContentLoaded',function(){
+  var tripMore=document.getElementById('trip-settings');
+  if(tripMore){
+   var tripMoreSummary=tripMore.querySelector('summary');
+   var syncTripMore=function(){if(tripMoreSummary)tripMoreSummary.setAttribute('aria-expanded',String(tripMore.open));};
+   tripMore.addEventListener('toggle',syncTripMore);
+   syncTripMore();
+  }
   if(!document.querySelector('.trip-actions'))return;
   document.documentElement.classList.add('trip-actions-ready');
   function sync(){
@@ -39,6 +46,150 @@
   }).observe(region,{childList:true});
   sync();
  });
+})();
+
+/* PR-4 ledger workspace: APG tabs, grouped expense rows, and native drawer. */
+(function(){
+  function drawer(){return document.getElementById('ledger-drawer');}
+  function rowSelector(){return '.tw tr[data-id],.lst .list-row[data-id]';}
+  function rowIds(){return Array.from(document.querySelectorAll(rowSelector())).filter(function(row){return row.getClientRects().length;});}
+  function setRow(id){
+    var url=new URL(location.href);
+    if(id)url.searchParams.set('row',id);else url.searchParams.delete('row');
+    history.replaceState(null,'',url.toString());
+  }
+  var opener=null;
+  function closeDrawer(){
+    var dialog=drawer();if(!dialog||!dialog.open)return;
+    var form=dialog.querySelector('form[data-js-save]');
+    if(form&&form.dataset.dirty==='1'&&!window.confirm('저장하지 않은 변경이 있습니다. 닫을까요?'))return;
+    dialog.close();setRow('');
+    document.querySelectorAll('[data-id][aria-selected=true]').forEach(function(row){row.removeAttribute('aria-selected');row.setAttribute('aria-expanded','false');});
+    if(opener&&opener.isConnected)opener.focus({preventScroll:true});
+  }
+  function markOpen(id){
+    document.querySelectorAll('[data-id]').forEach(function(row){
+      var selected=row.dataset.id===id;
+      if(selected)row.setAttribute('aria-selected','true');else row.removeAttribute('aria-selected');
+      row.setAttribute('aria-expanded',selected?'true':'false');
+    });
+  }
+  function showDrawer(id){
+    var dialog=drawer();if(!dialog||!id)return;
+    var existing=dialog.querySelector('#panel');
+    if(existing&&existing.dataset.row===id){closeDrawer();return;}
+    var row=Array.from(document.querySelectorAll(rowSelector())).find(function(item){return item.dataset.id===id;});
+    if(row)opener=row;
+    var slot=dialog.querySelector('#panel-slot');
+    var url=new URL(location.href);url.searchParams.set('row',id);
+    slot.setAttribute('aria-busy','true');
+    fetch(url.toString(),{headers:{'X-Part':'panel'},credentials:'same-origin'}).then(function(response){
+      if(!response.ok)throw new Error('PANEL_LOAD_FAILED');return response.text();
+    }).then(function(markup){
+      var probe=document.createElement('div');probe.innerHTML=markup;
+      if(!probe.querySelector('#panel'))throw new Error('PANEL_LOAD_FAILED');
+      slot.innerHTML=markup;markOpen(id);setRow(id);
+      if(!dialog.open)dialog.showModal();
+      var panel=slot.querySelector('#panel');if(panel)panel.focus({preventScroll:true});
+    }).catch(function(){
+      var status=document.getElementById('status');if(status){status.textContent='거래 상세를 불러오지 못했습니다. 다시 시도해 주세요.';status.setAttribute('role','alert');}
+    }).finally(function(){slot.removeAttribute('aria-busy');});
+  }
+  function activateTab(button,focus){
+    var root=button.closest('.view-tabs');if(!root)return;
+    var buttons=Array.from(root.querySelectorAll('[role=tab]'));
+    buttons.forEach(function(item){
+      var active=item===button;item.setAttribute('aria-selected',active?'true':'false');item.tabIndex=active?0:-1;
+      var panel=document.getElementById(item.getAttribute('aria-controls'));if(panel)panel.hidden=!active;
+      if(!item.id)item.id='tab-'+item.getAttribute('aria-controls');
+      if(panel)panel.setAttribute('aria-labelledby',item.id);
+    });
+    if(focus)button.focus();
+  }
+  function tabForHash(hash){
+    var map={'#trip-income':'view-income','#participant-trip-panel':'view-participants','#trip-reservations':'view-reservations','#trip-expense-copy':'view-expense','#copy-trip-expenses':'view-expense'};
+    return map[hash]||((hash||'').replace(/^#/,'').indexOf('view-')===0?(hash||'').slice(1):'');
+  }
+  function restoreHash(){
+    var id=tabForHash(location.hash);if(!id)return;
+    var button=document.querySelector('[role=tab][aria-controls="'+CSS.escape(id)+'"]');if(button){activateTab(button,false);var target=document.getElementById(id);if(target)setTimeout(function(){var anchor=target.querySelector(location.hash);(anchor||target).scrollIntoView({block:'start'});},0);}
+  }
+  var grouping=false;
+  function groupExpenses(){
+    if(grouping)return;
+    grouping=true;
+    try{
+    var table=document.getElementById('tbl'),toggle=document.querySelector('[data-group-expenses]');if(!table||!toggle)return;
+    var body=table.querySelector('tbody.expense-rows[data-kind=expense]');if(!body)return;
+    body.querySelectorAll('.group-row').forEach(function(row){row.remove();});
+    var rows=Array.from(body.querySelectorAll(':scope > tr[data-id]'));
+    var entries=rows.map(function(row,index){
+      if(row.dataset.ledgerOrder===undefined)row.dataset.ledgerOrder=String(index);
+      return {row:row,move:body.querySelector('[data-move-for="'+CSS.escape(row.dataset.id)+'"]')};
+    });
+    // Detach the data rows and their optional move forms before rebuilding the
+    // body. Otherwise new group headers would be appended after the original
+    // rows and the grouping toggle would appear to do nothing.
+    entries.forEach(function(entry){
+      entry.row.remove();
+      if(entry.move)entry.move.remove();
+    });
+    if(!toggle.checked){
+      entries.sort(function(a,b){return Number(a.row.dataset.ledgerOrder)-Number(b.row.dataset.ledgerOrder);});
+      entries.forEach(function(entry){body.appendChild(entry.row);if(entry.move)body.appendChild(entry.move);});
+      return;
+    }
+    var groups=new Map();entries.forEach(function(entry){var key=entry.row.dataset.category||'기타';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(entry);});
+    groups.forEach(function(items,key){
+      items.sort(function(a,b){return Number(a.row.dataset.ledgerOrder)-Number(b.row.dataset.ledgerOrder);});
+      var total=items.reduce(function(sum,entry){return sum+Number(entry.row.dataset.amount||0);},0);
+      var head=document.createElement('tr');head.className='group-row';
+      var cell=document.createElement('th');cell.scope='rowgroup';cell.colSpan=table.querySelectorAll('thead th').length;cell.textContent=key+' · '+items.length+'건';
+      var totalSpan=document.createElement('span');totalSpan.className='group-total';totalSpan.textContent=new Intl.NumberFormat('ko-KR').format(total)+'원';cell.appendChild(totalSpan);head.appendChild(cell);body.appendChild(head);
+      items.forEach(function(entry){body.appendChild(entry.row);if(entry.move)body.appendChild(entry.move);});
+    });
+    }finally{grouping=false;}
+  }
+  document.addEventListener('click',function(event){
+    var target=event.target;
+    var tabButton=target.closest&&target.closest('[role=tab]');
+    if(tabButton){event.preventDefault();event.stopImmediatePropagation();activateTab(tabButton,false);return;}
+    var tripOpen=target.closest&&target.closest('#trip-switch-open');
+    if(tripOpen){event.preventDefault();var d=document.getElementById('trip-switch-dialog');if(d)d.showModal();return;}
+    if(target.closest&&target.closest('[data-trip-switch-close]')){var d=document.getElementById('trip-switch-dialog');if(d)d.close();return;}
+    if(target.closest&&target.closest('[data-drawer-close],#drawer-close,#p-close,#p-cancel')){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
+    var row=target.closest&&target.closest(rowSelector());
+    if(row&&!target.closest('form,select,input,textarea,a:not(.lr-hit)')){event.preventDefault();event.stopImmediatePropagation();showDrawer(row.dataset.id);return;}
+  },true);
+  document.addEventListener('keydown',function(event){
+    if(event.key==='Escape'&&drawer()&&drawer().open){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
+    if((event.key==='Enter'||event.key===' '||event.key==='Spacebar')){
+      var row=event.target.closest&&event.target.closest(rowSelector());
+      if(row&&!event.target.closest('button,select,input,textarea,a')){
+        event.preventDefault();event.stopImmediatePropagation();showDrawer(row.dataset.id);return;
+      }
+    }
+    var tab=event.target.closest&&event.target.closest('[role=tab]');if(!tab)return;
+    var tabs=Array.from(tab.closest('[role=tablist]').querySelectorAll('[role=tab]')),index=tabs.indexOf(tab),next=index;
+    if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;
+    event.preventDefault();event.stopImmediatePropagation();activateTab(tabs[next],true);
+  },true);
+  document.addEventListener('DOMContentLoaded',function(){
+    var dialog=drawer(),panel=dialog&&dialog.querySelector('#panel');if(dialog&&panel&&!dialog.open)dialog.showModal();
+    var close=dialog&&dialog.querySelector('[data-drawer-close]');if(close)close.addEventListener('click',closeDrawer);
+    var switcher=document.getElementById('trip-switch-dialog'),search=document.getElementById('trip-switch-search');
+    if(switcher) switcher.addEventListener('close',function(){if(search)search.value='';});
+    if(search)search.addEventListener('input',function(){var q=search.value.trim().toLocaleLowerCase();document.querySelectorAll('[data-trip-switch-item]').forEach(function(item){item.parentElement.hidden=!!q&&!item.textContent.toLocaleLowerCase().includes(q);});});
+    var tabs=document.querySelectorAll('[role=tab]');tabs.forEach(function(tab,index){tab.id=tab.id||'tab-'+tab.getAttribute('aria-controls');tab.tabIndex=tab.getAttribute('aria-selected')==='true'?0:-1;var panel=document.getElementById(tab.getAttribute('aria-controls'));if(panel)panel.setAttribute('aria-labelledby',tab.id);if(index===0&&!tab.hasAttribute('aria-selected'))activateTab(tab,false);});
+    restoreHash();window.addEventListener('hashchange',restoreHash);
+    var toggle=document.querySelector('[data-group-expenses]');if(toggle){try{toggle.checked=localStorage.getItem('cost-board-group')==='1';}catch(error){};toggle.addEventListener('change',function(){try{localStorage.setItem('cost-board-group',toggle.checked?'1':'0');}catch(error){};groupExpenses();});groupExpenses();}
+    var live=document.getElementById('live-rows');
+    if(live&&window.MutationObserver)new MutationObserver(function(mutations){
+      if(grouping)return;
+      var replaced=mutations.some(function(m){return Array.from(m.addedNodes||[]).some(function(node){return node.id==='tbl'||node.querySelector&&node.querySelector('#tbl');});});
+      if(replaced)groupExpenses();
+    }).observe(live,{childList:true,subtree:true});
+  });
 })();
 (function(){
  document.addEventListener('click',async function(event){
@@ -812,7 +963,8 @@ document.addEventListener('keydown',function(e){
   // A finished save, and a row list that another screen replaced, both mean the
   // selection and the position beside the walking buttons have to be read again.
   window.addEventListener('ledger:saved',function(){markSelection();syncNav();});
-  if(panelRow())placeEditor(panelRow());
+  // PR-4 keeps the editor in the native ledger drawer; it is not moved beside
+  // the clicked row.
   window.addEventListener('resize',function(){
    window.requestAnimationFrame(function(){
     var id=panelRow(), slot=document.getElementById('panel-slot');

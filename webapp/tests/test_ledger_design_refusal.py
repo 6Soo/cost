@@ -116,8 +116,10 @@ class RefusalAndShellTests(unittest.TestCase):
         status, url, body = self._stale_save(secret)
         self.assertEqual(status, 409)
         self.assertNotIn(secret, url)
-        self.assertNotIn("9999", url)
-        lowered = url.lower()
+        target = urllib.parse.urlsplit(url).path + ("?" + urllib.parse.urlsplit(url).query
+                                                    if urllib.parse.urlsplit(url).query else "")
+        self.assertNotIn("9999", target)
+        lowered = target.lower()
         for marker in ("d=", "base64", "%3d"):
             self.assertNotIn(marker, lowered, marker)
         headers = " ".join(f"{k}:{v}" for k, v in getattr(

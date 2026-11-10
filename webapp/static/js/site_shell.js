@@ -12,6 +12,7 @@
  ];
  const actionLink=/검색|조회|초기화|돌아가기|장부로|장부 보기|상세|검토|다운로드|내보내기|추가|업로드|수정|관리|전체 보기|더 보기|이전|다음|새 창|원본|설정/;
  function decorate(el){
+  if(el.hasAttribute('data-no-action-icon'))return;
   if(el.closest('#nav,[role="tablist"],.site-theme-bar,.site-bottom-nav,.site-more-dialog')||el.matches('.site-back,.site-more-toggle,.site-more-bottom,#site-theme-toggle'))return;
   if(el.matches('.participant-row-connect,.participant-link-details > summary,.insurance-candidate-button,.insurance-participant-name,[data-pick-participant]'))return;
   if(el.matches('#flight-booking-page summary,.card-all-row-toggle,.cleanup-review > summary'))return;

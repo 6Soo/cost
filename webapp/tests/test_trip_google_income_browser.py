@@ -39,12 +39,14 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
         base = f'http://127.0.0.1:{self.port}'
         board_url = base + '/board?tab=' + trip['tab_id']
         page.goto(board_url)
+        page.get_by_role('tab', name='수입', exact=True).click()
         panel = page.locator('#google-trip-income')
         self.assertIn('수입 1,000원', panel.inner_text())
         self.assertNotIn('확정 수입', panel.inner_text())
         self.assertIn('INCOME-NAME', panel.inner_text())
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
         page.reload()
+        page.get_by_role('tab', name='수입', exact=True).click()
         self.assertIn('INCOME-NAME', page.locator('#google-trip-income').inner_text())
         page.evaluate("document.querySelectorAll('#google-trip-income .income-detail').forEach(d=>d.open=true)")
         link = page.locator('#google-trip-income').get_by_role('link', name='수입·지출 원본 상세')
@@ -97,6 +99,7 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
                     context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
                     page = context.new_page()
                     page.goto(board_url)
+                    page.get_by_role('tab', name='수입', exact=True).click()
 
                     # 1. Top summary shows coherent income, expense, and balance
                     sum_box = page.locator('#sum')
@@ -135,14 +138,13 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
                     self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
                     for cell in income_table.locator('tbody .income-total, tbody .income-breakdown:visible, tfoot .income-total').all():
                         self.assertLessEqual(cell.evaluate('el => el.scrollWidth'), cell.evaluate('el => el.clientWidth'))
-                    if width >= 760:
+                    if width >= 1024:
                         scroll = income_panel.locator('.google-income-scroll')
                         self.assertEqual(scroll.evaluate('el => getComputedStyle(el).overflowX'), 'auto')
-                        if width <= 900:
-                            self.assertGreater(scroll.evaluate('el => el.scrollWidth'), scroll.evaluate('el => el.clientWidth'))
-                            scroll.evaluate('el => el.scrollLeft = el.scrollWidth')
-                            insurance = income_table.locator('tbody .participant-insurance-cell')
-                            self.assertLessEqual(insurance.bounding_box()['x'] + insurance.bounding_box()['width'], width)
+                    else:
+                        scroll = income_panel.locator('.google-income-scroll')
+                        self.assertEqual(scroll.evaluate('el => getComputedStyle(el).overflowX'), 'visible')
+                        self.assertLessEqual(scroll.evaluate('el => el.scrollWidth'), scroll.evaluate('el => el.clientWidth') + 8)
                     self.assertEqual(income_table.locator('tbody .income-total').first.inner_text(), '54,840,000원')
                     context.close()
 
@@ -175,6 +177,7 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
         context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
         page = context.new_page()
         page.goto(f'http://127.0.0.1:{self.port}/board?tab=' + trip['tab_id'])
+        page.get_by_role('tab', name='수입', exact=True).click()
 
         # Discrepancy alert is visibly present adjacent to income
         alert = page.locator('.income-discrepancy-alert')
@@ -183,5 +186,5 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
 
         # Top summary reports mismatch and does NOT fabricate artificial balance
         sum_box = page.locator('#sum')
-        self.assertIn('합계 차이 있음', sum_box.inner_text())
-        self.assertNotIn('차액', sum_box.inner_text())
+        self.assertIn('장부 사본 선택 필요', sum_box.inner_text())
+        self.assertIn('—', sum_box.inner_text())

@@ -115,16 +115,17 @@ def test_internal_copy_labels_do_not_inflate_transaction_rows(copy_state):
                     assert '장부에 있음' not in visible_text
                     assert '복사 제외' not in visible_text
                     assert '대조 후보' not in visible_text
-                    dates = scope.locator('.d' if width < 760 else '.c-date')
+                    dates = scope.locator('.lr-secondary' if width < 760 else '.c-date')
                     assert dates.count() == len(rows)
-                    assert all(date.inner_text() == '2026-10-01' for date in dates.all())
+                    assert all((date.inner_text().startswith('10-01') if width < 760 else date.inner_text() == '10-01')
+                               for date in dates.all())
                     # The same transaction stays the same height regardless of its
                     # internal copy status; no extra status column or mobile line.
                     selector = '.li' if width < 760 else 'tr[data-id]'
                     heights = scope.locator(selector).evaluate_all(
                         'rows => rows.map(row => row.getBoundingClientRect().height)')
                     assert max(heights) - min(heights) < 1
-                    assert page.get_by_role('button', name='지출내용 복사').is_enabled()
+                    assert page.get_by_role('button', name='Google 장부용 복사').is_enabled()
         finally:
             browser.close()
     assert rows == before
@@ -155,7 +156,7 @@ def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_
             assert calls == [board.CSRF_TOKEN]
             assert page.locator('.income-sync [data-google-sync-status]').inner_text() == '수입 안내'
             assert page.get_by_role('button', name='장부 동기화').is_enabled()
-            assert page.get_by_role('button', name='지출내용 복사').is_disabled()
+            assert page.get_by_role('button', name='Google 장부용 복사').is_disabled()
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             for control in page.locator('.trip-copy-box .btn:visible').all():
                 assert control.bounding_box()['height'] >= 44

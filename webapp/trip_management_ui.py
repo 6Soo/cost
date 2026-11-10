@@ -39,12 +39,17 @@ def controls(board, trip):
     edit = form(fields + hidden('assignee_form', '1'), inputs + confirm + "<button class='btn' type='submit'>정보 저장</button>")
     archive = form(fields + hidden('archived', int(not trip.get('archived'))),
                    f"<button class='btn' type='submit'>{'보관 해제' if trip.get('archived') else '보관'}</button>")
-    return ("<div class='trip-management-controls'>" + close_form
-            + "<details class='trip-settings' id='trip-settings'><summary>여행 관리</summary><div>"
-            + edit + archive
+    # The old inline controls were visually equal to the ledger actions.  Keep
+    # every existing form field and POST target, but put the secondary actions in
+    # one disclosure menu in the trip header.
+    return ("<details class='trip-more' id='trip-settings'>"
+            "<summary class='icon-btn' data-no-action-icon aria-label='여행 작업' aria-haspopup='menu' aria-expanded='false'>⋯<span class='sr'>여행 작업</span></summary>"
+            "<div class='trip-more-menu' role='menu'>"
+            "<a class='btn' role='menuitem' href='/export?" + esc(urlencode({'tab': tid})) + "'>XLSX 내보내기</a>"
+            + close_form.replace("<form ", "<form id='trip-close' ", 1)
+            + "<h3 class='trip-more-heading'>여행 정보 수정</h3>" + edit + archive
             + "<p class='muted'>마감은 COST의 표시 상태이며 Google 장부 이동·환급과는 별개입니다.</p>"
-            + f"<a href='/trips?{esc(urlencode({'preview_tab': tid}))}'>삭제 미리보기</a>"
-            + "</div></details></div>")
+            + "</div></details>")
 
 
 def reservations(board, trip):
@@ -70,7 +75,7 @@ STYLE = """
 .trip-reservations>summary{min-height:44px;cursor:pointer;font-weight:600}
 .trip-reservations iframe{display:block;width:100%;min-height:240px;border:0}
 @media(max-width:640px){.trip-management-controls{width:100%}.trip-settings{flex:1}.trip-settings>div{width:100%}}
-.trip-management-controls details>summary{list-style:none}.trip-management-controls details>summary::-webkit-details-marker{display:none}.trip-management-controls details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.trip-management-controls details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.trip-management-controls details>summary::after{transition:none}}
+.trip-management-controls details>summary{list-style:none}.trip-management-controls details>summary::-webkit-details-marker{display:none}
 """
 
 SCRIPT = """
