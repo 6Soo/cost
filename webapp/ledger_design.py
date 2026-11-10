@@ -1,4 +1,4 @@
-﻿"""A/Ramp/Pretendard design applied to the real ledger screens.
+"""A/Ramp/Pretendard design applied to the real ledger screens.
 
 The screen is server rendered and talks to the existing store, save, upload,
 export and rule dialog contracts. Nothing in this module re-implements them,
@@ -1599,7 +1599,7 @@ def _last_saved_at(tab_id: str) -> str:
 def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           meta: str = "", body: str, query: str = "", kind: str = "",
           archived: str = "", aside: str = "", home: bool = False,
-          quick_view: bool = False) -> str:
+          quick_view: bool = False, bare: bool = False) -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
@@ -1617,6 +1617,15 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
     export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
                   if tab_id and title != '선택 탭 출력' else "")
+    # bare: the body renders its own page_header (the 거래 tabs); keep only the
+    # live-status slots the cross-screen refresh writes to.
+    if bare:
+        return (f"<div class='app'>{_nav_html(tab_id, query, kind, archived, quick_view=quick_view)}"
+                f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
+                f"<div class='page-body'>{global_state}"
+                "<p class='meta' id='live-status-wrap' aria-live='polite'>"
+                "<span class='meta live-ok' id='live-status' hidden></span></p>"
+                f"{body}</div></main><div id='panel-slot'>{aside}</div></div>")
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
@@ -1909,9 +1918,8 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         return _quarter_page(tab_id, title, query=query, kind=kind, message=message, error=error)
     if tab_id == 'refunds':
         from .refund_tab import render as refund_body
-        return shell('환불', tab_id='refunds', heading='환불', query=query,
-                     body=_bar_html(query, kind, 'refunds', archived) +
-                     "<div id='live-sum'></div><div id='live-rows'>" +
+        return shell('환불', tab_id='refunds', heading='환불', query=query, bare=True,
+                     body=                     "<div id='live-sum'></div><div id='live-rows'>" +
                      refund_body(board._active_store(), query, kind) + '</div>')
     trip = _selected_trip(tab_id)
     from .google_ledger_page import trip_income_html

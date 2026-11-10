@@ -524,6 +524,9 @@ body.bulk-selecting .main{padding-bottom:var(--bulk-bar-height,230px);scroll-pad
  height:34px;padding:0 12px;margin:6px 6px 0 0;border:1px solid var(--line-strong);
  border-radius:var(--r-md);background:var(--paper);font-size:var(--t-body-sm);font-weight:600;
  cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
+/* The page-body button reset outranks .btn.primary; restore the one primary action. */
+.page-body a.btn.primary,.page-body button.btn.primary{background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}
+@media(hover:hover){.page-body a.btn.primary:hover,.page-body button.btn.primary:hover{background:var(--c-accent-solid-hover);border-color:var(--c-accent-solid-hover)}}
 .page-body .card{border:1px solid var(--line);border-radius:var(--r-md);padding:16px;margin:0 0 12px}
 .page-body table{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
 .page-body td,.page-body th{border-bottom:1px solid var(--line2);height:auto;padding:7px 10px}
