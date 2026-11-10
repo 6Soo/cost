@@ -633,8 +633,12 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     assert onsite() == ('07.08 현장 결제', '현장 결제한 카드 이용일 2026-07-08 기준 · 숙박 기간은 원문에 없음')
     assert onsite(day='2026-08-20', tab='trip-open')[0] == '08.20 현장 결제'
     assert onsite(merchant='RAKUTENPAY SYNTHHOTEL')[0] == '07.08 현장 결제'
+    # Arrival the night before the trip's first day is still that trip's stay.
+    assert onsite(day='2026-07-04')[0] == '07.04 현장 결제'
     assert onsite(item='렌터카', merchant='SYNTH RENT A CAR') == (
         '07.08 현장 결제', '현장 결제한 카드 이용일 2026-07-08 기준 · 인수·반납일은 원문에 없음')
+    # A rental broker charge is a booking, not a pickup at the counter.
+    assert onsite(item='렌터카', merchant='DISCOVERCARS*COM') == ('이용일 미확인', '렌터카 인수·반납일 미확인')
 
 
 @pytest.mark.parametrize('values', [
@@ -642,7 +646,7 @@ def test_a_lodging_paid_at_the_property_shows_its_card_use_date(onsite):
     dict(merchant='TRIP.COM'), dict(merchant='RAKUTENTRAVELKOKUNAISH'), dict(merchant='(주)어드벤처코리아'), dict(merchant='KG INICIS'),
     dict(merchant='호텔스닷컴'), dict(merchant='인터파크투어'), dict(merchant='마이리얼트립'), dict(merchant='호텔엔조이'),
     dict(merchant='이스타항공_ARS-이스타항공㈜'),
-    dict(day='2026-07-04'), dict(day='2026-07-13'), dict(tab=''), dict(tab='unknown'),
+    dict(day='2026-07-03'), dict(day='2026-07-13'), dict(tab=''), dict(tab='unknown'),
     dict(reservation_no='R1')])
 def test_a_booking_or_a_charge_outside_its_trip_keeps_the_unknown_date(onsite, values):
     assert onsite(**values) == ('이용일 확인 필요', '이용일 확인 필요')

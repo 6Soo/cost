@@ -17,7 +17,7 @@ import unicodedata
 import urllib.parse
 from urllib.parse import urlencode
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -1013,14 +1013,16 @@ _BOOKING_CHANNEL = re.compile(
     r'|trip\.?com|트립|expedia|hotels\.com|인터넷상거래|결제대행|ksnet|다날|스마트로|나이스|쿠팡|야놀자|여기어때'
     r'|airbnb|에어비앤비|rakuten(?!\s*pay)|라쿠텐(?!\s*페이)|jalan|楽天|skyticket|어드벤처|\bpg\b|\bkg\b'
     r'|호텔스닷컴|인터파크|마이리얼트립|myrealtrip|호텔엔조이|하나투어|모두투어|노랑풍선|참좋은여행|데일리호텔'
-    r'|놀유니버스|위메프|티몬|11번가|g마켓|지마켓|옥션|네이버|kkday|hostelworld|hotelscombined|ikyu|一休|jtb|\bars\b|_ars')
+    r'|놀유니버스|위메프|티몬|11번가|g마켓|지마켓|옥션|네이버|kkday|hostelworld|hotelscombined|ikyu|一休|jtb|\bars\b|_ars'
+    r'|discovercars|rentalcars|economybookings|tabirai|たびらい')
 
 
 def _onsite_payment_label(row, kind):
     """A lodging or rental paid at the property: the card's use date is its use date.
 
     Only a direct (non-booking-channel) merchant charged inside the row's own trip
-    period qualifies; no stay length is inferred from it.
+    period, or on the eve of its start (arrival the night before), qualifies;
+    no stay length is inferred from it.
     """
     from app.ota_matching_defaults import provider_for_merchant
     if (not str(row.get('row_id') or '').startswith('card-') or str(row.get('reservation_no') or '').strip()
@@ -1037,7 +1039,7 @@ def _onsite_payment_label(row, kind):
     if not trip:
         return None
     starts, ends = trip
-    if day < starts or (ends is not None and day > ends):
+    if day < starts - timedelta(days=1) or (ends is not None and day > ends):
         return None
     what = '숙박 기간' if kind == 'lodging' else '인수·반납일'
     return (f"{day:%m.%d} 현장 결제",
