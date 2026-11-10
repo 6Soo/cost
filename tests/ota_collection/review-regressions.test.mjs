@@ -360,3 +360,53 @@ test('a write conflict cannot erase an earlier login stop and restart subsequent
     assert.equal(await readFile(path.join(dir, 'agoda', 'details', '12345678.json'), 'utf8'), 'original');
   } finally { await cleanup(dir); }
 });
+
+for (const provider of ['agoda', 'trip']) {
+  for (const writeConflict of [false, true]) {
+    test(`${provider} summary manifest excludes raw artifact identifiers after ${writeConflict ? 'partial write failure' : 'successful writes'}`, async () => {
+      const dir = await makeTempDir();
+      try {
+        const ids = ['876543210123', '876543210124'];
+        const guestName = 'SyntheticPrivateGuest';
+        const token = 'synthetic-private-artifact-token';
+        const items = ids.map((id) => provider === 'agoda'
+          ? { bookingId: id, legacyBookingToken: token, guestName }
+          : { OrderID: id, guestName, OrderActions: [{ ActionURLH5: `https://kr.trip.com/?tripsignature=${token}` }] });
+        const details = ids.map((id) => ({ ...(provider === 'agoda' ? agodaDetail(id) : tripDetail(id)), guestName }));
+        const fetchImpl = fakeFetch((url, init) => {
+          if (url.includes('GetBookingsList')) return response(200, { bookings: items, pagination: { totalPages: 1 } });
+          if (url.includes('getAllOrders')) return response(200, { OrderList: items });
+          const index = provider === 'agoda'
+            ? fetchImpl.calls.filter((call) => call.url.includes('/eb/details')).length - 1
+            : ids.indexOf(JSON.parse(init.body).orderId);
+          return response(200, details[index]);
+        });
+        const detailDir = path.join(dir, provider, 'details');
+        if (writeConflict) {
+          await mkdir(detailDir, { recursive: true });
+          await writeFile(path.join(detailDir, `${ids[1]}.json`), 'preserved-original');
+        }
+        const result = await runCollection({ providers: [provider], archiveRoot: dir,
+          opts: { ...opts, agodaDetailToken: token }, fetchImpl });
+        const persisted = await readFile(path.join(dir, 'manifest.json'), 'utf8');
+        assert.deepEqual(JSON.parse(persisted), result.manifest);
+        for (const sensitive of [...ids, guestName, token]) {
+          assert.ok(!persisted.includes(sensitive), 'summary manifest must not expose raw record identifiers or content');
+        }
+        assert.equal(result.manifest.status, writeConflict ? 'FAILED' : 'ok');
+        assert.equal(result.manifest.providers[0].counts.details_saved, writeConflict ? 1 : 2);
+        // The importer still receives its original filename and document shape.
+        const saved = JSON.parse(await readFile(path.join(detailDir, `${ids[0]}.json`), 'utf8'));
+        assert.deepEqual(saved[provider === 'agoda' ? 'list' : 'order'], items[0]);
+        assert.deepEqual(saved.detail, details[0]);
+        assert.ok(saved.observed_at);
+        assert.deepEqual((await readdir(detailDir)).sort(), ids.map((id) => `${id}.json`));
+        if (writeConflict) {
+          assert.equal(await readFile(path.join(detailDir, `${ids[1]}.json`), 'utf8'), 'preserved-original');
+        } else if (provider === 'trip') {
+          assert.deepEqual(JSON.parse(await readFile(path.join(dir, provider, 'orders.json'), 'utf8')), items);
+        }
+      } finally { await cleanup(dir); }
+    });
+  }
+}

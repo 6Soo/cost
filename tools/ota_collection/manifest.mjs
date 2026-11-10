@@ -38,7 +38,7 @@ export function buildManifest({ runId, startedAt = new Date(), archiveRoot, rows
         details_interrupted: row.counts?.details_interrupted ?? 0,
         items_invalid: row.counts?.items_invalid ?? 0,
       },
-      files: Array.isArray(row.files) ? row.files : [],
+      // Raw artifact filenames contain booking IDs; keep them out of summaries.
       diagnostics: unique(row.diagnostics ?? [], 6),
       resume: unique(row.resume ?? [], 4),
     };
