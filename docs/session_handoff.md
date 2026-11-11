@@ -1,5 +1,12 @@
 # 현재 상태
 
+## 2026-11-11 09:30 관리자 재개 — 운영965 유지·문서 최종 검수부터
+
+- 예약 `24cfe08a` 원문과 최신 작업판·PR·8개 worktree를 대조했다. 09:02 예약 실패 원인은 Codex 구버전의 gpt-6.1-sol 미지원 HTTP400이며 한도 오류로 단정하지 않는다. 그 실행은 archived/closed이고 해당 시각 커밋·작업판 변경 흔적은 없다.
+- 운영 Board PID2460 checkout 및 Board/Worker 예약 작업 SHA는 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, route8751/paused=false다. 8751·8790 healthz/readyz 네 경로200을 읽기 전용으로 확인했다. 읽기량·고객 DB·보호 지문은 이번 상태 대조에서 재측정하지 않았다.
+- #802 장애 기록·작업판 문서의 최종 SHA 독립 sol medium 검수 후 병합이 다음 작업이다. 이어 기존 D5-FIX `27dacf23`에서 운영 밖 수정·규모 합성 실측·독립 검수까지 수행하고 Fable에 보고한다. 승인 전 P2/main/wave3 배포는 금지다.
+- 기존 미추적 QA 3파일과 worktree를 보존했다. 8805 PID19544는 소유 미확인으로 유지했다. 재개 근거와 정확한 순서는 [작업판](agents/BOARD.md#재개-정보)에 기록했다.
+
 ## 2026-11-11 06:18 운영 장애 복구 — 965bca05 롤백, 읽기 기준선 미검증
 
 - Fable의 명시적 장애 복구 지시를 실행했다. `83d87f88` 배포와 그 소유 Prepared 작업을 전환 전에 취소하고, 5DB SQLite backup API·별도 복원·quick_check/스키마/행수 동등을 확인했다. 지정된 구 Board PID34256은 `WebLedger-Board` 예약 작업의 중지로 종료하고 잠금 비파괴 해제를 확인했다. 같은 SHA/P2off 재시작 뒤 공식 도구로 **06:13:42 KST `965bca058a74a54bf69bc4d70a0d05f8997786c3` 롤백 완료**다. 다음 배포의 PreviousSha는 `965bca05`다.
