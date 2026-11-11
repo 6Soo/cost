@@ -11,6 +11,36 @@ _GUARD = ContextVar('p2_source_read_guard', default=None)
 BLOCK_BYTES = 1 << 20
 MAX_JSON_FILE_BYTES = 64 << 20
 MAX_RECORD_BYTES = 8 << 20
+P2_TEXT_BYTES = 96 << 10
+
+
+def _bounded_text(value):
+    """Keep a bounded, non-executable text view for P2 evidence only."""
+    if len(value.encode('utf-8')) <= P2_TEXT_BYTES:
+        return value
+    import re
+    value = re.sub(r'(?is)<(script|style|svg|img)\b[^>]*>.*?</\1\s*>', ' ', value)
+    value = re.sub(r'(?im)^\s*>.*$', '', value)
+    value = re.sub(r'(?im)^\s*-----original message-----.*$', '', value)
+    value = re.sub(r'(?im)^\s*(sent from my|보낸 사람:).*$', '', value)
+    value = value.strip()
+    raw = value.encode('utf-8')
+    return raw[:P2_TEXT_BYTES].decode('utf-8', errors='ignore') + '\n[생략: 원문 근거가 상한을 초과함]'
+
+
+def bounded_payload(value):
+    """Copy a mail payload while clipping only body text/data for P2."""
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            if key in ('content', 'data', 'base64_url_content') and isinstance(item, str):
+                out[key] = _bounded_text(item)
+            else:
+                out[key] = bounded_payload(item)
+        return out
+    if isinstance(value, list):
+        return [bounded_payload(item) for item in value]
+    return value
 
 
 if os.name == 'nt':
@@ -126,8 +156,11 @@ def record(value):
 
 
 def message(payload):
-    if _GUARD.get():
-        record(json.dumps(payload, ensure_ascii=False))
+    if not _GUARD.get():
+        return payload
+    # A provider payload may contain a large quoted/HTML body. Do not reject
+    # the whole transaction; return a bounded copy for P2 assembly.
+    return bounded_payload(payload)
 
 
 def unpack(value):

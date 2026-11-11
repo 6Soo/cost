@@ -139,10 +139,9 @@ def _load_messages_uncached(directories):
         for message in loaded:
             p2_source_io.checkpoint()
             identity = message['id']
-            payload=message['payload']
+            payload=p2_source_io.message(message['payload'])
             # A JSON file is bounded separately; each expensive decode/regex
             # unit must also be bounded while a P2 guard is active.
-            p2_source_io.message(payload)
             # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
             core = dict(id=identity,internal_date=message.get('internal_date'),
                         headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},

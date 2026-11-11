@@ -12,6 +12,14 @@
 
 - 단계0 관리자 검증: 표적147pass/21.66초, 영향31파일702pass/기존3fail/4subtests/skip0·141.17초(기준455a723d 동일실패근거 유지). 계측 추가 후 같은2000건/1,100,346,849bytes 합성 off0.773초/P2근거조립호출0; on106.138초/고유50조립·합성3호출·50반영/근거첫1,100,591,362bytes 이후0·경쟁DB쓰기최대0.0012초. 실제모델/운영판정 미실행이며 최종SHA 독립검수 전이다. 기존QA3파일은 원해시로 복원했다.
 
+## 2026-11-11 P2 근거 크기·route 기준선 조사 — 재시범 전
+
+- 운영은 `5248d129`·P2 off·full rollout off·route8752 unpaused를 유지한다. 이전 5건 시범 중단은 유지하며 재배포/재시범은 새 PR의 독립 검수 전 실행하지 않는다.
+- 운영 읽기전용 크기 분포(원문 미출력): 메일 10,085건, 중앙값45,610B·p95 208,995B·최대425,242B. 포털 `ota_raw_entries` 78,720건, 중앙값/p95 86B·최대3,955,511B. 포털 raw payload는 조립 대상에서 제외하고 판정 필드 allowlist만 쓴다.
+- 코드 수정: P2 메일 payload는 HTML/style/인용/서명/이미지 데이터를 제거하고 96KiB 상한·생략 표시를 가진 bounded copy를 만든다. 포털 evidence는 booking/service/status/payment/card/lifecycle 등 판정 필드만 포함한다. source record가 상한을 넘었다는 이유만으로 전체 사건을 실패시키지 않는다. 신규·기존 표적 149 passed, skip0.
+- 합성 큰 레코드 재측정: 기존 2,000건·1.1GB fixture에 운영 최대급 메일 레코드를 추가한 staged-large-on은 1.337초·조립3·provider0·반영0, route 최대 보유0.2246초·경쟁 DB 대기0.0014초로 완료했다. provider0은 해당 합성 대상의 P1/선정 결과이며 근거 조립 실패가 아니다.
+- P2 off route 잠금 30분 기준선: 비차단 probe17,934회·unavailable run246, 최대39.238초·p95 11.971초·중앙값6.223초. 따라서 다음 시범의 route 중단 기준은 `max(2×39.238,15)=78.477초`다. 기준선은 route/config 쓰기 없이 측정했으며 probe의 one-byte 획득은 즉시 해제한다.
+- M1의 2,113 후보와 현재 시범 3,075 후보 차이는 detection SQL 변경이 아니라 운영 DB 상태가 M1 이후 변한 결과로 기록한다. 현재 읽기전용 집계 base3269, source_general3269, refund·board/manual 보호를 적용한 시범 후보3075다.
 ## 2026-11-11 단계별 시범 결과 — 5건 단계에서 중단
 
 - `5248d129b713f70210f5dc64e83f85574566042e`를 공식 `tools/deploy_verified_release.ps1`로 `965bca05`에서 배포했다. Board/Worker SHA와 listener는 5248d129, backend8752, route unpaused, health/ready200, 비인증 API401, 보호13표 불변이다. 첫 시도는 릴리스 파일 누락으로 `RELEASE_AUDIT_FAILED` 안전중단했고 운영은 바뀌지 않았으며, Git blob 재구성·audit0 후 재시도했다.
