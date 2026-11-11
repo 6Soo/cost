@@ -471,3 +471,17 @@ def test_registry_changed_after_provider_refuses_old_registered_sources(setup, t
     AutonomousCleanupWorker(setup, setup._lock, provider=provider, evidence_repository=repo).sweep_once()
     assert load_job(setup.conn, ids[0])['reason'] == 'apply_AI_EVIDENCE_STALE'
     assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 0
+
+
+def test_p2_uncached_load_does_not_retain_old_revisions_in_p1_body_cache(tmp_path):
+    from app import ota_mail, p2_source_io
+    mail = tmp_path / 'mail'
+    mail.mkdir()
+    source = mail / 'gmail-a.json'
+    source.write_text(json.dumps({'responses': [{'id': 'synthetic-cache', 'payload': {
+        'mimeType': 'text/plain', 'headers': [], 'body': {'data': 'aGVsbG8='}}}]}), encoding='utf-8')
+    before = dict(ota_mail._BODY_TEXT)
+    with p2_source_io.guarded(lambda: None, lambda *a, **kw: None):
+        messages, _ = ota_mail._load_messages_uncached([mail])
+    assert ota_mail.message_text(messages['synthetic-cache']) == 'hello\n'
+    assert ota_mail._BODY_TEXT == before

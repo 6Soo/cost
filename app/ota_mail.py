@@ -111,6 +111,7 @@ def _load_messages_uncached(directories):
     않고 등록된 모든 범위를 읽은 뒤에 대조를 시작한다.
     """
     from . import p2_source_io
+    retain_bodies = not p2_source_io.active()
     messages = {}
     fingerprints = {}
     inventory = []
@@ -157,7 +158,8 @@ def _load_messages_uncached(directories):
             previous = messages.get(identity)
             if previous is not None:
                 body_cache.pop(id(previous), None)
-            body_cache[id(message)] = (message, core['text'])
+            if retain_bodies:
+                body_cache[id(message)] = (message, core['text'])
             messages[identity] = message
             entry['messages']+=1
             p2_source_io.checkpoint()

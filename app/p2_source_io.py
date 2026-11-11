@@ -91,6 +91,10 @@ def checkpoint():
         guard[0]()
 
 
+def active():
+    return _GUARD.get() is not None
+
+
 def read_text(path):
     guard = _GUARD.get()
     if not guard:
