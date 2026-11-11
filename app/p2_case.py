@@ -21,6 +21,7 @@ PORTAL_EVIDENCE_FIELDS = frozenset({
     'source_sha256', 'evidence_role', 'evidence_status', 'conflict_count',
     'provider', 'card_last4', 'currency', 'amount', 'period', 'payment_status',
     'portal_payment_state', 'reservation_status', 'collection_model', 'text',
+    'evidence_format', 'refund_status',
 })
 KINDS = frozenset({'mail_search', 'portal_lookup', 'card_search'})
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,25 @@ def encoded(value):
 
 def digest(value):
     return hashlib.sha256(encoded(value).encode('utf-8')).hexdigest()
+
+
+def portal_content(record):
+    """Project decision facts out of a stored payload without indexing its raw text."""
+    payload = record.get('payload_json')
+    try:
+        fact = json.loads(payload) if isinstance(payload, str) else {}
+    except ValueError:
+        fact = {}
+    if not isinstance(fact, dict):
+        fact = {}
+    content = {k: v for k, v in fact.items() if k in PORTAL_EVIDENCE_FIELDS}
+    content.update({k: v for k, v in record.items() if k in PORTAL_EVIDENCE_FIELDS})
+    components = fact.get('price_components')
+    if isinstance(components, list):
+        fields = {'kind', 'currency', 'decimal_text', 'scale', 'minor_units'}
+        content['price_components'] = [{k: v for k, v in part.items() if k in fields}
+                                       for part in components if isinstance(part, dict)]
+    return content
 
 
 def sanitize(value):
@@ -504,9 +524,9 @@ class Repository:
             resolved = path.resolve()
             def portal(resolved=resolved, index=index):
                 records = ota_portal._read_records(resolved, index) if resolved.is_file() else []
-                return [(encoded({k: v for k, v in record.items() if k in PORTAL_EVIDENCE_FIELDS}),
+                return [(encoded(portal_content(record)),
                          dict(ref='portal:' + digest([index, record]), kind='portal',
-                         content={k: v for k, v in record.items() if k in PORTAL_EVIDENCE_FIELDS}),
+                         content=portal_content(record)),
                          None) for record in records]
             sources.append((('portal', index, str(resolved)), [resolved, Path(str(resolved) + '-wal')], portal))
         for key, paths, build in sources:

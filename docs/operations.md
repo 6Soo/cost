@@ -1,5 +1,14 @@
 # 운영 기록
 
+## 2026-11-11 #805 중단 작업 재개 — 최종 검수 준비
+
+- 현재 작업은 #805의 근거 크기 수정과 승인된 단계별 재시범뿐이다. 전체 반영·E2·wave3는 실행하지 않는다. 운영 읽기전용 확인: P2/full=false, route8752 unpaused.
+- 전체 메일로 원본 충돌을 검사한 뒤 P2 조립 경계에서만 20KiB 관련 구간을 발췌한다. 포털은 실제 `_read_records`의 중첩 `payload_json`에서 판정 필드와 price_components만 선택하며 raw 자료는 검색·출력하지 않는다. 실제 SQLite loader 합성·원본 불변·잘못된 JSON 보호 포함 표적17 passed.
+- `dcbe4894` 규모 합성: 후보2000·근거1,100,346,849B·메일9174, 245.09초·고유조립50·합성모델3호출/50건·반영50, 근거읽기 첫1,102,565,348B/이후0. 조립은 route/runtime/board/DB쓰기 잠금 밖, 경쟁 DB쓰기 최대대기0.0079초. 실제 모델 호출이나 운영 반영 증거는 아니다.
+- 영향검사 `dcbe4894`: 599 passed/1 failed/4 subtests. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`(40 != 30); 정확 운영 기준5248d129에서도 동일 1 failed/31 passed로 재현했다. 검사와 기대값은 고치지 않았다. 전체 통과로 표시하지 않는다. 신규 projection 포함 최종 영향검사·최종 SHA 별도 sol medium 승인 전 병합/배포 없음.
+- 기존 큰 합성의 provider0은 실행기 미구성이 아니라 base64 clipping의 ValueError였다. 이전5건의 route unavailable 5.096초는 P2 off 기준선 최대39.238초 안이다. 재시범 중단선은78.477초이며 ready 연속2실패·보호변화·preview없는 반영 시 즉시 off다. 조립 뒤 모델시도0이면50건으로 가지 않는다.
+- 비공개 증거: `.local-archive/p2-staged-resume-20261111/`의 `resume-large-on.log`, `resume-impact-final.log`, `review805-resume.md`, `checkpoint.md`. 다음은 최종 영향검사→별도 sol medium 최종SHA 승인→#805 병합→공식 P2 off 배포→15분 관찰→5건10분→실제호출/안전 확인 시50건60분→보고·중단이다.
+
 ## 2026-11-11 P2 단계별 재배포 승인 — 배포 전 준비
 
 - Fable이 #804에 대해 조건부 단계별 재배포를 승인했다. 회차별 후보·선정·조립시작/완료·모델호출시도/반환성공/실패사유·preview통과/반영·소요/중단사유를 먼저 기록한 뒤 최종SHA 독립 sol medium 검수, off 배포와15분 관찰, 최대5건/10분, 안전하며 실제호출이 있었을 때만 최대50건/60분 순서다. 전체 미해결 건 반영은 승인되지 않았다.
@@ -15,8 +24,8 @@
 
 - 운영은 `5248d129`·P2 off·full rollout off·route8752 unpaused를 유지한다. 이전 5건 시범 중단은 유지하며 재배포/재시범은 새 PR의 독립 검수 전 실행하지 않는다.
 - 운영 읽기전용 크기 분포(원문 미출력): 메일 10,085건, 중앙값45,610B·p95 208,995B·최대425,242B. 포털 `ota_raw_entries` 78,720건, 중앙값/p95 86B·최대3,955,511B. 포털 raw payload는 조립 대상에서 제외하고 판정 필드 allowlist만 쓴다.
-- 코드 수정: P2 메일 payload는 HTML/style/인용/서명/이미지 데이터를 제거하고 96KiB 상한·생략 표시를 가진 bounded copy를 만든다. 포털 evidence는 booking/service/status/payment/card/lifecycle 등 판정 필드만 포함한다. source record가 상한을 넘었다는 이유만으로 전체 사건을 실패시키지 않는다. 신규·기존 표적 149 passed, skip0.
-- 합성 큰 레코드 재측정: 기존 2,000건·1.1GB fixture에 운영 최대급 메일 레코드를 추가한 staged-large-on은 1.337초·조립3·provider0·반영0, route 최대 보유0.2246초·경쟁 DB 대기0.0014초로 완료했다. provider0은 해당 합성 대상의 P1/선정 결과이며 근거 조립 실패가 아니다.
+- 최초 수정의 payload clipping은 독립 검수에서 반려됐다. 최종 수정은 전체 메일로 충돌을 비교한 뒤 evidence 조립 경계에서만 정리·발췌한다(메일 본문20KiB, 전체 evidence24KiB·전체 prompt256KiB 상한). 포털 evidence는 booking/service/status/payment/card/lifecycle 등 판정 필드만 포함한다. source record가 상한을 넘었다는 이유만으로 전체 사건을 실패시키지 않는다. 신규·기존 표적 149 passed, skip0.
+- 기존 큰 레코드 합성 `staged-large-on`의 성공 해석을 철회한다. 로그는 `ai_retry:ValueError=50`, provider0·반영0이며 조립3은 `Repository.select` 진입 수다. on 실행기는 합성 provider를 주입하므로 호출 미구성이 아니다. 이전 메일 payload clipping이 base64 뒤에 한글 생략 표시를 붙여 decode에서 `ValueError`를 내는 경로를 합성 재현했다. 최종 SHA의 재측정은 최신 재개 절에 기록한다.
 - P2 off route 잠금 30분 기준선: 비차단 probe17,934회·unavailable run246, 최대39.238초·p95 11.971초·중앙값6.223초. 따라서 다음 시범의 route 중단 기준은 `max(2×39.238,15)=78.477초`다. 기준선은 route/config 쓰기 없이 측정했으며 probe의 one-byte 획득은 즉시 해제한다.
 - M1의 2,113 후보와 현재 시범 3,075 후보 차이는 detection SQL 변경이 아니라 운영 DB 상태가 M1 이후 변한 결과로 기록한다. 현재 읽기전용 집계 base3269, source_general3269, refund·board/manual 보호를 적용한 시범 후보3075다.
 ## 2026-11-11 단계별 시범 결과 — 5건 단계에서 중단

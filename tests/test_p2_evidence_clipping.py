@@ -76,7 +76,51 @@ def test_portal_raw_payload_cannot_select_unrelated_record(setup, tmp_path, monk
     path = tmp_path / 'portal.json'
     path.write_text('[]', encoding='utf-8')
     monkeypatch.setattr(ota_portal, '_read_records', lambda *a: [
-        {'booking_number': 'UNRELATED', 'payload_json': 'AUTONOMY 10000 2026-10-01'}])
+        {'booking_number': 'UNRELATED', 'payload_json': json.dumps({'raw_html': 'AUTONOMY 10000 2026-10-01'})}])
     repo = p2_case.Repository(setup.conn, {'portal_databases': [path]})
     bundle = p2_case.assemble(setup.conn, trips, request, repository=repo)
     assert not any(e['kind'] == 'portal' for e in bundle['evidence'])
+
+
+def test_portal_nested_decision_fields_are_searchable_without_raw_payload(setup, tmp_path, monkeypatch):
+    from app import p2_case, ota_portal
+    request, trips = prepared(setup)
+    path = tmp_path / 'portal.json'
+    path.write_text('[]', encoding='utf-8')
+    fact = {'provider': 'AUTONOMY', 'card_last4': '1234', 'payment_status': 'paid',
+            'price_components': [{'kind': 'paid_today', 'currency': 'KRW', 'decimal_text': '10000',
+                                  'scale': 0, 'minor_units': 10000, 'raw_html': 'PRIVATE_RAW'}],
+            'raw_html': 'PRIVATE_RAW'}
+    monkeypatch.setattr(ota_portal, '_read_records', lambda *a: [
+        {'booking_number': 'B', 'status': 'confirmed', 'payload_json': json.dumps(fact)}])
+    bundle = p2_case.assemble(setup.conn, trips, request,
+        repository=p2_case.Repository(setup.conn, {'portal_databases': [path]}))
+    items = [e for e in bundle['evidence'] if e['kind'] == 'portal']
+    assert len(items) == 1
+    assert '10000' in items[0]['content'] and 'paid' in items[0]['content']
+    assert 'PRIVATE_RAW' not in p2_case.prompt(bundle)
+    assert 'payload_json' not in items[0]['content']
+
+
+def test_real_portal_loader_projects_nested_payment_facts(setup, tmp_path):
+    from app import p2_case, ota_portal
+    from tests.card_pipeline.test_ota_portal import portal_database
+    request, trips = prepared(setup)
+    path = portal_database(tmp_path / 'portal.sqlite', facts=[{
+        'provider': 'AUTONOMY', 'raw_html': 'PRIVATE_RAW',
+        'price_components': [{'kind': 'paid_today', 'currency': 'KRW',
+            'decimal_text': '10000', 'minor_units': 10000, 'scale': 0}]}])
+    before = path.read_bytes()
+    records = ota_portal._read_records(path, 0)
+    assert records and 'provider' not in records[0]
+    bundle = p2_case.assemble(setup.conn, trips, request,
+        repository=p2_case.Repository(setup.conn, {'portal_databases': [path]}))
+    items = [e for e in bundle['evidence'] if e['kind'] == 'portal']
+    assert items and all('10000' in e['content'] and 'paid' in e['content'] for e in items)
+    assert 'PRIVATE_RAW' not in p2_case.prompt(bundle)
+    assert path.read_bytes() == before
+
+
+def test_malformed_portal_payload_preserves_only_top_level_facts():
+    from app.p2_case import portal_content
+    assert portal_content({'booking_number': 'B', 'payload_json': 'raw text'}) == {'booking_number': 'B'}
