@@ -4717,7 +4717,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_p2_batch_corrections(self, path, read_payload, check_csrf) -> None:
         """Owner/CSRF-gated P2 batch entry point; storage remains server-owned."""
-        from . import classification_correction
+        from app import classification_correction
         from .ledger_store import SaveError
 
         if current_role() != 'owner':
