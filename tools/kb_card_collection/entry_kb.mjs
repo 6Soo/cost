@@ -154,7 +154,7 @@ function normalizeSelectorConfig(config, origin) {
   }
   return {
     space: typeof config.space === "string" && config.space.trim() !== "" ? config.space.trim() : null,
-    roles,
+    roles: { ...roles },
     sources: config.sources ?? {},
   };
 }

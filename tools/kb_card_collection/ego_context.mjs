@@ -22,7 +22,7 @@
 //   object exporting createCapture({ space, selectors, operation, args }).
 
 import { AdapterError } from "./adapter.mjs";
-import { SOURCE_URLS } from "./policy.mjs";
+import { SOURCE_URLS, SOURCES } from "./policy.mjs";
 
 let injectedTaskSpace = null;
 
@@ -325,6 +325,8 @@ function buildCapture(space, page, selectorMap, operation, args) {
           for (const [role, expected] of [["periodEchoStart", args.startDate], ["periodEchoEnd", args.endDate]]) {
             if (result[role]?.text !== expected) throw contextRequired("query period does not match the requested ISO dates");
           }
+          const label = args.source === SOURCES.DOMESTIC ? "국내" : "해외";
+          if (!result.periodEchoSource?.text?.includes(label)) throw contextRequired("query source summary does not match domestic/overseas");
         }
         return result;
       },

@@ -189,7 +189,6 @@ export async function runCollector({
   let exec = null;
   let start = null;
   try {
-    if (typeof outDir !== "string" || !outDir.trim()) throw new PolicyError("outDir is required");
     if (typeof executionDate !== "string" || !executionDate.trim()) {
       throw new PolicyError("executionDate is required");
     }
