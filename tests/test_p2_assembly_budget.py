@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 from app import ota_mail, ota_portal, p2_case
 from tests.test_p2_case import prepared
@@ -7,32 +7,45 @@ from webapp.autonomous_cleanup_worker import AutonomousCleanupWorker, load_job
 
 
 def test_request_snapshot_reuses_sources_but_refreshes(setup, tmp_path, monkeypatch):
+    # Contract (2026-11-11 P2 I/O budget): unchanged sources are answered from the
+    # index without reading them again; a changed source is read again.
     request, trips = prepared(setup)
     path = tmp_path / 'portal.db'
-    path.touch()
+    path.write_bytes(b'1')
+    mail = tmp_path / 'mail'
+    mail.mkdir()
+    (mail / 'gmail-a.json').write_bytes(b'1')
     calls = []
-    monkeypatch.setattr(ota_mail, 'load_messages_from', lambda dirs: (calls.append('mail') or {}, []))
+    monkeypatch.setattr(ota_mail, '_load_messages_uncached', lambda dirs: (calls.append('mail') or {}, []))
     monkeypatch.setattr(ota_portal, '_read_records', lambda path, index: calls.append('portal') or [])
-    repo = p2_case.Repository(setup.conn, {'portal_databases': [path]})
+    repo = p2_case.Repository(setup.conn, {'portal_databases': [path], 'mail_directories': [mail]})
     repo.begin_snapshot()
     first = p2_case.assemble(setup.conn, trips, request, repository=repo)
     assert p2_case.assemble(setup.conn, trips, request, repository=repo) == first
     assert calls == ['mail', 'portal']
     repo.begin_snapshot()
     p2_case.assemble(setup.conn, trips, request, repository=repo)
-    assert calls == ['mail', 'portal', 'mail', 'portal']
+    assert calls == ['mail', 'portal'] and repo.read_bytes == 0
+    path.write_bytes(b'22')
+    (mail / 'gmail-a.json').write_bytes(b'22')
+    repo.begin_snapshot()
+    p2_case.assemble(setup.conn, trips, request, repository=repo)
+    assert calls == ['mail', 'portal', 'mail', 'portal'] and repo.read_bytes == 4
 
 
-def test_source_scan_is_cancellable(setup, monkeypatch):
+def test_source_scan_is_cancellable(setup, tmp_path, monkeypatch):
     request, trips = prepared(setup)
-    monkeypatch.setattr(ota_mail, 'load_messages_from', lambda dirs: ({str(i): {} for i in range(100)}, []))
-    monkeypatch.setattr(ota_mail, 'message_text', lambda msg: '')
+    mail = tmp_path / 'mail'
+    mail.mkdir()
+    (mail / 'gmail-a.json').write_bytes(b'1')
+    monkeypatch.setattr(ota_mail, '_load_messages_uncached', lambda dirs: ({str(i): {'payload': {}} for i in range(100)}, []))
+    monkeypatch.setattr(ota_mail, 'body_text', lambda payload: 'AUTONOMY 10000 2026-10-01')
     count = [0]
     def check():
         count[0] += 1
         if count[0] == 10:
             raise RuntimeError('cancelled')
-    repo = p2_case.Repository(setup.conn, {})
+    repo = p2_case.Repository(setup.conn, {'mail_directories': [mail]})
     repo.begin_snapshot(check)
     with pytest.raises(RuntimeError, match='cancelled'):
         p2_case.assemble(setup.conn, trips, request, repository=repo)
@@ -77,17 +90,20 @@ def test_changed_gate_during_assembly_prevents_call(setup, monkeypatch, gate):
     assert setup.conn.execute("SELECT COUNT(*) FROM requests WHERE scope='p2_call_reservation'").fetchone()[0] == 0
 
 
-def test_changed_source_after_call_refuses_apply(setup, monkeypatch):
+def test_changed_source_after_call_refuses_apply(setup, tmp_path, monkeypatch):
     from tests.test_p2_worker_boundaries import rich_response
     trip = create_trip(setup)
     batch, rows = receive(setup, 1)
     ids = make_weak_rows(setup, batch, rows, trip)
-    state = {'text': 'AUTONOMY 10000 2026-10-01 first'}
-    monkeypatch.setattr(ota_mail, 'load_messages_from', lambda dirs: ({'one': {'payload': {'headers': []}}}, []))
-    monkeypatch.setattr(ota_mail, 'message_text', lambda message: state['text'])
-    repo = p2_case.Repository(setup.conn, {})
+    mail = tmp_path / 'mail'
+    mail.mkdir()
+    source = mail / 'gmail-a.json'
+    source.write_bytes(b'first')
+    monkeypatch.setattr(ota_mail, '_load_messages_uncached', lambda dirs: ({'one': {'payload': {'headers': []}}}, []))
+    monkeypatch.setattr(ota_mail, 'body_text', lambda payload: 'AUTONOMY 10000 2026-10-01 ' + source.read_text())
+    repo = p2_case.Repository(setup.conn, {'mail_directories': [mail]})
     def provider(request):
-        state['text'] = 'AUTONOMY 10000 2026-10-01 changed'
+        source.write_bytes(b'changed')
         return rich_response(request)
     worker = AutonomousCleanupWorker(setup, setup._lock, provider=provider, evidence_repository=repo)
     worker.sweep_once()

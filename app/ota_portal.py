@@ -115,6 +115,8 @@ def _read_records(path, index):
         return portal_rows(path, index)
     conn=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
     conn.row_factory=sqlite3.Row
+    from .p2_source_io import guard_connection
+    guard_connection(conn)
     try:
         records=conn.execute(
             "SELECT b.booking_number,b.service_start_on,b.service_end_on,b.status,"

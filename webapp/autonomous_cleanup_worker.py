@@ -12,13 +12,15 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone, timedelta
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 import threading
 import uuid
 import re
 
 from app.partial_refund import read_only_scope as refund_evidence_scope
-from .deployment_role import active_writer
+from .deployment_role import active_writer, writer
 
 INTERVAL = 1800
 STATUS_HEARTBEAT_SECONDS = 300
@@ -30,6 +32,7 @@ P1_RETRY_SECONDS = 120
 JOB_SCOPE = 'autonomous_cleanup_job'
 BUNDLE_SCOPE = 'autonomous_cause_bundle'
 METRICS_FILE = 'autonomous-cleanup-metrics.jsonl'
+_sweep_metrics = ContextVar('autonomous_cleanup_sweep_metrics', default=None)
 TERMINAL = ('no_ai_needed', 'p2_applied', 'ai_dead')
 CODE_DEFECT_REASONS = ('AGENT_EXECUTION_FAILED', 'AGENT_COMMAND_LINE_TOO_LONG',
                        'AGENT_RESPONSE_INVALID', 'AGENT_EXECUTION_MISMATCH')
@@ -44,6 +47,7 @@ CODE_FINGERPRINT_FILES = (
     'app/automatic_classification.py', 'app/rules.py',
     'webapp/autonomous_cleanup_worker.py', 'webapp/card_classification_completion.py',
     'app/p2_case.py', 'app/frontier_agent_provider.py',
+    'app/p2_source_io.py', 'app/ota_mail.py', 'app/ota_portal.py', 'app/ota_store.py',
 )
 
 
@@ -72,6 +76,10 @@ def code_fingerprint(root=None):
 
 def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+
+
+class WriterInactive(RuntimeError):
+    """This process lost the writer role mid-round; leave state to the active writer."""
 
 
 def failure_code(exc):
@@ -147,11 +155,13 @@ def p2_window_open(config_path, *, now=None):
 
 
 CALL_SCOPE = 'p2_call_reservation'
+ASSEMBLY_SCOPE = 'p2_assembly_reservation'
 
 
 def reserved_cases(conn):
     return {r[0] for r in conn.execute(
-        "SELECT DISTINCT value FROM requests,json_each(requests.response_json,'$.transaction_ids') WHERE scope=?", (CALL_SCOPE,))}
+        "SELECT DISTINCT value FROM requests,json_each(requests.response_json,'$.transaction_ids') WHERE scope IN (?,?)",
+        (CALL_SCOPE, ASSEMBLY_SCOPE))}
 
 
 def reserved_calls_today(conn):
@@ -293,6 +303,9 @@ def metrics_path(board):
 
 def append_metric(board, event):
     line = dict(event)
+    current = _sweep_metrics.get()
+    if current is not None:
+        line.setdefault('sweep_id', current['sweep_id'])
     line.setdefault('ts', datetime.now(timezone.utc).isoformat(timespec='seconds'))
     try:
         with metrics_path(board).open('a', encoding='utf-8') as handle:
@@ -413,9 +426,56 @@ class AutonomousCleanupWorker:
 
     def agent_enabled(self):
         from app import connected_agent_provider as provider
+        options = _options(self._config_path())
+        if 'autonomous_p2_pilot_deadline' in options:
+            try:
+                deadline = datetime.fromisoformat(options['autonomous_p2_pilot_deadline'].replace('Z', '+00:00'))
+                if deadline.utcoffset() != timedelta(0) or datetime.now(timezone.utc) >= deadline:
+                    return False
+            except (ValueError, TypeError, AttributeError):
+                return False
         if self.provider is not None:
             return True
         return provider.enabled(self._config_path())
+
+    def _case_limit(self):
+        options = _options(self._config_path())
+        if options.get('autonomous_p2_full_rollout') is True:
+            return 50
+        limit = options.get('autonomous_p2_pilot_case_limit', 50)
+        return limit if type(limit) is int and 1 <= limit <= 50 else 0
+
+    def _progress(self, stage, *, reason=None, **counts):
+        """Persist safe counters immediately; observability must never affect decisions."""
+        current = _sweep_metrics.get()
+        if current is None:
+            return
+        current['stage'] = stage
+        if reason is not None:
+            current['reason'] = reason
+        for name, count in counts.items():
+            current[name] += count
+        try:
+            event = dict(current, kind='p2_sweep_progress',
+                duration_ms=int((time.monotonic() - current['started']) * 1000))
+            event.pop('started')
+            append_metric(self.board, event)
+        except Exception:
+            pass
+
+    @contextmanager
+    def _assembly_progress(self, phase, cases, *, reads_sources=False):
+        # Read attempts count logical evidence operations (snapshot, assembly,
+        # direct source selection), not physical I/O bytes or file operations.
+        self._progress(phase + '_started', assembly_started=cases,
+                       source_read_attempts=int(reads_sources))
+        try:
+            yield
+        except Exception as exc:
+            self._progress(phase + '_failed', reason=failure_code(exc))
+            raise
+        else:
+            self._progress(phase + '_completed', assembly_completed=cases)
 
     def _held_context(self):
         flow = (self.flow_factory or self._default_flow())(self.board)
@@ -436,20 +496,50 @@ class AutonomousCleanupWorker:
         from .card_flow import CardFlow
         return CardFlow
 
-    @active_writer(default=False)
     @refund_evidence_scope()
     def sweep_once(self):
+        current = dict(sweep_id=uuid.uuid4().hex, started=time.monotonic(), stage='started',
+            reason='WRITER_INACTIVE', candidates=0, selected=0, assembly_started=0,
+            assembly_completed=0, model_attempts=0, model_successes=0, model_failures=0,
+            model_failure_reasons={}, source_read_attempts=0, lookup_attempts=0,
+            preview_passed=0, applied=0)
+        token = _sweep_metrics.set(current)
+        try:
+            self._progress('started')
+            claim = self._prepare_sweep()
+            if not isinstance(claim, tuple):
+                return claim
+            return self._call_agent(*claim)
+        except BaseException as exc:
+            current['reason'] = failure_code(exc)
+            raise
+        finally:
+            try:
+                summary = dict(current, kind='p2_sweep_end',
+                    duration_ms=int((time.monotonic() - current['started']) * 1000))
+                summary.pop('started')
+                append_metric(self.board, summary)
+            except Exception:
+                pass
+            _sweep_metrics.reset(token)
+
+    @active_writer(default=False)
+    def _prepare_sweep(self):
         from app import automatic_classification, ai_classification
 
         with self.runtime_lock, self.board._lock:
+            self._progress('preparing', reason='NO_WORK')
             if self._stop.is_set():
+                self._progress('stopped', reason='AGENT_STOPPED')
                 return False
             rows = detection_candidates(self.board.conn)
+            self._progress('candidates', candidates=len(rows))
             self.status['candidates'] = len(rows)
             now = time.time()
             try:
                 flow, trips, nets, inputs = self._held_context()
             except Exception as exc:
+                self._progress('context_failed', reason='CONTEXT_' + failure_code(exc))
                 self.status.update(state='retry', error='context_' + type(exc).__name__)
                 self.status['failures'] += 1
                 return False
@@ -462,7 +552,7 @@ class AutonomousCleanupWorker:
                 self.status['state'] = 'idle'
                 return False
             due_rows = [row for row in rows if row[0] in due_ids]
-            due_rows = due_rows[:max(1, min(50, self.chunk))]
+            due_rows = due_rows[:max(1, min(self._case_limit(), self.chunk))]
             if not due_rows:
                 self.board.conn.commit()
                 self._finish(rows)
@@ -479,6 +569,7 @@ class AutonomousCleanupWorker:
                 automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids)
                 self.board.conn.commit()
             except Exception as exc:
+                self._progress('p1_failed', reason='P1_' + failure_code(exc))
                 for row in due_rows:
                     self._retry_or_dead(row, fingerprints[row[0]], now, 'p1_' + type(exc).__name__,
                                         not_before=now + P1_RETRY_SECONDS)
@@ -488,7 +579,21 @@ class AutonomousCleanupWorker:
             # Rollout controls P2 only. P1 above must publish for every due chunk.
             if _options(self._config_path()).get('autonomous_p2_full_rollout') is not True:
                 reserved = reserved_cases(self.board.conn)
-                remaining = max(0, 50 - len(reserved))
+                # Other live claims also consume first-batch capacity before they
+                # reserve a model call. Otherwise concurrent sweeps can each
+                # assemble 50 distinct cases while no call has yet been reserved.
+                own_ids = {row[0] for row in due_rows}
+                for key, raw in self.board.conn.execute(
+                        "SELECT request_id,response_json FROM requests WHERE scope=?", (JOB_SCOPE,)):
+                    try:
+                        job = json.loads(raw)
+                        tid = key.removeprefix('autonomous-cleanup:')
+                        if (tid not in own_ids and job.get('status') == 'awaiting_agent'
+                                and now - _updated_at_epoch(job) <= STALE_PROCESSING_SECONDS):
+                            reserved.add(tid)
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+                remaining = max(0, self._case_limit() - len(reserved))
                 eligible = []
                 for row in due_rows:
                     if row[0] in reserved:
@@ -502,6 +607,7 @@ class AutonomousCleanupWorker:
                                   'not_before': now + BLOCKED_RETRY_SECONDS})
                 due_rows = eligible
             if not due_rows:
+                self._progress('selection_blocked', reason='AGENT_FIRST_BATCH_LIMIT')
                 self.board.conn.commit()
                 self._finish(rows)
                 return True
@@ -509,6 +615,7 @@ class AutonomousCleanupWorker:
             try:
                 request = ai_classification.prepare(self.board.conn, trips, ids, nets=nets)
             except ValueError as exc:
+                self._progress('prepare_finished', reason=failure_code(exc))
                 code = str(exc)
                 if code == 'CODE_STAGE_REQUIRED':
                     for row in due_rows:
@@ -522,6 +629,7 @@ class AutonomousCleanupWorker:
                 self._finish(rows)
                 return True
             if not request['cases']:
+                self._progress('no_cases', reason='NO_AI_NEEDED')
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]], {'status': 'no_ai_needed'})
                 self.board.conn.commit()
@@ -530,16 +638,97 @@ class AutonomousCleanupWorker:
             # Claim under the lock; the provider call runs unlocked so the HTTP path
             # stays responsive. apply() re-validates freshness in a fresh transaction.
             self.board.conn.commit()  # P1 is published before any P2 gate/call.
-            claim = (request, due_rows, fingerprints, now, rows)
-        return self._call_agent(*claim)
+            self._progress('selected', reason='SELECTED', selected=len(request['cases']))
+            return (request, due_rows, fingerprints, now, rows)
 
     def _call_agent(self, request, due_rows, fingerprints, now, all_rows):
         from app import p2_case
         try:
             return self._call_agent_impl(request, due_rows, fingerprints, now, all_rows)
+        except WriterInactive:
+            self._progress('writer_inactive', reason='WRITER_INACTIVE')
+            return False
         finally:
             if isinstance(self.evidence_repository, p2_case.Repository):
                 self.evidence_repository.end_snapshot()
+
+    @contextmanager
+    def _writer_locks(self):
+        """Short writer section: route lock, then runtime and board locks."""
+        with writer() as active:
+            if not active:
+                raise WriterInactive('WRITER_INACTIVE')
+            with self.runtime_lock, self.board._lock:
+                yield
+
+    @contextmanager
+    def _read_view(self, repository):
+        """Read-only ledger connection for P2 evidence; never takes writer locks."""
+        import sqlite3
+        from app import p2_case
+        reader = sqlite3.connect(self.board.path.resolve().as_uri() + '?mode=ro', uri=True)
+        owned = isinstance(repository, p2_case.Repository)
+        try:
+            reader.execute('BEGIN')
+            if owned:
+                repository.conn = reader
+            yield reader
+        finally:
+            if owned:
+                repository.conn = self.board.conn
+            reader.close()
+
+    def _verify_fresh_unlocked(self, request, bundle, repository, lookups, check_budget, bundle_limit, trips):
+        """Rebuild the bundle from a read snapshot outside the writer locks.
+
+        Returns the ledger inputs that rebuild used. The caller re-reads only those
+        under the writer lock and must find them unchanged before apply."""
+        from app import p2_case
+        owned = isinstance(repository, p2_case.Repository)
+        if owned:
+            self._progress('freshness_snapshot_started', source_read_attempts=1)
+            repository.begin_snapshot(check_budget, new_round=False)
+            self._progress('freshness_snapshot_completed')
+        self._progress('freshness_source_stamp_started')
+        source_stamp = repository.source_stamp() if owned else None
+        policy_stamp = p2_case.policy_stamp()
+        gathered = []
+        with self._read_view(repository) as reader:
+            ledger = self._ledger_inputs(reader, request, repository, lookups)
+            rows = {r['transaction_id']: r for r in ledger[0]}
+            for case in sorted(request['cases'], key=lambda c: c['transaction_id']):
+                row = rows.get(case['transaction_id'])
+                if row is None:
+                    raise ValueError('AI_EVIDENCE_STALE')
+                self._progress('freshness_source_read_started', source_read_attempts=1)
+                gathered.extend(repository.source_items(row) if owned else repository.select(case, row))
+            for query in lookups:
+                if not owned or query['kind'] != 'card_search':
+                    self._progress('freshness_lookup_started', lookup_attempts=1)
+                    gathered.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
+            with self._assembly_progress('freshness_assembly', len(request['cases'])):
+                current = p2_case.assemble(reader, trips, request, repository=None, max_bytes=bundle_limit,
+                                           extra=gathered + ledger[1])
+        if current != bundle:
+            raise ValueError('AI_EVIDENCE_STALE')
+        if (policy_stamp != p2_case.policy_stamp() or
+                owned and (not repository.snapshot_is_current() or repository.source_stamp() != source_stamp)):
+            raise ValueError('AI_EVIDENCE_STALE')
+        return ledger, source_stamp, policy_stamp
+
+    def _ledger_inputs(self, conn, request, repository, lookups):
+        """Case rows plus ledger-backed evidence (history, card lookups) read on `conn`."""
+        from app import p2_case
+        rows = p2_case._read(conn, [c['transaction_id'] for c in request['cases']])
+        evidence = []
+        if isinstance(repository, p2_case.Repository):
+            for row in rows:
+                evidence.extend(repository.history(row))
+            for query in lookups:
+                if query['kind'] == 'card_search':
+                    self._progress('ledger_lookup_started', lookup_attempts=1)
+                    evidence.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
+        return rows, evidence
 
     def _call_agent_impl(self, request, due_rows, fingerprints, now, all_rows):
         from app import ai_classification, connected_agent_provider, frontier_agent_provider, p2_case
@@ -551,7 +740,8 @@ class AutonomousCleanupWorker:
         elif (self.provider is None or 'autonomous_ai_review_window' in _options(self._config_path())) and not p2_window_open(self._config_path()):
             gate = 'AGENT_OUTSIDE_WINDOW'
         if gate:
-            with self.runtime_lock, self.board._lock:
+            self._progress('blocked', reason=gate)
+            with self._writer_locks():
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]],
                              {'status': 'blocked', 'reason': gate, 'attempts': 0,
@@ -564,7 +754,8 @@ class AutonomousCleanupWorker:
             return True
         cap = connected_agent_provider.daily_cap(self._config_path())
         if max(p2_calls_today(self.board), reserved_calls_today(self.board.conn)) >= cap:
-            with self.runtime_lock, self.board._lock:
+            self._progress('blocked', reason='AGENT_DAILY_CAP')
+            with self._writer_locks():
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]],
                              {'status': 'blocked', 'reason': 'AGENT_DAILY_CAP', 'attempts': 0,
@@ -599,6 +790,7 @@ class AutonomousCleanupWorker:
             if self.provider is None:
                 bundle_limit = frontier_agent_provider.bundle_budget()
             if self.provider is None and repository is None:
+                self._progress('repository_setup_started')
                 from app import ota_sources, ota_portal
                 from .ota_payment_review import SOURCES_ENV
                 import os
@@ -607,31 +799,49 @@ class AutonomousCleanupWorker:
                     self.board.path.parent, mail_default=os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or self.board.path.parent / 'ota-mail',
                     portal_default=ota_portal.evidence_path(self.board.path.parent))
                 repository = p2_case.Repository(self.board.conn, sources)
+                self._progress('repository_setup_completed')
             if repository is not None:
+                # Assembly consumes first-batch capacity even when an oversized
+                # prompt is split before any model call. Persist before reads.
+                with self._writer_locks():
+                    check_budget(force=True)
+                    if reserved_calls_today(self.board.conn) >= cap:
+                        raise connected_agent_provider.AgentUnavailable('AGENT_DAILY_CAP', BLOCKED_RETRY_SECONDS)
+                    from app.db import utc_now
+                    payload = dict(transaction_ids=[c['transaction_id'] for c in request['cases']])
+                    self.board.conn.execute('INSERT INTO requests VALUES (?,?,?,?,?)',
+                        ('p2-assembly:' + uuid.uuid4().hex, ASSEMBLY_SCOPE, _digest(payload), json.dumps(payload), utc_now()))
+                    self.board.conn.commit()
                 if isinstance(repository, p2_case.Repository):
+                    self._progress('repository_snapshot_started', source_read_attempts=1)
                     repository.begin_snapshot(check_budget)
-                with self.runtime_lock, self.board._lock:
+                    self._progress('repository_snapshot_completed')
+                with self._writer_locks():
                     trips, _ = self._fresh_context()
+                with self._read_view(repository) as reader:
                     while True:
                         try:
-                            bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository, max_bytes=bundle_limit)
+                            with self._assembly_progress('assembly', len(request['cases']), reads_sources=True):
+                                bundle = p2_case.assemble(reader, trips, request, repository=repository, max_bytes=bundle_limit)
                             break
                         except ValueError as exc:
                             if str(exc) != 'P2_PROMPT_BASE_TOO_LARGE' or len(request['cases']) < 2:
                                 raise
                             keep = {c['transaction_id'] for c in request['cases'][:max(1, len(request['cases'])//2)]}
-                            for row in due_rows:
-                                if row[0] not in keep:
-                                    attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
-                                    save_job(self.board.conn, row[0], fingerprints[row[0]], dict(status='ai_retry',
-                                        reason='P2_BATCH_SPLIT', attempts=attempts, not_before=now+1))
-                            due_rows = [row for row in due_rows if row[0] in keep]
-                            batch_ids = [row[0] for row in due_rows]
-                            request = ai_classification.prepare(self.board.conn, trips, batch_ids, nets=self._fresh_context()[1])
-                            self.board.conn.commit()
+                            with self._writer_locks():
+                                for row in due_rows:
+                                    if row[0] not in keep:
+                                        attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
+                                        save_job(self.board.conn, row[0], fingerprints[row[0]], dict(status='ai_retry',
+                                            reason='P2_BATCH_SPLIT', attempts=attempts, not_before=now+1))
+                                due_rows = [row for row in due_rows if row[0] in keep]
+                                batch_ids = [row[0] for row in due_rows]
+                                trips, nets = self._fresh_context()
+                                request = ai_classification.prepare(self.board.conn, trips, batch_ids, nets=nets)
+                                self.board.conn.commit()
             retried_format, rounds = False, 0
             while True:
-                with self.runtime_lock, self.board._lock:
+                with self._writer_locks():
                     check_budget(force=True)
                     if reserved_calls_today(self.board.conn) >= cap:
                         raise connected_agent_provider.AgentUnavailable('AGENT_DAILY_CAP', BLOCKED_RETRY_SECONDS)
@@ -642,9 +852,21 @@ class AutonomousCleanupWorker:
                 try:
                     check_budget(force=True)
                     elapsed = time.monotonic() - started
-                    response = (self.provider(request) if self.provider is not None else frontier_agent_provider.run_agent(
-                        request, bundle=bundle, model=model, timeout=frontier_agent_provider.TIMEOUT_SECONDS - elapsed,
-                        evidence_rounds_remaining=2-rounds))
+                    self._progress('model_started', model_attempts=1)
+                    try:
+                        response = (self.provider(request) if self.provider is not None else frontier_agent_provider.run_agent(
+                            request, bundle=bundle, model=model, timeout=frontier_agent_provider.TIMEOUT_SECONDS - elapsed,
+                            evidence_rounds_remaining=2-rounds, check=check_budget))
+                    except Exception as exc:
+                        code = failure_code(exc)
+                        current = _sweep_metrics.get()
+                        if current is not None:
+                            reasons = current['model_failure_reasons']
+                            reasons[code] = reasons.get(code, 0) + 1
+                        self._progress('model_failed', reason=code, model_failures=1)
+                        raise
+                    self._progress('model_succeeded', model_successes=1)
+                    check_budget(force=True)
                     if bundle is not None:
                         queries = response.get('more_evidence')
                         if not isinstance(queries, list) or len(queries) > 8:
@@ -653,22 +875,28 @@ class AutonomousCleanupWorker:
                             if rounds >= 2:
                                 raise ValueError('AI_MORE_EVIDENCE_LIMIT')
                             ids = {c['transaction_id'] for c in request['cases']}
-                            with self.runtime_lock, self.board._lock:
+                            # Lookups and re-assembly read a WAL snapshot outside the
+                            # writer locks; apply re-validates under the lock.
+                            with self._read_view(repository) as reader:
+                                self._progress('evidence_lookup_started')
                                 for query in queries:
                                     if set(query) != {'kind', 'query', 'transaction_id', 'why'} or not isinstance(query['why'], str) or len(query['why']) > 1000:
                                         raise ValueError('P2_LOOKUP_INVALID')
                                     p2_case.validate_lookup(query['kind'], query['query'], query['transaction_id'], ids)
+                                    self._progress('evidence_lookup_started', lookup_attempts=1)
                                     extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
                                     lookups.append(query)
-                                trips, _ = self._fresh_context()
-                                bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository,
-                                    max_bytes=bundle_limit, extra=extra)
+                                with self._assembly_progress('lookup_assembly', len(request['cases']), reads_sources=True):
+                                    bundle = p2_case.assemble(reader, trips, request, repository=repository,
+                                        max_bytes=bundle_limit, extra=extra)
                             rounds += 1
                             outcome = 'more_evidence'
                             continue
-                        with self.runtime_lock, self.board._lock:
+                        with self._writer_locks():
                             trips, nets = self._fresh_context()
+                            self._progress('preview_started')
                             ai_classification.preview(self.board.conn, trips, request, response, nets=nets, bundle=bundle)
+                            self._progress('preview_passed', preview_passed=len(request['cases']))
                     outcome = 'validated'
                     break
                 except Exception as exc:
@@ -681,12 +909,13 @@ class AutonomousCleanupWorker:
                         continue
                     raise
                 finally:
-                    with self.runtime_lock, self.board._lock:
+                    with self._writer_locks():
                         finish_call(self.board.conn, reservation, outcome, int((time.monotonic()-call_started)*1000))
                         self.board.conn.commit()
         except Exception as exc:
             code = failure_code(exc)
-            with self.runtime_lock, self.board._lock:
+            self._progress('p2_failed', reason=code)
+            with self._writer_locks():
                 for row in due_rows:
                     if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW', 'AGENT_AUTH_REQUIRED', 'AGENT_NOT_ENABLED', 'AGENT_STOPPED'):
                         attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
@@ -702,29 +931,47 @@ class AutonomousCleanupWorker:
                 self._finish(all_rows)
             return True
         response = {key: value for key, value in response.items() if not key.startswith('_')}
-        with self.runtime_lock, self.board._lock:
+        ledger = stale = None
+        try:
+            if bundle is not None:
+                self._progress('freshness_started')
+                # Re-read sources and rebuild the bundle outside the writer locks;
+                # under the lock only the ledger inputs are re-read and compared.
+                ledger = self._verify_fresh_unlocked(request, bundle, repository, lookups, check_budget,
+                                                     bundle_limit, trips)
+        except Exception as exc:
+            stale = exc
+        with self._writer_locks():
             try:
+                if stale is not None:
+                    raise stale
                 trips, nets = self._fresh_context()
                 if bundle is not None:
-                    if isinstance(repository, p2_case.Repository):
-                        repository.begin_snapshot(check_budget)
-                    fresh_extra = []
-                    for query in lookups:
-                        fresh_extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
-                    current_bundle = p2_case.assemble(self.board.conn, trips, request, repository=repository,
-                        max_bytes=bundle_limit, extra=fresh_extra)
-                    if current_bundle != bundle:
+                    ledger_inputs, source_stamp, policy_stamp = ledger
+                    if (self._ledger_inputs(self.board.conn, request, repository, lookups) != ledger_inputs or
+                            p2_case.policy_stamp() != policy_stamp or
+                            isinstance(repository, p2_case.Repository) and repository.source_stamp() != source_stamp):
                         raise ValueError('AI_EVIDENCE_STALE')
+                check_budget(force=True)
+                self._progress('apply_started')
                 result = ai_classification.apply(
                     self.board.conn, trips, request, response,
                     request_id='connected-agent:' + response['execution']['run_id'], nets=nets, bundle=bundle)
             except Exception as exc:
                 self.board.conn.rollback()
+                code = failure_code(exc)
+                self._progress('apply_failed', reason=code)
                 for row in due_rows:
-                    self._retry_or_dead(row, fingerprints[row[0]], now, 'apply_' + failure_code(exc))
+                    if code in ('AGENT_OUTSIDE_WINDOW', 'AGENT_NOT_ENABLED', 'AGENT_STOPPED'):
+                        attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
+                        save_job(self.board.conn, row[0], fingerprints[row[0]], dict(
+                            status='blocked', reason=code, attempts=attempts,
+                            not_before=now + BLOCKED_RETRY_SECONDS))
+                    else:
+                        self._retry_or_dead(row, fingerprints[row[0]], now, 'apply_' + code)
                 self.board.conn.commit()
                 append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']),
-                                           'outcome': 'apply_failed:' + failure_code(exc),
+                                           'outcome': 'apply_failed:' + code,
                                            'duration_ms': int((time.monotonic() - started) * 1000)})
                 self._finish(all_rows)
                 return True
@@ -732,6 +979,9 @@ class AutonomousCleanupWorker:
             for row in due_rows:
                 save_job(self.board.conn, row[0], fingerprints[row[0]], {'status': 'p2_applied', 'attempts': 0})
             self.board.conn.commit()
+            self._progress('applied', reason='APPLIED', applied=applied,
+                           preview_passed=(len(request['cases']) if bundle is None
+                               and not (isinstance(result, dict) and result.get('replay')) else 0))
             self.status['p2_applied'] += len(batch_ids)
             append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']), 'applied': applied,
                                        'calls': call_count,
@@ -743,8 +993,11 @@ class AutonomousCleanupWorker:
             return True
 
     def _fresh_context(self):
-        flow, trips, nets, inputs = self._held_context()
-        return trips, nets
+        # P2 needs only current trip candidates/net values. Rebuilding the P1
+        # OTA matcher snapshot here would re-read all registered evidence while
+        # holding writer locks, even though none of that report is used below.
+        from .card_classification_completion import context
+        return context((self.flow_factory or self._default_flow())(self.board))
 
     def _retry_or_dead(self, row, fingerprint_value, now, reason, *, not_before=None):
         job = load_job(self.board.conn, row[0]) or {}

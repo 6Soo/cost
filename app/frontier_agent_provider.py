@@ -113,7 +113,7 @@ def parse_events(raw):
 
 
 def run_agent(request, *, bundle=None, repository=None, runner=None, model=MODEL, timeout=TIMEOUT_SECONDS,
-              evidence_rounds_remaining=2):
+              evidence_rounds_remaining=2, check=None):
     if model != MODEL:
         raise AgentUnavailable('AGENT_MODEL_NOT_ALLOWED')
     if bundle is None:
@@ -138,8 +138,13 @@ def run_agent(request, *, bundle=None, repository=None, runner=None, model=MODEL
                    '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only',
                    '--model', MODEL, '--output-schema', str(schema), '--json', *config_args(), '-']
         try:
-            proc = (runner or _run_bounded)(command, cwd=cwd, env=dict(os.environ),
-                                           timeout=min(timeout, TIMEOUT_SECONDS), input_bytes=input_bytes)
+            from .connected_agent_provider import _process_check
+            token = _process_check.set(check)
+            try:
+                proc = (runner or _run_bounded)(command, cwd=cwd, env=dict(os.environ),
+                                               timeout=min(timeout, TIMEOUT_SECONDS), input_bytes=input_bytes)
+            finally:
+                _process_check.reset(token)
         except subprocess.TimeoutExpired:
             raise AgentUnavailable('AGENT_TIMEOUT') from None
         except OSError:
