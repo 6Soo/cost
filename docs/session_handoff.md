@@ -1,3 +1,12 @@
+## 2026-11-12 OTA 포털 담당 — 신규23 추가 COMPLETE / 전체 수집 PARTIAL
+
+- 현재 승인 작업은 Fable의 OTA 예약 상세 조회·추가 전용 가져오기·효과 측정이다. 브랜치 `ops/ota-portal-collection-20261112`, 시작 HEAD `0da7e052`다. `C:/AX/cost`와 다른 worktree를 변경하지 않았다. 운영 코드/배포·Google·AI 판정은 실행하지 않았다.
+- 세 포털 예약 목록 확인 COMPLETE. Agoda 상세894(지정 범위498)/형태 미확인6, Trip 호텔상세100/실패0, Booking 목록각50·여행 화면12를 보호 폴더에 저장했다. Agoda 완료·취소/Trip은 목록5회, Booking은 다음 페이지 있음에 따라 전체 수집 PARTIAL이다. 항공·렌터카와 Booking 예약 파서/공식 수입 경로는 미완료이며 코드 수정은 하지 않았다.
+- 읽기 전용 대조598 = 신규23(Agoda20·Trip3) + 중복565 + 충돌10. 기존 원천을 제외한23건만 공식 수입 도구 리허설 후 운영 릴리스 `0da7e052`의 같은 도구로 추가 COMPLETE. 대상 OTA DB 신선 백업·별도 복원 quick_check/스키마/13표 행수/파일SHA 동등, 기존 원천 값·보호13표 불변, 삭제·덮어쓰기0, apply 후 ready8752/8790 200이다. 자세한 수치는 [운영 기록](operations.md) 맨 위다.
+- 효과 측정 PARTIAL: 06:11:51 KST generation933 게시(496.76초), MATCHED1,060건 전체 동일·신규 정확0/추론0/해제0·NICE 신규/결제일 검증 연결0. 기존148건 고정 대상이 이 worktree에 없으므로 148→사후 수치는 미측정이며 다른 필터의 경고 수를 대입하지 않는다. 신규 근거의 서비스 날짜를 새 결제 연결로 간주하지 않는다.
+- 별도 인증 실화면 대조는 동일1,699행 이용일 표시 변경0·미확인69→69(NICE26·기타23·Agoda11·Booking5·Trip2·Klook1·Skyticket1)이며 원래148건의 분포가 아니다. 보호13표 재확인 PASS·최종 ready8752/8790 200, 담당 브라우저 TaskSpace 종료 완료다.
+- 비공개 근거는 이 worktree의 `.local-archive/ota-portal-20261112/`: 원본·관측 요청·manifest, `import-preview.json`, `raw-money-comparison.json`, `rehearsal-summary.json`, `backup-result.json`, `apply-result.json`, `protection-before.json`/`protection-after.json`, `effect-summary.json`. 완료 문서 커밋·PR과 정확한 재개 지점은 같은 보호 폴더 `checkpoint.md`에 남긴다. 다음 작업은 문서 PR 검수·병합과 페이지 한도/미지원 상품·Booking 수입 경로의 후속 범위 결정, 동일148건 대상 자료를 이 폴더에 전달받아 사후 집계하는 것이다. 다른 에이전트 생성 금지(코드 PR 검수 예외만 허용) 지시에 따라 새 검수 에이전트를 만들지 않았다.
+
 ## 2026-11-12 P2 담당 마무리 진행 — 최종 검수·배포·정리 전
 
 - 현재 승인 정본은 Fable의 마지막 마무리 지시다. 2층 추가 판정·항목 제안 반영·이용기간 저장 구현은 하지 않는다. 도구·가드·출처 `AI 판정` 표시를 한 PR로 묶어 독립sol medium 검수 후 병합·공식 배포한다. readyz 직후/5/15분 확인, 연속2회 실패 또는15초 초과 시 직전 릴리스로 롤백한다.
