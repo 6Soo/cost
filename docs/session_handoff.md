@@ -2,6 +2,7 @@
 
 ## 2026-11-12 P2 단계 2 — 귀속 불일치 제외 완료 / 서버 미리보기 API 오류로 반영 차단
 
+- 도구 완료 커밋은 [PR #808](https://github.com/6Soo/cost/pull/808)의 병합 `befe868a444dbbae3d14feb1e8bb388e48575780`이다. 최종 `d60e4b200d8e53c767e0947aae182a5062417e1a`를 독립 `gpt-6.1-sol / medium`이 APPROVE했고 표적24건을 직접 재실행했다. CI job130607692586는 결제 한도로 시작되지 않아(step0) 승인 예외를 적용했으며 모델·SHA·판정·근거는 PR 댓글에 남겼다. 추가배포는 없다. 이 종료 기록은 로컬 커밋으로 보존한다.
 - Fable 후속 지시로 사본 불변 실패 1건을 제외했다. 열린 분기 전체 2,852건에서 거래와 장부의 `trip_id` 또는 `display_tab_id` 불일치는 109건이다. 선정 단계와 미리보기에서 항상 제외하며, 이번 368후보 중 해당하는 건은 1건이다. 분기 검수 목록은 비공개 `run367/quarterly-review.json`에 해시만 보존한다.
 - 나머지 367건(기록227·미기록140)을 신선 읽기 전용 조회(0.502초)로 준비했다. 사본20·50×6·47건 적용/재전송/파일복원 전부 통과, 불변 실패0·복원367일치다. 기존 중단 근거는 덮어쓰지 않았다.
 - **BLOCKED:** 첫20건의 운영 `/api/p2-batch/corrections/preview`가 HTTP502를 반환한다. 운영 `68fbe0dd`의 `webapp/ledger_board.py:4720`이 `from . import classification_correction`에서 ImportError를 낸 것이 운영 로그로 확인됐다. 실제 모듈은 `app/classification_correction.py`다. 서버 변경·추가배포 금지 지시로 서버 코드는 수정하지 않았다. apply API는 미호출이며 운영 반영0·되돌리기0·Google0·P1등록0·2층0이다. 바뀐 거래가 없어 화면3건 확인도 미실행이다.

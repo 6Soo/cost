@@ -2,6 +2,7 @@
 
 ## 2026-11-12 P2 후속 — 귀속 충돌 제외 COMPLETE / 반영 BLOCKED
 
+- 도구 [#808](https://github.com/6Soo/cost/pull/808) 병합befe868a. 최종d60e4b20 독립sol/medium APPROVE, 표적24·영향52/skip0·compile/data guard PASS. CI 결제한도 미시작(step0) 예외 근거는 PR 댓글. 추가 운영배포 없음.
 - 열린 분기2,852건의 거래/장부 귀속 불일치109건, 이번368후보 중1건. 선정·미리보기에서 항상 제외하며 해시만 분기 검수 목록에 기록했다. 나머지367건 사본20·50×6·47 적용/재전송/파일복원 통과, 불변 실패0이다.
 - 첫20건의 서버 preview가502: 운영68fbe0dd의ledger_board.py:4720에서 webapp.classification_correction ImportError. apply API 미호출, 운영반영/되돌리기/Google/P1/2층 모두0. 후보·비대상·보호 불변 확인, 00:05:27 KST ready200/0.110초. 서버 수정·추가배포는 하지 않았다.
 - 다음 서버 변경 과제: 잘못된 모듈 import 수정과, 항목만 교정할 때 장부의 여행 귀속을 건드리는 동작 수정. 현재 도구 변경은 이 서버 동작을 우회하지 않는다. 상세·비공개 근거·재개 조건은 [현재 상태](../session_handoff.md) 맨 위다.
