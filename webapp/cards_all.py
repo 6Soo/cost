@@ -664,7 +664,10 @@ def _get_trip_display(trip_id, classification_source) -> str:
     source = str(classification_source or "").strip()
     if source in ('manual', 'user_decision', 'user_exception', 'previous_decision',
                   'inference', 'auto_inferred', 'code_inference', 'ai_inference'):
-        label = '수동' if source in ('manual', 'user_decision', 'user_exception', 'previous_decision') else '자동'
+        if source == 'ai_inference':
+            label = 'AI 판정'
+        else:
+            label = '수동' if source in ('manual', 'user_decision', 'user_exception', 'previous_decision') else '자동'
         return f"{trip} · {label}"
     return trip
 
@@ -679,7 +682,9 @@ def _classification_chip(item: dict) -> str:
     source = str(item.get('classification_source') or '').strip().lower()
     if source in {'manual', 'user_decision', 'user_exception', 'previous_decision'}:
         return "<span class='chip chip-neutral'>수동</span>"
-    if source in {'inference', 'auto_inferred', 'code_inference', 'ai_inference', 'guide_airfare_evidence'}:
+    if source == 'ai_inference':
+        return "<span class='chip chip-accent' title='AI가 근거를 바탕으로 판정'>AI 판정</span>"
+    if source in {'inference', 'auto_inferred', 'code_inference', 'guide_airfare_evidence'}:
         return "<span class='chip chip-accent' title='규칙 기반 자동 귀속'>자동</span>"
     return ''
 
@@ -731,7 +736,9 @@ def card_detail_html(item: dict) -> str:
     source_key = str(item.get('classification_source') or '').strip().lower()
     if source_key in {'manual', 'user_decision', 'user_exception', 'previous_decision'}:
         source = '수동'
-    elif source_key in {'inference', 'auto_inferred', 'code_inference', 'ai_inference', 'guide_airfare_evidence'}:
+    elif source_key == 'ai_inference':
+        source = 'AI 판정'
+    elif source_key in {'inference', 'auto_inferred', 'code_inference', 'guide_airfare_evidence'}:
         source = '자동'
     fields = [('가맹점', item.get('merchant')), ('이용일시', item.get('approval_date') or item.get('posting_date') or '원본 날짜 오류'),
               ('금액', _format_amount(item.get('amount_krw'), item.get('foreign_amount'), item.get('foreign_currency'))),

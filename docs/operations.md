@@ -1,5 +1,12 @@
 # 운영 기록
 
+## 2026-11-12 #809·wave3 단일 배포와 P2 367건 반영 완료
+
+- 최종7ca80c96 독립sol/medium APPROVE·릴리스HTTP1pass 후 #809 병합8644e873, 이전68fbe0dd. 공식 `deploy_verified_release.ps1`1회, 파일1646/blob불일치0·runtime/Board/Worker SHA일치·backend8751/unpaused·health/ready200·보호API401·배포전후보호13표불변. 배포전후같은레포Fable세션알림완료. 추가배포/롤백0, P2/full=false.
+- 00:26:12~00:41:12 KST ready31표본전부200, 직후0.132초/5분1.335초/15분0.006초·최대7.016초. owner/CSRF 운영preview20건200·쓰기0. 익명브라우저7주요주소401, CSS/JS는별도URL없는인라인이므로실제파일포함확인, 폰트/아이콘200. 로그인시각검사는사용자영역이다.
+- 신선변경전값파일과367건사본복원/불변검증뒤20→50×6→47로367건반영(기록227/미기록140),8묶음모두검증통과. 원본·금액·귀속·ID·보호관계·수동/비대상불변, 감사/AI실행정보/장부화면동반변경확인. 첫묶음의`AI`라벨가정오탐은독립검토와20건전부API근거대조로분리했고, 실제3화면의펼친AI근거도확인했다. 금융되돌리기0·Google0·P1등록0이다.
+- 최종00:54:20 KST ready200/0.045초. 귀속불일치109건(후보중1건)은분기검수목록에유지한다. 비공개배포/반영/복구/표시검증근거는 `.local-archive/p2-import-fix-20261112/`, 상세검사와항목전환표는 [현재 상태](session_handoff.md) 맨위다. 전체영향QA699pass/기존8fail/skip0이며CI PASS로표시하지않는다.
+
 ## 2026-11-12 P2 반영 시도 — 미리보기 API 502, 쓰기 전 중단
 
 - 기존68fbe0dd를 유지했고 추가배포는 없다. 귀속 불일치1건 제외 후367건의 사본 불변/복원 검증은 통과했다. 첫20건의 서버preview는502였고, 운영 로그의ledger_board.py:4720에서 webapp.classification_correction ImportError를 확인했다. apply API 미호출, 운영반영·되돌리기·Google0이다.
