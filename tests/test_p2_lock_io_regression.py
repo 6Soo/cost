@@ -417,3 +417,30 @@ def test_growing_source_is_stopped_by_actual_case_and_round_bytes(setup, tmp_pat
                 repo.source_items({'transaction_id': 'one'})
             assert 1 << 20 <= repo.read_bytes <= (2 << 20) + 1024
             assert not repo._snapshot
+
+
+def test_same_size_edit_with_restored_mtime_invalidates_source_stamp(tmp_path):
+    import os
+    from app import p2_case
+    source = tmp_path / 'gmail-a.json'
+    source.write_text('{"responses": [1]}', encoding='utf-8')
+    stat = source.stat()
+    before = p2_case._stamp([source])
+    source.write_text('{"responses": [2]}', encoding='utf-8')
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert source.stat().st_size == stat.st_size
+    assert source.stat().st_mtime_ns == stat.st_mtime_ns
+    assert p2_case._stamp([source]) != before
+
+
+def test_numeric_merchant_term_uses_exact_numeric_index(monkeypatch):
+    from app import p2_case
+    texts = ['OTHER 123400 2026-10-03', 'OTHER 12,3400 2026-10-03', 'AUTONOMY 10000 2026-10-03']
+    index = p2_case._Index([(text, {}, None) for text in texts], 0)
+    matching = index.matching
+    def term(value, **kw):
+        assert value != '1234', 'numeric terms must use numeric postings'
+        return matching(value, **kw)
+    monkeypatch.setattr(index, 'matching', term)
+    row = dict(merchant='AUTONOMY 1234', amount_krw='10000', approval_date='2026-10-03')
+    assert index.candidates(row) == [i for i, text in enumerate(texts) if p2_case.relevant(row, text)]

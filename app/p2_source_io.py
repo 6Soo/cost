@@ -21,6 +21,34 @@ if os.name == 'nt':
     _kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     _kernel.GetCurrentProcess.restype = ctypes.c_void_p
     _kernel.GetProcessIoCounters.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Counters)]
+    class _BasicInfo(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_longlong) for name in ('created', 'accessed', 'written', 'changed')] + [
+            ('attributes', ctypes.c_ulong)]
+    _kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p,
+                                   ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+    _kernel.CreateFileW.restype = ctypes.c_void_p
+    _kernel.GetFileInformationByHandleEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong]
+    _kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+
+
+def change_time(path, stat):
+    """True metadata change time (Windows st_ctime is creation time).
+
+    Detects same-size edits even when LastWriteTime is restored by copy tools.
+    Opens attributes only, sharing read/write/delete; reads no source content.
+    """
+    if os.name != 'nt':
+        return stat.st_ctime_ns
+    handle = _kernel.CreateFileW(str(path), 0x80, 7, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_last_error(), 'CreateFileW attributes')
+    try:
+        info = _BasicInfo()
+        if not _kernel.GetFileInformationByHandleEx(handle, 0, ctypes.byref(info), ctypes.sizeof(info)):
+            raise OSError(ctypes.get_last_error(), 'GetFileInformationByHandleEx')
+        return info.changed
+    finally:
+        _kernel.CloseHandle(handle)
 
 
 def process_read_bytes():

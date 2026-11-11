@@ -226,13 +226,14 @@ _INDEXES = {}
 
 def _stamp(paths):
     """Cheap change stamp (no content read): path, size and modification time."""
+    from .p2_source_io import change_time
     stamp = []
     for path in paths:
         try:
             stat = Path(path).stat()
         except OSError:
             continue
-        stamp.append((str(Path(path).resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino))
+        stamp.append((str(Path(path).resolve()), stat.st_size, stat.st_mtime_ns, change_time(path, stat), stat.st_ino))
     return tuple(sorted(stamp))
 
 
@@ -314,7 +315,13 @@ class _Index:
         words = [w for w in re.findall(r'[\w가-힣]{3,}', str(row.get('merchant') or '').casefold())
                  if w not in {'synthetic', 'store', 'payment', '결제', '주식회사'}]
         for word in words:
-            merchant |= self.matching(word, folded=True)
+            if re.fullmatch(r'[0-9]+', word):
+                for run, numbers in self.digit_runs.items():
+                    checkpoint()
+                    if word in run:
+                        merchant |= bits(numbers)
+            else:
+                merchant |= self.matching(word, folded=True)
         found |= merchant & corroboration
         return [number for number in every if found & (1 << number)]
 
