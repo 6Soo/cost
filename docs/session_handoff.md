@@ -1,5 +1,21 @@
 # 현재 상태
 
+## 2026-11-12 P2 1층 367건 반영 COMPLETE — #809·wave3 단일 배포 완료
+
+- **현재 지시 완료:** 잘못된 `webapp` 상대 import를 서버 `app` import로 고치고 실제 tuple 조회도 수정했다. [#809](https://github.com/6Soo/cost/pull/809) 최종 `7ca80c966f1acde7d66219109690d049991e0f99`는 독립 `gpt-6.1-sol / medium` APPROVE, 검수자 직접 릴리스 HTTP1 passed/13.39초다. wave3 #799를 포함한 병합·운영 SHA는 `8644e873514367a21a181f3e39c1a2028d5ab024`, 이전 운영은 `68fbe0dd`다. 공식 배포1회·롤백0, 1646파일/blob불일치0·Board/Worker SHA 일치·보호13표 불변·backend8751/unpaused 확인. CI job130615412341는 결제한도 미시작(step0)이며 최종 검수 근거를 PR에 기록했다.
+- **검사 사실:** 기존 app 직접 호출 검사는 HTTP handler의 lazy import와 실제 LedgerStore tuple 연결을 실행하지 않아 놓쳤다. 새 검사는 Git archive로 임시 릴리스를 만들고 별도 `python -I`/비운영 임의 포트의 실제 HTTP에서 owner·CSRF 거부, preview 무변경, apply·장부/화면/감사·재전송 무변경을 확인한다. 영향 검사는699 passed/8 failed/35 subtests/skip0·compile/data guard PASS·지정 브라우저5검사 실행이며, 실패8건 모두 정확한 e5e7bb5f main에서도 원 테스트로 재현했다. 전체 QA는 FAILED로 유지하며 기존 테스트를 고치지 않았다.
+- **배포 수락:** 00:26:12~00:41:12 KST의30초 간격 ready31회 모두200, 직후0.132초/5분1.335초/15분0.006초·최대7.016초. 운영 owner/CSRF 미리보기20건200·쓰기0 확인 후 반영 단계로 넘어갔다. 익명 브라우저 주요7주소401, CSS/JS는 별도 HTTP URL이 없어 실제 파일 내용의 인라인 포함으로 확인했고 폰트/아이콘200이다. 로그인 화면 시각 검사는 사용자 영역이다.
+- **신선 복구·사본:** 짧은 읽기1.112초로 전체2852건·귀속 불일치109건을 다시 확인했다. 변경 후보368중1건 제외 후367건(기록227/미기록140)의 변경 전 세 행 전체를 보존했다. 사본20·50×6·47건의 적용/재전송/파일복원은 전부 일치, 불변 실패0이다. 전체 운영 DB의 새 사본은 만들지 않았다.
+- **운영 반영367건 완료:** owner 인증·CSRF·요청ID·미리보기 digest 검증 API로20→50×6→47건,8묶음 모두 검증 PASS. `ai_inference`·근거·실행 정보·변경 전 감사 이력, 기존 장부/화면 동반 변경, 금액·귀속·원문·ID·수동/비대상·금융 보호 불변을367건 전체에서 확인했다. 되돌리기0·Google0·P1등록0·2층 실행0이다.
+- **표시 검증의 오탐 보존:** 첫20건의 private 검증기가 출처에 `AI` 문자를 기대했으나 승인된 wave3의 상세 라벨은 `ai_inference`도 `자동`으로 표시한다. 독립 검수 후 실제 데이터 실패와 구분했고, 첫20건 모두 읽기 API의 거래 식별·항목·AI_INFERRED·정확한 제공자/모델/run_id/근거를 추가 대조해 통과했다. 최초 라벨 실패와 읽기15초 지연 기록을 숨기거나 테스트를 바꾸지 않았다. 마지막3건 실제 화면에서 근거를 펼쳐 AI 실행 정보 가시성까지 확인했다. 출처 라벨 자체는 여전히 `자동`이다.
+- **종료 상태:** 00:54:20 KST ready200/0.045초, Board/Worker8644e873, P2/full=false. [분기 검수 목록](agents/artifacts/p2-open-quarter-attribution-review-20261112.md)에109건의 여행별 분포를 남겼고, 개별 거래 식별자는 비공개 해시만 보존한다. 아래 이전 차단/진행 기록은 이력이다. P1 규칙은 별도 작업자의 함수 검수 뒤 후속 지시를 기다리며 지금 등록하지 않는다.
+- 비공개 근거 `.local-archive/p2-import-fix-20261112/`의 `final-summary.json`, `deploy-evidence.json`, `review.json`, `readyz-monitor.jsonl`, `monitor-result.json`, `anonymous-browser-smoke.json`, `runtime-final.json`, `apply367/{target-before.json,quarterly-review.json,prepare-summary.json,apply-batch-*.json,verify-batch-*.json,api-origin-batch-0.json,pilot-gate-resolution.json,ui-three.json}`. 코드 완료 SHA8644e873, 종료 기록은 이 문서의 최신 로컬 커밋이다. 현재 승인 범위의 남은 검사/차단 없음. 기존 사용자 QA3파일은 해시 일치 복원했고 미추적 파일을 보존했다.
+
+| 옛 항목 | 새 항목별 실제 반영 건수 |
+| --- | --- |
+| 기타경비 | 교통비1, 수수료2, 식비1, 입장료1, 주차비1, 항공료1 (합7) |
+| 현지경비 | 교통비39, 렌터카26, 숙박비27, 식비161, 입장료43, 주유비11, 주차비10, 통신비9, 통행료24, 항공료10 (합360) |
+
 ## 2026-11-12 P2 서버 진입점 수정 — wave3 통합·검증 진행
 
 - 현재 지시는 Fable의 ImportError 수정→릴리스 HTTP 검사→wave3 포함 단일배포→367건 반영→P1 등록 없이 보고다. 이전 추가배포 금지는 이 후속 승인으로 대체됐다. #799는 `e5e7bb5f551db5ce69365c2bc10899f12863d416`로 병합됐고 이 main을 통합했다.
