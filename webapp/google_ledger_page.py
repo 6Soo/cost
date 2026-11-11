@@ -390,7 +390,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         elif show_rows:
             message = f"수입 {_money(rows_total)}"
         else:
-            message = '수입 확인 필요'
+            message = '수입 자료를 확인해 주세요'
         return panel(message, body)
     except (google_authority.SnapshotError, ValueError, OSError):
         return panel('수입 내역을 불러오지 못했습니다. 새로고침해 주세요.')
@@ -499,8 +499,8 @@ def render_rows_html(detail: dict) -> str:
     verification = '검증됨' if detail.get('verified') else '미검증 · 행 합계는 검증되지 않은 금액입니다'
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>행 상세</title>"
-            "<style>table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ccc;padding:4px}"
-            "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
+            "<style>table{border-collapse:collapse;width:100%;font-size:var(--t-body-sm)}td,th{border:1px solid var(--c-border);padding:4px}"
+            "@media(max-width:600px){table{display:block;overflow-x:auto}} details>summary{list-style:none} details>summary::-webkit-details-marker{display:none} details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px} details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){ details>summary::after{transition:none}}</style></head><body>"
             f"<h1>{html.escape(detail['key'])} ({html.escape(detail['source'])})</h1>"
             f"<p>{verification}</p><p>동기화 기준 {html.escape(str(detail.get('synced_at') or '미확인'))}</p>"
             + ('' if detail.get('kind') == 'quarter' else
@@ -740,25 +740,25 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>수입 장부</title>"
         "<style>*{box-sizing:border-box}body{font-family:sans-serif;margin:16px;color:var(--shell-ink);background:var(--shell-bg)}"
-        "h1{font-size:24px}table{border-collapse:collapse;width:100%;font-size:14px;background:var(--shell-paper)}"
+        "h1{font-size:var(--t-h1)}table{border-collapse:collapse;width:100%;font-size:var(--t-body-sm);background:var(--shell-paper)}"
         "td,th{border:1px solid var(--shell-line);padding:10px;text-align:left;overflow-wrap:anywhere}"
         "a{color:var(--shell-accent)}button{font:inherit;padding:8px;cursor:pointer}"
         "button .ic,.work-back .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}"
         "@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
-        "#google-settings{background:var(--shell-paper);padding:12px;margin:16px 0;border:1px solid var(--shell-line);border-radius:8px}"
+        "#google-settings{background:var(--shell-paper);padding:12px;margin:16px 0;border:1px solid var(--shell-line);border-radius:var(--r-md)}"
         "#google-settings label{display:block;margin:12px 0}#google-settings select{display:block;width:100%;max-width:600px;"
         "min-height:44px;font:inherit}#google-settings button{min-height:44px}summary{cursor:pointer;min-height:44px}"
         ".work-back{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;"
-        "border:1px solid var(--shell-line-strong);border-radius:8px;text-decoration:none;background:var(--shell-paper)}"
+        "border:1px solid var(--shell-line-strong);border-radius:var(--r-md);text-decoration:none;background:var(--shell-paper)}"
         "@media(width < 760px){table,tbody,tr,td{display:block;width:100%}"
         "table{background:transparent}thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
-        "tr{margin-bottom:12px;border:1px solid var(--shell-line);border-radius:8px;background:var(--shell-paper);padding:8px}"
+        "tr{margin-bottom:12px;border:1px solid var(--shell-line);border-radius:var(--r-md);background:var(--shell-paper);padding:8px}"
         "td{border:0;padding:6px;display:grid;grid-template-columns:64px minmax(0,1fr);gap:6px}"
-        "td::before{content:attr(data-label);font-size:12px;color:var(--shell-muted)}"
+        "td::before{content:attr(data-label);font-size:var(--t-caption);color:var(--shell-muted)}"
         "td:first-child{display:block;font-weight:600}td:first-child::before{display:none}"
         "td:first-child a,button{display:inline-flex;align-items:center;min-height:44px;margin:4px 8px 0 0}"
         "td p{margin:4px 0}td br{display:none}td[colspan]{display:block}"
-        "li{overflow-wrap:anywhere}h1{font-size:22px}}"
+        "li{overflow-wrap:anywhere}h1{font-size:var(--t-h1)}}"
         "</style></head><body>"
         "<nav aria-label='장부 이동'>"
         f"<a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}여행별 비용으로 돌아가기</a>"
@@ -793,9 +793,9 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>수입 장부 동기화 확인</title><style>"
         "body{font-family:system-ui,sans-serif;margin:16px;line-height:1.6;color:var(--shell-ink)}"
-        "h1{font-size:22px}a{display:inline-flex;align-items:center;min-height:44px;"
-        "padding:8px 12px;margin:8px 8px 0 0;border:1px solid var(--shell-line-strong);border-radius:8px;color:var(--shell-accent)}"
-        "</style></head><body><h1>수입 장부를 아직 표시할 수 없어요</h1>"
+        "h1{font-size:var(--t-h1)}a{display:inline-flex;align-items:center;min-height:44px;"
+        "padding:8px 12px;margin:8px 8px 0 0;border:1px solid var(--shell-line-strong);border-radius:var(--r-md);color:var(--shell-accent)}"
+        "</style></head><body><h1>수입 장부를 아직 표시할 수 없습니다.</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
         f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"

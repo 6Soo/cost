@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode
 
 from app import ota_payments, ota_portal, ota_sources
 from app.reconciliation import covers_stay, handover_days, overlaps_stay, shared_days
-from . import ui_icons
+from . import ui_icons, ui_components
 from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
 PAGE_SIZE = 50
@@ -1011,13 +1011,13 @@ def _state_label(card):
     if card is None:
         return '카드 자료에서 찾지 못함'
     if card['decided']:
-        return '사용자가 지출 정리에서 정한 거래 · 예약 배정 적용 안 됨'
+        return '사용자가 직접 정한 거래 · 예약 배정 적용 안 됨'
     if card.get('already_booked'):
         return '장부 기록됨'
     if card['state'] == 'classified':
         return '분류됨' + (f" · {card['tab']}" if card['tab'] and card['tab'] != 'unclassified' else '')
     if card['state'] == 'needs_review':
-        return '확인 필요'
+        return '상태 미확인'
     return card['state'] or '미확인'
 
 
@@ -1053,7 +1053,7 @@ def _booking_ref_display(entry):
     return entry.get('booking_ref') or '원문 미제공'
 
 
-def render_html(data, query, *, csrf=''):
+def _render_html_legacy(data, query, *, csrf=''):
     esc = lambda v: html.escape(str(v or ''), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
 
@@ -1075,7 +1075,25 @@ def render_html(data, query, *, csrf=''):
     date_controls = choices('sort', [('desc', '내림차순 · 최근 이용 먼저'), ('asc', '오름차순 · 이른 이용 먼저')], sort)
     date_controls += choices('month', [('', '전체 월')] + [(m, m + '월') for m in data['months']], value('month'))
     provider_controls = choices('provider', [('', '모든 OTA')] + [(p, PROVIDERS.get(p, p)) for p in data['providers']], value('provider'))
-    state_controls = choices('state', [('', '전체 내역'), ('unassigned', '여행 연결 없음'), ('excluded', '취소·배정 해제')], value('state'))
+    state_controls = choices('state', [('', '전체'), ('unassigned', '연결 없음'), ('excluded', '취소·배정 해제')], value('state'))
+    state_value = value('state')
+    state_options = ''.join(
+        f"<option value='{esc(key)}'{' selected' if key == state_value else ''}>{esc(label)}</option>"
+        for key, label in (('', '전체'), ('unassigned', '연결 없음'), ('excluded', '취소·배정 해제'))
+    )
+    tabs_items = [
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+    ]
+    try:
+        from . import flight_passenger_page
+        if flight_passenger_page.enabled():
+            tabs_items.append({'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'})
+    except Exception:
+        pass
+    tabs = ui_components.section_tabs(tabs_items, 'ota').replace('aria-label="섹션"', 'aria-label="거래 종류"')
+    header = ui_components.page_header('거래', meta='OTA 예약', breadcrumb=())
     # 단일 상태에만 badge를 붙인다. 'A / B'처럼 합쳐진 문자열은 임의로
     # 확정하지 않고 문구 그대로 둔다. 수집됨(observed) 등 나머지 원값도
     # badge 없이 문구만 표시한다.
@@ -1108,7 +1126,7 @@ def render_html(data, query, *, csrf=''):
                            f"{ui_icons.icon(icon, 14)}{esc(status)}</span>")
         else:
             status_cell = esc(status)
-        conflict = (f"<br><strong>{ui_icons.icon('alert-triangle', 16)}기간 확인 필요</strong>"
+        conflict = (f"<br><strong>{ui_icons.icon('alert-triangle', 16)}기간 정보 없음</strong>"
                     if row['conflict'] else '')
         body.append('<tr>' + ''.join(f"<td data-label='{label}'>{text}</td>" for label, text in (
             ('이용일', esc(row['period'] or '미확인') + conflict),
@@ -1119,10 +1137,19 @@ def render_html(data, query, *, csrf=''):
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
               if row.get('card_candidates') else '') +
              ("<br><small>예약 관계: " + esc(' / '.join(
-                 f"{'예약 코드 추론' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 재확인 필요' if link.get('status') == 'STALE' else '예약 관계 확인 필요'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
+                 f"{'예약 코드 추론' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 원본을 확인해 주세요' if link.get('status') == 'STALE' else '예약 관계 미확인'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
                  for link in row.get('reservation_links') or ())) + "</small>"
               if row.get('reservation_links') else '')),
             ('여행 배정', trip_cell))) + '</tr>')
+    mobile_rows = []
+    for row in data['rows']:
+        names = ' · '.join(str(t['name']) for t in row['trips']) or '여행 연결 없음'
+        mobile_rows.append(ui_components.list_row(
+            row.get('label') or '예약 내용 없음',
+            row.get('period') or '이용일 원문 없음',
+            ' · '.join(filter(None, [PROVIDERS.get(row.get('provider'), row.get('provider')), names])),
+            ('a', detail_url(row['provider'], row['booking_ref'])),
+        ))
     hidden = ''.join(f"<input type='hidden' name='{k}' value='{esc(value(k))}'>" for k in ('state', 'provider', 'month', 'sort'))
     problems = data.get('trip_problems') or []
     reasons = data.get('reasons') or []
@@ -1134,7 +1161,7 @@ def render_html(data, query, *, csrf=''):
     problem_block = ''
     if problems:
         items = ''.join(f"<li><strong>{esc(t['name'])}</strong> · {esc(t['reason'])}</li>" for t in problems[:30])
-        problem_block = (f"<details class='trip-check'><summary id='trip-check-title'>여행 일정 확인 필요 {len(problems):,}개 / 전체 {data.get('trip_count', 0):,}개</summary>"
+        problem_block = (f"<details class='trip-check'><summary id='trip-check-title'>여행 일정 점검 필요 {len(problems):,}개 / 전체 {data.get('trip_count', 0):,}개</summary>"
                          "<p class='small'>일정 원본이 확인되지 않은 여행에는 예약을 배정할 수 없습니다. "
                          "원본을 다시 확인해 일정을 맞춘 뒤 배정해 주세요.</p>"
                          f"<ul>{items}</ul></details>")
@@ -1150,7 +1177,7 @@ def render_html(data, query, *, csrf=''):
 <script>(()=>{let wait=1500;async function check(){try{const r=await fetch('/api/ota-refresh-state',{cache:'no-store'});if(!r.ok)throw Error();const j=await r.json();if(j.state==='ready'){location.reload();return}if(j.state==='failed'){document.getElementById('ota-catalog-refresh').textContent='자료 갱신에 실패했습니다. 이전 자료를 표시합니다.';return}}catch{}wait=Math.min(10000,wait*1.5);setTimeout(check,wait)}setTimeout(check,wait)})();</script>"""
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         '<title>OTA 내역</title><style>' + CATALOG_STYLE + OTA_STYLE +
-        '</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
+        '.card-catalog details>summary{list-style:none}.card-catalog details>summary::-webkit-details-marker{display:none}.card-catalog details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}.card-catalog details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){.card-catalog details>summary::after{transition:none}}</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
         + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if not value('state') else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
@@ -1172,39 +1199,112 @@ def render_html(data, query, *, csrf=''):
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
         + '</nav><script>' + CATALOG_SCRIPT + '</script>' + refresh_script + '</main></body></html>')
 
+def render_html(data, query, *, csrf=''):
+    """Render the OTA catalog inside the shared transaction workspace language."""
+    document = _render_html_legacy(data, query, csrf=csrf)
+    current_state = str((query.get('state') or [''])[0])
+    tabs_items = [
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+    ]
+    try:
+        from . import flight_passenger_page
+        if flight_passenger_page.enabled():
+            tabs_items.append({'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'})
+    except Exception:
+        pass
+    tabs = ui_components.section_tabs(tabs_items, 'ota').replace('aria-label="섹션"', 'aria-label="거래 종류"')
+    header = ui_components.page_header('거래', meta='OTA 예약', breadcrumb=())
+    document = document.replace('<h1>OTA 내역</h1>', header + tabs, 1)
+    document = document.replace("<form id='card-filters'", "<form id='card-filters' class='filter-bar' role='search' aria-label='조회 조건'", 1)
+    document = document.replace("<input name='q' aria-label=", "<input type='search' name='q' aria-label=", 1)
+    document = re.sub(
+        r"<input type='search' name='q' aria-label='OTA 내역 검색' placeholder='([^']*)' value='([^']*)'>",
+        r"<div class='field'><label for='ota-q'>검색</label><input id='ota-q' type='search' name='q' aria-label='OTA 내역 검색' placeholder='\1' value='\2'></div>",
+        document, count=1)
+    document = document.replace("<button class='catalog-btn primary' type='submit'>", "<button class='btn' type='submit'>", 1)
+    document = re.sub(r"(<button class='btn' type='submit'>.*?</svg>)검색(</button>)", r"\1조회\2", document, count=1, flags=re.S)
+    document = document.replace("<a class='catalog-btn' href='/ota'>초기화</a>", "<a class='btn ghost' href='/ota'>초기화</a>", 1)
+    document = re.sub(r"<input type='hidden' name='state'[^>]*>", '', document, count=1)
+    # The two prominent state links become one disclosed selector. Keep the
+    # exact state values because the catalog query is the compatibility gate.
+    document = re.sub(r"<nav class='catalog-actions' aria-label='OTA 내역 선택'>.*?</nav>", '', document, count=1, flags=re.S)
+    state_options = ''.join(
+        f"<option value='{html.escape(key, quote=True)}'{' selected' if key == current_state else ''}>{html.escape(label)}</option>"
+        for key, label in (('', '전체'), ('unassigned', '연결 없음'), ('excluded', '취소·배정 해제'))
+    )
+    state_block = ("<div class='field'><label for='ota-state'>여행 연결</label>"
+                   f"<select id='ota-state' name='state' form='card-filters' aria-label='여행 연결' "
+                   f"onchange='this.form.requestSubmit()'>{state_options}</select></div>")
+    document = document.replace('추가 조회·관리', '추가 조회', 1)
+    document = re.sub(r"<nav class='catalog-actions' aria-label='OTA 추가 조회'>.*?</nav>", state_block, document, count=1, flags=re.S)
+    document = document.replace('여행 배정', '여행')
+    # A state heading is now a plain column; its former popover remains only
+    # for date/provider, so there is no duplicate state control.
+    document = re.sub(r"<th class='has-filter'><button[^>]+aria-label='여행'[^>]*>.*?</div></th>", '<th>여행</th>', document, count=1, flags=re.S)
+    document = document.replace("조건에 맞는 OTA 예약이 없습니다.", "조회된 OTA 예약이 없습니다.")
+    # Mobile uses the shared two-line list row without changing the desktop
+    # table or its pagination contract.
+    mobile = []
+    for row in data.get('rows') or []:
+        names = ' · '.join(str(t.get('name') or '') for t in row.get('trips') or []) or '여행 연결 없음'
+        mobile.append(ui_components.list_row(
+            row.get('label') or '예약 내용 없음', row.get('period') or '이용일 원문 없음',
+            ' · '.join(filter(None, [PROVIDERS.get(row.get('provider'), row.get('provider')), names])),
+            ('a', detail_url(row.get('provider'), row.get('booking_ref'))),
+        ))
+    mobile_html = "<ul class='ota-mobile-list' aria-label='OTA 예약 목록'>" + ''.join(mobile) + '</ul>'
+    # The optional reason summary can contain its own table. Append the mobile
+    # list after the catalog table, never inside that summary table.
+    table_end = document.rfind('</table>')
+    if table_end >= 0:
+        table_end += len('</table>')
+        document = document[:table_end] + mobile_html + document[table_end:]
+    if not data.get('rows') and data.get('refresh_state', 'ready') == 'ready':
+        action = "<a class='btn ghost' href='/ota'>조회 조건 초기화</a>"
+        empty = ui_components.empty_state(
+            '조회된 OTA 예약이 없습니다.' if data.get('all_count') else 'OTA 예약 자료가 없습니다.',
+            '검색어를 지우거나 조회 조건을 초기화해 주세요.', action)
+        document = document.replace("</table>" + mobile_html, "</table>" + mobile_html + empty, 1)
+    return document
+
 
 OTA_STYLE = (
-    "@media(prefers-color-scheme:dark){.card-catalog{--cc-bg:#111820;--cc-surface:#1B2632;--cc-text:#E7EDF4;--cc-muted:#A7B4C2;--cc-border:#394858;--cc-soft:#24313E;--cc-accent:#8ED3AD;--cc-accent-bg:#244536;--cc-focus:#86B7FF;color-scheme:dark}}"
-    ".card-catalog td:before{display:none}@media(width < 1024px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:var(--cc-muted);margin-bottom:4px}}"
-    ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
+    ""
+    ".ota-mobile-list{display:none;list-style:none;margin:0;padding:0;border:1px solid var(--cc-border);border-radius:var(--r-lg);background:var(--cc-surface)}"
+    ".ota-mobile-list .lr-hit{color:var(--cc-text)}"
+    "@media(width < 1024px){.card-catalog>table{display:none}.ota-mobile-list{display:block}.card-catalog .catalog-tools{margin:8px 0 16px}}"
+    ".card-catalog td:before{display:none}@media(width < 1024px){.card-catalog td:before{display:block;content:attr(data-label);font-size:var(--t-caption);color:var(--cc-muted);margin-bottom:4px}}"
+    ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,var(--c-focus));outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
     ".card-catalog svg.ic:first-child{margin-right:6px}"
     ".card-catalog .ota-assignment-evidence>summary{display:inline-flex;align-items:center;white-space:nowrap;cursor:pointer}"
     "@media(width < 1024px){.card-catalog td .ota-assignment-evidence{grid-column:2}}"
     "@media(prefers-reduced-motion:reduce){.card-catalog svg.ic{transition:none}}"
-    ".ota-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;"
-    "font-size:12px;font-weight:600;white-space:nowrap;max-width:100%}"
+    ".ota-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--r-pill);"
+    "font-size:var(--t-caption);font-weight:600;white-space:nowrap;max-width:100%}"
     ".ota-badge svg.ic{width:14px;height:14px;margin:0;vertical-align:0;flex:0 0 auto}"
     ".ota-badge.trip{white-space:normal;overflow-wrap:anywhere}"
-    ".ota-badge.ok{background:var(--cc-accent-bg,#ECF5EF);color:var(--cc-accent,#166444)}"
-    ".ota-badge.idle{background:var(--cc-soft,#F2F4F7);color:var(--cc-muted,#667085)}"
-    ".ota-badge.bad{background:#FDECEC;color:#912018}"
-    ".trip-check{border:1px solid var(--cc-border);background:var(--cc-surface);color:var(--cc-text);border-radius:12px;padding:12px 16px;margin:12px 0}"
+    ".ota-badge.ok{background:var(--cc-accent-bg,var(--c-accent-subtle));color:var(--cc-accent,var(--c-accent-solid-hover))}"
+    ".ota-badge.idle{background:var(--cc-soft,var(--c-surface-sunken));color:var(--cc-muted,var(--c-text-secondary))}"
+    ".ota-badge.bad{background:var(--c-danger-subtle);color:var(--c-danger-text)}"
+    ".trip-check{border:1px solid var(--cc-border);background:var(--cc-surface);color:var(--cc-text);border-radius:var(--r-lg);padding:12px 16px;margin:12px 0}"
     ".trip-check table{color:var(--cc-text)}.trip-check .small{color:var(--cc-muted)}"
-    "@media(prefers-color-scheme:dark){.ota-badge.bad{background:#542B30;color:#FFC3C7}}"
-    ".trip-check h2{font-size:15px;margin:0 0 6px}.trip-check ul{margin:8px 0 0;padding-left:18px}"
-    ".ota-detail section{border:1px solid var(--cc-border,#E4E7EC);border-radius:12px;background:var(--cc-surface,#fff);padding:14px 16px;margin:12px 0}"
-    ".ota-detail h2{font-size:15px;margin:0 0 8px}"
+    ""
+    ".trip-check h2{font-size:var(--t-body-sm);margin:0 0 6px}.trip-check ul{margin:8px 0 0;padding-left:18px}"
+    ".ota-detail section{border:1px solid var(--cc-border,var(--c-border));border-radius:var(--r-lg);background:var(--cc-surface,var(--c-surface));padding:14px 16px;margin:12px 0}"
+    ".ota-detail h2{font-size:var(--t-body-sm);margin:0 0 8px}"
     ".ota-detail table{width:100%;border-collapse:collapse}"
-    ".ota-detail td,.ota-detail th{padding:6px 8px;border-bottom:1px solid var(--cc-border,#EEF0F3);text-align:left;vertical-align:top}"
-    ".ota-detail .verdict{font-weight:650;font-size:15px;margin:0 0 10px}"
-    ".ota-detail .muted{color:var(--cc-muted,#667085)}.ota-detail .warn{color:var(--shell-danger,#912018)}"
-    "@media(prefers-color-scheme:dark){.ota-detail .warn{color:var(--shell-danger,#FFC3C7)}}"
+    ".ota-detail td,.ota-detail th{padding:6px 8px;border-bottom:1px solid var(--cc-border,var(--c-border));text-align:left;vertical-align:top}"
+    ".ota-detail .verdict{font-weight:650;font-size:var(--t-body-sm);margin:0 0 10px}"
+    ".ota-detail .muted{color:var(--cc-muted,var(--c-text-secondary))}.ota-detail .warn{color:var(--shell-danger,var(--c-danger-text))}"
+    ""
     ".ota-detail label.option{display:flex;gap:10px;align-items:flex-start;margin:6px 0}"
-    ".ota-detail input,.ota-detail select,.ota-detail textarea{max-width:100%;min-height:44px;border:1px solid var(--cc-border,#D0D5DD);border-radius:8px;background:var(--cc-surface,#fff);color:var(--cc-text,#182230);padding:8px 10px;font:inherit}"
-    ".ota-detail :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
+    ".ota-detail input,.ota-detail select,.ota-detail textarea{max-width:100%;min-height:44px;border:1px solid var(--cc-border,var(--c-border-control));border-radius:var(--r-md);background:var(--cc-surface,var(--c-surface));color:var(--cc-text,var(--c-text));padding:8px 10px;font:inherit}"
+    ".ota-detail :focus-visible{outline:3px solid var(--cc-focus,var(--c-focus));outline-offset:2px}"
     ".ota-detail textarea{width:100%;min-height:72px}"
-    ".ota-detail .notice{border:1px solid #B7DCC7;background:var(--cc-accent-bg,#ECF5EF);border-radius:10px;padding:10px 14px}"
+    ".ota-detail .notice{border:1px solid var(--c-accent-subtle);background:var(--cc-accent-bg,var(--c-accent-subtle));border-radius:var(--r-md);padding:10px 14px}"
     ".ota-detail .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}"
 )
 

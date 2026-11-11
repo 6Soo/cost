@@ -564,8 +564,9 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 page.wait_for_function("document.querySelector('#participant-trip-panel')?.dataset.loaded === '1'")
                 self.assertIn(PARTICIPANT, page.locator('.participant-insurance-cell').first.inner_text())
-                page.locator('.trip-actions [data-trip-panel="participant-trip-panel"]').click()
-                page.locator('#participant-trip-panel .participant-cards li').first.wait_for()
+                page.locator('[role=tab][aria-controls="view-participants"]').click()
+                page.locator('#participant-trip-panel > summary').click()
+                page.locator('#participant-trip-panel').wait_for(state='visible')
                 self.assertNotIn(PARTICIPANT, page.locator('#participant-trip-panel .participant-cards').inner_text())
                 self.assertIn('미연결-합성', page.locator('#participant-trip-panel .participant-cards').inner_text())
                 income_table = page.locator('#google-trip-income table#income-tbl')
@@ -582,9 +583,12 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 self.assertEqual(connect.count(), 1)
                 self.assertEqual(connect.get_attribute('aria-label'),
                                  '미연결 · 이 수입에 보험 참가자 연결')
+                page.locator('[role=tab][aria-controls="view-income"]').click()
                 connect.click()
                 form = income_table.locator('.insurance-candidate-row .participant-keyboard-link')
                 form.wait_for(state='visible')
+                self.assertEqual(form.count(), 1)
+                self.assertEqual(income_table.locator('.participant-row-connect').count(), 1)
                 self.assertEqual(form.locator('[name=income_ref]').input_value(), row_ref)
                 self.assertEqual(form.locator('[name=participant_id]').input_value(), '')
                 self.assertEqual(form.locator('select').count(), 0)
@@ -613,6 +617,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 # A named inline choice submits the fixed income and participant
                 # directly, without a duplicate summary or second connect step.
                 candidate = income_table.locator('.insurance-candidate-row button[data-pick-participant]').first
+                expected_participant = candidate.get_attribute('data-pick-participant')
+                self.assertTrue(expected_participant)
                 submitted = []
                 page.on('request', lambda request: submitted.append(request.post_data)
                         if '/api/participants/link' in request.url and request.method == 'POST' else None)
@@ -621,7 +627,10 @@ class ParticipantIncomePageTests(unittest.TestCase):
                     candidate.press('Enter')
                 self.assertEqual(saved.value.status, 200)
                 self.assertEqual(len(submitted), 1)
-                self.assertIn('income_ref=main%7C', submitted[0])
+                from urllib.parse import parse_qs
+                posted = parse_qs(submitted[0])
+                self.assertEqual(posted['income_ref'], [row_ref])
+                self.assertEqual(posted['participant_id'], [expected_participant])
                 page.wait_for_load_state('networkidle')
                 self.assertIn('/board?', page.url)
                 after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])

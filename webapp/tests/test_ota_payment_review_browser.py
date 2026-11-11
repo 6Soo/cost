@@ -529,7 +529,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 rows.nth(0).get_by_role("radio").check()
                 page.get_by_role("button", name="차이 미리 보기").first.wait_for()
                 self.assertTrue(page.get_by_role("button", name="차이 미리 보기").first.is_enabled())
-                page.get_by_role("button", name="연결할 거래 없음 · 보류 유지").click()
+                page.get_by_role("button", name="연결할 거래 없음 · 연결하지 않음").click()
                 self.assertEqual(page.locator("input[type=radio]:checked").count(), 0)
                 self.assertTrue(page.get_by_role("button", name="차이 미리 보기").first.is_disabled())
 

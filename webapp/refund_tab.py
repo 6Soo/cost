@@ -1,9 +1,10 @@
 """연결이 확인된 환불 묶음의 읽기 전용 표시. 회계 귀속은 변경하지 않는다."""
 import sqlite3
+from html import escape
 
 from app.partial_refund import refund_links
 
-from . import read_scope, refund_tab_ui
+from . import read_scope, refund_tab_ui, ui_components
 
 
 def groups(store):
@@ -48,7 +49,36 @@ def render(store, query='', kind=''):
     names = {t['tab_id']: t['display_key'] for t in board.live_trips(include_archived=True)}
     visible = refund_tab_ui.filter_refund_groups(all_groups, query=query, kind=kind, saved=saved)
     completed = {r['transaction_id'] for group in all_groups for r in group}
-    return (refund_tab_ui.render_refund_tab(visible, saved=saved, trip_names=names)
+    tabs_items = [
+        {'label': '카드', 'href': '/cards/all', 'key': 'cards'},
+        {'label': 'OTA 예약', 'href': '/ota', 'key': 'ota'},
+        {'label': '환불', 'href': '/board?tab=refunds', 'key': 'refunds'},
+    ]
+    try:
+        from . import flight_passenger_page
+        if flight_passenger_page.enabled():
+            tabs_items.append({'label': '항공권', 'href': '/flight-passengers', 'key': 'flight'})
+    except Exception:
+        pass
+    tabs = ui_components.section_tabs(tabs_items, 'refunds').replace('aria-label="섹션"', 'aria-label="거래 종류"')
+    header = ui_components.page_header(
+        '거래', meta='환불·취소 관계를 확인합니다.',
+        actions="<a class='btn primary' href='/export'>XLSX 내보내기</a>", breadcrumb=())
+    query_value = escape(str(query or ''), quote=True)
+    kind_value = str(kind or '') if kind in ('', 'in', 'ex') else ''
+    kind_options = ''.join(
+        f"<option value='{value}'{' selected' if value == kind_value else ''}>{label}</option>"
+        for value, label in (('', '전체'), ('in', '수입만'), ('ex', '지출만')))
+    filters = ui_components.filter_bar([
+        {'label': '검색', 'control_html':
+         f"<input id='refund-q' type='search' name='q' value='{query_value}' placeholder='가맹점·날짜·메모 검색'>"},
+        {'label': '구분', 'control_html':
+         f"<select id='refund-kind' name='kind'>{kind_options}</select>"},
+    ], submit_label='조회', reset_href='/board?tab=refunds')
+    filters = filters.replace('<form class="filter-bar"', "<form class='filter-bar' action='/board' aria-label='조회 조건'", 1)
+    filters = filters.replace('</form>', "<input type='hidden' name='tab' value='refunds'></form>", 1)
+    filters = filters.replace('<button class="btn primary"', '<button class="btn"', 1)
+    return (header + tabs + filters + refund_tab_ui.render_refund_tab(visible, saved=saved, trip_names=names)
             + render_settlement_review(store, completed, query=query, kind=kind))
 
 
@@ -85,7 +115,7 @@ def render_settlement_review(store, completed=(), *, query='', kind=''):
         href = '/board?' + urlencode({'row': 'card-' + tid})
         status = '내부 장부 기록 있음' if booked else '내부 장부 미기록'
         cards.append("<section class='ui-card refund-card'><h3>" + esc(merchant or '') + '</h3>'
-                     + '<p>' + esc(day or '날짜 확인 필요') + f' · {amount:,}원</p>'
+                     + '<p>' + esc(day or '이용일 원문 없음') + f' · {amount:,}원</p>'
                      + '<p>' + esc(description or '취소 정산 근거 확인 중') + '</p>'
                      + '<p>' + esc(status) + ' · 실제 환급 완료를 뜻하지 않습니다.</p>'
                      + ('<p>' + esc(hold) + '</p>' if hold else '')

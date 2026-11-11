@@ -6,7 +6,7 @@ Verifies:
 3. Decimal, float, int signed amounts formatting and None/missing error parity.
 4. Missing/None fields handling (date fallback, unassigned trips, escaping).
 5. 1:N cancellation links, identity preservation, and inferred status.
-6. Exact equivalence between baseline 22e134b refund_tab AST and current implementation.
+6. Financial projection equivalence with the baseline while the approved page shell evolves.
 """
 from __future__ import annotations
 
@@ -165,7 +165,7 @@ def test_render_refund_line_signed_amounts_and_escaping():
     assert "<strong>25,000원</strong>" in line_orig
     assert "상점 &lt;A&amp;B&gt; · 식비" in line_orig
     assert "미기록" in line_orig
-    assert "<a href='/import'>지출 정리</a>" in line_orig
+    assert "<a href='/cards/all'>카드 거래 보기</a>" in line_orig
 
     # Recorded refund line with negative amount and trip
     ref_src = {
@@ -177,7 +177,7 @@ def test_render_refund_line_signed_amounts_and_escaping():
     }
     saved_row = {"row_id": "row-456", "item": "재정의 항목", "display_tab_id": "t1"}
     line_ref = refund_tab_ui.render_refund_line(ref_src, index=1, row=saved_row, trip="2026 도쿄")
-    assert "환불 · 날짜 확인 필요" in line_ref
+    assert "환불 · 이용일 원문 없음" in line_ref
     assert "<strong>-25,000원</strong>" in line_ref
     assert "재정의 항목" in line_ref
     assert "장부 기록됨 · 2026 도쿄" in line_ref
@@ -220,7 +220,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -30000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_excess = refund_tab_ui.render_refund_card(g_excess)
-    assert "<h2 class='ui-card__heading'>초과 환불 확인 필요 · 순액 -10,000원</h2>" in card_excess
+    assert "<h2 class='ui-card__heading'>초과 환불 검토 필요 · 순액 -10,000원</h2>" in card_excess
 
     # 3. Partial refund (net > 0)
     g_partial = [
@@ -236,7 +236,7 @@ def test_render_refund_card_titles_and_inferred():
         {"transaction_id": "r", "amount_krw": -15000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     card_inferred = refund_tab_ui.render_refund_card(g_inferred)
-    assert "<h2 class='ui-card__heading'>원결제 추론 연결 · 기록 보류 · 환급 완료 아님 · 순액 0원</h2>" in card_inferred
+    assert "<h2 class='ui-card__heading'>원결제 추론 연결 · 기록 전 확인 · 환급 완료 아님 · 순액 0원</h2>" in card_inferred
 
     # 5. Decimal net amount in card
     g_dec = [
@@ -248,33 +248,37 @@ def test_render_refund_card_titles_and_inferred():
 
 
 def test_render_refund_summary_and_empty_tab():
-    assert "<p class='ui-state'>환불 쌍이 없습니다.</p>" in refund_tab_ui.render_refund_tab([])
+    empty_html = refund_tab_ui.render_refund_tab([])
+    assert 'class="empty-state"' in empty_html
+    assert '환불·취소 거래가 없습니다.' in empty_html
 
     g = [
         {"transaction_id": "o", "amount_krw": 40000, "occurred_on": "2026-10-01", "merchant": "M", "item": "I"},
         {"transaction_id": "r", "amount_krw": -40000, "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
     ]
     html = refund_tab_ui.render_refund_tab([g])
-    assert "카드 환불 1쌍" in html
-    assert "원결제 <b>40,000원</b>" in html
-    assert "환불 <b>-40,000원</b>" in html
-    assert "순액 <b>0원</b>" in html
+    assert "환불 쌍 1개" in html
+    assert "<dt>원결제</dt><dd>40,000원</dd>" in html
+    assert "<dt>환불</dt><dd>-40,000원</dd>" in html
+    assert "<dt>순액</dt><dd>0원</dd>" in html
     assert "<section class='ui-card refund-card'>" in html
     assert "class='ui-card__heading'" in html
     assert "<style>" not in html
-    assert "class='ui-state'" in refund_tab_ui.render_refund_tab([])
+    assert 'class="empty-state"' in refund_tab_ui.render_refund_tab([])
 
 
-def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_path):
-    """Full differential test against 22e134b baseline across empty and populated stores."""
+def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_path, monkeypatch):
+    """Keep the financial projection equal while allowing the approved new shell."""
     # 1. Empty store before transactions table exists
     empty_db = tmp_path / "empty.sqlite"
     empty_store = LedgerStore(empty_db, seed_demo=False)
     try:
         base_empty = baseline_refund_tab_ast["render"](empty_store)
         curr_empty = refund_tab.render(empty_store)
-        assert _normalize_refund_ui(base_empty) == _normalize_refund_ui(curr_empty)
         assert baseline_refund_tab_ast["groups"](empty_store) == refund_tab.groups(empty_store) == []
+        assert "<h1>거래</h1>" in curr_empty
+        assert "환불 쌍 0개" in curr_empty
+        assert "환불·취소 거래가 없습니다." in curr_empty
     finally:
         empty_store.close()
 
@@ -293,15 +297,45 @@ def test_baseline_equivalence_with_22e134b(baseline_refund_tab_ast, pair, tmp_pa
     curr_groups = refund_tab.groups(store)
     assert base_groups == curr_groups
 
-    # Compare render across default, query, and kind
-    base_html = baseline_refund_tab_ast["render"](store)
-    curr_html = refund_tab.render(store)
-    assert _normalize_refund_ui(base_html) == _normalize_refund_ui(curr_html)
+    # Compare the underlying projection for each filter. The page shell, empty
+    # state, KPI labels, and classes intentionally changed in PR-5.
+    cases = (("", ""), ("합성항공", ""), ("NonExistent", ""), ("", "in"), ("", "out"))
+    # Exercise the recorded-row link as well as the unrecorded refund lines.
+    saved_row = {'source_event_id': pair.original, 'row_id': 'synthetic-ledger-row',
+                 'item': '항공료', 'display_tab_id': 'trip-synthetic'}
+    monkeypatch.setattr(ledger_board, '_expense_rows', lambda: [saved_row])
+    monkeypatch.setattr(ledger_board, 'live_trips',
+                        lambda **kwargs: [{'tab_id': 'trip-synthetic', 'display_key': '합성여행'}])
+    saved = {r.get('source_event_id'): r for r in ledger_board._expense_rows()}
+    for query, kind in cases:
+        base_groups = baseline_refund_tab_ast["groups"](store)
+        expected = refund_tab_ui.filter_refund_groups(
+            base_groups, query=query, kind=kind,
+            saved=saved,
+        )
+        curr_html = refund_tab.render(store, query=query, kind=kind)
+        base_html = baseline_refund_tab_ast["render"](store, query=query, kind=kind)
+        import re
 
-    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, query="합성항공")) == _normalize_refund_ui(refund_tab.render(store, query="합성항공"))
-    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, query="NonExistent")) == _normalize_refund_ui(refund_tab.render(store, query="NonExistent"))
-    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, kind="in")) == _normalize_refund_ui(refund_tab.render(store, kind="in"))
-    assert _normalize_refund_ui(baseline_refund_tab_ast["render"](store, kind="out")) == _normalize_refund_ui(refund_tab.render(store, kind="out"))
+        def cards(markup):
+            return re.findall(r"<section class='(?:ui-card )?refund-card'>.*?</section>", markup, re.S)
+
+        def normalize_card(markup):
+            return (_normalize_refund_ui(markup)
+                    .replace('초과 환불 확인 필요', '초과 환불 검토 필요')
+                    .replace('기록 보류', '기록 전 확인')
+                    .replace('날짜 확인 필요', '이용일 원문 없음')
+                    .replace("<a href='/import'>지출 정리</a>",
+                             "<a href='/cards/all'>카드 거래 보기</a>"))
+
+        assert [normalize_card(card) for card in cards(base_html)] == [
+            normalize_card(card) for card in cards(curr_html)
+        ]
+        if expected:
+            assert '/row?id=synthetic-ledger-row' in curr_html
+        assert f"환불 쌍 {len(expected)}개" in curr_html
+        assert curr_html.count("class='ui-card refund-card'") == len(expected)
+        assert "<h1>거래</h1>" in curr_html
 
 
 def _normalize_refund_ui(markup):

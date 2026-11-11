@@ -41,7 +41,9 @@ def test_audit_owner_check_precedes_all_source_reads():
 def workflow_context(monkeypatch):
     board = SimpleNamespace(current_role=lambda:'owner')
     trip = {'key':'sheet','closure':'closed','closure_current':True,
-            'review':[], 'copies':{'archive':{'sheet':'archive-sheet'}}}
+            'review':[], 'copies':{'archive':{'sheet':'archive-sheet'}},
+            'tab_id':'trip', 'visual_closed':True}
+    board.live_trips = lambda include_archived=True: [trip]
     payload = {'trips':[trip], 'sources':{role:{'status':'ok','stale':False} for role in ('main','archive')}}
     monkeypatch.setattr(workflow.google,'enabled',lambda:True)
     monkeypatch.setattr(groups,'_source_bundle',lambda: ({},{},{'sheet':'trip'},payload))
@@ -54,6 +56,9 @@ def workflow_context(monkeypatch):
                                          ('no_archive','unknown')])
 def test_closure_requires_current_google_archive_evidence(workflow_context, case, expected):
     board, trip, payload = workflow_context
+    # Google closure evidence is shown as a note; completion follows the app's
+    # explicit visual_closed marker.
+    trip['visual_closed'] = case in {'closed', 'duplicate'}
     if case == 'open':
         trip['closure']='open'; trip['copies']={'main':{'sheet':'main'}}
     if case == 'stale': payload['sources']['archive']['stale']=True
@@ -66,10 +71,17 @@ def test_closure_requires_current_google_archive_evidence(workflow_context, case
     assert state['google_available'] is True  # Amount-group equality never changes closure evidence.
     assert state['displayed_holds'] == 1
     markup = workflow.render(board,'trip',[],{'available':False})
-    assert '여행 검토' in markup and '지출 검토·복사' in markup
+    assert 'href="#trip-close">마감</a>' in markup
+    expected_note = ('마감 · Google 보관 장부 이동 확인' if case in {'closed', 'duplicate'}
+                     else '미마감 · Google 메인 장부' if expected == 'open'
+                     else '확인 중')
+    assert expected_note in markup
+    assert ('<span class="step-state">완료</span>' in markup
+            if case in {'closed', 'duplicate'} else '<span class="step-state">완료</span>' not in markup)
     assert 'expense-reconciliation' not in markup
-    assert 'form' not in markup and '<details' in markup
-    if case == 'duplicate': assert '사본 중복 검토' in markup
+    assert 'form' not in markup and '<details' not in markup
+    assert ('data-state="done"' in markup if case in {'closed', 'duplicate'}
+            else 'data-state="todo"' in markup)
 
 
 def test_refund_and_quarter_are_not_actual_trip_closure(workflow_context):
@@ -97,14 +109,13 @@ def test_review_actions_use_current_trip_and_do_not_claim_missing_sources_are_em
     board, _, _ = workflow_context
     markup = workflow.render(board, 'trip', [{'row_id': 'expense-a', 'blocked': True,
                                             'source_merchant': 'Synthetic merchant'}], {'available': False})
-    assert "href='/board?tab=trip&amp;row=expense-a'" in markup
-    assert "href='/receipts?trip=trip'" in markup
-    assert "data-trip-panel='participant-trip-panel'" in markup
-    assert '비교할 수 없습니다' in markup and '건수를 확인할 수 없습니다' in markup
-    assert '/import' not in markup and '분류 대기' not in markup
+    assert 'href="#view-expense"' in markup
+    assert 'href="/receipts?trip=trip"' in markup
+    assert 'href="#view-income"' in markup
+    assert '/import' not in markup
 
 
-def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_context, monkeypatch):
+def test_workflow_steps_fit_mobile_and_retain_keyboard_links(workflow_context, monkeypatch):
     from playwright.sync_api import sync_playwright
     from webapp import ledger_design_assets, site_shell
     board, _, _ = workflow_context
@@ -122,26 +133,12 @@ def test_workflow_disclosure_fits_mobile_and_retains_keyboard_links(workflow_con
                 tab.emulate_media(color_scheme=theme)
                 for width in (320,390,759,760,1280):
                     tab.set_viewport_size({'width':width,'height':844})
-                    disclosure=tab.locator('.trip-workflow')
-                    if disclosure.get_attribute('open') is None:
-                        tab.locator('.trip-workflow > summary').click()
-                    tools=tab.locator('.trip-workflow-tools')
-                    if tools.get_attribute('open') is None:
-                        tools.locator('summary').click()
+                    steps=tab.locator('.settlement-steps')
                     assert tab.evaluate('document.documentElement.scrollWidth<=innerWidth')
-                    assert tab.locator('.trip-workflow a').count()==7
-                    assert tab.locator('.trip-workflow-icon svg[aria-hidden=true]').count()==4
-                    assert tab.locator('.trip-workflow-heading svg[aria-hidden=true]').count()==1
-                    assert tab.locator('.trip-workflow a').evaluate_all(
+                    assert steps.locator('li').count()==5
+                    assert steps.locator('a').evaluate_all(
                         '(links)=>links.every(link=>link.getBoundingClientRect().height>=44)')
-                    assert tab.locator('.trip-workflow a strong').all_text_contents() == [
-                        '보험 후보 비교', '지출 검토·복사', '영수증 확인', '수입·마감 확인']
-                    assert tab.get_by_role('link', name='지출 검토·복사').get_attribute('href') == '#trip-expense-copy'
-                    assert tab.locator('.trip-workflow > nav a').count()==4
-                    assert '현재 여행으로 자동 필터되지 않습니다' in tools.inner_text()
-                    assert tab.locator('.trip-workflow-intro').count() == 0
-            tab.locator('.trip-workflow > summary').focus()
-            tab.locator('.trip-workflow > summary').press('Enter')
-            assert tab.locator('.trip-workflow > nav').is_hidden()
+                    assert steps.locator('a[href="#view-expense"]').count()==1
+                    assert steps.locator('a[href="#trip-close"]').count()==1
         finally:
             browser.close()

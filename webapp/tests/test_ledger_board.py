@@ -58,7 +58,7 @@ class BoardApiTests(unittest.TestCase):
             with patch('webapp.card_import.CardImporter', side_effect=AssertionError('export constructed importer')) as ctor:
                 with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/export') as response:
                     self.assertEqual(response.status, 200)
-                    self.assertIn('선택 탭 출력', response.read().decode('utf-8'))
+                    self.assertIn('XLSX 내보내기', response.read().decode('utf-8'))
                 ctor.assert_not_called()
             from webapp.sheets_export import get_job, list_jobs
             get_job(self.store.conn, 'missing-job')
@@ -239,7 +239,8 @@ class BoardApiTests(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/import") as response:
             self.assertEqual(response.status, 200)
             self.assertTrue(response.geturl().endswith("/cards/all?panel=upload"))
-            self.assertIn("카드 업로드", response.read().decode("utf-8"))
+            # The 카드 업로드 header action is owner-only (spec §6.5); this server has no owner session.
+            self.assertIn("업로드 후 확인", response.read().decode("utf-8"))
         csv_body = (
             "occurred_on,merchant,amount_krw,currency,card_last4,approval_no,"
             "cancel_flag,suggested_tab,memo\n"
@@ -636,7 +637,7 @@ class BoardApiTests(unittest.TestCase):
         and requires 후보 and 자동분류 rows to look like ordinary rows.
         """
         page = self._get_html("/board?tab=trip-demo-a")
-        table = re.search(r"<table id='tbl'>.*?</table>", page, re.S).group()
+        table = re.search(r"<table id='tbl'[^>]*>.*?</table>", page, re.S).group()
         headers = re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)
         self.assertIn("거래처·내용", headers)
         self.assertIn("금액", headers)
@@ -667,10 +668,10 @@ class BoardApiTests(unittest.TestCase):
         # The narrow-screen rules live in the served stylesheet. The old 760px
         # breakpoint and `scrollx` belonged to the unrouted function.
         page = self._get_html("/board?tab=trip-demo-a")
-        self.assertIn("@media(width < 760px)", page)
-        self.assertIn("<div class='tw'><table id='tbl'>", page)
+        self.assertIn("@media (width < 760px)", page)
+        self.assertRegex(page, r"<div class='tw'><table id='tbl'[^>]*>")
         self.assertRegex(page, r"\.tw\{[^}]*overflow-x:auto")
-        self.assertRegex(page, r"id='btn-menu'[^>]*aria-controls='nav'")
+        self.assertIn("site-topbar", page)
 
     def test_detail_shows_basis(self):
         page = self._get_html("/row?id=expense-demo-c1")

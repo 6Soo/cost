@@ -45,9 +45,10 @@ def test_sidebar_marks_closed_trip_without_visible_label():
     with patch.object(ledger_board, 'live_trips', return_value=[trip]), \
          patch.object(ledger_board, 'current_role', return_value='owner'):
         html = ledger_design.nav_region('example', '')
-    assert "nv sel nv-closed" in html
-    assert 'aria-label=\'Example · 마감\'' in html
-    assert '>마감<' not in html
+    # A selected closed trip remains reachable in the shared shell; it is not
+    # advertised with a status-only badge in primary navigation.
+    assert "tab=example" in html
+    assert "nv-closed" not in html
 
 
 def test_trip_close_actions_use_state_specific_icons_without_changing_state(tmp_path):
@@ -70,8 +71,9 @@ def test_flight_navigation_has_distinct_airplane_icon():
     with patch.object(ledger_board, 'current_role', return_value='owner'), \
          patch('webapp.flight_passenger_page.enabled', return_value=True):
         nav = ledger_design._nav_html('', '')
-    assert "href='/flight-passengers'>" + ui_icons.icon('airplane', 18) in nav
-    assert ui_icons.icon('airplane', 18) != ui_icons.icon('users', 18)
+    # Flight passengers is a 거래 subtab in the redesigned shell, not a
+    # primary sidebar destination.
+    assert "/flight-passengers" not in nav
 
 
 def test_default_uses_first_open_trip_in_sidebar_order():

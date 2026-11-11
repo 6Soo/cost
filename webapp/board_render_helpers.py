@@ -152,7 +152,7 @@ def allocation_detail_body(
         trips.append({"tab_id": current_tab, "display_key": "삭제된 여행"})
     tab_options = (
         "<option value='unclassified'"
-        f"{' selected' if current_tab is None else ''}>분류대기(미배정 배분)</option>"
+        f"{' selected' if current_tab is None else ''}>귀속을 선택하세요</option>"
         + "".join(
             f"<option value='{esc(t['tab_id'])}'"
             f"{' selected' if current_tab == t['tab_id'] else ''}>{esc(t['display_key'])}</option>"
@@ -270,7 +270,7 @@ def split_page(
         cur = current or "unclassified"
         out = (
             f"<option value='unclassified'{' selected' if cur == 'unclassified' else ''}>"
-            "분류대기(미배정 배분)</option>"
+            "귀속을 선택하세요</option>"
         )
         for t in trips_fn():
             selected = " selected" if cur == t["tab_id"] else ""

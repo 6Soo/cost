@@ -21,8 +21,8 @@ STATUS_LABELS = {
     "MATCHED_MANUAL": "이미 수기로 기록됨 · 새 행 추가 안함",
     "MATCHED_EXISTING": "COST 내부 연결이 이미 기록됨",
     "NEW_EXPENSE": "신규 반영 가능 · Google에는 아직 기록되지 않음",
-    "REVIEW_CONFLICT": "중복 가능성 확인 필요",
-    "SOURCE_UNAVAILABLE": "시트 확인 불가 · 안전 보류",
+    "REVIEW_CONFLICT": "중복 가능성을 확인해 주세요",
+    "SOURCE_UNAVAILABLE": "시트 확인 불가 · 기록 전 확인",
 }
 
 
@@ -325,7 +325,7 @@ def _post(handler, raw, csrf):
         return
     path = str(preview.get("links_path") or "")
     if not path or not payload.get("source_available"):
-        _send_error(handler, "SOURCE_UNAVAILABLE", 503, "시트 원본을 확인할 수 없어 안전하게 보류했습니다")
+        _send_error(handler, "SOURCE_UNAVAILABLE", 503, "시트 원본을 확인할 수 없어 기록 전 확인 상태입니다")
         return
     try:
         store = _link_store()

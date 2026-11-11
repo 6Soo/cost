@@ -24,6 +24,7 @@ from urllib.parse import quote
 from app.google_authority import SnapshotError
 from . import ledger_board as board
 from . import read_scope, ui_icons
+from . import ui_components
 
 FONT_DIR = Path(__file__).resolve().parent / "static" / "fonts"
 OTA_DIR = Path(__file__).resolve().parent / "static" / "ota"
@@ -103,87 +104,25 @@ def _money(value) -> str:
 
 
 def work_menu_html() -> str:
-    """Owner work entry points for the home body, with honest states.
-
-    This lives in the home body only. The sidebar carries the stable primary
-    menu (including the single 미배정 지출 entry in the trip region), so this
-    menu must not repeat those links. 미배정 지출 is intentionally absent
-    here: its one entry point is the sidebar region.
-    """
-    if board.current_role() != 'owner':
-        return ''
-    from . import google_ledger_page, receipt_review, ui_icons
-
-    def action(icon, title, note, href=''):
-        if not href:
-            return ''
-        tag = 'a' if href else 'div'
-        link = f" href='{board.esc(href)}'" if href else ''
-        return (f"<{tag} class='work-action'{link}>{ui_icons.icon(icon)}"
-                f"<span><strong>{title}</strong>"
-                f"</span></{tag}>")
-
-    actions = action('list', '카드 내역', '연도·월별 카드 거래 조회 · 상세 연결', '/cards/all')
-    actions += action('list', 'OTA records', 'Search and usage month', '/ota')
-    if receipt_review.enabled():
-        actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
-    else:
-        actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
-    return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
-            f"<h2>자료 확인</h2><nav class='work-actions'>{actions}</nav></section>")
+    """The home no longer owns a second navigation menu."""
+    return ''
 
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "",
               quick_view: bool = False) -> str:
-    """The whole trip rail: the brand link, the search box, the region, the footer.
+    """Thin wrapper around the application shell sidebar.
 
-    The search box sits outside the swappable region on purpose. It holds what the
-    user typed, and a refresh that replaced it would take the caret and the text
-    with it.
+    live_nav is supplied by the same renderer used by nav_region so the
+    live fragment and the initial document never disagree.
     """
-    from . import ui_icons as _icons
-    if board.current_role() == 'owner':
-        from . import flight_passenger_page, receipt_review
-        primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   + f"<a href='/trips'>{_icons.icon('list', 18)}<span class='nm'>여행 관리</span></a>"
-                   f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
-                   f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
-        if receipt_review.enabled():
-            primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
-                        "<span class='nm'>영수증 처리</span></a>")
-        if flight_passenger_page.enabled():
-            primary += (f"<a href='/flight-passengers'>{_icons.icon('airplane', 18)}"
-                        "<span class='nm'>항공권 예약 확인</span></a>")
-        # Account access is the only remaining administrative destination.
-        # Keep it directly reachable instead of a one-item disclosure group.
-        primary += (f"<a href='/access/admin'>{_icons.icon('users', 18)}"
-                    "<span class='nm'>계정·권한 관리</span></a></nav>")
-    else:
-        primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/trips'>{_icons.icon('list', 18)}<span class='nm'>여행 관리</span></a>")
-        primary += '</nav>'
-    search = (
-        "<form class='nav-q' method='get' action='/board'>"
-        f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
-        f"{f'<input type=hidden name=kind value={board.esc(kind)}>' if kind else ''}"
-        "<label class='sr' for='tripq'>여행 검색</label>"
-        f"<input id='tripq' name='q' type='search' placeholder='여행 이름·코드'"
-        f" value='{board.esc(query)}' autocomplete='off'></form>")
-    region = (nav_region(tab_id, query, kind, archived, quick_view=True)
-              if quick_view else nav_region(tab_id, query, kind, archived))
-    return (
-        "<aside class='nav' id='nav' aria-label='여행 목록'>"
-        "<div class='nav-hd'><a class='brand brand-link' href='/' aria-label='숲길여행 회계 홈으로 이동'><img src='/assets/brand/wallet-favicon-v2.png' alt='' width='20' height='20'>숲길여행 회계</a></div>"
-        f"{primary}{search}"
-        + region
-        + ("<footer class='nav-ft' aria-label='여행 메뉴 안내'>"
-           "<a class='all-trips-link' href='/trips'>"
-           "<span>전체 여행 보기</span>"
-           f"{_icons.icon('chevron-right', 16)}</a>"
-           "</footer>")
-        + "</aside>"
-        "<div class='nav-mask' id='nav-mask' hidden></div>")
-
+    from . import site_shell
+    # aria-current="page" is assigned by the server shell for one section link.
+    return site_shell.sidebar(
+        section=site_shell.section_for('/board', {'tab': [tab_id]}),
+        tab_id=tab_id,
+        role=board.current_role(),
+        live_nav=nav_region(tab_id, query, kind, archived),
+    )
 
 _CURRENT_YEAR = 2026
 _FOCUS_ON_OPEN = ("var d=this.parentNode;setTimeout(function(){if(d.open){"
@@ -204,192 +143,31 @@ def _quarter_groups(trips):
     return sorted(found | {(_CURRENT_YEAR, 1), (_CURRENT_YEAR, 2)})
 
 
-def _nav_region_inner(tab_id: str, query: str, kind: str = "",
+def _nav_region_inner(tab_id: str, query: str = "", kind: str = "",
                       archived: str = "", quick_view: bool = False) -> str:
-    """The trip rail region's contents, without the region's own element.
+    """Return the live navigation region from the shared shell renderer."""
+    from . import site_shell
+    return site_shell._active_trip_nav(tab_id, role=board.current_role())
 
-    One renderer for this markup. The page puts it inside `nav_region`, and a live
-    fragment carries the same string, so a refreshed rail and a freshly loaded one
-    cannot disagree about the selected trip, the archived drawer, or a total.
-    """
-    state = state_query(tab_id, query, kind, archived)
-    drawer_open = archived in ("1", "open", "true")
-    if quick_view:
-        return ("<div id='live-nav'><p class='nav-sec' role='status'>"
-                "카드 업로드를 마치면 여행 목록을 다시 불러옵니다.</p></div>")
-
-    def entry(label, href, count, current, warn=False, archived_row=False, icon="", closed=False):
-        cls = "nv sel" if current else ("nv nv-arch" if archived_row else "nv")
-        if closed:
-            cls += " nv-closed"
-        badge = (f"<span class='ct{' warn' if warn else ''}'>{count}</span>"
-                 if count is not None else "")
-        icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
-        accessible = f" aria-label='{label} · 마감'" if closed else ''
-        return (f"<li><a class='{cls}' href='{href}'{accessible}"
-                f"{' aria-current=\"page\"' if current else ''}>"
-                f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
-
-    sections = []
-    trips = board.live_trips(include_archived=True)
-    # A viewer's rail lists only the trips its allowlist names. The rail is
-    # rendered by the shared chrome, so without this the `+ 탭 추가` control was
-    # correctly hidden from a viewer while the trip names beside it were not:
-    # a trip the viewer may not read was still named, and its total was still
-    # shown. The role is decided on the server for this request, so the filter
-    # is the server's own answer and not anything the request asked for.
-    if board.current_role() == "viewer":
-        allowed = board.viewer_visible_tabs(board.current_request_session())
-        trips = [t for t in trips if t["tab_id"] in allowed]
-    # Display grouping only: never archive or rewrite a trip or its ledger.
-    previous_trip = board.is_previous_trip
-
-    previous_rows = [t for t in trips if not t.get("deleted") and previous_trip(t)]
-    active = [t for t in trips if not t.get("archived") and not t.get("deleted")
-              and not previous_trip(t)]
-    archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")
-                     and not previous_trip(t)]
-    def short_date(value):
-        parts = str(value or '').split('-')
-        if len(parts) == 3 and parts[0].isdigit() and len(parts[0]) == 4:
-            return f"{parts[1]}.{parts[2]}"
-        return str(value or '')
-
-    def trip_entry(trip):
-        # 금액 badge를 표시하지 않는다. 수입 합계는 장부 화면의 합계 영역이
-        # 맡고, 목록에는 일정과 이동 상태만 둔다. Google 집계 금액과의 혼동을
-        # 막기 위한 표시 변경이며 집계 로직은 그대로 둔다.
-        start, end = trip.get("starts_on") or "", trip.get("ends_on") or ""
-        if start and end:
-            dates = f"{short_date(start)}~{short_date(end)}"
-        else:
-            dates = short_date(start or end) or None
-        return entry(
-            board.esc(trip.get('display_title') or trip["display_key"]) + (' · 안드레' if trip.get('owner_id') == 'andre' else ''),
-            f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
-            dates, trip["tab_id"] == tab_id, closed=trip.get('visual_closed', False))
-
-    listed = []
-    for trip in active:
-        if query and query not in (trip["display_key"] + trip["destination"]):
-            continue
-        listed.append(trip_entry(trip))
-    if board.current_role() == "owner":
-        from app import quarter_tab
-        for quarter in (3, 4):
-            tab = quarter_tab.tab_id_for(_CURRENT_YEAR, quarter)
-            listed.append(entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
-                                None, tab_id == tab))
-    sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
-                     f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
-    arch_head = ""
-    if board.current_role() == 'owner':
-        sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(
-            "환불", f"/board?{state_query('refunds')}",
-            None, tab_id == 'refunds', icon=ui_icons.icon('rotate-ccw', 18)) + "</ul>"))
-    if archived_rows:
-        toggle_state = state_query(tab_id, query, kind, "" if drawer_open else "1")
-        arch_head = (
-            "<h2 class='nav-sec'>보관 목록</h2>"
-            "<a class='nv nav-toggle' id='arch-toggle'"
-            f" href='/board?{board.esc(toggle_state)}'"
-            f" aria-expanded='{'true' if drawer_open else 'false'}'"
-            " aria-controls='archived'>"
-            f"<span class='nm'>보관 {len(archived_rows)}개</span>"
-            f"<span class='ct'>{'접기' if drawer_open else '펼치기'}</span></a>")
-    if archived_rows and drawer_open:
-        rows = []
-        for trip in archived_rows:
-            href = f"/board?{state_query(trip['tab_id'], query, kind, archived)}"
-            closed_label = (f" aria-label='{board.esc(trip['display_key'])} · 마감'"
-                            if trip.get('visual_closed') else '')
-            view = (
-                f"<a class='btn arch-view' href='{href}'>보기</a>")
-            restore = (
-                "<form method='post' class='arch-restore' "
-                f"action='/api/trips/{board.esc(trip['tab_id'])}/meta'>"
-                f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
-                f"<input type='hidden' name='expected_revision' value='{trip.get('revision', 1)}'>"
-                "<input type='hidden' name='client_request_id' value='"
-                f"{uuid.uuid4().hex}'>"
-                "<input type='hidden' name='archived' value='0'>"
-                "<input type='hidden' name='return_to' value='"
-                f"/board?{board.esc(state_query(tab_id, query, kind, archived))}'>"
-                "<button class='btn' type='submit'>복원</button></form>")
-            rows.append(
-                "<li class='arch-row'>"
-                f"<a class='nv nv-arch{' nv-closed' if trip.get('visual_closed') else ''}' href='{href}'{closed_label}>"
-                f"<span class='nm'>{board.esc(trip['display_key'])}</span></a>"
-                f"{view}{restore}</li>")
-        arch_head += f"<ul class='nav-list' id='archived'>{''.join(rows)}</ul>"
-    previous = ""
-    matching_previous = [t for t in previous_rows
-                         if not query or query in (t["display_key"] + t["destination"])]
-    from app import quarter_tab
-    show_quarters = board.current_role() == "owner"
-    if matching_previous or show_quarters:
-        # Default collapsed: the server never auto-opens for a selected trip or
-        # a search. The user expands with one click (native details/summary).
-        # Each quarter opens with the list, and focus moves into a group the
-        # user has just opened, only after that user action.
-        store = board._active_store()
-        quarters = _quarter_groups(matching_previous)
-        if show_quarters:
-            quarters = sorted(set(quarters) | {(_CURRENT_YEAR, n) for n in (1, 2)})
-        groups = []
-        for year, quarter in quarters:
-            members = [t for t in matching_previous if _quarter_of(t) == (year, quarter)]
-            label = f"{quarter}분기" if year == _CURRENT_YEAR else f"{year}년 {quarter}분기"
-            cost = ""
-            if show_quarters and year == _CURRENT_YEAR and quarter <= 2:
-                tab = quarter_tab.tab_id_for(year, quarter)
-                count = 0  # nothing waits for a person on a quarter tab
-                cost = entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
-                             count or None, tab_id == tab)
-            rows = cost + ''.join(trip_entry(t) for t in members)
-            body = ('<ul class="nav-list">' + rows + '</ul>' if rows
-                    else "<p class='nav-sec'>여행 없음</p>")
-            groups.append(
-                "<details class='prev-q'>"
-                f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span>"
-                f"<span class='nm'>{label}</span><span class='ct'>{len(members)}개</span></summary>"
-                f"{body}</details>")
-        previous = (
-            '<details id="previous-trips">'
-            f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span><span class='nm'>이전 여행</span>"
-            f'<span class="ct">{len(matching_previous)}개</span></summary>'
-            '<p class="nav-sec">2026년 6월 25일까지 여행</p>'
-            + ''.join(groups) + '</details>')
-    return "".join(head + body for head, body in sections) + arch_head + previous
 
 
 def nav_region(tab_id: str, query: str = "", kind: str = "",
                archived: str = "", *, quick_view: bool = False) -> str:
-    """The trip rail's own element: the one region a live refresh replaces.
+    inner = _nav_region_inner(tab_id, query, kind, archived, quick_view=quick_view)
+    if inner.startswith("<div id='live-nav'"):
+        return inner
+    return "<div id='live-nav'><nav aria-label='진행 중 여행'>" + inner + "</nav></div>"
 
-    This is the single renderer for that region, and the full page embeds exactly
-    what this returns. The alternative — rendering the whole rail and slicing the
-    region back out of the string — is how a fragment ends up carrying the sidebar
-    footer and the mask element that sit after it, which then arrive as a second
-    `nav-mask` and a stray footer on every refresh.
-
-    It returns the region's *outer* element, so a caller that only wants the inner
-    markup has to say so rather than guess where the region ended.
-    """
-    return _nav_region_inner(tab_id, query, kind, archived, quick_view=quick_view)
 
 
 def nav_part(tab_id: str, query: str = "", kind: str = "",
              archived: str = "") -> str:
-    """The swappable part of the trip rail, for a live refresh.
+    markup = nav_region(tab_id, query, kind, archived)
+    if markup.startswith("<div id='live-nav'"):
+        opening = markup.find('>') + 1
+        return markup[opening:-len("</div>")]
+    return markup
 
-    The inner markup only, without the region's own element: the live sync adds
-    that wrapper itself, so a bundle written here and a page rendered here cannot
-    end up with two elements carrying the same id.
-    """
-    if _STORE_missing():
-        return ""
-    return _nav_region_inner(tab_id, query, kind, archived)
 
 
 def _context_badge() -> str:
@@ -398,36 +176,157 @@ def _context_badge() -> str:
     return f"<span class='synth'>{board.esc(mark)}</span>" if mark == board.SYNTHETIC_MARK else ''
 
 
-def _head_html(trip) -> str:
-    from . import ui_icons as _icons
+def _head_html(trip, query: str = "", kind: str = "", archived: str = "") -> str:
     if trip is None:
-        title, period, meta = "여행을 선택해 주세요", "", ""
+        title, meta = "여행을 선택해 주세요", ""
+        actions = ""
     elif trip.get("is_unclassified"):
-        title = "이전 귀속 목록"
-        period = "여행을 정하지 않은 내역입니다"
-        meta = "이 목록을 정리하면 여행 합계가 함께 갱신됩니다"
+        title, meta = "이전 귀속 목록", "여행을 정하지 않은 내역입니다"
+        actions = ""
     else:
-        title = board.esc(trip.get('display_title') or trip["display_key"])
+        title = str(trip.get('display_title') or trip["display_key"])
         if trip.get('owner_id') == 'andre':
             title += ' · 김동언(안드레)'
         from .trip_insurance_policy import is_domestic
-        if is_domestic(trip):
-            title += " <span class='trip-region-badge'>국내여행</span>"
-        period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
-        meta = (f"<span class='trip-assignee'>{_icons.icon('users')}담당자 "
-                f"<b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>")
+        status = '마감' if trip.get('visual_closed') else '미마감'
+        region = ui_components.chip('국내여행', 'accent') if is_domestic(trip) else ''
+        state = ui_components.chip(status, 'neutral' if trip.get('visual_closed') else 'warn')
+        trip_switch = (
+            "<button class='btn' id='trip-switch-open' data-no-action-icon type='button' aria-haspopup='dialog' "
+            "aria-controls='trip-switch-dialog'>여행 전환</button>"
+        )
+        from . import trip_management_ui
+        more = trip_management_ui.controls(board, trip)
+        actions = region + state + trip_switch + more
+        meta = (f"{trip.get('starts_on') or ''} – {trip.get('ends_on') or ''} · "
+                f"담당자 {trip.get('prepared_by_name') or '-'}")
+    header = ui_components.page_header(title, meta=meta, actions=actions, breadcrumb=())
+    # Example-data warning stays beside the title (store isolation and synthetic previews rely on it).
+    header = header.replace('</h1>', _context_badge() + '</h1>', 1)
+    header = header.replace("<header class=\"page-header\">", "<header class=\"page-header trip-header\">")
+    if trip and not trip.get('is_unclassified'):
+        header += _trip_switch_dialog(trip, query=query, kind=kind, archived=archived)
+    return header
+
+
+def _trip_switch_dialog(trip, *, query: str = "", kind: str = "", archived: str = "") -> str:
+    """Searchable trip switcher; links preserve the existing GET contract."""
+    current = str(trip.get('tab_id') or '')
+    entries = []
+    for item in board.live_trips(include_archived=False):
+        if item.get('deleted'):
+            continue
+        label = str(item.get('display_title') or item.get('display_key') or '')
+        entries.append(
+            f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(item['tab_id'], query, kind, archived))}'"
+            f"{' aria-current=\"page\"' if item.get('tab_id') == current else ''}>{board.esc(label)}</a></li>")
+    try:
+        from app import quarter_tab
+        for quarter in (1, 2, 3, 4):
+            tab = quarter_tab.tab_id_for(2026, quarter)
+            label = f"2026년 {quarter}분기 기타비용"
+            entries.append(f"<li><a data-trip-switch-item href='/board?{board.esc(state_query(tab, query, kind, archived))}'>{label}</a></li>")
+    except Exception:
+        pass
     return (
-        "<div class='page-hd trip-header'><div>"
-        f"<div class='trip-title-row'><h1>{title}{_context_badge()}</h1>"
-        f"{meta if trip and not trip.get('is_unclassified') else ''}</div>"
-        f"<p class='period'>{period}</p>"
-        f"{f'<p class=meta>{meta}</p>' if trip and trip.get('is_unclassified') else ''}</div>"
-        "<div class='act'>"
-        + (f"<button class='icon' id='btn-menu' type='button' aria-label='전체 메뉴 열기' "
-           f"aria-controls='nav' aria-expanded='false'>{_icons.icon('menu')}</button>"
-           if trip and not trip.get('is_unclassified') else '')
-        + f"<a class='btn' href='/export?{board.esc(urlencode({'tab': (trip or {}).get('tab_id', '')}))}'>{_icons.icon('save')}XLSX 출력</a>"
-        "</div></div>")
+        "<dialog class='trip-switch-dialog' id='trip-switch-dialog' aria-labelledby='trip-switch-title'>"
+        "<div class='trip-switch-head'><h2 id='trip-switch-title'>여행 전환</h2>"
+        "<button class='icon-btn' type='button' data-trip-switch-close aria-label='닫기'>×</button></div>"
+        "<label for='trip-switch-search'>여행 검색</label>"
+        "<input id='trip-switch-search' type='search' autocomplete='off' placeholder='여행 이름 검색'>"
+        f"<ul data-trip-switch-list>{''.join(entries) or '<li class=\"muted\">여행이 없습니다.</li>'}</ul>"
+        "<a class='btn ghost' href='/trips'>여행 전체 보기</a></dialog>")
+
+
+def _trip_kpi_html(tab_id: str) -> str:
+    """The three ledger figures, using the existing COST/Google read paths."""
+    if not tab_id or _STORE_missing():
+        return ""
+    incomes, expenses, _whole_income, _whole_expense = _selected_rows(tab_id, '', '')
+    expense = sum(board._shown_amount(row) for row in expenses)
+    income = None
+    from .google_ledger_page import get_trip_income_summary
+    google_income = get_trip_income_summary(tab_id)
+    if incomes:
+        income = sum(board._shown_amount(row) for row in incomes)
+    elif google_income and not _whole_income and google_income.get('show_rows'):
+        income = int(google_income.get('amount') or 0)
+    balance = income - expense if income is not None else None
+
+    def amount(value):
+        if value is None:
+            return '—'
+        text = _money(value)
+        return text.replace('-', '−', 1) if text.startswith('-') else text
+
+    income_note = ("장부 사본 선택 필요"
+                   if income is None else f"수입 {len(incomes) or int((google_income or {}).get('count') or 0)}건")
+    balance_note = '수입과 지출의 차액' if balance is not None else '수입을 확인하면 계산됩니다'
+    income_kpi = ui_components.kpi('수입', amount(income), income_note)
+    if income is None:
+        income_kpi = income_kpi.replace(
+            "<small>장부 사본 선택 필요</small>",
+            "<small><a class='kpi-link' href='/google-ledger'>장부 사본 선택 필요</a></small>",
+            1)
+    return (
+        "<dl class='kpi-row' id='sum' aria-label='여행 요약'>"
+        + income_kpi
+        + f"<div class='kpi'><dt>지출</dt><dd>{board.esc(amount(expense))}</dd>"
+          f"<small>{len(expenses)}건</small></div>"
+        + f"<div class='kpi'><dt>차액</dt><dd>{board.esc(amount(balance))}</dd>"
+        f"<small>{board.esc(balance_note)}</small></div></dl>"
+    )
+
+
+def _expense_toolbar_html(tab_id: str, query: str, kind: str, back: str) -> str:
+    """Search, filter, grouping and manual entry controls for the expense tab."""
+    if board.current_role() != 'owner':
+        return ""
+    return (
+        "<div class='expense-toolbar' role='toolbar' aria-label='지출 도구'>"
+        "<form class='expense-filter' method='get' action='/board' role='search'>"
+        f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
+        "<label for='q'>검색</label>"
+        f"<input id='q' name='q' type='search' value='{board.esc(query)}' "
+        "placeholder='거래처·내용·메모 검색' autocomplete='off'>"
+        "<label for='kind'>항목</label>"
+        "<select id='kind' name='kind'>"
+        f"<option value=''{'' if not kind else ''}>전체</option>"
+        f"<option value='in'{ ' selected' if kind == 'in' else ''}>수입</option>"
+        f"<option value='ex'{ ' selected' if kind == 'ex' else ''}>지출</option></select>"
+        "<button class='btn' type='submit' id='q-go'>조회</button>"
+        + (f"<a class='btn ghost' id='q-clear' href='/board?{board.esc(state_query(tab_id))}'>초기화</a>" if (query or kind) else '')
+        + "</form>"
+        "<label class='group-toggle'><input id='group-expenses' type='checkbox' data-group-expenses>항목별 묶기</label>"
+        f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
+        f"{ui_icons.icon('pencil')}수기 지출 추가</a>"
+        "</div>")
+
+
+def _trip_tabs_html(tab_id: str, *, query: str, kind: str, selected: str,
+                    archived: str, back: str, google_income_html: str,
+                    participant_html: str, flight_html: str, reservations_html: str) -> str:
+    """Five in-page tabs; the tab script owns hash restoration and APG keys."""
+    expense = (_expense_toolbar_html(tab_id, query, kind, back)
+               + rows_region(tab_id, query, kind, selected, archived, back))
+    income = f"<section id='trip-income' aria-label='여행 수입 · COST 기록'>{google_income_html}</section>"
+    participant_content = participant_html
+    if not participant_content:
+        participant_content = (
+            "<section id='participant-trip-panel' class='empty-state' aria-label='참가자·보험'>"
+            "<p class='es-title'>참가자·보험</p>"
+            "<p>국내 여행은 참가자·보험 연결이 필요하지 않습니다.</p></section>")
+    flight_content = flight_html or (
+        "<section id='trip-flight-panel' class='empty-state' aria-label='항공권'>"
+        "<p class='es-title'>항공권</p><p>이 여행에 연결된 항공권이 없습니다.</p></section>")
+    items = [
+        {'label': '지출', 'id': 'view-expense', 'content': expense, 'selected': True},
+        {'label': '수입', 'id': 'view-income', 'content': income},
+    ]
+    items.append({'label': '참가자·보험', 'id': 'view-participants', 'content': participant_content})
+    items.append({'label': '항공권', 'id': 'view-flights', 'content': flight_content})
+    items.append({'label': '예약 연결', 'id': 'view-reservations', 'content': reservations_html})
+    return ui_components.view_tabs(items)
 
 
 def _reserve_link_link_html() -> str:
@@ -601,7 +500,7 @@ def _source_preview_html(trip) -> str:
         if income:
             decision_text = "입금 원본 조회"
         badge = {"income": "입금",
-                 "expense": "지출"}.get(block_kind, "구분 확인 필요")
+                 "expense": "지출"}.get(block_kind, "구분을 확인해 주세요")
         evidence = source.get("evidence_status") == "available"
         content = str(source.get("description") or labelled or "-")
         if income:
@@ -630,7 +529,7 @@ def _source_preview_html(trip) -> str:
             + f"<p class='src-line'><span>검토 상태</span>"
               f"<b>{board.esc(decision_text)}</b>"
             + ("" if evidence else
-               " <span class='muted'>· 원본 머리글 확인 필요</span>")
+               " <span class='muted'>· 원본 머리글을 확인해 주세요</span>")
             + "</p></li>")
     # Percent-encoded, not just escaped. A sheet name is free text and can hold
     # `&`, `+`, `#` or a space, all of which mean something else inside a query
@@ -710,7 +609,7 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
         elif google_income.get('numeric_gap') or not google_income.get('verified'):
             income_status = ("<b class='warn'>합계 차이 있음</b>"
-                             if google_income.get('numeric_gap') else "<b>확인 필요</b>")
+                             if google_income.get('numeric_gap') else "<b>수입 장부 확인 필요</b>")
             income_notice = f"<div><i>{ui_icons.icon('book-open')}수입</i>{income_status}</div>"
             if filtered is not None and whole is not None:
                 return (
@@ -872,7 +771,7 @@ def _stay_text(row) -> str:
     rather than guessed. The card's approval or payment date is a different fact.
     """
     from datetime import date, timedelta
-    unknown = "\uC774\uC6A9\uC77C \uD655\uC778 \uD544\uC694"
+    unknown = "이용일 확인 필요"
     period = _stay_period(row)
     match = _STAY_PATTERN.fullmatch(period)
     if not match:
@@ -1287,11 +1186,11 @@ def _google_match_annotations(tab_id, rows, preview=None, candidate_rows=None):
 
 
 def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match_annotations=None,
-                amount_groups=None) -> str:
+                amount_groups=None, date_years=None) -> str:
     if not rows:
         colspan = 6 if amount_groups is not None else 5
         return (f"<tbody><tr class='empty'><td colspan='{colspan}'>"
-                f"{'수입 내역이 없어요' if kind == 'income' else '지출 내역이 없어요'}"
+                f"{'수입 내역이 없습니다.' if kind == 'income' else '지출 내역이 없습니다.'}"
                 "</td></tr></tbody>")
     body = []
     match_annotations = match_annotations or {}
@@ -1311,7 +1210,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
         match_description = ''
         match_class = ''
         if match:
-            label = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
+            label = match.get('label') or ('복수 후보를 확인해 주세요' if match['multiple'] else
                      '금액+' + '+'.join(match['reasons']))
             hint_id = 'google-match-' + str(rid)
             match_class = (' class="google-match-candidate"' if match.get('display_candidate')
@@ -1326,17 +1225,18 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
                 match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>"
                                      f"{board.esc(label)}</span>")
             if match.get('display_candidate'):
-                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
+                candidate_label = ('복수 후보 · 확인해 주세요' if match['candidate_multiple'] else
                                    '금액+' + '+'.join(match['reasons']))
                 match_attributes = f" aria-describedby='{board.esc(hint_id)} {board.esc(hint_id)}-candidate'"
                 match_description += (f"<span class='sr' "
                                       f"id='{board.esc(hint_id)}-candidate'>Google 장부 대조 후보: "
                                       f"{board.esc(candidate_label)}</span>")
+        category = str(row.get('item') or _row_item(row) or '-')
         body.append(
-            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
+            f"<tr{match_class} data-id='{board.esc(rid)}' data-kind='{board.esc(kind)}' data-category='{board.esc(category)}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(amount)}' tabindex='0' aria-expanded='false'"
             f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
-            f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
+            f"<td class='c-date tnum' title='{board.esc(board._shown_date(row))}'>{board.esc(_ledger_date_label(row, date_years))}</td>"
             + _party_cell(row).replace('</td>', match_description + '</td>')
             +
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
@@ -1351,8 +1251,8 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match
             # the data row, not in the removed memo cell. Same form contract.
             body.append(
                 f"<tr class='move-row' data-move-for='{board.esc(rid)}'>"
-                f"<td colspan='5'>{_move_form(row, move_back)}</td></tr>")
-    return f"<tbody>{''.join(body)}</tbody>"
+                f"<td colspan='{6 if amount_groups is not None else 5}'>{_move_form(row, move_back)}</td></tr>")
+    return f"<tbody class='expense-rows' data-kind='{board.esc(kind)}'>{''.join(body)}</tbody>"
 
 
 def _column_head_row() -> str:
@@ -1360,6 +1260,17 @@ def _column_head_row() -> str:
     return ("<tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
             "<th scope='col'>분류</th><th scope='col'>이용일</th>"
             "<th scope='col' class='num'>금액</th></tr>")
+
+
+def _ledger_date_label(row, date_years=None) -> str:
+    """Compact date labels while retaining the full source date in ``title``."""
+    value = str(board._shown_date(row) or '')
+    try:
+        day = date.fromisoformat(value[:10])
+    except (TypeError, ValueError):
+        return value
+    years = date_years or {day.year}
+    return day.strftime('%y-%m-%d' if len(years) > 1 else '%m-%d')
 
 
 def _amount_group_cell(state, row_id):
@@ -1387,13 +1298,18 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     from .expense_amount_group_service import sort_for_display
     if amount_groups is not None and not amount_groups.get('available'):
         amount_groups = None
-    expenses = _group_expenses_for_display(sort_for_display(expenses, amount_groups))
+    # The ledger's default order is the transaction date ascending.  Google
+    # comparison keeps its own explicit sort and must not change what the user
+    # sees here.
+    expenses = sorted(expenses, key=lambda row: (
+        not bool(row.get('occurred_on')), row.get('occurred_on') or '',
+        _expense_category_rank(row.get('item'))))
     enabled = amount_groups is not None
     extra_col = "<col class='gemn-desktop gemn-column'>" if enabled else ''
     extra_header = gemn.header_cell() if enabled else ''
     extra_blank = "<td class='gemn-desktop gemn-status-cell'></td>" if enabled else ''
     head = (
-        "<div class='tw'><table id='tbl'>"
+        "<div class='tw'><table id='tbl' class='data-table'>"
         "<caption class='sr'>거래 내역. 수입은 위, 지출은 아래에 있습니다.</caption>"
         # Five columns, and the widths are given to the fixed ones so the counterparty
         # and content column takes whatever is left. The amount is the last column
@@ -1405,6 +1321,12 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>이용일</th>"
         f"<th scope='col' class='num'>금액</th>{extra_header}</tr></thead>")
+    date_years = set()
+    for row in list(incomes) + list(expenses):
+        try:
+            date_years.add(date.fromisoformat(str(board._shown_date(row) or '')[:10]).year)
+        except (TypeError, ValueError):
+            pass
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     income_group = (
@@ -1412,7 +1334,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         f"<a href='#google-trip-income'>수입내역 보기</a></th>"
         f"<th class='num'>{_money(income_total)}</th>{extra_blank}</tr></tbody>"
         + _table_html(incomes, kind="income", selected=selected, unclassified=False,
-                      amount_groups=amount_groups)
+                      amount_groups=amount_groups, date_years=date_years)
     ) if incomes else ''
     groups = (
         income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
@@ -1421,22 +1343,39 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         + "<tbody class='colhead'>" + _column_head_row().replace('</tr>', extra_header + '</tr>') + "</tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
                       unclassified=unclassified, move_back=move_back,
-                      match_annotations=match_annotations, amount_groups=amount_groups)
+                      match_annotations=match_annotations, amount_groups=amount_groups,
+                      date_years=date_years)
         + "</table></div>")
     if amount_groups is None:
         return head + groups
-    warning = ("<p class='gemn-total-warning' role='status'>시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교</p>"
+    warning = ("<p class='gemn-total-warning' role='status'>시트 합계 수식을 확인해 주세요 · 개별 지출 행 기준 비교</p>"
                if amount_groups.get('total_warning') else '')
     return gemn.styles() + warning + head + groups + gemn.render_groups(amount_groups)
 
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
                   move_back="/board", match_annotations=None) -> str:
-    expenses = _group_expenses_for_display(expenses)
+    """Mobile list-row projection of the same rows as the desktop table."""
+    expenses = sorted(expenses, key=lambda row: (
+        not bool(row.get('occurred_on')), row.get('occurred_on') or '',
+        _expense_category_rank(row.get('item'))))
     match_annotations = match_annotations or {}
+
     def item(row, is_expense=False):
         rid = row["row_id"]
-        move = ""
+        kind = _row_kind_meter(row)
+        category = str(row.get("item") or _income_kind_label(row) or "-")
+        headline = " · ".join(text for text in (_row_party_main(row), _row_party_sub(row)) if text)
+        service_dates, service_title = _service_date_labels(row) if is_expense else ('', '')
+        service_label = service_dates if service_dates.startswith('이용일') else ('이용일 ' + service_dates if service_dates else '')
+        secondary = " · ".join(part for part in (_ledger_date_label(row), kind, category, service_label) if part)
+        match = match_annotations.get(rid) if is_expense else None
+        match_hint = ''
+        if match:
+            reason = match.get('label') or ('복수 후보를 확인해 주세요' if match.get('multiple') else
+                      '금액+' + '+'.join(match.get('reasons') or []))
+            match_hint = f"<span class='sr'>{board.esc(reason)}</span>"
+        move = ''
         if unclassified:
             move = (
                 "<form method='post' action='/api/rows/"
@@ -1451,63 +1390,30 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                 f"<select class='psel' id='mobile-move-{board.esc(rid)}' name='display_tab_id'>"
                 f"{_trip_options('', '여행 연결 없음')}</select>"
                 f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
-        kind = _row_kind_meter(row)
-        cls = "li pend" if unclassified else "li"
-        match = match_annotations.get(rid) if is_expense else None
-        if match and (match.get('display_candidate') or match.get('status') != 'NEW_EXPENSE'):
-            cls += ' google-match-candidate'
-        match_hint = ''
-        if match:
-            reason = match.get('label') or ('복수 후보 확인 필요' if match['multiple'] else
-                      '금액+' + '+'.join(match['reasons']))
-            match_hint = f"<span class='sr'>{board.esc(reason)}</span>"
-            if not match.get('status'):
-                match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
-                              f"{board.esc(reason)}</span>")
-            if match.get('status') and match.get('status') != 'NEW_EXPENSE':
-                match_hint = (f"<span class='sr'>{board.esc(reason)}</span>")
-            if match.get('display_candidate'):
-                candidate_label = ('복수 후보 · 확인 필요' if match['candidate_multiple'] else
-                                   '금액+' + '+'.join(match['reasons']))
-                match_hint += (f"<span class='sr'>Google 장부 대조 후보: "
-                               f"{board.esc(candidate_label)}</span>")
-        # Two-line business summary only: date, kind tag, category, vendor,
-        # purpose, amount. The origin detail lives in the edit panel, so no
-        # per-row details element here (density first).
-        cat = row.get("item") or _income_kind_label(row) or "-"
-        main_text = _row_party_main(row)
-        sub_text = _row_party_sub(row)
-        headline = " \u00b7 ".join(text for text in (main_text, sub_text) if text)
-        service_dates, service_title = _service_date_labels(row) if is_expense else ('', '')
-        service_label = service_dates if service_dates.startswith('이용일') else '이용일 ' + service_dates
-        service_hint = (f"<span class='m-service tnum' title='{board.esc(service_title)}'>"
-                        f"{board.esc(service_label)}</span>" if service_dates else '')
-        tag_cls = "tag in" if kind == "수입" else "tag"
+        selected_attr = ' aria-selected="true"' if rid == selected else ''
         return (
-            f"<button class='{cls}' type='button' data-id='{board.esc(rid)}' data-kind='{'expense' if is_expense else 'income'}' data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' aria-expanded='false'"
-            f"{' aria-selected="true"' if rid == selected else ''}>"
-            f"<span class='m-row'><span class='d tnum'>"
-            f"{board.esc(board._shown_date(row))}</span>"
-            f"<span class='{tag_cls}'>{board.esc(kind)}</span>"
-            f"<span class='m-cat category-line'>{_category_icon(row)}{board.esc(cat)}</span>"
-            f"<span class='a tnum {_row_amount_class(row)}'>"
-            f"{_money(board._shown_amount(row))}</span></span>"
-            f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span>{service_hint}{match_hint}</button>{move}")
+            f"<li class='list-row li{' pend' if unclassified else ''}' data-id='{board.esc(rid)}' "
+            f"data-kind='{'expense' if is_expense else 'income'}' data-category='{board.esc(category)}' "
+            f"data-revision='{int(row.get('revision') or 1)}' data-amount='{int(board._shown_amount(row))}' "
+            f"tabindex='0' aria-expanded='false'{selected_attr}>"
+            f"<button class='lr-hit' type='button' aria-label='{board.esc(headline)} {board.esc(_money(board._shown_amount(row)))}'>"
+            f"<span class='lr-primary'><span class='party-line mobile-party'>{_merchant_icon(row)}"
+            f"<span class='t'>{board.esc(headline)}</span></span></span>"
+            f"<span class='lr-amount tnum {_row_amount_class(row)}'>{_money(board._shown_amount(row))}</span>"
+            f"<span class='lr-secondary'>{board.esc(secondary)}{match_hint}</span></button>{move}</li>")
 
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     income_group = (
-        f"<p class='lg'><span>기존 수입</span><span class='tnum'>{_money(income_total)}</span></p>"
+        f"<li class='list-group lg'><span>기존 수입</span><span class='tnum'>{_money(income_total)}</span></li>"
         + ''.join(item(r) for r in incomes)
     ) if incomes else ''
+    rows = ''.join(item(r, True) for r in expenses)
+    empty = '<li class="empty-state"><p class="es-title">지출 내역이 없습니다.</p></li>'
     return (
-        "<div class='lst'>"
-        + income_group +
-        f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
-        "</p>"
-        f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
-        "</div>")
-
+        "<ul class='lst' aria-label='거래 목록'>" + income_group +
+        f"<li class='list-group lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span></li>" +
+        (rows or empty) + "</ul>")
 
 # --------------------------------------------------------------- edit panel
 def _google_match_detail(row):
@@ -1626,7 +1532,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft, goog
     if row.get("row_kind") == "income":
         links.append(f"<a href='/income/{board.esc(row['row_id'])}/split'>배분</a>")
     links.append(f"<a href='/trips'>여행 관리</a>")
-    links.append(f"<a href='/export'>선택 탭 출력</a>")
+    links.append(f"<a href='/export'>XLSX 내보내기</a>")
     links.append(rule_link)
     from . import ui_icons as _panel_icons
     return (
@@ -1727,7 +1633,7 @@ def _last_saved_at(tab_id: str) -> str:
 def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           meta: str = "", body: str, query: str = "", kind: str = "",
           archived: str = "", aside: str = "", home: bool = False,
-          quick_view: bool = False) -> str:
+          quick_view: bool = False, bare: bool = False) -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
@@ -1744,7 +1650,16 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
     # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
     export_btn = (f"<a class='btn primary' href='/export?{board.esc(urlencode({'tab': tab_id}))}'>{_icons.icon('save')}XLSX 출력</a>"
-                  if tab_id and title != '선택 탭 출력' else "")
+                  if tab_id and title != 'XLSX 내보내기' else "")
+    # bare: the body renders its own page_header (the 거래 tabs); keep only the
+    # live-status slots the cross-screen refresh writes to.
+    if bare:
+        return (f"<div class='app'>{_nav_html(tab_id, query, kind, archived, quick_view=quick_view)}"
+                f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
+                f"<div class='page-body'>{global_state}"
+                "<p class='meta' id='live-status-wrap' aria-live='polite'>"
+                "<span class='meta live-ok' id='live-status' hidden></span></p>"
+                f"{body}</div></main><div id='panel-slot'>{aside}</div></div>")
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
@@ -1759,7 +1674,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
         + f"{export_btn}"
-        + (f"<a class='btn' href='{board.esc(back)}'>장부</a>" if not home else "")
+        + (f"<a class='btn' href='{board.esc(back)}'>장부</a>" if not home and heading != '여행' else "")
         + "</div></div>"
         f"<div class='page-body'>{body}</div>"
         "</main>")
@@ -1888,7 +1803,7 @@ def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
 
 
 def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
-    """Renders the expense copy controls at the bottom of the trip tab only."""
+    """Renders the expense copy controls in the trip expense tool area."""
     if not _is_trip_tab(tab_id) or board.current_role() != 'owner':
         return ""
     preview = _expense_copy_preview(tab_id, expenses) if preview is None else preview
@@ -1926,33 +1841,56 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
             reason = str(item.get('reason') or 'REVIEW_CONFLICT')
             held_reasons[reason] = held_reasons.get(reason, 0) + 1
         held_count = len(held_results)
-        description = f'복사 가능 {count}건 · {_money(total)} · Google 장부 일치 {recorded}건 제외'
+        warning = (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH'
+        description = f'붙여넣을 지출 {count}건 · {_money(total)}'
+        facts = []
+        if recorded:
+            facts.append(('이미 Google에 있음', f'{recorded}건 · 복사에서 뺐습니다', ''))
         if held_count:
-            description += f' · Google 대조가 끝나지 않은 {held_count}건 제외'
-        if (preview.get('source_info') or {}).get('warning') == 'SOURCE_EXPENSE_TOTAL_MISMATCH':
-            description += ' · Google 합계 수식은 확인 필요'
-        if held_reasons:
-            from urllib.parse import quote
+            facts.append(('Google 행을 확정하지 못함', f'{held_count}건 · 중복을 막기 위해 뺐습니다', 'warn'))
+        if warning:
+            facts.append(('Google 합계 수식', 'Google 시트의 지출 합계 수식이 행 합계와 다릅니다. 붙여넣은 뒤 합계를 확인하세요.', 'warn'))
+        fact_html = ''.join(
+            f"<div class='copy-fact{' copy-fact-warn' if tone else ''}'><dt>{board.esc(label)}</dt><dd>{board.esc(value)}</dd></div>"
+            for label, value, tone in facts)
+        if held_results:
             rows_by_id = {str(row.get('transaction_id') or row.get('source_event_id') or row.get('row_id') or ''): row
                           for row in expenses}
-            transactions = []
-            for item in held_results:
-                row = rows_by_id.get(str(item.get('transaction_id') or ''), {})
-                label = ' · '.join(str(value) for value in (
-                    row.get('occurred_on') or '날짜 없음',
-                    row.get('source_merchant') or row.get('description') or '상호 없음',
-                    _money(row.get('display_amount_krw', row.get('amount_krw')) or 0)))
-                detail_link = (f" <a href='/row?id={quote(str(row['row_id']), safe='')}'>거래 상세 보기</a>"
-                               if row.get('row_id') else '')
-                transactions.append(f"<li>{board.esc(label)}{detail_link}</li>")
-            details = ''.join(
-                f"<li>{board.esc(reason_labels.get(reason, 'Google 원장 대조를 확정하지 못함'))} · {count}건</li>"
-                for reason, count in sorted(held_reasons.items()))
+            items = []
+            for index, item in enumerate(held_results):
+                tx_id = str(item.get('transaction_id') or '')
+                row = rows_by_id.get(tx_id, {})
+                reason = reason_labels.get(str(item.get('reason') or ''), 'Google 원장 대조를 확정하지 못함')
+                merchant = row.get('source_merchant') or row.get('description') or '상호 없음'
+                amount = row.get('display_amount_krw', row.get('amount_krw')) or 0
+                panel_id = f'copy-held-detail-{index}'
+                items.append(
+                    "<li class='copy-held-item'>"
+                    "<div class='copy-held-row'>"
+                    f"<span class='copy-held-date tnum'>{board.esc(row.get('occurred_on') or '날짜 없음')}</span>"
+                    f"<span class='copy-held-merchant' title='{board.esc(merchant)}'>{board.esc(merchant)}</span>"
+                    f"<span class='copy-held-amount tnum'>{board.esc(_money(amount))}</span>"
+                    f"<span class='chip chip-warn copy-held-reason'>{board.esc(reason)}</span>"
+                    f"<button type='button' class='btn ghost copy-held-toggle' data-no-action-icon aria-expanded='false' "
+                    f"aria-controls='{panel_id}' data-transaction-id='{board.esc(tx_id)}' "
+                    f"data-row-id='{board.esc(row.get('row_id') or '')}' "
+                    f"aria-label='{board.esc(merchant)} 거래 상세'>상세 <span class='chevron-down' aria-hidden='true'>⌄</span></button>"
+                    "</div>"
+                    f"<div class='copy-held-detail' id='{panel_id}' hidden aria-live='polite'></div>"
+                    "</li>")
             held_detail = ("<details class='trip-copy-hold-details'>"
-                           "<summary>Google 대조 제외 건의 정체와 사유 보기</summary>"
-                           f"<p>이 건들은 Google에 없다고 확정할 수 없어 중복 복사를 막기 위해 제외했습니다.</p>"
-                           f"<ul>{details}</ul><ul class='trip-copy-excluded'>{''.join(transactions)}</ul></details>")
+                           f"<summary>제외된 {held_count}건 보기</summary>"
+                           "<p class='copy-held-help'>Google 시트에서 이 거래와 같은 행을 하나로 확정하지 못해 이번 복사에서 뺐습니다. "
+                           "Google 시트에 이미 있으면 그대로 두고, 없으면 상세를 확인한 뒤 직접 추가하세요.</p>"
+                           f"<ul class='copy-held-list'>{''.join(items)}</ul></details>")
+        if warning:
+            from urllib.parse import quote as _quote
+            fact_html += ("<div class='copy-fact copy-fact-action'><dt class='sr'>원본</dt><dd>"
+                          f"<a class='btn ghost' href='/api/google-ledger/source?trip={_quote(tab_id, safe='')}' target='_blank' rel='noopener'>Google 원본 확인 ↗</a></dd></div>")
+        held_detail = f"<dl class='copy-facts'>{fact_html}</dl>" + held_detail
     disabled = ' disabled' if not available or not count else ''
+    paste_hint = ("<p class='copy-paste-hint'>복사한 뒤 Google 시트 지출 표의 B열 첫 빈 행에 붙여넣으세요.</p>"
+                  if available and count else '')
     recovery = ''
     if expenses and not available:
         from urllib.parse import quote
@@ -1966,14 +1904,15 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
                     f"<button type='button' class='btn' data-google-sync data-csrf='{board.esc(board.CSRF_TOKEN)}'>장부 동기화</button>"
                     "<button type='button' class='btn' data-copy-recheck>다시 확인</button></div>")
     return (
-        f"<section class='trip-copy-wrap' id='trip-expense-copy' aria-label='지출내용 복사'>"
-        f"<div class='trip-copy-info'><strong class='trip-copy-title'>지출내용 복사</strong>"
-        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p>{held_detail}</div>"
+        f"<section class='trip-copy-wrap expense-toolbar expense-toolbar-copy' id='trip-expense-copy' aria-label='Google 장부용 복사'>"
+        f"<div class='trip-copy-info'><strong class='trip-copy-title'>Google 장부용 복사</strong>"
+        f"<p class='trip-copy-desc' id='trip-copy-desc'>{board.esc(description)}</p></div>"
         f"<div class='trip-copy-box'>"
-        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' aria-describedby='trip-copy-desc' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
-        f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
+        f"<button type='button' class='btn primary btn-copy-tsv' id='copy-trip-expenses' aria-describedby='trip-copy-desc' data-tab='{board.esc(tab_id)}' data-csrf='{board.esc(board.CSRF_TOKEN)}'{disabled}>"
+        f"{ui_icons.icon('copy', 16)}<span>Google 장부용 복사</span>"
         f"</button>"
         f"{recovery}</div>"
+        f"{paste_hint}{held_detail}"
         f"<p class='copy-status' id='copy-status'{(' data-google-sync-status' if recovery else '')} role='status' aria-live='polite' aria-atomic='true'></p>"
         "<div class='trip-copy-manual' hidden>"
         "<label for='trip-copy-text'>Google 시트에 붙여넣을 지출내용</label>"
@@ -2029,31 +1968,23 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
          draft: dict = None, back: str = "", participant_query: dict = None) -> str:
     """The main ledger screen in the new design."""
     if _STORE_missing():
-        return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
+        return board.layout("여행 장부", "<div class='body'><p>저장소가 연결되지 않았습니다.</p></div>")
     from app import quarter_tab
     if quarter_tab.parse_tab(tab_id):
         year, quarter = quarter_tab.parse_tab(tab_id)
         title = f"{year}년 {quarter}분기 기타비용"
-        return shell(title, tab_id=tab_id, heading=title, query=query,
-                     body=_quarter_body(tab_id, message, error))
+        return _quarter_page(tab_id, title, query=query, kind=kind, message=message, error=error)
     if tab_id == 'refunds':
         from .refund_tab import render as refund_body
-        return shell('환불', tab_id='refunds', heading='환불', query=query,
-                     body=_bar_html(query, kind, 'refunds', archived) +
-                     "<div id='live-sum'></div><div id='live-rows'>" +
+        return shell('환불', tab_id='refunds', heading='환불', query=query, bare=True,
+                     body=                     "<div id='live-sum'></div><div id='live-rows'>" +
                      refund_body(board._active_store(), query, kind) + '</div>')
     trip = _selected_trip(tab_id)
     from .google_ledger_page import trip_income_html
-    status = ""
-    if error:
-        status = f"<p class='status err' id='status' role='alert'>{board.esc(error)}</p>"
-    elif message:
-        status = (f"<p class='status' id='status' role='status'>"
-                  f"{board.esc(message)}</p>")
-    else:
-        status = ("<p class='status hint' id='status' role='status' aria-live='polite'></p>")
+    status = (f"<p class='status err' id='status' role='alert'>{board.esc(error)}</p>" if error else
+              f"<p class='status' id='status' role='status'>{board.esc(message)}</p>" if message else
+              "<p class='status hint' id='status' role='status' aria-live='polite'></p>")
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
-    participant_state = None
     from . import participant_trip_panel as participant_panel
     participant_controls = (participant_panel.controls_from_query(participant_query or {})
                             if board.current_role() == "owner" else {})
@@ -2063,65 +1994,71 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     from .trip_flight_ui import render_trip_flights
     flight_html = render_trip_flights(tab_id) if _is_trip_tab(tab_id) else ""
     from . import trip_management_ui
-    panel = ""
-    if selected:
-        panel = panel_part(selected, back=back, error=error, message=message,
-                           draft=draft or {})
+    participant_html = _participant_trip_panel(tab_id, participant_controls)
+    reservations_html = trip_management_ui.reservations(board, trip)
+    selected_panel = (panel_part(selected, back=back, error=error, message=message,
+                                 draft=draft or {}) if selected else '')
+    drawer_html = (
+        "<dialog class='drawer' id='ledger-drawer' aria-labelledby='ledger-drawer-title'>"
+        "<div class='drawer-header'><h2 id='ledger-drawer-title'>거래 상세</h2>"
+        "<button class='icon-btn' type='button' id='drawer-close' data-drawer-close aria-label='닫기'>×</button></div>"
+        f"<div class='drawer-body' id='panel-slot'>{selected_panel}</div></dialog>")
+    whole_expenses = _selected_rows(tab_id, '', '')[3] if _is_trip_tab(tab_id) else []
+    amount_groups = _amount_group_state(tab_id, whole_expenses, kind)
+    workflow = ''
+    if board.current_role() == 'owner' and _is_trip_tab(tab_id):
+        from .trip_workflow import render as workflow_render
+        workflow = workflow_render(board._active_store(), tab_id, whole_expenses, amount_groups)
+    tabs = _trip_tabs_html(tab_id, query=query, kind=kind, selected=selected,
+                           archived=archived, back=back, google_income_html=google_income_html,
+                           participant_html=participant_html, flight_html=flight_html,
+                           reservations_html=reservations_html)
     main = (
-        f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'><div class='main-wrap'>"
-        f"{_head_html(trip)}"
-        f"{'' if _is_trip_tab(tab_id) else _bar_html(query, kind, tab_id, archived)}{status}"
-        # APP_SPEC 4.1: the same global state line the shared shell carries.
-        f"<p class='meta' id='global-state' data-role='"
+        f"<main class='main ledger-workspace' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
+        f"{_head_html(trip, query=query, kind=kind, archived=archived)}{status}"
+        f"<div id='live-sum'>{_trip_kpi_html(tab_id) if _is_trip_tab(tab_id) else summary_part(tab_id, kind, query)}</div>"
+        f"{workflow}"
+        f"{tabs}"
+        f"{_source_preview_html(trip)}"
+        "<p class='meta' id='global-state' data-role='"
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
         "<span id='unsaved-count' hidden></span></p>"
-        # APP_SPEC 4.1: ledger-note removed per review
-        # The live refresh replaces the totals and the two row lists as one block,
-        # and the edit panel sits outside it so an open panel is never rewritten.
-        f"<div id='live-sum'>"
-        f"{summary_part(tab_id, kind, query)}"
-        f"</div>"
-        f"<section id='trip-income' aria-label='여행 수입 · COST 기록'>"
-        f"{google_income_html}"
-        f"</section>"
-        f"{_trip_actions(tab_id, back)}"
-        f"{_participant_trip_panel(tab_id, participant_controls)}"
-        f"{trip_management_ui.reservations(board, trip)}"
-        f"{_source_preview_html(trip)}"
-        f"{rows_region(tab_id, query, kind, selected, archived, back)}"
-        f"{flight_html}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
-        "</div></main>")
+        "</main>")
     return (f"<style>{trip_management_ui.STYLE}</style><div class='app'>"
-            f"{_nav_html(tab_id, query, kind, archived)}{main}"
-            f"<div id='panel-slot'>{panel}</div>"
+            f"{_nav_html(tab_id, query, kind, archived)}{main}{drawer_html}"
             + (f"{board.MANUAL_EXPENSE_STYLE}<dialog id='manual-expense-dialog' aria-labelledby='mx-title'>"
                f"{board.manual_expense_form(tab_id, modal=True)}</dialog>" if board.current_role() == 'owner' else '')
             + f"</div><script>{trip_management_ui.SCRIPT}</script>")
 
 
+def _quarter_page(tab_id: str, title: str, *, query: str = '', kind: str = '',
+                  message: str = '', error: str = '') -> str:
+    """Quarter cost tabs use the same header, steps and tab surface as trips."""
+    store = board._active_store()
+    from app import quarter_tab
+    pending = quarter_tab.pending_rows(store.conn, tab_id) if store is not None else []
+    booked = [row for row in board._expense_rows() if row.get('display_tab_id') == tab_id]
+    total = sum(int(row.get('amount_krw') or 0) for row in booked)
+    status = (f"<p class='status err' id='status' role='alert'>{board.esc(error)}</p>" if error else
+              f"<p class='status' id='status' role='status'>{board.esc(message)}</p>" if message else '')
+    header = ui_components.page_header(title, meta='여행에 속하지 않는 비용', breadcrumb=())
+    step_markup = ui_components.steps([
+        {'label': '지출', 'note': f'{len(booked)}건 · {total:,}원', 'href': '#quarter-expenses', 'state': 'done' if not pending else 'todo'},
+        {'label': 'Google 복사', 'note': '비교 불가', 'href': '#quarter-expenses', 'state': 'todo'},
+    ])
+    body = _quarter_body(tab_id, message, error)
+    main = (f"<main class='main ledger-workspace' id='main' tabindex='-1'>{header}{status}"
+            f"<section class='settlement-steps' aria-label='정산 단계'>{step_markup}</section>"
+            f"<section id='quarter-expenses' class='view-tabs'><div role='tablist'><button role='tab' aria-selected='true' aria-controls='quarter-panel'>지출</button></div>"
+            f"<section id='quarter-panel' role='tabpanel'>{body}</section></section></main>")
+    return f"<div class='app'>{_nav_html(tab_id, query, kind, '')}{main}</div>"
+
+
 def _trip_actions(tab_id: str, back: str) -> str:
-    if board.current_role() != 'owner':
-        return ''
-    from .trip_insurance_policy import domestic_trip
-    from . import trip_management_ui
-    trip = _selected_trip(tab_id)
-    management = trip_management_ui.controls(board, trip)
-    reservation_link = (_reserve_link_link_html()
-                        if trip and not trip.get('is_unclassified') else '')
-    links = []
-    if _is_trip_tab(tab_id):
-        if not domestic_trip(tab_id):
-            links.append(("users", "보험가입내역", "participant-trip-panel"))
-        links.append(("list-filter", "여행 검토", "trip-review-panel"))
-    controls = ''.join(
-        f"<a class='btn' role='button' href='#{target}' data-trip-panel='{target}' aria-controls='{target}'>"
-        f"{ui_icons.icon(icon)}<span>{label}</span></a>" for icon, label, target in links)
-    return ("<div class='trip-actions' role='group' aria-label='여행 작업'>"
-            + management + reservation_link + controls
-            + f"<a class='btn' id='add-manual-expense' data-manual-open href='{board.esc(_manual_expense_link(back))}'>"
-            + f"{ui_icons.icon('pencil')}<span>수기 지출 추가</span></a></div>")
+    """Compatibility hook retained for callers of the former action strip."""
+    return ''
 
 
 def _participant_trip_panel(tab_id: str, controls: dict) -> str:
@@ -2130,7 +2067,7 @@ def _participant_trip_panel(tab_id: str, controls: dict) -> str:
         return ""
     from . import trip_insurance_policy
     if trip_insurance_policy.domestic_trip(tab_id):
-        return trip_insurance_policy.notice()
+        return ''
     from . import participant_trip_panel
     return participant_trip_panel.shell(trip_id=tab_id)
 
@@ -2171,6 +2108,8 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
         return ''
     if _STORE_missing():
         return ""
+    if _is_trip_tab(tab_id):
+        return _trip_kpi_html(tab_id)
     _, _, whole_income, whole_expense = _selected_rows(tab_id, '', kind)
     recorded_income_count = len(whole_income)
     if kind == "in":
@@ -2213,17 +2152,12 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
     copy_preview = _expense_copy_preview(tab_id, expenses)
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
-    workflow = ''
-    if board.current_role() == 'owner' and _is_trip_tab(tab_id):
-        from .trip_workflow import render
-        workflow = render(board._active_store(), tab_id, _whole_expense, amount_groups)
     return (f"<div id='live-rows'>"
-            f"{workflow}"
+            f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
             f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
-            f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
             f"</div>")
 
 
@@ -2251,15 +2185,11 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     copy_preview = _expense_copy_preview(tab_id, expenses)
     matches = _google_match_annotations(tab_id, expenses, copy_preview, _whole_expense)
     amount_groups = _amount_group_state(tab_id, _whole_expense, kind)
-    workflow = ''
-    if board.current_role() == 'owner' and _is_trip_tab(tab_id):
-        from .trip_workflow import render
-        workflow = render(board._active_store(), tab_id, _whole_expense, amount_groups)
-    return (workflow + f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
+    return (f"{_trip_copy_html(tab_id, expenses, copy_preview)}"
+            f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches, amount_groups=amount_groups)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches)}"
-            f"{_trip_copy_html(tab_id, expenses, copy_preview)}")
+                            move_back=back, match_annotations=matches)}")
 
 
 def viewer_trips_html(trips) -> str:
@@ -2313,7 +2243,7 @@ def _STORE_missing() -> bool:
     return getattr(board, "_STORE", None) is None
 
 
-def render(page_html: str, title: str = "웹 장부", live_config: str = "") -> str:
+def render(page_html: str, title: str = "숲길여행 회계", live_config: str = "") -> str:
     """Wrap a design fragment in the document with the design stylesheet.
 
     `live_config` is the JSON the cross-screen refresh script reads. It is

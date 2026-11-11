@@ -119,7 +119,7 @@ class TripExpenseCopyButtonTests(unittest.TestCase):
         html_trip = design.rows_region("trip-demo-a")
         self.assertIn("trip-copy-wrap", html_trip)
         self.assertIn("copy-trip-expenses", html_trip)
-        self.assertIn("지출내용 복사", html_trip)
+        self.assertIn("Google 장부용 복사", html_trip)
         self.assertIn("data-tab='trip-demo-a'", html_trip)
 
         part_trip = design.rows_part("trip-demo-a")
@@ -130,7 +130,7 @@ class TripExpenseCopyButtonTests(unittest.TestCase):
         html_unc = design.rows_region("unclassified")
         self.assertNotIn("trip-copy-wrap", html_unc)
         self.assertNotIn("copy-trip-expenses", html_unc)
-        self.assertNotIn("지출내용 복사", html_unc)
+        self.assertNotIn("Google 장부용 복사", html_unc)
 
         part_unc = design.rows_part("unclassified")
         self.assertNotIn("trip-copy-wrap", part_unc)
@@ -289,7 +289,7 @@ class TripExpenseCopyBrowserTests(LinkBrowserFixture):
         page.goto(f"http://127.0.0.1:{self.port}/board?tab={tab_id}")
         btn = page.locator("#copy-trip-expenses")
         self.assertTrue(btn.is_visible())
-        self.assertIn("지출내용 복사", btn.inner_text())
+        self.assertIn("Google 장부용 복사", btn.inner_text())
 
         # Click the copy button
         btn.click()

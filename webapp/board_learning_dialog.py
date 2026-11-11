@@ -6,6 +6,7 @@ and learning case HTML forms from the ledger board request handler.
 from __future__ import annotations
 
 import html
+from urllib.parse import urlencode
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
@@ -78,6 +79,7 @@ def rule_dialog_page(
             '규칙 대화', tab_id='', heading='규칙 대화',
             body="<div class='sect'><p>대화에 연결된 행이 없어요.</p></div>"))
     row_id = esc(row["row_id"])
+    board_href = esc('/board?' + urlencode({'tab': row.get('display_tab_id') or 'unclassified'}))
     dialog = state["dialog_state"]
     conv = state["conversation"] or {}
     pending = state["pending_draft"]
@@ -111,7 +113,7 @@ def rule_dialog_page(
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
             body=(f"<div class='sect'>{''.join(parts)}"
-                  "<p><a href='/board'>목록으로</a></p></div>")))
+                  f"<p><a href='{board_href}'>목록으로</a></p></div>")))
 
     if state["should_not_create_rule"]:
         parts.append(
@@ -164,7 +166,7 @@ def rule_dialog_page(
                    if question["question_key"] == "trip_move_reason" else "")
                 + "<button class='btn' type='submit'>답변 저장</button></div></form>")
     if not state["open_questions"]:
-        parts.append("<p class='muted'>더 물을 질문이 없어요.</p>")
+        parts.append("<p class='muted'>더 물을 질문이 없습니다.</p>")
 
     if state["should_not_create_rule"]:
         parts.append(
@@ -176,7 +178,7 @@ def rule_dialog_page(
             heading='규칙 대화',
             body=(f"<div class='sect'>{''.join(parts)}"
                   f"<p><a href='/row?id={esc(row_id)}'>내용으로 돌아가기</a> · "
-                  "<a href='/board'>목록으로</a></p></div>")))
+                  f"<a href='{board_href}'>목록으로</a></p></div>")))
 
     # 규칙 초안 요청
     turn_no = (conv.get("turn_count") or 0) + 1
@@ -227,8 +229,8 @@ def rule_dialog_page(
             counts = preview.get("counts", {})
             amounts = preview.get("amounts", {})
             rows_html = "".join(
-                f"<tr><td>{esc(c['row_id'])}</td><td>{esc(c['from_tab_id'] or '분류대기')}"
-                f"</td><td>{esc(c['to_tab_id'] or '분류대기')}</td>"
+                f"<tr><td>{esc(c['row_id'])}</td><td>{esc(c['from_tab_id'] or '귀속 없음')}"
+                f"</td><td>{esc(c['to_tab_id'] or '귀속 없음')}</td>"
                 f"<td style='text-align:right'>{esc(c['amount_krw'])}</td></tr>"
                 for c in preview.get("candidates", []))
             excluded_html = "".join(
@@ -271,7 +273,7 @@ def rule_dialog_page(
             + "<button class='btn' type='submit'>대화 닫기</button></form>")
     body = (f"<div class='sect'>{''.join(parts)}"
             f"<p><a href='/row?id={row_id}'>내용으로 돌아가기</a> · "
-            "<a href='/board'>목록으로</a></p></div>")
+            f"<a href='{board_href}'>목록으로</a></p></div>")
     return ledger_design.render(ledger_design.shell(
         '규칙 대화', tab_id=row.get('display_tab_id') or '',
         heading='규칙 대화', body=body))

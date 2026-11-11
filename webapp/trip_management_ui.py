@@ -39,12 +39,17 @@ def controls(board, trip):
     edit = form(fields + hidden('assignee_form', '1'), inputs + confirm + "<button class='btn' type='submit'>정보 저장</button>")
     archive = form(fields + hidden('archived', int(not trip.get('archived'))),
                    f"<button class='btn' type='submit'>{'보관 해제' if trip.get('archived') else '보관'}</button>")
-    return ("<div class='trip-management-controls'>" + close_form
-            + "<details class='trip-settings' id='trip-settings'><summary>여행 관리</summary><div>"
-            + edit + archive
+    # The old inline controls were visually equal to the ledger actions.  Keep
+    # every existing form field and POST target, but put the secondary actions in
+    # one disclosure menu in the trip header.
+    return ("<details class='trip-more' id='trip-settings'>"
+            "<summary class='icon-btn' data-no-action-icon aria-label='여행 작업' aria-haspopup='menu' aria-expanded='false'>⋯<span class='sr'>여행 작업</span></summary>"
+            "<div class='trip-more-menu' role='menu'>"
+            "<a class='btn' role='menuitem' href='/export?" + esc(urlencode({'tab': tid})) + "'>XLSX 내보내기</a>"
+            + close_form.replace("<form ", "<form id='trip-close' ", 1)
+            + "<h3 class='trip-more-heading'>여행 정보 수정</h3>" + edit + archive
             + "<p class='muted'>마감은 COST의 표시 상태이며 Google 장부 이동·환급과는 별개입니다.</p>"
-            + f"<a href='/trips?{esc(urlencode({'preview_tab': tid}))}'>삭제 미리보기</a>"
-            + "</div></details></div>")
+            + "</div></details>")
 
 
 def reservations(board, trip):
@@ -60,16 +65,17 @@ STYLE = """
 .trip-management-controls{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
 .page-hd>.act{flex:1 1 340px;max-width:100%;justify-content:flex-end}.page-hd{flex-wrap:wrap}
 .trip-management-controls form{margin:0}.trip-management-controls button,.trip-settings>summary{min-height:44px}
-.trip-settings{position:relative}.trip-settings>summary{margin:0;padding:10px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
-.trip-settings>div{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--paper);width:min(360px,100%);box-sizing:border-box}
+.trip-settings{position:relative}.trip-settings>summary{margin:0;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer}
+.trip-settings>div{padding:16px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);width:min(360px,100%);box-sizing:border-box}
 .trip-info-form{display:grid;gap:12px}.trip-info-form label{display:grid;gap:4px}
 .trip-info-form input{min-width:0;max-width:100%;min-height:44px;box-sizing:border-box}
 .trip-info-form .trip-assignee-confirm{display:flex;align-items:center;gap:8px}
 .trip-settings .trip-info-form+form{margin-top:16px}
-.trip-reservations{margin:20px 0;border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.trip-reservations{margin:20px 0;border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;min-width:0}
 .trip-reservations>summary{min-height:44px;cursor:pointer;font-weight:600}
 .trip-reservations iframe{display:block;width:100%;min-height:240px;border:0}
 @media(max-width:640px){.trip-management-controls{width:100%}.trip-settings{flex:1}.trip-settings>div{width:100%}}
+.trip-management-controls details>summary{list-style:none}.trip-management-controls details>summary::-webkit-details-marker{display:none}
 """
 
 SCRIPT = """

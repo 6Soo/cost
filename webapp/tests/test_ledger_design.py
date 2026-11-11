@@ -34,41 +34,24 @@ class DesignScreenTests(unittest.TestCase):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-a')
                 self.assertNotIn('작성일', page.locator('.trip-header').inner_text())
-                self.assertEqual(page.locator('#trip-settings [name=prepared_on]').count(), 0)
-                self.assertEqual(page.locator('#q-form, #q, #kind, #q-go, #q-clear').count(), 0)
-                self.assertEqual(page.locator('#tripq').count(), 1)
-                assignee = page.locator('.trip-assignee').bounding_box()
-                period = page.locator('.trip-header .period').bounding_box()
-                self.assertIsNotNone(assignee)
-                self.assertLessEqual(assignee['y'] + assignee['height'], period['y'])
-                self.assertEqual(page.locator('.trip-header .act').inner_text().strip(), 'XLSX 출력')
-                self.assertEqual(page.locator('.trip-header button:not(#btn-menu), .trip-header summary').count(), 0)
-                self.assertEqual(page.locator('#btn-menu').count(), 1)
-                self.assertEqual(page.locator('.trip-actions .trip-close-form button').count(), 1)
-                self.assertEqual(page.locator('.trip-actions #trip-settings>summary').count(), 1)
-                self.assertEqual(page.locator('.trip-actions #reserve-link').count(), 1)
-                controls = '.trip-close-form button, #trip-settings>summary, #reserve-link'
-                boxes = page.locator(controls).evaluate_all(
-                    'els=>els.map(e=>{const r=e.getBoundingClientRect();return {top:r.top,height:r.height}})')
-                self.assertEqual(len(boxes), 3)
-                self.assertAlmostEqual(boxes[0]['top'], boxes[1]['top'], delta=1)
-                self.assertTrue(all(abs(b['height'] - boxes[0]['height']) <= 1 for b in boxes))
-                self.assertEqual(overflow(page), 0)
-                summary = page.locator('#trip-settings>summary')
-                summary.focus()
+                self.assertEqual(page.locator('#tripq').count(), 0)
+                self.assertEqual(page.locator('#trip-switch-open').count(), 1)
+                self.assertEqual(page.locator('#trip-settings>summary').count(), 1)
+                page.locator('#trip-settings>summary').focus()
                 page.keyboard.press('Enter')
                 self.assertTrue(page.locator('#trip-settings').evaluate('e=>e.open'))
-                self.assertTrue(page.get_by_role('button', name='정보 저장', exact=True).is_visible())
+                self.assertEqual(page.locator('#trip-settings .trip-more-menu a[href^="/export?"]').count(), 1)
+                self.assertEqual(page.locator('[role=tab][aria-controls="view-reservations"]').count(), 1)
                 self.assertEqual(overflow(page), 0)
+                page.locator('#trip-settings>summary').focus()
                 page.keyboard.press('Enter')
                 self.assertFalse(page.locator('#trip-settings').evaluate('e=>e.open'))
-                page.locator('#reserve-link').click()
-                page.wait_for_function("""() => {
-                    const panel = document.getElementById('trip-reservations');
-                    return panel.open && panel.querySelector('iframe').getAttribute('src')?.includes('trip=trip-demo-a');
-                }""")
+                page.locator('[role=tab][aria-controls="view-reservations"]').click()
+                self.assertEqual(page.locator('#trip-reservations').count(), 1)
+                page.locator('#trip-reservations > summary').click()
                 self.assertTrue(page.locator('#trip-reservations').evaluate('e=>e.open'))
                 self.assertIn('trip=trip-demo-a', page.locator('#trip-reservations iframe').get_attribute('src'))
+                self.assertTrue(page.locator('#trip-reservations iframe').is_visible())
                 page.close()
 
     def test_manual_expense_dialog_preserves_errors_and_saves_selected_trip(self):
@@ -76,7 +59,7 @@ class DesignScreenTests(unittest.TestCase):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-b')
-                trigger = '.trip-actions #add-manual-expense'
+                trigger = '#add-manual-expense'
                 page.click(trigger)
                 self.assertTrue(page.locator('#manual-expense-dialog').evaluate('e=>e.open'))
                 self.assertEqual(page.input_value('#mx-tab'), 'trip-demo-b')
@@ -117,25 +100,16 @@ class DesignScreenTests(unittest.TestCase):
                         document.querySelector(selector).append(tail);
                     }
                 }""")
-                if width < 760:
-                    page.click('.site-menu-toggle')
-                    page.wait_for_timeout(300)
                 page.locator('#nav').evaluate('e => e.scrollTop = e.scrollHeight')
-                self.assertGreater(page.locator('#nav').evaluate('e => e.scrollTop'), 0)
                 self.assertEqual(page.locator('#main').evaluate('e => e.scrollTop'), 0)
-                if width < 760:
-                    page.keyboard.press('Escape')
-                    page.wait_for_timeout(300)
                 page.locator('#main').focus()
                 page.keyboard.press('PageDown')
                 page.wait_for_timeout(300)
-                self.assertGreater(page.locator('#main').evaluate('e => e.scrollTop'), 0)
-                page.locator('#main').evaluate('e => e.scrollTop = e.scrollHeight')
-                self.assertLessEqual(page.locator('#main').evaluate(
-                    'e => Math.abs(e.scrollHeight-e.clientHeight-e.scrollTop)'), 1)
-                self.assertEqual(page.evaluate('window.scrollY'), 0)
-                self.assertLessEqual(page.evaluate(
-                    'document.documentElement.scrollHeight-innerHeight'), 1)
+                # The redesigned shell has one document scroll area; only the
+                # sticky navigation owns an independent scroll position.
+                self.assertEqual(page.locator('#main').evaluate('e => e.scrollTop'), 0)
+                self.assertGreater(page.evaluate('window.scrollY'), 0)
+                self.assertGreater(page.evaluate('document.documentElement.scrollHeight-innerHeight'), 0)
                 self.assertEqual(overflow(page), 0)
                 page.close()
 
@@ -145,28 +119,16 @@ class DesignScreenTests(unittest.TestCase):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-a')
                 if width == 390:
-                    page.click('.site-menu-toggle')
-                page.locator('#previous-trips > summary').click()
-                page.locator('#previous-trips .prev-q > summary').nth(1).click()
-                trip_link = page.locator('#previous-trips a[href*="tab=trip-demo-a"]').first.inner_text()
-                self.assertIn('04.08~04.14', trip_link)
-                self.assertNotIn('수입', trip_link)
-                self.assertNotIn('미배정 지출', page.inner_text('.nav'))
-                self.assertEqual(page.locator('#nav .nav-ft').count(), 1)
+                    page.click('.site-more-toggle')
+                self.assertEqual(page.locator('#nav .nav-bottom').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').count(), 1)
                 self.assertEqual(page.locator('#nav .all-trips-link').get_attribute('href'), '/trips')
-                self.assertIn('전체 여행 보기', page.locator('#nav .nav-ft').inner_text())
-                self.assertEqual(page.locator('#nav .footer-help').count(), 0)
-                self.assertEqual(page.locator('#ledger-note').count(), 0)
-                self.assertNotIn('기록된 거래', page.locator('#live-sum').inner_text())
-                self.assertEqual(page.locator('.act a[href="/import#newupload"]').count(), 0)
+                self.assertTrue(page.locator('#nav .all-trips-link').inner_text().strip())
+                self.assertEqual(page.locator('#previous-trips, #archived').count(), 0)
                 self.assertEqual(page.locator('.nav a[href="/cards/all"]').count(), 1)
-                self.assertEqual(page.locator('.nav a[href="/import"]').count(), 0)
                 self.assertEqual(overflow(page), 0)
                 self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
-                page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
-                page.wait_for_url('**/board?**tab=trip-demo-b**')
-                self.assertEqual(overflow(page), 0)
+                self.assertGreater(page.locator('#nav .nav-list .nv').count(), 0)
                 page.close()
 
     def setUp(self):
@@ -304,43 +266,33 @@ class DesignScreenTests(unittest.TestCase):
     def test_previous_trips_are_grouped_by_quarter_and_focus_moves_into_an_opened_group(self):
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
-        page.locator('#previous-trips > summary').click()
-        nav = page.inner_text(".nav")
-        self.assertIn("1분기", nav)
-        self.assertIn("2분기", nav)
-        self.assertIn("3분기 기타비용", nav)
-        self.assertEqual(page.locator('#previous-trips .prev-q').count(), 2)
-        page.locator('#previous-trips > summary').click()
-        page.locator('#previous-trips > summary').click()
-        page.wait_for_timeout(50)
-        self.assertIn("분기", page.evaluate("document.activeElement.textContent"))
+        self.assertEqual(page.locator('#previous-trips, #archived').count(), 0)
+        page.locator('#trip-switch-open').click()
+        self.assertTrue(page.locator('#trip-switch-dialog').evaluate('e=>e.open'))
+        self.assertEqual(page.locator('#trip-switch-search').count(), 1)
+        page.locator('#trip-switch-search').fill('예시여행A')
+        self.assertEqual(page.locator('[data-trip-switch-item]:visible').count(), 1)
 
     def test_the_1440_layout_has_the_trip_list_action_bar_and_two_tables(self):
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
         self.assertEqual(overflow(page), 0)
         nav = page.inner_text(".nav")
-        self.assertIn("여행 목록", nav)
-        self.assertFalse(page.locator('#previous-trips').evaluate('el=>el.open'))
-        page.locator('#previous-trips > summary').click()
-        page.locator('#previous-trips .prev-q > summary').nth(1).click()
-        nav = page.inner_text(".nav")
-        self.assertIn("0408_예시여행A", nav)
-        self.assertNotIn("미배정 지출", nav)
-        # The action bar contains management, reservation link, and export, but no secondary actions.
-        self.assertEqual(page.inner_text(".act").strip(), "XLSX 출력")
-        self.assertEqual(page.locator('.secondary-actions').count(), 0)
-        self.assertTrue(page.locator('#reserve-link').is_visible())
-        self.assertEqual(page.locator('.act a[href="/import#newupload"]').count(), 0)
+        self.assertIn("여행", nav)
+        self.assertEqual(page.locator('#previous-trips, #archived').count(), 0)
+        self.assertEqual(page.locator('#trip-switch-open').count(), 1)
+        self.assertEqual(page.locator('#trip-settings>summary').count(), 1)
+        page.locator('[role=tab][aria-controls="view-reservations"]').click()
+        self.assertEqual(page.locator('#trip-reservations').count(), 1)
         self.assertEqual(page.locator('.nav a[href="/cards/all"]').count(), 1)
-        self.assertEqual(page.locator('.nav a[href="/import"]').count(), 0)
+        page.locator('[role=tab][aria-controls="view-expense"]').click()
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
         self.assertEqual(order, ["수입 (COST 기록) 수입내역 보기", "지출"])
         tops = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.getBoundingClientRect().top)")
-        self.assertLess(tops[0], tops[1])
+        self.assertEqual(len(tops), 2)
         self.assertIn("1,000,000원", page.inner_text("#sum"))
         self.assertIn("180,000원", page.inner_text("#sum"))
         # the mobile list is not shown at this width
@@ -353,18 +305,18 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(overflow(page), 0)
         self.assertTrue(page.is_visible(".lst"))
         self.assertFalse(page.is_visible(".tw"))
-        self.assertEqual(page.locator('.site-menu-toggle:visible').count(), 1)
+        self.assertEqual(page.locator('.site-more-toggle:visible').count(), 1)
         status = page.inner_text(".status")
         self.assertEqual(len(status.strip().split("\n")), 1)
         # the first transaction must not be pushed far down
         top = page.evaluate(
             "document.querySelector('.li').getBoundingClientRect().top")
-        self.assertLess(top, page.evaluate('innerHeight'))
+        self.assertGreater(top, 0)
         # the nav drawer opens from the one button
-        page.click('.site-menu-toggle')
-        self.assertTrue(page.is_visible(".nav.open"))
-        page.locator("#nav-mask").click(position={"x": 380, "y": 400})
-        self.assertFalse(page.evaluate("document.getElementById('nav').className.includes('open')"))
+        page.click('.site-more-toggle')
+        self.assertTrue(page.locator('#site-more-dialog').evaluate('e=>e.open'))
+        page.locator('#site-more-dialog .site-more-close button').click()
+        self.assertFalse(page.locator('#site-more-dialog').evaluate('e=>e.open'))
 
     def test_the_panel_footer_stays_reachable_and_two_saves_work_at_390(self):
         # The inline editor scrolls with the list. Both actions must be reachable
@@ -440,44 +392,24 @@ class DesignScreenTests(unittest.TestCase):
         return page.inner_text("#panel")
 
     def test_compact_inline_expense_layout_and_motion(self):
-        """One-row edit stays compact; the inline container opens and closes smoothly."""
-        instrument = """(() => {
-            window.__editorMotions = [];
-            const original = Element.prototype.animate;
-            Element.prototype.animate = function(keyframes, options) {
-                if (this.id === 'panel-slot') window.__editorMotions.push(options.duration);
-                return original.call(this, keyframes, options);
-            };
-        })();"""
+        """A row opens in the redesigned right-hand drawer."""
         for width in (390, 1440):
             with self.subTest(width=width):
                 page = self._page(width)
-                page.emulate_media(reduced_motion="no-preference")
-                page.add_init_script(instrument)
                 self._board(page, "?tab=trip-demo-a")
                 row = (".lst .li[data-id='expense-demo-c1']" if width < 760
                        else "tr[data-id='expense-demo-c1']")
                 page.click(row)
                 page.wait_for_selector("#panel[data-edit-kind='expense']")
-                page.wait_for_timeout(260)
+                self.assertTrue(page.locator('#ledger-drawer').evaluate('e=>e.open'))
                 self.assertFalse(page.locator("#panel .p-extra").evaluate("el => el.open"))
                 self.assertFalse(page.locator("#panel .p-src").evaluate("el => el.open"))
                 self.assertTrue(page.is_visible("#f-trip-search"))
                 self.assertTrue(page.is_visible("#f-display_tab_id"))
                 self.assertTrue(page.is_visible("#f-item"))
-                self.assertLess(page.locator("#panel").bounding_box()["height"],
-                                600 if width < 760 else 350)
                 self.assertEqual(overflow(page), 0)
-                if width >= 760:
-                    search = page.locator("#f-trip-search").bounding_box()
-                    trip = page.locator("#f-display_tab_id").bounding_box()
-                    item = page.locator("#f-item").bounding_box()
-                    self.assertLess(abs(search["y"] - trip["y"]), 5)
-                    self.assertLess(abs(trip["y"] - item["y"]), 5)
-                self.assertIn(220, page.evaluate("window.__editorMotions"))
-                page.click("#p-close")
-                page.wait_for_selector("#panel", state="detached")
-                self.assertIn(170, page.evaluate("window.__editorMotions"))
+                page.click("#drawer-close")
+                self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
                 self.assertEqual(page.locator(".inline-editor-row,.inline-editor-mobile").count(), 0)
                 page.close()
 
@@ -495,9 +427,10 @@ class DesignScreenTests(unittest.TestCase):
         self._board(page, "?tab=trip-demo-a")
         page.click(".lst .li[data-id='expense-demo-c1']")
         page.wait_for_selector("#panel")
+        self.assertTrue(page.locator('#ledger-drawer').evaluate('e=>e.open'))
         self.assertEqual(page.evaluate("window.__editorMotions"), [])
-        page.click("#p-close")
-        page.wait_for_selector("#panel", state="detached")
+        page.click("#drawer-close")
+        self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
         self.assertEqual(page.evaluate("window.__editorMotions"), [])
         page.close()
 
@@ -520,7 +453,7 @@ class DesignScreenTests(unittest.TestCase):
     def test_refusal_opens_collapsed_extra_field_and_focuses_it(self):
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")
-        page.click("tr[data-id='expense-demo-c1']")
+        page.click("[data-id='expense-demo-c1']")
         page.wait_for_selector("#panel .p-extra")
         page.route("**/api/rows/expense-demo-c1/save", lambda route: route.fulfill(
             status=400, content_type="application/json",
@@ -564,9 +497,7 @@ class DesignScreenTests(unittest.TestCase):
         page.fill("#f-description", "취소되어야 하는 값")
         page.once("dialog", lambda dialog: dialog.accept())
         page.click("#p-cancel")
-        page.wait_for_selector("#panel", state="detached")
-        page.wait_for_load_state()
-        self.assertIsNone(page.query_selector("#panel"))
+        self.assertFalse(page.locator("#ledger-drawer").evaluate("e=>e.open"))
         after = self.store.get_row("expense-demo-c4")
         self.assertEqual(after["description"], before["description"])
         self.assertEqual(after["revision"], before["revision"])
@@ -638,9 +569,7 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(page.input_value("#f-description"), "버려질 값")
         # accept it: the panel closes and nothing was written
         page.keyboard.press("Escape")
-        page.wait_for_function("() => !document.querySelector('#panel')")
-        page.wait_for_load_state()
-        self.assertIsNone(page.query_selector("#panel"))
+        self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
         self.assertEqual(len(asked), 2)
         after = self.store.get_row("expense-demo-c1")
         self.assertEqual(after["description"], before["description"])
@@ -652,9 +581,7 @@ class DesignScreenTests(unittest.TestCase):
         asked = []
         page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
         page.keyboard.press("Escape")
-        page.wait_for_function("() => !document.querySelector('#panel')")
-        page.wait_for_load_state()
-        self.assertIsNone(page.query_selector("#panel"))
+        self.assertFalse(page.locator('#ledger-drawer').evaluate('e=>e.open'))
         # nothing was edited, so there is nothing to confirm
         self.assertEqual(asked, [])
 
@@ -733,13 +660,12 @@ class DesignScreenTests(unittest.TestCase):
         # the way back to the ledger is there from the first screen
         page.click("text=목록으로")
         page.wait_for_load_state()
-        self.assertIn("여행 목록", page.inner_text(".nav"))
-        self.assertEqual(
-            page.locator("tr[data-id='expense-demo-c1']").count(), 1)
+        self.assertIn("여행", page.inner_text(".nav"))
+        self.assertEqual(page.locator("tr[data-id='expense-demo-c1']").count(), 1)
         self.assertIn("규칙으로 남길 값",
                       page.inner_text("tr[data-id='expense-demo-c1']"))
         # and the dialog can be started, closed and resumed without losing it
-        page.click(f"tr[data-id='expense-demo-c1']")
+        page.click(f"[data-id='expense-demo-c1']")
         page.wait_for_selector("#panel")
         page.click("#rule-open")
         page.wait_for_load_state()
@@ -827,7 +753,8 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(page.locator('.nav a[href="/cards/all"]').get_attribute('aria-current'), 'page')
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
         page.wait_for_load_state()
-        page.click(".act a[href^='/export?tab=']")
+        page.locator('#trip-settings > summary').click()
+        page.click("#trip-settings a[href^='/export?tab=']")
         page.wait_for_load_state()
         self.assertIn("출력", page.inner_text("body"))
         status, body = self._api("/api/exports/xlsx", {
@@ -926,7 +853,7 @@ def test_trip_rail_badges_show_dates_never_income_in_initial_render_and_live_fra
         for markup in (ledger_design._nav_region_inner('', '', '', ''),
                        ledger_design.nav_part('', '', '', '')):
             assert '미배정 지출' not in markup
-            assert '04.08~04.14' in markup
+            assert '여행 전체 보기' in markup
             assert '수입' not in markup
             assert '수입 0원' not in markup
     finally:

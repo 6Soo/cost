@@ -119,7 +119,7 @@ def test_signed_mail_through_solver_backend_and_both_public_ui_projections(tmp_p
         assert '다릅니다' not in public_row['selection_disabled_reason']
         snapshot = {'data': dict(zip(('events', 'transactions', 'links', 'results'), data)), 'results': data[3]}
         notes = _index_ota_display_candidates(snapshot)[row['transaction_id']]
-        assert any('대조 보류' in note for note in notes)
+        assert any('대조 자료 확인' in note for note in notes)
         assert all('금액이 다릅니다' not in note for note in notes)
         core_notes = project_card_ota_candidate_notes(snapshot, {row['transaction_id']})
         assert '직접 비교할 수 없습니다' in ' '.join(core_notes[row['transaction_id']])

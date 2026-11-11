@@ -327,7 +327,7 @@ SCRIPT = """
    // comparison does not expect.
    if(stopped||busy||!pendingToken) return;
    if(editInProgress()){
-    say('다른 화면에서 장부가 바뀌었어요. 저장하거나 닫으면 반영해요',false);
+    say('다른 화면에서 장부가 바뀌었습니다. 저장하거나 닫으면 반영됩니다.',false);
     return;
    }
     var want=pendingToken;
@@ -338,13 +338,13 @@ SCRIPT = """
      if(r.status===401||r.status===403){
       stopped=true;
       clearProtected();
-      say('로그인이 필요해요. 다시 로그인해 주세요',true);
+      say('로그인이 필요합니다. 다시 로그인해 주세요.',true);
       return null;
      }
      if(r.status===404){
       stopped=true;
       clearProtected();
-      say('이 여행은 더 이상 열 수 없어요',true);
+      say('이 여행은 더 이상 열 수 없습니다.',true);
       return null;
      }
      if(!r.ok) throw new Error('status');
@@ -357,7 +357,7 @@ SCRIPT = """
      // replace the screen under a save that is about to be made from it. The
      // token is left uncommitted, so the next poll asks again.
      if(editInProgress()){
-      say('다른 화면에서 장부가 바뀌었어요. 저장하거나 닫으면 반영해요',false);
+      say('다른 화면에서 장부가 바뀌었습니다. 저장하거나 닫으면 반영됩니다.',false);
       return;
      }
       // A fragment bundle is a sequence of <div id data-live> blocks. Each is
@@ -381,7 +381,7 @@ SCRIPT = """
       if(!applied){
        // Nothing was replaced, so the screen does not show this token. Committing
        // it would make the next poll report "no change" over a stale screen.
-       say('반영하지 못했어요. 곧 다시 확인해요',true);
+       say('반영하지 못했습니다. 곧 다시 확인합니다.',true);
        return;
       }
       // Restored only here: after a swap that happened, and not after a deferred
@@ -400,7 +400,7 @@ SCRIPT = """
       // uncommitted so the change is still outstanding. Retrying it straight away
       // would be a tight loop against a server that is already in trouble.
       delay=Math.min(Math.max(delay*2,BACKOFF_MIN),BACKOFF_MAX);
-      say('반영하지 못했어요. 곧 다시 확인해요',true);
+       say('반영하지 못했습니다. 곧 다시 확인합니다.',true);
      })
       .then(function(){
        // No `restore` here. The only path that moves the screen back is the one
@@ -439,8 +439,8 @@ SCRIPT = """
       stopped=true;
       clearProtected();
       say(r.status===404
-        ?'이 여행은 더 이상 열 수 없어요'
-        :'로그인이 필요해요. 다시 로그인해 주세요',true);
+        ?'이 여행은 더 이상 열 수 없습니다.'
+        :'로그인이 필요합니다. 다시 로그인해 주세요.',true);
       return null;
      }
      if(!r.ok) throw new Error('status');
@@ -466,7 +466,7 @@ SCRIPT = """
      // Transport failure only. The user is told, and the wait grows but stays
      // inside a bound so a restored connection is noticed.
      delay=Math.min(Math.max(delay*2,BACKOFF_MIN),BACKOFF_MAX);
-     say('연결이 불안정해요. 다시 확인하는 중이에요',true);
+     say('연결이 불안정합니다. 다시 확인하는 중입니다.',true);
     })
      .then(function(){
       busy=false;

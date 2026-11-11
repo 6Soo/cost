@@ -95,7 +95,7 @@ def render_summary(state: Mapping[str, object]) -> str:
     else:
         note = "Google 지출 스냅샷 기준"
         if state.get('total_warning'):
-            note += ' · 시트 합계 수식 확인 필요 · 개별 지출 행 기준 비교'
+            note += ' · 시트 합계 수식을 확인해 주세요 · 개별 지출 행 기준 비교'
         if reason:
             note += f" · {_esc(reason)}"
     if last_success:
@@ -164,23 +164,23 @@ def render_groups(state: Mapping[str, object]) -> str:
 
 def styles() -> str:
     """Scoped styles inherit the application's light/dark color tokens."""
-    return ("<style>"
+    return ("<style>@import url('/static/css/tokens.css');"
             ".gemn-desktop,th.gemn-desktop,td.gemn-desktop{display:none!important}"
             ".gemn-group summary{display:none!important}"
             ".gemn-status-button{font:inherit;color:inherit;background:transparent;border:0;padding:4px;cursor:pointer}"
-            ".gemn-summary,.gemn-groups{color:var(--shell-ink,var(--ink,#17212b));background:var(--shell-paper);"
-            "border:1px solid var(--shell-line);border-radius:8px;padding:10px;margin:8px 0}"
-            ".gemn-summary{gap:10px 16px;flex-wrap:wrap;align-items:center;font-size:13px}"
+            ".gemn-summary,.gemn-groups{color:var(--shell-ink,var(--ink,var(--c-text)));background:var(--shell-paper);"
+            "border:1px solid var(--shell-line);border-radius:var(--r-md);padding:10px;margin:8px 0}"
+            ".gemn-summary{gap:10px 16px;flex-wrap:wrap;align-items:center;font-size:var(--t-meta)}"
             ".gemn-summary .gemn-note,.gemn-summary .gemn-disclaimer{color:var(--shell-muted)}"
             ".gemn-group{border-top:1px solid var(--shell-line);padding:8px 0}"
             ".gemn-group summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:700}"
             ".gemn-group ul{margin:4px 0;padding-left:22px}.gemn-group li{overflow-wrap:anywhere;margin:3px 0}"
-            ".gemn-status-cell{white-space:nowrap;font-size:12px}.gemn-ok{color:var(--shell-accent,#1C7A52)}"
-            ".gemn-partial{color:var(--shell-warn,#B54708)}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted,#475569)}"
+            ".gemn-status-cell{white-space:nowrap;font-size:var(--t-caption)}.gemn-ok{color:var(--shell-accent,var(--c-accent-text))}"
+            ".gemn-partial{color:var(--shell-warn,var(--c-warn-text))}.gemn-missing,.gemn-google-only,.gemn-unavailable{color:var(--shell-muted,var(--c-text-secondary))}"
             ".gemn-count{font-variant-numeric:tabular-nums}"
-            ".gemn-dialog{color:var(--shell-ink);background:var(--shell-paper,#fff);border:1px solid var(--shell-line);"
-            "border-radius:8px;max-width:min(850px,90vw);max-height:80vh;overflow:auto}"
-            ".gemn-dialog::backdrop{background:#0006}.gemn-close{float:right;font:inherit;padding:8px 16px;cursor:pointer}"
+            ".gemn-dialog{color:var(--shell-ink);background:var(--shell-paper,var(--c-surface));border:1px solid var(--shell-line);"
+            "border-radius:var(--r-md);max-width:min(850px,90vw);max-height:80vh;overflow:auto}"
+            ".gemn-dialog::backdrop{background:var(--shell-overlay)}.gemn-close{float:right;font:inherit;padding:8px 16px;cursor:pointer}"
             "@media(max-width:899px){.gemn-dialog{display:none!important}}"
             "@media(min-width:900px){th.gemn-desktop.gemn-desktop,td.gemn-desktop.gemn-desktop{display:table-cell!important}"
             "col.gemn-column{display:table-column!important;width:170px}"

@@ -27,33 +27,33 @@ def render_review_ui() -> str:
 <style>
 :root { --ui-bg:var(--shell-bg); --ui-paper:var(--shell-paper); --ui-ink:var(--shell-ink); --ui-muted:var(--shell-muted); --ui-line:var(--shell-line); --ui-accent:var(--shell-accent); --ui-focus:var(--shell-focus); --ui-warn-bg:var(--shell-warn-bg); --ui-warn-ink:var(--shell-warn); --ui-error:var(--shell-danger); --ui-ok:var(--shell-accent); --ui-control:var(--shell-control-min,44px); }
 * { box-sizing:border-box; }
-body { max-width:1120px; margin:0 auto; padding:clamp(12px,3vw,24px); background:var(--ui-bg); color:var(--ui-ink); font:400 16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; overflow-wrap:anywhere; }
+body { max-width:1120px; margin:0 auto; padding:clamp(12px,3vw,24px); background:var(--ui-bg); color:var(--ui-ink); font:400 var(--t-body)/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; overflow-wrap:anywhere; }
 header { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--ui-line); margin-bottom:16px; padding-bottom:12px; }
-h1 { font-size:clamp(1.35rem,3vw,1.65rem); margin:0; }
+h1 { font-size:var(--t-h1); margin:0; }
 .desc { color:var(--ui-muted); }
-#status { min-height:44px; padding:10px 12px; border:1px solid var(--ui-line); border-radius:8px; margin:12px 0; background:var(--ui-paper); }
+#status { min-height:44px; padding:10px 12px; border:1px solid var(--ui-line); border-radius:var(--r-md); margin:12px 0; background:var(--ui-paper); }
 #status.error { border-color:var(--ui-error); color:var(--ui-error); }
 #status.ok { border-color:var(--ui-ok); color:var(--ui-ok); }
 #summary { margin:12px 0; font-weight:650; }
-.row-card { min-width:0; border:1px solid var(--ui-line); border-radius:12px; padding:clamp(12px,2vw,18px); margin:16px 0; background:var(--ui-paper); }
-.row-title { font-size:1.15rem; font-weight:700; margin-bottom:8px; overflow-wrap:anywhere; }
+.row-card { min-width:0; border:1px solid var(--ui-line); border-radius:var(--r-lg); padding:clamp(12px,2vw,18px); margin:16px 0; background:var(--ui-paper); }
+.row-title { font-size:var(--t-h3); font-weight:700; margin-bottom:8px; overflow-wrap:anywhere; }
 .panels { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.panel { min-width:0; border:1px solid var(--ui-line); border-radius:9px; padding:12px; background:var(--ui-bg); }
-.panel h3 { margin:0 0 8px; font-size:1rem; }
+.panel { min-width:0; border:1px solid var(--ui-line); border-radius:var(--r-md); padding:12px; background:var(--ui-bg); }
+.panel h3 { margin:0 0 8px; font-size:var(--t-body); }
 .field { margin:6px 0; overflow-wrap:anywhere; }
 .field .label { font-weight:650; }
-.decision-group { min-width:0; margin-top:12px; padding:12px; border:1px solid var(--ui-line); border-radius:9px; }
-.decision-option { display:block; min-height:var(--ui-control); padding:10px 12px; margin:6px 0; border:1px solid var(--ui-line); border-radius:8px; background:var(--ui-paper); cursor:pointer; overflow-wrap:anywhere; }
+.decision-group { min-width:0; margin-top:12px; padding:12px; border:1px solid var(--ui-line); border-radius:var(--r-md); }
+.decision-option { display:block; min-height:var(--ui-control); padding:10px 12px; margin:6px 0; border:1px solid var(--ui-line); border-radius:var(--r-md); background:var(--ui-paper); cursor:pointer; overflow-wrap:anywhere; }
 .decision-option input { width:22px; height:22px; margin:0 10px 0 0; vertical-align:middle; accent-color:var(--ui-accent); }
-button { min-height:var(--ui-control); max-width:100%; padding:9px 14px; margin:8px 8px 8px 0; border:1px solid var(--ui-line); border-radius:8px; background:var(--ui-paper); color:var(--ui-ink); font:inherit; cursor:pointer; }
+button { min-height:var(--ui-control); max-width:100%; padding:9px 14px; margin:8px 8px 8px 0; border:1px solid var(--ui-line); border-radius:var(--r-md); background:var(--ui-paper); color:var(--ui-ink); font:inherit; cursor:pointer; }
 button:disabled { opacity:.55; cursor:not-allowed; }
-button.primary { background:var(--ui-accent); color:#fff; border-color:var(--ui-accent); }
+button.primary { background:var(--ui-accent); color:var(--c-on-accent); border-color:var(--ui-accent); }
 :focus-visible { outline:3px solid var(--ui-focus); outline-offset:2px; }
-.warn { background:var(--ui-warn-bg); color:var(--ui-warn-ink); border:1px solid currentColor; padding:12px; border-radius:8px; margin:12px 0; }
+.warn { background:var(--ui-warn-bg); color:var(--ui-warn-ink); border:1px solid currentColor; padding:12px; border-radius:var(--r-md); margin:12px 0; }
 .confirm-note { color:var(--ui-error); font-weight:700; }
 table.field-table { border-collapse:collapse; width:100%; margin-top:8px; table-layout:fixed; }
-table.field-table th, table.field-table td { border:1px solid var(--ui-line); padding:7px 8px; font-size:.9rem; text-align:left; overflow-wrap:anywhere; }
-.candidate-box { min-width:0; border:1px solid var(--ui-line); border-radius:8px; padding:10px; margin:8px 0; overflow-wrap:anywhere; }
+table.field-table th, table.field-table td { border:1px solid var(--ui-line); padding:7px 8px; font-size:var(--t-body-sm); text-align:left; overflow-wrap:anywhere; }
+.candidate-box { min-width:0; border:1px solid var(--ui-line); border-radius:var(--r-md); padding:10px; margin:8px 0; overflow-wrap:anywhere; }
 @media (max-width:600px) { .panels { grid-template-columns:minmax(0,1fr); } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; transition-duration:.01ms !important; } }
 </style>
@@ -249,7 +249,7 @@ function renderDecisionGroup(card, row, idx, candidates, insufficient) {
     }
     if (found) { blankChecked = false; }
   }
-  makeOption("", "보류 (나중에 결정)", false, blankChecked);
+  makeOption("", "지금은 선택하지 않음", false, blankChecked);
   makeOption("REJECT", "거부", false, existing === "REJECT");
   for (var i = 0; i < candidates.length; i++) {
     var key = candidateKeyOf(candidates[i]);
@@ -259,7 +259,7 @@ function renderDecisionGroup(card, row, idx, candidates, insufficient) {
   if (insufficient) {
     var note = document.createElement("p");
     note.className = "confirm-note";
-    note.textContent = "추가 확인 필요: 증빙이 부족하거나 후보가 없어 승인이 제한됩니다. 이 상태는 백엔드에서 다시 확인합니다.";
+  note.textContent = "추가 자료 확인: 증빙이 부족하거나 후보가 없어 승인이 제한됩니다. 이 상태는 서버에서 다시 확인합니다.";
     group.appendChild(note);
   }
   card.appendChild(group);
