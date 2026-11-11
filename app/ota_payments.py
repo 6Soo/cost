@@ -462,6 +462,71 @@ def _trip_reservation_events(databases):
     return events
 
 
+def _forest_portal_events(databases):
+    """Read direct forest facts through the existing payment/reservation pipeline."""
+    from contextlib import closing
+    from app.ota_store import connect_read, direct_facts, is_store
+    events = []
+    for path in ota_portal.as_databases(databases):
+        if not is_store(Path(path)):
+            continue
+        with closing(connect_read(path)) as conn:
+            for booking, fact, conflicts in direct_facts(conn):
+                if booking['provider'] != 'forest' or fact.get('evidence_format') != 'forest-portal-v1':
+                    continue
+                source = 'forest-portal:' + booking['booking_id']
+                digest = _digest(fact)
+                paid = fact.get('payment_status') == 'paid' and bool(fact.get('paid_on'))
+                event = dict(provider='forest', booking_ref=fact['booking_number'],
+                    event_type='charge' if paid else 'reservation',
+                    evidence_kind='forest_portal',
+                    evidence_status='conflict' if conflicts else 'paid_verified' if paid else 'reservation_only',
+                    payment_status='paid' if paid else 'not_card_charge',
+                    amount=fact.get('amount_krw') if paid else None,
+                    amount_krw=fact.get('amount_krw') if paid else None, currency='KRW',
+                    paid_on=fact.get('paid_on'), paid_on_semantics='explicit_charge_date' if paid else 'missing',
+                    booked_on=fact.get('booked_on'), card_last4=fact.get('card_last4'),
+                    order_number=fact.get('order_number'),
+                    hotel_name=fact.get('label'), item='숙박비',
+                    service_period={'starts_on':fact['service_start_on'], 'ends_on':fact['service_end_on']},
+                    reservation_status=fact['reservation_status'], refund_status='none_displayed',
+                    source_ids=[source], identity_source_ids=[source], source_digest=digest,
+                    source_digests=[digest], source_lineage_ids=[source],
+                    observation_ids=['obs_' + _digest([source,digest])], ota_event_id=_event_id([source]))
+                events.append(event)
+    return events
+
+
+def _attach_forest_portal_periods(events, portal_events):
+    """An exact portal order can enrich an existing NICE charge, never create another."""
+    remaining = []
+    for portal in portal_events:
+        receipts = [event for event in events
+            if event.get('evidence_kind') == 'authenticated_forest_pg_card_receipt'
+            and portal.get('order_number') and event.get('order_number') == portal['order_number']
+            and _event_is_paid(portal) and _event_is_paid(event)
+            and event.get('paid_on') == portal.get('paid_on')
+            and _event_amount(event) == _event_amount(portal)]
+        if not receipts:
+            remaining.append(portal)
+            continue
+        for receipt in receipts:
+            period = receipt.get('service_period')
+            if period and period != portal['service_period']:
+                receipt['service_period_conflict'] = True
+                continue
+            receipt.update(service_period=portal['service_period'],
+                           reservation_status=portal['reservation_status'],
+                           booking_ref=portal['booking_ref'])
+            # Keep payment identity and approval matching unchanged, but bind the
+            # display fact to both original observations.
+            receipt['source_ids'] = sorted(set(receipt.get('source_ids', []) + portal['source_ids']))
+            receipt['source_digests'] = sorted(set(receipt.get('source_digests', []) + portal['source_digests']))
+            receipt['observation_ids'] = sorted(set(receipt.get('observation_ids', []) + portal['observation_ids']))
+            receipt['source_digest'] = _digest(receipt['source_digests'])
+    return events + remaining
+
+
 def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=None):
     grouped = defaultdict(list)
     database_paths = [Path(item).resolve() for item in ota_portal.as_databases(databases)]
@@ -776,6 +841,7 @@ def build_ota_payment_events(sources, *, extraction_outcomes=None):
                                  source_lineage_ids=sources.get("source_lineage_ids"),
                                  extraction_outcomes=extraction_outcomes))
     events.extend(_trip_reservation_events(sources.get("portal_databases")))
+    events = _attach_forest_portal_periods(events, _forest_portal_events(sources.get("portal_databases")))
     events = _merge_proven_duplicate_payments(events)
     # 참고 문서는 진단에만 쓰며 금전 이벤트를 공급하지 않는다.
     events.sort(key=lambda event: event["ota_event_id"])
@@ -1205,6 +1271,11 @@ def provider_compatible(event, row, rules=()):
     known = {provider_for_merchant(value) for value in _merchant_descriptors(row)} - {None, ''}
     if any(value != provider for value in known):
         return False
+    if provider == 'forest' and event.get('evidence_kind') == 'forest_portal':
+        # LINK-002: date/amount alone cannot invent a facility/municipality alias.
+        facility = re.sub(r'\W', '', event.get('hotel_name') or '').casefold()
+        return bool(facility and any(facility == re.sub(r'\W', '', value).casefold()
+                                   for value in _merchant_descriptors(row)))
     if provider in ('asiana', 'skyticket', 'jeju', 'traveloka'):
         return provider in known
     if provider == 'trip':

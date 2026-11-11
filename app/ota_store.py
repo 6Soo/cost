@@ -544,7 +544,7 @@ class OtaStore:
 
     def import_direct(self, *, provider, account_key, source_key, snapshot, facts):
         """공급자별 수집기가 쓰는 공통 진입점. 원문·판단을 보존하고 결제를 만들어내지 않는다."""
-        if provider not in ('agoda', 'trip', 'booking', 'klook') or not account_key or not source_key:
+        if provider not in ('agoda', 'trip', 'booking', 'klook', 'forest') or not account_key or not source_key:
             raise ValueError('OTA_STORE_DIRECT_IDENTITY_REQUIRED')
         for fact in facts:
             if fact.get('provider') != provider or not fact.get('booking_number'):
