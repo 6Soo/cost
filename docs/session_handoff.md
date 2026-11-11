@@ -19,6 +19,15 @@
 - 준비 응답: 기존 5분 표본10회와 이후16회는 모두200. 한도로 15분 관찰 루프가 끊겼고 이를 연속 관찰 완료로 표시하지 않는다. 재개 23:52:28 KST 200/0.221초, 배포15분 이후 23:53:57 KST 200/0.168초를 별도 기록했다. 새 실패·롤백 조건은 없었다.
 - 비공개 근거: `.local-archive/p2-stage2-deploy/{deploy-evidence.json,review.json,prepare-summary.json,simulation-problems.json,stop-verification.json,readyz-resume.jsonl}`. 최근 검증된 전체 백업은 `D:/WebLedgerHost/data/backups/p2-staged-20261111T143601/`, 복원 검증 사본은 같은 시각의 `data/restore-verification/` 하위다. 원본과 사용자 QA 미추적 파일은 보존했다.
 - 다음은 Fable의 중단 보고 후 지시다. 문제 행을 조용히 제외하거나 여행 귀속을 자동 수정하지 않는다. 재개한다면 해당 장부 귀속 충돌의 처리 범위를 정한 뒤 신선 변경 전 값/미리보기/불변 검증을 다시 하고 첫20건부터 시작한다. 기록만을 위한 새 PR·재배포는 하지 않는다. 이 종료 기록의 커밋은 `git log -1 --oneline -- docs/session_handoff.md`로 확인한다.
+## 2026-11-11 수집 스크립트 마무리 — #803 (P2 작업과 별도)
+
+- 2026-11-12 재개: main `68fbe0dd`를 병합한 `92689b71`의 영향 검사는 **250 passed / 1 failed / skip0**, compile·data guard 통과다. 실패는 `tests/test_p2_lock_io_regression.py::test_split_prompts_count_all_assembled_cases_toward_first_fifty`의 `40 != 30`이며, 정확한 기준 main `68fbe0dd`의 독립 추출본에서도 동일 실패를 재현했다(관련 코드·테스트 diff 없음). 전체 QA 통과로 표시하지 않으며 P2 코드·기존 테스트는 변경하지 않았다. 국민50·OTA52 합성 검사를 재실행해 모두 통과했다. 근거는 `.local-archive/collection-resume/`의 `impact-92689b71.{json,log}`, `baseline-split.xml`, `collection-targeted.xml`이다. 이 기록을 포함한 최종 SHA의 별도 sol medium 검수와 병합 결과·병합 SHA는 [PR #803](https://github.com/6Soo/cost/pull/803)에 기록한다. 운영 배포는 없다.
+- Fable의 이번 지시 범위는 E1/E2/E3 수집 코드·절차서·독립 검수·병합이며 운영 배포/고객 자료/로그인/운영 DB 접근은 제외한다. 주 작업 폴더와 wave3 worktree를 변경하지 않았다.
+- E2 구현 커밋 `3c385d44`(기본 보완 `64ee1926`): 기본 Page 연결의 다운로드 대기/저장, 선택자 읽기·소스별 설정, 조회 뒤 관측, 주의사항 창, 실 XLS 파서/화면 건수 대조, 이전 manifest SHA 중복 검사와 `importBoundary=NOT_RUN`을 구현했다. 최종 인계 커밋은 이 절을 포함한 #803 head다.
+- 검증: 국민 Node49·OTA Node52 표적 통과/skip0 후 launcher 합성 회귀 1건 추가 통과(국민 총50). 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`은 구현 `3c385d44`에서 **244 passed / skip0**, compile·data guard 통과. 초기에는 outDir 호환 회귀와 P2의 `40 != 30`이 발생했고, outDir 회귀 수정 뒤 전체 재실행 통과했다. 기준 `57c28ce9`에서도 같은 영향 대상(국민 제외) 243 passed, 해당 P2 단독도 통과했다. P2 실패를 재현 가능한 기존 실패로 단정하지 않는다. 기존 테스트는 변경하지 않았다.
+- E1은 #798 병합 `a050d65f`로 main에 있음. Trip 목록 `online.trip.com` 허용 및 API별 정확 origin/path 검사, 교환·위조 URL 거부 합성 회귀를 확인했다. OTA 제품 코드 추가 수정 없음.
+- 실화면 확인: [국민 6항목](playbooks/card-downloads.md#실제-화면-확인-필요), [OTA 8항목](playbooks/ota-portal-collection.md#실제-화면-확인-필요). [하나·기업 조사 결과·미확인 사항](playbooks/card-login-research-20261111.md)은 기존 보고서 원문 사본이다.
+- 남은 단계: 최종 head의 별도 `gpt-6.1-sol / medium` 이상 검수·PR 댓글 → 승인 시 병합. 실제 국민 화면·로그인·다운로드/DB 행 중복 리허설/가져오기, OTA 실사이트 수집·Booking 상세/변수 템플릿은 이번 완료 범위 밖이다. 운영 서버 호출 경로 변경·배포 없음. 기존 미추적 `.kb1`~`.kb4` 보존.
 
 ## 2026-11-11 P2 일괄 판정 단계 1 — 대상 확정·제안 생성 완료
 
