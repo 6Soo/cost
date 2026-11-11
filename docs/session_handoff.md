@@ -22,6 +22,16 @@
 - 효과 측정 PARTIAL: 06:11:51 KST generation933 게시(496.76초), MATCHED1,060건 전체 동일·신규 정확0/추론0/해제0·NICE 신규/결제일 검증 연결0. 기존148건 고정 대상이 이 worktree에 없으므로 148→사후 수치는 미측정이며 다른 필터의 경고 수를 대입하지 않는다. 신규 근거의 서비스 날짜를 새 결제 연결로 간주하지 않는다.
 - 별도 인증 실화면 대조는 동일1,699행 이용일 표시 변경0·미확인69→69(NICE26·기타23·Agoda11·Booking5·Trip2·Klook1·Skyticket1)이며 원래148건의 분포가 아니다. 보호13표 재확인 PASS·최종 ready8752/8790 200, 담당 브라우저 TaskSpace 종료 완료다.
 - 비공개 근거는 이 worktree의 `.local-archive/ota-portal-20261112/`: 원본·관측 요청·manifest, `import-preview.json`, `raw-money-comparison.json`, `rehearsal-summary.json`, `backup-result.json`, `apply-result.json`, `protection-before.json`/`protection-after.json`, `effect-summary.json`. 완료 문서 커밋·PR과 정확한 재개 지점은 같은 보호 폴더 `checkpoint.md`에 남긴다. 다음 작업은 문서 PR 검수·병합과 페이지 한도/미지원 상품·Booking 수입 경로의 후속 범위 결정, 동일148건 대상 자료를 이 폴더에 전달받아 사후 집계하는 것이다. 다른 에이전트 생성 금지(코드 PR 검수 예외만 허용) 지시에 따라 새 검수 에이전트를 만들지 않았다.
+## 2026-11-12 P2 담당 마무리 코드·배포 완료 — #810 15분 관찰·자료 정리, 빈폴더2곳 잠금 잔여
+
+- [PR #810](https://github.com/6Soo/cost/pull/810) 최종76cb14dea370d568a7dbfa121d682747e11103e8을 독립 `gpt-6.1-sol / medium`이 APPROVE했다(직접80+41건 통과). 병합·운영 SHA는 `0da7e052d861a90b58ee52ee58dc2886e4d0a667`, 이전8644e873이다. CI job130781421054는 결제한도로 steps0 미시작이며 CI 통과로 표시하지 않는다.
+- 공식배포1회: 파일1665·blob불일치0, Board/Worker SHA일치·route8752/unpaused, health/ready200·보호API401, 보호13표 불변. ready 31표본 모두200, 직후/5분/15분 0.051/0.015/0.006초, 최대1.199초. 롤백0·추가금융반영0·Google0·P2/full=false 유지. 신선전체DB백업은 코드배포에 불필요하여 새로 만들지 않았고 기존 검증백업을 보존했다.
+- 코드검사3b0bfe80에서 영향512passed·44subtests/skip0·compile/data guard PASS, 표적65·카드화면31건도 통과했다. 최종검수SHA까지 후속 변경은 검사기록 문서1줄이다. ego-browser 실제폰트 포함390/1440 합성 화면의 `AI 판정` 출처·상세펼침·가로넘침0 확인. 운영 로그인 시각검사·실기기 검사는 미실행이며 배포파일SHA와 합성 렌더 검증으로 구분한다. 기존 테스트 기대값을 완화하지 않았다.
+- 최종수치: 1층367건·P1규칙211개 등록 완료. 2층148건 중 근거75건/37묶음/10호출, 이용기간채움0·가드폐기34·항목제안21건 미반영. 무근거73의 실제분포 NICE57·색인부재15·Agoda불일치1로 이전57+17 보고를 정정했다. 이번 마무리에는 추가모델판정·기간저장 구현을 하지 않았다.
+- [분기 검수 목록](agents/artifacts/p2-open-quarter-attribution-review-20261112.md): 귀속불일치109건 여행별분포, 경계이후 카드일의 닫힌여행12건, 과거매입685건. 자동교정 없음. 다음 작업은 사용자 로그인 후 OTA포털 예약상세 수집과 P1 정확연결 우선처리다. 이 후속수집은 이번 담당범위 밖이다.
+- 정리: 임시파일2443개(317,027,204bytes)와 C:/Temp 작업스크립트10개 삭제, 결과43개는 집계·원파일해시만 유지. 삭제대상은 131MB `evidence-index.sqlite`, 사건/프롬프트/모델응답, 변경전행사본, 원문blob·이전검증체크아웃·임시실행파일이며 원자료를 추가로 공개하지 않았다. 남긴 것은 `.local-archive/p2-final-20261112/`의 검수/검사/화면/배포/ready/정리목록과 기존집계·해시, 사용자QA다. 14:36 검증전체백업과 복원검증본은7일 보존 규칙에 따라 유지한다.
+- exaone 두workspace와 기준선workspace를 공식archive하고, 지정두부품·빈case·일괄브랜치와 기준선 로컬브랜치5개 및 실제존재한원격3개를 삭제했다. 다른담당범위/미커밋자료가있는작업폴더는보존했다. C:/AX/cost는최신main, 추적파일깨끗함·기존사용자미추적QA3파일과review-size-attempt4.md보존이다.
+- 비공개최종근거 `.local-archive/p2-final-20261112/`의 `independent-review.json`, `quality/run-summary.json`, `browser-assets-result.json`, `deploy-evidence.json`, `monitor-result.json`, `cleanup-result.json`, `cleanup-verification.json`, `cleanup-plan.json`. 완료코드는0da7e052, 이 종료 기록은 main의 로컬 문서 커밋으로 남기며 추가 PR·푸시·재배포는 하지 않는다. 기능·배포의 남은 검사 없음. 공식 archive 뒤 파일과 Git 등록은 제거됐지만 exaone 빈 디렉터리 2곳이 Windows 프로세스 잠금으로 남아 있으며, 관리 터미널은 0개다. 내가 시작하지 않은 프로세스를 종료하지 않아 이 잔여물만 보존했다. 아래이전진행절은이력이다.
 
 ## 2026-11-12 P2 담당 마무리 진행 — 최종 검수·배포·정리 전
 
@@ -54,6 +64,7 @@
 - 2층 대상은 열린 분기 후보 833건(금액 상위 10 + 결정적 무작위 10)으로 고정했다. 14:36 백업의 OTA 근거 10,013건을 한 번 스트리밍 해제해 발췌 색인(SQLite 131,461,120 bytes, 118,837,496 bytes 읽기, 16.78초)을 만들었다.
 - `gpt-6.1-sol` 실제 도구 없는 호출 20건이 모두 JSON 스키마 응답으로 완료됐다. 결과는 미리보기 파일에만 저장했고 반영·운영 쓰기·Google 쓰기·배포는 0건이다. 20건 중 항목 변경 20건, 근거 미검출 8건, 허용 항목명과 다른 출력 13건을 관찰했다. 허용 항목명 정규화와 근거 없는 고확신 출력이 오판 위험 유형이다.
 - 결과(해당 세션의 비공개 보존 경로): `.local-archive/p2-layer2-20261112/`의 `layer2-summary.json`, `layer2-table.md`, `a-final.json`. 운영 등록은 하지 않는다.
+- 결과: [layer2-summary.json](../.local-archive/p2-layer2-20261112/layer2-summary.json), layer2-table.md(마무리 정리에서 삭제; 해시는 cleanup-plan.json에 보존), a-final.json(마무리 정리에서 삭제; 해시는 cleanup-plan.json에 보존). 운영 등록은 하지 않는다.
 ## 2026-11-12 P1 규칙 승격 사본 검증 STOP — 운영 반영 없음
 
 - 중단된 후속 작업을 재개해 `tools/p2_rules/rehearsal.py`를 수정했다. 기존 활성 규칙과 211개 신규 규칙을 각각 명시적으로 주입해 역사적 재분류와 신규 규칙 영향을 분리했다.

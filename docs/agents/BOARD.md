@@ -12,6 +12,15 @@
 - 담당 브랜치 `ops/ota-portal-collection-20261112`, 시작0da7e052. 세 포털 로그인 예약 목록 확인 COMPLETE, 페이지/상품 범위 제한으로 전체 수집 PARTIAL. Agoda 상세894(대상498)·미확인6, Trip 호텔상세100·실패0, Booking 지난/취소 목록각50·여행 화면12다. 로그인 조작·예약 변경·Google·AI 판정·코드 수정·배포0.
 - 운영 대조598: 중복565·충돌10 제외, 신규Agoda20·Trip3만 공식 수입 도구로 추가 COMPLETE. 분리 리허설·대상DB 신선 백업/별도 복원·기존 원천 값과 보호13표 불변·삭제/덮어쓰기0·ready8752/8790 200. generation933 게시 후 MATCHED1,060건 전체 동일, 신규 정확/추론/해제0·NICE 신규0이다.
 - 보호 경로: **이 작업 폴더의 `.local-archive/ota-portal-20261112/`**. 고객 원본·요청 템플릿·원문 파일 목록을 Git/PR에 올리지 않는다. [절차서](../playbooks/ota-portal-collection.md)의 실제 관측8항목을 갱신했다. 148건 고정 대상 부재로 사후 건수는 미측정이며 별도 실화면69→69를 대입하지 않는다. 담당 TaskSpace 종료·보호13표 재확인 PASS. 문서 PR의 독립 검수·병합은 새 에이전트 생성 금지(코드 PR 예외) 지시에 따라 Fable에 인계한다. 최종 커밋/PR은 보호 폴더 `checkpoint.md`에 기록한다.
+## 2026-11-12 P2 담당 마무리 코드·배포 완료 — #810 15분 관찰·자료 정리, 빈폴더2곳 잠금 잔여
+
+- #810 최종76cb14de 독립sol/medium APPROVE(직접80+41pass), 병합·운영0da7e052 공식배포 완료. 영향512pass/44subtests/skip0·compile/data guardPASS. ready31회200·직후/5/15분0.051/0.015/0.006초·보호13표불변·P2/full=false.
+- 1층367건·규칙211개완료, 2층75/148건·기간채움0·폐기34·항목제안21미반영. 무근거73의57+17오류를NICE57+색인부재15+Agoda불일치1로정정.
+- 분기검수109건여행별분포·경계이후닫힌여행12건·과거매입685건은 [목록](artifacts/p2-open-quarter-attribution-review-20261112.md)에보존. 다음은OTA포털예약상세수집(사용자로그인필요)·P1정확연결우선.
+- 삭제: `.local-archive/p2-{batch,offline,layer2,stage2-deploy,staged-resume,import-fix}*`의근거색인·사건·프롬프트·응답원문·변경전사본·원문blob·이전검증체크아웃과root임시파일 2443개, C:/Temp스크립트10개. 목록/원파일해시는 `.local-archive/p2-final-20261112/cleanup-plan.json`·`cleanup-result.json`.
+- 보존: 집계43파일·검사/검수/화면/배포/ready근거·사용자QA·14:36검증백업/복원본(7일보존). 지정workspace3곳공식archive·로컬5/원격3브랜치삭제. main복귀·추적변경없음, 사용자미추적4파일유지. 다른담당범위/사용자변경폴더보존.
+- 종료기록정본은 [현재 상태](../session_handoff.md) 맨위. 기능·배포 검사 완료. 공식 archive 후 Windows 잠금으로 빈 폴더2곳이 남았다(파일·Git등록 없음, 관리터미널0).아래이전진행절은이력.
+
 
 ## 2026-11-12 P2 담당 마무리 진행 — 최종 검수·배포·정리 전
 

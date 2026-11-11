@@ -15,6 +15,13 @@
 - 가져오기 전후 보호13표 지문(카드 원문이 든 transactions·수동 교정 관련 표 포함) 불변 PASS. backup 전후와 apply 후 backend8752·Gateway8790 ready 모두200이며 apply 직후0.004/0.007초다. 새 Agoda 근거는 결제 예정19·결제 상태 미확인 취소1건으로, 기간 존재를 실제 결제 연결로 간주하지 않는다.
 - 재계산 06:03:34~06:11:51 KST, 496.76초·generation932→933 게시를 확인했다. 자동/그룹/수동 MATCHED 결과1,060건 전체와 수동 연결이 동일하며 신규 정확0·추론0·해제0, NICE 신규 연결/결제일 검증 연결0이다. NOT_CARD_CHARGE만3건 증가했다. 기존148건 고정 대상 ID는 이 작업 폴더에 없으므로 **148→사후 건수는 미측정**이며 다른 조건의 경고 수를 대입하지 않는다. 절차의 실제 관측값과 범위 제한은 [포털 절차서](playbooks/ota-portal-collection.md)에 기록했다.
 - 별도 인증 GET 실화면 대조는 같은1,699개 행에서 이용일 표시 변경0, 미확인69→69다. 그69건은 NICE26·기타23·Agoda11·Booking5·Trip2·Klook1·Skyticket1이다. 원래148건이나 NICE57건의 분포로 대체하지 않는다. 새 snapshot 게시 후에도 보호13표 불변 PASS, ready8752/8790 200(0.042/0.005초), 담당 TaskSpace 종료 완료다. 문서만 변경했으므로 코드 테스트·재배포는 하지 않는다. 독립 검수·병합은 Fable에 인계한다.
+## 2026-11-12 #810 P2 오프라인도구·AI출처 표시 공식배포 완료
+
+- 최종76cb14de 독립gpt-6.1-sol/medium APPROVE(직접80+41pass) 뒤 병합·운영0da7e052d861a90b58ee52ee58dc2886e4d0a667, 이전8644e873. 공식도구1회·파일1665/blob불일치0·Board/Worker일치·8752/unpaused·health/ready200·보호API401·보호13표불변. P2/full=false, 추가데이터반영/Google/롤백0.
+- ready관찰31표본모두200, 직후/5/15분0.051/0.015/0.006초·최대1.199초. 배포전후같은레포Fable세션알림. 신선전체백업은코드배포라미실행, 기존검증백업과복원본보존.
+- 영향512pass/44subtests/skip0·compile/data guardPASS, 390/1440합성AI판정출처/상세펼침/넘침0. CI job130781421054결제한도step0미시작은통과가아니다. 운영로그인시각검사/실기기검사미실행.
+- 근거 `.local-archive/p2-final-20261112/`의review/deploy-evidence/monitor-result/cleanup-verification. 민감임시파일삭제·집계/해시보존목록과후속OTA수집은 [현재 상태](session_handoff.md) 맨위. 이종료문서변경은재배포하지않는다.
+
 
 ## 2026-11-12 #809·wave3 단일 배포와 P2 367건 반영 완료
 
