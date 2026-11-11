@@ -1,5 +1,13 @@
 # 현재 상태
 
+## 2026-11-12 P2 서버 진입점 수정 — wave3 통합·검증 진행
+
+- 현재 지시는 Fable의 ImportError 수정→릴리스 HTTP 검사→wave3 포함 단일배포→367건 반영→P1 등록 없이 보고다. 이전 추가배포 금지는 이 후속 승인으로 대체됐다. #799는 `e5e7bb5f551db5ce69365c2bc10899f12863d416`로 병합됐고 이 main을 통합했다.
+- 실제 운영 릴리스에는 `app/classification_correction.py`가 존재하며 `webapp/classification_correction.py`는 없다. 운영 로그가 잘못된 상대 import를 확인한다. launcher는 checkout을 sys.path 앞에 삽입하며 같은 운영 venv의 격리 probe에서도 app 모듈 경로/잘못된 webapp 모듈 부재를 확인했다(실행 중 프로세스 내부를 직접 조회한 것은 아님).
+- 서버 진입점을 `from app import classification_correction`으로 수정했다. 새 HTTP 검사가 추가로 드러낸 trip_tabs tuple 인덱싱도 cursor.description을 사용해 고쳤다. 연결 row_factory와 금융/수동/열린 분기 보호는 바꾸지 않았다. 서버가 tools를 import하지 않는다.
+- 새 `webapp/tests/test_p2_release_http.py`는 기존 git archive 절차로 HEAD를 임시 릴리스에 풀고 별도 `python -I`에서 애플리케이션 sys.path를 그 릴리스로 한정한다. 실제 서버의 비운영 임의 포트에서 owner 인증/CSRF 거부, preview200·무변경, apply200·장부/화면/감사, 재전송 무변경을 확인한다. wave3 통합 전/후 각각1 passed다. 기존 검사가 놓친 이유는 app 서비스를 직접 호출해 HTTP handler의 lazy import와 LedgerStore의 tuple 연결을 실행하지 않았기 때문이다.
+- 현재 영향 검사는 코드 `2e224894`에서 실행 중이다. 실패는 기준 main과 대조하며 전체 통과로 표시하지 않는다. 최종 검수·새 PR·공식배포·직후/5분/15분 ready·367건 신선 사본검사/반영은 아직 남았다. 비공개 재개점 `.local-archive/p2-import-fix-20261112/checkpoint.md`, 기존 고객 복구 파일과 QA 미추적 파일은 보존한다.
+
 ## 2026-11-12 wave3 #799 — 최신 main 통합 재검증 완료 (이 worktree 전용)
 
 - **후속 #803 통합:** main `0281e90fa1e536b3a1d715c1a65033065121bec0`을 추가 통합했다. 변경은 국민 수집 전용 tools/tests, 영향 매핑과 문서이며 기존 app/webapp·UI·CSS·JS·159파일 테스트·quality 실행기는 동일하다. 위 159파일 검사·같은 main 실패 대조·합성 화면 근거를 재사용하고 `7188e202` 이후 변경 영향만 추가 검사한다. 추가 검사 결과와 이 통합의 최종 SHA 검수는 PR 최종 댓글을 정본으로 한다. 두 번째 문서 충돌도 양쪽 기록을 보존했다.

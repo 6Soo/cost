@@ -1,5 +1,10 @@
 # 작업판
 
+## 2026-11-12 P2 ImportError 수정·wave3 단일 배포 진행
+
+- 최신 Fable 승인: 서버 app import/tuple 조회 수정, 임시 릴리스 실제 HTTP 검사, wave3 e5e7bb5f 통합, 독립 sol medium→병합→공식 단일배포→ready 직후/5/15분→367건 반영→P1 등록 없이 종료. 이전 배포 금지·반영 차단은 후속 지시로 재개됐다.
+- 새 릴리스 HTTP 검사는 owner/CSRF·미리보기/반영/재전송·장부/화면/감사를 검증하며 wave3 통합 후1pass다. 기존 단위 검사는 handler lazy import와 tuple 연결을 통과하지 않아 놓쳤다. 영향검사/기준 실패 대조 진행 중. 운영은 아직68fbe0dd/P2off·반영0이며 상세 재개점은 [현재 상태](../session_handoff.md) 맨 위다.
+
 ## 2026-11-12 P2 후속 — 귀속 충돌 제외 COMPLETE / 반영 BLOCKED
 
 - 도구 [#808](https://github.com/6Soo/cost/pull/808) 병합befe868a. 최종d60e4b20 독립sol/medium APPROVE, 표적24·영향52/skip0·compile/data guard PASS. CI 결제한도 미시작(step0) 예외 근거는 PR 댓글. 추가 운영배포 없음.
