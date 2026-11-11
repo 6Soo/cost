@@ -1,5 +1,14 @@
 # 현재 상태
 
+## 2026-11-12 P2 단계 2 — 귀속 불일치 제외 완료 / 서버 미리보기 API 오류로 반영 차단
+
+- Fable 후속 지시로 사본 불변 실패 1건을 제외했다. 열린 분기 전체 2,852건에서 거래와 장부의 `trip_id` 또는 `display_tab_id` 불일치는 109건이다. 선정 단계와 미리보기에서 항상 제외하며, 이번 368후보 중 해당하는 건은 1건이다. 분기 검수 목록은 비공개 `run367/quarterly-review.json`에 해시만 보존한다.
+- 나머지 367건(기록227·미기록140)을 신선 읽기 전용 조회(0.502초)로 준비했다. 사본20·50×6·47건 적용/재전송/파일복원 전부 통과, 불변 실패0·복원367일치다. 기존 중단 근거는 덮어쓰지 않았다.
+- **BLOCKED:** 첫20건의 운영 `/api/p2-batch/corrections/preview`가 HTTP502를 반환한다. 운영 `68fbe0dd`의 `webapp/ledger_board.py:4720`이 `from . import classification_correction`에서 ImportError를 낸 것이 운영 로그로 확인됐다. 실제 모듈은 `app/classification_correction.py`다. 서버 변경·추가배포 금지 지시로 서버 코드는 수정하지 않았다. apply API는 미호출이며 운영 반영0·되돌리기0·Google0·P1등록0·2층0이다. 바뀐 거래가 없어 화면3건 확인도 미실행이다.
+- API 실패 뒤 후보367건 전체 변경 전 값 일치, 비대상 거래/장부/화면 지문 및 보호13표 구성의 불변 조건 통과(그중 변경 허용3표도 이번에는 불변). 2026-11-12 00:05:27 KST `/readyz` 200/0.110초. 배포SHA68fbe0dd·P2 off는 직전 확인 근거이며 이번에 예약 작업을 다시 조회하지 않았다.
+- 도구·표적 검사 및 최종 검수/PR 근거는 후속 기록에 남긴다. 비공개 근거 `.local-archive/p2-stage2-deploy/run367/{prepare-summary.json,target-before.json,scope-summary.json,quarterly-review.json,verify-batch--1.json,api-stop.json}`. 고객 원문·기존 QA 미추적 파일은 보존한다.
+- 다음 서버 변경 때 수정할 항목 두 가지: P2 API의 잘못된 import, 항목만 바꾸는 요청에서 장부 여행 귀속까지 동기화하는 동작. 반영 재개에는 이 API 오류를 해결하는 별도 서버 변경·배포 지시가 필요하다. 이후 신선 값/미리보기/사본검증을 다시 하고 첫20건부터 시작한다. 최종 항목 전환은 없음(운영0건)이다.
+
 ## 2026-11-11 P2 단계 2 — #807 배포 완료, 사본 불변 검증으로 반영 전 중단
 
 - 현재 승인 범위는 Fable의 단계 2 후속 지시다. #807은 최종 `0de29030902e7923ca345a224e9b45bbfb425b79`의 독립 `gpt-6.1-sol / high` APPROVE 후 `68fbe0ddb3543f96bfe5a7d1fc74ea737465b1a8`로 병합·공식 배포됐다. 이전 운영은 `8b116b98`다. 기존 표적 검사 44 passed/skip0·compile PASS 근거를 재사용했으며 이번 재개에서 코드·테스트는 바꾸지 않았다.

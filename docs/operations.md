@@ -1,5 +1,10 @@
 # 운영 기록
 
+## 2026-11-12 P2 반영 시도 — 미리보기 API 502, 쓰기 전 중단
+
+- 기존68fbe0dd를 유지했고 추가배포는 없다. 귀속 불일치1건 제외 후367건의 사본 불변/복원 검증은 통과했다. 첫20건의 서버preview는502였고, 운영 로그의ledger_board.py:4720에서 webapp.classification_correction ImportError를 확인했다. apply API 미호출, 운영반영·되돌리기·Google0이다.
+- 신선 후보367건/비대상3표/보호13표 구성 불변 확인. 2026-11-12 00:05:27 KST 외부 `/readyz` 200/0.110초. 실패는반영 API 진입점이며 readyz 장애와 구분한다. 서버 수정·배포 지시 전 반영은 차단이다. 근거는 `.local-archive/p2-stage2-deploy/run367/`, 자세한 재개 조건은 [현재 상태](session_handoff.md)다.
+
 ## 2026-11-11 P2 #807 배포와 반영 전 안전 중단
 
 - 공식 검증 배포: `68fbe0ddb3543f96bfe5a7d1fc74ea737465b1a8`, 이전 `8b116b98ccbacdc49c702e370031be2da45f5ef9`. 독립 sol/high 최종0de29030 APPROVE 후 병합했다. 배포 근거는 `.local-archive/p2-stage2-deploy/deploy-evidence.json`이다. 23:38:03 KST 파일1577·blob불일치0·runtime/listener 일치·backend8752·health/ready200·비인증API401·보호13표 불변이다. 공식 도구의fresh_backup_restore=false는 이번 백업 옵션 미사용이며 후보별 변경 전 값 복구 검증과 별개다.

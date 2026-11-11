@@ -9,6 +9,7 @@ import sqlite3
 import hashlib
 
 from app import classification_correction
+from .scope import projection_disagreements
 
 
 def _immutable_digest(target):
@@ -46,6 +47,10 @@ def run(db, archive):
     before = json.loads((root / 'before-state.json').read_text(encoding='utf-8'))
     conn = sqlite3.connect(Path(db).resolve().as_uri() + '?mode=ro', uri=True)
     conn.row_factory = sqlite3.Row
+    disagreements = projection_disagreements({
+        'transactions': [dict(r) for r in conn.execute('SELECT transaction_id,trip_id,display_tab_id FROM transactions')],
+        'ledger_entries': [dict(r) for r in conn.execute('SELECT transaction_id,trip_id,display_tab_id FROM ledger_entries')],
+    })
     trips = []
     for row in conn.execute('SELECT * FROM trip_tabs'):
         trip = dict(row); trip['trip_id'] = trip['tab_id']; trips.append(trip)
@@ -61,6 +66,8 @@ def run(db, archive):
                               item=proposal['item'], basis=proposal['basis'],
                               classification_source='ai_inference', execution=proposal['execution'])
             try:
+                if old['transaction_id'] in disagreements:
+                    raise ValueError('PROJECTION_ATTRIBUTION_DISAGREEMENT')
                 preview = classification_correction.preview(conn, [correction], trips)
             except ValueError as exc:
                 reason = str(exc); reasons[reason] += 1
