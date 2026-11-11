@@ -335,9 +335,14 @@ class Repository:
         self._check = lambda: None
         self.read_bytes = 0
         self._stamps = {}
+        self._registry_stamp = None
 
     def begin_snapshot(self, check=None, *, new_round=True):
         """Start a request-local view; call again (new_round=False) before freshness validation."""
+        registry = _stamp([self.sources['manifest_path']]) if self.sources.get('manifest_path') else ()
+        if not new_round and self._registry_stamp != registry:
+            raise ValueError('AI_EVIDENCE_STALE')
+        self._registry_stamp = registry
         self._snapshot = {}
         self._stamps = {}
         self._check = check or (lambda: None)
@@ -353,6 +358,8 @@ class Repository:
         """Metadata-only commit guard; source content is rebuilt outside locks."""
         from . import ota_sources, ota_portal
         paths = ota_sources.mail_stamps_paths(self.sources.get('mail_directories', []))
+        if self.sources.get('manifest_path'):
+            paths.append(self.sources['manifest_path'])
         for path in ota_portal.as_databases(self.sources.get('portal_databases')):
             paths.extend([path, Path(str(path) + '-wal')])
         return _stamp(paths)

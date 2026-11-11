@@ -444,3 +444,30 @@ def test_numeric_merchant_term_uses_exact_numeric_index(monkeypatch):
     monkeypatch.setattr(index, 'matching', term)
     row = dict(merchant='AUTONOMY 1234', amount_krw='10000', approval_date='2026-10-03')
     assert index.candidates(row) == [i for i, text in enumerate(texts) if p2_case.relevant(row, text)]
+
+
+def test_unicode_record_limit_counts_utf8_bytes(monkeypatch):
+    import pytest
+    from app import p2_source_io
+    monkeypatch.setattr(p2_source_io, 'MAX_RECORD_BYTES', 1024)
+    with p2_source_io.guarded(lambda: None, lambda *a, **kw: None):
+        with pytest.raises(ValueError, match='P2_SOURCE_RECORD_TOO_LARGE'):
+            p2_source_io.record('한' * 400)
+
+
+def test_registry_changed_after_provider_refuses_old_registered_sources(setup, tmp_path):
+    from app import p2_case
+    from tests.test_p2_worker_boundaries import rich_response
+    from webapp.autonomous_cleanup_worker import load_job
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    ids = make_weak_rows(setup, batch, rows, trip)
+    registry = tmp_path / 'sources.json'
+    registry.write_text('{"mail_directories": []}', encoding='utf-8')
+    repo = p2_case.Repository(setup.conn, {'manifest_path': registry})
+    def provider(request):
+        registry.write_text('{"mail_directories": ["new-source"]}', encoding='utf-8')
+        return rich_response(request)
+    AutonomousCleanupWorker(setup, setup._lock, provider=provider, evidence_repository=repo).sweep_once()
+    assert load_job(setup.conn, ids[0])['reason'] == 'apply_AI_EVIDENCE_STALE'
+    assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 0

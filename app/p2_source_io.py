@@ -116,7 +116,7 @@ def read_text(path):
 
 def record(value):
     checkpoint()
-    if _GUARD.get() and len(value) > MAX_RECORD_BYTES:
+    if _GUARD.get() and len(value.encode('utf-8') if isinstance(value, str) else value) > MAX_RECORD_BYTES:
         raise ValueError('P2_SOURCE_RECORD_TOO_LARGE')
     return value
 
