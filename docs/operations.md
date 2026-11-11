@@ -1,5 +1,12 @@
 # 운영 기록
 
+## 2026-11-11 P2 #807 배포와 반영 전 안전 중단
+
+- 공식 검증 배포: `68fbe0ddb3543f96bfe5a7d1fc74ea737465b1a8`, 이전 `8b116b98ccbacdc49c702e370031be2da45f5ef9`. 독립 sol/high 최종0de29030 APPROVE 후 병합했다. 배포 근거는 `.local-archive/p2-stage2-deploy/deploy-evidence.json`이다. 23:38:03 KST 파일1577·blob불일치0·runtime/listener 일치·backend8752·health/ready200·비인증API401·보호13표 불변이다. 공식 도구의fresh_backup_restore=false는 이번 백업 옵션 미사용이며 후보별 변경 전 값 복구 검증과 별개다.
+- 5분 준비 응답10회 모두200. 이후16회도200이나 한도로 관찰 루프가 끊겼다. 재개23:52:28 200/0.221초, 배포15분 이후23:53:57 200/0.168초를 별도 측정했으며 끊긴 구간을 연속 관찰 성공으로 보완하지 않는다.
+- 후보368건 변경 전 세 행 전체를 파일 보존하고 메모리 사본에서 적용·재전송·파일 복원을 검증했다. 368건 복원 일치, 사본1건에서 장부귀속 두 열의 변경을 발견해 운영 반영 전에 중단했다. 실제 반영0·실제 되돌리기0·Google0. 준비시점 대비 대상368건/관련14표 불변이다.
+- Board·Worker68fbe0dd·route8752/unpaused·P2/full=false 유지. 최근 검증된 전체 백업14:36과 후보별 복구 파일을 보존했다. 중단 원인·다음 조건은 [현재 상태](session_handoff.md) 맨 위다. 후속 배포의PreviousSha는 실행 전 실제 운영과 다시 대조한다.
+
 ## 2026-11-11 #805 재개 결과 — 5건 시범 중단, P2 off 유지
 
 - **COMPLETE(수정·배포):** 전체 원문 충돌/base64 보존·포털 중첩 판정 필드 projection을 최종 `aee08a8b`의 별도 `gpt-6.1-sol / medium` APPROVE 후 #805로 병합했다. 운영 완료 커밋은 `8b116b98ccbacdc49c702e370031be2da45f5ef9`다. 공식 배포 도구 exit0, 릴리스1570파일/blob불일치0, Board·Worker·listener SHA 일치/backend8751, health/ready200·비인증API401·보호13표 불변이다. 사전 SQLite API 신선백업5DB와 별도복원 quick_check/schema/행수 검증 PASS(공식 도구의 BackupProducts 스위치는 별도 미사용).
