@@ -34,10 +34,14 @@ def test_trip_header_and_management_disclose_secondary_actions(tmp_path):
                 row.locator('.trip-meta > summary').click()
                 assert row.locator('.trip-close-form button').is_visible()
                 assert row.locator('.trip-close-form input[name=visual_closed]').input_value() == '1'
-                closed_trips = site_shell.wrap_document(
-                    ledger_board.trips_page(role='owner', state='closed'), '/trips')
+                with patch.object(ledger_board, '_STORE', store):
+                    closed_trips = site_shell.wrap_document(
+                        ledger_board.trips_page(role='owner', state='closed'), '/trips')
                 page.route('https://ui.test/**', lambda route: route.fulfill(content_type='text/html', body=closed_trips))
                 page.goto('https://ui.test/trips?state=closed')
+                assert page.locator('#trip-management-filter input[name=state]').input_value() == 'closed'
+                assert page.locator('nav[aria-label="여행 상태"] a[aria-current=page]').get_attribute('href') == '/trips?state=closed'
+                assert page.locator('#manage-trip-demo-a').count() == 0
             finally:
                 browser.close()
     finally:
@@ -108,6 +112,7 @@ def test_receipt_empty_stages_disappear_without_hiding_copy_selection():
             assert page.locator('#step-review').is_visible()
             assert page.locator('#copy-trip').is_visible()
             page.locator('#copy-trip').select_option('trip-syn')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             assert page.locator('#copy-tsv').is_enabled()
         finally:
             browser.close()

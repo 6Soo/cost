@@ -2021,7 +2021,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{tabs}"
         f"{_source_preview_html(trip)}"
         "<p class='meta' id='global-state' data-role='"
-        f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}>"
+        f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
         "<span id='unsaved-count' hidden></span></p>"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"

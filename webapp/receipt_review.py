@@ -28,7 +28,7 @@ from app import local_receipt_ocr
 from app import opencode_receipt_vision
 from app.google_tsv import expense_tsv
 from app import receipt_learning
-from . import receipt_vision_jobs, ui_icons
+from . import receipt_vision_jobs, ui_icons, site_assets
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
           "/api/receipts/drafts",
@@ -1380,7 +1380,7 @@ LEARNING_SCRIPT = r"""const renderNotes=async()=>{const list=document.getElement
 if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 """
 
-PAGE_CSS = r"""*{box-sizing:border-box}
+PAGE_CSS = site_assets.TOKENS_STYLE + r"""*{box-sizing:border-box}
 :root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-bg);--focus:var(--c-focus);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--grn-dk:var(--c-accent-solid-hover);--grn-lt:var(--c-accent-subtle);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
 
 body{font-family:"Pretendard Variable",system-ui,sans-serif;letter-spacing:normal;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
@@ -1388,6 +1388,7 @@ h1{font-size:var(--t-h1);margin:6px 0 10px}h2{font-size:var(--t-body);margin:0 0
 section,details{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);padding:14px;margin:12px 0;min-width:0}
 details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
 details>summary{list-style:none}
+details>summary{padding-inline-end:var(--s-2)}
 details>summary::-webkit-details-marker{display:none}
 details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}
 details[open]>summary::after{transform:rotate(225deg)}

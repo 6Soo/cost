@@ -1057,6 +1057,7 @@ def _default_db_path():
 
 def _error_page(message: str) -> str:
     body = (CARD_ALL_STYLE + "<div class='card-all-page'>"
+            + _transaction_header() + _transaction_tabs('cards') +
             "<section class='card-all-detail card-all-empty' role='alert'>"
             "<h2>카드를 불러오지 못했습니다.</h2>"
             f"<p>{_esc(message)}</p>"
@@ -1065,7 +1066,7 @@ def _error_page(message: str) -> str:
     fragment = _design.shell("카드 내역", tab_id="", heading="카드 내역",
             meta="저장된 카드 거래를 연도와 월로 확인합니다.",
                              body=body, home=True)
-    return _design.render(fragment, title="카드 내역")
+    return _design.render(_strip_legacy_shell_header(fragment), title="카드 내역")
 
 
 def _strip_legacy_shell_header(fragment: str) -> str:

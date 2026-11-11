@@ -94,6 +94,27 @@ def test_mobile_history_keeps_compact_table_and_contained_scrolling(card_db_path
             original = 'http://cost.test/cards/all?year=2026&month=3'
             pending = []
             page.route('http://cost.test/api/cards/transactions/detail*', lambda route: pending.append(route))
+            # Preserve real narrow-screen detail behavior after replacing the table
+            # with mobile list rows. Desktop cell coverage follows below.
+            for mobile_width in (320, 390):
+                page.set_viewport_size({'width': mobile_width, 'height': 844})
+                page.goto(original)
+                mobile_row = page.locator(".card-all-mobile-list li[data-detail-id='TX-B-01']")
+                mobile_toggle = mobile_row.locator('.lr-hit')
+                mobile_detail = mobile_row.locator('.card-all-mobile-expanded')
+                mobile_toggle.click()
+                from playwright.sync_api import expect
+                expect(mobile_detail.locator('[role=status]')).to_be_visible()
+                assert mobile_detail.locator('.card-all-expanded-content').get_attribute('aria-busy') == 'true'
+                from webapp import card_transactions as ct
+                detail_data = ct.transaction_detail('TX-B-01', card_db_path)
+                pending.pop().fulfill(json={'html': cards_all.card_detail_html(detail_data)})
+                expect(mobile_detail).to_contain_text('AGODA')
+                expect(mobile_detail.locator('.card-all-spinner')).to_have_count(0)
+                assert page.url == original
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                mobile_toggle.click()
+                expect(mobile_detail).to_be_hidden()
             # All ordinary cells expand in place, including source-only transactions.
             for cell in ('td.use-datetime', 'td.amount-cell', 'td.trip'):
                 page.goto(original)

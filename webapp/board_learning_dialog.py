@@ -6,6 +6,7 @@ and learning case HTML forms from the ledger board request handler.
 from __future__ import annotations
 
 import html
+from urllib.parse import urlencode
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
@@ -271,7 +272,7 @@ def rule_dialog_page(
             + "<button class='btn' type='submit'>대화 닫기</button></form>")
     body = (f"<div class='sect'>{''.join(parts)}"
             f"<p><a href='/row?id={row_id}'>내용으로 돌아가기</a> · "
-            "<a href='/board'>목록으로</a></p></div>")
+            f"<a href='/board?{esc(urlencode({'tab': row.get('display_tab_id') or 'unclassified'}))}'>목록으로</a></p></div>")
     return ledger_design.render(ledger_design.shell(
         '규칙 대화', tab_id=row.get('display_tab_id') or '',
         heading='규칙 대화', body=body))

@@ -50,12 +50,15 @@ def test_shared_sidebar_does_not_render_refund_section():
 
 
 def test_viewer_sees_only_allowed_active_trips_without_history_drawer():
-    trips = [trip("allowed-old", "2026-06-25"), trip("secret-old", "2026-06-24")]
-    html = render(trips, selected="allowed-old", role="viewer", allowed=("allowed-old",))
+    trips = [trip("allowed-active", "2027-06-25"), trip("secret-active", "2027-06-24"),
+             trip("allowed-old", "2026-06-25"), trip("secret-old", "2026-06-24")]
+    html = render(trips, selected="allowed-active", role="viewer", allowed=("allowed-active", "allowed-old"))
     assert '<details' not in html
     assert 'secret-old' not in html
     assert 'allowed-old' not in html
-    assert 'aria-current="page"' not in html
+    assert 'tab=allowed-active' in html
+    assert 'secret-active' not in html
+    assert "aria-current='page'" in html
     html = render(trips, query="allowed-old")
     assert '<details' not in html
     assert 'tab=secret-old' not in html

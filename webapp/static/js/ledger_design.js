@@ -82,7 +82,24 @@
     if(grouping)return;
     grouping=true;
     try{
-    var table=document.getElementById('tbl'),toggle=document.querySelector('[data-group-expenses]');if(!table||!toggle)return;
+    var toggle=document.querySelector('[data-group-expenses]');if(!toggle)return;
+    document.querySelectorAll('.lst').forEach(function(list){
+      list.querySelectorAll('.expense-category-group').forEach(function(head){head.remove();});
+      var mobileRows=Array.from(list.querySelectorAll(':scope > li[data-kind=expense]'));
+      mobileRows.forEach(function(row,index){if(row.dataset.ledgerOrder===undefined)row.dataset.ledgerOrder=String(index);});
+      mobileRows.sort(function(a,b){return Number(a.dataset.ledgerOrder)-Number(b.dataset.ledgerOrder);});
+      if(!toggle.checked){mobileRows.forEach(function(row){list.appendChild(row);});return;}
+      var mobileGroups=new Map();
+      mobileRows.forEach(function(row){var key=row.dataset.category||'기타';if(!mobileGroups.has(key))mobileGroups.set(key,[]);mobileGroups.get(key).push(row);});
+      mobileGroups.forEach(function(rows,key){
+        var head=document.createElement('li');head.className='list-group expense-category-group';
+        var label=document.createElement('span');label.textContent=key+' · '+rows.length+'건';head.appendChild(label);
+        var total=document.createElement('span');total.className='tnum';
+        total.textContent=new Intl.NumberFormat('ko-KR').format(rows.reduce(function(sum,row){return sum+Number(row.dataset.amount||0);},0))+'원';head.appendChild(total);
+        list.appendChild(head);rows.forEach(function(row){list.appendChild(row);});
+      });
+    });
+    var table=document.getElementById('tbl');if(!table)return;
     var body=table.querySelector('tbody.expense-rows[data-kind=expense]');if(!body)return;
     body.querySelectorAll('.group-row').forEach(function(row){row.remove();});
     var rows=Array.from(body.querySelectorAll(':scope > tr[data-id]'));

@@ -75,7 +75,9 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 self.assertEqual(page.locator('#nav a[href="/cards/all"]').count(), 1)
                 self.assertEqual(page.locator('#nav a[href*="state=unassigned"]').count(), 0)
                 # OTA is a 거래 sub-tab now (spec §5.1), not a sidebar entry.
-                page.goto(f'http://127.0.0.1:{self.port}/ota')
+                navigation = '#nav' if width >= 1024 else '.site-bottom-nav'
+                page.locator(navigation + ' a[href="/cards/all"]').click()
+                page.locator('.section-tabs a[href="/ota"]').click()
                 self.assertEqual(page.locator('#nav').count(), 1)
                 self.assertIn('전체 3건', page.inner_text('#card-count'))
                 rows = page.locator('main.card-catalog > table tbody tr')

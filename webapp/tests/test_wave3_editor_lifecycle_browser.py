@@ -15,6 +15,45 @@ def screen():
         case.doCleanups()
 
 
+@pytest.mark.parametrize('width', [390, 1440])
+def test_expense_grouping_changes_visible_rows_and_restores_date_order(screen, width):
+    status, result = screen._api('/api/rows/expense-demo-c4/save', {
+        'csrf': _screens.board_mod.CSRF_TOKEN,
+        'expected_revision': screen.store.get_row('expense-demo-c4')['revision'],
+        'client_request_id': f'grouping-{width}', 'change_mode': 'exception', 'item': '식비',
+    }, method='POST')
+    assert status == 200, result
+    page = screen._page(width)
+    screen._board(page, '?tab=trip-demo-a')
+    scope = '.lst' if width == 390 else '#tbl tbody.expense-rows[data-kind=expense]'
+    row_selector = ':scope > li[data-kind=expense]' if width == 390 else ':scope > tr[data-id]'
+    head_selector = '.expense-category-group' if width == 390 else '.group-row'
+    rows = page.locator(scope).locator(row_selector)
+    original = rows.evaluate_all('(rows)=>rows.map(r=>({id:r.dataset.id,category:r.dataset.category,amount:Number(r.dataset.amount)}))')
+    expected = {}
+    for row in original:
+        expected.setdefault(row['category'], []).append(row)
+    assert original and len(expected) > 1
+    page.locator('[data-group-expenses]').check()
+    heads = page.locator(scope).locator(head_selector)
+    assert heads.count() == len(expected)
+    for index, (category, items) in enumerate(expected.items()):
+        assert f'{category} · {len(items)}건' in heads.nth(index).inner_text()
+        assert f"{sum(item['amount'] for item in items):,}원" in heads.nth(index).inner_text()
+    grouped_ids = [row['id'] for items in expected.values() for row in items]
+    assert rows.evaluate_all('(rows)=>rows.map(r=>r.dataset.id)') == grouped_ids
+    page.reload()
+    assert page.locator('[data-group-expenses]').is_checked()
+    assert page.locator(scope).locator(head_selector).count() == len(expected)
+    page.locator('[data-group-expenses]').uncheck()
+    assert page.locator(scope).locator(head_selector).count() == 0
+    assert page.locator(scope).locator(row_selector).evaluate_all('(rows)=>rows.map(r=>r.dataset.id)') == [row['id'] for row in original]
+    assert page.locator('#global-state').get_attribute('data-role') == ''
+    assert page.locator('#global-state #unsaved-count').count() == 1
+    assert page.locator('#live-status-wrap #live-status').count() == 1
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+
+
 def test_another_row_cannot_discard_a_dismissed_unsaved_draft(screen):
     page = screen._page(1440)
     screen._open_panel(page, 'expense-demo-c1')
