@@ -28,7 +28,7 @@ from app import local_receipt_ocr
 from app import opencode_receipt_vision
 from app.google_tsv import expense_tsv
 from app import receipt_learning
-from . import receipt_vision_jobs, ui_icons
+from . import receipt_vision_jobs, ui_icons, site_assets
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
           "/api/receipts/drafts",
@@ -944,7 +944,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             state = receipt_vision_jobs.lookup(job.group(1))
             if state is None:
                 handler._send_json({"code": "VISION_JOB_EXPIRED",
-                                    "message": "분석 기록이 사라졌어요. 다시 분석해 주세요."}, 404)
+                                    "message": "분석 기록이 사라졌습니다. 다시 분석해 주세요."}, 404)
             else:
                 handler._send_json(state)
             return True
@@ -1120,7 +1120,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<td data-label='상호·날짜·여행'>{source}"
         f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
         f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
-        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미배정</option>"
+        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행을 선택하세요</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
         + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
@@ -1130,7 +1130,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select></label>"
         f"<button type='button' data-edit='{identity}'>{ui_icons.icon('pencil')}수정</button></td>"
-        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if classified else '분류 확인 필요'))}</td>"
+        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if classified else '분류 상태를 확인해 주세요.'))}</td>"
         f"<td data-label='분류'><label>지급처<input data-payee='{identity}' aria-label='지급처' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'></label>"
         f"<label>비용 분류<input data-category='{identity}' aria-label='비용 분류' value='{html.escape(candidate.get('category') or '')}' placeholder='식비·숙박비 등'></label>"
         "</td></tr>")
@@ -1234,20 +1234,20 @@ const renderPending=()=>{
  for(const group of pending){
   const section=document.createElement('div');section.className='result-group';
   const head=document.createElement('h3');
-  head.textContent='사진 '+photoNumber(group.sha)+(group.status==='unknown'?' · 분석 상태 확인 필요':(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건');
+  head.textContent='사진 '+photoNumber(group.sha)+(group.status==='unknown'?' · 분석 상태를 확인해 주세요':(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건');
   section.append(head);
-  if(group.status==='unknown'){const note=document.createElement('p');note.textContent='분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않습니다.';section.append(note);if(group.jobId){const check=document.createElement('button');check.type='button';check.textContent='분석 상태 확인';check.disabled=receiptBusy;check.onclick=()=>resumeJob(group);section.append(check)}const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;section.append(manual);const close=document.createElement('button');close.type='button';close.textContent='확인 필요 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(close)}
+  if(group.status==='unknown'){const note=document.createElement('p');note.textContent='분석 완료 여부를 확인하지 못했습니다. 자동으로 다시 전송하지 않습니다.';section.append(note);if(group.jobId){const check=document.createElement('button');check.type='button';check.textContent='분석 상태 확인';check.disabled=receiptBusy;check.onclick=()=>resumeJob(group);section.append(check)}const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;section.append(manual);const close=document.createElement('button');close.type='button';close.textContent='분석 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(close)}
   if(group.empty){const note=document.createElement('p');note.textContent='영수증 후보 0건 · 원본 저장됨';const manual=document.createElement('button');manual.type='button';manual.dataset.manualImage=group.sha;manual.textContent='내용 직접 입력';manual.disabled=receiptBusy;const close=document.createElement('button');close.type='button';close.textContent='0건 결과 닫기';close.disabled=receiptBusy;close.onclick=()=>{pending=pending.filter(item=>item!==group);storePending();renderPending()};section.append(note,manual,close)}
   group.receipts.forEach((receipt,index)=>section.append(receiptCard(group,index,receipt)));
   box.append(section);
-  setPhotoState(group.sha,group.status==='unknown'?'분석 상태 확인 필요':group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
+  setPhotoState(group.sha,group.status==='unknown'?'분석 상태를 확인해 주세요':group.empty?'인식된 영수증 없음':'후보 '+group.receipts.length+'건');
  }
  if(pending.some(group=>group.receipts.length)){const go=document.createElement('button');go.type='button';go.id='vision-register';go.className='primary';
   go.textContent='선택한 영수증 등록';go.disabled=receiptBusy;go.onclick=registerPending;box.append(go)}
 };
 const pollJob=async(state,label)=>{const t0=Date.now();
  while(state.status==='queued'||state.status==='running'){
-  if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');
+  if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있습니다. 잠시 후 다시 시도해 주세요.');
   say(label+' 분석 중 · '+Math.round((Date.now()-t0)/1000)+'초 경과');
   await new Promise(r=>setTimeout(r,2000));
   state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse);
@@ -1289,7 +1289,7 @@ if(visionGo)visionGo.onclick=async()=>{
    try{
     await flushDraft();const queued=await post('/api/receipts/vision',{image:sha});attempt.jobId=queued.job_id;storePending();await flushDraft();
     const state=await pollJob(queued,label);found+=await completeJob(attempt,state);
-   }catch(error){failed.push(label+' · '+(error.message||'실패'));if(!attempt.receipts.length&&!attempt.empty){attempt.status='unknown';setPhotoState(sha,'분석 상태 확인 필요');storePending();try{await flushDraft()}catch{}}}
+   }catch(error){failed.push(label+' · '+(error.message||'실패'));if(!attempt.receipts.length&&!attempt.empty){attempt.status='unknown';setPhotoState(sha,'분석 상태를 확인해 주세요');storePending();try{await flushDraft()}catch{}}}
   }
   say((failed.length?'분석을 마쳤습니다. 실패한 사진: '+failed.join(' / ')+' ':'분석을 마쳤습니다. ')+(found?'결과를 확인한 뒤 등록하세요.':'인식된 영수증이 없습니다. 직접 입력할 수 있습니다.'));
  }finally{restore();receiptBusy=false;renderPending()}
@@ -1380,58 +1380,66 @@ LEARNING_SCRIPT = r"""const renderNotes=async()=>{const list=document.getElement
 if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 """
 
-PAGE_CSS = r"""*{box-sizing:border-box}
-:root{--bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;--line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;--sel:#ECF5EF;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;--warn:#B54708;--neg:#B42318;--bad:#B42318}
-@media(prefers-color-scheme:dark){:root{--bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;--line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#2266F5;--sel:#1E3A5F;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;--warn:#B54708;--neg:#B42318;--bad:#B42318}}
-body{font-family:system-ui,sans-serif;margin:0;padding:12px 12px 80px;background:var(--bg);color:var(--ink);font-size:16px;overflow-x:hidden}
-h1{font-size:22px;margin:6px 0 10px}h2{font-size:17px;margin:0 0 8px}h3{font-size:15px;margin:6px 0}
-section,details{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0;min-width:0}
+PAGE_CSS = site_assets.TOKENS_STYLE + r"""*{box-sizing:border-box}
+:root{--bg:var(--c-bg);--paper:var(--c-surface);--ink:var(--c-text);--mut:var(--c-text-secondary);--line:var(--c-border);--line2:var(--c-surface-sunken);--line-strong:var(--c-border-control);--hover:var(--c-bg);--focus:var(--c-focus);--sel:var(--c-accent-subtle);--grn:var(--c-accent-solid);--grn-dk:var(--c-accent-solid-hover);--grn-lt:var(--c-accent-subtle);--warn:var(--c-warn-text);--neg:var(--c-danger-text);--bad:var(--c-danger-text)}
+
+body{font-family:"Pretendard Variable",system-ui,sans-serif;letter-spacing:normal;margin:0;padding:0 0 80px;background:var(--bg);color:var(--ink);font-size:var(--t-body);overflow-x:hidden}
+h1{font-size:var(--t-h1);margin:6px 0 10px}h2{font-size:var(--t-body);margin:0 0 8px}h3{font-size:var(--t-body-sm);margin:6px 0}
+section,details{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);padding:14px;margin:12px 0;min-width:0}
 details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
-.hint{font-size:13px;color:var(--mut);margin:6px 0 10px}
+details>summary{list-style:none}
+details>summary{padding-inline-end:var(--s-2)}
+details>summary::-webkit-details-marker{display:none}
+details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}
+details[open]>summary::after{transform:rotate(225deg)}
+@media(prefers-reduced-motion:reduce){details>summary::after{transition:none}}
+.hint{font-size:var(--t-meta);color:var(--mut);margin:6px 0 10px}
 input,select,button,.work-back{font:inherit;max-width:100%}
-input,select{min-height:44px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper)}
+input,select{min-height:44px;padding:8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--paper)}
 input[type=checkbox]{width:22px;height:22px;min-height:22px;min-width:22px;padding:0;margin:0;accent-color:var(--grn-dk)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-button,.work-back{min-height:44px;padding:10px 14px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center}
-button.primary{background:var(--grn);color:#fff;border-color:var(--grn);width:100%;margin-top:10px}
+button,.work-back{min-height:44px;padding:10px 14px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center}
+button.primary{background:var(--grn);color:var(--c-on-accent);border-color:var(--grn);width:100%;margin-top:10px}
 button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
 .work-back{color:var(--grn-dk);text-decoration:none}
-#status:not(:empty){position:sticky;top:0;z-index:10;background:var(--sel);color:var(--ink);padding:12px;border:1px solid var(--line);border-radius:8px;font-weight:600;margin-bottom:10px}
+#status:not(:empty){position:sticky;top:0;z-index:10;background:var(--sel);color:var(--ink);padding:12px;border:1px solid var(--line);border-radius:var(--r-md);font-weight:600;margin-bottom:10px}
 .photo-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(148px,100%),1fr));gap:10px;margin-top:10px}
-.photo{border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--paper);display:flex;flex-direction:column;gap:4px;min-width:0}
+.photo{border:1px solid var(--line);border-radius:var(--r-md);padding:6px;background:var(--paper);display:flex;flex-direction:column;gap:4px;min-width:0}
 .photo>button[data-image-sha]{padding:0;border:0;min-height:0;width:100%;background:none}
 #selected-files:empty{display:none}#selected-files li,#upload-results p,.receipt-saved-files li{overflow-wrap:anywhere}
-.photo img{width:100%;height:auto;border-radius:6px;display:block}
+.photo img{width:100%;height:auto;border-radius:var(--r-sm);display:block}
 #manual-preview{display:block;max-width:100%;max-height:300px;object-fit:contain;margin:8px 0}#manual-preview[hidden]{display:none}
 .photo button[aria-pressed=true] img{outline:2px solid var(--grn-dk);outline-offset:2px}
-.photo-pick{font-size:14px;display:flex;align-items:center;gap:6px;min-height:44px}
-.photo-state{font-size:12px;color:var(--mut)}
+.photo-pick{font-size:var(--t-body-sm);display:flex;align-items:center;gap:6px;min-height:44px}
+.photo-state{font-size:var(--t-caption);color:var(--mut)}
 .result-group{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
-.receipt-card{border:1px solid var(--line-strong);border-radius:10px;padding:12px;margin:8px 0;background:var(--paper);display:grid;gap:8px;min-width:0}
+.receipt-card{border:1px solid var(--line-strong);border-radius:var(--r-md);padding:12px;margin:8px 0;background:var(--paper);display:grid;gap:8px;min-width:0}
 .receipt-region-preview{position:relative;line-height:0;max-width:480px}
 .receipt-region-preview img{display:block;width:100%;height:auto}
-.receipt-region-box{position:absolute;box-sizing:border-box;border:3px solid #e22525;background:rgba(255,40,40,.12);pointer-events:none}
+.receipt-region-box{position:absolute;box-sizing:border-box;border:3px solid var(--c-danger-text);background:color-mix(in srgb, var(--c-danger-text) 12%, transparent);pointer-events:none}
 .receipt-region-box[hidden]{display:none}
 .receipt-region-note{margin:0;color:var(--mut)}
 .receipt-region-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
 .receipt-card input:not([type=checkbox]),.receipt-card select{width:100%;min-width:0}
-.receipt-card .amount-input{font-size:22px;font-weight:700;text-align:right}
+.receipt-card .amount-input{font-size:var(--t-h1);font-weight:700;text-align:right}
 .receipt-card .row2{display:grid;grid-template-columns:1fr;gap:8px}
-.card-top{display:flex;align-items:center;gap:6px;min-height:44px;font-size:14px}
-.card-error{color:var(--neg);font-size:14px;margin:0}
+.card-top{display:flex;align-items:center;gap:6px;min-height:44px;font-size:var(--t-body-sm)}
+.card-error{color:var(--neg);font-size:var(--t-body-sm);margin:0}
 .remove{color:var(--neg);justify-self:start}
 .rescan{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
-.rescan textarea{width:100%;min-height:72px;font:inherit;padding:8px;border:1px solid var(--line-strong);border-radius:8px}
-table{border-collapse:collapse;width:100%;font-size:14px;background:var(--paper)}td,th{border:1px solid var(--line);padding:8px;text-align:left}
-td{vertical-align:top}td label{display:block;font-size:12px;margin:6px 0}
+.rescan textarea{width:100%;min-height:72px;font:inherit;padding:8px;border:1px solid var(--line-strong);border-radius:var(--r-md)}
+table{border-collapse:collapse;width:100%;font-size:var(--t-body-sm);background:var(--paper)}td,th{border:1px solid var(--line);padding:8px;text-align:left}
+td{vertical-align:top}td label{display:block;font-size:var(--t-caption);margin:6px 0}
 td input,td select{display:block;width:100%;min-width:0}
 @media(width < 760px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}
 thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
-tr{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:10px;margin:0 0 12px;min-width:0}
+tr{border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);padding:10px;margin:0 0 12px;min-width:0}
 td{border:0;border-bottom:1px solid var(--line2);padding:8px 0;overflow-wrap:break-word}td:last-child{border:0}
-td::before{content:attr(data-label);display:block;font-size:13px;font-weight:600;margin-bottom:6px;overflow-wrap:break-word}
-input,select,button{min-height:44px;font-size:16px}td button{width:100%}}
-@media(min-width:760px){body{margin:16px auto;max-width:960px;padding:0 16px 80px}.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
+td::before{content:attr(data-label);display:block;font-size:var(--t-meta);font-weight:600;margin-bottom:6px;overflow-wrap:break-word}
+input,select,button{min-height:44px;font-size:var(--t-body)}td button{width:100%}}
+@media(min-width:760px){.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
+.steps{list-style:none;padding:0;margin:0 0 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.steps li{padding:10px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);font-size:var(--t-meta)}.steps li a{color:var(--ink);text-decoration:none;font-weight:600}.steps li[data-step-state=done]{border-color:var(--grn)}.step-note{display:block;color:var(--mut);margin-top:4px}@media(width < 760px){.steps{grid-template-columns:1fr 1fr}}
+.file-drop{display:flex;align-items:center;justify-content:center;min-height:88px;padding:16px;border:1px dashed var(--line-strong);border-radius:var(--r-md);background:var(--paper);cursor:pointer;text-align:center}.file-drop input{position:absolute;width:1px;height:1px;opacity:0}.field-error{color:var(--neg);font-size:var(--t-body-sm);margin:6px 0}.field-error:empty{display:none}
 tr[hidden]{display:none!important}
 #receipt-pdf,#other-methods:not([open]),#step-group:not([open]){padding:0;border:0;background:transparent}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"""
@@ -1481,6 +1489,7 @@ def _notes_html() -> str:
 
 
 def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
+    from . import ui_components
     trips = trips or []
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
@@ -1534,7 +1543,8 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "return [...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,'0')).join('')};"
         "const recoverUpload=async(body,isPdf)=>{const sha=await bodySha(body);"
         "const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);let saved;"
-        "try{saved=await fetch('/api/receipts',{signal:controller.signal,cache:'no-store',headers:{'X-CSRF-Token':csrf}}).then(readResponse)}finally{clearTimeout(timer)}"
+        "const readSaved=()=>fetch('/api/receipts',{signal:controller.signal,cache:'no-store',headers:{'X-CSRF-Token':csrf}}).then(readResponse);"
+        "try{saved=await readSaved();if(isPdf&&!(saved.pdfs||[]).some(item=>item.sha256===sha)){for(const wait of [80,160,320]){await new Promise(resolve=>setTimeout(resolve,wait));saved=await readSaved();if((saved.pdfs||[]).some(item=>item.sha256===sha))break}}}finally{clearTimeout(timer)}"
         "if(!isPdf)return (saved.images||[]).includes(sha)?{sha256:sha,duplicate:true,recovered:true}:null;"
         "const pdf=(saved.pdfs||[]).find(item=>item.sha256===sha);"
         "return pdf?{...pdf,duplicate:true,recovered:true}:null};"
@@ -1551,7 +1561,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "['payment','payment'],['payee','payee'],['category','category']]){const input=row.querySelector('[data-'+field+']');"
         "input.value=(field==='total'&&result.currency==='KRW'?result.total_original:result[key])??'';originalValues.set(input,input.value)}"
         "row.querySelector('[data-amount]').textContent=result.amount_krw==null?'':result.amount_krw.toLocaleString('ko-KR')+'원';"
-        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'분류됨':'분류 확인 필요');"
+        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'분류됨':'분류 상태를 확인해 주세요.');"
         "say('영수증 변경을 저장했습니다.')};"
         "const save=async(action,onSaved,manual=false)=>{if(receiptBusy)return;"
         "if(!onSaved&&(selectedFiles.length||failedFiles.size)){say('선택한 파일을 먼저 등록하거나 제거해 주세요. 입력값은 유지합니다.');return}"
@@ -1567,7 +1577,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
         "say('선택한 사진의 영수증 값을 입력해 주세요.')});"
-        "const openManualFor=sha=>{document.getElementById('image-sha').value=sha;const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(sha);preview.hidden=false;document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
+         "const openManualFor=sha=>{document.getElementById('image-sha').value=sha;const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(sha);preview.hidden=false;document.getElementById('other-methods').open=true;document.getElementById('r-merchant').focus()};"
         "document.addEventListener('click',event=>{const button=event.target.closest('[data-manual-image],[data-image-sha]');if(!button)return;const sha=button.dataset.manualImage||button.dataset.imageSha;"
         "if(sha!==document.getElementById('image-sha').value&&manualHasInput()){event.preventDefault();event.stopImmediatePropagation();say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.')}},true);"
         "document.addEventListener('click',event=>{const button=event.target.closest('[data-manual-image]');if(button)openManualFor(button.dataset.manualImage)});"
@@ -1575,7 +1585,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const normalizeReceiptImage=async file=>{const limit=5*1024*1024;if((file.type==='image/jpeg'||file.type==='image/png')&&file.size<=limit)return file;if(!file.type.startsWith('image/')&&!(!file.type&&/\\.(jpe?g|png|heic|heif)$/i.test(file.name)))throw new Error('사진 형식만 등록할 수 있습니다.');const url=URL.createObjectURL(file);const img=new Image();try{await new Promise((ok,fail)=>{img.onload=ok;img.onerror=()=>fail(new Error('이 사진을 열 수 없습니다. iPhone에서 JPEG로 내보내 다시 시도하세요.'));img.src=url;});if(!img.naturalWidth||!img.naturalHeight)throw new Error('사진 크기를 확인할 수 없습니다.');for(const maxSide of [3000,2600,2200]){const scale=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));const context=canvas.getContext('2d');if(!context)throw new Error('사진 변환을 사용할 수 없습니다.');context.drawImage(img,0,0,canvas.width,canvas.height);for(const quality of [.92,.82,.72]){const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',quality));if(blob&&blob.size>0&&blob.size<=limit)return blob;}}throw new Error('사진이 5MB 제한을 넘었습니다. 더 작은 사진으로 다시 촬영해 주세요.');}finally{URL.revokeObjectURL(url)}};"
         "let selectedFiles=[];const failedFiles=new Set();const renderSelectedFiles=()=>{const list=document.getElementById('selected-files');list.replaceChildren();"
         "selectedFiles.forEach((file,index)=>{const row=document.createElement('li');const label=document.createElement('span');"
-        "label.textContent=file.name+' · '+(file.type||'형식 확인 필요')+' · '+Math.ceil(file.size/1024)+'KB · 선택됨';"
+        "label.textContent=file.name+' · '+(file.type||'형식을 확인해 주세요')+' · '+Math.ceil(file.size/1024)+'KB · 선택됨';"
         "const remove=document.createElement('button');remove.type='button';remove.textContent='선택 제거';"
         "remove.setAttribute('aria-label',file.name+' 선택 제거');remove.onclick=()=>{selectedFiles.splice(index,1);renderSelectedFiles();document.dispatchEvent(new Event('receipt-workflow-change'))};row.append(label,' ',remove);list.append(row)})};"
         "document.getElementById('img-file').addEventListener('change',event=>{selectedFiles.push(...event.target.files);event.target.value='';renderSelectedFiles();document.dispatchEvent(new Event('receipt-workflow-change'))});"
@@ -1593,9 +1603,9 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "headers:{'Content-Type':pdf?'application/pdf':'application/octet-stream','X-CSRF-Token':csrf,'X-Receipt-Filename':encodeURIComponent(file.name),'X-Receipt-Language':document.getElementById('ocr-language')?.value||'ja'},body});try{result=await readResponse(r)}catch(error){if(r.ok)error.uploadUncertain=true;throw error}}finally{clearTimeout(timer)}"
         "showUploaded(file,result,pdf,row);"
         "const current=document.getElementById('image-sha').value;if(current){const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(current);preview.hidden=false}"
-        "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent=file.name+(uncertain?' · 저장 여부 확인 필요: ':' · 실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.dataset.uploadRecovery='1';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='실패 파일 제거';remove.dataset.uploadRecovery='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove()};row.append(' ',retry,' ',remove)}}}"
+        "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent=file.name+(uncertain?' · 저장 여부를 확인해 주세요: ':' · 실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.dataset.uploadRecovery='1';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='실패 파일 제거';remove.dataset.uploadRecovery='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove()};row.append(' ',retry,' ',remove)}}}"
         "finally{restore();receiptBusy=false;results.querySelectorAll('[data-upload-recovery]').forEach(button=>button.disabled=false);document.dispatchEvent(new Event('receipt-workflow-change'))}};"
-        "document.getElementById('img-go').onclick=()=>{if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
+        "document.getElementById('img-go').onclick=()=>{if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
@@ -1606,7 +1616,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
         "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
-        "if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}"
+        "if(!selectedTrip.value){document.getElementById('trip-error').textContent='여행을 먼저 선택하세요.';selectedTrip.focus();return}"
         "if(!document.getElementById('r-currency').value){say('통화를 선택해 주세요.');return}"
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
@@ -1632,7 +1642,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "if(previous&&!confirm('이 여행은 '+previous+'에 이미 구글 시트용으로 복사했습니다. 카드와 영수증을 각각 복사했다면 중복 붙여넣기에 주의하세요. 계속할까요?'))return;"
         "receiptBusy=true;const restore=lockControls();try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
         "const x=await readResponse(response);"
-        "if(!x.row_count){say('복사할 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
+        "if(!x.row_count){say('복사할 영수증이 없습니다. 처리되지 않은 '+x.held.length+'건');return}"
         "await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}"
         "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning)}"
         "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{restore();receiptBusy=false}};")
@@ -1650,38 +1660,53 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                   "<div id='vision-results' aria-live='polite'></div>"
                   + (_rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요") if ai else '')
                   + "</section>")
+    workflow_steps = ui_components.steps([
+        {"label": "1. 여행 선택", "state": "todo", "href": "#step-trip"},
+        {"label": "2. 파일 등록", "state": "todo", "href": "#step-photos"},
+        {"label": "3. 결과 확인·수정", "state": "todo", "href": "#step-review"},
+        {"label": "4. 장부용 복사", "state": "todo", "href": "#step-copy"},
+    ]).replace(' data-state=', ' data-step-state=', 1_000)
+    workflow_steps = workflow_steps.replace(
+        '<ol class="steps">', '<ol class="steps" aria-label="영수증 등록 단계">', 1)
+    file_drop_html = ui_components.file_drop(
+        "img-file", "image/*,application/pdf,.pdf", multiple=True,
+        label="JPG·PNG·HEIC·PDF 파일을 선택하세요",
+    ).replace('name="img-file"', 'name="img-file" id="img-file"', 1).replace(
+        '<ul aria-live="polite"></ul>', '', 1)
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 처리</title>"
             f"<style>{PAGE_CSS}</style></head><body>"
+            "<p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
             "<main><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
-            "<section id='step-trip'><h2>여행 선택</h2><label>검토할 여행"
-            "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
-            "</select></label></section>"
-            "<section id='step-photos'><h2>영수증 파일 등록</h2>"
-            "<div><label>영수증 파일 선택<input id='img-file' type='file' multiple accept='image/*,application/pdf,.pdf'></label> "
-            f"<button type='button' id='img-go' disabled>{ui_icons.icon('upload')}등록 및 확인</button></div>"
-            "<ul id='selected-files' aria-label='선택한 파일'></ul>"
+            + workflow_steps
+             + "<section id='step-trip'><h2>1. 여행 선택</h2><div class='field'><label for='selected-trip'>여행</label>"
+             "<select id='selected-trip'><option value=''>여행을 선택하세요</option>" + trip_options +
+             "</select><p id='trip-error' class='field-error' role='alert'></p></div></section>"
+             "<section id='step-photos'><h2>2. 파일 등록</h2>"
+             + file_drop_html
+             + "<ul id='selected-files' aria-live='polite'></ul>"
+             + f"<p id='file-error' class='field-error' role='alert'></p><button type='button' id='img-go'>{ui_icons.icon('upload')}등록</button>"
             "<div id='upload-results' aria-live='polite'></div>"
             + ("<section class='receipt-saved-files' aria-label='저장된 파일'><h3>저장된 파일</h3><ul>" + ''.join(uploaded_results) + "</ul></section>" if uploaded_results else "")
             + (f"<details><summary>저장된 PDF 원본 {len(data.get('pdfs', []))}건</summary><ul>{pdf_results}</ul></details>" if pdf_results else "") +
             f"<input type='hidden' id='image-sha' value='{latest}'>"
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
-            + ai_section
-            + "<section id='step-review'><h2>후보 검토</h2>" +
+            + "<section id='step-results'><h2>3. 결과 확인·수정</h2>" + ai_section
+            + "<section id='step-review'><h3>후보 검토</h3>" +
             "<p class='hint'>분류가 끝난 영수증만 지출로 복사됩니다.</p>"
             "<p id='receipt-visible-count' role='status'></p>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table></section>"
+            f"</tr></thead><tbody>{rows}</tbody></table></section></section>"
             "<details id='step-group'><summary>승선권 등 선택 묶기</summary>"
             "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></details>"
-            + "<section id='step-copy'><h2>장부용 내역 복사</h2>" +
+            + "<section id='step-copy'><h2>4. 장부용 복사</h2>" +
             f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
             f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
             "</section>"
-            + (f"<section id='receipt-holds'><h2>확인 필요</h2><ul>{holds}</ul></section>" if holds else '') +
-            "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
+             + (f"<section id='receipt-holds'><h2>추가 확인 결과</h2><ul>{holds}</ul></section>" if holds else '') +
+             "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
             + (f"<img id='manual-preview' alt='직접 입력할 영수증 원본' src='/api/receipts/image/{html.escape(latest)}'>" if latest else
                "<img id='manual-preview' alt='직접 입력할 영수증 원본' hidden>")
             + ocr +
@@ -1703,7 +1728,7 @@ const update=()=>{
  if(receiptBusy)return;
  const checked=[...document.querySelectorAll('[data-group-select]:checked')],photos=document.querySelectorAll('.photo-check:checked').length;
  const state=(id,enabled)=>{const el=byId(id);if(el)el.disabled=!enabled};
- state('img-go',selectedFiles.length>0);
+ state('img-go',true);
  state('vision-go',!!trip.value&&photos>0);
  state('rescan-go',!!trip.value&&!!byId('image-sha').value);
  state('ocr-go',!!byId('image-sha').value);

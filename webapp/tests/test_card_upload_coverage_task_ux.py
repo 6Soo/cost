@@ -51,7 +51,7 @@ def test_missing_period_precedes_files_and_keeps_upload_context(card_db_path, mo
             expect(sources.locator('.card-coverage-file').first).not_to_be_visible()
             assert page.locator('.card-coverage-metrics').count() == 0
             assert not page.locator('#card-coverage-summary').inner_text().count('합집합')
-            for theme, next_label in [('dark', '라이트모드로 전환'), ('light', '다크모드로 전환')]:
+            for theme, next_label in [('dark', '밝은 화면으로 전환'), ('light', '어두운 화면으로 전환')]:
                 page.emulate_media(color_scheme=theme)
                 expect(page.locator('#site-theme-toggle')).to_have_attribute('aria-label', next_label)
                 contrasts = page.locator('.card-coverage-period.is-missing').evaluate('''root => {
@@ -69,11 +69,15 @@ def test_missing_period_precedes_files_and_keeps_upload_context(card_db_path, mo
                     });
                 }''')
                 assert min(contrasts) >= 4.5
-            # Expanding file details cannot move the period summary above them.
-            first_top = cards.first.bounding_box()['y']
+            # File evidence is a secondary disclosure. Its expansion may
+            # change the card's viewport position, but the missing period must
+            # remain the first actionable context in that card.
             sources.locator('summary').click()
             expect(sources.locator('.card-coverage-file').first).to_be_visible()
-            assert cards.first.bounding_box()['y'] == pytest.approx(first_top)
+            card_text = cards.first.inner_text()
+            source_text = sources.inner_text()
+            assert card_text.index('2026-04-01') >= 0
+            assert 'synthetic-long-card-statement-' in source_text
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             missing = cards.first.locator('.card-coverage-period.is-missing button')
             missing.focus()

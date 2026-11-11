@@ -79,7 +79,7 @@ vm.createContext(context);vm.runInContext(SOURCE,context);
     assert.equal(storage.size,mode==='restart-expired'?0:1,'unavailable or unfinished recovery must preserve the checkpoint');
     const detail=entries.find(x=>x.href==='/cards/all?panel=upload&batch=9#summary');
     assert.ok(detail,'expired status must retain a link to the saved batch');
-    assert.ok(entries.some(x=>x.textContent===(mode==='restart-expired'?'저장된 결과 조회 완료':mode==='recovery-auth'?'로그인 필요':mode==='recovery-pending'?'접수 완료 · 분류 결과 확인 필요':'접수 완료 · 결과 조회 대기')));
+    assert.ok(entries.some(x=>x.textContent===(mode==='restart-expired'?'저장된 결과 조회 완료':mode==='recovery-auth'?'로그인 필요':mode==='recovery-pending'?'접수 완료 · 처리 결과 확인 필요':'접수 완료 · 결과 조회 대기')));
     assert.ok(!entries.some(x=>x.textContent?.includes('서버가 재시작')));
     return;
   }

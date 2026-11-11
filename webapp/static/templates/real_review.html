@@ -211,7 +211,7 @@ function renderApplyPlan(plan) {
       + "이미 반영한 거래 " + text(shown.already_applied_transactions || 0) + "건, "
       + "충돌 거래 " + text(shown.conflict_transactions || 0) + "건");
   add(counts, "p", "counts-line",
-      "승인한 검토 행 " + text(shown.approved_refs || 0) + "행 중 계속 보류 "
+      "승인한 검토 행 " + text(shown.approved_refs || 0) + "행 중 추가 자료 확인 "
       + text(shown.held_refs || 0) + "행");
   var list = el("planList");
   clear(list);
@@ -470,7 +470,7 @@ function renderCounts() {
     // Scoped to card expenses, and labelled as such.
     ["카드 지출 결정 " + text(selected) + "건", 0],
     ["카드 지출 거부 " + text(rejected) + "건", 0],
-    ["카드 지출 보류 " + text(held) + "건", 0],
+    ["카드 지출 자료 확인 " + text(held) + "건", 0],
     [savedRevision ? "저장된 상태예요" : "아직 저장된 결정이 없어요", 0]
   ];
   for (i = 0; i < parts.length; i++) {
@@ -650,7 +650,7 @@ function buildCard(row, ordinal, total) {
     });
     return input;
   }
-option("", "확인 보류", "", false);
+option("", "지금은 선택하지 않음", "", false);
   option("REJECT", "같은 거래가 아님", "", false);
   for (var c = 0; c < candidates.length; c++) {
     var key = candidateKeyOf(candidates[c]);

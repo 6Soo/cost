@@ -26,7 +26,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                     self.assertIn('/cards/all?year=2026&q=37000',page.url)
                     self.assertIn('1건',page.inner_text('#search-heading'))
                     self.assertEqual(page.locator('tr[data-tx-id]').count(),1)
-                    page.locator('.card-all-filters input[name=q]').fill('no match')
+                    page.locator('.filter-bar input[name=q]').fill('no match')
                     page.get_by_role('button',name='조회',exact=True).click()
                     self.assertIn('0건',page.inner_text('#search-heading'))
                     self.assertEqual(page.locator('tr[data-tx-id]').count(),0)

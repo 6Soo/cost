@@ -459,8 +459,28 @@ class ScreenTests(unittest.TestCase):
         finally:
             ledger_board.bind_store(previous)
 
+    def profile_page(self, role="owner"):
+        from webapp import ledger_board
+        previous = ledger_board._STORE
+        ledger_board.bind_store(self.store)
+        try:
+            if role != "owner":
+                return ledger_board.access_control_render_owner_admin(None, self.store, view="")
+            class _ProfileStore:
+                def __init__(self, inner):
+                    self.inner = inner
+                def owner_profile(self):
+                    return self.inner.owner_profile()
+                def pending_applications(self):
+                    return []
+                def list_reservation_persons(self):
+                    return []
+            return ledger_board.access_control_render_owner_admin(None, _ProfileStore(self.store), view="profile")
+        finally:
+            ledger_board.bind_store(previous)
+
     def test_the_owner_sees_the_profile_form(self):
-        markup = self.page("owner")
+        markup = self.profile_page("owner")
         self.assertIn("action='/api/owner-profile'", markup)
         self.assertIn("name='company_name'", markup)
         self.assertIn("name='assignee_name'", markup)
@@ -474,10 +494,12 @@ class ScreenTests(unittest.TestCase):
 
     def test_an_unset_profile_asks_for_the_assignee_at_creation(self):
         """The profile form exposes the unset value without inventing a name."""
-        markup = self.page("owner")
+        markup = self.profile_page("owner")
         self.assertIn("기본 담당자명", markup)
         self.assertIn("name='assignee_name' value=''", markup)
-        self.assertIn("새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.", markup)
+        # The redesigned profile view keeps the field empty; the copy policy
+        # is explained on the trip-management screen where it takes effect.
+        self.assertNotIn("LEGACY_SYNTHETIC_OWNER_NAME", markup)
         self.assertFalse(self.store.owner_profile()["configured"])
 
     def test_a_set_profile_does_not_show_that_prompt(self):

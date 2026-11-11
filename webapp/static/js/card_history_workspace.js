@@ -101,7 +101,7 @@
     (active === 'coverage' ? coverageButton : uploadButton).focus();
   });
   document.addEventListener('submit', event => {
-    if (!event.target.matches('.card-all-filters')) return;
+    if (!event.target.matches('.filter-bar')) return;
     const active = panelName();
     if (active && !event.target.elements.panel) {
       const field = document.createElement('input');
@@ -175,19 +175,21 @@
   }
   function batchLink(entry, batchId) {
     if (!/^batch-[a-f0-9]{24}$/.test(batchId || '')) return;
-    const link = node('a', 'card-upload-result-link', '이 화면에서 처리 결과 보기');
+    const link = node('a', 'card-upload-result-link', '처리 결과 보기');
     const params = new URLSearchParams(location.search);
     params.set('panel', 'upload'); params.set('batch', batchId);
     link.href = '/cards/all?' + params.toString();
     entry.append(link);
   }
   function uploadOutcome(result) {
-    if (result.recovered_upload) return '저장된 업로드의 처리 상태를 확인했습니다.';
-    const status = result.upload_summary && result.upload_summary.status;
-    if (status === 'passed') return '분류 검사 통과';
-    if (status === 'empty') return '거래 행이 없는 파일';
-    if (status) return '분류 결과를 확인해 주세요.';
-    return '파일 처리 결과를 확인했습니다.';
+    if (result.recovered_upload) return '저장된 결과 조회 완료';
+    const summary = result.upload_summary || result.recovery || {};
+    let outcome = '처리 완료';
+    const count = summary.transaction_count ?? summary.unique_transactions ?? summary.saved_count;
+    const duplicate = summary.duplicate_count ?? summary.duplicate_rows ?? summary.duplicates;
+    if (Number.isFinite(Number(count))) outcome += ` · 거래 ${Number(count).toLocaleString('ko-KR')}건 저장`;
+    if (Number.isFinite(Number(duplicate))) outcome += ` · 중복 ${Number(duplicate).toLocaleString('ko-KR')}건`;
+    return outcome;
   }
   function showCoverageEvidence(entry, result, batchId) {
     if (batchId) {

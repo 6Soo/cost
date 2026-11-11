@@ -39,7 +39,7 @@ def test_pending_clipboard_recovers_and_native_retry_pastes_exact_tsv(copy_state
                 };
                 document.execCommand = () => false;
             }''')
-            button = page.get_by_role('button', name='지출내용 복사', exact=True)
+            button = page.get_by_role('button', name='Google 장부용 복사', exact=True)
             button.click()
             content = page.get_by_role('textbox', name='Google 시트에 붙여넣을 지출내용')
             expect(content).to_be_visible(timeout=3000)
@@ -110,7 +110,7 @@ def test_unfocused_clipboard_leaves_selectable_tsv_and_retry_copies(copy_state, 
                 };
                 document.execCommand = () => false;
             }''')
-            page.get_by_role('button', name='지출내용 복사', exact=True).click()
+            page.get_by_role('button', name='Google 장부용 복사', exact=True).click()
             content = page.get_by_role('textbox', name='Google 시트에 붙여넣을 지출내용')
             expect(content).to_be_visible()
             expect(content).to_have_value(tsv)
@@ -133,7 +133,7 @@ def test_unfocused_clipboard_leaves_selectable_tsv_and_retry_copies(copy_state, 
             assert page.evaluate('navigator.clipboard.readText()') == tsv
             assert len(requests) == 1
             expect(content).not_to_be_visible()
-            expect(page.get_by_role('button', name='지출내용 복사', exact=True)).to_be_focused()
+            expect(page.get_by_role('button', name='Google 장부용 복사', exact=True)).to_be_focused()
         finally:
             browser.close()
 
@@ -157,7 +157,7 @@ def test_copy_failure_restores_action_without_exposing_stale_text(copy_state, re
             page.route('http://127.0.0.1:9876/api/**', lambda route: route.fulfill(
                 status=code, json=response))
             page.goto('http://127.0.0.1:9876/board')
-            button = page.get_by_role('button', name='지출내용 복사', exact=True)
+            button = page.get_by_role('button', name='Google 장부용 복사', exact=True)
             button.click()
             expect(page.locator('#copy-status')).to_contain_text(message)
             expect(button).to_be_enabled()
@@ -171,8 +171,9 @@ def test_excluded_transactions_are_identifiable_and_escaped(copy_state):
     rows, preview = copy_state
     rows[3].update(source_merchant='<img src=x>', row_id='row&3')
     markup = design._trip_copy_html('trip-synthetic', rows, preview)
-    assert '2026-10-01 · &lt;img src=x&gt; · 1,000원' in markup
-    assert "href='/row?id=row%263'" in markup
+    assert '2026-10-01' in markup and '&lt;img src=x&gt;' in markup and '1,000원' in markup and '<img src=x>' not in markup
+    # Detail opens in place now; the row id rides on the toggle, escaped.
+    assert "data-row-id='row&amp;3'" in markup and 'aria-controls=' in markup
     assert '<img src=x>' not in markup
 
 
@@ -199,7 +200,7 @@ def test_html_response_has_recovery_message_and_retry_fetches_fresh_content(copy
 
             page.route('http://127.0.0.1:9876/api/**', api)
             page.goto('http://127.0.0.1:9876/board')
-            button = page.get_by_role('button', name='지출내용 복사', exact=True)
+            button = page.get_by_role('button', name='Google 장부용 복사', exact=True)
             button.click()
             expect(page.locator('#copy-status')).to_contain_text('잠시 후 다시 복사해 주세요')
             expect(page.locator('#copy-status')).not_to_contain_text('Unexpected token')

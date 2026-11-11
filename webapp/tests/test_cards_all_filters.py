@@ -164,21 +164,22 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
     page = cards_all.cards_all_page(query, db_path=card_db_path)
     assert "data-tx-id='TX-A-02'" in page and "data-tx-id='TX-A-01'" not in page
     assert '전체 1건' in page and '미배정' not in page and '•••• 1234' in page and '카드 식별' in page
-    assert "class='btn' type='submit'" in page and "aria-hidden='true'" in page
-    assert '>조회</button>' in page and "<svg class='ic'" in page
+    assert 'class="btn" type="submit"' in page
+    assert '>조회</button>' in page
     assert "aria-label='카드별 조회'" in page and '카드사·끝4자리·가맹점' in page
     for form in re.findall(r'<form\b.*?</form>', page, re.S):
         if "action='/cards/all'" not in form:
             continue
         assert "name='cursor'" not in form and "name='undated_cursor'" not in form
-    period_form = re.search(r"<form[^>]*class='card-all-filters'.*?</form>", page, re.S).group(0)
+    period_form = re.search(r"<form[^>]*class='filter-bar'.*?</form>", page, re.S).group(0)
     assert "name='unassigned'" not in period_form and key in period_form and 'LAWSON' in period_form
     assert "value='2026-03' selected" in period_form
     assert "name='year'" not in period_form and "name='month'" not in period_form
-    reset = re.search(r"href='([^']*)'>필터 초기화", page).group(1)
+    reset = re.search(r"<a[^>]+href=['\"]([^'\"]*)['\"][^>]*>.*?초기화</a>", period_form, re.S).group(1)
     assert parse_qs(urlsplit(html.unescape(reset)).query) == {'year': ['2026'], 'month': ['3']}
     empty = cards_all.cards_all_page({**query, 'month': ['2']}, db_path=card_db_path)
-    assert "data-tx-id=" not in empty and '조건에 맞는' in empty
+    assert not re.search(r'<(?:tr|li)\b[^>]+data-(?:tx-id|detail-id)=', empty)
+    assert '이 기간의 카드 거래가 없습니다.' in empty
     with closing(sqlite3.connect(card_db_path)) as conn, conn:
         assert conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
 

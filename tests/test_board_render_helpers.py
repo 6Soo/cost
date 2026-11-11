@@ -184,7 +184,8 @@ def test_split_page_call_order_and_baseline_equivalence(baseline, tmp_path, monk
             trips_fn=lambda: [{"tab_id": "trip-demo-a", "display_key": "도쿄"}],
         )
         res_valid_base = baseline["split_page"]("income-demo-i1")
-        assert res_valid_helper == res_valid_base
+        assert res_valid_helper == res_valid_base.replace(
+            '분류대기(미배정 배분)', '귀속을 선택하세요')
     finally:
         store.close()
 
@@ -253,7 +254,8 @@ def test_allocation_detail_body_matches_baseline(baseline, tmp_path, monkeypatch
             trips_fn=lambda: trips, shown_amount_fn=shown_amount,
         )
         edit_base = baseline["allocation_detail_body"](alloc, True)
-        assert edit_helper == edit_base
+        assert edit_helper == edit_base.replace(
+            '분류대기(미배정 배분)', '귀속을 선택하세요')
     finally:
         store.close()
 

@@ -54,7 +54,7 @@ def index_ota_display_candidates(
                       ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order'))
         result_kind = ('묶음 대응' if group_only else
                        '확정 연결' if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') else
-                       '금액 대조 보류' if result.get('status') == 'HOLD_AMOUNT_UNVERIFIED' else
+                       '금액 대조 자료 확인' if result.get('status') == 'HOLD_AMOUNT_UNVERIFIED' else
                        '금액 비교' if result.get('status') == 'HOLD_AMOUNT_MISMATCH' else '후보')
         for kind, values in ((result_kind, result.get('candidates') or ()),
                              ('후보', trace.get('candidates') or ()),

@@ -28,7 +28,8 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import board_export_helpers, board_http_shapes, board_learning_dialog, board_read_projection, board_render_helpers, read_scope, ui_icons
+from . import (board_export_helpers, board_http_shapes, board_learning_dialog,
+               board_read_projection, board_render_helpers, read_scope, ui_icons)
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -38,13 +39,13 @@ CSRF_TOKEN = secrets.token_hex(16)
 # content. The same code always means the same thing, so a log line built from
 # it cannot carry source data either.
 _REVIEW_MESSAGES = {
-    "REVIEW_UNAVAILABLE": "실제 자료 검토가 설정되지 않았어요.",
+    "REVIEW_UNAVAILABLE": "실제 자료 검토가 설정되지 않았습니다.",
     "REVIEW_CONFIG_INVALID": "실제 자료 설정이 올바르지 않아요.",
-    "REVIEW_SOURCE_DRIFT": "실제 자료가 설정과 달라졌어요. 다시 확인해 주세요.",
-    "REVIEW_REVISION_CONFLICT": "다른 기기에서 더 최근 결정을 저장했어요.",
-    "REVIEW_SOURCE_BINDING_CONFLICT": "실제 자료가 바뀐 데이터에서 왔어요. 페이지를 다시 불러오고 실제 자료를 다시 확인해 주세요.",
-    "REVIEW_DECISIONS_UNAVAILABLE": "결정 저장소를 열 수 없어요.",
-    "REVIEW_INTERNAL_ERROR": "결정을 처리하지 못했어요.",
+    "REVIEW_SOURCE_DRIFT": "실제 자료가 설정과 달라졌습니다. 다시 확인해 주세요.",
+    "REVIEW_REVISION_CONFLICT": "다른 기기에서 더 최근 결정을 저장했습니다.",
+    "REVIEW_SOURCE_BINDING_CONFLICT": "실제 자료가 바뀐 데이터에서 왔습니다. 페이지를 다시 불러오고 실제 자료를 다시 확인해 주세요.",
+    "REVIEW_DECISIONS_UNAVAILABLE": "결정 저장소를 열 수 없습니다.",
+    "REVIEW_INTERNAL_ERROR": "결정을 처리하지 못했습니다.",
 }
 
 #: Codes that are the caller's fault rather than the deployment's, so they are
@@ -63,9 +64,9 @@ _REVIEW_PUBLIC_BASE_URL_ENV = "WEBLEDGER_PUBLIC_BASE_URL"
 _REVIEW_UNCONFIGURED_PAGE = (
     "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
     "<title>실제 자료 검토</title></head><body>"
-    "<h1>실제 자료 검토를 쓸 수 없어요</h1>"
+    "<h1>실제 자료 검토를 사용할 수 없습니다.</h1>"
     "<p>실제 자료 검토는 서버 설정이 없거나 설정된 자료가 바뀌어서 지금은 열 수 "
-    "없어요. 예제 자료로 대신 보여주지 않아요.</p>"
+    "없습니다. 예제 자료로 대신 보여주지 않습니다.</p>"
     "<p><a href='/board'>장부로 돌아가기</a></p></body></html>"
 )
 _STORE = None
@@ -501,7 +502,7 @@ def access_control_allowed():
     return set(access_control.VIEWER_ROW_FIELDS)
 
 
-def access_control_render_owner_admin(session, store) -> str:
+def access_control_render_owner_admin(session, store, view: str = "", return_to: str = "") -> str:
     """The owner's account-management entry point and the pending count.
 
     SPEC 16.2: the owner gets an entry point and a pending count. No mail is
@@ -521,15 +522,34 @@ def access_control_render_owner_admin(session, store) -> str:
         f" {esc('(' + p['disambiguator'] + ')') if p['disambiguator'] else ''}"
         f"{' · 비활성' if not p['is_active'] else ''}</li>"
         for p in store.list_reservation_persons())
-    body = (
-        "<div class='sect'><h2>계정 관리</h2>"
-        f"<p>대기 신청 {len(pending)}건</p>"
-        f"<ul>{rows}</ul>"
-        "<h3>예약 담당자 후보</h3>"
-        f"<ul>{people}</ul>"
-        "</div>")
+    profile = store.owner_profile() if hasattr(store, "owner_profile") else {"company_name": "", "assignee_name": "", "revision": 0}
+    tabs = ("<nav class='section-tabs' aria-label='관리 하위 메뉴'>"
+            f"<a href='/access/admin' aria-current={'page' if view != 'profile' else 'false'}>계정·권한</a>"
+            f"<a href='/access/admin?view=profile&return_to={esc(return_to or '/access/admin')}"
+            f" aria-current={'page' if view == 'profile' else 'false'}>기본 정보</a>"
+            "<a href='/google-ledger'>Google 장부 연결</a></nav>")
+    if view == "profile":
+        body = ("<section class='sect'><h2>기본 정보</h2>"
+                "<p class='muted'>새 여행에 사용할 회사명과 기본 담당자명을 관리합니다.</p>"
+                "<form method='post' action='/api/owner-profile' id='owner-profile-form'>"
+                f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
+                f"<input type='hidden' name='expected_revision' value='{profile.get('revision', 0)}'>"
+                f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+                f"<input type='hidden' name='return_to' value='{esc(return_to or '/access/admin?view=profile')}'>"
+                f"<p><label for='owner-company-name'>회사명</label><input id='owner-company-name' name='company_name' value='{esc(profile.get('company_name', ''))}'></p>"
+                f"<p><label for='owner-assignee-name'>기본 담당자명</label><input id='owner-assignee-name' name='assignee_name' value='{esc(profile.get('assignee_name', ''))}'></p>"
+                "<div class='form-actions'><button class='btn primary' type='submit'>기본 정보 저장</button>"
+                "<a class='btn ghost' href='/access/admin'>취소</a></div></form></section>")
+    else:
+        body = (
+            "<section class='sect'><h2>계정·권한 <span class='sr'>계정 관리</span></h2>"
+            f"<p>대기 신청 {len(pending)}건</p>"
+            f"<ul>{rows}</ul>"
+            "<h3>예약 담당자 후보</h3>"
+            f"<ul>{people}</ul>"
+            "</section>")
     return ledger_design.render(ledger_design.shell(
-        "계정 관리", tab_id="", heading="계정 관리", body=body))
+        "관리", tab_id="", heading="관리", body=tabs + body))
 
 
 def _operator_choice(case_id, form):
@@ -654,7 +674,7 @@ def access_control_render_provider_config(session, status) -> str:
             options = ("<option value=''>조회 전 · 목록을 먼저 읽어 주세요"
                        "</option>")
         elif not selectable:
-            options = ("<option value=''>무료 지원이 확인된 모델이 없어요"
+            options = ("<option value=''>무료 지원이 확인된 모델이 없습니다"
                        "</option>")
         else:
             current = str(entry.get("model") or "")
@@ -686,7 +706,7 @@ def access_control_render_provider_config(session, status) -> str:
             f" formnovalidate>{ui_icons.icon('link')}연결 테스트</button>"
             f"</form>"
             f"<p class='muted'>사용 가능한 모델은 서버가 조회한 목록{esc(fetched_note)}"
-            " 중 무료 지원이 확인된 항목만 고를 수 있어요.</p>"
+            " 중 무료 지원이 확인된 항목만 선택할 수 있습니다.</p>"
             f"<form method='post' action='/access/providers' class='f'>"
             f"<input type='hidden' name='action' value='clear'>"
             f"<input type='hidden' name='provider' value='{esc(name)}'>"
@@ -700,9 +720,9 @@ def access_control_render_provider_config(session, status) -> str:
                   "setting-required": "설정 필요",
                   "unknown": "미확인"}.get(tier_state, tier_state)
     tier_note = {
-        "verified": f"무료 등급을 {esc(tier.get('verified_at') or '-')}에 확인했어요.",
+        "verified": f"무료 등급을 {esc(tier.get('verified_at') or '-')}에 확인했습니다.",
         "setting-required": "프로젝트 등급을 AI Studio에서 확인하고 기록해 주세요.",
-        "unknown": "아직 프로젝트 등급을 확인하지 않았어요.",
+        "unknown": "아직 프로젝트 등급을 확인하지 않았습니다.",
     }[tier_state]
     fallback_on = bool(status.get("fallback_enabled"))
     toggle_state = "켜짐" if fallback_on else "꺼짐"
@@ -710,8 +730,8 @@ def access_control_render_provider_config(session, status) -> str:
     toggle_label = "fallback 끄기" if fallback_on else "fallback 켜기"
     body = (
         "<div class='sect'><h2>제공자 연결</h2>"
-        "<p>대화는 owner만 키를 등록할 수 있어요. 키는 서버 설정에만 보관되고 "
-        "화면·대화 기록·로그에 나타나지 않아요.</p>"
+        "<p>대화는 owner만 키를 등록할 수 있습니다. 키는 서버 설정에만 보관되고 "
+        "화면·대화 기록·로그에 나타나지 않습니다.</p>"
         f"{line('muse', 'Muse (내 PC)')}"
         f"{line('gemini', 'Gemini (서버 fallback)')}"
         "<form method='post' action='/access/providers' class='f'>"
@@ -722,7 +742,7 @@ def access_control_render_provider_config(session, status) -> str:
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         "<h3>Gemini fallback</h3>"
         f"<p class='muted'>현재 {toggle_state}. 꺼 두면 Muse 연결이 실패해도 "
-        "Gemini를 부르지 않고 대기를 유지해요.</p>"
+        "Gemini를 부르지 않고 대기 상태를 유지합니다.</p>"
         f"<button class='btn' type='submit'>{esc(toggle_label)}</button>"
         "</form>"
         "<h3>프로젝트 등급</h3>"
@@ -746,7 +766,7 @@ def access_control_render_provider_config(session, status) -> str:
         "<p class='muted'>이 화면은 실제 모델을 호출하지 않아요. 연결 테스트는 "
         "합성 문장 하나만 보내고 성공 여부와 실제 모델 ID만 알려 줘요. 키를 지우면 "
         "다음 대화는 대기 상태가 되고, 한도가 소진된 경우와 같은 방식으로 대기를 "
-        "유지해요.</p></div>")
+        "유지합니다.</p></div>")
     return ledger_design.render(ledger_design.shell(
         "제공자 연결", tab_id="", heading="제공자 연결", body=body))
 
@@ -1224,26 +1244,26 @@ def allocation_detail_body(allocation, edit: bool) -> str:
 
 
 STYLE = (
-    "<style>body{font-family:'Malgun Gothic',sans-serif;margin:0;background:#f4f5f7;color:#222}"
-    ".top{background:#fff;border-bottom:1px solid #ddd;padding:10px 16px;position:sticky;top:0;z-index:5}"
-    ".top h1{font-size:18px;margin:0}.synth{display:inline-block;background:#fff4d6;border:1px solid #e0b800;"
-    "font-size:12px;padding:1px 8px;border-radius:10px;margin-left:8px}"
+    "<style>body{font-family:'Malgun Gothic',sans-serif;margin:0;background:var(--c-bg);color:var(--c-text)}"
+    ".top{background:var(--c-surface);border-bottom:1px solid var(--c-border);padding:10px 16px;position:sticky;top:0;z-index:5}"
+    ".top h1{font-size:var(--t-h3);margin:0}.synth{display:inline-block;background:var(--c-warn-subtle);border:1px solid var(--c-warn-text);"
+    "font-size:var(--t-caption);padding:1px 8px;border-radius:var(--r-md);margin-left:8px}"
     ".wrap{display:flex;min-height:calc(100vh - 57px)}"
-    ".tabs{width:240px;flex:none;background:#fff;border-right:1px solid #ddd;overflow-y:auto;padding:8px}"
-    ".tab{display:block;border:1px solid transparent;border-radius:8px;padding:10px;margin-bottom:6px;"
-    "color:#222;text-decoration:none}.tab.sel{border-color:#3182f6;background:#eef4ff}"
-    ".tab .amt{font-size:20px;font-weight:bold}.tab small{color:#666}"
-    ".body{flex:1;min-width:0;padding:16px}.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px}"
-    ".big{font-size:28px;font-weight:bold}.muted{color:#666;font-size:13px}"
-    "table{border-collapse:collapse;width:100%}td,th{border:1px solid #e2e2e2;padding:8px;font-size:14px;text-align:left}"
-    "th{background:#f7f8fa}.num{text-align:right;font-variant-numeric:tabular-nums}"
-    ".scrollx{overflow-x:auto}.detail{width:420px;flex:none;background:#fff;border-left:1px solid #ddd;"
-    "padding:16px;overflow-y:auto}input,select{font-size:14px;padding:6px;width:100%;box-sizing:border-box}"
-    ".rowbtn{font-size:13px;padding:4px 10px}.btnprep{background:#eee;border:1px solid #ccc;border-radius:8px;"
-    "padding:8px 14px;font-size:14px;color:#666}.search{font-size:14px;padding:8px;width:100%;box-sizing:border-box}"
-    "@media (max-width:760px){.wrap{flex-direction:column}.tabs{width:auto;border-right:none;border-bottom:1px solid #ddd;"
-    "max-height:220px}.detail{width:auto;border-left:none;border-top:1px solid #ddd}}"
-    "</style>"
+    ".tabs{width:240px;flex:none;background:var(--c-surface);border-right:1px solid var(--c-border);overflow-y:auto;padding:8px}"
+    ".tab{display:block;border:1px solid transparent;border-radius:var(--r-md);padding:10px;margin-bottom:6px;"
+    "color:var(--c-text);text-decoration:none}.tab.sel{border-color:var(--c-focus);background:var(--c-accent-subtle)}"
+    ".tab .amt{font-size:var(--t-h1);font-weight:bold}.tab small{color:var(--c-text-secondary)}"
+    ".body{flex:1;min-width:0;padding:16px}.card{background:var(--c-surface);border-radius:var(--r-lg);padding:16px;margin-bottom:12px}"
+    ".big{font-size:var(--t-kpi);font-weight:bold}.muted{color:var(--c-text-secondary);font-size:var(--t-meta)}"
+    "table{border-collapse:collapse;width:100%}td,th{border:1px solid var(--c-border);padding:8px;font-size:var(--t-body-sm);text-align:left}"
+    "th{background:var(--c-surface-sunken)}.num{text-align:right;font-variant-numeric:tabular-nums}"
+    ".scrollx{overflow-x:auto}.detail{width:420px;flex:none;background:var(--c-surface);border-left:1px solid var(--c-border);"
+    "padding:16px;overflow-y:auto}input,select{font-size:var(--t-body-sm);padding:6px;width:100%;box-sizing:border-box}"
+    ".rowbtn{font-size:var(--t-meta);padding:4px 10px}.btnprep{background:var(--c-surface-sunken);border:1px solid var(--c-border);border-radius:var(--r-md);"
+    "padding:8px 14px;font-size:var(--t-body-sm);color:var(--c-text-secondary)}.search{font-size:var(--t-body-sm);padding:8px;width:100%;box-sizing:border-box}"
+    "@media (max-width:760px){.wrap{flex-direction:column}.tabs{width:auto;border-right:none;border-bottom:1px solid var(--c-border);"
+    "max-height:220px}.detail{width:auto;border-left:none;border-top:1px solid var(--c-border)}}"
+    " details>summary{list-style:none} details>summary::-webkit-details-marker{display:none} details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px} details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){ details>summary::after{transition:none}}</style>"
 )
 
 
@@ -1335,58 +1355,55 @@ def board_page(tab_id: str, query: str = "") -> str:
         )
         tables = income_table(incomes) + expense_table(expenses)
     top = (
-        "<div class='top'><h1>웹 장부"
+        "<div class='top'><h1>여행 장부"
         f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/cards/all?panel=upload'>카드 업로드</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
+        "<p><a href='/board'>여행 장부</a> · <a href='/cards/all?panel=upload'>카드 업로드</a> · "
+        "<a href='/export'>XLSX 내보내기</a> · <a href='/trips'>여행</a></p></div>"
     )
     side = (
         "<div class='tabs'>"
         f"<form method='get' action='/board'><input class='search' name='q' placeholder='여행 검색' value='{esc(query)}'></form>"
         f"{tabs_html(tab_id, query)}</div>"
     )
-    return layout("웹 장부", f"{top}<div class='wrap'>{side}<div class='body'>{head}{summary}{tables}</div></div>")
+    return layout("여행 장부", f"{top}<div class='wrap'>{side}<div class='body'>{head}{summary}{tables}</div></div>")
 
 
 def income_new_page() -> str:
+    from . import ledger_design
     options = "".join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t['display_key'])}</option>" for t in live_trips()
     )
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{data_status_mark()}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/cards/all?panel=upload'>카드 업로드</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
     body = (
-        "<div class='body'><h2>수입 직접 입력</h2>"
+        "<section class='sect manual-income-page'><p class='muted'>Google 장부에 반영할 수입을 직접 기록합니다.</p>"
         f"<form method='post' action='/api/income'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-        f"<p><label>여행</label><select name='display_tab_id'>{options}</select></p>"
-        "<p><label>거래일자</label><input name='occurred_on' placeholder='2026-04-01'></p>"
-        "<p><label>금액(원)</label><input name='amount_krw'></p>"
-        "<p><label>입금 종류</label><select name='income_kind'>"
+        f"<p><label for='income-trip'>여행</label><select id='income-trip' name='display_tab_id'><option value=''>여행을 선택하세요</option>{options}</select></p>"
+        "<p><label for='income-date'>거래일자</label><input id='income-date' name='occurred_on' placeholder='2026-04-01'></p>"
+        "<p><label for='income-amount'>금액(원)</label><input id='income-amount' name='amount_krw' inputmode='numeric'></p>"
+        "<p><label for='income-kind'>입금 종류</label><select id='income-kind' name='income_kind'>"
         "<option value='deposit'>예약금</option><option value='balance'>잔금</option>"
         "<option value='additional'>추가금</option></select></p>"
-        "<p><label>이름</label><input name='customer_name'></p>"
-        "<p><label>닉네임</label><input name='nickname'></p>"
-        "<p><label>메모</label><input name='operator_note'></p>"
-        "<button type='submit'>저장</button></form></div>"
+        "<p><label for='income-name'>이름</label><input id='income-name' name='customer_name'></p>"
+        "<p><label for='income-nickname'>닉네임</label><input id='income-nickname' name='nickname'></p>"
+        "<p><label for='income-note'>메모</label><input id='income-note' name='operator_note'></p>"
+        "<div class='form-actions'><button class='btn primary' type='submit'>저장</button>"
+        "<a class='btn ghost' href='/board'>취소</a></div></form></section>"
     )
-    return layout("수입 직접 입력", f"{top}<div class='wrap'>{body}</div>")
+    return ledger_design.render(ledger_design.shell(
+        "수입 직접 입력", tab_id="", heading="수입 직접 입력", body=body))
 
 
 MANUAL_EXPENSE_STYLE = """<style>
-.mx-card{max-width:680px;margin:24px auto 40px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:26px 28px 22px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
-.mx-card h2{margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
-.mx-sub{font-size:14px;font-weight:500;color:var(--mut);margin-left:6px}
+.mx-card{max-width:680px;margin:24px auto 40px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r-lg);padding:26px 28px 22px;box-shadow:0 1px 2px color-mix(in srgb, var(--c-text) 5%, transparent)}
+.mx-card h2{margin:0 0 20px;font-size:var(--t-h1);font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.mx-sub{font-size:var(--t-body-sm);font-weight:500;color:var(--mut);margin-left:6px}
 .mx-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 18px}
 .mx-field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .mx-field.wide{grid-column:1 / -1}
-.mx-field label{font-size:13px;font-weight:600;color:var(--mut)}
-.mx-field input,.mx-field select{height:42px;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);font:inherit;font-size:14.5px;color:var(--ink)}
-.mx-field input:focus,.mx-field select:focus{outline:2px solid #3B82F6;outline-offset:-1px}
+.mx-field label{font-size:var(--t-meta);font-weight:600;color:var(--mut)}
+.mx-field input,.mx-field select{height:42px;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper);font:inherit;font-size:var(--t-body-sm);color:var(--ink)}
+.mx-field input:focus,.mx-field select:focus{outline:2px solid var(--c-focus);outline-offset:-1px}
 .mx-amount input{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .mx-actions{display:flex;justify-content:flex-end;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
 .mx-actions .btn.primary{min-height:42px;padding:0 24px}
@@ -1405,7 +1422,7 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
     if not any(t['tab_id'] == selected_tab for t in trips):
         options = "<option value='' selected>기타비용</option>" + options
     close = ("<button type='button' data-manual-close>닫기</button>" if modal
-             else f"<a href='/board?{esc(urlencode({'tab': selected_tab}))}'>장부로 돌아가기</a>")
+             else f"<a class='btn ghost' href='/board?{esc(urlencode({'tab': selected_tab}))}'>취소</a>")
     heading = ("<h2 id='mx-title'>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
                if modal else "")
     return (
@@ -1431,12 +1448,12 @@ def manual_expense_form(selected_tab: str = "", *, modal: bool = False) -> str:
 
 
 def expense_new_page(selected_tab: str = "") -> str:
-    return layout(
-        "수기 지출 추가",
-        "<main id='main'><h1>수기 지출 추가</h1>"
-        "<p class='mx-sub'>현금·계좌이체</p>"
-        f"<div class='wrap'>{MANUAL_EXPENSE_STYLE}{manual_expense_form(selected_tab)}</div></main>",
-    )
+    from . import ledger_design
+    body = (f"{MANUAL_EXPENSE_STYLE}<section class='sect manual-expense-page'>"
+            "<p class='mx-sub'>현금·계좌이체</p>"
+            f"{manual_expense_form(selected_tab)}</section>")
+    return ledger_design.render(ledger_design.shell(
+        "수기 지출 추가", tab_id=selected_tab, heading="수기 지출 추가", body=body))
 
 
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
@@ -1463,7 +1480,7 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     )
 
 
-def trips_page(preview_tab: str = "", role: str = "") -> str:
+def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: str = "") -> str:
     from . import ledger_design, google_ledger_page
     from .sheets_export import _assignee_confirmed
 
@@ -1473,8 +1490,9 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         # passes the role it decided on the server, so nothing is guessed here.
         role = "viewer" if ACCESS_ENFORCEMENT else "owner"
     if _active_store() is None:
-        body = "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>"
-        return layout("여행 관리", f"{top}<div class='wrap'>{body}</div>")
+        body = "<section class='sect'><p>저장소가 연결되지 않았습니다.</p></section>"
+        return ledger_design.render(ledger_design.shell(
+            "여행", tab_id="", heading="여행", body=body))
     store = _active_store()
     profile = (store.owner_profile() if store is not None
                and hasattr(store, "owner_profile")
@@ -1488,16 +1506,51 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         trip_summaries = store.trip_management_summaries()
     except (sqlite3.Error, ValueError, KeyError, TypeError):
         trip_summaries = None
-    for t in live_trips(include_archived=True):
-        if t.get("deleted"):
-            continue
+    all_trips = [t for t in live_trips(include_archived=True) if not t.get("deleted")]
+    state = state if state in {"", "active", "closed", "previous", "archived", "quarter"} else "active"
+    if state == "quarter":
+        from app import quarter_tab
+        quarter_rows = []
+        for year, quarter in ((dt.date.today().year, q) for q in range(1, 5)):
+            start_month = (quarter - 1) * 3 + 1
+            start = dt.date(year, start_month, 1)
+            end = dt.date(year + (1 if quarter == 4 else 0), 1 if quarter == 4 else start_month + 3, 1) - dt.timedelta(days=1)
+            tab_id = quarter_tab.tab_id_for(year, quarter)
+            quarter_rows.append({"tab_id": tab_id, "display_key": f"{year}년 {quarter}분기 기타비용",
+                                 "display_title": f"{year}년 {quarter}분기 기타비용", "starts_on": start.isoformat(),
+                                 "ends_on": end.isoformat(), "destination": "분기 기타비용", "archived": False,
+                                 "visual_closed": False, "prepared_on": "", "prepared_by_name": "", "revision": 0,
+                                 "owner_alias": "", "owner_id": ""})
+        all_trips = quarter_rows
+    elif state == "active":
+        all_trips = [t for t in all_trips if not t.get("archived") and not t.get("visual_closed") and not is_previous_trip(t)]
+    elif state == "closed":
+        all_trips = [t for t in all_trips if t.get("visual_closed") and not t.get("archived") and not is_previous_trip(t)]
+    elif state == "previous":
+        all_trips = [t for t in all_trips if is_previous_trip(t) and not t.get("archived")]
+    elif state == "archived":
+        all_trips = [t for t in all_trips if t.get("archived")]
+    if search:
+        needle = search.casefold()
+        all_trips = [t for t in all_trips if needle in " ".join(str(t.get(k, "")) for k in ("display_key", "display_title", "destination", "prepared_by_name", "owner_name")).casefold()]
+
+    def period_label(start, end):
+        def short(value):
+            bits = str(value or '').split('-')
+            return f'{bits[1]}.{bits[2]}' if len(bits) == 3 and bits[1].isdigit() and bits[2].isdigit() else str(value or '')
+        left, right = short(start), short(end)
+        return f'{left}–{right}' if left and right else (left or right or '기간 없음')
+
+    for t in all_trips:
+        preview = {"income_count": 0, "income_total": 0,
+                   "expense_count": 0, "expense_total": 0}
         try:
             kind = "보관됨" if t["archived"] else "활성"
             registration = reserve_trips.get(t['tab_id'])
             if registration and not t['archived']:
                 from app.reserve_trips import today
                 status = registration['departure_status']
-                kind = ('출발일·댓글 확인 필요' if status != 'scheduled' else
+                kind = ('출발일·댓글을 확인해 주세요' if status != 'scheduled' else
                         '출발 예정' if t['starts_on'] >= today() else '출발한 여행')
             if trip_summaries is None:
                 raise ValueError('여행 집계를 읽지 못했습니다. 새로고침해 다시 확인해 주세요.')
@@ -1519,18 +1572,19 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 t.get("assignee_source") or "", assignee_shown):
             assignee_note = (
                 " <span class='muted warntext'>· 담당자 확인이 필요해요"
-                " (출처가 기록되지 않은 값이에요)</span>")
+                " (출처가 기록되지 않은 값입니다.)</span>")
         cards.append(
-            f"<article class='card trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t['archived']))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
-            f"<h3><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">✓ 마감</span>' if t.get('visual_closed') else ''} <span class='muted'>{esc(t.get('owner_alias', '아슬란'))} · {kind}</span></h3>"
-            f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
-            "<details class='trip-meta'><summary>여행 관리</summary>"
+            f"<tr class='trip-management-row{' trip-closed' if t.get('visual_closed') else ''}' id='manage-{esc(t['tab_id'])}' data-trip-id='{esc(t['tab_id'])}' data-owner='{esc(t.get('owner_id', 'aslan'))}' data-trip-search='{esc(t['display_key']+' '+t['destination']+' '+assignee_shown+' '+t.get('owner_name', '')+' '+t.get('owner_alias', '아슬란'))}' data-archived='{int(bool(t.get('archived')))}' data-closed='{int(bool(t.get('visual_closed')))}'>"
+            f"<td><a href='/board?{esc(urlencode({'tab': t['tab_id']}))}'>{esc(t.get('display_title') or t['display_key'])}</a> {'<span class=\"trip-closed-badge\">마감</span>' if t.get('visual_closed') else ''}</td>"
+            f"<td class='trip-period'>{esc(period_label(t.get('starts_on'), t.get('ends_on')))}</td><td>{esc(assignee_shown or '—')}</td>"
+            f"<td class='num'>{esc(str(preview.get('expense_count', 0)))}건</td><td>{'마감' if t.get('visual_closed') else '미마감'}</td>"
+            f"<td><details class='trip-meta'><summary class='icon-btn' aria-label='{esc(t.get('display_key') or t['tab_id'])} 작업'>⋯</summary>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
             f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
             # APP_SPEC 3 keeps the schedule authority and the tab kind apart from
             # the display name, so the screen states them rather than implying
             # them through the name.
-            + ("<p class='muted'>일정 근거 확인 필요</p>" if t.get('authority_status') != 'authoritative' else '') +
+            + ("<p class='muted'>일정 근거를 확인해 주세요</p>" if t.get('authority_status') != 'authoritative' else '') +
             "<p>"
             + ("<a class='btn' href='/google-ledger'>원본 장부·연결 설정 확인</a>" if google_ledger_page.enabled() and google_ledger_page.owns_route('/google-ledger') else '') + "</p>"
             f"<p>{counts}</p>"
@@ -1562,7 +1616,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<input type='hidden' name='archived' value='{'0' if t['archived'] else '1'}'>"
             "<input type='hidden' name='return_to' value='/trips'>"
             f"<button type='submit'>{ui_icons.icon('archive')}{'복원' if t['archived'] else '보관'}</button></form>"
-            f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
             + (f"<form method='post' class='trip-close-form' action='/api/trips/{esc(t['tab_id'])}/meta'>"
                f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
                f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1570,26 +1623,11 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                f"<input type='hidden' name='visual_closed' value='{int(not t.get('visual_closed'))}'>"
                "<input type='hidden' name='return_to' value='/trips'>"
                f"<button type='submit'>{ui_icons.icon('rotate-ccw' if t.get('visual_closed') else 'check')}{'마감 해제' if t.get('visual_closed') else '마감'}</button></form>" if role == 'owner' else '')
-            + "</details></article>"
+            + "</details></td></tr>"
         )
-    profile_html = ""
-    if role == "owner":
-        # The owner's own company name and default assignee. Owner-only, because
-        # it is the source for what every new trip is stamped with, and an empty
-        # field is a legitimate state rather than something to guess at.
-        profile_html = (
-            "<details class='card'><summary>회사·담당자 정보</summary>"
-            "<form method='post' action='/api/owner-profile' id='owner-profile-form'>"
-            f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
-            f"<input type='hidden' name='expected_revision' value='{profile['revision']}'>"
-            f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-            "<input type='hidden' name='return_to' value='/trips'>"
-            "<p><label for='owner-company-name'>회사명</label>"
-            f"<input id='owner-company-name' name='company_name' value='{esc(profile['company_name'])}'></p>"
-            "<p><label for='owner-assignee-name'>기본 담당자명</label>"
-            f"<input id='owner-assignee-name' name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
-            "<p class='muted'>새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.</p>"
-            f"<button type='submit'>{ui_icons.icon('save')}기본 정보 저장</button></form></details>")
+    profile_html = ("<p class='muted'>회사·담당자 정보는 "
+                    "<a href='/access/admin?view=profile&return_to=/trips'>관리 › 기본 정보</a>에서 수정합니다.</p>"
+                    if role == "owner" else "")
     preview_html = ""
     if preview_tab:
         try:
@@ -1618,25 +1656,29 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 f"<p><label>목적지</label><select name='destination'>{dest_options}</select></p>"
                 f"<button type='submit'>{ui_icons.icon('alert-triangle')}내역 이동 후 삭제 확정</button></form>"
                 "<p class='muted'>원천·이력·과거 출력은 지우지 않고 화면 탭만 없앱니다. "
-                "확정 시점에 장부가 바뀌었으면 처음부터 다시 확인합니다.</p></div>"
+                    "확정 시점에 여행 장부가 바뀌었으면 처음부터 다시 확인합니다.</p></div>"
             )
         except Exception as exc:
             preview_html = f"<div class='card'><p>미리보기 실패: {esc(str(exc))}</p></div>"
-    body = ("<div class='sect'><form id='trip-management-filter' role='search'>"
-            "<label for='trip-management-search'>여행 찾기</label> "
-            "<input id='trip-management-search' type='search' placeholder='여행 이름·코드·담당자'> "
-            "<details class='trip-filter-tools'><summary>상세 조건</summary><div>"
-            "<label for='trip-management-owner'>담당자</label> <select id='trip-management-owner'>"
-            "<option value=''>전체</option><option value='aslan'>아슬란</option><option value='andre'>김동언(안드레)</option></select> "
-            "<label for='trip-management-state'>상태</label> <select id='trip-management-state'>"
-            "<option value=''>전체</option><option value='0'>활성</option><option value='1'>보관</option></select> "
-            "<label for='trip-management-closed'>마감</label> <select id='trip-management-closed'>"
-            "<option value=''>전체</option><option value='0'>미마감</option><option value='1'>마감</option></select> "
-            "<button type='reset'>초기화</button></div></details><p id='trip-management-count' role='status'></p></form>"
-            f"{profile_html}{preview_html}{''.join(cards)}"
-            "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></div>")
+    tabs = "".join(
+        f"<a class='btn{' primary' if state == key else ''}' href='/trips?state={key}' aria-current={'page' if state == key else 'false'}>{label}</a>"
+        for key, label in (("active", "진행 중"), ("closed", "마감"), ("previous", "이전"), ("archived", "보관"), ("quarter", "분기 기타비용")))
+    body = ("<section class='sect trips-page'><form id='trip-management-filter' class='filter-bar' role='search' method='get'>"
+            "<label for='trip-management-search'>여행 이름·코드·담당자</label>"
+            f"<input id='trip-management-search' name='q' type='search' placeholder='여행 이름·코드·담당자' value='{esc(search)}'>"
+            f"<input type='hidden' name='state' value='{esc(state)}'><button class='btn primary' type='submit'>조회</button>"
+            "<a class='btn ghost' href='/trips'>초기화</a>"
+            "<select id='trip-management-state' hidden><option value=''>서버 상태</option><option value='0'>활성</option><option value='1'>보관</option></select>"
+            "<select id='trip-management-closed' hidden><option value=''>마감</option><option value='0'>미마감</option><option value='1'>마감</option></select>"
+            "<select id='trip-management-owner' hidden><option value=''>담당자</option></select></form>"
+            f"<nav class='section-tabs' aria-label='여행 상태'>{tabs}</nav>"
+            f"{profile_html}{preview_html}"
+            "<p id='trip-management-count' role='status'>결과 " + str(len(cards)) + "개</p>"
+            "<div class='data-table-wrap'><table class='data-table'><thead><tr><th>여행</th><th>기간</th><th>담당자</th><th>지출</th><th>마감</th><th><span class='sr'>작업</span></th></tr></thead><tbody>"
+            + ''.join(cards) + "</tbody></table></div>"
+            "<p id='trip-management-empty' hidden>검색 조건에 맞는 여행이 없습니다. 검색어나 상태를 바꿔 주세요.</p></section>")
     return ledger_design.render(ledger_design.shell(
-        "여행 관리", tab_id="", heading="여행 관리", body=body))
+        "여행", tab_id="", heading="여행", body=body))
 
 
 def export_page(selected_tab: str = "") -> str:
@@ -1666,12 +1708,12 @@ def export_page(selected_tab: str = "") -> str:
             # export they did not expect would be missing a trip. The note is
             # what is added.
             note = (" <span class='muted warntext'>담당자 확인이 필요해요"
-                    " (출처가 기록되지 않은 값이 있어요) · "
-                    "<a href='/trips'>여행 관리에서 확인</a></span>")
-        return (f"<label><input type='checkbox' name='tab_ids'"
+                    " (출처가 기록되지 않은 값입니다.) · "
+                    "<a href='/trips'>여행에서 확인</a></span>")
+        return (f"<label class='check-list-row'><input type='checkbox' name='tab_ids'"
                 f" value='{esc(tab_id)}'"
                 + (" checked>" if checked else ">")
-                + f" {esc(trip['display_key'])}{esc(suffix)}{note}</label><br>")
+                + f" <span>{esc(trip['display_key'])}{esc(suffix)}</span>{note}</label>")
 
     options = "".join(trip_option(t) for t in active_trips)
     archived = ""
@@ -1750,7 +1792,7 @@ def export_page(selected_tab: str = "") -> str:
             )
             jobs_html = f"<h3>최근 출력</h3><ul>{items}</ul>"
     body = (
-        "<div class='sect'><h2>선택 탭 출력</h2>"
+        "<section class='sect export-page'><h2>XLSX 내보내기</h2>"
         f"<details class='export-diagnostics'><summary>출력 전 검토·여행별 건수</summary>{review_note}{counts}</details>"
         f"<form method='post' action='/api/exports/xlsx'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
@@ -1761,17 +1803,17 @@ def export_page(selected_tab: str = "") -> str:
         f"{progress_note}"
         + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
             + str(len(unconfirmed))
-            + "개가 있어요. 해당 여행을 선택하면 확인 전에는 출력할 수 없어요. "
+             + "개가 있어요. 해당 여행을 선택하면 확인 전에는 출력할 수 없습니다. "
             "<a href='/trips'>여행 관리에서 확인</a></p>")
            if unconfirmed else "")
-        + "<button type='submit'>출력</button></form>"
+        + "<button class='btn primary' type='submit'>XLSX 내보내기</button></form>"
         f"{jobs_html}"
-        "</div>"
+        "</section>"
     )
     from . import ledger_design
 
     return ledger_design.render(ledger_design.shell(
-        '선택 탭 출력', tab_id=selected_tab, heading='선택 탭 출력', body=body))
+        'XLSX 내보내기', tab_id=selected_tab, heading='XLSX 내보내기', body=body))
 
 
 def import_page() -> str:
@@ -1796,19 +1838,19 @@ def import_page() -> str:
         "headers:{'Content-Type':'text/csv','X-Filename':encodeURIComponent(f.name),'X-CSRF-Token':csrf},"
         "body:f});"
         "if(!r.ok){const e=await r.json().catch(()=>({}));"
-        "m.textContent='실패: '+(e.message||r.status)+' — 다시 올리면 이어서 처리해요.';return;}"
+        "m.textContent='실패: '+(e.message||r.status)+' — 다시 올리면 이어서 처리됩니다.';return;}"
         "const j=await r.json();"
-        "m.textContent='접수됐어요. 가져오는 동안 장부와 여기서 진행을 볼 수 있어요.';"
+        "m.textContent='접수되었습니다. 가져오는 동안 여행 장부와 여기서 진행 상황을 볼 수 있습니다.';"
         "let p={};"
         "for(let i=0;i<120;i++){"
         "const q=await fetch('/api/imports/'+j.batch_id);"
         "if(!q.ok){m.textContent='진행 조회 실패 — 새로고침 뒤 다시 확인해 주세요.';return;}"
         "p=(await q.json()).result||{};"
         "if(p.status&&p.status!=='reconciling'&&p.status!=='parsing'&&p.status!=='processing')break;"
-        "m.textContent='분류 중(가져온 행부터 장부에 보여요)...';"
+        "m.textContent='처리 중입니다(가져온 행부터 여행 장부에 표시됩니다)...';"
         "await new Promise(s=>setTimeout(s,500));}"
         "if(p.status==='reconciling'||p.status==='parsing'||p.status==='processing'){"
-        "m.textContent='아직 처리 중이에요. 잠시 뒤 새로고침하면 이어져요.';return;}"
+        "m.textContent='아직 처리 중입니다. 잠시 후 새로고침하면 이어집니다.';return;}"
         "m.textContent='완료';"
         "document.getElementById('res').innerHTML="
         "'<p>원본 '+p.source_rows+'행 · 새 사건 '+p.new_events+'건 · 여행 배치 '+p.placed_trips"
@@ -1875,7 +1917,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
     from . import ledger_design
 
     if row is None:
-        return layout("행 없음", "<div class='top'><h1>웹 장부</h1></div><div class='body'><p>행이 없어요.</p></div>")
+        return layout("행 없음", "<div class='top'><h1>여행 장부</h1></div><div class='body'><p>행이 없습니다.</p></div>")
     from . import ledger_design
 
     if row.get("is_allocation") and _active_store() is not None:
@@ -1894,7 +1936,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             if _active_store() is None:
                 form = (
                     "<h3>행 편집 (저장 준비 중)</h3>"
-                    "<p class='muted'>저장소가 연결되지 않았어요.</p>"
+                    "<p class='muted'>저장소가 연결되지 않았습니다.</p>"
                     "<button class='btnprep' disabled>저장 준비 중</button>"
                 )
             else:
@@ -1914,10 +1956,10 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                         f"<p><label>거래일자</label><input name='occurred_on' value='{esc(row['occurred_on'])}'></p>"
                         f"<p><label>금액(원)</label><input name='amount_krw' value='{esc(row['amount_krw'])}'></p>"
                     )
-                    fixed_note = "원천 식별자는 고정 필드라 바꿀 수 없어요."
+                    fixed_note = "원천 식별자는 고정 필드라 바꿀 수 없습니다."
                 else:
                     extra_fields = ""
-                    fixed_note = "거래일자·금액·원천 식별자·가맹점 원문은 고정 필드라 바꿀 수 없어요."
+                    fixed_note = "거래일자·금액·원천 식별자·가맹점 원문은 고정 필드라 바꿀 수 없습니다."
                 form = (
                     "<h3>행 편집</h3>"
                     f"<form method='post' action='/api/rows/{esc(row_id)}/save'>"
@@ -2010,7 +2052,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 if cand_lines else ""
             ).format(cand_lines=cand_lines)
             lock_note = (
-                "<p class='muted'>은행 원천 연결 뒤에는 날짜·금액을 여기서 바꿀 수 없어요. 은행 정정 경로를 써 주세요.</p>"
+                "<p class='muted'>은행 원천 연결 뒤에는 날짜·금액을 여기서 바꿀 수 없습니다. 은행 정정 경로를 사용해 주세요.</p>"
                 if links else ""
             )
             if edit:
@@ -2049,7 +2091,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 "<button type='submit'>연결</button></form>"
             )
         elif edit:
-            extra = "<p class='muted'>은행 원천 행은 정정 경로로만 바꿀 수 있어요.</p>"
+            extra = "<p class='muted'>은행 원천 행은 정정 경로로만 바꿀 수 있습니다.</p>"
         else:
             extra = f"<p><a href='/row?id={esc(row_id)}&edit=1'>편집</a></p>"
         if _active_store() is not None:
@@ -2093,7 +2135,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
 
     return ledger_design.render(ledger_design.shell(
         "행 상세", tab_id=row.get("display_tab_id") or "",
-        heading=f"거래 {esc(row_id)}",
+        heading=f"{'수입' if kind == 'income' else '지출'} 상세 {esc(row_id)}",
         meta=(f"<span>구분 <b>{'수입' if kind == 'income' else '지출'}</b></span>"
               + ("<span><a href='/trips'>여행 관리</a></span>" if kind != "income" else "")),
         body=(f"<div class='sect'>{body}{rule_dialog_link(row_id)}"
@@ -2107,47 +2149,47 @@ def _login_entry_body(has_login: bool) -> str:
     """Pretty static first-screen login card, no query reflection."""
     style = (
         "<style>"
-        "body{margin:0;background:#faf6ec;}"
+        "body{margin:0;background:var(--c-bg);}"
         ".lg-wrap{box-sizing:border-box;display:flex;align-items:center;"
         "justify-content:center;min-height:100vh;margin:0;padding:28px 16px;"
-        "background:#faf6ec;}"
+        "background:var(--c-bg);}"
         ".lg-card{box-sizing:border-box;width:100%;max-width:440px;"
-        "background:#fffdf8;border:1px solid #e7ddc6;border-radius:18px;"
+        "background:var(--c-surface);border:1px solid var(--c-border);border-radius:var(--r-lg);"
         "padding:32px 28px;text-align:center;"
-        "box-shadow:0 12px 32px rgba(47,93,58,.12),"
-        "0 2px 6px rgba(60,50,30,.06);"
+        "box-shadow:0 12px 32px color-mix(in srgb, var(--c-text) 12%, transparent),"
+        "0 2px 6px color-mix(in srgb, var(--c-text) 6%, transparent);"
         "font-family:system-ui,-apple-system,'Segoe UI',Roboto,"
-        "'Noto Sans KR',sans-serif;color:#2b2a26;}"
+        "'Noto Sans KR',sans-serif;color:var(--c-text);}"
         ".lg-logo{display:flex;justify-content:center;margin:0 0 12px;}"
-        ".lg-badge{width:52px;height:52px;border-radius:16px;"
-        "background:#eef3e8;border:1px solid #d8e2cc;display:flex;"
+        ".lg-badge{width:52px;height:52px;border-radius:var(--r-lg);"
+        "background:var(--c-accent-subtle);border:1px solid var(--c-border);display:flex;"
         "align-items:center;justify-content:center;}"
-        ".lg-brand{margin:0 0 4px;font-size:13px;letter-spacing:.12em;"
-        "color:#5f7a63;font-weight:700;}"
-        ".lg-title{margin:0 0 10px;font-size:28px;line-height:1.25;"
-        "color:#234a2d;}"
-        ".lg-desc{margin:0 0 20px;font-size:15px;line-height:1.65;"
-        "color:#5b5546;}"
+        ".lg-brand{margin:0 0 4px;font-size:var(--t-meta);letter-spacing:.12em;"
+        "color:var(--c-text-secondary);font-weight:700;}"
+        ".lg-title{margin:0 0 10px;font-size:var(--t-kpi);line-height:1.25;"
+        "color:var(--c-accent-text);}"
+        ".lg-desc{margin:0 0 20px;font-size:var(--t-body-sm);line-height:1.65;"
+        "color:var(--c-text-secondary);}"
         ".lg-btn{box-sizing:border-box;display:flex;align-items:center;"
         "justify-content:center;gap:10px;min-height:52px;width:100%;"
-        "padding:12px 16px;border-radius:12px;background:#2f5d3a;color:#fff;"
-        "font-size:17px;font-weight:700;line-height:1.4;text-decoration:none;"
-        "border:1px solid #2f5d3a;}"
-        ".lg-btn:hover{background:#26492f;border-color:#26492f;}"
-        ".lg-btn:focus-visible{outline:3px solid #1b3a23;outline-offset:3px;}"
-        ".lg-g{width:22px;height:22px;border-radius:50%;background:#fff;"
+        "padding:12px 16px;border-radius:var(--r-lg);background:var(--c-accent-solid);color:var(--c-on-accent);"
+        "font-size:var(--t-body);font-weight:700;line-height:1.4;text-decoration:none;"
+        "border:1px solid var(--c-accent-solid);}"
+        ".lg-btn:hover{background:var(--c-accent-solid-hover);border-color:var(--c-accent-solid-hover);}"
+        ".lg-btn:focus-visible{outline:3px solid var(--c-accent-text);outline-offset:3px;}"
+        ".lg-g{width:22px;height:22px;border-radius:50%;background:var(--c-surface);"
         "display:inline-flex;align-items:center;justify-content:center;"
         "flex:none;}"
-        ".lg-note{margin:16px 0 0;font-size:13.5px;line-height:1.6;"
-        "color:#6b6455;}"
-        ".lg-setup{box-sizing:border-box;margin:0;border:1px dashed #b9c4ab;"
-        "border-radius:12px;background:#f2f5ec;padding:14px;font-size:14px;"
-        "line-height:1.65;color:#43563f;}"
+        ".lg-note{margin:16px 0 0;font-size:var(--t-meta);line-height:1.6;"
+        "color:var(--c-text-secondary);}"
+        ".lg-setup{box-sizing:border-box;margin:0;border:1px dashed var(--c-border-control);"
+        "border-radius:var(--r-lg);background:var(--c-accent-subtle);padding:14px;font-size:var(--t-body-sm);"
+        "line-height:1.65;color:var(--c-text-secondary);}"
         "@media (max-width:360px){.lg-card{padding:26px 20px;}"
-        ".lg-title{font-size:24px;}}"
-        "@media (prefers-contrast:more){.lg-card{border-color:#234a2d;}"
-        ".lg-desc,.lg-note{color:#2b2a26;}"
-        ".lg-btn{text-decoration:underline;}}"
+        ".lg-title{font-size:var(--t-h1);}}"
+        "@media (prefers-contrast:more){.lg-card{border-color:var(--c-accent-text);}"
+        ".lg-desc,.lg-note{color:var(--c-text);}"
+        ".lg-btn{text-decoration:none;}}"
         "@media (forced-colors:active){.lg-card{border:2px solid CanvasText;}"
         ".lg-btn{forced-color-adjust:auto;}}"
         "</style>"
@@ -2198,7 +2240,7 @@ def _login_entry_body(has_login: bool) -> str:
         "<main class=\"lg-wrap\"><div class=\"lg-card\">"
         "<div class=\"lg-logo\">" + logo + "</div>"
         "<p class=\"lg-brand\">숲길따라</p>"
-        "<h1 class=\"lg-title\">웹 장부</h1>"
+        "<h1 class=\"lg-title\">여행 장부</h1>"
         "<p class=\"lg-desc\">여행별 수입과 지출을 차분히 정리하는 "
         "장부입니다.</p>"
         + action +
@@ -2343,7 +2385,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Google refused, or the user declined. The description may name
                 # the reason; it never names an account.
                 self._auth_page("로그인 취소",
-                                f"<p>로그인이 완료되지 않았어요 ({error}).</p>",
+                                f"<p>로그인이 완료되지 않았습니다 ({error}).</p>",
                                 code=400, refusal=error)
                 return True
             try:
@@ -2451,7 +2493,7 @@ class Handler(BaseHTTPRequestHandler):
                             login_body = _login_entry_body(False)
                         else:
                             login_body = _login_entry_body(True)
-                        self._auth_page("웹 장부", login_body, code=401,
+                        self._auth_page("여행 장부", login_body, code=401,
                                         refusal="AUTH_REQUIRED")
                         return
             self._send_json({"code": exc.code, "message": exc.message},
@@ -2511,7 +2553,9 @@ class Handler(BaseHTTPRequestHandler):
             if not is_owner_session(session):
                 # the account management screen is an owner action
                 deny_for_viewer(action=True)
-            self._send(access_control_render_owner_admin(session, _ACCESS))
+            self._send(access_control_render_owner_admin(
+                session, _ACCESS, view=query.get("view", [""])[0],
+                return_to=query.get("return_to", [""])[0]))
             return True
         if path == "/access/providers":
             if not is_owner_session(session):
@@ -3770,7 +3814,11 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/rules":
             case_id = query.get("case", [""])[0]
             if not case_id:
-                self._send(layout("규칙 대화", "<div class='body'><h1>검토할 거래를 선택해 주세요</h1><p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p><a href='/cards/all'>카드 내역으로 돌아가기</a></div>"), code=404)
+                self._send(layout(
+                    "분류 규칙은 거래 상세에서 엽니다",
+                    "<div class='body'><h1>분류 규칙은 거래 상세에서 엽니다</h1>"
+                    "<p>카드 거래 상세에서 분류 규칙을 열 수 있습니다.</p>"
+                    "<a class='btn primary' href='/cards/all'>카드 거래 보기</a></div>"), code=404)
                 return
             self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/api/tabs":
@@ -3793,7 +3841,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif parsed.path == "/trips":
             self._send(trips_page(query.get("preview_tab", [""])[0],
-                                  role=resolve_role(self.headers, self._cookies())))
+                                  role=resolve_role(self.headers, self._cookies()),
+                                  state=query.get("state", ["active"])[0],
+                                  search=query.get("q", [""])[0]))
         elif parsed.path.startswith("/api/imports/"):
             if _IMPORTER is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
@@ -4358,7 +4408,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(
             {"code": "TEMPORARILY_UNAVAILABLE",
-             "message": "요청을 처리하지 못했어요. 같은 요청으로 다시 확인해 주세요",
+            "message": "요청을 처리하지 못했어요. 같은 요청으로 다시 확인해 주세요",
              "retry_same_client_request_id": True},
             code=503)
 
@@ -4464,7 +4514,7 @@ class Handler(BaseHTTPRequestHandler):
         form = {k: (v if len(v) > 1 else v[0])
                 for k, v in parse_qs(raw.decode("utf-8"), keep_blank_values=True).items()}
         if form.get("csrf") != CSRF_TOKEN:
-            self._send(layout("규칙 대화", "<div class='body'><p>확인 토큰이 없어요.</p></div>"), code=403)
+            self._send(layout("규칙 대화", "<div class='body'><p>확인 토큰이 없습니다.</p></div>"), code=403)
             return
         case_id = str(form.get("case") or "")
         request_id = str(form.get("client_request_id") or "")
@@ -4902,7 +4952,7 @@ class Handler(BaseHTTPRequestHandler):
             tab_ids = [t for t in (raw_tabs or []) if isinstance(t, str)]
             valid = {t["tab_id"] for t in live_trips(include_archived=True)}
             if not tab_ids or any(t not in valid for t in tab_ids):
-                raise SaveError("INVALID_VALUE", "출력할 여행을 골라 주세요")
+                raise SaveError("INVALID_VALUE", "내보낼 여행을 하나 이상 선택하세요.")
             seen = set()
             ordered = [t for t in tab_ids if not (t in seen or seen.add(t))]
             job_id = f"xlsx-{payload.get('client_request_id') or uuid.uuid4().hex}"

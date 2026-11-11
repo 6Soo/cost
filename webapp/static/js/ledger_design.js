@@ -1,6 +1,13 @@
 
 (function(){
  document.addEventListener('DOMContentLoaded',function(){
+  var tripMore=document.getElementById('trip-settings');
+  if(tripMore){
+   var tripMoreSummary=tripMore.querySelector('summary');
+   var syncTripMore=function(){if(tripMoreSummary)tripMoreSummary.setAttribute('aria-expanded',String(tripMore.open));};
+   tripMore.addEventListener('toggle',syncTripMore);
+   syncTripMore();
+  }
   if(!document.querySelector('.trip-actions'))return;
   document.documentElement.classList.add('trip-actions-ready');
   function sync(){
@@ -39,6 +46,130 @@
   }).observe(region,{childList:true});
   sync();
  });
+})();
+
+/* PR-4 ledger workspace: APG tabs, grouped expense rows, and native drawer. */
+(function(){
+  function drawer(){return document.getElementById('ledger-drawer');}
+  function rowSelector(){return '.tw tr[data-id],.lst .list-row[data-id]';}
+  function closeDrawer(){
+    document.dispatchEvent(new Event('ledger:close-panel'));
+  }
+  function showDrawer(row,range){
+    document.dispatchEvent(new CustomEvent('ledger:open-row',{detail:{id:row.dataset.id,row:row,range:range}}));
+  }
+  function activateTab(button,focus){
+    var root=button.closest('.view-tabs');if(!root)return;
+    var buttons=Array.from(root.querySelectorAll('[role=tab]'));
+    buttons.forEach(function(item){
+      var active=item===button;item.setAttribute('aria-selected',active?'true':'false');item.tabIndex=active?0:-1;
+      var panel=document.getElementById(item.getAttribute('aria-controls'));if(panel)panel.hidden=!active;
+      if(!item.id)item.id='tab-'+item.getAttribute('aria-controls');
+      if(panel)panel.setAttribute('aria-labelledby',item.id);
+    });
+    if(focus)button.focus();
+  }
+  function tabForHash(hash){
+    var map={'#trip-income':'view-income','#participant-trip-panel':'view-participants','#trip-reservations':'view-reservations','#trip-expense-copy':'view-expense','#copy-trip-expenses':'view-expense'};
+    return map[hash]||((hash||'').replace(/^#/,'').indexOf('view-')===0?(hash||'').slice(1):'');
+  }
+  function restoreHash(){
+    var id=tabForHash(location.hash);if(!id)return;
+    var button=document.querySelector('[role=tab][aria-controls="'+CSS.escape(id)+'"]');if(button){activateTab(button,false);var target=document.getElementById(id);if(target)setTimeout(function(){var anchor=target.querySelector(location.hash);(anchor||target).scrollIntoView({block:'start'});},0);}
+  }
+  var grouping=false;
+  function groupExpenses(){
+    if(grouping)return;
+    grouping=true;
+    try{
+    var toggle=document.querySelector('[data-group-expenses]');if(!toggle)return;
+    document.querySelectorAll('.lst').forEach(function(list){
+      list.querySelectorAll('.expense-category-group').forEach(function(head){head.remove();});
+      var mobileRows=Array.from(list.querySelectorAll(':scope > li[data-kind=expense]'));
+      mobileRows.forEach(function(row,index){if(row.dataset.ledgerOrder===undefined)row.dataset.ledgerOrder=String(index);});
+      mobileRows.sort(function(a,b){return Number(a.dataset.ledgerOrder)-Number(b.dataset.ledgerOrder);});
+      if(!toggle.checked){mobileRows.forEach(function(row){list.appendChild(row);});return;}
+      var mobileGroups=new Map();
+      mobileRows.forEach(function(row){var key=row.dataset.category||'기타';if(!mobileGroups.has(key))mobileGroups.set(key,[]);mobileGroups.get(key).push(row);});
+      mobileGroups.forEach(function(rows,key){
+        var head=document.createElement('li');head.className='list-group expense-category-group';
+        var label=document.createElement('span');label.textContent=key+' · '+rows.length+'건';head.appendChild(label);
+        var total=document.createElement('span');total.className='tnum';
+        total.textContent=new Intl.NumberFormat('ko-KR').format(rows.reduce(function(sum,row){return sum+Number(row.dataset.amount||0);},0))+'원';head.appendChild(total);
+        list.appendChild(head);rows.forEach(function(row){list.appendChild(row);});
+      });
+    });
+    var table=document.getElementById('tbl');if(!table)return;
+    var body=table.querySelector('tbody.expense-rows[data-kind=expense]');if(!body)return;
+    body.querySelectorAll('.group-row').forEach(function(row){row.remove();});
+    var rows=Array.from(body.querySelectorAll(':scope > tr[data-id]'));
+    var entries=rows.map(function(row,index){
+      if(row.dataset.ledgerOrder===undefined)row.dataset.ledgerOrder=String(index);
+      return {row:row,move:body.querySelector('[data-move-for="'+CSS.escape(row.dataset.id)+'"]')};
+    });
+    // Detach the data rows and their optional move forms before rebuilding the
+    // body. Otherwise new group headers would be appended after the original
+    // rows and the grouping toggle would appear to do nothing.
+    entries.forEach(function(entry){
+      entry.row.remove();
+      if(entry.move)entry.move.remove();
+    });
+    if(!toggle.checked){
+      entries.sort(function(a,b){return Number(a.row.dataset.ledgerOrder)-Number(b.row.dataset.ledgerOrder);});
+      entries.forEach(function(entry){body.appendChild(entry.row);if(entry.move)body.appendChild(entry.move);});
+      return;
+    }
+    var groups=new Map();entries.forEach(function(entry){var key=entry.row.dataset.category||'기타';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(entry);});
+    groups.forEach(function(items,key){
+      items.sort(function(a,b){return Number(a.row.dataset.ledgerOrder)-Number(b.row.dataset.ledgerOrder);});
+      var total=items.reduce(function(sum,entry){return sum+Number(entry.row.dataset.amount||0);},0);
+      var head=document.createElement('tr');head.className='group-row';
+      var cell=document.createElement('th');cell.scope='rowgroup';cell.colSpan=table.querySelectorAll('thead th').length;cell.textContent=key+' · '+items.length+'건';
+      var totalSpan=document.createElement('span');totalSpan.className='group-total';totalSpan.textContent=new Intl.NumberFormat('ko-KR').format(total)+'원';cell.appendChild(totalSpan);head.appendChild(cell);body.appendChild(head);
+      items.forEach(function(entry){body.appendChild(entry.row);if(entry.move)body.appendChild(entry.move);});
+    });
+    }finally{grouping=false;}
+  }
+  document.addEventListener('click',function(event){
+    var target=event.target;
+    var tabButton=target.closest&&target.closest('[role=tab]');
+    if(tabButton){event.preventDefault();event.stopImmediatePropagation();activateTab(tabButton,false);return;}
+    var tripOpen=target.closest&&target.closest('#trip-switch-open');
+    if(tripOpen){event.preventDefault();var d=document.getElementById('trip-switch-dialog');if(d)d.showModal();return;}
+    if(target.closest&&target.closest('[data-trip-switch-close]')){var d=document.getElementById('trip-switch-dialog');if(d)d.close();return;}
+    if(target.closest&&target.closest('[data-drawer-close],#drawer-close,#p-close,#p-cancel')){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
+    var row=target.closest&&target.closest(rowSelector());
+    if(row&&!target.closest('form,select,input,textarea,a:not(.lr-hit)')){event.preventDefault();event.stopImmediatePropagation();showDrawer(row,event.shiftKey);return;}
+  },true);
+  document.addEventListener('keydown',function(event){
+    if(event.key==='Escape'&&drawer()&&drawer().open){event.preventDefault();event.stopImmediatePropagation();closeDrawer();return;}
+    if((event.key==='Enter'||event.key===' '||event.key==='Spacebar')){
+      var row=event.target.closest&&event.target.closest(rowSelector());
+      if(row&&!event.target.closest('button,select,input,textarea,a')){
+        event.preventDefault();event.stopImmediatePropagation();showDrawer(row,event.shiftKey);return;
+      }
+    }
+    var tab=event.target.closest&&event.target.closest('[role=tab]');if(!tab)return;
+    var tabs=Array.from(tab.closest('[role=tablist]').querySelectorAll('[role=tab]')),index=tabs.indexOf(tab),next=index;
+    if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;
+    event.preventDefault();event.stopImmediatePropagation();activateTab(tabs[next],true);
+  },true);
+  document.addEventListener('DOMContentLoaded',function(){
+    var dialog=drawer(),panel=dialog&&dialog.querySelector('#panel');if(dialog&&panel&&!dialog.open)dialog.showModal();
+    var close=dialog&&dialog.querySelector('[data-drawer-close]');if(close)close.addEventListener('click',closeDrawer);
+    var switcher=document.getElementById('trip-switch-dialog'),search=document.getElementById('trip-switch-search');
+    if(switcher) switcher.addEventListener('close',function(){if(search)search.value='';});
+    if(search)search.addEventListener('input',function(){var q=search.value.trim().toLocaleLowerCase();document.querySelectorAll('[data-trip-switch-item]').forEach(function(item){item.parentElement.hidden=!!q&&!item.textContent.toLocaleLowerCase().includes(q);});});
+    var tabs=document.querySelectorAll('[role=tab]');tabs.forEach(function(tab,index){tab.id=tab.id||'tab-'+tab.getAttribute('aria-controls');tab.tabIndex=tab.getAttribute('aria-selected')==='true'?0:-1;var panel=document.getElementById(tab.getAttribute('aria-controls'));if(panel)panel.setAttribute('aria-labelledby',tab.id);if(index===0&&!tab.hasAttribute('aria-selected'))activateTab(tab,false);});
+    restoreHash();window.addEventListener('hashchange',restoreHash);
+    var toggle=document.querySelector('[data-group-expenses]');if(toggle){try{toggle.checked=localStorage.getItem('cost-board-group')==='1';}catch(error){};toggle.addEventListener('change',function(){try{localStorage.setItem('cost-board-group',toggle.checked?'1':'0');}catch(error){};groupExpenses();});groupExpenses();}
+    var live=document.getElementById('live-rows');
+    if(live&&window.MutationObserver)new MutationObserver(function(mutations){
+      if(grouping)return;
+      var replaced=mutations.some(function(m){return Array.from(m.addedNodes||[]).some(function(node){return node.id==='tbl'||node.querySelector&&node.querySelector('#tbl');});});
+      if(replaced)groupExpenses();
+    }).observe(live,{childList:true,subtree:true});
+  });
 })();
 (function(){
  document.addEventListener('click',async function(event){
@@ -86,7 +217,8 @@
   function ask(message,submit){
    if(!dlg){if(window.confirm(message))submit();return;}
    root.open=true;
-   dlg.querySelector('p').textContent=message;pending=submit;dlg.showModal();
+   dlg.querySelector('p').textContent=message;pending=submit;
+   document.body.appendChild(dlg);dlg.showModal();
   }
   function write(target){
    if(busy)return;
@@ -105,7 +237,7 @@
   function bindPanel(){
    dlg=root.querySelector('#participant-link-confirm');
    form=root.querySelector('.participant-keyboard-link');
-   if(dlg)dlg.addEventListener('close',function(){var action=pending;pending=null;if(dlg.returnValue==='confirm'&&action)action();});
+   if(dlg){var dialogParent=dlg.parentNode;dlg.addEventListener('close',function(){var action=pending;pending=null;dialogParent.appendChild(dlg);if(dlg.returnValue==='confirm'&&action)action();});}
    root.querySelectorAll('.participant-income-status').forEach(function(template){
     var cell=document.querySelector('.participant-insurance-cell[data-income-ref="'+CSS.escape(template.dataset.incomeRef)+'"]');
     if(!cell||cell.dataset.incomeRefundComplete==='1')return;
@@ -322,12 +454,22 @@ function goBack(){location.href=main.dataset.base;}
     {height:height+'px',opacity:1,overflow:'hidden'}
    ],{duration:220,easing:'cubic-bezier(.22,1,.36,1)'});
   }
+  var drawerOpener=null;
   function placeEditor(id){
    cancelEditorExit();
    var slot=document.getElementById('panel-slot');
    var rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]'), target=null;
    for(var i=0;i<rows.length;i++) if(rows[i].dataset.id===id&&rows[i].getClientRects().length){target=rows[i];break;}
    if(!slot||!target)return false;
+   var dialog=document.getElementById('ledger-drawer');
+   if(dialog){
+    drawerOpener=target;
+    if(!dialog.contains(slot))(dialog.querySelector('.drawer-body')||dialog).appendChild(slot);
+    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+    target.setAttribute('aria-expanded','true');target.setAttribute('aria-controls','panel');
+    if(!dialog.open)dialog.showModal();
+    return true;
+   }
    var old=slot.closest('.inline-editor-row,.inline-editor-mobile');
    if(old){document.querySelector('.app').appendChild(slot);old.remove();}
    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
@@ -345,6 +487,15 @@ function goBack(){location.href=main.dataset.base;}
    var slot=document.getElementById('panel-slot');
    if(!slot){if(done)done();return;}
    cancelEditorExit();
+   var dialog=document.getElementById('ledger-drawer');
+   if(dialog&&dialog.contains(slot)){
+    if(dialog.open)dialog.close();
+    slot.innerHTML='';
+    document.querySelectorAll('[data-id][aria-expanded=true]').forEach(function(row){row.setAttribute('aria-expanded','false');row.removeAttribute('aria-controls');});
+    if(drawerOpener&&drawerOpener.isConnected)drawerOpener.focus({preventScroll:true});
+    if(done)done();
+    return;
+   }
    var wrapper=slot.closest('.inline-editor-row,.inline-editor-mobile');
    function finish(){
     editorExitAnimation=null;
@@ -392,7 +543,7 @@ function goBack(){location.href=main.dataset.base;}
    if(!form||!select)return;
    var initial=select.querySelector('option[selected]');
    var values=select.innerHTML,chosen=select.value!==(initial?initial.value:'')?select.value:'';
-   if(form.getAttribute('data-dirty')&&!window.confirm('여행 선택을 유지하고 다른 편집 내용은 취소할까요?'))return;
+   if(!canLeavePanel('여행 선택을 유지하고 다른 편집 내용은 취소할까요?'))return;
    var row=Array.from(document.querySelectorAll('[data-id]')).find(function(el){return el.dataset.id===id&&el.getClientRects().length;});
    if(!row)return;
    releasePanel();removeEditor();setRowParam('');
@@ -402,12 +553,13 @@ function goBack(){location.href=main.dataset.base;}
    var empty=bar.querySelector('select option[value=""]');if(empty)empty.textContent='변경할 여행 선택';
    bar.querySelector('select').value=chosen;
    bulk={selected:new Map(),bar:bar,anchor:id,saving:false};document.body.classList.add('bulk-selecting');
-   if(window.ResizeObserver){bulk.observer=new ResizeObserver(function(){main.style.setProperty('--bulk-bar-height',(bar.getBoundingClientRect().height+24)+'px');});bulk.observer.observe(bar);}
+   var scrollArea=main.closest('.main')||main;
+   if(window.ResizeObserver){bulk.observer=new ResizeObserver(function(){scrollArea.style.setProperty('--bulk-bar-height',(bar.getBoundingClientRect().height+24)+'px');});bulk.observer.observe(bar);}
    bulkToggle(row,false);bar.querySelector('select').focus();
   }
   function endBulk(){
    if(!bulk||bulk.saving)return;
-   var bar=bulk.bar;if(bulk.observer)bulk.observer.disconnect();bulk=null;document.body.classList.remove('bulk-selecting');main.style.removeProperty('--bulk-bar-height');bar.remove();
+   var bar=bulk.bar;if(bulk.observer)bulk.observer.disconnect();bulk=null;document.body.classList.remove('bulk-selecting');(main.closest('.main')||main).style.removeProperty('--bulk-bar-height');bar.remove();
    document.querySelectorAll('[data-id]').forEach(function(row){delete row.dataset.bulkSelected;row.removeAttribute('aria-selected');row.removeAttribute('aria-pressed');});
    window.dispatchEvent(new Event('ledger:saved'));
   }
@@ -541,7 +693,7 @@ function goBack(){location.href=main.dataset.base;}
   // another row, and the previous/next buttons all pass through here. A save in
   // flight is not interrupted — the answer is not on screen yet — and a typed edit
   // is only dropped after the reader says so.
-  function canLeavePanel(){
+  function canLeavePanel(message){
    if(panelLoading) return false;
    if(document.querySelector('form[data-saving="1"]')){
     var slot=(panelForm()&&panelForm().querySelector('.f-msg'))||
@@ -551,9 +703,17 @@ function goBack(){location.href=main.dataset.base;}
    }
    var f=panelForm();
    if(f&&f.getAttribute('data-dirty')&&!window.confirm(
-    '저장하지 않은 변경이 있어요. 저장하지 않고 이동할까요?')) return false;
+    message||'저장하지 않은 변경이 있어요. 저장하지 않고 이동할까요?')) return false;
    return true;
   }
+  document.addEventListener('ledger:open-row',function(event){
+   var detail=event.detail||{};
+   if(bulk){if(detail.row)bulkToggle(detail.row,detail.range);return;}
+   openPanel(detail.id);
+  });
+  document.addEventListener('ledger:close-panel',closePanel);
+  var ledgerDrawer=document.getElementById('ledger-drawer');
+  if(ledgerDrawer)ledgerDrawer.addEventListener('cancel',function(event){event.preventDefault();closePanel();});
   // Leaving is a decision, so the dirty mark goes with it and a change that was
   // held back for this panel is asked for again straight away.
   function releasePanel(){
@@ -812,7 +972,8 @@ document.addEventListener('keydown',function(e){
   // A finished save, and a row list that another screen replaced, both mean the
   // selection and the position beside the walking buttons have to be read again.
   window.addEventListener('ledger:saved',function(){markSelection();syncNav();});
-  if(panelRow())placeEditor(panelRow());
+  // PR-4 keeps the editor in the native ledger drawer; it is not moved beside
+  // the clicked row.
   window.addEventListener('resize',function(){
    window.requestAnimationFrame(function(){
     var id=panelRow(), slot=document.getElementById('panel-slot');
@@ -1000,5 +1161,41 @@ document.addEventListener('keydown',function(e){
    }catch(error){status.textContent=error.message||'저장하지 못했습니다. 다시 시도해 주세요.';
     busy=false;controls.forEach(function(c){c.disabled=false;});form.removeAttribute('aria-busy');}
   });
+ });
+})();
+
+/* Excluded-from-copy rows: open the transaction detail in place (no page change). */
+(function(){
+ function rowButton(rowId){
+  var row=rowId&&document.querySelector('[data-id="'+CSS.escape(rowId)+'"]');
+  if(!row)return null;
+  var b=document.createElement('button');b.type='button';b.className='btn';b.textContent='장부 행 상세 열기';
+  b.addEventListener('click',function(){row.scrollIntoView({block:'center'});row.click();});
+  return b;
+ }
+ function message(panel,text,rowId){
+  panel.replaceChildren();
+  var p=document.createElement('p');p.className='copy-held-note';p.textContent=text;panel.append(p);
+  var b=rowButton(rowId);if(b)panel.append(b);
+ }
+ document.addEventListener('click',async function(event){
+  var button=event.target.closest&&event.target.closest('.copy-held-toggle');
+  if(!button)return;
+  var panel=document.getElementById(button.getAttribute('aria-controls'));
+  if(!panel)return;
+  var open=button.getAttribute('aria-expanded')==='true';
+  button.setAttribute('aria-expanded',String(!open));panel.hidden=open;
+  if(open||panel.dataset.loaded==='1')return;
+  var id=button.dataset.transactionId,rowId=button.dataset.rowId;
+  if(!id){message(panel,'카드 거래가 아니어서 이 자리에서 상세를 불러올 수 없습니다.',rowId);return;}
+  panel.setAttribute('aria-busy','true');message(panel,'상세를 불러오는 중입니다.',null);
+  try{
+   var response=await fetch('/api/cards/transactions/detail?'+new URLSearchParams({id:id}),{headers:{'Accept':'application/json'},credentials:'same-origin'});
+   if(response.status===404){message(panel,'카드 거래 상세가 없는 행입니다. 장부 행 상세에서 확인하세요.',rowId);}
+   else if(!response.ok){message(panel,'상세를 불러오지 못했습니다. 잠시 뒤 다시 펼쳐 보세요.',rowId);panel.removeAttribute('aria-busy');return;}
+   else{var data=await response.json();panel.innerHTML=data.html||'';var b=rowButton(rowId);if(b)panel.append(b);}
+   panel.dataset.loaded='1';
+  }catch(error){message(panel,'연결이 끊겨 상세를 불러오지 못했습니다. 다시 펼쳐 보세요.',rowId);}
+  panel.removeAttribute('aria-busy');
  });
 })();

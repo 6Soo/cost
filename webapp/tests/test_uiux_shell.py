@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 from unittest.mock import patch
 
-from webapp import error_page, flight_passenger_page, insurance_income_match_page
+from webapp import error_page, flight_passenger_page, insurance_income_match_page, site_shell
 from webapp import ledger_board
 
 
@@ -36,7 +36,58 @@ def test_uxa03_server_and_client_do_not_reapply_pressed_trip_state():
     assert "aria-pressed" not in js
     assert "aria-pressed" not in design
     assert ".nv[aria-current=page]" in css
-    assert "aria-current=\\\"page\\\"" in design
+    assert 'aria-current="page"' in site_shell.sidebar(section="trips", role="owner")
+
+
+def test_uxa15_section_mapping_and_server_shell_structure():
+    assert site_shell.section_for('/') == 'home'
+    assert site_shell.section_for('/trips') == 'trips'
+    assert site_shell.section_for('/board?tab=refunds') == 'transactions'
+    assert site_shell.section_for('/cards/all') == 'transactions'
+    assert site_shell.section_for('/receipts') == 'receipts'
+    assert site_shell.section_for('/access/admin') == 'admin'
+    document = site_shell.wrap_document(
+        '<html><head><title>Cards</title></head><body><main><h1>Cards</h1></main></body></html>',
+        '/cards/all',
+    )
+    assert document.count("id='main'") == 1
+    assert document.count('id="nav"') == 1
+    assert '<title>Cards · 숲길여행 회계</title>' in document
+    assert '본문으로 건너뛰기' in document
+
+
+def test_uxa16_sidebar_removes_legacy_drawers_and_limits_live_trips():
+    sidebar = site_shell.sidebar(section='trips', role='owner', live_nav=site_shell._active_trip_nav('', role='owner'))
+    assert 'tripq' not in sidebar
+    assert '이전 여행' not in sidebar
+    assert '보관 목록' not in sidebar
+    assert '>환불<' not in sidebar
+    assert '여행 전체 보기' in sidebar
+    assert sidebar.count("id='live-nav'") == 1
+
+
+def test_uxa17_viewer_shell_has_only_trip_navigation():
+    shell = site_shell.app_shell("<main id='main'><h1>여행</h1></main>", section='trips',
+                                 title='여행', role='viewer', live_nav='')
+    assert shell.count("class='site-nav-link'") == 1
+    assert "class='nav-manage-link'" not in shell
+    assert 'site-bottom-nav' not in shell
+    assert 'site-more-dialog' not in shell
+
+
+def test_uxa18_workflow_return_is_server_breadcrumb_and_js_does_not_insert_bar():
+    js = (ROOT / "webapp/static/js/site_shell.js").read_text(encoding="utf-8")
+    assert 'cost-workflow-return' not in js
+    assert 'workflow-return' not in js
+    assert 'site_shell' in js or 'site-more-dialog' in js
+
+
+def test_tool_context_does_not_mark_a_trip_as_current_navigation():
+    document = site_shell.wrap_document(
+        '<html><head><title>영수증</title></head><body><main><h1>영수증</h1></main></body></html>',
+        '/receipts?trip=synthetic-trip',
+    )
+    assert document.count('class=\'nv nv-current\'') == 0
 
 
 def test_uxa04_content_negotiation_for_removed_page():
@@ -120,7 +171,8 @@ def test_unclassified_copy_uses_connection_language_without_changing_contracts()
 
 def test_uxa08_expense_page_has_one_main_heading_and_primary_save_button():
     page = ledger_board.expense_new_page()
-    assert page.count("<main id='main'>") == 1
+    assert page.count("<main ") == 1
+    assert "id='main'" in page
     assert page.count("<h1>") == 1
     assert "class='btn primary'" in page
     assert "background:#1D4ED8" not in page

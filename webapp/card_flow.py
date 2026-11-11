@@ -1,7 +1,8 @@
-﻿"""카드 파일부터 장부까지 이어지는 단일 사용자 흐름."""
+"""카드 파일부터 장부까지 이어지는 단일 사용자 흐름."""
 import hashlib
 import json
 import os
+import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -370,7 +371,8 @@ def batch_catalog(board):
 
 @read_scope.scoped
 def home_page(board):
-    from . import ledger_board, ledger_design, ui_icons
+    from . import ledger_board, ledger_design, receipt_review, ui_icons
+    from . import card_upload_coverage
     from app.reserve_trips import registrations, sync_status, today, KST
     import datetime as dt
     esc = ledger_board.esc
@@ -387,92 +389,102 @@ def home_page(board):
             "FROM transactions t WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
-    trips = board.list_trips()
-    registered = registrations(board)
-    upcoming = sorted((t for t in trips if t['tab_id'] in registered
-                       and registered[t['tab_id']]['departure_status']=='scheduled'
-                       and t['starts_on'] >= today()), key=lambda t:(t['starts_on'], t['display_key']))
-    # A manually created trip is still a usable ledger entry point even when
-    # no reservation feed has registered its departure. Do not call it scheduled.
-    listed_trips = upcoming or sorted(
-        (t for t in trips if not t.get('deleted') and not t.get('archived')),
-        key=lambda t:(t['starts_on'], t['display_key']))
-    trip_heading = '출발 예정 여행' if upcoming else '등록된 여행'
+        last_transaction_row = board.conn.execute(
+            "SELECT MAX(COALESCE(NULLIF(approval_date,''),NULLIF(posting_date,''))) FROM transactions").fetchone()
+    last_transaction = (last_transaction_row[0] if last_transaction_row else '') or ''
+    trips = [t for t in board.list_trips()
+             if not t.get('deleted') and not t.get('archived')
+             and not ledger_board.is_previous_trip(t)]
+    listed_trips = sorted(trips, key=lambda t:(t['starts_on'], t['display_key']))
+    trip_heading = '진행 중 여행'
     posted = board.visible_row_count()
-    board_tab = upcoming[0]['tab_id'] if upcoming else ledger_board.default_board_tab()
+    try:
+        trip_summaries = board.trip_management_summaries()
+    except (AttributeError, sqlite3.Error, ValueError, KeyError, TypeError):
+        trip_summaries = {}
     def short_date(value):
         parts = str(value).split('-')
         return f"{parts[1]}.{parts[2]}" if len(parts) == 3 else str(value)
 
+    def trip_expense_count(trip):
+        summary = trip_summaries.get(trip['tab_id'], {}) if isinstance(trip_summaries, dict) else {}
+        return int(summary.get('expense_count', 0) or 0)
     items = ''.join(
-        f"<li><a class='home-trip' href='/board?tab={esc(t['tab_id'])}'>"
-        f"<strong>{esc(t['display_key'])}</strong>"
-        f"<span class='home-date' title='{esc(t['starts_on'])} ~ {esc(t['ends_on'])}'>"
-        f"<span class='home-date-full'>{esc(t['starts_on'])} ~ {esc(t['ends_on'])}</span>"
-        f"<span class='home-date-short' aria-hidden='true'>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</span>"
-        "</span></a></li>"
-        for t in listed_trips[:6])
+        f"<tr><th scope='row'><a href='/board?tab={esc(t['tab_id'])}'>{esc(t['display_key'])}</a></th>"
+        f"<td>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</td>"
+        f"<td>{trip_expense_count(t)}건</td>"
+        f"<td>{'마감' if t.get('visual_closed') else '미마감'}</td></tr>"
+        for t in listed_trips[:8])
     state = sync_status(board)
     next_run = state.get('next_run_at')
     next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
                  if next_run else '')
     if next_run and dt.datetime.fromisoformat(next_run).astimezone(KST) <= dt.datetime.now(KST):
         next_note = ''
+    coverage = {}
+    try:
+        coverage = card_upload_coverage.get_coverage_summary(board)
+    except Exception:
+        coverage = {}
+    gap_count = int((coverage.get('overview') or {}).get('gap_count') or 0)
+    receipt_count = 0
+    if receipt_review.enabled():
+        try:
+            receipt_count = len(receipt_review.load(receipt_review._store_path()).get('candidates', []))
+        except Exception:
+            receipt_count = 0
     body = ("<style>"
              ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
-             ".home-status{font-size:13px;color:var(--mut);margin:0 0 12px}"
+             ".home-status{font-size:var(--t-meta);color:var(--mut);margin:0 0 12px}"
+             ".home-status-list{list-style:none;padding:0;margin:0;display:grid;gap:10px}"
+             ".home-status-list li{display:flex;gap:12px;flex-wrap:wrap;align-items:baseline}"
+             ".home-status-list span{color:var(--mut);min-width:104px}"
              ".home-status b{color:var(--ink);font-weight:700}"
-             ".page-body a.btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}"
-             ".page-body a.btn.primary:hover{background:var(--grn-hover,var(--grn-dk));border-color:var(--grn-hover,var(--grn-dk));color:#fff}"
-             ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:#fff}"
-            ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:#fff}"
+             ".page-body a.btn.primary{background:var(--grn);border-color:var(--grn);color:var(--c-on-accent)}"
+             ".page-body a.btn.primary:hover{background:var(--grn-hover,var(--grn-dk));border-color:var(--grn-hover,var(--grn-dk));color:var(--c-on-accent)}"
+             ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:var(--c-on-accent)}"
+            ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:var(--c-on-accent)}"
             ".home-primary{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 0 10px!important}"
-            ".home-secondary{display:flex;gap:10px;flex-wrap:wrap}"
             ".home-travel-section{padding:18px 24px 22px}"
-            ".home-travel-heading{font-size:18px!important;margin:0 0 8px!important}"
-            ".home-trips{list-style:none!important;margin:0 0 8px!important;padding:0!important;border-top:1px solid var(--line)}"
-            ".home-trips li{margin:0!important}"
-            ".home-trip{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:42px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13.5px;text-decoration:none}"
-            ".home-trip strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--ink)}"
-            ".home-date{flex:0 0 auto;font-size:12.5px;color:var(--mut);white-space:nowrap}"
-            ".home-date-short{display:none}"
-            ".home-all{font-size:13px;margin:8px 0 0!important}"
+            ".home-travel-heading{font-size:var(--t-h3)!important;margin:0 0 8px!important}"
+            ".home-trips{margin:0 0 8px!important}"
+            ".home-trips tbody th,.home-trips tbody td{background:var(--c-surface)}"
+            ".home-all{font-size:var(--t-meta);margin:8px 0 0!important}"
             "@media(width < 760px){"
             ".home-main .page-hd{padding:20px 16px 6px;border-bottom:0;display:block}"
-            ".home-main .page-hd h1{font-size:24px;line-height:1.2}"
+            ".home-main .page-hd h1{font-size:var(--t-h1);line-height:1.2}"
             ".home-main .page-hd .synth,.home-main .page-hd .meta,.home-main .page-hd .act{display:none}"
             ".home-overview{padding:0 16px 10px;border-bottom:0}"
-            ".home-status{font-size:13px;line-height:1.35;margin:0 0 12px;white-space:normal}"
-            ".home-primary{display:flex;width:100%;min-height:46px;margin:0 0 8px!important;justify-content:center;font-size:14px}"
-            ".home-secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:0}"
+            ".home-status-list li{display:grid;grid-template-columns:88px minmax(0,1fr);gap:6px}"
+            ".home-status-list li a{grid-column:2}"
+            ".home-status{font-size:var(--t-meta);line-height:1.35;margin:0 0 12px;white-space:normal}"
+            ".home-primary{display:flex;width:100%;min-height:46px;margin:0 0 8px!important;justify-content:center;font-size:var(--t-body-sm)}"
             ".home-main .work-action{min-height:44px;padding:8px}"
             ".home-main .work-action small{display:none}"
-            ".page-body .home-secondary .btn{width:100%;height:36px;margin:0;padding:0 5px;font-size:12.5px;font-weight:600;background:var(--paper);border-color:var(--line-strong);color:var(--ink)}"
             ".home-travel-section{padding:12px 16px 18px}"
-            ".home-travel-heading{font-size:19px!important;line-height:1.25;margin:0 0 6px!important}"
-            ".home-trip{min-height:48px;padding:0;font-size:14px}"
-            ".home-date{font-size:12.5px}"
-            ".home-date-full{display:none}"
-            ".home-date-short{display:inline}"
-            ".home-all{margin:7px 0 0!important;font-size:12.5px}"
+            ".home-travel-heading{font-size:var(--t-h3)!important;line-height:1.25;margin:0 0 6px!important}"
+            ".home-all{margin:7px 0 0!important;font-size:var(--t-meta)}"
             ".home-next-note{display:none}"
             "}"
             "</style>"
-            "<section class='home-overview' aria-label='카드 자료와 장부 현황'>"
-            f"<p class='home-status'>{'조회 기간 내 카드 거래' if review_from else '저장된 카드 거래 전체'} <b>{saved:,}</b> · 장부 <b>{posted:,}</b></p>"
+            "<section class='home-overview' aria-label='자료 상태'>"
+                "<h2 class='home-travel-heading'>자료 상태</h2><ul class='home-status-list'>"
+            + f"<li><span>카드 자료</span><strong>{'저장된 카드 거래 전체' if not review_from else '조회 기간 내 카드 거래'} <b>{saved}</b> · 장부 <b>{posted}</b></strong>"
+            + (f" · 마지막 거래 {esc(last_transaction)}" if last_transaction else "")
+            + (f" <a href='/cards/all?panel=coverage'>빈 기간 {gap_count}곳 보기</a>" if gap_count else "") + "</li>"
+            + (f"<li><span>영수증</span><strong>이번 달 등록 {receipt_count}건</strong> <a href='/receipts'>영수증 열기</a></li>" if receipt_review.enabled() else "")
+            + (f"<li><span>여행 일정 조회</span><strong>다음 조회 {esc(next_note)}</strong></li>" if next_note else "")
+            + "</ul>"
             f"<a class='btn primary home-primary' href='/cards/all?panel=upload'>{ui_icons.icon('upload')}카드 업로드</a>"
-            "<nav class='home-secondary' aria-label='장부 보조 작업'>"
-            f"<a class='btn' href='/cards/all'>{ui_icons.icon('credit-card')}카드 내역</a>"
-            f"<a class='btn' href='/board?tab={esc(board_tab)}'>{ui_icons.icon('book-open')}장부</a>"
-            "</nav></section>"
-            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips)}</h2>"
-            + (f"<ul class='home-trips'>{items}</ul>"
-               if items else "<p>등록된 여행이 없습니다. 전체 여행 보기에서 여행을 추가해 주세요.</p>")
+            "</section>"
+            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips[:8])}</h2>"
+            + ("<div class='data-table-wrap'><table class='data-table home-trips'><thead><tr><th>여행</th><th>기간</th><th>지출</th><th>마감</th></tr></thead><tbody>" + items + "</tbody></table></div>"
+               if items else "<p>진행 중인 여행이 없습니다. 여행은 Google 시트 탭으로 만듭니다.</p>")
             + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"
             + (f"<p class='muted home-next-note'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
             + "</section>")
     return ledger_design.render(ledger_design.shell(
-        '장부 현황', tab_id='', heading='장부 현황', body=body, home=True))
+        '정산 현황', tab_id='', heading='정산 현황', body=body, home=True))
 
 
 class CardFlow:
@@ -1642,7 +1654,7 @@ class CardFlow:
             if link.get('inferred'):
                 for member in (refund, link['original_id']):
                     holds.setdefault(member, {'kind': 'refund_inferred',
-                        'reason': '원결제 추론 연결 · 별도 근거 검증 전 장부 기록 보류 (환급 완료 아님)'})
+                        'reason': '원결제 자동 연결 · 별도 근거 검증 전 기록을 준비합니다 (환급 완료 아님)'})
                 continue
             # A classified full offset belongs in refunds, so an automatic trip
             # request cannot block it. Persisted/manual/financial holds remain.
@@ -2334,7 +2346,7 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
       headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
       body:JSON.stringify({csrf:csrf,expected_revision:Number(item.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
   try{const response=await request;const result=await response.json().catch(()=>({}));
-    if(!response.ok)throw Error(result.message||'저장하지 못했어요');
+    if(!response.ok)throw Error(result.message||'저장하지 못했습니다.');
     location.reload();
   }catch(err){button.disabled=false;error.textContent=err.message}
 }));
@@ -2719,15 +2731,15 @@ def ota_catalog_summary(entry) -> str:
         if status:
             label_map = {
                 'EXACT': 'OTA 결제 확정 연결',
-                'INFERRED': 'OTA 결제 코드 추론',
+                'INFERRED': 'OTA 결제 자동 연결',
                 'GROUP_RECONCILED': 'OTA 반복 결제 그룹 대응 (개별 연결 미확정)',
                 'GROUP_LINKED': 'OTA M:N 연결',
                 'USER_CONFIRMED': '사용자 확정 OTA 연결',
-                'RESERVATION_INFERRED': '예약 코드 추론 · 결제 미검증',
+                'RESERVATION_INFERRED': '예약 자동 연결 · 결제 미검증',
                 'RESERVATION_CONFIRMED': '사용자 확인 예약 관계 · 결제 미검증',
-                'RESERVATION_NEEDS_REVIEW': '예약 후보 경합/충돌 · 사용자 확인 필요',
-                'RESERVATION_STALE': '저장된 예약 관계 근거 변경 · 재확인 필요',
-                'REVIEW_REQUIRED': 'OTA 그룹 부분 대응 · 개별 연결 보류',
+                'RESERVATION_NEEDS_REVIEW': '예약 후보 경합/충돌 · 자료를 확인해 주세요',
+                'RESERVATION_STALE': '저장된 예약 관계 근거 변경 · 원본을 확인해 주세요',
+                'REVIEW_REQUIRED': 'OTA 그룹 부분 대응 · 개별 연결 전 확인',
                 'CANDIDATE': 'OTA 예약 후보 존재 · 연결 미확정',
                 'MULTIPLE_CANDIDATES': 'OTA 복수 후보 · 개별 연결 미확정',
                 'UNLINKED': 'OTA 연결 미확정', 'UNKNOWN': 'OTA 상태 확인 대기',
@@ -2816,7 +2828,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
         title = ('환불 기록 완료' if len(recorded) == 2 else
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         if link.get('inferred'):
-            title = '원결제 추론 연결 · 장부 기록 보류 (환급 완료 아님)'
+            title = '원결제 추론 연결 · 기록 전 확인 (환급 완료 아님)'
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
                  else '동일 카드·카카오 가맹점·기간·동액 기준 원결제 연결'
@@ -2829,7 +2841,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                  if link.get('inferred')
                  else '원승인번호 기준 원결제 확정 연결')
         lines = [{'full': '순액 0원', 'partial': '부분 환불',
-                  'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
+                  'excess': '환불 합계가 원결제를 초과해 기록 전 확인이 필요합니다.'}.get(link['status'], '연결 상태를 확인해 주세요'),
                  f"{basis} · 취소/환불 {link['refund_count']}건",
                  f"원결제 {link['gross_krw']:,}원 · 환불 합계 {link['refunds_total_krw']:,}원 · 순액 {link['net_krw']:,}원"]
         if link['original_id'] in recorded and tid not in recorded:
@@ -2849,12 +2861,12 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                     (row[0], row[1], foreign[0], foreign[1]))
                     if _foreign_amount(candidate[3]) == _foreign_amount(foreign[2])]
         if any(any(v for v in candidate) for candidate in originals):
-            title, lines = '원결제 원본 충돌 확인 필요', ['원결제 후보의 중복·원본 오류를 먼저 확인해 주세요.']
+            title, lines = '원결제 원본 충돌 · 확인해 주세요', ['원결제 후보의 중복·원본 오류를 먼저 확인해 주세요.']
         elif len(originals) > 1 or tid in (count_held_cancellations(board.conn)
                                          if held_cancellations is None else held_cancellations):
             title, lines = '원결제 후보를 하나로 정할 수 없습니다', ['승인 정보와 원결제·환불 건수를 함께 확인해 주세요.']
         elif originals:
-            title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
+            title, lines = '원결제 후보의 대응을 확인해 주세요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
         else:
             title, lines = '원결제 자료 미확인', ['승인 참조 또는 동일 카드·가맹점·날짜·금액 등의 조건을 충족하는 원결제가 없습니다. 원승인번호는 필수조건이 아닙니다. 아래 가맹점 검색 결과를 비교해 주세요.']
         if row and not str(row[2] or '').strip():
@@ -3036,20 +3048,20 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
         if preview_row:
             blocked = preview_row.get('blocked')
             blocked_labels = {
-                'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
-                'refund_pair_incomplete': '원결제·환불 그룹 근거가 완성되지 않아 COST 내부 기록을 보류합니다.',
-                'refund_inferred': '기록 보류: 원결제 추론 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
-                'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
-                'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
-                'review_hold': '기록 보류: ' + str(preview_row.get('reason') or '검토 보류 사유를 확인해 주세요.'),
+                'trip_no_longer_valid': '기록 전 확인: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
+                'refund_pair_incomplete': '원결제·환불 그룹 근거가 완성되지 않아 COST 내부 기록 전 확인이 필요합니다.',
+                'refund_inferred': '기록 전 확인: 원결제 자동 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
+                'source_conflict': '기록 전 확인: 카드 원본 간 충돌을 확인해야 합니다.',
+                'duplicate_possible': '기록 전 확인: 중복 가능성이 있습니다.',
+                'review_hold': '기록 전 확인: ' + str(preview_row.get('reason') or '검토 사유를 확인해 주세요.'),
                 'item_missing': '기록 준비 전: 비용 항목 확인이 필요합니다.',
                 'trip_needed': '기록 준비 전: 유효한 여행 배정이 필요합니다.',
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
-                'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
+                'trip_no_longer_valid': '기록 전 확인: 배정된 여행이 현재 유효하지 않습니다.',
             }
             finance_label = ('COST 내부 기록 있음' if preview_row.get('already_booked') else
                              blocked_labels.get(blocked, '' if not blocked else
-                                                '기록 보류: 금융 검토가 필요합니다.'))
+                                                '기록 전 금융 검토가 필요합니다.'))
             if (blocked == 'review_hold' and not held
                     and preview_row.get('reason') == '비용 항목과 배정 내용을 확인해 주세요.'):
                 finance_label = '여행·항목을 확인하고 변경 저장을 눌러 주세요.'
@@ -3077,7 +3089,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             example = pairs[0][1]
             if example.get('inferred'):
                 reason = ('원결제와 취소의 동일 카드·동액 기준 추론 연결. '
-                          '별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.')
+                          '별도 근거 검증 전 기록을 준비합니다 · 환급 완료 아님.')
             elif example.get('status') == 'full':
                 reason = f"원결제와 취소·환불 {example['refund_count']}건의 금액을 함께 확인할 수 있습니다."
             elif example.get('status') == 'partial':
@@ -3093,15 +3105,15 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             else:
                 status = link.get('status')
                 if link.get('inferred'):
-                    reason = '원결제 추론 연결. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
+                    reason = '원결제 추론 연결. 별도 근거 검증 전 기록을 준비합니다 · 환급 완료 아님.'
                 elif status == 'full':
                     reason = '원결제와 전액 취소·환불 관계가 연결되어 있습니다. 내부 기록 상태는 별도 표시입니다.'
                 elif status == 'partial':
                     reason = f'부분 환불 {link.get("refund_count", 0)}건 연결 · 현재 순액 {link.get("net_krw")}원. 실제 카드 환급 여부는 별도입니다.'
                 elif status == 'excess':
-                    reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록을 보류합니다.'
+                    reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록 전 확인이 필요합니다.'
                 else:
-                    reason = '원결제 연결을 확인해야 하며 비용 기록을 보류합니다.'
+                    reason = '원결제 연결과 비용 기록을 확인해야 합니다.'
             evidence = _render_refund_evidence(board, tid, link, held_cancellations=held_refunds)
             if finance_label:
                 evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
@@ -3115,7 +3127,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             refund_count = int(link.get('refund_count') or len(linked_refunds))
             if link.get('inferred'):
                 reason = (f'원결제 추론 연결 · 취소·환불 {refund_count}건. '
-                          '별도 근거 검증 전 장부 기록 보류 · 실제 카드 환급 완료 아님.')
+                          '별도 근거 검증 전 기록을 준비합니다 · 실제 카드 환급 완료 아님.')
             elif link.get('status') == 'full' and link.get('net_krw') == 0:
                 reason = (f'환불 상쇄 확인 · 원승인번호 기준 원결제 확정 연결 · 취소·환불 {refund_count}건. '
                           '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
@@ -3124,7 +3136,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                           '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
             elif link.get('status') == 'excess':
                 reason = (f'환불 합계가 원결제를 넘어 금액 충돌이 있습니다 · 연결 {refund_count}건. '
-                          '쌍 전체 내부 기록을 보류합니다.')
+                          '쌍 전체 내부 기록 전 확인이 필요합니다.')
         # Keep financial, cancellation and evidence rows read-only in this detail.
         category = reason_category(dict(conflict_reason=conflict_reason, parse_error=parse_error,
             item=item, display_tab_id=current_tab,
@@ -3239,16 +3251,16 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
         nav_html=nav,
         script_html=script_html,
         style_html=card_cleanup_ui.CLEANUP_STYLE +
-        "<style>#expense-cleanup .cleanup-breakdown a{display:inline-flex;align-items:center;min-height:44px;padding:7px 12px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
+        "<style>#expense-cleanup .cleanup-breakdown a{display:inline-flex;align-items:center;min-height:44px;padding:7px 12px;border:1px solid var(--shell-line);border-radius:var(--r-pill);background:var(--shell-hover);color:inherit;text-decoration:none}"
         "#expense-cleanup .cleanup-breakdown .cleanup-filter-count{white-space:nowrap}"
         "#expense-cleanup .cleanup-breakdown a[aria-current='page']{border:2px solid var(--shell-accent);font-weight:750}"
         "#expense-cleanup .cleanup-owner{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 8px}"
-        "#expense-cleanup .cleanup-owner a{display:inline-flex;align-items:center;min-height:44px;padding:7px 14px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
+        "#expense-cleanup .cleanup-owner a{display:inline-flex;align-items:center;min-height:44px;padding:7px 14px;border:1px solid var(--shell-line);border-radius:var(--r-pill);background:var(--shell-hover);color:inherit;text-decoration:none}"
         "#expense-cleanup .cleanup-owner .cleanup-user-cta{border:2px solid var(--shell-accent);font-weight:750}"
         "#expense-cleanup .cleanup-owner a[aria-current='page']{outline:3px solid var(--shell-accent);outline-offset:2px}"
         "#expense-cleanup .cleanup-breakdown a:focus-visible,#expense-cleanup .cleanup-owner a:focus-visible{outline:3px solid var(--shell-accent);outline-offset:2px}"
         "#expense-cleanup .cleanup-filter-total{font-weight:700;margin:8px 0}"
-        "#expense-cleanup .cleanup-auto-state{color:var(--shell-muted,#667);font-size:.85em;margin:4px 0 0}</style>",
+        "#expense-cleanup .cleanup-auto-state{color:var(--shell-muted,var(--c-text-secondary));font-size:var(--t-body-sm);margin:4px 0 0}</style>",
     )
 
 
@@ -3283,46 +3295,46 @@ def page(csrf):
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>카드 거래 상세</title><style>
-#upload-results .upload-result-list{list-style:none;padding:0;margin:0;border:1px solid var(--shell-line);border-radius:8px;overflow:hidden}#upload-results .upload-result-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,.7fr) auto;align-items:center;gap:8px 16px;padding:10px 14px;border-bottom:1px solid var(--shell-line);font-size:14px;line-height:1.5}#upload-results .upload-result-row:last-child{border-bottom:0}#upload-results .upload-result-name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}#upload-results .upload-result-state{color:var(--shell-muted)}#upload-results [data-state=auth] .upload-result-state{color:var(--shell-warn)}#upload-results .upload-result-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;white-space:nowrap;border:1px solid var(--shell-line);border-radius:6px;text-decoration:none;font-weight:600}#upload-results .upload-result-link:hover{background:var(--shell-hover)}#upload-results .upload-result-link:focus-visible{outline:2px solid var(--shell-accent);outline-offset:2px}#upload-results .upload-result-notice{margin:0 0 12px;color:var(--shell-muted)}#upload-results .upload-result-row>details{grid-column:1/-1}@media(max-width:600px){#upload-results .upload-result-row{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px}#upload-results .upload-result-name{grid-column:1}#upload-results .upload-result-state{grid-column:1;font-size:13px}#upload-results .upload-result-link{grid-column:2;grid-row:1/3}}
+#upload-results .upload-result-list{list-style:none;padding:0;margin:0;border:1px solid var(--shell-line);border-radius:var(--r-md);overflow:hidden}#upload-results .upload-result-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,.7fr) auto;align-items:center;gap:8px 16px;padding:10px 14px;border-bottom:1px solid var(--shell-line);font-size:var(--t-body-sm);line-height:1.5}#upload-results .upload-result-row:last-child{border-bottom:0}#upload-results .upload-result-name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}#upload-results .upload-result-state{color:var(--shell-muted)}#upload-results [data-state=auth] .upload-result-state{color:var(--shell-warn)}#upload-results .upload-result-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;white-space:nowrap;border:1px solid var(--shell-line);border-radius:var(--r-sm);text-decoration:none;font-weight:600}#upload-results .upload-result-link:hover{background:var(--shell-hover)}#upload-results .upload-result-link:focus-visible{outline:2px solid var(--shell-accent);outline-offset:2px}#upload-results .upload-result-notice{margin:0 0 12px;color:var(--shell-muted)}#upload-results .upload-result-row>details{grid-column:1/-1}@media(max-width:600px){#upload-results .upload-result-row{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px}#upload-results .upload-result-name{grid-column:1}#upload-results .upload-result-state{grid-column:1;font-size:var(--t-meta)}#upload-results .upload-result-link{grid-column:2;grid-row:1/3}}
 @font-face{font-family:"Pretendard Variable";src:url("/assets/fonts/PretendardVariable.woff2") format("woff2-variations"),url("/assets/fonts/PretendardVariable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
-*{box-sizing:border-box}body{margin:0;padding:16px;font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;background:var(--shell-bg);color:var(--shell-ink)}main{max-width:900px;margin:auto;min-width:0}
-article,section{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:4px;padding:16px;margin:12px 0;min-width:0}input,select,textarea{font:inherit;max-width:100%;min-width:0;padding:0 8px;border:1px solid var(--shell-line);border-radius:4px;background:var(--shell-paper);color:var(--shell-ink)}input:not([type=checkbox]),select{height:34px}input:not([type=checkbox]),select,textarea{width:100%;margin:6px 0}textarea{height:auto;min-height:64px;padding:8px}button{font:inherit;max-width:100%;padding:0 12px;min-height:34px;border:1px solid var(--shell-line);border-radius:4px;background:var(--shell-paper);color:var(--shell-ink);font-weight:600;cursor:pointer}button:disabled{opacity:.5}button .ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}button .ic:first-child{margin-right:6px}button .ic:last-child:not(:first-child){margin-left:6px}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}form[data-index] button,#commit,#upload,#ruleform button:not([type=button]){background:#1C7A52;border-color:#1C7A52;color:#fff}h1{font-size:20px}h2{font-size:16px}.small{font-size:13px;color:var(--shell-muted)}.amount{font-size:17px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.hidden{display:none}table{width:100%;table-layout:fixed;border-collapse:collapse}h1,h2,button,p,span,td,th,summary{overflow-wrap:anywhere;word-break:keep-all;min-width:0}td button{padding:0 8px;min-height:34px}td,th{padding:7px 10px;text-align:left;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}a{color:var(--shell-accent)}.pv-label{display:none}
-.review-item{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:4px;margin:0 0 8px;min-width:0}.review-item summary{min-height:44px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;font-size:14px;font-weight:600;cursor:pointer}.review-item summary .ri-date{font-size:13px;color:var(--shell-muted);font-weight:400;white-space:nowrap}.review-item summary h2{font-size:14px;font-weight:600;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.review-item summary .amount{font-size:14px;margin-left:auto;white-space:nowrap}.ri-flag{font-size:12px;font-weight:600;color:var(--shell-warn);max-width:100%;white-space:normal}.ri-body{padding:4px 12px 12px;min-width:0}
-#holds:empty{display:none}#batches{display:grid;gap:8px}#batches p{margin:0;min-width:0}.batch-choice{width:100%;min-height:48px;text-align:left;line-height:1.5;font-size:14px}.batch-choice span{font-size:13px;color:var(--shell-muted)}summary{cursor:pointer;padding:10px 0;min-height:44px;display:flex;align-items:center}details{min-width:0}nav{font-size:14px}
-.flow{margin:12px 0;font-size:13px;color:var(--shell-muted);border:1px solid var(--shell-line);border-radius:4px;background:var(--shell-paper);padding:8px 12px}
-@media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid var(--shell-line);border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:var(--shell-muted)}.review-item summary{min-height:48px;font-size:14px}.ri-flag{flex-basis:100%}}
-.upload-table{overflow-x:auto}.upload-table table{min-width:650px}.upload-result{border:1px solid var(--shell-line);border-radius:4px;padding:12px;margin:8px 0}.upload-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.upload-metrics div{border:1px solid var(--shell-line);padding:8px}.upload-metrics b{color:var(--shell-muted);margin-right:6px}.upload-metrics strong{font-size:18px}.financial-warning{border:2px solid var(--shell-warn);padding:10px;margin-top:10px}@media(max-width:550px){.upload-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-#newupload #upload{min-height:44px}#newupload section{display:grid;gap:12px}.upload-lede{margin:0;max-width:68ch}.upload-drop{display:grid;gap:4px;min-height:112px;padding:18px;border:2px dashed var(--shell-line);border-radius:10px;background:var(--shell-bg);cursor:pointer;transition:border-color .16s ease,background-color .16s ease}.upload-drop:hover,.upload-drop:focus-visible,.upload-drop.is-dragover{border-color:var(--shell-accent);background:var(--shell-selected);outline:none}.upload-drop strong{color:var(--shell-accent);font-size:15px}.upload-drop small{color:var(--shell-muted)}.upload-drop.is-dragover strong{text-decoration:underline}.upload-file-list{display:grid;gap:2px;margin:0;padding-left:18px;color:var(--shell-ink);font-size:13px}.upload-file-list li{overflow-wrap:anywhere}.upload-file-count{font-weight:700}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+*{box-sizing:border-box}body{margin:0;padding:16px;font:400 var(--t-body-sm)/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;background:var(--shell-bg);color:var(--shell-ink)}main{max-width:900px;margin:auto;min-width:0}
+article,section{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:var(--r-sm);padding:16px;margin:12px 0;min-width:0}input,select,textarea{font:inherit;max-width:100%;min-width:0;padding:0 8px;border:1px solid var(--shell-line);border-radius:var(--r-sm);background:var(--shell-paper);color:var(--shell-ink)}input:not([type=checkbox]),select{height:34px}input:not([type=checkbox]),select,textarea{width:100%;margin:6px 0}textarea{height:auto;min-height:64px;padding:8px}button{font:inherit;max-width:100%;padding:0 12px;min-height:34px;border:1px solid var(--shell-line);border-radius:var(--r-sm);background:var(--shell-paper);color:var(--shell-ink);font-weight:600;cursor:pointer}button:disabled{opacity:.5}button .ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}button .ic:first-child{margin-right:6px}button .ic:last-child:not(:first-child){margin-left:6px}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}form[data-index] button,#commit,#upload,#ruleform button:not([type=button]){background:var(--c-accent-solid);border-color:var(--c-accent-solid);color:var(--c-on-accent)}h1{font-size:var(--t-h1)}h2{font-size:var(--t-body)}.small{font-size:var(--t-meta);color:var(--shell-muted)}.amount{font-size:var(--t-body);font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.hidden{display:none}table{width:100%;table-layout:fixed;border-collapse:collapse}h1,h2,button,p,span,td,th,summary{overflow-wrap:anywhere;word-break:keep-all;min-width:0}td button{padding:0 8px;min-height:34px}td,th{padding:7px 10px;text-align:left;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}a{color:var(--shell-accent)}.pv-label{display:none}
+.review-item{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:var(--r-sm);margin:0 0 8px;min-width:0}.review-item summary{min-height:44px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;font-size:var(--t-body-sm);font-weight:600;cursor:pointer}.review-item summary .ri-date{font-size:var(--t-meta);color:var(--shell-muted);font-weight:400;white-space:nowrap}.review-item summary h2{font-size:var(--t-body-sm);font-weight:600;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.review-item summary .amount{font-size:var(--t-body-sm);margin-left:auto;white-space:nowrap}.ri-flag{font-size:var(--t-caption);font-weight:600;color:var(--shell-warn);max-width:100%;white-space:normal}.ri-body{padding:4px 12px 12px;min-width:0}
+#holds:empty{display:none}#batches{display:grid;gap:8px}#batches p{margin:0;min-width:0}.batch-choice{width:100%;min-height:48px;text-align:left;line-height:1.5;font-size:var(--t-body-sm)}.batch-choice span{font-size:var(--t-meta);color:var(--shell-muted)}summary{cursor:pointer;padding:10px 0;min-height:44px;display:flex;align-items:center}details{min-width:0}nav{font-size:var(--t-body-sm)}details>summary{list-style:none}details>summary::-webkit-details-marker{display:none}details>summary::after{content:'';display:inline-block;width:7px;height:7px;margin-inline-start:auto;border-inline-end:1.5px solid currentColor;border-block-end:1.5px solid currentColor;transform:rotate(45deg);transition:transform var(--motion-fast);flex:0 0 7px}details[open]>summary::after{transform:rotate(225deg)}@media(prefers-reduced-motion:reduce){details>summary::after{transition:none}}
+.flow{margin:12px 0;font-size:var(--t-meta);color:var(--shell-muted);border:1px solid var(--shell-line);border-radius:var(--r-sm);background:var(--shell-paper);padding:8px 12px}
+@media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:var(--t-h3)}input:not([type=checkbox]),select,textarea{font-size:var(--t-body);min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:var(--t-body-sm)}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid var(--shell-line);border-radius:var(--r-sm);padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:var(--t-caption);color:var(--shell-muted)}.review-item summary{min-height:48px;font-size:var(--t-body-sm)}.ri-flag{flex-basis:100%}}
+.upload-table{overflow-x:auto}.upload-table table{min-width:650px}.upload-result{border:1px solid var(--shell-line);border-radius:var(--r-sm);padding:12px;margin:8px 0}.upload-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.upload-metrics div{border:1px solid var(--shell-line);padding:8px}.upload-metrics b{color:var(--shell-muted);margin-right:6px}.upload-metrics strong{font-size:var(--t-h3)}.financial-warning{border:2px solid var(--shell-warn);padding:10px;margin-top:10px}@media(max-width:550px){.upload-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+#newupload #upload{min-height:44px}#newupload section{display:grid;gap:12px}.upload-lede{margin:0;max-width:68ch}.upload-drop{display:grid;gap:4px;min-height:112px;padding:18px;border:2px dashed var(--shell-line);border-radius:var(--r-md);background:var(--shell-bg);cursor:pointer;transition:border-color .16s ease,background-color .16s ease}.upload-drop:hover,.upload-drop:focus-visible,.upload-drop.is-dragover{border-color:var(--shell-accent);background:var(--shell-selected);outline:2px solid var(--c-focus);outline-offset:2px}.upload-drop strong{color:var(--shell-accent);font-size:var(--t-body-sm)}.upload-drop small{color:var(--shell-muted)}.upload-drop.is-dragover strong{text-decoration:underline}.upload-file-list{display:grid;gap:2px;margin:0;padding-left:18px;color:var(--shell-ink);font-size:var(--t-meta)}.upload-file-list li{overflow-wrap:anywhere}.upload-file-count{font-weight:700}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #file.sr-only{width:1px;height:1px;min-height:0;min-width:0}.upload-failure-pages{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 0}.upload-system-error{border:2px solid var(--shell-warn)}.upload-failure-pages button{min-width:80px;min-height:44px}.upload-failure-pages button:disabled{cursor:not-allowed}
-#review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
+#review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:var(--shell-selected);border-color:var(--shell-accent)}#review-metrics strong{display:block;font-size:var(--t-h1)}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:var(--t-caption);color:var(--shell-muted)}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:var(--shell-muted)}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:var(--t-caption)}#preview td.review-money{text-align:left}}
 
-.coverage-form{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--shell-line);border-radius:6px;max-width:100%;overflow-wrap:anywhere}.coverage-form label{display:grid;gap:4px}.coverage-form input,.coverage-form select{min-width:0;width:100%;box-sizing:border-box;min-height:44px}.coverage-form button{min-height:44px}.coverage-form .coverage-complete{display:flex;align-items:center;gap:8px}.coverage-complete input{width:22px;min-height:22px}.coverage-message{white-space:normal;overflow-wrap:anywhere}
+.coverage-form{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--shell-line);border-radius:var(--r-sm);max-width:100%;overflow-wrap:anywhere}.coverage-form label{display:grid;gap:4px}.coverage-form input,.coverage-form select{min-width:0;width:100%;box-sizing:border-box;min-height:44px}.coverage-form button{min-height:44px}.coverage-form .coverage-complete{display:flex;align-items:center;gap:8px}.coverage-complete input{width:22px;min-height:22px}.coverage-message{white-space:normal;overflow-wrap:anywhere}
 
 /* Card-by-card query coverage, separate from transaction classifications. */
 .coverage-dashboard{margin:14px 0 20px;min-width:0}
 .coverage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0 0 12px}
-.coverage-metric{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:9px;padding:12px;min-width:0}
-.coverage-metric strong{display:block;font-size:21px;font-variant-numeric:tabular-nums}
-.coverage-metric span{display:block;color:var(--shell-muted,#667);font-size:12px}
+.coverage-metric{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:var(--r-md);padding:12px;min-width:0}
+.coverage-metric strong{display:block;font-size:var(--t-h1);font-variant-numeric:tabular-nums}
+.coverage-metric span{display:block;color:var(--shell-muted,var(--c-text-secondary));font-size:var(--t-caption)}
 .coverage-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px}
-.coverage-card{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:10px;padding:14px;min-width:0}
-.coverage-card h3{font-size:16px;margin:0 0 5px}
-.coverage-status{font-weight:650;font-size:13px;margin:8px 0}
-.coverage-period{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:7px 0;padding:8px;border-inline-start:4px solid #278363;border-radius:4px;background:var(--shell-bg)}
-.coverage-period.missing{border-inline-start-color:#bd713a}
+.coverage-card{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:var(--r-md);padding:14px;min-width:0}
+.coverage-card h3{font-size:var(--t-body);margin:0 0 5px}
+.coverage-status{font-weight:650;font-size:var(--t-meta);margin:8px 0}
+.coverage-period{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:7px 0;padding:8px;border-inline-start:4px solid var(--c-accent-solid);border-radius:var(--r-sm);background:var(--shell-bg)}
+.coverage-period.missing{border-inline-start-color:var(--c-warn-text)}
 .coverage-period .period-dates{flex:1;min-width:130px;overflow-wrap:anywhere}
 .coverage-period button,.coverage-card button{min-height:44px}
 .coverage-files{margin-top:12px;border-top:1px solid var(--shell-line);padding-top:9px}
 .coverage-files summary{cursor:pointer;padding:4px 0}
 .coverage-file{padding:8px 0;border-bottom:1px solid var(--shell-line);overflow-wrap:anywhere}
 .coverage-file button{display:block;margin-top:7px}
-.coverage-empty{padding:14px;border:1px dashed var(--shell-line);border-radius:9px}
+.coverage-empty{padding:14px;border:1px dashed var(--shell-line);border-radius:var(--r-md)}
 .coverage-baseline{padding:8px 0}.coverage-baseline summary{cursor:pointer}.coverage-baseline-form input{min-height:44px;margin:8px 0}.coverage-baseline-form button{min-height:44px}
-.gap-upload-context{padding:12px;border:1px solid #bd713a;border-radius:8px;background:var(--shell-bg);white-space:normal}
+.gap-upload-context{padding:12px;border:1px solid var(--c-warn-text);border-radius:var(--r-md);background:var(--shell-bg);white-space:normal}
 @media(max-width:740px){.coverage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:360px){.coverage-metrics{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.coverage-period{display:block}.coverage-period button{width:100%;margin-top:8px}}
 </style><body><main><h1>카드 거래 상세</h1><details id="saved-materials"><summary>기존 업로드 파일 상세</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
-<details id="newupload"><summary>카드 자료 관리·업로드</summary><section><h2>카드사별 거래일자 공백</h2><p class="small">첫 거래일부터 마지막 거래일까지 거래가 없는 날짜를 표시합니다. 정상 미사용일일 수 있으며 자료 누락을 뜻하지는 않습니다.</p><div id="coverage-summary" class="coverage-dashboard" aria-live="polite"><p>카드사별 수집 현황을 불러오는 중입니다.</p></div><h2>카드 파일 추가</h2><p id="gap-upload-context" class="gap-upload-context" role="status" hidden></p><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일을 먼저 한 번에 접수한 뒤 백그라운드에서 분류하며, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">전체 파일 접수가 끝나면 다른 페이지로 이동할 수 있습니다. 분류는 백그라운드에서 계속되며 결과는 저장됩니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드하고 분류</span></button><div id="upload-results" aria-label="파일별 업로드 결과" aria-live="polite" hidden></div></section></details>
+<details id="newupload"><summary>카드 자료 관리·업로드</summary><section><h2>카드사별 거래일자 공백</h2><p class="small">첫 거래일부터 마지막 거래일까지 거래가 없는 날짜를 표시합니다. 정상 미사용일 수 있으며 자료 누락을 뜻하지는 않습니다.</p><div id="coverage-summary" class="coverage-dashboard" aria-live="polite"><p>카드사별 수집 현황을 불러오는 중입니다.</p></div><h2>카드 파일 추가</h2><p id="gap-upload-context" class="gap-upload-context" role="status" hidden></p><p class="small upload-lede">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 여러 개 선택할 수 있습니다. 파일을 먼저 한 번에 접수한 뒤 백그라운드에서 처리하며, 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><label id="upload-drop" class="upload-drop file-drop" for="file" tabindex="0" role="button" aria-describedby="upload-help"><span><strong>파일을 선택하거나 이곳에 끌어다 놓으세요</strong></span><small>지원 형식: XLS, XLSX, CSV · 여러 파일 선택 가능</small><span id="upload-selection" class="small">선택된 파일 없음</span><ul id="upload-file-list" class="upload-file-list" hidden></ul></label><input id="file" class="sr-only" type="file" accept=".xls,.xlsx,.csv" multiple aria-describedby="upload-help"><p id="upload-help" class="small">전체 파일 접수가 끝나면 다른 페이지로 이동할 수 있습니다. 처리는 백그라운드에서 계속되며 결과는 저장됩니다.</p><button id="upload">__ICON_UPLOAD__<span id="upload-label">카드 사용내역 업로드</span></button><div id="upload-results" aria-label="파일별 처리 결과" aria-live="polite" hidden></div></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">국내·해외 구분과 여행 기간 일치</option><option value="overseas">해외 사용 · 해외 여행 기간 일치</option><option value="KR">국내 사용 · 국내 여행 기간 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
  <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·귀속 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="preview" class="hidden"></section><section id="edit-panel" hidden aria-live="polite"></section>
 </main><script>
@@ -3341,7 +3353,7 @@ const reviewIcons=__REVIEW_ICONS__;let reviewState='all';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group==='excluded'?'excluded':'');
-const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA 코드 추론',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 코드 추론 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계 확인 필요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 재확인 필요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA 자동 연결',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 자동 연결 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계를 확인해 주세요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 원본을 확인해 주세요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA 자료를 확인해 주세요',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
 otaLabels.GROUP_LINKED='OTA M:N 연결';
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
  const reviewLabel=r=>[reviewStatus(r)==='booked'?'기록 완료':reviewStatus(r)==='excluded'?'기록 제외':'',r.next_action?.reason_label].filter(Boolean).join(' / ');
@@ -3382,10 +3394,10 @@ function renderUploadSystemError(message){
 function renderUploadSummary(j){
  const s=j.upload_summary; if(!s)return;
  const root=el('summary'),prior=root.querySelector('.upload-result');if(prior)prior.remove();
- const c=s.counts; const labels=[['T','업로드 거래'],['E','기존 일치'],['N','신규 등록'],['C','분류 완료'],['U','미완료'],['H','대조 보류'],['P','파싱 실패'],['R','취소 원결제 미연결']];
- const status=s.status==='passed'?'전수 분류 검증 통과':s.status==='empty'?'검증할 거래 없음':'분류 미완료 '+(c.U+c.H+c.P)+'건';
- let h='<h2>'+esc(status)+'</h2><div class="upload-metrics" role="list">'+labels.map(([k,n])=>'<div role="listitem"><b>'+n+' ('+k+')</b><strong>'+esc(c[k])+'</strong></div>').join('')+'</div><p>분류 완료율 <strong>'+esc(s.rate==null?'검증할 거래 없음':Number(s.rate).toFixed(1)+'%')+'</strong></p>';
- const meta=s.file; h+='<p>'+esc(meta.filename)+' · '+esc(meta.issuers.join(', '))+' · '+esc(meta.period_start||'날짜 확인 필요')+' ~ '+esc(meta.period_end)+'</p><p>파일 내부 중복 원천행 '+esc(s.duplicate_rows)+'건</p>';
+ const c=s.counts; const labels=[['T','업로드 거래'],['E','기존 일치'],['N','신규 등록'],['C','처리 완료'],['U','처리 미완료'],['H','대조 중'],['P','파싱 실패'],['R','취소 원결제 미연결']];
+ const status=s.status==='passed'?'처리 완료':s.status==='empty'?'처리할 거래 없음':'처리 미완료 '+(c.U+c.H+c.P)+'건';
+ let h='<h2>'+esc(status)+'</h2><div class="upload-metrics" role="list">'+labels.map(([k,n])=>'<div role="listitem"><b>'+n+' ('+k+')</b><strong>'+esc(c[k])+'</strong></div>').join('')+'</div><p>처리 완료율 <strong>'+esc(s.rate==null?'처리할 거래 없음':Number(s.rate).toFixed(1)+'%')+'</strong></p>';
+ const meta=s.file; h+='<p>'+esc(meta.filename)+' · '+esc(meta.issuers.join(', '))+' · '+esc(meta.period_start||'이용일 원문 없음')+' ~ '+esc(meta.period_end)+'</p><p>파일 내부 중복 원천행 '+esc(s.duplicate_rows)+'건</p>';
  const table=(title,a)=>a.length?'<details><summary>'+title+'</summary><div class="upload-table"><table><thead><tr><th>월</th>'+labels.slice(0,7).map(([k,n])=>'<th>'+n+'</th>').join('')+'</tr></thead><tbody>'+a.map(x=>'<tr><th scope="row">'+esc(x.month)+'</th>'+labels.slice(0,7).map(([k])=>'<td>'+esc(x[k])+'</td>').join('')+'</tr>').join('')+'</tbody></table></div></details>':'';
  h+=table('월별 대조',s.monthly_reconciliation)+table('날짜 미상 대조',s.unknown_date_reconciliation);
  if(s.financial_warning)h+='<aside class="financial-warning" role="alert"><strong>분류와 별도: 금융 대사 미완료</strong><p>'+esc(s.financial_warning)+'</p></aside>';
@@ -3405,7 +3417,7 @@ if(j.ota_reconciliation?.enabled&&!j.ota_reconciliation.fresh){const notice=docu
 
 const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;const edit=el('edit-panel');
 if(ed){edit.hidden=false;edit.innerHTML='<article><h2>거래 귀속 수정 · '+esc(ed.merchant)+'</h2><p class="small">저장된 귀속과 항목을 수정합니다. 원본과 금융 보호 상태는 유지됩니다.</p>'+answerForm(j,ed)+'</article>';}else{edit.hidden=true;edit.replaceChildren();}
-const otaCandidateReason=note=>{const text=String(note||'');return text.startsWith('OTA 후보(미확정):')?text.split(' · ').slice(2).join(' · '):'예약 후보 근거가 있으나 결제 연결은 검증되지 않았습니다.'};const completedGroups=new Set(completedRefundGroups(j));const groups=(j.refund_groups||[]).map(g=>completedGroups.has(g)?renderCompletedRefund(g):g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'분기 기타비용')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p={...j.preview,rows:otherReviewRows(j)};el('preview').className='';el('preview').innerHTML=(groups?'<section aria-label="환불 처리 결과">'+groups+'</section>':'')+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+(completedGroups.size?'<h2>그 외 거래 처리 결과</h2><p>위 전액 환불과 별개인 거래입니다.</p>':'<h2>거래 처리 결과</h2>')+'<p>완료 '+p.rows.filter(r=>r.already_booked).length+'</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>귀속</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(r.ota_link_status==='UNLINKED'&&r.ota_candidate_notes?.length?'<br><span class=\"ota-candidate-note\"><strong>OTA 후보 근거 · 결제 미검증</strong>'+r.ota_candidate_notes.map(otaCandidateReason).filter(Boolean).map(reason=>'<span>'+esc(reason)+'</span>').join('')+'</span>':'')+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({inference:'코드 추론',code_inference:'코드 추론',ai_inference:'AI 추론',user_exception:'직접',guide_airfare_evidence:'자동'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'코드 추론')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">귀속</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||destinationLabel(j,r))+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
+const otaCandidateReason=note=>{const text=String(note||'');return text.startsWith('OTA 후보(미확정):')?text.split(' · ').slice(2).join(' · '):'예약 후보 근거가 있으나 결제 연결은 검증되지 않았습니다.'};const completedGroups=new Set(completedRefundGroups(j));const groups=(j.refund_groups||[]).map(g=>completedGroups.has(g)?renderCompletedRefund(g):g.error?'<p class=small>환불 쌍 자료 확인: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'분기 기타비용')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p={...j.preview,rows:otherReviewRows(j)};el('preview').className='';el('preview').innerHTML=(groups?'<section aria-label="환불 처리 결과">'+groups+'</section>':'')+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+(completedGroups.size?'<h2>그 외 거래 처리 결과</h2><p>위 전액 환불과 별개인 거래입니다.</p>':'<h2>거래 처리 결과</h2>')+'<p>완료 '+p.rows.filter(r=>r.already_booked).length+'</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>귀속</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(r.ota_link_status==='UNLINKED'&&r.ota_candidate_notes?.length?'<br><span class=\"ota-candidate-note\"><strong>OTA 후보 근거 · 결제 미검증</strong>'+r.ota_candidate_notes.map(otaCandidateReason).filter(Boolean).map(reason=>'<span>'+esc(reason)+'</span>').join('')+'</span>':'')+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({inference:'자동',code_inference:'자동',ai_inference:'AI 추론',user_exception:'직접',guide_airfare_evidence:'자동'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'자동 연결')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">귀속</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||destinationLabel(j,r))+(['inference','code_inference','ai_inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
  document.querySelectorAll('[data-group-commit]').forEach(b=>b.hidden=true);el('preview').insertAdjacentHTML('beforeend',(j.quarter_targets||[]).map(t=>'<section class="quarter-copy"><h2>'+esc(t.name)+'</h2><p class="small">여행 외 비용 · '+t.transaction_ids.length+'건 · 원본과 기록 상태는 그대로 유지합니다.</p>'+(t.available?'<a href="'+esc(t.href)+'" target="_blank" rel="noopener noreferrer">Google 분기 원본 열기</a><p><button type="button" data-google-copy="'+esc(t.id)+'">__ICON_COPY__'+esc(t.name)+' 지출 7열 복사</button></p>':'<p role="status">'+esc(t.reason)+'</p>')+'</section>').join(''));
 document.querySelector('[data-review-date]').onclick=()=>{el('review-date').open=true;el('review-date').scrollIntoView({block:'center'});};
 document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f),batch=model.batch_id,generation=batchGeneration,button=f.querySelector('button');if(button.disabled)return;button.disabled=true;try{const j=await call('/api/imports/'+model.batch_id+'/decision',mutationBody(f,{transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule')}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.trip_move_learning?.status==='opened'){location.assign(j.trip_move_learning.url);return}if(editing===r.transaction_id)editing='';if(!j.refresh_required)render(j);el('status').textContent=j.refresh_required?'분류는 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 주세요.':j.ledger_recording?.status==='held'?'분류 완료 · 금융 보호 검사에서 기록할 수 없습니다: '+j.ledger_recording.reason:'저장했습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message}finally{button.disabled=false}})
@@ -3434,7 +3446,7 @@ async function recoverUpload(job){
  if(!response.ok)throw Error('저장된 결과 조회 재시도 중');
  const state=await response.json(),result=state.result;
  if(state.status!=='saved'||result?.batch_id!==job.batch_id||typeof result.recovery?.pending!=='boolean')throw Error('저장된 결과 조회 재시도 중');
- if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 분류 결과 확인 필요'),{terminal:true});
+ if(result.recovery.pending)throw Object.assign(Error('접수 완료 · 처리 결과 확인 필요'),{terminal:true});
  saveUploadJob(job,true);return {...result,recovered_upload:true};
 }
 function readUploadJobs(){try{const saved=JSON.parse(localStorage.getItem(uploadJobKey)||'null');return (Array.isArray(saved)?saved:saved?[saved]:[]).filter(job=>job?.status_url&&new RegExp('^/api/imports/upload-status/[a-f0-9]{32}$').test(job.status_url))}catch{return []}}
@@ -3474,7 +3486,7 @@ async function resumeUpload(){const jobs=readUploadJobs();if(!jobs.length)return
  note.textContent=checked+'개 결과 조회 · '+waiting+'개 조회 대기. 접수된 파일은 다시 올릴 필요가 없습니다.'+(auth?' 로그인 또는 소유자 권한을 확인한 뒤 이 화면을 다시 열어 주세요.':'');
 }
 resumeUpload();
-function uploadOutcome(j){return j.recovered_upload?'저장된 결과 조회 완료':j.upload_summary?(j.upload_summary.status==='passed'?'전수 분류 검증 통과':j.upload_summary.status==='empty'?'검증할 거래 없음':'분류 미완료 · 상세 결과 확인'):'승인 증거를 가져왔습니다.'}
+function uploadOutcome(j){if(j.recovered_upload)return '저장된 결과 조회 완료';const summary=j.upload_summary||j.recovery||{};let text='처리 완료';const count=summary.transaction_count??summary.unique_transactions??summary.saved_count;const duplicate=summary.duplicate_count??summary.duplicate_rows??summary.duplicates;if(Number.isFinite(Number(count)))text+=' · 거래 '+Number(count).toLocaleString('ko-KR')+'건 저장';if(Number.isFinite(Number(duplicate)))text+=' · 중복 '+Number(duplicate).toLocaleString('ko-KR')+'건';return text}
 el('upload').onclick=async()=>{
  if(el('upload').disabled)return;
  const files=renderUploadSelection();if(!files.length){el('status').textContent='업로드할 카드 파일을 먼저 선택해 주세요.';uploadDrop.focus();return}
@@ -3490,33 +3502,33 @@ el('upload').onclick=async()=>{
   if(!Array.isArray(received.files)||received.files.length!==files.length)throw Error('접수 결과를 확인하지 못했습니다. 저장된 파일 목록을 확인해 주세요.');
   for(const job of received.files)if(job.status_url)saveUploadJob(job);
   const accepted=received.files.filter(job=>job.status_url).length;
-  notice.textContent=accepted+'개 파일 접수 완료 · 다른 페이지로 이동해도 분류는 계속됩니다. 이 화면으로 돌아오면 진행 상태를 이어서 확인합니다.';
+  notice.textContent=accepted+'개 파일 접수 완료 · 다른 페이지로 이동해도 처리는 계속됩니다. 이 화면으로 돌아오면 진행 상태를 이어서 확인합니다.';
   if(generation===batchGeneration)el('status').textContent=notice.textContent;
   uploadInput.value='';renderUploadSelection();
- }catch(error){notice.textContent=error.message;entries.forEach((entry,i)=>entry.textContent=files[i].name+' · 접수 확인 필요');if(generation===batchGeneration){el('status').textContent=error.message;renderUploadSystemError(error.message)}return;
- }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드하고 분류'}
+ }catch(error){notice.textContent=error.message;entries.forEach((entry,i)=>entry.textContent=files[i].name+' · 접수 결과를 확인해 주세요');if(generation===batchGeneration){el('status').textContent=error.message;renderUploadSystemError(error.message)}return;
+ }finally{el('upload').disabled=false;uploadInput.disabled=false;uploadDrop.removeAttribute('aria-disabled');uploadLabel.textContent='카드 사용내역 업로드'}
  const processFile=async (job,i)=>{
    const f=files[i],entry=entries[i];
    try{
     if(!job.status_url)throw Error(job.message||'파일을 접수하지 못했습니다.');
-    uploadRow(entry,f.name,'접수 완료 · 분류 대기');let j=await awaitUpload(job,entry);results[i]=j;uploadRow(entry,f.name,uploadOutcome(j),'saved');
+   uploadRow(entry,f.name,'처리 중');let j=await awaitUpload(job,entry);results[i]=j;uploadRow(entry,f.name,uploadOutcome(j),'saved');
     if(j.batch_id)savedUploadLink(entry,j.batch_id);
     appendCoverageForm(entry,j);
    }catch(e){(e.savedBatch?pending:failures).push({name:f.name,message:e.message});uploadErrorRow(entry,{filename:f.name},e)}
   };
   await Promise.all(received.files.map(processFile));
-  notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과 확인 필요':'');
+  notice.textContent=results.filter(Boolean).length+'개 파일 처리 완료'+(failures.length?' · '+failures.length+'개 파일 접수 실패':'')+(pending.length?' · '+pending.length+'개 파일 상세 결과를 확인해 주세요':'');
   if(generation!==batchGeneration)return;
   if(typeof refreshCoverageSummary==='function')await refreshCoverageSummary();
   const completed=results.filter(Boolean),displayable=completed.filter(j=>!j.recovered_upload);if(displayable.length)render(displayable[displayable.length-1],true);
   const incomplete=completed.filter(j=>j.upload_summary&&!['passed','empty'].includes(j.upload_summary.status)).length;
-  el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과 확인 필요':'')+(incomplete?' · '+incomplete+'개 파일 분류 미완료':'')+' · 파일별 결과를 확인해 주세요.';
+  el('status').textContent=completed.length+'개 파일 처리 · '+failures.length+'개 파일 업로드 실패'+(pending.length?' · '+pending.length+'개 파일 접수 완료 · 상세 결과를 확인해 주세요':'')+(incomplete?' · '+incomplete+'개 파일 처리 미완료':'')+' · 파일별 결과를 확인해 주세요.';
   if(!completed.length&&failures.length)renderUploadSystemError(failures[0].message);
 };
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(j.rules)renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(j.refresh_required){el('status').textContent='규칙은 저장됐지만 분류 갱신을 확인하지 못했습니다. 규칙을 다시 저장하지 말고 거래를 새로고침해 주세요.';return}try{if(model)render(await call('/api/imports/'+model.batch_id+'/auto-record','{}',{'Content-Type':'application/json'}))}catch(error){if(error.message==='소유자만 자동 반영할 수 있습니다.'){let refreshed=false;try{const updated=await call('/api/imports/'+model.batch_id);render(updated);refreshed=true}catch{}el('status').textContent=refreshed?'규칙은 저장되고 분류도 다시 계산됐습니다. 자동 장부 기록은 소유자만 할 수 있습니다.':'규칙은 저장되고 분류도 다시 계산됐지만 화면을 갱신하지 못했습니다. 자동 장부 기록은 소유자만 할 수 있습니다. 새로고침해서 확인해 주세요.';return}el('status').textContent='규칙은 저장됐습니다. 자동 기록 결과를 확인하지 못했습니다: '+error.message+' 규칙을 다시 저장하지 말고 최신 거래를 확인해 주세요.';return}el('status').textContent='규칙을 저장했습니다.'}catch(e){el('status').textContent=e.message}};
 el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('ruleform').reset();el('ruleform').elements.merchant.readOnly=false;el('rule_scope').textContent=''};
 if(location.hash==='#newupload'){var _up=document.getElementById('newupload');if(_up)_up.open=true;}
-function focusReservationCard(transaction){const root=el('ota-review');if(!root)return;root.scrollIntoView({block:'start'});root.focusObserver?.disconnect();let scrolled=false;const mark=()=>{const radio=[...root.querySelectorAll('input[type=radio]')].find(r=>r.value===transaction);if(radio){radio.closest('label').style.outline='2px solid #1C7A52';if(!scrolled){radio.closest('label').scrollIntoView({block:'center'});radio.focus({preventScroll:true});scrolled=true;root.focusObserver?.disconnect()}}};root.focusObserver=new MutationObserver(mark);root.focusObserver.observe(root,{childList:true,subtree:true});mark();}
+function focusReservationCard(transaction){const root=el('ota-review');if(!root)return;root.scrollIntoView({block:'start'});root.focusObserver?.disconnect();let scrolled=false;const mark=()=>{const radio=[...root.querySelectorAll('input[type=radio]')].find(r=>r.value===transaction);if(radio){radio.closest('label').style.outline='2px solid var(--c-accent-solid)';if(!scrolled){radio.closest('label').scrollIntoView({block:'center'});radio.focus({preventScroll:true});scrolled=true;root.focusObserver?.disconnect()}}};root.focusObserver=new MutationObserver(mark);root.focusObserver.observe(root,{childList:true,subtree:true});mark();}
 async function loadBatch(id){const generation=++batchGeneration;invalidateProposal();try{const response=await fetch('/api/imports/'+encodeURIComponent(id));const j=await response.json();if(!response.ok)throw Error(j.message||'거래 자료를 불러오지 못했습니다');if(generation===batchGeneration){render(j,true);const focus=new URLSearchParams(location.search).get('transaction');if(focus&&j.rows.some(r=>r.transaction_id===focus)){if(location.hash==='#ota-review'){focusReservationCard(focus)}else if(location.hash==='#preview'){reviewState='all';render(j);el('preview').scrollIntoView({block:'start'})}else{editing=focus;render(j);el('edit-panel').scrollIntoView({block:'start'});el('edit-panel').querySelector('select[name=display_tab_id]')?.focus()}}}}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}}const pollCard=async()=>{let wait=2000;if(model&&!document.hidden&&true&&!el('upload').disabled){const started=Date.now(),batch=model.batch_id,generation=batchGeneration,version=stamp;try{const j=await call('/api/imports/'+batch);if(generation===batchGeneration&&model.batch_id===batch&&stamp===version&&stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){if(generation===batchGeneration&&model.batch_id===batch&&stamp===version)el('status').textContent=e.message}wait=Math.max(2000,4*(Date.now()-started))}setTimeout(pollCard,wait)};setTimeout(pollCard,2000);
 async function companyExclude(id,excluded,btn){const r=model.preview.rows.find(r=>r.transaction_id===id);if(!r)return;if(!confirm(excluded?'이 거래를 회사 경비 집계와 구글 복사에서 제외할까요? 원본은 유지합니다.':'회사 경비 제외를 되돌릴까요?'))return;const batch=model.batch_id,generation=batchGeneration;btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/company-exclusion',mutationBody(btn,{transaction_id:id,revision:r.revision,exclusion_revision:r.exclusion_revision||0,excluded:excluded,confirmed:true,note:excluded?'회사 경비 아님':'회사 경비 제외 되돌리기'}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('rule-result')?.replaceChildren();el('status').textContent=j.refresh_required?'회사 경비 변경은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':excluded?'회사 경비에서 제외했습니다. 원본 거래는 보존했습니다.':'회사 경비 제외를 되돌렸습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;btn.disabled=false}}document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-company-restore]');if(b)companyExclude(b.dataset.companyRestore,false,b)});
 let proposalGeneration=0;function invalidateProposal(){proposalGeneration++;window.ruleProposal=null}

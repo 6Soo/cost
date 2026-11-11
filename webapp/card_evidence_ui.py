@@ -70,21 +70,28 @@ def render_ota_snapshot_evidence(
     # OTA 연결 상태 뱃지
     status_labels = {
         'EXACT': ('확정 연결', 'ok'),
-        'INFERRED': ('코드 추론', 'warn'),
+        'INFERRED': ('자동', 'warn'),
         'GROUP_RECONCILED': ('그룹 대응 (개별 미확정)', 'warn'),
         'GROUP_LINKED': ('M:N 연결', 'ok'),
         'USER_CONFIRMED': ('사용자 확정', 'ok'),
-        'RESERVATION_INFERRED': ('예약 코드 추론', 'idle'),
+        'RESERVATION_INFERRED': ('자동', 'warn'),
         'RESERVATION_CONFIRMED': ('예약 관계 사용자 확인', 'ok'),
         'RESERVATION_NEEDS_REVIEW': ('예약 후보 경합/충돌', 'warn'),
         'RESERVATION_STALE': ('예약 관계 근거 변경', 'bad'),
-        'REVIEW_REQUIRED': ('그룹 부분 대응·보류', 'bad'),
+        'REVIEW_REQUIRED': ('그룹 부분 대응·재검토', 'bad'),
         'CANDIDATE': ('후보 존재·미연결', 'idle'),
         'MULTIPLE_CANDIDATES': ('복수 후보·개별 미확정', 'warn'),
         'UNLINKED': ('OTA 결제 연결 없음 · 결제 근거 확인 필요', 'idle'),
     }
     label, tone = status_labels.get(status, ('연결 상태 확인 대기', 'idle'))
-    lines.append(f"<span class='cleanup-ota-badge cleanup-ota-badge-{tone}'>{esc(label)}</span>")
+    # Keep the legacy evidence hook for callers and styles while exposing the
+    # shared chip treatment used by the transaction tables. The descriptive
+    # evidence rows below remain unchanged.
+    chip_tone = {'ok': 'accent', 'warn': 'warn', 'bad': 'danger'}.get(tone, 'neutral')
+    title = " title='규칙 기반 자동 귀속'" if status in ('INFERRED', 'RESERVATION_INFERRED') else ''
+    lines.append(
+        f"<span class='cleanup-ota-badge cleanup-ota-badge-{tone} chip chip-{chip_tone}'{title}>{esc(label)}</span>"
+    )
 
     # 스냅샷 신선도
     if not fresh:
@@ -109,9 +116,9 @@ def render_ota_snapshot_evidence(
     if status == 'GROUP_LINKED':
         lines.append(f"<span class='cleanup-protected-hint'>{esc('예약·카드 관계 연결됨 · 카드 원행 금액은 한 번만 집계')}</span>")
     elif status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
-        lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용')}</span>")
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용됩니다.')}</span>")
     elif status in ('RESERVATION_NEEDS_REVIEW', 'RESERVATION_STALE'):
-        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 사용자 재확인 필요')}</span>")
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 원본 자료를 확인해 주세요')}</span>")
 
     items = ''.join(f"<li>{line}</li>" for line in lines)
     return (f"<details class='cleanup-evidence cleanup-ota-snapshot' open><summary>{esc('OTA 연결 근거')}</summary>"

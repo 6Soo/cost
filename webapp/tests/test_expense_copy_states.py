@@ -26,8 +26,10 @@ def test_trip_copy_excludes_existing_and_ambiguous_rows_without_mutation(copy_st
     rows, preview = copy_state
     before = deepcopy((rows, preview))
     markup = design._trip_copy_html('trip-synthetic', rows, preview)
-    assert '복사 가능 1건 · 1,000원 · Google 장부 일치 2건 제외 · Google 대조가 끝나지 않은 1건 제외' in markup
-    assert 'Google 대조 제외 건의 정체와 사유 보기' in markup
+    assert '붙여넣을 지출 1건 · 1,000원' in markup
+    assert '이미 Google에 있음' in markup and '2건 · 복사에서 뺐습니다' in markup
+    assert 'Google 행을 확정하지 못함' in markup and '1건 · 중복을 막기 위해 뺐습니다' in markup
+    assert '제외된 1건 보기' in markup and 'copy-held-toggle' in markup
     assert 'Google 원장 대조를 확정하지 못함' in markup
     assert ' disabled' not in markup
     assert 'expense-reconciliation' not in markup and '수기 지출 대조' not in markup
@@ -53,7 +55,7 @@ def test_all_recorded_disables_copy_and_viewer_has_no_copy_controls(copy_state, 
     rows, preview = copy_state
     markup = design._trip_copy_html('trip-synthetic', rows[:2], {
         **preview, 'results': preview['results'][:2]})
-    assert '복사 가능 0건' in markup and 'Google 장부 일치 2건 제외' in markup
+    assert '붙여넣을 지출 0건' in markup and '2건 · 복사에서 뺐습니다' in markup
     assert ' disabled' in markup
     monkeypatch.setattr(board, 'current_role', lambda: 'viewer')
     assert design._trip_copy_html('trip-synthetic', rows, preview) == ''
@@ -65,8 +67,8 @@ def test_total_mismatch_explains_real_cause_and_offers_source_recovery(copy_stat
     preview.update(source_available=True,
                    source_info={'warning': 'SOURCE_EXPENSE_TOTAL_MISMATCH'})
     markup = design._trip_copy_html('trip-synthetic', rows, preview)
-    assert 'Google 합계 수식은 확인 필요' in markup
-    assert '복사 가능 1건' in markup
+    assert 'Google 시트의 지출 합계 수식이 행 합계와 다릅니다' in markup and 'Google 원본 확인' in markup
+    assert '붙여넣을 지출 1건' in markup
     assert "aria-describedby='trip-copy-desc'" in markup
     assert ' disabled' not in markup
 
@@ -77,7 +79,7 @@ def test_blocked_and_company_excluded_rows_never_count_as_copyable(copy_state):
         costs = deepcopy(rows)
         costs[2][flag] = True
         markup = design._trip_copy_html('trip-synthetic', costs, preview)
-        assert '복사 가능 0건' in markup and ' disabled' in markup
+        assert '붙여넣을 지출 0건' in markup and ' disabled' in markup
         annotations = design._google_match_annotations('trip-synthetic', costs, preview)
         assert annotations['row-2']['label'] == '복사 제외 · 거래 상세 확인'
 
@@ -115,16 +117,17 @@ def test_internal_copy_labels_do_not_inflate_transaction_rows(copy_state):
                     assert '장부에 있음' not in visible_text
                     assert '복사 제외' not in visible_text
                     assert '대조 후보' not in visible_text
-                    dates = scope.locator('.d' if width < 760 else '.c-date')
+                    dates = scope.locator('.lr-secondary' if width < 760 else '.c-date')
                     assert dates.count() == len(rows)
-                    assert all(date.inner_text() == '2026-10-01' for date in dates.all())
+                    assert all((date.inner_text().startswith('10-01') if width < 760 else date.inner_text() == '10-01')
+                               for date in dates.all())
                     # The same transaction stays the same height regardless of its
                     # internal copy status; no extra status column or mobile line.
                     selector = '.li' if width < 760 else 'tr[data-id]'
                     heights = scope.locator(selector).evaluate_all(
                         'rows => rows.map(row => row.getBoundingClientRect().height)')
                     assert max(heights) - min(heights) < 1
-                    assert page.get_by_role('button', name='지출내용 복사').is_enabled()
+                    assert page.get_by_role('button', name='Google 장부용 복사').is_enabled()
         finally:
             browser.close()
     assert rows == before
@@ -155,7 +158,7 @@ def test_copy_card_sync_uses_own_csrf_and_status_and_recheck_keeps_filters(copy_
             assert calls == [board.CSRF_TOKEN]
             assert page.locator('.income-sync [data-google-sync-status]').inner_text() == '수입 안내'
             assert page.get_by_role('button', name='장부 동기화').is_enabled()
-            assert page.get_by_role('button', name='지출내용 복사').is_disabled()
+            assert page.get_by_role('button', name='Google 장부용 복사').is_disabled()
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             for control in page.locator('.trip-copy-box .btn:visible').all():
                 assert control.bounding_box()['height'] >= 44

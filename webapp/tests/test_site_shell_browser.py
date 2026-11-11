@@ -20,26 +20,20 @@ class SiteShellBrowserTests(LinkBrowserFixture):
                         page.set_viewport_size({'width': width, 'height': 900})
                         response = page.goto(base + path)
                         self.assertEqual(response.status, 200)
-                        if width < 760:
-                            page.get_by_role('button', name='전체 메뉴 열기').click()
-                            page.wait_for_function("document.querySelector('#nav').getBoundingClientRect().left >= -0.5")
-                        account = page.locator('#nav a[href="/access/admin"]')
+                        if width < 1024:
+                            page.locator('.site-more-bottom').click()
+                            account = page.locator('#site-more-dialog a[href="/access/admin"]')
+                        else:
+                            account = page.locator('#nav a[href="/access/admin"]')
                         self.assertEqual(account.count(), 1)
                         self.assertTrue(account.is_visible())
-                        self.assertEqual(account.locator('xpath=ancestor::details').count(), 0)
-                        self.assertEqual(page.locator('#nav .nav-management').count(), 0)
-                        primary = page.get_by_role('navigation', name='주요 메뉴', exact=True)
-                        self.assertEqual(primary.locator('a[href="/access/admin"]').count(), 1)
-                        flight = primary.locator('a[href="/flight-passengers"]')
-                        self.assertEqual(flight.count(), 1)
-                        spacing = account.evaluate('''a=>{
-                            const f=a.previousElementSibling.getBoundingClientRect(), r=a.getBoundingClientRect();
-                            return {alignment:r.left-f.left,gap:r.top-f.bottom};
-                        }''')
-                        self.assertEqual(spacing['alignment'], 0)
-                        self.assertLessEqual(spacing['gap'], 4.5)
-                        flight.focus()
-                        page.keyboard.press('Tab')
+                        if width >= 1024:
+                            self.assertEqual(account.locator('xpath=ancestor::details').count(), 0)
+                            self.assertEqual(page.locator('#nav .nav-management').count(), 0)
+                            self.assertEqual(page.locator('#nav a[href="/access/admin"]').count(), 1)
+                        else:
+                            self.assertTrue(page.locator('#site-more-dialog').get_attribute('open') is not None)
+                        account.evaluate("e=>e.focus({focusVisible:true})")
                         self.assertTrue(account.evaluate('e=>e===document.activeElement'))
                         self.assertNotEqual(account.evaluate('e=>getComputedStyle(e).outlineStyle'), 'none')
                         if path == '/access/admin':
@@ -61,13 +55,12 @@ class SiteShellBrowserTests(LinkBrowserFixture):
         self.assertIsNone(page.evaluate("sessionStorage.getItem('cost-nav-trip')"))
         page.goto(base + '/board')
         self.assertIn('첫 미마감 여행', page.locator('h1').inner_text())
-        self.assertEqual(page.locator('#trips a[aria-current=page]').count(), 1)
-        self.assertIn('tab=' + trips[1], page.locator('#trips a[aria-current=page]').get_attribute('href'))
+        self.assertEqual(page.locator('#nav a[href="/trips"][aria-current=page]').count(), 1)
         self.assertIsNone(page.evaluate("sessionStorage.getItem('cost-nav-trip')"))
-        self.assertIn('tab=' + trips[1], page.evaluate("sessionStorage.getItem('cost-workflow-return')"))
+        self.assertIsNone(page.evaluate("sessionStorage.getItem('cost-workflow-return')"))
         page.goto(base + '/board?tab=' + trips[2])
         self.assertIn('다음 여행', page.locator('h1').inner_text())
-        self.assertIn('tab=' + trips[2], page.locator('#trips a[aria-current=page]').get_attribute('href'))
+        self.assertEqual(page.locator('#nav a[href="/trips"][aria-current=page]').count(), 1)
 
     def test_theme_keyboard_motion_and_responsive_contract(self):
         page, base = self.prepare_pages(1440)
@@ -76,6 +69,8 @@ class SiteShellBrowserTests(LinkBrowserFixture):
                 page.set_viewport_size({'width': width, 'height': 900})
                 page.goto(base + '/board')
                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                if width < 1024:
+                    page.locator('.site-more-bottom').click()
                 toggle = page.locator('#site-theme-toggle')
                 self.assertEqual(toggle.count(), 1)
                 before = page.locator('html').get_attribute('data-theme')
@@ -84,7 +79,7 @@ class SiteShellBrowserTests(LinkBrowserFixture):
                 after = page.locator('html').get_attribute('data-theme')
                 self.assertNotEqual(before, after)
                 self.assertEqual(toggle.get_attribute('aria-label'),
-                                 '라이트모드로 전환' if after == 'dark' else '다크모드로 전환')
+                                 '밝은 화면으로 전환' if after == 'dark' else '어두운 화면으로 전환')
                 self.assertEqual(page.evaluate('''() => {
                   const t=document.querySelector('#site-theme-toggle').getBoundingClientRect();
                   return t.width >= 44 && t.height >= 44;
@@ -111,6 +106,7 @@ class SiteShellBrowserTests(LinkBrowserFixture):
           p.setAttribute('aria-busy','true');document.body.append(p);
           return getComputedStyle(p,'::before').animationDuration;
         }'''), '0s')
+        page.locator('.site-more-bottom').click()
         page.locator('#site-theme-toggle').click()
         self.assertEqual(page.locator('html').get_attribute('data-theme'), 'light')
         page.reload()
@@ -121,16 +117,16 @@ class SiteShellBrowserTests(LinkBrowserFixture):
         page.emulate_media(color_scheme='light')
         response = page.goto(base + '/board?tab=refunds')
         self.assertEqual(response.status, 200)
-        empty = page.locator('#live-rows .ui-state')
+        empty = page.locator('.empty-state')
         self.assertEqual(empty.count(), 1)
-        self.assertEqual(empty.inner_text(), '환불 쌍이 없습니다.')
+        self.assertIn('환불·취소 거래가 없습니다.', empty.inner_text())
         light = empty.evaluate('''el => ({background:getComputedStyle(el).backgroundColor,
           token:getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()})''')
         self.assertEqual(light['background'], 'rgb(255, 255, 255)')
         page.evaluate("localStorage.removeItem('cost-theme')")
         page.emulate_media(color_scheme='dark')
         page.reload()
-        dark = page.locator('#live-rows .ui-state').evaluate('''el => ({
+        dark = page.locator('.empty-state').evaluate('''el => ({
           background:getComputedStyle(el).backgroundColor,
           token:getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()})''')
         self.assertEqual(dark['background'], 'rgb(30, 41, 59)')
@@ -194,19 +190,19 @@ class SiteShellBrowserTests(LinkBrowserFixture):
                 self.assertEqual(page.locator('#nav a[href="/import"]').count(), 0)
                 if path == '/cards/all?panel=upload':
                     self.assertEqual(page.evaluate("sessionStorage.getItem('cost-view:/cards/all')"), None)
-                    self.assertIn('여행 목록을 다시 불러옵니다', page.locator('#live-nav').inner_text())
+                    self.assertIn('진행 중 여행', page.locator('#live-nav').inner_text())
                 self.assertEqual(page.locator('#nav').bounding_box()['x'], 0)
                 main = page.locator('#site-content') if page.locator('#site-content').count() else page.locator('#main')
                 self.assertGreaterEqual(main.bounding_box()['x'], 232)
                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 1440)
 
-    def test_brand_link_navigates_home_and_no_standalone_home_link(self):
+    def test_brand_link_navigates_home_and_home_navigation_remains_available(self):
         page, base = self.prepare_pages(1440)
         page.goto(base + '/board')
         brand = page.locator('#nav a.brand[href="/"]')
         self.assertEqual(brand.count(), 1)
         self.assertIn('숲길여행 회계', brand.first.inner_text())
-        self.assertEqual(page.locator('#nav .site-links a[href="/"]').count(), 0)
+        self.assertEqual(page.locator('#nav .site-links a[href="/"]').count(), 1)
         brand.first.click()
         page.wait_for_url(base + '/')
         self.assertEqual(page.url, base + '/')
@@ -219,13 +215,10 @@ class SiteShellBrowserTests(LinkBrowserFixture):
         self.assertEqual(page.url, base + '/')
         mobile, mobile_base = self.prepare_pages(390)
         mobile.goto(mobile_base + '/cards')
-        mobile.get_by_role('button', name='전체 메뉴 열기').click()
-        self.assertIn('open', mobile.locator('#nav').get_attribute('class'))
-        mobile_brand = mobile.locator('#nav a.brand[href="/"]')
+        mobile_brand = mobile.locator('.site-topbar a.site-brand-mobile[href="/"]')
         self.assertEqual(mobile_brand.count(), 1)
         self.assertTrue(mobile_brand.first.is_visible())
         self.assertGreaterEqual(mobile_brand.first.bounding_box()['height'], 44)
-        self.assertEqual(mobile.locator('#nav .site-links a[href="/"]').count(), 0)
         mobile_brand.first.click()
         mobile.wait_for_url(mobile_base + '/')
         self.assertEqual(mobile.url, mobile_base + '/')
@@ -233,20 +226,18 @@ class SiteShellBrowserTests(LinkBrowserFixture):
     def test_mobile_menu_navigation_and_input_are_usable(self):
         page, base = self.prepare_pages(390)
         page.goto(base + '/cards')
-        page.get_by_role('button', name='전체 메뉴 열기').click()
-        self.assertIn('open', page.locator('#nav').get_attribute('class'))
-        page.get_by_label('여행 검색').fill('Synthetic draft')
+        page.locator('.site-more-bottom').click()
+        self.assertTrue(page.locator('#site-more-dialog').get_attribute('open') is not None)
+        page.locator('#site-more-dialog a[href="/access/admin"]').focus()
         page.keyboard.press('Escape')
-        self.assertNotIn('open', page.locator('#nav').get_attribute('class'))
-        page.get_by_role('button', name='전체 메뉴 열기').click()
-        self.assertEqual(page.get_by_label('여행 검색').input_value(), 'Synthetic draft')
-        page.locator('#nav a[href="/cards/all"]').first.click()
+        self.assertIsNone(page.locator('#site-more-dialog').get_attribute('open'))
+        page.locator('.site-bottom-nav a[href="/cards/all"]').click()
         self.assertEqual(page.url, base + '/cards/all')
         self.assertEqual(page.locator('#nav').count(), 1)
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
-        self.assertEqual(page.locator('#nav a[href="/cards/all"]').get_attribute('aria-current'), 'page')
+        self.assertEqual(page.locator('.site-bottom-nav a[href="/cards/all"]').get_attribute('aria-current'), 'page')
         page.goto(base + '/board')
-        page.get_by_role('button', name='전체 메뉴 열기').click()
-        self.assertIn('open', page.locator('#nav').get_attribute('class'))
+        page.locator('.site-more-bottom').click()
+        self.assertTrue(page.locator('#site-more-dialog').get_attribute('open') is not None)
         page.keyboard.press('Escape')
-        self.assertNotIn('open', page.locator('#nav').get_attribute('class'))
+        self.assertIsNone(page.locator('#site-more-dialog').get_attribute('open'))

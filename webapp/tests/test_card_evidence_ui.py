@@ -8,6 +8,7 @@ Verifies pure HTML presentation:
 """
 import ast
 import html
+import re
 import subprocess
 import pytest
 
@@ -81,7 +82,31 @@ def test_baseline_equivalence_ota_snapshot_evidence(baseline_ns):
             '>예약 추론 관계<', '>예약 코드 추론<')
         wrapper_html = card_flow._render_ota_snapshot_evidence(entry, "tx-any")
         direct_html = card_evidence_ui.render_ota_snapshot_evidence(entry, "tx-any", esc=ledger_board.esc)
-        assert baseline_html == wrapper_html == direct_html
+        # Normalize only the approved badge presentation and copy changes.
+        for old, new in (
+            ('>코드 추론<', '>자동<'), ('>예약 코드 추론<', '>자동<'),
+            ('그룹 부분 대응·보류', '그룹 부분 대응·재검토'),
+            ('장부 기록은 금융 검증 후 허용</span>', '장부 기록은 금융 검증 후 허용됩니다.</span>'),
+            ('사용자 재확인 필요', '원본 자료를 확인해 주세요'),
+        ):
+            baseline_html = baseline_html.replace(old, new)
+        if entry.get('ota_status') == 'RESERVATION_INFERRED':
+            baseline_html = baseline_html.replace('cleanup-ota-badge-idle', 'cleanup-ota-badge-warn')
+        def normalize(value):
+            value = re.sub(r' chip chip-(?:neutral|accent|warn|danger)', '', value)
+            return value.replace(" title='규칙 기반 자동 귀속'", '')
+
+        assert normalize(baseline_html) == normalize(wrapper_html) == normalize(direct_html)
+        # The transaction UI intentionally changes provenance labels and adds
+        # chips. The wrapper and shared renderer must remain identical, while
+        # the legacy snapshot is retained only as a semantic reference.
+        assert wrapper_html == direct_html
+        if entry.get('ota_status') in ('INFERRED', 'RESERVATION_INFERRED'):
+            assert '자동' in wrapper_html
+        if entry.get('ota_status') == 'REVIEW_REQUIRED':
+            assert '재검토' in wrapper_html
+        if entry.get('ota_status') == 'UNLINKED':
+            assert '결제 근거 확인 필요' in wrapper_html
 
 
 def test_baseline_equivalence_catalog_block(baseline_ns):
@@ -116,7 +141,13 @@ def test_baseline_equivalence_catalog_block(baseline_ns):
         baseline_html = baseline_ns["_catalog_block"](entry)
         wrapper_html = card_flow._catalog_block(entry)
         direct_html = card_evidence_ui.render_catalog_block(entry, esc=ledger_board.esc)
-        assert baseline_html == wrapper_html == direct_html
+        def without_provenance_chip_classes(value):
+            return (value.replace(' chip chip-neutral', '')
+                         .replace(' chip chip-accent', ''))
+
+        assert without_provenance_chip_classes(baseline_html) == \
+            without_provenance_chip_classes(wrapper_html) == \
+            without_provenance_chip_classes(direct_html)
 
     # Required key contract: empty dict must raise KeyError('booking_ref') in all implementations
     with pytest.raises(KeyError) as exc_baseline:
@@ -233,11 +264,13 @@ def test_baseline_equivalence_render_refund_evidence(tmp_path, baseline_ns):
 
         # Case 3: Inferred link simulation
         inferred_link = dict(link, inferred=True, status="full", basis="kakao_same_card_exact_amount_inferred")
-        assert baseline_ns["_render_refund_evidence"](board, ids["200"], inferred_link) == card_flow._render_refund_evidence(board, ids["200"], inferred_link)
+        expected = baseline_ns["_render_refund_evidence"](board, ids["200"], inferred_link)
+        assert expected.replace('장부 기록 보류', '기록 전 확인') == card_flow._render_refund_evidence(board, ids["200"], inferred_link)
 
         # Case 4: Excess refund link simulation
         excess_link = dict(link, status="excess")
-        assert baseline_ns["_render_refund_evidence"](board, ids["200"], excess_link) == card_flow._render_refund_evidence(board, ids["200"], excess_link)
+        expected = baseline_ns["_render_refund_evidence"](board, ids["200"], excess_link)
+        assert expected.replace('기록을 보류합니다.', '기록 전 확인이 필요합니다.') == card_flow._render_refund_evidence(board, ids["200"], excess_link)
     finally:
         board.close()
 
