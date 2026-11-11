@@ -82,14 +82,32 @@ def difference(before, after, trips, applied):
     recorded_changed = changed & recorded
     closed_changed = {tid for tid in changed if tab(old[tid]) in closed or (
         str(tab(old[tid])).startswith('quarter:') and str(tab(old[tid])) < 'quarter:2026:3')}
-    attribution = {tid for tid in changed if any(old[tid][k] != new[tid][k] for k in ('trip_id', 'display_tab_id'))}
+    normalized_display = {
+        tid for tid in changed
+        if _display_tab_only_normalization(old[tid], new[tid], tid, recorded, manual)
+    }
+    attribution = {
+        tid for tid in changed
+        if any(old[tid][k] != new[tid][k] for k in ('trip_id', 'display_tab_id'))
+        and tid not in normalized_display
+    }
     new_affected = changed - set(applied)
     distribution = Counter((old[tid]['approval_date'] or old[tid]['posting_date'] or 'unknown')[:7] for tid in new_affected)
     return dict(changed=len(changed), a_item_changed=sum(old[tid]['item'] != new[tid]['item'] for tid in applied),
                 b_manual_changed=len(manual), b_recorded_changed=len(recorded_changed),
                 b_closed_changed=len(closed_changed), b_attribution_changed=len(attribution),
                 b_any=len(manual | recorded_changed | closed_changed | attribution),
+                display_tab_normalized=len(normalized_display),
                 c_new_affected=len(new_affected), c_periods=dict(sorted(distribution.items())))
+
+
+def _display_tab_only_normalization(old, new, tid, recorded, manual):
+    """Treat only the approved empty/unclassified display spelling as equal."""
+    if tid in recorded or tid in manual or old.get('trip_id') != new.get('trip_id'):
+        return False
+    return ({old.get('display_tab_id'), new.get('display_tab_id')}
+            <= {'', 'unclassified'}
+            and old.get('display_tab_id') != new.get('display_tab_id'))
 
 
 def run(db, archive, applied_archive, output):
