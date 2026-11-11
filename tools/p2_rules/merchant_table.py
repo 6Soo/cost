@@ -58,7 +58,7 @@ def _make_rule(key: str, item: str, rows: int, variants: list, basis: str, run_i
     }
 
 
-def build_rule_table(proposals: list, min_rows: int = 1) -> dict:
+def build_rule_table(proposals: list, min_rows: int = 1, *, normalizer=normalize_merchant) -> dict:
     """Build rules from proposals, reporting conflicts and skipped entries."""
     skipped: list = []
     groups: dict = {}
@@ -71,7 +71,7 @@ def build_rule_table(proposals: list, min_rows: int = 1) -> dict:
             reason = REASON_KEEP if item == KEEP_ITEM else REASON_LOW_CONFIDENCE
             skipped.append({"merchant": merchant, "reason": reason})
             continue
-        key = normalize_merchant(merchant)
+        key = normalizer(merchant)
         if key == "":
             skipped.append({"merchant": merchant, "reason": REASON_EMPTY_MERCHANT})
             continue
