@@ -9,6 +9,13 @@
 
 - 단계0 관리자 검증: 표적147pass/21.66초, 영향31파일702pass/기존3fail/4subtests/skip0·141.17초(기준455a723d 동일실패근거 유지). 계측 추가 후 같은2000건/1,100,346,849bytes 합성 off0.773초/P2근거조립호출0; on106.138초/고유50조립·합성3호출·50반영/근거첫1,100,591,362bytes 이후0·경쟁DB쓰기최대0.0012초. 실제모델/운영판정 미실행이며 최종SHA 독립검수 전이다. 기존QA3파일은 원해시로 복원했다.
 
+## 2026-11-11 단계별 시범 결과 — 5건 단계에서 중단
+
+- `5248d129b713f70210f5dc64e83f85574566042e`를 공식 `tools/deploy_verified_release.ps1`로 `965bca05`에서 배포했다. Board/Worker SHA와 listener는 5248d129, backend8752, route unpaused, health/ready200, 비인증 API401, 보호13표 불변이다. 첫 시도는 릴리스 파일 누락으로 `RELEASE_AUDIT_FAILED` 안전중단했고 운영은 바뀌지 않았으며, Git blob 재구성·audit0 후 재시도했다.
+- P2 off 15분 관찰: ready8752/8790 30회 모두200, 호출·대상·예약0, 보호지문 불변, P2 off 유지. Board ReadTransferCount 표본은 5분 1.94MB/s·946.5MB/s, 15분 0·1.31GB/s로 변동해 기존 재계산 경로와 구분한다.
+- 최대5건 시범은 route 잠금 샘플 연속 unavailable 5.096초로 즉시 중단했다. P2는 자동 off, full rollout false, route unpaused, ready8752 200/2.821초·8790 200/0.027초, 보호13표 PASS다.
+- 시범 계수: 후보3075, 선정5, 조립시작5·완료0, source_read_attempts2, 모델시도0·반환성공0·실패0, preview0·반영0. `P2_SOURCE_RECORD_TOO_LARGE`로 호출 예약 outcome unavailable, 최종 호출0/대상0 집계와 구분해 기록한다. route 중단 조건이 먼저 발생했으므로 50건 단계로 진행하지 않는다.
+- 결과 근거 `.local-archive/p2-staged-resume-20261111/off-15m/result.json`, `pilot-5/result.json`, `deploy-exit.json`, `deploy-evidence/`. 전체 미해결 건·E2·wave3는 실행하지 않았다. 다음은 Fable의 원인 수정·재시범 승인 판단이다.
 ## 2026-11-11 최종 독립검수 완료 — #804 Fable 승인 대기
 
 - 별도 `gpt-6.1-sol / medium`이67755cfee4ba968e88da94256bf94183d4450e23를 APPROVE했다. 지적된 누적예산 수정·신규회귀2pass·관리자102pass/영향680pass·기존3fail/규모실측을 확인했다. 이후 변경은 승인상태를 기록하는 문서3개뿐이며 최종문서SHA도 재확인해 #804댓글에 남긴다.
