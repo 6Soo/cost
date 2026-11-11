@@ -45,6 +45,7 @@ CODE_FINGERPRINT_FILES = (
     'app/automatic_classification.py', 'app/rules.py',
     'webapp/autonomous_cleanup_worker.py', 'webapp/card_classification_completion.py',
     'app/p2_case.py', 'app/frontier_agent_provider.py',
+    'app/p2_source_io.py', 'app/ota_mail.py', 'app/ota_portal.py', 'app/ota_store.py',
 )
 
 
@@ -711,6 +712,8 @@ class AutonomousCleanupWorker:
                 # prompt is split before any model call. Persist before reads.
                 with self._writer_locks():
                     check_budget(force=True)
+                    if reserved_calls_today(self.board.conn) >= cap:
+                        raise connected_agent_provider.AgentUnavailable('AGENT_DAILY_CAP', BLOCKED_RETRY_SECONDS)
                     from app.db import utc_now
                     payload = dict(transaction_ids=[c['transaction_id'] for c in request['cases']])
                     self.board.conn.execute('INSERT INTO requests VALUES (?,?,?,?,?)',

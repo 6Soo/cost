@@ -393,3 +393,27 @@ def test_split_prompts_count_all_assembled_cases_toward_first_fifty(setup, monke
         worker.sweep_once()
     assert len(seen) == 50
     assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 30
+
+
+def test_growing_source_is_stopped_by_actual_case_and_round_bytes(setup, tmp_path, monkeypatch):
+    import pytest
+    from app import p2_case, p2_source_io
+    for budget in ('EVIDENCE_CASE_BYTES', 'EVIDENCE_ROUND_BYTES'):
+        mail = tmp_path / budget
+        mail.mkdir()
+        source = mail / 'gmail-one.json'
+        source.write_text('{"responses": []}', encoding='utf-8')
+        read_text = p2_source_io.read_text
+        def grow(path):
+            if path == source:
+                source.write_text(json.dumps({'responses': [], 'padding': 'x' * (3 << 20)}), encoding='utf-8')
+            return read_text(path)
+        with monkeypatch.context() as patch:
+            patch.setattr(p2_source_io, 'read_text', grow)
+            patch.setattr(p2_case, budget, (2 << 20) + 1024)
+            repo = p2_case.Repository(setup.conn, {'mail_directories': [mail]})
+            repo.begin_snapshot()
+            with pytest.raises(ValueError, match='P2_READ_BUDGET_EXCEEDED'):
+                repo.source_items({'transaction_id': 'one'})
+            assert 1 << 20 <= repo.read_bytes <= (2 << 20) + 1024
+            assert not repo._snapshot

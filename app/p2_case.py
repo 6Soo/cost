@@ -204,11 +204,15 @@ def relevant(row, text):
     words = [w for w in re.findall(r'[\w가-힣]{3,}', str(row.get('merchant') or '').casefold())
              if w not in {'synthetic', 'store', 'payment', '결제', '주식회사'}]
     merchant = any(w in lower for w in words)
-    amount = str(row.get('amount_krw') or '')
-    amount_match = bool(amount and re.search(r'(?<!\d)' + re.escape(amount) + r'(?!\d)', text.replace(',', '')))
+    if not merchant:
+        return False
     tail = str(row.get('card_tail') or '')
     day = str(row.get('approval_date') or '')[:10]
-    return merchant and (amount_match or bool(tail and tail in text) or bool(day and day in text))
+    if tail and tail in text or day and day in text:
+        return True
+    amount = str(row.get('amount_krw') or '')
+    amount_match = bool(amount and re.search(r'(?<!\d)' + re.escape(amount) + r'(?!\d)', text.replace(',', '')))
+    return amount_match
 
 
 # Source read budgets. A (re)build of the evidence index is the only source I/O;
@@ -244,7 +248,9 @@ class _Index:
         self.amounts, self.digit_runs, self.terms = {}, {}, {}
         width = (len(entries) + 7) // 8
         def add(mapping, values, number):
-            for value in values:
+            for position, value in enumerate(values):
+                if position % 256 == 0:
+                    check()
                 if value not in mapping:
                     mapping[value] = bytearray(width)
                 mapping[value][number // 8] |= 1 << (number % 8)
@@ -274,6 +280,7 @@ class _Index:
         return self.terms[key]
 
     def candidates(self, row):
+        from .p2_source_io import checkpoint
         every = range(len(self.entries))
         found, corroboration, merchant = 0, 0, 0
         def bits(values):
@@ -282,6 +289,7 @@ class _Index:
         if len(approval) >= 6:
             if re.fullmatch(r'[0-9]+', approval):
                 for run, numbers in self.digit_runs.items():
+                    checkpoint()
                     if approval in run:
                         found |= bits(numbers)
             else:
@@ -297,6 +305,7 @@ class _Index:
                 corroboration |= self.matching(tail)
             else:
                 for run, numbers in self.digit_runs.items():
+                    checkpoint()
                     if tail in run:
                         corroboration |= bits(numbers)
         day = str(row.get('approval_date') or '')[:10]
@@ -409,10 +418,11 @@ class Repository:
     def _mail_entries(self):
         from . import ota_mail
         from .ota_payments import extract_payment_fact
+        from .p2_source_io import checkpoint
+        from functools import lru_cache
         messages, _ = ota_mail._load_messages_uncached(self.sources.get('mail_directories', []))
         entries = []
         for identity in sorted(messages):
-            from .p2_source_io import checkpoint
             checkpoint()
             message = messages[identity]
             text = ota_mail.message_text(message)
@@ -420,6 +430,7 @@ class Repository:
             visible = '\n'.join(str(h.get('value', '')) for h in headers
                                 if str(h.get('name', '')).lower() in ('subject', 'from', 'date'))
             # Payment context is derived only for a matched message, as before.
+            @lru_cache(maxsize=1)
             def context(message=message):
                 fact = extract_payment_fact(message) or {}
                 return {key: fact.get(key) for key in ('event_type', 'reservation_status', 'refund_status') if fact.get(key)}
