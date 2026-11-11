@@ -24,6 +24,7 @@ export function runParserVerification({ command, module: modulePath, filePath, t
     let settled = false;
     let stdout = "";
     let stderr = "";
+    let timer;
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -40,7 +41,7 @@ export function runParserVerification({ command, module: modulePath, filePath, t
     } catch {
       return finish({ status: "PARSER_VERIFICATION_UNAVAILABLE", reason: "cannot start parser verification" });
     }
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       try { child.kill(); } catch { /* process already gone */ }
       finish({ status: "PARSER_VERIFICATION_TIMEOUT" });
     }, timeoutMs);

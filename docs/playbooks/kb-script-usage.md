@@ -1,63 +1,35 @@
 # 국민 기업카드 매입 수집 스크립트 사용
 
-- 목적: 국민 기업카드 국내/해외 매입 원문을 조회기간에 맞춰 수집하고, 새 보호 폴더에 보존한 뒤 건수·형식·hash·조회기간 manifest를 남긴다. 판정·귀속·장부·Google 반영은 하지 않는다.
-- 실행 주체: 스크립트(`tools/collect_kb_card.mjs`) + 사람이 공급한 ego-browser 진입점.
-- 주기: 사용자가 넘긴 마지막 이용일 기준으로 필요할 때 실행한다. 예약 작업 등록 없음.
-- 개정 이력: 2026-11-11 최초 작성.
+제공된 `tools/collect_kb_card.mjs`와 기본 진입점 `tools/kb_card_collection/entry_kb.mjs`를 쓴다. 사용자가 새 브라우저 모듈을 작성할 필요는 없다. 로그인·인증서·OTP는 사람이 완료하며 세션이 만료되면 `LOGIN_REQUIRED`로 멈춘다. 이번 검증은 합성 Page와 합성 XLS만 사용했다.
 
-## 입력
+## 설정과 실행
 
-- 브라우저: 사용자가 이미 인증한 기업 세션. 로그인·인증서·OTP는 사람이 한다. 만료 시 스크립트는 `LOGIN_REQUIRED`로 멈춘다.
-- 브라우저 연결: `--ego-entry <.mjs> --space-name <이름> [--ego-bin ego-browser]`. 진입점은 ego-browser 실행 계약(`EGO_ENTRY_CONTRACT`, `tools/kb_card_collection/adapter.mjs`)을 내보내며, 같은 TaskSpace 안에서 라운드별로 실행된다. 진입점 파일과 selector/마커 매핑은 이 저장소의 실행 환경에서 관측되지 않았으므로 `NOT_VERIFIED`다. 관측 없이 추측으로 채우지 않는다.
-- 날짜: `--last-use-date`(시작일=당일, 차감 없음), `--execution-date`(실행일), 그리고 화면의 실제 허용일. 화면 허용일을 못 읽으면 실행일로 대신하지 않고 `ENV_PROBE_UNVERIFIED`에서 멈춘다.
-- 조회기간이 아니라 조회축은 매입일이다. 조회 소스 2곳(국내 `CXERCMLSD0002.cms`, 해외 `CXERCMLS0008.cms`)의 사업자 전체·전표(해외는 해외 매입) 범위는 기존 절차서(`card-downloads.md`)를 따른다.
-- 파서 검증(선택): `--python <실행파일> --parser-module <드라이버 .py>`를 주면 수집 결과와 별개로 기존 카드 파서를 읽기 전용으로 호출해 건수만 연결한다. 미지정 시 `PARSER_VERIFICATION_NOT_RUN`으로 기록한다.
+[카드 절차서의 실제 화면 확인 필요 6항목](card-downloads.md#실제-화면-확인-필요)을 관측한다. 비공개 UTF-8 JSON에 `space`와 `roles`를 둔다. 읽기 역할은 `css=#실제요소` 또는 `loc=css:#실제요소` 형태로 지정한다. 모호한 다중 요소는 존재로 인정하지 않는다. 행동 역할에도 고정 CSS 선택자를 쓰고 snapshot ref를 저장하지 않는다.
 
-## 단계
+역할: `session`, `dateFloor`, `dateCeiling`, `dateStartInput`, `dateEndInput`, `searchControl`, `periodEchoSource`, `periodEchoStart`, `periodEchoEnd`, `summaryResults`, `downloadControl`. 주의사항 창을 먼저 열어야 하면 `exportOpenControl`을 추가한다. 날짜 읽기 값은 ISO 날짜여야 한다. 선택자만으로 실제 화면의 날짜 형식을 표현할 수 없으면 CAPTURE_REQUIRED로 중단하고 관측한 형태에 맞춰 연결 코드를 수정해야 한다.
 
-1. `--out-dir`는 새로 쓰는 보호 폴더다. 이미 존재하고 비어 있지 않으면 거부하며, 덮어쓰지 않는다.
-2. 세션 생존을 어댑터 probe로 확인한다. 인증서·암호·OTP는 자동화하지 않는다.
-3. 소스별 화면 허용일을 읽고, 종료일을 화면 허용일과 실제 실행일 중 이른 값으로 계산한다(조회축 매입일).
-4. 저장 클릭 전에 다운로드 이벤트 대기를 설치하고, 실제 다운로드를 `saveAs`로 같은 라운드에 보존한다. 타임아웃 때 같은 버튼을 다시 누르지 않는다.
-5. 바이트·형식 지문(sha256·크기·내용 시그니처)을 검증한다. 로그인 HTML·오류 응답·빈 파일은 실패다.
-6. 0건은 조회요약 근거가 있을 때만 `no_data`, 없으면 `no_data_unverified`로 기록한다.
-7. manifest에 소스·조회기간·요약·파일 해시·검증 상태를 기록한다. 원문 행·거래 내용은 넣지 않는다.
+국내/해외 선택자가 다르면 JSON의 `sources` 아래 `국민 기업카드 국내 매입` / `국민 기업카드 해외 매입` 객체에 해당 역할을 넣어 공통 `roles`를 덮어쓴다. 화면은 실행 전에 매입일·사업자 전체·전표 전체로 설정한다. 이 조건 선택 자체의 자동화는 미구현이다.
 
-## 판단 기준
+PowerShell에서 레포 루트를 현재 폴더로 두고 실행한다. 아래 경로·날짜·TaskSpace 이름은 실제 관측한 값으로 바꾼다.
 
-- 세션 인증 실패·만료: `LOGIN_REQUIRED`에서 멈추고 사람이 인증한다.
-- 화면 허용일 판독 불가: `ENV_PROBE_UNVERIFIED`에서 멈춘다(실행일로 대체 금지).
-- 소스별 다운로드 실패(이벤트 없음·취소·저장 실패 등): 그 소스 결과행으로 기록하고 다음 소스를 계속한다.
-- 검증 실패(빈 파일·HTML·형식 불명): 성공으로 처리하지 않는다. 화면 건수와 실제 파일의 건수 일치는 파서 검증 또는 사용자의 별도 확인 지점이다.
-- 원문·거래 내용·식별자: manifest·로그·문서에 넣지 않는다.
+```powershell
+$env:KB_CARD_SELECTORS = 'C:/private/kb-selectors.json'
+node tools/collect_kb_card.mjs --ego-entry tools/kb_card_collection/entry_kb.mjs --space-name kb-collection --source both --last-use-date 2026-10-01 --execution-date 2026-11-11 --out-dir C:/private/kb-run-unique --python python --parser-module tools/kb_card_collection/verify_xls.py
+```
 
-## 출력
+CLI는 UTF-8 `.mjs`를 만들고 `ego-browser nodejs -e`로 실행한다. 브라우저 프로세스가 셸 환경을 상속한다고 가정하지 않고 선택자 파일의 절대 경로를 launcher에 전달한다. 같은 TaskSpace·p1을 재사용하며 인증 자동화는 없다. 프로그램 API의 기존 stdin runner는 호환용이며 CLI는 파일 실행 경로를 사용한다.
 
-- 보호 폴더: 실행별 신규 폴더, 내부에 원본 파일 + `manifest.json`(스키마 `cost.kb-card-collection-manifest.v1`).
-- 원본 파일명 관례: `kb-domestic-acquired-시작일-종료일.xls`, `kb-overseas-acquired-시작일-종료일.xls`(실제 파일명·확장자는 다운로드 결과가 정한다).
-- 검증 산출물: 소스별 행에 query(시작·종료·매입일 축)·summary·file(bytes·sha256)·verification 상태.
+## 끝까지 도는 범위와 가져오기 경계
 
-## 실패했을 때
+1. 호출자가 읽기 전용 DB 집계로 제공한 마지막 이용일 당일부터 시작하고, 종료일은 실행일/화면 허용일 중 이른 날짜로 계산한다. 도구가 운영 DB를 읽지는 않는다.
+2. 국내·해외 조회 입력 → 조회 후 실제 기간 확인 → 주의사항 창(설정 시) → 다운로드 대기 설치 → 최종 저장 버튼 → 같은 라운드 `saveAs`를 수행한다. 타임아웃 때 버튼을 다시 누르지 않는다.
+3. 새 보호 폴더에 파일을 보존하고 바이트·형식·SHA256을 확인한다. 기존 Python 카드 파서가 XLS의 시트/열을 해석하며 화면 총건수와 파서 행수를 대조한다. 불일치/파싱 이슈는 실패다. `countCheck=MATCHED`와 파서 성공을 확인하며, 파서 옵션을 생략하면 건수 검증 완료가 아니다.
+4. 화면 0건 근거가 있으면 파일 없이 `no_data`로 기록한다. 원문 행을 manifest/로그에 쓰지 않는다.
+5. 같은 실행 파일과 `--previous-manifest <이전 manifest>`의 SHA256을 대조해 `DUPLICATE_FILE` / `NO_FILE_MATCH`를 남긴다. 같은 파일이라도 지우거나 합치지 않는다. 이는 파일 단위 검사이며 DB 거래 중복·포맷 간 동일 거래·환불 짝 검증은 아니다.
+6. `importBoundary=NOT_RUN`, `databaseRows=NOT_RUN`을 기록하고 종료한다. 운영 DB 가져오기는 [카드 절차서](card-downloads.md#중복-검증-후-운영-db-가져오기)의 사본 리허설·신선 백업/별도 복원·단일 작성자 확인 뒤 기존 `Pipeline.receive` 경로로 수행하는 별도 작업이다. 이 수집 도구는 DB·장부·Google에 쓰지 않는다.
 
-- 멈춘 코드를 보고하고 운영 로그/DB/예약 작업을 건드리지 않는다. 부분 성공은 소스별 상태로 남긴다.
-- 재시도는 사용자가 같은 세션·같은 범위로 다시 호출하는 방식이다. navigator/좌표/ref는 저장하지 않는다.
+`manifest.json`은 원문 없이 기간·자료 종류·파일 지문·화면 건수·파서 건수·파일 중복·미실행 경계를 담는다. 폴더가 비어 있지 않으면 덮어쓰지 않고 거부한다. CLI의 실패/manifest 쓰기 실패는 exit 2다. 전체 결과 `ok`는 수집 경로의 결과이며 `countCheck` 미확인이나 가져오기 완료를 대신하지 않는다.
 
-## 하지 않는 것
+## 검증
 
-- 로그인·인증서·저장 암호·OTP 자동화, 보안 입력 우회.
-- 운영 DB 읽기/가져오기, 금융 apply, 백업, 예약 작업 등록(관리자 후속 경계).
-- 금액·부호·ID 해석·가공, 거래 행 선별·수정.
-- 무료/미관측 상태에서 실제 사이트 동작을 검증됐다고 보고하는 것.
-- 기본 TaskSpace/프로필 무단 변경, 타 탭·세션 초기화.
-
-## 관측 한계(NOT_VERIFIED)
-
-- 국내/해외 화면의 구체적 selector·다운로드 버튼·날짜 폼·요약 영역: 이 저장소 실행 환경에서 관측되지 않았다.
-- 실제 ego-browser 진입점 공급, 실제 사이트 조회·다운로드·세션 동작: 사용자가 같은 TaskSpace에서 수행·확인해야 하는 실환경 단계다.
-- 기존 파서 연결은 인터페이스/드라이버까지 구현했다. 실제 파일 건수 대조 실행은 관측된 검증 절차가 아니다.
-
-### 문헌 근거(정적 읽기, 실행 아님)
-
-- `C:/Users/kkokk/.codex/skills/cost-card-download/SKILL.md`와 `scripts/download.ps1`(설치 스크립트), 그리고 정본 `card-downloads.md`의 과거 기록만 정적으로 읽었다. 실행하지 않았고 계정·인증서·저장 암호·실제 다운로드에 접근하지 않았으며 고객 자료를 만들거나 받지 않았다.
-- 참고한 역할 서술: 국민 카드 사이트와 국내/해외 매입 자료 경로, 매입일 조회축, 필수 국내·해외 매입 각각의 실제 파일 또는 0건 화면 근거 요구, 다운로드 이벤트 대기·같은 라운드 보존·덮어쓰기 금지, 크기·형식·해시 검증 경계.
-- 문헌의 과거 관측 문자열(예: `XLS 파일저장` → `파일 저장 시 주의사항` 창 → `엑셀파일저장`)은 당시 수동 세션 기록이며 이번 실행의 재관측이 아니다. 이 저장소 실행 환경의 selector·날짜 폼·저장 제어·요약 영역은 현재 관측값이 없어 `NOT_VERIFIED`이며 추측으로 채우지 않았다.
+`python -m pytest tests/test_kb_card_collection_script.py -q`는 Node 합성 묶음을 실행한다. 합성 Page에서 조회·파일 저장·실제 합성 XLS Python 파싱·건수 불일치·이전 파일 중복·0건을 검증한다. 실제 로그인·사이트·고객 자료·운영 DB 접근은 하지 않는다. 실제 다운로드 파일 채널·취소 건수·원금/수수료 검증과 운영 가져오기는 이번 검증 범위 밖이다.

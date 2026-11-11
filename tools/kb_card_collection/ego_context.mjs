@@ -200,7 +200,9 @@ function buildCapture(space, page, selectorMap, operation, args) {
   };
 
   const cssRoleMap = (() => {
-    const css = context.selectors.css;
+    const css = context.selectors.css ?? Object.fromEntries(Object.entries(context.selectors)
+      .filter(([, value]) => typeof value === "string" && /^(?:loc=css:|css=)/.test(value))
+      .map(([key, value]) => [key, value.replace(/^(?:loc=css:|css=)/, "")]));
     if (css === null || typeof css !== "object" || Array.isArray(css)) return {};
     const out = {};
     for (const [role, value] of Object.entries(css)) {
@@ -222,9 +224,9 @@ function buildCapture(space, page, selectorMap, operation, args) {
         try { nodes = Array.from(document.querySelectorAll(selector)); } catch { nodes = []; }
         const first = nodes.length > 0 ? nodes[0] : null;
         out[role] = {
-          present: nodes.length > 0,
+          present: nodes.length === 1,
           count: nodes.length,
-          text: first ? String(first.textContent ?? "").trim().slice(0, 200) || null : null,
+          text: first ? String(first.value ?? first.textContent ?? "").trim().slice(0, 200) || null : null,
         };
       }
       return out;
@@ -258,10 +260,25 @@ function buildCapture(space, page, selectorMap, operation, args) {
     return narrowShape(base, roles);
   };
 
-  const fill = async (role, value) => { capability("fill"); await page.fill(requireRole(role), value); };
-  const query = async (role) => { capability("click"); await page.click(requireRole(role)); };
-  const activate = async (role) => { capability("click"); await page.click(requireRole(role)); };
-  const armDownloadEvent = async (options) => { capability("waitForEvent"); return page.waitForEvent("download", options); };
+  const fill = async (role, value) => { capability("fill"); await page.fill(requireRole(role), value); invalidateSnapshot(); };
+  const query = async (role) => { capability("click"); await page.click(requireRole(role)); invalidateSnapshot(); };
+  const activate = async (role) => { capability("click"); await page.click(requireRole(role)); invalidateSnapshot(); };
+  const armDownloadEvent = (options) => {
+    capability("waitForEvent");
+    const pending = page.waitForEvent("download", options);
+    pending.catch(() => {});
+    let artifact;
+    return {
+      async wait() {
+        artifact = await pending;
+        return { suggestedFilename: artifact.suggestedFilename() };
+      },
+      async saveAs(destination) {
+        artifact ??= await pending;
+        return artifact.saveAs(destination);
+      },
+    };
+  };
 
   const saveAs = async (event, destinationPath) => {
     if (event === null || typeof event !== "object" || typeof event.saveAs !== "function") {
@@ -301,7 +318,16 @@ function buildCapture(space, page, selectorMap, operation, args) {
     return {
       space,
       pageLabel: "p1",
-      snapshot: async (roles) => { await ensureSource(args.source); return snapshot(roles); },
+      snapshot: async (roles) => {
+        await ensureSource(args.source);
+        const result = await snapshot(roles);
+        if (operation === "download" && roles.includes("periodEchoStart")) {
+          for (const [role, expected] of [["periodEchoStart", args.startDate], ["periodEchoEnd", args.endDate]]) {
+            if (result[role]?.text !== expected) throw contextRequired("query period does not match the requested ISO dates");
+          }
+        }
+        return result;
+      },
       fill: async (role, value) => { await ensureSource(args.source); return fill(role, value); },
       query: async (role) => { await ensureSource(args.source); return query(role); },
       armDownloadEvent,

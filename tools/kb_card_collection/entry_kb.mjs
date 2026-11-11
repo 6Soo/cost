@@ -155,6 +155,7 @@ function normalizeSelectorConfig(config, origin) {
   return {
     space: typeof config.space === "string" && config.space.trim() !== "" ? config.space.trim() : null,
     roles,
+    sources: config.sources ?? {},
   };
 }
 
@@ -172,6 +173,7 @@ async function resolveSpace(args) {
 
 async function openCapture(operation, args) {
   const config = await loadSelectorRoles();
+  if (config.sources[args?.source]) Object.assign(config.roles, normalizeSelectorConfig({ roles: config.sources[args.source] }, "source roles").roles);
   const browserContext = await loadBrowserContext();
   if (typeof browserContext.createCapture !== "function") {
     throw captureRequired("browser context must export createCapture({space,selectors,operation,args})");
@@ -290,8 +292,14 @@ export async function download({ source, startDate, endDate, outDir, spaceName }
   if (looksLikeZeroSummary(summary.text)) {
     return { status: "no_data", pageTotalCount: 0, summaryAvailable: true };
   }
+  const countMatch = /^(?:총\s*)?([0-9]+(?:,[0-9]{3})*)\s*(?:건|rows?|records?)?$/.exec(summary.text ?? "");
+  const observedCount = countMatch ? Number(countMatch[1].replaceAll(",", "")) : null;
 
-  const control = readRole(snapshot, "downloadControl");
+  let control = readRole(snapshot, "downloadControl");
+  if (roles.exportOpenControl) {
+    await capture.activate("exportOpenControl");
+    control = readRole(await capture.snapshot(["downloadControl"]), "downloadControl");
+  }
   if (control.present !== true) {
     // 화면에 저장 제어가 없음: 성공 추정 금지, 크게 멈춘다.
     throw new AdapterError("download_control_missing", "download control not present on screen");
@@ -348,7 +356,8 @@ export async function download({ source, startDate, endDate, outDir, spaceName }
   return {
     status: "downloaded",
     savedPath,
-    ...(info !== null && info !== undefined && typeof info === "object" &&
+    ...(Number.isSafeInteger(observedCount) ? { pageTotalCount: observedCount, summaryAvailable: true } : {}),
+    ...(observedCount === null && info !== null && info !== undefined && typeof info === "object" &&
       Number.isInteger(info.pageTotalCount) && info.pageTotalCount >= 0 ? { pageTotalCount: info.pageTotalCount } : {}),
     ...(info !== null && info !== undefined && typeof info === "object" && info.summaryAvailable === true
       ? { summaryAvailable: true } : {}),

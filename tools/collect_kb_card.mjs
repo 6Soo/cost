@@ -2,7 +2,7 @@
 // 국민 기업카드 국내/해외 매입 원본 수집 + 검증 경계 스크립트(합성/실환경 공용 오케스트레이션).
 // 소유 경계: 조회기간 계산(p1) → 세션 검증/터치 없음 → 소스별 화면 허용일 → 어댑터 다운로드 → 산출물 검증 → 별도 파서 검증 연결 → 매니페스트.
 // 불가/미검증 경계: 로그인·인증서·OTP 자동화 없음, 운영 DB 읽기/가져오기·금융 apply·백업·예약 등록 없음, ₩/ID/부호 가공 없음, 원문 비노출.
-import { readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -29,6 +29,7 @@ const USAGE = `usage: collect_kb_card.mjs [options]
   --python CMD                   파서 검증 Python(미지정 시 NOT_RUN 기록)
   --parser-module PATH           파서 검증 드라이버(.py, 미지정 시 NOT_RUN 기록)
   --parser-timeout-ms N          파서 검증 타임아웃(기본 60000)
+  --previous-manifest PATH       이전 수집 manifest와 파일 SHA256 중복 대조(선택)
   --ego-entry PATH               ego-browser 진입점(.mjs). 미지정 시 어댑터 없이 성공 불가
   --ego-bin NAME                 ego-browser 실행 파일(기본 ego-browser, PATH 탐색)
   --space-name NAME              재개할 TaskSpace 이름(미지정 시 어댑터 구성 거부)
@@ -62,6 +63,7 @@ function parseArgs(argv) {
       case "--python": values.python = next(); break;
       case "--parser-module": values.parserModule = next(); break;
       case "--parser-timeout-ms": values.parserTimeoutMs = next(); break;
+      case "--previous-manifest": values.previousManifest = next(); break;
       case "--ego-entry": values.egoEntry = next(); break;
       case "--ego-bin": values.egoBin = next(); break;
       case "--space-name": values.spaceName = next(); break;
@@ -125,6 +127,10 @@ async function writeManifest(manifestPath, payload) {
 
 // 실행 전체가 멈춘 경우에도 매니페스트까지 남긴다(원문 없이 상태만).
 async function finish(report, outDir, { stopped = null, manifestPath } = {}) {
+  report.importBoundary = {
+    status: "NOT_RUN",
+    reason: "운영 DB 중복 리허설·백업/복원·단일 작성자 검증 후 기존 Pipeline.receive로 별도 가져오기; 이 도구는 DB에 쓰지 않음",
+  };
   report.status = stopped
     ? "stopped"
     : (report.rows.some((row) => BAD_VERIFICATION.has(row.verification?.status))
@@ -145,6 +151,7 @@ async function finish(report, outDir, { stopped = null, manifestPath } = {}) {
         executionDate: report.executionDate,
         requestedSources: report.requestedSources,
         rows: report.rows,
+        importBoundary: report.importBoundary,
         ...(stopped ? { stopped } : {}),
       });
     } catch (err) {
@@ -165,6 +172,7 @@ export async function runCollector({
   runId,
   parser = {},
   now,
+  previousManifest = null,
 } = {}) {
   const generatedAt = new Date(now ?? Date.now()).toISOString();
   const report = {
@@ -181,6 +189,7 @@ export async function runCollector({
   let exec = null;
   let start = null;
   try {
+    if (typeof outDir !== "string" || !outDir.trim()) throw new PolicyError("outDir is required");
     if (typeof executionDate !== "string" || !executionDate.trim()) {
       throw new PolicyError("executionDate is required");
     }
@@ -201,6 +210,7 @@ export async function runCollector({
     for (const source of unknown) report.rows.push(rowForUnknownSource(source));
     report.requestedSources = selected;
     if (outDir) await prepareRunDir(outDir);
+    if (outDir) await mkdir(outDir, { recursive: true });
   } catch (err) {
     return finish(report, outDir ? path.resolve(outDir) : null, { stopped: normalizeFailure(err) });
   }
@@ -300,6 +310,24 @@ export async function runCollector({
     row.parserVerification = insideOutDir && row.file
       ? await parserResultFor(row, { source, parser })
       : { status: PARSER_VERIFICATION_NOT_RUN, reason: "no preserved file to verify" };
+    const parsed = row.parserVerification;
+    row.countCheck = { status: "NOT_VERIFIED" };
+    if (parsed?.status === "PARSER_VERIFICATION_OK") {
+      const valid = Number.isInteger(parsed.rows) && parsed.parse_issues === 0;
+      const matched = valid && parsed.rows === row.summary.pageTotalCount;
+      row.countCheck = { status: matched ? "MATCHED" : "FAILED" };
+      if (!matched) row.verification = { status: "failed", failure: "parser_count_or_issues" };
+    } else if (parsed?.status !== PARSER_VERIFICATION_NOT_RUN) {
+      row.verification = { status: "failed", failure: "parser_verification_failed" };
+    }
+    const earlierRows = [...(previousManifest?.rows ?? []), ...report.rows];
+    row.duplicateCheck = {
+      scope: "file_sha256_only",
+      status: row.file?.sha256
+        ? (earlierRows.some((prior) => prior.file?.sha256 === row.file.sha256) ? "DUPLICATE_FILE" : "NO_FILE_MATCH")
+        : "NOT_VERIFIED",
+      databaseRows: "NOT_RUN",
+    };
     report.rows.push(row);
   }
 
@@ -366,6 +394,7 @@ async function main() {
         entryPath: values.egoEntry,
         spaceName: values.spaceName ?? null,
         egoBin: values.egoBin ?? "ego-browser",
+        launchFromFile: true,
       });
     } catch (err) {
       process.stderr.write(`${JSON.stringify({ status: "stopped", code: "ADAPTER_REQUIRED", message: err.message })}\n`);
@@ -382,11 +411,12 @@ async function main() {
     lastUseDate: values.lastUseDate,
     executionDate: values.executionDate,
     outDir: values.outDir,
-    sources: values.sources,
+    sources: values.sources ?? sourcesFromFlag("both"),
     parser,
+    previousManifest: values.previousManifest ? JSON.parse(await readFile(values.previousManifest, "utf8")) : null,
   });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  if (report.status === "stopped") process.exitCode = 2;
+  if (report.status !== "ok" || report.manifestError) process.exitCode = 2;
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

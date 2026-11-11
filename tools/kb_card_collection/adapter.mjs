@@ -1,6 +1,6 @@
 // 브라우저 어댑터 경계. 국민 기업카드 조회(국내/해외)에 필요한 최소 표면과 결과 검증만 소유한다.
 // 실제 페이지 selector·좌표는 이 저장소의 실행 환경에서 관측되지 않았다(NOT_VERIFIED).
-// 소유자는 docs/playbooks/kb-script-collection-script-usage.md 계약에 맞춰 ego-browser 진입점을 공급한다.
+// 기본 진입점은 entry_kb.mjs이며 미관측 선택자만 설정한다.
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -84,7 +84,7 @@ function downloadFailure(code) {
   return new AdapterError(typeof code === "string" && code ? code : "download_failed", "download did not complete");
 }
 
-async function defaultRunner({ entryPath, workDir, egoBin, spawnImpl, operation, args, timeoutMs }) {
+async function defaultRunner({ entryPath, workDir, egoBin, spawnImpl, operation, args, timeoutMs, launchFromFile }) {
   if (!entryPath || !workDir) throw new AdapterError("EGO_PROTOCOL", "runner is not configured");
   let entryModuleUrl;
   try {
@@ -97,6 +97,7 @@ async function defaultRunner({ entryPath, workDir, egoBin, spawnImpl, operation,
   const round = `${base}-${operation}-${process.pid}-${Date.now()}`;
   const launcherPath = path.join(workDir, `${round}.mjs`);
   const launcherSource = [
+    `process.env.KB_CARD_SELECTORS = ${JSON.stringify(process.env.KB_CARD_SELECTORS ? path.resolve(process.env.KB_CARD_SELECTORS) : "")};`,
     `const mod = await import(${JSON.stringify(entryModuleUrl)});`,
     `const fn = mod[${JSON.stringify(operation)}];`,
     `const result = await fn(${JSON.stringify(args ?? {})});`,
@@ -108,7 +109,9 @@ async function defaultRunner({ entryPath, workDir, egoBin, spawnImpl, operation,
   } catch {
     throw new AdapterError("EGO_PROTOCOL", "cannot stage ego entry round");
   }
-  const child = spawnImpl(egoBin, ["nodejs"], {
+  const child = spawnImpl(egoBin, launchFromFile
+    ? ["nodejs", "-e", `await import('${pathToFileURL(launcherPath).href}')`]
+    : ["nodejs"], {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -117,7 +120,7 @@ async function defaultRunner({ entryPath, workDir, egoBin, spawnImpl, operation,
   child.stdout?.on("data", (d) => { stdout += d.toString("utf8"); });
   child.stderr?.on("data", (d) => { stderr += d.toString("utf8"); });
   try {
-    child.stdin?.end(launcherSource);
+    child.stdin?.end(launchFromFile ? undefined : launcherSource);
   } catch {
     // early-closed stdin surfaces through the round's exit status below
   }
@@ -173,6 +176,7 @@ export function createEgoBrowserAdapter({
   runner,
   spawnImpl = spawn,
   timeoutMs = 30000,
+  launchFromFile = false,
 } = {}) {
   if (!entryPath) throw new AdapterError("ADAPTER_REQUIRED", "ego entry path is required");
   if (!spaceName) throw new AdapterError("ADAPTER_REQUIRED", "task space name is required");
@@ -184,6 +188,7 @@ export function createEgoBrowserAdapter({
     operation: request.operation,
     args: request.args,
     timeoutMs,
+    launchFromFile,
   }));
 
   return {
