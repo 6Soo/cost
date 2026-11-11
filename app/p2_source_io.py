@@ -61,7 +61,8 @@ def bounded_payload(value):
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            if key in ('content', 'data', 'base64_url_content') and isinstance(item, str):
+            # Encoded MIME data must be decoded by the original reader first.
+            if key == 'content' and isinstance(item, str):
                 out[key] = _bounded_text(item)
             else:
                 out[key] = bounded_payload(item)

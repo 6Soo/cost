@@ -20,7 +20,7 @@ PORTAL_EVIDENCE_FIELDS = frozenset({
     'booking_number', 'service_start_on', 'service_end_on', 'status', 'id',
     'source_sha256', 'evidence_role', 'evidence_status', 'conflict_count',
     'provider', 'card_last4', 'currency', 'amount', 'period', 'payment_status',
-    'portal_payment_state', 'reservation_status', 'collection_model',
+    'portal_payment_state', 'reservation_status', 'collection_model', 'text',
 })
 KINDS = frozenset({'mail_search', 'portal_lookup', 'card_search'})
 ROOT = Path(__file__).resolve().parents[1]
