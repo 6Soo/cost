@@ -1,5 +1,14 @@
 # 현재 상태
 
+## 2026-11-12 P2 서버 진입점 수정 — wave3 통합·검증 진행
+
+- 현재 지시는 Fable의 ImportError 수정→릴리스 HTTP 검사→wave3 포함 단일배포→367건 반영→P1 등록 없이 보고다. 이전 추가배포 금지는 이 후속 승인으로 대체됐다. #799는 `e5e7bb5f551db5ce69365c2bc10899f12863d416`로 병합됐고 이 main을 통합했다.
+- 실제 운영 릴리스에는 `app/classification_correction.py`가 존재하며 `webapp/classification_correction.py`는 없다. 운영 로그가 잘못된 상대 import를 확인한다. launcher는 checkout을 sys.path 앞에 삽입하며 같은 운영 venv의 격리 probe에서도 app 모듈 경로/잘못된 webapp 모듈 부재를 확인했다(실행 중 프로세스 내부를 직접 조회한 것은 아님).
+- 서버 진입점을 `from app import classification_correction`으로 수정했다. 새 HTTP 검사가 추가로 드러낸 trip_tabs tuple 인덱싱도 cursor.description을 사용해 고쳤다. 연결 row_factory와 금융/수동/열린 분기 보호는 바꾸지 않았다. 서버가 tools를 import하지 않는다.
+- 새 `webapp/tests/test_p2_release_http.py`는 기존 git archive 절차로 HEAD를 임시 릴리스에 풀고 별도 `python -I`에서 애플리케이션 sys.path를 그 릴리스로 한정한다. 실제 서버의 비운영 임의 포트에서 owner 인증/CSRF 거부, preview200·무변경, apply200·장부/화면/감사, 재전송 무변경을 확인한다. wave3 통합 전/후 각각1 passed다. 기존 검사가 놓친 이유는 app 서비스를 직접 호출해 HTTP handler의 lazy import와 LedgerStore의 tuple 연결을 실행하지 않았기 때문이다.
+- 영향 검사 코드 `2e224894`: 42파일707건, **699 passed/8 failed/35 subtests/skip0**, compile·추적 원본 guard 통과, 지정 브라우저5검사 실행·누락0. 실패8건 모두 정확한 기준 main `e5e7bb5f`의 별도 추출본에서 원 테스트 그대로 재현했다(8failed/errors0/skip0). 신규·미대조 실패0이며 전체 QA 통과로 표시하지 않는다. 기존 테스트·기대값은 바꾸지 않았다. 새 릴리스 HTTP 검사1건은 통과했다. 이후 `1de1b466`은 상태 문서만 추가했다. 기존 사용자 QA3파일은 해시 일치로 복원했다.
+- 최종 검수·새 PR·공식배포·직후/5분/15분 ready·367건 신선 사본검사/반영은 아직 남았다. 비공개 재개점 `.local-archive/p2-import-fix-20261112/checkpoint.md`, 검사/기준 대조는 같은 폴더의 `quality/`, `baseline-comparison.json`, `baseline-failures.xml`이다. 고객 복구 파일과 QA 미추적 파일은 보존한다.
+
 ## 2026-11-12 wave3 #799 — 최신 main 통합 재검증 완료 (이 worktree 전용)
 
 - **후속 #803 통합:** main `0281e90fa1e536b3a1d715c1a65033065121bec0`을 추가 통합했다. 변경은 국민 수집 전용 tools/tests, 영향 매핑과 문서이며 기존 app/webapp·UI·CSS·JS·159파일 테스트·quality 실행기는 동일하다. 위 159파일 검사·같은 main 실패 대조·합성 화면 근거를 재사용하고 `7188e202` 이후 변경 영향만 추가 검사한다. 추가 검사 결과와 이 통합의 최종 SHA 검수는 PR 최종 댓글을 정본으로 한다. 두 번째 문서 충돌도 양쪽 기록을 보존했다.
@@ -25,6 +34,7 @@
 - **외부 차단·다음:** GitHub run 42907382198/job 130148811660은 결제·지출 한도 때문에 steps 0으로 시작하지 못했다. 이를 CI 통과로 표시하지 않는다. Fable이 최종 SHA 댓글의 sol medium 독립 판정을 보고 병합 여부를 결정한다. 운영 변경·고객 원본 접근·Google 쓰기는 없으며 운영 배포는 이 세션 범위 밖이다.
 ## 2026-11-12 P2 단계 2 — 귀속 불일치 제외 완료 / 서버 미리보기 API 오류로 반영 차단
 
+- 도구 완료 커밋은 [PR #808](https://github.com/6Soo/cost/pull/808)의 병합 `befe868a444dbbae3d14feb1e8bb388e48575780`이다. 최종 `d60e4b200d8e53c767e0947aae182a5062417e1a`를 독립 `gpt-6.1-sol / medium`이 APPROVE했고 표적24건을 직접 재실행했다. CI job130607692586는 결제 한도로 시작되지 않아(step0) 승인 예외를 적용했으며 모델·SHA·판정·근거는 PR 댓글에 남겼다. 추가배포는 없다. 이 종료 기록은 로컬 커밋으로 보존한다.
 - Fable 후속 지시로 사본 불변 실패 1건을 제외했다. 열린 분기 전체 2,852건에서 거래와 장부의 `trip_id` 또는 `display_tab_id` 불일치는 109건이다. 선정 단계와 미리보기에서 항상 제외하며, 이번 368후보 중 해당하는 건은 1건이다. 분기 검수 목록은 비공개 `run367/quarterly-review.json`에 해시만 보존한다.
 - 나머지 367건(기록227·미기록140)을 신선 읽기 전용 조회(0.502초)로 준비했다. 사본20·50×6·47건 적용/재전송/파일복원 전부 통과, 불변 실패0·복원367일치다. 기존 중단 근거는 덮어쓰지 않았다.
 - **BLOCKED:** 첫20건의 운영 `/api/p2-batch/corrections/preview`가 HTTP502를 반환한다. 운영 `68fbe0dd`의 `webapp/ledger_board.py:4720`이 `from . import classification_correction`에서 ImportError를 낸 것이 운영 로그로 확인됐다. 실제 모듈은 `app/classification_correction.py`다. 서버 변경·추가배포 금지 지시로 서버 코드는 수정하지 않았다. apply API는 미호출이며 운영 반영0·되돌리기0·Google0·P1등록0·2층0이다. 바뀐 거래가 없어 화면3건 확인도 미실행이다.

@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "p2-release-http-entrypoint",
+      "paths": ["webapp/ledger_board.py", "webapp/tests/test_p2_release_http.py"],
+      "tests": ["webapp/tests/test_p2_release_http.py"]
+    },
+    {
       "name": "kb-card-collection-synthetic",
       "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
       "tests": ["tests/test_kb_card_collection_script.py"]

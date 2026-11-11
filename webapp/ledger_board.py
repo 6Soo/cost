@@ -4767,7 +4767,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_p2_batch_corrections(self, path, read_payload, check_csrf) -> None:
         """Owner/CSRF-gated P2 batch entry point; storage remains server-owned."""
-        from . import classification_correction
+        from app import classification_correction
         from .ledger_store import SaveError
 
         if current_role() != 'owner':
@@ -4786,7 +4786,11 @@ class Handler(BaseHTTPRequestHandler):
             corrections = payload.get('corrections')
             if not isinstance(corrections, list) or not corrections or len(corrections) > 50:
                 raise ValueError('P2_BATCH_LIMIT')
-            trips = [dict(row, trip_id=row['tab_id']) for row in store.conn.execute('SELECT * FROM trip_tabs')]
+            cursor = store.conn.execute('SELECT * FROM trip_tabs')
+            columns = [field[0] for field in cursor.description]
+            trips = [dict(zip(columns, row)) for row in cursor]
+            for trip in trips:
+                trip['trip_id'] = trip['tab_id']
             if path.endswith('/preview'):
                 result = classification_correction.preview(
                     store.conn, corrections, trips, allow_recorded_ai=True)
