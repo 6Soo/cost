@@ -38,6 +38,7 @@ def read_projection(path):
             ('transaction_review_holds', 'transaction_id,source_hash,kind'),
             ('transaction_company_exclusions', 'transaction_id,source_hash,excluded'),
             ('board_rows', 'row_id,payload_json'),
+            ('ledger_entries', 'transaction_id,trip_id,display_tab_id'),
         ):
             data[table] = [dict(r) for r in conn.execute('SELECT '+columns+' FROM '+table)]
         data['allowed_items'] = sorted({r[0] for r in conn.execute(
@@ -52,6 +53,15 @@ def tab(row):
     return row['display_tab_id'] if row['display_tab_id'] not in ('', None, 'unclassified') else row['trip_id']
 
 
+def projection_disagreements(data):
+    """Exclude existing ledger attribution conflicts before any P2 selection."""
+    transactions = {r['transaction_id']: r for r in data['transactions']}
+    return {r['transaction_id'] for r in data.get('ledger_entries', [])
+            if r['transaction_id'] in transactions and any(
+                r.get(key) != transactions[r['transaction_id']].get(key)
+                for key in ('trip_id', 'display_tab_id'))}
+
+
 def select(data):
     trips = {r['tab_id']: r for r in data['trip_tabs'] if not r['deleted']}
     opened = {k for k, v in trips.items() if v['starts_on'] >= '2026-06-30'}
@@ -64,13 +74,16 @@ def select(data):
                if r['original_approval_number'] and (r['transaction_direction'] in ('cancellation', 'refund') or (r['amount_krw'] or 0) < 0)}
     purchases = [r for r in data['transactions'] if r['transaction_direction']=='purchase' and (r['amount_krw'] or 0)>0]
     scope, eligible, protected = [], [], Counter()
+    disagreements = projection_disagreements(data)
     for row in purchases:
         q = destination(row)
         if tab(row) not in opened and not (q and (q['year'], q['quarter']) >= (2026, 3)):
             continue
         scope.append(row)
         key = row['transaction_id'], row['source_hash']
-        if row['classification_source'] in MANUAL or row['decided_at'] is not None or row['transaction_id'] in manual:
+        if row['transaction_id'] in disagreements:
+            reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
+        elif row['classification_source'] in MANUAL or row['decided_at'] is not None or row['transaction_id'] in manual:
             reason = 'manual'
         elif row['parse_error']:
             reason = 'PARSE_ERROR'
@@ -93,6 +106,7 @@ def select(data):
     general = [r for r in eligible if r['item'] in GENERAL]
     late = Counter(tab(r) for r in purchases if tab(r) in closed and (r['approval_date'] or '') >= '2026-06-30')
     report = dict(open_trips=len(opened), scope_purchases=len(scope),
+        projection_attribution_disagreements=sum(r['transaction_id'] in disagreements for r in scope),
         open_trip_purchases=sum(tab(r) in opened for r in scope),
         quarter_other=sum(tab(r) not in opened for r in scope), protected=dict(protected), eligible=len(eligible),
         general_rows=len(general), general_merchants=len({r['merchant_normalized'] or r['merchant'] for r in general}),
