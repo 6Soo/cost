@@ -72,6 +72,29 @@ def test_prompt_projection_excludes_personal_source_columns():
     assert len(targets)==1
 
 
+def test_stage2_normalization_uses_ledger_names_and_majority():
+    inputs = [
+        {'merchant_id': 'a', 'normalized': 'ALPICO KOTSU  NAGANO JP', 'names': ['ALPICO KOTSU  NAGANO JP'], 'count': 3},
+        {'merchant_id': 'b', 'normalized': 'ALPICO KOTSU NAGANO JP', 'names': ['ALPICO KOTSU NAGANO JP'], 'count': 1},
+    ]
+    results = [
+        {'merchant_id': 'a', 'item': '대중교통', 'confidence': '높음', 'basis': '합성'},
+        {'merchant_id': 'b', 'item': '교통비', 'confidence': '낮음', 'basis': '합성'},
+    ]
+    normalized = layer1.normalize_results(inputs, results, ['교통비', '수수료', '입장료'])
+    assert [r['item'] for r in normalized] == ['교통비', '교통비']
+
+
+@pytest.mark.parametrize(('item','names','expected'), [
+    ('편의점', ['CONVENIENCE STORE'], layer1.KEEP),
+    ('이용료', ['HOT SPRING ONSEN'], '입장료'),
+    ('이용료', ['ANNUAL CLUB FEE'], layer1.KEEP),
+    ('세금과공과', ['UTILITY'], layer1.KEEP),
+])
+def test_stage2_item_mapping_is_conservative(item, names, expected):
+    assert layer1.normalize_item(item, names, ['교통비', '수수료', '입장료']) == expected
+
+
 def test_batch_runs_with_empty_cwd_and_rejects_tool_events(monkeypatch):
     monkeypatch.setattr(layer1.provider,'_executable',lambda:'synthetic.exe')
     batch=[{'merchant_id':'one'}]

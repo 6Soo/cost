@@ -22,6 +22,66 @@ from .scope import read_projection, select, service_warnings
 KEEP = '기존 항목 유지'
 ROOT = Path(__file__).resolve().parents[2]
 
+# Stage-2 normalization is deliberately deterministic and runs after the
+# model output.  It never invents a category that has not appeared in the
+# current operating ledger.
+ITEM_REMAP = {
+    '대중교통': '교통비',
+    '편의점': KEEP,
+    '지급수수료': '수수료',
+    '세금과공과': KEEP,
+}
+FACILITY_USAGE_RE = re.compile(r'(온천|온센|onsen|spa|로프웨이|ropeway|곤돌라|케이블카|골프장|golf|스키장|박물관|museum|미술관|전망대|테마파크)', re.I)
+
+
+def canonical_merchant_name(value):
+    """Collapse spacing and source suffixes used for city/country variants."""
+    text = re.sub(r'\s+', ' ', str(value or '')).strip()
+    # Card feeds commonly separate the merchant from location with padding.
+    text = re.split(r'\s{2,}', str(value or '').strip(), maxsplit=1)[0]
+    return re.sub(r'\s+', ' ', text).strip().casefold()
+
+
+def normalize_item(item, merchant_names=(), operational_items=()):
+    if item == '이용료':
+        return '입장료' if any(FACILITY_USAGE_RE.search(str(name)) for name in merchant_names) else KEEP
+    mapped = ITEM_REMAP.get(item, item)
+    if mapped != KEEP and operational_items and mapped not in set(operational_items):
+        return KEEP
+    if mapped not in set(operational_items or ()):  # unknown post-April labels stay unchanged
+        return mapped if not operational_items else KEEP
+    return mapped
+
+
+def normalize_results(inputs, results, operational_items):
+    """Normalize existing proposals without another model call.
+
+    Variants are grouped by canonical merchant name; a conflicting group uses
+    weighted majority by transaction count and falls back to KEEP on ties.
+    """
+    by_id = {r['merchant_id']: r for r in inputs}
+    groups = defaultdict(list)
+    for row in inputs:
+        groups[canonical_merchant_name(row.get('normalized') or row['names'][0])].append(row['merchant_id'])
+    output = {r['merchant_id']: dict(r) for r in results}
+    for merchant_ids in groups.values():
+        votes = Counter()
+        for mid in merchant_ids:
+            src = output[mid]
+            item = normalize_item(src['item'], by_id[mid].get('names', ()), operational_items)
+            if item != KEEP:
+                votes[item] += int(by_id[mid].get('count', 0))
+        chosen = votes.most_common()
+        winner = chosen[0][0] if chosen and (len(chosen) == 1 or chosen[0][1] > chosen[1][1]) else KEEP
+        for mid in merchant_ids:
+            src = output[mid]
+            normalized = normalize_item(src['item'], by_id[mid].get('names', ()), operational_items)
+            if len(merchant_ids) > 1 and winner != KEEP:
+                normalized = winner
+            src['item'] = normalized
+            output[mid] = src
+    return [output[r['merchant_id']] for r in results]
+
 
 def clean_name(value):
     value = re.sub(r'[\w.+-]+@[\w.-]+', '[redacted]', str(value))

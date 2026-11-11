@@ -76,6 +76,7 @@ P1 기존 규칙을 먼저 적용하고 남은 문맥은 P2가 원본·메일·�
 - 대체된 옛 규칙:
   - 명시 카드 재분류에서 최신 예약 원문·검증 결제·이용기간·실제 여행을 확인하면 기록된 자동 추론만 원자적으로 교정할 수 있다. — 2026-11-03 (2026-11-11 열린 분기 P2 교정 결정으로 범위 개정)
   - 이미 기록된 행은 여행 검증이 바뀌어도 자동으로 옮기지 않는다. — 2026-10-16, C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-classify-records-automatically.md:15
+  - 서버 밖 P2 단계 2의 항목 정리는 모델 재호출 없이 운영 장부 항목 대응표와 가맹점 표기 묶음 다수결을 적용한다. 편의점·시설 이용이 아닌 이용료·운영 장부에 없는 항목은 기존 항목을 유지한다. 기록된 장부·화면 행은 AI 교정 보호 미리보기를 통과하지 않으면 반영하지 않는다. — 2026-11-11 Fable 단계 2 결정
   - 기록된 거래의 배정은 건드리지 않는다. — docs/history/ota-legacy.md:1251
 - 출처: `소유자 지시 메모:feedback-classify-records-automatically.md:15`, `docs/specs/recorded-booking-period-correction-20261103.md:11`, `docs/history/session_handoff-through-20261107.md:401`, `docs/history/ota-legacy.md:1251`
 
