@@ -6,7 +6,8 @@
 - 실제 운영 릴리스에는 `app/classification_correction.py`가 존재하며 `webapp/classification_correction.py`는 없다. 운영 로그가 잘못된 상대 import를 확인한다. launcher는 checkout을 sys.path 앞에 삽입하며 같은 운영 venv의 격리 probe에서도 app 모듈 경로/잘못된 webapp 모듈 부재를 확인했다(실행 중 프로세스 내부를 직접 조회한 것은 아님).
 - 서버 진입점을 `from app import classification_correction`으로 수정했다. 새 HTTP 검사가 추가로 드러낸 trip_tabs tuple 인덱싱도 cursor.description을 사용해 고쳤다. 연결 row_factory와 금융/수동/열린 분기 보호는 바꾸지 않았다. 서버가 tools를 import하지 않는다.
 - 새 `webapp/tests/test_p2_release_http.py`는 기존 git archive 절차로 HEAD를 임시 릴리스에 풀고 별도 `python -I`에서 애플리케이션 sys.path를 그 릴리스로 한정한다. 실제 서버의 비운영 임의 포트에서 owner 인증/CSRF 거부, preview200·무변경, apply200·장부/화면/감사, 재전송 무변경을 확인한다. wave3 통합 전/후 각각1 passed다. 기존 검사가 놓친 이유는 app 서비스를 직접 호출해 HTTP handler의 lazy import와 LedgerStore의 tuple 연결을 실행하지 않았기 때문이다.
-- 현재 영향 검사는 코드 `2e224894`에서 실행 중이다. 실패는 기준 main과 대조하며 전체 통과로 표시하지 않는다. 최종 검수·새 PR·공식배포·직후/5분/15분 ready·367건 신선 사본검사/반영은 아직 남았다. 비공개 재개점 `.local-archive/p2-import-fix-20261112/checkpoint.md`, 기존 고객 복구 파일과 QA 미추적 파일은 보존한다.
+- 영향 검사 코드 `2e224894`: 42파일707건, **699 passed/8 failed/35 subtests/skip0**, compile·추적 원본 guard 통과, 지정 브라우저5검사 실행·누락0. 실패8건 모두 정확한 기준 main `e5e7bb5f`의 별도 추출본에서 원 테스트 그대로 재현했다(8failed/errors0/skip0). 신규·미대조 실패0이며 전체 QA 통과로 표시하지 않는다. 기존 테스트·기대값은 바꾸지 않았다. 새 릴리스 HTTP 검사1건은 통과했다. 이후 `1de1b466`은 상태 문서만 추가했다. 기존 사용자 QA3파일은 해시 일치로 복원했다.
+- 최종 검수·새 PR·공식배포·직후/5분/15분 ready·367건 신선 사본검사/반영은 아직 남았다. 비공개 재개점 `.local-archive/p2-import-fix-20261112/checkpoint.md`, 검사/기준 대조는 같은 폴더의 `quality/`, `baseline-comparison.json`, `baseline-failures.xml`이다. 고객 복구 파일과 QA 미추적 파일은 보존한다.
 
 ## 2026-11-12 wave3 #799 — 최신 main 통합 재검증 완료 (이 worktree 전용)
 
