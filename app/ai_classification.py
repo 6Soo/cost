@@ -204,7 +204,7 @@ def service_metadata(conn, transaction_id):
         return {}
 
 
-def preview(conn, trips, request, response, *, nets=None, bundle=None):
+def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_recorded_ai=False):
     """Validate an actual agent result, not a relabelled deterministic fallback."""
     if (request.get('version') != VERSION or response.get('request_digest') != request.get('digest')
             or request.get('digest') != _digest({k: v for k, v in request.items() if k != 'digest'})):
@@ -244,11 +244,11 @@ def preview(conn, trips, request, response, *, nets=None, bundle=None):
                           execution={key: execution[key] for key in ('kind','provider','model','run_id')}))
         if tid in metadata:
             fixes[-1]['p2_metadata'] = metadata[tid]
-    expected = correction.preview(conn, fixes, trips)
+    expected = correction.preview(conn, fixes, trips, allow_recorded_ai=allow_recorded_ai)
     return dict(expected, corrections=fixes, request_digest=request['digest'])
 
 
-def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None):
+def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None, allow_recorded_ai=False):
     """Revalidate and atomically apply AI provenance, attribution and audit."""
     payload = _digest([request, response, bundle]) if bundle is not None else _digest([request, response])
     nested = conn.in_transaction
@@ -262,9 +262,10 @@ def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None)
         else:
             if not isinstance(request_id, str) or not request_id.strip():
                 raise ValueError('AI_REQUEST_ID_REQUIRED')
-            expected = preview(conn, trips, request, response, nets=nets, bundle=bundle)
+            expected = preview(conn, trips, request, response, nets=nets, bundle=bundle,
+                               allow_recorded_ai=allow_recorded_ai)
             result = correction.apply(conn, expected, expected['corrections'], trips,
-                                      request_id='ai:' + request_id)
+                                      request_id='ai:' + request_id, allow_recorded_ai=allow_recorded_ai)
             result['digest'] = expected['digest']
             from .db import utc_now
             conn.execute('INSERT INTO requests(request_id,scope,payload_sha256,response_json,created_at) VALUES (?,?,?,?,?)',
