@@ -12,6 +12,19 @@
 
 ## 2. 준비
 
+### 실제 화면 확인 필요
+
+수집 구현은 [`tools/collect_ota_portals.mjs`](../../tools/collect_ota_portals.mjs), 실행 설정은 [OTA 스크립트 사용법](ota-script-usage.md)을 따른다. #798로 main에 통합됐다. 아래 **8항목**은 이번 합성 검증으로 확인할 수 없으며 사용자 로그인 세션에서 관측한다.
+
+1. 각 포털의 예약 계정·로그인 상태와 같은 TaskSpace/Page를 확인하여 실행 대상에 연결한다. 계정 식별자나 로그인 자료를 Git·보고서에 쓰지 않는다.
+2. 화면에서 발생한 목록·상세 요청의 URL과 본문을 비공개 설정에 보존한다. URL은 공급자별뿐 아니라 API별 origin/path도 일치해야 한다. Trip 목록은 `online.trip.com`, 상세는 `kr.trip.com`이며 서로 바꿀 수 없다.
+3. Agoda의 상세 요청 `token`을 실제 화면 요청에서 읽어 `agodaDetailToken`에 넣고 조회 상태를 `agodaBookingPhase`로 선택한다. 기본은 Completed이므로 다른 상태도 필요하면 별도 실행한다.
+4. Trip 다음 목록 요청에서 실제 Offset 입력 필드명을 확인해 `tripOffsetField`에 넣는다. 응답 필드명으로 추측하지 않는다. 목록 요청 5회 상한에 도달하면 PARTIAL이며 전체 수집 완료가 아니다.
+5. Trip 상세의 `FrontHead.sign`과 목록 OrderDetail 링크 `tripsignature`, 응답 `orderCommonInfo.orderId`가 서로 맞는지 관측한다. 현재 도구는 목록 링크의 서명과 주문번호만 구성하므로 추가 필수 필드가 생기면 요청 형태를 확인하고 코드를 조정한다.
+6. Booking의 화면 `UserTrips` query를 `bookingQuery`에 넣는다. 현재 구현은 빈 variables로 첫 목록만 요청하므로 화면 query가 변수를 요구하면 해당 요청 템플릿 연결이 추가로 필요하다. 여행별 화면 상세·확인 링크 수집은 미구현이고 PARTIAL로 남는다.
+7. API 응답의 목록 배열·페이지 토큰·상세 ID 위치와 화면 총건수를 대조한다. Agoda phase/Trip 페이지 상한·Booking 첫 페이지 범위를 포함해 완전성을 확인한다.
+8. 보호 폴더에 응답·manifest가 저장되고 재실행 덮어쓰기가 거부되는지 확인한다. 가져오기는 별도 수입 도구로 수행하며 수집 성공을 운영 반영 완료로 쓰지 않는다.
+
 1. `ego-browser skill`을 읽고 따른다(Windows는 UTF-8 `.mjs` 파일을 `ego-browser nodejs -e "await import('file:///…')"`로 실행).
 2. TaskSpace 하나를 만들어 끝까지 재사용한다. 예: `taskSpace("ota portal audit <YYYYMMDD>")`. 스크립트는 `C:/Users/kkokk/ego/ota-portal-audit-<YYYYMMDD>/round-NN.mjs`로 매 회차 새 파일.
 3. 로그인 확인(사이트별 아래 절). 로그인이 안 됐거나 **다른 계정**이면 `await task.handOff()` 후 사용자에게 "예약에 쓴 계정으로 로그인"을 요청하고 멈춘다.
