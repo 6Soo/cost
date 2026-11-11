@@ -96,9 +96,20 @@ def _evidence(item, ids):
     if item.get('transaction_id') not in ids or item.get('kind') not in ('mail', 'portal', 'card', 'history'):
         raise ValueError('P2_EVIDENCE_SCOPE_INVALID')
     content = sanitize(item['content'])
+    truncated = False
+    if item['kind'] == 'mail':
+        from .p2_source_io import _bounded_text
+        if isinstance(content, dict) and isinstance(content.get('text'), str):
+            text = _bounded_text(content['text'], 20 << 10)
+            truncated = text != content['text']
+            content = dict(content, text=text)
+        elif isinstance(content, str):
+            text = _bounded_text(content, 20 << 10)
+            truncated = text != content
+            content = text
     return dict(ref=ref, kind=item['kind'], transaction_id=item['transaction_id'],
                 content=encoded(content) if not isinstance(content, str) else content,
-                source_sha256=digest(item['content']), truncated=False)
+                source_sha256=digest(item['content']), truncated=truncated)
 
 
 def refund_context(value):
@@ -177,6 +188,7 @@ def assemble(conn, trips, request, *, repository=None, max_bytes=MAX_BYTES, extr
     bundle = dict(version='p2-tool-free-v1', request_digest=request['digest'], cases=cases,
                   policy=policy, policy_digest=digest(policy), evidence=ordered[:MAX_EVIDENCE],
                   omitted_evidence=max(0, len(ordered) - MAX_EVIDENCE), truncated=len(ordered) > MAX_EVIDENCE)
+    bundle['truncated'] = bundle['truncated'] or any(item['truncated'] for item in bundle['evidence'])
     if potential_refund and not actual_refund:
         bundle['policy_selection'] = {'refund': 'unparsed_source_potential_not_fact'}
     # Policy and case envelope cannot be silently clipped. Refuse an oversized
@@ -492,9 +504,9 @@ class Repository:
             resolved = path.resolve()
             def portal(resolved=resolved, index=index):
                 records = ota_portal._read_records(resolved, index) if resolved.is_file() else []
-                return [(encoded(record), dict(ref='portal:' + digest([index, record]), kind='portal',
-                         content={k: v for k, v in record.items()
-                                 if k in PORTAL_EVIDENCE_FIELDS}),
+                return [(encoded({k: v for k, v in record.items() if k in PORTAL_EVIDENCE_FIELDS}),
+                         dict(ref='portal:' + digest([index, record]), kind='portal',
+                         content={k: v for k, v in record.items() if k in PORTAL_EVIDENCE_FIELDS}),
                          None) for record in records]
             sources.append((('portal', index, str(resolved)), [resolved, Path(str(resolved) + '-wal')], portal))
         for key, paths, build in sources:
