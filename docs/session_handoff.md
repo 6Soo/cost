@@ -1,5 +1,9 @@
 # 현재 상태
 
+## 2026-11-11 최신 재개 — 오프라인 검증 전환
+
+최신 실행 지시는 [작업판](agents/BOARD.md) 맨 위 절이다. 운영 `8b116b98`의 P2는 재승인 전까지 비활성으로 유지한다. 기존 결과 문서 PR의 별도 sol 최종 검수·병합 후 P-1 사본 200건 조립, P-2 실제 sol 20건 검증·미리보기, P-3 보고·중단 순서다. 아직 사본 생성·모델 호출·운영 변경은 실행하지 않았다. 아래 절은 기존 시범의 이력이며 과거 재시범 승인이나 중단 기록을 새 작업으로 재실행하지 않는다.
+
 ## 2026-11-11 #805 재개 결과 — 5건 시범 중단, P2 off 유지
 
 - **COMPLETE(수정·배포):** 전체 원문 충돌/base64 보존·포털 중첩 판정 필드 projection을 최종 `aee08a8b`의 별도 `gpt-6.1-sol / medium` APPROVE 후 #805로 병합했다. 운영 완료 커밋은 `8b116b98ccbacdc49c702e370031be2da45f5ef9`다. 공식 배포 도구 exit0, 릴리스1570파일/blob불일치0, Board·Worker·listener SHA 일치/backend8751, health/ready200·비인증API401·보호13표 불변이다. 사전 SQLite API 신선백업5DB와 별도복원 quick_check/schema/행수 검증 PASS(공식 도구의 BackupProducts 스위치는 별도 미사용).
