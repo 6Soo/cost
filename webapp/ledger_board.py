@@ -4718,6 +4718,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_p2_batch_corrections(self, path, read_payload, check_csrf) -> None:
         """Owner/CSRF-gated P2 batch entry point; storage remains server-owned."""
         from . import classification_correction
+        from .ledger_store import SaveError
 
         if current_role() != 'owner':
             self._send_json({'code': 'OWNER_REQUIRED', 'message': '소유자만 변경할 수 있어요'}, code=403)
@@ -4751,6 +4752,8 @@ class Handler(BaseHTTPRequestHandler):
                 store.conn, expected, corrections, trips,
                 request_id=str(payload['request_id']), allow_recorded_ai=True)
             self._send_json(result, code=200)
+        except SaveError as exc:
+            self._send_json({'code': exc.code, 'message': str(exc)}, code=403 if exc.code == 'CSRF_REQUIRED' else 422)
         except ValueError as exc:
             self._send_json({'code': str(exc), 'message': str(exc)}, code=422)
 

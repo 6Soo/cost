@@ -93,6 +93,25 @@ def test_recorded_p2_opt_in_keeps_protections(setup, mutation):
         classification_correction.preview(board.conn, [correction], trips, allow_recorded_ai=True)
 
 
+def test_recorded_quarter_q3_item_only_correction_is_allowed(setup):
+    from app import classification_correction
+    from webapp.card_flow import CardFlow
+    board = setup
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, 'quarter:2026:4', item='현지경비')
+    CardFlow(board).auto_record(batch)
+    tid = ids[0]
+    cur = board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (tid,))
+    row = dict(zip((d[0] for d in cur.description), cur.fetchone()))
+    correction = dict(transaction_id=tid, source_hash=row['source_hash'], revision=row['revision'],
+                      trip_id='quarter:2026:4', item='식비', basis='합성 분기',
+                      classification_source='ai_inference', execution=dict(kind='connected_agent', provider='codex', model='gpt-6.1-sol', run_id='quarter'))
+    cur = board.conn.execute('SELECT * FROM trip_tabs')
+    trips = [dict(zip((d[0] for d in cur.description), r), trip_id=r[0]) for r in cur.fetchall()]
+    expected = classification_correction.preview(board.conn, [correction], trips, allow_recorded_ai=True)
+    assert expected['count'] == 1
+
+
 @pytest.mark.parametrize('changes', [
     {'service_start': '2026-02-30'}, {'service_end': '2026-10-01'},
     {'evidence_refs': ['mail:unknown']}, {'rule_ids': ['INVENTED-999']},

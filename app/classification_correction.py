@@ -18,7 +18,13 @@ from .review import correction_protection_reason
 def _open_p2_tab(trips, trip_id):
     if str(trip_id).startswith('quarter:'):
         try:
-            year, quarter = str(trip_id).split(':', 1)[1].split('-Q')
+            value = str(trip_id).split(':', 1)[1]
+            if ': ' in value:
+                value = value.replace(': ', ':')
+            if ':' in value:
+                year, quarter = value.split(':', 1)
+            else:
+                year, quarter = value.split('-Q', 1)
             return (int(year), int(quarter)) >= (2026, 3)
         except (ValueError, TypeError):
             return False
@@ -79,7 +85,8 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False):
             raise ValueError('CORRECTION_REQUIRES_PURCHASE')
         trip = correction['trip_id']
         from .quarter_costs import _tab_of
-        quarter = source == 'ai_inference' and trip == _tab_of(row) and correction['item'] == '분기 기타비용'
+        quarter = (source == 'ai_inference' and trip == _tab_of(row)
+                   and (correction['item'] == '분기 기타비용' or allow_recorded_ai))
         if (trip not in valid and not quarter) or not correction['item'] or not correction['basis']:
             raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
         ledger = _row(conn, 'ledger_entries', 'transaction_id', tid)
