@@ -26,7 +26,8 @@ def collection_of(directory):
     path=Path(directory)/'collection.json'
     if not path.is_file():
         return {}
-    collection=json.loads(path.read_text(encoding='utf-8'))
+    from .p2_source_io import read_text
+    collection=json.loads(read_text(path))
     return {key:collection[key] for key in ('after','before','query_exhausted','fetched')
             if key in collection}
 
@@ -109,6 +110,8 @@ def _load_messages_uncached(directories):
     다르면 기존과 같이 충돌로 중단한다. 한 디렉터리만 읽었다고 조기 종료하지
     않고 등록된 모든 범위를 읽은 뒤에 대조를 시작한다.
     """
+    from . import p2_source_io
+    retain_bodies = not p2_source_io.active()
     messages = {}
     fingerprints = {}
     inventory = []
@@ -123,7 +126,7 @@ def _load_messages_uncached(directories):
                 yield str(path), None, []
             else:
                 loaded = (message for file_path in sorted(path.glob('gmail*.json'))
-                          for message in json.loads(file_path.read_text(encoding='utf-8'))['responses'])
+                          for message in json.loads(p2_source_io.read_text(file_path))['responses'])
                 yield str(path), collection_of(path), loaded
     for directory, collection, loaded in bundles():
         path=Path(directory)
@@ -134,8 +137,12 @@ def _load_messages_uncached(directories):
             inventory.append(entry)
             continue
         for message in loaded:
+            p2_source_io.checkpoint()
             identity = message['id']
             payload=message['payload']
+            # A JSON file is bounded separately; each expensive decode/regex
+            # unit must also be bounded while a P2 guard is active.
+            p2_source_io.message(payload)
             # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
             core = dict(id=identity,internal_date=message.get('internal_date'),
                         headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
@@ -151,9 +158,11 @@ def _load_messages_uncached(directories):
             previous = messages.get(identity)
             if previous is not None:
                 body_cache.pop(id(previous), None)
-            body_cache[id(message)] = (message, core['text'])
+            if retain_bodies:
+                body_cache[id(message)] = (message, core['text'])
             messages[identity] = message
             entry['messages']+=1
+            p2_source_io.checkpoint()
         inventory.append(entry)
     # Failed/conflicting loads never publish partial bodies. Only the same
     # canonical message objects returned above remain strongly referenced.
