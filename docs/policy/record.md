@@ -68,12 +68,13 @@ P1 기존 규칙을 먼저 적용하고 남은 문맥은 P2가 원본·메일·�
 
 ### REC-007 · 기록된 자동 귀속 교정
 
-*일반 · 결정 2026-11-03*
+*일반 · 결정 2026-11-11*
 
-명시 카드 재분류에서 최신 예약 원문·검증 결제·이용기간·실제 여행을 확인하면 기록된 자동 추론만 원자적으로 교정할 수 있다.
+열린 분기에 한해 이미 내부 장부에 기록된 자동 판정도 P2가 교정할 수 있다. 열린 분기는 시작일 2026-06-30 이후 여행(0630 포함, TRIP-012·DATE-009)과 2026년 3분기 이후 분기 기타비용이다. 카드 이용일이 앞서도 열린 여행에 귀속돼 있으면 대상이다. 변경 전 값을 남기고 내부 장부 행과 화면 행의 귀속·항목을 원자적으로 맞춘다.
 
-- 조건·예외: 수동 결정·owner 기장·환불/원결제·원본 오류·stale/충돌 근거는 제외한다.
+- 조건·예외: 수동 결정(`user_decision`·`user_exception`·`manual`·`owner_booking` 등)·정확 근거 P1·환불/원결제·원본 오류·stale/충돌 등 금융 보호는 제외한다. 닫힌 분기 여행 귀속은 자동 교정하지 않으며 열린 여행 지출로 보이는 건은 분기 검수 때 볼 것 목록에만 올린다. 제안 후 Fable 승인 반영이며 금액·부호·원문·ID·환불 짝·Google은 변경하지 않는다.
 - 대체된 옛 규칙:
+  - 명시 카드 재분류에서 최신 예약 원문·검증 결제·이용기간·실제 여행을 확인하면 기록된 자동 추론만 원자적으로 교정할 수 있다. — 2026-11-03 (2026-11-11 열린 분기 P2 교정 결정으로 범위 개정)
   - 이미 기록된 행은 여행 검증이 바뀌어도 자동으로 옮기지 않는다. — 2026-10-16, C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-classify-records-automatically.md:15
   - 기록된 거래의 배정은 건드리지 않는다. — docs/history/ota-legacy.md:1251
 - 출처: `소유자 지시 메모:feedback-classify-records-automatically.md:15`, `docs/specs/recorded-booking-period-correction-20261103.md:11`, `docs/history/session_handoff-through-20261107.md:401`, `docs/history/ota-legacy.md:1251`
@@ -84,7 +85,9 @@ P1 기존 규칙을 먼저 적용하고 남은 문맥은 P2가 원본·메일·�
 
 기기록·수동 결정·수동 제외·검증된 금융 링크·원본·금액·ID를 자동 추론과 새 규칙으로 덮어쓰거나 중복 기록하지 않는다.
 
-- 조건·예외: 문서가 허용한 기록된 자동 추론의 명시 교정은 별도 예외다.
+- 조건·예외: REC-007의 열린 분기 기기록 자동 판정 P2 교정은 예외다. 수동 결정·금융 보호·닫힌 분기 보호는 그대로 유지한다.
+- 대체된 옛 규칙:
+  - 문서가 허용한 기록된 자동 추론의 명시 교정은 별도 예외다. — 2026-11-11 개정 전
 - 출처: `docs/specs/unified-expense-action-queue-20261105.md:195`, `docs/specs/inline-bulk-expense-edit-20261102.md:24`, `docs/specs/ota-missing-trip-completion-20261102.md:27`, `docs/specs/python-refactor-followup-20261102.md:13`, `docs/specs/card-completion-recurrence-20261101.md:12`
 
 ### REC-009 · 일반 기록 적격
