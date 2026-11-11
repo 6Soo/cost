@@ -45,6 +45,8 @@ def foresttrip_row(row, kind, observed_at):
     dates = re.fullmatch(r'(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})', period.strip())
     if not ref or not dates:
         raise ValueError('FOREST_RESERVATION_INVALID')
+    if '자연휴양림' not in product:
+        raise ValueError('FOREST_FACILITY_MISSING')
     label = re.sub(r'^\[[^]]+\]\s*(?:공|국|사)\s+', '', product).split('자연휴양림')[0] + '자연휴양림'
     fact = base('foresttrip:' + ref[1], *dates.groups(), label,
                 'cancelled' if cancelled else 'completed' if kind == 'use' else 'confirmed', observed_at)
@@ -101,7 +103,7 @@ def records(directory, observed_at):
             for row in capture['rows']:
                 if not any('[' in cell for cell in row['cells']):
                     continue  # empty-table placeholder
-                yield {'capture': path.name, 'url': capture['url'], 'row': row}, foresttrip_row(row, kind, observed_at)
+                yield {'capture': path.name, 'url': capture['url'], 'head':capture.get('head'), 'row': row}, foresttrip_row(row, kind, observed_at)
     listing = root / 'sooperang-list-default.json'
     details = root / 'sooperang-details.json'
     if listing.exists() or details.exists():
