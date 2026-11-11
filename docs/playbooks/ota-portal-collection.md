@@ -12,9 +12,30 @@
 
 ## 2. 준비
 
-### 실제 화면 확인 필요
+> 2026-11-12 마무리 결정: 이번 실제 수집은 종료했다. 실화면 경고69건의 [읽기 전용 진단](../agents/artifacts/ota-portal-warning-diagnostics-20261112.md)을 남겼으며 이전148건 기준이나 아래 후속 확인 항목을 추가 수집 지시로 실행하지 않는다. 원문 최종 보존 경로는 `D:/WebLedgerHost/data/backups/ota-portal-20261112-collection-private/`다. 아래 worktree 보호 경로는 수집 당시 위치이며 preservation-manifest.json으로 최종 위치에 대응된다.
 
-수집 구현은 [`tools/collect_ota_portals.mjs`](../../tools/collect_ota_portals.mjs), 실행 설정은 [OTA 스크립트 사용법](ota-script-usage.md)을 따른다. #798로 main에 통합됐다. 아래 **8항목**은 이번 합성 검증으로 확인할 수 없으며 사용자 로그인 세션에서 관측한다.
+### 2026-11-12 실제 화면·응답 확인
+
+아래 8항목의 실제 관측은 이번 작업 폴더의 비공개 `.local-archive/ota-portal-20261112/`에 보존했다. 로그인·API 토큰·서명·계정 식별값은 문서에 옮기지 않는다. 이번 지시는 로그인 시도와 `task.handOff()`를 금지했으므로 기존 로그인 세션에서 조회만 했으며, 운영 코드 수정·배포는 하지 않았다.
+
+| 항목 | 실제 확인과 남은 제한 |
+| --- | --- |
+| 1. 로그인·계정 | 세 사이트 모두 예약 목록을 확인했다. Trip은 `/account/signin`에서 기존 로그인 표시를 읽기만 하고, `/membersinfo/profile/`의 `My 예약` → `호텔`로 `/order/hotel`에 진입했다. 로그인 입력·계정 전환은 하지 않았다. |
+| 2. 요청 원형 | 아래 표의 API origin/path를 실제 요청으로 확인했다. 요청 본문 전체는 보호 폴더에만 저장하고 필요한 예약 ID·페이지 입력만 바꿨다. Agoda 상세에는 기존 세 필드 외 `isRequiredSignIn`, Trip 상세에는 `retToken`, `token`, `FrontHead`, `head`가 있었다. |
+| 3. Agoda 토큰·정렬 | 상세 조회에서 관측한 token을 사용했다. 화면 초기값 `BookingStartDate`/`Ascending`은 오래된 완료·취소 예약부터 반환했다. 화면의 정렬 메뉴에서 **예약 날짜**를 선택하여 `sortBy: BookingDate`, `sortOrder: Descending`을 확인한 뒤 최근 완료·취소를 추가 수집했다. 세 phase 모두 조회했다. |
+| 4. Trip 다음 페이지 | 실제 목록 본문에 최상위 `Offset` 문자열이 있었다. 화면 Count는 5, 이번 수집은 기존 절차의 Count 20으로 5페이지·100건을 받았다. 관측된 `BizTypes`는 `Hotel`, `Tuan`으로 호텔 범위이며 항공·렌터카 전체 수집이 아니다. 날짜 조건은 비어 있었다. |
+| 5. Trip 상세 | `ActionCode: OrderDetail`의 상대 URL을 실제 `kr.trip.com` origin에 결합했다. 목록 링크의 `tripsignature`와 상세 요청 `FrontHead.sign`, 목록 주문과 상세 요청 주문의 일치를 확인했다. 상세 100건은 기존 도구의 응답 주문 동일성 검사도 통과했다. |
+| 6. Booking query·variables | 실제 `UserTrips` query와 `variables: {first: 50, filter: {tripFilter: PAST 또는 CANCELLED}, sortBy: DATE_DESC}`를 재사용했다. 두 목록 모두 50건·`pageInfo.hasNextPage: true`이므로 전체 완료가 아니다. 범위 내 여행 화면 12건을 `tid`/`tab=bookings` 조회로 보존했으며 예약 사실 파서·공식 가져오기 경로는 없어 운영 반영하지 않았다. |
+| 7. 배열·완전성 | Trip의 실제 배열은 **`OrderEnities`**이며 도구가 예상한 `OrderList`와 달랐다. 비공개 실행 어댑터가 원본을 별도 보존하고 기존 수집기에 배열 이름을 연결했다. Booking 배열은 `data.userTrips.edges[].node`다. Agoda 완료·취소와 Trip은 실행당 목록 5회 한도에 도달했으므로 모두 부분 수집이다. Agoda 상세 형태 미확인 6건은 성공으로 세지 않았다. |
+| 8. 저장·가져오기 | 원본은 새 보호 폴더에 저장했다. Agoda 894건 중 범위 내 498건, Trip 100건을 대조하여 중복 565·충돌 10건은 제외했다. 신규 Agoda 20·Trip 3건만 분리해 기존 수입 도구로 리허설한 뒤 운영 릴리스의 같은 도구로 추가했다. 기존 원천 값 불변, 삭제·덮어쓰기 0, 보호13표 불변이다. 이번 실사이트 실행에서 기존 파일 덮어쓰기 거부를 별도로 재시도하지는 않았다. |
+
+가져오기 비교는 같은 예약의 이용기간·상태·결제 상태·환불 상태·카드 관측·금액 구성·결제일을 사용했다. 중복565건은 이전 원문 관측의 Agoda 통화/수치 금액과 Trip 주문 통화/총액도 같음을 대조했다. 관측 시각이 다른 기존 원천을 그대로 재수입하면 `current_revision` 갱신이 생기므로 **기존 예약은 재수입 대상에서 제외**했다. 충돌 10건은 이번 추가 대상에 넣지 않았다. Agoda 신규 20건은 결제 예정 19·결제 상태 미확인 취소 1건이고, Trip 신규 3건은 예약 기간·사전승인 사실이다. 새 예약 기간이 있다는 사실을 새 카드 결제 연결로 간주하지 않는다.
+
+수입 도구가 정규화한 범위 내 사실은 Agoda 기간498·카드492·금액/통화 구성198·결제일0·취소199, Trip 기간100·카드36·결제일0·취소36이다. Trip의 기존 사실 형식은 일반 결제 금액을 정규화하지 않고 기간·사전승인·환불을 보강하므로 원문 결제 정보의 부재로 해석하지 않는다. 수집기 실행 소요 합계는 Agoda651.263초·Trip75.884초이며 Booking 전체 소요는 별도 계측하지 않았다. 재계산 generation933 게시 후 신규 정확/추론 카드 연결은 모두0이었다.
+
+### 후속 실행에서 확인할 것
+
+수집 구현은 [`tools/collect_ota_portals.mjs`](../../tools/collect_ota_portals.mjs), 실행 설정은 [OTA 스크립트 사용법](ota-script-usage.md)을 따른다. #798로 main에 통합됐다. 아래 항목은 새 세션에서 재확인할 계약이다. 위 실제 관측은 보호 폴더의 실행 어댑터에만 반영했고 저장소 도구 코드는 변경하지 않았다.
 
 1. 각 포털의 예약 계정·로그인 상태와 같은 TaskSpace/Page를 확인하여 실행 대상에 연결한다. 계정 식별자나 로그인 자료를 Git·보고서에 쓰지 않는다.
 2. 화면에서 발생한 목록·상세 요청의 URL과 본문을 비공개 설정에 보존한다. URL은 공급자별뿐 아니라 API별 origin/path도 일치해야 한다. Trip 목록은 `online.trip.com`, 상세는 `kr.trip.com`이며 서로 바꿀 수 없다.
