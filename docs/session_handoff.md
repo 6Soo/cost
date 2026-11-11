@@ -2,6 +2,7 @@
 
 ## 2026-11-11 09:30 관리자 재개 — 운영965 유지·문서 최종 검수부터
 
+- #802 최종 `f5c8756f`를 별도 `gpt-6.1-sol / medium`이 APPROVE했고 `455a723d`로 병합했다. CI는 결제 한도로 steps0, 문서 링크·diff PASS, 테스트·배포 없음이다. 후속 관리자 기록 브랜치는 `docs/manager-p2-resume-20261111`이며 D5-FIX 기존 worktree에서 별도 sol high가 구현·합성 검증을 진행 중이다.
 - 예약 `24cfe08a` 원문과 최신 작업판·PR·8개 worktree를 대조했다. 09:02 예약 실패 원인은 Codex 구버전의 gpt-6.1-sol 미지원 HTTP400이며 한도 오류로 단정하지 않는다. 그 실행은 archived/closed이고 해당 시각 커밋·작업판 변경 흔적은 없다.
 - 운영 Board PID2460 checkout 및 Board/Worker 예약 작업 SHA는 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, route8751/paused=false다. 8751·8790 healthz/readyz 네 경로200을 읽기 전용으로 확인했다. 읽기량·고객 DB·보호 지문은 이번 상태 대조에서 재측정하지 않았다.
 - #802 장애 기록·작업판 문서의 최종 SHA 독립 sol medium 검수 후 병합이 다음 작업이다. 이어 기존 D5-FIX `27dacf23`에서 운영 밖 수정·규모 합성 실측·독립 검수까지 수행하고 Fable에 보고한다. 승인 전 P2/main/wave3 배포는 금지다.

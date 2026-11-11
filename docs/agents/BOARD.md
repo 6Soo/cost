@@ -48,6 +48,8 @@
 
 ### 2026-11-11 09:30 KST 관리자 재개 — 상태 대조
 
+- #802는 최종 `f5c8756f1c8a2a030484b404ef6d42bb1a00fe21`의 별도 `gpt-6.1-sol / medium` APPROVE 후 **`455a723df84f3a6b07d1a087641f16dd86d61f1a`로 병합**했다. CI run42931835693는 결제 한도 annotation·steps0을 확인했다. 링크·diff 검사 통과, 테스트·배포 없음. 주 폴더는 병합 main에서 `docs/manager-p2-resume-20261111`로 옮겼고 기존 미추적 파일을 유지했다.
+- D5-FIX는 기존 worktree/브랜치의 작성자를 별도 `gpt-6.1-sol / high` 세션 `fix_p2_budgets`로 지정했다. 기존 WIP와 합성 fixture를 재사용하며 조건(a)~(f), 호출0의 합성 원인/운영 추정 구분, 표적/영향 검사·실측을 수행 중이다. 작업은 한 개만 배정했고 E2·C는 시작하지 않았다. 완료 후 관리자가 직접 통과 조건을 실행하고 다른 sol medium 이상이 최종 SHA를 검수한다.
 - 예약 `24cfe08a`의 지시 전문을 읽고 실행 기준으로 복구했다. 09:02 실행은 한도 오류가 아니라 **Codex 버전이 gpt-6.1-sol을 지원하지 않는다는 HTTP 400 오류**로 실패했다. 실행 에이전트 `91fc6720`은 archived/closed이며 usage 없음이다. 해당 1분간 저장소 커밋 없음, 주 폴더 HEAD/reflog는 07:05의 `5b7e5953` 그대로여서 작업판 수정 흔적도 없다. 프로세스의 생성 주체까지 소급 증명한 것은 아니다.
 - 운영 읽기 전용 재확인: Board PID2460 checkout과 Board/Worker 예약 작업 모두 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, route8751/paused=false. 8751·8790 각각 healthz/readyz **200**이다. P2 실행·배포·운영 데이터 변경은 하지 않았다.
 - 열린 PR #802=`5b7e5953`, #803=`4b4d5aad`, draft #799=`5cb57fa8`로 인계와 일치한다. worktree 8개(중첩 baseline detached 포함)를 보존했고 D5-FIX `27dacf23`는 추적 파일 변경 없음이다. 주 폴더의 기존 미추적 QA 3파일도 보존했다.
