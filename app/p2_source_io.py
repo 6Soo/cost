@@ -6,11 +6,70 @@ from pathlib import Path
 import sqlite3
 import zlib
 import os
+import itertools
 
 _GUARD = ContextVar('p2_source_read_guard', default=None)
 BLOCK_BYTES = 1 << 20
 MAX_JSON_FILE_BYTES = 64 << 20
 MAX_RECORD_BYTES = 8 << 20
+P2_TEXT_BYTES = 96 << 10
+
+
+def _bounded_text(value, limit=P2_TEXT_BYTES):
+    """Keep a bounded, non-executable text view for P2 evidence only."""
+    import re
+    import html
+    value = re.sub(r'(?is)<(script|style|svg|blockquote)\b[^>]*>.*?</\1\s*>', ' ', value)
+    value = re.sub(r'(?is)<[^>]*>', '\n', value)
+    value = html.unescape(value)
+    value = re.sub(r'(?i)data:image/[^\s"\']+', '', value)
+    value = re.sub(r'(?im)^\s*>.*$', '', value)
+    value = re.split(r'(?im)^\s*(?:-+\s*original message\s*-+|On .+wrote:|보낸 사람:|--\s*$|sent from my\b)', value, maxsplit=1)[0]
+    value = value.strip()
+    raw = value.encode('utf-8')
+    marker = '\n[생략: 원문 정리 또는 크기 상한에 따른 발췌]'
+    if len(raw) <= limit:
+        return value
+    # Reserve space for the explicit marker; include windows around each type
+    # of decision evidence before filling the remainder with the introduction.
+    budget = limit - len(marker.encode('utf-8'))
+    patterns = (r'예약\s*(?:번호|코드)|booking|reservation|confirmation',
+                r'금액|결제|total|amount|[₩$€¥]|\b(?:KRW|USD|JPY|EUR)\b',
+                r'\b20\d{2}[-/.년]\s*\d{1,2}|check.?in|check.?out',
+                r'agoda|trip\.com|booking\.com|expedia|공급자')
+    ranges = []
+    for pattern in patterns:
+        for match in itertools.islice(re.finditer(pattern, value, re.I), 12):
+            ranges.append((max(0, match.start()-160), min(len(value), match.end()+320)))
+    pieces = []
+    covered = []
+    for start, end in ranges:
+        if any(a <= start and end <= b for a, b in covered):
+            continue
+        piece = value[start:end]
+        size = len((piece + '\n').encode('utf-8'))
+        if size <= budget:
+            pieces.append(piece)
+            covered.append((start, end))
+            budget -= size
+    prefix = raw[:max(0, budget)].decode('utf-8', errors='ignore')
+    return ('\n'.join(pieces) + '\n' + prefix).strip() + marker
+
+
+def bounded_payload(value):
+    """Copy a mail payload while clipping only body text/data for P2."""
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            # Encoded MIME data must be decoded by the original reader first.
+            if key == 'content' and isinstance(item, str):
+                out[key] = _bounded_text(item)
+            else:
+                out[key] = bounded_payload(item)
+        return out
+    if isinstance(value, list):
+        return [bounded_payload(item) for item in value]
+    return value
 
 
 if os.name == 'nt':
@@ -126,8 +185,11 @@ def record(value):
 
 
 def message(payload):
-    if _GUARD.get():
-        record(json.dumps(payload, ensure_ascii=False))
+    if not _GUARD.get():
+        return payload
+    # A provider payload may contain a large quoted/HTML body. Do not reject
+    # the whole transaction; return a bounded copy for P2 assembly.
+    return bounded_payload(payload)
 
 
 def unpack(value):

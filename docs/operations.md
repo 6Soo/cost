@@ -1,5 +1,14 @@
 # 운영 기록
 
+## 2026-11-11 #805 중단 작업 재개 — 최종 검수 준비
+
+- 현재 작업은 #805의 근거 크기 수정과 승인된 단계별 재시범뿐이다. 전체 반영·E2·wave3는 실행하지 않는다. 운영 읽기전용 확인: P2/full=false, route8752 unpaused.
+- 전체 메일로 원본 충돌을 검사한 뒤 P2 조립 경계에서만 20KiB 관련 구간을 발췌한다. 포털은 실제 `_read_records`의 중첩 `payload_json`에서 판정 필드와 price_components만 선택하며 raw 자료는 검색·출력하지 않는다. 실제 SQLite loader 합성·원본 불변·잘못된 JSON 보호 포함 표적17 passed.
+- `dcbe4894` 규모 합성: 후보2000·근거1,100,346,849B·메일9174, 245.09초·고유조립50·합성모델3호출/50건·반영50, 근거읽기 첫1,102,565,348B/이후0. 조립은 route/runtime/board/DB쓰기 잠금 밖, 경쟁 DB쓰기 최대대기0.0079초. 실제 모델 호출이나 운영 반영 증거는 아니다.
+- 영향검사 `dcbe4894`: 599 passed/1 failed/4 subtests. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`(40 != 30); 정확 운영 기준5248d129에서도 동일 1 failed/31 passed로 재현했다. 검사와 기대값은 고치지 않았다. 전체 통과로 표시하지 않는다. 최종8279f6ad 영향검사602 passed/동일1 failed/4 subtests/skip0·204.24초이며 py_compile 통과. 정확 기준 실패 근거는 resume-baseline-split.json이다. 최종 SHA 별도 sol medium 승인 전 병합/배포 없음.
+- 기존 큰 합성의 provider0은 실행기 미구성이 아니라 base64 clipping의 ValueError였다. 이전5건의 route unavailable 5.096초는 P2 off 기준선 최대39.238초 안이다. 재시범 중단선은78.477초이며 ready 연속2실패·보호변화·preview없는 반영 시 즉시 off다. 조립 뒤 모델시도0이면50건으로 가지 않는다.
+- 비공개 증거: `.local-archive/p2-staged-resume-20261111/`의 `resume-large-on.log`, `resume-impact-final.log`, `review805-resume.md`, `checkpoint.md`. 다음은 최종 영향검사→별도 sol medium 최종SHA 승인→#805 병합→공식 P2 off 배포→15분 관찰→5건10분→실제호출/안전 확인 시50건60분→보고·중단이다.
+
 ## 2026-11-11 P2 단계별 재배포 승인 — 배포 전 준비
 
 - Fable이 #804에 대해 조건부 단계별 재배포를 승인했다. 회차별 후보·선정·조립시작/완료·모델호출시도/반환성공/실패사유·preview통과/반영·소요/중단사유를 먼저 기록한 뒤 최종SHA 독립 sol medium 검수, off 배포와15분 관찰, 최대5건/10분, 안전하며 실제호출이 있었을 때만 최대50건/60분 순서다. 전체 미해결 건 반영은 승인되지 않았다.
@@ -11,6 +20,21 @@
 
 - 단계0 관리자 검증: 표적147pass/21.66초, 영향31파일702pass/기존3fail/4subtests/skip0·141.17초(기준455a723d 동일실패근거 유지). 계측 추가 후 같은2000건/1,100,346,849bytes 합성 off0.773초/P2근거조립호출0; on106.138초/고유50조립·합성3호출·50반영/근거첫1,100,591,362bytes 이후0·경쟁DB쓰기최대0.0012초. 실제모델/운영판정 미실행이며 최종SHA 독립검수 전이다. 기존QA3파일은 원해시로 복원했다.
 
+## 2026-11-11 P2 근거 크기·route 기준선 조사 — 재시범 전
+
+- 운영은 `5248d129`·P2 off·full rollout off·route8752 unpaused를 유지한다. 이전 5건 시범 중단은 유지하며 재배포/재시범은 새 PR의 독립 검수 전 실행하지 않는다.
+- 운영 읽기전용 크기 분포(원문 미출력): 메일 10,085건, 중앙값45,610B·p95 208,995B·최대425,242B. 포털 `ota_raw_entries` 최초78,720건은 length(TEXT) 집계였다. UTF-8 바이트 재집계79,288건(수집 증가), 중앙값/p95 86B·최대3,955,511B다. 포털 raw payload는 조립 대상에서 제외하고 판정 필드 allowlist만 쓴다.
+- 최초 수정의 payload clipping은 독립 검수에서 반려됐다. 최종 수정은 전체 메일로 충돌을 비교한 뒤 evidence 조립 경계에서만 정리·발췌한다(메일 본문20KiB, 전체 evidence24KiB·전체 prompt256KiB 상한). 포털 evidence는 booking/service/status/payment/card/lifecycle 등 판정 필드만 포함한다. source record가 상한을 넘었다는 이유만으로 전체 사건을 실패시키지 않는다. 신규·기존 표적 149 passed, skip0.
+- 기존 큰 레코드 합성 `staged-large-on`의 성공 해석을 철회한다. 로그는 `ai_retry:ValueError=50`, provider0·반영0이며 조립3은 `Repository.select` 진입 수다. on 실행기는 합성 provider를 주입하므로 호출 미구성이 아니다. 이전 메일 payload clipping이 base64 뒤에 한글 생략 표시를 붙여 decode에서 `ValueError`를 내는 경로를 합성 재현했다. 최종 SHA의 재측정은 최신 재개 절에 기록한다.
+- P2 off route 잠금 30분 기준선: 비차단 probe17,934회·unavailable run246, 최대39.238초·p95 11.971초·중앙값6.223초. 따라서 다음 시범의 route 중단 기준은 `max(2×39.238,15)=78.477초`다. 기준선은 route/config 쓰기 없이 측정했으며 probe의 one-byte 획득은 즉시 해제한다.
+- M1의 2,113 후보와 현재 시범 3,075 후보 차이는 detection SQL 변경이 아니라 운영 DB 상태가 M1 이후 변한 결과로 기록한다. 현재 읽기전용 집계 base3269, source_general3269, refund·board/manual 보호를 적용한 시범 후보3075다.
+## 2026-11-11 단계별 시범 결과 — 5건 단계에서 중단
+
+- `5248d129b713f70210f5dc64e83f85574566042e`를 공식 `tools/deploy_verified_release.ps1`로 `965bca05`에서 배포했다. Board/Worker SHA와 listener는 5248d129, backend8752, route unpaused, health/ready200, 비인증 API401, 보호13표 불변이다. 첫 시도는 릴리스 파일 누락으로 `RELEASE_AUDIT_FAILED` 안전중단했고 운영은 바뀌지 않았으며, Git blob 재구성·audit0 후 재시도했다.
+- P2 off 15분 관찰: ready8752/8790 30회 모두200, 호출·대상·예약0, 보호지문 불변, P2 off 유지. Board ReadTransferCount 표본은 5분 1.94MB/s·946.5MB/s, 15분 0·1.31GB/s로 변동해 기존 재계산 경로와 구분한다.
+- 최대5건 시범은 route 잠금 샘플 연속 unavailable 5.096초로 즉시 중단했다. P2는 자동 off, full rollout false, route unpaused, ready8752 200/2.821초·8790 200/0.027초, 보호13표 PASS다.
+- 시범 계수: 후보3075, 선정5, 조립시작5·완료0, source_read_attempts2, 모델시도0·반환성공0·실패0, preview0·반영0. `P2_SOURCE_RECORD_TOO_LARGE`로 호출 예약 outcome unavailable, 최종 호출0/대상0 집계와 구분해 기록한다. route 중단 조건이 먼저 발생했으므로 50건 단계로 진행하지 않는다.
+- 결과 근거 `.local-archive/p2-staged-resume-20261111/off-15m/result.json`, `pilot-5/result.json`, `deploy-exit.json`, `deploy-evidence/`. 전체 미해결 건·E2·wave3는 실행하지 않았다. 다음은 Fable의 원인 수정·재시범 승인 판단이다.
 ## 2026-11-11 P2 시범 중 준비 응답·배포 잠금 장애 — 965bca05 롤백 완료
 
 - **현재 운영은 `965bca058a74a54bf69bc4d70a0d05f8997786c3`**, 공식 롤백 완료 06:13:42 KST, 이전 `bd4646a1`이다. 다음 공식 배포의 `-PreviousSha`는 `965bca05`다. Board·Worker·listener SHA 일치, 파일1,503개·blob 불일치0·운영 backend8751을 확인했다. 8751과 Gateway8790의 health/ready는 모두200, 비인증 OTA API는401이다. 보호13표와 원본7,336·수동교정 대상255·관련14표의 비공개 지문은 모두 불변이다. P2/전체확대 플래그는 off다.
