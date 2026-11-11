@@ -12,6 +12,8 @@
 
 ## 2. 준비
 
+> 2026-11-12 마무리 결정: 이번 실제 수집은 종료했다. 실화면 경고69건의 [읽기 전용 진단](../agents/artifacts/ota-portal-warning-diagnostics-20261112.md)을 남겼으며 이전148건 기준이나 아래 후속 확인 항목을 추가 수집 지시로 실행하지 않는다. 원문 최종 보존 경로는 `D:/WebLedgerHost/data/backups/ota-portal-20261112-collection-private/`다. 아래 worktree 보호 경로는 수집 당시 위치이며 preservation-manifest.json으로 최종 위치에 대응된다.
+
 ### 2026-11-12 실제 화면·응답 확인
 
 아래 8항목의 실제 관측은 이번 작업 폴더의 비공개 `.local-archive/ota-portal-20261112/`에 보존했다. 로그인·API 토큰·서명·계정 식별값은 문서에 옮기지 않는다. 이번 지시는 로그인 시도와 `task.handOff()`를 금지했으므로 기존 로그인 세션에서 조회만 했으며, 운영 코드 수정·배포는 하지 않았다.
