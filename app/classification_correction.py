@@ -15,13 +15,29 @@ from .provisional_assignment import canonical_trip_periods
 from .review import correction_protection_reason
 
 
+def _open_p2_tab(trips, trip_id):
+    if str(trip_id).startswith('quarter:'):
+        try:
+            year, quarter = str(trip_id).split(':', 1)[1].split('-Q')
+            return (int(year), int(quarter)) >= (2026, 3)
+        except (ValueError, TypeError):
+            return False
+    for trip in trips:
+        if str(trip.get('trip_id') or trip.get('tab_id') or '') == str(trip_id):
+            try:
+                return trip.get('starts_on', '') >= '2026-06-30' and not trip.get('deleted') and not trip.get('archived')
+            except (AttributeError, TypeError):
+                return False
+    return False
+
+
 def _row(conn, table, column, identity):
     cursor = conn.execute(f'SELECT * FROM {table} WHERE {column}=?', (identity,))
     values = cursor.fetchone()
     return dict(zip((d[0] for d in cursor.description), values)) if values else None
 
 
-def preview(conn, corrections, trips):
+def preview(conn, corrections, trips, *, allow_recorded_ai=False):
     valid = canonical_trip_periods(trips)
     targets = []
     seen = set()
@@ -36,6 +52,11 @@ def preview(conn, corrections, trips):
         if 'revision' in correction and correction['revision'] != row['revision']:
             raise ValueError('CORRECTION_PREVIEW_STALE')
         source = correction.get('classification_source', 'inference')
+        if allow_recorded_ai and source == 'ai_inference':
+            allowed_keys = {'transaction_id', 'source_hash', 'revision', 'trip_id', 'item', 'basis',
+                            'classification_source', 'execution', 'p2_metadata', 'description'}
+            if set(correction) - allowed_keys:
+                raise ValueError('CORRECTION_IMMUTABLE_FIELD')
         if source not in ('inference', 'code_inference', 'ai_inference'):
             raise ValueError('CORRECTION_SOURCE_INVALID')
         if source == 'ai_inference':
@@ -63,7 +84,9 @@ def preview(conn, corrections, trips):
             raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
         ledger = _row(conn, 'ledger_entries', 'transaction_id', tid)
         if ledger and source == 'ai_inference':
-            raise ValueError('CORRECTION_PROTECTED')
+            same_trip = (trip == (row.get('display_tab_id') or row.get('trip_id')))
+            if not (allow_recorded_ai and same_trip and _open_p2_tab(trips, trip)):
+                raise ValueError('CORRECTION_PROTECTED')
         board = _row(conn, 'board_rows', 'row_id', 'card-'+tid)
         if board and board['row_kind'] != 'expense':
             raise ValueError('CORRECTION_PROJECTION_CONFLICT')
@@ -73,7 +96,7 @@ def preview(conn, corrections, trips):
                 count=len(targets))
 
 
-def apply(conn, expected, corrections, trips, *, request_id):
+def apply(conn, expected, corrections, trips, *, request_id, allow_recorded_ai=False):
     if not request_id:
         raise ValueError('CORRECTION_REQUEST_REQUIRED')
     payload_hash = hashlib.sha256(json.dumps(corrections,sort_keys=True).encode()).hexdigest()
@@ -86,7 +109,7 @@ def apply(conn, expected, corrections, trips, *, request_id):
                 raise ValueError('CORRECTION_REQUEST_CONFLICT')
             result = dict(json.loads(previous[1]), applied=0, replay=True)
         else:
-            current = preview(conn,corrections,trips)
+            current = preview(conn,corrections,trips,allow_recorded_ai=allow_recorded_ai)
             if current['digest'] != expected['digest']:
                 raise ValueError('CORRECTION_PREVIEW_STALE')
             for target in current['targets']:

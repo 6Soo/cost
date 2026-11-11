@@ -5,7 +5,7 @@ import pytest
 
 from app import ai_classification, p2_case
 from tests.test_p2_case import prepared
-from webapp.tests.test_autonomous_cleanup import setup
+from webapp.tests.test_autonomous_cleanup import setup, receive, make_weak_rows
 
 
 def response(request, bundle):
@@ -31,6 +31,66 @@ def test_service_and_evidence_metadata_saved_atomically_without_original_changes
     assert audit['p2_metadata']['service_end'] == '2026-10-03'
     assert audit['p2_metadata']['case_digest'] == bundle['digest']
     assert ai_classification.apply(setup.conn, trips, request, answer, bundle=bundle, request_id='p2-synthetic')['replay']
+
+
+def test_recorded_open_trip_item_only_correction_requires_explicit_opt_in(setup):
+    from app import classification_correction
+    from webapp.card_flow import CardFlow
+    board = setup
+    trip = board.create_trip(starts_on='2026-10-01', ends_on='2026-10-05',
+                             destination='합성 여행', client_request_id='stage2-trip')
+    trip = trip['tab_id']
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, trip, item='현지경비')
+    CardFlow(board).auto_record(batch)
+    tid = ids[0]
+    cur = board.conn.execute('SELECT transaction_id,source_hash,revision,trip_id,display_tab_id FROM transactions WHERE transaction_id=?', (tid,))
+    row = dict(zip((d[0] for d in cur.description), cur.fetchone()))
+    correction = dict(transaction_id=tid, source_hash=row['source_hash'], revision=row['revision'],
+                      trip_id=trip, item='식비', basis='합성 단계2', classification_source='ai_inference',
+                      execution=dict(kind='connected_agent', provider='codex', model='gpt-6.1-sol', run_id='stage2'))
+    cur = board.conn.execute('SELECT * FROM trip_tabs')
+    trips = [dict(zip((d[0] for d in cur.description), r), trip_id=r[0]) for r in cur.fetchall()]
+    with pytest.raises(ValueError, match='CORRECTION_PROTECTED'):
+        classification_correction.preview(board.conn, [correction], trips)
+    expected = classification_correction.preview(board.conn, [correction], trips, allow_recorded_ai=True)
+    before = board.conn.execute('SELECT amount_krw,source_hash,raw_row_json,trip_id FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+    result = classification_correction.apply(board.conn, expected, [correction], trips,
+                                              request_id='stage2-recorded', allow_recorded_ai=True)
+    assert result['applied'] == 1
+    after = board.conn.execute('SELECT amount_krw,source_hash,raw_row_json,trip_id,item,classification_source FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+    assert after[:4] == before and after[4:] == ('식비', 'ai_inference')
+    replay = classification_correction.apply(board.conn, expected, [correction], trips,
+                                              request_id='stage2-recorded', allow_recorded_ai=True)
+    assert replay['replay'] is True and replay['applied'] == 0
+
+
+@pytest.mark.parametrize('mutation', ['closed', 'manual', 'trip', 'amount'])
+def test_recorded_p2_opt_in_keeps_protections(setup, mutation):
+    from app import classification_correction
+    from webapp.card_flow import CardFlow
+    board = setup
+    starts = '2026-06-01' if mutation == 'closed' else '2026-10-01'
+    trip = board.create_trip(starts_on=starts, ends_on='2026-10-05', destination='합성',
+                             client_request_id='protect-' + mutation)['tab_id']
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, trip, item='현지경비')
+    CardFlow(board).auto_record(batch)
+    tid = ids[0]
+    if mutation == 'manual':
+        board.conn.execute("UPDATE transactions SET classification_source='user_decision', decided_at='2026-10-01' WHERE transaction_id=?", (tid,))
+        board.conn.commit()
+    cur = board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (tid,))
+    row = dict(zip((d[0] for d in cur.description), cur.fetchone()))
+    correction = dict(transaction_id=tid, source_hash=row['source_hash'], revision=row['revision'],
+                      trip_id=('other-trip' if mutation == 'trip' else trip), item='식비', basis='합성',
+                      classification_source='ai_inference', execution=dict(kind='connected_agent', provider='codex', model='gpt-6.1-sol', run_id='protect'))
+    if mutation == 'amount':
+        correction['amount_krw'] = 1
+    cur = board.conn.execute('SELECT * FROM trip_tabs')
+    trips = [dict(zip((d[0] for d in cur.description), r), trip_id=r[0]) for r in cur.fetchall()]
+    with pytest.raises(ValueError):
+        classification_correction.preview(board.conn, [correction], trips, allow_recorded_ai=True)
 
 
 @pytest.mark.parametrize('changes', [

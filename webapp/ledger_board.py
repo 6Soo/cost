@@ -2914,6 +2914,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._handle_review_guidance(path, payload)
             return self._handle_review_post(path, payload)
 
+        if path in ("/api/p2-batch/corrections/preview", "/api/p2-batch/corrections/apply"):
+            if not is_owner_session(session):
+                deny_for_viewer(action=True)
+            if "application/json" not in (content_type or ""):
+                self._send_json({"code": "CONTENT_TYPE_MISMATCH"}, code=415)
+                return True
+            return False
+
         if is_owner_session(session):
             return False
         # Every other write is an owner capability: row saves, moves, the rule
@@ -4015,6 +4023,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(result, code=200)
             return
+        if parsed.path in ('/api/p2-batch/corrections/preview', '/api/p2-batch/corrections/apply'):
+            self._handle_p2_batch_corrections(parsed.path, read_payload, check_csrf)
+            return
         from . import sheet_expense_review
         if sheet_expense_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return
@@ -4703,6 +4714,45 @@ class Handler(BaseHTTPRequestHandler):
                             code=STATUS_FOR_CODE.get(exc.code, 422))
             return
         self._send_json(result, code=200)
+
+    def _handle_p2_batch_corrections(self, path, read_payload, check_csrf) -> None:
+        """Owner/CSRF-gated P2 batch entry point; storage remains server-owned."""
+        from . import classification_correction
+
+        if current_role() != 'owner':
+            self._send_json({'code': 'OWNER_REQUIRED', 'message': '소유자만 변경할 수 있어요'}, code=403)
+            return
+        store = _active_store()
+        if store is None:
+            self._send_json({'code': 'STORE_UNBOUND'}, code=503)
+            return
+        try:
+            payload = read_payload()
+            check_csrf(payload)
+            if not isinstance(payload, dict) or set(payload) - {
+                    'csrf', 'corrections', 'request_id', 'preview_digest'}:
+                raise ValueError('INVALID_VALUE')
+            corrections = payload.get('corrections')
+            if not isinstance(corrections, list) or not corrections or len(corrections) > 50:
+                raise ValueError('P2_BATCH_LIMIT')
+            trips = [dict(row, trip_id=row['tab_id']) for row in store.conn.execute('SELECT * FROM trip_tabs')]
+            if path.endswith('/preview'):
+                result = classification_correction.preview(
+                    store.conn, corrections, trips, allow_recorded_ai=True)
+                self._send_json({'digest': result['digest'], 'count': result['count'],
+                                 'projection_pairs': sum(bool(t['ledger'] and t['board']) for t in result['targets']),
+                                 'recorded_targets': sum(bool(t['ledger'] or t['board']) for t in result['targets'])}, code=200)
+                return
+            digest = str(payload.get('preview_digest') or '')
+            if not digest or not payload.get('request_id'):
+                raise ValueError('P2_BATCH_REQUEST_REQUIRED')
+            expected = {'digest': digest}
+            result = classification_correction.apply(
+                store.conn, expected, corrections, trips,
+                request_id=str(payload['request_id']), allow_recorded_ai=True)
+            self._send_json(result, code=200)
+        except ValueError as exc:
+            self._send_json({'code': str(exc), 'message': str(exc)}, code=422)
 
     def _handle_revert(self, row_id, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError

@@ -34,12 +34,20 @@ ITEM_REMAP = {
 FACILITY_USAGE_RE = re.compile(r'(온천|온센|onsen|spa|로프웨이|ropeway|곤돌라|케이블카|골프장|golf|스키장|박물관|museum|미술관|전망대|테마파크)', re.I)
 
 
+COUNTRY_SUFFIXES = {'jp','jpn','kr','kor','cn','chn','tw','taiwan','us','usa','gb','uk','fr','de','it','es','au','ca'}
+
+
 def canonical_merchant_name(value):
     """Collapse spacing and source suffixes used for city/country variants."""
-    text = re.sub(r'\s+', ' ', str(value or '')).strip()
-    # Card feeds commonly separate the merchant from location with padding.
-    text = re.split(r'\s{2,}', str(value or '').strip(), maxsplit=1)[0]
-    return re.sub(r'\s+', ' ', text).strip().casefold()
+    raw = str(value or '').strip()
+    padded = re.split(r'\s{2,}', raw, maxsplit=1)[0]
+    tokens = re.sub(r'\s+', ' ', padded).strip().split(' ')
+    # A one-space location suffix is common after normalization. Remove the
+    # country token and its immediately preceding city token only when the
+    # country marker is unambiguous; merchant names themselves stay intact.
+    if len(tokens) >= 3 and tokens[-1].casefold() in COUNTRY_SUFFIXES:
+        tokens = tokens[:-2]
+    return ' '.join(tokens).casefold()
 
 
 def normalize_item(item, merchant_names=(), operational_items=()):
@@ -216,7 +224,8 @@ def run(args):
     batch_inputs, targets = merchants(general)
     save(out/'merchant-inputs.json',batch_inputs)
     # A private, minimal before-state binds future proposals to the exact source/revision.
-    before = {k:[{f:r[f] for f in ('transaction_id','source_hash','revision','item','trip_id','display_tab_id','classification_source','classification_basis')}
+    before = {k:[{f:r[f] for f in ('transaction_id','source_hash','revision','item','trip_id','display_tab_id','classification_source','classification_basis',
+                                    'amount_krw','foreign_amount','foreign_currency','raw_row_json')}
                  for r in values] for k,values in targets.items()}
     save(out/'before-state.json',before)
     allowed = sorted((set(data['allowed_items'])|{'숙박비','항공료','식비','렌터카','입장료','사무용품비'})-{'미분류','취소·환불'})

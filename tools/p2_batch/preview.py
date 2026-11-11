@@ -6,8 +6,38 @@ from collections import Counter
 import json
 from pathlib import Path
 import sqlite3
+import hashlib
 
 from app import classification_correction
+
+
+def _immutable_digest(target):
+    before = target['before']
+    values = {
+        'transaction_id': before.get('transaction_id'), 'source_hash': before.get('source_hash'),
+        'amount_krw': before.get('amount_krw'), 'foreign_amount': before.get('foreign_amount'),
+        'foreign_currency': before.get('foreign_currency'), 'trip_id': before.get('trip_id'),
+        'display_tab_id': before.get('display_tab_id'), 'raw_row_json': before.get('raw_row_json'),
+    }
+    return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _check_projection_invariants(target):
+    before = target['before']
+    ledger, board = target['ledger'], target['board']
+    if bool(ledger) != bool(board):
+        raise ValueError('P2_PROJECTION_SHAPE')
+    if ledger:
+        for key in ('transaction_id', 'amount_krw', 'trip_id', 'display_tab_id'):
+            if key in ledger and key in before and ledger[key] != before[key]:
+                raise ValueError('P2_IMMUTABLE_CHANGED')
+    if board:
+        payload = json.loads(board['payload_json'])
+        for key in ('source_event_id', 'amount_krw', 'trip_id', 'display_tab_id'):
+            expected = before.get('transaction_id') if key == 'source_event_id' else before.get(key)
+            if key in payload and expected is not None and payload[key] != expected:
+                raise ValueError('P2_IMMUTABLE_CHANGED')
+    return dict(projection_pair=bool(ledger and board), immutable_digest=_immutable_digest(target))
 
 
 def run(db, archive):
@@ -38,9 +68,11 @@ def run(db, archive):
                                     status='excluded', reason=reason, before_item=old['item'], after_item=proposal['item']))
             else:
                 target = preview['targets'][0]
+                invariants = _check_projection_invariants(target)
                 results.append(dict(transaction_id=old['transaction_id'], merchant_id=proposal['merchant_id'],
                                     status='pass', before_item=old['item'], after_item=proposal['item'],
-                                    recorded_ledger=bool(target['ledger']), screen_row=bool(target['board'])))
+                                    recorded_ledger=bool(target['ledger']), screen_row=bool(target['board']),
+                                    **invariants))
     conn.close()
     report = dict(candidates=len(results), passed=sum(r['status'] == 'pass' for r in results),
                   excluded=sum(r['status'] == 'excluded' for r in results), excluded_by_reason=dict(reasons),

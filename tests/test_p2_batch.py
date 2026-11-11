@@ -85,6 +85,11 @@ def test_stage2_normalization_uses_ledger_names_and_majority():
     assert [r['item'] for r in normalized] == ['교통비', '교통비']
 
 
+def test_stage2_canonical_name_removes_single_space_city_country_suffix():
+    assert layer1.canonical_merchant_name('ALPICO KOTSU NAGANO JP') == 'alpico kotsu'
+    assert layer1.canonical_merchant_name('ALPICO KOTSU TOKYO JP') == 'alpico kotsu'
+
+
 @pytest.mark.parametrize(('item','names','expected'), [
     ('편의점', ['CONVENIENCE STORE'], layer1.KEEP),
     ('이용료', ['HOT SPRING ONSEN'], '입장료'),
