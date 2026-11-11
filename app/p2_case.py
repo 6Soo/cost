@@ -336,6 +336,8 @@ class Repository:
         self.read_bytes = 0
         self._stamps = {}
         self._registry_stamp = None
+        self._case_reads = {}
+        self._case_seconds = {}
 
     def begin_snapshot(self, check=None, *, new_round=True):
         """Start a request-local view; call again (new_round=False) before freshness validation."""
@@ -348,6 +350,8 @@ class Repository:
         self._check = check or (lambda: None)
         if new_round:
             self.read_bytes = 0
+            self._case_reads.clear()
+            self._case_seconds.clear()
 
     def end_snapshot(self):
         self._snapshot = None
@@ -453,11 +457,26 @@ class Repository:
         return entries
 
     def _source_evidence(self, row):
+        """Charge each transaction across lookups and freshness rebuilds in a round."""
+        identity = row['transaction_id']
+        started, before = time.monotonic(), self.read_bytes
+        used = self._case_reads.get(identity, 0)
+        elapsed = self._case_seconds.get(identity, 0.0)
+        try:
+            yield from self._source_evidence_scan(row, used, elapsed)
+        finally:
+            # Failed and cancelled reads consume the same budget as successful ones.
+            self._case_reads[identity] = used + max(0, self.read_bytes - before)
+            self._case_seconds[identity] = elapsed + max(0, time.monotonic() - started)
+
+    def _source_evidence_scan(self, row, used_before, seconds_before):
         from . import ota_mail, ota_portal, ota_sources
-        started, used = time.monotonic(), [0]
+        started, used = time.monotonic(), [used_before]
         def check():
             self._check()
-            if time.monotonic() - started > EVIDENCE_CASE_SECONDS:
+            if used[0] > EVIDENCE_CASE_BYTES:
+                raise ValueError('P2_READ_BUDGET_EXCEEDED')
+            if seconds_before + time.monotonic() - started > EVIDENCE_CASE_SECONDS:
                 raise ValueError('P2_READ_TIME_EXCEEDED')
         check()
         directories = ota_mail.as_directories(self.sources.get('mail_directories', []))

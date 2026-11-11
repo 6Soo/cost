@@ -197,6 +197,55 @@ def test_evidence_byte_budget_aborts_before_oversized_source_is_loaded(setup, tm
 
 
 
+def test_case_read_budget_accumulates_across_freshness_rebuilds(tmp_path, monkeypatch):
+    import pytest
+    from app import p2_case, p2_source_io
+    source = tmp_path / 'gmail-source.json'
+    source.write_bytes(b'first!')
+    monkeypatch.setattr(p2_case, 'EVIDENCE_CASE_BYTES', 10)
+    monkeypatch.setattr(p2_case, 'EVIDENCE_ROUND_BYTES', 30)
+    monkeypatch.setattr(p2_source_io, 'process_read_bytes', lambda: 0)
+    repository = p2_case.Repository(None, {'mail_directories': [source]})
+    builds = []
+    monkeypatch.setattr(repository, '_mail_entries', lambda: builds.append(True) or [])
+    row = {'transaction_id': 'same-case'}
+    repository.begin_snapshot()
+    assert repository.source_items(row) == []
+    assert repository.read_bytes == 6
+    source.write_bytes(b'second!')
+    repository.begin_snapshot(new_round=False)
+    with pytest.raises(ValueError, match='P2_READ_BUDGET_EXCEEDED'):
+        repository.source_items(row)
+    assert builds == [True] and repository.read_bytes == 6
+    repository.begin_snapshot()  # A new round, not a lookup, renews the budgets.
+    assert repository.source_items(row) == []
+    assert len(builds) == 2 and repository.read_bytes == 7
+
+
+def test_case_evidence_time_accumulates_across_lookups(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+    from app import p2_case
+    clock = [0.0]
+    monkeypatch.setattr(p2_case, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(p2_case, 'EVIDENCE_CASE_SECONDS', 10)
+    repository = p2_case.Repository(None, {})
+    def index(key, paths, build, case_used, check):
+        clock[0] += 6
+        check()
+        return p2_case._Index([], 0), 0
+    monkeypatch.setattr(repository, '_index', index)
+    row = {'transaction_id': 'same-case'}
+    repository.begin_snapshot()
+    assert repository.source_items(row) == []
+    repository.begin_snapshot(new_round=False)
+    with pytest.raises(ValueError, match='P2_READ_TIME_EXCEEDED'):
+        repository.source_items(row)
+    assert repository._case_seconds['same-case'] == 12
+    repository.begin_snapshot()
+    assert repository.source_items(row) == []
+
+
 def test_index_candidates_match_full_scan(tmp_path, monkeypatch):
     import itertools
     from app import ota_mail, p2_case
