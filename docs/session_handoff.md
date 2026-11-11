@@ -1,5 +1,131 @@
 # 현재 상태
 
+## 2026-11-11 최신 재개 — 오프라인 검증 전환
+
+최신 실행 지시는 [작업판](agents/BOARD.md) 맨 위 절이다. 운영 `8b116b98`의 P2는 재승인 전까지 비활성으로 유지한다. 기존 결과 문서 PR의 별도 sol 최종 검수·병합 후 P-1 사본 200건 조립, P-2 실제 sol 20건 검증·미리보기, P-3 보고·중단 순서다. 아직 사본 생성·모델 호출·운영 변경은 실행하지 않았다. 아래 절은 기존 시범의 이력이며 과거 재시범 승인이나 중단 기록을 새 작업으로 재실행하지 않는다.
+
+## 2026-11-11 #805 재개 결과 — 5건 시범 중단, P2 off 유지
+
+- **COMPLETE(수정·배포):** 전체 원문 충돌/base64 보존·포털 중첩 판정 필드 projection을 최종 `aee08a8b`의 별도 `gpt-6.1-sol / medium` APPROVE 후 #805로 병합했다. 운영 완료 커밋은 `8b116b98ccbacdc49c702e370031be2da45f5ef9`다. 공식 배포 도구 exit0, 릴리스1570파일/blob불일치0, Board·Worker·listener SHA 일치/backend8751, health/ready200·비인증API401·보호13표 불변이다. 사전 SQLite API 신선백업5DB와 별도복원 quick_check/schema/행수 검증 PASS(공식 도구의 BackupProducts 스위치는 별도 미사용).
+- **검증:** 표적17 passed. 최종 코드8279f6ad 영향602 passed/1 failed/4 subtests/skip0·204.24초, compile PASS. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`의40 !=30이며 정확 운영기준5248d129에서도31 passed/동일1 failed로 재현했다. 테스트·기대값 불변, 전체 QA PASS 아님. 최종 문서 SHA aee08a8b 검수·병합 트리 동일 확인. CI 최종 head job130346428325는 결제 한도로 시작되지 않았다. 기존 사용자 QA3파일은 SHA256 확인 후 복원했다.
+- **COMPLETE(P2 off 관찰):** 14:42:02~14:57:27 KST,15분 창+종료측정925.255초. ready32회 모두200, P2 호출0/대상0/실행이벤트0, 보호지문 불변, route sampled unavailable 최대0.8924초다.
+- **FAILED(5건 운영 수락):** 14:57:49~15:02:12 KST,262.379초에 gateway8790 ready15.006초 timeout으로 즉시자동off. 후보3075/선정5/조립시작5·완료0/근거읽기시도2/모델시도0·성공0·실패0/preview0/반영0(각 회차 최댓값). `P2_SOURCE_RECORD_TOO_LARGE` 조립 실패가 두 회차에 기록됐다. 원본 레코드 중 어느 구조가 상한을 넘었는지는 이번 시범으로 확정하지 않았다. route최대18.133초는 중단선78.477초 이내였으며 직접 중단 조건은 ready timeout이다.
+- **안전 종료:** 보호지문 불변, 진행중 모델호출0, P2/full=false, route8751 unpaused. 종료 후 health/ready는8751 200/200(0.110/8.896초),8790 200/200(0.008/0.013초)이다. 원본·수동교정·Google 변경 없음. 50건·전체확대·E2·wave3·세 번째 재시범은 실행하지 않았다.
+- **미검증:** 운영에서 조립 완료·모델 입력이0건이므로 메일 절단 비율과 절단 후 예약번호/금액/날짜 구간 보존율은 측정할 수 없다. 합성 tail 구간 보호 검사는 통과했지만 운영 증거로 대체하지 않는다. dcbe4894의2000건/1.100GB/245.09초/합성3호출50반영은 메일 전용 합성 근거이며 포털 운영 수락이 아니다.
+- **다음:** 승인된 중단 보고 지점에 도달해 Fable에 보고하고 멈춘다. 운영은8b116b98/P2 off 유지. 추가 원인 수정·재시범은 후속 지시에서 판단한다. 비공개 근거 `.local-archive/p2-staged-resume-20261111/`의 `resume805-deploy/`, `resume805-off15m/result.json`, `resume805-pilot5/{result,stage-summary,post-ready}.json`, `resume805-final-{summary.json,pytest.log,junit.xml}`, `resume-baseline-split.json`. 정확한 재개 확인 명령은 `Get-Content -LiteralPath .local-archive/p2-staged-resume-20261111/resume805-pilot5/stage-summary.json -Encoding UTF8`다. 이번 종료 기록은 로컬 커밋으로 보존하며 기록만을 위한 새 문서 PR·재배포를 만들지 않는다.
+
+## 2026-11-11 #805 중단 작업 재개 — 최종 검수 준비
+
+- 현재 작업은 #805의 근거 크기 수정과 승인된 단계별 재시범뿐이다. 전체 반영·E2·wave3는 실행하지 않는다. 운영 읽기전용 확인: P2/full=false, route8752 unpaused.
+- 전체 메일로 원본 충돌을 검사한 뒤 P2 조립 경계에서만 20KiB 관련 구간을 발췌한다. 포털은 실제 `_read_records`의 중첩 `payload_json`에서 판정 필드와 price_components만 선택하며 raw 자료는 검색·출력하지 않는다. 실제 SQLite loader 합성·원본 불변·잘못된 JSON 보호 포함 표적17 passed.
+- `dcbe4894` 규모 합성: 후보2000·근거1,100,346,849B·메일9174, 245.09초·고유조립50·합성모델3호출/50건·반영50, 근거읽기 첫1,102,565,348B/이후0. 조립은 route/runtime/board/DB쓰기 잠금 밖, 경쟁 DB쓰기 최대대기0.0079초. 실제 모델 호출이나 운영 반영 증거는 아니다.
+- 영향검사 `dcbe4894`: 599 passed/1 failed/4 subtests. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`(40 != 30); 정확 운영 기준5248d129에서도 동일 1 failed/31 passed로 재현했다. 검사와 기대값은 고치지 않았다. 전체 통과로 표시하지 않는다. 최종8279f6ad 영향검사602 passed/동일1 failed/4 subtests/skip0·204.24초이며 py_compile 통과. 정확 기준 실패 근거는 resume-baseline-split.json이다. 최종 SHA 별도 sol medium 승인 전 병합/배포 없음.
+- 기존 큰 합성의 provider0은 실행기 미구성이 아니라 base64 clipping의 ValueError였다. 이전5건의 route unavailable 5.096초는 P2 off 기준선 최대39.238초 안이다. 재시범 중단선은78.477초이며 ready 연속2실패·보호변화·preview없는 반영 시 즉시 off다. 조립 뒤 모델시도0이면50건으로 가지 않는다.
+- 비공개 증거: `.local-archive/p2-staged-resume-20261111/`의 `resume-large-on.log`, `resume-impact-final.log`, `review805-resume.md`, `checkpoint.md`. 다음은 최종 영향검사→별도 sol medium 최종SHA 승인→#805 병합→공식 P2 off 배포→15분 관찰→5건10분→실제호출/안전 확인 시50건60분→보고·중단이다.
+
+## 2026-11-11 단계별 P2 재배포 조건부 승인 — 단계0 진행
+
+- 최신 Fable 지시는 #804의 단계별 계수를 보강·최종 sol medium 재검수한 뒤 P2 off 배포/15분 관찰 → 최대5건/10분 → 호출이 실제 발생하고 안전 조건을 만족하면 최대50건/60분 시범 → 보고·중단이다. 기존 승인 대기 기록은 이 후속 승인으로 대체한다. 전체 약2,100건, E2 #803, wave3 #799는 이번 보고 전 실행하지 않는다.
+- 재개 실측: 운영 Board/Worker 예약 작업은965bca058a74a54bf69bc4d70a0d05f8997786c3, route8751/paused=false, P2/full_rollout=false다. 8751 ready200/1.016초,8790 ready200/0.260초, 비운영8752 listener없음. 같은Board PID2460의 연속10초×2 읽기 증가는0과55,107,598bytes(약5.35MB/s)다. Win32_Process.ReadTransferCount이며 물리디스크 읽기와 구분한다.
+- 단계0 PENDING: 회차 상관ID/단계별 진행·최종계수,5건 상한/절대마감 보호를 운영 밖 구현·합성검증 중. 기존QA3파일·미소유8805·기존worktree를 보존한다. 단계1/2/3은 미실행, 운영 코드·고객 판정 변경 없음.
+- 비공개 체크포인트 `.local-archive/p2-staged-resume-20261111/`; 다음은 계측 수정본 관리자 표적·영향검사→최종SHA 독립검수→#804 병합→신선백업·복원/보호13표→공식배포다. 배포 때 PreviousSha는 다시 실제 운영과 대조한다.
+
+- 단계0 관리자 검증: 표적147pass/21.66초, 영향31파일702pass/기존3fail/4subtests/skip0·141.17초(기준455a723d 동일실패근거 유지). 계측 추가 후 같은2000건/1,100,346,849bytes 합성 off0.773초/P2근거조립호출0; on106.138초/고유50조립·합성3호출·50반영/근거첫1,100,591,362bytes 이후0·경쟁DB쓰기최대0.0012초. 실제모델/운영판정 미실행이며 최종SHA 독립검수 전이다. 기존QA3파일은 원해시로 복원했다.
+
+## 2026-11-11 후속 PR #805 — 독립 검수 대기
+
+- 큰 근거 처리·운영 분포·route 기준선 수정은 `f6d8b89c4e64606da09f3cd8d2ea01475398a203`에 반영했고 PR #805를 열었다. 표적149·영향596(+4 subtests) 모두 통과, skip0이다.
+- 별도 `gpt-6.1-sol / medium` 독립 검수는 두 번 모델 용량 오류로 시작되지 않았다. 이 게이트를 우회하지 않으므로 #805 병합·배포·재시범은 보류한다.
+- 운영 `5248d129`, P2/full off, route8752 unpaused, ready200, 보호13표 불변을 유지한다. 50건 단계와 전체 반영은 실행하지 않는다.
+## 2026-11-11 P2 근거 크기·route 기준선 조사 — 재시범 전
+
+- 운영은 `5248d129`·P2 off·full rollout off·route8752 unpaused를 유지한다. 이전 5건 시범 중단은 유지하며 재배포/재시범은 새 PR의 독립 검수 전 실행하지 않는다.
+- 운영 읽기전용 크기 분포(원문 미출력): 메일 10,085건, 중앙값45,610B·p95 208,995B·최대425,242B. 포털 `ota_raw_entries` 최초78,720건은 length(TEXT) 집계였다. UTF-8 바이트 재집계79,288건(수집 증가), 중앙값/p95 86B·최대3,955,511B다. 포털 raw payload는 조립 대상에서 제외하고 판정 필드 allowlist만 쓴다.
+- 최초 수정의 payload clipping은 독립 검수에서 반려됐다. 최종 수정은 전체 메일로 충돌을 비교한 뒤 evidence 조립 경계에서만 정리·발췌한다(메일 본문20KiB, 전체 evidence24KiB·전체 prompt256KiB 상한). 포털 evidence는 booking/service/status/payment/card/lifecycle 등 판정 필드만 포함한다. source record가 상한을 넘었다는 이유만으로 전체 사건을 실패시키지 않는다. 신규·기존 표적 149 passed, skip0.
+- 기존 큰 레코드 합성 `staged-large-on`의 성공 해석을 철회한다. 로그는 `ai_retry:ValueError=50`, provider0·반영0이며 조립3은 `Repository.select` 진입 수다. on 실행기는 합성 provider를 주입하므로 호출 미구성이 아니다. 이전 메일 payload clipping이 base64 뒤에 한글 생략 표시를 붙여 decode에서 `ValueError`를 내는 경로를 합성 재현했다. 최종 SHA의 재측정은 최신 재개 절에 기록한다.
+- P2 off route 잠금 30분 기준선: 비차단 probe17,934회·unavailable run246, 최대39.238초·p95 11.971초·중앙값6.223초. 따라서 다음 시범의 route 중단 기준은 `max(2×39.238,15)=78.477초`다. 기준선은 route/config 쓰기 없이 측정했으며 probe의 one-byte 획득은 즉시 해제한다.
+- M1의 2,113 후보와 현재 시범 3,075 후보 차이는 detection SQL 변경이 아니라 운영 DB 상태가 M1 이후 변한 결과로 기록한다. 현재 읽기전용 집계 base3269, source_general3269, refund·board/manual 보호를 적용한 시범 후보3075다.
+## 2026-11-11 단계별 시범 결과 — 5건 단계에서 중단
+
+- `5248d129b713f70210f5dc64e83f85574566042e`를 공식 `tools/deploy_verified_release.ps1`로 `965bca05`에서 배포했다. Board/Worker SHA와 listener는 5248d129, backend8752, route unpaused, health/ready200, 비인증 API401, 보호13표 불변이다. 첫 시도는 릴리스 파일 누락으로 `RELEASE_AUDIT_FAILED` 안전중단했고 운영은 바뀌지 않았으며, Git blob 재구성·audit0 후 재시도했다.
+- P2 off 15분 관찰: ready8752/8790 30회 모두200, 호출·대상·예약0, 보호지문 불변, P2 off 유지. Board ReadTransferCount 표본은 5분 1.94MB/s·946.5MB/s, 15분 0·1.31GB/s로 변동해 기존 재계산 경로와 구분한다.
+- 최대5건 시범은 route 잠금 샘플 연속 unavailable 5.096초로 즉시 중단했다. P2는 자동 off, full rollout false, route unpaused, ready8752 200/2.821초·8790 200/0.027초, 보호13표 PASS다.
+- 시범 계수: 후보3075, 선정5, 조립시작5·완료0, source_read_attempts2, 모델시도0·반환성공0·실패0, preview0·반영0. `P2_SOURCE_RECORD_TOO_LARGE`로 호출 예약 outcome unavailable, 최종 호출0/대상0 집계와 구분해 기록한다. route 중단 조건이 먼저 발생했으므로 50건 단계로 진행하지 않는다.
+- 결과 근거 `.local-archive/p2-staged-resume-20261111/off-15m/result.json`, `pilot-5/result.json`, `deploy-exit.json`, `deploy-evidence/`. 전체 미해결 건·E2·wave3는 실행하지 않았다. 다음은 Fable의 원인 수정·재시범 승인 판단이다.
+## 2026-11-11 최종 독립검수 완료 — #804 Fable 승인 대기
+
+- 별도 `gpt-6.1-sol / medium`이67755cfee4ba968e88da94256bf94183d4450e23를 APPROVE했다. 지적된 누적예산 수정·신규회귀2pass·관리자102pass/영향680pass·기존3fail/규모실측을 확인했다. 이후 변경은 승인상태를 기록하는 문서3개뿐이며 최종문서SHA도 재확인해 #804댓글에 남긴다.
+- 완료 코드11945b2f, 문서#802 병합455a723d, 후속draft [#804](https://github.com/6Soo/cost/pull/804)는 병합·배포하지 않았다. 이 지시의 보고시점에 도달해 Fable에게 최종보고하고 멈춘다. 다음은 Fable의 운영재개 승인 판단이다. 역사적 운영호출0의 직접원인 확정은 여전히 불가, 운영965유지·E2/C미착수·기존QA/미소유프로세스보존이다.
+
+## 2026-11-11 10:31 P2 최종 수정·재검증 — draft #804
+
+- 첫 독립sol medium 검수(b85b56c8)는 건당예산이 추가조회마다 초기화되는 지적1건으로 반려됐다. 관리자11945b2f가 회차 내 거래별 누적읽기·누적근거작업시간과 실패차감을 보존하고 회귀2건을 추가했다. 최종 문서SHA·재검수 결과는 [#804](https://github.com/6Soo/cost/pull/804) 댓글로 기록한다.
+- 관리자 직접 표적102pass/16.64초. 영향30파일680pass/기존3fail/4subtests/skip0/149.15초. 3fail은 정확455a723d에서 동일재현한 기존ID이며 전체검사 통과 아님이다.
+- 같은2000건·1,100,346,849bytes 합성으로11945b2f off/on exit0: off0.892초/P2근거·조립·호출0, on106.812초/합성3호출·50반영/근거첫1,100,582,022이후0/route최대보유0.2642초·경쟁DB쓰기최대대기0.0016초. 자세한 수치·제약은 [검증 보고서](agents/artifacts/p2-lock-io-budgets-20261111.md)에 있다.
+- 운영965bca05 유지, PR병합·배포·고객/실모델·Google 쓰기 없음이다. 기존QA3파일은 복원했다. 다음은 최종SHA 별도sol medium 재검수→결과PR기록→Fable보고·중단이다. 운영호출0의 역사적 직접원인 확정은 여전히 불가, 승인 전 P2/main/wave3 배포금지다. E2 #803·wave3 #799는 이후순서로 남긴다.
+
+## 2026-11-11 10:18 D5-FIX 관리자 직접 검증 — 독립검수와 Fable 승인 게이트
+
+- #802 문서는 최종f5c8756f의 별도sol medium APPROVE 후455a723d로 병합했다. 배포 없음이다. P2 작업자 최종3a7363fc를 `integration/p2-lock-io-resume-20261111`에 통합한 코드 커밋은ba799241다. 이후 문서 커밋을 포함한 최종SHA·독립검수는 후속PR에서 확인한다.
+- 관리자가 표적100pass, 영향30파일678pass/3fail/4subtests/skip0, 정확한 기준455a723d의 같은3fail을 직접 실행했다. 전체QA 통과는 아니다. 테스트 약화·고객자료·운영DB·실제모델·Google 쓰기는 없다.
+- 후보2000건/근거1,100,346,849 bytes로 직접 off/on 실측: off1.279초·P2근거/조립/호출0, on155.292초·합성3호출/50반영·근거첫1,100,586,772 bytes 이후0·route최대보유0.3553초·경쟁DB쓰기대기최대0.0051초. 세부 조건·한계·재현 명령은 [검증 보고서](agents/artifacts/p2-lock-io-budgets-20261111.md)에 있다.
+- 작업자 capacity 오류 뒤 관리자가 저장 상태에서 이어받았다. Claude 전환 없음. 기존QA3파일은 복원했고 baseline worktree도83d87f88로 복귀했다. 기존worktree·미소유8805를 보존했다.
+- 다음은 별도sol medium 이상의 최종SHA·실측 검수 → PR기록 → Fable 최종보고·중단이다. 운영965bca05 유지, Fable 승인 전 배포·고객P2 재실행 금지. 운영 호출0 직접원인은 과거 live stack 부재로 유일확정 불가다. E2 #803과wave3 #799는 그 뒤 순서이며 지금 시작하지 않는다.
+
+## 2026-11-11 09:30 관리자 재개 — 운영965 유지·문서 최종 검수부터
+
+- #802 최종 `f5c8756f`를 별도 `gpt-6.1-sol / medium`이 APPROVE했고 `455a723d`로 병합했다. CI는 결제 한도로 steps0, 문서 링크·diff PASS, 테스트·배포 없음이다. 후속 관리자 기록 브랜치는 `docs/manager-p2-resume-20261111`이며 D5-FIX 기존 worktree에서 별도 sol high가 구현·합성 검증을 진행 중이다.
+- 예약 `24cfe08a` 원문과 최신 작업판·PR·8개 worktree를 대조했다. 09:02 예약 실패 원인은 Codex 구버전의 gpt-6.1-sol 미지원 HTTP400이며 한도 오류로 단정하지 않는다. 그 실행은 archived/closed이고 해당 시각 커밋·작업판 변경 흔적은 없다.
+- 운영 Board PID2460 checkout 및 Board/Worker 예약 작업 SHA는 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, route8751/paused=false다. 8751·8790 healthz/readyz 네 경로200을 읽기 전용으로 확인했다. 읽기량·고객 DB·보호 지문은 이번 상태 대조에서 재측정하지 않았다.
+- #802 장애 기록·작업판 문서의 최종 SHA 독립 sol medium 검수 후 병합이 다음 작업이다. 이어 기존 D5-FIX `27dacf23`에서 운영 밖 수정·규모 합성 실측·독립 검수까지 수행하고 Fable에 보고한다. 승인 전 P2/main/wave3 배포는 금지다.
+- 기존 미추적 QA 3파일과 worktree를 보존했다. 8805 PID19544는 소유 미확인으로 유지했다. 재개 근거와 정확한 순서는 [작업판](agents/BOARD.md#재개-정보)에 기록했다.
+
+## 2026-11-11 06:18 운영 장애 복구 — 965bca05 롤백, 읽기 기준선 미검증
+
+- Fable의 명시적 장애 복구 지시를 실행했다. `83d87f88` 배포와 그 소유 Prepared 작업을 전환 전에 취소하고, 5DB SQLite backup API·별도 복원·quick_check/스키마/행수 동등을 확인했다. 지정된 구 Board PID34256은 `WebLedger-Board` 예약 작업의 중지로 종료하고 잠금 비파괴 해제를 확인했다. 같은 SHA/P2off 재시작 뒤 공식 도구로 **06:13:42 KST `965bca058a74a54bf69bc4d70a0d05f8997786c3` 롤백 완료**다. 다음 배포의 PreviousSha는 `965bca05`다.
+- Board·Worker·listener SHA 일치, backend8751/Gateway8790 health/ready200·비로그인401, 보호13표·원본7,336·수동교정 대상255·관련14표 지문 불변, P2/fullrollout off를 확인했다. 데이터 변경·금융/Google 쓰기는 없다. Gateway와 route lock 파일 삭제·우회·다른 프로젝트 프로세스 조작은 하지 않았다.
+- **읽기량 평상 기준선은 미검증**이다. 06:14:47~06:15:08 새 Board PID2460의 두10초 구간은 약123.3MB/s·355.4MB/s여서 Fable에 즉시 수치 보고했다. 후속06:15:41~06:16:01은 약5.35MB/s·0B/s, 06:17:19~06:17:40은 약5.54MB/s·395B/s로 감소했다. 시작 후 준비 작업 여부와 평상 기준선은 미확정이다. 준비 실패 실측06:03:54부터 응답 정상 확인06:13:42까지 최소9분48초, 실제 장애 시작/읽기량 종료는 미확정이다.
+- **P2 재배포·재실행 금지**다. Fable이 지정한 off 시 조립/조회0, 회차50건 제한, 조립/모델 호출의 route·DB 쓰기 잠금 분리, 색인/읽기·시간 예산, 시범 창 종료 시 진행 회차 중단을 운영 밖에서 해결한다. 후보2,000건 이상·근거1GB 이상 합성 off/on 읽기량·소요·잠금 실측과 독립 검수 및 Fable 승인을 받기 전 `83d87f88`을 운영에 다시 올리지 않는다.
+- C #799는 최종 시각 수락 차단 그대로, E2 `60d8fb44`는 운영 복구 지시로 파일을 보존한 채 일시중지 응답을 받았다. 복구 완료 판단 이후 같은 작업자를 재개하며 중복 배정하지 않는다. 완료 A/B/A-R/D1/E1을 다시 실행하지 않는다.
+- 상세 운영 사실은 [운영 장애 기록](operations.md), 비공개 증거는 `.local-archive/manager-resume-20261111/incident-rollback/`와 `resume-c89bbda2.md`에 있다. 코드 롤백 완료와 성능 복구 미확인을 구분한다.
+
+## 2026-11-11 06:07 재개 — 첫 P2 제한 실행 종료·보완 배포 잠금 대기
+
+- 관리자 `c89bbda2`는 원 A~E 및 Fable 후속 결정을 인계 기록으로 대조했다. 완료 A/B/A-R/D1/D2~D4/E1을 재실행하지 않는다. 문서 #800은 `0308eed3`, P2 조립 보완 #801은 `83d87f88416924a5ec377e988a82b778d9f956a2`로 병합됐다. 루트의 기존 미추적 QA 3파일은 보존한다.
+- D5 첫 제한 제어는 **05:59:19 KST, `pilot_watch_deadline`으로 종료**됐다. 약 55분 3초 동안 호출 예약0·고유사건0·처리0, 성공률과 근거 표본은 산출 불가다. `finally` 비활성화·전체확대 false, 원본7,336·수동교정 대상255·관련 보호14표 지문 불변을 확인했다. [첫 묶음 보고서](agents/artifacts/p2-first-batch-20261111.md)에 결과와 한계를 기록했다. 첫50 완료와 M2 완료를 선언하지 않는다.
+- D5-FIX 최종 `83d87f88`은 독립 `gpt-6.1-sol / medium` 소스·문서 APPROVE다. 합성 신규8·관리자53 통과, 영향413통과/기존3실패·skip0을 보존한다. 준비한 Git 원본1,562개·blob 불일치0이며 P2 비활성 상태로 공식 배포를 시작했다. **06:07 KST 현재 배포는 전환 전 `gateway_route.py pause`의 route lock 획득 대기**다. 후보 Prepared의 health/ready 200만 확인했고 운영 route는 기존 `bd4646a1`/8752다. 완료 증거가 없으므로 보완 배포 성공으로 쓰지 않는다. 단일 원본 로더 선점 취소·전체 조립 강제 시간 제한과 실제 지연 해결은 미검증이다.
+- 구 Board는 기존 제한 제어가 재시작한 프로세스이며 읽기량 증가를 관측했다. 구 `sweep_once()`가 P2 조립까지 writer lock을 유지하는 구조를 확인했지만 실제 lock holder/live stack은 미측정이다. route lock 우회·강제 프로세스 종료는 하지 않고 Fable에 운영 복구 판단을 올렸다. 야간 종료 후 고객 재실행·전체확대는 하지 않았다.
+- C 최종 `e1219d9b`는 push·관리자227통과·독립 코드승인까지 완료, [#799](https://github.com/6Soo/cost/pull/799)는 draft다. 승인된 TaskSpace1 소실로 최종390/1440 시각 수락이 BLOCKED며 새 공간 생성·병합·배포를 하지 않는다. 기존 전체 검사 실패 기록은 그대로다.
+- E2는 기존 EXAONE `60d8fb44`가 같은 worktree에서 구현·합성 검사를 계속한다. 화면 요약 정규화·조회 후 snapshot 신선도 등 중간 발견을 전달했으며 최종 SHA 수락 전이다. E3 조사 원문은 #800에 병합했고 사용자 로그인 세션의 실제 조회 조건 확인이 남은 PARTIAL이다.
+- 비공개 근거는 `.local-archive/manager-resume-20261111/`의 `p2-release/pilot-after.json`, `p2-assembly-release/`, `review-83d87f88-release.md`, `resume-c89bbda2.md`다. 실행 중 공식 배포 exec session `33495`의 종료·runtime/protection 근거를 먼저 확인하고 E2 결과 수락을 계속한다. 배포 전후 통지는 같은 레포의 최고 관리자와 기존 E2 작업자에게 한다.
+
+## 2026-11-11 05:40 재개 — C 최종 코드 승인·D5 조립 지연 조사
+
+- 관리자 `e154dd1c`는 원 A~E 지시와 Fable 후속 결정 6개를 인계 원문에서 직접 복구했다. 완료 A/B/A-R/D1/D2~D4/E1은 재실행하지 않는다. 루트 브랜치는 `docs/p2-first-batch-report-20261111`, 기존 완료 커밋 `1312f813`, 운영은 `bd4646a1`다.
+- C 최종 `e1219d9bab9b0ff7122b6aef6fb24c0c855c72e7`을 정상 push했다. 이용일 원문 부재 단정·UNLINKED 설명·예약 추론 표시의 신규 30건 회귀를 복원했다. 관리자 직접 변경 영향 **227 passed**, failures/errors/skipped 0, 실행 전후 SHA 일치다. 작업자 최종 표적 55 passed와 복구 231 passed·59 passed + 18 subtests도 보존했다. 독립 세션 `f90a202d`의 최종 소스 판정은 **APPROVE**, 실제 런타임 `gpt-6.1-sol / medium`은 Paseo metadata로 확인했다. [초안 PR #799](https://github.com/6Soo/cost/pull/799)에 SHA·근거를 갱신했다.
+- C의 과거 실패 기록은 유지한다. `3340b0fb` 149파일은 2,143 pass/34 fail(기존32/신규2), `fe399e42` 추가48파일은 1,089 pass/39 fail(정확 main `a050d65f` 대조 기존9/신규30), 둘 다 skip0이다. 최종 변경 영향 통과를 새 전체 QA 통과로 바꾸지 않는다. CI는 결제 한도로 steps0이다. 최종 390/1440 실제 시각 수락은 승인 TaskSpace1 소실로 **BLOCKED**, 새 공간은 만들지 않으며 병합·배포는 미실행이다.
+- D5는 05:39 KST에도 호출 예약0·고유사건0, 작업 대상20건이다. 기존 관리자 소유 제어가 계속 실행되며 예산60회·고유50건·야간 종료·finally off를 유지한다. 성공률·표본·종료·보호 대조는 아직 없다. 원문을 출력하지 않고 프로세스 CPU/읽기 증가만 관찰했다. 반복 전체 근거 읽기와 조립 후 시간 제한 확인 경로는 코드에서 찾았으나 live stack으로 원인을 확정하지 않았다. 별도 Terra `f4e9ebbc`가 `fix/p2-case-assembly-budget-20261111`에서 합성 재현·최소 보완 중이며 운영 제어와 고객 자료에는 접근하지 않는다. 제어 lock 중에는 배포하지 않는다.
+- E2는 기존 EXAONE `60d8fb44`가 기본 ego 연결·조회기간/공간 전달·실제 조회·0건 판독을 보완한다. 관리자 수락·최종 SHA 독립검수는 남았다. E3 최종 `729b3a89`의 [조사 보고서](agents/artifacts/card-login-paths-20261111.md)를 문서 통합에 준비했다. **PARTIAL 종료**와 사용자 로그인 세션 확인 필요 상태를 유지하며 추가 공개 조사는 하지 않는다.
+- 비공개 체크포인트: `.local-archive/manager-resume-20261111/resume-e154dd1c.md`. 다음은 D5 종료·보호 대조 확인, D5-FIX 합성 결과 검수, E2 직접 수락이다. 고객 첫50 완료·전체확대·C 배포를 완료로 쓰지 않는다.
+
+## 2026-11-11 재개 검수 — C 보호 복구·합성 공간 소실·E2 실행 경계 보완
+
+- 관리자 후속 `44fc0d1d`는 원래 A~E와 Fable 후속 승인을 인계 원문에서 복구했다. 완료 A/B/A-R/D1/D2~D4/E1을 재실행하지 않는다. 운영 SHA는 아래의 `bd4646a1` 그대로다.
+- C 현재 작성자는 `969d191d`이며 최종 후보는 `fe399e42a7b35fb74b74c7f9deef306a66d513e6`다. 최신 main `a050d65f`를 충돌 없이 병합했고, 수입 연결의 실제 탭 조작·취소 불변·Enter POST 1회·정확 ID·연결 건수 단언과 환불/증빙의 원 기준 비교를 복구했다. 작업자 표적 55건·복구 16건 통과, 추가 영향 48파일 및 관리자 수락 검사는 진행 중이다. 기존 `3340b0fb` 전체 검사(149파일·2,143 pass/34 fail·기존32/신규2·skip0)는 실패 근거로 보존한다.
+- **C 최종 렌더링 수락은 BLOCKED**다. 05:15 KST에 승인된 ego-browser TaskSpace 1 재개가 `task space not found: 1`로 실패했다. Fable의 "이 공간도 사라지면 추가 생성하지 않는다" 지시에 따라 새 공간을 만들지 않는다. 기존 3340의 390/1440 캡처는 남지만 최종 후보의 새 렌더링·수락은 미검증이다. 운영 배포를 완료로 쓰지 않는다.
+- E2는 1차 독립 사전검수에서 실제 ego 연결을 외부 모듈에 맡긴 경계, CLI TaskSpace 이름 전파, 조회 기간 입력·조회 실행, 화면 0건 처리의 누락을 확인해 같은 EXAONE 작업자가 보완한다. 실사이트·고객·운영 접근은 금지한 채 실제 Page API와 같은 합성 표면으로 검사한다. 완성된 수집기로 수락하지 않았다.
+- D5 제어는 05:04 KST 시작 후 계속 실행 중이다. 05:21 KST 호출 예약 0건, 작업 대상 20건이며 성공률·종료·보호 전후 대조는 아직 미확정이다. 전체 실행은 비활성이며 일일60회·고유50건·야간 종료·finally 비활성화를 유지한다. 배포 lock은 제어가 소유한다.
+- 완료 E1/D 작업 공간의 비공개 증거와 원래 미추적 QA 파일은 `.local-archive/manager-resume-20261111/completed-workspace-evidence/`에 파일별 SHA-256 대조로 보존한 뒤 공식 archive했다. D 디렉터리는 제거됐고 E1 디렉터리는 공식 도구가 유지했다. 브랜치·완료 커밋은 남겼다. 이전 문서의 D worktree 경로 근거는 이 보존 사본을 사용한다.
+
+## 2026-11-11 P2 코드 운영 배포·OTA 수집 스크립트 병합
+
+- **현재 운영 SHA는 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`**([PR #797](https://github.com/6Soo/cost/pull/797))다. 공식 배포 도구로 2026-11-11 04:56 KST에 전환했고 Board·Worker 예약 작업과 실제 listener의 SHA를 확인했다. health/ready 200·비인증 API 401·보호 13표 불변이다. 이전 운영은 `965bca05`이며 다음 배포의 `-PreviousSha`는 `bd4646a1`이다.
+- 배포 전 **5개 DB·45개 파일의 신선 백업과 별도 복원 대조**를 완료했다. 모든 DB 테이블·열, 원본 파일 해시, review binding이 일치하고 운영 상태는 불변이다. 최초 백업 실패 기록은 보존한다. 게이트웨이 상태 파일의 동시 갱신을 막은 v2 검증은 04:51:58 KST 완료됐다. continuous code 배포는 `BackupProducts`를 사용하지 않았으며 별도 복원 검증 근거로 구분한다.
+- P2는 비활성 상태로 배포했다. startup 조건상 Worker가 생성되지 않아 독립 sol medium 검수를 통과한 제어로 같은 배포의 Board 예약 작업만 재시작했다. 05:04 KST에 **첫 50건 제한 실행을 시작**했고 gateway drain·재시작 ready·route resume을 확인했다. 고유 사건 50건·호출 예산 60회·야간 시간·한도/인증 오류 종료와 finally 비활성화·전후 보호 비교를 유지한다. 첫 50건 완료는 아직 아니며 전체 실행은 금지한다.
+- OTA 수집 코드 [PR #798](https://github.com/6Soo/cost/pull/798)은 `a050d65f045c07c8469883bc95a211939222e82e`로 병합했다. 최종 `a11d5ea8` 독립 gpt-6.1-sol medium APPROVE, 표적 Node wrapper 1건(내부 52건)과 최종 영향 84건·실패/오류/skip 0·compile 0을 확인했다. CI는 steps 0의 결제 한도 차단이며 녹색으로 보고하지 않는다. 원본 importer 구조를 보존하고 manifest에서 원본 파일명·예약번호를 제외했다. 실사이트 수집·예약 등록·운영 DB 가져오기는 실행하지 않았다. 운영은 여전히 P2의 `bd4646a1`이다.
+- C `3340b0fb` 고정 검사는 149파일 전부 완료됐다. 고유 2,177건 중 2,143 passed·34 failed·skip 0이며 신규 실패 2건(390 닫기 selector·font token)이 있어 통과가 아니다. 후속 `d40b2c64`가 이 결과를 보존하고 신규 실패와 수입 연결 보호 단언을 복구한다. E2는 기존 `60d8fb44`가 실제 ego entry와 합성 완주를 보완 중이다. E3는 로그인 세션 확인이 남은 PARTIAL이다. A/B/A-R/D1 완료 항목은 재실행하지 않는다.
+- 비공개 근거: `.local-archive/manager-resume-20261111/resume-453dc562.md`, `p2-release/`, `ota-integration-final/`. 기존 미추적 QA 파일 3개는 원래 해시로 복원했다. 고객 원문·식별자를 Git에 포함하지 않는다.
+
 ## 2026-11-11 재개 검수 — D 예약 합성 통과·C/E1 수정 요구
 
 - D 최종 후보 `be3a3090dadd2d0b882d6211677af8016df9f68b`는 독립 `gpt-6.1-sol` medium 소스 검수 APPROVE, 관리자 직접 P2 표적 검사 **70 passed**다. 최종 영향 검사는 895 실행·892 통과·기준선 UI 실패 3·skip 0이며 실패 상태 자체를 통과로 바꾸지 않는다. 같은 base `1ad1364d` 대조 근거를 최종 병합 기록에 포함한다.

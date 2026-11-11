@@ -64,9 +64,11 @@ def sha(value):
 
 def encoded_sha256(value):
     """Hash the exact canonical JSON without joining an entire source in memory."""
+    from .p2_source_io import checkpoint
     digest = hashlib.sha256()
     encoder = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(',', ':'))
     for fragment in encoder.iterencode(value):
+        checkpoint()
         digest.update(fragment.encode('utf-8'))
     return digest.hexdigest()
 
@@ -76,12 +78,15 @@ def packed(value):
 
 
 def unpacked(value):
-    return json.loads(zlib.decompress(value).decode('utf-8') if isinstance(value, bytes) else value)
+    from .p2_source_io import unpack
+    return unpack(value)
 
 
 def connect_read(path):
     conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
     conn.row_factory = sqlite3.Row
+    from .p2_source_io import guard_connection
+    guard_connection(conn)
     conn.execute('PRAGMA query_only=ON')
     conn.execute('BEGIN')
     return conn

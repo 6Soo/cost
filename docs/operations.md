@@ -1,6 +1,82 @@
 # 운영 기록
 
+## 2026-11-11 #805 재개 결과 — 5건 시범 중단, P2 off 유지
+
+- **COMPLETE(수정·배포):** 전체 원문 충돌/base64 보존·포털 중첩 판정 필드 projection을 최종 `aee08a8b`의 별도 `gpt-6.1-sol / medium` APPROVE 후 #805로 병합했다. 운영 완료 커밋은 `8b116b98ccbacdc49c702e370031be2da45f5ef9`다. 공식 배포 도구 exit0, 릴리스1570파일/blob불일치0, Board·Worker·listener SHA 일치/backend8751, health/ready200·비인증API401·보호13표 불변이다. 사전 SQLite API 신선백업5DB와 별도복원 quick_check/schema/행수 검증 PASS(공식 도구의 BackupProducts 스위치는 별도 미사용).
+- **검증:** 표적17 passed. 최종 코드8279f6ad 영향602 passed/1 failed/4 subtests/skip0·204.24초, compile PASS. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`의40 !=30이며 정확 운영기준5248d129에서도31 passed/동일1 failed로 재현했다. 테스트·기대값 불변, 전체 QA PASS 아님. 최종 문서 SHA aee08a8b 검수·병합 트리 동일 확인. CI 최종 head job130346428325는 결제 한도로 시작되지 않았다. 기존 사용자 QA3파일은 SHA256 확인 후 복원했다.
+- **COMPLETE(P2 off 관찰):** 14:42:02~14:57:27 KST,15분 창+종료측정925.255초. ready32회 모두200, P2 호출0/대상0/실행이벤트0, 보호지문 불변, route sampled unavailable 최대0.8924초다.
+- **FAILED(5건 운영 수락):** 14:57:49~15:02:12 KST,262.379초에 gateway8790 ready15.006초 timeout으로 즉시자동off. 후보3075/선정5/조립시작5·완료0/근거읽기시도2/모델시도0·성공0·실패0/preview0/반영0(각 회차 최댓값). `P2_SOURCE_RECORD_TOO_LARGE` 조립 실패가 두 회차에 기록됐다. 원본 레코드 중 어느 구조가 상한을 넘었는지는 이번 시범으로 확정하지 않았다. route최대18.133초는 중단선78.477초 이내였으며 직접 중단 조건은 ready timeout이다.
+- **안전 종료:** 보호지문 불변, 진행중 모델호출0, P2/full=false, route8751 unpaused. 종료 후 health/ready는8751 200/200(0.110/8.896초),8790 200/200(0.008/0.013초)이다. 원본·수동교정·Google 변경 없음. 50건·전체확대·E2·wave3·세 번째 재시범은 실행하지 않았다.
+- **미검증:** 운영에서 조립 완료·모델 입력이0건이므로 메일 절단 비율과 절단 후 예약번호/금액/날짜 구간 보존율은 측정할 수 없다. 합성 tail 구간 보호 검사는 통과했지만 운영 증거로 대체하지 않는다. dcbe4894의2000건/1.100GB/245.09초/합성3호출50반영은 메일 전용 합성 근거이며 포털 운영 수락이 아니다.
+- **다음:** 승인된 중단 보고 지점에 도달해 Fable에 보고하고 멈춘다. 운영은8b116b98/P2 off 유지. 추가 원인 수정·재시범은 후속 지시에서 판단한다. 비공개 근거 `.local-archive/p2-staged-resume-20261111/`의 `resume805-deploy/`, `resume805-off15m/result.json`, `resume805-pilot5/{result,stage-summary,post-ready}.json`, `resume805-final-{summary.json,pytest.log,junit.xml}`, `resume-baseline-split.json`. 정확한 재개 확인 명령은 `Get-Content -LiteralPath .local-archive/p2-staged-resume-20261111/resume805-pilot5/stage-summary.json -Encoding UTF8`다. 이번 종료 기록은 로컬 커밋으로 보존하며 기록만을 위한 새 문서 PR·재배포를 만들지 않는다.
+
+## 2026-11-11 #805 중단 작업 재개 — 최종 검수 준비
+
+- 현재 작업은 #805의 근거 크기 수정과 승인된 단계별 재시범뿐이다. 전체 반영·E2·wave3는 실행하지 않는다. 운영 읽기전용 확인: P2/full=false, route8752 unpaused.
+- 전체 메일로 원본 충돌을 검사한 뒤 P2 조립 경계에서만 20KiB 관련 구간을 발췌한다. 포털은 실제 `_read_records`의 중첩 `payload_json`에서 판정 필드와 price_components만 선택하며 raw 자료는 검색·출력하지 않는다. 실제 SQLite loader 합성·원본 불변·잘못된 JSON 보호 포함 표적17 passed.
+- `dcbe4894` 규모 합성: 후보2000·근거1,100,346,849B·메일9174, 245.09초·고유조립50·합성모델3호출/50건·반영50, 근거읽기 첫1,102,565,348B/이후0. 조립은 route/runtime/board/DB쓰기 잠금 밖, 경쟁 DB쓰기 최대대기0.0079초. 실제 모델 호출이나 운영 반영 증거는 아니다.
+- 영향검사 `dcbe4894`: 599 passed/1 failed/4 subtests. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`(40 != 30); 정확 운영 기준5248d129에서도 동일 1 failed/31 passed로 재현했다. 검사와 기대값은 고치지 않았다. 전체 통과로 표시하지 않는다. 최종8279f6ad 영향검사602 passed/동일1 failed/4 subtests/skip0·204.24초이며 py_compile 통과. 정확 기준 실패 근거는 resume-baseline-split.json이다. 최종 SHA 별도 sol medium 승인 전 병합/배포 없음.
+- 기존 큰 합성의 provider0은 실행기 미구성이 아니라 base64 clipping의 ValueError였다. 이전5건의 route unavailable 5.096초는 P2 off 기준선 최대39.238초 안이다. 재시범 중단선은78.477초이며 ready 연속2실패·보호변화·preview없는 반영 시 즉시 off다. 조립 뒤 모델시도0이면50건으로 가지 않는다.
+- 비공개 증거: `.local-archive/p2-staged-resume-20261111/`의 `resume-large-on.log`, `resume-impact-final.log`, `review805-resume.md`, `checkpoint.md`. 다음은 최종 영향검사→별도 sol medium 최종SHA 승인→#805 병합→공식 P2 off 배포→15분 관찰→5건10분→실제호출/안전 확인 시50건60분→보고·중단이다.
+
+## 2026-11-11 P2 단계별 재배포 승인 — 배포 전 준비
+
+- Fable이 #804에 대해 조건부 단계별 재배포를 승인했다. 회차별 후보·선정·조립시작/완료·모델호출시도/반환성공/실패사유·preview통과/반영·소요/중단사유를 먼저 기록한 뒤 최종SHA 독립 sol medium 검수, off 배포와15분 관찰, 최대5건/10분, 안전하며 실제호출이 있었을 때만 최대50건/60분 순서다. 전체 미해결 건 반영은 승인되지 않았다.
+- 저장 코드49cff716은 고객내용 없는 상관ID 단계이벤트와 finally 요약, 선택적1~50건 시범상한, UTC절대마감 만료/잘못된값 차단을 추가했다. source_read_attempts는 논리적 근거 작업 시도이며 물리I/O가 아니다. assembly는 케이스×시도(추가조회·신선도재조립포함), model_successes는 provider 반환이며 형식·preview성공과 구분한다. 기존 고유50건 예약보호를 유지하므로 첫5건 이후에는 추가최대45건이다.
+- 재개 읽기전용 관측: 운영965bca05/8751, P2/fullfalse; ready8751 200/1.016초·8790 200/0.260초. BoardPID2460 연속약10초구간 읽기0과55,107,598bytes(약5.35MB/s), Win32_Process.ReadTransferCount다. 비공개 근거 `.local-archive/p2-staged-resume-20261111/pre-ready.json`, `pre-board-read.json`.
+- 이전 시범의 호출0건 직접 원인은 당시 live stack·단계별 계수 부족으로 **미확정**이다. 이번 계측으로 그 역사적 원인을 확정했다고 보지 않는다. 이번 배포·실제호출·보호대조 결과는 아직 없다. 관리자 표적147pass/21.66초, 영향31파일702pass/기존3fail/4subtests/skip0·141.17초다. 기준455a723d 동일3fail 재현 근거를 유지하며 전체검사 통과가 아니다. 최종 규모실측·독립검수 진행 중이다.
+
 > 이 문서는 현재 유효한 운영 절차와 2026-11-08 이후 배포 기록만 둔다. 2026-11-07 이전 기록은 [10/28~11/07](history/operations-20261028-20261107.md), 2026-10-27까지는 [운영 이력](history/operations-through-20261027.md)에 원문 그대로 보관한다. 2026-11-09 작업공간 통합 정리 상태는 [현재 상태](session_handoff.md)를 본다.
+
+- 단계0 관리자 검증: 표적147pass/21.66초, 영향31파일702pass/기존3fail/4subtests/skip0·141.17초(기준455a723d 동일실패근거 유지). 계측 추가 후 같은2000건/1,100,346,849bytes 합성 off0.773초/P2근거조립호출0; on106.138초/고유50조립·합성3호출·50반영/근거첫1,100,591,362bytes 이후0·경쟁DB쓰기최대0.0012초. 실제모델/운영판정 미실행이며 최종SHA 독립검수 전이다. 기존QA3파일은 원해시로 복원했다.
+
+## 2026-11-11 P2 근거 크기·route 기준선 조사 — 재시범 전
+
+- 운영은 `5248d129`·P2 off·full rollout off·route8752 unpaused를 유지한다. 이전 5건 시범 중단은 유지하며 재배포/재시범은 새 PR의 독립 검수 전 실행하지 않는다.
+- 운영 읽기전용 크기 분포(원문 미출력): 메일 10,085건, 중앙값45,610B·p95 208,995B·최대425,242B. 포털 `ota_raw_entries` 최초78,720건은 length(TEXT) 집계였다. UTF-8 바이트 재집계79,288건(수집 증가), 중앙값/p95 86B·최대3,955,511B다. 포털 raw payload는 조립 대상에서 제외하고 판정 필드 allowlist만 쓴다.
+- 최초 수정의 payload clipping은 독립 검수에서 반려됐다. 최종 수정은 전체 메일로 충돌을 비교한 뒤 evidence 조립 경계에서만 정리·발췌한다(메일 본문20KiB, 전체 evidence24KiB·전체 prompt256KiB 상한). 포털 evidence는 booking/service/status/payment/card/lifecycle 등 판정 필드만 포함한다. source record가 상한을 넘었다는 이유만으로 전체 사건을 실패시키지 않는다. 신규·기존 표적 149 passed, skip0.
+- 기존 큰 레코드 합성 `staged-large-on`의 성공 해석을 철회한다. 로그는 `ai_retry:ValueError=50`, provider0·반영0이며 조립3은 `Repository.select` 진입 수다. on 실행기는 합성 provider를 주입하므로 호출 미구성이 아니다. 이전 메일 payload clipping이 base64 뒤에 한글 생략 표시를 붙여 decode에서 `ValueError`를 내는 경로를 합성 재현했다. 최종 SHA의 재측정은 최신 재개 절에 기록한다.
+- P2 off route 잠금 30분 기준선: 비차단 probe17,934회·unavailable run246, 최대39.238초·p95 11.971초·중앙값6.223초. 따라서 다음 시범의 route 중단 기준은 `max(2×39.238,15)=78.477초`다. 기준선은 route/config 쓰기 없이 측정했으며 probe의 one-byte 획득은 즉시 해제한다.
+- M1의 2,113 후보와 현재 시범 3,075 후보 차이는 detection SQL 변경이 아니라 운영 DB 상태가 M1 이후 변한 결과로 기록한다. 현재 읽기전용 집계 base3269, source_general3269, refund·board/manual 보호를 적용한 시범 후보3075다.
+## 2026-11-11 단계별 시범 결과 — 5건 단계에서 중단
+
+- `5248d129b713f70210f5dc64e83f85574566042e`를 공식 `tools/deploy_verified_release.ps1`로 `965bca05`에서 배포했다. Board/Worker SHA와 listener는 5248d129, backend8752, route unpaused, health/ready200, 비인증 API401, 보호13표 불변이다. 첫 시도는 릴리스 파일 누락으로 `RELEASE_AUDIT_FAILED` 안전중단했고 운영은 바뀌지 않았으며, Git blob 재구성·audit0 후 재시도했다.
+- P2 off 15분 관찰: ready8752/8790 30회 모두200, 호출·대상·예약0, 보호지문 불변, P2 off 유지. Board ReadTransferCount 표본은 5분 1.94MB/s·946.5MB/s, 15분 0·1.31GB/s로 변동해 기존 재계산 경로와 구분한다.
+- 최대5건 시범은 route 잠금 샘플 연속 unavailable 5.096초로 즉시 중단했다. P2는 자동 off, full rollout false, route unpaused, ready8752 200/2.821초·8790 200/0.027초, 보호13표 PASS다.
+- 시범 계수: 후보3075, 선정5, 조립시작5·완료0, source_read_attempts2, 모델시도0·반환성공0·실패0, preview0·반영0. `P2_SOURCE_RECORD_TOO_LARGE`로 호출 예약 outcome unavailable, 최종 호출0/대상0 집계와 구분해 기록한다. route 중단 조건이 먼저 발생했으므로 50건 단계로 진행하지 않는다.
+- 결과 근거 `.local-archive/p2-staged-resume-20261111/off-15m/result.json`, `pilot-5/result.json`, `deploy-exit.json`, `deploy-evidence/`. 전체 미해결 건·E2·wave3는 실행하지 않았다. 다음은 Fable의 원인 수정·재시범 승인 판단이다.
+## 2026-11-11 P2 시범 중 준비 응답·배포 잠금 장애 — 965bca05 롤백 완료
+
+- **현재 운영은 `965bca058a74a54bf69bc4d70a0d05f8997786c3`**, 공식 롤백 완료 06:13:42 KST, 이전 `bd4646a1`이다. 다음 공식 배포의 `-PreviousSha`는 `965bca05`다. Board·Worker·listener SHA 일치, 파일1,503개·blob 불일치0·운영 backend8751을 확인했다. 8751과 Gateway8790의 health/ready는 모두200, 비인증 OTA API는401이다. 보호13표와 원본7,336·수동교정 대상255·관련14표의 비공개 지문은 모두 불변이다. P2/전체확대 플래그는 off다.
+- **읽기량 평상 기준선은 미검증**이다. 06:14:47~06:15:08 KST 같은 Board PID2460의 10초 간격 두 구간 읽기 증가가 약123.3MB/s·355.4MB/s였다. 이후 06:15:41~06:16:01은 약5.35MB/s·0B/s, 06:17:19~06:17:40은 약5.54MB/s·395B/s로 줄었다. 초기 증가가 시작 후 준비 작업인지는 미확정이고 평상 기준선 없이 완전 정상화를 단정하지 않는다. 06:03:54 준비 실패 실측부터 공식 롤백의 응답 정상 확인까지는 최소9분48초다. 실제 장애 시작과 읽기량 증상의 정확한 종료는 미확정이다.
+- **965 재시작 후 기준선 1회 기록:** PID2460 생성은 06:13:16.304 KST다. 아래 값은 `Win32_Process.ReadTransferCount`의 증가율이며 물리 디스크 읽기만 분리한 수치가 아니다. 놓친 시점은 미측정으로 남기고 재시작을 반복하지 않았다.
+
+| 요청 시점 | 실제 측정 시점(KST)과 재시작 후 경과 | 연속 두 약10초 구간 읽기량 | 확인 범위 |
+| --- | --- | --- | --- |
+| 0분 | 미측정. 별도 보존 실측06:14:47~06:15:08(+1분31초~1분52초) | 123.26MB/s·355.44MB/s | 재시작 직후 0분값으로 대체하지 않음 |
+| 5분 | 미측정. 가까운 별도 실측06:17:19~06:17:40(+4분03초~4분24초) | 5.54MB/s·395B/s | 정확 5분값으로 대체하지 않음 |
+| 15분 | 예약 실측06:28:17.221~06:28:37.789(+900.917~921.485초) | 117.42MB/s·5.36MB/s | 같은 운영8751·Gateway8790 ready200, 운영 파일 쓰기0 |
+
+15분에도 읽기 증가가 한 구간에 나타나므로 낮은 단일 구간만으로 평상 읽기를 정의하지 않는다. 원인 분석은 P2 조립과 기존 재계산 경로를 구분한다. 비공개 근거는 `incident-rollback/post-verification.json`, `read-final.json`, `baseline-965-15min.json`이다.
+
+- 대상 릴리스 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`. 05:04:16 KST 제한 제어 시작 후 호출은 0건이었고, 05:59:19 제어 종료와 P2 비활성화 뒤에도 Board PID34256의 디스크 읽기가 계속 증가했다. 06:03:54 관리자 실측에서 `/healthz`는 200, `/readyz`는 3초 시간 초과였고, 06:08 Fable은 15초 시간 초과와 초당 약116MB·누적 약207GB 읽기를 확인해 운영 장애로 판단했다. 준비 응답 장애의 실제 시작 시각은 미확정이다.
+- **확인된 것:** 준비 응답 불능, route lock 장기 보유와 공식 배포의 잠금 획득 대기, 지정 Board의 예약 작업 중지 후 잠금 해제와 롤백 뒤 응답 정상화다. 구 코드에서 `sweep_once()`의 `active_writer` 범위가 조립·호출까지 이어지고 off가 진행 중인 조립을 즉시 취소하지 않는 구조를 확인했다. 그러나 당시 운영 live stack과 잠금별 보유 시간을 측정한 것은 아니다.
+- **미확정인 것:** 높은 읽기량의 직접 원인이다. 근거 반복 읽기 경로는 코드에 있으나 직전 릴리스965도 재시작 후 +1분31초~1분52초에 약123~355MB/s를 읽었고 +4분대에 약5MB/s로 내려갔으나, +15분에 한 구간 117.42MB/s로 다시 올랐다. 따라서 bd의 시간당 약207GB가 P2 조립 때문인지, 재시작 뒤 정상 재계산이 잠금 때문에 완료되지 못하고 반복된 것인지 확정하지 않는다. 호출0의 직접 원인도 선정·조립·실행기 단계별 합성 재현과 운영 관측의 한계를 구분해 조사한다. `83d87f88`만으로 장애가 해결됐다고 보지 않는다.
+- Fable의 명시적 장애 복구 지시로 대기 중인 `83d87f88` 배포는 전환 전에 취소했다. 정상 취소 옵션이 없어 관리자가 시작한 배포 프로세스와 그 자식만 정체성 대조 후 종료했고, 같은 배포가 만든 Prepared 예약 작업을 중지·등록 해제했다. 기존 운영 route와 Gateway는 유지했다.
+- 06:10:35~06:11:21 KST에 **5개 운영 DB를 SQLite backup API로 백업하고 별도 DB로 복원**했다. 모두 `quick_check=ok`, 복원 스키마·모든 테이블 행수 동등이다. 원본 DB 파일의 파일시스템 복사·운영 DB 쓰기·복원 서버 시작은 0이다. 이 검사는 전체 셀값의 재해시 검사와 구분한다. 비공개 근거: `.local-archive/manager-resume-20261111/incident-rollback/backup-result.json`.
+- P2 off·전체확대 false와 PID/예약 작업/SHA를 확인하고 `WebLedger-Board`만 중지해 지정된 PID34256의 종료와 route lock 해제를 확인했다. 잠금 파일 삭제·우회는 하지 않았다. 06:12:08 KST 같은 SHA를 비활성 상태로 재시작한 뒤 공식 도구로 직전 검증 릴리스 `965bca058a74a54bf69bc4d70a0d05f8997786c3` 롤백을 완료했다. `-PreviousSha`는 `bd4646a1`이며 신선 보호13표 기준과 이전 검증 릴리스 근거를 사용했다. 복구의 고객 데이터 변경·모델 호출·Google 쓰기는 0이다. 읽기량 감소 실측과 평상 기준선 미검증을 구분한다.
+- 공식 증거는 `D:/WebLedgerHost/releases/deploy-evidence-965bca058a74a54bf69bc4d70a0d05f8997786c3.json`, 비공개 추가 근거는 `.local-archive/manager-resume-20261111/incident-rollback/`의 `post-verification.json`, `raw-manual-after.json`, `protection-before.json`, `protection-after.json`이다. 이전 965 배포 증거는 `prior-965-deploy-evidence.json`으로 보존했다. 공식 배포의 `fresh_backup_restore=false`는 `BackupProducts` 미사용이고 별도 SQLite 백업·복원 검증 성공과 구분한다.
+- **P2 재배포 금지:** 운영 밖에서 off 시 조립/근거 읽기 방지, 첫묶음50의 회차 제한, 조립/모델 호출의 route/DB 쓰기 잠금 분리, 색인 조회와 건당/회차당 읽기·시간 예산, 시범 창 종료 시 진행 회차 중단을 해결한다. 후보2,000건 이상·근거1GB 이상 합성 자료에서 off/on 읽기량·소요·잠금 시간을 실측하고 독립 검수 및 Fable 승인을 받기 전 P2 코드를 다시 운영에 올리지 않는다.
+
+## 2026-11-11 도구 없는 P2 코드 배포 — 첫 묶음 가동 전
+
+- 운영 `bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c`([PR #797](https://github.com/6Soo/cost/pull/797)), 이전 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, 전환 완료 2026-11-11 04:56:02 KST. `tools/deploy_verified_release.ps1`의 정확 SHA 배포이며 파일 1,543개·blob 불일치 0, Board·Worker와 listener SHA 일치, backend 8752다. 다음 배포 `-PreviousSha`는 `bd4646a1`이다.
+- health/ready 200, 인증 없는 OTA API 두 경로와 합성 환불 미리보기 API 401, 보호 테이블 13개 전체 불변. 금융 반영·Google 쓰기·고객 P2 호출은 이 배포에서 하지 않았다. P2는 `autonomous_ai_review=false`, `autonomous_p2_full_rollout=false`로 배포했다.
+- 직전 백업·복원 검증은 04:51:58 KST 완료: DB 5개·파일 45개, DB의 모든 테이블/열·원본 파일 해시·복원 review binding 동등, 운영 상태 불변, 복원 서버 시작·실제 가져오기·요청 replay는 미실행이다. 첫 백업 실패는 상태 파일의 동시 갱신 경로를 확인하고 기록을 보존했다. v2 검증 중 관리 중인 Board·Worker·Gateway를 잠시 정지하고 모두 원래 SHA로 복구한 뒤 코드 배포를 수행했다.
+- continuous code 배포 도구의 `fresh_backup_restore=false`는 `BackupProducts` 미사용을 뜻한다. 별도 `restore-evidence-v2.json`의 신선 백업·복원 통과와 구분한다. 이 값을 임의로 변경하지 않는다.
+- 배포 증거: `D:/WebLedgerHost/releases/deploy-evidence-bd4646a1b4c1d0b6acf11af886e4f86dfe3ea64c.json`. 비공개 로컬 근거: `.local-archive/manager-resume-20261111/p2-release/`의 `restore-evidence-v2.json`, `safety-ready-v2.json`, `review-evidence.json`, `protection-before.json`, `protection-after.json`, `deploy-evidence.json`.
+- 05:04 KST에 첫 50건 제한 제어를 시작했다. 비활성 상태로 배포하면 `enabled_for()`가 Worker를 생성하지 않으므로, 독립 sol medium 검수를 통과한 제어가 gateway drain 뒤 같은 배포의 Board 예약 작업만 재시작하고 ready·route resume을 확인했다. 고유 사건 50건·호출 예산 60회·야간 22~06시·한도/인증 오류 종료·finally 비활성화·원본/수동/금융 보호 전후 대조를 유지한다. 고객 결과와 종료는 아직 미확정이다.
+- 별도 OTA 코드 PR #798은 main에 병합했으나 이 운영 릴리스에는 포함하지 않았다. 첫 50건 가동·표본 검수·종료 결과는 별도 기록하며, 전체 미해결 건으로 확대하지 않는다.
 
 ## 2026-11-11 M1 읽기 전용 기준선
 
