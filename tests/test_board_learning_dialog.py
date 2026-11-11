@@ -297,7 +297,7 @@ def test_rule_dialog_page_comprehensive_differential(tmp_path: Path):
             facade_out = ledger_board.rule_dialog_page("case-1", query)
             assert facade_out == actual
             assert "스타벅스 라떼" in actual
-            assert "href='/board'" in actual
+            assert "href='/board?tab=T2026_01'" in actual
             assert f"name='csrf' value='{csrf_token}'" in actual
             if index != 2:  # A closed dialog offers resume and list navigation.
                 assert "href='/row?id=R001'" in actual
