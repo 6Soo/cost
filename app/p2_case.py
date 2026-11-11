@@ -241,7 +241,7 @@ class _Index:
     keyed values below, so candidates are a superset and `relevant` decides."""
     def __init__(self, entries, read_bytes, check=lambda: None):
         self.entries, self.read_bytes = entries, read_bytes
-        self.amounts, self.digit_runs, self.dates, self.words = {}, {}, {}, {}
+        self.amounts, self.digit_runs, self.terms = {}, {}, {}
         width = (len(entries) + 7) // 8
         def add(mapping, values, number):
             for value in values:
@@ -250,12 +250,28 @@ class _Index:
                 mapping[value][number // 8] |= 1 << (number % 8)
         for number, (text, *_) in enumerate(entries):
             check()
-            add(self.amounts, set(re.findall(r'\d+', text.replace(',', ''))), number)
-            add(self.digit_runs, set(re.findall(r'\d+', text)), number)
-            add(self.dates, set(re.findall(r'(?=(\d{4}-\d{2}-\d{2}))', text)), number)
-            # Dense bitmaps avoid millions of set entries for common words.
-            add(self.words, set(re.findall(r'\w{3,}', text.casefold())), number)
+            runs = set(re.findall(r'[\d,]+', text))
+            add(self.amounts, {run.replace(',', '') for run in runs if run.replace(',', '')}, number)
+            add(self.digit_runs, {part for run in runs for part in run.split(',') if part}, number)
             check()
+
+    def matching(self, term, *, folded=False):
+        """Build only requested text keys; common newsletter words need no index.
+
+        Exact substring semantics also cover punctuation/non-ASCII approvals.
+        The retained numeric postings and these query bitmaps use O(N/8) bytes
+        per key, without one Python set entry per word occurrence.
+        """
+        key = (term, folded)
+        if key not in self.terms:
+            from .p2_source_io import checkpoint
+            found = 0
+            for number, (text, *_) in enumerate(self.entries):
+                checkpoint()
+                if term in (text.casefold() if folded else text):
+                    found |= 1 << number
+            self.terms[key] = found
+        return self.terms[key]
 
     def candidates(self, row):
         every = range(len(self.entries))
@@ -264,13 +280,12 @@ class _Index:
             return int.from_bytes(values, 'little') if values else 0
         approval = str(row.get('approval_number') or '').casefold()
         if len(approval) >= 6:
-            if not re.fullmatch(r'\w+', approval):
-                return every
-            for word, numbers in self.words.items():
-                if approval in word:
-                    found |= bits(numbers)
-            # Short approvals can be contained inside a token shorter than 3
-            # only if the approval is shorter too (already excluded above).
+            if re.fullmatch(r'[0-9]+', approval):
+                for run, numbers in self.digit_runs.items():
+                    if approval in run:
+                        found |= bits(numbers)
+            else:
+                found |= self.matching(approval, folded=True)
         amount = str(row.get('amount_krw') or '')
         if amount:
             if not re.fullmatch(r'[0-9]+', amount):
@@ -279,20 +294,18 @@ class _Index:
         tail = str(row.get('card_tail') or '')
         if tail:
             if not re.fullmatch(r'[0-9]+', tail):
-                return every
-            for run, numbers in self.digit_runs.items():
-                if tail in run:
-                    corroboration |= bits(numbers)
+                corroboration |= self.matching(tail)
+            else:
+                for run, numbers in self.digit_runs.items():
+                    if tail in run:
+                        corroboration |= bits(numbers)
         day = str(row.get('approval_date') or '')[:10]
         if day:
-            if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', day):
-                return every
-            corroboration |= bits(self.dates.get(day))
+            corroboration |= self.matching(day)
         words = [w for w in re.findall(r'[\w가-힣]{3,}', str(row.get('merchant') or '').casefold())
                  if w not in {'synthetic', 'store', 'payment', '결제', '주식회사'}]
-        for word, numbers in self.words.items():
-            if any(w in word for w in words):
-                merchant |= bits(numbers)
+        for word in words:
+            merchant |= self.matching(word, folded=True)
         found |= merchant & corroboration
         return [number for number in every if found & (1 << number)]
 
@@ -437,13 +450,17 @@ class Repository:
             check()
             index, cost = self._index(key, paths, build, used[0], check)
             used[0] += cost
-            for number in index.candidates(row):
-                check()
-                text, item, context = index.entries[number]
-                if relevant(row, text):
-                    if context is not None:
-                        item = dict(item, content=dict(item['content'], event_context=context()))
-                    yield dict(item, transaction_id=row['transaction_id'])
+            # Context-local checks also cover lazy term-index construction.
+            # A shared cached index never retains another round's deadline.
+            from .p2_source_io import guarded
+            with guarded(check, lambda *a, **kw: None):
+                for number in index.candidates(row):
+                    check()
+                    text, item, context = index.entries[number]
+                    if relevant(row, text):
+                        if context is not None:
+                            item = dict(item, content=dict(item['content'], event_context=context()))
+                        yield dict(item, transaction_id=row['transaction_id'])
 
     def select(self, case, row):
         return self.source_items(row) + self.history(row)

@@ -342,3 +342,54 @@ def test_source_change_after_rebuild_before_writer_refuses_apply(setup, tmp_path
     worker.sweep_once()
     assert load_job(setup.conn, ids[0])['reason'] == 'apply_AI_EVIDENCE_STALE'
     assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 0
+
+
+def test_p2_refresh_does_not_rebuild_p1_evidence_context(setup, monkeypatch):
+    from tests.test_p2_worker_boundaries import rich_response
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    make_weak_rows(setup, batch, rows, trip)
+    class Repository:
+        def select(self, case, row):
+            return []
+    worker = AutonomousCleanupWorker(setup, setup._lock, provider=rich_response, evidence_repository=Repository())
+    calls, held = [], worker._held_context
+    def context():
+        calls.append('p1')
+        return held()
+    monkeypatch.setattr(worker, '_held_context', context)
+    worker.sweep_once()
+    assert calls == ['p1']
+    assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 1
+
+
+def test_split_prompts_count_all_assembled_cases_toward_first_fifty(setup, monkeypatch):
+    from app import p2_case
+    from tests.test_p2_worker_boundaries import rich_response
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 65)
+    make_weak_rows(setup, batch, rows, trip)
+    seen = set()
+    class Repository:
+        def select(self, case, row):
+            seen.add(row['transaction_id'])
+            return []
+    original = p2_case.assemble
+    def split(*a, **kw):
+        bundle = original(*a, **kw)
+        if len(a[2]['cases']) > 10:
+            raise ValueError('P2_PROMPT_BASE_TOO_LARGE')
+        return bundle
+    monkeypatch.setattr(p2_case, 'assemble', split)
+    calls = []
+    def provider(request):
+        calls.append(request['digest'])
+        response = rich_response(request)
+        response['execution']['run_id'] = 'synthetic-split-' + str(len(calls))
+        return response
+    worker = AutonomousCleanupWorker(setup, setup._lock, provider=provider,
+                                     evidence_repository=Repository(), chunk=20)
+    for _ in range(4):
+        worker.sweep_once()
+    assert len(seen) == 50
+    assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 30

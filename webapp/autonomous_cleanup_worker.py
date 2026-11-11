@@ -152,11 +152,13 @@ def p2_window_open(config_path, *, now=None):
 
 
 CALL_SCOPE = 'p2_call_reservation'
+ASSEMBLY_SCOPE = 'p2_assembly_reservation'
 
 
 def reserved_cases(conn):
     return {r[0] for r in conn.execute(
-        "SELECT DISTINCT value FROM requests,json_each(requests.response_json,'$.transaction_ids') WHERE scope=?", (CALL_SCOPE,))}
+        "SELECT DISTINCT value FROM requests,json_each(requests.response_json,'$.transaction_ids') WHERE scope IN (?,?)",
+        (CALL_SCOPE, ASSEMBLY_SCOPE))}
 
 
 def reserved_calls_today(conn):
@@ -705,6 +707,15 @@ class AutonomousCleanupWorker:
                     portal_default=ota_portal.evidence_path(self.board.path.parent))
                 repository = p2_case.Repository(self.board.conn, sources)
             if repository is not None:
+                # Assembly consumes first-batch capacity even when an oversized
+                # prompt is split before any model call. Persist before reads.
+                with self._writer_locks():
+                    check_budget(force=True)
+                    from app.db import utc_now
+                    payload = dict(transaction_ids=[c['transaction_id'] for c in request['cases']])
+                    self.board.conn.execute('INSERT INTO requests VALUES (?,?,?,?,?)',
+                        ('p2-assembly:' + uuid.uuid4().hex, ASSEMBLY_SCOPE, _digest(payload), json.dumps(payload), utc_now()))
+                    self.board.conn.commit()
                 if isinstance(repository, p2_case.Repository):
                     repository.begin_snapshot(check_budget)
                 with self._writer_locks():
@@ -860,8 +871,11 @@ class AutonomousCleanupWorker:
             return True
 
     def _fresh_context(self):
-        flow, trips, nets, inputs = self._held_context()
-        return trips, nets
+        # P2 needs only current trip candidates/net values. Rebuilding the P1
+        # OTA matcher snapshot here would re-read all registered evidence while
+        # holding writer locks, even though none of that report is used below.
+        from .card_classification_completion import context
+        return context((self.flow_factory or self._default_flow())(self.board))
 
     def _retry_or_dead(self, row, fingerprint_value, now, reason, *, not_before=None):
         job = load_job(self.board.conn, row[0]) or {}
