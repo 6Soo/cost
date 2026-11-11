@@ -8,6 +8,7 @@ existing trip and period, but cannot invent either one.
 from __future__ import annotations
 
 import re
+from datetime import date
 
 
 _DATE_PATTERNS = (
@@ -21,7 +22,10 @@ def normalize_dates(text: str) -> set[str]:
     found: set[str] = set()
     for pattern in _DATE_PATTERNS:
         for year, month, day in pattern.findall(text or ""):
-            found.add(f"{int(year):04d}-{int(month):02d}-{int(day):02d}")
+            try:
+                found.add(date(int(year), int(month), int(day)).isoformat())
+            except ValueError:
+                continue
     return found
 
 
@@ -39,6 +43,7 @@ def guard_result(result: dict, evidence: dict[str, str], *, existing_trip: str =
     if not refs:
         guarded["evidence_refs"] = []
         guarded["trip_id"] = existing_trip or "기존 여행 유지"
+        guarded["item"] = "기존 항목 유지"
         guarded["service_start"] = ""
         guarded["service_end"] = ""
         guarded["confidence"] = "낮음"
