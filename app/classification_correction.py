@@ -85,8 +85,10 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False):
             raise ValueError('CORRECTION_REQUIRES_PURCHASE')
         trip = correction['trip_id']
         from .quarter_costs import _tab_of
-        quarter = (source == 'ai_inference' and trip == _tab_of(row)
-                   and (correction['item'] == '분기 기타비용' or allow_recorded_ai))
+        same_quarter = source == 'ai_inference' and trip == _tab_of(row)
+        quarter = same_quarter and correction['item'] == '분기 기타비용'
+        if allow_recorded_ai and correction['item'] != '분기 기타비용':
+            quarter = same_quarter and _open_p2_tab(trips, trip)
         if (trip not in valid and not quarter) or not correction['item'] or not correction['basis']:
             raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
         ledger = _row(conn, 'ledger_entries', 'transaction_id', tid)

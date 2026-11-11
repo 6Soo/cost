@@ -112,6 +112,25 @@ def test_recorded_quarter_q3_item_only_correction_is_allowed(setup):
     assert expected['count'] == 1
 
 
+def test_recorded_quarter_q1_item_only_correction_is_rejected(setup):
+    from app import classification_correction
+    from webapp.card_flow import CardFlow
+    board = setup
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, 'quarter:2026:2', item='현지경비')
+    CardFlow(board).auto_record(batch)
+    tid = ids[0]
+    board.conn.execute("UPDATE transactions SET approval_date='2026-05-01' WHERE transaction_id=?", (tid,))
+    board.conn.commit()
+    cur = board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (tid,))
+    row = dict(zip((d[0] for d in cur.description), cur.fetchone()))
+    correction = dict(transaction_id=tid, source_hash=row['source_hash'], revision=row['revision'],
+                      trip_id='quarter:2026:2', item='식비', basis='합성 분기',
+                      classification_source='ai_inference', execution=dict(kind='connected_agent', provider='codex', model='gpt-6.1-sol', run_id='quarter-q1'))
+    with pytest.raises(ValueError, match='CORRECTION_INVALID_ATTRIBUTION'):
+        classification_correction.preview(board.conn, [correction], [], allow_recorded_ai=True)
+
+
 @pytest.mark.parametrize('changes', [
     {'service_start': '2026-02-30'}, {'service_end': '2026-10-01'},
     {'evidence_refs': ['mail:unknown']}, {'rule_ids': ['INVENTED-999']},
