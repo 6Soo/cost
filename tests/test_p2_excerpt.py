@@ -66,6 +66,16 @@ def test_base64_image_blob_is_removed() -> None:
     assert "예약번호 FAKE-B64" in result["text"]
 
 
+def test_html_table_cells_are_separated() -> None:
+    body = (
+        "<table><tr><td>예약번호</td><td>ABC123</td></tr>"
+        "<tr><td>총액</td><td>JPY</td><td>12,300</td></tr></table>"
+    )
+    result = _excerpt(body)
+    assert "예약번호 ABC123" in result["text"]
+    assert "총액 JPY 12,300" in result["text"]
+
+
 def test_quoted_prior_mail_is_dropped() -> None:
     body = "\n".join(
         [

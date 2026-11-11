@@ -20,6 +20,7 @@ _SCRIPT_STYLE_RE = re.compile(
 )
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 _BLOCK_TAG_RE = re.compile(r"</?(?:br|p|div|tr|li)\s*/?>", re.I)
+_CELL_END_TAG_RE = re.compile(r"</(?:td|th)\s*>", re.I)
 _ANY_TAG_RE = re.compile(r"<[^>]*>")
 _DATA_URI_RE = re.compile(r"data:image/[^;,\s]+;base64,[A-Za-z0-9+/=]{16,}")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
@@ -94,10 +95,10 @@ def _is_important(line: str) -> bool:
 
 
 def _to_plain_text(body: str) -> str:
-    text = _DATA_URI_RE.sub("", body)
-    text = _SCRIPT_STYLE_RE.sub("", text)
+    text = _SCRIPT_STYLE_RE.sub("", body)
     text = _COMMENT_RE.sub("", text)
     text = _BLOCK_TAG_RE.sub("\n", text)
+    text = _CELL_END_TAG_RE.sub(" ", text)
     text = _ANY_TAG_RE.sub("", text)
     return html.unescape(text)
 
@@ -134,7 +135,7 @@ def make_excerpt(
     total_lines = 0
     lines: list[str] = []
     for raw in body.splitlines():
-        line = raw.strip()
+        line = re.sub(r"\s+", " ", raw).strip()
         if not line:
             continue
         if lines and lines[-1] == line:
