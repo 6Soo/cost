@@ -1,5 +1,13 @@
 # 현재 상태
 
+## 2026-11-11 10:18 D5-FIX 관리자 직접 검증 — 독립검수와 Fable 승인 게이트
+
+- #802 문서는 최종f5c8756f의 별도sol medium APPROVE 후455a723d로 병합했다. 배포 없음이다. P2 작업자 최종3a7363fc를 `integration/p2-lock-io-resume-20261111`에 통합한 코드 커밋은ba799241다. 이후 문서 커밋을 포함한 최종SHA·독립검수는 후속PR에서 확인한다.
+- 관리자가 표적100pass, 영향30파일678pass/3fail/4subtests/skip0, 정확한 기준455a723d의 같은3fail을 직접 실행했다. 전체QA 통과는 아니다. 테스트 약화·고객자료·운영DB·실제모델·Google 쓰기는 없다.
+- 후보2000건/근거1,100,346,849 bytes로 직접 off/on 실측: off1.279초·P2근거/조립/호출0, on155.292초·합성3호출/50반영·근거첫1,100,586,772 bytes 이후0·route최대보유0.3553초·경쟁DB쓰기대기최대0.0051초. 세부 조건·한계·재현 명령은 [검증 보고서](agents/artifacts/p2-lock-io-budgets-20261111.md)에 있다.
+- 작업자 capacity 오류 뒤 관리자가 저장 상태에서 이어받았다. Claude 전환 없음. 기존QA3파일은 복원했고 baseline worktree도83d87f88로 복귀했다. 기존worktree·미소유8805를 보존했다.
+- 다음은 별도sol medium 이상의 최종SHA·실측 검수 → PR기록 → Fable 최종보고·중단이다. 운영965bca05 유지, Fable 승인 전 배포·고객P2 재실행 금지. 운영 호출0 직접원인은 과거 live stack 부재로 유일확정 불가다. E2 #803과wave3 #799는 그 뒤 순서이며 지금 시작하지 않는다.
+
 ## 2026-11-11 09:30 관리자 재개 — 운영965 유지·문서 최종 검수부터
 
 - #802 최종 `f5c8756f`를 별도 `gpt-6.1-sol / medium`이 APPROVE했고 `455a723d`로 병합했다. CI는 결제 한도로 steps0, 문서 링크·diff PASS, 테스트·배포 없음이다. 후속 관리자 기록 브랜치는 `docs/manager-p2-resume-20261111`이며 D5-FIX 기존 worktree에서 별도 sol high가 구현·합성 검증을 진행 중이다.
