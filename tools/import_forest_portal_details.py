@@ -31,10 +31,13 @@ def plan(directory, observed_at, store_path=None, account_key='forest-owner'):
     pending = []
     for ref, observations in sorted(groups.items()):
         conflicts = any(len({encoded(f.get(field)) for _, f in observations if f.get(field) is not None}) > 1
-                        for field in ('service_start_on', 'service_end_on', 'amount_krw', 'paid_on'))
+                        for field in ('service_start_on', 'service_end_on', 'amount_krw', 'paid_on', 'order_number'))
         fact = dict(max((f for _, f in observations), key=lambda f: (
-            f['reservation_status'] == 'cancelled', f['payment_status'] == 'paid',
+            f['payment_status'] == 'paid',
             f['reservation_status'] == 'completed')))
+        # A reservation cancellation does not erase an observed original charge.
+        if any(f['reservation_status'] == 'cancelled' for _, f in observations):
+            fact['reservation_status'] = 'cancelled'
         if conflicts:
             summary['conflict'] += 1
             continue

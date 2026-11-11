@@ -7,7 +7,7 @@ import pytest
 from app.forest_portal_capture import foresttrip_row, sooperang_records
 from app.ota_store import OtaStore, connect_read, direct_facts
 from app.ota_payments import _forest_portal_events, _attach_forest_portal_periods, pair_check
-from tools.import_forest_portal_details import main
+from tools.import_forest_portal_details import main, plan
 
 OBSERVED = '2031-02-10T12:00:00+09:00'
 
@@ -136,3 +136,35 @@ def test_nice_exact_order_attaches_period_without_duplicate_charge(tmp_path):
         unmatched = dict(receipt,service_period=None,**change)
         assert len(_attach_forest_portal_periods([unmatched],[portal])) == 2
         assert unmatched['service_period'] is None
+
+
+def test_paid_and_cancel_observations_preserve_original_charge(tmp_path):
+    paid = row()
+    cancelled = {'cells':[paid['cells'][1],paid['cells'][2],paid['cells'][3],paid['cells'][4],
+                          '2031-02-02 취소금액12,345 원'],'links':[]}
+    for kind, value in [('pay',paid),('cancel',cancelled)]:
+        (tmp_path/(kind+'-demo.json')).write_text(json.dumps({'url':'https://foresttrip.go.kr/synthetic',
+            'rows':[value]}),encoding='utf8')
+    summary, pending = plan(tmp_path,OBSERVED)
+    assert summary['additional'] == 1 and summary['conflict'] == 0
+    snapshot, fact = pending[0]
+    assert len(snapshot['observations']) == 2
+    assert fact['reservation_status'] == 'cancelled'
+    assert fact['payment_status'] == 'paid' and fact['paid_on'] == '2031-02-01'
+    assert fact['amount_krw'] == 12345 and fact['order_number'] == 'ORDER-DEMO'
+    assert fact['price_components'][0]['kind'] == 'paid_today'
+    store = OtaStore(tmp_path/'ota.sqlite')
+    store.import_direct(provider='forest',account_key='synthetic',source_key='demo',snapshot=snapshot,facts=[fact])
+    store.close()
+    event = _forest_portal_events([str(tmp_path/'ota.sqlite')])[0]
+    assert event['event_type'] == 'charge' and event['evidence_status'] == 'paid_verified'
+    assert event['reservation_status'] == 'cancelled' and event['refund_status'] == 'none_displayed'
+
+
+def test_distinct_payment_orders_are_not_collapsed(tmp_path):
+    first, second = row(), row()
+    second['cells'][0] = 'ANOTHER-DEMO-ORDER'
+    (tmp_path/'pay-demo.json').write_text(json.dumps({'url':'https://foresttrip.go.kr/synthetic',
+        'rows':[first,second]}),encoding='utf8')
+    summary, pending = plan(tmp_path,OBSERVED)
+    assert summary['conflict'] == 1 and summary['additional'] == 0 and pending == []
