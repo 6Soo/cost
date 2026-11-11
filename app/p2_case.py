@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import re
 import heapq
+import time
 
 from .automatic_classification import _read
 
@@ -227,56 +228,73 @@ def _stamp(paths):
             stat = Path(path).stat()
         except OSError:
             continue
-        stamp.append((str(Path(path).resolve()), stat.st_size, stat.st_mtime_ns))
+        stamp.append((str(Path(path).resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino))
     return tuple(sorted(stamp))
+
+
+def policy_stamp():
+    return _stamp([ROOT / 'docs/DECISION_POLICY.md', *sorted((ROOT / 'docs/policy').glob('*.md'))])
 
 
 class _Index:
     """Exact candidate index for `relevant`: every match passes through one of the
     keyed values below, so candidates are a superset and `relevant` decides."""
-    def __init__(self, entries, read_bytes):
-        from collections import defaultdict
+    def __init__(self, entries, read_bytes, check=lambda: None):
         self.entries, self.read_bytes = entries, read_bytes
-        self.amounts, self.digit_runs = defaultdict(set), defaultdict(set)
-        self.dates, self.words = defaultdict(set), defaultdict(set)
+        self.amounts, self.digit_runs, self.dates, self.words = {}, {}, {}, {}
+        width = (len(entries) + 7) // 8
+        def add(mapping, values, number):
+            for value in values:
+                if value not in mapping:
+                    mapping[value] = bytearray(width)
+                mapping[value][number // 8] |= 1 << (number % 8)
         for number, (text, *_) in enumerate(entries):
-            for run in set(re.findall(r'\d+', text.replace(',', ''))):
-                self.amounts[run].add(number)
-            for run in set(re.findall(r'\d+', text)):
-                self.digit_runs[run].add(number)
-            for day in set(re.findall(r'(?=(\d{4}-\d{2}-\d{2}))', text)):
-                self.dates[day].add(number)
-            for word in set(re.findall(r'\w{6,}', text.casefold())):
-                self.words[word].add(number)
+            check()
+            add(self.amounts, set(re.findall(r'\d+', text.replace(',', ''))), number)
+            add(self.digit_runs, set(re.findall(r'\d+', text)), number)
+            add(self.dates, set(re.findall(r'(?=(\d{4}-\d{2}-\d{2}))', text)), number)
+            # Dense bitmaps avoid millions of set entries for common words.
+            add(self.words, set(re.findall(r'\w{3,}', text.casefold())), number)
+            check()
 
     def candidates(self, row):
         every = range(len(self.entries))
-        found = set()
+        found, corroboration, merchant = 0, 0, 0
+        def bits(values):
+            return int.from_bytes(values, 'little') if values else 0
         approval = str(row.get('approval_number') or '').casefold()
         if len(approval) >= 6:
             if not re.fullmatch(r'\w+', approval):
                 return every
             for word, numbers in self.words.items():
                 if approval in word:
-                    found |= numbers
+                    found |= bits(numbers)
+            # Short approvals can be contained inside a token shorter than 3
+            # only if the approval is shorter too (already excluded above).
         amount = str(row.get('amount_krw') or '')
         if amount:
             if not re.fullmatch(r'[0-9]+', amount):
                 return every
-            found |= self.amounts.get(amount, set())
+            corroboration |= bits(self.amounts.get(amount))
         tail = str(row.get('card_tail') or '')
         if tail:
             if not re.fullmatch(r'[0-9]+', tail):
                 return every
             for run, numbers in self.digit_runs.items():
                 if tail in run:
-                    found |= numbers
+                    corroboration |= bits(numbers)
         day = str(row.get('approval_date') or '')[:10]
         if day:
             if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', day):
                 return every
-            found |= self.dates.get(day, set())
-        return sorted(found)
+            corroboration |= bits(self.dates.get(day))
+        words = [w for w in re.findall(r'[\w가-힣]{3,}', str(row.get('merchant') or '').casefold())
+                 if w not in {'synthetic', 'store', 'payment', '결제', '주식회사'}]
+        for word, numbers in self.words.items():
+            if any(w in word for w in words):
+                merchant |= bits(numbers)
+        found |= merchant & corroboration
+        return [number for number in every if found & (1 << number)]
 
 
 class Repository:
@@ -287,10 +305,12 @@ class Repository:
         self._snapshot = None
         self._check = lambda: None
         self.read_bytes = 0
+        self._stamps = {}
 
     def begin_snapshot(self, check=None, *, new_round=True):
         """Start a request-local view; call again (new_round=False) before freshness validation."""
         self._snapshot = {}
+        self._stamps = {}
         self._check = check or (lambda: None)
         if new_round:
             self.read_bytes = 0
@@ -298,30 +318,79 @@ class Repository:
     def end_snapshot(self):
         self._snapshot = None
         self._check = lambda: None
+        self._stamps = {}
 
-    def _index(self, key, paths, build, case_used):
+    def source_stamp(self):
+        """Metadata-only commit guard; source content is rebuilt outside locks."""
+        from . import ota_sources, ota_portal
+        paths = ota_sources.mail_stamps_paths(self.sources.get('mail_directories', []))
+        for path in ota_portal.as_databases(self.sources.get('portal_databases')):
+            paths.extend([path, Path(str(path) + '-wal')])
+        return _stamp(paths)
+
+    def snapshot_is_current(self):
+        return all(_stamp(paths) == stamp for paths, stamp in self._stamps.values())
+
+    def _index(self, key, paths, build, case_used, check):
         """Pinned per snapshot; rebuilt only when the stat stamp changes, within budget."""
         if self._snapshot is not None and key in self._snapshot:
             return self._snapshot[key], 0
         stamp = (key, _stamp(paths))
         if not stamp[1]:
             return _Index([], 0), 0  # nothing registered on disk: nothing to read
-        with _INDEX_LOCK:
+        # A different worker's build must not hide cancellation while waiting.
+        while not _INDEX_LOCK.acquire(timeout=.05):
+            check()
+        try:
             index = _INDEXES.get(key)
             cost = 0
             if index is None or index[0] != stamp:
                 cost = sum(item[1] for item in stamp[1])
                 if case_used + cost > EVIDENCE_CASE_BYTES or self.read_bytes + cost > EVIDENCE_ROUND_BYTES:
                     raise ValueError('P2_READ_BUDGET_EXCEEDED')
-                self._check()
-                index = (stamp, _Index(build(), cost))
-                self.read_bytes += cost
+                check()
+                from .p2_source_io import guarded, process_read_bytes
+                # Source size is a preflight bound; bytes are charged as reads
+                # happen, including failed/cancelled builds and growing files.
+                io_started = process_read_bytes()
+                charged = [0]
+                def charge(observed):
+                    delta = observed - charged[0]
+                    self.read_bytes += max(0, delta)
+                    charged[0] = max(charged[0], observed)
+                    if case_used + observed > EVIDENCE_CASE_BYTES or self.read_bytes > EVIDENCE_ROUND_BYTES:
+                        raise ValueError('P2_READ_BUDGET_EXCEEDED')
+                def build_check():
+                    charge(max(consumed[0], process_read_bytes() - io_started))
+                    check()
+                def consume(size, reserve=False):
+                    if reserve:
+                        if (case_used + max(consumed[0], charged[0]) + size > EVIDENCE_CASE_BYTES or
+                                self.read_bytes + size > EVIDENCE_ROUND_BYTES):
+                            raise ValueError('P2_READ_BUDGET_EXCEEDED')
+                        return
+                    if not reserve:
+                        consumed[0] += size
+                        charge(max(consumed[0], process_read_bytes() - io_started))
+                consumed = [0]
+                with guarded(build_check, consume):
+                    entries = build()
+                    index = (stamp, _Index(entries, cost, build_check))
+                # SQLite readers use bounded VM/row callbacks. Charge at least
+                # the source size conservatively (JSON uses actual block reads).
+                charge(max(cost, consumed[0], process_read_bytes() - io_started))
+                cost = charged[0]
+                if _stamp(paths) != stamp[1]:
+                    raise ValueError('AI_EVIDENCE_STALE')
                 # Keep a completed build even if this round is then cancelled, so
                 # an aborted round is never followed by the same full read again.
                 _INDEXES[key] = index
-                self._check()
+                check()
+        finally:
+            _INDEX_LOCK.release()
         if self._snapshot is not None:
             self._snapshot[key] = index[1]
+            self._stamps[key] = (tuple(paths), stamp[1])
         return index[1], cost
 
     def _mail_entries(self):
@@ -330,8 +399,10 @@ class Repository:
         messages, _ = ota_mail._load_messages_uncached(self.sources.get('mail_directories', []))
         entries = []
         for identity in sorted(messages):
+            from .p2_source_io import checkpoint
+            checkpoint()
             message = messages[identity]
-            text = ota_mail.body_text(message.get('payload', {}))
+            text = ota_mail.message_text(message)
             headers = message.get('payload', {}).get('headers', [])
             visible = '\n'.join(str(h.get('value', '')) for h in headers
                                 if str(h.get('name', '')).lower() in ('subject', 'from', 'date'))
@@ -345,10 +416,10 @@ class Repository:
 
     def _source_evidence(self, row):
         from . import ota_mail, ota_portal, ota_sources
-        started, used = __import__('time').monotonic(), [0]
+        started, used = time.monotonic(), [0]
         def check():
             self._check()
-            if __import__('time').monotonic() - started > EVIDENCE_CASE_SECONDS:
+            if time.monotonic() - started > EVIDENCE_CASE_SECONDS:
                 raise ValueError('P2_READ_TIME_EXCEEDED')
         check()
         directories = ota_mail.as_directories(self.sources.get('mail_directories', []))
@@ -364,7 +435,7 @@ class Repository:
             sources.append((('portal', index, str(resolved)), [resolved, Path(str(resolved) + '-wal')], portal))
         for key, paths, build in sources:
             check()
-            index, cost = self._index(key, paths, build, used[0])
+            index, cost = self._index(key, paths, build, used[0], check)
             used[0] += cost
             for number in index.candidates(row):
                 check()

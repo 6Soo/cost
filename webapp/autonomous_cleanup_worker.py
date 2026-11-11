@@ -584,6 +584,7 @@ class AutonomousCleanupWorker:
         reader = sqlite3.connect(self.board.path.resolve().as_uri() + '?mode=ro', uri=True)
         owned = isinstance(repository, p2_case.Repository)
         try:
+            reader.execute('BEGIN')
             if owned:
                 repository.conn = reader
             yield reader
@@ -601,6 +602,8 @@ class AutonomousCleanupWorker:
         owned = isinstance(repository, p2_case.Repository)
         if owned:
             repository.begin_snapshot(check_budget, new_round=False)
+        source_stamp = repository.source_stamp() if owned else None
+        policy_stamp = p2_case.policy_stamp()
         gathered = []
         with self._read_view(repository) as reader:
             ledger = self._ledger_inputs(reader, request, repository, lookups)
@@ -617,7 +620,10 @@ class AutonomousCleanupWorker:
                                        extra=gathered + ledger[1])
         if current != bundle:
             raise ValueError('AI_EVIDENCE_STALE')
-        return ledger
+        if (policy_stamp != p2_case.policy_stamp() or
+                owned and (not repository.snapshot_is_current() or repository.source_stamp() != source_stamp)):
+            raise ValueError('AI_EVIDENCE_STALE')
+        return ledger, source_stamp, policy_stamp
 
     def _ledger_inputs(self, conn, request, repository, lookups):
         """Case rows plus ledger-backed evidence (history, card lookups) read on `conn`."""
@@ -812,8 +818,12 @@ class AutonomousCleanupWorker:
                 if stale is not None:
                     raise stale
                 trips, nets = self._fresh_context()
-                if bundle is not None and self._ledger_inputs(self.board.conn, request, repository, lookups) != ledger:
-                    raise ValueError('AI_EVIDENCE_STALE')
+                if bundle is not None:
+                    ledger_inputs, source_stamp, policy_stamp = ledger
+                    if (self._ledger_inputs(self.board.conn, request, repository, lookups) != ledger_inputs or
+                            p2_case.policy_stamp() != policy_stamp or
+                            isinstance(repository, p2_case.Repository) and repository.source_stamp() != source_stamp):
+                        raise ValueError('AI_EVIDENCE_STALE')
                 check_budget(force=True)
                 result = ai_classification.apply(
                     self.board.conn, trips, request, response,

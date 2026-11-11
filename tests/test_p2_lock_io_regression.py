@@ -256,3 +256,89 @@ def test_ledger_change_after_unlocked_rebuild_refuses_apply(setup, monkeypatch):
     assert load_job(setup.conn, ids[0])['status'] == 'ai_retry'
     assert load_job(setup.conn, ids[0])['reason'] == 'apply_AI_EVIDENCE_STALE'
     assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 0
+
+
+def test_source_loader_checks_between_real_read_blocks(setup, tmp_path):
+    import pytest
+    from app import p2_case
+    source = tmp_path / 'mail'
+    source.mkdir()
+    # Real file I/O, not a mocked loader; cancellation must happen inside load.
+    path = source / 'gmail-large.json'
+    path.write_text(json.dumps({'responses': [], 'padding': 'x' * (3 << 20)}), encoding='utf-8')
+    repo = p2_case.Repository(setup.conn, {'mail_directories': [source]})
+    def check():
+        if repo.read_bytes >= 1 << 20:
+            raise RuntimeError('synthetic-window-closed')
+    repo.begin_snapshot(check)
+    with pytest.raises(RuntimeError, match='synthetic-window-closed'):
+        repo.source_items({'transaction_id': 'one'})
+    assert 1 << 20 <= repo.read_bytes < path.stat().st_size
+    assert not repo._snapshot  # incomplete index is never reusable
+
+
+def test_index_build_has_internal_time_checks(setup, tmp_path, monkeypatch):
+    import pytest
+    from app import ota_mail, p2_case
+    mail = tmp_path / 'mail'
+    mail.mkdir()
+    (mail / 'gmail-one.json').write_text('{"responses": []}', encoding='utf-8')
+    monkeypatch.setattr(ota_mail, '_load_messages_uncached', lambda dirs: ({}, []))
+    original = p2_case._Index.__init__
+    def slow_index(self, entries, size, check=lambda: None):
+        monkeypatch.setattr(p2_case, 'EVIDENCE_CASE_SECONDS', -1)
+        original(self, [('AUTONOMY 10000', {}, None)], size, check)
+    monkeypatch.setattr(p2_case._Index, '__init__', slow_index)
+    repo = p2_case.Repository(setup.conn, {'mail_directories': [mail]})
+    repo.begin_snapshot()
+    with pytest.raises(ValueError, match='P2_READ_TIME_EXCEEDED'):
+        repo.source_items({'transaction_id': 'one'})
+    assert not repo._snapshot
+
+
+def test_native_sqlite_scan_preserves_gate_cancellation(tmp_path):
+    import pytest
+    from app import ota_store
+    from app.p2_source_io import guarded
+    import sqlite3
+    path = tmp_path / 'synthetic.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute('CREATE TABLE numbers(n)')
+        conn.executemany('INSERT INTO numbers VALUES(?)', [(i,) for i in range(100)])
+    checked = [0]
+    def check():
+        checked[0] += 1
+        if checked[0] > 5:
+            raise RuntimeError('synthetic-window-closed')
+    with pytest.raises(RuntimeError, match='synthetic-window-closed'):
+        with guarded(check, lambda *a, **kw: None):
+            conn = ota_store.connect_read(path)
+            try:
+                conn.execute('SELECT sum(a.n*b.n*c.n) FROM numbers a,numbers b,numbers c').fetchone()
+            finally:
+                conn.close()
+    assert checked[0] == 6
+
+
+def test_source_change_after_rebuild_before_writer_refuses_apply(setup, tmp_path, monkeypatch):
+    from app import p2_case
+    from tests.test_p2_worker_boundaries import rich_response
+    from webapp.autonomous_cleanup_worker import load_job
+    trip = create_trip(setup)
+    batch, rows = receive(setup, 1)
+    ids = make_weak_rows(setup, batch, rows, trip)
+    mail = tmp_path / 'mail'
+    mail.mkdir()
+    source = mail / 'gmail-a.json'
+    source.write_text('{"responses": []}', encoding='utf-8')
+    repo = p2_case.Repository(setup.conn, {'mail_directories': [mail]})
+    worker = AutonomousCleanupWorker(setup, setup._lock, provider=rich_response, evidence_repository=repo)
+    original = worker._verify_fresh_unlocked
+    def rebuild(*a, **kw):
+        result = original(*a, **kw)
+        (mail / 'gmail-added.json').write_text('{"responses": []}', encoding='utf-8')
+        return result
+    monkeypatch.setattr(worker, '_verify_fresh_unlocked', rebuild)
+    worker.sweep_once()
+    assert load_job(setup.conn, ids[0])['reason'] == 'apply_AI_EVIDENCE_STALE'
+    assert setup.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_source='ai_inference'").fetchone()[0] == 0

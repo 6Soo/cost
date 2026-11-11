@@ -56,7 +56,7 @@ def _message(rng, identity, subject, body):
 
 
 def generate(args):
-    root = Path(args.root)
+    root = Path(args.root).resolve()
     if root.exists() and any(root.iterdir()):
         raise SystemExit(f'{root} is not empty; refusing to overwrite')
     _env()
@@ -172,11 +172,13 @@ out.write_text(json.dumps(waits))
 
 
 def measure(args):
-    root = Path(args.root)
+    root = Path(args.root).resolve()
     manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
-    run = root / 'runs' / args.label
+    run = (root / 'runs' / args.label).resolve()
+    if run.parent != root / 'runs' or not args.label:
+        raise SystemExit('label must be one directory name below root/runs')
     if run.exists():
-        shutil.rmtree(run)  # owned synthetic run copy only
+        raise SystemExit('run exists; choose a new label to preserve measurements')
     (run / 'data').mkdir(parents=True)
     (run / 'config').mkdir()
     shutil.copy2(root / 'pristine' / 'ledger.sqlite', run / 'data' / 'ledger.sqlite')
@@ -215,6 +217,7 @@ def measure(args):
     deployment_role.route_lock = timed_route_lock
 
     counts = dict(select_calls=0, assembled_cases=set(), provider_calls=0, provider_cases=0)
+    stages = {name: [] for name in ('context', 'assembly', 'provider')}
     repository = p2_case.Repository(board.conn, {'mail_directories': [root / 'mail']})
     original_select = repository.select
 
@@ -225,6 +228,9 @@ def measure(args):
     repository.select = select
 
     def provider(request):
+        stages['provider'].append(dict(route_owned=deployment_role._lock._is_owned(),
+            runtime_owned=runtime._is_owned(), board_owned=raw_board_lock._is_owned(),
+            db_write_transaction=board.conn.in_transaction))
         counts['provider_calls'] += 1
         counts['provider_cases'] += len(request['cases'])
         result = helpers.response_for(request)
@@ -236,6 +242,21 @@ def measure(args):
     worker = AutonomousCleanupWorker(board, TimedLock(runtime, 'runtime', stats, owner),
                                      provider=provider if args.mode == 'on' else None,
                                      evidence_repository=repository)
+    me = psutil.Process()
+    def instrument(original, name):
+        def wrapped(*a, **kw):
+            before, started = me.io_counters(), time.perf_counter()
+            state = dict(route_owned=deployment_role._lock._is_owned(), runtime_owned=runtime._is_owned(),
+                         board_owned=raw_board_lock._is_owned(), db_write_transaction=board.conn.in_transaction)
+            try:
+                return original(*a, **kw)
+            finally:
+                stages[name].append(dict(elapsed_s=round(time.perf_counter() - started, 4),
+                    process_read_bytes=me.io_counters().read_bytes - before.read_bytes, **state))
+        return wrapped
+    worker._held_context = instrument(worker._held_context, 'context')
+    original_assemble = p2_case.assemble
+    p2_case.assemble = instrument(original_assemble, 'assembly')
 
     competitor = dict(route=[], board=[])
     stop = threading.Event()
@@ -252,7 +273,6 @@ def measure(args):
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
     process = subprocess.Popen([sys.executable, '-c', COMPETITOR, str(route), str(run / 'data' / 'ledger.sqlite'),
                                 str(out), str(stop_file)], env=env)
-    me = psutil.Process()
     io_before, started = me.io_counters(), time.perf_counter()
     thread.start()
     sweeps = []
@@ -269,6 +289,7 @@ def measure(args):
         thread.join(10)
         stop_file.write_text('stop', encoding='utf-8')
         process.wait(120)
+        p2_case.assemble = original_assemble
     io_after = me.io_counters()
     conn = board.conn
     reservations = conn.execute("SELECT COUNT(*) FROM requests WHERE scope='p2_call_reservation'").fetchone()[0]
@@ -290,6 +311,7 @@ def measure(args):
         assembled_cases=len(counts['assembled_cases']), select_calls=counts['select_calls'],
         provider_calls=counts['provider_calls'], provider_cases=counts['provider_cases'],
         reservations=reservations, ai_applied=applied, jobs=jobs,
+        stages=stages, index_state='cold process; repeated sweeps reuse completed index',
         worker_locks={name: {k: _summary(v) for k, v in value.items()} for name, value in stats.items() if name != 'sites'},
         worker_lock_max_hold_by_site=stats.get('sites', {}),
         competitor_thread_route_board_wait=_summary(competitor['board']),
