@@ -160,7 +160,7 @@ def test_live_projection_is_readonly_and_does_not_hold_connection(tmp_path):
     c.execute('CREATE TABLE transaction_review_holds(transaction_id,source_hash,kind)')
     c.execute('CREATE TABLE transaction_company_exclusions(transaction_id,source_hash,excluded)')
     c.execute('CREATE TABLE board_rows(row_id,payload_json)')
-    c.execute('CREATE TABLE ledger_entries(item)')
+    c.execute('CREATE TABLE ledger_entries(item,transaction_id,trip_id,display_tab_id)')
     c.commit();c.close()
     before=path.read_bytes()
     found=scope.read_projection(path)
@@ -169,3 +169,37 @@ def test_live_projection_is_readonly_and_does_not_hold_connection(tmp_path):
     # An exclusive transaction after the function returns proves its read lock is gone.
     with sqlite3.connect(path,timeout=.1) as writer:
         writer.execute('BEGIN EXCLUSIVE')
+
+
+@pytest.mark.parametrize('field', ['trip_id', 'display_tab_id'])
+def test_selection_excludes_preexisting_ledger_attribution_disagreement(field):
+    d = data([row(), row(transaction_id='consistent'), row(transaction_id='unrecorded')])
+    conflict = dict(transaction_id='synthetic', trip_id='open', display_tab_id='open')
+    conflict[field] = 'closed'
+    d['ledger_entries'] = [conflict, dict(transaction_id='consistent', trip_id='open', display_tab_id='open')]
+    report, scoped, eligible, general = scope.select(d)
+    assert len(scoped) == 3
+    assert report['projection_attribution_disagreements'] == 1
+    assert report['protected']['PROJECTION_ATTRIBUTION_DISAGREEMENT'] == 1
+    assert {r['transaction_id'] for r in eligible} == {'consistent', 'unrecorded'}
+    assert general == eligible
+
+
+def test_preview_excludes_live_projection_conflict_before_correction(tmp_path, monkeypatch):
+    from tools.p2_batch import preview
+    path = tmp_path / 'synthetic.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.execute('CREATE TABLE transactions(transaction_id,trip_id,display_tab_id)')
+        conn.execute("INSERT INTO transactions VALUES ('synthetic','open','open')")
+        conn.execute('CREATE TABLE ledger_entries(transaction_id,trip_id,display_tab_id)')
+        conn.execute("INSERT INTO ledger_entries VALUES ('synthetic','closed','closed')")
+        conn.execute('CREATE TABLE trip_tabs(tab_id)')
+    (tmp_path / 'normalized-proposals.jsonl').write_text(json.dumps(dict(
+        merchant_id='merchant', item='교통비', basis='synthetic', execution={})), encoding='utf-8')
+    (tmp_path / 'before-state.json').write_text(json.dumps({'merchant': [row()]}), encoding='utf-8')
+    def forbidden(*args, **kwargs):
+        pytest.fail('conflicting attribution reached correction preview')
+    monkeypatch.setattr(preview.classification_correction, 'preview', forbidden)
+    report = preview.run(path, tmp_path)
+    assert report['passed'] == 0
+    assert report['excluded_by_reason'] == {'PROJECTION_ATTRIBUTION_DISAGREEMENT': 1}

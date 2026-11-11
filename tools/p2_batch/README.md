@@ -17,6 +17,8 @@ P1 등록은 후속 승인 때 `app.rules.normalize_rule`과 `save_rule`로 한�
 
 ## 단계 2 정리·미리보기
 
+대상 선정과 미리보기는 거래와 기존 장부 행의 `trip_id` 또는 `display_tab_id`가 서로 다른 건을 `PROJECTION_ATTRIBUTION_DISAGREEMENT`로 제외한다. 열린 분기 전체의 불일치 건수는 `projection_attribution_disagreements`로 집계한다. 이 건들은 귀속을 자동 수정하지 않고 분기 검수 목록에 해시만 남긴다. 장부 행이 없는 거래는 이 조건으로 제외하지 않는다.
+
 완료된 `proposals.jsonl`은 모델을 다시 호출하지 않고 정리한다.
 
 ```powershell

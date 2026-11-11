@@ -23,6 +23,25 @@
 - **화면:** 합성 포트 8821(정식 모듈 실행)·8822/8823(합성 seed 추가)을 사용했다. 최종 코드의 ego-browser TaskSpace 22는 한 스크립트에서 생성·36개 대표 화면(홈·여행·장부·카드·OTA·영수증·수기 지출·환불·관리, 390/1440, 밝음/어두움)·복사 제외 내역 4개를 캡처한 뒤 종료했다. 가로 넘침 0. 제외 2행을 같은 페이지에서 펼치고 접었고 복사 TSV는 합성 식당 1건 45,000원이었다. 카드 원본 없는 제외 행의 404 대체 안내를 확인했으며 실제 카드 상세 200 응답·실자료·실기기·스크린리더·운영 인증 화면·320px 전체 화면·전 화면 대비/접근 이름 전수 측정은 이번 캡처에서 검증하지 않았다. 동작 회귀는 별도 pytest 근거와 구분한다.
 - **근거:** 비공개 `.local-archive/wave3-20261111/final/`의 plan/progress/combined.xml/summary.json, 파일별 JUnit·log·exit, main 비교 기록, `ota-main-02.log`, `verified-render-results.json`, `verified-copy-results.json`, `dialog-link-recheck.xml`. 초기 중단·실패 로그와 기존 `quality-artifacts/` 미추적 3개 파일은 보존한다.
 - **외부 차단·다음:** GitHub run 42907382198/job 130148811660은 결제·지출 한도 때문에 steps 0으로 시작하지 못했다. 이를 CI 통과로 표시하지 않는다. Fable이 최종 SHA 댓글의 sol medium 독립 판정을 보고 병합 여부를 결정한다. 운영 변경·고객 원본 접근·Google 쓰기는 없으며 운영 배포는 이 세션 범위 밖이다.
+## 2026-11-12 P2 단계 2 — 귀속 불일치 제외 완료 / 서버 미리보기 API 오류로 반영 차단
+
+- Fable 후속 지시로 사본 불변 실패 1건을 제외했다. 열린 분기 전체 2,852건에서 거래와 장부의 `trip_id` 또는 `display_tab_id` 불일치는 109건이다. 선정 단계와 미리보기에서 항상 제외하며, 이번 368후보 중 해당하는 건은 1건이다. 분기 검수 목록은 비공개 `run367/quarterly-review.json`에 해시만 보존한다.
+- 나머지 367건(기록227·미기록140)을 신선 읽기 전용 조회(0.502초)로 준비했다. 사본20·50×6·47건 적용/재전송/파일복원 전부 통과, 불변 실패0·복원367일치다. 기존 중단 근거는 덮어쓰지 않았다.
+- **BLOCKED:** 첫20건의 운영 `/api/p2-batch/corrections/preview`가 HTTP502를 반환한다. 운영 `68fbe0dd`의 `webapp/ledger_board.py:4720`이 `from . import classification_correction`에서 ImportError를 낸 것이 운영 로그로 확인됐다. 실제 모듈은 `app/classification_correction.py`다. 서버 변경·추가배포 금지 지시로 서버 코드는 수정하지 않았다. apply API는 미호출이며 운영 반영0·되돌리기0·Google0·P1등록0·2층0이다. 바뀐 거래가 없어 화면3건 확인도 미실행이다.
+- API 실패 뒤 후보367건 전체 변경 전 값 일치, 비대상 거래/장부/화면 지문 및 보호13표 구성의 불변 조건 통과(그중 변경 허용3표도 이번에는 불변). 2026-11-12 00:05:27 KST `/readyz` 200/0.110초. 배포SHA68fbe0dd·P2 off는 직전 확인 근거이며 이번에 예약 작업을 다시 조회하지 않았다.
+- 도구 표적24 passed, 최신main0281e90f 기준 영향 검사52 passed/skip0·compile/data guard PASS다. 기존 사용자 QA3파일은 해시 일치로 복원했다. 최종 SHA 독립 검수·PR 결과는 해당 PR에 기록한다. 비공개 근거 `.local-archive/p2-stage2-deploy/run367/{prepare-summary.json,target-before.json,scope-summary.json,quarterly-review.json,verify-batch--1.json,api-stop.json,quality/run-summary.json}`. 고객 원문·기존 QA 미추적 파일은 보존한다.
+- 다음 서버 변경 때 수정할 항목 두 가지: P2 API의 잘못된 import, 항목만 바꾸는 요청에서 장부 여행 귀속까지 동기화하는 동작. 반영 재개에는 이 API 오류를 해결하는 별도 서버 변경·배포 지시가 필요하다. 이후 신선 값/미리보기/사본검증을 다시 하고 첫20건부터 시작한다. 최종 항목 전환은 없음(운영0건)이다.
+
+## 2026-11-11 P2 단계 2 — #807 배포 완료, 사본 불변 검증으로 반영 전 중단
+
+- 현재 승인 범위는 Fable의 단계 2 후속 지시다. #807은 최종 `0de29030902e7923ca345a224e9b45bbfb425b79`의 독립 `gpt-6.1-sol / high` APPROVE 후 `68fbe0ddb3543f96bfe5a7d1fc74ea737465b1a8`로 병합·공식 배포됐다. 이전 운영은 `8b116b98`다. 기존 표적 검사 44 passed/skip0·compile PASS 근거를 재사용했으며 이번 재개에서 코드·테스트는 바꾸지 않았다.
+- 정리 결과 가맹점 212곳·변경 후보 368건이다. 명시적 기록 행 옵션의 신선 읽기 전용 preview는 368건 통과/보호 제외 0건(기록 228·미기록 140)이지만, **반영 가능 완료 판정은 아니다**. 과거 기본 옵션의 140 통과/228 제외와 구분한다.
+- 운영 DB의 짧은 읽기(0.793초)로 후보의 거래·장부·화면 행 전체 변경 전 값을 `.local-archive/p2-stage2-deploy/target-before.json`에 보존했다. 전체 사본은 만들지 않고 메모리 사본에서 20·50×6·48건 적용/요청 재전송/파일 기반 복원을 검증했다. 368건 복원은 모두 일치했다.
+- **중단:** 사본 1건에서 `ledger_entries.trip_id`와 `display_tab_id`가 항목 교정과 함께 변했다. 거래와 장부의 기존 귀속이 달라 저장 경로가 장부 귀속까지 동기화하기 때문이다. 여행 불변 조건 위반이므로 지시대로 첫 20건 운영 반영 전에 멈췄다. 운영 반영 0·운영 되돌리기 0·Google 쓰기 0·P1 등록 0·2층 실행 0이다. 개별 식별자는 비공개 근거에만 있다.
+- 운영 대상 368건의 세 행 전체와 관련 14개 테이블 지문은 준비 시점 대비 불변이다. 배포 직후 보호13표 불변은 배포 근거이며 이번 중단 확인과 구분한다. Board·Worker 예약 작업은 68fbe0dd, route8752/unpaused, card-flow의 P2/full=false다.
+- 준비 응답: 기존 5분 표본10회와 이후16회는 모두200. 한도로 15분 관찰 루프가 끊겼고 이를 연속 관찰 완료로 표시하지 않는다. 재개 23:52:28 KST 200/0.221초, 배포15분 이후 23:53:57 KST 200/0.168초를 별도 기록했다. 새 실패·롤백 조건은 없었다.
+- 비공개 근거: `.local-archive/p2-stage2-deploy/{deploy-evidence.json,review.json,prepare-summary.json,simulation-problems.json,stop-verification.json,readyz-resume.jsonl}`. 최근 검증된 전체 백업은 `D:/WebLedgerHost/data/backups/p2-staged-20261111T143601/`, 복원 검증 사본은 같은 시각의 `data/restore-verification/` 하위다. 원본과 사용자 QA 미추적 파일은 보존했다.
+- 다음은 Fable의 중단 보고 후 지시다. 문제 행을 조용히 제외하거나 여행 귀속을 자동 수정하지 않는다. 재개한다면 해당 장부 귀속 충돌의 처리 범위를 정한 뒤 신선 변경 전 값/미리보기/불변 검증을 다시 하고 첫20건부터 시작한다. 기록만을 위한 새 PR·재배포는 하지 않는다. 이 종료 기록의 커밋은 `git log -1 --oneline -- docs/session_handoff.md`로 확인한다.
 ## 2026-11-11 수집 스크립트 마무리 — #803 (P2 작업과 별도)
 
 - 2026-11-12 재개: main `68fbe0dd`를 병합한 `92689b71`의 영향 검사는 **250 passed / 1 failed / skip0**, compile·data guard 통과다. 실패는 `tests/test_p2_lock_io_regression.py::test_split_prompts_count_all_assembled_cases_toward_first_fifty`의 `40 != 30`이며, 정확한 기준 main `68fbe0dd`의 독립 추출본에서도 동일 실패를 재현했다(관련 코드·테스트 diff 없음). 전체 QA 통과로 표시하지 않으며 P2 코드·기존 테스트는 변경하지 않았다. 국민50·OTA52 합성 검사를 재실행해 모두 통과했다. 근거는 `.local-archive/collection-resume/`의 `impact-92689b71.{json,log}`, `baseline-split.xml`, `collection-targeted.xml`이다. 이 기록을 포함한 최종 SHA의 별도 sol medium 검수와 병합 결과·병합 SHA는 [PR #803](https://github.com/6Soo/cost/pull/803)에 기록한다. 운영 배포는 없다.
