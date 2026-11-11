@@ -416,6 +416,11 @@
       "tests": ["webapp/tests/test_ota_catalog_browser.py", "webapp/tests/test_card_catalog_browser.py", "webapp/tests/test_expense_workspace.py"]
     },
     {
+      "name": "forest-portal-import",
+      "paths": ["app/forest_portal_capture.py", "tools/import_forest_portal_details.py", "tests/test_forest_portal_capture.py"],
+      "tests": ["tests/test_forest_portal_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "tests/card_pipeline/test_forest_payment_mail.py", "webapp/tests/test_forest_reconciliation.py"]
+    },
+    {
       "name": "forest-payment-receipts",
       "paths": ["app/forest_payment_mail.py", "tests/card_pipeline/test_forest_payment_mail.py"],
       "tests": ["tests/card_pipeline/test_forest_payment_mail.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py", "webapp/tests/test_forest_reconciliation.py"]

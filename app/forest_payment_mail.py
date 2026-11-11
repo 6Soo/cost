@@ -79,6 +79,7 @@ def collect(messages, inventory=()):
             'amount': int(value) if value is not None else None,
             'amount_krw': int(value) if value is not None else None, 'currency': 'KRW',
             'paid_on': paid_on.isoformat(), 'paid_on_semantics': 'explicit_charge_date',
+            'order_number': order[0], 'merchant_name': merchant,
             'approval_number': approval[0], 'authorization_scheme': 'issuer_card_approval',
             'card_issuer': next(iter(issuers)) if len(issuers) == 1 else None, 'card_last4': None,
             'item': '숲나들e 숙박 · 카드 결제 영수증', 'service_period': None,
