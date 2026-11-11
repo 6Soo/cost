@@ -13,6 +13,7 @@ import json
 import time
 from datetime import datetime, timezone, timedelta
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 import threading
 import uuid
@@ -31,6 +32,7 @@ P1_RETRY_SECONDS = 120
 JOB_SCOPE = 'autonomous_cleanup_job'
 BUNDLE_SCOPE = 'autonomous_cause_bundle'
 METRICS_FILE = 'autonomous-cleanup-metrics.jsonl'
+_sweep_metrics = ContextVar('autonomous_cleanup_sweep_metrics', default=None)
 TERMINAL = ('no_ai_needed', 'p2_applied', 'ai_dead')
 CODE_DEFECT_REASONS = ('AGENT_EXECUTION_FAILED', 'AGENT_COMMAND_LINE_TOO_LONG',
                        'AGENT_RESPONSE_INVALID', 'AGENT_EXECUTION_MISMATCH')
@@ -301,6 +303,9 @@ def metrics_path(board):
 
 def append_metric(board, event):
     line = dict(event)
+    current = _sweep_metrics.get()
+    if current is not None:
+        line.setdefault('sweep_id', current['sweep_id'])
     line.setdefault('ts', datetime.now(timezone.utc).isoformat(timespec='seconds'))
     try:
         with metrics_path(board).open('a', encoding='utf-8') as handle:
@@ -421,9 +426,56 @@ class AutonomousCleanupWorker:
 
     def agent_enabled(self):
         from app import connected_agent_provider as provider
+        options = _options(self._config_path())
+        if 'autonomous_p2_pilot_deadline' in options:
+            try:
+                deadline = datetime.fromisoformat(options['autonomous_p2_pilot_deadline'].replace('Z', '+00:00'))
+                if deadline.utcoffset() != timedelta(0) or datetime.now(timezone.utc) >= deadline:
+                    return False
+            except (ValueError, TypeError, AttributeError):
+                return False
         if self.provider is not None:
             return True
         return provider.enabled(self._config_path())
+
+    def _case_limit(self):
+        options = _options(self._config_path())
+        if options.get('autonomous_p2_full_rollout') is True:
+            return 50
+        limit = options.get('autonomous_p2_pilot_case_limit', 50)
+        return limit if type(limit) is int and 1 <= limit <= 50 else 0
+
+    def _progress(self, stage, *, reason=None, **counts):
+        """Persist safe counters immediately; observability must never affect decisions."""
+        current = _sweep_metrics.get()
+        if current is None:
+            return
+        current['stage'] = stage
+        if reason is not None:
+            current['reason'] = reason
+        for name, count in counts.items():
+            current[name] += count
+        try:
+            event = dict(current, kind='p2_sweep_progress',
+                duration_ms=int((time.monotonic() - current['started']) * 1000))
+            event.pop('started')
+            append_metric(self.board, event)
+        except Exception:
+            pass
+
+    @contextmanager
+    def _assembly_progress(self, phase, cases, *, reads_sources=False):
+        # Read attempts count logical evidence operations (snapshot, assembly,
+        # direct source selection), not physical I/O bytes or file operations.
+        self._progress(phase + '_started', assembly_started=cases,
+                       source_read_attempts=int(reads_sources))
+        try:
+            yield
+        except Exception as exc:
+            self._progress(phase + '_failed', reason=failure_code(exc))
+            raise
+        else:
+            self._progress(phase + '_completed', assembly_completed=cases)
 
     def _held_context(self):
         flow = (self.flow_factory or self._default_flow())(self.board)
@@ -446,24 +498,48 @@ class AutonomousCleanupWorker:
 
     @refund_evidence_scope()
     def sweep_once(self):
-        claim = self._prepare_sweep()
-        if not isinstance(claim, tuple):
-            return claim
-        return self._call_agent(*claim)
+        current = dict(sweep_id=uuid.uuid4().hex, started=time.monotonic(), stage='started',
+            reason='WRITER_INACTIVE', candidates=0, selected=0, assembly_started=0,
+            assembly_completed=0, model_attempts=0, model_successes=0, model_failures=0,
+            model_failure_reasons={}, source_read_attempts=0, lookup_attempts=0,
+            preview_passed=0, applied=0)
+        token = _sweep_metrics.set(current)
+        try:
+            self._progress('started')
+            claim = self._prepare_sweep()
+            if not isinstance(claim, tuple):
+                return claim
+            return self._call_agent(*claim)
+        except BaseException as exc:
+            current['reason'] = failure_code(exc)
+            raise
+        finally:
+            try:
+                summary = dict(current, kind='p2_sweep_end',
+                    duration_ms=int((time.monotonic() - current['started']) * 1000))
+                summary.pop('started')
+                append_metric(self.board, summary)
+            except Exception:
+                pass
+            _sweep_metrics.reset(token)
 
     @active_writer(default=False)
     def _prepare_sweep(self):
         from app import automatic_classification, ai_classification
 
         with self.runtime_lock, self.board._lock:
+            self._progress('preparing', reason='NO_WORK')
             if self._stop.is_set():
+                self._progress('stopped', reason='AGENT_STOPPED')
                 return False
             rows = detection_candidates(self.board.conn)
+            self._progress('candidates', candidates=len(rows))
             self.status['candidates'] = len(rows)
             now = time.time()
             try:
                 flow, trips, nets, inputs = self._held_context()
             except Exception as exc:
+                self._progress('context_failed', reason='CONTEXT_' + failure_code(exc))
                 self.status.update(state='retry', error='context_' + type(exc).__name__)
                 self.status['failures'] += 1
                 return False
@@ -476,7 +552,7 @@ class AutonomousCleanupWorker:
                 self.status['state'] = 'idle'
                 return False
             due_rows = [row for row in rows if row[0] in due_ids]
-            due_rows = due_rows[:max(1, min(50, self.chunk))]
+            due_rows = due_rows[:max(1, min(self._case_limit(), self.chunk))]
             if not due_rows:
                 self.board.conn.commit()
                 self._finish(rows)
@@ -493,6 +569,7 @@ class AutonomousCleanupWorker:
                 automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids)
                 self.board.conn.commit()
             except Exception as exc:
+                self._progress('p1_failed', reason='P1_' + failure_code(exc))
                 for row in due_rows:
                     self._retry_or_dead(row, fingerprints[row[0]], now, 'p1_' + type(exc).__name__,
                                         not_before=now + P1_RETRY_SECONDS)
@@ -516,7 +593,7 @@ class AutonomousCleanupWorker:
                             reserved.add(tid)
                     except (ValueError, TypeError, AttributeError):
                         continue
-                remaining = max(0, 50 - len(reserved))
+                remaining = max(0, self._case_limit() - len(reserved))
                 eligible = []
                 for row in due_rows:
                     if row[0] in reserved:
@@ -530,6 +607,7 @@ class AutonomousCleanupWorker:
                                   'not_before': now + BLOCKED_RETRY_SECONDS})
                 due_rows = eligible
             if not due_rows:
+                self._progress('selection_blocked', reason='AGENT_FIRST_BATCH_LIMIT')
                 self.board.conn.commit()
                 self._finish(rows)
                 return True
@@ -537,6 +615,7 @@ class AutonomousCleanupWorker:
             try:
                 request = ai_classification.prepare(self.board.conn, trips, ids, nets=nets)
             except ValueError as exc:
+                self._progress('prepare_finished', reason=failure_code(exc))
                 code = str(exc)
                 if code == 'CODE_STAGE_REQUIRED':
                     for row in due_rows:
@@ -550,6 +629,7 @@ class AutonomousCleanupWorker:
                 self._finish(rows)
                 return True
             if not request['cases']:
+                self._progress('no_cases', reason='NO_AI_NEEDED')
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]], {'status': 'no_ai_needed'})
                 self.board.conn.commit()
@@ -558,6 +638,7 @@ class AutonomousCleanupWorker:
             # Claim under the lock; the provider call runs unlocked so the HTTP path
             # stays responsive. apply() re-validates freshness in a fresh transaction.
             self.board.conn.commit()  # P1 is published before any P2 gate/call.
+            self._progress('selected', reason='SELECTED', selected=len(request['cases']))
             return (request, due_rows, fingerprints, now, rows)
 
     def _call_agent(self, request, due_rows, fingerprints, now, all_rows):
@@ -565,6 +646,7 @@ class AutonomousCleanupWorker:
         try:
             return self._call_agent_impl(request, due_rows, fingerprints, now, all_rows)
         except WriterInactive:
+            self._progress('writer_inactive', reason='WRITER_INACTIVE')
             return False
         finally:
             if isinstance(self.evidence_repository, p2_case.Repository):
@@ -604,7 +686,10 @@ class AutonomousCleanupWorker:
         from app import p2_case
         owned = isinstance(repository, p2_case.Repository)
         if owned:
+            self._progress('freshness_snapshot_started', source_read_attempts=1)
             repository.begin_snapshot(check_budget, new_round=False)
+            self._progress('freshness_snapshot_completed')
+        self._progress('freshness_source_stamp_started')
         source_stamp = repository.source_stamp() if owned else None
         policy_stamp = p2_case.policy_stamp()
         gathered = []
@@ -615,12 +700,15 @@ class AutonomousCleanupWorker:
                 row = rows.get(case['transaction_id'])
                 if row is None:
                     raise ValueError('AI_EVIDENCE_STALE')
+                self._progress('freshness_source_read_started', source_read_attempts=1)
                 gathered.extend(repository.source_items(row) if owned else repository.select(case, row))
             for query in lookups:
                 if not owned or query['kind'] != 'card_search':
+                    self._progress('freshness_lookup_started', lookup_attempts=1)
                     gathered.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
-            current = p2_case.assemble(reader, trips, request, repository=None, max_bytes=bundle_limit,
-                                       extra=gathered + ledger[1])
+            with self._assembly_progress('freshness_assembly', len(request['cases'])):
+                current = p2_case.assemble(reader, trips, request, repository=None, max_bytes=bundle_limit,
+                                           extra=gathered + ledger[1])
         if current != bundle:
             raise ValueError('AI_EVIDENCE_STALE')
         if (policy_stamp != p2_case.policy_stamp() or
@@ -638,6 +726,7 @@ class AutonomousCleanupWorker:
                 evidence.extend(repository.history(row))
             for query in lookups:
                 if query['kind'] == 'card_search':
+                    self._progress('ledger_lookup_started', lookup_attempts=1)
                     evidence.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
         return rows, evidence
 
@@ -651,6 +740,7 @@ class AutonomousCleanupWorker:
         elif (self.provider is None or 'autonomous_ai_review_window' in _options(self._config_path())) and not p2_window_open(self._config_path()):
             gate = 'AGENT_OUTSIDE_WINDOW'
         if gate:
+            self._progress('blocked', reason=gate)
             with self._writer_locks():
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]],
@@ -664,6 +754,7 @@ class AutonomousCleanupWorker:
             return True
         cap = connected_agent_provider.daily_cap(self._config_path())
         if max(p2_calls_today(self.board), reserved_calls_today(self.board.conn)) >= cap:
+            self._progress('blocked', reason='AGENT_DAILY_CAP')
             with self._writer_locks():
                 for row in due_rows:
                     save_job(self.board.conn, row[0], fingerprints[row[0]],
@@ -699,6 +790,7 @@ class AutonomousCleanupWorker:
             if self.provider is None:
                 bundle_limit = frontier_agent_provider.bundle_budget()
             if self.provider is None and repository is None:
+                self._progress('repository_setup_started')
                 from app import ota_sources, ota_portal
                 from .ota_payment_review import SOURCES_ENV
                 import os
@@ -707,6 +799,7 @@ class AutonomousCleanupWorker:
                     self.board.path.parent, mail_default=os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or self.board.path.parent / 'ota-mail',
                     portal_default=ota_portal.evidence_path(self.board.path.parent))
                 repository = p2_case.Repository(self.board.conn, sources)
+                self._progress('repository_setup_completed')
             if repository is not None:
                 # Assembly consumes first-batch capacity even when an oversized
                 # prompt is split before any model call. Persist before reads.
@@ -720,13 +813,16 @@ class AutonomousCleanupWorker:
                         ('p2-assembly:' + uuid.uuid4().hex, ASSEMBLY_SCOPE, _digest(payload), json.dumps(payload), utc_now()))
                     self.board.conn.commit()
                 if isinstance(repository, p2_case.Repository):
+                    self._progress('repository_snapshot_started', source_read_attempts=1)
                     repository.begin_snapshot(check_budget)
+                    self._progress('repository_snapshot_completed')
                 with self._writer_locks():
                     trips, _ = self._fresh_context()
                 with self._read_view(repository) as reader:
                     while True:
                         try:
-                            bundle = p2_case.assemble(reader, trips, request, repository=repository, max_bytes=bundle_limit)
+                            with self._assembly_progress('assembly', len(request['cases']), reads_sources=True):
+                                bundle = p2_case.assemble(reader, trips, request, repository=repository, max_bytes=bundle_limit)
                             break
                         except ValueError as exc:
                             if str(exc) != 'P2_PROMPT_BASE_TOO_LARGE' or len(request['cases']) < 2:
@@ -756,9 +852,20 @@ class AutonomousCleanupWorker:
                 try:
                     check_budget(force=True)
                     elapsed = time.monotonic() - started
-                    response = (self.provider(request) if self.provider is not None else frontier_agent_provider.run_agent(
-                        request, bundle=bundle, model=model, timeout=frontier_agent_provider.TIMEOUT_SECONDS - elapsed,
-                        evidence_rounds_remaining=2-rounds, check=check_budget))
+                    self._progress('model_started', model_attempts=1)
+                    try:
+                        response = (self.provider(request) if self.provider is not None else frontier_agent_provider.run_agent(
+                            request, bundle=bundle, model=model, timeout=frontier_agent_provider.TIMEOUT_SECONDS - elapsed,
+                            evidence_rounds_remaining=2-rounds, check=check_budget))
+                    except Exception as exc:
+                        code = failure_code(exc)
+                        current = _sweep_metrics.get()
+                        if current is not None:
+                            reasons = current['model_failure_reasons']
+                            reasons[code] = reasons.get(code, 0) + 1
+                        self._progress('model_failed', reason=code, model_failures=1)
+                        raise
+                    self._progress('model_succeeded', model_successes=1)
                     check_budget(force=True)
                     if bundle is not None:
                         queries = response.get('more_evidence')
@@ -771,20 +878,25 @@ class AutonomousCleanupWorker:
                             # Lookups and re-assembly read a WAL snapshot outside the
                             # writer locks; apply re-validates under the lock.
                             with self._read_view(repository) as reader:
+                                self._progress('evidence_lookup_started')
                                 for query in queries:
                                     if set(query) != {'kind', 'query', 'transaction_id', 'why'} or not isinstance(query['why'], str) or len(query['why']) > 1000:
                                         raise ValueError('P2_LOOKUP_INVALID')
                                     p2_case.validate_lookup(query['kind'], query['query'], query['transaction_id'], ids)
+                                    self._progress('evidence_lookup_started', lookup_attempts=1)
                                     extra.extend(repository.lookup(query['kind'], query['query'], query['transaction_id']))
                                     lookups.append(query)
-                                bundle = p2_case.assemble(reader, trips, request, repository=repository,
-                                    max_bytes=bundle_limit, extra=extra)
+                                with self._assembly_progress('lookup_assembly', len(request['cases']), reads_sources=True):
+                                    bundle = p2_case.assemble(reader, trips, request, repository=repository,
+                                        max_bytes=bundle_limit, extra=extra)
                             rounds += 1
                             outcome = 'more_evidence'
                             continue
                         with self._writer_locks():
                             trips, nets = self._fresh_context()
+                            self._progress('preview_started')
                             ai_classification.preview(self.board.conn, trips, request, response, nets=nets, bundle=bundle)
+                            self._progress('preview_passed', preview_passed=len(request['cases']))
                     outcome = 'validated'
                     break
                 except Exception as exc:
@@ -802,6 +914,7 @@ class AutonomousCleanupWorker:
                         self.board.conn.commit()
         except Exception as exc:
             code = failure_code(exc)
+            self._progress('p2_failed', reason=code)
             with self._writer_locks():
                 for row in due_rows:
                     if code in ('AGENT_RATE_LIMITED', 'AGENT_DAILY_CAP', 'AGENT_OUTSIDE_WINDOW', 'AGENT_AUTH_REQUIRED', 'AGENT_NOT_ENABLED', 'AGENT_STOPPED'):
@@ -821,6 +934,7 @@ class AutonomousCleanupWorker:
         ledger = stale = None
         try:
             if bundle is not None:
+                self._progress('freshness_started')
                 # Re-read sources and rebuild the bundle outside the writer locks;
                 # under the lock only the ledger inputs are re-read and compared.
                 ledger = self._verify_fresh_unlocked(request, bundle, repository, lookups, check_budget,
@@ -839,12 +953,14 @@ class AutonomousCleanupWorker:
                             isinstance(repository, p2_case.Repository) and repository.source_stamp() != source_stamp):
                         raise ValueError('AI_EVIDENCE_STALE')
                 check_budget(force=True)
+                self._progress('apply_started')
                 result = ai_classification.apply(
                     self.board.conn, trips, request, response,
                     request_id='connected-agent:' + response['execution']['run_id'], nets=nets, bundle=bundle)
             except Exception as exc:
                 self.board.conn.rollback()
                 code = failure_code(exc)
+                self._progress('apply_failed', reason=code)
                 for row in due_rows:
                     if code in ('AGENT_OUTSIDE_WINDOW', 'AGENT_NOT_ENABLED', 'AGENT_STOPPED'):
                         attempts = (load_job(self.board.conn, row[0]) or {}).get('attempts', 0)
@@ -863,6 +979,9 @@ class AutonomousCleanupWorker:
             for row in due_rows:
                 save_job(self.board.conn, row[0], fingerprints[row[0]], {'status': 'p2_applied', 'attempts': 0})
             self.board.conn.commit()
+            self._progress('applied', reason='APPLIED', applied=applied,
+                           preview_passed=(len(request['cases']) if bundle is None
+                               and not (isinstance(result, dict) and result.get('replay')) else 0))
             self.status['p2_applied'] += len(batch_ids)
             append_metric(self.board, {'kind': 'p2_call', 'cases': len(request['cases']), 'applied': applied,
                                        'calls': call_count,
