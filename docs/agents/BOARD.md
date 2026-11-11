@@ -7,15 +7,16 @@
 
 | ID | 작업 | 명세 절 | 작업자 | 브랜치 | 상태 | 통과 조건 |
 | --- | --- | --- | --- | --- | --- | --- |
+| INC-P2 | 읽기 과다·준비 응답 장애의 승인된 롤백 | §13·Fable 장애 복구 지시 | 관리자 `c89bbda2` | `docs/p2-pilot-stop-20261111` | 06:13:42 KST 운영 `965bca05` 롤백 완료. health/ready 정상·데이터 불변. 읽기량 감소 실측, 평상 기준선 미검증 | 5DB SQLite 백업/별도복원 PASS, Board/Worker/listener SHA 일치, 8751/8790 health/ready200·401, 보호13표·원본/수동/관련14표 불변, P2/fulloff. 두10초 읽기5.54MB/s·395B/s, +15분 실측117.42MB/s·5.36MB/s(재상승 1구간). [장애 기록](../operations.md) |
 | A | 최신 결정·위임 규칙 반영 문서 | §9·§12.2·§14·부록 A, 규칙집 LINK-018 | 기존 작업자 `cc9881e3` 완료·archive | `docs/decisions-20261111-a` | COMPLETE — #795 병합 `6c160d54` | 통합 문서 링크·diff PASS, 최종 sol medium 검수, 배포 없음 |
 | B | 운영 읽기 전용 M1 기준선 | §10 M1 | sol high `05fe4b33` 완료·archive | `ops/m1-baseline-20261111` | COMPLETE — #795 병합 `6c160d54`, 관리자 실제 재현 exit 0 | 최종 코드 영향 92 passed·skip0, 가드9 passed, mode=ro 집계 재현·원문 출력 없음 |
 | D1 | Windows P2 조사·도구 없는 어댑터 결정 | §6.2·§6.3·§6.6 | sol high `90a8007b` 조사 완료·archive | `research/p2-isolation-20261111` → #796 | COMPLETE — 문서 병합 `1ad1364d`, stdin 직접 주입 승인 | 최종 `5e78bf06` sol medium 승인·문서 검사 통과. probe 제외, OS 격리 수락 아님. 실제 도구 미실행·예약 Worker 완료는 D5 검증 |
 | A-R | 공식 Google 7열 세무 전달 양식 검토 의견 | §9 | 관리자 | `integration/decisions-m1-20261111` | COMPLETE — #795 병합 `6c160d54` | 양식 변경 없이 1쪽 이내, 확인 사실과 제안 구분 |
-| C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | Terra high `670fdf64` 구현 종료, 관리자 검수 | `ui/wave3-20261110` → draft #799 | `e1219d9b` push·독립 sol medium 코드 APPROVE. fe399 추가48파일의 신규30 회귀 복구, 최종 관리자227pass·작업자55pass/skip0. 최종 렌더링 BLOCKED(TaskSpace1 소실), 병합·배포 미실행 | 기존3340 149파일(2143pass/34fail·기존32/신규2)·fe399 48파일(1089pass/39fail·정확a050대조 기존9/신규30) 보존. 새 전체QA pass 주장 없음. 최종390/1440 수락 필요 |
-| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` → #797 | COMPLETE — 병합·운영 `bd4646a1`, 최종 b20ce252 독립 sol medium APPROVE | 관리자70pass, 영향892pass/기존UI3fail·skip0, 같은base1ad 직접대조. 예약합성LastResult0·CLI1/tool0. 공식배포후 보호13불변. 고객first50은 D5 |
+| C | wave3 최신 main 통합·회귀 비교·렌더링·배포 | §14 #4 | 작업자 archive(중단) | `ui/wave3-20261110` → draft #799, 마지막 `5cb57fa8` | 중단 — e1219의 390 서랍 결함(닫기 클릭 불가) 수정 `5cb57fa8`, 회귀 테스트 추가, 헤드리스 캡처 PASS 32장. 영향 QA 미완료, sol 재검수 필요, P2 때문에 배포 불가 | 기존3340 149파일(2143pass/34fail·기존32/신규2)·fe399 48파일(1089pass/39fail·정확a050대조 기존9/신규30) 보존. 새 전체QA pass 주장 없음. 최종390/1440 수락 필요 |
+| D2~D4 | 사건 직접 주입·실행/보호 검증·전체 탐지 | §6.2~§6.6 | Terra high `23fcdce5`, 관리자 검수 | `feat/p2-tool-free-runtime-20261111` → #797 | 병합 완료/운영 롤백 — `bd4646a1`의 읽기·준비 장애로 06:13:42 KST `965bca05` 복구. P2 재배포 금지 | 기존 합성·표적·독립검수 근거 보존. 운영 규모 off/on 읽기·소요·잠금 실측과 Fable 승인 전 완료로 재가동하지 않음 |
 | E1 | OTA 3곳 조회 수집 스크립트 | §7 | sol high `92cc66bd`, 관리자 검수 | `integration/ota-collection-release-20261111` → #798 | COMPLETE — 구현·합성검수 범위, 병합 `a050d65f` | 최종 a11d5ea8 독립 sol medium APPROVE·Node52·영향84pass/skip0. 원본/importer 유지·manifest 식별값0. 실사이트·예약등록·운영수집 미실행 |
-| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44`(ee120bb5 후속) | `feat/kb-card-collection-script-20261111` | 1차 독립 사전검수 REQUEST_CHANGES — 실제 ego 접착 코드·기간 입력/조회·spaceName 전파·0건 처리 보완 중 | 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. 실제 Page seam 합성 회귀·최종 SHA 검수·관리자 수락 필요 |
-| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료 | `research/card-login-paths-20261111` | PARTIAL로 닫음 — 최종 `729b3a89`의 [조사 보고서](artifacts/card-login-paths-20261111.md) 통합 준비 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음. 보고서의 추가 조사 제안은 현재 실행 지시가 아님 |
+| E2 | 국민 기업카드 수집 스크립트 | §7 | EXAONE high `60d8fb44` 완료·archive | `feat/kb-card-collection-script-20261111` → #803, `4b4d5aad` | 구현 완료·PR 열림. 관리자가 Node 6묶음 exit0·pytest 1 passed 재실행, 운영 경로·식별값 grep 0. sol 최종 SHA 검수 전, 병합 안 함 | 복구 판단 후 같은 작업자 재개. 수집·합성 검증까지, 실제 인증·다운로드·운영 DB 접근 금지. 실제 Page seam 합성 회귀·최종 SHA 검수·관리자 수락 필요 |
+| E3 | 하나·기업 로그인 방식·조회 경로 조사 | §7 | EXAONE `34c94c0f` 조사 종료·archive | `research/card-login-paths-20261111` → #800 | PARTIAL로 닫음 — 최종 `729b3a89`의 [조사 보고서](artifacts/card-login-paths-20261111.md)를 `0308eed3`에 원문 보존 병합 | 사용자 로그인 세션에서 로그인 수단·실제 조회 조건/기간/양식 확인 필요. 추가 공개 조사 없음. 보고서의 추가 조사 제안은 현재 실행 지시가 아님 |
 
 ## 대기
 
@@ -23,8 +24,8 @@
 
 | ID | 작업 | 명세 절 | 선행 작업 | 등급(틀리면 비싼가) |
 | --- | --- | --- | --- | --- |
-| D5 | 합성 검증·배포·첫 약 50건 후 Fable 보고 | §6.8 | D2~D4·합성·배포 COMPLETE | 05:04 KST first50 제한 실행 시작, 05:39 KST 호출예약0·작업대상20. 제어의 예산60회/고유50건/야간/finally off 유지. 종료·보호 대조·보고 남음. 전체 반영 금지 |
-| D5-FIX | 근거 조립의 반복 읽기·조립 중 실행예산·호출 전 비활성화 확인 | §6.2~§6.6 | D5 실측 호출0, 정확 live stack 미측정 | Terra high `f4e9ebbc`, `fix/p2-case-assembly-budget-20261111`. 합성 재현 뒤 최소 수정·신선도 보호·표적/영향검사·독립검수. 운영 제어·고객 자료 접근 금지 |
+| D5 | 합성 검증·배포·첫 약 50건 후 Fable 보고 | §6.8 | D2~D4·합성·배포 COMPLETE | 첫 묶음 미완료 — 05:04~05:59:19 KST 제어55분 제한 종료, 호출/고유/처리0. finally off·fullfalse·원본/수동/관련14표 불변. 성공률/표본 산출불가. [종료 보고서](artifacts/p2-first-batch-20261111.md). 야간 밖 재실행·전체확대 금지 |
+| D5-FIX | 근거 조립·실행 예산·쓰기 잠금 장애의 근본 해결 | §6.2~§6.6 | #801 병합 `83d87f88`, 소스 검수 근거 보존. 수정 브랜치 `fix/p2-lock-io-budgets-20261111` 마지막 `27dacf23`(WIP, PR 없음) | 운영 배포 취소/재배포 BLOCKED — Fable 지시로 직전검증965 복구. off 조립0·회차50·조립/호출의 route/DB 쓰기잠금 분리·색인/읽기/시간예산·창종료 중단을 운영 밖에서 해결. 후보2000+/근거1GB+ 합성 off/on 실측·독립검수·Fable 승인 필수 |
 | GAP | CODE_GAPS 중 P2 연결 밖 항목 | §10 M2 | D 경로 범위 확정 | 증상별 패치 금지, 후속 배정 |
 
 ## 완료
@@ -44,6 +45,26 @@
 공급자 확인(2026-11-11): 구성 프로필 0개. 사용자 결정으로 Luna 신규 배정·오류 후 재실행을 중단한다(Codex 사용량 공유). 기존 A는 완료됐다. EXAONE은 `opencode/exaone/k-exaone_v2.5`(high 지원, input/output 0), ANUS는 `anus/anus/free`(high 지원) 목록 확인. 구현은 EXAONE 여러 개와 ANUS 1개, 운영 폴더·금융 보호·최종 검수는 sol/terra만 맡는다. EXAONE 2개를 E1/E2에 실행했고 ANUS 1개를 E3에 배정했다. EXAONE 품질은 구현/검사 완료 전이라 미확정이다. ANUS는 재개 지시 뒤에도 도구 실행·산출물 없이 종료해 E3를 EXAONE으로 이관한다(실행 환경과 모델 중 어느 원인인지는 미확정, 모델 전체 제외 결정은 아님). 무료 작업자는 고객 자료·운영 폴더 없이 코드·합성 작업만 수행한다. 한도/호출 실패는 품질 반려로 세지 않는다.
 
 ## 재개 정보
+
+### 2026-11-11 09:30 KST 관리자 재개 — 상태 대조
+
+- 예약 `24cfe08a`의 지시 전문을 읽고 실행 기준으로 복구했다. 09:02 실행은 한도 오류가 아니라 **Codex 버전이 gpt-6.1-sol을 지원하지 않는다는 HTTP 400 오류**로 실패했다. 실행 에이전트 `91fc6720`은 archived/closed이며 usage 없음이다. 해당 1분간 저장소 커밋 없음, 주 폴더 HEAD/reflog는 07:05의 `5b7e5953` 그대로여서 작업판 수정 흔적도 없다. 프로세스의 생성 주체까지 소급 증명한 것은 아니다.
+- 운영 읽기 전용 재확인: Board PID2460 checkout과 Board/Worker 예약 작업 모두 `965bca058a74a54bf69bc4d70a0d05f8997786c3`, route8751/paused=false. 8751·8790 각각 healthz/readyz **200**이다. P2 실행·배포·운영 데이터 변경은 하지 않았다.
+- 열린 PR #802=`5b7e5953`, #803=`4b4d5aad`, draft #799=`5cb57fa8`로 인계와 일치한다. worktree 8개(중첩 baseline detached 포함)를 보존했고 D5-FIX `27dacf23`는 추적 파일 변경 없음이다. 주 폴더의 기존 미추적 QA 3파일도 보존했다.
+- listener는 운영8751/8790과 미리보기8805(PID19544)이며 8803/8804는 없다. 8805는 여전히 소유 미확인이므로 조작하지 않았다. 프로세스 이름/명령 필터에서 이전 P2 실측·wave3 QA 실행은 발견하지 못했다(전체 프로세스 소유권 검증은 아님).
+- 다음 순서: 이 상태 대조를 포함한 #802 최종 SHA를 별도 `gpt-6.1-sol` medium이 검수 → 문서 병합(배포 없음) → D5-FIX 기존 worktree에서 조건(a)~(f) 구현·실측 → 별도 sol 검수(g) 뒤 Fable 보고·중단. E2와 wave3는 그 뒤 순서이며 지금 병렬 시작하지 않는다.
+
+### 2026-11-11 07:10 KST 관리자 타워 중단 (사용자 지시, Fable 전달) — 다음 관리자는 여기부터
+
+- **운영은 `965bca058a74a54bf69bc4d70a0d05f8997786c3`.** main(`83d87f88` 이후)에는 P2 코드가 있어 **운영에 올리면 안 된다.** 그래서 wave3(#799)도 병합 여부와 무관하게 지금 배포할 수 없다.
+- **P2 재배포 조건(전부 충족 + Fable 승인 전 금지):** (a) P2가 꺼져 있으면 조립·근거 조회 0, (b) 한 회차 조립은 실행 한도(첫 묶음 50) 이내, (c) 조립·모델 호출은 route lock·active_writer·DB 쓰기 잠금 밖, (d) 색인된 근거 조회와 건당·회차당 읽기 예산·시간 상한 초과 시 회차 중단, (e) 시범 창 종료 시 진행 회차도 중단, 운영 규모 합성(후보 2,000+·근거 1GB+) off/on 실측을 PR에 기재, `gpt-6.1-sol` 독립 검수.
+- **병합 조건:** CI는 결제 한도로 시작되지 않는다(작업 단계 0개). 병합은 `gpt-6.1-sol` medium 이상의 최종 SHA 승인만. 07시 전후 Claude Opus 검수는 참고 기록이며 #799·#802에 "sol 재검수 필요" 댓글로 남겼다.
+- **열린 PR:** #802 장애 기록 문서(`docs/p2-pilot-stop-20261111`, head는 이 작업판 커밋 포함 최신), #799 wave3 draft(`5cb57fa8`), #803 E2 국민 수집(`4b4d5aad`). 병합한 것 없음.
+- **D5-FIX 실측(미검수, 작업자 Claude Opus):** 브랜치 `fix/p2-lock-io-budgets-20261111`, 코드 `6e2e3de2` 기준 합성 후보 2,000·메일 9,174건·근거 1,100,346,849 bytes. `new-off`: 3회 sweep 1.713초, 프로세스 읽기 3,507,757 bytes, 근거 저장소 읽기 0, 조립·선정·호출 0, route 잠금 최대 보유 0.4568초. `new-on`·`base-off`·`base-on`은 **미완료**(new-on 4분 이상 결과 없음 → 관리자 중단). 결과는 그 worktree의 `.local-archive/p2-scale-20261111/runs/new-off/report.json`. 마지막 커밋 `27dacf23`은 미커밋분 WIP이며 테스트 통과 아님.
+- **C 남은 일:** `5cb57fa8`의 `tools/run_quality_checks.py --base origin/main --run` 미완료(중단) → 같은 main 실패와 비교 → sol 최종 검수 → 병합. 배포는 P2 해결 뒤. 후속(비차단): 서랍 머리글·패널 머리글 "거래 상세" 이중 표시. 캡처 근거 `.local-archive/manager-resume-20261111/c-final-headless-20261111T064056/`.
+- **E2 남은 일:** #803 sol 최종 SHA 검수 → 병합. 실사이트·로그인·실제 파서 건수 대조는 NOT_VERIFIED.
+- **프로세스:** 관리자 계열이 띄운 백그라운드 QA, P2 실측, 합성 미리보기 8803·8804를 종료했다. 8805(PID 19544, 05:13 시작)는 소유를 확인하지 못해 두었다. 작업자 Paseo 14개 archive. Codex 내부 하위 세션 `01a1c…` 5개는 Paseo로 보관할 수 없어 남아 있다.
+- **주 작업 폴더:** `C:\AX\cost`는 `docs/p2-pilot-stop-20261111` 브랜치이며 추적 파일 변경 없음(미추적 `quality-artifacts/` 3개는 이전부터 있던 생성물로 보존).
 
 - **최신 실행 기준(2026-11-11 Fable 결정):** [도구 없는 P2 실행 계획](../superpowers/plans/2026-11-11-p2-tool-free-runtime.md). D1은 OS 격리 복구 대신 stdin 직접 주입·도구 미실행·코드 검증으로 결정됐다. 사건 폴더는 Worker 기록용, 모델 cwd는 빈 폴더다. 아래의 과거 격리 BLOCKED·D2 미착수 기록을 현재 지시로 재실행하지 않는다.
 - C 장기 검사 수명 문제는 exec 세션에 의존하지 않는 Hidden PowerShell 소유 프로세스로 분리해 최종 exit 1까지 수집했다. 58분 22초 결과 82 failed·2,001 passed이며 통과로 취급하지 않는다. 실패 nodeID를 같은 main `7aa6c418`에서 파일별 대조 중이다. C-FIX 모바일 CSS 미커밋 변경은 C 작업자가 보존·통합한다. 최종 최신 main `6c160d54` 통합·재검증·렌더링·독립 검수·배포는 남았다.
