@@ -1,5 +1,25 @@
 # 작업판
 
+## 2026-11-11 오프라인 검증 전환 — 최신 실행 지시
+
+- 운영 P2는 최고 관리자 재승인 전까지 비활성으로 유지한다. 아래 과거 절의 재시범·중단·배포 제한보다 이번 지시가 우선한다. 운영 및 main 기준은 `8b116b98`이며, P2 비활성 때 조립·조회가 없다는 관찰 결과로 main 기반 배포 금지 사유는 해소됐다.
+- 선행 작업 진행: `4391b555`의 결과 기록을 문서 PR로 올리고 최종 SHA를 별도 `gpt-6.1-sol / medium`이 검수한 뒤 병합한다. 문서 변경만으로 테스트·배포하지 않는다.
+- P-1 대기: 운영 DB를 SQLite 백업 API로 보호 경로에 복제하며 운영 준비 상태 응답을 감시한다. 사본에서 운영 탐지 순서의 첫 200건을 같은 코드 경로로 조립한다. 원문 출력·모델 호출·반영 없이 성공/실패 사유, 근거 종류·바이트, 건당 시간·읽기량을 기록한다. 크기 초과 원인과 응답 지연을 규명·수정하고 200건 조립 성공 또는 절단 표시가 있는 조립을 확인한다.
+- P-2 대기: P-1 통과 뒤 같은 사본의 20건을 실제 `gpt-6.1-sol` 도구 없는 호출→결과 검증→미리보기까지 실행한다. 반영하지 않는다. 성공률·형식·미리보기·시간·토큰·추가 근거 요청·절단 비율을 집계하고, 개인정보를 가린 P1/P2 품질표는 `.local-archive`에만 둔다.
+- P-3 대기: 20건 결과를 최고 관리자에게 보고하고 멈춘다. 사본은 작업 종료 시 제거한다. 운영 P2 재가동은 별도 재승인이 필요하다.
+- 후속 순서: P-3 보고 이후 #803 별도 sol 검수·병합 또는 반려, E1 통합 확인, 마지막으로 #799의 최신 main 통합·동일 기준 영향검사·390/1440 캡처·독립검수·공식 배포다. 실제 사이트·로그인 확인은 사용자 세션에서 확인 필요로 남긴다.
+- 기존 미추적 `quality-artifacts` 3파일과 `review-size-attempt4.md`는 보존했다. 아직 사본 생성·모델 호출·운영 변경은 실행하지 않았다.
+
+## 2026-11-11 #805 재개 결과 — 5건 시범 중단, P2 off 유지
+
+- **COMPLETE(수정·배포):** 전체 원문 충돌/base64 보존·포털 중첩 판정 필드 projection을 최종 `aee08a8b`의 별도 `gpt-6.1-sol / medium` APPROVE 후 #805로 병합했다. 운영 완료 커밋은 `8b116b98ccbacdc49c702e370031be2da45f5ef9`다. 공식 배포 도구 exit0, 릴리스1570파일/blob불일치0, Board·Worker·listener SHA 일치/backend8751, health/ready200·비인증API401·보호13표 불변이다. 사전 SQLite API 신선백업5DB와 별도복원 quick_check/schema/행수 검증 PASS(공식 도구의 BackupProducts 스위치는 별도 미사용).
+- **검증:** 표적17 passed. 최종 코드8279f6ad 영향602 passed/1 failed/4 subtests/skip0·204.24초, compile PASS. 실패는 `test_split_prompts_count_all_assembled_cases_toward_first_fifty`의40 !=30이며 정확 운영기준5248d129에서도31 passed/동일1 failed로 재현했다. 테스트·기대값 불변, 전체 QA PASS 아님. 최종 문서 SHA aee08a8b 검수·병합 트리 동일 확인. CI 최종 head job130346428325는 결제 한도로 시작되지 않았다. 기존 사용자 QA3파일은 SHA256 확인 후 복원했다.
+- **COMPLETE(P2 off 관찰):** 14:42:02~14:57:27 KST,15분 창+종료측정925.255초. ready32회 모두200, P2 호출0/대상0/실행이벤트0, 보호지문 불변, route sampled unavailable 최대0.8924초다.
+- **FAILED(5건 운영 수락):** 14:57:49~15:02:12 KST,262.379초에 gateway8790 ready15.006초 timeout으로 즉시자동off. 후보3075/선정5/조립시작5·완료0/근거읽기시도2/모델시도0·성공0·실패0/preview0/반영0(각 회차 최댓값). `P2_SOURCE_RECORD_TOO_LARGE` 조립 실패가 두 회차에 기록됐다. 원본 레코드 중 어느 구조가 상한을 넘었는지는 이번 시범으로 확정하지 않았다. route최대18.133초는 중단선78.477초 이내였으며 직접 중단 조건은 ready timeout이다.
+- **안전 종료:** 보호지문 불변, 진행중 모델호출0, P2/full=false, route8751 unpaused. 종료 후 health/ready는8751 200/200(0.110/8.896초),8790 200/200(0.008/0.013초)이다. 원본·수동교정·Google 변경 없음. 50건·전체확대·E2·wave3·세 번째 재시범은 실행하지 않았다.
+- **미검증:** 운영에서 조립 완료·모델 입력이0건이므로 메일 절단 비율과 절단 후 예약번호/금액/날짜 구간 보존율은 측정할 수 없다. 합성 tail 구간 보호 검사는 통과했지만 운영 증거로 대체하지 않는다. dcbe4894의2000건/1.100GB/245.09초/합성3호출50반영은 메일 전용 합성 근거이며 포털 운영 수락이 아니다.
+- **다음:** 승인된 중단 보고 지점에 도달해 Fable에 보고하고 멈춘다. 운영은8b116b98/P2 off 유지. 추가 원인 수정·재시범은 후속 지시에서 판단한다. 비공개 근거 `.local-archive/p2-staged-resume-20261111/`의 `resume805-deploy/`, `resume805-off15m/result.json`, `resume805-pilot5/{result,stage-summary,post-ready}.json`, `resume805-final-{summary.json,pytest.log,junit.xml}`, `resume-baseline-split.json`. 정확한 재개 확인 명령은 `Get-Content -LiteralPath .local-archive/p2-staged-resume-20261111/resume805-pilot5/stage-summary.json -Encoding UTF8`다. 이번 종료 기록은 로컬 커밋으로 보존하며 기록만을 위한 새 문서 PR·재배포를 만들지 않는다.
+
 ## 2026-11-11 #805 중단 작업 재개 — 최종 검수 준비
 
 - 현재 작업은 #805의 근거 크기 수정과 승인된 단계별 재시범뿐이다. 전체 반영·E2·wave3는 실행하지 않는다. 운영 읽기전용 확인: P2/full=false, route8752 unpaused.
