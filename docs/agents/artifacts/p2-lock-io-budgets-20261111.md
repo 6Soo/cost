@@ -52,4 +52,4 @@ on 각 sweep은71.969/22.579/12.083초이며, 계측된 조립6지점과 호출3
 
 비공개 근거: 작업자 worktree의 `.local-archive/p2-scale-20261111/runs/manager-off-cumulative`, `manager-on-cumulative`와 관리자 `.local-archive/manager-p2-resume-20261111/`의 `target-11945b2f.json`, `impact-11945b2f/`, `baseline-455a723d.xml`. 이전 측정 final-off/on-v6·manager-off/on-final도 보존했다. 기존 QA파일3개는 별도 사본과 해시 대조 뒤 원래 위치에 복원했다.
 
-독립 gpt-6.1-sol medium 이상이 최종 SHA와 수치를 검수한 뒤 Fable에 보고한다. 운영965bca05 유지, Fable 승인 전 P2/main/wave3 배포·고객 실행 금지다. 운영 호출0의 역사적 직접 원인 확정은 위 한계를 유지한다.
+별도 gpt-6.1-sol / medium이67755cfee4ba968e88da94256bf94183d4450e23를 APPROVE했다. 누적예산 지적 해소·신규회귀2건 직접2pass/1.18초·수치JSON 일치·기존 보호를 확인했다. 이후 승인상태 문서3개 추가분도 최종SHA로 재확인해 #804댓글에 남긴다. Fable에게 보고하고 중단하며 운영965bca05 유지, 승인 전 P2/main/wave3 배포·고객 실행 금지다. 운영 호출0의 역사적 직접 원인 확정은 위 한계를 유지한다.
