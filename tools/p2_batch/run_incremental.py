@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import uuid
 import sqlite3
 
@@ -21,6 +22,7 @@ from .normalize import operational_items
 
 PRIVATE = Path('D:/WebLedgerHost/data')
 DEFAULT_STATE = PRIVATE / 'p2-incremental.json'
+LOCK_MAX_SECONDS = 2 * 3600
 
 
 def digest(value):
@@ -36,6 +38,50 @@ def save(path, value):
     os.replace(temporary, path)
 
 
+def pid_alive(pid):
+    """Probe without signalling: os.kill would terminate the process on Windows."""
+    if pid <= 0:
+        return False
+    if os.name == 'nt':
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def lock_state(lock):
+    """(held, info): only a live writer inside the time limit holds the lock."""
+    try:
+        info = json.loads(lock.read_text(encoding='utf-8'))
+        pid = int(info['pid'])
+        started = datetime.fromisoformat(info['started_at'])
+    except (OSError, ValueError, KeyError, TypeError):
+        # Unverifiable content: a recent file may be a writer mid-creation.
+        held = time.time() - lock.stat().st_mtime < LOCK_MAX_SECONDS
+        return held, {'stale_reason': 'unverifiable_content'}
+    age = (datetime.now(timezone.utc) - started).total_seconds()
+    if age >= LOCK_MAX_SECONDS:
+        return False, dict(info, stale_reason='age_limit')
+    if not pid_alive(pid):
+        return False, dict(info, stale_reason='pid_not_running')
+    return True, info
+
+
 def read_rules(db):
     with closing(sqlite3.connect(Path(db).resolve().as_uri()+'?mode=ro', uri=True, timeout=2)) as conn:
         return rules.list_rules(type('Reader', (), {'conn': conn})())
@@ -46,16 +92,27 @@ def merchant_key(row):
 
 
 def has_rule(row, existing):
-    # Exclude even narrower/conflicting rules conservatively. Never replace one
-    # with a broader merchant rule or drop its country/period/card conditions.
-    # Reuse the actual P1 merchant matcher, including merchant_family. Strip
-    # narrowing conditions conservatively, but keep the merchant semantics.
+    # A merchant counts as already ruled only when an unconditional rule names
+    # it explicitly and assigns a specific item. Wildcard/pattern rules and
+    # country/period/source-bound conditions cover only part of the merchant,
+    # and a rule that keeps a broad item is exactly what AI must re-review.
+    name = merchant_key(row)
+    if not name or name == '*':
+        return False
     for rule in existing:
-        merchant_rule = dict(conditions={'merchant_normalized': rule['conditions']['merchant_normalized']},
-                             optional={k:v for k,v in rule.get('optional', {}).items() if k == 'merchant_family'})
-        for name in (row.get('merchant'), row.get('merchant_normalized')):
-            if name and rules.rule_matches(merchant_rule, dict(row, merchant=name))[0]:
-                return True
+        conditions = rule.get('conditions') or {}
+        if conditions.get('merchant_normalized') != name:
+            continue
+        if set(conditions) - {'merchant_normalized', 'transaction_direction'}:
+            continue
+        direction = conditions.get('transaction_direction')
+        if direction and direction != row.get('transaction_direction'):
+            continue
+        if rule.get('optional'):
+            continue
+        item = (rule.get('effects') or {}).get('item')
+        if item and item not in scope.GENERAL:
+            return True
     return False
 
 
@@ -131,7 +188,8 @@ class BrowserAPI:
             return result['body']
 
 
-def apply_job(job, api, checkpoint, current_data, existing, metrics, fresh_rules=None, fresh_data=None):
+def apply_job(job, api, checkpoint, current_data, existing, metrics, fresh_rules=None, fresh_data=None,
+              register_rules=False):
     """Persist each exact request before sending it, including its preview digest."""
     proposal = job['proposal']
     if proposal['item'] == layer1.KEEP:
@@ -174,41 +232,46 @@ def apply_job(job, api, checkpoint, current_data, existing, metrics, fresh_rules
             metrics['recovered_rows'] += len(request['corrections'])
         request['done'] = True
         checkpoint()
-    if 'rule' not in job:
-        existing = fresh_rules() if fresh_rules else existing
-        rows = job['targets']
-        latest = fresh_data() if fresh_data else current_data
-        _, _, eligible, _ = scope.select(latest)
-        eligible_by_id = {r['transaction_id']: r for r in eligible}
-        still_ai = all((r := eligible_by_id.get(old['transaction_id'])) is not None
-                       and r['source_hash'] == old['source_hash'] and r['item'] == proposal['item']
-                       and r['classification_source'] == 'ai_inference' for old in rows)
-        key = merchant_key(rows[0])
-        can_promote = (proposal['confidence'] == '높음' and proposal['item'] not in scope.GENERAL
-                       and still_ai and len(rows) >= 2 and key and key != '*'
-                       and all(merchant_key(r) == key for r in rows)
-                       and not any(has_rule(r, existing) for r in rows))
-        job['rule'] = None
-        if can_promote:
-            draft = rules.normalize_rule(dict(conditions=dict(merchant_normalized=key, transaction_direction='purchase'),
-                optional={}, effects=dict(item=proposal['item']), origin='p2-layer1:'+proposal['execution']['run_id'],
-                note=proposal['basis']))
-            job['rule'] = dict(draft=draft, expected_revision=0, request_id='p2-rule-'+uuid.uuid4().hex)
-        checkpoint()
-    if job['rule'] and not job.get('rule_done'):
-        # An unrelated fresh rule is never overwritten. A saved identical
-        # request can be replayed safely if the previous response was lost.
-        current_rules = fresh_rules() if fresh_rules else existing
-        matches = [r for r in current_rules if has_rule(job['targets'][0], [r])]
-        if any(r['conditions'] != job['rule']['draft']['conditions'] or r['optional']
-               or r['effects'] != job['rule']['draft']['effects']
-               or r['origin'] != job['rule']['draft']['origin'] for r in matches):
-            raise ValueError('MERCHANT_RULE_CHANGED')
-        api('/api/imports/rules', job['rule'])
-        metrics['registered_rules'] += 1
-        job['rule_done'] = True
-        checkpoint()
-    job['done'] = True
+    if register_rules:
+        if 'rule' not in job:
+            existing = fresh_rules() if fresh_rules else existing
+            rows = job['targets']
+            latest = fresh_data() if fresh_data else current_data
+            _, _, eligible, _ = scope.select(latest)
+            eligible_by_id = {r['transaction_id']: r for r in eligible}
+            still_ai = all((r := eligible_by_id.get(old['transaction_id'])) is not None
+                           and r['source_hash'] == old['source_hash'] and r['item'] == proposal['item']
+                           and r['classification_source'] == 'ai_inference' for old in rows)
+            key = merchant_key(rows[0])
+            can_promote = (proposal['confidence'] == '높음' and proposal['item'] not in scope.GENERAL
+                           and still_ai and len(rows) >= 2 and key and key != '*'
+                           and all(merchant_key(r) == key for r in rows)
+                           and not any(has_rule(r, existing) for r in rows))
+            job['rule'] = None
+            if can_promote:
+                draft = rules.normalize_rule(dict(conditions=dict(merchant_normalized=key, transaction_direction='purchase'),
+                    optional={}, effects=dict(item=proposal['item']), origin='p2-layer1:'+proposal['execution']['run_id'],
+                    note=proposal['basis']))
+                job['rule'] = dict(draft=draft, expected_revision=0, request_id='p2-rule-'+uuid.uuid4().hex)
+            checkpoint()
+        if job['rule'] and not job.get('rule_done'):
+            # An unrelated fresh rule is never overwritten. A saved identical
+            # request can be replayed safely if the previous response was lost.
+            current_rules = fresh_rules() if fresh_rules else existing
+            matches = [r for r in current_rules if has_rule(job['targets'][0], [r])]
+            if any(r['conditions'] != job['rule']['draft']['conditions'] or r['optional']
+                   or r['effects'] != job['rule']['draft']['effects']
+                   or r['origin'] != job['rule']['draft']['origin'] for r in matches):
+                raise ValueError('MERCHANT_RULE_CHANGED')
+            api('/api/imports/rules', job['rule'])
+            metrics['registered_rules'] += 1
+            job['rule_done'] = True
+            checkpoint()
+        job['done'] = True
+    else:
+        # Correction-only approval. A job with an already drafted rule stays
+        # pending so a later --register-rules run can finish registration.
+        job['done'] = 'rule' not in job
     checkpoint()
 
 
@@ -220,10 +283,26 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
         raise ValueError('PRIVATE_STATE_REQUIRED')
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_suffix('.lock')
-    # No stale-lock stealing: an interrupted writer must be checked by its owner.
-    descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    stale_lock = None
+    if lock.exists():
+        held, info = lock_state(lock)
+        if held:
+            raise FileExistsError('P2_INCREMENTAL_LOCK_HELD')
+        stale_lock = info
+    temporary = lock.with_name(lock.name + '.tmp')
+    with temporary.open('w', encoding='utf-8') as stream:
+        json.dump(dict(pid=os.getpid(), started_at=datetime.now(timezone.utc).isoformat()), stream)
+        stream.flush()
+        os.fsync(stream.fileno())
     try:
-        os.close(descriptor)
+        if stale_lock is None:
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(descriptor)
+        os.replace(temporary, lock)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
         if not path.is_file():
             raise ValueError('VERIFIED_LAYER1_HISTORY_REQUIRED')
         state = json.loads(path.read_text(encoding='utf-8'))
@@ -232,6 +311,12 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
         for previous in state.get('runs', []):
             if previous['status'] == 'running':
                 previous.update(status='failed', failure_code='INTERRUPTED_PREVIOUS_RUN')
+        if stale_lock is not None:
+            now = datetime.now(timezone.utc).isoformat()
+            state.setdefault('runs', []).append(dict(run_id=uuid.uuid4().hex, started_at=now, finished_at=now,
+                mode='lock-recovery', status='failed', failure_code='STALE_LOCK_RECOVERED', stale_lock=stale_lock,
+                calls=0, successful_calls=0, failed_calls=0, applied_rows=0, confirmed_rows=0, recovered_rows=0,
+                registered_rules=0, usage={}))
         metrics = dict(run_id=uuid.uuid4().hex, started_at=datetime.now(timezone.utc).isoformat(),
             mode='dry-run' if args.dry_run else 'propose-only' if args.propose_only else 'apply',
             calls=0, successful_calls=0, failed_calls=0, applied_rows=0, confirmed_rows=0, recovered_rows=0,
@@ -265,7 +350,7 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
                         api('/api/imports/rules', None)  # read-only authentication preflight before spending model usage
                     for job in pending[:budget]:
                         apply_job(job, api, checkpoint, refresh(), rule_reader(args.db), metrics,
-                                  lambda: rule_reader(args.db), refresh)
+                                  lambda: rule_reader(args.db), refresh, register_rules=args.register_rules)
                         budget -= 1
                 else:
                     budget -= min(len(pending), budget)
@@ -304,7 +389,7 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
                         # own rule additions do not invalidate sibling proposals.
                         for job in jobs:
                             apply_job(job, api, checkpoint, refresh(), rule_reader(args.db), metrics,
-                                      lambda: rule_reader(args.db), refresh)
+                                      lambda: rule_reader(args.db), refresh, register_rules=args.register_rules)
                         existing = rule_reader(args.db)
             metrics['status'] = 'success'
         except Exception as exc:
@@ -334,6 +419,8 @@ def main():
     parser.add_argument('--max-merchants', type=int, default=30)
     parser.add_argument('--max-calls', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=30)
+    parser.add_argument('--register-rules', action='store_true',
+                        help='Also register promoted P1 rules; separate approval, default off')
     result = run(parser.parse_args())
     print(json.dumps(result, ensure_ascii=True))
     raise SystemExit(0 if result['status'] == 'success' else 1)

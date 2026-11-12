@@ -1,7 +1,11 @@
 import argparse
 import copy
+from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -68,7 +72,7 @@ def harness(tmp_path, monkeypatch):
     path = tmp_path/'state.json'
     inc.save(path, dict(version=1, history_merchants=[], history_evidence={'synthetic': True}, jobs=[], runs=[]))
     args = argparse.Namespace(state=str(path), db=str(tmp_path/'db.sqlite'), dry_run=False, propose_only=False,
-                              api_config=None, max_merchants=30, max_calls=1, batch_size=30)
+                              api_config=None, max_merchants=30, max_calls=1, batch_size=30, register_rules=True)
     rows = []
     existing = []
     calls = []
@@ -268,23 +272,73 @@ def test_propose_then_manual_change_stops_without_api_writes(harness):
     assert len(calls) == 1 and not writes
 
 
-def test_single_transaction_never_promoted_and_existing_narrow_rule_excluded(harness):
+def test_single_transaction_never_promoted(harness):
     _, rows, existing, calls, writes, _, run, _ = harness
     rows.append(row())
     assert run()['registered_rules'] == 0
     assert not existing
-    source = data([row(merchant_normalized='ruled')])
-    assert not inc.select_increment(source, [rule(optional={'travel_country': 'JP'})], set())[1]
 
 
-@pytest.mark.parametrize('merchant', ['AGODA * HOTEL', '아고다 HOTEL', 'Agoda.hotel'])
-def test_existing_merchant_family_rule_excludes_variants(merchant):
-    from app.normalize import normalize_merchant
-    source = data([row(merchant=merchant, merchant_normalized=normalize_merchant(merchant))])
-    family = rule('agoda', optional={'merchant_family': 'agoda', 'travel_country': 'JP'})
-    report, selected, _ = inc.select_increment(source, [family], set())
+@pytest.mark.parametrize('extra', [
+    {'optional': {'travel_country': 'JP'}},
+    {'optional': {'source_hash': 'a' * 64}},
+    {'optional': {'merchant_family': 'agoda', 'travel_country': 'JP'}},
+    {'conditions': dict(merchant_normalized='cafe', transaction_direction='purchase', card_kind='해외')},
+])
+def test_conditional_rule_is_not_an_exclusion_reason(extra):
+    source = data([row(merchant_normalized='cafe')])
+    report, selected, _ = inc.select_increment(source, [rule('cafe', **extra)], set())
+    assert [m['normalized'] for m in selected] == ['cafe']
+    assert report['general_partition'] == {'new_merchant': 1}
+
+
+def test_wildcard_local_rule_never_excludes_any_merchant():
+    # The operational shape: merchant_normalized='*' + travel_country=local.
+    wildcard = rule('*', item='현지경비', optional={'travel_country': 'local'})
+    source = data([row(transaction_id='a', merchant_normalized='cafe'),
+                   row(transaction_id='b', merchant_normalized='shop')])
+    report, selected, _ = inc.select_increment(source, [wildcard], set())
+    assert [m['normalized'] for m in selected] == ['cafe', 'shop']
+    assert report['general_partition'] == {'new_merchant': 2}
+    assert not inc.has_rule(row(merchant_normalized='cafe'), [wildcard])
+
+
+@pytest.mark.parametrize('item', ['현지경비', '기타경비', '여행경비'])
+def test_explicit_broad_item_rule_is_not_an_exclusion_reason(item):
+    source = data([row(merchant_normalized='cafe')])
+    report, selected, _ = inc.select_increment(source, [rule('cafe', item=item)], set())
+    assert [m['normalized'] for m in selected] == ['cafe']
+    assert report['general_partition'] == {'new_merchant': 1}
+
+
+def test_explicit_specific_item_rule_is_the_only_exclusion():
+    source = data([row(merchant_normalized='cafe')])
+    report, selected, _ = inc.select_increment(source, [rule('cafe', item='식비')], set())
     assert not selected and report['general_partition'] == {'existing_p1_rule': 1}
-    assert not inc.has_rule(row(merchant='AGODAX HOTEL', merchant_normalized='agodax hotel'), [family])
+    assert inc.has_rule(row(merchant_normalized='cafe'), [rule('cafe', item='식비')])
+    assert not inc.has_rule(row(merchant_normalized='other'), [rule('cafe', item='식비')])
+
+
+def test_new_explicit_rule_stops_unprepared_proposal(harness):
+    args, rows, existing, calls, writes, _, run, _ = harness
+    rows.append(row())
+    args.propose_only = True
+    assert run()['status'] == 'success'
+    args.propose_only = False
+    existing.append(rule('synthetic cafe', item='식비'))
+    assert run()['failure_code'] == 'MERCHANT_RULE_CHANGED'
+    assert len(calls) == 1 and not writes
+
+
+def test_rule_registration_requires_explicit_flag(harness):
+    args, rows, existing, calls, writes, _, run, _ = harness
+    args.register_rules = False
+    rows.extend([row(), row(transaction_id='second')])
+    result = run()
+    assert result['status'] == 'success' and result['applied_rows'] == 2
+    assert result['registered_rules'] == 0 and not existing
+    assert not [p for ep, p in writes if ep == '/api/imports/rules']
+    assert all(r['revision'] == 2 for r in rows)
 
 
 def test_concurrent_writer_and_missing_history_fail_closed(harness):
@@ -298,6 +352,45 @@ def test_concurrent_writer_and_missing_history_fail_closed(harness):
     path.unlink()
     with pytest.raises(ValueError, match='VERIFIED_LAYER1_HISTORY_REQUIRED'):
         run()
+    assert not lock.exists()
+
+
+def test_live_recent_lock_is_refused(harness):
+    args, _, _, _, _, path, run, _ = harness
+    lock = path.with_suffix('.lock')
+    lock.write_text(json.dumps(dict(pid=os.getpid(), started_at=datetime.now(timezone.utc).isoformat())),
+                    encoding='utf-8')
+    with pytest.raises(FileExistsError):
+        run()
+    assert json.loads(lock.read_text(encoding='utf-8'))['pid'] == os.getpid()
+
+
+def test_dead_pid_lock_recovered_with_failure_record(harness):
+    args, rows, _, calls, _, path, run, _ = harness
+    rows.append(row())
+    dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+    dead.wait()
+    lock = path.with_suffix('.lock')
+    lock.write_text(json.dumps(dict(pid=dead.pid, started_at=datetime.now(timezone.utc).isoformat())),
+                    encoding='utf-8')
+    assert run()['status'] == 'success' and len(calls) == 1
+    state = json.loads(path.read_text(encoding='utf-8'))
+    recovery = [r for r in state['runs'] if r.get('failure_code') == 'STALE_LOCK_RECOVERED']
+    assert len(recovery) == 1 and recovery[0]['status'] == 'failed'
+    assert recovery[0]['stale_lock']['stale_reason'] == 'pid_not_running'
+    assert not lock.exists()
+
+
+def test_lock_over_age_limit_recovered_with_failure_record(harness):
+    args, rows, _, _, _, path, run, _ = harness
+    rows.append(row())
+    lock = path.with_suffix('.lock')
+    old = datetime.now(timezone.utc) - timedelta(seconds=inc.LOCK_MAX_SECONDS + 60)
+    lock.write_text(json.dumps(dict(pid=os.getpid(), started_at=old.isoformat())), encoding='utf-8')
+    assert run()['status'] == 'success'
+    state = json.loads(path.read_text(encoding='utf-8'))
+    recovery = [r for r in state['runs'] if r.get('failure_code') == 'STALE_LOCK_RECOVERED']
+    assert len(recovery) == 1 and recovery[0]['stale_lock']['stale_reason'] == 'age_limit'
     assert not lock.exists()
 
 
