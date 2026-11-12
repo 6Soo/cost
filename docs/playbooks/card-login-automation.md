@@ -7,6 +7,7 @@
   - 2026-11-13 · 최초 작성 · 소유자 결정("카드사 로그인 자동화 계획 위임 및 착수", "로그인 시도·비밀번호 입력 허용") 반영. 통합 명세 §7의 "카드사 로그인은 자동화하지 않는다"를 이 결정으로 바꾼다.
   - 2026-11-13 · 하이브리드(스크립트+에이전트 보조) 반영 · 소유자 결정("필요한 부분은 에이전트가 ego로 진행할 수 있게 섞는다"). 고정 단계는 스크립트, 막히는 단계(가상키패드·인증서 선택·변화하는 팝업)는 에이전트 보조로 넘긴다. §9 추가.
   - 2026-11-13 · 독립 검수(REQUEST_CHANGES) 결함 수정 · (1) named pipe 접근 제한(현재 사용자 SID만 허용 DACL + 클라이언트 PID 검증, fail closed) (2) 사이트당 1회 시도 가드를 디스크에 영속(`attempts.json` + `reset_attempt.ps1`). 회귀 테스트 추가(§6).
+  - 2026-11-13 · 독립 검수(REQUEST_CHANGES 2차) 수정 · 시도 직전 `attempting` 선기록(비정상 종료로 남으면 차단)·성공 시 `verified` 전환, 저장소 fail-closed(깨짐·읽기/쓰기 실패 시 미시도)·원자적 쓰기(임시 파일 후 교체), 키패드 입력 글자 수 누출 제거("입력 완료"만). 회귀 테스트 추가(§6).
 
 > 근거: [통합 명세](../SPEC.md) §7·§13, [카드 원본 수집 안내](card-downloads.md), [하나·기업 조사 기록](card-login-research-20261111.md). 비밀 값·고객 원문은 이 문서에 적지 않는다.
 
@@ -40,15 +41,16 @@
 흐름:
 1. `site.isLoggedIn(page)` — 이미 로그인되어 있으면 시도 없이 `logged_in`.
 2. 자격 증명 읽기 — 미등록이면 `registration_required`로 멈춤(시도 없음).
-3. **영속 시도 가드** — `attempts.json`에 실패·잠금 경고·추가 인증/에이전트 보조 대기 기록이 있으면 사용자 해제(`reset_attempt.ps1`) 전까지 재실행해도 시도하지 않는다(`attempt_blocked_until_reset`). 성공 기록은 다음 시도를 막지 않는다.
+3. **영속 시도 가드(fail-closed)** — `attempts.json`이 깨졌거나 읽을 수 없으면 시도하지 않고 멈춘다(`error`). 실패·잠금 경고·추가 인증/에이전트 보조 대기, 비정상 종료로 남은 `attempting` 기록이 있으면 사용자 해제(`reset_attempt.ps1`) 전까지 재실행해도 시도하지 않는다(`attempt_blocked_until_reset`). 성공 기록은 다음 시도를 막지 않는다.
 4. 프로세스 내 1회 가드 — 같은 실행에서 재시도 없음(영속 가드와 별개의 이중 보호).
-5. `site.login(page, creds)` 1회 — 성공/실패/추가인증/에이전트 보조 반환.
-6. 에이전트 보조(`agent_assist`) → 화면 캡처 + handoff 상태 파일을 남기고 `task.handOff()` 후 `agent_assist_required`로 멈춤(§9). 에이전트가 보조 단계를 수행한다.
-7. 추가 인증 → `task.handOff()` 후 `additional_auth_required`로 멈추고 무엇을 승인해야 하는지 보고.
-8. 실패 → 재시도 없이 `login_failed`. 비밀번호 오류 횟수 경고가 보이면 즉시 멈춤.
-9. 성공 → 이용내역 조회 화면 진입까지만 확인(`confirmUsageScreen`) 후 로그아웃 → `verified`. 결제·한도·설정·카드 신청 화면에는 들어가지 않는다.
+5. **시도 전 기록(fail-closed)** — 로그인 입력 직전에 `attempting`을 먼저 기록한다. 기록이 실패하면 시도하지 않고 멈춘다(`error`). 쓰기는 원자적(임시 파일에 쓴 뒤 교체).
+6. `site.login(page, creds)` 1회 — 성공/실패/추가인증/에이전트 보조 반환.
+7. 에이전트 보조(`agent_assist`) → 화면 캡처 + handoff 상태 파일을 남기고 `task.handOff()` 후 `agent_assist_required`로 멈춤(§9). 에이전트가 보조 단계를 수행한다.
+8. 추가 인증 → `task.handOff()` 후 `additional_auth_required`로 멈추고 무엇을 승인해야 하는지 보고.
+9. 실패 → 재시도 없이 `login_failed`. 비밀번호 오류 횟수 경고가 보이면 즉시 멈춤.
+10. 성공 → 기록을 `verified`로 바꾸고, 이용내역 조회 화면 진입까지만 확인(`confirmUsageScreen`) 후 로그아웃 → `verified`. 결제·한도·설정·카드 신청 화면에는 들어가지 않는다.
 
-각 시도의 결과(결과 코드·시각·사유 코드, 비밀 없음)는 `D:/WebLedgerHost/data/card-login/attempts.json`에 영속한다(`attempts.mjs`). 사유에 비밀 값이 섞여도 마스킹해 저장한다.
+각 시도의 결과(결과 코드·시각·사유 코드, 비밀 없음)는 `D:/WebLedgerHost/data/card-login/attempts.json`에 영속한다(`attempts.mjs`). 시도 직전 `attempting`을 먼저 남기므로 프로세스가 중간에 죽어도 재실행 시 시도하지 않는다. 사유에 비밀 값이 섞여도 마스킹해 저장한다.
 
 상태는 비밀 값 없이 `statusDir`에 `<issuer>-login-status.json`으로 남긴다(상태 화면 "로그인 필요" 연결용). 반환 상태: `logged_in` / `verified` / `registration_required` / `additional_auth_required` / `agent_assist_required` / `login_failed` / `error`.
 
@@ -72,8 +74,8 @@
 - 합성 검사 통과(모두 임시 폴더 격리, 운영 저장소·상태 파일 접근 없음):
   - 자격 증명 DPAPI 왕복·암호화 파일 평문 부재·named pipe 전달·미등록 경로(`tests/test_card_login_credentials.py`).
   - 로그인 로직·마스킹·영속 가드·추가인증 handOff·상태 파일 평문 부재(`tests/card_login/test_login_logic.mjs`).
-  - 영속 시도 가드: 실패/대기 후 재시도 차단·reset 후 허용·성공 비차단·사유 비밀 마스킹·`reset_attempt.ps1` 실제 실행(`tests/card_login/test_attempt_guard.mjs`).
-  - 에이전트 보조 헬퍼: 키패드 좌표/선택자 클릭(비밀 미출력)·누락 키 일반 오류·DOM 키패드 관찰·assistKeypadEntry 상태·캡처/handoff 평문 부재·agent_assist 흐름(`tests/card_login/test_assist_logic.mjs`).
+  - 영속 시도 가드: 실패/대기 후 재시도 차단·reset 후 허용·성공 비차단·사유 비밀 마스킹·`reset_attempt.ps1` 실제 실행, 시도 전 `attempting` 선기록(비정상 종료 시 재시도 차단)·성공 시 `verified` 전환·깨진/스키마 불일치/읽기 불가/쓰기 불가 저장소 → 미시도(fail-closed)·원자적 쓰기(`tests/card_login/test_attempt_guard.mjs`).
+  - 에이전트 보조 헬퍼: 키패드 좌표/선택자 클릭(비밀·글자 수 미출력)·누락 키 일반 오류·DOM 키패드 관찰·assistKeypadEntry 상태·캡처/handoff 평문 부재·agent_assist 흐름(`tests/card_login/test_assist_logic.mjs`).
   - 파이프 보안 회귀(검수 결함): DACL 현재 사용자 SID만 허용(타 계정·Everyone·익명·합성 타 사용자 SID 거부)·기대 PID 수용·예상 밖 PID 거부(`tests/test_card_login_pipe_security.py`).
 - **실제 로그인 검증 미실행**: 운영 자격 증명 저장소 미등록 + 브라우저 작업 공간 사용자 제어. 사용자가 등록 후 라이브 검증이 필요하다.
 - 국민 입력 단계 코드는 보안 입력(readonly)을 우회하지 않고 `agent_assist`(가상키패드 보조)로 넘기도록 구현됨. 하나·기업 입력 단계는 URL·선택자 확정 전까지 실행되지 않는 틀.
@@ -119,7 +121,7 @@
 3. **가상키패드 입력:**
    - DOM 키패드: `keypad.mjs::observeDomKeypad(page, containerSelector)`가 한 글자 버튼의 중심 좌표로 문자→좌표 배치를 만든다(배치는 비밀 아님).
    - 캔버스/이미지 키패드: 에이전트가 스크린샷에서 키 좌표를 읽어 `keyMap`으로 넘긴다.
-   - 입력 실행: `keypad.mjs::assistKeypadEntry(page, {issuer, field, keyMap|containerSelector})`가 **DPAPI 저장소에서 비밀을 함수 내부에서만 읽어** 좌표 클릭 순서를 만들고 실행한다. 반환은 `{status:'entered', count}`뿐 — 에이전트 대화에는 "입력 완료 N자"만 남는다.
+   - 입력 실행: `keypad.mjs::assistKeypadEntry(page, {issuer, field, keyMap|containerSelector})`가 **DPAPI 저장소에서 비밀을 함수 내부에서만 읽어** 좌표 클릭 순서를 만들고 실행한다. 반환은 `{status:'entered'}`뿐 — 에이전트 대화에는 "입력 완료"만 남기고 글자 수는 남기지 않는다(길이 누출 방지).
 4. **인증서 선택(Delfino G3):** 인증서 선택 HTML 창을 snapshot으로 관찰해 공식 선택·확인 버튼을 클릭한다. 인증서 비밀번호가 필요하면 `assistKeypadEntry(..., {field:'certPassword'})`로 내부 입력한다.
 5. **추가 인증:** 휴대폰·OTP·간편인증은 에이전트가 대신 승인하지 않는다. `additional_auth_required`로 멈추고 사용자에게 무엇을 승인해야 하는지 알린다.
 6. **복귀:** 보조 단계가 끝나면 스크립트 흐름(성공 판정·조회 화면 확인·로그아웃)으로 돌아간다. handOff로 사용자 제어가 넘어간 작업 공간은 에이전트가 자동으로 되찾지 않는다(스킬 규칙).
@@ -128,6 +130,6 @@
 
 - 비밀 값은 **스크립트 함수 내부에서만** DPAPI 저장소에서 읽는다(`credentials.mjs::readCredentials` → 일회성 파이프). 에이전트가 비밀 문자열을 직접 읽거나 다루지 않는다.
 - 에이전트는 **클릭 좌표만 계산**하고 입력 문자열(비밀)은 출력·로그·대화·상태 파일·캡처 파일명에 남기지 않는다. 키패드 클릭 순서 자체가 비밀이므로 순서를 설명하지 않는다.
-- 에이전트 대화에 남는 것은 "입력 완료 N자"(`{status, count}`)뿐이다. 누락 키 오류도 어떤 문자가 누락됐는지 노출하지 않는 일반 코드(`KEYPAD_KEY_MISSING`)다.
+- 에이전트 대화에 남는 것은 "입력 완료"(`{status}`)뿐이며 글자 수는 남기지 않는다(길이 누출 방지). 누락 키 오류도 어떤 문자가 누락됐는지 노출하지 않는 일반 코드(`KEYPAD_KEY_MISSING`)다.
 - 캡처·handoff 상태 파일은 비공개 폴더에만 저장하며 파일명·내용에 비밀을 넣지 않는다(`handoff.mjs`).
 - 보안 프로그램(ASTx·Delfino G3·Veraport 등)을 끄거나 우회하지 않는다. 공식 가상키패드·인증서 창을 정상 사용자 경로로 조작한다.

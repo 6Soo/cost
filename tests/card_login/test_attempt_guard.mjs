@@ -1,15 +1,16 @@
 // 합성 전용 영속 시도 가드 검사. 실제 사이트·운영 상태 파일 접근 없음(임시 폴더만 사용).
 // 검증: 실패/대기 기록 후 재시도 차단, reset 후 허용, 성공은 비차단, 사유 비밀 마스킹,
-//       reset_attempt.ps1 실제 실행으로 사이트 기록 해제.
+//       시도 전 'attempting' 기록(비정상 종료 시 차단), 깨진/읽기 불가/쓰기 불가 저장소 → 미시도(fail-closed),
+//       원자적 쓰기, reset_attempt.ps1 실제 실행으로 사이트 기록 해제.
 // 실행: node tests/card_login/test_attempt_guard.mjs → PASS/FAIL 줄 + 요약, 실패 시 nonzero exit.
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, chmod, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  readAttempt, isBlocked, recordAttempt, resetAttempt, ATTEMPTS_SCHEMA,
+  readAttempt, isBlocked, beginAttempt, recordAttempt, resetAttempt, ATTEMPTS_SCHEMA,
 } from '../../tools/card_login/attempts.mjs';
 import { ensureCardLogin, STATUS, _resetAttemptGuard } from '../../tools/card_login/common.mjs';
 
@@ -119,6 +120,114 @@ await test('reset_attempt.ps1 removes issuer entry (real script)', () => withTem
   assert.ok(!Object.prototype.hasOwnProperty.call(data.issuers, 'kb'), 'kb not removed');
   assert.ok(Object.prototype.hasOwnProperty.call(data.issuers, 'hana'), 'hana should remain');
   assert.equal(await isBlocked('kb', { path: attemptsPath }), false);
+}));
+
+await test('beginAttempt writes attempting and blocks', () => withTemp(async ({ attemptsPath }) => {
+  const rec = await beginAttempt('kb', { path: attemptsPath });
+  assert.equal(rec.lastOutcome, 'attempting');
+  assert.equal(rec.blocked, true);
+  assert.equal(await isBlocked('kb', { path: attemptsPath }), true);
+}));
+
+await test('success leaves verified, not attempting', () => withTemp(async ({ dir, attemptsPath }) => {
+  const env = { attemptsPath, assistDir: path.join(dir, 'assist'), statusDir: path.join(dir, 'status') };
+  _resetAttemptGuard();
+  const site = fakeSite({ login: async () => ({ outcome: 'success', detail: 'ok' }) });
+  const res = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(res.status, STATUS.VERIFIED);
+  const after = await readAttempt('kb', { path: attemptsPath });
+  assert.equal(after.lastOutcome, 'verified');
+}));
+
+await test('attempting leftover (abnormal exit) -> re-run does not attempt until reset', () => withTemp(async ({ dir, attemptsPath }) => {
+  const env = { attemptsPath, assistDir: path.join(dir, 'assist'), statusDir: path.join(dir, 'status') };
+  // 비정상 종료 모사: 시도 전 기록만 남기고 결과 기록 없이 중단.
+  await beginAttempt('kb', { path: attemptsPath });
+  let loginCalls = 0;
+  const site = fakeSite({ login: async () => { loginCalls += 1; return { outcome: 'success' }; } });
+  _resetAttemptGuard();
+  const res = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(res.status, STATUS.LOGIN_FAILED);
+  assert.equal(res.reason, 'attempt_blocked_until_reset');
+  assert.equal(loginCalls, 0);
+  _resetAttemptGuard();
+  const again = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(again.reason, 'attempt_blocked_until_reset');
+  assert.equal(loginCalls, 0);
+  // 사용자 해제 후 허용.
+  await resetAttempt('kb', { path: attemptsPath });
+  _resetAttemptGuard();
+  const after = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(after.status, STATUS.VERIFIED);
+  assert.equal(loginCalls, 1);
+}));
+
+await test('corrupt attempts.json -> no attempt (fail-closed)', () => withTemp(async ({ dir, attemptsPath }) => {
+  await writeFile(attemptsPath, '{ this is not valid json', 'utf8');
+  const env = { attemptsPath, assistDir: path.join(dir, 'assist'), statusDir: path.join(dir, 'status') };
+  let loginCalls = 0;
+  const site = fakeSite({ login: async () => { loginCalls += 1; return { outcome: 'success' }; } });
+  _resetAttemptGuard();
+  const res = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(res.status, STATUS.ERROR);
+  assert.equal(res.reason, 'attempts_store_unreadable');
+  assert.equal(loginCalls, 0);
+}));
+
+await test('schema-mismatch attempts.json -> no attempt (fail-closed)', () => withTemp(async ({ dir, attemptsPath }) => {
+  await writeFile(attemptsPath, JSON.stringify({ schema: 'wrong-schema', issuers: {} }), 'utf8');
+  const env = { attemptsPath, assistDir: path.join(dir, 'assist'), statusDir: path.join(dir, 'status') };
+  let loginCalls = 0;
+  const site = fakeSite({ login: async () => { loginCalls += 1; return { outcome: 'success' }; } });
+  _resetAttemptGuard();
+  const res = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(res.status, STATUS.ERROR);
+  assert.equal(res.reason, 'attempts_store_unreadable');
+  assert.equal(loginCalls, 0);
+}));
+
+await test('unwritable store path (parent is file) -> no attempt (fail-closed)', () => withTemp(async ({ dir }) => {
+  const blocker = path.join(dir, 'blocker');
+  await writeFile(blocker, 'x', 'utf8');
+  const attemptsPath = path.join(blocker, 'attempts.json'); // 부모가 파일 → 읽기/쓰기 불가
+  const env = { attemptsPath, assistDir: path.join(dir, 'assist'), statusDir: path.join(dir, 'status') };
+  let loginCalls = 0;
+  const site = fakeSite({ login: async () => { loginCalls += 1; return { outcome: 'success' }; } });
+  _resetAttemptGuard();
+  const res = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  assert.equal(res.status, STATUS.ERROR);
+  // 플랫폼에 따라 읽기 또는 쓰기 단계에서 실패한다. 어느 쪽이든 시도하지 않고 멈춰야 한다.
+  assert.ok(['attempts_store_unreadable', 'attempt_record_failed'].includes(res.reason), `unexpected reason ${res.reason}`);
+  assert.equal(loginCalls, 0);
+}));
+
+await test('record write failure -> no attempt (fail-closed)', () => withTemp(async ({ dir, attemptsPath }) => {
+  // 읽기는 성공하도록 유효한 저장소를 만든 뒤 읽기 전용으로 바꿔 교체(쓰기)를 실패시킨다.
+  await recordAttempt('kb', { outcome: 'verified', reason: 'ok' }, { path: attemptsPath });
+  await chmod(attemptsPath, 0o444);
+  const env = { attemptsPath, assistDir: path.join(dir, 'assist'), statusDir: path.join(dir, 'status') };
+  let loginCalls = 0;
+  const site = fakeSite({ login: async () => { loginCalls += 1; return { outcome: 'success' }; } });
+  _resetAttemptGuard();
+  let res;
+  try {
+    res = await ensureCardLogin({ task: null, page: {}, site, credentials: creds, ...env });
+  } finally {
+    await chmod(attemptsPath, 0o666); // 임시 폴더 정리용 권한 복원
+  }
+  assert.equal(res.status, STATUS.ERROR);
+  assert.equal(res.reason, 'attempt_record_failed');
+  assert.equal(loginCalls, 0);
+}));
+
+await test('atomic write leaves valid JSON and no temp file', () => withTemp(async ({ dir, attemptsPath }) => {
+  await beginAttempt('kb', { path: attemptsPath });
+  await recordAttempt('kb', { outcome: 'verified', reason: 'ok' }, { path: attemptsPath });
+  const data = JSON.parse(await readFile(attemptsPath, 'utf8'));
+  assert.equal(data.schema, ATTEMPTS_SCHEMA);
+  assert.equal(data.issuers.kb.lastOutcome, 'verified');
+  const files = await readdir(dir);
+  assert.ok(!files.some((f) => f.includes('.tmp-')), 'temp file left behind');
 }));
 
 console.log(`card_attempt_guard: ${failures === 0 ? 'clean' : failures + ' failures'}`);

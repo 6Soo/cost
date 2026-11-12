@@ -70,12 +70,12 @@ async function withTemp(fn) {
   try { await fn(dir); } finally { await rm(dir, { recursive: true, force: true }); }
 }
 
-await test('enterByCoordinates clicks each char, returns count, no secret in result', async () => {
+await test('enterByCoordinates clicks each char, no count/secret in result', async () => {
   const page = fakePage();
   const res = await enterByCoordinates(page, SECRET_PW, keyMapFor(SECRET_PW), { delayMs: 0 });
   assert.equal(res.entered, true);
-  assert.equal(res.count, [...SECRET_PW].length);
-  assert.equal(page.clicks.length, res.count);
+  assert.equal(page.clicks.length, [...SECRET_PW].length);
+  assert.ok(!('count' in res), 'length leaked via count');
   assert.ok(!JSON.stringify(res).includes(SECRET_PW), 'secret in result');
   for (const c of page.clicks) assert.ok(!String(c.label).includes(SECRET_PW), 'secret in click label');
 });
@@ -88,10 +88,11 @@ await test('enterByCoordinates missing key throws generic error (no char leak)',
   );
 });
 
-await test('enterBySelectors clicks per-char selectors, count correct', async () => {
+await test('enterBySelectors clicks per-char selectors, no count in result', async () => {
   const page = fakePage();
   const res = await enterBySelectors(page, 'abc', (ch) => `#key-${ch}`, { delayMs: 0 });
-  assert.equal(res.count, 3);
+  assert.equal(res.entered, true);
+  assert.ok(!('count' in res), 'length leaked via count');
   assert.deepEqual(page.clicks.map((c) => c.sel), ['#key-a', '#key-b', '#key-c']);
 });
 
@@ -108,15 +109,17 @@ await test('observeDomKeypad maps single-char buttons, ignores multi-char', asyn
   assert.ok(!('확인' in map));
 });
 
-await test('assistKeypadEntry entered (keyMap provided), no secret output', async () => {
+await test('assistKeypadEntry entered (keyMap provided), no count/secret output', async () => {
   const page = fakePage();
   const res = await assistKeypadEntry(page, {
     issuer: 'kb', keyMap: keyMapFor(SECRET_PW),
     readCredentialsImpl: async () => creds,
   });
   assert.equal(res.status, 'entered');
-  assert.equal(res.count, [...SECRET_PW].length);
-  assert.ok(!JSON.stringify(res).includes(SECRET_PW));
+  assert.deepEqual(Object.keys(res), ['status'], 'result must only carry status (no length)');
+  assert.ok(!('count' in res), 'length leaked via count');
+  assert.ok(!JSON.stringify(res).includes(SECRET_PW), 'secret in result');
+  assert.ok(!JSON.stringify(res).includes(String([...SECRET_PW].length)), 'length leaked numerically');
 });
 
 await test('assistKeypadEntry registration_required when not registered', async () => {

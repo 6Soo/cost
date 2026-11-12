@@ -2,13 +2,14 @@
 // 수집 스크립트가 붙는 인터페이스: ensureCardLogin({ task, page, site, ... })
 //   흐름: 로그인 확인 → 안 돼 있으면 자격 증명 읽어 1회 시도 → 실패/추가 인증/에이전트 보조면 멈춤.
 // 보호: 사이트당 로그인 시도 1회(재시도 없음, 계정 잠금 방지).
-//   영속 가드(attempts.json): 실패·잠금 경고·추가 인증/에이전트 보조 대기로 끝난 사이트는
-//   사용자가 reset_attempt.ps1 로 해제하기 전까지 재실행해도 시도하지 않는다. 성공은 막지 않는다.
-//   비밀 값은 로그·상태·시도 기록에 쓰지 않는다.
+//   영속 가드(attempts.json, fail-closed): 시도 직전 'attempting'을 먼저 기록하고 성공하면 'verified'로 바꾼다.
+//   실패·잠금 경고·추가 인증/에이전트 보조 대기, 비정상 종료로 남은 'attempting'은 사용자가
+//   reset_attempt.ps1 로 해제하기 전까지 재실행해도 시도하지 않는다. 성공은 막지 않는다.
+//   저장소가 깨졌거나 읽기·쓰기에 실패하면 시도하지 않고 멈춘다. 비밀 값은 로그·상태·시도 기록에 쓰지 않는다.
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { readCredentials, safeStringify } from './credentials.mjs';
-import { isBlocked, recordAttempt, DEFAULT_ATTEMPTS_PATH } from './attempts.mjs';
+import { isBlocked, beginAttempt, recordAttempt, DEFAULT_ATTEMPTS_PATH } from './attempts.mjs';
 import { captureAssistScreenshot, writeAgentHandoff, DEFAULT_ASSIST_DIR } from './handoff.mjs';
 
 export const STATUS = Object.freeze({
@@ -73,18 +74,25 @@ export async function ensureCardLogin({
   }
   secrets.push(creds.id, creds.password, creds.certPassword);
 
-  // 3) 영속 가드: 이전 실패/대기 기록이 있으면 사용자 해제 전까지 시도하지 않는다.
+  // 3) 영속 가드(fail-closed): 저장소가 깨졌거나 읽을 수 없으면 시도하지 않고 멈춘다.
+  //    이전 실패/대기/비정상 종료('attempting') 기록이 있으면 사용자 해제 전까지 시도하지 않는다.
   let blocked = false;
-  try { blocked = await isBlocked(issuer, { path: attemptsPath }); } catch { blocked = false; }
+  try { blocked = await isBlocked(issuer, { path: attemptsPath }); }
+  catch { return finish(STATUS.ERROR, 'attempts_store_unreadable'); }
   if (blocked) return finish(STATUS.LOGIN_FAILED, 'attempt_blocked_until_reset');
 
   // 4) 프로세스 내 1회 가드.
   if (attempted.has(issuer)) {
     return finish(STATUS.LOGIN_FAILED, 'attempt_already_used_this_run');
   }
+
+  // 5) 시도 전 기록(fail-closed): 로그인 입력 직전에 'attempting'을 먼저 남긴다.
+  //    기록이 실패하면 시도하지 않는다. 비정상 종료로 'attempting'이 남으면 재실행 시 차단된다.
+  try { await beginAttempt(issuer, { path: attemptsPath }); }
+  catch { return finish(STATUS.ERROR, 'attempt_record_failed'); }
   attempted.add(issuer);
 
-  // 5) 1회 로그인 시도.
+  // 6) 1회 로그인 시도.
   let result;
   try {
     result = await site.login(page, creds);
@@ -126,7 +134,7 @@ export async function ensureCardLogin({
     return finish(STATUS.LOGIN_FAILED, result.detail || 'login_failed');
   }
 
-  // 6) 성공: 이용내역 조회 화면 진입까지만 확인하고 로그아웃. 성공 기록은 다음 시도를 막지 않는다.
+  // 7) 성공: 이용내역 조회 화면 진입까지만 확인하고 로그아웃. 성공 기록('verified')은 다음 시도를 막지 않는다.
   let usageConfirmed = false;
   try { usageConfirmed = await site.confirmUsageScreen(page); } catch { usageConfirmed = false; }
   if (logoutAfterVerify && typeof site.logout === 'function') {
