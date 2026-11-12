@@ -52,6 +52,11 @@ class ReviewBrowserFixture(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self._prev_db = os.environ.get("WEBLEDGER_DB")
         self._prev_config = os.environ.get(real_review.CONFIG_ENV)
+        # The /review screen is the legacy entry, served only while the card flow
+        # is off. Pin it so an ambient WEBLEDGER_CARD_FLOW left by another test
+        # cannot redirect these pages to /cards/all (order-independent).
+        self._prev_card_flow = os.environ.get("WEBLEDGER_CARD_FLOW")
+        os.environ["WEBLEDGER_CARD_FLOW"] = "0"
         os.environ["WEBLEDGER_DB"] = str(self.tmp / "browser.sqlite")
         self.manifest = fx.write_case(self.tmp, rows=self.rows,
                                       injection=self.injection)
@@ -95,7 +100,8 @@ class ReviewBrowserFixture(unittest.TestCase):
         except Exception:
             pass
         for name, value in (("WEBLEDGER_DB", self._prev_db),
-                            (real_review.CONFIG_ENV, self._prev_config)):
+                            (real_review.CONFIG_ENV, self._prev_config),
+                            ("WEBLEDGER_CARD_FLOW", self._prev_card_flow)):
             if value is None:
                 os.environ.pop(name, None)
             else:
@@ -230,7 +236,7 @@ class ReviewBrowserTests(ReviewBrowserFixture):
         # and the counts
         counts = page.inner_text("#counts")
         self.assertIn(f"검토 원천 {self.rows}건", counts)
-        self.assertIn(f"보류 {self.rows}건", counts)
+        self.assertIn(f"카드 지출 자료 확인 {self.rows}건", counts)
 
     def test_no_example_board_is_shown_anywhere_on_the_screen(self):
         page = self.open_review()
@@ -642,7 +648,7 @@ class ReviewBrowserTests(ReviewBrowserFixture):
             timeout=SETTLE_MS)
         counts = second.inner_text("#counts")
         self.assertIn("거부 1건", counts)
-        self.assertIn(f"보류 {self.rows - 1}건", counts)
+        self.assertIn(f"카드 지출 자료 확인 {self.rows - 1}건", counts)
 
     def test_a_refused_model_clears_the_screen_and_stops_polling(self):
         page = self.open_review()
@@ -675,9 +681,12 @@ class InjectionBrowserTests(ReviewBrowserFixture):
         page.on("pageerror", lambda exc: errors.append(str(exc)))
         body = page.inner_text("body")
         self.assertIn(fx.INJECTION, body)
-        # the tag is text, not an element: the document has no such node
+        # the tag is text, not an element: the document has no such node.
+        # Three legitimate scripts: the review logic plus the shared shell's
+        # theme bootstrap and action-icon scripts (wave3 #799). An injected
+        # <script> would add a fourth.
         self.assertEqual(
-            page.evaluate("document.querySelectorAll('script').length"), 2)
+            page.evaluate("document.querySelectorAll('script').length"), 3)
         self.assertFalse(page.locator('script').evaluate_all(
             "(nodes, value) => nodes.some(node => node.textContent.includes(value))",
             fx.INJECTION))
@@ -725,7 +734,7 @@ class LargeSetBrowserTests(ReviewBrowserFixture):
         self.wait_status(page, "결정을 저장했어요")
         self.assertIn("결정 1건", page.inner_text("#counts"))
         # every other row was sent blank, and stayed blank
-        self.assertIn(f"보류 {self.rows - 1}건", page.inner_text("#counts"))
+        self.assertIn(f"카드 지출 자료 확인 {self.rows - 1}건", page.inner_text("#counts"))
 
     def test_search_finds_a_row_and_keeps_the_choice(self):
         page = self.open_review()

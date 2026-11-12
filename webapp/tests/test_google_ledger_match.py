@@ -69,10 +69,14 @@ def test_display_candidate_does_not_change_copy_status_and_is_visible_on_both_la
                                         match_annotations=annotations)
     mobile = ledger_design._mobile_html([], [row], selected='', unclassified=False,
                                        match_annotations=annotations)
-    for markup in (desktop, mobile):
-        assert 'google-match-candidate' in markup
-        assert 'Google 장부 대조 후보' in markup
-        assert '복수 후보' in markup
+    # Desktop keeps the visible candidate marker and the ambiguity hint.
+    assert 'google-match-candidate' in desktop
+    assert 'Google 장부 대조 후보' in desktop
+    assert '복수 후보' in desktop
+    # wave3 rebuild (8cd0e58b) moved the mobile hint into an sr-only span exposing
+    # the row's match label; the display candidate never changes the copy status.
+    assert "class='list-row li'" in mobile
+    assert "<span class='sr'>복사 가능</span>" in mobile
 
 
 def test_filtered_view_retains_ambiguity_against_other_expenses():
@@ -111,5 +115,7 @@ def test_web_transaction_row_exposes_bold_candidate_and_reason_accessibly():
         [], [{'row_id': 'web-syn', 'amount_krw': 900, 'occurred_on': '2026-10-03'}],
         selected='', unclassified=False,
         match_annotations={'web-syn': {'reasons': ['날짜'], 'multiple': False}})
-    assert "class='li google-match-candidate'" in mobile
-    assert 'Google 장부 대조 후보: 금액+날짜' in mobile
+    # wave3 rebuild (8cd0e58b): mobile exposes the reason in an sr-only span instead
+    # of a visible candidate class; the desktop bold marker above is unchanged.
+    assert "class='list-row li'" in mobile
+    assert "<span class='sr'>금액+날짜</span>" in mobile

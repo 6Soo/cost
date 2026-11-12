@@ -62,14 +62,15 @@ def test_recording_does_not_turn_automatic_classification_into_a_user_decision(s
     data=card_catalog.catalog(stored,{})
     data['rows']=[row for row in data['rows'] if row['transaction_id']==tid]
     assert data['rows'][0]['decided'] and data['rows'][0]['decided_at'] is None
-    markup=card_catalog.render_html(data,{})
-    assert '완료 · '+label in markup and '완료 · 직접' not in markup
+    # wave3 #799 retired the duplicate catalog renderer; the provenance label lives in the row projection.
+    action=data['rows'][0]['next_action']
+    assert action['state_label']=='완료' and action['source_label']==label and action['source_label']!='직접'
     assert stored.conn.total_changes==before
     stored.conn.execute("UPDATE transactions SET classification_source='user_decision',decided_at='2026-11-02T00:00:00Z' WHERE transaction_id=?",(tid,))
     stored.conn.commit()
     data=card_catalog.catalog(stored,{})
     data['rows']=[row for row in data['rows'] if row['transaction_id']==tid]
-    assert '완료 · 직접' in card_catalog.render_html(data,{})
+    assert data['rows'][0]['next_action']['source_label']=='직접'
 
 
 def test_search_filters_and_pagination_preserve_zero_and_original_amount(stored):
@@ -78,12 +79,10 @@ def test_search_filters_and_pagination_preserve_zero_and_original_amount(stored)
     assert card_catalog.catalog(stored, {'card': ["' OR 1=1 --"]})['total'] == 0
     result = card_catalog.catalog(stored, {'page': ['999']})
     assert result['page'] == 1 and result['rows']
-    markup = card_catalog.render_html(result, {})
-    assert '37,000' in markup and '<h1>전체 카드 거래 검색</h1>' in markup
-    assert '이 자료에서 검토' not in markup and '모든 자료</a>' not in markup
-    assert '전체 카드 내역' not in markup
+    # wave3 #799: the duplicate catalog renderer is retired; it now redirects to /cards/all keeping the query.
+    markup = card_catalog.render_html(result, {'card': ['1234']})
+    assert "href='/cards/all?card=1234'" in markup
     assert '기록 가능' not in markup
-    assert 'batch=' in markup
 
 
 def test_all_pages_are_reachable_without_repeating_transactions(stored):
@@ -120,6 +119,6 @@ def test_date_sort_month_filter_and_links_are_read_only(stored, monkeypatch):
     result = card_catalog.catalog(stored, query)
     markup = card_catalog.render_html(result, query)
     assert 'month=2026-02' in markup and 'sort=asc' in markup and 'card=1234' in markup
-    assert '<thead' in markup and "class='header-button'" in markup
-    assert "aria-label='거래일'" in markup and '<select' not in markup
+    # wave3 #799: the table itself moved to /cards/all; the retired stub only preserves the query.
+    assert "href='/cards/all?" in markup and '<select' not in markup
     assert stored.conn.total_changes == before

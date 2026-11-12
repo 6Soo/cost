@@ -94,7 +94,9 @@ def test_income_requires_canonical_copy_and_marks_unverified(income_context, mon
     snapshot['trips'][0]['copies']['archive'] = None
     snapshot['trips'][0]['copies']['main']['income']['verified'] = False
     body = page.trip_income_html('trip-syn')
-    assert '수입 확인 필요' in body and '확정 수입 1,000원' not in body
+    # PR-7 copy polish (9c0003a9): unverified income asks to check the source and
+    # never shows the confirmed total message ('수입 1,000원') used when verified.
+    assert '수입 자료를 확인해 주세요' in body and '수입 1,000원' not in body
 
 
 def test_verified_income_remains_visible_when_only_expense_block_is_unverified(income_context):
