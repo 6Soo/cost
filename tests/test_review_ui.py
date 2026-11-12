@@ -19,15 +19,27 @@ def _html():
     return render_review_ui()
 
 
-def _script(html_text):
+def _scripts(html_text):
+    # The screen carries two inline blocks: the review logic, then the shared
+    # shell theme bootstrap (wave3 #799). No external or attributed script tags.
     start_tag = "<script>"
     end_tag = "</script>"
     assert start_tag in html_text
     parts = html_text.split(start_tag)
-    assert len(parts) == 2
-    tail = parts[1].split(end_tag)
-    assert len(tail) == 2
-    return tail[0]
+    assert len(parts) == 3
+    bodies = []
+    for part in parts[1:]:
+        tail = part.split(end_tag)
+        assert len(tail) == 2
+        bodies.append(tail[0])
+    return bodies
+
+
+def _script(html_text):
+    bodies = _scripts(html_text)
+    assert "/api/model" in bodies[0]
+    assert "cost-theme" in bodies[1]
+    return bodies[0]
 
 
 def test_returns_html_doctype():
@@ -44,7 +56,7 @@ def test_pure_static_deterministic():
 
 def test_korean_labels_present():
     html_text = _html()
-    labels = ["로컬 검토 화면", "보류", "거부", "승인", "내보내기",
+    labels = ["로컬 검토 화면", "지금은 선택하지 않음", "거부", "승인", "내보내기",
         "원본 정보", "후보 목록", "결정 선택", "주의", "다시 불러오기"]
     for label in labels:
         assert label in html_text
@@ -74,10 +86,18 @@ def test_safe_dynamic_rendering():
     html_text = _html()
     assert "textContent" in html_text
     banned = ["innerHTML", "outerHTML", "insertAdjacentHTML",
-        "document.write", "localStorage", "sessionStorage",
-        "err.message", "String(err)"]
+        "document.write", "err.message", "String(err)"]
     for token in banned:
         assert token not in html_text
+    main_script, theme_script = _scripts(html_text)
+    # The review logic itself never reads or writes browser storage.
+    for token in ("localStorage", "sessionStorage"):
+        assert token not in main_script
+    # Storage use is confined to the shared theme bootstrap (wave3 #799) and
+    # only ever persists the theme choice key, never review data.
+    assert "sessionStorage" not in html_text
+    assert html_text.count("localStorage") == theme_script.count("localStorage")
+    assert "key='cost-theme'" in theme_script
 
 
 def test_no_fetch_outside_localhost():
@@ -89,9 +109,9 @@ def test_no_fetch_outside_localhost():
 
 def test_decision_options_blank_reject_approve():
     html_text = _html()
-    tokens = ["REJECT", "APPROVE:", "보류", "거부", "승인",
+    tokens = ["REJECT", "APPROVE:", "지금은 선택하지 않음", "거부", "승인",
         "radio", "checked", "disabled", "insufficient",
-        "추가 확인 필요"]
+        "추가 자료 확인"]
     for token in tokens:
         assert token in html_text
 
@@ -108,7 +128,7 @@ def test_renders_all_rows_with_original_and_candidate_panels():
 def test_insufficient_or_empty_disables_approve_with_confirmation():
     html_text = _html()
     tokens = ["insufficient", "후보가 없습니다", "승인이 비활성화됩니다",
-        "추가 확인 필요", "백엔드에서 다시 확인합니다"]
+        "추가 자료 확인", "서버에서 다시 확인합니다"]
     for token in tokens:
         assert token in html_text
 
@@ -133,7 +153,10 @@ def test_errors_are_korean_without_raw_details():
 def test_buttons_large_and_readable():
     html_text = _html()
     assert "min-height" in html_text
-    assert "52px" in html_text
+    # Controls size from the shared shell token (wave3 #799), whose floor is the
+    # 44px accessible minimum rather than a hard-coded 52px.
+    assert "min-height:var(--ui-control)" in html_text
+    assert "--ui-control:var(--shell-control-min,44px)" in html_text
     assert "내보내기 및 다운로드" in html_text
 
 
