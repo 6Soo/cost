@@ -1,3 +1,13 @@
+## 2026-11-13 AI 분기 검수 교정 반영 도구 — 미리보기·digest·백업 게이트·원복, PR 검수 범위
+
+- 분기 검수에서 AI 검수자가 확정한 교정 목록(비공개 manifest)을 운영 장부에 반영하는 유지보수 도구를 만들었다. 브랜치 `feat/ai-review-apply-tool-20261113`. 서버 인증 API(`app/classification_correction.py`)가 막는 내부 장부 행의 여행 이동을 오프라인 단일 작성자 게이트에서 수행하기 위해서다. 구조는 준비 비용 정리 도구(`app/preparation_cost_repair.py`·`tools/repair_preparation_cost_grouping.py`)와 같은 읽기 전용 미리보기 → digest → 신선 백업·writer 정지 게이트 `--apply` → 감사 이력 → `--restore`다.
+- 신규 파일: `app/ai_review_repair.py`(preview/replay/apply/restore_preview/restore), `tools/apply_ai_quarter_review.py`(CLI), `tests/test_ai_review_repair.py`(합성 38건), `docs/playbooks/ai-review-apply.md`(절차서). `config/test-impact-map.json`에 `ai-quarter-review-apply` 그룹 매핑. 요청·감사 이름공간은 분리(`ai_quarter_review`·`card.ai_review_corrected`·`card.ai_review_restored`).
+- 대상 선정은 코드가 아니라 비공개 manifest가 한다. manifest가 레포 작업 폴더 안에 있으면 거부(`MANIFEST_IN_REPOSITORY`). 같은 `transaction_id` 중복은 전체 실패(`DUPLICATE_CORRECTION`). 반영 값은 `item`·`display_tab_id`·`trip_id`(여행이면 같은 tab_id, 분기면 빈 값)·`classification_source='ai_inference'`·`classification_state='classified'`·근거 `AI_REVIEW · {model·provider·effort·review_id} · basis`. 사용자 결정 표기·`decided_at`은 쓰지 않는다. 기존 장부·화면 행만 `_sync`로 동기화(새 행 없음). `_sync`가 출처·근거까지 화면 payload에 반영함을 읽어 확인했고 부족분은 없어 공용 함수는 바꾸지 않았다.
+- 보호: 수동·보류·회사 제외·중복/충돌/파서·닫힌 카드 기간·투영 불일치·stale·잘못된 목적지·NO_CHANGE를 사유별로 제외. 현재 귀속이 열린 분기(열린 여행 또는 2026Q3 이후 분기)가 아니면 닫힌 기간으로 제외(닫힌 분기 여행에서 꺼내거나 넣지 않음). 분기 목적지는 결제일 분기(`observed_quarter`)와 같고 2026Q3 이후여야 하며 항목을 `분기 기타비용`으로 강제. 정식 환불 묶음은 모든 구성원이 manifest에 같은 목적지로 있을 때만 함께 이동(아니면 `REFUND_*`로 묶음 전체 제외, 초과 환불·추론 연결·불완전 묶음 포함). 금액·부호·원문·ID·금융 연결 불변, `_financial_state` 전후 동일 검사.
+- 검증: 표적 `python -m pytest tests/test_ai_review_repair.py -q` 38건 통과. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` PASSED 537건 실행·건너뜀 0(base `abaa5ba3`). 최종 SHA·판정은 PR 기록을 따른다. **운영 반영·사본 예행 미실행** — 합성 자료만 검증했다. 운영 DB·포트 접근 없음, 병합·배포·Google 쓰기 없음.
+- 지시와 다르게 한 점: (1) 현재 귀속 필드(`trip_id`·`display_tab_id`) 자체 불일치는 `PROJECTION_ATTRIBUTION_DISAGREEMENT`, 단일 귀속이 닫힌 분기면 `CLOSED_CARD_PERIOD`로 분리(형제 도구와 의미 일치). (2) `quarter_increases`는 분기별 순증가(들어옴−나감, 음수 가능)로 보고 — 이 도구는 분기→여행 이동도 있어 준비 비용 도구의 일방향 집계와 다르다. (3) 분기→분기 이동도 허용하며 `kinds`에 `quarter_to_quarter`로 집계.
+- 남은 일(헤드): 구현자와 다른 Claude opus 세션의 독립 검수 후 병합. 절차서 `docs/playbooks/README.md` 표는 다른 PR이 고치는 중이라 건드리지 않았다(새 절차서는 폴더에 추가만). 막힌 점 없음.
+
 ## 2026-11-13 카드사 로그인 자동화 — 검수 결함 수정(1·2차) + 하이브리드(스크립트+에이전트 보조), 라이브 검증은 사용자 등록 후
 
 - 소유자 결정(2026-11-13): 카드사 3곳 법인/기업 조회 로그인 자동화 위임·착수, 로그인 시도·비밀번호 입력 허용, "필요한 부분은 에이전트가 ego로 진행할 수 있게 섞는다"(하이브리드). 통합 명세 §7의 "카드사 로그인은 자동화하지 않는다"를 결정 기록 D29로 대체했다. 대상은 국민 기업카드·하나카드·IBK 기업은행 카드의 이용내역 조회 로그인이다.
