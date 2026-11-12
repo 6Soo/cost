@@ -44,7 +44,7 @@ def load_context(conn, host):
     return context(read_flow(conn, host))
 
 
-def load_review_evidence(conn, host, trips, cache_path=None):
+def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
     """Read registered booking/mail sources locally; publish aggregate counts only.
 
     These facts guide expense attribution. They never create financial links,
@@ -52,7 +52,9 @@ def load_review_evidence(conn, host, trips, cache_path=None):
     """
     from collections import defaultdict
     from app.provisional_assignment import ota_service_period_candidate
-    flow = read_flow(conn, host)
+    if report is not None and cache_path is not None:
+        raise ValueError('SUPPLIED_REPORT_CACHE_NOT_SUPPORTED')
+    flow = read_flow(conn, host) if report is None else None
     stamp = None
     if cache_path is not None:
         cache_path = cache_path.resolve()
@@ -76,7 +78,7 @@ def load_review_evidence(conn, host, trips, cache_path=None):
             if saved.get('stamp') != stamp:
                 raise ValueError('EVIDENCE_CACHE_STALE')
             return saved['evidence'], saved['summary']
-    report = flow._compute_ota_report() or {}
+    report = (flow._compute_ota_report() or {}) if report is None else report
     rows = {row['transaction_id']: row for row in policy._read(conn)}
     candidates = defaultdict(list)
     for fact in report.get('matches', []):

@@ -289,10 +289,11 @@ def card_matches(facts, data):
         if not event or not card or any(result.get(k) or event.get(k) for k in
                 ('evidence_changed', 'evidence_missing', 'service_period_conflict')):
             continue
-        if isinstance(link, dict) and (link.get('evidence_changed') or
+        if isinstance(link, dict) and (link.get('evidence_changed') or link.get('evidence_missing') or
                 (link.get('source_digest') and link.get('source_digest') != event.get('source_digest'))):
             continue
-        if not event.get('provider') or not event.get('booking_ref'):
+        shared = event.get('service_period_basis') == 'LINK-108'
+        if not event.get('provider') or (not event.get('booking_ref') and not shared):
             continue
         if card.get('duplicate_of') or card.get('parse_error') or card.get('conflict_reason'):
             continue
@@ -318,7 +319,7 @@ def card_matches(facts, data):
                                        source_digests=sorted(digests), ota_event_id=event['ota_event_id'])
             continue
         facts.append({
-            'provider': event['provider'], 'booking_ref': event['booking_ref'],
+            'provider': event['provider'], 'booking_ref': event.get('booking_ref') or '',
             'transaction_id': tid, 'source_hash': card.get('source_hash'),
             'merchant': card.get('merchant_normalized') or card.get('merchant'), 'paid_on': event.get('paid_on'),
             'paid_amount_krw': card.get('amount_krw'), 'item': event.get('item'),
@@ -328,6 +329,7 @@ def card_matches(facts, data):
             'allocation_basis': result.get('allocation_basis'),
             'core_link': True, 'ota_event_id': event.get('ota_event_id'),
             'period': event.get('service_period'),
+            'service_period_basis': event.get('service_period_basis'),
             'source_sha256': event.get('source_digest'),
             'source_digests': event.get('source_digests') or [event.get('source_digest')],
             'evidence_kind': event.get('evidence_kind'),
@@ -335,6 +337,43 @@ def card_matches(facts, data):
             'payment_date_verified': result.get('payment_date_verified'),
         })
         occupied[tid] = len(facts) - 1
+    # LINK-108 permits a common period without selecting a room, including
+    # repeated payment groups. Keep the financial allocation untouched and
+    # independently recheck each receipt/card pair before projecting dates.
+    from app import ota_payments
+    shared_claims = defaultdict(list)
+    for result in data.get('results', []):
+        tid = str(result.get('transaction_id') or '')
+        event = events.get(str(result.get('ota_event_id')), {})
+        card = cards.get(tid)
+        link = (data.get('links') or {}).get(str(result.get('ota_event_id'))) or {}
+        if (tid in occupied or not card or event.get('service_period_basis') != 'LINK-108'
+                or result.get('status') not in ('MATCHED_AUTO','MATCHED_USER')
+                or any(result.get(k) or event.get(k) for k in
+                       ('evidence_changed','evidence_missing','service_period_conflict','period_conflict'))
+                or event.get('reservation_status') not in ('observed','completed','confirmed')
+                or not ota_payments._event_is_paid(event)
+                or ota_payments.pair_check(event,card) is not None):
+            continue
+        if isinstance(link,dict) and (link.get('evidence_changed') or link.get('evidence_missing')
+                or link.get('source_digest') and link['source_digest'] != event.get('source_digest')):
+            continue
+        shared_claims[tid].append(event)
+    for tid, options in shared_claims.items():
+        periods = {tuple(sorted((event.get('service_period') or {}).items())) for event in options}
+        competing = [events.get(str(result.get('ota_event_id')), {}) for result in claims.get(tid, [])]
+        if (len(periods) != 1 or any(other.get('service_period') and
+                other['service_period'] != options[0]['service_period'] for other in competing)):
+            continue
+        event, card = options[0], cards[tid]
+        facts.append(dict(provider='forest',booking_ref='',transaction_id=tid,source_hash=card.get('source_hash'),
+            merchant=card.get('merchant_normalized') or card.get('merchant'),paid_on=event.get('paid_on'),
+            paid_amount_krw=card.get('amount_krw'),item='숙박비',direction='purchase',
+            reservation_status='observed',core_link=False,ota_event_id=event['ota_event_id'],
+            period=event['service_period'],service_period_basis='LINK-108',
+            source_sha256=event.get('source_digest'),
+            source_digests=sorted({d for option in options for d in option.get('source_digests',[])}),
+            evidence_kind=event.get('evidence_kind')))
     return facts
 
 

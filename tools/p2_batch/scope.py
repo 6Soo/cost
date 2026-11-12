@@ -40,10 +40,17 @@ def read_projection(path):
             ('board_rows', 'row_id,payload_json'),
             ('ledger_entries', 'transaction_id,trip_id,display_tab_id'),
         ):
-            data[table] = [dict(r) for r in conn.execute('SELECT '+columns+' FROM '+table)]
+            from app.decision_provenance import active_decision_sql
+            query = 'SELECT '+columns+' FROM '+table
+            if table == 'review_decisions':
+                query += ' d WHERE '+active_decision_sql(conn=conn)
+            data[table] = [dict(r) for r in conn.execute(query)]
         data['allowed_items'] = sorted({r[0] for r in conn.execute(
             "SELECT DISTINCT item FROM transactions WHERE COALESCE(item,'')!='' UNION "
             "SELECT DISTINCT item FROM ledger_entries WHERE COALESCE(item,'')!=''")})
+        from app.decision_provenance import closed_review_ids
+        data['closed_provenance_review'] = (sorted(closed_review_ids(conn)) if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='change_log'").fetchone() else [])
         conn.rollback()
     data['read_seconds'] = round(time.monotonic()-started, 3)
     return data
@@ -81,7 +88,9 @@ def select(data):
             continue
         scope.append(row)
         key = row['transaction_id'], row['source_hash']
-        if row['transaction_id'] in disagreements:
+        if row['transaction_id'] in set(data.get('closed_provenance_review', [])):
+            reason = 'CLOSED_QUARTER_REVIEW_REQUIRED'
+        elif row['transaction_id'] in disagreements:
             reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
         elif row['classification_source'] in MANUAL or row['decided_at'] is not None or row['transaction_id'] in manual:
             reason = 'manual'

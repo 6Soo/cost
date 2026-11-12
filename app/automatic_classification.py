@@ -239,9 +239,10 @@ def _read(conn, selected=None):
 
 
 def _context(conn, selected=None):
+    from .decision_provenance import active_decision_sql
     rows = _read(conn, selected)
     decisions = {r[0]: r[1] for r in conn.execute(
-        'SELECT transaction_id,display_tab_id FROM review_decisions ORDER BY revision')}
+        'SELECT d.transaction_id,d.display_tab_id FROM review_decisions d WHERE '+active_decision_sql()+' ORDER BY revision')}
     holds = {r[0] for r in conn.execute('SELECT transaction_id FROM transaction_review_holds')}
     excluded = {r[0] for r in conn.execute('SELECT transaction_id FROM transaction_company_exclusions WHERE excluded=1')}
     overrides = {r[0] for r in conn.execute('SELECT row_id FROM board_manual_overrides')}
@@ -420,6 +421,8 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
 
 
 def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None):
+    from .decision_provenance import closed_review_ids
+    closed_reviews = closed_review_ids(conn)
     """Read only. Private targets remain in memory; callers publish aggregate summaries."""
     selected = None if transaction_ids is None else set(transaction_ids)
     context = _context(conn, selected)
@@ -453,6 +456,9 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                      or row.get('classification_source') in ('user_decision', 'user_exception'))):
             # The owner policy is intentionally subordinate to an explicit
             # decision, including a decision whose trip is blank.
+            protected += 1
+            continue
+        if tid in closed_reviews:
             protected += 1
             continue
         has_history = _has_history(row, tid, decisions, overrides)

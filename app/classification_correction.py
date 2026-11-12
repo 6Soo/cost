@@ -44,6 +44,7 @@ def _row(conn, table, column, identity):
 
 
 def preview(conn, corrections, trips, *, allow_recorded_ai=False):
+    from .decision_provenance import active_decision_sql, closed_review_required
     valid = canonical_trip_periods(trips)
     targets = []
     seen = set()
@@ -71,12 +72,12 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False):
                     or any(not isinstance(execution.get(k), str) or not execution[k].strip()
                            or len(execution[k]) > 160 for k in ('provider', 'model', 'run_id'))):
                 raise ValueError('AI_EXECUTION_REQUIRED')
-        if correction_protection_reason(SimpleNamespace(conn=conn),tid,row['source_hash']):
+        if closed_review_required(conn,tid) or correction_protection_reason(SimpleNamespace(conn=conn),tid,row['source_hash']):
             raise ValueError('CORRECTION_PROTECTED')
         if (row['decided_at'] is not None
                 or row['classification_source'] in {'user_decision','user_exception','owner_booking','manual'}
                 or any(row.get(k) for k in ('parse_error','duplicate_of','conflict_reason'))
-                or conn.execute('SELECT 1 FROM review_decisions WHERE transaction_id=?', (tid,)).fetchone()
+                or conn.execute('SELECT 1 FROM review_decisions d WHERE transaction_id=? AND '+active_decision_sql(), (tid,)).fetchone()
                 or conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?', (tid,)).fetchone()
                 or conn.execute('SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=? AND excluded=1', (tid,)).fetchone()
                 or conn.execute('SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-'+tid,)).fetchone()):

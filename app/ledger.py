@@ -81,13 +81,14 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
 
 def _decision_rows(store, batch_id: str):
     """Latest decision per transaction, for the preview to reflect."""
+    from .decision_provenance import active_decision_sql
     rows = store.conn.execute(
         "SELECT d.transaction_id, d.revision, d.item, d.description,"
         " d.display_tab_id, d.note FROM review_decisions d"
         " JOIN transactions t ON t.transaction_id = d.transaction_id"
         " WHERE t.transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) AND d.revision ="
         " (SELECT MAX(revision) FROM review_decisions x"
-        "  WHERE x.transaction_id = d.transaction_id)",
+        "  WHERE x.transaction_id = d.transaction_id) AND "+active_decision_sql(),
         (batch_id,)).fetchall()
     return {r[0]: {"revision": r[1], "item": r[2], "description": r[3],
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
@@ -145,11 +146,12 @@ def preview(store, batch_id: str, *, trip_validator=None,
         batch_ids = {r[0] for r in store.conn.execute(
             "SELECT transaction_id FROM import_batch_rows WHERE batch_id=?", (batch_id,))}
         for external in (r[0] for r in source_rows if r[0] not in batch_ids):
+            from .decision_provenance import active_decision_sql
             decision = store.conn.execute(
                 "SELECT d.revision,d.item,d.description,d.display_tab_id,d.note "
                 "FROM review_decisions d WHERE d.transaction_id=? "
                 "AND d.revision=(SELECT MAX(revision) FROM review_decisions "
-                "WHERE transaction_id=?)", (external, external)).fetchone()
+                "WHERE transaction_id=?) AND "+active_decision_sql(), (external, external)).fetchone()
             if decision:
                 decisions[external] = dict(zip(
                     ('revision','item','description','display_tab_id','note'), decision))

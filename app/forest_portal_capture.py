@@ -64,6 +64,20 @@ def foresttrip_row(row, kind, observed_at):
     return fact
 
 
+def reservation_total(lines):
+    """The portal repeats daily prices, category subtotals and the grand total.
+
+    Only the explicit grand-total row is a reservation amount. Adding every
+    rsrvtAmt counts the same money repeatedly.
+    """
+    # Older flat captures contain components only, without the summary axes.
+    if lines and all('goodsClsscCd' not in line and 'useDt' not in line for line in lines):
+        return sum(money(line['rsrvtAmt'],allow_zero=True) for line in lines)
+    totals = [money(line['rsrvtAmt'],allow_zero=True) for line in lines
+              if not line.get('goodsClsscCd') and not line.get('useDt')]
+    return totals[0] if len(totals) == 1 else None
+
+
 def sooperang_records(listing, details, observed_at):
     # The list explicitly binds each reservation ID to its facility and stay.
     blocks = re.split(r'(?=AD\d{8,})', listing['text'])
@@ -89,7 +103,7 @@ def sooperang_records(listing, details, observed_at):
         fact = dict(by_ref[record['id']])
         lines = record['data'].get('useAmtSmmarList') or []
         if lines:
-            fact['reservation_amount_krw'] = sum(money(line['rsrvtAmt'], allow_zero=True) for line in lines)
+            fact['reservation_amount_krw'] = reservation_total(lines)
         # Application date, payment deadline and daily room prices are not paid facts.
         yield {'list_text': raw_blocks[record['id']], 'detail': record}, fact
 

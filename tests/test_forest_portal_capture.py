@@ -18,6 +18,128 @@ def row():
                      '2031-03-02~2031-03-03', '결제완료'], 'links':[]}
 
 
+def shared_fixture():
+    portal = dict(provider='forest', evidence_kind='forest_portal', evidence_status='reservation_only',
+        paid_on=None, booked_on='2031-02-01', reservation_amount_krw=12345, currency='KRW',
+        hotel_name='가상산림치유원', reservation_status='completed',
+        service_period=dict(starts_on='2031-03-02',ends_on='2031-03-03'),
+        source_ids=['portal'],source_digests=['portal-digest'],observation_ids=['portal-obs'])
+    receipt = dict(provider='forest',evidence_kind='authenticated_forest_pg_card_receipt',
+        event_type='charge',evidence_status='paid_verified',payment_status='paid',currency='KRW',
+        amount=12345,amount_krw=12345,paid_on='2031-02-08',merchant_name='가상산림치유원',
+        booking_ref=None,service_period=None,source_ids=['mail'],source_digests=['mail-digest'],
+        observation_ids=['mail-obs'],ota_event_id='receipt',source_digest='mail-digest')
+    return receipt,portal
+
+
+def test_link108_shared_period_preserves_payment_and_blanks_room_identity():
+    receipt,portal = shared_fixture()
+    before = copy.deepcopy(receipt)
+    _attach_forest_portal_periods([receipt],[portal,copy.deepcopy(portal),copy.deepcopy(portal)])
+    assert receipt['service_period'] == portal['service_period']
+    assert receipt['service_period_basis'] == 'LINK-108'
+    for key in ('booking_ref','paid_on','amount','amount_krw','ota_event_id'):
+        assert receipt[key] == before[key]
+    from app.ota_core_projection import card_matches
+    from app.ota_mail import ledger_metadata
+    card = dict(transaction_id='card',source_hash='source',merchant='가상산림치유원',
+                amount_krw=12345,transaction_direction='purchase',item='숙박비')
+    facts = card_matches([],dict(events=[receipt],transactions=[card],results=[
+        dict(ota_event_id='receipt',transaction_id='card',status='MATCHED_AUTO')]))
+    metadata = ledger_metadata(dict(matches=facts),card)
+    assert metadata['service_period'] == '2031-03-02~2031-03-03'
+    assert metadata['booking_ref'] == ''
+    assert metadata['ota_evidence']['rule_id'] == 'LINK-108'
+
+
+def test_link108_repeated_group_projects_only_independently_verified_common_period():
+    from app.ota_core_projection import card_matches
+    receipt,portal = shared_fixture()
+    receipt.update(authorization_scheme='issuer_card_approval',approval_number='888888')
+    _attach_forest_portal_periods([receipt],[portal])
+    card = dict(transaction_id='card',source_hash='source',merchant='가상산림치유원',
+        amount_krw=12345,approval_date='2031-02-08',transaction_direction='purchase',
+        issuer='synthetic',card_tail='1234',approval_number='888888')
+    result = dict(ota_event_id='receipt',transaction_id='card',status='MATCHED_AUTO',
+                  allocation_basis='auto_stable_order',individual_payment_evidence=False)
+    data = dict(events=[receipt],transactions=[card],results=[result])
+    projected = card_matches([],data)
+    assert projected[0]['period'] == portal['service_period']
+    assert projected[0]['booking_ref'] == '' and projected[0]['core_link'] is False
+    assert result['individual_payment_evidence'] is False
+    card['approval_number'] = '999999'
+    assert card_matches([],data) == []
+
+
+@pytest.mark.parametrize('link_change',[dict(source_digest='old-digest'),dict(evidence_changed=True),dict(evidence_missing=True)])
+def test_link108_does_not_reintroduce_stale_user_links_in_fallback(link_change):
+    from app.ota_core_projection import card_matches
+    from app.ota_payments import match_ota_payment_events
+    receipt,portal = shared_fixture()
+    receipt.update(authorization_scheme='issuer_card_approval',approval_number='888888')
+    _attach_forest_portal_periods([receipt],[portal])
+    card = dict(transaction_id='card',source_hash='source',merchant='가상산림치유원',
+        amount_krw=12345,approval_date='2031-02-08',transaction_direction='purchase',
+        issuer='synthetic',card_tail='1234',approval_number='888888')
+    links = {'receipt':dict(transaction_id='card',status='MATCHED_USER',**link_change)}
+    results = match_ota_payment_events([receipt],[card],existing_links=links)
+    data = dict(events=[receipt],transactions=[card],results=results,links=links)
+    assert card_matches([],data) == []
+
+
+@pytest.mark.parametrize('missing_application',[None,'invalid-date'])
+def test_link108_missing_application_in_another_exact_candidate_blocks_consensus(missing_application):
+    receipt,portal = shared_fixture()
+    other = dict(portal,booked_on=missing_application,
+                 service_period=dict(starts_on='2031-04-02',ends_on='2031-04-03'))
+    _attach_forest_portal_periods([receipt],[portal,other])
+    assert receipt['service_period'] is None
+
+
+@pytest.mark.parametrize('change',[
+    dict(service_period=dict(starts_on='2031-03-03',ends_on='2031-03-04')),
+    dict(booked_on='2031-01-31'),dict(booked_on='2031-02-09'),
+    dict(reservation_amount_krw=12346),dict(hotel_name='다른산림치유원'),
+    dict(evidence_status='conflict'),dict(reservation_status='cancelled'),
+    dict(service_period={}),dict(booked_on=None),
+])
+def test_link108_rejects_divergence_and_unverified_facts(change):
+    receipt,portal = shared_fixture()
+    changed = dict(portal,**change)
+    candidates = [portal,changed] if 'service_period' in change else [changed]
+    _attach_forest_portal_periods([receipt],candidates)
+    assert receipt['service_period'] is None
+
+
+def test_reservation_total_does_not_add_daily_prices_and_subtotals():
+    from app.forest_portal_capture import reservation_total
+    lines = [dict(goodsClsscCd='001',useDt='2031-03-02',rsrvtAmt=12345),
+             dict(goodsClsscCd='001',useDt=None,rsrvtAmt=12345),
+             dict(goodsClsscCd=None,useDt='2031-03-02',rsrvtAmt=12345),
+             dict(goodsClsscCd=None,useDt=None,rsrvtAmt=12345)]
+    assert reservation_total(lines) == 12345
+    assert reservation_total(lines[:-1]) is None
+    assert reservation_total(lines+[lines[-1]]) is None
+
+
+def test_existing_capture_reextracts_total_without_rewriting_legacy_fact(tmp_path):
+    listing,details = sooperang()
+    details[0]['data']['useAmtSmmarList'] = [
+        dict(goodsClsscCd='001',useDt='2031-03-02',rsrvtAmt='12345'),
+        dict(goodsClsscCd='001',useDt=None,rsrvtAmt='12345'),
+        dict(goodsClsscCd=None,useDt='2031-03-02',rsrvtAmt='12345'),
+        dict(goodsClsscCd=None,useDt=None,rsrvtAmt='12345')]
+    raw,fact = next(sooperang_records(listing,details,OBSERVED))
+    legacy = dict(fact,reservation_amount_krw=49380)
+    store = OtaStore(tmp_path/'ota.sqlite')
+    store.import_direct(provider='forest',account_key='synthetic',source_key='old',
+                        snapshot={'observations':[raw]},facts=[legacy])
+    before = store.conn.execute('SELECT fact_json FROM ota_booking_evidence').fetchall()
+    assert _forest_portal_events([str(tmp_path/'ota.sqlite')])[0]['reservation_amount_krw'] == 12345
+    assert store.conn.execute('SELECT fact_json FROM ota_booking_evidence').fetchall() == before
+    store.close()
+
+
 def test_explicit_paid_date_and_stay_are_independent():
     fact = foresttrip_row(row(), 'pay', OBSERVED)
     assert fact['paid_on'] == '2031-02-01'
@@ -132,6 +254,7 @@ def test_nice_exact_order_attaches_period_without_duplicate_charge(tmp_path):
     result = _attach_forest_portal_periods([receipt],[portal])
     assert len(result) == 1 and result[0]['ota_event_id'] == 'original-payment-id'
     assert result[0]['service_period'] == portal['service_period']
+    assert result[0]['item'] == '숙박비'
     for change in [dict(order_number='OTHER-ORDER'),dict(paid_on='2031-02-02'),dict(amount_krw=12346)]:
         unmatched = dict(receipt,service_period=None,**change)
         assert len(_attach_forest_portal_periods([unmatched],[portal])) == 2

@@ -465,7 +465,7 @@ def _trip_reservation_events(databases):
 def _forest_portal_events(databases):
     """Read direct forest facts through the existing payment/reservation pipeline."""
     from contextlib import closing
-    from app.ota_store import connect_read, direct_facts, is_store
+    from app.ota_store import connect_read, direct_facts, is_store, _entries
     events = []
     for path in ota_portal.as_databases(databases):
         if not is_store(Path(path)):
@@ -474,6 +474,21 @@ def _forest_portal_events(databases):
             for booking, fact, conflicts in direct_facts(conn):
                 if booking['provider'] != 'forest' or fact.get('evidence_format') != 'forest-portal-v1':
                     continue
+                if fact.get('portal') == 'sooperang':
+                    # Re-extract the explicit total from the preserved capture;
+                    # legacy facts summed daily/subtotal/grand-total rows. Do
+                    # not update imported facts, payment amounts or the source.
+                    from app.forest_portal_capture import reservation_total
+                    totals = set()
+                    for revision, in conn.execute("SELECT revision_id FROM ota_booking_evidence WHERE booking_id=? AND evidence_kind='direct'", (booking['booking_id'],)):
+                        snapshot = _entries(conn,revision).get('snapshot',{})
+                        observations = (snapshot.get('observations',[snapshot]) if isinstance(snapshot,dict)
+                                        else [{'detail':record} for record in snapshot] if isinstance(snapshot,list) else [])
+                        for observation in observations:
+                            detail = observation.get('detail',{})
+                            if detail.get('id') == fact['booking_number'].split(':',1)[-1]:
+                                totals.add(reservation_total(detail.get('data',{}).get('useAmtSmmarList',[])))
+                    fact = dict(fact,reservation_amount_krw=next(iter(totals)) if len(totals)==1 else None)
                 source = 'forest-portal:' + booking['booking_id']
                 digest = _digest(fact)
                 paid = fact.get('payment_status') == 'paid' and bool(fact.get('paid_on'))
@@ -486,6 +501,7 @@ def _forest_portal_events(databases):
                     amount_krw=fact.get('amount_krw') if paid else None, currency='KRW',
                     paid_on=fact.get('paid_on'), paid_on_semantics='explicit_charge_date' if paid else 'missing',
                     booked_on=fact.get('booked_on'), card_last4=fact.get('card_last4'),
+                    reservation_amount_krw=fact.get('reservation_amount_krw'),
                     order_number=fact.get('order_number'),
                     hotel_name=fact.get('label'), item='숙박비',
                     service_period={'starts_on':fact['service_start_on'], 'ends_on':fact['service_end_on']},
@@ -517,13 +533,60 @@ def _attach_forest_portal_periods(events, portal_events):
                 continue
             receipt.update(service_period=portal['service_period'],
                            reservation_status=portal['reservation_status'],
-                           booking_ref=portal['booking_ref'])
+                           booking_ref=portal['booking_ref'], item=portal['item'])
             # Keep payment identity and approval matching unchanged, but bind the
             # display fact to both original observations.
             receipt['source_ids'] = sorted(set(receipt.get('source_ids', []) + portal['source_ids']))
             receipt['source_digests'] = sorted(set(receipt.get('source_digests', []) + portal['source_digests']))
             receipt['observation_ids'] = sorted(set(receipt.get('observation_ids', []) + portal['observation_ids']))
             receipt['source_digest'] = _digest(receipt['source_digests'])
+    # LINK-108 recognizes a shared period, not an individual room/payment.
+    # Keep reservation money separate from paid money and never invent paid_on.
+    from datetime import date
+    for receipt in events:
+        if (receipt.get('evidence_kind') != 'authenticated_forest_pg_card_receipt'
+                or not _event_is_paid(receipt) or receipt.get('event_type') != 'charge'
+                or receipt.get('service_period') or receipt.get('service_period_conflict')):
+            continue
+        candidates = []
+        application_unknown = False
+        for portal in portal_events:
+            if (portal.get('paid_on')
+                    or portal.get('reservation_amount_krw') is None
+                    or portal['reservation_amount_krw'] <= 0
+                    or portal['reservation_amount_krw'] != _event_amount(receipt)
+                    or portal.get('currency') != receipt.get('currency')
+                    or portal.get('card_last4') and portal['card_last4'] != receipt.get('card_last4')):
+                continue
+            facility = re.sub(r'\W', '', portal.get('hotel_name') or '').casefold()
+            merchant = re.sub(r'\W', '', receipt.get('merchant_name') or '').casefold()
+            if not facility or facility != merchant:
+                continue
+            try:
+                lag = (date.fromisoformat(receipt['paid_on']) - date.fromisoformat(portal['booked_on'])).days
+            except (ValueError, TypeError, KeyError):
+                application_unknown = True
+                continue
+            if 0 <= lag <= 7:
+                candidates.append(portal)
+        periods = {tuple(sorted((p.get('service_period') or {}).items())) for p in candidates}
+        if (application_unknown or not candidates or len(periods) != 1
+                or any(p.get('evidence_status') == 'conflict' or
+                       p.get('reservation_status') not in ('confirmed', 'completed', 'observed') for p in candidates)):
+            continue
+        period = candidates[0]['service_period']
+        if not period.get('starts_on') or not period.get('ends_on'):
+            continue
+        try:
+            if date.fromisoformat(period['starts_on']) >= date.fromisoformat(period['ends_on']):
+                continue
+        except (TypeError, ValueError):
+            continue
+        receipt.update(service_period=dict(period), service_period_basis='LINK-108',
+                       reservation_status='observed', item='숙박비')
+        for key in ('source_ids', 'source_digests', 'observation_ids'):
+            receipt[key] = sorted(set(receipt.get(key, []) + [value for p in candidates for value in p.get(key, [])]))
+        receipt['source_digest'] = _digest(receipt['source_digests'])
     return events + remaining
 
 
