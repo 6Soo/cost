@@ -24,6 +24,11 @@
       "tests": ["tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py", "webapp/tests/test_automatic_classification_completion.py"]
     },
     {
+      "name": "bulk-owner-confirmation-provenance",
+      "paths": ["app/bulk_confirmation_repair.py", "tools/repair_bulk_owner_confirmation.py", "tests/test_bulk_confirmation_repair.py", "docs/playbooks/bulk-owner-confirmation-repair.md"],
+      "tests": ["tests/test_bulk_confirmation_repair.py", "tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py"]
+    },
+    {
       "name": "dist141-provenance-and-forest-period",
       "paths": ["app/decision_provenance.py", "tools/repair_dist141_provenance.py", "webapp/tests/test_decision_provenance.py", "app/forest_portal_capture.py", "tests/test_forest_portal_capture.py"],
       "tests": ["webapp/tests/test_decision_provenance.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "tests/test_forest_portal_capture.py", "tests/test_p2_batch.py"]
