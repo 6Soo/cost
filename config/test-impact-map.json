@@ -40,8 +40,8 @@
     },
     {
       "name": "p2-offline-merchant-batch",
-      "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py"],
-      "tests": ["tests/test_p2_batch.py", "tests/test_frontier_agent_provider.py", "webapp/tests/test_classification_correction.py"]
+      "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py", "tests/test_p2_incremental.py"],
+      "tests": ["tests/test_p2_batch.py", "tests/test_p2_incremental.py", "tests/test_frontier_agent_provider.py", "webapp/tests/test_classification_correction.py"]
     },
     {
       "name": "p2-tool-free-runtime",
