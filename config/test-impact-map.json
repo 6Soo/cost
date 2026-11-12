@@ -19,6 +19,11 @@
       "tests": ["tests/card_pipeline/test_preparation_costs.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_decision_provenance.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/test_p2_batch.py"]
     },
     {
+      "name": "ai-quarter-review-apply",
+      "paths": ["app/ai_review_repair.py", "tools/apply_ai_quarter_review.py", "tests/test_ai_review_repair.py", "docs/playbooks/ai-review-apply.md"],
+      "tests": ["tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py", "webapp/tests/test_automatic_classification_completion.py"]
+    },
+    {
       "name": "dist141-provenance-and-forest-period",
       "paths": ["app/decision_provenance.py", "tools/repair_dist141_provenance.py", "webapp/tests/test_decision_provenance.py", "app/forest_portal_capture.py", "tests/test_forest_portal_capture.py"],
       "tests": ["webapp/tests/test_decision_provenance.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "tests/test_forest_portal_capture.py", "tests/test_p2_batch.py"]
