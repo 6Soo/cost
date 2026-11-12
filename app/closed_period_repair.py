@@ -48,7 +48,7 @@ def _refund_group_reason(conn, members, rows, pending, links, manual, trips, evi
                         (tid,row['source_hash'])).fetchone():
             return 'COMPANY_EXCLUDED_MEMBER'
     group_links = [links[tid] for tid in members if tid in links]
-    if any(link.get('status') == 'excess' for link in group_links):
+    if any(link.get('status') == 'excess' or link['net_krw'] < 0 for link in group_links):
         return 'EXCESS_REFUND'
     if any(link.get('inferred') for link in group_links):
         return 'INFERRED_LINK'

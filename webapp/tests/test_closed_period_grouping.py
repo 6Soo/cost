@@ -126,6 +126,33 @@ def test_refund_group_never_moves_one_side_or_relaxes_other_protection(setup,pro
     assert repair._financial_state(c)==financial
 
 
+@pytest.mark.parametrize('numerator,denominator,moved',[(1,2,2),(1,1,2),(2,1,0)])
+def test_foreign_refund_group_checks_actual_net_before_moving(setup,numerator,denominator,moved):
+    from app.partial_refund import refund_links
+    c,purchase,refund=refund_pair(setup)
+    c.execute("UPDATE transactions SET original_approval_number='',foreign_currency='JPY',foreign_amount='100',"
+              "merchant_normalized='SYNTHETIC FOREIGN NET' WHERE transaction_id IN (?,?)",(purchase,refund))
+    c.execute("UPDATE transactions SET approval_date='2025-12-30' WHERE transaction_id=?",(purchase,))
+    c.execute('UPDATE transactions SET amount_krw=-(SELECT amount_krw FROM transactions WHERE transaction_id=?)*?/? '
+              'WHERE transaction_id=?',(purchase,numerator,denominator,refund))
+    c.commit()
+    links=refund_links(c,[purchase,refund])
+    assert links[refund]['basis']=='merchant_card_foreign_amount'
+    assert (links[refund]['net_krw']<0)==(moved==0)
+    before={tid:repair._state(c,tid) for tid in (purchase,refund)}
+    financial=repair._financial_state(c)
+    plan=repair.preview(c,TRIPS)
+    assert plan['summary']['refund_move_rows']==moved
+    assert ({purchase,refund}&{t['tid'] for t in plan['targets']})==({purchase,refund} if moved else set())
+    if not moved:
+        assert plan['summary']['refund_preserved']['EXCESS_REFUND']==2
+    repair.apply(c,plan,TRIPS,request_id='foreign-net-'+str(numerator)+'-'+str(denominator))
+    if not moved:
+        assert {tid:repair._state(c,tid) for tid in before}==before
+    assert repair._financial_state(c)==financial
+    assert refund_links(c,[purchase,refund])==links
+
+
 def test_unpaired_completed_refund_stays_and_reports_reason(setup):
     c,_,refund=refund_pair(setup)
     c.execute("UPDATE transactions SET original_approval_number='UNKNOWN',merchant='UNPAIRED SYNTHETIC' WHERE transaction_id=?",(refund,))
