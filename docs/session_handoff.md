@@ -1,3 +1,9 @@
+## 2026-11-13 국민 매입 수집→가져오기 스크립트 연결 — PR 검수 범위
+
+- 수집 스크립트(`tools/collect_kb_card.mjs`·`tools/kb_card_collection/*`)는 이미 main에 병합돼 있었다(4b4d5aad·64ee1926·3c385d44). 이번 담당은 누락된 가져오기 경계 도구 `tools/import_kb_card_download.py`다: 수집 실행 폴더(manifest+보존 원본)의 형식·건수 재검증 → 기존 중복 검사 → 기존 `Pipeline.receive` 호출(미리보기/`--apply`). 새 가져오기 로직 없이 운영 업로드와 같은 `validate_upload`·파서·중복/충돌 보호를 재사용한다. 미리보기는 읽기 전용 사본 리허설(대상 DB 무쓰기), apply는 신선 백업·별도 복원 검증·`--confirm-single-writer` 게이트 뒤에만 쓴다. 분류·장부 기록·Google 쓰기 없음.
+- 합성 검증: 신규 17건 통과(파일 SHA/형식/채널/건수 거부, 내용 멱등·identity 중복·해외 keyless 다중집합·충돌 보존, 미리보기 무쓰기, apply 백업/복원·재수신 무변경·수동 결정/장부 보존, 스키마 차이 거부). 기존 수집 Node 묶음·XLS 가져오기 8건 통과. 영향 검사 275 passed/0 fail/0 skip. **실화면·운영 DB 반영 미실행** — 실화면 확인 6항목은 [절차서](playbooks/card-downloads.md#실제-화면-확인-필요) 그대로이며, 가져오기 도구도 합성 자료만 검증했다.
+- 절차서: card-downloads.md에 가져오기 스크립트 사용법 절 추가, kb-script-usage.md에 보호 폴더 규칙(`D:/WebLedgerHost/data/backups/card-downloads/<날짜>/`) 명시. 최종 SHA·영향 검사·독립 검수 판정은 PR 기록을 따른다. 병합·배포·운영 쓰기는 헤드만 한다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
