@@ -29,7 +29,7 @@ TRANSACTION_FIELDS = ('transaction_id source_hash amount_krw trip_id display_tab
                       'classification_source classification_basis decided_at duplicate_of conflict_reason parse_error').split()
 
 
-def read_database(path):
+def read_database(path, recent_since='2026-11-11'):
     """A single SQLite snapshot; no schema initializers or writable Store constructors."""
     with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro',
                                 uri=True, timeout=5)) as conn:
@@ -50,7 +50,7 @@ def read_database(path):
             params = ()
             if table == 'change_log':
                 query += ' WHERE at>=? AND kind IN (' + ','.join('?' for _ in RECENT_KINDS) + ')'
-                params = ('2026-11-11', *sorted(RECENT_KINDS))
+                params = (recent_since, *sorted(RECENT_KINDS))
             data[table] = [dict(r) for r in conn.execute(query, params)]
         data['manual_ids'] = set()
         data['manual_fields'] = defaultdict(set)
@@ -161,7 +161,7 @@ def source_label(row):
     return label(row)
 
 
-def prepare_rows(data, year, quarter):
+def prepare_rows(data, year, quarter, recent_since='2026-11-11'):
     trips = [t for t in data['trip_tabs'] if trip_in_quarter(t, year, quarter)]
     trips.sort(key=lambda t: (t['starts_on'], t['tab_id']))
     target = {t['tab_id']: t for t in trips}
@@ -169,7 +169,7 @@ def prepare_rows(data, year, quarter):
     quarter_id = f'quarter:{year}:{quarter}'
     recent = set()
     for event in data['change_log']:
-        if event['at'] >= '2026-11-11' and event['kind'] in RECENT_KINDS:
+        if event['at'] >= recent_since and event['kind'] in RECENT_KINDS:
             detail = json.loads(event['detail_json'])
             after = detail.get('after') or {}
             if after.get('classification_source') not in MANUAL:
@@ -271,10 +271,10 @@ def diagnostics(data, rows, excluded, year, quarter):
             continue
         saved = board[row['row_id']]
         if saved.get('display_tab_id') == 'refunds':
-            reason = '환불 원결제 귀속' if row.get('classification_source') == 'refund_original' else '원결제의 저장 귀속'
-            reason += '(화면은 취소·환불 묶음)'
+            reason = ('환불 건(화면은 취소·환불 묶음)' if row.get('classification_source') == 'refund_original'
+                      else '원래 결제 건(화면은 취소·환불 묶음)')
         else:
-            reason = '저장 귀속·항목과 화면 표시 차이'
+            reason = '항목·여행 배정 표시 차이'
         differences[reason] += 1
     unknown = Counter()
     for row in rows:
@@ -294,10 +294,11 @@ def diagnostics(data, rows, excluded, year, quarter):
                 ('duplicate', 'conflict', 'invalid', 'company_excluded')})
 
 
-def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, google_at='', basis_note=''):
+def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, google_at='', basis_note='',
+               recent_since='2026-11-11'):
     from tools.quarter_review.priority import prioritize, review_reasons, WEIGHTS
     from tools.quarter_review.render import render_trip_summary_csv, render_review_list_csv
-    trips, rows, excluded = prepare_rows(data, year, quarter)
+    trips, rows, excluded = prepare_rows(data, year, quarter, recent_since=recent_since)
     incomes, income_reasons = incomes or {}, income_reasons or {}
     # The offline pack cannot read the screen's in-memory reservation projection.
     # Do not turn its different warning count into a review reason.
@@ -323,9 +324,12 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
                               profit=trip_profit(income, expense) if income is not None else None,
                               expense_count=len(grouped[key]), review_count=len(trip_review),
                               review_reason_summary=reason_summary))
+    trip_review_total = sum(s['review_count'] for s in summaries)
+    quarter_other_review = len(review) - trip_review_total
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'trips.csv').write_text(render_trip_summary_csv(summaries), encoding='utf-8-sig', newline='')
+    (out / 'trips.csv').write_text(render_trip_summary_csv(summaries, full_review_count=len(review)),
+                                   encoding='utf-8-sig', newline='')
     (out / 'review-list.csv').write_text(render_review_list_csv(review), encoding='utf-8-sig', newline='')
     other = grouped[f'quarter:{year}:{quarter}']
     other_groups = defaultdict(list)
@@ -351,10 +355,10 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     notes = [
         f"{year}년 {quarter}분기 검수 / 장부 조회 {data['read_at']} / Google 수입 조회 {google_at or '확인 불가'}",
         'review-pack.xlsx만 여세요. 먼저 볼 50건에서 사유를 보고 장부 화면에서 교정한 뒤 다시 생성하세요.',
-        f'여행별 손익에서 수입·지출·차액과 사유별 검수 건수를 보세요. 검수 대상 {len(review)}건: {reason_summary}(사유 중복 가능).',
+        f'여행별 손익에서 수입·지출·차액과 사유별 검수 건수를 보세요. 검수 대상 {len(review)}건: {reason_summary}(사유 중복 가능). 여행별 검수 합계 {trip_review_total}건은 여행 행만 세며, 나머지 {quarter_other_review}건은 분기 기타비용 행입니다.',
         f'{quarter}분기 기타비용에서 항목별 건수·합계를, 판정 주체에서 자동·AI·수동 건수를 확인하세요.',
         '수입 미확인: ' + (' · '.join(missing_income) if missing_income else '없음') + '. 미확인 여행과 전체 합계의 수입·차액은 빈칸입니다.',
-        f"화면과 저장 판정 차이 {sum(detail['projection'].values())}건: {counts(detail['projection'])}. 합계는 카드의 저장 귀속·항목과 원금·환불을 쓰고 수동 교정을 우선합니다. 취소·환불 화면의 묶음 표시도 목적에 맞는 표시입니다.",
+        f"카드 기록과 화면 표시가 다른 {sum(detail['projection'].values())}건: {counts(detail['projection'])}. 화면은 취소·환불을 묶어 보여주고 장부는 따로 기록해서 생기는 차이입니다. 합계는 카드에 저장된 판정으로 계산하고 직접 고친 값을 먼저 쓰며, 화면의 묶음 표시도 틀린 것이 아닙니다.",
         f"출처 미확인 {sum(detail['unknown_sources'].values())}건: {counts(detail['unknown_sources'])}. 판정 없는 정상 거래 {undecided}건: {counts(detail['undecided'])}(미배정 거래는 손익 합계 밖).",
         f"합계 제외 {sum(exclusions.values())}건: " + ' · '.join(f'{key} {value}건' for key, value in exclusions.items()) + '. 다른 분기 여행은 범위 밖입니다.',
         '이용일 경고는 장부 화면에서 확인하세요. 예약 근거를 함께 읽는 화면 기준을 이 파일에서 재현하지 않아 점수·건수에서 뺐습니다. 전체 검수 목록은 review-list.csv에 있습니다.',
@@ -371,8 +375,8 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
         numeric_columns = {'trips': {3, 4, 5, 6, 7}, 'review-list': {0, 5},
                            'quarter-other': {1, 2}, 'sources': {1}}
         sheets = [('먼저 볼 50건', 'review-list', render_review_list_csv(review[:50])),
-                  ('여행별 손익', 'trips', render_trip_summary_csv(summaries)),
-                  ('3분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None)]
+                  ('여행별 손익', 'trips', render_trip_summary_csv(summaries, full_review_count=len(review))),
+                  (f'{quarter}분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None)]
         for sheet_name, filename, rendered in sheets:
             sheet = workbook.create_sheet(sheet_name)
             source = rendered or (out / (filename + '.csv')).read_text(encoding='utf-8-sig')
@@ -394,15 +398,16 @@ def main():
     parser.add_argument('--quarter', type=int, choices=range(1, 5), required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--basis-note', default='', help='이번 실행의 기준·변경 전후 안내')
+    parser.add_argument('--recent-since', default='2026-11-11', help='최근 자동 변경으로 볼 감사 이력 기준일')
     args = parser.parse_args()
     # Customer artifacts may never be exported inside a Git working tree.
     if args.out.resolve().is_relative_to(ROOT):
         parser.error('출력은 저장소 밖의 비공개 폴더를 지정하세요.')
-    data = read_database(args.host_root / 'data/board.sqlite')
+    data = read_database(args.host_root / 'data/board.sqlite', recent_since=args.recent_since)
     trips = [t for t in data['trip_tabs'] if trip_in_quarter(t, args.year, args.quarter)]
     income, reasons, at = load_income(args.host_root, trips)
     print(json.dumps(build_pack(data, args.year, args.quarter, args.out, income, reasons, at,
-                               args.basis_note), ensure_ascii=False))
+                               args.basis_note, recent_since=args.recent_since), ensure_ascii=False))
 
 
 if __name__ == '__main__':

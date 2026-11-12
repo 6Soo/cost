@@ -191,7 +191,7 @@ def test_notes_explain_counts_without_guessing_unknown_sources(tmp_path):
     summary = pack.build_pack(d, 2026, 3, tmp_path, income_reasons={'q3': '비표준 양식'},
                               google_at='2026-11-12', basis_note='준비 비용 귀속 폐지 반영 전')
     assert summary['diagnostics']['unknown_sources'] == {'비카드 수기 지출 출처 기록 없음': 1}
-    assert summary['diagnostics']['projection'] == {'환불 원결제 귀속(화면은 취소·환불 묶음)': 1}
+    assert summary['diagnostics']['projection'] == {'환불 건(화면은 취소·환불 묶음)': 1}
     assert summary['diagnostics']['excluded'] == {'duplicate': 0, 'conflict': 1, 'invalid': 0, 'company_excluded': 0}
     notes = (tmp_path / 'notes.md').read_text(encoding='utf-8')
     assert len(notes.splitlines()) == 10
@@ -252,3 +252,31 @@ def test_trip_summary_counts_reasons_per_trip(tmp_path):
     assert rows[1][6] == '5'  # 지출건수에는 수동·사유 없는 행도 포함
     assert rows[1][7] == '3'  # 검수필요건수는 사유 있는 행만
     assert rows[1][8] == 'AI 판정 1건 · 추론 귀속 1건 · 포괄 항목 1건'
+
+
+def test_quarter_sheet_name_and_recent_cutoff_follow_arguments(tmp_path):
+    q4 = dict(tab_id='q4', display_key='q4', starts_on='2026-10-01', ends_on='2026-10-05', deleted=0, tab_kind='trip')
+    d = dict(transactions=[expense('a', 100000, tab='q4', source='ai_inference')],
+             trip_tabs=[q4], board_projected=[], board_rows=[],
+             change_log=[dict(at='2026-11-11T00:00:00Z', kind='card.classification_corrected', subject='a',
+                              detail_json=json.dumps({'after': {'classification_source': 'ai_inference'}}))],
+             manual_ids=set(), read_at='2026-11-13T00:00:00+09:00')
+    summary = pack.build_pack(d, 2026, 4, tmp_path / 'default')
+    assert summary['reasons'].get('최근 자동 변경') == 1
+    import openpyxl
+    book = openpyxl.load_workbook(tmp_path / 'default/review-pack.xlsx', read_only=True)
+    assert '4분기 기타비용' in book.sheetnames
+    later = pack.build_pack(d, 2026, 4, tmp_path / 'later', recent_since='2026-11-12')
+    assert '최근 자동 변경' not in later['reasons']
+
+
+def test_trip_sheet_notes_quarter_other_review_gap():
+    import csv, io
+    from tools.quarter_review.render import render_trip_summary_csv
+    values = [dict(trip='t', income=100, expense=20, profit=80, expense_count=1, review_count=3)]
+    rows = list(csv.reader(io.StringIO(render_trip_summary_csv(values, full_review_count=5))))
+    assert rows[-2][0] == '합계' and rows[-2][7] == '3'
+    assert rows[-1][0] == '안내'
+    assert '2건은 분기 기타비용' in rows[-1][8] and '5건' in rows[-1][8]
+    plain = list(csv.reader(io.StringIO(render_trip_summary_csv(values))))
+    assert plain[-1][0] == '합계'
