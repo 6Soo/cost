@@ -1,3 +1,11 @@
+## 2026-11-13 일반 준비기간 귀속 폐지 — 검수 지적 수정·규칙 개정 완료, 최종 검사·PR 단계
+
+- 승인 범위는 준비 비용 일반 fallback 폐지 A~F다. 구현 `fa82731e`, ITEM-020 보완 `af325458`·`a2246b60`. 예약 이용기간·준비 숙박 특례·사용자 예외·수동·환불/금융 보호는 유지한다. [사본 검증](agents/artifacts/no-preparation-cost-rehearsal-20261113.md): 이동14·보존2,003, Q3+12/Q4+2, 보호74표 불변·감사14건 모든 투영 필드 원복·REPLAYED 변경0. 사본은 운영 DB를 `mode=ro`로 열어 SQLite backup으로 만든 별도 파일에서만 썼고 운영 원본은 쓰지 않았다. 결과 파일 `rehearsal.json`은 유효하며 수치 일관성을 확인했다.
+- 기존 코드 비교17건은 이동14건과 교집합0인 기존 분기 기타비용 행(`owner_card_residual`)이며 새 코드는 저장된 분기를 유지한다. 앞선 “14+3·향후 거래만 영향” 주장은 실제 집합 대조와 달라 폐기했다. 금액 원값 없이 여행별 건수·비율만 위 검증에 남긴다.
+- 독립 검수(codex `gpt-6.1-sol` medium)가 P2 결함 2건을 지적해 수정했다: (1) 분기 기타비용 fallback이 이후 예약 이용기간 근거의 교정을 막던 것을 자동 출처에 한해 허용, (2) 날짜 미상 구매에서 P2 검증이 P1의 기존 귀속을 거부하던 것을 보존. 각각 회귀 검사를 추가했고 표적 통과(준비비용 정리 25·공유 판정 경로 77). skip/xfail 없음. 이전 `af325458` 영향 검사789pass/14subtests/skip0은 수정 전 기록이다.
+- 소유자 결정 2026-11-13을 규칙집에 반영했다: PROC-012 개정(고객 원문을 Qwen4 Max/QwenCloud 작업자에게도 허용, Codex 한도 동안 개발·예행 포함), AGENTS.md·SPEC §12.3에 “Codex 한도 동안 구현자와 다른 Claude opus 세션의 독립 검수로 대체” 추가. SPEC §12.2·§13.9 원문 조항도 같은 근거로 정렬했다. 준비 비용 규칙(TRIP-029/043/069/071·DATE-003/040·ITEM-020)·PROC-021 동률 이유·DECISION_POLICY §3.2/§3.4-4/§6.1 개정은 이미 커밋됨.
+- #815 배포·완료 기간 정리741건 운영 기록을 실제 근거(`preview/applied/replay.json`·`resume.log`·`backup-restore.json`)와 대조해 보존했다(하쿠산 −739·세토우치 −2, 장부·화면 변화0, 재실행 변경0, 5DB·44파일 복원). 최종 SHA 영향 검사·독립 재검수 판정·완료 커밋은 이 브랜치 PR 기록을 정본으로 삼는다.
+- 남은 작업은 최종 SHA 영향 검사·헤드의 독립 재검수·PR 기록이다. 병합·배포·운영 DB 반영은 헤드가 담당하며 여기서는 실행하지 않는다. [운영 명령과 백업 게이트](playbooks/preparation-cost-grouping.md)를 사용하고 Board·SourceRefresh writer 정지 및 분리 프로세스 finally 복구가 필요하다. 비공개 근거는 `.local-archive/no-preparation/`, 체크포인트는 같은 폴더 `checkpoint.md`다.
 ## 2026-11-13 분기 검수 자료 묶음 — 독립 검수 지적 반영 완료
 
 - [PR #818](https://github.com/6Soo/cost/pull/818) 독립 검수(opus) REQUEST_CHANGES를 반영했다. 최종 SHA·검수 판정은 #818 기록이 정본이며 병합·배포·Google 쓰기는 하지 않는다.
@@ -6,6 +14,12 @@
 - 산출물은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/v2/`에 다시 생성했다(첫 실행본은 상위 폴더 보존). 21개 여행, 기타비용 2행, 판정 주체 5행, 준비 비용 귀속 폐지 반영 전 기준.
 - 검증: 표적 `tests/test_quarter_review_pack.py` 20 passed, 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 270 passed·skip0·compile 통과.
 - 남은 일: 사용자가 review-pack.xlsx만 열어 검수하고 장부 화면에서 교정한 뒤 다시 생성한다. 준비 비용 귀속 폐지 반영 후 재생성이 필요하다.
+## 2026-11-12 밤 #815 배포·완료 기간 정리 운영 기록
+
+- #815 병합 `335b9eda56b73fd65e201f39a1ffdefd82c955f3`를 22:46~22:47 KST 배포했다(Board 8751). 배포 근거는 22:47:36 KST health/ready 200·보호13표 불변이며 배포 중단은 없었다.
+- 완료 기간 정리741건 반영(2025년739·2026Q1 2), 하쿠산 귀속 −739·세토우치 −2. 기존 장부·화면 행 변화0, 재실행 `REPLAYED`·이동0·실행변경0이다. preview/applied/replay의 digest와 건수를 직접 대조했다.
+- 반영 중 헤드 호출 세션의 실행이 끊겨 22:57:41~23:14:40 KST 공개 장부가 중단됐다(시작은 헤드 전달 시각). 분리 프로세스가 남은 반영을 완료했고 resume.log에서 23:14:33 반영·재실행 성공, 23:14:39 Board ready, 23:14:40 route resume·Worker 시작을 확인했다.
+- 직접 확인 근거: `D:/WebLedgerHost/data/backups/closed-period-grouping-20261112/`의 `preview.json`·`applied.json`·`replay.json`·`resume.log`·`backup-restore.json`·`operating-release/deploy-evidence.json`. 신선 백업5DB·44파일의 복원·원본 불변·review binding 동등 확인과, 코드 배포의 fresh_backup_restore=false는 서로 다른 기록이다.
 
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 

@@ -1,4 +1,4 @@
-"""The preparation gap is an attribution rule for every cost category."""
+"""Owner decision 2026-11-12: ordinary gaps end in the payment quarter."""
 import pytest
 
 from app.automatic_classification import _card3820_owner_policy, infer_trip
@@ -18,9 +18,9 @@ def test_all_costs_in_a_gap_prefer_next_trip_over_an_equally_close_previous_trip
     row = dict(approval_date=day, item=item, foreign_currency='JPY', transaction_direction='purchase',
                card_tail='3820', transaction_kind='purchase', amount_krw=1000)
     identity, basis = infer_trip(row, TRIPS)
-    assert identity == target and '준비기간' in basis
+    assert identity == '' and 'PROC-004' in basis
     owner = _card3820_owner_policy(row, TRIPS)
-    assert owner['trip_id'] == target and owner['item'] == item and '준비기간' in owner['basis']
+    assert owner is None  # Shared completion falls through to the observed quarter.
 
 
 def test_preparation_preserves_existing_destination_and_does_not_extend_the_last_trip():
@@ -35,7 +35,7 @@ def test_domestic_preparation_uses_domestic_next_trip_and_keeps_the_3820_residua
                 dict(trip_id='domestic-next', destination='부산', starts_on='2026-10-16', ends_on='2026-10-20')]
     row = dict(approval_date='2026-10-14', card_kind='국내', item='식비')
     target, basis = infer_trip(row, domestic + TRIPS)
-    assert target == 'domestic-next' and '준비기간' in basis
+    assert target == '' and 'PROC-004' in basis
     owner = _card3820_owner_policy(dict(row,card_tail='3820',transaction_direction='purchase',
                                        transaction_kind='purchase',amount_krw=1000), domestic + TRIPS)
     assert owner['display_tab_id'] == 'quarter:2026:4'
@@ -63,4 +63,4 @@ def test_primary_retail_resolver_uses_the_same_preparation_rule(day, target):
         def trip_valid(self, identity):
             return identity in {'previous', 'oze', 'alpine', 'karuizawa'}
 
-    assert retail_trip(Flow(), dict(approval_date=day, foreign_currency='JPY'), 'overseas', google_nets=lambda: {}) == target
+    assert retail_trip(Flow(), dict(approval_date=day, foreign_currency='JPY'), 'overseas', google_nets=lambda: {}) == ''
