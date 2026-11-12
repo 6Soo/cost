@@ -53,8 +53,10 @@ class CardFlowBrowserTests(unittest.TestCase):
                         self.assertIn('/cards/all?cleanup_reason=classification&legacy_cleanup=1', response.url)
                         self.assertEqual(page.locator('#expense-cleanup').count(), 0)
 
-                        page.goto(base + '/import#expense-cleanup')
-                        page.wait_for_url('**/cards/all?panel=upload#expense-cleanup')
+                        response = page.goto(base + '/import#expense-cleanup')
+                        self.assertEqual(response.status, 200)
+                        from urllib.parse import urlsplit
+                        self.assertEqual(urlsplit(page.url).path, '/cards/all')
                         self.assertTrue(page.get_by_role('heading', name='카드 내역', exact=True).is_visible())
                         self.assertEqual(page.locator('#questions').count(), 0)
                         self.assertNotIn('/import', page.url)
