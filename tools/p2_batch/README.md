@@ -1,6 +1,24 @@
 # 서버 밖 P2 제안
 
-실행 기준은 [통합 명세](../../docs/SPEC.md) §6과 [규칙집](../../docs/DECISION_POLICY.md)이다. 운영 Board 내장 P2는 비활성 상태로 유지한다. 이 도구에는 반영·배포·규칙 등록 기능이 없다.
+실행 기준은 [통합 명세](../../docs/SPEC.md) §6과 [규칙집](../../docs/DECISION_POLICY.md)이다. 운영 Board 내장 P2는 비활성 상태로 유지한다. 아래 기존 도구는 제안·미리보기 전용이며, 후속 승인된 증분 진입점은 기존 인증 API로 반영·규칙 등록을 수행한다. 배포 기능은 없다.
+
+## 카드 수입 뒤 증분 1층
+
+[운영 절차서](../../docs/playbooks/p2-incremental.md). 이번 개발 검증에서는 운영 `--dry-run`만 실행하며 실제 모델 호출·API 반영·예약 등록은 헤드의 후속 실행이다.
+
+```powershell
+python -m tools.p2_batch.run_incremental --dry-run
+python -m tools.p2_batch.run_incremental --propose-only --max-merchants 30 --max-calls 1
+python -m tools.p2_batch.run_incremental --api-config D:/WebLedgerHost/data/p2-api.json --max-merchants 30 --max-calls 1
+```
+
+`scope.select`의 열린 분기·PROC-072·수동·금융·투영 보호를 그대로 사용한다. 이전 제안(유지·낮은 확신 포함)과 활성 P1 규칙이 있는 정확 가맹점 묶음은 신규에서 제외한다. 조건이 더 좁은 규칙도 보수적으로 제외하며 도시·국가를 지운 별칭으로 범위를 넓히지 않는다. 대상 0이면 모델·인증 API를 호출하지 않는다. 기본 최대30묶음·모델1회, 묶음 크기30(30~50), 한 호출240초다. 실패 호출도 상한에 포함하며 혼잡·한도 오류는 실패 기록 후 다음 회차에 재시도한다. Claude 자동 전환은 없다.
+
+저널은 `D:/WebLedgerHost/data/p2-incremental.json` 하나다. 원문 입력·변경 전 값·검증된 제안·요청 지문·사용량·API 요청과 결과 진행 상태·실행별 성공/실패 집계를 포함한다. 원자 교체와 별도 배타 lock으로 중복 실행을 막는다. 강제 종료 뒤 남은 `.lock`은 작성 프로세스가 끝난 것을 확인한 담당자만 정리한다. 상태를 지워 재실행하지 않는다. API 요청은 미리보기 digest와 고정 request_id를 보내기 전에 저장하고, 응답 유실 시 그대로 재전송한다. 새로 들어온 동명 거래를 이전 제안으로 자동 확장하지 않는다.
+
+제안 전용 결과는 다음 실제 실행에서 모델 호출 없이 반영을 재개한다. 수동·금융·revision·원문·규칙이 바뀐 미준비 대상은 중단한다. 각 교정 요청은 최대50행이며 서버의 신선도·보호 가드를 통과해야 한다. 반복2행 이상·높은 확신·단일 정확 가맹점·충돌 없음인 비포괄 항목만 `app.rules.normalize_rule`로 정리해 `/api/imports/rules`에 등록한다. 효과는 item 하나, 구매 조건, P2 실행 출처를 유지한다. 예약·상품 혼합은 기존 1층의 유지 판정을 따르며 단건은 승격하지 않는다.
+
+초기 저널은 기존 `proposals.jsonl`로 `python -m tools.p2_batch.initialize_history --proposals <비공개경로>`를 실행해 만든다. 현재는 이전 원문이 삭제되어, 보존된 실행 전 백업과 당시 선택 코드 `d2a0c4428c7e0e56a320e7c0f15c639490c6d47c`로 585묶음/1,258행/13회 완료 집계와 대조해 초기화했다. 이는 원제안 파일의 직접 복원이 아닌 대상 재현임을 저널에 명시한다. 기본 이력 누락·집계 불일치는 실행을 거부한다.
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'
