@@ -27,12 +27,12 @@ def _digest(value):
                                      default=str).encode()).hexdigest()
 
 
-def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
+def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None, completed_evidence=None):
     """Read only, bounded, derived facts for a local AI agent; never raw rows."""
     selected = set(transaction_ids)
     if not selected or len(selected) > 50:
         raise ValueError('AI_SCOPE_REQUIRED_MAX_50')
-    if code.plan(conn, trips, transaction_ids=selected, nets=nets)['targets']:
+    if code.plan(conn, trips, transaction_ids=selected, nets=nets, evidence=completed_evidence)['targets']:
         raise ValueError('CODE_STAGE_REQUIRED')
     valid = canonical_trip_periods(trips)
     rules = conn.execute("SELECT optional_json,origin,rule_hash FROM cost_classification_rules WHERE status='active' ORDER BY rule_id").fetchall()
@@ -44,6 +44,11 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
     cases, protected = [], 0
     for row in rows:
         tid = row['transaction_id']
+        from .closed_period import excluded, completed_period, exception_trip
+        proof = (completed_evidence or {}).get(tid)
+        if excluded(row, trips, evidence=proof):
+            protected += 1
+            continue
         if row['source_hash'] in authoritative:
             protected += 1
             continue
@@ -60,11 +65,14 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
         if not reconsider and not weak and not service_unknown and row['classification_state'] == 'classified' and row['trip_id'] in valid:
             continue
         candidates = regional_trips(row, valid.values(), booking_agnostic=True)
+        completed_target = exception_trip(row,trips,evidence=proof) if completed_period(row) else None
         if '예약 이용기간' in str(row.get('classification_basis') or '') and row['trip_id'] in valid:
             candidates = [valid[row['trip_id']]]
+        if completed_target:
+            candidates = [valid[completed_target]]
         allowed = {trip['trip_id'] for trip in candidates}
         from .quarter_costs import _tab_of
-        quarter = _tab_of(row)
+        quarter = None if completed_target else _tab_of(row)
         candidate_trips = dict(valid)
         if quarter:
             allowed.add(quarter)
@@ -80,7 +88,7 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
             probe.update(classification_source='ai_inference', execution=dict(kind='connected_agent',
                 provider='eligibility', model='eligibility', run_id='eligibility'))
         try:
-            binding = correction.preview(conn, [probe], trips)['digest']
+            binding = correction.preview(conn, [probe], trips, completed_evidence=completed_evidence)['digest']
         except ValueError as exc:
             if str(exc) != 'CORRECTION_PROTECTED' and str(exc) != 'CORRECTION_REQUIRES_PURCHASE':
                 raise
@@ -102,6 +110,8 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
     request = dict(version=VERSION, reconsider=bool(reconsider), scope=sorted(selected), cases=cases,
                    protected=protected, trip_context=_digest(trips), nets_context=_digest(nets or {}),
                    rules_context=_digest(rules))
+    if completed_evidence:
+        request['completed_period_context'] = _digest({k:v for k,v in completed_evidence.items() if k in selected})
     return dict(request, digest=_digest(request))
 
 
@@ -205,14 +215,15 @@ def service_metadata(conn, transaction_id):
         return {}
 
 
-def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_recorded_ai=False):
+def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_recorded_ai=False, completed_evidence=None):
     """Validate an actual agent result, not a relabelled deterministic fallback."""
     if (request.get('version') != VERSION or response.get('request_digest') != request.get('digest')
             or request.get('digest') != _digest({k: v for k, v in request.items() if k != 'digest'})):
         raise ValueError('AI_REQUEST_INVALID')
     ids = [case['transaction_id'] for case in request['cases']]
     metadata = _p2_metadata(conn, request, response, bundle) if bundle is not None else {}
-    current = prepare(conn, trips, request['scope'], reconsider=request['reconsider'], nets=nets)
+    current = prepare(conn, trips, request['scope'], reconsider=request['reconsider'], nets=nets,
+                      completed_evidence=completed_evidence)
     if current != request:
         raise ValueError('AI_REQUEST_STALE')
     execution = response.get('execution') or {}
@@ -245,11 +256,12 @@ def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_rec
                           execution={key: execution[key] for key in ('kind','provider','model','run_id')}))
         if tid in metadata:
             fixes[-1]['p2_metadata'] = metadata[tid]
-    expected = correction.preview(conn, fixes, trips, allow_recorded_ai=allow_recorded_ai)
+    expected = correction.preview(conn, fixes, trips, allow_recorded_ai=allow_recorded_ai,
+                                  completed_evidence=completed_evidence)
     return dict(expected, corrections=fixes, request_digest=request['digest'])
 
 
-def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None, allow_recorded_ai=False):
+def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None, allow_recorded_ai=False, completed_evidence=None):
     """Revalidate and atomically apply AI provenance, attribution and audit."""
     payload = _digest([request, response, bundle]) if bundle is not None else _digest([request, response])
     nested = conn.in_transaction
@@ -264,9 +276,10 @@ def apply(conn, trips, request, response, *, request_id, nets=None, bundle=None,
             if not isinstance(request_id, str) or not request_id.strip():
                 raise ValueError('AI_REQUEST_ID_REQUIRED')
             expected = preview(conn, trips, request, response, nets=nets, bundle=bundle,
-                               allow_recorded_ai=allow_recorded_ai)
+                               allow_recorded_ai=allow_recorded_ai,completed_evidence=completed_evidence)
             result = correction.apply(conn, expected, expected['corrections'], trips,
-                                      request_id='ai:' + request_id, allow_recorded_ai=allow_recorded_ai)
+                                      request_id='ai:' + request_id, allow_recorded_ai=allow_recorded_ai,
+                                      completed_evidence=completed_evidence)
             result['digest'] = expected['digest']
             from .db import utc_now
             conn.execute('INSERT INTO requests(request_id,scope,payload_sha256,response_json,created_at) VALUES (?,?,?,?,?)',

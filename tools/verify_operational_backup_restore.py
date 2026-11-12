@@ -64,6 +64,9 @@ def product_files(host):
     """Return private product files for the same backup and restore hash checks."""
     files = {}
     for config_file in sorted((host / 'config').glob('*.json')):
+        # Gateway telemetry is regenerated every few seconds, not restore input.
+        if config_file.name == 'ledger-gateway-status.json':
+            continue
         if config_file.is_symlink():
             raise RuntimeError('SOURCE_LINK_REFUSED')
         files['host-config/' + config_file.name] = config_file

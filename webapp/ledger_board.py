@@ -4791,9 +4791,11 @@ class Handler(BaseHTTPRequestHandler):
             trips = [dict(zip(columns, row)) for row in cursor]
             for trip in trips:
                 trip['trip_id'] = trip['tab_id']
+            from .card_classification_completion import completed_period_evidence
+            period_evidence = completed_period_evidence(store,trips)
             if path.endswith('/preview'):
                 result = classification_correction.preview(
-                    store.conn, corrections, trips, allow_recorded_ai=True)
+                    store.conn, corrections, trips, allow_recorded_ai=True,completed_evidence=period_evidence)
                 self._send_json({'digest': result['digest'], 'count': result['count'],
                                  'projection_pairs': sum(bool(t['ledger'] and t['board']) for t in result['targets']),
                                  'recorded_targets': sum(bool(t['ledger'] or t['board']) for t in result['targets'])}, code=200)
@@ -4804,7 +4806,7 @@ class Handler(BaseHTTPRequestHandler):
             expected = {'digest': digest}
             result = classification_correction.apply(
                 store.conn, expected, corrections, trips,
-                request_id=str(payload['request_id']), allow_recorded_ai=True)
+                request_id=str(payload['request_id']), allow_recorded_ai=True,completed_evidence=period_evidence)
             self._send_json(result, code=200)
         except SaveError as exc:
             self._send_json({'code': exc.code, 'message': str(exc)}, code=403 if exc.code == 'CSRF_REQUIRED' else 422)

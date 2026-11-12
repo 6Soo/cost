@@ -481,10 +481,28 @@ def test_same_size_edit_with_restored_mtime_invalidates_source_stamp(tmp_path):
     source = tmp_path / 'gmail-a.json'
     source.write_text('{"responses": [1]}', encoding='utf-8')
     os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    if os.name == 'nt':
+        import ctypes
+        from app.p2_source_io import _BasicInfo, _kernel, change_time
+        # Two writes in one Windows clock tick may share ChangeTime. Give
+        # the real fixture a known old change time before its actual rewrite.
+        setter = _kernel.SetFileInformationByHandle
+        setter.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong]
+        setter.restype = ctypes.c_int
+        handle = _kernel.CreateFileW(str(source), 0x100, 7, None, 3, 0, None)
+        assert handle != ctypes.c_void_p(-1).value
+        info = _BasicInfo()
+        info.changed = 116444736000000000 + 17000000000000000
+        try:
+            assert setter(handle, 0, ctypes.byref(info), ctypes.sizeof(info))
+        finally:
+            _kernel.CloseHandle(handle)
+        assert change_time(source, source.stat()) == info.changed
     stat = source.stat()
     before = p2_case._stamp([source])
     source.write_text('{"responses": [2]}', encoding='utf-8')
     os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert source.read_text(encoding='utf-8') == '{"responses": [2]}'
     assert source.stat().st_size == stat.st_size
     assert source.stat().st_mtime_ns == stat.st_mtime_ns
     assert p2_case._stamp([source]) != before

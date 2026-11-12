@@ -44,6 +44,8 @@ def read_page(flow, batch_id, *, offset=0, state="all", generation=""):
         raise ValueError("SOURCE_CHANGED")
     where = (" FROM transactions t JOIN import_batch_rows b USING(transaction_id) WHERE b.batch_id=? "
              "AND " + FILTERS[state])
+    from .card_cleanup_queries import completed_period_sql
+    where += ' AND '+completed_period_sql(flow.board)
     total = conn.execute("SELECT COUNT(*)" + where, (batch_id,)).fetchone()[0]
     measured = conn.execute(
         "SELECT COUNT(*),COALESCE(SUM(json_extract(c.detail_json,'$.changed')),0) FROM change_log c "

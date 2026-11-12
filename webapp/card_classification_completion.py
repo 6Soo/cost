@@ -18,6 +18,24 @@ def context(flow):
     return trips, _google_nets()
 
 
+def completed_period_evidence(board, trips=None):
+    """Read only the fresh published core; no match recomputation or source writes."""
+    from app.closed_period import completed_period, formal_facts
+    dates = board.conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
+    completed = {r[0] for r in dates if completed_period(dict(zip(('approval_date','posting_date'),r[1:])))}
+    if not completed:
+        return {}
+    from .card_flow import CardFlow
+    flow = CardFlow(board)
+    current,fresh = flow._held_ota_snapshot()
+    if not current or not fresh:
+        return {}
+    if trips is None:
+        trips = [dict(t,trip_id=t['tab_id']) for t in board.list_trips() if flow.trip_valid(t['tab_id'])]
+    return {k:v for k,v in formal_facts(flow._canonical_snapshot_report(current).get('matches',[]),trips).items()
+            if k in completed}
+
+
 def complete(flow, batch_id, transaction_ids=None):
     selected = {row[0] for row in flow.board.conn.execute(
         'SELECT transaction_id FROM import_batch_rows WHERE batch_id=?', (batch_id,))}
@@ -29,8 +47,9 @@ def complete(flow, batch_id, transaction_ids=None):
 def complete_scope(flow, selected=None):
     with flow.board._lock:
         trips, nets = context(flow)
-        preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected)
-        return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected)
+        evidence = completed_period_evidence(flow.board,trips)
+        preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
+        return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,evidence=evidence)
 
 
 def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
@@ -79,7 +98,9 @@ def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
             continue
         trip = flow.booking_trip(row, dict(period, service=fact.get('item') != '숙박비'))
         evidence = dict(source_hash=fact['source_hash'], trip_id=trip, item=fact.get('item') or '',
-                        basis=f"검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']}")
+                        basis=f"검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']}",
+                        service_period=dict(period),formal_link=bool(fact.get('core_link') and not fact.get('inferred_link')
+                                                                   and fact.get('service_period_basis') != 'LINK-108'))
         if not trip or (tid in choices and choices[tid] != evidence):
             blocked.add(tid)
         choices[tid] = evidence

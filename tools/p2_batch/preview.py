@@ -54,6 +54,10 @@ def run(db, archive):
     trips = []
     for row in conn.execute('SELECT * FROM trip_tabs'):
         trip = dict(row); trip['trip_id'] = trip['tab_id']; trips.append(trip)
+    from tools.complete_card_classification import load_completed_period_evidence
+    host = Path(db).resolve().parent.parent
+    evidence = (load_completed_period_evidence(conn,host,trips)
+                if (host/'config/card-flow.json').is_file() else {})
     results, reasons = [], Counter()
     for proposal in proposals:
         if proposal['item'] == '기존 항목 유지':
@@ -68,7 +72,7 @@ def run(db, archive):
             try:
                 if old['transaction_id'] in disagreements:
                     raise ValueError('PROJECTION_ATTRIBUTION_DISAGREEMENT')
-                preview = classification_correction.preview(conn, [correction], trips)
+                preview = classification_correction.preview(conn, [correction], trips,completed_evidence=evidence)
             except ValueError as exc:
                 reason = str(exc); reasons[reason] += 1
                 results.append(dict(transaction_id=old['transaction_id'], merchant_id=proposal['merchant_id'],

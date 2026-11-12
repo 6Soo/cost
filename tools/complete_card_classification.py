@@ -79,6 +79,8 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
                 raise ValueError('EVIDENCE_CACHE_STALE')
             return saved['evidence'], saved['summary']
     report = (flow._compute_ota_report() or {}) if report is None else report
+    from app.closed_period import formal_facts
+    completed_evidence = formal_facts(report.get('matches', []), trips)
     rows = {row['transaction_id']: row for row in policy._read(conn)}
     candidates = defaultdict(list)
     for fact in report.get('matches', []):
@@ -98,6 +100,9 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
                 item=fact.get('item') or '',
                 basis='보관 예약 이용기간 ' + period['starts_on'] + '~' + period['ends_on'] + ' · 비용 귀속 추론이며 결제 연결 미확정',
                 evidence_digest=hashlib.sha256(json.dumps(fact, sort_keys=True, default=str).encode()).hexdigest()))
+            candidates[row['transaction_id']][-1].update(
+                service_period=dict(period),
+                formal_link=row['transaction_id'] in completed_evidence)
     evidence = {}
     conflicts = 0
     for tid, options in candidates.items():
@@ -117,18 +122,36 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
     return evidence, summary
 
 
-def counts(conn):
+def counts(conn, trips=(), evidence=None):
+    from app.closed_period import excluded, manual_ids, open_scope
+    manual = manual_ids(conn)
+    completed = [r['transaction_id'] for r in policy._read(conn)
+                 if not open_scope(r,trips) or excluded(r, trips, evidence=(evidence or {}).get(r['transaction_id']),
+                             manual=r['transaction_id'] in manual)]
     eligible = (" FROM transactions t WHERE 1=1 "
+        "AND t.transaction_id NOT IN (SELECT value FROM json_each(?)) "
         "AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')='' "
         "AND COALESCE(t.parse_error,'')='' "
         "AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
         "AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)")
-    result = {name: conn.execute('SELECT COUNT(*)'+eligible+predicate).fetchone()[0] for name,predicate in (
+    result = {name: conn.execute('SELECT COUNT(*)'+eligible+predicate, (json.dumps(completed),)).fetchone()[0] for name,predicate in (
         ('unclassified_purchases', " AND t.transaction_direction='purchase' AND (t.classification_state!='classified' OR COALESCE(t.item,'')='')"),
         ('unclassified_all_directions', " AND (t.classification_state!='classified' OR COALESCE(t.item,'')='')"),
         ('purchase_without_trip', " AND t.transaction_direction='purchase' AND COALESCE(t.trip_id,'')='' AND COALESCE(t.display_tab_id,'') IN ('','unclassified') AND t.item!='분기 기타비용'"),
         ('automatic_purchase_without_trip', " AND t.transaction_direction='purchase' AND COALESCE(t.trip_id,'')='' AND COALESCE(t.display_tab_id,'') IN ('','unclassified') AND t.item!='분기 기타비용' AND t.decided_at IS NULL AND COALESCE(t.classification_source,'') NOT IN ('user_decision','user_exception','owner_booking') AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id) AND NOT EXISTS(SELECT 1 FROM board_manual_overrides b WHERE b.row_id='card-'||t.transaction_id)"))}
     return result
+
+
+def load_completed_period_evidence(conn, host, trips):
+    """Offline tools revalidate formal links from registered current sources."""
+    from app.closed_period import completed_period
+    dates = conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
+    completed = {r[0] for r in dates if completed_period(dict(zip(('approval_date','posting_date'),r[1:])))}
+    if not completed:
+        return {}
+    from tools.repair_dist141_provenance import canonical_report
+    evidence,_ = load_review_evidence(conn,host,trips,report=canonical_report(conn,host))
+    return {k:v for k,v in evidence.items() if k in completed and v.get('formal_link')}
 
 
 def protected_state(conn):
@@ -158,7 +181,7 @@ def protected_state(conn):
     return result
 
 
-def require_offline_backup(host, evidence, db):
+def require_offline_backup(host, evidence, db, *, isolated_copy=False):
     from tools.verify_operational_backup_restore import database_state
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
     for key in ('live_state_unchanged','all_database_tables_and_columns_compared','restored_review_binding_equal'):
@@ -172,6 +195,13 @@ def require_offline_backup(host, evidence, db):
     manifest = json.loads((backup/'manifest.json').read_text(encoding='utf-8'))
     if manifest['databases']['board.sqlite'] != database_state(db):
         raise ValueError('BACKUP_SOURCE_CHANGED')
+    if isolated_copy:
+        live = Path('D:/WebLedgerHost/data/board.sqlite')
+        if (host.resolve() == Path('D:/WebLedgerHost').resolve()
+                or db.resolve().parent != (host/'data').resolve()
+                or (live.exists() and os.path.samefile(db,live))):
+            raise ValueError('ISOLATED_COPY_REQUIRED')
+        return
     script = "$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};if(@(Get-NetTCPConnection -LocalPort 8751 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0"
     check = subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True)
     if check.returncode:
@@ -201,7 +231,7 @@ def main(argv=None):
         try:
             trips, nets = load_context(connection,host)
             evidence, evidence_summary = load_review_evidence(connection,host,trips,args.evidence_cache) if args.reconsider else ({}, {})
-            before = counts(connection)
+            before = counts(connection, trips, evidence)
             connection.execute('BEGIN IMMEDIATE' if args.apply else 'BEGIN')
             options = dict(nets=nets, reconsider=args.reconsider, evidence=evidence)
             preview = policy.plan(connection,trips,**options)
@@ -215,7 +245,7 @@ def main(argv=None):
             try:
                 protected = protected_state(target)
                 result = policy.apply(target,preview,trips,**options)
-                after = counts(target)
+                after = counts(target, trips, evidence)
                 if protected_state(target) != protected:
                     raise ValueError('SOURCE_OR_USER_DATA_CHANGED')
                 if after['unclassified_purchases'] or after['unclassified_all_directions']:

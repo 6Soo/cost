@@ -57,18 +57,17 @@ def test_fukutake_already_classified_generic_item_is_corrected_by_completion_pla
     assert board.conn.execute('SELECT source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()==before
 
 
-def test_legacy_preserved_state_uses_the_same_inference_as_other_rows(setup):
+def test_completed_2025_preserved_rows_are_not_reclassified_proc072(setup):
     board, _, _, rows = setup
     board.conn.execute("UPDATE transactions SET classification_state='preserved',approval_date='2025-10-03'")
     board.conn.commit()
+    before = board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
     preview = policy.plan(board.conn, TRIPS)
-    assert preview['summary']['to_classify'] == len(rows)
+    assert len(rows) == 5
+    assert preview['summary']['to_classify'] == 0
     policy.apply(board.conn, preview, TRIPS)
-    completed = board.conn.execute('SELECT classification_state,item,trip_id,classification_basis FROM transactions').fetchall()
-    expected_trip, _ = policy.infer_trip({'approval_date': '2025-10-03'}, TRIPS)
-    assert expected_trip in {'A', 'B'}
-    assert all(state == 'classified' and item and trip == expected_trip
-               for state, item, trip, basis in completed)
+    assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
+    assert policy.infer_trip({'approval_date': '2025-10-03'}, TRIPS)[0] == ''
     assert policy.plan(board.conn, TRIPS)['summary']['to_classify'] == 0
     assert policy.infer_trip({'classification_state': 'preserved', 'approval_date': '2026-10-03'}, TRIPS)[0] == 'A'
 

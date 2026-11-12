@@ -543,6 +543,11 @@ class AutonomousCleanupWorker:
                 self.status.update(state='retry', error='context_' + type(exc).__name__)
                 self.status['failures'] += 1
                 return False
+            from app.closed_period import excluded_ids
+            period_evidence = self._completed_period_evidence(trips)
+            completed = excluded_ids(self.board.conn,trips,evidence=period_evidence)
+            rows = [row for row in rows if row[0] not in completed]
+            self.status['candidates'] = len(rows)
             inputs_digest = _digest(inputs)
             fingerprints = {row[0]: fingerprint(row, inputs_digest) for row in rows}
             due_ids = pending_job_ids(self.board.conn, fingerprints, now)
@@ -565,8 +570,8 @@ class AutonomousCleanupWorker:
                 save_job(self.board.conn, row[0], fingerprints[row[0]],
                          {'status': 'awaiting_agent', 'attempts': attempts})
             try:
-                plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids)
-                automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids)
+                plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids,evidence=period_evidence)
+                automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids,evidence=period_evidence)
                 self.board.conn.commit()
             except Exception as exc:
                 self._progress('p1_failed', reason='P1_' + failure_code(exc))
@@ -613,7 +618,8 @@ class AutonomousCleanupWorker:
                 return True
             ids = [row[0] for row in due_rows]
             try:
-                request = ai_classification.prepare(self.board.conn, trips, ids, nets=nets)
+                request = ai_classification.prepare(self.board.conn, trips, ids, nets=nets,
+                    completed_evidence=self._completed_period_evidence(trips))
             except ValueError as exc:
                 self._progress('prepare_finished', reason=failure_code(exc))
                 code = str(exc)
@@ -837,7 +843,8 @@ class AutonomousCleanupWorker:
                                 due_rows = [row for row in due_rows if row[0] in keep]
                                 batch_ids = [row[0] for row in due_rows]
                                 trips, nets = self._fresh_context()
-                                request = ai_classification.prepare(self.board.conn, trips, batch_ids, nets=nets)
+                                request = ai_classification.prepare(self.board.conn, trips, batch_ids, nets=nets,
+                                    completed_evidence=self._completed_period_evidence(trips))
                                 self.board.conn.commit()
             retried_format, rounds = False, 0
             while True:
@@ -895,7 +902,8 @@ class AutonomousCleanupWorker:
                         with self._writer_locks():
                             trips, nets = self._fresh_context()
                             self._progress('preview_started')
-                            ai_classification.preview(self.board.conn, trips, request, response, nets=nets, bundle=bundle)
+                            ai_classification.preview(self.board.conn, trips, request, response, nets=nets, bundle=bundle,
+                                completed_evidence=self._completed_period_evidence(trips))
                             self._progress('preview_passed', preview_passed=len(request['cases']))
                     outcome = 'validated'
                     break
@@ -956,7 +964,8 @@ class AutonomousCleanupWorker:
                 self._progress('apply_started')
                 result = ai_classification.apply(
                     self.board.conn, trips, request, response,
-                    request_id='connected-agent:' + response['execution']['run_id'], nets=nets, bundle=bundle)
+                    request_id='connected-agent:' + response['execution']['run_id'], nets=nets, bundle=bundle,
+                    completed_evidence=self._completed_period_evidence(trips))
             except Exception as exc:
                 self.board.conn.rollback()
                 code = failure_code(exc)
@@ -991,6 +1000,10 @@ class AutonomousCleanupWorker:
                                        'duration_ms': int((time.monotonic() - started) * 1000)})
             self._finish(all_rows)
             return True
+
+    def _completed_period_evidence(self, trips):
+        from .card_classification_completion import completed_period_evidence
+        return completed_period_evidence(self.board,trips)
 
     def _fresh_context(self):
         # P2 needs only current trip candidates/net values. Rebuilding the P1

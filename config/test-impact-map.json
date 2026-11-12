@@ -9,6 +9,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "closed-period-boundary-and-repair",
+      "paths": ["app/closed_period.py", "app/closed_period_repair.py", "tools/repair_closed_period_grouping.py", "tools/review_card_inference.py", "webapp/tests/test_closed_period_grouping.py", "tools/verify_operational_backup_restore.py", "tests/card_pipeline/test_operational_product_backup.py"],
+      "tests": ["webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_decision_provenance.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/test_p2_batch.py"]
+    },
+    {
       "name": "dist141-provenance-and-forest-period",
       "paths": ["app/decision_provenance.py", "tools/repair_dist141_provenance.py", "webapp/tests/test_decision_provenance.py", "app/forest_portal_capture.py", "tests/test_forest_portal_capture.py"],
       "tests": ["webapp/tests/test_decision_provenance.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "tests/test_forest_portal_capture.py", "tests/test_p2_batch.py"]

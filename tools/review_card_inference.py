@@ -18,23 +18,23 @@ from app import ai_classification as ai, automatic_classification as code
 from tools.complete_card_classification import load_context, read_flow, require_offline_backup
 
 
-def run(conn, trips, ids, *, nets=None, reconsider=False, request=None, response=None, apply=False):
+def run(conn, trips, ids, *, nets=None, reconsider=False, request=None, response=None, apply=False, completed_evidence=None):
     """Caller owns one transaction; no hidden commits or external effects."""
     if request is not None and response is not None:
         request_id = 'connected-agent:' + (response.get('execution') or {}).get('run_id', '')
         if conn.execute("SELECT 1 FROM requests WHERE request_id=? AND scope='ai_classification'", (request_id,)).fetchone():
-            result = ai.apply(conn, trips, request, response, request_id=request_id, nets=nets)
+            result = ai.apply(conn, trips, request, response, request_id=request_id, nets=nets,completed_evidence=completed_evidence)
             return dict(request=request, ai_result=result, digest=result['digest'], code_changes=0)
-    plan = code.plan(conn, trips, transaction_ids=ids, nets=nets)
-    code.apply(conn, plan, trips, transaction_ids=ids, nets=nets)
-    fresh = ai.prepare(conn, trips, ids, reconsider=reconsider, nets=nets)
+    plan = code.plan(conn, trips, transaction_ids=ids, nets=nets,evidence=completed_evidence)
+    code.apply(conn, plan, trips, transaction_ids=ids, nets=nets,evidence=completed_evidence)
+    fresh = ai.prepare(conn, trips, ids, reconsider=reconsider, nets=nets,completed_evidence=completed_evidence)
     if request is not None and fresh != request:
         raise ValueError('AI_REQUEST_STALE')
     if response is None:
         return dict(request=fresh, code_changes=plan['summary']['to_classify'])
-    expected = ai.preview(conn, trips, fresh, response, nets=nets)
+    expected = ai.preview(conn, trips, fresh, response, nets=nets,completed_evidence=completed_evidence)
     result = ai.apply(conn, trips, fresh, response,
-                      request_id='connected-agent:' + response['execution']['run_id'], nets=nets)
+                      request_id='connected-agent:' + response['execution']['run_id'], nets=nets,completed_evidence=completed_evidence)
     return dict(request=fresh, ai_result=result, digest=expected['digest'],
                 code_changes=plan['summary']['to_classify'])
 
@@ -67,13 +67,15 @@ def main(argv=None):
                 live.backup(work)
             work.execute('BEGIN IMMEDIATE' if args.apply else 'BEGIN')
             trips, nets = load_context(work, host)
+            from tools.complete_card_classification import load_completed_period_evidence
+            completed_evidence = load_completed_period_evidence(work,host,trips)
             request = json.loads(args.request.read_text(encoding='utf-8')) if args.request else None
             if request is not None:
                 request = request.get('request', request)
             response = json.loads(args.response.read_text(encoding='utf-8')) if args.response else None
             result = run(work, trips, args.transaction, nets=nets,
                          reconsider=args.reconsider or bool(request and request.get('reconsider')),
-                         request=request, response=response, apply=args.apply)
+                         request=request, response=response, apply=args.apply,completed_evidence=completed_evidence)
             if args.apply:
                 if result.get('digest') != args.expected_digest:
                     raise ValueError('AI_PREVIEW_STALE')
