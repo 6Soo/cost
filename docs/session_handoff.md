@@ -4,12 +4,21 @@
 - 위치는 홈의 '진행 중 여행' 절 뒤 별도 절이다. 10행 표를 상단 상태 영역에 넣으면 모바일 첫 화면에서 여행 목록이 밀려 `test_home_has_no_pending_ledger_state_at_mobile_and_desktop_widths`가 깨져, 여행 뒤로 옮겼다. 홈 로그인 게이트를 그대로 상속하며 비인증 `/`는 이전과 같이 401이다.
 - 읽는 기록(모두 읽기 전용, 기존 기록): 카드=통합 DB `import_batches.received_at`(발급사별), Gmail=`ota-mail/collection.json`의 `last_run`, OTA=등록 manifest의 근거 DB(`ota-evidence.sqlite`, Agoda·Trip.com·Booking은 출처 기반, 숲나들e·산림치유원은 예약 기반 forest 분할), Google=`WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT`의 `last_ok_at`/`error_code`, P2=`card-flow.json`의 `p2_batch_archive`가 가리키는 보관함의 최신 `*/summary.json`(파일 시각). 기록이 없거나 못 읽으면 지어내지 않고 '기록 없음'으로 둔다.
 - '로그인 필요'는 구조화된 인증 실패 기록이 있는 Google(`GOOGLE_AUTH_UNAVAILABLE`)에서만 띄운다. Gmail·OTA·카드에는 인증 실패 기록 경로가 없어 만들지 않았다. 운영 현재 Booking.com은 '기록 없음'이다.
-- P2 보관함 처리: 코드 기본값을 두지 않고 설정 기반으로 유지한다. 선택 이유: P2 실행 기록은 실행 레포의 `.local-archive/p2-batch-*`에만 남고(`tools/p2_batch/layer1.py`가 강제) 운영 `data/backups/p2-*`는 DB 백업·dry-run이라 summary.json이 없어, 코드 기본값은 실제로 헛돌기 때문. 배포 시 `config/card-flow.json`에 `"p2_batch_archive": "C:/AX/cost/.local-archive"` 한 줄을 추가하면 화면에 P2 실행 기록이 보인다. 운영 설정 파일은 직접 바꾸지 않았다.
-- origin/main(#824까지)을 merge했고 handoff 상단 충돌은 양쪽 절을 보존해 해결했다. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`결과는 #827이 정본(직전 실행 570/570·skip0·브라우저 16건 전부 실행 PASSED). 신규 합성 검사 18건(`webapp/tests/test_collection_status.py`: 원천별 표시·기준 경고·기록 없음·로그인 기록·P2·졸업 지표·홈 통합·비인증 차단)과 영향 그룹 `collection-status-panel`을 추가했다. 근거는 `quality-artifacts/`(미추적, 커밋하지 않음).
-- 운영 읽기 전용 실측(KST 2026-11-13): 카드 국민 2026-10-31·하나 2026-11-04·기업 2026-11-02(모두 경고), Gmail 2026-11-13, Agoda·Trip.com·숲나들e·산림치유원 2026-11-12, Booking.com 기록 없음, Google 2026-11-13(로그인 실패 기록 없음). 판정 없는 정상 거래 0건. P2 보관함 직접 읽기는 2026-11-12·대상 585·성공 13·실패 2.
-- 남은 일(헤드): 검수·병합·배포. 서버 코드가 바뀌었으므로 배포가 필요하고, 배포 시 위 `p2_batch_archive` 한 줄을 설정해야 P2 실행 기록이 보인다. DB 쓰기·새 테이블 없음.
+- P2 표시: 개발 폴더(`C:/AX/cost/.local-archive`)를 `p2_batch_archive`로 설정하라는 안내는 검수 지적으로 뺐다. 그 설정이 없으면 화면은 지금처럼 'AI 판정 실행 기록 없음'이다. 후속 과제: P2 실행기가 운영 데이터 폴더에 요약 파일을 남기고 화면은 그것만 읽기. 운영 설정 파일은 직접 바꾸지 않았다.
+- 홈 요청마다 수집 상태 쿼리가 다시 돌지 않도록 60초 인프로세스 메모리 캐시를 뒀다(새 의존성 없음, `time.monotonic`, 보드 경로별 키, `now`를 명시하면 캐시 우회). 캐시 검사 1건을 추가했다.
+- origin/main(#819/`4eaed971`까지)을 merge했고 handoff 상단 충돌은 양쪽 절을 보존해 해결했다. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` 결과는 #827이 정본. 신규 합성 검사 19건(`webapp/tests/test_collection_status.py`: 원천별 표시·기준 경고·기록 없음·로그인 기록·P2·졸업 지표·홈 통합·비인증 차단·60초 캐시)과 영향 그룹 `collection-status-panel`을 추가했다. 근거는 `quality-artifacts/`(미추적, 커밋하지 않음).
+- 운영 읽기 전용 실측(KST 2026-11-13): 카드 국민 2026-10-31·하나 2026-11-04·기업 2026-11-02(모두 경고), Gmail 2026-11-13, Agoda·Trip.com·숲나들e·산림치유원 2026-11-12, Booking.com 기록 없음, Google 2026-11-13(로그인 실패 기록 없음). 판정 없는 정상 거래 0건.
+- 남은 일(헤드): 검수·병합·배포. 서버 코드가 바뀌었으므로 배포가 필요하다. DB 쓰기·새 테이블 없음.
 - 주의: main에 이 변경과 무관한 기존 실패 3건(PR #815의 `completed_period_sql`이 fake-board fixture를 깨뜨림) — `test_uiux_copy.py` 2건, `test_card_destination_ui.py` 1건. 이 PR의 영향 그룹에는 선택되지 않아 고치지 않았다. 병합·배포·운영 쓰기는 하지 않는다.
 
+## 2026-11-13 일반 준비기간 귀속 폐지 — 검수 지적 수정·규칙 개정 완료, 최종 검사·PR 단계
+
+- 승인 범위는 준비 비용 일반 fallback 폐지 A~F다. 구현 `fa82731e`, ITEM-020 보완 `af325458`·`a2246b60`. 예약 이용기간·준비 숙박 특례·사용자 예외·수동·환불/금융 보호는 유지한다. [사본 검증](agents/artifacts/no-preparation-cost-rehearsal-20261113.md): 이동14·보존2,003, Q3+12/Q4+2, 보호74표 불변·감사14건 모든 투영 필드 원복·REPLAYED 변경0. 사본은 운영 DB를 `mode=ro`로 열어 SQLite backup으로 만든 별도 파일에서만 썼고 운영 원본은 쓰지 않았다. 결과 파일 `rehearsal.json`은 유효하며 수치 일관성을 확인했다.
+- 기존 코드 비교17건은 이동14건과 교집합0인 기존 분기 기타비용 행(`owner_card_residual`)이며 새 코드는 저장된 분기를 유지한다. 앞선 “14+3·향후 거래만 영향” 주장은 실제 집합 대조와 달라 폐기했다. 금액 원값 없이 여행별 건수·비율만 위 검증에 남긴다.
+- 독립 검수(codex `gpt-6.1-sol` medium)가 P2 결함 2건을 지적해 수정했다: (1) 분기 기타비용 fallback이 이후 예약 이용기간 근거의 교정을 막던 것을 자동 출처에 한해 허용, (2) 날짜 미상 구매에서 P2 검증이 P1의 기존 귀속을 거부하던 것을 보존. 각각 회귀 검사를 추가했고 표적 통과(준비비용 정리 25·공유 판정 경로 77). skip/xfail 없음. 이전 `af325458` 영향 검사789pass/14subtests/skip0은 수정 전 기록이다.
+- 소유자 결정 2026-11-13을 규칙집에 반영했다: PROC-012 개정(고객 원문을 Qwen4 Max/QwenCloud 작업자에게도 허용, Codex 한도 동안 개발·예행 포함), AGENTS.md·SPEC §12.3에 “Codex 한도 동안 구현자와 다른 Claude opus 세션의 독립 검수로 대체” 추가. SPEC §12.2·§13.9 원문 조항도 같은 근거로 정렬했다. 준비 비용 규칙(TRIP-029/043/069/071·DATE-003/040·ITEM-020)·PROC-021 동률 이유·DECISION_POLICY §3.2/§3.4-4/§6.1 개정은 이미 커밋됨.
+- #815 배포·완료 기간 정리741건 운영 기록을 실제 근거(`preview/applied/replay.json`·`resume.log`·`backup-restore.json`)와 대조해 보존했다(하쿠산 −739·세토우치 −2, 장부·화면 변화0, 재실행 변경0, 5DB·44파일 복원). 최종 SHA 영향 검사·독립 재검수 판정·완료 커밋은 이 브랜치 PR 기록을 정본으로 삼는다.
+- 남은 작업은 최종 SHA 영향 검사·헤드의 독립 재검수·PR 기록이다. 병합·배포·운영 DB 반영은 헤드가 담당하며 여기서는 실행하지 않는다. [운영 명령과 백업 게이트](playbooks/preparation-cost-grouping.md)를 사용하고 Board·SourceRefresh writer 정지 및 분리 프로세스 finally 복구가 필요하다. 비공개 근거는 `.local-archive/no-preparation/`, 체크포인트는 같은 폴더 `checkpoint.md`다.
 ## 2026-11-13 분기 검수 자료 묶음 — 독립 검수 지적 반영 완료
 
 - [PR #818](https://github.com/6Soo/cost/pull/818) 독립 검수(opus) REQUEST_CHANGES를 반영했다. 최종 SHA·검수 판정은 #818 기록이 정본이며 병합·배포·Google 쓰기는 하지 않는다.
@@ -18,6 +27,12 @@
 - 산출물은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/v2/`에 다시 생성했다(첫 실행본은 상위 폴더 보존). 21개 여행, 기타비용 2행, 판정 주체 5행, 준비 비용 귀속 폐지 반영 전 기준.
 - 검증: 표적 `tests/test_quarter_review_pack.py` 20 passed, 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 270 passed·skip0·compile 통과.
 - 남은 일: 사용자가 review-pack.xlsx만 열어 검수하고 장부 화면에서 교정한 뒤 다시 생성한다. 준비 비용 귀속 폐지 반영 후 재생성이 필요하다.
+## 2026-11-12 밤 #815 배포·완료 기간 정리 운영 기록
+
+- #815 병합 `335b9eda56b73fd65e201f39a1ffdefd82c955f3`를 22:46~22:47 KST 배포했다(Board 8751). 배포 근거는 22:47:36 KST health/ready 200·보호13표 불변이며 배포 중단은 없었다.
+- 완료 기간 정리741건 반영(2025년739·2026Q1 2), 하쿠산 귀속 −739·세토우치 −2. 기존 장부·화면 행 변화0, 재실행 `REPLAYED`·이동0·실행변경0이다. preview/applied/replay의 digest와 건수를 직접 대조했다.
+- 반영 중 헤드 호출 세션의 실행이 끊겨 22:57:41~23:14:40 KST 공개 장부가 중단됐다(시작은 헤드 전달 시각). 분리 프로세스가 남은 반영을 완료했고 resume.log에서 23:14:33 반영·재실행 성공, 23:14:39 Board ready, 23:14:40 route resume·Worker 시작을 확인했다.
+- 직접 확인 근거: `D:/WebLedgerHost/data/backups/closed-period-grouping-20261112/`의 `preview.json`·`applied.json`·`replay.json`·`resume.log`·`backup-restore.json`·`operating-release/deploy-evidence.json`. 신선 백업5DB·44파일의 복원·원본 불변·review binding 동등 확인과, 코드 배포의 fresh_backup_restore=false는 서로 다른 기록이다.
 
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
