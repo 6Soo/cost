@@ -170,15 +170,16 @@ python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest 
 | 3분기 범위의 "소유자 확인" 표시 | 건수 |
 | --- | ---: |
 | 전체 | 421 |
-| 정정 대상 | 307 |
-| 보존 — 수동 신호 있음 | 112 |
+| 정정 대상 | 302 |
+| 보존 — 기존 수동 신호 있음 | 112 |
+| 보존 — 소유자 지시로 남은 이동·결정 기록(독립 검수 지적으로 추가) | 5 |
 | 보존 — 개별로 찍힘(같은 분 5행 미만) | 2 |
 
 - 범위 밖(이번에 손대지 않음): 4분기 열린 여행 15건, 닫힌 분기 367건. 다음 분기 검수에서 같은 기준으로 한다.
 
 ### 9.3 갱신된 교정 반영 수치 (격리 사본, 표시 정정 → 교정 순서)
 
-운영 DB의 새 SQLite backup 사본에서 표시 정정 307건을 먼저 반영하고 같은 교정 목록 198건을 반영했다. 교정 목록 자체는 바뀌지 않았다.
+운영 DB의 새 SQLite backup 사본에서 표시 정정을 먼저 반영하고(처음 예행 307건, 독립 검수 뒤 기준으로 다시 예행 302건 — 교정 반영 수치는 같다) 같은 교정 목록 198건을 반영했다. 교정 목록 자체는 바뀌지 않았다.
 
 | | 답 받기 전 | 표시 정정 뒤 |
 | --- | ---: | ---: |
@@ -186,7 +187,7 @@ python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest 
 | 제외 | 53 | **13** (거래·장부 귀속 불일치 12, 환불 묶음 구성원 부적격 1) |
 
 - 제외 13건: 귀속 불일치 12건 중 10건은 장부 행이 이미 검수자가 정한 여행에 있다(§4-6). 1건은 개별 표시 보존분이다. 환불 1건은 원결제가 귀속 불일치라 묶음으로 못 옮긴다.
-- 표시 정정 검증: 307행에서 화면 행의 표시만 바뀌고 거래·장부는 0건 변경. 재실행 변경 0. 원복 뒤 화면 행 차이 0.
+- 표시 정정 검증: 대상 행에서 화면 행의 표시만 바뀌고 거래·장부는 0건 변경. 재실행 변경 0. 원복 뒤 화면 행 차이 0(원복은 처음 예행에서 확인).
 
 | 검수 자료 지표 | 전 | 후(사본) |
 | --- | ---: | ---: |
@@ -204,14 +205,14 @@ python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest 
 
 ### 9.4 헤드가 할 반영 (§7의 2번을 대체)
 
-순서: 하나카드 이중 기록 정리 → **같은 서버 정지 창에서** 표시 정정 → 교정 반영. 표시를 정정하면 그 행들이 P1 재판정 대상이 되므로, 서버를 다시 켜기 전에 교정까지 끝낸다(사이에 재판정이 돌면 교정 목록이 `STALE`이 된다).
+순서: 하나카드 이중 기록 정리 → 표시 정정 → 교정 반영. 한 정지 창에서 이어서 하면 백업 검증을 줄일 수는 없지만 사이에 다른 변경이 끼지 않는다. (정정: 앞서 "표시를 정정하면 P1 재판정 대상이 된다"고 적었으나, 독립 검수 확인대로 상시 Worker는 화면 행이 있는 거래를 다시 열지 않는다. 열리는 것은 명시 실행 도구 — AI 검수 교정 반영, `--reconsider` 재분류 — 뿐이다.)
 
 ```powershell
 # 도구 PR 병합·배포 뒤, 검증된 릴리스 checkout에서. writer 정지, 분리 프로세스, finally 복구는 절차서대로.
 $ev = 'D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/apply'
 $manifest = 'D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/manifest-2026Q3.json'
 New-Item -ItemType Directory -Path $ev -Force | Out-Null
-# 1) 표시 정정 — 기대값: owner_stamped_rows 421, to_correct 307, MANUAL_OR_USER_EXCEPTION 112, INDIVIDUAL_STAMP 2
+# 1) 표시 정정 — 기대값: owner_stamped_rows 421, to_correct 302, MANUAL_OR_USER_EXCEPTION 117(기존 112·화면 행 이력 5), INDIVIDUAL_STAMP 2
 python tools/verify_operational_backup_restore.py --evidence-out "$ev/backup-1.json"; if ($LASTEXITCODE -ne 0) { throw 'BACKUP_RESTORE_FAILED' }
 python tools/repair_bulk_owner_confirmation.py --host-root D:/WebLedgerHost --year 2026 --quarter 3 --request-id bulk-owner-confirmation-2026Q3 --report "$ev/bulk-preview.json"; if ($LASTEXITCODE -ne 0) { throw 'PREVIEW_FAILED' }
 $b = Get-Content -LiteralPath "$ev/bulk-preview.json" -Encoding UTF8 | ConvertFrom-Json
