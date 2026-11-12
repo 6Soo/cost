@@ -6,6 +6,14 @@
 - 소유자 결정 2026-11-13을 규칙집에 반영했다: PROC-012 개정(고객 원문을 Qwen4 Max/QwenCloud 작업자에게도 허용, Codex 한도 동안 개발·예행 포함), AGENTS.md·SPEC §12.3에 “Codex 한도 동안 구현자와 다른 Claude opus 세션의 독립 검수로 대체” 추가. SPEC §12.2·§13.9 원문 조항도 같은 근거로 정렬했다. 준비 비용 규칙(TRIP-029/043/069/071·DATE-003/040·ITEM-020)·PROC-021 동률 이유·DECISION_POLICY §3.2/§3.4-4/§6.1 개정은 이미 커밋됨.
 - #815 배포·완료 기간 정리741건 운영 기록을 실제 근거(`preview/applied/replay.json`·`resume.log`·`backup-restore.json`)와 대조해 보존했다(하쿠산 −739·세토우치 −2, 장부·화면 변화0, 재실행 변경0, 5DB·44파일 복원). 최종 SHA 영향 검사·독립 재검수 판정·완료 커밋은 이 브랜치 PR 기록을 정본으로 삼는다.
 - 남은 작업은 최종 SHA 영향 검사·헤드의 독립 재검수·PR 기록이다. 병합·배포·운영 DB 반영은 헤드가 담당하며 여기서는 실행하지 않는다. [운영 명령과 백업 게이트](playbooks/preparation-cost-grouping.md)를 사용하고 Board·SourceRefresh writer 정지 및 분리 프로세스 finally 복구가 필요하다. 비공개 근거는 `.local-archive/no-preparation/`, 체크포인트는 같은 폴더 `checkpoint.md`다.
+## 2026-11-13 분기 검수 자료 묶음 — 독립 검수 지적 반영 완료
+
+- [PR #818](https://github.com/6Soo/cost/pull/818) 독립 검수(opus) REQUEST_CHANGES를 반영했다. 최종 SHA·검수 판정은 #818 기록이 정본이며 병합·배포·Google 쓰기는 하지 않는다.
+- 사유 있는 검수 행 1,070건: 최근 자동 변경 207 · AI 판정 146 · 추론 귀속 573 · 포괄 항목 392(사유 중복 가능). 여행별 검수 합계 893건과 전체 목록의 차이 177건은 분기 기타비용 행으로, notes와 여행별 시트 합계 아래 안내 줄에 밝혔다.
+- 최근 자동 변경 기준일(`--recent-since`, 기본 2026-11-11)과 기타비용 시트 이름(분기 인수)을 매개변수화하고, 화면 표시 차이 설명을 쉬운 말로 고쳤다. 이용일 미확인은 점수·건수에서 빼고 장부 화면 확인 안내를 유지한다.
+- 산출물은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/v2/`에 다시 생성했다(첫 실행본은 상위 폴더 보존). 21개 여행, 기타비용 2행, 판정 주체 5행, 준비 비용 귀속 폐지 반영 전 기준.
+- 검증: 표적 `tests/test_quarter_review_pack.py` 20 passed, 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 270 passed·skip0·compile 통과.
+- 남은 일: 사용자가 review-pack.xlsx만 열어 검수하고 장부 화면에서 교정한 뒤 다시 생성한다. 준비 비용 귀속 폐지 반영 후 재생성이 필요하다.
 ## 2026-11-12 밤 #815 배포·완료 기간 정리 운영 기록
 
 - #815 병합 `335b9eda56b73fd65e201f39a1ffdefd82c955f3`를 22:46~22:47 KST 배포했다(Board 8751). 배포 근거는 22:47:36 KST health/ready 200·보호13표 불변이며 배포 중단은 없었다.

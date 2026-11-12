@@ -15,7 +15,7 @@
 | TRIP-041 | 이용기간 여행 순위 | app/reconciliation.py:116의 stay_trip은 덮음/겹침/차액까지 동률이면 None을 반환한다. 이 내부 미선택 결과와 finance.md:88의 정상 카드 마지막 단계 일정·ID 선택은 계층을 구분해야 한다. 이번 읽기만으로 최종 사용자 화면에 대기가 남는다고 단정하지 않는다. |
 | TRIP-042 | 준비 숙박 | app/reconciliation.py:106의 prep_trip 자체는 체크아웃 이후 가장 가까운 시작일만 확인하며 직전 여행 종료/밤 비중첩 조건은 함수 안에서 검사하지 않는다. 같은 시작일 후보가 여러 개면 None을 반환한다. 호출자와 마지막 카드 귀속 경로의 보완 여부는 이 입력으로 확정하지 않는다. |
 | TRIP-049 | 묶음 여행과 예약 신원 | docs/history/ota-legacy.md:1246은 포털 _identical_group_matches가 묶음에 행별 예약번호를 붙이는 과거 구현 차이를 보고한다. 현재 코드 실행 여부를 재검증한 사실로 보지 않는다. |
-| TRIP-053 | 캐시 사용의 여행 검증 | finance.md:111은 이용일을 덮는 여행이 여러 개면 선택하지 않는다고 쓰지만 app/ota_cash_use.py:95는 숙소·장소와 목적지가 맞아 하나로 좁혀지면 귀속한다. 준비 숙박/미선택 분기에는 내부 unclassified 값을 사용한다. 카드용 분기 종결로 이 차이를 임의 해소하지 않는다. |
+| TRIP-053 / DATE-035 | 캐시·포인트 귀속 | 개정 규칙(ITEM-019 정렬)은 캐시·포인트를 카드와 같은 과정으로 귀속한다(복수 후보→PROC-021 동률, 부재→결제일 분기 기타비용). app/ota_cash_use.py cash_expense_rows는 복수 후보를 목적지로 좁히거나 unclassified로, 부재를 준비 숙박 또는 unclassified로 남긴다. |
 | TRIP-079 | 분기 표시와 공유 판정 | lean-card-ota-core-20261030.md:17은 당시 completion_for_row/미배정 필터가 실여행 ID만 유효하게 취급할 수 있던 구현 차이를 지적한다. 이는 당시 진단이며 현재 코드의 미해결 결함으로 단정하지 않는다. |
 | TRIP-089 | 결제일 미상과 여행 증거 | app/ota_inference.py:50과 config/ota-matching-defaults.json:57의 구형 Agoda 경로는 verified portal·상호 유일성·정확 끝자리/금액을 요구한다. 입력의 2026-11-01 M:N 최신 관계 계약을 이 구형 코드의 1:1 한도로 축소하지 않는다. 이 영역 입력만으로 새 M:N 경로 전체를 검증하지 않았다. |
 | ITEM-002 | 날짜·금액 오류 보호 | app/classify.py:300은 파싱 오류에 needs_review/unreadable을 반환한다. 내부 오류 식별은 보호 규칙과 부합하나 사용자 대기 상태로 노출하면 안 된다. 입력만으로 화면 노출 여부는 입증되지 않는다. |
@@ -29,6 +29,7 @@
 | DATE-044 | 공통 숙박기간의 제안 | tests/card_pipeline/test_same_day_lodging_group.py:59는 레거시 카드 수>예약 수이면 공통기간을 제공하지 않는다고 기대한다. 최신 문서는 건수 차이만으로 관계를 끊지 말라고 하므로, 관계는 유지하고 기간 제안 경로의 추가 제약으로 분리해 검토해야 한다. |
 | LINK-002 | 연결의 기본 조건 | app/ota_inference.py와 config/ota-matching-defaults.json, tests/test_ota_inference.py에 Agoda 전용 "상호 유일" 조건이 남아 있다. 끝자리가 없고 결제일만 맞는 경우의 연결은 app/ota_payments.py에서 확인이 필요하다. docs/specs/ota-portal-browser-collection-20261110.md:32의 "상호 유일 추론에만 맡긴다"는 이 규칙으로 대체한다. |
 | LINK-003 | M:N 관계 보존 | 레거시 app/ota_portal.py:326와 test_portal_identical_bookings.py:38의 동수량 제한은 구형 경로에 남아 있다. 관계 자체를 미연결로 돌리는 근거로 적용하지 말고 금융 배분과 분리해 재검토해야 한다. |
+| DATE-029 / LINK-069 | 예정 자동결제 1:1 강제 | 개정 규칙은 예정 자동결제 예외에서 일대일/상호 유일을 요구하지 않는다(LINK-002·ITEM-080 M:N). app/ota_portal.py scheduled_card_date_matches는 카드→예약(len(options)!=1)과 예약→카드(len(rows_by_booking[booking])!=1) 양쪽 1:1만 통과시켜 M:N 묶음을 연결하지 않는다. |
 | LINK-048 | 실제 여행 우선 귀속 | tests/card_pipeline/test_ota_inference.py:137은 여행 동률을 CONFLICT_REVIEW로 남긴다. 현재 정상 카드의 최선 여행/분기 목적지 판정과 내부 금융 잠금을 구분하고 사용자 분류 대기 상태로 쓰지 않아야 한다. |
 | LINK-074 | 취소·정책·환불 구분 | tests/card_pipeline/test_airline_payment_mail.py:87은 항공사 취소 통지에서 기존 paid 근거를 evidence_conflict로 두고 검증을 중지한다. 일반 취소 예약의 이미 검증된 charge·관계 유지 규칙과 다르므로 신규 검증 중지와 과거 원결제/관계 삭제를 구분해야 한다. |
 | RFND-008 | 카카오 택시 동액 연결 | app/partial_refund.py:317은 양쪽 상호에 카카오가 있으면 먼저 14일 후보를 만들고 :325에서 family 일치만 검사한다. 따라서 동일한 비택시 카카오 상호도 14일 연결될 수 있어, :278의 동일 상호는 당일·택시 변형만 14일이라는 설명보다 넓다. family가 다른 경쟁 후보도 collision에 먼저 포함돼 정상 연결을 보수적으로 막을 수 있다. |
