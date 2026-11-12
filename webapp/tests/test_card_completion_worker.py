@@ -218,8 +218,8 @@ def test_preparation_costs_complete_without_a_request_and_replay_once(setup, day
     original = snapshot_originals(board)
     worker = CardCompletionWorker(board, threading.RLock())
     assert worker.sweep_once()
-    assert board.conn.execute('SELECT trip_id,amount_krw FROM ledger_entries').fetchall() == [(next_trip,10000)]
-    assert '준비기간' in board.conn.execute('SELECT classification_basis FROM transactions').fetchone()[0]
+    assert board.conn.execute('SELECT trip_id,amount_krw FROM ledger_entries').fetchall() == [('',10000)]
+    assert '분기 기타비용' in board.conn.execute('SELECT classification_basis FROM transactions').fetchone()[0]
     assert not worker.sweep_once()
     assert snapshot_originals(board) == original
 

@@ -10,6 +10,65 @@
 - 막힌 점·남은 일: (1) 사용자가 카드사별 `register_credentials.ps1`로 자격 증명 등록(최초 1회). (2) 브라우저 작업 공간이 사용자 제어로 전환되어 하나·기업 라이브 화면 조사와 실제 로그인 1회 검증은 등록 후 재개 필요. (3) 하나·기업 URL·선택자·성공 판정 라이브 확정. (4) 멈춘 사이트 재시도는 사용자가 `reset_attempt.ps1`로 해제.
 - 병행 작업자(`feat/kb-card-collect-script-20261113`)의 `tools/collect_kb_card.mjs`·`tools/import_kb_card_download.py`는 고치지 않았다. 로그인 모듈은 `ensureCardLogin` 인터페이스로 붙는다. 같은 브랜치에 추가 커밋하며 병합·배포·운영 쓰기 없음. 최종 SHA·검수는 PR 기록을 따른다.
 
+## 2026-11-13 M2 항목 7 상태 화면 — 수집 상태 판 (PR #827 검수 범위)
+
+- 통합 명세 M2 항목 7(상태 화면)을 구현했다. 브랜치 `feat/status-panel-20261113`, [PR #827](https://github.com/6Soo/cost/pull/827). 최종 SHA·영향 검사 판정은 #827 기록이 정본이다. 기존 홈 화면에 읽기 전용 '수집 상태' 절 하나를 더했으며 새 경로·메뉴·DB 테이블은 없다. 카드 발급사별·Gmail·OTA 5개 공급자·Google 수입의 마지막 수집 날짜와 'N일 전', 기준 초과 경고를 표로 보여주고, 기준(카드 7일·메일 1일·OTA 30일·Google 1일)은 `webapp/collection_status.py`의 `THRESHOLDS_DAYS` 상수다. 판정 없는 정상 거래 수(M2 졸업 지표)를 같은 절에 한 줄로 표시한다.
+- 위치는 홈의 '진행 중 여행' 절 뒤 별도 절이다. 10행 표를 상단 상태 영역에 넣으면 모바일 첫 화면에서 여행 목록이 밀려 `test_home_has_no_pending_ledger_state_at_mobile_and_desktop_widths`가 깨져, 여행 뒤로 옮겼다. 홈 로그인 게이트를 그대로 상속하며 비인증 `/`는 이전과 같이 401이다.
+- 읽는 기록(모두 읽기 전용, 기존 기록): 카드=통합 DB `import_batches.received_at`(발급사별), Gmail=`ota-mail/collection.json`의 `last_run`, OTA=등록 manifest의 근거 DB(`ota-evidence.sqlite`, Agoda·Trip.com·Booking은 출처 기반, 숲나들e·산림치유원은 예약 기반 forest 분할), Google=`WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT`의 `last_ok_at`/`error_code`, P2=`card-flow.json`의 `p2_batch_archive`가 가리키는 보관함의 최신 `*/summary.json`(파일 시각). 기록이 없거나 못 읽으면 지어내지 않고 '기록 없음'으로 둔다.
+- '로그인 필요'는 구조화된 인증 실패 기록이 있는 Google(`GOOGLE_AUTH_UNAVAILABLE`)에서만 띄운다. Gmail·OTA·카드에는 인증 실패 기록 경로가 없어 만들지 않았다. 운영 현재 Booking.com은 '기록 없음'이다.
+- P2 표시: 개발 폴더(`C:/AX/cost/.local-archive`)를 `p2_batch_archive`로 설정하라는 안내는 검수 지적으로 뺐다. 그 설정이 없으면 화면은 지금처럼 'AI 판정 실행 기록 없음'이다. 후속 과제: P2 실행기가 운영 데이터 폴더에 요약 파일을 남기고 화면은 그것만 읽기. 운영 설정 파일은 직접 바꾸지 않았다.
+- 홈 요청마다 수집 상태 쿼리가 다시 돌지 않도록 60초 인프로세스 메모리 캐시를 뒀다(새 의존성 없음, `time.monotonic`, 보드 경로별 키, `now`를 명시하면 캐시 우회). 캐시 검사 1건을 추가했다.
+- origin/main(#819/`4eaed971`까지)을 merge했고 handoff 상단 충돌은 양쪽 절을 보존해 해결했다. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` 결과는 #827이 정본. 신규 합성 검사 19건(`webapp/tests/test_collection_status.py`: 원천별 표시·기준 경고·기록 없음·로그인 기록·P2·졸업 지표·홈 통합·비인증 차단·60초 캐시)과 영향 그룹 `collection-status-panel`을 추가했다. 근거는 `quality-artifacts/`(미추적, 커밋하지 않음).
+- 운영 읽기 전용 실측(KST 2026-11-13): 카드 국민 2026-10-31·하나 2026-11-04·기업 2026-11-02(모두 경고), Gmail 2026-11-13, Agoda·Trip.com·숲나들e·산림치유원 2026-11-12, Booking.com 기록 없음, Google 2026-11-13(로그인 실패 기록 없음). 판정 없는 정상 거래 0건.
+- 남은 일(헤드): 검수·병합·배포. 서버 코드가 바뀌었으므로 배포가 필요하다. DB 쓰기·새 테이블 없음.
+- 주의: main에 이 변경과 무관한 기존 실패 3건(PR #815의 `completed_period_sql`이 fake-board fixture를 깨뜨림) — `test_uiux_copy.py` 2건, `test_card_destination_ui.py` 1건. 이 PR의 영향 그룹에는 선택되지 않아 고치지 않았다. 병합·배포·운영 쓰기는 하지 않는다.
+
+## 2026-11-13 국민 매입 수집→가져오기 스크립트 연결 — PR 검수 범위
+
+- 수집 스크립트(`tools/collect_kb_card.mjs`·`tools/kb_card_collection/*`)는 이미 main에 병합돼 있었다(4b4d5aad·64ee1926·3c385d44). 이번 담당은 누락된 가져오기 경계 도구 `tools/import_kb_card_download.py`다: 수집 실행 폴더(manifest+보존 원본)의 형식·건수 재검증 → 기존 중복 검사 → 기존 `Pipeline.receive` 호출(미리보기/`--apply`). 새 가져오기 로직 없이 운영 업로드와 같은 `validate_upload`·파서·중복/충돌 보호를 재사용한다. 미리보기는 읽기 전용 사본 리허설(대상 DB 무쓰기). 분류·장부 기록·Google 쓰기는 직접 하지 않는다.
+- 독립 검수(조건부 승인)를 같은 PR에서 반영: ① `--confirm-single-writer` 플래그를 실제 검사로 교체 — `complete_card_classification.require_writers_offline`을 추출 재사용하고 `--host-root`의 `config/ledger-route.json` 포트(8751/8752)로 `WebLedger-Board`·`WebLedger-SourceRefresh` 작업 Running·리스너를 검사한다. 신선 백업 증거(1시간 이내·`database_state` 일치)도 `require_offline_backup`과 같은 기준으로 확인한다. ② receive가 파일별 커밋이라 단일 외부 트랜잭션이 불가 → 쓰기 뒤 `PLAN_CHANGED`/보호 실패 시 신선 백업에서 자동 복원+상태 검증 후 실패(절차서에 방식 명시, 수동 복원 최후 수단 병기). 쓰기 직전 상태 비교는 `BEGIN IMMEDIATE` 잠금 안에서 수행. ③ 가져온 배치를 웹 업로드와 동일하게 `queue_batch`로 영속 대기열(`requests`/`card_completion_job`)에 적재 — 서버 정지 중에도 가능, 재시작 시 `CardCompletionWorker` 재개(절차서에 `Start-ScheduledTask` 명령 명시). ④ 누락 테스트 보강(PLAN_CHANGED 전/후·REHEARSAL_HOLD·BACKUP_EXISTS·FILE_OUTSIDE_RUN_DIR·게이트/신선 백업·대기열·해외 XLS)과 절차서 일본어 오타(`도구自身が`→`도구 자신이`) 수정.
+- 합성 검증: 신규 31건 통과(파일 SHA/형식/채널/건수 거부, 내용 멱등·identity 중복·해외 keyless 다중집합·충돌 보존, 미리보기 무쓰기, 실제 단일 작성자 게이트·신선 백업 증거, REHEARSAL_HOLD·쓰기 전 PLAN_CHANGED 무쓰기, 쓰기 뒤 PLAN_CHANGED/보호 실패 자동 복원·상태 일치, BACKUP_EXISTS·FILE_OUTSIDE_RUN_DIR 거부, 분류 대기열 적재, 해외 XLS·CSV 동일 거래 대조, apply 백업/복원·재수신 무변경·수동 결정/장부 보존, 스키마 차이 거부). 영향 검사 385 passed/0 fail/0 skip. **실화면·운영 DB 반영 미실행** — 실화면 확인 6항목은 [절차서](playbooks/card-downloads.md#실제-화면-확인-필요) 그대로이며, 가져오기 도구도 합성 자료만 검증했다.
+- 절차서: card-downloads.md 가져오기 스크립트 사용법 절을 실제 게이트·자동 복원·대기열 재개로 갱신, kb-script-usage.md에 보호 폴더 규칙(`D:/WebLedgerHost/data/backups/card-downloads/<날짜>/`) 명시. 해외 XLS 합성 fixture는 데이터 정책상 `tests/fixtures/`에 두고 `tracked-data-policy.json` synthetic_allowlist에 등재(생성기 `make_xls_fixtures.py`), 영향 지도에 매핑. 최종 SHA·독립 검수 판정은 PR 기록을 따른다. 병합·배포·운영 쓰기는 헤드만 한다.
+- 독립 검수 APPROVE 후속(같은 PR #823): origin/main을 두 번 통합했다(`4eaed971` #819, 이어 `820ebd81` #820 증분 P2). 충돌은 매번 `docs/session_handoff.md` 한 곳뿐이었고 양쪽 인계 절을 보존해 해결했으며 `config/test-impact-map.json`은 자동 병합됐다(코드 충돌 없음). 비차단 지적 3건: ① 자동 복원 직전 `require_writers_offline` 재확인 → 서버 재가동 시 복원 없이 `WRITERS_ONLINE_RESTORE_BLOCKED`로 멈춤, ② 복원 자체 실패(`restored=false`/`verified=false`) 시 `RESTORE_FAILED_DO_NOT_START_SERVER` 전용 오류 + 절차서 수동 복구(복원·검증 전 서버 시작 금지), ③ `run_apply` 쓰기 잠금 주석을 실제 동작(스냅샷 뒤 `ROLLBACK`으로 풀리며 receive 미포함, 작성자 차단은 게이트 담당)에 맞게 정정. 각 1건씩 테스트 추가(가져오기 표적 34건 통과). 최종 영향 검사 수치·SHA·독립 재검수 판정은 PR 기록을 따른다. 병합·배포·운영 쓰기는 하지 않는다.
+
+## 2026-11-13 증분 P2 검수 수정 — B1 규칙 제외 판정·잠금 복구·등록 기본 꺼짐, PR #820
+
+- [PR #820](https://github.com/6Soo/cost/pull/820) 독립 검수(opus) REQUEST_CHANGES를 같은 PR에서 수정했다. 차단 결함 B1: `has_rule`이 규칙 조건을 지우고 가맹점 이름만 비교해 `*` 전체 가맹점 규칙(현지 사용→현지경비)이 모든 행을 제외하던 것을 고쳤다. 이제 **그 가맹점 이름을 명시한 무조건 규칙이 구체 항목을 정한 경우만** 제외하며, `*`·패턴(가족)·국가/기간/원본 결속 조건 규칙과 포괄 항목(기타경비·현지경비·여행경비)을 정한 규칙은 제외하지 않는다. 재개·승격·등록 충돌 검사도 같은 판정을 쓴다. 회귀 4가지(전체 가맹점·조건부·포괄 명시·구체 명시)와 원본 결속 단건 규칙 형태를 검사에 추가했다.
+- 비차단 수정: 잠금 파일에 PID·시작 시각을 적고 죽은 PID 또는 2시간 초과 잠금은 `STALE_LOCK_RECOVERED` 실패 기록 후 자동 인수한다(살아 있는 최근 잠금 거부). P1 규칙 등록은 기본 꺼짐이며 `--register-rules` 명시 실행에서만 등록한다 — 항목 교정과 규칙 등록은 따로 승인. README·절차서에 반영. 예약 작업 명령에는 등록 옵션이 없다.
+- 운영 DB 읽기 전용 dry-run v2(분할 실행: 프로젝션 1회 로드 769초 + 실행기 로직 8초, 모델·API 호출 0, DB sha256·mtime 불변): 새 대상 **16묶음/23행**. 열린 분기 포괄 항목 747행 중 증분 대상 **23행**, 제외 사유별 — 이전 1층 576·수동 35·투영 불일치 28·중복/충돌 82·환불 원결제 2·명시 구체 규칙 1. 근거: `D:/WebLedgerHost/data/backups/p2-incremental-20261113/dry-run-v2.json`·`dry-run-v2-evidence.json`. 앞선 v2 시도가 540초 제한에 중단되며 남긴 잠금은 새 복구 코드가 실제 운영에서 인수·기록함(저널 `STALE_LOCK_RECOVERED`).
+- 표적 40건 통과. 영향 검사 PASSED 314/314·skip 0(병합 후 HEAD `18422e5e`, base `4eaed971`). origin/main(#819·#824 포함)을 통합하며 인계 기록 충돌은 양쪽 보존으로 해결했다. 첫 실제 실행 예상 모델 호출 **1회**(16묶음 ≤ 묶음 30, max-calls 1). **병합·예약 등록·실제 P2 실행 없음.** 최종 SHA는 이 절 문서 커밋이며 독립 재검수는 헤드가 붙인다. 막힌 점 없음.
+
+## 2026-11-13 증분 P2 1층 마무리 — 검사 보강·운영 dry-run, PR #820 검수 범위
+
+- [PR #820](https://github.com/6Soo/cost/pull/820)(브랜치 `feat/p2-incremental-20261113`)에서 앞선 담당(한도 중단)의 증분 실행기를 마무리했다. 서버 코드·규칙집 변경 없이 검사를 보강해 표적 29건 통과: 2025년·2026Q1·매입일 대체 완료 자료 제외, 결정 이력 수동 제외, 반영 모드 묶음 상한, Codex 한도(`AGENT_RATE_LIMITED`) 실패 기록·다음 실행 재개, 대상 0 무설정 즉시 종료, 상한 거부 경계. README에 예약 작업·Worker 장단점 3줄, 절차서 [p2-incremental](playbooks/p2-incremental.md) 갱신.
+- 운영 DB 읽기 전용 dry-run 1회(모델·API 호출 0, DB sha256·mtime 불변, 저널에 dry-run 기록만 추가): 2026-11-12 1층 실행 이후 새 대상 **0묶음/0행**. 열린 분기 포괄 항목(기타경비·현지경비) **747행** 중 이번 증분 대상 **0행** — 기존 P1 규칙 600·수동 35·투영 불일치 28·중복/충돌 82·환불 원결제 2. 완료 자료 제외 3,284건. 근거(집계만)는 비공개 `D:/WebLedgerHost/data/backups/p2-incremental-20261113/dry-run.json`·`dry-run-evidence.json`.
+- 자동 실행은 `tools/p2_batch/register_incremental_task.ps1` 등록 스크립트만 포함하며 **등록하지 않았다**(WhatIf 검토 대상). 하루 1회, 대상 0이면 모델·API 없이 즉시 종료. Codex 한도 동안에는 실패로 기록되고 다음 실행에서 이어진다(합성 검사). 첫 실제 실행은 헤드가 ego 전용 TaskSpace·비공개 `p2-api.json` 준비 뒤 `python -m tools.p2_batch.run_incremental --api-config D:/WebLedgerHost/data/p2-api.json --max-merchants 30 --max-calls 1` — 이번 dry-run 기준 예상 모델 호출 0회(새 카드 수입이 있으면 최대 1회).
+- 영향 검사 PASSED: 303 passed/skip 0, 검사 SHA `61d8ccba`(이 절 문서 커밋이 최종 SHA이며 PR 기록을 따른다). 독립 검수는 헤드가 붙인다. **병합·예약 등록·실제 P2 실행 없음.** 막힌 점 없음.
+- 위 dry-run의 "새 대상 0"은 아래 검수 수정 절에서 정정됐다. `*` 전체 가맹점 규칙이 모든 행을 제외하던 결함(B1) 때문이며, 수정 후 새 대상은 16묶음/23행이다.
+
+## 2026-11-13 일반 준비기간 귀속 폐지 — 검수 지적 수정·규칙 개정 완료, 최종 검사·PR 단계
+
+- 승인 범위는 준비 비용 일반 fallback 폐지 A~F다. 구현 `fa82731e`, ITEM-020 보완 `af325458`·`a2246b60`. 예약 이용기간·준비 숙박 특례·사용자 예외·수동·환불/금융 보호는 유지한다. [사본 검증](agents/artifacts/no-preparation-cost-rehearsal-20261113.md): 이동14·보존2,003, Q3+12/Q4+2, 보호74표 불변·감사14건 모든 투영 필드 원복·REPLAYED 변경0. 사본은 운영 DB를 `mode=ro`로 열어 SQLite backup으로 만든 별도 파일에서만 썼고 운영 원본은 쓰지 않았다. 결과 파일 `rehearsal.json`은 유효하며 수치 일관성을 확인했다.
+- 기존 코드 비교17건은 이동14건과 교집합0인 기존 분기 기타비용 행(`owner_card_residual`)이며 새 코드는 저장된 분기를 유지한다. 앞선 “14+3·향후 거래만 영향” 주장은 실제 집합 대조와 달라 폐기했다. 금액 원값 없이 여행별 건수·비율만 위 검증에 남긴다.
+- 독립 검수(codex `gpt-6.1-sol` medium)가 P2 결함 2건을 지적해 수정했다: (1) 분기 기타비용 fallback이 이후 예약 이용기간 근거의 교정을 막던 것을 자동 출처에 한해 허용, (2) 날짜 미상 구매에서 P2 검증이 P1의 기존 귀속을 거부하던 것을 보존. 각각 회귀 검사를 추가했고 표적 통과(준비비용 정리 25·공유 판정 경로 77). skip/xfail 없음. 이전 `af325458` 영향 검사789pass/14subtests/skip0은 수정 전 기록이다.
+- 소유자 결정 2026-11-13을 규칙집에 반영했다: PROC-012 개정(고객 원문을 Qwen4 Max/QwenCloud 작업자에게도 허용, Codex 한도 동안 개발·예행 포함), AGENTS.md·SPEC §12.3에 “Codex 한도 동안 구현자와 다른 Claude opus 세션의 독립 검수로 대체” 추가. SPEC §12.2·§13.9 원문 조항도 같은 근거로 정렬했다. 준비 비용 규칙(TRIP-029/043/069/071·DATE-003/040·ITEM-020)·PROC-021 동률 이유·DECISION_POLICY §3.2/§3.4-4/§6.1 개정은 이미 커밋됨.
+- #815 배포·완료 기간 정리741건 운영 기록을 실제 근거(`preview/applied/replay.json`·`resume.log`·`backup-restore.json`)와 대조해 보존했다(하쿠산 −739·세토우치 −2, 장부·화면 변화0, 재실행 변경0, 5DB·44파일 복원). 최종 SHA 영향 검사·독립 재검수 판정·완료 커밋은 이 브랜치 PR 기록을 정본으로 삼는다.
+- 남은 작업은 최종 SHA 영향 검사·헤드의 독립 재검수·PR 기록이다. 병합·배포·운영 DB 반영은 헤드가 담당하며 여기서는 실행하지 않는다. [운영 명령과 백업 게이트](playbooks/preparation-cost-grouping.md)를 사용하고 Board·SourceRefresh writer 정지 및 분리 프로세스 finally 복구가 필요하다. 비공개 근거는 `.local-archive/no-preparation/`, 체크포인트는 같은 폴더 `checkpoint.md`다.
+## 2026-11-13 분기 검수 자료 묶음 — 독립 검수 지적 반영 완료
+
+- [PR #818](https://github.com/6Soo/cost/pull/818) 독립 검수(opus) REQUEST_CHANGES를 반영했다. 최종 SHA·검수 판정은 #818 기록이 정본이며 병합·배포·Google 쓰기는 하지 않는다.
+- 사유 있는 검수 행 1,070건: 최근 자동 변경 207 · AI 판정 146 · 추론 귀속 573 · 포괄 항목 392(사유 중복 가능). 여행별 검수 합계 893건과 전체 목록의 차이 177건은 분기 기타비용 행으로, notes와 여행별 시트 합계 아래 안내 줄에 밝혔다.
+- 최근 자동 변경 기준일(`--recent-since`, 기본 2026-11-11)과 기타비용 시트 이름(분기 인수)을 매개변수화하고, 화면 표시 차이 설명을 쉬운 말로 고쳤다. 이용일 미확인은 점수·건수에서 빼고 장부 화면 확인 안내를 유지한다.
+- 산출물은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/v2/`에 다시 생성했다(첫 실행본은 상위 폴더 보존). 21개 여행, 기타비용 2행, 판정 주체 5행, 준비 비용 귀속 폐지 반영 전 기준.
+- 검증: 표적 `tests/test_quarter_review_pack.py` 20 passed, 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 270 passed·skip0·compile 통과.
+- 남은 일: 사용자가 review-pack.xlsx만 열어 검수하고 장부 화면에서 교정한 뒤 다시 생성한다. 준비 비용 귀속 폐지 반영 후 재생성이 필요하다.
+## 2026-11-12 밤 #815 배포·완료 기간 정리 운영 기록
+
+- #815 병합 `335b9eda56b73fd65e201f39a1ffdefd82c955f3`를 22:46~22:47 KST 배포했다(Board 8751). 배포 근거는 22:47:36 KST health/ready 200·보호13표 불변이며 배포 중단은 없었다.
+- 완료 기간 정리741건 반영(2025년739·2026Q1 2), 하쿠산 귀속 −739·세토우치 −2. 기존 장부·화면 행 변화0, 재실행 `REPLAYED`·이동0·실행변경0이다. preview/applied/replay의 digest와 건수를 직접 대조했다.
+- 반영 중 헤드 호출 세션의 실행이 끊겨 22:57:41~23:14:40 KST 공개 장부가 중단됐다(시작은 헤드 전달 시각). 분리 프로세스가 남은 반영을 완료했고 resume.log에서 23:14:33 반영·재실행 성공, 23:14:39 Board ready, 23:14:40 route resume·Worker 시작을 확인했다.
+- 직접 확인 근거: `D:/WebLedgerHost/data/backups/closed-period-grouping-20261112/`의 `preview.json`·`applied.json`·`replay.json`·`resume.log`·`backup-restore.json`·`operating-release/deploy-evidence.json`. 신선 백업5DB·44파일의 복원·원본 불변·review binding 동등 확인과, 코드 배포의 fresh_backup_restore=false는 서로 다른 기록이다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.

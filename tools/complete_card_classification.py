@@ -181,6 +181,21 @@ def protected_state(conn):
     return result
 
 
+def require_writers_offline(port=8751):
+    """Refuse writes while a managed writer task runs or the Board port listens.
+
+    Shared single-writer gate for offline tools. A non-zero PowerShell exit (a
+    task is Running, the task pair is missing, or the port has a listener)
+    raises ValueError('WRITERS_NOT_OFFLINE').
+    """
+    script = ("$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);"
+              "if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};"
+              "if(@(Get-NetTCPConnection -LocalPort %d -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0") % port
+    check = subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True)
+    if check.returncode:
+        raise ValueError('WRITERS_NOT_OFFLINE')
+
+
 def require_offline_backup(host, evidence, db, *, isolated_copy=False):
     from tools.verify_operational_backup_restore import database_state
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
@@ -202,10 +217,7 @@ def require_offline_backup(host, evidence, db, *, isolated_copy=False):
                 or (live.exists() and os.path.samefile(db,live))):
             raise ValueError('ISOLATED_COPY_REQUIRED')
         return
-    script = "$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};if(@(Get-NetTCPConnection -LocalPort 8751 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0"
-    check = subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True)
-    if check.returncode:
-        raise ValueError('WRITERS_NOT_OFFLINE')
+    require_writers_offline()
 
 
 def main(argv=None):

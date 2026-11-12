@@ -375,7 +375,7 @@ def batch_catalog(board):
 @read_scope.scoped
 def home_page(board):
     from . import ledger_board, ledger_design, receipt_review, ui_icons
-    from . import card_upload_coverage
+    from . import card_upload_coverage, collection_status
     from app.reserve_trips import registrations, sync_status, today, KST
     import datetime as dt
     esc = ledger_board.esc
@@ -439,6 +439,10 @@ def home_page(board):
             receipt_count = len(receipt_review.load(receipt_review._store_path()).get('candidates', []))
         except Exception:
             receipt_count = 0
+    try:
+        collection_html = collection_status.render(board)
+    except Exception:
+        collection_html = ''
     body = ("<style>"
              ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
              ".home-status{font-size:var(--t-meta);color:var(--mut);margin:0 0 12px}"
@@ -488,7 +492,8 @@ def home_page(board):
                if items else "<p>진행 중인 여행이 없습니다. 여행은 Google 시트 탭으로 만듭니다.</p>")
             + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"
             + (f"<p class='muted home-next-note'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
-            + "</section>")
+            + "</section>"
+            + ("<section class='home-travel-section'>" + collection_html + "</section>" if collection_html else ""))
     return ledger_design.render(ledger_design.shell(
         '정산 현황', tab_id='', heading='정산 현황', body=body, home=True))
 

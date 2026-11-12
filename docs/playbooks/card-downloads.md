@@ -6,7 +6,7 @@
 
 ## 반복 실행의 기준
 
-수집 도구는 [`tools/collect_kb_card.mjs`](../../tools/collect_kb_card.mjs), 설정·실행법은 [국민 스크립트 사용법](kb-script-usage.md)이다. 기본 Page 연결과 실제 XLS 파서 호출 코드는 제공되며 사용자가 새 진입점을 작성할 필요는 없다. 자동 가져오기는 이 변경 범위 밖이며 `importBoundary=NOT_RUN`으로 기록한다.
+수집 도구는 [`tools/collect_kb_card.mjs`](../../tools/collect_kb_card.mjs), 설정·실행법은 [국민 스크립트 사용법](kb-script-usage.md)이다. 기본 Page 연결과 실제 XLS 파서 호출 코드는 제공되며 사용자가 새 진입점을 작성할 필요는 없다. 수집은 가져오기와 별도 단계이며 `importBoundary=NOT_RUN`으로 기록한다. 저장 파일의 형식·건수 검증 → 중복 리허설 → 기존 가져오기 경로 호출은 [`tools/import_kb_card_download.py`](../../tools/import_kb_card_download.py)가 담당하며, 사용법은 아래 [가져오기 스크립트 사용법](#가져오기-스크립트-사용법) 절을 따른다.
 
 ## 실제 화면 확인 필요
 
@@ -71,9 +71,50 @@ console.log({filename: downloaded.suggestedFilename(), bytes: completedSize});
 - 국내 취소번호/원승인번호를 구분한다. 해외 원본의 승인번호 부재는 정상이며 번호를 만들지 않는다. 해외 `총결제금액=결제원금+수수료`를 검사하고 수수료를 이중 합산하지 않는다. 취소매출 부호·현금서비스/리버설·동일 값의 복수 실제 행은 원본대로 보존한다.
 - 기존 DB와의 중복 대조는 읽기 전용으로 수행할 수 있다. 사용자 승인 범위가 다운로드/검증까지이면 운영 DB·장부·환불 링크·Google에 쓰지 않는다. DB 입력까지 지시받은 경우에만 기존 가져오기 경로와 필요한 데이터 보호 절차를 별도로 수행한다.
 
+## 가져오기 스크립트 사용법
+
+[`tools/import_kb_card_download.py`](../../tools/import_kb_card_download.py)는 수집 실행 폴더(`manifest.json` + 보존 원본)를 받아 형식·건수 검증 → 기존 중복 검사 → 기존 가져오기 경로(`app.Pipeline.receive`) 호출까지 수행한다. 새 가져오기 로직은 없으며 운영 화면 업로드와 같은 사전검사(`app.card_preflight.validate_upload`)·파서·중복/충돌 보호를 그대로 쓴다. 분류·장부 기록·Google 쓰기를 직접 수행하지는 않으며, 분류는 웹 업로드와 동일하게 P1 대기열에 적재만 한다(아래 참조). **이번 검증은 합성 파일·합성 DB만 사용했고 실제 카드사 화면·운영 DB 반영은 하지 않았다.**
+
+- 미리보기(기본): 대상 DB를 읽기 전용으로 열고 사본에서 리허설한다. 대상 DB에는 쓰지 않는다.
+- `--apply` 단일 작성자 게이트(실제 검사): 운영자 플래그가 아니라 도구가 직접 확인한다. `--host-root`(기본 `D:/WebLedgerHost`)의 `config/ledger-route.json`에서 Board 포트(8751 또는 8752)를 읽고, `tools/complete_card_classification.py`의 `require_writers_offline`과 같은 PowerShell 검사로 `WebLedger-Board`·`WebLedger-SourceRefresh` 작업이 둘 다 존재하며 Running이 아니고 해당 포트에 리스너가 없을 때만 진행한다. 어기면 `WRITERS_NOT_OFFLINE`/`ROUTE_REQUIRED`/`ROUTE_PORT_INVALID`로 멈추며 백업도 만들지 않는다.
+- `--apply` 신선 백업 증거: 쓰기 전에 새 백업을 만들고(`BACKUP_EXISTS`로 덮어쓰기 거부) 별도 파일로 복원 검증한다. 이어서 `require_offline_backup`과 같은 기준으로 백업이 1시간 이내이며 원본 DB의 전체 테이블 상태(`database_state`)와 일치하는지 확인한다(`BACKUP_NOT_FRESH`/`BACKUP_SOURCE_CHANGED`). 리허설은 이 신선 백업 사본에서 수행하고, 안전하지 않으면 `REHEARSAL_HOLD`로 멈춘다.
+- 수집이 이미 검증한 항목(파일 SHA·화면 건수 대조 `countCheck=MATCHED`·파서 성공)을 매니페스트에서 요구하고, 도구 자신이 바이트·형식·채널·건수를 다시 검증한다. 하나라도 실패하면 멈추며 DB에 쓰지 않는다.
+- 쓰기 뒤 검증과 자동 복원: `receive`는 파일마다 내부 트랜잭션을 커밋하므로 앱 코드 변경 없이 쓰기 전체를 하나의 외부 트랜잭션으로 묶을 수 없다. 그래서 **백업 자동 복원 방식**을 쓴다. 쓰기 직전 상태 비교는 `BEGIN IMMEDIATE` 쓰기 잠금 안에서 수행하고, 이 잠금은 비교 직후 `ROLLBACK`으로 풀리며 receive까지 유지되지 않는다(다른 작성자 차단은 잠금이 아니라 위 단일 작성자 게이트가 담당하고, receive는 파일별 자체 트랜잭션을 쓴다). 쓰기 뒤 결과 계획 비교(`PLAN_CHANGED`)·보호 검사·재수신 무변경 검사 중 하나라도 실패하면 자동 복원을 시도한다. **복원 직전에 단일 작성자 게이트(`require_writers_offline`)를 다시 확인**해서 서버가 다시 켜졌으면 복원하지 않고 `WRITERS_ONLINE_RESTORE_BLOCKED`로 멈춘다(라이브 작성자 커밋과 충돌 방지). 서버가 꺼져 있으면 신선 백업을 SQLite backup API로 대상에 자동 복원한 뒤 상태 일치를 검증하고 원래 오류로 끝낸다. 보고서 `apply.restored`가 복원·검증 결과다. **자동 복원 자체가 실패하면(`restored=false` 또는 `verified=false`) `RESTORE_FAILED_DO_NOT_START_SERVER` 전용 오류로 멈추며, 서버를 시작하지 말고 아래 수동 복원으로 되돌린다.**
+- 분류 대기열: 가져온 각 배치를 웹 업로드(`/api/imports`)와 똑같이 `webapp.card_completion_worker.queue_batch`로 P1 분류 대기열(`requests` 테이블, `card_completion_job`)에 넣는다. 대기열은 DB에 영속하므로 서버가 멈춘 상태에서도 적재할 수 있고, Board 서버가 다시 시작되면 `CardCompletionWorker`가 이어서 처리한다. 장부 자동 기록은 이 후속 처리의 일부이며 가져오기 도구가 직접 하지 않는다.
+- 보고서에는 집계만 남으며 거래 원문은 출력하지 않는다. `kb_last_dates`는 다음 수집의 `--last-use-date`를 위한 읽기 전용 집계 참고값이다(조회 기간 계산 자체는 아래 절차 1번의 집계로 수집 단계에서 수행).
+
+수집 원본은 보호 폴더 `D:/WebLedgerHost/data/backups/card-downloads/<날짜>/`에 보존하고, 가져오기 백업은 별도 보호 폴더에 둔다. 도구는 실행 폴더·백업을 덮어쓰지 않으며 충돌을 거부한다.
+
+```powershell
+# 미리보기 — 대상 DB 읽기 전용, 사본 리허설
+python tools/import_kb_card_download.py --run-dir D:/WebLedgerHost/data/backups/card-downloads/2026-11-13 --db D:/WebLedgerHost/data/board.sqlite
+
+# 반영 — 실제 단일 작성자 게이트·신선 백업/복원 검증 뒤 기존 receive 경로 + 분류 대기열 적재
+python tools/import_kb_card_download.py --run-dir D:/WebLedgerHost/data/backups/card-downloads/2026-11-13 --db D:/WebLedgerHost/data/board.sqlite --apply --backup-dir D:/WebLedgerHost/data/backups/card-import-2026-11-13 --host-root D:/WebLedgerHost
+```
+
+### 반영 뒤 분류 대기열 재개
+
+`--apply`는 서버가 멈춘 상태에서도 대기열을 DB에 넣는다. 처리를 재개하려면 Board 서버를 다시 시작한다(호스트의 기존 재시작 절차와 같은 작업 이름). 대기열 처리는 호스트 설정 `config/card-flow.json`의 `automatic_card_completion=true`일 때 활성화된다.
+
+```powershell
+# Board 재시작 — CardCompletionWorker가 시작되며 적재된 대기열을 이어서 처리한다
+Start-ScheduledTask -TaskName WebLedger-Board
+# SourceRefresh도 멈춰 있었다면 함께 재개
+Start-ScheduledTask -TaskName WebLedger-SourceRefresh
+```
+
+자동 복원이 실패했을 때의 수동 복원 최후 수단(`RESTORE_FAILED_DO_NOT_START_SERVER`): **대상이 불완전 상태일 수 있으므로 복원·검증이 끝날 때까지 서버를 시작하지 않는다.** 먼저 `WebLedger-Board`·`WebLedger-SourceRefresh`가 멈춰 있는지 확인하고(`WRITERS_ONLINE_RESTORE_BLOCKED`로 멈췄다면 반드시 정지시킨 뒤), 보고서 `apply.backup`에 기록된 백업 경로를 대상에 덮어쓴다. 백업은 자기완결 SQLite 사본이며 서버가 정상 종료되면 WAL 곁파일이 없으므로 그대로 복사할 수 있다. 복사 뒤 미리보기를 다시 실행해 무결성·상태 일치를 확인한 다음에야 서버를 시작한다.
+
+```powershell
+Copy-Item D:/WebLedgerHost/data/backups/card-import-2026-11-13/board-kb-import-<stamp>.sqlite D:/WebLedgerHost/data/board.sqlite -Force
+```
+
+합성 검증 항목: 파일 SHA/크기 대조, 로그인 HTML·형식 오류·파싱 이슈 거부, 국내/해외 채널 대조(해외 XLS·CSV 동일 거래 대조 포함), 화면 건수 대조, 내용 멱등·identity 중복·승인번호 없는 해외 행 다중집합·충돌 시 기존 행 보존, 미리보기 무쓰기, 단일 작성자 게이트(작업/포트·라우트 파일)와 신선 백업 증거, `REHEARSAL_HOLD`·쓰기 전 `PLAN_CHANGED` 무쓰기, 쓰기 뒤 `PLAN_CHANGED`/보호 실패 시 백업 자동 복원·상태 일치, `BACKUP_EXISTS`·`FILE_OUTSIDE_RUN_DIR` 거부, 분류 대기열 적재(웹 업로드와 동일), apply 백업/복원·재수신 무변경·수동 결정/장부 보존, 스키마 차이 거부. 실행은 `python -m pytest tests/test_import_kb_card_download.py -q`.
+
 ## 중복 검증 후 운영 DB 가져오기
 
-이번 인터뷰에서 이 단계까지 승인됐다. 파일을 받기 전에는 원본 검증·중복 해소·DB 입력을 완료했다고 쓰지 않는다.
+이번 인터뷰에서 이 단계까지 승인됐다. 파일을 받기 전에는 원본 검증·중복 해소·DB 입력을 완료했다고 쓰지 않는다. 이 절의 사본 리허설·신선 백업/별도 복원·단일 작성자·재수신 무변경 절차는 위 가져오기 스크립트에 구현돼 있으며, 아래 보호 조건은 그대로 적용된다.
 
 1. 원본 둘을 각 채널로 파싱하고, 운영 DB의 읽기 전용 사본에서 기존 `app.Pipeline.receive`/해당 카드 입력 경로로 리허설한다. 기존 화면의 가져오기/구형 CSV 입력기와 기능을 혼동하지 않는다. 실제 XLS 파서는 `app/import_card.py`에 있으며 최신 배포 SHA의 코드를 기준으로 한다.
 2. 파일 해시 재수신·파일 간 동일 승인·매입과 승인의 동일 거래·승인번호 없는 해외 원행의 다중성까지 검사한다. 원승인일/매입일·부호·원금/수수료/총청구액을 구분한다. 과거에 변환 CSV로 넣은 행과 새 XLS 원행의 포맷 차이만으로 신규 거래를 만들지 않는다. 불명확한 중복 후보는 기록·삭제·강제 합치기로 넘기지 않는다.
