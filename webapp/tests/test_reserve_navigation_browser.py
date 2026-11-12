@@ -119,7 +119,7 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         self.assertIsNotNone(review, "no return link to the source review")
         self.assertEqual(board.get_attribute("href"), "/board?tab=" + self.trip_id)
         self.assertEqual(review.get_attribute("href"), "/review")
-        self.assertIn("장부", board.inner_text())
+        self.assertIn("여행별 비용", board.inner_text())
         self.assertIn("실제 자료", review.inner_text())
 
         # The ledger really answers. A link that 404s reads as a broken button.

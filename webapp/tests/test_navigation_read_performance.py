@@ -22,10 +22,19 @@ def test_board_page_selects_rows_only_for_summary_and_rows(tmp_path, monkeypatch
             calls.append((args, kwargs))
             return original(*args, **kwargs)
         monkeypatch.setattr(ledger_design, '_selected_rows', selected)
+        tab_reads = []
+        original_list = store.list_tab_rows
+        monkeypatch.setattr(store, 'list_tab_rows',
+                            lambda tab: (tab_reads.append(tab), original_list(tab))[1])
         before = list(store.conn.iterdump())
         html = ledger_design.page('trip-demo-a')
         assert 'live-sum' in html and 'live-rows' in html
-        assert len(calls) == 2
+        # wave3 workspace reads the whole-expense projection once more, for the
+        # amount groups and trip workflow, beside the summary and the rows.
+        assert len(calls) == 3
+        # All three projections reuse one cached read per tab: no tab is read
+        # from the store twice within the render.
+        assert tab_reads and len(tab_reads) == len(set(tab_reads))
         assert list(store.conn.iterdump()) == before
     finally:
         ledger_board.bind_store(previous)

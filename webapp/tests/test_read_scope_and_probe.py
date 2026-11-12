@@ -63,27 +63,33 @@ class LivenessProbeTests(unittest.TestCase):
         self.assertEqual(status.get("code"), 200)
 
     def test_store_lock_wait_is_recorded_for_real_http_request(self):
+        from unittest.mock import patch
         from app import request_metrics
-        before = request_metrics.summary().get('db_lock_wait.db_lock_wait', {}).get('samples', 0)
-        response = {}
+        # The registry is process-global and bounded, so samples from other
+        # requests would pollute a single-request measurement. Isolate it.
+        with patch.object(request_metrics, '_REGISTRY', request_metrics.MetricsWindow()):
+            before = request_metrics.summary().get('db_lock_wait.db_lock_wait', {}).get('samples', 0)
+            response = {}
 
-        def request():
-            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-            conn.request("GET", "/board")
-            response["code"] = conn.getresponse().status
-            conn.close()
+            def request():
+                conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+                conn.request("GET", "/board")
+                response["code"] = conn.getresponse().status
+                conn.close()
 
-        self.server.store_lock.acquire()
-        worker = threading.Thread(target=request)
-        worker.start()
-        worker.join(0.1)
-        self.server.store_lock.release()
-        worker.join(5)
-        self.assertFalse(worker.is_alive())
-        self.assertEqual(response.get("code"), 200)
-        after = request_metrics.summary()['db_lock_wait.db_lock_wait']
-        self.assertEqual(after['samples'], before + 1)
-        self.assertGreaterEqual(after['p50_ms'], 50)
+            self.server.store_lock.acquire()
+            worker = threading.Thread(target=request)
+            worker.start()
+            # Hold the lock with enough margin that the handler is queued on it
+            # before release, so the recorded wait is a real delay, not a race.
+            worker.join(0.5)
+            self.server.store_lock.release()
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(response.get("code"), 200)
+            after = request_metrics.summary()['db_lock_wait.db_lock_wait']
+            self.assertEqual(after['samples'], before + 1)
+            self.assertGreaterEqual(after['p50_ms'], 50)
 
 
 if __name__ == "__main__":
