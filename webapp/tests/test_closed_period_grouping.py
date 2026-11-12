@@ -26,6 +26,191 @@ def old_rows(c,day='2025-10-03'):
     c.commit()
 
 
+def refund_pair(setup):
+    board,_,_,rows=setup
+    c=board.conn
+    old_rows(c)
+    purchase,refund=[r['transaction_id'] for r in rows[:2]]
+    c.execute("UPDATE transactions SET approval_number='SYN-PAIR',original_approval_number='' WHERE transaction_id=?",(purchase,))
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',transaction_kind='cancellation',"
+              "approval_number='SYN-CANCEL',original_approval_number='SYN-PAIR',approval_date='2026-01-02',"
+              "amount_krw=-(SELECT amount_krw FROM transactions WHERE transaction_id=?),"
+              "issuer=(SELECT issuer FROM transactions WHERE transaction_id=?),"
+              "card_tail=(SELECT card_tail FROM transactions WHERE transaction_id=?),"
+              "merchant=(SELECT merchant FROM transactions WHERE transaction_id=?) WHERE transaction_id=?",
+              (purchase,purchase,purchase,purchase,refund))
+    c.commit()
+    return c,purchase,refund
+
+
+def test_refund_both_sides_move_by_own_quarter_and_restore_atomically(setup):
+    from app.partial_refund import refund_links
+    c,purchase,refund=refund_pair(setup)
+    for tid in (purchase,refund):
+        row=repair._state(c,tid)['transaction']
+        c.execute('INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                  (tid,setup[2],row['item'],'synthetic separate description','A','A',row['amount_krw'],
+                   row['merchant'],row['approval_date'],row['transaction_direction'],row['source_hash'],'synthetic'))
+        payload=dict(item=row['item'],description='synthetic board description',display_tab_id='A',trip_id='A',revision=1)
+        c.execute("INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,'expense','A',1,?)",
+                  ('card-'+tid,json.dumps(payload)))
+    c.commit()
+    before={tid:repair._state(c,tid) for tid in (purchase,refund)}
+    links=refund_links(c,[purchase,refund])
+    assert links[refund]['status']=='full' and links[refund]['net_krw']==0
+    financial=repair._financial_state(c)
+    plan=repair.preview(c,TRIPS)
+    assert plan['summary']['refund_candidate_rows']==2
+    assert plan['summary']['refund_move_rows']==2
+    assert plan['summary']['refund_move_groups']==1
+    assert plan['summary']['refund_preserved_rows']==0
+    repair.apply(c,plan,TRIPS,request_id='paired')
+    assert c.execute('SELECT display_tab_id FROM transactions WHERE transaction_id=?',(purchase,)).fetchone()[0]=='quarter:2025:4'
+    assert c.execute('SELECT display_tab_id FROM transactions WHERE transaction_id=?',(refund,)).fetchone()[0]=='quarter:2026:1'
+    assert refund_links(c,[purchase,refund])==links
+    assert repair._financial_state(c)==financial
+    for tid,tab in ((purchase,'quarter:2025:4'),(refund,'quarter:2026:1')):
+        state=repair._state(c,tid)
+        assert state['ledger']['display_tab_id']==tab and state['board']['display_tab_id']==tab
+        assert json.loads(state['board']['payload_json'])['display_tab_id']==tab
+    assert repair.apply(c,plan,TRIPS,request_id='paired')['applied_this_run']==0
+    assert repair.restore(c,repair.restore_preview(c,'paired'),'paired')['restore']==5
+    assert repair._financial_state(c)==financial
+    for tid,old in before.items():
+        new=repair._state(c,tid)
+        assert {k:v for k,v in new['transaction'].items() if k!='revision'}=={
+            k:v for k,v in old['transaction'].items() if k!='revision'}
+        assert new['ledger']==old['ledger']
+        a,b=[json.loads(s['board']['payload_json']) for s in (new,old)]
+        assert {k:v for k,v in a.items() if k!='revision'}=={k:v for k,v in b.items() if k!='revision'}
+
+
+@pytest.mark.parametrize('protection',[
+    'open_member','manual_member','review_hold','excluded','excess','source_conflict','completed_trip','formal_exception'])
+def test_refund_group_never_moves_one_side_or_relaxes_other_protection(setup,protection):
+    c,purchase,refund=refund_pair(setup)
+    board,flow,_,_=setup
+    trips,evidence=TRIPS,{}
+    if protection=='open_member':
+        c.execute("UPDATE transactions SET approval_date='2026-10-03' WHERE transaction_id=?",(refund,))
+    elif protection=='manual_member':
+        row=repair._state(c,refund)['transaction']
+        flow.pipeline.save_decision(refund,row['revision'],item='식비',trip_id='A',display_tab_id='A',
+            trip_validator=lambda _:True,tab_validator=lambda _:True,request_id='actual-manual-refund')
+    elif protection=='review_hold':
+        row=repair._state(c,refund)['transaction']
+        c.execute('INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+                  (refund,row['source_hash'],'evidence_pending','synthetic protection'))
+    elif protection=='excluded':
+        row=repair._state(c,refund)['transaction']
+        # Use the existing schema; no source or finance relation is changed.
+        c.execute('INSERT INTO transaction_company_exclusions(transaction_id,source_hash,excluded,revision,note,updated_at) VALUES (?,?,1,1,?,?)',
+                  (refund,row['source_hash'],'synthetic exclusion','synthetic'))
+    elif protection=='excess':
+        c.execute('UPDATE transactions SET amount_krw=amount_krw*2 WHERE transaction_id=?',(refund,))
+    elif protection=='source_conflict':
+        c.execute("UPDATE transactions SET conflict_reason='synthetic conflict' WHERE transaction_id=?",(refund,))
+    elif protection=='completed_trip':
+        c.execute("UPDATE transactions SET trip_id='closed',display_tab_id='closed' WHERE transaction_id=?",(refund,))
+        trips=TRIPS+[dict(trip_id='closed',starts_on='2026-01-01',ends_on='2026-01-05')]
+    else:
+        evidence={refund:fact(repair._state(c,refund)['transaction'])}
+    c.commit()
+    before={tid:repair._state(c,tid) for tid in (purchase,refund)}
+    financial=repair._financial_state(c)
+    plan=repair.preview(c,trips,evidence=evidence)
+    assert not {purchase,refund}&{t['tid'] for t in plan['targets']}
+    assert plan['summary']['refund_move_rows']==0
+    repair.apply(c,plan,trips,request_id='protected-'+protection,evidence=evidence)
+    assert {tid:repair._state(c,tid) for tid in before}==before
+    assert repair._financial_state(c)==financial
+
+
+def test_unpaired_completed_refund_stays_and_reports_reason(setup):
+    c,_,refund=refund_pair(setup)
+    c.execute("UPDATE transactions SET original_approval_number='UNKNOWN',merchant='UNPAIRED SYNTHETIC' WHERE transaction_id=?",(refund,))
+    c.commit()
+    plan=repair.preview(c,TRIPS)
+    assert refund not in {t['tid'] for t in plan['targets']}
+    assert plan['summary']['refund_preserved']['UNPAIRED']==1
+
+
+def test_partial_refund_group_with_multiple_cancellations_moves_all_members(setup):
+    from app.partial_refund import refund_links
+    c,purchase,refund=refund_pair(setup)
+    extra=setup[3][2]['transaction_id']
+    c.execute('UPDATE transactions SET amount_krw=-(SELECT amount_krw/4 FROM transactions WHERE transaction_id=?) WHERE transaction_id=?',
+              (purchase,refund))
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',transaction_kind='cancellation',"
+              "original_approval_number='SYN-PAIR',approval_number='SYN-EXTRA',approval_date='2025-12-01',"
+              "amount_krw=(SELECT amount_krw FROM transactions WHERE transaction_id=?),"
+              "issuer=(SELECT issuer FROM transactions WHERE transaction_id=?),"
+              "card_tail=(SELECT card_tail FROM transactions WHERE transaction_id=?) WHERE transaction_id=?",
+              (refund,purchase,purchase,extra))
+    c.commit()
+    links=refund_links(c,[refund,extra])
+    assert len(links)==2 and all(v['status']=='partial' and v['refund_count']==2 for v in links.values())
+    plan=repair.preview(c,TRIPS)
+    assert plan['summary']['refund_move_rows']==3 and plan['summary']['refund_move_groups']==1
+    repair.apply(c,plan,TRIPS,request_id='partial-multiple')
+    assert refund_links(c,[refund,extra])==links
+    assert {r[0] for r in c.execute('SELECT display_tab_id FROM transactions WHERE transaction_id IN (?,?)',
+                                   (purchase,extra))}=={'quarter:2025:4'}
+    repair.restore(c,repair.restore_preview(c,'partial-multiple'),'partial-multiple')
+    assert refund_links(c,[refund,extra])==links
+
+
+def test_display_only_inferred_pair_is_preserved(setup,monkeypatch):
+    from app import partial_refund
+    c,purchase,refund=refund_pair(setup)
+    actual=partial_refund.refund_links
+    def inferred(conn,ids):
+        return {tid:dict(link,inferred=True) for tid,link in actual(conn,ids).items()}
+    monkeypatch.setattr(partial_refund,'refund_links',inferred)
+    plan=repair.preview(c,TRIPS)
+    assert plan['summary']['refund_preserved']['INFERRED_LINK']==2
+    assert not {purchase,refund}&{r['tid'] for r in plan['targets']}
+
+
+def test_new_refund_protection_invalidates_whole_preview(setup):
+    c,_,refund=refund_pair(setup)
+    plan=repair.preview(c,TRIPS)
+    row=repair._state(c,refund)['transaction']
+    c.execute('INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+              (refund,row['source_hash'],'evidence_pending','new protection'))
+    c.commit()
+    before=list(c.iterdump())
+    with pytest.raises(ValueError,match='GROUPING_PREVIEW_STALE'):
+        repair.apply(c,plan,TRIPS,request_id='new-financial-protection')
+    assert list(c.iterdump())==before
+
+
+def test_financial_postcheck_rolls_back_entire_request(setup,monkeypatch):
+    c,purchase,refund=refund_pair(setup)
+    before=list(c.iterdump())
+    actual=repair._financial_state
+    def state(conn):
+        if conn.execute('SELECT display_tab_id FROM transactions WHERE transaction_id=?',(purchase,)).fetchone()[0].startswith('quarter:'):
+            return 'synthetic changed financial graph'
+        return actual(conn)
+    monkeypatch.setattr(repair,'_financial_state',state)
+    plan=repair.preview(c,TRIPS)
+    with pytest.raises(ValueError,match='GROUPING_FINANCIAL_CHANGED'):
+        repair.apply(c,plan,TRIPS,request_id='rollback-whole-refund-group')
+    assert list(c.iterdump())==before
+
+
+def test_restore_refuses_changed_financial_protection(setup):
+    c,_,refund=refund_pair(setup)
+    repair.apply(c,repair.preview(c,TRIPS),TRIPS,request_id='financial-stale')
+    row=repair._state(c,refund)['transaction']
+    c.execute('INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+              (refund,row['source_hash'],'evidence_pending','new protection'))
+    c.commit()
+    with pytest.raises(ValueError,match='GROUPING_RESTORE_FINANCIAL_STALE'):
+        repair.restore_preview(c,'financial-stale')
+
+
 def fact(row,trip='A'):
     return dict(source_hash=row['source_hash'],trip_id=trip,formal_link=True,
         service_period=dict(starts_on='2026-10-02',ends_on='2026-10-03'),item='숙박비',basis='synthetic exact link')

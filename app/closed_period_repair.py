@@ -13,6 +13,52 @@ RESTORE = 'card.closed_period_restored'
 FIELDS = ('item', 'display_tab_id', 'trip_id')
 
 
+def _financial_state(conn):
+    """Bind and verify the existing refund graph, nets and protection records."""
+    from .partial_refund import refund_links
+    ids = [r[0] for r in conn.execute('SELECT transaction_id FROM transactions')]
+    names = sorted(r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                   if 'refund' in r[0] or r[0] in {
+                       'transaction_review_holds', 'transaction_company_exclusions'})
+    tables = {name: sorted(conn.execute('SELECT * FROM "'+name.replace('"','""')+'"').fetchall(),
+                           key=lambda row: json.dumps(row,sort_keys=True)) for name in names}
+    return _digest(dict(links=refund_links(conn,ids),tables=tables))
+
+
+def _refund_group_reason(conn, members, rows, pending, links, manual, trips, evidence):
+    """Both sides must qualify; this never authorizes ordinary refund editing."""
+    valid = trip_map(trips)
+    for tid in sorted(members):
+        row = rows.get(tid)
+        if not row or not completed_period(row):
+            return 'OPEN_PERIOD_MEMBER'
+        if (tid in manual or row.get('decided_at') or row['classification_source'] in {
+                'user_decision','user_exception','owner_booking','manual','manual_hold'}):
+            return 'MANUAL_MEMBER'
+        if any(completed_trip(valid.get(row.get(k))) for k in ('trip_id','display_tab_id')):
+            return 'COMPLETED_TRIP_MEMBER'
+        if exception_trip(row,trips,evidence=evidence.get(tid)):
+            return 'CONFIRMED_OPEN_MEMBER'
+        if row.get('parse_error') or row.get('duplicate_of') or row.get('conflict_reason'):
+            return 'SOURCE_PROTECTED_MEMBER'
+        if conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=? AND source_hash=?',
+                        (tid,row['source_hash'])).fetchone():
+            return 'REVIEW_HOLD_MEMBER'
+        if conn.execute('SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=? AND source_hash=? AND excluded=1',
+                        (tid,row['source_hash'])).fetchone():
+            return 'COMPANY_EXCLUDED_MEMBER'
+    group_links = [links[tid] for tid in members if tid in links]
+    if any(link.get('status') == 'excess' for link in group_links):
+        return 'EXCESS_REFUND'
+    if any(link.get('inferred') for link in group_links):
+        return 'INFERRED_LINK'
+    if not group_links or any(link.get('status') not in ('full','partial') for link in group_links):
+        return 'UNVERIFIED_LINK'
+    if not members <= pending.keys():
+        return 'INELIGIBLE_MEMBER'
+    return ''
+
+
 def _sync(conn, tid, values, request_id, *, old_board=None):
     conn.execute('UPDATE ledger_entries SET '+','.join(k+'=?' for k in FIELDS)+' WHERE transaction_id=?',
                  (*[values[k] for k in FIELDS],tid))
@@ -47,6 +93,7 @@ def preview(conn, trips, *, evidence=None):
     refund_group = set(linked) | {v['original_id'] for v in linked.values()}
     counts = Counter(completed_total=0,completed_trip_unchanged=0,in_open_destinations=0,confirmed_exceptions=0)
     excluded, distribution, moves, targets = Counter(), Counter(), Counter(), []
+    pending_refunds = {}
     for row in closed:
         tid = row['transaction_id']
         counts['completed_total'] += 1
@@ -74,6 +121,9 @@ def preview(conn, trips, *, evidence=None):
             reason = correction_protection_reason(SimpleNamespace(conn=conn), tid, row['source_hash'])
         if not reason and tid in refund_group:
             reason = 'REFUND_GROUP'
+        group_candidate = reason in {'REFUND_GROUP','CANCELLATION_OR_REFUND','ORIGINAL_WITH_REFUND'}
+        if group_candidate:
+            reason = ''  # Group checks below preserve every other protection.
         if not reason and len(destinations) != 1:
             reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
         for projection in (state['ledger'], state['board']):
@@ -90,10 +140,41 @@ def preview(conn, trips, *, evidence=None):
         target = f'quarter:{day[:4]}:{quarter}'
         item = '2025년 항목' if completed_period(row) == '2025' else '분기 기타비용'
         values = dict(item=item, display_tab_id=target, trip_id='')
-        targets.append(dict(tid=tid, before=state, values=values))
-        moves[completed_period(row)] += 1
+        target = dict(tid=tid, before=state, values=values)
+        if group_candidate:
+            pending_refunds[tid] = target
+        else:
+            targets.append(target)
+    groups = {}
+    for tid, link in linked.items():
+        groups.setdefault(link['original_id'],set([link['original_id']])).add(tid)
+    by_id = {r['transaction_id']:r for r in rows}
+    processed, refund_kept, refund_moved, moved_groups = set(), Counter(), 0, 0
+    for tid in sorted(pending_refunds):
+        original = linked[tid]['original_id'] if tid in linked else tid if tid in groups else None
+        if original is None:
+            refund_kept['UNPAIRED'] += 1
+            continue
+        if original in processed:
+            continue
+        processed.add(original)
+        members = groups[original]
+        reason = _refund_group_reason(conn,members,by_id,pending_refunds,linked,manual,trips,evidence or {})
+        if reason:
+            refund_kept[reason] += len(members & pending_refunds.keys())
+        else:
+            targets.extend(pending_refunds[member] for member in sorted(members))
+            refund_moved += len(members)
+            moved_groups += 1
+    for reason, count in refund_kept.items():
+        excluded['REFUND_'+reason] += count
+    for target in targets:
+        moves[completed_period(target['before']['transaction'])] += 1
     summary = dict(counts, move_2025=moves['2025'], move_2026Q1=moves['2026Q1'],
                    to_move=len(targets), excluded=dict(excluded),
+                   refund_candidate_rows=len(pending_refunds), refund_move_rows=refund_moved,
+                   refund_move_groups=moved_groups, refund_preserved_rows=sum(refund_kept.values()),
+                   refund_preserved=dict(refund_kept),
                    open_distribution=[dict(trip=valid.get(k,{}).get('display_key') or k, count=n)
                                       for k,n in sorted(distribution.items())],
                    open_trip_row_delta=[dict(trip=t.get('display_key') or k,
@@ -101,7 +182,7 @@ def preview(conn, trips, *, evidence=None):
                        ledger_delta=-sum(bool(x['before']['ledger']) and x['before']['ledger']['trip_id']==k for x in targets),
                        board_delta=-sum(bool(x['before']['board']) and x['before']['board']['display_tab_id']==k for x in targets))
                        for k,t in sorted(valid.items()) if open_trip(t)])
-    return dict(digest=_digest([targets, trips, evidence or {}]), targets=targets, summary=summary)
+    return dict(digest=_digest([targets, trips, evidence or {}, _financial_state(conn)]), targets=targets, summary=summary)
 
 
 def replay(conn, request_id):
@@ -124,14 +205,17 @@ def apply(conn, expected, trips, *, request_id, evidence=None):
         current = preview(conn,trips,evidence=evidence)
         if expected['digest'] != current['digest']:
             raise ValueError('GROUPING_PREVIEW_STALE')
+        financial = _financial_state(conn)
         for target in current['targets']:
             tid, values = target['tid'], target['values']
             conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
                          ',revision=revision+1 WHERE transaction_id=?', (*[values[k] for k in FIELDS],tid))
             _sync(conn,tid,values,request_id)
-            detail = dict(request_id=request_id, before=target['before'], after=_state(conn,tid))
+            detail = dict(request_id=request_id, before=target['before'], after=_state(conn,tid),financial=financial)
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                 (utc_now(),RELEASE,tid,json.dumps(detail,ensure_ascii=False,sort_keys=True)))
+        if _financial_state(conn) != financial:
+            raise ValueError('GROUPING_FINANCIAL_CHANGED')
         result = dict(current['summary'], applied_this_run=len(current['targets']))
         conn.execute('INSERT INTO requests(request_id,scope,payload_sha256,response_json,created_at) VALUES (?,?,?,?,?)',
             (request_id,SCOPE,current['digest'],json.dumps(result,sort_keys=True),utc_now()))
@@ -144,6 +228,7 @@ def apply(conn, expected, trips, *, request_id, evidence=None):
 
 def restore_preview(conn, request_id):
     targets = []
+    financial = _financial_state(conn)
     for entry,tid,raw in conn.execute('SELECT entry_id,subject,detail_json FROM change_log WHERE kind=? ORDER BY entry_id', (RELEASE,)):
         detail = json.loads(raw)
         if detail['request_id'] != request_id:
@@ -152,8 +237,10 @@ def restore_preview(conn, request_id):
             continue
         if _state(conn,tid) != detail['after']:
             raise ValueError('GROUPING_RESTORE_STALE')
+        if detail.get('financial',financial) != financial:
+            raise ValueError('GROUPING_RESTORE_FINANCIAL_STALE')
         targets.append(dict(entry=entry,tid=tid,detail=detail))
-    return dict(digest=_digest(targets),targets=targets,summary=dict(restore=len(targets)))
+    return dict(digest=_digest([targets,financial]),targets=targets,summary=dict(restore=len(targets)))
 
 
 def restore(conn, expected, request_id):
@@ -164,6 +251,7 @@ def restore(conn, expected, request_id):
         current = restore_preview(conn,request_id)
         if current['digest'] != expected['digest']:
             raise ValueError('GROUPING_PREVIEW_STALE')
+        financial = _financial_state(conn)
         for target in current['targets']:
             tid, old = target['tid'], target['detail']['before']
             conn.execute('UPDATE transactions SET '+','.join(k+'=?' for k in FIELDS)+
@@ -171,6 +259,8 @@ def restore(conn, expected, request_id):
             _sync(conn,tid,old['ledger'] or old['transaction'],'restore-'+request_id,old_board=old['board'])
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                 (utc_now(),RESTORE,tid,json.dumps(dict(release_entry_id=target['entry'],request_id=request_id))))
+        if _financial_state(conn) != financial:
+            raise ValueError('GROUPING_FINANCIAL_CHANGED')
         conn.commit()
         return current['summary']
     except BaseException:
