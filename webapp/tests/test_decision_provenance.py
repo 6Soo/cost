@@ -151,3 +151,28 @@ def test_recorded_projection_changes_are_audited_and_reversible(setup):
     restored_payload = json.loads(restored['board']['payload_json'])
     assert restored_payload.pop('revision') > payload['revision']
     assert restored_payload == {k:v for k,v in payload.items() if k!='revision'}
+
+
+def test_maintenance_report_uses_current_core_periods_without_writes(setup,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from tools import repair_dist141_provenance as cli
+    from tools.complete_card_classification import load_review_evidence
+    from app import ota_payments
+    board,flow,_,rows = setup
+    row = rows[0]
+    event = dict(provider='forest',booking_ref='',event_type='charge',evidence_status='paid_verified',
+        payment_status='paid',evidence_kind='authenticated_forest_pg_card_receipt',
+        service_period_basis='LINK-108',service_period=dict(starts_on='2026-10-02',ends_on='2026-10-03'),
+        item='숙박비',paid_on=row['approval_date'],amount=row['amount_krw'],amount_krw=row['amount_krw'],
+        currency='KRW',authorization_scheme='issuer_card_approval',approval_number=row['approval_number'],
+        source_digest='synthetic-digest',source_digests=['synthetic-digest'],ota_event_id='synthetic-forest',
+        reservation_status='observed')
+    monkeypatch.setattr(cli,'read_flow',lambda *args:SimpleNamespace(_ota_sources=lambda:{}))
+    monkeypatch.setattr(ota_payments,'build_ota_payment_events',lambda sources:[event])
+    original = repair._state(board.conn,row['transaction_id'])
+    report = cli.canonical_report(board.conn,tmp_path)
+    assert report['matches'][0]['period'] == event['service_period']
+    evidence,_ = load_review_evidence(board.conn,tmp_path,[TRIPS[0]],report=report)
+    assert evidence[row['transaction_id']]['trip_id'] == 'A'
+    assert repair._state(board.conn,row['transaction_id']) == original
+    assert not (tmp_path/'data/ota-review/ota-review.sqlite').exists()

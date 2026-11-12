@@ -9,7 +9,31 @@ import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app import decision_provenance as repair
-from tools.complete_card_classification import load_context, load_review_evidence, require_offline_backup
+from tools.complete_card_classification import load_context, load_review_evidence, require_offline_backup, read_flow
+
+
+def canonical_report(conn, host):
+    """Rebuild the current core projection locally, without publishing a snapshot.
+
+    The legacy recovery report cannot carry LINK-108 shared periods. Use the
+    same canonical matcher/projection as the board, including existing pins,
+    rather than silently rejudging against the old report.
+    """
+    from app.automatic_classification import _read
+    from app.ota_payments import build_ota_payment_events, match_ota_payment_events
+    from app.ota_core_projection import card_matches
+    from app.ota_review import OtaReviewStore
+    sources = read_flow(conn,host)._ota_sources()
+    events = build_ota_payment_events(sources)
+    cards = _read(conn)
+    review = OtaReviewStore(host/'data/ota-review/ota-review.sqlite')
+    try:
+        links = review.links()
+        results = match_ota_payment_events(events,cards,existing_links=links,
+            rules=review.active_rules(),frozen_groups=review.group_pins())
+        return dict(matches=card_matches([],dict(events=events,transactions=cards,results=results,links=links)))
+    finally:
+        review.close()
 
 
 def main(argv=None):
@@ -35,7 +59,7 @@ def main(argv=None):
                 options = {}
             else:
                 trips,nets = load_context(conn,host)
-                evidence,_ = load_review_evidence(conn,host,trips)
+                evidence,_ = load_review_evidence(conn,host,trips,report=canonical_report(conn,host))
                 options = dict(nets=nets,evidence=evidence)
                 plan = repair.preview(conn,trips,**options)
             if args.apply and plan['digest'] != args.expected_digest:
