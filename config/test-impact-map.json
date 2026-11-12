@@ -35,8 +35,8 @@
     },
     {
       "name": "card-login-automation",
-      "paths": ["tools/card_login/**", "tests/card_login/**", "tests/test_card_login_credentials.py", "tests/test_card_login_script.py"],
-      "tests": ["tests/test_card_login_credentials.py", "tests/test_card_login_script.py"]
+      "paths": ["tools/card_login/**", "tests/card_login/**", "tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"],
+      "tests": ["tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"]
     },
     {
       "name": "p2-offline-merchant-batch",

@@ -60,9 +60,12 @@ export async function login(page, creds) {
     return { outcome: 'failed', detail: 'login_inputs_not_found' };
   }
   if (editable.idReadonly || editable.pwReadonly) {
-    // 가상키패드/키보드 보안으로 직접 입력 불가. 공식 키보드 전환·보안 프로그램 경로는
-    // 라이브 검증으로 확인하기 전까지 자동 입력을 시도하지 않는다(우회 금지).
-    return { outcome: 'failed', detail: 'security_input_readonly' };
+    // 가상키패드/키보드 보안으로 직접 입력 불가. 보안 프로그램을 끄거나 입력 속성을 변조하지 않고
+    // 에이전트 보조 단계(공식 가상키패드 클릭)로 넘긴다. 비밀은 스크립트 내부에서만 읽는다.
+    return {
+      outcome: 'agent_assist', step: 'keypad_password', detail: 'security_input_readonly',
+      agentAction: '가상키패드 좌표를 관찰해 assistKeypadEntry 로 비밀번호를 입력한다(비밀 출력 금지).',
+    };
   }
 
   await page.fill(selectors.idInput, creds.id);

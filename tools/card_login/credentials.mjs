@@ -65,8 +65,10 @@ export async function readCredentials(issuer, opts = {}) {
   const timeoutMs = opts.timeoutMs || 30000;
   const pipeName = 'cost-card-login-' + crypto.randomBytes(12).toString('hex');
   const pipePath = '\\\\.\\pipe\\' + pipeName;
+  // ClientPid 는 비밀이 아닌 프로세스 식별자다. 서버가 연결한 클라이언트가 이 PID 인지 검증한다.
   const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-    '-File', path.join(scriptDir, 'read_credentials.ps1'), '-Issuer', issuer, '-PipeName', pipeName];
+    '-File', path.join(scriptDir, 'read_credentials.ps1'), '-Issuer', issuer, '-PipeName', pipeName,
+    '-ClientPid', String(process.pid)];
   if (storeRoot) args.push('-StoreRoot', storeRoot);
   // stdio: stdin ignore, stdout ignore(비밀 없음), stderr 만 상태 코드용으로 수집.
   const child = spawn(powershell, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });

@@ -29,7 +29,10 @@ export async function login(page, creds) {
     return { idPresent: Boolean(id), pwPresent: Boolean(pw), idReadonly: id ? id.readOnly === true : null, pwReadonly: pw ? pw.readOnly === true : null };
   }, { idSel: selectors.idInput, pwSel: selectors.passwordInput });
   if (!editable.idPresent || !editable.pwPresent) return { outcome: 'failed', detail: 'login_inputs_not_found' };
-  if (editable.idReadonly || editable.pwReadonly) return { outcome: 'failed', detail: 'security_input_readonly' };
+  if (editable.idReadonly || editable.pwReadonly) {
+    return { outcome: 'agent_assist', step: 'keypad_password', detail: 'security_input_readonly',
+      agentAction: '가상키패드 좌표를 관찰해 assistKeypadEntry 로 비밀번호를 입력한다(비밀 출력 금지).' };
+  }
   await page.fill(selectors.idInput, creds.id);
   await page.fill(selectors.passwordInput, creds.password);
   await page.click(selectors.loginButton);

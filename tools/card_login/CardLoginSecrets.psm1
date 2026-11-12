@@ -8,6 +8,14 @@ $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Security
 
+# named pipe 클라이언트 프로세스 PID 조회(기대 PID 검증용). 비밀 값과 무관한 네이티브 호출.
+if (-not ('Win32.CardLoginPipe' -as [type])) {
+    Add-Type -Namespace Win32 -Name CardLoginPipe -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool GetNamedPipeClientProcessId(IntPtr Pipe, out uint ClientProcessId);
+'@
+}
+
 $script:DefaultStoreRoot = 'D:/WebLedgerHost/secrets/card-login'
 $script:Schema = 'cost.card-login-credential.v1'
 $script:Issuers = @('kb', 'hana', 'ibk')
@@ -139,4 +147,28 @@ function Read-CardLoginCredentialPlain {
         password     = Unprotect-CardSecret -Base64 $record.password
         certPassword = $cert
     }
+}
+
+# 파이프 DACL: 현재 사용자 SID 에만 FullControl 을 허용한다.
+# 다른 계정·Everyone·익명에는 허용 규칙이 없으므로 접근이 거부된다(명시적 Deny 는 현재 사용자까지
+# 막을 수 있어 쓰지 않는다 — Everyone 구성원인 현재 사용자에게 허용 규칙만 남기는 방식).
+function New-CardLoginPipeSecurity {
+    $ps = New-Object System.IO.Pipes.PipeSecurity
+    $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $rule = New-Object System.IO.Pipes.PipeAccessRule(
+        $sid,
+        [System.IO.Pipes.PipeAccessRights]::FullControl,
+        [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $ps.AddAccessRule($rule)
+    return $ps
+}
+
+# 연결한 클라이언트 프로세스 PID 를 반환한다(기대 PID 와 다르면 값을 보내지 않기 위한 검증).
+function Get-CardLoginPipeClientPid {
+    param([Parameter(Mandatory)][IntPtr]$PipeHandle)
+    [uint32]$clientPid = 0
+    $ok = [Win32.CardLoginPipe]::GetNamedPipeClientProcessId($PipeHandle, [ref]$clientPid)
+    if (-not $ok) { return -1 }
+    return [int]$clientPid
 }
