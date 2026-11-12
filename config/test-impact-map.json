@@ -34,6 +34,11 @@
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
+      "name": "kb-card-download-import",
+      "paths": ["tools/import_kb_card_download.py", "tests/test_import_kb_card_download.py"],
+      "tests": ["tests/test_import_kb_card_download.py", "tests/card_pipeline/test_import_xls.py", "tests/test_kb_card_collection_script.py"]
+    },
+    {
       "name": "p2-offline-merchant-batch",
       "paths": ["tools/p2_batch/**", "tests/test_p2_batch.py"],
       "tests": ["tests/test_p2_batch.py", "tests/test_frontier_agent_provider.py", "webapp/tests/test_classification_correction.py"]

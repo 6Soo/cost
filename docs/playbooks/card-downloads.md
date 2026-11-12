@@ -6,7 +6,7 @@
 
 ## 반복 실행의 기준
 
-수집 도구는 [`tools/collect_kb_card.mjs`](../../tools/collect_kb_card.mjs), 설정·실행법은 [국민 스크립트 사용법](kb-script-usage.md)이다. 기본 Page 연결과 실제 XLS 파서 호출 코드는 제공되며 사용자가 새 진입점을 작성할 필요는 없다. 자동 가져오기는 이 변경 범위 밖이며 `importBoundary=NOT_RUN`으로 기록한다.
+수집 도구는 [`tools/collect_kb_card.mjs`](../../tools/collect_kb_card.mjs), 설정·실행법은 [국민 스크립트 사용법](kb-script-usage.md)이다. 기본 Page 연결과 실제 XLS 파서 호출 코드는 제공되며 사용자가 새 진입점을 작성할 필요는 없다. 수집은 가져오기와 별도 단계이며 `importBoundary=NOT_RUN`으로 기록한다. 저장 파일의 형식·건수 검증 → 중복 리허설 → 기존 가져오기 경로 호출은 [`tools/import_kb_card_download.py`](../../tools/import_kb_card_download.py)가 담당하며, 사용법은 아래 [가져오기 스크립트 사용법](#가져오기-스크립트-사용법) 절을 따른다.
 
 ## 실제 화면 확인 필요
 
@@ -71,9 +71,30 @@ console.log({filename: downloaded.suggestedFilename(), bytes: completedSize});
 - 국내 취소번호/원승인번호를 구분한다. 해외 원본의 승인번호 부재는 정상이며 번호를 만들지 않는다. 해외 `총결제금액=결제원금+수수료`를 검사하고 수수료를 이중 합산하지 않는다. 취소매출 부호·현금서비스/리버설·동일 값의 복수 실제 행은 원본대로 보존한다.
 - 기존 DB와의 중복 대조는 읽기 전용으로 수행할 수 있다. 사용자 승인 범위가 다운로드/검증까지이면 운영 DB·장부·환불 링크·Google에 쓰지 않는다. DB 입력까지 지시받은 경우에만 기존 가져오기 경로와 필요한 데이터 보호 절차를 별도로 수행한다.
 
+## 가져오기 스크립트 사용법
+
+[`tools/import_kb_card_download.py`](../../tools/import_kb_card_download.py)는 수집 실행 폴더(`manifest.json` + 보존 원본)를 받아 형식·건수 검증 → 기존 중복 검사 → 기존 가져오기 경로(`app.Pipeline.receive`) 호출까지 수행한다. 새 가져오기 로직은 없으며 운영 화면 업로드와 같은 사전검사(`app.card_preflight.validate_upload`)·파서·중복/충돌 보호를 그대로 쓴다. 분류·장부 기록·Google 쓰기는 하지 않는다. **이번 검증은 합성 파일·합성 DB만 사용했고 실제 카드사 화면·운영 DB 반영은 하지 않았다.**
+
+- 미리보기(기본): 대상 DB를 읽기 전용으로 열고 사본에서 리허설한다. 대상 DB에는 쓰지 않는다.
+- `--apply`: 신선 백업 + 별도 복원 검증 + 단일 작성자 확인(`--confirm-single-writer`) 뒤에만 기존 receive 경로로 쓴다. Board/Worker 작성자가 멈춰 있는지는 운영자가 확인해야 한다.
+- 수집이 이미 검증한 항목(파일 SHA·화면 건수 대조 `countCheck=MATCHED`·파서 성공)을 매니페스트에서 요구하고, 도구自身が 바이트·형식·채널·건수를 다시 검증한다. 하나라도 실패하면 멈추며 DB에 쓰지 않는다.
+- 보고서에는 집계만 남으며 거래 원문은 출력하지 않는다. `kb_last_dates`는 다음 수집의 `--last-use-date`를 위한 읽기 전용 집계 참고값이다(조회 기간 계산 자체는 아래 절차 1번의 집계로 수집 단계에서 수행).
+
+수집 원본은 보호 폴더 `D:/WebLedgerHost/data/backups/card-downloads/<날짜>/`에 보존하고, 가져오기 백업은 별도 보호 폴더에 둔다. 도구는 실행 폴더·백업을 덮어쓰지 않으며 충돌을 거부한다.
+
+```powershell
+# 미리보기 — 대상 DB 읽기 전용, 사본 리허설
+python tools/import_kb_card_download.py --run-dir D:/WebLedgerHost/data/backups/card-downloads/2026-11-13 --db D:/WebLedgerHost/data/board.sqlite
+
+# 반영 — 신선 백업·별도 복원 검증·단일 작성자 확인 뒤 기존 receive 경로
+python tools/import_kb_card_download.py --run-dir D:/WebLedgerHost/data/backups/card-downloads/2026-11-13 --db D:/WebLedgerHost/data/board.sqlite --apply --backup-dir D:/WebLedgerHost/data/backups/card-import-2026-11-13 --confirm-single-writer
+```
+
+합성 검증 항목: 파일 SHA/크기 대조, 로그인 HTML·형식 오류·파싱 이슈 거부, 국내/해외 채널 대조, 화면 건수 대조, 내용 멱등·identity 중복·승인번호 없는 해외 행 다중집합·충돌 시 기존 행 보존, 미리보기 무쓰기, apply 백업/복원·재수신 무변경·수동 결정/장부 보존, 스키마 차이 거부. 실행은 `python -m pytest tests/test_import_kb_card_download.py -q`.
+
 ## 중복 검증 후 운영 DB 가져오기
 
-이번 인터뷰에서 이 단계까지 승인됐다. 파일을 받기 전에는 원본 검증·중복 해소·DB 입력을 완료했다고 쓰지 않는다.
+이번 인터뷰에서 이 단계까지 승인됐다. 파일을 받기 전에는 원본 검증·중복 해소·DB 입력을 완료했다고 쓰지 않는다. 이 절의 사본 리허설·신선 백업/별도 복원·단일 작성자·재수신 무변경 절차는 위 가져오기 스크립트에 구현돼 있으며, 아래 보호 조건은 그대로 적용된다.
 
 1. 원본 둘을 각 채널로 파싱하고, 운영 DB의 읽기 전용 사본에서 기존 `app.Pipeline.receive`/해당 카드 입력 경로로 리허설한다. 기존 화면의 가져오기/구형 CSV 입력기와 기능을 혼동하지 않는다. 실제 XLS 파서는 `app/import_card.py`에 있으며 최신 배포 SHA의 코드를 기준으로 한다.
 2. 파일 해시 재수신·파일 간 동일 승인·매입과 승인의 동일 거래·승인번호 없는 해외 원행의 다중성까지 검사한다. 원승인일/매입일·부호·원금/수수료/총청구액을 구분한다. 과거에 변환 CSV로 넣은 행과 새 XLS 원행의 포맷 차이만으로 신규 거래를 만들지 않는다. 불명확한 중복 후보는 기록·삭제·강제 합치기로 넘기지 않는다.
