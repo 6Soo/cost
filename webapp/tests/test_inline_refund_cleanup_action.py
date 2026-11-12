@@ -78,7 +78,8 @@ def test_refund_group_is_read_only_inline_and_guarded_api_remains_available(cont
     board, original, refund, unrelated = context
     start = list(board.conn.iterdump())
     html = card_flow.render_expense_cleanup(board, "synthetic-csrf")
-    assert "\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74" in html
+    # P3 abolished the person-question counter; the refund group stays read-only inline.
+    assert "\ub0b4 \ud655\uc778 \ud544\uc694" not in html
     assert "cleanup-refund-action" not in html
     assert "data-original=" not in html
     assert "\uc6d0\uacb0\uc81c\u00b7\ud658\ubd88 \ubb36\uc74c \uae30\ub85d" not in html
