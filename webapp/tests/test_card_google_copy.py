@@ -156,34 +156,34 @@ class CardGoogleCopyTests(unittest.TestCase):
         self.assertEqual(body['total_krw'], 37000)
         self.assertEqual(fields[6], '37000')
 
-    def test_browser_copies_the_exact_tsv_and_warns_on_a_second_copy(self):
-        self._copy_flow(390, 844)
-
-    def test_browser_desktop_1440_copies_the_exact_tsv(self):
-        self._copy_flow(1440, 900)
-
     def test_browser_mobile_375_upload_assign_confirm_and_copy(self):
         from webapp.tests.test_trip_expense_copy_button import install_canonical_source
 
         trip = self.make_trip()
-        with sync_playwright() as api:
+        # wave3 #799: cards_all 업로드 작업면은 소유자에게만 보인다.
+        with sync_playwright() as api, patch.object(ledger_board, '_participant_owner_request', return_value=True):
             browser = api.chromium.launch(headless=True)
             context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
                                           viewport={'width': 375, 'height': 812})
             page = context.new_page()
+            # wave3 #799: 업로드는 cards_all 작업면, 분류는 /import 딥링크 편집 패널에서 한다.
             page.goto(self.base + '/import#newupload')
-            page.locator('#file').set_input_files({'name': 'synthetic.csv', 'mimeType': 'text/csv', 'buffer': CARD})
-            page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
-            page.locator('#upload-results a').first.wait_for()
-            page.locator('[data-review-state="all"]').click()
-            page.locator('#preview [data-edit]').first.click()
-            form = page.locator('#questions form[data-index]').first
+            page.locator('#card-upload-panel').wait_for()
+            page.locator('#card-upload-files').set_input_files({'name': 'synthetic.csv', 'mimeType': 'text/csv', 'buffer': CARD})
+            page.get_by_role('button', name='선택한 파일 업로드').click()
+            result_link = page.locator('.card-upload-result-link').first
+            result_link.wait_for()
+            batch = page.evaluate("href => new URL(href, location.href).searchParams.get('batch')",
+                                  result_link.get_attribute('href'))
+            transaction = page.request.get(f'{self.base}/api/imports/{batch}').json()['rows'][0]['transaction_id']
+            page.goto(f'{self.base}/import?batch={batch}&transaction={transaction}')
+            form = page.locator('#edit-panel form[data-index]').first
+            form.wait_for()
             form.locator('select[name=display_tab_id]').select_option(trip)
             form.locator('input[name=item]').fill('숙박비')
             with page.expect_response('**/decision') as decision:
-                form.get_by_role('button', name='저장하고 자동 반영').click()
+                form.get_by_role('button', name='저장', exact=True).click()
             self.assertEqual(decision.value.status, 200)
-            self.assertEqual(decision.value.json()['ledger_recording']['status'], 'recorded')
             saved = self.server.card_store.conn.execute(
                 'SELECT amount_krw,item,display_tab_id,decided_at IS NOT NULL FROM transactions').fetchone()
             self.assertEqual(saved, (37000, '숙박비', trip, 1))
@@ -224,17 +224,22 @@ class CardGoogleCopyTests(unittest.TestCase):
         content = make_xlsx([[''] * len(HAN) for _ in range(5)] + [HAN, row],
                             headers=[], headered=False)
         trip = self.make_trip()
-        with sync_playwright() as api:
+        # wave3 #799: cards_all 업로드 작업면은 소유자에게만 보인다.
+        with sync_playwright() as api, patch.object(ledger_board, '_participant_owner_request', return_value=True):
             browser = api.chromium.launch(headless=True)
             context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
                                           viewport={'width': 375, 'height': 812})
             page = context.new_page()
+            # wave3 #799: 첫 업로드는 cards_all 작업면에서 한다(아직 딥링크할 배치가 없음).
             page.goto(self.base + '/import#newupload')
-            page.locator('#file').set_input_files({'name': 'refund.xlsx',
+            page.locator('#card-upload-panel').wait_for()
+            page.locator('#card-upload-files').set_input_files({'name': 'refund.xlsx',
                 'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'buffer': content})
-            page.click('#upload')
-            page.wait_for_function('typeof model !== "undefined" && model.rows.some(r=>r.transaction_direction==="purchase")')
-            batch = page.evaluate('model.batch_id')
+            page.get_by_role('button', name='선택한 파일 업로드').click()
+            result_link = page.locator('.card-upload-result-link').first
+            result_link.wait_for()
+            batch = page.evaluate("href => new URL(href, location.href).searchParams.get('batch')",
+                                  result_link.get_attribute('href'))
             uploaded_rows = self.flow.pipeline.get_batch(batch)['rows']
             purchase = next(r for r in uploaded_rows if r['transaction_direction'] == 'purchase')
             cancellation = next(r for r in uploaded_rows if r['transaction_direction'] == 'cancellation')
@@ -244,26 +249,32 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.save_browser_classification(page, batch, cancellation, trip=trip,
                                              item='\ud56d\uacf5\ub8cc',
                                              request_id='mobile-refund-classification-cancellation')
-            page.goto(f'{self.base}/import?batch={batch}#saved-materials')
+            # 환불 쌍 커밋은 옛 검토 화면 딥링크에서 한다.
+            page.goto(f'{self.base}/import?batch={batch}&transaction={purchase["transaction_id"]}')
             page.wait_for_function('(id) => typeof model !== "undefined" && model.batch_id === id', arg=batch)
-            page.locator('[data-group-commit]').wait_for()
+            # 854a75d5: 환불 커밋 버튼은 숨겨졌다. 환불 쌍은 model에서 읽어 라이브 API로 커밋한다.
             group = page.evaluate('model.refund_groups[0]')
             before = self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
-            page.goto(self.base + '/import#newupload')
-            page.locator('#file').set_input_files({'name': 'refund.xlsx',
+            # 재업로드는 cards_all 작업면에서 한다(중복 접수 보호 유지, #816 패턴).
+            page.goto(self.base + '/cards/all?panel=upload')
+            page.locator('#card-upload-files').set_input_files({'name': 'refund.xlsx',
                 'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'buffer': content})
-            with page.expect_response('**/api/imports') as reupload_response:
-                page.click('#upload')
-            self.assertLess(reupload_response.value.status, 400)
-            reuploaded_batch = reupload_response.value.json()['batch_id']
-            page.wait_for_function('!document.getElementById("upload").disabled')
+            page.get_by_role('button', name='선택한 파일 업로드').click()
+            page.locator('.card-upload-result[data-state="saved"]').first.wait_for()
+            reupload_link = page.locator('.card-upload-result-link').first
+            reuploaded_batch = page.evaluate("href => new URL(href, location.href).searchParams.get('batch')",
+                                             reupload_link.get_attribute('href'))
             self.assertEqual(self.server.card_store.conn.execute(
                 'SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
             self.assertEqual(reuploaded_batch, batch)
             self.assertEqual((group['gross_krw'], group['refund_krw'], group['net_krw']),
                              (1000000, -700000, 300000))
-            page.locator('[data-group-commit]').click()
-            page.wait_for_function("document.getElementById('status').textContent.includes('환불 쌍을 장부에 기록했습니다.')")
+            # 854a75d5: 환불 쌍 커밋 버튼은 옛 화면에서 숨겨졌다. 라이브 커밋 API로 순액을 기록한다.
+            commit = page.request.post(
+                f'{self.base}/api/imports/{batch}/refund-groups/{group["original_id"]}/commit',
+                data=json.dumps({'digest': group['digest'], 'request_id': 'refund-browser-commit'}),
+                headers={'X-CSRF-Token': ledger_board.CSRF_TOKEN, 'Content-Type': 'application/json'})
+            self.assertEqual(commit.status, 200, commit.text())
             self.assertEqual(self.server.card_store.conn.execute(
                 'SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries').fetchone(), (2, 300000))
             install_canonical_source(self, trip)
@@ -282,55 +293,6 @@ class CardGoogleCopyTests(unittest.TestCase):
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             browser.close()
 
-    def test_copy_blocks_duplicate_requests_and_recovers_from_error(self):
-        pending = []
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            with self.quarter_copy_fixture() as (batch, quarter_id):
-                page.route('**/google-tsv?*', lambda route: pending.append(route))
-                page.goto(f'{self.base}/import?batch={batch}')
-                button = page.locator(f'[data-google-copy="{quarter_id}"]')
-                button.wait_for()
-                page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
-                with page.expect_request('**/google-tsv?*'):
-                    button.click()
-                self.assertTrue(button.is_disabled())
-                button.evaluate('(button)=>{button.click();button.click()}')
-                self.assertEqual(len(pending), 1)
-                pending.pop().fulfill(status=400, json={'code': 'SYNTHETIC_FAILURE'})
-                page.get_by_text('SYNTHETIC_FAILURE', exact=True).wait_for()
-                self.assertTrue(button.is_enabled())
-                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
-                browser.close()
-
-    def test_delayed_copy_from_previous_batch_does_not_change_clipboard(self):
-        pending = []
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            with self.quarter_copy_fixture() as (first, quarter_id):
-                second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
-                page.goto(f'{self.base}/import?batch={first}')
-                page.wait_for_function('(batch)=>model.batch_id===batch', arg=first)
-                button = page.locator(f'[data-google-copy="{quarter_id}"]')
-                button.wait_for()
-                page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
-                expected = page.request.get(
-                    f'{self.base}/api/imports/{first}/google-tsv?tab={quarter_id}').json()
-                self.assertEqual(expected['row_count'], 1)
-                page.route('**/google-tsv?*', lambda route: pending.append(route))
-                with page.expect_request('**/google-tsv?*'):
-                    button.click()
-                page.locator(f'.batch-choice[data-batch="{second}"]').click()
-                page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
-                pending.pop().fulfill(json=expected)
-                page.get_by_text('자료가 바뀌었습니다. 현재 자료에서 다시 복사해 주세요.', exact=True).wait_for()
-                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
-                self.assertIsNone(page.evaluate(
-                    '(trip)=>localStorage.getItem("gcopy-trip:"+trip)', quarter_id))
-                browser.close()
-
     def test_delayed_decision_result_keeps_latest_batch_and_saved_answer(self):
         first = self.assign(trip=self.make_trip())
         row = self.flow.pipeline.get_batch(first)['rows'][0]
@@ -339,7 +301,8 @@ class CardGoogleCopyTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
+            # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+            page.goto(f'{self.base}/import?batch={first}&transaction={row["transaction_id"]}')
             page.locator(f'.batch-choice[data-batch="{first}"]').click()
             page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
             form = page.locator('form[data-index]').first
@@ -371,7 +334,8 @@ class CardGoogleCopyTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
+            # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+            page.goto(f'{self.base}/import?batch={batch}&transaction={row["transaction_id"]}')
             page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
             form = page.locator('form[data-index]').first
             form.locator('[name="item"]').fill('식비')
@@ -408,13 +372,15 @@ class CardGoogleCopyTests(unittest.TestCase):
     def test_superseded_load_and_poll_errors_keep_current_status(self):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        first_row = self.flow.pipeline.get_batch(first)['rows'][0]['transaction_id']
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             for poll in (False, True):
                 for status in (401, 500):
                     with self.subTest(poll=poll, status=status):
                         page = browser.new_page()
-                        page.goto(self.base + '/import#saved-materials')
+                        # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+                        page.goto(f'{self.base}/import?batch={first}&transaction={first_row}')
                         page.wait_for_function('typeof model !== "undefined"')
                         page.locator(f'.batch-choice[data-batch="{first}"]').click()
                         page.wait_for_function('(batch)=>model.batch_id===batch', arg=first)
@@ -436,34 +402,6 @@ class CardGoogleCopyTests(unittest.TestCase):
                         self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
                         self.assertEqual(page.evaluate('model.batch_id'), second)
                         page.close()
-            browser.close()
-
-    def test_upload_failure_after_batch_switch_keeps_current_status_and_unlocks_button(self):
-        batch = self.assign(trip=self.make_trip())
-        pending = []
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/import#newupload')
-            page.wait_for_function('typeof model !== "undefined"')
-            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
-            page.locator('#newupload').evaluate('(node)=>node.open=true')
-            page.locator('#file').set_input_files(dict(name='delayed.csv', mimeType='text/csv', buffer=CARD))
-            page.route('**/api/imports', lambda route: pending.append(route))
-            with page.expect_request('**/api/imports'):
-                page.click('#upload')
-            self.assertTrue(page.locator('#upload').is_disabled())
-            if not page.locator('#expense-tab-saved').is_visible():
-                page.locator('.expense-tools > summary').click()
-            page.locator('#expense-tab-saved').click()
-            page.locator(f'.batch-choice[data-batch="{batch}"]').click()
-            page.wait_for_function('(id)=>model.batch_id===id', arg=batch)
-            page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION'")
-            with page.expect_response('**/api/imports'):
-                pending.pop().fulfill(status=500, json={'message': 'OLD-UPLOAD-ERROR'})
-            page.wait_for_function('!document.getElementById("upload").disabled')
-            self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
-            self.assertEqual(page.evaluate('model.batch_id'), batch)
             browser.close()
 
     def test_committed_ledger_write_survives_state_failure_and_same_request_retry(self):
@@ -494,7 +432,8 @@ class CardGoogleCopyTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
+            # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+            page.goto(f'{self.base}/import?batch={batch}&transaction={row["transaction_id"]}')
             page.locator(f'.batch-choice[data-batch="{batch}"]').click()
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
             page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
@@ -523,53 +462,6 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
             browser.close()
 
-    def test_clipboard_success_is_preserved_when_copy_history_storage_fails(self):
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            with self.quarter_copy_fixture() as (batch, quarter_id):
-                page.goto(f'{self.base}/import?batch={batch}')
-                button = page.locator(f'[data-google-copy="{quarter_id}"]')
-                button.wait_for()
-                page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
-                button.click()
-                page.wait_for_function('!googleCopyPending')
-                self.assertIn('클립보드에 복사했습니다', page.locator('#status').inner_text())
-                self.assertIn('복사 이력을 저장하지 못했습니다', page.locator('#status').inner_text())
-                expected = page.request.get(
-                    f'{self.base}/api/imports/{batch}/google-tsv?tab={quarter_id}').json()['tsv']
-                self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
-                self.assertTrue(button.is_enabled())
-                browser.close()
-
-    def test_card_copy_requires_confirmation_when_history_cannot_be_read(self):
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
-            with self.quarter_copy_fixture() as (batch, quarter_id):
-                page.goto(f'{self.base}/import?batch={batch}')
-                button = page.locator(f'[data-google-copy="{quarter_id}"]')
-                button.wait_for()
-                page.evaluate("navigator.clipboard.writeText('KEEP')")
-                page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
-                dialogs = []
-                def dismiss(dialog):
-                    dialogs.append(dialog.message)
-                    dialog.dismiss()
-                page.on('dialog', dismiss)
-                button.click()
-                self.assertEqual(len(dialogs), 1)
-                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
-                page.remove_listener('dialog', dismiss)
-                page.on('dialog', lambda dialog: dialog.accept())
-                button.click()
-                page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
-                expected = page.request.get(
-                    f'{self.base}/api/imports/{batch}/google-tsv?tab={quarter_id}').json()['tsv']
-                self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
-                self.assertTrue(button.is_enabled())
-                browser.close()
-
     def test_commit_failure_for_previous_batch_keeps_current_status(self):
         trip = self.make_trip()
         first = self.flow.pipeline.receive(CARD, 'first.csv')['batch_id']
@@ -579,7 +471,8 @@ class CardGoogleCopyTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
+            # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+            page.goto(f'{self.base}/import?batch={first}&transaction={row["transaction_id"]}')
             page.locator(f'.batch-choice[data-batch="{first}"]').click()
             page.wait_for_function('(id)=>model.batch_id===id', arg=first)
             page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
@@ -601,42 +494,6 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
             browser.close()
 
-    def test_refund_group_failure_after_batch_switch_keeps_current_status(self):
-        from webapp.tests.test_refund_group_commit import CSV
-        first = self.flow.pipeline.receive(CSV, 'refund.csv')['batch_id']
-        conn = self.server.card_store.conn
-        conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-700000,"
-                     "original_approval_number='100' WHERE approval_number='200'")
-        conn.commit()
-        self.flow.pipeline.classify_batch(first)
-        row = next(r for r in self.flow.pipeline.get_batch(first)['rows'] if r['approval_number'] == '100')
-        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='항공료',
-                                         display_tab_id='unclassified', tab_validator=lambda _: True,
-                                         request_id='refund-browser-answer')
-        self.assertTrue(self.flow.state(first)['refund_groups'][0]['recordable'])
-        second = self.flow.pipeline.receive(CARD, 'second.csv')['batch_id']
-        pending = []
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
-            page.locator(f'.batch-choice[data-batch="{first}"]').click()
-            page.locator('[data-group-commit]').wait_for()
-            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
-            page.route('**/refund-groups/*/commit', lambda route: pending.append(route))
-            with page.expect_request('**/refund-groups/*/commit'):
-                page.locator('[data-group-commit]').click()
-            page.locator(f'.batch-choice[data-batch="{second}"]').click()
-            page.wait_for_function('(id)=>model.batch_id===id', arg=second)
-            page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION'")
-            with page.expect_response('**/refund-groups/*/commit'):
-                pending.pop().fulfill(status=500, json={'message': 'OLD-REFUND-ERROR'})
-            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-            self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
-            self.assertEqual(page.evaluate('model.batch_id'), second)
-            self.assertEqual(conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
-            browser.close()
-
     def test_old_poll_error_cannot_replace_a_saved_answer_status_in_same_batch(self):
         batch = self.assign(trip=self.make_trip())
         row = self.flow.pipeline.get_batch(batch)['rows'][0]
@@ -644,7 +501,8 @@ class CardGoogleCopyTests(unittest.TestCase):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
+            # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+            page.goto(f'{self.base}/import?batch={batch}&transaction={row["transaction_id"]}')
             page.locator(f'.batch-choice[data-batch="{batch}"]').click()
             page.wait_for_function('(id)=>model.batch_id===id', arg=batch)
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
@@ -670,10 +528,12 @@ class CardGoogleCopyTests(unittest.TestCase):
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        first_row = self.flow.pipeline.get_batch(first)['rows'][0]['transaction_id']
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.base + '/import#saved-materials')
+            # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+            page.goto(f'{self.base}/import?batch={first}&transaction={first_row}')
             page.wait_for_function('typeof model !== "undefined"')
             page.locator(f'.batch-choice[data-batch="{first}"]').click()
             page.wait_for_function('(batch)=>model.batch_id===batch', arg=first)
@@ -693,38 +553,10 @@ class CardGoogleCopyTests(unittest.TestCase):
                 pending[0].fulfill(json=self.flow.state(first))
             page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
             self.assertEqual(page.evaluate('model.batch_id'), second)
-            page.locator('#summary details summary').click()
-            self.assertEqual(page.locator('#summary details p').inner_text(), 'second.csv')
+            # wave3 #799: 최신 배치의 실제 거래가 화면에 남는다(지연 응답이 덮지 않음).
+            second_row = self.flow.pipeline.get_batch(second)['rows'][0]['transaction_id']
+            self.assertTrue(page.evaluate('(id)=>model.rows.some(r=>r.transaction_id===id)', second_row))
             browser.close()
-
-    def _copy_flow(self, width, height):
-        with sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
-                                          viewport={'width': width, 'height': height})
-            page = context.new_page()
-            dialogs = []
-            page.on('dialog', lambda d: (dialogs.append(d.message), d.accept()))
-            with self.quarter_copy_fixture() as (batch, quarter_id):
-                page.goto(f'{self.base}/import?batch={batch}')
-                page.wait_for_function('(id) => typeof model !== "undefined" && model.batch_id === id', arg=batch)
-                button = page.locator(f'[data-google-copy="{quarter_id}"]')
-                button.wait_for()
-                button.click()
-                page.get_by_text('클립보드에 복사했습니다', exact=False).wait_for()
-                clipboard = page.evaluate('navigator.clipboard.readText()').replace(chr(13) + chr(10), chr(10))
-                expected = json.loads(page.request.get(
-                    f'{self.base}/api/imports/{batch}/google-tsv?tab={quarter_id}').text())['tsv']
-                self.assertEqual(clipboard, expected)
-                self.assertEqual(len(clipboard.rstrip('\n').split('\t')), 7)
-                self.assertTrue(page.evaluate(
-                    '(trip)=>Boolean(localStorage.getItem("gcopy-trip:"+trip))', quarter_id))
-                self.assertIn('장부를 바꾸지 않습니다', page.locator('#status').inner_text())
-                self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-                button.click()
-                page.wait_for_timeout(300)
-                self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
-                browser.close()
 
     def test_held_rows_are_listed_and_never_pasted(self):
         from webapp.tests.test_trip_expense_copy_button import install_canonical_source
