@@ -1,0 +1,187 @@
+import json
+import sqlite3
+
+import pytest
+
+from app import closed_period as boundary, closed_period_repair as repair
+from app import automatic_classification as p1
+from app.classify import classify_transaction
+from tools.complete_card_classification import counts
+from webapp.tests.test_automatic_classification_completion import setup, TRIPS
+
+
+@pytest.mark.parametrize('approval,posting,expected', [
+    ('2025-01-01','2026-08-01','2025'), ('2025-12-31','','2025'),
+    ('2026-01-01','','2026Q1'), ('2026-03-31','','2026Q1'),
+    ('','2025-08-01','2025'), ('','2026-03-31','2026Q1'),
+    ('2026-04-01','2025-01-01',None), ('2026-10-01','',None),
+    ('bad','2025-01-01',None), ('','',None), ('2024-12-31','',None)])
+def test_date_boundary_and_observed_date_precedence(approval,posting,expected):
+    assert boundary.completed_period(dict(approval_date=approval,posting_date=posting)) == expected
+
+
+def old_rows(c,day='2025-10-03'):
+    c.execute("UPDATE transactions SET approval_date=?,classification_source='inference',"
+              "classification_state='classified',item='기타경비',trip_id='A',display_tab_id='A',decided_at=NULL",(day,))
+    c.commit()
+
+
+def fact(row,trip='A'):
+    return dict(source_hash=row['source_hash'],trip_id=trip,formal_link=True,
+        service_period=dict(starts_on='2026-10-02',ends_on='2026-10-03'),item='숙박비',basis='synthetic exact link')
+
+
+def test_only_confirmed_period_or_actual_manual_can_escape_boundary():
+    row=dict(approval_date='2025-10-03',source_hash='synthetic',trip_id='A',classification_source='user_decision')
+    assert boundary.excluded(row,TRIPS)
+    assert not boundary.excluded(row,TRIPS,manual=True)
+    proof=fact(row)
+    assert not boundary.excluded(row,TRIPS,evidence=proof)
+    for change in [dict(formal_link=False),dict(source_hash='changed'),
+                   dict(service_period=dict(starts_on='2026-09-30',ends_on='2026-10-03'))]:
+        assert boundary.excluded(row,TRIPS,evidence=dict(proof,**change))
+    historical=[dict(trip_id='A',starts_on='2026-01-01',ends_on='2026-01-05'),TRIPS[1]]
+    assert boundary.excluded(row,historical,evidence=fact(row,'B'),manual=True)
+
+
+def test_p1_reconsider_and_latest_trip_fallback_skip_completed_but_accept_formal_exception(setup):
+    board,_,_,rows=setup
+    old_rows(board.conn)
+    assert p1.plan(board.conn,TRIPS,reconsider=True)['targets'] == []
+    assert p1.infer_trip(dict(approval_date='',posting_date='2025-10-03'),TRIPS)[0] == ''
+    tid=rows[0]['transaction_id']
+    evidence={tid:fact(rows[0],'B')}
+    plan=p1.plan(board.conn,TRIPS,reconsider=True,evidence=evidence)
+    assert len(plan['targets']) == 1
+    assert plan['targets'][0]['id'] == tid
+    p1.apply(board.conn,plan,TRIPS,reconsider=True,evidence=evidence)
+    assert board.conn.execute('SELECT trip_id FROM transactions WHERE transaction_id=?',(tid,)).fetchone()[0] == 'B'
+    assert len(p1.plan(board.conn,TRIPS,reconsider=True)['targets']) == 0
+
+
+def test_closed_gate_does_not_change_open_inference_and_counts_only_open_scope(setup):
+    board,_,_,rows=setup
+    assert len(p1.plan(board.conn,TRIPS)['targets']) == 5
+    before=counts(board.conn,TRIPS)
+    assert before['unclassified_purchases'] == 5
+    old_rows(board.conn,'2026-03-31')
+    board.conn.execute("UPDATE transactions SET item='',classification_state='needs_review',trip_id='',display_tab_id='' ")
+    board.conn.commit()
+    assert counts(board.conn,TRIPS)['unclassified_purchases'] == 0
+    board.conn.execute("UPDATE transactions SET approval_date='2026-05-01'")
+    board.conn.commit()
+    assert counts(board.conn,TRIPS)['unclassified_purchases'] == 0
+
+
+def test_low_level_p1_preserves_completed_input():
+    row=dict(approval_date='2025-10-03',classification_state='preserved',item='',trip_id='A')
+    assert classify_transaction(row,rules=[])['classification_state'] == 'preserved'
+    assert classify_transaction(row,rules=[])['item'] == ''
+
+
+def test_p2_scope_excludes_completed_first_but_keeps_formal_open_exception():
+    from tests.test_p2_batch import row, data
+    from tools.p2_batch.scope import select
+    old=row(approval_date='2025-10-03')
+    d=data([old,row(transaction_id='open-row',approval_date='2026-10-03')])
+    assert [r['transaction_id'] for r in select(d)[1]] == ['open-row']
+    assert select(d)[0]['protected']['COMPLETED_PERIOD'] == 1
+    d['completed_period_evidence']={'synthetic':dict(source_hash='hash',trip_id='open',formal_link=True,
+        service_period=dict(starts_on='2026-06-30',ends_on='2026-07-01'))}
+    assert len(select(d)[1]) == 2
+
+
+def test_repair_projection_restore_preserves_descriptions_and_payload_provenance(setup):
+    board,_,batch,rows=setup
+    c=board.conn
+    old_rows(c)
+    row=rows[0]
+    tid=row['transaction_id']
+    c.execute('INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        (tid,batch,'숙박비','separate ledger description','A','A',row['amount_krw'],row['merchant'],row['approval_date'],'purchase',row['source_hash'],'synthetic'))
+    payload=dict(item='숙박비',description='board description',display_tab_id='A',trip_id='A',confirmed_by='automatic',revision=1)
+    c.execute("INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,'expense','A',1,?)",('card-'+tid,json.dumps(payload)))
+    c.commit()
+    before=repair._state(c,tid)
+    repair.apply(c,repair.preview(c,TRIPS),TRIPS,request_id='projection')
+    assert repair._state(c,tid)['ledger']['description'] == before['ledger']['description']
+    repair.restore(c,repair.restore_preview(c,'projection'),'projection')
+    after=repair._state(c,tid)
+    assert after['ledger'] == before['ledger']
+    restored_payload=json.loads(after['board']['payload_json'])
+    assert {k:v for k,v in restored_payload.items() if k!='revision'} == {k:v for k,v in payload.items() if k!='revision'}
+
+
+@pytest.mark.parametrize('day,item,tab',[('2025-10-03','2025년 항목','quarter:2025:4'),
+                                     ('2026-03-31','분기 기타비용','quarter:2026:1')])
+def test_repair_apply_restore_idempotency_and_raw_history_invariants(setup,day,item,tab):
+    board,_,_,rows=setup
+    c=board.conn
+    old_rows(c,day)
+    before={r['transaction_id']:repair._state(c,r['transaction_id']) for r in rows}
+    plan=repair.preview(c,TRIPS)
+    assert plan['summary']['to_move'] == 5
+    assert repair.apply(c,plan,TRIPS,request_id='synthetic')['applied_this_run'] == 5
+    assert c.execute('SELECT DISTINCT item,display_tab_id,trip_id FROM transactions').fetchall() == [(item,tab,'')]
+    assert repair.preview(c,TRIPS)['summary']['to_move'] == 0
+    assert repair.apply(c,plan,TRIPS,request_id='synthetic')['applied_this_run'] == 0
+    restored=repair.restore(c,repair.restore_preview(c,'synthetic'),'synthetic')
+    assert restored['restore'] == 5
+    for tid,old in before.items():
+        new=repair._state(c,tid)
+        assert {k:v for k,v in new['transaction'].items() if k!='revision'} == {
+            k:v for k,v in old['transaction'].items() if k!='revision'}
+    assert repair.restore_preview(c,'synthetic')['summary']['restore'] == 0
+
+
+def test_completed_trip_manual_and_formal_exceptions_never_move(setup):
+    board,flow,_,rows=setup
+    old_rows(board.conn)
+    c=board.conn
+    c.execute("UPDATE transactions SET trip_id='closed',display_tab_id='closed' WHERE transaction_id=?",(rows[0]['transaction_id'],))
+    c.commit()
+    current=p1._read(c,{rows[1]['transaction_id']})[0]
+    flow.pipeline.save_decision(current['transaction_id'],current['revision'],item='식비',trip_id='A',display_tab_id='A',
+        trip_validator=lambda _:True,tab_validator=lambda _:True,request_id='real-user')
+    trips=TRIPS+[dict(trip_id='closed',starts_on='2026-01-01',ends_on='2026-01-05')]
+    plan=repair.preview(c,trips,evidence={rows[2]['transaction_id']:fact(rows[2])})
+    assert plan['summary']['completed_trip_unchanged'] == 1
+    assert plan['summary']['confirmed_exceptions'] == 2
+    assert plan['summary']['to_move'] == 2
+
+
+def test_stale_preview_and_audit_failure_roll_back(setup):
+    board,_,_,_=setup
+    c=board.conn
+    old_rows(c)
+    plan=repair.preview(c,TRIPS)
+    c.execute('UPDATE transactions SET revision=revision+1')
+    c.commit()
+    with pytest.raises(ValueError,match='PREVIEW_STALE'):
+        repair.apply(c,plan,TRIPS,request_id='stale')
+    plan=repair.preview(c,TRIPS)
+    before=c.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+    c.execute("CREATE TRIGGER synthetic_failure BEFORE INSERT ON change_log BEGIN SELECT RAISE(ABORT,'synthetic failure'); END")
+    c.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        repair.apply(c,plan,TRIPS,request_id='atomic')
+    assert c.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
+
+
+def test_cli_repreview_after_apply_is_readonly_without_loading_sources(setup,tmp_path,monkeypatch,capsys):
+    from tools import repair_closed_period_grouping as cli
+    board,_,_,_=setup
+    old_rows(board.conn)
+    plan=repair.preview(board.conn,TRIPS)
+    repair.apply(board.conn,plan,TRIPS,request_id='cli')
+    host=tmp_path/'isolated'
+    (host/'data').mkdir(parents=True)
+    with sqlite3.connect(host/'data/board.sqlite') as target:
+        board.conn.backup(target)
+    monkeypatch.setattr(cli,'load_context',lambda *a:pytest.fail('replay loaded sources'))
+    args=['--host-root',str(host),'--request-id','cli']
+    assert cli.main(args) == 0
+    report=json.loads(capsys.readouterr().out)
+    assert report['to_move'] == report['applied_this_run'] == 0
+    assert cli.main(args+['--apply','--expected-digest','wrong']) == 1
+    assert json.loads(capsys.readouterr().out)['code'] == 'GROUPING_REQUEST_CONFLICT'

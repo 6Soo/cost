@@ -1,0 +1,98 @@
+"""PROC-072: completed card periods are a boundary before classification.
+
+An inferred destination, provenance label, or booking candidate is never proof
+of an exception. Callers may supply source-bound, formally linked service facts.
+"""
+from datetime import date
+
+
+def completed_period(row):
+    raw = row.get('approval_date') or row.get('posting_date') or ''
+    try:
+        day = date.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    if day.year == 2025:
+        return '2025'
+    if date(2026, 1, 1) <= day <= date(2026, 3, 31):
+        return '2026Q1'
+    return None
+
+
+def trip_map(trips):
+    return {str(t.get('trip_id') or t.get('tab_id')): t for t in trips}
+
+
+def open_trip(trip):
+    return bool(trip and not trip.get('deleted') and not trip.get('archived')
+                and (trip.get('starts_on') or '') >= '2026-06-30')
+
+
+def completed_trip(trip):
+    day = (trip or {}).get('starts_on') or ''
+    return '2025-01-01' <= day <= '2026-03-31'
+
+
+def exception_trip(row, trips, *, evidence=None, manual=False):
+    valid = trip_map(trips)
+    current = row.get('trip_id') or row.get('display_tab_id')
+    if manual and open_trip(valid.get(current)):
+        return current
+    fact = evidence or {}
+    target = fact.get('trip_id')
+    trip = valid.get(target)
+    period = fact.get('service_period') or {}
+    start, end = period.get('starts_on'), period.get('ends_on')
+    if (fact.get('formal_link') is True and row.get('source_hash')
+            and fact.get('source_hash') == row['source_hash'] and open_trip(trip)
+            and start and end and trip.get('ends_on')
+            and trip['starts_on'] <= start <= end <= trip['ends_on']):
+        return target
+    return None
+
+
+def excluded(row, trips=(), *, evidence=None, manual=False):
+    if not completed_period(row):
+        return False
+    valid = trip_map(trips)
+    # Submitted historical travel ledgers are immutable even with later facts.
+    if any(completed_trip(valid.get(row.get(k))) for k in ('trip_id', 'display_tab_id')):
+        return True
+    return not exception_trip(row, trips, evidence=evidence, manual=manual)
+
+
+def manual_ids(conn):
+    from .decision_provenance import active_decision_sql
+    ids = {r[0] for r in conn.execute('SELECT d.transaction_id FROM review_decisions d WHERE ('
+        "COALESCE(d.item,'')!='' OR COALESCE(d.display_tab_id,'') NOT IN ('','unclassified')) AND "
+        + active_decision_sql(conn=conn))}
+    ids.update(r[0][5:] for r in conn.execute("SELECT row_id FROM board_manual_overrides WHERE row_id LIKE 'card-%'"))
+    return ids
+
+
+def formal_facts(facts, trips):
+    """Only exact central links with a contained actual service period qualify."""
+    from .provisional_assignment import ota_service_period_candidate
+    grouped = {}
+    for fact in facts:
+        tid, period = fact.get('transaction_id'), fact.get('period') or {}
+        if (not tid or not fact.get('core_link') or fact.get('inferred_link')
+                or fact.get('service_period_basis') == 'LINK-108'
+                or fact.get('reservation_status') not in ('confirmed','completed','observed')
+                or any(fact.get(k) for k in ('period_conflict','service_period_conflict','evidence_changed','evidence_missing'))
+                or not fact.get('source_sha256') or not period.get('starts_on') or not period.get('ends_on')):
+            continue
+        candidates = ota_service_period_candidate({'service_period':period},trips)
+        if len(candidates) != 1:
+            continue
+        value = dict(source_hash=fact.get('source_hash'), trip_id=candidates[0]['trip_id'],
+                     service_period=dict(period), formal_link=True)
+        grouped.setdefault(tid,[]).append(value)
+    return {tid: values[0] for tid,values in grouped.items()
+            if all(v == values[0] for v in values)}
+
+
+def open_scope(row, trips):
+    valid = trip_map(trips)
+    return (any(open_trip(valid.get(row.get(k))) for k in ('trip_id','display_tab_id'))
+            or (row.get('approval_date') or row.get('posting_date') or '') >= '2026-06-30')

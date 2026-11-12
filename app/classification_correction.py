@@ -56,6 +56,9 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False):
         row = _row(conn, 'transactions', 'transaction_id', tid)
         if not row or row['source_hash'] != correction['source_hash']:
             raise ValueError('CORRECTION_SOURCE_CHANGED')
+        from .closed_period import excluded
+        if excluded(row, trips):
+            raise ValueError('CORRECTION_PROTECTED')
         if 'revision' in correction and correction['revision'] != row['revision']:
             raise ValueError('CORRECTION_PREVIEW_STALE')
         source = correction.get('classification_source', 'inference')

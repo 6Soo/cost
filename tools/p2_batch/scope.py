@@ -83,6 +83,11 @@ def select(data):
     scope, eligible, protected = [], [], Counter()
     disagreements = projection_disagreements(data)
     for row in purchases:
+        from app.closed_period import excluded
+        if excluded(row, list(trips.values()), evidence=data.get('completed_period_evidence', {}).get(row['transaction_id']),
+                    manual=row['transaction_id'] in manual):
+            protected['COMPLETED_PERIOD'] += 1
+            continue
         q = destination(row)
         if tab(row) not in opened and not (q and (q['year'], q['quarter']) >= (2026, 3)):
             continue

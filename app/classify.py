@@ -119,8 +119,14 @@ def _verified_local_trip(transaction, item, trip_resolver):
 
 def classify_transaction(transaction: dict, *, rules: list,
                          prior_decision: dict | None = None, trip_resolver=None,allow_defaults=True,
-                         residual_policy=False) -> dict:
+                         residual_policy=False, completed_trips=(), completed_evidence=None) -> dict:
     """규칙 근거를 먼저 적용하고 사용자 허용 추론은 원본 거래에만 적용한다."""
+    from .closed_period import excluded
+    if excluded(transaction, completed_trips, evidence=completed_evidence):
+        return {key: transaction.get(key) or default for key, default in (
+            ('classification_state', STATE_NEEDS_REVIEW), ('classification_source', ''),
+            ('classification_basis', ''), ('item', ''), ('description', ''),
+            ('display_tab_id', ''), ('trip_id', ''), ('rule_id', ''))}
     inferred = [r for r in rules if r.get('optional',{}).get('inferred_assignment')]
     regular = [r for r in rules if r not in inferred]
     verdict = _classify_transaction(transaction,rules=regular,prior_decision=prior_decision,
@@ -243,6 +249,11 @@ def pair_refunds(conn, *, transaction_ids=None) -> int:
         " AND COALESCE(classification_source,'') NOT LIKE 'user_%'").fetchall()
     for transaction_id, card_tail, original in refunds:
         if transaction_ids is not None and transaction_id not in transaction_ids:
+            continue
+        from .closed_period import excluded
+        dates = conn.execute('SELECT approval_date,posting_date FROM transactions WHERE transaction_id=?',
+                             (transaction_id,)).fetchone()
+        if excluded(dict(zip(('approval_date','posting_date'), dates))):
             continue
         source = conn.execute(
             "SELECT classification_state, display_tab_id, trip_id, item, description FROM transactions"
@@ -455,14 +466,15 @@ def _classify_transaction(transaction: dict, *, rules: list,
             "trip_id": "", "rule_id": ""}
 
 
-def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False) -> dict:
+def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False, completed_trips=(), completed_evidence=None) -> dict:
     """읽기부터 감사 이력까지 한 번에 처리하고 실패 시 분류 변경을 되돌린다."""
     with store.lock:
         nested=store.conn.in_transaction
         store.conn.execute('SAVEPOINT cost_classify_batch' if nested else 'BEGIN IMMEDIATE')
         try:
             result=_classify_batch(store,batch_id,rules=rules,trip_resolver=trip_resolver,
-                                   review_from=review_from,transaction_ids=transaction_ids,residual_policy=residual_policy)
+                                   review_from=review_from,transaction_ids=transaction_ids,residual_policy=residual_policy,
+                                   completed_trips=completed_trips,completed_evidence=completed_evidence)
             if nested:
                 store.conn.execute('RELEASE SAVEPOINT cost_classify_batch')
             else:
@@ -477,7 +489,7 @@ def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_reso
             raise
 
 
-def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False) -> dict:
+def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False, completed_trips=(), completed_evidence=None) -> dict:
     """Classify every undecided row in a batch.
 
     A row a human already decided, or that is already on the ledger, is skipped entirely, which is how
@@ -521,6 +533,13 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
              decided, state, source_hash, current_source, current_basis,
              current_item, current_description, current_tab, current_trip) = row
             if selected is not None and transaction_id not in selected:
+                continue
+            from .closed_period import excluded
+            period_row = dict(approval_date=approval_date,posting_date=posting_date,source_hash=source_hash,
+                              trip_id=current_trip,display_tab_id=current_tab)
+            period_fact = (completed_evidence or {}).get(transaction_id)
+            if excluded(period_row, completed_trips, evidence=period_fact):
+                protected += 1
                 continue
             if current_source == 'ai_inference' and state == STATE_CLASSIFIED:
                 counts[state] = counts.get(state, 0) + 1
@@ -566,7 +585,8 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
                     continue
                 eligible_residual = not duplicate and not conflict
             verdict = classify_transaction(transaction, rules=rules_by_merchant.get(merchant_normalized,[])+rules_by_merchant.get('*',[]),
-                                           prior_decision=None, trip_resolver=trip_resolver, residual_policy=eligible_residual)
+                                           prior_decision=None, trip_resolver=trip_resolver, residual_policy=eligible_residual,
+                                           completed_trips=completed_trips,completed_evidence=period_fact)
             counts[verdict["classification_state"]] = counts.get(
                 verdict["classification_state"], 0) + 1
             if state != verdict["classification_state"]:

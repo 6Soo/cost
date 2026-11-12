@@ -44,6 +44,10 @@ def prepare(conn, trips, transaction_ids, *, reconsider=False, nets=None):
     cases, protected = [], 0
     for row in rows:
         tid = row['transaction_id']
+        from .closed_period import excluded
+        if excluded(row, trips):
+            protected += 1
+            continue
         if row['source_hash'] in authoritative:
             protected += 1
             continue

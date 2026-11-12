@@ -1,6 +1,21 @@
 from tools.verify_operational_backup_restore import product_files, digest_file, database_inputs
 
 
+def test_gateway_volatile_status_is_excluded_but_gateway_configuration_is_verified(tmp_path):
+    config = tmp_path/'config'
+    config.mkdir()
+    (config/'ledger-gateway-status.json').write_text('{"generation":1}')
+    (config/'ledger-gateway.json').write_text('{"port":19001}')
+    first = product_files(tmp_path)
+    assert 'host-config/ledger-gateway-status.json' not in first
+    assert 'host-config/ledger-gateway.json' in first
+    hashes = {k:digest_file(v) for k,v in first.items()}
+    (config/'ledger-gateway-status.json').write_text('{"generation":2}')
+    assert hashes == {k:digest_file(v) for k,v in product_files(tmp_path).items()}
+    (config/'ledger-gateway.json').write_text('{"port":19002}')
+    assert hashes != {k:digest_file(v) for k,v in product_files(tmp_path).items()}
+
+
 def test_passenger_confirmations_remain_in_backup_when_feature_is_disabled(tmp_path):
     passenger = tmp_path/'flight-passenger.sqlite'
     passenger.write_bytes(b'synthetic-passenger-store')

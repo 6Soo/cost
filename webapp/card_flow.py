@@ -706,6 +706,9 @@ class CardFlow:
                 continue
             taken.add(optional.get('source_hash'))
         ota_rules += self._fallback_trip_assignments(batch_id, taken, selected, blocked_inference_sources)
+        from app.closed_period import formal_facts
+        period_trips = [dict(t,trip_id=t['tab_id']) for t in self.board.list_trips() if self.trip_valid(t['tab_id'])]
+        period_evidence = formal_facts((report or {}).get('matches', []),period_trips)
         if ota_rules or blocked_inference_sources or board_rules:
             from app.classify import classify_batch
             active=[rule for rule in self.pipeline.list_rules() if not
@@ -716,11 +719,12 @@ class CardFlow:
             active, board_rules = self._board_rules_supersede(active, board_rules)
             return classify_batch(self.pipeline.store,batch_id,
                 rules=active+board_rules+ota_rules,trip_resolver=self.retail_trip,
-                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,residual_policy=True)
+                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,residual_policy=True,
+                completed_trips=period_trips,completed_evidence=period_evidence)
         from app.classify import classify_batch
         return classify_batch(self.pipeline.store, batch_id, trip_resolver=self.retail_trip,
                               review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,
-                              residual_policy=True)
+                              residual_policy=True,completed_trips=period_trips,completed_evidence=period_evidence)
 
     def _fallback_trip_assignments(self, batch_id, taken, selected, blocked_sources):
         """정확 근거가 없는 정상 카드에도 실제 여행의 우선 후보를 제안한다."""

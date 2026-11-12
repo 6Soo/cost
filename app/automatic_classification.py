@@ -27,6 +27,10 @@ def _completion_audit():
 
 def completion_for_row(row, valid, *, nets=None):
     """Completion requires classification and a valid destination, free of conflicts."""
+    from .closed_period import excluded
+    if excluded(row, list(valid.values())):
+        return dict(transaction_id=row['transaction_id'], complete=True,
+                    execution_origin='preserved', mode='preserved', blocked_by=[])
     reasons = []
     source = row.get('classification_source') or ''
     manual = bool(row.get('decided_at')) or source in {'user_decision', 'user_exception', 'manual'}
@@ -66,7 +70,8 @@ def classification_completion(conn, batch_id, trips, *, nets=None):
         'WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) '
         'ORDER BY transaction_id', (batch_id,))]
     available = {column[1] for column in c.execute('PRAGMA table_info(transactions)')}
-    optional = [field for field in ('parse_error', 'conflict_reason', 'duplicate_of') if field in available]
+    optional = [field for field in ('parse_error', 'conflict_reason', 'duplicate_of',
+                                   'approval_date', 'posting_date') if field in available]
     if optional and rows:
         extra = {row[0]: dict(zip(optional, row[1:])) for row in c.execute(
             'SELECT transaction_id,' + ','.join(optional) + ' FROM transactions '
@@ -138,8 +143,11 @@ def _quarter_destination(row):
     return observed_quarter(row)
 
 
-def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None):
+def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None, completed_evidence=None):
     """Pick the best real trip, resolving weak ties deterministically and explaining them."""
+    from .closed_period import excluded
+    if excluded(row, trips, evidence=completed_evidence):
+        return '', 'PROC-072 · 완료 기간 자료'
     # Reuse only this plan's validation; independent calls revalidate authority.
     valid = canonical_trip_periods(trips) if _canonical is None else _canonical
     from .trip_selection import card_trip_allowed
@@ -377,7 +385,7 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
                   and row['classification_source'] == 'inference'
                   and '예약 이용기간' not in (row['classification_basis'] or ''))
         target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets,
-                                      reconsider=rerank, _canonical=valid)
+                                      reconsider=rerank, _canonical=valid, completed_evidence=fact)
         if target:
             chosen.update(trip_id=target, display_tab_id=target)
             if reconsider and applied_fact:
@@ -441,6 +449,11 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
     for row in sorted(rows, key=lambda r: (r['transaction_direction'] != 'purchase', r['transaction_id'])):
         tid = row['transaction_id']
         if selected is not None and tid not in selected:
+            continue
+        from .closed_period import excluded as completed_excluded
+        if completed_excluded(row, trips, evidence=evidence.get(tid),
+                    manual=tid in decisions or 'card-'+tid in overrides):
+            protected += 1
             continue
         if _protected_row(row, tid, holds, excluded):
             protected += 1

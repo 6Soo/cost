@@ -79,7 +79,9 @@ def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
             continue
         trip = flow.booking_trip(row, dict(period, service=fact.get('item') != '숙박비'))
         evidence = dict(source_hash=fact['source_hash'], trip_id=trip, item=fact.get('item') or '',
-                        basis=f"검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']}")
+                        basis=f"검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']}",
+                        service_period=dict(period),formal_link=bool(fact.get('core_link') and not fact.get('inferred_link')
+                                                                   and fact.get('service_period_basis') != 'LINK-108'))
         if not trip or (tid in choices and choices[tid] != evidence):
             blocked.add(tid)
         choices[tid] = evidence
