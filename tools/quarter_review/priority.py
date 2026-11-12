@@ -1,40 +1,43 @@
-"""Deterministic review ordering for the quarter review pack."""
+"""Deterministic reasons and ordering for the quarter review list."""
 from __future__ import annotations
 
 
-REASON_WEIGHTS = (
-    ("최근 자동 변경", 35),
-    ("AI 판정", 30),
-    ("이용일 불명확", 25),
-    ("추론 근거", 20),
-    ("항목 미확정", 15),
-    ("불확실성 기록", 10),
-)
+MANUAL_SOURCES = frozenset({"user_decision", "user_exception"})
+INFERRED_SOURCES = frozenset({"inference", "code_inference", "card_category", "owner_card_residual"})
+PERIOD_ITEMS = frozenset({"숙박비", "항공료", "교통비", "입장료"})
+GENERIC_ITEMS = frozenset({"기타경비", "현지경비"})
+WEIGHTS = {"최근 자동 변경": 35, "AI 판정": 30, "이용일 미확인": 25,
+           "추론 귀속": 20, "포괄 항목": 15, "불확실성 기록": 10}
 
 
 def review_reasons(row):
     """Return stable, user-facing reasons contributing to a row's score."""
+    source = row.get("source", row.get("classification_source", ""))
+    if source in MANUAL_SOURCES:
+        return []
     reasons = []
-    if row.get("recent_auto_change"):
+    if row.get("changed_recently", row.get("recent_auto_change", False)):
         reasons.append("최근 자동 변경")
-    source = row.get("classification_source")
     if source == "ai_inference" or row.get("source_label") == "AI 판정":
         reasons.append("AI 판정")
-    if row.get("service_date_unknown"):
-        reasons.append("이용일 불명확")
-    if source in {"inference", "auto_inferred", "code_inference", "guide_airfare_evidence"}:
-        reasons.append("추론 근거")
-    if not row.get("item"):
-        reasons.append("항목 미확정")
-    uncertainty = row.get("uncertainty") or row.get("classification_uncertainty")
-    basis = str(row.get("classification_basis") or "")
-    if uncertainty or row.get("uncertainty_reason") or "불확실성" in basis:
+    if (row.get("tab_kind", "trip") == "trip" and not row.get("has_service_period", False)
+            and row.get("item", "") in PERIOD_ITEMS and row.get("allow_service_reason", False)):
+        reasons.append("이용일 미확인")
+    if source in INFERRED_SOURCES:
+        reasons.append("추론 귀속")
+    if row.get("item", "") in GENERIC_ITEMS:
+        reasons.append("포괄 항목")
+    uncertainty = row.get("uncertainty") or row.get("classification_uncertainty") or ""
+    if str(uncertainty).strip() or "불확실성" in str(row.get("classification_basis", "")):
         reasons.append("불확실성 기록")
     return reasons
 
 
 def review_score(row):
-    score = sum(weight for reason, weight in REASON_WEIGHTS if reason in review_reasons(row))
+    reasons = review_reasons(row)
+    if not reasons:
+        return 0
+    score = sum(WEIGHTS[reason] for reason in reasons)
     amount = row.get("amount_krw")
     try:
         score += min(40, abs(int(amount)) // 100000 * 5)
@@ -45,9 +48,18 @@ def review_score(row):
 
 def prioritize(rows):
     """Filter manual decisions and sort deterministically by review priority."""
-    candidates = [row for row in rows if not row.get("manual")]
-    for row in candidates:
-        row["review_score"] = review_score(row)
-        row["review_reasons"] = review_reasons(row)
-    return sorted(candidates, key=lambda row: (
-        -row["review_score"], -abs(int(row.get("amount_krw") or 0)), str(row.get("row_id", ""))))
+    scored = []
+    for row in rows:
+        source = row.get("source", row.get("classification_source", ""))
+        if row.get("manual") or source in MANUAL_SOURCES:
+            continue
+        reasons = review_reasons(row)
+        if not reasons:
+            continue
+        result = dict(row)
+        result["review_score"] = review_score(row)
+        result["review_reasons"] = reasons
+        scored.append((result["review_score"], abs(int(row.get("amount_krw") or 0)),
+                       str(row.get("row_id", "")), result))
+    scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    return [item[3] for item in scored]

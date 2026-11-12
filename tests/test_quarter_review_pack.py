@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from tools.quarter_review import pack
+from tools.quarter_review import priority
 
 
 def trip(key='q3', start='2026-06-30'):
@@ -155,3 +156,29 @@ def test_synthetic_db_pack_aggregation(tmp_path, monkeypatch):
         values = list(csv.reader(f))[1]
     assert values[3:6] == ['200', '63', '137']
     assert path.read_bytes() == before
+
+
+def test_priority_matches_review_contract_and_drops_reasonless_rows():
+    rows = [
+        dict(row_id='plain', amount_krw=999999, source='rule', item='식비'),
+        dict(row_id='generic', amount_krw=100000, source='rule', item='기타경비'),
+        dict(row_id='inferred', amount_krw=200000, source='inference', item='식비'),
+        dict(row_id='manual', amount_krw=900000, source='user_decision', item='기타경비'),
+    ]
+    result = priority.prioritize(rows)
+    assert [row['row_id'] for row in result] == ['inferred', 'generic']
+    assert result[0]['review_reasons'] == ['추론 귀속']
+    assert result[0]['review_score'] == 30  # 20 + two 100,000-won steps
+
+
+def test_pack_has_reason_counts_and_first_fifty_sheet(tmp_path, monkeypatch):
+    from tools.p2_batch import scope
+    monkeypatch.setattr(scope, 'service_warnings', lambda d, r: ({'count': 58}, []))
+    d = data([expense(f'a{i}', 100000, source='inference') for i in range(55)] +
+             [expense('plain', 999999, source='rule')])
+    summary = pack.build_pack(d, 2026, 3, tmp_path, {'q3': 1})
+    assert summary['review_rows'] == 55 and summary['reasons']['추론 귀속'] == 55
+    import openpyxl
+    book = openpyxl.load_workbook(tmp_path / 'review-pack.xlsx', read_only=True)
+    assert book.sheetnames[:2] == ['먼저 볼 50건', '여행별 손익']
+    assert book['먼저 볼 50건'].max_row == 51
