@@ -172,6 +172,36 @@ def test_display_only_inferred_pair_is_preserved(setup,monkeypatch):
     assert not {purchase,refund}&{r['tid'] for r in plan['targets']}
 
 
+@pytest.mark.parametrize('protection',['conflict_reason','parse_error','duplicate_of'])
+@pytest.mark.parametrize('foreign',[False,True])
+def test_filtered_protected_sibling_blocks_the_entire_raw_group(setup,protection,foreign):
+    from app.partial_refund import refund_links
+    c,purchase,refund=refund_pair(setup)
+    extra=setup[3][2]['transaction_id']
+    c.execute('UPDATE transactions SET amount_krw=-(SELECT amount_krw/2 FROM transactions WHERE transaction_id=?) WHERE transaction_id=?',
+              (purchase,refund))
+    c.execute("UPDATE transactions SET transaction_direction='cancellation',transaction_kind='cancellation',"
+              "original_approval_number='SYN-PAIR',approval_number='SYN-BROKEN',approval_date='2026-01-03',"
+              "amount_krw=(SELECT amount_krw FROM transactions WHERE transaction_id=?),"
+              "issuer=(SELECT issuer FROM transactions WHERE transaction_id=?),"
+              "card_tail=(SELECT card_tail FROM transactions WHERE transaction_id=?),"
+              "merchant_normalized=(SELECT merchant_normalized FROM transactions WHERE transaction_id=?) WHERE transaction_id=?",
+              (refund,purchase,purchase,purchase,extra))
+    c.execute('UPDATE transactions SET '+protection+'=? WHERE transaction_id=?',('synthetic protection',extra))
+    if foreign:
+        c.execute("UPDATE transactions SET original_approval_number='',foreign_currency='JPY',foreign_amount='100',"
+                  "merchant_normalized='SYNTHETIC SAME KEY' WHERE transaction_id IN (?,?,?)",(purchase,refund,extra))
+        c.execute("UPDATE transactions SET approval_date='2025-12-30' WHERE transaction_id=?",(purchase,))
+    c.commit()
+    links=refund_links(c,[refund,extra])
+    assert refund in links and extra not in links
+    before={tid:repair._state(c,tid) for tid in (purchase,refund,extra)}
+    plan=repair.preview(c,TRIPS)
+    assert not set(before)&{r['tid'] for r in plan['targets']}
+    repair.apply(c,plan,TRIPS,request_id='protected-sibling-'+protection+str(foreign))
+    assert {tid:repair._state(c,tid) for tid in before}==before
+
+
 def test_new_refund_protection_invalidates_whole_preview(setup):
     c,_,refund=refund_pair(setup)
     plan=repair.preview(c,TRIPS)

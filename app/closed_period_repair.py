@@ -54,9 +54,54 @@ def _refund_group_reason(conn, members, rows, pending, links, manual, trips, evi
         return 'INFERRED_LINK'
     if not group_links or any(link.get('status') not in ('full','partial') for link in group_links):
         return 'UNVERIFIED_LINK'
+    originals = {link['original_id'] for link in group_links}
+    if len(originals) != 1 or members != originals | {tid for tid in members if tid in links}:
+        return 'INCOMPLETE_OR_AMBIGUOUS_GROUP'
     if not members <= pending.keys():
         return 'INELIGIBLE_MEMBER'
     return ''
+
+
+def _complete_refund_groups(conn, rows, linked):
+    """The clean financial graph alone cannot prove a group's completeness."""
+    from .partial_refund import _foreign_pool, _settings
+    by_id = {r['transaction_id']:r for r in rows}
+    groups = {}
+    for tid,link in linked.items():
+        groups.setdefault(link['original_id'],{link['original_id']}).add(tid)
+    for original,members in groups.items():
+        row = by_id[original]
+        number = str(row.get('approval_number') or '').strip()
+        if number:
+            for other in rows:
+                if (other.get('issuer'),other.get('card_tail')) != (row.get('issuer'),row.get('card_tail')):
+                    continue
+                if (str(other.get('original_approval_number') or '').strip() == number
+                        or str(other.get('approval_number') or '').strip() == number):
+                    members.add(other['transaction_id'])
+    # Foreign exact pairing also filters source-protected originals/refunds.
+    # Keep its existing key/window; include protected candidates conservatively.
+    purchases,cancels = _foreign_pool(conn,set(),include_protected=True)
+    window = int(_settings()['max_days_after_purchase'])
+    for key,originals in purchases.items():
+        for original,_amount,when in originals:
+            members = groups.get(original)
+            if not members or not any(link.get('basis')=='merchant_card_foreign_amount'
+                                      for tid,link in linked.items() if tid in members):
+                continue
+            refunds = cancels.get(key,[])
+            refund_days = [day for tid,_amount,day in refunds if tid in members]
+            for tid,_amount,day in originals:
+                other = by_id[tid]
+                if ((other.get('parse_error') or other.get('duplicate_of') or other.get('conflict_reason'))
+                        and any(0 <= (rday-day).days <= window for rday in refund_days)):
+                    members.add(tid)
+            for tid,_amount,day in refunds:
+                other = by_id[tid]
+                if ((other.get('parse_error') or other.get('duplicate_of') or other.get('conflict_reason'))
+                        and 0 <= (day-when).days <= window):
+                    members.add(tid)
+    return groups
 
 
 def _sync(conn, tid, values, request_id, *, old_board=None):
@@ -90,7 +135,8 @@ def preview(conn, trips, *, evidence=None):
     rows = _read(conn)
     closed = [r for r in rows if completed_period(r)]
     linked = refund_links(conn, [r['transaction_id'] for r in rows])
-    refund_group = set(linked) | {v['original_id'] for v in linked.values()}
+    groups = _complete_refund_groups(conn,rows,linked)
+    refund_group = set().union(*groups.values()) if groups else set()
     counts = Counter(completed_total=0,completed_trip_unchanged=0,in_open_destinations=0,confirmed_exceptions=0)
     excluded, distribution, moves, targets = Counter(), Counter(), Counter(), []
     pending_refunds = {}
@@ -145,13 +191,11 @@ def preview(conn, trips, *, evidence=None):
             pending_refunds[tid] = target
         else:
             targets.append(target)
-    groups = {}
-    for tid, link in linked.items():
-        groups.setdefault(link['original_id'],set([link['original_id']])).add(tid)
     by_id = {r['transaction_id']:r for r in rows}
     processed, refund_kept, refund_moved, moved_groups = set(), Counter(), 0, 0
     for tid in sorted(pending_refunds):
-        original = linked[tid]['original_id'] if tid in linked else tid if tid in groups else None
+        original = linked[tid]['original_id'] if tid in linked else tid if tid in groups else next(
+            (key for key,members in groups.items() if tid in members),None)
         if original is None:
             refund_kept['UNPAIRED'] += 1
             continue
