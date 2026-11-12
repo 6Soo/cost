@@ -29,7 +29,7 @@ def preview(conn, trips, *, evidence=None):
     groups = _complete_refund_groups(conn, rows, linked)
     group_ids = set().union(*groups.values()) if groups else set()
     rules = list_rules(Store(conn, schema_policy='require'))
-    excluded, distribution, quarters = Counter(), Counter(), Counter()
+    excluded, distribution, quarters, proven_kept = Counter(), Counter(), Counter(), Counter()
     pending, opened, proven = {}, 0, 0
     for row in rows:
         tid = row['transaction_id']
@@ -90,6 +90,8 @@ def preview(conn, trips, *, evidence=None):
             reason = 'DATE_UNPROVEN'
         if reason:
             excluded[reason] += 1
+            if is_preparation:
+                proven_kept[reason] += 1
             continue
         pending[tid] = dict(tid=tid, before=state,
                            values=dict(item='분기 기타비용', trip_id='', display_tab_id=quarter[0],
@@ -112,6 +114,7 @@ def preview(conn, trips, *, evidence=None):
             for tid in candidates:
                 pending.pop(tid)
             excluded['REFUND_'+reason] += len(candidates)
+            proven_kept['REFUND_'+reason] += len(candidates)
         else:
             # Refunds follow the original's quarter, never independently split a group.
             tab = pending[original]['values']['display_tab_id']
@@ -132,6 +135,7 @@ def preview(conn, trips, *, evidence=None):
         quarters[target['values']['display_tab_id']] += 1
     summary = dict(open_trip_rows=opened, proven_preparation_rows=proven, to_move=len(targets),
         preserved=opened-len(targets), excluded=dict(excluded),
+        proven_preparation_preserved=dict(proven_kept),
         refund_move_rows=refund_moved, refund_move_groups=moved_groups,
         preparation_distribution=[dict(trip=valid.get(k,{}).get('display_key') or k,count=n)
                                   for k,n in distribution.most_common()],

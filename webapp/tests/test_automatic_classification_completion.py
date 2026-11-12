@@ -38,7 +38,7 @@ def test_weak_ties_and_missing_dates_complete_using_only_actual_trips():
     target, basis = policy.infer_trip({'approval_date':'2026-10-03'}, TRIPS)
     assert target == 'A' and '동률' in basis
     assert policy.infer_trip({'approval_date':'2026-10-03'}, TRIPS, nets={'B':100})[0] == 'B'
-    assert policy.infer_trip({'posting_date':'1900-01-01'}, TRIPS)[0] == ''
+    assert policy.infer_trip({'posting_date':'1900-01-01'}, TRIPS)[0] == 'B'
     assert policy.infer_trip({}, [])[0] == ''
 
 

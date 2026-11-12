@@ -261,6 +261,16 @@ def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_rec
                 eligible.update(c['trip_id'] for c in ota_service_period_candidate(
                     {'service_period': {'starts_on': period['service_start'],
                                         'ends_on': period['service_end']}}, trips))
+                if (result['item'] == '숙박비' and period.get('evidence_refs')
+                        and {'TRIP-042','DATE-039'} & set(period.get('rule_ids') or ())):
+                    from .reconciliation import prep_trip
+                    authoritative = list(canonical_trip_periods(trips).values())
+                    overlaps = ota_service_period_candidate({'service_period': {
+                        'starts_on': period['service_start'], 'ends_on': period['service_end']}}, authoritative)
+                    if not overlaps:
+                        stay = prep_trip(authoritative, period['service_start'], period['service_end'])
+                        if stay:
+                            eligible.add(stay['trip_id'])
             if target not in eligible:
                 raise ValueError('AI_ATTRIBUTION_INVALID')
         if (not isinstance(result.get('basis'), str) or not result['basis'].strip()
