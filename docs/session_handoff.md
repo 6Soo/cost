@@ -73,7 +73,7 @@
 - 2층 대상은 열린 분기 후보 833건(금액 상위 10 + 결정적 무작위 10)으로 고정했다. 14:36 백업의 OTA 근거 10,013건을 한 번 스트리밍 해제해 발췌 색인(SQLite 131,461,120 bytes, 118,837,496 bytes 읽기, 16.78초)을 만들었다.
 - `gpt-6.1-sol` 실제 도구 없는 호출 20건이 모두 JSON 스키마 응답으로 완료됐다. 결과는 미리보기 파일에만 저장했고 반영·운영 쓰기·Google 쓰기·배포는 0건이다. 20건 중 항목 변경 20건, 근거 미검출 8건, 허용 항목명과 다른 출력 13건을 관찰했다. 허용 항목명 정규화와 근거 없는 고확신 출력이 오판 위험 유형이다.
 - 결과(해당 세션의 비공개 보존 경로): `.local-archive/p2-layer2-20261112/`의 `layer2-summary.json`, `layer2-table.md`, `a-final.json`. 운영 등록은 하지 않는다.
-- 결과: [layer2-summary.json](../.local-archive/p2-layer2-20261112/layer2-summary.json), layer2-table.md(마무리 정리에서 삭제; 해시는 cleanup-plan.json에 보존), a-final.json(마무리 정리에서 삭제; 해시는 cleanup-plan.json에 보존). 운영 등록은 하지 않는다.
+- 결과(해당 세션의 비공개 보존 경로): `.local-archive/p2-layer2-20261112/layer2-summary.json`, layer2-table.md(마무리 정리에서 삭제; 해시는 cleanup-plan.json에 보존), a-final.json(마무리 정리에서 삭제; 해시는 cleanup-plan.json에 보존). 운영 등록은 하지 않는다.
 ## 2026-11-12 P1 규칙 승격 사본 검증 STOP — 운영 반영 없음
 
 - 중단된 후속 작업을 재개해 `tools/p2_rules/rehearsal.py`를 수정했다. 기존 활성 규칙과 211개 신규 규칙을 각각 명시적으로 주입해 역사적 재분류와 신규 규칙 영향을 분리했다.
