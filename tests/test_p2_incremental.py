@@ -37,6 +37,30 @@ def test_selects_new_merchants_excludes_proposals_rules_completed_manual_and_ref
                                            manual=1, COMPLETED_PERIOD=1, ORIGINAL_WITH_REFUND=1)
 
 
+@pytest.mark.parametrize(('change', 'reason'), [
+    ({'approval_date': '2025-06-15'}, 'COMPLETED_PERIOD'),
+    ({'approval_date': '2026-03-31'}, 'COMPLETED_PERIOD'),
+    ({'approval_date': '', 'posting_date': '2025-12-31'}, 'COMPLETED_PERIOD'),
+    ({'approval_date': '2026-04-01'}, 'new_merchant'),
+])
+def test_completed_2025_and_q1_boundary_uses_posting_fallback(change, reason):
+    source = data([row(transaction_id='target', **change)])
+    report, selected, _ = inc.select_increment(source, [], set())
+    assert report['broad_partition'] == {reason: 1}
+    assert bool(selected) == (reason == 'new_merchant')
+
+
+def test_manual_decision_history_excludes_incremental_targets():
+    source = data([row(transaction_id='decided'),
+                   row(transaction_id='overridden', merchant_normalized='other shop'),
+                   row(transaction_id='new', merchant_normalized='new shop')])
+    source['review_decisions'] = [dict(transaction_id='decided', item='식비', display_tab_id='open')]
+    source['board_manual_overrides'] = [dict(row_id='card-overridden', field='item')]
+    report, selected, _ = inc.select_increment(source, [], set())
+    assert [m['normalized'] for m in selected] == ['new shop']
+    assert report['broad_partition'] == {'manual': 2, 'new_merchant': 1}
+
+
 @pytest.fixture
 def harness(tmp_path, monkeypatch):
     monkeypatch.setattr(inc, 'PRIVATE', tmp_path)
@@ -92,6 +116,13 @@ def test_zero_and_dry_run_never_call_model_or_api(harness):
     assert not calls and not writes
 
 
+def test_zero_targets_apply_mode_exits_without_api_config(harness):
+    args, _, _, calls, writes, _, run, _ = harness
+    result = run(api=None)
+    assert result['status'] == 'success' and result['calls'] == 0
+    assert not calls and not writes
+
+
 def test_bounded_calls_and_merchants_and_propose_only(harness):
     args, rows, _, calls, writes, path, run, _ = harness
     rows.extend(row(transaction_id=str(i), merchant_normalized=f'cafe {i}') for i in range(90))
@@ -106,6 +137,24 @@ def test_bounded_calls_and_merchants_and_propose_only(harness):
     before = {r['merchant_id'] for c in calls for r in c}
     run()
     assert not before & {r['merchant_id'] for r in calls[-1]}
+
+
+def test_apply_mode_merchant_budget_spans_runs_without_duplicates(harness):
+    args, rows, existing, calls, _, path, run, _ = harness
+    rows.extend(row(transaction_id=str(i), merchant_normalized=f'shop {i}') for i in range(5))
+    args.max_merchants = 2
+    # scope counts all candidates; the budget caps merchants processed per run.
+    for candidates, processed in ((5, 2), (3, 2), (1, 1), (0, 0)):
+        before = len(calls)
+        result = run()
+        assert result['status'] == 'success'
+        assert result['scope']['new_merchants'] == candidates
+        assert result['calls'] <= 1
+        assert sum(len(c) for c in calls[before:]) == processed
+    assert all(r['revision'] == 2 for r in rows)
+    assert len(calls) == 3 and sum(len(c) for c in calls) == 5
+    assert not existing  # single transactions are never promoted
+    assert all(j['done'] for j in json.loads(path.read_text(encoding='utf-8'))['jobs'])
 
 
 def test_partial_apply_lost_response_replays_without_model_or_double_writes(harness):
@@ -140,6 +189,19 @@ def test_model_capacity_failure_remains_eligible_next_run(harness):
     result = run(model=failure)
     assert result['status'] == 'failed' and result['failed_calls'] == 1
     assert not writes
+    assert run()['status'] == 'success' and len(calls) == 1
+
+
+def test_codex_rate_limit_recorded_and_resumed_next_run(harness):
+    args, rows, _, calls, writes, path, run, _ = harness
+    rows.append(row())
+    def limited(*a):
+        raise AgentUnavailable('AGENT_RATE_LIMITED', 300)
+    result = run(model=limited)
+    assert result['status'] == 'failed' and result['failure_code'] == 'AGENT_RATE_LIMITED'
+    assert result['failed_calls'] == 1 and not writes
+    state = json.loads(path.read_text(encoding='utf-8'))
+    assert state['runs'][-1]['failure_code'] == 'AGENT_RATE_LIMITED' and not state['jobs']
     assert run()['status'] == 'success' and len(calls) == 1
 
 
@@ -239,9 +301,13 @@ def test_concurrent_writer_and_missing_history_fail_closed(harness):
     assert not lock.exists()
 
 
-def test_private_state_limit_and_invalid_bound_refused(harness, tmp_path):
+@pytest.mark.parametrize(('field', 'value'), [
+    ('max_calls', 0), ('max_calls', 21), ('max_merchants', 0), ('max_merchants', 501),
+    ('batch_size', 29), ('batch_size', 51),
+])
+def test_private_state_limit_and_invalid_bound_refused(harness, field, value):
     args, _, _, _, _, _, run, _ = harness
-    args.max_calls = 0
+    setattr(args, field, value)
     with pytest.raises(ValueError, match='INVALID_RUN_LIMIT'):
         run()
 

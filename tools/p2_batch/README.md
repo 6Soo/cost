@@ -6,6 +6,11 @@
 
 [운영 절차서](../../docs/playbooks/p2-incremental.md). 이번 개발 검증에서는 운영 `--dry-run`만 실행하며 실제 모델 호출·API 반영·예약 등록은 헤드의 후속 실행이다.
 
+자동 실행 연결 비교(등록 스크립트만 포함, 등록은 헤드가 한다):
+- 별도 Windows 예약 작업: 서버 배포 없이 하루 1회 실행하고 대상 0이면 모델·API 없이 즉시 종료하지만, 로그인된 Windows 세션·ego·Codex 구독이 필요하고 수입 시점과 최대 24시간 차이가 난다.
+- Worker 주기 작업: 카드 수입 직후라 실행 순서가 정확하지만 서버 코드 변경·배포와 운영 검증 부담이 늘어난다.
+- 이번에는 서버 변경 없이 예약 작업 방식만 제안하며 `register_incremental_task.ps1`은 실행하지 않았다. Codex 한도 오류는 실패로 기록되고 다음 예약 실행에서 이어진다.
+
 ```powershell
 python -m tools.p2_batch.run_incremental --dry-run
 python -m tools.p2_batch.run_incremental --propose-only --max-merchants 30 --max-calls 1
