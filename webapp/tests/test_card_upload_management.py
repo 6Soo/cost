@@ -37,7 +37,8 @@ def source(*, first='2026-04-01', last='2026-04-10', full=False,
 def ctx():
     conn = sqlite3.connect(':memory:', isolation_level=None)
     pipeline = Pipeline(conn)
-    board = SimpleNamespace(conn=conn, _lock=threading.RLock())
+    # PROC-072(#815): batch_catalog now reads the completed-period boundary, which needs list_trips.
+    board = SimpleNamespace(conn=conn, _lock=threading.RLock(), list_trips=lambda: [])
     yield board, pipeline
     conn.close()
 
