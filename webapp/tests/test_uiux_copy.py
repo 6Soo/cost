@@ -30,6 +30,16 @@ def _shell_passthrough(monkeypatch):
     monkeypatch.setattr(ledger_design, "shell", lambda *args, **kwargs: kwargs["body"])
 
 
+class _QueryResult(list):
+    """PROC-072(#815) completed_period_sql iterates conn.execute(); other reads use fetchone/fetchall."""
+
+    def fetchone(self):
+        return (0, 0)
+
+    def fetchall(self):
+        return []
+
+
 class _TripStore:
     conn = SimpleNamespace(execute=lambda *_args: SimpleNamespace(fetchone=lambda: None))
 
@@ -66,7 +76,7 @@ def test_representative_rendered_pages_have_spec_copy(monkeypatch):
         "owner_id": "owner", "owner_alias": "합성",
     }])
     home_board = SimpleNamespace(
-        conn=SimpleNamespace(execute=lambda *_args: SimpleNamespace(fetchone=lambda: (0, 0), fetchall=lambda: [])),
+        conn=SimpleNamespace(execute=lambda *_args: _QueryResult()),
         _lock=type("Lock", (), {"__enter__": lambda self: self, "__exit__": lambda self, *_args: False})(),
         list_trips=lambda: [], visible_row_count=lambda: 0,
         trip_management_summaries=lambda: {},
@@ -104,7 +114,7 @@ def test_home_primary_uses_the_primary_background_rule(monkeypatch):
 
     class Conn:
         def execute(self, *_args):
-            return SimpleNamespace(fetchone=lambda: (0, 0), fetchall=lambda: [])
+            return _QueryResult()
 
     board = SimpleNamespace(
         conn=Conn(),

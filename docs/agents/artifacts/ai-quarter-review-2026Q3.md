@@ -6,6 +6,8 @@
 
 ## 1. 결론
 
+> **2026-11-13 후속:** 소유자가 §5의 두 질문에 답했다. 그 결과와 갱신된 반영 수치·명령은 §9에 있다. §1~§8은 답을 받기 전의 기록이다(반영 가능 145건 → 185건으로 바뀜).
+
 | 항목 | 결과 |
 | --- | --- |
 | 교정 확정 | 198건(여행→여행 53, 여행→분기 기타비용 102, 항목만 43). 이동과 함께 항목도 바꾸는 7건을 더해 항목 변경은 50건 |
@@ -62,7 +64,7 @@
 - **수동 교정 176행.** 보지 않았고 건드리지 않았다.
 - **0823_화순 종료 다음 날 지출 16행.** §5 질문 1.
 
-## 5. 사용자 결정 필요 (2건)
+## 5. 사용자 결정 필요 (2건) — 답 받음, §9
 
 **질문 1. `0823_화순`의 실제 종료일이 8월 26일인가?**
 탭 제목의 종료일은 8월 25일이다. 그런데 소유자가 이 여행에 붙인 숙박의 체크아웃이 8월 26일이고(TRIP-076), 8월 26일에 같은 지역에서 같은 카드로 쓴 식비·택시·관람료 16건이 있다. 규칙대로면 기간 밖이라 분기 기타비용이지만 여행이 26일까지였다면 여행 비용이다. 지금은 여행에 그대로 뒀다.
@@ -146,3 +148,83 @@ python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest 
 - 이용기간 필드 자체는 교정하지 않았다(저장 경로가 없다, 통합 명세 §6.9). 이용기간은 귀속 판단의 근거로만 썼다.
 - 같은 기간을 덮는 4분기 여행이 둘인 11월 숙박·항공 10건은 기간 전체를 덮고 출발이 빠른 여행으로 정했다. 수입−비용 차액 비교는 4분기 지출이 아직 다 들어오지 않아 하지 않았다.
 - 일본어 로마자 가맹점명 해석은 모델 지식에 따랐다. 확신이 낮은 항목 제안 86행은 반영하지 않았다.
+
+## 9. 소유자 답과 후속 (2026-11-13)
+
+### 9.1 질문 1 — `0823_화순`의 실제 종료일은 8월 26일
+
+- 규칙집에 사용자 예외 **TRIP-098**로 기록했다. 판정과 분기 검수는 8월 26일을 여행 기간으로 본다.
+- 8월 26일 카드 행을 전부 다시 봤다. 이 여행에 붙어 있는 16건(환불 1건 포함)은 그대로 맞다. 지정 카드의 해외 결제 7건은 분기 기타비용(TRIP-071), 8월 26일 밤 숙박 2건은 다음 여행의 준비 숙박(TRIP-042), 수동 3건과 원본 충돌 보호 6건은 손대지 않는다. 교정 목록은 바뀌지 않는다.
+- **운영 `trip_tabs`의 종료일을 고치는 정식 경로는 없다.** 확인한 것(코드 읽기와 운영 자료 읽기, 실행 검증 아님):
+  - Google 여행 탭의 기간은 이미 8월 23~26일이다(제목에 종료일이 없어 지출 행에서 읽은 값). **사용자가 Google에서 할 일은 없다.**
+  - Google 동기화는 종료일이 비었거나 다음 여행 기준 추정값일 때만 `trip_tabs`를 갱신한다. 화순은 2026-10-04 소유자 답변으로 만든 일정 증거(8월 23~25일)의 값이 들어 있어 덮지 않는다.
+  - 소유자 화면·HTTP 경로는 종료일을 받지 않는다. `trip-authority.json` 레코드, 일정 증거 파일, `trip_tabs.source_sha256`을 함께 바꾸는 도구도 없다. 2026-10-14 `0801_노리쿠라` 보정은 이력상 일회성 직접 쓰기로 보이며 레포에 도구가 남아 있지 않다.
+- 그래서 새 도구를 만들지 않았고 운영 값은 8월 25일 그대로다. 남는 영향: 화면의 기간 표시와 P1의 기간 판정은 8월 25일 기준이다. 기존 귀속은 유지되므로 16건이 자동으로 옮겨지지는 않는다. 고치려면 기존 함수 `LedgerStore.save_trip_meta`에 종료일을 넘기는 호출 한 번이 필요한데(이력과 이벤트가 남고, Google 기간과 같아져 여행 검증도 통과한다) 이를 부르는 정식 진입점이 없어 헤드의 결정이 필요하다. `CODE_GAPS.md`에 올렸다.
+
+### 9.2 질문 2 — 일괄 "소유자 확인" 표시는 자동 출처로 바로잡는다
+
+- 규칙집 **PROC-014**에 결정을 추가했다. 정정 도구는 [PR #833](https://github.com/6Soo/cost/pull/833)(구현 Qwen4 Max, 검수자가 핵심 모듈을 읽고 사본에서 검증).
+- **앞선 보고 정정:** 표시가 찍힌 시각을 "10월 7일과 10월 17일"이라고 적었으나 표본 15행만 본 것이었다. 전수로 보니 2026-10-07·10-14·10-17·10-21·10-29의 9개 분에 걸친 장부 기록 배치다(분당 7~615행). 모두 같은 형태(기록 배치, 사건 ID 없음)이며 화면에서 사람이 저장한 형태가 아니다.
+- 정정 기준: 수동 신호(결정 시각, 수동 출처, 활성 결정 이력, 수동 덮어쓰기)가 없고, 표시를 찍은 이력이 기록 배치 형태이며, 같은 분에 5행 이상 찍힌 것만. 바꾸는 것은 화면 행의 표시 하나뿐이다.
+
+| 3분기 범위의 "소유자 확인" 표시 | 건수 |
+| --- | ---: |
+| 전체 | 421 |
+| 정정 대상 | 302 |
+| 보존 — 기존 수동 신호 있음 | 112 |
+| 보존 — 소유자 지시로 남은 이동·결정 기록(독립 검수 지적으로 추가) | 5 |
+| 보존 — 개별로 찍힘(같은 분 5행 미만) | 2 |
+
+- 범위 밖(이번에 손대지 않음): 4분기 열린 여행 15건, 닫힌 분기 367건. 다음 분기 검수에서 같은 기준으로 한다.
+
+### 9.3 갱신된 교정 반영 수치 (격리 사본, 표시 정정 → 교정 순서)
+
+운영 DB의 새 SQLite backup 사본에서 표시 정정을 먼저 반영하고(처음 예행 307건, 독립 검수 뒤 기준으로 다시 예행 302건 — 교정 반영 수치는 같다) 같은 교정 목록 198건을 반영했다. 교정 목록 자체는 바뀌지 않았다.
+
+| | 답 받기 전 | 표시 정정 뒤 |
+| --- | ---: | ---: |
+| 반영 | 145 | **185** (여행→여행 42, 여행→분기 100, 항목만 43) |
+| 제외 | 53 | **13** (거래·장부 귀속 불일치 12, 환불 묶음 구성원 부적격 1) |
+
+- 제외 13건: 귀속 불일치 12건 중 10건은 장부 행이 이미 검수자가 정한 여행에 있다(§4-6). 1건은 개별 표시 보존분이다. 환불 1건은 원결제가 귀속 불일치라 묶음으로 못 옮긴다.
+- 표시 정정 검증: 대상 행에서 화면 행의 표시만 바뀌고 거래·장부는 0건 변경. 재실행 변경 0. 원복 뒤 화면 행 차이 0(원복은 처음 예행에서 확인).
+
+| 검수 자료 지표 | 전 | 후(사본) |
+| --- | ---: | ---: |
+| 검수 대상 수 | 1,070 | 1,076 |
+| AI 판정 | 146 | 304 |
+| 추론 귀속 | 573 | 458 |
+| 포괄 항목 | 388 | 330 |
+| 판정 주체: 자동 / AI / 수동 | 1,164 / 146 / 176 | 999 / 304 / 176 |
+| 판정 없는 정상 거래 | 1 | 1 |
+| 3분기 기타비용 행 | 234 | 334 |
+
+여행별 지출 변화가 큰 상위 5개(이름과 건수): 0813_북해도 −17, 0918_세토우치 +30, 0919_싱가포르 −29, 0823_화순 −17, 0704_야마가타 −10. 그 밖에 0801_노리쿠라 −16, 0721_황금해안 −15, 0712_몽골 −9, 0806_다테시나 −8, 0827_군산 −4, 0903_양평 −4, 0722_가루이자와 −4, 0912_세종 −2, 0916_박달고치 −2, 0630_오제 −1, 0915_길상사 −1, 0704_통영 +1, 0927_북큐슈 +1.
+
+근거(비공개): `rehearsal3/`(새 사본 전체 순서), `rehearsal2/`(표시 정정의 반영·재실행·원복 검증). 사본용 백업 증거는 사본을 대상으로 직접 만든 것이라 운영에 쓸 수 없다.
+
+### 9.4 헤드가 할 반영 (§7의 2번을 대체)
+
+순서: 하나카드 이중 기록 정리 → 표시 정정 → 교정 반영. 한 정지 창에서 이어서 하면 백업 검증을 줄일 수는 없지만 사이에 다른 변경이 끼지 않는다. (정정: 앞서 "표시를 정정하면 P1 재판정 대상이 된다"고 적었으나, 독립 검수 확인대로 상시 Worker는 화면 행이 있는 거래를 다시 열지 않는다. 열리는 것은 명시 실행 도구 — AI 검수 교정 반영, `--reconsider` 재분류 — 뿐이다.)
+
+```powershell
+# 도구 PR 병합·배포 뒤, 검증된 릴리스 checkout에서. writer 정지, 분리 프로세스, finally 복구는 절차서대로.
+$ev = 'D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/apply'
+$manifest = 'D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/manifest-2026Q3.json'
+New-Item -ItemType Directory -Path $ev -Force | Out-Null
+# 1) 표시 정정 — 기대값: owner_stamped_rows 421, to_correct 302, MANUAL_OR_USER_EXCEPTION 117(기존 112·화면 행 이력 5), INDIVIDUAL_STAMP 2
+python tools/verify_operational_backup_restore.py --evidence-out "$ev/backup-1.json"; if ($LASTEXITCODE -ne 0) { throw 'BACKUP_RESTORE_FAILED' }
+python tools/repair_bulk_owner_confirmation.py --host-root D:/WebLedgerHost --year 2026 --quarter 3 --request-id bulk-owner-confirmation-2026Q3 --report "$ev/bulk-preview.json"; if ($LASTEXITCODE -ne 0) { throw 'PREVIEW_FAILED' }
+$b = Get-Content -LiteralPath "$ev/bulk-preview.json" -Encoding UTF8 | ConvertFrom-Json
+python tools/repair_bulk_owner_confirmation.py --host-root D:/WebLedgerHost --year 2026 --quarter 3 --request-id bulk-owner-confirmation-2026Q3 --apply --expected-digest $b.digest --backup-evidence "$ev/backup-1.json" --report "$ev/bulk-applied.json"; if ($LASTEXITCODE -ne 0) { throw 'APPLY_FAILED' }
+# 2) 교정 반영 — DB가 바뀌었으므로 백업 증거를 새로 만든다. 기대값: manifest_rows 198, to_apply 185, 제외 13
+python tools/verify_operational_backup_restore.py --evidence-out "$ev/backup-2.json"; if ($LASTEXITCODE -ne 0) { throw 'BACKUP_RESTORE_FAILED' }
+python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest $manifest --request-id ai-quarter-review-2026Q3 --report "$ev/preview.json"; if ($LASTEXITCODE -ne 0) { throw 'PREVIEW_FAILED' }
+$m = Get-Content -LiteralPath "$ev/preview.json" -Encoding UTF8 | ConvertFrom-Json
+python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest $manifest --request-id ai-quarter-review-2026Q3 --apply --expected-digest $m.digest --backup-evidence "$ev/backup-2.json" --report "$ev/applied.json"; if ($LASTEXITCODE -ne 0) { throw 'APPLY_FAILED' }
+python tools/apply_ai_quarter_review.py --host-root D:/WebLedgerHost --manifest $manifest --request-id ai-quarter-review-2026Q3 --report "$ev/replay.json"
+```
+
+- 기대값은 2026-11-13 운영 자료 기준이다. **하나카드 이중 기록 정리가 먼저 반영되면 수치가 달라질 수 있다.** 교정 목록에 이중 수입 쌍의 행이 32건 들어 있다. 정리가 한쪽을 중복으로 표시하면 그 행은 `SOURCE_PROTECTED`로 빠지고(정상), 남는 쪽의 revision이 바뀌었으면 `STALE`로 빠진다. 미리보기에 `STALE`이 나오면 반영하지 말고 검수자에게 알린다 — 교정 목록의 revision을 현재 값으로 다시 만든다.
+- 원복은 각 절차서(`docs/playbooks/bulk-owner-confirmation-repair.md`, `docs/playbooks/ai-review-apply.md`)의 `--restore`. 교정을 먼저 되돌리고 표시 정정을 되돌린다.
+

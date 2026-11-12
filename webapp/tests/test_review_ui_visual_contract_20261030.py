@@ -29,7 +29,7 @@ def test_review_ui_responsive_theme_zoom_and_keyboard_contract():
         page.goto("http://review.test/")
         theme_button = page.locator("#site-theme-toggle")
         assert theme_button.count() == 1
-        assert theme_button.get_attribute("aria-label") == "다크모드로 전환"
+        assert theme_button.get_attribute("aria-label") == "어두운 화면으로 전환"
         page.evaluate("""()=>{
           const note=document.createElement('p');note.className='confirm-note';note.textContent='Synthetic error';
           document.querySelector('main').append(note);
@@ -89,7 +89,7 @@ def test_review_ui_responsive_theme_zoom_and_keyboard_contract():
                     page.keyboard.press("Enter")
                 assert page.locator("html").get_attribute("data-theme") == theme
                 assert theme_button.get_attribute("aria-label") == (
-                    "다크모드로 전환" if theme == "light" else "라이트모드로 전환"
+                    "어두운 화면으로 전환" if theme == "light" else "밝은 화면으로 전환"
                 )
                 assert page.locator("[data-theme-icon]:visible").count() == 1
                 page.emulate_media(color_scheme="dark" if theme == "light" else "light")

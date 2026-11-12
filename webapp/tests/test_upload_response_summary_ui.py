@@ -76,7 +76,8 @@ def test_summary_browser_escape_layout_warning_and_keyboard():
                 empty = dict(summary, status='empty', rate=None, counts=dict.fromkeys(counts, 0),
                              financial_warning='', monthly_reconciliation=[])
                 page.evaluate('(s) => renderUploadSummary({upload_summary:s})', empty)
-                assert '검증할 거래 없음' in page.locator('#summary').inner_text()
+                # P3 confirmation abolition: the empty status is '처리할 거래 없음' (was '검증할 거래 없음').
+                assert '처리할 거래 없음' in page.locator('#summary').inner_text()
                 assert page.get_by_role('alert').count() == 0
         finally:
             browser.close()

@@ -36,7 +36,8 @@ def test_trip_and_export_views_preserve_data_and_explicit_selection(tmp_path):
             # Snapshot settings remain enabled for income reads after the old page's removal.
             with patch('webapp.google_ledger_page.enabled', return_value=True):
                 management = board.trips_page(role='owner')
-            assert len(elements(management, 'article', **{'class':'card trip-management-row'})) == 2
+            # wave3 2fb8916a moved trip rows from <article class='card …'> to <tr>.
+            assert len(elements(management, 'tr', **{'class':'trip-management-row'})) == 2
             assert not elements(management, 'details', **{'class':'trip-meta','open':None})
             assert elements(management, 'form', id='trip-management-filter')
             assert not elements(management, 'a', href='/google-ledger')
