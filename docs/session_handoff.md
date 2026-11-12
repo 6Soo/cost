@@ -1,3 +1,10 @@
+## 2026-11-12 밤 #815 배포·완료 기간 정리 운영 기록
+
+- #815 병합 `335b9eda56b73fd65e201f39a1ffdefd82c955f3`를 22:46~22:47 KST 배포했다(Board 8751). 배포 근거는 22:47:36 KST health/ready 200·보호13표 불변이며 배포 중단은 없었다.
+- 완료 기간 정리741건 반영(2025년739·2026Q1 2), 하쿠산 귀속 −739·세토우치 −2. 기존 장부·화면 행 변화0, 재실행 `REPLAYED`·이동0·실행변경0이다. preview/applied/replay의 digest와 건수를 직접 대조했다.
+- 반영 중 헤드 호출 세션의 실행이 끊겨 22:57:41~23:14:40 KST 공개 장부가 중단됐다(시작은 헤드 전달 시각). 분리 프로세스가 남은 반영을 완료했고 resume.log에서 23:14:33 반영·재실행 성공, 23:14:39 Board ready, 23:14:40 route resume·Worker 시작을 확인했다.
+- 직접 확인 근거: `D:/WebLedgerHost/data/backups/closed-period-grouping-20261112/`의 `preview.json`·`applied.json`·`replay.json`·`resume.log`·`backup-restore.json`·`operating-release/deploy-evidence.json`. 신선 백업5DB·44파일의 복원·원본 불변·review binding 동등 확인과, 코드 배포의 fresh_backup_restore=false는 서로 다른 기록이다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.

@@ -167,11 +167,7 @@ def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None, comp
         top = candidates[0]
         ties = sum(c['score'] == top['score'] for c in candidates)
         return top['trip_id'], top['basis'] + (f' · 동률 {ties}개 중 일정·ID 고정 순서로 선택' if ties > 1 else '')
-    if valid:
-        # A missing use date does not turn the posting date into a service date.
-        target = max(valid, key=lambda key: (valid[key]['starts_on'], key))
-        return target, '이용일 단서 없음 · 가장 최근 시작한 실제 여행 선택'
-    return '', '등록된 유효 여행 없음'
+    return '', 'PROC-004 · 이용일을 포함하는 여행 없음 · 결제일 분기 기타비용'
 
 
 def _card3820_owner_policy(row, trips, *, _canonical=None):
@@ -180,7 +176,7 @@ def _card3820_owner_policy(row, trips, *, _canonical=None):
     This mirrors the primary card-classification path: the Singapore exception
     wins when exactly one matching trip exists; otherwise an eligible domestic
     purchase goes to its transaction quarter. Overseas purchases use matching
-    trip periods and the nearest following preparation period regardless of country.
+    trip periods regardless of country. Outside those dates PROC-004 applies.
     Missing dates and the absence of real trips cannot invent an assignment.
     """
     if row.get('card_tail') != '3820':
@@ -397,8 +393,9 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
                                   '유효 여행 유지 · 이용일 단서 없음')
         else:
             quarter = _quarter_destination(chosen)
-            if quarter and chosen.get('display_tab_id') in (None, '', 'unclassified'):
+            if quarter and (rerank or chosen.get('display_tab_id') in (None, '', 'unclassified')):
                 chosen.update(display_tab_id=quarter[0], trip_id='',
+                              item='분기 기타비용',
                               description=chosen.get('description') or quarter[1])
                 trip_basis = '실제 여행 후보 없음 · 결제일 기준 분기 기타비용'
                 quarter_assigned = True

@@ -245,6 +245,24 @@ def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_rec
         if (result.get('trip_id') not in {t['trip_id'] for t in case['trips']}
                 or result.get('item') not in case['allowed_items']):
             raise ValueError('AI_ATTRIBUTION_INVALID')
+        target = result['trip_id']
+        if not target.startswith('quarter:'):
+            row = code._read(conn, [tid])[0]
+            eligible = {c['trip_id'] for c in card_trip_candidates(row, trips, nets=nets)}
+            proof = (completed_evidence or {}).get(tid) or {}
+            if proof.get('source_hash') == row['source_hash'] and proof.get('service_period'):
+                eligible.add(proof.get('trip_id'))
+            # A current reservation-period decision is independent of the card date.
+            if '예약 이용기간' in str(row.get('classification_basis') or ''):
+                eligible.add(row.get('trip_id'))
+            period = metadata.get(tid) or {}
+            if period.get('service_start') and period.get('service_end'):
+                from .provisional_assignment import ota_service_period_candidate
+                eligible.update(c['trip_id'] for c in ota_service_period_candidate(
+                    {'service_period': {'starts_on': period['service_start'],
+                                        'ends_on': period['service_end']}}, trips))
+            if target not in eligible:
+                raise ValueError('AI_ATTRIBUTION_INVALID')
         if (not isinstance(result.get('basis'), str) or not result['basis'].strip()
                 or len(result['basis']) > 2000
                 or not isinstance(result.get('uncertainty'), str) or len(result['uncertainty']) > 500):
