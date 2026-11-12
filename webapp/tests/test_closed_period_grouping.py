@@ -180,6 +180,7 @@ def test_only_source_bound_exact_central_facts_create_an_exception():
         period=dict(starts_on='2026-10-02',ends_on='2026-10-03'))
     proof=boundary.formal_facts([source],TRIPS[:1])
     assert proof['synthetic']['trip_id'] == 'A'
+    assert boundary.formal_facts([dict(source,source_sha256='changed-source')],TRIPS[:1]) != proof
     for changes in [dict(inferred_link=True),dict(core_link=False),dict(source_sha256=''),
                     dict(service_period_basis='LINK-108'),dict(reservation_status='cancelled'),dict(period_conflict=True)]:
         assert boundary.formal_facts([dict(source,**changes)],TRIPS[:1]) == {}

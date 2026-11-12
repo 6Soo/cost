@@ -4,6 +4,8 @@ An inferred destination, provenance label, or booking candidate is never proof
 of an exception. Callers may supply source-bound, formally linked service facts.
 """
 from datetime import date
+import hashlib
+import json
 
 
 def completed_period(row):
@@ -89,7 +91,8 @@ def formal_facts(facts, trips):
         if len(candidates) != 1:
             continue
         value = dict(source_hash=fact.get('source_hash'), trip_id=candidates[0]['trip_id'],
-                     service_period=dict(period), formal_link=True)
+                     service_period=dict(period), formal_link=True,
+                     evidence_digest=hashlib.sha256(json.dumps(fact,sort_keys=True,default=str).encode()).hexdigest())
         grouped.setdefault(tid,[]).append(value)
     return {tid: values[0] for tid,values in grouped.items()
             if all(v == values[0] for v in values)}
