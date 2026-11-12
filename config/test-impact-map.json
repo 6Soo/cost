@@ -54,6 +54,11 @@
       "tests": ["tests/test_m1_baseline_readonly.py"]
     },
     {
+      "name": "collection-status-panel",
+      "paths": ["webapp/collection_status.py", "webapp/tests/test_collection_status.py"],
+      "tests": ["webapp/tests/test_collection_status.py", "webapp/tests/test_card_flow.py"]
+    },
+    {
       "name": "trip-api-reservation-evidence",
       "paths": ["app/trip_api_capture.py", "tools/import_trip_api_details.py", "tests/card_pipeline/test_trip_api_capture.py"],
       "tests": ["tests/card_pipeline/test_trip_api_capture.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ledger_stay_evidence.py"]

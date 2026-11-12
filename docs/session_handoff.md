@@ -1,3 +1,14 @@
+## 2026-11-13 M2 항목 7 상태 화면 — 수집 상태 판 (PR 검수 범위)
+
+- 통합 명세 M2 항목 7(상태 화면)을 구현했다. 완료 커밋 `a2174733`, 브랜치 `feat/status-panel-20261113`. 기존 홈 화면에 읽기 전용 '수집 상태' 절 하나를 더했으며 새 경로·메뉴·DB 테이블은 없다. 카드 발급사별·Gmail·OTA 5개 공급자·Google 수입의 마지막 수집 날짜와 'N일 전', 기준 초과 경고를 표로 보여주고, 기준(카드 7일·메일 1일·OTA 30일·Google 1일)은 `webapp/collection_status.py`의 `THRESHOLDS_DAYS` 상수다. 판정 없는 정상 거래 수(M2 졸업 지표)를 같은 절에 한 줄로 표시한다.
+- 위치는 홈의 '진행 중 여행' 절 뒤 별도 절이다. 10행 표를 상단 상태 영역에 넣으면 모바일 첫 화면에서 여행 목록이 밀려 `test_home_has_no_pending_ledger_state_at_mobile_and_desktop_widths`가 깨져, 여행 뒤로 옮겼다. 홈 로그인 게이트를 그대로 상속하며 비인증 `/`는 이전과 같이 401이다.
+- 읽는 기록(모두 읽기 전용, 기존 기록): 카드=통합 DB `import_batches.received_at`(발급사별), Gmail=`ota-mail/collection.json`의 `last_run`, OTA=등록 manifest의 근거 DB(`ota-evidence.sqlite`, Agoda·Trip.com·Booking은 출처 기반, 숲나들e·산림치유원은 예약 기반 forest 분할), Google=`WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT`의 `last_ok_at`/`error_code`, P2=`card-flow.json`의 `p2_batch_archive`가 가리키는 보관함의 최신 `*/summary.json`(파일 시각). 기록이 없거나 못 읽으면 지어내지 않고 '기록 없음'으로 둔다.
+- '로그인 필요'는 구조화된 인증 실패 기록이 있는 Google(`GOOGLE_AUTH_UNAVAILABLE`)에서만 띄운다. Gmail·OTA·카드에는 인증 실패 기록 경로가 없어 만들지 않았다. 운영 현재 Booking.com은 '기록 없음'이다.
+- 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` **PASSED**(570/570 실행, skip 0, 브라우저 16건 전부 실행, pytest·compile exit 0, SHA `a2174733`). 신규 합성 검사 18건(`webapp/tests/test_collection_status.py`: 원천별 표시·기준 경고·기록 없음·로그인 기록·P2·졸업 지표·홈 통합·비인증 차단)과 영향 그룹 `collection-status-panel`을 추가했다. 근거는 `quality-artifacts/`(미추적, 커밋하지 않음).
+- 운영 읽기 전용 실측(KST 2026-11-13): 카드 국민 2026-10-31·하나 2026-11-04·기업 2026-11-02(모두 경고), Gmail 2026-11-13, Agoda·Trip.com·숲나들e·산림치유원 2026-11-12, Booking.com 기록 없음, Google 2026-11-13(로그인 실패 기록 없음). 판정 없는 정상 거래 0건. P2 보관함 직접 읽기는 2026-11-12·대상 585·성공 13·실패 2이나, 운영 설정에 `p2_batch_archive`가 없어 화면에는 'AI 판정 실행 기록 없음'으로 표시된다.
+- 남은 일(헤드): 병합·배포, 그리고 배포 시 `config/card-flow.json`에 `p2_batch_archive`(예: `C:\AX\cost\.local-archive`)를 설정해야 P2 실행 기록이 화면에 보인다. 서버 코드가 바뀌었으므로 배포가 필요하다. DB 쓰기·새 테이블 없음.
+- 막힌 점/주의: 이 PR과 무관하게 origin/main에 기존 실패 3건이 있다(PR #815의 `completed_period_sql`이 fake-board fixture를 깨뜨림) — `test_uiux_copy.py` 2건, `test_card_destination_ui.py` 1건. 이 변경의 `card_flow.py`를 되돌려도 동일 재현을 확인했고, 이 PR의 영향 그룹에는 선택되지 않아 고치지 않았다. 헤드에 보고한다. 병합·배포·운영 쓰기는 하지 않는다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
