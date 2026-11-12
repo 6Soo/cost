@@ -9,12 +9,22 @@ acquired row and drops only its derived ledger/board projection, so the purchase
 is counted once. The acquired row stays the financial canonical because cost is
 judged from the acquired original and the overseas billed total (SRC-005, SRC-009).
 
+The canonical direction is independent of import order: even when the approval
+source was imported and booked first, the acquired billed row stays canonical.
+A shared normalized approval number + card + date is one authorization, so a
+same-merchant pair is one purchase even when the approval is a small pre-auth hold
+and the bill is the final total (overseas gas), and a normal-FX-ratio pair whose
+merchant notation differs (operator/category/romanization) is one purchase too.
+When the canonical row was never booked, the approval's ledger/board projection
+moves onto it with the billed amount and inherited attribution.
+
 Nothing here deletes a card source row or rewrites an original cell: the
 `transactions` row, its `raw_row_json`, amount, sign, id and stored approval
 number are preserved. Only `duplicate_of` is set and the duplicate's
 `ledger_entries`/`board_rows` projections are removed (open periods) or left in
 place (closed periods already handed to the tax firm). Refund-paired, manually
-corrected and source-protected pairs are never moved; they are reported by reason.
+corrected, source-protected and trip-attribution-disagreeing pairs are never
+moved; they are reported by reason.
 
 Structure mirrors `closed_period_repair`: count-only preview, digest/backup-gated
 apply, audited restore and idempotent replay.
@@ -35,8 +45,9 @@ RESTORE = 'card.hana_duplicate_restored'
 ACQUIRED_LAYOUTS = ('hana_foreign', 'hana_usage')
 APPROVAL_LAYOUTS = ('headered',)
 MANUAL_SOURCES = {'user_decision', 'user_exception', 'owner_booking', 'manual', 'manual_hold'}
-# Approval-time and billed won values differ only by FX and fee, never by
-# multiples. A wide ratio means the shared approval number is a coincidence.
+# A normal FX/fee ratio corroborates one purchase when the merchant notation
+# differs. A wide multiple alone no longer excludes a same-merchant pair: an
+# overseas gas pre-auth hold is small next to the final billed total (SRC-009).
 RATIO_MIN, RATIO_MAX = 0.5, 2.0
 
 
@@ -127,12 +138,29 @@ def _refund_reason(conn, pair_tids, number_index):
     return ''
 
 
+def _attribution_reason(keep, dup):
+    """Protect a trip-vs-trip attribution disagreement (existing ledger rule).
+
+    The two views of one purchase can land in different trips when trip windows
+    overlap. `closed_period_repair` refuses to re-attribute a projection it cannot
+    place (`PROJECTION_ATTRIBUTION_DISAGREEMENT`); the same rule applies here, so a
+    genuine trip conflict is reported for review instead of silently moving cost.
+    An empty/unclassified side is not a conflict — the survivor can inherit it.
+    """
+    ka = str(keep.get('trip_id') or keep.get('display_tab_id') or '')
+    da = str(dup.get('trip_id') or dup.get('display_tab_id') or '')
+    if ka.startswith('trip-') and da.startswith('trip-') and ka != da:
+        return 'ATTRIBUTION_DISAGREEMENT'
+    return ''
+
+
 def _hana_rows(conn):
     cursor = conn.execute(
         "SELECT t.transaction_id, t.issuer, t.card_tail, t.card_kind, t.transaction_direction,"
         " t.approval_number, t.original_approval_number, t.approval_date, t.posting_date,"
         " t.merchant_normalized, t.amount_krw, t.batch_id, t.source_hash, t.duplicate_of,"
-        " t.conflict_reason, t.parse_error, t.classification_source, t.decided_at, b.parser"
+        " t.conflict_reason, t.parse_error, t.classification_source, t.decided_at,"
+        " t.item, t.trip_id, t.display_tab_id, b.parser"
         " FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id"
         " WHERE t.issuer='하나' AND COALESCE(t.approval_number,'')<>''")
     columns = [d[0] for d in cursor.description]
@@ -163,14 +191,20 @@ def _pairs(conn):
         keep, dup = acquired[0], approval[0]
         if keep['batch_id'] == dup['batch_id']:
             continue
+        merchant_ok = _merchant_compatible(keep['merchant_normalized'], dup['merchant_normalized'])
+        ratio_ok = True
         if keep['amount_krw'] and dup['amount_krw'] and keep['amount_krw'] > 0 and dup['amount_krw'] > 0:
-            if not RATIO_MIN <= keep['amount_krw'] / dup['amount_krw'] <= RATIO_MAX:
-                yield keep, dup, 'DIFFERENT_TRANSACTION'
-                continue
-        if not _merchant_compatible(keep['merchant_normalized'], dup['merchant_normalized']):
+            ratio_ok = RATIO_MIN <= keep['amount_krw'] / dup['amount_krw'] <= RATIO_MAX
+        # A shared normalized approval number + card + date is one authorization.
+        # With the same merchant it stays one purchase even when the approval is a
+        # small pre-auth hold and the acquired row is the final billed total (overseas
+        # gas). With a normal FX/fee ratio, a merchant-notation difference (operator,
+        # category or romanization) is the same purchase too. Only a merchant mismatch
+        # combined with a wide amount multiple cannot be confirmed, so it is reported.
+        if merchant_ok or ratio_ok:
+            yield keep, dup, ''
+        else:
             yield keep, dup, 'MERCHANT_MISMATCH'
-            continue
-        yield keep, dup, ''
 
 
 def preview(conn):
@@ -201,14 +235,24 @@ def preview(conn):
                 break
         if not guard:
             guard = _refund_reason(conn, both, number_index)
+        if not guard:
+            guard = _attribution_reason(keep, dup)
         if guard:
             excluded[guard] += 1
             excluded_pairs.append(dict(keep=kt, dup=dt, reason=guard))
             continue
         day = dup['approval_date'] or dup['posting_date']
         period = closed_period(day)
+        keep_before = _state(conn, kt)
+        dup_before = _state(conn, dt)
+        # If the canonical acquired row was never booked but the approval row was,
+        # the ledger/board projection moves to the canonical row (billed amount,
+        # inherited attribution) instead of being dropped, so the cost stays booked.
+        ledger_action = ('move' if not period and not keep_before['ledger'] and dup_before['ledger']
+                         else 'unbook')
         target = dict(tid=dt, keep=kt, closed=bool(period), period=period,
-                      before=_state(conn, dt), values=dict(duplicate_of=kt))
+                      before=dup_before, keep_before=keep_before, ledger_action=ledger_action,
+                      values=dict(duplicate_of=kt))
         targets.append(target)
         if period:
             closed_pairs.append(dict(dup=dt, keep=kt, period=period, amount_krw=dup['amount_krw']))
@@ -272,6 +316,33 @@ def _rebook(conn, tid, before):
                      (board['row_id'], board['row_kind'], board['display_tab_id'], board['revision'], board['payload_json']))
 
 
+def _move_projection(conn, target):
+    """Move the booked approval projection onto the canonical acquired row.
+
+    The survivor inherits the duplicate's attribution/item and carries the billed
+    amount (SRC-009); the duplicate's own projection is then removed. Only used
+    when the canonical row had no projection of its own.
+    """
+    keep_tid, dup_tid = target['keep'], target['tid']
+    dup_tx = target['before']['transaction']
+    amount = target['keep_before']['transaction']['amount_krw']
+    conn.execute('UPDATE transactions SET item=?,display_tab_id=?,trip_id=?,revision=revision+1 WHERE transaction_id=?',
+                 (dup_tx['item'], dup_tx['display_tab_id'], dup_tx['trip_id'], keep_tid))
+    ledger, board = target['before']['ledger'], target['before']['board']
+    if ledger:
+        moved = dict(ledger, transaction_id=keep_tid, amount_krw=amount)
+        columns = list(moved.keys())
+        conn.execute('INSERT INTO ledger_entries(' + ','.join(columns) + ') VALUES (' + ','.join('?' * len(columns)) + ')',
+                     [moved[c] for c in columns])
+    if board:
+        payload = json.loads(board['payload_json'])
+        payload['amount_krw'] = amount
+        conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,?,?)',
+                     ('card-' + keep_tid, board['row_kind'], board['display_tab_id'], board['revision'],
+                      json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+    _unbook(conn, dup_tid)
+
+
 def apply(conn, expected, *, request_id):
     if not request_id or conn.in_transaction:
         raise ValueError('HANA_REQUEST_OR_TRANSACTION_INVALID')
@@ -292,8 +363,12 @@ def apply(conn, expected, *, request_id):
             conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
                          (target['values']['duplicate_of'], tid))
             if not target['closed']:
-                _unbook(conn, tid)
+                if target['ledger_action'] == 'move':
+                    _move_projection(conn, target)
+                else:
+                    _unbook(conn, tid)
             detail = dict(request_id=request_id, keep=target['keep'], closed=target['closed'],
+                          ledger_action=target['ledger_action'], keep_before=target['keep_before'],
                           before=target['before'], after=_state(conn, tid), financial=financial)
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                          (utc_now(), RELEASE, tid, json.dumps(detail, ensure_ascii=False, sort_keys=True)))
@@ -343,6 +418,13 @@ def restore(conn, expected, request_id):
             conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
                          (before['transaction']['duplicate_of'], tid))
             if not detail['closed']:
+                if detail.get('ledger_action') == 'move':
+                    keep_tid = detail['keep']
+                    _unbook(conn, keep_tid)
+                    keep_tx = detail['keep_before']['transaction']
+                    conn.execute('UPDATE transactions SET item=?,display_tab_id=?,trip_id=?,revision=revision+1'
+                                 ' WHERE transaction_id=?',
+                                 (keep_tx['item'], keep_tx['display_tab_id'], keep_tx['trip_id'], keep_tid))
                 _rebook(conn, tid, before)
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                          (utc_now(), RESTORE, tid,

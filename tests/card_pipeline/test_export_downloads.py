@@ -253,19 +253,46 @@ def _acquired_foreign(*, approval='00001111', amount=10300):
 @pytest.mark.parametrize('reverse', [False, True])
 def test_hana_leading_zero_approval_variant_is_one_cost_not_two(reverse):
     # The approval source pads the number (00001111); the acquired view does not
-    # (1111). They are one purchase, so the second view must not book a second cost.
+    # (1111). They are one purchase, so the second view must not book a second cost,
+    # and the acquired billed total is canonical in either import order (SRC-005/009).
     pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
     sources = [_approval_source(approval='00001111'), _acquired_foreign(approval='1111')]
     if reverse:
         sources.reverse()
     pipe.receive(sources[0], 'first.csv')
-    result = pipe.receive(sources[1], 'second.csv')
-    assert result['conflicts'] == 1 and result['inserted'] == 0
+    pipe.receive(sources[1], 'second.csv')
     conn = pipe.store.conn
-    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason<>''").fetchone()[0] == 1
-    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 1
+    canonical = conn.execute(
+        "SELECT amount_krw FROM transactions"
+        " WHERE conflict_reason='' AND parse_error='' AND duplicate_of IS NULL").fetchall()
+    assert len(canonical) == 1 and canonical[0][0] == 10300
+    # Both source rows survive; exactly one is set aside as conflict or duplicate.
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 2
+    assert conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE conflict_reason<>'' OR duplicate_of IS NOT NULL"
+    ).fetchone()[0] == 1
     # Comparison-only normalization never rewrites either stored approval number.
     assert {r[0] for r in conn.execute('SELECT approval_number FROM transactions')} == {'00001111', '1111'}
+
+
+def test_hana_approval_first_keeps_billed_total_canonical():
+    # B1: the approval source arrives and is stored first. When the acquired billed
+    # view arrives it must become canonical; the approval row is marked its duplicate
+    # (never the reverse, which would leave the approval-time amount as the cost).
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    pipe.receive(_approval_source(approval='00001111', amount=10000), 'approval.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=10300), 'acquired.csv')
+    assert result['inserted'] == 1 and result['conflicts'] == 0
+    conn = pipe.store.conn
+    acquired = conn.execute(
+        "SELECT transaction_id, amount_krw FROM transactions"
+        " WHERE conflict_reason='' AND parse_error='' AND duplicate_of IS NULL").fetchall()
+    assert len(acquired) == 1 and acquired[0][1] == 10300
+    approval = conn.execute(
+        "SELECT duplicate_of, amount_krw, approval_number FROM transactions"
+        " WHERE transaction_id<>?", (acquired[0][0],)).fetchall()
+    assert len(approval) == 1
+    assert approval[0][0] == acquired[0][0] and approval[0][1] == 10000 and approval[0][2] == '00001111'
 
 
 def test_all_zero_approval_number_cannot_establish_a_cross_view_match():

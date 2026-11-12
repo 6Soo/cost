@@ -237,6 +237,25 @@ def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
     return identity, same
 
 
+def acquired_supersedes_approval(store, parser, row, identity):
+    """The overseas acquired (billed) view is the financial canonical (SRC-005/009).
+
+    When the overseas billed view (`hana_foreign`, 청구금액) arrives after its
+    approval-source download was already stored, the acquired row must stay
+    canonical regardless of import order. The caller inserts the acquired row and
+    marks the approval-source row as its duplicate — never the reverse, which would
+    leave the approval-time amount as the cost and push the billed total into a
+    conflict. Domestic `hana_usage` keeps its merchant-number conflict protection.
+    """
+    if row.issuer != '하나' or parser.split(':', 1)[-1] != 'hana_foreign':
+        return False
+    existing = store.conn.execute(
+        "SELECT b.parser FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id"
+        " WHERE t.transaction_id=? AND t.conflict_reason='' AND t.duplicate_of IS NULL",
+        (identity,)).fetchone()
+    return bool(existing and existing[0].split(':', 1)[-1] == 'headered')
+
+
 def redundant_purchase_conflicts(conn):
     """Read-only duplicate projection for conflicts created by older importers.
 

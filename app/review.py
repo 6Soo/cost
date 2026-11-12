@@ -251,7 +251,7 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                  "parsed"))
             plan = _keyless_plan(store, batch_id, parsed.rows)
             occurrences = {}
-            from .card_export_profiles import existing_purchase
+            from .card_export_profiles import acquired_supersedes_approval, existing_purchase
             used_export_matches = set()
             export_source_cache = {}
             for row in parsed.rows:
@@ -264,8 +264,22 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                 keyless = plan.get(row.row_index)
                 if export_match is not None:
                     identity, same_source = export_match
-                    outcome = ('reused' if same_source else
-                               _insert_row(store, batch_id, row, now, identity))
+                    if not same_source and acquired_supersedes_approval(store, parsed.parser, row, identity):
+                        # The billed acquired view is canonical regardless of order
+                        # (SRC-005/009): insert it and mark the earlier approval-source
+                        # row as its duplicate instead of conflicting the billed total.
+                        canonical = transaction_identity(row)
+                        outcome = _insert_row(store, batch_id, row, now, canonical)
+                        if outcome == 'inserted':
+                            store.conn.execute(
+                                'UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                                (canonical, identity))
+                            store.log_change('transaction.duplicate_marked', identity,
+                                             {'duplicate_of': canonical, 'batch_id': batch_id})
+                        identity = canonical
+                    else:
+                        outcome = ('reused' if same_source else
+                                   _insert_row(store, batch_id, row, now, identity))
                     matched += int(same_source)
                 elif keyless is not None and keyless["matched"]:
                     # The same payment is already recorded: link this file's row to it.

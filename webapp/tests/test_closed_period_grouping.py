@@ -587,11 +587,13 @@ def _hana_book(c, tid, batch, tab='A'):
 
 
 def hana_double_import(tmp_path, monkeypatch, *, day='2026-10-09', acquired_amount=10300,
-                       approval_amount=10000, acquired_approval='1111', approval_approval='00001111'):
-    """Two booked rows for one purchase: acquired billed view + approval source.
+                       approval_amount=10000, acquired_approval='1111', approval_approval='00001111',
+                       approval_merchant='합성상점', book_acquired=True, book_approval=True):
+    """Two rows for one purchase: acquired billed view + approval source.
 
     The approval view is imported with the cross-view matcher disabled so it stays
-    a separate booked row, reproducing the pre-fix double import the repair cleans.
+    a separate row, reproducing the pre-fix double import the repair cleans. Booking
+    each side is controllable so the canonical-not-booked ledger move can be tested.
     """
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
@@ -604,14 +606,16 @@ def hana_double_import(tmp_path, monkeypatch, *, day='2026-10-09', acquired_amou
     frow[1] = day
     frow[3] = acquired_approval
     ab = flow.pipeline.receive(make_csv([frow], headers=HANA_FOREIGN), 'acquired.csv')['batch_id']
-    arow = ['하나', day, '****1234', approval_approval, '합성상점', approval_amount, '100']
+    arow = ['하나', day, '****1234', approval_approval, approval_merchant, approval_amount, '100']
     with monkeypatch.context() as m:
         m.setattr('app.card_export_profiles.existing_purchase', lambda *a, **k: None)
         pb = flow.pipeline.receive(make_csv([arow], headers=_HANA_APPROVAL_HEADERS), 'approval.csv')['batch_id']
     atid = c.execute('SELECT transaction_id FROM transactions WHERE batch_id=?', (ab,)).fetchone()[0]
     ptid = c.execute('SELECT transaction_id FROM transactions WHERE batch_id=?', (pb,)).fetchone()[0]
-    _hana_book(c, atid, ab)
-    _hana_book(c, ptid, pb)
+    if book_acquired:
+        _hana_book(c, atid, ab)
+    if book_approval:
+        _hana_book(c, ptid, pb)
     c.commit()
     return board, flow, c, atid, ptid
 
@@ -692,12 +696,90 @@ def test_hana_repair_preserves_manual_correction(tmp_path, monkeypatch):
     board.close()
 
 
-def test_hana_repair_excludes_amount_multiple_false_positive(tmp_path, monkeypatch):
+def test_hana_repair_excludes_merchant_mismatch_with_amount_multiple(tmp_path, monkeypatch):
+    # A different merchant plus a wide amount multiple cannot be confirmed as one
+    # purchase, so it stays excluded (reported), never merged.
     board, flow, c, atid, ptid = hana_double_import(tmp_path, monkeypatch,
-                                                    acquired_amount=900000, approval_amount=10000)
+                                                    acquired_amount=900000, approval_amount=10000,
+                                                    approval_merchant='다른상점')
     plan = hana.preview(c)
     assert plan['summary']['to_mark'] == 0
-    assert plan['summary']['excluded'].get('DIFFERENT_TRANSACTION') == 1
+    assert plan['summary']['excluded'].get('MERCHANT_MISMATCH') == 1
+    board.close()
+
+
+def test_hana_repair_gas_preauth_same_merchant_keeps_billed(tmp_path, monkeypatch):
+    # B3 가: an overseas gas pre-auth hold is a small approval next to the final
+    # billed total. Same merchant + normalized approval + card + date is one
+    # purchase even at a wide ratio; the acquired billed row stays canonical.
+    board, flow, c, atid, ptid = hana_double_import(tmp_path, monkeypatch,
+                                                    acquired_amount=55989, approval_amount=1451)
+    plan = hana.preview(c)
+    assert plan['summary']['to_mark'] == 1
+    assert plan['targets'][0]['keep'] == atid and plan['targets'][0]['tid'] == ptid
+    hana.apply(c, plan, request_id='hana-gas')
+    assert hana._state(c, ptid)['transaction']['duplicate_of'] == atid
+    keep = hana._state(c, atid)
+    assert keep['ledger']['amount_krw'] == 55989 and keep['transaction']['duplicate_of'] is None
+    assert c.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    hana.restore(c, hana.restore_preview(c, 'hana-gas'), 'hana-gas')
+    assert hana._state(c, ptid)['transaction']['duplicate_of'] is None
+    board.close()
+
+
+def test_hana_repair_merchant_notation_normal_amount_included(tmp_path, monkeypatch):
+    # B3 나: approval + card + date + a normal FX ratio match; only the merchant
+    # notation differs (operator/category/romanization). It is one purchase.
+    board, flow, c, atid, ptid = hana_double_import(tmp_path, monkeypatch,
+                                                    acquired_amount=11833, approval_amount=11758,
+                                                    approval_merchant='합성-상점 지점')
+    plan = hana.preview(c)
+    assert plan['summary']['to_mark'] == 1
+    hana.apply(c, plan, request_id='hana-notation')
+    assert hana._state(c, ptid)['transaction']['duplicate_of'] == atid
+    assert hana._state(c, atid)['ledger']['amount_krw'] == 11833
+    board.close()
+
+
+def test_hana_repair_protects_trip_attribution_disagreement(tmp_path, monkeypatch):
+    # B1: the two views landed in different (overlapping) trips. Existing ledger
+    # rules protect an attribution disagreement instead of silently moving cost.
+    board, flow, c, atid, ptid = hana_double_import(tmp_path, monkeypatch)
+    c.execute("UPDATE transactions SET trip_id='trip-alpha',display_tab_id='trip-alpha' WHERE transaction_id=?", (atid,))
+    c.execute("UPDATE transactions SET trip_id='trip-beta',display_tab_id='trip-beta' WHERE transaction_id=?", (ptid,))
+    c.commit()
+    plan = hana.preview(c)
+    assert plan['summary']['to_mark'] == 0
+    assert plan['summary']['excluded'].get('ATTRIBUTION_DISAGREEMENT') == 1
+    before = {tid: hana._state(c, tid) for tid in (atid, ptid)}
+    hana.apply(c, plan, request_id='hana-attr')
+    assert hana._state(c, atid) == before[atid] and hana._state(c, ptid) == before[ptid]
+    board.close()
+
+
+def test_hana_repair_moves_ledger_when_canonical_not_booked(tmp_path, monkeypatch):
+    # B1: the approval source was booked first and the acquired canonical row never
+    # was. The projection moves to the canonical row with the billed amount and the
+    # inherited attribution, so the cost stays booked exactly once. Restore reverses it.
+    board, flow, c, atid, ptid = hana_double_import(tmp_path, monkeypatch, book_acquired=False)
+    c.execute("UPDATE transactions SET trip_id='trip-x',display_tab_id='trip-x',item='식비' WHERE transaction_id=?", (ptid,))
+    c.execute("UPDATE ledger_entries SET trip_id='trip-x',display_tab_id='trip-x',item='식비' WHERE transaction_id=?", (ptid,))
+    c.commit()
+    before_dup = hana._state(c, ptid)
+    plan = hana.preview(c)
+    assert plan['summary']['to_mark'] == 1 and plan['targets'][0]['ledger_action'] == 'move'
+    hana.apply(c, plan, request_id='hana-move')
+    assert hana._state(c, ptid)['transaction']['duplicate_of'] == atid
+    assert hana._state(c, ptid)['ledger'] is None and hana._state(c, ptid)['board'] is None
+    keep = hana._state(c, atid)
+    assert keep['ledger']['amount_krw'] == 10300 and keep['ledger']['trip_id'] == 'trip-x'
+    assert keep['transaction']['trip_id'] == 'trip-x' and keep['transaction']['item'] == '식비'
+    assert json.loads(keep['board']['payload_json'])['amount_krw'] == 10300
+    assert c.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    hana.restore(c, hana.restore_preview(c, 'hana-move'), 'hana-move')
+    assert hana._state(c, ptid)['ledger'] == before_dup['ledger']
+    assert hana._state(c, atid)['ledger'] is None
+    assert hana._state(c, atid)['transaction']['trip_id'] in ('', None)
     board.close()
 
 
@@ -750,3 +832,37 @@ def test_hana_repair_cli_apply_on_verified_isolated_copy(tmp_path, monkeypatch, 
         assert check.execute('SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?', (ptid,)).fetchone()[0] == 0
     assert hana.main(['--host-root', str(host), '--request-id', 'hana-cli']) == 0
     assert json.loads(capsys.readouterr().out)['applied_this_run'] == 0
+
+
+def test_writers_gate_uses_route_port_and_rejects_8752_listener(tmp_path, monkeypatch):
+    # B2: the gate reads the routed port from ledger-route.json, not a fixed 8751.
+    # A route of 8752 with a listener on 8752 must be refused.
+    import re
+    from types import SimpleNamespace
+    from tools import complete_card_classification as gate
+    host = tmp_path / 'route-host'
+    (host / 'config').mkdir(parents=True)
+    (host / 'config/ledger-route.json').write_text(json.dumps({'port': 8752, 'paused': False}), encoding='utf8')
+    assert gate.ledger_route_port(host) == 8752
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen['port'] = int(re.search(r'LocalPort (\d+)', cmd[-1]).group(1))
+        return SimpleNamespace(returncode=2)  # a listener on the routed port
+
+    monkeypatch.setattr(gate.subprocess, 'run', fake_run)
+    with pytest.raises(ValueError, match='WRITERS_NOT_OFFLINE'):
+        gate.require_writers_offline(gate.ledger_route_port(host))
+    assert seen['port'] == 8752
+
+
+def test_ledger_route_port_requires_file_and_unpaused(tmp_path):
+    from tools import complete_card_classification as gate
+    host = tmp_path / 'no-route'
+    host.mkdir()
+    with pytest.raises(ValueError, match='ROUTE_REQUIRED'):
+        gate.ledger_route_port(host)
+    (host / 'config').mkdir()
+    (host / 'config/ledger-route.json').write_text(json.dumps({'port': 8751, 'paused': True}), encoding='utf8')
+    with pytest.raises(ValueError, match='ROUTE_PAUSED'):
+        gate.ledger_route_port(host)
