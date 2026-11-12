@@ -36,6 +36,8 @@ def test_refund_takes_the_original_purchase_placement():
         ("orig", "3820", "30058533", "", "purchase", "2026-05-29", "classified", "inference", "", "trip-x", "trip-x", "항공료", ""),
         ("refund", "3820", "30058999", "30058533", "cancellation", "2026-06-01", "classified", "", "", "", "", "", ""),
     ])
+    # #815 reads both stored dates; keep the legacy placement assertion.
+    conn.execute('ALTER TABLE transactions ADD COLUMN posting_date')
     assert pair_refunds(conn) == 1
     assert conn.execute("SELECT display_tab_id, trip_id, item, classification_source FROM transactions"
                         " WHERE transaction_id='refund'").fetchone() == ("trip-x", "trip-x", "항공료", "refund_original")

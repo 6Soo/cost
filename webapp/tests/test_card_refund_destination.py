@@ -38,19 +38,27 @@ def test_refund_destination_matches_tab_and_unassigned_counts(card_db_path, monk
     for row in result['items']:
         assert row['refund_tab_member'] == (row['transaction_id'] in members)
     filtered = ct.list_for_month(card_db_path, 2026, 3, unassigned=True)
-    assert not (members & {r['transaction_id'] for r in filtered['items']})
+    # #737 / PROC-003: legacy unassigned bookmarks are accepted without filtering.
+    assert filtered['items'] == result['items']
     assert ct.year_summary(card_db_path, 2026, unassigned=True)['months'][3] == len(filtered['items'])
     search = ct.search_for_year(card_db_path, 2026, search='MERCURE')['items'][0]
     assert search['refund_tab_member'] is expected
     monkeypatch.setattr(cards_all, '_trip_context', lambda: ({}, set()))
     page = cards_all._render_month_rows([search])
     assert ("href='/board?tab=refunds'" in page) is expected
-    assert ('>미배정</span>' in page) is not expected
+    assert '>미배정</span>' not in page
+    if not expected:
+        assert '2026년 1분기 기타비용' in page
     if expected:
         assert '>취소·환불</a>' in page
         assert '실제 환급과 별개' not in page and '원본 보존' not in page
     with closing(sqlite3.connect(card_db_path)) as conn, conn:
         assert before == conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
         conn.execute("UPDATE transactions SET approval_date='' WHERE transaction_id IN ('TX-A-01','TX-A-02')")
+    # #755: a valid posting date still makes the row dateable.
+    fallback = ct.list_for_month(card_db_path, 2026, 3)['items']
+    assert next(r for r in fallback if r['transaction_id'] == 'TX-A-01')['refund_tab_member'] is expected
+    with closing(sqlite3.connect(card_db_path)) as conn, conn:
+        conn.execute("UPDATE transactions SET posting_date='' WHERE transaction_id IN ('TX-A-01','TX-A-02')")
     undated = ct.undated_list(card_db_path)['items']
     assert next(r for r in undated if r['transaction_id'] == 'TX-A-01')['refund_tab_member'] is expected
