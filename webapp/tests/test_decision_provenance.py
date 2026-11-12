@@ -176,3 +176,10 @@ def test_maintenance_report_uses_current_core_periods_without_writes(setup,tmp_p
     assert evidence[row['transaction_id']]['trip_id'] == 'A'
     assert repair._state(board.conn,row['transaction_id']) == original
     assert not (tmp_path/'data/ota-review/ota-review.sqlite').exists()
+
+
+def test_maintenance_apply_requires_preview_and_backup_before_opening_store(tmp_path,capsys):
+    from tools.repair_dist141_provenance import main
+    assert main(['--host-root',str(tmp_path),'--request-id','synthetic','--apply']) == 1
+    assert json.loads(capsys.readouterr().out)['code'] == 'PREVIEW_AND_BACKUP_REQUIRED'
+    assert not (tmp_path/'data/board.sqlite').exists()

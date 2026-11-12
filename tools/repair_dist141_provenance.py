@@ -9,6 +9,8 @@ import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app import decision_provenance as repair
+from app.db import StoreError
+from app.ota_sources import OtaSourcesError as ManifestSourceError
 from tools.complete_card_classification import load_context, load_review_evidence, require_offline_backup, read_flow
 
 
@@ -78,8 +80,9 @@ def main(argv=None):
             args.report.write_text(json.dumps(report,indent=2),encoding='utf8')
         print(json.dumps(report))
         return 0
-    except (OSError,ValueError,KeyError,sqlite3.Error) as exc:
-        code = str(exc) if isinstance(exc,ValueError) and str(exc).replace('_','').isalnum() else type(exc).__name__
+    except (OSError,ValueError,KeyError,sqlite3.Error,StoreError,ManifestSourceError) as exc:
+        code = (exc.code if isinstance(exc,(StoreError,ManifestSourceError)) else
+                str(exc) if isinstance(exc,ValueError) and str(exc).replace('_','').isalnum() else type(exc).__name__)
         print(json.dumps(dict(status='FAILED',code=code)))
         return 1
 
