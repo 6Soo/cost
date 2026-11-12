@@ -1,6 +1,30 @@
 # 서버 밖 P2 제안
 
-실행 기준은 [통합 명세](../../docs/SPEC.md) §6과 [규칙집](../../docs/DECISION_POLICY.md)이다. 운영 Board 내장 P2는 비활성 상태로 유지한다. 이 도구에는 반영·배포·규칙 등록 기능이 없다.
+실행 기준은 [통합 명세](../../docs/SPEC.md) §6과 [규칙집](../../docs/DECISION_POLICY.md)이다. 운영 Board 내장 P2는 비활성 상태로 유지한다. 아래 기존 도구는 제안·미리보기 전용이며, 후속 승인된 증분 진입점은 기존 인증 API로 반영·규칙 등록을 수행한다. 배포 기능은 없다.
+
+## 카드 수입 뒤 증분 1층
+
+[운영 절차서](../../docs/playbooks/p2-incremental.md). 이번 개발 검증에서는 운영 `--dry-run`만 실행하며 실제 모델 호출·API 반영·예약 등록은 헤드의 후속 실행이다.
+
+자동 실행 연결 비교(등록 스크립트만 포함, 등록은 헤드가 한다):
+- 별도 Windows 예약 작업: 서버 배포 없이 하루 1회 실행하고 대상 0이면 모델·API 없이 즉시 종료하지만, 로그인된 Windows 세션·ego·Codex 구독이 필요하고 수입 시점과 최대 24시간 차이가 난다.
+- Worker 주기 작업: 카드 수입 직후라 실행 순서가 정확하지만 서버 코드 변경·배포와 운영 검증 부담이 늘어난다.
+- 이번에는 서버 변경 없이 예약 작업 방식만 제안하며 `register_incremental_task.ps1`은 실행하지 않았다. Codex 한도 오류는 실패로 기록되고 다음 예약 실행에서 이어진다.
+
+```powershell
+python -m tools.p2_batch.run_incremental --dry-run
+python -m tools.p2_batch.run_incremental --propose-only --max-merchants 30 --max-calls 1
+python -m tools.p2_batch.run_incremental --api-config D:/WebLedgerHost/data/p2-api.json --max-merchants 30 --max-calls 1
+python -m tools.p2_batch.run_incremental --api-config D:/WebLedgerHost/data/p2-api.json --max-merchants 30 --max-calls 1 --register-rules
+```
+
+`scope.select`의 열린 분기·PROC-072·수동·금융·투영 보호를 그대로 사용한다. 이전 제안(유지·낮은 확신 포함)과 **그 가맹점 이름을 명시적으로 지정한 무조건 규칙이 구체 항목을 정한** 묶음만 신규에서 제외한다. `*` 전체 가맹점 규칙·패턴(가맹점 가족)·국가/기간/원본 결속 조건 규칙은 가맹점 전체를 덮지 못하므로 제외 사유가 아니며, 포괄 항목(기타경비·현지경비·여행경비)을 정한 명시 규칙도 제외하지 않는다 — 포괄 항목으로 남은 행을 AI가 다시 보게 하는 것이 목적이다. 도시·국가를 지운 별칭으로 범위를 넓히지 않는다. 대상 0이면 모델·인증 API를 호출하지 않는다. 기본 최대30묶음·모델1회, 묶음 크기30(30~50), 한 호출240초다. 실패 호출도 상한에 포함하며 혼잡·한도 오류는 실패 기록 후 다음 회차에 재시도한다. Claude 자동 전환은 없다.
+
+저널은 `D:/WebLedgerHost/data/p2-incremental.json` 하나다. 원문 입력·변경 전 값·검증된 제안·요청 지문·사용량·API 요청과 결과 진행 상태·실행별 성공/실패 집계를 포함한다. 원자 교체와 별도 배타 lock으로 중복 실행을 막는다. 잠금 파일에는 작성 PID·시작 시각을 적으며, PID가 살아 있지 않거나 2시간을 넘은 잠금은 `STALE_LOCK_RECOVERED` 실패 기록 후 자동 인수한다. 살아 있는 최근 잠금과 확인 불가한 최근 파일은 거부한다. 상태를 지워 재실행하지 않는다. API 요청은 미리보기 digest와 고정 request_id를 보내기 전에 저장하고, 응답 유실 시 그대로 재전송한다. 새로 들어온 동명 거래를 이전 제안으로 자동 확장하지 않는다.
+
+제안 전용 결과는 다음 실제 실행에서 모델 호출 없이 반영을 재개한다. 수동·금융·revision·원문·규칙이 바뀐 미준비 대상은 중단한다. 각 교정 요청은 최대50행이며 서버의 신선도·보호 가드를 통과해야 한다. **항목 교정과 규칙 등록은 따로 승인한다.** 규칙 등록은 기본 꺼짐이며 `--register-rules`를 명시한 실행에서만 반복2행 이상·높은 확신·단일 정확 가맹점·충돌 없음인 비포괄 항목을 `app.rules.normalize_rule`로 정리해 `/api/imports/rules`에 등록한다. 효과는 item 하나, 구매 조건, P2 실행 출처를 유지한다. 예약·상품 혼합은 기존 1층의 유지 판정을 따르며 단건은 승격하지 않는다. 교정만 완료한 묶음은 소급 등록하지 않으며, 이미 초안이 남은 묶음은 다음 `--register-rules` 실행에서 등록을 마친다.
+
+초기 저널은 기존 `proposals.jsonl`로 `python -m tools.p2_batch.initialize_history --proposals <비공개경로>`를 실행해 만든다. 현재는 이전 원문이 삭제되어, 보존된 실행 전 백업과 당시 선택 코드 `d2a0c4428c7e0e56a320e7c0f15c639490c6d47c`로 585묶음/1,258행/13회 완료 집계와 대조해 초기화했다. 이는 원제안 파일의 직접 복원이 아닌 대상 재현임을 저널에 명시한다. 기본 이력 누락·집계 불일치는 실행을 거부한다.
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'

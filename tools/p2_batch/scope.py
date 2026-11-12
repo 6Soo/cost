@@ -23,7 +23,7 @@ FIELDS = ('transaction_id source_hash issuer card_tail card_kind transaction_dir
           'classification_source classification_basis item display_tab_id trip_id revision decided_at').split()
 
 
-def read_projection(path):
+def read_projection(path, *, completed_evidence=None):
     started = time.monotonic()
     with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=2)) as conn:
         conn.row_factory = sqlite3.Row
@@ -56,8 +56,8 @@ def read_projection(path):
     # Keep the projection transaction short. Resolve source-bound formal links
     # after closing it, and bind each exception back to its projected source hash.
     host = Path(path).resolve().parent.parent
-    data['completed_period_evidence'] = {}
-    if (host/'config/card-flow.json').is_file():
+    data['completed_period_evidence'] = completed_evidence if completed_evidence is not None else {}
+    if completed_evidence is None and (host/'config/card-flow.json').is_file():
         from tools.complete_card_classification import load_completed_period_evidence
         trips = [dict(t,trip_id=t['tab_id']) for t in data['trip_tabs'] if not t['deleted']]
         with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)) as reader:
@@ -78,7 +78,7 @@ def projection_disagreements(data):
                 for key in ('trip_id', 'display_tab_id'))}
 
 
-def select(data):
+def select(data, *, exclusion_reasons=None):
     trips = {r['tab_id']: r for r in data['trip_tabs'] if not r['deleted']}
     opened = {k for k, v in trips.items() if v['starts_on'] >= '2026-06-30'}
     closed = set(trips)-opened
@@ -96,6 +96,8 @@ def select(data):
         if excluded(row, list(trips.values()), evidence=data.get('completed_period_evidence', {}).get(row['transaction_id']),
                     manual=row['transaction_id'] in manual):
             protected['COMPLETED_PERIOD'] += 1
+            if exclusion_reasons is not None:
+                exclusion_reasons[row['transaction_id']] = 'COMPLETED_PERIOD'
             continue
         q = destination(row)
         if tab(row) not in opened and not (q and (q['year'], q['quarter']) >= (2026, 3)):
@@ -124,6 +126,8 @@ def select(data):
             reason = ''
         if reason:
             protected[reason] += 1
+            if exclusion_reasons is not None:
+                exclusion_reasons[row['transaction_id']] = reason
         else:
             eligible.append(row)
     general = [r for r in eligible if r['item'] in GENERAL]
