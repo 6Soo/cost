@@ -125,11 +125,23 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 page = browser.new_page(viewport={'width': 390, 'height': 900})
                 page.goto(self.base + '/receipts?trip=' + self.trip)
 
-                def lose_response(route):
-                    route.fetch()
-                    route.abort()
-
-                page.route('**/api/receipts/image', lose_response, times=1)
+                # Lose the first response after its real body has arrived. Browser
+                # route.abort can race fetch's response/body completion on Windows.
+                # Keep the actual upload, storage lookup and recovery UI in the test.
+                page.evaluate("""() => {
+                  const realFetch = window.fetch.bind(window);
+                  window.uploadPosts = 0;
+                  window.fetch = async (url, options) => {
+                    const response = await realFetch(url, options);
+                    if (url === '/api/receipts/image' && options?.method === 'POST'
+                        && ++window.uploadPosts === 1) {
+                      if (!response.ok) throw new Error('Synthetic upload did not commit');
+                      await response.json();
+                      throw new TypeError('Failed to fetch');
+                    }
+                    return response;
+                  };
+                }""")
                 page.set_input_files('#img-file', {
                     'name': 'response-lost.png', 'mimeType': 'image/png', 'buffer': review.PNG,
                 })
@@ -137,6 +149,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 page.get_by_text('저장 결과 복구됨', exact=False).wait_for(timeout=30000)
                 self.assertEqual(page.get_by_role('button', name='다시 시도').count(), 0)
                 self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+                self.assertEqual(page.evaluate('window.uploadPosts'), 1)
                 self.assertIsNone(page.locator('#manual-preview').get_attribute('hidden'))
                 page.reload()
                 self.assertIn('response-lost.png', page.locator('section[aria-label="저장된 파일"]').inner_text())

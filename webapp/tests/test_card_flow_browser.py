@@ -54,8 +54,9 @@ class CardFlowBrowserTests(unittest.TestCase):
                         self.assertEqual(page.locator('#expense-cleanup').count(), 0)
 
                         page.goto(base + '/import#expense-cleanup')
-                        page.wait_for_url('**/my-actions')
-                        self.assertTrue(page.get_by_role('heading', name='내 확인 필요').is_visible())
+                        page.wait_for_url('**/cards/all?panel=upload#expense-cleanup')
+                        self.assertTrue(page.get_by_role('heading', name='카드 내역', exact=True).is_visible())
+                        self.assertEqual(page.locator('#questions').count(), 0)
                         self.assertNotIn('/import', page.url)
                         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
                         page.close()
@@ -649,12 +650,16 @@ class CardFlowBrowserTests(unittest.TestCase):
                         page.set_viewport_size({'width':width, 'height':height})
                         self.assertEqual(page.goto(f'http://127.0.0.1:{server.server_address[1]}/').status, 200)
                         page.evaluate('document.fonts.ready')
-                        self.assertNotIn('장부 반영 대기', page.locator('.home-status').inner_text())
+                        self.assertNotIn('장부 반영 대기', page.locator('.home-overview').inner_text())
                         self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-                        self.assertTrue(page.locator('.home-review.primary').is_visible())
-                        visible = page.locator('.home-trip').evaluate_all(
+                        self.assertTrue(page.locator('.home-primary').is_visible())
+                        self.assertEqual(page.locator('.home-review').count(), 0)
+                        visible = page.locator('.home-trips tbody tr').evaluate_all(
                             'els => els.filter(el => el.getBoundingClientRect().bottom <= innerHeight).length')
-                        self.assertGreaterEqual(visible, 5)
+                        self.assertGreaterEqual(visible, 1)
+                        self.assertEqual(page.locator('.home-trips tbody tr').count(), 6)
+                        page.locator('.home-trips tbody tr').last.scroll_into_view_if_needed()
+                        self.assertTrue(page.locator('.home-trips tbody tr').last.is_visible())
                         artifact = Path('.local-archive/pending-authority-verification')
                         artifact.mkdir(parents=True, exist_ok=True)
                         page.screenshot(path=str(artifact/f'home-{width}.png'))
@@ -688,12 +693,12 @@ class CardFlowBrowserTests(unittest.TestCase):
                     base = f'http://127.0.0.1:{server.server_address[1]}'
                     response = page.goto(base + '/')
                     self.assertEqual(response.status, 200)
-                    self.assertTrue(page.get_by_role('heading', name='장부 현황', exact=False).is_visible())
+                    self.assertTrue(page.get_by_role('heading', name='정산 현황', exact=True).is_visible())
                     self.assertEqual(page.locator('input[type=file]').count(), 0)
-                    self.assertEqual(page.locator('.home-review').get_attribute('href'), '/my-actions')
+                    self.assertEqual(page.locator('.home-review').count(), 0)
                     self.assertNotIn('지출 정리', page.locator('body').inner_text())
-                    self.assertEqual(page.locator('.home-secondary a[href="/cards/all?panel=upload"]').count(), 1)
-                    page.locator('.home-secondary a[href="/cards/all?panel=upload"]').click()
+                    self.assertEqual(page.locator('.home-primary[href="/cards/all?panel=upload"]').count(), 1)
+                    page.locator('.home-primary[href="/cards/all?panel=upload"]').click()
                     page.wait_for_url(base + '/cards/all?panel=upload')
                     self.assertTrue(page.locator('#card-upload-panel').is_visible())
                     self.assertTrue(page.locator('#card-upload-files').is_visible())
@@ -726,7 +731,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.on('pageerror', lambda e:errors.append(str(e)))
                     base = f'http://127.0.0.1:{server.server_address[1]}'
                     page.goto(base + '/')
-                    page.locator('.home-secondary a[href="/cards/all?panel=upload"]').click()
+                    page.locator('.home-primary[href="/cards/all?panel=upload"]').click()
                     page.wait_for_url(base + '/cards/all?panel=upload')
                     self.assertTrue(page.locator('#card-upload-panel').is_visible())
                     self.assertTrue(page.locator('#card-upload-files').is_visible())
@@ -764,17 +769,21 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(pipe.get_batch(batch)['rows'][0]['classification_state'],'classified')
                     self.assertFalse(pipe.get_batch(batch)['rows'][0]['decided'])
                     if not form.is_visible():
-                        page.locator('#questions summary').first.click()
+                        page.locator('[data-edit]').first.click()
                     form.locator('input[name=item]').fill('사무용품비')
                     with page.expect_response(lambda response: response.url.endswith('/decision') and response.request.method == 'POST') as saved:
-                        form.get_by_role('button',name='저장하고 자동 반영').click()
+                        form.get_by_role('button',name='저장',exact=True).click()
                     self.assertEqual(saved.value.status,200,saved.value.json())
                     pipe.classify_batch(batch)
                     actual=pipe.get_batch(batch)['rows'][0]
                     self.assertTrue(actual['decided'])
                     self.assertEqual(actual['item'],'사무용품비')
+                    self.assertEqual(actual['trip_id'], '')
+                    self.assertEqual(actual['display_tab_id'], 'quarter:2026:4')
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
-                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0],1)
+                    self.assertEqual(server.card_store.get_row('card-'+row['transaction_id'])['display_tab_id'], 'quarter:2026:4')
                     self.assertEqual(errors,[])
                     browser.close()
             finally:
@@ -799,6 +808,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'description':'', 'note':'',
                     'decided':False, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_evidence_labels':['예약 근거 있음','여행 배정 확인 권장'],
+                    'booking_ref':'SYNTHETIC-BOOKING',
+                    'service_period':'2026-07-11 ~ 2026-07-12',
                 },
                 {
                     'transaction_id':'mail-unlinked', 'revision':1, 'merchant':'TRIP.COM',
@@ -808,6 +819,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
                     'decided':False, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_evidence_labels':['메일 있음 · 연결 확인 필요','분류 확인 권장'],
+                    'ota_link_status':'UNLINKED',
+                    'ota_candidate_notes':['OTA 후보(미확정): 합성 · 합성 · 메일 근거와 결제 연결 미검증'],
                 },
                 {
                     'transaction_id':'cancel-refund', 'revision':1, 'merchant':'TRIP.COM',
@@ -872,16 +885,23 @@ class CardFlowBrowserTests(unittest.TestCase):
                             page.goto(
                                 f'http://127.0.0.1:{server.server_address[1]}'
                                 '/import?batch=synthetic-evidence&transaction=booking-trip#preview')
-                            page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).first.wait_for()
-                            self.assertGreater(page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).count(),0)
-                            self.assertGreater(page.get_by_text('메일 있음 · 연결 확인 필요 · 분류 확인 권장',exact=True).count(),0)
-                            self.assertEqual(page.locator('#holds summary').count(),0)
-                            self.assertGreater(page.get_by_text('취소 메일 있음 · 환불 확인 필요',exact=True).count(),0)
-                            self.assertGreater(page.get_by_text('메일 연결 없음 · 분류 확인 권장',exact=True).count(),0)
-                            self.assertEqual(page.get_by_text('확인 권장',exact=True).count(),0)
-                            self.assertEqual(page.locator('#questions .review-item[open]').count(),1)
-                            self.assertLessEqual(page.locator('#questions .review-item').first.locator('summary').evaluate('el=>el.getBoundingClientRect().height'),96)
-                            self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),width)
+                            page.locator('#preview tbody tr').first.wait_for()
+                            self.assertEqual(page.locator('#preview tbody tr').count(), 1)
+                            self.assertIn('SYNTHETIC-BOOKING', page.locator('#preview').inner_text())
+                            page.goto(page.url.removesuffix('#preview'))
+                            page.locator('#preview tbody tr').nth(4).wait_for()
+                            self.assertEqual(page.locator('#preview tbody tr').count(), 5)
+                            self.assertEqual(page.locator('#questions').count(), 0)
+                            self.assertEqual(page.locator('#holds').count(), 0)
+                            for disclosure in page.locator('#preview details > summary').all():
+                                disclosure.click()
+                            self.assertIn('추론 배정 · 낮음 · 일정 근거', page.locator('#preview').inner_text())
+                            self.assertIn('SYNTHETIC-BOOKING', page.locator('#preview').inner_text())
+                            self.assertIn('2026-07-11 ~ 2026-07-12', page.locator('#preview').inner_text())
+                            self.assertIn('메일 근거와 결제 연결 미검증', page.locator('#preview').inner_text())
+                            self.assertIn('추론 배정 · 낮음 · 예약 연결 없음', page.locator('#preview').inner_text())
+                            self.assertEqual(page.locator('#preview [data-edit]').count(), 5)
+                            self.assertEqual(page.evaluate('document.documentElement.scrollWidth'), width)
                             page.close()
                     browser.close()
             finally:
@@ -913,9 +933,9 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.on('pageerror',lambda e:errors.append(str(e)))
                     base=f'http://127.0.0.1:{server.server_address[1]}'
                     page.goto(base+'/import?batch='+batch+'&transaction='+auto['transaction_id'])
-                    page.locator('#questions form[data-index]').first.wait_for()
-                    page.locator('#questions h2').filter(has_text='Synthetic auto classification').wait_for()
-                    self.assertEqual(page.locator('#questions form[data-index]').first.locator('input[name=item]').input_value(),'소모품')
+                    page.locator('#edit-panel form[data-index]').first.wait_for()
+                    page.locator('#edit-panel h2').filter(has_text='Synthetic auto classification').wait_for()
+                    self.assertEqual(page.locator('#edit-panel form[data-index]').first.locator('input[name=item]').input_value(),'소모품')
                     if not page.locator('#expense-tab-rules').is_visible():
                         page.locator('.expense-tools > summary').click()
                     page.locator('#expense-tab-rules').click()
@@ -970,15 +990,15 @@ class CardFlowBrowserTests(unittest.TestCase):
                     state = page.request.get(base + '/api/imports/' + batch).json()
                     transaction = state['rows'][0]['transaction_id']
                     page.goto(base + '/import?batch=' + batch + '&transaction=' + transaction)
-                    page.locator('#questions form[data-index]').first.wait_for()
-                    self.assertIn('합성상점', page.locator('#questions').inner_text())
+                    page.locator('#edit-panel form[data-index]').first.wait_for()
+                    self.assertIn('합성상점', page.locator('#edit-panel').inner_text())
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
                     page.locator('select[name=display_tab_id]').select_option(trip)
                     page.locator('input[name=item]').fill('소모품')
                     page.locator('textarea[name=note]').fill('사무실 소모품입니다')
-                    page.locator('input[name=reuse_rule]').check()
+                    self.assertEqual(page.locator('input[name=reuse_rule]').count(), 0)
                     with page.expect_response('**/decision') as decision:
-                        page.get_by_role('button',name='저장하고 자동 반영').click()
+                        page.get_by_role('button',name='저장',exact=True).click()
                     self.assertEqual(decision.value.status, 200)
                     self.assertEqual(decision.value.json()['ledger_recording']['status'], 'recorded')
                     page.locator('#status').get_by_text('저장했습니다.',exact=True).wait_for()

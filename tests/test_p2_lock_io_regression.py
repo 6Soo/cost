@@ -473,6 +473,7 @@ def test_same_size_edit_with_restored_mtime_invalidates_source_stamp(tmp_path):
     from app import p2_case
     source = tmp_path / 'gmail-a.json'
     source.write_text('{"responses": [1]}', encoding='utf-8')
+    os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
     stat = source.stat()
     before = p2_case._stamp([source])
     source.write_text('{"responses": [2]}', encoding='utf-8')

@@ -57,8 +57,9 @@ def test_render_cleanup_trip_options():
 
 def test_render_cleanup_breakdown():
     html = card_cleanup_ui.render_cleanup_breakdown({"no_item": 12, "no_trip": 5, "protected": 3}, ledger_total=7)
-    assert "항목 미분류 12건" in html
-    assert "여행 미배정 12건" in html
+    assert "카드 자료 20건" in html
+    assert "장부 자료 7건" in html
+    assert "항목 미분류" not in html and "여행 미배정" not in html
     assert "보류·오류" not in html
 
 
