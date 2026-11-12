@@ -1,3 +1,12 @@
+## 2026-11-13 카드사 로그인 자동화 모듈 착수 — 합성 검증 완료, 라이브 검증은 사용자 등록 후
+
+- 소유자 결정(2026-11-13): 카드사 3곳 법인/기업 조회 로그인 자동화 위임·착수, 로그인 시도·비밀번호 입력 허용. 통합 명세 §7의 "카드사 로그인은 자동화하지 않는다"를 결정 기록 D29로 대체했다. 대상은 국민 기업카드·하나카드·IBK 기업은행 카드의 이용내역 조회 로그인이다.
+- 구현(`tools/card_login/`): DPAPI 사용자 범위 암호화 저장소(`D:/WebLedgerHost/secrets/card-login/`), 대화형 등록 `register_credentials.ps1`(`Read-Host -AsSecureString`, 화면 미표시), 일회성 named pipe 읽기 헬퍼 `read_credentials.ps1`+`credentials.mjs`(비밀 값은 인자·환경변수·stdout·디스크 평문에 없음), 사이트당 1회 시도·추가인증 handOff·성공 시 조회화면 확인 후 로그아웃 오케스트레이션 `common.mjs::ensureCardLogin`, 사이트 모듈 kb/hana/ibk, 진입점 `entry.mjs`. 계획서 [카드 로그인 자동화](playbooks/card-login-automation.md).
+- 조사: 국민은 ego-browser DOM 관찰(아이디/공동인증서 2탭, ID/PW 입력란 readonly+AhnLab ASTx2 키보드보안·가상키패드, Delfino G3 인증서). 하나·기업은 공개 정보 기반 틀(NOT_VERIFIED). 세 곳 모두 ID/PW 직접입력은 키보드보안·가상키패드로 차단될 가능성이 높고 공동인증서·간편인증 경로가 현실적. 보안프로그램 설치는 하지 않고 필요 여부만 기록한다.
+- 검증: 합성 검사 통과 — 자격 증명 DPAPI 왕복·암호화 파일 평문 부재·pipe 전달·미등록 경로(`tests/test_card_login_credentials.py`), 로그인 로직·마스킹·1회 가드·추가인증 handOff·상태 파일 평문 부재(`tests/card_login/test_login_logic.mjs`). 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` 252 pass/0 fail/0 skip PASSED. **실제 로그인 검증 미실행**: 운영 자격 증명 저장소 미등록 + 브라우저 작업 공간 사용자 제어 전환.
+- 막힌 점·남은 일: (1) 사용자가 카드사별 `register_credentials.ps1`로 자격 증명 등록(최초 1회). (2) 브라우저 작업 공간이 사용자 제어로 전환되어 하나·기업 라이브 화면 조사와 실제 로그인 1회 검증은 등록 후 재개 필요. (3) 하나·기업 URL·선택자·성공 판정 라이브 확정. (4) 수집 스크립트 통합 시 반복 실행 간 계정 잠금 방지 영속 가드는 후속(현재는 실행당 1회 가드).
+- 병행 작업자(`feat/kb-card-collect-script-20261113`)의 `tools/collect_kb_card.mjs`·`tools/import_kb_card_download.py`는 고치지 않았다. 로그인 모듈은 `ensureCardLogin` 인터페이스로 붙는다. 병합·배포·운영 쓰기 없음. 최종 SHA·검수는 PR 기록을 따른다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
