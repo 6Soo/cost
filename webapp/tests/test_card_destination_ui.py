@@ -44,8 +44,18 @@ def test_home_and_sidebar_have_material_navigation_only(monkeypatch):
             return False
 
     class Conn:
+        class Result:
+            def __iter__(self):
+                return iter(())
+
+            def fetchone(self):
+                return (3, 0)
+
+            def fetchall(self):
+                return []
+
         def execute(self, *_args):
-            return SimpleNamespace(fetchone=lambda: (3, 0), fetchall=lambda: [])
+            return self.Result()
 
     board = SimpleNamespace(
         conn=Conn(),
@@ -68,7 +78,7 @@ def test_home_and_sidebar_have_material_navigation_only(monkeypatch):
     sidebar = ledger_design._nav_html("", "", quick_view=True)
     assert "my-actions" not in sidebar
     assert "\ub0b4 \ud655\uc778 \ud544\uc694" not in sidebar
-    assert "\uce74\ub4dc \ub0b4\uc5ed" in sidebar
+    assert "href='/cards/all'" in sidebar
 
 
 def test_legacy_cleanup_is_reading_surface_without_queue_copy():

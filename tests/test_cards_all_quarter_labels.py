@@ -21,9 +21,9 @@ def test_quarter_bucket_visible_even_when_not_valid_real_trip():
 
 def test_raw_internal_source_is_not_shown_in_details():
     html = card_detail_html(_row())
-    assert '자동 분류 · 카드 잔여 비용 규칙' in html
+    assert '<dt>분류 출처</dt><dd>자동</dd>' in html
     assert 'owner_card_residual' not in html
 
 
 def test_unknown_source_does_not_expose_internal_identifier():
-    assert _classification_source_label('internal_future_source') == '자동 분류 · 기타 근거'
+    assert _classification_source_label('internal_future_source') == '출처 미확인'
