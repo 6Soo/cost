@@ -142,6 +142,18 @@ def counts(conn, trips=(), evidence=None):
     return result
 
 
+def load_completed_period_evidence(conn, host, trips):
+    """Offline tools revalidate formal links from registered current sources."""
+    from app.closed_period import completed_period
+    dates = conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
+    completed = {r[0] for r in dates if completed_period(dict(zip(('approval_date','posting_date'),r[1:])))}
+    if not completed:
+        return {}
+    from tools.repair_dist141_provenance import canonical_report
+    evidence,_ = load_review_evidence(conn,host,trips,report=canonical_report(conn,host))
+    return {k:v for k,v in evidence.items() if k in completed and v.get('formal_link')}
+
+
 def protected_state(conn):
     """Compare everything except the explicitly authorized classification columns."""
     result = {}

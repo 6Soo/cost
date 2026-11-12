@@ -53,6 +53,15 @@ def read_projection(path):
             "SELECT 1 FROM sqlite_master WHERE name='change_log'").fetchone() else [])
         conn.rollback()
     data['read_seconds'] = round(time.monotonic()-started, 3)
+    # Keep the projection transaction short. Resolve source-bound formal links
+    # after closing it, and bind each exception back to its projected source hash.
+    host = Path(path).resolve().parent.parent
+    data['completed_period_evidence'] = {}
+    if (host/'config/card-flow.json').is_file():
+        from tools.complete_card_classification import load_completed_period_evidence
+        trips = [dict(t,trip_id=t['tab_id']) for t in data['trip_tabs'] if not t['deleted']]
+        with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)) as reader:
+            data['completed_period_evidence'] = load_completed_period_evidence(reader,host,trips)
     return data
 
 

@@ -43,7 +43,7 @@ def _row(conn, table, column, identity):
     return dict(zip((d[0] for d in cursor.description), values)) if values else None
 
 
-def preview(conn, corrections, trips, *, allow_recorded_ai=False):
+def preview(conn, corrections, trips, *, allow_recorded_ai=False, completed_evidence=None):
     from .decision_provenance import active_decision_sql, closed_review_required
     valid = canonical_trip_periods(trips)
     targets = []
@@ -56,9 +56,12 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False):
         row = _row(conn, 'transactions', 'transaction_id', tid)
         if not row or row['source_hash'] != correction['source_hash']:
             raise ValueError('CORRECTION_SOURCE_CHANGED')
-        from .closed_period import excluded
-        if excluded(row, trips):
+        from .closed_period import excluded, completed_period, exception_trip
+        proof = (completed_evidence or {}).get(tid)
+        if excluded(row, trips, evidence=proof):
             raise ValueError('CORRECTION_PROTECTED')
+        if completed_period(row) and correction['trip_id'] != exception_trip(row,trips,evidence=proof):
+            raise ValueError('CORRECTION_INVALID_ATTRIBUTION')
         if 'revision' in correction and correction['revision'] != row['revision']:
             raise ValueError('CORRECTION_PREVIEW_STALE')
         source = correction.get('classification_source', 'inference')
@@ -104,12 +107,15 @@ def preview(conn, corrections, trips, *, allow_recorded_ai=False):
         if board and board['row_kind'] != 'expense':
             raise ValueError('CORRECTION_PROJECTION_CONFLICT')
         targets.append(dict(before=row, ledger=ledger, board=board, correction=dict(correction)))
-    payload = json.dumps([targets, trips], ensure_ascii=False, sort_keys=True, default=str)
+    inputs = [targets,trips]
+    if completed_evidence:
+        inputs.append({k:v for k,v in completed_evidence.items() if k in seen})
+    payload = json.dumps(inputs, ensure_ascii=False, sort_keys=True, default=str)
     return dict(digest=hashlib.sha256(payload.encode()).hexdigest(), targets=targets,
                 count=len(targets))
 
 
-def apply(conn, expected, corrections, trips, *, request_id, allow_recorded_ai=False):
+def apply(conn, expected, corrections, trips, *, request_id, allow_recorded_ai=False, completed_evidence=None):
     if not request_id:
         raise ValueError('CORRECTION_REQUEST_REQUIRED')
     payload_hash = hashlib.sha256(json.dumps(corrections,sort_keys=True).encode()).hexdigest()
@@ -122,7 +128,8 @@ def apply(conn, expected, corrections, trips, *, request_id, allow_recorded_ai=F
                 raise ValueError('CORRECTION_REQUEST_CONFLICT')
             result = dict(json.loads(previous[1]), applied=0, replay=True)
         else:
-            current = preview(conn,corrections,trips,allow_recorded_ai=allow_recorded_ai)
+            current = preview(conn,corrections,trips,allow_recorded_ai=allow_recorded_ai,
+                              completed_evidence=completed_evidence)
             if current['digest'] != expected['digest']:
                 raise ValueError('CORRECTION_PREVIEW_STALE')
             for target in current['targets']:

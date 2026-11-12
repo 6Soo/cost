@@ -9,9 +9,11 @@ LEGACY_REASONS = {'no_item': 'classification', 'no_trip': 'classification',
 def completed_period_sql(board, alias='t'):
     """PROC-072 uses the same boundary before review lists and counters."""
     from app.closed_period import excluded_ids
+    from .card_classification_completion import completed_period_evidence
     from . import read_scope
     ids = read_scope.remember(('completed-period-exclusions',id(board)),
-                             lambda: excluded_ids(board.conn,board.list_trips()))
+                             lambda: excluded_ids(board.conn,board.list_trips(),
+                                                   evidence=completed_period_evidence(board)))
     quoted = ','.join("'"+tid.replace("'","''")+"'" for tid in sorted(ids)) or 'SELECT NULL WHERE 0'
     return f'{alias}.transaction_id NOT IN ({quoted})'
 

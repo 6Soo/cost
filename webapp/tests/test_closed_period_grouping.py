@@ -67,6 +67,7 @@ def test_p1_reconsider_and_latest_trip_fallback_skip_completed_but_accept_formal
     assert p1.infer_trip(dict(approval_date='',posting_date='2025-10-03'),TRIPS)[0] == ''
     tid=rows[0]['transaction_id']
     evidence={tid:fact(rows[0],'B')}
+    assert len(p1.plan(board.conn,TRIPS,evidence=evidence)['targets']) == 1
     plan=p1.plan(board.conn,TRIPS,reconsider=True,evidence=evidence)
     assert len(plan['targets']) == 1
     assert plan['targets'][0]['id'] == tid
@@ -182,6 +183,80 @@ def test_only_source_bound_exact_central_facts_create_an_exception():
     for changes in [dict(inferred_link=True),dict(core_link=False),dict(source_sha256=''),
                     dict(service_period_basis='LINK-108'),dict(reservation_status='cancelled'),dict(period_conflict=True)]:
         assert boundary.formal_facts([dict(source,**changes)],TRIPS[:1]) == {}
+
+
+def test_formal_exception_reaches_real_p2_prepare_preview_apply_and_is_bound_to_trip(setup):
+    from app import ai_classification as ai, classification_correction as correction
+    board,_,_,rows=setup
+    c=board.conn
+    old_rows(c)
+    tid=rows[0]['transaction_id']
+    evidence={tid:fact(rows[0])}
+    # No P1 prerequisite mock: the real completion plan must be stable first.
+    stage=p1.plan(c,TRIPS,transaction_ids={tid},evidence=evidence)
+    p1.apply(c,stage,TRIPS,transaction_ids={tid},evidence=evidence)
+    assert not p1.plan(c,TRIPS,transaction_ids={tid},evidence=evidence)['targets']
+    request=ai.prepare(c,TRIPS,{tid},reconsider=True,completed_evidence=evidence)
+    assert len(request['cases']) == 1
+    assert {t['trip_id'] for t in request['cases'][0]['trips']} == {'A'}
+    response=dict(request_digest=request['digest'],execution=dict(kind='connected_agent',provider='synthetic',model='synthetic',run_id='formal'),
+        results=[dict(transaction_id=tid,trip_id='A',item='식비',basis='synthetic service evidence',uncertainty='')])
+    changed={tid:dict(evidence[tid],service_period=dict(starts_on='2026-10-03',ends_on='2026-10-04'))}
+    with pytest.raises(ValueError,match='AI_REQUEST_STALE'):
+        ai.preview(c,TRIPS,request,response,completed_evidence=changed)
+    fix=dict(transaction_id=tid,source_hash=rows[0]['source_hash'],trip_id='B',item='식비',basis='synthetic')
+    with pytest.raises(ValueError,match='CORRECTION_INVALID_ATTRIBUTION'):
+        correction.preview(c,[fix],TRIPS,completed_evidence=evidence)
+    ai.preview(c,TRIPS,request,response,completed_evidence=evidence)
+    result=ai.apply(c,TRIPS,request,response,request_id='formal-p2',completed_evidence=evidence)
+    assert result['applied'] == 1
+    assert c.execute('SELECT trip_id,item FROM transactions WHERE transaction_id=?',(tid,)).fetchone() == ('A','식비')
+    assert not ai.prepare(c,TRIPS,{tid},reconsider=True)['cases']
+
+
+def test_review_and_counters_use_fresh_published_formal_facts_not_source_labels(setup,monkeypatch):
+    from webapp.card_flow import CardFlow,batch_catalog,_cleanup_card_count
+    from webapp.provisional_trip_review import read_page
+    board,flow,batch,rows=setup
+    old_rows(board.conn)
+    board.conn.execute("UPDATE transactions SET classification_state='needs_review',item=''")
+    board.conn.commit()
+    monkeypatch.setattr(board,'list_trips',lambda:[dict(TRIPS[0],tab_id='A',display_key='synthetic',deleted=False,archived=False)])
+    monkeypatch.setattr(CardFlow,'trip_valid',lambda *a:True)
+    monkeypatch.setattr(CardFlow,'_held_ota_snapshot',lambda *a:({'synthetic':True},True))
+    source=dict(transaction_id=rows[0]['transaction_id'],source_hash=rows[0]['source_hash'],core_link=True,
+        inferred_link=False,source_sha256='synthetic-evidence',reservation_status='confirmed',period=fact(rows[0])['service_period'])
+    monkeypatch.setattr(CardFlow,'_canonical_snapshot_report',lambda *a:dict(matches=[source]))
+    assert batch_catalog(board)[0]['questions'] == 1
+    assert _cleanup_card_count(board) == 1
+    assert read_page(flow,batch)['total'] == 1
+    monkeypatch.setattr(CardFlow,'_held_ota_snapshot',lambda *a:({'synthetic':True},False))
+    assert batch_catalog(board)[0]['questions'] == 0
+    assert _cleanup_card_count(board) == 0
+
+
+def test_real_p2_projection_loads_formal_evidence_before_selection(setup,tmp_path,monkeypatch):
+    from tools.p2_batch.scope import read_projection,select
+    import tools.complete_card_classification as loader
+    board,_,_,rows=setup
+    old_rows(board.conn)
+    trip=board.create_trip(starts_on='2026-10-01',ends_on='2026-10-05',destination='synthetic',client_request_id='projection-trip')['tab_id']
+    board.conn.execute('UPDATE transactions SET trip_id=?,display_tab_id=?',(trip,trip))
+    board.conn.commit()
+    host=tmp_path/'projection-host'
+    (host/'data').mkdir(parents=True)
+    (host/'config').mkdir()
+    (host/'config/card-flow.json').write_text('{}')
+    db=host/'data/board.sqlite'
+    with sqlite3.connect(db) as target:board.conn.backup(target)
+    tid=rows[0]['transaction_id']
+    def loaded(conn,root,trips):
+        assert root == host.resolve()
+        assert trips[0]['trip_id'] == trip
+        return {tid:fact(rows[0],trip)}
+    monkeypatch.setattr(loader,'load_completed_period_evidence',loaded)
+    projection=read_projection(db)
+    assert [r['transaction_id'] for r in select(projection)[2]] == [tid]
 
 
 def test_copy_apply_requires_fresh_verified_backup_and_checks_state(setup,tmp_path,monkeypatch):

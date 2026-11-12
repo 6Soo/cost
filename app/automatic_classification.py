@@ -323,7 +323,8 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
     if existing_tab and not (chosen['trip_id'] in valid or chosen['display_tab_id'] in valid):
         chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab,
                       display_tab_id=existing_tab)
-    fact = evidence.get(tid) if reconsider else None
+    from .closed_period import completed_period
+    fact = evidence.get(tid) if reconsider or completed_period(row) else None
     valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
                       and fact.get('trip_id') in valid
                       and row['transaction_direction'] == 'purchase')
@@ -406,6 +407,8 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
     from .trip_selection import is_fukutake_purchase
     owner_item_correction = is_fukutake_purchase(row) and chosen['item'] != row['item']
     needs_completion = ((quarter_assigned and chosen['display_tab_id'] != row['display_tab_id'])
+                        or (completed_period(row) and valid_fact and any(
+                            chosen[k] != row[k] for k in ('trip_id','display_tab_id','item')))
                         or owner_item_correction or reconsider or row['classification_state'] != 'classified' or not row['item']
                         or (not special and valid and not (row['trip_id'] in valid or row['display_tab_id'] in valid))
                         or (existing_tab and row['display_tab_id'] in (None, '', 'unclassified')
