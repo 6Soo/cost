@@ -20,14 +20,28 @@ def test_outside_period_completes_in_payment_quarter_and_service_period_still_wi
     p1.apply(c,plan,TRIPS)
     assert set(c.execute('SELECT trip_id,display_tab_id,item FROM transactions'))=={('', 'quarter:2026:3', '분기 기타비용')}
     # A verified source-bound reservation may be paid before the actual trip.
-    c.execute("UPDATE transactions SET item='숙박비',classification_source='inference',display_tab_id='',trip_id=''")
-    c.commit()
     from app.automatic_classification import _read
     evidence={r['transaction_id']:dict(source_hash=r['source_hash'],trip_id='A',item='숙박비',basis='예약 이용기간',
                 service_period=dict(starts_on='2026-10-02',ends_on='2026-10-03')) for r in _read(c)}
     reviewed=p1.plan(c,TRIPS,reconsider=True,evidence=evidence)
     p1.apply(c,reviewed,TRIPS,reconsider=True,evidence=evidence)
     assert {r[0] for r in c.execute('SELECT trip_id FROM transactions')}=={'A'}
+
+
+def test_p2_can_keep_p1_missing_date_destination(setup):
+    from app import ai_classification as ai
+    c=setup[0].conn
+    c.execute("UPDATE transactions SET approval_date='',posting_date=''")
+    c.commit()
+    p1.apply(c,p1.plan(c,TRIPS),TRIPS)
+    tid=setup[3][0]['transaction_id']
+    request=ai.prepare(c,TRIPS,[tid],reconsider=True)
+    target=p1.infer_trip(p1._read(c,[tid])[0],TRIPS)[0]
+    assert target
+    result=dict(transaction_id=tid,trip_id=target,item='식비',basis='날짜 미상 기존 귀속 유지',uncertainty='이용일 미상')
+    response=dict(request_digest=request['digest'],results=[result],
+        execution=dict(kind='connected_agent',provider='codex',model='gpt-6.1-sol',run_id='synthetic-missing-date'))
+    assert ai.preview(c,TRIPS,request,response)['count']==1
 
 
 def test_repair_apply_replay_restore_protects_source_finance_and_projections(setup):

@@ -333,6 +333,16 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
     valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
                       and fact.get('trip_id') in valid
                       and row['transaction_direction'] == 'purchase')
+    from .classification_provenance import CODE_SOURCES
+    automatic_quarter = (row['classification_source'] in CODE_SOURCES
+        and row['item'] == '분기 기타비용' and not row.get('trip_id')
+        and str(row.get('display_tab_id') or '').startswith('quarter:')
+        and any(marker in (row.get('classification_basis') or '') for marker in (
+            '실제 여행 후보 없음 · 결제일 기준 분기 기타비용', '일반 준비기간 추론 폐지')))
+    if valid_fact and automatic_quarter:
+        # A derived fallback is not a user-selected item. New source-bound
+        # reservation evidence still takes precedence over the payment date.
+        chosen.update(item=fact.get('item') or infer_item(dict(chosen, item=''))[0], description='')
     # A recorded calendar guess is still an automatic inference. A later,
     # source-bound reservation period may correct it during explicit review.
     # Historical/manual rows have already taken the protected branch in plan().

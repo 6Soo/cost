@@ -249,6 +249,11 @@ def preview(conn, trips, request, response, *, nets=None, bundle=None, allow_rec
         if not target.startswith('quarter:'):
             row = code._read(conn, [tid])[0]
             eligible = {c['trip_id'] for c in card_trip_candidates(row, trips, nets=nets)}
+            try:
+                date.fromisoformat(row.get('approval_date') or '')
+            except (TypeError, ValueError):
+                # Keep the existing P1 missing-date fallback available to P2.
+                eligible.add(code.infer_trip(row, trips, nets=nets)[0])
             proof = (completed_evidence or {}).get(tid) or {}
             if proof.get('source_hash') == row['source_hash'] and proof.get('service_period'):
                 eligible.add(proof.get('trip_id'))
