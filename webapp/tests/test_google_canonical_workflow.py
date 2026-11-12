@@ -68,6 +68,11 @@ def test_choice_route_rejects_unknown_trip_or_missing_copy(tmp_path, monkeypatch
     monkeypatch.setenv('WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', str(snapshot))
     monkeypatch.setenv('WEBLEDGER_GOOGLE_LEDGER_ROWS', str(tmp_path / 'rows.json'))
     monkeypatch.setattr(page.google_authority, 'load_consistent', lambda *args: (healthy_snapshot(), {}))
+    # The live /google-ledger routes were retired (ROUTES=(), 6c0a5e38), but the
+    # choice dispatch still rejects unknown trips / missing copies with 400.
+    # Re-enable the route in this harness to exercise that validation, as the
+    # sibling test_choice_dispatch_validates_copy_owner_and_accepts_andre does.
+    monkeypatch.setattr(page, 'ROUTES', ('/api/google-ledger/choice',))
     handler = fixtures.FakeHandler('token-syn')
     page.dispatch(handler, urlparse('/api/google-ledger/choice'), is_owner=True, csrf='token-syn',
                   raw=json.dumps({'key': key, 'source': source}).encode())
@@ -80,49 +85,3 @@ def test_same_choice_retry_does_not_duplicate_history(tmp_path):
     first = page.record_choice(snapshot, key='trip-syn', source='main', at='t1')
     second = page.record_choice(snapshot, key='trip-syn', source='main', at='t2')
     assert first == second and len(second['history']) == 1
-
-
-@pytest.mark.parametrize('width', [375, 390, 1440])
-def test_browser_owner_selects_copy_and_viewer_follows_it(width):
-    from unittest.mock import patch
-    from playwright.sync_api import sync_playwright
-    from webapp import ledger_board
-    from webapp.tests import test_google_ledger_browser as browser_fixtures
-
-    case = browser_fixtures.GoogleLedgerBrowserTests()
-    case.setUp()
-    try:
-        key = '0630_오제'
-        archive = browser_fixtures.workbook(key, ('ARCHIVE-SYN', 'SYN', 700000), ('SHOP-SYN', '식비', 110000))
-        now = page.dt.datetime.now(page.google_authority.KST)
-        page.google_authority.sync(case.snapshot, case.rows,
-                                   fetcher=case.fetcher({'main': case.good['main'], 'archive': archive}), now=now)
-        page.set_mapping(case.snapshot, key=key, tab_id='tab-syn', known_keys={key})
-        page.set_grants(case.snapshot, user_id='viewer-syn', keys=[key], granted=True, at='t')
-        visible = type('Access', (), {'visible_tabs': staticmethod(lambda user_id, now=None: {'tab-syn'})})
-        with patch.object(page, 'caller', return_value=(True, 'owner-syn')), sync_playwright() as api:
-            browser = api.chromium.launch(headless=True)
-            context = browser.new_context(viewport={'width': width, 'height': 844})
-            pg = context.new_page()
-            pg.goto(case.base + '/google-ledger')
-            pg.get_by_text('최종 장부 선택 필요', exact=True).wait_for()
-            pg.on('dialog', lambda dialog: dialog.accept())
-            pg.get_by_role('button', name='archive 최종 장부로 선택', exact=True).click()
-            pg.get_by_text('최종 장부: archive', exact=True).wait_for()
-            assert page.load_choices(case.snapshot)['choices'][key] == 'archive'
-            assert pg.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            with patch.object(page, 'caller', return_value=(False, 'viewer-syn')), \
-                    patch.object(ledger_board, '_ACCESS', visible()):
-                pg.reload()
-                assert pg.locator('[data-choice]').count() == 0
-                pg.get_by_role('link', name='여행 상세', exact=True).click()
-                pg.get_by_text('ARCHIVE-SYN', exact=True).wait_for()
-                assert 'ALICE-NAME' not in pg.content()
-                detail_url = pg.url
-                page.set_grants(case.snapshot, user_id='viewer-syn', keys=[key], granted=False, at='revoked')
-                assert pg.goto(detail_url).status == 404
-                assert 'ARCHIVE-SYN' not in pg.content()
-            context.close()
-            browser.close()
-    finally:
-        case.tearDown()

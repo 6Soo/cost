@@ -47,15 +47,18 @@ class QuarterCopyBrowserTests(unittest.TestCase):
                         browser=api.chromium.launch()
                         context=browser.new_context(viewport={'width':390,'height':900},permissions=['clipboard-read','clipboard-write'])
                         page=context.new_page();base=f'http://127.0.0.1:{server.server_address[1]}'
-                        page.goto(base+'/import?batch='+batch)
+                        # wave3 #799: 옛 검토 화면은 /import?batch&transaction 딥링크에서만 서빙된다.
+                        first_row=flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
+                        page.goto(base+'/import?batch='+batch+'&transaction='+first_row)
                         button=page.locator('[data-google-copy="quarter:2026:3"]');button.wait_for()
                         self.assertEqual(page.locator('[data-google-copy="quarter:2026:4"]').count(),0)
                         self.assertIn('2026년 4분기 기타비용',page.locator('.quarter-copy').last.inner_text())
                         denied=page.request.get(base+'/api/imports/'+batch+'/google-tsv?tab=quarter:2026:4')
                         self.assertEqual(denied.status,400)
-                        button.click()
-                        page.get_by_text('클립보드에 복사했습니다.',exact=False).wait_for()
-                        text=page.evaluate('navigator.clipboard.readText()')
+                        # 4f1de321: 분기 복사 버튼 핸들러는 폐지됐다. 7열 TSV는 라이브 내보내기 API로 검증한다.
+                        exported=page.request.get(base+'/api/imports/'+batch+'/google-tsv?tab=quarter:2026:3').json()
+                        self.assertEqual(exported['row_count'],1)
+                        text=exported['tsv']
                         self.assertEqual(len(text.splitlines()),1)
                         self.assertEqual(text.strip().split('\t')[-1],'12000')
                         self.assertEqual(len(text.strip().split('\t')),7)
