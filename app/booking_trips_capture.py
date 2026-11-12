@@ -8,12 +8,14 @@ accessibility tree came from another tab still parses.
 Each booking's confirmation anchor in the accessibility tree (lodging ``confirmation.ko.html`` /
 ``mybooking_archivedsummary.ko.html`` with an ``auth_key``; flights ``flights.booking.com/
 confirmation/<token>``) supplies a stable opaque identity when the tree lines up with the text
-block for block. Otherwise the trip id and block ordinal identify the booking.
+block for block. Otherwise a normalized hash of the booking content (property or route name,
+service period and status) identifies it; bookings whose content is identical are separated by a
+deterministic occurrence index, so a re-capture in any block order adds no duplicates.
 
 The screen fare is a display amount: Booking shows lodging in the viewer's currency, so a KRW
 figure may be a conversion of the property's own currency and is never exact card-payment
-evidence. It is kept only as period/status evidence (and for read-only display matching). No
-payment, charge date or card tail is invented here.
+evidence. It is kept only as period/status evidence and for read-only display, never to attach a
+usage period to a card row. No payment, charge date or card tail is invented here.
 """
 from __future__ import annotations
 
@@ -94,6 +96,44 @@ def _flight_period(texts, anchor):
 
 def _identity(product_type, token):
     return 'bkg-' + hashlib.sha256(f'{product_type}:{token}'.encode('utf-8')).hexdigest()[:20]
+
+
+def _content_key(fact):
+    """Stable reservation content used when no confirmation anchor lines up: name, period, status.
+
+    The display fare is deliberately left out. Booking may show a currency conversion that moves
+    between captures, so a fare change must surface as an importer conflict, not a new booking.
+    """
+    return (fact['product_type'], ' '.join(str(fact['label']).split()),
+            fact['service_start_on'], fact['service_end_on'], fact['reservation_status'])
+
+
+def _content_order(fact):
+    return (fact['display_amount_krw'] if fact['display_amount_krw'] is not None else -1,
+            fact['rooms'] if fact['rooms'] is not None else -1,
+            fact['passengers'] if fact['passengers'] is not None else -1,
+            str(fact['city'] or ''), str(fact['airline'] or ''),
+            tuple(fact['routes']), str(fact['item'] or ''))
+
+
+def _assign_content_identities(facts):
+    """Give token-less bookings an identity that does not depend on screen order.
+
+    Bookings sharing name·period·status are told apart by an occurrence index assigned after
+    sorting on their displayed content, so reordering the blocks of a re-capture yields the same
+    identity set and adds no duplicates. Identical blocks keep distinct occurrences (one evidence
+    row each) rather than collapsing genuinely separate reservations.
+    """
+    groups = {}
+    for fact in facts:
+        groups.setdefault(_content_key(fact), []).append(fact)
+    for key, members in groups.items():
+        members.sort(key=_content_order)
+        for occurrence, fact in enumerate(members, 1):
+            payload = [list(key), occurrence] if len(members) > 1 else list(key)
+            encoded = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+            fact['booking_number'] = 'bkg-' + hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:20]
+            fact['identity_kind'] = 'content_hash'
 
 
 def _booking_area(text):
@@ -239,15 +279,17 @@ def parse_trip(record):
     aligned = (len(identities) == len(facts)
                and all(ident[0] == fact['product_type'] and ident[2] == fact['label']
                        for ident, fact in zip(identities, facts)))
-    for ordinal, fact in enumerate(facts, 1):
-        if aligned:
+    snapshot_sha256 = hashlib.sha256((record.get('snapshot') or '').encode('utf-8')).hexdigest()
+    if aligned:
+        for ordinal, fact in enumerate(facts, 1):
             product, token, _heading = identities[ordinal - 1]
             fact['booking_number'] = _identity(product, token)
             fact['identity_kind'] = 'confirmation_token'
-        else:
-            fact['booking_number'] = f'bkg-trip-{trip_id}-{ordinal}'
-            fact['identity_kind'] = 'trip_ordinal'
-        fact['snapshot_sha256'] = hashlib.sha256((record.get('snapshot') or '').encode('utf-8')).hexdigest()
+            fact['snapshot_sha256'] = snapshot_sha256
+    else:
+        _assign_content_identities(facts)
+        for fact in facts:
+            fact['snapshot_sha256'] = snapshot_sha256
     if len({fact['booking_number'] for fact in facts}) != len(facts):
         raise ValueError('BOOKING_DUPLICATE_BLOCK')
     return facts

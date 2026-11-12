@@ -114,8 +114,6 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _airline_exact_amount_periods(data, manual).items():
         result.setdefault(tid, metadata)
-    for tid, metadata in _booking_candidate_periods(data, manual).items():
-        result.setdefault(tid, metadata)
     for tid, metadata in _airbnb_code_periods(data, manual).items():
         result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
@@ -551,85 +549,6 @@ def _airline_exact_amount_periods(data, manual):
             continue
         result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
                        'service_period': start.isoformat() + '~' + end.isoformat(), 'item': '항공료',
-                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
-    return result
-
-
-def _booking_candidate_periods(data, manual):
-    """A saved Booking trip reservation names its stay/departure for the one card that equals it.
-
-    The portal screen carries no card tail or charge day and its KRW fare is a display amount
-    (possibly a conversion), so the core never forms a payment link. A Booking-merchant card of
-    the exact same-currency total, approved before use and paired one-to-one with the reservation,
-    only informs this read-only display; no payment, trip or reservation relation is created.
-    """
-    from datetime import date
-    from app.ota_matching_defaults import provider_for_merchant
-    events = [e for e in data.get('events', [])
-              if e.get('provider') == 'booking' and e.get('evidence_kind') == 'portal_reservation'
-              and e.get('event_type') == 'reservation' and e.get('evidence_status') == 'reservation_only'
-              and e.get('reservation_status') in ('confirmed', 'completed')
-              and str(e.get('display_currency') or '').upper() == 'KRW'
-              and not any(e.get(k) for k in ('evidence_missing', 'evidence_changed',
-                                             'period_conflict', 'service_period_conflict'))]
-    held = {}
-    for event in events:
-        period = event.get('service_period') or {}
-        try:
-            start, end = (date.fromisoformat(period[k]) for k in ('starts_on', 'ends_on'))
-            valid = 0 <= (end - start).days <= 366
-        except (KeyError, TypeError, ValueError):
-            valid = False
-        amount = _decimal(event.get('display_amount_krw'))
-        if (not valid or amount is None or amount <= 0 or not event.get('source_digest')
-                or not event.get('booking_ref')
-                or event.get('refund_status') in ('refund_pending', 'refund_requested',
-                                                  'refunded', 'refund_completed')):
-            continue
-        held[str(event['ota_event_id'])] = (amount, start, end, str(event['booking_ref']), event.get('item'))
-    if not held:
-        return {}
-    occupied = _occupied_cards(data)
-    cards = {}
-    for card in data.get('transactions', []):
-        if provider_for_merchant(str(card.get('merchant') or '')) == 'booking':
-            cards[str(card.get('transaction_id'))] = card
-
-    def card_amounts(card):
-        values = {_decimal(card.get('amount_krw'))}
-        if str(card.get('foreign_currency') or '').upper() == 'KRW':
-            values.add(_decimal(card.get('foreign_amount')))
-        return {v for v in values if v is not None}
-
-    matches = defaultdict(set)
-    claims = defaultdict(set)
-    for event_id, (amount, start, _end, _ref, _item) in held.items():
-        for tid, card in cards.items():
-            try:
-                bought = date.fromisoformat(str(card.get('approval_date') or ''))
-            except ValueError:
-                continue
-            if amount in card_amounts(card) and bought <= start:
-                matches[event_id].add(tid)
-                claims[tid].add(event_id)
-    same_amount = defaultdict(set)
-    for event_id, (amount, _start, _end, _ref, _item) in held.items():
-        same_amount[amount].add(event_id)
-    result = {}
-    for event_id, tids in matches.items():
-        amount, start, end, booking_ref, item = held[event_id]
-        if len(tids) != 1 or len(same_amount[amount]) != 1:
-            continue
-        tid = next(iter(tids))
-        card = cards[tid]
-        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
-                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
-                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
-                                             'ota_review_held', 'reservation_refund_blocked'))
-                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
-            continue
-        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
-                       'service_period': start.isoformat() + '~' + end.isoformat(), 'item': item,
                        'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
     return result
 

@@ -181,7 +181,13 @@ def protected_state(conn):
     return result
 
 
-def require_offline_backup(host, evidence, db, *, isolated_copy=False):
+def require_offline_backup(host, evidence, db, *, isolated_copy=False,
+                           database_name='board.sqlite', board_port=8751):
+    """Gate a write on a fresh verified backup of ``db`` and, unless rehearsing on an isolated
+    copy, quiescent managed writers. ``database_name`` selects the manifest entry to compare and
+    ``board_port`` the production Board listener to refuse; both default to the board ledger so
+    existing callers are unchanged. The OTA evidence importer passes its own store name and the
+    port read from ledger-route.json."""
     from tools.verify_operational_backup_restore import database_state
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
     for key in ('live_state_unchanged','all_database_tables_and_columns_compared','restored_review_binding_equal'):
@@ -193,16 +199,18 @@ def require_offline_backup(host, evidence, db, *, isolated_copy=False):
     if not backup.is_relative_to((host/'data/backups').resolve()):
         raise ValueError('BACKUP_LOCATION_INVALID')
     manifest = json.loads((backup/'manifest.json').read_text(encoding='utf-8'))
-    if manifest['databases']['board.sqlite'] != database_state(db):
+    if manifest['databases'][database_name] != database_state(db):
         raise ValueError('BACKUP_SOURCE_CHANGED')
     if isolated_copy:
-        live = Path('D:/WebLedgerHost/data/board.sqlite')
+        live = Path('D:/WebLedgerHost/data')/database_name
         if (host.resolve() == Path('D:/WebLedgerHost').resolve()
                 or db.resolve().parent != (host/'data').resolve()
                 or (live.exists() and os.path.samefile(db,live))):
             raise ValueError('ISOLATED_COPY_REQUIRED')
         return
-    script = "$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};if(@(Get-NetTCPConnection -LocalPort 8751 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0"
+    script = ("$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);"
+              "if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};"
+              "if(@(Get-NetTCPConnection -LocalPort " + str(board_port) + " -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0")
     check = subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True)
     if check.returncode:
         raise ValueError('WRITERS_NOT_OFFLINE')

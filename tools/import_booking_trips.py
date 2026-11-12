@@ -5,6 +5,11 @@ lists, normalizes each booking as a direct-observation fact and appends it throu
 OtaStore.import_direct. Without --apply only the parsed summary is printed; nothing is written.
 Re-importing the same observations is a no-op (duplicate), and a differing prior observation is
 held as a conflict, never overwritten. Screen fares stay display amounts, not payment evidence.
+
+--apply is gated: it requires --backup-evidence attesting a fresh (within one hour) backup and
+verified restore of the evidence store whose recorded state still matches, and — unless
+--isolated-copy rehearses on a separate copy — quiescent Board/SourceRefresh writers and no
+production Board listener on the port read from config/ledger-route.json.
 """
 from __future__ import annotations
 
@@ -26,6 +31,21 @@ VOLATILE_FIELDS = ('observed_at', 'snapshot_sha256')
 
 def _comparable(fact):
     return {k: v for k, v in fact.items() if k not in VOLATILE_FIELDS}
+
+
+def _apply_gate(host, evidence, store, *, isolated_copy):
+    """Reuse the offline-backup gate for the evidence store: a fresh verified backup whose state
+    still matches, plus quiescent managed writers for a production write. The Board port comes
+    from ledger-route.json; an isolated-copy rehearsal skips the writer check but must still be a
+    separate copy of the store, never the production original."""
+    from tools.complete_card_classification import require_offline_backup
+    store = Path(store)
+    board_port = 8751
+    if not isolated_copy:
+        route = json.loads((host / 'config' / 'ledger-route.json').read_text(encoding='utf-8-sig'))
+        board_port = int(route['port'])
+    require_offline_backup(host, evidence, store, isolated_copy=isolated_copy,
+                           database_name=store.name, board_port=board_port)
 
 
 def plan(directory, store_path=None, account_key=ACCOUNT_KEY):
@@ -70,9 +90,23 @@ def main(argv=None):
     parser.add_argument('--store')
     parser.add_argument('--account-key', default=ACCOUNT_KEY)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--host-root', type=Path, default=Path('D:/WebLedgerHost'))
+    parser.add_argument('--backup-evidence', type=Path)
+    parser.add_argument('--isolated-copy', action='store_true')
     args = parser.parse_args(argv)
     if args.apply and not args.store:
         parser.error('--apply requires --store')
+    if args.apply and not args.backup_evidence:
+        parser.error('--apply requires --backup-evidence')
+    if args.apply:
+        try:
+            _apply_gate(args.host_root.resolve(), args.backup_evidence, args.store,
+                        isolated_copy=args.isolated_copy)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            code = (str(exc) if isinstance(exc, ValueError) and str(exc).replace('_', '').isalnum()
+                    else 'BOOKING_APPLY_GATE_FAILED')
+            print(json.dumps({'error': code, 'inserted': 0}))
+            return 1
     try:
         summary, pending = plan(args.directory, args.store, args.account_key)
     except (ValueError, KeyError, TypeError, OSError):

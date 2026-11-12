@@ -1,5 +1,7 @@
 """Synthetic Booking.com trip ingestion, display-fare boundary and LINK-002 non-broadening checks."""
+import datetime
 import json
+from pathlib import Path
 
 import pytest
 
@@ -7,7 +9,7 @@ from app.booking_trips_capture import FORMAT, parse_trip, records
 from app.ota_store import OtaStore
 from app.ota_payments import _booking_trip_events
 from tools.import_booking_trips import main, plan
-from webapp.ledger_stay_evidence import _booking_candidate_periods
+from webapp.ledger_stay_evidence import _build_index
 
 OBSERVED = '2031-02-10T12:00:00+09:00'
 TRIP_START = '2031-10-20'
@@ -30,6 +32,19 @@ CANCELLED_TEXT = '\n'.join(['예약 찾기', '가상호텔', '10월 23일 ~ 10�
                             '취소됨', '국가'])
 CANCELLED_FLIGHT_TEXT = '\n'.join(['예약 찾기', 'ICN → NRT', '10월 23일 09:00 - 10월 23일 11:30',
                                    '취소됨승객 1명', '직항Eastar Jet', '₩111,222', '국가'])
+
+# Two identical blocks, a same-name/period/status block at another fare, and a distinct hotel:
+# exercises both the occurrence disambiguation and the singleton content hash, with no snapshot.
+MULTI_BLOCKS = [
+    ['가상호텔', '10월 23일 ~ 10월 24일₩123,456', '객실 1개도쿠시마', '완료'],
+    ['가상호텔', '10월 23일 ~ 10월 24일₩123,456', '객실 1개도쿠시마', '완료'],
+    ['가상호텔', '10월 23일 ~ 10월 24일₩200,000', '도쿠시마', '완료'],
+    ['다른호텔', '10월 24일 ~ 10월 25일₩150,000', '객실 1개교토', '완료'],
+]
+
+
+def _blocks_text(blocks):
+    return '예약 찾기\n' + '\n'.join(line for block in blocks for line in block) + '\n국가'
 
 
 def trip_record(text, snapshot='', trip_id='trip-demo', start=TRIP_START, end=TRIP_END):
@@ -56,6 +71,37 @@ def booking_card(**over):
                 approval_date='2031-10-08', transaction_direction='purchase', item='항공료')
     card.update(over)
     return card
+
+
+def isolated_store(tmp_path, name='ota-evidence.sqlite'):
+    """A store laid out as <host>/data/<name> so the isolated-copy gate accepts it."""
+    db = tmp_path / 'host' / 'data' / name
+    db.parent.mkdir(parents=True, exist_ok=True)
+    return db
+
+
+def isolated_apply_args(db):
+    """Fresh isolated-copy backup evidence for the store's CURRENT state, plus gated --apply args.
+
+    Re-prepared before each apply so the gate's state comparison still matches after prior writes.
+    """
+    from tools.verify_operational_backup_restore import backup_database, database_state
+    db = Path(db)
+    if not db.exists():
+        OtaStore(db).close()
+    host = db.parent.parent
+    bundle = host / 'data' / 'backups' / 'bundle'
+    (bundle / 'databases').mkdir(parents=True, exist_ok=True)
+    backup_database(db, bundle / 'databases' / db.name)
+    state = database_state(db)
+    (bundle / 'manifest.json').write_text(json.dumps({'databases': {db.name: state}}), encoding='utf8')
+    evidence = host / 'data' / 'backups' / 'evidence.json'
+    evidence.write_text(json.dumps({
+        'recorded_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'backup_directory': str(bundle), 'live_state_unchanged': True,
+        'all_database_tables_and_columns_compared': True, 'restored_review_binding_equal': True,
+    }), encoding='utf8')
+    return ['--apply', '--isolated-copy', '--host-root', str(host), '--backup-evidence', str(evidence)]
 
 
 def test_lodging_block_parses_period_status_rooms_and_display_fare():
@@ -106,13 +152,66 @@ def test_display_fare_is_never_exact_payment_evidence(text, snapshot):
     assert not any(part['kind'] == 'paid_today' for part in fact['price_components'])
 
 
-def test_inconsistent_snapshot_falls_back_to_trip_ordinal_identity():
+def test_inconsistent_snapshot_falls_back_to_content_identity():
     mismatched = LODGING_SNAPSHOT.replace('가상호텔', '다른호텔')
     fact, = parse_trip(trip_record(LODGING_TEXT, mismatched))
-    assert fact['identity_kind'] == 'trip_ordinal'
-    assert fact['booking_number'] == 'bkg-trip-trip-demo-1'
+    assert fact['identity_kind'] == 'content_hash'
+    assert fact['booking_number'].startswith('bkg-')
     empty, = parse_trip(trip_record(LODGING_TEXT, ''))
-    assert empty['identity_kind'] == 'trip_ordinal'
+    assert empty['identity_kind'] == 'content_hash'
+    # Content identity ignores the trip id and screen order, unlike the old block ordinal.
+    other, = parse_trip(trip_record(LODGING_TEXT, '', trip_id='trip-other'))
+    assert fact['booking_number'] == empty['booking_number'] == other['booking_number']
+
+
+def test_content_identity_is_order_independent():
+    base = parse_trip(trip_record(_blocks_text(MULTI_BLOCKS)))
+    assert len(base) == 4 and all(f['identity_kind'] == 'content_hash' for f in base)
+    base_ids = {f['booking_number'] for f in base}
+    assert len(base_ids) == 4  # identical-content blocks keep distinct occurrences
+    for reordered in (list(reversed(MULTI_BLOCKS)), MULTI_BLOCKS[2:] + MULTI_BLOCKS[:2],
+                      [MULTI_BLOCKS[3], MULTI_BLOCKS[0], MULTI_BLOCKS[2], MULTI_BLOCKS[1]]):
+        again = parse_trip(trip_record(_blocks_text(reordered)))
+        assert {f['booking_number'] for f in again} == base_ids
+
+
+def test_reordered_recapture_adds_no_duplicates(tmp_path, capsys):
+    captures = tmp_path / 'capture'
+    write_capture(captures, [trip_record(_blocks_text(MULTI_BLOCKS))])
+    db = isolated_store(tmp_path)
+    args = ['--directory', str(captures), '--store', str(db)]
+    assert main(args + isolated_apply_args(db)) == 0
+    first = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert first['inserted'] == 4 and first['additional'] == 4 and first['duplicate_input'] == 0
+    before = db.read_bytes()
+    write_capture(captures, [trip_record(_blocks_text(list(reversed(MULTI_BLOCKS))))])
+    assert main(args + isolated_apply_args(db)) == 0
+    again = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert again['additional'] == 0 and again['duplicate'] == 4
+    assert again['inserted'] == 0 and again['conflict'] == 0
+    assert before == db.read_bytes()
+
+
+def test_apply_gate_refuses_missing_stale_or_changed_backup(tmp_path, capsys):
+    captures = tmp_path / 'capture'
+    write_capture(captures, [trip_record(LODGING_TEXT, LODGING_SNAPSHOT)])
+    db = isolated_store(tmp_path)
+    base = ['--directory', str(captures), '--store', str(db)]
+    with pytest.raises(SystemExit):  # no --backup-evidence: refused before any write
+        main(base + ['--apply'])
+    args = base + isolated_apply_args(db)
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['inserted'] == 1
+    # The evidence now describes the pre-append state; reusing it must be refused, not applied.
+    assert main(args) == 1
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['error'] == 'BACKUP_SOURCE_CHANGED'
+    evidence = Path(args[args.index('--backup-evidence') + 1])
+    saved = json.loads(evidence.read_text(encoding='utf8'))
+    saved['recorded_at'] = (datetime.datetime.now(datetime.timezone.utc)
+                            - datetime.timedelta(hours=2)).isoformat()
+    evidence.write_text(json.dumps(saved), encoding='utf8')
+    assert main(args) == 1
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['error'] == 'BACKUP_NOT_FRESH'
 
 
 def test_confirmation_token_identity_is_stable_across_observations():
@@ -134,22 +233,22 @@ def test_records_require_bound_list_identity_and_period(tmp_path):
 def test_import_preview_append_replay_and_conflict_never_overwrite(tmp_path, capsys):
     captures = tmp_path / 'capture'
     write_capture(captures, [trip_record(LODGING_TEXT, LODGING_SNAPSHOT)])
-    db = tmp_path / 'ota.sqlite'
+    db = isolated_store(tmp_path)
     args = ['--directory', str(captures), '--store', str(db)]
     assert main(args) == 0
     assert not db.exists()
     preview = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert preview['additional'] == 1 and preview['inserted'] == 0 and preview['conflict'] == 0
-    assert main(args + ['--apply']) == 0
+    assert main(args + isolated_apply_args(db)) == 0
     assert json.loads(capsys.readouterr().out.splitlines()[-1])['inserted'] == 1
     before = db.read_bytes()
-    assert main(args + ['--apply']) == 0
+    assert main(args + isolated_apply_args(db)) == 0
     replay = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert replay['duplicate'] == 1 and replay['inserted'] == 0 and replay['additional'] == 0
     assert before == db.read_bytes()
     changed = trip_record(LODGING_TEXT.replace('10월 24일', '10월 25일'), LODGING_SNAPSHOT)
     write_capture(captures, [changed])
-    assert main(args + ['--apply']) == 0
+    assert main(args + isolated_apply_args(db)) == 0
     conflict = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert conflict['conflict'] == 1 and conflict['inserted'] == 0
     assert before == db.read_bytes()
@@ -159,9 +258,9 @@ def test_append_only_preserves_existing_source_rows(tmp_path, capsys):
     captures = tmp_path / 'capture'
     lodging = trip_record(LODGING_TEXT, LODGING_SNAPSHOT, trip_id='trip-a')
     write_capture(captures, [lodging])
-    db = tmp_path / 'ota.sqlite'
-    args = ['--directory', str(captures), '--store', str(db), '--apply']
-    assert main(args) == 0
+    db = isolated_store(tmp_path)
+    args = ['--directory', str(captures), '--store', str(db)]
+    assert main(args + isolated_apply_args(db)) == 0
     capsys.readouterr()
     store = OtaStore(db)
     before = {tuple(r) for r in store.conn.execute(
@@ -169,7 +268,7 @@ def test_append_only_preserves_existing_source_rows(tmp_path, capsys):
     store.close()
     flight = trip_record(FLIGHT_TEXT, FLIGHT_SNAPSHOT, trip_id='trip-b')
     write_capture(captures, [lodging, flight])
-    assert main(args) == 0
+    assert main(args + isolated_apply_args(db)) == 0
     summary = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert summary['inserted'] == 1 and summary['duplicate'] == 1 and summary['conflict'] == 0
     store = OtaStore(db)
@@ -183,8 +282,8 @@ def test_append_only_preserves_existing_source_rows(tmp_path, capsys):
 def test_consumed_as_reservation_only_without_payment(tmp_path, capsys):
     captures = tmp_path / 'capture'
     write_capture(captures, [trip_record(FLIGHT_TEXT, FLIGHT_SNAPSHOT)])
-    db = tmp_path / 'ota.sqlite'
-    assert main(['--directory', str(captures), '--store', str(db), '--apply']) == 0
+    db = isolated_store(tmp_path)
+    assert main(['--directory', str(captures), '--store', str(db)] + isolated_apply_args(db)) == 0
     capsys.readouterr()
     event, = _booking_trip_events([str(db)])
     assert event['event_type'] == 'reservation' and event['evidence_status'] == 'reservation_only'
@@ -198,77 +297,17 @@ def test_consumed_as_reservation_only_without_payment(tmp_path, capsys):
 def _flight_events(tmp_path, capsys, text=FLIGHT_TEXT):
     captures = tmp_path / 'capture'
     write_capture(captures, [trip_record(text, FLIGHT_SNAPSHOT)])
-    db = tmp_path / 'ota.sqlite'
-    assert main(['--directory', str(captures), '--store', str(db), '--apply']) == 0
+    db = isolated_store(tmp_path)
+    assert main(['--directory', str(captures), '--store', str(db)] + isolated_apply_args(db)) == 0
     capsys.readouterr()
     return _booking_trip_events([str(db)])
 
 
-def test_display_inference_names_period_without_payment_link(tmp_path, capsys):
+def test_booking_reservation_never_attaches_card_period(tmp_path, capsys):
+    # LINK-002 is the only path that gives a card row a usage period. A Booking trip screen has no
+    # card tail or payment date and only a display fare, so even an exact foreign-fare match must
+    # not attach a period (the removed display-inference path).
     events = _flight_events(tmp_path, capsys)
-    card = booking_card()
+    card = booking_card(amount_krw=113333, foreign_amount=111222)  # foreign total == display fare
     data = dict(events=events, transactions=[card], results=[], links={})
-    found = _booking_candidate_periods(data, set())
-    assert found['card-1']['service_period'] == '2031-10-23~2031-10-23'
-    assert found['card-1']['item'] == '항공료'
-    assert found['card-1']['ota_evidence'] == {'kind': 'reservation_period_inferred',
-                                               'payment_verified': False}
-    from app.ota_core_projection import card_matches
-    assert card_matches([], data) == []
-
-
-def test_display_inference_matches_foreign_krw_total_not_billed_krw(tmp_path, capsys):
-    events = _flight_events(tmp_path, capsys)
-    # The screen fare equals the card's foreign KRW total, not its billed amount_krw.
-    card = booking_card(amount_krw=113333, foreign_amount=111222)
-    found = _booking_candidate_periods(dict(events=events, transactions=[card], results=[], links={}), set())
-    assert 'card-1' in found
-    billed_only = booking_card(amount_krw=111222, foreign_currency='USD', foreign_amount=100)
-    found = _booking_candidate_periods(dict(events=events, transactions=[billed_only], results=[], links={}), set())
-    assert 'card-1' in found
-
-
-def test_converted_lodging_fare_does_not_match_billed_card(tmp_path, capsys):
-    captures = tmp_path / 'capture'
-    write_capture(captures, [trip_record(LODGING_TEXT, LODGING_SNAPSHOT)])
-    db = tmp_path / 'ota.sqlite'
-    assert main(['--directory', str(captures), '--store', str(db), '--apply']) == 0
-    capsys.readouterr()
-    events = _booking_trip_events([str(db)])
-    card = booking_card(amount_krw=130000, foreign_currency='JPY', foreign_amount=15000,
-                        item='숙박비', approval_date='2031-10-08')
-    found = _booking_candidate_periods(dict(events=events, transactions=[card], results=[], links={}), set())
-    assert found == {}
-
-
-def test_display_inference_rejects_ambiguous_cancelled_and_late_cards(tmp_path, capsys):
-    events = _flight_events(tmp_path, capsys)
-    twin = booking_card(transaction_id='card-2', source_hash='src-2')
-    data = dict(events=events, transactions=[booking_card(), twin], results=[], links={})
-    assert _booking_candidate_periods(data, set()) == {}
-    late = booking_card(approval_date='2031-10-24')
-    assert _booking_candidate_periods(dict(events=events, transactions=[late], results=[], links={}), set()) == {}
-    cancelled = _flight_events(tmp_path / 'c', capsys, text=CANCELLED_FLIGHT_TEXT)
-    assert _booking_candidate_periods(dict(events=cancelled, transactions=[booking_card()],
-                                           results=[], links={}), set()) == {}
-
-
-def test_display_inference_skips_occupied_and_manual_cards(tmp_path, capsys):
-    events = _flight_events(tmp_path, capsys)
-    card = booking_card()
-    occupied = dict(events=events, transactions=[card],
-                    results=[dict(transaction_id='card-1', ota_event_id='other', status='MATCHED_AUTO')],
-                    links={})
-    assert _booking_candidate_periods(occupied, set()) == {}
-    assert _booking_candidate_periods(dict(events=events, transactions=[card], results=[], links={}),
-                                      {'card-card-1'}) == {}
-
-
-def test_build_index_wires_booking_display_inference(tmp_path, capsys):
-    from webapp.ledger_stay_evidence import _build_index
-    events = _flight_events(tmp_path, capsys)
-    data = dict(events=events, transactions=[booking_card()], results=[], links={})
-    index = _build_index(data, set())
-    assert index['card-1']['service_period'] == '2031-10-23~2031-10-23'
-    assert index['card-1']['ota_evidence'] == {'kind': 'reservation_period_inferred',
-                                               'payment_verified': False}
+    assert 'card-1' not in _build_index(data, set())
