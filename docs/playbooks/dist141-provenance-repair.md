@@ -4,7 +4,7 @@
 
 `tools/repair_dist141_provenance.py`는 기존 requests·review_decisions로 식별한 원결정 revision만 정정한다. 이후 결정·수동 override·원본 충돌은 보존한다. 이미 자동 출처인 행도 일치하는 원결정 이력의 잘못된 수동 보호를 해제하며 현재 자동 출처를 유지한다. 열린 분기는 기존 P1 재판정, 닫힌 분기는 귀속·항목 유지와 감사 기록의 `CLOSED_QUARTER_REVIEW_REQUIRED` 표시다. 원결정 이력은 수정·삭제하지 않는다.
 
-다음은 배포 후 헤드가 사용할 정확한 PowerShell 명령이다. 미리보기는 읽기 전용 운영 연결을 메모리에 복제하여 계산하고 집계만 출력한다. 운영 쓰기는 기존 오프라인 백업·복원 검증 게이트를 통과해야 한다. 신선 백업/복원 증거의 위치를 아래 `backup-restore.json`으로 정하고 기존 [백업 복원 도구](../../tools/verify_operational_backup_restore.py)로 생성한다. writer 중지·운영 전환은 배포 담당 세션이 수행한다.
+다음은 배포 후 헤드가 사용할 정확한 PowerShell 명령이다. 먼저 정식 snapshot을 갱신하여 LINK-108이 포함된 새 근거 게시를 확인한다. 미리보기는 읽기 전용 운영 연결을 메모리에 복제하여 계산하고 집계만 출력한다. 운영 쓰기는 기존 오프라인 백업·복원 검증 게이트를 통과해야 한다. 신선 백업/복원 증거의 위치를 아래 `backup-restore.json`으로 정하고 기존 [백업 복원 도구](../../tools/verify_operational_backup_restore.py)로 생성한다. writer 중지·운영 전환은 배포 담당 세션이 수행한다.
 
 ```powershell
 python tools/repair_dist141_provenance.py --host-root D:/WebLedgerHost --request-id dist141-provenance-20261112 --report D:/WebLedgerHost/data/backups/ota-portal-20261112-collection-private/forest-portal/link108-provenance/preview.json

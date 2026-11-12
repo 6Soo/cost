@@ -122,3 +122,32 @@ def test_restore_refuses_changes_made_after_release(setup):
     with pytest.raises(ValueError,match='RESTORE_STALE'):
         repair.restore(c,plan,'restore-stale')
     assert repair._state(c,row['transaction_id'])['transaction']['item'] == '식비'
+
+
+def test_recorded_projection_changes_are_audited_and_reversible(setup):
+    board,flow,batch,rows = setup
+    save_batch(flow,rows[0])
+    c = board.conn
+    row = rows[0]
+    tid = row['transaction_id']
+    c.execute('INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        (tid,batch,'숙박비','','A','A',row['amount_krw'],row['merchant'],row['approval_date'],'purchase',row['source_hash'],'synthetic'))
+    payload = dict(item='숙박비',display_tab_id='A',trip_id='A',amount_krw=row['amount_krw'],
+                   source_event_id=tid,confirmed_by='automatic',revision=1)
+    c.execute("INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,'expense','A',1,?)",
+              ('card-'+tid,json.dumps(payload)))
+    c.commit()
+    before = repair._state(c,tid)
+    evidence = {tid:dict(source_hash=row['source_hash'],trip_id='B',item='숙박비',basis='synthetic verified stay')}
+    plan = repair.preview(c,TRIPS,evidence=evidence)
+    assert repair.apply(c,plan,TRIPS,request_id='recorded',evidence=evidence)['attribution_or_item_changed'] == 1
+    after = repair._state(c,tid)
+    assert after['ledger']['trip_id'] == 'B' and after['board']['display_tab_id'] == 'B'
+    assert after['ledger']['amount_krw'] == before['ledger']['amount_krw']
+    assert c.execute('SELECT count(*) FROM board_revisions WHERE row_id=?',('card-'+tid,)).fetchone()[0] >= 1
+    repair.restore(c,repair.restore_preview(c,'recorded'),'recorded')
+    restored = repair._state(c,tid)
+    assert restored['ledger'] == before['ledger']
+    restored_payload = json.loads(restored['board']['payload_json'])
+    assert restored_payload.pop('revision') > payload['revision']
+    assert restored_payload == {k:v for k,v in payload.items() if k!='revision'}
