@@ -45,7 +45,8 @@ def preview(conn, trips, *, evidence=None):
     closed = [r for r in rows if completed_period(r)]
     linked = refund_links(conn, [r['transaction_id'] for r in rows])
     refund_group = set(linked) | {v['original_id'] for v in linked.values()}
-    counts, excluded, distribution, moves, targets = Counter(), Counter(), Counter(), Counter(), []
+    counts = Counter(completed_total=0,completed_trip_unchanged=0,in_open_destinations=0,confirmed_exceptions=0)
+    excluded, distribution, moves, targets = Counter(), Counter(), Counter(), []
     for row in closed:
         tid = row['transaction_id']
         counts['completed_total'] += 1
@@ -96,7 +97,9 @@ def preview(conn, trips, *, evidence=None):
                    open_distribution=[dict(trip=valid.get(k,{}).get('display_key') or k, count=n)
                                       for k,n in sorted(distribution.items())],
                    open_trip_row_delta=[dict(trip=t.get('display_key') or k,
-                       delta=-sum(x['before']['transaction']['trip_id']==k for x in targets))
+                       delta=-sum(x['before']['transaction']['trip_id']==k for x in targets),
+                       ledger_delta=-sum(bool(x['before']['ledger']) and x['before']['ledger']['trip_id']==k for x in targets),
+                       board_delta=-sum(bool(x['before']['board']) and x['before']['board']['display_tab_id']==k for x in targets))
                        for k,t in sorted(valid.items()) if open_trip(t)])
     return dict(digest=_digest([targets, trips, evidence or {}]), targets=targets, summary=summary)
 

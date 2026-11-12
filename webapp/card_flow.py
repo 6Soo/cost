@@ -343,6 +343,8 @@ def batch_display_info(issuers, first='', last=''):
 def batch_catalog(board):
     """현재 검토 범위만 집계하며 원본 파일명과 저장된 거래를 변경하지 않는다."""
     review_from = os.environ.get('WEBLEDGER_REVIEW_FROM', '')
+    from .card_cleanup_queries import completed_period_sql
+    active_period = completed_period_sql(board)
     with board._lock:
         hold_filter = ("AND NOT EXISTS (SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
                        if board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else '')
@@ -353,7 +355,8 @@ def batch_catalog(board):
             "COALESCE(SUM(CASE WHEN (t.classification_state='needs_review' OR "
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
-            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END),0) AS questions "
+            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter +
+            "AND " + active_period + " THEN 1 ELSE 0 END),0) AS questions "
             "FROM import_batches b LEFT JOIN import_batch_rows x ON x.batch_id=b.batch_id "
             "LEFT JOIN transactions t ON t.transaction_id=x.transaction_id "
             "WHERE (?='' OR t.transaction_id IS NULL OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
@@ -377,6 +380,8 @@ def home_page(board):
     import datetime as dt
     esc = ledger_board.esc
     review_from = os.environ.get('WEBLEDGER_REVIEW_FROM', '')
+    from .card_cleanup_queries import completed_period_sql
+    active_period = completed_period_sql(board)
     # 여러 파일이 같은 거래를 포함해도 메인 건수는 거래 정본에서 한 번만 센다.
     with board._lock:
         hold_filter = ("AND NOT EXISTS (SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id) "
@@ -385,7 +390,8 @@ def home_page(board):
             "SELECT COUNT(*),COALESCE(SUM(CASE WHEN (t.classification_state='needs_review' OR "
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
-            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END),0) "
+            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter +
+            "AND " + active_period + " THEN 1 ELSE 0 END),0) "
             "FROM transactions t WHERE (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
@@ -2366,7 +2372,7 @@ _CLEANUP_PAGE_SIZE = 20
 def _cleanup_card_where(board):
     from app.card_export_profiles import redundant_purchase_conflicts
     from . import read_scope
-    from .card_cleanup_queries import completed_assignment_sql
+    from .card_cleanup_queries import completed_assignment_sql, completed_period_sql
     completed = completed_assignment_sql(board)
     redundant = read_scope.remember(('cleanup-redundant-sources', id(board)),
                                    lambda: redundant_purchase_conflicts(board.conn))
@@ -2374,6 +2380,7 @@ def _cleanup_card_where(board):
     return (
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
         " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
+        " AND " + completed_period_sql(board) +
         f" AND t.transaction_id NOT IN ({redundant_sql})"
         " AND NOT (t.classification_state='classified'"
         " AND COALESCE(t.item,'')!=''"

@@ -6,6 +6,16 @@ LEGACY_REASONS = {'no_item': 'classification', 'no_trip': 'classification',
                   'protected': 'evidence', 'other_review': 'classification'}
 
 
+def completed_period_sql(board, alias='t'):
+    """PROC-072 uses the same boundary before review lists and counters."""
+    from app.closed_period import excluded_ids
+    from . import read_scope
+    ids = read_scope.remember(('completed-period-exclusions',id(board)),
+                             lambda: excluded_ids(board.conn,board.list_trips()))
+    quoted = ','.join("'"+tid.replace("'","''")+"'" for tid in sorted(ids)) or 'SELECT NULL WHERE 0'
+    return f'{alias}.transaction_id NOT IN ({quoted})'
+
+
 def card_reason_sql(alias='t'):
     """Return the mutually exclusive reason expression for a cleanup card row."""
     t = alias

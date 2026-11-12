@@ -55,6 +55,9 @@ def excluded(row, trips=(), *, evidence=None, manual=False):
     if not completed_period(row):
         return False
     valid = trip_map(trips)
+    closed_quarters = {'quarter:2025:'+str(n) for n in range(1,5)} | {'quarter:2026:1'}
+    if any(row.get(k) in closed_quarters for k in ('trip_id','display_tab_id')):
+        return True
     # Submitted historical travel ledgers are immutable even with later facts.
     if any(completed_trip(valid.get(row.get(k))) for k in ('trip_id', 'display_tab_id')):
         return True
@@ -96,3 +99,15 @@ def open_scope(row, trips):
     valid = trip_map(trips)
     return (any(open_trip(valid.get(row.get(k))) for k in ('trip_id','display_tab_id'))
             or (row.get('approval_date') or row.get('posting_date') or '') >= '2026-06-30')
+
+
+def excluded_ids(conn, trips=(), *, evidence=None):
+    """Narrow projection for review counters; never read customer source blobs."""
+    fields = ('transaction_id','source_hash','approval_date','posting_date','trip_id','display_tab_id')
+    rows = [dict(zip(fields,r)) for r in conn.execute('SELECT '+','.join(fields)+' FROM transactions')]
+    completed = [r for r in rows if completed_period(r)]
+    if not completed:
+        return set()
+    manual = manual_ids(conn)
+    return {r['transaction_id'] for r in completed
+            if excluded(r,trips,evidence=(evidence or {}).get(r['transaction_id']),manual=r['transaction_id'] in manual)}

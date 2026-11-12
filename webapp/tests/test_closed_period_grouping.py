@@ -42,6 +42,22 @@ def test_only_confirmed_period_or_actual_manual_can_escape_boundary():
         assert boundary.excluded(row,TRIPS,evidence=dict(proof,**change))
     historical=[dict(trip_id='A',starts_on='2026-01-01',ends_on='2026-01-05'),TRIPS[1]]
     assert boundary.excluded(row,historical,evidence=fact(row,'B'),manual=True)
+    assert boundary.excluded(dict(row,trip_id='',display_tab_id='quarter:2025:4'),TRIPS,evidence=proof)
+
+
+def test_review_lists_and_question_counters_exclude_completed_before_ranking(setup,monkeypatch):
+    from webapp.card_flow import batch_catalog, _cleanup_card_count
+    from webapp.provisional_trip_review import read_page
+    board,flow,batch,_=setup
+    old_rows(board.conn)
+    board.conn.execute("UPDATE transactions SET classification_state='needs_review',item='',trip_id='',display_tab_id=''")
+    board.conn.commit()
+    monkeypatch.setattr(flow,'trip_valid',lambda _:True)
+    before=board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+    assert batch_catalog(board)[0]['questions'] == 0
+    assert _cleanup_card_count(board) == 0
+    assert read_page(flow,batch)['total'] == 0
+    assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == before
 
 
 def test_p1_reconsider_and_latest_trip_fallback_skip_completed_but_accept_formal_exception(setup):
@@ -148,6 +164,48 @@ def test_completed_trip_manual_and_formal_exceptions_never_move(setup):
     assert plan['summary']['completed_trip_unchanged'] == 1
     assert plan['summary']['confirmed_exceptions'] == 2
     assert plan['summary']['to_move'] == 2
+
+
+def test_existing_quarter_destination_contract_accepts_closed_years_without_new_tabs(setup):
+    _,flow,_,_=setup
+    assert flow.tab_valid('quarter:2025:1')
+    assert flow.tab_valid('quarter:2025:4')
+    assert flow.tab_valid('quarter:2026:1')
+
+
+def test_only_source_bound_exact_central_facts_create_an_exception():
+    source=dict(transaction_id='synthetic',source_hash='hash',core_link=True,inferred_link=False,
+        source_sha256='evidence-digest',reservation_status='confirmed',
+        period=dict(starts_on='2026-10-02',ends_on='2026-10-03'))
+    proof=boundary.formal_facts([source],TRIPS[:1])
+    assert proof['synthetic']['trip_id'] == 'A'
+    for changes in [dict(inferred_link=True),dict(core_link=False),dict(source_sha256=''),
+                    dict(service_period_basis='LINK-108'),dict(reservation_status='cancelled'),dict(period_conflict=True)]:
+        assert boundary.formal_facts([dict(source,**changes)],TRIPS[:1]) == {}
+
+
+def test_copy_apply_requires_fresh_verified_backup_and_checks_state(setup,tmp_path,monkeypatch):
+    from tools import complete_card_classification as gate
+    from tools.verify_operational_backup_restore import database_state
+    from datetime import datetime,timezone
+    board,_,_,_=setup
+    host=tmp_path/'isolated-host'
+    (host/'data/backups/verified').mkdir(parents=True)
+    db=host/'data/board.sqlite'
+    with sqlite3.connect(db) as copied:
+        board.conn.backup(copied)
+    manifest=host/'data/backups/verified/manifest.json'
+    manifest.write_text(json.dumps(dict(databases={'board.sqlite':database_state(db)})),encoding='utf8')
+    evidence=host/'data/backups/proof.json'
+    evidence.write_text(json.dumps(dict(recorded_at=datetime.now(timezone.utc).isoformat(),
+        live_state_unchanged=True,all_database_tables_and_columns_compared=True,
+        restored_review_binding_equal=True,backup_directory=str(manifest.parent))),encoding='utf8')
+    monkeypatch.setattr(gate.subprocess,'run',lambda *a,**k:pytest.fail('copy checked operating writers'))
+    gate.require_offline_backup(host,evidence,db,isolated_copy=True)
+    with sqlite3.connect(db) as copied:
+        copied.execute('UPDATE transactions SET revision=revision+1')
+    with pytest.raises(ValueError,match='BACKUP_SOURCE_CHANGED'):
+        gate.require_offline_backup(host,evidence,db,isolated_copy=True)
 
 
 def test_stale_preview_and_audit_failure_roll_back(setup):
