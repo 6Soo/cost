@@ -179,7 +179,8 @@ def service_metadata(conn, transaction_id):
             return {}
         if conn.execute("SELECT 1 FROM board_manual_overrides WHERE row_id=? AND field='service_period'", ('card-'+transaction_id,)).fetchone():
             return {}
-        if conn.execute('SELECT 1 FROM review_decisions WHERE transaction_id=?', (transaction_id,)).fetchone():
+        from .decision_provenance import active_decision_sql
+        if conn.execute('SELECT 1 FROM review_decisions d WHERE transaction_id=? AND '+active_decision_sql(), (transaction_id,)).fetchone():
             return {}
         raw = row['classification_basis'].split(' · P2_METADATA ', 1)[1]
         meta, _ = json.JSONDecoder().raw_decode(raw)

@@ -993,7 +993,8 @@ def ledger_metadata(report, entry):
     # 예약번호 모호성은 matcher의 type-only 결과를 그대로 따른다.
     refs = {f.get('booking_ref') for f in exact}
     group = bool(exact) and refs == {''} and all(f.get('group_size') for f in exact)
-    if exact and not group and (len(refs) != 1 or not next(iter(refs))):
+    shared = bool(exact) and refs == {''} and all(f.get('service_period_basis') == 'LINK-108' for f in exact)
+    if exact and not group and not shared and (len(refs) != 1 or not next(iter(refs))):
         return empty
     if exact and any(f.get('reservation_status') not in ('observed', 'confirmed', 'completed') for f in exact):
         return empty
@@ -1015,8 +1016,9 @@ def ledger_metadata(report, entry):
                   for value in allocations)
     return {'booking_ref': '' if group or inferred or not exact else next(iter(refs)),
             'service_period': period['starts_on'] + '~' + period['ends_on'] if period else '',
-            'ota_evidence': {'kind': 'inferred' if inferred else 'ordered_group' if ordered else
+            'ota_evidence': {'kind': 'shared_period' if shared else 'inferred' if inferred else 'ordered_group' if ordered else
                                     'portal_group' if group else 'exact' if exact else 'shared_period',
+                             **({'rule_id': 'LINK-108'} if shared else {}),
                              **({'payment_date_verified': False} if inferred else {}),
                              **({'allocation_basis': allocations} if allocations else {}),
                              'source_digests': digests,
