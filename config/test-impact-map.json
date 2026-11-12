@@ -39,6 +39,11 @@
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
+      "name": "card-login-automation",
+      "paths": ["tools/card_login/**", "tests/card_login/**", "tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"],
+      "tests": ["tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"]
+    },
+    {
       "name": "kb-card-download-import",
       "paths": ["tools/import_kb_card_download.py", "tests/test_import_kb_card_download.py",
                 "tests/card_pipeline/make_xls_fixtures.py", "tests/card_pipeline/data/kb-*-synthetic.xls",
