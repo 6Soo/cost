@@ -681,9 +681,11 @@ COST는 Google 최종 장부를 자동으로 쓰지 않으며 사용자가 검�
 
 *사용자 예외 · 결정 2026-10-16*
 
-Agoda 예정 자동결제는 실제 카드 원행의 이용일=명시 예정일, 양의 KRW 총액·끝4·가맹점·purchase 방향이 맞고 확정·비취소·비환불 상태이며 예약과 카드가 상호 유일할 때 승인 예외로 연결한다. 예정 안내 자체를 결제 영수증이라고 부르지 않는다.
+Agoda 예정 자동결제는 실제 카드 원행의 이용일=명시 예정일, 양의 KRW 총액·끝4·가맹점·purchase 방향이 맞고 확정·비취소·비환불 상태이면 승인 예외로 연결한다. 예약과 카드의 상호 유일은 요구하지 않는다(LINK-002·ITEM-080, M:N). 예정 안내 자체를 결제 영수증이라고 부르지 않는다.
 
 - 조건·예외: base+taxes가 있으면 gross와 같아야 하고 source conflict는 upcoming→confirmed 진행만 허용한다. 다른 링크 점유 카드는 제외한다.
+- 대체된 옛 규칙:
+  - 예정 자동결제 승인 예외 연결에 예약과 카드가 상호 유일해야 한다는 조건. — 2026-11-10 LINK-002·2026-11-01 ITEM-080 M:N 결정에 따라 대체(2026-11-13 정렬)
 - 출처: `docs/specs/ota.md:190`, `docs/history/implementation-and-audits.md:161`, `소유자 지시 메모:project-agoda-scheduled-charge-rows.md:17`, `docs/history/ota-legacy.md:1211`, `docs/history/ota-legacy.md:1267`
 
 ### LINK-070 · 예정결제 snapshot 신선도
