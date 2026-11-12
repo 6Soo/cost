@@ -237,3 +237,57 @@ def test_refunds_with_different_amounts_are_not_collapsed_as_matching_purchases(
     assert result['row_count'] == 2
     rows = pipe.store.conn.execute("SELECT amount_krw FROM transactions WHERE transaction_direction='cancellation'").fetchall()
     assert sorted(r[0] for r in rows) == [-3000, -2000]
+
+
+def _approval_source(*, approval='00001111', amount=10000, merchant='합성상점'):
+    return make_csv([['하나', '2026-10-09', '****1234', approval, merchant, amount, '100']],
+                    headers=['카드사', '이용일', '카드번호', '승인번호', '가맹점명', '승인금액', '가맹점번호'])
+
+
+def _acquired_foreign(*, approval='00001111', amount=10300):
+    row = hana_foreign(amount=amount)
+    row[3] = approval
+    return make_csv([row], headers=HANA_FOREIGN)
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_hana_leading_zero_approval_variant_is_one_cost_not_two(reverse):
+    # The approval source pads the number (00001111); the acquired view does not
+    # (1111). They are one purchase, so the second view must not book a second cost.
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    sources = [_approval_source(approval='00001111'), _acquired_foreign(approval='1111')]
+    if reverse:
+        sources.reverse()
+    pipe.receive(sources[0], 'first.csv')
+    result = pipe.receive(sources[1], 'second.csv')
+    assert result['conflicts'] == 1 and result['inserted'] == 0
+    conn = pipe.store.conn
+    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason<>''").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 1
+    # Comparison-only normalization never rewrites either stored approval number.
+    assert {r[0] for r in conn.execute('SELECT approval_number FROM transactions')} == {'00001111', '1111'}
+
+
+def test_all_zero_approval_number_cannot_establish_a_cross_view_match():
+    from app.normalize import normalize_approval_number
+    assert normalize_approval_number('000000') == ''
+    assert normalize_approval_number('  00102256 ') == '102256'
+    assert normalize_approval_number('A000123') == 'A000123'
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    # Different zero padding keeps the raw identities distinct, so any collapse
+    # could only come from the normalized cross-view key — which must stay empty.
+    pipe.receive(_approval_source(approval='000000'), 'first.csv')
+    result = pipe.receive(_acquired_foreign(approval='0000000'), 'second.csv')
+    assert result['conflicts'] == 0
+    assert pipe.store.conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 2
+
+
+def test_same_normalized_approval_with_multiples_amount_stays_separate():
+    # A reused approval number across purchases differs by multiples, not by FX/fee.
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    pipe.receive(_approval_source(approval='00001111', amount=10000), 'first.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=900000), 'second.csv')
+    assert result['conflicts'] == 0
+    assert pipe.store.conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 2

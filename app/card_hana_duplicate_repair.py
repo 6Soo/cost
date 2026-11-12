@@ -1,0 +1,416 @@
+"""Mark Hana approval-source rows that double-book an acquired purchase (SRC-013).
+
+A Hana overseas purchase arrived twice: once in the acquired usage view
+(`hana_foreign`, billed 청구금액) and once in an approval-source download
+(`headered`, approval-time 승인금액). The two views pad the same approval number
+with different leading zeros, so the importer stored them as two transactions and
+booked both. This repair marks the approval-source row as a duplicate of the
+acquired row and drops only its derived ledger/board projection, so the purchase
+is counted once. The acquired row stays the financial canonical because cost is
+judged from the acquired original and the overseas billed total (SRC-005, SRC-009).
+
+Nothing here deletes a card source row or rewrites an original cell: the
+`transactions` row, its `raw_row_json`, amount, sign, id and stored approval
+number are preserved. Only `duplicate_of` is set and the duplicate's
+`ledger_entries`/`board_rows` projections are removed (open periods) or left in
+place (closed periods already handed to the tax firm). Refund-paired, manually
+corrected and source-protected pairs are never moved; they are reported by reason.
+
+Structure mirrors `closed_period_repair`: count-only preview, digest/backup-gated
+apply, audited restore and idempotent replay.
+"""
+from collections import Counter
+import json
+
+from .db import utc_now
+from .decision_provenance import _state, _digest
+from .normalize import normalize_approval_number
+
+SCOPE = 'hana_double_import'
+RELEASE = 'card.hana_duplicate_marked'
+RESTORE = 'card.hana_duplicate_restored'
+
+# Cost is judged from the acquired original; the approval-source download is the
+# redundant view. Layouts are the parser suffix after the format prefix.
+ACQUIRED_LAYOUTS = ('hana_foreign', 'hana_usage')
+APPROVAL_LAYOUTS = ('headered',)
+MANUAL_SOURCES = {'user_decision', 'user_exception', 'owner_booking', 'manual', 'manual_hold'}
+# Approval-time and billed won values differ only by FX and fee, never by
+# multiples. A wide ratio means the shared approval number is a coincidence.
+RATIO_MIN, RATIO_MAX = 0.5, 2.0
+
+
+def closed_period(day):
+    """Periods already handed to the tax firm (SPEC D22: Q1·Q2) plus 2025 (SRC-042).
+
+    Q3 2026 is still under review and not submitted, so it is open here. This is
+    deliberately wider than `closed_period.completed_period` (2025·Q1 only),
+    which governs classification entry rather than submitted-ledger immutability.
+    """
+    text = str(day or '')[:7]
+    if text[:4] == '2025':
+        return '2025'
+    if text in ('2026-01', '2026-02', '2026-03'):
+        return '2026Q1'
+    if text in ('2026-04', '2026-05', '2026-06'):
+        return '2026Q2'
+    return None
+
+
+def _layout(parser):
+    return str(parser or '').split(':', 1)[-1]
+
+
+def _merchant_compatible(a, b):
+    a, b = str(a or ''), str(b or '')
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    # Notation variants of one merchant share a brand stem (romanization, branch
+    # or punctuation differences). A short shared prefix is corroboration only;
+    # the amount ratio is the decisive guard against approval-number reuse.
+    stem = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        stem += 1
+    return stem >= 4
+
+
+def _financial_state(conn):
+    """Bind the refund graph and protection records that must not change."""
+    from .partial_refund import refund_links
+    ids = [r[0] for r in conn.execute('SELECT transaction_id FROM transactions')]
+    names = sorted(r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                   if 'refund' in r[0] or 'link' in r[0] or 'group_pin' in r[0]
+                   or r[0] in {'transaction_review_holds', 'transaction_company_exclusions',
+                               'board_manual_overrides', 'review_decisions'})
+    tables = {name: sorted(conn.execute('SELECT * FROM "' + name.replace('"', '""') + '"').fetchall(),
+                           key=lambda row: json.dumps(row, sort_keys=True, default=str)) for name in names}
+    return _digest(dict(links=refund_links(conn, ids), tables=tables))
+
+
+def _manual_reason(conn, tid, row):
+    if row.get('decided_at') or row.get('classification_source') in MANUAL_SOURCES:
+        return 'MANUAL_CORRECTION'
+    if conn.execute('SELECT 1 FROM review_decisions WHERE transaction_id=?', (tid,)).fetchone():
+        return 'MANUAL_CORRECTION'
+    if conn.execute('SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-' + tid,)).fetchone():
+        return 'MANUAL_CORRECTION'
+    if conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?', (tid,)).fetchone():
+        return 'REVIEW_HOLD'
+    if conn.execute('SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=? AND excluded=1',
+                    (tid,)).fetchone():
+        return 'COMPANY_EXCLUDED'
+    return ''
+
+
+def _refund_reason(conn, pair_tids, number_index):
+    from .partial_refund import refund_links
+    pair = set(pair_tids)
+    # Overseas cancellations carry no approval number and pair by amount/merchant,
+    # so inspect every formed link (numbered, foreign, inferred), not just the
+    # approval-number index. A row is touched if it is a refund or an original.
+    cancels = [r[0] for r in conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    links = refund_links(conn, cancels)
+    touched = set(links) | {link['original_id'] for link in links.values()}
+    if touched & pair:
+        return 'REFUND_PAIRED'
+    # A cancellation may reference either row's approval number without a formed
+    # link yet (ambiguous or held); that reference still protects the pair.
+    for tid in pair:
+        for ref in number_index.get(tid, ()):
+            if ref not in pair:
+                return 'REFUND_PAIRED'
+    return ''
+
+
+def _hana_rows(conn):
+    cursor = conn.execute(
+        "SELECT t.transaction_id, t.issuer, t.card_tail, t.card_kind, t.transaction_direction,"
+        " t.approval_number, t.original_approval_number, t.approval_date, t.posting_date,"
+        " t.merchant_normalized, t.amount_krw, t.batch_id, t.source_hash, t.duplicate_of,"
+        " t.conflict_reason, t.parse_error, t.classification_source, t.decided_at, b.parser"
+        " FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id"
+        " WHERE t.issuer='하나' AND COALESCE(t.approval_number,'')<>''")
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, record)) for record in cursor.fetchall()]
+
+
+def _pairs(conn):
+    """Yield (keep, dup, reason) candidate pairs; reason '' means confirmed.
+
+    keep is the acquired row, dup the approval-source row. Groups that are not a
+    clean one-acquired/one-apparoval pair, or whose economics disagree, are
+    returned with a reason so the preview can report them without moving them.
+    """
+    groups = {}
+    for row in _hana_rows(conn):
+        key = normalize_approval_number(row['approval_number'])
+        if not key:
+            continue
+        gk = (row['card_tail'], row['approval_date'], row['transaction_direction'], key)
+        groups.setdefault(gk, []).append(row)
+    for gk, members in sorted(groups.items()):
+        acquired = [r for r in members if _layout(r['parser']) in ACQUIRED_LAYOUTS]
+        approval = [r for r in members if _layout(r['parser']) in APPROVAL_LAYOUTS]
+        if len(members) != 2 or len(acquired) != 1 or len(approval) != 1:
+            if len(acquired) >= 1 and len(approval) >= 1:
+                yield acquired[0], approval[0], 'AMBIGUOUS_GROUP'
+            continue
+        keep, dup = acquired[0], approval[0]
+        if keep['batch_id'] == dup['batch_id']:
+            continue
+        if keep['amount_krw'] and dup['amount_krw'] and keep['amount_krw'] > 0 and dup['amount_krw'] > 0:
+            if not RATIO_MIN <= keep['amount_krw'] / dup['amount_krw'] <= RATIO_MAX:
+                yield keep, dup, 'DIFFERENT_TRANSACTION'
+                continue
+        if not _merchant_compatible(keep['merchant_normalized'], dup['merchant_normalized']):
+            yield keep, dup, 'MERCHANT_MISMATCH'
+            continue
+        yield keep, dup, ''
+
+
+def preview(conn):
+    rows = {r['transaction_id']: r for r in _hana_rows(conn)}
+    number_index = _number_index_for(conn)
+    targets, excluded = [], Counter()
+    excluded_pairs = []
+    closed_pairs = []
+    seen = set()
+    for keep, dup, reason in _pairs(conn):
+        kt, dt = keep['transaction_id'], dup['transaction_id']
+        if dt in seen:
+            continue
+        seen.add(dt)
+        if reason:
+            excluded[reason] += 1
+            excluded_pairs.append(dict(keep=kt, dup=dt, reason=reason))
+            continue
+        both = (kt, dt)
+        guard = ''
+        for tid in both:
+            row = rows[tid]
+            if row.get('parse_error') or row.get('conflict_reason') or row.get('duplicate_of'):
+                guard = 'SOURCE_PROTECTED'
+                break
+            guard = _manual_reason(conn, tid, row)
+            if guard:
+                break
+        if not guard:
+            guard = _refund_reason(conn, both, number_index)
+        if guard:
+            excluded[guard] += 1
+            excluded_pairs.append(dict(keep=kt, dup=dt, reason=guard))
+            continue
+        day = dup['approval_date'] or dup['posting_date']
+        period = closed_period(day)
+        target = dict(tid=dt, keep=kt, closed=bool(period), period=period,
+                      before=_state(conn, dt), values=dict(duplicate_of=kt))
+        targets.append(target)
+        if period:
+            closed_pairs.append(dict(dup=dt, keep=kt, period=period, amount_krw=dup['amount_krw']))
+    summary = dict(
+        confirmed_pairs=len(targets) + sum(excluded.values()),
+        to_mark=len(targets),
+        to_unbook=sum(1 for t in targets if not t['closed']),
+        closed_mark_only=len(closed_pairs),
+        closed_amount_krw=sum(t['amount_krw'] for t in closed_pairs),
+        excluded=dict(excluded),
+        excluded_pairs=excluded_pairs,
+        closed_pairs=closed_pairs,
+        quarter_distribution=dict(Counter(
+            _quarter(rows[t['tid']]['approval_date'] or rows[t['tid']]['posting_date']) for t in targets)),
+    )
+    return dict(digest=_digest([targets, _financial_state(conn)]), targets=targets, summary=summary)
+
+
+def _quarter(day):
+    text = str(day or '')
+    if len(text) >= 7 and text[5:7].isdigit():
+        return f"{text[:4]}Q{(int(text[5:7]) - 1) // 3 + 1}"
+    return 'unknown'
+
+
+def _number_index_for(conn):
+    by_number = {}
+    for row in _hana_rows(conn):
+        key = (normalize_approval_number(row['approval_number']), row['card_tail'])
+        by_number.setdefault(key, []).append(row['transaction_id'])
+    index = {}
+    for ref_id, ref_tail, ref_number in conn.execute(
+            "SELECT transaction_id, card_tail, original_approval_number FROM transactions"
+            " WHERE issuer='하나' AND transaction_direction='cancellation'"
+            " AND COALESCE(original_approval_number,'')<>''"):
+        key = (normalize_approval_number(ref_number), ref_tail)
+        for tid in by_number.get(key, ()):
+            index.setdefault(tid, set()).add(ref_id)
+    return index
+
+
+def replay(conn, request_id):
+    row = conn.execute('SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope=?',
+                       (request_id, SCOPE)).fetchone()
+    return dict(digest=row[0], **json.loads(row[1])) if row else None
+
+
+def _unbook(conn, tid):
+    conn.execute('DELETE FROM ledger_entries WHERE transaction_id=?', (tid,))
+    conn.execute('DELETE FROM board_rows WHERE row_id=?', ('card-' + tid,))
+
+
+def _rebook(conn, tid, before):
+    ledger, board = before['ledger'], before['board']
+    if ledger:
+        columns = list(ledger.keys())
+        conn.execute('INSERT INTO ledger_entries(' + ','.join(columns) + ') VALUES (' + ','.join('?' * len(columns)) + ')',
+                     [ledger[c] for c in columns])
+    if board:
+        conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,?,?)',
+                     (board['row_id'], board['row_kind'], board['display_tab_id'], board['revision'], board['payload_json']))
+
+
+def apply(conn, expected, *, request_id):
+    if not request_id or conn.in_transaction:
+        raise ValueError('HANA_REQUEST_OR_TRANSACTION_INVALID')
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        prior = replay(conn, request_id)
+        if prior:
+            if expected['digest'] != prior['digest']:
+                raise ValueError('HANA_REQUEST_CONFLICT')
+            conn.rollback()
+            return dict(prior, replay=True, applied_this_run=0)
+        current = preview(conn)
+        if expected['digest'] != current['digest']:
+            raise ValueError('HANA_PREVIEW_STALE')
+        financial = _financial_state(conn)
+        for target in current['targets']:
+            tid = target['tid']
+            conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                         (target['values']['duplicate_of'], tid))
+            if not target['closed']:
+                _unbook(conn, tid)
+            detail = dict(request_id=request_id, keep=target['keep'], closed=target['closed'],
+                          before=target['before'], after=_state(conn, tid), financial=financial)
+            conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
+                         (utc_now(), RELEASE, tid, json.dumps(detail, ensure_ascii=False, sort_keys=True)))
+        if _financial_state(conn) != financial:
+            raise ValueError('HANA_FINANCIAL_CHANGED')
+        result = dict(current['summary'], applied_this_run=len(current['targets']))
+        conn.execute('INSERT INTO requests(request_id,scope,payload_sha256,response_json,created_at) VALUES (?,?,?,?,?)',
+                     (request_id, SCOPE, current['digest'], json.dumps(result, sort_keys=True), utc_now()))
+        conn.commit()
+        return result
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def restore_preview(conn, request_id):
+    targets = []
+    financial = _financial_state(conn)
+    for entry, tid, raw in conn.execute('SELECT entry_id,subject,detail_json FROM change_log WHERE kind=? ORDER BY entry_id',
+                                        (RELEASE,)):
+        detail = json.loads(raw)
+        if detail['request_id'] != request_id:
+            continue
+        if conn.execute("SELECT 1 FROM change_log WHERE kind=? AND json_extract(detail_json,'$.release_entry_id')=?",
+                        (RESTORE, entry)).fetchone():
+            continue
+        if _state(conn, tid) != detail['after']:
+            raise ValueError('HANA_RESTORE_STALE')
+        if detail.get('financial', financial) != financial:
+            raise ValueError('HANA_RESTORE_FINANCIAL_STALE')
+        targets.append(dict(entry=entry, tid=tid, detail=detail))
+    return dict(digest=_digest([targets, financial]), targets=targets, summary=dict(restore=len(targets)))
+
+
+def restore(conn, expected, request_id):
+    if conn.in_transaction:
+        raise ValueError('HANA_TRANSACTION_INVALID')
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        current = restore_preview(conn, request_id)
+        if current['digest'] != expected['digest']:
+            raise ValueError('HANA_PREVIEW_STALE')
+        financial = _financial_state(conn)
+        for target in current['targets']:
+            tid, detail = target['tid'], target['detail']
+            before = detail['before']
+            conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                         (before['transaction']['duplicate_of'], tid))
+            if not detail['closed']:
+                _rebook(conn, tid, before)
+            conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
+                         (utc_now(), RESTORE, tid,
+                          json.dumps(dict(release_entry_id=target['entry'], request_id=request_id))))
+        if _financial_state(conn) != financial:
+            raise ValueError('HANA_FINANCIAL_CHANGED')
+        conn.commit()
+        return current['summary']
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def main(argv=None):
+    """Offline CLI: count-only preview, backup-gated apply, audited restore.
+
+    Run as `python -m app.card_hana_duplicate_repair`. The gate helpers live in
+    tools/ and are imported here (not at module load) so the repair logic stays
+    importable without the offline tooling.
+    """
+    import argparse
+    from contextlib import closing
+    from pathlib import Path
+    import sqlite3
+
+    from .db import StoreError
+    from tools.complete_card_classification import require_offline_backup
+    from tools.repair_dist141_provenance import emit_report
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host-root', type=Path, required=True)
+    parser.add_argument('--request-id', required=True)
+    parser.add_argument('--restore', action='store_true')
+    parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--expected-digest')
+    parser.add_argument('--backup-evidence', type=Path)
+    parser.add_argument('--isolated-copy', action='store_true')
+    parser.add_argument('--report', type=Path)
+    args = parser.parse_args(argv)
+    host = args.host_root.resolve()
+    db = host / 'data/board.sqlite'
+    try:
+        with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as reader:
+            prior = replay(reader, args.request_id) if not args.restore else None
+        if prior:
+            if args.expected_digest and args.expected_digest != prior['digest']:
+                raise ValueError('HANA_REQUEST_CONFLICT')
+            return emit_report(dict(prior, status='REPLAYED', replay=True, applied_this_run=0, to_mark=0), args.report)
+        if args.apply:
+            if not args.expected_digest or not args.backup_evidence:
+                raise ValueError('PREVIEW_AND_BACKUP_REQUIRED')
+            require_offline_backup(host, args.backup_evidence, db, isolated_copy=args.isolated_copy)
+        with closing(sqlite3.connect(db.as_uri() + '?mode=' + ('rw' if args.apply else 'ro'),
+                                     uri=True, isolation_level=None)) as conn:
+            plan = restore_preview(conn, args.request_id) if args.restore else preview(conn)
+            if args.apply and plan['digest'] != args.expected_digest:
+                raise ValueError('HANA_PREVIEW_STALE')
+            # Preview never runs a repair, even on an in-memory database.
+            result = (restore(conn, plan, args.request_id) if args.restore else
+                      apply(conn, plan, request_id=args.request_id)) if args.apply else plan['summary']
+            report = dict(status='APPLIED' if args.apply else 'PREVIEW', digest=plan['digest'], **result)
+        return emit_report(report, args.report)
+    except (OSError, ValueError, KeyError, sqlite3.Error, StoreError) as exc:
+        code = (exc.code if isinstance(exc, StoreError) else str(exc)
+                if isinstance(exc, ValueError) and str(exc).replace('_', '').isalnum() else type(exc).__name__)
+        print(json.dumps(dict(status='FAILED', code=code)))
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

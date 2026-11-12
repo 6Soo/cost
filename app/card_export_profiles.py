@@ -1,7 +1,8 @@
 """Verified Hana usage and IBK print layouts; source cells stay untouched."""
 import re
 
-from .normalize import AmountUnreadable, is_cancel_text, to_amount_krw, to_date, to_decimal
+from .normalize import (AmountUnreadable, is_cancel_text, normalize_approval_number,
+                        to_amount_krw, to_date, to_decimal)
 
 
 HANA_USAGE = ('NO', '이용일자', '매입일자', '카드번호', '구분', '매출구분',
@@ -182,20 +183,36 @@ def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
     Missing posting/currency details in a compact view cannot erase the fuller
     source. Refunds and repeated rows within the same file retain multiplicity.
     """
-    if parser.split(':', 1)[-1] not in ('hana_usage', 'hana_foreign', 'ibk_print'):
-        return None
+    layout = parser.split(':', 1)[-1]
+    if layout not in ('hana_usage', 'hana_foreign', 'ibk_print'):
+        # Hana approval-source downloads arrive as a generic headered sheet and
+        # describe the same purchases as the acquired views, so they join the
+        # cross-view matching too. Other issuers' headered sheets are untouched.
+        if not (layout == 'headered' and row.issuer == '하나'):
+            return None
+    # Leading-zero padding differs between views (`00102256` vs `102256`); compare
+    # the normalized key, never rewriting the stored approval number. An all-zero
+    # number is meaningless and cannot establish a match.
+    approval_key = normalize_approval_number(row.approval_number)
     if (row.transaction_direction != 'purchase' or row.parse_error
-            or not row.approval_number or not row.card_tail or not row.approval_date):
+            or not approval_key or not row.card_tail or not row.approval_date):
         return None
     candidates = store.conn.execute(
         "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency,posting_date,batch_id,row_index,source_hash "
-        "FROM transactions WHERE issuer=? AND card_tail=? AND approval_number=? "
+        "FROM transactions WHERE issuer=? AND card_tail=? AND LTRIM(approval_number,'0')=? "
         "AND approval_date=? AND transaction_direction='purchase' AND batch_id<>? "
         "AND parse_error='' AND conflict_reason='' AND duplicate_of IS NULL",
-        (row.issuer, row.card_tail, row.approval_number, row.approval_date, batch_id)).fetchall()
+        (row.issuer, row.card_tail, approval_key, row.approval_date, batch_id)).fetchall()
     if len(candidates) != 1:
         return None
     identity, merchant, amount, foreign, currency, posting_date, original_batch, original_index, original_hash = candidates[0]
+    # An approval number can be reused by different purchases on one card/day.
+    # The same event's approval-time and billed won values differ only by FX and
+    # fee, never by multiples; a wide ratio means a different transaction, so it
+    # stays separate instead of becoming a spurious source conflict.
+    if amount and row.amount_krw and amount > 0 and row.amount_krw > 0:
+        if not 0.5 <= amount / row.amount_krw <= 2.0:
+            return None
     cache = source_cache if source_cache is not None else {}
     same_merchant = merchant == row.merchant_normalized
     if not same_merchant and merchant and row.merchant_normalized and (
