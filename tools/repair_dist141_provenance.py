@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -12,6 +13,16 @@ from app import decision_provenance as repair
 from app.db import StoreError
 from app.ota_sources import OtaSourcesError as ManifestSourceError
 from tools.complete_card_classification import load_context, load_review_evidence, require_offline_backup, read_flow
+
+
+def emit_report(report, path):
+    if path:
+        try:
+            path.write_text(json.dumps(report,indent=2),encoding='utf8')
+        except OSError:
+            report['report_file_written'] = False
+    print(json.dumps(report))
+    return 0
 
 
 def canonical_report(conn, host):
@@ -51,11 +62,22 @@ def main(argv=None):
     host = args.host_root.resolve()
     db = host/'data/board.sqlite'
     try:
+        # A committed retry is a read-only no-op. Check the original preview
+        # digest before requiring a new backup or recomputing changed inputs.
+        if args.apply and not args.restore and args.expected_digest and db.is_file():
+            with closing(sqlite3.connect(db.as_uri()+'?mode=ro',uri=True)) as reader:
+                previous = reader.execute("SELECT payload_sha256,response_json FROM requests WHERE request_id=? AND scope='dist141_provenance'",
+                                          (args.request_id,)).fetchone()
+            if previous:
+                if previous[0] != args.expected_digest:
+                    raise ValueError('PROVENANCE_REQUEST_CONFLICT')
+                return emit_report(dict(json.loads(previous[1]),status='REPLAYED',digest=previous[0],
+                                        replay=True,applied_this_run=0),args.report)
         if args.apply:
             if not args.expected_digest or not args.backup_evidence:
                 raise ValueError('PREVIEW_AND_BACKUP_REQUIRED')
             require_offline_backup(host,args.backup_evidence,db)
-        with sqlite3.connect(db.as_uri()+'?mode='+('rw' if args.apply else 'ro'),uri=True,isolation_level=None) as conn:
+        with closing(sqlite3.connect(db.as_uri()+'?mode='+('rw' if args.apply else 'ro'),uri=True,isolation_level=None)) as conn:
             if args.restore:
                 plan = repair.restore_preview(conn,args.request_id)
                 options = {}
@@ -76,10 +98,7 @@ def main(argv=None):
                 if target is not conn:
                     target.close()
             report = dict(status='APPLIED' if args.apply else 'PREVIEW',digest=plan['digest'],**result)
-        if args.report:
-            args.report.write_text(json.dumps(report,indent=2),encoding='utf8')
-        print(json.dumps(report))
-        return 0
+        return emit_report(report,args.report)
     except (OSError,ValueError,KeyError,sqlite3.Error,StoreError,ManifestSourceError) as exc:
         code = (exc.code if isinstance(exc,(StoreError,ManifestSourceError)) else
                 str(exc) if isinstance(exc,ValueError) and str(exc).replace('_','').isalnum() else type(exc).__name__)

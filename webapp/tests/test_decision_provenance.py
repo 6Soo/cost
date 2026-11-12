@@ -183,3 +183,28 @@ def test_maintenance_apply_requires_preview_and_backup_before_opening_store(tmp_
     assert main(['--host-root',str(tmp_path),'--request-id','synthetic','--apply']) == 1
     assert json.loads(capsys.readouterr().out)['code'] == 'PREVIEW_AND_BACKUP_REQUIRED'
     assert not (tmp_path/'data/board.sqlite').exists()
+
+
+def test_committed_cli_retry_is_readonly_and_rejects_other_preview_digest(setup,tmp_path,monkeypatch,capsys):
+    import sqlite3
+    from tools import repair_dist141_provenance as cli
+    board,flow,_,rows = setup
+    save_batch(flow,rows[0])
+    plan = repair.preview(board.conn,TRIPS)
+    repair.apply(board.conn,plan,TRIPS,request_id='cli-retry')
+    (tmp_path/'data').mkdir(exist_ok=True)
+    path = tmp_path/'data/board.sqlite'
+    with sqlite3.connect(path) as target:
+        board.conn.backup(target)
+    original = path.read_bytes()
+    def must_not_run(*args,**kwargs):
+        raise AssertionError('committed retry attempted a write gate or rejudgment')
+    monkeypatch.setattr(cli,'require_offline_backup',must_not_run)
+    monkeypatch.setattr(cli,'canonical_report',must_not_run)
+    arguments = ['--host-root',str(tmp_path),'--request-id','cli-retry','--apply','--expected-digest']
+    assert cli.main(arguments+[plan['digest']]) == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response['status'] == 'REPLAYED' and response['applied_this_run'] == 0
+    assert cli.main(arguments+['another-preview']) == 1
+    assert json.loads(capsys.readouterr().out)['code'] == 'PROVENANCE_REQUEST_CONFLICT'
+    assert path.read_bytes() == original

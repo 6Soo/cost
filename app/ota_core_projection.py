@@ -289,7 +289,7 @@ def card_matches(facts, data):
         if not event or not card or any(result.get(k) or event.get(k) for k in
                 ('evidence_changed', 'evidence_missing', 'service_period_conflict')):
             continue
-        if isinstance(link, dict) and (link.get('evidence_changed') or
+        if isinstance(link, dict) and (link.get('evidence_changed') or link.get('evidence_missing') or
                 (link.get('source_digest') and link.get('source_digest') != event.get('source_digest'))):
             continue
         shared = event.get('service_period_basis') == 'LINK-108'
@@ -346,6 +346,7 @@ def card_matches(facts, data):
         tid = str(result.get('transaction_id') or '')
         event = events.get(str(result.get('ota_event_id')), {})
         card = cards.get(tid)
+        link = (data.get('links') or {}).get(str(result.get('ota_event_id'))) or {}
         if (tid in occupied or not card or event.get('service_period_basis') != 'LINK-108'
                 or result.get('status') not in ('MATCHED_AUTO','MATCHED_USER')
                 or any(result.get(k) or event.get(k) for k in
@@ -353,6 +354,9 @@ def card_matches(facts, data):
                 or event.get('reservation_status') not in ('observed','completed','confirmed')
                 or not ota_payments._event_is_paid(event)
                 or ota_payments.pair_check(event,card) is not None):
+            continue
+        if isinstance(link,dict) and (link.get('evidence_changed') or link.get('evidence_missing')
+                or link.get('source_digest') and link['source_digest'] != event.get('source_digest')):
             continue
         shared_claims[tid].append(event)
     for tid, options in shared_claims.items():

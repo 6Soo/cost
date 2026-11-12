@@ -549,6 +549,7 @@ def _attach_forest_portal_periods(events, portal_events):
                 or receipt.get('service_period') or receipt.get('service_period_conflict')):
             continue
         candidates = []
+        application_unknown = False
         for portal in portal_events:
             if (portal.get('paid_on')
                     or portal.get('reservation_amount_krw') is None
@@ -564,16 +565,22 @@ def _attach_forest_portal_periods(events, portal_events):
             try:
                 lag = (date.fromisoformat(receipt['paid_on']) - date.fromisoformat(portal['booked_on'])).days
             except (ValueError, TypeError, KeyError):
+                application_unknown = True
                 continue
             if 0 <= lag <= 7:
                 candidates.append(portal)
         periods = {tuple(sorted((p.get('service_period') or {}).items())) for p in candidates}
-        if (not candidates or len(periods) != 1
+        if (application_unknown or not candidates or len(periods) != 1
                 or any(p.get('evidence_status') == 'conflict' or
                        p.get('reservation_status') not in ('confirmed', 'completed', 'observed') for p in candidates)):
             continue
         period = candidates[0]['service_period']
         if not period.get('starts_on') or not period.get('ends_on'):
+            continue
+        try:
+            if date.fromisoformat(period['starts_on']) >= date.fromisoformat(period['ends_on']):
+                continue
+        except (TypeError, ValueError):
             continue
         receipt.update(service_period=dict(period), service_period_basis='LINK-108',
                        reservation_status='observed', item='숙박비')

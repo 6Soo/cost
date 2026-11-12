@@ -71,6 +71,31 @@ def test_link108_repeated_group_projects_only_independently_verified_common_peri
     assert card_matches([],data) == []
 
 
+@pytest.mark.parametrize('link_change',[dict(source_digest='old-digest'),dict(evidence_changed=True),dict(evidence_missing=True)])
+def test_link108_does_not_reintroduce_stale_user_links_in_fallback(link_change):
+    from app.ota_core_projection import card_matches
+    from app.ota_payments import match_ota_payment_events
+    receipt,portal = shared_fixture()
+    receipt.update(authorization_scheme='issuer_card_approval',approval_number='888888')
+    _attach_forest_portal_periods([receipt],[portal])
+    card = dict(transaction_id='card',source_hash='source',merchant='가상산림치유원',
+        amount_krw=12345,approval_date='2031-02-08',transaction_direction='purchase',
+        issuer='synthetic',card_tail='1234',approval_number='888888')
+    links = {'receipt':dict(transaction_id='card',status='MATCHED_USER',**link_change)}
+    results = match_ota_payment_events([receipt],[card],existing_links=links)
+    data = dict(events=[receipt],transactions=[card],results=results,links=links)
+    assert card_matches([],data) == []
+
+
+@pytest.mark.parametrize('missing_application',[None,'invalid-date'])
+def test_link108_missing_application_in_another_exact_candidate_blocks_consensus(missing_application):
+    receipt,portal = shared_fixture()
+    other = dict(portal,booked_on=missing_application,
+                 service_period=dict(starts_on='2031-04-02',ends_on='2031-04-03'))
+    _attach_forest_portal_periods([receipt],[portal,other])
+    assert receipt['service_period'] is None
+
+
 @pytest.mark.parametrize('change',[
     dict(service_period=dict(starts_on='2031-03-03',ends_on='2031-03-04')),
     dict(booked_on='2031-01-31'),dict(booked_on='2031-02-09'),
