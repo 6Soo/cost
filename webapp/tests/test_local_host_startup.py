@@ -540,7 +540,11 @@ class BoardLaunchTests(unittest.TestCase):
 
     def test_the_task_passes_every_argument_to_the_runner(self):
         _code, output = run_installer()
-        self.assertIn("MOCK-REGISTER action=powershell", output)
+        # The managed task's action is the lifecycle entry, which wraps the
+        # powershell runner and passes every argument through unchanged.
+        self.assertIn("MOCK-REGISTER action=python " + CHECKOUT
+                      + "\\tools\\webledger_task_entry.pyw --role Board --port "
+                      + str(BOARD_PORT) + " -- powershell", output)
         self.assertIn("-WindowStyle Hidden", output)
         self.assertIn("start_web_ledger_host.ps1", output)
         for value in (CHECKOUT, DATA_ROOT, OAUTH_FILE, SESSION_SECRET_FILE,

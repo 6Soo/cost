@@ -345,16 +345,20 @@ class SpecNamedReadTests(_Server, unittest.TestCase):
         self.assertNotEqual(by_id["unclassified"]["authority_status"],
                             "authoritative")
 
-    def test_a_trip_created_on_screen_is_not_authoritative_either(self):
-        self._json("/api/tabs",
-                   {"starts_on": "2026-11-03", "destination": DEST,
-                    "ends_on": "2026-11-07",
-                    "client_request_id": "tabs-authority-1"}, "POST")
+    def test_a_trip_cannot_be_created_on_screen(self):
+        # TRIP-001: trips come only from the Google spreadsheet tabs. The
+        # on-screen creation path was removed, so the POST is refused and no
+        # trip appears — a screen-made trip could never be authoritative.
+        status, payload = self._json(
+            "/api/tabs",
+            {"starts_on": "2026-11-03", "destination": DEST,
+             "ends_on": "2026-11-07",
+             "client_request_id": "tabs-authority-1"}, "POST")
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["code"], "RESOURCE_NOT_FOUND")
         _, data = self._json("/api/tabs")
         made = [t for t in data["tabs"] if t["destination"] == DEST]
-        self.assertEqual(len(made), 1)
-        self.assertEqual(made[0]["authority_status"], "needs_review")
-        self.assertNotEqual(made[0]["authority_label"], "권위 있음")
+        self.assertEqual(len(made), 0)
 
     def test_the_lineage_answers_source_proposal_edits_and_history(self):
         status, data = self._json("/api/rows/expense-demo-c1/lineage")

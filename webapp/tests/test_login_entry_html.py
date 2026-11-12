@@ -87,7 +87,7 @@ class LoginEntryHtmlTests(_Server, unittest.TestCase):
         status, ctype, body = self._get("/", accept="text/html")
         self.assertEqual(status, 401)
         self.assertIn("text/html", ctype)
-        self.assertIn("웹 장부", body)
+        self.assertIn("여행 장부", body)
         self.assertIn("로그인 후 소유자의 승인이 필요합니다.", body)
         self.assertIn("width=device-width", body)
         self.assertIn('data-refusal="AUTH_REQUIRED"', body)
@@ -96,7 +96,7 @@ class LoginEntryHtmlTests(_Server, unittest.TestCase):
         status, ctype, body = self._get("/board", accept="text/html")
         self.assertEqual(status, 401)
         self.assertIn("text/html", ctype)
-        self.assertIn("웹 장부", body)
+        self.assertIn("여행 장부", body)
         self.assertIn("로그인 후 소유자의 승인이 필요합니다.", body)
 
     def test_review_html_accept_returns_login_page(self):
@@ -155,7 +155,7 @@ class LoginEntryHtmlTests(_Server, unittest.TestCase):
         import json as _json
         payload = _json.loads(body)
         self.assertEqual(payload["code"], "AUTH_REQUIRED")
-        self.assertNotIn("웹 장부", body)
+        self.assertNotIn("여행 장부", body)
 
     def test_post_html_accept_stays_json(self):
         status, ctype, body = self._get(
@@ -208,7 +208,7 @@ class LoginEntryHtmlTests(_Server, unittest.TestCase):
             "/", accept="text/html", cookie="__Host-webledger=expired-value")
         self.assertEqual(status, 401)
         self.assertIn("text/html", ctype)
-        self.assertIn("웹 장부", body)
+        self.assertIn("여행 장부", body)
 
     def test_unknown_path_html_accept_stays_json(self):
         status, ctype, body = self._get(
