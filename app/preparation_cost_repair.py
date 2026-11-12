@@ -20,6 +20,7 @@ def preview(conn, trips, *, evidence=None):
     from .partial_refund import refund_links
     from .rules import list_rules, rule_matches
     from .db import Store
+    from .classification_provenance import CODE_SOURCES
     valid, manual = trip_map(trips), manual_ids(conn)
     canonical = canonical_trip_periods(trips)
     rows = _read(conn)
@@ -47,11 +48,15 @@ def preview(conn, trips, *, evidence=None):
         elif tid in manual or row.get('decided_at') or row['classification_source'] in {
                 'user_decision','user_exception','owner_booking','manual','manual_hold'}:
             reason = 'MANUAL_OR_USER_EXCEPTION'
-        elif row['classification_source'] != 'inference' or not is_preparation:
+        elif row['classification_source'] not in CODE_SOURCES or not is_preparation:
             reason = 'UNPROVEN_PREPARATION'
         elif any(word in basis for word in ('예약', '이용기간', 'P2_METADATA', '사용자 규칙', '사용자 예외')) or (evidence or {}).get(tid):
             reason = 'RESERVATION_OR_EXCEPTION_EVIDENCE'
-        elif any(rule_matches(rule, row)[0] for rule in rules):
+        elif any(rule_matches(rule, row)[0] and (
+                rule.get('optional', {}).get('inferred_assignment')
+                or any(k in rule.get('effects', {}) for k in ('trip_id','display_tab_id'))
+                or rule.get('origin') in {'owner-ota-booking','auto-ota-period','ota-mail-live',
+                                          'ota-portal-live','guide-airfare-live'}) for rule in rules):
             reason = 'ACTIVE_RULE_EVIDENCE'
         elif card_trip_candidates(row, list(canonical.values())):
             reason = 'ENCLOSING_PERIOD_OR_EXCEPTION'
@@ -59,6 +64,11 @@ def preview(conn, trips, *, evidence=None):
             reason = correction_protection_reason(SimpleNamespace(conn=conn), tid, row['source_hash']) or ''
             if reason in {'CANCELLATION_OR_REFUND','ORIGINAL_WITH_REFUND'} and tid in group_ids:
                 reason = ''  # All members and the raw financial graph are checked below.
+            # The shared cancellation guard returns before hold/exclusion checks.
+            if not reason and conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?', (tid,)).fetchone():
+                reason = 'REVIEW_HOLD'
+            if not reason and conn.execute('SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=? AND excluded=1', (tid,)).fetchone():
+                reason = 'COMPANY_EXCLUDED'
         state = _state(conn, tid)
         if not reason and (len(destinations) != 1 or row.get('trip_id') not in canonical):
             reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
@@ -71,7 +81,7 @@ def preview(conn, trips, *, evidence=None):
                 reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
             if projection is state['board']:
                 payload = json.loads(projection['payload_json'])
-                if (payload.get('trip_id') not in destinations or payload.get('display_tab_id') not in destinations
+                if (any(k in payload and payload[k] not in destinations for k in ('trip_id','display_tab_id'))
                         or payload.get('confirmed_by') not in (None, '', 'automatic')):
                     reason = 'PROJECTION_ATTRIBUTION_DISAGREEMENT'
         from .card_destination import observed_quarter
