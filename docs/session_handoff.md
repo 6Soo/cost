@@ -1,3 +1,10 @@
+## 2026-11-12 완료 기간 카드 선행 제외·분기 묶음 — A~E COMPLETE / F 검수 기록은 PR
+
+- 현재 승인 범위는 헤드가 전달한 완료 기간 정리 A~F 하나다. 규칙 PROC-072·색인 756개, 공통 판별과 P1/재판정/P2/검토 목록/미분류 집계 연결, 감사·원복·digest·신선 백업 게이트를 쓰는 `tools/repair_closed_period_grouping.py`를 구현했다. 주 구현 `f9bca8b9`, 검토 경로·사본 보고 `2637a18d`. 최종 SHA와 독립 `gpt-6.1-sol/medium` 검수 판정은 이 브랜치 PR에 기록한다. **병합·배포·운영 쓰기는 하지 않는다. 운영은 43acce87/Board 8752다.**
+- [사본 집계·모든 여행별 행 수 변화](agents/artifacts/closed-period-grouping-rehearsal-20261112.md): 완료 3,653, 기존 완료 여행 불변 2,882, 열린/미래 귀속 764(2027 하쿠산 762·세토우치 2), 확정 근거 예외 0, 이동 631(2025년 629·2026Q1 2), 환불 보호 유지 133, 열린 목적지 밖 보존 7. 기존 장부·화면 행 변화는 모든 여행 0. 운영 코드와 열린 거래 2,400건 판정 대조 차이 0, 보호 71표·원본·비대상 불변, 감사 원복 631·별도 파일 전체 복원·재전송 변경 0 PASS.
+- 표적 99건 PASS. 영향 검사 초회 `UNKNOWN_IMPACT:1`은 기존 백업 테스트의 매핑을 추가해 해결했다. 후속 영향 검사는 777pass/9fail/30subtests/skip0이며 9건 모두 동일 기준 `f4b60b3594c01fae2cb6e029b6fbe9ed587d5e53`의 브라우저 파일에서 동일 재현(기준 9pass/9fail, 실패 ID 집합 일치)했다. 영향 검사 전체는 FAILED로 유지하며 최종 재실행 결과와 검수는 PR을 따른다. 테스트 기대값 교체는 헤드가 승인한 구 규칙 1건뿐이며 같은 입력 5건의 원행 불변·재판정 0과 열린 거래 추론 유지를 검사한다.
+- [운영·원복 정확 명령](playbooks/closed-period-grouping.md). Board·SourceRefresh writer 정지 필요, Gateway는 유지 가능(휘발성 상태 JSON만 백업 해시 제외). 2025년은 기존 일반형 quarter:2025:N와 항목 `2025년 항목`, Q1은 quarter:2026:1을 사용한다. 환불 짝의 이동 해석은 넓히지 않고 133건 보존했다. 비공개 근거는 이 worktree `.local-archive/closed-period-20261112/`, 실행 `.local-archive/rehearse_closed_period.py`, 검사 로그 `.local-archive/closed-period-*.log`·`quality-artifacts/`에 보존하며 원문을 Git/PR에 넣지 않는다. 다음은 PR 최종 SHA 독립 검수·기록이며 헤드의 병합·배포·운영 반영은 별도다.
+
 ## 2026-11-12 LINK-108·dist141 — 운영 반영 COMPLETE
 
 - [PR #813](https://github.com/6Soo/cost/pull/813)을 검수 SHA `f931e258` 그대로 병합(`43acce8768a4b990776d7acb34a539915a3628e2`)하고 헤드가 `tools/deploy_verified_release.ps1`로 09:48~09:49 KST에 배포했다. **현재 운영 SHA는 `43acce87`**, Board 8752, 로컬·공개 readyz 200, 보호 표 13개 불변, 근거는 `releases/deploy-evidence-43acce87….json`이다. 병합과 배포를 담당 세션에 함께 맡기지 않았다(#812 중단의 재발 방지).

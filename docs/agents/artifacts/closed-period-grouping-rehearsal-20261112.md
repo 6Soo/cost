@@ -1,6 +1,6 @@
 # 완료 기간 카드 정리 사본 예행 (2026-11-12)
 
-정책: [PROC-072](../policy/process.md). 운영 SHA `43acce8768a4b990776d7acb34a539915a3628e2`를 기준으로 운영 원본을 변경하지 않는 별도 사본에서 실행했다. 원문·금액·개별 거래 식별값은 이 보고서에 없다.
+정책: [PROC-072](../../policy/process.md). 운영 SHA `43acce8768a4b990776d7acb34a539915a3628e2`를 기준으로 운영 원본을 변경하지 않는 별도 사본에서 실행했다. 원문·금액·개별 거래 식별값은 이 보고서에 없다.
 
 | 측정 | 건수 / 결과 |
 | --- | ---: |
@@ -76,4 +76,4 @@
 | 2027-03-02 0302_야쿠시마 | 0 | 0 | 0 |
 | 2027-06-22 0622_리시리 | 0 | 0 | 0 |
 
-실행·원복 명령과 writer 정지 조건은 [절차서](../playbooks/closed-period-grouping.md)에 있다. 사본·검증 스크립트·집계·파일 복원본은 담당 worktree의 `.local-archive/closed-period-20261112/`와 `.local-archive/rehearse_closed_period.py`에 보존했다. 운영에 올려 확인하는 검사·병합·배포·운영 반영은 수행하지 않았다.
+실행·원복 명령과 writer 정지 조건은 [절차서](../../playbooks/closed-period-grouping.md)에 있다. 사본·검증 스크립트·집계·파일 복원본은 담당 worktree의 `.local-archive/closed-period-20261112/`와 `.local-archive/rehearse_closed_period.py`에 보존했다. 운영에 올려 확인하는 검사·병합·배포·운영 반영은 수행하지 않았다.
