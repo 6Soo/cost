@@ -414,6 +414,13 @@ def test_p2_refresh_does_not_rebuild_p1_evidence_context(setup, monkeypatch):
 
 def test_split_prompts_count_all_assembled_cases_toward_first_fifty(setup, monkeypatch):
     from app import p2_case
+    from webapp import autonomous_cleanup_worker as module
+    from types import SimpleNamespace
+    # This tests one pilot-capacity instant. Do not let a slow machine make
+    # P2_BATCH_SPLIT's one-second retry due between the four sweeps.
+    wall_now = module.time.time()
+    monkeypatch.setattr(module, 'time', SimpleNamespace(
+        time=lambda: wall_now, monotonic=module.time.monotonic))
     from tests.test_p2_worker_boundaries import rich_response
     trip = create_trip(setup)
     batch, rows = receive(setup, 65)

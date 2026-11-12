@@ -41,5 +41,6 @@
 | --- | --- | --- |
 | `tests/test_p2_lock_io_regression.py::test_same_size_edit_with_restored_mtime_invalidates_source_stamp` | Windows `utime` 정밀도 반올림으로 set 전후 ns 자체가 달라질 수 있음 | 파일 생성 직후 표현 가능한 정수초 ns로 고정한 뒤 stamp 취득. 동일 크기·동일 mtime·내용 변경 감지 단언은 유지 |
 | `ReceiptPageFlowTests.test_lost_upload_response_recovers_committed_original_without_retry` | 앞선 전체 1/1 timeout, 같은 head/base 단독 각각0/1; route.abort의 응답/body 완료 경합 의심 | 실제 POST 응답 body를 읽은 직후 브라우저 fetch 경계에 TypeError 1회 주입. 실제 저장·조회·복구 UI·원본1개·POST1회·새로고침 유지 검증. 실제 서버 네트워크 손실의 모든 타이밍을 결정적으로 재현했다는 주장은 아님 |
+| `tests/test_p2_lock_io_regression.py::test_split_prompts_count_all_assembled_cases_toward_first_fifty` | 이번 파일 전체 실행1/1에서40≠30, 동시 영향 검사0/1. 네 번 sweep 사이 실시간1초가 지나 split 재시도가 due가 되는 실행 시간 의존 | 이 검사가 의도한 동일 시점의 벽시계만 고정하고 실제 monotonic 예산은 유지. first50·AI30 기대값은 그대로 검사 |
 
 원본 실패 로그와 기준 대조는 #815 담당 worktree의 비공개 `.local-archive/closed-period-*`에 보존한다. 새 실행 로그는 이 브랜치 `.local-archive/`와 `quality-artifacts/`에 보존한다. 고객 원문·금액·식별값을 이 문서와 PR에 넣지 않는다.
