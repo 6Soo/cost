@@ -1,8 +1,12 @@
-## 2026-11-12 ?? ?? ?? ?? ? PR ?? ??
+## 2026-11-13 환불 표시 검사 — 전체 검사 완료·PR 검수 대기
 
-- `fix/refund-display-checks-20261113`?? ?? ??? ??? ???????? ?? ?? 6? ??? ????, ?? ?? `refund-display-checks` ??? ????. ????? ?? ??? ?? ??? ???? ???.
-- ?? ?? 116? PASS. ?? ?? ?? ???? ?? `5f2b2e00`?? 670 passed, 4 subtests, skip 0, compile/data guard PASS? ????. ? ??? ? UI ??? 1?? ?? `execute()` ?? ??? ?? ????, ????? ???? `/cards/all` ?? ???? ????.
-- ?? ??: `198815e0`, `73e7a686`, `5f2b2e00`. ?? DB???????????? push? ???? ???. ?? ??? `quality-artifacts/run-summary.json`, `quality-artifacts/pytest.log`, `quality-artifacts/junit.xml`? ????.
+- 승인 범위는 헤드 A~D 및 후속 1~4. 완료 커밋 `198815e0`, `73e7a686`, `5f2b2e00`, `654272b1`, `4f8e837c`는 테스트7파일·영향 맵·문서만 변경했다. 운영 소스 diff 없음.
+- **main 전체(기준 `335b9eda`, detached worktree) 1회 완료: 398 failed / 7222 passed / 4 skipped / 1511 subtests passed, 3:11:12, exit 1.** 로그 `.local-archive/main-baseline-335b9eda-20261113/pytest-full.log`·XML.
+- **수정 브랜치 전체(`4f8e837c`) 1회 완료: 373 failed / 7248 passed / 4 skipped / 1510 subtests passed, 2:51:25, exit 1.** 로그 `.local-archive/refund-display-checks/branch-solo.log`·XML.
+- 차집합 검증: 실패 25건 감소 = [대조표](agents/artifacts/refund-display-check-reconciliation-20261113.md)의 (b) 16단위가 덮는 25건과 일치. (a)0/(c)검사수정0/(d)0, 신규 실제 회귀 0. 간헐 요동 2건(`test_receipt_page_flow…`, `test_card_catalog_browser…`)은 단독 재실행 통과로 (c) 확정. 전체 결과·잔여 373건 분류는 [full-suite-20261113.md](agents/artifacts/full-suite-20261113.md).
+- SRC-045 동일 tick 캐시 미해결(합성300회 중1회 재현, 캐시 구현 미변경). 금융 보호(환불 짝·순액·초과 환불·원본 충돌·수동 교정) 기대값 변경 없음·skip/xfail 추가 없음 diff 재확인.
+- origin/main이 작업 중 `335b9eda`→`abaa5ba3`(PR #825 카드 로그인 자동화)로 이동. 전체 검사는 태스크 시작 시점 기준이며 PR 전 `abaa5ba3`를 통합한다(`test-impact-map.json` 자동 병합, `session_handoff.md` 양쪽 절 보존).
+- 남은 일: 영향 검사 `run_quality_checks.py --base origin/main --run` PASSED 확인 → 최종 SHA push·PR(#816 스타일 표) → 독립 gpt-6.1-sol medium 최종 SHA 검수·승인 기록. 병합·배포는 헤드 담당, 이 브랜치는 서버 배포 불필요. 운영 DB·운영 포트(8751/8752/8790)·고객 원본 미사용.
 
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
