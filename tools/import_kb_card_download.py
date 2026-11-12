@@ -434,8 +434,10 @@ def run_apply(db_path: Path, files: list, backup_dir: Path, work_dir: Path,
     wrote = False
     try:
         conn = store.conn
-        # Write lock across the freshness compare: no writer can slip between
-        # the snapshot and receive. receive manages its own transactions.
+        # BEGIN IMMEDIATE takes the freshness snapshot under a write lock, then
+        # ROLLBACK releases it before receive. The lock does not span receive:
+        # receive runs its own per-file transactions, and the writers-offline
+        # gate (not this lock) is what keeps other writers out.
         conn.execute("BEGIN IMMEDIATE")
         try:
             current = protection_snapshot(conn)
@@ -472,8 +474,27 @@ def run_apply(db_path: Path, files: list, backup_dir: Path, work_dir: Path,
         if not wrote:
             raise
         store.close()
+        original = exc.code if isinstance(exc, (ImportBoundaryError, StoreError)) else type(exc).__name__
+        # Re-check the single-writer gate before touching the target: restoring
+        # under a live writer could clash with its commits. If the server came
+        # back online, skip auto-restore and stop for manual recovery.
+        try:
+            _writers_offline(port)
+        except ImportBoundaryError:
+            detail = {"restored": {"backup": str(backup_path), "restored": False,
+                                   "verified": False, "error": "WRITERS_ONLINE_RESTORE_BLOCKED"},
+                      "backup": str(backup_path), "original_error": original}
+            raise ImportBoundaryError(
+                "WRITERS_ONLINE_RESTORE_BLOCKED",
+                "writers came back online before auto-restore; restore skipped, recover manually",
+                detail=detail) from None
         restored = restore_from_backup(backup_path, db_path)
-        detail = {"restored": restored, "backup": str(backup_path)}
+        detail = {"restored": restored, "backup": str(backup_path), "original_error": original}
+        if not restored.get("restored") or not restored.get("verified"):
+            raise ImportBoundaryError(
+                "RESTORE_FAILED_DO_NOT_START_SERVER",
+                "auto-restore failed; do not start the server, follow the playbook manual recovery",
+                detail=detail) from None
         if isinstance(exc, ImportBoundaryError):
             exc.detail = detail
             raise

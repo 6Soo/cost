@@ -79,7 +79,7 @@ console.log({filename: downloaded.suggestedFilename(), bytes: completedSize});
 - `--apply` 단일 작성자 게이트(실제 검사): 운영자 플래그가 아니라 도구가 직접 확인한다. `--host-root`(기본 `D:/WebLedgerHost`)의 `config/ledger-route.json`에서 Board 포트(8751 또는 8752)를 읽고, `tools/complete_card_classification.py`의 `require_writers_offline`과 같은 PowerShell 검사로 `WebLedger-Board`·`WebLedger-SourceRefresh` 작업이 둘 다 존재하며 Running이 아니고 해당 포트에 리스너가 없을 때만 진행한다. 어기면 `WRITERS_NOT_OFFLINE`/`ROUTE_REQUIRED`/`ROUTE_PORT_INVALID`로 멈추며 백업도 만들지 않는다.
 - `--apply` 신선 백업 증거: 쓰기 전에 새 백업을 만들고(`BACKUP_EXISTS`로 덮어쓰기 거부) 별도 파일로 복원 검증한다. 이어서 `require_offline_backup`과 같은 기준으로 백업이 1시간 이내이며 원본 DB의 전체 테이블 상태(`database_state`)와 일치하는지 확인한다(`BACKUP_NOT_FRESH`/`BACKUP_SOURCE_CHANGED`). 리허설은 이 신선 백업 사본에서 수행하고, 안전하지 않으면 `REHEARSAL_HOLD`로 멈춘다.
 - 수집이 이미 검증한 항목(파일 SHA·화면 건수 대조 `countCheck=MATCHED`·파서 성공)을 매니페스트에서 요구하고, 도구 자신이 바이트·형식·채널·건수를 다시 검증한다. 하나라도 실패하면 멈추며 DB에 쓰지 않는다.
-- 쓰기 뒤 검증과 자동 복원: `receive`는 파일마다 내부 트랜잭션을 커밋하므로 앱 코드 변경 없이 쓰기 전체를 하나의 외부 트랜잭션으로 묶을 수 없다. 그래서 **백업 자동 복원 방식**을 쓴다. 쓰기 직전 상태 비교는 `BEGIN IMMEDIATE` 쓰기 잠금 안에서 수행하고, 쓰기 뒤 결과 계획 비교(`PLAN_CHANGED`)·보호 검사·재수신 무변경 검사 중 하나라도 실패하면 신선 백업을 SQLite backup API로 대상에 자동 복원한 뒤 상태 일치를 검증하고 실패로 끝낸다. 보고서 `apply.restored`가 복원·검증 결과다. 자동 복원 자체가 실패하면(`restored.verified=false`) 원래 오류 코드를 보존한 채 멈추며 아래 수동 복원으로 되돌린다.
+- 쓰기 뒤 검증과 자동 복원: `receive`는 파일마다 내부 트랜잭션을 커밋하므로 앱 코드 변경 없이 쓰기 전체를 하나의 외부 트랜잭션으로 묶을 수 없다. 그래서 **백업 자동 복원 방식**을 쓴다. 쓰기 직전 상태 비교는 `BEGIN IMMEDIATE` 쓰기 잠금 안에서 수행하고, 이 잠금은 비교 직후 `ROLLBACK`으로 풀리며 receive까지 유지되지 않는다(다른 작성자 차단은 잠금이 아니라 위 단일 작성자 게이트가 담당하고, receive는 파일별 자체 트랜잭션을 쓴다). 쓰기 뒤 결과 계획 비교(`PLAN_CHANGED`)·보호 검사·재수신 무변경 검사 중 하나라도 실패하면 자동 복원을 시도한다. **복원 직전에 단일 작성자 게이트(`require_writers_offline`)를 다시 확인**해서 서버가 다시 켜졌으면 복원하지 않고 `WRITERS_ONLINE_RESTORE_BLOCKED`로 멈춘다(라이브 작성자 커밋과 충돌 방지). 서버가 꺼져 있으면 신선 백업을 SQLite backup API로 대상에 자동 복원한 뒤 상태 일치를 검증하고 원래 오류로 끝낸다. 보고서 `apply.restored`가 복원·검증 결과다. **자동 복원 자체가 실패하면(`restored=false` 또는 `verified=false`) `RESTORE_FAILED_DO_NOT_START_SERVER` 전용 오류로 멈추며, 서버를 시작하지 말고 아래 수동 복원으로 되돌린다.**
 - 분류 대기열: 가져온 각 배치를 웹 업로드(`/api/imports`)와 똑같이 `webapp.card_completion_worker.queue_batch`로 P1 분류 대기열(`requests` 테이블, `card_completion_job`)에 넣는다. 대기열은 DB에 영속하므로 서버가 멈춘 상태에서도 적재할 수 있고, Board 서버가 다시 시작되면 `CardCompletionWorker`가 이어서 처리한다. 장부 자동 기록은 이 후속 처리의 일부이며 가져오기 도구가 직접 하지 않는다.
 - 보고서에는 집계만 남으며 거래 원문은 출력하지 않는다. `kb_last_dates`는 다음 수집의 `--last-use-date`를 위한 읽기 전용 집계 참고값이다(조회 기간 계산 자체는 아래 절차 1번의 집계로 수집 단계에서 수행).
 
@@ -104,7 +104,7 @@ Start-ScheduledTask -TaskName WebLedger-Board
 Start-ScheduledTask -TaskName WebLedger-SourceRefresh
 ```
 
-자동 복원이 실패했을 때의 수동 복원 최후 수단: 서버가 멈춘 상태에서 보고서 `apply.backup`에 기록된 백업 경로를 대상에 덮어쓴다. 백업은 자기완결 SQLite 사본이며 서버가 정상 종료되면 WAL 곁파일이 없으므로 그대로 복사할 수 있다. 복사 뒤 미리보기를 다시 실행해 무결성을 확인한다.
+자동 복원이 실패했을 때의 수동 복원 최후 수단(`RESTORE_FAILED_DO_NOT_START_SERVER`): **대상이 불완전 상태일 수 있으므로 복원·검증이 끝날 때까지 서버를 시작하지 않는다.** 먼저 `WebLedger-Board`·`WebLedger-SourceRefresh`가 멈춰 있는지 확인하고(`WRITERS_ONLINE_RESTORE_BLOCKED`로 멈췄다면 반드시 정지시킨 뒤), 보고서 `apply.backup`에 기록된 백업 경로를 대상에 덮어쓴다. 백업은 자기완결 SQLite 사본이며 서버가 정상 종료되면 WAL 곁파일이 없으므로 그대로 복사할 수 있다. 복사 뒤 미리보기를 다시 실행해 무결성·상태 일치를 확인한 다음에야 서버를 시작한다.
 
 ```powershell
 Copy-Item D:/WebLedgerHost/data/backups/card-import-2026-11-13/board-kb-import-<stamp>.sqlite D:/WebLedgerHost/data/board.sqlite -Force

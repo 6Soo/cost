@@ -695,6 +695,101 @@ def test_apply_protection_failure_after_write_auto_restores(tmp_path, capsys, mo
     assert db_state(db) == before
 
 
+def test_apply_writers_online_before_restore_skips_restore(tmp_path, capsys, monkeypatch):
+    run_dir = make_run(tmp_path, both_files_spec())
+    db = make_db(tmp_path)
+    host, calls = gate_host(tmp_path, monkeypatch)
+    real_rehearse = tool.rehearse
+
+    def divergent_rehearse(db_path, files, work_dir, label):
+        result = real_rehearse(db_path, files, work_dir, label)
+        result["receipts"][0]["inserted"] += 99
+        return result
+
+    monkeypatch.setattr(tool, "rehearse", divergent_rehearse)
+
+    # Gate passes once; the pre-restore re-check sees the server back online.
+    def online_again(port):
+        calls.append(port)
+        if len(calls) >= 2:
+            raise tool.ImportBoundaryError("WRITERS_NOT_OFFLINE")
+
+    monkeypatch.setattr(tool, "_writers_offline", online_again)
+
+    def must_not_restore(backup_path, db_path):
+        raise AssertionError("auto-restore must not run while writers are online")
+
+    monkeypatch.setattr(tool, "restore_from_backup", must_not_restore)
+    code, report = invoke(capsys, "--run-dir", str(run_dir), "--db", str(db),
+                          "--apply", "--backup-dir", str(tmp_path / "backups"),
+                          "--host-root", str(host))
+    assert code == 2
+    assert report["error"]["code"] == "WRITERS_ONLINE_RESTORE_BLOCKED"
+    assert report["apply"]["status"] == "FAILED"
+    assert report["apply"]["restored"]["restored"] is False
+    assert report["apply"]["original_error"] == "PLAN_CHANGED"
+    assert calls == [8752, 8752]
+    # Restore was skipped: the written rows remain for manual recovery.
+    conn = read_only(db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 6
+    finally:
+        conn.close()
+
+
+def test_apply_restore_failure_stops_without_starting_server(tmp_path, capsys, monkeypatch):
+    run_dir = make_run(tmp_path, both_files_spec())
+    db = make_db(tmp_path)
+    host, _calls = gate_host(tmp_path, monkeypatch)
+    real_rehearse = tool.rehearse
+
+    def divergent_rehearse(db_path, files, work_dir, label):
+        result = real_rehearse(db_path, files, work_dir, label)
+        result["receipts"][0]["inserted"] += 99
+        return result
+
+    monkeypatch.setattr(tool, "rehearse", divergent_rehearse)
+
+    def failed_restore(backup_path, db_path):
+        return {"backup": str(backup_path), "restored": False, "verified": False,
+                "error": "RESTORE_INTEGRITY_FAILED"}
+
+    monkeypatch.setattr(tool, "restore_from_backup", failed_restore)
+    code, report = invoke(capsys, "--run-dir", str(run_dir), "--db", str(db),
+                          "--apply", "--backup-dir", str(tmp_path / "backups"),
+                          "--host-root", str(host))
+    assert code == 2
+    assert report["error"]["code"] == "RESTORE_FAILED_DO_NOT_START_SERVER"
+    assert report["apply"]["status"] == "FAILED"
+    assert report["apply"]["restored"]["restored"] is False
+    assert report["apply"]["restored"]["verified"] is False
+    assert report["apply"]["original_error"] == "PLAN_CHANGED"
+
+
+def test_apply_releases_write_lock_before_receive(tmp_path, capsys, monkeypatch):
+    run_dir = make_run(tmp_path, both_files_spec())
+    db = make_db(tmp_path)
+    host, _calls = gate_host(tmp_path, monkeypatch)
+    states = []
+    real_pipeline = tool.Pipeline
+
+    class SpyPipeline(real_pipeline):
+        def receive(self, content, filename):
+            states.append(self.store.conn.in_transaction)
+            return super().receive(content, filename)
+
+    monkeypatch.setattr(tool, "Pipeline", SpyPipeline)
+    code, report = invoke(capsys, "--run-dir", str(run_dir), "--db", str(db),
+                          "--apply", "--backup-dir", str(tmp_path / "backups"),
+                          "--host-root", str(host))
+    assert code == 0
+    assert report["apply"]["status"] == "DONE"
+    assert states
+    # The BEGIN IMMEDIATE snapshot lock is rolled back before receive: no
+    # receive call runs inside an outer transaction.
+    assert all(state is False for state in states)
+
+
 def test_apply_queues_classification_like_web_upload(tmp_path, capsys, monkeypatch):
     run_dir = make_run(tmp_path, both_files_spec())
     db = make_db(tmp_path)
