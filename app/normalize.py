@@ -162,8 +162,8 @@ def normalize_identity_text(value) -> str:
 def normalize_approval_number(value) -> str:
     """Comparison-only key for an issuer approval number.
 
-    Some Hana views pad the same approval with leading zeros (`00102256` in the
-    approval source, `102256` in the overseas acquired view). Stripping the outer
+    Some Hana views pad the same approval with leading zeros (`00001111` in the
+    approval source, `1111` in the overseas acquired view). Stripping the outer
     zeros lets the two views agree on one transaction. This never rewrites the
     stored approval number; it is only used to compare identities. Alphanumeric
     issuer IDs keep their letters. An all-zero or blank number is meaningless and

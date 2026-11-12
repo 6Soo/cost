@@ -4,7 +4,7 @@
 
 ## 원인
 
-하나카드 해외 구매가 두 번 수입되어 두 번 장부되었다. 매입 원본 뷰(`xls:hana_foreign`, 청구금액)와 승인 출처 다운로드(`csv:headered`/`xls:headered`, 승인금액)가 같은 승인번호를 서로 다른 앞자리 0으로 패딩한다(`00102256` 대 `102256`). `app/card_export_profiles.py`의 `existing_purchase`가 (1) 승인번호를 **원문 문자열 그대로** 비교하고 (2) 교차 뷰 매칭을 `hana_usage`·`hana_foreign`·`ibk_print` 레이아웃으로만 제한해서, `headered` 승인 출처 행은 매칭되지 않고 별개의 깨끗한 거래로 삽입·장부되었다. 금액은 승인 시점 원화 대 청구 원화(환율·수수료 차이)라 서로 다르지만 같은 구매다.
+하나카드 해외 구매가 두 번 수입되어 두 번 장부되었다. 매입 원본 뷰(`xls:hana_foreign`, 청구금액)와 승인 출처 다운로드(`csv:headered`/`xls:headered`, 승인금액)가 같은 승인번호를 서로 다른 앞자리 0으로 패딩한다(예: `00001111` 대 `1111`). `app/card_export_profiles.py`의 `existing_purchase`가 (1) 승인번호를 **원문 문자열 그대로** 비교하고 (2) 교차 뷰 매칭을 `hana_usage`·`hana_foreign`·`ibk_print` 레이아웃으로만 제한해서, `headered` 승인 출처 행은 매칭되지 않고 별개의 깨끗한 거래로 삽입·장부되었다. 금액은 승인 시점 원화 대 청구 원화(환율·수수료 차이)라 서로 다르지만 같은 구매다.
 
 ## 수정 (비교 전용 정규화)
 

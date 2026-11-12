@@ -271,7 +271,7 @@ def test_hana_leading_zero_approval_variant_is_one_cost_not_two(reverse):
 def test_all_zero_approval_number_cannot_establish_a_cross_view_match():
     from app.normalize import normalize_approval_number
     assert normalize_approval_number('000000') == ''
-    assert normalize_approval_number('  00102256 ') == '102256'
+    assert normalize_approval_number('  00001111 ') == '1111'
     assert normalize_approval_number('A000123') == 'A000123'
     pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
     # Different zero padding keeps the raw identities distinct, so any collapse

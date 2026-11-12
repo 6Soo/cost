@@ -190,7 +190,7 @@ def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
         # cross-view matching too. Other issuers' headered sheets are untouched.
         if not (layout == 'headered' and row.issuer == '하나'):
             return None
-    # Leading-zero padding differs between views (`00102256` vs `102256`); compare
+    # Leading-zero padding differs between views (`00001111` vs `1111`); compare
     # the normalized key, never rewriting the stored approval number. An all-zero
     # number is meaningless and cannot establish a match.
     approval_key = normalize_approval_number(row.approval_number)
