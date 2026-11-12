@@ -263,6 +263,25 @@ def acquired_supersedes_approval(store, parser, row, identity):
     return bool(existing and existing[0].split(':', 1)[-1] == 'headered')
 
 
+def approval_superseded_by_acquired(store, parser, row, identity):
+    """Billed-first mirror of `acquired_supersedes_approval` (SRC-005/009).
+
+    When the overseas billed view (`hana_foreign`) was stored first and its
+    approval-source download (`headered`) arrives afterwards, the incoming approval
+    row is the redundant view: the caller marks it a duplicate of the billed
+    canonical instead of leaving a source conflict, so both import orders agree.
+    The approval row is new and unbooked, so no ledger amount changes. Domestic
+    `hana_usage` keeps its merchant-number conflict protection in both orders.
+    """
+    if row.issuer != '하나' or parser.split(':', 1)[-1] != 'headered':
+        return False
+    existing = store.conn.execute(
+        "SELECT b.parser FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id"
+        " WHERE t.transaction_id=? AND t.conflict_reason='' AND t.duplicate_of IS NULL",
+        (identity,)).fetchone()
+    return bool(existing and existing[0].split(':', 1)[-1] == 'hana_foreign')
+
+
 def redundant_purchase_conflicts(conn):
     """Read-only duplicate projection for conflicts created by older importers.
 

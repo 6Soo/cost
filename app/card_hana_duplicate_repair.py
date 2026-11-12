@@ -403,6 +403,25 @@ def move_approval_projection(conn, keep_tid, dup_tid, *, request_id, actor='auto
     return dict(keep_before=keep_before, dup_before=dup_before, ledger_action='move')
 
 
+def mark_closed_duplicate(conn, keep_tid, dup_tid, *, request_id, period):
+    """Closed (already submitted) period: mark the approval duplicate only.
+
+    The period's ledger is immutable (PROC-072 / REC-007), so the booked approval
+    projection and its amount are left exactly as they are — no move, no amount
+    change. The pair is recorded as a closed-period review target with the same
+    `closed`/`period` fields the cleanup apply logs, so one query over the release
+    log surfaces closed pairs from both the import path and the cleanup tool.
+    """
+    before = _repair_state(conn, dup_tid)
+    conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                 (keep_tid, dup_tid))
+    detail = dict(request_id=request_id, keep=keep_tid, closed=True, period=period,
+                  ledger_action='mark_only', amount_krw=before['transaction']['amount_krw'])
+    conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
+                 (utc_now(), RELEASE, dup_tid, json.dumps(detail, ensure_ascii=False, sort_keys=True)))
+    return dict(keep_before=_repair_state(conn, keep_tid), dup_before=before, ledger_action='mark_only')
+
+
 def apply(conn, expected, *, request_id):
     if not request_id or conn.in_transaction:
         raise ValueError('HANA_REQUEST_OR_TRANSACTION_INVALID')

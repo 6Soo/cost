@@ -251,7 +251,8 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                  "parsed"))
             plan = _keyless_plan(store, batch_id, parsed.rows)
             occurrences = {}
-            from .card_export_profiles import acquired_supersedes_approval, existing_purchase
+            from .card_export_profiles import (acquired_supersedes_approval,
+                                               approval_superseded_by_acquired, existing_purchase)
             used_export_matches = set()
             export_source_cache = {}
             for row in parsed.rows:
@@ -285,11 +286,45 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                         else:
                             outcome = _insert_row(store, batch_id, row, now, canonical)
                             if outcome == 'inserted':
-                                hana.move_approval_projection(store.conn, canonical, identity,
-                                                              request_id=batch_id)
+                                period = hana.closed_period(dup_row.get('approval_date') or dup_row.get('posting_date'))
+                                if period:
+                                    # Submitted period: the ledger is immutable, so mark
+                                    # the approval duplicate only and surface the pair for
+                                    # closed-period review — same as the cleanup tool.
+                                    hana.mark_closed_duplicate(store.conn, canonical, identity,
+                                                               request_id=batch_id, period=period)
+                                else:
+                                    hana.move_approval_projection(store.conn, canonical, identity,
+                                                                  request_id=batch_id)
                                 store.log_change('transaction.duplicate_marked', identity,
-                                                 {'duplicate_of': canonical, 'batch_id': batch_id})
+                                                 {'duplicate_of': canonical, 'batch_id': batch_id,
+                                                  'closed_period': period})
                             identity = canonical
+                    elif not same_source and approval_superseded_by_acquired(store, parsed.parser, row, identity):
+                        # Billed-first order: the incoming approval-source row is the
+                        # redundant view of an already-stored billed canonical. Mark it
+                        # a duplicate (not a source conflict), matching the approval-first
+                        # order. It is new and unbooked, so no ledger amount changes.
+                        from . import card_hana_duplicate_repair as hana
+                        dup_identity = transaction_identity(row)
+                        keep_row = hana._repair_state(store.conn, identity)['transaction']
+                        dup_row = {'transaction_id': dup_identity, 'parse_error': row.parse_error,
+                                   'conflict_reason': '', 'duplicate_of': None,
+                                   'classification_source': None, 'decided_at': None,
+                                   'trip_id': '', 'display_tab_id': ''}
+                        guard = hana.supersede_protection(store.conn, keep_row, dup_row,
+                                                          hana._number_index_for(store.conn))
+                        if guard:
+                            outcome = _insert_row(store, batch_id, row, now, identity)
+                        else:
+                            outcome = _insert_row(store, batch_id, row, now, dup_identity)
+                            if outcome == 'inserted':
+                                store.conn.execute(
+                                    'UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                                    (identity, dup_identity))
+                                store.log_change('transaction.duplicate_marked', dup_identity,
+                                                 {'duplicate_of': identity, 'batch_id': batch_id})
+                            identity = dup_identity
                     else:
                         outcome = ('reused' if same_source else
                                    _insert_row(store, batch_id, row, now, identity))
