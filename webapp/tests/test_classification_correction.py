@@ -99,7 +99,7 @@ def test_october_local_purchase_does_not_rank_named_may_trip_above_near_domestic
            dict(trip_id='near',destination='영남',starts_on='2026-10-02',ends_on='2026-10-04'),
            dict(trip_id='foreign',destination='북큐슈',starts_on='2026-09-27',ends_on='2026-10-01')]
     target,_=policy.infer_trip(dict(merchant='SYNTHETIC 부산 STORE',card_kind='국내',approval_date='2026-10-01'),trips)
-    assert target=='near'
+    assert target==''  # Owner 2026-11-12: outside all domestic periods -> payment quarter.
     target,_=policy.infer_trip(dict(merchant='SYNTHETIC 부산 STORE',card_kind='국내',approval_date='2026-05-02'),trips)
     assert target=='may'
 

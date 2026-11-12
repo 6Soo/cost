@@ -167,11 +167,16 @@ def infer_trip(row, trips, *, nets=None, reconsider=False, _canonical=None, comp
         top = candidates[0]
         ties = sum(c['score'] == top['score'] for c in candidates)
         return top['trip_id'], top['basis'] + (f' · 동률 {ties}개 중 일정·ID 고정 순서로 선택' if ties > 1 else '')
-    if valid:
-        # A missing use date does not turn the posting date into a service date.
-        target = max(valid, key=lambda key: (valid[key]['starts_on'], key))
-        return target, '이용일 단서 없음 · 가장 최근 시작한 실제 여행 선택'
-    return '', '등록된 유효 여행 없음'
+    # Preserve the pre-existing missing/invalid-use-date path. This change is
+    # limited to generic preparation inference for an observed outside date.
+    from datetime import date
+    try:
+        date.fromisoformat(row.get('approval_date') or '')
+    except (TypeError, ValueError):
+        if valid:
+            target = max(valid, key=lambda key: (valid[key]['starts_on'], key))
+            return target, '이용일 단서 없음 · 가장 최근 시작한 실제 여행 선택'
+    return '', 'PROC-004 · 이용일을 포함하는 여행 없음 · 결제일 분기 기타비용'
 
 
 def _card3820_owner_policy(row, trips, *, _canonical=None):
@@ -180,7 +185,7 @@ def _card3820_owner_policy(row, trips, *, _canonical=None):
     This mirrors the primary card-classification path: the Singapore exception
     wins when exactly one matching trip exists; otherwise an eligible domestic
     purchase goes to its transaction quarter. Overseas purchases use matching
-    trip periods and the nearest following preparation period regardless of country.
+    trip periods regardless of country. Outside those dates PROC-004 applies.
     Missing dates and the absence of real trips cannot invent an assignment.
     """
     if row.get('card_tail') != '3820':
@@ -328,6 +333,16 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
     valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
                       and fact.get('trip_id') in valid
                       and row['transaction_direction'] == 'purchase')
+    from .classification_provenance import CODE_SOURCES
+    automatic_quarter = (row['classification_source'] in CODE_SOURCES
+        and row['item'] == '분기 기타비용' and not row.get('trip_id')
+        and str(row.get('display_tab_id') or '').startswith('quarter:')
+        and any(marker in (row.get('classification_basis') or '') for marker in (
+            '실제 여행 후보 없음 · 결제일 기준 분기 기타비용', '일반 준비기간 추론 폐지')))
+    if valid_fact and automatic_quarter:
+        # A derived fallback is not a user-selected item. New source-bound
+        # reservation evidence still takes precedence over the payment date.
+        chosen.update(item=fact.get('item') or infer_item(dict(chosen, item=''))[0], description='')
     # A recorded calendar guess is still an automatic inference. A later,
     # source-bound reservation period may correct it during explicit review.
     # Historical/manual rows have already taken the protected branch in plan().
@@ -383,7 +398,9 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         target, trip_basis = chosen.get('trip_id') or '', '환불/분기 비용 기존 배정 유지'
     else:
         rerank = (reconsider and not existing_tab and not valid_fact and not link
-                  and row['classification_source'] == 'inference'
+                  and (row['classification_source'] == 'inference' or (
+                      row['classification_source'] in {'code_inference','auto_inferred'}
+                      and '다음 여행 준비기간 · ' in (row['classification_basis'] or '')))
                   and '예약 이용기간' not in (row['classification_basis'] or ''))
         target, trip_basis = infer_trip(chosen, list(valid.values()), nets=nets,
                                       reconsider=rerank, _canonical=valid, completed_evidence=fact)
@@ -397,8 +414,14 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
                                   '유효 여행 유지 · 이용일 단서 없음')
         else:
             quarter = _quarter_destination(chosen)
-            if quarter and chosen.get('display_tab_id') in (None, '', 'unclassified'):
+            if quarter and (rerank or chosen.get('display_tab_id') in (None, '', 'unclassified')):
+                # Preserve an explicit item rule that matched this import. The
+                # transaction's prior source is empty on a new import, while
+                # ``chosen`` already carries the rule provenance.
+                quarter_item = (chosen['item'] if chosen['item'] and chosen.get('classification_source') in
+                                {'rule','pattern','user_exception','owner_booking'} else '분기 기타비용')
                 chosen.update(display_tab_id=quarter[0], trip_id='',
+                              item=quarter_item,
                               description=chosen.get('description') or quarter[1])
                 trip_basis = '실제 여행 후보 없음 · 결제일 기준 분기 기타비용'
                 quarter_assigned = True

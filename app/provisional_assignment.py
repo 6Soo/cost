@@ -38,8 +38,7 @@ def card_trip_candidates(transaction, trips, *, nets=None, _canonical=None):
     merchant = str(transaction.get("merchant") or "").casefold()
     available = regional_trips(transaction, authoritative.values(), booking_agnostic=True)
     preferred, preparation = period_or_preparation(available, day.isoformat())
-    if preferred:
-        available = preferred
+    available = preferred
     ranked = []
     for trip in available:
         identity = str(trip["trip_id"])
@@ -52,7 +51,7 @@ def card_trip_candidates(transaction, trips, *, nets=None, _canonical=None):
         ranked.append((rank, identity, distance, named))
     order = {rank: index for index, rank in enumerate(sorted({entry[0] for entry in ranked}, reverse=True))}
     return [{"trip_id": identity, "score": order[rank], "confidence": "낮음",
-             "basis": ("다음 여행 준비기간 · " if preparation else "") + ("가맹점 지역명 일치 · " if named else "") + f"카드 이용일과 여행 기간 거리 {distance}일"}
+             "basis": ("가맹점 지역명 일치 · " if named else "") + f"카드 이용일과 여행 기간 거리 {distance}일"}
             for rank, identity, distance, named in ranked]
 
 
