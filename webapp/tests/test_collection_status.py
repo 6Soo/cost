@@ -239,6 +239,29 @@ class GatherTests(unittest.TestCase):
             self.board.conn.commit()
         self.assertEqual(gather(self.board, now=NOW)['normal_undecided'], 0)
 
+    def test_gather_uses_sixty_second_cache(self):
+        collection_status._cache_clear()
+        calls = []
+        real_card_last = collection_status._card_last
+
+        def counting_card_last(board):
+            calls.append(1)
+            return real_card_last(board)
+
+        clock = [1000.0]
+        with patch.object(collection_status, '_card_last', side_effect=counting_card_last), \
+                patch.object(collection_status.time, 'monotonic', side_effect=lambda: clock[0]):
+            first = gather(self.board)
+            self.assertEqual(len(calls), 1)
+            second = gather(self.board)
+            self.assertIs(second, first)
+            self.assertEqual(len(calls), 1)
+            clock[0] += collection_status._CACHE_TTL_SECONDS + 1.0
+            third = gather(self.board)
+            self.assertIsNot(third, first)
+            self.assertEqual(len(calls), 2)
+        collection_status._cache_clear()
+
 
 class HomeIntegrationTests(unittest.TestCase):
     def setUp(self):

@@ -9,6 +9,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+import time
 from contextlib import closing
 from html import escape as esc
 from pathlib import Path
@@ -27,6 +28,14 @@ CARD_ISSUERS = (('국민', '국민카드'), ('하나', '하나카드'), ('기업
 OTA_PROVIDERS = (('agoda', 'Agoda'), ('trip', 'Trip.com'), ('booking', 'Booking.com'),
                  ('foresttrip', '숲나들e'), ('sooperang', '산림치유원'))
 NO_RECORD = '기록 없음'
+
+# 홈 요청마다 수집 쿼리가 다시 돌지 않도록 하는 짧은 인프로세스 캐시(새 의존성 없음).
+_CACHE_TTL_SECONDS = 60.0
+_CACHE = {}
+
+
+def _cache_clear():
+    _CACHE.clear()
 
 
 def _parse_kst(value, *, naive_tz=None):
@@ -200,8 +209,13 @@ def _normal_undecided(board):
 
 def gather(board, *, now=None):
     """원천별 마지막 수집 기록을 모은다. 기록이 없으면 None 으로 남긴다."""
-    now = now or dt.datetime.now(KST)
     path = getattr(board, 'path', None)
+    key = str(path) if (now is None and path is not None) else None
+    if key is not None:
+        hit = _CACHE.get(key)
+        if hit is not None and time.monotonic() < hit[0]:
+            return hit[1]
+    now = now or dt.datetime.now(KST)
     data_root = Path(path).parent if path is not None else None
     cards = _card_last(board)
     mail = _mail_last(data_root) if data_root is not None else None
@@ -219,8 +233,11 @@ def gather(board, *, now=None):
                    for key, label in OTA_PROVIDERS)
     sources.append({'label': 'Google 수입', 'group': 'google', 'last_at': google_last,
                     'threshold': THRESHOLDS_DAYS['google'], 'login_required': google_login})
-    return {'now': now, 'sources': sources, 'p2': p2,
+    data = {'now': now, 'sources': sources, 'p2': p2,
             'normal_undecided': _normal_undecided(board)}
+    if key is not None:
+        _CACHE[key] = (time.monotonic() + _CACHE_TTL_SECONDS, data)
+    return data
 
 
 def evaluate(record, now):
