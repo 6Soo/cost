@@ -84,6 +84,11 @@ class ReviewTestCase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self._prev_db = os.environ.get("WEBLEDGER_DB")
         self._prev_config = os.environ.get(real_review.CONFIG_ENV)
+        # The /review screen is the legacy entry, served only while the card flow
+        # is off. Pin it so an ambient WEBLEDGER_CARD_FLOW left by another test
+        # cannot redirect these requests to /cards/all (order-independent).
+        self._prev_card_flow = os.environ.get("WEBLEDGER_CARD_FLOW")
+        os.environ["WEBLEDGER_CARD_FLOW"] = "0"
         os.environ["WEBLEDGER_DB"] = str(self.tmp / "review.sqlite")
         self.manifest = fx.write_case(
             self.tmp, rows=self.rows, with_header=self.with_header,
@@ -143,7 +148,8 @@ class ReviewTestCase(unittest.TestCase):
         board_mod.bind_store(None)
         self.store.close()
         for name, value in (("WEBLEDGER_DB", self._prev_db),
-                            (real_review.CONFIG_ENV, self._prev_config)):
+                            (real_review.CONFIG_ENV, self._prev_config),
+                            ("WEBLEDGER_CARD_FLOW", self._prev_card_flow)):
             if value is None:
                 os.environ.pop(name, None)
             else:
@@ -297,8 +303,10 @@ class ConfiguredReviewTests(ReviewTestCase):
                              f"{path}: {raw[:200]!r}")
 
     def test_the_owner_navigation_carries_the_link(self):
+        # wave3 #799 removed the /review header link; the owner navigation now
+        # carries the formal card entry (/cards/all) instead.
         _status, page = self.get("/board?tab=unclassified")
-        self.assertIn("/review", page)
+        self.assertIn("/cards/all", page)
 
     def test_a_bare_board_redirects_an_owner_whose_board_is_empty(self):
         raw = raw_get(self.port, "/board", OWNER)
@@ -369,7 +377,7 @@ class UnavailableReviewTests(ReviewTestCase):
         status, page = self.get("/review")
         self.assertEqual(status, 503)
         self.assertNotIn("합성내용", page)
-        self.assertIn("예제 자료로 대신 보여주지 않아요", page)
+        self.assertIn("예제 자료로 대신 보여주지 않습니다", page)
 
 
 class DriftingSourceTests(ReviewTestCase):
