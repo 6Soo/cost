@@ -1,3 +1,16 @@
+## 2026-11-13 M2 항목 7 상태 화면 — 수집 상태 판 (PR #827 검수 범위)
+
+- 통합 명세 M2 항목 7(상태 화면)을 구현했다. 브랜치 `feat/status-panel-20261113`, [PR #827](https://github.com/6Soo/cost/pull/827). 최종 SHA·영향 검사 판정은 #827 기록이 정본이다. 기존 홈 화면에 읽기 전용 '수집 상태' 절 하나를 더했으며 새 경로·메뉴·DB 테이블은 없다. 카드 발급사별·Gmail·OTA 5개 공급자·Google 수입의 마지막 수집 날짜와 'N일 전', 기준 초과 경고를 표로 보여주고, 기준(카드 7일·메일 1일·OTA 30일·Google 1일)은 `webapp/collection_status.py`의 `THRESHOLDS_DAYS` 상수다. 판정 없는 정상 거래 수(M2 졸업 지표)를 같은 절에 한 줄로 표시한다.
+- 위치는 홈의 '진행 중 여행' 절 뒤 별도 절이다. 10행 표를 상단 상태 영역에 넣으면 모바일 첫 화면에서 여행 목록이 밀려 `test_home_has_no_pending_ledger_state_at_mobile_and_desktop_widths`가 깨져, 여행 뒤로 옮겼다. 홈 로그인 게이트를 그대로 상속하며 비인증 `/`는 이전과 같이 401이다.
+- 읽는 기록(모두 읽기 전용, 기존 기록): 카드=통합 DB `import_batches.received_at`(발급사별), Gmail=`ota-mail/collection.json`의 `last_run`, OTA=등록 manifest의 근거 DB(`ota-evidence.sqlite`, Agoda·Trip.com·Booking은 출처 기반, 숲나들e·산림치유원은 예약 기반 forest 분할), Google=`WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT`의 `last_ok_at`/`error_code`, P2=`card-flow.json`의 `p2_batch_archive`가 가리키는 보관함의 최신 `*/summary.json`(파일 시각). 기록이 없거나 못 읽으면 지어내지 않고 '기록 없음'으로 둔다.
+- '로그인 필요'는 구조화된 인증 실패 기록이 있는 Google(`GOOGLE_AUTH_UNAVAILABLE`)에서만 띄운다. Gmail·OTA·카드에는 인증 실패 기록 경로가 없어 만들지 않았다. 운영 현재 Booking.com은 '기록 없음'이다.
+- P2 표시: 개발 폴더(`C:/AX/cost/.local-archive`)를 `p2_batch_archive`로 설정하라는 안내는 검수 지적으로 뺐다. 그 설정이 없으면 화면은 지금처럼 'AI 판정 실행 기록 없음'이다. 후속 과제: P2 실행기가 운영 데이터 폴더에 요약 파일을 남기고 화면은 그것만 읽기. 운영 설정 파일은 직접 바꾸지 않았다.
+- 홈 요청마다 수집 상태 쿼리가 다시 돌지 않도록 60초 인프로세스 메모리 캐시를 뒀다(새 의존성 없음, `time.monotonic`, 보드 경로별 키, `now`를 명시하면 캐시 우회). 캐시 검사 1건을 추가했다.
+- origin/main(#819/`4eaed971`까지)을 merge했고 handoff 상단 충돌은 양쪽 절을 보존해 해결했다. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` 결과는 #827이 정본. 신규 합성 검사 19건(`webapp/tests/test_collection_status.py`: 원천별 표시·기준 경고·기록 없음·로그인 기록·P2·졸업 지표·홈 통합·비인증 차단·60초 캐시)과 영향 그룹 `collection-status-panel`을 추가했다. 근거는 `quality-artifacts/`(미추적, 커밋하지 않음).
+- 운영 읽기 전용 실측(KST 2026-11-13): 카드 국민 2026-10-31·하나 2026-11-04·기업 2026-11-02(모두 경고), Gmail 2026-11-13, Agoda·Trip.com·숲나들e·산림치유원 2026-11-12, Booking.com 기록 없음, Google 2026-11-13(로그인 실패 기록 없음). 판정 없는 정상 거래 0건.
+- 남은 일(헤드): 검수·병합·배포. 서버 코드가 바뀌었으므로 배포가 필요하다. DB 쓰기·새 테이블 없음.
+- 주의: main에 이 변경과 무관한 기존 실패 3건(PR #815의 `completed_period_sql`이 fake-board fixture를 깨뜨림) — `test_uiux_copy.py` 2건, `test_card_destination_ui.py` 1건. 이 PR의 영향 그룹에는 선택되지 않아 고치지 않았다. 병합·배포·운영 쓰기는 하지 않는다.
+
 ## 2026-11-13 국민 매입 수집→가져오기 스크립트 연결 — PR 검수 범위
 
 - 수집 스크립트(`tools/collect_kb_card.mjs`·`tools/kb_card_collection/*`)는 이미 main에 병합돼 있었다(4b4d5aad·64ee1926·3c385d44). 이번 담당은 누락된 가져오기 경계 도구 `tools/import_kb_card_download.py`다: 수집 실행 폴더(manifest+보존 원본)의 형식·건수 재검증 → 기존 중복 검사 → 기존 `Pipeline.receive` 호출(미리보기/`--apply`). 새 가져오기 로직 없이 운영 업로드와 같은 `validate_upload`·파서·중복/충돌 보호를 재사용한다. 미리보기는 읽기 전용 사본 리허설(대상 DB 무쓰기). 분류·장부 기록·Google 쓰기는 직접 하지 않는다.
