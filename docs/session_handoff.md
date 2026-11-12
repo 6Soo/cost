@@ -5,8 +5,9 @@
 - **수정 브랜치 전체(`4f8e837c`) 1회 완료: 373 failed / 7248 passed / 4 skipped / 1510 subtests passed, 2:51:25, exit 1.** 로그 `.local-archive/refund-display-checks/branch-solo.log`·XML.
 - 차집합 검증: 실패 25건 감소 = [대조표](agents/artifacts/refund-display-check-reconciliation-20261113.md)의 (b) 16단위가 덮는 25건과 일치. (a)0/(c)검사수정0/(d)0, 신규 실제 회귀 0. 간헐 요동 2건(`test_receipt_page_flow…`, `test_card_catalog_browser…`)은 단독 재실행 통과로 (c) 확정. 전체 결과·잔여 373건 분류는 [full-suite-20261113.md](agents/artifacts/full-suite-20261113.md).
 - SRC-045 동일 tick 캐시 미해결(합성300회 중1회 재현, 캐시 구현 미변경). 금융 보호(환불 짝·순액·초과 환불·원본 충돌·수동 교정) 기대값 변경 없음·skip/xfail 추가 없음 diff 재확인.
-- origin/main이 작업 중 `335b9eda`→`abaa5ba3`(PR #825 카드 로그인 자동화)로 이동. 전체 검사는 태스크 시작 시점 기준이며 PR 전 `abaa5ba3`를 통합한다(`test-impact-map.json` 자동 병합, `session_handoff.md` 양쪽 절 보존).
-- 남은 일: 영향 검사 `run_quality_checks.py --base origin/main --run` PASSED 확인 → 최종 SHA push·PR(#816 스타일 표) → 독립 gpt-6.1-sol medium 최종 SHA 검수·승인 기록. 병합·배포는 헤드 담당, 이 브랜치는 서버 배포 불필요. 운영 DB·운영 포트(8751/8752/8790)·고객 원본 미사용.
+- origin/main이 작업 중 `335b9eda`→`abaa5ba3`→`3f5f7515`(PR #823·#825·#827·#828·#829·#830, prep-cost=preparation_cost 계열 포함)로 이동. 전체 검사는 태스크 시작 시점 기준이며, 최신 origin/main을 브랜치에 통합했다(병합 `57c7c027`, `test-impact-map.json` 자동 병합, `session_handoff.md` 양쪽 절 보존).
+- 영향 검사 `run_quality_checks.py --base origin/main --run` **PASSED**(병합 `57c7c027`, base `3f5f7515`): 670 passed/4 subtests/skip0/browser_skipped0, pytest_exit0, 514.95s. 근거 `quality-artifacts/`(미추적).
+- 남은 일: 최종 SHA push·PR(#816 스타일 표) → 독립 gpt-6.1-sol medium 최종 SHA 검수·승인 기록. 병합·배포는 헤드 담당, 이 브랜치는 서버 배포 불필요. 운영 DB·운영 포트(8751/8752/8790)·고객 원본 미사용.
 
 ## 2026-11-13 3분기 AI 분기 검수 — 교정 198건 확정, 운영 반영은 헤드(도구 PR #829 병합 뒤)
 

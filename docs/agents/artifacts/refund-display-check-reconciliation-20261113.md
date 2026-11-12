@@ -52,6 +52,6 @@
 - 수정 전체: 메인 worktree에서 브랜치 `4f8e837c` 기준 1회 완료. **373 failed / 7248 passed / 4 skipped / 1510 subtests passed, 10285.18s(2:51:25), exit 1.** 로그 `.local-archive/refund-display-checks/branch-solo.log`, JUnit `branch-solo.xml`.
 - 차집합 검증: 기준선 대비 실패 25건 감소 = 위 (b) 16단위가 덮는 실패 25건과 정확히 일치. 신규 실제 회귀 0. 간헐 요동 2건은 재실행으로 (c) 확정 — `test_receipt_page_flow…test_committed_upload_recovers_truncated_or_stalled_response_body`(브랜치 전체에서 우연 실패→단독 재실행 통과), `test_card_catalog_browser…test_menu_search_and_source_review_at_390`(기준선 우연 실패→브랜치 통과, 브랜치 미수정 파일). 재실행 2 passed/2 subtests 14.94s.
 - 전체 결과·잔여 실패 분류 상세: [full-suite-20261113.md](full-suite-20261113.md).
-- 영향 검사: `python tools/run_quality_checks.py --base origin/main --run` 재실행 결과는 아래 PR 생성 시 기록으로 대체한다.
-- origin/main 이동: 작업 중 main이 `335b9eda`→`abaa5ba3`(PR #825 카드사 로그인 자동화)로 진행. 기준선·수정 전체는 태스크 시작 시점인 `335b9eda`/`4f8e837c` 기준이며, PR 전 `abaa5ba3`를 브랜치에 통합한다.
+- 영향 검사: `python tools/run_quality_checks.py --base origin/main --run` **PASSED.** 병합 커밋 `57c7c027`(base `3f5f7515`) 기준 **670 passed / 4 subtests passed / skip 0 / browser_skipped 0**, pytest_exit 0, 514.95s(8:34). 근거 `quality-artifacts/run-summary.json`·`pytest.log`(미추적). 이전 재실행의 유일 실패였던 OTA 브라우저 검사는 이번 통과.
+- origin/main 이동: 작업 중 main이 `335b9eda`→`abaa5ba3`→`3f5f7515`(PR #823·#825·#827·#828·#829·#830, prep-cost=preparation_cost 계열 포함)로 진행. 기준선·수정 전체는 태스크 시작 시점인 `335b9eda`/`4f8e837c` 기준이며, PR 전 최신 origin/main을 브랜치에 통합했다(`test-impact-map.json` 자동 병합, `session_handoff.md` 양쪽 절 보존).
 - PR·독립 검수: 대기. 병합·배포·운영 데이터 변경 없음. 테스트/영향 맵/문서뿐이어서 서버 배포 불필요.

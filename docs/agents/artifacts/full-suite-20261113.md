@@ -9,7 +9,9 @@
 | 기준선(main) | `335b9eda56b73fd65e201f39a1ffdefd82c955f3` | detached `.local-archive/main-baseline-335b9eda-20261113/`, `python -m pytest -q -ra -o faulthandler_timeout=240 --junitxml=pytest-full.xml` | **398 failed / 7222 passed / 4 skipped / 1511 subtests passed**, 11472.34s(3:11:12), exit 1 |
 | 수정 브랜치 | `4f8e837c30a9590726afad284025b4417564124b` | 메인 worktree, `python -m pytest -q -ra -o faulthandler_timeout=240 --junitxml=.local-archive/refund-display-checks/branch-solo.xml` | **373 failed / 7248 passed / 4 skipped / 1510 subtests passed**, 10285.18s(2:51:25), exit 1 |
 
-JUnit testcase 기준(서브테스트를 별도 testcase로计数): 기준선 9135 중 8733 passed/398 failed/4 skipped/0 errors, 브랜치 9135 중 8758 passed/373 failed/4 skipped/0 errors. skipped 4건은 두 실행 동일하며 브랜치가 추가한 skip/xfail은 없다.
+JUnit testcase 기준(서브테스트를 별도 testcase로 집계): 기준선 9135 중 8733 passed/398 failed/4 skipped/0 errors, 브랜치 9135 중 8758 passed/373 failed/4 skipped/0 errors. skipped 4건은 두 실행 동일하며 브랜치가 추가한 skip/xfail은 없다.
+
+**영향 검사 게이트:** `python tools/run_quality_checks.py --base origin/main --run` **PASSED.** 최신 origin/main 통합 뒤 병합 커밋 `57c7c027`(base `3f5f7515`)에서 **670 passed / 4 subtests passed / skip 0 / browser_skipped 0**, pytest_exit 0, 514.95s(8:34). 근거 `quality-artifacts/run-summary.json`·`pytest.log`(미추적).
 
 ## 차집합 검증 — 브랜치가 고친 것과 신규 회귀
 
