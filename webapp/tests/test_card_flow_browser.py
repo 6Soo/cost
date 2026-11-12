@@ -34,6 +34,9 @@ class CardFlowBrowserTests(unittest.TestCase):
             ledger_board.bind_access(None)
             server = ledger_board.serve(port=0, db_path=Path(directory)/'cleanup-browser.sqlite',
                                         with_worker=False, seed_demo=False)
+            # The worker normally initializes card tables; this fixture disables it.
+            from app import Pipeline
+            Pipeline(server.card_store.conn)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
@@ -57,7 +60,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                         self.assertEqual(response.status, 200)
                         from urllib.parse import urlsplit
                         self.assertEqual(urlsplit(page.url).path, '/cards/all')
-                        self.assertTrue(page.get_by_role('heading', name='카드 내역', exact=True).is_visible())
+                        self.assertTrue(page.get_by_role('heading', name='거래', exact=True).is_visible())
                         self.assertEqual(page.locator('#questions').count(), 0)
                         self.assertNotIn('/import', page.url)
                         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
