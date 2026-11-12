@@ -162,6 +162,9 @@ def apply_job(job, api, checkpoint, current_data, existing, metrics, fresh_rules
         # request replay runs before revision/digest checks and returns applied=0.
         result = api('/api/p2-batch/corrections/apply', {k:v for k,v in request.items() if k != 'done'})
         metrics['applied_rows'] += result.get('applied', 0)
+        metrics['confirmed_rows'] += len(request['corrections'])
+        if result.get('replay'):
+            metrics['recovered_rows'] += len(request['corrections'])
         request['done'] = True
         checkpoint()
     if 'rule' not in job:
@@ -221,7 +224,8 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
             raise ValueError('VERIFIED_LAYER1_HISTORY_REQUIRED')
         metrics = dict(run_id=uuid.uuid4().hex, started_at=datetime.now(timezone.utc).isoformat(),
             mode='dry-run' if args.dry_run else 'propose-only' if args.propose_only else 'apply',
-            calls=0, successful_calls=0, failed_calls=0, applied_rows=0, registered_rules=0, status='running')
+            calls=0, successful_calls=0, failed_calls=0, applied_rows=0, confirmed_rows=0, recovered_rows=0,
+            registered_rules=0, usage={}, status='running')
         state.setdefault('runs', []).append(metrics)
         state.setdefault('jobs', [])
         checkpoint = lambda: save(path, state)
@@ -239,6 +243,7 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
             checkpoint()
             if not args.dry_run:
                 pending = [j for j in state['jobs'] if not j.get('done')]
+                metrics['pending_merchants'] = len(pending)
                 # Resume bounded merchants first, without another model call.
                 budget = args.max_merchants
                 if not args.propose_only:
@@ -273,6 +278,7 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
                         metrics['failed_calls'] += 1
                         raise
                     metrics['successful_calls'] += 1
+                    metrics['usage'] = dict(Counter(metrics['usage']) + Counter(response.get('usage', {})))
                     normalized = layer1.normalize_results(batch, response['results'], allowed)
                     jobs = []
                     for proposal in normalized:

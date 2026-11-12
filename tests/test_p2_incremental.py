@@ -123,6 +123,7 @@ def test_partial_apply_lost_response_replays_without_model_or_double_writes(harn
     assert sum(r['revision'] == 2 for r in rows) == 50
     result = run()
     assert result['status'] == 'success' and result['applied_rows'] == 5
+    assert result['confirmed_rows'] == 55 and result['recovered_rows'] == 50
     assert len(calls) == 1 and all(r['revision'] == 2 for r in rows)
     assert len(existing) == 1 and set(existing[0]['effects']) == {'item'}
     assert run()['scope']['new_merchants'] == 0
