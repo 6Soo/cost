@@ -12,11 +12,11 @@ def trip(key='q3', start='2026-06-30'):
     return dict(tab_id=key, display_key=key, starts_on=start, ends_on='2026-07-05', deleted=0, tab_kind='trip')
 
 
-def expense(key, amount, tab='q3', source='rule', **extra):
+def expense(key, amount, tab='q3', source='rule', item='식비', **extra):
     return dict(transaction_id=key, amount_krw=amount, trip_id=tab, display_tab_id=tab,
                 approval_date='2026-04-10', posting_date='', transaction_direction='purchase' if amount > 0 else 'refund',
                 classification_source=source, classification_state='classified', classification_basis='',
-                item='식비', merchant='synthetic', decided_at=None, **extra)
+                item=item, merchant='synthetic', decided_at=None, **extra)
 
 
 def data(rows):
@@ -73,9 +73,7 @@ def test_company_exclusion_is_source_bound():
     assert excluded['company_excluded'] == 1
 
 
-def test_pack_missing_income_and_net_refund(tmp_path, monkeypatch):
-    from tools.p2_batch import scope
-    monkeypatch.setattr(scope, 'service_warnings', lambda d, r: ({'count': 0}, []))
+def test_pack_missing_income_and_net_refund(tmp_path):
     d = data([expense('a', 300000, source='ai_inference'), expense('b', -100000), expense('c', 20, source='manual')])
     summary = pack.build_pack(d, 2026, 3, tmp_path)
     assert summary['trips'] == 1 and summary['income_trips'] == 0
@@ -134,9 +132,7 @@ def test_google_income_validated_against_row_sum(tmp_path, monkeypatch, expected
     assert ('q3' in reasons) is not readable
 
 
-def test_synthetic_db_pack_aggregation(tmp_path, monkeypatch):
-    from tools.p2_batch import scope
-    monkeypatch.setattr(scope, 'service_warnings', lambda d, r: ({'count': 0}, []))
+def test_synthetic_db_pack_aggregation(tmp_path):
     path = tmp_path / 'synthetic.sqlite'
     with sqlite3.connect(path) as conn:
         for table, rows in [('transactions', [expense('a', 100), expense('b', -40), expense('c', 3, source='manual')]),
@@ -171,9 +167,7 @@ def test_priority_matches_review_contract_and_drops_reasonless_rows():
     assert result[0]['review_score'] == 30  # 20 + two 100,000-won steps
 
 
-def test_pack_has_reason_counts_and_first_fifty_sheet(tmp_path, monkeypatch):
-    from tools.p2_batch import scope
-    monkeypatch.setattr(scope, 'service_warnings', lambda d, r: ({'count': 58}, []))
+def test_pack_has_reason_counts_and_first_fifty_sheet(tmp_path):
     d = data([expense(f'a{i}', 100000, source='inference') for i in range(55)] +
              [expense('plain', 999999, source='rule')])
     summary = pack.build_pack(d, 2026, 3, tmp_path, {'q3': 1})
@@ -182,3 +176,79 @@ def test_pack_has_reason_counts_and_first_fifty_sheet(tmp_path, monkeypatch):
     book = openpyxl.load_workbook(tmp_path / 'review-pack.xlsx', read_only=True)
     assert book.sheetnames[:2] == ['먼저 볼 50건', '여행별 손익']
     assert book['먼저 볼 50건'].max_row == 51
+
+
+def test_notes_explain_counts_without_guessing_unknown_sources(tmp_path):
+    d = data([expense('a', 10, source='ai_inference'),
+              expense('b', -5, source='refund_original'),
+              expense('c', 1, conflict_reason='synthetic'),
+              expense('pending', 1, tab='', source='user_decision')])
+    d['transactions'][-1]['approval_date'] = '2026-07-01'
+    d['board_projected'] = [dict(row_id='card-b', row_kind='expense', display_tab_id='refunds',
+                                 item='식비', amount_krw=-5),
+                            dict(row_id='man-unknown', row_kind='expense', display_tab_id='q3',
+                                 item='식비', amount_krw=7)]
+    summary = pack.build_pack(d, 2026, 3, tmp_path, income_reasons={'q3': '비표준 양식'},
+                              google_at='2026-11-12', basis_note='준비 비용 귀속 폐지 반영 전')
+    assert summary['diagnostics']['unknown_sources'] == {'비카드 수기 지출 출처 기록 없음': 1}
+    assert summary['diagnostics']['projection'] == {'환불 원결제 귀속(화면은 취소·환불 묶음)': 1}
+    assert summary['diagnostics']['excluded'] == {'duplicate': 0, 'conflict': 1, 'invalid': 0, 'company_excluded': 0}
+    notes = (tmp_path / 'notes.md').read_text(encoding='utf-8')
+    assert len(notes.splitlines()) == 10
+    for text in ('AI 판정 1건', '출처 미확인 1건', '수동 출처·항목은 있으나 여행 미배정 1건',
+                 '원본 충돌 1건', '비표준 양식', '장부 화면에서 교정', '반영 전', 'Google 수입 조회 2026-11-12'):
+        assert text in notes
+    assert summary['service_date_unknown'] is None
+    assert '이용일 미확인' not in summary['reasons']
+
+
+def test_trip_totals_keep_missing_income_blank_and_escape_text():
+    import csv, io
+    from tools.quarter_review.render import render_trip_summary_csv
+    values = [dict(trip='=unsafe', income=100, expense=20, profit=80, expense_count=1, review_count=1),
+              dict(trip='missing', income=None, expense=-5, profit=None, expense_count=2, review_count=0)]
+    rows = list(csv.reader(io.StringIO(render_trip_summary_csv(values))))
+    assert rows[-1][:8] == ['합계', '', '', '', '15', '', '3', '1']
+    assert rows[1][0] != '=unsafe'
+    complete = list(csv.reader(io.StringIO(render_trip_summary_csv(values[:1]))))
+    assert complete[-1][3:6] == ['100', '20', '80']
+
+
+def test_priority_ordering_tiebreak_and_amount_bonus_cap():
+    rows = [
+        dict(row_id='b', amount_krw=200000, source='inference', item='식비'),
+        dict(row_id='a', amount_krw=200000, source='inference', item='식비'),
+        dict(row_id='c', amount_krw=-900000, source='inference', item='식비'),
+        dict(row_id='d', amount_krw=100000, source='ai_inference', item='식비'),
+    ]
+    result = priority.prioritize(rows)
+    assert [r['row_id'] for r in result] == ['c', 'd', 'a', 'b']
+    assert result[0]['review_score'] == 60  # 20 + capped 40 (9 steps would be 45)
+
+
+def test_priority_uncertainty_and_recent_auto_change_reasons():
+    uncertain = dict(row_id='u', amount_krw=0, source='rule', item='식비',
+                     classification_basis='AUTO_TRIP_INFERRED · 불확실성: 예약 근거 부족')
+    recent = dict(row_id='r', amount_krw=0, source='rule', item='식비', recent_auto_change=True)
+    both = dict(row_id='b', amount_krw=0, source='ai_inference', item='식비', recent_auto_change=True)
+    assert priority.review_reasons(uncertain) == ['불확실성 기록']
+    assert priority.review_score(uncertain) == 10
+    assert priority.review_reasons(recent) == ['최근 자동 변경']
+    assert priority.review_score(recent) == 35
+    assert priority.review_reasons(both) == ['최근 자동 변경', 'AI 판정']
+    assert priority.review_score(both) == 65
+
+
+def test_trip_summary_counts_reasons_per_trip(tmp_path):
+    d = data([expense('a', 100000, source='ai_inference'),
+              expense('b', 100000, source='inference'),
+              expense('g', 100000, source='rule', item='기타경비'),
+              expense('plain', 100000, source='rule'),
+              expense('m', 100000, source='user_decision')])
+    pack.build_pack(d, 2026, 3, tmp_path, {'q3': 1})
+    import csv
+    with (tmp_path / 'trips.csv').open(encoding='utf-8-sig', newline='') as f:
+        rows = list(csv.reader(f))
+    assert rows[1][6] == '5'  # 지출건수에는 수동·사유 없는 행도 포함
+    assert rows[1][7] == '3'  # 검수필요건수는 사유 있는 행만
+    assert rows[1][8] == 'AI 판정 1건 · 추론 귀속 1건 · 포괄 항목 1건'

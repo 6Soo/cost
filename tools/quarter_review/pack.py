@@ -106,7 +106,21 @@ def load_income(host, trips):
             detail = google.owner_rows(rows, trip['key'], source) if source in google_authority.SPREADSHEET_IDS else None
             block = ((trip.get('copies') or {}).get(source) or {}).get('income') or {}
             current = (payload['sources'].get(source) or {})
-            reason = 'Google 수입의 최신 동기화·양식·합계를 확인할 수 없음'
+            blockers = set(trip.get('review') or [])
+            if 'LAYOUT_NOT_STANDARD' in blockers:
+                reason = 'Google 탭은 있으나 비표준 양식이라 수입 표와 합계를 검증하지 못함(동기화 정상)'
+                if current.get('status') != 'ok' or current.get('stale'):
+                    reason = 'Google 탭의 비표준 양식과 동기화 상태를 확인해야 함'
+            elif current.get('status') != 'ok' or current.get('stale'):
+                reason = 'Google 수입 동기화가 최신 정상 상태가 아님'
+            elif detail is None:
+                reason = 'Google 탭의 수입 행을 읽을 수 없음'
+            elif not block.get('verified'):
+                reason = 'Google 수입 표의 양식·합계 검증이 완료되지 않음'
+            elif blockers & google.OWNER_CHOICE_BLOCKERS or trip.get('blocked_by'):
+                reason = 'Google 수입 사본의 선택·검증 문제로 합계를 확정할 수 없음'
+            else:
+                reason = 'Google 수입 행 합계와 검증 합계가 일치하지 않음'
             if (detail is not None and block.get('verified') and current.get('status') == 'ok'
                     and not current.get('stale') and not (set(trip.get('review') or []) & google.OWNER_CHOICE_BLOCKERS)
                     and not trip.get('blocked_by')):
@@ -220,10 +234,10 @@ def write_csv(path, headers, rows):
             writer.writerow([guard_text(v) if isinstance(v, str) else v for v in row])
 
 
-def undecided_normal(data, year, quarter, rows):
+def undecided_normal_rows(data, year, quarter, rows):
     """Persisted decisions only. Date fallback scopes unassigned normal purchases."""
     included = {r['row_id'] for r in rows}
-    count = 0
+    result = []
     for row in data['transactions']:
         if (row.get('duplicate_of') or row.get('conflict_reason') or row.get('parse_error')
                 or type(row.get('amount_krw')) is not int or row.get('transaction_direction') != 'purchase'):
@@ -239,8 +253,45 @@ def undecided_normal(data, year, quarter, rows):
                 continue
         if in_scope and (not row.get('classification_source') or row.get('classification_state') != 'classified'
                          or not row.get('item') or identity in (None, '', 'unclassified')):
-            count += 1
-    return count
+            result.append(row)
+    return result
+
+
+def undecided_normal(data, year, quarter, rows):
+    return len(undecided_normal_rows(data, year, quarter, rows))
+
+
+def diagnostics(data, rows, excluded, year, quarter):
+    """Counts and nature only; never emit identifiers, merchants or amounts."""
+    from app.classification_provenance import origin
+    board = {r['row_id']: r for r in data['board_projected']}
+    differences = Counter()
+    for row in rows:
+        if not row['projection_difference']:
+            continue
+        saved = board[row['row_id']]
+        if saved.get('display_tab_id') == 'refunds':
+            reason = '환불 원결제 귀속' if row.get('classification_source') == 'refund_original' else '원결제의 저장 귀속'
+            reason += '(화면은 취소·환불 묶음)'
+        else:
+            reason = '저장 귀속·항목과 화면 표시 차이'
+        differences[reason] += 1
+    unknown = Counter()
+    for row in rows:
+        if not row.get('manual') and origin(row) == 'unknown':
+            kind = ('카드' if row['row_id'].startswith('card-') else
+                    '비카드 수기 지출' if row['row_id'].startswith('man-') else '비카드 지출')
+            detail = '출처 기록 없음' if not row.get('classification_source') else '출처 코드 해석 불가'
+            unknown[f'{kind} {detail}'] += 1
+    undecided = Counter()
+    for row in undecided_normal_rows(data, year, quarter, rows):
+        identity = row.get('display_tab_id') or row.get('trip_id')
+        reason = ('수동 출처·항목은 있으나 여행 미배정' if row.get('classification_source') in MANUAL
+                  and row.get('item') and identity in (None, '', 'unclassified') else '저장 판정 일부 누락')
+        undecided[reason] += 1
+    return dict(projection=dict(differences), unknown_sources=dict(unknown),
+                undecided=dict(undecided), excluded={key: excluded[key] for key in
+                ('duplicate', 'conflict', 'invalid', 'company_excluded')})
 
 
 def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, google_at='', basis_note=''):
@@ -248,12 +299,6 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     from tools.quarter_review.render import render_trip_summary_csv, render_review_list_csv
     trips, rows, excluded = prepare_rows(data, year, quarter)
     incomes, income_reasons = incomes or {}, income_reasons or {}
-    # The actual screen warning function, with volatile OTA state explicitly unavailable.
-    from tools.p2_batch.scope import service_warnings
-    warnings_data = dict(data)
-    warnings_data['trip_tabs'] = [t for t in data['trip_tabs'] if not t.get('deleted')]
-    cards = [r for r in rows if r['row_id'].startswith('card-')]
-    warning_summary, unknown = service_warnings(warnings_data, cards)
     # The offline pack cannot read the screen's in-memory reservation projection.
     # Do not turn its different warning count into a review reason.
     for row in rows:
@@ -293,17 +338,28 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     write_csv(out / 'sources.csv', ['판정주체', '건수'], [*sorted(sources.items()), ('판정 없는 정상 거래', undecided)])
     summary = dict(trips=len(trips), income_trips=len(incomes.keys() & {t['tab_id'] for t in trips}),
                    expense_rows=len(rows), review_rows=len(review), reasons=dict(reasons),
-                   undecided_normal=undecided, quarter_other_rows=len(other), service_date_unknown=0)
-    projection_count = sum(r['projection_difference'] for r in rows)
-    source_unknown = min(sources.values(), default=0)
-    reason_summary_all = ' · '.join(f'{name} {reasons[name]}건' for name in WEIGHTS if reasons[name]) or '없음'
-    U = lambda value: value.encode('ascii').decode('unicode_escape')
-    missing_income = [f"{t['display_key']}: {income_reasons.get(t['tab_id'], 'income unavailable')}" for t in trips if t['tab_id'] not in incomes]
-    notes = [f"{U(r'\ubd84\uae30')} {year}{U(r'\ub144')} {quarter}{U(r'\ubd84\uae30')} {U(r'\uac80\uc218')}", f"{U(r'\uc870\ud68c')}: {data['read_at']}", U(r'review-pack.xlsx\ub9cc \uc5f4\uc5b4 \uba3c\uc800 \ubcfc 50\uac74 \u2192 \uc5ec\ud589\ubcc4 \uc190\uc775 \u2192 3\ubd84\uae30 \uae30\ud0c0\ube44\uc6a9 \u2192 \ud310\uc815 \uc8fc\uccb4'), f"{U(r'\uc0ac\uc720\ubcc4')} {reason_summary_all} · {len(review)}{U(r'\uac74')}", U(r'\uc5ec\ud589 \uc190\uc775\uc740 \uc800\uc7a5\ub41c \uadc0\uc18d\uacfc \uc6d0\uae08\uacfc \ud658\ubd88\uc744 \ud569\uc0b0\ud569\ub2c8\ub2e4.'), f"{U(r'\ud310\uc815\uacfc \ud654\uba74 \ud45c\uc2dc\uac00 \ub2e4\ub978')} {projection_count}{U(r'\uac74')} · {U(r'\ucd9c\ucc98 \ubd88\ud655\uc2e4')} {source_unknown}{U(r'\uac74')}", f"{U(r'\ud310\uc815 \uc5c6\ub294 \uc815\uc0c1 \uac70\ub798')} {undecided}{U(r'\uac74')} · {U(r'\ud569\uacc4 \uc81c\uc678')} {excluded['protected']}{U(r'\uac74')}", U(r'\uc774\uc6a9\uc77c \uacbd\uace0\ub294 \uc7a5\ubd80 \ud654\uba74\uc5d0\uc11c \ud655\uc778\ud569\ub2c8\ub2e4.'), U(r'\uc774\ubc88 \uc2e4\ud589\uc740 \uc900\ube44 \ube44\uc6a9 \uadc0\uc18d \ud3d0\uc9c0 \ubc18\uc601 \uc804\uc785\ub2c8\ub2e4.'), U(r'\ud30c\uc77c \uc0dd\uc131\uc740 Google\uc5d0 \uc4f0\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.'), U(r'\uc218\uc785 \ubbf8\ud655\uc778') + ': ' + (' · '.join(missing_income) if missing_income else U(r'\uc5c6\uc74c'))]
-    notes = notes[:9]
+                   undecided_normal=undecided, quarter_other_rows=len(other), service_date_unknown=None)
+    detail = diagnostics(data, rows, excluded, year, quarter)
+    summary['diagnostics'] = detail
+    def counts(values):
+        return ' · '.join(f'{key} {value}건' for key, value in values.items() if value) or '없음'
+    reason_summary = counts({name: reasons[name] for name in WEIGHTS})
     missing_income = [f"{t['display_key']}: {income_reasons.get(t['tab_id'], '수입 자료를 확인하지 못함')}"
                       for t in trips if t['tab_id'] not in incomes]
-    notes.append('수입 미확인: ' + ' · '.join(missing_income) if missing_income else '수입 미확인: 없음')
+    exclusions = {'중복': excluded['duplicate'], '원본 충돌': excluded['conflict'],
+                  '금액·파싱 오류': excluded['invalid'], '회사 비용 제외': excluded['company_excluded']}
+    notes = [
+        f"{year}년 {quarter}분기 검수 / 장부 조회 {data['read_at']} / Google 수입 조회 {google_at or '확인 불가'}",
+        'review-pack.xlsx만 여세요. 먼저 볼 50건에서 사유를 보고 장부 화면에서 교정한 뒤 다시 생성하세요.',
+        f'여행별 손익에서 수입·지출·차액과 사유별 검수 건수를 보세요. 검수 대상 {len(review)}건: {reason_summary}(사유 중복 가능).',
+        f'{quarter}분기 기타비용에서 항목별 건수·합계를, 판정 주체에서 자동·AI·수동 건수를 확인하세요.',
+        '수입 미확인: ' + (' · '.join(missing_income) if missing_income else '없음') + '. 미확인 여행과 전체 합계의 수입·차액은 빈칸입니다.',
+        f"화면과 저장 판정 차이 {sum(detail['projection'].values())}건: {counts(detail['projection'])}. 합계는 카드의 저장 귀속·항목과 원금·환불을 쓰고 수동 교정을 우선합니다. 취소·환불 화면의 묶음 표시도 목적에 맞는 표시입니다.",
+        f"출처 미확인 {sum(detail['unknown_sources'].values())}건: {counts(detail['unknown_sources'])}. 판정 없는 정상 거래 {undecided}건: {counts(detail['undecided'])}(미배정 거래는 손익 합계 밖).",
+        f"합계 제외 {sum(exclusions.values())}건: " + ' · '.join(f'{key} {value}건' for key, value in exclusions.items()) + '. 다른 분기 여행은 범위 밖입니다.',
+        '이용일 경고는 장부 화면에서 확인하세요. 예약 근거를 함께 읽는 화면 기준을 이 파일에서 재현하지 않아 점수·건수에서 뺐습니다. 전체 검수 목록은 review-list.csv에 있습니다.',
+        (basis_note or '이번 실행의 준비 비용 귀속 폐지 반영 여부는 운영 기록에서 확인하고 기준을 지정해 재생성하세요.') + ' 파일 생성은 장부·Google을 바꾸지 않습니다. 검수 후 기존 장부 복사 기능으로 Google에 붙여넣으세요.',
+    ]
     (out / 'notes.md').write_text('\n'.join(notes) + '\n', encoding='utf-8')
     try:
         from openpyxl import Workbook
