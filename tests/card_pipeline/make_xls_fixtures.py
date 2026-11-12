@@ -17,6 +17,18 @@ ROWS = [
 ]
 
 
+KB_OVERSEAS = ['Issuer', 'Card No', 'Transaction Date', 'Posted Date', 'Merchant',
+               'Foreign Amount', 'Currency', 'AmountKRW', 'Type', 'Status']
+OVERSEAS_ROWS = [
+    ['국민', '5585-26**-****-3820', '2026.10.05', '2026.10.07', 'Synthetic Overseas Hotel',
+     '100.00', 'USD', '140000', '일시불', '정상'],
+    ['국민', '5585-26**-****-3820', '2026.10.05', '2026.10.07', 'Synthetic Overseas Hotel',
+     '100.00', 'USD', '140000', '일시불', '정상'],
+    ['국민', '5585-26**-****-3820', '2026.10.06', '2026.10.08', 'Synthetic Overseas Hotel',
+     '100.00', 'USD', '140000', '취소', '취소'],
+]
+
+
 def save(path, headers, data):
     book = xlwt.Workbook(encoding='utf-8')
     sheet = book.add_sheet('Sheet1')
@@ -34,3 +46,8 @@ if __name__ == "__main__":
     approval_headers = [h for h in KB if h != '매입일']
     approval_rows = [[v for h, v in zip(KB, row) if h != '매입일'] for row in ROWS]
     save(DATA / "kb-approval-synthetic.xls", approval_headers, approval_rows)
+    # New data-format fixtures must live under tests/fixtures/ and be listed in
+    # config/tracked-data-policy.json synthetic_allowlist (tracked-data guard).
+    FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+    FIXTURES.mkdir(exist_ok=True)
+    save(FIXTURES / "kb-overseas-acquired-synthetic.xls", KB_OVERSEAS, OVERSEAS_ROWS)
