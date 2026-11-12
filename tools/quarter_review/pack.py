@@ -190,6 +190,12 @@ def prepare_rows(data, year, quarter):
             continue
         if row.get('duplicate_of') or row.get('conflict_reason') or row.get('parse_error') or type(row.get('amount_krw')) is not int:
             excluded['protected'] += 1
+            if row.get('duplicate_of'):
+                excluded['duplicate'] += 1
+            elif row.get('conflict_reason'):
+                excluded['conflict'] += 1
+            else:
+                excluded['invalid'] += 1
             continue
         if (row.get('transaction_id'), row.get('source_hash')) in data.get('company_exclusions', set()):
             excluded['company_excluded'] += 1
@@ -248,11 +254,12 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     warnings_data['trip_tabs'] = [t for t in data['trip_tabs'] if not t.get('deleted')]
     cards = [r for r in rows if r['row_id'].startswith('card-')]
     warning_summary, unknown = service_warnings(warnings_data, cards)
-    unknown = set(unknown)
+    # The offline pack cannot read the screen's in-memory reservation projection.
+    # Do not turn its different warning count into a review reason.
     for row in rows:
-        row['service_date_unknown'] = row.get('transaction_id') in unknown
-    review = prioritize([r for r in rows if not r['manual']])
-    review_counts = Counter(r['display_tab_id'] for r in review)
+        row['allow_service_reason'] = False
+        row['service_date_unknown'] = False
+    review = prioritize(rows)
     reasons = Counter(reason for r in review for reason in review_reasons(r))
     grouped = defaultdict(list)
     for row in rows:
@@ -262,10 +269,15 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
         key = trip['tab_id']
         expense = sum(r['amount_krw'] for r in grouped[key])
         income = incomes.get(key)
+        trip_review = [r for r in review if r['display_tab_id'] == key]
+        trip_reasons = Counter(reason for r in trip_review for reason in r['review_reasons'])
+        reason_order = ('AI 판정', '추론 귀속', '이용일 미확인', '포괄 항목', '최근 자동 변경', '불확실성 기록')
+        reason_summary = ' · '.join(f'{name} {trip_reasons[name]}건' for name in reason_order if trip_reasons[name])
         summaries.append(dict(trip=trip['display_key'], starts_on=trip['starts_on'],
                               ends_on=trip.get('ends_on', ''), income=income, expense=expense,
                               profit=trip_profit(income, expense) if income is not None else None,
-                              expense_count=len(grouped[key]), review_count=review_counts[key]))
+                              expense_count=len(grouped[key]), review_count=len(trip_review),
+                              review_reason_summary=reason_summary))
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     (out / 'trips.csv').write_text(render_trip_summary_csv(summaries), encoding='utf-8-sig', newline='')
@@ -281,28 +293,18 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     write_csv(out / 'sources.csv', ['판정주체', '건수'], [*sorted(sources.items()), ('판정 없는 정상 거래', undecided)])
     summary = dict(trips=len(trips), income_trips=len(incomes.keys() & {t['tab_id'] for t in trips}),
                    expense_rows=len(rows), review_rows=len(review), reasons=dict(reasons),
-                   undecided_normal=undecided, quarter_other_rows=len(other),
-                   service_date_unknown=warning_summary['count'])
-    notes = [f'# {year}년 {quarter}분기 검수 자료', '',
-             f"기준: 장부 조회 {data['read_at']} / Google 수입 동기화 {google_at or '읽지 못함'}.",
-             basis_note or '조회 후 판정이 바뀌면 같은 명령으로 자료를 다시 만드세요.', '',
-             '1. trips.csv에서 여행별 수입·지출·차액을 봅니다. 수입이 빈칸이면 차액도 빈칸입니다.',
-             '2. review-list.csv를 위에서부터 봅니다. 최근 자동 변경, AI 판정 등 여러 사유가 겹칠수록 앞에 나옵니다. 금액도 순위에 반영됩니다.',
-             '3. quarter-other.csv에서 여행에 속하지 않은 비용을 항목별로 봅니다.',
-             '4. sources.csv에서 누가 판정했는지와 판정 없는 정상 거래 수를 봅니다.',
-             '5. 잘못된 판정은 기존 장부 화면에서 교정하고 자료를 다시 만듭니다. 검수 후 기존 Google 지출표 복사 기능으로 붙여넣습니다.', '',
-             '이 자료는 검수용 요약이며 Google 지출표의 양식을 바꾸지 않습니다. 파일 생성은 장부와 Google에 쓰지 않습니다.',
-             '지출은 저장된 귀속 기준입니다. 선결제와 음수 환불을 함께 합산하며 카드 한 건을 한 번만 셉니다. 지출 건수에는 환불 행도 포함됩니다.',
-             f"저장된 카드 판정과 화면 표시행의 항목·귀속 차이가 있는 행은 {sum(r['projection_difference'] for r in rows)}건입니다. 이 자료는 카드의 현재 저장 판정을 사용하며 수동으로 고친 표시값은 우선합니다.",
-             '6월 30일 출발 여행은 3분기에 포함합니다. 다른 분기 여행은 결제일이 이번 분기여도 포함하지 않습니다.',
-             '수동 교정은 지출 합계·판정 주체 건수에 포함하고 우선 검수 목록에서는 제외합니다. 보호된 수동 판정과 닫힌 분기 의심 건의 별도 검수는 기존 기록을 참고하세요.',
-             f"이용일 미확인 {warning_summary['count']}건은 저장된 화면 행 기준입니다. 서버 메모리의 최신 예약 근거를 읽지 않아 실시간 화면과 다를 수 있습니다.",
-             f"원본 충돌·중복·금액 오류로 합계에서 제외한 행은 {excluded['protected']}건입니다. 검수 목록 길이는 오류 건수가 아닙니다.",
-             f"사용자가 회사 비용에서 제외한 거래 {excluded['company_excluded']}건도 합계에 넣지 않습니다.",
-             '판정 없는 정상 거래 수에는 여행·분기 귀속이 없는 이번 분기 정상 구매도 포함합니다.', '',
-             '## 수입 빈칸 사유']
-    notes.extend(f"- {t['display_key']}: {income_reasons.get(t['tab_id'], '검증된 수입 자료 없음')}" for t in trips if t['tab_id'] not in incomes)
-    notes.extend(['', '교정 내용과 걸린 시간을 기록해 다음 검수 때 비교합니다. 같은 원인의 교정은 규칙집에 반영합니다.'])
+                   undecided_normal=undecided, quarter_other_rows=len(other), service_date_unknown=0)
+    projection_count = sum(r['projection_difference'] for r in rows)
+    source_unknown = sum(1 for r in rows if r.get('source_label') == '출처 불확실')
+    reason_summary_all = ' ? '.join(f'{name} {reasons[name]}?' for name in
+                                    ('AI ??', '?? ??', '??? ???', '?? ??', '?? ?? ??', '???? ??')
+                                    if reasons[name]) or '??'
+    missing_income = [f"{t['display_key']}: {income_reasons.get(t['tab_id'], 'income unavailable')}" for t in trips if t['tab_id'] not in incomes]
+    notes = [f'# {year} {quarter} quarter review pack',             f"Read: ledger {data['read_at']} / Google income {google_at or 'unavailable'}.",             'Open review-pack.xlsx only: top 50 -> trip profit -> Q3 other -> decision source.',             f'Review list contains {len(review)} rows with reasons. By reason: {reason_summary_all}. Correct in the ledger screen, then run again.',             'Profit uses stored attribution plus original charges and refunds; missing income leaves the difference blank.',             f'Projection differs on {projection_count} rows; stored card values are used in totals. Source unclear: {source_unknown}.',             f'Undecided normal: {undecided}; excluded: {excluded["protected"]} (duplicate {excluded.get("duplicate", 0)}, conflict {excluded.get("conflict", 0)}, invalid {excluded.get("invalid", 0)}); company excluded: {excluded["company_excluded"]}.',             'Check service-date warnings in the ledger screen, which includes reservation evidence; this file does not estimate them.',             basis_note or 'This run is before preparation-cost attribution removal; run again after that change.',             'The export writes neither the ledger nor Google. After review, use the existing Google copy workflow.',             'Income missing (' + chr(49688)+chr(49688) + '): ' + ('; '.join(missing_income) if missing_income else 'none')]
+    notes = notes[:9]
+    missing_income = [f"{t['display_key']}: {income_reasons.get(t['tab_id'], '수입 자료를 확인하지 못함')}"
+                      for t in trips if t['tab_id'] not in incomes]
+    notes.append('수입 미확인: ' + ' · '.join(missing_income) if missing_income else '수입 미확인: 없음')
     (out / 'notes.md').write_text('\n'.join(notes) + '\n', encoding='utf-8')
     try:
         from openpyxl import Workbook
@@ -313,9 +315,13 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
         workbook.remove(workbook.active)
         numeric_columns = {'trips': {3, 4, 5, 6, 7}, 'review-list': {0, 5},
                            'quarter-other': {1, 2}, 'sources': {1}}
-        for filename in ('trips', 'review-list', 'quarter-other', 'sources'):
-            sheet = workbook.create_sheet(filename)
-            for index, values in enumerate(csv.reader(io.StringIO((out / (filename + '.csv')).read_text(encoding='utf-8-sig')))):
+        sheets = [('먼저 볼 50건', 'review-list', render_review_list_csv(review[:50])),
+                  ('여행별 손익', 'trips', render_trip_summary_csv(summaries)),
+                  ('3분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None)]
+        for sheet_name, filename, rendered in sheets:
+            sheet = workbook.create_sheet(sheet_name)
+            source = rendered or (out / (filename + '.csv')).read_text(encoding='utf-8-sig')
+            for index, values in enumerate(csv.reader(io.StringIO(source))):
                 if index:
                     values = [int(value) if column in numeric_columns[filename] and value.lstrip('-').isdigit()
                               else value for column, value in enumerate(values)]

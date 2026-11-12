@@ -14,12 +14,12 @@ def _csv(headers, rows):
 
 
 def render_trip_summary_csv(rows):
-    headers = ["여행", "시작일", "종료일", "수입", "지출", "차액", "지출건수", "검수필요건수"]
+    headers = ["여행", "시작일", "종료일", "수입", "지출", "차액", "지출건수", "검수필요건수", "사유별 검수"]
     return _csv(headers, [[
         row.get("trip", ""), row.get("starts_on", ""), row.get("ends_on", ""),
         "" if row.get("income") is None else row.get("income"),
         row.get("expense", 0), "" if row.get("profit") is None else row.get("profit"),
-        row.get("expense_count", 0), row.get("review_count", 0),
+        row.get("expense_count", 0), row.get("review_count", 0), row.get("review_reason_summary", ""),
     ] for row in rows])
 
 
@@ -30,6 +30,6 @@ def render_review_list_csv(rows):
         rendered.append([
             index, row.get("trip", ""), row.get("approval_date") or row.get("posting_date", ""),
             row.get("merchant", ""), row.get("item", ""), row.get("amount_krw", ""),
-            row.get("source_label", ""), ", ".join(row.get("review_reasons", [])),
+            row.get("source_label", ""), " · ".join(row.get("review_reasons", [])),
         ])
     return _csv(headers, rendered)
