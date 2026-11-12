@@ -32,7 +32,9 @@ def test_departure_dates_reach_desktop_and_mobile_without_changing_payment_date(
                 design._mobile_html([], [value], selected='', unclassified=False))
     desktop, mobile = render()
     assert '06.30 · 07.04' in desktop and '06.30 · 07.04' in mobile
-    assert '2026-05-29' in desktop and '2026-05-29' in mobile
+    # The payment date stays visible as the compact ledger date label; the full
+    # source date is retained in the cell title (date-label rework, e1219d9b).
+    assert '05-29' in desktop and '05-29' in mobile
     assert '항공 이용일: 2026-06-30 · 2026-07-04' in desktop
     assert '박' not in design._flight_date_labels(value)[0]
     assert value == before

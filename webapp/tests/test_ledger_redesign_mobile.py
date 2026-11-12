@@ -124,8 +124,9 @@ class LedgerRedesignMobileTests(unittest.TestCase):
             board_mod._income_rows(), board_mod._expense_rows(),
             selected="", unclassified=False)
         self.assertIn("data-id='expense-demo-c1'", html)
-        # 날짜·거래처·용도·분류·금액이 두 줄 요약으로 보인다
-        self.assertIn("2026-04-09", html)
+        # 날짜·거래처·용도·분류·금액이 두 줄 요약으로 보인다. 날짜는 모바일에서도
+        # 압축 라벨(월-일)로 보인다 (date-label rework, e1219d9b).
+        self.assertIn("04-09", html)
         self.assertIn("예시 숙소", html)
         self.assertIn("숙박비", html)
         self.assertIn("100,000원", html)
