@@ -73,7 +73,8 @@ def test_clear_local_cost_can_be_recorded_unassigned_but_reservations_need_servi
         assert cleanup_total(board)==(0 if expected else 1)
         if expected:
             saved=json.loads(board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
-            assert saved['display_tab_id'] is None and saved['amount_krw']==5000
+            # PROC-004: a recorded unassigned local cost lands on its quarter tab, not NULL.
+            assert saved['display_tab_id']=='quarter:2026:4' and saved['amount_krw']==5000
             assert reclassify_cleanup(board)['recorded']==0
     finally:
         board.close()
@@ -89,10 +90,12 @@ def test_cancelled_charge_is_a_reconciliation_case_not_a_category_question(tmp_p
         board.conn.commit()
         before=board.conn.execute('SELECT * FROM transactions').fetchall()
         monkeypatch.setattr(card_flow,'_ota_entries_by_card',lambda _, **kw: {})
-        assert card_flow._cleanup_card_breakdown(board)=={'protected':1}
+        # PROC-004 reason taxonomy: cancellation/refund is 'finance' (was 'protected').
+        assert card_flow._cleanup_card_breakdown(board)=={'finance':1}
         html=card_flow.render_expense_cleanup(board,'token')
-        assert '취소·환불 확인' in html and '원결제 근거가 필요' in html
-        assert '가맹점을 하나씩 입력할 목록이 아닙니다' in html
+        # Refund-display reconciliation: cancellation is presented as original-payment reconciliation, not category entry.
+        assert '취소 원행과 실제 현금 환급 완료는 별도입니다' in html and '원결제 근거를 확인해 주세요' in html
+        assert '가맹점 검색 결과를 비교해 주세요' in html
         assert "<input name='item'" not in html
         assert board.conn.execute('SELECT * FROM transactions').fetchall()==before
     finally:
