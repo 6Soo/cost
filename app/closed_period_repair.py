@@ -64,7 +64,7 @@ def _refund_group_reason(conn, members, rows, pending, links, manual, trips, evi
 
 def _complete_refund_groups(conn, rows, linked):
     """The clean financial graph alone cannot prove a group's completeness."""
-    from .partial_refund import _foreign_pool, _settings
+    from .partial_refund import _foreign_amount, _day, _settings
     by_id = {r['transaction_id']:r for r in rows}
     groups = {}
     for tid,link in linked.items():
@@ -81,26 +81,35 @@ def _complete_refund_groups(conn, rows, linked):
                     members.add(other['transaction_id'])
     # Foreign exact pairing also filters source-protected originals/refunds.
     # Keep its existing key/window; include protected candidates conservatively.
-    purchases,cancels = _foreign_pool(conn,set(),include_protected=True)
     window = int(_settings()['max_days_after_purchase'])
-    for key,originals in purchases.items():
-        for original,_amount,when in originals:
-            members = groups.get(original)
-            if not members or not any(link.get('basis')=='merchant_card_foreign_amount'
-                                      for tid,link in linked.items() if tid in members):
+    def key(row):
+        return (row.get('issuer'),row.get('card_tail'),row.get('merchant_normalized'),
+                str(row.get('foreign_currency') or '').strip().upper(),_foreign_amount(row.get('foreign_amount')))
+    def day(row):
+        return _day(row.get('approval_date') or row.get('posting_date'))
+    for original,members in groups.items():
+        foreign_refunds = [tid for tid,link in linked.items() if tid in members
+                           and link.get('basis')=='merchant_card_foreign_amount']
+        if not foreign_refunds:
+            continue
+        original_row = by_id[original]
+        when,foreign_key = day(original_row),key(original_row)
+        refund_days = [day(by_id[tid]) for tid in foreign_refunds]
+        for other in rows:
+            if not (other.get('parse_error') or other.get('duplicate_of') or other.get('conflict_reason')):
                 continue
-            refunds = cancels.get(key,[])
-            refund_days = [day for tid,_amount,day in refunds if tid in members]
-            for tid,_amount,day in originals:
-                other = by_id[tid]
-                if ((other.get('parse_error') or other.get('duplicate_of') or other.get('conflict_reason'))
-                        and any(0 <= (rday-day).days <= window for rday in refund_days)):
-                    members.add(tid)
-            for tid,_amount,day in refunds:
-                other = by_id[tid]
-                if ((other.get('parse_error') or other.get('duplicate_of') or other.get('conflict_reason'))
-                        and 0 <= (day-when).days <= window):
-                    members.add(tid)
+            if key(other) != foreign_key:
+                continue
+            observed = day(other)
+            # The normal pool drops unknown dates. They cannot establish that
+            # a source-protected candidate is outside this group's window.
+            relevant = observed is None or when is None
+            if not relevant:
+                relevant = (any(rday is None or 0 <= (rday-observed).days <= window for rday in refund_days)
+                            if other.get('transaction_direction')=='purchase'
+                            else 0 <= (observed-when).days <= window)
+            if relevant:
+                members.add(other['transaction_id'])
     return groups
 
 

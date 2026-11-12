@@ -174,7 +174,8 @@ def test_display_only_inferred_pair_is_preserved(setup,monkeypatch):
 
 @pytest.mark.parametrize('protection',['conflict_reason','parse_error','duplicate_of'])
 @pytest.mark.parametrize('foreign',[False,True])
-def test_filtered_protected_sibling_blocks_the_entire_raw_group(setup,protection,foreign):
+@pytest.mark.parametrize('invalid_date',['','missing','invalid'])
+def test_filtered_protected_sibling_blocks_the_entire_raw_group(setup,protection,foreign,invalid_date):
     from app.partial_refund import refund_links
     c,purchase,refund=refund_pair(setup)
     extra=setup[3][2]['transaction_id']
@@ -192,6 +193,9 @@ def test_filtered_protected_sibling_blocks_the_entire_raw_group(setup,protection
         c.execute("UPDATE transactions SET original_approval_number='',foreign_currency='JPY',foreign_amount='100',"
                   "merchant_normalized='SYNTHETIC SAME KEY' WHERE transaction_id IN (?,?,?)",(purchase,refund,extra))
         c.execute("UPDATE transactions SET approval_date='2025-12-30' WHERE transaction_id=?",(purchase,))
+    if invalid_date:
+        c.execute("UPDATE transactions SET approval_date=?,posting_date='' WHERE transaction_id=?",
+                  ('' if invalid_date=='missing' else 'invalid',extra))
     c.commit()
     links=refund_links(c,[refund,extra])
     assert refund in links and extra not in links
