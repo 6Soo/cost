@@ -1,5 +1,11 @@
 # 운영 기록
 
+## 2026-11-12 #813 배포·dist141 출처 정정 반영
+
+- 09:48:08~09:49:10 KST 헤드가 정식 배포 도구로 `9b019761` → `43acce8768a4b990776d7acb34a539915a3628e2` 전환. Board 8752, Worker 같은 SHA, readyz 200(로컬·공개), 비로그인 API 401, 보호 표 13개 불변.
+- 정정 반영은 서버 정지가 필요하다. 1차(10:07:11~10:09:40)는 `verify_operational_backup_restore.py`가 실패해 변경 0건으로 복귀했다. 원인: Gateway가 `config/ledger-gateway-status.json`을 수 초마다 갱신해 백업 전후 파일 해시가 달라진다. 2차(10:11:15~10:20:55)는 경로 pause → Worker·Board 정지 → **Gateway 정지** → 백업·복원 검증(약 4분) → `--apply`(약 5분) → Gateway·Board 재시작 → resume → Worker 순으로 통과했다. 공개 장부 중단은 두 구간 합계 약 12분이다. 1차의 불완전한 백업 폴더는 삭제했다.
+- 결과: 정정 78(열린 74·닫힌 4), 귀속·항목 변경 24, 닫힌 분기 변경 0, `board.sqlite` quick_check ok. 실화면 이용일 경고 70 → 58. 건수 외 자료는 비공개 `forest-portal/link108-provenance/`에 있다.
+
 ## 2026-11-12 #812 전환 복구·산림 근거 수입
 
 - #812 병합 직후 담당 세션이 종료되어 08:26~08:29:30 KST 공개 장부 응답이 중단됐다. 헤드가 전환 스크립트의 남은 단계를 이어서 완료했다. 운영 SHA는 `9b019761479b03f380133746a208c198ace33864`, Board 8751, readyz 200이며 `releases/deploy-evidence-9b019761….json`이 근거다.

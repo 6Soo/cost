@@ -1,3 +1,10 @@
+## 2026-11-12 LINK-108·dist141 — 운영 반영 COMPLETE
+
+- [PR #813](https://github.com/6Soo/cost/pull/813)을 검수 SHA `f931e258` 그대로 병합(`43acce8768a4b990776d7acb34a539915a3628e2`)하고 헤드가 `tools/deploy_verified_release.ps1`로 09:48~09:49 KST에 배포했다. **현재 운영 SHA는 `43acce87`**, Board 8752, 로컬·공개 readyz 200, 보호 표 13개 불변, 근거는 `releases/deploy-evidence-43acce87….json`이다. 병합과 배포를 담당 세션에 함께 맡기지 않았다(#812 중단의 재발 방지).
+- dist141 출처 정정을 [절차서](playbooks/dist141-provenance-repair.md)대로 운영에 1회 반영했다(요청 ID `dist141-provenance-20261112`): 식별 141, 정정 78(열린 74·닫힌 4), 보존 제외 63, P1 재판정으로 귀속·항목 변경 24, 닫힌 분기 변경 0. 미리보기와 반영의 digest가 같다. 반영 뒤 `transactions`의 `user_decision`은 153 → 83이다. 원복은 절차서의 `--restore` 명령이며 신선 백업은 `data/backups/operational-20261112T011123466218Z`다.
+- 실화면 이용일 경고(같은 39개 탭 기준)는 수입 후 70 → LINK-108 배포 후 57 → 정정 반영 후 58이다. 대상 18행 중 13행에 이용기간이 표시된다. 재시작 뒤 10~15분은 색인 재생성으로 205건까지 일시 증가하므로 그 구간의 수치는 쓰지 않는다. 57 → 58의 1건 차이는 원인을 확인하지 않았다.
+- 남은 일: 화면에 보이는 대상 17행 중 기간이 붙지 않은 4행(예행 집계로는 치유원 3·숲나들e 1, 운영 건별 확인은 하지 않음), 기간 미확인인 장수군청 1건, 나머지 경고는 분기 검수 대상이다. 반영 직후 같은 요청 ID의 미리보기는 `PROVENANCE_REQUEST_CONFLICT`를 냈다(읽기 전용, 쓰기 없음) — 절차서의 "재실행 무변경" 확인은 이 방법으로 되지 않았다. 아래 절의 "병합·배포·운영 반영 미실행" 표시는 PR 당시 기록이다.
+
 ## 2026-11-12 LINK-108·dist141 출처 정정 — PR 검수 범위
 
 - 실행 정본은 2026-11-12 소유자 결정과 Fable 배정 A~F다. 완료 구현 커밋 `d0d900b5`(주 구현 `22dfdfcc`, 현재 코어 기간 근거를 유지보수에 전달하는 `dd9b24d3` 포함): A 규칙집 LINK-108·755개 색인 COMPLETE, B 공통 기간·숲나들e 표시 경로 COMPLETE, C 기존 이력/revision을 쓰는 정정·원복 CLI COMPLETE, D 사본 예행 COMPLETE, E 배포 중단·수입 기록 및 cherry-pick COMPLETE. F의 최종 영향 검사와 독립 `gpt-6.1-sol/medium` 검수 판정·최종 SHA는 [PR #813](https://github.com/6Soo/cost/pull/813)에 기록한다. **PR 검수까지만 수행하며 병합·배포·운영 반영은 하지 않는다.**
