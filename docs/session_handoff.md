@@ -1,8 +1,9 @@
-## 2026-11-12 #815 main 통합 후 최종 검증 진행
+## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
-- 현재 승인 작업은 통합 SHA의 영향 검사 PASSED, 사본 수치 재확인, 같은 독립 gpt-6.1-sol/medium delta 검수와 PR 기록이다. 영향 범위에 들어온 기준 실패도 코드 결함 또는 문서 근거가 있는 대체된 옛 계약으로만 정리하며 skip/xfail은 추가하지 않는다.
-- 직전 코드 사본 이동741(2025년739/Q1 2), 환불110/55묶음·보존21+2+7, 열린2400 판정 차이0이다. 통합 뒤 예행과 최종 검사·검수는 진행 중이며 이전 FAILED 기록은 새 성공 근거 전까지 유지한다. 병합·배포·운영 반영은 헤드가 한다.
+- 통합 SHA d14831dc의 첫 영향 검사는1279pass/1fail/51subtests/skip0이다. 유일 실패는 main과 동일한 `test_same_size_edit_with_restored_mtime_invalidates_source_stamp`의 Windows 같은 tick 시각 전제다. 실제 합성 파일의 최초 ChangeTime을 과거로 설정·검증해 측정 전제를 결정화하고 내용 변경·크기/mtime 동일·stamp 변경 기대값을 모두 유지했다. 분류(a) 검사 코드 결함1건, 옛 계약 기대값 변경(b)0건·skip/xfail0건이다. 기존 환불 표시6실패는 영향 범위 밖이어서 변경하지 않았다. 실제 동일 tick의 캐시 변경 누락 한계는 해결한 것으로 보고하지 않으며 [SRC-045 잔존 차이](policy/CODE_GAPS.md)에 기록했다. 최종 커밋의 전체 영향 검사·같은 독립 gpt-6.1-sol/medium delta 검수 결과와 SHA는 #815가 정본이다.
+- 통합 뒤 사본 예행은 이동741(2025년739/Q1 2), 환불110/55묶음·보존21+2+7, 열린2400 판정 차이0으로 동일하다. 금융·원문·보호71표 불변, 감사741원복·전체 파일 복원·재실행 변경0 PASS, `.local-archive/refund-rehearsal-integrated.log` exit0이다. 후속 변경은 검사fixture와 문서뿐이며 운영 판정·정리 코드는 같다. 병합·배포·운영 반영과 운영 명령은 헤드의 기존 절차 그대로다.
+- 병합된 기준 검사 worktree는 추적 변경·stash 없음과 main 포함을 확인했다. Paseo workspace 등록이 없는 일반 git worktree이므로 미추적·무시파일349개/11,277,371bytes 전부를 `.local-archive/baseline-worktree-preserved-20261112/`에 해시 검증해 보존한 뒤 정리했다. 최종 브랜치와 고객 원본은 보존했다.
 
 ## 2026-11-12 후속 — 기준 실패 별도 PR / 환불 짝 정리 사본 완료
 
