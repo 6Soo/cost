@@ -27,9 +27,11 @@ class OtaReportReuseTests(unittest.TestCase):
     def test_one_state_request_reconciles_ota_once(self):
         calls = []
         with patch.object(CardFlow, '_compute_ota_report', lambda self: calls.append(1) or {'ok': True}):
+            # The legacy fallback report carries a read-only provenance marker.
+            expected = {'ok': True, '_reconciliation_authority': 'legacy_fallback_feature_disabled'}
             self.flow._request_report = []
-            self.assertEqual(self.flow._ota_report(), {'ok': True})
-            self.assertEqual(self.flow._ota_report(), {'ok': True})
+            self.assertEqual(self.flow._ota_report(), expected)
+            self.assertEqual(self.flow._ota_report(), expected)
             self.assertEqual(len(calls), 1)
             self.flow._request_report = None
             self.flow._ota_report()
