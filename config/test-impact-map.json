@@ -297,7 +297,7 @@
     },
     {
       "name": "core-safety-net",
-      "paths": ["app/*.py", "webapp/*.py", "ledger/domain/*.py"],
+      "paths": ["app/*.py", "webapp/*.py", "ledger/domain/*.py", "tests/test_review_ui.py"],
       "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"]
     },
     {
