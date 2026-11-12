@@ -1,3 +1,10 @@
+## 2026-11-13 증분 P2 1층 마무리 — 검사 보강·운영 dry-run, PR #820 검수 범위
+
+- [PR #820](https://github.com/6Soo/cost/pull/820)(브랜치 `feat/p2-incremental-20261113`)에서 앞선 담당(한도 중단)의 증분 실행기를 마무리했다. 서버 코드·규칙집 변경 없이 검사를 보강해 표적 29건 통과: 2025년·2026Q1·매입일 대체 완료 자료 제외, 결정 이력 수동 제외, 반영 모드 묶음 상한, Codex 한도(`AGENT_RATE_LIMITED`) 실패 기록·다음 실행 재개, 대상 0 무설정 즉시 종료, 상한 거부 경계. README에 예약 작업·Worker 장단점 3줄, 절차서 [p2-incremental](playbooks/p2-incremental.md) 갱신.
+- 운영 DB 읽기 전용 dry-run 1회(모델·API 호출 0, DB sha256·mtime 불변, 저널에 dry-run 기록만 추가): 2026-11-12 1층 실행 이후 새 대상 **0묶음/0행**. 열린 분기 포괄 항목(기타경비·현지경비) **747행** 중 이번 증분 대상 **0행** — 기존 P1 규칙 600·수동 35·투영 불일치 28·중복/충돌 82·환불 원결제 2. 완료 자료 제외 3,284건. 근거(집계만)는 비공개 `D:/WebLedgerHost/data/backups/p2-incremental-20261113/dry-run.json`·`dry-run-evidence.json`.
+- 자동 실행은 `tools/p2_batch/register_incremental_task.ps1` 등록 스크립트만 포함하며 **등록하지 않았다**(WhatIf 검토 대상). 하루 1회, 대상 0이면 모델·API 없이 즉시 종료. Codex 한도 동안에는 실패로 기록되고 다음 실행에서 이어진다(합성 검사). 첫 실제 실행은 헤드가 ego 전용 TaskSpace·비공개 `p2-api.json` 준비 뒤 `python -m tools.p2_batch.run_incremental --api-config D:/WebLedgerHost/data/p2-api.json --max-merchants 30 --max-calls 1` — 이번 dry-run 기준 예상 모델 호출 0회(새 카드 수입이 있으면 최대 1회).
+- 영향 검사 PASSED: 303 passed/skip 0, 검사 SHA `61d8ccba`(이 절 문서 커밋이 최종 SHA이며 PR 기록을 따른다). 독립 검수는 헤드가 붙인다. **병합·예약 등록·실제 P2 실행 없음.** 막힌 점 없음.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
