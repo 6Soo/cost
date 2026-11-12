@@ -129,7 +129,8 @@ def test_the_primary_menu_has_one_expense_cleanup_entry_and_no_rail_unassigned_s
     try:
         ledger_board.bind_store(board)
         nav = ledger_design._nav_html('unclassified', '')
-        assert '지출 정리' in nav and '카드 검토' not in nav and '미배정 지출' not in nav
+        assert nav.count("href='/cards/all'") == 1 and "<span class='nm'>거래</span>" in nav
+        assert '지출 정리' not in nav and '미배정 지출' not in nav
     finally:
         ledger_board.bind_store(None)
         board.conn.close()
@@ -534,7 +535,8 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
         first = first.split("</li>", 1)[0]
         held = html.split(f"data-transaction='{protected['transaction_id']}'", 1)[1]
         held = held.split("</li>", 1)[0]
-        assert '\ubd84\ub958 \uc0c1\ud0dc' in first and "class='cleanup-badge'" in first
+        assert "class='cleanup-badge'" in first
+        assert '거래 귀속 수정' not in held
         assert 'AI에게 처리 방법 알려주기' not in first
         assert '이 지시로 규칙 제안하기' not in first
         assert '근거 보기' in first and '여행·항목 수정' in first and '변경 저장' in first
@@ -583,7 +585,7 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         }
         assert cleanup_total(board) == 5
         html = render_expense_cleanup(board, 'token')
-        assert '\ub0b4 \ud655\uc778 \ud544\uc694 0\uac74' in html
+        assert '\ub0b4 \ud655\uc778 \ud544\uc694' not in html
         assert '\uac70\ub798\u00b7\uc7a5\ubd80 \uc0c1\ud0dc \uc0c1\uc138 \u00b7 5\uac74 \u00b7 \uc0ac\uc6a9\uc790 \uc694\uccad \uc544\ub2d8' in html
         assert "<details class='cleanup-diagnostics'>" in html
         assert "cleanup_reason=classification#expense-cleanup'>분류 상태 <span class='cleanup-filter-count'>3건</span>" in html

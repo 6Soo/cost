@@ -48,9 +48,11 @@ def test_core_tasks_are_primary_and_management_is_disclosed_with_reachable_panel
         _, panel = parser.ids[tab['aria-controls']]
         assert panel['role'] == 'tabpanel'
         assert panel['aria-labelledby'] == tab['id']
-    for target in ('upload', 'file', 'status', 'summary', 'preview', 'questions', 'ruleform', 'rule-panel'):
+    for target in ('upload', 'file', 'status', 'summary', 'preview', 'edit-panel', 'ruleform', 'rule_scope', 'rulefilter'):
         assert target in parser.ids
-    assert re.search(r'<label for="rule-text">분류 지시</label>\s*<textarea id="rule-text"', page('synthetic-token'))
+    assert 'questions' not in parser.ids
+    assert 'rule-panel' not in parser.ids and 'rule-text' not in parser.ids
+    assert '<label>비용 항목<input name="rule_item" required></label>' in page('synthetic-token')
     assert '<!--EXPENSE_CLEANUP-->' in page('synthetic-token')
 
 

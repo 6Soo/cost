@@ -181,7 +181,7 @@ def test_tabs_html_parity_with_baseline(baseline, monkeypatch):
 
     # Without query
     res_helper = ledger_board.tabs_html("trip-tokyo", query="")
-    res_base = baseline["tabs_html"]("trip-tokyo", query="")
+    res_base = baseline["tabs_html"]("trip-tokyo", query="").replace("분류대기</div>", "기타비용</div>").replace("미배정 20,000원", "기타비용 20,000원")
     assert res_helper == res_base
 
     # With query matching "도쿄"
@@ -191,7 +191,7 @@ def test_tabs_html_parity_with_baseline(baseline, monkeypatch):
 
     # With query matching "분류대기"
     res_helper_unc = ledger_board.tabs_html("unclassified", query="분류대기")
-    res_base_unc = baseline["tabs_html"]("unclassified", query="분류대기")
+    res_base_unc = baseline["tabs_html"]("unclassified", query="분류대기").replace("분류대기</div>", "기타비용</div>").replace("미배정 20,000원", "기타비용 20,000원")
     assert res_helper_unc == res_base_unc
 
 

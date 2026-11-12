@@ -308,20 +308,22 @@ def test_import_has_one_review_flow_and_does_not_write(setup_review):
     flow, _, _, _ = setup_review
 
     class Handler:
-        def _send(self, body, status=200):
-            self.result = status, body
+        def send_response(self, status):
+            self.status = status
+            self.headers = {}
+        def send_header(self, key, value):
+            self.headers[key] = value
+        def end_headers(self):
+            pass
 
     handler = Handler()
     before = list(flow.board.conn.iterdump())
     with patch('webapp.ledger_board._active_store', return_value=flow.board), \
             patch('webapp.ota_payment_review.enabled', return_value=False):
         assert card_flow.dispatch(handler, urlsplit('/import'), query={})
-    status, html = handler.result
-    assert status == 200
-    assert html.count('id="card-review-detail"') == 1
-    assert 'id="provisional-trip-review"' not in html
-    assert '분류되면 완료입니다' not in html
-    assert '검사를 통과한 거래는 자동 반영했습니다' not in html
+    assert handler.status == 302
+    assert handler.headers['Location'] == '/cards/all?panel=upload'
+    assert handler.headers['Cache-Control'] == 'no-store'
     assert list(flow.board.conn.iterdump()) == before
 
 
@@ -363,7 +365,7 @@ def test_real_browser_owner_review_paging_pending_approval_without_hold_controls
                 page.goto(base+'/import')
                 assert page.locator('#provisional-trip-review').count() == 0
                 # Retain coverage for the standalone component and protected APIs.
-                csrf = page.evaluate('csrf')
+                csrf = ledger_board.CSRF_TOKEN
                 page.set_content(review.render(csrf))
                 root = page.locator('#provisional-trip-review')
                 assert root.locator('[data-trip-items] li').count() == 0
@@ -412,7 +414,7 @@ def test_real_browser_owner_review_paging_pending_approval_without_hold_controls
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
                 page.evaluate("document.body.style.zoom='2'")
                 assert root.locator('summary').first.is_visible()
-                assert page.url.startswith(base+'/import')
+                assert page.url == base+'/cards/all?panel=upload'
             finally:
                 browser.close()
     finally:

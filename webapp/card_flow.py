@@ -2275,9 +2275,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             tab = str(payload.get('display_tab_id') or '')
             if not flow.tab_valid(tab):
                 raise StoreError('TRIP_AUTHORITY_REQUIRED', '원본 일정이 확인된 여행을 선택해 주세요')
+            from app.quarter_tab import parse_tab
             saved_decision = flow.pipeline.save_decision(payload['transaction_id'], payload['revision'],
                 item=payload['item'], description=payload.get('description',''), display_tab_id=tab,
-                trip_id=tab if tab not in ('','unclassified') else '', trip_validator=flow.trip_valid,
+                trip_id=tab if tab not in ('','unclassified') and not parse_tab(tab) else '', trip_validator=flow.trip_valid,
                 tab_validator=flow.tab_valid,
                 note=payload.get('note',''), reuse_rule=bool(payload.get('reuse_rule')),
                 request_id=payload['request_id'])
@@ -3573,6 +3574,7 @@ function startCardReview(){
  if(cardReviewStarted)return;
  cardReviewStarted=true;
  loadCardReviewBatches();refreshCoverageSummary();
+ call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);
 }
 if(!cardReviewDetail){startCardReview();}
 else{

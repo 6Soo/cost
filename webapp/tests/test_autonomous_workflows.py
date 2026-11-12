@@ -559,8 +559,9 @@ def test_import_cleanup_keeps_legacy_filter_bookmarks(service, legacy, canonical
     assert headers.get('Location') == target
     page_code, body, _ = service.request(target, cookie=service.cookie(OWNER))
     assert page_code == 200, body[:500]
-    assert '거래 확인 업무는 내 확인 필요에서 처리합니다.' in body
-    assert "href='/my-actions'" in body
+    assert '카드 내역' in body
+    assert '거래 확인 업무는 내 확인 필요에서 처리합니다.' not in body
+    assert "href='/my-actions'" not in body
 
     invalid_code, _, _ = service.request(
         '/import?cleanup_reason=unknown', cookie=service.cookie(OWNER))
@@ -599,17 +600,15 @@ def test_browser_home_trip_export_download(service):
             context.add_cookies([{'name': google_oidc.COOKIE_NAME, 'value': service.cookie(OWNER), 'url': base}])
             page = context.new_page()
             page.goto(base + '/')
-            page.locator("nav[aria-label='주요 메뉴'] a[href='/board']").click()
-            history = page.locator('#previous-trips')
-            history.locator(':scope > summary').click()
-            quarter = history.locator('.prev-q').filter(has=page.locator(f"a[href*='tab={tab}']"))
-            quarter.locator(':scope > summary').click()
-            history.locator(f"a[href*='tab={tab}']").click()
+            page.locator(".home-all a[href='/trips']").click()
+            page.get_by_role('link', name='이전', exact=True).click()
+            page.locator(f"a[href*='tab={tab}']").first.click()
             assert f'tab={tab}' in page.url
-            page.get_by_role('link', name='XLSX 출력', exact=True).click()
+            page.locator('#trip-settings > summary').click()
+            page.get_by_role('menuitem', name='XLSX 내보내기', exact=True).click()
             assert page.locator(f"input[name=tab_ids][value='{tab}']").is_checked()
             with page.expect_download(timeout=30000) as received:
-                page.get_by_role('button', name='출력', exact=True).click()
+                page.get_by_role('button', name='XLSX 내보내기', exact=True).click()
             download = received.value
             assert download.failure() is None
             workbook = load_workbook(BytesIO(download.path().read_bytes()), read_only=True, data_only=True)
