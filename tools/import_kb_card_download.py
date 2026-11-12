@@ -9,10 +9,15 @@ idempotency, identity dedup, keyless multiset matching, conflict protection).
 This tool adds no new import logic.
 
 Preview rehearses receive on a scratch copy of the target database and never
-writes the target. --apply additionally requires a fresh backup with a separate
-verified restore and an explicit single-writer confirmation, then receives
-through the same path. Classification, ledger commits and Google writes are
-never performed here. Reports carry aggregates only, never source rows.
+writes the target. --apply additionally requires the real single-writer gate
+(the WebLedger writer tasks are not Running and the routed Board port has no
+listener, same check as tools/complete_card_classification.py) plus a fresh
+backup (<1h, source state matched) with a separate verified restore, then
+receives through the same path. receive() commits per file, so a failed
+post-write check auto-restores the fresh backup instead of one outer
+transaction. Imported batches are queued for P1 classification exactly like
+the web upload (queue_batch); ledger commits and Google writes are never
+performed here. Reports carry aggregates only, never source rows.
 """
 from __future__ import annotations
 
@@ -23,8 +28,10 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -49,10 +56,11 @@ PLAN_KEYS = ("inserted", "already_present", "matched_by_content", "conflicts",
 
 
 class ImportBoundaryError(Exception):
-    def __init__(self, code: str, message: str = ""):
+    def __init__(self, code: str, message: str = "", detail: dict | None = None):
         super().__init__(message or code)
         self.code = code
         self.message = message or code
+        self.detail = detail or {}
 
 
 def _sha256(data) -> str:
@@ -324,37 +332,153 @@ def run_preview(db_path: Path, files: list, work_dir: Path) -> dict:
     return rehearsal
 
 
-def run_apply(db_path: Path, files: list, backup_dir: Path, work_dir: Path) -> dict:
+def _writers_offline(port: int) -> None:
+    """Seam over the shared gate; synthetic tests patch this, never real tasks."""
+    from tools.complete_card_classification import require_writers_offline
+    try:
+        require_writers_offline(port)
+    except ValueError:
+        raise ImportBoundaryError("WRITERS_NOT_OFFLINE",
+                                  "WebLedger writer tasks are running or the Board port has a listener") from None
+
+
+def require_writers_offline_gate(host_root: Path) -> int:
+    """Route-file port + the same writers-offline check as require_offline_backup."""
+    route_path = host_root / "config" / "ledger-route.json"
+    try:
+        route = json.loads(route_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        raise ImportBoundaryError("ROUTE_REQUIRED",
+                                  "config/ledger-route.json is missing or unreadable under --host-root") from None
+    port = route.get("port")
+    if not isinstance(port, int) or isinstance(port, bool) or port not in (8751, 8752):
+        raise ImportBoundaryError("ROUTE_PORT_INVALID", "ledger-route.json port must be 8751 or 8752")
+    _writers_offline(port)
+    return port
+
+
+def require_fresh_backup(db_path: Path, backup_path: Path, recorded_at: datetime) -> dict:
+    """Freshness + source-state evidence, same rules as require_offline_backup."""
+    age = (datetime.now(timezone.utc) - recorded_at).total_seconds()
+    if not 0 <= age < 3600:
+        raise ImportBoundaryError("BACKUP_NOT_FRESH", "backup evidence is older than one hour")
+    from tools.verify_operational_backup_restore import database_state
+    if database_state(backup_path) != database_state(db_path):
+        raise ImportBoundaryError("BACKUP_SOURCE_CHANGED", "target changed after the fresh backup was taken")
+    return {"recorded_at": recorded_at.isoformat(), "age_seconds": round(age, 3),
+            "fresh": True, "source_state_matched": True}
+
+
+def restore_from_backup(backup_path: Path, db_path: Path) -> dict:
+    """Auto-restore the fresh backup after a failed post-write check.
+
+    receive() commits per file, so the backup is the rollback point instead of
+    one outer transaction. Verification failure is reported, not raised: the
+    original failure code survives and the playbook's manual copy is the
+    fallback. The caller must close every target connection first.
+    """
+    evidence = {"backup": str(backup_path), "restored": False, "verified": False}
+    try:
+        source = _read_only(backup_path)
+        dest = sqlite3.connect(str(db_path), timeout=30, isolation_level=None)
+        try:
+            source.backup(dest)
+            integrity_ok = dest.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        finally:
+            dest.close()
+            source.close()
+        if not integrity_ok:
+            evidence["error"] = "RESTORE_INTEGRITY_FAILED"
+            return evidence
+        evidence["restored"] = True
+        from tools.verify_operational_backup_restore import database_state
+        evidence["verified"] = database_state(backup_path) == database_state(db_path)
+        if not evidence["verified"]:
+            evidence["error"] = "RESTORE_STATE_MISMATCH"
+    except (OSError, sqlite3.Error) as exc:
+        evidence["error"] = type(exc).__name__
+    return evidence
+
+
+def queue_imported_batches(conn, batch_ids: list) -> dict:
+    """Same follow-up as the web upload: queue_batch into the durable queue.
+
+    The queue lives in the requests table, so it works while the server is
+    stopped; the Board's CardCompletionWorker resumes it at the next start.
+    """
+    from webapp.card_completion_worker import queue_batch
+    board = SimpleNamespace(conn=conn, _lock=threading.RLock())
+    queued = []
+    for batch_id in batch_ids:
+        if not batch_id:
+            continue
+        queue_batch(board, batch_id)
+        queued.append(batch_id)
+    return {"queued_batches": queued, "count": len(queued),
+            "scope": "card_completion_job", "resume": "SERVER_RESTART"}
+
+
+def run_apply(db_path: Path, files: list, backup_dir: Path, work_dir: Path,
+              host_root: Path) -> dict:
+    port = require_writers_offline_gate(host_root)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_path = backup_dir / f"board-kb-import-{stamp}.sqlite"
+    recorded_at = datetime.now(timezone.utc)
     backup_database(db_path, backup_path)
     restore = verify_restore(db_path, backup_path, work_dir)
+    backup_evidence = require_fresh_backup(db_path, backup_path, recorded_at)
     rehearsal = rehearse(backup_path, files, work_dir, "apply-rehearsal")
     if not rehearsal["safe"]:
         raise ImportBoundaryError("REHEARSAL_HOLD", "rehearsal on the fresh backup was not safe; nothing written")
     store = Store.open(str(db_path), schema_policy="require")
+    wrote = False
     try:
         conn = store.conn
-        current = protection_snapshot(conn)
+        # Write lock across the freshness compare: no writer can slip between
+        # the snapshot and receive. receive manages its own transactions.
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            current = protection_snapshot(conn)
+        finally:
+            conn.execute("ROLLBACK")
         if current != rehearsal["before"]:
             raise ImportBoundaryError("PLAN_CHANGED",
                                       "target changed since the fresh backup; single-writer boundary violated")
         pipe = Pipeline(store)
+        wrote = True
         receipts = [receipt_summary(pipe.receive(f["content"], f["filename"])) for f in files]
         for actual, expected in zip(receipts, rehearsal["receipts"]):
             if {key: actual[key] for key in PLAN_KEYS} != {key: expected[key] for key in PLAN_KEYS}:
                 raise ImportBoundaryError("PLAN_CHANGED", "receive result differs from the rehearsal plan")
         protection = protection_report(current, protection_snapshot(conn))
+        if not protection["ok"]:
+            raise ImportBoundaryError("PROTECTION_FAILED", "post-write protection check failed")
         repeat_before = protection_snapshot(conn)
         repeats = [pipe.receive(f["content"], f["filename"]) for f in files]
         idempotent = (all(r.get("reused") for r in repeats)
                       and repeat_before == protection_snapshot(conn))
+        if not idempotent:
+            raise ImportBoundaryError("PROTECTION_FAILED", "re-receive was not a no-op")
+        queue = queue_imported_batches(conn, [r["batch_id"] for r in receipts])
         last_dates = kb_last_dates(conn)
-        ok = protection["ok"] and idempotent
-        return {"ok": ok, "backup": str(backup_path), "restore": restore,
+        return {"ok": True, "backup": str(backup_path), "restore": restore,
+                "gate": {"writers_offline": True, "route_port": port},
+                "backup_evidence": backup_evidence,
                 "rehearsal": {key: value for key, value in rehearsal.items() if key != "before"},
                 "receipts": receipts, "protection": protection,
-                "reupload_idempotent": idempotent, "kb_last_dates": last_dates}
+                "reupload_idempotent": idempotent, "queue": queue,
+                "kb_last_dates": last_dates}
+    except BaseException as exc:
+        if not wrote:
+            raise
+        store.close()
+        restored = restore_from_backup(backup_path, db_path)
+        detail = {"restored": restored, "backup": str(backup_path)}
+        if isinstance(exc, ImportBoundaryError):
+            exc.detail = detail
+            raise
+        code = exc.code if isinstance(exc, StoreError) else "APPLY_FAILED_RESTORED"
+        raise ImportBoundaryError(code, str(exc) or type(exc).__name__, detail=detail) from None
     finally:
         store.close()
 
@@ -365,8 +489,8 @@ def main(argv=None) -> int:
     parser.add_argument("--db", required=True, help="target board.sqlite; preview opens it read-only")
     parser.add_argument("--apply", action="store_true", help="write through the existing receive path")
     parser.add_argument("--backup-dir", help="protected folder for the fresh backup (required with --apply)")
-    parser.add_argument("--confirm-single-writer", action="store_true",
-                        help="operator confirms Board/Worker writers are stopped for the target DB")
+    parser.add_argument("--host-root", type=Path, default=Path("D:/WebLedgerHost"),
+                        help="host root whose config/ledger-route.json selects the Board port for the writers-offline gate")
     parser.add_argument("--work-dir", help="protected scratch folder; default is a temporary folder removed at exit")
     parser.add_argument("--output", help="also write the JSON report to this path")
     args = parser.parse_args(argv)
@@ -381,8 +505,6 @@ def main(argv=None) -> int:
     try:
         if args.apply and not args.backup_dir:
             raise ImportBoundaryError("BACKUP_DIR_REQUIRED", "--apply requires --backup-dir")
-        if args.apply and not args.confirm_single_writer:
-            raise ImportBoundaryError("SINGLE_WRITER_REQUIRED", "--apply requires --confirm-single-writer")
         db_path = Path(args.db).resolve()
         if not db_path.is_file():
             raise ImportBoundaryError("DB_NOT_FOUND", "target database file does not exist")
@@ -404,15 +526,18 @@ def main(argv=None) -> int:
             report["rehearsal"] = {"status": "NOT_RUN", "reason": "no files to import"}
             report["apply"] = {"status": "NOT_RUN"}
         elif args.apply:
-            outcome = run_apply(db_path, files, Path(args.backup_dir).resolve(), work_dir)
+            outcome = run_apply(db_path, files, Path(args.backup_dir).resolve(), work_dir,
+                                args.host_root.resolve())
             for file_report, receipt in zip(report["files"], outcome["receipts"]):
                 file_report["receipt"] = receipt
             report["rehearsal"] = outcome["rehearsal"]
             report["apply"] = {"status": "DONE" if outcome["ok"] else "FAILED",
                                "backup": outcome["backup"], "restore": outcome["restore"],
+                               "gate": outcome["gate"], "backup_evidence": outcome["backup_evidence"],
                                "protection": outcome["protection"],
                                "reupload_idempotent": outcome["reupload_idempotent"],
-                               "kb_last_dates": outcome["kb_last_dates"]}
+                               "queue": outcome["queue"], "kb_last_dates": outcome["kb_last_dates"]}
+            report["boundaries"]["classification"] = "QUEUED"
             report["status"] = "safe" if outcome["ok"] else "hold"
         else:
             rehearsal = run_preview(db_path, files, work_dir)
@@ -424,6 +549,8 @@ def main(argv=None) -> int:
     except ImportBoundaryError as exc:
         report["status"] = "error"
         report["error"] = {"code": exc.code, "message": exc.message}
+        if args.apply:
+            report["apply"] = {"status": "FAILED", **exc.detail}
     except StoreError as exc:
         report["status"] = "error"
         report["error"] = {"code": exc.code, "message": exc.message}

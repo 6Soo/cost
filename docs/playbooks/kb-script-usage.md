@@ -26,7 +26,7 @@ CLI는 UTF-8 `.mjs`를 만들고 `ego-browser nodejs -e`로 실행한다. 브라
 3. 새 보호 폴더에 파일을 보존하고 바이트·형식·SHA256을 확인한다. 기존 Python 카드 파서가 XLS의 시트/열을 해석하며 화면 총건수와 파서 행수를 대조한다. 불일치/파싱 이슈는 실패다. `countCheck=MATCHED`와 파서 성공을 확인하며, 파서 옵션을 생략하면 건수 검증 완료가 아니다.
 4. 화면 0건 근거가 있으면 파일 없이 `no_data`로 기록한다. 원문 행을 manifest/로그에 쓰지 않는다.
 5. 같은 실행 파일과 `--previous-manifest <이전 manifest>`의 SHA256을 대조해 `DUPLICATE_FILE` / `NO_FILE_MATCH`를 남긴다. 같은 파일이라도 지우거나 합치지 않는다. 이는 파일 단위 검사이며 DB 거래 중복·포맷 간 동일 거래·환불 짝 검증은 아니다.
-6. `importBoundary=NOT_RUN`, `databaseRows=NOT_RUN`을 기록하고 종료한다. 운영 DB 가져오기는 별도 도구 [`tools/import_kb_card_download.py`](../../tools/import_kb_card_download.py)가 담당한다: 미리보기는 읽기 전용 사본 리허설, `--apply`는 신선 백업/별도 복원·단일 작성자 확인 뒤 기존 `Pipeline.receive` 경로로 쓴다([가져오기 스크립트 사용법](card-downloads.md#가져오기-스크립트-사용법)). 이 수집 도구는 DB·장부·Google에 쓰지 않는다.
+6. `importBoundary=NOT_RUN`, `databaseRows=NOT_RUN`을 기록하고 종료한다. 운영 DB 가져오기는 별도 도구 [`tools/import_kb_card_download.py`](../../tools/import_kb_card_download.py)가 담당한다: 미리보기는 읽기 전용 사본 리허설, `--apply`는 실제 단일 작성자 게이트(라우트 포트의 작성자 정지 검사)·신선 백업/별도 복원 뒤 기존 `Pipeline.receive` 경로로 쓰고 웹 업로드처럼 분류 대기열에 적재한다([가져오기 스크립트 사용법](card-downloads.md#가져오기-스크립트-사용법)). 이 수집 도구는 DB·장부·Google에 쓰지 않는다.
 
 `manifest.json`은 원문 없이 기간·자료 종류·파일 지문·화면 건수·파서 건수·파일 중복·미실행 경계를 담는다. 폴더가 비어 있지 않으면 덮어쓰지 않고 거부한다. CLI의 실패/manifest 쓰기 실패는 exit 2다. 전체 결과 `ok`는 수집 경로의 결과이며 `countCheck` 미확인이나 가져오기 완료를 대신하지 않는다.
 

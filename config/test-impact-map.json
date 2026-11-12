@@ -35,7 +35,9 @@
     },
     {
       "name": "kb-card-download-import",
-      "paths": ["tools/import_kb_card_download.py", "tests/test_import_kb_card_download.py"],
+      "paths": ["tools/import_kb_card_download.py", "tests/test_import_kb_card_download.py",
+                "tests/card_pipeline/make_xls_fixtures.py", "tests/card_pipeline/data/kb-*-synthetic.xls",
+                "tests/fixtures/kb-overseas-acquired-synthetic.xls"],
       "tests": ["tests/test_import_kb_card_download.py", "tests/card_pipeline/test_import_xls.py", "tests/test_kb_card_collection_script.py"]
     },
     {
@@ -184,7 +186,8 @@
     },
     {
       "name": "code-only-release-content",
-      "paths": ["tools/code_release_manifest.py", "tests/test_code_release_manifest.py"],
+      "paths": ["tools/code_release_manifest.py", "tests/test_code_release_manifest.py",
+                "config/tracked-data-policy.json"],
       "tests": ["tests/test_code_release_manifest.py", "tests/test_tracked_data_guard.py"]
     },
     {
