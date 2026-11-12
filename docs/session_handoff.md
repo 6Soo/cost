@@ -1,3 +1,9 @@
+## 2026-11-12 기준 검사 22건 정리 — 별도 PR 검수 범위
+
+- 소유자 후속 지시: #815 병합 전에 기준 실패를 별도 PR로 정리한다. main `f4b60b35`에서 분리한 `fix/baseline-checks-20261112`이며 #815의 완료 기간 정책·사본은 이 브랜치에 섞지 않았다. 병합·배포·운영 반영은 헤드만 한다.
+- [건별 대조표](agents/artifacts/baseline-check-reconciliation-20261112.md): 22건 중 코드 결함2(기존 규칙 최초 GET 누락, 분기 목적지를 여행 ID로 저장해409)·승인된 계약으로 대체된 검사20. P3 폐지 PROC-003/004·wave3 #799·AI 표시 #810을 근거로 명시적 수정과 현재 이동 경로를 검사하며 원본·수동·중복·환불 보호는 유지한다. 별도 간헐2건은 Windows 표현 가능 mtime 고정 및 실제 저장 뒤 fetch 오류 주입으로 결정성을 보강했다.
+- 대상 검사 파일 전체·영향 검사와 최종 SHA의 독립 `gpt-6.1-sol / medium` 검수는 이 브랜치 PR의 최종 실행·승인 기록을 따른다. 로그는 이 worktree `.local-archive/`와 `quality-artifacts/`에 보존한다. 다음은 PR 검수·보고이며, #815의 환불 묶음133건 구현·사본 예행은 원래 worktree에서 별도로 한다.
+
 ## 2026-11-12 LINK-108·dist141 — 운영 반영 COMPLETE
 
 - [PR #813](https://github.com/6Soo/cost/pull/813)을 검수 SHA `f931e258` 그대로 병합(`43acce8768a4b990776d7acb34a539915a3628e2`)하고 헤드가 `tools/deploy_verified_release.ps1`로 09:48~09:49 KST에 배포했다. **현재 운영 SHA는 `43acce87`**, Board 8752, 로컬·공개 readyz 200, 보호 표 13개 불변, 근거는 `releases/deploy-evidence-43acce87….json`이다. 병합과 배포를 담당 세션에 함께 맡기지 않았다(#812 중단의 재발 방지).
