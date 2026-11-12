@@ -168,11 +168,20 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 page = browser.new_page(viewport={'width': 1280, 'height': 900})
                 page.goto(self.base + '/receipts?trip=' + self.trip)
 
-                def lose_response(route):
-                    route.fetch()
-                    route.abort()
-
-                page.route('**/api/receipts/pdf', lose_response, times=1)
+                page.evaluate("""() => {
+                  const realFetch = window.fetch.bind(window);
+                  window.pdfPosts = 0;
+                  window.fetch = async (url, options) => {
+                    const response = await realFetch(url, options);
+                    if (url === '/api/receipts/pdf' && options?.method === 'POST'
+                        && ++window.pdfPosts === 1) {
+                      if (!response.ok) throw new Error('Synthetic PDF did not commit');
+                      await response.json();
+                      throw new TypeError('Failed to fetch');
+                    }
+                    return response;
+                  };
+                }""")
                 page.set_input_files('#img-file', [
                     {'name': 'lost.pdf', 'mimeType': 'application/pdf', 'buffer': b'%PDF-1.7 synthetic'},
                     {'name': 'next.png', 'mimeType': 'image/png', 'buffer': review.PNG},
@@ -186,6 +195,7 @@ class ReceiptPageFlowTests(review.ReceiptReviewTests):
                 self.assertEqual(len(data['pdfs']), 1)
                 self.assertEqual(len(data['images']), 2)
                 self.assertEqual(len(data['uploads']), 2)
+                self.assertEqual(page.evaluate('window.pdfPosts'), 1)
                 page.reload()
                 self.assertIn('lost.pdf', page.locator('section[aria-label="저장된 파일"]').inner_text())
             finally:
