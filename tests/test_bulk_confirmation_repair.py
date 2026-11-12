@@ -170,19 +170,28 @@ def test_manual_signals_preserved(setup, kind):
     stamp_all(c, tids)
     plan = repair.preview(c, TRIPS, year=YEAR, quarter=QUARTER)
     assert plan['summary']['excluded'].get('MANUAL_OR_USER_EXCEPTION') == 1
+    assert plan['summary']['manual_breakdown'] == {'existing_manual': 1}
     assert plan['summary']['to_correct'] == 4
     assert tid not in {t['tid'] for t in plan['targets']}
 
 
-@pytest.mark.parametrize('shape', ['event', 'edit', 'rule', 'conflict'])
-def test_non_record_batch_revision_preserved(setup, shape):
+@pytest.mark.parametrize('shape,reason,breakdown', [
+    # An owner-shaped stamp with an event/edit/conflict trail is itself owner
+    # history, so the manual signal preserves it before the shape check runs.
+    ('event', 'MANUAL_OR_USER_EXCEPTION', {'board_history': 1}),
+    ('edit', 'MANUAL_OR_USER_EXCEPTION', {'board_history': 1}),
+    ('conflict', 'MANUAL_OR_USER_EXCEPTION', {'board_history': 1}),
+    ('rule', 'NOT_RECORD_BATCH', {}),
+])
+def test_non_record_batch_revision_preserved(setup, shape, reason, breakdown):
     c = setup[0].conn
     prepare(c)
     tids = [r['transaction_id'] for r in setup[3]]
     stamp_all(c, tids[1:])
     add_owner_row(c, tids[0], shape=shape)
     plan = repair.preview(c, TRIPS, year=YEAR, quarter=QUARTER, min_batch=4)
-    assert plan['summary']['excluded'].get('NOT_RECORD_BATCH') == 1
+    assert plan['summary']['excluded'].get(reason) == 1
+    assert plan['summary']['manual_breakdown'] == breakdown
     assert plan['summary']['to_correct'] == 4
 
 
@@ -406,6 +415,184 @@ def test_cli_scope_and_gate_errors(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)['code'] == 'INVALID_MIN_BATCH'
     assert tool.main(base + ['--year', '2026', '--quarter', '4', '--apply']) == 1
     assert json.loads(capsys.readouterr().out)['code'] == 'PREVIEW_AND_BACKUP_REQUIRED'
+    conn.close()
+
+
+def add_revision(c, tid, *, actor, change_mode='exception', kind='move', event_id='synthetic-event'):
+    board = repair._state(c, tid)['board']
+    c.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,created_at,client_request_id,kind) '
+              'VALUES (?,2,?,?,?,?,?,?,?,?)',
+              ('card-' + tid, board['payload_json'], board['payload_json'], event_id, change_mode, actor,
+               MINUTE + ':30+00:00', 'synthetic-extra', kind))
+    c.commit()
+
+
+@pytest.mark.parametrize('actor,change_mode,kind,event_id', [
+    ('owner-chat-20261029', 'exception', 'move', 'synthetic-event'),
+    ('owner', 'exception', 'save', 'synthetic-event'),
+    ('owner', 'exception', 'move', 'synthetic-event'),
+    ('owner', 'edit', 'save', ''),
+    ('authority-review-20261016', 'exception', 'save', ''),
+    ('agent:regional-policy', 'rule_change', 'save', ''),
+])
+def test_owner_history_revision_preserved(setup, actor, change_mode, kind, event_id):
+    c = setup[0].conn
+    prepare(c)
+    tids = [r['transaction_id'] for r in setup[3]]
+    stamp_all(c, tids)
+    add_revision(c, tids[0], actor=actor, change_mode=change_mode, kind=kind, event_id=event_id)
+    plan = repair.preview(c, TRIPS, year=YEAR, quarter=QUARTER)
+    assert plan['summary']['excluded'].get('MANUAL_OR_USER_EXCEPTION') == 1
+    assert plan['summary']['manual_breakdown'] == {'board_history': 1}
+    assert plan['summary']['to_correct'] == 4
+    assert tids[0] not in {t['tid'] for t in plan['targets']}
+
+
+@pytest.mark.parametrize('kind', ['owner_trip_merge', 'owner.card_period_trip', 'owner.2025_cancel_item',
+                                  'trip_assignment.reviewed', 'card.region_assignment_corrected',
+                                  'card.trip_scope_policy_applied', 'card.booking_trip_correction'])
+def test_owner_audit_log_preserved(setup, kind):
+    c = setup[0].conn
+    prepare(c)
+    tids = [r['transaction_id'] for r in setup[3]]
+    stamp_all(c, tids)
+    c.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
+              ('synthetic', kind, tids[0], '{}'))
+    c.commit()
+    plan = repair.preview(c, TRIPS, year=YEAR, quarter=QUARTER)
+    assert plan['summary']['excluded'].get('MANUAL_OR_USER_EXCEPTION') == 1
+    assert plan['summary']['manual_breakdown'] == {'audit_history': 1}
+    assert plan['summary']['to_correct'] == 4
+
+
+def test_automatic_rule_change_history_still_corrected_and_restore_works(setup):
+    c = setup[0].conn
+    prepare(c)
+    tids = [r['transaction_id'] for r in setup[3]]
+    stamp_all(c, tids)
+    add_revision(c, tids[0], actor='automatic', change_mode='rule_change', kind='save', event_id='')
+    plan = repair.preview(c, TRIPS, year=YEAR, quarter=QUARTER)
+    assert plan['summary']['to_correct'] == 5
+    assert plan['summary']['excluded'] == {}
+    repair.apply(c, plan, TRIPS, request_id='synthetic-auto-history', year=YEAR, quarter=QUARTER)
+    rplan = repair.restore_preview(c, 'synthetic-auto-history')
+    repair.restore(c, rplan, 'synthetic-auto-history')
+    # The tool's own automatic rule_change history must not protect the row
+    # from a later correction round.
+    plan2 = repair.preview(c, TRIPS, year=YEAR, quarter=QUARTER)
+    assert plan2['summary']['to_correct'] == 5
+    result = repair.apply(c, plan2, TRIPS, request_id='synthetic-auto-history-2', year=YEAR, quarter=QUARTER)
+    assert result['replay'] is False and result['applied_this_run'] == 5
+
+
+def mock_writers(monkeypatch, returncode=0):
+    from tools import complete_card_classification as ccc
+    calls = []
+
+    class Result:
+        def __init__(self, rc):
+            self.returncode = rc
+
+    def fake_run(cmd, capture_output=True):
+        calls.append(cmd)
+        return Result(returncode)
+
+    monkeypatch.setattr(ccc.subprocess, 'run', fake_run)
+    return calls
+
+
+def write_route(host, port=8752, paused=False):
+    (host / 'config').mkdir(parents=True, exist_ok=True)
+    (host / 'config/ledger-route.json').write_text(
+        json.dumps(dict(port=port, paused=paused, generation='synthetic')), encoding='utf-8')
+
+
+def make_backup_evidence(host, db):
+    from datetime import datetime, timezone
+    from tools.verify_operational_backup_restore import database_state
+    backup = host / 'data/backups/synthetic'
+    backup.mkdir(parents=True, exist_ok=True)
+    (backup / 'manifest.json').write_text(
+        json.dumps({'databases': {'board.sqlite': database_state(db)}}), encoding='utf-8')
+    evidence = host / 'data/backups/evidence.json'
+    evidence.write_text(json.dumps(dict(
+        live_state_unchanged=True, all_database_tables_and_columns_compared=True,
+        restored_review_binding_equal=True, recorded_at=datetime.now(timezone.utc).isoformat(),
+        backup_directory=str(backup))), encoding='utf-8')
+    return evidence
+
+
+def test_apply_refuses_when_routed_port_listens(tmp_path, capsys, monkeypatch):
+    import tools.repair_bulk_owner_confirmation as tool
+    host, conn = make_host(tmp_path)
+    write_route(host, port=8752)
+    calls = mock_writers(monkeypatch, returncode=2)
+    code = tool.main(['--host-root', str(host), '--request-id', 'synthetic-route', '--year', '2026',
+                      '--quarter', '4', '--apply', '--expected-digest', 'a' * 64,
+                      '--backup-evidence', str(host / 'missing-evidence.json')])
+    assert code == 1
+    assert json.loads(capsys.readouterr().out)['code'] == 'WRITERS_NOT_OFFLINE'
+    assert len(calls) == 1 and '-LocalPort 8752' in calls[0][3]
+    conn.close()
+
+
+def test_route_8752_does_not_consult_8751(tmp_path, monkeypatch):
+    import tools.repair_bulk_owner_confirmation as tool
+    host, conn = make_host(tmp_path)
+    write_route(host, port=8752)
+    evidence = make_backup_evidence(host, host / 'data/board.sqlite')
+    calls = mock_writers(monkeypatch, returncode=0)
+    tool._require_offline_with_route(host, evidence, host / 'data/board.sqlite')
+    assert len(calls) == 1
+    assert '-LocalPort 8752' in calls[0][3] and '8751' not in calls[0][3]
+    # The evidence checks stay intact: a changed source must still be refused.
+    conn.execute("INSERT INTO requests VALUES ('synthetic-change','x','y','{}','synthetic')")
+    conn.commit()
+    with pytest.raises(ValueError, match='BACKUP_SOURCE_CHANGED'):
+        tool._require_offline_with_route(host, evidence, host / 'data/board.sqlite')
+    conn.close()
+
+
+def test_writers_task_running_refused(tmp_path, monkeypatch):
+    import tools.repair_bulk_owner_confirmation as tool
+    host, conn = make_host(tmp_path)
+    write_route(host, port=8752)
+    evidence = make_backup_evidence(host, host / 'data/board.sqlite')
+    mock_writers(monkeypatch, returncode=1)
+    with pytest.raises(ValueError, match='WRITERS_NOT_OFFLINE'):
+        tool._require_offline_with_route(host, evidence, host / 'data/board.sqlite')
+    conn.close()
+
+
+@pytest.mark.parametrize('route,expected', [
+    (None, 'ROUTE_REQUIRED'),
+    (dict(port=8752, paused=True), 'ROUTE_INVALID'),
+    (dict(port=9999, paused=False), 'ROUTE_PORT_INVALID'),
+    (dict(port='8752', paused=False), 'ROUTE_PORT_INVALID'),
+    (dict(port=True, paused=False), 'ROUTE_PORT_INVALID'),
+])
+def test_apply_route_file_errors(tmp_path, capsys, route, expected):
+    import tools.repair_bulk_owner_confirmation as tool
+    host, conn = make_host(tmp_path)
+    if route is not None:
+        write_route(host, port=route['port'], paused=route['paused'])
+    code = tool.main(['--host-root', str(host), '--request-id', 'synthetic-route', '--year', '2026',
+                      '--quarter', '4', '--apply', '--expected-digest', 'a' * 64,
+                      '--backup-evidence', str(host / 'missing-evidence.json')])
+    assert code == 1
+    assert json.loads(capsys.readouterr().out)['code'] == expected
+    conn.close()
+
+
+def test_isolated_copy_skips_route_file(tmp_path, capsys):
+    import tools.repair_bulk_owner_confirmation as tool
+    host, conn = make_host(tmp_path)
+    code = tool.main(['--host-root', str(host), '--request-id', 'synthetic-route', '--year', '2026',
+                      '--quarter', '4', '--apply', '--isolated-copy', '--expected-digest', 'a' * 64,
+                      '--backup-evidence', str(host / 'missing-evidence.json')])
+    assert code == 1
+    # No route file is required; the failure is the missing evidence, not the route.
+    assert json.loads(capsys.readouterr().out)['code'] == 'FileNotFoundError'
     conn.close()
 
 

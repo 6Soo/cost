@@ -20,6 +20,8 @@ RELEASE = 'card.bulk_confirmation_provenance_corrected'
 RESTORE = 'card.bulk_confirmation_provenance_restored'
 MANUAL_SOURCES = {'user_decision', 'user_exception', 'owner_booking', 'manual',
                   'manual_hold', 'previous_decision'}
+MANUAL_AUDIT_KINDS = ('trip_assignment.reviewed', 'card.region_assignment_corrected',
+                      'card.trip_scope_policy_applied', 'card.booking_trip_correction')
 MIN_SCOPE = (2026, 3)
 
 
@@ -55,6 +57,25 @@ def _stamp_index(conn):
     return stamps, batches
 
 
+def _manual_history(conn):
+    """Owner/authority history that outlives the batch stamp (owner decision 2026-11-13).
+
+    A board revision is a signal unless it is automatic or the record-batch
+    stamp shape itself; the repair family's own rule_change history is always
+    actor='automatic', so apply/restore never protect a row from themselves.
+    """
+    board_rows = {r[0] for r in conn.execute(
+        "SELECT DISTINCT row_id FROM board_revisions WHERE row_id LIKE 'card-%' "
+        "AND actor!='automatic' AND NOT (actor='owner' AND change_mode='exception' "
+        "AND kind='save' AND COALESCE(event_id,'')='')")}
+    audit_ids = set()
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='change_log'").fetchone():
+        audit_ids = {r[0] for r in conn.execute(
+            "SELECT DISTINCT subject FROM change_log WHERE kind LIKE 'owner%' "
+            "OR kind IN (" + ','.join('?' for _ in MANUAL_AUDIT_KINDS) + ')', MANUAL_AUDIT_KINDS)}
+    return board_rows, audit_ids
+
+
 def preview(conn, trips, *, year, quarter, min_batch=5):
     if not (isinstance(year, int) and isinstance(quarter, int)
             and 1 <= quarter <= 4 and (year, quarter) >= MIN_SCOPE):
@@ -63,8 +84,10 @@ def preview(conn, trips, *, year, quarter, min_batch=5):
     valid, manual = trip_map(trips), manual_ids(conn)
     rows = {r['transaction_id']: r for r in _read(conn)}
     stamps, batches = _stamp_index(conn)
+    manual_board_rows, manual_audit_ids = _manual_history(conn)
     quarter_id = f'quarter:{year}:{quarter}'
     excluded, targets, owner_rows = Counter(), [], 0
+    manual_breakdown = Counter()
     for row_id, raw in conn.execute("SELECT row_id,payload_json FROM board_rows "
                                     "WHERE row_kind='expense' AND row_id LIKE 'card-%'"):
         payload = json.loads(raw)
@@ -81,6 +104,13 @@ def preview(conn, trips, *, year, quarter, min_batch=5):
         reason = ''
         if tid in manual or row.get('decided_at') or row['classification_source'] in MANUAL_SOURCES:
             reason = 'MANUAL_OR_USER_EXCEPTION'
+            manual_breakdown['existing_manual'] += 1
+        elif row_id in manual_board_rows:
+            reason = 'MANUAL_OR_USER_EXCEPTION'
+            manual_breakdown['board_history'] += 1
+        elif tid in manual_audit_ids:
+            reason = 'MANUAL_OR_USER_EXCEPTION'
+            manual_breakdown['audit_history'] += 1
         else:
             stamp = stamps.get(row_id)
             if not stamp:
@@ -110,6 +140,7 @@ def preview(conn, trips, *, year, quarter, min_batch=5):
     minutes = Counter(t['stamp']['minute'] for t in targets)
     per_trip = Counter(t['attribution'] for t in targets)
     summary = dict(owner_stamped_rows=owner_rows, to_correct=len(targets), excluded=dict(excluded),
+                   manual_breakdown=dict(manual_breakdown),
                    stamp_minutes=[dict(minute=m, rows=n, batch_size=batches[m])
                                   for m, n in sorted(minutes.items())],
                    trip_corrections=[dict(trip=valid.get(tab, {}).get('display_key')

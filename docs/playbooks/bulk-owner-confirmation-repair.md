@@ -4,6 +4,7 @@
 - 실행 주체: 스크립트(`tools/repair_bulk_owner_confirmation.py`). 승인된 배포 담당이 실행한다.
 - 주기: 소유자 결정(2026-11-13)에 따른 1회 정정. 같은 요청 재실행은 변경 없이 `REPLAYED`로 끝난다.
 - 개정 이력: 2026-11-13 · 최초 작성 · 일괄 기록 배치 확인 표시 출처 정정(소유자 결정 2026-11-13) 도구 착수. 합성 검증 완료, 운영 반영·사본 예행은 미실행.
+- 개정 이력: 2026-11-13 · PR #833 검수 변경 요청 반영 · ① 표시 뒤 소유자 지시 이동·결정 이력(화면 행 이력·감사 이력)을 수동 신호로 보존, `manual_breakdown` 세부 집계 추가 ② 단일 작성자 확인 포트를 운영 경로 파일(`config/ledger-route.json`)에서 읽도록 변경. 합성 검증 완료, 운영 반영·사본 예행은 미실행.
 
 구조는 [dist141 자동 판정 출처 정정](dist141-provenance-repair.md)·[AI 분기 검수 교정 반영](ai-review-apply.md)과 같은 미리보기/digest/신선 백업/감사 원복 구조이며 요청·감사 이름공간은 분리한다(`bulk_confirmation_provenance`, `card.bulk_confirmation_provenance_corrected`, `card.bulk_confirmation_provenance_restored`).
 
@@ -11,7 +12,7 @@
 
 - `--host-root`(운영 호스트 폴더), `--year`·`--quarter`(정정 범위 분기, **2026년 3분기 이후만 허용**), `--min-batch`(일괄로 볼 최소 행 수, 기본 5), `--request-id`(멱등 키).
 - 신선 백업·복원 검증 증거(`tools/verify_operational_backup_restore.py` 산출물, 1시간 이내). 반영 시에만 필요하다.
-- Board·SourceRefresh writer 정지 상태(반영 시). Gateway는 유지한다.
+- Board·SourceRefresh writer 정지 상태(반영 시). Gateway는 유지한다. writer 정지 검사는 **`<host-root>/config/ledger-route.json`의 `port`**(8751 또는 8752)로 수행한다 — 선례 `tools/import_kb_card_download.py`와 같은 방식. 경로 파일이 없거나 읽을 수 없으면 `ROUTE_REQUIRED`, `paused`가 참이면 `ROUTE_INVALID`(형식 근거: `tools/deploy_verified_release.ps1`), 포트가 8751·8752가 아니면 `ROUTE_PORT_INVALID`로 쓰기 전에 멈춘다. 검사 순서는 작성자 정지 확인 → 신선 백업 증거 확인이다.
 - 별도 manifest는 없다. 대상은 아래 판단 기준이 운영 DB에서 직접 선정하며, 보고서에는 식별값·금액 없이 건수만 나온다.
 
 ## 판단 기준
@@ -20,7 +21,11 @@
 
 보존 사유(사유별 건수만 집계, 식별값 없음):
 
-- `MANUAL_OR_USER_EXCEPTION` — 수동 결정 기록(`closed_period.manual_ids`: 항목 또는 유효 여행이 있는 활성 `review_decisions`, `board_manual_overrides`), 거래 `decided_at`, 수동 출처(`user_decision`·`user_exception`·`owner_booking`·`manual`·`manual_hold`·`previous_decision`).
+- `MANUAL_OR_USER_EXCEPTION` — 다음 셋 중 하나라도 있으면 보존한다. 요약에는 합계와 함께 세부 건수를 `manual_breakdown`(`existing_manual`·`board_history`·`audit_history`, 식별값 없음)으로 낸다.
+  - **기존 수동 신호**(`existing_manual`) — 수동 결정 기록(`closed_period.manual_ids`: 항목 또는 유효 여행이 있는 활성 `review_decisions`, `board_manual_overrides`), 거래 `decided_at`, 수동 출처(`user_decision`·`user_exception`·`owner_booking`·`manual`·`manual_hold`·`previous_decision`).
+  - **화면 행 이력 신호**(`board_history`) — 그 카드 행의 `board_revisions` 중에 ① `actor='automatic'`인 revision, ② 기록 배치 표시 형태(`actor='owner'` ∧ `change_mode='exception'` ∧ `kind='save'` ∧ `event_id` 빈 값) 중 **어느 것도 아닌** revision이 하나라도 있으면 보존. 시점은 표시 앞뒤를 가리지 않는다. 소유자가 화면에서 한 저장·이동(`actor='owner'`인데 `event_id`가 있거나 `kind='move'`이거나 `change_mode`가 다른 것), 이름이 붙은 실행자(`owner-chat-…`, `authority-review-…`, `agent:…` 등 `automatic`·`owner`가 아닌 모든 actor)의 revision이 여기에 해당한다.
+  - **감사 이력 신호**(`audit_history`) — `change_log`에 그 거래(`subject`=transaction_id)의 kind가 `owner`로 시작하는 기록(`owner_trip_merge`, `owner.2025_cancel_item`, `owner.2025_item_group`, `owner.card_period_trip` 등 접두 `owner`로 판정) 또는 `trip_assignment.reviewed`·`card.region_assignment_corrected`·`card.trip_scope_policy_applied`·`card.booking_trip_correction`이 있으면 보존.
+  - 이 도구 자신과 형제 정리 도구가 남긴 이력(`actor='automatic'`, `change_mode='rule_change'`)은 ①에 해당하므로 신호가 아니다. 원복·재실행 뒤에도 같은 행을 다시 정정할 수 있다.
 - `NO_STAMP_REVISION` — `board_revisions`에서 `confirmed_by`가 처음 `owner`가 된 revision(직전 payload가 `owner`가 아님; 처음부터 `owner`였던 행의 생성 revision 포함)을 찾지 못함.
 - `NOT_RECORD_BATCH` — 그 revision이 기록 배치 형태가 아님(아래 근거).
 - `INDIVIDUAL_STAMP` — 같은 "분"(`created_at` 앞 16자, UTC 원문 그대로)에 같은 형태로 `owner`를 찍은 카드 행 수가 **범위와 무관하게 DB 전체에서** `min_batch` 미만. 개별로 찍힌 표시는 실제 확인일 수 있으므로 보존한다.
@@ -38,6 +43,10 @@
 - 사건(event) 기반 쓰기 경로는 `event_id`가 비어 있지 않고, 규칙 변경은 `change_mode='rule_change'`·`actor='automatic'`이다. 둘 다 기록 배치 형태와 다르다.
 
 따라서 형태 검사 + 분당 배치 크기 검사는 사용자 직접 저장·사건 재생·규칙 변경과 기록 배치를 구분한다. 형태가 다르거나 같은 분에 찍힌 행이 `min_batch` 미만이면 보존한다.
+
+### 소유자 지시 이력 보존 근거 (운영 실측)
+
+검수자의 운영 전체 조사(2026-11-13)에서 카드 행 이력의 actor 형태는 `automatic`(자동 처리), 기록 배치 `owner`(표시), 화면 `owner`(event_id 있음), `authority-review-20261016`, `agent:regional-policy`, `owner-chat-20261029`로 확인됐다. 정정 대상 중 5건은 첫 `owner` 표시 뒤 `actor='owner-chat-20261029'`, `change_mode='exception'`, `kind='move'`, event_id 있음인 이력(소유자 채팅 지시 여행 이동)이 있었다. 이런 행은 기존 수동 신호(`manual_ids`·`decided_at`·수동 출처)에 잡히지 않으므로, 위 화면 행 이력·감사 이력 신호로 보존한다. 이름이 붙은 실행자의 revision과 `owner` 접두 감사 기록은 사용자 결정의 흔적이지 일괄 표시의 흔적이 아니다.
 
 ## 단계
 
@@ -72,18 +81,19 @@ $repairRestore = Get-Content -LiteralPath "$repairEvidence/restore-preview.json"
 python tools/repair_bulk_owner_confirmation.py --host-root D:/WebLedgerHost --request-id bulk-owner-confirm-2026Q4 --restore --apply --expected-digest $repairRestore.digest --backup-evidence "$repairEvidence/restore-backup.json" --report "$repairEvidence/restored.json"
 ```
 
-사본은 `--isolated-copy`로만 writer 정지 확인을 생략할 수 있다. 신선 백업·복원 동등·파일 분리 확인은 그대로 필요하며 운영 DB·동일 파일·하드링크는 거부한다.
+사본은 `--isolated-copy`로만 writer 정지·경로 파일 검사를 생략할 수 있다(사본 호스트에는 경로 파일이 없다). 신선 백업·복원 동등·파일 분리 확인은 그대로 필요하며 운영 DB·동일 파일·하드링크는 거부한다.
 
 ## 출력
 
-- `--report` 파일과 stdout JSON: `status`(PREVIEW/APPLIED/REPLAYED/FAILED), `digest`, `owner_stamped_rows`(범위 안 `owner` 표시 행 수), `to_correct`(정정 대상 수), `excluded`(사유별 보존 수), `stamp_minutes`(분 문자열·대상 건수·배치 크기), `trip_corrections`(여행 표시 이름과 정정 건수), `applied_this_run`.
+- `--report` 파일과 stdout JSON: `status`(PREVIEW/APPLIED/REPLAYED/FAILED), `digest`, `owner_stamped_rows`(범위 안 `owner` 표시 행 수), `to_correct`(정정 대상 수), `excluded`(사유별 보존 수), `manual_breakdown`(`MANUAL_OR_USER_EXCEPTION` 안의 기존 수동 신호·화면 행 이력 신호·감사 이력 신호 건수), `stamp_minutes`(분 문자열·대상 건수·배치 크기), `trip_corrections`(여행 표시 이름과 정정 건수), `applied_this_run`.
 - 감사 이력: `change_log`의 `card.bulk_confirmation_provenance_corrected`(변경 전후 `confirmed_by`·전체 상태·표시 revision의 분·배치 크기·금융 지문)·`card.bulk_confirmation_provenance_restored`, 요청 기록 `requests`의 `bulk_confirmation_provenance` 범위.
 - 검증 방법: 재실행 `REPLAYED`·변경 0, 반영 전후 금융 지문 동일, 원복 후 변경 전 값 일치(revision·감사 이력은 증가·보존). 정정 뒤 AI 분기 검수 반영(`app/ai_review_repair.py`)이 같은 행을 더 이상 `PROJECTION_ATTRIBUTION_DISAGREEMENT`(화면 수동 확인 표기)로 제외하지 않는다.
 
 ## 실패했을 때
 
 - `SCOPE_REQUIRED`·`INVALID_SCOPE`·`INVALID_MIN_BATCH` — 분기 인자가 없거나 2026년 3분기 이전이거나 `min_batch`가 1 미만이다. 인자를 고쳐 다시 미리보기한다. 쓰기는 없었다.
-- `PREVIEW_AND_BACKUP_REQUIRED`·`BACKUP_RESTORE_NOT_VERIFIED`·`BACKUP_NOT_FRESH`·`BACKUP_SOURCE_CHANGED`·`WRITERS_NOT_OFFLINE` — 반영 게이트 미충족. 백업을 다시 만들고 writer를 멈춘 뒤 재시도한다. 쓰기는 없었다.
+- `ROUTE_REQUIRED`·`ROUTE_INVALID`·`ROUTE_PORT_INVALID` — 운영 경로 파일이 없거나 읽을 수 없거나, 경로가 paused 상태이거나, 포트가 8751·8752가 아니다. 경로 파일과 Gateway 상태를 확인한 뒤 재시도한다. 쓰기는 없었다.
+- `PREVIEW_AND_BACKUP_REQUIRED`·`BACKUP_RESTORE_NOT_VERIFIED`·`BACKUP_NOT_FRESH`·`BACKUP_LOCATION_INVALID`·`BACKUP_SOURCE_CHANGED`·`WRITERS_NOT_OFFLINE` — 반영 게이트 미충족. 백업을 다시 만들고 writer를 멈춘 뒤 재시도한다. 쓰기는 없었다.
 - `BULK_CONFIRMATION_PREVIEW_STALE` — 미리보기 뒤 행·여행·금융 상태가 바뀌었다. 다시 미리보기해 새 digest로 반영한다.
 - `BULK_CONFIRMATION_REQUEST_CONFLICT` — 같은 요청 ID로 다른 내용이 이미 반영됐다. 요청 ID를 분리하거나 기존 반영을 확인한다.
 - `BULK_CONFIRMATION_RESTORE_STALE`·`BULK_CONFIRMATION_RESTORE_FINANCIAL_STALE` — 반영 뒤 편집·금융 변경이 있어 원복을 거부한다. 이후 변경을 먼저 확인하고 필요하면 수동 교정 절차를 따른다. 강제 원복하지 않는다.
