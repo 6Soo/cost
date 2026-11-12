@@ -375,7 +375,8 @@ Agoda 자동결제 예정 예약의 예정일과 카드 이용일이 같고 원�
 - 조건·예외: 숙박은 기존 밤 단위 조건과 동률 보호를 유지하며 카드 잔여 분기·사용자 국가 예외도 보존한다.
 - 대체된 옛 규칙:
   - 같은 국내·해외 구분의 검증 여행 사이 빈 기간의 카드 비용은 항목에 관계없이 가장 가까운 다음 여행의 준비 비용으로 추론한다. 실제 예약 이용기간·수동 배정이 우선하고 카드 원문 날짜나 여행 종료일을 늘리지 않는다. — 소유자 결정 2026-11-12 밤으로 대체.
-- 출처: `docs/specs/finance.md:112`, `docs/specs/python-refactor-20261101.md:7`, `docs/history/operations-20261028-20261107.md:621`, `docs/specs/finance.md:333`, `docs/specs/finance.md:629`
+  - 옛 규칙 출처: `docs/specs/finance.md:112`, `docs/specs/python-refactor-20261101.md:7`, `docs/history/operations-20261028-20261107.md:621`, `docs/specs/finance.md:333`, `docs/specs/finance.md:629`
+- 출처: 소유자 결정 2026-11-12 밤, `docs/DECISION_POLICY.md` §3.2·§6.1, `docs/policy/process.md` PROC-004.
 
 ### DATE-041 · 현지 사용의 날짜 판단
 

@@ -412,7 +412,8 @@ OTA 장부 날짜는 실제 이용일인 체크인·픽업·출발일을 사용�
 - 조건·예외: 지정 카드 국내 잔여 분기 규칙·기간 예외와 정상 원본·환불 보호를 유지한다.
 - 대체된 옛 규칙:
   - 실제 이용기간·수동 귀속을 먼저 유지하고 같은 국내외 구분의 여행 안이면 기간 귀속을 유지한다. 여행 사이 빈 기간의 모든 카드 비용 항목은 가장 가까운 다음 검증 여행의 준비 비용으로 추론하고 그 근거를 남기며 여행 기간·원문 날짜를 늘리지 않는다. — 소유자 결정 2026-11-12 밤으로 대체.
-- 출처: `docs/history/operations-20261028-20261107.md:621`, `docs/history/session_handoff-through-20261107.md:678`, `docs/specs/finance.md:112`, `docs/specs/finance.md:333`, `docs/specs/finance.md:629`
+  - 옛 규칙 출처: `docs/history/operations-20261028-20261107.md:621`, `docs/history/session_handoff-through-20261107.md:678`, `docs/specs/finance.md:112`, `docs/specs/finance.md:333`, `docs/specs/finance.md:629`
+- 출처: 소유자 결정 2026-11-12 밤, `docs/DECISION_POLICY.md` §3.2·§6.1, `docs/policy/process.md` PROC-004.
 
 ### TRIP-044 · 국내외 구분
 
