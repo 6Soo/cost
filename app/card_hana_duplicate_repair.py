@@ -72,6 +72,24 @@ def _layout(parser):
     return str(parser or '').split(':', 1)[-1]
 
 
+def _has_table(conn, name):
+    return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+
+
+def _repair_state(conn, tid):
+    """Like decision_provenance._state, but the board projection is optional.
+
+    The import path can run on the card-only schema, which has no board tables;
+    the cleanup runs on the full ledger schema. Both share the move below.
+    """
+    from .decision_provenance import _dict_row
+    board = (_dict_row(conn, 'board_rows', 'row_id', 'card-' + tid)
+             if _has_table(conn, 'board_rows') else None)
+    return dict(transaction=_dict_row(conn, 'transactions', 'transaction_id', tid),
+                ledger=_dict_row(conn, 'ledger_entries', 'transaction_id', tid),
+                board=board)
+
+
 def _merchant_compatible(a, b):
     a, b = str(a or ''), str(b or '')
     if not a or not b:
@@ -107,7 +125,8 @@ def _manual_reason(conn, tid, row):
         return 'MANUAL_CORRECTION'
     if conn.execute('SELECT 1 FROM review_decisions WHERE transaction_id=?', (tid,)).fetchone():
         return 'MANUAL_CORRECTION'
-    if conn.execute('SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-' + tid,)).fetchone():
+    if _has_table(conn, 'board_manual_overrides') and conn.execute(
+            'SELECT 1 FROM board_manual_overrides WHERE row_id=?', ('card-' + tid,)).fetchone():
         return 'MANUAL_CORRECTION'
     if conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?', (tid,)).fetchone():
         return 'REVIEW_HOLD'
@@ -152,6 +171,28 @@ def _attribution_reason(keep, dup):
     if ka.startswith('trip-') and da.startswith('trip-') and ka != da:
         return 'ATTRIBUTION_DISAGREEMENT'
     return ''
+
+
+def supersede_protection(conn, keep, dup, number_index):
+    """Protection reason that forbids auto-superseding the approval row, or ''.
+
+    Shared by the import path and the cleanup tool so both protect the same
+    pairs (PROC-005 / financial protection). A manually corrected, refund-paired,
+    source-protected or trip-attribution-disagreeing pair is never auto-moved; it
+    is left for AI review. `keep`/`dup` are row dicts carrying transaction_id and
+    the classification/attribution fields; the import path passes a freshly built
+    keep dict for the incoming billed row.
+    """
+    for row in (keep, dup):
+        if row.get('parse_error') or row.get('conflict_reason') or row.get('duplicate_of'):
+            return 'SOURCE_PROTECTED'
+        reason = _manual_reason(conn, row['transaction_id'], row)
+        if reason:
+            return reason
+    reason = _refund_reason(conn, (keep['transaction_id'], dup['transaction_id']), number_index)
+    if reason:
+        return reason
+    return _attribution_reason(keep, dup)
 
 
 def _hana_rows(conn):
@@ -223,20 +264,7 @@ def preview(conn):
             excluded[reason] += 1
             excluded_pairs.append(dict(keep=kt, dup=dt, reason=reason))
             continue
-        both = (kt, dt)
-        guard = ''
-        for tid in both:
-            row = rows[tid]
-            if row.get('parse_error') or row.get('conflict_reason') or row.get('duplicate_of'):
-                guard = 'SOURCE_PROTECTED'
-                break
-            guard = _manual_reason(conn, tid, row)
-            if guard:
-                break
-        if not guard:
-            guard = _refund_reason(conn, both, number_index)
-        if not guard:
-            guard = _attribution_reason(keep, dup)
+        guard = supersede_protection(conn, keep, dup, number_index)
         if guard:
             excluded[guard] += 1
             excluded_pairs.append(dict(keep=kt, dup=dt, reason=guard))
@@ -302,7 +330,8 @@ def replay(conn, request_id):
 
 def _unbook(conn, tid):
     conn.execute('DELETE FROM ledger_entries WHERE transaction_id=?', (tid,))
-    conn.execute('DELETE FROM board_rows WHERE row_id=?', ('card-' + tid,))
+    if _has_table(conn, 'board_rows'):
+        conn.execute('DELETE FROM board_rows WHERE row_id=?', ('card-' + tid,))
 
 
 def _rebook(conn, tid, before):
@@ -311,36 +340,67 @@ def _rebook(conn, tid, before):
         columns = list(ledger.keys())
         conn.execute('INSERT INTO ledger_entries(' + ','.join(columns) + ') VALUES (' + ','.join('?' * len(columns)) + ')',
                      [ledger[c] for c in columns])
-    if board:
+    if board and _has_table(conn, 'board_rows'):
         conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,?,?)',
                      (board['row_id'], board['row_kind'], board['display_tab_id'], board['revision'], board['payload_json']))
 
 
-def _move_projection(conn, target):
-    """Move the booked approval projection onto the canonical acquired row.
+def move_approval_projection(conn, keep_tid, dup_tid, *, request_id, actor='automatic'):
+    """Move a booked approval projection onto the canonical acquired (billed) row.
 
-    The survivor inherits the duplicate's attribution/item and carries the billed
-    amount (SRC-009); the duplicate's own projection is then removed. Only used
-    when the canonical row had no projection of its own.
+    Shared by the import path and the cleanup tool so both paths give the same
+    result. The survivor keeps its OWN billed transaction info (amount, merchant,
+    date, direction, source) and inherits the approval's attribution/item and
+    classification; the approval row is marked a duplicate and its projection
+    removed, so the cost is booked once at the billed total (SRC-005/009). The
+    board edit is recorded in board_revisions. No original source cell is
+    rewritten. Only used when the canonical row had no projection of its own.
     """
-    keep_tid, dup_tid = target['keep'], target['tid']
-    dup_tx = target['before']['transaction']
-    amount = target['keep_before']['transaction']['amount_krw']
-    conn.execute('UPDATE transactions SET item=?,display_tab_id=?,trip_id=?,revision=revision+1 WHERE transaction_id=?',
-                 (dup_tx['item'], dup_tx['display_tab_id'], dup_tx['trip_id'], keep_tid))
-    ledger, board = target['before']['ledger'], target['before']['board']
+    keep_before = _repair_state(conn, keep_tid)
+    dup_before = _repair_state(conn, dup_tid)
+    keep_tx, dup_tx = keep_before['transaction'], dup_before['transaction']
+    ledger, board = dup_before['ledger'], dup_before['board']
+    amount = keep_tx['amount_krw']
+    occurred_on = keep_tx['approval_date'] or keep_tx['posting_date']
+    # Attribution/item come from the booked approval projection (fall back to its
+    # transaction fields when it was never booked); classification carries over too.
+    src = ledger or dup_tx
+    attribution = {key: src.get(key) for key in ('item', 'description', 'display_tab_id', 'trip_id')}
+    conn.execute('UPDATE transactions SET item=?,description=?,display_tab_id=?,trip_id=?,'
+                 'classification_state=?,classification_source=?,classification_basis=?,decided_at=?,'
+                 'revision=revision+1 WHERE transaction_id=?',
+                 (attribution['item'], attribution['description'], attribution['display_tab_id'], attribution['trip_id'],
+                  dup_tx.get('classification_state'), dup_tx.get('classification_source'),
+                  dup_tx.get('classification_basis'), dup_tx.get('decided_at'), keep_tid))
     if ledger:
-        moved = dict(ledger, transaction_id=keep_tid, amount_krw=amount)
+        moved = dict(ledger, transaction_id=keep_tid, batch_id=keep_tx['batch_id'], amount_krw=amount,
+                     merchant=keep_tx['merchant'], occurred_on=occurred_on,
+                     transaction_direction=keep_tx['transaction_direction'], source_hash=keep_tx['source_hash'],
+                     committed_at=utc_now(), **attribution)
         columns = list(moved.keys())
         conn.execute('INSERT INTO ledger_entries(' + ','.join(columns) + ') VALUES (' + ','.join('?' * len(columns)) + ')',
                      [moved[c] for c in columns])
-    if board:
+    if board and _has_table(conn, 'board_rows'):
         payload = json.loads(board['payload_json'])
+        payload.update(attribution)
         payload['amount_krw'] = amount
+        payload['merchant'] = keep_tx['merchant']
+        if 'occurred_on' in payload:
+            payload['occurred_on'] = occurred_on
+        revision = board['revision'] + 1
+        payload['revision'] = revision
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if _has_table(conn, 'board_revisions'):
+            conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,'
+                         'created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
+                         ('card-' + keep_tid, revision, board['payload_json'], encoded, '', 'rule_change', actor,
+                          utc_now(), request_id))
         conn.execute('INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json) VALUES (?,?,?,?,?)',
-                     ('card-' + keep_tid, board['row_kind'], board['display_tab_id'], board['revision'],
-                      json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+                     ('card-' + keep_tid, board['row_kind'], attribution['display_tab_id'], revision, encoded))
+    conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                 (keep_tid, dup_tid))
     _unbook(conn, dup_tid)
+    return dict(keep_before=keep_before, dup_before=dup_before, ledger_action='move')
 
 
 def apply(conn, expected, *, request_id):
@@ -360,12 +420,12 @@ def apply(conn, expected, *, request_id):
         financial = _financial_state(conn)
         for target in current['targets']:
             tid = target['tid']
-            conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
-                         (target['values']['duplicate_of'], tid))
-            if not target['closed']:
-                if target['ledger_action'] == 'move':
-                    _move_projection(conn, target)
-                else:
+            if not target['closed'] and target['ledger_action'] == 'move':
+                move_approval_projection(conn, target['keep'], tid, request_id=request_id)
+            else:
+                conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
+                             (target['values']['duplicate_of'], tid))
+                if not target['closed']:
                     _unbook(conn, tid)
             detail = dict(request_id=request_id, keep=target['keep'], closed=target['closed'],
                           ledger_action=target['ledger_action'], keep_before=target['keep_before'],
@@ -422,9 +482,12 @@ def restore(conn, expected, request_id):
                     keep_tid = detail['keep']
                     _unbook(conn, keep_tid)
                     keep_tx = detail['keep_before']['transaction']
-                    conn.execute('UPDATE transactions SET item=?,display_tab_id=?,trip_id=?,revision=revision+1'
-                                 ' WHERE transaction_id=?',
-                                 (keep_tx['item'], keep_tx['display_tab_id'], keep_tx['trip_id'], keep_tid))
+                    conn.execute('UPDATE transactions SET item=?,description=?,display_tab_id=?,trip_id=?,'
+                                 'classification_state=?,classification_source=?,classification_basis=?,decided_at=?,'
+                                 'revision=revision+1 WHERE transaction_id=?',
+                                 (keep_tx['item'], keep_tx['description'], keep_tx['display_tab_id'], keep_tx['trip_id'],
+                                  keep_tx['classification_state'], keep_tx['classification_source'],
+                                  keep_tx['classification_basis'], keep_tx['decided_at'], keep_tid))
                 _rebook(conn, tid, before)
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                          (utc_now(), RESTORE, tid,

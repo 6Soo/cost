@@ -198,20 +198,27 @@ def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
             or not approval_key or not row.card_tail or not row.approval_date):
         return None
     candidates = store.conn.execute(
-        "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency,posting_date,batch_id,row_index,source_hash "
-        "FROM transactions WHERE issuer=? AND card_tail=? AND LTRIM(approval_number,'0')=? "
-        "AND approval_date=? AND transaction_direction='purchase' AND batch_id<>? "
-        "AND parse_error='' AND conflict_reason='' AND duplicate_of IS NULL",
+        "SELECT t.transaction_id,t.merchant_normalized,t.amount_krw,t.foreign_amount,t.foreign_currency,"
+        "t.posting_date,t.batch_id,t.row_index,t.source_hash,b.parser "
+        "FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id "
+        "WHERE t.issuer=? AND t.card_tail=? AND LTRIM(t.approval_number,'0')=? "
+        "AND t.approval_date=? AND t.transaction_direction='purchase' AND t.batch_id<>? "
+        "AND t.parse_error='' AND t.conflict_reason='' AND t.duplicate_of IS NULL",
         (row.issuer, row.card_tail, approval_key, row.approval_date, batch_id)).fetchall()
     if len(candidates) != 1:
         return None
-    identity, merchant, amount, foreign, currency, posting_date, original_batch, original_index, original_hash = candidates[0]
-    # An approval number can be reused by different purchases on one card/day.
-    # The same event's approval-time and billed won values differ only by FX and
-    # fee, never by multiples; a wide ratio means a different transaction, so it
-    # stays separate instead of becoming a spurious source conflict.
+    (identity, merchant, amount, foreign, currency, posting_date, original_batch, original_index,
+     original_hash, original_parser) = candidates[0]
+    # An approval number can be reused by different purchases on one card/day. A
+    # normal FX/fee ratio corroborates one purchase; a wide multiple alone means a
+    # different transaction. But an overseas gas pre-auth hold is a small approval
+    # next to the final billed total, so a compatible merchant keeps it one purchase
+    # even at a wide ratio — the same criteria as the cleanup tool (SRC-009).
     if amount and row.amount_krw and amount > 0 and row.amount_krw > 0:
-        if not 0.5 <= amount / row.amount_krw <= 2.0:
+        from .card_hana_duplicate_repair import RATIO_MIN, RATIO_MAX, _merchant_compatible
+        ratio_ok = RATIO_MIN <= amount / row.amount_krw <= RATIO_MAX
+        overseas = layout == 'hana_foreign' or str(original_parser or '').split(':', 1)[-1] == 'hana_foreign'
+        if not ratio_ok and not (overseas and _merchant_compatible(merchant, row.merchant_normalized)):
             return None
     cache = source_cache if source_cache is not None else {}
     same_merchant = merchant == row.merchant_normalized

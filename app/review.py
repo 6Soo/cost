@@ -266,17 +266,30 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                     identity, same_source = export_match
                     if not same_source and acquired_supersedes_approval(store, parsed.parser, row, identity):
                         # The billed acquired view is canonical regardless of order
-                        # (SRC-005/009): insert it and mark the earlier approval-source
-                        # row as its duplicate instead of conflicting the billed total.
+                        # (SRC-005/009). The guard and the ledger move are shared with
+                        # the cleanup tool so both paths give the same result.
+                        from . import card_hana_duplicate_repair as hana
                         canonical = transaction_identity(row)
-                        outcome = _insert_row(store, batch_id, row, now, canonical)
-                        if outcome == 'inserted':
-                            store.conn.execute(
-                                'UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
-                                (canonical, identity))
-                            store.log_change('transaction.duplicate_marked', identity,
-                                             {'duplicate_of': canonical, 'batch_id': batch_id})
-                        identity = canonical
+                        keep_row = {'transaction_id': canonical, 'parse_error': row.parse_error,
+                                    'conflict_reason': '', 'duplicate_of': None,
+                                    'classification_source': None, 'decided_at': None,
+                                    'trip_id': '', 'display_tab_id': ''}
+                        dup_row = hana._repair_state(store.conn, identity)['transaction']
+                        guard = hana.supersede_protection(store.conn, keep_row, dup_row,
+                                                          hana._number_index_for(store.conn))
+                        if guard:
+                            # Manually corrected / refund-paired / protected approval:
+                            # do not auto-move. Preserve both as a conflict for AI
+                            # review (PROC-005 / financial protection).
+                            outcome = _insert_row(store, batch_id, row, now, identity)
+                        else:
+                            outcome = _insert_row(store, batch_id, row, now, canonical)
+                            if outcome == 'inserted':
+                                hana.move_approval_projection(store.conn, canonical, identity,
+                                                              request_id=batch_id)
+                                store.log_change('transaction.duplicate_marked', identity,
+                                                 {'duplicate_of': canonical, 'batch_id': batch_id})
+                            identity = canonical
                     else:
                         outcome = ('reused' if same_source else
                                    _insert_row(store, batch_id, row, now, identity))

@@ -244,9 +244,10 @@ def _approval_source(*, approval='00001111', amount=10000, merchant='합성상�
                     headers=['카드사', '이용일', '카드번호', '승인번호', '가맹점명', '승인금액', '가맹점번호'])
 
 
-def _acquired_foreign(*, approval='00001111', amount=10300):
+def _acquired_foreign(*, approval='00001111', amount=10300, merchant='합성상점'):
     row = hana_foreign(amount=amount)
     row[3] = approval
+    row[4] = merchant
     return make_csv([row], headers=HANA_FOREIGN)
 
 
@@ -311,10 +312,28 @@ def test_all_zero_approval_number_cannot_establish_a_cross_view_match():
 
 
 def test_same_normalized_approval_with_multiples_amount_stays_separate():
-    # A reused approval number across purchases differs by multiples, not by FX/fee.
+    # A reused approval number across DIFFERENT merchants differs by multiples, not
+    # by FX/fee, and cannot be confirmed as one purchase, so it stays separate.
+    # (A same-merchant wide multiple is the overseas gas pre-auth case below.)
     pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
-    pipe.receive(_approval_source(approval='00001111', amount=10000), 'first.csv')
-    result = pipe.receive(_acquired_foreign(approval='1111', amount=900000), 'second.csv')
+    pipe.receive(_approval_source(approval='00001111', amount=10000, merchant='합성상점'), 'first.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=900000, merchant='다른상점'), 'second.csv')
     assert result['conflicts'] == 0
     assert pipe.store.conn.execute(
         "SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 2
+
+
+def test_hana_gas_preauth_same_merchant_superseded_at_import():
+    # B3 가 at import: an overseas gas pre-auth hold is a small approval next to the
+    # final billed total. Same merchant + normalized approval is one purchase even at
+    # a wide ratio, so the billed view supersedes without a second cleanup run.
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    pipe.receive(_approval_source(approval='00001111', amount=1451), 'approval.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=55989), 'acquired.csv')
+    assert result['inserted'] == 1 and result['conflicts'] == 0
+    conn = pipe.store.conn
+    canonical = conn.execute(
+        "SELECT amount_krw FROM transactions WHERE conflict_reason='' AND parse_error='' AND duplicate_of IS NULL"
+    ).fetchall()
+    assert len(canonical) == 1 and canonical[0][0] == 55989
+    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE duplicate_of IS NOT NULL").fetchone()[0] == 1
