@@ -215,6 +215,16 @@ def test_single_transaction_never_promoted_and_existing_narrow_rule_excluded(har
     assert not inc.select_increment(source, [rule(optional={'travel_country': 'JP'})], set())[1]
 
 
+@pytest.mark.parametrize('merchant', ['AGODA * HOTEL', '아고다 HOTEL', 'Agoda.hotel'])
+def test_existing_merchant_family_rule_excludes_variants(merchant):
+    from app.normalize import normalize_merchant
+    source = data([row(merchant=merchant, merchant_normalized=normalize_merchant(merchant))])
+    family = rule('agoda', optional={'merchant_family': 'agoda', 'travel_country': 'JP'})
+    report, selected, _ = inc.select_increment(source, [family], set())
+    assert not selected and report['general_partition'] == {'existing_p1_rule': 1}
+    assert not inc.has_rule(row(merchant='AGODAX HOTEL', merchant_normalized='agodax hotel'), [family])
+
+
 def test_concurrent_writer_and_missing_history_fail_closed(harness):
     args, _, _, _, _, path, run, _ = harness
     lock = path.with_suffix('.lock')

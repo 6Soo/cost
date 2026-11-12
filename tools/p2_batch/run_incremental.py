@@ -48,8 +48,15 @@ def merchant_key(row):
 def has_rule(row, existing):
     # Exclude even narrower/conflicting rules conservatively. Never replace one
     # with a broader merchant rule or drop its country/period/card conditions.
-    key = merchant_key(row)
-    return any(r['conditions']['merchant_normalized'] in (key, '*') for r in existing)
+    # Reuse the actual P1 merchant matcher, including merchant_family. Strip
+    # narrowing conditions conservatively, but keep the merchant semantics.
+    for rule in existing:
+        merchant_rule = dict(conditions={'merchant_normalized': rule['conditions']['merchant_normalized']},
+                             optional={k:v for k,v in rule.get('optional', {}).items() if k == 'merchant_family'})
+        for name in (row.get('merchant'), row.get('merchant_normalized')):
+            if name and rules.rule_matches(merchant_rule, dict(row, merchant=name))[0]:
+                return True
+    return False
 
 
 def select_increment(data, existing, seen):
@@ -222,6 +229,9 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
         state = json.loads(path.read_text(encoding='utf-8'))
         if state.get('version') != 1 or not state.get('history_evidence'):
             raise ValueError('VERIFIED_LAYER1_HISTORY_REQUIRED')
+        for previous in state.get('runs', []):
+            if previous['status'] == 'running':
+                previous.update(status='failed', failure_code='INTERRUPTED_PREVIOUS_RUN')
         metrics = dict(run_id=uuid.uuid4().hex, started_at=datetime.now(timezone.utc).isoformat(),
             mode='dry-run' if args.dry_run else 'propose-only' if args.propose_only else 'apply',
             calls=0, successful_calls=0, failed_calls=0, applied_rows=0, confirmed_rows=0, recovered_rows=0,
@@ -304,6 +314,9 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
             metrics['failure_code'] = code if code.replace('_','').replace('-','').isalnum() and len(code) < 160 else type(exc).__name__
         finally:
             metrics['finished_at'] = datetime.now(timezone.utc).isoformat()
+            metrics['model_success_rate'] = metrics['successful_calls']/metrics['calls'] if metrics['calls'] else None
+            finished = [r for r in state['runs'] if r['status'] in {'success', 'failed'} and r['mode'] != 'dry-run']
+            metrics['run_success_rate'] = sum(r['status'] == 'success' for r in finished)/len(finished) if finished else None
             checkpoint()
         return metrics
     finally:
