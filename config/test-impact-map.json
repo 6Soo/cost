@@ -79,6 +79,11 @@
       "tests": ["tests/card_pipeline/test_final_card_destination.py", "tests/card_pipeline/test_card_destination_contract.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_autonomous_cleanup.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py"]
     },
     {
+      "name": "refund-display-checks",
+      "paths": ["tests/card_pipeline/test_card3820_reconcile.py", "tests/card_pipeline/test_history_recovery.py", "tests/card_pipeline/test_ota_coverage_audit.py", "tests/test_card_quarter_assignment_consistency.py", "tests/test_cards_all_quarter_labels.py", "webapp/tests/test_card_refund_destination.py"],
+      "tests": ["tests/card_pipeline/test_card3820_reconcile.py", "tests/card_pipeline/test_history_recovery.py", "tests/card_pipeline/test_ota_coverage_audit.py", "tests/test_card_quarter_assignment_consistency.py", "tests/test_cards_all_quarter_labels.py", "webapp/tests/test_card_refund_destination.py", "tests/card_pipeline/test_final_card_destination.py", "webapp/tests/test_card_destination_ui.py"]
+    },
+    {
       "name": "card-final-destination-and-merchant",
       "paths": ["app/automatic_classification.py", "ledger/cardindex.py", "tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py"],
       "tests": ["tests/card_pipeline/test_card_destination_contract.py", "tests/card_pipeline/test_merchant_family_classify.py", "tests/card_pipeline/test_quarter_costs.py", "tests/card_pipeline/test_quarter_tab.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py", "webapp/tests/test_user_action_queue.py", "webapp/tests/test_receipt_page_flow.py"]
