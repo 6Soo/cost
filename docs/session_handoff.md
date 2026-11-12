@@ -1,3 +1,12 @@
+## 2026-11-13 분기 검수 자료 묶음 — 독립 검수 지적 반영 완료
+
+- [PR #818](https://github.com/6Soo/cost/pull/818) 독립 검수(opus) REQUEST_CHANGES를 반영했다. 최종 SHA·검수 판정은 #818 기록이 정본이며 병합·배포·Google 쓰기는 하지 않는다.
+- 사유 있는 검수 행 1,070건: 최근 자동 변경 207 · AI 판정 146 · 추론 귀속 573 · 포괄 항목 392(사유 중복 가능). 여행별 검수 합계 893건과 전체 목록의 차이 177건은 분기 기타비용 행으로, notes와 여행별 시트 합계 아래 안내 줄에 밝혔다.
+- 최근 자동 변경 기준일(`--recent-since`, 기본 2026-11-11)과 기타비용 시트 이름(분기 인수)을 매개변수화하고, 화면 표시 차이 설명을 쉬운 말로 고쳤다. 이용일 미확인은 점수·건수에서 빼고 장부 화면 확인 안내를 유지한다.
+- 산출물은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/v2/`에 다시 생성했다(첫 실행본은 상위 폴더 보존). 21개 여행, 기타비용 2행, 판정 주체 5행, 준비 비용 귀속 폐지 반영 전 기준.
+- 검증: 표적 `tests/test_quarter_review_pack.py` 20 passed, 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 270 passed·skip0·compile 통과.
+- 남은 일: 사용자가 review-pack.xlsx만 열어 검수하고 장부 화면에서 교정한 뒤 다시 생성한다. 준비 비용 귀속 폐지 반영 후 재생성이 필요하다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
@@ -637,10 +646,3 @@ Fable 지시에 따라 P-1·P-2 코드 수정·실측·모델 호출·백업 시
 - 보호를 우회하거나 운영 DB를 쓰지 않았다. 변경 전 값은 `before-state.json`에 있고, 가장 최근 검증 전체 백업(14:36) 위치는 기존 작업판 기록을 따른다. 서버 코드 변경이 필요하면 그 사실을 보고하고 반영을 멈춘다.
 - 단계 2 코드·테스트·문서 PR을 준비 중이다. 앞서 `gpt-6.1-terra` 세션은 이전 P2 기술 작업의 별도 검증으로 한 번 생성됐으며, 이번 검수용 외 추가 에이전트는 만들지 않는다.
 - PR #807을 열었지만 요청된 별도 `gpt-6.1-sol / medium` 검수 에이전트가 두 차례 모델 용량 초과로 시작하지 못했다. 검수·승인 전에는 병합하지 않으며, 서버 코드 변경 필요 여부도 그 검수 뒤 판단한다.
-# 2026-11-12 분기 검수 자료 묶음 — 완료
-
-- `tools/quarter_review/pack.py`가 운영 `board.sqlite`를 SQLite `mode=ro`·`query_only`로 읽어 여행별 요약, 우선 검수 목록, 분기 기타비용, 판정 주체 집계, 안내문과 XLSX를 만든다. Google 장부와 서버에는 쓰지 않는다.
-- 우선순위·렌더러를 추가하고 합성 경계·환불·수동 판정·최근 자동 변경·회사 제외·Google 수입 검증·읽기 전용 경계를 표적 검사했다.
-- 실제 출력은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/`에 생성했다. 21개 여행, 검수 목록 1,312행, 기타비용 2행, 판정 주체 5행이며 CSV 4개는 UTF-8 BOM이다. `notes.md`에 조회 시각과 수입 미확인 1건, 준비 비용 귀속 폐지 전 기준임을 기록했다.
-- 검증: `python -m pytest tests/test_quarter_review_pack.py -q` 11 passed; 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 261 passed, skip0, compile 통과. 최종 커밋 `2ff3b75d3d3731e62c81f9e0aad73dc4790a36e5`.
-- 남은 일: 사용자가 `notes.md`와 `review-list.csv`를 검수하고 기존 장부 화면에서 필요한 교정을 한 뒤 같은 명령을 다시 실행한다. 운영 배포·Google 붙여넣기·교정 환류는 수행하지 않았다.
