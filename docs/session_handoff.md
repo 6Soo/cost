@@ -1,3 +1,12 @@
+## 2026-11-13 분기 검수 자료 묶음 — 독립 검수 지적 반영 완료
+
+- [PR #818](https://github.com/6Soo/cost/pull/818) 독립 검수(opus) REQUEST_CHANGES를 반영했다. 최종 SHA·검수 판정은 #818 기록이 정본이며 병합·배포·Google 쓰기는 하지 않는다.
+- 사유 있는 검수 행 1,070건: 최근 자동 변경 207 · AI 판정 146 · 추론 귀속 573 · 포괄 항목 392(사유 중복 가능). 여행별 검수 합계 893건과 전체 목록의 차이 177건은 분기 기타비용 행으로, notes와 여행별 시트 합계 아래 안내 줄에 밝혔다.
+- 최근 자동 변경 기준일(`--recent-since`, 기본 2026-11-11)과 기타비용 시트 이름(분기 인수)을 매개변수화하고, 화면 표시 차이 설명을 쉬운 말로 고쳤다. 이용일 미확인은 점수·건수에서 빼고 장부 화면 확인 안내를 유지한다.
+- 산출물은 `D:/WebLedgerHost/data/backups/quarter-review-2026Q3/v2/`에 다시 생성했다(첫 실행본은 상위 폴더 보존). 21개 여행, 기타비용 2행, 판정 주체 5행, 준비 비용 귀속 폐지 반영 전 기준.
+- 검증: 표적 `tests/test_quarter_review_pack.py` 20 passed, 영향 기반 `python tools/run_quality_checks.py --base origin/main --run` 270 passed·skip0·compile 통과.
+- 남은 일: 사용자가 review-pack.xlsx만 열어 검수하고 장부 화면에서 교정한 뒤 다시 생성한다. 준비 비용 귀속 폐지 반영 후 재생성이 필요하다.
+
 ## 2026-11-12 #815 main 통합·사본 재확인 — 최종 검사·검수는 PR 기록
 
 - 헤드가 #816 검수 SHA e62aadf4를 merge 621fa01b725967726a2ccf9d91b69998de24cc89로 병합했다. 이 #815 브랜치에 origin/main을 통합하며 양쪽 인계 기록을 보존했다.
