@@ -10,8 +10,9 @@
 
 P1 기존 규칙을 먼저 적용하고 남은 문맥은 P2가 원본·메일·장부·기존 결정을 대조해 분류를 완료한다. 자동/수동 분류 모두 완료이며 낮은 신뢰만으로 승인·분류 대기를 만들지 않는다.
 
-- 조건·예외: 정상 거래는 실제 여행 또는 유효한 분기 기타비용으로 종결하고 사용자는 분기 검수에서 교정한다.
+- 조건·예외: 정상 거래는 실제 여행 또는 유효한 분기 기타비용으로 종결하고 분기 검수에서 AI 검수자가 교정한다(PROC-068).
 - 대체된 옛 규칙:
+  - 사용자는 분기 검수에서 교정한다. — 2026-11-10 (2026-11-13 AI 검수자 위임 결정으로 개정)
   - Only hold rows that have no evidence at all (no card candidate). — C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-auto-assign-monthly-review.md:12
   - If there is no evidence, leave it unassigned. — C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-no-recommendation.md:8
   - 근거가 있으면 추천 대기 없이 자동 배정하고 근거가 전혀 없을 때만 미배정으로 둔다. — C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-no-recommendation.md:8
@@ -72,7 +73,7 @@ P1 기존 규칙을 먼저 적용하고 남은 문맥은 P2가 원본·메일·�
 
 열린 분기에 한해 이미 내부 장부에 기록된 자동 판정도 P2가 교정할 수 있다. 열린 분기는 시작일 2026-06-30 이후 여행(0630 포함, TRIP-012·DATE-009)과 2026년 3분기 이후 분기 기타비용이다. 카드 이용일이 앞서도 열린 여행에 귀속돼 있으면 대상이다. 변경 전 값을 남기고 내부 장부 행과 화면 행의 귀속·항목을 원자적으로 맞춘다.
 
-- 조건·예외: 수동 결정(`user_decision`·`user_exception`·`manual`·`owner_booking` 등)·정확 근거 P1·환불/원결제·원본 오류·stale/충돌 등 금융 보호는 제외한다. 닫힌 분기 여행 귀속은 자동 교정하지 않으며 열린 여행 지출로 보이는 건은 분기 검수 때 볼 것 목록에만 올린다. 제안 후 Fable 승인 반영이며 금액·부호·원문·ID·환불 짝·Google은 변경하지 않는다.
+- 조건·예외: 수동 결정(`user_decision`·`user_exception`·`manual`·`owner_booking` 등)·정확 근거 P1·환불/원결제·원본 오류·stale/충돌 등 금융 보호는 제외한다. 닫힌 분기 여행 귀속은 자동 교정하지 않으며 열린 여행 지출로 보이는 건은 분기 검수 때 볼 것 목록에만 올린다. 제안 후 Fable 승인 반영이며 금액·부호·원문·ID·환불 짝·Google은 변경하지 않는다. 분기 검수의 AI 검수자 교정(PROC-068)도 같은 경로와 같은 보호를 따르며 검수자 자신의 판정이 승인이다(결정 2026-11-13).
 - 대체된 옛 규칙:
   - 명시 카드 재분류에서 최신 예약 원문·검증 결제·이용기간·실제 여행을 확인하면 기록된 자동 추론만 원자적으로 교정할 수 있다. — 2026-11-03 (2026-11-11 열린 분기 P2 교정 결정으로 범위 개정)
   - 이미 기록된 행은 여행 검증이 바뀌어도 자동으로 옮기지 않는다. — 2026-10-16, C:/Users/kkokk/.claude/projects/C--AX-cost/memory/feedback-classify-records-automatically.md:15
