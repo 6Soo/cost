@@ -1,5 +1,6 @@
 ## 2026-11-13 여행 종료일 동기화 — PR 준비, 운영 미반영
 
+- 완료 구현 커밋 `fbfd7099`. 표적 29pass, authority 로더 합성 PASS, `python tools/run_quality_checks.py --base origin/main --run` PASSED(267pass, skip0, compile PASS). 요구 1~4와 검사 완료, PR push/생성 후 헤드에게 인계한다.
 - 승인 범위: Google 명시 종료일 갱신·감사, 합성 검증, 운영 읽기 전용 영향 측정, PR. 병합·배포·운영 동기화·재판정 없음.
 - 생성 이후 수동 종료일 변경과 별도 확정 일정은 보존한다. create owner는 옛 자동 수입에도 찍힌다. 화순의 옛 일정만 TRIP-098이 대체한다. authority/evidence/source_sha256 자체는 수정하지 않는다.
 - [설계·영향 근거](agents/artifacts/trip-end-date-sync-20261113.md). 최종 완료 커밋과 검사 결과는 이 절을 포함한 브랜치 HEAD 및 PR에 기록한다. 운영은 아직 8/25. 헤드의 독립 opus 검수·병합·후속 운영 판단이 남았다.
