@@ -498,6 +498,11 @@
       "name": "trip-price-change-charge",
       "paths": ["tests/card_pipeline/test_trip_price_change_charge.py"],
       "tests": ["tests/card_pipeline/test_trip_price_change_charge.py", "tests/card_pipeline/test_ota_payments.py"]
+    },
+    {
+      "name": "core-bridge-golden",
+      "paths": ["tools/core_bridge/**", "core/golden/**", "tests/test_core_bridge.py", "app/automatic_classification.py", "app/classify.py", "app/partial_refund.py", "app/ota_payments.py"],
+      "tests": ["tests/test_core_bridge.py"]
     }
   ]
 }
