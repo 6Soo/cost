@@ -896,6 +896,49 @@ def _end_set_by_sync(board, tab_id: str) -> bool:
     return False
 
 
+def _schedule_overrides():
+    """Separate confirmed schedules outrank Google; unreadable configuration fails closed."""
+    from ledger.domain.direct_trip_schedule_authority import load_document
+    path = os.environ.get('WEBLEDGER_TRIP_AUTHORITY', '').strip()
+    if not path:
+        return []
+    records, _ = load_document(Path(path))
+    return [r for r in records if r.is_authoritative and (
+        r.authority_kind == 'user_confirmed_schedule'
+        or not r.source_locator.partition('#')[0].lower().endswith('.xlsx'))]
+
+
+def _google_end_change(board, tab: dict, trip: dict, overrides) -> bool:
+    period = trip.get('period') or {}
+    end = period.get('ends_on')
+    if (tab.get('deleted') or not end or end == tab.get('ends_on')
+            or period.get('starts_on') != tab.get('starts_on')
+            or 'SOURCE_STALE' in (trip.get('review') or ())):
+        return False
+    # A post-creation manual edit, including clearing the date, always wins.
+    for prev, new, actor in board.conn.execute(
+            "SELECT prev_json, new_json, actor FROM trip_tab_history "
+            "WHERE tab_id=? AND change_kind='meta' ORDER BY id DESC", (tab['tab_id'],)):
+        if json.loads(prev or '{}').get('ends_on') != json.loads(new or '{}').get('ends_on'):
+            if actor != 'google-sync':
+                return False
+            break
+    for record in overrides:
+        if (record.trip_code != trip['key'] or str(record.starts_on) != tab.get('starts_on')):
+            continue
+        # TRIP-098 explicitly supersedes this old lodging-period answer only.
+        superseded = (record.trip_code == '0823_화순' and str(record.starts_on) == '2026-08-23'
+                      and str(record.ends_on) == '2026-08-25' and end == '2026-08-26'
+                      and record.authority_kind == 'user_confirmed_schedule')
+        if not superseded:
+            return False
+    if not tab.get('ends_on'):
+        return True
+    if 'PERIOD_END_FROM_NEXT_TRIP' in (period.get('flags') or ()):
+        return _end_set_by_sync(board, tab['tab_id'])
+    return True
+
+
 def import_trips(board, snapshot: dict) -> dict:
     """Creates a COST trip tab for each Google trip tab that has a year and a start date on its sheet.
 
@@ -904,6 +947,7 @@ def import_trips(board, snapshot: dict) -> dict:
     """
     from .ledger_store import SaveError
     counts = Counter()
+    overrides = _schedule_overrides()
     existing_tabs = board.list_trips(include_archived=True)
     named = {t['display_key']: t for t in existing_tabs}
     source_named = {(t.get('owner_id') or 'aslan', t.get('source_trip_key')): t
@@ -924,14 +968,10 @@ def import_trips(board, snapshot: dict) -> dict:
             continue
         tab = source_named.get((owner, key)) or (named.get(key) if owner == 'aslan' else None)
         if tab is not None:
-            # 다음 여행 직전일로 정한 종료일은 다음 여행이 바뀌면 따라 바뀐다. 사용자가 직접 정한 종료일은 덮지 않는다.
-            follows = ('PERIOD_END_FROM_NEXT_TRIP' in (period.get('flags') or ()) and tab.get('ends_on')
-                       and period.get('ends_on') and tab['ends_on'] != period['ends_on']
-                       and _end_set_by_sync(board, tab['tab_id']))
-            if (not tab.get('ends_on') or follows) and period.get('ends_on'):
+            if _google_end_change(board, tab, trip, overrides):
                 try:
                     board.save_trip_meta(tab_id=tab['tab_id'], expected_revision=tab['revision'],
-                                         client_request_id='google-end-' + tab['tab_id'] + period['ends_on'],
+                                         client_request_id=f"google-end-{tab['tab_id']}-{tab['revision']}-{period['ends_on']}",
                                          ends_on=period['ends_on'], actor='google-sync')
                     counts['end_set'] += 1
                 except SaveError:

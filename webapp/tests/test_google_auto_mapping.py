@@ -2,6 +2,80 @@ import json
 
 import pytest
 
+
+@pytest.mark.parametrize('flags', [[], ['PERIOD_END_FROM_ITEMS']])
+def test_explicit_google_end_changes_are_audited_and_can_return_to_an_old_date(tmp_path, monkeypatch, flags):
+    from webapp.ledger_store import LedgerStore
+    monkeypatch.delenv('WEBLEDGER_TRIP_AUTHORITY', raising=False)
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    snap = {'trips': [{'key': '0823_합성', 'period': {
+        'year': 2026, 'starts_on': '2026-08-23', 'ends_on': '2026-08-25', 'flags': flags}}]}
+    page.import_trips(board, snap)
+    tab = board.list_trips(include_archived=True)[0]
+    for end in ('2026-08-26', '2026-08-25', '2026-08-26'):
+        snap['trips'][0]['period']['ends_on'] = end
+        assert page.import_trips(board, snap) == {'end_set': 1}
+        assert board.get_trip(tab['tab_id'])['ends_on'] == end
+    history = board.conn.execute("SELECT prev_json,new_json,actor FROM trip_tab_history WHERE change_kind='meta'").fetchall()
+    import json
+    assert [(json.loads(b)['ends_on'], json.loads(a)['ends_on'], actor) for b, a, actor in history] == [
+        ('2026-08-25', '2026-08-26', 'google-sync'),
+        ('2026-08-26', '2026-08-25', 'google-sync'),
+        ('2026-08-25', '2026-08-26', 'google-sync')]
+    assert page.import_trips(board, snap) == {'existing': 1}
+
+
+@pytest.mark.parametrize('protection', ['manual', 'manual_blank', 'confirmed', 'registry', 'other_year', 'stale'])
+def test_google_explicit_end_preserves_schedule_and_manual_authority(tmp_path, monkeypatch, protection):
+    from types import SimpleNamespace
+    from webapp.ledger_store import LedgerStore
+    monkeypatch.setattr(page, '_schedule_overrides', lambda: [])
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    tab_id = board.create_trip(starts_on='2026-08-23', ends_on='2026-08-25',
+        destination='합성', display_key='0823_합성', client_request_id='seed')['tab_id']
+    expected = '2026-08-25'
+    if protection.startswith('manual'):
+        expected = '2026-08-24'
+        board.save_trip_meta(tab_id=tab_id, expected_revision=1, client_request_id='edit', ends_on=expected)
+        if protection == 'manual_blank':
+            # Legacy empty dates are stored as '', not SQL NULL (ends_on is NOT NULL).
+            expected = ''
+            board.conn.execute("UPDATE trip_tabs SET ends_on='' WHERE tab_id=?", (tab_id,))
+            history_id, raw = board.conn.execute(
+                "SELECT id,new_json FROM trip_tab_history WHERE tab_id=? ORDER BY id DESC", (tab_id,)).fetchone()
+            after = json.loads(raw)
+            after['ends_on'] = ''
+            board.conn.execute('UPDATE trip_tab_history SET new_json=? WHERE id=?', (json.dumps(after), history_id))
+            board.conn.commit()
+    if protection in ('confirmed', 'registry'):
+        record = SimpleNamespace(trip_code='0823_합성', starts_on='2026-08-23', ends_on='2026-08-25',
+            authority_kind='user_confirmed_schedule' if protection == 'confirmed' else 'explicit_trip_registry')
+        monkeypatch.setattr(page, '_schedule_overrides', lambda: [record])
+    trip = {'key': '0823_합성', 'period': {'year': 2026, 'starts_on': '2026-08-23', 'ends_on': '2026-08-26'}}
+    if protection == 'other_year':
+        trip['period'].update(year=2027, starts_on='2027-08-23', ends_on='2027-08-26')
+    if protection == 'stale':
+        trip['review'] = ['SOURCE_STALE']
+    assert page.import_trips(board, {'trips': [trip]}) == {'existing': 1}
+    assert (board.get_trip(tab_id)['ends_on'] or '') == expected
+
+
+def test_trip_098_supersedes_only_the_old_hwasun_schedule(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from webapp.ledger_store import LedgerStore
+    record = SimpleNamespace(trip_code='0823_화순', starts_on='2026-08-23', ends_on='2026-08-25',
+                             authority_kind='user_confirmed_schedule')
+    monkeypatch.setattr(page, '_schedule_overrides', lambda: [record])
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    tab_id = board.create_trip(starts_on='2026-08-23', ends_on='2026-08-25', destination='화순',
+        display_key=record.trip_code, client_request_id='seed')['tab_id']
+    snap = {'trips': [{'key': record.trip_code, 'period': {
+        'starts_on': '2026-08-23', 'ends_on': '2026-08-26', 'flags': ['PERIOD_END_FROM_ITEMS']}}]}
+    assert page.import_trips(board, snap) == {'end_set': 1}
+    snap['trips'][0]['period']['ends_on'] = '2026-08-27'
+    assert page.import_trips(board, snap) == {'existing': 1}
+    assert board.get_trip(tab_id)['ends_on'] == '2026-08-26'
+
 from webapp import google_ledger_page as page
 
 
