@@ -1728,10 +1728,27 @@ class CardFlow:
                 holds[tid] = {'kind': 'refund_count_group', 'reason': '같은 조건의 구매가 있지만 짝을 정하지 못한 취소라 개수를 명세와 맞춘 뒤 기록합니다.'}
         return holds
 
+    @contextmanager
+    def _automatic_write(self):
+        """Keep inference, ledger entries and their projections atomic."""
+        conn = self.board.conn
+        nested = conn.in_transaction
+        conn.execute('SAVEPOINT card_automatic_write' if nested else 'BEGIN IMMEDIATE')
+        try:
+            yield
+            conn.execute('RELEASE SAVEPOINT card_automatic_write' if nested else 'COMMIT')
+        except BaseException:
+            if nested:
+                conn.execute('ROLLBACK TO SAVEPOINT card_automatic_write')
+                conn.execute('RELEASE SAVEPOINT card_automatic_write')
+            else:
+                conn.execute('ROLLBACK')
+            raise
+
     def auto_record(self, batch_id):
         """소유자의 변경 요청에서만 실행한다. 조회는 쓰지 않는다."""
         from .card_classification_completion import missing_assignment_sql
-        with self.board._lock:
+        with self.board._lock, self._automatic_write():
             # Older imports and interrupted uploads may have finished only the
             # basic classifier. Re-run evidence + final inference before asking
             # the ledger to record them; a read must never repair these rows.
