@@ -15,7 +15,7 @@ _ROUTE = re.compile(r"^/api/maintenance/refund-pair/([a-zA-Z0-9_:-]{1,160})/(pre
 
 
 def _group_context(board, original_id):
-    from app.partial_refund import refund_links, refund_group
+    from app.partial_refund import refund_links, refund_group, is_numbered_partial
     from .card_flow import CardFlow
 
     source = board.conn.execute(
@@ -30,10 +30,21 @@ def _group_context(board, original_id):
     links = refund_links(board.conn, members[1:])
     if (len(links) != len(members) - 1
             or any(link["original_id"] != original_id or link.get("inferred")
-                   or link.get("status") != "full" or link.get("net_krw") != 0
+                   or not ((link.get("status") == "full" and link.get("net_krw") == 0)
+                           or is_numbered_partial(link))
                    for link in links.values())):
         raise StoreError("REFUND_LINK_NOT_VERIFIED",
-                         "추론 연결이거나 순액 0원이 아닌 거래는 자동 기록하지 않습니다")
+                         "추론 연결이거나 원승인번호로 검증되지 않은 거래는 자동 기록하지 않습니다")
+
+    if any(link.get("status") != "full" for link in links.values()):
+        # A numbered partial group is accepted only across files, and PROC-072 completed periods
+        # and errored/duplicate/conflicted cancels come first.
+        from app.partial_refund import partial_group_exclusion
+        files = [{r[0] for r in board.conn.execute(
+            "SELECT batch_id FROM import_batch_rows WHERE transaction_id=?", (m,))} for m in members]
+        if partial_group_exclusion(board.conn, original_id) or set.intersection(*files):
+            raise StoreError("REFUND_LINK_NOT_VERIFIED",
+                             "완료 기간·오류 취소가 있거나 같은 파일의 부분환불은 이 화면에서 기록하지 않습니다")
 
     # Source provenance and the complete member set are determined on the server.
     batch = board.conn.execute(
@@ -63,8 +74,9 @@ def _group_context(board, original_id):
     result = flow.pipeline.preview(batch[0], **options)
     if {r["transaction_id"] for r in result["rows"]} != set(members):
         raise StoreError("REFUND_GROUP_INCOMPLETE", "원결제·환불 원본 전체가 같은 미리보기에 없습니다")
-    if sum(int(row["amount_krw"]) for row in result["rows"]) != 0:
-        raise StoreError("REFUND_GROUP_INCOMPLETE", "원결제와 환불의 순액이 0원이 아닙니다")
+    net = sum(int(row["amount_krw"]) for row in result["rows"])
+    if net != (0 if all(l.get("status") == "full" for l in links.values()) else links[members[1]]["net_krw"]):
+        raise StoreError("REFUND_GROUP_INCOMPLETE", "원결제와 환불의 순액이 검증된 순잔액과 다릅니다")
     return flow, batch[0], result, options
 
 
