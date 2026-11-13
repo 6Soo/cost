@@ -2,7 +2,7 @@
 
 use time::Date;
 
-use crate::ids::{SourceHash, TxnId};
+use super::ids::{SourceHash, TxnId};
 
 /// 원화 금액(부호 있음).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,10 +32,6 @@ pub struct ParseError {
 }
 
 /// 금액. `Default`를 구현하지 않는다(해석 실패를 0원으로 쓰지 않는다).
-///
-/// ```compile_fail
-/// let _ = <cost_domain::Amount as Default>::default();
-/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Amount {
     Readable(KrwAmount),

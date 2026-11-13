@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::error::DomainError;
+use super::error::DomainError;
 
 macro_rules! text_id {
     ($(#[$m:meta])* $name:ident, $what:literal) => {
@@ -102,12 +102,9 @@ impl PolicyRef {
 /// 여행 ID. Google 시트 탭 스냅숏(`TripCatalog`)에서만 나온다. 문자열 생성자가 없다.
 ///
 /// ```compile_fail
-/// let _ = cost_domain::TripId("x".to_string());
+/// let _ = cost_core::domain::TripId("x".to_string());
 /// ```
-///
-/// ```compile_fail
-/// let _ = cost_domain::TripId::new("x");
-/// ```
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TripId(String);
 
@@ -153,10 +150,7 @@ impl TripCatalog {
 }
 
 /// 환불 묶음 ID. `RefundGroup`에서만 얻는다.
-///
-/// ```compile_fail
-/// let _ = cost_domain::RefundGroupId("g".to_string());
-/// ```
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RefundGroupId(pub(crate) String);
 

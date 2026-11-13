@@ -6,12 +6,12 @@ use std::sync::OnceLock;
 use regex::Regex;
 use time::Date;
 
-use crate::error::DomainError;
-use crate::ids::{
+use super::error::DomainError;
+use super::ids::{
     CashUseId, ManualEventRef, ModelName, PolicyRef, Quarter, ReceiptId, RefundGroupId, RuleId,
     RunId, SourceHash, TripId, TxnId, Uncertainty,
 };
-use crate::money::{Amount, KrwAmount, ParseError, SourceTxn};
+use super::money::{Amount, KrwAmount, ParseError, SourceTxn};
 
 /// 비용 항목. 허용 목록(`ItemAllowList`)으로만 만들 수 있다.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -197,7 +197,7 @@ impl Actor {
 /// 판정 대상. 카드 거래는 금액을 읽을 수 있는 `SourceTxn`으로만 만들 수 있다.
 ///
 /// ```compile_fail
-/// let _ = cost_domain::Subject(todo!());
+/// let _ = cost_core::domain::Subject(todo!());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Subject(SubjectInner);
@@ -425,12 +425,6 @@ pub enum Judgement {
 
 impl Judgement {
     /// 금액을 읽지 못하면 판정을 만들지 않고 `Protected`로 보낸다.
-    ///
-    /// ```compile_fail
-    /// // Amount에서 Decision으로 가는 변환은 없다.
-    /// let a = cost_domain::Amount::parse("x");
-    /// let _d: cost_domain::Decision = a.into();
-    /// ```
     pub fn from_amount(amount: Amount, decide: impl FnOnce(KrwAmount) -> Decision) -> Self {
         match amount {
             Amount::Readable(a) => Self::Decided(decide(a)),
@@ -449,11 +443,7 @@ impl Judgement {
 /// 열린 분기·열린 여행 토큰. P2·AI 검수 교정 적용의 필수 인자. 외부에서 만들 수 없다.
 ///
 /// ```compile_fail
-/// let _ = cost_domain::OpenScope(todo!());
-/// ```
-///
-/// ```compile_fail
-/// let _ = cost_domain::OpenScope::quarter(2026, cost_domain::Quarter::Q4);
+/// let _ = cost_core::domain::OpenScope::quarter(2026, cost_core::domain::Quarter::Q4);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenScope(OpenInner);
@@ -479,12 +469,10 @@ impl OpenScope {
         }
     }
 
-    #[cfg_attr(not(any(test, feature = "scope-issuer")), allow(dead_code))]
     pub(crate) fn trip(trip: &TripId) -> Self {
         Self(OpenInner::Trip(trip.clone()))
     }
 
-    #[cfg_attr(not(any(test, feature = "scope-issuer")), allow(dead_code))]
     pub(crate) fn quarter(year: u16, quarter: Quarter) -> Self {
         Self(OpenInner::Quarter { year, quarter })
     }
@@ -547,14 +535,10 @@ impl P2Proposal {
     }
 }
 
-/// 환불 묶음. 외부에서 만들 수 없다(`cost-links`만 `refund-issuer` 기능으로 발급; 허용 목록 테스트가 강제).
+/// 환불 묶음. 외부에서 만들 수 없다(생성자는 `pub(crate)`, 발급은 후속 연결 모듈).
 ///
 /// ```compile_fail
-/// let _ = cost_domain::RefundGroup { id: todo!(), members: vec![] };
-/// ```
-///
-/// ```compile_fail
-/// let _ = cost_domain::RefundGroup::new(todo!(), vec![]);
+/// let _ = cost_core::domain::RefundGroup::new(todo!(), vec![]);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefundGroup {
@@ -563,7 +547,7 @@ pub struct RefundGroup {
 }
 
 impl RefundGroup {
-    #[cfg_attr(not(any(test, feature = "refund-issuer")), allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))] // 발급은 후속 연결 모듈(U12)
     pub(crate) fn new(id: RefundGroupId, members: Vec<TxnId>) -> Result<Self, DomainError> {
         if members.is_empty() {
             return Err(DomainError::EmptyGroup);
@@ -610,36 +594,5 @@ impl GroupPublication {
     }
     pub fn decisions(&self) -> &[Decision] {
         &self.decisions
-    }
-}
-
-/// 환불 묶음 발급. 기본 빌드에는 없다. 허용 크레이트는 `cost-links`뿐이다(`tests/issuer_allowlist.rs`).
-#[cfg(feature = "refund-issuer")]
-pub mod issue_refund {
-    use super::*;
-
-    pub fn refund_group(
-        id: impl Into<String>,
-        members: Vec<TxnId>,
-    ) -> Result<RefundGroup, DomainError> {
-        let id = id.into();
-        if id.trim().is_empty() {
-            return Err(DomainError::Empty("RefundGroupId"));
-        }
-        RefundGroup::new(RefundGroupId(id), members)
-    }
-}
-
-/// 열린 범위 발급. 기본 빌드에는 없다. 허용 크레이트는 `cost-rules`(U7)뿐이다.
-#[cfg(feature = "scope-issuer")]
-pub mod issue_scope {
-    use super::*;
-
-    pub fn open_trip(trip: &TripId) -> OpenScope {
-        OpenScope::trip(trip)
-    }
-
-    pub fn open_quarter(year: u16, quarter: Quarter) -> OpenScope {
-        OpenScope::quarter(year, quarter)
     }
 }

@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use time::{Date, Month};
 
-use crate::*;
+use super::*;
 
 fn hash() -> SourceHash {
     SourceHash::new("a".repeat(64)).unwrap()

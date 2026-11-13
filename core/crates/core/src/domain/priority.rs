@@ -2,8 +2,8 @@
 
 use thiserror::Error;
 
-use crate::decision::{Actor, ActorKind, Decision};
-use crate::ids::{ModelName, RuleId, RunId};
+use super::decision::{Actor, ActorKind, Decision};
+use super::ids::{ModelName, RuleId, RunId};
 
 /// 확정 P1 판정을 AI 검수가 뒤집으려 할 때 남기는 원인 조사 요청(`SPEC.md:130`).
 #[derive(Debug, Clone, PartialEq, Eq)]
