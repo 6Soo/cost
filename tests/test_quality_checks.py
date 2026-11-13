@@ -550,6 +550,21 @@ def test_empty_known_failure_list_does_not_hide_a_failure(tmp_path):
     assert result["new_failed_test_cases"] == ["tests/test_new.py::test_new"]
 
 
+def test_known_failure_list_accepts_intermittent_marker_and_comments(tmp_path):
+    config = tmp_path / "known-test-failures.txt"
+    config.write_text("# baseline\ntests/a.py::A::test_one\ntests/b.py::test_two  # 간헐\n",
+                      encoding="utf-8")
+    assert quality.load_known_failures(config) == {"tests/a.py::A::test_one", "tests/b.py::test_two"}
+
+
+def test_committed_known_failure_list_is_sorted_and_marks_baseline():
+    path = quality.ROOT / "config" / "known-test-failures.txt"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert "기준 SHA" in lines[0]
+    names = [line.split("  # ", 1)[0] for line in lines if not line.startswith("#")]
+    assert names == sorted(names) and len(names) == len(set(names))
+
+
 def test_known_failure_inventory_change_selects_its_quality_gate():
     plan = quality.build_plan(["config/known-test-failures.txt"],
                               selector(["config/known-test-failures.txt"]))

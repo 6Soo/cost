@@ -238,8 +238,10 @@ def _validate_guard(payload_text: str, returncode: int) -> None:
 def load_known_failures(path: Path) -> set[str]:
     if not path.is_file():
         return set()
-    return {line.strip() for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")}
+    names = (line.split("  # ", 1)[0].strip()
+             for line in path.read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#"))
+    return {name for name in names if name}
 
 
 def classify_known_failures(known: set[str], failed: set[str], executed: set[str]) -> dict:
