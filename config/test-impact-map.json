@@ -50,7 +50,7 @@
     },
     {
       "name": "kb-card-collection-synthetic",
-      "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
+      "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tools/collection_run_summary.mjs", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
@@ -77,7 +77,7 @@
     },
     {
       "name": "ota-collection-script-synthetic",
-      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
+      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tools/collection_run_summary.mjs", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
       "tests": ["tests/test_ota_collection_script.py"]
     },
     {
@@ -87,7 +87,7 @@
     },
     {
       "name": "collection-status-panel",
-      "paths": ["webapp/collection_status.py", "webapp/tests/test_collection_status.py"],
+      "paths": ["webapp/collection_status.py", "tools/collection_run_summary.mjs", "webapp/tests/test_collection_status.py"],
       "tests": ["webapp/tests/test_collection_status.py", "webapp/tests/test_card_flow.py"]
     },
     {

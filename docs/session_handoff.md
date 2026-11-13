@@ -1,3 +1,13 @@
+## 2026-11-13 U2 수집 실행 요약과 로그인 필요 표시 — PR 검수 대기
+
+- 계약 파일 `data/collection-runs/<source>.json`은 `schema`, `source`, `finished_at`, `status`, `login_required`만 원자적으로 기록한다. OTA 로그인 실패/인증 미확인과 국민 로그인 실패를 기록하고, 성공 실행은 표시를 해제한다. 카드 로그인 모듈은 수정하지 않았다.
+- `webapp/collection_status.py`는 데이터 루트의 요약만 읽고 국민·하나·기업 및 Agoda·Trip.com·Booking.com의 로그인 필요 상태를 원천 이름과 표시한다. 파일이 없거나 잘못된 계약이면 기존 표시로 조용히 돌아가며 파일 변경은 화면 캐시를 즉시 무효화한다.
+- 요구 1~4 완료: 허용 키/민감값 제외, 수집 기록 주체 연결, 로그인 필요→표시→성공 해제와 깨진 파일 무시를 합성 검사했다. 비인증 `/`는 401이다. 수집 동작·운영 DB·운영 경로·운영 포트는 사용하지 않았다.
+- 표적 검사: 상태 화면 22 passed, OTA 계약 9 passed, 국민 entry fixture 8 passed. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`: PASSED, 463 passed + 28 subtests, 0 failed, 0 skipped, compile PASS. QA 기준 HEAD `187d092580284733edfa458064d452d66f7a68d9`; 검사 기록 `quality-artifacts/run-summary.json`(로컬 생성물, 커밋 제외).
+- 구현 커밋 `9ee024fb`; 최신 main 병합 포함 QA 기준 SHA `187d092580284733edfa458064d452d66f7a68d9`. [PR #851](https://github.com/6Soo/cost/pull/851)을 만들고 브랜치 `feat/collection-run-login-status-20261113` 최종 HEAD `8593a82d`까지 push했다. 최종 커밋은 이 인계 문서만 갱신했다. 병합·배포하지 않는다.
+
+- 검수 반영(2026-11-13): origin/main(#847 P2 요약 표시 포함)을 merge로 통합했다(충돌: `webapp/collection_status.py`·`docs/session_handoff.md`, 양쪽 모두 보존). 요약 쓰기 실패가 수집을 중단하지 않도록 `tryWriteCollectionRunSummary`로 예외를 삼키고 경고(오류 코드만)를 stderr에 남긴다(테스트 1건). 재검사: 상태 화면+카드 흐름+OTA 스크립트 97 passed, OTA node 54/54, 국민 entry ENTRY OK. 최종 검수는 codex sol.
+
 ## 2026-11-13 PR #847 main 병합 — 상태 패널 보존
 
 - `origin/main`을 merge로 통합했다. 충돌은 `docs/session_handoff.md`, `webapp/collection_status.py`; 두 문서 절을 모두 보존하고 홈 데이터에는 `trip_import`와 P2 데이터 루트 요약을 함께 유지했다. #848 schedule_unavailable 상태 표시·내부 링크 테스트와 P2 실패 표시·테스트가 모두 남아 있다.
