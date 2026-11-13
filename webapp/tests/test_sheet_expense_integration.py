@@ -221,34 +221,41 @@ def test_real_http_owner_csrf_and_viewer_boundary(sources, tmp_path, monkeypatch
         store.close()
 
 
-def test_actual_copy_javascript_sends_link_revision_and_keeps_board_scope():
+def test_actual_copy_javascript_reads_board_scope_tsv_without_writing():
+    # 4cc5ac36: 장부 복사는 읽기 전용 GET /api/tabs/{tab}/tsv로 바뀌었다. 대조 링크·금융·Google
+    # 기록을 전혀 쓰지 않으며(PROC-042), 보드 필터(q/kind)만 유지한 채 서버 TSV를 복사 버퍼에 담는다.
     from playwright.sync_api import sync_playwright
-    calls = []
+    gets, writes = [], []
     with sync_playwright() as api:
         browser = api.chromium.launch()
-        page = browser.new_page()
+        context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'])
+        page = context.new_page()
         page.route('https://synthetic.test/board**', lambda route: route.fulfill(
             content_type='text/html', body="<main id='main'><section class='trip-copy-wrap'>"
             "<button id='copy-trip-expenses' data-tab='trip-synthetic' data-csrf='token'>Copy</button>"
-            "<span class='copy-status'></span></section></main>"))
+            "<span class='copy-status'></span>"
+            "<div class='trip-copy-manual' hidden><textarea id='trip-copy-text'></textarea></div>"
+            "</section></main>"))
 
         def endpoint(route):
             if route.request.method == 'GET':
-                route.fulfill(json={'source_available': True, 'links_revision': 7,
-                                    'revision': {'generation': 'different-shape'}, 'preview_digest': 'digest'})
+                gets.append(route.request.url)
+                route.fulfill(json={'source_available': True, 'tsv': 'synthetic-tsv',
+                                    'row_count': 1, 'held': [], 'matched': [], 'total_krw': 1000})
             else:
-                calls.append(route.request.post_data_json)
-                assert route.request.headers['x-csrf-token'] == 'token'
-                route.fulfill(json={'tsv': 'synthetic-tsv', 'row_count': 1, 'held': [], 'total_krw': 1000})
+                writes.append(route.request.url)
+                route.fulfill(json={})
 
+        page.route('https://synthetic.test/api/tabs/**', endpoint)
         page.route('https://synthetic.test/api/google-ledger/expense-reconciliation**', endpoint)
         page.goto('https://synthetic.test/board?q=Cafe&kind=ex')
-        page.evaluate("Object.defineProperty(navigator,'clipboard',{value:{writeText:async t=>window.copied=t}})")
+        page.evaluate("Object.defineProperty(navigator,'clipboard',{value:{writeText:async t=>{window.copied=t;}}})")
         page.add_script_tag(path=str(Path(ledger_design.__file__).parent / 'static/js/ledger_design.js'))
         page.click('#copy-trip-expenses')
-        page.wait_for_function("window.copied==='synthetic-tsv'")
-        assert calls[0]['expected_revision'] == 7
-        assert calls[0]['request_id'].startswith('export:')
-        assert calls[0]['scope'] == 'board' and calls[0]['query'] == 'Cafe'
-        assert calls[0]['kind'] == 'ex'
+        page.wait_for_function("document.querySelector('.copy-status').textContent.includes('복사되었습니다')")
+        assert page.evaluate("document.querySelector('#trip-copy-text').value") == 'synthetic-tsv'
+        assert gets and '/api/tabs/trip-synthetic/tsv' in gets[0]
+        assert 'q=Cafe' in gets[0] and 'kind=ex' in gets[0]
+        assert not writes
+        assert '1건' in page.locator('.copy-status').inner_text()
         browser.close()

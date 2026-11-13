@@ -395,18 +395,18 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
                   '금액·파싱 오류': excluded['invalid'], '회사 비용 제외': excluded['company_excluded']}
     notes = [
         f"{year}년 {quarter}분기 검수 / 장부 조회 {data['read_at']} / Google 수입 조회 {google_at or '확인 불가'}",
-        'review-pack.xlsx만 여세요. 먼저 볼 50건에서 사유를 보고 장부 화면에서 교정한 뒤 다시 생성하세요.',
-        f'여행별 손익에서 수입·지출·차액과 사유별 검수 건수를 보세요. 검수 대상 {len(review)}건: {reason_summary}(사유 중복 가능). 여행별 검수 합계 {trip_review_total}건은 여행 행만 세며, 나머지 {quarter_other_review}건은 분기 기타비용 행입니다.',
+        '사용자는 review-pack.xlsx의 여행별 손익·기타비용·판정 주체만 보면 됩니다. 건별 판단과 교정은 AI 검수자가 하며 사용자가 볼 목록은 없습니다.',
+        f'AI 검수자의 입력은 review-list.csv입니다. 검수 대상 {len(review)}건: {reason_summary}(사유 중복 가능). 여행별 검수 합계 {trip_review_total}건은 여행 행만 세며, 나머지 {quarter_other_review}건은 분기 기타비용 행입니다.',
         f'{quarter}분기 기타비용에서 항목별 건수·합계를, 판정 주체에서 자동·AI·수동 건수를 확인하세요.',
         '수입 미확인: ' + (' · '.join(missing_income) if missing_income else '없음') + '. 미확인 여행과 전체 합계의 수입·차액은 빈칸입니다.',
         f"카드 기록과 화면 표시가 다른 {sum(detail['projection'].values())}건: {counts(detail['projection'])}. 화면은 취소·환불을 묶어 보여주고 장부는 따로 기록해서 생기는 차이입니다. 합계는 카드에 저장된 판정으로 계산하고 직접 고친 값을 먼저 쓰며, 화면의 묶음 표시도 틀린 것이 아닙니다.",
         f"출처 미확인 {sum(detail['unknown_sources'].values())}건: {counts(detail['unknown_sources'])}. 판정 없는 정상 거래 {undecided}건: {counts(detail['undecided'])}(미배정 거래는 손익 합계 밖).",
         f"합계 제외 {sum(exclusions.values())}건: " + ' · '.join(f'{key} {value}건' for key, value in exclusions.items()) + '. 다른 분기 여행은 범위 밖입니다.',
-        '이용일 경고는 장부 화면에서 확인하세요. 예약 근거를 함께 읽는 화면 기준을 이 파일에서 재현하지 않아 점수·건수에서 뺐습니다. 전체 검수 목록은 review-list.csv에 있습니다.',
-        (basis_note or '이번 실행의 준비 비용 귀속 폐지 반영 여부는 운영 기록에서 확인하고 기준을 지정해 재생성하세요.') + ' 파일 생성은 장부·Google을 바꾸지 않습니다. 검수 후 기존 장부 복사 기능으로 Google에 붙여넣으세요.',
+        '이용일 경고는 장부 화면 기준입니다. 예약 근거를 함께 읽는 화면 기준을 이 파일에서 재현하지 않아 점수·건수에서 뺐습니다. 검수 목록의 순위는 오류 확정이 아니라 검수자가 볼 순서입니다.',
+        (basis_note or '이번 실행의 준비 비용 귀속 폐지 반영 여부는 운영 기록에서 확인하고 기준을 지정해 재생성하세요.') + ' 파일 생성은 장부·Google을 바꾸지 않습니다. AI 검수가 끝난 뒤 기존 장부 복사 기능으로 Google에 붙여넣으세요.',
     ]
     if closed:
-        notes.append(f'닫힌 분기(제출 완료) 중복 표시 {len(closed)}건은 closed-period-duplicates.csv(시트 "닫힌 분기 중복")에서 보세요. '
+        notes.append(f'닫힌 분기(제출 완료) 중복 {len(closed)}건은 AI 검수자용 closed-period-duplicates.csv에서 보세요. '
                      '장부가 불변이라 자동 기록되지 않고 검토 대상으로만 남습니다.')
     (out / 'notes.md').write_text('\n'.join(notes) + '\n', encoding='utf-8')
     try:
@@ -416,12 +416,14 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     else:
         workbook = Workbook()
         workbook.remove(workbook.active)
-        numeric_columns = {'trips': {3, 4, 5, 6, 7}, 'review-list': {0, 5},
-                           'quarter-other': {1, 2}, 'sources': {1}, 'closed-period-duplicates': {3}}
-        sheets = [('먼저 볼 50건', 'review-list', render_review_list_csv(review[:50])),
-                  ('여행별 손익', 'trips', render_trip_summary_csv(summaries, full_review_count=len(review))),
-                  (f'{quarter}분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None),
-                  ('닫힌 분기 중복', 'closed-period-duplicates', None)]
+        numeric_columns = {'trips': {3, 4, 5, 6, 7},
+                           'quarter-other': {1, 2}, 'sources': {1}}
+        # The workbook is the owner's result view. The per-row review list stays in
+        # review-list.csv as the AI reviewer's input (owner decision 2026-11-13).
+        # Closed-period duplicates are likewise AI-reviewer input only: they go to
+        # closed-period-duplicates.csv, never to a workbook sheet.
+        sheets = [('여행별 손익', 'trips', render_trip_summary_csv(summaries, full_review_count=len(review))),
+                  (f'{quarter}분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None)]
         for sheet_name, filename, rendered in sheets:
             sheet = workbook.create_sheet(sheet_name)
             source = rendered or (out / (filename + '.csv')).read_text(encoding='utf-8-sig')

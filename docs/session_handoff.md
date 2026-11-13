@@ -1,3 +1,52 @@
+## 2026-11-13 PR #833 독립 검수 지적 2건 수정 — 정정 302·보존 119, 교정 반영 가능 185
+
+- 독립 검수(opus) 변경 요청: ① 소유자 채팅 지시 이동 5건이 수동 신호에 안 잡힘 ② 단일 작성자 확인 포트 8751 고정. 구현자(Qwen4 Max)가 같은 브랜치에서 고쳤다(`43c7571f`). 수동 신호 정의는 검수자가 운영 전체 이력을 조사해 정했다: 화면 행 이력에 `automatic`도 기록 배치 표시 형태도 아닌 revision이 있거나, 감사 이력에 소유자 지시 기록(`owner` 접두 종류와 배정 검토·지역/범위 정책 적용·예약 여행 교정)이 있으면 보존. PROC-014에 반영.
+- 포트: `--apply`(사본 아님)는 `<host-root>/config/ledger-route.json`의 포트(8751·8752)로 writer 정지를 확인하고, 파일이 없거나 paused면 쓰기 전에 멈춘다. 공용 헬퍼는 건드리지 않았다. `tools/apply_ai_quarter_review.py`의 같은 고정 포트는 이 PR 범위 밖이다.
+- 새 격리 사본 예행: 3분기 범위 표시 421건 중 정정 **302**, 보존 **119**(기존 수동 112, 소유자 지시 이력 5, 개별 표시 2). 재실행 변경 0. 표시 정정 뒤 교정 목록 198건 중 **185건 반영 가능**(변동 없음), 제외 13. 운영 반영 없음. 반영 명령과 기대값은 [검수 보고](agents/artifacts/ai-quarter-review-2026Q3.md) §9.4.
+- 최종 SHA·영향 검사 결과는 PR #833 기록을 따른다. 병합·운영 반영은 헤드.
+
+## 2026-11-13 3분기 AI 검수 후속 — 소유자 답 2건 반영, 교정 반영 가능 185건
+
+- 소유자 답(2026-11-13): ① `0823_화순` 실제 종료일은 8월 26일 ② 화면 행의 일괄 "소유자 확인" 표시는 자동 출처로 바로잡는다. 규칙집 TRIP-098(신규 사용자 예외)·PROC-014에 기록했다. 문서는 이 절의 PR, 표시 정정 도구는 [PR #833](https://github.com/6Soo/cost/pull/833)(구현 Qwen4 Max, 미병합).
+- ①: 종료일을 고치는 정식 경로가 없다(소유자 화면·HTTP는 종료일을 받지 않고, Google 동기화는 값이 있는 종료일을 덮지 않으며, authority 레코드·일정 증거를 바꾸는 도구도 없다). Google 탭 기간은 이미 8/26이라 사용자가 할 일은 없다. 새 도구를 만들지 않았고 운영 `trip_tabs`는 8/25 그대로다. 8/26 현지 지출 16건은 현재 귀속이 맞아 교정 목록은 바뀌지 않는다. 근거와 남는 영향은 [검수 보고](agents/artifacts/ai-quarter-review-2026Q3.md) §9.1, `CODE_GAPS.md`.
+- ②: 3분기 범위 표시 421건 중 정정 대상 307, 보존 114(수동 신호 112, 개별로 찍힌 것 2). 앞선 보고의 "10/7·10/17"은 표본 기준이었고 실제로는 10/7·10/14·10/17·10/21·10/29의 기록 배치다. 범위 밖(4분기 열린 여행 15, 닫힌 분기 367)은 손대지 않았다.
+- 격리 사본 예행(새 SQLite backup 사본, 표시 정정 → 교정 순서): 표시 정정 307건(거래·장부 변경 0, 재실행 변경 0, 원복 차이 0) 뒤 교정 목록 198건 중 **185건 반영**(여행→여행 42, 여행→분기 100, 항목만 43), 제외 13(귀속 불일치 12, 환불 묶음 구성원 부적격 1). 교정 목록 파일은 그대로다. **운영 반영은 하지 않았다.**
+- 헤드가 할 일: #833 독립 검수(opus)·병합·배포 → 하나카드 이중 기록 정리 뒤, **같은 서버 정지 창에서** 표시 정정과 교정 반영을 검수 보고 §9.4의 명령으로 실행. 미리보기에 `STALE`이 나오면 멈추고 검수자에게 교정 목록 재생성을 요청한다. `0823_화순` 종료일 운영 값 보정 여부(기존 `save_trip_meta` 호출 한 번, 정식 진입점 없음)는 헤드 결정.
+- 작업 공간: 도구 worktree `../bulk-owner-confirm-20261113`와 Paseo 배경 작업 공간 1개를 #833 검수가 끝날 때까지 남겼다. 비공개 근거는 `D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/`의 `rehearsal2/`, `rehearsal3/`, 격리 사본 `rehearsal-host/`, `rehearsal-host2/`(각 약 45MB, 반영 뒤 7일 보존 규칙으로 정리).
+
+## 2026-11-13 환불 표시 검사 — 전체 검사 완료·PR 검수 대기
+
+- 승인 범위는 헤드 A~D 및 후속 1~4. 완료 커밋 `198815e0`, `73e7a686`, `5f2b2e00`, `654272b1`, `4f8e837c`는 테스트7파일·영향 맵·문서만 변경했다. 운영 소스 diff 없음.
+- **main 전체(기준 `335b9eda`, detached worktree) 1회 완료: 398 failed / 7222 passed / 4 skipped / 1511 subtests passed, 3:11:12, exit 1.** 로그 `.local-archive/main-baseline-335b9eda-20261113/pytest-full.log`·XML.
+- **수정 브랜치 전체(`4f8e837c`) 1회 완료: 373 failed / 7248 passed / 4 skipped / 1510 subtests passed, 2:51:25, exit 1.** 로그 `.local-archive/refund-display-checks/branch-solo.log`·XML.
+- 차집합 검증: 실패 25건 감소 = [대조표](agents/artifacts/refund-display-check-reconciliation-20261113.md)의 (b) 16단위가 덮는 25건과 일치. (a)0/(c)검사수정0/(d)0, 신규 실제 회귀 0. 간헐 요동 2건(`test_receipt_page_flow…`, `test_card_catalog_browser…`)은 단독 재실행 통과로 (c) 확정. 전체 결과·잔여 373건 분류는 [full-suite-20261113.md](agents/artifacts/full-suite-20261113.md).
+- SRC-045 동일 tick 캐시 미해결(합성300회 중1회 재현, 캐시 구현 미변경). 금융 보호(환불 짝·순액·초과 환불·원본 충돌·수동 교정) 기대값 변경 없음·skip/xfail 추가 없음 diff 재확인.
+- origin/main이 작업 중 `335b9eda`→`abaa5ba3`→`3f5f7515`(PR #823·#825·#827·#828·#829·#830, prep-cost=preparation_cost 계열 포함)로 이동. 전체 검사는 태스크 시작 시점 기준이며, 최신 origin/main을 브랜치에 통합했다(병합 `57c7c027`, `test-impact-map.json` 자동 병합, `session_handoff.md` 양쪽 절 보존).
+- 영향 검사 `run_quality_checks.py --base origin/main --run` **PASSED**(병합 `57c7c027`, base `3f5f7515`): 670 passed/4 subtests/skip0/browser_skipped0, pytest_exit0, 514.95s. 근거 `quality-artifacts/`(미추적).
+- 남은 일: 최종 SHA push·PR(#816 스타일 표) → 독립 gpt-6.1-sol medium 최종 SHA 검수·승인 기록. 병합·배포는 헤드 담당, 이 브랜치는 서버 배포 불필요. 운영 DB·운영 포트(8751/8752/8790)·고객 원본 미사용.
+
+## 2026-11-13 AI 분기 검수 교정 반영 도구 — 미리보기·digest·백업 게이트·원복, PR 검수 범위
+
+- 분기 검수에서 AI 검수자가 확정한 교정 목록(비공개 manifest)을 운영 장부에 반영하는 유지보수 도구를 만들었다. 브랜치 `feat/ai-review-apply-tool-20261113`. 서버 인증 API(`app/classification_correction.py`)가 막는 내부 장부 행의 여행 이동을 오프라인 단일 작성자 게이트에서 수행하기 위해서다. 구조는 준비 비용 정리 도구(`app/preparation_cost_repair.py`·`tools/repair_preparation_cost_grouping.py`)와 같은 읽기 전용 미리보기 → digest → 신선 백업·writer 정지 게이트 `--apply` → 감사 이력 → `--restore`다.
+- 신규 파일: `app/ai_review_repair.py`(preview/replay/apply/restore_preview/restore), `tools/apply_ai_quarter_review.py`(CLI), `tests/test_ai_review_repair.py`(합성 38건), `docs/playbooks/ai-review-apply.md`(절차서). `config/test-impact-map.json`에 `ai-quarter-review-apply` 그룹 매핑. 요청·감사 이름공간은 분리(`ai_quarter_review`·`card.ai_review_corrected`·`card.ai_review_restored`).
+- 대상 선정은 코드가 아니라 비공개 manifest가 한다. manifest가 레포 작업 폴더 안에 있으면 거부(`MANIFEST_IN_REPOSITORY`). 같은 `transaction_id` 중복은 전체 실패(`DUPLICATE_CORRECTION`). 반영 값은 `item`·`display_tab_id`·`trip_id`(여행이면 같은 tab_id, 분기면 빈 값)·`classification_source='ai_inference'`·`classification_state='classified'`·근거 `AI_REVIEW · {model·provider·effort·review_id} · basis`. 사용자 결정 표기·`decided_at`은 쓰지 않는다. 기존 장부·화면 행만 `_sync`로 동기화(새 행 없음). `_sync`가 출처·근거까지 화면 payload에 반영함을 읽어 확인했고 부족분은 없어 공용 함수는 바꾸지 않았다.
+- 보호: 수동·보류·회사 제외·중복/충돌/파서·닫힌 카드 기간·투영 불일치·stale·잘못된 목적지·NO_CHANGE를 사유별로 제외. 현재 귀속이 열린 분기(열린 여행 또는 2026Q3 이후 분기)가 아니면 닫힌 기간으로 제외(닫힌 분기 여행에서 꺼내거나 넣지 않음). 분기 목적지는 결제일 분기(`observed_quarter`)와 같고 2026Q3 이후여야 하며 항목을 `분기 기타비용`으로 강제. 정식 환불 묶음은 모든 구성원이 manifest에 같은 목적지로 있을 때만 함께 이동(아니면 `REFUND_*`로 묶음 전체 제외, 초과 환불·추론 연결·불완전 묶음 포함). 금액·부호·원문·ID·금융 연결 불변, `_financial_state` 전후 동일 검사.
+- 검증: 표적 `python -m pytest tests/test_ai_review_repair.py -q` 38건 통과. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run` PASSED 537건 실행·건너뜀 0(base `abaa5ba3`). 최종 SHA·판정은 PR 기록을 따른다. **운영 반영·사본 예행 미실행** — 합성 자료만 검증했다. 운영 DB·포트 접근 없음, 병합·배포·Google 쓰기 없음.
+- 지시와 다르게 한 점: (1) 현재 귀속 필드(`trip_id`·`display_tab_id`) 자체 불일치는 `PROJECTION_ATTRIBUTION_DISAGREEMENT`, 단일 귀속이 닫힌 분기면 `CLOSED_CARD_PERIOD`로 분리(형제 도구와 의미 일치). (2) `quarter_increases`는 분기별 순증가(들어옴−나감, 음수 가능)로 보고 — 이 도구는 분기→여행 이동도 있어 준비 비용 도구의 일방향 집계와 다르다. (3) 분기→분기 이동도 허용하며 `kinds`에 `quarter_to_quarter`로 집계.
+- 남은 일(헤드): 구현자와 다른 Claude opus 세션의 독립 검수 후 병합. 절차서 `docs/playbooks/README.md` 표는 다른 PR이 고치는 중이라 건드리지 않았다(새 절차서는 폴더에 추가만). 막힌 점 없음.
+
+## 2026-11-13 3분기 AI 분기 검수 — 교정 198건 확정, 운영 반영은 헤드(도구 PR #829 병합 뒤)
+
+- 소유자 결정(2026-11-13): 분기 검수의 판단과 교정을 AI 검수자(Fable 5.2 high)가 한다. 명세·규칙집·절차서 개정은 [PR #828](https://github.com/6Soo/cost/pull/828). 검수 결과와 규칙집 환류는 이 절의 PR, 반영 도구는 [PR #829](https://github.com/6Soo/cost/pull/829)다. 세 PR 모두 병합하지 않았다.
+- [검수 보고](agents/artifacts/ai-quarter-review-2026Q3.md): 사유별 표본 정답률 AI 판정 85%·최근 자동 변경(AI 외) 45%·추론 귀속 70%·포괄 항목 70%. 교정 확정 198건(여행→여행 53, 여행→분기 기타비용 102, 항목만 43). **운영 반영 0건** — 기록된 행의 여행 이동은 인증 API가 막아 서버 정지가 필요한 유지보수 도구로만 가능하다.
+- 격리 사본 예행(운영 DB의 SQLite backup 사본): 미리보기 198 → 반영 145(여행→여행 39, 여행→분기 69, 항목만 37), 제외 53(화면 행의 소유자 확인 표시 42, 거래·장부 귀속 불일치 11). 재실행 `REPLAYED`, 대상 외 행·금액·수동 결정 불변, 원복 뒤 145행 원상 복귀를 확인했다. 운영 writer 정지 게이트와 운영용 백업 검증은 사본에서 검증하지 않았다.
+- **가장 큰 발견 — 하나카드 해외 구매 이중 수입 200쌍(3분기 귀속 193쌍).** 해외 이용내역 파일과 승인 원본 파일의 같은 구매가 승인번호 앞자리 0만 다른 채 둘 다 정상 거래·장부 기록으로 남아 있다. 3분기 지출 합계의 약 11%가 두 번 잡혀 있다. 원인 코드 위치는 [코드와 규칙이 다른 곳](policy/CODE_GAPS.md) 맨 위 항목(SRC-013). 검수자는 금융 원본·중복 보호를 고치지 않았다. **이것을 고치기 전의 3분기 여행별 손익과 Google 붙여넣기 자료는 일본 여행 지출이 부풀려져 있다.**
+- 규칙집 개정: TRIP-044(겹치는 해외 여행은 사용 국가가 맞는 여행 먼저, 해외 현장 거래를 국내 여행에 넣지 않음), TRIP-030, TRIP-029(폐지된 날짜 근접 귀속은 분기 검수에서 다시 판정), SRC-013(승인번호 앞자리 0만 다른 같은 거래). CODE_GAPS에 4건 추가.
+- 사용자 결정 필요 2건: (1) `0823_화순` 실제 종료일이 8/26인지(종료 다음 날 현지 지출 16건 보존 중), (2) 화면 행의 "소유자 확인" 표시(수동이 아닌 3분기 1,308행 중 309행, 10/7·10/17 같은 분 일괄)를 실제 확인으로 볼지.
+- 헤드가 할 일: ① #829 독립 검수(구현자 Qwen4 Max와 다른 Claude opus)·병합·배포 → 검수 보고 §7의 명령으로 반영(기대 반영 145·제외 53, manifest `D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/manifest-2026Q3.json`, 변경 전 값 같은 폴더 `before-values-2026Q3.json`) ② 하나카드 이중 수입 수정·정리 작업 배정 ③ 귀속 불일치 11건(10건은 장부 행이 이미 맞는 여행)을 기존 불일치 정합 과제에 넘김 ④ 반영 뒤 검수 자료 재생성.
+- 판정하지 못한 것: 예약 근거 없는 숙박·항공 229행(OTA 포털 예약 상세 수집 대기), 확신 낮은 항목 제안 86행. 이용기간 필드는 교정하지 않았다.
+- 작업 공간: 도구 worktree `../ai-review-apply-tool-20261113`(브랜치 `feat/ai-review-apply-tool-20261113`, 미추적 `quality-artifacts/`)와 Paseo 배경 작업 공간 2개(도구 worktree, 비공개 `…/ai-quarter-review-2026Q3/work`)는 #829 검수가 끝날 때까지 남겨 뒀다. 비공개 근거는 `D:/WebLedgerHost/data/backups/ai-quarter-review-2026Q3/`(`work/`, `rehearsal/`, 격리 사본 `rehearsal-host/` 약 45MB — 반영 뒤 7일 보존 규칙으로 정리).
+
 ## 2026-11-13 카드사 로그인 자동화 — 검수 결함 수정(1·2차) + 하이브리드(스크립트+에이전트 보조), 라이브 검증은 사용자 등록 후
 
 - 소유자 결정(2026-11-13): 카드사 3곳 법인/기업 조회 로그인 자동화 위임·착수, 로그인 시도·비밀번호 입력 허용, "필요한 부분은 에이전트가 ego로 진행할 수 있게 섞는다"(하이브리드). 통합 명세 §7의 "카드사 로그인은 자동화하지 않는다"를 결정 기록 D29로 대체했다. 대상은 국민 기업카드·하나카드·IBK 기업은행 카드의 이용내역 조회 로그인이다.

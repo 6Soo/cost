@@ -72,17 +72,30 @@ def test_history_review_button_opens_exact_editable_transaction(flow, monkeypatc
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.goto(f'http://127.0.0.1:{server.server_address[1]}/cards/all?year=2026&month=4')
-                target = page.locator(f'tr[data-tx-id="{row["transaction_id"]}"]')
-                link = target.locator('.card-review-action')
-                box = link.bounding_box()
-                assert box['width'] >= 44 and box['height'] >= 44
+                # At 390px the shared mobile list projection is shown. The read-only
+                # review action lives in the row's expanded detail (wave3 #799), so
+                # open the row and let the detail load before reaching the link.
+                mobile_row = page.locator(
+                    f'.card-all-mobile-list li[data-detail-id="{row["transaction_id"]}"]')
+                # The mobile touch target is the row toggle (min-height 56px). The
+                # review action is now a read-only text link inside the expanded
+                # detail (wave3 #799), not the old 44px table-row button, so the
+                # touch-target floor is asserted on the toggle the user taps.
+                hit = mobile_row.locator('.lr-hit')
+                hit_box = hit.bounding_box()
+                assert hit_box['width'] >= 44 and hit_box['height'] >= 44
+                hit.click()
+                link = mobile_row.locator('.card-all-mobile-expanded .card-review-action')
+                link.wait_for()
                 query = parse_qs(urlsplit(link.get_attribute('href')).query)
                 assert query == {'batch': [batch], 'transaction': [row['transaction_id']]}
                 link.click()
-                page.locator('#questions article form').first.wait_for()
-                assert '합성 AGODA A' in page.locator('#questions article').first.inner_text()
-                assert page.locator('#questions article select[name=display_tab_id]').is_enabled()
-                assert page.locator('#questions article input[name=item]').is_enabled()
+                # The action opens the exact transaction's edit panel on /import;
+                # the P3 #questions confirmation UI was abolished (PROC-003/004).
+                page.locator('#edit-panel form[data-index]').first.wait_for()
+                assert '합성 AGODA A' in page.locator('#edit-panel').inner_text()
+                assert page.locator('#edit-panel select[name=display_tab_id]').first.is_enabled()
+                assert page.locator('#edit-panel input[name=item]').first.is_enabled()
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             finally:
                 browser.close()
@@ -151,7 +164,7 @@ def test_flight_list_and_detail_can_retry_without_collapsing():
             page.goto('http://test.local/')
             page.locator('summary').click()
             page.get_by_role('button', name='다시 불러오기', exact=True).click()
-            page.get_by_role('button', name='출발일 미확인 · SYNTH').click()
+            page.get_by_role('button', name='출발일 원문 없음 · SYNTH').click()
             page.get_by_role('button', name='다시 불러오기', exact=True).click()
             page.locator('.trip-flight-detail').wait_for()
             assert attempts == {'list': 2, 'detail': 2}

@@ -56,8 +56,10 @@ VIEWER = fixtures.STAFF_SUB
 FAKE_SECRET = fixtures.FAKE_SESSION_SECRET
 
 #: The owner-only controls that are absent from a viewer board. Listed by id
-#: because an id is what the markup binds to, not the wording.
-OWNER_MARKERS = ("id='reserve-link'", "id='add-trip'")
+#: because an id is what the markup binds to, not the wording. The wave3 shell
+#: rebuild (8cd0e58b) replaced the old reserve-link/add-trip header controls with
+#: the owner-only "더보기" dialog and the manual-expense toolbar button.
+OWNER_MARKERS = ("id='site-more-dialog'", "id='add-manual-expense'")
 READ_ONLY_MARKER = "data-role='읽기 전용'"
 
 
@@ -253,8 +255,8 @@ class HandlerRoleTests(JarFixture):
         the rendered role. So the check is the markup an owner sees.
         """
         body = self.board(OWNER)
-        self.assertIn("id='reserve-link'", body)
-        self.assertIn("id='add-trip'", body)
+        self.assertIn("id='site-more-dialog'", body)
+        self.assertIn("id='add-manual-expense'", body)
         self.assertNotIn(READ_ONLY_MARKER, body)
 
     def test_a_viewer_board_shows_none_of_them(self):
@@ -286,7 +288,7 @@ class HandlerRoleTests(JarFixture):
     def test_the_owner_control_does_not_depend_on_the_url_shape(self):
         """Unclassified is the quietest board; a trip board must agree."""
         _status, body = self.get("/board", self.signed(OWNER))
-        self.assertIn("id='reserve-link'", body)
+        self.assertIn("id='site-more-dialog'", body)
 
 
 class WritePathTests(JarFixture):

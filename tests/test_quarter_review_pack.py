@@ -167,15 +167,20 @@ def test_priority_matches_review_contract_and_drops_reasonless_rows():
     assert result[0]['review_score'] == 30  # 20 + two 100,000-won steps
 
 
-def test_pack_has_reason_counts_and_first_fifty_sheet(tmp_path):
+def test_pack_has_reason_counts_and_no_owner_review_sheet(tmp_path):
     d = data([expense(f'a{i}', 100000, source='inference') for i in range(55)] +
              [expense('plain', 999999, source='rule')])
     summary = pack.build_pack(d, 2026, 3, tmp_path, {'q3': 1})
     assert summary['review_rows'] == 55 and summary['reasons']['추론 귀속'] == 55
     import openpyxl
     book = openpyxl.load_workbook(tmp_path / 'review-pack.xlsx', read_only=True)
-    assert book.sheetnames[:2] == ['먼저 볼 50건', '여행별 손익']
-    assert book['먼저 볼 50건'].max_row == 51
+    # Owner decision 2026-11-13: the workbook carries results only; the per-row
+    # review list is the AI reviewer's input and stays in review-list.csv.
+    assert book.sheetnames[0] == '여행별 손익'
+    assert '먼저 볼 50건' not in book.sheetnames
+    import csv
+    with (tmp_path / 'review-list.csv').open(encoding='utf-8-sig', newline='') as f:
+        assert len(list(csv.reader(f))) == 56
 
 
 def test_notes_explain_counts_without_guessing_unknown_sources(tmp_path):
@@ -196,7 +201,7 @@ def test_notes_explain_counts_without_guessing_unknown_sources(tmp_path):
     notes = (tmp_path / 'notes.md').read_text(encoding='utf-8')
     assert len(notes.splitlines()) == 10
     for text in ('AI 판정 1건', '출처 미확인 1건', '수동 출처·항목은 있으나 여행 미배정 1건',
-                 '원본 충돌 1건', '비표준 양식', '장부 화면에서 교정', '반영 전', 'Google 수입 조회 2026-11-12'):
+                 '원본 충돌 1건', '비표준 양식', 'AI 검수자', '반영 전', 'Google 수입 조회 2026-11-12'):
         assert text in notes
     assert summary['service_date_unknown'] is None
     assert '이용일 미확인' not in summary['reasons']
@@ -282,7 +287,7 @@ def test_trip_sheet_notes_quarter_other_review_gap():
     assert plain[-1][0] == '합계'
 
 
-def test_closed_period_duplicates_surface_as_separate_csv_and_sheet(tmp_path):
+def test_closed_period_duplicates_surface_as_ai_reviewer_csv_only(tmp_path):
     d = data([expense('a', 100)])
     d['closed_duplicates'] = [dict(period='2026Q2', duplicate_tid='billed', keep_tid='approval',
                                    amount_krw=10300, ledger_action='mark_only', request_id='req',
@@ -295,9 +300,11 @@ def test_closed_period_duplicates_surface_as_separate_csv_and_sheet(tmp_path):
     assert rows[0][0] == '닫힌 분기'
     assert rows[1][:4] == ['2026Q2', 'billed', 'approval', '10300']
     assert '닫힌 분기' in (tmp_path / 'notes.md').read_text(encoding='utf-8')
+    # Owner decision 2026-11-13: closed duplicates are AI-reviewer input only, so
+    # they stay in the CSV and never become a workbook sheet.
     import openpyxl
     book = openpyxl.load_workbook(tmp_path / 'review-pack.xlsx', read_only=True)
-    assert '닫힌 분기 중복' in book.sheetnames
+    assert '닫힌 분기 중복' not in book.sheetnames
 
 
 def test_no_closed_pairs_keeps_notes_and_empty_csv(tmp_path):

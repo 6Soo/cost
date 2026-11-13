@@ -161,7 +161,7 @@ def test_browser_trip_groups_merge_next_page_and_keep_passenger_titles_and_unass
             groups = page.locator('.fb-trip-group')
             expect(groups).to_have_count(3)
             expect(groups.nth(0).locator('header h2')).to_have_text('12월 도쿄')
-            expect(groups.nth(2).locator('header h2')).to_have_text('여행 미배정')
+            expect(groups.nth(2).locator('header h2')).to_have_text('여행 귀속 없음')
             a = page.locator('.fb-trip-group[data-trip-id="trip-a"]')
             expect(a.locator('.fb-choice-copy strong')).to_have_text('KIM ALPHA')
             expect(a.get_by_role('link', name='여행별 비용')).to_have_attribute('href', '/board?tab=trip-a')

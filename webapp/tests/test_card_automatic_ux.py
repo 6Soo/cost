@@ -38,23 +38,25 @@ def test_ready_auto_records_missing_trip_waits_and_replay_is_noop(flow):
     f, batch, trip = flow
     before = f.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,approval_date,decided_at FROM transactions ORDER BY transaction_id').fetchall()
     state = f.auto_record(batch)
-    assert state['auto_recorded'] == 1
+    # PROC-004: the missing-trip row no longer waits; it books to its quarter tab in the same action.
+    assert state['auto_recorded'] == 2
     actions = {r['amount_krw']:r['next_action'] for r in state['preview']['rows']}
-    assert actions[89891]['label'] == '여행 지정'
+    assert actions[89891]['status'] == '기록 완료'
     assert actions[188808]['status'] == '기록 완료'
     assert f.auto_record(batch)['auto_recorded'] == 0
-    assert f.board.conn.execute('SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries').fetchone() == (1,188808)
+    assert f.board.conn.execute('SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries').fetchone() == (2,278699)
     assert before == f.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,approval_date,decided_at FROM transactions ORDER BY transaction_id').fetchall()
-    payload = json.loads(f.board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
-    assert payload['confirmed_by'] == 'automatic' and payload['classification_state'] == 'classified'
+    payloads = [json.loads(r[0]) for r in f.board.conn.execute('SELECT payload_json FROM board_rows').fetchall()]
+    assert payloads and all(p['confirmed_by'] == 'automatic' and p['classification_state'] == 'classified' for p in payloads)
     catalog = card_catalog.catalog(f.board, {'state':['booked']})
-    assert catalog['total']==1 and catalog['rows'][0]['next_action']['status']=='기록 완료'
+    assert catalog['total']==2 and all(r['next_action']['status']=='기록 완료' for r in catalog['rows'])
 
 def test_recordable_row_has_no_user_visible_ready_state(flow):
     f, batch, _ = flow
     action = next(r['next_action'] for r in f.state(batch)['preview']['rows'] if r['amount_krw'] == 188808)
     assert action['status'] == ''
-    assert 'group' not in action
+    # P3(#737/4ef19b67): the projection always carries a group key; empty means no ready state.
+    assert action['group'] == ''
 
 def test_holds_and_lost_authority_prevent_recording(flow):
     f, batch, trip = flow
@@ -62,9 +64,13 @@ def test_holds_and_lost_authority_prevent_recording(flow):
     f.board.conn.execute('INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
                          (ready['transaction_id'],ready['source_hash'],'refund_pending','합성 환불 확인 필요'))
     f.board.conn.commit()
-    assert f.auto_record(batch)['auto_recorded'] == 0
+    f.auto_record(batch)
+    # PROC-004: the unrelated missing-trip row books to its quarter tab, so the batch count is no
+    # longer zero. The protection under test is that the held row itself is never recorded.
+    assert f.board.conn.execute('SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?',
+                                (ready['transaction_id'],)).fetchone()[0] == 0
     action = next(r['next_action'] for r in f.state(batch)['preview']['rows'] if r['transaction_id']==ready['transaction_id'])
-    assert action['label'] == '사유 확인' and action['status'] == '확인 필요' and '환불' in action['reason']
+    assert action['protection'] == 'review_hold' and action['status'] == '원본 정보'
     f.board.conn.execute('DELETE FROM transaction_review_holds');f.board.conn.commit()
     with patch.object(CardFlow,'trip_valid',return_value=False):
         assert f.auto_record(batch)['auto_recorded'] == 0

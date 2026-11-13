@@ -94,7 +94,11 @@ def test_andre_income_detail_uses_andre_source_label_and_raw_sheet(tmp_path, mon
     monkeypatch.setattr(participant_trip_panel, 'attach_row_refs', attach)
     body = page.trip_income_html('andre-tab')
     assert '안드레 메인 장부' in body
-    assert '1022_Synthetic' in body
+    # 70ca965d collapsed the technical detail: the panel shows the owner-scoped
+    # source label and a source link that resolves the exact sheet at click time,
+    # instead of printing the raw sheet name. The raw sheet is still resolved
+    # internally and handed to attach_row_refs (asserted below).
+    assert '/api/google-ledger/source?trip=andre-tab' in body
     assert 'andre%3A%3A2027%3A%3A' not in body
     assert attached == {'source': 'andre_main', 'sheet': '1022_Synthetic'}
 

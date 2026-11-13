@@ -19,6 +19,16 @@
       "tests": ["tests/card_pipeline/test_preparation_costs.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_decision_provenance.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/test_p2_batch.py"]
     },
     {
+      "name": "ai-quarter-review-apply",
+      "paths": ["app/ai_review_repair.py", "tools/apply_ai_quarter_review.py", "tests/test_ai_review_repair.py", "docs/playbooks/ai-review-apply.md"],
+      "tests": ["tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py", "webapp/tests/test_automatic_classification_completion.py"]
+    },
+    {
+      "name": "bulk-owner-confirmation-provenance",
+      "paths": ["app/bulk_confirmation_repair.py", "tools/repair_bulk_owner_confirmation.py", "tests/test_bulk_confirmation_repair.py", "docs/playbooks/bulk-owner-confirmation-repair.md"],
+      "tests": ["tests/test_bulk_confirmation_repair.py", "tests/test_ai_review_repair.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_decision_provenance.py"]
+    },
+    {
       "name": "dist141-provenance-and-forest-period",
       "paths": ["app/decision_provenance.py", "tools/repair_dist141_provenance.py", "webapp/tests/test_decision_provenance.py", "app/forest_portal_capture.py", "tests/test_forest_portal_capture.py"],
       "tests": ["webapp/tests/test_decision_provenance.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "tests/test_forest_portal_capture.py", "tests/test_p2_batch.py"]
@@ -99,6 +109,11 @@
       "name": "card-destination-only-ux",
       "paths": ["app/card_destination.py", "tests/card_pipeline/test_final_card_destination.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py"],
       "tests": ["tests/card_pipeline/test_final_card_destination.py", "tests/card_pipeline/test_card_destination_contract.py", "webapp/tests/test_retired_card_actions.py", "webapp/tests/test_card_destination_worker.py", "webapp/tests/test_card_destination_ui.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_autonomous_cleanup.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py"]
+    },
+    {
+      "name": "refund-display-checks",
+      "paths": ["tests/card_pipeline/test_card3820_reconcile.py", "tests/card_pipeline/test_history_recovery.py", "tests/card_pipeline/test_ota_coverage_audit.py", "tests/test_card_quarter_assignment_consistency.py", "tests/test_cards_all_quarter_labels.py", "webapp/tests/test_card_refund_destination.py"],
+      "tests": ["tests/card_pipeline/test_card3820_reconcile.py", "tests/card_pipeline/test_history_recovery.py", "tests/card_pipeline/test_ota_coverage_audit.py", "tests/test_card_quarter_assignment_consistency.py", "tests/test_cards_all_quarter_labels.py", "webapp/tests/test_card_refund_destination.py", "tests/card_pipeline/test_final_card_destination.py", "webapp/tests/test_card_destination_ui.py"]
     },
     {
       "name": "card-final-destination-and-merchant",
@@ -287,7 +302,7 @@
     },
     {
       "name": "core-safety-net",
-      "paths": ["app/*.py", "webapp/*.py", "ledger/domain/*.py"],
+      "paths": ["app/*.py", "webapp/*.py", "ledger/domain/*.py", "tests/test_review_ui.py"],
       "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"]
     },
     {
