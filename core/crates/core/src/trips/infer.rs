@@ -36,7 +36,7 @@ fn card_row(t: &Txn) -> CardRow {
     }
 }
 
-fn trip_tab(t: &Trip) -> TripTab {
+pub(crate) fn trip_tab(t: &Trip) -> TripTab {
     TripTab {
         trip_id: non_empty(&t.trip_id),
         tab_id: non_empty(&t.tab_id),

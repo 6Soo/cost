@@ -14,6 +14,7 @@ mod stay;
 
 pub use crate::region::is_fukutake_purchase;
 pub use candidates::{Candidate, card_trip_candidates};
+pub(crate) use infer::trip_tab;
 pub use infer::{
     InferOptions, OwnerPolicy, card3820_owner_policy, infer_item, infer_trip, infer_trip_in,
 };

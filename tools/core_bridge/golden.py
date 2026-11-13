@@ -180,6 +180,14 @@ def _row(tid, merchant, **changes):
     return row
 
 
+def _plan_links(request):
+    """The refund links Python hands to plan, reduced to what plan reads (original, kind of link, status)."""
+    found = _run('links', {'kind': 'refund', 'scenario': request['scenario'],
+                           'transaction_ids': request.get('transaction_ids')})['links']
+    return {tid: {'original_id': link['original_id'], 'inferred': bool(link.get('inferred')),
+                  'link_state': link.get('status', '')} for tid, link in found.items()}
+
+
 def plan_cases():
     out, n = [], 0
 
@@ -187,6 +195,9 @@ def plan_cases():
         nonlocal n
         n += 1
         request = dict({'scenario': scenario, 'trips': options.pop('trips', TRIPS)}, **options)
+        links = _plan_links(request)
+        if links:
+            request['links'] = links
         out.append(_case('plan', f'{n:03d}', 'plan', request, note, covers))
 
     first = 'syn-p1'

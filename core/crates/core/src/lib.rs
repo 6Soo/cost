@@ -2,6 +2,7 @@
 
 pub mod dates;
 pub mod domain;
+pub mod plan;
 pub mod region;
 pub mod rules;
 pub mod store;
