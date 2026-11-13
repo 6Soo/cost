@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Preview or import a saved KB card collection run through the existing receive path.
+"""Preview or import supported card collection runs through the existing receive path.
 
 Consumes the run folder produced by tools/collect_kb_card.mjs (manifest.json +
 preserved originals). File validation reuses the production upload preflight
@@ -47,6 +47,14 @@ REPORT_SCHEMA = "cost.kb-card-download-import.v1"
 EXPECTED_CHANNELS = {
     "국민 기업카드 국내 매입": "domestic_acquired",
     "국민 기업카드 해외 매입": "overseas_acquired",
+    # These are the parser's existing channels for the issuer exports. The
+    # importer still calls the same preflight, parser, and Pipeline.receive.
+    "하나 기업카드 이용내역": "domestic_acquired",
+    "IBK 기업카드 이용내역": "statement",
+}
+EXPECTED_ISSUERS = {
+    "하나 기업카드 이용내역": "하나",
+    "IBK 기업카드 이용내역": "기업",
 }
 PROTECTED_TABLES = ("ledger_entries", "review_decisions", "transaction_review_holds")
 APPEND_TABLES = ("import_batches", "import_batch_rows", "approval_evidence",
@@ -197,6 +205,10 @@ def verify_file(run_dir: Path, entry: dict) -> dict:
                                   f"{filename}: parsed channel {parsed.channel!r}, expected {expected!r}")
     if parsed.issues or any(r.parse_error for r in parsed.rows):
         raise ImportBoundaryError("PARSE_ISSUES", f"{filename}: {len(parsed.issues)} parse issues")
+    expected_issuer = EXPECTED_ISSUERS.get(entry["source"])
+    if expected_issuer and any(r.issuer != expected_issuer for r in parsed.rows):
+        raise ImportBoundaryError("ISSUER_MISMATCH",
+                                  f"{filename}: parsed issuer does not match the manifest source")
     screen_count = (row.get("summary") or {}).get("pageTotalCount")
     if not isinstance(screen_count, int) or screen_count != len(parsed.rows):
         raise ImportBoundaryError("COUNT_MISMATCH",
@@ -506,7 +518,7 @@ def run_apply(db_path: Path, files: list, backup_dir: Path, work_dir: Path,
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", required=True, help="collect_kb_card.mjs run folder (manifest.json + originals)")
+    parser.add_argument("--run-dir", required=True, help="card collection run folder (manifest.json + preserved originals)")
     parser.add_argument("--db", required=True, help="target board.sqlite; preview opens it read-only")
     parser.add_argument("--apply", action="store_true", help="write through the existing receive path")
     parser.add_argument("--backup-dir", help="protected folder for the fresh backup (required with --apply)")

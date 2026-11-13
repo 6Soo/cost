@@ -773,7 +773,7 @@ Fable 지시에 따라 P-1·P-2 코드 수정·실측·모델 호출·백업 시
 - PR #807을 열었지만 요청된 별도 `gpt-6.1-sol / medium` 검수 에이전트가 두 차례 모델 용량 초과로 시작하지 못했다. 검수·승인 전에는 병합하지 않으며, 서버 코드 변경 필요 여부도 그 검수 뒤 판단한다.
 # U3 하나·IBK 카드 수집기 진행 (2026-11-13)
 
-- 상태: PARTIAL. `feat/hana-ibk-card-collection-20261113`에서 로그인 이후 수집 골격, 합성 증거 헬퍼, 형식·건수 표적 테스트 및 라이브 확인 항목을 추가했다.
-- 검증: `tests/test_site_card_collection.py`와 `tests/card_pipeline/test_export_downloads.py` 통과 (32 passed).
-- 미완료/차단: 현재 진입점은 `NOT_VERIFIED` 선택자 때문에 fail-closed로 멈춘다. 사이트별 기간 조회·화면 건수 echo·다운로드 실행은 미구현이며, 기존 `import_kb_card_download.py`는 국민 source/channel만 허용해 하나·IBK `Pipeline.receive` 리허설/경계 연결이 아직 없다. U2 collection-run 요약 계약도 이 브랜치에 없음.
-- 다음 작업: U2 요약 계약이 준비된 뒤, 라이브 확인 전까지 선택자 추측 없이 사이트별 adapter runtime을 연결한다. 기존 가져오기 경계를 최소 일반화하여 하나·IBK 채널 형식 검사, 기존 중복/충돌 보호, `Pipeline.receive` rehearsal를 재사용하고 합성 중복 거부/통과 검증을 추가한다. 그 후 수락 검증을 다시 수행한다.
+- 상태: PARTIAL. 기존 카드 파서·국민 가져오기 검증 및 `Pipeline.receive` 리허설 경계를 확장해 합성 하나/IBK manifest가 같은 경계에서 처리되도록 했다. issuer/channel 일치, SHA·바이트·형식, 파서 행수와 화면 건수 대조, 중복 파일 멱등성 검증을 포함한다. 운영 DB에는 쓰지 않았다.
+- 표적 검증: `tests/test_hana_ibk_card_import.py`, `tests/test_import_kb_card_download.py`, `tests/test_site_card_collection.py`, `tests/card_pipeline/test_export_downloads.py` — 72 passed (2026-11-13). 최종 영향 QA 수치는 같은 PR의 최근 검사 결과를 참고한다.
+- 남은 NOT_VERIFIED: 하나/IBK 실제 페이지 선택자와 조회·다운로드 화면 조작. 해당 화면 조작은 추측하지 않으며 수집기는 fail-closed다.
+- 다음 작업: 라이브 화면 관측 후 선택자와 조회·다운로드 어댑터만 연결한다. 수집 이후 manifest 검증·`Pipeline.receive` 경계는 기존 importer와 합성 테스트에서 재사용한다.

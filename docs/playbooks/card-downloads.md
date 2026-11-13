@@ -2,7 +2,16 @@
 
 ## 하나·IBK 수집기 상태 (U3, 2026-11-13)
 
-`tools/hana_card_collection/collect.mjs`와 `tools/ibk_card_collection/collect.mjs`는 공통 경계 `tools/site_card_collection.mjs`를 사용한다. 현재 두 사이트의 조회 화면 선택자와 다운로드 동작은 `NOT_VERIFIED`다. 따라서 스크립트는 화면 조작을 진행하지 않고 멈춘다. 실제 화면 검증과 가져오기 경로 연결 전에는 운영 자료에 사용하지 않는다.
+`tools/hana_card_collection/collect.mjs`와 `tools/ibk_card_collection/collect.mjs`는 공통 경계 `tools/site_card_collection.mjs`를 사용한다. 현재 두 사이트의 조회 화면 선택자와 다운로드 동작은 `NOT_VERIFIED`라 수집 단계에서 멈춘다.
+
+이미 저장된 합성 또는 사용자 승인 원본은 국민 수집기와 같은 `cost.kb-card-collection-manifest.v1` 계약으로 `manifest.json`과 함께 실행 폴더에 둔다. `tools/import_kb_card_download.py`는 하나의 `hana_usage` 및 IBK의 기존 `statement` 파서를 그대로 호출하고, 발급사·채널·파일 경로·SHA·바이트·화면 건수·파싱 이슈를 다시 검증한 뒤 미리보기 사본에서 기존 `Pipeline.receive`를 리허설한다. `--apply`는 그 도구의 단일 작성자·신선 백업/복원·원복 경계를 그대로 적용한다. 수집 화면 선택자를 확인하지 않은 상태에서 자동 다운로드를 수행하지 않는다.
+
+```powershell
+# 합성 또는 보호 폴더의 실행 폴더에 대해 기존 경계로 미리보기
+python tools/import_kb_card_download.py --run-dir <run-folder> --db <target-board.sqlite>
+```
+
+합성 파이프라인 검증은 `tests/test_hana_ibk_card_import.py`, 기존 국민 동작 회귀는 `tests/test_import_kb_card_download.py`에서 확인한다.
 
 다음 라이브 확인을 완료한 뒤 어댑터를 활성화해야 한다.
 
