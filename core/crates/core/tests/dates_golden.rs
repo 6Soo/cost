@@ -1,14 +1,14 @@
 //! `core/golden/synthetic/dates.jsonl`(생산기: `tools/core_dates_golden.py`)의 Python 기대값과 Rust 결과를 모두 비교한다.
 
-use cost_rules::closed_period::{
+use cost_core::dates::{
     CardRow, Evidence, ServicePeriod, TripTab, completed_period, completed_trip, exception_trip,
-    excluded, open_scope, open_trip,
+    excluded, open_p2_tab, open_scope, open_trip,
 };
-use cost_rules::dates::{
+use cost_core::dates::{
     DateError, RowDates, Span, card_use_date, covers_stay, handover_days, ledger_date_for_booking,
     open_trip_end, overlaps_stay, parse_iso, prep_trip, quarter_of, shared_days, tab_of,
 };
-use cost_rules::open_scope::open_p2_tab;
+
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 

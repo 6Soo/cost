@@ -1,9 +1,9 @@
 //! 해석할 수 없는 날짜 입력은 Python과 달리 항상 보호(제외) 방향이어야 한다(소유자 결정 2026-11-14).
 
-use cost_rules::closed_period::{
+use cost_core::dates::{
     CardRow, Evidence, ServicePeriod, TripTab, excluded, open_scope, open_trip,
 };
-use cost_rules::dates::{RowDates, covers_stay, parse_iso, tab_of};
+use cost_core::dates::{RowDates, covers_stay, parse_iso, tab_of};
 use std::collections::BTreeSet;
 
 const MALFORMED: [&str; 14] = [

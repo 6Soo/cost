@@ -2,7 +2,7 @@
 //! `exception_trip`·`excluded`·`open_scope`). DB를 읽는 `manual_ids`·`excluded_ids`와 `formal_facts`·
 //! `booking_period_evidence`(여행 후보 의존)는 이 단위 범위 밖이다.
 
-use crate::dates::{RowDates, parse_iso};
+use super::calendar::{RowDates, parse_iso};
 use time::{Date, Month};
 
 /// 이 날짜 이후 시작하는 여행·행이 열린 범위다.
@@ -59,7 +59,7 @@ impl TripTab {
 }
 
 /// `valid.get(key)`: 같은 키가 겹치면 뒤의 여행이 이긴다(dict 대입).
-fn lookup<'a>(trips: &'a [TripTab], key: Option<&str>) -> Option<&'a TripTab> {
+pub(super) fn lookup<'a>(trips: &'a [TripTab], key: Option<&str>) -> Option<&'a TripTab> {
     let key = key?;
     trips.iter().rev().find(|t| t.map_key() == key)
 }
