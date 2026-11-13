@@ -6,6 +6,10 @@ item/attribution kind before -> after -- with counts only. No transaction id,
 amount, merchant, date or card value is written. The file lives under the host's
 private backups, never in Git.
 
+``eval --planner rust`` runs the same re-judgment through ``costcore plan`` on a temporary copy
+under the host's private backups and prints a per-case Python/Rust comparison (outcome tokens and
+counts only; the allow-list below still governs every published value).
+
 ``eval`` re-judges every corrected row from its raw inputs with the *current*
 P1 classification code on an in-memory copy of the database and prints how many
 results differ from the reviewer's correction, by reason. The production
@@ -19,9 +23,13 @@ from collections import Counter
 from contextlib import closing
 import json
 from pathlib import Path
+import os
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -194,7 +202,12 @@ def _import_classify(copy, tids):
                  (json.dumps(tids),))
 
 
-def rejudge(conn, trips, cases, *, nets=None, evidence=None):
+def _python_plan(copy, trips, ids, nets, evidence):
+    from app import automatic_classification as policy
+    return policy.plan(copy, trips, nets=nets, transaction_ids=ids, reconsider=False, evidence=evidence or {})
+
+
+def rejudge(conn, trips, cases, *, nets=None, evidence=None, plan_fn=_python_plan):
     """Re-judge each case from raw inputs with the current P1 code on an in-memory copy.
 
     Every case row is reset to a freshly imported state (no item, attribution,
@@ -223,7 +236,7 @@ def rejudge(conn, trips, cases, *, nets=None, evidence=None):
                 # Source protection (e.g. a later duplicate cleanup) keeps P1 from judging the row.
                 protected[tid] = 'NOT_REJUDGED_SOURCE_PROTECTED'
         _import_classify(copy, [t for t in ids if t not in protected])
-        plan = policy.plan(copy, trips, nets=nets, transaction_ids=ids, reconsider=False, evidence=evidence or {})
+        plan = plan_fn(copy, trips, ids, nets, evidence)
         judged = {t['id']: dict(zip(policy.FIELDS, t['values'])) for t in plan['targets']}
         # No plan target means the import classification already stands as the judgment.
         for tid in ids:
@@ -263,9 +276,102 @@ def compare(case, judged, protected=None):
     return dict(outcome='MATCH', reasons=[])
 
 
-def evaluate(conn, trips, *, review_id=None, nets=None, evidence=None):
+OUTCOMES = ('MATCH', 'MISMATCH', 'NOT_REJUDGED', 'ITEM_NOT_REEVALUATED')
+_KINDS = ('NONE', 'TRIP', 'QUARTER')
+REASON_TOKENS = frozenset(
+    {'ATTRIBUTION_TRIP_DIFFERS', 'ATTRIBUTION_QUARTER_DIFFERS', 'TRIP_ID_DIFFERS', 'ITEM_DIFFERS',
+     'NOT_REJUDGED_SOURCE_PROTECTED', 'NOT_REJUDGED_PROTECTED_OR_UNCHANGED'}
+    | {'ATTRIBUTION_%s_VS_%s' % (a, b) for a in _KINDS for b in _KINDS})
+PLANNERS = ('python', 'rust')
+
+
+def validate_token(token):
+    """A published result token is an outcome plus fixed reason codes, e.g. ``MISMATCH[ITEM_DIFFERS]``."""
+    match = re.fullmatch(r'([A-Z_]+)(?:\[([A-Z_+]+)\])?', token)
+    if not match or match.group(1) not in OUTCOMES or not (
+            set((match.group(2) or '').split('+')) - {''} <= REASON_TOKENS):
+        raise ValueError('PUBLIC_VALUE_NOT_ALLOWED')
+
+
+def result_token(result):
+    token = result['outcome'] + ('[' + '+'.join(result['reasons']) + ']' if result['reasons'] else '')
+    validate_token(token)
+    return token
+
+
+def compare_planners(cases, python_results, rust_results):
+    """Per-case Python vs Rust comparison, published as counts of fixed tokens by case type."""
+    differing, by_transition, by_type = 0, Counter(), Counter()
+    for case, py, rs in zip(cases, python_results, rust_results):
+        py_token, rs_token = result_token(py), result_token(rs)
+        if py_token == rs_token:
+            continue
+        differing += 1
+        by_transition[py_token + '->' + rs_token] += 1
+        by_type[_type_key(dict(case_type(case), python=py_token, rust=rs_token))] += 1
+    types = [dict(json.loads(k), count=n) for k, n in sorted(by_type.items())]
+    for t in types:
+        validate_public([{k: v for k, v in t.items() if k not in ('python', 'rust', 'count')}])
+    return dict(cases=len(cases), same=len(cases) - differing, different=differing,
+                by_transition=dict(sorted(by_transition.items())), by_type=types)
+
+
+def _protected_workdir(host):
+    backups = (host / 'data/backups').resolve()
+    if not backups.is_dir() or backups.is_relative_to(REPO_ROOT):
+        raise ValueError('CASES_LOCATION_INVALID')
+    work = Path(tempfile.mkdtemp(prefix='eval-rust-', dir=backups)).resolve()
+    if not work.is_relative_to(backups):
+        shutil.rmtree(work, ignore_errors=True)
+        raise ValueError('CASES_LOCATION_INVALID')
+    return work
+
+
+def find_costcore(explicit=None):
+    found = explicit or os.environ.get('COSTCORE_BIN') or shutil.which('costcore')
+    if not found:
+        raise ValueError('COSTCORE_NOT_FOUND')
+    return str(found)
+
+
+def make_rust_plan(host, costcore):
+    """plan_fn that runs ``costcore plan`` on a private temporary file copy of the re-judgment copy."""
+    from tools.core_bridge.commands import canonical
+
+    def rust_plan(copy, trips, ids, nets, evidence):
+        work = _protected_workdir(host)
+        try:
+            path = work / 'rejudge-copy.sqlite'
+            with closing(sqlite3.connect(path)) as target:
+                copy.backup(target)
+            request = canonical(dict(transaction_ids=ids, reconsider=False, trips=trips, nets=nets,
+                                     evidence=evidence or {}))
+            done = subprocess.run([costcore, 'plan', '--db', str(path)], input=json.dumps(request),
+                                  capture_output=True, text=True, encoding='utf-8', timeout=3600)
+        except OSError:
+            raise ValueError('COSTCORE_NOT_STARTED')
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        try:
+            response = json.loads(done.stdout.strip().splitlines()[0])
+        except (IndexError, json.JSONDecodeError):
+            raise ValueError('COSTCORE_RESPONSE_INVALID')
+        if response.get('ok') is not True:
+            code = str((response.get('error') or {}).get('code', ''))
+            raise ValueError(code if re.fullmatch(r'[A-Z_]{1,60}', code) else 'COSTCORE_FAILED')
+        return response['result']
+    return rust_plan
+
+
+def evaluate(conn, trips, *, review_id=None, nets=None, evidence=None, planner='python', rust_plan=None):
     cases = collect_cases(conn, review_id)
-    results = rejudge(conn, trips, cases, nets=nets, evidence=evidence) if cases else []
+    python_results = rejudge(conn, trips, cases, nets=nets, evidence=evidence) if cases else []
+    results = python_results
+    if planner == 'rust':
+        if rust_plan is None:
+            raise ValueError('RUST_PLANNER_NOT_CONFIGURED')
+        results = (rejudge(conn, trips, cases, nets=nets, evidence=evidence, plan_fn=rust_plan)
+                   if cases else [])
     reasons = {'MISMATCH': Counter(), 'ITEM_NOT_REEVALUATED': Counter(), 'NOT_REJUDGED': Counter()}
     by_type = Counter()
     for case, result in zip(cases, results):
@@ -274,7 +380,9 @@ def evaluate(conn, trips, *, review_id=None, nets=None, evidence=None):
         reasons[result['outcome']].update(result['reasons'])
         by_type[_type_key(dict(case_type(case), result='+'.join(result['reasons'])))] += 1
     count = Counter(r['outcome'] for r in results)
-    return dict(cases=len(cases), matched=count['MATCH'], mismatched=count['MISMATCH'],
+    extra = (dict(planner='rust', comparison=compare_planners(cases, python_results, results))
+             if planner == 'rust' else {})
+    return dict(extra, cases=len(cases), matched=count['MATCH'], mismatched=count['MISMATCH'],
                 by_reason=dict(sorted(reasons['MISMATCH'].items())),
                 item_not_reevaluated=count['ITEM_NOT_REEVALUATED'],
                 item_not_reevaluated_by_reason=dict(sorted(reasons['ITEM_NOT_REEVALUATED'].items())),
@@ -314,6 +422,9 @@ def main(argv=None):
     parser.add_argument('--max-seconds', type=int, default=3600,
                         help='Hard time limit for eval; the process dumps its stack and exits when exceeded.')
     parser.add_argument('--no-evidence', action='store_true', help='Skip booking/mail evidence (faster, less faithful).')
+    parser.add_argument('--planner', choices=PLANNERS, default='python',
+                        help='rust also runs `costcore plan` and prints a per-case Python/Rust comparison.')
+    parser.add_argument('--costcore', type=Path, help='costcore executable (default: $COSTCORE_BIN or PATH).')
     parser.add_argument('--fail-on-mismatch', action='store_true')
     args = parser.parse_args(argv)
     host = args.host_root.resolve()
@@ -360,7 +471,9 @@ def main(argv=None):
                     evidence = load_review_evidence(conn, host, trips, cache)[0]
                 timings['evidence'] = time.monotonic() - mark
             mark = time.monotonic()
-            report = evaluate(conn, trips, review_id=args.review_id, nets=nets, evidence=evidence)
+            rust_plan = make_rust_plan(host, find_costcore(args.costcore)) if args.planner == 'rust' else None
+            report = evaluate(conn, trips, review_id=args.review_id, nets=nets, evidence=evidence,
+                              planner=args.planner, rust_plan=rust_plan)
             timings['rejudge'] = time.monotonic() - mark
             faulthandler.cancel_dump_traceback_later()
             report.update(evidence_mode='none' if args.no_evidence else 'booking_and_mail',
@@ -373,7 +486,8 @@ def main(argv=None):
                     saved.get('types') == aggregate(collect_cases(conn, args.review_id)))
             print(json.dumps(dict(status='EVALUATED', **report), ensure_ascii=False, sort_keys=True))
             return 2 if args.fail_on_mismatch and (report['mismatched'] or report['not_rejudged']
-                                                   or report['item_not_reevaluated']) else 0
+                                                   or report['item_not_reevaluated']
+                                                   or report.get('comparison', {}).get('different')) else 0
     except (OSError, ValueError, KeyError, sqlite3.Error) as exc:
         code = str(exc) if isinstance(exc, ValueError) and str(exc).replace('_', '').isalnum() else type(exc).__name__
         print(json.dumps(dict(status='FAILED', code=code)))

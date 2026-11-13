@@ -127,6 +127,10 @@ dependencies = [
 [[package]]
 name = "costcore"
 version = "0.1.0"
+dependencies = [
+ "cost-core",
+ "serde_json",
+]
 
 [[package]]
 name = "cpufeatures"
