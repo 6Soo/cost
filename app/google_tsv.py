@@ -13,7 +13,13 @@ import re
 from collections import Counter
 
 COLUMNS = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
-EVIDENCE_TYPES = {"card": "카드", "receipt": "영수증"}
+EVIDENCE_TYPES = {
+    "card": "카드",
+    "receipt": "영수증",
+    "클룩 포인트": "클룩 포인트",
+    "아고다캐시": "아고다캐시",
+    "트립코인": "트립코인",
+}
 FORMULA_START = ("=", "+", "-", "@")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

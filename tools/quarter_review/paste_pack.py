@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.google_tsv import expense_tsv
+from app.google_tsv import EVIDENCE_TYPES, expense_tsv
 from tools.quarter_review.pack import ROOT, prepare_rows, read_database
 
 
@@ -25,6 +25,7 @@ EMPTY_FIELD_ALLOWLIST = {
     "reservation_no": ("DATE-032",),
 }
 EMPTY_PERIOD_CATEGORIES = ("숙박비", "항공료")
+EMPTY_PERIOD_RULES = {"숙박비": "DATE-109", "항공료": "DATE-109"}
 
 
 def _evidence(row: dict) -> str | None:
@@ -33,11 +34,34 @@ def _evidence(row: dict) -> str | None:
         return "card"
     if value in ("receipt", "영수증"):
         return "receipt"
+    if value in EVIDENCE_TYPES:
+        return value
     if value in (None, "") and isinstance(row.get("transaction_id"), str):
         # A persisted card transaction has card evidence by source type, even when
         # the optional projected evidence_type column is absent.
         return "card"
     return None
+
+
+def _period_blank_cause(row: dict) -> str:
+    """Classify blank periods only where the saved row provides a signal."""
+    evidence_fields = (
+        "service_period_conflict", "period_conflict", "service_period_candidates",
+        "ota_evidence", "booking_ref", "reservation_no",
+    )
+    if any(row.get(field) for field in evidence_fields):
+        return "도구가 근거를 읽지 못함"
+    return "근거 없음"
+
+
+def _period_blank_counts(rows: list[dict]) -> dict:
+    counts = defaultdict(Counter)
+    for row in rows:
+        if not (row.get("period") or row.get("service_period")):
+            category = row.get("item") or "항목 없음"
+            counts[category][_period_blank_cause(row)] += 1
+    return {category: dict(sorted(causes.items()))
+            for category, causes in sorted(counts.items())}
 
 
 def _tsv_row(row: dict) -> dict:
@@ -61,9 +85,12 @@ def _tsv_row(row: dict) -> dict:
 
 
 def _empty_allowed(row: dict, field: str) -> bool:
-    if field == "period" and row.get("category") in EMPTY_PERIOD_CATEGORIES:
-        return "DATE-109" in EMPTY_FIELD_ALLOWLIST.get(field, ())
-    return field in EMPTY_FIELD_ALLOWLIST
+    if field == "period":
+        rule = EMPTY_PERIOD_RULES.get(row.get("category"))
+        return bool(rule and rule in EMPTY_FIELD_ALLOWLIST.get(field, ()))
+    if field == "reservation_no":
+        return bool(EMPTY_FIELD_ALLOWLIST.get(field))
+    return False
 
 
 def _export_rows(rows: list[dict]) -> dict:
@@ -84,7 +111,7 @@ def _export_rows(rows: list[dict]) -> dict:
 
 
 def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
-    trips, rows, _excluded = prepare_rows(data, year, quarter)
+    trips, rows, excluded = prepare_rows(data, year, quarter)
     trip_rows: dict[str, list[dict]] = defaultdict(list)
     quarter_rows: list[dict] = []
     for row in rows:
@@ -103,9 +130,11 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
         result = _export_rows(trip_rows[tab_id])
         filename = f"trip-{index:03d}.tsv"
         (out / filename).write_text(result["tsv"], encoding="utf-8", newline="")
-        ledger_total = sum(row["amount_krw"] for row in trip_rows[tab_id]
-                           if type(row.get("amount_krw")) is int)
+        ledger_total = data.get("tab_expense_totals", {}).get(tab_id, 0)
         matches = ledger_total == result["total_krw"]
+        causes = Counter(result["held_reason_counts"])
+        causes["NO_LEDGER_ROW"] += excluded.get("no_ledger_by_tab", {}).get(tab_id, 0)
+        causes += Counter()
         summary = {
             "tab": trip.get("display_key") or tab_id,
             "file": filename,
@@ -115,15 +144,21 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
             "total_matches_ledger": matches,
             "held_count": len(result["held"]),
             "held_reasons": result["held_reason_counts"],
+            "difference_causes": dict(sorted(causes.items())),
+            "period_blank_counts": _period_blank_counts(trip_rows[tab_id]),
         }
         summaries.append(summary)
         if not matches:
             mismatches.append(tab_id)
 
     other = _export_rows(quarter_rows)
-    other_total = sum(row["amount_krw"] for row in quarter_rows if type(row.get("amount_krw")) is int)
+    other_total = data.get("tab_expense_totals", {}).get(f"quarter:{year}:{quarter}", 0)
     (out / f"quarter-{year}Q{quarter}-other.tsv").write_text(other["tsv"], encoding="utf-8", newline="")
     other_match = other_total == other["total_krw"]
+    other_causes = Counter(other["held_reason_counts"])
+    other_causes["NO_LEDGER_ROW"] += excluded.get("no_ledger_by_tab", {}).get(
+        f"quarter:{year}:{quarter}", 0)
+    other_causes += Counter()
     if not other_match:
         mismatches.append(f"quarter:{year}:{quarter}")
 
@@ -145,12 +180,20 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
             "total_matches_ledger": other_match,
             "held_count": len(other["held"]),
             "held_reasons": other["held_reason_counts"],
+            "difference_causes": dict(sorted(other_causes.items())),
+            "period_blank_counts": _period_blank_counts(quarter_rows),
         },
         "held_reason_counts": dict(sorted(held_by_reason.items())),
         "held_zero": held_count == 0,
         "held_status": "보류 0 달성" if held_count == 0 else "보류 0 미달",
         "completeness": "complete" if not mismatches else "mismatch",
         "mismatch_count": len(mismatches),
+        "tab_totals_match_count": sum(s["total_matches_ledger"] for s in summaries) + other_match,
+        "tab_total_count": len(summaries) + 1,
+        "excluded_reason_counts": {
+            "NO_LEDGER_ROW": excluded.get("no_ledger_row", 0),
+            "REFUND_TAB_ROW": excluded.get("refund_tab", 0),
+        },
         "empty_field_allowlist": {key: list(value) for key, value in EMPTY_FIELD_ALLOWLIST.items()},
         "empty_period_categories": list(EMPTY_PERIOD_CATEGORIES),
     }
