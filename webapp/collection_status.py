@@ -256,6 +256,11 @@ def gather(board, *, now=None):
     mail = _mail_last(data_root) if data_root is not None else None
     ota = _ota_last(data_root) if data_root is not None else {key: None for key, _ in OTA_PROVIDERS}
     google_last, google_login = _google_status()
+    try:
+        from .google_ledger_page import last_trip_import_result
+        trip_import = last_trip_import_result()
+    except Exception:
+        trip_import = None
     p2 = (_p2_status(Path(path).parent.parent / 'config' / 'card-flow.json')
           if path is not None else None)
     card_sources = {'국민': 'kb', '하나': 'hana', '기업': 'ibk'}
@@ -273,7 +278,7 @@ def gather(board, *, now=None):
                    for key, label in OTA_PROVIDERS)
     sources.append({'label': 'Google 수입', 'group': 'google', 'last_at': google_last,
                     'threshold': THRESHOLDS_DAYS['google'], 'login_required': google_login})
-    data = {'now': now, 'sources': sources, 'p2': p2,
+    data = {'now': now, 'sources': sources, 'p2': p2, 'trip_import': trip_import,
             'normal_undecided': _normal_undecided(board)}
     if key is not None:
         _CACHE[key] = (time.monotonic() + _CACHE_TTL_SECONDS, data)
@@ -327,6 +332,10 @@ def render_html(data):
         p2_text = 'AI 판정 실행 기록 없음'
     normal = data.get('normal_undecided')
     normal_text = f'판정 없는 정상 거래 {normal}건' if normal is not None else '판정 없는 정상 거래 —'
+    trip_import = data.get('trip_import') or {}
+    schedule_text = ('Google 여행 일정 근거 파일을 읽지 못했습니다.'
+                     if trip_import.get('schedule_unavailable') else '')
+    suffix = (' · ' + schedule_text) if schedule_text else ''
     return (
         "<style>"
         ".home-collection{margin:0}"
@@ -344,7 +353,7 @@ def render_html(data):
         "<h3>수집 상태</h3>"
         "<table><thead><tr><th>원천</th><th>마지막 수집</th><th>기준</th><th>상태</th></tr></thead>"
         "<tbody>" + ''.join(rows) + "</tbody></table>"
-        f"<p class='home-collection-note'>{p2_text} · {normal_text}</p>"
+        f"<p class='home-collection-note'>{p2_text} · {normal_text}{esc(suffix)}</p>"
         "</div>")
 
 

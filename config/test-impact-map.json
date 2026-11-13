@@ -313,8 +313,9 @@
     {
       "name": "card-flow",
       "paths": ["webapp/card_flow.py", "webapp/card_actions.py", "webapp/ledger_store.py",
-                "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py"],
-      "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
+                "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py",
+                "webapp/tests/test_card_automatic_write_atomicity.py"],
+      "tests": ["webapp/tests/test_card_automatic_write_atomicity.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
     },
     {
       "name": "ota-mail-load-lifetime",
