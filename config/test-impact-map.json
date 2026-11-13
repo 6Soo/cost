@@ -152,8 +152,8 @@
     },
     {
       "name": "recorded-booking-period-correction",
-      "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py"],
-      "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
+      "paths": ["tools/complete_card_classification.py", "webapp/card_classification_completion.py", "webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py"],
+      "tests": ["webapp/tests/test_recorded_booking_period_correction.py", "tests/test_booking_period_evidence_new_judgement.py", "webapp/tests/test_card_p2_reconsider.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_ota_card_refund_trip_integration.py"]
     },
     {
       "name": "fukutake-setouchi-assignment",
