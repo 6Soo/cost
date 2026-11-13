@@ -157,8 +157,8 @@
     },
     {
       "name": "fukutake-setouchi-assignment",
-      "paths": ["app/trip_selection.py", "app/classify.py", "app/automatic_classification.py", "app/provisional_assignment.py", "webapp/card_trip_authority.py", "tests/card_pipeline/test_fukutake_setouchi.py"],
-      "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
+      "paths": ["app/trip_selection.py", "app/classify.py", "app/automatic_classification.py", "app/provisional_assignment.py", "webapp/card_trip_authority.py", "tests/card_pipeline/test_fukutake_setouchi.py", "tests/card_pipeline/test_infer_item_vocabulary.py"],
+      "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "tests/card_pipeline/test_infer_item_vocabulary.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
     },
     {
       "name": "jeju-trip-card-scope",
