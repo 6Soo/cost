@@ -771,3 +771,9 @@ Fable 지시에 따라 P-1·P-2 코드 수정·실측·모델 호출·백업 시
 - 보호를 우회하거나 운영 DB를 쓰지 않았다. 변경 전 값은 `before-state.json`에 있고, 가장 최근 검증 전체 백업(14:36) 위치는 기존 작업판 기록을 따른다. 서버 코드 변경이 필요하면 그 사실을 보고하고 반영을 멈춘다.
 - 단계 2 코드·테스트·문서 PR을 준비 중이다. 앞서 `gpt-6.1-terra` 세션은 이전 P2 기술 작업의 별도 검증으로 한 번 생성됐으며, 이번 검수용 외 추가 에이전트는 만들지 않는다.
 - PR #807을 열었지만 요청된 별도 `gpt-6.1-sol / medium` 검수 에이전트가 두 차례 모델 용량 초과로 시작하지 못했다. 검수·승인 전에는 병합하지 않으며, 서버 코드 변경 필요 여부도 그 검수 뒤 판단한다.
+# U3 하나·IBK 카드 수집기 진행 (2026-11-13)
+
+- 상태: PARTIAL. `feat/hana-ibk-card-collection-20261113`에서 로그인 이후 수집 골격, 합성 증거 헬퍼, 형식·건수 표적 테스트 및 라이브 확인 항목을 추가했다.
+- 검증: `tests/test_site_card_collection.py`와 `tests/card_pipeline/test_export_downloads.py` 통과 (32 passed).
+- 미완료/차단: 현재 진입점은 `NOT_VERIFIED` 선택자 때문에 fail-closed로 멈춘다. 사이트별 기간 조회·화면 건수 echo·다운로드 실행은 미구현이며, 기존 `import_kb_card_download.py`는 국민 source/channel만 허용해 하나·IBK `Pipeline.receive` 리허설/경계 연결이 아직 없다. U2 collection-run 요약 계약도 이 브랜치에 없음.
+- 다음 작업: U2 요약 계약이 준비된 뒤, 라이브 확인 전까지 선택자 추측 없이 사이트별 adapter runtime을 연결한다. 기존 가져오기 경계를 최소 일반화하여 하나·IBK 채널 형식 검사, 기존 중복/충돌 보호, `Pipeline.receive` rehearsal를 재사용하고 합성 중복 거부/통과 검증을 추가한다. 그 후 수락 검증을 다시 수행한다.

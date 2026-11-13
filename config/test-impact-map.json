@@ -54,6 +54,11 @@
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
+      "name": "hana-ibk-card-collection-synthetic",
+      "paths": ["tools/site_card_collection.*", "tools/hana_card_collection/**", "tools/ibk_card_collection/**", "tests/test_site_card_collection.py", "tests/fixtures/hana-card-synthetic.csv", "tests/fixtures/ibk-card-synthetic.xlsx"],
+      "tests": ["tests/test_site_card_collection.py", "tests/card_pipeline/test_export_downloads.py"]
+    },
+    {
       "name": "card-login-automation",
       "paths": ["tools/card_login/**", "tests/card_login/**", "tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"],
       "tests": ["tests/test_card_login_credentials.py", "tests/test_card_login_script.py", "tests/test_card_login_pipe_security.py"]

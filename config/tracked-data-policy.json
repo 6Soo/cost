@@ -3,6 +3,6 @@
   "protected_prefixes": ["ledger/data/", "outputs/", ".paseo-session-migration-work-20260826/", ".local-archive/", "secrets/", "credentials/", "customer/", "customer_source/", "production_source/"],
   "denied_names": [".env", ".env.*", "credentials.json", "token.json", "*.pem", "*.key", "*.pfx", "*.p12"],
   "data_extensions": [".db", ".sqlite", ".sqlite3", ".xlsx", ".xls", ".csv", ".eml", ".mbox", ".pdf", ".zip"],
-  "synthetic_allowlist": ["tests/fixtures/kb-overseas-acquired-synthetic.xls"],
+  "synthetic_allowlist": ["tests/fixtures/kb-overseas-acquired-synthetic.xls", "tests/fixtures/hana-card-synthetic.csv", "tests/fixtures/ibk-card-synthetic.xlsx"],
   "max_blob_bytes": 1048576
 }
