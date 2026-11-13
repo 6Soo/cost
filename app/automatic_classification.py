@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
 from .assignment_status import row_assignment
-from .rules import merchant_country
+from .rules import transaction_region
 from .trip_selection import regional_trips, period_or_preparation
 
 POLICY = 'complete-card-inference-v1'
@@ -113,13 +113,13 @@ def infer_item(row):
     industry = raw.removeprefix('card-category:') if raw.startswith('card-category:') else ''
     groups = (
         ('주차비', r'주차|parking'), ('주유비', r'주유|충전소|gas station|fuel'),
-        ('통행료', r'통행료|고속도로|toll'), ('항공료', r'항공|airline|airways|aviation|gotogate|고투게이트'),
+        ('통행료', r'통행료|고속도로|유료도로|터널|toll'), ('항공료', r'항공|airline|airways|aviation|gotogate|고투게이트'),
         ('렌터카', r'렌터카|렌트카|rent.?a.?car|rent.?car|rent.?lease'),
         ('숙박비', r'숙박|호텔|여관|모텔|펜션|리조트|hotel|inn\b|resort|agoda|booking\.com|airbnb|ryokan'),
         ('식비', r'음식|식당|한식|중식|일식|양식|제과|커피|카페|식음료|국밥|김밥|칼국수|restaurant|cafe|coffee|bakery'),
-        ('편의점', r'편의점|슈퍼|마트|convenience|supermarket'),
+        ('식비', r'편의점|슈퍼|마트|세븐일레븐|이마트24|지에스25|gs25|\bcu\b|seven.?eleven|7.?eleven|family.?mart|lawson|mini.?stop|convenience|supermarket'),
         ('교통비', r'택시|철도|버스|지하철|승차권|여객선|taxi|rail|train|subway|transit|ferry'),
-        ('입장료', r'입장|관람|박물관|수목원|미술관|museum|admission'),
+        ('입장료', r'입장|관람|박물관|수목원|미술관|공연|전시|museum|admission'),
         ('여행경비', r'여행|관광|투어|tour|trip\.com|klook'),
     )
     for text, basis in ((industry,'카드사 업종 공통 규칙'),
@@ -129,7 +129,7 @@ def infer_item(row):
                 return item, basis
     if row.get('transaction_direction') in ('refund', 'cancellation'):
         return '취소·환불', '원결제 항목 단서 부족 · 취소·환불 원행 용도'
-    if merchant_country(row) not in ('', 'KR'):
+    if transaction_region(row) == 'overseas':
         return '현지경비', '해외 카드 사용 · 세부 업종 단서 부족'
     return '기타경비', '업종·용도 단서 부족 · 업무 카드 지출 기본 분류'
 
