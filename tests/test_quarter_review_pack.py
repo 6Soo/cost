@@ -285,3 +285,77 @@ def test_trip_sheet_notes_quarter_other_review_gap():
     assert '2건은 분기 기타비용' in rows[-1][8] and '5건' in rows[-1][8]
     plain = list(csv.reader(io.StringIO(render_trip_summary_csv(values))))
     assert plain[-1][0] == '합계'
+
+
+def test_closed_period_duplicates_surface_as_ai_reviewer_csv_only(tmp_path):
+    d = data([expense('a', 100)])
+    d['closed_duplicates'] = [dict(period='2026Q2', duplicate_tid='billed', keep_tid='approval',
+                                   amount_krw=10300, ledger_action='mark_only', request_id='req',
+                                   at='2026-11-13T00:00:00Z')]
+    summary = pack.build_pack(d, 2026, 3, tmp_path, {'q3': 1})
+    assert summary['closed_period_duplicates'] == 1
+    import csv
+    with (tmp_path / 'closed-period-duplicates.csv').open(encoding='utf-8-sig', newline='') as f:
+        rows = list(csv.reader(f))
+    assert rows[0][0] == '닫힌 분기'
+    assert rows[1][:4] == ['2026Q2', 'billed', 'approval', '10300']
+    assert '닫힌 분기' in (tmp_path / 'notes.md').read_text(encoding='utf-8')
+    # Owner decision 2026-11-13: closed duplicates are AI-reviewer input only, so
+    # they stay in the CSV and never become a workbook sheet.
+    import openpyxl
+    book = openpyxl.load_workbook(tmp_path / 'review-pack.xlsx', read_only=True)
+    assert '닫힌 분기 중복' not in book.sheetnames
+
+
+def test_no_closed_pairs_keeps_notes_and_empty_csv(tmp_path):
+    summary = pack.build_pack(data([expense('a', 100)]), 2026, 3, tmp_path)
+    assert summary['closed_period_duplicates'] == 0
+    import csv
+    with (tmp_path / 'closed-period-duplicates.csv').open(encoding='utf-8-sig', newline='') as f:
+        assert len(list(csv.reader(f))) == 1  # header only
+    assert len((tmp_path / 'notes.md').read_text(encoding='utf-8').splitlines()) == 10
+
+
+def test_read_closed_duplicates_reads_release_log_both_paths(tmp_path):
+    path = tmp_path / 'synthetic.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.executescript('CREATE TABLE change_log(at TEXT,kind TEXT,subject TEXT,detail_json TEXT);')
+        # Import-style entry carries `period`; cleanup-style derives it from the row date.
+        conn.execute('INSERT INTO change_log VALUES (?,?,?,?)',
+                     ('2026-11-13T00:00:00Z', 'card.hana_duplicate_marked', 'billed',
+                      json.dumps(dict(closed=True, period='2026Q2', keep='approval', amount_krw=10300,
+                                      ledger_action='mark_only', request_id='imp'))))
+        conn.execute('INSERT INTO change_log VALUES (?,?,?,?)',
+                     ('2026-11-13T00:00:01Z', 'card.hana_duplicate_marked', 'approval2',
+                      json.dumps(dict(closed=True, keep='billed2', ledger_action='mark_only', request_id='cleanup'))))
+        conn.execute('INSERT INTO change_log VALUES (?,?,?,?)',
+                     ('2026-11-13T00:00:02Z', 'card.hana_duplicate_marked', 'open',
+                      json.dumps(dict(closed=False, keep='x'))))
+    transactions = [dict(transaction_id='approval2', approval_date='2026-05-15', posting_date='', amount_krw=10000)]
+    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = pack.read_closed_duplicates(conn, transactions)
+    assert len(rows) == 2
+    assert rows[0]['period'] == '2026Q2' and rows[0]['duplicate_tid'] == 'billed' and rows[0]['amount_krw'] == 10300
+    assert rows[1]['period'] == '2026Q2' and rows[1]['duplicate_tid'] == 'approval2' and rows[1]['amount_krw'] == 10000
+
+
+def test_read_database_surfaces_closed_release_pairs(tmp_path):
+    path = tmp_path / 'synthetic.sqlite'
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            'CREATE TABLE transactions(transaction_id TEXT,approval_date TEXT,posting_date TEXT,amount_krw INTEGER);'
+            'CREATE TABLE trip_tabs(tab_id TEXT);'
+            'CREATE TABLE board_rows(row_id TEXT,row_kind TEXT,display_tab_id TEXT,payload_json TEXT);'
+            'CREATE TABLE change_log(at TEXT,kind TEXT,subject TEXT,detail_json TEXT);')
+        conn.execute('INSERT INTO transactions VALUES (?,?,?,?)', ('billed', '2026-05-15', '', 10300))
+        conn.execute('INSERT INTO change_log VALUES (?,?,?,?)',
+                     ('2026-11-13T00:00:00Z', 'card.hana_duplicate_marked', 'billed',
+                      json.dumps(dict(closed=True, period='2026Q2', keep='approval', amount_krw=10300,
+                                      ledger_action='mark_only', request_id='imp'))))
+    before = path.read_bytes()
+    d = pack.read_database(path)
+    assert d['closed_duplicates'] == [dict(period='2026Q2', duplicate_tid='billed', keep_tid='approval',
+                                           amount_krw=10300, ledger_action='mark_only', request_id='imp',
+                                           at='2026-11-13T00:00:00Z')]
+    assert path.read_bytes() == before

@@ -237,3 +237,103 @@ def test_refunds_with_different_amounts_are_not_collapsed_as_matching_purchases(
     assert result['row_count'] == 2
     rows = pipe.store.conn.execute("SELECT amount_krw FROM transactions WHERE transaction_direction='cancellation'").fetchall()
     assert sorted(r[0] for r in rows) == [-3000, -2000]
+
+
+def _approval_source(*, approval='00001111', amount=10000, merchant='합성상점'):
+    return make_csv([['하나', '2026-10-09', '****1234', approval, merchant, amount, '100']],
+                    headers=['카드사', '이용일', '카드번호', '승인번호', '가맹점명', '승인금액', '가맹점번호'])
+
+
+def _acquired_foreign(*, approval='00001111', amount=10300, merchant='합성상점'):
+    row = hana_foreign(amount=amount)
+    row[3] = approval
+    row[4] = merchant
+    return make_csv([row], headers=HANA_FOREIGN)
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_hana_leading_zero_approval_variant_is_one_cost_not_two(reverse):
+    # The approval source pads the number (00001111); the acquired view does not
+    # (1111). They are one purchase, so the second view must not book a second cost,
+    # and the acquired billed total is canonical in either import order (SRC-005/009).
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    sources = [_approval_source(approval='00001111'), _acquired_foreign(approval='1111')]
+    if reverse:
+        sources.reverse()
+    pipe.receive(sources[0], 'first.csv')
+    pipe.receive(sources[1], 'second.csv')
+    conn = pipe.store.conn
+    canonical = conn.execute(
+        "SELECT amount_krw FROM transactions"
+        " WHERE conflict_reason='' AND parse_error='' AND duplicate_of IS NULL").fetchall()
+    assert len(canonical) == 1 and canonical[0][0] == 10300
+    # Both source rows survive; exactly one is set aside as conflict or duplicate.
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 2
+    assert conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE conflict_reason<>'' OR duplicate_of IS NOT NULL"
+    ).fetchone()[0] == 1
+    # Comparison-only normalization never rewrites either stored approval number.
+    assert {r[0] for r in conn.execute('SELECT approval_number FROM transactions')} == {'00001111', '1111'}
+
+
+def test_hana_approval_first_keeps_billed_total_canonical():
+    # B1: the approval source arrives and is stored first. When the acquired billed
+    # view arrives it must become canonical; the approval row is marked its duplicate
+    # (never the reverse, which would leave the approval-time amount as the cost).
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    pipe.receive(_approval_source(approval='00001111', amount=10000), 'approval.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=10300), 'acquired.csv')
+    assert result['inserted'] == 1 and result['conflicts'] == 0
+    conn = pipe.store.conn
+    acquired = conn.execute(
+        "SELECT transaction_id, amount_krw FROM transactions"
+        " WHERE conflict_reason='' AND parse_error='' AND duplicate_of IS NULL").fetchall()
+    assert len(acquired) == 1 and acquired[0][1] == 10300
+    approval = conn.execute(
+        "SELECT duplicate_of, amount_krw, approval_number FROM transactions"
+        " WHERE transaction_id<>?", (acquired[0][0],)).fetchall()
+    assert len(approval) == 1
+    assert approval[0][0] == acquired[0][0] and approval[0][1] == 10000 and approval[0][2] == '00001111'
+
+
+def test_all_zero_approval_number_cannot_establish_a_cross_view_match():
+    from app.normalize import normalize_approval_number
+    assert normalize_approval_number('000000') == ''
+    assert normalize_approval_number('  00001111 ') == '1111'
+    assert normalize_approval_number('A000123') == 'A000123'
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    # Different zero padding keeps the raw identities distinct, so any collapse
+    # could only come from the normalized cross-view key — which must stay empty.
+    pipe.receive(_approval_source(approval='000000'), 'first.csv')
+    result = pipe.receive(_acquired_foreign(approval='0000000'), 'second.csv')
+    assert result['conflicts'] == 0
+    assert pipe.store.conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 2
+
+
+def test_same_normalized_approval_with_multiples_amount_stays_separate():
+    # A reused approval number across DIFFERENT merchants differs by multiples, not
+    # by FX/fee, and cannot be confirmed as one purchase, so it stays separate.
+    # (A same-merchant wide multiple is the overseas gas pre-auth case below.)
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    pipe.receive(_approval_source(approval='00001111', amount=10000, merchant='합성상점'), 'first.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=900000, merchant='다른상점'), 'second.csv')
+    assert result['conflicts'] == 0
+    assert pipe.store.conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE conflict_reason='' AND parse_error=''").fetchone()[0] == 2
+
+
+def test_hana_gas_preauth_same_merchant_superseded_at_import():
+    # B3 가 at import: an overseas gas pre-auth hold is a small approval next to the
+    # final billed total. Same merchant + normalized approval is one purchase even at
+    # a wide ratio, so the billed view supersedes without a second cleanup run.
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    pipe.receive(_approval_source(approval='00001111', amount=1451), 'approval.csv')
+    result = pipe.receive(_acquired_foreign(approval='1111', amount=55989), 'acquired.csv')
+    assert result['inserted'] == 1 and result['conflicts'] == 0
+    conn = pipe.store.conn
+    canonical = conn.execute(
+        "SELECT amount_krw FROM transactions WHERE conflict_reason='' AND parse_error='' AND duplicate_of IS NULL"
+    ).fetchall()
+    assert len(canonical) == 1 and canonical[0][0] == 55989
+    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE duplicate_of IS NOT NULL").fetchone()[0] == 1

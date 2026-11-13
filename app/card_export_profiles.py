@@ -1,7 +1,8 @@
 """Verified Hana usage and IBK print layouts; source cells stay untouched."""
 import re
 
-from .normalize import AmountUnreadable, is_cancel_text, to_amount_krw, to_date, to_decimal
+from .normalize import (AmountUnreadable, is_cancel_text, normalize_approval_number,
+                        to_amount_krw, to_date, to_decimal)
 
 
 HANA_USAGE = ('NO', '이용일자', '매입일자', '카드번호', '구분', '매출구분',
@@ -182,20 +183,43 @@ def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
     Missing posting/currency details in a compact view cannot erase the fuller
     source. Refunds and repeated rows within the same file retain multiplicity.
     """
-    if parser.split(':', 1)[-1] not in ('hana_usage', 'hana_foreign', 'ibk_print'):
-        return None
+    layout = parser.split(':', 1)[-1]
+    if layout not in ('hana_usage', 'hana_foreign', 'ibk_print'):
+        # Hana approval-source downloads arrive as a generic headered sheet and
+        # describe the same purchases as the acquired views, so they join the
+        # cross-view matching too. Other issuers' headered sheets are untouched.
+        if not (layout == 'headered' and row.issuer == '하나'):
+            return None
+    # Leading-zero padding differs between views (`00001111` vs `1111`); compare
+    # the normalized key, never rewriting the stored approval number. An all-zero
+    # number is meaningless and cannot establish a match.
+    approval_key = normalize_approval_number(row.approval_number)
     if (row.transaction_direction != 'purchase' or row.parse_error
-            or not row.approval_number or not row.card_tail or not row.approval_date):
+            or not approval_key or not row.card_tail or not row.approval_date):
         return None
     candidates = store.conn.execute(
-        "SELECT transaction_id,merchant_normalized,amount_krw,foreign_amount,foreign_currency,posting_date,batch_id,row_index,source_hash "
-        "FROM transactions WHERE issuer=? AND card_tail=? AND approval_number=? "
-        "AND approval_date=? AND transaction_direction='purchase' AND batch_id<>? "
-        "AND parse_error='' AND conflict_reason='' AND duplicate_of IS NULL",
-        (row.issuer, row.card_tail, row.approval_number, row.approval_date, batch_id)).fetchall()
+        "SELECT t.transaction_id,t.merchant_normalized,t.amount_krw,t.foreign_amount,t.foreign_currency,"
+        "t.posting_date,t.batch_id,t.row_index,t.source_hash,b.parser "
+        "FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id "
+        "WHERE t.issuer=? AND t.card_tail=? AND LTRIM(t.approval_number,'0')=? "
+        "AND t.approval_date=? AND t.transaction_direction='purchase' AND t.batch_id<>? "
+        "AND t.parse_error='' AND t.conflict_reason='' AND t.duplicate_of IS NULL",
+        (row.issuer, row.card_tail, approval_key, row.approval_date, batch_id)).fetchall()
     if len(candidates) != 1:
         return None
-    identity, merchant, amount, foreign, currency, posting_date, original_batch, original_index, original_hash = candidates[0]
+    (identity, merchant, amount, foreign, currency, posting_date, original_batch, original_index,
+     original_hash, original_parser) = candidates[0]
+    # An approval number can be reused by different purchases on one card/day. A
+    # normal FX/fee ratio corroborates one purchase; a wide multiple alone means a
+    # different transaction. But an overseas gas pre-auth hold is a small approval
+    # next to the final billed total, so a compatible merchant keeps it one purchase
+    # even at a wide ratio — the same criteria as the cleanup tool (SRC-009).
+    if amount and row.amount_krw and amount > 0 and row.amount_krw > 0:
+        from .card_hana_duplicate_repair import RATIO_MIN, RATIO_MAX, _merchant_compatible
+        ratio_ok = RATIO_MIN <= amount / row.amount_krw <= RATIO_MAX
+        overseas = layout == 'hana_foreign' or str(original_parser or '').split(':', 1)[-1] == 'hana_foreign'
+        if not ratio_ok and not (overseas and _merchant_compatible(merchant, row.merchant_normalized)):
+            return None
     cache = source_cache if source_cache is not None else {}
     same_merchant = merchant == row.merchant_normalized
     if not same_merchant and merchant and row.merchant_normalized and (
@@ -218,6 +242,44 @@ def existing_purchase(store, batch_id, parser, row, *, source_cache=None):
     if currency and row.foreign_currency:
         same = same and currency == row.foreign_currency
     return identity, same
+
+
+def acquired_supersedes_approval(store, parser, row, identity):
+    """The overseas acquired (billed) view is the financial canonical (SRC-005/009).
+
+    When the overseas billed view (`hana_foreign`, 청구금액) arrives after its
+    approval-source download was already stored, the acquired row must stay
+    canonical regardless of import order. The caller inserts the acquired row and
+    marks the approval-source row as its duplicate — never the reverse, which would
+    leave the approval-time amount as the cost and push the billed total into a
+    conflict. Domestic `hana_usage` keeps its merchant-number conflict protection.
+    """
+    if row.issuer != '하나' or parser.split(':', 1)[-1] != 'hana_foreign':
+        return False
+    existing = store.conn.execute(
+        "SELECT b.parser FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id"
+        " WHERE t.transaction_id=? AND t.conflict_reason='' AND t.duplicate_of IS NULL",
+        (identity,)).fetchone()
+    return bool(existing and existing[0].split(':', 1)[-1] == 'headered')
+
+
+def approval_superseded_by_acquired(store, parser, row, identity):
+    """Billed-first mirror of `acquired_supersedes_approval` (SRC-005/009).
+
+    When the overseas billed view (`hana_foreign`) was stored first and its
+    approval-source download (`headered`) arrives afterwards, the incoming approval
+    row is the redundant view: the caller marks it a duplicate of the billed
+    canonical instead of leaving a source conflict, so both import orders agree.
+    The approval row is new and unbooked, so no ledger amount changes. Domestic
+    `hana_usage` keeps its merchant-number conflict protection in both orders.
+    """
+    if row.issuer != '하나' or parser.split(':', 1)[-1] != 'headered':
+        return False
+    existing = store.conn.execute(
+        "SELECT b.parser FROM transactions t JOIN import_batches b ON b.batch_id=t.batch_id"
+        " WHERE t.transaction_id=? AND t.conflict_reason='' AND t.duplicate_of IS NULL",
+        (identity,)).fetchone()
+    return bool(existing and existing[0].split(':', 1)[-1] == 'hana_foreign')
 
 
 def redundant_purchase_conflicts(conn):

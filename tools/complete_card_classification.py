@@ -181,6 +181,25 @@ def protected_state(conn):
     return result
 
 
+def ledger_route_port(host):
+    """The Board port the host actually routes to, from config/ledger-route.json.
+
+    A missing/unreadable route file or a paused route must stop an offline write
+    rather than fall back to a hard-coded port. The port must be a Board port.
+    """
+    route_path = Path(host) / 'config' / 'ledger-route.json'
+    try:
+        route = json.loads(route_path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        raise ValueError('ROUTE_REQUIRED')
+    if route.get('paused'):
+        raise ValueError('ROUTE_PAUSED')
+    port = route.get('port')
+    if not isinstance(port, int) or isinstance(port, bool) or port not in (8751, 8752):
+        raise ValueError('ROUTE_PORT_INVALID')
+    return port
+
+
 def require_writers_offline(port=8751):
     """Refuse writes while a managed writer task runs or the Board port listens.
 
@@ -217,7 +236,7 @@ def require_offline_backup(host, evidence, db, *, isolated_copy=False):
                 or (live.exists() and os.path.samefile(db,live))):
             raise ValueError('ISOLATED_COPY_REQUIRED')
         return
-    require_writers_offline()
+    require_writers_offline(ledger_route_port(host))
 
 
 def main(argv=None):
