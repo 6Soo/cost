@@ -1,9 +1,9 @@
 ## 2026-11-13 PR #841 opus 변경 요청 반영 — 근거 개정 경로·일반 동기화
 
 - 동기화 코드의 화순 ID/날짜 예외 제거. 별도 확정 일정과 Google 명시 종료일이 같으면 허용하고 다르면 보존한다. 새 `tools/revise_trip_schedule.py`는 미리보기/검수 SHA·복원 사본 확인 후 적용/이후 변경을 보호하는 원복을 제공한다. 기존 일정 레코드는 새 owner-schedule의 supersedes·receipt에, 원본 authority 전체는 복원 사본에 남긴다.
-- 일정 파일 읽기 실패는 경고 로그와 `schedule_unavailable` 결과로 기록하고 기존 종료일 갱신만 건너뛴다. 새 여행 생성·자동 연결은 계속한다. 표적 합성 44pass. 영향 검사는 이 절이 들어간 최종 구현 커밋·PR에 기록한다.
+- 일정 파일 읽기 실패는 경고 로그와 `schedule_unavailable` 결과로 기록하고 기존 종료일 갱신만 건너뛴다. 새 여행 생성·자동 연결은 계속한다. 코드 완료 `57aa8f86`, 표적 합성 44pass. 같은 코드에서 `python tools/run_quality_checks.py --base origin/main --run` PASSED: 539pass·skip0·compile PASS. 마지막 변경은 이 검사 기록과 TRIP-098의 운영 미반영 안내뿐이다.
 - 운영 DB mode=ro 재측정: 지금 근거로는 변경 0. TRIP-098 근거 개정 미리보기 뒤 화순 하나 8/25→26, 귀속 카드 밖→안14/안→밖0, 닫힌 분기0으로 기존 수치와 같다. 운영 DB/authority/evidence·Google 변경과 동기화·재판정·병합·배포는 실행하지 않았다.
-- 근거: [변경 요청·영향](agents/artifacts/trip-end-date-sync-20261113.md), [유지보수 절차](playbooks/trip-schedule-revision.md). 미리보기 입력과 원문 없는 집계는 `.local-archive/trip-end-date-sync/`에 보존했다. 남은 단계: 영향 검사 PASSED 후 같은 PR push, 헤드의 새 SHA opus 재검수와 별도 운영 적용 판단. CODE_GAPS의 운영 8/25 상태는 아직 남는다.
+- 근거: [변경 요청·영향](agents/artifacts/trip-end-date-sync-20261113.md), [유지보수 절차](playbooks/trip-schedule-revision.md). 미리보기 입력과 원문 없는 집계는 `.local-archive/trip-end-date-sync/`에 보존했다. 요구 1~4·표적/영향 검사 완료. 마지막 문서 검증 후 같은 PR에 push하며, 최종 SHA는 PR HEAD를 따른다. 남은 단계는 헤드의 새 SHA opus 재검수와 별도 운영 적용 판단이다. CODE_GAPS의 운영 8/25 상태는 아직 남는다.
 
 ## 2026-11-13 여행 종료일 동기화 — 초기 PR 구현 (위 변경 요청 이전 이력)
 
