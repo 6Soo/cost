@@ -286,7 +286,7 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                         else:
                             outcome = _insert_row(store, batch_id, row, now, canonical)
                             if outcome == 'inserted':
-                                period = hana.closed_period(dup_row.get('approval_date') or dup_row.get('posting_date'))
+                                period = hana.closed_period(store.conn, dup_row)
                                 if period:
                                     # Submitted period: the ledger is immutable. Keep the
                                     # booked approval row exactly as it is and mark the

@@ -87,11 +87,13 @@ def read_database(path, recent_since='2026-11-11'):
 def read_closed_duplicates(conn, transactions):
     """Closed (submitted) period duplicate pairs from the hana release log.
 
-    Both the import path and the cleanup tool record closed pairs with
-    `closed=True`; the import entry carries `period`, the cleanup entry derives it
-    from the marked row's date. Read-only. These pairs are excluded from the normal
-    review list (duplicate rows), so they are surfaced here as a separate review
-    target instead of being left only in change_log.
+    The import path records a closed pair with `closed=True` and a `period` when it
+    marks the billed row a duplicate of the booked approval. The cleanup tool does
+    not touch closed pairs (it preserves them as CLOSED_PERIOD), so any older
+    closed entry without a `period` derives one from the marked row via the common
+    open/closed boundary. Read-only. These pairs are excluded from the normal review
+    list (duplicate rows), so they are surfaced here as a separate AI-reviewer CSV
+    instead of being left only in change_log.
     """
     from app.card_hana_duplicate_repair import RELEASE, closed_period
     by_id = {r['transaction_id']: r for r in transactions}
@@ -105,7 +107,7 @@ def read_closed_duplicates(conn, transactions):
             continue
         tid = r['subject']
         tx = by_id.get(tid, {})
-        period = detail.get('period') or closed_period(tx.get('approval_date') or tx.get('posting_date'))
+        period = detail.get('period') or closed_period(conn, tx)
         key = (period, tid, detail.get('keep'))
         if key in seen:
             continue

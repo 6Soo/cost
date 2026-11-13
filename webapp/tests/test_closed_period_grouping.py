@@ -648,19 +648,32 @@ def test_hana_repair_marks_approval_duplicate_and_counts_once(tmp_path, monkeypa
     board.close()
 
 
-def test_hana_repair_closed_period_marks_only_without_changing_ledger(tmp_path, monkeypatch):
+def test_hana_repair_closed_period_preserved_untouched_through_classify(tmp_path, monkeypatch):
+    # Closed (submitted) period: the cleanup never touches the pair — it is
+    # preserved as CLOSED_PERIOD (counted per reason), not marked. A later classify
+    # must not change the closed ledger either. Both rows stay un-marked and both
+    # ledger entries stay at their original amounts.
     board, flow, c, atid, ptid = hana_double_import(tmp_path, monkeypatch, day='2026-03-31')
     plan = hana.preview(c)
-    assert plan['summary']['closed_mark_only'] == 1 and plan['summary']['to_unbook'] == 0
-    assert plan['summary']['closed_amount_krw'] == 10000
-    before = hana._state(c, ptid)
+    assert plan['summary']['to_mark'] == 0
+    assert plan['summary']['excluded'].get('CLOSED_PERIOD') == 1
+    before = {tid: hana._state(c, tid) for tid in (atid, ptid)}
+    financial = hana._financial_state(c)
     hana.apply(c, plan, request_id='hana-closed')
-    dup = hana._state(c, ptid)
-    assert dup['transaction']['duplicate_of'] == atid
-    assert dup['ledger'] == before['ledger'] and dup['board'] == before['board']
+    # Cleanup left the pair exactly as it was: no duplicate mark, projections intact.
+    for tid in (atid, ptid):
+        assert hana._state(c, tid) == before[tid]
     assert c.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 2
-    hana.restore(c, hana.restore_preview(c, 'hana-closed'), 'hana-closed')
-    assert hana._state(c, ptid)['transaction']['duplicate_of'] is None
+    assert hana._financial_state(c) == financial
+    # A normal classify run on both batches must not add to or change the closed ledger.
+    for tid in (atid, ptid):
+        batch = c.execute('SELECT batch_id FROM transactions WHERE transaction_id=?', (tid,)).fetchone()[0]
+        flow.classify(batch)
+    assert c.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 2
+    for tid in (atid, ptid):
+        state = hana._state(c, tid)
+        assert state['transaction']['duplicate_of'] is None
+        assert state['ledger'] == before[tid]['ledger']
     board.close()
 
 

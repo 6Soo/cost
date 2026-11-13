@@ -51,21 +51,34 @@ MANUAL_SOURCES = {'user_decision', 'user_exception', 'owner_booking', 'manual', 
 RATIO_MIN, RATIO_MAX = 0.5, 2.0
 
 
-def closed_period(day):
-    """Periods already handed to the tax firm (SPEC D22: Q1·Q2) plus 2025 (SRC-042).
+def _open_trips(conn):
+    if not _has_table(conn, 'trip_tabs'):
+        return []
+    cursor = conn.execute('SELECT * FROM trip_tabs')
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, record)) for record in cursor.fetchall()]
 
-    Q3 2026 is still under review and not submitted, so it is open here. This is
-    deliberately wider than `closed_period.completed_period` (2025·Q1 only),
-    which governs classification entry rather than submitted-ledger immutability.
-    """
+
+def _period_label(day):
     text = str(day or '')[:7]
-    if text[:4] == '2025':
-        return '2025'
-    if text in ('2026-01', '2026-02', '2026-03'):
-        return '2026Q1'
-    if text in ('2026-04', '2026-05', '2026-06'):
-        return '2026Q2'
-    return None
+    if len(text) >= 7 and text[5:7].isdigit():
+        return f"{text[:4]}Q{(int(text[5:7]) - 1) // 3 + 1}"
+    return text[:4] or 'unknown'
+
+
+def closed_period(conn, row):
+    """Closed = outside the common open scope (REC-007 / SPEC §6.5).
+
+    Delegates to `closed_period.open_scope` — trips attributed from the 0630 trip
+    (departing 2026-06-30) onward, or dates in 2026 Q3 and later, are open; every
+    other period is closed. No hardcoded dates here, so the cleanup and the import
+    path share the one open/closed boundary. Returns a display period label when
+    closed, else None.
+    """
+    from .closed_period import open_scope
+    if open_scope(row, _open_trips(conn)):
+        return None
+    return _period_label(row.get('approval_date') or row.get('posting_date'))
 
 
 def _layout(parser):
@@ -253,7 +266,6 @@ def preview(conn):
     number_index = _number_index_for(conn)
     targets, excluded = [], Counter()
     excluded_pairs = []
-    closed_pairs = []
     seen = set()
     for keep, dup, reason in _pairs(conn):
         kt, dt = keep['transaction_id'], dup['transaction_id']
@@ -269,30 +281,30 @@ def preview(conn):
             excluded[guard] += 1
             excluded_pairs.append(dict(keep=kt, dup=dt, reason=guard))
             continue
-        day = dup['approval_date'] or dup['posting_date']
-        period = closed_period(day)
+        period = closed_period(conn, dup)
+        if period:
+            # Closed (submitted) period: the cleanup never touches the pair. It is
+            # preserved as CLOSED_PERIOD and surfaced only to AI quarter review.
+            excluded['CLOSED_PERIOD'] += 1
+            excluded_pairs.append(dict(keep=kt, dup=dt, reason='CLOSED_PERIOD', period=period))
+            continue
         keep_before = _state(conn, kt)
         dup_before = _state(conn, dt)
         # If the canonical acquired row was never booked but the approval row was,
         # the ledger/board projection moves to the canonical row (billed amount,
         # inherited attribution) instead of being dropped, so the cost stays booked.
-        ledger_action = ('move' if not period and not keep_before['ledger'] and dup_before['ledger']
-                         else 'unbook')
-        target = dict(tid=dt, keep=kt, closed=bool(period), period=period,
+        ledger_action = 'move' if not keep_before['ledger'] and dup_before['ledger'] else 'unbook'
+        target = dict(tid=dt, keep=kt, closed=False, period=None,
                       before=dup_before, keep_before=keep_before, ledger_action=ledger_action,
                       values=dict(duplicate_of=kt))
         targets.append(target)
-        if period:
-            closed_pairs.append(dict(dup=dt, keep=kt, period=period, amount_krw=dup['amount_krw']))
     summary = dict(
         confirmed_pairs=len(targets) + sum(excluded.values()),
         to_mark=len(targets),
-        to_unbook=sum(1 for t in targets if not t['closed']),
-        closed_mark_only=len(closed_pairs),
-        closed_amount_krw=sum(t['amount_krw'] for t in closed_pairs),
+        to_move=sum(1 for t in targets if t['ledger_action'] == 'move'),
+        to_unbook=sum(1 for t in targets if t['ledger_action'] == 'unbook'),
         excluded=dict(excluded),
         excluded_pairs=excluded_pairs,
-        closed_pairs=closed_pairs,
         quarter_distribution=dict(Counter(
             _quarter(rows[t['tid']]['approval_date'] or rows[t['tid']]['posting_date']) for t in targets)),
     )
@@ -442,14 +454,15 @@ def apply(conn, expected, *, request_id):
             raise ValueError('HANA_PREVIEW_STALE')
         financial = _financial_state(conn)
         for target in current['targets']:
+            # Closed-period pairs are preserved in preview (CLOSED_PERIOD), so every
+            # target here is an open period: move the projection or unbook the dup.
             tid = target['tid']
-            if not target['closed'] and target['ledger_action'] == 'move':
+            if target['ledger_action'] == 'move':
                 move_approval_projection(conn, target['keep'], tid, request_id=request_id)
             else:
                 conn.execute('UPDATE transactions SET duplicate_of=?,revision=revision+1 WHERE transaction_id=?',
                              (target['values']['duplicate_of'], tid))
-                if not target['closed']:
-                    _unbook(conn, tid)
+                _unbook(conn, tid)
             detail = dict(request_id=request_id, keep=target['keep'], closed=target['closed'],
                           ledger_action=target['ledger_action'], keep_before=target['keep_before'],
                           before=target['before'], after=_state(conn, tid), financial=financial)
