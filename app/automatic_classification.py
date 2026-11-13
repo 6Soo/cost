@@ -218,8 +218,8 @@ def _card3820_owner_policy(row, trips, *, _canonical=None):
                         source='user_exception')
         return None
 
-    from .rules import transaction_region
-    if transaction_region(row) == 'overseas':
+    from .rules import is_online_purchase_for_owner_card, transaction_region
+    if transaction_region(row) == 'overseas' and not is_online_purchase_for_owner_card(row):
         candidates, preparation = period_or_preparation(
             regional_trips(row, valid.values()), occurred.isoformat())
         if not candidates:

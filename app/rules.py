@@ -110,6 +110,14 @@ def is_booking_or_online(transaction):
             (category.startswith('card-category:') and
              any(marker in category for marker in ('인터넷상거래','전자상거래','통신판매','결제대행'))))
 
+def is_online_purchase_for_owner_card(transaction):
+    """지정 카드 잔여: 예약·온라인 표지에 해외 쇼핑몰·AI/SaaS 구독을 더한 3820 전용 판정(TRIP-045)."""
+    merchant = str(transaction.get('merchant') or '').upper()
+    markers = ('.COM', 'ANTHROPIC', 'CLAUDE', 'OPENAI', 'CHATGPT', 'ALIEXPRESS', 'TEMU',
+               'CURSOR', 'GITHUB', 'MIDJOURNEY', 'PERPLEXITY', 'OPENROUTER', 'NOTION', 'DROPBOX',
+               'SPOTIFY', 'NETFLIX', 'ADOBE')
+    return is_booking_or_online(transaction) or any(marker in merchant for marker in markers)
+
 __all__ = [
     "CONDITION_FIELDS", "OPTIONAL_FIELDS", "EFFECT_FIELDS",
     "normalize_rule", "rule_matches", "save_rule", "list_rules",
