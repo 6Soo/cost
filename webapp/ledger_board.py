@@ -1790,6 +1790,7 @@ def export_page(selected_tab: str = "") -> str:
             jobs_html = f"<h3>최근 출력</h3><ul>{items}</ul>"
     body = (
         "<section class='sect export-page'><h2>XLSX 내보내기</h2>"
+        "<p><a href='/trips/profit'>모든 여행의 손익을 한 표로 보기·내보내기</a></p>"
         f"<details class='export-diagnostics'><summary>출력 전 검토·여행별 건수</summary>{review_note}{counts}</details>"
         f"<form method='post' action='/api/exports/xlsx'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
@@ -3613,6 +3614,9 @@ class Handler(BaseHTTPRequestHandler):
         from . import ota_catalog
         if ota_catalog.dispatch(self, parsed, board=_active_store(),
                                 is_owner=_receipts_owner_request(), query=query, csrf=CSRF_TOKEN):
+            return
+        from . import trip_profit_summary
+        if trip_profit_summary.dispatch(self, parsed, is_owner=_participant_owner_request()):
             return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
