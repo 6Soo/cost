@@ -2,3 +2,4 @@
 
 pub mod dates;
 pub mod domain;
+pub mod store;

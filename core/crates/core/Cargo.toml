@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 regex = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
 thiserror = "2"
 time = { version = "0.3", default-features = false, features = ["std"] }
 
