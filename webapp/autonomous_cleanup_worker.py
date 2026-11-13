@@ -570,8 +570,9 @@ class AutonomousCleanupWorker:
                 save_job(self.board.conn, row[0], fingerprints[row[0]],
                          {'status': 'awaiting_agent', 'attempts': attempts})
             try:
-                plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids,evidence=period_evidence)
-                automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids,evidence=period_evidence)
+                classify_evidence = self._classification_evidence(trips)
+                plan = automatic_classification.plan(self.board.conn, trips, nets=nets, transaction_ids=ids,evidence=classify_evidence)
+                automatic_classification.apply(self.board.conn, plan, trips, nets=nets, transaction_ids=ids,evidence=classify_evidence)
                 self.board.conn.commit()
             except Exception as exc:
                 self._progress('p1_failed', reason='P1_' + failure_code(exc))
@@ -1000,6 +1001,10 @@ class AutonomousCleanupWorker:
                                        'duration_ms': int((time.monotonic() - started) * 1000)})
             self._finish(all_rows)
             return True
+
+    def _classification_evidence(self, trips):
+        from .card_classification_completion import classification_evidence
+        return classification_evidence(self.board,trips)
 
     def _completed_period_evidence(self, trips):
         from .card_classification_completion import completed_period_evidence

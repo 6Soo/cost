@@ -124,12 +124,12 @@ def test_reevaluation_compares_every_field_and_is_read_only(setup):
     assert list(c.iterdump()) == dump  # nothing written, projections untouched
     assert report['cases'] == 5
     assert (report['matched'], report['mismatched'], report['item_not_reevaluated'],
-            report['not_rejudged']) == (1, 3, 1, 0)
+            report['not_rejudged']) == (1, 4, 0, 0)
     assert report['matched'] + report['mismatched'] + report['item_not_reevaluated'] \
         + report['not_rejudged'] == report['cases']
     assert report['by_reason'] == {'ATTRIBUTION_QUARTER_VS_TRIP': 1, 'ATTRIBUTION_TRIP_DIFFERS': 1,
-                                   'ITEM_DIFFERS': 3}
-    assert report['item_not_reevaluated_by_reason'] == {'ITEM_FROM_IMPORT_RULE_NOT_REEVALUATED': 1}
+                                   'ITEM_DIFFERS': 4}
+    assert report['item_not_reevaluated_by_reason'] == {}
     text = json.dumps(report, ensure_ascii=False)
     assert not any(i in text for i in ids) and NAME not in text
 
@@ -152,7 +152,7 @@ def test_import_rule_item_is_not_inherited_from_the_correction(setup):
     assert case['before']['transaction']['classification_source'] == 'rule'
     assert case['after']['transaction']['item'] == '교통비'
     result = eval_cases.rejudge(c, TRIPS, [case])[0]
-    assert result['outcome'] == 'ITEM_NOT_REEVALUATED'
+    assert result['outcome'] == 'MISMATCH' and result['reasons'] == ['ITEM_DIFFERS']
     # and the corrected value really never reaches the P1 input: a correction that happens to
     # equal the derived item ('기타경비') is a genuine MATCH only because it was derived afresh
     c2 = c.execute("SELECT detail_json FROM change_log WHERE subject=? AND kind=?",
@@ -161,6 +161,22 @@ def test_import_rule_item_is_not_inherited_from_the_correction(setup):
     detail['after']['transaction']['item'] = '기타경비'
     case['after'] = detail['after']
     assert eval_cases.rejudge(c, TRIPS, [case])[0]['outcome'] == 'MATCH'
+
+
+def test_import_time_data_rule_is_applied_before_the_plan(setup):
+    """A data rule's item decides the import step; the corrected item is still never an input."""
+    from app.rules import save_rule
+    c, ids = corrected(setup)
+    case = next(x for x in eval_cases.collect_cases(c, REVIEW_ID) if x['tid'] == ids[3])
+    merchant = c.execute('SELECT merchant_normalized FROM transactions WHERE transaction_id=?',
+                         (ids[3],)).fetchone()[0]
+    save_rule(eval_cases._CopyStore(c), {'conditions': {'merchant_normalized': merchant}, 'effects': {'item': '교통비'}})
+    result = eval_cases.rejudge(c, TRIPS, [case])[0]
+    # the rule yields the reviewer's item, but the plan still ends the row in a quarter and the
+    # reviewer put it in trip A, so only attribution (not item) differs
+    assert 'ITEM_DIFFERS' not in result['reasons'], result
+    c.execute("UPDATE cost_classification_rules SET status='retired'")
+    assert 'ITEM_DIFFERS' in eval_cases.rejudge(c, TRIPS, [case])[0]['reasons']
 
 
 def test_reevaluation_reports_zero_when_every_correction_agrees(setup):
@@ -190,7 +206,7 @@ def test_rows_protected_after_the_review_are_reported_separately_not_as_mismatch
     report = eval_cases.evaluate(c, TRIPS, review_id=REVIEW_ID)
     assert report['not_rejudged'] == 1
     assert report['not_rejudged_by_reason'] == {'NOT_REJUDGED_SOURCE_PROTECTED': 1}
-    assert report['mismatched'] == 2 and 'ATTRIBUTION_QUARTER_VS_TRIP' not in report['by_reason']
+    assert report['mismatched'] == 3 and 'ATTRIBUTION_QUARTER_VS_TRIP' not in report['by_reason']
     assert report['matched'] + report['mismatched'] + report['item_not_reevaluated'] \
         + report['not_rejudged'] == report['cases']
 
@@ -225,7 +241,7 @@ def test_commands_write_only_private_case_file_and_open_database_read_only(setup
     capsys.readouterr()
     assert eval_cases.main(['eval', '--host-root', str(host)]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out['status'] == 'EVALUATED' and out['mismatched'] == 3 and out['type_counts_match_case_file'] is True
+    assert out['status'] == 'EVALUATED' and out['mismatched'] == 4 and out['type_counts_match_case_file'] is True
     assert out['evidence_mode'] == 'booking_and_mail' and set(out['timings_seconds']) == {'context', 'evidence', 'rejudge'}
     assert 'elapsed_seconds' in out
     # evidence cache sits beside, never inside, the case folder

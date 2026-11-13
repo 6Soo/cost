@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
 from .assignment_status import row_assignment
-from .rules import merchant_country
+from .rules import merchant_country, transaction_region
 from .trip_selection import regional_trips, period_or_preparation
 
 POLICY = 'complete-card-inference-v1'
@@ -113,13 +113,13 @@ def infer_item(row):
     industry = raw.removeprefix('card-category:') if raw.startswith('card-category:') else ''
     groups = (
         ('주차비', r'주차|parking'), ('주유비', r'주유|충전소|gas station|fuel'),
-        ('통행료', r'통행료|고속도로|toll'), ('항공료', r'항공|airline|airways|aviation|gotogate|고투게이트'),
+        ('통행료', r'통행료|고속도로|유료도로|터널|toll'), ('항공료', r'항공|airline|airways|aviation|gotogate|고투게이트'),
         ('렌터카', r'렌터카|렌트카|rent.?a.?car|rent.?car|rent.?lease'),
         ('숙박비', r'숙박|호텔|여관|모텔|펜션|리조트|hotel|inn\b|resort|agoda|booking\.com|airbnb|ryokan'),
         ('식비', r'음식|식당|한식|중식|일식|양식|제과|커피|카페|식음료|국밥|김밥|칼국수|restaurant|cafe|coffee|bakery'),
-        ('편의점', r'편의점|슈퍼|마트|convenience|supermarket'),
+        ('식비', r'편의점|슈퍼|마트|세븐일레븐|이마트24|지에스25|gs25|\bcu\b|seven.?eleven|7.?eleven|family.?mart|lawson|mini.?stop|convenience|supermarket'),
         ('교통비', r'택시|철도|버스|지하철|승차권|여객선|taxi|rail|train|subway|transit|ferry'),
-        ('입장료', r'입장|관람|박물관|수목원|미술관|museum|admission'),
+        ('입장료', r'입장|관람|박물관|수목원|미술관|공연|전시|museum|admission'),
         ('여행경비', r'여행|관광|투어|tour|trip\.com|klook'),
     )
     for text, basis in ((industry,'카드사 업종 공통 규칙'),
@@ -129,7 +129,7 @@ def infer_item(row):
                 return item, basis
     if row.get('transaction_direction') in ('refund', 'cancellation'):
         return '취소·환불', '원결제 항목 단서 부족 · 취소·환불 원행 용도'
-    if merchant_country(row) not in ('', 'KR'):
+    if transaction_region(row) == 'overseas':
         return '현지경비', '해외 카드 사용 · 세부 업종 단서 부족'
     return '기타경비', '업종·용도 단서 부족 · 업무 카드 지출 기본 분류'
 
@@ -218,17 +218,18 @@ def _card3820_owner_policy(row, trips, *, _canonical=None):
                         source='user_exception')
         return None
 
-    from .rules import transaction_region
+    from .rules import is_online_purchase_for_owner_card, transaction_region
     if transaction_region(row) == 'overseas':
         candidates, preparation = period_or_preparation(
             regional_trips(row, valid.values()), occurred.isoformat())
-        if not candidates:
-            return None
-        target, basis = infer_trip(row, candidates, reconsider=True,
-                                   _canonical={t['trip_id']: t for t in candidates})
-        return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
-                    display_tab_id=target, trip_id=target, source='inference',
-                    basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
+        if not is_online_purchase_for_owner_card(row, candidates):
+            if not candidates:
+                return None
+            target, basis = infer_trip(row, candidates, reconsider=True,
+                                       _canonical={t['trip_id']: t for t in candidates})
+            return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
+                        display_tab_id=target, trip_id=target, source='inference',
+                        basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
     year, quarter = quarter_of(occurred)
     return dict(item='분기 기타비용', description=f'{year}년 {quarter}분기 기타비용',
                 display_tab_id=f'quarter:{year}:{quarter}', trip_id='',
@@ -329,7 +330,10 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab,
                       display_tab_id=existing_tab)
     from .closed_period import completed_period
-    fact = evidence.get(tid) if reconsider or completed_period(row) else None
+    # TRIP-036: a source-bound reservation period outranks payment-date proximity
+    # for a new judgement too; recorded-tab corrections stay reconsider-only.
+    fresh = (not existing_tab and row['classification_source'] not in ('user_decision', 'user_exception', 'owner_booking'))
+    fact = evidence.get(tid) if reconsider or completed_period(row) or fresh else None
     valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
                       and fact.get('trip_id') in valid
                       and row['transaction_direction'] == 'purchase')
@@ -415,11 +419,10 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         else:
             quarter = _quarter_destination(chosen)
             if quarter and (rerank or chosen.get('display_tab_id') in (None, '', 'unclassified')):
-                # Preserve an explicit item rule that matched this import. The
-                # transaction's prior source is empty on a new import, while
-                # ``chosen`` already carries the rule provenance.
+                # PROC-004: the item of a quarter-ended row is 분기 기타비용; only an owner
+                # exception or booking keeps its own item.
                 quarter_item = (chosen['item'] if chosen['item'] and chosen.get('classification_source') in
-                                {'rule','pattern','user_exception','owner_booking'} else '분기 기타비용')
+                                {'user_exception','owner_booking'} else '분기 기타비용')
                 chosen.update(display_tab_id=quarter[0], trip_id='',
                               item=quarter_item,
                               description=chosen.get('description') or quarter[1])
