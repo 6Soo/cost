@@ -78,9 +78,44 @@ def read_database(path, recent_since='2026-11-11'):
             row.update(row_id=record['row_id'], row_kind=record['row_kind'],
                        display_tab_id=record['display_tab_id'])
             data['board_projected'].append(reader.projected(row))
+        data['closed_duplicates'] = read_closed_duplicates(conn, data['transactions'])
         data['read_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
         conn.rollback()
     return data
+
+
+def read_closed_duplicates(conn, transactions):
+    """Closed (submitted) period duplicate pairs from the hana release log.
+
+    Both the import path and the cleanup tool record closed pairs with
+    `closed=True`; the import entry carries `period`, the cleanup entry derives it
+    from the marked row's date. Read-only. These pairs are excluded from the normal
+    review list (duplicate rows), so they are surfaced here as a separate review
+    target instead of being left only in change_log.
+    """
+    from app.card_hana_duplicate_repair import RELEASE, closed_period
+    by_id = {r['transaction_id']: r for r in transactions}
+    seen, rows = set(), []
+    for r in conn.execute('SELECT at,subject,detail_json FROM change_log WHERE kind=? ORDER BY at', (RELEASE,)):
+        try:
+            detail = json.loads(r['detail_json'])
+        except (TypeError, ValueError):
+            continue
+        if not detail.get('closed'):
+            continue
+        tid = r['subject']
+        tx = by_id.get(tid, {})
+        period = detail.get('period') or closed_period(tx.get('approval_date') or tx.get('posting_date'))
+        key = (period, tid, detail.get('keep'))
+        if key in seen:
+            continue
+        seen.add(key)
+        amount = detail.get('amount_krw')
+        rows.append(dict(period=period or '', duplicate_tid=tid, keep_tid=detail.get('keep') or '',
+                         amount_krw=amount if amount is not None else tx.get('amount_krw'),
+                         ledger_action=detail.get('ledger_action') or '',
+                         request_id=detail.get('request_id') or '', at=r['at']))
+    return rows
 
 
 def load_income(host, trips):
@@ -340,9 +375,15 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
     undecided = undecided_normal(data, year, quarter, rows)
     sources = Counter(r['source_label'] for r in rows)
     write_csv(out / 'sources.csv', ['판정주체', '건수'], [*sorted(sources.items()), ('판정 없는 정상 거래', undecided)])
+    closed = data.get('closed_duplicates', [])
+    write_csv(out / 'closed-period-duplicates.csv',
+              ['닫힌 분기', '중복 표시 행', '유지 행', '금액', '장부 처리', '요청 ID', '기록 시각'],
+              [(r['period'], r['duplicate_tid'], r['keep_tid'], r['amount_krw'],
+                r['ledger_action'], r['request_id'], r['at']) for r in closed])
     summary = dict(trips=len(trips), income_trips=len(incomes.keys() & {t['tab_id'] for t in trips}),
                    expense_rows=len(rows), review_rows=len(review), reasons=dict(reasons),
-                   undecided_normal=undecided, quarter_other_rows=len(other), service_date_unknown=None)
+                   undecided_normal=undecided, quarter_other_rows=len(other), service_date_unknown=None,
+                   closed_period_duplicates=len(closed))
     detail = diagnostics(data, rows, excluded, year, quarter)
     summary['diagnostics'] = detail
     def counts(values):
@@ -364,6 +405,9 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
         '이용일 경고는 장부 화면에서 확인하세요. 예약 근거를 함께 읽는 화면 기준을 이 파일에서 재현하지 않아 점수·건수에서 뺐습니다. 전체 검수 목록은 review-list.csv에 있습니다.',
         (basis_note or '이번 실행의 준비 비용 귀속 폐지 반영 여부는 운영 기록에서 확인하고 기준을 지정해 재생성하세요.') + ' 파일 생성은 장부·Google을 바꾸지 않습니다. 검수 후 기존 장부 복사 기능으로 Google에 붙여넣으세요.',
     ]
+    if closed:
+        notes.append(f'닫힌 분기(제출 완료) 중복 표시 {len(closed)}건은 closed-period-duplicates.csv(시트 "닫힌 분기 중복")에서 보세요. '
+                     '장부가 불변이라 자동 기록되지 않고 검토 대상으로만 남습니다.')
     (out / 'notes.md').write_text('\n'.join(notes) + '\n', encoding='utf-8')
     try:
         from openpyxl import Workbook
@@ -373,10 +417,11 @@ def build_pack(data, year, quarter, out, incomes=None, income_reasons=None, goog
         workbook = Workbook()
         workbook.remove(workbook.active)
         numeric_columns = {'trips': {3, 4, 5, 6, 7}, 'review-list': {0, 5},
-                           'quarter-other': {1, 2}, 'sources': {1}}
+                           'quarter-other': {1, 2}, 'sources': {1}, 'closed-period-duplicates': {3}}
         sheets = [('먼저 볼 50건', 'review-list', render_review_list_csv(review[:50])),
                   ('여행별 손익', 'trips', render_trip_summary_csv(summaries, full_review_count=len(review))),
-                  (f'{quarter}분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None)]
+                  (f'{quarter}분기 기타비용', 'quarter-other', None), ('판정 주체', 'sources', None),
+                  ('닫힌 분기 중복', 'closed-period-duplicates', None)]
         for sheet_name, filename, rendered in sheets:
             sheet = workbook.create_sheet(sheet_name)
             source = rendered or (out / (filename + '.csv')).read_text(encoding='utf-8-sig')

@@ -288,17 +288,22 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                             if outcome == 'inserted':
                                 period = hana.closed_period(dup_row.get('approval_date') or dup_row.get('posting_date'))
                                 if period:
-                                    # Submitted period: the ledger is immutable, so mark
-                                    # the approval duplicate only and surface the pair for
-                                    # closed-period review — same as the cleanup tool.
+                                    # Submitted period: the ledger is immutable. Keep the
+                                    # booked approval row exactly as it is and mark the
+                                    # incoming billed row a duplicate of it, so no automatic
+                                    # path (classify / reconsider / P2 / review-list) can add
+                                    # the billed total. Surface the pair for closed review.
                                     hana.mark_closed_duplicate(store.conn, canonical, identity,
                                                                request_id=batch_id, period=period)
+                                    store.log_change('transaction.duplicate_marked', canonical,
+                                                     {'duplicate_of': identity, 'batch_id': batch_id,
+                                                      'closed_period': period})
                                 else:
                                     hana.move_approval_projection(store.conn, canonical, identity,
                                                                   request_id=batch_id)
-                                store.log_change('transaction.duplicate_marked', identity,
-                                                 {'duplicate_of': canonical, 'batch_id': batch_id,
-                                                  'closed_period': period})
+                                    store.log_change('transaction.duplicate_marked', identity,
+                                                     {'duplicate_of': canonical, 'batch_id': batch_id,
+                                                      'closed_period': period})
                             identity = canonical
                     elif not same_source and approval_superseded_by_acquired(store, parsed.parser, row, identity):
                         # Billed-first order: the incoming approval-source row is the

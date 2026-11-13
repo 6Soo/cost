@@ -888,28 +888,45 @@ def test_hana_import_gas_preauth_booked_superseded(tmp_path, monkeypatch):
 
 
 def test_hana_import_closed_period_marks_only_without_changing_ledger(tmp_path, monkeypatch):
-    # A submitted (closed) period is immutable (PROC-072 / REC-007): the billed import
-    # must NOT move or change the booked approval amount. It marks the approval
-    # duplicate only and surfaces the pair as a closed-period review target, exactly
-    # like the cleanup tool. 2026 Q2 approval 10,000 stays 10,000 after the billed import.
+    # A submitted (closed) period is immutable (PROC-072 / REC-007): the booked
+    # approval row stays exactly as it is and the incoming billed row is marked a
+    # duplicate of it. No automatic path — classify, reconsider, P2, review-list
+    # recording — may add the billed total on top. 2026 Q2 approval 10,000 stays
+    # 10,000 after the billed import AND a classify + reconsider run (not 20,300).
     board, flow, c, ptid = hana_booked_approval(tmp_path, monkeypatch, day='2026-05-15')
     before = hana._state(c, ptid)
     atid = _hana_receive_acquired(flow, c, day='2026-05-15', amount=10300)
-    keep, dup = hana._state(c, atid), hana._state(c, ptid)
-    assert dup['transaction']['duplicate_of'] == atid
-    assert keep['transaction']['duplicate_of'] is None
-    # The closed-period approval stays booked at its own amount; nothing moves.
-    assert dup['ledger']['amount_krw'] == 10000
-    assert dup['ledger'] == before['ledger'] and dup['board'] == before['board']
-    assert keep['ledger'] is None and keep['board'] is None
+    billed, approval = hana._state(c, atid), hana._state(c, ptid)
+    # Direction: the billed row is the duplicate; the booked approval is untouched.
+    assert billed['transaction']['duplicate_of'] == ptid
+    assert approval['transaction']['duplicate_of'] is None
+    assert approval['ledger']['amount_krw'] == 10000
+    assert approval['ledger'] == before['ledger'] and approval['board'] == before['board']
+    assert billed['ledger'] is None and billed['board'] is None
     assert c.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
     for key in ('raw_row_json', 'amount_krw', 'approval_number', 'source_hash', 'transaction_id'):
-        assert dup['transaction'][key] == before['transaction'][key]
+        assert approval['transaction'][key] == before['transaction'][key]
     # The pair is exposed as a closed-period review target in the same release log
     # the cleanup apply writes, so one query surfaces closed pairs from both paths.
     closed = [json.loads(r[0]) for r in c.execute(
-        'SELECT detail_json FROM change_log WHERE kind=? AND subject=?', (hana.RELEASE, ptid))]
-    assert any(d.get('closed') and d.get('period') == '2026Q2' and d.get('keep') == atid for d in closed)
+        'SELECT detail_json FROM change_log WHERE kind=? AND subject=?', (hana.RELEASE, atid))]
+    assert any(d.get('closed') and d.get('period') == '2026Q2' and d.get('keep') == ptid for d in closed)
+
+    # Run the real automatic paths once: a normal classify on the billed batch
+    # (classify + final inference + auto-record) and then one reconsider pass.
+    ab = c.execute('SELECT batch_id FROM transactions WHERE transaction_id=?', (atid,)).fetchone()[0]
+    flow.classify(ab)
+    preview = p1.plan(c, TRIPS, reconsider=True)
+    p1.apply(c, preview, TRIPS, reconsider=True)
+    # The closed-period ledger is unchanged: still the single 10,000 approval entry.
+    assert c.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    assert hana._state(c, ptid)['ledger']['amount_krw'] == 10000
+    assert hana._state(c, atid)['ledger'] is None
+    assert hana._state(c, atid)['transaction']['duplicate_of'] == ptid
+    q2_total = c.execute(
+        "SELECT COALESCE(SUM(amount_krw),0) FROM ledger_entries "
+        "WHERE occurred_on>='2026-04-01' AND occurred_on<'2026-07-01'").fetchone()[0]
+    assert q2_total == 10000
     board.close()
 
 
