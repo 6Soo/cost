@@ -4,6 +4,9 @@
 use cost_core::rules::{Builtin, Rule, Transaction, TripHint, classify_with_trips};
 use serde_json::Value;
 
+// 알려진 차이: 날짜 칸이 비면 Python은 규칙을 계속 적용하지만 Rust는 보호한다(소유자 결정 2026-11-14, U7 dates). `core/known-diffs.txt`와 같은 줄.
+const KNOWN_DIFFS: [&str; 1] = ["classify-176"];
+
 fn pick(hint: &TripHint, trips: &[String]) -> String {
     match hint {
         TripHint::InferredTrip { trip_id, .. } if trips.contains(trip_id) => trip_id.clone(),
@@ -52,7 +55,21 @@ fn golden_classify_with_trip_input_matches_python() {
             is_residual,
         )
         .to_value();
-        let want = &case["expected"]["verdicts"][0];
+        let python = &case["expected"]["verdicts"][0];
+        let id = case["case_id"].as_str().unwrap();
+        let protected = serde_json::json!({
+            "classification_basis": "", "classification_source": "", "classification_state": "needs_review",
+            "description": "", "display_tab_id": "", "item": "", "rule_id": "", "trip_id": ""
+        });
+        let known = KNOWN_DIFFS.contains(&id);
+        if known {
+            // 사유: 빈 날짜는 보호. Python 기대값과 달라야 하고(사라지면 목록에서 지운다), Rust 기대값은 보호 판정이다.
+            assert_ne!(
+                &got, python,
+                "{id} no longer differs: remove from KNOWN_DIFFS"
+            );
+        }
+        let want = if known { &protected } else { python };
         if &got == want {
             matched += 1;
         } else {

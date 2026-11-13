@@ -149,9 +149,7 @@ fn classify_with(
         source_hash: text_field(txn, "source_hash"),
     };
     // 완료 기간 행은 규칙보다 먼저 막는다. 날짜를 읽을 수 없는 행도 같은 쪽(보호)으로 닫힌다.
-    // 날짜 칸이 둘 다 비어 있으면 Python처럼 완료 기간이 아닌 것으로 본다(골든 `card 3820 residual  국내`).
-    let has_date = !row.dates.raw().is_empty();
-    if has_date && excluded(&row, &[], None, false) {
+    if excluded(&row, &[], None, false) {
         let or_default = |key: &str, default: &str| {
             let value = txn.text(key);
             if value.is_empty() {
