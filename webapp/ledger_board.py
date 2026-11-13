@@ -526,8 +526,7 @@ def access_control_render_owner_admin(session, store, view: str = "", return_to:
     tabs = ("<nav class='section-tabs' aria-label='관리 하위 메뉴'>"
             f"<a href='/access/admin' aria-current={'page' if view != 'profile' else 'false'}>계정·권한</a>"
             f"<a href='/access/admin?view=profile&return_to={esc(return_to or '/access/admin')}"
-            f" aria-current={'page' if view == 'profile' else 'false'}>기본 정보</a>"
-            "<a href='/google-ledger'>Google 장부 연결</a></nav>")
+            f" aria-current={'page' if view == 'profile' else 'false'}>기본 정보</a></nav>")
     if view == "profile":
         body = ("<section class='sect'><h2>기본 정보</h2>"
                 "<p class='muted'>새 여행에 사용할 회사명과 기본 담당자명을 관리합니다.</p>"
@@ -1585,8 +1584,6 @@ def trips_page(preview_tab: str = "", role: str = "", state: str = "", search: s
             # the display name, so the screen states them rather than implying
             # them through the name.
             + ("<p class='muted'>일정 근거를 확인해 주세요</p>" if t.get('authority_status') != 'authoritative' else '') +
-            "<p>"
-            + ("<a class='btn' href='/google-ledger'>원본 장부·연결 설정 확인</a>" if google_ledger_page.enabled() and google_ledger_page.owns_route('/google-ledger') else '') + "</p>"
             f"<p>{counts}</p>"
             + (f"<p class='muted'>댓글 {str(registration['comment_count'])+'개' if registration['comment_count'] is not None else '확인 불가'} · "
                f"<a href='{esc(registration['source_url'])}' target='_blank' rel='noopener'>여행글 보기</a></p>"

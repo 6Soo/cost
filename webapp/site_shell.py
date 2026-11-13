@@ -238,12 +238,11 @@ def _more_dialog(role, current_path=''):
     if role == 'viewer':
         return ''
     admin_current = " aria-current='page'" if current_path == '/access/admin' else ''
-    google_current = " aria-current='page'" if current_path == '/google-ledger' or str(current_path or '').startswith('/google-ledger/') else ''
     return ("<dialog id='site-more-dialog' class='site-more-dialog' inert aria-labelledby='site-more-title'>"
             "<form method='dialog' class='site-more-close'><button class='icon-btn' value='close' aria-label='더보기 닫기'>" +
             ui_icons.icon('x-circle', 18) + "</button></form><h2 id='site-more-title'>더보기</h2>"
             "<div class='site-more-theme-slot' aria-label='화면 테마'></div>"
-            "<nav aria-label='추가 메뉴'><a href='/access/admin'" + admin_current + ">계정·권한</a><a href='/google-ledger'" + google_current + ">Google 장부 연결</a></nav></dialog>")
+            "<nav aria-label='추가 메뉴'><a href='/access/admin'" + admin_current + ">계정·권한</a></nav></dialog>")
 
 
 def app_shell(content, section='trips', title='', breadcrumb='', role=None, tab_id='', live_nav=None, back_href='', current_path=''):

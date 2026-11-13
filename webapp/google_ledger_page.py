@@ -706,7 +706,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         reasons = " / ".join(REVIEW_LABELS.get(code, code) for code in trip["review"]) or "확인 사항 없음"
         copies = trip.get("copies") or {}
         links = " ".join(
-            f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={role}'>{role} 상세</a>"
+            f"{role} 상세"
             for role in google_authority.SPREADSHEET_IDS if copies.get(role))
         chosen = trip.get('chosen_source')
         choice = ''
@@ -721,7 +721,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
                     f"</button>"
                     for role in google_authority.SPREADSHEET_IDS if copies.get(role))
         elif not is_owner:
-            links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
+            links = (f"여행 상세"
                      if chosen in google_authority.SPREADSHEET_IDS else '최종 장부 선택 필요')
         rows.append(
             "<tr>"
@@ -799,7 +799,7 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         "</style></head><body><h1>수입 장부를 아직 표시할 수 없습니다.</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
-        f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"
+        f"{ui_icons.icon('refresh-cw')}다시 확인"
         f"<a href='/board'>{ui_icons.icon('chevron-left')}여행별 비용으로 돌아가기</a>"
         "</body></html>", 503)
 
