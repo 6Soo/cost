@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use rusqlite::Connection;
 
+use crate::projection::ALLOWED_ITEMS_SQL;
 use crate::projection::{AUX_TABLES, TRANSACTION_FIELDS};
 use crate::schema::{MIGRATIONS, TABLES};
 use crate::source_map::{ActorKind, Mapped, SourceInput, map_source};
@@ -254,11 +255,44 @@ fn projection_columns_match_scope_py() {
     let python: Vec<&str> = literal.split_whitespace().collect();
     assert_eq!(python, TRANSACTION_FIELDS, "scope.FIELDS와 같은 열·순서");
 
-    for (table, columns) in AUX_TABLES {
-        let needle = format!("('{table}', '{columns}')");
-        assert!(src.contains(&needle), "scope.py에 {needle} 없음");
-    }
+    let a = src.find("for table, columns in (").unwrap();
+    let b = a + src[a..]
+        .find(
+            "):
+",
+        )
+        .unwrap();
+    let python_aux: Vec<(String, String)> = src[a..b]
+        .split("('")
+        .skip(1)
+        .map(|chunk| {
+            let (table, rest) = chunk.split_once("', '").unwrap();
+            let (columns, _) = rest.split_once('\'').unwrap();
+            (table.to_owned(), columns.to_owned())
+        })
+        .collect();
+    let rust_aux: Vec<(String, String)> = AUX_TABLES
+        .iter()
+        .map(|(t, c)| ((*t).to_owned(), (*c).to_owned()))
+        .collect();
+    assert_eq!(
+        rust_aux, python_aux,
+        "보조 테이블·열·순서가 scope.py와 정확히 같아야 한다"
+    );
     assert_eq!(AUX_TABLES.len(), 7);
+
+    let c = src.find("data['allowed_items']").unwrap();
+    let d = c + src[c..].find("\")})").unwrap();
+    let python_sql: String = src[c..d]
+        .split('"')
+        .enumerate()
+        .filter(|(i, _)| i % 2 == 1)
+        .map(|(_, s)| s)
+        .collect();
+    assert_eq!(
+        ALLOWED_ITEMS_SQL, python_sql,
+        "allowed_items 조회문이 scope.py와 같아야 한다"
+    );
 }
 
 #[test]
@@ -387,7 +421,7 @@ fn projection_leaves_no_open_transaction() {
 // ---- 출처 대응표 ----
 
 fn mapped(source: &str) -> Mapped {
-    map_source(SourceInput {
+    map_mapped(SourceInput {
         source,
         ..SourceInput::default()
     })
@@ -398,6 +432,10 @@ fn kind(k: ActorKind, user_exception: bool) -> Mapped {
         kind: k,
         user_exception,
     }
+}
+
+fn map_mapped(i: SourceInput<'_>) -> Mapped {
+    map_source(i).mapped
 }
 
 #[test]
@@ -447,7 +485,7 @@ fn source_table_maps_every_value() {
 #[test]
 fn decided_at_makes_any_source_manual() {
     for s in ["rule", "ai_inference", "", "unreadable", "refund_original"] {
-        let m = map_source(SourceInput {
+        let m = map_mapped(SourceInput {
             source: s,
             has_decided_at: true,
             ..SourceInput::default()
@@ -459,7 +497,7 @@ fn decided_at_makes_any_source_manual() {
 #[test]
 fn ai_inference_splits_on_the_ai_review_basis_prefix() {
     let with = |basis: &str| {
-        map_source(SourceInput {
+        map_mapped(SourceInput {
             source: "ai_inference",
             basis,
             ..SourceInput::default()
@@ -477,7 +515,7 @@ fn ai_inference_splits_on_the_ai_review_basis_prefix() {
 #[test]
 fn bound_booking_rule_is_p1_exact_only_for_the_three_origins() {
     let rule = |origin: &str, bound: bool| {
-        map_source(SourceInput {
+        map_mapped(SourceInput {
             source: "rule",
             rule_origin: origin,
             source_hash_bound: bound,
@@ -508,7 +546,7 @@ fn projection_sources_in_a_synthetic_board_all_map() {
         .transactions
         .iter()
         .map(|t| {
-            map_source(SourceInput {
+            map_mapped(SourceInput {
                 source: &t.classification_source,
                 basis: &t.classification_basis,
                 has_decided_at: t.decided_at.is_some(),
@@ -621,4 +659,44 @@ fn applying_the_write_list_never_changes_source_columns() {
     )
     .unwrap();
     assert_eq!(snapshot(&conn), before);
+}
+
+#[test]
+fn ledger_and_board_write_lists_are_pinned() {
+    assert_eq!(LEDGER_ENTRIES_WRITE, ["item", "display_tab_id", "trip_id"]);
+    assert_eq!(
+        BOARD_ROWS_WRITE,
+        ["payload_json", "display_tab_id", "revision"]
+    );
+}
+
+#[test]
+fn manual_hold_keeps_its_raw_source_and_is_not_recordable() {
+    for decided in [false, true] {
+        let m = map_source(SourceInput {
+            source: " manual_hold ",
+            has_decided_at: decided,
+            ..SourceInput::default()
+        });
+        assert_eq!(m.mapped, kind(ActorKind::Manual, false));
+        assert_eq!(m.raw_source, "manual_hold");
+        assert!(m.is_manual_hold());
+    }
+    let m = map_source(SourceInput {
+        source: "user_decision",
+        ..SourceInput::default()
+    });
+    assert_eq!(m.mapped, kind(ActorKind::Manual, false));
+    assert_eq!(m.raw_source, "user_decision");
+    assert!(!m.is_manual_hold());
+}
+
+#[test]
+fn rollback_failure_keeps_the_original_read_error() {
+    let e = StoreError::ReadFailedRollbackFailed {
+        read: Box::new(StoreError::SchemaTooNew { found: 2, known: 1 }),
+        rollback: rusqlite::Error::InvalidQuery,
+    };
+    let text = e.to_string();
+    assert!(text.contains("스키마 버전 2") && text.contains("롤백도 실패"));
 }

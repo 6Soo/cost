@@ -54,7 +54,29 @@ fn actor(kind: ActorKind, user_exception: bool) -> Mapped {
     }
 }
 
-pub fn map_source(i: SourceInput<'_>) -> Mapped {
+/// 대응 결과와 원래 출처 값. 원 값은 `manual_hold`처럼 판정 주체로는 `Manual`이어도
+/// 기록 불가인 값을 U9·U14가 구분하는 데 쓴다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mapping<'a> {
+    pub mapped: Mapped,
+    pub raw_source: &'a str,
+}
+
+impl Mapping<'_> {
+    /// `app/automatic_classification.py:53`·`docs/policy/record.md:209`: 사용자 보류는 기록하지 않는다.
+    pub fn is_manual_hold(&self) -> bool {
+        self.raw_source.trim() == "manual_hold"
+    }
+}
+
+pub fn map_source(i: SourceInput<'_>) -> Mapping<'_> {
+    Mapping {
+        mapped: map_source_kind(i),
+        raw_source: i.source.trim(),
+    }
+}
+
+fn map_source_kind(i: SourceInput<'_>) -> Mapped {
     let source = i.source.trim();
     // 실제 결정이 있으면 출처 값과 무관하게 수동이다(`classification_provenance.origin`).
     if i.has_decided_at {

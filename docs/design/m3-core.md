@@ -193,6 +193,8 @@ M3 동안 코어는 운영 DB를 **`mode=ro` + `PRAGMA query_only=ON`의 짧은 
 | `ai_inference` + 근거가 `AI_REVIEW · `로 시작 | `AiReview` | `tools/quarter_review/eval_cases.py:66` |
 | `ai_inference` 그 밖 | `P2` | `app/classification_correction.py:139` |
 | `rule_conflict`, `inference_conflict`, `travel_location_hold`, `booking_evidence_needed`, `unreadable`, 빈 값 | 판정 없음 → 그림자 실행이 새로 판정 | 2.2절 |
+| `manual_hold` | `Manual`이되 **원 출처 값을 함께 보존**하고 기록 불가로 취급(사용자 보류) | `tools/p2_batch/scope.py:16`(보호), `app/automatic_classification.py:53`(`CLASSIFICATION_SOURCE_CONFLICT`), `docs/policy/record.md:209`. 저장 계층 `Mapping.raw_source`·`is_manual_hold()` |
+| `auto` | 대응 없음(`Unrecognized`) → 판정으로 취급하지 않고 보고 | `app/classification_provenance.py:8` `AUTOMATIC_SOURCES`에만 있고 이 표에 없던 값. 표에 없는 값은 모두 같은 처리 |
 
 ### 3.3 병행 실행과 운영 전환
 

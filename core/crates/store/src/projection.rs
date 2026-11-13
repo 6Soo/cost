@@ -58,6 +58,12 @@ pub const AUX_TABLES: &[(&str, &str)] = &[
     ("ledger_entries", "transaction_id,trip_id,display_tab_id"),
 ];
 
+/// `scope.py`의 `allowed_items` 조회와 같은 문장.
+pub const ALLOWED_ITEMS_SQL: &str = concat!(
+    "SELECT DISTINCT item FROM transactions WHERE COALESCE(item,'')!='' UNION ",
+    "SELECT DISTINCT item FROM ledger_entries WHERE COALESCE(item,'')!=''"
+);
+
 const RELEASE: &str = "card.dist141_provenance_corrected";
 const RESTORE: &str = "card.dist141_provenance_restored";
 
@@ -264,8 +270,18 @@ pub fn read_projection(path: &Path) -> Result<Projection, StoreError> {
     let conn = open_board_readonly(path)?;
     conn.execute_batch("BEGIN")?;
     let result = read_inside(&conn);
-    conn.execute_batch("ROLLBACK")?;
-    let mut projection = result?;
+    let rollback = conn.execute_batch("ROLLBACK");
+    let mut projection = match (result, rollback) {
+        (Ok(p), Ok(())) => p,
+        (Ok(_), Err(e)) => return Err(e.into()),
+        (Err(e), Ok(())) => return Err(e),
+        (Err(e), Err(r)) => {
+            return Err(StoreError::ReadFailedRollbackFailed {
+                read: Box::new(e),
+                rollback: r,
+            });
+        }
+    };
     projection.read_seconds = (started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
     Ok(projection)
 }
@@ -342,12 +358,7 @@ fn read_inside(conn: &Connection) -> Result<Projection, StoreError> {
             display_tab_id: r.get(2)?,
         })
     })?;
-    let mut allowed_items: Vec<String> = collect(
-        conn,
-        "SELECT DISTINCT item FROM transactions WHERE COALESCE(item,'')!='' UNION \
-         SELECT DISTINCT item FROM ledger_entries WHERE COALESCE(item,'')!=''",
-        |r| r.get(0),
-    )?;
+    let mut allowed_items: Vec<String> = collect(conn, ALLOWED_ITEMS_SQL, |r| r.get(0))?;
     allowed_items.sort();
     Ok(Projection {
         transactions,
