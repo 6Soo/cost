@@ -1,5 +1,6 @@
 import pytest
 from webapp import card_catalog
+from webapp import card_transactions
 from webapp.card_flow import CardFlow
 from webapp.ledger_store import LedgerStore
 from webapp.tests.test_card_flow import CARD, PAIR
@@ -24,6 +25,53 @@ def test_catalog_reads_every_batch_without_writing_or_hiding_refunds(stored):
     assert 'cancellation' in {r['transaction_direction'] for r in result['rows']}
     assert stored.conn.total_changes == before
     assert all('raw_row_json' not in r for r in result['rows'])
+
+
+def test_catalog_and_transaction_detail_keep_refund_states_for_both_rows(stored):
+    lines = [
+        ('FULL', 1000, -1000),
+        ('PART', 1000, -700),
+        ('EXCESS', 1000, -1100),
+    ]
+    header = ('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,'
+              'Date,Post Date,Authorization Code,Cancel,Status\n')
+    records = []
+    for name, gross, refund in lines:
+        records.append(f'국민,4321,domestic,purchase,합성환불{name},{gross},,,{gross},2026-10-01,2026-10-02,O-{name},,매입')
+        records.append(f'국민,4321,domestic,cancellation,합성환불{name},{abs(refund)},,,{abs(refund)},2026-10-03,2026-10-04,R-{name},취소,취소')
+    CardFlow(stored).pipeline.receive((header + '\n'.join(records) + '\n').encode('utf-8'), 'refund-ui.csv')
+    for name, _gross, refund in lines:
+        merchant = f'합성환불{name}'
+        purchase_id = stored.conn.execute(
+            "SELECT transaction_id FROM transactions WHERE merchant=? AND approval_date='2026-10-01'",
+            (merchant,)).fetchone()[0]
+        refund_id = stored.conn.execute(
+            "SELECT transaction_id FROM transactions WHERE merchant=? AND approval_date='2026-10-03'",
+            (merchant,)).fetchone()[0]
+        stored.conn.execute("UPDATE transactions SET approval_number=?,transaction_direction='purchase' WHERE transaction_id=?",
+                            (f'O-{name}', purchase_id))
+        stored.conn.execute(
+            "UPDATE transactions SET approval_number=?,transaction_direction='cancellation',amount_krw=?, "
+            "original_approval_number=? WHERE transaction_id=?",
+            (f'R-{name}', refund, f'O-{name}', refund_id))
+    stored.conn.commit()
+
+    catalog_rows = {row['merchant'].removeprefix('합성환불') + ':' + row['transaction_direction']: row
+                    for row in card_catalog.catalog(stored, {})['rows']
+                    if row['merchant'].startswith('합성환불')}
+    expected = {'FULL': ('전액 환불', None),
+                'PART': ('환불 상태 확인', '순액 300원'),
+                'EXCESS': ('환불 상태 확인', '순액 -100원')}
+    for name, (status, reason) in expected.items():
+        for direction in ('purchase', 'cancellation'):
+            row = catalog_rows[name + ':' + direction]
+            detail = card_transactions.transaction_detail(row['transaction_id'], str(stored.path))
+            assert row['next_action']['status'] == detail['next_action']['status'] == status
+            if reason:
+                assert reason in row['next_action']['reason']
+                assert reason in detail['next_action']['reason']
+            assert row['transaction_id'] == detail['transaction_id']
+            assert row['amount_krw'] == detail['amount_krw']
 
 
 def test_status_filters_partition_rows_and_source_filter_keeps_actual_origin(stored):

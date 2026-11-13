@@ -105,6 +105,16 @@ def refund_links(conn, transaction_ids) -> dict:
     return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items() if tid in wanted}
 
 
+def refund_original_links(conn, transaction_ids) -> dict:
+    """{original_transaction_id: one confirmed link} for requested originals."""
+    wanted = {str(i) for i in transaction_ids}
+    if not wanted:
+        return {}
+    links, _held = _read_analysis(conn)
+    return {link['original_id']: dict(link) for link in links.values()
+            if link['original_id'] in wanted}
+
+
 def _number_links(conn, transaction_ids=None) -> dict:
     """Link all clean cancellations to exactly one verified purchase by card and approval.
 

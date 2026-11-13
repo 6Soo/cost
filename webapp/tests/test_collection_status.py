@@ -310,6 +310,14 @@ class GatherTests(unittest.TestCase):
 
     def test_gather_uses_sixty_second_cache(self):
         collection_status._cache_clear()
+
+    def test_schedule_unavailable_is_read_from_persisted_data_root_status(self):
+        from webapp.google_ledger_page import TRIP_IMPORT_STATUS_FILENAME
+        collection_status._cache_clear()
+        state_path = Path(self.board.path).parent / TRIP_IMPORT_STATUS_FILENAME
+        state_path.write_text('{"schedule_unavailable":true}', encoding='utf-8')
+        data = gather(self.board, now=NOW)
+        self.assertEqual(data['trip_import'], {'schedule_unavailable': True})
         calls = []
         real_card_last = collection_status._card_last
 
