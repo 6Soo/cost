@@ -165,34 +165,50 @@ def _rows(srv, google_income_fn=None):
         review_fn=board_mod.row_needs_review, conflict_fn=board_mod.row_has_conflict, google=None, **kwargs)}
 
 
-def test_google_verified_income_fills_a_trip_without_ledger_income_like_the_trip_screen(srv):
+def test_google_income_never_changes_income_or_profit_columns_and_matches_api_tabs(srv):
+    """sol 재현 사례: 장부 수입 없음·지출 40,000·Google 검증 수입 90,000인 여행."""
     a, b, c = three_trips(srv)
-    summaries = {c: {"show_rows": True, "amount": 90000, "verified": True}}
+    tabs = api_tabs(srv)
+    summaries = {c: {"show_rows": True, "amount": 90000, "verified": True},
+                 a: {"show_rows": True, "amount": 1, "verified": True}}
     rows = _rows(srv, lambda tab: summaries.get(tab))
-    assert (rows[c]["income"], rows[c]["expense"], rows[c]["profit"]) == (90000, 40000, 50000)
-    assert rows[c]["income_source"] == "google" and rows[c]["note"] == ""
-    # 장부에 수입 행이 있는 여행은 Google 값이 있어도 장부 값을 쓴다(여행 화면과 같은 우선순위).
-    summaries[a] = {"show_rows": True, "amount": 1, "verified": True}
-    rows = _rows(srv, lambda tab: summaries.get(tab))
-    assert rows[a]["income"] == 500000 and rows[a]["income_source"] == "ledger"
+    # 수입·차액 칸은 장부 투영 그대로다. Google 값은 차액에 섞이지 않고 참고 열에만 있다.
+    assert (rows[c]["income"], rows[c]["profit"]) == (None, None)
+    assert rows[c]["expense"] == tabs[c]["expense_krw"] == 40000
+    assert rows[c]["google_income"] == 90000 and rows[c]["note"] == tps.INCOME_UNKNOWN
+    for tab in (a, b):  # 수입 행이 있는 여행은 API와 세 숫자가 모두 같다
+        assert [rows[tab]["income"], rows[tab]["expense"], rows[tab]["profit"]] == [
+            tabs[tab]["income_krw"], tabs[tab]["expense_krw"], tabs[tab]["profit_krw"]]
+    assert rows[a]["google_income"] == 1 and rows[a]["income"] == 500000
 
 
 @pytest.mark.parametrize("summary", [None, {"show_rows": False, "amount": 90000, "verified": False},
                                      {"show_rows": False, "amount": 90000, "numeric_gap": True}])
-def test_unverified_google_income_stays_blank(srv, summary):
+def test_unverified_google_income_leaves_the_reference_blank(srv, summary):
     _, _, c = three_trips(srv)
     row = _rows(srv, lambda tab: summary)[c]
-    assert row["income"] is None and row["profit"] is None and row["note"] == tps.INCOME_UNKNOWN
+    assert row["income"] is None and row["profit"] is None and row["google_income"] is None
+    assert row["note"] == tps.INCOME_UNKNOWN
 
 
-def test_http_export_uses_the_google_income_the_trip_screen_would_show(srv, monkeypatch):
+def test_http_export_google_path_matches_api_tabs_for_every_trip(srv, monkeypatch):
     from webapp import google_ledger_page
-    _, _, c = three_trips(srv)
+    a, b, c = three_trips(srv)
     monkeypatch.setattr(google_ledger_page, "get_trip_income_summary",
                         lambda tab: {"show_rows": True, "amount": 90000} if tab == c else None)
+    tabs = api_tabs(srv)
     _, table = xlsx_rows(srv.get("/trips/profit/export.xlsx")[2])
-    row = next(r for r in table[1:] if r[0] == "합성C")
-    assert row[2:5] == [90000, 40000, 50000] and row[7] in (None, "")
+    assert table[0] == list(tps.HEADER)
+    by_name = {r[0]: r for r in table[1:]}
+    for tab, name in ((a, "합성A"), (b, "합성B")):
+        assert by_name[name][2:5] == [tabs[tab]["income_krw"], tabs[tab]["expense_krw"], tabs[tab]["profit_krw"]]
+        assert by_name[name][8] is None
+    row = by_name["합성C"]
+    # 수입·차액은 비어 있고(0과 다르다), 지출은 API와 같으며, Google 값은 참고 열에만 있다.
+    assert row[2] is None and row[4] is None and row[3] == tabs[c]["expense_krw"]
+    assert row[7] == tps.INCOME_UNKNOWN and row[8] == 90000
+    page = srv.get("/trips/profit")[2].decode("utf-8")
+    assert "사람이 정해야" not in page and "수입 확인 필요" in page and "90,000" in page
 
 
 def test_open_count_counts_rows_a_person_still_has_to_decide(srv):

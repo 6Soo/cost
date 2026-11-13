@@ -4,9 +4,10 @@
 `board_read_projection.trip_totals`(= `ledger_board._trip_totals`)가 수입·지출·차액을 주고,
 미결 건수는 `row_needs_review`·`row_has_conflict`가 정한다. 이 파일에는 집계식이 없다.
 
-- 수입은 여행 화면 KPI와 같은 규칙으로 정한다(`ledger_design._trip_kpi_html`). 장부에 수입 행이 있으면
-  그 합계, 없으면 Google 검증을 통과한 수입(`get_trip_income_summary`의 `show_rows`)이다. 둘 다 없으면
-  0원이 아니라 "수입 확인 필요"이고 수입·차액 칸을 비운다.
+- 수입·지출·차액은 `GET /api/tabs`와 같은 투영 값이다. 이 파일에서 새로 더하거나 빼지 않는다.
+  장부에 수입 행이 없으면 0원이 아니라 수입·차액 칸을 비우고 비고에 "수입 확인 필요"만 적는다.
+- Google 검증을 통과한 수입(`get_trip_income_summary`의 `show_rows`)은 차액에 섞지 않고
+  마지막 "Google 검증 수입(참고)" 열에 따로 보여 준다.
 - Google 검증 여부는 동기화된 스냅샷과 여행 연결에서 읽는다. 스냅샷이 없으면 "확인 불가"라 쓴다.
 - 내보내는 글자는 모두 `sheets_export.guard_text`를 거쳐 수식으로 읽히지 않게 한다.
 - 이 모듈은 쓰지 않는다. 장부·Google·판정에 아무것도 기록하지 않는다.
@@ -21,7 +22,7 @@ EXPORT_PATH = "/trips/profit/export.xlsx"
 ROUTES = (PAGE_PATH, EXPORT_PATH)
 
 SHEET_NAME = "여행별 손익"
-HEADER = ("여행", "기간", "수입(원)", "지출(원)", "차액(원)", "Google 검증", "미결 건수", "비고")
+HEADER = ("여행", "기간", "수입(원)", "지출(원)", "차액(원)", "Google 검증", "미결 건수", "비고", "Google 검증 수입(참고)")
 INCOME_UNKNOWN = "수입 확인 필요"
 
 GOOGLE_VERIFIED = "검증됨"
@@ -95,13 +96,10 @@ def build_rows(*, store: Any, trips: Iterable[dict], totals_fn: Callable[[str], 
         income_rows = sum(1 for r in rows if r.get("row_kind") == "income")
         expense_rows = len(rows) - income_rows
         open_rows = sum(1 for r in rows if review_fn(r) or conflict_fn(r))
-        income, income_source = None, ""
-        if income_rows > 0:
-            income, income_source = totals["income"], "ledger"
-        else:
-            summary = google_income_fn(tab_id)
-            if summary and summary.get("show_rows"):
-                income, income_source = int(summary.get("amount") or 0), "google"
+        income = totals["income"] if income_rows > 0 else None
+        summary = google_income_fn(tab_id)
+        google_income = (int(summary.get("amount") or 0)
+                         if summary and summary.get("show_rows") else None)
         notes = []
         if income is None:
             notes.append(INCOME_UNKNOWN)
@@ -112,10 +110,9 @@ def build_rows(*, store: Any, trips: Iterable[dict], totals_fn: Callable[[str], 
             "trip": str(trip.get("display_key") or tab_id),
             "period": period_text(trip),
             "income": income,
-            "income_source": income_source,
             "expense": totals["expense"],
-            "profit": (totals["profit"] if income_source == "ledger"
-                       else None if income is None else income - totals["expense"]),
+            "profit": totals["profit"] if income is not None else None,
+            "google_income": google_income,
             "google": _google_label(tab_id, google),
             "open_rows": open_rows,
             "income_rows": income_rows,
@@ -128,7 +125,7 @@ def build_rows(*, store: Any, trips: Iterable[dict], totals_fn: Callable[[str], 
 def table_cells(row: dict) -> list:
     """표의 한 행. 숫자는 숫자로, 비어야 할 칸은 None으로 둔다."""
     return [row["trip"], row["period"], row["income"], row["expense"], row["profit"],
-            row["google"], row["open_rows"], row["note"]]
+            row["google"], row["open_rows"], row["note"], row["google_income"]]
 
 
 def build_xlsx(rows: list[dict]) -> bytes:
@@ -149,7 +146,7 @@ def build_xlsx(rows: list[dict]) -> bytes:
         for value in table_cells(row):
             values.append(guard_text(value) if isinstance(value, str) else value)
         sheet.append(values)
-    for letter, width in zip("ABCDEFGH", (28, 24, 16, 16, 16, 18, 12, 22)):
+    for letter, width in zip("ABCDEFGHI", (28, 24, 16, 16, 16, 18, 12, 22, 22)):
         sheet.column_dimensions[letter].width = width
     for line in sheet.iter_rows(min_row=2, min_col=3, max_col=5):
         for cell in line:
@@ -180,14 +177,16 @@ def render_body(rows: list[dict]) -> str:
             f"<td>{esc(row['google'])}</td>"
             f"<td class='num'>{row['open_rows']}</td>"
             f"<td>{esc(row['note'])}</td>"
+            f"<td class='num'>{esc(_money(row['google_income']))}</td>"
             "</tr>")
     table = (f"<div class='scrollx'><table><thead><tr>{head}</tr></thead>"
              f"<tbody>{''.join(lines)}</tbody></table></div>"
              if lines else "<p class='muted'>표시할 여행이 없습니다.</p>")
     return (
         "<section class='sect'><h2>여행별 손익</h2>"
-        "<p class='muted'>수입은 장부에 수입 행이 있는 여행만 보입니다. 비어 있으면 0원이 아니라 "
-        "수입 확인 필요입니다. 미결 건수는 사람이 정해야 하거나 충돌한 행입니다.</p>"
+        "<p class='muted'>수입·지출·차액은 장부 화면과 같은 값입니다. 장부에 수입 행이 없으면 "
+        "0원이 아니라 빈 칸이며 수입 확인 필요로 표시합니다. Google 검증 수입은 차액에 섞지 않고 "
+        "마지막 열에 따로 보입니다. 미결 건수는 판정이 끝나지 않았거나 충돌로 기록된 행 수입니다.</p>"
         f"<p><a class='btn primary' href='{EXPORT_PATH}'>XLSX 내보내기</a> "
         "<a href='/trips'>여행 관리</a></p>"
         f"{table}</section>")
