@@ -1822,7 +1822,7 @@ class CardFlow:
         from app.closed_period import excluded_ids
         from .card_classification_completion import completed_period_evidence
         closed = excluded_ids(self.board.conn, self.board.list_trips(),
-                              evidence=completed_period_evidence(self.board))
+                              evidence=completed_period_evidence(self.board, flow=self))
         for tid in closed:
             options['additional_holds'][tid] = {'kind': 'completed_period', 'reason': 'PROC-072 완료 기간·완료 여행'}
         in_batch = {row[0] for row in self.board.conn.execute(

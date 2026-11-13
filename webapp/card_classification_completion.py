@@ -18,7 +18,7 @@ def context(flow):
     return trips, _google_nets()
 
 
-def completed_period_evidence(board, trips=None):
+def completed_period_evidence(board, trips=None, flow=None):
     """Read only the fresh published core; no match recomputation or source writes."""
     from app.closed_period import completed_period, formal_facts
     dates = board.conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
@@ -26,7 +26,7 @@ def completed_period_evidence(board, trips=None):
     if not completed:
         return {}
     from .card_flow import CardFlow
-    flow = CardFlow(board)
+    flow = flow or CardFlow(board)
     current,fresh = flow._held_ota_snapshot()
     if not current or not fresh:
         return {}
