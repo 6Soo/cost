@@ -31,7 +31,8 @@ pub enum OverrideDenied {
     StaleRevision { existing: u32, proposed: u32 },
 }
 
-/// 표(기존 행 × 제안 열): 허용이면 `true`. 25칸을 그대로 적는다.\n/// (P1Exact×P1Exact는 같은 규칙일 때만 허용 — `supersede`가 규칙 ID를 추가 검사한다.)
+/// 표(기존 행 × 제안 열): 허용이면 `true`. 25칸을 그대로 적는다.
+/// (P1Exact×P1Exact는 같은 규칙일 때만 허용 — `supersede`가 규칙 ID를 추가 검사한다.)
 pub const fn allowed(existing: ActorKind, proposed: ActorKind) -> bool {
     use ActorKind::{AiReview, Manual, P1Exact, P1Inferred, P2};
     match (existing, proposed) {
