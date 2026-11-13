@@ -2836,6 +2836,21 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
     )
 
 
+def _refund_basis_label(value, *, inferred=False):
+    labels = {
+        'original_approval_number': '원승인번호 기준 연결',
+        'merchant_card_foreign_amount': '외화 금액·동일 카드 기준 연결',
+        'kakao_same_card_exact_amount': '동일 카드·카카오 가맹점·기간·동액 기준 연결',
+        'same_card_merchant_day_exact_amount': '동일 카드·가맹점·이용일·동액 기준 연결',
+    }
+    label = labels.get(str(value or '').removesuffix('_inferred'))
+    if not label:
+        label = '저장된 연결 근거 정보 없음'
+    if inferred or str(value or '').endswith('_inferred'):
+        label += ' · 추론 상태'
+    return label
+
+
 def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancellations=None) -> tuple[str, list[str]]:
     """원결제 연결과 실제 기록 상태를 분석하여 화면 표시용 title과 lines를 반환한다."""
     if link:
@@ -2846,17 +2861,14 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         if link.get('inferred'):
             title = '원결제 추론 연결 · 기록 전 확인 (환급 완료 아님)'
-        basis = ('외화 금액·동일 카드 기준 원결제 연결'
-                 if link.get('basis') == 'merchant_card_foreign_amount'
-                 else '동일 카드·카카오 가맹점·기간·동액 기준 원결제 연결'
-                 if link.get('basis') == 'kakao_same_card_exact_amount'
-                 else '동일 카드·가맹점·이용일·동액 기준 원결제 연결'
-                 if link.get('basis') == 'same_card_merchant_day_exact_amount'
-                 else '카카오 포함 가맹점·동일 카드·동액 기준 추론 연결 (정산 확정 아님)'
-                 if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
-                 else '동일 카드·가맹점·이용일·동액 기준 추론 연결 (정산 확정 아님)'
-                 if link.get('inferred')
-                 else '원승인번호 기준 원결제 확정 연결')
+        basis_value = link.get('basis')
+        if not basis_value and not link.get('inferred'):
+            reference = board.conn.execute(
+                'SELECT original_approval_number FROM transactions WHERE transaction_id=?', (tid,)
+            ).fetchone()
+            if reference and reference[0]:
+                basis_value = 'original_approval_number'
+        basis = _refund_basis_label(basis_value, inferred=bool(link.get('inferred')))
         lines = [{'full': '순액 0원', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록 전 확인이 필요합니다.'}.get(link['status'], '연결 상태를 확인해 주세요'),
                  f"{basis} · 취소/환불 {link['refund_count']}건",
@@ -3070,7 +3082,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                 'refund_inferred': '기록 전 확인: 원결제 자동 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
                 'source_conflict': '기록 전 확인: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 전 확인: 중복 가능성이 있습니다.',
-                'review_hold': '기록 전 확인: ' + str(preview_row.get('reason') or '검토 사유를 확인해 주세요.'),
+                'review_hold': '기록 보류 · ' + str(preview_row.get('reason') or '검토 사유를 확인해 주세요.'),
                 'item_missing': '기록 준비 전: 비용 항목 확인이 필요합니다.',
                 'trip_needed': '기록 준비 전: 유효한 여행 배정이 필요합니다.',
                 'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
@@ -3146,7 +3158,21 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
                 reason = (f'원결제 추론 연결 · 취소·환불 {refund_count}건. '
                           '별도 근거 검증 전 기록을 준비합니다 · 실제 카드 환급 완료 아님.')
             elif link.get('status') == 'full' and link.get('net_krw') == 0:
-                reason = (f'환불 상쇄 확인 · 원승인번호 기준 원결제 확정 연결 · 취소·환불 {refund_count}건. '
+                basis_value = example.get('basis')
+                if not basis_value:
+                    parent_approval = board.conn.execute(
+                        'SELECT approval_number FROM transactions WHERE transaction_id=?', (tid,)
+                    ).fetchone()
+                    refund_refs = [row[0] for row in board.conn.execute(
+                        'SELECT original_approval_number FROM transactions WHERE transaction_id IN (' +
+                        ','.join('?' for _ in linked_refunds) + ')',
+                        [refund_id for refund_id, _ in linked_refunds])]
+                    if parent_approval and parent_approval[0] and any(
+                            str(ref or '').strip() == str(parent_approval[0]).strip() for ref in refund_refs):
+                        basis_value = 'original_approval_number'
+                basis = _refund_basis_label(basis_value) if basis_value else None
+                relation = ('환불 상쇄 확인' if basis else '원결제·취소 연결 정보')
+                reason = (f'{relation} · {basis or "저장된 연결 근거 정보 없음"} · 취소·환불 {refund_count}건. '
                           '실제 카드 환급 완료 여부와 COST 내부 기록은 별도입니다.')
             elif link.get('status') == 'partial':
                 reason = (f'부분 환불 연결 {refund_count}건 · 현재 순액 {link.get("net_krw")}원. '
@@ -3165,7 +3191,7 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all', owner='all', di
             detail=detail, is_cancellation=tid in cancellation_ids,
             evidence=evidence, conflict_reason=conflict_reason,
             parse_error=parse_error, held=held, finance_related=finance_related,
-            reason=reason, item=item, esc=esc)
+            reason=reason, item=item, finance_label=finance_label, esc=esc)
         protected = bool(held or conflict_reason or parse_error)
         # The disclosure is a transaction diagnostic, not a second human task list.
         label = {'classification': '분류 상태', 'recording': '내부 기록 상태',
