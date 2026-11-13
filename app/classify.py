@@ -426,6 +426,8 @@ def _classify_transaction(transaction: dict, *, rules: list,
             '교통비': {'택시','버스','철도','지하철','주유소','주차장','고속도로통행료','시내버스','고속.시외버스','여객선'},
             '항공료': {'항공사','항공','항공운송'},
             '렌터카': {'렌터카'},
+            '입장료': {'공연장/전시장'},
+            '통행료': {'RF유료도로.터널'},
         }
         for item, industries in groups.items():
             if industry in industries:
