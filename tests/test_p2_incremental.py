@@ -122,6 +122,34 @@ def test_zero_and_dry_run_never_call_model_or_api(harness):
     assert not calls and not writes
 
 
+def test_run_success_rate_null_for_dry_runs_and_lock_recovery_only(harness):
+    args, _, _, _, _, path, run, _ = harness
+    state = json.loads(path.read_text(encoding='utf-8'))
+    state['runs'] = [dict(mode='dry-run', status='success') for _ in range(5)] + [
+        dict(mode='lock-recovery', status='failed', failure_code='STALE_LOCK_RECOVERED')]
+    inc.save(path, state)
+    args.dry_run = True
+
+    result = run()
+    latest = json.loads((path.parent/'p2-runs'/'latest.json').read_text(encoding='utf-8'))
+    assert result['run_success_rate'] is None and result['run_success_denominator'] == 0
+    assert latest['run_success_rate'] is None and latest['run_success_denominator'] == 0
+
+
+def test_run_success_rate_counts_only_completed_real_runs(harness):
+    args, _, _, _, _, path, run, _ = harness
+    state = json.loads(path.read_text(encoding='utf-8'))
+    state['runs'] = [dict(mode='apply', status='success'), dict(mode='apply', status='failed'),
+        dict(mode='propose-only', status='success'), dict(mode='dry-run', status='success'),
+        dict(mode='lock-recovery', status='failed'), dict(mode='apply', status='running')]
+    inc.save(path, state)
+    args.dry_run = True
+
+    result = run()
+    assert result['run_success_denominator'] == 3
+    assert result['run_success_rate'] == pytest.approx(2/3)
+
+
 def test_zero_targets_apply_mode_exits_without_api_config(harness):
     args, _, _, calls, writes, _, run, _ = harness
     result = run(api=None)
@@ -349,11 +377,14 @@ def test_rule_registration_requires_explicit_flag(harness):
 def test_concurrent_writer_and_missing_history_fail_closed(harness):
     args, _, _, _, _, path, run, _ = harness
     lock = path.with_suffix('.lock')
+    latest_path = path.parent/'p2-runs'/'latest.json'
+    latest_path.parent.mkdir(parents=True)
+    latest_before = json.dumps({'status': 'running', 'run_id': 'active-writer'})
+    latest_path.write_text(latest_before, encoding='utf-8')
     lock.write_text('owned', encoding='utf-8')
     with pytest.raises(FileExistsError):
         run()
-    summary = json.loads((path.parent/'p2-runs'/'latest.json').read_text(encoding='utf-8'))
-    assert summary['status'] == 'failed' and summary['failure_reason_code'] == 'P2_INCREMENTAL_LOCK_HELD'
+    assert latest_path.read_text(encoding='utf-8') == latest_before
     assert lock.read_text() == 'owned'
     lock.unlink()
     path.unlink()
