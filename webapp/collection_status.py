@@ -159,7 +159,8 @@ def _p2_status(data_root, config_path=None):
         if isinstance(summary, dict) and recorded and summary.get('schema') == 1:
             return {'last_at': recorded, 'merchants': int(summary.get('target_groups') or 0),
                     'success': int(summary.get('successful_calls') or 0),
-                    'failed': int(summary.get('failed_calls') or 0)}
+                    'failed': int(summary.get('failed_calls') or 0), 'status': summary.get('status'),
+                    'failure_reason_code': summary.get('failure_reason_code')}
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     if config_path is None:
@@ -192,7 +193,7 @@ def _p2_status(data_root, config_path=None):
     return {'last_at': dt.datetime.fromtimestamp(mtime, KST),
             'merchants': int(summary.get('merchants') or 0),
             'success': int(summary.get('successful_calls') or 0),
-            'failed': int(summary.get('failed_attempts') or 0)}
+            'failed': int(summary.get('failed_attempts') or 0), 'status': None, 'failure_reason_code': None}
 
 
 def _normal_undecided(board):
@@ -293,7 +294,10 @@ def render_html(data):
             f"<td>{threshold_text}</td><td class='{state['css']}'{title}>{state['status']}</td></tr>")
     p2 = data.get('p2')
     if p2:
-        p2_text = (f"AI 판정 마지막 실행 {esc(p2['last_at'].strftime('%Y-%m-%d'))} · "
+        p2_failed = p2.get('status') == 'failed' or p2.get('failed', 0) > 0
+        p2_text = (f"P2 실패 · {esc(p2['failure_reason_code'])} · " if p2_failed and p2.get('failure_reason_code')
+                   else 'P2 실패 · ' if p2_failed else '')
+        p2_text += (f"AI 판정 마지막 실행 {esc(p2['last_at'].strftime('%Y-%m-%d'))} · "
                    f"대상 {p2['merchants']}곳 · 성공 {p2['success']} · 실패 {p2['failed']}")
     else:
         p2_text = 'AI 판정 실행 기록 없음'

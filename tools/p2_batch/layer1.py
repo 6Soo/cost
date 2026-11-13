@@ -210,6 +210,31 @@ def save(path, value):
     path.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
 
 
+def write_public_summary(db_path, summary, *, failure_reason_code=None):
+    """Atomically publish numeric run aggregates and a safe failure code."""
+    safe_reasons = {'AGENT_CAPACITY', 'AGENT_RATE_LIMITED', 'AGENT_USAGE_LIMIT', 'AGENT_TIMEOUT',
+                    'AGENT_AUTH_REQUIRED', 'AGENT_TOOL_EXECUTION_DETECTED', 'AGENT_PROMPT_TOO_LARGE',
+                    'AGENT_EXECUTION_FAILED', 'AGENT_EXECUTION_MISMATCH', 'AGENT_RESPONSE_INVALID',
+                    'AGENT_RESPONSE_TOO_LARGE', 'AGENT_PROVIDER_ERROR', 'AGENT_CODEX_NOT_FOUND',
+                    'ValueError', 'TypeError', 'OSError', 'PermissionError', 'FileNotFoundError',
+                    'JSONDecodeError', 'RuntimeError', 'AgentUnavailable'}
+    reason = failure_reason_code if failure_reason_code in safe_reasons else None
+    public = dict(schema=1, started_at=summary.get('started_at'), finished_at=summary.get('finished_at'),
+        target_groups=summary.get('target_groups', 0), target_rows=summary.get('target_rows', 0),
+        model_calls=summary.get('model_calls', 0), successful_calls=summary.get('successful_calls', 0),
+        failed_calls=summary.get('failed_calls', 0), applied_rows=summary.get('applied_rows', 0),
+        limit_failure=bool(summary.get('limit_failure') or (reason and any(x in reason for x in ('LIMIT','USAGE','CAPACITY')))),
+        status=summary.get('status'), failure_reason_code=reason)
+    path=Path(db_path).resolve().parent/'p2-runs'/'latest.json'
+    path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=path.with_suffix('.tmp')
+    with temporary.open('w',encoding='utf-8') as stream:
+        json.dump(public,stream,ensure_ascii=False,indent=2)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary,path)
+
+
 def run(args):
     out = Path(args.output).resolve()
     private_root = (ROOT/'.local-archive').resolve()
@@ -294,20 +319,14 @@ def run(args):
         elapsed_seconds=round(time.monotonic()-started,3),model_seconds=round(sum(r['seconds'] for r in calls),3),
         usage=dict(sum((Counter(r['usage']) for r in calls),Counter())),calls=calls)
     save(out/'summary.json',summary)
-    public = dict(schema=1, started_at=dt.datetime.fromtimestamp(time.time()-summary['elapsed_seconds'],dt.timezone.utc).isoformat(),
+    public = dict(started_at=dt.datetime.fromtimestamp(time.time()-summary['elapsed_seconds'],dt.timezone.utc).isoformat(),
         finished_at=dt.datetime.now(dt.timezone.utc).isoformat(), target_groups=summary['merchants'], target_rows=summary['rows'],
         model_calls=summary['successful_calls']+summary['failed_attempts'], successful_calls=summary['successful_calls'],
         failed_calls=summary['failed_attempts'], applied_rows=0, limit_failure=any(
             any(term in str(f.get('code','')).upper() for term in ('LIMIT','QUOTA','USAGE')) for f in failures),
         status='success' if not failures else 'failed')
-    public_summary_path=Path(args.db).resolve().parent/'p2-runs'/'latest.json'
-    public_summary_path.parent.mkdir(parents=True,exist_ok=True)
-    temporary=public_summary_path.with_suffix('.tmp')
-    with temporary.open('w',encoding='utf-8') as stream:
-        json.dump(public,stream,ensure_ascii=False,indent=2)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary,public_summary_path)
+    write_public_summary(args.db,public,
+        failure_reason_code=failures[-1].get('code') if failures else None)
     print(json.dumps(dict(event='complete',**{k:v for k,v in summary.items() if k!='calls'}),ensure_ascii=True),flush=True)
 
 
@@ -320,18 +339,15 @@ def main():
     try:
         run(parser.parse_args())
     except Exception as exc:
-        public_summary_path=Path(parser.parse_args().db).resolve().parent/'p2-runs'/'latest.json'
-        public_summary_path.parent.mkdir(parents=True,exist_ok=True)
-        failed=dict(schema=1,started_at=None,finished_at=dt.datetime.now(dt.timezone.utc).isoformat(),
-                    target_groups=0,target_rows=0,model_calls=0,successful_calls=0,failed_calls=1,
-                    applied_rows=0,limit_failure=any(x in str(getattr(exc,'code','')).upper() for x in ('LIMIT','QUOTA','USAGE')),
-                    status='failed')
-        temporary=public_summary_path.with_suffix('.tmp')
-        with temporary.open('w',encoding='utf-8') as stream:
-            json.dump(failed,stream,ensure_ascii=False,indent=2)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary,public_summary_path)
+        code=getattr(exc,'code',None)
+        if code not in {'AGENT_CAPACITY','AGENT_RATE_LIMITED','AGENT_USAGE_LIMIT','AGENT_TIMEOUT',
+                        'AGENT_AUTH_REQUIRED','AGENT_TOOL_EXECUTION_DETECTED','AGENT_PROMPT_TOO_LARGE',
+                        'AGENT_EXECUTION_FAILED','AGENT_EXECUTION_MISMATCH','AGENT_RESPONSE_INVALID',
+                        'AGENT_RESPONSE_TOO_LARGE','AGENT_PROVIDER_ERROR','AGENT_CODEX_NOT_FOUND'}:
+            code=type(exc).__name__
+        write_public_summary(parser.parse_args().db,dict(started_at=None,
+            finished_at=dt.datetime.now(dt.timezone.utc).isoformat(),failed_calls=1,status='failed'),
+            failure_reason_code=code)
         raise
 
 

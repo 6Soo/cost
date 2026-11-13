@@ -175,6 +175,15 @@ class GatherTests(unittest.TestCase):
         self.assertEqual(status['success'], 2)
         self.assertEqual(status['failed'], 1)
 
+    def test_render_marks_p2_failure_and_safe_reason(self):
+        data = {'now': NOW, 'sources': [], 'normal_undecided': 0,
+            'p2': {'last_at': NOW, 'merchants': 0, 'success': 0, 'failed': 1,
+                   'status': 'failed', 'failure_reason_code': 'VERIFIED_LAYER1_HISTORY_REQUIRED'}}
+        markup = render_html(data)
+        self.assertIn('P2 실패', markup)
+        self.assertIn('VERIFIED_LAYER1_HISTORY_REQUIRED', markup)
+        _assert_clean(markup)
+
     def test_card_last_collection_per_issuer_and_warning(self):
         self.flow.pipeline.receive(CARD, '합성.csv')
         data = gather(self.board, now=NOW)
