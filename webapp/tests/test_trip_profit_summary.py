@@ -158,6 +158,43 @@ def test_http_page_and_xlsx_match_and_blank_income_is_not_zero(srv):
     assert missing[2] != 0
 
 
+def _rows(srv, google_income_fn=None):
+    kwargs = {} if google_income_fn is None else dict(google_income_fn=google_income_fn)
+    return {r["tab_id"]: r for r in tps.build_rows(
+        store=srv.store, trips=board_mod.live_trips(include_archived=True), totals_fn=board_mod._trip_totals,
+        review_fn=board_mod.row_needs_review, conflict_fn=board_mod.row_has_conflict, google=None, **kwargs)}
+
+
+def test_google_verified_income_fills_a_trip_without_ledger_income_like_the_trip_screen(srv):
+    a, b, c = three_trips(srv)
+    summaries = {c: {"show_rows": True, "amount": 90000, "verified": True}}
+    rows = _rows(srv, lambda tab: summaries.get(tab))
+    assert (rows[c]["income"], rows[c]["expense"], rows[c]["profit"]) == (90000, 40000, 50000)
+    assert rows[c]["income_source"] == "google" and rows[c]["note"] == ""
+    # 장부에 수입 행이 있는 여행은 Google 값이 있어도 장부 값을 쓴다(여행 화면과 같은 우선순위).
+    summaries[a] = {"show_rows": True, "amount": 1, "verified": True}
+    rows = _rows(srv, lambda tab: summaries.get(tab))
+    assert rows[a]["income"] == 500000 and rows[a]["income_source"] == "ledger"
+
+
+@pytest.mark.parametrize("summary", [None, {"show_rows": False, "amount": 90000, "verified": False},
+                                     {"show_rows": False, "amount": 90000, "numeric_gap": True}])
+def test_unverified_google_income_stays_blank(srv, summary):
+    _, _, c = three_trips(srv)
+    row = _rows(srv, lambda tab: summary)[c]
+    assert row["income"] is None and row["profit"] is None and row["note"] == tps.INCOME_UNKNOWN
+
+
+def test_http_export_uses_the_google_income_the_trip_screen_would_show(srv, monkeypatch):
+    from webapp import google_ledger_page
+    _, _, c = three_trips(srv)
+    monkeypatch.setattr(google_ledger_page, "get_trip_income_summary",
+                        lambda tab: {"show_rows": True, "amount": 90000} if tab == c else None)
+    _, table = xlsx_rows(srv.get("/trips/profit/export.xlsx")[2])
+    row = next(r for r in table[1:] if r[0] == "합성C")
+    assert row[2:5] == [90000, 40000, 50000] and row[7] in (None, "")
+
+
 def test_open_count_counts_rows_a_person_still_has_to_decide(srv):
     a, _, _ = three_trips(srv)
     srv.row(a, "expense", 1000, basis="", state="unclassified")

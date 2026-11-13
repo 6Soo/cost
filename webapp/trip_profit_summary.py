@@ -4,7 +4,9 @@
 `board_read_projection.trip_totals`(= `ledger_board._trip_totals`)가 수입·지출·차액을 주고,
 미결 건수는 `row_needs_review`·`row_has_conflict`가 정한다. 이 파일에는 집계식이 없다.
 
-- 수입 행이 하나도 없는 여행은 수입 0원이 아니라 "수입 확인 필요"다. 수입·차액 칸을 비운다.
+- 수입은 여행 화면 KPI와 같은 규칙으로 정한다(`ledger_design._trip_kpi_html`). 장부에 수입 행이 있으면
+  그 합계, 없으면 Google 검증을 통과한 수입(`get_trip_income_summary`의 `show_rows`)이다. 둘 다 없으면
+  0원이 아니라 "수입 확인 필요"이고 수입·차액 칸을 비운다.
 - Google 검증 여부는 동기화된 스냅샷과 여행 연결에서 읽는다. 스냅샷이 없으면 "확인 불가"라 쓴다.
 - 내보내는 글자는 모두 `sheets_export.guard_text`를 거쳐 수식으로 읽히지 않게 한다.
 - 이 모듈은 쓰지 않는다. 장부·Google·판정에 아무것도 기록하지 않는다.
@@ -73,9 +75,14 @@ def period_text(trip: dict) -> str:
     return f"{start}~{end}" if end else start
 
 
+def _no_google_income(_tab_id: str):
+    return None
+
+
 def build_rows(*, store: Any, trips: Iterable[dict], totals_fn: Callable[[str], dict],
                review_fn: Callable[[dict], bool], conflict_fn: Callable[[dict], bool],
-               google: dict[str, bool] | None) -> list[dict]:
+               google: dict[str, bool] | None,
+               google_income_fn: Callable[[str], dict | None] = _no_google_income) -> list[dict]:
     """여행마다 한 행. 숫자는 totals_fn(투영)이 준 값을 그대로 쓴다."""
     out = []
     selected = [t for t in trips
@@ -88,9 +95,15 @@ def build_rows(*, store: Any, trips: Iterable[dict], totals_fn: Callable[[str], 
         income_rows = sum(1 for r in rows if r.get("row_kind") == "income")
         expense_rows = len(rows) - income_rows
         open_rows = sum(1 for r in rows if review_fn(r) or conflict_fn(r))
-        income_known = income_rows > 0
+        income, income_source = None, ""
+        if income_rows > 0:
+            income, income_source = totals["income"], "ledger"
+        else:
+            summary = google_income_fn(tab_id)
+            if summary and summary.get("show_rows"):
+                income, income_source = int(summary.get("amount") or 0), "google"
         notes = []
-        if not income_known:
+        if income is None:
             notes.append(INCOME_UNKNOWN)
         if trip.get("archived"):
             notes.append("보관됨")
@@ -98,9 +111,11 @@ def build_rows(*, store: Any, trips: Iterable[dict], totals_fn: Callable[[str], 
             "tab_id": tab_id,
             "trip": str(trip.get("display_key") or tab_id),
             "period": period_text(trip),
-            "income": totals["income"] if income_known else None,
+            "income": income,
+            "income_source": income_source,
             "expense": totals["expense"],
-            "profit": totals["profit"] if income_known else None,
+            "profit": (totals["profit"] if income_source == "ledger"
+                       else None if income is None else income - totals["expense"]),
             "google": _google_label(tab_id, google),
             "open_rows": open_rows,
             "income_rows": income_rows,
@@ -179,7 +194,8 @@ def render_body(rows: list[dict]) -> str:
 
 
 def dispatch(handler, parsed, *, is_owner: bool, store: Any = None, trips: Iterable[dict] | None = None,
-             totals_fn: Callable[[str], dict] | None = None, google: Any = "default") -> bool:
+             totals_fn: Callable[[str], dict] | None = None, google: Any = "default",
+             google_income_fn: Callable[[str], dict | None] | None = None) -> bool:
     """GET만 받는다. 소유자가 아니면 아무것도 읽지 않고 거부한다."""
     if not owns_route(parsed.path):
         return False
@@ -191,6 +207,8 @@ def dispatch(handler, parsed, *, is_owner: bool, store: Any = None, trips: Itera
         return True
     from . import ledger_board as board
 
+    if google_income_fn is None:
+        from .google_ledger_page import get_trip_income_summary as google_income_fn
     store = store if store is not None else board._active_store()
     if store is None:
         handler._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, 503)
@@ -201,7 +219,8 @@ def dispatch(handler, parsed, *, is_owner: bool, store: Any = None, trips: Itera
         totals_fn=totals_fn or board._trip_totals,
         review_fn=board.row_needs_review,
         conflict_fn=board.row_has_conflict,
-        google=google_verification_by_tab() if google == "default" else google)
+        google=google_verification_by_tab() if google == "default" else google,
+        google_income_fn=google_income_fn)
     if parsed.path == EXPORT_PATH:
         data = build_xlsx(rows)
         handler.send_response(200)
