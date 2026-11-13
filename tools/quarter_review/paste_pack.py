@@ -111,7 +111,7 @@ def _export_rows(rows: list[dict]) -> dict:
 
 
 def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
-    trips, rows, excluded = prepare_rows(data, year, quarter)
+    trips, rows, excluded = prepare_rows(data, year, quarter, screen_tab_membership=True)
     trip_rows: dict[str, list[dict]] = defaultdict(list)
     quarter_rows: list[dict] = []
     for row in rows:

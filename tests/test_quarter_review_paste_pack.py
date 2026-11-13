@@ -102,7 +102,7 @@ def test_per_tab_and_quarter_other_summaries_and_files(tmp_path, monkeypatch):
     ]
     rows = [row("a", 1200), row("b", 700, display_tab_id="trip-b"),
             row("c", -100, display_tab_id="quarter:2026:3")]
-    monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args: (trips, rows, {}))
+    monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args, **_kwargs: (trips, rows, {}))
     summary = paste_pack.build_paste_pack({"manual_fields": {}, "tab_expense_totals": {
         "trip-a": 1200, "trip-b": 700, "quarter:2026:3": -100,
     }}, 2026, 3, tmp_path)
@@ -122,7 +122,7 @@ def test_per_tab_and_quarter_other_summaries_and_files(tmp_path, monkeypatch):
 def test_held_rows_make_tab_total_mismatch_and_record_reason(tmp_path, monkeypatch):
     trips = [{"tab_id": "trip-a", "display_key": "synthetic trip A"}]
     rows = [row("a", 1200), row("unknown", 300, evidence_type=None, transaction_id=None)]
-    monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args: (trips, rows, {}))
+    monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args, **_kwargs: (trips, rows, {}))
     summary = paste_pack.build_paste_pack({"manual_fields": {}, "tab_expense_totals": {
         "trip-a": 1500, "quarter:2026:3": 0,
     }}, 2026, 3, tmp_path)
@@ -154,14 +154,16 @@ def test_screen_refund_rows_are_not_moved_to_trip_and_no_ledger_cards_are_counte
     data = {"trip_tabs": trips, "transactions": [refund, no_ledger, normal],
             "board_projected": [saved_refund, saved_normal], "change_log": [],
             "manual_fields": {}, "manual_ids": set(), "company_exclusions": set()}
-    selected_trips, selected_rows, excluded = prepare_rows(data, 2026, 3)
+    selected_trips, selected_rows, excluded = prepare_rows(
+        data, 2026, 3, screen_tab_membership=True
+    )
     assert selected_trips == trips
     assert [item["transaction_id"] for item in selected_rows] == ["normal"]
     assert excluded["refund_tab"] == 1
     assert excluded["no_ledger_row"] == 1
     assert excluded["no_ledger_by_tab"] == {"trip-a": 1}
 
-    monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args: (
+    monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args, **_kwargs: (
         trips, selected_rows, excluded
     ))
     summary = paste_pack.build_paste_pack({"tab_expense_totals": {"trip-a": 300,

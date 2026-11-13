@@ -78,8 +78,11 @@ def read_database(path, recent_since='2026-11-11'):
             row.update(row_id=record['row_id'], row_kind=record['row_kind'],
                        display_tab_id=record['display_tab_id'])
             data['board_projected'].append(reader.projected(row))
-        total_tab_ids = {r[0] for r in conn.execute(
-            'SELECT tab_id FROM trip_tabs WHERE deleted=0')}
+        trip_tab_columns = {r[1] for r in conn.execute('PRAGMA table_info(trip_tabs)')}
+        trip_tab_query = 'SELECT tab_id FROM trip_tabs'
+        if 'deleted' in trip_tab_columns:
+            trip_tab_query += ' WHERE deleted=0'
+        total_tab_ids = {r[0] for r in conn.execute(trip_tab_query)}
         total_tab_ids.update(r[0] for r in conn.execute(
             'SELECT DISTINCT display_tab_id FROM board_rows WHERE display_tab_id IS NOT NULL'))
         data['tab_expense_totals'] = {
@@ -205,7 +208,7 @@ def source_label(row):
     return label(row)
 
 
-def prepare_rows(data, year, quarter, recent_since='2026-11-11'):
+def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_membership=False):
     trips = [t for t in data['trip_tabs'] if trip_in_quarter(t, year, quarter)]
     trips.sort(key=lambda t: (t['starts_on'], t['tab_id']))
     target = {t['tab_id']: t for t in trips}
@@ -229,9 +232,9 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11'):
         row = dict(saved or {})
         # Card source amounts/signs remain authoritative; do not add ledger copies.
         row.update(raw, row_id=row_id, row_kind='expense', occurred_on=raw.get('approval_date') or raw.get('posting_date') or '')
-        # Tab membership follows the row shown by the ledger, never the card's
-        # inferred trip_id. In particular, ITEM-011 refund rows stay on refunds.
-        if saved is not None:
+        # Paste-pack tab membership follows the row shown by the ledger, never the
+        # card's inferred trip_id. ITEM-011 refund rows stay on refunds.
+        if screen_tab_membership and saved is not None:
             row['display_tab_id'] = saved.get('display_tab_id')
         for field in data.get('manual_fields', {}).get(row_id, ()):
             if field in {'item', 'display_tab_id', 'trip_id', 'service_period'} and field in board.get(row_id, {}):
@@ -243,7 +246,7 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11'):
                       and not r['row_id'].startswith('card-'))
     for row in candidates:
         identity = row.get('display_tab_id')
-        if identity == 'refunds':
+        if screen_tab_membership and identity == 'refunds':
             excluded['refund_tab'] += 1
             continue
         if identity in (None, '', 'unclassified'):
@@ -266,7 +269,8 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11'):
         if (row.get('transaction_id'), row.get('source_hash')) in data.get('company_exclusions', set()):
             excluded['company_excluded'] += 1
             continue
-        if row.get('row_id', '').startswith('card-') and row['row_id'] not in board:
+        if (screen_tab_membership and row.get('row_id', '').startswith('card-')
+                and row['row_id'] not in board):
             if row.get('classification_state') == 'classified' and row.get('item'):
                 excluded['no_ledger_row'] += 1
                 no_ledger_by_tab[identity] += 1
