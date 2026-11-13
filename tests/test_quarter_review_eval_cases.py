@@ -61,7 +61,7 @@ def test_case_file_has_types_and_counts_but_no_identifiers(setup):
     assert all('20260930' not in r and '한 건뿐인' not in r for r in reasons)
     assert eval_cases.GENERIC_REASON in reasons
     attributions = {t['attribution'] for t in payload['types']}
-    assert {'trip→quarter', 'quarter→trip', 'trip→trip'} <= attributions or 'trip→quarter' in attributions
+    assert attributions == {'trip→quarter', 'trip→trip', 'unchanged'}
     assert all(set(t) == {'rules', 'reason', 'before_source', 'item', 'attribution', 'count'}
                for t in payload['types'])
 
@@ -126,7 +126,7 @@ def test_commands_write_only_private_case_file_and_open_database_read_only(setup
     assert case_file.is_file() and not any(i in case_file.read_text(encoding='utf-8') for i in ids)
     import tools.complete_card_classification as legacy
     monkeypatch.setattr(legacy, 'load_context', lambda conn, host_root: (TRIPS, {}))
-    monkeypatch.setattr(legacy, 'load_review_evidence', lambda conn, host_root, trips: ({}, {}))
+    monkeypatch.setattr(legacy, 'load_review_evidence', lambda conn, host_root, trips, cache=None: ({}, {}))
     capsys.readouterr()
     assert eval_cases.main(['eval', '--host-root', str(host)]) == 0
     out = json.loads(capsys.readouterr().out)
@@ -142,3 +142,15 @@ def test_case_folder_cannot_be_inside_repository_or_outside_host_backups(setup, 
         assert eval_cases.main(['build', '--host-root', str(host), '--cases-dir', str(folder)]) == 1
         assert json.loads(capsys.readouterr().out)['status'] == 'FAILED'
         assert not folder.exists()
+
+
+def test_rows_protected_after_the_review_are_reported_separately_not_as_mismatches(setup):
+    c, ids = corrected(setup)
+    # e.g. a later duplicate cleanup marks a corrected row; P1 must not judge it
+    c.execute("UPDATE transactions SET duplicate_of='synthetic-original' WHERE transaction_id=?", (ids[1],))
+    c.commit()
+    report = eval_cases.evaluate(c, TRIPS, review_id=REVIEW_ID)
+    assert report['not_rejudged'] == 1
+    assert report['not_rejudged_by_reason'] == {'NOT_REJUDGED_SOURCE_PROTECTED': 1}
+    assert report['mismatched'] == 2 and 'ATTRIBUTION_QUARTER_VS_TRIP' not in report['by_reason']
+    assert report['matched'] + report['mismatched'] + report['not_rejudged'] == report['cases']

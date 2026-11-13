@@ -142,19 +142,26 @@ def rejudge(conn, trips, cases, *, nets=None, evidence=None):
                          ' WHERE transaction_id=?', (*fresh.values(), tid))
             copy.execute('DELETE FROM ledger_entries WHERE transaction_id=?', (tid,))
             copy.execute('DELETE FROM board_rows WHERE row_id=?', ('card-' + tid,))
+        protected = {}
+        for tid, duplicate, conflict, parse_error in copy.execute(
+                'SELECT transaction_id,duplicate_of,conflict_reason,parse_error FROM transactions '
+                'WHERE transaction_id IN (SELECT value FROM json_each(?))', (json.dumps(ids),)):
+            if duplicate or conflict or parse_error:
+                # Source protection (e.g. a later duplicate cleanup) keeps P1 from judging the row.
+                protected[tid] = 'NOT_REJUDGED_SOURCE_PROTECTED'
         plan = policy.plan(copy, trips, nets=nets, transaction_ids=ids, reconsider=False, evidence=evidence or {})
         judged = {t['id']: dict(zip(policy.FIELDS, t['values'])) for t in plan['targets']}
     finally:
         copy.close()
-    return [compare(c, judged.get(c['tid'])) for c in cases]
+    return [compare(c, judged.get(c['tid']), protected.get(c['tid'])) for c in cases]
 
 
-def compare(case, judged):
+def compare(case, judged, protected=None):
     """Outcome and reason for one case; ``judged`` is None when the code left it unjudged."""
     b, a = case['before']['transaction'], case['after']['transaction']
     expected_tab = a.get('display_tab_id') or a.get('trip_id') or ''
     if judged is None:
-        return dict(outcome='NOT_REJUDGED', reason='NOT_REJUDGED_PROTECTED_OR_UNCHANGED')
+        return dict(outcome='NOT_REJUDGED', reason=protected or 'NOT_REJUDGED_PROTECTED_OR_UNCHANGED')
     got_tab = judged.get('display_tab_id') or ''
     if got_tab != expected_tab:
         got, want = attribution_kind(got_tab), attribution_kind(expected_tab)
@@ -173,16 +180,17 @@ def evaluate(conn, trips, *, review_id=None, nets=None, evidence=None):
     cases = collect_cases(conn, review_id)
     results = rejudge(conn, trips, cases, nets=nets, evidence=evidence) if cases else []
     reasons_ok = reasons_allowed(cases)
-    mismatch = Counter()
+    mismatch, not_rejudged = Counter(), Counter()
     by_type = Counter()
     for case, result in zip(cases, results):
         if result['outcome'] == 'MATCH':
             continue
         t = case_type(case, reasons_ok)
-        mismatch[result['reason']] += 1
+        (mismatch if result['outcome'] == 'MISMATCH' else not_rejudged)[result['reason']] += 1
         by_type[_type_key(dict(t, result=result['reason']))] += 1
     return dict(cases=len(cases), matched=sum(r['outcome'] == 'MATCH' for r in results),
                 mismatched=sum(mismatch.values()), by_reason=dict(sorted(mismatch.items())),
+                not_rejudged=sum(not_rejudged.values()), not_rejudged_by_reason=dict(sorted(not_rejudged.items())),
                 by_type=[dict(json.loads(k), count=n) for k, n in sorted(by_type.items())],
                 type_counts_match_case_file=None)
 
@@ -211,6 +219,8 @@ def main(argv=None):
     parser.add_argument('--db', type=Path, help='Database path (default: <host>/data/board.sqlite); a copy is fine.')
     parser.add_argument('--cases-dir', type=Path, help='Private case folder under <host>/data/backups.')
     parser.add_argument('--review-id', default='ai-quarter-review-2026Q3')
+    parser.add_argument('--evidence-cache', type=Path, help='Derived booking-evidence cache under host backups.')
+    parser.add_argument('--no-evidence', action='store_true', help='Skip booking/mail evidence (faster, less faithful).')
     parser.add_argument('--fail-on-mismatch', action='store_true')
     args = parser.parse_args(argv)
     host = args.host_root.resolve()
@@ -232,14 +242,14 @@ def main(argv=None):
                 return 0
             from tools.complete_card_classification import load_context, load_review_evidence
             trips, nets = load_context(conn, host)
-            evidence, _ = load_review_evidence(conn, host, trips)
+            evidence = {} if args.no_evidence else load_review_evidence(conn, host, trips, args.evidence_cache)[0]
             report = evaluate(conn, trips, review_id=args.review_id, nets=nets, evidence=evidence)
             if case_path.is_file():
                 saved = json.loads(case_path.read_text(encoding='utf-8'))
                 report['type_counts_match_case_file'] = (
                     saved.get('types') == aggregate(collect_cases(conn, args.review_id)))
             print(json.dumps(dict(status='EVALUATED', **report), ensure_ascii=False, sort_keys=True))
-            return 2 if args.fail_on_mismatch and report['mismatched'] else 0
+            return 2 if args.fail_on_mismatch and (report['mismatched'] or report['not_rejudged']) else 0
     except (OSError, ValueError, KeyError, sqlite3.Error) as exc:
         code = str(exc) if isinstance(exc, ValueError) and str(exc).replace('_', '').isalnum() else type(exc).__name__
         print(json.dumps(dict(status='FAILED', code=code)))
