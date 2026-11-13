@@ -12,4 +12,4 @@ mod tests;
 pub use error::StoreError;
 pub use projection::{Projection, open_board_readonly, read_projection};
 pub use schema::{current_version, latest_version, migrate, open_core};
-pub use source_map::{Mapped, SourceInput, map_source};
+pub use source_map::{ActorKind, Mapped, SourceInput, map_source};

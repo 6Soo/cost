@@ -149,7 +149,6 @@ version = "0.1.0"
 name = "cost-store"
 version = "0.1.0"
 dependencies = [
- "cost-domain",
  "rusqlite",
  "thiserror",
 ]

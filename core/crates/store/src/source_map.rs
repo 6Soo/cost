@@ -1,6 +1,14 @@
 //! `transactions.classification_source` → 판정 주체 대응표(설계 §3.2).
 
-use cost_domain::ActorKind;
+/// 판정 주체 종류. `cost-domain`의 `ActorKind`와 같은 5종이며, 변환은 경계(U9)에서 한다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorKind {
+    Manual,
+    P1Exact,
+    AiReview,
+    P2,
+    P1Inferred,
+}
 
 /// 결정 이력이 아닌 값(`decided_at`)까지 포함한 한 행의 출처 입력.
 #[derive(Debug, Clone, Copy, Default)]

@@ -1,12 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use cost_domain::ActorKind;
 use rusqlite::Connection;
 
 use crate::projection::{AUX_TABLES, TRANSACTION_FIELDS};
 use crate::schema::{MIGRATIONS, TABLES};
-use crate::source_map::{Mapped, SourceInput, map_source};
+use crate::source_map::{ActorKind, Mapped, SourceInput, map_source};
 use crate::write_columns::*;
 use crate::*;
 
