@@ -266,7 +266,7 @@ def _trip_kpi_html(tab_id: str) -> str:
     if income is None:
         income_kpi = income_kpi.replace(
             "<small>장부 사본 선택 필요</small>",
-            "<small><a class='kpi-link' href='/google-ledger'>장부 사본 선택 필요</a></small>",
+            "<small>장부 사본 선택 필요</small>",
             1)
     return (
         "<dl class='kpi-row' id='sum' aria-label='여행 요약'>"
@@ -1898,8 +1898,7 @@ def _trip_copy_html(tab_id: str, expenses: list, preview=None) -> str:
         source_href = '/api/google-ledger/source?trip=' + quote(tab_id, safe='')
         source_action = (f"<a class='btn' href='{board.esc(source_href)}' target='_blank' rel='noopener'>Google 원본 확인 ↗</a>"
                          if reason in {'SOURCE_EXPENSE_TOTAL_MISMATCH', 'SOURCE_EXPENSE_UNVERIFIED',
-                                       'SOURCE_LAYOUT_UNSUPPORTED'} else
-                         "<a class='btn' href='/google-ledger'>장부 연결 설정</a>")
+                                       'SOURCE_LAYOUT_UNSUPPORTED'} else '')
         recovery = ("<div class='trip-copy-recovery'>" + source_action +
                     f"<button type='button' class='btn' data-google-sync data-csrf='{board.esc(board.CSRF_TOKEN)}'>장부 동기화</button>"
                     "<button type='button' class='btn' data-copy-recheck>다시 확인</button></div>")

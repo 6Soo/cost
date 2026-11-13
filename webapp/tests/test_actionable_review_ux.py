@@ -179,5 +179,7 @@ def test_missing_participant_sources_offer_concrete_destinations(monkeypatch):
         trip_id='synthetic trip&1', configured=False, google={'available': False},
         participants=[], unlinked_income=[], completion={'blocked_by': ['ROSTER_MISSING']}))
     assert "href='/reserve-links'" in document
-    assert "href='/google-ledger'" in document
+    assert "href='/google-ledger'" not in document
     assert "href='/board?tab=synthetic+trip%261'" in document
+    from webapp import google_ledger_page
+    assert not google_ledger_page.owns_route('/google-ledger')
