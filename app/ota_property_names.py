@@ -7,7 +7,6 @@ from app import ota_mail
 _AGODA = ('agoda.com',)
 _TRIP = ('trip.com', 'trip.co.kr')
 _AGODA_REF = re.compile(r'예약\s*번호\s*[:：]?\s*(\d{6,12})')
-_AGODA_NAME = re.compile(r'(?:예약\s*관리하기\s*){1,2}(?:&nbsp;|\s)*(.{3,200}?)\s*숙소\s*위치\s*확인', re.S)
 _TRIP_NAME = re.compile(r'^\s*\[예약\s*확정\s*안내\]\s*(.+?)\s*예약이')
 _LATIN_LEAD = re.compile(r"[A-Za-z][A-Za-z'&.\- ]*")
 
@@ -23,8 +22,10 @@ def _agoda_fact(message, headers):
     ref = _AGODA_REF.search(subject)
     if not ref or '확정서' not in subject:
         return None
-    named = _AGODA_NAME.search(ota_mail.message_text(message))
-    name = _latin_lead(named.group(1)) if named else ''
+    text = re.sub(r'\s+', ' ', ota_mail.message_text(message))
+    end = text.find('숙소 위치 확인')
+    start = text.rfind('예약 관리하기', 0, end) if end > 0 else -1
+    name = _latin_lead(text[start + len('예약 관리하기'):end]) if start >= 0 else ''
     return ('agoda', ref.group(1), name) if name else None
 
 
