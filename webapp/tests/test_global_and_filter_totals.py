@@ -179,54 +179,62 @@ class FilteredTotalsTests(_Server, unittest.TestCase):
         self.assertEqual(status, 200)
         return body
 
+    def _kpi_amount(self, body, label):
+        match = re.search(r"<dt>" + label + r"</dt><dd>([^<]*)</dd>", body)
+        self.assertIsNotNone(match, f"KPI '{label}' not in summary: {body[:200]}")
+        return match.group(1)
+
     def test_an_unfiltered_tab_states_one_set_of_totals(self):
         body = self._summary()
-        self.assertIn(">총수입<", body)
-        self.assertNotIn("전체 총수입", body)
-        self.assertNotIn("검색 결과 수입", body)
+        # The trip summary is one whole-trip KPI (수입·지출·차액), not a second
+        # filtered set (trip workspace rebuild, 8cd0e58b; SPEC §9 여행별 손익).
+        self.assertIn("여행 요약", body)
+        for label in ("수입", "지출", "차액"):
+            self.assertIn(f"<dt>{label}</dt>", body)
+        self.assertNotIn("검색 결과", body)
 
-    def test_a_filter_names_the_whole_and_the_result_separately(self):
+    def test_a_filter_still_states_the_whole_trip_totals(self):
+        # The old totals bar named a separate whole and result; the KPI that
+        # replaced it always states the whole trip and has no result set.
         body = self._summary("호텔")
-        for label in ("전체 총수입", "전체 지출", "검색 결과 총수입",
-                      "검색 결과 지출", "검색 결과 수입"):
-            self.assertIn(label, body)
+        for label in ("수입", "지출", "차액"):
+            self.assertIn(f"<dt>{label}</dt>", body)
+        self.assertNotIn("검색 결과", body)
 
     def test_a_filter_never_replaces_the_whole_total_with_the_result(self):
         whole = self._summary()
         filtered = self._summary("호텔")
-        w_income = re.search(r">총수입</i><b>([\d,원]+)</b>", whole, re.S)
-        f_whole = re.search(r">전체 총수입</i><b>([\d,원]+)</b>", filtered, re.S)
-        f_result = re.search(r"검색 결과 수입</i><b[^>]*>([\d,원]+)</b>", filtered, re.S)
-        self.assertIsNotNone(w_income)
-        self.assertIsNotNone(f_whole)
-        self.assertIsNotNone(f_result)
-        # the whole total is the same number it was before the filter
-        self.assertEqual(w_income.group(1), f_whole.group(1))
-        # and the result is its own number, reported separately
-        self.assertNotEqual(f_whole.group(1), f_result.group(1))
+        # The protection that survives the redesign: a filter never changes the
+        # whole-trip figures. Every KPI amount is the same with the filter on.
+        for label in ("수입", "지출", "차액"):
+            self.assertEqual(self._kpi_amount(whole, label),
+                             self._kpi_amount(filtered, label))
+        self.assertNotEqual(self._kpi_amount(whole, "수입"), "0원")
 
-    def test_the_board_page_itself_shows_the_separated_totals(self):
+    def test_the_board_page_itself_shows_the_whole_totals(self):
         from urllib.parse import urlencode
 
         status, page = self._open(
             f"/board?tab={TAB}&" + urlencode({"q": "호텔"}))
         self.assertEqual(status, 200)
-        self.assertIn("전체 총수입", page)
-        self.assertIn("검색 결과 수입", page)
+        self.assertIn("여행 요약", page)
+        self.assertIn("<dt>수입</dt>", page)
+        self.assertNotIn("검색 결과", page)
 
-    def test_a_filter_that_matches_nothing_reports_zero_not_the_whole(self):
+    def test_a_filter_that_matches_nothing_still_states_the_whole(self):
+        # The KPI is not a filter result: a query that matches nothing must not
+        # zero it or swap it — the whole-trip total stays on screen.
         body = self._summary("존재하지않는거래")
-        result = re.search(r"검색 결과 수입</i><b[^>]*>([\d,원]+)</b>", body, re.S)
-        whole = re.search(r">전체 총수입</i><b>([\d,원]+)</b>", body, re.S)
-        self.assertIsNotNone(result)
-        self.assertIsNotNone(whole)
-        self.assertEqual(result.group(1), "0원")
-        self.assertNotEqual(whole.group(1), "0원")
+        whole = self._summary()
+        for label in ("수입", "지출", "차액"):
+            self.assertEqual(self._kpi_amount(body, label),
+                             self._kpi_amount(whole, label))
+        self.assertNotEqual(self._kpi_amount(body, "수입"), "0원")
 
-    def test_the_row_counts_are_split_too(self):
+    def test_the_row_counts_are_the_whole_trip_counts(self):
         body = self._summary("호텔")
-        self.assertRegex(body, r"전체 수입 \d+건")
-        self.assertRegex(body, r"검색 결과 수입 \d+건")
+        self.assertRegex(body, r"수입 \d+건")
+        self.assertNotIn("검색 결과", body)
 
 
 class ManualExpenseEntryPointTests(_Server, unittest.TestCase):

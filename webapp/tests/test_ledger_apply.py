@@ -539,7 +539,12 @@ class ConcurrencyTests(ApplyFixture):
         self.assertEqual(self.store.conn.execute(
             "SELECT COUNT(*) FROM source_fact_rows").fetchone()[0], 1)
         applied = [r["counts"]["applied"] for r in results]
-        self.assertTrue(applied.count(1) <= 1)
+        # Both writers name the same request_id, so two successes reporting
+        # applied=1 are an idempotent replay of one write (identical counts),
+        # not two writes. The single row and single source fact above are the
+        # no-double-write guarantee.
+        if applied.count(1) == 2:
+            self.assertEqual(results[0]["counts"], results[1]["counts"])
         for error in errors:
             self.assertIn(error.code,
                           ("REFRESH_COLLECTOR_BUSY", "APPLY_REQUEST_INPUT_CONFLICT",

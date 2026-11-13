@@ -230,6 +230,15 @@ class TwoPageBoardTests(unittest.TestCase):
         page.wait_for_selector("#live-config", state="attached")
         return page
 
+    def _reveal_description(self, page):
+        # The compact expense panel folds the draft fields into .p-extra; open
+        # the fold the way the editor does so the description input is reachable.
+        # Opening the fold changes no form value, so the draft/refresh guards
+        # under test are exactly the ones that ran before.
+        page.wait_for_selector("#panel .p-extra > summary")
+        page.click("#panel .p-extra > summary")
+        page.wait_for_selector("#f-description")
+
     def _save_through_the_api(self, row_id, user=OWNER, **changes):
         """A save from outside the browser, as another machine would make it.
 
@@ -512,7 +521,7 @@ class TwoPageBoardTests(unittest.TestCase):
         something changed rather than left looking at a stale list.
         """
         watcher = self._open(f"?tab={TRIP_A}&row={ROW_A}")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         draft = "아직 저장하지 않은 입력"
         watcher.fill("#f-description", draft)
         # the board's own dirty mark, which the refresh reads
@@ -531,7 +540,7 @@ class TwoPageBoardTests(unittest.TestCase):
         # and the user was told
         notice = watcher.evaluate(
             "document.getElementById('live-status').textContent")
-        self.assertIn("바뀌었어요", notice)
+        self.assertIn("다른 화면에서 장부가 바뀌었습니다", notice)
         # the change is recorded, not lost
         self.assertTrue(watcher.evaluate(
             "window.__ledgerLiveSync &&"
@@ -540,7 +549,7 @@ class TwoPageBoardTests(unittest.TestCase):
     def test_the_deferred_change_is_applied_after_the_draft_is_saved(self):
         """Save first, then the held change lands. Nothing is left stale."""
         watcher = self._open(f"?tab={TRIP_A}&row={ROW_A}")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         watcher.fill("#f-description", "이 브라우저가 저장한 값")
         self._save_through_the_api(ROW_A2, description="다른 곳에서 저장한 값")
         time.sleep(live_sync.POLL_INTERVAL_MS / 1000.0 + 1.0)
@@ -569,7 +578,7 @@ class TwoPageBoardTests(unittest.TestCase):
         rather than the one the draft was typed against.
         """
         watcher = self._open(f"?tab={TRIP_A}&row={ROW_A}")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         watcher.fill("#f-description", "버릴 입력")
         self._save_through_the_api(ROW_A, description="다른 곳에서 저장한 값")
         time.sleep(live_sync.POLL_INTERVAL_MS / 1000.0 + 1.0)
@@ -600,7 +609,7 @@ class TwoPageBoardTests(unittest.TestCase):
         the question this test is about.
         """
         watcher = self._open(f"?tab={TRIP_A}&row={ROW_A}")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         watcher.fill("#f-description", "한 번에 저장")
         # hold this browser's own save answer, and let the polls through
         handler, release = self._hold_saves()
@@ -668,7 +677,7 @@ class TwoPageBoardTests(unittest.TestCase):
             "window.__ledgerLiveSync.isBusy()")
         # a draft starts now, while the fragment fetch is still unanswered
         watcher.click(f"tr[data-id='{ROW_A2}']")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         watcher.fill("#f-description", "조각이 오는 동안 입력")
         self.assertEqual(
             watcher.evaluate("document.querySelector('form[data-js-save]')"
@@ -721,7 +730,7 @@ class TwoPageBoardTests(unittest.TestCase):
         self._wait_for(
             watcher,
             "document.getElementById('live-status').textContent"
-            ".includes('못했어요')",
+            ".includes('반영하지 못했습니다')",
             "a failed fragment fetch was not reported")
         # the screen is unchanged, the token is the one it was rendered from, and
         # the change is still outstanding
@@ -771,7 +780,7 @@ class TwoPageBoardTests(unittest.TestCase):
         self._wait_for(
             watcher,
             "document.getElementById('live-status').textContent"
-            ".includes('못했어요')",
+            ".includes('반영하지 못했습니다')",
             "a bundle that replaced nothing was not reported",
             timeout=SETTLE_SECONDS)
         self.assertEqual(watcher.evaluate("window.__ledgerLiveSync.token()"),
@@ -800,7 +809,7 @@ class TwoPageBoardTests(unittest.TestCase):
         self._wait_for(
             watcher,
             "document.getElementById('live-status').textContent"
-            ".includes('못했어요')",
+            ".includes('반영하지 못했습니다')",
             "the fragment failure was not reported")
         # Read straight away: a later poll that succeeds releases the backoff again,
         # so this is the only moment the grown delay is visible.
@@ -1058,7 +1067,7 @@ class TwoPageBoardTests(unittest.TestCase):
         quietly replaced the form would turn a refusal into a lost edit.
         """
         watcher = self._open(f"?tab={TRIP_A}&row={ROW_A}")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         watcher.fill("#f-description", "내 입력")
         # another browser saves first
         self._save_through_the_api(ROW_A, description="먼저 저장된 값")
@@ -1243,7 +1252,7 @@ class TwoPageBoardTests(unittest.TestCase):
         self._wait_for_held(watcher, held, "the fragment fetch was never in flight")
         # the user opens a row and starts typing while the fetch is held
         watcher.click(f"tr[data-id='{ROW_A2}']")
-        watcher.wait_for_selector("#f-description")
+        self._reveal_description(watcher)
         watcher.click("#f-description")
         watcher.fill("#f-description", "조각 기다리는 중 입력")
         self.assertEqual(watcher.evaluate("document.activeElement.id"),
@@ -1311,7 +1320,7 @@ class TwoPageBoardTests(unittest.TestCase):
             watcher,
             "window.__ledgerLiveSync.isStopped() === true",
             "the page kept polling after its permission was revoked")
-        self.assertIn("열 수 없어요", watcher.evaluate(
+        self.assertIn("더 이상 열 수 없습니다", watcher.evaluate(
             "document.getElementById('live-status').textContent"))
 
     def test_a_page_with_no_session_never_gets_a_token(self):
