@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { LIST_PAGE_LIMIT, MAX_ATTEMPTS, MAX_FAILURES, PROVIDER_LIST, STATUS, maxStatus } from './constants.mjs';
 import { ensureRunDirectory, relativeArtifact, saveArtifacts, sha256 } from './storage.mjs';
-import { buildManifest } from './manifest.mjs';
+import { buildManifest, writeCollectionRunSummaries } from './manifest.mjs';
 import { OtaError, isOtaError, statusForError, toOtaError } from './errors.mjs';
 import { makeRequester } from './http.mjs';
 import {
@@ -291,5 +291,6 @@ export async function runCollection({
     }
     throw toOtaError(error, 'WRITE_ERROR');
   }
+  await writeCollectionRunSummaries(manifest);
   return { runId, archiveRoot, rows, manifest, manifestSha256: sha256(manifestBytes) };
 }

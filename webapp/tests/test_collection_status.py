@@ -151,6 +151,14 @@ class GatherTests(unittest.TestCase):
         (config / 'card-flow.json').write_text(
             json.dumps({'p2_batch_archive': str(archive)}), encoding='utf-8-sig')
 
+    def _write_collection_run(self, source, *, login_required, status='LOGIN_REQUIRED'):
+        (self.data / 'collection-runs').mkdir(exist_ok=True)
+        (self.data / 'collection-runs' / f'{source}.json').write_text(json.dumps({
+            'schema': 'cost.collection-run-summary.v1', 'source': source,
+            'finished_at': '2026-11-13T01:00:00Z', 'status': status,
+            'login_required': login_required,
+        }), encoding='utf-8')
+
     def _labels(self, data):
         return {record['label']: record for record in data['sources']}
 
@@ -207,6 +215,39 @@ class GatherTests(unittest.TestCase):
         record = self._labels(gather(self.board, now=NOW))['Google 수입']
         self.assertTrue(record['login_required'])
         self.assertEqual(evaluate(record, NOW)['status'], '로그인 필요')
+
+    def test_collection_run_login_required_shows_source_and_success_clears_it(self):
+        self._write_collection_run('agoda', login_required=True)
+        self._write_collection_run('kb', login_required=True)
+        records = self._labels(gather(self.board, now=NOW))
+        self.assertEqual(evaluate(records['Agoda'], NOW)['status'], '로그인 필요')
+        self.assertEqual(evaluate(records['국민카드'], NOW)['status'], '로그인 필요')
+
+        self._write_collection_run('agoda', login_required=False, status='ok')
+        self._write_collection_run('kb', login_required=False, status='ok')
+        records = self._labels(gather(self.board, now=NOW))
+        self.assertNotEqual(evaluate(records['Agoda'], NOW)['status'], '로그인 필요')
+        self.assertNotEqual(evaluate(records['국민카드'], NOW)['status'], '로그인 필요')
+
+    def test_collection_run_change_invalidates_status_cache_immediately(self):
+        collection_status._cache_clear()
+        self.assertNotEqual(evaluate(self._labels(gather(self.board))['Agoda'], NOW)['status'], '로그인 필요')
+        self._write_collection_run('agoda', login_required=True)
+        self.assertEqual(evaluate(self._labels(gather(self.board))['Agoda'], NOW)['status'], '로그인 필요')
+        collection_status._cache_clear()
+
+    def test_broken_or_extra_key_collection_run_is_ignored_without_error(self):
+        runs = self.data / 'collection-runs'
+        runs.mkdir()
+        (runs / 'agoda.json').write_text('{broken', encoding='utf-8')
+        (runs / 'kb.json').write_text(json.dumps({
+            'schema': 'cost.collection-run-summary.v1', 'source': 'kb',
+            'finished_at': '2026-11-13T01:00:00Z', 'status': 'LOGIN_REQUIRED',
+            'login_required': True, 'booking_number': 'must-not-be-accepted',
+        }), encoding='utf-8')
+        records = self._labels(gather(self.board, now=NOW))
+        self.assertNotEqual(evaluate(records['Agoda'], NOW)['status'], '로그인 필요')
+        self.assertNotEqual(evaluate(records['국민카드'], NOW)['status'], '로그인 필요')
 
     def test_google_ok_uses_oldest_success_and_no_login_flag(self):
         self._write_google({
