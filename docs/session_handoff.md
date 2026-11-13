@@ -1,3 +1,9 @@
+## 2026-11-13 자동 기록 투영 실패 원자성·금액 묶음 정렬 조사
+
+- 자동 기록의 사전 분류·revision부터 장부·화면 투영까지 같은 트랜잭션으로 묶고, 하위 장부/분기 기록은 savepoint로 참여한다. 기존 revision 실패 재현 통과, 합성 원자성 5건과 기존 부분 환불 31건 36pass, 기존 자동 기록 9pass(다른 담당의 낡은 real_blocking 1건 제외).
+- 금액 묶음 순서 의심은 `8cd0e58b`의 의도된 날짜순 전환과 이전 검사 계약의 차이다. 정렬 함수 자체는 통과. board/http 총 5실패(순서3·접힘1·호출수1)는 기대값 변경 없이 병행 담당에게 인계했다. [근거](agents/artifacts/amount-group-and-revision-20261113.md).
+- 완료 코드 `fde5af7b94e48a616fe93cade9af8017e548e5aa`. `python tools/run_quality_checks.py --base origin/main --run` PASSED(base `96fb90e8`): 575pass·30subtests·skip0·브라우저16건 누락0·compile PASS(712.92초). PR #846 생성·push 완료, 헤드가 전달한 opus 검수는 `77c5561e` 코드 APPROVE다. 이후 변경은 이 절과 근거 문서의 손상된 한글 복원뿐이다. 최종 SHA는 PR HEAD를 따른다. 남은 단계는 헤드의 병합과 서버 배포다. 운영 DB/포트 미사용, 병합·배포 없음.
+
 ## 2026-11-13 PR #841 opus 변경 요청 반영 — 근거 개정 경로·일반 동기화
 
 - 동기화 코드의 화순 ID/날짜 예외 제거. 별도 확정 일정과 Google 명시 종료일이 같으면 허용하고 다르면 보존한다. 새 `tools/revise_trip_schedule.py`는 미리보기/검수 SHA·복원 사본 확인 후 적용/이후 변경을 보호하는 원복을 제공한다. 기존 일정 레코드는 새 owner-schedule의 supersedes·receipt에, 원본 authority 전체는 복원 사본에 남긴다.
