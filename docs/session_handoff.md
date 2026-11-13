@@ -4,7 +4,7 @@
 - `webapp/collection_status.py`는 데이터 루트의 요약만 읽고 국민·하나·기업 및 Agoda·Trip.com·Booking.com의 로그인 필요 상태를 원천 이름과 표시한다. 파일이 없거나 잘못된 계약이면 기존 표시로 조용히 돌아가며 파일 변경은 화면 캐시를 즉시 무효화한다.
 - 요구 1~4 완료: 허용 키/민감값 제외, 수집 기록 주체 연결, 로그인 필요→표시→성공 해제와 깨진 파일 무시를 합성 검사했다. 비인증 `/`는 401이다. 수집 동작·운영 DB·운영 경로·운영 포트는 사용하지 않았다.
 - 표적 검사: 상태 화면 22 passed, OTA 계약 9 passed, 국민 entry fixture 8 passed. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`: PASSED, 463 passed + 28 subtests, 0 failed, 0 skipped, compile PASS. QA 기준 HEAD `187d092580284733edfa458064d452d66f7a68d9`; 검사 기록 `quality-artifacts/run-summary.json`(로컬 생성물, 커밋 제외).
-- 구현 커밋 `9ee024fb`; 최신 main 병합 포함 SHA `187d092580284733edfa458064d452d66f7a68d9`. 브랜치 `feat/collection-run-login-status-20261113` push 완료. PR 생성 후 번호와 최종 HEAD를 이 절 및 PR에 갱신한다. 병합·배포하지 않는다.
+- 구현 커밋 `9ee024fb`; 최신 main 병합 포함 QA 기준 SHA `187d092580284733edfa458064d452d66f7a68d9`. [PR #851](https://github.com/6Soo/cost/pull/851)을 만들고 브랜치 `feat/collection-run-login-status-20261113` 최종 HEAD `8593a82d`까지 push했다. 최종 커밋은 이 인계 문서만 갱신했다. 병합·배포하지 않는다.
 
 ## 2026-11-13 자동 기록 투영 실패 원자성·금액 묶음 정렬 조사
 
