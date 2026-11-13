@@ -428,8 +428,13 @@
     },
     {
       "name": "autonomous-quality-gate",
-      "paths": ["tools/run_quality_checks.py", "tools/reuse_quality_evidence.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt"],
+      "paths": ["tools/run_quality_checks.py", "tools/reuse_quality_evidence.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt", ".gitignore"],
       "tests": ["tests/test_quality_checks.py", "tests/test_run_targeted_checks.py", "webapp/tests/test_targeted_test_selector.py"]
+    },
+    {
+      "name": "rust-core-workspace",
+      "paths": ["core/**"],
+      "tests": ["tests/test_quality_checks.py"]
     },
     {
       "name": "autonomous-workflow-journeys",

@@ -1,0 +1,11 @@
+[package]
+name = "cost-bridge"
+description = "Python 하위 프로세스 프로토콜"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true

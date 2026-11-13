@@ -1,0 +1,14 @@
+[package]
+name = "costcore"
+description = "M3 코어 실행 파일 (shadow | plan | eval | worker | status | migrate)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# 의존 방향(cli만 전부를 안다)대로 후속 단위가 사용 시점에 추가한다.
+[dependencies]
