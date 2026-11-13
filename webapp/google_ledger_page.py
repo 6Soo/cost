@@ -936,6 +936,14 @@ def _google_end_change(board, tab: dict, trip: dict, overrides) -> bool:
     return True
 
 
+_LAST_TRIP_IMPORT_RESULT = None
+
+
+def last_trip_import_result():
+    """Latest in-process result for the background Google trip import."""
+    return dict(_LAST_TRIP_IMPORT_RESULT) if _LAST_TRIP_IMPORT_RESULT is not None else None
+
+
 def import_trips(board, snapshot: dict) -> dict:
     """Creates a COST trip tab for each Google trip tab that has a year and a start date on its sheet.
 
@@ -995,6 +1003,13 @@ def import_trips(board, snapshot: dict) -> dict:
             counts['held'] += 1
             continue
         counts[outcome['outcome']] += 1
+    global _LAST_TRIP_IMPORT_RESULT
+    _LAST_TRIP_IMPORT_RESULT = dict(counts)
+    try:
+        from .collection_status import _cache_clear
+        _cache_clear()
+    except ImportError:
+        pass
     return dict(counts)
 
 
