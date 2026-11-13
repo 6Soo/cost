@@ -15,8 +15,8 @@
     },
     {
       "name": "quarter-review-readonly-pack",
-      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py"],
-      "tests": ["tests/test_quarter_review_pack.py"]
+      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py", "app/google_tsv.py"],
+      "tests": ["tests/test_quarter_review_pack.py", "tests/test_quarter_review_paste_pack.py"]
     },
     {
       "name": "closed-period-boundary-and-repair",
