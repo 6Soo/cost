@@ -242,11 +242,11 @@ def _onsite_property_periods(data, manual):
         lodging = names.get(f'{provider}:{ref}')
         if not lodging:
             continue
-        # A charge, a scheduled charge, a cancellation or any refund means the OTA, not the hotel, is paid.
-        if any(e.get('event_type') in ('scheduled_charge', 'refund', 'cancellation_notice')
-               or e.get('evidence_status') in ('paid_verified', 'scheduled', 'refund_verified', 'conflict',
+        # A charge, a cancellation or any refund means the OTA, not the hotel, is paid; a scheduled charge is not a charge.
+        if any(e.get('event_type') in ('refund', 'cancellation_notice')
+               or e.get('evidence_status') in ('paid_verified', 'refund_verified', 'conflict',
                                                'evidence_conflict', 'refund_conflict')
-               or e.get('payment_status') in ('paid', 'scheduled')
+               or e.get('payment_status') == 'paid'
                or e.get('item') not in (None, '', '숙박비')
                or e.get('reservation_status') in ('cancelled', 'refunded')
                or e.get('refund_status') not in (None, '', 'none_displayed', 'refund_pending')

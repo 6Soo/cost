@@ -125,8 +125,6 @@ def test_two_bookings_of_the_same_hotel_are_not_guessed_even_with_equal_stays(co
     lambda d: d['events'][0].update(service_period={'starts_on': '2026-07-05', 'ends_on': None}),
     lambda d: d['events'].append(dict(d['events'][0], ota_event_id='c1', event_type='charge',
                                       evidence_status='paid_verified', payment_status='paid')),  # OTA took payment
-    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='s1', event_type='scheduled_charge',
-                                      evidence_status='scheduled', payment_status='scheduled')),
     lambda d: d['events'].append(dict(d['events'][0], ota_event_id='p1',
                                       service_period={'starts_on': '2026-07-05', 'ends_on': '2026-07-09'})),
     lambda d: d.update(property_names={}),
@@ -146,6 +144,14 @@ def test_a_hotel_card_matching_two_different_hotels_stays_unread(context):
     onsite(data, bookings=2, names={'agoda:A0': ['Sample Hotel Alphatown'],
                                     'agoda:A1': ['Sample Hotel Alphatown Annex']})
     assert stays.stay_index(store) == {}
+
+
+def test_a_scheduled_charge_is_not_an_ota_payment(context):
+    store, data = context
+    onsite(data)
+    data['events'].append(dict(data['events'][0], ota_event_id='s1', event_type='scheduled_charge',
+                               evidence_status='scheduled', payment_status='scheduled'))
+    assert stays.stay_index(store)['t1']['service_period'] == '2026-07-05~2026-07-07'
 
 
 def test_an_existing_exact_stay_is_never_replaced_by_the_name_reading(context):
