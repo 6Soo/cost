@@ -55,3 +55,34 @@ def test_closed_period_stays_unchanged_with_evidence(setup):  # noqa: F811
     row = _first(conn)
     plan = policy.plan(conn, TRIPS, evidence=_fact(row))
     assert plan['summary']['to_classify'] == 0
+
+
+def _complete_through_production_path(setup, monkeypatch, status):  # noqa: F811
+    from webapp import card_classification_completion as completion
+    from webapp.card_flow import CardFlow
+    board, flow = setup[0], setup[1]
+    row = _first(board.conn)
+    fact = dict(transaction_id=row['transaction_id'], source_hash=row['source_hash'], source_sha256='a' * 64,
+                reservation_status=status, item='항공료', period=dict(starts_on='2026-10-11', ends_on='2026-10-13'))
+    monkeypatch.setattr(completion, 'context', lambda _flow: (TRIPS, {}))
+    monkeypatch.setattr(CardFlow, '_held_ota_snapshot', lambda self: ({'data': {}}, True))
+    monkeypatch.setattr(CardFlow, '_canonical_snapshot_report', lambda self, current: {'matches': [fact]})
+    completion.complete_scope(flow, {row['transaction_id']})
+    return board.conn.execute('SELECT trip_id,display_tab_id FROM transactions WHERE transaction_id=?',
+                              (row['transaction_id'],)).fetchone()
+
+
+def test_completion_path_supplies_confirmed_open_period_evidence(setup, monkeypatch):  # noqa: F811
+    for status in ('confirmed', 'completed', 'observed'):
+        board = setup[0]
+        board.conn.execute("UPDATE transactions SET trip_id='',display_tab_id='',classification_state='',item=''")
+        board.conn.commit()
+        assert _complete_through_production_path(setup, monkeypatch, status) == ('C', 'C')
+
+
+def test_completion_path_ignores_unknown_empty_or_cancelled_status(setup, monkeypatch):  # noqa: F811
+    for status in ('unknown', '', None, 'cancelled'):
+        board = setup[0]
+        board.conn.execute("UPDATE transactions SET trip_id='',display_tab_id='',classification_state='',item=''")
+        board.conn.commit()
+        assert _complete_through_production_path(setup, monkeypatch, status) == ('A', 'A')

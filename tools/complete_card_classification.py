@@ -50,8 +50,6 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
     These facts guide expense attribution. They never create financial links,
     confirm a refund, publish customer text, or modify a snapshot/review store.
     """
-    from collections import defaultdict
-    from app.provisional_assignment import ota_service_period_candidate
     if report is not None and cache_path is not None:
         raise ValueError('SUPPLIED_REPORT_CACHE_NOT_SUPPORTED')
     flow = read_flow(conn, host) if report is None else None
@@ -79,37 +77,9 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
                 raise ValueError('EVIDENCE_CACHE_STALE')
             return saved['evidence'], saved['summary']
     report = (flow._compute_ota_report() or {}) if report is None else report
-    from app.closed_period import formal_facts
-    completed_evidence = formal_facts(report.get('matches', []), trips)
+    from app.closed_period import booking_period_evidence
     rows = {row['transaction_id']: row for row in policy._read(conn)}
-    candidates = defaultdict(list)
-    for fact in report.get('matches', []):
-        row = rows.get(fact.get('transaction_id'))
-        if (not row or row['source_hash'] != fact.get('source_hash')
-                or row['transaction_direction'] != 'purchase'
-                or fact.get('reservation_status') == 'cancelled'
-                or fact.get('period_conflict') or fact.get('service_period_conflict')):
-            continue
-        period = fact.get('period') or fact.get('service_period')
-        if not isinstance(period, dict):
-            continue
-        options = ota_service_period_candidate({'service_period': period}, trips)
-        if len(options) == 1:
-            candidates[row['transaction_id']].append(dict(
-                source_hash=row['source_hash'], trip_id=options[0]['trip_id'],
-                item=fact.get('item') or '',
-                basis='보관 예약 이용기간 ' + period['starts_on'] + '~' + period['ends_on'] + ' · 비용 귀속 추론이며 결제 연결 미확정',
-                evidence_digest=hashlib.sha256(json.dumps(fact, sort_keys=True, default=str).encode()).hexdigest()))
-            candidates[row['transaction_id']][-1].update(
-                service_period=dict(period),
-                formal_link=row['transaction_id'] in completed_evidence)
-    evidence = {}
-    conflicts = 0
-    for tid, options in candidates.items():
-        if len({option['trip_id'] for option in options}) != 1:
-            conflicts += 1
-            continue
-        evidence[tid] = sorted(options, key=lambda option: option['evidence_digest'])[0]
+    evidence, conflicts = booking_period_evidence(report.get('matches', []), rows, trips)
     summary = {'matched_facts': len(report.get('matches', [])),
                       'service_period_evidence': len(evidence), 'conflicting_periods': conflicts,
                       'source_errors': len(report.get('ota_source_errors', [])),

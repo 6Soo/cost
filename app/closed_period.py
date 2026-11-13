@@ -98,6 +98,46 @@ def formal_facts(facts, trips):
             if all(v == values[0] for v in values)}
 
 
+BOOKING_STATUSES = ('confirmed', 'completed', 'observed')
+
+
+def booking_period_evidence(matches, rows, trips):
+    """Source-bound unique reservation-period facts for purchases (TRIP-036/041/062).
+
+    Only confirmed statuses count; cancelled, unknown or empty never do. Returns
+    ``(evidence, conflict_count)`` and reads nothing but its arguments.
+    """
+    from collections import defaultdict
+    from .provisional_assignment import ota_service_period_candidate
+    formal = formal_facts(matches, trips)
+    candidates = defaultdict(list)
+    for fact in matches:
+        row = rows.get(fact.get('transaction_id'))
+        if (not row or row['source_hash'] != fact.get('source_hash')
+                or row['transaction_direction'] != 'purchase'
+                or fact.get('reservation_status') not in BOOKING_STATUSES
+                or fact.get('period_conflict') or fact.get('service_period_conflict')):
+            continue
+        period = fact.get('period') or fact.get('service_period')
+        if not isinstance(period, dict) or not period.get('starts_on') or not period.get('ends_on'):
+            continue
+        options = ota_service_period_candidate({'service_period': period}, trips)
+        if len(options) == 1:
+            candidates[row['transaction_id']].append(dict(
+                source_hash=row['source_hash'], trip_id=options[0]['trip_id'],
+                item=fact.get('item') or '',
+                basis='보관 예약 이용기간 ' + period['starts_on'] + '~' + period['ends_on'] + ' · 비용 귀속 추론이며 결제 연결 미확정',
+                evidence_digest=hashlib.sha256(json.dumps(fact, sort_keys=True, default=str).encode()).hexdigest(),
+                service_period=dict(period), formal_link=row['transaction_id'] in formal))
+    evidence, conflicts = {}, 0
+    for tid, options in candidates.items():
+        if len({option['trip_id'] for option in options}) != 1:
+            conflicts += 1
+            continue
+        evidence[tid] = sorted(options, key=lambda option: option['evidence_digest'])[0]
+    return evidence, conflicts
+
+
 def open_scope(row, trips):
     valid = trip_map(trips)
     return (any(open_trip(valid.get(row.get(k))) for k in ('trip_id','display_tab_id'))
