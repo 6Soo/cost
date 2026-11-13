@@ -415,11 +415,10 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         else:
             quarter = _quarter_destination(chosen)
             if quarter and (rerank or chosen.get('display_tab_id') in (None, '', 'unclassified')):
-                # Preserve an explicit item rule that matched this import. The
-                # transaction's prior source is empty on a new import, while
-                # ``chosen`` already carries the rule provenance.
+                # PROC-004: the item of a quarter-ended row is 분기 기타비용; only an owner
+                # exception or booking keeps its own item.
                 quarter_item = (chosen['item'] if chosen['item'] and chosen.get('classification_source') in
-                                {'rule','pattern','user_exception','owner_booking'} else '분기 기타비용')
+                                {'user_exception','owner_booking'} else '분기 기타비용')
                 chosen.update(display_tab_id=quarter[0], trip_id='',
                               item=quarter_item,
                               description=chosen.get('description') or quarter[1])
