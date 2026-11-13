@@ -56,7 +56,7 @@ def test_confirmed_unassigned_expense_is_complete_without_inventing_a_trip(tmp_p
 
 
 @pytest.mark.parametrize('item,merchant,expected', [('식비','식당',1),('숙박비','숙소',0),('교통비','철도승차권 발매',0)])
-def test_clear_local_cost_can_be_recorded_unassigned_but_reservations_need_service_evidence(tmp_path,monkeypatch,item,merchant,expected):
+def test_clear_local_cost_is_recorded_or_resolved_to_quarter_without_a_trip(tmp_path,monkeypatch,item,merchant,expected):
     from webapp.card_flow import CardFlow,reclassify_cleanup,cleanup_total
     board=LedgerStore(tmp_path/'unassigned-card.sqlite',seed_demo=False)
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB','1')
@@ -70,12 +70,18 @@ def test_clear_local_cost_can_be_recorded_unassigned_but_reservations_need_servi
         result=reclassify_cleanup(board)
         assert result['recorded']==expected
         assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==expected
-        assert cleanup_total(board)==(0 if expected else 1)
+        # DECISION_POLICY §3.2: without a verified service period or matching trip,
+        # a normal expense is resolved to its payment quarter, not left pending.
+        assert cleanup_total(board)==0
         if expected:
             saved=json.loads(board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
             # PROC-004: a recorded unassigned local cost lands on its quarter tab, not NULL.
             assert saved['display_tab_id']=='quarter:2026:4' and saved['amount_krw']==5000
             assert reclassify_cleanup(board)['recorded']==0
+        else:
+            assert board.conn.execute(
+                'SELECT display_tab_id FROM transactions WHERE transaction_id=?', (rows[0]['transaction_id'],)
+            ).fetchone()[0] == 'quarter:2026:4'
     finally:
         board.close()
 
