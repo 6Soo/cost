@@ -11,7 +11,14 @@ cd core
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-```n
+```
 - `python tools/run_quality_checks.py --base origin/main --run` 이 `core/` 변경 시 위 세 명령을 실행한다. Windows에서 `CARGO_TARGET_DIR` 이 없고 D: 드라이브가 있으면 `D:\cargo-target\<작업 폴더 이름>` 을 쓴다. cargo가 없으면 `CARGO_NOT_FOUND` 로 실패한다.
 - 도구 모음은 `rust-toolchain.toml` 로 고정한다. 외부 크레이트는 소유자 승인 7개(rusqlite bundled, serde, serde_json, thiserror, regex, sha2, time)와 개발용 proptest만 쓴다.
 - `core.sqlite` 는 `D:/WebLedgerHost/data/core.sqlite` (백업·7일 보존 대상). 이 작업공간은 서버를 띄우지 않고 운영 포트 8751·8752·8790을 쓰지 않는다.
+
+## 구성 (설계 §6.1, D-12)
+
+- `crates/core` (`cost-core`, 라이브러리): 모듈 `domain`(판정 타입·불변식), `dates`(날짜·완료 기간·열린 범위, `OpenScope` 발급). 후속 단위가 `store`·`rules`·`trips`·`links`·`pipeline`·`bridge` 모듈을 더한다.
+- `crates/cli` (`costcore`, 실행 파일).
+- 봉인 타입(`RefundGroup`·`OpenScope`·`TripId`·`Subject`)은 생성자가 `pub(crate)`이거나 없어 크레이트 밖에서 만들 수 없다(문서 테스트 `compile_fail` 4개).
+- 합성 골든: `golden/synthetic/dates.jsonl`(생산기 `tools/core_dates_golden.py`), 시험 `crates/core/tests/dates_golden.rs`.
