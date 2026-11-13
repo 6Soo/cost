@@ -101,10 +101,10 @@ def formal_facts(facts, trips):
 BOOKING_STATUSES = ('confirmed', 'completed', 'observed')
 
 
-def booking_period_evidence(matches, rows, trips):
+def booking_period_evidence(matches, rows, trips, *, confirmed_only=True):
     """Source-bound unique reservation-period facts for purchases (TRIP-036/041/062).
 
-    Only confirmed statuses count; cancelled, unknown or empty never do. Returns
+    With ``confirmed_only`` (production) only confirmed statuses count; cancelled, unknown or empty never do. Returns
     ``(evidence, conflict_count)`` and reads nothing but its arguments.
     """
     from collections import defaultdict
@@ -115,7 +115,8 @@ def booking_period_evidence(matches, rows, trips):
         row = rows.get(fact.get('transaction_id'))
         if (not row or row['source_hash'] != fact.get('source_hash')
                 or row['transaction_direction'] != 'purchase'
-                or fact.get('reservation_status') not in BOOKING_STATUSES
+                or (fact.get('reservation_status') not in BOOKING_STATUSES if confirmed_only
+                    else fact.get('reservation_status') == 'cancelled')
                 or fact.get('period_conflict') or fact.get('service_period_conflict')):
             continue
         period = fact.get('period') or fact.get('service_period')

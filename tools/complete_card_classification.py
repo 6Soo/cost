@@ -79,7 +79,7 @@ def load_review_evidence(conn, host, trips, cache_path=None, *, report=None):
     report = (flow._compute_ota_report() or {}) if report is None else report
     from app.closed_period import booking_period_evidence
     rows = {row['transaction_id']: row for row in policy._read(conn)}
-    evidence, conflicts = booking_period_evidence(report.get('matches', []), rows, trips)
+    evidence, conflicts = booking_period_evidence(report.get('matches', []), rows, trips, confirmed_only=False)
     summary = {'matched_facts': len(report.get('matches', [])),
                       'service_period_evidence': len(evidence), 'conflicting_periods': conflicts,
                       'source_errors': len(report.get('ota_source_errors', [])),
