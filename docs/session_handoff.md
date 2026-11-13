@@ -1,3 +1,17 @@
+## 2026-11-13 PR #841 opus 변경 요청 반영 — 근거 개정 경로·일반 동기화
+
+- 동기화 코드의 화순 ID/날짜 예외 제거. 별도 확정 일정과 Google 명시 종료일이 같으면 허용하고 다르면 보존한다. 새 `tools/revise_trip_schedule.py`는 미리보기/검수 SHA·복원 사본 확인 후 적용/이후 변경을 보호하는 원복을 제공한다. 기존 일정 레코드는 새 owner-schedule의 supersedes·receipt에, 원본 authority 전체는 복원 사본에 남긴다.
+- 일정 파일 읽기 실패는 경고 로그와 `schedule_unavailable` 결과로 기록하고 기존 종료일 갱신만 건너뛴다. 새 여행 생성·자동 연결은 계속한다. 코드 완료 `57aa8f86`, 표적 합성 44pass. 같은 코드에서 `python tools/run_quality_checks.py --base origin/main --run` PASSED: 539pass·skip0·compile PASS. 마지막 변경은 이 검사 기록과 TRIP-098의 운영 미반영 안내뿐이다.
+- 운영 DB mode=ro 재측정: 지금 근거로는 변경 0. TRIP-098 근거 개정 미리보기 뒤 화순 하나 8/25→26, 귀속 카드 밖→안14/안→밖0, 닫힌 분기0으로 기존 수치와 같다. 운영 DB/authority/evidence·Google 변경과 동기화·재판정·병합·배포는 실행하지 않았다.
+- 근거: [변경 요청·영향](agents/artifacts/trip-end-date-sync-20261113.md), [유지보수 절차](playbooks/trip-schedule-revision.md). 미리보기 입력과 원문 없는 집계는 `.local-archive/trip-end-date-sync/`에 보존했다. 요구 1~4·표적/영향 검사 완료. 마지막 문서 검증 후 같은 PR에 push하며, 최종 SHA는 PR HEAD를 따른다. 남은 단계는 헤드의 새 SHA opus 재검수와 별도 운영 적용 판단이다. CODE_GAPS의 운영 8/25 상태는 아직 남는다.
+
+## 2026-11-13 여행 종료일 동기화 — 초기 PR 구현 (위 변경 요청 이전 이력)
+
+- 완료 구현 커밋 `fbfd7099`. 표적 29pass, authority 로더 합성 PASS, `python tools/run_quality_checks.py --base origin/main --run` PASSED(267pass, skip0, compile PASS). 요구 1~4와 검사 완료, PR push/생성 후 헤드에게 인계한다.
+- 승인 범위: Google 명시 종료일 갱신·감사, 합성 검증, 운영 읽기 전용 영향 측정, PR. 병합·배포·운영 동기화·재판정 없음.
+- 생성 이후 수동 종료일 변경과 별도 확정 일정은 보존한다. create owner는 옛 자동 수입에도 찍힌다. 화순의 옛 일정만 TRIP-098이 대체한다. authority/evidence/source_sha256 자체는 수정하지 않는다.
+- [설계·영향 근거](agents/artifacts/trip-end-date-sync-20261113.md). 최종 완료 커밋과 검사 결과는 이 절을 포함한 브랜치 HEAD 및 PR에 기록한다. 운영은 아직 8/25. 헤드의 독립 opus 검수·병합·후속 운영 판단이 남았다.
+
 ## 2026-11-13 PR #833 독립 검수 지적 2건 수정 — 정정 302·보존 119, 교정 반영 가능 185
 
 - 독립 검수(opus) 변경 요청: ① 소유자 채팅 지시 이동 5건이 수동 신호에 안 잡힘 ② 단일 작성자 확인 포트 8751 고정. 구현자(Qwen4 Max)가 같은 브랜치에서 고쳤다(`43c7571f`). 수동 신호 정의는 검수자가 운영 전체 이력을 조사해 정했다: 화면 행 이력에 `automatic`도 기록 배치 표시 형태도 아닌 revision이 있거나, 감사 이력에 소유자 지시 기록(`owner` 접두 종류와 배정 검토·지역/범위 정책 적용·예약 여행 교정)이 있으면 보존. PROC-014에 반영.

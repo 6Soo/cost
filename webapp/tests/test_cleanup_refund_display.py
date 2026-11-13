@@ -77,7 +77,7 @@ def test_one_original_can_have_multiple_confirmed_refunds_without_merchant_match
         assert {v['status'] for v in linked.values()} == {'full'}
         assert set(refund_group(board.conn, ids['100'])) == set(ids.values())
         html = _render_refund_evidence(board, ids['200'], linked[ids['200']])
-        assert '원승인번호 기준 원결제 확정 연결 · 취소/환불 2건' in html
+        assert '원승인번호 기준 연결 · 취소/환불 2건' in html
         assert '전액 상쇄' not in html
         assert 'cleanup-merchant-compare' not in html
         assert list(board.conn.iterdump()) == before
@@ -116,7 +116,7 @@ def test_multiple_partial_refunds_share_one_confirmed_original_without_writes(tm
             assert link['refunds_total_krw'] == -8000
             assert link['net_krw'] == 12000
         markup = _render_refund_evidence(board, refunds[0], links[refunds[0]])
-        assert '원승인번호 기준 원결제 확정 연결 · 취소/환불 2건' in markup
+        assert '원승인번호 기준 연결 · 취소/환불 2건' in markup
         assert '환불 합계 -8,000원' in markup
         assert '순액 12,000원' in markup
         assert list(board.conn.iterdump()) == before
@@ -141,7 +141,7 @@ def test_foreign_amount_link_displays_its_actual_basis_without_writes(tmp_path):
         link = refund_links(board.conn, [refund])[refund]
         assert link['basis'] == 'merchant_card_foreign_amount'
         markup = _render_refund_evidence(board, refund, link)
-        assert '외화 금액·동일 카드 기준 원결제 연결 · 취소/환불 1건' in markup
+        assert '외화 금액·동일 카드 기준 연결 · 취소/환불 1건' in markup
         assert '원승인번호 기준' not in markup
         assert list(board.conn.iterdump()) == before
     finally:
