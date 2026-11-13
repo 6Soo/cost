@@ -26,7 +26,7 @@ FAMILY_MERCHANTS = (
 PUBLIC_MERCHANTS = FAMILY_MERCHANTS + (
     'AGODA', 'Agoda', 'agoda syn', 'AGODA_NICE-Agoda', 'TRIP.COM', '트립닷컴_이니시스', 'BOOKING.COM', 'KLOOK',
     '어드벤처코리아', 'FUKUTAKE FOUNDATION', 'AMAZON.COM', '카카오T SYN', '카카오택시 SYN', '카카오T 대리 SYN',
-    'nottrip.commercial')
+    'nottrip.commercial', 'SYN 도쿄 SHOP', 'SYN 오사카 SHOP')
 
 ITEMS = {'', '식비', '숙박비', '항공료', '렌터카', '교통비', '입장료', '여행경비', '현지경비', '기타경비', '편의점', '주차비',
          '택시비', '대중교통', '통행료', '주유비', '분기 기타비용', '취소·환불', '항공권', '수동항목'}
@@ -108,7 +108,7 @@ KEYS = {
     # card and money
     'issuer': _one_of('SYN-BANK', 'SYN-BANK-B'), 'card_issuer': _one_of('SYN-BANK', 'SYN-BANK-B'),
     'card_tail': lambda v: v in TAILS, 'card_last4': lambda v: v is None or v in TAILS,
-    'card_kind': _one_of('국내', '해외'),
+    'card_kind': _one_of('', '국내', '해외'),
     'amount_krw': _money, 'amount': _money, 'foreign_amount': lambda v: v == '' or _money(v),
     'foreign_currency': _one_of('', 'JPY', 'USD'), 'currency': _one_of('KRW'),
     'min': _money, 'max': _money, 'nets': _money,
@@ -134,7 +134,8 @@ KEYS = {
     'parse_error': _one_of('', 'AMOUNT_UNREADABLE'), 'conflict_reason': _one_of('', 'syn conflict'),
     'item': _item, 'confidence': _one_of('높음', '중간', '낮음'),
     'trip_id': _trip, 'display_tab_id': _trip, 'trip_ids': _trip,
-    'display_key': _regex(r'^SYN-[A-Z0-9]+$'), 'destination': _one_of('도쿄', '제주', '싱가포르'),
+    'display_key': _regex(r'^(SYN-[A-Z0-9]+|0909_제주)$'), 'target_code': _regex(r'^(SYN-[A-Z0-9]+|0909_제주)$'),
+    'destination': _one_of('도쿄', '제주', '싱가포르', '오사카', '세토우치'),
     'travel_country': _one_of('JP'), 'origin': lambda v: v in ORIGINS,
     'confirmed_by': _one_of('automatic'),
     # fixed synthetic free text
@@ -142,11 +143,16 @@ KEYS = {
     # flags and structure
     'version': _one_of(1), 'archived': _bool, 'residual_policy': _bool, 'reconsider': _bool, 'booking_period': _bool,
     'kind': _one_of('ota', 'refund'),
+    # trips
+    'op': _one_of('infer_trip', 'candidates', 'stay_trip', 'booking_trip', 'card3820', 'infer_item'),
+    'tab_id': _trip, 'check_in': _regex(DATE.pattern), 'check_out': _regex(DATE.pattern),
+    'service': _bool, 'deleted': _bool, 'enabled': _bool, 'valid': _bool, 'conflict': _bool, 'period_conflict': _bool,
+    'formal_link': _bool, 'flags': _one_of('PERIOD_ORDER', 'PERIOD_START_MISSING'), 'country': _one_of('JPN'),
 }
 CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optional', 'prior_decision', 'amount_range',
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
-              'service_period', 'input'}
+              'service_period', 'input', 'row', 'raw_row', 'completed_evidence'}
 ID_MAPS = {'evidence', 'existing_links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')

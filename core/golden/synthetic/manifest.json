@@ -15,6 +15,10 @@
     "refund_pairing.jsonl": {
       "cases": 42,
       "sha256": "85c680dc1499a8b178fc52826fb71468f31c109af5f0781af2336106e5d3ed29"
+    },
+    "trips.jsonl": {
+      "cases": 382,
+      "sha256": "0670c005dc7dbc76f24bc8ffe88e0230813be6f98e8d96e2091ade35e15ac420"
     }
   },
   "protocol": "core-bridge/1"
