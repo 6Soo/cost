@@ -112,8 +112,42 @@ def _export_rows(rows: list[dict]) -> dict:
     return {**formatted, "held": held, "held_reason_counts": dict(sorted(reasons.items()))}
 
 
-def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
+def apply_verified_periods(rows: list[dict], stay_index: dict) -> int:
+    """Fill blank card periods from the ledger screen's verified evidence; screen-only inference stays blank."""
+    from webapp.ledger_stay_evidence import verified_period_for
+    filled = 0
+    for row in rows:
+        if (row.get("service_period") or row.get("period") or "").strip() or not str(
+                row.get("row_id") or "").startswith("card-"):
+            continue
+        period = verified_period_for(row, stay_index)
+        if period:
+            row["service_period"] = period
+            filled += 1
+    return filled
+
+
+def load_stay_index(host_root: Path, data: dict, review_db: Path | None = None) -> dict:
+    """The screen's stay index from one full OTA reconciliation (minutes of work; reads only)."""
+    import os
+    from webapp import ota_payment_review
+    from webapp.ledger_store import LedgerStore
+    from webapp.ledger_stay_evidence import index_from_snapshot
+    if review_db is not None:
+        os.environ[ota_payment_review.REVIEW_DB_ENV] = str(Path(review_db).resolve())
+    store = LedgerStore(Path(host_root) / "data/board.sqlite", seed_demo=False)
+    try:
+        snapshot = ota_payment_review.reconcile(store)
+    finally:
+        store.close()
+    manual = {row_id for row_id, fields in data.get("manual_fields", {}).items()
+              if "service_period" in fields}
+    return index_from_snapshot(snapshot["data"], manual)
+
+
+def build_paste_pack(data: dict, year: int, quarter: int, out: Path, stay_index: dict | None = None) -> dict:
     trips, rows, excluded = prepare_rows(data, year, quarter, screen_tab_membership=True)
+    period_filled = apply_verified_periods(rows, stay_index) if stay_index else 0
     trip_rows: dict[str, list[dict]] = defaultdict(list)
     quarter_rows: list[dict] = []
     for row in rows:
@@ -218,6 +252,7 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
         "excluded_reason_counts": {"NO_LEDGER_ROW": no_ledger_count},
         "empty_field_allowlist": {key: list(value) for key, value in EMPTY_FIELD_ALLOWLIST.items()},
         "period_next_quarter_review_categories": list(PERIOD_NEXT_REVIEW_CATEGORIES),
+        "period_filled_from_verified_evidence": period_filled,
     }
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
                                        encoding="utf-8")
@@ -230,13 +265,18 @@ def main(argv=None) -> int:
     parser.add_argument("--year", type=int, required=True)
     parser.add_argument("--quarter", type=int, choices=range(1, 5), required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--with-ota-evidence", action="store_true",
+                        help="화면과 같은 검증된 이용기간 근거를 쓴다(OTA 전체 대사, 수 분 소요)")
+    parser.add_argument("--ota-review-db", type=Path, default=None)
     args = parser.parse_args(argv)
     out = args.out.resolve()
     if out.is_relative_to(ROOT.resolve()):
         parser.error("고객 산출물은 저장소 밖 비공개 폴더에만 둘 수 있습니다.")
     try:
         data = read_database(args.host_root / "data/board.sqlite")
-        summary = build_paste_pack(data, args.year, args.quarter, out)
+        stay_index = (load_stay_index(args.host_root, data, args.ota_review_db)
+                      if args.with_ota_evidence else None)
+        summary = build_paste_pack(data, args.year, args.quarter, out, stay_index)
     except (OSError, ValueError, KeyError) as exc:
         print(f"분기 붙여넣기 묶음 생성 실패: {type(exc).__name__}", file=sys.stderr)
         return 2

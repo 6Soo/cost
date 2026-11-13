@@ -314,9 +314,23 @@ def export_for_trip(board, preview_rows, trip_id, *, allow_total_mismatch=False)
                and not by_id[tid].get('blocked')
                and not by_id[tid].get('excluded_from_company')]
     from app.google_tsv import expense_tsv
+    from . import ledger_stay_evidence
+    store = getattr(board, 'store', None) or board
+    stay = ledger_stay_evidence.export_index(store) if allowed else {}
+
+    def period_of(row):
+        # Same verified evidence the ledger screen shows; the screen-only inference stays blank.
+        stored = str(row.get('service_period') or '').strip()
+        if stored or row.get('evidence') != 'card':
+            return stored
+        tid = row['transaction_id']
+        return ledger_stay_evidence.verified_period_for(
+            {**row, 'row_id': 'card-' + str(tid), 'source_event_id': tid,
+             'reservation_no': row.get('booking_ref')}, stay)
+
     exported = {**expense_tsv([{
         'transaction_id': row['transaction_id'], 'date': row.get('occurred_on') or row.get('date'),
-        'payee': row.get('merchant'), 'category': row.get('item'), 'period': row.get('service_period'),
+        'payee': row.get('merchant'), 'category': row.get('item'), 'period': period_of(row),
         'reservation_no': row.get('booking_ref'), 'evidence': row.get('evidence') or 'card',
         'amount_krw': row.get('amount_krw'), 'status': 'ready',
     } for row in allowed], layout='rev'), 'tab_id': str(trip_id)}

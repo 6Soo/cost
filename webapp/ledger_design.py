@@ -764,6 +764,16 @@ def _stay_period(row) -> str:
     return period
 
 
+def _export_period(row) -> str:
+    """The period a copy carries: stored, or the screen's verified evidence (never its inference)."""
+    period = str(row.get("service_period") or "").strip()
+    if not period and str(row.get("row_id") or "").startswith("card-"):
+        from . import ledger_stay_evidence
+        index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
+        period = ledger_stay_evidence.verified_period_for(row, index)
+    return period
+
+
 def _stay_text(row) -> str:
     """The lodging dates from the source's service period, never from the reservation number.
 
@@ -1794,7 +1804,7 @@ def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
             "date": row.get("occurred_on"),
             "payee": row.get("source_merchant") or row.get("description") or "",
             "category": row.get("item"),
-            "period": row.get("service_period"),
+            "period": _export_period(row),
             "reservation_no": row.get("reservation_no"),
             "evidence": {"카드": "card", "영수증": "receipt"}.get(row.get("evidence_type")),
             "amount_krw": row.get("display_amount_krw", row.get("amount_krw")),
