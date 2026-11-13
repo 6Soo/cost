@@ -7,5 +7,17 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# RefundGroup·OpenScope 발급 함수를 연다. cost-links(U16)·U7만 켠다.
+issuer = []
+
 [lints]
 workspace = true
+
+[dependencies]
+regex = "1"
+thiserror = "2"
+time = { version = "0.3", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+proptest = "1"
