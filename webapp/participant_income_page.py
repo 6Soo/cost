@@ -283,8 +283,7 @@ def render_page(state: dict, *, csrf: str = "") -> str:
     match_link = ''
     if not google.get('available') or not configured or blocked or index_note:
         trip_href = '/board?' + urlencode({'tab': state.get('trip_id') or ''})
-        match_link += (f" <a class='participant-source-action' href='{esc(trip_href)}'>여행 수입·명단 확인</a>"
-                       " <a class='participant-source-action' href='/google-ledger'>장부 연결 설정 확인</a>")
+        match_link += f" <a class='participant-source-action' href='{esc(trip_href)}'>여행 수입·명단 확인</a>"
         if not configured:
             match_link += " <a class='participant-source-action' href='/reserve-links'>예약 명단·여행 연결</a>"
 
