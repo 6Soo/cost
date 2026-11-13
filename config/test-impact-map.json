@@ -161,6 +161,11 @@
       "tests": ["tests/card_pipeline/test_fukutake_setouchi.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_card_trip_authority_refactor.py"]
     },
     {
+      "name": "card3820-online-overseas",
+      "paths": ["app/rules.py", "app/automatic_classification.py", "tests/card_pipeline/test_card3820_online_overseas.py"],
+      "tests": ["tests/card_pipeline/test_card3820_online_overseas.py", "tests/card_pipeline/test_card3820_residual.py", "tests/card_pipeline/test_card3820_singapore.py", "tests/card_pipeline/test_card3820_reconcile.py", "webapp/tests/test_automatic_classification_completion.py"]
+    },
+    {
       "name": "jeju-trip-card-scope",
       "paths": ["app/trip_selection.py", "app/automatic_classification.py", "tests/card_pipeline/test_jeju_trip_card_scope.py"],
       "tests": ["tests/card_pipeline/test_jeju_trip_card_scope.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_classification_correction.py", "webapp/tests/test_priority_trip_assignment.py"]
