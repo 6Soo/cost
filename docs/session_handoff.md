@@ -1,3 +1,11 @@
+## 2026-11-13 밤 — 현재 상태
+
+- **소유자 결정(2026-11-13):** 분기 검수는 AI 검수자에게 위임([#828](https://github.com/6Soo/cost/pull/828)). 운영 배포·자료 반영은 하루 1~2회 창으로 묶고 장애 수정만 즉시([operations.md](operations.md) 11-13 절). 숙박·항공 이용기간 미확인은 Google 지출표 기간 칸 공란(DATE-109). 환불 탭 행은 여행 탭의 음수 행(RFND-070). 파일 간 부분환불은 원승인번호로 원결제가 하나로 특정될 때 보완 기록(RFND-029 개정, [#858](https://github.com/6Soo/cost/pull/858)). M2는 종료 조건 3개(판정 없는 정상 거래 0건·P2 성공률 기록·AI 검수 한 분기 교정과 규칙집 환류)로 닫는다. 작업자 PR은 인계 문서를 고치지 않고 헤드가 반나절마다 한 절로 묶는다. 품질 검사의 기준 실패 목록은 `config/known-test-failures.txt`([#857](https://github.com/6Soo/cost/pull/857)).
+- **운영 코드:** 11-13 23:18 `db8487129318900c0d324dcd241f4d3211fbcbfb` 배포 완료. 1차는 22:34 준비 단계 실패로 자동 롤백됐고 원인 확인 뒤 재시도해 통과했다. 이 배포 근거는 아직 [operations.md](operations.md)에 없다(맨 위 절은 14:57 `dc6e9631`까지). 11-13 병합 #845~#858 중 #847·#851·#852·#854·#856 등 `dc6e9631` 뒤 병합분이 이 배포에 들어갔는지는 `deploy-evidence`로 확인한 뒤 적는다.
+- **운영 데이터 반영은 진행 중(완료 아님):** Booking 반영, P2 증분 실행, 3분기 장부 행 없는 구매 2건 기록(표준 결정 경로, 반영 전 digest 재대조 필요), 붙여넣기 자료 재생성. 완료 근거가 생기면 operations.md에 기록한다.
+- **진행 중 작업:** 파일 간 부분환불 코드(RFND-029), Booking 식별자 보완, U6 [#855](https://github.com/6Soo/cost/pull/855) 재검수, 4분기 일괄 확인 정정 미리보기, 서버 내장 P2 코드 제거, 화면 후속.
+- **보류·열린 것:** [#850](https://github.com/6Soo/cost/pull/850) 하나·IBK 수집 골격(초안, 카드 자격 등록 대기), [#849](https://github.com/6Soo/cost/pull/849) 묶음 G3 검사 정리, 원격 브랜치 `fix/test-isolation-20261113`, `fix/suite3-contract-judgement-20261113`, `wip/booking-identity-20261113`. 직원 정산·카드 자동 수집 확장·검사 정리 추가는 M2 종료 뒤.
+- **다음 행동:** (1) 23:18 배포의 `deploy-evidence`로 포함 PR과 health/ready·보호 표를 확인해 operations.md에 기록. (2) 다음 배포 창에 데이터 반영 묶음을 백업·미리보기·digest 게이트로 진행하고 재실행 변화 0 확인. (3) 반영 뒤 3분기 붙여넣기 자료 재생성·재검증. (4) #855 재검수 뒤 병합 판단. (5) 종료 조건 3개의 측정값(성공률 기록 포함)을 갱신해 M2를 닫는다.
 ## 2026-11-13 U2 수집 실행 요약과 로그인 필요 표시 — PR 검수 대기
 
 - 계약 파일 `data/collection-runs/<source>.json`은 `schema`, `source`, `finished_at`, `status`, `login_required`만 원자적으로 기록한다. OTA 로그인 실패/인증 미확인과 국민 로그인 실패를 기록하고, 성공 실행은 표시를 해제한다. 카드 로그인 모듈은 수정하지 않았다.
