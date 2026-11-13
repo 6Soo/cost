@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import threading
 import time
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -60,8 +61,6 @@ INDIVIDUAL_REASON = 'INDIVIDUAL_CORRECTION'
 REASON_VOCABULARY = frozenset({code for code, _ in REASON_CODES} | {INDIVIDUAL_REASON})
 RULE_VOCABULARY = re.compile(r'[A-Z]{2,6}-\d{3}|DECISION_POLICY §[\d.]+')
 REVIEW_ID = re.compile(r'[A-Za-z0-9._-]{1,80}')
-# Sources written by import-time rules; the P1 plan cannot reproduce their item.
-IMPORT_SOURCES = frozenset({'rule', 'pattern', 'user_exception', 'owner_booking', 'refund_original'})
 RULE_ID = re.compile(r'\b[A-Z]{2,6}-\d{3}\b|DECISION_POLICY §[\d.]+')
 BASIS = re.compile(r'^AI_REVIEW · \{[^{}]*\} · (.*)$', re.S)
 FRESH = dict(classification_state='needs_review', classification_source='', classification_basis='',
@@ -164,12 +163,44 @@ def build_case_file(cases, review_id):
                 note='식별값·금액 없음. 허용 목록의 값(사유 코드·항목 어휘·귀속 종류)과 건수만 담은 비공개 파일(Git 금지).')
 
 
+class _CopyStore:
+    """Minimal store over the in-memory copy for the import classifier."""
+
+    def __init__(self, conn):
+        self.conn, self.lock = conn, threading.RLock()
+
+    def log_change(self, *args, **kwargs):
+        pass
+
+
+def _import_classify(copy, tids):
+    """Run the import-time classifier (data rules, patterns, card-category table) on the reset rows."""
+    from app import classify
+    store = _CopyStore(copy)
+    batches = {}
+    for tid in tids:
+        for (batch,) in copy.execute('SELECT batch_id FROM import_batch_rows WHERE transaction_id=?', (tid,)):
+            batches.setdefault(batch, []).append(tid)
+    # Refund pairing is the plan's job (it inherits the original's judgment); keep it out of the input.
+    pair_refunds, classify.pair_refunds = classify.pair_refunds, lambda *args, **kwargs: 0
+    try:
+        for batch, batch_ids in sorted(batches.items()):
+            classify._classify_batch(store, batch, transaction_ids=batch_ids)
+    finally:
+        classify.pair_refunds = pair_refunds
+    # A row the import step left without an attribution still awaits the completion plan.
+    copy.execute("UPDATE transactions SET classification_state='needs_review' WHERE transaction_id IN "
+                 "(SELECT value FROM json_each(?)) AND COALESCE(display_tab_id,'') IN ('','unclassified')",
+                 (json.dumps(tids),))
+
+
 def rejudge(conn, trips, cases, *, nets=None, evidence=None):
     """Re-judge each case from raw inputs with the current P1 code on an in-memory copy.
 
     Every case row is reset to a freshly imported state (no item, attribution,
     source or projection), so the result is what today's rules decide without
-    leaning on the earlier, possibly wrong, answer.
+    leaning on the earlier, possibly wrong, answer. The import-time classifier runs
+    first, then the completion plan, as in production.
     """
     from app import automatic_classification as policy
     copy = sqlite3.connect(':memory:', isolation_level=None)
@@ -191,8 +222,17 @@ def rejudge(conn, trips, cases, *, nets=None, evidence=None):
             if duplicate or conflict or parse_error:
                 # Source protection (e.g. a later duplicate cleanup) keeps P1 from judging the row.
                 protected[tid] = 'NOT_REJUDGED_SOURCE_PROTECTED'
+        _import_classify(copy, [t for t in ids if t not in protected])
         plan = policy.plan(copy, trips, nets=nets, transaction_ids=ids, reconsider=False, evidence=evidence or {})
         judged = {t['id']: dict(zip(policy.FIELDS, t['values'])) for t in plan['targets']}
+        # No plan target means the import classification already stands as the judgment.
+        for tid in ids:
+            if tid in judged or tid in protected:
+                continue
+            row = copy.execute('SELECT ' + ','.join(policy.FIELDS) +
+                               ' FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+            if row and row[0] == 'classified':
+                judged[tid] = dict(zip(policy.FIELDS, row))
     finally:
         copy.close()
     return [compare(c, judged.get(c['tid']), protected.get(c['tid'])) for c in cases]
@@ -201,11 +241,10 @@ def rejudge(conn, trips, cases, *, nets=None, evidence=None):
 def compare(case, judged, protected=None):
     """Compare every corrected field (item, attribution, trip) with the code's fresh judgment.
 
-    Outcomes: MATCH (all fields equal), MISMATCH (one or more reasons),
-    ITEM_NOT_REEVALUATED (attribution equal, item differs but the item came from an import-time
-    rule P1 does not run), NOT_REJUDGED (code left the row alone).
+    Outcomes: MATCH (all fields equal), MISMATCH (one or more reasons), NOT_REJUDGED (code left
+    the row alone). The item is always re-derived (import classification, then plan).
     """
-    b, a = case['before']['transaction'], case['after']['transaction']
+    a = case['after']['transaction']
     if judged is None:
         return dict(outcome='NOT_REJUDGED', reasons=[protected or 'NOT_REJUDGED_PROTECTED_OR_UNCHANGED'])
     expected_tab, got_tab = a.get('display_tab_id') or '', judged.get('display_tab_id') or ''
@@ -217,13 +256,10 @@ def compare(case, judged, protected=None):
             'ATTRIBUTION_' + got.upper() + '_VS_' + want.upper()))
     elif (judged.get('trip_id') or '') != (a.get('trip_id') or ''):
         reasons.append('TRIP_ID_DIFFERS')
-    item_equal = (judged.get('item') or '') == (a.get('item') or '')
-    if not item_equal and (b.get('classification_source') or '') not in IMPORT_SOURCES:
+    if (judged.get('item') or '') != (a.get('item') or ''):
         reasons.append('ITEM_DIFFERS')
     if reasons:
         return dict(outcome='MISMATCH', reasons=reasons)
-    if not item_equal:
-        return dict(outcome='ITEM_NOT_REEVALUATED', reasons=['ITEM_FROM_IMPORT_RULE_NOT_REEVALUATED'])
     return dict(outcome='MATCH', reasons=[])
 
 

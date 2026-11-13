@@ -100,6 +100,18 @@ def test_verified_refund_keeps_manual_sources_but_not_legacy_period_exclusion(se
     assert board.conn.execute('SELECT classification_source FROM transactions WHERE transaction_id=?', (tid,)).fetchone()[0] == expected
 
 
+@pytest.mark.parametrize('source', ['rule', 'pattern'])
+def test_quarter_ended_row_takes_quarter_item_even_when_an_import_rule_gave_one(setup, source):
+    """PROC-004 (2026Q3 AI 검수 환류): the item of a row ended in a quarter is 분기 기타비용."""
+    board, flow, batch, rows = setup
+    tid = rows[0]['transaction_id']
+    board.conn.execute("UPDATE transactions SET item='교통비',classification_source=? WHERE transaction_id=?",
+                       (source, tid))
+    result = policy.plan(board.conn, [], transaction_ids=[tid])
+    values = dict(zip(policy.FIELDS, result['targets'][0]['values']))
+    assert values['display_tab_id'] == 'quarter:2026:4' and values['item'] == '분기 기타비용'
+
+
 def test_3820_owner_policy_precedes_generic_trip_inference():
     singapore = [dict(trip_id='SG', starts_on='2026-09-19', ends_on='2026-09-24', destination='싱가포르')]
     row = dict(card_tail='3820', transaction_direction='purchase', transaction_kind='purchase',
