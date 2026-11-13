@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from .provisional_assignment import canonical_trip_periods, card_trip_candidates
 from .quarter_costs import quarter_of
 from .assignment_status import row_assignment
-from .rules import transaction_region
+from .rules import merchant_country, transaction_region
 from .trip_selection import regional_trips, period_or_preparation
 
 POLICY = 'complete-card-inference-v1'
