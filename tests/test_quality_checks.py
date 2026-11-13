@@ -446,6 +446,41 @@ def test_selected_nonbrowser_skip_fails_quality_run_even_when_another_case_passe
     assert summary["nonbrowser_skipped_test_cases"] == ["synthetic.required::skipped"]
 
 
+@pytest.mark.parametrize(("failed_name", "expected_status", "expected_exit"), [
+    ("known", "PASSED", 0),
+    ("new", "FAILED", 1),
+])
+def test_quality_run_accepts_only_baseline_failures(tmp_path, capsys, failed_name,
+                                                   expected_status, expected_exit):
+    from unittest.mock import patch
+
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "known-test-failures.txt").write_text(
+        "# baseline sha: " + "a" * 40 + "\nsynthetic.test::known\n", encoding="utf-8")
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text(
+            f'<testsuite><testcase classname="synthetic.test" name="{failed_name}">'
+            '<failure message="synthetic"/></testcase></testsuite>', encoding="utf-8")
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
+    summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
+    assert result == expected_exit
+    assert summary["status"] == expected_status
+    assert summary["known_failure_count"] == (1 if failed_name == "known" else 0)
+    assert ("알려진 실패 1건" in capsys.readouterr().out) is (failed_name == "known")
+
+
 def test_deleted_paths_are_retained_in_impact_plan():
     assert "app/ledger.py" in quality.build_plan(["app/ledger.py"], selector([]))["changed_paths"]
 
@@ -481,3 +516,41 @@ def test_selector_malformed_and_unknown_status_fail_closed():
         quality.build_plan(["app/file.py"], {"status": "SELECTED", "pytest_commands": []})
     with pytest.raises(ValueError, match="SELECTOR_FAILED"):
         quality.build_plan(["app/file.py"], {"status": "ERROR", "unknown_files": [], "pytest_commands": []})
+
+
+def test_known_failure_classification_allows_only_failures_in_baseline():
+    result = quality.classify_known_failures(
+        {"tests/test_old.py::test_known"}, {"tests/test_old.py::test_known"},
+        {"tests/test_old.py::test_known"})
+    assert result == {"known_failed_test_cases": ["tests/test_old.py::test_known"],
+                      "new_failed_test_cases": [], "resolved_known_test_cases": [],
+                      "known_failure_count": 1}
+
+
+def test_known_failure_classification_rejects_one_failure_outside_baseline():
+    result = quality.classify_known_failures(
+        {"tests/test_old.py::test_known"}, {"tests/test_old.py::test_known",
+                                             "tests/test_new.py::test_regression"}, set())
+    assert result["new_failed_test_cases"] == ["tests/test_new.py::test_regression"]
+
+
+def test_known_failure_classification_reports_resolved_executed_items():
+    result = quality.classify_known_failures(
+        {"tests/test_old.py::test_fixed"}, set(), {"tests/test_old.py::test_fixed"})
+    assert result["known_failed_test_cases"] == []
+    assert result["resolved_known_test_cases"] == ["tests/test_old.py::test_fixed"]
+
+
+def test_empty_known_failure_list_does_not_hide_a_failure(tmp_path):
+    config = tmp_path / "known-test-failures.txt"
+    config.write_text("# baseline sha: abc\n", encoding="utf-8")
+    known = quality.load_known_failures(config)
+    result = quality.classify_known_failures(known, {"tests/test_new.py::test_new"}, set())
+    assert known == set()
+    assert result["new_failed_test_cases"] == ["tests/test_new.py::test_new"]
+
+
+def test_known_failure_inventory_change_selects_its_quality_gate():
+    plan = quality.build_plan(["config/known-test-failures.txt"],
+                              selector(["config/known-test-failures.txt"]))
+    assert "tests/test_quality_checks.py" in plan["pytest_targets"]
