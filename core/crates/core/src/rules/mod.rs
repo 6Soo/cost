@@ -5,12 +5,17 @@
 
 mod builtin;
 mod classify;
+mod exceptions;
 mod matching;
 mod normalize;
 mod text;
 
 pub use builtin::{Attribution, Builtin, BuiltinRule, Effects, Kind, Strength};
-pub use classify::{Verdict, classify};
+pub use classify::{Verdict, classify, classify_with_trips};
+pub use exceptions::{
+    INFERRED_ORIGINS, InferredOrigin, OWNER_EXCEPTIONS, OwnerException, TripHint, TripResolver,
+    inferred_origin,
+};
 pub use matching::{
     Transaction, is_booking_or_online, merchant_country, rule_matches, transaction_region,
 };
