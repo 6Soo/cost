@@ -1,3 +1,11 @@
+## 2026-11-13 U2 수집 실행 요약과 로그인 필요 표시 — PR 검수 대기
+
+- 계약 파일 `data/collection-runs/<source>.json`은 `schema`, `source`, `finished_at`, `status`, `login_required`만 원자적으로 기록한다. OTA 로그인 실패/인증 미확인과 국민 로그인 실패를 기록하고, 성공 실행은 표시를 해제한다. 카드 로그인 모듈은 수정하지 않았다.
+- `webapp/collection_status.py`는 데이터 루트의 요약만 읽고 국민·하나·기업 및 Agoda·Trip.com·Booking.com의 로그인 필요 상태를 원천 이름과 표시한다. 파일이 없거나 잘못된 계약이면 기존 표시로 조용히 돌아가며 파일 변경은 화면 캐시를 즉시 무효화한다.
+- 요구 1~4 완료: 허용 키/민감값 제외, 수집 기록 주체 연결, 로그인 필요→표시→성공 해제와 깨진 파일 무시를 합성 검사했다. 비인증 `/`는 401이다. 수집 동작·운영 DB·운영 경로·운영 포트는 사용하지 않았다.
+- 표적 검사: 상태 화면 22 passed, OTA 계약 9 passed, 국민 entry fixture 8 passed. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`: PASSED, 463 passed + 28 subtests, 0 failed, 0 skipped, compile PASS. QA 기준 HEAD `187d092580284733edfa458064d452d66f7a68d9`; 검사 기록 `quality-artifacts/run-summary.json`(로컬 생성물, 커밋 제외).
+- 구현 커밋 `9ee024fb`; 최신 main 병합 포함 SHA `187d092580284733edfa458064d452d66f7a68d9`. 브랜치 `feat/collection-run-login-status-20261113` push 완료. PR 생성 후 번호와 최종 HEAD를 이 절 및 PR에 갱신한다. 병합·배포하지 않는다.
+
 ## 2026-11-13 자동 기록 투영 실패 원자성·금액 묶음 정렬 조사
 
 - 자동 기록의 사전 분류·revision부터 장부·화면 투영까지 같은 트랜잭션으로 묶고, 하위 장부/분기 기록은 savepoint로 참여한다. 기존 revision 실패 재현 통과, 합성 원자성 5건과 기존 부분 환불 31건 36pass, 기존 자동 기록 9pass(다른 담당의 낡은 real_blocking 1건 제외).
