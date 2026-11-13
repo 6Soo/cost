@@ -9,3 +9,8 @@ publish = false
 
 [lints]
 workspace = true
+
+[dependencies]
+cost-domain = { path = "../domain" }
+rusqlite = { version = "0.37", features = ["bundled"] }
+thiserror = "2"
