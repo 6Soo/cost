@@ -50,4 +50,3 @@ def collect(mail_directories):
         except Exception:
             continue
     return {key: sorted(values) for key, values in names.items()}
-
