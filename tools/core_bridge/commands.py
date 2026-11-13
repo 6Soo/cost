@@ -143,8 +143,42 @@ def extract(request):
     raise BridgeError('EXTRACT_KIND_INVALID', str(kind))
 
 
+def trips(request):
+    """Pure trip attribution (no DB): infer_trip, candidates, stay_trip, booking_trip, card3820, infer_item."""
+    from types import SimpleNamespace
+    from app import automatic_classification as policy
+    from app import provisional_assignment as provisional
+    from app import reconciliation as rc
+    op, rows = request.get('op'), request.get('trips', [])
+    nets = request.get('nets')
+    if op == 'infer_trip':
+        trip, basis = policy.infer_trip(request['row'], rows, nets=nets, reconsider=bool(request.get('reconsider')),
+                                        completed_evidence=request.get('completed_evidence'))
+        return {'trip_id': trip, 'basis': basis}
+    if op == 'candidates':
+        return {'candidates': provisional.card_trip_candidates(request['row'], rows, nets=nets)}
+    if op == 'stay_trip':
+        chosen = rc.stay_trip(rows, request['check_in'], request['check_out'],
+                              service=bool(request.get('service')), nets=nets)
+        return {'tab_id': chosen['tab_id'] if chosen else None}
+    if op == 'booking_trip':
+        from webapp.card_trip_authority import booking_trip
+        flow = SimpleNamespace(board=SimpleNamespace(list_trips=lambda: rows), trip_valid=lambda tab_id: True)
+        period = dict(starts_on=request['check_in'], ends_on=request['check_out'], service=bool(request.get('service')),
+                      target_code=request.get('target_code'))
+        return {'tab_id': booking_trip(flow, request['row'], period, google_nets=lambda: nets or {},
+                                       handover_days=rc.handover_days, overlaps_stay=rc.overlaps_stay,
+                                       stay_trip=rc.stay_trip)}
+    if op == 'card3820':
+        return {'policy': policy._card3820_owner_policy(request['row'], rows)}
+    if op == 'infer_item':
+        item, basis = policy.infer_item(request['row'])
+        return {'item': item, 'basis': basis}
+    raise BridgeError('TRIPS_OP_INVALID', str(op))
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'plan': plan,
-            'classify': classify, 'extract': extract}
+            'classify': classify, 'extract': extract, 'trips': trips}
 
 
 def canonical(value):
