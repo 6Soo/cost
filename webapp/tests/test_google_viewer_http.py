@@ -166,14 +166,18 @@ class GoogleViewerHttpTests(unittest.TestCase):
         sentinel = 'SENTINEL_PRIVATE_CUSTOMER'
         snapshot = {'generation': 7, 'trips': [{'key': sentinel}], 'rule_version': 'rules_v1'}
         rows = {'private': sentinel}
-        before = request_metrics.summary().get('google_canonical_read.google_read', {}).get('samples', 0)
+        # The metrics window is a process-global accumulator whose 'rows' is a sum
+        # over every sample. Assert this call's delta (one sample, one row) so
+        # samples recorded earlier in the suite cannot skew the expectation.
+        before = request_metrics.summary().get('google_canonical_read.google_read', {})
+        before_samples, before_rows = before.get('samples', 0), before.get('rows', 0)
         with patch.object(gl.google_authority, 'load_consistent', return_value=(snapshot, rows)) as loader:
             actual = gl._load_consistent_measured(self.snapshot, self.rows)
         loader.assert_called_once_with(self.snapshot, self.rows)
         self.assertEqual(actual, (snapshot, rows))
         after = request_metrics.summary()['google_canonical_read.google_read']
-        self.assertEqual(after['samples'], before + 1)
-        self.assertEqual(after['rows'], 1)
+        self.assertEqual(after['samples'], before_samples + 1)
+        self.assertEqual(after['rows'], before_rows + 1)
         self.assertNotIn(sentinel, json.dumps(request_metrics.summary()))
         self.assertNotIn(str(self.snapshot), json.dumps(request_metrics.summary()))
 

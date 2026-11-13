@@ -11,6 +11,9 @@ from .fixtures import make_csv, domestic_row
 
 
 class Board:
+    def get_trip(self, tab_id):
+        return next((trip for trip in self.list_trips() if trip['tab_id'] == tab_id), None)
+
     def list_trips(self):
         return [dict(tab_id='japan',destination='교토',display_key='0408_교토',
                      starts_on='2026-04-08',ends_on='2026-04-12'),
@@ -68,11 +71,12 @@ def test_verified_local_store_and_explicit_schedule_match():
     assert classify_transaction(transaction,rules=[retail_rule()],trip_resolver=flow().retail_trip)['classification_state']=='needs_review'
 
 
-def test_currency_and_stale_schedule_cannot_supply_a_location():
+def test_overseas_region_can_match_a_different_country_but_requires_valid_schedule():
     transaction=dict(merchant='FAMILYMART',issuer='국민',card_kind='해외',approval_date='2026-04-09',
                      raw_row={'c8':'SG'},foreign_currency='JPY')
     assert merchant_country(transaction)=='SG'
-    assert not flow().retail_trip(transaction,'JP')
+    # TRIP-044: overseas travel no longer requires identical country codes.
+    assert flow().retail_trip(transaction,'JP') == 'japan'
     transaction['raw_row']['c8']='JP'
     f=flow();f.trip_valid=lambda _:False
     assert not f.retail_trip(transaction,'JP')
@@ -97,7 +101,8 @@ def test_old_transactions_are_classified_without_a_preserved_state(tmp_path, leg
         # A date window can scope a preview, but must never change row state.
         assert len(pipe.preview(batch, review_from='2026-04-01')['rows'])==1
         pipe.classify_batch(batch)
-        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state='preserved'").fetchone()[0]==0
+        # #815 / PROC-072 preserves an explicit completed-period decision.
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state='preserved'").fetchone()[0] == int(legacy_state)
         assert original==conn.execute('SELECT transaction_id,source_hash,amount_krw FROM transactions ORDER BY transaction_id').fetchall()
         assert conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
     finally:
@@ -164,7 +169,7 @@ def test_country_code_formats_do_not_require_changing_the_source():
     assert merchant_country(row)=='JP'
 
 
-def test_explicit_myoko_and_mongolia_trips_match_only_their_source_country():
+def test_explicit_overseas_trips_use_region_and_actual_use_date():
     f=flow()
     f.board.list_trips=lambda:[dict(tab_id='myoko',destination='묘코',display_key='0620_묘코',
                                     starts_on='2026-06-20',ends_on='2026-06-24'),
@@ -175,10 +180,10 @@ def test_explicit_myoko_and_mongolia_trips_match_only_their_source_country():
              approval_date='2026-07-15',raw_row={'c11':'해외구매(신용)'})
     assert merchant_country(row)=='MN'
     assert f.retail_trip(row,'MN')=='mongolia'
-    assert not f.retail_trip(row,'JP')
+    assert f.retail_trip(row,'JP') == 'mongolia'
     row.update(merchant='SYNTHETIC LOCAL SHOP CITY JP',approval_date='2026-06-21')
     assert f.retail_trip(row,'JP')=='myoko'
-    assert not f.retail_trip(row,'MN')
+    assert f.retail_trip(row,'MN') == 'myoko'
 
 
 def test_owner_answers_keep_office_shared_and_travel_product_source_bound():
@@ -194,7 +199,12 @@ def test_owner_answers_keep_office_shared_and_travel_product_source_bound():
     result=classify_transaction(adventure,rules=rules)
     assert result['item']=='여행상품비' and not result['trip_id']
     assert adventure['amount_krw']==-325866
-    assert classify_transaction(dict(adventure,source_hash='c'*64),rules=rules)['classification_state']=='needs_review'
+    other = classify_transaction(dict(adventure,source_hash='c'*64),rules=rules)
+    # ITEM-029 replaces the old source-bound travel-product fallback.
+    assert other['classification_state'] == 'classified'
+    assert other['item'] == '항공료' and other['classification_source'] == 'provider_default'
+    assert not other['trip_id']
+    assert adventure['source_hash'] == 'b' * 64
 
 
 def test_owner_answer_rules_apply_twice_without_changing_sources_or_posting(tmp_path):
@@ -230,7 +240,8 @@ def test_online_supplier_cannot_be_assigned_by_payment_date_even_with_an_old_loc
     default=normalize_rule({'conditions':{'merchant_normalized':'*'},
                             'optional':{'travel_country':'local'},'effects':{'item':'현지경비'}})
     result=classify_transaction(row,rules=[local,default],trip_resolver=f.retail_trip)
-    assert result['classification_state']=='needs_review' and not result['trip_id']
+    assert result['classification_state']=='classified' and not result['trip_id']
+    assert result['item'] == '항공료' and result['classification_source'] == 'provider_default'
     purpose=normalize_rule({'conditions':{'merchant_normalized':row['merchant']},
                             'optional':{'source_hash':row['source_hash']},'effects':{'item':'여행상품비'}})
     result=classify_transaction(row,rules=[local,default,purpose],trip_resolver=f.retail_trip)

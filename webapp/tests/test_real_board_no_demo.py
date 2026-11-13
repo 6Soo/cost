@@ -189,7 +189,7 @@ class RealStoreBoardTests(unittest.TestCase):
         _status, page = self.get("/board?tab=trip-never-existed")
         self.assert_no_example_data(page, "the page for a trip that does not exist")
         # the empty state, not the example board that used to stand in for it
-        self.assertIn("지출 내역이 없어요", page)
+        self.assertIn("지출 내역이 없습니다.", page)
 
     def test_the_sync_fragments_carry_no_example_rows(self):
         """A second browser gets the fragments, so the leak reaches it too.
@@ -464,7 +464,7 @@ class DesignRendererTests(unittest.TestCase):
         blank region.
         """
         part = ledger_design.rows_part("unclassified")
-        self.assertIn("지출 내역이 없어요", part)
+        self.assertIn("지출 내역이 없습니다.", part)
         for example_id in EXAMPLE_IDS:
             self.assertNotIn(example_id, part)
 

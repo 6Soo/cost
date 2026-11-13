@@ -84,7 +84,7 @@ def test_same_date_other_purchase_and_two_bookings_are_not_auto_linked():
     other = dict(fact, ota_event_id='other-payment', booking_ref='OTHER-SYNTHETIC', source_ids=['mail:other'])
     results = payments.match_ota_payment_events([fact, other], [row])
     assert all(result['transaction_id'] is None for result in results)
-    assert all(result['status'].startswith('HOLD_') for result in results)
+    assert all(result['status'] == 'MATCHED_GROUP' for result in results)
     assert not payments.match_ota_payment_events([fact], [dict(row, amount_krw=45001)])[0]['transaction_id']
     assert not payments.match_ota_payment_events([fact], [dict(row, card_tail='9999')])[0]['transaction_id']
     claim = dict(fact, event_type='reservation', evidence_status='reservation_only', payment_status='unknown')

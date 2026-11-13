@@ -118,13 +118,15 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         assert result['processed'] == 3
         assert result['failures'] == []
         assert board.conn.execute('SELECT item FROM transactions WHERE transaction_id=?', (ids[0],)).fetchone()[0] == '식비'
-        assert board.conn.execute('SELECT item,display_tab_id FROM transactions WHERE transaction_id=?', (ids[1],)).fetchone() == ('숙박비', 'unclassified')
+        # PROC-004: a classified hotel with no verified trip lands on its quarter tab.
+        assert board.conn.execute('SELECT item,display_tab_id FROM transactions WHERE transaction_id=?', (ids[1],)).fetchone() == ('숙박비', 'quarter:2026:4')
         assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id IN (?,?,?) ORDER BY transaction_id', protected).fetchall() == before_protected
         assert board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date,posting_date FROM transactions ORDER BY transaction_id').fetchall() == before_raw
         assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
         assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0] == 0
         after = board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
-        assert card_flow.reclassify_cleanup(board)['processed'] == 3
+        # PROC-004: the first pass already resolved the rows onto quarter tabs, so a replay has nothing to process.
+        assert card_flow.reclassify_cleanup(board)['processed'] == 0
         assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == after
         monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
         monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _, **kw: {})

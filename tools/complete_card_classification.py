@@ -181,13 +181,43 @@ def protected_state(conn):
     return result
 
 
+def ledger_route_port(host):
+    """The Board port the host actually routes to, from config/ledger-route.json.
+
+    A missing/unreadable route file or a paused route must stop an offline write
+    rather than fall back to a hard-coded port. The port must be a Board port.
+    """
+    route_path = Path(host) / 'config' / 'ledger-route.json'
+    try:
+        route = json.loads(route_path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        raise ValueError('ROUTE_REQUIRED')
+    if route.get('paused'):
+        raise ValueError('ROUTE_PAUSED')
+    port = route.get('port')
+    if not isinstance(port, int) or isinstance(port, bool) or port not in (8751, 8752):
+        raise ValueError('ROUTE_PORT_INVALID')
+    return port
+
+
+def require_writers_offline(port=8751):
+    """Refuse writes while a managed writer task runs or the Board port listens.
+
+    Shared single-writer gate for offline tools. A non-zero PowerShell exit (a
+    task is Running, the task pair is missing, or the port has a listener)
+    raises ValueError('WRITERS_NOT_OFFLINE').
+    """
+    script = ("$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);"
+              "if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};"
+              "if(@(Get-NetTCPConnection -LocalPort %d -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0") % port
+    check = subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True)
+    if check.returncode:
+        raise ValueError('WRITERS_NOT_OFFLINE')
+
+
 def require_offline_backup(host, evidence, db, *, isolated_copy=False,
-                           database_name='board.sqlite', board_port=8751):
-    """Gate a write on a fresh verified backup of ``db`` and, unless rehearsing on an isolated
-    copy, quiescent managed writers. ``database_name`` selects the manifest entry to compare and
-    ``board_port`` the production Board listener to refuse; both default to the board ledger so
-    existing callers are unchanged. The OTA evidence importer passes its own store name and the
-    port read from ledger-route.json."""
+                           database_name='board.sqlite', board_port=None):
+    """Require a fresh, verified backup and, for live writes, a quiescent Board/SourceRefresh."""
     from tools.verify_operational_backup_restore import database_state
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
     for key in ('live_state_unchanged','all_database_tables_and_columns_compared','restored_review_binding_equal'):
@@ -208,12 +238,7 @@ def require_offline_backup(host, evidence, db, *, isolated_copy=False,
                 or (live.exists() and os.path.samefile(db,live))):
             raise ValueError('ISOLATED_COPY_REQUIRED')
         return
-    script = ("$t=@(Get-ScheduledTask -TaskName WebLedger-Board,WebLedger-SourceRefresh);"
-              "if($t.Count -ne 2 -or @($t|Where-Object State -eq Running).Count -ne 0){exit 1};"
-              "if(@(Get-NetTCPConnection -LocalPort " + str(board_port) + " -State Listen -ErrorAction SilentlyContinue).Count -ne 0){exit 2};exit 0")
-    check = subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True)
-    if check.returncode:
-        raise ValueError('WRITERS_NOT_OFFLINE')
+    require_writers_offline(board_port if board_port is not None else ledger_route_port(host))
 
 
 def main(argv=None):

@@ -212,7 +212,8 @@ def test_snapshot_worker_list_and_detail_share_one_solver_result(monkeypatch):
     assert payload["results"] == [{"ota_event_id": "synthetic-event", "status": "MATCHED_AUTO",
                                    "transaction_id": "synthetic-card", "reserved_card_ids": None,
                                    "allocation_basis": None, "inferred_link": None,
-                                   "inference_basis": None, "payment_date_verified": None}]
+                                   "inference_basis": None, "payment_date_verified": None,
+                                   "payment_relation": None}]
     assert payload["public"]["events"][0]["status"] == payload["results"][0]["status"]
     assert payload["queue_detail_rows"]["synthetic-event"]["status"] == payload["results"][0]["status"]
     assert payload["queue_detail_rows"]["synthetic-event"]["transaction_id"] == payload["results"][0]["transaction_id"]

@@ -41,7 +41,7 @@ def test_sum_formula_warning_allows_only_complete_valid_rows(sources, failure):
             assert state['available'] is True, state
             assert state['total_warning'] is True
             assert state['groups'][0]['status'] == 'matched'
-            assert '합계 수식 확인 필요' in render_summary(state)
+            assert '시트 합계 수식을 확인해 주세요' in render_summary(state)
             markup = _tables_html([], [], selected='', unclassified=False, amount_groups=state)
             assert "class='gemn-total-warning'" in markup
             assert '개별 지출 행 기준 비교' in markup

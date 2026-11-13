@@ -33,6 +33,8 @@ class GoogleActionsBrowserTests(LinkBrowserFixture):
             context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
             page = context.new_page()
             page.goto(f'http://127.0.0.1:{self.port}/board?tab=' + trip['tab_id'])
+            # 8cd0e58b: 여행 장부 작업공간은 탭으로 재편됐다. 수입 탭을 열어야 동기화 버튼이 보인다.
+            page.get_by_role('tab', name='수입', exact=True).click()
             calls = []
             def sync(*args, **kwargs):
                 calls.append(1)
@@ -41,6 +43,7 @@ class GoogleActionsBrowserTests(LinkBrowserFixture):
                 with page.expect_navigation():
                     page.locator('[data-google-sync]').click()
                 self.assertEqual(len(calls), 1)
+            page.get_by_role('tab', name='수입', exact=True).click()
             self.assertFalse(page.locator('[data-google-sync]').is_disabled())
             with patch.object(google_ledger_actions.ga, 'sync', side_effect=OSError('private path')):
                 page.locator('[data-google-sync]').click()

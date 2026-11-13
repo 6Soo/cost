@@ -38,12 +38,9 @@ def _apply_gate(host, evidence, store, *, isolated_copy):
     still matches, plus quiescent managed writers for a production write. The Board port comes
     from ledger-route.json; an isolated-copy rehearsal skips the writer check but must still be a
     separate copy of the store, never the production original."""
-    from tools.complete_card_classification import require_offline_backup
+    from tools.complete_card_classification import ledger_route_port, require_offline_backup
     store = Path(store)
-    board_port = 8751
-    if not isolated_copy:
-        route = json.loads((host / 'config' / 'ledger-route.json').read_text(encoding='utf-8-sig'))
-        board_port = int(route['port'])
+    board_port = None if isolated_copy else ledger_route_port(host)
     require_offline_backup(host, evidence, store, isolated_copy=isolated_copy,
                            database_name=store.name, board_port=board_port)
 

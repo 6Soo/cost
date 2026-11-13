@@ -34,6 +34,7 @@ __all__ = [
     "to_date",
     "normalize_merchant",
     "normalize_identity_text",
+    "normalize_approval_number",
     "is_cancel_text",
     "to_currency_text",
     "CARD_KINDS",
@@ -156,6 +157,19 @@ def normalize_identity_text(value) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def normalize_approval_number(value) -> str:
+    """Comparison-only key for an issuer approval number.
+
+    Some Hana views pad the same approval with leading zeros (`00001111` in the
+    approval source, `1111` in the overseas acquired view). Stripping the outer
+    zeros lets the two views agree on one transaction. This never rewrites the
+    stored approval number; it is only used to compare identities. Alphanumeric
+    issuer IDs keep their letters. An all-zero or blank number is meaningless and
+    normalizes to empty so it can never establish a match.
+    """
+    return str(value or "").strip().lstrip("0")
 
 
 def is_cancel_text(value) -> bool:

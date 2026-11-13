@@ -160,7 +160,10 @@ def test_runtime_close_waits_for_active_write_and_refuses_queued_work(tmp_path):
     server = ledger_board.serve(port=0, db_path=path, with_worker=False, seed_demo=False)
     entered, release, closing, closed = (threading.Event() for _ in range(4))
     errors = []
-    handler = SimpleNamespace(server=server, _send_json=Mock())
+    # The request wrapper reads the handler's path/command to decide whether a
+    # request may skip the store lock; a write request carries both.
+    handler = SimpleNamespace(server=server, _send_json=Mock(),
+                              path='/board', command='POST')
 
     def write(handler):
         try:

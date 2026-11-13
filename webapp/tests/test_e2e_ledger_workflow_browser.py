@@ -52,7 +52,11 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
             valid_trip = patch.object(CardFlow, 'trip_valid', side_effect=lambda _flow, identity: identity == tab, autospec=True)
             valid_trip.start()
             try:
-                with sync_playwright() as api:
+                # The W3 upload panel is owner-only; a synthetic server without
+                # auth enforcement has no owner session, so simulate the owner
+                # request exactly as the other card-flow browser tests do.
+                with sync_playwright() as api, patch.object(
+                        ledger_board, '_participant_owner_request', return_value=True):
                     browser = api.chromium.launch(headless=True)
                     context = browser.new_context(viewport={'width': 1440, 'height': 900})
                     page = context.new_page()
@@ -61,45 +65,46 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
                                              display_key='1005_Synthetic', client_request_id='trip-1')
                     tab = trip['tab_id'] if 'tab_id' in trip else trip['trip']['tab_id']
 
-                    # STAGE 1: a real binary .xls goes through the same upload screen
-                    page.goto(base + '/import#newupload')
-                    page.evaluate("document.getElementById('newupload').open = true")
-                    page.set_input_files('#file', str(DATA / 'kb-domestic-acquired-synthetic.xls'))
-                    page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
-                    page.wait_for_load_state('networkidle')
-                    page.locator('#upload-results a').first.wait_for(timeout=15000)
+                    # STAGE 1: a real binary .xls goes through the W3 card upload
+                    # panel. wave3 #799 routes the old /import upload screen into
+                    # /cards/all?panel=upload (#card-upload-files / 선택한 파일 업로드).
+                    page.goto(base + '/cards/all?panel=upload')
+                    page.locator('#card-upload-files').set_input_files(str(DATA / 'kb-domestic-acquired-synthetic.xls'))
+                    page.get_by_role('button', name='선택한 파일 업로드').click()
+                    page.locator('.card-upload-result-link').first.wait_for(timeout=15000)
                     xls_rows = store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0]
                     self.assertEqual(xls_rows, 3)
                     # the same file again changes nothing
-                    page.reload()
-                    page.evaluate("document.getElementById('newupload').open = true")
-                    page.set_input_files('#file', str(DATA / 'kb-domestic-acquired-synthetic.xls'))
-                    page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
-                    page.wait_for_load_state('networkidle')
-                    page.locator('#upload-results a').first.wait_for(timeout=15000)
+                    page.goto(base + '/cards/all?panel=upload')
+                    page.locator('#card-upload-files').set_input_files(str(DATA / 'kb-domestic-acquired-synthetic.xls'))
+                    page.get_by_role('button', name='선택한 파일 업로드').click()
+                    page.locator('.card-upload-result[data-state="saved"]').first.wait_for(timeout=15000)
                     self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 3)
                     self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM import_batches').fetchone()[0], 1)
 
-                    # new statement as CSV, then record it from the preview
-                    page.reload()
-                    page.evaluate("document.getElementById('newupload').open = true")
-                    page.set_input_files('#file', str(csv_path))
-                    page.get_by_role('button', name='카드 사용내역 업로드하고 분류').click()
-                    page.wait_for_load_state('networkidle')
-                    page.locator('#upload-results a').first.wait_for(timeout=15000)
-                    upload_href = page.locator('#upload-results a').first.get_attribute('href')
-                    page.locator('[data-review-state="all"]').click()
-                    for index in range(2):
-                        page.locator('#preview [data-edit]').nth(index).click()
-                        form = page.locator('#questions form[data-index]').first
+                    # New statement as CSV, then record each transaction. PROC-003·004·068
+                    # abolished the preview confirmation step (#questions/#preview), so
+                    # recording is per transaction from the W3 edit panel.
+                    page.goto(base + '/cards/all?panel=upload')
+                    page.locator('#card-upload-files').set_input_files(str(csv_path))
+                    page.get_by_role('button', name='선택한 파일 업로드').click()
+                    page.locator('.card-upload-result-link').first.wait_for(timeout=15000)
+                    batch = page.evaluate("href => new URL(href, location.href).searchParams.get('batch')",
+                                          page.locator('.card-upload-result-link').first.get_attribute('href'))
+                    state = page.request.get(base + '/api/imports/' + batch).json()
+                    for row in state['rows']:
+                        page.goto(base + '/import?batch=' + batch + '&transaction=' + row['transaction_id'])
+                        form = page.locator('#edit-panel form[data-index]').first
+                        form.wait_for()
                         form.locator('select[name=display_tab_id]').select_option(tab)
                         form.locator('input[name=item]').fill('Initial item')
                         with page.expect_response('**/decision') as decision:
-                            form.locator('button').click()
+                            page.get_by_role('button', name='저장', exact=True).click()
                         self.assertEqual(decision.value.status, 200)
-                        page.wait_for_url('**/rules?case=*')
-                        page.goto(base + upload_href)
-                        page.locator('[data-review-state="all"]').click()
+                        # Recording the tab move opens a trip-move learning case and
+                        # redirects; let that navigation settle before going to the
+                        # next transaction, or the two navigations interrupt each other.
+                        page.wait_for_url('**/rules?case=*', timeout=15000)
                     rows = store.conn.execute(
                         "SELECT row_id, payload_json FROM board_rows WHERE row_kind='expense' ORDER BY row_id"
                     ).fetchall()
@@ -115,6 +120,9 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
                     page.goto(f'{base}/board?tab={tab}&row={first}')
                     panel = page.locator('aside.panel')
                     panel.locator('input[name=item]').fill('소모품비')
+                    # The compact expense panel folds 변경 이유 into a disclosure.
+                    if not panel.locator('select[name=change_mode]').is_visible():
+                        panel.locator('details.p-extra > summary').click()
                     panel.locator('select[name=change_mode]').select_option('rule_change')
                     panel.get_by_role('button', name=re.compile('저장')).click()
                     page.get_by_text('규칙 대화 열기').first.wait_for(timeout=15000)
@@ -146,7 +154,7 @@ class LedgerWorkflowBrowserTests(unittest.TestCase):
                         box.set_checked(box.get_attribute('value') == tab)
                     with page.expect_response(lambda r: '/api/exports/xlsx' in r.url
                                               and r.request.method == 'POST') as posted:
-                        page.get_by_role('button', name='출력').click()
+                        page.get_by_role('button', name='XLSX 내보내기', exact=True).click()
                     self.assertEqual(posted.value.status, 303)
                     href = posted.value.headers['location']
                     self.assertRegex(href, r'^/api/exports/xlsx-[0-9a-f]+/download$')
