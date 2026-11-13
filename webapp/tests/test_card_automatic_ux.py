@@ -131,16 +131,14 @@ def test_mobile_catalog_automatically_records_and_opens_exact_transaction(flow):
             errors=[];page.on('pageerror',lambda err:errors.append(str(err)))
             page.goto(f'http://127.0.0.1:{server.server_address[1]}/cards')
             page.wait_for_timeout(500)
-            assert page.locator('tbody tr').filter(has_text='188,808').get_by_role('link',name='장부 보기').count()==0
-            page.locator('tbody tr').filter(has_text='89,891').get_by_role('link',name='여행 지정').click()
-            page.locator('#questions form').first.wait_for()
-            assert '합성 AGODA A' in page.locator('#questions article').first.inner_text()
-            assert '여행 지정' in page.locator('#questions article h2').first.inner_text()
-            assert not page.locator('#commit').is_visible()
+            # W3 (#799): /cards is a retired entry point that redirects to /cards/all.
+            assert page.url.endswith('/cards/all')
+            assert '여행 지정' not in page.locator('body').inner_text()
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-            target=next(r['transaction_id'] for r in f.pipeline.get_batch(batch)['rows'] if r['amount_krw']==89891)
+            target_row=next(r for r in card_catalog.catalog(f.board,{})['rows'] if r['amount_krw']==89891)
+            assert target_row['next_action']['href'].startswith('/import?batch=')
             page.goto('about:blank')
-            page.goto(f'http://127.0.0.1:{server.server_address[1]}/import?batch={batch}&transaction={target}#preview')
+            page.goto(f'http://127.0.0.1:{server.server_address[1]}{target_row["next_action"]["href"]}#preview')
             page.locator('#preview tbody tr').first.wait_for()
             assert page.locator('#preview tbody tr').count()==1
             assert '89,891원' in page.locator('#preview tbody tr').inner_text()
