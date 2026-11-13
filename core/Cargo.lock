@@ -118,6 +118,7 @@ dependencies = [
  "proptest",
  "regex",
  "rusqlite",
+ "serde",
  "serde_json",
  "thiserror",
  "time",

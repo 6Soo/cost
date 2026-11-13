@@ -1,0 +1,187 @@
+[
+  {
+    "rule_id": "P1-CAT-식비",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "기타식음료품",
+        "서양식전문점",
+        "서양음식",
+        "슈퍼마켓",
+        "슈퍼마켓.마트",
+        "양식",
+        "음식점",
+        "일반음식점",
+        "일반음식점 기타",
+        "일식",
+        "일식/생선회집",
+        "일식전문점",
+        "제과",
+        "제과.제빵",
+        "제과점/아이스크림점",
+        "중식",
+        "카페",
+        "커피",
+        "커피/음료전문점",
+        "커피전문점",
+        "패스트푸드",
+        "패스트푸드점",
+        "편의점",
+        "한식",
+        "휴게음식",
+        "휴게음식점"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "식비"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:421",
+    "basis": "카드사 업종: "
+  },
+  {
+    "rule_id": "P1-CAT-숙박비",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "레저용숙박업소",
+        "리조트",
+        "모텔",
+        "숙박",
+        "숙박업",
+        "여관",
+        "콘도",
+        "펜션",
+        "호텔",
+        "호텔(특급외)"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "숙박비"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:425",
+    "basis": "카드사 업종: "
+  },
+  {
+    "rule_id": "P1-CAT-교통비",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "고속.시외버스",
+        "고속도로통행료",
+        "버스",
+        "시내버스",
+        "여객선",
+        "주유소",
+        "주차장",
+        "지하철",
+        "철도",
+        "택시"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "교통비"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:426",
+    "basis": "카드사 업종: "
+  },
+  {
+    "rule_id": "P1-CAT-항공료",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "항공",
+        "항공사",
+        "항공운송"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "항공료"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:427",
+    "basis": "카드사 업종: "
+  },
+  {
+    "rule_id": "P1-CAT-렌터카",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "렌터카"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "렌터카"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:428",
+    "basis": "카드사 업종: "
+  },
+  {
+    "rule_id": "P1-CAT-입장료",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "공연장/전시장"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "입장료"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:429",
+    "basis": "카드사 업종: "
+  },
+  {
+    "rule_id": "P1-CAT-통행료",
+    "version": 1,
+    "kind": "card_category",
+    "strength": "inferred",
+    "stage": 30,
+    "policy_refs": [],
+    "conditions": {
+      "card_category": [
+        "RF유료도로.터널"
+      ]
+    },
+    "scope": {},
+    "effects": {
+      "item": "통행료"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:430",
+    "basis": "카드사 업종: "
+  }
+]

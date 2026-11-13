@@ -2,5 +2,6 @@
 
 pub mod dates;
 pub mod domain;
+pub mod rules;
 pub mod store;
 pub mod trips;
