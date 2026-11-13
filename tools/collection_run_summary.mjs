@@ -43,3 +43,15 @@ export async function writeCollectionRunSummary({
   }
   return target;
 }
+
+/** Auxiliary status record: a write failure must never stop collection, so warn (code only) and continue. */
+export async function tryWriteCollectionRunSummary(options = {}) {
+  try {
+    return await writeCollectionRunSummary(options);
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : (error?.name ?? 'Error');
+    process.stderr.write(`warning: collection run summary not written (${code})
+`);
+    return null;
+  }
+}

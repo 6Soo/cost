@@ -13,7 +13,7 @@ import { createBudget, runPool } from '../../tools/ota_collection/collector.mjs'
 import { buildPlanText, parseProviders, EGO_RUN_COMMAND } from '../../tools/collect_ota_portals.mjs';
 import { sha256 } from '../../tools/ota_collection/storage.mjs';
 import { writeCollectionRunSummaries } from '../../tools/ota_collection/manifest.mjs';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { response } from './helpers.mjs';
@@ -136,4 +136,25 @@ test('final OTA manifest writes minimal login summaries and a later success clea
     else process.env.WEBLEDGER_DATA_ROOT = previous;
     await rm(dataRoot, { recursive: true, force: true });
   }
+});
+
+test('summary write failure is swallowed with a warning and does not stop collection', async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'collection-run-summary-fail-'));
+  const blocker = path.join(dataRoot, 'not-a-directory');
+  await writeFile(blocker, 'x');
+  const previous = process.env.WEBLEDGER_DATA_ROOT;
+  process.env.WEBLEDGER_DATA_ROOT = blocker; // mkdir(<file>/collection-runs) fails
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  let warned = '';
+  process.stderr.write = (chunk) => { warned += String(chunk); return true; };
+  try {
+    await writeCollectionRunSummaries({ providers: [{ provider: 'agoda', status: STATUS.LOGIN_REQUIRED }] });
+  } finally {
+    process.stderr.write = originalWrite;
+    if (previous === undefined) delete process.env.WEBLEDGER_DATA_ROOT;
+    else process.env.WEBLEDGER_DATA_ROOT = previous;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+  assert.match(warned, /collection run summary not written/);
+  assert.doesNotMatch(warned, /agoda|not-a-directory/);
 });

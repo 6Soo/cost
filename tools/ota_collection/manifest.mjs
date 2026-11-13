@@ -6,13 +6,13 @@ import {
   severityOf,
   maxStatus,
 } from './constants.mjs';
-import { writeCollectionRunSummary } from '../collection_run_summary.mjs';
+import { tryWriteCollectionRunSummary } from '../collection_run_summary.mjs';
 
 export async function writeCollectionRunSummaries(manifest) {
   for (const provider of manifest?.providers ?? []) {
     const loginRequired = provider.status === STATUS.LOGIN_REQUIRED || provider.status === STATUS.AUTH_UNKNOWN;
     if (loginRequired || provider.status === STATUS.OK) {
-      await writeCollectionRunSummary({
+      await tryWriteCollectionRunSummary({
         source: provider.provider,
         status: provider.status,
         loginRequired,

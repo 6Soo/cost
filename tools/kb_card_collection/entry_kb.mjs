@@ -38,7 +38,7 @@ import { pathToFileURL } from "node:url";
 import { AdapterError } from "./adapter.mjs";
 import { SOURCE_FILES_PREFIX, SOURCES } from "./policy.mjs";
 import { reserveAbsentPath } from "./validation.mjs";
-import { writeCollectionRunSummary } from "../collection_run_summary.mjs";
+import { tryWriteCollectionRunSummary } from "../collection_run_summary.mjs";
 
 // Test/embedding injection seam (synthetic verification only). Real use: env vars / adapter CLI args.
 let injected = null;
@@ -217,7 +217,7 @@ export async function probeSession(args = {}) {
   const snapshot = await capture.snapshot(["session"]);
   const authenticated = readRole(snapshot, "session").present === true;
   if (!authenticated) {
-    await writeCollectionRunSummary({ source: "kb", status: "LOGIN_REQUIRED", loginRequired: true });
+    await tryWriteCollectionRunSummary({ source: "kb", status: "LOGIN_REQUIRED", loginRequired: true });
   }
   return { authenticated };
 }
@@ -295,7 +295,7 @@ export async function download({ source, startDate, endDate, outDir, spaceName }
     throw captureRequired('조회 결과 확인 불가: "summaryResults" was not observed after 조회');
   }
   if (looksLikeZeroSummary(summary.text)) {
-    await writeCollectionRunSummary({ source: "kb", status: "ok", loginRequired: false });
+    await tryWriteCollectionRunSummary({ source: "kb", status: "ok", loginRequired: false });
     return { status: "no_data", pageTotalCount: 0, summaryAvailable: true };
   }
   const countMatch = /^(?:총\s*)?([0-9]+(?:,[0-9]{3})*)\s*(?:건|rows?|records?)?$/.exec(summary.text ?? "");
@@ -358,7 +358,7 @@ export async function download({ source, startDate, endDate, outDir, spaceName }
     : destination;
   await assertSavedFile(savedPath);
 
-  await writeCollectionRunSummary({ source: "kb", status: "ok", loginRequired: false });
+  await tryWriteCollectionRunSummary({ source: "kb", status: "ok", loginRequired: false });
 
   // Only observed values are forwarded: no guessed counts.
   return {

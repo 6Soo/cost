@@ -15,8 +15,8 @@
     },
     {
       "name": "quarter-review-readonly-pack",
-      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py"],
-      "tests": ["tests/test_quarter_review_pack.py"]
+      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py", "app/google_tsv.py"],
+      "tests": ["tests/test_quarter_review_pack.py", "tests/test_quarter_review_paste_pack.py"]
     },
     {
       "name": "closed-period-boundary-and-repair",
@@ -473,6 +473,11 @@
       "name": "forest-portal-import",
       "paths": ["app/forest_portal_capture.py", "tools/import_forest_portal_details.py", "tests/test_forest_portal_capture.py"],
       "tests": ["tests/test_forest_portal_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "tests/card_pipeline/test_forest_payment_mail.py", "webapp/tests/test_forest_reconciliation.py"]
+    },
+    {
+      "name": "booking-trips-import",
+      "paths": ["app/booking_trips_capture.py", "tools/import_booking_trips.py", "tests/test_booking_trips_capture.py"],
+      "tests": ["tests/test_booking_trips_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ledger_stay_evidence.py"]
     },
     {
       "name": "forest-payment-receipts",

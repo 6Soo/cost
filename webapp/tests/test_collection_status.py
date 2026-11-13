@@ -178,6 +178,27 @@ class GatherTests(unittest.TestCase):
         self.assertEqual(data['normal_undecided'], 0)
         _assert_clean(render_html(data))
 
+    def test_fixed_data_root_p2_summary_precedes_legacy_archive(self):
+        root = self.data
+        latest = root / 'p2-runs' / 'latest.json'
+        latest.parent.mkdir(parents=True)
+        latest.write_text(json.dumps({'schema': 1, 'finished_at': '2026-11-13T02:30:00+00:00',
+            'target_groups': 4, 'successful_calls': 2, 'failed_calls': 1}), encoding='utf-8')
+        self._write_p2({'merchants': 99, 'successful_calls': 88, 'failed_attempts': 77})
+        status = collection_status._p2_status(root, self.root / 'config' / 'card-flow.json')
+        self.assertEqual(status['merchants'], 4)
+        self.assertEqual(status['success'], 2)
+        self.assertEqual(status['failed'], 1)
+
+    def test_render_marks_p2_failure_and_safe_reason(self):
+        data = {'now': NOW, 'sources': [], 'normal_undecided': 0,
+            'p2': {'last_at': NOW, 'merchants': 0, 'success': 0, 'failed': 1,
+                   'status': 'failed', 'failure_reason_code': 'VERIFIED_LAYER1_HISTORY_REQUIRED'}}
+        markup = render_html(data)
+        self.assertIn('P2 실패', markup)
+        self.assertIn('VERIFIED_LAYER1_HISTORY_REQUIRED', markup)
+        _assert_clean(markup)
+
     def test_card_last_collection_per_issuer_and_warning(self):
         self.flow.pipeline.receive(CARD, '합성.csv')
         data = gather(self.board, now=NOW)
