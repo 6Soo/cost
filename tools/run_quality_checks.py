@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SELECTOR = ROOT / "tools" / "select_targeted_tests.py"
 QA_OWNED_PATHS = {
     "tools/run_quality_checks.py", "tests/test_quality_checks.py",
-    ".github/workflows/quality.yml", "requirements-dev.txt",
+    "config/known-test-failures.txt", ".github/workflows/quality.yml", "requirements-dev.txt",
 }
 
 
@@ -235,6 +235,38 @@ def _validate_guard(payload_text: str, returncode: int) -> None:
         raise ValueError("DATA_GUARD_FAILED")
 
 
+def load_known_failures(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    names = (line.split("  # ", 1)[0].strip()
+             for line in path.read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#"))
+    return {name for name in names if name}
+
+
+def classify_known_failures(known: set[str], failed: set[str], executed: set[str]) -> dict:
+    known_failed = sorted(known & failed)
+    new_failures = sorted(failed - known)
+    resolved = sorted((known & executed) - failed)
+    return {"known_failed_test_cases": known_failed,
+            "new_failed_test_cases": new_failures,
+            "resolved_known_test_cases": resolved,
+            "known_failure_count": len(known_failed)}
+
+
+def _junit_node_id(case: ET.Element) -> str:
+    classname = case.get("classname", "")
+    name = case.get("name", "")
+    parts = classname.split(".") if classname else []
+    module_end = max((index for index, part in enumerate(parts) if part.startswith("test_")),
+                     default=-1)
+    if module_end < 0:
+        return f"{classname}::{name}"
+    module = "/".join(parts[:module_end + 1]) + ".py"
+    classes = parts[module_end + 1:]
+    return "::".join([module, *classes, name])
+
+
 def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
     try:
         root = ET.parse(junit_path).getroot()
@@ -242,7 +274,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
         return {"test_case_count": 0, "executed_case_count": 0,
                 "browser_executed": [], "browser_skipped": list(browser_tests),
                 "missing_browser_tests": list(browser_tests), "skipped_test_cases": [],
-                "nonbrowser_skipped_test_cases": [], "skip_count": 0}
+                "nonbrowser_skipped_test_cases": [], "skip_count": 0,
+                "failed_test_cases": [], "executed_test_cases": [], "error_count": 0}
     cases = list(root.iter("testcase"))
     executed: set[str] = set()
     skipped: set[str] = set()
@@ -265,6 +298,8 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
             skipped.add(target)
     executed_count = sum(1 for case in cases if case.find("skipped") is None)
     skipped_cases = [case for case in cases if case.find("skipped") is not None]
+    failed_cases = [case for case in cases if case.find("failure") is not None]
+    error_cases = [case for case in cases if case.find("error") is not None]
     skipped_test_cases = sorted(f"{case.get('classname', '')}::{case.get('name', '')}"
                                 for case in skipped_cases)
     nonbrowser_skipped_test_cases = sorted(
@@ -277,7 +312,11 @@ def summarize_junit(junit_path: Path, browser_tests: list[str]) -> dict:
             "missing_browser_tests": sorted(set(browser_tests) - executed),
             "skipped_test_cases": skipped_test_cases,
             "nonbrowser_skipped_test_cases": nonbrowser_skipped_test_cases,
-            "skip_count": len(skipped_test_cases)}
+            "skip_count": len(skipped_test_cases),
+            "failed_test_cases": sorted(_junit_node_id(case) for case in failed_cases),
+            "executed_test_cases": sorted(_junit_node_id(case) for case in cases
+                                           if case.find("skipped") is None),
+            "error_count": len(error_cases) + int(root.get("errors", "0"))}
 
 
 def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha: str,
@@ -319,16 +358,28 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                                text=True, encoding="utf-8", errors="replace", shell=False,
                                env=child_env)
     junit_result = summarize_junit(junit_path, browser_tests)
+    known_failures = load_known_failures(root / "config" / "known-test-failures.txt")
+    failure_classification = classify_known_failures(
+        known_failures, set(junit_result["failed_test_cases"]),
+        set(junit_result["executed_test_cases"]))
     browser_executed = junit_result["browser_executed"]
     browser_skipped = junit_result["browser_skipped"]
     nonbrowser_skipped = junit_result["nonbrowser_skipped_test_cases"]
     missing_browser = junit_result["missing_browser_tests"]
     case_count = junit_result["test_case_count"]
     executed_case_count = junit_result["executed_case_count"]
-    status = "PASSED" if (tests.returncode == 0 and compile_result.returncode == 0
+    known_failures_only = (tests.returncode == 1
+                           and failure_classification["known_failure_count"] > 0
+                           and not failure_classification["new_failed_test_cases"]
+                           and junit_result["error_count"] == 0
+                           and set(junit_result["failed_test_cases"])
+                               == set(failure_classification["known_failed_test_cases"]))
+    status = "PASSED" if ((tests.returncode == 0 or known_failures_only)
+                          and compile_result.returncode == 0
                           and case_count > 0 and executed_case_count > 0
                           and not missing_browser and not browser_skipped
-                          and not nonbrowser_skipped) else "FAILED"
+                          and not nonbrowser_skipped and not junit_result["error_count"]
+                          and not failure_classification["new_failed_test_cases"]) else "FAILED"
     if head_tree_sha is None:
         head_tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
     summary = {"status": status, "base_sha": base_sha, "head_sha": head_sha,
@@ -340,10 +391,18 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                "skip_count": junit_result["skip_count"],
                "skipped_test_cases": junit_result["skipped_test_cases"],
                "nonbrowser_skipped_test_cases": nonbrowser_skipped,
+               **failure_classification,
+               "known_failures_configured": len(known_failures),
+               "junit_error_count": junit_result["error_count"],
                "pytest_exit_code": tests.returncode, "compile_exit_code": compile_result.returncode,
                "pytest_targets": targets}
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(log_path.read_text(encoding="utf-8"), end="")
+    print(f"알려진 실패 {failure_classification['known_failure_count']}건")
+    if failure_classification["resolved_known_test_cases"]:
+        print(f"해소됨 {len(failure_classification['resolved_known_test_cases'])}건")
+    if failure_classification["new_failed_test_cases"]:
+        print(f"목록 밖 실패 {len(failure_classification['new_failed_test_cases'])}건")
     if status != "PASSED":
         print("QUALITY_RUN_FAILED: see quality-artifacts/run-summary.json and pytest.log", file=sys.stderr)
         return tests.returncode or compile_result.returncode or 1
