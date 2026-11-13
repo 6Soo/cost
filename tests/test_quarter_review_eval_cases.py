@@ -242,3 +242,25 @@ def test_case_folder_cannot_be_inside_repository_or_outside_host_backups(setup, 
         assert eval_cases.main(['build', '--host-root', str(host), '--cases-dir', str(folder)]) == 1
         assert json.loads(capsys.readouterr().out)['status'] == 'FAILED'
         assert not folder.exists()
+
+
+def test_stale_evidence_cache_is_rebuilt_once_and_reported(setup, tmp_path, monkeypatch, capsys):
+    c, _ = corrected(setup)
+    c.commit()
+    host = host_with_copy(setup, tmp_path)
+    import tools.complete_card_classification as legacy
+    cache = host / eval_cases.EVIDENCE_CACHE
+    cache.parent.mkdir(parents=True)
+    cache.write_text('{}', encoding='utf-8')
+    calls = []
+
+    def fake_evidence(conn, host_root, trips, path=None):
+        calls.append(path.is_file())
+        if path.is_file():
+            raise ValueError('EVIDENCE_CACHE_STALE')
+        return {}, {}
+    monkeypatch.setattr(legacy, 'load_context', lambda conn, host_root: (TRIPS, {}))
+    monkeypatch.setattr(legacy, 'load_review_evidence', fake_evidence)
+    assert eval_cases.main(['eval', '--host-root', str(host)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert calls == [True, False] and out['evidence_cache'] == 'rebuilt_stale'

@@ -306,21 +306,29 @@ def main(argv=None):
             timings = {}
             trips, nets = load_context(conn, host)
             timings['context'] = time.monotonic() - started
-            evidence, cache = {}, None
+            evidence, cache, cache_state = {}, None, 'not_used'
             if not args.no_evidence:
                 cache = args.evidence_cache or host / EVIDENCE_CACHE
                 if not cache.resolve().is_relative_to((host / 'data/backups').resolve()):
                     raise ValueError('CACHE_LOCATION_INVALID')
                 cache.parent.mkdir(parents=True, exist_ok=True)
                 mark = time.monotonic()
-                evidence = load_review_evidence(conn, host, trips, cache)[0]
+                try:
+                    evidence = load_review_evidence(conn, host, trips, cache)[0]
+                except ValueError as exc:
+                    if str(exc) != 'EVIDENCE_CACHE_STALE':
+                        raise
+                    # The derived cache is keyed on live source state; production keeps changing, so rebuild it.
+                    cache_state = 'rebuilt_stale'
+                    cache.unlink()
+                    evidence = load_review_evidence(conn, host, trips, cache)[0]
                 timings['evidence'] = time.monotonic() - mark
             mark = time.monotonic()
             report = evaluate(conn, trips, review_id=args.review_id, nets=nets, evidence=evidence)
             timings['rejudge'] = time.monotonic() - mark
             faulthandler.cancel_dump_traceback_later()
             report.update(evidence_mode='none' if args.no_evidence else 'booking_and_mail',
-                          evidence_rows=len(evidence),
+                          evidence_rows=len(evidence), evidence_cache=cache_state,
                           timings_seconds={k: round(v, 1) for k, v in timings.items()},
                           elapsed_seconds=round(time.monotonic() - started, 1))
             if case_path.is_file():
