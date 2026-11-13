@@ -54,14 +54,15 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
         " ORDER BY transaction_id", (review_from, review_from, batch_id)).fetchall())
     if not include_verified_full_refunds:
         return rows
-    from .partial_refund import refund_links, refund_group
+    from .partial_refund import refund_links, refund_group, is_numbered_partial
     current_ids = {row[0] for row in rows}
     refund_ids = [r[0] for r in store.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
     links = refund_links(store.conn, refund_ids)
     extra = set()
     for refund_id, link in links.items():
-        if link.get('inferred') or link['status'] != 'full' or link['net_krw'] != 0:
+        if link.get('inferred') or not (
+                (link['status'] == 'full' and link['net_krw'] == 0) or is_numbered_partial(link)):
             continue
         if refund_id in current_ids or link['original_id'] in current_ids:
             extra.update(refund_group(store.conn, link['original_id']))
@@ -315,11 +316,12 @@ def scope_group(store, result: dict, original_id: str,
     """
     members = group_members(store, original_id)
     if require_verified_zero:
-        from .partial_refund import refund_links
+        from .partial_refund import refund_links, is_numbered_partial
         links = refund_links(store.conn, members[1:])
         if (not links or len(links) != len(members) - 1
-                or any(link.get('inferred') or link['status'] != 'full'
-                       or link['net_krw'] != 0 or link['original_id'] != original_id
+                or any(link.get('inferred') or link['original_id'] != original_id
+                       or not ((link['status'] == 'full' and link['net_krw'] == 0)
+                               or is_numbered_partial(link))
                        for link in links.values())):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
                              "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
@@ -421,6 +423,13 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
                  if link["status"] != "full" and refund.get(k) and original.get(k) and refund[k] != original[k]]
         if clash:
             _block_pair(pair, "refund_pair_mismatch", "환불과 원거래의 분류가 달라 보류해요", ready, unresolved)
+            continue
+        if (link["status"] != "full" and (original.get("source_batch_id") or refund.get("source_batch_id"))
+                and not original.get("trip_id")
+                and original.get("display_tab_id") in ("", "unclassified", REFUND_TAB)):
+            # A cross-file partial refund is booked only to the original's real trip or quarter cost.
+            _block_pair(pair, "refund_original_unattributed",
+                        "원결제에 여행이나 분기 기타비용 귀속이 없어 취소를 기록하지 않아요", ready, unresolved)
             continue
         for key in ("item", "display_tab_id", "trip_id", "description"):
             if not target.get(key):

@@ -105,6 +105,12 @@ def refund_links(conn, transaction_ids) -> dict:
     return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items() if tid in wanted}
 
 
+def is_numbered_partial(link) -> bool:
+    """A partial refund tied to exactly one original by approval number (RFND-004), never inferred."""
+    return (not link.get('inferred') and 'basis' not in link
+            and link.get('status') == 'partial' and link.get('net_krw', 0) > 0)
+
+
 def _number_links(conn, transaction_ids=None) -> dict:
     """Link all clean cancellations to exactly one verified purchase by card and approval.
 

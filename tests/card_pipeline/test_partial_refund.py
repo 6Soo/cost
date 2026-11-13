@@ -448,3 +448,95 @@ def test_an_uncommitted_refund_read_is_not_kept_after_rollback():
     assert partial_refund.refund_links(conn, ids) == {}
     conn.execute('ROLLBACK')
     assert partial_refund.refund_links(conn, ids) == before
+
+
+# --- RFND-029 (나): numbered partial refund whose original sits in another file ---
+
+def split_files(gross=1000000, refund=-300000, number='100', tab='trip-a', trip='trip-a'):
+    pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
+    first = pipe.receive((HEADER + f'국민,1234,domestic,purchase,합성항공,{gross},,,{gross},2026-09-01,2026-09-02,A100,,매입\n'
+                          ).encode(), 'first.csv')['batch_id']
+    second = pipe.receive((HEADER + f'국민,1234,domestic,purchase,합성항공,{abs(refund)},,,{abs(refund)},2026-10-03,2026-10-04,C200,,매입\n'
+                           ).encode(), 'second.csv')['batch_id']
+    conn = pipe.store.conn
+    conn.execute("UPDATE transactions SET transaction_direction='cancellation', amount_krw=?,"
+                 " original_approval_number=? WHERE approval_number='200'", (refund, number))
+    conn.execute("UPDATE transactions SET classification_state='classified', item='항공료',"
+                 " display_tab_id=?, trip_id=? WHERE approval_number='100'", (tab, trip))
+    conn.execute("UPDATE transactions SET classification_state='classified', item='항공료'"
+                 " WHERE approval_number='200'")
+    book_alone(pipe, first, '100')
+    return pipe, first, second
+
+
+def cross_preview(pipe, batch):
+    return pipe.preview(batch, tab_validator=OK, trip_validator=OK, include_verified_full_refunds=True)
+
+
+def cross_commit(pipe, batch, request_id):
+    view = cross_preview(pipe, batch)
+    return pipe.commit(batch, view['digest'], request_id, tab_validator=OK, trip_validator=OK,
+                       automatic_record=True, include_verified_full_refunds=True)
+
+
+def test_cross_file_partial_refund_completes_the_booked_original_without_reinserting_it():
+    pipe, first, second = split_files()
+    before = pipe.store.conn.execute('SELECT * FROM ledger_entries').fetchall()
+    done = cross_commit(pipe, second, 'cross-partial-1')
+    assert done['applied'] == 1
+    assert ledger_state(pipe) == (2, 700000)
+    assert pipe.store.conn.execute(
+        "SELECT display_tab_id, trip_id FROM ledger_entries WHERE amount_krw<0").fetchone() == ('trip-a', 'trip-a')
+    assert pipe.store.conn.execute('SELECT * FROM ledger_entries WHERE amount_krw>0').fetchall() == before
+
+
+def test_cross_file_partial_refund_resend_records_nothing():
+    pipe, first, second = split_files()
+    cross_commit(pipe, second, 'cross-partial-1')
+    assert cross_commit(pipe, second, 'cross-partial-2')['applied'] == 0
+    assert ledger_state(pipe) == (2, 700000)
+
+
+def test_ordinary_preview_of_the_refund_file_does_not_pull_the_other_file():
+    pipe, first, second = split_files()
+    plain = pipe.preview(second, tab_validator=OK, trip_validator=OK)
+    assert [r['amount_krw'] for r in plain['rows']] == [-300000]
+    assert plain['ready'] == 0 and plain['rows'][0]['blocked'] == 'refund_original_missing'
+
+
+def test_cross_file_excess_refund_is_not_pulled_in_or_recorded():
+    pipe, first, second = split_files(refund=-1200000)
+    assert cross_commit(pipe, second, 'cross-excess')['applied'] == 0
+    assert ledger_state(pipe)[0] == 1
+
+
+def test_cross_file_partial_refund_without_original_attribution_is_not_recorded():
+    pipe, first, second = split_files(tab='refunds', trip='')
+    assert cross_commit(pipe, second, 'cross-unattributed')['applied'] == 0
+    assert ledger_state(pipe)[0] == 1
+
+
+def test_cross_file_partial_refund_with_a_conflicting_attribution_is_not_recorded():
+    pipe, first, second = split_files()
+    pipe.store.conn.execute("UPDATE transactions SET display_tab_id='trip-b', trip_id='trip-b'"
+                            " WHERE approval_number='200'")
+    assert cross_commit(pipe, second, 'cross-clash')['applied'] == 0
+    assert ledger_state(pipe)[0] == 1
+
+
+def test_cross_file_partial_refund_without_original_approval_number_is_not_extended():
+    pipe, first, second = split_files(number='')
+    view = cross_preview(pipe, second)
+    assert [r['amount_krw'] for r in view['rows']] == [-300000]
+    assert 'refund_link' not in view['rows'][0]
+
+
+def test_cross_file_partial_refund_with_an_internal_lock_is_not_recorded():
+    pipe, first, second = split_files()
+    conn = pipe.store.conn
+    refund_id, digest = conn.execute(
+        "SELECT transaction_id, source_hash FROM transactions WHERE approval_number='200'").fetchone()
+    conn.execute("INSERT INTO transaction_review_holds VALUES (?,?,?,?)",
+                 (refund_id, digest, 'evidence_pending', 'synthetic lock'))
+    assert cross_commit(pipe, second, 'cross-locked')['applied'] == 0
+    assert ledger_state(pipe)[0] == 1

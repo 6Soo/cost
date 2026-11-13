@@ -1657,8 +1657,8 @@ class CardFlow:
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
                                        projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
-        from app.partial_refund import refund_links
-        booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
+        from app.partial_refund import refund_links, is_numbered_partial
+        booked_now ={r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
         verified_links = refund_links(self.board.conn, refund_ids)
@@ -1709,6 +1709,19 @@ class CardFlow:
                      and verified_links[rid].get('net_krw') == 0)
                     for rid in refunds_in_group)
                 allowed_holds = {'trip_needed', 'classification_needed', 'existing_ledger'}
+                # A numbered partial refund inherits its original's trip or quarter cost
+                # through the ledger's pair rules; it never goes to the refund tab.
+                trusted_partial = bool(refunds_in_group) and all(
+                    rid in verified_links and is_numbered_partial(verified_links[rid])
+                    for rid in refunds_in_group)
+                if trusted_partial and not trusted_full:
+                    if (not members & set(active)
+                            and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
+                                    for tid in members)):
+                        for tid in members & ids & set(refund_ids):
+                            if holds.get(tid, {}).get('kind') in ('trip_needed', 'classification_needed'):
+                                holds.pop(tid)
+                        continue
                 if (trusted_full and not members & set(active)
                         and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
                                 for tid in members)):
