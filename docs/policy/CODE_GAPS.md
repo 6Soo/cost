@@ -15,7 +15,7 @@
 | TRIP-029 / TRIP-043 (2026Q3 검수) | 폐지된 날짜 근접 귀속의 잔존 | 준비기간 정리 도구는 근거에 `다음 여행 준비기간`이 명시된 행만 옮겼다. 근거가 `카드 이용일과 여행 기간 거리 N일`(N≥1)로만 적힌 옛 근접 귀속과 `유효 여행 유지` 재대조 행은 그대로 남았고, 재판정도 기존 귀속을 유지한다. 분기 검수에서 일반 현장 지출을 결제일 분기 기타비용으로 교정했다. 예약성 지출(숙박·항공·OTA)은 예약 근거 대조 결과를 따른다. |
 | SRC-045 / P2-SAME-TICK-20261112 | P2 메타데이터 캐시의 동일 tick 변경 | `app/p2_case.py`의 `_stamp`는 경로·크기·mtime·변경시각·inode를 사용한다. Windows에서 같은 tick 안에 동일 크기로 내용을 바꾸고 mtime을 복원하면 모든 메타데이터가 같을 수 있다(2026-11-12 합성300회 중70회 재현). 이 경우 캐시 무효화가 누락될 수 있으며 내용 지문/신뢰 버전의 보증과 같지 않다. 이번 #815는 관련 회귀 검사의 최초 ChangeTime만 과거로 결정화하고 기대값은 유지했다. 운영 읽기 예산·해싱·캐시 구현은 변경하지 않았으므로 이 한계는 미해결이다. 근거: `.local-archive/probe_change_time.py`, #815 건별 표. |
 | PROC-012 | P2에 주는 자료 | app/ai_classification.py의 prepare()는 가맹점 이름과 원문 없이 날짜·국가·후보 여행만 넘긴다. M2에서 사건 폴더 방식으로 바꾼다. |
-| PROC-013 | P2 실행 모델 | app/connected_agent_provider.py는 무료 OpenCode 모델만 허용한다. M2에서 실행기를 바꾼다. |
+| PROC-013 | P2 실행 모델 | app/connected_agent_provider.py의 무료 OpenCode 모델 호출 경로는 제거됐고(PR #860) 공용 유틸(`AgentUnavailable`·`_run_bounded`·`_process_check`·`MAX_OUTPUT_BYTES`·`enabled`·`daily_cap`)만 남았다. P2 실행은 app/frontier_agent_provider.py(Codex) 경로이며, M2에서 이 경로로 P2를 연결한다. |
 | TRIP-005 | Google 탭에 없는 기존 여행 | 운영 DB에 Google 연결이 없는 여행이 남아 있다. 합치기와 재판정은 M2에서 한다. |
 | TRIP-006 | 검증된 여행 조건 | app/trip_selection.py:40의 canonical_trip_periods는 형식·플래그를 검사하며 종료일이 여전히 없는 마지막 여행도 사전에 남긴다. 이 helper만으로 Google 원본·digest·종료일 완전 검증을 충족했다고 볼 수 없다. |
 | TRIP-NEW-20261112 / PROC-072 | 완료 기간 선행 제외 | 공통 closed_period 판별을 P1·재판정·P2·미분류 통과 검사에 연결하고, 기존 일반형 분기 탭으로 옮기는 감사·원복 CLI를 추가한다. 후속 결정의 환불 짝 전체 원자 이동과 금융 관계·보호 불변 검증을 포함한다. 운영 반영 전까지 기존 귀속은 남아 있으며 사본 예행 결과와 최종 검증은 session_handoff 맨 위 및 PR에 기록한다. |
