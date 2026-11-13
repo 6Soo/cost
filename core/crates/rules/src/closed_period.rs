@@ -2,11 +2,13 @@
 //! `exception_trip`·`excluded`·`open_scope`). DB를 읽는 `manual_ids`·`excluded_ids`와 `formal_facts`·
 //! `booking_period_evidence`(여행 후보 의존)는 이 단위 범위 밖이다.
 
-use crate::dates::RowDates;
+use crate::dates::{RowDates, parse_iso};
 use time::{Date, Month};
 
-/// 이 날짜(문자열 비교) 이후 시작하는 여행·행이 열린 범위다.
-const OPEN_FROM: &str = "2026-06-30";
+/// 이 날짜 이후 시작하는 여행·행이 열린 범위다.
+fn open_from() -> Date {
+    Date::from_calendar_date(2026, Month::June, 30).unwrap()
+}
 
 fn truthy(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|s| !s.is_empty())
@@ -49,6 +51,11 @@ impl TripTab {
     fn starts(&self) -> &str {
         truthy(&self.starts_on).unwrap_or("")
     }
+
+    /// 시작일. 비었거나 YYYY-MM-DD가 아니면 None.
+    fn start_day(&self) -> Option<Date> {
+        parse_iso(self.starts()).ok()
+    }
 }
 
 /// `valid.get(key)`: 같은 키가 겹치면 뒤의 여행이 이긴다(dict 대입).
@@ -70,12 +77,22 @@ pub fn completed_period(dates: &RowDates) -> Option<&'static str> {
 
 /// `open_trip`: 지워지지도 보관되지도 않았고 2026-06-30 이후 시작하는 여행.
 pub fn open_trip(trip: Option<&TripTab>) -> bool {
-    trip.is_some_and(|t| !t.deleted && !t.archived && t.starts() >= OPEN_FROM)
+    trip.is_some_and(|t| {
+        !t.deleted && !t.archived && t.start_day().is_some_and(|d| d >= open_from())
+    })
 }
 
 /// `completed_trip`: 시작일이 2025-01-01~2026-03-31(문자열 비교)인 제출 완료 장부 여행.
 pub fn completed_trip(trip: Option<&TripTab>) -> bool {
-    trip.is_some_and(|t| ("2025-01-01"..="2026-03-31").contains(&t.starts()))
+    // 시작일이 있는데 해석되지 않으면 보호 방향으로 완료 여행으로 본다.
+    trip.is_some_and(|t| match t.start_day() {
+        Some(d) => {
+            let from = Date::from_calendar_date(2025, Month::January, 1).unwrap();
+            let to = Date::from_calendar_date(2026, Month::March, 31).unwrap();
+            from <= d && d <= to
+        }
+        None => !t.starts().is_empty(),
+    })
 }
 
 /// 격리된 사실의 이용 기간.
@@ -120,7 +137,15 @@ pub fn exception_trip(
     let (start, end) = (start?, end?);
     let trip = trip?;
     let trip_end = truthy(&trip.ends_on)?;
-    (trip.starts() <= start && start <= end && end <= trip_end)
+    let (Ok(trip_start), Ok(start), Ok(end), Ok(trip_end)) = (
+        parse_iso(trip.starts()),
+        parse_iso(start),
+        parse_iso(end),
+        parse_iso(trip_end),
+    ) else {
+        return None;
+    };
+    (trip_start <= start && start <= end && end <= trip_end)
         .then(|| target.map(str::to_string))
         .flatten()
 }
@@ -140,6 +165,10 @@ pub fn excluded(
     evidence: Option<&Evidence>,
     manual: bool,
 ) -> bool {
+    // 날짜가 없거나 `YYYY-MM-DD`가 아니면 완료 기간 여부를 알 수 없으므로 보호(제외)한다.
+    if row.dates.day().is_none() {
+        return true;
+    }
     if completed_period(&row.dates).is_none() {
         return false;
     }
@@ -159,5 +188,6 @@ pub fn excluded(
 /// `open_scope`: 열린 여행에 속하거나 날짜가 2026-06-30 이후인 행.
 pub fn open_scope(row: &CardRow, trips: &[TripTab]) -> bool {
     let ids = [row.trip_id.as_deref(), row.display_tab_id.as_deref()];
-    ids.iter().any(|id| open_trip(lookup(trips, *id))) || row.dates.raw() >= OPEN_FROM
+    ids.iter().any(|id| open_trip(lookup(trips, *id)))
+        || row.dates.day().is_some_and(|d| d >= open_from())
 }

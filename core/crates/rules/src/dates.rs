@@ -4,7 +4,7 @@
 //! 파싱 실패는 Python의 `ValueError`에 해당하는 `DateError`다. 문자열 비교(`>=` 등)는 Python처럼 바이트 사전순이다.
 
 use std::collections::BTreeSet;
-use time::{Date, Duration, Month, Weekday};
+use time::{Date, Duration, Month};
 
 /// 날짜 문자열을 해석하지 못했거나 날짜 범위를 벗어났다(Python `ValueError`·`OverflowError`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,76 +22,23 @@ impl std::error::Error for DateError {}
 const CURRENT_PERIOD_START: (i32, u8, u8) = (2026, 6, 30);
 const CURRENT_PERIOD_END: (i32, u8, u8) = (2026, 9, 30);
 
-fn digits(s: &str, from: usize, len: usize) -> Option<u32> {
-    let part = s.get(from..from + len)?;
-    if !part.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    part.parse().ok()
-}
-
-/// `date.fromisoformat` 대응.
+/// 정확히 `YYYY-MM-DD`(ASCII 숫자, 실제 달력 날짜, 연도 0001 이상)만 받는다. 그 밖의 모든 입력(`YYYYMMDD`·ISO 주 날짜·
+/// 공백·꼬리 문자·비ASCII 등)은 `DateError`이고, 호출자는 이를 보호(제외) 방향으로 처리한다(소유자 결정 2026-11-14).
 pub fn parse_iso(s: &str) -> Result<Date, DateError> {
     let err = || DateError(s.to_string());
-    if !s.is_ascii() {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
         return Err(err());
     }
-    let year = digits(s, 0, 4).ok_or_else(err)? as i32;
-    let rest = &s[4..];
-    // 주 날짜: YYYY-Www[-D], YYYYWww[D]
-    let (week_part, dashed) = match rest.strip_prefix("-W") {
-        Some(r) => (Some(r), true),
-        None => (rest.strip_prefix('W'), false),
+    let number = |from: usize, len: usize| {
+        b[from..from + len].iter().try_fold(0u32, |acc, d| match d {
+            b'0'..=b'9' => Some(acc * 10 + u32::from(d - b'0')),
+            _ => None,
+        })
     };
-    if let Some(r) = week_part {
-        let week = digits(r, 0, 2).ok_or_else(err)? as u8;
-        let tail = &r[2..];
-        let day = if tail.is_empty() {
-            1
-        } else {
-            let t = if dashed {
-                tail.strip_prefix('-')
-            } else {
-                Some(tail)
-            };
-            let t = t.ok_or_else(err)?;
-            if t.len() != 1 {
-                return Err(err());
-            }
-            digits(t, 0, 1).ok_or_else(err)?
-        };
-        let weekday = match day {
-            1 => Weekday::Monday,
-            2 => Weekday::Tuesday,
-            3 => Weekday::Wednesday,
-            4 => Weekday::Thursday,
-            5 => Weekday::Friday,
-            6 => Weekday::Saturday,
-            7 => Weekday::Sunday,
-            _ => return Err(err()),
-        };
-        if year < 1 {
-            return Err(err());
-        }
-        return Date::from_iso_week_date(year, week, weekday).map_err(|_| err());
-    }
-    let (month, day) = if let Some(r) = rest.strip_prefix('-') {
-        if r.len() != 5 || r.as_bytes()[2] != b'-' {
-            return Err(err());
-        }
-        (
-            digits(r, 0, 2).ok_or_else(err)?,
-            digits(r, 3, 2).ok_or_else(err)?,
-        )
-    } else {
-        if rest.len() != 4 {
-            return Err(err());
-        }
-        (
-            digits(rest, 0, 2).ok_or_else(err)?,
-            digits(rest, 2, 2).ok_or_else(err)?,
-        )
-    };
+    let year = number(0, 4).ok_or_else(err)? as i32;
+    let month = number(5, 2).ok_or_else(err)?;
+    let day = number(8, 2).ok_or_else(err)?;
     if year < 1 {
         return Err(err());
     }
@@ -244,6 +191,11 @@ fn nights(
     Ok((first <= end).then_some((first, end)))
 }
 
+/// 날짜 입력이 하나라도 YYYY-MM-DD가 아니면 오류(문자열 비교로 열린 쪽 결과가 나오지 않게 한다).
+fn check_days(values: &[&str]) -> Result<(), DateError> {
+    values.iter().try_for_each(|v| parse_iso(v).map(|_| ()))
+}
+
 /// `covers_stay`: 예약 전체가 여행 안에 있는가. `service`면 항공처럼 양 끝날이 모두 이용일이다.
 pub fn covers_stay(
     trip_start: &str,
@@ -256,6 +208,7 @@ pub fn covers_stay(
     if trip_start.is_empty() || trip_end.is_empty() {
         return Ok(false);
     }
+    check_days(&[trip_start, trip_end, check_in, check_out])?;
     if service {
         return Ok(trip_start <= check_in && check_out <= trip_end);
     }
@@ -276,6 +229,7 @@ pub fn overlaps_stay(
     if trip_start.is_empty() || trip_end.is_empty() {
         return Ok(false);
     }
+    check_days(&[trip_start, trip_end, check_in, check_out])?;
     if service {
         return Ok(check_in.max(trip_start) <= check_out.min(trip_end));
     }

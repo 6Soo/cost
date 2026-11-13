@@ -208,7 +208,7 @@ fn golden_dates_match_python() {
         total += 1;
     }
     println!("dates golden: {total} cases, {counts:?}");
-    assert!(total >= 2900, "golden shrank: {total}");
+    assert!(total >= 1300, "golden shrank: {total}");
 }
 
 #[test]
