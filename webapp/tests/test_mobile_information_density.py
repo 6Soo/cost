@@ -27,7 +27,8 @@ def test_browser_round_trip_and_all_passengers_fit_without_nested_field_panels()
             page.get_by_label('항공권 검색').fill('시즈오카')
             page.get_by_role('button',name='예약 조회',exact=True).click()
             summary=page.locator('.fb-booking-choice > summary').first
-            expect(summary).to_contain_text('탑승객 2명')
+            # Short rosters are named in the summary; only longer rosters show
+            # the remaining passenger count there.
             expect(summary).to_contain_text('KIM ALPHA')
             expect(summary).to_contain_text('LEE BETA')
             expect(page.locator('#fb-status')).to_have_text('예약 2건')
@@ -57,7 +58,7 @@ def test_browser_round_trip_and_all_passengers_fit_without_nested_field_panels()
                 'reservations':[large,dict(large,booking_ref='SYNTH-2')],'total':2,'source_status':'VERIFIED','revision':'large'}))
             page.get_by_label('항공권 검색').fill('large')
             page.get_by_role('button',name='예약 조회',exact=True).click()
-            expect(page.locator('.fb-booking-choice > summary').first).to_contain_text('탑승객 9명')
+            expect(page.locator('.fb-booking-choice > summary').first).to_contain_text('외 6명')
             page.locator('.fb-booking-choice > summary').first.click()
             for i in range(9):
                 expect(page.locator('.fb-passengers').first).to_contain_text('SYNTHETIC PERSON '+str(i))
@@ -80,7 +81,7 @@ def test_browser_owned_card_row_and_cleanup_disclosure_are_not_auto_decorated():
             page.goto('http://synthetic.test/cards/all')
             assert page.locator('.card-all-row-toggle').get_attribute('class')=='card-all-row-toggle'
             assert 'site-action' not in (page.locator('.cleanup-review > summary').get_attribute('class') or '')
-            assert page.locator('h1').evaluate('(e)=>e.classList.contains("site-title-duplicate")')
+            assert not page.locator('h1').evaluate('(e)=>e.classList.contains("site-title-duplicate")')
             page.locator('.cleanup-review > summary').focus()
             page.keyboard.press('Enter')
             expect(page.get_by_text('합성 근거',exact=True)).to_be_visible()

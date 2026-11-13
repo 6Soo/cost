@@ -354,7 +354,7 @@ class TwoPageBoardTests(unittest.TestCase):
             "  'nav-mask': document.querySelectorAll('#nav-mask').length,"
             "  nav: document.querySelectorAll('#nav').length,"
             "  ledgernote: document.querySelectorAll('#ledger-note').length,"
-            "  tripq: document.querySelectorAll('#tripq').length})")
+            "  'search-box': document.querySelectorAll('#q').length})")
 
     def _assert_sidebar_intact(self, page, context=""):
         """One of each region, one of each piece of sidebar chrome, one note.
@@ -369,7 +369,7 @@ class TwoPageBoardTests(unittest.TestCase):
         counts = self._region_counts(page)
         for name in ("live-nav", "live-sum", "live-rows"):
             self.assertEqual(counts[name], 1, f"{context}{name}: {counts[name]}")
-        for name in ("nav-mask", "nav", "ledgernote", "tripq"):
+        for name in ("nav-mask", "nav", "ledgernote", "search-box"):
             self.assertEqual(counts[name], 1, f"{context}{name}: {counts[name]}")
 
     def test_two_changes_in_a_row_are_both_seen(self):
@@ -1102,7 +1102,7 @@ class TwoPageBoardTests(unittest.TestCase):
         scrolled = watcher.evaluate(
             "document.getElementById('main').scrollTop")
         self.assertGreater(scrolled, 0, "the board did not scroll where asked")
-        watcher.evaluate("document.getElementById('tripq').focus()")
+        watcher.locator("#q").focus()
 
         self._save_through_the_api(ROW_A2, description="스크롤 확인용 저장")
         self._wait_for(
@@ -1114,7 +1114,7 @@ class TwoPageBoardTests(unittest.TestCase):
         self.assertEqual(watcher.evaluate(
             "document.getElementById('main').scrollTop"), scrolled,
             "the refresh moved the scroll position")
-        self.assertEqual(watcher.evaluate("document.activeElement.id"), "tripq",
+        self.assertEqual(watcher.evaluate("document.activeElement.id"), "q",
                          "the refresh moved the keyboard focus")
 
     def test_scrolling_during_a_held_fragment_keeps_the_new_position(self):
@@ -1183,7 +1183,7 @@ class TwoPageBoardTests(unittest.TestCase):
         # the search box, then a row link. Neither is a text field inside a panel,
         # so neither makes the page treat an edit as in progress: the fragment is
         # fetched, which is the case under test.
-        watcher.evaluate("document.getElementById('tripq').focus()")
+        watcher.locator("#q").focus()
         before = watcher.evaluate("document.activeElement.id")
         held: list = []
 
@@ -1197,13 +1197,13 @@ class TwoPageBoardTests(unittest.TestCase):
         self._save_through_the_api(ROW_A, description="포커스 도중 저장")
         self._wait_for_held(watcher, held, "the fragment fetch was never in flight")
         # the user moves the focus elsewhere while the fetch is held
-        watcher.evaluate(
-            "(function(){var a=document.querySelector('#live-rows a');"
-            "if(a) a.focus();})()")
+        watcher.locator("#nav a[href='/cards/all']").focus()
         after = watcher.evaluate("document.activeElement.tagName")
         self.assertNotEqual(after, "INPUT",
                             "the focus never left the search box, so the test "
                             "would pass without the refresh doing anything")
+        self.assertEqual(watcher.evaluate(
+            "document.activeElement.getAttribute('href')"), "/cards/all")
         for route in list(held):
             route.continue_()
         held.clear()
@@ -1217,6 +1217,8 @@ class TwoPageBoardTests(unittest.TestCase):
                          after,
                          f"the refresh moved the keyboard focus back to "
                          f"{before}, the element focused before the fetch")
+        self.assertEqual(watcher.evaluate(
+            "document.activeElement.getAttribute('href')"), "/cards/all")
 
     def test_a_draft_started_during_a_held_fragment_keeps_the_caret(self):
         """A draft that began while the fragment was in flight keeps the caret.
@@ -1237,7 +1239,7 @@ class TwoPageBoardTests(unittest.TestCase):
         # a later restore could wrongly put back. Focusing nothing would make the
         # test pass against the old code for the wrong reason: with nothing to
         # restore, the caret stays in the field whatever the code does.
-        watcher.evaluate("document.getElementById('tripq').focus()")
+        watcher.locator("#q").focus()
         held: list = []
 
         def hold_fragment(route):

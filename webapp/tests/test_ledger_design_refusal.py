@@ -137,6 +137,7 @@ class RefusalAndShellTests(unittest.TestCase):
         page = self._page(1440)
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a"
                   f"&row=expense-demo-c1&err=INVALID_VALUE")
+        page.locator("#panel .p-extra > summary").click()
         page.fill("#f-description", XSS)
         page.wait_for_timeout(50)
         self.assertIsNone(page.evaluate("() => window.__xss === 1 ? 1 : null"))
@@ -288,8 +289,8 @@ class RefusalAndShellTests(unittest.TestCase):
 
     def test_export_import_rules_and_split_use_the_shared_shell(self):
         case = self._learning_case()
-        for path, marker in (("/export", "선택 탭 출력"),
-                             ("/import", "카드 가져오기"),
+        for path, marker in (("/export", "XLSX 내보내기"),
+                             ("/import", "카드 거래와 예약 자료를 확인합니다."),
                              (f"/rules?case={case}", "규칙 대화"),
                              ("/income/income-demo-i1/split", "배분")):
             with self.subTest(path=path):
@@ -297,7 +298,7 @@ class RefusalAndShellTests(unittest.TestCase):
                 page.goto(f"http://127.0.0.1:{self.port}{path}")
                 self.assertEqual(overflow(page), 0)
                 self.assertIn("숲길여행 회계", page.inner_text(".nav"))
-                self.assertIn("여행 목록", page.inner_text(".nav"))
+                self.assertIn("여행 전체 보기", page.inner_text(".nav"))
                 self.assertIn(marker, page.inner_text("body"))
                 self.assertTrue(page.evaluate(
                     "document.fonts.check('14px \"Pretendard Variable\"')"))
@@ -314,12 +315,13 @@ class RefusalAndShellTests(unittest.TestCase):
         self.assertEqual(page.input_value("input[name='client_request_id']") != "", True)
 
     def test_import_keeps_its_upload_form(self):
-        page = self._page(1440)
-        page.goto(f"http://127.0.0.1:{self.port}/import")
-        # the import posts with a script header, so the token is on the page
-        self.assertIn(board_mod.CSRF_TOKEN, page.inner_text("body") + page.content())
-        self.assertGreaterEqual(page.locator("input[type='file']").count(), 1)
-        self.assertIn("/api/imports", page.content())
+        from webapp import cards_all, card_history_assets
+        html = cards_all.cards_all_page(
+            {"panel": ["upload"]}, owner=True, csrf=board_mod.CSRF_TOKEN)
+        # The owner upload workspace carries the token used by its upload request.
+        self.assertIn(f"data-csrf='{board_mod.CSRF_TOKEN}'", html)
+        self.assertIn("id='card-upload-files'", html)
+        self.assertIn("/api/imports/upload-batch", card_history_assets.SCRIPT)
 
     def test_the_rule_dialog_keeps_its_explicit_confirm_and_return(self):
         case = self._learning_case()

@@ -16,8 +16,12 @@ from webapp import ledger_design, site_shell
 @pytest.mark.parametrize('native', [False, True])
 def test_fractional_mobile_breakpoint_has_no_menu_gap(native):
     nav = '<aside id="nav" class="nav"><a href="/board">장부</a></aside><div id="nav-mask" class="nav-mask" hidden></div>'
-    content = "<div class='app'>" + nav + "<main id='main' class='main'><button id='btn-menu' type='button' aria-label='전체 메뉴 열기' aria-expanded='false'>메뉴</button><h1>합성 장부</h1></main></div>" if native else '<main><h1>합성 화면</h1></main>'
-    source = '<html><head><meta charset="utf-8"><style>' + ledger_design.STYLE + '</style></head><body>' + content + '</body></html>'
+    content = ("<div class='app'>" + nav
+               + "<main id='main' class='main'><button id='btn-menu' type='button' aria-label='전체 메뉴 열기' aria-expanded='false'>메뉴</button><h1>합성 장부</h1></main></div>"
+               if native else '<main><h1>합성 화면</h1></main>')
+    source = ('<html><head><meta charset="utf-8"><style>' + ledger_design.STYLE
+              + '</style></head><body>' + content + '<script>'
+              + ledger_design.SCRIPT + '</script></body></html>')
     with patch('webapp.ledger_design._nav_html', return_value=nav):
         document = site_shell.wrap_document(source, '/board' if native else '/flight-passengers')
     with sync_playwright() as api:
@@ -29,7 +33,14 @@ def test_fractional_mobile_breakpoint_has_no_menu_gap(native):
         assert '(width < 760px)' in media
         assert not any('max-width: 759' in condition for condition in media)
         assert frame.evaluate("matchMedia('(width < 760px)').matches")
-        menu = frame.locator('#btn-menu' if native else '.site-menu-toggle')
+        if not native:
+            # The shared shell no longer inserts its own menu toggle. Native
+            # ledger pages own the drawer button and its interaction contract.
+            expect(frame.locator('.site-menu-toggle')).to_have_count(0)
+            assert frame.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            browser.close()
+            return
+        menu = frame.locator('#btn-menu')
         expect(menu).to_be_visible()
         assert frame.locator('#nav').evaluate('e=>e.getBoundingClientRect().right') <= 1
         menu.click()

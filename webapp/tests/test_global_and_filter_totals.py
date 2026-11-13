@@ -119,8 +119,10 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
             with self.subTest(path=path):
                 status, page = self._open(path)
                 self.assertEqual(status, 200)
-                if path == '/import' and 'expense-tabs' in page:
-                    self.assertIn('id="status"', page)
+                if path == '/import':
+                    self.assertNotIn("id='global-state'", page)
+                    if 'expense-tabs' in page:
+                        self.assertIn('id="status"', page)
                 else:
                     self.assertIn("id='global-state'", page)
                     self.assertIn("id='unsaved-count'", page)

@@ -117,7 +117,9 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         for html in (ledger_design.page('trip-demo-a', kind='ex'),
                      ledger_design.summary_part('trip-demo-a', kind='ex')):
             self.assertNotIn('수입이 아직 기록되지', html)
-            self.assertIn('지출 3건', html)
+            self.assertRegex(
+                html,
+                r"<div class='kpi'><dt>지출</dt><dd>.*?</dd><small>3건</small></div>")
 
     def test_mobile_list_shows_two_line_summary_without_origin_details(self):
         html = ledger_design._mobile_html(
