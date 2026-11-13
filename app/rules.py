@@ -110,13 +110,35 @@ def is_booking_or_online(transaction):
             (category.startswith('card-category:') and
              any(marker in category for marker in ('인터넷상거래','전자상거래','통신판매','결제대행'))))
 
-def is_online_purchase_for_owner_card(transaction):
-    """지정 카드 잔여: 예약·온라인 표지에 해외 쇼핑몰·AI/SaaS 구독을 더한 3820 전용 판정(TRIP-045)."""
+_OWNER_ONLINE_MERCHANT = re.compile('|'.join((
+    r'AGODA|아고다|BOOKING\.COM|부킹닷컴|TRIP\.?\s?COM|트립닷컴|KLOOK|클룩|AIRBNB|에어비앤비|트래블로버',
+    r'RAKUTEN\s?TRAVEL|라쿠텐트래블|GOTOGATE|AIRLINES?\b|AIRWAYS|항공|EXPEDIA|HOTELS\.COM',
+    r'나이스정보통신|이니시스|KCP|결제대행|통신판매|어드벤처코리아|PAYPAL|페이팔',
+    r'ANTHROPIC|OPENAI|CHATGPT|CLAUDE\.AI|CLAUDE\s(?:SUB|AI|PRO|MAX)|ALIEXPRESS|\bTEMU\b|\bCURSOR\b|GITHUB|MIDJOURNEY',
+    r'PERPLEXITY|OPENROUTER|\bNOTION\b|DROPBOX|SPOTIFY|NETFLIX|ADOBE',
+    r'AMAZON\.|AMZN|AMAZON\s?(?:PRIME|WEB|MKTP|DIGITAL)|\bAWS\b|GOOGLE\s?[*]|GOOGLE\s(?:CLOUD|ONE|PLAY|WORKSPACE)',
+    r'APPLE\.COM|APPLE\s?(?:SERVICES|BILL)|ITUNES|MICROSOFT\s?[*]|MSFT',
+)))
+_OWNER_ONLINE_CATEGORY = ('인터넷상거래', '전자상거래', '통신판매', '결제대행')
+_LOCAL_CURRENCY = {'JP': 'JPY', 'SG': 'SGD', 'TW': 'TWD', 'MN': 'MNT'}
+
+
+def is_online_purchase_for_owner_card(transaction, trips=()):
+    """지정 카드 해외 거래 중 예약·결제대행·구독·온라인몰만 참(TRIP-045).
+
+    매장 QR·간편결제(결제 브랜드+매장명)와 숙소 직접 결제는 현장이다. 업종만 온라인이고
+    가맹점 국가가 여행국이며 현지 통화로 낸 거래도 현장으로 둔다."""
     merchant = str(transaction.get('merchant') or '').upper()
-    markers = ('.COM', 'ANTHROPIC', 'CLAUDE', 'OPENAI', 'CHATGPT', 'ALIEXPRESS', 'TEMU',
-               'CURSOR', 'GITHUB', 'MIDJOURNEY', 'PERPLEXITY', 'OPENROUTER', 'NOTION', 'DROPBOX',
-               'SPOTIFY', 'NETFLIX', 'ADOBE')
-    return is_booking_or_online(transaction) or any(marker in merchant for marker in markers)
+    if _OWNER_ONLINE_MERCHANT.search(merchant):
+        return True
+    category = str(transaction.get('description_raw') or '')
+    if not (category.startswith('card-category:') and any(m in category for m in _OWNER_ONLINE_CATEGORY)):
+        return False
+    country = merchant_country(transaction)
+    local = (country in _LOCAL_CURRENCY
+             and str(transaction.get('foreign_currency') or '').upper() == _LOCAL_CURRENCY[country])
+    return not (local and any(country in trip_countries(t) for t in trips))
+
 
 __all__ = [
     "CONDITION_FIELDS", "OPTIONAL_FIELDS", "EFFECT_FIELDS",

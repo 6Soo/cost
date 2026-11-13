@@ -219,16 +219,17 @@ def _card3820_owner_policy(row, trips, *, _canonical=None):
         return None
 
     from .rules import is_online_purchase_for_owner_card, transaction_region
-    if transaction_region(row) == 'overseas' and not is_online_purchase_for_owner_card(row):
+    if transaction_region(row) == 'overseas':
         candidates, preparation = period_or_preparation(
             regional_trips(row, valid.values()), occurred.isoformat())
-        if not candidates:
-            return None
-        target, basis = infer_trip(row, candidates, reconsider=True,
-                                   _canonical={t['trip_id']: t for t in candidates})
-        return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
-                    display_tab_id=target, trip_id=target, source='inference',
-                    basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
+        if not is_online_purchase_for_owner_card(row, candidates):
+            if not candidates:
+                return None
+            target, basis = infer_trip(row, candidates, reconsider=True,
+                                       _canonical={t['trip_id']: t for t in candidates})
+            return dict(item=row.get('item') or infer_item(row)[0], description=row.get('description') or '',
+                        display_tab_id=target, trip_id=target, source='inference',
+                        basis='AUTO_INFERRED · 낮음 · 해외 사용 · 국가 일치 불필요 · ' + basis)
     year, quarter = quarter_of(occurred)
     return dict(item='분기 기타비용', description=f'{year}년 {quarter}분기 기타비용',
                 display_tab_id=f'quarter:{year}:{quarter}', trip_id='',
