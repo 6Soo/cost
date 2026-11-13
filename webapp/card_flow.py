@@ -1818,6 +1818,17 @@ class CardFlow:
             options['additional_holds'].update({row[0]: {'kind': 'completion_scope', 'reason': '다음 자동 처리 범위'}
                 for row in self.board.conn.execute('SELECT transaction_id FROM transactions')
                 if row[0] not in selected})
+        # PROC-072: completed periods and completed trips are never recorded automatically.
+        from app.closed_period import excluded_ids
+        from .card_classification_completion import completed_period_evidence
+        closed = excluded_ids(self.board.conn, self.board.list_trips(),
+                              evidence=completed_period_evidence(self.board))
+        for tid in closed:
+            options['additional_holds'][tid] = {'kind': 'completed_period', 'reason': 'PROC-072 완료 기간·완료 여행'}
+        in_batch = {row[0] for row in self.board.conn.execute(
+            'SELECT transaction_id FROM import_batch_rows WHERE batch_id=?', (batch_id,))}
+        skipped = len({tid for tid in in_batch & closed if not self.board.conn.execute(
+            'SELECT 1 FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone()})
         preview = self.pipeline.preview(batch_id, **options)
         from app.ledger import recordable_rows
         applied = 0
@@ -1826,16 +1837,20 @@ class CardFlow:
                 'auto-record:' + batch_id + ':' + preview['digest'],
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)), automatic_record=True, **options)
             applied = result['applied']
+        allowed = (in_batch if transaction_ids is None else set(transaction_ids)) - closed
         if transaction_ids is None:
-            applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project)
+            applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project,
+                                              transaction_ids=allowed)
         else:
             applied += quarter_tab.book_batch(self.pipeline.store, batch_id,
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)),
-                transaction_ids=transaction_ids)
+                transaction_ids=allowed)
+        excluded = {'completed_period_excluded': skipped, 'exclusion_reason': 'PROC-072_COMPLETED_PERIOD'} if skipped else {}
         if not include_state:
-            return {'auto_recorded': applied}
+            return {'auto_recorded': applied, **excluded}
         state = self.state(batch_id)
         state['auto_recorded'] = applied
+        state.update(excluded)
         return state
 
     def state(self, batch_id):
