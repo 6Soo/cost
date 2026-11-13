@@ -105,6 +105,34 @@ def refund_links(conn, transaction_ids) -> dict:
     return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items() if tid in wanted}
 
 
+def is_numbered_partial(link) -> bool:
+    """A partial refund tied to exactly one original by approval number (RFND-004), never inferred."""
+    return (not link.get('inferred') and 'basis' not in link
+            and link.get('status') == 'partial' and link.get('net_krw', 0) > 0)
+
+
+def partial_group_exclusion(conn, original_id: str) -> str:
+    """Why a numbered partial group must not be extended across files ('' when allowed).
+
+    PROC-072 completed periods come first; an errored, duplicate or conflicted
+    cancel of the same original (dropped from the net) holds the whole group.
+    """
+    from .closed_period import completed_period
+    for tid in refund_group(conn, original_id):
+        row = conn.execute(
+            "SELECT approval_date, posting_date FROM transactions WHERE transaction_id=?", (tid,)).fetchone()
+        if row and completed_period({'approval_date': row[0], 'posting_date': row[1]}):
+            return 'completed_period'
+    unclean = conn.execute(
+        "SELECT 1 FROM transactions o JOIN transactions c ON c.issuer=o.issuer AND c.card_tail=o.card_tail"
+        " AND c.transaction_direction='cancellation'"
+        " AND TRIM(COALESCE(c.original_approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ')"
+        "   =TRIM(COALESCE(o.approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ')"
+        " WHERE o.transaction_id=? AND (c.duplicate_of IS NOT NULL OR COALESCE(c.conflict_reason,'')!=''"
+        " OR COALESCE(c.parse_error,'')!='') LIMIT 1", (original_id,)).fetchone()
+    return 'unclean_member' if unclean else ''
+
+
 def refund_original_links(conn, transaction_ids) -> dict:
     """{original_transaction_id: one confirmed link} for requested originals."""
     wanted = {str(i) for i in transaction_ids}
