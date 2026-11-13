@@ -150,8 +150,20 @@ def _google_status():
     return last, login
 
 
-def _p2_status(config_path):
-    """설정된 P2 보관함에서 가장 최근 실행 요약. 설정이 없으면 실행 기록 없음."""
+def _p2_status(data_root, config_path=None):
+    """운영 데이터 폴더의 요약을 우선 읽고, 과거 보관함 설정도 지원한다."""
+    latest = Path(data_root) / 'p2-runs' / 'latest.json'
+    try:
+        summary = json.loads(latest.read_text(encoding='utf-8'))
+        recorded = _parse_kst(summary.get('finished_at') or summary.get('started_at'))
+        if isinstance(summary, dict) and recorded and summary.get('schema') == 1:
+            return {'last_at': recorded, 'merchants': int(summary.get('target_groups') or 0),
+                    'success': int(summary.get('successful_calls') or 0),
+                    'failed': int(summary.get('failed_calls') or 0)}
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    if config_path is None:
+        return None
     try:
         options = json.loads(Path(config_path).read_text(encoding='utf-8-sig'))
     except (OSError, ValueError):
@@ -221,7 +233,7 @@ def gather(board, *, now=None):
     mail = _mail_last(data_root) if data_root is not None else None
     ota = _ota_last(data_root) if data_root is not None else {key: None for key, _ in OTA_PROVIDERS}
     google_last, google_login = _google_status()
-    p2 = (_p2_status(Path(path).parent.parent / 'config' / 'card-flow.json')
+    p2 = (_p2_status(data_root, Path(path).parent.parent / 'config' / 'card-flow.json')
           if path is not None else None)
     sources = [{'label': label, 'group': 'card', 'last_at': cards.get(issuer),
                 'threshold': THRESHOLDS_DAYS['card'], 'login_required': False}

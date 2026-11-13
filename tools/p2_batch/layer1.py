@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+import datetime as dt
 import hashlib
 import json
 import os
@@ -293,6 +294,20 @@ def run(args):
         elapsed_seconds=round(time.monotonic()-started,3),model_seconds=round(sum(r['seconds'] for r in calls),3),
         usage=dict(sum((Counter(r['usage']) for r in calls),Counter())),calls=calls)
     save(out/'summary.json',summary)
+    public = dict(schema=1, started_at=dt.datetime.fromtimestamp(time.time()-summary['elapsed_seconds'],dt.timezone.utc).isoformat(),
+        finished_at=dt.datetime.now(dt.timezone.utc).isoformat(), target_groups=summary['merchants'], target_rows=summary['rows'],
+        model_calls=summary['successful_calls']+summary['failed_attempts'], successful_calls=summary['successful_calls'],
+        failed_calls=summary['failed_attempts'], applied_rows=0, limit_failure=any(
+            any(term in str(f.get('code','')).upper() for term in ('LIMIT','QUOTA','USAGE')) for f in failures),
+        status='success' if not failures else 'failed')
+    public_summary_path=Path(args.db).resolve().parent/'p2-runs'/'latest.json'
+    public_summary_path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=public_summary_path.with_suffix('.tmp')
+    with temporary.open('w',encoding='utf-8') as stream:
+        json.dump(public,stream,ensure_ascii=False,indent=2)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary,public_summary_path)
     print(json.dumps(dict(event='complete',**{k:v for k,v in summary.items() if k!='calls'}),ensure_ascii=True),flush=True)
 
 
@@ -302,7 +317,22 @@ def main():
     parser.add_argument('--output',required=True)
     parser.add_argument('--batch-size',type=int,choices=range(30,51),default=45)
     parser.add_argument('--scope-only',action='store_true')
-    run(parser.parse_args())
+    try:
+        run(parser.parse_args())
+    except Exception as exc:
+        public_summary_path=Path(parser.parse_args().db).resolve().parent/'p2-runs'/'latest.json'
+        public_summary_path.parent.mkdir(parents=True,exist_ok=True)
+        failed=dict(schema=1,started_at=None,finished_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                    target_groups=0,target_rows=0,model_calls=0,successful_calls=0,failed_calls=1,
+                    applied_rows=0,limit_failure=any(x in str(getattr(exc,'code','')).upper() for x in ('LIMIT','QUOTA','USAGE')),
+                    status='failed')
+        temporary=public_summary_path.with_suffix('.tmp')
+        with temporary.open('w',encoding='utf-8') as stream:
+            json.dump(failed,stream,ensure_ascii=False,indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary,public_summary_path)
+        raise
 
 
 if __name__=='__main__':

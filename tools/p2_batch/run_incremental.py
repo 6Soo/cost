@@ -22,6 +22,7 @@ from .normalize import operational_items
 
 PRIVATE = Path('D:/WebLedgerHost/data')
 DEFAULT_STATE = PRIVATE / 'p2-incremental.json'
+PUBLIC_SUMMARY = PRIVATE / 'p2-runs' / 'latest.json'
 LOCK_MAX_SECONDS = 2 * 3600
 
 
@@ -36,6 +37,20 @@ def save(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
+
+
+def save_public_summary(metrics, data_root):
+    """Publish aggregate run status only; never copy merchant or transaction data."""
+    failure = str(metrics.get('failure_code', '')).upper()
+    summary = dict(schema=1, started_at=metrics.get('started_at'), finished_at=metrics.get('finished_at'),
+        target_groups=(metrics.get('scope') or {}).get('new_merchants', 0),
+        target_rows=(metrics.get('scope') or {}).get('new_rows', 0),
+        model_calls=metrics.get('calls', 0), successful_calls=metrics.get('successful_calls', 0),
+        failed_calls=metrics.get('failed_calls', 0), applied_rows=metrics.get('applied_rows', 0),
+        limit_failure=any(word in failure for word in ('LIMIT', 'QUOTA', 'USAGE')), status=metrics.get('status'))
+    path = Path(data_root) / 'p2-runs' / 'latest.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save(path, summary)
 
 
 def pid_alive(pid):
@@ -403,6 +418,7 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
             finished = [r for r in state['runs'] if r['status'] in {'success', 'failed'} and r['mode'] != 'dry-run']
             metrics['run_success_rate'] = sum(r['status'] == 'success' for r in finished)/len(finished) if finished else None
             checkpoint()
+            save_public_summary(metrics, Path(args.db).resolve().parent)
         return metrics
     finally:
         lock.unlink()

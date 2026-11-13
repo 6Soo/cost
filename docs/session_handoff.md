@@ -1,3 +1,8 @@
+## 2026-11-13 P2 실행 요약 파일 상태
+
+- 요청 브랜치 `feat/p2-run-summary-status-20261113`: 증분·기존 1층 실행기가 데이터 루트 `p2-runs/latest.json`에 원문 없는 집계 JSON을 원자 기록하고, 수집 상태 화면은 이 파일을 우선 읽는다. 구형 `p2_batch_archive`는 fallback으로 유지.
+- 구현 커밋 `d8aa5c01`: 증분·기존 1층 실행기가 데이터 루트 `p2-runs/latest.json`에 원문 없는 집계 JSON을 원자 기록하고, 수집 상태 화면은 이 파일을 우선 읽는다. 구형 `p2_batch_archive` fallback과 합성 테스트를 유지했다. 표적 검사 60 passed. 영향 검사 PASSED: 300/300, skip 0, 28 subtests, compile PASS (base `96fb90e8`). 테스트 중 발견한 임시 DB 경로 문제를 `--db` 데이터 디렉터리 기준 경로로 고쳤다. 운영 파일 생성 및 배포는 하지 않았다. PR 생성 후 서버 코드 변경 배포 필요.
+
 ## 2026-11-13 PR #841 opus 변경 요청 반영 — 근거 개정 경로·일반 동기화
 
 - 동기화 코드의 화순 ID/날짜 예외 제거. 별도 확정 일정과 Google 명시 종료일이 같으면 허용하고 다르면 보존한다. 새 `tools/revise_trip_schedule.py`는 미리보기/검수 SHA·복원 사본 확인 후 적용/이후 변경을 보호하는 원복을 제공한다. 기존 일정 레코드는 새 owner-schedule의 supersedes·receipt에, 원본 authority 전체는 복원 사본에 남긴다.
