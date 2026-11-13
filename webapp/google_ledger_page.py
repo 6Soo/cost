@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import html
 import json
+import logging
 import os
 import functools
 import threading
@@ -926,11 +927,7 @@ def _google_end_change(board, tab: dict, trip: dict, overrides) -> bool:
     for record in overrides:
         if (record.trip_code != trip['key'] or str(record.starts_on) != tab.get('starts_on')):
             continue
-        # TRIP-098 explicitly supersedes this old lodging-period answer only.
-        superseded = (record.trip_code == '0823_화순' and str(record.starts_on) == '2026-08-23'
-                      and str(record.ends_on) == '2026-08-25' and end == '2026-08-26'
-                      and record.authority_kind == 'user_confirmed_schedule')
-        if not superseded:
+        if str(record.ends_on) != end:
             return False
     if not tab.get('ends_on'):
         return True
@@ -947,7 +944,13 @@ def import_trips(board, snapshot: dict) -> dict:
     """
     from .ledger_store import SaveError
     counts = Counter()
-    overrides = _schedule_overrides()
+    try:
+        overrides = _schedule_overrides()
+    except (OSError, ValueError):
+        # Keep independent creation/linking available, but never discard schedule protection.
+        logging.getLogger(__name__).warning('TRIP_SCHEDULE_UNAVAILABLE: end-date updates skipped', exc_info=True)
+        overrides = None
+        counts['schedule_unavailable'] += 1
     existing_tabs = board.list_trips(include_archived=True)
     named = {t['display_key']: t for t in existing_tabs}
     source_named = {(t.get('owner_id') or 'aslan', t.get('source_trip_key')): t
@@ -968,7 +971,7 @@ def import_trips(board, snapshot: dict) -> dict:
             continue
         tab = source_named.get((owner, key)) or (named.get(key) if owner == 'aslan' else None)
         if tab is not None:
-            if _google_end_change(board, tab, trip, overrides):
+            if overrides is not None and _google_end_change(board, tab, trip, overrides):
                 try:
                     board.save_trip_meta(tab_id=tab['tab_id'], expected_revision=tab['revision'],
                                          client_request_id=f"google-end-{tab['tab_id']}-{tab['revision']}-{period['ends_on']}",

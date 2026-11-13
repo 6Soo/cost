@@ -60,21 +60,64 @@ def test_google_explicit_end_preserves_schedule_and_manual_authority(tmp_path, m
     assert (board.get_trip(tab_id)['ends_on'] or '') == expected
 
 
-def test_trip_098_supersedes_only_the_old_hwasun_schedule(tmp_path, monkeypatch):
-    from types import SimpleNamespace
+def test_trip_098_uses_revised_evidence_without_a_sync_exception(tmp_path, monkeypatch):
     from webapp.ledger_store import LedgerStore
-    record = SimpleNamespace(trip_code='0823_화순', starts_on='2026-08-23', ends_on='2026-08-25',
-                             authority_kind='user_confirmed_schedule')
-    monkeypatch.setattr(page, '_schedule_overrides', lambda: [record])
+    from tools.revise_trip_schedule import plan_revision, apply_revision, digest
+    from ledger.domain.direct_trip_schedule_authority import SCHEMA_VERSION, END_SEMANTICS
+    record = dict(trip_code='0823_화순', event_year=2026, starts_on='2026-08-23', ends_on='2026-08-25',
+        authority_kind='user_confirmed_schedule', authority_status='authoritative', region='화순',
+        source_locator=str(tmp_path / 'old.json') + '#schedule', source_sha256='a' * 64,
+        end_semantics=END_SEMANTICS)
+    authority = tmp_path / 'authority.json'
+    authority.write_text(json.dumps({'schema_version': SCHEMA_VERSION, 'records': [record]}), encoding='utf-8')
+    monkeypatch.setenv('WEBLEDGER_TRIP_AUTHORITY', str(authority))
     board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
     tab_id = board.create_trip(starts_on='2026-08-23', ends_on='2026-08-25', destination='화순',
-        display_key=record.trip_code, client_request_id='seed')['tab_id']
-    snap = {'trips': [{'key': record.trip_code, 'period': {
+        display_key=record['trip_code'], client_request_id='seed')['tab_id']
+    snap = {'trips': [{'key': record['trip_code'], 'period': {
         'starts_on': '2026-08-23', 'ends_on': '2026-08-26', 'flags': ['PERIOD_END_FROM_ITEMS']}}]}
+    assert page.import_trips(board, snap) == {'existing': 1}
+    plan = plan_revision(authority, tmp_path / 'evidence', dict(trip_code=record['trip_code'],
+        ends_on='2026-08-26', rule_id='TRIP-098', decided_on='2026-11-13', reason='소유자 확정 여행 기간'))
+    apply_revision(authority, plan, tmp_path / 'receipt', digest(plan['before']))
     assert page.import_trips(board, snap) == {'end_set': 1}
     snap['trips'][0]['period']['ends_on'] = '2026-08-27'
     assert page.import_trips(board, snap) == {'existing': 1}
     assert board.get_trip(tab_id)['ends_on'] == '2026-08-26'
+
+
+@pytest.mark.parametrize('same_end', [True, False])
+def test_confirmed_schedule_only_blocks_a_conflicting_google_end(tmp_path, monkeypatch, same_end):
+    from types import SimpleNamespace
+    from webapp.ledger_store import LedgerStore
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    tab_id = board.create_trip(starts_on='2026-08-23', ends_on='2026-08-25', destination='합성',
+                              display_key='0823_합성', client_request_id='seed')['tab_id']
+    record = SimpleNamespace(trip_code='0823_합성', starts_on='2026-08-23',
+                             ends_on='2026-08-26' if same_end else '2026-08-25')
+    monkeypatch.setattr(page, '_schedule_overrides', lambda: [record])
+    snap = {'trips': [{'key': record.trip_code, 'period': {'starts_on': '2026-08-23', 'ends_on': '2026-08-26'}}]}
+    assert page.import_trips(board, snap) == ({'end_set': 1} if same_end else {'existing': 1})
+    assert board.get_trip(tab_id)['ends_on'] == ('2026-08-26' if same_end else '2026-08-25')
+
+
+@pytest.mark.parametrize('content', [None, '{}', 'not json'])
+def test_schedule_read_failure_logs_and_only_skips_end_updates(tmp_path, monkeypatch, caplog, content):
+    from webapp.ledger_store import LedgerStore
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    authority = tmp_path / 'authority.json'
+    if content is not None:
+        authority.write_text(content, encoding='utf-8')
+    monkeypatch.setenv('WEBLEDGER_TRIP_AUTHORITY', str(authority))
+    first = {'key': '0823_합성', 'period': {'year': 2026, 'starts_on': '2026-08-23', 'ends_on': '2026-08-26'}}
+    second = {'key': '0827_합성', 'period': {'year': 2026, 'starts_on': '2026-08-27', 'ends_on': '2026-08-29'}}
+    tab_id = board.create_trip(starts_on='2026-08-23', ends_on='2026-08-25', destination='합성',
+                              display_key=first['key'], client_request_id='seed')['tab_id']
+    snap = {'trips': [first, second]}
+    assert page.import_trips(board, snap) == {'schedule_unavailable': 1, 'existing': 1, 'created': 1}
+    assert board.get_trip(tab_id)['ends_on'] == '2026-08-25'
+    assert 'TRIP_SCHEDULE_UNAVAILABLE' in caplog.text
+    assert page.auto_link_trips(tmp_path / 'snapshot.json', snap, board.list_trips(include_archived=True)) == 2
 
 from webapp import google_ledger_page as page
 

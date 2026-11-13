@@ -24,7 +24,7 @@
 
 연도와 명시 종료일은 Google 시트 최상단 제목에서, 시작일은 여행 탭 이름의 날짜에서 읽는다. 명시 종료일을 하루 줄이지 않는다.
 
-같은 여행·시작일의 Google 명시 종료일이 바뀌면 COST 종료일도 감사 이력과 함께 갱신한다. 생성 이후 수동으로 수정한 종료일과 별도 확정 일정은 보존한다. 종료일 동기화만으로 거래를 재판정하지 않는다.
+같은 여행·시작일의 Google 명시 종료일이 바뀌면 COST 종료일도 감사 이력과 함께 갱신한다. 생성 이후 수동으로 수정한 종료일은 보존한다. 별도 확정 일정은 Google과 종료일이 다를 때 갱신을 막고 같으면 허용한다. 확정 일정의 새 결정은 [근거 개정 경로](../playbooks/trip-schedule-revision.md)로 이전 근거를 보존하며 반영한다. 종료일 동기화만으로 거래를 재판정하지 않는다.
 
 - 조건·예외: 소유자가 별도 확정한 연도·일정 예외는 우선한다.
 - 출처: `docs/specs/finance.md:246`, `소유자 지시 메모:trip-source-google-only.md:15`, `docs/history/product-and-handoffs.md:91`, `docs/specs/finance.md:106`, `docs/specs/finance.md:328`
