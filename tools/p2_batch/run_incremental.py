@@ -48,6 +48,8 @@ def save_public_summary(metrics, data_root):
         model_calls=metrics.get('calls', 0), successful_calls=metrics.get('successful_calls', 0),
         failed_calls=metrics.get('failed_calls', 0), applied_rows=metrics.get('applied_rows', 0),
         limit_failure=any(word in failure for word in ('LIMIT', 'QUOTA', 'USAGE')),
+        run_success_rate=metrics.get('run_success_rate'),
+        run_success_denominator=metrics.get('run_success_denominator', 0),
         status=metrics.get('status'), failure_reason_code=failure or None)
     path = Path(data_root) / 'p2-runs' / 'latest.json'
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -430,8 +432,13 @@ def _run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rul
         finally:
             metrics['finished_at'] = datetime.now(timezone.utc).isoformat()
             metrics['model_success_rate'] = metrics['successful_calls']/metrics['calls'] if metrics['calls'] else None
-            finished = [r for r in state['runs'] if r['status'] in {'success', 'failed'} and r['mode'] != 'dry-run']
-            metrics['run_success_rate'] = sum(r['status'] == 'success' for r in finished)/len(finished) if finished else None
+            finished = [r for r in state['runs']
+                        if r.get('mode') in {'apply', 'propose-only'}
+                        and r.get('status') in {'success', 'failed'}
+                        and r.get('failure_code') != 'INTERRUPTED_PREVIOUS_RUN']
+            metrics['run_success_denominator'] = len(finished)
+            metrics['run_success_rate'] = (sum(r['status'] == 'success' for r in finished)/len(finished)
+                                           if finished else None)
             checkpoint()
             save_public_summary(metrics, Path(args.db).resolve().parent)
         return metrics
@@ -445,7 +452,9 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
         return _run(args, model=model, api=api, reader=reader, rule_reader=rule_reader)
     except Exception as exc:
         if isinstance(exc, FileExistsError):
-            reason = 'P2_INCREMENTAL_LOCK_HELD'
+            # Another writer owns the in-progress latest.json result. Do not
+            # publish this rejected concurrent attempt over that run's status.
+            raise
         else:
             reason = safe_public_failure(str(exc)) or type(exc).__name__
         now = datetime.now(timezone.utc).isoformat()
