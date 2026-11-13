@@ -36,6 +36,31 @@ def completed_period_evidence(board, trips=None):
             if k in completed}
 
 
+def open_period_evidence(board, trips=None):
+    """Confirmed reservation periods for open-period purchases; read-only, fresh core snapshot only."""
+    from app.closed_period import booking_period_evidence, completed_period
+    from app import automatic_classification as policy
+    from .card_flow import CardFlow
+    flow = CardFlow(board)
+    current, fresh = flow._held_ota_snapshot()
+    if not current or not fresh:
+        return {}
+    if trips is None:
+        trips = [dict(t, trip_id=t['tab_id']) for t in board.list_trips() if flow.trip_valid(t['tab_id'])]
+    matches = flow._canonical_snapshot_report(current).get('matches', [])
+    ids = {m.get('transaction_id') for m in matches if m.get('transaction_id')}
+    if not ids:
+        return {}
+    rows = {r['transaction_id']: r for r in policy._read(board.conn, ids)}
+    found, _ = booking_period_evidence(matches, rows, trips)
+    return {k: v for k, v in found.items() if not completed_period(rows[k])}
+
+
+def classification_evidence(board, trips=None):
+    """Closed-period exceptions plus open-period booking evidence; the two key sets are disjoint."""
+    return {**open_period_evidence(board, trips), **completed_period_evidence(board, trips)}
+
+
 def complete(flow, batch_id, transaction_ids=None):
     selected = {row[0] for row in flow.board.conn.execute(
         'SELECT transaction_id FROM import_batch_rows WHERE batch_id=?', (batch_id,))}
@@ -47,7 +72,7 @@ def complete(flow, batch_id, transaction_ids=None):
 def complete_scope(flow, selected=None):
     with flow.board._lock:
         trips, nets = context(flow)
-        evidence = completed_period_evidence(flow.board,trips)
+        evidence = classification_evidence(flow.board,trips)
         preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
         return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,evidence=evidence)
 

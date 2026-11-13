@@ -330,7 +330,10 @@ def _classify_new_row(row, chosen, tid, valid, trips, nets, links, resolved, led
         chosen.update(trip_id='' if existing_tab == 'refunds' else existing_tab,
                       display_tab_id=existing_tab)
     from .closed_period import completed_period
-    fact = evidence.get(tid) if reconsider or completed_period(row) else None
+    # TRIP-036: a source-bound reservation period outranks payment-date proximity
+    # for a new judgement too; recorded-tab corrections stay reconsider-only.
+    fresh = (not existing_tab and row['classification_source'] not in ('user_decision', 'user_exception', 'owner_booking'))
+    fact = evidence.get(tid) if reconsider or completed_period(row) or fresh else None
     valid_fact = bool(fact and fact.get('source_hash') == row['source_hash']
                       and fact.get('trip_id') in valid
                       and row['transaction_direction'] == 'purchase')
