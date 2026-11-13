@@ -1,7 +1,7 @@
 ## 2026-11-13 PR #847 검수 보완 — P2 사전 실패 상태
 
 - `run_incremental`의 메트릭 생성 전 예외도 데이터 루트 `p2-runs/latest.json`에 `status=failed`, 제한된 `failure_reason_code`와 집계만 원자 기록한다. 1층 경로도 공용 writer로 성공·한도·사전 실패 코드를 내보내며, 상태 화면은 P2 실패를 표시한다.
-- 표적 검사 `tests/test_p2_incremental.py tests/test_p2_batch.py webapp/tests/test_collection_status.py`: 88 passed. 지정 전체 영향 검사는 이어 실행한다. 운영 데이터/파일 생성, 배포, 병합은 하지 않았다.
+- 표적 검사 `tests/test_p2_incremental.py tests/test_p2_batch.py webapp/tests/test_collection_status.py`: 88 passed. 전체 영향 검사 PASSED: 304/304, 0 failed, skip 0, 28 subtests, compile PASS (base `96fb90e8`, HEAD `84d65b5a`). PR 댓글에 검수 수치를 남겼다. 운영 데이터/파일 생성, 배포, 병합은 하지 않았다.
 
 ## 2026-11-13 P2 실행 요약 파일 상태
 
