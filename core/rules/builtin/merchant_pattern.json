@@ -1,0 +1,499 @@
+[
+  {
+    "rule_id": "P1-PAT-주차",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "주차"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "주차비",
+      "description": "주차장 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:50",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-편의점",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "편의점"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:51",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-GS25",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "gs25"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:52",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-CU",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "cu"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:53",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-세븐일레븐",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "세븐일레븐"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:54",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-SEVEN-ELEVEN",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "seven-eleven"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:55",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-FAMILYMART",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "familymart"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:56",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-LAWSON",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [
+      "ITEM-025"
+    ],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "lawson"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "편의점",
+      "description": "편의점 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:57",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-ENEOS-SS",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "eneos-ss"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "교통비",
+      "description": "주유소 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:58",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-ENEOS",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "eneos"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "교통비",
+      "description": "주유소 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:59",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-IDEMITSU",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "idemitsu"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "교통비",
+      "description": "주유소 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:60",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-TAXI",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "taxi"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "택시비",
+      "description": "택시 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:61",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-택시",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "택시"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "택시비",
+      "description": "택시 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:62",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-지하철",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "지하철"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "대중교통",
+      "description": "교통비"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:63",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-버스",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "equals_or_prefix": "버스"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "대중교통",
+      "description": "교통비"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:64",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-TOYOTA-RENT-LEASE",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^toyotarent(?:and)?lease[a-z0-9]*$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "렌터카",
+      "description": "렌터카 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:78",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-HOTEL-ROUTE-INN",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^(?:hotelrouteinn|livemaxresort)[a-z0-9]*$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "숙박비",
+      "description": "호텔 숙박"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:80",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-HOTEL-BRANDS",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^(?:hotelfrontinn|motosuphoenixhotel|rakutenpayhotelsol|twinlinehotel|washingtonhotelplaza|yumotokankohotel)"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "숙박비",
+      "description": "호텔 숙박"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:82",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-PARATA-AIR",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^(?:(?:주)?파라타항공)$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "항공료",
+      "description": "항공권 구매"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:85",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-RAILWAY-TICKET",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^철도승차권발매$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "교통비",
+      "description": "철도 승차권"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:87",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-SEJONG-ARBORETUM",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^국립세종수목원$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "입장료",
+      "description": "수목원 이용"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:89",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-TOYOKO-INN",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "^(?:(?:토요코인|토요코인호텔|toyokoinn|toyokoinnhotel)(?:(?:서울|대구|부산|인천|대전|울산|광주|제주|수원|창원|강남|동성로|daegu|seoul|busan|incheon|daejeon|ulsan|gwangju|jeju|suwon|changwon)[가-힣a-z0-9]*)?)$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "숙박비",
+      "description": "호텔 숙박"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:92",
+    "basis": "가맹점 업종 자동분류"
+  },
+  {
+    "rule_id": "P1-PAT-RESTAURANT-SUFFIX",
+    "version": 1,
+    "kind": "merchant_pattern",
+    "strength": "inferred",
+    "stage": 40,
+    "policy_refs": [],
+    "conditions": {
+      "merchant": {
+        "compact_regex": "(?:국밥|칼국수|김밥|설렁탕|순대국|냉면|코다리)$"
+      }
+    },
+    "scope": {},
+    "effects": {
+      "item": "식비",
+      "description": "식당 식사"
+    },
+    "attribution": "verified_local_trip",
+    "origin": "builtin:app/classify.py:99",
+    "basis": "가맹점 업종 자동분류"
+  }
+]

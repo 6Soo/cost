@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_DIR = ROOT / 'core' / 'golden' / 'synthetic'
-AREAS = ('classify', 'plan', 'refund_pairing', 'ota_links')
+AREAS = ('classify', 'plan', 'refund_pairing', 'ota_links', 'trips')
 
 TRIP_A = dict(trip_id='T-A', display_key='SYN-A', destination='도쿄', starts_on='2026-10-01', ends_on='2026-10-05')
 TRIP_B = dict(trip_id='T-B', display_key='SYN-B', destination='도쿄', starts_on='2026-11-10', ends_on='2026-11-15')
@@ -486,7 +486,225 @@ def ota_cases():
     return out
 
 
-GENERATORS = {'classify': classify_cases, 'plan': plan_cases, 'refund_pairing': refund_cases, 'ota_links': ota_cases}
+# --- trips (app.trip_selection, provisional_assignment, reconciliation.stay_trip, 3820 policy) -------
+
+def _tr(trip_id, destination, starts_on, ends_on=None, **changes):
+    trip = {'trip_id': trip_id, 'tab_id': trip_id, 'display_key': 'SYN-' + trip_id[2:], 'destination': destination,
+            'starts_on': starts_on}
+    if ends_on:
+        trip['ends_on'] = ends_on
+    trip.update(changes)
+    return trip
+
+
+def trips_cases():
+    out, n = [], 0
+
+    def add(note, op, covers=(), **request):
+        nonlocal n
+        n += 1
+        out.append(_case('trips', f'{n:03d}', 'trips', dict(request, op=op), note, covers))
+
+    jp = dict(card_kind='해외', foreign_currency='JPY')
+    A, B, KR, SG = (dict(t, tab_id=t['trip_id']) for t in (TRIP_A, TRIP_B, TRIP_KR, TRIP_SG))
+    two = [A, _tr('T-A2', '도쿄', '2026-10-01', '2026-10-05')]
+    osaka = [A, _tr('T-OS', '오사카', '2026-10-02', '2026-10-06')]
+    jeju = _tr('T-J', '제주', '2026-09-09', '2026-09-12', display_key='0909_제주')
+    seto = [_tr('T-S1', '세토우치', '2026-10-10', '2026-10-12')]
+    days = ('2026-09-30', '2026-10-01', '2026-10-03', '2026-10-05', '2026-10-06', '2026-11-12', '2026-12-02', '2027-01-20')
+    for op in ('infer_trip', 'candidates'):
+        for day in days:
+            add(f'overseas card on {day}', op, row=_txn('syn-c1', 'SYN SHOP', approval_date=day, **jp), trips=[A, B, KR])
+            add(f'domestic card on {day}', op, row=_txn('syn-c1', 'SYN SHOP', approval_date=day), trips=[A, B, KR])
+        add(f'booking merchant ignores region ({op})', op, row=_txn('syn-c1', 'AGODA'), trips=[A, KR])
+        add(f'country suffix JP on a domestic-kind card ({op})', op,
+            row=_txn('syn-c1', 'SYN SHOP JP', approval_date='2026-10-02'), trips=[A, KR])
+        add(f'country suffix KR on an overseas-kind card ({op})', op,
+            row=_txn('syn-c1', 'SYN SHOP KR', approval_date='2026-12-02', **jp), trips=[A, KR])
+        add(f'raw row country JPN ({op})', op,
+            row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-02', raw_row={'country': 'JPN'}), trips=[A, KR])
+        add(f'no region clue ({op})', op, row=_txn('syn-c1', 'SYN SHOP', card_kind='', approval_date='2026-10-02'), trips=[A, KR])
+        add(f'fixed-order tie, same start ({op})', op, row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp),
+            trips=two, covers=['동률 2개 중'] if op == 'infer_trip' else [])
+        add(f'nets break a tie ({op})', op, row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp), trips=two,
+            nets={'T-A2': 100}, covers=['T-A2'])
+        add(f'nets tie again ({op})', op, row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp), trips=two,
+            nets={'T-A': 100, 'T-A2': 100})
+        add(f'merchant names the destination ({op})', op,
+            row=_txn('syn-c1', 'SYN 도쿄 SHOP', approval_date='2026-10-03', **jp), trips=osaka, covers=['가맹점 지역명 일치'])
+        add(f'merchant names the other destination ({op})', op,
+            row=_txn('syn-c1', 'SYN 오사카 SHOP', approval_date='2026-10-03', **jp), trips=osaka)
+        add(f'named beats nets ({op})', op, row=_txn('syn-c1', 'SYN 오사카 SHOP', approval_date='2026-10-03', **jp),
+            trips=osaka, nets={'T-A': 500})
+        add(f'input order does not matter ({op})', op, row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp),
+            trips=[osaka[1], osaka[0]])
+        fuku = lambda day, **c: _txn('syn-c1', 'FUKUTAKE FOUNDATION', approval_date=day, **dict(jp, **c))  # noqa: E731
+        add(f'fukutake before a Setouchi trip ({op})', op, row=fuku('2026-10-03'),
+            trips=[A] + seto + [_tr('T-S2', '세토우치', '2026-11-01', '2026-11-03')], covers=['세토우치'])
+        add(f'fukutake on the start day ({op})', op, row=fuku('2026-10-10'), trips=seto)
+        add(f'fukutake, two trips start together ({op})', op, row=fuku('2026-10-03'),
+            trips=[_tr('T-S2', '세토우치', '2026-10-10', '2026-10-12'), _tr('T-S1', '세토우치', '2026-10-10', '2026-10-11')])
+        add(f'fukutake after every Setouchi trip ({op})', op, row=fuku('2026-12-03'), trips=seto + [A])
+        add(f'fukutake without a use date ({op})', op, row=fuku(''), trips=seto)
+        add(f'fukutake refund is an ordinary row ({op})', op, row=fuku('2026-10-03', transaction_direction='cancellation'),
+            trips=[A] + seto)
+        add(f'fukutake with a parse error ({op})', op, row=fuku('2026-10-03', parse_error='AMOUNT_UNREADABLE'), trips=[A] + seto)
+        add(f'restricted Jeju trip, other card ({op})', op, row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-09-10'), trips=[jeju])
+        add(f'Jeju key on another start day ({op})', op, row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-09-10'),
+            trips=[dict(jeju, starts_on='2026-09-08')])
+    for reconsider in (False, True):
+        tag = f'reconsider={reconsider}'
+        add('recorded trip is valid, ' + tag, 'infer_trip',
+            row=_txn('syn-c1', 'SYN SHOP', trip_id='T-B', display_tab_id='T-B', **jp), trips=[A, B], reconsider=reconsider)
+        add('recorded display tab is valid, ' + tag, 'infer_trip',
+            row=_txn('syn-c1', 'SYN SHOP', display_tab_id='T-B', **jp), trips=[A, B], reconsider=reconsider)
+        add('recorded trip is gone, ' + tag, 'infer_trip',
+            row=_txn('syn-c1', 'SYN SHOP', trip_id='T-GONE', **jp), trips=[A, B], reconsider=reconsider)
+        add('recorded trip is restricted, ' + tag, 'infer_trip',
+            row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-09-10', trip_id='T-J'), trips=[jeju], reconsider=reconsider)
+    add('no use date picks the latest start', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date='', **jp),
+        trips=[A, B], covers=['이용일 단서 없음'])
+    add('no use date, region filters trips', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date=''), trips=[A, KR])
+    add('no use date, same start picks the larger id', 'infer_trip',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='', **jp), trips=two)
+    add('no use date, no trips', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date='', **jp), trips=[])
+    add('no trips at all', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', **jp), trips=[], covers=['PROC-004'])
+    add('only an invalid trip (ends before it starts)', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', **jp),
+        trips=[dict(A, ends_on='2026-09-01')])
+    for label, change in (('archived', {'archived': 1}), ('deleted', {'deleted': 1}), ('disabled', {'enabled': False}),
+                          ('valid false', {'valid': False}), ('conflict', {'conflict': 1}),
+                          ('period conflict', {'period_conflict': 1}), ('period order flag', {'flags': ['PERIOD_ORDER']}),
+                          ('start missing flag', {'flags': ['PERIOD_START_MISSING']})):
+        add(f'trip {label} is not authoritative', 'infer_trip',
+            row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp), trips=[dict(A, **change), B])
+    add('trip without an id', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp),
+        trips=[dict(A, trip_id='')])
+    add('open-ended trip ends before the next start', 'infer_trip',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-11-05', **jp), trips=[_tr('T-O', '도쿄', '2026-10-01'), B])
+    add('open-ended trip without a following trip', 'infer_trip',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp), trips=[_tr('T-O', '도쿄', '2026-10-01')])
+    add('open-ended trips with the same start', 'infer_trip',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-30', **jp),
+        trips=[_tr('T-O', '도쿄', '2026-10-01'), _tr('T-O2', '도쿄', '2026-10-01'), B])
+    add('three open-ended trips in a row', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-11-12', **jp),
+        trips=[_tr('T-O3', '도쿄', '2026-12-01'), _tr('T-O2', '도쿄', '2026-11-10'), _tr('T-O', '도쿄', '2026-10-01')])
+    add('trip ids repeat: the later row wins', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp),
+        trips=[A, dict(A, destination='오사카', ends_on='2026-10-04')])
+    add('trip start is empty', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **jp),
+        trips=[dict(A, starts_on='')])
+    evidence = {'trip_id': 'T-A', 'service_period': {'starts_on': '2026-10-01', 'ends_on': '2026-10-02'},
+                'formal_link': True, 'source_hash': 'syn-hash-syn-c1'}
+    for day in ('2025-10-03', '2026-02-03', '2026-03-31', '2026-04-01'):
+        add(f'completed period check {day}', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', approval_date=day, **jp), trips=[A, B])
+    closed = dict(approval_date='2026-02-03', **jp)
+    add('completed period with a formal booking fact', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', **closed),
+        trips=[A, B], completed_evidence=evidence)
+    add('completed period, fact for another source', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', **closed),
+        trips=[A, B], completed_evidence=dict(evidence, source_hash='syn-other'))
+    add('completed period, fact outside the trip', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', **closed), trips=[A, B],
+        completed_evidence=dict(evidence, service_period={'starts_on': '2026-10-04', 'ends_on': '2026-10-09'}))
+    add('completed period, fact without a formal link', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', **closed),
+        trips=[A, B], completed_evidence=dict(evidence, formal_link=False))
+    add('completed period, recorded closed quarter', 'infer_trip',
+        row=_txn('syn-c1', 'SYN SHOP', display_tab_id='quarter:2026:1', **closed), trips=[A, B], completed_evidence=evidence)
+    add('completed period, recorded closed trip', 'infer_trip', row=_txn('syn-c1', 'SYN SHOP', trip_id='T-C', **closed),
+        trips=[A, _tr('T-C', '도쿄', '2026-02-01', '2026-02-05')], completed_evidence=evidence)
+    add('posting date decides the closed period', 'infer_trip',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='', posting_date='2026-02-04', **jp), trips=[A, B])
+
+    # stay_trip: lodging nights (TRIP-039) and the preparation stay (TRIP-042)
+    stays = ((('2026-10-02', '2026-10-04'), 'inside'), (('2026-10-04', '2026-10-06'), 'ends the day after the trip'),
+             (('2026-10-05', '2026-10-06'), 'last night of the trip'), (('2026-09-28', '2026-10-02'), 'starts before'),
+             (('2026-09-28', '2026-09-30'), 'before the trip'), (('2026-09-30', '2026-10-01'), 'night before the start day'),
+             (('2026-10-06', '2026-10-08'), 'after the trip'), (('2026-11-08', '2026-11-10'), 'before the next trip'),
+             (('2026-10-04', '2026-11-12'), 'spans two trips'), (('2026-10-01', '2026-10-01'), 'zero nights'))
+    neighbours = {'plain': [A, B], 'handover': [A, _tr('T-N', '도쿄', '2026-10-05', '2026-10-08')],
+                  'next-day handover': [A, _tr('T-N', '도쿄', '2026-10-06', '2026-10-08')],
+                  'same start': [B, _tr('T-B2', '도쿄', '2026-11-10', '2026-11-12')]}
+    for service in (False, True):
+        for (check_in, check_out), what in stays:
+            for label, trips_ in neighbours.items():
+                add(f'stay {what}, {label}, service={service}', 'stay_trip', check_in=check_in, check_out=check_out,
+                    service=service, trips=trips_)
+    for nets in ({'T-A': 5, 'T-B': 9}, {'T-A': 9, 'T-B': 9}, {'T-B': 1}):
+        add(f'stay shared evenly, nets {nets}', 'stay_trip', check_in='2026-10-04', check_out='2026-11-12',
+            trips=[A, B], nets=nets)
+        add(f'stay covered by two trips, nets {nets}', 'stay_trip', check_in='2026-10-02', check_out='2026-10-04',
+            trips=[A, dict(A, trip_id='T-A2', tab_id='T-B')], nets=nets)
+
+    # booking_trip (TRIP-036): a named trip that overlaps wins, else stay_trip
+    for code in ('SYN-A', 'SYN-B', 'SYN-X'):
+        for check_in, check_out in (('2026-10-02', '2026-10-04'), ('2026-10-04', '2026-11-12'), ('2026-11-08', '2026-11-10')):
+            add(f'booking period for {code}', 'booking_trip', row=_txn('syn-c1', 'AGODA'), check_in=check_in,
+                check_out=check_out, target_code=code, trips=[A, B])
+    add('booking period, restricted trip hidden', 'booking_trip', row=_txn('syn-c1', 'AGODA'),
+        check_in='2026-09-10', check_out='2026-09-11', target_code='0909_제주', trips=[jeju])
+    add('booking period, two named trips overlap', 'booking_trip', row=_txn('syn-c1', 'AGODA'), check_in='2026-10-02',
+        check_out='2026-10-04', target_code='SYN-A', trips=[A, dict(A, trip_id='T-A2', tab_id='T-A2')])
+    add('booking period, flight arrival day', 'booking_trip', row=_txn('syn-c1', 'AGODA'), check_in='2026-10-05',
+        check_out='2026-10-06', target_code='SYN-A', service=True, trips=[A, B])
+
+    # card 3820 owner policy
+    o3820 = dict(card_tail='3820', **jp)
+    sg_sets = (('no trips', []), ('Singapore trip', [SG]), ('Singapore and Tokyo', [SG, A, B]),
+               ('two Singapore trips', [SG, dict(SG, trip_id='T-SG2', tab_id='T-SG2')]))
+    for day in ('2026-09-18', '2026-09-19', '2026-09-21', '2026-09-24', '2026-09-25', '2026-10-03', '2026-10-06',
+                '2026-11-12', '2026-07-04'):
+        for label, trips_ in sg_sets:
+            add(f'card 3820 overseas on {day}, {label}', 'card3820',
+                row=_txn('syn-c1', 'SYN SHOP', approval_date=day, posting_date=day, **o3820), trips=trips_)
+        add(f'card 3820 domestic on {day}', 'card3820',
+            row=_txn('syn-c1', 'SYN SHOP', approval_date=day, posting_date=day, card_tail='3820'), trips=[A, B, SG])
+    add('card 3820 residual quarter name', 'card3820', row=_txn('syn-c1', 'SYN SHOP', card_tail='3820'), trips=[A],
+        covers=['owner_card_residual'])
+    add('card 3820 Singapore exception', 'card3820', row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-09-21', **o3820),
+        trips=[SG], covers=['user_exception'])
+    add('card 3820 overseas in an overseas trip', 'card3820',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **o3820), trips=[A], covers=['해외 사용 · 국가 일치 불필요'])
+    add('card 3820 overseas in a trip, item recorded', 'card3820', row=_txn(
+        'syn-c1', 'SYN SHOP', approval_date='2026-10-03', item='식비', description='syn', **o3820), trips=[A])
+    add('card 3820 overseas in two overlapping trips', 'card3820',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-10-03', **o3820), trips=two)
+    add('card 3820 overseas, named destination', 'card3820',
+        row=_txn('syn-c1', 'SYN 오사카 SHOP', approval_date='2026-10-03', **o3820), trips=osaka)
+    add('card 3820 overseas, domestic trip only', 'card3820',
+        row=_txn('syn-c1', 'SYN SHOP', approval_date='2026-12-02', **o3820), trips=[KR])
+    for merchant, currency in (('AMAZON.COM', 'USD'), ('TRIP.COM', 'JPY'), ('AGODA', 'JPY'), ('SYN SHOP', 'USD'),
+                               ('FUKUTAKE FOUNDATION', 'JPY')):
+        for industry in ('', '인터넷상거래', '결제대행', '호텔'):
+            add(f'card 3820 overseas {merchant} {currency} category {industry or "none"}', 'card3820', row=_txn(
+                'syn-c1', merchant, approval_date='2026-10-03', card_tail='3820', card_kind='해외', foreign_currency=currency,
+                description_raw='card-category:' + industry if industry else ''), trips=[A])
+    for day, trips_ in (('2026-10-03', [A]), ('2026-12-02', [KR])):
+        add(f'card 3820 online category, local currency, trips {day}', 'card3820', row=_txn(
+            'syn-c1', 'SYN SHOP JP', approval_date=day, card_tail='3820', card_kind='해외', foreign_currency='JPY',
+            description_raw='card-category:인터넷상거래'), trips=trips_)
+    for label, change in (('other card', {'card_tail': '0001'}), ('cancellation', {'transaction_direction': 'cancellation'}),
+                          ('refund kind', {'transaction_kind': '취소'}), ('approval kind', {'transaction_kind': '승인'}),
+                          ('parse error', {'parse_error': 'AMOUNT_UNREADABLE'}), ('zero amount', {'amount_krw': 0}),
+                          ('negative amount', {'amount_krw': -10}), ('no amount', {'amount_krw': None}),
+                          ('no dates', {'approval_date': '', 'posting_date': ''}),
+                          ('posting date only', {'approval_date': '', 'posting_date': '2026-10-03'})):
+        add(f'card 3820 {label}', 'card3820', row=_txn('syn-c1', 'SYN SHOP', **dict(o3820, **change)), trips=[A, SG])
+
+    # infer_item vocabulary
+    from tools.core_bridge.golden_guard import CATEGORY_INDUSTRIES, FAMILY_MERCHANTS
+    for industry in CATEGORY_INDUSTRIES:
+        add('item from card category', 'infer_item', row=_txn('syn-c1', 'SYN SHOP', description_raw='card-category:' + industry))
+    for merchant in FAMILY_MERCHANTS + ('AGODA', 'TRIP.COM', 'KLOOK', 'BOOKING.COM', '어드벤처코리아', 'AMAZON.COM', '카카오T SYN'):
+        add('item from merchant', 'infer_item', row=_txn('syn-c1', merchant))
+    add('item kept', 'infer_item', row=_txn('syn-c1', 'SYN SHOP', item='식비'))
+    add('item of a cancellation', 'infer_item', row=_txn('syn-c1', 'SYN SHOP', transaction_direction='cancellation'))
+    add('item of an overseas purchase', 'infer_item', row=_txn('syn-c1', 'SYN SHOP', **jp), covers=['현지경비'])
+    add('item of a domestic purchase', 'infer_item', row=_txn('syn-c1', 'SYN SHOP'), covers=['기타경비'])
+    for source in ('', 'user_decision', 'user_exception', 'inference'):
+        add(f'fukutake item, source {source!r}', 'infer_item', row=_txn(
+            'syn-c1', 'FUKUTAKE FOUNDATION', item='식비', classification_source=source, **jp))
+    return out
+
+
+GENERATORS = {'classify': classify_cases, 'plan': plan_cases, 'refund_pairing': refund_cases, 'ota_links': ota_cases,
+              'trips': trips_cases}
 
 
 def render(area):

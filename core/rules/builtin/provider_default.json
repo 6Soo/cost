@@ -1,0 +1,22 @@
+[
+  {
+    "rule_id": "user-approved-adventure-korea-is-skyticket-airfare-2026-11-08",
+    "version": 1,
+    "kind": "provider_default",
+    "strength": "exact",
+    "stage": 35,
+    "policy_refs": [
+      "ITEM-029"
+    ],
+    "conditions": {
+      "provider": "skyticket"
+    },
+    "scope": {},
+    "effects": {
+      "item": "항공료"
+    },
+    "attribution": "none",
+    "origin": "builtin:app/classify.py:439",
+    "basis": "사용자 규칙: 어드벤처코리아 결제는 스카이티켓 항공권 예약 결제"
+  }
+]
