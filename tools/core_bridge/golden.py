@@ -30,16 +30,21 @@ def _run(command, request):
     return response['result']
 
 
-def _case(area, case_id, command, request, note=''):
-    return {'case_id': f'{area}-{case_id}', 'area': area, 'command': command, 'note': note,
+def _case(area, case_id, command, request, note='', covers=()):
+    case = {'case_id': f'{area}-{case_id}', 'area': area, 'command': command, 'note': note, 'covers': list(covers),
             'input': request, 'expected': _run(command, request)}
+    text = json.dumps(case['expected'], ensure_ascii=False, sort_keys=True)
+    missing = [token for token in covers if token not in text]
+    if missing:  # a named boundary must really run; otherwise the case is misnamed
+        raise RuntimeError(f"{case['case_id']} ({note}) did not reach its branch: {missing}")
+    return case
 
 
 # --- classify (app.classify.classify_transaction) -----------------------------------------
 
 def _txn(tid, merchant, **changes):
     row = {'transaction_id': tid, 'source_hash': 'syn-hash-' + tid, 'issuer': 'SYN-BANK', 'card_tail': '0001',
-           'card_kind': '국내', 'transaction_direction': 'purchase', 'transaction_kind': '승인',
+           'card_kind': '국내', 'transaction_direction': 'purchase', 'transaction_kind': 'purchase',
            'merchant': merchant, 'approval_date': '2026-10-03', 'posting_date': '2026-10-05',
            'amount_krw': 12000, 'description_raw': '', 'foreign_currency': '', 'parse_error': ''}
     row.update(changes)
@@ -60,10 +65,10 @@ def classify_cases():
     from tools.core_bridge.golden_guard import CATEGORY_INDUSTRIES, FAMILY_MERCHANTS
     out, n = [], 0
 
-    def add(note, **case):
+    def add(note, covers=(), **case):
         nonlocal n
         n += 1
-        out.append(_case('classify', f'{n:03d}', 'classify', {'cases': [case]}, note))
+        out.append(_case('classify', f'{n:03d}', 'classify', {'cases': [case]}, note, covers))
 
     for needle, *_ in CLEAR_PATTERNS:
         add('pattern exact', transaction=_txn('syn-c1', needle))
@@ -101,10 +106,10 @@ def classify_cases():
         rules=[_rule('syn-rule-d', 'syn cafe', '식비', conditions={'transaction_direction': 'purchase'})])
     add('date window hit', transaction=_txn('syn-c1', 'SYN CAFE'),
         rules=[_rule('syn-rule-p', 'syn cafe', '식비', optional={'date_or_service_period': {
-            'starts_on': '2026-10-01', 'ends_on': '2026-10-05'}})])
+            'start': '2026-10-01', 'end': '2026-10-05'}})], covers=['syn-rule-p', '기간 일치'])
     add('date window miss', transaction=_txn('syn-c1', 'SYN CAFE', approval_date='2026-11-03'),
         rules=[_rule('syn-rule-p', 'syn cafe', '식비', optional={'date_or_service_period': {
-            'starts_on': '2026-10-01', 'ends_on': '2026-10-05'}})])
+            'start': '2026-10-01', 'end': '2026-10-05'}})], covers=['적용할 규칙과 분명한 가맹점 이름이 없어'])
     add('travel country rule, trip verified', transaction=_txn('syn-c1', 'SYN CAFE JP'),
         rules=[_rule('syn-rule-t', 'syn cafe jp', '식비', optional={'travel_country': 'JP'})], trip_ids=['T-A'])
     add('travel country rule, no trip', transaction=_txn('syn-c1', 'SYN CAFE JP'),
@@ -119,23 +124,45 @@ def classify_cases():
         rules=[_rule('syn-rule-star', '*', '현지경비')])
     add('merchant family agoda', transaction=_txn('syn-c1', 'agoda syn'),
         rules=[_rule('syn-rule-f', 'agoda', '숙박비', optional={'merchant_family': 'agoda'})])
+    from app import reconciliation as rc
     inferred = lambda origin, trip='T-A', conf='높음', rid='syn-rule-i': _rule(  # noqa: E731
         rid, 'syn cafe', '식비', origin=origin,
         optional={'inferred_assignment': {'trip_id': trip, 'confidence': conf, 'basis': '합성 근거'}})
-    for origin in ('owner-booking', 'ota-mail-live', 'ota-portal-live', 'automatic-trip-priority', 'owner-country-exception',
-                   'guide-airfare', 'history-recovery-20261003', 'syn-origin'):
+    expect = {rc.OWNER_BOOKING_ORIGIN: 'owner_booking', rc.GUIDE_AIRFARE_ORIGIN: 'guide_airfare_evidence',
+              rc.OWNER_COUNTRY_EXCEPTION_ORIGIN: '"classification_source": "user_exception"',
+              'automatic-trip-priority': 'provisional_assignment'}
+    for origin in (rc.OWNER_BOOKING_ORIGIN, rc.OWNER_AUTHORIZED_INFERENCE_ORIGIN, rc.OWNER_COUNTRY_EXCEPTION_ORIGIN,
+                   rc.PERIOD_OTA_ORIGIN, rc.OTA_MAIL_ORIGIN, rc.OTA_PORTAL_ORIGIN, rc.GUIDE_AIRFARE_ORIGIN,
+                   'automatic-trip-priority', 'history-recovery-20261003', 'syn-origin'):
         add(f'inferred assignment origin {origin}', transaction=_txn('syn-c1', 'SYN CAFE'),
-            rules=[inferred(origin)], trip_ids=['T-A'])
+            rules=[inferred(origin)], trip_ids=['T-A'], covers=[expect[origin]] if origin in expect else [])
         add(f'inferred assignment origin {origin}, trip not verified', transaction=_txn('syn-c1', 'SYN CAFE'),
             rules=[inferred(origin)])
+    for rival in (rc.PERIOD_OTA_ORIGIN, 'syn-origin'):
+        add(f'owner booking outranks {rival}', transaction=_txn('syn-c1', 'SYN CAFE'),
+            rules=[inferred(rc.OWNER_BOOKING_ORIGIN, 'T-A', rid='syn-rule-i1'), inferred(rival, 'T-B', rid='syn-rule-i2')],
+            trip_ids=['T-A', 'T-B'], covers=['owner_booking'])
+    add('period-bound OTA rule outranks a plain inference', transaction=_txn('syn-c1', 'SYN CAFE'),
+        rules=[inferred(rc.PERIOD_OTA_ORIGIN, 'T-A', rid='syn-rule-i1'), inferred('syn-origin', 'T-B', rid='syn-rule-i2')],
+        trip_ids=['T-A', 'T-B'], covers=['"classification_source": "inference"'])
+    bound = lambda origin, item, version=1: dict(  # noqa: E731
+        _rule('syn-rule-' + ('lodging' if item == '숙박비' else 'meal') + str(len(origin)), 'syn cafe', item, origin=origin, version=version),
+        optional={'source_hash': 'syn-hash-syn-c1'} if origin != 'history-recovery-20261003' else {})
+    add('source-bound OTA rule outranks history recovery v1', transaction=_txn('syn-c1', 'SYN CAFE'),
+        rules=[bound(rc.OTA_MAIL_ORIGIN, '숙박비'), bound('history-recovery-20261003', '식비')],
+        covers=['"classification_source": "rule"', '"item": "숙박비"'])
+    add('history recovery v1 alone conflicts with another item', transaction=_txn('syn-c1', 'SYN CAFE'),
+        rules=[bound('syn-origin', '숙박비'), bound('history-recovery-20261003', '식비')], covers=['rule_conflict'])
     add('inferred assignments disagree', transaction=_txn('syn-c1', 'SYN CAFE'),
         rules=[inferred('syn-origin', 'T-A', rid='syn-rule-i1'), inferred('syn-origin', 'T-B', rid='syn-rule-i2')],
         trip_ids=['T-A', 'T-B'])
     for day, tail, kind in (('2026-10-03', '3820', '국내'), ('2026-10-03', '3820', '해외'), ('2026-09-21', '3820', '해외'),
                             ('2026-10-03', '0001', '국내'), ('', '3820', '국내')):
+        cover = {('2026-10-03', '3820', '국내'): ['owner_card_residual'],
+                 ('2026-09-21', '3820', '해외'): ['"classification_source": "user_exception"', 'T-SG']}.get((day, tail, kind), [])
         add(f'card 3820 residual {day} {kind}', transaction=_txn('syn-c1', 'SYN UNKNOWN', card_tail=tail, card_kind=kind,
                                                                   approval_date=day, posting_date=day or ''),
-            residual_policy=True, trip_ids=['T-SG'])
+            residual_policy=True, trip_ids=['T-SG'], covers=cover)
     add('fukutake with trip', transaction=_txn('syn-c1', 'FUKUTAKE FOUNDATION', card_kind='해외', foreign_currency='JPY'),
         trip_ids=['T-A'])
     add('fukutake without trip resolver', transaction=_txn('syn-c1', 'FUKUTAKE FOUNDATION', card_kind='해외',
@@ -147,7 +174,8 @@ def classify_cases():
 
 def _row(tid, merchant, **changes):
     row = {'transaction_id': tid, 'merchant': merchant, 'approval_date': '2026-10-03', 'posting_date': '2026-10-05',
-           'amount_krw': 15000, 'approval_number': 'SYN-AP-' + tid[4:], 'card_kind': '국내'}
+           'amount_krw': 15000, 'approval_number': 'SYN-AP-' + tid[4:], 'card_kind': '국내',
+           'transaction_kind': 'purchase'}
     row.update(changes)
     return row
 
@@ -155,11 +183,11 @@ def _row(tid, merchant, **changes):
 def plan_cases():
     out, n = [], 0
 
-    def add(note, scenario, **options):
+    def add(note, scenario, covers=(), **options):
         nonlocal n
         n += 1
         request = dict({'scenario': scenario, 'trips': options.pop('trips', TRIPS)}, **options)
-        out.append(_case('plan', f'{n:03d}', 'plan', request, note))
+        out.append(_case('plan', f'{n:03d}', 'plan', request, note, covers))
 
     first = 'syn-p1'
     base = lambda **c: {'rows': [dict(_row(first, 'SYN SHOP'), **c)]}  # noqa: E731
@@ -198,7 +226,6 @@ def plan_cases():
             ('overseas purchase', {'card_kind': '해외', 'foreign_currency': 'JPY', 'foreign_amount': '1500'}),
             ('domestic during overseas trip', {'card_kind': '국내'}),
             ('domestic during domestic trip', {'approval_date': '2026-12-02', 'posting_date': '2026-12-03'}),
-            ('same day, two trips, tie', {'approval_date': '2026-10-03'}),
             ('card 3820 domestic', {'card_tail': '3820'}),
             ('card 3820 overseas', {'card_tail': '3820', 'card_kind': '해외', 'foreign_currency': 'JPY'}),
             ('card 3820 decided', {'card_tail': '3820', 'classification_source': 'user_decision',
@@ -217,6 +244,16 @@ def plan_cases():
             ('zero amount', {'amount_krw': 0})):
         add(note, base(**change))
         add(note + ' (reconsider)', base(**change), reconsider=True)
+    overseas = dict(card_kind='해외', foreign_currency='JPY', foreign_amount='1500')
+    twin = [TRIP_A, dict(TRIP_A, trip_id='T-A2', display_key='SYN-A2')]
+    add('overseas card, two overlapping overseas trips: fixed-order tie', base(**overseas), trips=twin, covers=['동률 2개 중'])
+    add('overseas tie, reconsider', base(**overseas), trips=twin, reconsider=True)
+    add('overseas tie broken by nets', base(**overseas), trips=twin, nets={'T-A2': 100}, covers=['T-A2'])
+    add('card 3820 residual quarter', base(card_tail='3820'), covers=['owner_card_residual'])
+    add('card 3820 Singapore exception', base(card_tail='3820', approval_date='2026-09-21', posting_date='2026-09-22',
+                                              **overseas), trips=TRIPS + [TRIP_SG], covers=['user_exception', 'T-SG'])
+    add('card 3820 Singapore window but no Singapore trip', base(card_tail='3820', approval_date='2026-09-21',
+                                                               posting_date='2026-09-22', **overseas), covers=['"trip_id"'] if False else [])
     nets = {'T-B': 100}
     add('nets break a tie', base(), nets=nets)
     add('trips: none', base(), trips=[])
@@ -280,12 +317,12 @@ def _pair_row(tid, direction, amount, **changes):
 def refund_cases():
     out, n = [], 0
 
-    def add(note, rows):
+    def add(note, rows, covers=()):
         nonlocal n
         n += 1
-        out.append(_case('refund_pairing', f'{n:03d}', 'links', {'kind': 'refund', 'scenario': {'rows': rows}}, note))
+        out.append(_case('refund_pairing', f'{n:03d}', 'links', {'kind': 'refund', 'scenario': {'rows': rows}}, note, covers))
 
-    P = lambda tid='syn-r1', amount=10000, **c: _pair_row(tid, 'purchase', amount, approval_number='SYN-A-' + tid[4:], **c)  # noqa: E731
+    P = lambda tid='syn-r1', amount=10000, **c: _pair_row(tid, 'purchase', amount, **{'approval_number': 'SYN-A-' + tid[4:], **c})  # noqa: E731
     C = lambda tid, amount, ref, **c: _pair_row(tid, 'cancellation', amount, original_approval_number=ref,  # noqa: E731
                                                  approval_number='SYN-X-' + tid[4:], **c)
     add('no refunds', [P()])
@@ -299,7 +336,9 @@ def refund_cases():
     add('digit change is no match', [P(), C('syn-r2', -10000, 'SYN-A-r2')])
     add('other card tail', [P(), C('syn-r2', -10000, 'SYN-A-r1', card_tail='0002')])
     add('other issuer', [P(), C('syn-r2', -10000, 'SYN-A-r1', issuer='SYN-BANK-B')])
-    add('two purchases with the same approval number', [P(), P('syn-r9'), C('syn-r2', -10000, 'SYN-A-r1')])
+    add('two purchases with the same approval number: no link', [P(), P('syn-r9', approval_number='SYN-A-r1'),
+                                                                  C('syn-r2', -10000, 'SYN-A-r1')],
+        covers=['"links": {}', 'syn-r9'])
     add('original is a duplicate', [P(duplicate_of='syn-r0'), C('syn-r2', -10000, 'SYN-A-r1')])
     add('original has a conflict', [P(conflict_reason='syn conflict'), C('syn-r2', -10000, 'SYN-A-r1')])
     add('cancellation has a parse error', [P(), C('syn-r2', -10000, 'SYN-A-r1', parse_error='AMOUNT_UNREADABLE')])

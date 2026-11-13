@@ -41,6 +41,7 @@ def scenario_db(scenario):
     """Yield the path of a temporary board DB holding the scenario; removed afterwards."""
     from webapp.card_flow import CardFlow
     from webapp.ledger_store import LedgerStore
+    saved = {k: os.environ.get(k) for k in ('WEBLEDGER_UNIFIED_DB', 'WEBLEDGER_REVIEW_FROM')}
     os.environ['WEBLEDGER_UNIFIED_DB'] = '1'
     os.environ['WEBLEDGER_REVIEW_FROM'] = ''
     with tempfile.TemporaryDirectory(prefix='core-bridge-') as folder:
@@ -77,4 +78,9 @@ def scenario_db(scenario):
             conn.commit()
         finally:
             store.close()
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
         yield path

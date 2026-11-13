@@ -172,3 +172,16 @@ def test_guard_accepts_the_unchanged_case_and_every_bridge_input_key_is_listed()
             walk(case['input'])
     ids = set(k for k in keys if k.startswith('syn-') or re.fullmatch(r'T-[A-Z0-9]+', k))
     assert keys - ids <= set(golden_guard.KEYS) | golden_guard.CONTAINERS
+
+
+def test_every_case_reaches_the_branch_it_names_and_the_key_boundaries_are_covered():
+    tokens = set()
+    for area in golden.AREAS:
+        for case in _cases(area):
+            text = json.dumps(case['expected'], ensure_ascii=False, sort_keys=True)
+            assert all(token in text for token in case['covers']), case['case_id']
+            tokens.update(case['covers'])
+    for boundary in ('owner_card_residual', 'owner_booking', 'guide_airfare_evidence', '동률 2개 중', '기간 일치',
+                     'provisional_assignment', 'rule_conflict', '"links": {}'):
+        assert any(boundary in token for token in tokens), boundary
+    assert any('user_exception' in token and True for token in tokens)

@@ -34,6 +34,14 @@ TRIP_ID = re.compile(r'^(T-[A-Z0-9]+|quarter:20\d\d:[1-4]|refunds|unclassified|)
 SYN_ID = re.compile(r'^(mail:)?syn-[a-z0-9-]+$')
 SYN_APPROVAL = re.compile(r'^\s?SYN-[A-Za-z0-9-]+\s?$|^$')
 DATE = re.compile(r'^(20(24|25|26|27)-\d\d-\d\d|1900-01-01|)$')
+def _origins():
+    from app import reconciliation as rc
+    return {'', rc.OWNER_BOOKING_ORIGIN, rc.OWNER_AUTHORIZED_INFERENCE_ORIGIN, rc.OWNER_COUNTRY_EXCEPTION_ORIGIN,
+            rc.PERIOD_OTA_ORIGIN, rc.OTA_MAIL_ORIGIN, rc.OTA_PORTAL_ORIGIN, rc.GUIDE_AIRFARE_ORIGIN,
+            'automatic-trip-priority', 'history-recovery-20261003', 'syn-origin'}
+
+
+ORIGINS = _origins()
 TAILS = {'0001', '0002', '2042', '3820', '9999'}
 
 
@@ -108,13 +116,14 @@ KEYS = {
     'approval_date': _regex(DATE.pattern), 'posting_date': _regex(DATE.pattern),
     'paid_on': lambda v: v is None or bool(DATE.match(v)),
     'starts_on': _regex(DATE.pattern), 'ends_on': _regex(DATE.pattern),
+    'start': _regex(DATE.pattern), 'end': _regex(DATE.pattern),
     'decided_at': lambda v: v is None or bool(re.fullmatch(r'2026-\d\d-\d\dT00:00:00Z', v)),
     # merchants
     'merchant': _merchant, 'merchant_normalized': _merchant, 'description_raw': _description_raw,
     'merchant_family': _one_of('agoda'), 'provider': _one_of('trip', 'agoda', 'booking', 'klook'),
     # vocabulary
     'transaction_direction': _one_of('purchase', 'cancellation', 'refund'),
-    'transaction_kind': _one_of('승인', '취소'),
+    'transaction_kind': _one_of('승인', '취소', 'purchase'),
     'event_type': _one_of('charge', 'refund'),
     'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only'),
     'payment_status': _one_of('paid', 'pending'), 'refund_status': _one_of('refunded'),
@@ -126,9 +135,7 @@ KEYS = {
     'item': _item, 'confidence': _one_of('높음', '중간', '낮음'),
     'trip_id': _trip, 'display_tab_id': _trip, 'trip_ids': _trip,
     'display_key': _regex(r'^SYN-[A-Z0-9]+$'), 'destination': _one_of('도쿄', '제주', '싱가포르'),
-    'travel_country': _one_of('JP'), 'origin': _one_of(
-        '', 'owner-booking', 'ota-mail-live', 'ota-portal-live', 'automatic-trip-priority', 'owner-country-exception',
-        'guide-airfare', 'history-recovery-20261003', 'syn-origin'),
+    'travel_country': _one_of('JP'), 'origin': lambda v: v in ORIGINS,
     'confirmed_by': _one_of('automatic'),
     # fixed synthetic free text
     'description': _one_of('', 'syn', '합성 카페'), 'basis': _one_of('합성 근거', '합성 예약기간'),
@@ -144,7 +151,7 @@ ID_MAPS = {'evidence', 'existing_links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')
 FORBIDDEN_TEXT = re.compile(r'\d{9,}|(?:\d{3,4}[- ]){2,}\d{3,4}|@|https?:|www\.', re.I)
-ENVELOPE = {'case_id', 'area', 'command', 'note', 'input', 'expected'}
+ENVELOPE = {'case_id', 'area', 'command', 'note', 'covers', 'input', 'expected'}
 SKIP_SCAN_KEYS = {'digest'}
 HEX_DIGEST = re.compile(r'^(?:[a-z_-]+[:-])?[0-9a-f]{12,64}$')
 
@@ -203,6 +210,9 @@ def validate_case(case):
     if not isinstance(case['note'], str) or len(case['note']) > 120:
         raise GoldenViolation('note too long')
     scan_text(case['note'], 'note')
+    text = json.dumps(case['expected'], ensure_ascii=False, sort_keys=True)
+    if not isinstance(case['covers'], list) or any(token not in text for token in case['covers']):
+        raise GoldenViolation('a covered branch is missing from the expected output')
     validate_input(case['input'])
     scan_text(case['expected'], 'expected')
 
