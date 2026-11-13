@@ -349,3 +349,73 @@ def test_group_scope_accepts_a_verified_partial_group_across_files(tmp_path, mon
         assert scoped["ready"] == 1
     finally:
         board.close()
+
+
+# --- PROC-072 completed periods, unclean cancels, batch-record screen path ----------
+
+@pytest.mark.parametrize("which", ["original", "refund"])
+def test_completed_period_member_keeps_a_cross_file_partial_group_unrecorded(tmp_path, monkeypatch, which):
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path, booked=(which == "refund"))
+    try:
+        _quiet(flow, monkeypatch)
+        target = original if which == "original" else refund
+        board.conn.execute("UPDATE transactions SET approval_date='2026-02-10' WHERE transaction_id=?", (target,))
+        board.conn.commit()
+        for n, batch in enumerate((original_batch, refund_batch)):
+            view, holds = _preview(flow, batch)
+            assert {r["transaction_id"] for r in view["rows"]} <= {original, refund}
+            assert not [r for r in view["rows"] if not r.get("blocked") and not r.get("already_booked")]
+            done = flow.pipeline.commit(
+                batch, view["digest"], f"completed-{which}-{n}", trip_validator=lambda _: True,
+                tab_validator=lambda _: True, additional_holds=holds,
+                automatic_record=True, include_verified_full_refunds=True)
+            assert done["applied"] == 0
+        from webapp.refund_cleanup_action import _group_context
+        from app import StoreError
+        with pytest.raises(StoreError):
+            _group_context(board, original)
+    finally:
+        board.close()
+
+
+def test_errored_cancel_of_the_same_original_holds_the_whole_cross_file_group(tmp_path, monkeypatch):
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path)
+    try:
+        _quiet(flow, monkeypatch)
+        extra_batch = flow.pipeline.receive(
+            (HEADER +
+             "국민,1234,domestic,purchase,AGODA_NICE-Agoda,100000,,,100000,2026-10-25,2026-10-26,A300,,매입\n"
+            ).encode(), "agoda-refund-2.csv")["batch_id"]
+        extra = flow.pipeline.get_batch(extra_batch)["rows"][0]["transaction_id"]
+        board.conn.execute(
+            "UPDATE transactions SET transaction_direction='cancellation',amount_krw=-100000,"
+            " original_approval_number='100',conflict_reason='synthetic source conflict' WHERE transaction_id=?",
+            (extra,))
+        board.conn.commit()
+        _, result = _commit(flow, refund_batch, "partial-unclean")
+        assert result["applied"] == 0
+        assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
+    finally:
+        board.close()
+
+
+def test_batch_record_screen_takes_only_cross_file_partials_outside_completed_periods(tmp_path, monkeypatch):
+    from app import StoreError
+    from webapp.refund_cleanup_action import _group_context
+    board, flow, original_batch, refund_batch, original, refund = _partial_batches(tmp_path)
+    try:
+        monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+        monkeypatch.setattr(CardFlow, "trip_valid", lambda self, _: True)
+        monkeypatch.setattr(CardFlow, "tab_valid", lambda self, _: True)
+        monkeypatch.setattr(CardFlow, "ota_group_holds", lambda self: {})
+        monkeypatch.setattr(CardFlow, "_already_projected", lambda self, *a, **kw: False)
+        _, _, result, _ = _group_context(board, original)
+        assert result["recordable"] and result["members"] == [original, refund]
+        # the same refund moved into the original's file is a same-file partial: not accepted here
+        board.conn.execute(
+            "UPDATE import_batch_rows SET batch_id=? WHERE transaction_id=?", (original_batch, refund))
+        board.conn.commit()
+        with pytest.raises(StoreError):
+            _group_context(board, original)
+    finally:
+        board.close()

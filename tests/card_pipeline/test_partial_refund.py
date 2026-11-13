@@ -540,3 +540,20 @@ def test_cross_file_partial_refund_with_an_internal_lock_is_not_recorded():
                  (refund_id, digest, 'evidence_pending', 'synthetic lock'))
     assert cross_commit(pipe, second, 'cross-locked')['applied'] == 0
     assert ledger_state(pipe)[0] == 1
+
+
+def test_cross_file_partial_refund_in_a_completed_period_is_not_recorded():
+    pipe, first, second = split_files()
+    pipe.store.conn.execute("UPDATE transactions SET approval_date='2026-02-10' WHERE approval_number='200'")
+    assert cross_commit(pipe, second, 'cross-completed')['applied'] == 0
+    assert ledger_state(pipe)[0] == 1
+
+
+def test_cross_file_partial_refund_with_a_conflicted_sibling_cancel_holds_the_group():
+    pipe, first, second = split_files()
+    third = pipe.receive((HEADER + '국민,1234,domestic,purchase,합성항공,100000,,,100000,2026-10-05,2026-10-06,C300,,매입\n'
+                          ).encode(), 'third.csv')['batch_id']
+    pipe.store.conn.execute("UPDATE transactions SET transaction_direction='cancellation', amount_krw=-100000,"
+                            " original_approval_number='100', conflict_reason='synthetic' WHERE approval_number='300'")
+    assert cross_commit(pipe, second, 'cross-unclean')['applied'] == 0
+    assert ledger_state(pipe)[0] == 1

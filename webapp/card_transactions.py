@@ -247,8 +247,10 @@ def enrich_status(conn, items):
     if not items:
         return
     from .card_actions import next_action
-    from app.partial_refund import refund_links
-    refund_by_id = refund_links(conn, [item['transaction_id'] for item in items])
+    from app.partial_refund import refund_links, refund_original_links
+    transaction_ids = [item['transaction_id'] for item in items]
+    refund_by_id = refund_links(conn, transaction_ids)
+    refund_original_by_id = refund_original_links(conn, transaction_ids)
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     joins = ''
     held = "NULL,NULL"
@@ -275,7 +277,8 @@ def enrich_status(conn, items):
                     transaction_direction=direction, company_excluded=bool(excluded))
         if kind:
             item['review_hold'] = dict(kind=kind, reason=reason or '')
-        refund_link = refund_by_id.get(item['transaction_id'])
+        refund_link = (refund_by_id.get(item['transaction_id'])
+                       or refund_original_by_id.get(item['transaction_id']))
         if refund_link:
             item['refund_link'] = refund_link
         source = dict(item, trip_name='환불' if refund_link or item.get('refund_tab_member') else '')

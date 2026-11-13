@@ -1657,8 +1657,8 @@ class CardFlow:
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
                                        projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
-        from app.partial_refund import refund_links, is_numbered_partial
-        booked_now ={r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
+        from app.partial_refund import refund_links, is_numbered_partial, partial_group_exclusion
+        booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
         verified_links = refund_links(self.board.conn, refund_ids)
@@ -1714,6 +1714,12 @@ class CardFlow:
                 trusted_partial = bool(refunds_in_group) and all(
                     rid in verified_links and is_numbered_partial(verified_links[rid])
                     for rid in refunds_in_group)
+                # Only a group that spans files; PROC-072 completed periods and unclean cancels come first.
+                if trusted_partial and not members <= ids:
+                    trusted_partial = not partial_group_exclusion(
+                        self.board.conn, verified_links[next(iter(refunds_in_group))]['original_id'])
+                else:
+                    trusted_partial = False
                 if trusted_partial and not trusted_full:
                     if (not members & set(active)
                             and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)

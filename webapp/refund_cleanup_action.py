@@ -36,6 +36,16 @@ def _group_context(board, original_id):
         raise StoreError("REFUND_LINK_NOT_VERIFIED",
                          "추론 연결이거나 원승인번호로 검증되지 않은 거래는 자동 기록하지 않습니다")
 
+    if any(link.get("status") != "full" for link in links.values()):
+        # A numbered partial group is accepted only across files, and PROC-072 completed periods
+        # and errored/duplicate/conflicted cancels come first.
+        from app.partial_refund import partial_group_exclusion
+        files = [{r[0] for r in board.conn.execute(
+            "SELECT batch_id FROM import_batch_rows WHERE transaction_id=?", (m,))} for m in members]
+        if partial_group_exclusion(board.conn, original_id) or set.intersection(*files):
+            raise StoreError("REFUND_LINK_NOT_VERIFIED",
+                             "완료 기간·오류 취소가 있거나 같은 파일의 부분환불은 이 화면에서 기록하지 않습니다")
+
     # Source provenance and the complete member set are determined on the server.
     batch = board.conn.execute(
         "SELECT batch_id FROM import_batch_rows WHERE transaction_id=? ORDER BY batch_id LIMIT 1",
