@@ -163,7 +163,11 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
     other = _export_rows(quarter_rows)
     other_total = data.get("tab_expense_totals", {}).get(f"quarter:{year}:{quarter}", 0)
     (out / f"quarter-{year}Q{quarter}-other.tsv").write_text(other["tsv"], encoding="utf-8", newline="")
-    other_match = other_total == other["total_krw"]
+    other_refunds = [row for row in quarter_rows if row.get("refund_tab_row")]
+    other_refund_total = sum(row["amount_krw"] for row in other_refunds
+                             if type(row.get("amount_krw")) is int)
+    other_comparison_total = other_total + other_refund_total
+    other_match = other_comparison_total == other["total_krw"]
     other_causes = Counter(other["held_reason_counts"])
     other_causes["NO_LEDGER_ROW"] += excluded.get("no_ledger_by_tab", {}).get(
         f"quarter:{year}:{quarter}", 0)
@@ -176,6 +180,13 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
         held_by_reason.update(summary["held_reasons"])
     held_by_reason.update(other["held_reason_counts"])
     held_count = sum(held_by_reason.values())
+    no_ledger_count = excluded.get("no_ledger_row", 0)
+    completeness_reasons = Counter()
+    if mismatches:
+        completeness_reasons["TAB_TOTAL_MISMATCH"] = len(mismatches)
+    if no_ledger_count:
+        completeness_reasons["NO_LEDGER_ROW"] = no_ledger_count
+    completeness_complete = not completeness_reasons and held_count == 0
     summary = {
         "schema": "cost-quarter-paste-pack-v1",
         "period": f"{year}Q{quarter}",
@@ -186,9 +197,9 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
             "row_count": other["row_count"],
             "total_krw": other["total_krw"],
             "ledger_total_krw": other_total,
-            "refund_tab_row_count": 0,
-            "refund_tab_total_krw": 0,
-            "comparison_total_krw": other_total,
+            "refund_tab_row_count": len(other_refunds),
+            "refund_tab_total_krw": other_refund_total,
+            "comparison_total_krw": other_comparison_total,
             "total_matches_ledger": other_match,
             "held_count": len(other["held"]),
             "held_reasons": other["held_reason_counts"],
@@ -197,14 +208,14 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
         },
         "held_reason_counts": dict(sorted(held_by_reason.items())),
         "held_zero": held_count == 0,
-        "held_status": "보류 0 달성" if held_count == 0 else "보류 0 미달",
-        "completeness": "complete" if not mismatches else "mismatch",
+        "held_status": ("보류 0 달성" if held_count == 0 and no_ledger_count == 0
+                        else "보류 0 미달"),
+        "completeness": "complete" if completeness_complete else "mismatch",
         "mismatch_count": len(mismatches),
-        "completeness_reason_counts": ({"TAB_TOTAL_MISMATCH": len(mismatches)}
-                                        if mismatches else {}),
+        "completeness_reason_counts": dict(sorted(completeness_reasons.items())),
         "tab_totals_match_count": sum(s["total_matches_ledger"] for s in summaries) + other_match,
         "tab_total_count": len(summaries) + 1,
-        "excluded_reason_counts": {"NO_LEDGER_ROW": excluded.get("no_ledger_row", 0)},
+        "excluded_reason_counts": {"NO_LEDGER_ROW": no_ledger_count},
         "empty_field_allowlist": {key: list(value) for key, value in EMPTY_FIELD_ALLOWLIST.items()},
         "period_next_quarter_review_categories": list(PERIOD_NEXT_REVIEW_CATEGORIES),
     }
@@ -234,7 +245,7 @@ def main(argv=None) -> int:
                       "held_reason_counts": summary["held_reason_counts"],
                       "held_status": summary["held_status"],
                       "mismatch_count": summary["mismatch_count"]}, ensure_ascii=False))
-    return 1 if summary["mismatch_count"] else 0
+    return 1 if summary["completeness"] != "complete" else 0
 
 
 if __name__ == "__main__":

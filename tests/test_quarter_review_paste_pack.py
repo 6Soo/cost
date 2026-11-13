@@ -185,6 +185,55 @@ def test_paste_pack_includes_refunds_on_original_trip_and_counts_no_ledger_cards
     assert summary["trips"][0]["comparison_total_krw"] == -50
     assert summary["trips"][0]["total_matches_ledger"] is True
     assert summary["excluded_reason_counts"] == {"NO_LEDGER_ROW": 1}
+    assert summary["held_status"] == "보류 0 미달"
+    assert summary["completeness"] == "mismatch"
+    assert summary["completeness_reason_counts"] == {"NO_LEDGER_ROW": 1}
+    monkeypatch.setattr(paste_pack, "read_database", lambda _path: {
+        "tab_expense_totals": {"trip-a": 100, "quarter:2026:3": 0},
+    })
+    assert paste_pack.main(["--host-root", str(tmp_path), "--year", "2026", "--quarter", "3",
+                            "--out", str(tmp_path / "cli-output")]) == 1
+
+
+def test_quarter_other_refunds_follow_original_display_tab(tmp_path):
+    from tools.quarter_review.pack import prepare_rows
+
+    quarter_id = "quarter:2026:3"
+    def refund(identity, amount):
+        return {"transaction_id": identity, "amount_krw": amount,
+                "approval_date": "2026-08-01", "display_tab_id": quarter_id,
+                "trip_id": None, "classification_state": "classified",
+                "classification_source": "user_decision", "merchant": "합성 공급자",
+                "item": "숙박비", "evidence_type": "카드"}
+    refund_a, refund_b = refund("refund-a", -20), refund("refund-b", 10)
+    saved_refunds = [
+        {**r, "row_id": f"card-{r['transaction_id']}", "row_kind": "expense",
+         "display_tab_id": "refunds", "display_amount_krw": r["amount_krw"],
+         "display_occurred_on": r["approval_date"]}
+        for r in (refund_a, refund_b)
+    ]
+    other_row = {"row_id": "other-normal", "row_kind": "expense",
+                 "display_tab_id": quarter_id, "occurred_on": "2026-08-01",
+                 "display_amount_krw": 100, "amount_krw": 100, "merchant": "합성 공급자",
+                 "item": "숙박비", "evidence_type": "카드"}
+    data = {"trip_tabs": [], "transactions": [refund_a, refund_b],
+            "board_projected": saved_refunds + [other_row], "change_log": [],
+            "manual_fields": {}, "manual_ids": set(), "company_exclusions": set()}
+    trips, rows, excluded = prepare_rows(data, 2026, 3, screen_tab_membership=True)
+    assert trips == []
+    assert [r["transaction_id"] for r in rows if r.get("refund_tab_row")] == ["refund-a", "refund-b"]
+
+    # Use the selected rows to verify how build_paste_pack reconciles the quarter tab.
+    from unittest.mock import patch
+    with patch.object(paste_pack, "prepare_rows", return_value=(trips, rows, excluded)):
+        summary = paste_pack.build_paste_pack({"tab_expense_totals": {quarter_id: 100}},
+                                              2026, 3, tmp_path)
+    assert summary["quarter_other"]["row_count"] == 3
+    assert summary["quarter_other"]["refund_tab_row_count"] == 2
+    assert summary["quarter_other"]["refund_tab_total_krw"] == -10
+    assert summary["quarter_other"]["comparison_total_krw"] == 90
+    assert summary["quarter_other"]["total_matches_ledger"] is True
+    assert summary["completeness"] == "complete"
 
 
 def test_period_blank_cause_counts_are_by_item_and_evidence_signal():

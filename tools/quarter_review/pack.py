@@ -231,6 +231,7 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_m
         saved = board.get(row_id)
         row = dict(saved or {})
         source_trip_id = raw.get('trip_id') or row.get('trip_id')
+        source_tab_id = raw.get('display_tab_id') or source_trip_id or row.get('display_tab_id')
         # Card source amounts/signs remain authoritative; do not add ledger copies.
         row.update(raw, row_id=row_id, row_kind='expense', occurred_on=raw.get('approval_date') or raw.get('posting_date') or '')
         # Membership begins with the row shown by the ledger. The paste-pack
@@ -238,6 +239,7 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_m
         if screen_tab_membership and saved is not None:
             row['display_tab_id'] = saved.get('display_tab_id')
             row['_paste_original_trip_id'] = source_trip_id
+            row['_paste_original_tab_id'] = source_tab_id
         for field in data.get('manual_fields', {}).get(row_id, ()):
             if field in {'item', 'display_tab_id', 'trip_id', 'service_period'} and field in board.get(row_id, {}):
                 row[field] = board[row_id][field]
@@ -250,11 +252,13 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_m
         identity = row.get('display_tab_id')
         refund_tab_row = False
         if screen_tab_membership and identity == 'refunds':
-            refund_trip_id = row.get('_paste_original_trip_id') or row.get('trip_id')
-            if refund_trip_id in target:
+            original_tab_id = row.get('_paste_original_tab_id')
+            if original_tab_id == 'refunds':
+                original_tab_id = row.get('_paste_original_trip_id') or row.get('trip_id')
+            if original_tab_id in target or original_tab_id == quarter_id:
                 # The ledger keeps the row on Refunds (ITEM-011); Google paste
-                # output follows RFND-070 and returns it to its original trip.
-                identity = refund_trip_id
+                # output follows RFND-070 and returns it to its original tab.
+                identity = original_tab_id
                 refund_tab_row = True
             else:
                 continue
