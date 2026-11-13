@@ -112,8 +112,10 @@ def harness(tmp_path, monkeypatch):
 
 
 def test_zero_and_dry_run_never_call_model_or_api(harness):
-    args, rows, _, calls, writes, _, run, _ = harness
+    args, rows, _, calls, writes, path, run, _ = harness
     assert run()['status'] == 'success'
+    summary = json.loads((path.parent/'p2-runs'/'latest.json').read_text(encoding='utf-8'))
+    assert summary['status'] == 'success' and summary['failure_reason_code'] is None
     rows.append(row())
     args.dry_run = True
     assert run()['scope']['new_merchants'] == 1
@@ -203,6 +205,9 @@ def test_codex_rate_limit_recorded_and_resumed_next_run(harness):
         raise AgentUnavailable('AGENT_RATE_LIMITED', 300)
     result = run(model=limited)
     assert result['status'] == 'failed' and result['failure_code'] == 'AGENT_RATE_LIMITED'
+    summary = json.loads((path.parent/'p2-runs'/'latest.json').read_text(encoding='utf-8'))
+    assert summary['status'] == 'failed' and summary['limit_failure']
+    assert summary['failure_reason_code'] == 'AGENT_RATE_LIMITED'
     assert result['failed_calls'] == 1 and not writes
     state = json.loads(path.read_text(encoding='utf-8'))
     assert state['runs'][-1]['failure_code'] == 'AGENT_RATE_LIMITED' and not state['jobs']
@@ -347,12 +352,17 @@ def test_concurrent_writer_and_missing_history_fail_closed(harness):
     lock.write_text('owned', encoding='utf-8')
     with pytest.raises(FileExistsError):
         run()
+    summary = json.loads((path.parent/'p2-runs'/'latest.json').read_text(encoding='utf-8'))
+    assert summary['status'] == 'failed' and summary['failure_reason_code'] == 'P2_INCREMENTAL_LOCK_HELD'
     assert lock.read_text() == 'owned'
     lock.unlink()
     path.unlink()
     with pytest.raises(ValueError, match='VERIFIED_LAYER1_HISTORY_REQUIRED'):
         run()
     assert not lock.exists()
+    summary = json.loads((path.parent/'p2-runs'/'latest.json').read_text(encoding='utf-8'))
+    assert summary['status'] == 'failed' and summary['failure_reason_code'] == 'VERIFIED_LAYER1_HISTORY_REQUIRED'
+    assert 'raw_row_json' not in json.dumps(summary)
 
 
 def test_live_recent_lock_is_refused(harness):
