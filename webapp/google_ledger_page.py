@@ -19,6 +19,7 @@ import threading
 import copy
 import re
 import time
+import tempfile
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -936,12 +937,45 @@ def _google_end_change(board, tab: dict, trip: dict, overrides) -> bool:
     return True
 
 
-_LAST_TRIP_IMPORT_RESULT = None
+TRIP_IMPORT_STATUS_FILENAME = 'google-trip-import-status.json'
 
 
-def last_trip_import_result():
-    """Latest in-process result for the background Google trip import."""
-    return dict(_LAST_TRIP_IMPORT_RESULT) if _LAST_TRIP_IMPORT_RESULT is not None else None
+def last_trip_import_result(data_root):
+    """Read the persisted, source-free status for the latest trip import."""
+    try:
+        value = json.loads((Path(data_root) / TRIP_IMPORT_STATUS_FILENAME).read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get('schedule_unavailable'), bool):
+        return None
+    return {'schedule_unavailable': value['schedule_unavailable']}
+
+
+def _save_trip_import_status(board, counts):
+    """Atomically persist only whether schedule evidence was unavailable."""
+    data_root = getattr(board, 'path', None)
+    if data_root is None:
+        return
+    directory = Path(data_root).parent
+    target = directory / TRIP_IMPORT_STATUS_FILENAME
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=directory,
+                                         prefix=target.name + '.', suffix='.tmp',
+                                         delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump({'schedule_unavailable': bool(counts.get('schedule_unavailable'))}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except OSError:
+        logging.getLogger(__name__).warning('TRIP_IMPORT_STATUS_UNAVAILABLE: status file could not be saved')
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def import_trips(board, snapshot: dict) -> dict:
@@ -1003,8 +1037,7 @@ def import_trips(board, snapshot: dict) -> dict:
             counts['held'] += 1
             continue
         counts[outcome['outcome']] += 1
-    global _LAST_TRIP_IMPORT_RESULT
-    _LAST_TRIP_IMPORT_RESULT = dict(counts)
+    _save_trip_import_status(board, counts)
     try:
         from .collection_status import _cache_clear
         _cache_clear()

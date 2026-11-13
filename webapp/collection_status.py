@@ -271,7 +271,7 @@ def gather(board, *, now=None):
     google_last, google_login = _google_status()
     try:
         from .google_ledger_page import last_trip_import_result
-        trip_import = last_trip_import_result()
+        trip_import = last_trip_import_result(data_root) if data_root is not None else None
     except Exception:
         trip_import = None
     p2 = (_p2_status(data_root, Path(path).parent.parent / 'config' / 'card-flow.json')

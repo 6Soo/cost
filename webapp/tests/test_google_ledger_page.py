@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+from types import SimpleNamespace
 
 from app import google_authority as ga
 from webapp import google_ledger_page as page
@@ -74,6 +75,24 @@ def test_retired_routes_are_unowned_and_dispatch_does_not_read_or_write(monkeypa
         assert handler.sent == []
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_trip_import_persists_only_schedule_availability_atomically(monkeypatch, tmp_path):
+    board = SimpleNamespace(path=tmp_path / 'board.sqlite', list_trips=lambda **_kw: [])
+    monkeypatch.setattr(page, '_schedule_overrides',
+                        lambda: (_ for _ in ()).throw(OSError('synthetic missing schedule')))
+    result = page.import_trips(board, {'trips': []})
+    status_path = tmp_path / page.TRIP_IMPORT_STATUS_FILENAME
+    assert result['schedule_unavailable'] == 1
+    assert page.last_trip_import_result(tmp_path) == {'schedule_unavailable': True}
+    assert status_path.read_text(encoding='utf-8') == '{"schedule_unavailable": true}'
+    assert not list(tmp_path.glob(status_path.name + '.*.tmp'))
+
+
+def test_trip_import_status_missing_or_corrupt_keeps_previous_no_warning_behavior(tmp_path):
+    assert page.last_trip_import_result(tmp_path) is None
+    (tmp_path / page.TRIP_IMPORT_STATUS_FILENAME).write_text('{bad json', encoding='utf-8')
+    assert page.last_trip_import_result(tmp_path) is None
 
 
 def _clean_trip(**over):

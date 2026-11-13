@@ -87,13 +87,17 @@ def catalog(board, query):
             f"SELECT DISTINCT strftime('%Y-%m',{TRADE_DATE}) AS month FROM transactions t "
             'WHERE month IS NOT NULL' + (' AND ' + base if base else '') + ' ORDER BY month ASC',
             [boundary] if base else [])]
-    from app.partial_refund import refund_links
-    refund_by_id = refund_links(board.conn, [record[0] for record in records])
+    from app.partial_refund import refund_links, refund_original_links
+    transaction_ids = [record[0] for record in records]
+    refund_by_id = refund_links(board.conn, transaction_ids)
+    refund_original_by_id = refund_original_links(board.conn, transaction_ids)
     rows = [dict(zip((*columns, 'trip_name', 'company_excluded'), row)) for row in records]
     for row in rows:
-        if row['transaction_id'] in refund_by_id:
+        transaction_id = row['transaction_id']
+        refund_link = refund_by_id.get(transaction_id) or refund_original_by_id.get(transaction_id)
+        if refund_link:
             row['trip_name'] = '환불'
-            row['refund_link'] = refund_by_id[row['transaction_id']]
+            row['refund_link'] = refund_link
     from app.review_holds import active_holds
     from .card_actions import next_action
     holds = active_holds(board.conn)
