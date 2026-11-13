@@ -215,7 +215,9 @@ def require_writers_offline(port=8751):
         raise ValueError('WRITERS_NOT_OFFLINE')
 
 
-def require_offline_backup(host, evidence, db, *, isolated_copy=False):
+def require_offline_backup(host, evidence, db, *, isolated_copy=False,
+                           database_name='board.sqlite', board_port=None):
+    """Require a fresh, verified backup and, for live writes, a quiescent Board/SourceRefresh."""
     from tools.verify_operational_backup_restore import database_state
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
     for key in ('live_state_unchanged','all_database_tables_and_columns_compared','restored_review_binding_equal'):
@@ -227,16 +229,16 @@ def require_offline_backup(host, evidence, db, *, isolated_copy=False):
     if not backup.is_relative_to((host/'data/backups').resolve()):
         raise ValueError('BACKUP_LOCATION_INVALID')
     manifest = json.loads((backup/'manifest.json').read_text(encoding='utf-8'))
-    if manifest['databases']['board.sqlite'] != database_state(db):
+    if manifest['databases'][database_name] != database_state(db):
         raise ValueError('BACKUP_SOURCE_CHANGED')
     if isolated_copy:
-        live = Path('D:/WebLedgerHost/data/board.sqlite')
+        live = Path('D:/WebLedgerHost/data')/database_name
         if (host.resolve() == Path('D:/WebLedgerHost').resolve()
                 or db.resolve().parent != (host/'data').resolve()
                 or (live.exists() and os.path.samefile(db,live))):
             raise ValueError('ISOLATED_COPY_REQUIRED')
         return
-    require_writers_offline(ledger_route_port(host))
+    require_writers_offline(board_port if board_port is not None else ledger_route_port(host))
 
 
 def main(argv=None):

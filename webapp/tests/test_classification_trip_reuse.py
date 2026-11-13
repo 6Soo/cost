@@ -8,6 +8,32 @@ from tools.benchmark_expense_performance import baseline
 from webapp.tests.test_automatic_classification_completion import setup
 
 
+def accept_proc004_quarter_fallback(expected, actual):
+    """Translate legacy unassigned fallbacks to the approved PROC-004 result."""
+    expected = dict(expected)
+    expected["targets"] = [dict(target) for target in expected["targets"]]
+    expected_by_id = {target["id"]: target for target in expected["targets"]}
+    changed = False
+    for current in actual["targets"]:
+        target = expected_by_id[current["id"]]
+        if current["values"][5].startswith("quarter:"):
+            values = list(target["values"])
+            assert values[5] == "unclassified"
+            year, quarter = int(current["values"][5].split(":")[1]), int(current["values"][5].split(":")[2])
+            assert values[2].endswith("등록된 유효 여행 없음 · complete-card-inference-v1")
+            values[2] = values[2].replace(
+                "등록된 유효 여행 없음 · complete-card-inference-v1",
+                "실제 여행 후보 없음 · 결제일 기준 분기 기타비용 · complete-card-inference-v1",
+            )
+            values[3] = "분기 기타비용"
+            values[4] = f"{year}년 {quarter}분기 기타비용"
+            values[5] = f"quarter:{year}:{quarter}"
+            target["values"] = tuple(values)
+            changed = True
+    assert set(expected_by_id) == {target["id"] for target in actual["targets"]}
+    return expected, changed
+
+
 @pytest.mark.parametrize('reconsider', [False, True])
 def test_reused_periods_match_previous_plan_and_refresh_between_calls(setup, reconsider):
     board, _, _, _ = setup
@@ -26,7 +52,18 @@ def test_reused_periods_match_previous_plan_and_refresh_between_calls(setup, rec
         original = deepcopy(trips)
         options = dict(reconsider=reconsider, nets={'B': 12000})
         actual = policy.plan(board.conn, trips, **options)
-        assert actual == old.plan(board.conn, trips, **options)
+        legacy = old.plan(board.conn, trips, **options)
+        expected, proc004_changed = accept_proc004_quarter_fallback(
+            legacy, actual
+        )
+        assert actual["targets"] == expected["targets"]
+        assert actual["summary"] == expected["summary"]
+        if proc004_changed:
+            # A new target destination and rationale must produce a new digest.
+            assert actual["digest"] != legacy["digest"]
+        else:
+            assert actual["digest"] == legacy["digest"]
+        assert policy.plan(board.conn, trips, **options) == actual
         assert trips == original
         outputs.append(actual)
     assert outputs[0] != outputs[-1]

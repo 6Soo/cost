@@ -15,8 +15,8 @@
     },
     {
       "name": "quarter-review-readonly-pack",
-      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py"],
-      "tests": ["tests/test_quarter_review_pack.py"]
+      "paths": ["tools/quarter_review/**", "tests/test_quarter_review*.py", "app/google_tsv.py"],
+      "tests": ["tests/test_quarter_review_pack.py", "tests/test_quarter_review_paste_pack.py"]
     },
     {
       "name": "closed-period-boundary-and-repair",
@@ -50,7 +50,7 @@
     },
     {
       "name": "kb-card-collection-synthetic",
-      "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
+      "paths": ["tools/collect_kb_card.mjs", "tools/kb_card_collection/*", "tools/collection_run_summary.mjs", "tests/kb_card_collection/*", "tests/test_kb_card_collection_script.py"],
       "tests": ["tests/test_kb_card_collection_script.py"]
     },
     {
@@ -77,7 +77,7 @@
     },
     {
       "name": "ota-collection-script-synthetic",
-      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
+      "paths": ["tools/collect_ota_portals.mjs", "tools/ota_collection/*", "tools/collection_run_summary.mjs", "tests/ota_collection/*", "tests/test_ota_collection_script.py"],
       "tests": ["tests/test_ota_collection_script.py"]
     },
     {
@@ -87,7 +87,7 @@
     },
     {
       "name": "collection-status-panel",
-      "paths": ["webapp/collection_status.py", "webapp/tests/test_collection_status.py"],
+      "paths": ["webapp/collection_status.py", "tools/collection_run_summary.mjs", "webapp/tests/test_collection_status.py"],
       "tests": ["webapp/tests/test_collection_status.py", "webapp/tests/test_card_flow.py"]
     },
     {
@@ -313,8 +313,9 @@
     {
       "name": "card-flow",
       "paths": ["webapp/card_flow.py", "webapp/card_actions.py", "webapp/ledger_store.py",
-                "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py"],
-      "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
+                "webapp/tests/test_card_flow*.py", "webapp/tests/test_multi_upload_queue.py",
+                "webapp/tests/test_card_automatic_write_atomicity.py"],
+      "tests": ["webapp/tests/test_card_automatic_write_atomicity.py", "webapp/tests/test_card_flow.py", "webapp/tests/test_card_flow_browser.py", "webapp/tests/test_multi_upload_queue.py"]
     },
     {
       "name": "ota-mail-load-lifetime",
@@ -472,6 +473,11 @@
       "name": "forest-portal-import",
       "paths": ["app/forest_portal_capture.py", "tools/import_forest_portal_details.py", "tests/test_forest_portal_capture.py"],
       "tests": ["tests/test_forest_portal_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "tests/card_pipeline/test_forest_payment_mail.py", "webapp/tests/test_forest_reconciliation.py"]
+    },
+    {
+      "name": "booking-trips-import",
+      "paths": ["app/booking_trips_capture.py", "tools/import_booking_trips.py", "tests/test_booking_trips_capture.py"],
+      "tests": ["tests/test_booking_trips_capture.py", "tests/card_pipeline/test_ota_store.py", "tests/card_pipeline/test_ota_payments.py", "webapp/tests/test_ledger_stay_evidence.py"]
     },
     {
       "name": "forest-payment-receipts",

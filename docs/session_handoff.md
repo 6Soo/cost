@@ -1,3 +1,34 @@
+## 2026-11-13 U2 수집 실행 요약과 로그인 필요 표시 — PR 검수 대기
+
+- 계약 파일 `data/collection-runs/<source>.json`은 `schema`, `source`, `finished_at`, `status`, `login_required`만 원자적으로 기록한다. OTA 로그인 실패/인증 미확인과 국민 로그인 실패를 기록하고, 성공 실행은 표시를 해제한다. 카드 로그인 모듈은 수정하지 않았다.
+- `webapp/collection_status.py`는 데이터 루트의 요약만 읽고 국민·하나·기업 및 Agoda·Trip.com·Booking.com의 로그인 필요 상태를 원천 이름과 표시한다. 파일이 없거나 잘못된 계약이면 기존 표시로 조용히 돌아가며 파일 변경은 화면 캐시를 즉시 무효화한다.
+- 요구 1~4 완료: 허용 키/민감값 제외, 수집 기록 주체 연결, 로그인 필요→표시→성공 해제와 깨진 파일 무시를 합성 검사했다. 비인증 `/`는 401이다. 수집 동작·운영 DB·운영 경로·운영 포트는 사용하지 않았다.
+- 표적 검사: 상태 화면 22 passed, OTA 계약 9 passed, 국민 entry fixture 8 passed. 영향 검사 `python tools/run_quality_checks.py --base origin/main --run`: PASSED, 463 passed + 28 subtests, 0 failed, 0 skipped, compile PASS. QA 기준 HEAD `187d092580284733edfa458064d452d66f7a68d9`; 검사 기록 `quality-artifacts/run-summary.json`(로컬 생성물, 커밋 제외).
+- 구현 커밋 `9ee024fb`; 최신 main 병합 포함 QA 기준 SHA `187d092580284733edfa458064d452d66f7a68d9`. [PR #851](https://github.com/6Soo/cost/pull/851)을 만들고 브랜치 `feat/collection-run-login-status-20261113` 최종 HEAD `8593a82d`까지 push했다. 최종 커밋은 이 인계 문서만 갱신했다. 병합·배포하지 않는다.
+
+- 검수 반영(2026-11-13): origin/main(#847 P2 요약 표시 포함)을 merge로 통합했다(충돌: `webapp/collection_status.py`·`docs/session_handoff.md`, 양쪽 모두 보존). 요약 쓰기 실패가 수집을 중단하지 않도록 `tryWriteCollectionRunSummary`로 예외를 삼키고 경고(오류 코드만)를 stderr에 남긴다(테스트 1건). 재검사: 상태 화면+카드 흐름+OTA 스크립트 97 passed, OTA node 54/54, 국민 entry ENTRY OK. 최종 검수는 codex sol.
+
+## 2026-11-13 PR #847 main 병합 — 상태 패널 보존
+
+- `origin/main`을 merge로 통합했다. 충돌은 `docs/session_handoff.md`, `webapp/collection_status.py`; 두 문서 절을 모두 보존하고 홈 데이터에는 `trip_import`와 P2 데이터 루트 요약을 함께 유지했다. #848 schedule_unavailable 상태 표시·내부 링크 테스트와 P2 실패 표시·테스트가 모두 남아 있다.
+- 지정 검사 `webapp/tests/test_collection_status.py webapp/tests/test_internal_links_registered.py tests/test_p2_incremental.py tests/test_p2_batch.py`: 90 passed. 운영 데이터/포트 사용, 병합 외 배포는 하지 않았다.
+
+## 2026-11-13 PR #847 검수 보완 — P2 사전 실패 상태
+
+- `run_incremental`의 메트릭 생성 전 예외도 데이터 루트 `p2-runs/latest.json`에 `status=failed`, 제한된 `failure_reason_code`와 집계만 원자 기록한다. 1층 경로도 공용 writer로 성공·한도·사전 실패 코드를 내보내며, 상태 화면은 P2 실패를 표시한다.
+- 표적 검사 `tests/test_p2_incremental.py tests/test_p2_batch.py webapp/tests/test_collection_status.py`: 88 passed. 전체 영향 검사 PASSED: 304/304, 0 failed, skip 0, 28 subtests, compile PASS (base `96fb90e8`, HEAD `84d65b5a`). PR 댓글에 검수 수치를 남겼다. 운영 데이터/파일 생성, 배포, 병합은 하지 않았다.
+
+## 2026-11-13 P2 실행 요약 파일 상태
+
+- 요청 브랜치 `feat/p2-run-summary-status-20261113`: 증분·기존 1층 실행기가 데이터 루트 `p2-runs/latest.json`에 원문 없는 집계 JSON을 원자 기록하고, 수집 상태 화면은 이 파일을 우선 읽는다. 구형 `p2_batch_archive`는 fallback으로 유지.
+- 구현 커밋 `d8aa5c01`: 증분·기존 1층 실행기가 데이터 루트 `p2-runs/latest.json`에 원문 없는 집계 JSON을 원자 기록하고, 수집 상태 화면은 이 파일을 우선 읽는다. 구형 `p2_batch_archive` fallback과 합성 테스트를 유지했다. 표적 검사 60 passed. 영향 검사 PASSED: 300/300, skip 0, 28 subtests, compile PASS (base `96fb90e8`). 테스트 중 발견한 임시 DB 경로 문제를 `--db` 데이터 디렉터리 기준 경로로 고쳤다. 운영 파일 생성 및 배포는 하지 않았다. PR 생성 후 서버 코드 변경 배포 필요.
+
+## 2026-11-13 자동 기록 투영 실패 원자성·금액 묶음 정렬 조사
+
+- 자동 기록의 사전 분류·revision부터 장부·화면 투영까지 같은 트랜잭션으로 묶고, 하위 장부/분기 기록은 savepoint로 참여한다. 기존 revision 실패 재현 통과, 합성 원자성 5건과 기존 부분 환불 31건 36pass, 기존 자동 기록 9pass(다른 담당의 낡은 real_blocking 1건 제외).
+- 금액 묶음 순서 의심은 `8cd0e58b`의 의도된 날짜순 전환과 이전 검사 계약의 차이다. 정렬 함수 자체는 통과. board/http 총 5실패(순서3·접힘1·호출수1)는 기대값 변경 없이 병행 담당에게 인계했다. [근거](agents/artifacts/amount-group-and-revision-20261113.md).
+- 완료 코드 `fde5af7b94e48a616fe93cade9af8017e548e5aa`. `python tools/run_quality_checks.py --base origin/main --run` PASSED(base `96fb90e8`): 575pass·30subtests·skip0·브라우저16건 누락0·compile PASS(712.92초). PR #846 생성·push 완료, 헤드가 전달한 opus 검수는 `77c5561e` 코드 APPROVE다. 이후 변경은 이 절과 근거 문서의 손상된 한글 복원뿐이다. 최종 SHA는 PR HEAD를 따른다. 남은 단계는 헤드의 병합과 서버 배포다. 운영 DB/포트 미사용, 병합·배포 없음.
+
 ## 2026-11-13 PR #841 opus 변경 요청 반영 — 근거 개정 경로·일반 동기화
 
 - 동기화 코드의 화순 ID/날짜 예외 제거. 별도 확정 일정과 Google 명시 종료일이 같으면 허용하고 다르면 보존한다. 새 `tools/revise_trip_schedule.py`는 미리보기/검수 SHA·복원 사본 확인 후 적용/이후 변경을 보호하는 원복을 제공한다. 기존 일정 레코드는 새 owner-schedule의 supersedes·receipt에, 원본 authority 전체는 복원 사본에 남긴다.

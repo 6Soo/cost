@@ -22,6 +22,7 @@ from .normalize import operational_items
 
 PRIVATE = Path('D:/WebLedgerHost/data')
 DEFAULT_STATE = PRIVATE / 'p2-incremental.json'
+PUBLIC_SUMMARY = PRIVATE / 'p2-runs' / 'latest.json'
 LOCK_MAX_SECONDS = 2 * 3600
 
 
@@ -36,6 +37,37 @@ def save(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
+
+
+def save_public_summary(metrics, data_root):
+    """Publish aggregate run status only; never copy merchant or transaction data."""
+    failure = safe_public_failure(metrics.get('failure_code'))
+    summary = dict(schema=1, started_at=metrics.get('started_at'), finished_at=metrics.get('finished_at'),
+        target_groups=(metrics.get('scope') or {}).get('new_merchants', 0),
+        target_rows=(metrics.get('scope') or {}).get('new_rows', 0),
+        model_calls=metrics.get('calls', 0), successful_calls=metrics.get('successful_calls', 0),
+        failed_calls=metrics.get('failed_calls', 0), applied_rows=metrics.get('applied_rows', 0),
+        limit_failure=any(word in failure for word in ('LIMIT', 'QUOTA', 'USAGE')),
+        run_success_rate=metrics.get('run_success_rate'),
+        run_success_denominator=metrics.get('run_success_denominator', 0),
+        status=metrics.get('status'), failure_reason_code=failure or None)
+    path = Path(data_root) / 'p2-runs' / 'latest.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save(path, summary)
+
+
+def safe_public_failure(value):
+    """Return a bounded public reason code, never arbitrary exception text."""
+    allowed = {'VERIFIED_LAYER1_HISTORY_REQUIRED', 'AUTHENTICATED_API_CONFIG_REQUIRED',
+               'PRIVATE_STATE_REQUIRED', 'INVALID_RUN_LIMIT', 'P2_INCREMENTAL_LOCK_HELD',
+               'ValueError', 'TypeError', 'OSError', 'PermissionError', 'FileNotFoundError',
+               'JSONDecodeError', 'RuntimeError', 'AgentUnavailable',
+               'AGENT_CAPACITY', 'AGENT_RATE_LIMITED', 'AGENT_USAGE_LIMIT', 'AGENT_TIMEOUT',
+               'AGENT_AUTH_REQUIRED', 'AGENT_TOOL_EXECUTION_DETECTED', 'AGENT_PROMPT_TOO_LARGE',
+               'AGENT_EXECUTION_FAILED', 'AGENT_EXECUTION_MISMATCH', 'AGENT_PROVIDER_ERROR',
+               'AGENT_RESPONSE_INVALID', 'AGENT_RESPONSE_TOO_LARGE', 'AGENT_PROCESS_BOUNDARY_UNAVAILABLE',
+               'AGENT_COMMAND_LINE_TOO_LONG', 'AGENT_MODEL_NOT_ALLOWED', 'AGENT_CODEX_NOT_FOUND'}
+    return value if isinstance(value, str) and value in allowed else ''
 
 
 def pid_alive(pid):
@@ -275,7 +307,7 @@ def apply_job(job, api, checkpoint, current_data, existing, metrics, fresh_rules
     checkpoint()
 
 
-def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule_reader=read_rules):
+def _run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule_reader=read_rules):
     if not 1 <= args.max_merchants <= 500 or not 1 <= args.max_calls <= 20 or not 30 <= args.batch_size <= 50:
         raise ValueError('INVALID_RUN_LIMIT')
     path = Path(args.state).resolve()
@@ -400,12 +432,36 @@ def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule
         finally:
             metrics['finished_at'] = datetime.now(timezone.utc).isoformat()
             metrics['model_success_rate'] = metrics['successful_calls']/metrics['calls'] if metrics['calls'] else None
-            finished = [r for r in state['runs'] if r['status'] in {'success', 'failed'} and r['mode'] != 'dry-run']
-            metrics['run_success_rate'] = sum(r['status'] == 'success' for r in finished)/len(finished) if finished else None
+            finished = [r for r in state['runs']
+                        if r.get('mode') in {'apply', 'propose-only'}
+                        and r.get('status') in {'success', 'failed'}
+                        and r.get('failure_code') != 'INTERRUPTED_PREVIOUS_RUN']
+            metrics['run_success_denominator'] = len(finished)
+            metrics['run_success_rate'] = (sum(r['status'] == 'success' for r in finished)/len(finished)
+                                           if finished else None)
             checkpoint()
+            save_public_summary(metrics, Path(args.db).resolve().parent)
         return metrics
     finally:
         lock.unlink()
+
+
+def run(args, *, model=layer1.call, api=None, reader=scope.read_projection, rule_reader=read_rules):
+    """Run once; also publish failures that occur before run metrics exist."""
+    try:
+        return _run(args, model=model, api=api, reader=reader, rule_reader=rule_reader)
+    except Exception as exc:
+        if isinstance(exc, FileExistsError):
+            # Another writer owns the in-progress latest.json result. Do not
+            # publish this rejected concurrent attempt over that run's status.
+            raise
+        else:
+            reason = safe_public_failure(str(exc)) or type(exc).__name__
+        now = datetime.now(timezone.utc).isoformat()
+        save_public_summary(dict(started_at=now, finished_at=now, scope={}, calls=0,
+            successful_calls=0, failed_calls=1, applied_rows=0, status='failed', failure_code=reason),
+            Path(args.db).resolve().parent)
+        raise
 
 
 def main():

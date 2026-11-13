@@ -29,6 +29,25 @@ def data(rows):
         board_rows=[],read_seconds=0)
 
 
+@pytest.mark.parametrize(('status','reason','limit'), [
+    ('success', None, False), ('failed', 'AGENT_RATE_LIMITED', True),
+    ('failed', 'ValueError', False),
+])
+def test_layer1_public_summary_atomic_schema(tmp_path, status, reason, limit):
+    db = tmp_path/'board.sqlite'
+    layer1.write_public_summary(db, dict(started_at='2026-11-13T00:00:00+00:00',
+        finished_at='2026-11-13T00:01:00+00:00', target_groups=3, target_rows=7,
+        model_calls=2, successful_calls=1, failed_calls=int(status == 'failed'),
+        applied_rows=0, limit_failure=limit, status=status), failure_reason_code=reason)
+    path = tmp_path/'p2-runs'/'latest.json'
+    summary = json.loads(path.read_text(encoding='utf-8'))
+    assert summary['status'] == status and summary['failure_reason_code'] == reason
+    assert summary['target_groups'] == 3 and summary['target_rows'] == 7
+    assert summary['limit_failure'] is limit
+    assert not path.with_suffix('.tmp').exists()
+    assert 'synthetic' not in json.dumps(summary)
+
+
 def test_scope_uses_trip_including_prepay_and_quarter_not_card_cutoff():
     d=data([row(),row(transaction_id='late',display_tab_id='closed',trip_id='closed',approval_date='2026-08-01'),
             row(transaction_id='quarter',display_tab_id='',trip_id='',item='분기 기타비용',approval_date='2026-10-01')])

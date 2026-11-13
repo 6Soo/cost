@@ -673,7 +673,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     if current["digest"] != preview_digest_value:
         if group_original is not None:
             with store.lock:
-                store.conn.execute("BEGIN IMMEDIATE")
+                nested = store.conn.in_transaction
+                store.conn.execute('SAVEPOINT cost_ledger_commit' if nested else 'BEGIN IMMEDIATE')
                 try:
                     locked = preview(store, batch_id, trip_validator=trip_validator,
                                      tab_validator=tab_validator, review_from=review_from,
@@ -684,11 +685,19 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                                                      locked["digest"], locked)
                     if replay is not None:
                         store.remember_request(request_id, "commit", payload_sha, replay)
-                        store.conn.execute("COMMIT")
+                        store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit' if nested else 'COMMIT')
                         return replay
-                    store.conn.execute("ROLLBACK")
+                    if nested:
+                        store.conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_commit')
+                        store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit')
+                    else:
+                        store.conn.execute('ROLLBACK')
                 except Exception:
-                    store.conn.execute("ROLLBACK")
+                    if nested:
+                        store.conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_commit')
+                        store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit')
+                    else:
+                        store.conn.execute('ROLLBACK')
                     raise
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")
@@ -701,7 +710,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     lost_authority: list[str] = []
     now = utc_now()
     with store.lock:
-        store.conn.execute("BEGIN IMMEDIATE")
+        nested = store.conn.in_transaction
+        store.conn.execute('SAVEPOINT cost_ledger_commit' if nested else 'BEGIN IMMEDIATE')
         try:
             _check_refund_groups(store, recordable_rows(current["rows"]) if automatic_record else current["rows"])
             for entry in current["rows"]:
@@ -789,8 +799,12 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                 result["replay_post_revisions"] = replay_post_revisions
                 result["replay_ledger_fingerprint"] = replay_ledger_fingerprint
             store.remember_request(request_id, "commit", payload_sha, result)
-            store.conn.execute("COMMIT")
+            store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit' if nested else 'COMMIT')
         except Exception:
-            store.conn.execute("ROLLBACK")
+            if nested:
+                store.conn.execute('ROLLBACK TO SAVEPOINT cost_ledger_commit')
+                store.conn.execute('RELEASE SAVEPOINT cost_ledger_commit')
+            else:
+                store.conn.execute('ROLLBACK')
             raise
     return result
