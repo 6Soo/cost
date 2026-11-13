@@ -248,13 +248,18 @@
 
 - 출처: `docs/specs/finance.md:94`, `tests/card_pipeline/test_partial_refund.py:327`, `tests/card_pipeline/test_partial_refund.py:387`, `tests/card_pipeline/test_partial_refund.py:391`
 
-### RFND-029 · 파일 간 전액환불 확장
+### RFND-029 · 파일 간 환불 묶음 확장
 
-*보호 · 결정 2026-10-28*
+*보호 · 결정 2026-10-28 · 개정 2026-11-13(3분기 검수)*
 
-명시적으로 허용한 검증 전액 상쇄 경로만 서버가 원승인번호·순액 0·모든 구성원·실제 출처 배치를 다시 결정해 다른 파일의 원결제와 취소를 함께 읽고 기록한다. 일반 파일 미리보기는 원래 범위를 유지하며 빠진 구성원이 있으면 기록하지 않는다.
+명시적으로 허용한 검증 묶음 경로만 서버가 원승인번호·순잔액·모든 구성원·실제 출처 배치를 다시 결정해 다른 파일의 원결제와 취소를 함께 읽고 기록한다. 대상은 둘이다. (가) 순액 0인 검증 전액 상쇄. (나) 추론이 아닌 원승인번호 연결(RFND-004)로 원결제 하나가 유일하게 특정되고 순잔액이 양수인 부분환불. 부분환불은 원결제의 유효 귀속(실제 여행 또는 분기 기타비용)으로 기록하며, 원결제가 이미 기록돼 있으면 다시 넣지 않고 빠진 취소만 그 귀속으로 보완한다(RFND-019, RFND-021, RFND-026). 일반 파일 미리보기는 원래 범위를 유지하며 빠진 구성원이 있으면 기록하지 않는다.
 
-- 출처: `docs/specs/refund-inline-existing-repair-20261028.md:18`, `webapp/tests/test_verified_cross_batch_refunds.py:70`, `webapp/tests/test_verified_cross_batch_refunds.py:112`, `tests/card_pipeline/test_partial_refund.py:289`
+- 조건·예외: (나)는 원승인번호 연결에만 적용한다. 원승인번호 없는 동액·외화·택시 연결(RFND-007, RFND-008, RFND-011)과 추론 링크는 넓히지 않는다. 다음 가운데 하나라도 해당하면 묶음 전체를 기록하지 않는다. 누적 환불이 원결제보다 크다(RFND-018). 구성원에 원본 오류·중복·원본 충돌·내부 금융 잠금·회사 경비 제외가 있다(RFND-006, RFND-034). 취소의 항목·탭·여행이 원결제와 다르다(RFND-020). 원결제에 유효 귀속이 없다(환불 탭·미분류 포함. 부분환불은 환불 탭에 두지 않는다, RFND-022). 같은 원승인번호의 취소를 모든 파일에서 다시 읽어 함께 검증하고(RFND-009, RFND-025) 미리보기 digest·요청 ID·서버 재검증·재전송 멱등(RFND-027, RFND-028, RFND-030)은 전액 경로와 같다. 금액·부호·원문·ID와 수동 귀속은 바꾸지 않는다. PROC-072의 완료 자료 제외가 먼저다.
+- 예 (2026년 3분기 검수): 7월 말에 결제한 숙박 2건이 8월 초 여행에 기록된 뒤, 같은 원승인번호의 부분 취소 2건이 10월 매입 파일로 들어왔다. 취소는 원결제 여행으로 분류됐지만 원결제가 다른 파일에 있어 기록되지 못했고, 그 여행의 숙박비가 환불액만큼 크게 남았다. 같은 원인의 미기록 묶음이 4분기 여행 귀속분에도 2건 있었다.
+- 코드와 다른 점: `app/ledger.py`의 `_ready_rows`·`scope_group`, `webapp/card_flow.py`의 `automatic_holds`, `webapp/refund_cleanup_action.py`는 순액 0 전액 묶음만 다른 파일로 확장한다. 부분환불의 취소는 `refund_original_missing`으로 남는다.
+- 대체된 옛 규칙:
+  - 명시적으로 허용한 검증 전액 상쇄 경로만 서버가 원승인번호·순액 0·모든 구성원·실제 출처 배치를 다시 결정해 다른 파일의 원결제와 취소를 함께 읽고 기록한다. 일반 파일 미리보기는 원래 범위를 유지하며 빠진 구성원이 있으면 기록하지 않는다. — 2026-10-28 (다른 파일로 뒤늦게 들어온 부분환불을 기록할 경로가 없어 RFND-021·RFND-026의 결과와 어긋나 2026-11-13 개정)
+- 출처: 분기 AI 검수 2026-11-13, `docs/specs/refund-inline-existing-repair-20261028.md:18`, `webapp/tests/test_verified_cross_batch_refunds.py:70`, `webapp/tests/test_verified_cross_batch_refunds.py:112`, `tests/card_pipeline/test_partial_refund.py:289`
 
 ### RFND-030 · 묶음 기록 권한과 쓰기 범위
 
