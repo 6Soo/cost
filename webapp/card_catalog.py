@@ -87,10 +87,13 @@ def catalog(board, query):
             f"SELECT DISTINCT strftime('%Y-%m',{TRADE_DATE}) AS month FROM transactions t "
             'WHERE month IS NOT NULL' + (' AND ' + base if base else '') + ' ORDER BY month ASC',
             [boundary] if base else [])]
+    from app.partial_refund import refund_links
+    refund_by_id = refund_links(board.conn, [record[0] for record in records])
     rows = [dict(zip((*columns, 'trip_name', 'company_excluded'), row)) for row in records]
     for row in rows:
-        if row['transaction_id'] in complete:
+        if row['transaction_id'] in refund_by_id:
             row['trip_name'] = '환불'
+            row['refund_link'] = refund_by_id[row['transaction_id']]
     from app.review_holds import active_holds
     from .card_actions import next_action
     holds = active_holds(board.conn)
@@ -99,7 +102,8 @@ def catalog(board, query):
         row['review_hold'] = holds.get(row['transaction_id'])
         row['next_action'] = next_action(
             row,
-            {'already_booked': row['transaction_id'] in booked},
+            {'already_booked': row['transaction_id'] in booked,
+             'refund_link': row.get('refund_link')},
         )
     if any(re.search(r'toyoko|토요코인', row.get('merchant') or '', re.I) for row in rows):
         from .card_flow import CardFlow

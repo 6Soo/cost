@@ -94,7 +94,8 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None, *
     now = utc_now()
     selected = None if transaction_ids is None else frozenset(transaction_ids)
     with store.lock:
-        store.conn.execute('BEGIN IMMEDIATE')
+        nested = store.conn.in_transaction
+        store.conn.execute('SAVEPOINT cost_quarter_confirm' if nested else 'BEGIN IMMEDIATE')
         try:
             from .company_expenses import states as company_expense_states
             from .review_holds import active_holds
@@ -132,8 +133,12 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None, *
                                 'amount_krw': amount, 'merchant': row['merchant'] or '', 'occurred_on': day,
                                 'transaction_direction': 'purchase', 'source_hash': row['source_hash'],
                                 'classification_state': 'classified', 'now': now})
-            store.conn.execute('COMMIT')
+            store.conn.execute('RELEASE SAVEPOINT cost_quarter_confirm' if nested else 'COMMIT')
         except Exception:
-            store.conn.execute('ROLLBACK')
+            if nested:
+                store.conn.execute('ROLLBACK TO SAVEPOINT cost_quarter_confirm')
+                store.conn.execute('RELEASE SAVEPOINT cost_quarter_confirm')
+            else:
+                store.conn.execute('ROLLBACK')
             raise
     return {'tab': tab, 'booked': len(booked), 'skipped': len(skipped)}

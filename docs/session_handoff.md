@@ -1,3 +1,8 @@
+## 2026-11-13 PR #847 main 병합 — 상태 패널 보존
+
+- `origin/main`을 merge로 통합했다. 충돌은 `docs/session_handoff.md`, `webapp/collection_status.py`; 두 문서 절을 모두 보존하고 홈 데이터에는 `trip_import`와 P2 데이터 루트 요약을 함께 유지했다. #848 schedule_unavailable 상태 표시·내부 링크 테스트와 P2 실패 표시·테스트가 모두 남아 있다.
+- 지정 검사 `webapp/tests/test_collection_status.py webapp/tests/test_internal_links_registered.py tests/test_p2_incremental.py tests/test_p2_batch.py`: 90 passed. 운영 데이터/포트 사용, 병합 외 배포는 하지 않았다.
+
 ## 2026-11-13 PR #847 검수 보완 — P2 사전 실패 상태
 
 - `run_incremental`의 메트릭 생성 전 예외도 데이터 루트 `p2-runs/latest.json`에 `status=failed`, 제한된 `failure_reason_code`와 집계만 원자 기록한다. 1층 경로도 공용 writer로 성공·한도·사전 실패 코드를 내보내며, 상태 화면은 P2 실패를 표시한다.
@@ -7,6 +12,12 @@
 
 - 요청 브랜치 `feat/p2-run-summary-status-20261113`: 증분·기존 1층 실행기가 데이터 루트 `p2-runs/latest.json`에 원문 없는 집계 JSON을 원자 기록하고, 수집 상태 화면은 이 파일을 우선 읽는다. 구형 `p2_batch_archive`는 fallback으로 유지.
 - 구현 커밋 `d8aa5c01`: 증분·기존 1층 실행기가 데이터 루트 `p2-runs/latest.json`에 원문 없는 집계 JSON을 원자 기록하고, 수집 상태 화면은 이 파일을 우선 읽는다. 구형 `p2_batch_archive` fallback과 합성 테스트를 유지했다. 표적 검사 60 passed. 영향 검사 PASSED: 300/300, skip 0, 28 subtests, compile PASS (base `96fb90e8`). 테스트 중 발견한 임시 DB 경로 문제를 `--db` 데이터 디렉터리 기준 경로로 고쳤다. 운영 파일 생성 및 배포는 하지 않았다. PR 생성 후 서버 코드 변경 배포 필요.
+
+## 2026-11-13 자동 기록 투영 실패 원자성·금액 묶음 정렬 조사
+
+- 자동 기록의 사전 분류·revision부터 장부·화면 투영까지 같은 트랜잭션으로 묶고, 하위 장부/분기 기록은 savepoint로 참여한다. 기존 revision 실패 재현 통과, 합성 원자성 5건과 기존 부분 환불 31건 36pass, 기존 자동 기록 9pass(다른 담당의 낡은 real_blocking 1건 제외).
+- 금액 묶음 순서 의심은 `8cd0e58b`의 의도된 날짜순 전환과 이전 검사 계약의 차이다. 정렬 함수 자체는 통과. board/http 총 5실패(순서3·접힘1·호출수1)는 기대값 변경 없이 병행 담당에게 인계했다. [근거](agents/artifacts/amount-group-and-revision-20261113.md).
+- 완료 코드 `fde5af7b94e48a616fe93cade9af8017e548e5aa`. `python tools/run_quality_checks.py --base origin/main --run` PASSED(base `96fb90e8`): 575pass·30subtests·skip0·브라우저16건 누락0·compile PASS(712.92초). PR #846 생성·push 완료, 헤드가 전달한 opus 검수는 `77c5561e` 코드 APPROVE다. 이후 변경은 이 절과 근거 문서의 손상된 한글 복원뿐이다. 최종 SHA는 PR HEAD를 따른다. 남은 단계는 헤드의 병합과 서버 배포다. 운영 DB/포트 미사용, 병합·배포 없음.
 
 ## 2026-11-13 PR #841 opus 변경 요청 반영 — 근거 개정 경로·일반 동기화
 

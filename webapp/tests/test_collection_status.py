@@ -89,6 +89,13 @@ class EvaluateTests(unittest.TestCase):
         self.assertIn('판정 없는 정상 거래', markup)
         _assert_clean(markup)
 
+    def test_schedule_unavailable_from_google_sync_is_shown_inline(self):
+        markup = render_html({'now': NOW, 'sources': [], 'p2': None,
+                              'normal_undecided': 0,
+                              'trip_import': {'schedule_unavailable': 1}})
+        self.assertIn('Google 여행 일정 근거 파일을 읽지 못했습니다.', markup)
+        self.assertIn("aria-label='수집 상태'", markup)
+
 
 class GatherTests(unittest.TestCase):
     def setUp(self):
