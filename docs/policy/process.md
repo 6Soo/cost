@@ -158,7 +158,7 @@ P2 에이전트(구독 프론티어 모델)에는 판정에 필요한 원문 전
 P2는 구독 에이전트 CLI로 실행한다. `codex/gpt-6.1-sol`이 기본이고 `claude/opus`가 대체다. 건당 과금되는 API·새 키·승인되지 않은 유료 자원으로 자동 전환하지 않는다.
 
 - 조건·예외: 한도·실패는 대기와 재시도로 처리한다. 무료 모델로의 교체는 작업 유형별 확인을 거친 뒤에만 한다(통합 명세 §11.4).
-- 코드와 다른 점: app/connected_agent_provider.py는 무료 OpenCode 모델만 허용한다. M2에서 실행기를 바꾼다.
+- 코드와 다른 점: app/connected_agent_provider.py의 무료 OpenCode 모델 호출 경로는 제거됐고(PR #860) 공용 유틸만 남았다. P2 실행은 app/frontier_agent_provider.py(Codex) 경로이며, M2에서 이 경로로 P2를 연결한다.
 - 대체된 옛 규칙:
   - 기존 승인된 연결 에이전트·프로바이더 계약만 사용한다. — 2026-11-10·11 사용자 결정으로 대체
 - 출처: `docs/specs/autonomous-expense-cleanup-20261105.md:58`, `docs/specs/status-and-inference-stages-20261102.md:11`, `docs/specs/participants.md:144`, `docs/specs/participants.md:175`, `docs/specs/google-ledger.md:77`
