@@ -569,3 +569,18 @@ def test_known_failure_inventory_change_selects_its_quality_gate():
     plan = quality.build_plan(["config/known-test-failures.txt"],
                               selector(["config/known-test-failures.txt"]))
     assert "tests/test_quality_checks.py" in plan["pytest_targets"]
+
+
+def test_core_change_requires_cargo_steps():
+    plan = quality.build_plan(["core/Cargo.toml"], selector([], targets=["tests/test_quality_checks.py"]))
+    assert plan["rust_required"] is True
+    assert {"cargo-fmt", "cargo-clippy", "cargo-test"} <= set(plan["steps"])
+    other = quality.build_plan(["app/ledger.py"], selector([]))
+    assert other["rust_required"] is False and "cargo-test" not in other["steps"]
+
+
+def test_missing_cargo_fails_instead_of_skipping(monkeypatch, tmp_path):
+    monkeypatch.setattr(quality, "find_cargo", lambda: None)
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        result = quality.run_cargo_steps(log, root=tmp_path)
+    assert result["status"] == "FAILED" and result["reason"] == "CARGO_NOT_FOUND"

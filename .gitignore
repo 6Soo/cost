@@ -27,3 +27,6 @@ outputs/agoda-benchmark-*.json
 
 # Cost reconciliation visual outputs (generated artifacts)
 cost-reconciliation.*
+
+# Rust core build output
+core/target/
