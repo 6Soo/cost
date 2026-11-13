@@ -112,7 +112,8 @@ def test_lodging_block_parses_period_status_rooms_and_display_fare():
     assert fact['service_start_on'] == '2031-10-23' and fact['service_end_on'] == '2031-10-24'
     assert fact['reservation_status'] == 'completed'
     assert fact['display_amount_krw'] == 123456 and fact['display_currency'] == 'KRW'
-    assert fact['identity_kind'] == 'confirmation_token'
+    assert fact['identity_kind'] == 'content_hash'
+    assert fact['confirmation_token'] == 'abcdef1234567890'
 
 
 def test_flight_block_parses_route_leg_airline_and_period():
@@ -122,7 +123,8 @@ def test_flight_block_parses_route_leg_airline_and_period():
     assert fact['passengers'] == 1
     assert fact['service_start_on'] == '2031-10-23' and fact['service_end_on'] == '2031-10-23'
     assert fact['display_amount_krw'] == 111222
-    assert fact['identity_kind'] == 'confirmation_token'
+    assert fact['identity_kind'] == 'content_hash'
+    assert fact['confirmation_token'] == '0123456789abcdef0123456789abcdef'
 
 
 def test_round_trip_is_one_booking_spanning_both_legs():
@@ -175,6 +177,16 @@ def test_content_identity_is_order_independent():
         assert {f['booking_number'] for f in again} == base_ids
 
 
+def test_same_hotel_period_and_status_but_different_room_counts_have_distinct_ids():
+    text = _blocks_text([
+        ['가상호텔', '10월 23일 ~ 10월 24일₩123,456', '객실 1개도쿠시마', '완료'],
+        ['가상호텔', '10월 23일 ~ 10월 24일₩123,456', '객실 2개도쿠시마', '완료'],
+    ])
+    facts = parse_trip(trip_record(text))
+    assert [fact['rooms'] for fact in facts] == [1, 2]
+    assert len({fact['booking_number'] for fact in facts}) == 2
+
+
 def test_reordered_recapture_adds_no_duplicates(tmp_path, capsys):
     captures = tmp_path / 'capture'
     write_capture(captures, [trip_record(_blocks_text(MULTI_BLOCKS))])
@@ -214,10 +226,36 @@ def test_apply_gate_refuses_missing_stale_or_changed_backup(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out.splitlines()[-1])['error'] == 'BACKUP_NOT_FRESH'
 
 
-def test_confirmation_token_identity_is_stable_across_observations():
+def test_supplier_reservation_number_takes_precedence_over_content_hash():
+    text = LODGING_TEXT.replace('완료', '예약 번호: ABCD-1234\n완료')
+    fact, = parse_trip(trip_record(text, LODGING_SNAPSHOT))
+    assert fact['booking_number'] == 'ABCD-1234'
+    assert fact['identity_kind'] == 'supplier_reservation_number'
+
+
+def test_confirmation_token_presence_does_not_change_reservation_identity():
     first, = parse_trip(trip_record(LODGING_TEXT, LODGING_SNAPSHOT))
-    again, = parse_trip(trip_record(LODGING_TEXT, LODGING_SNAPSHOT, trip_id='trip-other'))
+    again, = parse_trip(trip_record(LODGING_TEXT, '', trip_id='trip-other'))
     assert first['booking_number'] == again['booking_number']
+    assert first['identity_kind'] == again['identity_kind'] == 'content_hash'
+    assert first['confirmation_token'] != again.get('confirmation_token')
+
+
+def test_import_tokened_then_tokenless_recapture_is_duplicate(tmp_path, capsys):
+    captures = tmp_path / 'capture'
+    tokened = trip_record(LODGING_TEXT, LODGING_SNAPSHOT)
+    write_capture(captures, [tokened])
+    db = isolated_store(tmp_path)
+    args = ['--directory', str(captures), '--store', str(db)]
+    assert main(args + isolated_apply_args(db)) == 0
+    first = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert first['inserted'] == first['additional'] == 1
+
+    write_capture(captures, [trip_record(LODGING_TEXT, '')])
+    assert main(args + isolated_apply_args(db)) == 0
+    replay = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert replay['inserted'] == replay['additional'] == 0
+    assert replay['duplicate'] == 1 and replay['conflict'] == 0
 
 
 def test_records_require_bound_list_identity_and_period(tmp_path):
@@ -230,7 +268,7 @@ def test_records_require_bound_list_identity_and_period(tmp_path):
         list(records(tmp_path))
 
 
-def test_import_preview_append_replay_and_conflict_never_overwrite(tmp_path, capsys):
+def test_import_preview_append_replay_and_changed_period_uses_new_content_identity(tmp_path, capsys):
     captures = tmp_path / 'capture'
     write_capture(captures, [trip_record(LODGING_TEXT, LODGING_SNAPSHOT)])
     db = isolated_store(tmp_path)
@@ -249,9 +287,13 @@ def test_import_preview_append_replay_and_conflict_never_overwrite(tmp_path, cap
     changed = trip_record(LODGING_TEXT.replace('10월 24일', '10월 25일'), LODGING_SNAPSHOT)
     write_capture(captures, [changed])
     assert main(args + isolated_apply_args(db)) == 0
-    conflict = json.loads(capsys.readouterr().out.splitlines()[-1])
-    assert conflict['conflict'] == 1 and conflict['inserted'] == 0
-    assert before == db.read_bytes()
+    changed_plan = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert changed_plan['additional'] == changed_plan['inserted'] == 1
+    assert changed_plan['conflict'] == 0
+    assert before != db.read_bytes()
+    store = OtaStore(db)
+    assert store.conn.execute('SELECT count(*) FROM ota_bookings').fetchone()[0] == 2
+    store.close()
 
 
 def test_append_only_preserves_existing_source_rows(tmp_path, capsys):

@@ -5,12 +5,10 @@ tree}. The rendered text names each booking's property or route, its stay or dep
 its status (완료/취소됨) and a KRW display fare. Blocks are read from the text so a capture whose
 accessibility tree came from another tab still parses.
 
-Each booking's confirmation anchor in the accessibility tree (lodging ``confirmation.ko.html`` /
-``mybooking_archivedsummary.ko.html`` with an ``auth_key``; flights ``flights.booking.com/
-confirmation/<token>``) supplies a stable opaque identity when the tree lines up with the text
-block for block. Otherwise a normalized hash of the booking content (property or route name,
-service period and status) identifies it; bookings whose content is identical are separated by a
-deterministic occurrence index, so a re-capture in any block order adds no duplicates.
+Identity does not depend on the accessibility tree: an explicit supplier reservation number is
+used by itself; otherwise a normalized hash of the property or route, service period, status and
+room count is used. Confirmation URL tokens are retained only as ancillary evidence when the tree
+lines up with the text block. Identical content is separated by a deterministic occurrence index.
 
 The screen fare is a display amount: Booking shows lodging in the viewer's currency, so a KRW
 figure may be a conversion of the property's own currency and is never exact card-payment
@@ -37,6 +35,9 @@ _PRICE = re.compile(r'₩\s*([\d,]+)')
 _LODGING_RANGE = re.compile(r'(\d{1,2})월\s*(\d{1,2})일\s*~\s*(\d{1,2})월\s*(\d{1,2})일')
 _FLIGHT_LEG = re.compile(r'(\d{1,2})월\s*(\d{1,2})일\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2})월\s*(\d{1,2})일\s*(\d{1,2}:\d{2})')
 _ROOMS = re.compile(r'객실\s*(\d+)개\s*(.*)')
+_RESERVATION_NUMBER = re.compile(
+    r'^(?:예약\s*번호|확인\s*번호|confirmation\s*number|booking\s*number)\s*[:#：]?\s*([A-Z0-9-]+)$',
+    re.IGNORECASE)
 _PASSENGERS = re.compile(r'승객\s*(\d+)명')
 _ROUTE = re.compile(r'(.+?)\s*→\s*(.+)')
 _AIRLINE = re.compile(r'^(?:직항|경유)\s*(.*)')
@@ -94,18 +95,15 @@ def _flight_period(texts, anchor):
     return min(days).isoformat(), max(days).isoformat()
 
 
-def _identity(product_type, token):
-    return 'bkg-' + hashlib.sha256(f'{product_type}:{token}'.encode('utf-8')).hexdigest()[:20]
-
-
 def _content_key(fact):
-    """Stable reservation content used when no confirmation anchor lines up: name, period, status.
+    """Stable reservation content used when no supplier reservation number is shown.
 
     The display fare is deliberately left out. Booking may show a currency conversion that moves
     between captures, so a fare change must surface as an importer conflict, not a new booking.
     """
     return (fact['product_type'], ' '.join(str(fact['label']).split()),
-            fact['service_start_on'], fact['service_end_on'], fact['reservation_status'])
+            fact['service_start_on'], fact['service_end_on'], fact['reservation_status'],
+            fact.get('rooms'))
 
 
 def _content_order(fact):
@@ -117,7 +115,7 @@ def _content_order(fact):
 
 
 def _assign_content_identities(facts):
-    """Give token-less bookings an identity that does not depend on screen order.
+    """Give bookings without a supplier reference a content identity independent of tokens.
 
     Bookings sharing name·period·status are told apart by an occurrence index assigned after
     sorting on their displayed content, so reordering the blocks of a re-capture yields the same
@@ -244,19 +242,25 @@ def _parse_block(block, trip_id, anchor, observed_at):
             break
     airline = next((_AIRLINE.search(line)[1].strip() for line in block
                     if _AIRLINE.search(line) and _AIRLINE.search(line)[1].strip()), None)
+    reservation_number = next((match[1].strip() for line in block
+                               if (match := _RESERVATION_NUMBER.match(line))), None)
     if is_flight:
         start, end = _flight_period(block, anchor)
-        return _common_fields(trip_id, anchor, observed_at, block, 'flight', '항공료',
+        fact = _common_fields(trip_id, anchor, observed_at, block, 'flight', '항공료',
                               routes[0] if routes else label, start, end, status, amount,
                               None, None, airline, passengers, routes)
+        fact['supplier_reservation_number'] = reservation_number
+        return fact
     start, end = _lodging_period(joined, anchor)
     if city is None:
         city = next((line for line in block[1:]
                      if line not in _IGNORE and not _PRICE.search(line) and not _LODGING_RANGE.search(line)
                      and not _ROOMS.search(line) and not _PASSENGERS.search(line)
                      and not line.startswith(('완료', '취소됨', '취소')) and not _AIRLINE.search(line)), None)
-    return _common_fields(trip_id, anchor, observed_at, block, 'lodging', '숙박비', label,
+    fact = _common_fields(trip_id, anchor, observed_at, block, 'lodging', '숙박비', label,
                           start, end, status, amount, rooms, city, None, None, [])
+    fact['supplier_reservation_number'] = reservation_number
+    return fact
 
 
 def parse_trip(record):
@@ -280,16 +284,19 @@ def parse_trip(record):
                and all(ident[0] == fact['product_type'] and ident[2] == fact['label']
                        for ident, fact in zip(identities, facts)))
     snapshot_sha256 = hashlib.sha256((record.get('snapshot') or '').encode('utf-8')).hexdigest()
-    if aligned:
-        for ordinal, fact in enumerate(facts, 1):
-            product, token, _heading = identities[ordinal - 1]
-            fact['booking_number'] = _identity(product, token)
-            fact['identity_kind'] = 'confirmation_token'
-            fact['snapshot_sha256'] = snapshot_sha256
-    else:
-        _assign_content_identities(facts)
-        for fact in facts:
-            fact['snapshot_sha256'] = snapshot_sha256
+    content_facts = []
+    for ordinal, fact in enumerate(facts, 1):
+        if aligned:
+            _product, token, _heading = identities[ordinal - 1]
+            fact['confirmation_token'] = token
+        supplier_number = fact.get('supplier_reservation_number')
+        if supplier_number:
+            fact['booking_number'] = supplier_number
+            fact['identity_kind'] = 'supplier_reservation_number'
+        else:
+            content_facts.append(fact)
+        fact['snapshot_sha256'] = snapshot_sha256
+    _assign_content_identities(content_facts)
     if len({fact['booking_number'] for fact in facts}) != len(facts):
         raise ValueError('BOOKING_DUPLICATE_BLOCK')
     return facts

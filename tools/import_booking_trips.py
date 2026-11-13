@@ -26,7 +26,7 @@ from app.ota_store import OtaStore, connect_read, direct_facts, encoded
 ACCOUNT_KEY = 'booking-owner'  # Direct portal observations, separate from booking mail evidence.
 CONFLICT_FIELDS = ('service_start_on', 'service_end_on', 'display_amount_krw',
                    'reservation_status', 'product_type')
-VOLATILE_FIELDS = ('observed_at', 'snapshot_sha256')
+VOLATILE_FIELDS = ('observed_at', 'snapshot_sha256', 'confirmation_token')
 
 
 def _comparable(fact):
