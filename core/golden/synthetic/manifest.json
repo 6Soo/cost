@@ -1,0 +1,21 @@
+{
+  "files": {
+    "classify.jsonl": {
+      "cases": 178,
+      "sha256": "12aea9b9aa845e87c6ef92f1c9591e8a90584df3beefe94b4943c5b2f56bcaa1"
+    },
+    "ota_links.jsonl": {
+      "cases": 55,
+      "sha256": "d51764365554963d68a6f2468680fbed2887648fa8e1e606e77da46fc6eca6ea"
+    },
+    "plan.jsonl": {
+      "cases": 107,
+      "sha256": "9dc426aad251078071dcc94d97a892b02f280622d9ea59f6ce3038238de51329"
+    },
+    "refund_pairing.jsonl": {
+      "cases": 42,
+      "sha256": "85c680dc1499a8b178fc52826fb71468f31c109af5f0781af2336106e5d3ed29"
+    }
+  },
+  "protocol": "core-bridge/1"
+}
