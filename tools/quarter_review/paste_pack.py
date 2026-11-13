@@ -13,19 +13,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.google_tsv import EVIDENCE_TYPES, expense_tsv
+from app.ota_cash_use import EVIDENCE_LABEL
 from tools.quarter_review.pack import ROOT, prepare_rows, read_database
 
 
 # The shared Google TSV serializer has no required check for these two columns.
-# DATE-109 allows an unknown lodging/airfare service period to stay blank until the
-# next quarterly review. DATE-032 prevents inventing an inferred booking reference.
-# Existing persisted values are never discarded.
+# DATE-032 prevents inventing an inferred booking reference. Existing persisted
+# service periods are used as stored; absent periods stay blank for every category.
 EMPTY_FIELD_ALLOWLIST = {
-    "period": ("DATE-109",),
     "reservation_no": ("DATE-032",),
 }
-EMPTY_PERIOD_CATEGORIES = ("숙박비", "항공료")
-EMPTY_PERIOD_RULES = {"숙박비": "DATE-109", "항공료": "DATE-109"}
+PERIOD_NEXT_REVIEW_CATEGORIES = ("숙박비", "항공료")
+OTA_PAYEE_BY_EVIDENCE = {
+    EVIDENCE_LABEL["agoda"]: "아고다",
+    EVIDENCE_LABEL["klook"]: "클룩",
+    EVIDENCE_LABEL["trip"]: "트립닷컴",
+}
 
 
 def _evidence(row: dict) -> str | None:
@@ -51,7 +54,7 @@ def _period_blank_cause(row: dict) -> str:
     )
     if any(row.get(field) for field in evidence_fields):
         return "도구가 근거를 읽지 못함"
-    return "근거 없음"
+    return "저장 기간 없음"
 
 
 def _period_blank_counts(rows: list[dict]) -> dict:
@@ -66,15 +69,17 @@ def _period_blank_counts(rows: list[dict]) -> dict:
 
 def _tsv_row(row: dict) -> dict:
     evidence = _evidence(row)
-    period = row.get("period", row.get("service_period")) or ""
+    period = row.get("period") or row.get("service_period") or ""
     reservation = row.get("reservation_no", row.get("booking_ref")) or ""
+    payee = row.get("merchant") or row.get("payee") or OTA_PAYEE_BY_EVIDENCE.get(
+        row.get("evidence") or row.get("evidence_type"), "")
     row_id = row.get("transaction_id") or row.get("row_id")
     if not isinstance(row_id, str):
         row_id = ""
     return {
         "transaction_id": row_id,
         "date": row.get("occurred_on") or row.get("approval_date") or row.get("posting_date") or "",
-        "payee": row.get("merchant") or row.get("payee") or "",
+        "payee": payee,
         "category": row.get("item") or "",
         "period": period,
         "reservation_no": reservation,
@@ -85,9 +90,6 @@ def _tsv_row(row: dict) -> dict:
 
 
 def _empty_allowed(row: dict, field: str) -> bool:
-    if field == "period":
-        rule = EMPTY_PERIOD_RULES.get(row.get("category"))
-        return bool(rule and rule in EMPTY_FIELD_ALLOWLIST.get(field, ()))
     if field == "reservation_no":
         return bool(EMPTY_FIELD_ALLOWLIST.get(field))
     return False
@@ -97,7 +99,7 @@ def _export_rows(rows: list[dict]) -> dict:
     shaped = [_tsv_row(row) for row in rows]
     held = []
     for row in shaped:
-        for field in ("period", "reservation_no"):
+        for field in ("reservation_no",):
             if not row[field] and not _empty_allowed(row, field):
                 held.append({"transaction_id": row["transaction_id"], "reason": "FIELD_MISSING"})
                 break
@@ -131,7 +133,11 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
         filename = f"trip-{index:03d}.tsv"
         (out / filename).write_text(result["tsv"], encoding="utf-8", newline="")
         ledger_total = data.get("tab_expense_totals", {}).get(tab_id, 0)
-        matches = ledger_total == result["total_krw"]
+        refund_rows = [row for row in trip_rows[tab_id] if row.get("refund_tab_row")]
+        refund_total = sum(row["amount_krw"] for row in refund_rows
+                           if type(row.get("amount_krw")) is int)
+        comparison_total = ledger_total + refund_total
+        matches = comparison_total == result["total_krw"]
         causes = Counter(result["held_reason_counts"])
         causes["NO_LEDGER_ROW"] += excluded.get("no_ledger_by_tab", {}).get(tab_id, 0)
         causes += Counter()
@@ -141,6 +147,9 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
             "row_count": result["row_count"],
             "total_krw": result["total_krw"],
             "ledger_total_krw": ledger_total,
+            "refund_tab_row_count": len(refund_rows),
+            "refund_tab_total_krw": refund_total,
+            "comparison_total_krw": comparison_total,
             "total_matches_ledger": matches,
             "held_count": len(result["held"]),
             "held_reasons": result["held_reason_counts"],
@@ -177,6 +186,9 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
             "row_count": other["row_count"],
             "total_krw": other["total_krw"],
             "ledger_total_krw": other_total,
+            "refund_tab_row_count": 0,
+            "refund_tab_total_krw": 0,
+            "comparison_total_krw": other_total,
             "total_matches_ledger": other_match,
             "held_count": len(other["held"]),
             "held_reasons": other["held_reason_counts"],
@@ -188,14 +200,13 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path) -> dict:
         "held_status": "보류 0 달성" if held_count == 0 else "보류 0 미달",
         "completeness": "complete" if not mismatches else "mismatch",
         "mismatch_count": len(mismatches),
+        "completeness_reason_counts": ({"TAB_TOTAL_MISMATCH": len(mismatches)}
+                                        if mismatches else {}),
         "tab_totals_match_count": sum(s["total_matches_ledger"] for s in summaries) + other_match,
         "tab_total_count": len(summaries) + 1,
-        "excluded_reason_counts": {
-            "NO_LEDGER_ROW": excluded.get("no_ledger_row", 0),
-            "REFUND_TAB_ROW": excluded.get("refund_tab", 0),
-        },
+        "excluded_reason_counts": {"NO_LEDGER_ROW": excluded.get("no_ledger_row", 0)},
         "empty_field_allowlist": {key: list(value) for key, value in EMPTY_FIELD_ALLOWLIST.items()},
-        "empty_period_categories": list(EMPTY_PERIOD_CATEGORIES),
+        "period_next_quarter_review_categories": list(PERIOD_NEXT_REVIEW_CATEGORIES),
     }
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
                                        encoding="utf-8")

@@ -22,13 +22,12 @@ def row(identity="a", amount=1200, **values):
     }
 
 
-def test_exports_existing_seven_column_contract_and_allowlisted_empty_values():
+def test_exports_existing_seven_column_contract_with_optional_empty_period():
     result = paste_pack._export_rows([row()])
     assert result["tsv"] == "2026-07-01\t합성 거래처\t식비\t2026-07-01\t\t카드\t1200\n"
     assert result["row_count"] == 1
     assert result["total_krw"] == 1200
     assert result["held"] == []
-    assert paste_pack.EMPTY_FIELD_ALLOWLIST["period"] == ("DATE-109",)
     assert paste_pack.EMPTY_FIELD_ALLOWLIST["reservation_no"] == ("DATE-032",)
 
 
@@ -67,32 +66,40 @@ def test_cash_evidence_labels_are_preserved_and_card_receipt_contract_is_unchang
     }], layout="rev")["tsv"].split("\t")[5] == "영수증"
 
 
-def test_weak_inference_does_not_create_optional_period_or_reference_values():
+def test_cash_rows_use_provider_name_when_merchant_is_blank():
+    for label, provider in (("클룩 포인트", "클룩"), ("아고다캐시", "아고다"),
+                            ("트립코인", "트립닷컴")):
+        result = paste_pack._export_rows([row(evidence_type=label, merchant="", service_period="")])
+        assert result["row_count"] == 1
+        assert result["tsv"].splitlines()[0].split("\t")[1] == provider
+
+
+def test_empty_period_does_not_block_export_or_invent_a_date():
     result = paste_pack._export_rows([row(classification_source="ai_inference", service_period="")])
-    assert result["row_count"] == 0
-    assert result["held_reason_counts"] == {"FIELD_MISSING": 1}
+    assert result["row_count"] == 1
+    assert result["tsv"].splitlines()[0].split("\t")[3] == ""
+    assert result["held_reason_counts"] == {}
 
 
-def test_date_109_allows_unknown_lodging_and_airfare_periods():
-    result = paste_pack._export_rows([row("stay", item="숙박비", service_period=""),
-                                      row("flight", item="항공료", service_period="")])
-    assert result["row_count"] == 2
+def test_empty_period_is_allowed_for_all_categories_and_reported_by_item():
+    result = paste_pack._export_rows([
+        row("stay", item="숙박비", service_period=""),
+        row("flight", item="항공료", service_period=""),
+        row("meal", item="식비", service_period=""),
+    ])
+    assert result["row_count"] == 3
     assert all(line.split("\t")[3] == "" for line in result["tsv"].splitlines())
-    assert paste_pack.EMPTY_PERIOD_CATEGORIES == ("숙박비", "항공료")
-    assert paste_pack._export_rows([row("meal", item="식비", service_period="")])["held_reason_counts"] == {
-        "FIELD_MISSING": 1,
-    }
-    assert paste_pack._empty_allowed({"category": "식비"}, "period") is False
-    assert paste_pack._empty_allowed({"category": "숙박비"}, "period") is True
+    assert paste_pack.PERIOD_NEXT_REVIEW_CATEGORIES == ("숙박비", "항공료")
+    assert result["held_reason_counts"] == {}
 
 
-def test_lodging_period_blank_requires_the_policy_allowlist(monkeypatch):
+def test_period_blank_does_not_depend_on_an_allowlist(monkeypatch):
     monkeypatch.setattr(paste_pack, "EMPTY_FIELD_ALLOWLIST", {
-        "period": (), "reservation_no": ("DATE-032",),
+        "reservation_no": ("DATE-032",),
     })
     result = paste_pack._export_rows([row(item="숙박비", service_period="")])
-    assert result["row_count"] == 0
-    assert result["held_reason_counts"] == {"FIELD_MISSING": 1}
+    assert result["row_count"] == 1
+    assert result["held_reason_counts"] == {}
 
 
 def test_per_tab_and_quarter_other_summaries_and_files(tmp_path, monkeypatch):
@@ -135,7 +142,7 @@ def test_held_rows_make_tab_total_mismatch_and_record_reason(tmp_path, monkeypat
     assert summary["trips"][0]["difference_causes"] == {"EVIDENCE_UNKNOWN": 1}
 
 
-def test_screen_refund_rows_are_not_moved_to_trip_and_no_ledger_cards_are_counted(tmp_path, monkeypatch):
+def test_paste_pack_includes_refunds_on_original_trip_and_counts_no_ledger_cards(tmp_path, monkeypatch):
     from tools.quarter_review.pack import prepare_rows
 
     trips = [{"tab_id": "trip-a", "display_key": "synthetic trip A", "starts_on": "2026-07-01"}]
@@ -145,33 +152,39 @@ def test_screen_refund_rows_are_not_moved_to_trip_and_no_ledger_cards_are_counte
                 "classification_state": "classified", "classification_source": "user_decision",
                 "item": "식비", "merchant": "합성 거래처", "evidence_type": "카드", **values}
     refund = transaction("refund", -200, display_tab_id="refunds")
+    refund_positive = transaction("refund-positive", 50, display_tab_id="refunds")
     no_ledger = transaction("no-ledger", 300)
     normal = transaction("normal", 100, service_period="2026-07-01")
     saved_normal = {**normal, "row_id": "card-normal", "row_kind": "expense",
                     "display_amount_krw": 100, "display_occurred_on": "2026-07-01"}
     saved_refund = {**refund, "row_id": "card-refund", "row_kind": "expense",
                     "display_amount_krw": -200, "display_occurred_on": "2026-07-01"}
-    data = {"trip_tabs": trips, "transactions": [refund, no_ledger, normal],
-            "board_projected": [saved_refund, saved_normal], "change_log": [],
+    saved_refund_positive = {**refund_positive, "row_id": "card-refund-positive", "row_kind": "expense",
+                             "display_amount_krw": 50, "display_occurred_on": "2026-07-01"}
+    data = {"trip_tabs": trips, "transactions": [refund, refund_positive, no_ledger, normal],
+            "board_projected": [saved_refund, saved_refund_positive, saved_normal], "change_log": [],
             "manual_fields": {}, "manual_ids": set(), "company_exclusions": set()}
     selected_trips, selected_rows, excluded = prepare_rows(
         data, 2026, 3, screen_tab_membership=True
     )
     assert selected_trips == trips
-    assert [item["transaction_id"] for item in selected_rows] == ["normal"]
-    assert excluded["refund_tab"] == 1
+    assert {item["transaction_id"] for item in selected_rows} == {"normal", "refund", "refund-positive"}
+    assert [item["amount_krw"] for item in selected_rows if item.get("refund_tab_row")] == [-200, 50]
     assert excluded["no_ledger_row"] == 1
     assert excluded["no_ledger_by_tab"] == {"trip-a": 1}
 
     monkeypatch.setattr(paste_pack, "prepare_rows", lambda *_args, **_kwargs: (
         trips, selected_rows, excluded
     ))
-    summary = paste_pack.build_paste_pack({"tab_expense_totals": {"trip-a": 300,
+    summary = paste_pack.build_paste_pack({"tab_expense_totals": {"trip-a": 100,
         "quarter:2026:3": 0}}, 2026, 3, tmp_path)
-    assert summary["trips"][0]["total_krw"] == 100
-    assert summary["trips"][0]["ledger_total_krw"] == 300
-    assert summary["trips"][0]["difference_causes"] == {"NO_LEDGER_ROW": 1}
-    assert summary["excluded_reason_counts"] == {"NO_LEDGER_ROW": 1, "REFUND_TAB_ROW": 1}
+    assert summary["trips"][0]["total_krw"] == -50
+    assert summary["trips"][0]["ledger_total_krw"] == 100
+    assert summary["trips"][0]["refund_tab_row_count"] == 2
+    assert summary["trips"][0]["refund_tab_total_krw"] == -150
+    assert summary["trips"][0]["comparison_total_krw"] == -50
+    assert summary["trips"][0]["total_matches_ledger"] is True
+    assert summary["excluded_reason_counts"] == {"NO_LEDGER_ROW": 1}
 
 
 def test_period_blank_cause_counts_are_by_item_and_evidence_signal():
@@ -180,7 +193,7 @@ def test_period_blank_cause_counts_are_by_item_and_evidence_signal():
         row("tool", item="숙박비", booking_ref="SYNTHETIC", service_period=""),
         row("air", item="항공료", service_period_conflict=True, service_period=""),
     ]) == {
-        "숙박비": {"근거 없음": 1, "도구가 근거를 읽지 못함": 1},
+        "숙박비": {"저장 기간 없음": 1, "도구가 근거를 읽지 못함": 1},
         "항공료": {"도구가 근거를 읽지 못함": 1},
     }
 

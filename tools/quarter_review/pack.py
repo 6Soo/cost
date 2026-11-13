@@ -230,12 +230,14 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_m
         row_id = 'card-' + raw['transaction_id']
         saved = board.get(row_id)
         row = dict(saved or {})
+        source_trip_id = raw.get('trip_id') or row.get('trip_id')
         # Card source amounts/signs remain authoritative; do not add ledger copies.
         row.update(raw, row_id=row_id, row_kind='expense', occurred_on=raw.get('approval_date') or raw.get('posting_date') or '')
-        # Paste-pack tab membership follows the row shown by the ledger, never the
-        # card's inferred trip_id. ITEM-011 refund rows stay on refunds.
+        # Membership begins with the row shown by the ledger. The paste-pack
+        # projection applies RFND-070 to refund rows after preserving that screen tab.
         if screen_tab_membership and saved is not None:
             row['display_tab_id'] = saved.get('display_tab_id')
+            row['_paste_original_trip_id'] = source_trip_id
         for field in data.get('manual_fields', {}).get(row_id, ()):
             if field in {'item', 'display_tab_id', 'trip_id', 'service_period'} and field in board.get(row_id, {}):
                 row[field] = board[row_id][field]
@@ -246,9 +248,16 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_m
                       and not r['row_id'].startswith('card-'))
     for row in candidates:
         identity = row.get('display_tab_id')
+        refund_tab_row = False
         if screen_tab_membership and identity == 'refunds':
-            excluded['refund_tab'] += 1
-            continue
+            refund_trip_id = row.get('_paste_original_trip_id') or row.get('trip_id')
+            if refund_trip_id in target:
+                # The ledger keeps the row on Refunds (ITEM-011); Google paste
+                # output follows RFND-070 and returns it to its original trip.
+                identity = refund_trip_id
+                refund_tab_row = True
+            else:
+                continue
         if identity in (None, '', 'unclassified'):
             identity = row.get('trip_id')
         # Only stored quarter destinations count; an unassigned normal row is a metric,
@@ -276,6 +285,7 @@ def prepare_rows(data, year, quarter, recent_since='2026-11-11', *, screen_tab_m
                 no_ledger_by_tab[identity] += 1
             continue
         row['display_tab_id'] = identity
+        row['refund_tab_row'] = refund_tab_row
         row['trip'] = target[identity]['display_key'] if identity in target else f'{year}년 {quarter}분기 기타비용'
         row['amount_krw'] = shown_amount(row)
         row['manual'] = row['row_id'] in data.get('manual_ids', set()) or row.get('decided_at') is not None or row.get('classification_source') in MANUAL
