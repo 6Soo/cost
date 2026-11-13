@@ -1,11 +1,10 @@
 //! 권위 있는 여행 기간·지역 선택. 원본: `app/trip_selection.py`.
 
-use super::region::{is_booking_or_online, transaction_region, trip_region};
+use super::region::trip_region;
 use super::{Trip, Txn};
 use crate::dates::{open_trip_end, parse_iso};
-use regex::Regex;
+use crate::region::{is_booking_or_online, is_fukutake_purchase, transaction_region};
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 pub const FUKUTAKE_BASIS: &str =
     "사용자 규칙: FUKUTAKE FOUNDATION · 결제일 당일 또는 이후 가장 가까운 세토우치 출발일";
@@ -100,17 +99,6 @@ impl Canonical {
     pub fn is_empty(&self) -> bool {
         self.trips.is_empty()
     }
-}
-
-static FUKUTAKE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^FUKUTAKE\s+FOUNDATION(?:\b|$)").expect("fukutake regex"));
-
-pub fn is_fukutake_purchase(t: &Txn) -> bool {
-    FUKUTAKE.is_match(t.merchant.trim())
-        && t.transaction_direction.as_deref().unwrap_or("purchase") == "purchase"
-        && t.parse_error.is_empty()
-        && t.duplicate_of.is_empty()
-        && t.conflict_reason.is_empty()
 }
 
 /// FUKUTAKE 규칙 밖이면 `None`, 아니면 결제일 당일 또는 이후 가장 가까운 세토우치 출발일의 여행들(ID 순).

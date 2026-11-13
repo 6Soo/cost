@@ -12,6 +12,7 @@ mod region;
 mod select;
 mod stay;
 
+pub use crate::region::is_fukutake_purchase;
 pub use candidates::{Candidate, card_trip_candidates};
 pub use infer::{
     InferOptions, OwnerPolicy, card3820_owner_policy, infer_item, infer_trip, infer_trip_in,
@@ -21,8 +22,8 @@ pub use region::{
     trip_countries, trip_region,
 };
 pub use select::{
-    Canonical, FUKUTAKE_BASIS, card_trip_allowed, fukutake_trips, is_fukutake_purchase,
-    period_or_preparation, regional_trips,
+    Canonical, FUKUTAKE_BASIS, card_trip_allowed, fukutake_trips, period_or_preparation,
+    regional_trips,
 };
 pub use stay::{BookingPeriod, booking_trip, stay_trip};
 
@@ -74,6 +75,35 @@ pub struct Txn {
     /// Python `type(amount_krw) is int`일 때만 값이 있다.
     pub amount_krw: Option<i64>,
     pub raw_row: BTreeMap<String, String>,
+}
+
+impl crate::region::TxnView for Txn {
+    fn text(&self, key: &str) -> String {
+        match key {
+            "merchant" => &self.merchant,
+            "approval_date" => &self.approval_date,
+            "posting_date" => &self.posting_date,
+            "card_kind" => &self.card_kind,
+            "card_tail" => &self.card_tail,
+            "issuer" => &self.issuer,
+            "foreign_currency" => &self.foreign_currency,
+            "description_raw" => &self.description_raw,
+            "transaction_kind" => &self.transaction_kind,
+            "parse_error" => &self.parse_error,
+            "duplicate_of" => &self.duplicate_of,
+            "conflict_reason" => &self.conflict_reason,
+            _ => "",
+        }
+        .to_string()
+    }
+
+    fn raw_text(&self, key: &str) -> String {
+        self.raw_row.get(key).cloned().unwrap_or_default()
+    }
+
+    fn direction(&self) -> Option<String> {
+        self.transaction_direction.clone()
+    }
 }
 
 /// 여행별 수입-비용 차액(`nets`).

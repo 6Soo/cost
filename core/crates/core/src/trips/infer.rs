@@ -1,13 +1,14 @@
 //! 여행 추론. 원본: `app/automatic_classification.py`의 `infer_trip`·`infer_item`·`_card3820_owner_policy`.
 
 use super::candidates::card_trip_candidates;
-use super::region::{is_online_purchase_for_owner_card, transaction_region};
+use super::region::is_online_purchase_for_owner_card;
 use super::select::{
-    Canonical, FUKUTAKE_BASIS, card_trip_allowed, fukutake_trips, is_fukutake_purchase,
-    period_or_preparation, regional_trips,
+    Canonical, FUKUTAKE_BASIS, card_trip_allowed, fukutake_trips, period_or_preparation,
+    regional_trips,
 };
 use super::{Nets, Trip, Txn};
 use crate::dates::{CardRow, Evidence, RowDates, TripTab, excluded, parse_iso, quarter_of};
+use crate::region::{is_fukutake_purchase, transaction_region};
 use regex::Regex;
 use std::sync::LazyLock;
 

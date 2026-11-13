@@ -8,8 +8,6 @@ use super::builtin::Builtin;
 use super::classify::{STATE_CLASSIFIED, STATE_NEEDS_REVIEW, Verdict};
 use super::matching::Transaction;
 use crate::dates::{parse_iso, quarter_of};
-use regex::Regex;
-use std::sync::LazyLock;
 
 /// 여행 해석기에 묻는 질문. Python `trip_resolver(transaction, hint)`의 `hint`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,22 +192,6 @@ impl InferredOrigin {
     }
 }
 
-static FUKUTAKE_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^FUKUTAKE\s+FOUNDATION\b").unwrap());
-
-/// `is_fukutake_purchase`(`app/trip_selection.py:13`).
-pub(super) fn is_fukutake_purchase(txn: &Transaction) -> bool {
-    let direction_ok = match txn.get("transaction_direction") {
-        None => true,
-        Some(v) => v.as_str() == Some("purchase"),
-    };
-    FUKUTAKE_NAME.is_match(txn.text("merchant").trim())
-        && direction_ok
-        && !["parse_error", "duplicate_of", "conflict_reason"]
-            .iter()
-            .any(|k| txn.has(k))
-}
-
 fn refund_like(txn: &Transaction) -> bool {
     let kind = txn.text("transaction_kind").to_lowercase();
     ["refund", "cancel", "취소", "승인"]
@@ -362,6 +344,7 @@ pub(super) fn residual(txn: &Transaction, verdict: Verdict, builtin: &Builtin) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::region::is_fukutake_purchase;
 
     #[test]
     fn every_exception_and_origin_names_policy_rules() {
