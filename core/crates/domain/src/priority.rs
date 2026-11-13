@@ -25,9 +25,13 @@ pub enum OverrideDenied {
     RaiseCause(RaiseCause),
     #[error("다른 대상의 판정이다")]
     SubjectMismatch,
+    #[error("다른 확정 규칙의 판정은 덮을 수 없다(두 규칙 충돌)")]
+    ExactRuleConflict { existing: RuleId, proposed: RuleId },
+    #[error("더 낮은 개정 번호의 제안이다")]
+    StaleRevision { existing: u32, proposed: u32 },
 }
 
-/// 표(기존 행 × 제안 열): 허용이면 `true`. 25칸을 그대로 적는다.
+/// 표(기존 행 × 제안 열): 허용이면 `true`. 25칸을 그대로 적는다.\n/// (P1Exact×P1Exact는 같은 규칙일 때만 허용 — `supersede`가 규칙 ID를 추가 검사한다.)
 pub const fn allowed(existing: ActorKind, proposed: ActorKind) -> bool {
     use ActorKind::{AiReview, Manual, P1Exact, P1Inferred, P2};
     match (existing, proposed) {
@@ -48,7 +52,24 @@ pub fn supersede(existing: &Decision, proposed: Decision) -> Result<Decision, Ov
     if existing.subject().key() != proposed.subject().key() {
         return Err(OverrideDenied::SubjectMismatch);
     }
+    if let (Some(er), Some(pr)) = (existing.subject().revision(), proposed.subject().revision())
+        && pr < er
+    {
+        return Err(OverrideDenied::StaleRevision {
+            existing: er,
+            proposed: pr,
+        });
+    }
     let (e, p) = (existing.actor().kind(), proposed.actor().kind());
+    if let (Actor::P1Exact { rule_id: a, .. }, Actor::P1Exact { rule_id: b, .. }) =
+        (existing.actor(), proposed.actor())
+        && a != b
+    {
+        return Err(OverrideDenied::ExactRuleConflict {
+            existing: a.clone(),
+            proposed: b.clone(),
+        });
+    }
     if allowed(e, p) {
         return Ok(proposed);
     }

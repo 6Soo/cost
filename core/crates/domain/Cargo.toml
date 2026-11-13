@@ -8,8 +8,9 @@ license.workspace = true
 publish = false
 
 [features]
-# RefundGroup·OpenScope 발급 함수를 연다. cost-links(U16)·U7만 켠다.
-issuer = []
+# 발급 기능은 허용 크레이트만 켠다(tests/issuer_allowlist.rs가 강제).
+refund-issuer = []
+scope-issuer = []
 
 [lints]
 workspace = true
@@ -21,3 +22,4 @@ time = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 proptest = "1"
+

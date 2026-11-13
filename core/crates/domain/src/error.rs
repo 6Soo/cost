@@ -26,6 +26,10 @@ pub enum DomainError {
     EmptyGroup,
     #[error("묶음 게시는 구성원 전체의 판정을 정확히 한 번씩 요구한다")]
     GroupPublicationMismatch,
+    #[error("P2·AI 검수 판정은 열린 범위 토큰이 있는 경로로만 만든다")]
+    MachineActorNeedsScope,
+    #[error("기계 판정 경로에는 P2·AI 검수 주체만 쓴다")]
+    NotMachineActor,
     #[error("열린 범위 밖이라 자동 교정할 수 없다")]
     OutsideOpenScope,
 }

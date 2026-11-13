@@ -21,6 +21,22 @@ fn allow() -> ItemAllowList {
     ItemAllowList::from_items(["식비".to_owned(), "교통".to_owned()])
 }
 
+fn source(id: &str, revision: u32, amount: &str) -> SourceTxn {
+    SourceTxn::new(
+        txn(id),
+        hash(),
+        revision,
+        Amount::parse(amount),
+        Direction::Purchase,
+        Date::from_calendar_date(2026, Month::November, 1).unwrap(),
+        "상점".into(),
+    )
+}
+
+fn card_subject(id: &str, revision: u32) -> Subject {
+    Subject::card(&source(id, revision, "1,000")).unwrap()
+}
+
 fn actor(kind: ActorKind) -> Actor {
     let rule = || RuleId::new("R-1").unwrap();
     let run = || RunId::new("run-1").unwrap();
@@ -56,12 +72,8 @@ fn decision_full(
     item: &str,
     attribution: Attribution,
 ) -> Decision {
-    Decision::new(DecisionDraft {
-        subject: Subject::CardTxn {
-            transaction_id: txn(id),
-            source_hash: hash(),
-            revision,
-        },
+    let draft = DecisionDraft {
+        subject: card_subject(id, revision),
         attribution,
         item: allow().item(item).unwrap(),
         description: "설명".into(),
@@ -71,8 +83,12 @@ fn decision_full(
         basis: Basis::new("근거").unwrap(),
         uncertainty: vec![],
         policy_refs: vec![PolicyRef::new("PROC-001").unwrap()],
-    })
-    .unwrap()
+    };
+    if matches!(kind, ActorKind::P2 | ActorKind::AiReview) {
+        Decision::new_machine(draft, &OpenScope::quarter(2026, Quarter::Q4)).unwrap()
+    } else {
+        Decision::new(draft).unwrap()
+    }
 }
 
 fn decision_for(id: &str, kind: ActorKind, item: &str) -> Decision {
@@ -144,17 +160,6 @@ fn supersede_rejects_other_subject() {
         supersede(&existing, proposed),
         Err(OverrideDenied::SubjectMismatch)
     );
-}
-
-#[test]
-fn supersede_ignores_revision_of_same_txn() {
-    let existing = decision(ActorKind::P1Inferred, "식비");
-    let q = Attribution::QuarterOther {
-        year: 2026,
-        quarter: Quarter::Q4,
-    };
-    let newer = decision_full("t1", 9, ActorKind::Manual, "교통", q);
-    assert!(supersede(&existing, newer).is_ok());
 }
 
 #[test]
@@ -315,20 +320,21 @@ fn quarter_range_and_display_tab_mapping() {
 fn machine_actors_cannot_refund_pair_but_exact_can() {
     let g = RefundGroup::new(RefundGroupId("g1".into()), vec![txn("a")]).unwrap();
     for kind in [ActorKind::P2, ActorKind::AiReview] {
-        let d = Decision::new(DecisionDraft {
-            subject: Subject::CashUse {
-                use_id: CashUseId::new("c").unwrap(),
+        let d = Decision::new_machine(
+            DecisionDraft {
+                subject: Subject::cash_use(CashUseId::new("c").unwrap()),
+                attribution: Attribution::RefundPair(g.id().clone()),
+                item: allow().item("식비").unwrap(),
+                description: String::new(),
+                service_period: ServicePeriod::unknown(UnknownPeriodReason::NotApplicable),
+                evidence: vec![],
+                actor: actor(kind),
+                basis: Basis::new("근거").unwrap(),
+                uncertainty: vec![],
+                policy_refs: vec![],
             },
-            attribution: Attribution::RefundPair(g.id().clone()),
-            item: allow().item("식비").unwrap(),
-            description: String::new(),
-            service_period: ServicePeriod::unknown(UnknownPeriodReason::NotApplicable),
-            evidence: vec![],
-            actor: actor(kind),
-            basis: Basis::new("근거").unwrap(),
-            uncertainty: vec![],
-            policy_refs: vec![],
-        });
+            &OpenScope::quarter(2026, Quarter::Q4),
+        );
         assert_eq!(
             d,
             Err(DomainError::RefundPairNotAllowedForActor),
@@ -339,23 +345,24 @@ fn machine_actors_cannot_refund_pair_but_exact_can() {
 
 #[test]
 fn machine_actor_basis_is_checked_in_decision_new() {
-    let d = Decision::new(DecisionDraft {
-        subject: Subject::Receipt {
-            receipt_id: ReceiptId::new("r").unwrap(),
+    let d = Decision::new_machine(
+        DecisionDraft {
+            subject: Subject::receipt(ReceiptId::new("r").unwrap()),
+            attribution: Attribution::QuarterOther {
+                year: 2026,
+                quarter: Quarter::Q1,
+            },
+            item: allow().item("식비").unwrap(),
+            description: String::new(),
+            service_period: ServicePeriod::unknown(UnknownPeriodReason::NoEvidence),
+            evidence: vec![],
+            actor: actor(ActorKind::P2),
+            basis: Basis::new("연락 a.b@example.com").unwrap(),
+            uncertainty: vec![],
+            policy_refs: vec![],
         },
-        attribution: Attribution::QuarterOther {
-            year: 2026,
-            quarter: Quarter::Q1,
-        },
-        item: allow().item("식비").unwrap(),
-        description: String::new(),
-        service_period: ServicePeriod::unknown(UnknownPeriodReason::NoEvidence),
-        evidence: vec![],
-        actor: actor(ActorKind::P2),
-        basis: Basis::new("연락 a.b@example.com").unwrap(),
-        uncertainty: vec![],
-        policy_refs: vec![],
-    });
+        &OpenScope::quarter(2026, Quarter::Q1),
+    );
     assert_eq!(d, Err(DomainError::BasisPrivateIdentifier));
     assert_eq!(
         Basis::new("가".repeat(601))
@@ -377,11 +384,7 @@ fn proposal(attr: ProposedAttribution) -> P2Proposal {
 
 fn ctx() -> P2Context {
     P2Context {
-        subject: Subject::CardTxn {
-            transaction_id: txn("t1"),
-            source_hash: hash(),
-            revision: 1,
-        },
+        subject: card_subject("t1", 1),
         description: "설명".into(),
         evidence: vec![],
         policy_refs: vec![],
@@ -473,4 +476,101 @@ fn id_and_ref_validation() {
         assert!(PolicyRef::new(bad).is_err(), "{bad}");
     }
     assert!(TripCatalog::from_snapshot(["".into(), " ".into()]).is_empty());
+}
+
+fn draft_with(actor_kind: ActorKind, subject: Subject, attribution: Attribution) -> DecisionDraft {
+    DecisionDraft {
+        subject,
+        attribution,
+        item: allow().item("식비").unwrap(),
+        description: String::new(),
+        service_period: ServicePeriod::unknown(UnknownPeriodReason::NoEvidence),
+        evidence: vec![],
+        actor: actor(actor_kind),
+        basis: Basis::new("근거").unwrap(),
+        uncertainty: vec![],
+        policy_refs: vec![],
+    }
+}
+
+fn q4() -> Attribution {
+    Attribution::QuarterOther {
+        year: 2026,
+        quarter: Quarter::Q4,
+    }
+}
+
+#[test]
+fn machine_actors_need_scope_token() {
+    for kind in [ActorKind::P2, ActorKind::AiReview] {
+        let d = Decision::new(draft_with(kind, card_subject("t1", 1), q4()));
+        assert_eq!(d, Err(DomainError::MachineActorNeedsScope), "{kind:?}");
+        let closed = OpenScope::quarter(2026, Quarter::Q1);
+        let d = Decision::new_machine(draft_with(kind, card_subject("t1", 1), q4()), &closed);
+        assert_eq!(d, Err(DomainError::OutsideOpenScope), "{kind:?}");
+        let open = OpenScope::quarter(2026, Quarter::Q4);
+        assert!(
+            Decision::new_machine(draft_with(kind, card_subject("t1", 1), q4()), &open).is_ok()
+        );
+    }
+    for kind in [ActorKind::Manual, ActorKind::P1Exact, ActorKind::P1Inferred] {
+        let open = OpenScope::quarter(2026, Quarter::Q4);
+        let d = Decision::new_machine(draft_with(kind, card_subject("t1", 1), q4()), &open);
+        assert_eq!(d, Err(DomainError::NotMachineActor), "{kind:?}");
+    }
+}
+
+#[test]
+fn unreadable_amount_txn_cannot_become_subject_or_decision() {
+    for raw in ["", "abc", "1.5", "99999999999999999999"] {
+        let txn = source("u1", 1, raw);
+        assert!(matches!(
+            Subject::card(&txn),
+            Err(ProtectionReason::AmountUnreadable(_))
+        ));
+    }
+    assert!(Subject::card(&source("ok", 1, "0")).is_ok());
+}
+
+#[test]
+fn exact_over_exact_only_for_same_rule() {
+    let with_rule = |rule: &str, version: u32| {
+        let mut draft = draft_with(ActorKind::P1Exact, card_subject("t1", 1), q4());
+        draft.actor = Actor::P1Exact {
+            rule_id: RuleId::new(rule).unwrap(),
+            rule_version: version,
+        };
+        Decision::new(draft).unwrap()
+    };
+    let existing = with_rule("R-1", 1);
+    assert!(supersede(&existing, with_rule("R-1", 2)).is_ok());
+    assert_eq!(
+        supersede(&existing, with_rule("R-2", 1)),
+        Err(OverrideDenied::ExactRuleConflict {
+            existing: RuleId::new("R-1").unwrap(),
+            proposed: RuleId::new("R-2").unwrap()
+        })
+    );
+}
+
+#[test]
+fn lower_revision_cannot_supersede_higher() {
+    let q = q4();
+    let newer = decision_full("t1", 5, ActorKind::P1Inferred, "식비", q.clone());
+    let older = decision_full("t1", 4, ActorKind::Manual, "교통", q.clone());
+    assert_eq!(
+        supersede(&newer, older),
+        Err(OverrideDenied::StaleRevision {
+            existing: 5,
+            proposed: 4
+        })
+    );
+    assert!(
+        supersede(
+            &newer,
+            decision_full("t1", 5, ActorKind::Manual, "교통", q.clone())
+        )
+        .is_ok()
+    );
+    assert!(supersede(&newer, decision_full("t1", 6, ActorKind::Manual, "교통", q)).is_ok());
 }

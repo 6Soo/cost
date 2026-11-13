@@ -11,7 +11,7 @@ use crate::ids::{
     CashUseId, ManualEventRef, ModelName, PolicyRef, Quarter, ReceiptId, RefundGroupId, RuleId,
     RunId, SourceHash, TripId, TxnId, Uncertainty,
 };
-use crate::money::{Amount, KrwAmount, ParseError};
+use crate::money::{Amount, KrwAmount, ParseError, SourceTxn};
 
 /// 비용 항목. 허용 목록(`ItemAllowList`)으로만 만들 수 있다.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -194,8 +194,16 @@ impl Actor {
     }
 }
 
+/// 판정 대상. 카드 거래는 금액을 읽을 수 있는 `SourceTxn`으로만 만들 수 있다.
+///
+/// ```compile_fail
+/// let _ = cost_domain::Subject(todo!());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Subject {
+pub struct Subject(SubjectInner);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SubjectInner {
     CardTxn {
         transaction_id: TxnId,
         source_hash: SourceHash,
@@ -208,7 +216,6 @@ pub enum Subject {
         use_id: CashUseId,
     },
 }
-
 /// 같은 대상인지 비교하는 키(카드 거래는 개정 번호를 무시한다).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SubjectKey {
@@ -218,11 +225,48 @@ pub enum SubjectKey {
 }
 
 impl Subject {
+    /// 금액을 읽지 못한 거래는 판정 대상이 될 수 없고 `Protected` 사유가 된다.
+    pub fn card(txn: &SourceTxn) -> Result<Self, ProtectionReason> {
+        match txn.amount() {
+            Amount::Readable(_) => Ok(Self(SubjectInner::CardTxn {
+                transaction_id: txn.transaction_id().clone(),
+                source_hash: txn.source_hash().clone(),
+                revision: txn.revision(),
+            })),
+            Amount::Unreadable(e) => Err(ProtectionReason::AmountUnreadable(e)),
+        }
+    }
+
+    pub fn receipt(receipt_id: ReceiptId) -> Self {
+        Self(SubjectInner::Receipt { receipt_id })
+    }
+
+    pub fn cash_use(use_id: CashUseId) -> Self {
+        Self(SubjectInner::CashUse { use_id })
+    }
+
+    pub fn card_txn_id(&self) -> Option<&TxnId> {
+        match &self.0 {
+            SubjectInner::CardTxn { transaction_id, .. } => Some(transaction_id),
+            _ => None,
+        }
+    }
+
+    /// 카드 거래의 원천 개정 번호.
+    pub fn revision(&self) -> Option<u32> {
+        match &self.0 {
+            SubjectInner::CardTxn { revision, .. } => Some(*revision),
+            _ => None,
+        }
+    }
+
     pub fn key(&self) -> SubjectKey {
-        match self {
-            Self::CardTxn { transaction_id, .. } => SubjectKey::CardTxn(transaction_id.clone()),
-            Self::Receipt { receipt_id } => SubjectKey::Receipt(receipt_id.clone()),
-            Self::CashUse { use_id } => SubjectKey::CashUse(use_id.clone()),
+        match &self.0 {
+            SubjectInner::CardTxn { transaction_id, .. } => {
+                SubjectKey::CardTxn(transaction_id.clone())
+            }
+            SubjectInner::Receipt { receipt_id } => SubjectKey::Receipt(receipt_id.clone()),
+            SubjectInner::CashUse { use_id } => SubjectKey::CashUse(use_id.clone()),
         }
     }
 }
@@ -284,17 +328,31 @@ pub struct DecisionDraft {
 }
 
 impl Decision {
+    /// 수동·P1 판정용. P2·AI 검수 판정은 `new_machine`(열린 범위 토큰 필요)으로만 만든다.
     pub fn new(d: DecisionDraft) -> Result<Self, DomainError> {
-        match d.actor.kind() {
-            ActorKind::P2 | ActorKind::AiReview => {
-                d.basis.check_machine_authored()?;
-                if matches!(d.attribution, Attribution::RefundPair(_)) {
-                    return Err(DomainError::RefundPairNotAllowedForActor);
-                }
-            }
-            _ => {}
+        if matches!(d.actor.kind(), ActorKind::P2 | ActorKind::AiReview) {
+            return Err(DomainError::MachineActorNeedsScope);
         }
-        Ok(Self {
+        Ok(Self::build(d))
+    }
+
+    /// P2·AI 검수 판정용. 열린 범위가 귀속을 덮어야 하고 환불 짝은 만들 수 없다.
+    pub fn new_machine(d: DecisionDraft, scope: &OpenScope) -> Result<Self, DomainError> {
+        if !matches!(d.actor.kind(), ActorKind::P2 | ActorKind::AiReview) {
+            return Err(DomainError::NotMachineActor);
+        }
+        d.basis.check_machine_authored()?;
+        if matches!(d.attribution, Attribution::RefundPair(_)) {
+            return Err(DomainError::RefundPairNotAllowedForActor);
+        }
+        if !scope.covers(&d.attribution) {
+            return Err(DomainError::OutsideOpenScope);
+        }
+        Ok(Self::build(d))
+    }
+
+    fn build(d: DecisionDraft) -> Self {
+        Self {
             subject: d.subject,
             attribution: d.attribution,
             item: d.item,
@@ -305,7 +363,7 @@ impl Decision {
             basis: d.basis,
             uncertainty: d.uncertainty,
             policy_refs: d.policy_refs,
-        })
+        }
     }
 
     pub fn subject(&self) -> &Subject {
@@ -395,7 +453,7 @@ impl Judgement {
 /// ```
 ///
 /// ```compile_fail
-/// let _ = cost_domain::OpenScope::Quarter { year: 2026, quarter: cost_domain::Quarter::Q4 };
+/// let _ = cost_domain::OpenScope::quarter(2026, cost_domain::Quarter::Q4);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenScope(OpenInner);
@@ -421,12 +479,12 @@ impl OpenScope {
         }
     }
 
-    #[cfg_attr(not(any(test, feature = "issuer")), allow(dead_code))]
+    #[cfg_attr(not(any(test, feature = "scope-issuer")), allow(dead_code))]
     pub(crate) fn trip(trip: &TripId) -> Self {
         Self(OpenInner::Trip(trip.clone()))
     }
 
-    #[cfg_attr(not(any(test, feature = "issuer")), allow(dead_code))]
+    #[cfg_attr(not(any(test, feature = "scope-issuer")), allow(dead_code))]
     pub(crate) fn quarter(year: u16, quarter: Quarter) -> Self {
         Self(OpenInner::Quarter { year, quarter })
     }
@@ -468,28 +526,28 @@ impl P2Proposal {
                 Attribution::QuarterOther { year, quarter }
             }
         };
-        if !scope.covers(&attribution) {
-            return Err(DomainError::OutsideOpenScope);
-        }
-        Decision::new(DecisionDraft {
-            subject: ctx.subject,
-            attribution,
-            item: self.item,
-            description: ctx.description,
-            service_period: self.service_period,
-            evidence: ctx.evidence,
-            actor: Actor::P2 {
-                run_id: ctx.run_id,
-                model: ctx.model,
+        Decision::new_machine(
+            DecisionDraft {
+                subject: ctx.subject,
+                attribution,
+                item: self.item,
+                description: ctx.description,
+                service_period: self.service_period,
+                evidence: ctx.evidence,
+                actor: Actor::P2 {
+                    run_id: ctx.run_id,
+                    model: ctx.model,
+                },
+                basis: self.basis,
+                uncertainty: self.uncertainty,
+                policy_refs: ctx.policy_refs,
             },
-            basis: self.basis,
-            uncertainty: self.uncertainty,
-            policy_refs: ctx.policy_refs,
-        })
+            scope,
+        )
     }
 }
 
-/// 환불 묶음. 외부에서 만들 수 없다(`cost-links`가 `issuer` 기능으로만 발급).
+/// 환불 묶음. 외부에서 만들 수 없다(`cost-links`만 `refund-issuer` 기능으로 발급; 허용 목록 테스트가 강제).
 ///
 /// ```compile_fail
 /// let _ = cost_domain::RefundGroup { id: todo!(), members: vec![] };
@@ -505,7 +563,7 @@ pub struct RefundGroup {
 }
 
 impl RefundGroup {
-    #[cfg_attr(not(any(test, feature = "issuer")), allow(dead_code))]
+    #[cfg_attr(not(any(test, feature = "refund-issuer")), allow(dead_code))]
     pub(crate) fn new(id: RefundGroupId, members: Vec<TxnId>) -> Result<Self, DomainError> {
         if members.is_empty() {
             return Err(DomainError::EmptyGroup);
@@ -533,7 +591,7 @@ impl GroupPublication {
     pub fn new(group: RefundGroup, decisions: Vec<Decision>) -> Result<Self, DomainError> {
         let mut seen: HashSet<&TxnId> = HashSet::new();
         for d in &decisions {
-            let Subject::CardTxn { transaction_id, .. } = d.subject() else {
+            let Some(transaction_id) = d.subject().card_txn_id() else {
                 return Err(DomainError::GroupPublicationMismatch);
             };
             let bound = matches!(d.attribution(), Attribution::RefundPair(g) if g == group.id());
@@ -555,9 +613,9 @@ impl GroupPublication {
     }
 }
 
-/// 연결 크레이트·범위 크레이트 전용 발급 함수. 기본 빌드에는 없다.
-#[cfg(feature = "issuer")]
-pub mod issue {
+/// 환불 묶음 발급. 기본 빌드에는 없다. 허용 크레이트는 `cost-links`뿐이다(`tests/issuer_allowlist.rs`).
+#[cfg(feature = "refund-issuer")]
+pub mod issue_refund {
     use super::*;
 
     pub fn refund_group(
@@ -570,6 +628,12 @@ pub mod issue {
         }
         RefundGroup::new(RefundGroupId(id), members)
     }
+}
+
+/// 열린 범위 발급. 기본 빌드에는 없다. 허용 크레이트는 `cost-rules`(U7)뿐이다.
+#[cfg(feature = "scope-issuer")]
+pub mod issue_scope {
+    use super::*;
 
     pub fn open_trip(trip: &TripId) -> OpenScope {
         OpenScope::trip(trip)
