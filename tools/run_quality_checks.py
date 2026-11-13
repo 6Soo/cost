@@ -25,7 +25,7 @@ CARGO_STEPS = (
     ("cargo-test", ["test", "--workspace"]),
 )
 # C: has little free space; keep Rust build output off it unless the caller chose a dir.
-DEFAULT_WINDOWS_TARGET_DIR = Path("D:/cargo-target/cost")
+DEFAULT_WINDOWS_TARGET_DIR = Path("D:/cargo-target")  # 작업 폴더 이름별 하위 폴더를 쓴다
 QA_OWNED_PATHS = {
     "tools/run_quality_checks.py", "tests/test_quality_checks.py",
     "config/known-test-failures.txt", ".github/workflows/quality.yml", "requirements-dev.txt",
@@ -348,8 +348,8 @@ def run_cargo_steps(log, *, root: Path = ROOT) -> dict:
         return {"status": "FAILED", "reason": "CARGO_NOT_FOUND", "steps": []}
     env = {**os.environ, "PATH": str(Path(cargo).parent) + os.pathsep + os.environ.get("PATH", "")}
     if (not env.get("CARGO_TARGET_DIR") and os.name == "nt"
-            and Path(DEFAULT_WINDOWS_TARGET_DIR.drive + "/").exists()):
-        env["CARGO_TARGET_DIR"] = str(DEFAULT_WINDOWS_TARGET_DIR)
+            and Path(DEFAULT_WINDOWS_TARGET_DIR.parent.drive + "/").exists()):
+        env["CARGO_TARGET_DIR"] = str(DEFAULT_WINDOWS_TARGET_DIR / (root.resolve().name or "cost"))
     results = []
     for name, args in CARGO_STEPS:
         log.write(f"\n$ cargo {' '.join(args)}\n")

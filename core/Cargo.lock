@@ -120,6 +120,10 @@ name = "cost-jobs"
 version = "0.1.0"
 
 [[package]]
+name = "cost-links"
+version = "0.1.0"
+
+[[package]]
 name = "cost-p2"
 version = "0.1.0"
 

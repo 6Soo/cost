@@ -584,3 +584,44 @@ def test_missing_cargo_fails_instead_of_skipping(monkeypatch, tmp_path):
     with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
         result = quality.run_cargo_steps(log, root=tmp_path)
     assert result["status"] == "FAILED" and result["reason"] == "CARGO_NOT_FOUND"
+
+
+def _fake_cargo(monkeypatch, failing_step):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command[1:])
+        code = 1 if command[1] == failing_step else 0
+        return subprocess.CompletedProcess(command, code)
+
+    monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
+    monkeypatch.setattr(quality.subprocess, "run", fake_run)
+    return calls
+
+
+@pytest.mark.parametrize("failing", ["fmt", "clippy", "test", None])
+def test_cargo_step_failure_marks_run_failed(monkeypatch, tmp_path, failing):
+    calls = _fake_cargo(monkeypatch, failing)
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        result = quality.run_cargo_steps(log, root=tmp_path)
+    assert [c[0] for c in calls] == ["fmt", "clippy", "test"]
+    assert result["status"] == ("FAILED" if failing else "PASSED")
+    if failing:
+        failed = [s["step"] for s in result["steps"] if s["exit_code"] != 0]
+        assert failed == [f"cargo-{failing}"]
+
+
+def test_cargo_target_dir_is_per_worktree_on_windows(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
+    monkeypatch.setattr(quality.os, "name", "nt")
+    monkeypatch.setattr(quality, "DEFAULT_WINDOWS_TARGET_DIR", tmp_path / "cargo-target")
+    monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+    monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: (
+        seen.append(kw["env"].get("CARGO_TARGET_DIR")) or subprocess.CompletedProcess(command, 0)))
+    work = tmp_path / "wt-a"
+    work.mkdir()
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        result = quality.run_cargo_steps(log, root=work)
+    assert result["target_dir"] == str(tmp_path / "cargo-target" / "wt-a")
+    assert set(seen) == {result["target_dir"]}
