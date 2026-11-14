@@ -31,6 +31,8 @@ def core(monkeypatch, tmp_path):
                          [('known', json.dumps(KNOWN)), ('unknown', json.dumps(UNKNOWN))])
     monkeypatch.setenv(core_writer.CORE_DB_ENV, str(path))
     core_writer._FALLBACK.clear()
+    core_writer._LAST_READ['periods'] = None
+    core_writer._PUBLISHED['key'] = None
     return monkeypatch
 
 
@@ -52,7 +54,8 @@ def test_rust_decision_is_read_and_the_computation_is_not_called(core):
     assert ledger_stay_evidence.read_period(card('known'), stored, set(), counting(calls)) == ('2026-10-01~2026-10-03', 'decision')
     assert ledger_stay_evidence.read_period(card('unknown'), stored, set(), counting(calls)) == ('', 'decision')
     assert calls == []
-    assert core_writer.period_read_status() == {'mode': 'stored', 'fallback_count': 0, 'core_read_error': ''}
+    assert core_writer.period_read_status() == {'mode': 'stored', 'missing_decision_count': 0, 'not_judged_count': 0,
+                                                'core_read_error': '', 'stale_read': False}
 
 
 def test_card_without_decision_falls_back_and_is_counted_until_backfilled(core):
@@ -61,11 +64,11 @@ def test_card_without_decision_falls_back_and_is_counted_until_backfilled(core):
     stored = core_writer.load_stored_periods()
     assert ledger_stay_evidence.read_period(card('new'), stored, set(), counting(calls)) == ('2026-08-01~2026-08-03', 'computed')
     assert calls == [1]
-    assert core_writer.period_read_status()['fallback_count'] == 1
+    assert core_writer.period_read_status()['missing_decision_count'] == 1
     with sqlite3.connect(core_writer.os.environ[core_writer.CORE_DB_ENV]) as conn:
         conn.execute('INSERT INTO decisions VALUES (?, ?)', ('new', json.dumps(KNOWN)))
     ledger_stay_evidence.read_period(card('new'), core_writer.load_stored_periods(), set(), counting(calls))
-    assert core_writer.period_read_status()['fallback_count'] == 0
+    assert core_writer.period_read_status()['missing_decision_count'] == 0
 
 
 def test_python_writer_is_unchanged(core):
@@ -124,3 +127,31 @@ def test_paste_pack_reads_stored_periods_without_evidence(core):
     stored = core_writer.load_stored_periods()
     assert paste_pack.apply_verified_periods(rows, {}, stored, {'card-man'}) == 1
     assert [r['service_period'] for r in rows] == ['2026-10-01~2026-10-03', '', '', '']
+
+
+def test_fallback_is_split_into_not_judged_and_missing_and_published_without_ids(core, tmp_path):
+    rust(core)
+    stored = core_writer.load_stored_periods()
+    never = [card('closed', occurred_on='2025-05-01'), card('wait', display_tab_id=None),
+             card('flagged', classification_state='unclassified')]
+    for row in never + [card('lost')]:
+        ledger_stay_evidence.read_period(row, stored, set(), lambda: '')
+    status = core_writer.period_read_status()
+    assert (status['not_judged_count'], status['missing_decision_count']) == (3, 1)
+    published = json.loads((tmp_path / core_writer.STATUS_FILE).read_text(encoding='utf-8'))
+    assert (published['not_judged_count'], published['missing_decision_count']) == (3, 1)
+    assert 'lost' not in json.dumps(published)
+
+
+def test_busy_core_reuses_the_last_successful_read_and_says_so(core, monkeypatch):
+    rust(core)
+    first = core_writer.load_stored_periods()
+    assert 'known' in first
+
+    def busy(*args, **kwargs):
+        raise sqlite3.OperationalError('database is locked')
+    monkeypatch.setattr(core_writer, 'stored_service_periods', busy)
+    assert core_writer.load_stored_periods() == first
+    status = core_writer.period_read_status()
+    assert status['stale_read'] and 'locked' in status['core_read_error']
+    assert core_writer.READ_TIMEOUT <= 1

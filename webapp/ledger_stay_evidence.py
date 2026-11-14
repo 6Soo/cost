@@ -1088,7 +1088,7 @@ def read_period(row, stored, manual, compute):
     if tid in stored:
         core_writer.note_period_source(tid, True)
         return stored[tid], 'decision'
-    core_writer.note_period_source(tid, False)
+    core_writer.note_period_source(tid, False, row)
     return compute(), 'computed'
 
 

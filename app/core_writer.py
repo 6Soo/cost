@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import subprocess
 import sys
 from contextlib import closing, contextmanager, nullcontext
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -243,7 +245,7 @@ def stored_periods_enabled() -> bool:
     return selected() == 'rust' and bool(os.environ.get(CORE_DB_ENV, ''))
 
 
-def stored_service_periods(transaction_ids=None) -> dict:
+def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
     """transaction_id -> period text ('' = unknown) of every stored decision, in one read-only query.
 
     Raises sqlite3.Error when core.sqlite cannot be read (missing file, no table, locked past the timeout).
@@ -251,7 +253,7 @@ def stored_service_periods(transaction_ids=None) -> dict:
     core = os.environ.get(CORE_DB_ENV, '')
     if not core:
         raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
-    with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True, timeout=10)) as conn:
+    with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True, timeout=timeout)) as conn:
         rows = conn.execute('SELECT transaction_id, service_period_json FROM decisions').fetchall()
     wanted = None if transaction_ids is None else set(transaction_ids)
     found = {}
@@ -264,35 +266,77 @@ def stored_service_periods(transaction_ids=None) -> dict:
     return found
 
 
-_FALLBACK: set = set()
-_READ_ERROR = {'error': ''}
+_FALLBACK: dict = {}
+_READ_ERROR = {'error': '', 'stale': False}
+_LAST_READ: dict = {'periods': None}
+_PUBLISHED = {'key': None}
+READ_TIMEOUT = 1.0
+STATUS_FILE = 'period-read-status.json'
 
 
 def load_stored_periods() -> dict | None:
     """The stored periods for one read, or None when Python is the writer (behaviour unchanged).
 
-    An unreadable core.sqlite is not hidden: every card then counts as a fallback and `period_read_status` shows the error.
+    The read waits one second at most. When core.sqlite is busy or unreadable the last successful read is reused
+    (`stale`), so a busy moment does not push every card onto the evidence index; with no earlier read every card
+    counts as a fallback. Either way `period_read_status` shows the error.
     """
     if not stored_periods_enabled():
         return None
     try:
-        found = stored_service_periods()
-        _READ_ERROR['error'] = ''
+        found = stored_service_periods(timeout=READ_TIMEOUT)
+        _LAST_READ['periods'] = found
+        _READ_ERROR.update(error='', stale=False)
+        _publish_status()
         return found
     except (sqlite3.Error, OSError) as error:
-        _READ_ERROR['error'] = f'{type(error).__name__}: {error}'
-        return {}
+        _READ_ERROR.update(error=f'{type(error).__name__}: {error}', stale=_LAST_READ['periods'] is not None)
+        _publish_status()
+        return _LAST_READ['periods'] if _LAST_READ['periods'] is not None else {}
 
 
-def note_period_source(transaction_id: str, from_decision: bool) -> None:
-    """Count a card whose period had to be computed because it has no decision yet (should reach 0 after backfill)."""
+def _not_judged(row) -> bool:
+    """A card Rust never decides: unattributable, or in a completed period (it gets no decision, so it stays computed)."""
+    from . import closed_period
+    probe = {'approval_date': row.get('approval_date') or row.get('occurred_on') or ''}
+    return (row.get('classification_state') == 'unclassified' or 'display_tab_id' in row and row.get('display_tab_id') is None
+            or closed_period.completed_period(probe) is not None)
+
+
+def note_period_source(transaction_id: str, from_decision: bool, row=None) -> None:
+    """Count a card whose period had to be computed: 'missing' (no decision yet; 0 after backfill) or 'not_judged'."""
     if from_decision:
-        _FALLBACK.discard(transaction_id)
+        if _FALLBACK.pop(transaction_id, None) is not None:
+            _publish_status()
     else:
-        _FALLBACK.add(transaction_id)
+        _FALLBACK[transaction_id] = 'not_judged' if row is not None and _not_judged(row) else 'missing'
+        _publish_status()
 
 
 def period_read_status() -> dict:
-    """Operations view: which writer's periods are read and how many cards still fall back to computing."""
-    return {'mode': 'stored' if stored_periods_enabled() else 'computed', 'fallback_count': len(_FALLBACK),
-            'core_read_error': _READ_ERROR['error']}
+    """Operations view, without transaction ids: the reading mode and the two kinds of computed fallback."""
+    reasons = list(_FALLBACK.values())
+    return {'mode': 'stored' if stored_periods_enabled() else 'computed',
+            'missing_decision_count': reasons.count('missing'), 'not_judged_count': reasons.count('not_judged'),
+            'core_read_error': _READ_ERROR['error'], 'stale_read': _READ_ERROR['stale']}
+
+
+def _publish_status() -> None:
+    """Write the status beside core.sqlite when it changed, so operations can read it from the data root."""
+    core = os.environ.get(CORE_DB_ENV, '')
+    status = period_read_status()
+    key = json.dumps(status, sort_keys=True)
+    if not core or _PUBLISHED['key'] == key:
+        return
+    _PUBLISHED['key'] = key
+    path = Path(core).with_name(STATUS_FILE)
+    try:
+        scratch = path.with_name(path.name + '.tmp')
+        scratch.write_text(json.dumps({**status, 'updated_at': datetime.now(timezone.utc).isoformat()},
+                                      ensure_ascii=False), encoding='utf-8')
+        os.replace(scratch, path)
+    except OSError:
+        pass
+    if status['missing_decision_count']:
+        logging.getLogger(__name__).warning('stored period: %d card(s) without a decision are computed',
+                                            status['missing_decision_count'])
