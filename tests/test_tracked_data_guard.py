@@ -1,4 +1,5 @@
 """Synthetic Git repositories only; no customer or operating paths."""
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -113,6 +114,80 @@ def test_protected_deletion_blocks_without_touching_original_worktree(repo, caps
     assert main(['--root', str(repo), '--json']) == 1
     assert 'SYNTHETIC_SENTINEL' not in capsys.readouterr().out
     assert (repo / 'outputs/existing.sqlite').read_text(encoding='utf-8') == 'SYNTHETIC_SENTINEL'
+
+
+def preserved_policy(tmp_path, entries):
+    policy = load_policy()
+    policy['externally_preserved'] = [{'archive': 'synthetic-archive', 'manifest_sha256': 'a' * 64,
+                                       'files': entries}]
+    path = tmp_path / 'preserved-policy.json'
+    path.write_text(json.dumps(policy), encoding='utf-8')
+    return path
+
+
+def blob_entry(repo, path, data='SYNTHETIC_SENTINEL'):
+    oid = git(repo, 'rev-parse', f'HEAD:{path}').stdout.decode().strip()
+    return {'path': path, 'sha256': hashlib.sha256(data.encode()).hexdigest(), 'git_blob': oid}
+
+
+def test_externally_preserved_untrack_allowed_only_for_listed_exact_blob(repo, tmp_path, capsys):
+    write(repo, 'outputs/other.json', 'SYNTHETIC_OTHER')
+    git(repo, '-c', 'core.hooksPath=NUL', 'commit', '-qm', 'synthetic other')
+    policy_path = preserved_policy(tmp_path, [blob_entry(repo, 'outputs/existing.sqlite')])
+    git(repo, 'rm', '-q', '--cached', '--', 'outputs/existing.sqlite')
+    result = inspect(repo, policy_path=policy_path)
+    finding = next(x for x in result['files'] if x['status'] == 'DELETED')
+    assert result['blocked_count'] == 0 and not finding['blocked']
+    assert 'EXTERNALLY_PRESERVED_UNTRACK' in finding['risk_markers']
+    assert 'PROTECTED_DELETION' not in finding['risk_markers']
+    assert main(['--root', str(repo), '--policy', str(policy_path)]) == 0
+    # A protected path outside the list stays blocked in the same change.
+    git(repo, 'rm', '-q', '--cached', '--', 'outputs/other.json')
+    result = inspect(repo, policy_path=policy_path)
+    blocked = [x['path'] for x in result['files'] if x['blocked']]
+    assert blocked == ['outputs/other.json'] and result['blocked_count'] == 1
+    assert main(['--root', str(repo), '--policy', str(policy_path)]) == 1
+    assert 'SYNTHETIC_' not in capsys.readouterr().out
+    assert (repo / 'outputs/existing.sqlite').read_text(encoding='utf-8') == 'SYNTHETIC_SENTINEL'
+
+
+@pytest.mark.parametrize('field,value', [('sha256', 'b' * 64), ('git_blob', 'c' * 40)])
+def test_externally_preserved_hash_mismatch_still_blocks(repo, tmp_path, field, value):
+    entry = blob_entry(repo, 'outputs/existing.sqlite') | {field: value}
+    policy_path = preserved_policy(tmp_path, [entry])
+    git(repo, 'rm', '-q', '--cached', '--', 'outputs/existing.sqlite')
+    result = inspect(repo, policy_path=policy_path)
+    assert result['blocked_count'] == 1
+    assert 'PROTECTED_DELETION' in result['files'][0]['risk_markers']
+
+
+def test_externally_preserved_base_mode_after_commit(repo, tmp_path):
+    before = git(repo, 'rev-parse', 'HEAD').stdout.decode().strip()
+    policy_path = preserved_policy(tmp_path, [blob_entry(repo, 'outputs/existing.sqlite')])
+    git(repo, 'rm', '-q', '--cached', '--', 'outputs/existing.sqlite')
+    git(repo, '-c', 'core.hooksPath=NUL', 'commit', '-qm', 'synthetic untrack')
+    assert inspect(repo, mode='base', base=before, policy_path=policy_path)['blocked_count'] == 0
+    assert inspect(repo, mode='base', base=before)['blocked_count'] == 1
+
+
+@pytest.mark.parametrize('entry', [
+    {'path': 'outputs/*', 'sha256': 'a' * 64, 'git_blob': 'b' * 40},
+    {'path': 'outputs/', 'sha256': 'a' * 64, 'git_blob': 'b' * 40, 'extra': 1},
+    {'path': 'app/auth.py', 'sha256': 'a' * 64, 'git_blob': 'b' * 40},
+    {'path': 'outputs/../app/auth.py', 'sha256': 'a' * 64, 'git_blob': 'b' * 40},
+    {'path': 'outputs/x.json', 'sha256': 'short', 'git_blob': 'b' * 40},
+    {'path': 'outputs/x.json', 'sha256': 'a' * 64, 'git_blob': None},
+    'outputs/x.json',
+])
+def test_externally_preserved_entries_must_be_exact_protected_paths(tmp_path, entry):
+    with pytest.raises(ValueError):
+        load_policy(preserved_policy(tmp_path, [entry]))
+
+
+def test_externally_preserved_duplicate_path_is_rejected(tmp_path):
+    entry = {'path': 'outputs/x.json', 'sha256': 'a' * 64, 'git_blob': 'b' * 40}
+    with pytest.raises(ValueError):
+        load_policy(preserved_policy(tmp_path, [entry, dict(entry)]))
 
 
 def test_source_reference_candidates_are_opt_in_exact_and_contextual(repo, capsys):

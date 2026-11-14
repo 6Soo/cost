@@ -12,8 +12,10 @@ import argparse
 import ast
 from collections import Counter
 import fnmatch
+import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,7 +194,49 @@ def load_policy(path=POLICY):
     for entry in value['synthetic_allowlist']:
         if not entry.startswith('tests/fixtures/') or '..' in PurePosixPath(entry).parts or any(c in entry for c in '*?['):
             raise ValueError('INVALID_SYNTHETIC_ALLOWLIST')
+    _validate_preserved(value)
     return value
+
+
+def _hex(value, length):
+    return isinstance(value, str) and re.fullmatch(f'[0-9a-f]{{{length}}}', value) is not None
+
+
+def _validate_preserved(policy):
+    """Exact path+hash entries copied out of Git; never a prefix or wildcard."""
+    batches = policy.get('externally_preserved', [])
+    if not isinstance(batches, list):
+        raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+    seen = set()
+    for batch in batches:
+        if (not isinstance(batch, dict) or set(batch) != {'archive', 'manifest_sha256', 'files'}
+                or not isinstance(batch['archive'], str) or not batch['archive'].strip()
+                or not _hex(batch['manifest_sha256'], 64)
+                or not isinstance(batch['files'], list) or not batch['files']):
+            raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+        for entry in batch['files']:
+            if not isinstance(entry, dict) or set(entry) != {'path', 'sha256', 'git_blob'}:
+                raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+            path = entry['path']
+            if (not isinstance(path, str)
+                    or '\\' in path or '..' in PurePosixPath(path).parts or any(c in path for c in '*?[')
+                    or not any(path.lower().startswith(p.lower()) for p in policy['protected_prefixes'])
+                    or not _hex(entry['sha256'], 64) or not _hex(entry['git_blob'], 40) or path in seen):
+                raise ValueError('INVALID_EXTERNALLY_PRESERVED')
+            seen.add(path)
+
+
+def preserved_entries(policy):
+    return {entry['path']: entry for batch in policy.get('externally_preserved', [])
+            for entry in batch['files']}
+
+
+def externally_preserved(root, path, info, preserved):
+    """Only the exact recorded blob may leave Git; content hash is rechecked from the baseline."""
+    entry = preserved.get(path)
+    if entry is None or info['kind'] != 'blob' or info['oid'] != entry['git_blob']:
+        return False
+    return hashlib.sha256(git(root, 'cat-file', 'blob', info['oid'])).hexdigest() == entry['sha256']
 
 
 def reasons(path, info, policy):
@@ -234,14 +278,17 @@ def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source
                       'blocked': mode != 'inventory' and bool(markers),
                       'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
     deleted_paths = sorted(set(baseline) - set(current))
+    preserved = preserved_entries(policy)
     for path in deleted_paths:
         info = baseline[path]
         markers = reasons(path, info, policy)
         if markers:
+            cleared = externally_preserved(root, path, info, preserved)
             files.append({'path': path, 'size': info['size'], 'status': 'DELETED',
                           'sensitivity': 'UNASSESSED',
-                          'risk_markers': ['PROTECTED_DELETION', *markers],
-                          'blocked': mode != 'inventory',
+                          'risk_markers': ['EXTERNALLY_PRESERVED_UNTRACK' if cleared else 'PROTECTED_DELETION',
+                                           *markers],
+                          'blocked': mode != 'inventory' and not cleared,
                           'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
     source_errors, source_scanned, source_reference_count = (
         _add_source_references(root, index(root), files) if source_references else ([], 0, 0)
