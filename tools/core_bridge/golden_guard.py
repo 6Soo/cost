@@ -142,7 +142,10 @@ KEYS = {
     'description': _one_of('', 'syn', '합성 카페'), 'basis': _one_of('합성 근거', '합성 예약기간'),
     # flags and structure
     'version': _one_of(1), 'archived': _bool, 'residual_policy': _bool, 'reconsider': _bool, 'booking_period': _bool,
-    'kind': _one_of('ota', 'refund'),
+    'kind': _one_of('ota', 'refund', 'refund_group'),
+    'batch_id': _regex(r'^syn-batch[a-z0-9-]*$'), 'source_batch_id': _regex(r'^syn-batch[a-z0-9-]*$'),
+    'blocked': _one_of('', 'needs_review', 'item_missing', 'duplicate_possible', 'source_conflict'),
+    'extension': _bool, 'valid_trips': _trip, 'valid_tabs': _trip,
     # trips
     'op': _one_of('infer_trip', 'candidates', 'stay_trip', 'booking_trip', 'card3820', 'infer_item'),
     'tab_id': _trip, 'check_in': _regex(DATE.pattern), 'check_out': _regex(DATE.pattern),
@@ -154,7 +157,7 @@ KEYS = {
 CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optional', 'prior_decision', 'amount_range',
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
-              'service_period', 'input', 'row', 'raw_row', 'completed_evidence', 'links'}
+              'service_period', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows'}
 ID_MAPS = {'evidence', 'existing_links', 'links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')
