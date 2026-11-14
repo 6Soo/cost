@@ -136,7 +136,9 @@ def backup_covers(saved, host, database_names):
                 and all(name in saved.get('backup_scope', ()) for name in needed))
     if saved.get('all_database_tables_and_columns_compared') is not True:
         return False
-    return 'backup_scope' not in saved or all(name in saved['backup_scope'] for name in needed)
+    if 'backup_scope' not in saved:
+        return 'core.sqlite' not in needed
+    return all(name in saved['backup_scope'] for name in needed)
 
 
 def resolve_scope(databases, data, names):
