@@ -155,3 +155,44 @@ def test_policy_apply_with_the_rust_writer_passes_period_facts(env, tmp_path):
     seen = _fake_run(env[0], json.dumps({'ok': True, 'result': {'to_classify': 0}}) + '\n')
     assert policy.apply(conn, {'digest': 'd'}, []) == {'to_classify': 0}
     assert 'syn-t1' in seen['input']['periods']
+
+
+def test_second_apply_after_an_apply_does_not_rebuild_the_period_evidence(env, tmp_path):
+    from contextlib import contextmanager
+    from webapp import ota_payment_review
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    monkeypatch = env[0]
+    monkeypatch.undo()  # drop the stubbed key; use the real key function over a fake board below
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    monkeypatch.setattr(core_writer, '_period_snapshot', lambda path: calls.append(path) or {
+        'events': [], 'transactions': [], 'results': [], 'links': {}})
+    conn.execute('CREATE TABLE transactions(transaction_id, amount, item, classification_state, revision)')
+    conn.execute("INSERT INTO transactions VALUES ('t1', 100, 'a', 'unclassified', 1)")
+    conn.commit()
+
+    @contextmanager
+    def board(path):
+        yield None
+    monkeypatch.setattr(core_writer, '_board', board)
+
+    def key(_, ignore):
+        rows = conn.execute('SELECT * FROM transactions').fetchall()
+        names = [c[1] for c in conn.execute('PRAGMA table_info(transactions)')]
+        return json.dumps([{n: v for n, v in zip(names, r) if n not in ignore} for r in rows])
+    monkeypatch.setattr(ota_payment_review, 'current_input_key', key)
+
+    def run(command, **kwargs):  # the Rust writer changes the judged columns of the card row
+        conn.execute("UPDATE transactions SET classification_state='classified', item='b', revision=revision+1")
+        conn.commit()
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps({'ok': True, 'result': {}}) + '\n', stderr='')
+    monkeypatch.setattr(core_writer.subprocess, 'run', run)
+    core_writer.apply(conn, {'digest': 'd'}, [], periods=core_writer.periods_for(conn))
+    assert len(calls) == 1
+    core_writer.apply(conn, {'digest': 'd'}, [], periods=core_writer.periods_for(conn))
+    assert len(calls) == 1
+    conn.execute('UPDATE transactions SET amount=200')  # a real evidence input still rebuilds it
+    conn.commit()
+    core_writer.periods_for(conn)
+    assert len(calls) == 2
