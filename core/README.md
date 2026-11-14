@@ -18,7 +18,8 @@ cargo test --workspace
 
 ## 구성 (설계 §6.1, D-12)
 
-- `crates/core` (`cost-core`, 라이브러리): 모듈 `domain`(판정 타입·불변식), `dates`(날짜·완료 기간·열린 범위, `OpenScope` 발급), `trips`(여행 귀속 추론, U8), `region`(국가·지역·온라인·후쿠타케 판정, rules·trips 공용), `plan`(P1 계획 조립·보호 순서·이력 복원·digest, U9). 후속 단위가 `store`·`rules`·`links`·`pipeline`·`bridge` 모듈을 더한다.
+- `crates/core` (`cost-core`, 라이브러리): 모듈 `domain`(판정 타입·불변식), `dates`(날짜·완료 기간·열린 범위, `OpenScope` 발급), `trips`(여행 귀속 추론, U8), `region`(국가·지역·온라인·후쿠타케 판정, rules·trips 공용), `plan`(P1 계획 조립·보호 순서·이력 복원·digest, U9), `links::ota`(OTA↔카드 후보 탐색·쌍 검사, U13. M:N 배정·점유는 U14). 후속 단위가 `store`·`rules`·`links`·`pipeline`·`bridge` 모듈을 더한다.
 - `crates/cli` (`costcore`, 실행 파일).
 - 봉인 타입(`RefundGroup`·`OpenScope`·`TripId`·`Subject`)은 생성자가 `pub(crate)`이거나 없어 크레이트 밖에서 만들 수 없다(문서 테스트 `compile_fail` 4개).
 - 합성 골든: `golden/synthetic/dates.jsonl`(생산기 `tools/core_dates_golden.py`), 시험 `crates/core/tests/dates_golden.rs`. `golden/synthetic/trips.jsonl`(`python -m tools.core_bridge.golden write`), 시험 `crates/core/tests/trips_golden.rs`. `golden/synthetic/plan.jsonl`(같은 도구, 입력의 `links`는 Python 환불 짝 연결 결과), 시험 `crates/core/tests/plan_golden.rs`(알려진 차이는 `known-diffs.txt`).
+- OTA 후보 골든: `golden/synthetic/ota_candidates.jsonl`(Python `_eligible_cards`·`pair_check`·`search_card_candidates` 직접 호출, `python -m tools.core_bridge.golden write`), 시험 `crates/core/tests/ota_golden.rs`(`ota_links.jsonl` 중 후보 단계로 결정되는 사례도 함께 비교).
