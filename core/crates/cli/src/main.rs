@@ -5,6 +5,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use cost_core::apply::{ApplyRequest, apply, open_board_writable, utc_now};
+use cost_core::pipeline::links_from;
 use cost_core::shadow::{
     PlanEngine, PlanRequest, PythonBridge, RustEngine, ShadowError, parse_known_diffs,
     reject_live_db, run_shadow, targets_json, write_private_lines,
@@ -36,8 +38,9 @@ fn main() -> ExitCode {
         }
         Some("shadow") => finish(shadow(&args[1..]), "status"),
         Some("plan") => finish(plan(&args[1..]), "ok"),
+        Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
         Some(_) => {
-            eprintln!("usage: costcore <shadow|plan> ...");
+            eprintln!("usage: costcore <shadow|plan|apply> ...");
             ExitCode::from(2)
         }
     }
@@ -76,9 +79,9 @@ impl Flags {
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
-                "--reconsider" => flags.switches.push(arg.clone()),
+                "--reconsider" | "--allow-live" => flags.switches.push(arg.clone()),
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
-                | "--repo-root" => {
+                | "--repo-root" | "--digest" | "--now" | "--core" => {
                     let value = iter.next().ok_or(ShadowError::UsageInvalid)?;
                     flags.values.push((arg.clone(), value.clone()));
                 }
@@ -159,4 +162,53 @@ fn plan(args: &[String]) -> Result<(u8, Value), ShadowError> {
     };
     let targets = rust_engine(&flags).plan(&request)?;
     Ok((0, json!({"ok": true, "result": targets_json(&targets)})))
+}
+
+/// `costcore apply --db PATH --core CORE.sqlite --digest D [--allow-live]`: 표준 입력의 JSON(`trips`·`nets`·`evidence`·`transaction_ids`·
+/// `reconsider`·`links`)으로 계획을 다시 만들어 digest가 같을 때만 쓴다. 운영 DB 경로는 `--allow-live` 없이는 거부한다.
+fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
+    let flags = Flags::parse(args)?;
+    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let digest = flags.get("--digest").ok_or(ShadowError::UsageInvalid)?;
+    let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
+    if !flags.on("--allow-live") {
+        reject_live_db(&db, &host)?;
+    }
+    let mut body = String::new();
+    std::io::stdin().read_to_string(&mut body)?;
+    let context: Value = if body.trim().is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(&body).map_err(|_| ShadowError::PlanResponseInvalid)?
+    };
+    let ids: Option<Vec<String>> = context["transaction_ids"].as_array().map(|ids| {
+        ids.iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect()
+    });
+    let links = if context["links"].is_object() {
+        links_from(&context["links"])
+    } else {
+        python_bridge(&flags).refund_links(&db, ids.as_deref())?
+    };
+    let core = PathBuf::from(flags.get("--core").ok_or(ShadowError::UsageInvalid)?);
+    cost_core::store::open_core(&core)?;
+    let mut conn = open_board_writable(&db)?;
+    let now = match flags.get("--now") {
+        Some(now) => now.to_owned(),
+        None => utc_now(&conn)?,
+    };
+    let request = ApplyRequest {
+        expected_digest: digest,
+        transaction_ids: ids.as_deref(),
+        reconsider: context["reconsider"] == json!(true) || flags.on("--reconsider"),
+        context: &context,
+        now: &now,
+    };
+    let out = apply(&mut conn, &core, &request, &links)?;
+    Ok((
+        0,
+        json!({"ok": true, "result": out.summary, "written": out.written,
+            "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch}),
+    ))
 }

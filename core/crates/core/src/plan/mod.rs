@@ -11,7 +11,7 @@ mod input;
 mod judgement;
 
 pub use digest::{python_json, sha256_hex};
-pub use input::{BoardRow, Links, PlanInput, ROW_COLUMNS, RefundLink, Row};
+pub use input::{BoardRow, FIELDS, Links, PlanInput, ROW_COLUMNS, RefundLink, Row};
 pub use judgement::{Keep, Outcome};
 
 use crate::dates::{completed_period, excluded};

@@ -77,7 +77,8 @@ fn default_trips(conn: &Connection) -> Result<Vec<Value>, StoreError> {
     Ok(trips)
 }
 
-fn read_inside(conn: &Connection) -> Result<PlanInput, StoreError> {
+/// 이미 열린 연결(읽기 트랜잭션 또는 쓰기 트랜잭션 안)에서 계획 입력을 읽는다. 투영 쓰기가 같은 트랜잭션에서 쓴다.
+pub fn read_inside(conn: &Connection) -> Result<PlanInput, StoreError> {
     let sql = format!(
         "SELECT {} FROM transactions ORDER BY transaction_id",
         ROW_COLUMNS.join(",")

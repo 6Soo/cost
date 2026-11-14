@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::apply::ApplyError;
 use crate::store::projection::TxnRow;
 use crate::store::{StoreError, read_projection};
 
@@ -44,6 +45,8 @@ pub enum ShadowError {
     KnownDiffsInvalid,
     #[error("USAGE_INVALID")]
     UsageInvalid,
+    #[error("투영 쓰기 오류: {0}")]
+    Apply(#[from] ApplyError),
     #[error("저장 계층 오류: {0}")]
     Store(#[from] StoreError),
     #[error("입출력 오류: {0}")]
@@ -54,6 +57,9 @@ impl ShadowError {
     /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
     pub fn code(&self) -> String {
         match self {
+            Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
+            Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
+            Self::Apply(_) => "APPLY_FAILED".to_owned(),
             Self::Store(_) => "STORE_ERROR".to_owned(),
             Self::Io(_) => "IO_ERROR".to_owned(),
             other => other.to_string(),
