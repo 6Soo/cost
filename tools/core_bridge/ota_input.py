@@ -50,6 +50,17 @@ def _key(path):
     return os.path.normcase(os.path.realpath(str(path)))
 
 
+def is_live(path, live):
+    """True when ``path`` is the live file: same resolved path (also ``\\\\?\\`` forms) or the same file (hard link)."""
+    plain = lambda p: _key(str(p)[4:] if str(p).startswith('\\\\?\\') else p)  # noqa: E731
+    if plain(path) == plain(live):
+        return True
+    try:
+        return os.path.samefile(path, live)
+    except OSError:  # one of them does not exist
+        return False
+
+
 def _inside(path, folder):
     path, folder = _key(path), _key(folder)
     return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
@@ -58,10 +69,9 @@ def _inside(path, folder):
 def check_paths(error, *, host_root, databases, out):
     """Refuse live files and any output location outside the protected backups folder (error(code, detail))."""
     data = Path(host_root) / 'data'
-    live = {_key(data / 'board.sqlite'), _key(data / 'ota-evidence.sqlite'),
-            _key(data / 'ota-review' / 'ota-review.sqlite')}
+    live = [data / 'board.sqlite', data / 'ota-evidence.sqlite', data / 'ota-review' / 'ota-review.sqlite']
     for path in databases:
-        if _key(path) in live:
+        if any(is_live(path, target) for target in live):
             raise error('DB_IS_LIVE')
     if _inside(out, ROOT):
         raise error('OUT_INSIDE_REPO')

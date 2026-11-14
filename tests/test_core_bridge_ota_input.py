@@ -144,6 +144,30 @@ def test_output_outside_the_protected_folder_is_refused(tmp_path):
     assert not response['ok'] and response['error']['code'] == 'OUT_NOT_PROTECTED'
 
 
+@pytest.mark.parametrize('form', ['hardlink', 'extended_prefix'])
+def test_live_file_is_refused_through_a_hard_link_or_extended_path(tmp_path, form):
+    import os
+    req = request(tmp_path)
+    live = Path(req['host_root']) / 'data' / 'board.sqlite'
+    shutil.copy(req['db'], live)
+    if form == 'hardlink':
+        alias = tmp_path / 'alias.sqlite'
+        os.link(live, alias)
+        given = str(alias)
+    else:
+        if os.name != 'nt':
+            pytest.skip('extended prefix is Windows only')
+        given = '\\\\?\\' + str(live.resolve())
+    response = handle('ota-input', dict(req, db=given), sha='')
+    assert not response['ok'] and response['error']['code'] == 'DB_IS_LIVE'
+    assert not Path(req['out']).exists()
+
+
+def test_missing_live_file_is_not_an_error(tmp_path):
+    req = request(tmp_path)
+    assert not ota_input.is_live(req['db'], Path(req['host_root']) / 'data' / 'board.sqlite')
+
+
 def test_live_refusal_comes_before_any_read(tmp_path):
     req = request(tmp_path)
     live = Path(req['host_root']) / 'data' / 'board.sqlite'
