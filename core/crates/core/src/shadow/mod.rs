@@ -2,7 +2,6 @@
 //! 같은 입력(운영 `board.sqlite` 사본)에서 A(저장값)·B(Python 재판정)·C(Rust 재판정)를 내어 유형 키로 집계한다.
 //! 회귀 판정은 B↔C, A↔C·A↔B는 참고다. Rust 엔진은 `PlanEngine` 하나 뒤에 두어 U9가 끼워 넣는다.
 
-mod bridge;
 mod engine;
 mod guard;
 mod keys;
@@ -11,16 +10,19 @@ mod known;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{Value, json};
 
 use crate::apply::ApplyError;
-use crate::domain::ActorKind;
+use crate::bridge::BridgeError;
+use crate::domain::{ActorKind, Mapped, SourceInput, map_source};
+use crate::pipeline::PipelineError;
 use crate::store::projection::TxnRow;
-use crate::store::{Mapped, SourceInput, StoreError, map_source, read_plan_input, read_projection};
+use crate::store::{StoreError, read_plan_input, read_projection};
 
-pub use bridge::PythonBridge;
+pub use crate::bridge::PythonBridge;
+pub use crate::pipeline::{PlanRequest, Target, Values, targets_json};
 pub use engine::RustEngine;
 pub use guard::{ensure_private_path, protected_root, write_private_lines};
 pub use keys::{attribution_kind, diff_keys, validate_key};
@@ -56,6 +58,26 @@ pub enum ShadowError {
     Io(#[from] std::io::Error),
 }
 
+impl From<BridgeError> for ShadowError {
+    fn from(error: BridgeError) -> Self {
+        match error {
+            BridgeError::Failed(code) => Self::PythonBridgeFailed(code),
+            BridgeError::Io(error) => Self::Io(error),
+        }
+    }
+}
+
+impl From<PipelineError> for ShadowError {
+    fn from(error: PipelineError) -> Self {
+        match error {
+            PipelineError::PlanFailed => Self::PlanFailed,
+            PipelineError::DbIsLive => Self::DbIsLive,
+            PipelineError::Bridge(error) => error.into(),
+            PipelineError::Store(error) => Self::Store(error),
+        }
+    }
+}
+
 impl ShadowError {
     /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
     pub fn code(&self) -> String {
@@ -68,39 +90,6 @@ impl ShadowError {
             other => other.to_string(),
         }
     }
-}
-
-/// `app.automatic_classification.FIELDS` 중 비교·보고에 쓰는 값.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Values {
-    pub state: String,
-    pub source: String,
-    pub basis: String,
-    pub item: String,
-    pub description: String,
-    pub display_tab_id: String,
-    pub trip_id: String,
-    /// 이용기간(`시작/끝` 또는 `unknown`). 그 판정 경로가 내지 않으면 `None`이며 비교하지 않는다.
-    pub period: Option<String>,
-    /// 판정 주체 종류. 알 수 없으면 `None`.
-    pub actor: Option<ActorKind>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Target {
-    pub id: String,
-    pub values: Values,
-    /// 이전 판정 기록이 있었는지(Python `has_prior_classification`).
-    pub has_history: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PlanRequest {
-    pub db: PathBuf,
-    pub transaction_ids: Option<Vec<String>>,
-    pub reconsider: bool,
-    /// 호출자가 더 넘기는 입력(trips, nets, evidence). 엔진이 해석하며 이 모듈은 열어 보지 않는다.
-    pub context: Value,
 }
 
 /// P1 `plan` 엔진 한 겹. Python 다리와 Rust 엔진이 같은 입력·출력 형식을 쓴다.
@@ -147,14 +136,6 @@ pub fn parse_targets(result: &Value) -> Result<Vec<Target>, ShadowError> {
         });
     }
     Ok(out)
-}
-
-pub fn targets_json(targets: &[Target]) -> Value {
-    json!({ "targets": targets.iter().map(|t| json!({
-        "id": t.id,
-        "values": [t.values.state, t.values.source, t.values.basis, t.values.item,
-                   t.values.description, t.values.display_tab_id, t.values.trip_id],
-    })).collect::<Vec<_>>() })
 }
 
 /// 출처 문자열에서 판정 주체를 구한다. 이전 기록이 있으면 수동이다(`plan::judgement`와 같은 규칙).
@@ -290,13 +271,7 @@ pub struct ShadowOutcome {
 
 /// 운영 DB 자체는 거부한다(사본만 받는다).
 pub fn reject_live_db(db: &Path, host_root: &Path) -> Result<(), ShadowError> {
-    let live = host_root.join("data").join("board.sqlite");
-    if let (Ok(a), Ok(b)) = (db.canonicalize(), live.canonicalize())
-        && a == b
-    {
-        return Err(ShadowError::DbIsLive);
-    }
-    Ok(())
+    Ok(crate::pipeline::reject_live_db(db, host_root)?)
 }
 
 /// A·B·C 세 값을 같은 거래에서 비교한다. Rust 엔진을 먼저 불러 없으면 곧바로 끝난다.

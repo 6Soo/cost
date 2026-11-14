@@ -15,10 +15,11 @@ use rusqlite::{
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 
+use crate::digest::python_json;
 use crate::domain::{Decision, Judgement};
 use crate::period::{PeriodEvidence, changed_since, current_digests};
 use crate::pipeline::overlay_context;
-use crate::plan::{Links, Outcome, PlanInput, PlanResult, Target, plan_with_periods, python_json};
+use crate::plan::{Links, Outcome, PlanInput, PlanResult, Target, plan_with_periods};
 use crate::store::decisions::{projection, save_decision, stored_digests_in};
 use crate::store::write_columns::Write;
 use crate::store::{StoreError, latest_version, read_plan_input_in};
