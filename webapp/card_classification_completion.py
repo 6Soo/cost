@@ -70,12 +70,20 @@ def complete(flow, batch_id, transaction_ids=None):
 
 
 def complete_scope(flow, selected=None):
-    with flow.board._lock:
-        trips, nets = context(flow)
-        evidence = classification_evidence(flow.board,trips,flow)
-        preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
-        return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,evidence=evidence)
-
+    from app import core_writer
+    rust = core_writer.selected() == 'rust'
+    for attempt in (0, 1):
+        # The Rust writer's period evidence can take minutes when cold; build it before taking the board lock.
+        periods, key = core_writer.periods_with_key(flow.board.conn, flow.board._lock) if rust else (None, None)
+        with flow.board._lock:
+            if rust and core_writer.periods_key(flow.board.conn) != key:
+                continue  # the evidence inputs moved while it was built; rebuild once, then fail
+            trips, nets = context(flow)
+            evidence = classification_evidence(flow.board,trips,flow)
+            preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
+            return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,
+                                evidence=evidence, periods=periods)
+    raise ValueError('CLASSIFICATION_PREVIEW_STALE')
 
 def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):
     """An explicit classification write may repair an old automatic calendar guess.

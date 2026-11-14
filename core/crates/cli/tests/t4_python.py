@@ -77,9 +77,26 @@ def create(kind, path, opts_path):
                  dict(trip_id='B', starts_on='2026-10-10', ends_on='2026-10-13')]
         evidence = {'b1': dict(source_hash=HASH, trip_id='B', item='숙박비', basis='예약 이용기간 2026-10-13~2026-10-14')}
         opts = dict(trips=trips, evidence=evidence, reconsider=True, transaction_ids=['b1'])
+    elif kind == 'periods':
+        txn(c, 'p1', approval='2026-10-03', merchant='SYNTHETIC HOTEL', raw='card-category:호텔')
+        txn(c, 'p2', approval='2026-10-04', merchant='SYNTHETIC HOTEL', raw='card-category:호텔')
+        opts = period_opts()
     c.commit()
     c.close()
     Path(opts_path).write_text(json.dumps(opts), encoding='utf-8')
+
+
+def period_opts():
+    """`context.periods` from the bridge for p1 (one verified OTA link), and Python's `verified_period_for` for p1/p2."""
+    from tools.core_bridge.golden import _card, _event
+    from tools.core_bridge.periods import facts_from_snapshot, verified_from_snapshot
+    data = {'events': [_event('syn-e1', item='숙박비', reservation_status='confirmed')],
+            'transactions': [_card('p1', source_hash=HASH)],
+            'results': [{'ota_event_id': 'syn-e1', 'transaction_id': 'p1', 'status': 'MATCHED_AUTO'}], 'links': {}}
+    rows = [{'row_id': 'card-' + tid, 'service_period': '', 'reservation_no': ''} for tid in ('p1', 'p2')]
+    verified = verified_from_snapshot(data, set(), rows)
+    return {'periods': facts_from_snapshot(data, set()),
+            'expected_periods': {row_id[5:]: period for row_id, period in verified.items()}}
 
 
 def default_trips(c):

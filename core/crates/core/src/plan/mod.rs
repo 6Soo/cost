@@ -9,7 +9,7 @@ mod fresh;
 mod input;
 mod judgement;
 
-pub use crate::digest::{python_json, sha256_hex};
+use crate::digest::{python_json, sha256_hex};
 pub use input::{BoardRow, FIELDS, Links, PlanInput, ROW_COLUMNS, RefundLink, Row};
 pub use judgement::{Keep, Outcome};
 

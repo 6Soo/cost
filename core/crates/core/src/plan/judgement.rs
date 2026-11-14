@@ -3,15 +3,13 @@
 use super::POLICY;
 use super::input::{Row, text};
 use crate::dates::parse_iso;
-use crate::digest::sha256_hex;
 use crate::domain::{
     Actor, ActorKind, Amount, Attribution, Basis, CompletedPeriod, Confidence, Decision,
     DecisionDraft, Direction, EvidenceKind, EvidenceRef, ItemAllowList, Judgement, ManualEventRef,
-    ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId, ServicePeriod,
-    SourceHash, SourceTxn, Subject, TripCatalog, TxnId,
+    Mapped, ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId,
+    ServicePeriod, SourceHash, SourceInput, SourceTxn, Subject, TripCatalog, TxnId, map_source,
 };
 use crate::period;
-use crate::store::{Mapped, SourceInput, map_source};
 use serde_json::Value;
 use time::{Date, Month};
 
@@ -94,13 +92,6 @@ pub(super) fn completed(period: &str) -> Judgement {
     })
 }
 
-/// 원천 해시가 sha256 16진이면 그대로, 아니면 그 문자열의 sha256(값 자체는 판정 근거 참조용이다).
-fn source_hash(raw: &str) -> Option<SourceHash> {
-    SourceHash::new(raw)
-        .ok()
-        .or_else(|| SourceHash::new(sha256_hex(raw)).ok())
-}
-
 fn attribution(
     judger: &Judger,
     tab: &str,
@@ -108,8 +99,9 @@ fn attribution(
     tid: &str,
 ) -> Option<Attribution> {
     if tab == "refunds" {
-        let group = format!("refund:{}", original.unwrap_or(tid));
-        return Some(Attribution::RefundPair(RefundGroupId(group)));
+        return Some(Attribution::RefundPair(RefundGroupId::for_original(
+            original.unwrap_or(tid),
+        )));
     }
     if let Some(rest) = tab.strip_prefix("quarter:") {
         let (year, number) = rest.split_once(':')?;
@@ -144,21 +136,27 @@ impl Judger {
             .into_iter()
             .find(|d| !d.is_empty())
             .unwrap_or_default();
-        let (Ok(id), Some(hash), Ok(occurred_on)) =
-            (TxnId::new(tid), source_hash(&hash_text), parse_iso(&day))
-        else {
+        let Ok(id) = TxnId::new(tid) else {
+            return Judgement::Protected(ProtectionReason::IdInvalid);
+        };
+        let Ok(hash) = SourceHash::new(hash_text) else {
+            return Judgement::Protected(ProtectionReason::SourceHashInvalid);
+        };
+        let Ok(occurred_on) = parse_iso(&day) else {
             return Judgement::Protected(ProtectionReason::DateBroken);
+        };
+        let Some(revision) = row
+            .get("revision")
+            .and_then(Value::as_u64)
+            .and_then(|r| u32::try_from(r).ok())
+        else {
+            return Judgement::Protected(ProtectionReason::RevisionInvalid);
         };
         let direction = if text(row, "transaction_direction") == "purchase" {
             Direction::Purchase
         } else {
             Direction::Refund
         };
-        let revision = row
-            .get("revision")
-            .and_then(Value::as_u64)
-            .and_then(|r| u32::try_from(r).ok())
-            .unwrap_or(0);
         let txn = SourceTxn::new(
             id.clone(),
             hash.clone(),
@@ -205,10 +203,14 @@ impl Judger {
         };
         let actor = match kind {
             ActorKind::Manual => ManualEventRef::new(tid).map(|event| Actor::Manual { event }),
-            ActorKind::P1Exact => RuleId::new(source.as_str()).map(|rule_id| Actor::P1Exact {
-                rule_id,
-                rule_version: 1,
-            }),
+            ActorKind::P1Exact =>
+            // 입력에 규칙 ID 칸이 없다. 정확 판정의 근거는 기록된 출처 이름이라 source: 접두로 그 사실을 드러낸다.
+            {
+                RuleId::new(format!("source:{source}")).map(|rule_id| Actor::P1Exact {
+                    rule_id,
+                    rule_version: 1,
+                })
+            }
             _ => RuleId::new(POLICY).map(|rule_id| Actor::P1Inferred {
                 rule_id,
                 rule_version: 1,

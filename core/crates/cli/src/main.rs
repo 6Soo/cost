@@ -6,20 +6,93 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use cost_core::apply::{ApplyRequest, apply, open_board_writable, utc_now};
+use cost_core::apply::{ApplyError, ApplyRequest, apply, open_board_writable, utc_now};
+use cost_core::bridge::{BridgeError, PythonBridge};
 use cost_core::period;
-use cost_core::pipeline::links_from;
+use cost_core::pipeline::{
+    PipelineError, PlanRequest, links_from, reject_live_db, run_plan, targets_json,
+};
 use cost_core::shadow::{
-    PlanEngine, PlanRequest, PythonBridge, RustEngine, ShadowError, parse_known_diffs,
-    reject_live_db, run_shadow, targets_json, write_private_lines,
+    PlanEngine, RustEngine, ShadowError, parse_known_diffs, run_shadow, write_private_lines,
 };
 use cost_core::store::decisions::stored_digests_readonly;
-use cost_core::store::read_plan_input;
+use cost_core::store::{StoreError, read_plan_input};
 use serde_json::{Value, json};
 
 const DEFAULT_HOST: &str = "D:/WebLedgerHost";
 
-/// Rust 판정 엔진(U9 `plan` + DB 어댑터). 환불 연결은 2차 전환 전까지 Python 다리에서 받는다.
+/// CLI 오류. 운영 명령(plan·apply)은 `ShadowError`를 거치지 않고, 비교·보호 경로 도우미의 오류만 `Shadow`로 담는다.
+#[derive(Debug)]
+enum CliError {
+    UsageInvalid,
+    PlanResponseInvalid,
+    Pipeline(PipelineError),
+    Apply(ApplyError),
+    Store,
+    Shadow(ShadowError),
+    Io,
+}
+
+impl CliError {
+    /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
+    fn code(&self) -> String {
+        match self {
+            Self::UsageInvalid => "USAGE_INVALID".to_owned(),
+            Self::PlanResponseInvalid => "PLAN_RESPONSE_INVALID".to_owned(),
+            Self::Pipeline(PipelineError::PlanFailed) => "PLAN_FAILED".to_owned(),
+            Self::Pipeline(PipelineError::DbIsLive) => "DB_IS_LIVE".to_owned(),
+            Self::Pipeline(PipelineError::Bridge(BridgeError::Failed(code))) => {
+                format!("PYTHON_BRIDGE_FAILED:{code}")
+            }
+            Self::Pipeline(PipelineError::Bridge(BridgeError::Io(_))) | Self::Io => {
+                "IO_ERROR".to_owned()
+            }
+            Self::Pipeline(PipelineError::Store(_)) | Self::Store => "STORE_ERROR".to_owned(),
+            Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
+            Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
+            Self::Apply(_) => "APPLY_FAILED".to_owned(),
+            Self::Shadow(error) => error.code(),
+        }
+    }
+}
+
+impl From<PipelineError> for CliError {
+    fn from(error: PipelineError) -> Self {
+        Self::Pipeline(error)
+    }
+}
+
+impl From<BridgeError> for CliError {
+    fn from(error: BridgeError) -> Self {
+        Self::Pipeline(error.into())
+    }
+}
+
+impl From<ApplyError> for CliError {
+    fn from(error: ApplyError) -> Self {
+        Self::Apply(error)
+    }
+}
+
+impl From<StoreError> for CliError {
+    fn from(_: StoreError) -> Self {
+        Self::Store
+    }
+}
+
+impl From<ShadowError> for CliError {
+    fn from(error: ShadowError) -> Self {
+        Self::Shadow(error)
+    }
+}
+
+impl From<std::io::Error> for CliError {
+    fn from(_: std::io::Error) -> Self {
+        Self::Io
+    }
+}
+
+/// 그림자 비교용 Rust 엔진 어댑터(운영 pipeline::run_plan). 환불 연결은 2차 전환 전까지 Python 다리에서 받는다.
 fn rust_engine(flags: &Flags) -> Box<dyn PlanEngine> {
     Box::new(RustEngine {
         links: Some(python_bridge(flags)),
@@ -53,7 +126,7 @@ fn main() -> ExitCode {
 }
 
 /// `Ok((코드, 값))`을 한 줄로 내고 종료 코드로 바꾼다. `Err`은 공개 안전한 오류 코드만 낸다.
-fn finish(result: Result<(u8, Value), ShadowError>, kind: &str) -> ExitCode {
+fn finish(result: Result<(u8, Value), CliError>, kind: &str) -> ExitCode {
     match result {
         Ok((code, value)) => {
             println!("{value}");
@@ -77,7 +150,7 @@ struct Flags {
 }
 
 impl Flags {
-    fn parse(args: &[String]) -> Result<Self, ShadowError> {
+    fn parse(args: &[String]) -> Result<Self, CliError> {
         let mut flags = Flags {
             values: Vec::new(),
             switches: Vec::new(),
@@ -90,10 +163,10 @@ impl Flags {
                 }
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
                 | "--repo-root" | "--digest" | "--now" | "--core" | "--periods" => {
-                    let value = iter.next().ok_or(ShadowError::UsageInvalid)?;
+                    let value = iter.next().ok_or(CliError::UsageInvalid)?;
                     flags.values.push((arg.clone(), value.clone()));
                 }
-                _ => return Err(ShadowError::UsageInvalid),
+                _ => return Err(CliError::UsageInvalid),
             }
         }
         Ok(flags)
@@ -110,9 +183,9 @@ impl Flags {
     }
 }
 
-fn shadow(args: &[String]) -> Result<(u8, Value), ShadowError> {
+fn shadow(args: &[String]) -> Result<(u8, Value), CliError> {
     let flags = Flags::parse(args)?;
-    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
     let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
     let repo = PathBuf::from(flags.get("--repo-root").unwrap_or("."));
     let known_path = flags
@@ -147,15 +220,15 @@ fn shadow(args: &[String]) -> Result<(u8, Value), ShadowError> {
 }
 
 /// `costcore plan --db PATH`: 표준 입력의 JSON(선택)을 요청에 합쳐 Rust 엔진 결과를 낸다.
-fn plan(args: &[String]) -> Result<(u8, Value), ShadowError> {
+fn plan(args: &[String]) -> Result<(u8, Value), CliError> {
     let flags = Flags::parse(args)?;
-    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
     let mut body = String::new();
     std::io::stdin().read_to_string(&mut body)?;
     let extra: Value = if body.trim().is_empty() {
         Value::Null
     } else {
-        serde_json::from_str(&body).map_err(|_| ShadowError::PlanResponseInvalid)?
+        serde_json::from_str(&body).map_err(|_| CliError::PlanResponseInvalid)?
     };
     let ids = extra["transaction_ids"].as_array().map(|ids| {
         ids.iter()
@@ -168,16 +241,16 @@ fn plan(args: &[String]) -> Result<(u8, Value), ShadowError> {
         reconsider: flags.on("--reconsider") || extra["reconsider"] == json!(true),
         context: extra,
     };
-    let targets = rust_engine(&flags).plan(&request)?;
+    let targets = run_plan(&request, Some(&python_bridge(&flags)))?;
     Ok((0, json!({"ok": true, "result": targets_json(&targets)})))
 }
 
 /// `costcore apply --db PATH --core CORE.sqlite --digest D [--allow-live]`: 표준 입력의 JSON(`trips`·`nets`·`evidence`·`transaction_ids`·
 /// `reconsider`·`links`)으로 계획을 다시 만들어 digest가 같을 때만 쓴다. 운영 DB 경로는 `--allow-live` 없이는 거부한다.
-fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
+fn apply_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
     let flags = Flags::parse(args)?;
-    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
-    let digest = flags.get("--digest").ok_or(ShadowError::UsageInvalid)?;
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
+    let digest = flags.get("--digest").ok_or(CliError::UsageInvalid)?;
     let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
     if !flags.on("--allow-live") {
         reject_live_db(&db, &host)?;
@@ -187,7 +260,7 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
     let context: Value = if body.trim().is_empty() {
         Value::Null
     } else {
-        serde_json::from_str(&body).map_err(|_| ShadowError::PlanResponseInvalid)?
+        serde_json::from_str(&body).map_err(|_| CliError::PlanResponseInvalid)?
     };
     let ids: Option<Vec<String>> = context["transaction_ids"].as_array().map(|ids| {
         ids.iter()
@@ -199,7 +272,7 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
     } else {
         python_bridge(&flags).refund_links(&db, ids.as_deref())?
     };
-    let core = PathBuf::from(flags.get("--core").ok_or(ShadowError::UsageInvalid)?);
+    let core = PathBuf::from(flags.get("--core").ok_or(CliError::UsageInvalid)?);
     cost_core::store::open_core(&core)?;
     let mut conn = open_board_writable(&db)?;
     let now = match flags.get("--now") {
@@ -223,15 +296,15 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
 }
 
 /// `--periods FILE`(Python 다리 `periods` 출력)의 거래별 근거 후보 목록. 없으면 비어 있다.
-fn load_period_facts(flags: &Flags) -> Result<BTreeMap<String, Value>, ShadowError> {
+fn load_period_facts(flags: &Flags) -> Result<BTreeMap<String, Value>, CliError> {
     let Some(path) = flags.get("--periods") else {
         return Ok(BTreeMap::new());
     };
     let body: Value = serde_json::from_str(&std::fs::read_to_string(path)?)
-        .map_err(|_| ShadowError::PlanResponseInvalid)?;
+        .map_err(|_| CliError::PlanResponseInvalid)?;
     Ok(body["facts"]
         .as_object()
-        .ok_or(ShadowError::PlanResponseInvalid)?
+        .ok_or(CliError::PlanResponseInvalid)?
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect())
@@ -239,9 +312,9 @@ fn load_period_facts(flags: &Flags) -> Result<BTreeMap<String, Value>, ShadowErr
 
 /// `costcore periods --db BOARD [--periods FILE] [--private-out PATH]`: 거래마다 Rust 이용기간 규칙의 결과를
 /// 낸다(그림자 비교용, 쓰지 않는다). 공개 출력은 건수뿐이고 거래 ID·기간은 보호 경로 파일에만 쓴다.
-fn periods(args: &[String]) -> Result<(u8, Value), ShadowError> {
+fn periods(args: &[String]) -> Result<(u8, Value), CliError> {
     let flags = Flags::parse(args)?;
-    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
     let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
     reject_live_db(&db, &host)?;
     let private_out = match flags.get("--private-out") {
@@ -278,12 +351,12 @@ fn periods(args: &[String]) -> Result<(u8, Value), ShadowError> {
 /// `costcore rejudge --changed --db BOARD [--core CORE] [--periods FILE] [--private-out PATH]`:
 /// 이용기간 근거 digest(예약 사실·연결·판정 함수 버전)가 저장값과 달라진 거래만 고른다. 쓰지 않는다.
 /// `FILE`은 Python 다리 `periods` 출력(`{"facts": {거래 ID: 후보 목록}}`). 공개 출력은 건수뿐이다.
-fn rejudge(args: &[String]) -> Result<(u8, Value), ShadowError> {
+fn rejudge(args: &[String]) -> Result<(u8, Value), CliError> {
     let flags = Flags::parse(args)?;
     if !flags.on("--changed") {
-        return Err(ShadowError::UsageInvalid);
+        return Err(CliError::UsageInvalid);
     }
-    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
     let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
     reject_live_db(&db, &host)?;
     let private_out = match flags.get("--private-out") {

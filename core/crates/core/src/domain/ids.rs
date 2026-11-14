@@ -155,6 +155,11 @@ impl TripCatalog {
 pub struct RefundGroupId(pub(crate) String);
 
 impl RefundGroupId {
+    /// 원결제의 환불 묶음 ID(`refund:{원결제}`). 이 문자열을 만드는 유일한 곳이다.
+    pub(crate) fn for_original(original: &str) -> Self {
+        RefundGroupId(format!("refund:{original}"))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

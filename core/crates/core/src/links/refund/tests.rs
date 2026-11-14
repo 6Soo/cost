@@ -683,3 +683,33 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn plan_links_carry_what_the_plan_reads_and_group_ids_have_one_source() {
+    let cfg = config();
+    let mut checked = 0;
+    for case in golden("refund_pairing") {
+        let rows = rows_of(&case["input"]);
+        let got = Refunds::derive(&rows, &cfg).plan_links();
+        let want: BTreeMap<String, crate::plan::RefundLink> = case["expected"]["links"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, link)| {
+                (
+                    id.clone(),
+                    crate::plan::RefundLink {
+                        original_id: text(link, "original_id"),
+                        inferred: link["inferred"] == json!(true),
+                        status: text(link, "status"),
+                    },
+                )
+            })
+            .collect();
+        assert_eq!(got, want, "{}", case["case_id"]);
+        checked += want.len();
+    }
+    assert!(checked > 0);
+    let id = crate::domain::RefundGroupId::for_original("syn-p");
+    assert_eq!(id.as_str(), "refund:syn-p");
+}

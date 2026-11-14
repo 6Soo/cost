@@ -1,7 +1,8 @@
 //! `core/golden/synthetic/plan.jsonl`(Python `automatic_classification.plan` 출력)과 `cost_core::plan::plan`을 비교한다.
 //! 시나리오(행·이력·보류·제외·수동 교정·장부·화면 행)는 `tools/core_bridge/synthetic.py`가 DB에 넣는 값과 같은 기본값으로 읽는다.
 
-use cost_core::plan::{BoardRow, Outcome, PlanInput, RefundLink, Row, plan, python_json};
+use cost_core::digest::python_json;
+use cost_core::plan::{BoardRow, Outcome, PlanInput, RefundLink, Row, plan};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 

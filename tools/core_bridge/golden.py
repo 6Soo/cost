@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_DIR = ROOT / 'core' / 'golden' / 'synthetic'
-AREAS = ('classify', 'plan', 'refund_pairing', 'refund_groups', 'ota_links', 'trips', 'period')
+AREAS = ('classify', 'plan', 'refund_pairing', 'refund_groups', 'ota_links', 'ota_mn', 'ota_candidates', 'trips', 'period')
 
 TRIP_A = dict(trip_id='T-A', display_key='SYN-A', destination='도쿄', starts_on='2026-10-01', ends_on='2026-10-05')
 TRIP_B = dict(trip_id='T-B', display_key='SYN-B', destination='도쿄', starts_on='2026-11-10', ends_on='2026-11-15')
@@ -570,14 +570,12 @@ def _card(identity, **changes):
     return row
 
 
-def ota_cases():
-    out, n = [], 0
+def _ota_inputs():
+    """(note, events, cards, extra) of every OTA matching scenario; shared by ota_links and ota_candidates."""
+    out = []
 
     def add(note, events, cards, **extra):
-        nonlocal n
-        n += 1
-        out.append(_case('ota_links', f'{n:03d}', 'links', dict(
-            {'kind': 'ota', 'events': events, 'transactions': cards}, **extra), note))
+        out.append((note, events, cards, extra))
 
     E, C = _event, _card
     add('exact match', [E('syn-e1')], [C('syn-t1')])
@@ -630,6 +628,265 @@ def ota_cases():
     add('trip discount step is not accepted without a rule', [E('syn-e1', amount='28500', amount_krw=28500)], [C('syn-t1')])
     add('event without amount', [E('syn-e1', amount=None, amount_krw=None)], [C('syn-t1')])
     add('event amount zero', [E('syn-e1', amount='0', amount_krw=0)], [C('syn-t1', amount_krw=0)])
+    return out
+
+
+def ota_cases():
+    return [_case('ota_links', f'{n:03d}', 'links', dict({'kind': 'ota', 'events': events, 'transactions': cards}, **extra),
+                  note) for n, (note, events, cards, extra) in enumerate(_ota_inputs(), 1)]
+
+
+def ota_mn_cases():
+    """Final OTA links beyond ota_links: frozen groups, pinned and legacy links, occupancy, ambiguity, undated inference."""
+    out = []
+
+    def add(note, events, cards, covers=(), **extra):
+        out.append(_case('ota_mn', f'{len(out) + 1:03d}', 'links',
+                         dict({'kind': 'ota', 'events': events, 'transactions': cards}, **extra), note, covers))
+
+    E, C = _event, _card
+    two_events = [E('syn-e1', booking_ref='SYN-BOOK-1'), E('syn-e2', booking_ref='SYN-BOOK-2')]
+    two_cards = [C('syn-t1', approval_number='SYN-AP-1'), C('syn-t2', approval_number='SYN-AP-2')]
+    first = _run('links', {'kind': 'ota', 'events': two_events, 'transactions': two_cards})['results'][0]
+    snapshot = first['group_order_snapshot']
+    pin = {'event_ids': ['syn-e1', 'syn-e2'], 'card_ids': ['syn-t1', 'syn-t2'],
+           'mapping': {'syn-e1': 'syn-t2', 'syn-e2': 'syn-t1'}, 'order_snapshot': snapshot}
+    add('frozen group keeps the confirmed order', two_events, two_cards, frozen_groups=[pin],
+        covers=['frozen_user_confirmed_order'])
+    add('frozen group keeps the confirmed order (input reversed)', two_events[::-1], two_cards[::-1], frozen_groups=[pin],
+        covers=['frozen_user_confirmed_order'])
+    add('frozen group without a snapshot', two_events, two_cards,
+        frozen_groups=[{k: v for k, v in pin.items() if k != 'order_snapshot'}], covers=['frozen_user_confirmed_order'])
+    add('frozen group with an empty snapshot', two_events, two_cards, frozen_groups=[dict(pin, order_snapshot={})],
+        covers=['frozen_user_confirmed_order'])
+    add('frozen group, card evidence changed', two_events, [two_cards[0], C('syn-t2', approval_number='SYN-AP-2', issuer='SYN-BANK',
+        merchant='TRIP.COM', merchant_normalized='trip.com', card_kind='해외')],
+        frozen_groups=[pin], covers=['frozen_group_evidence_changed'])
+    add('frozen group, event evidence changed', [two_events[0], dict(two_events[1], source_ids=['mail:syn-e9'])], two_cards,
+        frozen_groups=[pin], covers=['frozen_group_evidence_changed'])
+    add('frozen group, approval order changed', two_events,
+        [C('syn-t1', approval_number='SYN-AP-9'), two_cards[1]], frozen_groups=[pin], covers=['HOLD_GROUP_CHANGED'])
+    add('frozen group, mapping names a card that is no option', two_events, two_cards,
+        frozen_groups=[dict(pin, mapping={'syn-e1': 'syn-t9', 'syn-e2': 'syn-t1'})], covers=['HOLD_GROUP_CHANGED'])
+    add('frozen group, signature change holds members and spares unrelated events',
+        [E('syn-e1', item='숙박비', booking_ref='SYN-BOOK-1'), two_events[1], E('syn-e3', booking_ref='SYN-BOOK-3')],
+        two_cards + [C('syn-t3', approval_number='SYN-AP-3')], frozen_groups=[pin], covers=['HOLD_GROUP_CHANGED'])
+    add('frozen group, a new event joins the signature',
+        two_events + [E('syn-e3', booking_ref='SYN-BOOK-3')], two_cards + [C('syn-t3', approval_number='SYN-AP-3')],
+        frozen_groups=[pin], covers=['frozen_group_membership_changed'])
+    add('frozen group, source events are gone', [E('syn-e9', amount='25000', amount_krw=25000, booking_ref='SYN-BOOK-9')],
+        [C('syn-t1'), C('syn-t2', approval_number='SYN-AP-2'), C('syn-t3', amount_krw=25000, approval_number='SYN-AP-3')],
+        frozen_groups=[pin], covers=['"transaction_id": "syn-t3"'])
+    add('frozen group member has a manual link', two_events, two_cards, frozen_groups=[pin],
+        existing_links={'syn-e1': {'transaction_id': 'syn-t2', 'status': 'MATCHED_USER'}})
+    add('manual link pins one event, the other takes the free card',
+        [E('syn-e1'), E('syn-e2', source_ids=['mail:syn-e2'], amount='25000', amount_krw=25000)],
+        [C('syn-t1'), C('syn-t2', amount_krw=25000, approval_number='SYN-AP-2')],
+        existing_links={'syn-e1': {'transaction_id': 'syn-t1', 'status': 'MATCHED_USER'}},
+        covers=['pinned_existing_link', 'unique_exact_evidence'])
+    add('card claimed by an absent linked event stays reserved', two_events, two_cards,
+        existing_links={'syn-e9': {'transaction_id': 'syn-t1', 'status': 'MATCHED_USER'}}, covers=['MATCHED_GROUP'])
+    add('two links claim one card', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2')], [C('syn-t1')],
+        existing_links={'syn-e1': {'transaction_id': 'syn-t1', 'status': 'MATCHED_USER'},
+                        'syn-e2': {'transaction_id': 'syn-t1', 'status': 'MATCHED_USER'}},
+        covers=['pinned_global_one_to_one_collision'])
+    add('link status is not a match status', [E('syn-e1')], [C('syn-t1')],
+        existing_links={'syn-e1': {'transaction_id': 'syn-t1', 'status': 'inactive'}}, covers=['invalid_existing_link_status'])
+    legacy = {'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO', 'legacy_exact': True, 'source_digest': 'syn-e1',
+              'source_digests': ['syn-d1']}
+    add('legacy exact link that still validates', [E('syn-e1', source_digests=['syn-d1', 'syn-d2'])], [C('syn-t1')],
+        existing_links={'syn-e1': legacy}, covers=['pinned_existing_link'])
+    add('legacy exact link, source digest moved', [E('syn-e1', source_digest='syn-e2', source_digests=['syn-d1'])], [C('syn-t1')],
+        existing_links={'syn-e1': legacy}, covers=['legacy_exact_binding_validation_failed'])
+    add('legacy exact link, no shared source digest', [E('syn-e1', source_digests=['syn-d3'])], [C('syn-t1')],
+        existing_links={'syn-e1': legacy}, covers=['legacy_exact_binding_validation_failed'])
+    add('legacy exact link, card amount changed', [E('syn-e1', source_digests=['syn-d1'])], [C('syn-t1', amount_krw=30001)],
+        existing_links={'syn-e1': legacy}, covers=['legacy_exact_binding_validation_failed'])
+    add('legacy exact link, card is gone', [E('syn-e1', source_digests=['syn-d1'])], [],
+        existing_links={'syn-e1': legacy}, covers=['legacy_exact_binding_validation_failed'])
+    add('same amount in two number formats forms one group',
+        [E('syn-e1', booking_ref='SYN-BOOK-1'), E('syn-e2', booking_ref='SYN-BOOK-2', amount='30000.00', amount_krw='30000.00')],
+        two_cards, covers=['auto_stable_order'])
+    add('approval order beats booking order only after booking order',
+        [E('syn-e1', booking_ref='SYN-BOOK-1'), E('syn-e2', booking_ref='SYN-BOOK-2')],
+        [C('syn-t1', approval_number='SYN-AP-9'), C('syn-t2', approval_number='SYN-AP-1')], covers=['auto_stable_order'])
+    add('group cards without an issuer', two_events, [C('syn-t1', issuer='', approval_number='SYN-AP-1'),
+        C('syn-t2', issuer='', approval_number='SYN-AP-2')], covers=['MATCHED_GROUP'])
+    add('group events with two card issuers', two_events, [C('syn-t1', approval_number='SYN-AP-1'),
+        C('syn-t2', issuer='SYN-BANK-B', approval_number='SYN-AP-2')], covers=['MATCHED_GROUP'])
+    add('events on distinct known cards form separate groups',
+        [E('syn-e1', booking_ref='SYN-BOOK-1', card_last4='2042'), E('syn-e2', booking_ref='SYN-BOOK-2', card_last4='9999')],
+        [C('syn-t1', card_tail='2042'), C('syn-t2', card_tail='9999')], covers=['"transaction_id": "syn-t2"'])
+    add('different items with identical cards are an equal optimum',
+        [E('syn-e1', booking_ref='SYN-BOOK-1', item='항공권'), E('syn-e2', booking_ref='SYN-BOOK-2', item='숙박비')],
+        two_cards, covers=['MATCHED_GROUP'])
+    add('group overlaps a singleton with another signature',
+        two_events + [E('syn-e3', booking_ref='SYN-BOOK-3', item='숙박비')], two_cards, covers=['MATCHED_GROUP'])
+    add('one event, an exact card and a flight-delta card', [E('syn-e1')],
+        [C('syn-t1'), C('syn-t2', amount_krw=29000, approval_number='SYN-AP-2')], covers=['MATCHED_GROUP'])
+    add('one event, one card, a second event on another day', [E('syn-e1'), E('syn-e2', paid_on='2026-09-05', booking_ref='SYN-BOOK-2')],
+        [C('syn-t1'), C('syn-t2', approval_date='2026-09-05', approval_number='SYN-AP-2')],
+        covers=['"transaction_id": "syn-t2"'])
+    add('two events, one flagged duplicate card', two_events, [two_cards[0], dict(two_cards[1], duplicate_of='syn-t1')],
+        covers=['MATCHED_GROUP'])
+    add('refund events share one refund card',
+        [E('syn-e1', event_type='refund', evidence_status='refund_verified', refund_status='refunded', booking_ref='SYN-BOOK-1'),
+         E('syn-e2', event_type='refund', evidence_status='refund_verified', refund_status='refunded', booking_ref='SYN-BOOK-2')],
+        [C('syn-t1', amount_krw=-30000, transaction_direction='refund')], covers=['MATCHED_GROUP'])
+    portal = dict(provider='agoda', paid_on=None, verified_portal_snapshot=True, reservation_status='confirmed',
+                  booking_ref='SYN-BOOK-1')
+    agoda_card = dict(merchant='Agoda', merchant_normalized='agoda', ota_inference_eligible=True)
+    add('undated agoda event, mutually unique card', [E('syn-e1', **portal)], [C('syn-t1', **agoda_card)],
+        covers=['mutually_unique_undated_agoda', '"inferred_link": true'])
+    add('undated agoda event, card not marked eligible', [E('syn-e1', **portal)],
+        [C('syn-t1', merchant='Agoda', merchant_normalized='agoda')], covers=['merchant_amount_card_tail_without_payment_date'])
+    add('undated agoda event, card already linked elsewhere', [E('syn-e1', **portal)], [C('syn-t1', **agoda_card)],
+        existing_links={'syn-e9': {'transaction_id': 'syn-t1', 'status': 'MATCHED_USER'}})
+    add('undated agoda event, two candidate cards', [E('syn-e1', **portal)],
+        [C('syn-t1', **agoda_card), C('syn-t2', approval_number='SYN-AP-2', **agoda_card)])
+    add('undated agoda event, one-day stay', [E('syn-e1', service_period={'starts_on': '2026-10-01', 'ends_on': '2026-10-01'}, **portal)],
+        [C('syn-t1', **agoda_card)])
+    add('undated agoda event, cancelled booking sibling',
+        [E('syn-e1', **portal), E('syn-e2', **dict(portal, reservation_status='cancelled'), source_ids=['mail:syn-e2'])],
+        [C('syn-t1', **agoda_card)])
+    add('undated agoda event, a dated event also fits the card',
+        [E('syn-e1', **portal), E('syn-e2', provider='agoda', booking_ref='SYN-BOOK-2', source_ids=['mail:syn-e2'])],
+        [C('syn-t1', **agoda_card)])
+    return out
+
+
+def ota_candidate_cases():
+    """ota_links inputs plus rule, foreign-currency, pair-check, preauthorization, price-change and forest scenarios."""
+    out = []
+
+    def add(note, events, cards, covers=(), **extra):
+        out.append(_case('ota_candidates', f'{len(out) + 1:03d}', 'candidates',
+                         dict({'events': events, 'transactions': cards}, **extra), note, covers))
+
+    for note, events, cards, extra in _ota_inputs():
+        add(note, events, cards, **extra)
+    E, C = _event, _card
+    rule = lambda rule_id, **conditions: {  # noqa: E731
+        'rule_id': rule_id, 'status': 'active', 'approved_by': 'syn-owner',
+        'conditions': dict({'provider': 'trip', 'item': '항공권', 'merchant_normalized': 'trip.com'}, **conditions)}
+    for amount in (29000, 27000, 20000, 19000, 29500, 31000):
+        add(f'trip flight discount step, card {amount}', [E('syn-e1')], [C('syn-t1', amount_krw=amount)])
+    add('trip flight step does not apply to another item', [E('syn-e1', item='숙박비')], [C('syn-t1', amount_krw=29000)])
+    add('approved delta rule', [E('syn-e1')], [C('syn-t1', amount_krw=31500)],
+        rules=[rule('syn-rule-1', amount_delta_krw=1500)])
+    add('approved delta rule, wrong delta', [E('syn-e1')], [C('syn-t1', amount_krw=31600)],
+        rules=[rule('syn-rule-1', amount_delta_krw=1500)])
+    add('delta rule without an approver', [E('syn-e1')], [C('syn-t1', amount_krw=31500)],
+        rules=[{'rule_id': 'syn-rule-1', 'status': 'active',
+                'conditions': rule('syn-rule-1', amount_delta_krw=1500)['conditions']}])
+    add('inactive delta rule', [E('syn-e1')], [C('syn-t1', amount_krw=31500)],
+        rules=[dict(rule('syn-rule-1', amount_delta_krw=1500), status='inactive')])
+    percent = dict(discount_rate_bps=500, discount_cap_krw=3000, minimum_amount_krw=10000, rounding_mode='floor',
+                   payment_method='syn-pay', valid_from='2026-09-01', valid_to='2026-09-30')
+    for amount in (28500, 28501, 27000):
+        add(f'percent discount rule, card {amount}', [E('syn-e1')],
+            [C('syn-t1', amount_krw=amount, payment_method='syn-pay')], rules=[rule('syn-rule-1', **percent)])
+    add('percent discount rule, other payment method', [E('syn-e1')],
+        [C('syn-t1', amount_krw=28500, payment_method='syn-other')], rules=[rule('syn-rule-1', **percent)])
+    add('percent discount rule, rounding up', [E('syn-e1', amount='30030', amount_krw=30030)],
+        [C('syn-t1', amount_krw=28529, payment_method='syn-pay')],
+        rules=[rule('syn-rule-1', **dict(percent, rounding_mode='half_up'))])
+    add('date lag rule, one day', [E('syn-e1')], [C('syn-t1', approval_date='2026-09-05')],
+        rules=[rule('syn-rule-1', date_lag_days=1)])
+    add('date lag rule, two days', [E('syn-e1')], [C('syn-t1', approval_date='2026-09-06')],
+        rules=[rule('syn-rule-1', date_lag_days=1)])
+    add('date lag rule, negative range', [E('syn-e1')], [C('syn-t1', approval_date='2026-09-03')],
+        rules=[rule('syn-rule-1', date_lag_min_days=-2, date_lag_max_days=-1)])
+    add('date lag rule, invalid scope (range with days)', [E('syn-e1')], [C('syn-t1', approval_date='2026-09-05')],
+        rules=[rule('syn-rule-1', date_lag_min_days=0, date_lag_max_days=2, date_lag_days=1)])
+    add('rule valid window excludes the payment date', [E('syn-e1')], [C('syn-t1', approval_date='2026-09-05')],
+        rules=[rule('syn-rule-1', date_lag_days=1, valid_from='2026-10-01', valid_to='2026-10-31')])
+    add('provider alias rule', [E('syn-e1', provider='booking', paid_on=None)],
+        [C('syn-t1', merchant='SYN ALIAS', merchant_normalized='syn alias')],
+        rules=[{'rule_id': 'syn-rule-1', 'status': 'active', 'approved_by': 'syn-owner', 'conditions': {
+            'rule_kind': 'provider_alias', 'provider': 'booking', 'alias': 'syn alias', 'alias_version': 1,
+            'approval_source': 'syn-source'}}])
+    add('provider alias without a rule', [E('syn-e1', provider='booking', paid_on=None)],
+        [C('syn-t1', merchant='SYN ALIAS', merchant_normalized='syn alias')])
+    add('issuer alias rule', [E('syn-e1', card_issuer='SYN-BANK-ALIAS')], [C('syn-t1')],
+        rules=[{'rule_id': 'syn-rule-1', 'status': 'active', 'approved_by': 'syn-owner', 'conditions': {
+            'rule_kind': 'issuer_alias', 'provider': 'trip', 'event_issuer_alias': 'SYN-BANK-ALIAS',
+            'issuer': 'SYN-BANK', 'alias_version': 1, 'approval_source': 'syn-source'}}])
+    add('issuer name differs without an alias rule', [E('syn-e1', card_issuer='SYN-BANK-ALIAS')], [C('syn-t1')])
+    jp = dict(currency='JPY', amount='30000', amount_krw=None)
+    add('foreign payment, same day', [E('syn-e1', **jp)],
+        [C('syn-t1', foreign_currency='JPY', foreign_amount='30000', amount_krw=270000)])
+    add('foreign payment, card one day later', [E('syn-e1', **jp)],
+        [C('syn-t1', foreign_currency='JPY', foreign_amount='30000', amount_krw=270000, approval_date='2026-09-05')])
+    add('foreign payment, card two days later', [E('syn-e1', **jp)],
+        [C('syn-t1', foreign_currency='JPY', foreign_amount='30000', amount_krw=270000, approval_date='2026-09-06')])
+    add('foreign payment, other currency', [E('syn-e1', **jp)],
+        [C('syn-t1', foreign_currency='USD', foreign_amount='30000', amount_krw=270000)])
+    add('foreign payment, amount differs', [E('syn-e1', **jp)],
+        [C('syn-t1', foreign_currency='JPY', foreign_amount='29000', amount_krw=270000)])
+    add('foreign payment, card has no foreign amount', [E('syn-e1', **jp)], [C('syn-t1', amount_krw=270000)])
+    add('foreign payment without a date', [E('syn-e1', paid_on=None, **jp)],
+        [C('syn-t1', foreign_currency='JPY', foreign_amount='30000', amount_krw=270000)])
+    add('foreign refund',
+        [E('syn-e1', event_type='refund', evidence_status='refund_verified', refund_status='refunded', **jp)],
+        [C('syn-t1', foreign_currency='JPY', foreign_amount='-30000', amount_krw=-270000,
+           transaction_direction='refund')])
+    add('refund without a refund status', [E('syn-e1', event_type='refund', evidence_status='refund_verified')],
+        [C('syn-t1', amount_krw=-30000, transaction_direction='refund')])
+    add('refund, exact', [E('syn-e1', event_type='refund', evidence_status='refund_verified', refund_status='refunded')],
+        [C('syn-t1', amount_krw=-30000, transaction_direction='refund')])
+    add('pair check reasons', [E('syn-e1')], [
+        C('syn-t1'), C('syn-t2', duplicate_of='syn-t1'), C('syn-t3', merchant='AGODA', merchant_normalized='agoda'),
+        C('syn-t4', transaction_direction='refund'), C('syn-t5', amount_krw=31000),
+        C('syn-t6', approval_date='2026-09-07'), C('syn-t7', card_tail='9999'), C('syn-t8', parse_error='AMOUNT_UNREADABLE')])
+    add('pair check, missing payment date', [E('syn-e1', paid_on=None)],
+        [C('syn-t1'), C('syn-t2', merchant='SYN OTHER', merchant_normalized='syn other')])
+    add('pair check, no card tail hint and no corroborator',
+        [E('syn-e1', provider='agoda', card_last4=None, paid_on='2026-09-04')],
+        [C('syn-t1', merchant='SYN OTHER', merchant_normalized='syn other', approval_date='2026-09-04')])
+    add('payment id corroborates', [E('syn-e1', provider='booking', card_last4=None, payment_id='syn-pay-1',
+                                      payment_id_scheme='scheme-p', paid_on='2026-09-04')],
+        [C('syn-t1', merchant='SYN SHOP', merchant_normalized='syn shop', approval_date='2026-09-05',
+           payment_id='syn-pay-1', payment_id_scheme='scheme-p')])
+    add('skyticket merchant', [E('syn-e1', provider='skyticket', item='항공권')],
+        [C('syn-t1', merchant='어드벤처코리아', merchant_normalized='어드벤처코리아')])
+    add('skyticket event, card of another brand', [E('syn-e1', provider='skyticket', item='항공권')],
+        [C('syn-t1', merchant='AGODA', merchant_normalized='agoda')])
+    forest = dict(provider='forest', item='숙박비', card_last4=None)
+    add('forest portal event, facility on the card',
+        [E('syn-e1', evidence_kind='forest_portal', hotel_name='SYN HOTEL', **forest)],
+        [C('syn-t1', merchant='SYN HOTEL', merchant_normalized='syn hotel')])
+    add('forest portal event, other facility',
+        [E('syn-e1', evidence_kind='forest_portal', hotel_name='SYN HOTEL', **forest)],
+        [C('syn-t1', merchant='SYN SHOP', merchant_normalized='syn shop')])
+    receipt = dict(evidence_kind='authenticated_forest_pg_card_receipt', authorization_scheme='issuer_card_approval',
+                   approval_number='SYN-AP-1', **forest)
+    add('forest receipt, approval numbers agree', [E('syn-e1', **receipt)],
+        [C('syn-t1', merchant='SYN SHOP', merchant_normalized='syn shop', approval_number='SYN-AP-1')])
+    add('forest receipt, approval numbers differ', [E('syn-e1', **receipt)],
+        [C('syn-t1', merchant='SYN SHOP', merchant_normalized='syn shop', approval_number='SYN-AP-2')])
+    pre = dict(event_type='reservation', evidence_status='preauthorized', preauthorized_on='2026-09-04',
+               preauthorized_amount_krw=30000, paid_on=None, amount=None, amount_krw=None)
+    add('preauthorization, same day and amount', [E('syn-e1', **pre)], [C('syn-t1')])
+    add('preauthorization, amount differs', [E('syn-e1', **pre)], [C('syn-t1', amount_krw=30500)])
+    add('preauthorization, card already linked', [E('syn-e1', **pre)],
+        [C('syn-t1'), C('syn-t2', approval_number='SYN-AP-2')],
+        existing_links={'syn-e9': {'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}})
+    add('preauthorization, card of another brand', [E('syn-e1', **pre)],
+        [C('syn-t1', merchant='AGODA', merchant_normalized='agoda')])
+    add('preauthorization, card held for review', [E('syn-e1', **pre)], [C('syn-t1', ota_review_held=True)])
+    add('preauthorization without a date', [E('syn-e1', **dict(pre, preauthorized_on=None))], [C('syn-t1')])
+    change = dict(event_type='reservation', evidence_status='booking_only', price_change_amount_krw=5000,
+                  price_change_on='2026-09-04', paid_on=None, amount=None, amount_krw=None)
+    add('price change, rise charged that day', [E('syn-e1', **change)],
+        [C('syn-t1', amount_krw=5000, source_hash='syn-hash-t1')])
+    add('price change, card without a source hash', [E('syn-e1', **change)], [C('syn-t1', amount_krw=5000)])
+    add('price change, cancelled reservation', [E('syn-e1', reservation_status='cancelled', **change)],
+        [C('syn-t1', amount_krw=5000, source_hash='syn-hash-t1')])
+    add('price change, another amount', [E('syn-e1', **change)],
+        [C('syn-t1', amount_krw=5001, source_hash='syn-hash-t1')])
+    add('existing link keeps an event out of the search', [E('syn-e1')], [C('syn-t1')],
+        existing_links={'syn-e1': {'transaction_id': 'syn-t1', 'status': 'MATCHED_USER'}})
     return out
 
 
@@ -940,6 +1197,7 @@ def period_cases():
 
 
 GENERATORS = {'classify': classify_cases, 'plan': plan_cases, 'refund_pairing': refund_cases, 'refund_groups': refund_group_cases, 'ota_links': ota_cases,
+              'ota_mn': ota_mn_cases, 'ota_candidates': ota_candidate_cases,
               'trips': trips_cases, 'period': period_cases}
 
 

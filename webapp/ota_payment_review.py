@@ -1393,8 +1393,11 @@ def _store_value(store, name, default):
     return method() if callable(method) else default
 
 
-def input_key_for(backend) -> str:
-    """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time."""
+def input_key_for(backend, ignore_transaction_columns=()) -> str:
+    """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time.
+
+    `ignore_transaction_columns` leaves the named card columns out (a caller whose own writes change them).
+    """
     from app import ota_sources, flight_evidence
     from app.ota_matching_defaults import load_defaults
     from app.provisional_assignment import POLICY_VERSION
@@ -1404,7 +1407,8 @@ def input_key_for(backend) -> str:
         "provisional_trip_policy": POLICY_VERSION,
         "trip_authority_rows": backend.board.list_trips() if callable(getattr(backend.board, 'list_trips', None)) else [],
         "sources": ota_sources.source_stamps(backend.sources),
-        "transactions": backend._transactions(),
+        "transactions": [{k: v for k, v in row.items() if k not in ignore_transaction_columns}
+                         for row in backend._transactions()] if ignore_transaction_columns else backend._transactions(),
         "review": {"links": _store_value(store, "links", {}),
                    "rules": _store_value(store, "active_rules", []),
                    "proposals": _store_value(store, "proposals", []),
@@ -1436,11 +1440,11 @@ def input_key(board) -> str:
     return current_input_key(board)
 
 
-def current_input_key(board) -> str:
+def current_input_key(board, ignore_transaction_columns=()) -> str:
     """Re-read the local input fingerprint without refreshing the network authority."""
     backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
     try:
-        return input_key_for(backend)
+        return input_key_for(backend, ignore_transaction_columns)
     finally:
         backend.close()
 

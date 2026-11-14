@@ -140,6 +140,15 @@ impl Link {
         !self.inferred && self.basis.is_none() && self.status == Status::Partial && self.net_krw > 0
     }
 
+    /// 계획이 읽는 칸만 옮긴다.
+    pub fn to_plan(&self) -> crate::plan::RefundLink {
+        crate::plan::RefundLink {
+            original_id: self.original_id.clone(),
+            inferred: self.inferred,
+            status: self.status.as_str().to_string(),
+        }
+    }
+
     /// 묶음으로 넓힐 수 있는 검증 연결: 추론이 아니고 (순액 0 전액 상쇄 또는 원승인번호 부분환불).
     pub(crate) fn is_verified(&self) -> bool {
         !self.inferred
@@ -240,6 +249,14 @@ impl<'a> Refunds<'a> {
     /// 실제 연결과 미해결 후보의 원결제(가맹점 전체가 아니라 거래별 보호). 검토 대기열의 읽기 전용 경계.
     pub fn review_originals(&self) -> Vec<String> {
         pairing::review_originals(self)
+    }
+
+    /// 계획(`plan::plan`)이 읽는 연결. 환불 ID → 원결제·추론 여부·상태. 2차 전환 전에는 Python 어댑터가 이 자리에 선다.
+    pub fn plan_links(&self) -> BTreeMap<String, crate::plan::RefundLink> {
+        self.links
+            .iter()
+            .map(|l| (l.refund_id.clone(), l.to_plan()))
+            .collect()
     }
 
     pub(crate) fn row(&self, id: &str) -> Option<&RefundTxn> {

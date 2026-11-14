@@ -547,12 +547,13 @@ def plan(conn, trips, *, nets=None, transaction_ids=None, reconsider=False, evid
                         'scanned': scanned, 'reviewed': scanned - protected, 'reconsider': reconsider}}
 
 
-def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None):
+def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
     """Atomic classification-only writes; amounts, source identity and financial links stay intact."""
     from . import core_writer
     if core_writer.selected() == 'rust':
         return core_writer.apply(conn, expected, trips, nets=nets, transaction_ids=transaction_ids,
-                                 reconsider=reconsider, evidence=evidence)
+                                 reconsider=reconsider, evidence=evidence,
+                                 periods=periods if periods is not None else core_writer.periods_for(conn))
     from .db import utc_now
     nested = conn.in_transaction
     conn.execute('SAVEPOINT complete_card_classification' if nested else 'BEGIN IMMEDIATE')

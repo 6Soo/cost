@@ -60,7 +60,7 @@ def _money(v):
         return True
     if isinstance(v, int) and not isinstance(v, bool):
         return abs(v) < 10_000_000
-    return isinstance(v, str) and bool(re.fullmatch(r'-?\d{1,7}', v))
+    return isinstance(v, str) and bool(re.fullmatch(r'-?\d{1,7}(\.\d{1,2})?', v))
 
 
 def _merchant(v):
@@ -104,13 +104,13 @@ KEYS = {
     'overrides': _regex(r'^syn-[a-z0-9-]+$'),
     'approval_number': _regex(SYN_APPROVAL.pattern), 'original_approval_number': _regex(SYN_APPROVAL.pattern),
     'booking_ref': lambda v: v is None or bool(re.fullmatch(r'(SYN-BOOK-\d)?', v)), 'authorization_number': _regex(r'^SYN-AUTH-\d$'),
-    'authorization_scheme': _one_of('scheme-a'),
+    'authorization_scheme': _one_of('scheme-a', 'issuer_card_approval'),
     # card and money
-    'issuer': _one_of('SYN-BANK', 'SYN-BANK-B'), 'card_issuer': _one_of('SYN-BANK', 'SYN-BANK-B'),
+    'issuer': _one_of('', 'SYN-BANK', 'SYN-BANK-B'), 'card_issuer': _one_of('SYN-BANK', 'SYN-BANK-B', 'SYN-BANK-ALIAS'),
     'card_tail': lambda v: v in TAILS, 'card_last4': lambda v: v is None or v in TAILS,
     'card_kind': _one_of('', '국내', '해외'),
     'amount_krw': _money, 'amount': _money, 'foreign_amount': lambda v: v == '' or _money(v),
-    'foreign_currency': _one_of('', 'JPY', 'USD'), 'currency': _one_of('KRW'),
+    'foreign_currency': _one_of('', 'JPY', 'USD'), 'currency': _one_of('KRW', 'JPY'),
     'min': _money, 'max': _money, 'nets': _money,
     # dates
     'approval_date': _regex(DATE.pattern), 'posting_date': _regex(DATE.pattern),
@@ -120,15 +120,16 @@ KEYS = {
     'decided_at': lambda v: v is None or bool(re.fullmatch(r'2026-\d\d-\d\dT00:00:00Z', v)),
     # merchants
     'merchant': _merchant, 'merchant_normalized': _merchant, 'description_raw': _description_raw,
-    'merchant_family': _one_of('agoda'), 'provider': _one_of('trip', 'agoda', 'booking', 'klook'),
+    'merchant_family': _one_of('agoda'),
+    'provider': _one_of('trip', 'agoda', 'booking', 'klook', 'skyticket', 'forest'),
     # vocabulary
     'transaction_direction': _one_of('purchase', 'cancellation', 'refund'),
     'transaction_kind': _one_of('승인', '취소', 'purchase'),
-    'event_type': _one_of('charge', 'refund'),
-    'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only'),
+    'event_type': _one_of('charge', 'refund', 'reservation'),
+    'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only', 'preauthorized'),
     'payment_status': _one_of('paid', 'pending'),
     'refund_status': _one_of('refunded', 'refund_pending', 'none_displayed', ''),
-    'status': _one_of('active', 'MATCHED_AUTO', 'MATCHED_USER', 'HOLD_DATE_UNKNOWN'),
+    'status': _one_of('active', 'inactive', 'MATCHED_AUTO', 'MATCHED_USER', 'HOLD_DATE_UNKNOWN'),
     'classification_state': _one_of('classified', 'needs_review'),
     'classification_source': _one_of('', 'ai_inference', 'code_inference', 'inference', 'user_decision', 'user_exception',
                                      'rule_conflict', 'refund_original'),
@@ -153,6 +154,20 @@ KEYS = {
     'service': _bool, 'deleted': _bool, 'enabled': _bool, 'valid': _bool, 'conflict': _bool, 'period_conflict': _bool,
     'original_id': _regex(r'^syn-[a-z0-9-]+$'), 'inferred': _bool,
     'link_state': _one_of('full', 'partial', 'excess', ''),
+    # OTA candidate stage (U13): approved rules, preauthorization, price change, forest evidence
+    'approved_by': _one_of('syn-owner'), 'amount_delta_krw': _money, 'discount_rate_bps': _money,
+    'discount_cap_krw': _money, 'minimum_amount_krw': _money, 'rounding_mode': _one_of('floor', 'half_up', 'ceiling'),
+    'payment_method': _one_of('syn-pay', 'syn-other'), 'valid_from': _regex(DATE.pattern), 'valid_to': _regex(DATE.pattern),
+    'date_lag_days': lambda v: isinstance(v, int) and -7 <= v <= 7,
+    'date_lag_min_days': lambda v: isinstance(v, int) and -7 <= v <= 7,
+    'date_lag_max_days': lambda v: isinstance(v, int) and -7 <= v <= 7,
+    'rule_kind': _one_of('provider_alias', 'issuer_alias'), 'alias': _one_of('syn alias'),
+    'alias_version': _one_of(1), 'approval_source': _one_of('syn-source'),
+    'event_issuer_alias': _one_of('SYN-BANK-ALIAS'),
+    'preauthorized_on': lambda v: v is None or bool(DATE.match(v)), 'preauthorized_amount_krw': _money,
+    'price_change_amount_krw': _money, 'price_change_on': _regex(DATE.pattern),
+    'evidence_kind': _one_of('forest_portal', 'authenticated_forest_pg_card_receipt'),
+    'hotel_name': _one_of('SYN HOTEL'), 'payment_id': _regex(r'^syn-pay-\d$'), 'payment_id_scheme': _one_of('scheme-p'),
     # period area (verified_period_for): rows, flags and reservation facts
     'row_id': _regex(r'^(card|ledger)-syn-[a-z0-9-]+$'), 'manual': _regex(r'^card-syn-[a-z0-9-]+$'),
     'source_event_id': _regex(r'^syn-[a-z0-9-]+$'), 'reservation_no': _regex(r'^(SYN-BOOK-\d)?$'),
@@ -164,12 +179,17 @@ KEYS = {
     'evidence_changed': _bool, 'evidence_missing': _bool, 'service_period_conflict': _bool,
     'individual_payment_evidence': _bool, 'ota_review_held': _bool, 'reservation_refund_blocked': _bool,
     'inferred_link': _bool,
+    # OTA final links (U14): frozen groups, legacy pins, undated inference
+    'event_ids': _regex(r'^syn-[a-z0-9-]+$'), 'card_ids': _regex(r'^syn-[a-z0-9-]+$'),
+    'source_digests': _regex(r'^syn-[a-z0-9-]+$'), 'legacy_exact': _bool, 'verified_portal_snapshot': _bool,
+    'ota_inference_eligible': _bool,
     'formal_link': _bool, 'flags': _one_of('PERIOD_ORDER', 'PERIOD_START_MISSING'), 'country': _one_of('JPN'),
 }
 CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optional', 'prior_decision', 'amount_range',
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
-              'service_period', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows', 'data', 'results'}
+              'service_period', 'frozen_groups', 'mapping', 'order_snapshot', 'cards', 'event_evidence', 'card_evidence',
+              'eligible_edges_digest', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows', 'data', 'results'}
 ID_MAPS = {'evidence', 'existing_links', 'links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')
@@ -183,6 +203,32 @@ class GoldenViolation(ValueError):
     pass
 
 
+def _check_mapping(value, path):
+    ok = isinstance(value, dict) and all(ID_KEY.match(k) and isinstance(v, str) and ID_KEY.match(v)
+                                         for k, v in value.items())
+    if not ok:
+        raise GoldenViolation(f'{path}.mapping: only synthetic ids are allowed')
+
+
+SNAPSHOT_KEYS = {'events', 'cards', 'event_evidence', 'card_evidence', 'eligible_edges_digest'}
+SNAPSHOT_TEXT = re.compile(r'^(syn-[a-z0-9-]+|SYN-BOOK-\d|SYN-AP-\d|[0-9a-f]{64}|)$')
+
+
+def _check_snapshot(value, path):
+    if value == {}:
+        return
+    pairs = isinstance(value, dict) and set(value) == SNAPSHOT_KEYS
+    if pairs:
+        pairs = isinstance(value['eligible_edges_digest'], str) and bool(SNAPSHOT_TEXT.match(value['eligible_edges_digest']))
+        for key in SNAPSHOT_KEYS - {'eligible_edges_digest'}:
+            rows = value[key]
+            pairs = pairs and isinstance(rows, list) and all(
+                isinstance(r, list) and len(r) == 2 and all(isinstance(x, str) and SNAPSHOT_TEXT.match(x) for x in r)
+                for r in rows)
+    if not pairs:
+        raise GoldenViolation(f'{path}.order_snapshot: shape or value not allowed')
+
+
 def validate_input(value, path='input', parent=None):
     """Raise GoldenViolation on the first value or key outside the allow-list."""
     if isinstance(value, dict):
@@ -192,6 +238,12 @@ def validate_input(value, path='input', parent=None):
                     raise GoldenViolation(f'{path}: map key {key!r} is not a synthetic id')
             elif parent == 'nets' or key == 'nets':
                 pass
+            elif key == 'mapping':
+                _check_mapping(item, path)
+                continue
+            elif key == 'order_snapshot':
+                _check_snapshot(item, path)
+                continue
             elif key not in KEYS and key not in CONTAINERS:
                 raise GoldenViolation(f'{path}: key {key!r} is not allowed')
             if key == 'nets':
