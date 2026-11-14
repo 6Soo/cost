@@ -552,7 +552,7 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     from . import core_writer
     if core_writer.selected() == 'rust':
         return core_writer.apply(conn, expected, trips, nets=nets, transaction_ids=transaction_ids,
-                                 reconsider=reconsider, evidence=evidence)
+                                 reconsider=reconsider, evidence=evidence, periods=core_writer.periods_for(conn))
     from .db import utc_now
     nested = conn.in_transaction
     conn.execute('SAVEPOINT complete_card_classification' if nested else 'BEGIN IMMEDIATE')

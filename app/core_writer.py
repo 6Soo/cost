@@ -5,12 +5,13 @@ to `costcore apply`; anything else, including unset or a typo, keeps Python. Uns
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import subprocess
 import sys
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,14 +31,85 @@ def _main_database(conn) -> str:
     raise RuntimeError('CORE_WRITER_NEEDS_FILE_DATABASE')
 
 
-def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None):
-    """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary)."""
+PERIODS_CACHE = 'period-facts.json'
+PERIODS_CACHE_SCHEMA = 1
+
+
+@contextmanager
+def _board(board_path):
+    from webapp.ledger_store import LedgerStore
+    store = LedgerStore(Path(board_path), seed_demo=False)
+    try:
+        yield store
+    finally:
+        store.close()
+
+
+def _period_input_key(board_path) -> str:
+    """The OTA worker's input fingerprint (reads the board and source stamps; seconds, not the reconciliation)."""
+    from webapp import ota_payment_review
+    with _board(board_path) as store:
+        return ota_payment_review.current_input_key(store)
+
+
+def _period_snapshot(board_path) -> dict:
+    """One full OTA reconciliation in a child process (about ten minutes on live data; reads only)."""
+    from webapp import ota_payment_review
+    with _board(board_path) as store:
+        return ota_payment_review.reconcile_in_child(store)['data']
+
+
+def period_facts(conn, core) -> dict:
+    """Booking-period evidence per transaction for `context.periods`, from the `periods` bridge (read-only).
+
+    The reconciliation runs only when its input key, the service-period overrides or the bridge columns changed;
+    otherwise the derived facts saved beside core.sqlite are reused. Rust then re-judges only transactions whose
+    evidence digest changed, so nothing is computed when a screen renders.
+    """
+    from tools.core_bridge import periods as bridge
+    board_path = _main_database(conn)
+    manual = sorted(row[0] for row in conn.execute(
+        "SELECT row_id FROM board_manual_overrides WHERE field='service_period'"))
+    key = hashlib.sha256(json.dumps(
+        [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
+         bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
+    cache = Path(core).with_name(PERIODS_CACHE)
+    try:
+        saved = json.loads(cache.read_text(encoding='utf-8'))
+        if saved.get('key') == key and isinstance(saved.get('facts'), dict):
+            return saved['facts']
+    except (OSError, ValueError):
+        pass
+    facts = bridge.facts_from_snapshot(_period_snapshot(board_path), set(manual))
+    scratch = cache.with_name(cache.name + '.tmp')
+    scratch.write_text(json.dumps({'key': key, 'facts': facts}, ensure_ascii=False), encoding='utf-8')
+    os.replace(scratch, cache)
+    return facts
+
+
+def periods_for(conn) -> dict:
+    """`period_facts` with the writer's configuration checks (the caller passes the result to `apply`)."""
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not os.environ.get(BIN_ENV, '') or not core:
+        raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
+    if conn.in_transaction:
+        raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
+    return period_facts(conn, core)
+
+
+def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
+    """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
+
+    `periods` is `periods_for(conn)`; without it the Rust period evidence is empty and stored periods are unknown.
+    """
     binary, core = os.environ.get(BIN_ENV, ''), os.environ.get(CORE_DB_ENV, '')
     if not binary or not core:
         raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
     if conn.in_transaction:
         raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
     request = {'trips': trips, 'nets': nets or {}, 'evidence': evidence or {}, 'reconsider': bool(reconsider)}
+    if periods is not None:
+        request['periods'] = periods
     if transaction_ids is not None:
         request['transaction_ids'] = sorted(transaction_ids)
     done = subprocess.run(

@@ -99,3 +99,59 @@ def test_stored_service_period_reads_core_sqlite_read_only(env, tmp_path):
     monkeypatch.setenv(core_writer.CORE_DB_ENV, str(core))
     assert core_writer.stored_service_period('t1')['starts_on'] == '2026-10-01'
     assert core_writer.stored_service_period('missing') is None
+
+
+def _periods_env(env, tmp_path, monkeypatch_calls):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    board = tmp_path / 'board.sqlite'
+    conn = sqlite3.connect(board)
+    conn.execute('CREATE TABLE board_manual_overrides(row_id TEXT, field TEXT, event_id TEXT)')
+    conn.commit()
+    key = {'value': 'k1'}
+    monkeypatch.setattr(core_writer, '_period_input_key', lambda path: key['value'])
+
+    def snapshot(path):
+        monkeypatch_calls.append(path)
+        from tools.core_bridge.golden import _card, _event
+        return {'events': [_event('syn-e1', item='숙박비', reservation_status='confirmed')],
+                'transactions': [_card('syn-t1', source_hash='syn-hash-syn-t1')],
+                'results': [{'ota_event_id': 'syn-e1', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}],
+                'links': {}}
+    monkeypatch.setattr(core_writer, '_period_snapshot', snapshot)
+    return conn, key
+
+
+def test_period_facts_reuse_the_cache_until_the_evidence_input_changes(env, tmp_path):
+    calls = []
+    conn, key = _periods_env(env, tmp_path, calls)
+    first = core_writer.periods_for(conn)
+    assert 'syn-t1' in first and len(calls) == 1
+    assert core_writer.periods_for(conn) == first and len(calls) == 1
+    key['value'] = 'k2'
+    core_writer.periods_for(conn)
+    assert len(calls) == 2
+    conn.execute("INSERT INTO board_manual_overrides VALUES ('card-syn-t1','service_period','e')")
+    conn.commit()
+    assert core_writer.periods_for(conn)['syn-t1'][0]['manual'] is True
+    assert len(calls) == 3
+
+
+def test_rust_writer_sends_the_period_facts_and_apply_without_them_sends_none(env, tmp_path):
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    seen = _fake_run(env[0], json.dumps({'ok': True, 'result': {}}) + '\n')
+    core_writer.apply(conn, {'digest': 'd'}, [], periods=core_writer.periods_for(conn))
+    assert 'syn-t1' in seen['input']['periods']
+    core_writer.apply(conn, {'digest': 'd'}, [])
+    assert 'periods' not in seen['input']
+
+
+def test_policy_apply_with_the_rust_writer_passes_period_facts(env, tmp_path):
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    env[0].setenv(core_writer.WRITER_ENV, 'rust')
+    seen = _fake_run(env[0], json.dumps({'ok': True, 'result': {'to_classify': 0}}) + '\n')
+    assert policy.apply(conn, {'digest': 'd'}, []) == {'to_classify': 0}
+    assert 'syn-t1' in seen['input']['periods']
