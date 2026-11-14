@@ -22,3 +22,4 @@ cargo test --workspace
 - `crates/cli` (`costcore`, 실행 파일).
 - 봉인 타입(`RefundGroup`·`OpenScope`·`TripId`·`Subject`)은 생성자가 `pub(crate)`이거나 없어 크레이트 밖에서 만들 수 없다(문서 테스트 `compile_fail` 4개).
 - 합성 골든: `golden/synthetic/dates.jsonl`(생산기 `tools/core_dates_golden.py`), 시험 `crates/core/tests/dates_golden.rs`. `golden/synthetic/trips.jsonl`(`python -m tools.core_bridge.golden write`), 시험 `crates/core/tests/trips_golden.rs`. `golden/synthetic/plan.jsonl`(같은 도구, 입력의 `links`는 Python 환불 짝 연결 결과), 시험 `crates/core/tests/plan_golden.rs`(알려진 차이는 `known-diffs.txt`).
+- 이용기간(U9a, 설계 §2.7): `crates/core`의 `period`(순수 규칙, `plan`·`store`를 모른다)·`digest`, `store::decisions`(저장·재판정 선택, 쓰기 호출자는 U11 적용 경로 하나). 골든 `golden/synthetic/period.jsonl`(생산기가 Python `verified_period_for` 직접 호출), 시험 `crates/core/tests/period_golden.rs`. `costcore rejudge --changed`는 근거 digest가 바뀐 거래만 고르고(쓰지 않음), `costcore periods`와 `python -m tools.core_bridge.period_shadow`가 운영 사본 그림자 비교를 한다.

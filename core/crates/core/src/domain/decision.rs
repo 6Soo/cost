@@ -260,6 +260,14 @@ impl Subject {
         }
     }
 
+    /// 카드 거래의 원천 해시.
+    pub fn source_hash(&self) -> Option<&SourceHash> {
+        match &self.0 {
+            SubjectInner::CardTxn { source_hash, .. } => Some(source_hash),
+            _ => None,
+        }
+    }
+
     pub fn key(&self) -> SubjectKey {
         match &self.0 {
             SubjectInner::CardTxn { transaction_id, .. } => {
