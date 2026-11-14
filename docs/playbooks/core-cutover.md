@@ -63,9 +63,9 @@
 
    확인: (나)·(다)가 성공하고 (라)가 `"written":0`이면 예행 통과. `rehearsal-a`와 `rehearsal-b`의 `transactions` 판정 열이 같은지(안내된 의도 차이 제외, `skipped_unjudged` 행) 대조해 기록한다. 예행 사본은 7일 뒤 정리한다.
 4. **소유자 승인 지점 ②** — 전환 실행 승인(배포 창과 되돌림 담당 확인).
-5. **플래그 전환**: 먼저 `costcore migrate --core D:/WebLedgerHost/data/core.sqlite`를 실행한다(운영 core.sqlite 생성은 소유자 승인 ① 뒤, 생성 순간부터 #906 범위 백업에 core 포함 강제). 그다음 운영 환경에 `WEBLEDGER_COSTCORE_BIN`·`WEBLEDGER_CORE_DB`·`WEBLEDGER_CLASSIFICATION_WRITER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 Python 자동 분류 쓰기는 꺼진다.
+5. **플래그 전환**: 먼저 `costcore migrate --core D:/WebLedgerHost/data/core.sqlite`를 실행한다(운영 core.sqlite 생성은 소유자 승인 ① 뒤, 생성 순간부터 #906 범위 백업에 core 포함 강제). 그다음 운영 `D:/WebLedgerHost/config/card-flow.json`에 `"classification_writer": "rust"`, `"costcore_bin": "<절대 경로>"`, `"core_db": "D:/WebLedgerHost/data/core.sqlite"`를 추가하고 서비스(Board와 Worker)를 재시작한다. 런처와 Worker가 이 키로 해당 프로세스(와 하위 프로세스) 환경에만 변수를 걸며, 사용자·시스템 전역 변수는 쓰지 않는다. `rust`인데 `costcore_bin`·`core_db`가 없거나 파일이 없거나 `core_db`가 데이터 루트 밖이면 시작을 거부한다(`CORE_SWITCH_BIN`·`CORE_SWITCH_DB`·`CORE_SWITCH_DB_ROOT`, Worker는 `WORKER_` 접두). 키가 없으면 Python 그대로다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 Python 자동 분류 쓰기는 꺼진다.
 6. **첫 배포 창 대조**: ① A↔C: `transactions` 판정 열과 `core.sqlite` `decisions`가 일치. ② B↔C: `costcore shadow`를 신선 사본에 돌려 목록 밖 차이 0. ③ 작성자 확인: 해당 창의 `change_log` `card.automatic_classification` 기록이 Rust 실행분뿐. ④ `costcore apply` 출력의 `skipped_mismatch` = 0.
-7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_CLASSIFICATION_WRITER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. Rust가 쓴 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
+7. **차이가 1건이라도 나오면**: 즉시 `card-flow.json`의 `classification_writer` 키를 제거하거나 `"python"`으로 바꾸고 재시작해 Python으로 되돌린다. Rust가 쓴 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
 8. 전환 뒤 매일 6단계의 ①②를 돌린다(Python 판정·연결 코드 퇴역 때까지).
 
 ## OTA 연결 스위치 사용법(`costcore links ota`)
@@ -117,7 +117,7 @@
 2. **C3 신선 백업·복원 확인**: `board.sqlite`와 `core.sqlite`를 신선 백업하고 복원 확인(`SPEC.md:383`). 백업은 `D:/WebLedgerHost/data/backups/`.
 3. **되돌림 예행**(C3): 복원 확인한 사본(운영 파일이 아니다)에서 변수 미설정(Python)과 `rust` 두 번 실행해 둘 다 오류 없이 끝나고 연결 결과가 같은지 확인한 뒤, 변수를 지워 다시 Python 결과로 돌아오는지 본다. 연결 결과 대조는 아래 4단계 ②의 명령을 사본에 쓴다. 쓰기 전환 PR이 사본 실행 방법을 정한다(운영 DB·포트를 쓰지 않는다).
 4. **소유자 승인 지점 ②** — 전환 실행 승인(배포 창과 되돌림 담당 확인).
-5. **스위치 전환**: 운영 환경에 `WEBLEDGER_COSTCORE_BIN`(1차에서 설정됨)과 `WEBLEDGER_LINKS_PRODUCER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 연결 계산은 Rust가 한다.
+5. **스위치 전환**: 운영 `card-flow.json`에 `"links_producer": "rust"`를 추가하고(`costcore_bin`은 1차에서 설정됨) 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 연결 계산은 Rust가 한다.
 6. **첫 배포 창 대조**(PowerShell, 레포 루트, 신선 사본에서):
 
    ```powershell
@@ -136,7 +136,7 @@
    ```
 
    확인: 종료 코드 0, `status`가 `PASS`, `unlisted`가 비어 있음, `refund.python`과 `refund.rust` 건수가 같음. 공개 출력에는 유형 키와 건수만 나오고 거래·이벤트 ID는 `--private-out` 파일에만 쓴다. 1차의 A↔C 대조(`transactions` 판정 열과 `decisions`)도 함께 한다.
-7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_LINKS_PRODUCER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. 연결은 저장하지 않고 Python이 원행에서 다시 도출하므로 되돌림에 데이터 복구가 필요 없다. 이미 Rust 연결로 기록된 묶음 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
+7. **차이가 1건이라도 나오면**: 즉시 `links_producer` 키를 제거하거나 `"python"`으로 바꾸고 재시작해 Python으로 되돌린다. 연결은 저장하지 않고 Python이 원행에서 다시 도출하므로 되돌림에 데이터 복구가 필요 없다. 이미 Rust 연결로 기록된 묶음 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
 8. 전환 뒤 매일 6단계를 돌린다(Python 연결 코드 퇴역 때까지).
 
 ## 실패와 복구

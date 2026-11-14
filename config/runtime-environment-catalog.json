@@ -574,8 +574,8 @@
       "required": "optional; only the value rust selects the Rust core",
       "default": "python (unset or any other value)",
       "status": "confirmed",
-      "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback.",
-      "source_refs": "app/core_writer.py:selected"
+      "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback. The production launcher and worker set it only from card-flow.json classification_writer.",
+      "source_refs": "app/core_writer.py:selected; app/core_switch_config.py:apply"
     },
     {
       "name": "WEBLEDGER_LINKS_PRODUCER",
@@ -585,7 +585,7 @@
       "default": "python (unset or any other value)",
       "status": "confirmed",
       "evidence": "selected() compares the stripped lowercase value with rust; unsetting is the rollback. Independent of WEBLEDGER_CLASSIFICATION_WRITER.",
-      "source_refs": "app/core_links.py:selected"
+      "source_refs": "app/core_links.py:selected; app/core_switch_config.py:apply"
     },
     {
       "name": "WEBLEDGER_COSTCORE_BIN",
@@ -595,7 +595,7 @@
       "default": "none; rust writer refuses without it",
       "status": "confirmed",
       "evidence": "apply() refuses with CORE_WRITER_NOT_CONFIGURED when absent.",
-      "source_refs": "app/core_writer.py:apply"
+      "source_refs": "app/core_writer.py:apply; app/core_switch_config.py:apply"
     },
     {
       "name": "WEBLEDGER_CORE_DB",
@@ -605,7 +605,7 @@
       "default": "none; refused when absent",
       "status": "confirmed",
       "evidence": "Path of core.sqlite (decisions, decision_history); read-only for stored_service_period.",
-      "source_refs": "app/core_writer.py:apply"
+      "source_refs": "app/core_writer.py:apply; app/core_switch_config.py:apply"
     }
   ]
 }
