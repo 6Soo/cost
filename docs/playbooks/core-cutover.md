@@ -20,7 +20,8 @@
 
 1. U9·U10·U11 병합, 운영 배포가 `core` 빌드(`costcore`)를 포함.
 2. C1: 신선 사본 1개에서 실데이터 그림자 B↔C 목록 밖 차이 0. C2: 평가 사례 Rust ≥ Python, Python 정답 중 Rust 오답 0. (운영 담당이 측정, 구현자·검수자는 다시 재지 않는다.)
-3. 경로 `D:/WebLedgerHost/data/core.sqlite`가 있고 `costcore` 이관이 최신 버전이다.
+3. 경로 `D:/WebLedgerHost/data/core.sqlite`가 있고 `costcore` 이관이 최신 버전이다. 만들기·이관은 `costcore migrate --core D:/WebLedgerHost/data/core.sqlite` 한 줄이며(출력 `{ok, created, from_version, to_version}`, 멱등), 플래그 전환 전에 실행한다.
+   - 운영 core.sqlite 생성은 소유자 승인 ① 뒤에 한다(생성 순간부터 #906 범위 백업에 core 포함 강제).
 
 ## 단계
 
@@ -47,7 +48,7 @@
 
    확인: (나)·(다)가 성공하고 (라)가 `"written":0`이면 예행 통과. `rehearsal-a`와 `rehearsal-b`의 `transactions` 판정 열이 같은지(안내된 의도 차이 제외, `skipped_unjudged` 행) 대조해 기록한다. 예행 사본은 7일 뒤 정리한다.
 4. **소유자 승인 지점 ②** — 전환 실행 승인(배포 창과 되돌림 담당 확인).
-5. **플래그 전환**: 운영 환경에 `WEBLEDGER_COSTCORE_BIN`·`WEBLEDGER_CORE_DB`·`WEBLEDGER_CLASSIFICATION_WRITER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 Python 자동 분류 쓰기는 꺼진다.
+5. **플래그 전환**: 먼저 `costcore migrate --core D:/WebLedgerHost/data/core.sqlite`를 실행한다(운영 core.sqlite 생성은 소유자 승인 ① 뒤, 생성 순간부터 #906 범위 백업에 core 포함 강제). 그다음 운영 환경에 `WEBLEDGER_COSTCORE_BIN`·`WEBLEDGER_CORE_DB`·`WEBLEDGER_CLASSIFICATION_WRITER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 Python 자동 분류 쓰기는 꺼진다.
 6. **첫 배포 창 대조**: ① A↔C: `transactions` 판정 열과 `core.sqlite` `decisions`가 일치. ② B↔C: `costcore shadow`를 신선 사본에 돌려 목록 밖 차이 0. ③ 작성자 확인: 해당 창의 `change_log` `card.automatic_classification` 기록이 Rust 실행분뿐. ④ `costcore apply` 출력의 `skipped_mismatch` = 0.
 7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_CLASSIFICATION_WRITER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. Rust가 쓴 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
 8. 전환 뒤 매일 6단계의 ①②를 돌린다(Python 판정·연결 코드 퇴역 때까지).
