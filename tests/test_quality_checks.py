@@ -693,6 +693,35 @@ def test_cargo_target_dir_is_per_worktree_on_windows(monkeypatch, tmp_path):
     assert set(seen) == {result["target_dir"]}
 
 
+def test_selected_files_with_the_costcore_marker_need_the_binary(tmp_path):
+    (tmp_path / "t_real.py").write_text("import pytest\npytestmark = pytest.mark.costcore_bin\n", encoding="utf-8")
+    (tmp_path / "t_plain.py").write_text("def test_a(): pass\n", encoding="utf-8")
+    assert quality.needs_costcore(["t_real.py::test_x"], root=tmp_path) is True
+    assert quality.needs_costcore(["t_plain.py", "missing.py"], root=tmp_path) is False
+
+
+def test_costcore_build_failure_or_missing_cargo_fails_instead_of_skipping(monkeypatch, tmp_path):
+    monkeypatch.setattr(quality, "find_cargo", lambda: None)
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        assert quality.build_costcore(log, root=tmp_path)["status"] == "FAILED"
+    seen = []
+    monkeypatch.setattr(quality, "find_cargo", lambda: "cargo")
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "target"))
+    monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: (
+        seen.append(command[1:]) or subprocess.CompletedProcess(command, 1)))
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        failed = quality.build_costcore(log, root=tmp_path)
+    assert seen == [["build", "--release", "-p", "costcore"]]
+    assert failed["status"] == "FAILED" and failed["bin"] is None
+    binary = tmp_path / "target" / "release" / ("costcore.exe" if quality.os.name == "nt" else "costcore")
+    binary.parent.mkdir(parents=True)
+    binary.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(quality.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 0))
+    with (tmp_path / "log.txt").open("w", encoding="utf-8") as log:
+        built = quality.build_costcore(log, root=tmp_path)
+    assert built == {"status": "PASSED", "exit_code": 0, "bin": str(binary)}
+
+
 def test_quality_run_records_policy_and_guard_changes_without_failing(tmp_path, capsys):
     from unittest.mock import patch
 

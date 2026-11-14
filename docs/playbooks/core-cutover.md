@@ -22,7 +22,14 @@
 - 동작: `app/partial_refund._analyse`가 `costcore links refund --db <board>`(읽기 전용)를 부르고, `refund_links`·`refund_group`·`refund_original_links`·`count_held_cancellations`·`kakao_refund_candidates`·`partial_group_exclusion`·`refund_review_originals`가 모두 그 한 결과를 쓴다. 호출처(약 20곳)는 바뀌지 않는다.
 - 캐시(프로세스 메모리): 키 = (DB 파일, costcore 파일 상태와 `--version`, `config/refund-pairing.json` 해시, 짝 도출이 읽는 16개 원열의 내용 해시·행 수·최대 rowid). `revision`은 판정 개정이라 `duplicate_of`·`conflict_reason`·`parse_error` 같은 원천 변경을 놓치므로 키로 쓰지 않는다. 분류 열(`item` 등) 변경은 키를 움직이지 않는다. 키가 다르면 재계산한다.
 - 실패는 오류다(조용한 Python 대체 없음). 코드: `CORE_LINKS_NOT_CONFIGURED`(바이너리 변수 없음)·`CORE_LINKS_NEEDS_FILE_DATABASE`(파일 DB 아님)·`CORE_LINKS_UNCOMMITTED_ROWS`(이 연결의 미커밋 변경이 짝 입력을 바꿨는데 Rust는 파일만 읽음 — 커밋 뒤 부르도록 호출 경로를 고친다)·`CORE_LINKS_ORIGINAL_NOT_LINKED`(Rust가 연결하지 않은 원결제의 제외 사유 요청)·`CORE_LINKS_DB_CHANGING`(계산 중 두 번 연속 원행이 바뀜)·costcore 오류 코드.
-- 시험: `python -m pytest tests/test_core_links_switch.py`(대역 바이너리). 실제 바이너리 대조는 `COSTCORE_TEST_BIN=<costcore 경로>`를 주고 같은 명령.
+- **전환 차단 사유 2건(코드 수정은 별도 PR, 해소 전에는 `rust`로 전환하지 않는다)**:
+  1. `app/review.py` `_persist`의 하나카드 해외 원천 대체 분기: 같은 파일의 앞 행을 INSERT한 뒤(미커밋) 짝을 계산한다. `rust`에서는 `CORE_LINKS_UNCOMMITTED_ROWS`가 나 파일 전체 반영이 롤백된다.
+  2. `app/card_hana_duplicate_repair.py` `apply`/`restore`의 사후 검사: 쓰기 트랜잭션 안에서 짝을 다시 계산한다. `rust`에서는 항상 거부되고 관련 테스트 5건이 실패한다.
+  두 경로는 짝 계산을 트랜잭션 밖(커밋 뒤)으로 옮겨야 한다.
+- 트랜잭션 안에서 짝 함수를 부르는 호출처(점검 목록): 위 두 곳. 그 밖의 호출처가 있는지는 전환 전 `rust` 전체 시험으로 다시 확인한다.
+- 비용(미측정): 트랜잭션 안 호출은 원행 전체를 연결 시점에 두 번 해시한다(미커밋 확인용 읽기 전용 연결 포함, 계산 전후 각 1회). 운영 사본에서 걸리는 시간을 재서 기록해야 한다. 트랜잭션 밖 커밋된 호출은 호출당 1회 해시다.
+- C1 확인 항목: 날짜가 `YYYY-MM-DD`가 아닌 원행(`approval_date`·`posting_date`)이면 Rust가 완료 기간(2025·2026Q1) 제외를 빠뜨릴 수 있다. 사본에서 날짜 형식 밖 원행 수를 확인하고, 있으면 그림자 차이로 드러나는지 본다.
+- 시험: `python -m pytest tests/test_core_links_switch.py`(대역 바이너리). 실제 바이너리 대조는 `costcore_bin` 표식이 붙은 시험이고, `tools/run_quality_checks.py`가 표식 있는 파일이 선택되면 `cargo build --release -p costcore`(빌드 실패는 검사 실패)를 하고 `COSTCORE_TEST_BIN`을 넣어 돌린다(CI도 같은 도구). 수동 실행은 `COSTCORE_TEST_BIN=<costcore 경로>`를 주고 같은 명령.
 
 ## 입력(시작 조건)
 

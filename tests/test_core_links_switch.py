@@ -2,7 +2,8 @@
 
 The Rust-versus-Python equivalence of the contract itself is fixed by the Rust golden tests. Here the adapter runs against
 a stand-in `costcore` that answers `links refund` from the Python bridge (always), and against the real binary when
-COSTCORE_TEST_BIN names one (the equivalence runs below are parametrized over both).
+COSTCORE_TEST_BIN names one (tools/run_quality_checks.py builds it and sets the variable for files carrying the
+`costcore_bin` marker; the equivalence runs below are parametrized over both).
 """
 import json
 import os
@@ -84,6 +85,7 @@ def producer(request, monkeypatch, tmp_path):
     monkeypatch.delenv(core_links.PRODUCER_ENV, raising=False)
     core_links.clear_cache()
     if request.param == 'real':
+        request.applymarker(pytest.mark.costcore_bin)
         if not REAL:
             pytest.skip('COSTCORE_TEST_BIN not set: real-binary equivalence not run here')
         monkeypatch.setenv(core_links.BIN_ENV, REAL)

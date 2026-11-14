@@ -92,6 +92,9 @@ jobs:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: requirements-dev.txt
+      - name: Install pinned Rust toolchain (selected tests may build costcore)
+        working-directory: core
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Select checks
         id: plan
         shell: bash

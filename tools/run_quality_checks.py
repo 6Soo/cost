@@ -25,6 +25,7 @@ CARGO_STEPS = (
     ("cargo-test", ["test", "--workspace"]),
 )
 # C: has little free space; keep Rust build output off it unless the caller chose a dir.
+COSTCORE_MARKER = "costcore_bin"  # pytest marker: the test needs COSTCORE_TEST_BIN
 DEFAULT_WINDOWS_TARGET_DIR = Path("D:/cargo-target")  # 작업 폴더 이름별 하위 폴더를 쓴다
 QA_OWNED_PATHS = {
     "tools/run_quality_checks.py", "tests/test_quality_checks.py",
@@ -355,6 +356,42 @@ def find_cargo() -> str | None:
     return str(exe) if exe.is_file() else None
 
 
+def _cargo_env(cargo: str, root: Path) -> dict:
+    env = {**os.environ, "PATH": str(Path(cargo).parent) + os.pathsep + os.environ.get("PATH", "")}
+    if (not env.get("CARGO_TARGET_DIR") and os.name == "nt"
+            and Path(DEFAULT_WINDOWS_TARGET_DIR.parent.drive + "/").exists()):
+        env["CARGO_TARGET_DIR"] = str(DEFAULT_WINDOWS_TARGET_DIR / (root.resolve().name or "cost"))
+    return env
+
+
+def needs_costcore(targets: list[str], *, root: Path = ROOT) -> bool:
+    """True when a selected test file carries the `costcore_bin` marker (it compares against the real binary)."""
+    for path in {t.split("::", 1)[0] for t in targets}:
+        file = root / path
+        if path.endswith(".py") and file.is_file() and COSTCORE_MARKER in file.read_text(encoding="utf-8", errors="replace"):
+            return True
+    return False
+
+
+def build_costcore(log, *, root: Path = ROOT) -> dict:
+    """`cargo build --release -p costcore` and the path for COSTCORE_TEST_BIN. A failed build fails the check."""
+    cargo = find_cargo()
+    if cargo is None:
+        log.write("$ cargo\nCARGO_NOT_FOUND: install rustup (see core/README.md)\n")
+        return {"status": "FAILED", "reason": "CARGO_NOT_FOUND", "bin": None}
+    env = _cargo_env(cargo, root)
+    log.write("\n$ cargo build --release -p costcore\n")
+    log.flush()
+    done = subprocess.run([cargo, "build", "--release", "-p", "costcore"], cwd=root / CORE_DIR, stdout=log,
+                          stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                          shell=False, env=env)
+    target = Path(env.get("CARGO_TARGET_DIR") or root / CORE_DIR / "target")
+    binary = target / "release" / ("costcore.exe" if os.name == "nt" else "costcore")
+    ok = done.returncode == 0 and binary.is_file()
+    return {"status": "PASSED" if ok else "FAILED", "exit_code": done.returncode,
+            "bin": str(binary) if ok else None}
+
+
 def run_cargo_steps(log, *, root: Path = ROOT) -> dict:
     """Run fmt/clippy/test in core/. A missing cargo is a failure, never a skip."""
     cargo = find_cargo()
@@ -362,10 +399,7 @@ def run_cargo_steps(log, *, root: Path = ROOT) -> dict:
         log.write("$ cargo\nCARGO_NOT_FOUND: install rustup (see core/README.md)\n")
         print("CARGO_NOT_FOUND: install rustup (see core/README.md)", file=sys.stderr)
         return {"status": "FAILED", "reason": "CARGO_NOT_FOUND", "steps": []}
-    env = {**os.environ, "PATH": str(Path(cargo).parent) + os.pathsep + os.environ.get("PATH", "")}
-    if (not env.get("CARGO_TARGET_DIR") and os.name == "nt"
-            and Path(DEFAULT_WINDOWS_TARGET_DIR.parent.drive + "/").exists()):
-        env["CARGO_TARGET_DIR"] = str(DEFAULT_WINDOWS_TARGET_DIR / (root.resolve().name or "cost"))
+    env = _cargo_env(cargo, root)
     results = []
     for name, args in CARGO_STEPS:
         log.write(f"\n$ cargo {' '.join(args)}\n")
@@ -415,6 +449,10 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
         # A redirected stdout is written by the child itself. The parent's
         # encoding= option does not control Python/pytest's Windows encoding.
         child_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+        costcore_build = build_costcore(log, root=root) if needs_costcore(targets, root=root) else None
+        if costcore_build and costcore_build["bin"]:
+            child_env["COSTCORE_TEST_BIN"] = costcore_build["bin"]
+        log.flush()
         tests = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
                                text=True, encoding="utf-8", errors="replace", shell=False,
                                env=child_env)
@@ -443,6 +481,7 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                           and not nonbrowser_skipped and not junit_result["error_count"]
                           and not failure_classification["new_failed_test_cases"]
                           and (cargo_result is None or cargo_result["status"] == "PASSED")
+                          and (costcore_build is None or costcore_build["status"] == "PASSED")
                           ) else "FAILED"
     if head_tree_sha is None:
         head_tree_sha = _git(["rev-parse", "--verify", f"{head_sha}^{{tree}}"], root=root)
@@ -460,7 +499,7 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                "junit_error_count": junit_result["error_count"],
                "pytest_exit_code": tests.returncode, "compile_exit_code": compile_result.returncode,
                "pytest_targets": targets, "rust_required": rust_required,
-               "cargo": cargo_result,
+               "cargo": cargo_result, "costcore_build": costcore_build,
                "policy_changed": bool(gate_changed), "policy_changed_files": gate_changed}
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(log_path.read_text(encoding="utf-8"), end="")
