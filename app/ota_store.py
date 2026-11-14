@@ -42,6 +42,13 @@ CREATE TABLE IF NOT EXISTS ota_reservation_observations(
  entry_key TEXT NOT NULL,provider TEXT NOT NULL,booking_ref TEXT,
  source_digest TEXT NOT NULL,fact_json TEXT NOT NULL,
  PRIMARY KEY(observation_id,revision_id,entry_key));
+CREATE INDEX IF NOT EXISTS ota_booking_evidence_fact_lookup ON ota_booking_evidence(booking_id,entry_key);
+CREATE INDEX IF NOT EXISTS ota_reservation_observations_lookup ON ota_reservation_observations(observation_id,entry_key);
+CREATE TABLE IF NOT EXISTS ota_row_seen(
+ kind TEXT NOT NULL,owner_id TEXT NOT NULL,entry_key TEXT NOT NULL,home_revision TEXT NOT NULL,
+ source_id TEXT NOT NULL,first_revision TEXT NOT NULL,last_revision TEXT NOT NULL,
+ first_observed_at TEXT NOT NULL,last_observed_at TEXT NOT NULL,seen_count INTEGER NOT NULL,
+ PRIMARY KEY(kind,owner_id,entry_key,home_revision,source_id));
 CREATE TABLE IF NOT EXISTS ota_portal_rows(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
  payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
@@ -188,8 +195,15 @@ def catalog_rows(conn):
     available = conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_reservation_observations'").fetchone()
     if available:
         seen = set()
-        for row in conn.execute("SELECT o.* FROM ota_reservation_observations o JOIN ota_sources s "
-                "ON s.current_revision=o.revision_id ORDER BY s.ordinal,o.observation_id"):
+        query = ("SELECT s.ordinal AS ord,o.* FROM ota_reservation_observations o JOIN ota_sources s "
+                 "ON s.current_revision=o.revision_id")
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_row_seen'").fetchone():
+            # 같은 사실은 다시 쓰지 않고 관측 기록만 갱신하므로, 현재 판에서 다시 관측된 행도 현재 행이다.
+            query += (" UNION SELECT s.ordinal AS ord,o.* FROM ota_reservation_observations o "
+                      "JOIN ota_row_seen z ON z.kind='observation' AND z.owner_id=o.observation_id "
+                      "AND z.entry_key=o.entry_key AND z.home_revision=o.revision_id "
+                      "JOIN ota_sources s ON s.source_id=z.source_id AND s.current_revision=z.last_revision")
+        for row in conn.execute("SELECT * FROM (" + query + ") ORDER BY ord,observation_id,entry_key"):
             if row['observation_id'] in seen:
                 continue
             seen.add(row['observation_id'])
@@ -380,8 +394,35 @@ class OtaStore:
         identity = sha(encoded([provider, account, str(ref)]))
         self.conn.execute('INSERT OR IGNORE INTO ota_bookings VALUES(?,?,?,?)',
                           (identity, provider, account, str(ref)))
-        self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
-                          (identity, revision, key, kind, encoded(fact)))
+        payload = encoded(fact)
+        if kind == 'mail':
+            # 같은 예약·메일·사실이 이미 있으면 새 행 없이 관측 기록만 남긴다.
+            old = self.conn.execute('SELECT revision_id FROM ota_booking_evidence WHERE booking_id=? '
+                "AND entry_key=? AND evidence_kind='mail' AND fact_json=? ORDER BY rowid LIMIT 1",
+                (identity, key, payload)).fetchone()
+            if old:
+                self._seen('evidence', identity, key, old[0], revision)
+                return
+        if self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
+                             (identity, revision, key, kind, payload)).rowcount and kind == 'mail':
+            self._seen('evidence', identity, key, revision, revision)
+
+    def _seen(self, kind, owner, key, home, revision):
+        """저장된 행(home 판)을 revision 판에서 관측했다는 사실만 남긴다."""
+        source, observed = self.conn.execute(
+            'SELECT source_id,observed_at FROM ota_source_revisions WHERE revision_id=?', (revision,)).fetchone()
+        if self.conn.execute('UPDATE ota_row_seen SET last_revision=?,last_observed_at=?,seen_count=seen_count+1 '
+                'WHERE kind=? AND owner_id=? AND entry_key=? AND home_revision=? AND source_id=? '
+                'AND last_revision<>?', (revision, observed, kind, owner, key, home, source, revision)).rowcount:
+            return
+        if home == revision:
+            first, first_at = revision, observed
+        else:
+            first, first_at = home, self.conn.execute(
+                'SELECT observed_at FROM ota_source_revisions WHERE revision_id=?', (home,)).fetchone()[0]
+        self.conn.execute('INSERT OR IGNORE INTO ota_row_seen VALUES(?,?,?,?,?,?,?,?,?,?)',
+            (kind, owner, key, home, source, first, revision, first_at, observed,
+             1 if home == revision else 2))
 
     def import_mail(self, directory):
         from app import ota_mail, ota_payments
@@ -430,9 +471,22 @@ class OtaStore:
         for event in forest_mail.collect(messages):
             key = forest_mail.catalog_reference(event)
             source_id, = event['source_ids']
-            inserted += self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
-                'VALUES(?,?,?,?,?,?,?)',(key,revision,source_id.removeprefix('mail:'),event['provider'],
-                event.get('booking_ref'),event['source_digest'],encoded(event))).rowcount
+            entry, payload = source_id.removeprefix('mail:'), encoded(event)
+            source = self.conn.execute('SELECT source_id FROM ota_source_revisions WHERE revision_id=?',
+                                       (revision,)).fetchone()[0]
+            old = self.conn.execute('SELECT o.revision_id FROM ota_reservation_observations o '
+                'JOIN ota_source_revisions r ON r.revision_id=o.revision_id WHERE o.observation_id=? '
+                'AND o.entry_key=? AND o.fact_json=? AND r.source_id=? ORDER BY o.rowid LIMIT 1',
+                (key, entry, payload, source)).fetchone()
+            if old:
+                self._seen('observation', key, entry, old[0], revision)
+                continue
+            added = self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
+                'VALUES(?,?,?,?,?,?,?)',(key,revision,entry,event['provider'],
+                event.get('booking_ref'),event['source_digest'],payload)).rowcount
+            if added:
+                self._seen('observation', key, entry, revision, revision)
+            inserted += added
         return inserted
 
     def rebuild_reservation_observations(self):
@@ -560,5 +614,5 @@ class OtaStore:
     def summary(self):
         tables = ('ota_sources', 'ota_source_revisions', 'ota_raw_entries', 'ota_raw_blobs', 'ota_messages',
                   'ota_bookings', 'ota_booking_evidence', 'ota_portal_rows', 'ota_catalog_rows',
-                  'ota_reservation_observations')
+                  'ota_reservation_observations', 'ota_row_seen')
         return {table: self.conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in tables}

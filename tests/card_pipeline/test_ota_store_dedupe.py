@@ -1,0 +1,113 @@
+"""메일 1통이 늘어도 기존 메일 근거를 새 판으로 다시 쓰지 않고, 읽기 결과는 이전 방식과 같아야 한다."""
+import json
+
+from app import ota_payments
+from app.agoda_capture import parse_detail
+from app.ota_store import OtaStore, catalog_rows, direct_facts, encoded
+from tests.card_pipeline.test_agoda_capture import capture
+from tests.card_pipeline.test_booking_mail import message, hotel
+from tests.card_pipeline.test_forest_mail import body_notice
+
+
+def legacy_evidence(self, provider, ref, revision, key, kind, fact, account='legacy-owner'):
+    """변경 전 쓰기 방식: 판마다 같은 사실을 새 행으로 넣는다."""
+    from app.ota_store import sha
+    if not provider or not ref:
+        return
+    identity = sha(encoded([provider, account, str(ref)]))
+    self.conn.execute('INSERT OR IGNORE INTO ota_bookings VALUES(?,?,?,?)', (identity, provider, account, str(ref)))
+    self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
+                      (identity, revision, key, kind, encoded(fact)))
+
+
+def legacy_observations(self, messages, revision):
+    from app import forest_mail
+    inserted = 0
+    for event in forest_mail.collect(messages):
+        key = forest_mail.catalog_reference(event)
+        source_id, = event['source_ids']
+        inserted += self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations VALUES(?,?,?,?,?,?,?)',
+            (key, revision, source_id.removeprefix('mail:'), event['provider'], event.get('booking_ref'),
+             event['source_digest'], encoded(event))).rowcount
+    return inserted
+
+
+def cancel_mail(booking):
+    return {'id': 'agoda-cancel-verified', 'internal_date': '1792587733653', 'owner_collected': True,
+            'payload': {'headers': [{'name': 'From', 'value': 'customerservice@agoda.com'},
+                {'name': 'Subject', 'value': '취소된 예약 - 아고다 예약 번호: ' + booking},
+                {'name': 'Date', 'value': 'Wed, 21 Oct 2026 13:02:13 +0000'}],
+                'body': {'content': '예약 번호: ' + booking + '\n예약 취소일: October 21, 2026'}}}
+
+
+def trip(n):
+    return message(hotel(ref=f'{n}' * 16), subject='[Trip.com] 결제 완료 안내', identity=f'trip-{n}')
+
+
+def forest(n):
+    return body_notice(f'2026-10-0{n} 합성자연휴양림 가상실 객실 예약완료', identity=f'forest-{n}',
+                       subject='숲나들e 예약완료 안내')
+
+
+def write(folder, messages):
+    folder.mkdir(exist_ok=True)
+    (folder / 'gmail.json').write_text(json.dumps({'responses': messages}, ensure_ascii=False), encoding='utf-8')
+    return folder
+
+
+def run(tmp_path, name, legacy, monkeypatch):
+    raw = capture()
+    raw['observed_at'] = '2026-10-21T02:54:54Z'
+    booking = parse_detail(raw)['booking_number']
+    direct = tmp_path / (name + '-direct.json')
+    direct.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+    base = [trip(1), trip(2), cancel_mail(booking), forest(1), forest(2)]
+    folder = tmp_path / (name + '-mail')
+    if legacy:
+        monkeypatch.setattr(OtaStore, '_evidence', legacy_evidence)
+        monkeypatch.setattr(OtaStore, 'index_reservation_observations', legacy_observations)
+    store = OtaStore(tmp_path / (name + '.sqlite'))
+    store.import_capture(direct)
+    store.import_mail(write(folder, base))
+    first = store.summary()
+    store.import_mail(write(folder, base + [trip(3)]))
+    store.import_mail(write(folder, base + [trip(3), forest(3)]))
+    return store, first, folder
+
+
+def view(store):
+    facts = [(row['booking_id'], fact, conflicts) for row, fact, conflicts in direct_facts(store.conn)]
+    return sorted(facts, key=lambda item: encoded(item)), sorted(encoded(r) for r in catalog_rows(store.conn))
+
+
+def test_new_mail_adds_only_its_own_evidence_and_reads_match_the_old_writer(tmp_path, monkeypatch):
+    with monkeypatch.context() as patch:
+        old, old_first, folder = run(tmp_path, 'old', True, patch)
+    new, new_first, _ = run(tmp_path, 'new', False, monkeypatch)
+    try:
+        mail_rows = "SELECT count(*) FROM ota_booking_evidence WHERE evidence_kind='mail'"
+        # 판이 2번 늘어도 새 메일(trip-3) 분만 늘어난다. 이전 방식은 판마다 전체를 다시 쓴다.
+        assert new.conn.execute(mail_rows).fetchone()[0] == 4
+        assert old.conn.execute(mail_rows).fetchone()[0] == 3 + 4 + 4
+        old_obs = old.conn.execute('SELECT count(*) FROM ota_reservation_observations').fetchone()[0]
+        new_obs = new.conn.execute('SELECT count(*) FROM ota_reservation_observations').fetchone()[0]
+        assert new_obs == 3 and old_obs == 2 + 2 + 3
+        assert new.summary()['ota_source_revisions'] == old.summary()['ota_source_revisions'] == 4
+        assert view(new) == view(old)
+        assert sum(r.get('identity_kind') == 'reservation_observation' for r in catalog_rows(new.conn)) == 3
+        events = lambda store: [{k: v for k, v in e.items() if k != 'source_inventory'} for e in
+                                ota_payments.build_ota_payment_events({'mail_directories': [store.path]})]
+        assert events(new) == events(old)
+        # 원문과 관측 이력: 메시지는 그대로, 다시 관측된 행은 마지막 판·횟수가 남는다.
+        assert new.summary()['ota_messages'] == old.summary()['ota_messages'] == 7
+        current = new.conn.execute("SELECT current_revision FROM ota_sources WHERE kind='mail_directory'").fetchone()[0]
+        seen = new.conn.execute("SELECT * FROM ota_row_seen WHERE kind='evidence' AND entry_key='trip-1'").fetchone()
+        assert seen['last_revision'] == current and seen['seen_count'] == 3
+        assert seen['first_revision'] != current and seen['first_observed_at'] <= seen['last_observed_at']
+        # 같은 판을 다시 읽어도 관측 횟수는 늘지 않는다.
+        new.import_mail(folder.parent / 'new-mail')
+        assert new.conn.execute("SELECT seen_count FROM ota_row_seen WHERE kind='evidence' AND entry_key='trip-1'"
+                                ).fetchone()[0] == 3
+    finally:
+        old.close()
+        new.close()
