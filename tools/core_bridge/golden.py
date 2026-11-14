@@ -752,6 +752,32 @@ def ota_mn_cases():
     add('undated agoda event, a dated event also fits the card',
         [E('syn-e1', **portal), E('syn-e2', provider='agoda', booking_ref='SYN-BOOK-2', source_ids=['mail:syn-e2'])],
         [C('syn-t1', **agoda_card)])
+    # shadow overlay: production returns dict(event, **link), so event fields the link omits stay in the result
+    unpaid = dict(event_type='reservation', evidence_status='booking_only', payment_status='pending', paid_on=None,
+                  amount=None, amount_krw=None)
+    flag = dict(individual_payment_evidence=False)
+    add('shadow overlay: unpaid toyoko reservation keeps the payment evidence flag',
+        [E('syn-e1', provider='toyoko', reservation_group_only=True, **unpaid, **flag)], [C('syn-t1')],
+        covers=['RESERVATION_ONLY', '"individual_payment_evidence": false'])
+    add('shadow overlay: unpaid forest reservation keeps the payment evidence flag',
+        [E('syn-e1', provider='forest', **unpaid, **flag)], [C('syn-t1')],
+        covers=['RESERVATION_ONLY', '"individual_payment_evidence": false'])
+    add('shadow overlay: conflicted toyoko reservation keeps the payment evidence flag',
+        [E('syn-e1', provider='toyoko', **dict(unpaid, evidence_status='conflict'), **flag)], [C('syn-t1')],
+        covers=['HOLD_EVIDENCE_CONFLICT', '"individual_payment_evidence": false'])
+    add('shadow overlay: unpaid rakuten reservation without the flag',
+        [E('syn-e1', provider='rakuten', **unpaid)], [C('syn-t1')], covers=['RESERVATION_ONLY'])
+    add('shadow overlay: preauthorized reservation without the flag',
+        [E('syn-e1', **dict(unpaid, evidence_status='preauthorized', preauthorized_on='2026-09-04',
+                            preauthorized_amount_krw=30000))], [C('syn-t1', amount_krw=30500)], covers=['RESERVATION_ONLY'])
+    add('shadow overlay: reservation with a price change amount without the flag',
+        [E('syn-e1', **dict(unpaid, price_change_amount_krw=5000, price_change_on='2026-09-04'))],
+        [C('syn-t1', amount_krw=5001)], covers=['RESERVATION_ONLY'])
+    add('shadow overlay: paid forest event linked to one card, input flag false',
+        [E('syn-e1', provider='forest', item='숙박비', card_last4=None, evidence_kind='authenticated_forest_pg_card_receipt',
+           authorization_scheme='issuer_card_approval', approval_number='SYN-AP-1', **flag)],
+        [C('syn-t1', merchant='SYN SHOP', merchant_normalized='syn shop', approval_number='SYN-AP-1')],
+        covers=['MATCHED_AUTO', 'individual_payment_evidence'])
     return out
 
 

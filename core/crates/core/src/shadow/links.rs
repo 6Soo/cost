@@ -392,23 +392,35 @@ fn list(input: &Value, key: &str) -> Vec<Value> {
     input[key].as_array().cloned().unwrap_or_default()
 }
 
-fn by_event(results: &[Value], pick: bool) -> (Map<String, Value>, bool) {
+fn by_event(results: &[Value]) -> (Map<String, Value>, bool) {
     let mut map = Map::new();
     let mut duplicate = false;
     for result in results {
-        let kept = match (pick, result.as_object()) {
-            (true, Some(o)) => Value::Object(
+        let kept = match result.as_object() {
+            Some(o) => Value::Object(
                 o.iter()
                     .filter(|(k, _)| OTA_KEYS.contains(&k.as_str()))
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
             ),
-            _ => result.clone(),
+            None => result.clone(),
         };
         let id = result["ota_event_id"].as_str().unwrap_or("").to_owned();
         duplicate |= map.insert(id, kept).is_some();
     }
     (map, duplicate)
+}
+
+/// 운영 `dict(event, **link)`와 같이 입력 사건 칸 위에 연결 칸을 덮는다.
+pub fn overlay_event(event: Option<&Value>, link: &Value) -> Value {
+    let mut row = event
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(link) = link.as_object() {
+        row.extend(link.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    Value::Object(row)
 }
 
 /// OTA 연결: 풀이기 입력으로 Rust `Matcher`를 돌려 Python 출력(`links` kind=ota)과 연결 칸만 대조한다.
@@ -427,13 +439,19 @@ pub fn compare_ota(
     let rust: Vec<Value> = Matcher::new(defaults, &rules)
         .match_events(&events, &cards, &existing, &frozen)
         .iter()
-        .map(|l| l.to_value())
+        .map(|l| {
+            let link = l.to_value();
+            let source = events
+                .iter()
+                .find(|e| e["ota_event_id"] == link["ota_event_id"]);
+            overlay_event(source, &link)
+        })
         .collect();
     let python_results = python["results"]
         .as_array()
         .ok_or(ShadowError::PlanResponseInvalid)?;
-    let (py_map, py_dup) = by_event(python_results, true);
-    let (rs_map, rs_dup) = by_event(&rust, false);
+    let (py_map, py_dup) = by_event(python_results);
+    let (rs_map, rs_dup) = by_event(&rust);
     let mut diffs = diff_maps("ota_link", &py_map, &rs_map, status_scope);
     if py_dup || rs_dup || python_results.len() != rust.len() {
         diffs.push(LinkDiff {
