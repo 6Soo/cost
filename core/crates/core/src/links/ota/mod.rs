@@ -9,8 +9,7 @@
 //!
 //! 알려진 차이: 가맹점 `NFKC` 접기는 전각 ASCII만 접는다(`_merchant_descriptors`), 날짜는 `YYYY-MM-DD`만 받는다(D-12),
 //! 공급자 별칭 길이가 같을 때의 해소 순서는 공급자 이름순이다(Python은 JSON 파일 순서), 가수가 `i128`을 넘는
-//! 금액은 해석하지 않는다. U14: 배정에서 탈락한 단건 이벤트가 다른 이벤트에 배정된 카드를 집는 Python의 두 점유 경로는
-//! 막고 `HOLD_AMBIGUOUS`(`global_one_to_one_collision`)로 보류한다. 근거 관계 ID는 ASCII 이벤트·카드 ID에서만
+//! 금액은 해석하지 않는다. 근거 관계 ID는 ASCII 이벤트·카드 ID에서만
 //! Python과 같다.
 
 mod amount;
