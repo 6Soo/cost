@@ -524,6 +524,11 @@
       "name": "core-writer-switch",
       "paths": ["app/core_writer.py", "app/automatic_classification.py", "tests/test_core_writer.py", "config/runtime-environment-catalog.json"],
       "tests": ["tests/test_core_writer.py", "tests/test_verify_runtime_environment.py"]
+    },
+    {
+      "name": "full-only-backup-gate-tools",
+      "paths": ["tools/apply_ota_owner_answers.py", "tools/deploy_reserve_trips.py", "tools/verify_operational_backup_restore.py"],
+      "tests": ["tests/card_pipeline/test_operational_backup_scope.py", "tests/card_pipeline/test_reserve_trips.py"]
     }
   ]
 }
