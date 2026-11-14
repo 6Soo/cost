@@ -232,7 +232,8 @@
     {
       "name": "code-only-release-content",
       "paths": ["tools/code_release_manifest.py", "tests/test_code_release_manifest.py",
-                "config/tracked-data-policy.json"],
+                "config/tracked-data-policy.json", "tools/check_tracked_data.py",
+                "tests/test_tracked_data_guard.py", "outputs/**", "ledger/data/**"],
       "tests": ["tests/test_code_release_manifest.py", "tests/test_tracked_data_guard.py"]
     },
     {
