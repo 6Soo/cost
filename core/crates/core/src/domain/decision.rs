@@ -408,6 +408,12 @@ impl Decision {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProtectionReason {
+    /// 거래 ID가 비었다.
+    IdInvalid,
+    /// 원천 해시가 소문자 sha256 16진이 아니다.
+    SourceHashInvalid,
+    /// revision이 없거나 u32가 아니다.
+    RevisionInvalid,
     DateBroken,
     AmountUnreadable(ParseError),
     Duplicate,
