@@ -63,13 +63,19 @@
 
 ## 반영 창의 백업·복원 확인 범위
 
-`python tools/verify_operational_backup_restore.py --scope board`(또는 `--scope board.sqlite core.sqlite`)는 이번 반영이 쓰는 DB만 전 행 직렬화·백업·복원 확인하고, 나머지 DB와 `source`·`evidence`·`exports` 폴더는 전후 지문(DB는 파일·WAL 해시, 폴더는 경로·크기·mtime)이 같은지만 확인한다. 바뀌면 `OUT_OF_SCOPE_INPUT_CHANGED_DURING_BACKUP`으로 실패한다. `--scope`를 주지 않으면 기존대로 전체다. 범위에는 판정 DB(`board.sqlite`)가 들어 있어야 한다. Rust 작성자 전환 뒤에는 `core.sqlite`도 함께 적는다.
+`python tools/verify_operational_backup_restore.py --scope board`(또는 `--scope board.sqlite core.sqlite`)는 이번 반영이 쓰는 DB만 전 행 직렬화·백업·복원 확인하고, 나머지 DB와 `source`·`evidence`·`exports` 폴더는 전후 지문(DB는 파일·WAL 해시, 폴더는 경로·크기·mtime)이 같은지만 확인한다. 바뀌면 `OUT_OF_SCOPE_INPUT_CHANGED_DURING_BACKUP`으로 실패한다. `--scope`를 주지 않으면 기존대로 전체다. 범위에는 판정 DB(`board.sqlite`)가 들어 있어야 한다. `data/core.sqlite`가 있으면 범위에 반드시 넣어야 하고(없으면 `BACKUP_SCOPE_MISSING_CORE_DB`), 전체 모드도 `core.sqlite`와 `period-facts.json`을 백업한다. 범위 증거는 `all_database_tables_and_columns_compared`·`source_files_hash_compared`가 False, `backup_scope_kind`가 `scoped`이고 `backup_scope`에 검증한 DB가 적힌다. `complete_card_classification`·`repair_bulk_owner_confirmation`의 백업 게이트는 쓰는 DB가 `backup_scope`에 있고 범위 밖이 불변이면 범위 증거도 받는다(`deploy_reserve_candidate`는 전체 증거만 받는다).
 
 | 도구 | 쓰는 DB | 권장 범위 |
 | --- | --- | --- |
 | `apply_ai_quarter_review.py`, `repair_closed_period_grouping.py`, `repair_preparation_cost_grouping.py`, `repair_bulk_owner_confirmation.py` | `board.sqlite` | `--scope board` |
-| `apply_ota_owner_answers.py`, `prepare_ota_review_holds.py`, `deploy_reserve_trips.py`, `recover_history_rules.py`, `import_kb_card_download.py`, `refresh_card_categories.py` | `board.sqlite` | `--scope board` |
-| `complete_card_classification.py`, `repair_dist141_provenance.py` | `board.sqlite` (`ota-review.sqlite`는 읽기만) | `--scope board` |
+| `prepare_ota_review_holds.py`, `recover_history_rules.py`, `import_kb_card_download.py`, `refresh_card_categories.py` | `board.sqlite` | `--scope board` |
+| `apply_ota_owner_answers.py`, `deploy_reserve_trips.py` | `board.sqlite` + `data/evidence` 폴더 | 전체(범위 지정 없음) |
+| `complete_card_classification.py` | python 작성자: `board.sqlite` / rust 작성자(`WEBLEDGER_CLASSIFICATION_WRITER=rust`): `board.sqlite` + `core.sqlite` + `period-facts.json` | python: `--scope board` / rust: `--scope board.sqlite core.sqlite` |
+| `repair_dist141_provenance.py` | `board.sqlite` (`ota-review.sqlite`는 읽기만) | `--scope board` |
+`apply_ota_owner_answers.py`·`deploy_reserve_trips.py`는 DB 밖에서 `data/evidence`에도 쓸 수 있으므로 범위 모드의 폴더 지문 비교에서 바뀌면 실패한다. 위 표대로 이 두 도구 창은 전체 모드를 쓴다.
+
+| 도구 | 쓰는 DB | 권장 범위 |
+| --- | --- | --- |
 | `deploy_lightweight.py` | `board.sqlite`, `board.operator.sqlite`, `real-review.sqlite` | 범위 지정 없음(전체) |
 
 창당 백업 1회로 줄이는 것은, 그 한 번의 변경 전 백업이 창 전체 반영 범위를 덮고 중간 실패 복구까지 검증될 때만 허용한다. 코드는 바꾸지 않았고 도구별 백업 게이트(1시간 이내 증거)는 그대로 둔다.

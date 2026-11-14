@@ -48,9 +48,12 @@ def _require_offline_with_route(host, evidence, db):
     from tools.verify_operational_backup_restore import database_state
     require_writers_offline(_route_port(host))
     saved = json.loads(evidence.read_text(encoding='utf-8-sig'))
-    for key in ('live_state_unchanged', 'all_database_tables_and_columns_compared', 'restored_review_binding_equal'):
+    from tools.verify_operational_backup_restore import backup_covers
+    for key in ('live_state_unchanged', 'restored_review_binding_equal'):
         if saved.get(key) is not True:
             raise ValueError('BACKUP_RESTORE_NOT_VERIFIED')
+    if not backup_covers(saved, host, ['board.sqlite']):
+        raise ValueError('BACKUP_RESTORE_NOT_VERIFIED')
     if not 0 <= (datetime.now(timezone.utc) - datetime.fromisoformat(saved['recorded_at'])).total_seconds() < 3600:
         raise ValueError('BACKUP_NOT_FRESH')
     backup = Path(saved['backup_directory']).resolve()

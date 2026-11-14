@@ -23,7 +23,6 @@ def _host(tmp_path):
         (host / name if name == 'config' else data / name).mkdir(parents=True)
     _db(data / 'board.sqlite')
     _db(data / 'ota-evidence.sqlite', 5)
-    _db(data / 'core.sqlite', 2)
     (data / 'source' / 'a.txt').write_text('a')
     (data / 'ota-sources.json').write_text(json.dumps({'unified_database': str(data / 'ota-evidence.sqlite')}))
     files = {}
@@ -47,6 +46,11 @@ def host(tmp_path, monkeypatch):
     return host, data
 
 
+def _add_core(data):
+    _db(data / 'core.sqlite', 2)
+    (data / 'period-facts.json').write_text('{}')
+
+
 def _run(host, tmp_path, scope=None):
     out = tmp_path / 'evidence.json'
     backup.main(out, scope, host)
@@ -57,7 +61,9 @@ def test_default_scope_covers_all_databases_and_folders(host, tmp_path):
     result = _run(host[0], tmp_path)
     assert result['database_count'] == 2
     assert result['all_database_tables_and_columns_compared'] is True
-    assert 'backup_scope' not in result
+    assert result['source_files_hash_compared'] is True
+    assert result['backup_scope_kind'] == 'full'
+    assert result['backup_scope'] == ['board.sqlite', 'ota-evidence.sqlite']
     assert result['file_count'] >= 4
 
 
@@ -70,20 +76,82 @@ def test_scope_serializes_only_in_scope_databases(host, tmp_path, monkeypatch):
     assert result['backup_scope'] == ['board.sqlite']
     assert result['out_of_scope_databases'] == ['ota-evidence.sqlite']
     assert result['out_of_scope_unchanged'] is True
-    assert result['all_database_tables_and_columns_compared'] is True
+    assert result['all_database_tables_and_columns_compared'] is False
+    assert result['source_files_hash_compared'] is False
+    assert result['backup_scope_kind'] == 'scoped'
     assert result['board_rows'] == 3
     assert not list((host[1] / 'backups').rglob('ota-evidence.sqlite'))
 
 
-def test_scope_can_include_core_sqlite(host, tmp_path):
+def test_full_mode_backs_up_core_sqlite_and_period_facts(host, tmp_path):
+    _add_core(host[1])
+    result = _run(host[0], tmp_path)
+    assert result['backup_scope'] == ['board.sqlite', 'core.sqlite', 'ota-evidence.sqlite']
+    backups = list((host[1] / 'backups').rglob('core.sqlite'))
+    assert backups
+    assert list((host[1] / 'backups').rglob('period-facts.json'))
+
+
+def test_scope_must_include_core_sqlite_when_it_exists(host, tmp_path):
+    _add_core(host[1])
+    with pytest.raises(RuntimeError, match='BACKUP_SCOPE_MISSING_CORE_DB'):
+        _run(host[0], tmp_path, ['board'])
     result = _run(host[0], tmp_path, ['board.sqlite', 'core.sqlite'])
     assert result['backup_scope'] == ['board.sqlite', 'core.sqlite']
-    assert result['database_count'] == 2
+    assert result['out_of_scope_databases'] == ['ota-evidence.sqlite']
+
+
+def test_core_sqlite_change_during_scoped_backup_is_caught_by_live_state(host, tmp_path, monkeypatch):
+    _add_core(host[1])
+    real = backup.backup_database
+
+    def touch(source, target):
+        real(source, target)
+        if source.name == 'core.sqlite':
+            conn = sqlite3.connect(source)
+            conn.execute("INSERT INTO board_rows(v) VALUES ('late')")
+            conn.commit()
+            conn.close()
+    monkeypatch.setattr(backup, 'backup_database', touch)
+    with pytest.raises(RuntimeError, match='LIVE_INPUT_CHANGED_DURING_BACKUP'):
+        _run(host[0], tmp_path, ['board', 'core.sqlite'])
+
+
+def test_scoped_restored_copy_that_differs_fails(host, tmp_path, monkeypatch):
+    real = backup.shutil.copy2
+
+    def corrupt(src, dst, *a, **k):
+        out = real(src, dst, *a, **k)
+        if 'restore-verification' in str(dst) and str(dst).endswith('board.sqlite'):
+            conn = sqlite3.connect(dst)
+            conn.execute("INSERT INTO board_rows(v) VALUES ('drift')")
+            conn.commit()
+            conn.close()
+        return out
+    monkeypatch.setattr(backup.shutil, 'copy2', corrupt)
+    with pytest.raises(RuntimeError, match='RESTORED_DATABASE_STATE_MISMATCH'):
+        _run(host[0], tmp_path, ['board'])
+
+
+def test_backup_covers_gate(host, tmp_path):
+    h, data = host
+    scoped = _run(h, tmp_path, ['board'])
+    assert backup.backup_covers(scoped, h, ['board.sqlite'])
+    assert not backup.backup_covers(scoped, h, ['real-review.sqlite'])
+    assert not backup.backup_covers(dict(scoped, out_of_scope_unchanged=False), h, ['board.sqlite'])
+    _add_core(data)
+    assert not backup.backup_covers(scoped, h, ['board.sqlite'])
+    full = _run(h, tmp_path)
+    assert backup.backup_covers(full, h, ['board.sqlite'])
+    assert not backup.backup_covers(dict(full, all_database_tables_and_columns_compared=False), h, ['board.sqlite'])
+    legacy = {'all_database_tables_and_columns_compared': True}
+    assert backup.backup_covers(legacy, h, ['board.sqlite'])
 
 
 def test_scope_unknown_database_or_missing_decisions_db_fails(host, tmp_path):
     with pytest.raises(RuntimeError, match='BACKUP_SCOPE_UNKNOWN_DATABASE'):
         _run(host[0], tmp_path, ['nope.sqlite'])
+    _add_core(host[1])
     with pytest.raises(RuntimeError, match='BACKUP_SCOPE_MISSING_DECISIONS_DB'):
         _run(host[0], tmp_path, ['core.sqlite'])
 

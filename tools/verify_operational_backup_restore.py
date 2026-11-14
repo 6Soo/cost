@@ -119,16 +119,37 @@ SCOPE_ALIASES = {'board': ['board.sqlite']}
 OUT_OF_SCOPE_FOLDERS = ('source', 'evidence', 'exports')
 
 
+def core_database(data, databases):
+    """Add core.sqlite when it exists; the default inputs predate the core store."""
+    if (data / 'core.sqlite').is_file():
+        databases.setdefault('core.sqlite', data / 'core.sqlite')
+    return databases
+
+
+def backup_covers(saved, host, database_names):
+    """Whether backup evidence verified these databases (and core.sqlite when the host has one)."""
+    needed = list(database_names)
+    if (Path(host) / 'data/core.sqlite').is_file():
+        needed.append('core.sqlite')
+    if saved.get('backup_scope_kind') == 'scoped':
+        return (saved.get('out_of_scope_unchanged') is True
+                and all(name in saved.get('backup_scope', ()) for name in needed))
+    if saved.get('all_database_tables_and_columns_compared') is not True:
+        return False
+    return 'backup_scope' not in saved or all(name in saved['backup_scope'] for name in needed)
+
+
 def resolve_scope(databases, data, names):
     """Pick the databases this window writes. `board` means board.sqlite; core.sqlite may be named too."""
     wanted = []
     for name in names:
         wanted.extend(SCOPE_ALIASES.get(name, [name]))
-    candidates = dict(databases)
-    if (data / 'core.sqlite').is_file():
-        candidates.setdefault('core.sqlite', data / 'core.sqlite')
+    candidates = core_database(data, dict(databases))
     if not wanted or any(name not in candidates for name in wanted):
         raise RuntimeError('BACKUP_SCOPE_UNKNOWN_DATABASE')
+    # The Rust writer changes core.sqlite and period-facts.json; a window that has one must back it up.
+    if 'core.sqlite' in candidates and 'core.sqlite' not in wanted:
+        raise RuntimeError('BACKUP_SCOPE_MISSING_CORE_DB')
     inside = {name: candidates[name] for name in candidates if name in wanted}
     outside = {name: path for name, path in databases.items() if name not in inside}
     return inside, outside
@@ -186,6 +207,7 @@ def main(evidence_out=None, scope=None, host=None):
     flow_config = host / 'config/card-flow.json'
     options = json.loads(flow_config.read_text(encoding='utf-8')) if flow_config.is_file() else {}
     databases, decision_name = database_inputs(data, manifest, options)
+    databases = core_database(data, databases)
     outside_before = None
     if scope:
         databases, outside = resolve_scope(databases, data, scope)
@@ -203,6 +225,8 @@ def main(evidence_out=None, scope=None, host=None):
     # Optional product stores are as important as SQLite: photos, receipt edits,
     # selected Google generations and launch settings must survive a restore.
     files.update(product_files(host))
+    if (data / 'period-facts.json').is_file():
+        files['core-facts/period-facts.json'] = data / 'period-facts.json'
     for kind in (() if scope else OUT_OF_SCOPE_FOLDERS):
         if (data / kind).is_symlink():
             raise RuntimeError('SOURCE_LINK_REFUSED')
@@ -252,8 +276,10 @@ def main(evidence_out=None, scope=None, host=None):
         "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "backup_directory": str(bundle), "restored_directory": str(restored),
         "database_count": len(databases), "file_count": len(files),
-        "all_database_tables_and_columns_compared": True,
-        "source_files_hash_compared": True,
+        "all_database_tables_and_columns_compared": not scope,
+        "source_files_hash_compared": not scope,
+        "backup_scope_kind": "scoped" if scope else "full",
+        "backup_scope": sorted(databases),
         "live_state_unchanged": before == after,
         "restored_review_binding_equal": True,
         "board_rows": before["board.sqlite"]["board_rows"]["rows"] if "board.sqlite" in before else None,
@@ -264,7 +290,6 @@ def main(evidence_out=None, scope=None, host=None):
         "actual_import_performed": False,
     }
     if scope:
-        result["backup_scope"] = sorted(databases)
         result["out_of_scope_databases"] = sorted(outside)
         result["out_of_scope_folders"] = list(OUT_OF_SCOPE_FOLDERS)
         result["out_of_scope_unchanged"] = True
