@@ -15,7 +15,7 @@ pub use judgement::{Keep, Outcome};
 
 use crate::dates::{completed_period, excluded};
 use crate::domain::{Judgement, ProtectionReason};
-use crate::period::{PeriodEvidence, PeriodRow, verified_period_for};
+use crate::period::{PeriodEvidence, PeriodRow, period_for};
 use crate::trips::{Canonical, Trip, trip_tab};
 use fresh::{Fresh, classify_new_row, restore_historical_row, values};
 use input::{card_row, evidence_of, text, trip_of};
@@ -158,9 +158,11 @@ pub fn plan_with_periods(
             .filter(|l| !l.inferred)
             .map(|l| l.original_id.as_str());
         let board = input.boards.get(&format!("card-{tid}"));
-        let period_row = PeriodRow::for_card(tid, board.map(|b| b.payload_json.as_str()));
-        let period = verified_period_for(&period_row, periods.facts_of(tid));
-        judger.decide(row, chosen, tid, has_history, original, (fact, &period))
+        let mut period_row = PeriodRow::for_card(tid, board.map(|b| b.payload_json.as_str()));
+        period_row.item = text(chosen, "item");
+        period_row.source_fact_digest = text(row, "source_hash");
+        let found = period_for(&period_row, periods.facts_of(tid), periods.flights());
+        judger.decide(row, chosen, tid, has_history, original, (fact, &found))
     };
     // 판정 7칸이 같아도 이용기간 근거가 바뀐 거래는 새 판정을 낸다.
     let kept = |tid: String, judged: Option<Judgement>| match judged {

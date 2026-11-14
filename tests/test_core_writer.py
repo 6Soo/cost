@@ -101,6 +101,27 @@ def test_stored_service_period_reads_core_sqlite_read_only(env, tmp_path):
     assert core_writer.stored_service_period('missing') is None
 
 
+def test_stored_service_period_names_verified_inferred_and_unknown(env, tmp_path):
+    monkeypatch, _ = env
+    core = tmp_path / 'core.sqlite'
+    stored = {
+        'old': {'kind': 'known', 'starts_on': '2026-10-01', 'ends_on': '2026-10-02'},
+        'new': {'kind': 'inferred', 'starts_on': '2026-10-01', 'ends_on': '2026-10-02', 'basis': 'p2_run'},
+        'none': {'kind': 'unknown', 'reason': 'no_evidence'},
+        'odd': {'kind': 'surprise'},
+    }
+    with sqlite3.connect(core) as c:
+        c.execute('CREATE TABLE decisions(transaction_id TEXT, service_period_json TEXT)')
+        c.executemany('INSERT INTO decisions VALUES (?, ?)', [(k, json.dumps(v)) for k, v in stored.items()])
+    c.close()
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(core))
+    read = core_writer.stored_service_period
+    assert read('old')['kind'] == 'verified' and read('old')['starts_on'] == '2026-10-01'
+    assert read('new')['kind'] == 'inferred' and read('new')['basis'] == 'p2_run'
+    assert read('none') == {'kind': 'unknown', 'reason': 'no_evidence'}
+    assert read('odd')['kind'] == 'unknown'
+
+
 def _periods_env(env, tmp_path, monkeypatch_calls):
     monkeypatch, _ = env
     monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
@@ -437,3 +458,31 @@ def test_cleanup_group_loop_lets_a_stale_key_rebuild_the_evidence(env, tmp_path)
     result = card_flow.reclassify_cleanup(board, flow=flow, request_snapshot=False)
     assert result['failures'] == [] and result['processed'] == 1 and len(applied) == 1
     assert len(calls) == 2  # rebuilt once after the key moved
+
+
+def test_p2_inputs_change_the_evidence_key_when_a_p2_period_or_its_audit_changes(tmp_path):
+    board = tmp_path / 'board.sqlite'
+    with sqlite3.connect(board) as c:
+        c.execute('CREATE TABLE transactions(transaction_id, revision, source_hash, item, classification_source, '
+                  'classification_basis)')
+        c.execute("INSERT INTO transactions VALUES ('t1', 1, 'h', '숙박비', 'ai_inference', 'basis')")
+        c.execute("INSERT INTO transactions VALUES ('t2', 1, 'h', '식비', 'ai_inference', 'basis')")
+        c.execute('CREATE TABLE change_log(entry_id INTEGER PRIMARY KEY, kind TEXT, subject TEXT, detail_json TEXT)')
+        c.execute('CREATE TABLE review_decisions(transaction_id TEXT)')
+    c.close()
+    first = core_writer._p2_inputs(board)
+    assert first and core_writer._p2_inputs(board) == first
+    with sqlite3.connect(board) as c:
+        c.execute("UPDATE transactions SET classification_basis='other' WHERE transaction_id='t2'")
+    c.close()
+    assert core_writer._p2_inputs(board) == first  # a non-service item is not read by the P2 index
+    with sqlite3.connect(board) as c:
+        c.execute("UPDATE transactions SET revision=2 WHERE transaction_id='t1'")
+    c.close()
+    second = core_writer._p2_inputs(board)
+    assert second != first
+    with sqlite3.connect(board) as c:
+        c.execute("INSERT INTO change_log(kind, subject) VALUES ('card.classification_corrected', 't1')")
+    c.close()
+    assert core_writer._p2_inputs(board) != second
+    assert core_writer._p2_inputs(tmp_path / 'missing.sqlite') == ''

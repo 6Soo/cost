@@ -33,7 +33,7 @@ def _main_database(conn) -> str:
 
 
 PERIODS_CACHE = 'period-facts.json'
-PERIODS_CACHE_SCHEMA = 1
+PERIODS_CACHE_SCHEMA = 2
 
 
 @contextmanager
@@ -75,11 +75,49 @@ def _manual_overrides(conn, lock):
             "SELECT row_id FROM board_manual_overrides WHERE field='service_period'"))
 
 
+def _board_reader(board_path):
+    return closing(sqlite3.connect(Path(board_path).resolve().as_uri() + '?mode=ro', uri=True))
+
+
+def _p2_ids(conn) -> list:
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
+        return []
+    return [r[0] for r in conn.execute(
+        "SELECT transaction_id FROM transactions WHERE classification_source='ai_inference' "
+        "AND item IN ('숙박비','항공료','렌터카') ORDER BY transaction_id")]
+
+
+def _p2_inputs(board_path) -> str:
+    """Fingerprint of what the P2 period index reads. `apply` excludes the classification columns from the OTA key,
+    so a P2 write (basis, source, revision) or its audit entry would otherwise leave the saved evidence stale."""
+    try:
+        with _board_reader(board_path) as conn:
+            ids = _p2_ids(conn)
+            rows = [conn.execute('SELECT revision,source_hash,item,classification_basis FROM transactions '
+                                 'WHERE transaction_id=?', (tid,)).fetchone() for tid in ids]
+            audit = conn.execute("SELECT count(*),max(entry_id) FROM change_log "
+                                 "WHERE kind='card.classification_corrected'").fetchone()
+            reviews = conn.execute('SELECT count(*) FROM review_decisions').fetchone()
+    except sqlite3.Error:
+        return ''
+    return hashlib.sha256(json.dumps([ids, rows, audit, reviews], ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
 def _evidence_key(board_path, manual) -> str:
     from tools.core_bridge import periods as bridge
     return hashlib.sha256(json.dumps(
         [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
-         bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
+         bridge.CARD_KEYS, _p2_inputs(board_path)], ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def _p2_periods(board_path) -> dict:
+    """Audited P2 periods bound to the current source and decision (`webapp.ledger_stay_evidence._p2_index`)."""
+    from .ai_classification import service_metadata
+    try:
+        with _board_reader(board_path) as conn:
+            return {tid: metadata for tid in _p2_ids(conn) if (metadata := service_metadata(conn, tid))}
+    except sqlite3.Error:
+        return {}
 
 
 def _configured() -> str:
@@ -106,7 +144,7 @@ def period_facts(board_path, manual, core) -> tuple:
             return saved['facts'], key
     except (OSError, ValueError):
         pass
-    facts = bridge.facts_from_snapshot(_period_snapshot(board_path), set(manual))
+    facts = bridge.evidence_from_snapshot(_period_snapshot(board_path), set(manual), _p2_periods(board_path))
     scratch = cache.with_name(cache.name + '.tmp')
     scratch.write_text(json.dumps({'key': key, 'facts': facts}, ensure_ascii=False), encoding='utf-8')
     os.replace(scratch, cache)
@@ -221,11 +259,20 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
 
 
 def stored_service_period(transaction_id: str):
-    """Stored use period of a decision (core.sqlite), or None. Screens and exports read this; they never recompute it."""
+    """Stored use period of a decision (core.sqlite), or None. Screens and exports read this; they never recompute it.
+
+    `kind` is verified (a stored value, a verified link or a flight booking), inferred (with `basis`) or unknown
+    (with `reason`). Decisions written before inferred periods existed keep their old `known` spelling in the
+    database; it reads as verified.
+    """
     core = os.environ.get(CORE_DB_ENV, '')
     if not core:
         raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
     with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True)) as conn:
         row = conn.execute('SELECT service_period_json FROM decisions WHERE transaction_id=?',
                            (transaction_id,)).fetchone()
-    return json.loads(row[0]) if row else None
+    if not row:
+        return None
+    stored = json.loads(row[0])
+    kind = {'known': 'verified'}.get(stored.get('kind'), stored.get('kind'))
+    return {**stored, 'kind': kind if kind in ('verified', 'inferred', 'unknown') else 'unknown'}

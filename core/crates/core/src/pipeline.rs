@@ -140,6 +140,11 @@ pub fn run_plan(
             let decision = decisions.get(t.id.as_str());
             let period = decision.map(|d| match d.service_period() {
                 ServicePeriod::Known { starts_on, ends_on } => format!("{starts_on}/{ends_on}"),
+                ServicePeriod::Inferred {
+                    starts_on,
+                    ends_on,
+                    basis,
+                } => format!("inferred:{}:{starts_on}/{ends_on}", basis.as_str()),
                 ServicePeriod::Unknown { .. } => "unknown".to_owned(),
             });
             let [

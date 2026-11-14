@@ -126,10 +126,12 @@ KEYS = {
     'transaction_direction': _one_of('purchase', 'cancellation', 'refund'),
     'transaction_kind': _one_of('승인', '취소', 'purchase'),
     'event_type': _one_of('charge', 'refund', 'reservation'),
-    'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only', 'preauthorized', 'conflict'),
+    'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only', 'preauthorized', 'conflict',
+                               'reservation_only'),
     'payment_status': _one_of('paid', 'pending'),
     'refund_status': _one_of('refunded', 'refund_pending', 'none_displayed', ''),
-    'status': _one_of('active', 'inactive', 'MATCHED_AUTO', 'MATCHED_USER', 'HOLD_DATE_UNKNOWN'),
+    'status': _one_of('active', 'inactive', 'MATCHED_AUTO', 'MATCHED_USER', 'HOLD_DATE_UNKNOWN', 'RESERVATION_ONLY',
+                      'CANDIDATES_FOUND'),
     'classification_state': _one_of('classified', 'needs_review'),
     'classification_source': _one_of('', 'ai_inference', 'code_inference', 'inference', 'user_decision', 'user_exception',
                                      'rule_conflict', 'refund_original'),
@@ -179,6 +181,11 @@ KEYS = {
     'evidence_changed': _bool, 'evidence_missing': _bool, 'service_period_conflict': _bool,
     'individual_payment_evidence': _bool, 'reservation_group_only': _bool, 'ota_review_held': _bool, 'reservation_refund_blocked': _bool,
     'inferred_link': _bool,
+    # period inference (DATE-080, DATE-101), P2 period metadata and saved flight bookings
+    'inference': _bool, 'source_fact_digest': _regex(r'^syn-[a-z0-9-]+$'), 'run_id': _one_of('syn-run-1'),
+    'model': _one_of('syn-model'), 'decision_revision': lambda v: isinstance(v, int) and 0 <= v < 100,
+    'departure_on': _regex(DATE.pattern), 'cancellation_status': _one_of('NONE', 'CANCELLED'),
+    'source_trust': _one_of('sender_domain'), 'branch_status': _one_of('MATCH'), 'stay_date_status': _one_of('MATCH'),
     # OTA final links (U14): frozen groups, legacy pins, undated inference
     'event_ids': _regex(r'^syn-[a-z0-9-]+$'), 'card_ids': _regex(r'^syn-[a-z0-9-]+$'),
     'source_digests': _regex(r'^syn-[a-z0-9-]+$'), 'legacy_exact': _bool, 'verified_portal_snapshot': _bool,
@@ -189,8 +196,11 @@ CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optiona
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
               'service_period', 'frozen_groups', 'mapping', 'order_snapshot', 'cards', 'event_evidence', 'card_evidence',
-              'eligible_edges_digest', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows', 'data', 'results'}
+              'eligible_edges_digest', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows', 'data', 'results',
+              'p2', 'passengers', 'legs', 'candidate_search', 'candidates'}
 ID_MAPS = {'evidence', 'existing_links', 'links'}
+REF_MAPS = {'passengers'}  # keyed by a synthetic booking number
+REF_KEY = re.compile(r'^SYN-BOOK-\d$')
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')
 FORBIDDEN_TEXT = re.compile(r'\d{9,}|(?:\d{3,4}[- ]){2,}\d{3,4}|@|https?:|www\.', re.I)
@@ -236,6 +246,9 @@ def validate_input(value, path='input', parent=None):
             if parent in ID_MAPS:
                 if not ID_KEY.match(key):
                     raise GoldenViolation(f'{path}: map key {key!r} is not a synthetic id')
+            elif parent in REF_MAPS:
+                if not REF_KEY.match(key):
+                    raise GoldenViolation(f'{path}: map key {key!r} is not a synthetic booking number')
             elif parent == 'nets' or key == 'nets':
                 pass
             elif key == 'mapping':

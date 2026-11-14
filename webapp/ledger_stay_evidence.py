@@ -1057,6 +1057,26 @@ def verified_period_for(row, index):
     return period
 
 
+def flight_departure_days(found):
+    """Sorted departure days of a saved flight booking in the passenger index; None when it cannot be used.
+
+    Shared by the flight label on screen and the Rust period rule's flight evidence.
+    """
+    from datetime import date
+    if (not found or found.get('conflict') or not found.get('source_digests')
+            or found.get('cancellation_status') != 'NONE'
+            or any(found.get(flag) for flag in
+                   ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+        return None
+    legs = found.get('legs') or []
+    if not legs or any(not leg.get('departure_on') for leg in legs):
+        return None
+    try:
+        return sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
+    except (ValueError, TypeError):
+        return None
+
+
 def export_index(store):
     """The screen's stay index for output paths; a store without a ledger connection has none."""
     if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
