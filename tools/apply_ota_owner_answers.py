@@ -145,7 +145,7 @@ def main():
     db=HOST/'data/board.sqlite';authority=HOST/'config/trip-authority.json'
     proof=json.loads((ROOT/'docs/handoff/2026-10-01/operational-backup-restore-evidence.json').read_text(encoding='utf-8'))
     age=(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(proof['recorded_at'])).total_seconds()
-    if not 0<=age<=300 or not proof['live_state_unchanged']:
+    if not 0<=age<=300 or not proof['live_state_unchanged'] or proof.get('backup_scope_kind')=='scoped':
         raise RuntimeError('FRESH_VERIFIED_BACKUP_REQUIRED')
     before=database_state(db);old_rows=current_rows(db)
     hold='--hold-refunded-flight' in sys.argv
