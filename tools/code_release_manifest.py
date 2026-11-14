@@ -17,9 +17,9 @@ import subprocess
 import zipfile
 
 try:
-    from tools.check_tracked_data import git, load_policy, reasons, tree
+    from tools.check_tracked_data import git, load_policy, preserved_entries, reasons, tree
 except ModuleNotFoundError:
-    from check_tracked_data import git, load_policy, reasons, tree
+    from check_tracked_data import git, load_policy, preserved_entries, reasons, tree
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = {'config/guide-airfare-airports.json', 'config/ota-matching-defaults.json',
@@ -49,6 +49,7 @@ def manifest(root, sha):
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ValueError('EXACT_SHA_REQUIRED')
     policy = load_policy(root / 'config/tracked-data-policy.json')
+    preserved = preserved_entries(policy)
     included, excluded = [], []
     for path, info in tree(root, sha).items():
         risk = reasons(path, info, policy)
@@ -59,8 +60,11 @@ def manifest(root, sha):
         if not permitted(path):
             risk.append('OUTSIDE_CODE_ALLOWLIST')
         if risk:
+            # Older SHAs still carry blobs that now live in the external archive.
+            outside = preserved.get(path, {}).get('git_blob') == info['oid']
             excluded.append({'path': path, 'reasons': list(dict.fromkeys(risk)),
-                             'retention': 'PRESERVE_IN_ORIGINAL_REPOSITORY'})
+                             'retention': 'PRESERVED_OUTSIDE_GIT' if outside
+                             else 'PRESERVE_IN_ORIGINAL_REPOSITORY'})
         else:
             included.append({'path': path, 'blob': info['oid'], 'bytes': info['size']})
     return {'schema': 'cost-code-release-v1', 'sha': sha, 'included': included, 'excluded': excluded,

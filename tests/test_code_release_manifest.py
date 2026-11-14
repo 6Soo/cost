@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -91,6 +92,24 @@ def test_large_asset_exception_is_pinned_to_path_blob_and_size(monkeypatch, tmp_
     assert release.manifest(tmp_path, 'b' * 40)['included'] == []
     entry.update(oid='a' * 40, size=2000001)
     assert release.manifest(tmp_path, 'b' * 40)['included'] == []
+
+
+def test_externally_preserved_blob_is_marked_outside_git_only_on_exact_blob(repo):
+    root, _ = repo
+    policy_path = root / 'config/tracked-data-policy.json'
+    policy = json.loads(policy_path.read_text(encoding='utf-8'))
+    oid = git(root, 'rev-parse', 'HEAD:outputs/private.sqlite').decode().strip()
+    policy['externally_preserved'] = [{'archive': 'synthetic-archive', 'manifest_sha256': 'a' * 64, 'files': [
+        {'path': 'outputs/private.sqlite', 'sha256': hashlib.sha256(b'PRIVATE_ORIGINAL').hexdigest(), 'git_blob': oid},
+        {'path': 'ledger/data/source.json', 'sha256': 'b' * 64, 'git_blob': 'c' * 40}]}]
+    policy_path.write_text(json.dumps(policy), encoding='utf-8')
+    git(root, 'add', 'config/tracked-data-policy.json')
+    git(root, '-c', 'core.hooksPath=NUL', 'commit', '-qm', 'synthetic preserved policy')
+    report = release.manifest(root, git(root, 'rev-parse', 'HEAD').decode().strip())
+    retention = {row['path']: row['retention'] for row in report['excluded']}
+    assert retention['outputs/private.sqlite'] == 'PRESERVED_OUTSIDE_GIT'
+    assert retention['ledger/data/source.json'] == 'PRESERVE_IN_ORIGINAL_REPOSITORY'
+    assert 'outputs/private.sqlite' not in {row['path'] for row in report['included']}
 
 
 def test_ledger_package_code_is_preserved_but_embedded_data_code_is_excluded(repo):
