@@ -29,6 +29,7 @@ enum CliError {
     Pipeline(PipelineError),
     Apply(ApplyError),
     Store,
+    CoreSchemaMismatch,
     Shadow(ShadowError),
     Io,
 }
@@ -48,6 +49,7 @@ impl CliError {
                 "IO_ERROR".to_owned()
             }
             Self::Pipeline(PipelineError::Store(_)) | Self::Store => "STORE_ERROR".to_owned(),
+            Self::CoreSchemaMismatch => "CORE_SCHEMA_MISMATCH".to_owned(),
             Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
             Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
             Self::Apply(_) => "APPLY_FAILED".to_owned(),
@@ -118,8 +120,9 @@ fn main() -> ExitCode {
         Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
         Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
         Some("periods") => finish(periods(&args[1..]), "ok"),
+        Some("migrate") => finish(migrate_cmd(&args[1..]), "ok"),
         Some(_) => {
-            eprintln!("usage: costcore <shadow|plan|apply|rejudge|periods> ...");
+            eprintln!("usage: costcore <shadow|plan|apply|rejudge|periods|migrate> ...");
             ExitCode::from(2)
         }
     }
@@ -292,6 +295,21 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
         0,
         json!({"ok": true, "result": out.summary, "written": out.written,
             "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch, "backfilled": out.backfilled}),
+    ))
+}
+
+/// `costcore migrate --core CORE.sqlite`: core.sqlite가 없으면 만들고 최신 스키마까지 이관한다. board는 열지 않는다.
+fn migrate_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
+    let core = PathBuf::from(flags.get("--core").ok_or(CliError::UsageInvalid)?);
+    let created = !core.exists();
+    let (from, to) = cost_core::store::migrate_file(&core).map_err(|error| match error {
+        StoreError::SchemaTooNew { .. } => CliError::CoreSchemaMismatch,
+        _ => CliError::Store,
+    })?;
+    Ok((
+        0,
+        json!({"ok": true, "created": created, "from_version": from, "to_version": to}),
     ))
 }
 
