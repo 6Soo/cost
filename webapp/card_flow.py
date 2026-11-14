@@ -2503,6 +2503,7 @@ def reclassify_cleanup(board, **options):
 def _reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
                         request_snapshot=True):
     from app import StoreError
+    from app.core_writer import PeriodsStale
     from app.classify import _pattern_for
     from app.normalize import normalize_merchant
     from collections import defaultdict
@@ -2566,6 +2567,8 @@ def _reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flo
                 {'local': 0, 'hotel': 1, 'ota': 2}[group[0][1]], group[0][0])):
             try:
                 flow._classify(batch, transaction_ids=ids)
+            except PeriodsStale:
+                raise  # let core_writer.prepared rebuild the evidence instead of recording a failure
             except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
                 result['failures'].append({'kind': kind, 'count': len(ids),
                                            'code': getattr(exc, 'code', 'CLASSIFICATION_UNAVAILABLE')})

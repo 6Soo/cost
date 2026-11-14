@@ -174,7 +174,8 @@ def run_with_periods(board, work):
     first, outside the lock if the caller holds none, and rebuilt once if the key moved.
     """
     if selected() != 'rust':
-        return work(None)
+        with board._lock:
+            return work(None)
     built = _PREPARED.get()
     if built is not None:
         with board._lock:

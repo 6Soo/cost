@@ -361,3 +361,43 @@ def test_run_with_periods_inside_prepared_checks_the_key_under_the_lock(env, tmp
         return periods
     assert 'syn-t1' in core_writer.prepared(board, lambda: core_writer.run_with_periods(board, work))
     assert seen == [1] and held == [0]
+
+
+def test_python_writer_runs_the_work_under_the_board_lock(env, tmp_path):
+    applied, held = [], []
+    flow, board, _, _ = _lifted(env, tmp_path, applied, held)
+    env[0].delenv(core_writer.WRITER_ENV)
+    depth = []
+    assert core_writer.run_with_periods(board, lambda periods: depth.append((board._lock.depth, periods)) or 'ok') == 'ok'
+    assert depth == [(1, None)] and held == []
+
+
+def test_cleanup_group_loop_lets_a_stale_key_rebuild_the_evidence(env, tmp_path):
+    from webapp import card_flow
+    applied, held = [], []
+    flow, board, key, calls = _lifted(env, tmp_path, applied, held)
+    stale = {'left': 1}
+
+    def classify(self, batch, **k):
+        from webapp import card_classification_completion as completion
+        if stale['left']:
+            stale['left'] -= 1
+            key['value'] += 'x'  # an earlier group's write moved the evidence inputs
+        return completion.complete_scope(self, set())
+    env[0].setattr(card_flow.CardFlow, '_classify', classify)
+    env[0].setattr(card_flow, '_cleanup_card_where', lambda board: ' FROM transactions t JOIN import_batch_rows r USING(transaction_id) WHERE 1=1')
+    env[0].setattr(card_flow, '_is_ota_row', lambda row: False)
+    env[0].setattr(card_flow, 'assign_existing_local_expenses', lambda *a, **k: 0)
+    env[0].setattr(card_flow, '_sync_booked_authority_inferences', lambda flow: (0, 0))
+    env[0].setattr(card_flow, '_cleanup_card_breakdown', lambda board: {})
+    board.conn.execute('CREATE TABLE transactions(transaction_id, merchant, amount_krw, transaction_direction, display_tab_id, trip_id,'
+                       ' conflict_reason, parse_error, classification_source)')
+    board.conn.execute('CREATE TABLE import_batch_rows(batch_id, transaction_id)')
+    board.conn.execute('CREATE TABLE transaction_review_holds(transaction_id)')
+    board.conn.execute("INSERT INTO transactions VALUES ('t1','m',10,'purchase','','','','','')")
+    board.conn.execute("INSERT INTO import_batch_rows VALUES ('b','t1')")
+    board.conn.commit()
+    env[0].setattr(card_flow, 'decided_sql', lambda alias: '0')
+    result = card_flow.reclassify_cleanup(board, flow=flow, request_snapshot=False)
+    assert result['failures'] == [] and result['processed'] == 1 and len(applied) == 1
+    assert len(calls) == 2  # rebuilt once after the key moved
