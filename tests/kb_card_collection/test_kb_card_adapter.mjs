@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -36,8 +37,14 @@ function check(name, fn) {
   pending.push(p);
   return p;
 }
+const tempDirs = [];
+process.on("exit", () => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 async function tempDir(prefix) {
-  return mkdtemp(path.join(tmpdir(), prefix));
+  const dir = await mkdtemp(path.join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
 }
 
 function stubAdapter(handlers) {
@@ -208,6 +215,7 @@ check("CLI: help lists ego flags; missing/invalid entry config stops instead of 
 
 check("CLI with entry path: unreadable entry surfaces as stopped EGO_PROTOCOL (exit 2), nothing fabricated", () => {
   const outDir = path.join(tmpdir(), `kb-cli-${Date.now()}`);
+  tempDirs.push(outDir);
   const miss = path.join(outDir, "missing-entry.mjs");
   const proc = spawnSync(process.execPath, [CLI, "--ego-entry", miss, "--space-name", "s", "--execution-date", "2026-10-25", "--last-use-date", "2026-10-01", "--source", "domestic", "--out-dir", outDir], { encoding: "utf8" });
   assert.equal(proc.status, 2);
