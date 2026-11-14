@@ -5,9 +5,17 @@ use cost_core::plan::{BoardRow, Outcome, PlanInput, RefundLink, Row, plan, pytho
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-// 알려진 차이: 날짜 칸이 모두 비면 Python은 판정을 계속하지만 Rust는 보호한다(소유자 결정 2026-11-14, U7 dates).
-// `core/known-diffs.txt`와 같은 줄.
-const KNOWN_DIFFS: [&str; 2] = ["plan-039", "plan-040"];
+// 알려진 차이는 `core/known-diffs.txt`(그림자 실행과 같은 파일)의 `plan-` 줄이다.
+fn known_cases(prefix: &str) -> Vec<String> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../known-diffs.txt");
+    let text = std::fs::read_to_string(path).expect("known-diffs.txt");
+    let known = cost_core::shadow::parse_known_diffs(&text).expect("known-diffs.txt format");
+    known
+        .cases_with_prefix(prefix)
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
 
 fn defaults(index: usize, spec: &Value) -> Row {
     let mut row: Row = [
@@ -193,6 +201,7 @@ fn golden_plan_matches_python() {
         "/../../golden/synthetic/plan.jsonl"
     );
     let body = std::fs::read_to_string(path).expect("golden file");
+    let known_ids = known_cases("plan-");
     let (mut total, mut matched, mut known) = (0, 0, 0);
     let mut bad = Vec::new();
     for line in body.lines().filter(|l| !l.trim().is_empty()) {
@@ -202,8 +211,8 @@ fn golden_plan_matches_python() {
         let result = plan(&input, &links).expect("plan");
         total += 1;
         let same = result.to_value() == case["expected"];
-        if KNOWN_DIFFS.contains(&id.as_str()) {
-            assert!(!same, "{id} no longer differs: remove from KNOWN_DIFFS");
+        if known_ids.contains(&id) {
+            assert!(!same, "{id} no longer differs: remove from known-diffs.txt");
             known += 1;
         } else if same {
             matched += 1;
@@ -231,5 +240,10 @@ fn golden_plan_matches_python() {
     }
     eprintln!("plan golden: {matched} of {total} match, {known} known diffs");
     assert!(bad.is_empty(), "{} differ:\n{}", bad.len(), bad.join("\n"));
+    assert_eq!(
+        known,
+        known_ids.len(),
+        "known-diffs.txt lists a plan- case that is not in the golden file"
+    );
     assert_eq!(total, 107);
 }
