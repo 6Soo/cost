@@ -295,6 +295,20 @@ pub fn refund_values(refunds: &Refunds) -> Value {
     })
 }
 
+/// 같은 환불 ID의 연결이 둘이면 맵에서 하나가 덮이므로, 연결 개수와 맵 크기를 대조해 드러낸다.
+pub fn duplicate_link_diff(
+    rust_links: usize,
+    map_size: usize,
+    python_links: usize,
+) -> Option<LinkDiff> {
+    (rust_links != map_size).then(|| LinkDiff {
+        key: "B-C|refund_link|none|differs".to_owned(),
+        id: String::new(),
+        python: json!(python_links),
+        rust: json!(rust_links),
+    })
+}
+
 /// 환불 짝: 같은 행에서 Rust가 도출한 값과 Python 다리 출력(`links` kind=refund)을 대조한다.
 pub fn compare_refund(
     rows: &[RefundTxn],
@@ -304,6 +318,11 @@ pub fn compare_refund(
     let refunds = Refunds::derive(rows, config);
     let rust = refund_values(&refunds);
     let mut diffs = Vec::new();
+    diffs.extend(duplicate_link_diff(
+        refunds.links().len(),
+        object(&rust, "links")?.len(),
+        object(python, "links")?.len(),
+    ));
     for (field, key, scope) in [
         ("refund_link", "links", status_scope as fn(&Value) -> String),
         ("refund_group", "groups", no_scope),
@@ -325,7 +344,7 @@ pub fn compare_refund(
     ));
     Ok(LinksPart {
         python_items: object(python, "links")?.len() as u64,
-        rust_items: object(&rust, "links")?.len() as u64,
+        rust_items: refunds.links().len() as u64,
         diffs,
     })
 }
@@ -416,7 +435,7 @@ pub fn compare_ota(
     let (py_map, py_dup) = by_event(python_results, true);
     let (rs_map, rs_dup) = by_event(&rust, false);
     let mut diffs = diff_maps("ota_link", &py_map, &rs_map, status_scope);
-    if (py_dup || rs_dup || python_results.len() != rust.len()) && diffs.is_empty() {
+    if py_dup || rs_dup || python_results.len() != rust.len() {
         diffs.push(LinkDiff {
             key: "B-C|ota_link|none|differs".to_owned(),
             id: String::new(),

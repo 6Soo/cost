@@ -14,13 +14,14 @@
 - Rust 쓰기 순서: `BEGIN IMMEDIATE` → 계획 재생성·digest 대조(다르면 `CLASSIFICATION_PREVIEW_STALE`) → 목표마다 `core.sqlite`의 `decisions`(+`decision_history`)에 Decision 저장 → **저장된 행에서** 화면 열 도출 → `transactions`·`ledger_entries`·`board_rows`·`board_revisions`·`change_log` 쓰기. 두 파일은 `ATTACH` 한 트랜잭션이다. 운영 `board.sqlite`는 WAL, `core.sqlite`는 롤백 저널이라 파일별로 커밋되고 **board가 먼저** 커밋된다. 두 커밋 사이에 중단되면 화면 열은 채워졌는데 `decisions`가 없는 거래가 남는다(아래 "실패와 복구"). 같은 입력으로 다시 실행하면 쓰기는 0건이다.
 - 게시하지 않는 것: `Protected`·`Preserved` 판정의 목표(귀속 불가, 완료 기간 등)와, 저장된 판정에서 도출한 화면 열이 계획 값과 다른 목표. 출력 `skipped_unjudged`·`skipped_mismatch`로 센다. **Python은 귀속 불가 행에 `unclassified`를 쓰지만 Rust는 쓰지 않는다**: 이 차이는 의도이며, 실데이터 그림자에서 나오면 운영 담당이 `core/known-diffs.txt`에 근거와 함께 올린다(C1 측정 때 결정).
 - 이용기간: 판정에 이용기간(`service_period`)을 저장한다(`decisions.service_period_json`, 읽기 인터페이스 `store::decisions::stored_period`, Python `app.core_writer.stored_service_period`). **1차 전환 뒤 장부 화면·붙여넣기 묶음·장부 복사·시트 대사는 저장된 이용기간을 읽고, 렌더 시점에 다시 계산하지 않는다.** **전환 선행 조건: `app.core_writer`가 Python 다리 `periods` 출력을 `costcore apply`의 `context.periods`로 넘기도록 배선됨 — 충족(PR #898).** `automatic_classification.apply`가 작성자 rust일 때 `core_writer.periods_for`로 근거를 만들어 넘긴다. 근거 생성은 OTA 대조(운영 자료에서 약 10분)를 입력 키(`ota_payment_review.current_input_key`에서 apply가 쓰는 판정 열과 `revision`을 뺀 값)·수동 이용기간 덮어쓰기·다리 열 목록이 같으면 건너뛰므로 apply 자신의 쓰기로는 캐시가 깨지지 않고, 장부 화면이 읽는 `ota-snapshot.json`은 디스크에 이벤트·카드 원자료가 없어 재사용할 수 없다. 캐시가 비었을 때의 근거 생성은 `complete_scope`에서 보드 잠금 밖에서 먼저 하고(잠금 안에서는 만들어 둔 근거를 넘기기만 한다), 근거 생성은 모든 주 경로에서 보드 잠금·쓰기 트랜잭션 진입 전에 한다: `CardFlow.classify`, `CardFlow.auto_record`, `reclassify_cleanup`(미리보기 제외), `CardCompletionWorker.sweep_once`(후보가 있을 때만)가 `core_writer.prepared`로 근거와 키를 먼저 만들고, 잠금 안의 `complete_scope`·`correct_recorded_booking_periods`는 `core_writer.run_with_periods`로 키만 다시 비교한다(다르면 한 번 재생성, 그래도 다르면 `CLASSIFICATION_PREVIEW_STALE`). 아직 올리지 않은 호출 경로(예: `ota_catalog._reclassify`, 자율 정리 워커)는 각자 잠금 밖에서 만들거나 apply 안에서 만든다. `CardFlow.auto_record`는 rust 작성자일 때 분류(`_classify`)를 `BEGIN IMMEDIATE` 앞에서 하고 기록·투영만 트랜잭션 안에서 한다(Rust apply는 자체 트랜잭션이라 안에서 못 돌고, python 작성자는 분류부터 투영까지 한 트랜잭션 그대로). `tools/complete_card_classification.py`는 rust 작성자에서 쓸 수 없다(python 작성자로만 실행). `core.sqlite` 옆 `period-facts.json`의 파생 사실을 재사용하며, Rust는 근거 digest가 바뀐 거래만 재판정한다. 근거를 만들지 못하면 apply는 실패한다(전부 "모름"으로 쓰지 않는다). 첫 apply는 OTA 대조 때문에 오래 걸릴 수 있다. `--backfill-decisions`는 Python이 분류한 모든 행 중 화면 열이 계획과 같은 행의 `decisions`를 채우므로 출력 `backfilled` 건수가 매우 클 수 있다(첫 실행은 정상).
-- 전환 선행 조건: cleanup worker도 잠금 밖 근거 생성·잠금 안 키 비교(이 PR) — `_prepare_sweep`이 `periods_with_key`를 두 잠금 밖에서 만들고, 잠금 안에서 `periods_key`가 같을 때만 `apply(..., periods=...)`를 부른다. 다르면 잠금을 놓고 1회 재생성하며, 그래도 다르면 `CLASSIFICATION_PREVIEW_STALE`로 그 작업만 실패한다(apply 미호출). 작성자가 python이면 근거를 만들지 않는다. 같은 방식이 아직 없는 호출처: `correct_recorded_booking_periods`(apply 안에서 근거 생성), `tools/complete_card_classification.py`.
+- 전환 선행 조건: cleanup worker도 잠금 밖 근거 생성·잠금 안 키 비교(이 PR) — `_prepare_sweep`이 `periods_with_key`를 두 잠금 밖에서 만들고, 잠금 안에서 `periods_key`가 같을 때만 `apply(..., periods=...)`를 부른다. 다르면 잠금을 놓고 1회 재생성하며, 그래도 다르면 `CLASSIFICATION_PREVIEW_STALE`로 그 작업만 실패한다(apply 미호출). 작성자가 python이면 근거를 만들지 않는다. `correct_recorded_booking_periods`와 `complete_card_classification`은 #910에서 `run_with_periods`로 바뀌었다. `rule_review.approve`는 `pipeline.store.lock`(웹 경로에서는 `board._lock`과 같은 객체)을 쥔 채 저장 뒤 갱신(`saved_state`→`classify`)까지 하던 것을 갱신만 잠금 밖으로 옮겼다(저장·재생 판정은 잠금 안, 근거 생성은 `prepared`가 잠금 밖; `apply`는 저장 트랜잭션 밖이라 `CORE_WRITER_IN_TRANSACTION`은 나지 않는다). 같은 방식이 아직 없는 호출처: `tools/complete_card_classification.py`(CLI, 웹 잠금 없음).
 
 ## 입력(시작 조건)
 
 1. U9·U10·U11 병합, 운영 배포가 `core` 빌드(`costcore`)를 포함.
 2. C1: 신선 사본 1개에서 실데이터 그림자 B↔C 목록 밖 차이 0. C2: 평가 사례 Rust ≥ Python, Python 정답 중 Rust 오답 0. (운영 담당이 측정, 구현자·검수자는 다시 재지 않는다.)
-3. 경로 `D:/WebLedgerHost/data/core.sqlite`가 있고 `costcore` 이관이 최신 버전이다.
+3. 경로 `D:/WebLedgerHost/data/core.sqlite`가 있고 `costcore` 이관이 최신 버전이다. 만들기·이관은 `costcore migrate --core D:/WebLedgerHost/data/core.sqlite` 한 줄이며(출력 `{ok, created, from_version, to_version}`, 멱등), 플래그 전환 전에 실행한다.
+   - 운영 core.sqlite 생성은 소유자 승인 ① 뒤에 한다(생성 순간부터 #906 범위 백업에 core 포함 강제).
 
 ## 단계
 
@@ -47,7 +48,7 @@
 
    확인: (나)·(다)가 성공하고 (라)가 `"written":0`이면 예행 통과. `rehearsal-a`와 `rehearsal-b`의 `transactions` 판정 열이 같은지(안내된 의도 차이 제외, `skipped_unjudged` 행) 대조해 기록한다. 예행 사본은 7일 뒤 정리한다.
 4. **소유자 승인 지점 ②** — 전환 실행 승인(배포 창과 되돌림 담당 확인).
-5. **플래그 전환**: 운영 환경에 `WEBLEDGER_COSTCORE_BIN`·`WEBLEDGER_CORE_DB`·`WEBLEDGER_CLASSIFICATION_WRITER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 Python 자동 분류 쓰기는 꺼진다.
+5. **플래그 전환**: 먼저 `costcore migrate --core D:/WebLedgerHost/data/core.sqlite`를 실행한다(운영 core.sqlite 생성은 소유자 승인 ① 뒤, 생성 순간부터 #906 범위 백업에 core 포함 강제). 그다음 운영 환경에 `WEBLEDGER_COSTCORE_BIN`·`WEBLEDGER_CORE_DB`·`WEBLEDGER_CLASSIFICATION_WRITER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 Python 자동 분류 쓰기는 꺼진다.
 6. **첫 배포 창 대조**: ① A↔C: `transactions` 판정 열과 `core.sqlite` `decisions`가 일치. ② B↔C: `costcore shadow`를 신선 사본에 돌려 목록 밖 차이 0. ③ 작성자 확인: 해당 창의 `change_log` `card.automatic_classification` 기록이 Rust 실행분뿐. ④ `costcore apply` 출력의 `skipped_mismatch` = 0.
 7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_CLASSIFICATION_WRITER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. Rust가 쓴 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
 8. 전환 뒤 매일 6단계의 ①②를 돌린다(Python 판정·연결 코드 퇴역 때까지).
@@ -79,7 +80,7 @@
 ## 입력(시작 조건)
 
 1. 쓰기 전환 PR 병합과 운영 배포(`costcore` 빌드 포함). 1차 전환 완료.
-2. **C1**: 신선 사본 1개에서 `costcore shadow-links` 목록 밖 차이 0. 환불 짝은 사본 DB로, OTA 연결은 풀이기 입력 파일(`--ota-input`)로 잰다. **OTA 입력 파일을 사본에서 뽑는 도구가 아직 없어, 지금은 환불 짝만 잴 수 있다.** 같은 신선 사본에서 `costcore shadow`(판정)도 목록 밖 차이 0이어야 한다.
+2. **C1**: 신선 사본 1개에서 `costcore shadow-links` 목록 밖 차이 0. 환불 짝은 사본 DB로, OTA 연결은 풀이기 입력 파일(`--ota-input`)로 잰다. **OTA C1은 입력 포착 도구(후속 PR) 뒤에야 잴 수 있고, 지금은 환불 짝만 잰다.** 같은 신선 사본에서 `costcore shadow`(판정)도 목록 밖 차이 0이어야 한다.
 3. **C2**: 평가 사례 Rust ≥ Python, Python 정답 중 Rust 오답 0(1차와 같은 측정, 연결을 Rust로 쓴 판정 기준).
 4. **C3**: 신선 백업·복원 확인과 스위치 되돌림 예행(아래 3단계).
 5. 측정은 운영 담당이 한다(구현자·검수자는 다시 재지 않는다).
@@ -97,8 +98,10 @@
 
    ```powershell
    $h = 'D:/WebLedgerHost/data/backups/c1-links'   # 보호 경로(Git 밖)
-   # ① 환불 짝(필수), ② OTA 연결(입력 파일이 있을 때)
-   core/target/release/costcore shadow-links --db $copy --ota-input "$h/ota-input.json" --private-out "$h/links-details-$(Get-Date -Format yyyyMMddHHmm).jsonl" --host-root D:/WebLedgerHost
+   $copy = "$h/fresh-copy.sqlite"                   # 2단계에서 복원 확인한 신선 사본(운영 파일이 아니다)
+   # ① 환불 짝(OTA 입력 포착 도구가 생기기 전에는 이것만 잰다)
+   core/target/release/costcore shadow-links --db $copy --private-out "$h/links-details-$(Get-Date -Format yyyyMMddHHmm).jsonl" --host-root D:/WebLedgerHost
+   # ② OTA 연결: 입력 포착 도구(후속 PR) 뒤에만. 입력 파일이 생기면 ①에 --ota-input "$h/ota-input.json"을 더한다
    # ③ 판정(1차와 같은 대조)
    core/target/release/costcore shadow --db $copy --host-root D:/WebLedgerHost
    ```

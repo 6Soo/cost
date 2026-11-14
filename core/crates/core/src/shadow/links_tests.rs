@@ -162,7 +162,12 @@ fn an_ota_status_change_and_a_missing_result_get_type_keys() {
     assert_eq!(part.diffs[0].key, "B-C|ota_link|MATCHED_USER|differs");
     let python = json!({"results": []});
     let part = compare_ota(&case["input"], &defaults, &python).unwrap();
-    assert!(part.diffs.iter().all(|d| d.key.ends_with("|added")));
+    assert!(part.diffs.iter().any(|d| d.key.ends_with("|added")));
+    assert!(
+        part.diffs
+            .iter()
+            .any(|d| d.key == "B-C|ota_link|none|differs")
+    );
     assert!(!part.diffs.is_empty());
 }
 
@@ -219,4 +224,42 @@ fn only_link_keys_are_judged_and_the_two_shadows_do_not_mix() {
             .iter()
             .all(|k| !is_link_key(k))
     );
+}
+
+#[test]
+fn ota_duplicates_are_reported_even_when_another_difference_is_listed() {
+    let defaults = defaults();
+    let case = golden("ota_links.jsonl")
+        .into_iter()
+        .find(|c| c["expected"]["results"][0]["status"] == "MATCHED_AUTO")
+        .unwrap();
+    let mut python = json!({"results": case["expected"]["results"]});
+    python["results"][0]["status"] = json!("MATCHED_USER");
+    let first = python["results"][0].clone();
+    python["results"].as_array_mut().unwrap().push(first);
+    let part = compare_ota(&case["input"], &defaults, &python).unwrap();
+    let keys: BTreeSet<_> = part.diffs.iter().map(|d| d.key.as_str()).collect();
+    assert!(keys.contains("B-C|ota_link|MATCHED_USER|differs"));
+    assert!(keys.contains("B-C|ota_link|none|differs"));
+    let known = parse_known_diffs("B-C|ota_link|MATCHED_USER|differs  # 근거\n").unwrap();
+    assert!(!judge_links(None, Some(part), &known).passed());
+}
+
+#[test]
+fn a_duplicated_refund_id_cannot_hide_in_the_link_map() {
+    assert!(duplicate_link_diff(2, 2, 2).is_none());
+    let diff = duplicate_link_diff(3, 2, 2).unwrap();
+    assert_eq!(diff.key, "B-C|refund_link|none|differs");
+    validate_key(&diff.key).unwrap();
+    let known = parse_known_diffs(
+        "B-C|refund_link|full|added  # 근거
+",
+    )
+    .unwrap();
+    let part = LinksPart {
+        python_items: 2,
+        rust_items: 3,
+        diffs: vec![diff],
+    };
+    assert!(!judge_links(Some(part), None, &known).passed());
 }
