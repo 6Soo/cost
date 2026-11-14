@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,10 +17,22 @@ from tools.core_bridge.commands import COMMANDS, BridgeError, canonical  # noqa:
 PROTOCOL = 'core-bridge/1'
 
 
-def python_sha():
+SHA_RE = re.compile(r'[0-9a-f]{40}')
+
+
+def python_sha(root=None):
+    """릴리스 폴더의 DEPLOYED_COMMIT, 없으면 git HEAD, 둘 다 없으면 ''(호출자가 오류로 처리)."""
+    root = ROOT if root is None else Path(root)
     try:
-        out = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=10)
-        return out.stdout.strip() if out.returncode == 0 else ''
+        marker = (root / 'DEPLOYED_COMMIT').read_text(encoding='ascii')[:1024].strip().lower()
+        if SHA_RE.fullmatch(marker):
+            return marker
+    except (OSError, ValueError):
+        pass
+    try:
+        out = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=10)
+        found = out.stdout.strip().lower()
+        return found if out.returncode == 0 and SHA_RE.fullmatch(found) else ''
     except (OSError, subprocess.SubprocessError):
         return ''
 
@@ -30,8 +43,11 @@ def digest(value):
 
 def handle(command, request, sha=None):
     """Return the response envelope for one request; never raises for a bad request."""
-    envelope = {'protocol': PROTOCOL, 'command': command, 'python_sha': python_sha() if sha is None else sha,
-                'input_digest': digest(request)}
+    derived = sha is None
+    sha = python_sha() if derived else sha
+    envelope = {'protocol': PROTOCOL, 'command': command, 'python_sha': sha, 'input_digest': digest(request)}
+    if derived and not sha:
+        return dict(envelope, ok=False, error={'code': 'PYTHON_SHA_UNAVAILABLE', 'detail': ''})
     if command not in COMMANDS:
         return dict(envelope, ok=False, error={'code': 'COMMAND_UNKNOWN', 'detail': command})
     try:

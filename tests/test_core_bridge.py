@@ -185,3 +185,23 @@ def test_every_case_reaches_the_branch_it_names_and_the_key_boundaries_are_cover
                      'provisional_assignment', 'rule_conflict', '"links": {}'):
         assert any(boundary in token for token in tokens), boundary
     assert any('user_exception' in token and True for token in tokens)
+
+
+def test_python_sha_reads_release_marker_then_git_then_fails_closed(tmp_path):
+    from tools.core_bridge import cli
+    marker = 'ab' * 20
+    (tmp_path / 'DEPLOYED_COMMIT').write_text(marker + '\n', encoding='ascii')
+    assert cli.python_sha(tmp_path) == marker
+    (tmp_path / 'DEPLOYED_COMMIT').write_text('not-a-sha', encoding='ascii')
+    assert cli.python_sha(tmp_path) == ''
+    (tmp_path / 'DEPLOYED_COMMIT').unlink()
+    assert cli.python_sha(tmp_path) == ''
+    assert cli.python_sha() == cli.python_sha(ROOT)
+    assert re.fullmatch(r'[0-9a-f]{40}', cli.python_sha())
+
+
+def test_handle_reports_python_sha_unavailable_instead_of_an_empty_sha(monkeypatch):
+    from tools.core_bridge import cli
+    monkeypatch.setattr(cli, 'python_sha', lambda root=None: '')
+    response = cli.handle('plan', {})
+    assert not response['ok'] and response['error']['code'] == 'PYTHON_SHA_UNAVAILABLE'
