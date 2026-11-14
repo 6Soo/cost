@@ -86,6 +86,9 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
         # Unknown product changes require an explicit impact-map entry; never run
         # hundreds of unrelated tests or report a skipped route as a pass.
         raise ValueError(f"UNKNOWN_IMPACT:{len(unknown)}")
+    if not targets:
+        # Only unmapped deletions: run the gate's own tests so 0 cases never counts as a pass.
+        targets.add("tests/test_quality_checks.py")
     rust_required = any(p.startswith(CORE_DIR + "/") for p in normalized)
     if qa_unknown:
         targets.add("tests/test_quality_checks.py")
