@@ -315,6 +315,23 @@ fn live_database_is_rejected() {
 }
 
 #[test]
+fn hard_link_to_the_live_database_is_rejected() {
+    let dir = TempDir::new();
+    let host = dir.host();
+    let live = host.join("data").join("board.sqlite");
+    std::fs::write(&live, b"x").unwrap();
+    let alias = host.join("data").join("backups").join("alias.sqlite");
+    std::fs::hard_link(&live, &alias).unwrap();
+    assert!(matches!(
+        reject_live_db(&alias, &host),
+        Err(ShadowError::DbIsLive)
+    ));
+    let missing = host.join("data").join("backups").join("none.sqlite");
+    std::fs::remove_file(&live).unwrap();
+    assert!(reject_live_db(&missing, &host).is_ok());
+}
+
+#[test]
 fn known_diffs_file_in_repo_parses_and_bad_keys_are_rejected() {
     let text = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
