@@ -78,7 +78,9 @@ def request_basis(batch: str, body: dict) -> str:
 def approve(flow: CardFlow, batch: str, body: dict) -> dict:
     # HTTP requests share this connection. Keep its read/replay/write sequence together.
     with flow.pipeline.store.lock:
-        return _approve_locked(flow, batch, body)
+        result = _approve_locked(flow, batch, body)
+    # The refresh classifies (rust writer: minutes of evidence when the cache is cold), so it runs after the lock is released.
+    return saved_response(flow, batch, result, classify=True)
 
 
 def saved_response(flow: CardFlow, batch: str, result: dict, *, classify: bool = False) -> dict:
@@ -90,6 +92,7 @@ def saved_response(flow: CardFlow, batch: str, result: dict, *, classify: bool =
 
 
 def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
+    """The replay/read/write sequence; returns {"applied": [...]} once the decisions are committed."""
     if body.get("approved") is not True:
         raise ValueError("APPROVAL_REQUIRED")
     request_id = str(body.get("request_id", ""))
@@ -102,8 +105,7 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
             return None
         if earlier.get("basis") != basis:
             raise RequestIdReused("same request id, different approval")
-        return saved_response(flow, batch,
-                              {"applied": [x["transaction_id"] for x in earlier["results"]]}, classify=True)
+        return {"applied": [x["transaction_id"] for x in earlier["results"]]}
 
     earlier = replay()
     if earlier is not None:
@@ -140,8 +142,7 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
     result = review.save_decisions_atomic(flow.pipeline.store, decisions, request_id=request_id,
                                           tab_validator=flow.tab_valid, trip_validator=flow.trip_valid,
                                           basis=basis)
-    return saved_response(flow, batch,
-                          {"applied": [r["transaction_id"] for r in result["results"]]}, classify=True)
+    return {"applied": [r["transaction_id"] for r in result["results"]]}
 
 
 def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
