@@ -131,3 +131,51 @@ def test_worker_children_inherit_the_values_set_in_the_worker_process(monkeypatc
     with patch.dict(os.environ, {'WEBLEDGER_CLASSIFICATION_WRITER': 'rust'}):
         assert child_environment({}) is None  # inherits os.environ
         assert child_environment({'X': '1'})['WEBLEDGER_CLASSIFICATION_WRITER'] == 'rust'
+
+
+def _host(tmp_path, options, bom=False):
+    config = tmp_path / 'config'
+    config.mkdir(exist_ok=True)
+    (tmp_path / 'data').mkdir(exist_ok=True)
+    (config / 'card-flow.json').write_text(json.dumps(options), encoding='utf-8-sig' if bom else 'utf-8')
+    return tmp_path
+
+
+def test_a_bom_in_card_flow_json_is_read_by_launcher_and_worker_alike(host):
+    tmp, data, config, binary, core = host
+    (config / 'card-flow.json').write_text(json.dumps(_rust(binary, core)), encoding='utf-8-sig')
+    assert switches.read_options(config)['classification_writer'] == 'rust'
+    env = {}
+    switches.apply_from_host(config, data, env)
+    assert env['WEBLEDGER_CLASSIFICATION_WRITER'] == 'rust'
+
+
+@pytest.mark.parametrize('module', ['tools.complete_card_classification', 'tools.review_card_inference'])
+def test_manual_apply_is_refused_while_the_host_writer_is_rust(tmp_path, module, capsys):
+    import importlib
+    sys.path.insert(0, str(ROOT))
+    main = importlib.import_module(module).main
+    root = _host(tmp_path, {'classification_writer': 'rust'})
+    argv = ['--host-root', str(root), '--apply']
+    if module.endswith('review_card_inference'):
+        argv += ['--transaction', 'x', '--output', str(tmp_path / 'out.json')]
+    assert main(argv) == 1
+    assert 'CORE_WRITER_MANUAL_APPLY_REFUSED' in capsys.readouterr().out
+
+
+def test_manual_apply_guard_passes_without_rust(tmp_path):
+    switches.refuse_manual_apply(_host(tmp_path, {'classification_writer': 'python'}))
+    switches.refuse_manual_apply(tmp_path / 'nowhere')
+
+
+def test_check_validates_without_touching_the_environment(host, capsys):
+    tmp, data, config, binary, core = host
+    _host(tmp, _rust(binary, core), bom=True)
+    with patch.dict(os.environ, {}):
+        before = dict(os.environ)
+        assert switches.main(['--host-root', str(tmp), '--check']) == 0
+        assert os.environ == before
+    assert capsys.readouterr().out.strip() == 'ok'
+    _host(tmp, _rust(binary, core) | {'costcore_bin': str(tmp / 'gone')})
+    assert switches.main(['--host-root', str(tmp), '--check']) == 2
+    assert 'CORE_SWITCH_BIN' in capsys.readouterr().out

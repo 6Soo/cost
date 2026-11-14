@@ -214,10 +214,11 @@ def main(argv=None) -> int:
         checkout_str = str(checkout)
         if checkout_str not in sys.path:
             sys.path.insert(0, checkout_str)
+        from app import core_switch_config
         apply_product_features({}, root)
         apply_core_switches({}, root)
         if flow_config.is_file():
-            options = json.loads(flow_config.read_text(encoding='utf-8'))
+            options = core_switch_config.read_options(flow_config.parent)
             apply_product_features(options, root)
             apply_core_switches(options, root)
             if options.get('enabled') is True:

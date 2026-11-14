@@ -16,7 +16,7 @@ ENV_NAMES = ('WEBLEDGER_CLASSIFICATION_WRITER', 'WEBLEDGER_LINKS_PRODUCER',
              'WEBLEDGER_COSTCORE_BIN', 'WEBLEDGER_CORE_DB')
 
 
-class CoreSwitchRefused(Exception):
+class CoreSwitchRefused(ValueError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
@@ -56,8 +56,47 @@ def apply(options: dict, data_root, environ=None) -> None:
         env['WEBLEDGER_CORE_DB'] = str(core_db)
 
 
-def apply_from_host(config_dir, data_root, environ=None) -> None:
-    """Read `<config_dir>/card-flow.json` (absent means no keys) and apply it."""
+def read_options(config_dir) -> dict:
+    """`<config_dir>/card-flow.json` as a dict (BOM allowed); absent means no keys. The one reader for every host process."""
     path = Path(config_dir) / 'card-flow.json'
     options = json.loads(path.read_text(encoding='utf-8-sig')) if path.is_file() else {}
-    apply(options if isinstance(options, dict) else {}, data_root, environ)
+    return options if isinstance(options, dict) else {}
+
+
+def apply_from_host(config_dir, data_root, environ=None) -> None:
+    """Read `<config_dir>/card-flow.json` (absent means no keys) and apply it."""
+    apply(read_options(config_dir), data_root, environ)
+
+
+def check_host(host_root) -> None:
+    """Run the launcher's validation without touching this process's environment."""
+    host = Path(host_root)
+    apply(read_options(host / 'config'), host / 'data', environ={})
+
+
+def refuse_manual_apply(host_root) -> None:
+    """Manual tools write the board with Python; with a rust writer configured that would mix writers."""
+    if read_options(Path(host_root) / 'config').get('classification_writer') == 'rust':
+        raise CoreSwitchRefused('CORE_WRITER_MANUAL_APPLY_REFUSED')
+
+
+def main(argv=None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description='Validate the core switch keys of a host card-flow.json before a restart.')
+    parser.add_argument('--host-root', type=Path, default=Path('D:/WebLedgerHost'))
+    parser.add_argument('--check', action='store_true', required=True)
+    args = parser.parse_args(argv)
+    try:
+        check_host(args.host_root)
+    except CoreSwitchRefused as exc:
+        print(f'refused [{exc.code}]')
+        return 2
+    except Exception:
+        print('refused [ARG]')
+        return 2
+    print('ok')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

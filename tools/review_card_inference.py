@@ -14,7 +14,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import ai_classification as ai, automatic_classification as code
+from app import ai_classification as ai, automatic_classification as code, core_switch_config
 from tools.complete_card_classification import load_context, read_flow, require_offline_backup
 
 
@@ -57,6 +57,7 @@ def main(argv=None):
         if args.output.resolve() in {value.resolve() for value in inputs if value is not None}:
             raise ValueError('AI_OUTPUT_MUST_NOT_OVERWRITE_INPUT')
         if args.apply:
+            core_switch_config.refuse_manual_apply(host)
             if not all((args.request, args.response, args.expected_digest, args.backup_evidence)):
                 raise ValueError('PREVIEW_AND_BACKUP_REQUIRED')
             require_offline_backup(host, args.backup_evidence, host/'data/board.sqlite')
