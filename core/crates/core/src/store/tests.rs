@@ -700,3 +700,38 @@ fn rollback_failure_keeps_the_original_read_error() {
     let text = e.to_string();
     assert!(text.contains("스키마 버전 2") && text.contains("롤백도 실패"));
 }
+
+// ---- 계획 입력 어댑터 ----
+
+#[test]
+fn plan_input_reads_the_planner_columns_and_does_not_modify_the_file() {
+    let dir = TempDir::new();
+    let path = synthetic_board(&dir, true);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("INSERT INTO board_rows VALUES ('card-t2','expense','1001_합성',3,'{}')")
+        .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let input = read_plan_input(&path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let ids: Vec<&str> = input
+        .rows
+        .iter()
+        .map(|r| r["transaction_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["t1", "t2"]);
+    assert_eq!(input.rows[0]["amount_krw"], -12000);
+    assert!(input.rows[1]["amount_krw"].is_null());
+    assert!(input.rows[0].contains_key("description"));
+    assert_eq!(input.decisions.len(), 2);
+    assert!(input.holds.contains("t1") && input.excluded.contains("t1"));
+    assert!(input.overrides.contains("card-t2"));
+    assert_eq!(input.ledger["t1"]["item"], "식비");
+    assert!(!input.ledger["t1"].contains_key("transaction_id"));
+    assert_eq!(input.boards["card-t2"].display_tab_id, "1001_합성");
+    assert_eq!(input.boards["card-t2"].revision, 3);
+    assert!(!input.boards.contains_key("card-t1"));
+    assert_eq!(input.trips.len(), 1);
+    assert_eq!(input.trips[0]["trip_id"], "1001_합성");
+    assert_eq!(input.allowed_items, ["식비"]);
+}

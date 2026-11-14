@@ -210,7 +210,7 @@ pub fn open_board_readonly(path: &Path) -> Result<Connection, StoreError> {
     Ok(conn)
 }
 
-fn has_change_log(conn: &Connection) -> Result<bool, StoreError> {
+pub(crate) fn has_change_log(conn: &Connection) -> Result<bool, StoreError> {
     Ok(conn
         .query_row(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='change_log'",
@@ -221,7 +221,7 @@ fn has_change_log(conn: &Connection) -> Result<bool, StoreError> {
 }
 
 /// `decision_provenance.active_decision_sql`: 감사 구조가 없으면 모든 결정이 보호된다.
-fn active_decision_sql(conn: &Connection) -> Result<String, StoreError> {
+pub(crate) fn active_decision_sql(conn: &Connection) -> Result<String, StoreError> {
     if !has_change_log(conn)? {
         return Ok("1=1".to_owned());
     }
@@ -236,7 +236,7 @@ fn active_decision_sql(conn: &Connection) -> Result<String, StoreError> {
     ))
 }
 
-fn closed_review_ids(conn: &Connection) -> Result<Vec<String>, StoreError> {
+pub(crate) fn closed_review_ids(conn: &Connection) -> Result<Vec<String>, StoreError> {
     if !has_change_log(conn)? {
         return Ok(Vec::new());
     }

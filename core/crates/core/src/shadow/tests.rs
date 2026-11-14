@@ -336,3 +336,18 @@ fn plan_json_round_trips() {
         Err(ShadowError::PlanResponseInvalid)
     ));
 }
+
+#[test]
+fn rust_engine_reads_a_copy_and_plans_without_a_python_bridge() {
+    let dir = TempDir::new();
+    let host = dir.host();
+    let db = board(&dir, &host);
+    let request = PlanRequest {
+        db,
+        transaction_ids: None,
+        reconsider: false,
+        context: Value::Null,
+    };
+    let targets = RustEngine { links: None }.plan(&request).unwrap();
+    assert!(targets.len() <= 2);
+}
