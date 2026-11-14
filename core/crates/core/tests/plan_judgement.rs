@@ -196,3 +196,27 @@ fn a_verified_refund_link_hands_the_original_to_the_cancellation() {
     assert_eq!(target.values[1], "refund_original");
     assert_eq!(target.values[5], "T-A");
 }
+
+#[test]
+fn invalid_hash_revision_and_id_are_protected_with_their_own_reason() {
+    let rows = vec![
+        row("syn-hash", json!({"source_hash": "not-a-hash"})),
+        row("syn-upper", json!({"source_hash": HASH.to_uppercase()})),
+        row("syn-rev-null", json!({"revision": null})),
+        row("syn-rev-neg", json!({"revision": -1})),
+        row("syn-rev-big", json!({"revision": 4_294_967_296_u64})),
+    ];
+    let out = run(rows, |_| {});
+    for id in ["syn-hash", "syn-upper"] {
+        assert!(matches!(
+            judged(&out, id),
+            Judgement::Protected(ProtectionReason::SourceHashInvalid)
+        ));
+    }
+    for id in ["syn-rev-null", "syn-rev-neg", "syn-rev-big"] {
+        assert!(matches!(
+            judged(&out, id),
+            Judgement::Protected(ProtectionReason::RevisionInvalid)
+        ));
+    }
+}
