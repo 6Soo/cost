@@ -28,4 +28,4 @@
 
 UI 검토에는 better-interface, better-accessibility/layout/writing/typography/colors/ui와 interface-review를 적용한다. 기존 CSS 토큰·native 버튼·details·상태 live region을 재사용한다. state-machine/break 스킬은 이 환경에 없어 실제 사용으로 주장하지 않으며 같은 예외 상태를 합성 자료로 검증한다.
 
-운영 근거와 CI 시작 전 결제/사용 한도 차단·Sol medium 승인 예외는 [최신 운영 기록](../../operations.md#2026-11-08-수집-현황빈-기간-업로드-ux--운영-배포-complete)에 보존한다. PR #731의 당시 운영SHA `d97158484d17f974668dafffafdb1a7b462a7249`와 인증23파일/27그룹/515공백 수치는 과거 거래일별 계산의 이력이며 최신 계약의 결과가 아니다. 문서-only 후속은 재배포하지 않는다.
+운영 근거와 CI 시작 전 결제/사용 한도 차단·Sol medium 승인 예외는 [최신 운영 기록](../operations-through-20261113.md#2026-11-08-수집-현황빈-기간-업로드-ux--운영-배포-complete)에 보존한다. PR #731의 당시 운영SHA `d97158484d17f974668dafffafdb1a7b462a7249`와 인증23파일/27그룹/515공백 수치는 과거 거래일별 계산의 이력이며 최신 계약의 결과가 아니다. 문서-only 후속은 재배포하지 않는다.

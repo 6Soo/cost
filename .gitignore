@@ -30,3 +30,9 @@ cost-reconciliation.*
 
 # Rust core build output
 core/target/
+
+# Quality-check run outputs and local work DBs
+quality-artifacts/junit.xml
+quality-artifacts/pytest.log
+quality-artifacts/run-summary.json
+/webledger.work*.sqlite
