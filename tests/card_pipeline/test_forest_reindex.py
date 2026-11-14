@@ -12,7 +12,7 @@ def legacy(tmp_path):
     path=tmp_path/'ota.sqlite'
     store=OtaStore(path)
     store.import_mail(write_mail(tmp_path/'mail',[mail('synthetic-one'),mail('synthetic-two',cancelled=True)]))
-    store.conn.execute('DROP TABLE ota_reservation_observations');store.conn.commit();store.close()
+    store.conn.execute('DROP TABLE ota_reservation_observations');store.conn.execute('DROP TABLE ota_row_seen');store.conn.commit();store.close()
     return path
 
 
