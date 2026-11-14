@@ -121,12 +121,12 @@ KEYS = {
     # merchants
     'merchant': _merchant, 'merchant_normalized': _merchant, 'description_raw': _description_raw,
     'merchant_family': _one_of('agoda'),
-    'provider': _one_of('trip', 'agoda', 'booking', 'klook', 'skyticket', 'forest'),
+    'provider': _one_of('trip', 'agoda', 'booking', 'klook', 'skyticket', 'forest', 'toyoko', 'rakuten'),
     # vocabulary
     'transaction_direction': _one_of('purchase', 'cancellation', 'refund'),
     'transaction_kind': _one_of('승인', '취소', 'purchase'),
     'event_type': _one_of('charge', 'refund', 'reservation'),
-    'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only', 'preauthorized'),
+    'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only', 'preauthorized', 'conflict'),
     'payment_status': _one_of('paid', 'pending'),
     'refund_status': _one_of('refunded', 'refund_pending', 'none_displayed', ''),
     'status': _one_of('active', 'inactive', 'MATCHED_AUTO', 'MATCHED_USER', 'HOLD_DATE_UNKNOWN'),
@@ -177,7 +177,7 @@ KEYS = {
                                   'evidence_pending'),
     'service_period_basis': _one_of('LINK-108'), 'allocation_basis': _one_of('auto_stable_order'),
     'evidence_changed': _bool, 'evidence_missing': _bool, 'service_period_conflict': _bool,
-    'individual_payment_evidence': _bool, 'ota_review_held': _bool, 'reservation_refund_blocked': _bool,
+    'individual_payment_evidence': _bool, 'reservation_group_only': _bool, 'ota_review_held': _bool, 'reservation_refund_blocked': _bool,
     'inferred_link': _bool,
     # OTA final links (U14): frozen groups, legacy pins, undated inference
     'event_ids': _regex(r'^syn-[a-z0-9-]+$'), 'card_ids': _regex(r'^syn-[a-z0-9-]+$'),
