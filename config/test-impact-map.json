@@ -434,7 +434,7 @@
     },
     {
       "name": "autonomous-quality-gate",
-      "paths": ["tools/run_quality_checks.py", "tools/reuse_quality_evidence.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt", ".gitignore"],
+      "paths": ["tools/run_quality_checks.py", "tools/reuse_quality_evidence.py", "tests/test_quality_checks.py", ".github/workflows/quality.yml", "requirements-dev.txt", "pytest.ini", ".gitignore"],
       "tests": ["tests/test_quality_checks.py", "tests/test_run_targeted_checks.py", "webapp/tests/test_targeted_test_selector.py"]
     },
     {
@@ -529,6 +529,11 @@
       "name": "core-writer-switch",
       "paths": ["app/core_writer.py", "app/automatic_classification.py", "tests/test_core_writer.py", "config/runtime-environment-catalog.json"],
       "tests": ["tests/test_core_writer.py", "tests/test_verify_runtime_environment.py"]
+    },
+    {
+      "name": "core-links-switch",
+      "paths": ["app/core_links.py", "app/partial_refund.py", "tests/test_core_links_switch.py", "config/runtime-environment-catalog.json"],
+      "tests": ["tests/test_core_links_switch.py", "tests/card_pipeline/test_partial_refund.py", "tests/test_verify_runtime_environment.py"]
     },
     {
       "name": "full-only-backup-gate-tools",

@@ -120,3 +120,54 @@ fn without_any_input_the_command_ends_with_a_usage_code() {
     assert_eq!(out["code"], "USAGE_INVALID");
     let _ = std::fs::remove_dir_all(&host);
 }
+
+#[test]
+fn links_refund_reproduces_every_refund_pairing_golden_case_from_the_db() {
+    let host = scratch("links-cmd");
+    let cases = golden("refund_pairing.jsonl");
+    assert!(!cases.is_empty());
+    for case in &cases {
+        let scenario = host.join("scenario.json");
+        std::fs::write(&scenario, case["input"]["scenario"].to_string()).unwrap();
+        let db = host.join("copy.sqlite");
+        let _ = std::fs::remove_file(&db);
+        let built = Command::new(python())
+            .arg("-I")
+            .arg(repo_root().join("core/crates/cli/tests/links_python.py"))
+            .args(["build", scenario.to_str().unwrap(), db.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(built.status.success());
+        let before = std::fs::read(&db).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
+            .args(["links", "refund", "--db", db.to_str().unwrap()])
+            .args(["--repo-root", repo_root().to_str().unwrap()])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{}", case["case_id"]);
+        let text = String::from_utf8(out.stdout).unwrap();
+        let value: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["result"], case["expected"], "{}", case["case_id"]);
+        assert_eq!(std::fs::read(&db).unwrap(), before, "read-only");
+    }
+    let _ = std::fs::remove_dir_all(&host);
+}
+
+#[test]
+fn links_command_rejects_unknown_kind_and_a_missing_database() {
+    for args in [vec!["links", "ota"], vec!["links"], vec!["links", "refund"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(
+            String::from_utf8(out.stdout)
+                .unwrap()
+                .contains("USAGE_INVALID")
+        );
+    }
+}

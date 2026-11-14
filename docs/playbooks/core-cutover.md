@@ -16,6 +16,21 @@
 - 이용기간: 판정에 이용기간(`service_period`)을 저장한다(`decisions.service_period_json`, 읽기 인터페이스 `store::decisions::stored_period`, Python `app.core_writer.stored_service_period`). **1차 전환 뒤 장부 화면·붙여넣기 묶음·장부 복사·시트 대사는 저장된 이용기간을 읽고, 렌더 시점에 다시 계산하지 않는다.** **전환 선행 조건: `app.core_writer`가 Python 다리 `periods` 출력을 `costcore apply`의 `context.periods`로 넘기도록 배선됨 — 충족(PR #898).** `automatic_classification.apply`가 작성자 rust일 때 `core_writer.periods_for`로 근거를 만들어 넘긴다. 근거 생성은 OTA 대조(운영 자료에서 약 10분)를 입력 키(`ota_payment_review.current_input_key`에서 apply가 쓰는 판정 열과 `revision`을 뺀 값)·수동 이용기간 덮어쓰기·다리 열 목록이 같으면 건너뛰므로 apply 자신의 쓰기로는 캐시가 깨지지 않고, 장부 화면이 읽는 `ota-snapshot.json`은 디스크에 이벤트·카드 원자료가 없어 재사용할 수 없다. 캐시가 비었을 때의 근거 생성은 `complete_scope`에서 보드 잠금 밖에서 먼저 하고(잠금 안에서는 만들어 둔 근거를 넘기기만 한다), 근거 생성은 모든 주 경로에서 보드 잠금·쓰기 트랜잭션 진입 전에 한다: `CardFlow.classify`, `CardFlow.auto_record`, `reclassify_cleanup`(미리보기 제외), `CardCompletionWorker.sweep_once`(후보가 있을 때만)가 `core_writer.prepared`로 근거와 키를 먼저 만들고, 잠금 안의 `complete_scope`·`correct_recorded_booking_periods`는 `core_writer.run_with_periods`로 키만 다시 비교한다(다르면 한 번 재생성, 그래도 다르면 `CLASSIFICATION_PREVIEW_STALE`). 아직 올리지 않은 호출 경로(예: `ota_catalog._reclassify`, 자율 정리 워커)는 각자 잠금 밖에서 만들거나 apply 안에서 만든다. `CardFlow.auto_record`는 rust 작성자일 때 분류(`_classify`)를 `BEGIN IMMEDIATE` 앞에서 하고 기록·투영만 트랜잭션 안에서 한다(Rust apply는 자체 트랜잭션이라 안에서 못 돌고, python 작성자는 분류부터 투영까지 한 트랜잭션 그대로). `tools/complete_card_classification.py`는 rust 작성자에서 쓸 수 없다(python 작성자로만 실행). `core.sqlite` 옆 `period-facts.json`의 파생 사실을 재사용하며, Rust는 근거 digest가 바뀐 거래만 재판정한다. 근거를 만들지 못하면 apply는 실패한다(전부 "모름"으로 쓰지 않는다). 첫 apply는 OTA 대조 때문에 오래 걸릴 수 있다. `--backfill-decisions`는 Python이 분류한 모든 행 중 화면 열이 계획과 같은 행의 `decisions`를 채우므로 출력 `backfilled` 건수가 매우 클 수 있다(첫 실행은 정상).
 - 전환 선행 조건: cleanup worker도 잠금 밖 근거 생성·잠금 안 키 비교(이 PR) — `_prepare_sweep`이 `periods_with_key`를 두 잠금 밖에서 만들고, 잠금 안에서 `periods_key`가 같을 때만 `apply(..., periods=...)`를 부른다. 다르면 잠금을 놓고 1회 재생성하며, 그래도 다르면 `CLASSIFICATION_PREVIEW_STALE`로 그 작업만 실패한다(apply 미호출). 작성자가 python이면 근거를 만들지 않는다. `correct_recorded_booking_periods`와 `complete_card_classification`은 #910에서 `run_with_periods`로 바뀌었다. `rule_review.approve`는 `pipeline.store.lock`(웹 경로에서는 `board._lock`과 같은 객체)을 쥔 채 저장 뒤 갱신(`saved_state`→`classify`)까지 하던 것을 갱신만 잠금 밖으로 옮겼다(저장·재생 판정은 잠금 안, 근거 생성은 `prepared`가 잠금 밖; `apply`는 저장 트랜잭션 밖이라 `CORE_WRITER_IN_TRANSACTION`은 나지 않는다). 같은 방식이 아직 없는 호출처: `tools/complete_card_classification.py`(CLI, 웹 잠금 없음).
 
+## 환불 짝 스위치 사용법(확정)
+
+- 설정: `WEBLEDGER_COSTCORE_BIN`(costcore 경로, 1차와 같음)과 `WEBLEDGER_LINKS_PRODUCER=rust`. 설정하지 않거나 `rust`가 아니면 Python 그대로다(코어 호출 0). 되돌림은 변수를 지우고 재시작이다.
+- 동작: `app/partial_refund._analyse`가 `costcore links refund --db <board>`(읽기 전용)를 부르고, `refund_links`·`refund_group`·`refund_original_links`·`count_held_cancellations`·`kakao_refund_candidates`·`partial_group_exclusion`·`refund_review_originals`가 모두 그 한 결과를 쓴다. 호출처(약 20곳)는 바뀌지 않는다.
+- 캐시(프로세스 메모리): 키 = (DB 파일, costcore 파일 상태와 `--version`, `config/refund-pairing.json` 해시, 짝 도출이 읽는 16개 원열의 내용 해시·행 수·최대 rowid). `revision`은 판정 개정이라 `duplicate_of`·`conflict_reason`·`parse_error` 같은 원천 변경을 놓치므로 키로 쓰지 않는다. 분류 열(`item` 등) 변경은 키를 움직이지 않는다. 키가 다르면 재계산한다.
+- 실패는 오류다(조용한 Python 대체 없음). 코드: `CORE_LINKS_NOT_CONFIGURED`(바이너리 변수 없음)·`CORE_LINKS_NEEDS_FILE_DATABASE`(파일 DB 아님)·`CORE_LINKS_UNCOMMITTED_ROWS`(이 연결의 미커밋 변경이 짝 입력을 바꿨는데 Rust는 파일만 읽음 — 커밋 뒤 부르도록 호출 경로를 고친다)·`CORE_LINKS_ORIGINAL_NOT_LINKED`(Rust가 연결하지 않은 원결제의 제외 사유 요청)·`CORE_LINKS_DB_CHANGING`(계산 중 두 번 연속 원행이 바뀜)·costcore 오류 코드.
+- **전환 차단 사유 2건(코드 수정은 별도 PR, 해소 전에는 `rust`로 전환하지 않는다)**:
+  1. `app/review.py` `_persist`의 하나카드 해외 원천 대체 분기: 같은 파일의 앞 행을 INSERT한 뒤(미커밋) 짝을 계산한다. `rust`에서는 `CORE_LINKS_UNCOMMITTED_ROWS`가 나 파일 전체 반영이 롤백된다.
+  2. `app/card_hana_duplicate_repair.py` `apply`/`restore`의 사후 검사: 쓰기 트랜잭션 안에서 짝을 다시 계산한다. `rust`에서는 항상 거부되고 관련 테스트 5건이 실패한다.
+  두 경로는 짝 계산을 트랜잭션 밖(커밋 뒤)으로 옮겨야 한다.
+- 트랜잭션 안에서 짝 함수를 부르는 호출처(점검 목록): 위 두 곳. 그 밖의 호출처가 있는지는 전환 전 `rust` 전체 시험으로 다시 확인한다.
+- 비용(미측정): 트랜잭션 안 호출은 원행 전체를 연결 시점에 두 번 해시한다(미커밋 확인용 읽기 전용 연결 포함, 계산 전후 각 1회). 운영 사본에서 걸리는 시간을 재서 기록해야 한다. 트랜잭션 밖 커밋된 호출은 호출당 1회 해시다.
+- C1 확인 항목: 날짜가 `YYYY-MM-DD`가 아닌 원행(`approval_date`·`posting_date`)이면 Rust가 완료 기간(2025·2026Q1) 제외를 빠뜨릴 수 있다. 사본에서 날짜 형식 밖 원행 수를 확인하고, 있으면 그림자 차이로 드러나는지 본다.
+- 시험: `python -m pytest tests/test_core_links_switch.py`(대역 바이너리). 실제 바이너리 대조는 `costcore_bin` 표식이 붙은 시험이고, `tools/run_quality_checks.py`가 표식 있는 파일이 선택되면 `cargo build --release -p costcore`(빌드 실패는 검사 실패)를 하고 `COSTCORE_TEST_BIN`을 넣어 돌린다(CI도 같은 도구). 수동 실행은 `COSTCORE_TEST_BIN=<costcore 경로>`를 주고 같은 명령.
+
 ## 입력(시작 조건)
 
 1. U9·U10·U11 병합, 운영 배포가 `core` 빌드(`costcore`)를 포함.
@@ -75,13 +90,13 @@
 
 - 목적: 환불 짝 도출(`app.partial_refund`)과 OTA↔카드 연결 풀이(`app.ota_payments.match_ota_payment_events`)의 계산 주체를 Python에서 Rust(`cost-core::links`)로 바꾼다. 같은 결과를 두 곳에서 만들지 않는다.
 - 실행 주체: 운영 담당 세션(한 세션). 소유자 승인 지점은 아래 표시. 전환 1회, 이후 배포 창마다 대조.
-- 개정 이력: 2026-11-14 · 2차 부분 신설 · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U12~U14.
-- 상태: **그림자 비교(`costcore shadow-links`)와 이 절차까지만 있다. 연결 결과를 실제로 쓰는 호출 경로를 Rust로 돌리는 스위치 코드는 아직 없다(별도 PR, opus 검수 대상).** 합성 골든·합성 DB 시험까지만 확인했고 운영 DB·운영 사본에서는 실행하지 않았다. 1차 전환이 먼저 끝나 있어야 한다.
+- 개정 이력: 2026-11-14 · 2차 부분 신설 · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U12~U14. 2026-11-14 · 환불 짝 쓰기 전환 코드와 스위치 이름 확정.
+- 상태: **환불 짝 스위치 코드가 있다(기본 Python, opus 검수 대상). OTA 연결 스위치와 `ledger.py` 묶음 판정 배선은 아직 없다.** 합성 골든·합성 DB 시험까지만 확인했고 운영 DB·운영 사본에서는 실행하지 않았다. 1차 전환이 먼저 끝나 있어야 한다.
 
 ## 전환이 바꾸는 것과 바꾸지 않는 것
 
 - 현재 Python 경로: 환불 짝은 저장하지 않고 호출마다 `transactions` 원행에서 도출한다(`refund_links` 호출처 약 20곳: `app/ledger.py`·`app/automatic_classification.py`·`webapp/card_flow.py`·`webapp/card_catalog.py` 등). 묶음 기록의 판정(`_apply_refund_pairs`·`_check_refund_groups`·`scope_group`)은 `app/ledger.py`. OTA 연결은 `webapp/ota_payment_review._data`가 이벤트·카드·수동 연결·규칙·고정 그룹을 모아 풀이기를 부르고, 결과를 `ota-snapshot.json`(`webapp/ota_snapshot.py`)과 OTA 저장소 연결로 낸다.
-- 바꾸는 것: 위 두 계산의 생산자. 스위치는 새 환경 변수 `WEBLEDGER_LINKS_PRODUCER`(`rust`만 Rust, 미설정·그 밖의 값은 Python. **기본 Python**). 1차의 `WEBLEDGER_CLASSIFICATION_WRITER`와 독립이며, 한 변수를 바꿔도 다른 쪽 작성자는 바뀌지 않는다. 변수 이름은 쓰기 전환 PR이 확정한다(이 문서는 예약).
+- 바꾸는 것: 위 두 계산의 생산자. 스위치는 새 환경 변수 `WEBLEDGER_LINKS_PRODUCER`(`rust`만 Rust, 미설정·그 밖의 값은 Python. **기본 Python**). 1차의 `WEBLEDGER_CLASSIFICATION_WRITER`와 독립이며, 한 변수를 바꿔도 다른 쪽 작성자는 바뀌지 않는다. 변수 이름은 확정이다(`app/core_links.py`).
 - 바꾸지 않는 것: 원천 열(금액·부호·ID·원문), 수동 교정·수동 OTA 연결(항상 우선), 인증 API, Google 장부 쓰기 없음. **보호 불변**: 중복·환불 짝·초과 환불(순잔액 음수)·원본 충돌 보호를 풀지 않는다(`links::refund`의 `clean`·`held`·`exclusion`이 Python과 같은 규칙으로 막는다). 한 카드는 두 연결에 점유되지 않고 기존 수동 연결은 바뀌지 않는다(`links::ota`, 속성 시험).
 - 환불 묶음 기록(`ledger.py`의 기록 판정)과 OTA 저장소·스냅숏 쓰기는 Python이 계속 한다. Rust는 계산 결과(연결·묶음 범위·판정 코드)를 돌려줄 뿐 DB·스냅숏 파일을 쓰지 않는다. 따라서 1차와 달리 두 DB 사이 커밋 순서 문제는 없다.
 - 의도된 차이: 아직 확인된 것 없음. 실데이터 그림자에서 나오면 운영 담당이 `core/known-diffs.txt`에 연결 유형 키(`B-C|refund_link|full|added` 형식)로 근거와 함께 올린다. 시험·판정 그림자·연결 그림자가 한 파일을 공유한다(연결 키는 연결 그림자만, 판정 키는 판정 그림자만 판정에 쓴다).
