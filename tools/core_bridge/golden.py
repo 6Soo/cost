@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_DIR = ROOT / 'core' / 'golden' / 'synthetic'
-AREAS = ('classify', 'plan', 'refund_pairing', 'refund_groups', 'ota_links', 'trips')
+AREAS = ('classify', 'plan', 'refund_pairing', 'refund_groups', 'ota_links', 'trips', 'period')
 
 TRIP_A = dict(trip_id='T-A', display_key='SYN-A', destination='도쿄', starts_on='2026-10-01', ends_on='2026-10-05')
 TRIP_B = dict(trip_id='T-B', display_key='SYN-B', destination='도쿄', starts_on='2026-11-10', ends_on='2026-11-15')
@@ -850,8 +850,97 @@ def trips_cases():
     return out
 
 
+# --- period (webapp.ledger_stay_evidence.verified_period_for; Rust applies the rule to the bridge facts) -----
+
+def period_cases():
+    out, n = [], 0
+
+    def add(note, events, cards=None, *, results=None, rows=None, manual=(), links=None, covers=()):
+        nonlocal n
+        n += 1
+        cards = [C()] if cards is None else cards
+        if results is None:
+            results = [{'ota_event_id': e['ota_event_id'], 'transaction_id': c['transaction_id'], 'status': 'MATCHED_AUTO'}
+                       for e, c in zip(events, cards)]
+        if rows is None:
+            rows = [{'row_id': 'card-' + c['transaction_id'], 'service_period': '', 'reservation_no': ''} for c in cards]
+        request = {'data': {'events': events, 'transactions': cards, 'results': results, 'links': links or {}},
+                   'manual': list(manual), 'rows': rows}
+        out.append(_case('period', f'{n:03d}', 'periods', request, note, covers))
+
+    def E(identity='syn-e1', **changes):
+        return _event(identity, **dict({'item': '숙박비', 'reservation_status': 'confirmed'}, **changes))
+
+    def C(identity='syn-t1', **changes):
+        return _card(identity, source_hash='syn-hash-' + identity, **changes)
+
+    def R(tid='syn-t1', period='', reservation_no='', **changes):
+        return dict({'row_id': 'card-' + tid, 'service_period': period, 'reservation_no': reservation_no}, **changes)
+
+    def link(**changes):
+        return [dict({'ota_event_id': 'syn-e1', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}, **changes)]
+
+    verified = '2026-10-01~2026-10-03'
+    add('verified lodging link fills a blank period', [E()], covers=[verified])
+    add('stored period wins over evidence', [E()], rows=[R(period='2026-09-01~2026-09-02')], covers=['2026-09-01~2026-09-02'])
+    add('whitespace-only stored period counts as blank', [E()], rows=[R(period='  ')], covers=[verified])
+    add('manual period override leaves the row blank', [E()], manual=['card-syn-t1'])
+    add('reservation number equal to the booking', [E()], rows=[R(reservation_no='SYN-BOOK-1')], covers=[verified])
+    add('reservation number of another booking', [E()], rows=[R(reservation_no='SYN-BOOK-2')])
+    for status in ('observed', 'completed'):
+        add(f'reservation status {status}', [E(reservation_status=status)], covers=[verified])
+    for status in ('cancelled', 'refunded', 'refund_pending', 'evidence_pending'):
+        add(f'reservation status {status}', [E(reservation_status=status)])
+    add('event without a period', [E(service_period=None)])
+    add('event without a source digest', [E(source_digest=None)])
+    add('event not linked to any card', [E()], results=[])
+    add('link is only a candidate', [E()], results=link(status='HOLD_DATE_UNKNOWN'))
+    add('period conflict on the result', [E()], results=link(period_conflict=True))
+    add('period conflict on the event', [E(period_conflict=True)])
+    add('evidence changed on the event', [E(evidence_changed=True)])
+    add('evidence missing on the event', [E(evidence_missing=True)])
+    add('service period conflict on the event', [E(service_period_conflict=True)])
+    add('two events claim one card', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2')], [C()],
+        results=link() + [{'ota_event_id': 'syn-e2', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}])
+    add('user-confirmed link', [E()], results=link(status='MATCHED_USER'), covers=[verified])
+    add('card is a refund row', [E()], [C(transaction_direction='refund')])
+    add('card is a duplicate', [E()], [C(duplicate_of='syn-t0')])
+    add('card has a parse error', [E()], [C(parse_error='AMOUNT_UNREADABLE')])
+    card_without_hash = C()
+    del card_without_hash['source_hash']
+    add('card without a source hash', [E()], [card_without_hash])
+    add('inferred link keeps the period without a booking number', [E()], results=link(inferred_link=True),
+        covers=[verified])
+    add('inferred link with a reservation number', [E()], rows=[R(reservation_no='SYN-BOOK-1')],
+        results=link(inferred_link=True))
+    add('ordered group with individual evidence', [E()],
+        results=link(allocation_basis='auto_stable_order', individual_payment_evidence=True), covers=[verified])
+    add('ordered group without individual evidence', [E()],
+        results=link(allocation_basis='auto_stable_order', individual_payment_evidence=False))
+    add('shared period by LINK-108', [E(booking_ref=None, service_period_basis='LINK-108')], covers=[verified])
+    add('item outside lodging, flight and rental', [E(item='식비')])
+    for item in ('항공료', '렌터카'):
+        add(f'paid {item} charge', [E(item=item)], covers=[verified])
+        add(f'unpaid {item}', [E(item=item, payment_status='pending')])
+        add(f'{item} evidence not verified', [E(item=item, evidence_status='booking_only')])
+        add(f'{item} event already refunded', [E(item=item, refund_status='refunded')])
+        add(f'{item} card refunded', [E(item=item)], [C(refund_status='refunded')])
+        add(f'{item} card held for review', [E(item=item)], [C(ota_review_held=True)])
+        add(f'{item} card blocked by a refund', [E(item=item)], [C(reservation_refund_blocked=True)])
+    add('lodging card with a refunded flag still counts', [E()], [C(refund_status='refunded')], covers=[verified])
+    add('row is not a card row', [E()], rows=[{'row_id': 'ledger-syn-t1', 'service_period': '', 'reservation_no': ''}])
+    add('row names another source event', [E()], rows=[R(source_event_id='syn-t9')])
+    add('row names its own source event', [E()], rows=[R(source_event_id='syn-t1')], covers=[verified])
+    add('two cards with the same source hash', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2')],
+        [C('syn-t1'), dict(C('syn-t2'), source_hash='syn-hash-syn-t1')], rows=[R('syn-t1'), R('syn-t2')])
+    add('two cards with different periods', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2',
+        service_period={'starts_on': '2026-11-01', 'ends_on': '2026-11-02'})], [C('syn-t1'), C('syn-t2')],
+        rows=[R('syn-t1'), R('syn-t2')], covers=[verified, '2026-11-01~2026-11-02'])
+    return out
+
+
 GENERATORS = {'classify': classify_cases, 'plan': plan_cases, 'refund_pairing': refund_cases, 'refund_groups': refund_group_cases, 'ota_links': ota_cases,
-              'trips': trips_cases}
+              'trips': trips_cases, 'period': period_cases}
 
 
 def render(area):

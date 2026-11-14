@@ -6,7 +6,8 @@ use serde_json::Value;
 
 use super::{PlanEngine, PlanRequest, PythonBridge, ShadowError, Target, Values};
 use crate::domain::{Decision, Judgement, ServicePeriod};
-use crate::plan::{Outcome, RefundLink, plan};
+use crate::period::PeriodEvidence;
+use crate::plan::{Outcome, RefundLink, plan_with_periods};
 use crate::store::read_plan_input;
 
 pub struct RustEngine {
@@ -69,7 +70,15 @@ impl PlanEngine for RustEngine {
         } else {
             BTreeMap::new()
         };
-        let result = plan(&input, &links).map_err(|_| ShadowError::PlanFailed)?;
+        let periods = PeriodEvidence {
+            facts: context["periods"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default(),
+            changed: BTreeSet::new(),
+        };
+        let result =
+            plan_with_periods(&input, &links, &periods).map_err(|_| ShadowError::PlanFailed)?;
         let decisions: BTreeMap<&str, &Decision> = result
             .outcomes
             .iter()

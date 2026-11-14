@@ -1,15 +1,16 @@
 //! 계획 결과를 `Judgement`로 바꾼다. 정상 거래의 P1 결과는 `Decided`뿐이고, 표현할 수 없는 경우만 `Protected`로 닫힌다.
 
 use super::POLICY;
-use super::digest::sha256_hex;
 use super::input::{Row, text};
 use crate::dates::parse_iso;
+use crate::digest::sha256_hex;
 use crate::domain::{
     Actor, ActorKind, Amount, Attribution, Basis, CompletedPeriod, Confidence, Decision,
     DecisionDraft, Direction, EvidenceKind, EvidenceRef, ItemAllowList, Judgement, ManualEventRef,
     ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId, ServicePeriod,
-    SourceHash, SourceTxn, Subject, TripCatalog, TxnId, UnknownPeriodReason,
+    SourceHash, SourceTxn, Subject, TripCatalog, TxnId,
 };
+use crate::period;
 use crate::store::{Mapped, SourceInput, map_source};
 use serde_json::Value;
 use time::{Date, Month};
@@ -130,7 +131,7 @@ impl Judger {
         tid: &str,
         has_history: bool,
         original: Option<&str>,
-        fact: Option<&Value>,
+        (fact, verified_period): (Option<&Value>, &str),
     ) -> Judgement {
         let amount = row
             .get("amount_krw")
@@ -217,7 +218,7 @@ impl Judger {
         let Ok(actor) = actor else {
             return unattributable;
         };
-        let period = fact
+        let from_evidence = fact
             .filter(|_| basis.as_str().contains("예약 이용기간 근거 우선:"))
             .and_then(|f| f.get("service_period"))
             .and_then(|p| {
@@ -227,8 +228,12 @@ impl Judger {
                         .and_then(|d| parse_iso(d).ok())
                 };
                 ServicePeriod::known(get("starts_on")?, get("ends_on")?).ok()
-            })
-            .unwrap_or(ServicePeriod::unknown(UnknownPeriodReason::NoEvidence));
+            });
+        // 저장 값·검증된 연결의 기간이 먼저, 분류 근거의 예약 기간이 그다음, 없으면 사유가 있는 미상.
+        let period = match period::service_period(verified_period, item.as_str()) {
+            known @ ServicePeriod::Known { .. } => known,
+            unknown => from_evidence.unwrap_or(unknown),
+        };
         let draft = DecisionDraft {
             subject,
             attribution,

@@ -236,8 +236,14 @@ def trips(request):
     raise BridgeError('TRIPS_OP_INVALID', str(op))
 
 
+def periods(request):
+    """Booking-period inputs for the Rust period rule plus the Python verified period per row (no DB)."""
+    from .periods import periods as run
+    return run(request)
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'plan': plan,
-            'classify': classify, 'extract': extract, 'trips': trips}
+            'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods}
 
 
 def canonical(value):
