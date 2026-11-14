@@ -224,8 +224,18 @@ fn links_refund_rows_stdin_rejects_bad_shapes_and_a_database_flag() {
 
 #[test]
 fn links_command_rejects_unknown_kind_and_a_missing_database() {
-    // `links ota` reads stdin without flags (INPUT_INVALID since #921); its usage errors are in links_ota_cli.rs.
-    for args in [vec!["links"], vec!["links", "refund"]] {
+    // `links ota` is a real command (#921): no input is INPUT_INVALID, never a usage error.
+    let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
+        .args(["links", "ota"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("INPUT_INVALID")
+    );
+    for args in [vec!["links", "foo"], vec!["links"], vec!["links", "refund"]] {
         let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
             .args(args)
             .stdin(Stdio::null())

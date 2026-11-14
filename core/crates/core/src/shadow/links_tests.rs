@@ -136,7 +136,7 @@ fn ota_goldens_have_no_difference() {
         .iter()
         .flat_map(|n| golden(n))
         .collect();
-    assert_eq!(cases.len(), 55 + 39);
+    assert_eq!(cases.len(), 55 + 46);
     for case in &cases {
         let python = json!({"results": case["expected"]["results"]});
         let part = compare_ota(&case["input"], &defaults, &python).unwrap();
