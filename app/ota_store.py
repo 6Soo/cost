@@ -395,7 +395,9 @@ class OtaStore:
         self.conn.execute('INSERT OR IGNORE INTO ota_bookings VALUES(?,?,?,?)',
                           (identity, provider, account, str(ref)))
         payload = encoded(fact)
-        if kind == 'mail':
+        if kind == 'mail' and self._seen_ready():
+            if self._seen_in_revision('evidence', identity, key, revision):
+                return
             # 같은 예약·메일·사실이 이미 있으면 새 행 없이 관측 기록만 남긴다.
             old = self.conn.execute('SELECT revision_id FROM ota_booking_evidence WHERE booking_id=? '
                 "AND entry_key=? AND evidence_kind='mail' AND fact_json=? ORDER BY rowid LIMIT 1",
@@ -403,22 +405,25 @@ class OtaStore:
             if old:
                 self._seen('evidence', identity, key, old[0], revision)
                 return
-            if self._seen_in_revision('evidence', identity, key, revision):
-                return
         if self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
-                             (identity, revision, key, kind, payload)).rowcount and kind == 'mail':
+                             (identity, revision, key, kind, payload)).rowcount and kind == 'mail' and self._seen_ready():
             self._seen('evidence', identity, key, revision, revision)
 
     def _seen_ready(self):
         return bool(self.conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_row_seen'").fetchone())
 
     def _seen_in_revision(self, kind, owner, key, revision):
-        """같은 판에서 이미 관측한 키는 사실이 달라져도 다시 쓰지 않는다(같은 판 재실행은 첫 사실 유지)."""
-        if not self._seen_ready():
-            return False
+        """같은 판에서 이미 관측했고 그 원래 행이 남아 있으면 사실이 달라져도 다시 쓰지 않는다.
+
+        같은 판 재실행은 첫 사실을 유지하던 종전 의미와 같다. 원래 행이 지워졌으면 다시 만든다.
+        """
+        table, column = (('ota_booking_evidence', 'booking_id') if kind == 'evidence'
+                         else ('ota_reservation_observations', 'observation_id'))
         return bool(self.conn.execute('SELECT 1 FROM ota_row_seen z JOIN ota_source_revisions r '
-            'ON r.source_id=z.source_id WHERE z.kind=? AND z.owner_id=? AND z.entry_key=? '
-            'AND z.last_revision=? AND r.revision_id=?', (kind, owner, key, revision, revision)).fetchone())
+            'ON r.source_id=z.source_id JOIN ' + table + ' t ON t.' + column + '=z.owner_id '
+            'AND t.entry_key=z.entry_key AND t.revision_id=z.home_revision '
+            'WHERE z.kind=? AND z.owner_id=? AND z.entry_key=? AND z.last_revision=? AND r.revision_id=?',
+            (kind, owner, key, revision, revision)).fetchone())
 
     def _seen(self, kind, owner, key, home, revision):
         """저장된 행(home 판)을 revision 판에서 관측했다는 사실만 남긴다."""
@@ -487,17 +492,18 @@ class OtaStore:
             key = forest_mail.catalog_reference(event)
             source_id, = event['source_ids']
             entry, payload = source_id.removeprefix('mail:'), encoded(event)
-            source = self.conn.execute('SELECT source_id FROM ota_source_revisions WHERE revision_id=?',
-                                       (revision,)).fetchone()[0]
-            old = self.conn.execute('SELECT o.revision_id FROM ota_reservation_observations o '
-                'JOIN ota_source_revisions r ON r.revision_id=o.revision_id WHERE o.observation_id=? '
-                'AND o.entry_key=? AND o.fact_json=? AND r.source_id=? ORDER BY o.rowid LIMIT 1',
-                (key, entry, payload, source)).fetchone()
-            if old:
-                self._seen('observation', key, entry, old[0], revision)
-                continue
-            if self._seen_in_revision('observation', key, entry, revision):
-                continue
+            if self._seen_ready():
+                if self._seen_in_revision('observation', key, entry, revision):
+                    continue
+                source = self.conn.execute('SELECT source_id FROM ota_source_revisions WHERE revision_id=?',
+                                           (revision,)).fetchone()[0]
+                old = self.conn.execute('SELECT o.revision_id FROM ota_reservation_observations o '
+                    'JOIN ota_source_revisions r ON r.revision_id=o.revision_id WHERE o.observation_id=? '
+                    'AND o.entry_key=? AND o.fact_json=? AND r.source_id=? ORDER BY o.rowid LIMIT 1',
+                    (key, entry, payload, source)).fetchone()
+                if old:
+                    self._seen('observation', key, entry, old[0], revision)
+                    continue
             added = self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
                 'VALUES(?,?,?,?,?,?,?)',(key,revision,entry,event['provider'],
                 event.get('booking_ref'),event['source_digest'],payload)).rowcount

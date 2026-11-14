@@ -196,3 +196,55 @@ def test_database_built_by_old_writer_continues_with_new_writer(tmp_path, monkey
         assert store.summary() == again
     finally:
         store.close()
+
+
+def test_same_revision_a_b_a_keeps_the_first_fact_as_the_only_current_row(tmp_path, monkeypatch):
+    base = [trip(1), forest(1), forest(2)]
+    folder = write(tmp_path / 'mail', base)
+    store = OtaStore(tmp_path / 'aba.sqlite')
+    try:
+        store.import_mail(folder)
+        store.import_mail(write(folder, base + [trip(2)]))
+        first = observed(store)
+        counts = store.summary()
+        with monkeypatch.context() as parser:
+            changed_parser(parser, 'parser-v2')
+            store.import_mail(folder)
+            store.rebuild_reservation_observations()
+        store.import_mail(folder)
+        store.rebuild_reservation_observations()
+        assert observed(store) == first and store.summary() == counts
+    finally:
+        store.close()
+
+
+def test_deleted_observation_row_is_recreated_by_same_revision_reindex(tmp_path):
+    folder = write(tmp_path / 'mail', [forest(1), forest(2)])
+    store = OtaStore(tmp_path / 'del.sqlite')
+    try:
+        store.import_mail(folder)
+        store.import_mail(write(folder, [forest(1), forest(2), trip(1)]))
+        first = observed(store)
+        store.conn.execute('DELETE FROM ota_reservation_observations')
+        store.conn.commit()
+        assert observed(store) == []
+        assert store.rebuild_reservation_observations() == 2
+        assert observed(store) == first
+    finally:
+        store.close()
+
+
+def test_without_seen_table_same_fact_in_an_older_revision_is_still_written(tmp_path):
+    folder = write(tmp_path / 'mail', [forest(1)])
+    store = OtaStore(tmp_path / 'noseen.sqlite')
+    try:
+        store.import_mail(folder)
+        store.import_mail(write(folder, [forest(1), trip(1)]))
+        first = observed(store)
+        store.conn.execute('DROP TABLE ota_row_seen')
+        store.conn.execute('DELETE FROM ota_reservation_observations')
+        store.conn.commit()
+        assert store.rebuild_reservation_observations() == 1
+        assert observed(store) == first
+    finally:
+        store.close()
