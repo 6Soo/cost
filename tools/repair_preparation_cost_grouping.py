@@ -1,4 +1,4 @@
-"""Count-only preview, digest/backup-gated offline apply and audited restore (TRIP-043 / DATE-040)."""
+"""Count-only preview, digest/backup-gated offline apply and audited restore (TRIP-043 / DATE-040). 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
 from __future__ import annotations
 
 import argparse
