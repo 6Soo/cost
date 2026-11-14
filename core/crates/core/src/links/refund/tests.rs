@@ -643,7 +643,12 @@ proptest! {
             prop_assert!(clean_row(by_id[link.refund_id.as_str()]));
             // 순잔액은 파생값이고 상태는 순잔액을 따른다
             prop_assert_eq!(link.net_krw, link.gross_krw + link.refunds_total_krw);
-            let expect = match link.net_krw { n if n < 0 => Status::Excess, 0 => Status::Full, _ => Status::Partial };
+            // 외화 짝은 원화 차이를 환율·수수료로 보므로 순잔액이 음수여도 초과가 아니라 부분이다(RFND-015, Python과 같다)
+            let expect = match link.net_krw {
+                0 => Status::Full,
+                n if n < 0 && link.basis != Some(Basis::MerchantCardForeignAmount) => Status::Excess,
+                _ => Status::Partial,
+            };
             prop_assert_eq!(link.status, expect);
             // 한 구매가 두 취소에 점유되지 않는다(원승인번호 1:N 연결은 같은 번호의 묶음이라 예외)
             if link.basis.is_some() {
