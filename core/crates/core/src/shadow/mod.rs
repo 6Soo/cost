@@ -6,6 +6,9 @@ mod engine;
 mod guard;
 mod keys;
 mod known;
+pub mod links;
+#[cfg(test)]
+mod links_tests;
 #[cfg(test)]
 mod tests;
 
@@ -48,6 +51,8 @@ pub enum ShadowError {
     PublicValueNotAllowed,
     #[error("KNOWN_DIFFS_INVALID")]
     KnownDiffsInvalid,
+    #[error("CONFIG_INVALID")]
+    ConfigInvalid,
     #[error("USAGE_INVALID")]
     UsageInvalid,
     #[error("투영 쓰기 오류: {0}")]
@@ -355,7 +360,7 @@ pub fn run_shadow(
         .get("B-C")
         .map(|p| p.types.keys().cloned().collect())
         .unwrap_or_default();
-    let verdict = judge(known, &observed);
+    let verdict = judge(&known.without_link_keys(), &observed);
     Ok(ShadowOutcome {
         report: ShadowReport {
             rows: projection.transactions.len() as u64,

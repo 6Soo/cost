@@ -3,7 +3,7 @@
 - 목적: P1 자동 분류의 판정 열 작성자를 Python `automatic_classification.apply`에서 Rust `costcore apply`로 바꾼다. 같은 DB에 쓰는 작성자는 하나다.
 - 실행 주체: 운영 담당 세션(한 세션). 소유자 승인 지점은 아래 표시.
 - 주기: 전환 1회. 전환 뒤 배포 창(하루 1~2회)마다 대조.
-- 개정 이력: 2026-11-14 · 1차 부분 신설(U11) · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U11. 2차(연결) 부분은 U14가 아래에 더한다.
+- 개정 이력: 2026-11-14 · 1차 부분 신설(U11) · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U11. 2026-11-14 · 2차(연결) 부분 신설(그림자 `costcore shadow-links`와 절차, 쓰기 전환 코드는 아직 없음).
 
 - 상태: 합성 DB 시험(T4)과 단위 시험까지만 확인했다. 운영 DB·운영 사본에서는 실행하지 않았다. 아래 단계는 전환 시점에 처음 수행한다.
 
@@ -59,3 +59,61 @@
 - `CORE_WRITER_NOT_CONFIGURED`·`CORE_SCHEMA_MISMATCH`: 설정·이관 문제. 변수를 지워 Python으로 복귀한 뒤 고친다.
 - `CORE_WRITER_IN_TRANSACTION`: 호출 경로가 이미 쓰기 트랜잭션 안에서 `apply`를 부른다. 그 경로는 아직 Rust 작성자로 못 바꾼다. 변수를 지워 복귀하고 호출 경로를 고친다(전환 전 미해결이면 전환 불가).
 - 프로세스가 두 커밋 사이에 죽음: 운영 board는 WAL, core는 롤백 저널이고 board가 먼저 커밋된다. 결과는 **화면 열은 채워졌고 `decisions`가 없는 거래**다. 그 거래는 더 이상 계획의 목표가 아니라서 그냥 다시 실행해도 채워지지 않는다. 복구 두 가지 중 하나: ① 새 미리보기 digest를 만들어 `costcore apply ... --backfill-decisions`를 실행한다. 화면 열이 계획과 같고 `decisions`가 없는 거래에 판정만 저장하며 board는 건드리지 않는다(출력 `backfilled`). ② 작성자를 Python으로 되돌린다(`WEBLEDGER_CLASSIFICATION_WRITER` 해제). 6단계 A↔C 대조가 이 상태를 찾아낸다.
+
+---
+
+# 코어 2차 전환 — 연결 생산자(환불 짝·OTA↔카드 연결)를 Python에서 Rust로
+
+- 목적: 환불 짝 도출(`app.partial_refund`)과 OTA↔카드 연결 풀이(`app.ota_payments.match_ota_payment_events`)의 계산 주체를 Python에서 Rust(`cost-core::links`)로 바꾼다. 같은 결과를 두 곳에서 만들지 않는다.
+- 실행 주체: 운영 담당 세션(한 세션). 소유자 승인 지점은 아래 표시. 전환 1회, 이후 배포 창마다 대조.
+- 개정 이력: 2026-11-14 · 2차 부분 신설 · 근거 설계 `docs/design/m3-core.md` §3.3·§7 U12~U14.
+- 상태: **그림자 비교(`costcore shadow-links`)와 이 절차까지만 있다. 연결 결과를 실제로 쓰는 호출 경로를 Rust로 돌리는 스위치 코드는 아직 없다(별도 PR, opus 검수 대상).** 합성 골든·합성 DB 시험까지만 확인했고 운영 DB·운영 사본에서는 실행하지 않았다. 1차 전환이 먼저 끝나 있어야 한다.
+
+## 전환이 바꾸는 것과 바꾸지 않는 것
+
+- 현재 Python 경로: 환불 짝은 저장하지 않고 호출마다 `transactions` 원행에서 도출한다(`refund_links` 호출처 약 20곳: `app/ledger.py`·`app/automatic_classification.py`·`webapp/card_flow.py`·`webapp/card_catalog.py` 등). 묶음 기록의 판정(`_apply_refund_pairs`·`_check_refund_groups`·`scope_group`)은 `app/ledger.py`. OTA 연결은 `webapp/ota_payment_review._data`가 이벤트·카드·수동 연결·규칙·고정 그룹을 모아 풀이기를 부르고, 결과를 `ota-snapshot.json`(`webapp/ota_snapshot.py`)과 OTA 저장소 연결로 낸다.
+- 바꾸는 것: 위 두 계산의 생산자. 스위치는 새 환경 변수 `WEBLEDGER_LINKS_PRODUCER`(`rust`만 Rust, 미설정·그 밖의 값은 Python. **기본 Python**). 1차의 `WEBLEDGER_CLASSIFICATION_WRITER`와 독립이며, 한 변수를 바꿔도 다른 쪽 작성자는 바뀌지 않는다. 변수 이름은 쓰기 전환 PR이 확정한다(이 문서는 예약).
+- 바꾸지 않는 것: 원천 열(금액·부호·ID·원문), 수동 교정·수동 OTA 연결(항상 우선), 인증 API, Google 장부 쓰기 없음. **보호 불변**: 중복·환불 짝·초과 환불(순잔액 음수)·원본 충돌 보호를 풀지 않는다(`links::refund`의 `clean`·`held`·`exclusion`이 Python과 같은 규칙으로 막는다). 한 카드는 두 연결에 점유되지 않고 기존 수동 연결은 바뀌지 않는다(`links::ota`, 속성 시험).
+- 환불 묶음 기록(`ledger.py`의 기록 판정)과 OTA 저장소·스냅숏 쓰기는 Python이 계속 한다. Rust는 계산 결과(연결·묶음 범위·판정 코드)를 돌려줄 뿐 DB·스냅숏 파일을 쓰지 않는다. 따라서 1차와 달리 두 DB 사이 커밋 순서 문제는 없다.
+- 의도된 차이: 아직 확인된 것 없음. 실데이터 그림자에서 나오면 운영 담당이 `core/known-diffs.txt`에 연결 유형 키(`B-C|refund_link|full|added` 형식)로 근거와 함께 올린다. 시험·판정 그림자·연결 그림자가 한 파일을 공유한다(연결 키는 연결 그림자만, 판정 키는 판정 그림자만 판정에 쓴다).
+
+## 입력(시작 조건)
+
+1. 쓰기 전환 PR 병합과 운영 배포(`costcore` 빌드 포함). 1차 전환 완료.
+2. **C1**: 신선 사본 1개에서 `costcore shadow-links` 목록 밖 차이 0. 환불 짝은 사본 DB로, OTA 연결은 풀이기 입력 파일(`--ota-input`)로 잰다. **OTA C1은 입력 포착 도구(후속 PR) 뒤에야 잴 수 있고, 지금은 환불 짝만 잰다.** 같은 신선 사본에서 `costcore shadow`(판정)도 목록 밖 차이 0이어야 한다.
+3. **C2**: 평가 사례 Rust ≥ Python, Python 정답 중 Rust 오답 0(1차와 같은 측정, 연결을 Rust로 쓴 판정 기준).
+4. **C3**: 신선 백업·복원 확인과 스위치 되돌림 예행(아래 3단계).
+5. 측정은 운영 담당이 한다(구현자·검수자는 다시 재지 않는다).
+
+## 단계
+
+공통 주의: 배포·반영 창 동안 그림자·자료 생성·전체 검사 등 무거운 작업을 돌리지 않고, Worker의 mail-collect는 창 동안 멈춘다. 운영 포트(8751·8752·8790)는 시험에 쓰지 않는다.
+
+1. **소유자 승인 지점 ①** — C1·C2 측정 결과와 이 절차(환불 짝·OTA 연결을 함께 바꾸는지 하나씩 바꾸는지 포함)를 소유자가 승인한다. 승인 없이 2단계로 가지 않는다.
+2. **C3 신선 백업·복원 확인**: `board.sqlite`와 `core.sqlite`를 신선 백업하고 복원 확인(`SPEC.md:383`). 백업은 `D:/WebLedgerHost/data/backups/`.
+3. **되돌림 예행**(C3): 복원 확인한 사본(운영 파일이 아니다)에서 변수 미설정(Python)과 `rust` 두 번 실행해 둘 다 오류 없이 끝나고 연결 결과가 같은지 확인한 뒤, 변수를 지워 다시 Python 결과로 돌아오는지 본다. 연결 결과 대조는 아래 4단계 ②의 명령을 사본에 쓴다. 쓰기 전환 PR이 사본 실행 방법을 정한다(운영 DB·포트를 쓰지 않는다).
+4. **소유자 승인 지점 ②** — 전환 실행 승인(배포 창과 되돌림 담당 확인).
+5. **스위치 전환**: 운영 환경에 `WEBLEDGER_COSTCORE_BIN`(1차에서 설정됨)과 `WEBLEDGER_LINKS_PRODUCER=rust`를 설정하고 서비스를 재시작한다. 같은 레포의 다른 세션에 배포 전후를 알린다. 이 순간부터 연결 계산은 Rust가 한다.
+6. **첫 배포 창 대조**(PowerShell, 레포 루트, 신선 사본에서):
+
+   ```powershell
+   $h = 'D:/WebLedgerHost/data/backups/c1-links'   # 보호 경로(Git 밖)
+   $copy = "$h/fresh-copy.sqlite"                   # 2단계에서 복원 확인한 신선 사본(운영 파일이 아니다)
+   # ① 환불 짝(OTA 입력 포착 도구가 생기기 전에는 이것만 잰다)
+   core/target/release/costcore shadow-links --db $copy --private-out "$h/links-details-$(Get-Date -Format yyyyMMddHHmm).jsonl" --host-root D:/WebLedgerHost
+   # ② OTA 연결: 입력 포착 도구(후속 PR) 뒤에만. 입력 파일이 생기면 ①에 --ota-input "$h/ota-input.json"을 더한다
+   # ③ 판정(1차와 같은 대조)
+   core/target/release/costcore shadow --db $copy --host-root D:/WebLedgerHost
+   ```
+
+   확인: 종료 코드 0, `status`가 `PASS`, `unlisted`가 비어 있음, `refund.python`과 `refund.rust` 건수가 같음. 공개 출력에는 유형 키와 건수만 나오고 거래·이벤트 ID는 `--private-out` 파일에만 쓴다. 1차의 A↔C 대조(`transactions` 판정 열과 `decisions`)도 함께 한다.
+7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_LINKS_PRODUCER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. 연결은 저장하지 않고 Python이 원행에서 다시 도출하므로 되돌림에 데이터 복구가 필요 없다. 이미 Rust 연결로 기록된 묶음 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
+8. 전환 뒤 매일 6단계를 돌린다(Python 연결 코드 퇴역 때까지).
+
+## 실패와 복구
+
+- `PYTHON_BRIDGE_FAILED:*`·`ENVELOPE_MISMATCH`: 다리 실행 실패. 그림자는 PASS도 FAIL도 아니라 오류로 끝난다. 원인을 고쳐 다시 돌린다(전환 전이면 전환하지 않는다).
+- `DB_IS_LIVE`: 사본이 아닌 운영 DB 경로. 신선 사본으로 다시 한다(운영 DB는 읽지 않는다).
+- `PRIVATE_PATH_REJECTED`: `--private-out`이 보호 경로(`D:/WebLedgerHost/data/backups/`) 밖. 경로를 고친다.
+- `KNOWN_DIFFS_INVALID`: `core/known-diffs.txt`에 중복·형식 밖 줄. 줄을 고친다.
+- 전환 뒤 스위치 `rust`에서 Rust 연결 계산이 실패하면 호출 경로가 오류를 낸다(조용히 Python으로 대체하지 않는다). 변수를 지워 Python으로 복귀한 뒤 원인을 고친다.

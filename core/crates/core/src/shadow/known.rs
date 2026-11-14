@@ -17,6 +17,28 @@ pub struct KnownDiffs {
 }
 
 impl KnownDiffs {
+    /// 판정 그림자(plan)가 보는 키: 연결 키를 뺀다.
+    pub fn without_link_keys(&self) -> KnownDiffs {
+        self.filtered(false)
+    }
+
+    /// 연결 그림자가 보는 키: 연결 키만 남긴다.
+    pub fn only_link_keys(&self) -> KnownDiffs {
+        self.filtered(true)
+    }
+
+    fn filtered(&self, links: bool) -> KnownDiffs {
+        KnownDiffs {
+            keys: self
+                .keys
+                .iter()
+                .filter(|k| super::links::is_link_key(k) == links)
+                .cloned()
+                .collect(),
+            case_ids: self.case_ids.clone(),
+        }
+    }
+
     /// 접두어(`plan-`, `classify-`)로 고른 골든 사례 ID.
     pub fn cases_with_prefix(&self, prefix: &str) -> BTreeSet<&str> {
         self.case_ids

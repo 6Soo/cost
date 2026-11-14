@@ -75,6 +75,11 @@ impl PythonBridge {
         self.call("plan", &body)
     }
 
+    /// 다리 `links` 명령(kind=refund·ota)의 `result`. 그림자 비교가 Python 쪽 값으로 쓴다.
+    pub fn links_json(&self, body: &Value) -> Result<Value, BridgeError> {
+        self.call("links", body)
+    }
+
     /// 2차 전환 전까지 환불 짝 연결은 Python 결과를 쓴다(`links` kind=refund).
     pub fn refund_links(
         &self,
