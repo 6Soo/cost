@@ -18,7 +18,7 @@ def context(flow):
     return trips, _google_nets()
 
 
-def completed_period_evidence(board, trips=None):
+def completed_period_evidence(board, trips=None, flow=None):
     """Read only the fresh published core; no match recomputation or source writes."""
     from app.closed_period import completed_period, formal_facts
     dates = board.conn.execute('SELECT transaction_id,approval_date,posting_date FROM transactions').fetchall()
@@ -26,7 +26,7 @@ def completed_period_evidence(board, trips=None):
     if not completed:
         return {}
     from .card_flow import CardFlow
-    flow = CardFlow(board)
+    flow = flow or CardFlow(board)
     current,fresh = flow._held_ota_snapshot()
     if not current or not fresh:
         return {}
@@ -36,12 +36,12 @@ def completed_period_evidence(board, trips=None):
             if k in completed}
 
 
-def open_period_evidence(board, trips=None):
+def open_period_evidence(board, trips=None, flow=None):
     """Confirmed reservation periods for open-period purchases; read-only, fresh core snapshot only."""
     from app.closed_period import booking_period_evidence, completed_period
     from app import automatic_classification as policy
     from .card_flow import CardFlow
-    flow = CardFlow(board)
+    flow = flow or CardFlow(board)
     current, fresh = flow._held_ota_snapshot()
     if not current or not fresh:
         return {}
@@ -56,9 +56,9 @@ def open_period_evidence(board, trips=None):
     return {k: v for k, v in found.items() if not completed_period(rows[k])}
 
 
-def classification_evidence(board, trips=None):
+def classification_evidence(board, trips=None, flow=None):
     """Closed-period exceptions plus open-period booking evidence; the two key sets are disjoint."""
-    return {**open_period_evidence(board, trips), **completed_period_evidence(board, trips)}
+    return {**open_period_evidence(board, trips, flow), **completed_period_evidence(board, trips, flow)}
 
 
 def complete(flow, batch_id, transaction_ids=None):
@@ -72,7 +72,7 @@ def complete(flow, batch_id, transaction_ids=None):
 def complete_scope(flow, selected=None):
     with flow.board._lock:
         trips, nets = context(flow)
-        evidence = classification_evidence(flow.board,trips)
+        evidence = classification_evidence(flow.board,trips,flow)
         preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
         return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,evidence=evidence)
 
