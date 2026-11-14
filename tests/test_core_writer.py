@@ -99,3 +99,137 @@ def test_stored_service_period_reads_core_sqlite_read_only(env, tmp_path):
     monkeypatch.setenv(core_writer.CORE_DB_ENV, str(core))
     assert core_writer.stored_service_period('t1')['starts_on'] == '2026-10-01'
     assert core_writer.stored_service_period('missing') is None
+
+
+def _periods_env(env, tmp_path, monkeypatch_calls):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    board = tmp_path / 'board.sqlite'
+    conn = sqlite3.connect(board)
+    conn.execute('CREATE TABLE board_manual_overrides(row_id TEXT, field TEXT, event_id TEXT)')
+    conn.commit()
+    key = {'value': 'k1'}
+    monkeypatch.setattr(core_writer, '_period_input_key', lambda path: key['value'])
+
+    def snapshot(path):
+        monkeypatch_calls.append(path)
+        from tools.core_bridge.golden import _card, _event
+        return {'events': [_event('syn-e1', item='숙박비', reservation_status='confirmed')],
+                'transactions': [_card('syn-t1', source_hash='syn-hash-syn-t1')],
+                'results': [{'ota_event_id': 'syn-e1', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}],
+                'links': {}}
+    monkeypatch.setattr(core_writer, '_period_snapshot', snapshot)
+    return conn, key
+
+
+def test_period_facts_reuse_the_cache_until_the_evidence_input_changes(env, tmp_path):
+    calls = []
+    conn, key = _periods_env(env, tmp_path, calls)
+    first = core_writer.periods_for(conn)
+    assert 'syn-t1' in first and len(calls) == 1
+    assert core_writer.periods_for(conn) == first and len(calls) == 1
+    key['value'] = 'k2'
+    core_writer.periods_for(conn)
+    assert len(calls) == 2
+    conn.execute("INSERT INTO board_manual_overrides VALUES ('card-syn-t1','service_period','e')")
+    conn.commit()
+    assert core_writer.periods_for(conn)['syn-t1'][0]['manual'] is True
+    assert len(calls) == 3
+
+
+def test_rust_writer_sends_the_period_facts_and_apply_without_them_sends_none(env, tmp_path):
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    seen = _fake_run(env[0], json.dumps({'ok': True, 'result': {}}) + '\n')
+    core_writer.apply(conn, {'digest': 'd'}, [], periods=core_writer.periods_for(conn))
+    assert 'syn-t1' in seen['input']['periods']
+    core_writer.apply(conn, {'digest': 'd'}, [])
+    assert 'periods' not in seen['input']
+
+
+def test_policy_apply_with_the_rust_writer_passes_period_facts(env, tmp_path):
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    env[0].setenv(core_writer.WRITER_ENV, 'rust')
+    seen = _fake_run(env[0], json.dumps({'ok': True, 'result': {'to_classify': 0}}) + '\n')
+    assert policy.apply(conn, {'digest': 'd'}, []) == {'to_classify': 0}
+    assert 'syn-t1' in seen['input']['periods']
+
+
+def test_second_apply_after_an_apply_does_not_rebuild_the_period_evidence(env, tmp_path):
+    from contextlib import contextmanager
+    from webapp import ota_payment_review
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    monkeypatch = env[0]
+    monkeypatch.undo()  # drop the stubbed key; use the real key function over a fake board below
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    monkeypatch.setattr(core_writer, '_period_snapshot', lambda path: calls.append(path) or {
+        'events': [], 'transactions': [], 'results': [], 'links': {}})
+    conn.execute('CREATE TABLE transactions(transaction_id, amount, item, classification_state, revision)')
+    conn.execute("INSERT INTO transactions VALUES ('t1', 100, 'a', 'unclassified', 1)")
+    conn.commit()
+
+    @contextmanager
+    def board(path):
+        yield None
+    monkeypatch.setattr(core_writer, '_board', board)
+
+    def key(_, ignore):
+        rows = conn.execute('SELECT * FROM transactions').fetchall()
+        names = [c[1] for c in conn.execute('PRAGMA table_info(transactions)')]
+        return json.dumps([{n: v for n, v in zip(names, r) if n not in ignore} for r in rows])
+    monkeypatch.setattr(ota_payment_review, 'current_input_key', key)
+
+    def run(command, **kwargs):  # the Rust writer changes the judged columns of the card row
+        conn.execute("UPDATE transactions SET classification_state='classified', item='b', revision=revision+1")
+        conn.commit()
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps({'ok': True, 'result': {}}) + '\n', stderr='')
+    monkeypatch.setattr(core_writer.subprocess, 'run', run)
+    core_writer.apply(conn, {'digest': 'd'}, [], periods=core_writer.periods_for(conn))
+    assert len(calls) == 1
+    core_writer.apply(conn, {'digest': 'd'}, [], periods=core_writer.periods_for(conn))
+    assert len(calls) == 1
+    conn.execute('UPDATE transactions SET amount=200')  # a real evidence input still rebuilds it
+    conn.commit()
+    core_writer.periods_for(conn)
+    assert len(calls) == 2
+
+
+def _scope_flow(monkeypatch, conn, applied):
+    import threading
+    from types import SimpleNamespace
+    from webapp import card_classification_completion as completion
+    monkeypatch.setenv(core_writer.WRITER_ENV, 'rust')
+    monkeypatch.setattr(completion, 'context', lambda flow: ([], {}))
+    monkeypatch.setattr(completion, 'classification_evidence', lambda *a, **k: {})
+    monkeypatch.setattr(completion.policy, 'plan', lambda *a, **k: {'digest': 'd'})
+    monkeypatch.setattr(completion.policy, 'apply', lambda c, preview, trips, **k: applied.append(k['periods']) or {})
+    return completion, SimpleNamespace(board=SimpleNamespace(conn=conn, _lock=threading.RLock()))
+
+
+def test_complete_scope_never_saves_with_evidence_built_before_a_new_transaction(env, tmp_path):
+    calls = []
+    conn, key = _periods_env(env, tmp_path, calls)
+    applied = []
+    completion, flow = _scope_flow(env[0], conn, applied)
+    build = core_writer._period_snapshot
+
+    def snapshot(path):  # a card arrives while the evidence is being built (first build only)
+        data = build(path)
+        if len(calls) == 1:
+            key['value'] = 'k-new-card'
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', snapshot)
+    completion.complete_scope(flow)
+    assert len(calls) == 2 and len(applied) == 1  # rebuilt once under the new key, then applied
+
+    key['value'] = 'k2'
+    applied.clear()
+    env[0].setattr(core_writer, '_period_snapshot',
+                   lambda path: key.update(value=key['value'] + 'x') or build(path))  # never settles
+    with pytest.raises(ValueError, match='CLASSIFICATION_PREVIEW_STALE'):
+        completion.complete_scope(flow)
+    assert applied == []

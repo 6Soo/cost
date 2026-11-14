@@ -248,6 +248,68 @@ fn t4_booking_period_correction_matches_python_including_history() {
     assert!(diffs.is_empty(), "{diffs:?}");
 }
 
+/// 저장된 이용기간을 Python `verified_period_for`의 `YYYY-MM-DD~YYYY-MM-DD`(모르면 빈 문자열) 표기로.
+fn stored_period(core: &Path, tid: &str) -> String {
+    let conn = Connection::open(core).unwrap();
+    let json: String = conn
+        .query_row(
+            "SELECT service_period_json FROM decisions WHERE transaction_id=?",
+            [tid],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let period: Value = serde_json::from_str(&json).unwrap();
+    match period["kind"].as_str() {
+        Some("known") => format!(
+            "{}~{}",
+            period["starts_on"].as_str().unwrap(),
+            period["ends_on"].as_str().unwrap()
+        ),
+        _ => String::new(),
+    }
+}
+
+#[test]
+fn t4_stored_period_with_context_periods_equals_python_verified_period() {
+    let p = pair("periods");
+    let opts: Value = serde_json::from_str(&p.opts).unwrap();
+    assert!(
+        opts["periods"].as_object().is_some_and(|m| !m.is_empty()),
+        "합성 시나리오가 근거를 만들어야 한다"
+    );
+    assert_eq!(p.python_targets, 2);
+    let (code, out) = run_rust(&p, &p.digest);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["written"], 2, "{out}");
+    let diffs = tables_differ(&dump(&p.python_db), &dump(&p.rust_db));
+    let mut checked = 0;
+    for (tid, expected) in opts["expected_periods"].as_object().unwrap() {
+        let expected = expected.as_str().unwrap();
+        let stored = stored_period(&core_path(&p), tid);
+        println!("T4 periods {tid}: python={expected:?} rust={stored:?}");
+        assert_eq!(stored, expected, "{tid}");
+        checked += 1;
+    }
+    assert_eq!(checked, 2);
+    assert_eq!(
+        opts["expected_periods"]["p1"], "2026-10-01~2026-10-03",
+        "근거가 있는 거래는 기간이 있어야 한다"
+    );
+    assert_eq!(
+        opts["expected_periods"]["p2"], "",
+        "근거가 없는 거래는 모름이어야 한다"
+    );
+    println!("T4 periods: rust={out} table_diffs={diffs:?}");
+    assert!(diffs.is_empty(), "{diffs:?}");
+    // 같은 근거로 다시 실행하면 판정 재저장도 없다(근거 digest 동일).
+    let before = dump(&core_path(&p));
+    let (code, again) = run_rust(&p, &fresh_digest(&p));
+    assert_eq!(code, 0, "{again}");
+    assert_eq!(again["written"], 0, "{again}");
+    assert_eq!(again["backfilled"], 0, "{again}");
+    assert_eq!(dump(&core_path(&p)), before);
+}
+
 #[test]
 fn unjudgeable_targets_are_not_published() {
     let p = pair("unattributable");
