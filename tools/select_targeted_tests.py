@@ -89,16 +89,18 @@ def validate_test_target(target):
 
 def changed_paths(base):
     result = subprocess.run(
-        ["git", "diff", "--name-only", "-z", "--diff-filter=ACMRD", f"{base}...HEAD"],
-        cwd=ROOT, check=True, capture_output=True, text=True,
+        ["git", "-c", "core.quotepath=false", "diff", "--name-only", "-z", "--diff-filter=ACMRD",
+         f"{base}...HEAD"],
+        cwd=ROOT, check=True, capture_output=True, text=True, encoding="utf-8",
     )
     return [path for path in result.stdout.split('\0') if path]
 
 
 def deleted_paths(base):
     result = subprocess.run(
-        ["git", "diff", "--name-only", "-z", "--diff-filter=D", f"{base}...HEAD"],
-        cwd=ROOT, capture_output=True, text=True,
+        ["git", "-c", "core.quotepath=false", "diff", "--name-only", "-z", "--diff-filter=D",
+         f"{base}...HEAD"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
     )
     if result.returncode:
         return set()  # fail closed: nothing is treated as deleted
