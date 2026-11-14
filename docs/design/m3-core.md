@@ -222,6 +222,8 @@ M3 동안 코어는 운영 DB를 **`mode=ro` + `PRAGMA query_only=ON`의 짧은 
    - **연결 단계**도 같은 방식으로 비교한다: B는 다리 `links` 명령이 낸 Python 환불 짝·환불 묶음 판정·OTA 대사 결과, C는 Rust 연결(U12~U14). 비교 대상은 **최종 연결**(카드↔사건·원결제↔취소 쌍, 상태, 묶음·성분 구성, 보류 여부)이며 후보 목록·거절 사유 코드·점유 집합 같은 중간 산출물은 비교하지 않는다(D-12). 연결 차이 유형 키는 연결 종류(`refund_number`·`refund_foreign`·`refund_amount_inferred`·`ota_exact`·`ota_mn_group`·`ota_undated_inferred`), 상태 전환(full/partial/excess/보류 사유), 성분 크기 전환이다.
 3. 비교는 B↔C가 회귀 판정, A↔C는 참고(전환 시 실제로 바뀔 행 수)다. 결과는 `shadow_diffs`에 **유형 키**(필드, 이전 출처, 항목 전환 어휘, 귀속 종류 전환)와 건수로만 남긴다. 유형 키는 `tools/quarter_review/eval_cases.py:117-146`의 허용 목록 방식(`validate_public`)을 그대로 따른다. 거래 ID·금액·가맹점은 보호 경로의 비공개 파일에만 둔다(`SPEC.md:397`).
 4. 설명된 차이는 `config/core-known-diffs.txt`에 유형 키와 근거(규칙집 ID 또는 `docs/policy/CODE_GAPS.md`의 줄)로 적는다. 형식과 운영은 `config/known-test-failures.txt:1-3`과 같다: **목록 밖 차이 1건이라도 있으면 실패, 목록에 있지만 사라진 차이는 '해소됨'으로 보고하고 줄을 지운다.**
+   - **종료 조건.** 연속 3개 배포 창에서 known-diffs 목록 밖 차이 0이고 목록 안 차이도 모두 해소되면 Python 재판정 대조를 끝내고, 같은 PR에서 대체된 Python 판정 경로와 그 경로에만 종속된 테스트를 삭제한다(금융 보호 검사는 Rust로 옮긴 뒤). 이후에는 DB 판정 열 대조만 남긴다.
+   - **성능.** 선택 거래만 읽기(관계 포함)는 전환 뒤 측정에서 전체 읽기가 문제로 확인될 때만 하며, 좁힌 결과가 전체 읽기 결과와 같음을 대조 검사로 먼저 확인한다.
    - 예: CODE_GAPS의 TRIP-044(겹치는 해외 여행의 사용 국가, `docs/policy/CODE_GAPS.md:13`)처럼 **규칙집이 맞고 Python이 틀린** 곳을 Rust가 규칙집대로 구현하면 B↔C 차이가 생긴다. 이 차이는 해당 규칙 ID와 함께 목록에 올리고, 평가 사례(§4.4)에서 Rust가 더 맞음을 보여야 한다.
 
 **운영 전환은 두 번이다**(D-11, 2026-11-14).

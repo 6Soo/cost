@@ -14,6 +14,7 @@
 - Rust 쓰기 순서: `BEGIN IMMEDIATE` → 계획 재생성·digest 대조(다르면 `CLASSIFICATION_PREVIEW_STALE`) → 목표마다 `core.sqlite`의 `decisions`(+`decision_history`)에 Decision 저장 → **저장된 행에서** 화면 열 도출 → `transactions`·`ledger_entries`·`board_rows`·`board_revisions`·`change_log` 쓰기. 두 파일은 `ATTACH` 한 트랜잭션이다. 운영 `board.sqlite`는 WAL, `core.sqlite`는 롤백 저널이라 파일별로 커밋되고 **board가 먼저** 커밋된다. 두 커밋 사이에 중단되면 화면 열은 채워졌는데 `decisions`가 없는 거래가 남는다(아래 "실패와 복구"). 같은 입력으로 다시 실행하면 쓰기는 0건이다.
 - 게시하지 않는 것: `Protected`·`Preserved` 판정의 목표(귀속 불가, 완료 기간 등)와, 저장된 판정에서 도출한 화면 열이 계획 값과 다른 목표. 출력 `skipped_unjudged`·`skipped_mismatch`로 센다. **Python은 귀속 불가 행에 `unclassified`를 쓰지만 Rust는 쓰지 않는다**: 이 차이는 의도이며, 실데이터 그림자에서 나오면 운영 담당이 `core/known-diffs.txt`에 근거와 함께 올린다(C1 측정 때 결정).
 - 이용기간: 판정에 이용기간(`service_period`)을 저장한다(`decisions.service_period_json`, 읽기 인터페이스 `store::decisions::stored_period`, Python `app.core_writer.stored_service_period`). **1차 전환 뒤 장부 화면·붙여넣기 묶음·장부 복사·시트 대사는 저장된 이용기간을 읽고, 렌더 시점에 다시 계산하지 않는다.** **전환 선행 조건: `app.core_writer`가 Python 다리 `periods` 출력을 `costcore apply`의 `context.periods`로 넘기도록 배선됨 — 충족(PR #898).** `automatic_classification.apply`가 작성자 rust일 때 `core_writer.periods_for`로 근거를 만들어 넘긴다. 근거 생성은 OTA 대조(운영 자료에서 약 10분)를 입력 키(`ota_payment_review.current_input_key`에서 apply가 쓰는 판정 열과 `revision`을 뺀 값)·수동 이용기간 덮어쓰기·다리 열 목록이 같으면 건너뛰므로 apply 자신의 쓰기로는 캐시가 깨지지 않고, 장부 화면이 읽는 `ota-snapshot.json`은 디스크에 이벤트·카드 원자료가 없어 재사용할 수 없다. 캐시가 비었을 때의 근거 생성은 `complete_scope`에서 보드 잠금 밖에서 먼저 하고(잠금 안에서는 만들어 둔 근거를 넘기기만 한다), 그 밖의 호출 경로는 apply 안에서 만든다. `core.sqlite` 옆 `period-facts.json`의 파생 사실을 재사용하며, Rust는 근거 digest가 바뀐 거래만 재판정한다. 근거를 만들지 못하면 apply는 실패한다(전부 "모름"으로 쓰지 않는다). 첫 apply는 OTA 대조 때문에 오래 걸릴 수 있다. `--backfill-decisions`는 Python이 분류한 모든 행 중 화면 열이 계획과 같은 행의 `decisions`를 채우므로 출력 `backfilled` 건수가 매우 클 수 있다(첫 실행은 정상).
+- 전환 선행 조건: cleanup worker도 잠금 밖 근거 생성·잠금 안 키 비교(이 PR) — `_prepare_sweep`이 `periods_with_key`를 두 잠금 밖에서 만들고, 잠금 안에서 `periods_key`가 같을 때만 `apply(..., periods=...)`를 부른다. 다르면 잠금을 놓고 1회 재생성하며, 그래도 다르면 `CLASSIFICATION_PREVIEW_STALE`로 그 작업만 실패한다(apply 미호출). 작성자가 python이면 근거를 만들지 않는다. 같은 방식이 아직 없는 호출처: `correct_recorded_booking_periods`(apply 안에서 근거 생성), `tools/complete_card_classification.py`.
 
 ## 입력(시작 조건)
 
@@ -22,6 +23,8 @@
 3. 경로 `D:/WebLedgerHost/data/core.sqlite`가 있고 `costcore` 이관이 최신 버전이다.
 
 ## 단계
+
+공통 주의: 배포·반영 창 동안 그림자 분석·자료 생성·전체 검사 등 무거운 작업을 돌리지 않고, Worker의 mail-collect는 창 동안 멈춘다(OTA 근거 재기록 수정 전까지 특히).
 
 1. **소유자 승인 지점 ①** — C1·C2 측정 결과와 이 절차를 소유자(정책 수준 결정)가 승인한다. 승인 없이 2단계로 가지 않는다.
 2. **C3 신선 백업·복원 확인**: `board.sqlite`와 `core.sqlite`를 신선 백업하고 복원 확인(`SPEC.md:383`). 백업은 `D:/WebLedgerHost/data/backups/`. 복원 확인 전에 진행하지 않는다.

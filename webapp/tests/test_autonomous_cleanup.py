@@ -535,3 +535,40 @@ def test_autonomous_status_skips_identical_writes_until_heartbeat(setup, monkeyp
     worker.status['state'] = 'running'
     worker._publish()
     assert json.loads(path.read_text(encoding='utf-8'))['state'] == 'running'
+
+
+def _rust_cleanup(setup, monkeypatch, keys):
+    """A rust-writer sweep with a due job; `keys` feeds successive periods_key values."""
+    from app import automatic_classification, core_writer
+    board = setup
+    batch, rows = receive(board, 1)
+    ids = make_weak_rows(board, batch, rows, create_trip(board))
+    log = []
+    monkeypatch.setattr(core_writer, 'selected', lambda: 'rust')
+    monkeypatch.setattr(core_writer, 'periods_with_key',
+                        lambda conn, lock=None: (log.append(('build', board._lock._is_owned())) or ({'built': len(log)}, 'k0')))
+    feed = iter(keys)
+    monkeypatch.setattr(core_writer, 'periods_key', lambda conn, lock=None: next(feed))
+    monkeypatch.setattr(automatic_classification, 'apply',
+                        lambda conn, plan, trips, **kw: log.append(('apply', kw.get('periods'))))
+    return board, ids, log
+
+
+def test_rust_cleanup_builds_period_evidence_outside_the_locks_and_passes_it_to_apply(setup, monkeypatch):
+    board, ids, log = _rust_cleanup(setup, monkeypatch, ['k0'])
+    AutonomousCleanupWorker(board, board._lock, provider=None).sweep_once()
+    assert log == [('build', False), ('apply', {'built': 1})]
+
+
+def test_rust_cleanup_rebuilds_once_when_the_key_moved_then_applies(setup, monkeypatch):
+    board, ids, log = _rust_cleanup(setup, monkeypatch, ['moved', 'k0'])
+    AutonomousCleanupWorker(board, board._lock, provider=None).sweep_once()
+    assert log == [('build', False), ('build', False), ('apply', {'built': 2})]
+
+
+def test_rust_cleanup_fails_the_job_without_apply_when_the_key_keeps_moving(setup, monkeypatch):
+    board, ids, log = _rust_cleanup(setup, monkeypatch, ['moved', 'moved2'])
+    AutonomousCleanupWorker(board, board._lock, provider=None).sweep_once()
+    assert [entry[0] for entry in log] == ['build', 'build']
+    job = load_job(board.conn, ids[0])
+    assert (job['status'], job['reason']) == ('ai_retry', 'p1_ValueError')
