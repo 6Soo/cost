@@ -244,6 +244,16 @@ pub fn migrate(conn: &mut Connection) -> Result<u32, StoreError> {
     current_version(conn)
 }
 
+/// `core.sqlite`를 없으면 만들고 최신 버전까지 이관한다. `(이관 전 버전, 이관 후 버전)`을 돌려준다.
+/// 코드보다 높은 버전이면 `SchemaTooNew`이며 낮추지 않는다.
+pub fn migrate_file(path: &std::path::Path) -> Result<(u32, u32), StoreError> {
+    let mut conn = Connection::open(path)?;
+    conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+    let from = current_version(&conn)?;
+    let to = migrate(&mut conn)?;
+    Ok((from, to))
+}
+
 /// 설정으로 받은 경로의 `core.sqlite`를 열고 이관한다. 기본 경로는 코어가 정하지 않는다.
 pub fn open_core(path: &std::path::Path) -> Result<Connection, StoreError> {
     let mut conn = Connection::open(path)?;

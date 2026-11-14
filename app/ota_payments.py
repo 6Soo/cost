@@ -2017,9 +2017,12 @@ def _assemble_ota_match_results(context):
                                                          if row.get("transaction_id") in reserved_partial}),
                                reason="card_reserved_by_partial_or_ambiguous_group"))
             continue
-        free = [row for row in options if row["transaction_id"] not in claimed]
+        assigned_cards = set(singleton_selected.values()) - {singleton_selected.get(identity)}
         if identity in singleton_selected:
             free = [row for row in options if row["transaction_id"] == singleton_selected[identity]]
+        else:
+            free = [row for row in options if row["transaction_id"] not in claimed and
+                    row["transaction_id"] not in assigned_cards]
         competing = False
         if not options:
             blocked_candidates = [row for row in raw_options.get(str(identity), ())

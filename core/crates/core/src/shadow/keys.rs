@@ -167,6 +167,13 @@ pub fn actor_label(kind: ActorKind) -> &'static str {
 /// 키 하나가 허용 목록 안인지 검사한다. 밖이면 `PublicValueNotAllowed`.
 pub fn validate_key(key: &str) -> Result<(), ShadowError> {
     let parts: Vec<&str> = key.split('|').collect();
+    if super::links::is_link_key(key) {
+        return if super::links::link_key_ok(&parts) {
+            Ok(())
+        } else {
+            Err(ShadowError::PublicValueNotAllowed)
+        };
+    }
     let ok = parts.len() == 4
         && PAIRS.contains(&parts[0])
         && FIELDS.contains(&parts[1])

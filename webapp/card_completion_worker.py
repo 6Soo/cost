@@ -158,6 +158,16 @@ class CardCompletionWorker:
     @active_writer(default=False)
     @refund_evidence_scope()
     def sweep_once(self):
+        from app import core_writer
+        if core_writer.selected() == 'rust':
+            # Build the period evidence before taking any lock, and only when there is work.
+            with self.board._lock:
+                busy = bool(candidates(self.board.conn))
+            if busy:
+                return core_writer.prepared(self.board, self._sweep_once)
+        return self._sweep_once()
+
+    def _sweep_once(self):
         from .card_flow import CardFlow
         from .card_classification_completion import context
         from . import ota_payment_review

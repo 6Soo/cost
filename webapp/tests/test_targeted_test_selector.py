@@ -181,3 +181,40 @@ def test_rf001_call_map_paths_have_a_specific_test_target():
     ], config['groups'])
     assert unknown == []
     assert 'tests/test_refactor_call_map.py' in targets
+
+
+def test_selector_reads_korean_paths_without_pythonutf8(tmp_path):
+    import json
+    import os
+    import subprocess
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    run = lambda *a: subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Synthetic', '-c',
+                                     'user.email=synthetic@example.invalid', *a], check=True,
+                                    capture_output=True, text=True, encoding='utf-8')
+    run('init', '-q')
+    (repo / 'tools').mkdir()
+    (repo / 'config').mkdir()
+    (repo / 'tests').mkdir()
+    script = repo / 'tools' / 'select_targeted_tests.py'
+    script.write_text(SCRIPT.read_text(encoding='utf-8'), encoding='utf-8')
+    (repo / 'config' / 'test-impact-map.json').write_text(json.dumps({
+        'schema': 'cost-test-impact-map-v1',
+        'groups': [{'name': 'synthetic', 'paths': ['known.py'], 'tests': ['tests/safe.py']}],
+        'safe_fallback_tests': ['tests/safe.py'],
+    }), encoding='utf-8')
+    (repo / 'tests' / 'safe.py').write_text('def test_safe(): pass\n', encoding='utf-8')
+    run('add', '.')
+    run('commit', '-qm', 'initial')
+    base = run('rev-parse', 'HEAD').stdout.strip()
+    (repo / 'known.py').write_text('VALUE = 1\n', encoding='utf-8')
+    (repo / '한글경로.py').write_text('VALUE = 2\n', encoding='utf-8')
+    run('add', '.')
+    run('commit', '-qm', 'change')
+    env = {k: v for k, v in os.environ.items() if k not in ('PYTHONUTF8', 'PYTHONIOENCODING')}
+    env['PYTHONIOENCODING'] = 'utf-8'
+    proc = subprocess.run([__import__('sys').executable, str(script), '--base', base], cwd=repo,
+                          capture_output=True, text=True, encoding='utf-8', env=env)
+    payload = json.loads(proc.stdout)
+    assert payload['status'] == 'UNKNOWN_IMPACT'
+    assert payload['unknown_files'] == ['한글경로.py']

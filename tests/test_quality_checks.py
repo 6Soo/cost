@@ -289,6 +289,72 @@ def test_unknown_path_without_any_test_fails_closed(tmp_path):
         quality.build_plan(["new/product_area.py"], selector(["new/product_area.py"], "UNKNOWN_IMPACT"), root=tmp_path)
 
 
+def _git_repo_with_deletion(tmp_path, monkeypatch, *, delete, add=()):
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    for name in ("gone/old.py", "app/mapped.py"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
+                          capture_output=True, text=True).stdout.strip()
+    for name in delete:
+        (tmp_path / name).unlink()
+    for name in add:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("y = 2\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "change")
+    monkeypatch.setattr(selector_tool, "ROOT", tmp_path)
+    return base
+
+
+def _selector_with_map(tmp_path, monkeypatch, base, capsys):
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    for name in ("test_a.py", "test_b.py"):
+        (tmp_path / "tests" / name).write_text("", encoding="utf-8")
+    impact = tmp_path / "map.json"
+    impact.write_text(json.dumps({
+        "schema": "cost-test-impact-map-v1", "safe_fallback_tests": ["tests/test_b.py"],
+        "groups": [{"name": "g", "paths": ["app/mapped.py"], "tests": ["tests/test_a.py"]}],
+    }), encoding="utf-8")
+    monkeypatch.setattr(selector_tool, "MAP_PATH", impact)
+    code = selector_tool.main(["--base", base])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_deleted_unmapped_only_diff_is_not_unknown_impact(tmp_path, monkeypatch, capsys):
+    base = _git_repo_with_deletion(tmp_path, monkeypatch, delete=["gone/old.py"])
+    code, payload = _selector_with_map(tmp_path, monkeypatch, base, capsys)
+    assert code == 0 and payload["unknown_files"] == []
+    assert payload["deleted_unmapped_files"] == ["gone/old.py"]
+    (tmp_path / "tests" / "test_quality_checks.py").write_text("", encoding="utf-8")
+    plan = quality.build_plan(["gone/old.py"], payload, root=tmp_path)
+    assert plan["status"] == "SELECTED"
+    assert plan["pytest_targets"] == ["tests/test_quality_checks.py"]
+
+
+def test_deleted_mapped_file_still_selects_its_group(tmp_path, monkeypatch, capsys):
+    base = _git_repo_with_deletion(tmp_path, monkeypatch, delete=["app/mapped.py"])
+    code, payload = _selector_with_map(tmp_path, monkeypatch, base, capsys)
+    assert code == 0 and payload["unknown_files"] == []
+    assert payload["deleted_unmapped_files"] == []
+    assert payload["pytest_commands"][0][3:-1] == ["tests/test_a.py"]
+
+
+def test_added_unmapped_file_is_still_unknown_impact(tmp_path, monkeypatch, capsys):
+    base = _git_repo_with_deletion(tmp_path, monkeypatch, delete=["gone/old.py"],
+                                   add=["new/product.py"])
+    code, payload = _selector_with_map(tmp_path, monkeypatch, base, capsys)
+    assert code == 2 and payload["unknown_files"] == ["new/product.py"]
+    with pytest.raises(ValueError, match="UNKNOWN_IMPACT:1"):
+        quality.build_plan(["gone/old.py", "new/product.py"], payload, root=tmp_path)
+
+
 def test_documentation_check_rejects_broken_local_link(tmp_path):
     doc = tmp_path / "docs/change.md"
     doc.parent.mkdir()
@@ -625,3 +691,31 @@ def test_cargo_target_dir_is_per_worktree_on_windows(monkeypatch, tmp_path):
         result = quality.run_cargo_steps(log, root=work)
     assert result["target_dir"] == str(tmp_path / "cargo-target" / "wt-a")
     assert set(seen) == {result["target_dir"]}
+
+
+def test_quality_run_records_policy_and_guard_changes_without_failing(tmp_path, capsys):
+    from unittest.mock import patch
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if command[0] == "git":
+            return subprocess.CompletedProcess(
+                command, 0, "config/tracked-data-policy.json\ntools/check_tracked_data.py\nREADME.md\n", "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text('<testsuite><testcase classname="s" name="ok"/></testsuite>',
+                               encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
+    assert result == 0
+    summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
+    assert summary["policy_changed"] is True
+    assert summary["policy_changed_files"] == [
+        "config/tracked-data-policy.json", "tools/check_tracked_data.py"]
+    assert "정책·가드 변경 — opus 검수 필요" in capsys.readouterr().out

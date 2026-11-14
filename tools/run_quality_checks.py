@@ -40,6 +40,19 @@ def _git(args: list[str], *, root: Path = ROOT) -> str:
     return result.stdout.strip()
 
 
+GATE_FILES = ("config/tracked-data-policy.json", "tools/check_tracked_data.py",
+              "tools/run_quality_checks.py")
+
+
+def gate_changes(base_sha: str, *, root: Path = ROOT) -> list[str]:
+    """Gate files differing from base, computed here so a PR cannot hide its own change."""
+    try:
+        names = _git(["-c", "core.quotepath=false", "diff", "--name-only", base_sha], root=root).splitlines()
+    except Exception:
+        return ["DIFF_UNAVAILABLE"]
+    return sorted(set(names) & set(GATE_FILES))
+
+
 def changed_paths(base: str, head: str, *, root: Path = ROOT) -> list[str]:
     # -z preserves unusual filenames; ACMRD includes deleted and renamed paths.
     result = subprocess.run(
@@ -86,6 +99,9 @@ def build_plan(paths: list[str], selector_payload: dict, *, root: Path = ROOT) -
         # Unknown product changes require an explicit impact-map entry; never run
         # hundreds of unrelated tests or report a skipped route as a pass.
         raise ValueError(f"UNKNOWN_IMPACT:{len(unknown)}")
+    if not targets:
+        # Only unmapped deletions: run the gate's own tests so 0 cases never counts as a pass.
+        targets.add("tests/test_quality_checks.py")
     rust_required = any(p.startswith(CORE_DIR + "/") for p in normalized)
     if qa_unknown:
         targets.add("tests/test_quality_checks.py")
@@ -384,6 +400,7 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
         log_path.write_text(guard.stdout + "\n" + guard.stderr, encoding="utf-8")
         print("DATA_GUARD_FAILED", file=sys.stderr)
         return 1
+    gate_changed = gate_changes(base_sha, root=root)
 
     py_targets = sorted(p for p in {t.split("::", 1)[0] for t in targets}
                         if p.endswith(".py") and (root / p).is_file())
@@ -443,10 +460,13 @@ def _write_run_artifacts(targets: list[str], browser_tests: list[str], base_sha:
                "junit_error_count": junit_result["error_count"],
                "pytest_exit_code": tests.returncode, "compile_exit_code": compile_result.returncode,
                "pytest_targets": targets, "rust_required": rust_required,
-               "cargo": cargo_result}
+               "cargo": cargo_result,
+               "policy_changed": bool(gate_changed), "policy_changed_files": gate_changed}
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(log_path.read_text(encoding="utf-8"), end="")
     print(f"알려진 실패 {failure_classification['known_failure_count']}건")
+    if gate_changed:
+        print("정책·가드 변경 — opus 검수 필요: " + ", ".join(gate_changed))
     if failure_classification["resolved_known_test_cases"]:
         print(f"해소됨 {len(failure_classification['resolved_known_test_cases'])}건")
     if failure_classification["new_failed_test_cases"]:

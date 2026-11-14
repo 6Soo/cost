@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing, contextmanager, nullcontext
+from contextvars import ContextVar
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,6 +134,60 @@ def periods_key(conn, lock=None) -> str:
 def periods_for(conn, lock=None) -> dict:
     """The facts of `periods_with_key` (the caller passes them to `apply`)."""
     return periods_with_key(conn, lock)[0]
+
+class PeriodsStale(ValueError):
+    """The evidence inputs changed after the evidence was built (same code as a stale preview)."""
+
+    def __init__(self):
+        super().__init__('CLASSIFICATION_PREVIEW_STALE')
+
+
+_PREPARED: ContextVar = ContextVar('core_writer_prepared_periods', default=None)
+
+
+def prepared(board, work):
+    """Run `work()` with the period evidence built first, before any board lock or write transaction.
+
+    Entry points that hold the board lock or open a transaction call this around themselves; the evidence build
+    (minutes when the cache is cold) then never runs inside a lock. `run_with_periods` below, called inside
+    `work`, only compares the key under the lock. A changed key rebuilds once, then raises `PeriodsStale`.
+    Python writer: `work()` runs unchanged and nothing is computed.
+    """
+    if selected() != 'rust' or _PREPARED.get() is not None:
+        return work()
+    for _ in (0, 1):
+        built = periods_with_key(board.conn, board._lock)
+        token = _PREPARED.set(built)
+        try:
+            return work()
+        except PeriodsStale:
+            continue
+        finally:
+            _PREPARED.reset(token)
+    raise PeriodsStale()
+
+
+def run_with_periods(board, work):
+    """`work(periods)` with the board lock held and `periods` still matching the inputs (None for the Python writer).
+
+    Inside `prepared` the evidence already exists. Without it (a caller not yet lifted) the evidence is built here
+    first, outside the lock if the caller holds none, and rebuilt once if the key moved.
+    """
+    if selected() != 'rust':
+        with board._lock:
+            return work(None)
+    built = _PREPARED.get()
+    if built is not None:
+        with board._lock:
+            if periods_key(board.conn) != built[1]:
+                raise PeriodsStale()
+            return work(built[0])
+    for _ in (0, 1):
+        facts, key = periods_with_key(board.conn, board._lock)
+        with board._lock:
+            if periods_key(board.conn) == key:
+                return work(facts)
+    raise PeriodsStale()
 
 def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
