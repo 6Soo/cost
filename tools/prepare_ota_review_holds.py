@@ -1,4 +1,4 @@
-"""이번에 검토한 OTA 보류 16건을 기존 거래 변경 없이 저장한다. 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
+"""이번에 검토한 OTA 보류 16건을 기존 거래 변경 없이 저장한다."""
 import datetime,json,sqlite3,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))

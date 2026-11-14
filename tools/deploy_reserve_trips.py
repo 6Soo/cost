@@ -1,4 +1,4 @@
-"""기존 유지보수 실행에서 원본 보존과 재실행 검증 후 여행 동기화를 켠다. 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
+"""기존 유지보수 실행에서 원본 보존과 재실행 검증 후 여행 동기화를 켠다."""
 import datetime as dt
 import json
 import os
