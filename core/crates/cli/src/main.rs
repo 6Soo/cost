@@ -8,10 +8,13 @@ use std::process::ExitCode;
 
 use cost_core::apply::{ApplyError, ApplyRequest, apply, open_board_writable, utc_now};
 use cost_core::bridge::{BridgeError, PythonBridge};
+use cost_core::links::ota::Defaults;
+use cost_core::links::refund::PairingConfig;
 use cost_core::period;
 use cost_core::pipeline::{
     PipelineError, PlanRequest, links_from, reject_live_db, run_plan, targets_json,
 };
+use cost_core::shadow::links::{judge_links, run_ota, run_refund};
 use cost_core::shadow::{
     PlanEngine, RustEngine, ShadowError, parse_known_diffs, run_shadow, write_private_lines,
 };
@@ -114,12 +117,13 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("shadow") => finish(shadow(&args[1..]), "status"),
+        Some("shadow-links") => finish(shadow_links(&args[1..]), "status"),
         Some("plan") => finish(plan(&args[1..]), "ok"),
         Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
         Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
         Some("periods") => finish(periods(&args[1..]), "ok"),
         Some(_) => {
-            eprintln!("usage: costcore <shadow|plan|apply|rejudge|periods> ...");
+            eprintln!("usage: costcore <shadow|shadow-links|plan|apply|rejudge|periods> ...");
             ExitCode::from(2)
         }
     }
@@ -162,7 +166,7 @@ impl Flags {
                     flags.switches.push(arg.clone())
                 }
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
-                | "--repo-root" | "--digest" | "--now" | "--core" | "--periods" => {
+                | "--repo-root" | "--digest" | "--now" | "--core" | "--periods" | "--ota-input" => {
                     let value = iter.next().ok_or(CliError::UsageInvalid)?;
                     flags.values.push((arg.clone(), value.clone()));
                 }
@@ -217,6 +221,65 @@ fn shadow(args: &[String]) -> Result<(u8, Value), CliError> {
         public["private_details"] = json!(lines.len());
     }
     Ok((u8::from(!outcome.report.passed()), public))
+}
+
+/// `costcore shadow-links [--db COPY] [--ota-input FILE] [--private-out PATH]`: 2차 전환 C1의 연결 그림자.
+/// 환불 짝은 사본 DB(`--db`)에서, OTA 연결은 풀이기 입력 파일에서 Python 다리 `links`와 Rust 연결을 비교한다.
+/// 둘 중 하나는 있어야 한다. 목록 밖 차이가 있으면 종료 코드 1이다. 공개 출력은 유형 키와 건수뿐이다.
+fn shadow_links(args: &[String]) -> Result<(u8, Value), CliError> {
+    let flags = Flags::parse(args)?;
+    let db = flags.get("--db").map(PathBuf::from);
+    let ota_input = flags.get("--ota-input").map(PathBuf::from);
+    if db.is_none() && ota_input.is_none() {
+        return Err(CliError::UsageInvalid);
+    }
+    let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
+    let repo = PathBuf::from(flags.get("--repo-root").unwrap_or("."));
+    let known_path = flags
+        .get("--known-diffs")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo.join("core").join("known-diffs.txt"));
+    if let Some(db) = &db {
+        reject_live_db(db, &host)?;
+    }
+    let private_out = match flags.get("--private-out") {
+        Some(path) => Some(cost_core::shadow::ensure_private_path(
+            &PathBuf::from(path),
+            &host,
+        )?),
+        None => None,
+    };
+    let known = parse_known_diffs(&std::fs::read_to_string(&known_path)?)?;
+    let python = python_bridge(&flags);
+    let config_json = |name: &str| std::fs::read_to_string(repo.join("config").join(name));
+    let refund = match &db {
+        Some(db) => {
+            let config = PairingConfig::from_json(&config_json("refund-pairing.json")?)
+                .map_err(|_| ShadowError::ConfigInvalid)?;
+            Some(run_refund(db, &python, &config)?)
+        }
+        None => None,
+    };
+    let ota = match &ota_input {
+        Some(path) => {
+            let input: Value = serde_json::from_str(&std::fs::read_to_string(path)?)
+                .map_err(|_| CliError::PlanResponseInvalid)?;
+            let defaults: Value = serde_json::from_str(&config_json("ota-matching-defaults.json")?)
+                .map_err(|_| ShadowError::ConfigInvalid)?;
+            let defaults =
+                Defaults::from_value(&defaults).map_err(|_| ShadowError::ConfigInvalid)?;
+            Some(run_ota(&input, &python, &defaults)?)
+        }
+        None => None,
+    };
+    let report = judge_links(refund, ota, &known);
+    let mut public = report.public_json()?;
+    if let Some(path) = private_out {
+        let lines = report.private_lines();
+        write_private_lines(&path, &host, &lines)?;
+        public["private_details"] = json!(lines.len());
+    }
+    Ok((u8::from(!report.passed()), public))
 }
 
 /// `costcore plan --db PATH`: 표준 입력의 JSON(선택)을 요청에 합쳐 Rust 엔진 결과를 낸다.
