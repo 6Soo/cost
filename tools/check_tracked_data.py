@@ -6,6 +6,11 @@ Use --source-references to scan only tracked Python under app/, webapp/, tools/,
 ledger/domain/, and known root launchers. It compares exact path literals with
 Git metadata paths; dynamic/indirect use remains UNKNOWN and UNVERIFIED.
 This is a candidate scan, not proof of active use or sensitivity safety.
+
+Policy changes: base mode judges against config/tracked-data-policy.json as committed
+at the base revision, so a PR cannot loosen the policy and delete protected files at
+once. Merge the policy-change PR first (it must not delete protected files), then delete
+in a separate PR. run_quality_checks.py records policy/guard changes in run-summary.json.
 """
 from __future__ import annotations
 import argparse

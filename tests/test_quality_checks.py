@@ -691,3 +691,31 @@ def test_cargo_target_dir_is_per_worktree_on_windows(monkeypatch, tmp_path):
         result = quality.run_cargo_steps(log, root=work)
     assert result["target_dir"] == str(tmp_path / "cargo-target" / "wt-a")
     assert set(seen) == {result["target_dir"]}
+
+
+def test_quality_run_records_policy_and_guard_changes_without_failing(tmp_path, capsys):
+    from unittest.mock import patch
+
+    def run(command, **kwargs):
+        if any("check_tracked_data.py" in str(arg) for arg in command):
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "schema_version": 1, "blocked_count": 0, "files": []}), "")
+        if command[0] == "git":
+            return subprocess.CompletedProcess(
+                command, 0, "config/tracked-data-policy.json\ntools/check_tracked_data.py\nREADME.md\n", "")
+        if "py_compile" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        junit = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+        Path(junit).write_text('<testsuite><testcase classname="s" name="ok"/></testsuite>',
+                               encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with patch.object(quality.subprocess, "run", side_effect=run):
+        result = quality._write_run_artifacts([], [], "a" * 40, "b" * 40,
+                                              head_tree_sha="c" * 40, root=tmp_path)
+    assert result == 0
+    summary = json.loads((tmp_path / "quality-artifacts/run-summary.json").read_text(encoding="utf-8"))
+    assert summary["policy_changed"] is True
+    assert summary["policy_changed_files"] == [
+        "config/tracked-data-policy.json", "tools/check_tracked_data.py"]
+    assert "정책·가드 변경 — opus 검수 필요" in capsys.readouterr().out
