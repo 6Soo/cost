@@ -7,9 +7,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use super::StoreError;
+use crate::digest::python_json;
 use crate::domain::{ActorKind, Decision, ServicePeriod, UnknownPeriodReason};
 use crate::period::PERIOD_FN_VERSION;
-use crate::plan::python_json;
 
 /// 판정 출처 이름(`decisions.actor_kind` 값).
 pub fn actor_kind_name(kind: ActorKind) -> &'static str {

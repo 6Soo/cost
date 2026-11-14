@@ -5,10 +5,10 @@ use rusqlite::Connection;
 
 use super::projection::{ALLOWED_ITEMS_SQL, AUX_TABLES, TRANSACTION_FIELDS};
 use super::schema::{MIGRATIONS, TABLES};
-use super::source_map::{Mapped, SourceInput, map_source};
 use super::write_columns::*;
 use super::*;
 use crate::domain::ActorKind;
+use crate::domain::{Mapped, SourceInput, map_source};
 
 /// 임시 폴더(테스트 전용 합성 파일). 운영 경로를 쓰지 않는다.
 struct TempDir(PathBuf);
