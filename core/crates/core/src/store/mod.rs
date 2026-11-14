@@ -12,7 +12,7 @@ pub mod write_columns;
 mod tests;
 
 pub use error::StoreError;
-pub use plan_input::read_plan_input;
+pub use plan_input::{read_inside as read_plan_input_in, read_plan_input};
 pub use projection::{Projection, open_board_readonly, read_projection};
 pub use schema::{current_version, latest_version, migrate, open_core};
 pub use source_map::{Mapped, Mapping, SourceInput, map_source};

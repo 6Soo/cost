@@ -273,7 +273,17 @@ fn only_a_changed_basis_selects_a_stored_transaction_for_rejudging() {
     let facts = BTreeMap::from([("syn-t1".to_owned(), candidate(fact(json!({}))))]);
     let decision = decided(&hotel, &facts, "syn-t1");
     let digests = digests_for(&hotel, &facts);
-    save_decision(&conn, &decision, &digests["syn-t1"], "2026-11-14T00:00:00Z").unwrap();
+    save_decision(
+        &conn,
+        "main",
+        &decision,
+        "inference",
+        &digests["syn-t1"],
+        1,
+        "2026-11-14T00:00:00Z",
+        "",
+    )
+    .unwrap();
 
     let stored = stored_digests(&conn).unwrap();
     assert!(
@@ -283,6 +293,7 @@ fn only_a_changed_basis_selects_a_stored_transaction_for_rejudging() {
     let period: Value =
         serde_json::from_str(&stored_period(&conn, "syn-t1").unwrap().unwrap()).unwrap();
     assert_eq!(period["starts_on"], "2026-10-01");
+    assert_eq!(period["kind"], "known", "저장 표기는 kind를 가진다");
     assert_eq!(stored_period(&conn, "syn-none").unwrap(), None);
 
     // 예약 사실이 바뀐 거래만 고른다.
@@ -314,7 +325,17 @@ fn only_a_changed_basis_selects_a_stored_transaction_for_rejudging() {
     // 다시 저장하면 이전 값이 이력에 남고 판정은 한 줄이다.
     let moved_digest = &digests_for(&hotel, &moved)["syn-t1"];
     let moved_decision = decided(&hotel, &moved, "syn-t1");
-    save_decision(&conn, &moved_decision, moved_digest, "2026-11-15T00:00:00Z").unwrap();
+    save_decision(
+        &conn,
+        "main",
+        &moved_decision,
+        "inference",
+        moved_digest,
+        1,
+        "2026-11-15T00:00:00Z",
+        "req-1",
+    )
+    .unwrap();
     let rows: i64 = conn
         .query_row("SELECT count(*) FROM decisions", [], |r| r.get(0))
         .unwrap();
@@ -326,10 +347,38 @@ fn only_a_changed_basis_selects_a_stored_transaction_for_rejudging() {
         )
         .unwrap();
     assert_eq!((rows, history), (1, 1));
+    // 같은 레코드를 다시 저장하면 쓰지 않는다. 이용기간은 같고 근거 digest만 달라져도 digest를 갱신한다.
+    let again = |digest: &str| {
+        save_decision(
+            &conn,
+            "main",
+            &moved_decision,
+            "inference",
+            digest,
+            1,
+            "2026-11-16T00:00:00Z",
+            "req-2",
+        )
+        .unwrap()
+    };
+    assert!(!again(moved_digest));
+    assert!(again("digest-only-change"));
+    assert_eq!(
+        stored_digests(&conn).unwrap()["syn-t1"],
+        "digest-only-change"
+    );
+    let request_ids: Vec<String> = conn
+        .prepare("SELECT request_id FROM decision_history WHERE transaction_id='syn-t1' ORDER BY history_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(request_ids, ["req-1", "req-2"]);
     drop(conn);
 
     let read_only = stored_digests_readonly(&path).unwrap();
-    assert_eq!(read_only["syn-t1"], *moved_digest);
+    assert_eq!(read_only["syn-t1"], "digest-only-change");
     assert!(
         stored_digests_readonly(&dir.0.join("absent.sqlite"))
             .unwrap()

@@ -1,155 +1,231 @@
-//! `core.sqlite`의 판정 저장(설계 §2.7). 판정과 이용기간을 근거 digest·함수 버전과 함께 저장하고,
+//! `core.sqlite`의 판정 저장(설계 §2.7). 쓰기는 `save_decision` 하나다(U11 적용이 유일한 호출자). 판정과 이용기간을 근거 digest·함수 버전과 함께 저장하고,
 //! 재판정은 digest·버전이 바뀐 거래만 고른다. 화면은 저장 값만 읽고 렌더 때 다시 계산하지 않는다.
 
 use std::collections::BTreeMap;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use super::StoreError;
-use crate::domain::{Actor, Decision, EvidenceKind, ServicePeriod, UnknownPeriodReason};
+use crate::domain::{ActorKind, Decision, ServicePeriod, UnknownPeriodReason};
 use crate::period::PERIOD_FN_VERSION;
+use crate::plan::python_json;
 
-fn actor_columns(actor: &Actor) -> (&'static str, String) {
-    match actor {
-        Actor::Manual { event } => ("manual", event.as_str().to_owned()),
-        Actor::P1Exact {
-            rule_id,
-            rule_version,
-        } => ("p1_exact", format!("{}@{rule_version}", rule_id.as_str())),
-        Actor::AiReview { run_id, .. } => ("ai_review", run_id.as_str().to_owned()),
-        Actor::P2 { run_id, .. } => ("p2", run_id.as_str().to_owned()),
-        Actor::P1Inferred {
-            rule_id,
-            rule_version,
-            ..
-        } => (
-            "p1_inferred",
-            format!("{}@{rule_version}", rule_id.as_str()),
-        ),
+/// 판정 출처 이름(`decisions.actor_kind` 값).
+pub fn actor_kind_name(kind: ActorKind) -> &'static str {
+    match kind {
+        ActorKind::Manual => "manual",
+        ActorKind::P1Exact => "p1_exact",
+        ActorKind::AiReview => "ai_review",
+        ActorKind::P2 => "p2",
+        ActorKind::P1Inferred => "p1_inferred",
     }
 }
 
-/// 이용기간의 저장 모양. 알면 `starts_on`·`ends_on`, 모르면 사유.
+/// 이용기간의 저장 모양(화면·붙여넣기·장부 복사·시트 대사와 Python `stored_service_period`가 읽는 표기).
+/// 알면 `{"kind":"known","starts_on","ends_on"}`, 모르면 `{"kind":"unknown","reason"}`.
 pub fn period_json(period: &ServicePeriod) -> Value {
     match period {
         ServicePeriod::Known { starts_on, ends_on } => {
-            json!({"starts_on": starts_on.to_string(), "ends_on": ends_on.to_string()})
+            json!({"kind": "known", "starts_on": starts_on.to_string(), "ends_on": ends_on.to_string()})
         }
-        ServicePeriod::Unknown { reason } => json!({"unknown": match reason {
-            UnknownPeriodReason::NoEvidence => "no_evidence",
-            UnknownPeriodReason::EvidenceAmbiguous => "evidence_ambiguous",
-            UnknownPeriodReason::NotApplicable => "not_applicable",
-        }}),
+        ServicePeriod::Unknown { reason } => {
+            let reason = match reason {
+                UnknownPeriodReason::NoEvidence => "no_evidence",
+                UnknownPeriodReason::EvidenceAmbiguous => "evidence_ambiguous",
+                UnknownPeriodReason::NotApplicable => "not_applicable",
+            };
+            json!({"kind": "unknown", "reason": reason})
+        }
     }
 }
 
-fn evidence_kind(kind: EvidenceKind) -> &'static str {
-    match kind {
-        EvidenceKind::ImportBatchRow => "import_batch_row",
-        EvidenceKind::OtaEvidence => "ota_evidence",
-        EvidenceKind::Receipt => "receipt",
-        EvidenceKind::Manual => "manual",
-    }
+/// 저장된 판정 행에서 도출한 화면 열 일곱 개(`FIELDS` 순서). 화면 열은 여기서만 도출한다.
+pub fn projection(
+    conn: &Connection,
+    schema: &str,
+    transaction_id: &str,
+) -> Result<Option<[String; 7]>, StoreError> {
+    let row: Option<(String, String, String, String, String)> = conn
+        .query_row(
+            &format!(
+                "SELECT actor_ref,basis,item,description,attribution FROM {schema}.decisions WHERE transaction_id=?"
+            ),
+            [transaction_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()?;
+    Ok(row.map(|(source, basis, item, description, attribution)| {
+        let a: Value = serde_json::from_str(&attribution).unwrap_or(Value::Null);
+        let text = |k: &str| a[k].as_str().unwrap_or_default().to_owned();
+        [
+            "classified".to_owned(),
+            source,
+            basis,
+            item,
+            description,
+            text("display_tab_id"),
+            text("trip_id"),
+        ]
+    }))
 }
 
-/// 판정 저장의 **유일한 쓰기 경로**다. 호출자는 U11 전환 도구의 적용(apply) 경로 하나이며, 그 경로가 `plan_with_periods`의
-/// `Decision`과 [`crate::period::current_digests`]의 digest를 함께 넘긴다. 이 PR은 저장 함수와 재판정 선택까지이고
-/// 적용 경로는 U11이 붙인다(그 전에는 시험만 호출한다). 다른 곳에서 `decisions`를 직접 쓰지 않는다.
+/// 저장하는 레코드(개정 번호·시각 제외). 같은 레코드면 쓰지 않는다.
+fn record(decision: &Decision, legacy_source: &str, evidence_digest: &str) -> Value {
+    let evidence: Vec<Value> = decision
+        .evidence()
+        .iter()
+        .map(|e| json!({"sha256": e.sha256.as_str(), "locator": e.locator}))
+        .collect();
+    let uncertainty: Vec<&str> = decision.uncertainty().iter().map(|u| u.as_str()).collect();
+    let policy: Vec<&str> = decision.policy_refs().iter().map(|p| p.as_str()).collect();
+    json!({
+        "actor_kind": actor_kind_name(decision.actor().kind()),
+        // 현 장부의 `classification_source` 값(화면 열 도출용).
+        "actor_ref": legacy_source,
+        "attribution": python_json(&json!({
+            "display_tab_id": decision.attribution().display_tab_id(),
+            "trip_id": decision.attribution().trip_id()})),
+        "item": decision.item().as_str(),
+        "description": decision.description(),
+        "service_period_json": python_json(&period_json(decision.service_period())),
+        "basis": decision.basis().as_str(),
+        "uncertainty_json": python_json(&json!(uncertainty)),
+        "policy_refs_json": python_json(&json!(policy)),
+        "evidence_ids_json": python_json(&Value::Array(evidence)),
+        "evidence_digest": evidence_digest,
+        "period_fn_version": PERIOD_FN_VERSION,
+    })
+}
+
+const RECORD_COLUMNS: [&str; 12] = [
+    "actor_kind",
+    "actor_ref",
+    "attribution",
+    "item",
+    "description",
+    "service_period_json",
+    "basis",
+    "uncertainty_json",
+    "policy_refs_json",
+    "evidence_ids_json",
+    "evidence_digest",
+    "period_fn_version",
+];
+
+/// 판정 저장의 **유일한 쓰기 경로**다. 호출자는 U11 적용(`crate::apply`) 하나이며 `plan_with_periods`의 `Decision`과
+/// [`crate::period::current_digests`]의 digest를 함께 넘긴다. 다른 곳에서 `decisions`를 직접 쓰지 않는다.
 ///
-/// 카드 거래 판정 하나를 거래 ID 키로 덮어써 저장한다. 같은 거래의 이전 값은 이력에 남긴다.
+/// 거래 ID 키로 덮어써 저장한다. 근거 digest·함수 버전은 새 행과 갱신 모두에 쓴다(안 그러면 재판정이 변경을 놓친다).
+/// 레코드가 같으면 아무것도 쓰지 않고 `false`. 이전 행이 있었으면 전후 레코드와 `request_id`를 이력에 남긴다.
+/// `schema`는 `decisions`가 있는 데이터베이스 이름(`main` 또는 ATTACH한 `core`).
+#[allow(clippy::too_many_arguments)]
 pub fn save_decision(
     conn: &Connection,
+    schema: &str,
     decision: &Decision,
+    legacy_source: &str,
     evidence_digest: &str,
-    decided_at: &str,
-) -> Result<(), StoreError> {
-    let (Some(tid), Some(source_hash), Some(revision)) = (
+    revision: i64,
+    now: &str,
+    request_id: &str,
+) -> Result<bool, StoreError> {
+    let (Some(tid), Some(source_hash)) = (
         decision.subject().card_txn_id(),
         decision.subject().source_hash(),
-        decision.subject().revision(),
     ) else {
         return Err(StoreError::Sqlite(rusqlite::Error::InvalidParameterName(
             "카드 거래가 아닌 판정".to_owned(),
         )));
     };
-    let mut evidence_ids = Vec::new();
-    for e in decision.evidence() {
-        conn.execute(
-            "INSERT OR IGNORE INTO evidence(kind, sha256, locator) VALUES (?1, ?2, ?3)",
-            params![evidence_kind(e.kind), e.sha256.as_str(), e.locator],
-        )?;
-        let id: i64 = conn.query_row(
-            "SELECT evidence_id FROM evidence WHERE kind=?1 AND sha256=?2 AND locator=?3",
-            params![evidence_kind(e.kind), e.sha256.as_str(), e.locator],
-            |r| r.get(0),
-        )?;
-        evidence_ids.push(id);
-    }
-    let (kind, reference) = actor_columns(decision.actor());
-    let uncertainty: Vec<&str> = decision.uncertainty().iter().map(|u| u.as_str()).collect();
-    let policy: Vec<&str> = decision.policy_refs().iter().map(|p| p.as_str()).collect();
-    let after = json!({
-        "attribution": decision.attribution().display_tab_id(),
-        "item": decision.item().as_str(),
-        "service_period": period_json(decision.service_period()),
-        "evidence_digest": evidence_digest,
-    });
-    let before: Option<String> = conn
+    let tid = tid.to_string();
+    let after = record(decision, legacy_source, evidence_digest);
+    let before: Option<Value> = conn
         .query_row(
-            "SELECT json_object('attribution',attribution,'item',item,'service_period',
-                    json(service_period_json),'evidence_digest',evidence_digest)
-             FROM decisions WHERE transaction_id=?1",
-            [tid.as_str()],
-            |r| r.get(0),
+            &format!(
+                "SELECT {} FROM {schema}.decisions WHERE transaction_id=?",
+                RECORD_COLUMNS.join(",")
+            ),
+            [&tid],
+            |r| {
+                let mut m = serde_json::Map::new();
+                for (i, name) in RECORD_COLUMNS.iter().enumerate() {
+                    let v = match r.get_ref(i)? {
+                        rusqlite::types::ValueRef::Integer(n) => json!(n),
+                        rusqlite::types::ValueRef::Text(t) => json!(String::from_utf8_lossy(t)),
+                        _ => Value::Null,
+                    };
+                    m.insert((*name).to_owned(), v);
+                }
+                Ok(Value::Object(m))
+            },
         )
-        .ok();
+        .optional()?;
+    if before.as_ref() == Some(&after) {
+        return Ok(false);
+    }
+    let text = |k: &str| after[k].as_str().unwrap_or_default().to_owned();
     conn.execute(
-        "INSERT INTO decisions(transaction_id, source_hash, revision, actor_kind, actor_ref, attribution,
-             item, description, service_period_json, basis, uncertainty_json, policy_refs_json,
-             evidence_ids_json, decided_at, evidence_digest, period_fn_version)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
-         ON CONFLICT(transaction_id) DO UPDATE SET
-             source_hash=excluded.source_hash, revision=excluded.revision, actor_kind=excluded.actor_kind,
-             actor_ref=excluded.actor_ref, attribution=excluded.attribution, item=excluded.item,
-             description=excluded.description, service_period_json=excluded.service_period_json,
-             basis=excluded.basis, uncertainty_json=excluded.uncertainty_json,
-             policy_refs_json=excluded.policy_refs_json, evidence_ids_json=excluded.evidence_ids_json,
-             decided_at=excluded.decided_at, evidence_digest=excluded.evidence_digest,
-             period_fn_version=excluded.period_fn_version",
+        &format!(
+            "INSERT INTO {schema}.decisions(transaction_id,source_hash,revision,actor_kind,actor_ref,attribution,item,
+             description,service_period_json,basis,uncertainty_json,policy_refs_json,evidence_ids_json,decided_at,
+             evidence_digest,period_fn_version)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+             ON CONFLICT(transaction_id) DO UPDATE SET source_hash=?2,revision=?3,actor_kind=?4,actor_ref=?5,
+             attribution=?6,item=?7,description=?8,service_period_json=?9,basis=?10,uncertainty_json=?11,
+             policy_refs_json=?12,evidence_ids_json=?13,decided_at=?14,evidence_digest=?15,period_fn_version=?16"
+        ),
         params![
-            tid.as_str(),
+            tid,
             source_hash.as_str(),
             revision,
-            kind,
-            reference,
-            decision.attribution().display_tab_id(),
-            decision.item().as_str(),
-            decision.description(),
-            period_json(decision.service_period()).to_string(),
-            decision.basis().as_str(),
-            json!(uncertainty).to_string(),
-            json!(policy).to_string(),
-            json!(evidence_ids).to_string(),
-            decided_at,
+            text("actor_kind"),
+            text("actor_ref"),
+            text("attribution"),
+            text("item"),
+            text("description"),
+            text("service_period_json"),
+            text("basis"),
+            text("uncertainty_json"),
+            text("policy_refs_json"),
+            text("evidence_ids_json"),
+            now,
             evidence_digest,
             PERIOD_FN_VERSION,
         ],
     )?;
     if let Some(before) = before {
         conn.execute(
-            "INSERT INTO decision_history(transaction_id, before_json, after_json, actor_kind, at)
-             VALUES (?1,?2,?3,?4,?5)",
-            params![tid.as_str(), before, after.to_string(), kind, decided_at],
+            &format!(
+                "INSERT INTO {schema}.decision_history(transaction_id,before_json,after_json,actor_kind,request_id,at)
+                 VALUES (?,?,?,?,?,?)"
+            ),
+            params![
+                tid,
+                python_json(&before),
+                python_json(&after),
+                text("actor_kind"),
+                request_id,
+                now
+            ],
         )?;
     }
-    Ok(())
+    Ok(true)
 }
 
 /// 저장된 거래별 근거 digest. 함수 버전이 현재와 다른 거래는 digest를 비워(재판정 대상) 돌려준다.
 pub fn stored_digests(conn: &Connection) -> Result<BTreeMap<String, String>, StoreError> {
-    let mut stmt =
-        conn.prepare("SELECT transaction_id, evidence_digest, period_fn_version FROM decisions")?;
+    stored_digests_in(conn, "main")
+}
+
+/// [`stored_digests`]의 데이터베이스 이름 지정판(ATTACH한 `core`).
+pub fn stored_digests_in(
+    conn: &Connection,
+    schema: &str,
+) -> Result<BTreeMap<String, String>, StoreError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT transaction_id, evidence_digest, period_fn_version FROM {schema}.decisions"
+    ))?;
     let found = stmt
         .query_map([], |r| {
             Ok((
