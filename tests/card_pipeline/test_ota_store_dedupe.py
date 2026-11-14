@@ -111,3 +111,88 @@ def test_new_mail_adds_only_its_own_evidence_and_reads_match_the_old_writer(tmp_
     finally:
         old.close()
         new.close()
+
+
+def changed_parser(monkeypatch, status):
+    from app import forest_mail, ota_payments as payments
+    real_collect, real_extract = forest_mail.collect, payments.extract_payment_fact
+    monkeypatch.setattr(forest_mail, 'collect',
+                        lambda messages: [dict(e, reservation_status=status) for e in real_collect(messages)])
+    monkeypatch.setattr(payments, 'extract_payment_fact',
+                        lambda m: dict(real_extract(m), reservation_status=status) if real_extract(m) else None)
+
+
+def observed(store):
+    rows = [r for r in catalog_rows(store.conn) if r.get('identity_kind') == 'reservation_observation']
+    return sorted((r['id'], r['status']) for r in rows)
+
+
+def test_same_revision_rerun_with_changed_parser_keeps_one_current_fact(tmp_path, monkeypatch):
+    base = [trip(1), forest(1), forest(2)]
+    folder = write(tmp_path / 'mail', base)
+    store = OtaStore(tmp_path / 'new.sqlite')
+    try:
+        store.import_mail(folder)
+        first = observed(store)
+        store.import_mail(write(folder, base + [trip(2)]))
+        before = (observed(store), store.summary())
+        assert before[0] == first
+        changed_parser(monkeypatch, 'parser-v2')
+        store.import_mail(folder)
+        store.rebuild_reservation_observations()
+        assert (observed(store), store.summary()) == before
+        assert len(first) == 2 and len({i for i, _ in observed(store)}) == 2
+    finally:
+        store.close()
+
+
+def test_changed_fact_in_new_revision_and_removed_mail_follow_the_old_writer(tmp_path, monkeypatch):
+    results = []
+    for legacy in (True, False):
+        folder = tmp_path / ('mail-%s' % legacy)
+        base = [trip(1), forest(1), forest(2)]
+        with monkeypatch.context() as patch:
+            if legacy:
+                patch.setattr(OtaStore, '_evidence', legacy_evidence)
+                patch.setattr(OtaStore, 'index_reservation_observations', legacy_observations)
+            store = OtaStore(tmp_path / ('s-%s.sqlite' % legacy))
+            steps = []
+            store.import_mail(write(folder, base))
+            steps.append((view(store), observed(store)))
+            store.import_mail(write(folder, base + [trip(2)]))
+            steps.append((view(store), observed(store)))
+            with monkeypatch.context() as parser:
+                changed_parser(parser, 'parser-v2')
+                store.import_mail(write(folder, base + [trip(2), trip(3)]))
+                steps.append((view(store), observed(store)))
+            store.import_mail(write(folder, [trip(1), trip(2), trip(3), forest(2)]))
+            steps.append((view(store), observed(store)))
+            store.close()
+        results.append(steps)
+    assert results[0] == results[1]
+    assert len(results[1][3][1]) == 1
+
+
+def test_database_built_by_old_writer_continues_with_new_writer(tmp_path, monkeypatch):
+    folder = tmp_path / 'mail'
+    base = [trip(1), forest(1), forest(2)]
+    with monkeypatch.context() as patch:
+        patch.setattr(OtaStore, '_evidence', legacy_evidence)
+        patch.setattr(OtaStore, 'index_reservation_observations', legacy_observations)
+        store = OtaStore(tmp_path / 'm.sqlite')
+        store.import_mail(write(folder, base))
+        store.import_mail(write(folder, base + [trip(2)]))
+        legacy_rows = store.summary()['ota_booking_evidence']
+        store.close()
+    store = OtaStore(tmp_path / 'm.sqlite')
+    try:
+        store.import_mail(write(folder, base + [trip(2), forest(3)]))
+        summary = store.summary()
+        assert summary['ota_booking_evidence'] == legacy_rows + 0
+        assert summary['ota_reservation_observations'] == 4 + 1
+        assert len(observed(store)) == 3
+        again = store.summary()
+        store.import_mail(folder)
+        assert store.summary() == again
+    finally:
+        store.close()

@@ -403,12 +403,27 @@ class OtaStore:
             if old:
                 self._seen('evidence', identity, key, old[0], revision)
                 return
+            if self._seen_in_revision('evidence', identity, key, revision):
+                return
         if self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
                              (identity, revision, key, kind, payload)).rowcount and kind == 'mail':
             self._seen('evidence', identity, key, revision, revision)
 
+    def _seen_ready(self):
+        return bool(self.conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_row_seen'").fetchone())
+
+    def _seen_in_revision(self, kind, owner, key, revision):
+        """같은 판에서 이미 관측한 키는 사실이 달라져도 다시 쓰지 않는다(같은 판 재실행은 첫 사실 유지)."""
+        if not self._seen_ready():
+            return False
+        return bool(self.conn.execute('SELECT 1 FROM ota_row_seen z JOIN ota_source_revisions r '
+            'ON r.source_id=z.source_id WHERE z.kind=? AND z.owner_id=? AND z.entry_key=? '
+            'AND z.last_revision=? AND r.revision_id=?', (kind, owner, key, revision, revision)).fetchone())
+
     def _seen(self, kind, owner, key, home, revision):
         """저장된 행(home 판)을 revision 판에서 관측했다는 사실만 남긴다."""
+        if not self._seen_ready():
+            return
         source, observed = self.conn.execute(
             'SELECT source_id,observed_at FROM ota_source_revisions WHERE revision_id=?', (revision,)).fetchone()
         if self.conn.execute('UPDATE ota_row_seen SET last_revision=?,last_observed_at=?,seen_count=seen_count+1 '
@@ -480,6 +495,8 @@ class OtaStore:
                 (key, entry, payload, source)).fetchone()
             if old:
                 self._seen('observation', key, entry, old[0], revision)
+                continue
+            if self._seen_in_revision('observation', key, entry, revision):
                 continue
             added = self.conn.execute('INSERT OR IGNORE INTO ota_reservation_observations '
                 'VALUES(?,?,?,?,?,?,?)',(key,revision,entry,event['provider'],
