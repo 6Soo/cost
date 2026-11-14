@@ -16,6 +16,10 @@
       "cases": 107,
       "sha256": "c0091c1e4fb88b9ae7369aeead93530a035d1457ef8085f57b2eddbe60f0ee4f"
     },
+    "refund_groups.jsonl": {
+      "cases": 53,
+      "sha256": "bdcfd66ad2759b317270c09f37691db4e59bfc74b28666e5210e39da9a31fad4"
+    },
     "refund_pairing.jsonl": {
       "cases": 42,
       "sha256": "85c680dc1499a8b178fc52826fb71468f31c109af5f0781af2336106e5d3ed29"
