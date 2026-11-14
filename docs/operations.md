@@ -1,5 +1,15 @@
 # 운영 기록
 
+## 2026-11-15 창 — `77edf137` 배포, #905 인덱스 장애 수정, 전환 측정 C1·C2
+
+- **창 보호:** 01:29:46~01:47:41 mail-collect 제외(`worker.json` 일시 변경, 원본 복원 확인). 창 종료 재시작에서 이전 Worker가 아직 잠금을 쥐어 새 Worker가 `ALREADY_RUNNING`으로 거부돼 01:48~01:52 Worker가 멈췄다(재시작 스크립트에 이전 Worker 종료 대기를 추가함).
+- **배포** `060a7239` → `77edf137460f865182e17f327b6753f88353a288`(#887~#921 범위, #905 OTA 근거 중복 기록 중단 포함): 01:34 첫 시도는 `PREPARED_SUPERVISOR_NOT_STARTED`로 자동 롤백(경로 pause 전, 공개 중단 0, CPU 91~100%). 재시도 01:40:25 성공, 8752, 보호 13표 불변, 배포 뒤 5분 readyz 10/10. `costcore` release 빌드 3분 16초(빌드 폴더 `D:\cargo-target\release-77edf137`, 운영 스위치는 켜지 않음, 운영 `core.sqlite` 미생성).
+- **mail-collect 30분 제한 초과와 인덱스 장애 수정:** 실행 소요가 11/14 저녁 210~540초 → 22:08·23:11 1,080·1,291초 → 00:20·01:22(배포 전)·02:25·03:30 시간 초과(1,800초)로 늘었다. 02:25 실행은 #905 인덱스 생성 도중 종료돼 인덱스가 없었고(WAL 93→194MB), 그동안 근거 DB 읽기가 최대 65초 막혔다. 헤드 지시로 02:38~02:58 Worker를 멈추고(mail-collect 제외, Board 무관) 근거 DB 사본(backup API, quick_check ok)을 만든 뒤 두 인덱스를 만들었다: `ota_booking_evidence_fact_lookup` 27.76초, `ota_reservation_observations_lookup` 0.16초. 체크포인트 TRUNCATE는 같은 시간의 긴 읽기(측정용 평가 실행) 때문에 680초 뒤 busy였다. 원복 뒤 02:58:48 mail-collect도 03:30:55 시간 초과였다(인덱스 있음, 읽기 2.8GB·쓰기 0·CPU 53초). 02:25·03:30 실행은 측정 작업의 대량 읽기와 겹쳤다.
+- **1차 전환 측정(신선 사본 `c1c2-20261115/`, 운영 쓰기 0):** C1 판정 그림자 PASS(7,336행, B↔C 차이 0, 목록 밖 0; A↔B·C 4행은 아직 반영 전인 3820 카드 분기→여행 등). C2 PASS(평가 185사례에서 Rust·Python 결과 모두 같음, 일치 131, Python만 맞힌 사례 0).
+- **2차 전환 측정(같은 사본):** 환불 짝 PASS(486=486, 목록 밖 0). OTA 연결 FAIL(사건 7,927, B↔C 차이 1,648: `RESERVATION_ONLY` 1,646·`HOLD_EVIDENCE_CONFLICT` 2, 목록 밖). 입력 포착 10.2분, 그림자 24.1분.
+- **전환 차단 결함:** `tools/core_bridge/cli.py`의 `python_sha`가 `git rev-parse HEAD`라 운영 릴리스 폴더(Git 아님)에서 빈 값이 되어 `costcore` 다리가 `ENVELOPE_MISMATCH`로 실패한다. 측정은 같은 SHA의 Git 작업 폴더를 `--repo-root`로 써서 했다.
+- 근거: `D:/WebLedgerHost/data/backups/`의 `deploy-77edf137/`(run.log, costcore-build.log), `ota-index-20261115/`, `c1c2-20261115/measure.log`, `window-guard.log`.
+
 ## 2026-11-14 3번째 창(소유자 예외 승인) — `060a7239` 배포, 부분환불 취소 4건, 3분기 붙여넣기 complete
 
 - **배포** `edc85f72` → `060a7239a3b3f26da2507215a18a8c02f2407772`(#865~#886 범위, #886 완료 기간 자동기록 차단 포함), 13:23:07 KST, 8751, 보호 13표 불변, 배포 뒤 5분 readyz 10/10. 13:18 첫 시도는 경로 제어(`gateway_route.py`) 오류로 전환이 자동 롤백됐다(CPU 85~100%, healthz가 순간 5초 초과). 재시도에서 성공했다. #867(승인 `b5ea78d1`, head `a4802d99`), #876(조건부 승인 `2d95e312`, head `82ed7a73`, 헤드 범위 확인 병합), #872(검수 댓글 없음, 헤드 확인 병합)는 근거가 이 상태 그대로다.
