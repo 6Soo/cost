@@ -755,23 +755,37 @@ _STAY_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})")
 _MAX_STAY_DAYS = 366
 
 
-def _stay_period(row) -> str:
-    period = str(row.get("service_period") or "").strip()
-    if not period and str(row.get("row_id") or "").startswith("card-"):
-        from . import ledger_stay_evidence
+def _stored_periods():
+    from app import core_writer
+    return read_scope.remember("stored_periods", core_writer.load_stored_periods)
+
+
+def _manual_period_rows():
+    from . import ledger_stay_evidence
+    return read_scope.remember("manual_period_rows",
+                               lambda: ledger_stay_evidence.manual_period_rows(board._active_store()))
+
+
+def _read_period(row, *, verified: bool):
+    """(period, source): a Rust decision's stored period is only read; the evidence index is the fallback."""
+    from . import ledger_stay_evidence
+
+    def compute():
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
-        period = ledger_stay_evidence.period_for(row, index)
-    return period
+        pick = ledger_stay_evidence.verified_period_for if verified else ledger_stay_evidence.period_for
+        return pick(row, index)
+    stored = _stored_periods()
+    manual = _manual_period_rows() if stored is not None else set()
+    return ledger_stay_evidence.read_period(row, stored, manual, compute)
+
+
+def _stay_period(row) -> str:
+    return _read_period(row, verified=False)[0]
 
 
 def _export_period(row) -> str:
     """The period a copy carries: stored, or the screen's verified evidence (never its inference)."""
-    period = str(row.get("service_period") or "").strip()
-    if not period and str(row.get("row_id") or "").startswith("card-"):
-        from . import ledger_stay_evidence
-        index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
-        period = ledger_stay_evidence.verified_period_for(row, index)
-    return period
+    return _read_period(row, verified=True)[0]
 
 
 def _stay_text(row) -> str:
@@ -795,7 +809,7 @@ def _stay_text(row) -> str:
     nights = (end - start).days
     stay = f"{nights}박" if nights else "당일"
     text = f"{_day_label(start, start.year != end.year)} ~ {_day_label(end, start.year != end.year)} · {stay}"
-    if not str(row.get('service_period') or '').strip() and str(row.get('row_id') or '').startswith('card-'):
+    if _read_period(row, verified=False)[1] == 'computed' and str(row.get('row_id') or '').startswith('card-'):
         index = read_scope.remember("ledger_stay_evidence", _ledger_stay_index)
         tid = str(row.get('source_event_id') or str(row['row_id'])[5:])
         if ((index.get(tid) or {}).get('ota_evidence') or {}).get('kind') == 'reservation_period_inferred':
@@ -876,7 +890,9 @@ def _flight_date_labels(row):
     """Departure days of the saved booking, independent of payment and passenger count."""
     from datetime import date
     unknown = ('이용일 미확인', '이용일 미확인')
-    stored = _stay_period(row)
+    stored, source = _read_period(row, verified=False)
+    if source in ('decision', 'manual') and not stored:
+        return unknown
     if stored:
         match = _STAY_PATTERN.fullmatch(stored)
         if not match:

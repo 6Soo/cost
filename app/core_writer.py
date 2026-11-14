@@ -229,3 +229,70 @@ def stored_service_period(transaction_id: str):
         row = conn.execute('SELECT service_period_json FROM decisions WHERE transaction_id=?',
                            (transaction_id,)).fetchone()
     return json.loads(row[0]) if row else None
+
+
+def period_text(stored) -> str:
+    """`YYYY-MM-DD~YYYY-MM-DD` of a stored known period; '' when the period is unknown."""
+    if isinstance(stored, dict) and stored.get('kind') == 'known' and stored.get('starts_on') and stored.get('ends_on'):
+        return f"{stored['starts_on']}~{stored['ends_on']}"
+    return ''
+
+
+def stored_periods_enabled() -> bool:
+    """Screens and exports read stored periods only while Rust is the writer and core.sqlite is configured."""
+    return selected() == 'rust' and bool(os.environ.get(CORE_DB_ENV, ''))
+
+
+def stored_service_periods(transaction_ids=None) -> dict:
+    """transaction_id -> period text ('' = unknown) of every stored decision, in one read-only query.
+
+    Raises sqlite3.Error when core.sqlite cannot be read (missing file, no table, locked past the timeout).
+    """
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not core:
+        raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
+    with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True, timeout=10)) as conn:
+        rows = conn.execute('SELECT transaction_id, service_period_json FROM decisions').fetchall()
+    wanted = None if transaction_ids is None else set(transaction_ids)
+    found = {}
+    for tid, text in rows:
+        if wanted is None or tid in wanted:
+            try:
+                found[str(tid)] = period_text(json.loads(text))
+            except (TypeError, ValueError):
+                found[str(tid)] = ''
+    return found
+
+
+_FALLBACK: set = set()
+_READ_ERROR = {'error': ''}
+
+
+def load_stored_periods() -> dict | None:
+    """The stored periods for one read, or None when Python is the writer (behaviour unchanged).
+
+    An unreadable core.sqlite is not hidden: every card then counts as a fallback and `period_read_status` shows the error.
+    """
+    if not stored_periods_enabled():
+        return None
+    try:
+        found = stored_service_periods()
+        _READ_ERROR['error'] = ''
+        return found
+    except (sqlite3.Error, OSError) as error:
+        _READ_ERROR['error'] = f'{type(error).__name__}: {error}'
+        return {}
+
+
+def note_period_source(transaction_id: str, from_decision: bool) -> None:
+    """Count a card whose period had to be computed because it has no decision yet (should reach 0 after backfill)."""
+    if from_decision:
+        _FALLBACK.discard(transaction_id)
+    else:
+        _FALLBACK.add(transaction_id)
+
+
+def period_read_status() -> dict:
+    """Operations view: which writer's periods are read and how many cards still fall back to computing."""
+    return {'mode': 'stored' if stored_periods_enabled() else 'computed', 'fallback_count': len(_FALLBACK),
+            'core_read_error': _READ_ERROR['error']}
