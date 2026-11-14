@@ -1857,8 +1857,18 @@ def reconcile_for(backend) -> dict:
         "data": {"events": events, "transactions": transactions, "links": links, "results": results,
                  "rules": backend.store.active_rules(),
                  "passengers": _passenger_index(backend.sources.get("mail_directories", [])),
+                 "property_names": _property_name_index(backend.sources.get("mail_directories", [])),
                  "scheduled_card_ids": scheduled},
     }
+
+
+def _property_name_index(mail_directories) -> dict:
+    """'provider:booking_ref' -> lodging names the booking's mails state. Display evidence only."""
+    from app import ota_property_names
+    try:
+        return ota_property_names.collect(mail_directories)
+    except Exception:
+        return {}
 
 
 def _passenger_index(mail_directories, *, strict=False) -> dict:

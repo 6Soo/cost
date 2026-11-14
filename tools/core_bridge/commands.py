@@ -91,6 +91,8 @@ def links(request):
                     'group_exclusions': {o: pr.partial_group_exclusion(conn, o) for o in originals},
                     'held': pr.count_held_cancellations(conn),
                     'review_originals': pr.refund_review_originals(conn)}
+    if kind == 'refund_group':
+        return _refund_group(request)
     if kind == 'ota':
         from app.ota_payments import match_ota_payment_events
         results = match_ota_payment_events(request['events'], request['transactions'],
@@ -99,6 +101,63 @@ def links(request):
                                            frozen_groups=request.get('frozen_groups'))
         return {'results': results}
     raise BridgeError('LINKS_KIND_INVALID', str(kind))
+
+
+def _refund_group(request):
+    """Refund-group judgement on a scenario: batch selection (_ready_rows), pair judgement (_apply_refund_pairs),
+    half-booked check (_check_refund_groups) and verified group scope (scope_group). Nothing is written."""
+    from types import SimpleNamespace
+    from app import ledger
+    from app import partial_refund as pr
+    from app.db import StoreError
+    with _database(request) as (conn, _path):
+        store = SimpleNamespace(conn=conn)
+        out = {}
+        if request.get('batch_id'):
+            picked = ledger._ready_rows(store, request['batch_id'],
+                                        include_verified_full_refunds=bool(request.get('extension')))
+            out['selected'] = sorted(r[0] for r in picked)
+        booked = {r[0] for r in conn.execute('SELECT transaction_id FROM ledger_entries')}
+        scenario_rows = {r[0]: r for r in conn.execute(
+            "SELECT transaction_id, source_hash, amount_krw, COALESCE(NULLIF(approval_date,''),posting_date)"
+            " FROM transactions")}
+        entries = []
+        for spec in request.get('entries', []):
+            entry = {'item': '', 'description': '', 'display_tab_id': '', 'trip_id': '', **spec,
+                     'already_booked': spec['transaction_id'] in booked}
+            _, entry['source_hash'], entry['amount_krw'], entry['occurred_on'] = scenario_rows[spec['transaction_id']]
+            if entry.get('blocked'):
+                entry['reason'] = 'synthetic hold'
+            entries.append(entry)
+        ready = [e for e in entries if not e.get('blocked')]
+        unresolved = [e for e in entries if e.get('blocked')]
+        trips, tabs = request.get('valid_trips'), request.get('valid_tabs')
+        ledger._apply_refund_pairs(store, entries, ready, unresolved,
+                                   None if trips is None else (lambda t: t in trips),
+                                   None if tabs is None else (lambda t: t in tabs))
+        try:
+            ledger._check_refund_groups(store, entries)
+            out['group_check'] = ''
+        except StoreError as exc:
+            out['group_check'] = exc.code
+        keys = ('transaction_id', 'blocked', 'reason', 'item', 'description', 'display_tab_id', 'trip_id',
+                'refund_link')
+        out['entries'] = [dict({k: e.get(k) for k in keys}, bucket='ready' if any(e is r for r in ready) else 'unresolved')
+                          for e in entries]
+        links = pr.refund_links(conn, list(scenario_rows))
+        out['links'] = links
+        out['group_exclusions'] = {link['original_id']: pr.partial_group_exclusion(conn, link['original_id'])
+                                   for link in links.values()}
+        scope = {}
+        for original in sorted({link['original_id'] for link in links.values()}):
+            try:
+                scoped = ledger.scope_group(store, {'rows': [dict(e) for e in entries], 'batch_id': 'syn-batch',
+                                                    'version': 'v'}, original, require_verified_zero=True)
+                scope[original] = {'code': '', 'recordable': scoped['recordable']}
+            except StoreError as exc:
+                scope[original] = {'code': exc.code, 'recordable': False}
+        out['scope'] = scope
+        return out
 
 
 def plan(request):
