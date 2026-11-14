@@ -80,7 +80,7 @@
 ## 입력(시작 조건)
 
 1. 쓰기 전환 PR 병합과 운영 배포(`costcore` 빌드 포함). 1차 전환 완료.
-2. **C1**: 신선 사본 1개에서 `costcore shadow-links` 목록 밖 차이 0. 환불 짝은 사본 DB로, OTA 연결은 풀이기 입력 파일(`--ota-input`)로 잰다. **OTA C1은 입력 포착 도구(후속 PR) 뒤에야 잴 수 있고, 지금은 환불 짝만 잰다.** 같은 신선 사본에서 `costcore shadow`(판정)도 목록 밖 차이 0이어야 한다.
+2. **C1**: 신선 사본 1개에서 `costcore shadow-links` 목록 밖 차이 0. 환불 짝은 사본 DB로, OTA 연결은 풀이기 입력 파일(`--ota-input`)로 잰다. **OTA C1은 입력 포착 도구(`python -I tools/core_bridge/cli.py ota-input`, 6단계 ②)로 입력 파일을 만든 뒤 잴 수 있다(측정 가능).** 같은 신선 사본에서 `costcore shadow`(판정)도 목록 밖 차이 0이어야 한다.
 3. **C2**: 평가 사례 Rust ≥ Python, Python 정답 중 Rust 오답 0(1차와 같은 측정, 연결을 Rust로 쓴 판정 기준).
 4. **C3**: 신선 백업·복원 확인과 스위치 되돌림 예행(아래 3단계).
 5. 측정은 운영 담당이 한다(구현자·검수자는 다시 재지 않는다).
@@ -99,10 +99,15 @@
    ```powershell
    $h = 'D:/WebLedgerHost/data/backups/c1-links'   # 보호 경로(Git 밖)
    $copy = "$h/fresh-copy.sqlite"                   # 2단계에서 복원 확인한 신선 사본(운영 파일이 아니다)
-   # ① 환불 짝(OTA 입력 포착 도구가 생기기 전에는 이것만 잰다)
+   # ① 환불 짝(사본 DB만으로 잰다. OTA 연결은 ②③)
    core/target/release/costcore shadow-links --db $copy --private-out "$h/links-details-$(Get-Date -Format yyyyMMddHHmm).jsonl" --host-root D:/WebLedgerHost
-   # ② OTA 연결: 입력 포착 도구(후속 PR) 뒤에만. 입력 파일이 생기면 ①에 --ota-input "$h/ota-input.json"을 더한다
-   # ③ 판정(1차와 같은 대조)
+   # ② OTA 풀이기 입력 포착(읽기 전용). 사본 3개(board·ota-evidence·ota-review)는 2단계의 신선 사본이며 운영 파일이 아니다.
+   #    출력은 고객 원문(가맹점·예약 정보)을 담으므로 D:/WebLedgerHost/data/backups/ 아래 보호 경로에만 쓴다(레포 안·그 밖은 거부, 기존 파일 덮어쓰지 않음).
+   $req = @{ db = $copy; ota_evidence = "$h/ota-evidence-copy.sqlite"; review_db = "$h/ota-review-copy.sqlite"; host_root = 'D:/WebLedgerHost'; out = "$h/ota-input.json" } | ConvertTo-Json -Compress
+   $req | python -I tools/core_bridge/cli.py ota-input     # 응답은 건수와 sha256뿐. DB_IS_LIVE·OUT_INSIDE_REPO·OUT_NOT_PROTECTED·OUT_EXISTS는 실패
+   # ③ OTA 연결 대조: ①과 같은 명령에 --ota-input "$h/ota-input.json"을 더해 다시 돌린다(환불 짝과 한 번에 잰다)
+   core/target/release/costcore shadow-links --db $copy --ota-input "$h/ota-input.json" --private-out "$h/links-details-$(Get-Date -Format yyyyMMddHHmm).jsonl" --host-root D:/WebLedgerHost
+   # ④ 판정(1차와 같은 대조)
    core/target/release/costcore shadow --db $copy --host-root D:/WebLedgerHost
    ```
 
