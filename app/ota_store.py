@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import zlib
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA = 'ota-store-v1'
+MAIL_STAMP_FILE = '.mail-import-stamp.json'
 DDL = '''
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS ota_store_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -443,6 +445,35 @@ class OtaStore:
         self.conn.execute('INSERT OR IGNORE INTO ota_row_seen VALUES(?,?,?,?,?,?,?,?,?,?)',
             (kind, owner, key, home, source, first, revision, first_at, observed,
              1 if home == revision else 2))
+
+    @staticmethod
+    def mail_stamp(directory):
+        """gmail*.json 원문 목록의 파일 이름·크기·mtime과 해석 코드 stat. collection.json은 실행마다 바뀌어 제외한다."""
+        code = Path(__file__).resolve().parent
+        stamp = [[p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in sorted(Path(directory).glob('gmail*.json'))]
+        stamp += [['code:' + n, (code / n).stat().st_size, (code / n).stat().st_mtime_ns]
+                  for n in ('ota_store.py', 'ota_mail.py', 'ota_payments.py', 'forest_mail.py')]
+        return stamp
+
+    def _mail_stamp_state(self, directory, stamp):
+        row = self.conn.execute('SELECT current_revision FROM ota_sources WHERE source_id=?',
+            (sha(encoded(['mail_directory', str(Path(directory).resolve())])),)).fetchone()
+        return {'database': str(self.path), 'revision': row[0] if row else None, 'stamp': stamp}
+
+    def mail_unchanged(self, directory, stamp):
+        """마지막으로 성공한 import 뒤 원문 파일이 달라지지 않았고 DB의 현재 판도 그대로인지 stat·한 행 조회로 판정한다."""
+        try:
+            saved = json.loads((Path(directory) / MAIL_STAMP_FILE).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return False
+        return saved == self._mail_stamp_state(directory, stamp) and saved['revision'] is not None
+
+    def record_mail_stamp(self, directory, stamp):
+        """commit 뒤에 부른다. 쓰기에 실패하면 다음 실행이 다시 import할 뿐이다."""
+        target = Path(directory) / MAIL_STAMP_FILE
+        temporary = target.with_suffix('.tmp')
+        temporary.write_text(json.dumps(self._mail_stamp_state(directory, stamp)), encoding='utf-8')
+        os.replace(temporary, target)
 
     def import_mail(self, directory):
         from app import ota_mail, ota_payments
