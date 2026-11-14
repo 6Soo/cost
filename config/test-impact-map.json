@@ -523,6 +523,11 @@
       "name": "core-writer-switch",
       "paths": ["app/core_writer.py", "app/automatic_classification.py", "tests/test_core_writer.py", "config/runtime-environment-catalog.json"],
       "tests": ["tests/test_core_writer.py", "tests/test_verify_runtime_environment.py"]
+    },
+    {
+      "name": "removed-pipeline-inventory-20261114",
+      "paths": ["config/pipeline_inventory.json"],
+      "tests": ["tests/test_quality_checks.py"]
     }
   ]
 }
