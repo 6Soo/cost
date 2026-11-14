@@ -70,7 +70,9 @@
 
 ## OTA 연결 스위치 사용법(`costcore links ota`)
 
-- 스위치는 환불 짝과 같은 `WEBLEDGER_LINKS_PRODUCER`(`rust`만 Rust, 미설정·그 밖의 값은 Python. **기본 Python, 비용 0**)와 `WEBLEDGER_COSTCORE_BIN`이다. 어댑터는 `app/core_ota_links.py`이며 환불 어댑터와 별도 모듈이다(한 변수를 두 곳이 읽는다. 병합 뒤 판정 함수를 하나로 합치는 것은 후속).
+- 스위치는 환불 짝과 같은 `WEBLEDGER_LINKS_PRODUCER`(`rust`만 Rust, 미설정·그 밖의 값은 Python. **기본 Python, 비용 0**)와 `WEBLEDGER_COSTCORE_BIN`이다. 어댑터는 `app/core_ota_links.py`이며 환불 어댑터와 별도 모듈이다. 스위치 판정(`selected`)과 변수 이름은 `app/core_links.py` 하나이고 `app/core_ota_links.py`가 그것을 가져다 쓴다.
+- **릴리스 폴더에 `config/ota-matching-defaults.json`이 있어야 한다.** Rust는 `WEBLEDGER_OTA_MATCHING_DEFAULTS` 덮어쓰기를 읽지 않고 `--repo-root`(릴리스 폴더)의 이 파일만 읽는다. 덮어쓰기를 쓰는 환경은 `rust`로 전환하기 전에 같은 내용을 릴리스 폴더 파일에 반영한다.
+- 풀이 결과는 개수가 이벤트 수와 같고 이벤트 ID가 겹치지 않아야 한다(어기면 `CORE_LINKS_RESULT_COUNT`·`CORE_LINKS_DUPLICATE_RESULT`로 실패, 폴백 없음).
 - 바뀌는 곳은 `webapp/ota_payment_review._data`의 풀이기 호출 한 곳이다. 입력 조립(이벤트·카드·수동 연결·규칙·고정 그룹)과 결과 후처리는 그대로 Python이다. `rust`이면 같은 입력을 `costcore links ota --input - --repo-root <레포>`의 표준 입력으로 넘기고(고객 원문이 디스크에 남지 않는다), 돌려받은 연결 칸을 원 이벤트 위에 덧씌워 Python 풀이기와 같은 결과를 만든다.
 - 실패는 폴백이 없다: 바이너리 미설정·종료 코드 0이 아님·응답 없음·미지의 이벤트·중복 이벤트 ID는 `RuntimeError`(`CORE_LINKS_*`)로 끝난다.
 - 같은 변수가 `app/ota_review.py`의 검토 저장소 풀이(`OtaReviewStore`)에는 아직 닿지 않는다. 그 호출은 Python이다(후속).

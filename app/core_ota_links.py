@@ -13,13 +13,10 @@ import os
 import subprocess
 from pathlib import Path
 
+# One switch for both link producers: the decision and the variable names live in core_links.
+from .core_links import BIN_ENV, PRODUCER_ENV, selected  # noqa: F401
+
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCER_ENV = 'WEBLEDGER_LINKS_PRODUCER'
-BIN_ENV = 'WEBLEDGER_COSTCORE_BIN'
-
-
-def selected() -> str:
-    return 'rust' if os.environ.get(PRODUCER_ENV, '').strip().lower() == 'rust' else 'python'
 
 
 def _plain(value):
@@ -57,10 +54,16 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
         by_id[identity] = event
     columns = _run({'events': events, 'transactions': transactions, 'existing_links': existing_links or {},
                     'rules': rules or [], 'frozen_groups': frozen_groups or []})
-    results = []
+    results, seen = [], set()
     for link in columns:
-        event = by_id.get(str(link.get('ota_event_id')))
+        identity = str(link.get('ota_event_id'))
+        event = by_id.get(identity)
         if event is None:
             raise RuntimeError('CORE_LINKS_UNKNOWN_EVENT')
+        if identity in seen:
+            raise RuntimeError('CORE_LINKS_DUPLICATE_RESULT')
+        seen.add(identity)
         results.append(dict(event, **link))
+    if len(results) != len(by_id):
+        raise RuntimeError('CORE_LINKS_RESULT_COUNT')
     return results

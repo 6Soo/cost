@@ -24,11 +24,12 @@ NO_EXTRA = [case for case in golden._ota_inputs() if not case[3]]
 
 
 def canon(value):
-    return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str))
+    return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True))  # no default=str: a type difference must show
 
 
 @pytest.fixture
-def binary(monkeypatch):
+def binary(request, monkeypatch):
+    request.applymarker(pytest.mark.costcore_bin)  # run_quality_checks builds costcore and sets COSTCORE_TEST_BIN for it
     path = os.environ.get('COSTCORE_TEST_BIN')
     if not path or not Path(path).is_file():
         pytest.skip('COSTCORE_TEST_BIN not set (the quality runner wiring from the refund switch PR sets it)')
@@ -159,6 +160,27 @@ def test_result_for_an_unknown_event_or_duplicate_event_ids_fail(monkeypatch):
         core_ota_links.match_ota_payment_events([{'ota_event_id': 'e1'}], [])
     with pytest.raises(RuntimeError, match='CORE_LINKS_DUPLICATE_EVENT'):
         core_ota_links.match_ota_payment_events([{'ota_event_id': 'e1'}, {'ota_event_id': 'e1'}], [])
+
+
+def test_a_result_count_that_differs_from_the_event_count_or_repeats_an_event_fails(monkeypatch):
+    events = [{'ota_event_id': 'e1'}, {'ota_event_id': 'e2'}]
+    monkeypatch.setattr(core_ota_links, '_run', lambda request: [{'ota_event_id': 'e1', 'status': 'HOLD_NO_CARD'}])
+    with pytest.raises(RuntimeError, match='CORE_LINKS_RESULT_COUNT'):
+        core_ota_links.match_ota_payment_events(events, [])
+    monkeypatch.setattr(core_ota_links, '_run', lambda request: [{'ota_event_id': 'e1'}, {'ota_event_id': 'e1'}])
+    with pytest.raises(RuntimeError, match='CORE_LINKS_DUPLICATE_RESULT'):
+        core_ota_links.match_ota_payment_events(events, [])
+
+
+def test_the_two_adapters_share_one_switch_decision():
+    from app import core_links
+    assert core_ota_links.selected is core_links.selected
+    assert core_ota_links.PRODUCER_ENV == core_links.PRODUCER_ENV and core_ota_links.BIN_ENV == core_links.BIN_ENV
+
+
+def test_the_quality_runner_builds_costcore_for_this_file():
+    from tools import run_quality_checks
+    assert run_quality_checks.needs_costcore(['tests/test_core_ota_links_switch.py'], root=ROOT)
 
 
 # ---- real binary ------------------------------------------------------------------------------------------------------

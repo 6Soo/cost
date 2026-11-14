@@ -244,6 +244,50 @@ pub fn refund_rows(rows: &[TxnRow]) -> Vec<RefundTxn> {
         .collect()
 }
 
+/// 호출자가 표준 입력으로 보낸 원행(열 이름 키의 객체 배열, 순서 유지) → 짝 도출 입력. 빈 문자열 열은 null도 받는다
+/// (Python `COALESCE(x,'')`). 모양이 다르면 `PlanResponseInvalid`다.
+pub fn refund_rows_from_json(value: &Value) -> Result<Vec<RefundTxn>, ShadowError> {
+    let rows = value.as_array().ok_or(ShadowError::PlanResponseInvalid)?;
+    rows.iter().map(refund_row_from_json).collect()
+}
+
+fn refund_row_from_json(row: &Value) -> Result<RefundTxn, ShadowError> {
+    let text = |key: &str| -> Result<String, ShadowError> {
+        match row.get(key) {
+            None | Some(Value::Null) => Ok(String::new()),
+            Some(Value::String(s)) => Ok(s.clone()),
+            Some(_) => Err(ShadowError::PlanResponseInvalid),
+        }
+    };
+    let amount_krw = match row.get("amount_krw") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_i64().ok_or(ShadowError::PlanResponseInvalid)?),
+    };
+    let duplicate_of = match row.get("duplicate_of") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(_) => return Err(ShadowError::PlanResponseInvalid),
+    };
+    Ok(RefundTxn {
+        transaction_id: text("transaction_id")?,
+        issuer: text("issuer")?,
+        card_tail: text("card_tail")?,
+        direction: text("transaction_direction")?,
+        approval_number: text("approval_number")?,
+        original_approval_number: text("original_approval_number")?,
+        amount_krw,
+        approval_date: text("approval_date")?,
+        posting_date: text("posting_date")?,
+        merchant: text("merchant")?,
+        merchant_normalized: text("merchant_normalized")?,
+        foreign_amount: text("foreign_amount")?,
+        foreign_currency: text("foreign_currency")?,
+        duplicate_of,
+        conflict_reason: text("conflict_reason")?,
+        parse_error: text("parse_error")?,
+    })
+}
+
 /// Rust 환불 짝 결과를 Python 다리 `links` 출력과 같은 모양으로 만든다.
 pub fn refund_values(refunds: &Refunds) -> Value {
     let links: Map<String, Value> = refunds

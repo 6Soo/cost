@@ -155,6 +155,73 @@ fn links_refund_reproduces_every_refund_pairing_golden_case_from_the_db() {
     let _ = std::fs::remove_dir_all(&host);
 }
 
+fn links_refund_rows_stdin(body: &[u8], extra: &[&str]) -> (Option<i32>, Value) {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_costcore"))
+        .args(["links", "refund", "--rows-stdin"])
+        .args(["--repo-root", repo_root().to_str().unwrap()])
+        .args(extra)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(body).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    (
+        out.status.code(),
+        serde_json::from_str(text.lines().next().unwrap_or("")).unwrap_or(Value::Null),
+    )
+}
+
+#[test]
+fn links_refund_from_stdin_rows_equals_the_golden_result_for_every_case() {
+    let host = scratch("links-rows");
+    for case in &golden("refund_pairing.jsonl") {
+        let scenario = host.join("scenario.json");
+        std::fs::write(&scenario, case["input"]["scenario"].to_string()).unwrap();
+        let db = host.join("copy.sqlite");
+        let _ = std::fs::remove_file(&db);
+        let built = Command::new(python())
+            .arg("-I")
+            .arg(repo_root().join("core/crates/cli/tests/links_python.py"))
+            .args(["build", scenario.to_str().unwrap(), db.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(built.status.success());
+        let rows = Command::new(python())
+            .arg("-I")
+            .arg(repo_root().join("core/crates/cli/tests/links_python.py"))
+            .args(["rows", db.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            rows.status.success(),
+            "{}",
+            String::from_utf8_lossy(&rows.stderr)
+        );
+        let (code, value) = links_refund_rows_stdin(&rows.stdout, &[]);
+        assert_eq!(code, Some(0), "{}", case["case_id"]);
+        assert_eq!(value["result"], case["expected"], "{}", case["case_id"]);
+    }
+    let _ = std::fs::remove_dir_all(&host);
+}
+
+#[test]
+fn links_refund_rows_stdin_rejects_bad_shapes_and_a_database_flag() {
+    for body in ["not json", "{}", "[1]", r#"[{"transaction_id":5}]"#] {
+        let (code, value) = links_refund_rows_stdin(body.as_bytes(), &[]);
+        assert_eq!(code, Some(2), "{body}");
+        assert_eq!(value["ok"], false);
+    }
+    let (code, value) = links_refund_rows_stdin(b"[]", &["--db", "x.sqlite"]);
+    assert_eq!(code, Some(2));
+    assert_eq!(value["error"]["code"], "USAGE_INVALID");
+    let (code, value) = links_refund_rows_stdin(b"[]", &[]);
+    assert_eq!(code, Some(0));
+    assert_eq!(value["ok"], true);
+}
+
 #[test]
 fn links_command_rejects_unknown_kind_and_a_missing_database() {
     for args in [vec!["links", "ota"], vec!["links"], vec!["links", "refund"]] {
