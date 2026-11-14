@@ -489,15 +489,15 @@ B-C|basis|rule|differs",
 #[test]
 fn bridge_envelope_must_match_command_digest_and_commit() {
     let body = serde_json::json!({"db": "x", "reconsider": false});
-    let digest = crate::plan::sha256_hex(&crate::plan::python_json(&body));
+    let digest = crate::digest::sha256_hex(&crate::digest::python_json(&body));
     let sha = "a".repeat(40);
     let ok = serde_json::json!({"command": "plan", "python_sha": sha, "input_digest": digest});
-    assert!(bridge::verify_envelope(&ok, "plan", &body).is_ok());
+    assert!(crate::bridge::verify_envelope(&ok, "plan", &body).is_ok());
     for bad in [
         serde_json::json!({"command": "plan", "python_sha": sha, "input_digest": "0"}),
         serde_json::json!({"command": "plan", "python_sha": "", "input_digest": digest}),
         serde_json::json!({"command": "links", "python_sha": sha, "input_digest": digest}),
     ] {
-        assert!(bridge::verify_envelope(&bad, "plan", &body).is_err());
+        assert!(crate::bridge::verify_envelope(&bad, "plan", &body).is_err());
     }
 }

@@ -7,11 +7,10 @@ use crate::digest::sha256_hex;
 use crate::domain::{
     Actor, ActorKind, Amount, Attribution, Basis, CompletedPeriod, Confidence, Decision,
     DecisionDraft, Direction, EvidenceKind, EvidenceRef, ItemAllowList, Judgement, ManualEventRef,
-    ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId, ServicePeriod,
-    SourceHash, SourceTxn, Subject, TripCatalog, TxnId,
+    Mapped, ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId,
+    ServicePeriod, SourceHash, SourceInput, SourceTxn, Subject, TripCatalog, TxnId, map_source,
 };
 use crate::period;
-use crate::store::{Mapped, SourceInput, map_source};
 use serde_json::Value;
 use time::{Date, Month};
 
