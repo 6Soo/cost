@@ -1,4 +1,4 @@
-"""Correct bulk record-batch owner confirmation stamps: count-only preview, digest/backup-gated apply, audited restore."""
+"""Correct bulk record-batch owner confirmation stamps: count-only preview, digest/backup-gated apply, audited restore. 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
 from __future__ import annotations
 
 import argparse

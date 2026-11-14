@@ -1,4 +1,4 @@
-"""보존된 카드 원본으로 분류용 업종만 보완한다. 금액과 사용자 답변은 바꾸지 않는다."""
+"""보존된 카드 원본으로 분류용 업종만 보완한다. 금액과 사용자 답변은 바꾸지 않는다. 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
 import json
 import os
 import sys

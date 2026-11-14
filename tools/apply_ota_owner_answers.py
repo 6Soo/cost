@@ -1,4 +1,4 @@
-"""확인된 이번 OTA 답변만 복구 사본에서 검증한 뒤 운영에 반영한다."""
+"""확인된 이번 OTA 답변만 복구 사본에서 검증한 뒤 운영에 반영한다. 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
 import datetime
 import hashlib
 import json

@@ -1,4 +1,4 @@
-"""과거 분류를 현재 카드 원행과 대조해 검토 가능한 규칙으로 만든다."""
+"""과거 분류를 현재 카드 원행과 대조해 검토 가능한 규칙으로 만든다. 쓰는 DB는 board.sqlite 하나라 백업 확인은 `verify_operational_backup_restore.py --scope board`로 충분하다."""
 from __future__ import annotations
 
 import argparse

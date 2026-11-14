@@ -60,3 +60,16 @@
 - 고객 원문, 암호, 인증번호, 예약번호 같은 식별값을 적지 않는다.
 - 사람이 해야 하는 단계(로그인, 인증번호 입력)는 숨기지 않고 "사람이 하는 단계"로 표시한다.
 - 화면이나 내부 API가 바뀌어 절차가 깨지면 프론티어 모델이 고치고 개정 이력에 남긴다.
+
+## 반영 창의 백업·복원 확인 범위
+
+`python tools/verify_operational_backup_restore.py --scope board`(또는 `--scope board.sqlite core.sqlite`)는 이번 반영이 쓰는 DB만 전 행 직렬화·백업·복원 확인하고, 나머지 DB와 `source`·`evidence`·`exports` 폴더는 전후 지문(DB는 파일·WAL 해시, 폴더는 경로·크기·mtime)이 같은지만 확인한다. 바뀌면 `OUT_OF_SCOPE_INPUT_CHANGED_DURING_BACKUP`으로 실패한다. `--scope`를 주지 않으면 기존대로 전체다. 범위에는 판정 DB(`board.sqlite`)가 들어 있어야 한다. Rust 작성자 전환 뒤에는 `core.sqlite`도 함께 적는다.
+
+| 도구 | 쓰는 DB | 권장 범위 |
+| --- | --- | --- |
+| `apply_ai_quarter_review.py`, `repair_closed_period_grouping.py`, `repair_preparation_cost_grouping.py`, `repair_bulk_owner_confirmation.py` | `board.sqlite` | `--scope board` |
+| `apply_ota_owner_answers.py`, `prepare_ota_review_holds.py`, `deploy_reserve_trips.py`, `recover_history_rules.py`, `import_kb_card_download.py`, `refresh_card_categories.py` | `board.sqlite` | `--scope board` |
+| `complete_card_classification.py`, `repair_dist141_provenance.py` | `board.sqlite` (`ota-review.sqlite`는 읽기만) | `--scope board` |
+| `deploy_lightweight.py` | `board.sqlite`, `board.operator.sqlite`, `real-review.sqlite` | 범위 지정 없음(전체) |
+
+창당 백업 1회로 줄이는 것은, 그 한 번의 변경 전 백업이 창 전체 반영 범위를 덮고 중간 실패 복구까지 검증될 때만 허용한다. 코드는 바꾸지 않았고 도구별 백업 게이트(1시간 이내 증거)는 그대로 둔다.

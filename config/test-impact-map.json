@@ -25,7 +25,7 @@
     },
     {
       "name": "closed-period-boundary-and-repair",
-      "paths": ["tests/card_pipeline/test_preparation_costs.py", "app/closed_period.py", "app/closed_period_repair.py", "app/preparation_cost_repair.py", "tools/repair_preparation_cost_grouping.py", "webapp/tests/test_preparation_cost_repair.py", "tools/repair_closed_period_grouping.py", "tools/review_card_inference.py", "webapp/tests/test_closed_period_grouping.py", "tools/verify_operational_backup_restore.py", "tests/card_pipeline/test_operational_product_backup.py"],
+      "paths": ["tests/card_pipeline/test_preparation_costs.py", "app/closed_period.py", "app/closed_period_repair.py", "app/preparation_cost_repair.py", "tools/repair_preparation_cost_grouping.py", "webapp/tests/test_preparation_cost_repair.py", "tools/repair_closed_period_grouping.py", "tools/review_card_inference.py", "webapp/tests/test_closed_period_grouping.py", "tools/verify_operational_backup_restore.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/card_pipeline/test_operational_backup_scope.py"],
       "tests": ["tests/card_pipeline/test_preparation_costs.py", "webapp/tests/test_preparation_cost_repair.py", "webapp/tests/test_closed_period_grouping.py", "webapp/tests/test_automatic_classification_completion.py", "webapp/tests/test_decision_provenance.py", "tests/card_pipeline/test_operational_product_backup.py", "tests/test_p2_batch.py"]
     },
     {
