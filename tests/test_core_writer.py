@@ -300,6 +300,42 @@ def test_auto_record_with_the_rust_writer_applies_outside_the_transaction(env, t
     assert seen == [True]  # recording and projection still share one transaction
 
 
+def _rule_review_flow(env, tmp_path, applied, held, locked):
+    from types import SimpleNamespace
+    from webapp import rule_review
+    from webapp.card_flow import CardFlow
+    flow, board, key, calls = _lifted(env, tmp_path, applied, held)
+    flow.pipeline = SimpleNamespace(store=SimpleNamespace(lock=board._lock))
+    env[0].setattr(CardFlow, '_pending_reclassification', lambda self, batch: set())
+    env[0].setattr(CardFlow, '_auto_record_locked', lambda self, batch, **k: {'auto_recorded': 0})
+    env[0].setattr(rule_review, '_approve_locked',
+                   lambda f, batch, body: locked.append(board._lock.depth) or {'applied': ['t1']})
+    return rule_review, flow, board, key, calls
+
+
+def test_rule_review_approve_refreshes_without_holding_the_board_lock_during_the_evidence_build(env, tmp_path):
+    applied, held, locked = [], [], []
+    rule_review, flow, board, _, calls = _rule_review_flow(env, tmp_path, applied, held, locked)
+    result = rule_review.approve(flow, 'b', {})
+    assert locked == [1] and held == [0] and len(calls) == 1  # decisions saved under the lock, evidence built outside
+    assert result['applied'] == ['t1'] and len(applied) == 1 and applied[0][1] is False  # no open transaction at apply
+
+
+def test_rule_review_approve_rebuilds_once_on_a_key_change_then_fails_after_the_commit(env, tmp_path):
+    applied, held, locked = [], [], []
+    rule_review, flow, board, key, calls = _rule_review_flow(env, tmp_path, applied, held, locked)
+    build = core_writer._period_snapshot
+
+    def moving(path):
+        data = build(path)
+        key['value'] += 'x'
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', moving)
+    result = rule_review.approve(flow, 'b', {})
+    assert locked == [1] and applied == [] and len(calls) == 2
+    assert result == {'applied': ['t1'], 'state': None, 'refresh_required': True}  # the write stays reported as saved
+
+
 def test_auto_record_with_the_python_writer_keeps_classification_in_the_transaction(env, tmp_path):
     from webapp.card_flow import CardFlow
     applied, held = [], []
