@@ -176,10 +176,11 @@ impl Flags {
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
-                "--reconsider" | "--allow-live" | "--backfill-decisions" | "--changed"
-                | "--rows-stdin" => {
-                    flags.switches.push(arg.clone())
-                }
+                "--reconsider"
+                | "--allow-live"
+                | "--backfill-decisions"
+                | "--changed"
+                | "--rows-stdin" => flags.switches.push(arg.clone()),
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
                 | "--repo-root" | "--digest" | "--now" | "--core" | "--periods" | "--ota-input" => {
                     let value = iter.next().ok_or(CliError::UsageInvalid)?;
@@ -317,7 +318,8 @@ fn links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
         // 호출자가 쓰기 트랜잭션 안의 아직 커밋 안 된 행까지 담아 보낸다(파일은 읽지 않는다).
         let mut body = String::new();
         std::io::stdin().read_to_string(&mut body)?;
-        let value: Value = serde_json::from_str(&body).map_err(|_| CliError::PlanResponseInvalid)?;
+        let value: Value =
+            serde_json::from_str(&body).map_err(|_| CliError::PlanResponseInvalid)?;
         refund_rows_from_json(&value)?
     } else {
         let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
