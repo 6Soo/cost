@@ -147,13 +147,15 @@ KEYS = {
     'op': _one_of('infer_trip', 'candidates', 'stay_trip', 'booking_trip', 'card3820', 'infer_item'),
     'tab_id': _trip, 'check_in': _regex(DATE.pattern), 'check_out': _regex(DATE.pattern),
     'service': _bool, 'deleted': _bool, 'enabled': _bool, 'valid': _bool, 'conflict': _bool, 'period_conflict': _bool,
+    'original_id': _regex(r'^syn-[a-z0-9-]+$'), 'inferred': _bool,
+    'link_state': _one_of('full', 'partial', 'excess', ''),
     'formal_link': _bool, 'flags': _one_of('PERIOD_ORDER', 'PERIOD_START_MISSING'), 'country': _one_of('JPN'),
 }
 CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optional', 'prior_decision', 'amount_range',
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
-              'service_period', 'input', 'row', 'raw_row', 'completed_evidence'}
-ID_MAPS = {'evidence', 'existing_links'}
+              'service_period', 'input', 'row', 'raw_row', 'completed_evidence', 'links'}
+ID_MAPS = {'evidence', 'existing_links', 'links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')
 FORBIDDEN_TEXT = re.compile(r'\d{9,}|(?:\d{3,4}[- ]){2,}\d{3,4}|@|https?:|www\.', re.I)

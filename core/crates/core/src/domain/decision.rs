@@ -405,6 +405,16 @@ pub enum ProtectionReason {
     Duplicate,
     SourceConflict,
     ExcessRefund,
+    /// 사용자 보류(`transaction_review_holds`).
+    UserHold,
+    /// 회사 제외(`transaction_company_exclusions`).
+    CompanyExcluded,
+    /// 닫힌 분기 검수가 끝낸 거래.
+    ClosedReview,
+    /// 수동 결정이 있는 거래(자동 판정이 덮지 않는다).
+    ManualDecision,
+    /// 귀속·항목·근거를 판정으로 표현할 수 없다(분기도 여행도 정해지지 않은 거래).
+    Unattributable,
 }
 
 /// PROC-072 완료 기간 자료.

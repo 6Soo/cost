@@ -5,13 +5,13 @@
 
 use super::builtin::Builtin;
 use super::exceptions::{
-    OWNER_BOOKING, Outcome, TripHint, TripResolver, fukutake, inferred_origin,
-    is_fukutake_purchase, residual, singapore,
+    OWNER_BOOKING, Outcome, TripHint, TripResolver, fukutake, inferred_origin, residual, singapore,
 };
-use super::matching::{Transaction, is_booking_or_online, rule_matches, transaction_region};
+use super::matching::{Transaction, rule_matches};
 use super::normalize::{Rule, truthy};
 use super::text::normalize_merchant;
 use crate::dates::{CardRow, RowDates, excluded};
+use crate::region::{is_booking_or_online, is_fukutake_purchase, transaction_region};
 use serde_json::{Map, Value};
 
 pub(super) const STATE_NEEDS_REVIEW: &str = "needs_review";
