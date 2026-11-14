@@ -31,7 +31,7 @@ fn run(args: &[&str], stdin: &str) -> (i32, String) {
 }
 
 #[test]
-fn shadow_without_engine_ends_with_engine_not_available() {
+fn shadow_on_an_unreadable_copy_ends_with_a_public_safe_error() {
     let host = scratch("engine");
     let db = host.join("copy.sqlite");
     std::fs::write(&db, b"").unwrap();
@@ -50,7 +50,7 @@ fn shadow_without_engine_ends_with_engine_not_available() {
         "",
     );
     assert_eq!(code, 2);
-    assert!(out.contains("\"code\":\"ENGINE_NOT_AVAILABLE\""), "{out}");
+    assert!(out.contains("\"code\":\"STORE_ERROR\""), "{out}");
     let _ = std::fs::remove_dir_all(&host);
 }
 
@@ -99,14 +99,14 @@ fn shadow_rejects_the_live_database() {
 }
 
 #[test]
-fn plan_without_engine_reports_the_same_code() {
+fn plan_on_a_missing_database_reports_a_public_safe_code() {
     let (code, out) = run(
         &["plan", "--db", "unused.sqlite"],
         "{\"transaction_ids\":[\"x\"]}",
     );
     assert_eq!(code, 2);
     assert!(
-        out.contains("\"ok\":false") && out.contains("ENGINE_NOT_AVAILABLE"),
+        out.contains("\"ok\":false") && out.contains("STORE_ERROR"),
         "{out}"
     );
 }

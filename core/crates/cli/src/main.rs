@@ -6,16 +6,25 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use cost_core::shadow::{
-    PlanEngine, PlanRequest, PythonBridge, ShadowError, UnavailableEngine, parse_known_diffs,
+    PlanEngine, PlanRequest, PythonBridge, RustEngine, ShadowError, parse_known_diffs,
     reject_live_db, run_shadow, targets_json, write_private_lines,
 };
 use serde_json::{Value, json};
 
 const DEFAULT_HOST: &str = "D:/WebLedgerHost";
 
-/// Rust 판정 엔진. U9(`plan`)가 병합되면 이 한 곳만 바꿔 끼운다.
-fn rust_engine() -> Box<dyn PlanEngine> {
-    Box::new(UnavailableEngine)
+/// Rust 판정 엔진(U9 `plan` + DB 어댑터). 환불 연결은 2차 전환 전까지 Python 다리에서 받는다.
+fn rust_engine(flags: &Flags) -> Box<dyn PlanEngine> {
+    Box::new(RustEngine {
+        links: Some(python_bridge(flags)),
+    })
+}
+
+fn python_bridge(flags: &Flags) -> PythonBridge {
+    PythonBridge {
+        python: flags.get("--python").unwrap_or("python").to_owned(),
+        repo_root: PathBuf::from(flags.get("--repo-root").unwrap_or(".")),
+    }
 }
 
 fn main() -> ExitCode {
@@ -109,15 +118,12 @@ fn shadow(args: &[String]) -> Result<(u8, Value), ShadowError> {
         None => None,
     };
     let known = parse_known_diffs(&std::fs::read_to_string(&known_path)?)?;
-    let python = PythonBridge {
-        python: flags.get("--python").unwrap_or("python").to_owned(),
-        repo_root: repo,
-    };
+    let python = python_bridge(&flags);
     let outcome = run_shadow(
         &db,
         flags.on("--reconsider"),
         &python,
-        &*rust_engine(),
+        &*rust_engine(&flags),
         &known,
     )?;
     let mut public = outcome.report.public_json()?;
@@ -151,6 +157,6 @@ fn plan(args: &[String]) -> Result<(u8, Value), ShadowError> {
         reconsider: flags.on("--reconsider") || extra["reconsider"] == json!(true),
         context: extra,
     };
-    let targets = rust_engine().plan(&request)?;
+    let targets = rust_engine(&flags).plan(&request)?;
     Ok((0, json!({"ok": true, "result": targets_json(&targets)})))
 }

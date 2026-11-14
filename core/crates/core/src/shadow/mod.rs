@@ -3,6 +3,7 @@
 //! 회귀 판정은 B↔C, A↔C·A↔B는 참고다. Rust 엔진은 `PlanEngine` 하나 뒤에 두어 U9가 끼워 넣는다.
 
 mod bridge;
+mod engine;
 mod guard;
 mod keys;
 mod known;
@@ -18,6 +19,7 @@ use crate::store::projection::TxnRow;
 use crate::store::{StoreError, read_projection};
 
 pub use bridge::PythonBridge;
+pub use engine::RustEngine;
 pub use guard::{ensure_private_path, protected_root, write_private_lines};
 pub use keys::{attribution_kind, diff_keys, validate_key};
 pub use known::{KnownDiffs, Verdict, judge, parse_known_diffs};
@@ -30,6 +32,8 @@ pub enum ShadowError {
     PythonBridgeFailed(String),
     #[error("PLAN_RESPONSE_INVALID")]
     PlanResponseInvalid,
+    #[error("PLAN_FAILED")]
+    PlanFailed,
     #[error("DB_IS_LIVE")]
     DbIsLive,
     #[error("PRIVATE_PATH_REJECTED")]
