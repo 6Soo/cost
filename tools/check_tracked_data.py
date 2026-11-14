@@ -182,7 +182,10 @@ def index(root):
 
 
 def load_policy(path=POLICY):
-    value = json.loads(Path(path).read_text(encoding='utf-8'))
+    return _validate_policy(json.loads(Path(path).read_text(encoding='utf-8')))
+
+
+def _validate_policy(value):
     if not isinstance(value, dict):
         raise ValueError('INVALID_POLICY')
     required = ('protected_prefixes', 'denied_names', 'data_extensions', 'synthetic_allowlist')
@@ -196,6 +199,15 @@ def load_policy(path=POLICY):
             raise ValueError('INVALID_SYNTHETIC_ALLOWLIST')
     _validate_preserved(value)
     return value
+
+
+POLICY_REL = 'config/tracked-data-policy.json'
+GUARD_REL = 'tools/check_tracked_data.py'
+
+
+def load_base_policy(root, base):
+    """Policy as committed at the base revision; a PR cannot loosen its own gate."""
+    return _validate_policy(json.loads(git(root, 'show', f'{base}:{POLICY_REL}').decode('utf-8')))
 
 
 def _hex(value, length):
@@ -256,12 +268,25 @@ def reasons(path, info, policy):
     return result
 
 
-def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source_references=False):
+def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=None, source_references=False):
     if mode not in ('inventory', 'staged', 'base'):
         raise ValueError('INVALID_MODE')
-    policy = load_policy(policy_path)
     baseline = tree(root, base)
     current = baseline if mode == 'inventory' else index(root) if mode == 'staged' else tree(root, 'HEAD')
+    policy_source = 'EXPLICIT' if policy_path is not None else 'WORKTREE'
+    if policy_path is not None:
+        policy = load_policy(policy_path)
+    elif mode == 'base':
+        try:
+            policy, policy_source = load_base_policy(root, base), 'BASE'
+        except (subprocess.CalledProcessError, UnicodeError, ValueError):
+            policy, policy_source = load_policy(POLICY), 'BASE_UNAVAILABLE'
+    else:
+        policy = load_policy(POLICY)
+    flags = []
+    if mode == 'base' and any(baseline.get(x, {}).get('oid') != current.get(x, {}).get('oid')
+                              for x in (POLICY_REL, GUARD_REL)):
+        flags.append('POLICY_CHANGED')
     protected_oids = {info['oid'] for path, info in baseline.items() if reasons(path, info, policy)}
     files = []
     for path, info in sorted(current.items()):
@@ -303,7 +328,8 @@ def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source
             'source_text': 'working tree',
         },
     } if source_references else {})
-    return {'schema_version': 1, 'mode': mode, 'base': base, 'metadata_only': not source_references,
+    return {'schema_version': 1, 'mode': mode, 'base': base, 'policy_source': policy_source,
+            'flags': flags, 'metadata_only': not source_references,
             **source_scan_fields,
             'files': files, 'blocked_count': sum(x['blocked'] for x in files),
             'deleted_count': len(deleted_paths),
@@ -318,7 +344,8 @@ def main(argv=None):
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--mode', choices=('inventory', 'staged', 'base'), default='staged')
     parser.add_argument('--base', default='HEAD', help='Explicit Git baseline; base mode compares HEAD to it')
-    parser.add_argument('--policy', type=Path, default=POLICY)
+    parser.add_argument('--policy', type=Path, default=None,
+                        help='explicit policy file; base mode otherwise reads it from the base commit')
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--source-references', action='store_true',
                         help='opt in to exact data-path literal candidates in approved tracked Python source; dynamic use remains unverified')
@@ -329,10 +356,13 @@ def main(argv=None):
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(json.dumps({'status': 'ERROR', 'code': type(exc).__name__}))
         return 2
+    if result['policy_source'] == 'BASE_UNAVAILABLE':
+        print(json.dumps({'status': 'ERROR', 'code': 'BASE_POLICY_UNAVAILABLE'}))
+        return 2
     if args.json:
         print(json.dumps(result, ensure_ascii=True, indent=2))
     else:
-        summary = {'mode': args.mode, 'files': len(result['files']),
+        summary = {'mode': args.mode, 'flags': result['flags'], 'files': len(result['files']),
                    'blocked_count': result['blocked_count'], 'deleted_count': result['deleted_count'],
                    'risk_counts': dict(Counter(r for x in result['files'] for r in x['risk_markers']))}
         if args.source_references:

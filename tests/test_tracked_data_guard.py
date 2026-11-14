@@ -315,3 +315,44 @@ def test_source_scan_count_is_zero_when_no_targets_need_scanning(repo):
     write(repo, 'app/safe.py', 'def safe(): pass\n')
     result = inspect(repo, source_references=True)
     assert result['source_scan_count'] == 0
+
+
+def policy_repo(repo, entries=()):
+    policy = load_policy() | {'externally_preserved': [
+        {'archive': 'synthetic-archive', 'manifest_sha256': 'a' * 64, 'files': list(entries)}] if entries else []}
+    write(repo, 'config/tracked-data-policy.json', json.dumps(policy))
+    git(repo, '-c', 'core.hooksPath=NUL', 'commit', '-qm', 'synthetic policy')
+    return policy
+
+
+def test_base_mode_reads_policy_from_base_so_pr_cannot_loosen_it(repo, capsys):
+    policy_repo(repo)
+    before = git(repo, 'rev-parse', 'HEAD').stdout.decode().strip()
+    # The same commit adds the exemption and untracks the protected file.
+    policy = json.loads((repo / 'config/tracked-data-policy.json').read_text(encoding='utf-8'))
+    policy['externally_preserved'] = [{'archive': 'synthetic-archive', 'manifest_sha256': 'a' * 64,
+                                       'files': [blob_entry(repo, 'outputs/existing.sqlite')]}]
+    write(repo, 'config/tracked-data-policy.json', json.dumps(policy))
+    git(repo, 'rm', '-q', '--cached', '--', 'outputs/existing.sqlite')
+    git(repo, '-c', 'core.hooksPath=NUL', 'commit', '-qm', 'synthetic loosen')
+    result = inspect(repo, mode='base', base=before)
+    assert result['policy_source'] == 'BASE' and 'POLICY_CHANGED' in result['flags']
+    assert result['blocked_count'] == 1
+    assert main(['--root', str(repo), '--mode', 'base', '--base', before]) == 1
+    assert 'POLICY_CHANGED' in capsys.readouterr().out
+
+
+def test_base_policy_exemption_still_allows_untrack_without_policy_change(repo):
+    policy_repo(repo, [blob_entry(repo, 'outputs/existing.sqlite')])
+    before = git(repo, 'rev-parse', 'HEAD').stdout.decode().strip()
+    git(repo, 'rm', '-q', '--cached', '--', 'outputs/existing.sqlite')
+    git(repo, '-c', 'core.hooksPath=NUL', 'commit', '-qm', 'synthetic untrack')
+    result = inspect(repo, mode='base', base=before)
+    assert result['blocked_count'] == 0 and result['flags'] == []
+    assert main(['--root', str(repo), '--mode', 'base', '--base', before]) == 0
+
+
+def test_base_mode_without_base_policy_fails_closed(repo, capsys):
+    before = git(repo, 'rev-parse', 'HEAD').stdout.decode().strip()
+    assert main(['--root', str(repo), '--mode', 'base', '--base', before]) == 2
+    assert 'BASE_POLICY_UNAVAILABLE' in capsys.readouterr().out
