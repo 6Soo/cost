@@ -252,6 +252,9 @@ pub fn refund_rows_from_json(value: &Value) -> Result<Vec<RefundTxn>, ShadowErro
 }
 
 fn refund_row_from_json(row: &Value) -> Result<RefundTxn, ShadowError> {
+    if !row.is_object() {
+        return Err(ShadowError::PlanResponseInvalid);
+    }
     let text = |key: &str| -> Result<String, ShadowError> {
         match row.get(key) {
             None | Some(Value::Null) => Ok(String::new()),

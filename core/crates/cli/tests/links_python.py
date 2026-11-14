@@ -31,7 +31,7 @@ def rows(db):
     from app import core_links
     conn = sqlite3.connect(db)
     try:
-        print(json.dumps(core_links.row_dicts(core_links.fetch_rows(conn)), ensure_ascii=False))
+        print(json.dumps(core_links.row_dicts(core_links.fetch_rows(conn))))  # ASCII escapes: stdout encoding is not UTF-8 on Windows
     finally:
         conn.close()
 
