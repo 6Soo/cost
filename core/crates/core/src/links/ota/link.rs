@@ -12,7 +12,7 @@ use super::decimal::Dec;
 use super::inference::{BASIS, NOTE};
 use super::pyval::{first_text, get, is_str, pystr, text, truthy};
 use super::relations::{Relation, attach_relations};
-use crate::plan::{python_json_compact, sha256_hex};
+use crate::digest::{python_json_compact, sha256_hex};
 use crate::rules::casefold;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};

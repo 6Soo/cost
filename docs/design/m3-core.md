@@ -142,6 +142,16 @@ pub fn supersede(existing: &Decision, proposed: Decision) -> Result<Decision, Ov
 
 **봉인의 수준(D-12, 2026-11-14).** 봉인 타입 `RefundGroup`·`OpenScope`·`TripId`·`Subject`는 필드를 비공개로 두고 생성 함수를 `pub(crate)` 이하로 둔다. 작업공간을 `cost-core` 라이브러리 하나로 합쳤으므로(§6.1) **크레이트 밖(`costcore` 실행 파일·통합 테스트)에서의 생성은 컴파일러가 막는다.** 이것을 `compile_fail` 문서 테스트 4개(타입마다 외부 생성 1개)로 고정한다. 크레이트 안에서는 타입과 생성 함수를 같은 모듈에 두는 것을 원칙으로 한다(`RefundGroup` → `links::refund`, `OpenScope` → `dates`). 크레이트 사이 발급 기능 플래그(`refund-issuer`·`scope-issuer`)와 소스 문자열 허용 목록 스캔 테스트는 두지 않는다 — Rust 기능 플래그는 작업공간 전체에서 합쳐져 보호가 되지 않았고(#873 1회차 지적), 문자열 스캔은 우회가 재현됐다. "`Default`가 없다"·"`From`이 없다"처럼 없는 구현을 확인하는 `compile_fail` 시험도 두지 않는다.
 
+### 2.7 이용기간은 판정과 함께 저장한다 — 렌더 시점 계산 폐지 (U9a)
+
+**원칙(소유자 지적 2026-11-14).** 한 번 분류된 비용은 판정 함수가 바뀌기 전에는 다시 분류할 필요가 없다. 분류와 이용일을 따로 계산해 화면이 볼 때마다 이용기간을 근거로 다시 만드는 것은 설계 결함이다(현 Python: 분류는 기록 시점에 저장, 이용기간은 `webapp/ledger_design.py` 렌더마다 `ledger_stay_evidence.period_for`로 재계산, OTA 대조 60초 스냅숏). Rust에서는 이용기간이 `Decision.service_period`의 일부이며, **화면·붙여넣기는 저장된 값만 읽고 렌더 시점에 계산하지 않는다**(화면 쪽 연결은 U11 전환 도구).
+
+- **규칙 이관.** `cost_core::period`가 `verified_period_for`(= `period_for`에서 화면 전용 추론을 뺀 것, DATE-109)와 그 근거 인덱스의 검증 경로(`_build_index` 본 줄기 + `ledger_metadata`)를 순수 함수로 옮겼다. 저장 값이 있으면 그 값, 없으면 검증된 연결의 기간, 추론·근거 없음은 공란이다. 판정이 낼 수 있는 값은 `Known` 또는 사유 있는 `Unknown`(근거 없음·모호·해당 없음)뿐이다. `period`는 `plan`·`store`를 모르는 평문 입력(후보 목록 JSON, 화면 행 문자열)만 받는다.
+- **입력 근거.** 예약 사실·연결은 2차 전환 전까지 Python 다리 `tools/core_bridge periods`가 거래별 후보 목록으로 넘긴다(`card_matches` 결과와 이벤트·카드의 규칙이 읽는 칸만, 원문 없음). 2차 전환 뒤에는 Rust 연결이 같은 자리에 선다.
+- **저장.** core.sqlite 이관 2: `decisions.evidence_digest`·`period_fn_version`. `service_period_json`은 알면 `starts_on`·`ends_on`, 모르면 `unknown` 사유. 저장 함수 `store::decisions::save_decision`은 **U11 적용 경로가 유일한 쓰기 호출자**이고, 이 단위는 저장 함수·재판정 선택·시험까지다.
+- **재계산 규칙.** 근거 digest = sha256(판정 함수 버전, 화면 행의 저장 기간·예약번호, 규칙이 읽는 칸의 후보 사실). 거래의 digest가 저장값과 다르거나 저장된 함수 버전이 현재와 다를 때만 그 거래를 다시 판정한다. `costcore rejudge --changed`가 바뀐 거래만 고르고(쓰지 않음, 공개 출력은 건수), 계획은 `PeriodEvidence.changed`의 거래를 **판정 7칸이 같아도** 새 `Decision`으로 낸다(`targets`에는 넣지 않는다). 규칙을 고치면 `PERIOD_FN_VERSION`을 올려 전부 한 번 재판정한다.
+- **검증.** 골든 `golden/synthetic/period.jsonl`(생산기가 Python `verified_period_for`를 직접 호출, `covers` 자체 점검)을 Rust가 100% 재현한다. 운영 사본 그림자 비교는 `tools/core_bridge/period_shadow.py`(Python 기대값)와 `costcore periods`(Rust)의 차이 건수로 낸다.
+
 ## 3. 데이터
 
 ### 3.1 현 `board.sqlite`에서 코어가 읽는 것과 쓰는 것

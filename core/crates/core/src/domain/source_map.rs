@@ -1,6 +1,6 @@
 //! `transactions.classification_source` → 판정 주체 대응표(설계 §3.2).
 
-use crate::domain::ActorKind;
+use super::ActorKind;
 
 /// 결정 이력이 아닌 값(`decided_at`)까지 포함한 한 행의 출처 입력.
 #[derive(Debug, Clone, Copy, Default)]

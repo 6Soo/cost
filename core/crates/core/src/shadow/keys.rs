@@ -2,6 +2,7 @@
 //! 공개 출력에는 고정 어휘의 값과 건수만 나가고, 거래 ID·금액·가맹점·판정 근거 문장은 들어갈 수 없다.
 
 use super::{ShadowError, Values};
+use crate::domain::ActorKind;
 
 /// `eval_cases.ITEM_VOCABULARY`와 같다(시험이 어긋남을 잡는다).
 pub const ITEM_VOCABULARY: &[&str] = &[
@@ -49,7 +50,20 @@ pub const ATTRIBUTION_VOCABULARY: &[&str] = &["none", "trip", "quarter"];
 pub const OTHER: &str = "other";
 pub const OTHER_ITEM: &str = "기타(목록 밖)";
 pub const PAIRS: &[&str] = &["A-B", "B-C", "A-C"];
-pub const FIELDS: &[&str] = &["state", "source", "item", "attribution", "trip"];
+pub const FIELDS: &[&str] = &[
+    "state",
+    "source",
+    "item",
+    "attribution",
+    "trip",
+    "basis",
+    "description",
+    "period",
+    "actor",
+];
+/// `ActorKind`의 고정 이름. 판정 주체가 없으면 `none`.
+pub const ACTOR_VOCABULARY: &[&str] =
+    &["Manual", "P1Exact", "AiReview", "P2", "P1Inferred", "none"];
 
 fn label<'a>(value: &'a str, vocabulary: &[&str], fallback: &'a str) -> &'a str {
     if vocabulary.contains(&value) {
@@ -116,7 +130,38 @@ pub fn diff_keys(pair: &str, left: &Values, right: &Values) -> Vec<String> {
     } else if left.trip_id != right.trip_id {
         keys.push(key("trip", "differs".to_owned()));
     }
+    // 문장·기간 값은 공개 키에 넣지 않고 달라졌다는 사실만 낸다.
+    if left.basis != right.basis {
+        keys.push(key("basis", "differs".to_owned()));
+    }
+    if left.description != right.description {
+        keys.push(key("description", "differs".to_owned()));
+    }
+    // 기간·주체는 두 쪽 모두 값이 있을 때만 비교한다(없으면 그 쪽 판정 경로가 내지 않는 값).
+    if let (Some(a), Some(b)) = (&left.period, &right.period)
+        && a != b
+    {
+        keys.push(key("period", "differs".to_owned()));
+    }
+    if let (Some(a), Some(b)) = (left.actor, right.actor)
+        && a != b
+    {
+        keys.push(key(
+            "actor",
+            format!("{}→{}", actor_label(a), actor_label(b)),
+        ));
+    }
     keys
+}
+
+pub fn actor_label(kind: ActorKind) -> &'static str {
+    match kind {
+        ActorKind::Manual => "Manual",
+        ActorKind::P1Exact => "P1Exact",
+        ActorKind::AiReview => "AiReview",
+        ActorKind::P2 => "P2",
+        ActorKind::P1Inferred => "P1Inferred",
+    }
 }
 
 /// 키 하나가 허용 목록 안인지 검사한다. 밖이면 `PublicValueNotAllowed`.
@@ -135,7 +180,7 @@ pub fn validate_key(key: &str) -> Result<(), ShadowError> {
 }
 
 fn transition_ok(field: &str, transition: &str) -> bool {
-    if field == "trip" {
+    if matches!(field, "trip" | "basis" | "description" | "period") {
         return transition == "differs";
     }
     let sides: Vec<&str> = transition.split('→').collect();
@@ -145,6 +190,7 @@ fn transition_ok(field: &str, transition: &str) -> bool {
     sides.iter().all(|side| match field {
         "state" => STATE_VOCABULARY.contains(side) || *side == OTHER,
         "source" => SOURCE_VOCABULARY.contains(side) || *side == OTHER,
+        "actor" => ACTOR_VOCABULARY.contains(side),
         "item" => ITEM_VOCABULARY.contains(side) || *side == OTHER_ITEM,
         _ => ATTRIBUTION_VOCABULARY.contains(side),
     })

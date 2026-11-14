@@ -6,7 +6,7 @@ use super::assign::Options;
 use super::decimal::Dec;
 use super::link::{LinkKind, OtaLink};
 use super::pyval::{get, pystr, text, truthy};
-use crate::plan::{python_json, sha256_hex};
+use crate::digest::{python_json, sha256_hex};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 

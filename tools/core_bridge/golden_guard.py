@@ -98,12 +98,12 @@ def _trip(v):
 KEYS = {
     # identity
     'transaction_id': _regex(r'^syn-[a-z0-9-]+$'), 'ota_event_id': _regex(r'^syn-[a-z0-9-]+$'),
-    'source_digest': _regex(r'^syn-[a-z0-9-]+$'), 'source_hash': _regex(r'^syn-[a-z0-9-]+$'),
+    'source_digest': lambda v: v is None or bool(re.fullmatch(r'syn-[a-z0-9-]+', v)), 'source_hash': _regex(r'^syn-[a-z0-9-]+$'),
     'source_ids': _regex(r'^mail:syn-[a-z0-9-]+$'), 'duplicate_of': _regex(r'^syn-[a-z0-9-]+$'),
     'rule_id': _regex(r'^syn-rule-[a-z0-9]+$'), 'transaction_ids': _regex(r'^syn-[a-z0-9-]+$'),
     'overrides': _regex(r'^syn-[a-z0-9-]+$'),
     'approval_number': _regex(SYN_APPROVAL.pattern), 'original_approval_number': _regex(SYN_APPROVAL.pattern),
-    'booking_ref': _regex(r'^SYN-BOOK-\d$'), 'authorization_number': _regex(r'^SYN-AUTH-\d$'),
+    'booking_ref': lambda v: v is None or bool(re.fullmatch(r'(SYN-BOOK-\d)?', v)), 'authorization_number': _regex(r'^SYN-AUTH-\d$'),
     'authorization_scheme': _one_of('scheme-a', 'issuer_card_approval'),
     # card and money
     'issuer': _one_of('', 'SYN-BANK', 'SYN-BANK-B'), 'card_issuer': _one_of('SYN-BANK', 'SYN-BANK-B', 'SYN-BANK-ALIAS'),
@@ -127,8 +127,9 @@ KEYS = {
     'transaction_kind': _one_of('승인', '취소', 'purchase'),
     'event_type': _one_of('charge', 'refund', 'reservation'),
     'evidence_status': _one_of('paid_verified', 'refund_verified', 'booking_only', 'preauthorized'),
-    'payment_status': _one_of('paid', 'pending'), 'refund_status': _one_of('refunded'),
-    'status': _one_of('active', 'inactive', 'MATCHED_AUTO', 'MATCHED_USER'),
+    'payment_status': _one_of('paid', 'pending'),
+    'refund_status': _one_of('refunded', 'refund_pending', 'none_displayed', ''),
+    'status': _one_of('active', 'inactive', 'MATCHED_AUTO', 'MATCHED_USER', 'HOLD_DATE_UNKNOWN'),
     'classification_state': _one_of('classified', 'needs_review'),
     'classification_source': _one_of('', 'ai_inference', 'code_inference', 'inference', 'user_decision', 'user_exception',
                                      'rule_conflict', 'refund_original'),
@@ -164,10 +165,20 @@ KEYS = {
     'alias_version': _one_of(1), 'approval_source': _one_of('syn-source'),
     'event_issuer_alias': _one_of('SYN-BANK-ALIAS'),
     'preauthorized_on': lambda v: v is None or bool(DATE.match(v)), 'preauthorized_amount_krw': _money,
-    'price_change_amount_krw': _money, 'price_change_on': _regex(DATE.pattern), 'reservation_status': _one_of('cancelled', 'confirmed'),
+    'price_change_amount_krw': _money, 'price_change_on': _regex(DATE.pattern),
     'evidence_kind': _one_of('forest_portal', 'authenticated_forest_pg_card_receipt'),
     'hotel_name': _one_of('SYN HOTEL'), 'payment_id': _regex(r'^syn-pay-\d$'), 'payment_id_scheme': _one_of('scheme-p'),
-    'ota_review_held': _bool,
+    # period area (verified_period_for): rows, flags and reservation facts
+    'row_id': _regex(r'^(card|ledger)-syn-[a-z0-9-]+$'), 'manual': _regex(r'^card-syn-[a-z0-9-]+$'),
+    'source_event_id': _regex(r'^syn-[a-z0-9-]+$'), 'reservation_no': _regex(r'^(SYN-BOOK-\d)?$'),
+    'service_period': lambda v: v is None or bool(re.fullmatch(
+        r'\s*|20(24|25|26|27)-\d\d-\d\d~20(24|25|26|27)-\d\d-\d\d', v)),
+    'reservation_status': _one_of('observed', 'confirmed', 'completed', 'cancelled', 'refunded', 'refund_pending',
+                                  'evidence_pending'),
+    'service_period_basis': _one_of('LINK-108'), 'allocation_basis': _one_of('auto_stable_order'),
+    'evidence_changed': _bool, 'evidence_missing': _bool, 'service_period_conflict': _bool,
+    'individual_payment_evidence': _bool, 'ota_review_held': _bool, 'reservation_refund_blocked': _bool,
+    'inferred_link': _bool,
     # OTA final links (U14): frozen groups, legacy pins, undated inference
     'event_ids': _regex(r'^syn-[a-z0-9-]+$'), 'card_ids': _regex(r'^syn-[a-z0-9-]+$'),
     'source_digests': _regex(r'^syn-[a-z0-9-]+$'), 'legacy_exact': _bool, 'verified_portal_snapshot': _bool,
@@ -178,7 +189,7 @@ CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optiona
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
               'service_period', 'frozen_groups', 'mapping', 'order_snapshot', 'cards', 'event_evidence', 'card_evidence',
-              'eligible_edges_digest', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows'}
+              'eligible_edges_digest', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows', 'data', 'results'}
 ID_MAPS = {'evidence', 'existing_links', 'links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')

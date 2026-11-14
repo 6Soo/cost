@@ -214,8 +214,9 @@ def _name_tokens(value):
 def _same_lodging(merchant, name):
     """Every distinctive romanized merchant token sits in the booking's lodging name."""
     import re
-    # A card merchant field trails the city and country after a wide gap.
-    tokens = [t for t in _name_tokens(re.sub(r'\s{2,}.*$', '', str(merchant or ''))) if t not in _GENERIC_NAME_TOKENS]
+    # A card merchant field trails the city and country after a wide gap (split, not a backtracking sub).
+    head = re.split(r'\s{2,}', str(merchant or ''), maxsplit=1)[0]
+    tokens = [t for t in _name_tokens(head) if t not in _GENERIC_NAME_TOKENS]
     compact = re.sub(r'[^A-Z]', '', str(name or '').upper())
     return bool(tokens) and sum(map(len, tokens)) >= 8 and all(t in compact for t in tokens)
 
@@ -243,6 +244,11 @@ def _onsite_property_periods(data, manual):
         if not lodging:
             continue
         # A charge, a cancellation or any refund means the OTA, not the hotel, is paid; a scheduled charge is not a charge.
+        # An Agoda scheduled auto-charge (a dated one) is the OTA's own payment (LINK-069), not the hotel's.
+        if provider == 'agoda' and any(
+                e.get('scheduled_for') and 'scheduled' in str(e.get('event_type')) + str(e.get('payment_status'))
+                + str(e.get('evidence_status')) for e in related):
+            continue
         if any(e.get('event_type') in ('refund', 'cancellation_notice')
                or e.get('evidence_status') in ('paid_verified', 'refund_verified', 'conflict',
                                                'evidence_conflict', 'refund_conflict')
@@ -372,21 +378,34 @@ def _trip_preauthorization_cards(data, manual):
                     and (not event.get('card_last4') or str(row.get('card_tail') or '') == event['card_last4'])):
                 candidates[tid].add(hold_id)
                 reverse[hold_id].add(tid)
-    result, seen = {}, set()
-    for start_card in list(candidates):
-        if start_card in seen:
-            continue
-        group_cards, group_holds, todo = set(), set(), [start_card]
-        while todo:
-            tid = todo.pop()
-            if tid in group_cards:
+    def components():
+        found, done = [], set()
+        for start_card in list(candidates):
+            if start_card in done:
                 continue
-            group_cards.add(tid)
-            for hold in candidates[tid]:
-                if hold not in group_holds:
-                    group_holds.add(hold)
-                    todo.extend(reverse[hold])
-        seen |= group_cards
+            group_cards, group_holds, todo = set(), set(), [start_card]
+            while todo:
+                tid = todo.pop()
+                if tid in group_cards:
+                    continue
+                group_cards.add(tid)
+                for hold in candidates[tid]:
+                    if hold not in group_holds:
+                        group_holds.add(hold)
+                        todo.extend(reverse[hold])
+            done |= group_cards
+            found.append((group_cards, group_holds))
+        return found
+
+    # A group with portal evidence keeps its fixed shape: mail holds never join it (LINK-092).
+    for group_cards, group_holds in components():
+        if group_holds & mail_ids and group_holds - mail_ids:
+            for hold in group_holds & mail_ids:
+                for tid in reverse.pop(hold, ()):
+                    candidates[tid].discard(hold)
+    candidates = defaultdict(set, {tid: held for tid, held in candidates.items() if held})
+    result = {}
+    for group_cards, group_holds in components():
         if len(group_cards) != len(group_holds):
             continue
         events = [by_id[h] for h in sorted(group_holds)]

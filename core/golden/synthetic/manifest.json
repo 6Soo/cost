@@ -16,6 +16,10 @@
       "cases": 39,
       "sha256": "9c4dec0f44023788586c6fed7b2c2b2ed34520c466dda6a9867180000fb0a46d"
     },
+    "period.jsonl": {
+      "cases": 53,
+      "sha256": "279c5ddef903b5f78af5c022e0856a0b72da08270e2237e69acd00fb4d8fba16"
+    },
     "plan.jsonl": {
       "cases": 107,
       "sha256": "c0091c1e4fb88b9ae7369aeead93530a035d1457ef8085f57b2eddbe60f0ee4f"

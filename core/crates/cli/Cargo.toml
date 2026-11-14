@@ -13,3 +13,6 @@ workspace = true
 [dependencies]
 cost-core = { path = "../core" }
 serde_json = "1"
+
+[dev-dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }

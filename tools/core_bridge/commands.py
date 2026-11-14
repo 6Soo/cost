@@ -103,6 +103,22 @@ def links(request):
     raise BridgeError('LINKS_KIND_INVALID', str(kind))
 
 
+def candidates(request):
+    """OTA 후보 단계(M3 U13): 이벤트별 후보 카드, 카드별 쌍 검사 코드, 진단 탐색. 연결은 만들지 않는다."""
+    from app import ota_payments as op
+    from app.ota_matching_defaults import provider_resolution_scope
+    cards, rules, links = request['transactions'], request.get('rules') or [], request.get('existing_links') or {}
+    out = []
+    with provider_resolution_scope():
+        for event in request['events']:
+            out.append({
+                'ota_event_id': event.get('ota_event_id'),
+                'eligible': [row['transaction_id'] for row in op._eligible_cards(event, cards, rules=rules)],
+                'pair_check': {str(row['transaction_id']): op.pair_check(event, row, rules) for row in cards},
+                'search': op.search_card_candidates(event, cards, existing_links=links, rules=rules)})
+    return {'events': out}
+
+
 def _refund_group(request):
     """Refund-group judgement on a scenario: batch selection (_ready_rows), pair judgement (_apply_refund_pairs),
     half-booked check (_check_refund_groups) and verified group scope (scope_group). Nothing is written."""
@@ -158,22 +174,6 @@ def _refund_group(request):
                 scope[original] = {'code': exc.code, 'recordable': False}
         out['scope'] = scope
         return out
-
-
-def candidates(request):
-    """OTA 후보 단계(M3 U13): 이벤트별 후보 카드, 카드별 쌍 검사 코드, 진단 탐색. 연결은 만들지 않는다."""
-    from app import ota_payments as op
-    from app.ota_matching_defaults import provider_resolution_scope
-    cards, rules, links = request['transactions'], request.get('rules') or [], request.get('existing_links') or {}
-    out = []
-    with provider_resolution_scope():
-        for event in request['events']:
-            out.append({
-                'ota_event_id': event.get('ota_event_id'),
-                'eligible': [row['transaction_id'] for row in op._eligible_cards(event, cards, rules=rules)],
-                'pair_check': {str(row['transaction_id']): op.pair_check(event, row, rules) for row in cards},
-                'search': op.search_card_candidates(event, cards, existing_links=links, rules=rules)})
-    return {'events': out}
 
 
 def plan(request):
@@ -252,8 +252,14 @@ def trips(request):
     raise BridgeError('TRIPS_OP_INVALID', str(op))
 
 
+def periods(request):
+    """Booking-period inputs for the Rust period rule plus the Python verified period per row (no DB)."""
+    from .periods import periods as run
+    return run(request)
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'candidates': candidates, 'plan': plan,
-            'classify': classify, 'extract': extract, 'trips': trips}
+            'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods}
 
 
 def canonical(value):
