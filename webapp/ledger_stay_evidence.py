@@ -822,3 +822,29 @@ def period_for(row, index):
             and reservation not in (found.get('booking_refs') or ())):
         return ''
     return found.get('service_period') or ''
+
+
+def verified_period_for(row, index):
+    """period_for without the screen-only inference (DATE-109): a stored value, or a verified link."""
+    period = period_for(row, index)
+    if not period or str(row.get('service_period') or '').strip():
+        return period
+    row_id = str(row.get('row_id') or '')
+    evidence = (index.get(str(row.get('source_event_id') or row_id[5:])) or {}).get('ota_evidence') or {}
+    if evidence.get('kind') == 'reservation_period_inferred' or evidence.get('payment_verified') is False:
+        return ''
+    return period
+
+
+def export_index(store):
+    """The screen's stay index for output paths; a store without a ledger connection has none."""
+    if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
+        return {}
+    return stay_index(store)
+
+
+def index_from_snapshot(data, manual):
+    """The same index the screen builds, from a full reconciliation result (offline tools)."""
+    from app.ota_matching_defaults import provider_resolution_scope
+    with provider_resolution_scope():
+        return _build_index(data, manual)
