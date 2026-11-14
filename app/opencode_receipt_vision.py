@@ -319,7 +319,9 @@ def recognize(image, *, runner=None, guidance=None, model=MODEL, lesson=False):
         isolated = root/'config'
         (isolated/'opencode').mkdir(parents=True)
         (isolated/'opencode'/'opencode.json').write_text(json.dumps(config),encoding='utf-8')
-        environment = dict(os.environ, XDG_CONFIG_HOME=str(isolated))
+        # Session history also stays in the temporary directory; otherwise every call is stored
+        # permanently in the user's shared OpenCode database.
+        environment = dict(os.environ, XDG_CONFIG_HOME=str(isolated), XDG_DATA_HOME=str(root/'data'))
         # --file is an array option: it must not sit directly before the prompt, or the prompt
         # is read as a second file. --pure keeps external plugins and MCP servers out of the call.
         command = [executable,'run','--pure','--model',model,'--agent','receipt-readonly',

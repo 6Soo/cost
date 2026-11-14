@@ -42,6 +42,7 @@ def test_model_pinned_tools_need_approval_and_tickets_not_deduplicated(ready):
         assert settings["permission"] == {"*": "ask"}
         assert settings["agent"]["receipt-readonly"]["permission"] == {"*": "ask"}
         assert "XDG_CONFIG_HOME" in kwargs["env"]
+        assert Path(kwargs["env"]["XDG_DATA_HOME"]).is_relative_to(Path(kwargs["cwd"]))
         assert "--auto" not in command
         assert command[command.index("--model")+1] == vision.MODEL
         assert any(arg.startswith("--file=") and arg.endswith(".jpg") for arg in command)
