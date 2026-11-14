@@ -240,5 +240,10 @@ fn golden_plan_matches_python() {
     }
     eprintln!("plan golden: {matched} of {total} match, {known} known diffs");
     assert!(bad.is_empty(), "{} differ:\n{}", bad.len(), bad.join("\n"));
+    assert_eq!(
+        known,
+        known_ids.len(),
+        "known-diffs.txt lists a plan- case that is not in the golden file"
+    );
     assert_eq!(total, 107);
 }
