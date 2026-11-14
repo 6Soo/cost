@@ -5,8 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use super::{PlanEngine, PlanRequest, PythonBridge, ShadowError, Target, Values};
+use crate::domain::{Decision, Judgement, ServicePeriod};
 use crate::period::PeriodEvidence;
-use crate::plan::{RefundLink, plan_with_periods};
+use crate::plan::{Outcome, RefundLink, plan_with_periods};
 use crate::store::read_plan_input;
 
 pub struct RustEngine {
@@ -78,10 +79,23 @@ impl PlanEngine for RustEngine {
         };
         let result =
             plan_with_periods(&input, &links, &periods).map_err(|_| ShadowError::PlanFailed)?;
+        let decisions: BTreeMap<&str, &Decision> = result
+            .outcomes
+            .iter()
+            .filter_map(|(id, outcome)| match outcome {
+                Outcome::Judged(Judgement::Decided(d)) => Some((id.as_str(), d)),
+                _ => None,
+            })
+            .collect();
         Ok(result
             .targets
-            .into_iter()
+            .iter()
             .map(|t| {
+                let decision = decisions.get(t.id.as_str());
+                let period = decision.map(|d| match d.service_period() {
+                    ServicePeriod::Known { starts_on, ends_on } => format!("{starts_on}/{ends_on}"),
+                    ServicePeriod::Unknown { .. } => "unknown".to_owned(),
+                });
                 let [
                     state,
                     source,
@@ -90,9 +104,10 @@ impl PlanEngine for RustEngine {
                     description,
                     display_tab_id,
                     trip_id,
-                ] = t.values;
+                ] = t.values.clone();
                 Target {
-                    id: t.id,
+                    id: t.id.clone(),
+                    has_history: t.has_prior_classification,
                     values: Values {
                         state,
                         source,
@@ -101,6 +116,8 @@ impl PlanEngine for RustEngine {
                         description,
                         display_tab_id,
                         trip_id,
+                        period,
+                        actor: decision.map(|d| d.actor().kind()),
                     },
                 }
             })

@@ -1,4 +1,5 @@
 # 알려진 Rust-Python 판정 차이. 목록 밖 차이는 실패, 사라진 차이는 줄을 지운다.
+# 한 파일을 골든 시험(사례 ID 줄)과 그림자 실행(`B-C|필드|이전 출처|전환` 유형 키 줄)이 함께 읽는다. 중복·다른 형식 줄은 오류.
 classify-176  # 날짜 칸이 빈 거래: Rust는 Protected(소유자 결정 2026-11-14, U7 dates), Python은 규칙 계속 적용 (core/crates/core/tests/rules_exceptions.rs)
 plan-039  # 날짜 칸이 모두 빈 거래: Rust는 Protected(소유자 결정 2026-11-14, U7 dates), Python은 판정을 계속 (core/crates/core/tests/plan_golden.rs)
 plan-040  # 위와 같음(reconsider)

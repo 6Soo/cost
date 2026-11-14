@@ -300,20 +300,36 @@ def result_token(result):
 
 
 def compare_planners(cases, python_results, rust_results):
-    """Per-case Python vs Rust comparison, published as counts of fixed tokens by case type."""
-    differing, by_transition, by_type = 0, Counter(), Counter()
-    for case, py, rs in zip(cases, python_results, rust_results):
+    """Per-case Python vs Rust comparison, published as counts of fixed tokens by case type.
+
+    Results are paired by case id, not by position. ``regressions`` appears only when Python matched
+    the reviewer's correction and Rust did not.
+    """
+    ids = [c['tid'] for c in cases]
+    if len(set(ids)) != len(ids) or len(python_results) != len(ids) or len(rust_results) != len(ids):
+        raise ValueError('PLANNER_RESULTS_MISALIGNED')
+    python_by, rust_by = dict(zip(ids, python_results)), dict(zip(ids, rust_results))
+    differing, by_transition, by_type, regressions = 0, Counter(), Counter(), Counter()
+    for case in cases:
+        py, rs = python_by[case['tid']], rust_by[case['tid']]
         py_token, rs_token = result_token(py), result_token(rs)
         if py_token == rs_token:
             continue
         differing += 1
         by_transition[py_token + '->' + rs_token] += 1
-        by_type[_type_key(dict(case_type(case), python=py_token, rust=rs_token))] += 1
+        key = _type_key(dict(case_type(case), python=py_token, rust=rs_token))
+        by_type[key] += 1
+        if py['outcome'] == 'MATCH':
+            regressions[key] += 1
     types = [dict(json.loads(k), count=n) for k, n in sorted(by_type.items())]
     for t in types:
         validate_public([{k: v for k, v in t.items() if k not in ('python', 'rust', 'count')}])
-    return dict(cases=len(cases), same=len(cases) - differing, different=differing,
-                by_transition=dict(sorted(by_transition.items())), by_type=types)
+    report = dict(cases=len(cases), same=len(cases) - differing, different=differing,
+                  by_transition=dict(sorted(by_transition.items())), by_type=types)
+    if regressions:
+        report['regressions'] = dict(count=sum(regressions.values()), by_type=[
+            dict(json.loads(k), count=n) for k, n in sorted(regressions.items())])
+    return report
 
 
 def _protected_workdir(host):

@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
-use crate::plan::RefundLink;
+use crate::plan::{RefundLink, python_json, sha256_hex};
 
 use super::{PlanEngine, PlanRequest, ShadowError, Target, parse_targets};
 
@@ -40,6 +40,7 @@ impl PythonBridge {
             let code = response["error"]["code"].as_str().unwrap_or("UNKNOWN");
             return Err(ShadowError::PythonBridgeFailed(code.to_owned()));
         }
+        verify_envelope(&response, command, body)?;
         Ok(response["result"].clone())
     }
 
@@ -87,6 +88,24 @@ impl PlanEngine for PythonBridge {
         parse_targets(&self.call("plan", &body)?)
     }
 }
+/// 응답이 이 요청에 대한 것인지(명령·입력 digest)와 Python 커밋 표시(40자리 16진수)를 확인한다.
+pub(super) fn verify_envelope(
+    response: &Value,
+    command: &str,
+    body: &Value,
+) -> Result<(), ShadowError> {
+    let sha = response["python_sha"].as_str().unwrap_or("");
+    let sha_ok = sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit());
+    let digest_ok = response["input_digest"].as_str() == Some(&sha256_hex(&python_json(body)));
+    if response["command"].as_str() == Some(command) && sha_ok && digest_ok {
+        Ok(())
+    } else {
+        Err(ShadowError::PythonBridgeFailed(
+            "ENVELOPE_MISMATCH".to_owned(),
+        ))
+    }
+}
+
 fn bridge_failed() -> ShadowError {
     ShadowError::PythonBridgeFailed("PYTHON_BRIDGE_FAILED".into())
 }
