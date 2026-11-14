@@ -3,6 +3,7 @@
 //! 보호 불변식(속성 테스트): 한 카드가 두 연결에 점유되지 않고, 기존 수동 연결은 바뀌지 않는다.
 
 use cost_core::links::ota::{Defaults, LinkKind, Matcher, bind_legacy_portal_links};
+use cost_core::shadow::links::overlay_event;
 use proptest::prelude::*;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -82,7 +83,7 @@ fn pick(result: &Value) -> Value {
     )
 }
 
-fn run(case: &Value) -> (Vec<Value>, Vec<Value>) {
+fn run(case: &Value, overlay: bool) -> (Vec<Value>, Vec<Value>) {
     let defaults = defaults();
     let input = &case["input"];
     let (events, cards, rules, frozen) = (
@@ -95,7 +96,16 @@ fn run(case: &Value) -> (Vec<Value>, Vec<Value>) {
     let got: Vec<Value> = matcher
         .match_events(&events, &cards, &links(input), &frozen)
         .iter()
-        .map(|l| l.to_value())
+        .map(|l| {
+            let link = l.to_value();
+            if !overlay {
+                return pick(&link);
+            }
+            let source = events
+                .iter()
+                .find(|e| e["ota_event_id"] == link["ota_event_id"]);
+            pick(&overlay_event(source, &link))
+        })
         .collect();
     let want: Vec<Value> = case["expected"]["results"]
         .as_array()
@@ -113,9 +123,9 @@ fn final_links_match_python() {
         .iter()
         .flat_map(|name| read_lines(name))
         .collect();
-    assert_eq!(cases.len(), 55 + 39);
+    assert_eq!(cases.len(), 55 + 46);
     for case in cases {
-        let (got, want) = run(&case);
+        let (got, want) = run(&case, true);
         for (g, w) in got.iter().zip(&want) {
             checked += 1;
             if g != w {
@@ -129,6 +139,33 @@ fn final_links_match_python() {
         checked - bad.len()
     );
     assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+#[test]
+fn overlay_is_needed_for_event_fields_the_link_omits() {
+    let cases: Vec<Value> = read_lines("ota_mn.jsonl")
+        .into_iter()
+        .filter(|c| {
+            c["note"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("shadow overlay:"))
+        })
+        .collect();
+    assert_eq!(cases.len(), 7);
+    let differs = |overlay: bool| {
+        cases
+            .iter()
+            .filter(|c| {
+                let (got, want) = run(c, overlay);
+                got != want
+            })
+            .count()
+    };
+    assert!(
+        differs(false) > 0,
+        "without the overlay the new cases must differ"
+    );
+    assert_eq!(differs(true), 0);
 }
 
 #[test]

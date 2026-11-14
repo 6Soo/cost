@@ -124,9 +124,14 @@ def sync_unified_store(directory: Path) -> None:
         raise ValueError('OTA_STORE_COLLECTOR_TARGET_MISSING')
     store = OtaStore(resolved['unified_database'])
     try:
+        stamp = store.mail_stamp(directory)
+        if store.mail_unchanged(directory, stamp):
+            print(f'mail import skipped: no change in {len(stamp)} watched items (collection.json excluded)', flush=True)
+            return
         store.conn.execute('BEGIN IMMEDIATE')
         store.import_mail(directory)
         store.conn.commit()
+        store.record_mail_stamp(directory, stamp)
     finally:
         store.close()
 

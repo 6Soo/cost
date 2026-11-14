@@ -330,8 +330,8 @@
     },
     {
       "name": "ota-mail-load-lifetime",
-      "paths": ["app/ota_mail.py", "app/ota_payments.py", "app/ota_store.py", "tools/benchmark_ota_mail_load.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py", "tools/reindex_reservation_observations.py", "tests/card_pipeline/test_forest_reindex.py", "webapp/tests/test_forest_catalog.py"],
-      "tests": ["tests/card_pipeline/test_forest_reindex.py", "webapp/tests/test_forest_catalog.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py", "tests/card_pipeline/test_ota_sources_registry.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ota_catalog.py", "webapp/tests/test_ota_reconcile_child.py"]
+      "paths": ["app/ota_mail.py", "app/ota_payments.py", "app/ota_store.py", "tests/card_pipeline/test_mail_import_skip.py", "tools/benchmark_ota_mail_load.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py", "tools/reindex_reservation_observations.py", "tests/card_pipeline/test_forest_reindex.py", "webapp/tests/test_forest_catalog.py"],
+      "tests": ["tests/card_pipeline/test_mail_import_skip.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_forest_reindex.py", "webapp/tests/test_forest_catalog.py", "tests/card_pipeline/test_ota_mail_load_lifetime.py", "tests/card_pipeline/test_ota_sources_registry.py", "tests/card_pipeline/test_ota_store.py", "webapp/tests/test_ota_catalog.py", "webapp/tests/test_ota_reconcile_child.py"]
     },
     {
       "name": "ota-reconciliation",

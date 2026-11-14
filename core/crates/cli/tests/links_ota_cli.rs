@@ -70,7 +70,7 @@ fn every_ota_golden_input_gives_the_golden_link_columns() {
         }
         cases += 1;
     }
-    assert_eq!(cases, 55 + 39);
+    assert_eq!(cases, 55 + 46);
     assert!(compared > 0);
 }
 

@@ -157,7 +157,18 @@ fn links_refund_reproduces_every_refund_pairing_golden_case_from_the_db() {
 
 #[test]
 fn links_command_rejects_unknown_kind_and_a_missing_database() {
-    for args in [vec!["links", "ota"], vec!["links"], vec!["links", "refund"]] {
+    // `links ota` is a real command (#921): no input is INPUT_INVALID, never a usage error.
+    let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
+        .args(["links", "ota"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("INPUT_INVALID")
+    );
+    for args in [vec!["links", "foo"], vec!["links"], vec!["links", "refund"]] {
         let out = Command::new(env!("CARGO_BIN_EXE_costcore"))
             .args(args)
             .stdin(Stdio::null())
