@@ -254,4 +254,3 @@ def test_capture_still_reaches_the_python_solver_while_the_switch_is_on(monkeypa
 
     data = ota_input.solver_input(board, review_db, {'mail_directories': []}, payments=Stub(events, []))
     assert data['kind'] == 'ota' and os.environ[core_ota_links.PRODUCER_ENV] == 'rust'
-
