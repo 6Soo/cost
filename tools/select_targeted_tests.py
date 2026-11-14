@@ -98,8 +98,10 @@ def changed_paths(base):
 def deleted_paths(base):
     result = subprocess.run(
         ["git", "diff", "--name-only", "-z", "--diff-filter=D", f"{base}...HEAD"],
-        cwd=ROOT, check=True, capture_output=True, text=True,
+        cwd=ROOT, capture_output=True, text=True,
     )
+    if result.returncode:
+        return set()  # fail closed: nothing is treated as deleted
     return {path for path in result.stdout.split('\0') if path}
 
 
@@ -123,7 +125,9 @@ def main(argv=None):
                           or (p.startswith('docs/') and p.lower().endswith('.png'))]
         code_paths = [p for p in paths if p not in document_paths]
         targets, unknown = select_targets(code_paths, impact_map["groups"])
-        unknown, deleted_unmapped = split_deleted_unmapped(unknown, deleted_paths(args.base))
+        deleted_unmapped = []
+        if unknown:
+            unknown, deleted_unmapped = split_deleted_unmapped(unknown, deleted_paths(args.base))
         if unknown:
             targets = sorted(set(targets) | set(impact_map['safe_fallback_tests']))
         all_targets = set(impact_map["safe_fallback_tests"])
