@@ -90,6 +90,48 @@ impl Dec {
         })
     }
 
+    /// `self + other`(넘치면 `None`).
+    pub fn checked_add(self, other: Dec) -> Option<Dec> {
+        let (a, b) = Dec::align(self, other)?;
+        Some(Dec {
+            m: a.checked_add(b)?,
+            scale: self.scale.max(other.scale),
+        })
+    }
+
+    /// `str(Decimal)`(지수 표기 없는 값): 자릿수를 그대로 둔 평문.
+    pub fn plain(self) -> String {
+        let sign = if self.m < 0 { "-" } else { "" };
+        let digits = self.m.unsigned_abs().to_string();
+        if self.scale == 0 {
+            return format!("{sign}{digits}");
+        }
+        let width = self.scale as usize;
+        let padded = format!("{digits:0>w$}", w = width + 1);
+        let (int_part, frac) = padded.split_at(padded.len() - width);
+        format!("{sign}{int_part}.{frac}")
+    }
+
+    /// `format(value.normalize(), "f")`: 양수만. 뒤쪽 0을 줄인 평문 표기(`_canonical_group_amount`).
+    pub fn canonical_positive(self) -> Option<String> {
+        if self.m <= 0 {
+            return None;
+        }
+        let (mut m, mut scale) = (self.m, self.scale);
+        while scale > 0 && m % 10 == 0 {
+            m /= 10;
+            scale -= 1;
+        }
+        let digits = m.to_string();
+        if scale == 0 {
+            return Some(digits);
+        }
+        let width = scale as usize;
+        let padded = format!("{digits:0>width$}", width = width + 1);
+        let (int_part, frac) = padded.split_at(padded.len() - width);
+        Some(format!("{int_part}.{frac}"))
+    }
+
     /// 정수 `step`으로 나눈 나머지가 0인가(`Decimal % int == 0`, `step != 0`).
     pub fn divisible_by(self, step: i64) -> bool {
         let Some(unit) = pow10(self.scale).and_then(|p| p.checked_mul(i128::from(step))) else {

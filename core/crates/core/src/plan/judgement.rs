@@ -99,8 +99,9 @@ fn attribution(
     tid: &str,
 ) -> Option<Attribution> {
     if tab == "refunds" {
-        let group = format!("refund:{}", original.unwrap_or(tid));
-        return Some(Attribution::RefundPair(RefundGroupId(group)));
+        return Some(Attribution::RefundPair(RefundGroupId::for_original(
+            original.unwrap_or(tid),
+        )));
     }
     if let Some(rest) = tab.strip_prefix("quarter:") {
         let (year, number) = rest.split_once(':')?;

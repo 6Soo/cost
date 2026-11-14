@@ -4,17 +4,24 @@
 //! "후보 단계로 결정되는" 앞부분([`Matcher::candidate_stage`]).
 //!
 //! 이벤트·카드 행·규칙은 Python dict 그대로 `serde_json::Value`로 받는다. 모든 함수는 `&Value`만 읽으므로 카드 원천
-//! 값을 바꾸는 경로가 없다. M:N 묶음·점유·정확 연결 우선 배정·고정 그룹은 U14다.
+//! 값을 바꾸는 경로가 없다. M:N 묶음·점유·정확 연결 우선 배정·고정 그룹은 U14다([`Matcher::match_events`], 모듈 `link`·`assign`·
+//! `relations`·`inference`). 최종 연결(쌍·상태·성분 구성)만 Python과 맞추고 중간 산출물은 약속하지 않는다.
 //!
 //! 알려진 차이: 가맹점 `NFKC` 접기는 전각 ASCII만 접는다(`_merchant_descriptors`), 날짜는 `YYYY-MM-DD`만 받는다(D-12),
 //! 공급자 별칭 길이가 같을 때의 해소 순서는 공급자 이름순이다(Python은 JSON 파일 순서), 가수가 `i128`을 넘는
-//! 금액은 해석하지 않는다.
+//! 금액은 해석하지 않는다. U14: 배정에서 탈락한 단건 이벤트가 다른 이벤트에 배정된 카드를 집는 Python의 두 점유 경로는
+//! 막고 `HOLD_AMBIGUOUS`(`global_one_to_one_collision`)로 보류한다. 근거 관계 ID는 ASCII 이벤트·카드 ID에서만
+//! Python과 같다.
 
 mod amount;
+mod assign;
 mod decimal;
 mod defaults;
+mod inference;
+mod link;
 mod pair;
 mod pyval;
+mod relations;
 mod rule_scope;
 mod search;
 mod stage;
@@ -22,6 +29,10 @@ mod stage;
 pub use amount::{AmountCompare, AmountStatus};
 pub use decimal::Dec;
 pub use defaults::{Defaults, DefaultsError, TripDelta};
+pub use link::{
+    FrozenChange, GroupShape, LinkKind, MatchedCounts, OtaLink, bind_legacy_portal_links,
+};
+pub use relations::Relation;
 pub use search::{Candidate, DEFAULT_MAX_COMPARISONS, Rejected, Search, SearchResult};
 pub use stage::{HoldOutcome, Stage, UniqueMatch};
 

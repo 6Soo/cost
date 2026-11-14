@@ -18,7 +18,7 @@ cargo test --workspace
 
 ## 구성 (설계 §6.1, D-12)
 
-- `crates/core` (`cost-core`, 라이브러리): 모듈 `domain`(판정 타입·불변식), `dates`(날짜·완료 기간·열린 범위, `OpenScope` 발급), `trips`(여행 귀속 추론, U8), `region`(국가·지역·온라인·후쿠타케 판정, rules·trips 공용), `plan`(P1 계획 조립·보호 순서·이력 복원·digest, U9), `links::refund`(환불 짝 도출·환불 묶음 판정·`RefundGroup` 발급, U12; 골든 `refund_pairing.jsonl`·`refund_groups.jsonl`, 시험은 모듈 안 `tests.rs`), `links::ota`(OTA↔카드 후보 탐색·쌍 검사, U13. M:N 배정·점유는 U14). 후속 단위가 `store`·`rules`·`links`·`pipeline`·`bridge` 모듈을 더한다.
+- `crates/core` (`cost-core`, 라이브러리): 모듈 `domain`(판정 타입·불변식), `dates`(날짜·완료 기간·열린 범위, `OpenScope` 발급), `trips`(여행 귀속 추론, U8), `region`(국가·지역·온라인·후쿠타케 판정, rules·trips 공용), `plan`(P1 계획 조립·보호 순서·이력 복원·digest, U9), `links::refund`(환불 짝 도출·환불 묶음 판정·`RefundGroup` 발급, U12; 골든 `refund_pairing.jsonl`·`refund_groups.jsonl`, 시험은 모듈 안 `tests.rs`), `links::ota`(OTA↔카드 후보 탐색·쌍 검사 U13, M:N 배정·점유·고정 그룹 U14; 골든 `ota_links.jsonl`·`ota_mn.jsonl`, 시험 `tests/ota_links_golden.rs`), `RefundGroupId::for_original`(환불 묶음 ID 조립 한 곳)·`Refunds::plan_links`(U12 연결 → `plan::Links` 어댑터). 후속 단위가 `store`·`rules`·`links`·`pipeline`·`bridge` 모듈을 더한다.
 - `crates/cli` (`costcore`, 실행 파일).
 - 봉인 타입(`RefundGroup`·`OpenScope`·`TripId`·`Subject`)은 생성자가 `pub(crate)`이거나 없어 크레이트 밖에서 만들 수 없다(문서 테스트 `compile_fail` 4개).
 - 합성 골든: `golden/synthetic/dates.jsonl`(생산기 `tools/core_dates_golden.py`), 시험 `crates/core/tests/dates_golden.rs`. `golden/synthetic/trips.jsonl`(`python -m tools.core_bridge.golden write`), 시험 `crates/core/tests/trips_golden.rs`. `golden/synthetic/plan.jsonl`(같은 도구, 입력의 `links`는 Python 환불 짝 연결 결과), 시험 `crates/core/tests/plan_golden.rs`(알려진 차이는 `known-diffs.txt`).

@@ -8,7 +8,14 @@ use std::fmt::Write;
 /// Python `json.dumps(value, ensure_ascii=False, sort_keys=True)`.
 pub fn python_json(value: &Value) -> String {
     let mut out = String::new();
-    write_value(&mut out, value);
+    write_value(&mut out, value, (", ", ": "));
+    out
+}
+
+/// `json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`.
+pub fn python_json_compact(value: &Value) -> String {
+    let mut out = String::new();
+    write_value(&mut out, value, (",", ":"));
     out
 }
 
@@ -21,7 +28,7 @@ pub fn sha256_hex(text: &str) -> String {
         })
 }
 
-fn write_value(out: &mut String, value: &Value) {
+fn write_value(out: &mut String, value: &Value, sep: (&str, &str)) {
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -31,9 +38,9 @@ fn write_value(out: &mut String, value: &Value) {
             out.push('[');
             for (i, item) in items.iter().enumerate() {
                 if i > 0 {
-                    out.push_str(", ");
+                    out.push_str(sep.0);
                 }
-                write_value(out, item);
+                write_value(out, item, sep);
             }
             out.push(']');
         }
@@ -41,11 +48,11 @@ fn write_value(out: &mut String, value: &Value) {
             out.push('{');
             for (i, (key, item)) in map.iter().enumerate() {
                 if i > 0 {
-                    out.push_str(", ");
+                    out.push_str(sep.0);
                 }
                 write_string(out, key);
-                out.push_str(": ");
-                write_value(out, item);
+                out.push_str(sep.1);
+                write_value(out, item, sep);
             }
             out.push('}');
         }
