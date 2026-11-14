@@ -258,8 +258,15 @@ def periods(request):
     return run(request)
 
 
+def ota_input(request):
+    """OTA 풀이기 입력 포착(2차 전환 C1): 운영 사본에서 `_data`가 풀이기에 넘기는 입력을 보호 경로 파일로 쓴다."""
+    from . import ota_input as capture
+    return capture.capture(request, BridgeError)
+
+
 COMMANDS = {'snapshot': snapshot, 'facts': facts, 'links': links, 'candidates': candidates, 'plan': plan,
-            'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods}
+            'classify': classify, 'extract': extract, 'trips': trips, 'periods': periods,
+            'ota-input': ota_input}
 
 
 def canonical(value):
