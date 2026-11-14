@@ -64,6 +64,15 @@ def _read_analysis(conn):
 
 
 def _analyse(conn):
+    """(links, held, extra): Python derivation, or the Rust core's when WEBLEDGER_LINKS_PRODUCER=rust (extra is None for Python)."""
+    from . import core_links
+    if core_links.selected() == 'rust':
+        # A costcore error propagates on purpose: falling back would let two producers disagree unnoticed.
+        return core_links.analyse(conn)
+    return (*_analyse_python(conn), None)
+
+
+def _analyse_python(conn):
     numbered = _number_links(conn)
     taken = {link['original_id'] for link in numbered.values()}
     foreign = _foreign_links(conn, taken)
@@ -117,6 +126,12 @@ def partial_group_exclusion(conn, original_id: str) -> str:
     PROC-072 completed periods come first; an errored, duplicate or conflicted
     cancel of the same original (dropped from the net) holds the whole group.
     """
+    extra = _read_analysis(conn)[2]
+    if extra is not None:
+        # Only linked originals are judged by the Rust core; every caller passes one from a link.
+        if original_id not in extra['group_exclusions']:
+            raise RuntimeError('CORE_LINKS_ORIGINAL_NOT_LINKED')
+        return extra['group_exclusions'][original_id]
     from .closed_period import completed_period
     for tid in refund_group(conn, original_id):
         row = conn.execute(
@@ -138,7 +153,7 @@ def refund_original_links(conn, transaction_ids) -> dict:
     wanted = {str(i) for i in transaction_ids}
     if not wanted:
         return {}
-    links, _held = _read_analysis(conn)
+    links = _read_analysis(conn)[0]
     return {link['original_id']: dict(link) for link in links.values()
             if link['original_id'] in wanted}
 
@@ -395,6 +410,9 @@ def refund_review_originals(conn):
     This is a read-only queue boundary, not a new pairing or refund decision.
     Ambiguous candidates remain visible without being promoted to links.
     """
+    extra = _read_analysis(conn)[2]
+    if extra is not None:
+        return list(extra['review_originals'])
     refund_ids = [row[0] for row in conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction IN ('cancellation','refund')")]
     links = refund_links(conn, refund_ids)

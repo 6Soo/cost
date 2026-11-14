@@ -10,16 +10,17 @@ use cost_core::apply::{ApplyError, ApplyRequest, apply, open_board_writable, utc
 use cost_core::bridge::{BridgeError, PythonBridge};
 use cost_core::links::ota::Defaults;
 use cost_core::links::refund::PairingConfig;
+use cost_core::links::refund::Refunds;
 use cost_core::period;
 use cost_core::pipeline::{
     PipelineError, PlanRequest, links_from, reject_live_db, run_plan, targets_json,
 };
-use cost_core::shadow::links::{judge_links, run_ota, run_refund};
+use cost_core::shadow::links::{judge_links, refund_rows, refund_values, run_ota, run_refund};
 use cost_core::shadow::{
     PlanEngine, RustEngine, ShadowError, parse_known_diffs, run_shadow, write_private_lines,
 };
 use cost_core::store::decisions::stored_digests_readonly;
-use cost_core::store::{StoreError, read_plan_input};
+use cost_core::store::{StoreError, read_plan_input, read_projection};
 use serde_json::{Value, json};
 
 const DEFAULT_HOST: &str = "D:/WebLedgerHost";
@@ -120,6 +121,7 @@ fn main() -> ExitCode {
         }
         Some("shadow") => finish(shadow(&args[1..]), "status"),
         Some("shadow-links") => finish(shadow_links(&args[1..]), "status"),
+        Some("links") => finish(links_cmd(&args[1..]), "ok"),
         Some("plan") => finish(plan(&args[1..]), "ok"),
         Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
         Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
@@ -127,7 +129,7 @@ fn main() -> ExitCode {
         Some("migrate") => finish(migrate_cmd(&args[1..]), "ok"),
         Some(_) => {
             eprintln!(
-                "usage: costcore <shadow|shadow-links|plan|apply|rejudge|periods|migrate> ..."
+                "usage: costcore <shadow|shadow-links|links|plan|apply|rejudge|periods|migrate> ..."
             );
             ExitCode::from(2)
         }
@@ -285,6 +287,24 @@ fn shadow_links(args: &[String]) -> Result<(u8, Value), CliError> {
         public["private_details"] = json!(lines.len());
     }
     Ok((u8::from(!report.passed()), public))
+}
+
+/// `costcore links refund --db BOARD [--repo-root ROOT]`: 환불 짝을 `transactions` 원행에서 도출해 Python 다리 `links`(kind=refund)와
+/// 같은 계약의 JSON(`links`·`groups`·`group_exclusions`·`held`·`review_originals`)으로 낸다. 읽기 전용이라 운영 DB도 받는다.
+fn links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
+    if args.first().map(String::as_str) != Some("refund") {
+        return Err(CliError::UsageInvalid);
+    }
+    let flags = Flags::parse(&args[1..])?;
+    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
+    let repo = PathBuf::from(flags.get("--repo-root").unwrap_or("."));
+    let config = PairingConfig::from_json(&std::fs::read_to_string(
+        repo.join("config").join("refund-pairing.json"),
+    )?)
+    .map_err(|_| ShadowError::ConfigInvalid)?;
+    let rows = refund_rows(&read_projection(&db)?.transactions);
+    let refunds = Refunds::derive(&rows, &config);
+    Ok((0, json!({"ok": true, "result": refund_values(&refunds)})))
 }
 
 /// `costcore plan --db PATH`: 표준 입력의 JSON(선택)을 요청에 합쳐 Rust 엔진 결과를 낸다.
