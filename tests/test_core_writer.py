@@ -196,3 +196,40 @@ def test_second_apply_after_an_apply_does_not_rebuild_the_period_evidence(env, t
     conn.commit()
     core_writer.periods_for(conn)
     assert len(calls) == 2
+
+
+def _scope_flow(monkeypatch, conn, applied):
+    import threading
+    from types import SimpleNamespace
+    from webapp import card_classification_completion as completion
+    monkeypatch.setenv(core_writer.WRITER_ENV, 'rust')
+    monkeypatch.setattr(completion, 'context', lambda flow: ([], {}))
+    monkeypatch.setattr(completion, 'classification_evidence', lambda *a, **k: {})
+    monkeypatch.setattr(completion.policy, 'plan', lambda *a, **k: {'digest': 'd'})
+    monkeypatch.setattr(completion.policy, 'apply', lambda c, preview, trips, **k: applied.append(k['periods']) or {})
+    return completion, SimpleNamespace(board=SimpleNamespace(conn=conn, _lock=threading.RLock()))
+
+
+def test_complete_scope_never_saves_with_evidence_built_before_a_new_transaction(env, tmp_path):
+    calls = []
+    conn, key = _periods_env(env, tmp_path, calls)
+    applied = []
+    completion, flow = _scope_flow(env[0], conn, applied)
+    build = core_writer._period_snapshot
+
+    def snapshot(path):  # a card arrives while the evidence is being built (first build only)
+        data = build(path)
+        if len(calls) == 1:
+            key['value'] = 'k-new-card'
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', snapshot)
+    completion.complete_scope(flow)
+    assert len(calls) == 2 and len(applied) == 1  # rebuilt once under the new key, then applied
+
+    key['value'] = 'k2'
+    applied.clear()
+    env[0].setattr(core_writer, '_period_snapshot',
+                   lambda path: key.update(value=key['value'] + 'x') or build(path))  # never settles
+    with pytest.raises(ValueError, match='CLASSIFICATION_PREVIEW_STALE'):
+        completion.complete_scope(flow)
+    assert applied == []

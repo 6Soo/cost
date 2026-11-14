@@ -66,8 +66,30 @@ def _period_snapshot(board_path) -> dict:
         return ota_payment_review.reconcile_in_child(store)['data']
 
 
-def period_facts(board_path, manual, core) -> dict:
-    """Booking-period evidence per transaction for `context.periods`, from the `periods` bridge.
+def _manual_overrides(conn, lock):
+    with lock or nullcontext():
+        if conn.in_transaction:
+            raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
+        return _main_database(conn), sorted(row[0] for row in conn.execute(
+            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'"))
+
+
+def _evidence_key(board_path, manual) -> str:
+    from tools.core_bridge import periods as bridge
+    return hashlib.sha256(json.dumps(
+        [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
+         bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def _configured() -> str:
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not os.environ.get(BIN_ENV, '') or not core:
+        raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
+    return core
+
+
+def period_facts(board_path, manual, core) -> tuple:
+    """(facts, key): booking-period evidence per transaction for `context.periods`, from the `periods` bridge.
 
     The reconciliation runs only when its input key (without the columns apply writes), the service-period
     overrides or the bridge columns changed; otherwise the derived facts saved beside core.sqlite are reused, so
@@ -75,39 +97,42 @@ def period_facts(board_path, manual, core) -> dict:
     evidence digest changed, so nothing is computed when a screen renders.
     """
     from tools.core_bridge import periods as bridge
-    key = hashlib.sha256(json.dumps(
-        [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
-         bridge.CARD_KEYS], ensure_ascii=False).encode('utf-8')).hexdigest()
+    key = _evidence_key(board_path, manual)
     cache = Path(core).with_name(PERIODS_CACHE)
     try:
         saved = json.loads(cache.read_text(encoding='utf-8'))
         if saved.get('key') == key and isinstance(saved.get('facts'), dict):
-            return saved['facts']
+            return saved['facts'], key
     except (OSError, ValueError):
         pass
     facts = bridge.facts_from_snapshot(_period_snapshot(board_path), set(manual))
     scratch = cache.with_name(cache.name + '.tmp')
     scratch.write_text(json.dumps({'key': key, 'facts': facts}, ensure_ascii=False), encoding='utf-8')
     os.replace(scratch, cache)
-    return facts
+    return facts, key
+
+
+def periods_with_key(conn, lock=None) -> tuple:
+    """`period_facts` with the writer's configuration checks, as (facts, key).
+
+    Pass the board lock as `lock` to call this outside it: only the short reads of `conn` take the lock, and the
+    slow evidence build runs without it. Compare `key` with `periods_key` under the lock before applying.
+    """
+    core = _configured()
+    board_path, manual = _manual_overrides(conn, lock)
+    return period_facts(board_path, manual, core)
+
+
+def periods_key(conn, lock=None) -> str:
+    """The evidence key as of now (seconds, no reconciliation); a different value means the facts are stale."""
+    _configured()
+    board_path, manual = _manual_overrides(conn, lock)
+    return _evidence_key(board_path, manual)
 
 
 def periods_for(conn, lock=None) -> dict:
-    """`period_facts` with the writer's configuration checks (the caller passes the result to `apply`).
-
-    Pass the board lock as `lock` to call this outside it: only the short reads of `conn` take the lock, and the
-    slow evidence build runs without it.
-    """
-    core = os.environ.get(CORE_DB_ENV, '')
-    if not os.environ.get(BIN_ENV, '') or not core:
-        raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
-    with lock or nullcontext():
-        if conn.in_transaction:
-            raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
-        board_path = _main_database(conn)
-        manual = sorted(row[0] for row in conn.execute(
-            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'"))
-    return period_facts(board_path, manual, core)
+    """The facts of `periods_with_key` (the caller passes them to `apply`)."""
+    return periods_with_key(conn, lock)[0]
 
 def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
