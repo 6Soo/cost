@@ -511,6 +511,11 @@
       "tests": ["tests/test_core_dates_golden.py"]
     },
     {
+      "name": "core-ota-links-switch",
+      "paths": ["app/core_ota_links.py", "webapp/ota_payment_review.py", "tools/core_bridge/ota_input.py", "tests/test_core_ota_links_switch.py", "core/crates/cli/src/links_ota.rs"],
+      "tests": ["tests/test_core_ota_links_switch.py", "tests/test_core_bridge_ota_input.py", "webapp/tests/test_ota_payment_review.py", "tests/card_pipeline/test_ota_payments.py"]
+    },
+    {
       "name": "trip-price-change-charge",
       "paths": ["tests/card_pipeline/test_trip_price_change_charge.py"],
       "tests": ["tests/card_pipeline/test_trip_price_change_charge.py", "tests/card_pipeline/test_ota_payments.py"]

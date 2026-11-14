@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, unquote
 
 from . import ota_snapshot
+from app import core_ota_links
 from app.ota_queue_projection import classify_event, summarize_queue
 from app.ota_queue_telemetry import (append_sample, build_read_trace, fingerprint,
                                      payload_bytes, stage_sample, summarize_samples)
@@ -660,9 +661,14 @@ class CoreOtaPaymentBackend:
                               if str(row.get("transaction_id") or "") not in reservation_card_ids]
         started = time.perf_counter()
         try:
-            results = self.payments.match_ota_payment_events(
-                events, solver_transactions, existing_links=links, rules=rules,
-                frozen_groups=frozen_groups)
+            if core_ota_links.selected() == "rust":
+                results = core_ota_links.match_ota_payment_events(
+                    events, solver_transactions, existing_links=links, rules=rules,
+                    frozen_groups=frozen_groups)
+            else:
+                results = self.payments.match_ota_payment_events(
+                    events, solver_transactions, existing_links=links, rules=rules,
+                    frozen_groups=frozen_groups)
         except TypeError as exc:
             if "unexpected keyword argument 'frozen_groups'" not in str(exc):
                 raise

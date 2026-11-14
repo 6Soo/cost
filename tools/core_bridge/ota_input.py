@@ -101,6 +101,8 @@ def solver_input(board_path, review_path, sources, payments=None):
         backend = CoreOtaPaymentBackend(_ReadOnlyBoard(conn, target), str(Path(review_path).resolve()), read_only=True,
                                         payments=_SpyPayments(real), store_type=review.OtaReviewStore,
                                         sources=sources)
+        # The capture must reach the Python solver call even when the Rust producer switch is on in this environment.
+        saved = os.environ.pop('WEBLEDGER_LINKS_PRODUCER', None)
         try:
             backend._data()
         except _Captured as captured:
@@ -109,6 +111,8 @@ def solver_input(board_path, review_path, sources, payments=None):
                     'rules': captured.kwargs.get('rules'),
                     'frozen_groups': captured.kwargs.get('frozen_groups')}
         finally:
+            if saved is not None:
+                os.environ['WEBLEDGER_LINKS_PRODUCER'] = saved
             backend.close()
     raise RuntimeError('SOLVER_NOT_REACHED')
 

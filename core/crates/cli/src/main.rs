@@ -1,6 +1,8 @@
 //! costcore 실행 파일. `shadow`(U10)와 `plan` 외부 호출. 하위 명령은 후속 단위가 더한다.
 //! 출력은 JSON 한 줄이며 고객 원문·거래 ID는 담지 않는다(비공개 상세는 보호 경로 파일에만).
 
+mod links_ota;
+
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
@@ -117,6 +119,9 @@ fn main() -> ExitCode {
         None | Some("--version") => {
             println!("costcore {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
+        }
+        Some("links") if args.get(1).map(String::as_str) == Some("ota") => {
+            links_ota::run(&args[2..])
         }
         Some("shadow") => finish(shadow(&args[1..]), "status"),
         Some("shadow-links") => finish(shadow_links(&args[1..]), "status"),

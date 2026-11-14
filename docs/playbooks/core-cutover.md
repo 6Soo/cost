@@ -53,6 +53,15 @@
 7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_CLASSIFICATION_WRITER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. Rust가 쓴 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
 8. 전환 뒤 매일 6단계의 ①②를 돌린다(Python 판정·연결 코드 퇴역 때까지).
 
+## OTA 연결 스위치 사용법(`costcore links ota`)
+
+- 스위치는 환불 짝과 같은 `WEBLEDGER_LINKS_PRODUCER`(`rust`만 Rust, 미설정·그 밖의 값은 Python. **기본 Python, 비용 0**)와 `WEBLEDGER_COSTCORE_BIN`이다. 어댑터는 `app/core_ota_links.py`이며 환불 어댑터와 별도 모듈이다(한 변수를 두 곳이 읽는다. 병합 뒤 판정 함수를 하나로 합치는 것은 후속).
+- 바뀌는 곳은 `webapp/ota_payment_review._data`의 풀이기 호출 한 곳이다. 입력 조립(이벤트·카드·수동 연결·규칙·고정 그룹)과 결과 후처리는 그대로 Python이다. `rust`이면 같은 입력을 `costcore links ota --input - --repo-root <레포>`의 표준 입력으로 넘기고(고객 원문이 디스크에 남지 않는다), 돌려받은 연결 칸을 원 이벤트 위에 덧씌워 Python 풀이기와 같은 결과를 만든다.
+- 실패는 폴백이 없다: 바이너리 미설정·종료 코드 0이 아님·응답 없음·미지의 이벤트·중복 이벤트 ID는 `RuntimeError`(`CORE_LINKS_*`)로 끝난다.
+- 같은 변수가 `app/ota_review.py`의 검토 저장소 풀이(`OtaReviewStore`)에는 아직 닿지 않는다. 그 호출은 Python이다(후속).
+- 입력 포착(`ota-input`)은 스위치가 켜져 있어도 Python 풀이기 호출 지점에서 멈춘다(포착이 환경 변수를 잠시 끈다).
+- 사본 대조는 6단계 ②③과 같다. 실행 중 한 번 더 확인하려면 포착 파일을 `costcore links ota --input "$h/ota-input.json" --repo-root .`에 넣어 결과를 본다(연결 칸만 나오지만 사유·후보에 거래 정보가 있을 수 있으니 출력을 파일·PR에 붙이지 않는다).
+
 ## 실패와 복구
 
 - `CLASSIFICATION_PREVIEW_STALE`: 미리보기 이후 데이터가 바뀜. 새 미리보기를 만든다(Python과 같은 동작).
@@ -118,7 +127,7 @@
 ## 실패와 복구
 
 - `PYTHON_BRIDGE_FAILED:*`·`ENVELOPE_MISMATCH`: 다리 실행 실패. 그림자는 PASS도 FAIL도 아니라 오류로 끝난다. 원인을 고쳐 다시 돌린다(전환 전이면 전환하지 않는다).
-- `DB_IS_LIVE`: 사본이 아닌 운영 DB 경로. 신선 사본으로 다시 한다(운영 DB는 읽지 않는다).
+- `DB_IS_LIVE`: 사본이 아닌 운영 DB 경로. 신선 사본으로 다시 한다(운영 DB는 읽지 않는다). 시각을 보존하는 복사(`robocopy /COPY:DAT`)로 만든 사본은 `DB_IS_LIVE`로 거부되니 sqlite backup API로 사본을 만든다.
 - `PRIVATE_PATH_REJECTED`: `--private-out`이 보호 경로(`D:/WebLedgerHost/data/backups/`) 밖. 경로를 고친다.
 - `KNOWN_DIFFS_INVALID`: `core/known-diffs.txt`에 중복·형식 밖 줄. 줄을 고친다.
 - 전환 뒤 스위치 `rust`에서 Rust 연결 계산이 실패하면 호출 경로가 오류를 낸다(조용히 Python으로 대체하지 않는다). 변수를 지워 Python으로 복귀한 뒤 원인을 고친다.
