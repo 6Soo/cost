@@ -50,7 +50,7 @@ fn flagged(row: &Value) -> bool {
 }
 
 impl Matcher<'_> {
-    fn unpaid_status(event: &Value) -> &'static str {
+    pub(super) fn unpaid_status(event: &Value) -> &'static str {
         let evidence = get(event, "evidence_status");
         let provider = get(event, "provider").and_then(Value::as_str);
         if ["conflict", "evidence_conflict", "refund_conflict"]
@@ -158,7 +158,7 @@ impl Matcher<'_> {
     }
 
     /// 후보가 하나도 없을 때의 보류 사유(`HOLD_AMOUNT_UNVERIFIED`·`HOLD_AMOUNT_MISMATCH`·`HOLD_NO_CARD`).
-    fn no_card_hold(
+    pub(super) fn no_card_hold(
         &self,
         event: &Value,
         transactions: &[Value],
@@ -228,7 +228,7 @@ impl Matcher<'_> {
     }
 
     /// 후보가 하나인 이벤트의 정확 연결 사유와 승인 차액.
-    fn unique_match(&self, event: &Value, row: &Value) -> UniqueMatch {
+    pub(super) fn unique_match(&self, event: &Value, row: &Value) -> UniqueMatch {
         let or_zero = |v: &Value, key: &str| {
             let value = get(v, key).filter(|x| truthy(Some(x)));
             Matcher::dec_of(value.or(Some(&Value::from(0))))

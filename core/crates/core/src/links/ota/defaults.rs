@@ -31,6 +31,8 @@ pub struct Defaults {
     pub trip_delta: TripDelta,
     pub foreign_date_lag_days: i64,
     pub portal_payment_date_required: bool,
+    /// `agoda_undated_unique_match`: 켜져 있고 승인 출처가 있다.
+    pub agoda_undated_unique_match: bool,
     /// `provider_for_merchant` 해소 순서: 별칭 길이 내림차순(같으면 공급자 이름순, 별칭 등록순).
     resolution: Vec<(String, String)>,
 }
@@ -94,6 +96,9 @@ impl Defaults {
             .filter(|n| (0..=7).contains(n))
             .unwrap_or(0);
         let required = get(value, "portal_payment_date_required").is_none_or(|v| truthy(Some(v)));
+        let agoda_undated = get(value, "agoda_undated_unique_match").is_some_and(|p| {
+            get(p, "enabled") == Some(&Value::Bool(true)) && truthy(get(p, "approval_source"))
+        });
         let mut resolution: Vec<(usize, String, String)> = Vec::new();
         for (provider, list) in &aliases {
             resolution.extend(
@@ -119,6 +124,7 @@ impl Defaults {
             trip_delta,
             foreign_date_lag_days: lag,
             portal_payment_date_required: required,
+            agoda_undated_unique_match: agoda_undated,
             resolution,
         })
     }

@@ -474,5 +474,5 @@ pub(crate) fn issue_group(
         .map(|m| TxnId::new(m.clone()))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| Refusal::BadId)?;
-    RefundGroup::new(RefundGroupId(format!("refund:{original}")), ids).map_err(|_| Refusal::BadId)
+    RefundGroup::new(RefundGroupId::for_original(original), ids).map_err(|_| Refusal::BadId)
 }

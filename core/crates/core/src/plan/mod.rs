@@ -10,7 +10,7 @@ mod fresh;
 mod input;
 mod judgement;
 
-pub use digest::{python_json, sha256_hex};
+pub use digest::{python_json, python_json_compact, sha256_hex};
 pub use input::{BoardRow, Links, PlanInput, ROW_COLUMNS, RefundLink, Row};
 pub use judgement::{Keep, Outcome};
 

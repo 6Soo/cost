@@ -60,7 +60,7 @@ def _money(v):
         return True
     if isinstance(v, int) and not isinstance(v, bool):
         return abs(v) < 10_000_000
-    return isinstance(v, str) and bool(re.fullmatch(r'-?\d{1,7}', v))
+    return isinstance(v, str) and bool(re.fullmatch(r'-?\d{1,7}(\.\d{1,2})?', v))
 
 
 def _merchant(v):
@@ -106,7 +106,7 @@ KEYS = {
     'booking_ref': _regex(r'^SYN-BOOK-\d$'), 'authorization_number': _regex(r'^SYN-AUTH-\d$'),
     'authorization_scheme': _one_of('scheme-a', 'issuer_card_approval'),
     # card and money
-    'issuer': _one_of('SYN-BANK', 'SYN-BANK-B'), 'card_issuer': _one_of('SYN-BANK', 'SYN-BANK-B', 'SYN-BANK-ALIAS'),
+    'issuer': _one_of('', 'SYN-BANK', 'SYN-BANK-B'), 'card_issuer': _one_of('SYN-BANK', 'SYN-BANK-B', 'SYN-BANK-ALIAS'),
     'card_tail': lambda v: v in TAILS, 'card_last4': lambda v: v is None or v in TAILS,
     'card_kind': _one_of('', '국내', '해외'),
     'amount_krw': _money, 'amount': _money, 'foreign_amount': lambda v: v == '' or _money(v),
@@ -164,16 +164,21 @@ KEYS = {
     'alias_version': _one_of(1), 'approval_source': _one_of('syn-source'),
     'event_issuer_alias': _one_of('SYN-BANK-ALIAS'),
     'preauthorized_on': lambda v: v is None or bool(DATE.match(v)), 'preauthorized_amount_krw': _money,
-    'price_change_amount_krw': _money, 'price_change_on': _regex(DATE.pattern), 'reservation_status': _one_of('cancelled'),
+    'price_change_amount_krw': _money, 'price_change_on': _regex(DATE.pattern), 'reservation_status': _one_of('cancelled', 'confirmed'),
     'evidence_kind': _one_of('forest_portal', 'authenticated_forest_pg_card_receipt'),
     'hotel_name': _one_of('SYN HOTEL'), 'payment_id': _regex(r'^syn-pay-\d$'), 'payment_id_scheme': _one_of('scheme-p'),
     'ota_review_held': _bool,
+    # OTA final links (U14): frozen groups, legacy pins, undated inference
+    'event_ids': _regex(r'^syn-[a-z0-9-]+$'), 'card_ids': _regex(r'^syn-[a-z0-9-]+$'),
+    'source_digests': _regex(r'^syn-[a-z0-9-]+$'), 'legacy_exact': _bool, 'verified_portal_snapshot': _bool,
+    'ota_inference_eligible': _bool,
     'formal_link': _bool, 'flags': _one_of('PERIOD_ORDER', 'PERIOD_START_MISSING'), 'country': _one_of('JPN'),
 }
 CONTAINERS = {'cases', 'transaction', 'rules', 'conditions', 'effects', 'optional', 'prior_decision', 'amount_range',
               'date_or_service_period', 'inferred_assignment', 'scenario', 'rows', 'holds', 'exclusions', 'decisions',
               'ledger', 'boards', 'payload', 'trips', 'evidence', 'events', 'transactions', 'existing_links',
-              'service_period', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows'}
+              'service_period', 'frozen_groups', 'mapping', 'order_snapshot', 'cards', 'event_evidence', 'card_evidence',
+              'eligible_edges_digest', 'input', 'row', 'raw_row', 'completed_evidence', 'links', 'entries', 'batch_rows'}
 ID_MAPS = {'evidence', 'existing_links', 'links'}
 ID_KEY = re.compile(r'^syn-[a-z0-9-]+$')
 TRIP_KEY = re.compile(r'^T-[A-Z0-9]+$')
@@ -187,6 +192,32 @@ class GoldenViolation(ValueError):
     pass
 
 
+def _check_mapping(value, path):
+    ok = isinstance(value, dict) and all(ID_KEY.match(k) and isinstance(v, str) and ID_KEY.match(v)
+                                         for k, v in value.items())
+    if not ok:
+        raise GoldenViolation(f'{path}.mapping: only synthetic ids are allowed')
+
+
+SNAPSHOT_KEYS = {'events', 'cards', 'event_evidence', 'card_evidence', 'eligible_edges_digest'}
+SNAPSHOT_TEXT = re.compile(r'^(syn-[a-z0-9-]+|SYN-BOOK-\d|SYN-AP-\d|[0-9a-f]{64}|)$')
+
+
+def _check_snapshot(value, path):
+    if value == {}:
+        return
+    pairs = isinstance(value, dict) and set(value) == SNAPSHOT_KEYS
+    if pairs:
+        pairs = isinstance(value['eligible_edges_digest'], str) and bool(SNAPSHOT_TEXT.match(value['eligible_edges_digest']))
+        for key in SNAPSHOT_KEYS - {'eligible_edges_digest'}:
+            rows = value[key]
+            pairs = pairs and isinstance(rows, list) and all(
+                isinstance(r, list) and len(r) == 2 and all(isinstance(x, str) and SNAPSHOT_TEXT.match(x) for x in r)
+                for r in rows)
+    if not pairs:
+        raise GoldenViolation(f'{path}.order_snapshot: shape or value not allowed')
+
+
 def validate_input(value, path='input', parent=None):
     """Raise GoldenViolation on the first value or key outside the allow-list."""
     if isinstance(value, dict):
@@ -196,6 +227,12 @@ def validate_input(value, path='input', parent=None):
                     raise GoldenViolation(f'{path}: map key {key!r} is not a synthetic id')
             elif parent == 'nets' or key == 'nets':
                 pass
+            elif key == 'mapping':
+                _check_mapping(item, path)
+                continue
+            elif key == 'order_snapshot':
+                _check_snapshot(item, path)
+                continue
             elif key not in KEYS and key not in CONTAINERS:
                 raise GoldenViolation(f'{path}: key {key!r} is not allowed')
             if key == 'nets':
