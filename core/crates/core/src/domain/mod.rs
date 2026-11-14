@@ -9,6 +9,7 @@ mod error;
 mod ids;
 mod money;
 mod priority;
+mod source_map;
 
 #[cfg(test)]
 mod tests;
@@ -18,3 +19,4 @@ pub use error::DomainError;
 pub use ids::*;
 pub use money::*;
 pub use priority::*;
+pub use source_map::{Mapped, Mapping, SourceInput, map_source};

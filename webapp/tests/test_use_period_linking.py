@@ -154,6 +154,22 @@ def test_a_scheduled_charge_is_not_an_ota_payment(context):
     assert stays.stay_index(store)['t1']['service_period'] == '2026-07-05~2026-07-07'
 
 
+def test_an_agoda_scheduled_auto_charge_is_the_otas_payment_not_the_hotels(context):
+    store, data = context
+    onsite(data)
+    data['events'].append(dict(data['events'][0], ota_event_id='s1', event_type='scheduled_charge',
+                               evidence_status='scheduled', payment_status='scheduled', scheduled_for='2026-07-06'))
+    assert stays.stay_index(store) == {}
+
+
+def test_the_merchant_name_reading_is_linear_on_worst_case_whitespace():
+    import time
+    start = time.perf_counter()
+    for tail in ('x\ny', '\n', 'x'):
+        assert stays._same_lodging('SAMPLE HOTEL ALPHATOWN' + ' ' * 20000 + tail, 'Sample Hotel Alphatown')
+    assert time.perf_counter() - start < 1
+
+
 def test_an_existing_exact_stay_is_never_replaced_by_the_name_reading(context):
     store, data = context
     onsite(data)
@@ -212,6 +228,29 @@ def test_a_mail_hold_never_claims_an_occupied_card_or_duplicates_its_portal_hold
         preauthorization_refund='refunded', service_period={'starts_on': '2026-10-22', 'ends_on': '2026-10-23'}))
     evidence = stays.stay_index(store)['t0']['ota_evidence']
     assert evidence['refund'] == 'refunded'
+
+
+def portal_hold(data, n, amount, refs_day='2026-07-31'):
+    data['events'].append(dict(ota_event_id=f'h{n}', provider='trip', booking_ref=f'1400900000000{n:03d}',
+        event_type='reservation', evidence_kind='portal_preauthorization', item='숙박비',
+        reservation_status='completed', booked_on=refs_day, preauthorization_amount_krw=amount,
+        preauthorization_refund='refunded', service_period={'starts_on': '2026-10-22', 'ends_on': '2026-10-23'}))
+
+
+@pytest.mark.parametrize('cards', [1, 2])
+def test_a_mail_hold_never_joins_or_widens_a_portal_group(context, cards):
+    store, data = context
+    mail_holds(data, [(70269, '2026-08-01', 'confirmed')], [(70269, '2026-07-31')] * cards)
+    data['events'][0]['booking_ref'] = '1400900000000999'
+    portal_hold(data, 1, 70269)
+    before = stays.stay_index(store)
+    # the portal alone: one card is labelled by the portal hold only, two cards are no 1:1 group
+    if cards == 1:
+        evidence = before['t0']['ota_evidence']
+        assert before['t0']['booking_refs'] == ['1400900000000001'] and evidence['refund'] == 'refunded'
+        assert evidence['periods'] == ['2026-10-22~2026-10-23']
+    else:
+        assert before == {}
 
 
 # ---- 숙소명 색인 ----

@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_DIR = ROOT / 'core' / 'golden' / 'synthetic'
-AREAS = ('classify', 'plan', 'refund_pairing', 'ota_links', 'ota_candidates', 'trips')
+AREAS = ('classify', 'plan', 'refund_pairing', 'refund_groups', 'ota_links', 'ota_candidates', 'trips', 'period')
 
 TRIP_A = dict(trip_id='T-A', display_key='SYN-A', destination='도쿄', starts_on='2026-10-01', ends_on='2026-10-05')
 TRIP_B = dict(trip_id='T-B', display_key='SYN-B', destination='도쿄', starts_on='2026-11-10', ends_on='2026-11-15')
@@ -416,7 +416,143 @@ def refund_cases():
     return out
 
 
-# --- OTA to card links (app.ota_payments.match_ota_payment_events) ------------------------
+# --- refund group judgement (app.ledger._apply_refund_pairs and friends) -------------------
+
+def refund_group_cases():
+    out, n = [], 0
+    trips, tabs = ['T-A', 'T-B'], ['T-A', 'T-B', 'refunds', 'unclassified', 'quarter:2026:4']
+
+    def add(note, rows, by_id=None, covers=(), entries=True, **extra):
+        nonlocal n
+        n += 1
+        by_id = by_id or {}
+        scenario = {'rows': rows, **{k: extra.pop(k) for k in ('ledger', 'batch_rows') if k in extra}}
+        request = {'kind': 'refund_group', 'scenario': scenario, **extra}
+        if entries:
+            request['entries'] = [dict({'transaction_id': r['transaction_id']},
+                                       **dict({'item': '식비', 'display_tab_id': 'T-A', 'trip_id': 'T-A'}
+                                              if r['transaction_direction'] == 'purchase' else {},
+                                              **by_id.get(r['transaction_id'], {})))
+                                  for r in rows if by_id.get(r['transaction_id']) != 'absent']
+        for key, default in (('valid_trips', trips), ('valid_tabs', tabs)):
+            if key in request and request[key] is None:
+                del request[key]
+            else:
+                request.setdefault(key, default)
+        out.append(_case('refund_groups', f'{n:03d}', 'links', request, note, covers))
+
+    P = lambda tid='syn-r1', amount=10000, **c: _pair_row(tid, 'purchase', amount, **{'approval_number': 'SYN-A-' + tid[4:], **c})  # noqa: E731
+    C = lambda tid, amount, ref='SYN-A-r1', **c: _pair_row(tid, 'cancellation', amount, original_approval_number=ref,  # noqa: E731
+                                                            approval_number='SYN-X-' + tid[4:], **c)
+    full, part = [P(), C('syn-r2', -10000)], [P(), C('syn-r2', -4000)]
+    old = dict(approval_date='2025-10-03', posting_date='2025-10-04')
+    add('full pair: refund inherits and both go to the refund tab (RFND-022)', full,
+        covers=['"display_tab_id": "refunds"', '"status": "full"'])
+    add('partial pair: refund inherits attribution', part, covers=['"status": "partial"'])
+    add('excess refund holds both (RFND-018)', [P(), C('syn-r2', -12000)], covers=['refund_exceeds_original'])
+    add('excess through two cancellations holds all', [P(), C('syn-r2', -6000), C('syn-r3', -6000)],
+        covers=['refund_exceeds_original'])
+    add('same-day exact amount pair is judged like a numbered pair', [P(), _pair_row('syn-r2', 'cancellation', -10000)],
+        covers=['same_card_merchant_day_exact_amount'])
+    add('foreign amount partial pair', [P(amount=14000, foreign_currency='JPY', foreign_amount='1500', approval_number='',
+                                          merchant_normalized='syn shop'),
+                                        _pair_row('syn-r2', 'cancellation', -13000, foreign_currency='JPY',
+                                                  foreign_amount='1500', merchant_normalized='syn shop')],
+        covers=['merchant_card_foreign_amount'])
+    add('original held for source conflict holds the refund', full, {'syn-r1': {'blocked': 'source_conflict'}},
+        covers=['refund_pair_incomplete'])
+    add('original held for review lets the refund wait too', full, {'syn-r1': {'blocked': 'needs_review'}},
+        covers=['refund_pair_incomplete'])
+    add('refund held for a duplicate holds the original', full, {'syn-r2': {'blocked': 'duplicate_possible'}},
+        covers=['환불 거래가 보류 중'])
+    add('refund held only for a missing item still inherits', full, {'syn-r2': {'blocked': 'item_missing'}})
+    add('partial pair with conflicting item (RFND-020)', part, {'syn-r2': {'item': '교통비'}},
+        covers=['refund_pair_mismatch'])
+    add('partial pair with conflicting trip (RFND-020)', part, {'syn-r2': {'item': '식비', 'trip_id': 'T-B'}},
+        covers=['refund_pair_mismatch'])
+    add('full pair with conflicting item is allowed (RFND-022)', full, {'syn-r2': {'item': '교통비'}})
+    add('refund not in the batch holds the original (RFND-025)', part, {'syn-r2': 'absent'},
+        covers=['refund_group_incomplete'])
+    add('original not in the batch holds the refund', part, {'syn-r1': 'absent'}, covers=['refund_original_missing'])
+    add('neither in the batch', part, {'syn-r1': 'absent', 'syn-r2': 'absent'})
+    booked = {'ledger': [{'transaction_id': 'syn-r1', 'item': '식비', 'display_tab_id': 'T-A', 'trip_id': 'T-A'}]}
+    add('original booked earlier: refund completes it (RFND-026)', part, **booked)
+    add('refund booked earlier: original completes it', part,
+        ledger=[{'transaction_id': 'syn-r2', 'item': '식비', 'display_tab_id': 'T-A', 'trip_id': 'T-A'}])
+    add('booked original and a held refund', part, {'syn-r2': {'blocked': 'duplicate_possible'}}, **booked)
+    add('refund booked earlier, original held', part, {'syn-r1': {'blocked': 'source_conflict'}},
+        ledger=[{'transaction_id': 'syn-r2', 'item': '식비', 'display_tab_id': 'T-A', 'trip_id': 'T-A'}])
+    add('inherited trip no longer valid', part, valid_trips=['T-B'], covers=['trip_no_longer_valid'])
+    add('inherited tab no longer valid', part, valid_tabs=['T-B'], covers=['tab_no_longer_valid'])
+    add('no trip validator', part, valid_trips=None, covers=['trip_unverified'])
+    add('original without an item cannot be inherited', part, {'syn-r1': {'item': ''}}, covers=['이어받을 항목'])
+    add('refund with its own full attribution keeps it', part,
+        {'syn-r2': {'item': '식비', 'display_tab_id': 'T-A', 'trip_id': 'T-A', 'description': 'syn'}})
+    add('two partials make a full refund', [P(), C('syn-r2', -4000), C('syn-r3', -6000)])
+    add('two partials, one conflicting', [P(), C('syn-r2', -2000), C('syn-r3', -3000)], {'syn-r3': {'item': '교통비'}},
+        covers=['refund_pair_mismatch'])
+    add('second refund missing from the batch leaves a half group', [P(), C('syn-r2', -4000), C('syn-r3', -6000)],
+        {'syn-r3': 'absent'}, covers=['REFUND_GROUP_INCOMPLETE'])
+    # cross-file (RFND-029): the original or a refund comes from another import batch
+    ext = {'source_batch_id': 'syn-batch-b'}
+    add('cross-file partial: original with a real trip', part, {'syn-r1': ext}, covers=['"status": "partial"'])
+    add('cross-file partial: refund from another file', part, {'syn-r2': ext})
+    add('cross-file partial: original without attribution (RFND-029)', part,
+        {'syn-r1': dict(ext, display_tab_id='unclassified', trip_id='')}, covers=['refund_original_unattributed'])
+    add('cross-file partial: original on the refund tab', part,
+        {'syn-r1': dict(ext, display_tab_id='refunds', trip_id='')}, covers=['refund_original_unattributed'])
+    add('cross-file partial: original with empty tab', part, {'syn-r1': dict(ext, display_tab_id='', trip_id='')},
+        covers=['refund_original_unattributed'])
+    add('cross-file partial: quarter cost original', part,
+        {'syn-r1': dict(ext, display_tab_id='quarter:2026:4', trip_id='')}, covers=['"status": "partial"'])
+    add('cross-file partial: completed period first (PROC-072)',
+        [P(**old), C('syn-r2', -4000, **old)], {'syn-r1': ext, 'syn-r2': {}}, covers=['refund_completed_period'])
+    add('cross-file partial: one member in a completed period',
+        [P(), C('syn-r2', -4000, **old)], {'syn-r1': ext}, covers=['refund_completed_period'])
+    add('cross-file partial: duplicate cancellation of the original',
+        [P(), C('syn-r2', -4000), C('syn-r3', -4000, duplicate_of='syn-r2')], {'syn-r1': ext},
+        covers=['refund_unclean_member'])
+    add('cross-file partial: conflicted cancellation of the original',
+        [P(), C('syn-r2', -4000), C('syn-r3', -4000, conflict_reason='syn conflict')], {'syn-r1': ext},
+        covers=['refund_unclean_member'])
+    add('cross-file partial: cancellation with a parse error',
+        [P(), C('syn-r2', -4000), C('syn-r3', -4000, parse_error='AMOUNT_UNREADABLE')], {'syn-r1': ext},
+        covers=['refund_unclean_member'])
+    add('in-file partial in a completed period is not excluded', [P(**old), C('syn-r2', -4000, **old)])
+    add('cross-file full refund keeps the refund tab', full, {'syn-r1': dict(ext, display_tab_id='', trip_id='')},
+        covers=['"display_tab_id": "refunds"'])
+    add('cross-file full refund in a completed period', [P(**old), C('syn-r2', -10000, **old)], {'syn-r1': ext})
+    add('cross-file excess', [P(), C('syn-r2', -12000)], {'syn-r1': ext}, covers=['refund_exceeds_original'])
+    # batch selection (_ready_rows) with and without the verified-group extension
+    two = {'batch_rows': [{'batch_id': 'syn-batch', 'transaction_id': 'syn-r2'},
+                          {'batch_id': 'syn-batch-b', 'transaction_id': 'syn-r1'}]}
+    sel = dict(batch_id='syn-batch', entries=False, **two)
+    add('selection: no extension keeps the file scope', full, covers=['"selected": ["syn-r2"]'], extension=False, **{
+        k: v for k, v in sel.items()})
+    add('selection: verified full refund pulls the original', full, covers=['"selected": ["syn-r1", "syn-r2"]'],
+        extension=True, **sel)
+    add('selection: numbered partial pulls the original', part, covers=['"selected": ["syn-r1", "syn-r2"]'],
+        extension=True, **sel)
+    add('selection: partial in a completed period is not pulled', [P(**old), C('syn-r2', -4000, **old)],
+        covers=['"selected": ["syn-r2"]'], extension=True, **sel)
+    add('selection: partial with a duplicate cancellation is not pulled',
+        [P(), C('syn-r2', -4000), C('syn-r3', -4000, duplicate_of='syn-r2')],
+        covers=['"selected": ["syn-r2"]'], extension=True, **sel)
+    add('selection: excess is not pulled', [P(), C('syn-r2', -12000)], covers=['"selected": ["syn-r2"]'],
+        extension=True, **sel)
+    add('selection: foreign partial is not pulled', [
+        P(amount=14000, foreign_currency='JPY', foreign_amount='1500', approval_number='', merchant_normalized='syn shop'),
+        _pair_row('syn-r2', 'cancellation', -13000, foreign_currency='JPY', foreign_amount='1500',
+                  merchant_normalized='syn shop')], covers=['"selected": ["syn-r2"]'], extension=True, **sel)
+    add('selection: exact-amount full pair is pulled', [P(), _pair_row('syn-r2', 'cancellation', -10000)],
+        covers=['"selected": ["syn-r1", "syn-r2"]'], extension=True, **sel)
+    add('selection: full refund in a completed period is pulled', [P(**old), C('syn-r2', -10000, **old)],
+        covers=['"selected": ["syn-r1", "syn-r2"]'], extension=True, **sel)
+    add('selection: unrelated rows stay out', [P(), C('syn-r2', -4000), P('syn-r5', 7000)],
+        covers=['"selected": ["syn-r1", "syn-r2"]'], extension=True,
+        **dict(sel, batch_rows=two['batch_rows'] + [{'batch_id': 'syn-batch-b', 'transaction_id': 'syn-r5'}]))
+    return out
+
 
 def _event(identity, **changes):
     row = {'ota_event_id': identity, 'provider': 'trip', 'booking_ref': 'SYN-BOOK-1', 'event_type': 'charge',
@@ -852,8 +988,98 @@ def trips_cases():
     return out
 
 
-GENERATORS = {'classify': classify_cases, 'plan': plan_cases, 'refund_pairing': refund_cases, 'ota_links': ota_cases,
-              'ota_candidates': ota_candidate_cases, 'trips': trips_cases}
+# --- period (webapp.ledger_stay_evidence.verified_period_for; Rust applies the rule to the bridge facts) -----
+
+def period_cases():
+    out, n = [], 0
+
+    def add(note, events, cards=None, *, results=None, rows=None, manual=(), links=None, covers=()):
+        nonlocal n
+        n += 1
+        cards = [C()] if cards is None else cards
+        if results is None:
+            results = [{'ota_event_id': e['ota_event_id'], 'transaction_id': c['transaction_id'], 'status': 'MATCHED_AUTO'}
+                       for e, c in zip(events, cards)]
+        if rows is None:
+            rows = [{'row_id': 'card-' + c['transaction_id'], 'service_period': '', 'reservation_no': ''} for c in cards]
+        request = {'data': {'events': events, 'transactions': cards, 'results': results, 'links': links or {}},
+                   'manual': list(manual), 'rows': rows}
+        out.append(_case('period', f'{n:03d}', 'periods', request, note, covers))
+
+    def E(identity='syn-e1', **changes):
+        return _event(identity, **dict({'item': '숙박비', 'reservation_status': 'confirmed'}, **changes))
+
+    def C(identity='syn-t1', **changes):
+        return _card(identity, source_hash='syn-hash-' + identity, **changes)
+
+    def R(tid='syn-t1', period='', reservation_no='', **changes):
+        return dict({'row_id': 'card-' + tid, 'service_period': period, 'reservation_no': reservation_no}, **changes)
+
+    def link(**changes):
+        return [dict({'ota_event_id': 'syn-e1', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}, **changes)]
+
+    verified = '2026-10-01~2026-10-03'
+    add('verified lodging link fills a blank period', [E()], covers=[verified])
+    add('stored period wins over evidence', [E()], rows=[R(period='2026-09-01~2026-09-02')], covers=['2026-09-01~2026-09-02'])
+    add('whitespace-only stored period counts as blank', [E()], rows=[R(period='  ')], covers=[verified])
+    add('manual period override leaves the row blank', [E()], manual=['card-syn-t1'])
+    add('reservation number equal to the booking', [E()], rows=[R(reservation_no='SYN-BOOK-1')], covers=[verified])
+    add('reservation number of another booking', [E()], rows=[R(reservation_no='SYN-BOOK-2')])
+    for status in ('observed', 'completed'):
+        add(f'reservation status {status}', [E(reservation_status=status)], covers=[verified])
+    for status in ('cancelled', 'refunded', 'refund_pending', 'evidence_pending'):
+        add(f'reservation status {status}', [E(reservation_status=status)])
+    add('event without a period', [E(service_period=None)])
+    add('event without a source digest', [E(source_digest=None)])
+    add('event not linked to any card', [E()], results=[])
+    add('link is only a candidate', [E()], results=link(status='HOLD_DATE_UNKNOWN'))
+    add('period conflict on the result', [E()], results=link(period_conflict=True))
+    add('period conflict on the event', [E(period_conflict=True)])
+    add('evidence changed on the event', [E(evidence_changed=True)])
+    add('evidence missing on the event', [E(evidence_missing=True)])
+    add('service period conflict on the event', [E(service_period_conflict=True)])
+    add('two events claim one card', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2')], [C()],
+        results=link() + [{'ota_event_id': 'syn-e2', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}])
+    add('user-confirmed link', [E()], results=link(status='MATCHED_USER'), covers=[verified])
+    add('card is a refund row', [E()], [C(transaction_direction='refund')])
+    add('card is a duplicate', [E()], [C(duplicate_of='syn-t0')])
+    add('card has a parse error', [E()], [C(parse_error='AMOUNT_UNREADABLE')])
+    card_without_hash = C()
+    del card_without_hash['source_hash']
+    add('card without a source hash', [E()], [card_without_hash])
+    add('inferred link keeps the period without a booking number', [E()], results=link(inferred_link=True),
+        covers=[verified])
+    add('inferred link with a reservation number', [E()], rows=[R(reservation_no='SYN-BOOK-1')],
+        results=link(inferred_link=True))
+    add('ordered group with individual evidence', [E()],
+        results=link(allocation_basis='auto_stable_order', individual_payment_evidence=True), covers=[verified])
+    add('ordered group without individual evidence', [E()],
+        results=link(allocation_basis='auto_stable_order', individual_payment_evidence=False))
+    add('shared period by LINK-108', [E(booking_ref=None, service_period_basis='LINK-108')], covers=[verified])
+    add('item outside lodging, flight and rental', [E(item='식비')])
+    for item in ('항공료', '렌터카'):
+        add(f'paid {item} charge', [E(item=item)], covers=[verified])
+        add(f'unpaid {item}', [E(item=item, payment_status='pending')])
+        add(f'{item} evidence not verified', [E(item=item, evidence_status='booking_only')])
+        add(f'{item} event already refunded', [E(item=item, refund_status='refunded')])
+        add(f'{item} card refunded', [E(item=item)], [C(refund_status='refunded')])
+        add(f'{item} card held for review', [E(item=item)], [C(ota_review_held=True)])
+        add(f'{item} card blocked by a refund', [E(item=item)], [C(reservation_refund_blocked=True)])
+    add('lodging card with a refunded flag still counts', [E()], [C(refund_status='refunded')], covers=[verified])
+    add('row is not a card row', [E()], rows=[{'row_id': 'ledger-syn-t1', 'service_period': '', 'reservation_no': ''}])
+    add('row names another source event', [E()], rows=[R(source_event_id='syn-t9')])
+    add('row names its own source event', [E()], rows=[R(source_event_id='syn-t1')], covers=[verified])
+    add('two cards with the same source hash', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2')],
+        [C('syn-t1'), dict(C('syn-t2'), source_hash='syn-hash-syn-t1')], rows=[R('syn-t1'), R('syn-t2')])
+    add('two cards with different periods', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2',
+        service_period={'starts_on': '2026-11-01', 'ends_on': '2026-11-02'})], [C('syn-t1'), C('syn-t2')],
+        rows=[R('syn-t1'), R('syn-t2')], covers=[verified, '2026-11-01~2026-11-02'])
+    return out
+
+
+GENERATORS = {'classify': classify_cases, 'plan': plan_cases, 'refund_pairing': refund_cases, 'refund_groups': refund_group_cases, 'ota_links': ota_cases,
+              'ota_candidates': ota_candidate_cases,
+              'trips': trips_cases, 'period': period_cases}
 
 
 def render(area):

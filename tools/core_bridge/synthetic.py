@@ -52,6 +52,9 @@ def scenario_db(scenario):
             conn = store.conn
             for index, spec in enumerate(scenario.get('rows', [])):
                 _insert(conn, 'transactions', _transaction(index, spec))
+            for link in scenario.get('batch_rows', []):
+                conn.execute('INSERT INTO import_batch_rows(batch_id,transaction_id,row_index) VALUES (?,?,1)',
+                             (link['batch_id'], link['transaction_id']))
             for hold in scenario.get('holds', []):
                 _insert(conn, 'transaction_review_holds', {
                     'kind': 'user_hold', 'reason': 'synthetic', 'source_hash': 'syn-hash-' + hold['transaction_id'], **hold})

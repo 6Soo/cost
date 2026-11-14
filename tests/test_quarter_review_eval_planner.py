@@ -51,6 +51,27 @@ def test_diverging_rust_planner_is_reported_by_fixed_tokens_only(setup):
     assert not any(i in text for i in ids) and NAME not in text
 
 
+def test_regressions_are_cases_python_matched_and_rust_did_not(setup):
+    c, ids = corrected(setup)
+    python_report = eval_cases.evaluate(c, TRIPS, review_id=REVIEW_ID)
+    report = eval_cases.evaluate(c, TRIPS, review_id=REVIEW_ID, planner='rust', rust_plan=empty_rust)
+    regressions = report['comparison']['regressions']
+    assert 1 <= regressions['count'] <= python_report['matched']
+    assert not any(i in json.dumps(report, ensure_ascii=False) for i in ids)
+    agreeing = eval_cases.evaluate(c, TRIPS, review_id=REVIEW_ID, planner='rust', rust_plan=python_as_rust)
+    assert 'regressions' not in agreeing['comparison']
+
+
+def test_planner_results_are_paired_by_case_id_and_misalignment_is_rejected(setup):
+    c, _ = corrected(setup)
+    cases = eval_cases.collect_cases(c, REVIEW_ID)
+    results = [dict(outcome='MATCH', reasons=[]) for _ in cases]
+    with pytest.raises(ValueError, match='PLANNER_RESULTS_MISALIGNED'):
+        eval_cases.compare_planners(cases, results, results[:-1])
+    with pytest.raises(ValueError, match='PLANNER_RESULTS_MISALIGNED'):
+        eval_cases.compare_planners(cases + cases[:1], results + results[:1], results + results[:1])
+
+
 def test_rust_planner_requires_a_plan_function(setup):
     c, _ = corrected(setup)
     with pytest.raises(ValueError, match='RUST_PLANNER_NOT_CONFIGURED'):

@@ -119,6 +119,7 @@ fn target(id: &str, item: &str, tab: &str) -> Target {
     Target {
         id: id.into(),
         values: values(item, tab),
+        has_history: false,
     }
 }
 
@@ -350,4 +351,153 @@ fn rust_engine_reads_a_copy_and_plans_without_a_python_bridge() {
     };
     let targets = RustEngine { links: None }.plan(&request).unwrap();
     assert!(targets.len() <= 2);
+}
+
+#[test]
+fn new_fields_are_compared_but_public_keys_carry_no_text() {
+    let left = Values {
+        basis: "합성근거 가".into(),
+        description: "합성설명 가".into(),
+        period: Some("2026-01-01/2026-01-03".into()),
+        actor: Some(ActorKind::P1Inferred),
+        ..values("식비", "1001_합성")
+    };
+    let right = Values {
+        basis: "합성근거 나".into(),
+        description: "합성설명 나".into(),
+        period: Some("unknown".into()),
+        actor: Some(ActorKind::Manual),
+        ..values("식비", "1001_합성")
+    };
+    let keys = diff_keys("B-C", &left, &right);
+    assert_eq!(
+        keys,
+        vec![
+            "B-C|basis|inference|differs".to_owned(),
+            "B-C|description|inference|differs".to_owned(),
+            "B-C|period|inference|differs".to_owned(),
+            "B-C|actor|inference|P1Inferred→Manual".to_owned(),
+        ]
+    );
+    for key in &keys {
+        validate_key(key).unwrap();
+        assert!(!key.contains("합성"));
+    }
+    // 한쪽이 기간·주체를 내지 않으면 비교하지 않는다.
+    let silent = Values {
+        period: None,
+        actor: None,
+        ..right.clone()
+    };
+    assert_eq!(diff_keys("B-C", &left, &silent).len(), 2);
+}
+
+#[test]
+fn stored_description_is_read_so_an_equal_description_is_no_difference() {
+    let dir = TempDir::new();
+    let host = dir.host();
+    let db = board(&dir, &host);
+    Connection::open(&db)
+        .unwrap()
+        .execute("UPDATE transactions SET description='합성설명'", [])
+        .unwrap();
+    let mut same = target(SECRET_ID, "식비", "quarter:2026:4");
+    same.values.description = "합성설명".into();
+    let out = run_shadow(
+        &db,
+        false,
+        &Fake(vec![same.clone()]),
+        &Fake(vec![same]),
+        &KnownDiffs::default(),
+    )
+    .unwrap();
+    assert!(!out.report.pairs.contains_key("A-B"));
+    let mut other = target(SECRET_ID, "식비", "quarter:2026:4");
+    other.values.description = "다른 설명".into();
+    let out = run_shadow(
+        &db,
+        false,
+        &Fake(vec![other.clone()]),
+        &Fake(vec![other]),
+        &KnownDiffs::default(),
+    )
+    .unwrap();
+    assert!(
+        out.report.pairs["A-B"]
+            .types
+            .contains_key("A-B|description|inference|differs")
+    );
+}
+
+#[test]
+fn result_ids_must_be_unique_known_and_in_range() {
+    let dir = TempDir::new();
+    let host = dir.host();
+    let db = board(&dir, &host);
+    let good = target(SECRET_ID, "식비", "quarter:2026:4");
+    let run = |python: Vec<Target>, rust: Vec<Target>| {
+        run_shadow(
+            &db,
+            false,
+            &Fake(python),
+            &Fake(rust),
+            &KnownDiffs::default(),
+        )
+    };
+    let duplicate = run(vec![good.clone(), good.clone()], vec![good.clone()]);
+    assert!(matches!(duplicate, Err(ShadowError::ResultIdsInvalid)));
+    let unknown = run(vec![good.clone()], vec![target("NOT-IN-DB", "식비", "")]);
+    assert!(matches!(unknown, Err(ShadowError::ResultIdsInvalid)));
+    assert!(run(vec![good.clone()], vec![good.clone()]).is_ok());
+
+    let ids = [SECRET_ID.to_owned()];
+    let db_ids: BTreeSet<&str> = [SECRET_ID, "SYNTHETIC-TXN-2"].into();
+    let outside = target("SYNTHETIC-TXN-2", "식비", "");
+    assert!(matches!(
+        index_targets(&[outside], &db_ids, Some(&ids)),
+        Err(ShadowError::ResultIdsInvalid)
+    ));
+    assert!(index_targets(&[good], &db_ids, Some(&ids)).is_ok());
+}
+
+#[test]
+fn known_diffs_keep_keys_and_case_ids_apart_and_reject_garbage() {
+    let known = parse_known_diffs(
+        "plan-039  # x
+classify-176  # y
+B-C|basis|rule|differs  # z
+",
+    )
+    .unwrap();
+    assert_eq!(known.keys.len(), 1);
+    assert_eq!(known.cases_with_prefix("plan-").len(), 1);
+    assert_eq!(known.cases_with_prefix("classify-").len(), 1);
+    for bad in [
+        "plan 039  # x",
+        "plan-039
+plan-039",
+        "B-C|basis|rule|differs
+B-C|basis|rule|differs",
+    ] {
+        assert!(matches!(
+            parse_known_diffs(bad),
+            Err(ShadowError::KnownDiffsInvalid)
+        ));
+    }
+}
+
+#[test]
+fn bridge_envelope_must_match_command_digest_and_commit() {
+    let body = serde_json::json!({"db": "x", "reconsider": false});
+    let digest = crate::digest::sha256_hex(&crate::digest::python_json(&body));
+    let sha = "a".repeat(40);
+    let ok = serde_json::json!({"command": "plan", "python_sha": sha, "input_digest": digest});
+    assert!(crate::bridge::verify_envelope(&ok, "plan", &body).is_ok());
+    for bad in [
+        serde_json::json!({"command": "plan", "python_sha": sha, "input_digest": "0"}),
+        serde_json::json!({"command": "plan", "python_sha": "", "input_digest": digest}),
+        serde_json::json!({"command": "links", "python_sha": sha, "input_digest": digest}),
+    ] {
+        assert!(crate::bridge::verify_envelope(&bad, "plan", &body).is_err());
+    }
 }

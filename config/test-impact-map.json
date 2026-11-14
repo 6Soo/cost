@@ -516,8 +516,13 @@
     },
     {
       "name": "core-bridge-golden",
-      "paths": ["tools/core_bridge/**", "core/golden/**", "tests/test_core_bridge.py", "app/automatic_classification.py", "app/classify.py", "app/partial_refund.py", "app/ota_payments.py", "app/rules.py", "app/closed_period.py", "app/trip_selection.py", "app/quarter_costs.py", "app/reconciliation.py", "app/provisional_assignment.py", "app/card_destination.py", "app/ota_matching_defaults.py", "app/ota_inference.py", "app/ota_payment_relations.py", "app/classification_provenance.py", "app/decision_provenance.py", "webapp/card_flow.py", "webapp/ledger_store_schema.py"],
-      "tests": ["tests/test_core_bridge.py"]
+      "paths": ["tools/core_bridge/**", "core/golden/**", "tests/test_core_bridge.py", "tests/test_core_periods.py", "webapp/ledger_stay_evidence.py", "app/ota_core_projection.py", "app/automatic_classification.py", "app/classify.py", "app/partial_refund.py", "app/ota_payments.py", "app/rules.py", "app/closed_period.py", "app/trip_selection.py", "app/quarter_costs.py", "app/reconciliation.py", "app/provisional_assignment.py", "app/card_destination.py", "app/ota_matching_defaults.py", "app/ota_inference.py", "app/ota_payment_relations.py", "app/classification_provenance.py", "app/decision_provenance.py", "webapp/card_flow.py", "webapp/ledger_store_schema.py"],
+      "tests": ["tests/test_core_bridge.py", "tests/test_core_periods.py"]
+    },
+    {
+      "name": "core-writer-switch",
+      "paths": ["app/core_writer.py", "app/automatic_classification.py", "tests/test_core_writer.py", "config/runtime-environment-catalog.json"],
+      "tests": ["tests/test_core_writer.py", "tests/test_verify_runtime_environment.py"]
     }
   ]
 }

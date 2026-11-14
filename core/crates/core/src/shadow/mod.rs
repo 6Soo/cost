@@ -2,7 +2,6 @@
 //! 같은 입력(운영 `board.sqlite` 사본)에서 A(저장값)·B(Python 재판정)·C(Rust 재판정)를 내어 유형 키로 집계한다.
 //! 회귀 판정은 B↔C, A↔C·A↔B는 참고다. Rust 엔진은 `PlanEngine` 하나 뒤에 두어 U9가 끼워 넣는다.
 
-mod bridge;
 mod engine;
 mod guard;
 mod keys;
@@ -11,14 +10,19 @@ mod known;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{Value, json};
 
+use crate::apply::ApplyError;
+use crate::bridge::BridgeError;
+use crate::domain::{ActorKind, Mapped, SourceInput, map_source};
+use crate::pipeline::PipelineError;
 use crate::store::projection::TxnRow;
-use crate::store::{StoreError, read_projection};
+use crate::store::{StoreError, read_plan_input, read_projection};
 
-pub use bridge::PythonBridge;
+pub use crate::bridge::PythonBridge;
+pub use crate::pipeline::{PlanRequest, Target, Values, targets_json};
 pub use engine::RustEngine;
 pub use guard::{ensure_private_path, protected_root, write_private_lines};
 pub use keys::{attribution_kind, diff_keys, validate_key};
@@ -32,6 +36,8 @@ pub enum ShadowError {
     PythonBridgeFailed(String),
     #[error("PLAN_RESPONSE_INVALID")]
     PlanResponseInvalid,
+    #[error("RESULT_IDS_INVALID")]
+    ResultIdsInvalid,
     #[error("PLAN_FAILED")]
     PlanFailed,
     #[error("DB_IS_LIVE")]
@@ -44,48 +50,46 @@ pub enum ShadowError {
     KnownDiffsInvalid,
     #[error("USAGE_INVALID")]
     UsageInvalid,
+    #[error("투영 쓰기 오류: {0}")]
+    Apply(#[from] ApplyError),
     #[error("저장 계층 오류: {0}")]
     Store(#[from] StoreError),
     #[error("입출력 오류: {0}")]
     Io(#[from] std::io::Error),
 }
 
+impl From<BridgeError> for ShadowError {
+    fn from(error: BridgeError) -> Self {
+        match error {
+            BridgeError::Failed(code) => Self::PythonBridgeFailed(code),
+            BridgeError::Io(error) => Self::Io(error),
+        }
+    }
+}
+
+impl From<PipelineError> for ShadowError {
+    fn from(error: PipelineError) -> Self {
+        match error {
+            PipelineError::PlanFailed => Self::PlanFailed,
+            PipelineError::DbIsLive => Self::DbIsLive,
+            PipelineError::Bridge(error) => error.into(),
+            PipelineError::Store(error) => Self::Store(error),
+        }
+    }
+}
+
 impl ShadowError {
     /// 공개 출력에 내는 고정 코드(메시지 본문은 내지 않는다).
     pub fn code(&self) -> String {
         match self {
+            Self::Apply(ApplyError::PreviewStale) => "CLASSIFICATION_PREVIEW_STALE".to_owned(),
+            Self::Apply(ApplyError::PlanFailed) => "PLAN_FAILED".to_owned(),
+            Self::Apply(_) => "APPLY_FAILED".to_owned(),
             Self::Store(_) => "STORE_ERROR".to_owned(),
             Self::Io(_) => "IO_ERROR".to_owned(),
             other => other.to_string(),
         }
     }
-}
-
-/// `app.automatic_classification.FIELDS` 중 비교·보고에 쓰는 값.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Values {
-    pub state: String,
-    pub source: String,
-    pub basis: String,
-    pub item: String,
-    pub description: String,
-    pub display_tab_id: String,
-    pub trip_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Target {
-    pub id: String,
-    pub values: Values,
-}
-
-#[derive(Debug, Clone)]
-pub struct PlanRequest {
-    pub db: PathBuf,
-    pub transaction_ids: Option<Vec<String>>,
-    pub reconsider: bool,
-    /// 호출자가 더 넘기는 입력(trips, nets, evidence). 엔진이 해석하며 이 모듈은 열어 보지 않는다.
-    pub context: Value,
 }
 
 /// P1 `plan` 엔진 한 겹. Python 다리와 Rust 엔진이 같은 입력·출력 형식을 쓴다.
@@ -123,30 +127,70 @@ pub fn parse_targets(result: &Value) -> Result<Vec<Target>, ShadowError> {
                 description: cell(4),
                 display_tab_id: cell(5),
                 trip_id: cell(6),
+                period: None,
+                actor: None,
             },
+            has_history: target["has_prior_classification"]
+                .as_bool()
+                .unwrap_or(false),
         });
     }
     Ok(out)
 }
 
-pub fn targets_json(targets: &[Target]) -> Value {
-    json!({ "targets": targets.iter().map(|t| json!({
-        "id": t.id,
-        "values": [t.values.state, t.values.source, t.values.basis, t.values.item,
-                   t.values.description, t.values.display_tab_id, t.values.trip_id],
-    })).collect::<Vec<_>>() })
+/// 출처 문자열에서 판정 주체를 구한다. 이전 기록이 있으면 수동이다(`plan::judgement`와 같은 규칙).
+fn actor_of(source: &str, basis: &str, decided: bool, history: Option<bool>) -> Option<ActorKind> {
+    let mapped = map_source(SourceInput {
+        source,
+        basis,
+        has_decided_at: decided,
+        ..SourceInput::default()
+    });
+    match (mapped.mapped, history) {
+        (Mapped::Actor { kind, .. }, None | Some(false)) => Some(kind),
+        (_, Some(true)) => Some(ActorKind::Manual),
+        (_, Some(false)) => Some(ActorKind::P1Inferred),
+        _ => None,
+    }
 }
 
-fn stored(row: &TxnRow) -> Values {
+/// 저장값 A. 설명은 `transactions.description`(투영에는 없어 `read_plan_input` 행에서 읽는다).
+fn stored(row: &TxnRow, description: &str) -> Values {
     Values {
         state: row.classification_state.clone(),
         source: row.classification_source.clone(),
         basis: row.classification_basis.clone(),
         item: row.item.clone(),
-        description: String::new(),
+        description: description.to_owned(),
         display_tab_id: row.display_tab_id.clone(),
         trip_id: row.trip_id.clone(),
+        period: None,
+        actor: actor_of(
+            &row.classification_source,
+            &row.classification_basis,
+            row.decided_at.is_some(),
+            None,
+        ),
     }
+}
+
+/// 결과 ID가 중복·DB 밖·요청 범위 밖이면 거부한다.
+fn index_targets(
+    targets: &[Target],
+    db_ids: &BTreeSet<&str>,
+    requested: Option<&[String]>,
+) -> Result<BTreeMap<String, Target>, ShadowError> {
+    let mut by_id = BTreeMap::new();
+    for t in targets {
+        let in_range = requested.is_none_or(|ids| ids.contains(&t.id));
+        if !db_ids.contains(t.id.as_str())
+            || !in_range
+            || by_id.insert(t.id.clone(), t.clone()).is_some()
+        {
+            return Err(ShadowError::ResultIdsInvalid);
+        }
+    }
+    Ok(by_id)
 }
 
 /// 비공개 상세(거래 ID 포함). 보호 경로 안 파일에만 쓴다.
@@ -162,7 +206,9 @@ impl PrivateDiff {
     pub fn line(&self) -> String {
         let side = |v: &Values| {
             json!({"state": v.state, "source": v.source, "item": v.item,
-                   "display_tab_id": v.display_tab_id, "trip_id": v.trip_id})
+                   "display_tab_id": v.display_tab_id, "trip_id": v.trip_id,
+                   "basis": v.basis, "description": v.description, "period": v.period,
+                   "actor": v.actor.map(keys::actor_label)})
         };
         json!({"id": self.id, "key": self.key, "left": side(&self.left), "right": side(&self.right)})
             .to_string()
@@ -225,13 +271,7 @@ pub struct ShadowOutcome {
 
 /// 운영 DB 자체는 거부한다(사본만 받는다).
 pub fn reject_live_db(db: &Path, host_root: &Path) -> Result<(), ShadowError> {
-    let live = host_root.join("data").join("board.sqlite");
-    if let (Ok(a), Ok(b)) = (db.canonicalize(), live.canonicalize())
-        && a == b
-    {
-        return Err(ShadowError::DbIsLive);
-    }
-    Ok(())
+    Ok(crate::pipeline::reject_live_db(db, host_root)?)
 }
 
 /// A·B·C 세 값을 같은 거래에서 비교한다. Rust 엔진을 먼저 불러 없으면 곧바로 끝난다.
@@ -251,22 +291,48 @@ pub fn run_shadow(
     let rust_targets = rust.plan(&request)?;
     let python_targets = python.plan(&request)?;
     let projection = read_projection(db)?;
+    let descriptions: BTreeMap<String, String> = read_plan_input(db)?
+        .rows
+        .iter()
+        .filter_map(|r| {
+            Some((
+                r.get("transaction_id")?.as_str()?.to_owned(),
+                r.get("description")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect();
 
-    let by_id = |targets: &[Target]| -> BTreeMap<String, Values> {
-        targets
-            .iter()
-            .map(|t| (t.id.clone(), t.values.clone()))
-            .collect()
-    };
-    let (python_by, rust_by) = (by_id(&python_targets), by_id(&rust_targets));
+    let db_ids: BTreeSet<&str> = projection
+        .transactions
+        .iter()
+        .map(|r| r.transaction_id.as_str())
+        .collect();
+    let requested = request.transaction_ids.as_deref();
+    let (python_by, rust_by) = (
+        index_targets(&python_targets, &db_ids, requested)?,
+        index_targets(&rust_targets, &db_ids, requested)?,
+    );
 
     let mut pairs: BTreeMap<String, PairReport> = BTreeMap::new();
     let mut private = Vec::new();
     for row in &projection.transactions {
-        let a = stored(row);
         let id = &row.transaction_id;
-        let b = python_by.get(id).cloned().unwrap_or_else(|| a.clone());
-        let c = rust_by.get(id).cloned().unwrap_or_else(|| a.clone());
+        let a = stored(row, descriptions.get(id).map_or("", String::as_str));
+        let b = python_by.get(id).map_or_else(
+            || a.clone(),
+            |t| Values {
+                actor: actor_of(
+                    &t.values.source,
+                    &t.values.basis,
+                    row.decided_at.is_some(),
+                    Some(t.has_history),
+                ),
+                ..t.values.clone()
+            },
+        );
+        let c = rust_by
+            .get(id)
+            .map_or_else(|| a.clone(), |t| t.values.clone());
         for (pair, left, right) in [("A-B", &a, &b), ("B-C", &b, &c), ("A-C", &a, &c)] {
             let found = diff_keys(pair, left, right);
             if found.is_empty() {

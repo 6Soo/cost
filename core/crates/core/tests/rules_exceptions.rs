@@ -4,8 +4,17 @@
 use cost_core::rules::{Builtin, Rule, Transaction, TripHint, classify_with_trips};
 use serde_json::Value;
 
-// 알려진 차이: 날짜 칸이 비면 Python은 규칙을 계속 적용하지만 Rust는 보호한다(소유자 결정 2026-11-14, U7 dates). `core/known-diffs.txt`와 같은 줄.
-const KNOWN_DIFFS: [&str; 1] = ["classify-176"];
+// 알려진 차이는 `core/known-diffs.txt`(그림자 실행과 같은 파일)의 `classify-` 줄이다.
+fn known_cases(prefix: &str) -> Vec<String> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../known-diffs.txt");
+    let text = std::fs::read_to_string(path).expect("known-diffs.txt");
+    let known = cost_core::shadow::parse_known_diffs(&text).expect("known-diffs.txt format");
+    known
+        .cases_with_prefix(prefix)
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
 
 fn pick(hint: &TripHint, trips: &[String]) -> String {
     match hint {
@@ -22,7 +31,8 @@ fn golden_classify_with_trip_input_matches_python() {
     );
     let text = std::fs::read_to_string(path).expect("golden file");
     let builtin = Builtin::embedded().expect("embedded rules load");
-    let (mut compared, mut matched, mut residual) = (0, 0, 0);
+    let known_ids = known_cases("classify-");
+    let (mut compared, mut matched, mut residual, mut seen_known) = (0, 0, 0, 0);
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         let case: Value = serde_json::from_str(line).unwrap();
         let input = &case["input"]["cases"][0];
@@ -61,12 +71,13 @@ fn golden_classify_with_trip_input_matches_python() {
             "classification_basis": "", "classification_source": "", "classification_state": "needs_review",
             "description": "", "display_tab_id": "", "item": "", "rule_id": "", "trip_id": ""
         });
-        let known = KNOWN_DIFFS.contains(&id);
+        let known = known_ids.iter().any(|k| k == id);
+        seen_known += usize::from(known);
         if known {
             // 사유: 빈 날짜는 보호. Python 기대값과 달라야 하고(사라지면 목록에서 지운다), Rust 기대값은 보호 판정이다.
             assert_ne!(
                 &got, python,
-                "{id} no longer differs: remove from KNOWN_DIFFS"
+                "{id} no longer differs: remove from known-diffs.txt"
             );
         }
         let want = if known { &protected } else { python };
@@ -82,4 +93,9 @@ fn golden_classify_with_trip_input_matches_python() {
     println!("trip golden: {matched}/{compared} compared ({residual} residual)");
     assert!(compared >= 26, "golden shrank: {compared}");
     assert_eq!(matched, compared);
+    assert_eq!(
+        seen_known,
+        known_ids.len(),
+        "known-diffs.txt lists a case not compared here"
+    );
 }

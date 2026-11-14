@@ -5,10 +5,10 @@ use rusqlite::Connection;
 
 use super::projection::{ALLOWED_ITEMS_SQL, AUX_TABLES, TRANSACTION_FIELDS};
 use super::schema::{MIGRATIONS, TABLES};
-use super::source_map::{Mapped, SourceInput, map_source};
 use super::write_columns::*;
 use super::*;
 use crate::domain::ActorKind;
+use crate::domain::{Mapped, SourceInput, map_source};
 
 /// 임시 폴더(테스트 전용 합성 파일). 운영 경로를 쓰지 않는다.
 struct TempDir(PathBuf);
@@ -734,4 +734,36 @@ fn plan_input_reads_the_planner_columns_and_does_not_modify_the_file() {
     assert_eq!(input.trips.len(), 1);
     assert_eq!(input.trips[0]["trip_id"], "1001_합성");
     assert_eq!(input.allowed_items, ["식비"]);
+}
+
+#[test]
+fn every_projection_write_statement_assigns_only_listed_columns() {
+    for (write, list) in [
+        (Write::Transactions, TRANSACTIONS_WRITE),
+        (Write::LedgerFill, LEDGER_ENTRIES_WRITE),
+        (Write::Board, BOARD_ROWS_WRITE),
+    ] {
+        let sql = write.sql();
+        let set = sql
+            .split(" SET ")
+            .nth(1)
+            .and_then(|s| s.split(" WHERE ").next())
+            .unwrap();
+        for column in list {
+            assert!(set.contains(&format!("{column}=")), "{sql}");
+        }
+        for column in SOURCE_COLUMNS {
+            // `item=`처럼 목록에 있는 판정 열은 원천 열에 없으므로, 원천 열 이름이 대입 왼쪽에 오면 실패한다.
+            assert!(
+                !set.split(',')
+                    .any(|p| p.trim_start().starts_with(&format!("{column}="))),
+                "{sql}"
+            );
+        }
+    }
+    assert!(
+        Write::LedgerCorrect
+            .sql()
+            .contains("display_tab_id=?,trip_id=?")
+    );
 }

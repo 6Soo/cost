@@ -1,16 +1,15 @@
 //! 계획 결과를 `Judgement`로 바꾼다. 정상 거래의 P1 결과는 `Decided`뿐이고, 표현할 수 없는 경우만 `Protected`로 닫힌다.
 
 use super::POLICY;
-use super::digest::sha256_hex;
 use super::input::{Row, text};
 use crate::dates::parse_iso;
 use crate::domain::{
     Actor, ActorKind, Amount, Attribution, Basis, CompletedPeriod, Confidence, Decision,
     DecisionDraft, Direction, EvidenceKind, EvidenceRef, ItemAllowList, Judgement, ManualEventRef,
-    ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId, ServicePeriod,
-    SourceHash, SourceTxn, Subject, TripCatalog, TxnId, UnknownPeriodReason,
+    Mapped, ParseError, ParseErrorKind, ProtectionReason, Quarter, RefundGroupId, RuleId,
+    ServicePeriod, SourceHash, SourceInput, SourceTxn, Subject, TripCatalog, TxnId, map_source,
 };
-use crate::store::{Mapped, SourceInput, map_source};
+use crate::period;
 use serde_json::Value;
 use time::{Date, Month};
 
@@ -93,13 +92,6 @@ pub(super) fn completed(period: &str) -> Judgement {
     })
 }
 
-/// 원천 해시가 sha256 16진이면 그대로, 아니면 그 문자열의 sha256(값 자체는 판정 근거 참조용이다).
-fn source_hash(raw: &str) -> Option<SourceHash> {
-    SourceHash::new(raw)
-        .ok()
-        .or_else(|| SourceHash::new(sha256_hex(raw)).ok())
-}
-
 fn attribution(
     judger: &Judger,
     tab: &str,
@@ -130,7 +122,7 @@ impl Judger {
         tid: &str,
         has_history: bool,
         original: Option<&str>,
-        fact: Option<&Value>,
+        (fact, verified_period): (Option<&Value>, &str),
     ) -> Judgement {
         let amount = row
             .get("amount_krw")
@@ -143,21 +135,27 @@ impl Judger {
             .into_iter()
             .find(|d| !d.is_empty())
             .unwrap_or_default();
-        let (Ok(id), Some(hash), Ok(occurred_on)) =
-            (TxnId::new(tid), source_hash(&hash_text), parse_iso(&day))
-        else {
+        let Ok(id) = TxnId::new(tid) else {
+            return Judgement::Protected(ProtectionReason::IdInvalid);
+        };
+        let Ok(hash) = SourceHash::new(hash_text) else {
+            return Judgement::Protected(ProtectionReason::SourceHashInvalid);
+        };
+        let Ok(occurred_on) = parse_iso(&day) else {
             return Judgement::Protected(ProtectionReason::DateBroken);
+        };
+        let Some(revision) = row
+            .get("revision")
+            .and_then(Value::as_u64)
+            .and_then(|r| u32::try_from(r).ok())
+        else {
+            return Judgement::Protected(ProtectionReason::RevisionInvalid);
         };
         let direction = if text(row, "transaction_direction") == "purchase" {
             Direction::Purchase
         } else {
             Direction::Refund
         };
-        let revision = row
-            .get("revision")
-            .and_then(Value::as_u64)
-            .and_then(|r| u32::try_from(r).ok())
-            .unwrap_or(0);
         let txn = SourceTxn::new(
             id.clone(),
             hash.clone(),
@@ -204,10 +202,14 @@ impl Judger {
         };
         let actor = match kind {
             ActorKind::Manual => ManualEventRef::new(tid).map(|event| Actor::Manual { event }),
-            ActorKind::P1Exact => RuleId::new(source.as_str()).map(|rule_id| Actor::P1Exact {
-                rule_id,
-                rule_version: 1,
-            }),
+            ActorKind::P1Exact =>
+            // 입력에 규칙 ID 칸이 없다. 정확 판정의 근거는 기록된 출처 이름이라 source: 접두로 그 사실을 드러낸다.
+            {
+                RuleId::new(format!("source:{source}")).map(|rule_id| Actor::P1Exact {
+                    rule_id,
+                    rule_version: 1,
+                })
+            }
             _ => RuleId::new(POLICY).map(|rule_id| Actor::P1Inferred {
                 rule_id,
                 rule_version: 1,
@@ -217,7 +219,7 @@ impl Judger {
         let Ok(actor) = actor else {
             return unattributable;
         };
-        let period = fact
+        let from_evidence = fact
             .filter(|_| basis.as_str().contains("예약 이용기간 근거 우선:"))
             .and_then(|f| f.get("service_period"))
             .and_then(|p| {
@@ -227,8 +229,12 @@ impl Judger {
                         .and_then(|d| parse_iso(d).ok())
                 };
                 ServicePeriod::known(get("starts_on")?, get("ends_on")?).ok()
-            })
-            .unwrap_or(ServicePeriod::unknown(UnknownPeriodReason::NoEvidence));
+            });
+        // 저장 값·검증된 연결의 기간이 먼저, 분류 근거의 예약 기간이 그다음, 없으면 사유가 있는 미상.
+        let period = match period::service_period(verified_period, item.as_str()) {
+            known @ ServicePeriod::Known { .. } => known,
+            unknown => from_evidence.unwrap_or(unknown),
+        };
         let draft = DecisionDraft {
             subject,
             attribution,
