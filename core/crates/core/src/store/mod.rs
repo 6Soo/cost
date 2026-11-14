@@ -1,6 +1,6 @@
 //! core.sqlite 스키마·이관과 board.sqlite 읽기 전용 투영 (M3 U3). 설계 `docs/design/m3-core.md` §3.
 
-pub mod decision_store;
+pub mod decisions;
 mod error;
 pub mod plan_input;
 pub mod projection;

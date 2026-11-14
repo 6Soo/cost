@@ -13,7 +13,7 @@
 - 바꾸지 않는 것: 환불 연결 입력(Python 어댑터 `links`), 환불 묶음 기록, 인증 API 교정 경로(수동·P2·AI 검수 교정), 원천 열. Rust는 금액·부호·ID·원문 열을 쓰지 못한다(`store::write_columns::Write`가 허용 목록에서만 문장을 만든다).
 - Rust 쓰기 순서: `BEGIN IMMEDIATE` → 계획 재생성·digest 대조(다르면 `CLASSIFICATION_PREVIEW_STALE`) → 목표마다 `core.sqlite`의 `decisions`(+`decision_history`)에 Decision 저장 → **저장된 행에서** 화면 열 도출 → `transactions`·`ledger_entries`·`board_rows`·`board_revisions`·`change_log` 쓰기. 두 파일은 `ATTACH` 한 트랜잭션이다. 운영 `board.sqlite`는 WAL, `core.sqlite`는 롤백 저널이라 파일별로 커밋되고 **board가 먼저** 커밋된다. 두 커밋 사이에 중단되면 화면 열은 채워졌는데 `decisions`가 없는 거래가 남는다(아래 "실패와 복구"). 같은 입력으로 다시 실행하면 쓰기는 0건이다.
 - 게시하지 않는 것: `Protected`·`Preserved` 판정의 목표(귀속 불가, 완료 기간 등)와, 저장된 판정에서 도출한 화면 열이 계획 값과 다른 목표. 출력 `skipped_unjudged`·`skipped_mismatch`로 센다. **Python은 귀속 불가 행에 `unclassified`를 쓰지만 Rust는 쓰지 않는다**: 이 차이는 의도이며, 실데이터 그림자에서 나오면 운영 담당이 `core/known-diffs.txt`에 근거와 함께 올린다(C1 측정 때 결정).
-- 이용기간: 판정에 이용기간(`service_period`)을 저장한다(`decisions.service_period_json`, 읽기 인터페이스 `store::decision_store::stored_service_period`, Python `app.core_writer.stored_service_period`). **1차 전환 뒤 장부 화면·붙여넣기 묶음·장부 복사·시트 대사는 저장된 이용기간을 읽고, 렌더 시점에 다시 계산하지 않는다.** 이 읽기 전환은 `feat/m3-service-period-in-decision-20261114`가 병합된 뒤 배선한다. 아래 3단계 전에 두 변경이 모두 병합되어 있어야 하며, 병합 전에는 이 항목을 "미충족"으로 보고 전환하지 않는다.
+- 이용기간: 판정에 이용기간(`service_period`)을 저장한다(`decisions.service_period_json`, 읽기 인터페이스 `store::decisions::stored_period`, Python `app.core_writer.stored_service_period`). **1차 전환 뒤 장부 화면·붙여넣기 묶음·장부 복사·시트 대사는 저장된 이용기간을 읽고, 렌더 시점에 다시 계산하지 않는다.** 이 읽기 전환은 `feat/m3-service-period-in-decision-20261114`가 병합된 뒤 배선한다. 아래 3단계 전에 두 변경이 모두 병합되어 있어야 하며, 병합 전에는 이 항목을 "미충족"으로 보고 전환하지 않는다.
 
 ## 입력(시작 조건)
 

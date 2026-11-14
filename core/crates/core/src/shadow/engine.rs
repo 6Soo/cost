@@ -1,11 +1,12 @@
 //! Rust 판정 엔진: DB 읽기 어댑터(`read_plan_input`) + U9 `plan`. 환불 짝 연결은 2차 전환 전까지 Python 다리에서 받는다.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{PlanEngine, PlanRequest, PythonBridge, ShadowError, Target, Values};
 use crate::domain::{Decision, Judgement, ServicePeriod};
+use crate::period::PeriodEvidence;
 use crate::pipeline::{links_from, overlay_context};
-use crate::plan::{Outcome, plan};
+use crate::plan::{Outcome, plan_with_periods};
 use crate::store::read_plan_input;
 
 pub struct RustEngine {
@@ -30,7 +31,15 @@ impl PlanEngine for RustEngine {
         } else {
             BTreeMap::new()
         };
-        let result = plan(&input, &links).map_err(|_| ShadowError::PlanFailed)?;
+        let periods = PeriodEvidence {
+            facts: context["periods"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default(),
+            changed: BTreeSet::new(),
+        };
+        let result =
+            plan_with_periods(&input, &links, &periods).map_err(|_| ShadowError::PlanFailed)?;
         let decisions: BTreeMap<&str, &Decision> = result
             .outcomes
             .iter()

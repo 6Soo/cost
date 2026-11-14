@@ -1,16 +1,20 @@
 //! costcore 실행 파일. `shadow`(U10)와 `plan` 외부 호출. 하위 명령은 후속 단위가 더한다.
 //! 출력은 JSON 한 줄이며 고객 원문·거래 ID는 담지 않는다(비공개 상세는 보호 경로 파일에만).
 
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use cost_core::apply::{ApplyRequest, apply, open_board_writable, utc_now};
+use cost_core::period;
 use cost_core::pipeline::links_from;
 use cost_core::shadow::{
     PlanEngine, PlanRequest, PythonBridge, RustEngine, ShadowError, parse_known_diffs,
     reject_live_db, run_shadow, targets_json, write_private_lines,
 };
+use cost_core::store::decisions::stored_digests_readonly;
+use cost_core::store::read_plan_input;
 use serde_json::{Value, json};
 
 const DEFAULT_HOST: &str = "D:/WebLedgerHost";
@@ -39,8 +43,10 @@ fn main() -> ExitCode {
         Some("shadow") => finish(shadow(&args[1..]), "status"),
         Some("plan") => finish(plan(&args[1..]), "ok"),
         Some("apply") => finish(apply_cmd(&args[1..]), "ok"),
+        Some("rejudge") => finish(rejudge(&args[1..]), "ok"),
+        Some("periods") => finish(periods(&args[1..]), "ok"),
         Some(_) => {
-            eprintln!("usage: costcore <shadow|plan|apply> ...");
+            eprintln!("usage: costcore <shadow|plan|apply|rejudge|periods> ...");
             ExitCode::from(2)
         }
     }
@@ -79,11 +85,11 @@ impl Flags {
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
-                "--reconsider" | "--allow-live" | "--backfill-decisions" => {
+                "--reconsider" | "--allow-live" | "--backfill-decisions" | "--changed" => {
                     flags.switches.push(arg.clone())
                 }
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
-                | "--repo-root" | "--digest" | "--now" | "--core" => {
+                | "--repo-root" | "--digest" | "--now" | "--core" | "--periods" => {
                     let value = iter.next().ok_or(ShadowError::UsageInvalid)?;
                     flags.values.push((arg.clone(), value.clone()));
                 }
@@ -213,5 +219,102 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
         0,
         json!({"ok": true, "result": out.summary, "written": out.written,
             "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch, "backfilled": out.backfilled}),
+    ))
+}
+
+/// `--periods FILE`(Python 다리 `periods` 출력)의 거래별 근거 후보 목록. 없으면 비어 있다.
+fn load_period_facts(flags: &Flags) -> Result<BTreeMap<String, Value>, ShadowError> {
+    let Some(path) = flags.get("--periods") else {
+        return Ok(BTreeMap::new());
+    };
+    let body: Value = serde_json::from_str(&std::fs::read_to_string(path)?)
+        .map_err(|_| ShadowError::PlanResponseInvalid)?;
+    Ok(body["facts"]
+        .as_object()
+        .ok_or(ShadowError::PlanResponseInvalid)?
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect())
+}
+
+/// `costcore periods --db BOARD [--periods FILE] [--private-out PATH]`: 거래마다 Rust 이용기간 규칙의 결과를
+/// 낸다(그림자 비교용, 쓰지 않는다). 공개 출력은 건수뿐이고 거래 ID·기간은 보호 경로 파일에만 쓴다.
+fn periods(args: &[String]) -> Result<(u8, Value), ShadowError> {
+    let flags = Flags::parse(args)?;
+    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
+    reject_live_db(&db, &host)?;
+    let private_out = match flags.get("--private-out") {
+        Some(path) => Some(cost_core::shadow::ensure_private_path(
+            &PathBuf::from(path),
+            &host,
+        )?),
+        None => None,
+    };
+    let facts = load_period_facts(&flags)?;
+    let input = read_plan_input(&db)?;
+    let (mut lines, mut with_period) = (Vec::new(), 0usize);
+    for row in &input.rows {
+        let Some(tid) = row["transaction_id"].as_str() else {
+            continue;
+        };
+        let board = input.boards.get(&format!("card-{tid}"));
+        let found = period::verified_period_for(
+            &period::PeriodRow::for_card(tid, board.map(|b| b.payload_json.as_str())),
+            facts.get(tid).unwrap_or(&Value::Null),
+        );
+        with_period += usize::from(!found.is_empty());
+        lines.push(json!({"id": tid, "period": found}).to_string());
+    }
+    if let Some(path) = private_out {
+        write_private_lines(&path, &host, &lines)?;
+    }
+    Ok((
+        0,
+        json!({"ok": true, "rows": lines.len(), "with_period": with_period}),
+    ))
+}
+
+/// `costcore rejudge --changed --db BOARD [--core CORE] [--periods FILE] [--private-out PATH]`:
+/// 이용기간 근거 digest(예약 사실·연결·판정 함수 버전)가 저장값과 달라진 거래만 고른다. 쓰지 않는다.
+/// `FILE`은 Python 다리 `periods` 출력(`{"facts": {거래 ID: 후보 목록}}`). 공개 출력은 건수뿐이다.
+fn rejudge(args: &[String]) -> Result<(u8, Value), ShadowError> {
+    let flags = Flags::parse(args)?;
+    if !flags.on("--changed") {
+        return Err(ShadowError::UsageInvalid);
+    }
+    let db = PathBuf::from(flags.get("--db").ok_or(ShadowError::UsageInvalid)?);
+    let host = PathBuf::from(flags.get("--host-root").unwrap_or(DEFAULT_HOST));
+    reject_live_db(&db, &host)?;
+    let private_out = match flags.get("--private-out") {
+        Some(path) => Some(cost_core::shadow::ensure_private_path(
+            &PathBuf::from(path),
+            &host,
+        )?),
+        None => None,
+    };
+    let facts = load_period_facts(&flags)?;
+    let input = read_plan_input(&db)?;
+    let cards = input
+        .rows
+        .iter()
+        .filter_map(|r| r["transaction_id"].as_str())
+        .map(|tid| {
+            let board = input.boards.get(&format!("card-{tid}"));
+            (tid, board.map(|b| b.payload_json.as_str()))
+        });
+    let current = period::current_digests(cards, &facts);
+    let stored = match flags.get("--core") {
+        Some(path) => stored_digests_readonly(&PathBuf::from(path))?,
+        None => BTreeMap::new(),
+    };
+    let changed = period::changed_since(&stored, &current);
+    if let Some(path) = private_out {
+        write_private_lines(&path, &host, &changed)?;
+    }
+    Ok((
+        0,
+        json!({"ok": true, "scanned": current.len(), "changed": changed.len(),
+               "unchanged": current.len() - changed.len(), "fn_version": period::PERIOD_FN_VERSION}),
     ))
 }

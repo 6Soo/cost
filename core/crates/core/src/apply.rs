@@ -4,6 +4,7 @@
 //! 거래 판정 열·장부 행 빈 칸·화면 행 payload와 이력·change_log만 쓴다. 쓰는 열은 `store::write_columns`의 고정 목록뿐이며
 //! 금액·부호·ID·원문 같은 원천 열을 쓰는 문장은 [`Write`]로 만들 수 없다. 운영 DB 경로 거부는 호출자(CLI)가 한다.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -15,10 +16,12 @@ use serde_json::{Map, Value, json};
 use thiserror::Error;
 
 use crate::domain::{Decision, Judgement};
+use crate::period::{PeriodEvidence, changed_since, current_digests};
 use crate::pipeline::overlay_context;
-use crate::plan::{Links, Outcome, PlanInput, PlanResult, Target, plan, python_json};
+use crate::plan::{Links, Outcome, PlanInput, PlanResult, Target, plan_with_periods, python_json};
+use crate::store::decisions::{projection, save_decision, stored_digests_in};
 use crate::store::write_columns::Write;
-use crate::store::{StoreError, decision_store, latest_version, read_plan_input_in};
+use crate::store::{StoreError, latest_version, read_plan_input_in};
 
 #[derive(Debug, Error)]
 pub enum ApplyError {
@@ -106,8 +109,9 @@ fn attach_core(conn: &Connection, core: &Path) -> Result<(), ApplyError> {
 /// 운영에서 board.sqlite는 WAL, core.sqlite는 롤백 저널이라 `ATTACH` 한 트랜잭션이어도 파일별로 커밋되며 **board가 먼저**
 /// 커밋된다. 두 커밋 사이에 중단되면 화면 열은 채워졌는데 `decisions`가 없는 거래가 남는다. 이 거래는 이제 계획의
 /// 목표가 아니므로 그냥 다시 실행해서는 채워지지 않는다. 복구는 `backfill`(`costcore apply --backfill-decisions`): 화면 열이
-/// 계획과 같고 `decisions`가 없는 거래에 판정만 저장한다. 또는 작성자를 Python으로 되돌린다. 같은 입력으로 다시
-/// 실행하면 쓰기는 0건이다.
+/// 계획과 같고 `decisions`가 없는 거래에 판정만 저장한다. 또는 작성자를 Python으로 되돌린다.
+/// 이용기간 근거 digest가 저장값과 달라진 거래(`context.periods`가 바뀜·판정 함수 버전 변경)는 화면 열이 같아도 판정을
+/// 다시 저장한다(저장된 판정이 이미 있을 때만; 없는 거래는 `backfill`일 때). 같은 입력으로 다시 실행하면 쓰기는 0건이다.
 /// `links`는 환불 짝 연결(2차 전환 전에는 Python 어댑터 결과)이며 트랜잭션 밖에서 미리 받은 값이다.
 pub fn apply(
     conn: &mut Connection,
@@ -124,7 +128,24 @@ pub fn apply(
         request.transaction_ids,
         request.reconsider,
     );
-    let result = plan(&input, links).map_err(|_| ApplyError::PlanFailed)?;
+    let facts: BTreeMap<String, Value> = request.context["periods"]
+        .as_object()
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+    let current = current_digests(
+        input.rows.iter().filter_map(|r| {
+            let tid = r.get("transaction_id")?.as_str()?;
+            let board = input.boards.get(&format!("card-{tid}"));
+            Some((tid, board.map(|b| b.payload_json.as_str())))
+        }),
+        &facts,
+    );
+    let stored = stored_digests_in(&tx, "core")?;
+    let periods = PeriodEvidence {
+        facts,
+        changed: changed_since(&stored, &current).into_iter().collect(),
+    };
+    let result = plan_with_periods(&input, links, &periods).map_err(|_| ApplyError::PlanFailed)?;
     if result.digest != request.expected_digest {
         return Err(ApplyError::PreviewStale);
     }
@@ -150,6 +171,7 @@ pub fn apply(
             decision,
             &result,
             &request_id,
+            &current,
             request.now,
         )?;
         if done {
@@ -161,25 +183,25 @@ pub fn apply(
         }
     }
     let mut backfilled = 0;
-    if request.backfill {
-        for (tid, decision) in &result.unchanged {
-            let stored: Option<i64> = tx
-                .query_row(
-                    "SELECT 1 FROM core.decisions WHERE transaction_id=?",
-                    [tid],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if stored.is_some() {
-                continue;
-            }
-            tx.execute_batch("SAVEPOINT backfill")?;
-            if backfill_one(&tx, &input, tid, decision, &request_id, request.now)? {
-                tx.execute_batch("RELEASE backfill")?;
-                backfilled += 1;
-            } else {
-                tx.execute_batch("ROLLBACK TO backfill; RELEASE backfill")?;
-            }
+    let targeted: BTreeSet<&str> = result.targets.iter().map(|t| t.id.as_str()).collect();
+    for (tid, outcome) in &result.outcomes {
+        let Outcome::Judged(Judgement::Decided(decision)) = outcome else {
+            continue;
+        };
+        if targeted.contains(tid.as_str()) || !periods.changed.contains(tid) {
+            continue;
+        }
+        let has_decision = stored.contains_key(tid);
+        if !has_decision && !request.backfill {
+            continue;
+        }
+        tx.execute_batch("SAVEPOINT decision_only")?;
+        let digest = current.get(tid).map_or("", String::as_str);
+        if decision_only(&tx, &input, tid, decision, digest, &request_id, request.now)? {
+            tx.execute_batch("RELEASE decision_only")?;
+            backfilled += 1;
+        } else {
+            tx.execute_batch("ROLLBACK TO decision_only; RELEASE decision_only")?;
         }
     }
     let summary = result.to_value()["summary"].clone();
@@ -203,12 +225,13 @@ pub fn apply(
     })
 }
 
-/// 판정만 저장한다. 저장된 행에서 도출한 열이 거래의 현재 판정 열과 다르면 저장하지 않는다.
-fn backfill_one(
+/// 판정만 저장한다(화면 열은 건드리지 않는다). 저장된 행에서 도출한 열이 거래의 현재 판정 열과 다르면 저장하지 않는다.
+fn decision_only(
     tx: &Transaction<'_>,
     input: &PlanInput,
     tid: &str,
     decision: &Decision,
+    digest: &str,
     request_id: &str,
     now: &str,
 ) -> Result<bool, ApplyError> {
@@ -221,17 +244,17 @@ fn backfill_one(
     };
     let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let current: Vec<&str> = crate::plan::FIELDS.iter().map(|k| text(k)).collect();
-    decision_store::save(
+    save_decision(
         tx,
         "core",
         decision,
         text("classification_source"),
-        text("source_hash"),
+        digest,
         row.get("revision").and_then(Value::as_i64).unwrap_or(0),
         now,
         request_id,
     )?;
-    let derived = decision_store::projection(tx, "core", tid)?;
+    let derived = projection(tx, "core", tid)?;
     Ok(derived.is_some_and(|d| d.iter().map(String::as_str).eq(current.iter().copied())))
 }
 
@@ -280,6 +303,7 @@ fn blank_or_unclassified(value: Option<&Value>) -> bool {
 
 /// 판정 하나를 `core.decisions`에 저장하고, 저장된 행에서 도출한 화면 열을 `board.sqlite`에 쓴다.
 /// 도출 값이 계획 값과 다르면 아무것도 쓰지 않고 `false`(호출자가 savepoint를 되돌린다).
+#[allow(clippy::too_many_arguments)]
 fn write_target(
     tx: &Transaction<'_>,
     input: &PlanInput,
@@ -287,27 +311,22 @@ fn write_target(
     decision: &Decision,
     result: &PlanResult,
     request_id: &str,
+    digests: &BTreeMap<String, String>,
     now: &str,
 ) -> Result<bool, ApplyError> {
     let tid = target.id.as_str();
-    let source_hash = input
-        .rows
-        .iter()
-        .find(|r| r.get("transaction_id").and_then(Value::as_str) == Some(tid))
-        .and_then(|r| r.get("source_hash").and_then(Value::as_str))
-        .unwrap_or_default();
     let revision = target.revision.as_i64().unwrap_or(0) + 1;
-    decision_store::save(
+    save_decision(
         tx,
         "core",
         decision,
         &target.values[1],
-        source_hash,
+        digests.get(tid).map_or("", String::as_str),
         revision,
         now,
         request_id,
     )?;
-    let Some(values) = decision_store::projection(tx, "core", tid)? else {
+    let Some(values) = projection(tx, "core", tid)? else {
         return Ok(false);
     };
     if values != target.values {

@@ -5,17 +5,17 @@
 //! 새로 판정한다. 결과는 거래마다 [`Outcome`](`Judgement` 또는 기존 기록 유지)과 Python `plan`과 같은 모양의
 //! `targets`·`summary`·`digest`다. 환불 연결은 [`Links`] 뒤에서 들어온다(2차 전환 전에는 Python 어댑터 결과).
 
-mod digest;
 mod fresh;
 mod input;
 mod judgement;
 
-pub use digest::{python_json, sha256_hex};
+pub use crate::digest::{python_json, sha256_hex};
 pub use input::{BoardRow, FIELDS, Links, PlanInput, ROW_COLUMNS, RefundLink, Row};
 pub use judgement::{Keep, Outcome};
 
 use crate::dates::{completed_period, excluded};
-use crate::domain::{Decision, Judgement, ProtectionReason};
+use crate::domain::{Judgement, ProtectionReason};
+use crate::period::{PeriodEvidence, PeriodRow, verified_period_for};
 use crate::trips::{Canonical, Trip, trip_tab};
 use fresh::{Fresh, classify_new_row, restore_historical_row, values};
 use input::{card_row, evidence_of, text, trip_of};
@@ -61,8 +61,6 @@ pub struct PlanResult {
     pub summary: Summary,
     /// 훑은 순서대로 거래별 결과.
     pub outcomes: Vec<(String, Outcome)>,
-    /// 판정 열이 이미 계획과 같은 거래의 판정(목표가 아니다). 중단 뒤 `decisions` 보충(`apply` backfill)에만 쓴다.
-    pub unchanged: Vec<(String, Decision)>,
 }
 
 impl PlanResult {
@@ -91,8 +89,18 @@ fn target_value(t: &Target) -> Value {
     Value::Object(map)
 }
 
-/// 판정 계획. `links`는 환불 짝 연결의 출처다.
+/// 판정 계획. `links`는 환불 짝 연결의 출처다. 이용기간 근거 후보는 없다(저장 값만 읽는다).
 pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanError> {
+    plan_with_periods(input, links, &PeriodEvidence::default())
+}
+
+/// [`plan`]에 이용기간 근거를 더한다. 판정마다 이용기간이 함께 정해지고, 근거 digest가 바뀐 거래(`changed`)는
+/// 판정 7칸이 그대로여도 새 `Decision`을 낸다(`targets`에는 넣지 않는다: 7칸 쓰기는 없다).
+pub fn plan_with_periods(
+    input: &PlanInput,
+    links: &dyn Links,
+    periods: &PeriodEvidence,
+) -> Result<PlanResult, PlanError> {
     let all: BTreeMap<&str, &Row> = input.rows.iter().map(|r| (id_of(r), r)).collect();
     let mut rows: Vec<&Row> = input
         .rows
@@ -144,7 +152,21 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
         key(a).cmp(&key(b))
     });
     let (mut targets, mut outcomes, mut protected) = (Vec::new(), Vec::new(), 0usize);
-    let mut unchanged: Vec<(String, Decision)> = Vec::new();
+    let decide = |row: &Row, chosen: &Row, tid: &str, has_history: bool, fact: Option<&Value>| {
+        let original = links
+            .link(tid)
+            .filter(|l| !l.inferred)
+            .map(|l| l.original_id.as_str());
+        let board = input.boards.get(&format!("card-{tid}"));
+        let period_row = PeriodRow::for_card(tid, board.map(|b| b.payload_json.as_str()));
+        let period = verified_period_for(&period_row, periods.facts_of(tid));
+        judger.decide(row, chosen, tid, has_history, original, (fact, &period))
+    };
+    // 판정 7칸이 같아도 이용기간 근거가 바뀐 거래는 새 판정을 낸다.
+    let kept = |tid: String, judged: Option<Judgement>| match judged {
+        Some(j) => (tid, Outcome::Judged(j)),
+        None => (tid, Outcome::Kept(Keep::Current)),
+    };
     for row in order {
         let tid = id_of(row).to_string();
         let source = text(row, "classification_source");
@@ -227,17 +249,11 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
                     continue;
                 }
                 Fresh::Unchanged => {
-                    keep_decision(
-                        &mut unchanged,
-                        &judger,
-                        row,
-                        &chosen,
-                        &tid,
-                        false,
-                        links,
-                        fact,
-                    );
-                    outcomes.push((tid, Outcome::Kept(Keep::Current)));
+                    let judged = periods
+                        .changed
+                        .contains(&tid)
+                        .then(|| decide(row, &chosen, &tid, false, fact));
+                    outcomes.push(kept(tid, judged));
                     continue;
                 }
                 Fresh::Changed => {}
@@ -245,17 +261,11 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
         }
         let now = values(&chosen);
         if now == current {
-            keep_decision(
-                &mut unchanged,
-                &judger,
-                row,
-                &chosen,
-                &tid,
-                has_history,
-                links,
-                fact,
-            );
-            outcomes.push((tid, Outcome::Kept(Keep::Current)));
+            let judged = periods
+                .changed
+                .contains(&tid)
+                .then(|| decide(row, &chosen, &tid, has_history, fact));
+            outcomes.push(kept(tid, judged));
             continue;
         }
         let basis = text(&chosen, "classification_basis");
@@ -266,11 +276,7 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
             && basis.contains("예약 이용기간 근거 우선:")
             && (input.boards.contains_key(&format!("card-{tid}"))
                 || input.ledger.contains_key(&tid));
-        let original = links
-            .link(&tid)
-            .filter(|l| !l.inferred)
-            .map(|l| l.original_id.as_str());
-        let judged = judger.decide(row, &chosen, &tid, has_history, original, fact);
+        let judged = decide(row, &chosen, &tid, has_history, fact);
         outcomes.push((tid.clone(), Outcome::Judged(judged)));
         targets.push(Target {
             id: tid.clone(),
@@ -296,28 +302,7 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
         targets,
         summary,
         outcomes,
-        unchanged,
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn keep_decision(
-    out: &mut Vec<(String, Decision)>,
-    judger: &judgement::Judger,
-    row: &Row,
-    chosen: &Row,
-    tid: &str,
-    has_history: bool,
-    links: &dyn Links,
-    fact: Option<&Value>,
-) {
-    let original = links
-        .link(tid)
-        .filter(|l| !l.inferred)
-        .map(|l| l.original_id.as_str());
-    if let Judgement::Decided(d) = judger.decide(row, chosen, tid, has_history, original, fact) {
-        out.push((tid.to_owned(), d));
-    }
 }
 
 fn id_of(row: &Row) -> &str {

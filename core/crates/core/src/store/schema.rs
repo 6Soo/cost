@@ -157,11 +157,24 @@ CREATE TABLE shadow_diffs (
 );
 ";
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "초기 스키마(설계 §3.2)",
-    sql: V1,
-}];
+/// 판정에 이용기간의 근거 digest와 판정 함수 버전을 함께 저장한다(설계 §2.7). 화면은 저장 값만 읽는다.
+const V2: &str = "
+ALTER TABLE decisions ADD COLUMN evidence_digest TEXT NOT NULL DEFAULT '';
+ALTER TABLE decisions ADD COLUMN period_fn_version INTEGER NOT NULL DEFAULT 0;
+";
+
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "초기 스키마(설계 §3.2)",
+        sql: V1,
+    },
+    Migration {
+        version: 2,
+        name: "판정에 이용기간 근거 digest·함수 버전 저장(설계 §2.7)",
+        sql: V2,
+    },
+];
 
 /// 설계 §3.2 표의 새 테이블 이름 전부.
 pub const TABLES: &[&str] = &[

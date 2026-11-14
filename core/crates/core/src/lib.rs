@@ -2,8 +2,10 @@
 
 pub mod apply;
 pub mod dates;
+pub mod digest;
 pub mod domain;
 pub mod links;
+pub mod period;
 pub mod pipeline;
 pub mod plan;
 pub mod region;

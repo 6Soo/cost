@@ -110,3 +110,36 @@ fn plan_on_a_missing_database_reports_a_public_safe_code() {
         "{out}"
     );
 }
+
+#[test]
+fn rejudge_needs_the_changed_switch_and_reports_public_safe_codes() {
+    let (code, out) = run(&["rejudge", "--db", "unused.sqlite"], "");
+    assert_eq!(code, 2);
+    assert!(out.contains("USAGE_INVALID"), "{out}");
+    let (code, out) = run(&["rejudge", "--changed", "--db", "unused.sqlite"], "");
+    assert_eq!(code, 2);
+    assert!(
+        out.contains("\"ok\":false") && out.contains("STORE_ERROR"),
+        "{out}"
+    );
+}
+
+#[test]
+fn periods_rejects_the_live_database() {
+    let host = scratch("periods-live");
+    let live = host.join("data").join("board.sqlite");
+    std::fs::write(&live, b"").unwrap();
+    let (code, out) = run(
+        &[
+            "periods",
+            "--db",
+            live.to_str().unwrap(),
+            "--host-root",
+            host.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 2);
+    assert!(out.contains("DB_IS_LIVE"), "{out}");
+    let _ = std::fs::remove_dir_all(&host);
+}
