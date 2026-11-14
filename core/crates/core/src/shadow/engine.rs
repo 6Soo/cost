@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use super::{PlanEngine, PlanRequest, PythonBridge, ShadowError, Target, Values};
+use crate::domain::{Decision, Judgement, ServicePeriod};
 use crate::pipeline::{links_from, overlay_context};
-use crate::plan::plan;
+use crate::plan::{Outcome, plan};
 use crate::store::read_plan_input;
 
 pub struct RustEngine {
@@ -30,10 +31,23 @@ impl PlanEngine for RustEngine {
             BTreeMap::new()
         };
         let result = plan(&input, &links).map_err(|_| ShadowError::PlanFailed)?;
+        let decisions: BTreeMap<&str, &Decision> = result
+            .outcomes
+            .iter()
+            .filter_map(|(id, outcome)| match outcome {
+                Outcome::Judged(Judgement::Decided(d)) => Some((id.as_str(), d)),
+                _ => None,
+            })
+            .collect();
         Ok(result
             .targets
-            .into_iter()
+            .iter()
             .map(|t| {
+                let decision = decisions.get(t.id.as_str());
+                let period = decision.map(|d| match d.service_period() {
+                    ServicePeriod::Known { starts_on, ends_on } => format!("{starts_on}/{ends_on}"),
+                    ServicePeriod::Unknown { .. } => "unknown".to_owned(),
+                });
                 let [
                     state,
                     source,
@@ -42,9 +56,10 @@ impl PlanEngine for RustEngine {
                     description,
                     display_tab_id,
                     trip_id,
-                ] = t.values;
+                ] = t.values.clone();
                 Target {
-                    id: t.id,
+                    id: t.id.clone(),
+                    has_history: t.has_prior_classification,
                     values: Values {
                         state,
                         source,
@@ -53,6 +68,8 @@ impl PlanEngine for RustEngine {
                         description,
                         display_tab_id,
                         trip_id,
+                        period,
+                        actor: decision.map(|d| d.actor().kind()),
                     },
                 }
             })

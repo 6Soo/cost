@@ -45,6 +45,8 @@ pub struct ApplyRequest<'a> {
     pub context: &'a Value,
     /// change_log·이력의 시각(`utc_now()`와 같은 `YYYY-MM-DDTHH:MM:SS+00:00`).
     pub now: &'a str,
+    /// 화면 열이 이미 계획과 같은데 `decisions`가 없는 거래에 판정만 저장한다(중단 복구).
+    pub backfill: bool,
 }
 
 /// 쓰기 연결: 있는 파일만 연다(만들지 않는다). Python `Store.open`과 같은 대기 시간.
@@ -77,6 +79,8 @@ pub struct ApplyOutcome {
     pub skipped_unjudged: usize,
     /// 저장된 판정에서 도출한 화면 열이 계획 값과 달라 쓰지 않은 목표 수(차이는 그림자·known-diffs 대상).
     pub skipped_mismatch: usize,
+    /// `backfill`로 `decisions`만 채운 거래 수(화면 열은 이미 계획과 같았다).
+    pub backfilled: usize,
 }
 
 /// `board.sqlite` 연결에 `core.sqlite`를 `core`로 붙인다(스키마가 최신이어야 한다). 두 파일은 같은 트랜잭션에서 쓴다.
@@ -99,9 +103,11 @@ fn attach_core(conn: &Connection, core: &Path) -> Result<(), ApplyError> {
 ///
 /// 순서: ① `BEGIN IMMEDIATE`(board) ② 계획·digest 대조 ③ 목표마다 savepoint 안에서 `core.decisions`(+이력)에 판정 저장 →
 /// 저장된 행에서 화면 열 도출 → `transactions`·`ledger_entries`·`board_rows`·이력 쓰기 ④ 커밋.
-/// 두 파일은 `ATTACH` 한 트랜잭션이라 롤백 저널 모드에서는 원자적이다. WAL 모드에서는 파일마다 원자적이므로 커밋 사이
-/// 중단되면 `decisions`가 앞설 수 있고, 다시 실행하면 같은 목표가 남아 있어 화면 쪽이 채워지고 `decisions`는 그대로다
-/// (멱등). 같은 입력으로 다시 실행하면 쓰기는 0건이다.
+/// 운영에서 board.sqlite는 WAL, core.sqlite는 롤백 저널이라 `ATTACH` 한 트랜잭션이어도 파일별로 커밋되며 **board가 먼저**
+/// 커밋된다. 두 커밋 사이에 중단되면 화면 열은 채워졌는데 `decisions`가 없는 거래가 남는다. 이 거래는 이제 계획의
+/// 목표가 아니므로 그냥 다시 실행해서는 채워지지 않는다. 복구는 `backfill`(`costcore apply --backfill-decisions`): 화면 열이
+/// 계획과 같고 `decisions`가 없는 거래에 판정만 저장한다. 또는 작성자를 Python으로 되돌린다. 같은 입력으로 다시
+/// 실행하면 쓰기는 0건이다.
 /// `links`는 환불 짝 연결(2차 전환 전에는 Python 어댑터 결과)이며 트랜잭션 밖에서 미리 받은 값이다.
 pub fn apply(
     conn: &mut Connection,
@@ -154,6 +160,28 @@ pub fn apply(
             skipped_mismatch += 1;
         }
     }
+    let mut backfilled = 0;
+    if request.backfill {
+        for (tid, decision) in &result.unchanged {
+            let stored: Option<i64> = tx
+                .query_row(
+                    "SELECT 1 FROM core.decisions WHERE transaction_id=?",
+                    [tid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if stored.is_some() {
+                continue;
+            }
+            tx.execute_batch("SAVEPOINT backfill")?;
+            if backfill_one(&tx, &input, tid, decision, &request_id, request.now)? {
+                tx.execute_batch("RELEASE backfill")?;
+                backfilled += 1;
+            } else {
+                tx.execute_batch("ROLLBACK TO backfill; RELEASE backfill")?;
+            }
+        }
+    }
     let summary = result.to_value()["summary"].clone();
     if written > 0 {
         insert_log(
@@ -171,7 +199,40 @@ pub fn apply(
         written,
         skipped_unjudged,
         skipped_mismatch,
+        backfilled,
     })
+}
+
+/// 판정만 저장한다. 저장된 행에서 도출한 열이 거래의 현재 판정 열과 다르면 저장하지 않는다.
+fn backfill_one(
+    tx: &Transaction<'_>,
+    input: &PlanInput,
+    tid: &str,
+    decision: &Decision,
+    request_id: &str,
+    now: &str,
+) -> Result<bool, ApplyError> {
+    let Some(row) = input
+        .rows
+        .iter()
+        .find(|r| r.get("transaction_id").and_then(Value::as_str) == Some(tid))
+    else {
+        return Ok(false);
+    };
+    let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
+    let current: Vec<&str> = crate::plan::FIELDS.iter().map(|k| text(k)).collect();
+    decision_store::save(
+        tx,
+        "core",
+        decision,
+        text("classification_source"),
+        text("source_hash"),
+        row.get("revision").and_then(Value::as_i64).unwrap_or(0),
+        now,
+        request_id,
+    )?;
+    let derived = decision_store::projection(tx, "core", tid)?;
+    Ok(derived.is_some_and(|d| d.iter().map(String::as_str).eq(current.iter().copied())))
 }
 
 fn insert_log(

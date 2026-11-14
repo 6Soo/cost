@@ -15,7 +15,7 @@ pub use input::{BoardRow, FIELDS, Links, PlanInput, ROW_COLUMNS, RefundLink, Row
 pub use judgement::{Keep, Outcome};
 
 use crate::dates::{completed_period, excluded};
-use crate::domain::{Judgement, ProtectionReason};
+use crate::domain::{Decision, Judgement, ProtectionReason};
 use crate::trips::{Canonical, Trip, trip_tab};
 use fresh::{Fresh, classify_new_row, restore_historical_row, values};
 use input::{card_row, evidence_of, text, trip_of};
@@ -61,6 +61,8 @@ pub struct PlanResult {
     pub summary: Summary,
     /// 훑은 순서대로 거래별 결과.
     pub outcomes: Vec<(String, Outcome)>,
+    /// 판정 열이 이미 계획과 같은 거래의 판정(목표가 아니다). 중단 뒤 `decisions` 보충(`apply` backfill)에만 쓴다.
+    pub unchanged: Vec<(String, Decision)>,
 }
 
 impl PlanResult {
@@ -142,6 +144,7 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
         key(a).cmp(&key(b))
     });
     let (mut targets, mut outcomes, mut protected) = (Vec::new(), Vec::new(), 0usize);
+    let mut unchanged: Vec<(String, Decision)> = Vec::new();
     for row in order {
         let tid = id_of(row).to_string();
         let source = text(row, "classification_source");
@@ -224,6 +227,16 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
                     continue;
                 }
                 Fresh::Unchanged => {
+                    keep_decision(
+                        &mut unchanged,
+                        &judger,
+                        row,
+                        &chosen,
+                        &tid,
+                        false,
+                        links,
+                        fact,
+                    );
                     outcomes.push((tid, Outcome::Kept(Keep::Current)));
                     continue;
                 }
@@ -232,6 +245,16 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
         }
         let now = values(&chosen);
         if now == current {
+            keep_decision(
+                &mut unchanged,
+                &judger,
+                row,
+                &chosen,
+                &tid,
+                has_history,
+                links,
+                fact,
+            );
             outcomes.push((tid, Outcome::Kept(Keep::Current)));
             continue;
         }
@@ -273,7 +296,28 @@ pub fn plan(input: &PlanInput, links: &dyn Links) -> Result<PlanResult, PlanErro
         targets,
         summary,
         outcomes,
+        unchanged,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn keep_decision(
+    out: &mut Vec<(String, Decision)>,
+    judger: &judgement::Judger,
+    row: &Row,
+    chosen: &Row,
+    tid: &str,
+    has_history: bool,
+    links: &dyn Links,
+    fact: Option<&Value>,
+) {
+    let original = links
+        .link(tid)
+        .filter(|l| !l.inferred)
+        .map(|l| l.original_id.as_str());
+    if let Judgement::Decided(d) = judger.decide(row, chosen, tid, has_history, original, fact) {
+        out.push((tid.to_owned(), d));
+    }
 }
 
 fn id_of(row: &Row) -> &str {

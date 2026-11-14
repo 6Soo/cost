@@ -79,7 +79,9 @@ impl Flags {
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
-                "--reconsider" | "--allow-live" => flags.switches.push(arg.clone()),
+                "--reconsider" | "--allow-live" | "--backfill-decisions" => {
+                    flags.switches.push(arg.clone())
+                }
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
                 | "--repo-root" | "--digest" | "--now" | "--core" => {
                     let value = iter.next().ok_or(ShadowError::UsageInvalid)?;
@@ -204,11 +206,12 @@ fn apply_cmd(args: &[String]) -> Result<(u8, Value), ShadowError> {
         reconsider: context["reconsider"] == json!(true) || flags.on("--reconsider"),
         context: &context,
         now: &now,
+        backfill: flags.on("--backfill-decisions"),
     };
     let out = apply(&mut conn, &core, &request, &links)?;
     Ok((
         0,
         json!({"ok": true, "result": out.summary, "written": out.written,
-            "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch}),
+            "skipped_unjudged": out.skipped_unjudged, "skipped_mismatch": out.skipped_mismatch, "backfilled": out.backfilled}),
     ))
 }

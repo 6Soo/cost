@@ -180,14 +180,29 @@ fn rust_args<'a>(p: &'a Pair, db: &'a str, core: &'a str, digest: &'a str) -> Ve
 }
 
 fn run_rust(p: &Pair, digest: &str) -> (i32, Value) {
+    run_rust_with(p, digest, &[])
+}
+
+fn run_rust_with(p: &Pair, digest: &str, extra: &[&str]) -> (i32, Value) {
     let core = core_path(p);
-    let args = rust_args(
+    let mut args = rust_args(
         p,
         p.rust_db.to_str().unwrap(),
         core.to_str().unwrap(),
         digest,
     );
+    args.extend_from_slice(extra);
     costcore(&args, &p.opts)
+}
+
+fn fresh_digest(p: &Pair) -> String {
+    let plan = helper(&[
+        "plan",
+        p.rust_db.to_str().unwrap(),
+        p.dir.join("opts.json").to_str().unwrap(),
+    ]);
+    let plan: Value = serde_json::from_str(plan.trim()).unwrap();
+    plan["digest"].as_str().unwrap().to_owned()
 }
 
 /// 두 DB의 모든 테이블이 행 단위로 같다. 달라지면 테이블과 행을 알려 준다.
@@ -288,4 +303,48 @@ fn live_database_path_is_refused_without_allow_live() {
     let (code, out) = costcore(&args, &p.opts);
     assert_eq!(code, 2);
     assert_eq!(out["error"]["code"], "DB_IS_LIVE");
+}
+
+#[test]
+fn interrupted_write_is_recovered_by_backfilling_decisions_only() {
+    let p = pair("general");
+    let (code, first) = run_rust(&p, &p.digest);
+    assert_eq!(code, 0, "{first}");
+    let written = first["written"].as_u64().unwrap();
+    assert!(written >= 3);
+    // board 커밋 뒤·core 커밋 전 중단을 흉내 낸다: 화면 열은 채워지고 decisions가 없다.
+    let core = core_path(&p);
+    let decisions_before = {
+        let all = dump(&core);
+        all.into_iter().find(|(n, _)| n == "decisions").unwrap().1
+    };
+    Connection::open(&core)
+        .unwrap()
+        .execute("DELETE FROM decisions", [])
+        .unwrap();
+    let board_before = dump(&p.rust_db);
+    // 그냥 다시 실행해서는 채워지지 않는다(더는 계획의 목표가 아니다).
+    let (code, out) = run_rust(&p, &fresh_digest(&p));
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(
+        (out["written"].clone(), out["backfilled"].clone()),
+        (0.into(), 0.into())
+    );
+    // 복구 모드는 판정만 채우고 board.sqlite는 건드리지 않는다.
+    let (code, out) = run_rust_with(&p, &fresh_digest(&p), &["--backfill-decisions"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["written"], 0, "{out}");
+    assert!(out["backfilled"].as_u64().unwrap() >= written, "{out}");
+    assert_eq!(dump(&p.rust_db), board_before);
+    let restored = dump(&core)
+        .into_iter()
+        .find(|(n, _)| n == "decisions")
+        .unwrap()
+        .1;
+    for row in &decisions_before {
+        assert!(restored.contains(row), "복원되지 않은 판정: {row:?}");
+    }
+    // 다시 하면 더 채울 것이 없다.
+    let (_, again) = run_rust_with(&p, &fresh_digest(&p), &["--backfill-decisions"]);
+    assert_eq!(again["backfilled"], 0, "{again}");
 }
