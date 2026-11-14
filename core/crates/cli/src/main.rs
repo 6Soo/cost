@@ -17,7 +17,9 @@ use cost_core::period;
 use cost_core::pipeline::{
     PipelineError, PlanRequest, links_from, reject_live_db, run_plan, targets_json,
 };
-use cost_core::shadow::links::{judge_links, refund_rows, refund_values, run_ota, run_refund};
+use cost_core::shadow::links::{
+    judge_links, refund_rows, refund_rows_from_json, refund_values, run_ota, run_refund,
+};
 use cost_core::shadow::{
     PlanEngine, RustEngine, ShadowError, parse_known_diffs, run_shadow, write_private_lines,
 };
@@ -174,9 +176,11 @@ impl Flags {
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
-                "--reconsider" | "--allow-live" | "--backfill-decisions" | "--changed" => {
-                    flags.switches.push(arg.clone())
-                }
+                "--reconsider"
+                | "--allow-live"
+                | "--backfill-decisions"
+                | "--changed"
+                | "--rows-stdin" => flags.switches.push(arg.clone()),
                 "--db" | "--host-root" | "--known-diffs" | "--private-out" | "--python"
                 | "--repo-root" | "--digest" | "--now" | "--core" | "--periods" | "--ota-input" => {
                     let value = iter.next().ok_or(CliError::UsageInvalid)?;
@@ -301,13 +305,26 @@ fn links_cmd(args: &[String]) -> Result<(u8, Value), CliError> {
         return Err(CliError::UsageInvalid);
     }
     let flags = Flags::parse(&args[1..])?;
-    let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
+    let stdin_rows = flags.on("--rows-stdin");
+    if stdin_rows == flags.get("--db").is_some() {
+        return Err(CliError::UsageInvalid);
+    }
     let repo = PathBuf::from(flags.get("--repo-root").unwrap_or("."));
     let config = PairingConfig::from_json(&std::fs::read_to_string(
         repo.join("config").join("refund-pairing.json"),
     )?)
     .map_err(|_| ShadowError::ConfigInvalid)?;
-    let rows = refund_rows(&read_projection(&db)?.transactions);
+    let rows = if stdin_rows {
+        // 호출자가 쓰기 트랜잭션 안의 아직 커밋 안 된 행까지 담아 보낸다(파일은 읽지 않는다).
+        let mut body = String::new();
+        std::io::stdin().read_to_string(&mut body)?;
+        let value: Value =
+            serde_json::from_str(&body).map_err(|_| CliError::PlanResponseInvalid)?;
+        refund_rows_from_json(&value)?
+    } else {
+        let db = PathBuf::from(flags.get("--db").ok_or(CliError::UsageInvalid)?);
+        refund_rows(&read_projection(&db)?.transactions)
+    };
     let refunds = Refunds::derive(&rows, &config);
     Ok((0, json!({"ok": true, "result": refund_values(&refunds)})))
 }

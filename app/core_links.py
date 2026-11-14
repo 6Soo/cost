@@ -12,7 +12,8 @@ import os
 import sqlite3
 import subprocess
 import threading
-from contextlib import closing
+from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,7 @@ _CACHE_SIZE = 4
 _cache: dict = {}
 _versions: dict = {}
 _lock = threading.Lock()
+_UNCOMMITTED_OK: ContextVar = ContextVar('links_uncommitted_rows_ok', default=False)
 
 
 def selected() -> str:
@@ -40,6 +42,30 @@ def _database(conn) -> str:
         if name == 'main' and path:
             return str(Path(path).resolve())
     raise RuntimeError('CORE_LINKS_NEEDS_FILE_DATABASE')
+
+
+def fetch_rows(conn) -> list:
+    return conn.execute(_QUERY).fetchall()
+
+
+def row_dicts(rows) -> list:
+    """Rows as the JSON `costcore links refund --rows-stdin` reads (rowid dropped, order kept)."""
+    return [dict(zip(COLUMNS, row[1:])) for row in rows]
+
+
+@contextmanager
+def uncommitted_rows():
+    """Let `analyse` inside this block serve a write transaction's own uncommitted rows.
+
+    Outside it an uncommitted pairing input is refused (CORE_LINKS_UNCOMMITTED_ROWS). Inside it the rows are sent to
+    costcore on stdin instead of being read from the file, so the answer is the Python derivation's on the same rows.
+    Only for callers that read the pairs to decide inside their own transaction and still roll back as a unit.
+    """
+    token = _UNCOMMITTED_OK.set(True)
+    try:
+        yield
+    finally:
+        _UNCOMMITTED_OK.reset(token)
 
 
 def source_digest(conn) -> str:
@@ -79,9 +105,15 @@ def _binary(binary: str) -> tuple:
         return stamp, _versions[stamp]
 
 
-def _run(binary: str, path: str) -> str:
-    done = subprocess.run([binary, 'links', 'refund', '--db', path, '--repo-root', str(ROOT)],
-                          capture_output=True, text=True, encoding='utf-8', timeout=300)
+def _run(binary: str, path: str, rows=None) -> str:
+    """`rows` (a list from `fetch_rows`) replaces the file with the connection's own rows, sent on stdin."""
+    if rows is None:
+        done = subprocess.run([binary, 'links', 'refund', '--db', path, '--repo-root', str(ROOT)],
+                              capture_output=True, text=True, encoding='utf-8', timeout=300)
+    else:
+        done = subprocess.run([binary, 'links', 'refund', '--rows-stdin', '--repo-root', str(ROOT)],
+                              input=json.dumps(row_dicts(rows), ensure_ascii=False),
+                              capture_output=True, text=True, encoding='utf-8', timeout=300)
     try:
         response = json.loads(done.stdout.splitlines()[0])
     except (IndexError, ValueError):
@@ -91,10 +123,16 @@ def _run(binary: str, path: str) -> str:
     return json.dumps(response['result'], ensure_ascii=False)
 
 
-def _checked(conn, path: str, digest: str) -> None:
-    # Rust reads the file, so uncommitted rows of this connection would be invisible to it: refuse, never mix.
-    if conn.in_transaction and _committed_digest(path) != digest:
+def _uncommitted(conn, path: str, digest: str) -> bool:
+    """True when this connection's pairing inputs differ from the file's, which Rust reads.
+
+    Refused unless the caller opted in with `uncommitted_rows()`: then the rows are sent on stdin, never mixed.
+    """
+    if not (conn.in_transaction and _committed_digest(path) != digest):
+        return False
+    if not _UNCOMMITTED_OK.get():
         raise RuntimeError('CORE_LINKS_UNCOMMITTED_ROWS')
+    return True
 
 
 def analyse(conn) -> tuple:
@@ -113,16 +151,17 @@ def analyse(conn) -> tuple:
     config = hashlib.blake2b(CONFIG.read_bytes(), digest_size=20).hexdigest()
     for _ in (0, 1):
         digest = source_digest(conn)
-        _checked(conn, path, digest)
+        pending = _uncommitted(conn, path, digest)
         key = (path, stamp, version, config, digest)
         with _lock:
             text = _cache.get(key)
         if text is None:
-            text = _run(binary, path)
+            text = _run(binary, path, fetch_rows(conn) if pending else None)
             # A commit during the run makes the result belong to another state: do not cache it, run again.
             if source_digest(conn) != digest:
                 continue
-            _checked(conn, path, digest)
+            if not pending:
+                _uncommitted(conn, path, digest)
             with _lock:
                 while len(_cache) >= _CACHE_SIZE:
                     _cache.pop(next(iter(_cache)))

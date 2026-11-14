@@ -32,6 +32,7 @@ apply, audited restore and idempotent replay.
 from collections import Counter
 import json
 
+from .core_links import uncommitted_rows
 from .db import utc_now
 from .decision_provenance import _state, _digest
 from .normalize import normalize_approval_number
@@ -130,7 +131,9 @@ def _financial_state(conn):
                                'board_manual_overrides', 'review_decisions'})
     tables = {name: sorted(conn.execute('SELECT * FROM "' + name.replace('"', '""') + '"').fetchall(),
                            key=lambda row: json.dumps(row, sort_keys=True, default=str)) for name in names}
-    return _digest(dict(links=refund_links(conn, ids), tables=tables))
+    with uncommitted_rows():  # runs inside the repair transaction: read its own rows, roll back as a unit
+        links = refund_links(conn, ids)
+    return _digest(dict(links=links, tables=tables))
 
 
 def _manual_reason(conn, tid, row):
@@ -157,7 +160,8 @@ def _refund_reason(conn, pair_tids, number_index):
     # approval-number index. A row is touched if it is a refund or an original.
     cancels = [r[0] for r in conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
-    links = refund_links(conn, cancels)
+    with uncommitted_rows():  # the import transaction has inserted earlier rows of the same file
+        links = refund_links(conn, cancels)
     touched = set(links) | {link['original_id'] for link in links.values()}
     if touched & pair:
         return 'REFUND_PAIRED'

@@ -1,6 +1,7 @@
 """links 그림자 시험 도우미: 합성 시나리오 JSON으로 board DB 파일을 만든다(합성 자료만).
 
     python -I links_python.py build <scenario.json> <db>
+    python -I links_python.py rows <db>
 """
 import json
 import sqlite3
@@ -25,6 +26,18 @@ def build(scenario_path, target):
         src.close()
 
 
+def rows(db):
+    """The JSON the Python adapter sends to `links refund --rows-stdin` for this database."""
+    from app import core_links
+    conn = sqlite3.connect(db)
+    try:
+        print(json.dumps(core_links.row_dicts(core_links.fetch_rows(conn))))  # ASCII escapes: stdout encoding is not UTF-8 on Windows
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     if sys.argv[1] == 'build':
         build(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == 'rows':
+        rows(sys.argv[2])

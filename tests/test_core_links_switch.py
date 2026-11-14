@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import tempfile
 from contextlib import closing
 from pathlib import Path
 
@@ -49,11 +50,15 @@ class StandIn:
 
     def __init__(self, version='costcore 9.9.9'):
         self.version, self.runs, self.fail = version, [], None
+        self.stdin_runs = []
 
     def __call__(self, command, **kwargs):
         if command[1] == '--version':
             return subprocess.CompletedProcess(command, 0, stdout=self.version + '\n', stderr='')
-        assert command[1:3] == ['links', 'refund'] and command[3] == '--db'
+        assert command[1:3] == ['links', 'refund']
+        if command[3] == '--rows-stdin':
+            return self._from_rows(command, kwargs['input'])
+        assert command[3] == '--db'
         self.runs.append(command[4])
         if self.fail:
             return subprocess.CompletedProcess(command, 2, stdout=json.dumps(
@@ -64,6 +69,25 @@ class StandIn:
         finally:
             if saved is not None:
                 os.environ[core_links.PRODUCER_ENV] = saved
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps({'ok': True, 'result': result}) + '\n', stderr='')
+
+    def _from_rows(self, command, body):
+        """`links refund --rows-stdin`: the Python derivation over a scratch table of exactly the rows sent."""
+        self.stdin_runs.append(json.loads(body))
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / 'rows.sqlite'
+            with closing(sqlite3.connect(scratch)) as conn:
+                conn.execute(f"CREATE TABLE transactions({','.join(core_links.COLUMNS)})")
+                for row in self.stdin_runs[-1]:
+                    conn.execute(f"INSERT INTO transactions VALUES ({','.join('?' * len(core_links.COLUMNS))})",
+                                 [row[c] for c in core_links.COLUMNS])
+                conn.commit()
+            saved = os.environ.pop(core_links.PRODUCER_ENV, None)
+            try:
+                result = commands.links({'kind': 'refund', 'db': str(scratch)})
+            finally:
+                if saved is not None:
+                    os.environ[core_links.PRODUCER_ENV] = saved
         return subprocess.CompletedProcess(command, 0, stdout=json.dumps({'ok': True, 'result': result}) + '\n', stderr='')
 
 
@@ -289,6 +313,56 @@ def test_uncommitted_source_rows_are_refused_but_an_unchanged_open_transaction_i
             pr.refund_links(conn, ['syn-r2'])
         conn.rollback()
         assert pr.refund_links(conn, ['syn-r2'])
+
+
+@pytest.mark.parametrize('change', [
+    "UPDATE transactions SET conflict_reason='x' WHERE transaction_id='syn-r1'",
+    "UPDATE transactions SET duplicate_of='syn-r1' WHERE transaction_id='syn-r2'",
+    "DELETE FROM transactions WHERE transaction_id='syn-r2'",
+])
+def test_inside_the_opt_in_block_a_write_transaction_is_served_from_its_own_rows(
+        producer, monkeypatch, tmp_path, change):
+    """The Rust answer over uncommitted rows equals the Python derivation on the same connection, and nothing persists."""
+    path = _build(tmp_path, _scenarios()[2][1])
+    ids = ['syn-r1', 'syn-r2']
+    with closing(sqlite3.connect(path)) as conn:
+        committed = pr.refund_links(conn, ids)
+        conn.execute(change)
+        assert conn.in_transaction
+        monkeypatch.delenv(core_links.PRODUCER_ENV, raising=False)
+        expected = pr.refund_links(conn, ids)
+        monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+        with pytest.raises(RuntimeError, match='CORE_LINKS_UNCOMMITTED_ROWS'):
+            pr.refund_links(conn, ids)
+        with core_links.uncommitted_rows():
+            assert pr.refund_links(conn, ids) == expected
+        assert expected != committed
+        conn.rollback()
+        assert pr.refund_links(conn, ids) == committed  # the rolled-back state is not served from a cache
+    if hasattr(producer, 'stdin_runs'):
+        assert producer.stdin_runs  # the rows travelled on stdin, never the file
+
+
+def test_the_opt_in_block_reads_the_file_when_the_transaction_changed_no_pairing_input(
+        stand_in, monkeypatch, tmp_path):
+    monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+    path = _build(tmp_path, _scenarios()[2][1])
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("UPDATE transactions SET item='x'")
+        with core_links.uncommitted_rows():
+            assert pr.refund_links(conn, ['syn-r2'])
+    assert stand_in.stdin_runs == [] and len(stand_in.runs) == 1
+
+
+def test_the_opt_in_block_does_not_leak_out_of_its_scope(stand_in, monkeypatch, tmp_path):
+    monkeypatch.setenv(core_links.PRODUCER_ENV, 'rust')
+    path = _build(tmp_path, _scenarios()[2][1])
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("UPDATE transactions SET conflict_reason='x' WHERE transaction_id='syn-r1'")
+        with core_links.uncommitted_rows():
+            pass
+        with pytest.raises(RuntimeError, match='CORE_LINKS_UNCOMMITTED_ROWS'):
+            pr.refund_links(conn, ['syn-r2'])
 
 
 def test_an_original_the_core_did_not_link_is_an_error_not_a_guess(stand_in, monkeypatch, tmp_path):
