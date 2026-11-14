@@ -531,6 +531,10 @@ class CardFlow:
             handover_days=handover_days, overlaps_stay=overlaps_stay, stay_trip=stay_trip)
 
     def classify(self, batch_id, *, transaction_ids=None):
+        from app import core_writer
+        return core_writer.prepared(self.board, lambda: self._classify_request(batch_id, transaction_ids))
+
+    def _classify_request(self, batch_id, transaction_ids):
         with self._ota_request_scope():
             with self.board._lock:
                 result = self._classify(batch_id, transaction_ids=transaction_ids)
@@ -1766,12 +1770,12 @@ class CardFlow:
 
     def auto_record(self, batch_id):
         """소유자의 변경 요청에서만 실행한다. 조회는 쓰지 않는다."""
+        from app import core_writer
+        return core_writer.prepared(self.board, lambda: self._auto_record(batch_id))
+
+    def _pending_reclassification(self, batch_id):
         from .card_classification_completion import missing_assignment_sql
-        with self.board._lock, self._automatic_write():
-            # Older imports and interrupted uploads may have finished only the
-            # basic classifier. Re-run evidence + final inference before asking
-            # the ledger to record them; a read must never repair these rows.
-            pending = {row[0] for row in self.board.conn.execute(
+        return {row[0] for row in self.board.conn.execute(
                 "SELECT t.transaction_id FROM transactions t JOIN import_batch_rows b USING(transaction_id)"
                 " WHERE b.batch_id=? AND (((t.classification_state NOT IN ('classified','booked')"
                 " OR COALESCE(t.item,'')='')"
@@ -1794,9 +1798,25 @@ class CardFlow:
                 " WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
                 " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
                 " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides o WHERE o.row_id='card-'||t.transaction_id)", (batch_id,))}
+
+    def _auto_record(self, batch_id):
+        from app import core_writer
+        # The Rust writer commits in its own transaction and cannot run inside ours: classify first, outside it.
+        # Python keeps inference, ledger entries and projections in one transaction (PR #846).
+        rust = core_writer.selected() == 'rust'
+        with self.board._lock:
+            # Older imports and interrupted uploads may have finished only the
+            # basic classifier. Re-run evidence + final inference before asking
+            # the ledger to record them; a read must never repair these rows.
+            pending = self._pending_reclassification(batch_id) if rust else None
             if pending:
                 self._classify(batch_id, transaction_ids=pending)
-            return self._auto_record_locked(batch_id)
+            with self._automatic_write():
+                if not rust:
+                    pending = self._pending_reclassification(batch_id)
+                    if pending:
+                        self._classify(batch_id, transaction_ids=pending)
+                return self._auto_record_locked(batch_id)
 
     def _auto_record_locked(self, batch_id, *, include_state=True, transaction_ids=None):
         from app import auto_record_policy, quarter_tab
@@ -2472,9 +2492,16 @@ def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where(board)).fetchone()[0]
 
 
-def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
-                       request_snapshot=True):
+def reclassify_cleanup(board, **options):
     """미정리 카드를 분류하고 보호 검사를 통과한 거래는 같은 동작에서 기록한다."""
+    from app import core_writer
+    if options.get('_preview'):  # a preview runs on a clone and writes nothing
+        return _reclassify_cleanup(board, **options)
+    return core_writer.prepared(board, lambda: _reclassify_cleanup(board, **options))
+
+
+def _reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
+                        request_snapshot=True):
     from app import StoreError
     from app.classify import _pattern_for
     from app.normalize import normalize_merchant
