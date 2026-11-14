@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -114,6 +115,44 @@ def is_store(path):
         if not row or row[0] != SCHEMA:
             raise ValueError('OTA_STORE_SCHEMA_MISMATCH')
         return True
+
+
+# 변경 감시 표식에 쓰는 표. import·재색인이 쓰는 모든 표의 최대 rowid가 새 행마다 늘어난다.
+_STATE_TABLES = ('ota_raw_entries', 'ota_raw_blobs', 'ota_messages', 'ota_mail_origins', 'ota_bookings',
+                 'ota_booking_evidence', 'ota_reservation_observations', 'ota_row_seen', 'ota_portal_rows',
+                 'ota_catalog_rows', 'ota_scheduled_rows', 'ota_source_revisions')
+
+
+def commit_state(path):
+    """커밋된 상태 표식. 통합 OTA DB가 아니면 None, 파일 크기와 무관하게 상수 수준으로 읽는다.
+
+    읽기 전용 연결은 커밋된 페이지만 보므로 커밋 전 WAL 쓰기에는 변하지 않는다.
+    원천이 바뀌면 ota_sources.current_revision 이, 행이 쌓이면 각 표의 최대 rowid가 바뀐다.
+    """
+    path = Path(path)
+    try:
+        with path.open('rb') as handle:
+            if handle.read(16) != b'SQLite format 3\x00':
+                return None
+        with closing(connect_read(path)) as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_store_meta'").fetchone():
+                return None
+            row = conn.execute("SELECT value FROM ota_store_meta WHERE key='schema_version'").fetchone()
+            if not row or row[0] != SCHEMA:
+                return None
+            present = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            parts = [[tuple(r) for r in conn.execute(
+                'SELECT source_id,kind,ordinal,current_revision FROM ota_sources ORDER BY source_id')]]
+            for table in _STATE_TABLES:
+                parts.append([table, conn.execute('SELECT max(rowid) FROM "' + table + '"').fetchone()[0]
+                              if table in present else None])
+            if 'ota_row_seen' in present:
+                # _seen()이 같은 판 재관측 때 last_revision만 UPDATE하며 seen_count가 늘어난다.
+                parts.append(list(conn.execute('SELECT count(*),total(seen_count) FROM ota_row_seen').fetchone()))
+            return sha(encoded(parts))
+    except (OSError, sqlite3.Error) as error:
+        logging.getLogger(__name__).warning('OTA 커밋 상태 표식을 읽지 못해 바이트 해시로 대신합니다: %s %s', path, error)
+        return None
 
 
 def _current_rows(conn, table, kind):
