@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -145,8 +146,12 @@ def commit_state(path):
             for table in _STATE_TABLES:
                 parts.append([table, conn.execute('SELECT max(rowid) FROM "' + table + '"').fetchone()[0]
                               if table in present else None])
+            if 'ota_row_seen' in present:
+                # _seen()이 같은 판 재관측 때 last_revision만 UPDATE하며 seen_count가 늘어난다.
+                parts.append(list(conn.execute('SELECT count(*),total(seen_count) FROM ota_row_seen').fetchone()))
             return sha(encoded(parts))
-    except (OSError, sqlite3.Error):
+    except (OSError, sqlite3.Error) as error:
+        logging.getLogger(__name__).warning('OTA 커밋 상태 표식을 읽지 못해 바이트 해시로 대신합니다: %s %s', path, error)
         return None
 
 

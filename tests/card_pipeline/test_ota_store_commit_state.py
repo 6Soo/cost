@@ -162,3 +162,39 @@ def test_read_cost_does_not_depend_on_file_size_and_unrelated_files_still_hash(t
     plain.write_text('{}', encoding='utf-8')
     assert 'sha256' in ota_sources.content_stamp(plain)
     assert commit_state(plain) is None
+
+
+def test_reobservation_that_only_updates_seen_rows_changes_stamp(tmp_path, monkeypatch):
+    from tests.card_pipeline.test_ota_store_dedupe import changed_parser
+    base = [trip(1), forest(1), forest(2)]
+    folder = tmp_path / 'mail'
+    store = OtaStore(tmp_path / 'store.sqlite')
+
+    def seen():
+        return [tuple(r) for r in store.conn.execute('SELECT * FROM ota_row_seen ORDER BY 1,2,3,4,5')]
+
+    def without_seen():
+        # 표식에서 ota_row_seen 항목만 뺀 값. 수정 전 표식과 같다.
+        return ([tuple(r) for r in store.conn.execute('SELECT source_id,current_revision FROM ota_sources')],
+                [store.conn.execute('SELECT max(rowid) FROM ' + t).fetchone()[0] for t in (
+                    'ota_reservation_observations', 'ota_booking_evidence', 'ota_source_revisions',
+                    'ota_raw_entries', 'ota_messages')])
+    only_seen = 0
+    try:
+        for extra, parser, reindex in [([], 'v1', 0), ([trip(2)], 'v1', 0), ([], 'v2', 1), ([], 'v3', 1),
+                                       ([], 'v1', 1), ([], 'v2', 1)]:
+            rows, plain, before = seen(), without_seen(), stamp(store)
+            write(folder, base + extra)
+            with monkeypatch.context() as patched:
+                if parser != 'v1':
+                    changed_parser(patched, parser)
+                store.import_mail(folder)
+                if reindex:
+                    store.rebuild_reservation_observations()
+            store.conn.commit()
+            if seen() != rows:
+                assert stamp(store) != before
+                only_seen += without_seen() == plain
+        assert only_seen
+    finally:
+        store.close()
