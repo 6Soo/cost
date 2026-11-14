@@ -95,6 +95,20 @@ def changed_paths(base):
     return [path for path in result.stdout.split('\0') if path]
 
 
+def deleted_paths(base):
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "-z", "--diff-filter=D", f"{base}...HEAD"],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    return {path for path in result.stdout.split('\0') if path}
+
+
+def split_deleted_unmapped(unknown, deleted):
+    """Deleted paths absent from the impact map need no test; other tests catch dangling references."""
+    deleted_unmapped = sorted(p for p in unknown if p in deleted)
+    return sorted(set(unknown) - set(deleted_unmapped)), deleted_unmapped
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True,
@@ -109,6 +123,7 @@ def main(argv=None):
                           or (p.startswith('docs/') and p.lower().endswith('.png'))]
         code_paths = [p for p in paths if p not in document_paths]
         targets, unknown = select_targets(code_paths, impact_map["groups"])
+        unknown, deleted_unmapped = split_deleted_unmapped(unknown, deleted_paths(args.base))
         if unknown:
             targets = sorted(set(targets) | set(impact_map['safe_fallback_tests']))
         all_targets = set(impact_map["safe_fallback_tests"])
@@ -123,13 +138,15 @@ def main(argv=None):
     payload = {
         "status": status,
         "unknown_files": unknown,
+        "deleted_unmapped_files": deleted_unmapped,
         "document_only_files": document_paths,
         "fallback_selected": bool(unknown),
         "tests_executed": False,
         "pytest_commands": [[sys.executable, "-m", "pytest", *targets, "-q"]] if targets else [],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 2 if unknown or (code_paths and not targets) else 0
+    only_deleted_unmapped = bool(deleted_unmapped) and set(code_paths) <= set(deleted_unmapped)
+    return 2 if unknown or (code_paths and not targets and not only_deleted_unmapped) else 0
 
 
 if __name__ == "__main__":
