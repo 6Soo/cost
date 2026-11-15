@@ -217,52 +217,152 @@ def apply(conn, host, current, out: Path, *, request_id, expected_digest):
 
 
 def revert(conn, out: Path, *, applied_id, request_id):
-    """Restore the before values of one applied request, only where the row still holds the applied values."""
+    """Undo only the fields changed by an applied request, after checking every row atomically."""
     import app.automatic_classification as policy
     from app.db import utc_now
-    saved = _stored_request(conn, request_id)
-    if saved is not None:
-        if saved.get('kind') != 'revert' or saved.get('reverts') != applied_id:
-            raise Refused('REQUEST_ID_REUSED')
-        return dict(saved, written=0, replayed=True)
-    events = [(subject, json.loads(detail)) for subject, detail in conn.execute(
-        'SELECT subject, detail_json FROM change_log WHERE kind=? ORDER BY entry_id', ('card.booking_trip_correction',))]
-    events = [(tid, d) for tid, d in events if d.get('request_id') == applied_id]
-    if not events:
-        raise Refused('NOTHING_TO_REVERT')
+    from app.manual_overrides import manual_fields
     conn.execute('BEGIN IMMEDIATE')
     try:
+        saved = _stored_request(conn, request_id)
+        if saved is not None:
+            if saved.get('kind') != 'revert' or saved.get('reverts') != applied_id:
+                raise Refused('REQUEST_ID_REUSED')
+            conn.execute('COMMIT')
+            return dict(saved, written=0, replayed=True)
+        events = [(subject, json.loads(detail)) for subject, detail in conn.execute(
+            'SELECT subject, detail_json FROM change_log WHERE kind=? ORDER BY entry_id',
+            ('card.booking_trip_correction',))]
+        events = [(tid, d) for tid, d in events if d.get('request_id') == applied_id]
+        if not events:
+            raise Refused('NOTHING_TO_REVERT')
+
+        overrides = manual_fields(conn)
+        prepared = []
         for tid, detail in events:
-            row = policy._read(conn, {tid})[0]
+            changed = detail.get('changed_fields')
+            before, after = detail.get('before') or {}, detail.get('after') or {}
+            if (not isinstance(changed, dict) or not before.get('source_hash')
+                    or not after.get('source_hash') or not isinstance(after.get('transaction'), dict)
+                    or not isinstance(after.get('board'), dict)
+                    or not isinstance(before.get('transaction'), dict)
+                    or not isinstance(before.get('board'), dict)):
+                raise Refused('REVERT_EVIDENCE_INCOMPLETE')
+            rows = policy._read(conn, {tid})
+            if len(rows) != 1:
+                raise Refused('ROW_MISSING')
+            row = rows[0]
             board = conn.execute('SELECT display_tab_id, revision, payload_json FROM board_rows WHERE row_id=?',
                                  ('card-' + tid,)).fetchone()
-            after, before = detail['after'], detail['before']
-            if (row['display_tab_id'], row['trip_id'], board[0]) != (after['display_tab_id'], after['trip_id'],
-                                                                     after['display_tab_id']):
+            ledger = conn.execute('SELECT display_tab_id, trip_id FROM ledger_entries WHERE transaction_id=?',
+                                  (tid,)).fetchone()
+            if board is None or row['source_hash'] != before['source_hash'] or row['source_hash'] != after['source_hash']:
+                raise Refused('SOURCE_CHANGED_SINCE_APPLY')
+            applied_transaction_revision = after['transaction'].get('revision')
+            applied_board_revision = after['board'].get('revision')
+            if (not isinstance(applied_transaction_revision, int) or not isinstance(applied_board_revision, int)):
+                raise Refused('REVERT_EVIDENCE_INCOMPLETE')
+            if row['revision'] < applied_transaction_revision:
+                raise Refused('STALE_REVISION')
+            transaction_changes = changed.get('transaction')
+            ledger_changes = changed.get('ledger')
+            board_row_changes = changed.get('board_row')
+            board_payload_changes = changed.get('board_payload')
+            if not all(isinstance(part, dict) for part in
+                       (transaction_changes, ledger_changes, board_row_changes, board_payload_changes)):
+                raise Refused('REVERT_EVIDENCE_INCOMPLETE')
+            for field, values in transaction_changes.items():
+                if (field not in policy.FIELDS or not isinstance(values, dict)
+                        or 'before' not in values or 'after' not in values or values['before'] == values['after']
+                        or row[field] != values['after']):
+                    raise Refused('CHANGED_SINCE_APPLY')
+            for field, values in ledger_changes.items():
+                if (field not in ('display_tab_id', 'trip_id') or not isinstance(values, dict)
+                        or 'before' not in values or 'after' not in values or values['before'] == values['after']
+                        or ledger is None or dict(zip(('display_tab_id', 'trip_id'), ledger))[field] != values['after']):
+                    raise Refused('CHANGED_SINCE_APPLY')
+
+            try:
+                payload = json.loads(board[2])
+            except (TypeError, ValueError):
+                raise Refused('PROJECTION_MISMATCH')
+            applied_board = after['board']
+            if board[1] < applied_board_revision:
+                raise Refused('STALE_REVISION')
+            if board[0] != applied_board.get('display_tab_id'):
                 raise Refused('CHANGED_SINCE_APPLY')
-            fields = {k: before['transaction'][k] for k in policy.FIELDS}
-            conn.execute('UPDATE transactions SET ' + ','.join(k + '=?' for k in fields) +
-                         ',revision=revision+1 WHERE transaction_id=? AND revision=?',
-                         (*fields.values(), tid, row['revision']))
-            if before['ledger'] is not None:
-                conn.execute('UPDATE ledger_entries SET display_tab_id=?, trip_id=? WHERE transaction_id=?',
-                             (*before['ledger'], tid))
-            payload = json.loads(board[2])
-            payload.update(display_tab_id=before['board']['display_tab_id'],
-                           classification_basis=before['board'].get('classification_basis'), revision=board[1] + 1)
+            if payload.get('display_tab_id') != board[0]:
+                raise Refused('PROJECTION_MISMATCH')
+            for field, values in board_payload_changes.items():
+                if (field not in ('display_tab_id', 'classification_basis') or not isinstance(values, dict)
+                        or 'before' not in values or 'after' not in values or values['before'] == values['after']
+                        or payload.get(field) != values['after']):
+                    raise Refused('CHANGED_SINCE_APPLY')
+            for field, values in board_row_changes.items():
+                if (field != 'display_tab_id' or not isinstance(values, dict)
+                        or 'before' not in values or 'after' not in values or values['before'] == values['after']
+                        or board[0] != values['after']):
+                    raise Refused('CHANGED_SINCE_APPLY')
+
+            row_id = 'card-' + tid
+            protected_manual = {field for field in board_payload_changes if (row_id, field) in overrides}
+            protected_manual.update(field for field in board_row_changes if (row_id, field) in overrides)
+            if protected_manual:
+                raise Refused('MANUAL_CHANGE_SINCE_APPLY')
+            later = conn.execute('SELECT revision, prev_json, new_json FROM board_revisions'
+                                 ' WHERE row_id=? AND revision>? ORDER BY revision',
+                                 (row_id, applied_board_revision)).fetchall()
+            if board[1] > applied_board_revision and (not later or later[-1][0] != board[1]):
+                raise Refused('REVISION_HISTORY_INCOMPLETE')
+            for _revision, previous_json, new_json in later:
+                try:
+                    previous_payload, new_payload = json.loads(previous_json), json.loads(new_json)
+                except (TypeError, ValueError):
+                    raise Refused('REVISION_HISTORY_INCOMPLETE')
+                if any(previous_payload.get(field) != new_payload.get(field)
+                       for field in board_payload_changes):
+                    raise Refused('CHANGED_SINCE_APPLY')
+
+            prepared.append((tid, detail, row, board, ledger, payload))
+
+        # Validation above covers every row before the first write. The transaction also makes a
+        # later write/audit failure roll back the entire multi-row revert.
+        for tid, detail, row, board, ledger, payload in prepared:
+            before, changed = detail['before'], detail['changed_fields']
+            transaction_restore = {field: values['before']
+                                   for field, values in changed['transaction'].items()}
+            if transaction_restore:
+                cursor = conn.execute('UPDATE transactions SET ' + ','.join(k + '=?' for k in transaction_restore) +
+                                      ',revision=revision+1 WHERE transaction_id=? AND revision=?',
+                                      (*transaction_restore.values(), tid, row['revision']))
+                if cursor.rowcount != 1:
+                    raise Refused('STALE_REVISION')
+            ledger_restore = {field: values['before'] for field, values in changed['ledger'].items()}
+            if ledger_restore:
+                cursor = conn.execute('UPDATE ledger_entries SET ' + ','.join(k + '=?' for k in ledger_restore) +
+                                      ' WHERE transaction_id=?', (*ledger_restore.values(), tid))
+                if cursor.rowcount != 1:
+                    raise Refused('PROJECTION_MISMATCH')
+            for field, values in changed['board_payload'].items():
+                payload[field] = values['before']
+            payload.update(revision=board[1] + 1)
             new_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            board_tab = board[0]
+            if 'display_tab_id' in changed['board_row']:
+                board_tab = changed['board_row']['display_tab_id']['before']
             conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,'
                          'created_at,client_request_id,kind) VALUES (?,?,?,?,?,?,?,?,?,?)',
                          ('card-' + tid, board[1] + 1, board[2], new_payload, '', 'rule_change', ACTOR, utc_now(),
                           request_id + ':' + tid, 'revert'))
-            conn.execute('UPDATE board_rows SET payload_json=?, display_tab_id=?, revision=revision+1'
-                         ' WHERE row_id=? AND revision=?',
-                         (new_payload, before['board']['display_tab_id'], 'card-' + tid, board[1]))
+            cursor = conn.execute('UPDATE board_rows SET payload_json=?, display_tab_id=?, revision=revision+1'
+                                  ' WHERE row_id=? AND revision=?',
+                                  (new_payload, board_tab, 'card-' + tid, board[1]))
+            if cursor.rowcount != 1:
+                raise Refused('STALE_REVISION')
             conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                          (utc_now(), 'card.booking_trip_correction_revert', tid,
                           json.dumps({'request_id': request_id, 'reverts': applied_id, 'restored': before},
                                      ensure_ascii=False, sort_keys=True)))
-        response = {'kind': 'revert', 'reverts': applied_id, 'written': len(events)}
+        response = {'kind': 'revert', 'reverts': applied_id, 'written': len(prepared)}
         _store_request(conn, request_id, response, response)
         conn.execute('COMMIT')
     except BaseException:

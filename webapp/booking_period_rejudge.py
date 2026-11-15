@@ -140,10 +140,31 @@ def correct(conn, record, *, request_id, actor='automatic'):
     period = record['period']
     basis = f"예약 이용기간 근거 우선: 검증된 예약 이용기간 {period['starts_on']}~{period['ends_on']} · 기록 귀속 교정"
     payload = json.loads(board[2])
-    before = {'transaction': {k: row[k] for k in (*policy.FIELDS, 'revision')},
+    transaction_before = {k: row[k] for k in policy.FIELDS}
+    transaction_after = dict(transaction_before, display_tab_id=trip, trip_id=trip,
+                              classification_basis=basis)
+    ledger_before = dict(zip(('display_tab_id', 'trip_id'), ledger)) if ledger else None
+    ledger_after = (dict(ledger_before, display_tab_id=trip, trip_id=trip)
+                    if ledger_before is not None else None)
+    board_payload_before = {k: payload.get(k) for k in ('display_tab_id', 'classification_basis')}
+    board_payload_after = dict(board_payload_before, display_tab_id=trip, classification_basis=basis)
+    changed_fields = {
+        'transaction': {k: {'before': transaction_before[k], 'after': transaction_after[k]}
+                        for k in policy.FIELDS if transaction_before[k] != transaction_after[k]},
+        'ledger': ({k: {'before': ledger_before[k], 'after': ledger_after[k]}
+                    for k in ledger_before if ledger_before[k] != ledger_after[k]}
+                   if ledger_before is not None else {}),
+        'board_row': ({'display_tab_id': {'before': board[0], 'after': trip}}
+                      if board[0] != trip else {}),
+        'board_payload': {k: {'before': board_payload_before[k], 'after': board_payload_after[k]}
+                          for k in board_payload_before
+                          if board_payload_before[k] != board_payload_after[k]},
+    }
+    before = {'source_hash': row['source_hash'],
+              'transaction': {**transaction_before, 'revision': row['revision']},
               'ledger': list(ledger) if ledger else None,
               'board': {'display_tab_id': board[0], 'revision': board[1],
-                        'classification_basis': payload.get('classification_basis')}}
+                        'payload_fields': board_payload_before}}
     conn.execute('UPDATE transactions SET display_tab_id=?, trip_id=?, classification_basis=?, revision=revision+1'
                  ' WHERE transaction_id=? AND revision=?', (trip, trip, basis, tid, row['revision']))
     conn.execute('UPDATE ledger_entries SET display_tab_id=?, trip_id=? WHERE transaction_id=?', (trip, trip, tid))
@@ -158,11 +179,17 @@ def correct(conn, record, *, request_id, actor='automatic'):
                           ' WHERE row_id=? AND revision=?', (new_payload, trip, 'card-' + tid, board[1]))
     if cursor.rowcount != 1:
         raise ValueError('BOOKING_TRIP_CORRECTION_STALE')
-    after = {'display_tab_id': trip, 'trip_id': trip, 'classification_basis': basis}
+    after = {'source_hash': row['source_hash'],
+             'transaction': {**transaction_after, 'revision': row['revision'] + 1},
+             'ledger': list(ledger_after.values()) if ledger_after is not None else None,
+             'board': {'display_tab_id': trip, 'revision': board[1] + 1,
+                       'payload_fields': board_payload_after},
+             'display_tab_id': trip, 'trip_id': trip, 'classification_basis': basis}
     conn.execute('INSERT INTO change_log(at,kind,subject,detail_json) VALUES (?,?,?,?)',
                  (utc_now(), CORRECTION_KIND, tid, json.dumps(
                      {'request_id': request_id, 'actor': actor, 'before': before, 'after': after,
-                      'trip_id': trip, 'basis': basis, 'digest': record['digest']},
+                      'changed_fields': changed_fields, 'trip_id': trip, 'basis': basis,
+                      'digest': record['digest']},
                      ensure_ascii=False, sort_keys=True)))
     store_digest(conn, tid, record['digest'], {'trip_id': trip, 'request_id': request_id})
 
