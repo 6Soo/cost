@@ -552,7 +552,7 @@ def test_real_cards_all_initial_render_records_once_and_excludes_send_time(card_
 def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_path):
     from urllib.parse import parse_qs, urlsplit
     from unittest.mock import patch
-    from webapp import ledger_board, ledger_design, site_shell
+    from webapp import ledger_board, ledger_design, site_shell, static_assets
     from playwright.sync_api import sync_playwright, expect
 
     long_merchant = '합성 가맹점 ' * 18
@@ -575,12 +575,39 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
             document = site_shell.wrap_document(original, parsed.path)
             route.fulfill(status=200, content_type='text/html; charset=utf-8', body=document)
 
+        def serve_static(route):
+            path = urlsplit(route.request.url).path
+            for (kind, name), body in static_assets._BODIES.items():
+                if path == static_assets.url(kind, name):
+                    route.fulfill(status=200, content_type=static_assets._TYPES[kind], body=body)
+                    return
+            route.fulfill(status=404, body=b'')
+
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={'width': 375, 'height': 812})
+                static_responses = []
+
+                def record_static_response(response):
+                    path = urlsplit(response.url).path
+                    if path.startswith('/static/'):
+                        static_responses.append((
+                            path,
+                            response.status,
+                            response.headers.get('content-type', ''),
+                        ))
+
+                page.on('response', record_static_response)
+                page.route('http://cost.test/static/**', serve_static)
                 page.route('http://cost.test/cards/all*', serve_page)
                 page.goto('http://cost.test/cards/all')
+                assert any(path.startswith('/static/css/site_shell.') and status == 200
+                           and content_type.startswith('text/css')
+                           for path, status, content_type in static_responses)
+                assert any(path.startswith('/static/js/site_shell.') and status == 200
+                           and content_type.startswith('text/javascript')
+                           for path, status, content_type in static_responses)
                 for width in (375, 390, 759, 760, 1280):
                     page.set_viewport_size({'width': width, 'height': 812})
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
