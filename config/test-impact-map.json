@@ -293,10 +293,10 @@
     },
     {
       "name": "financial-core",
-      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/test_request_recompute_cache.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
-    },
+      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_schema_migration.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
     {
+    },
       "name": "google-readonly",
       "paths": ["app/google_*.py", "webapp/google_*.py", "webapp/live_sync.py"],
       "tests": ["tests/card_pipeline/test_google_tsv.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_google_viewer_http.py"]

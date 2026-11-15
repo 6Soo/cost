@@ -1440,7 +1440,7 @@ def _transactions_digest(backend, ignore_transaction_columns=()) -> str:
     from app import core_links
     with lock if lock is not None else nullcontext():
         settled = not conn.in_transaction
-        stamp = (id(conn), conn.total_changes, conn.execute("PRAGMA data_version").fetchone()[0])
+        stamp = (conn, conn.total_changes, conn.execute("PRAGMA data_version").fetchone()[0])
         with _TX_LOCK:
             fingerprint = _TX_STAMPS.get(stamp) if settled else None
         if fingerprint is None:

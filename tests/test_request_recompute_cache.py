@@ -149,3 +149,22 @@ def test_refund_tab_groups_equal_the_full_table_derivation():
     links = partial_refund.refund_links(conn, list(sources))
     expected = refund_tab_ui.assemble_refund_groups(sources, links, is_preserved_fn=lambda periods: False)
     assert expected and refund_tab.groups(SimpleNamespace(conn=conn)) == expected
+
+
+def test_a_new_connection_never_reuses_a_closed_connections_stamp(monkeypatch, tmp_path):
+    from webapp import ota_payment_review as review
+    monkeypatch.setattr(review, '_guide_input_digest', lambda _: 'synthetic')
+    review._TX_DIGESTS.clear()
+    review._TX_STAMPS.clear()
+    path = tmp_path / 'board.sqlite'
+    seed = sqlite3.connect(path, isolation_level=None)
+    build()[0].store.conn.backup(seed)
+    seed.close()
+    first = sqlite3.connect(path, isolation_level=None)
+    key = review.input_key_for(backend_for(first, []))
+    first.close()
+    other = sqlite3.connect(path, isolation_level=None)
+    other.execute("UPDATE transactions SET amount_krw=amount_krw+1 WHERE rowid=1")
+    other.close()
+    second = sqlite3.connect(path, isolation_level=None)
+    assert review.input_key_for(backend_for(second, [])) != key
