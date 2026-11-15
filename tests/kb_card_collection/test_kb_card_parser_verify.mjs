@@ -2,6 +2,7 @@
 // 과정을 검증하는 가짜 node "파서" 프로세스를 띄운다. 실제 파서 연결·건수 일치는 별도 단계다.
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -23,8 +24,14 @@ function check(name, fn) {
   pending.push(p);
   return p;
 }
+const tempDirs = [];
+process.on("exit", () => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 async function tempDir(prefix) {
-  return mkdtemp(path.join(tmpdir(), prefix));
+  const dir = await mkdtemp(path.join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
 }
 function makeScript(lines) {
   return lines.join("\n") + "\n";
