@@ -206,10 +206,11 @@ def _parse_mail_events(directories):
             event, context.get((event['provider'], event['booking_ref']), ()))
         from app.ota_mail_reservation_identity import attest
         attest(events[event['ota_event_id']], message, text)
-    from app import airbnb_mail, forest_mail, forest_payment_mail, toyoko_mail, ota_rakuten_mail
+    from app import airbnb_mail, forest_mail, forest_payment_mail, mytrip_mail, toyoko_mail, ota_rakuten_mail
     return (list(events.values()) + toyoko_mail.collect(messages, inventory)
             + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory)
-            + ota_rakuten_mail.collect(messages, inventory) + airbnb_mail.collect(messages, inventory))
+            + ota_rakuten_mail.collect(messages, inventory) + airbnb_mail.collect(messages, inventory)
+            + mytrip_mail.collect(messages, inventory))
 
 
 def extract_payment_fact(message):
