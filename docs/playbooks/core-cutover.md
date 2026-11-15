@@ -84,6 +84,27 @@
 - `CORE_WRITER_IN_TRANSACTION`: 호출 경로가 이미 쓰기 트랜잭션 안에서 `apply`를 부른다. 그 경로는 아직 Rust 작성자로 못 바꾼다. 변수를 지워 복귀하고 호출 경로를 고친다(전환 전 미해결이면 전환 불가).
 - 프로세스가 두 커밋 사이에 죽음: 운영 board는 WAL, core는 롤백 저널이고 board가 먼저 커밋된다. 결과는 **화면 열은 채워졌고 `decisions`가 없는 거래**다. 그 거래는 더 이상 계획의 목표가 아니라서 그냥 다시 실행해도 채워지지 않는다. 복구 두 가지 중 하나: ① 새 미리보기 digest를 만들어 `costcore apply ... --backfill-decisions`를 실행한다. 화면 열이 계획과 같고 `decisions`가 없는 거래에 판정만 저장하며 board는 건드리지 않는다(출력 `backfilled`). ② 작성자를 Python으로 되돌린다(`card-flow.json`의 `classification_writer` 키 제거 또는 `python`, 재시작). 6단계 A↔C 대조가 이 상태를 찾아낸다.
 
+## 판정 함수 버전 변경 배포 뒤 전체 재판정
+
+- 언제: `PERIOD_FN_VERSION` 같은 판정 함수 버전이 바뀐 릴리스를 배포한 직후, 한 번 의도적으로. 운영은 rust 작성자라 수동 도구(`complete_card_classification`·`review_card_inference --apply`)는 `CORE_WRITER_MANUAL_APPLY_REFUSED`로 거부되고, `costcore apply`를 직접 부르면 이용기간 근거(periods)가 빠진 채 판정이 저장되므로 쓰지 않는다.
+- 진입점: `tools/core_rejudge.py`. `card-flow.json`의 `classification_writer`가 `rust`일 때만 실행한다(아니면 `CORE_REJUDGE_WRITER_NOT_RUST`, python이면 기존 도구를 쓴다). `costcore_bin`·`core_db`도 같은 설정에서 읽는다. 쓰기는 Board와 같은 작성자 경로(`core_writer.prepared` 근거·키를 잠금 밖에서 생성 → `run_with_periods` 잠금 안 키 비교 → `automatic_classification.apply`)라 이용기간 근거가 반드시 함께 넘어간다.
+- 한가한 시간에 한다. Board 정지는 요구하지 않는다(Rust apply가 `BEGIN IMMEDIATE`와 계획 digest 대조로 막는다). 같은 시각 Board가 쓰면 `CLASSIFICATION_PREVIEW_STALE`이 나며, 도구가 근거를 다시 만들어 1회 재시도하고 그래도 같으면 `CORE_REJUDGE_PREVIEW_STALE`로 끝난다(쓰기 0, 나중에 다시 실행). 근거 생성이 캐시 없이 OTA 대조를 하면 약 10분 걸리고, 이 구간은 어떤 잠금도 쥐지 않는다. 같은 시간대의 Worker mail-collect는 멈춘다(배포 창 공통 주의).
+- 순서(PowerShell, 레포 릴리스 폴더에서):
+
+   ```powershell
+   $h = 'D:/WebLedgerHost'
+   # 1) 신선 범위 백업(#906, board+core)과 복원 확인 증거를 만든다(1시간 이내여야 한다). 증거 파일 경로를 $ev에 둔다.
+   # 2) 예행: 쓰기 0. 근거 생성 소요, 근거가 있는 거래 수, 계획의 scanned·to_classify·protected만 출력한다.
+   python -I tools/core_rejudge.py --host-root $h --dry-run
+   # 3) 실행: 백업 증거가 없거나 오래됐거나 board·core를 덮지 않으면 거부한다.
+   python -I tools/core_rejudge.py --host-root $h --backup-evidence $ev
+   ```
+
+- 출력: `status`, `written`, `skipped_mismatch`, `skipped_unjudged`, `backfilled`, `seconds`(`data/core-apply-runs/latest.json`의 `latest`와 같은 값). 거래 ID·원문은 나오지 않는다. 확인: `skipped_mismatch` = 0. 같은 명령을 다시 하면 `written` = 0이어야 한다.
+- 예행의 `evidence_seconds`는 근거 생성이고, 예행도 증거 캐시(`period-facts.json`)를 채운다(분류 열·`core.sqlite`는 쓰지 않는다). 예행이 Board 연결 객체를 열어 프로세스 lease 행이 갱신될 수 있다(Board가 평소 하는 것과 같다).
+- `--backfill-decisions`(선택): 화면 열은 이미 계획과 같은데 `decisions`가 없는 거래에 판정만 같은 apply에서 채운다(`costcore apply --backfill-decisions`와 같은 의미, 위 "프로세스가 두 커밋 사이에 죽음" 복구용). 전체 재판정에는 보통 쓰지 않는다. `backfilled`가 매우 클 수 있다.
+- 실패 코드: `BACKUP_EVIDENCE_REQUIRED`·`BACKUP_RESTORE_NOT_VERIFIED`·`BACKUP_NOT_FRESH`·`BACKUP_LOCATION_INVALID`(백업), `CORE_SWITCH_*`(설정), `CORE_REJUDGE_*`(진입점), 그 밖은 코어 오류 코드. STALE 실패는 쓰기 0이다. 프로세스가 apply 도중 죽은 경우의 복구는 위 "실패와 복구".
+
 ---
 
 # 코어 2차 전환 — 연결 생산자(환불 짝·OTA↔카드 연결)를 Python에서 Rust로
