@@ -487,11 +487,10 @@ class OtaStore:
 
     @staticmethod
     def mail_stamp(directory):
-        """gmail*.json 원문 목록의 파일 이름·크기·mtime과 해석 코드 stat. collection.json은 실행마다 바뀌어 제외한다."""
+        """gmail*.json 원문 목록의 파일 이름·크기·mtime과 app/*.py 전체(import_mail이 의존하는 파서 모듈 포함)의 stat. collection.json은 실행마다 바뀌어 제외한다."""
         code = Path(__file__).resolve().parent
         stamp = [[p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in sorted(Path(directory).glob('gmail*.json'))]
-        stamp += [['code:' + n, (code / n).stat().st_size, (code / n).stat().st_mtime_ns]
-                  for n in ('ota_store.py', 'ota_mail.py', 'ota_payments.py', 'forest_mail.py')]
+        stamp += [['code:' + p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in sorted(code.glob('*.py'))]
         return stamp
 
     def _mail_stamp_state(self, directory, stamp):
@@ -511,8 +510,11 @@ class OtaStore:
         """commit 뒤에 부른다. 쓰기에 실패하면 다음 실행이 다시 import할 뿐이다."""
         target = Path(directory) / MAIL_STAMP_FILE
         temporary = target.with_suffix('.tmp')
-        temporary.write_text(json.dumps(self._mail_stamp_state(directory, stamp)), encoding='utf-8')
-        os.replace(temporary, target)
+        try:
+            temporary.write_text(json.dumps(self._mail_stamp_state(directory, stamp)), encoding='utf-8')
+            os.replace(temporary, target)
+        except OSError as error:
+            logging.getLogger(__name__).warning('mail stamp not written (next run re-imports): %s', type(error).__name__)
 
     def import_mail(self, directory):
         from app import ota_mail, ota_payments

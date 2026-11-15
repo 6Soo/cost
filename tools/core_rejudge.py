@@ -30,7 +30,7 @@ class Refused(Exception):
         self.code = code
 
 
-def require_backup(host: Path, evidence) -> None:
+def require_backup(host: Path, evidence) -> str:
     """A fresh scoped/full backup that covers board.sqlite and core.sqlite. The Board stays up, so the live
     state is not compared with the backup manifest (it moves); freshness and coverage are required."""
     from tools.verify_operational_backup_restore import backup_covers
@@ -49,6 +49,7 @@ def require_backup(host: Path, evidence) -> None:
         raise Refused('BACKUP_NOT_FRESH')
     if not directory.is_relative_to((host / 'data/backups').resolve()):
         raise Refused('BACKUP_LOCATION_INVALID')
+    return saved['recorded_at']
 
 
 def _open(host: Path, write: bool):
@@ -111,7 +112,7 @@ def main(argv=None) -> int:
             raise Refused('CORE_REJUDGE_WRITER_NOT_RUST')  # python writer: use tools/complete_card_classification.py
         core_switch_config.apply(options, host / 'data')
         if not args.dry_run:
-            require_backup(host, args.backup_evidence)
+            backup_recorded_at = require_backup(host, args.backup_evidence)
         from tools.complete_card_classification import read_flow
         with closing(_open(host, write=not args.dry_run)) as conn:
             flow = read_flow(conn, host)
@@ -122,6 +123,7 @@ def main(argv=None) -> int:
                 run_apply(flow, args.backfill_decisions)
                 run = latest_run(host) or {}
                 report = {'status': 'APPLIED', 'seconds_total': round(time.monotonic() - started, 2),
+                          'backup_recorded_at': backup_recorded_at,
                           **{k: run.get(k) for k in (*core_writer.RUN_COUNTS, 'seconds')}}
         print(json.dumps(report))
         return 0

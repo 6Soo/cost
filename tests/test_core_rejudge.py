@@ -129,6 +129,7 @@ def test_apply_goes_through_core_writer_with_periods_and_prints_the_run_summary(
     report = json.loads(out)
     assert (report['status'], report['written'], report['skipped_mismatch'], report['backfilled']) == ('APPLIED', 2, 0, 0)
     assert 'seconds' in report and 'SECRET-TID' not in out
+    assert datetime.fromisoformat(report['backup_recorded_at']).tzinfo is not None
     (command, request), = wired['run']
     assert command[1] == 'apply' and '--backfill-decisions' not in command
     assert request['periods'] == {'t1': [{'basis': 'x'}]}  # evidence from core_writer, not empty
