@@ -53,6 +53,10 @@ class PlaceOnlyHeaderTests(unittest.TestCase):
         self.assertNotEqual(found['trip_id'], 't-busan')
         found = self.decide('0910 부산 출장', '2026-03-11', require_date=True)
         self.assertEqual((found['trip_id'], found['source']), ('t-busan', 'header_text'))
+        # A phone number ending in the trip's MMDD is not a trip name.
+        found = self.decide('부산 해운대점 TEL 051-123-0910', '2026-03-11', require_date=True)
+        self.assertEqual((found['trip_id'], found['source']), ('t-osaka', 'date'))
+        self.assertEqual(match.match_header('9/10 부산', PLACES, require_date=True)['ids'], ['t-busan'])
 
     def test_a_place_inside_a_longer_name_is_not_that_place(self):
         self.assertEqual(match.match_header('히가시오사카 시청', PLACES)['ids'], [])

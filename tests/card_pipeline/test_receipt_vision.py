@@ -15,6 +15,7 @@ JPEG = b"\xff\xd8\xff" + b"x" * 30 + b"\xff\xd9"
 
 @pytest.fixture
 def ready(monkeypatch, tmp_path):
+    monkeypatch.setattr(vision, "_billing_locked", False)
     monkeypatch.setattr(vision, "enabled", lambda: True)
     monkeypatch.setenv("WEBLEDGER_CLAUDE_EXE", sys.executable)
     page = tmp_path / "page.jpg"
@@ -248,3 +249,17 @@ def test_cloud_provider_switches_are_removed_from_the_environment(ready, monkeyp
     vision.recognize(ready, runner=runner)
     assert not any(key.upper().startswith(("CLAUDE_CODE_USE_", "ANTHROPIC_")) for key in seen)
     assert "PATH" in {key.upper() for key in seen}
+
+
+def test_one_billing_refusal_locks_claude_until_restart(ready, caplog):
+    calls = []
+
+    def billed(*args, **kwargs):
+        calls.append(1)
+        return stream(answer(), key_source="/login managed key")
+    with caplog.at_level("ERROR", logger="cost.receipt_vision"):
+        first = vision.recognize_with_fallback(ready, runner=billed, ocr=fake_ocr([]))
+        second = vision.recognize_with_fallback(ready, runner=billed, ocr=fake_ocr([]))
+    assert calls == [1]  # the second photo never reaches claude
+    assert first["fallback_reason"] == second["fallback_reason"] == "VISION_BILLING_PATH_REFUSED"
+    assert caplog.text.count("VISION_BILLING_LOCKED") == 1

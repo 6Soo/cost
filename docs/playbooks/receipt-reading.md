@@ -7,6 +7,7 @@
 - 개정 이력:
   - 2026-11-15 · 처음 작성 · 소유자 지시로 Muse(무료 모델)를 Claude opus medium으로 교체. 합성 사진 8장으로 직접 판독 → 실패 유형 정리 → 같은 사진으로 `claude -p` 실행기 검증 뒤 작성.
   - 2026-11-15 · 지역명만 맞는 여행명의 날짜 대조, OCR 상단 줄은 MMDD 필수, 부분 지명 차단, 과금 경로 차단(`apiKeySource`·`CLAUDE_CODE_USE_*`) 추가 · PR #957 독립 검수(opus) 지적 R1·R2.
+  - 2026-11-15 · 과금 거부가 한 번 나면 서버 재시작까지 Claude 판독 잠금, OCR 줄의 MMDD는 지역명 바로 앞에 있을 때만 인정 · 재검수 권장 N1·N2.
 
 ## 입력
 
@@ -41,7 +42,7 @@
 - MMDD와 지역명이 모두 맞으면(`0310_오사카`) 그 여행이다. 영수증 날짜가 다른 여행 기간이어도 여행명이 이긴다.
 - 지역명만 맞으면(`오사카`) 영수증 날짜를 대조한다. 날짜가 그 여행 기간 안이거나 날짜가 없을 때만 그 여행이다. 날짜가 다른 여행 기간이거나 그 여행 기간 밖이면 미정으로 둔다.
 - 지역명은 단어의 시작에서만 맞춘다. `오사카시`는 오사카지만 `히가시오사카`는 오사카가 아니다. 이때는 여행명이 없는 것과 같아서 날짜로만 정한다.
-- Windows OCR에서 온 상단 줄(대체 결과, 수동 OCR 버튼)은 MMDD와 지역명이 모두 맞을 때만 쓴다. 여행명이 없는 사진에서는 위쪽 20%에 영수증 상호와 주소(`부산광역시 해운대구…`)가 잡히기 때문이다. 그 밖에는 여행명이 없는 것으로 보고 날짜로만 정한다.
+- Windows OCR에서 온 상단 줄(대체 결과, 수동 OCR 버튼)은 MMDD와 지역명이 모두 맞을 때만 쓴다. 여행명이 없는 사진에서는 위쪽 20%에 영수증 상호와 주소(`부산광역시 해운대구…`)가 잡히기 때문이다. 그 밖에는 여행명이 없는 것으로 보고 날짜로만 정한다. OCR 줄의 MMDD는 지역명 바로 앞(`0910 부산`, `9/10 부산`)에 있을 때만 인정한다. `부산 해운대점 TEL 051-123-0910`의 전화번호 끝 네 자리는 MMDD가 아니다.
 
 ### 금액
 
@@ -135,7 +136,7 @@
 | 과부하·5xx·네트워크 | `VISION_PROVIDER_UNAVAILABLE` | Windows OCR로 대체 |
 | `StructuredOutput` 외 도구·MCP 관측 | `VISION_TOOL_EXECUTION_DETECTED` | 결과 폐기, Windows OCR로 대체 |
 | 스키마 위반·JSON 아님·결과 없음 | `VISION_RESPONSE_INVALID` | 결과 폐기, Windows OCR로 대체 |
-| 구독 로그인이 아님(`init`의 `apiKeySource`가 `none`이 아님: API 키, Console 로그인 키, `apiKeyHelper`) | `VISION_BILLING_PATH_REFUSED` | 결과 폐기, Windows OCR로 대체. 호스트 계정을 구독 로그인으로 되돌림 |
+| 구독 로그인이 아님(`init`의 `apiKeySource`가 `none`이 아님: API 키, Console 로그인 키, `apiKeyHelper`) | `VISION_BILLING_PATH_REFUSED` | 결과 폐기, Windows OCR로 대체. 그 서버 실행 동안 Claude 판독을 잠가 다음 사진부터 바로 OCR(로그 `VISION_BILLING_LOCKED` 한 번). 사람이 호스트 계정을 구독 로그인으로 되돌리고 서버를 재시작하면 풀림 |
 | `claude` 실행 파일 없음·판독 지시 절 없음 | `VISION_CLAUDE_NOT_FOUND`·`VISION_PLAYBOOK_MISSING` | Windows OCR로 대체, 배포 점검 |
 | Windows OCR도 꺼져 있거나 실패 | 위 코드 그대로 | 실패로 표시하고 직접 입력(RCPT-023) |
 

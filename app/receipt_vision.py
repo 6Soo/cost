@@ -44,6 +44,8 @@ NO_FALLBACK = {'VISION_DISABLED', 'VISION_IMAGE_INVALID', 'VISION_IMAGE_REQUIRED
 HEADER_MIN_CONFIDENCE = 0.5
 PAYMENT_NOTES = {'card': '카드', 'other': '기타 결제'}
 log = logging.getLogger('cost.receipt_vision')
+# Set once a run reports a billed login; cleared only by restarting the server, so no photo is billed twice.
+_billing_locked = False
 
 
 class VisionUnavailable(Exception):
@@ -263,6 +265,8 @@ def recognize(image, *, runner=None, guidance=None, lesson=False, timeout=TIMEOU
         parts.append(LESSON_INSTRUCTION)
     if guidance:
         parts.append(guidance)
+    if _billing_locked:
+        raise VisionUnavailable('VISION_BILLING_PATH_REFUSED')
     executable = _executable()
     if executable is None:
         raise VisionUnavailable('VISION_CLAUDE_NOT_FOUND')
@@ -280,11 +284,24 @@ def recognize(image, *, runner=None, guidance=None, lesson=False, timeout=TIMEOU
                                     else 'VISION_EXECUTION_FAILED') from None
         except OSError:
             raise VisionUnavailable('VISION_EXECUTION_FAILED') from None
-    if proc.returncode:
-        parse_events(proc.stdout)  # raises the named provider error when the output carries one
-        # Never log provider text: it can echo the receipt.
-        raise VisionUnavailable(_classify((proc.stderr or b'').decode('utf-8', errors='replace')))
-    return validate_response(parse_events(proc.stdout), image_hash=hashlib.sha256(data).hexdigest(), lesson=lesson)
+    try:
+        if proc.returncode:
+            parse_events(proc.stdout)  # raises the named provider error when the output carries one
+            # Never log provider text: it can echo the receipt.
+            raise VisionUnavailable(_classify((proc.stderr or b'').decode('utf-8', errors='replace')))
+        output = parse_events(proc.stdout)
+    except VisionUnavailable as error:
+        if error.code == 'VISION_BILLING_PATH_REFUSED':
+            _lock_billing()
+        raise
+    return validate_response(output, image_hash=hashlib.sha256(data).hexdigest(), lesson=lesson)
+
+
+def _lock_billing():
+    global _billing_locked
+    if not _billing_locked:
+        _billing_locked = True
+        log.error('receipt reading: VISION_BILLING_LOCKED until the server restarts (login is not the subscription)')
 
 
 def ocr_fallback(image, reason, *, ocr=None):

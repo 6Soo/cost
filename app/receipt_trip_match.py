@@ -66,6 +66,14 @@ def _names_place(line: str, destination: str) -> bool:
     return any(''.join(words[i:]).startswith(destination) for i in range(len(words)))
 
 
+def _mmdd_before(line: str, destination: str) -> set[str]:
+    """The MMDD written directly before the place (0625_아키타, 6/25 아키타), not a phone number elsewhere."""
+    text = unicodedata.normalize('NFKC', line).casefold()
+    at = text.find(destination)
+    head = text[:at] if at > 0 else ''
+    return _mmdd(head) if re.fullmatch(r'[\s\d/.\-_월일]*', head) else set()
+
+
 def match_header(value, trips: list[dict], *, require_date: bool = False) -> dict:
     """{'raw', 'ids', 'exact'}: the trips whose destination is written in the header.
 
@@ -79,7 +87,8 @@ def match_header(value, trips: list[dict], *, require_date: bool = False) -> dic
             prefix, destination = _parts(trip)
             if len(destination) < 2 or not _names_place(line, destination):
                 continue
-            exact = bool(prefix) and prefix in dates
+            # OCR lines carry phone numbers and addresses: there the MMDD must sit right before the place.
+            exact = bool(prefix) and prefix in (_mmdd_before(line, destination) if require_date else dates)
             if trip['id'] not in hits or (exact and not hits[trip['id']][1]):
                 hits[trip['id']] = (line, exact, destination)
     # A longer place name wins over a name inside it: 신도쿄 is not 도쿄.
