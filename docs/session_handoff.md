@@ -1,3 +1,12 @@
+## 2026-11-16 영수증 판독 로컬 Paseo qwen4-max-preview 전환 — 구현·검증 완료, PR 검수 대기 (세션 4de2ead1)
+
+- **소유자 결정(2026-11-16):** 영수증 업로드 판독을 이 PC의 로컬 Paseo `qwen4-max-preview`(QwenCloud)로 처리. 이 모델은 이미지를 읽지 못하므로(2회 확인) 사진은 이 PC의 Windows OCR이 먼저 읽고 **텍스트만** 전송한다(사진 원본 외부 전송 없음). Claude opus 판독은 `claude-opus` 셀렉터 대체 경로로 유지.
+- **구현:** 브랜치 `feat/receipt-vision-paseo-20261116`, 워크트리 `C:/AX/cost-wt-receipt-paseo`. 신규 `app/paseo_receipt_vision.py`(plan 모드·빈 임시 워크스페이스·`paseo run --output-schema`로 스키마 JSON 직접 수신·일회용 에이전트/워크스페이스 판독 뒤 archive), `receipt_vision.provider()` 셀렉터 분기, 플레이북 OCR 판독 지시 절, 규칙집 RCPT-020/022 개정, 런처 셀렉터 `paseo-qwen4-max`, 환경 카탈로그·영향 지도 갱신. 구현 커밋 `6260f0ce`(origin/main `36ae40e8` 위 리베이스, 충돌 없음).
+- **검증:** 표적 54건 통과. 영향 검사 `run_quality_checks.py --base origin/main --run` **1,298 passed + 41 subtests, 실패 0**(434.72초, Rust costcore release 빌드 포함). 실제 Paseo+로컬 OCR 합성 영수증 스모크 성공(모델이 OCR 숫자 깨짐을 문맥·합계 검산으로 복원, 후보는 검토 전용 requires_review). 고객 원문·운영 DB·Google 쓰기 0.
+- **기술 근거:** 현재 데몬에서 `paseo logs --json`은 평문 타임라인을 반환해 답 추출에 쓸 수 없다. `paseo run --output-schema … --json`의 stdout이 스키마 형태 결과 자체다(모듈 docstring에 기록).
+- **남은 일:** PR push → 독립 검수(모델·추론 수준·SHA·판정 PR 기록; opus 한도 시 agy 대체, 소유자 결정 2026-11-16) → 컨트롤 타워 병합·배포. 배포 전까지 운영 판독은 기존 Claude opus 유지(런처 셀렉터 변경은 이 브랜치에만 있음).
+- **막힌 점:** 없음(구현·검증 기준). 병합·배포는 컨트롤 타워 소유.
+
 ## 2026-11-16 Rust 1차 전환 준비 완료 — 소유자 승인 ① 대기 (세션 e89543ab)
 
 - **1차 전환 차단 3건 모두 해소·배포:** ① 호스트 런처 전환 키 처리(#951·#952, `e2164607` 배포), ② OTA 대사 900초 제한 초과(#963, `25966b21` 배포), ③ C2 측정 차단 회귀(`8c5e618d`의 stamps None 정렬 누락, #964 `eae080e9` 수정 → `77865bfa` 배포). 운영 SHA `77865bfadce7cc96336cf751d1dbd41964549388`, Board 8751, 보호 13표 불변, readyz 200.
