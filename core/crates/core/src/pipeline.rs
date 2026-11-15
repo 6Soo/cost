@@ -69,11 +69,31 @@ pub fn targets_json(targets: &[Target]) -> Value {
 pub fn reject_live_db(db: &Path, host_root: &Path) -> Result<(), PipelineError> {
     let live = host_root.join("data").join("board.sqlite");
     if let (Ok(a), Ok(b)) = (db.canonicalize(), live.canonicalize())
-        && a == b
+        && (a == b || same_file(&a, &b))
     {
         return Err(PipelineError::DbIsLive);
     }
     Ok(())
+}
+
+/// 같은 경로가 아니어도 하드 링크처럼 같은 파일이면 참이다. unsafe 없이 쓸 수 있는 신원만 본다:
+/// unix는 (장치, inode), Windows는 길이·생성 시각·수정 시각이 모두 같은 경우(복사본은 생성 시각이 새로 생긴다).
+fn same_file(a: &Path, b: &Path) -> bool {
+    let (Ok(x), Ok(y)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        x.dev() == y.dev() && x.ino() == y.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        match (x.created(), y.created(), x.modified(), y.modified()) {
+            (Ok(xc), Ok(yc), Ok(xm), Ok(ym)) => x.len() == y.len() && xc == yc && xm == ym,
+            _ => false,
+        }
+    }
 }
 
 /// Rust 판정: DB 읽기 어댑터(`read_plan_input`) + `plan`. 환불 짝 연결은 `context.links`가 없으면 `links` 다리에서 받는다.
@@ -120,6 +140,11 @@ pub fn run_plan(
             let decision = decisions.get(t.id.as_str());
             let period = decision.map(|d| match d.service_period() {
                 ServicePeriod::Known { starts_on, ends_on } => format!("{starts_on}/{ends_on}"),
+                ServicePeriod::Inferred {
+                    starts_on,
+                    ends_on,
+                    basis,
+                } => format!("inferred:{}:{starts_on}/{ends_on}", basis.as_str()),
                 ServicePeriod::Unknown { .. } => "unknown".to_owned(),
             });
             let [

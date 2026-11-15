@@ -114,6 +114,8 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _airline_exact_amount_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _gotogate_exact_amount_periods(data, manual).items():
+        result.setdefault(tid, metadata)
     for tid, metadata in _airbnb_code_periods(data, manual).items():
         result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
@@ -774,6 +776,76 @@ def _airline_exact_amount_periods(data, manual):
     return result
 
 
+def _gotogate_exact_amount_periods(data, manual):
+    """A Mytrip/Gotogate confirmation mail names its flight dates for the one gateway card that equals its total.
+
+    The mail carries no card tail and the gateway descriptor no order, so the pairing is the exact KRW
+    total, the gateway's own descriptor and the day the mail was sent (+-1 day), one-to-one on both sides.
+    Display only (reservation_period_inferred): no payment, trip or reservation relation is made.
+    """
+    from datetime import date, timedelta
+    from app.ota_matching_defaults import provider_for_merchant
+    flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    held = {}
+    for event in data.get('events', []):
+        if (event.get('provider') != 'gotogate' or event.get('event_type') != 'reservation'
+                or event.get('reservation_status') != 'observed' or not event.get('booking_ref')
+                or not event.get('source_digest') or any(event.get(k) for k in flags)
+                or str(event.get('currency') or '').upper() != 'KRW'):
+            continue
+        amount = _decimal(event.get('amount_krw'))
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            days = [date.fromisoformat(day) for day in event.get('reservation_observed_on') or ()]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if amount is None or amount <= 0 or not 0 <= (end - start).days <= 366 or len(days) != 1:
+            continue
+        held[str(event.get('ota_event_id'))] = (amount, start, end, days[0], str(event['booking_ref']))
+    if not held:
+        return {}
+    occupied = _occupied_cards(data)
+    cards = {}
+    for card in data.get('transactions', []):
+        if provider_for_merchant(card.get('merchant')) == 'gotogate':
+            cards[str(card.get('transaction_id'))] = card
+    matches, claims = defaultdict(set), defaultdict(set)
+    for event_id, (amount, _start, _end, sent, _ref) in held.items():
+        for tid, card in cards.items():
+            try:
+                bought = date.fromisoformat(str(card.get('approval_date') or card.get('transaction_date') or '')[:10])
+            except ValueError:
+                continue
+            if _decimal(card.get('amount_krw')) == amount and abs(bought - sent) <= timedelta(days=1):
+                matches[event_id].add(tid)
+                claims[tid].add(event_id)
+    # Uniqueness counts every confirmation naming that total, cancelled or re-sent on another day included.
+    same_amount = defaultdict(set)
+    for event in data.get('events', []):
+        if event.get('provider') == 'gotogate' and event.get('event_type') == 'reservation':
+            total = _decimal(event.get('amount_krw'))
+            if total is not None and total > 0:
+                same_amount[total].add(str(event.get('ota_event_id')))
+    result = {}
+    for event_id, tids in matches.items():
+        amount, start, end, _sent, booking_ref = held[event_id]
+        if len(tids) != 1 or len(same_amount[amount]) != 1:
+            continue
+        tid = next(iter(tids))
+        card = cards[tid]
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
+                       'service_period': start.isoformat() + '~' + end.isoformat(), 'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
 def _airbnb_code_periods(data, manual):
     """An Airbnb card descriptor carries the reservation code its confirmation mail names.
 
@@ -1055,6 +1127,66 @@ def verified_period_for(row, index):
     if evidence.get('kind') == 'reservation_period_inferred' or evidence.get('payment_verified') is False:
         return ''
     return period
+
+
+def manual_period_rows(store) -> set:
+    """row_ids whose service period a person set (an empty value is an explicit "unknown")."""
+    if store is None or not hasattr(store, 'conn') or not hasattr(store, '_lock'):
+        return set()
+    with store._lock:
+        return {str(r[0]) for r in store.conn.execute(
+            "SELECT row_id FROM board_manual_overrides WHERE field='service_period'")}
+
+
+def read_period(row, stored, manual, compute, *, export=False):
+    """(period, source) for a screen or export. A person's value wins; then the stored decision; computing is the fallback.
+
+    `stored` is `core_writer.load_stored_periods()` (None while Python writes: `compute()` as before). With a Rust
+    decision the period is only read, never recomputed; a card without one is computed and counted until backfilled.
+    source: 'row' | 'manual' | 'decision' | 'decision_inferred' | 'computed'. A stored inferred period is read only by
+    a screen (`export=False`, source 'decision_inferred'); copies, the paste pack and reconciliation (`export=True`)
+    take verified periods only (DATE-109).
+    """
+    value = str(row.get('service_period') or '').strip()
+    if value:
+        return value, 'row'
+    row_id = str(row.get('row_id') or '')
+    if stored is None or not row_id.startswith('card-'):
+        return compute(), 'computed'
+    if row_id in manual:
+        return '', 'manual'
+    tid = str(row.get('source_event_id') or row_id[5:])
+    if row_id != 'card-' + tid:
+        return '', 'decision'
+    from app import core_writer
+    if tid in stored:
+        core_writer.note_period_source(tid, True)
+        found = stored[tid]
+        if found.get('kind') == 'inferred' and not export:
+            return core_writer.period_text(found, inferred=True), 'decision_inferred'
+        return core_writer.period_text(found), 'decision'
+    core_writer.note_period_source(tid, False, row)
+    return compute(), 'computed'
+
+
+def flight_departure_days(found):
+    """Sorted departure days of a saved flight booking in the passenger index; None when it cannot be used.
+
+    Shared by the flight label on screen and the Rust period rule's flight evidence.
+    """
+    from datetime import date
+    if (not found or found.get('conflict') or not found.get('source_digests')
+            or found.get('cancellation_status') != 'NONE'
+            or any(found.get(flag) for flag in
+                   ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict'))):
+        return None
+    legs = found.get('legs') or []
+    if not legs or any(not leg.get('departure_on') for leg in legs):
+        return None
+    try:
+        return sorted({date.fromisoformat(leg['departure_on']) for leg in legs})
+    except (ValueError, TypeError):
+        return None
 
 
 def export_index(store):

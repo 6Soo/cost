@@ -17,7 +17,7 @@ import sys
 import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import automatic_classification as policy
+from app import automatic_classification as policy, core_switch_config
 from app.db import StoreError
 
 
@@ -230,6 +230,7 @@ def main(argv=None):
     db = host/'data/board.sqlite'
     try:
         if args.apply:
+            core_switch_config.refuse_manual_apply(host)
             if not args.expected_digest or not args.backup_evidence:
                 raise ValueError('PREVIEW_AND_BACKUP_REQUIRED')
             require_offline_backup(host,args.backup_evidence,db)

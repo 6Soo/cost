@@ -605,7 +605,7 @@ def test_browser_home_trip_export_download(service):
             page.locator(f"a[href*='tab={tab}']").first.click()
             assert f'tab={tab}' in page.url
             page.locator('#trip-settings > summary').click()
-            page.get_by_role('menuitem', name='XLSX 내보내기', exact=True).click()
+            page.get_by_role('link', name='XLSX 내보내기', exact=True).click()
             assert page.locator(f"input[name=tab_ids][value='{tab}']").is_checked()
             with page.expect_download(timeout=30000) as received:
                 page.get_by_role('button', name='XLSX 내보내기', exact=True).click()

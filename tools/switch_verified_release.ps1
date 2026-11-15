@@ -25,7 +25,7 @@ function Stop-Children {
         if($listeners.Count -gt 1){throw 'LISTENER_COUNT'}
         foreach($listener in $listeners){
             $proc=Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
-            $marker=if($port -eq 8751){'D:\WebLedgerHost\bin\launch_web_ledger.py'}else{'tools\serve_review_entry.py'}
+            $marker=if($port -eq 8751){'launch_web_ledger.py'}else{'tools\serve_review_entry.py'}
             if($listener.LocalAddress -ne '127.0.0.1' -or -not $proc.CommandLine.Contains($marker)){throw 'PROCESS_MISMATCH'}
             $parent=Get-CimInstance Win32_Process -Filter "ProcessId=$($proc.ParentProcessId)"
             Stop-Process -Id $proc.ProcessId
@@ -62,7 +62,7 @@ try{
         & D:\WebLedgerHost\venv\Scripts\python.exe "$release\tools\verify_operational_backup_restore.py" --evidence-out "$backup\restore-evidence.json"
         if($LASTEXITCODE -ne 0){throw 'BACKUP_RESTORE_FAILED'}
     }
-    $newArguments=$old.Arguments.Replace($previous,$release)
+    $newArguments=$old.Arguments.Replace($previous,$release) -replace '(?i)\s-LauncherPath\s+(?:"[^"]+"|\S+)',''
     if($ParticipantDb){
         if($newArguments -match '(?i)-ParticipantDb\s'){throw 'PARTICIPANT_DB_ALREADY_CONFIGURED'}
         $newArguments+=' -ParticipantDb "'+$ParticipantDb+'"'

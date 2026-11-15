@@ -72,7 +72,7 @@ def main():
     db=host/'data/board.sqlite'
     evidence=json.loads((ROOT/'docs/handoff/2026-10-01/operational-backup-restore-evidence.json').read_text(encoding='utf-8'))
     age=(dt.datetime.now(dt.timezone.utc)-dt.datetime.fromisoformat(evidence['recorded_at'])).total_seconds()
-    if not 0<=age<=300 or not evidence['live_state_unchanged']:
+    if not 0<=age<=300 or not evidence['live_state_unchanged'] or evidence.get('backup_scope_kind')=='scoped':
         raise RuntimeError('FRESH_VERIFIED_BACKUP_REQUIRED')
     source=json.loads((OUT/'source.json').read_text(encoding='utf-8'))
     if source['source_url']!='https://reserve.foresttour.kr/api/public/ledger-trips':

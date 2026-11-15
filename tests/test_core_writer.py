@@ -76,6 +76,46 @@ def test_rust_writer_passes_digest_and_context_and_returns_the_summary(env, tmp_
                              'reconsider': True, 'transaction_ids': ['t1', 't2']}
 
 
+def _counts_response(written):
+    return json.dumps({'ok': True, 'result': {'to_classify': 1}, 'written': written, 'skipped_unjudged': 2,
+                       'skipped_mismatch': 0, 'backfilled': 3, 'transaction_id': 'SECRET-TID'}) + '\n'
+
+
+def test_apply_counts_are_kept_in_last_run_and_an_atomic_json_without_ids(env, tmp_path):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    _fake_run(monkeypatch, _counts_response(5))
+    assert core_writer.apply(conn, {'digest': 'abc'}, []) == {'to_classify': 1}
+    run = core_writer.LAST_RUN.get()
+    assert (run['written'], run['skipped_mismatch'], run['skipped_unjudged'], run['backfilled']) == (5, 0, 2, 3)
+    folder = tmp_path / core_writer.RUNS_DIR
+    saved = json.loads((folder / 'latest.json').read_text(encoding='utf-8'))
+    assert saved['latest'] == run and saved['recent'] == [run] and run['digest'] == 'abc'
+    assert 'SECRET-TID' not in (folder / 'latest.json').read_text(encoding='utf-8')
+    assert [p.name for p in folder.iterdir()] == ['latest.json']
+    _fake_run(monkeypatch, _counts_response(7))
+    core_writer.apply(conn, {'digest': 'def'}, [])
+    saved = json.loads((folder / 'latest.json').read_text(encoding='utf-8'))
+    assert [r['written'] for r in saved['recent']] == [5, 7] and saved['latest']['digest'] == 'def'
+
+
+def test_recent_runs_are_capped_and_an_unwritable_folder_does_not_fail_the_apply(env, tmp_path):
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    _fake_run(monkeypatch, _counts_response(1))
+    for _ in range(core_writer.RUNS_KEPT + 3):
+        core_writer.apply(conn, {'digest': 'd'}, [])
+    saved = json.loads((tmp_path / core_writer.RUNS_DIR / 'latest.json').read_text(encoding='utf-8'))
+    assert len(saved['recent']) == core_writer.RUNS_KEPT
+    (tmp_path / 'sub').write_text('file, not a folder', encoding='utf-8')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'sub' / 'core.sqlite'))
+    assert core_writer.apply(conn, {'digest': 'd'}, []) == {'to_classify': 1}
+
+
 def test_stale_preview_keeps_the_python_error_and_other_codes_are_runtime_errors(env, tmp_path):
     monkeypatch, _ = env
     monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
@@ -99,6 +139,27 @@ def test_stored_service_period_reads_core_sqlite_read_only(env, tmp_path):
     monkeypatch.setenv(core_writer.CORE_DB_ENV, str(core))
     assert core_writer.stored_service_period('t1')['starts_on'] == '2026-10-01'
     assert core_writer.stored_service_period('missing') is None
+
+
+def test_stored_service_period_names_verified_inferred_and_unknown(env, tmp_path):
+    monkeypatch, _ = env
+    core = tmp_path / 'core.sqlite'
+    stored = {
+        'old': {'kind': 'known', 'starts_on': '2026-10-01', 'ends_on': '2026-10-02'},
+        'new': {'kind': 'inferred', 'starts_on': '2026-10-01', 'ends_on': '2026-10-02', 'basis': 'p2_run'},
+        'none': {'kind': 'unknown', 'reason': 'no_evidence'},
+        'odd': {'kind': 'surprise'},
+    }
+    with sqlite3.connect(core) as c:
+        c.execute('CREATE TABLE decisions(transaction_id TEXT, service_period_json TEXT)')
+        c.executemany('INSERT INTO decisions VALUES (?, ?)', [(k, json.dumps(v)) for k, v in stored.items()])
+    c.close()
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(core))
+    read = core_writer.stored_service_period
+    assert read('old')['kind'] == 'verified' and read('old')['starts_on'] == '2026-10-01'
+    assert read('new')['kind'] == 'inferred' and read('new')['basis'] == 'p2_run'
+    assert read('none') == {'kind': 'unknown', 'reason': 'no_evidence'}
+    assert read('odd')['kind'] == 'unknown'
 
 
 def _periods_env(env, tmp_path, monkeypatch_calls):
@@ -300,6 +361,42 @@ def test_auto_record_with_the_rust_writer_applies_outside_the_transaction(env, t
     assert seen == [True]  # recording and projection still share one transaction
 
 
+def _rule_review_flow(env, tmp_path, applied, held, locked):
+    from types import SimpleNamespace
+    from webapp import rule_review
+    from webapp.card_flow import CardFlow
+    flow, board, key, calls = _lifted(env, tmp_path, applied, held)
+    flow.pipeline = SimpleNamespace(store=SimpleNamespace(lock=board._lock))
+    env[0].setattr(CardFlow, '_pending_reclassification', lambda self, batch: set())
+    env[0].setattr(CardFlow, '_auto_record_locked', lambda self, batch, **k: {'auto_recorded': 0})
+    env[0].setattr(rule_review, '_approve_locked',
+                   lambda f, batch, body: locked.append(board._lock.depth) or {'applied': ['t1']})
+    return rule_review, flow, board, key, calls
+
+
+def test_rule_review_approve_refreshes_without_holding_the_board_lock_during_the_evidence_build(env, tmp_path):
+    applied, held, locked = [], [], []
+    rule_review, flow, board, _, calls = _rule_review_flow(env, tmp_path, applied, held, locked)
+    result = rule_review.approve(flow, 'b', {})
+    assert locked == [1] and held == [0] and len(calls) == 1  # decisions saved under the lock, evidence built outside
+    assert result['applied'] == ['t1'] and len(applied) == 1 and applied[0][1] is False  # no open transaction at apply
+
+
+def test_rule_review_approve_rebuilds_once_on_a_key_change_then_fails_after_the_commit(env, tmp_path):
+    applied, held, locked = [], [], []
+    rule_review, flow, board, key, calls = _rule_review_flow(env, tmp_path, applied, held, locked)
+    build = core_writer._period_snapshot
+
+    def moving(path):
+        data = build(path)
+        key['value'] += 'x'
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', moving)
+    result = rule_review.approve(flow, 'b', {})
+    assert locked == [1] and applied == [] and len(calls) == 2
+    assert result == {'applied': ['t1'], 'state': None, 'refresh_required': True}  # the write stays reported as saved
+
+
 def test_auto_record_with_the_python_writer_keeps_classification_in_the_transaction(env, tmp_path):
     from webapp.card_flow import CardFlow
     applied, held = [], []
@@ -401,3 +498,113 @@ def test_cleanup_group_loop_lets_a_stale_key_rebuild_the_evidence(env, tmp_path)
     result = card_flow.reclassify_cleanup(board, flow=flow, request_snapshot=False)
     assert result['failures'] == [] and result['processed'] == 1 and len(applied) == 1
     assert len(calls) == 2  # rebuilt once after the key moved
+
+
+def test_audit_entries_and_reviews_do_not_invalidate_the_period_evidence(env, tmp_path):
+    calls = []
+    conn, _ = _periods_env(env, tmp_path, calls)
+    conn.execute('CREATE TABLE change_log(entry_id INTEGER PRIMARY KEY, kind TEXT, subject TEXT)')
+    conn.execute('CREATE TABLE review_decisions(transaction_id TEXT)')
+    conn.commit()
+    core_writer.periods_for(conn)
+    conn.execute("INSERT INTO change_log(kind, subject) VALUES ('card.classification_corrected', 't1')")
+    conn.execute("INSERT INTO review_decisions VALUES ('t1')")
+    conn.commit()
+    core_writer.periods_for(conn)
+    assert len(calls) == 1
+
+
+def test_period_evidence_takes_no_p2_periods_so_it_matches_the_cache_key(env, tmp_path, monkeypatch):
+    from tools.core_bridge import periods as bridge
+    seen = []
+    real = bridge.evidence_from_snapshot
+    monkeypatch.setattr(bridge, 'evidence_from_snapshot', lambda *args, **kw: seen.append((args, kw)) or real(*args, **kw))
+    conn, _ = _periods_env(env, tmp_path, [])
+    facts = core_writer.periods_for(conn)
+    (args, kw), = seen
+    assert len(args) == 2 and not kw and 'syn-t1' in facts
+    assert not hasattr(core_writer, '_p2_periods')
+
+
+def test_status_writes_are_serialised_so_a_stale_state_cannot_overwrite_a_newer_one(env, tmp_path):
+    import threading
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    monkeypatch.setitem(core_writer._PUBLISHED, 'key', None)
+    done = threading.Event()
+    with core_writer._PUBLISH_LOCK:
+        worker = threading.Thread(target=lambda: (core_writer._publish_status(), done.set()))
+        worker.start()
+        assert not done.wait(0.3)
+    worker.join(5)
+    assert done.is_set() and (tmp_path / core_writer.STATUS_FILE).is_file()
+
+
+def _links_board(tmp_path):
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    conn.execute('CREATE TABLE transactions(transaction_id, issuer, original_approval_number)')
+    conn.executemany('INSERT INTO transactions(transaction_id) VALUES (?)', [('a',), ('b',), ('c',)])
+    conn.commit()
+    return conn
+
+
+def test_apply_sends_the_preview_links_over_the_same_ids_and_starts_no_bridge(env, tmp_path):
+    from app import partial_refund
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = _links_board(tmp_path)
+    asked = []
+    link = {'original_id': 'a', 'inferred': False, 'status': 'full', 'net_krw': 0, 'refund_count': 1}
+    monkeypatch.setattr(partial_refund, 'refund_links',
+                        lambda c, ids: asked.append(list(ids)) or {'b': dict(link)})
+    seen = _fake_run(monkeypatch, json.dumps({'ok': True, 'result': {}}) + '\n')
+    calls = []
+    real = core_writer.subprocess.run
+    monkeypatch.setattr(core_writer.subprocess, 'run', lambda *a, **k: calls.append(a[0]) or real(*a, **k))
+    core_writer.apply(conn, {'digest': 'd'}, [], transaction_ids={'c', 'b'})
+    assert asked == [['b', 'c']]
+    assert seen['input']['links'] == {'b': {'original_id': 'a', 'inferred': False, 'status': 'full'}}
+    assert len(calls) == 1 and calls[0][1] == 'apply'
+    core_writer.apply(conn, {'digest': 'd'}, [])
+    assert asked[-1] == ['a', 'b', 'c']
+
+
+def test_links_are_read_at_apply_time_so_a_moved_link_reaches_the_digest_check(env, tmp_path):
+    from app import partial_refund
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = _links_board(tmp_path)
+    now = {'b': {'original_id': 'a', 'status': 'full'}}
+    monkeypatch.setattr(partial_refund, 'refund_links', lambda c, ids: dict(now))
+    seen = _fake_run(monkeypatch, json.dumps({'ok': False, 'error': {'code': 'CLASSIFICATION_PREVIEW_STALE'}}) + '\n')
+    now['b'] = {'original_id': 'c', 'status': 'partial', 'inferred': True}
+    with pytest.raises(ValueError, match='CLASSIFICATION_PREVIEW_STALE'):
+        core_writer.apply(conn, {'digest': 'old'}, [])
+    assert seen['input']['links']['b'] == {'original_id': 'c', 'inferred': True, 'status': 'partial'}
+
+
+def test_sweep_with_a_moved_key_leaves_the_chunk_for_the_next_pass(env, tmp_path):
+    from webapp import card_classification_completion as completion
+    from webapp import card_completion_worker as worker_module
+    applied, held = [], []
+    flow, board, key, calls = _lifted(env, tmp_path, applied, held)
+    worker = worker_module.CardCompletionWorker.__new__(worker_module.CardCompletionWorker)
+    worker.board = board
+    env[0].setattr(worker_module, 'candidates', lambda conn: [('t',)])
+    env[0].setattr(worker_module.CardCompletionWorker, '_sweep_once',
+                   lambda self: completion.complete_scope(flow, {'t'}))
+    build = core_writer._period_snapshot
+
+    def moving(path):
+        data = build(path)
+        key['value'] += 'x'  # a card arrives during every build
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', moving)
+    with pytest.raises(core_writer.PeriodsStale):
+        worker.sweep_once()
+    assert applied == [] and all(depth == 0 for depth in held)  # nothing written, nothing built under the lock
+    env[0].setattr(core_writer, '_period_snapshot', build)
+    worker.sweep_once()
+    assert len(applied) == 1 and applied[0][2] == 1  # applied once, inside the lock, with matching evidence

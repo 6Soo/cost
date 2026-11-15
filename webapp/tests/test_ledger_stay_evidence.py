@@ -353,6 +353,54 @@ def test_an_airbnb_card_keeps_a_manual_empty_period(context):
     assert stays.stay_index(store) == {}
 
 
+def gotogate_stay(data):
+    from app import mytrip_mail
+    from tests.card_pipeline.test_mytrip_mail import confirmed
+    data['events'] = mytrip_mail.collect({'m1': confirmed(legs=('2026년9월18일', '2026년9월21일'))})
+    data['transactions'] = [dict(transaction_id='t1', source_hash='s1', transaction_direction='purchase',
+        amount_krw=224682, merchant='이니시스(빌링)-고투게이트코리아유', card_tail='8835', approval_date='2026-08-19')]
+    data['results'] = []
+
+
+def test_a_gateway_card_reads_the_flight_dates_of_the_one_confirmation_with_its_total(context):
+    store, data, _, _ = context
+    gotogate_stay(data)
+    before = deepcopy(data)
+    found = stays.stay_index(store)['t1']
+    assert found['service_period'] == '2026-09-18~2026-09-21' and found['item'] == '항공료'
+    assert found['ota_evidence']['kind'] == 'reservation_period_inferred' and not found['ota_evidence']['payment_verified']
+    assert data == before
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda d: d['transactions'][0].update(amount_krw=224683),
+    lambda d: d['transactions'][0].update(approval_date='2026-08-22'),
+    lambda d: d['transactions'][0].update(merchant='아시아나항공'),
+    lambda d: d['transactions'].append(dict(d['transactions'][0], transaction_id='t2', source_hash='s2')),
+    lambda d: d['transactions'][0].update(refund_status='refunded'),
+    lambda d: d['events'][0].update(reservation_status='cancelled'),
+    lambda d: d['events'][0].update(service_period=None, service_period_conflict=True),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='9999-999-999')),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='9999-999-999',
+                                      reservation_status='cancelled')),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='9999-999-999',
+                                      reservation_observed_on=['2026-08-19', '2026-08-30'])),
+    lambda d: d['results'].append(dict(ota_event_id='other', transaction_id='t1')),
+])
+def test_a_gateway_card_stays_unknown_when_the_pairing_is_unsafe(context, mutation):
+    store, data, _, _ = context
+    gotogate_stay(data)
+    mutation(data)
+    assert stays.stay_index(store) == {}
+
+
+def test_a_gateway_card_keeps_a_manual_empty_period(context):
+    store, data, _, _ = context
+    gotogate_stay(data)
+    store.conn.execute("INSERT INTO board_manual_overrides VALUES ('card-t1','service_period')")
+    assert stays.stay_index(store) == {}
+
+
 def test_rakuten_quote_displays_original_period_without_confirming_payment_or_rewriting_ledger(context):
     store,data,_,calls=context
     rakuten_candidates(data)

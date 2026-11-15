@@ -37,8 +37,8 @@ class TestCardCatalogAssets:
         assert js_file.read_text(encoding="utf-8") == assets.CATALOG_SCRIPT
 
         # Intentional asset snapshot: catches accidental drift, not a performance cap.
-        assert len(assets.CATALOG_STYLE) == 8777
-        assert _sha256(assets.CATALOG_STYLE) == "7d02340b6e242b716ec26bee1d6b356803e7a28d0463f3c590c9736105e0cb9f"
+        assert len(assets.CATALOG_STYLE) == 8804
+        assert _sha256(assets.CATALOG_STYLE) == "c80aa151e12f1849002c7a65a0d5a646021f85219f9f7ac7d90e163822ffe8bf"
         assert len(assets.CATALOG_SCRIPT) == 1077
         assert _sha256(assets.CATALOG_SCRIPT) == "f9a0039ada5025608f80e59d005240fe58f854c7df63adcabb255cfda814970a"
 

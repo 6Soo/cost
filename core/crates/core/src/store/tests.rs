@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use rusqlite::Connection;
 
-use super::projection::{ALLOWED_ITEMS_SQL, AUX_TABLES, TRANSACTION_FIELDS};
+use super::projection::{ALLOWED_ITEMS_SQL, TRANSACTION_FIELDS};
 use super::schema::{MIGRATIONS, TABLES};
 use super::write_columns::*;
 use super::*;
@@ -255,32 +255,6 @@ fn projection_columns_match_scope_py() {
     let python: Vec<&str> = literal.split_whitespace().collect();
     assert_eq!(python, TRANSACTION_FIELDS, "scope.FIELDS와 같은 열·순서");
 
-    let a = src.find("for table, columns in (").unwrap();
-    let b = a + src[a..]
-        .find(
-            "):
-",
-        )
-        .unwrap();
-    let python_aux: Vec<(String, String)> = src[a..b]
-        .split("('")
-        .skip(1)
-        .map(|chunk| {
-            let (table, rest) = chunk.split_once("', '").unwrap();
-            let (columns, _) = rest.split_once('\'').unwrap();
-            (table.to_owned(), columns.to_owned())
-        })
-        .collect();
-    let rust_aux: Vec<(String, String)> = AUX_TABLES
-        .iter()
-        .map(|(t, c)| ((*t).to_owned(), (*c).to_owned()))
-        .collect();
-    assert_eq!(
-        rust_aux, python_aux,
-        "보조 테이블·열·순서가 scope.py와 정확히 같아야 한다"
-    );
-    assert_eq!(AUX_TABLES.len(), 7);
-
     let c = src.find("data['allowed_items']").unwrap();
     let d = c + src[c..].find("\")})").unwrap();
     let python_sql: String = src[c..d]
@@ -322,25 +296,16 @@ fn projection_reads_rows_and_does_not_modify_the_file() {
         .unwrap();
     assert_eq!(t2.amount_krw, None);
     assert_eq!(t2.decided_at.as_deref(), Some("2026-02-01"));
-    assert_eq!(p.trip_tabs.len(), 1);
-    assert_eq!(p.review_decisions.len(), 2);
-    assert_eq!(p.board_manual_overrides[0].field, "item");
-    assert_eq!(p.transaction_review_holds[0].kind, "user_hold");
-    assert_eq!(p.transaction_company_exclusions[0].excluded, 1);
-    assert_eq!(p.board_rows[0].row_id, "card-t1");
-    assert_eq!(p.ledger_entries[0].trip_id, "1001_합성");
-    assert_eq!(p.allowed_items, vec!["식비".to_owned()]);
-    assert!(p.closed_provenance_review.is_empty());
 }
 
 #[test]
 fn projection_works_without_change_log() {
     let dir = TempDir::new();
     let path = synthetic_board(&dir, false);
-    let p = read_projection(&path).unwrap();
+    let p = read_plan_input(&path).unwrap();
     // 감사 구조가 없으면 모든 결정이 보호된다.
-    assert_eq!(p.review_decisions.len(), 2);
-    assert!(p.closed_provenance_review.is_empty());
+    assert_eq!(p.decisions.len(), 2);
+    assert!(p.closed_reviews.is_empty());
 }
 
 #[test]
@@ -355,10 +320,10 @@ fn released_decision_is_excluded_until_restored() {
     )
     .unwrap();
     drop(conn);
-    let p = read_projection(&path).unwrap();
-    assert_eq!(p.review_decisions.len(), 1);
-    assert_eq!(p.review_decisions[0].transaction_id, "t2");
-    assert_eq!(p.closed_provenance_review, vec!["t1".to_owned()]);
+    let p = read_plan_input(&path).unwrap();
+    assert_eq!(p.decisions.len(), 1);
+    assert_eq!(p.decisions[0].0, "t2");
+    assert!(p.closed_reviews.contains("t1") && p.closed_reviews.len() == 1);
 
     let conn = Connection::open(&path).unwrap();
     conn.execute(
@@ -368,9 +333,9 @@ fn released_decision_is_excluded_until_restored() {
     )
     .unwrap();
     drop(conn);
-    let p = read_projection(&path).unwrap();
-    assert_eq!(p.review_decisions.len(), 2);
-    assert!(p.closed_provenance_review.is_empty());
+    let p = read_plan_input(&path).unwrap();
+    assert_eq!(p.decisions.len(), 2);
+    assert!(p.closed_reviews.is_empty());
 }
 
 #[test]

@@ -69,15 +69,16 @@ def complete(flow, batch_id, transaction_ids=None):
     return complete_scope(flow, selected)
 
 
-def complete_scope(flow, selected=None):
+def complete_scope(flow, selected=None, backfill=False):
     from app import core_writer
 
     def run(periods):
         trips, nets = context(flow)
         evidence = classification_evidence(flow.board,trips,flow)
         preview = policy.plan(flow.board.conn, trips, nets=nets, transaction_ids=selected,evidence=evidence)
+        extra = {'backfill': True} if backfill else {}
         return policy.apply(flow.board.conn, preview, trips, nets=nets, transaction_ids=selected,
-                            evidence=evidence, periods=periods)
+                            evidence=evidence, periods=periods, **extra)
     return core_writer.run_with_periods(flow.board, run)
 
 def correct_recorded_booking_periods(flow, batch_id, transaction_ids=None):

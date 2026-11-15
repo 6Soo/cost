@@ -145,7 +145,30 @@ def test_backup_covers_gate(host, tmp_path):
     assert backup.backup_covers(full, h, ['board.sqlite'])
     assert not backup.backup_covers(dict(full, all_database_tables_and_columns_compared=False), h, ['board.sqlite'])
     legacy = {'all_database_tables_and_columns_compared': True}
+    assert not backup.backup_covers(legacy, h, ['board.sqlite'])
+
+
+def test_legacy_evidence_only_covers_hosts_without_core_sqlite(host):
+    h, data = host
+    legacy = {'all_database_tables_and_columns_compared': True}
     assert backup.backup_covers(legacy, h, ['board.sqlite'])
+    _add_core(data)
+    assert not backup.backup_covers(legacy, h, ['board.sqlite'])
+
+
+@pytest.mark.parametrize('module', ['tools.apply_ota_owner_answers', 'tools.deploy_reserve_trips'])
+def test_full_only_tools_reject_scoped_evidence(module, tmp_path, monkeypatch):
+    import datetime
+    import importlib
+    mod = importlib.import_module(module)
+    path = tmp_path / 'docs/handoff/2026-10-01/operational-backup-restore-evidence.json'
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        'recorded_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'live_state_unchanged': True, 'backup_scope_kind': 'scoped'}), encoding='utf-8')
+    monkeypatch.setattr(mod, 'ROOT', tmp_path)
+    with pytest.raises(RuntimeError, match='FRESH_VERIFIED_BACKUP_REQUIRED'):
+        mod.main()
 
 
 def test_scope_unknown_database_or_missing_decisions_db_fails(host, tmp_path):

@@ -5,6 +5,8 @@ use rusqlite::Connection;
 
 use super::keys::{ITEM_VOCABULARY, SOURCE_VOCABULARY};
 use super::*;
+use crate::guard::{GuardError, ensure_private_path, write_private_lines};
+use crate::pipeline::{PipelineError, reject_live_db};
 
 struct TempDir(PathBuf);
 
@@ -250,23 +252,6 @@ fn public_report_has_keys_and_counts_only() {
 }
 
 #[test]
-fn missing_rust_engine_ends_with_engine_not_available() {
-    let dir = TempDir::new();
-    let host = dir.host();
-    let db = board(&dir, &host);
-    let err = run_shadow(
-        &db,
-        false,
-        &Fake(Vec::new()),
-        &UnavailableEngine,
-        &KnownDiffs::default(),
-    )
-    .err()
-    .unwrap();
-    assert_eq!(err.code(), "ENGINE_NOT_AVAILABLE");
-}
-
-#[test]
 fn private_files_only_under_protected_backups() {
     let dir = TempDir::new();
     let host = dir.host();
@@ -291,7 +276,7 @@ fn private_files_only_under_protected_backups() {
         assert!(
             matches!(
                 ensure_private_path(&path, &host),
-                Err(ShadowError::PrivatePathRejected)
+                Err(GuardError::PrivatePathRejected)
             ),
             "{}",
             path.display()
@@ -308,10 +293,27 @@ fn live_database_is_rejected() {
     std::fs::write(&live, b"").unwrap();
     assert!(matches!(
         reject_live_db(&live, &host),
-        Err(ShadowError::DbIsLive)
+        Err(PipelineError::DbIsLive)
     ));
     let copy = board(&dir, &host);
     assert!(reject_live_db(&copy, &host).is_ok());
+}
+
+#[test]
+fn hard_link_to_the_live_database_is_rejected() {
+    let dir = TempDir::new();
+    let host = dir.host();
+    let live = host.join("data").join("board.sqlite");
+    std::fs::write(&live, b"x").unwrap();
+    let alias = host.join("data").join("backups").join("alias.sqlite");
+    std::fs::hard_link(&live, &alias).unwrap();
+    assert!(matches!(
+        reject_live_db(&alias, &host),
+        Err(PipelineError::DbIsLive)
+    ));
+    let missing = host.join("data").join("backups").join("none.sqlite");
+    std::fs::remove_file(&live).unwrap();
+    assert!(reject_live_db(&missing, &host).is_ok());
 }
 
 #[test]

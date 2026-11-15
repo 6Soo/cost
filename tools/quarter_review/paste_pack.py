@@ -112,15 +112,19 @@ def _export_rows(rows: list[dict]) -> dict:
     return {**formatted, "held": held, "held_reason_counts": dict(sorted(reasons.items()))}
 
 
-def apply_verified_periods(rows: list[dict], stay_index: dict) -> int:
-    """Fill blank card periods from the ledger screen's verified evidence; screen-only inference stays blank."""
-    from webapp.ledger_stay_evidence import verified_period_for
+def apply_verified_periods(rows: list[dict], stay_index: dict, stored: dict | None = None,
+                           manual: set | None = None) -> int:
+    """Fill blank card periods: the stored decision when `stored` is given, else the screen's verified evidence.
+
+    Screen-only inference stays blank. `manual` is the set of row_ids with a person's period (even an empty one).
+    """
+    from webapp.ledger_stay_evidence import read_period, verified_period_for
     filled = 0
     for row in rows:
         if (row.get("service_period") or row.get("period") or "").strip() or not str(
                 row.get("row_id") or "").startswith("card-"):
             continue
-        period = verified_period_for(row, stay_index)
+        period, _source = read_period(row, stored, manual or set(), lambda: verified_period_for(row, stay_index), export=True)
         if period:
             row["service_period"] = period
             filled += 1
@@ -147,7 +151,11 @@ def load_stay_index(host_root: Path, data: dict, review_db: Path | None = None) 
 
 def build_paste_pack(data: dict, year: int, quarter: int, out: Path, stay_index: dict | None = None) -> dict:
     trips, rows, excluded = prepare_rows(data, year, quarter, screen_tab_membership=True)
-    period_filled = apply_verified_periods(rows, stay_index) if stay_index else 0
+    from app import core_writer
+    stored = core_writer.load_stored_periods()
+    manual = {row_id for row_id, fields in data.get("manual_fields", {}).items() if "service_period" in fields}
+    period_filled = (apply_verified_periods(rows, stay_index or {}, stored, manual)
+                     if stored is not None or stay_index else 0)
     trip_rows: dict[str, list[dict]] = defaultdict(list)
     quarter_rows: list[dict] = []
     for row in rows:
@@ -221,6 +229,7 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path, stay_index:
     if no_ledger_count:
         completeness_reasons["NO_LEDGER_ROW"] = no_ledger_count
     completeness_complete = not completeness_reasons and held_count == 0
+    core_writer.publish_status()
     summary = {
         "schema": "cost-quarter-paste-pack-v1",
         "period": f"{year}Q{quarter}",
@@ -253,6 +262,7 @@ def build_paste_pack(data: dict, year: int, quarter: int, out: Path, stay_index:
         "empty_field_allowlist": {key: list(value) for key, value in EMPTY_FIELD_ALLOWLIST.items()},
         "period_next_quarter_review_categories": list(PERIOD_NEXT_REVIEW_CATEGORIES),
         "period_filled_from_verified_evidence": period_filled,
+        "period_read": core_writer.period_read_status(),
     }
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
                                        encoding="utf-8")

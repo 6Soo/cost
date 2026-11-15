@@ -25,7 +25,7 @@ _DOCUMENT = """<!doctype html>
 @import url('/static/css/tokens.css');
 :root { --bg:var(--c-bg); --surface:var(--c-surface); --text:var(--c-text); --muted:var(--c-text-secondary); --border:var(--c-border-control); --soft:var(--c-surface-sunken); --accent:var(--c-accent-solid); --accent-soft:var(--c-accent-subtle); --focus:var(--c-focus,Highlight); }
 
-body { font-family: system-ui, sans-serif; margin: 1.5rem; background:var(--bg); color:var(--text); }
+body { margin: 1.5rem; background:var(--bg); color:var(--text); }
 h1 { font-size: var(--t-h1); }
 table { border-collapse: collapse; margin: 0.5rem 0; background:var(--surface); }
 th, td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; }
@@ -140,7 +140,6 @@ a.back { color: var(--accent); text-decoration: none; }
      an owner checks this linking against the real source. -->
 <nav class="backbar" aria-label="돌아가기">
   <a class="back" id="back-board" href="/board">__ICON_CHEVRON_LEFT__여행별 비용으로 돌아가기</a>
-  <a class="back" id="back-review" href="/review">__ICON_SEARCH__실제 자료 검토</a>
 </nav>
 <p id="state" role="status" aria-live="polite">불러오는 중입니다.</p>
 <div id="summary"></div>
@@ -419,7 +418,7 @@ function renderUnconfigured(payload) {
   // The configuration-required state, said plainly. Nothing is searched for and no
   // collection is started from this page.
   add(el("rows"), "p", "warntext",
-      "예약 명단이 아직 연결되지 않았습니다. 예약 명단 파일을 관리자가 설정하면 여행을 선택할 수 있습니다. 지금은 장부로 돌아가 다른 업무를 진행할 수 있습니다.");
+      "예약 명단이 아직 연결되지 않았습니다. 연결되기 전에는 여행을 선택할 수 없으니 장부로 돌아가 다른 업무를 진행해 주세요.");
   setState("예약 명단 연결 대기", "warntext");
   el("state").dataset.code = payload.code || "RESERVE_LINK_CONFIG_REQUIRED";
 }

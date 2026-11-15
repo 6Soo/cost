@@ -752,6 +752,32 @@ def ota_mn_cases():
     add('undated agoda event, a dated event also fits the card',
         [E('syn-e1', **portal), E('syn-e2', provider='agoda', booking_ref='SYN-BOOK-2', source_ids=['mail:syn-e2'])],
         [C('syn-t1', **agoda_card)])
+    # shadow overlay: production returns dict(event, **link), so event fields the link omits stay in the result
+    unpaid = dict(event_type='reservation', evidence_status='booking_only', payment_status='pending', paid_on=None,
+                  amount=None, amount_krw=None)
+    flag = dict(individual_payment_evidence=False)
+    add('shadow overlay: unpaid toyoko reservation keeps the payment evidence flag',
+        [E('syn-e1', provider='toyoko', reservation_group_only=True, **unpaid, **flag)], [C('syn-t1')],
+        covers=['RESERVATION_ONLY', '"individual_payment_evidence": false'])
+    add('shadow overlay: unpaid forest reservation keeps the payment evidence flag',
+        [E('syn-e1', provider='forest', **unpaid, **flag)], [C('syn-t1')],
+        covers=['RESERVATION_ONLY', '"individual_payment_evidence": false'])
+    add('shadow overlay: conflicted toyoko reservation keeps the payment evidence flag',
+        [E('syn-e1', provider='toyoko', **dict(unpaid, evidence_status='conflict'), **flag)], [C('syn-t1')],
+        covers=['HOLD_EVIDENCE_CONFLICT', '"individual_payment_evidence": false'])
+    add('shadow overlay: unpaid rakuten reservation without the flag',
+        [E('syn-e1', provider='rakuten', **unpaid)], [C('syn-t1')], covers=['RESERVATION_ONLY'])
+    add('shadow overlay: preauthorized reservation without the flag',
+        [E('syn-e1', **dict(unpaid, evidence_status='preauthorized', preauthorized_on='2026-09-04',
+                            preauthorized_amount_krw=30000))], [C('syn-t1', amount_krw=30500)], covers=['RESERVATION_ONLY'])
+    add('shadow overlay: reservation with a price change amount without the flag',
+        [E('syn-e1', **dict(unpaid, price_change_amount_krw=5000, price_change_on='2026-09-04'))],
+        [C('syn-t1', amount_krw=5001)], covers=['RESERVATION_ONLY'])
+    add('shadow overlay: paid forest event linked to one card, input flag false',
+        [E('syn-e1', provider='forest', item='숙박비', card_last4=None, evidence_kind='authenticated_forest_pg_card_receipt',
+           authorization_scheme='issuer_card_approval', approval_number='SYN-AP-1', **flag)],
+        [C('syn-t1', merchant='SYN SHOP', merchant_normalized='syn shop', approval_number='SYN-AP-1')],
+        covers=['MATCHED_AUTO', 'individual_payment_evidence'])
     return out
 
 
@@ -1112,7 +1138,8 @@ def trips_cases():
 def period_cases():
     out, n = [], 0
 
-    def add(note, events, cards=None, *, results=None, rows=None, manual=(), links=None, covers=()):
+    def add(note, events, cards=None, *, results=None, rows=None, manual=(), links=None, covers=(), p2=None,
+            passengers=None, inference=False):
         nonlocal n
         n += 1
         cards = [C()] if cards is None else cards
@@ -1123,6 +1150,11 @@ def period_cases():
             rows = [{'row_id': 'card-' + c['transaction_id'], 'service_period': '', 'reservation_no': ''} for c in cards]
         request = {'data': {'events': events, 'transactions': cards, 'results': results, 'links': links or {}},
                    'manual': list(manual), 'rows': rows}
+        if inference:
+            request['inference'] = True
+            request['p2'] = p2 or []
+            if passengers:
+                request['data']['passengers'] = passengers
         out.append(_case('period', f'{n:03d}', 'periods', request, note, covers))
 
     def E(identity='syn-e1', **changes):
@@ -1193,6 +1225,76 @@ def period_cases():
     add('two cards with different periods', [E('syn-e1'), E('syn-e2', booking_ref='SYN-BOOK-2',
         service_period={'starts_on': '2026-11-01', 'ends_on': '2026-11-02'})], [C('syn-t1'), C('syn-t2')],
         rows=[R('syn-t1'), R('syn-t2')], covers=[verified, '2026-11-01~2026-11-02'])
+
+    # --- inferred periods (DATE-080, DATE-101), P2 period metadata and saved flight bookings (found = kind/period/basis) ---
+    def stated(identity='syn-e2', **changes):
+        return E(identity, item='', event_type='reservation', evidence_status='booking_only', payment_status='pending',
+                 **changes)
+
+    receipt = E('syn-e1', item='', service_period=None)
+    pair = [receipt, stated()]
+    only_receipt = [{'ota_event_id': 'syn-e1', 'transaction_id': 'syn-t1', 'status': 'MATCHED_AUTO'}]
+    inferred = '2026-10-01~2026-10-03'
+    add('reservation-only period is an inference, not a verified period', pair, results=only_receipt, inference=True,
+        covers=[inferred, 'reservation_only', '"inferred"'])
+    add('reservation-only inference with the same reservation number', pair, results=only_receipt, inference=True,
+        rows=[R(reservation_no='SYN-BOOK-1', item='숙박비')], covers=['reservation_only'])
+    add('reservation-only inference with another reservation number', pair, results=only_receipt, inference=True,
+        rows=[R(reservation_no='SYN-BOOK-2')], covers=['"none"'])
+    add('stored period wins over a reservation-only inference', pair, results=only_receipt, inference=True,
+        rows=[R(period='2026-09-01~2026-09-02')], covers=['2026-09-01~2026-09-02', '"verified"'])
+    add('manual override blocks a reservation-only inference', pair, results=only_receipt, inference=True,
+        manual=['card-syn-t1'], covers=['"none"'])
+    add('cancelled reservation withholds the inference', [receipt, stated(reservation_status='cancelled')],
+        results=only_receipt, inference=True, covers=['"none"'])
+    toyoko = [_event('syn-e1', provider='toyoko', item='숙박비', event_type='reservation', evidence_status='reservation_only',
+                     payment_status='pending', source_trust='sender_domain', reservation_status='confirmed')]
+    candidates = {'status': 'CANDIDATES_FOUND', 'candidates': [
+        {'transaction_id': 'syn-t1', 'branch_status': 'MATCH', 'stay_date_status': 'MATCH'}]}
+    toyoko_result = [{'ota_event_id': 'syn-e1', 'status': 'RESERVATION_ONLY', 'candidate_search': candidates}]
+    add('candidate-agreement period (DATE-101)', toyoko, results=toyoko_result, inference=True,
+        covers=['candidate_agreement', inferred])
+    add('candidate-agreement period with a manual blank', toyoko, results=toyoko_result, inference=True,
+        manual=['card-syn-t1'], covers=['"none"'])
+    p2 = [{'transaction_id': 'syn-t1', 'service_period': '2026-10-04~2026-10-06', 'run_id': 'syn-run-1',
+           'model': 'syn-model', 'source_hash': 'syn-hash-syn-t1', 'item': '숙박비', 'decision_revision': 1}]
+    p2_row = R(item='숙박비', source_fact_digest='syn-hash-syn-t1')
+    add('P2 run period without any booking evidence', [], results=[], p2=p2, inference=True, rows=[p2_row],
+        covers=['p2_run', '2026-10-04~2026-10-06'])
+    add('P2 period of another source is not used', [], results=[], p2=p2, inference=True,
+        rows=[R(item='숙박비', source_fact_digest='syn-hash-syn-t9')], covers=['"none"'])
+    add('P2 period of another item is not used', [], results=[], p2=p2, inference=True,
+        rows=[R(item='항공료', source_fact_digest='syn-hash-syn-t1')], covers=['"none"'])
+    add('P2 period yields to a verified link', [E()], p2=p2, inference=True, rows=[p2_row], covers=[verified, '"verified"'])
+    add('P2 period of a card held for review is not used', [], [C(ota_review_held=True)], results=[], p2=p2,
+        inference=True, rows=[p2_row], covers=['"none"'])
+    legs = [{'departure_on': '2026-10-05'}, {'departure_on': '2026-10-01'}]
+
+    def booking(**changes):
+        return {'SYN-BOOK-1': dict({'legs': legs, 'source_digests': ['syn-d1'], 'cancellation_status': 'NONE'}, **changes)}
+
+    flight = R(reservation_no='SYN-BOOK-1', item='항공료')
+    add('flight booking legs give a verified period', [], results=[], passengers=booking(), inference=True, rows=[flight],
+        covers=['2026-10-01~2026-10-05', 'SYN-BOOK-1'])
+    add('flight booking of another reservation number', [], results=[], passengers=booking(), inference=True,
+        rows=[R(reservation_no='SYN-BOOK-2', item='항공료')], covers=['"none"'])
+    add('flight row without a reservation number', [], results=[], passengers=booking(), inference=True,
+        rows=[R(item='항공료')], covers=['"none"'])
+    add('flight evidence only applies to flight rows', [], results=[], passengers=booking(), inference=True,
+        rows=[R(reservation_no='SYN-BOOK-1', item='숙박비')], covers=['"none"'])
+    add('cancelled flight booking', [], results=[], passengers=booking(cancellation_status='CANCELLED'), inference=True,
+        rows=[flight], covers=['"none"'])
+    add('flight booking in conflict', [], results=[], passengers=booking(conflict=True), inference=True,
+        rows=[flight], covers=['"none"'])
+    add('flight booking without a source digest', [], results=[], passengers=booking(source_digests=[]), inference=True,
+        rows=[flight], covers=['"none"'])
+    add('flight booking with an unreadable leg day', [], results=[],
+        passengers=booking(legs=[{'departure_on': ''}]), inference=True, rows=[flight], covers=['"none"'])
+    add('manual override blocks flight evidence', [], results=[], passengers=booking(), inference=True, manual=['card-syn-t1'],
+        rows=[flight], covers=['"none"'])
+    add('stored period wins over flight evidence', [], results=[], passengers=booking(), inference=True,
+        rows=[R(period='2026-09-01~2026-09-02', reservation_no='SYN-BOOK-1', item='항공료')],
+        covers=['2026-09-01~2026-09-02'])
     return out
 
 

@@ -146,7 +146,9 @@ def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100)
             params.extend(cursor_values)
         rows = conn.execute(select + where + ' ORDER BY ' + order + ' LIMIT ?', params + [per_page + 1]).fetchall()
         items = [dict(zip(fields, row)) for row in rows[:per_page]]
-        enrich_status(conn, items)
+        from app import core_links
+        with core_links.uncommitted_rows():  # the snapshot's rows, even if another connection committed since BEGIN
+            enrich_status(conn, items)
         return {'date': day, 'filter_semantics': 'USER_DATE_FILTER', 'items': items,
                 'count': len(items), 'total_count': total, 'has_more': len(rows) > per_page,
                 'cursor': f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if len(rows) > per_page else None,

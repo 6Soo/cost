@@ -7,12 +7,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 from contextlib import closing, contextmanager, nullcontext
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +37,7 @@ def _main_database(conn) -> str:
 
 
 PERIODS_CACHE = 'period-facts.json'
-PERIODS_CACHE_SCHEMA = 1
+PERIODS_CACHE_SCHEMA = 2
 
 
 @contextmanager
@@ -75,7 +79,13 @@ def _manual_overrides(conn, lock):
             "SELECT row_id FROM board_manual_overrides WHERE field='service_period'"))
 
 
+def _board_reader(board_path):
+    return closing(sqlite3.connect(Path(board_path).resolve().as_uri() + '?mode=ro', uri=True))
+
+
 def _evidence_key(board_path, manual) -> str:
+    # P2 periods are neither in the key nor in the evidence: ai_inference rows are kept by the planner, so none is stored.
+    # When the P2 write path moves to Rust, feed that row's own inputs to both here.
     from tools.core_bridge import periods as bridge
     return hashlib.sha256(json.dumps(
         [PERIODS_CACHE_SCHEMA, _period_input_key(board_path), manual, bridge.FACT_KEYS, bridge.EVENT_KEYS,
@@ -106,7 +116,7 @@ def period_facts(board_path, manual, core) -> tuple:
             return saved['facts'], key
     except (OSError, ValueError):
         pass
-    facts = bridge.facts_from_snapshot(_period_snapshot(board_path), set(manual))
+    facts = bridge.evidence_from_snapshot(_period_snapshot(board_path), set(manual))
     scratch = cache.with_name(cache.name + '.tmp')
     scratch.write_text(json.dumps({'key': key, 'facts': facts}, ensure_ascii=False), encoding='utf-8')
     os.replace(scratch, cache)
@@ -189,7 +199,56 @@ def run_with_periods(board, work):
                 return work(facts)
     raise PeriodsStale()
 
-def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None):
+RUNS_DIR = 'core-apply-runs'
+RUNS_KEPT = 50
+RUN_COUNTS = ('written', 'skipped_mismatch', 'skipped_unjudged', 'backfilled')
+# Nothing in production reads LAST_RUN. A reader on a long-lived thread must clear it before the apply or compare `digest`.
+LAST_RUN: ContextVar = ContextVar('core_writer_last_run', default=None)
+
+
+def _remember(core, digest, response, seconds) -> None:
+    """Keep the apply counts: `LAST_RUN` for the caller, `<data root>/core-apply-runs/latest.json` for operators.
+
+    Counts and a digest only (no transaction ids, no customer text). A failed file write never fails the apply,
+    which is already committed.
+    """
+    entry = {'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S+00:00'), 'digest': digest,
+             **{name: int(response.get(name) or 0) for name in RUN_COUNTS}, 'seconds': round(seconds, 2)}
+    LAST_RUN.set(entry)
+    folder = Path(core).parent / RUNS_DIR
+    latest = folder / 'latest.json'
+    try:
+        folder.mkdir(exist_ok=True)
+        try:
+            recent = json.loads(latest.read_text(encoding='utf-8')).get('recent', [])
+        except (OSError, ValueError, AttributeError):
+            recent = []
+        recent = [*(recent if isinstance(recent, list) else []), entry][-RUNS_KEPT:]
+        scratch = latest.with_name(latest.name + '.tmp')
+        scratch.write_text(json.dumps({'latest': entry, 'recent': recent}, ensure_ascii=False, indent=1),
+                           encoding='utf-8')
+        os.replace(scratch, latest)
+    except OSError:
+        pass
+
+
+def _refund_links(conn, transaction_ids) -> dict:
+    """`context.links` for `costcore apply`: the links `automatic_classification.plan` uses, over the same ids.
+
+    Same function and id scope as the preview, read at apply time, so a link that moved since the preview changes
+    the plan and the digest check stops it; costcore then starts no Python bridge of its own.
+    """
+    if not {'issuer', 'original_approval_number'} <= {c[1] for c in conn.execute('PRAGMA table_info(transactions)')}:
+        return None  # not a board: costcore keeps its own bridge lookup
+    ids = (sorted(transaction_ids) if transaction_ids is not None
+           else [row[0] for row in conn.execute('SELECT transaction_id FROM transactions ORDER BY transaction_id')])
+    from .partial_refund import refund_links
+    return {tid: {'original_id': link['original_id'], 'inferred': bool(link.get('inferred')),
+                  'status': link.get('status') or ''} for tid, link in refund_links(conn, ids).items()}
+
+
+def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=False, evidence=None, periods=None,
+          backfill=False):
     """Rust apply with the same contract as `automatic_classification.apply` (returns the plan summary).
 
     `periods` is `periods_for(conn)`; without it the Rust period evidence is empty and stored periods are unknown.
@@ -200,19 +259,25 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
     if conn.in_transaction:
         raise RuntimeError('CORE_WRITER_IN_TRANSACTION')
     request = {'trips': trips, 'nets': nets or {}, 'evidence': evidence or {}, 'reconsider': bool(reconsider)}
+    links = _refund_links(conn, transaction_ids)
+    if links is not None:
+        request['links'] = links
     if periods is not None:
         request['periods'] = periods
     if transaction_ids is not None:
         request['transaction_ids'] = sorted(transaction_ids)
+    started = time.monotonic()
     done = subprocess.run(
         [binary, 'apply', '--db', _main_database(conn), '--core', core, '--digest', expected['digest'],
-         '--allow-live', '--python', sys.executable, '--repo-root', str(ROOT)],
+         '--allow-live', '--python', sys.executable, '--repo-root', str(ROOT),
+         *(['--backfill-decisions'] if backfill else [])],
         input=json.dumps(request, ensure_ascii=False), capture_output=True, text=True, encoding='utf-8', timeout=600)
     try:
         response = json.loads(done.stdout.splitlines()[0])
     except (IndexError, ValueError):
         raise RuntimeError('CORE_WRITER_NO_RESPONSE') from None
     if response.get('ok'):
+        _remember(core, expected['digest'], response, time.monotonic() - started)
         return response['result']
     code = (response.get('error') or {}).get('code', 'CORE_WRITER_FAILED')
     if code == 'CLASSIFICATION_PREVIEW_STALE':
@@ -221,11 +286,198 @@ def apply(conn, expected, trips, *, nets=None, transaction_ids=None, reconsider=
 
 
 def stored_service_period(transaction_id: str):
-    """Stored use period of a decision (core.sqlite), or None. Screens and exports read this; they never recompute it."""
+    """Stored use period of a decision (core.sqlite), or None. Screens and exports read this; they never recompute it.
+
+    `kind` is verified (a stored value, a verified link or a flight booking), inferred (with `basis`) or unknown
+    (with `reason`). Decisions written before inferred periods existed keep their old `known` spelling in the
+    database; it reads as verified.
+    """
     core = os.environ.get(CORE_DB_ENV, '')
     if not core:
         raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
     with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True)) as conn:
         row = conn.execute('SELECT service_period_json FROM decisions WHERE transaction_id=?',
                            (transaction_id,)).fetchone()
-    return json.loads(row[0]) if row else None
+    return _normalized(row[0]) if row else None
+
+
+def _normalized(text) -> dict:
+    """A stored period in the reader's spelling: kind verified | inferred | unknown (the old `known` reads as verified)."""
+    stored = json.loads(text)
+    kind = {'known': 'verified'}.get(stored.get('kind'), stored.get('kind'))
+    return {**stored, 'kind': kind if kind in ('verified', 'inferred', 'unknown') else 'unknown'}
+
+
+def period_text(stored, *, inferred: bool = False) -> str:
+    """`YYYY-MM-DD~YYYY-MM-DD` of a stored verified period (and an inferred one when `inferred`); '' otherwise."""
+    if (isinstance(stored, dict) and stored.get('starts_on') and stored.get('ends_on')
+            and (stored.get('kind') == 'verified' or (inferred and stored.get('kind') == 'inferred'))):
+        return f"{stored['starts_on']}~{stored['ends_on']}"
+    return ''
+
+
+def stored_periods_enabled() -> bool:
+    """Screens and exports read stored periods only while Rust is the writer and core.sqlite is configured."""
+    return selected() == 'rust' and bool(os.environ.get(CORE_DB_ENV, ''))
+
+
+def stored_service_periods(transaction_ids=None, timeout: float = 10) -> dict:
+    """transaction_id -> normalized stored period (`_normalized`) of every stored decision, in one read-only query.
+
+    Raises sqlite3.Error when core.sqlite cannot be read (missing file, no table, locked past the timeout).
+    """
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not core:
+        raise RuntimeError('CORE_WRITER_NOT_CONFIGURED')
+    signature = _core_signature() if transaction_ids is None else None
+    cached = _PERIOD_CACHE.get('entry')
+    if signature is not None and cached is not None and cached[0] == signature:
+        return dict(cached[1])
+    with closing(sqlite3.connect(Path(core).resolve().as_uri() + '?mode=ro', uri=True, timeout=timeout)) as conn:
+        rows = conn.execute('SELECT transaction_id, service_period_json FROM decisions').fetchall()
+    wanted = None if transaction_ids is None else set(transaction_ids)
+    found = {}
+    for tid, text in rows:
+        if wanted is None or tid in wanted:
+            try:
+                found[str(tid)] = _normalized(text)
+            except (TypeError, ValueError, AttributeError):
+                found[str(tid)] = {'kind': 'unknown'}
+    # 읽는 사이 파일이 바뀌지 않았을 때만 저장한다. 바뀌었으면 다음 호출이 다시 읽는다.
+    if signature is not None and _core_signature() == signature:
+        _PERIOD_CACHE['entry'] = (signature, found)
+    return dict(found)
+
+
+_FALLBACK: dict = {}
+_TIMER_LOCK = threading.Lock()
+_PUBLISH_LOCK = threading.Lock()
+_READ_ERROR = {'error': '', 'stale': False}
+_LAST_READ: dict = {'periods': None}
+_PUBLISHED = {'key': None}
+READ_TIMEOUT = 1.0
+STATUS_FILE = 'period-read-status.json'
+_PERIOD_CACHE: dict = {'entry': None}
+
+
+def _core_signature():
+    """Cheap change marker of core.sqlite: path, stat of db/-wal/-journal and the header change counter, or None when unreadable."""
+    core = os.environ.get(CORE_DB_ENV, '')
+    if not core:
+        return None
+    try:
+        parts = [str(Path(core).resolve())]
+        for suffix in ('', '-wal', '-journal'):
+            try:
+                info = os.stat(core + suffix)
+                parts.append((info.st_mtime_ns, info.st_size))
+            except FileNotFoundError:
+                parts.append(None)
+        with open(core, 'rb') as handle:
+            parts.append(handle.read(100)[24:28])
+        return tuple(parts)
+    except OSError:
+        return None
+
+
+def load_stored_periods() -> dict | None:
+    """The stored periods for one read, or None when Python is the writer (behaviour unchanged).
+
+    The read waits one second at most. When core.sqlite is busy or unreadable the last successful read is reused
+    (`stale`), so a busy moment does not push every card onto the evidence index; with no earlier read every card
+    counts as a fallback. Either way `period_read_status` shows the error.
+    """
+    if not stored_periods_enabled():
+        return None
+    try:
+        found = stored_service_periods(timeout=READ_TIMEOUT)
+        _LAST_READ['periods'] = found
+        _READ_ERROR.update(error='', stale=False)
+        _publish_status()
+        return found
+    except (sqlite3.Error, OSError) as error:
+        _READ_ERROR.update(error=f'{type(error).__name__}: {error}', stale=_LAST_READ['periods'] is not None)
+        _publish_status()
+        return _LAST_READ['periods'] if _LAST_READ['periods'] is not None else {}
+
+
+def _not_judged(row) -> bool:
+    """A card Rust never decides: a P2 (ai_inference) row, unattributable, or in a completed period (it gets no decision, so it stays computed)."""
+    from . import closed_period
+    probe = {'approval_date': row.get('approval_date') or row.get('occurred_on') or ''}
+    return (row.get('classification_source') == 'ai_inference' or row.get('classification_state') == 'unclassified' or 'display_tab_id' in row and row.get('display_tab_id') is None
+            or closed_period.completed_period(probe) is not None)
+
+
+def note_period_source(transaction_id: str, from_decision: bool, row=None) -> None:
+    """Count a card whose period had to be computed: 'missing' (no decision yet; 0 after backfill) or 'not_judged'."""
+    if from_decision:
+        if _FALLBACK.pop(transaction_id, None) is not None:
+            _schedule_publish()
+    else:
+        _FALLBACK[transaction_id] = 'not_judged' if row is not None and _not_judged(row) else 'missing'
+        _schedule_publish()
+
+
+def period_read_status() -> dict:
+    """Operations view, without transaction ids: the reading mode and the two kinds of computed fallback."""
+    reasons = list(_FALLBACK.values())
+    return {'mode': 'stored' if stored_periods_enabled() else 'computed',
+            'missing_decision_count': reasons.count('missing'), 'not_judged_count': reasons.count('not_judged'),
+            'core_read_error': _READ_ERROR['error'], 'stale_read': _READ_ERROR['stale']}
+
+
+PUBLISH_DELAY = 2.0
+_TIMER: dict = {'pending': None}
+
+
+def _schedule_publish() -> None:
+    """Counting is memory only; the file and the log line are written once per burst, a moment after the last count."""
+    with _TIMER_LOCK:
+        if _TIMER['pending'] is not None:
+            return
+        timer = threading.Timer(PUBLISH_DELAY, _fire_publish)
+        timer.daemon = True
+        _TIMER['pending'] = timer
+        timer.start()
+
+
+def _fire_publish() -> None:
+    with _TIMER_LOCK:
+        _TIMER['pending'] = None
+    _publish_status()
+
+
+def publish_status() -> None:
+    """Write the status now (a command-line run calls this before it exits)."""
+    with _TIMER_LOCK:
+        timer, _TIMER['pending'] = _TIMER['pending'], None
+    if timer is not None:
+        timer.cancel()
+    _publish_status()
+
+
+def _publish_status() -> None:
+    """Write the status beside core.sqlite when it changed, so operations can read it from the data root."""
+    with _PUBLISH_LOCK:
+        _publish_status_locked()
+
+
+def _publish_status_locked() -> None:
+    core = os.environ.get(CORE_DB_ENV, '')
+    status = period_read_status()
+    key = json.dumps(status, sort_keys=True)
+    if not core or _PUBLISHED['key'] == key:
+        return
+    _PUBLISHED['key'] = key
+    path = Path(core).with_name(STATUS_FILE)
+    try:
+        scratch = path.with_name(path.name + '.tmp')
+        scratch.write_text(json.dumps({**status, 'updated_at': datetime.now(timezone.utc).isoformat()},
+                                      ensure_ascii=False), encoding='utf-8')
+        os.replace(scratch, path)
+    except OSError:
+        pass
+    if status['missing_decision_count']:
+        logging.getLogger(__name__).warning('stored period: %d card(s) without a decision are computed',
+                                            status['missing_decision_count'])

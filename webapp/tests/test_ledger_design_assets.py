@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from webapp import ledger_design
 from webapp import ledger_design_assets as assets
+from webapp import static_assets
 
 
 def _sha256(data: bytes | str) -> str:
@@ -40,8 +41,10 @@ class TestLedgerDesignAssets:
         """Rendering a ledger page must use in-memory STYLE and SCRIPT without disk reads."""
         with patch.object(assets.Path, "read_text", side_effect=AssertionError("Disk read called during render!")):
             html = ledger_design.render(ledger_design.page("trip-demo-a"))
-            assert assets.STYLE in html
-            assert assets.SCRIPT in html
+            # Requirement change: the bundles are hashed linked assets, not inline.
+            assert assets.STYLE not in html
+            assert static_assets.link("ledger_design") in html
+            assert static_assets.script("ledger_design") in html
 
     def test_font_and_icon_artifacts_exact_equivalence(self):
         """The unchanged font, license and icons retain their reference bytes."""

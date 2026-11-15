@@ -56,10 +56,14 @@ fn helper(args: &[&str]) -> String {
 }
 
 fn costcore(args: &[&str], stdin: &str) -> (i32, Value) {
+    costcore_with_python(args, stdin, &python())
+}
+
+fn costcore_with_python(args: &[&str], stdin: &str, python: &str) -> (i32, Value) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_costcore"))
         .args(args)
         .arg("--python")
-        .arg(python())
+        .arg(python)
         .arg("--repo-root")
         .arg(repo_root())
         .stdin(Stdio::piped())
@@ -206,10 +210,24 @@ fn fresh_digest(p: &Pair) -> String {
 }
 
 /// 두 DB의 모든 테이블이 행 단위로 같다. 달라지면 테이블과 행을 알려 준다.
+/// `right`는 Rust 결과다. 요구에 따라 Rust 작성 `card.automatic_classification` 기록에만 `detail_json.writer="costcore"`
+/// 표식이 더 있으므로, 표식이 있음을 확인하고 떼어 낸 뒤 비교한다(나머지 내용은 Python과 같아야 한다).
 fn tables_differ(left: &Dump, right: &Dump) -> Vec<String> {
     let mut diffs = Vec::new();
     for ((name, rows_a), (_, rows_b)) in left.iter().zip(right) {
-        if rows_a != rows_b {
+        let mut rows_b = rows_b.clone();
+        if name == "change_log" {
+            for row in rows_b
+                .iter_mut()
+                .filter(|r| r[2] == "card.automatic_classification")
+            {
+                let mut detail: Value = serde_json::from_str(&row[4]).unwrap();
+                let mark = detail.as_object_mut().unwrap().remove("writer");
+                assert_eq!(mark, Some(Value::String("costcore".into())), "{row:?}");
+                row[4] = cost_core::digest::python_json(&detail);
+            }
+        }
+        if *rows_a != rows_b {
             diffs.push(format!("{name}: {} vs {} rows", rows_a.len(), rows_b.len()));
         }
     }
@@ -339,6 +357,47 @@ fn rerun_with_same_input_writes_nothing() {
     assert_eq!(out["written"], 0, "{out}");
     assert_eq!(dump(&p.rust_db), before);
     assert_eq!(dump(&core_path(&p)), core_before);
+}
+
+/// 요청에 `links`를 실어 준다. Python이 없는 경로를 주어도(다리를 띄우면 실패) 결과가 Python과 같다.
+fn with_links(p: &Pair) -> String {
+    let links = helper(&["links", p.rust_db.to_str().unwrap()]);
+    let mut opts: Value = serde_json::from_str(&p.opts).unwrap();
+    opts["links"] = serde_json::from_str(links.trim()).unwrap();
+    opts.to_string()
+}
+
+#[test]
+fn context_links_replace_the_python_bridge_and_leave_identical_tables() {
+    let p = pair("general");
+    let body = with_links(&p);
+    let core = core_path(&p);
+    let args = rust_args(
+        &p,
+        p.rust_db.to_str().unwrap(),
+        core.to_str().unwrap(),
+        &p.digest,
+    );
+    let (code, out) = costcore_with_python(&args, &body, "no-such-python-for-bridge");
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["written"].as_u64().unwrap(), p.python_targets, "{out}");
+    let diffs = tables_differ(&dump(&p.python_db), &dump(&p.rust_db));
+    assert!(diffs.is_empty(), "{diffs:?}");
+}
+
+#[test]
+fn without_context_links_the_bridge_is_still_used() {
+    let p = pair("general");
+    let core = core_path(&p);
+    let args = rust_args(
+        &p,
+        p.rust_db.to_str().unwrap(),
+        core.to_str().unwrap(),
+        &p.digest,
+    );
+    let (code, out) = costcore_with_python(&args, &p.opts, "no-such-python-for-bridge");
+    assert_ne!(code, 0, "{out}");
+    assert_eq!(dump(&p.rust_db), p.original);
 }
 
 #[test]

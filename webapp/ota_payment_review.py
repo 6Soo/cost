@@ -6,11 +6,13 @@ write methods must persist only in the separately configured OTA review store.
 from __future__ import annotations
 
 import atexit
+import hashlib
 import importlib
 import json
 import os
 import re
 import secrets
+import sqlite3
 import threading
 import time
 from contextlib import nullcontext
@@ -20,6 +22,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, unquote
 
 from . import ota_snapshot
+from app import core_ota_links
 from app.ota_queue_projection import classify_event, summarize_queue
 from app.ota_queue_telemetry import (append_sample, build_read_trace, fingerprint,
                                      payload_bytes, stage_sample, summarize_samples)
@@ -660,9 +663,14 @@ class CoreOtaPaymentBackend:
                               if str(row.get("transaction_id") or "") not in reservation_card_ids]
         started = time.perf_counter()
         try:
-            results = self.payments.match_ota_payment_events(
-                events, solver_transactions, existing_links=links, rules=rules,
-                frozen_groups=frozen_groups)
+            if core_ota_links.selected() == "rust":
+                results = core_ota_links.match_ota_payment_events(
+                    events, solver_transactions, existing_links=links, rules=rules,
+                    frozen_groups=frozen_groups)
+            else:
+                results = self.payments.match_ota_payment_events(
+                    events, solver_transactions, existing_links=links, rules=rules,
+                    frozen_groups=frozen_groups)
         except TypeError as exc:
             if "unexpected keyword argument 'frozen_groups'" not in str(exc):
                 raise
@@ -1393,6 +1401,72 @@ def _store_value(store, name, default):
     return method() if callable(method) else default
 
 
+_TX_DIGESTS = {}
+_TX_STAMPS = {}
+_TX_LOCK = threading.Lock()
+
+
+def _raw_fingerprint(conn) -> str:
+    """Content digest of every stored value `_transactions()` derives from (card rows, recorded ids, review holds)."""
+    digest = hashlib.blake2b(digest_size=20)
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    digest.update(repr(sorted(tables & {'transactions', 'board_rows', 'transaction_review_holds'})).encode())
+    queries = ["SELECT rowid,* FROM transactions ORDER BY rowid"]
+    if 'board_rows' in tables:
+        queries.append("SELECT row_id FROM board_rows WHERE row_kind='expense' AND row_id LIKE 'card-%' ORDER BY row_id")
+    if 'transaction_review_holds' in tables:
+        queries.append("SELECT transaction_id FROM transaction_review_holds ORDER BY transaction_id")
+    for query in queries:
+        cursor = conn.execute(query)
+        digest.update(repr([column[0] for column in cursor.description]).encode())
+        while chunk := cursor.fetchmany(4096):
+            digest.update(repr([tuple(row) for row in chunk]).encode())
+    return digest.hexdigest()
+
+
+def _transactions_digest(backend, ignore_transaction_columns=()) -> str:
+    """Digest of `backend._transactions()`, recomputed only when a stored input changed.
+
+    The cache key is a content fingerprint of the inputs, so a changed row always recomputes. The cheap stamp
+    (this connection's total_changes and data_version) only skips re-reading an unchanged database; it is never
+    consulted inside an open transaction, and nothing is stored from one (a rollback must not leave a stale entry).
+    """
+    ignore = tuple(sorted(ignore_transaction_columns))
+    conn = getattr(getattr(backend, "board", None), "conn", None)
+    if not isinstance(conn, sqlite3.Connection):
+        rows = [{k: v for k, v in row.items() if k not in ignore} for row in backend._transactions()]
+        return ota_snapshot.digest(rows)
+    lock = getattr(backend.board, "_lock", None)
+    from app import core_links
+    with lock if lock is not None else nullcontext():
+        settled = not conn.in_transaction
+        stamp = (conn, conn.total_changes, conn.execute("PRAGMA data_version").fetchone()[0])
+        with _TX_LOCK:
+            fingerprint = _TX_STAMPS.get(stamp) if settled else None
+        if fingerprint is None:
+            fingerprint = _raw_fingerprint(conn)
+            if settled:
+                with _TX_LOCK:
+                    if len(_TX_STAMPS) >= 8:
+                        _TX_STAMPS.clear()
+                    _TX_STAMPS[stamp] = fingerprint
+    key = (core_links.selected(), ignore, fingerprint)
+    with _TX_LOCK:
+        cached = _TX_DIGESTS.get(key)
+    if cached is not None:
+        return cached
+    rows = backend._transactions()
+    if ignore:
+        rows = [{k: v for k, v in row.items() if k not in ignore} for row in rows]
+    value = ota_snapshot.digest(rows)
+    if settled:
+        with _TX_LOCK:
+            if len(_TX_DIGESTS) >= 8:
+                _TX_DIGESTS.clear()
+            _TX_DIGESTS[key] = value
+    return value
+
+
 def input_key_for(backend, ignore_transaction_columns=()) -> str:
     """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time.
 
@@ -1407,8 +1481,7 @@ def input_key_for(backend, ignore_transaction_columns=()) -> str:
         "provisional_trip_policy": POLICY_VERSION,
         "trip_authority_rows": backend.board.list_trips() if callable(getattr(backend.board, 'list_trips', None)) else [],
         "sources": ota_sources.source_stamps(backend.sources),
-        "transactions": [{k: v for k, v in row.items() if k not in ignore_transaction_columns}
-                         for row in backend._transactions()] if ignore_transaction_columns else backend._transactions(),
+        "transactions_digest": _transactions_digest(backend, ignore_transaction_columns),
         "review": {"links": _store_value(store, "links", {}),
                    "rules": _store_value(store, "active_rules", []),
                    "proposals": _store_value(store, "proposals", []),

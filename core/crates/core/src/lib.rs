@@ -5,6 +5,8 @@ pub mod bridge;
 pub mod dates;
 pub mod digest;
 pub mod domain;
+pub mod guard;
+pub mod known_diffs;
 pub mod links;
 pub mod period;
 pub mod pipeline;

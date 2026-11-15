@@ -1,5 +1,41 @@
 # 운영 기록
 
+## 2026-11-15 장애 창 — 장부 25초 지연, 색인, `f3051419`·`c36665ae` 배포, 1차 전환 되돌림
+
+- **장애 측정(15:21 KST, 소유자 세션):** `/` TTFB 22~40초, 여행 탭 4~20초, `/cards/all` 10~37초. 기반 경로는 정상(백엔드 readyz 0.03~0.4초, 공개 0.5~1.4초). `/` 요청 하나가 Board에서 CPU 19.6초·읽기 2.95GB. 사본 프로파일로 `app/closed_period.py` `manual_ids`가 15.1초(색인 없는 `change_log`를 `review_decisions` 행마다 전수 조회)임을 찾았다. Rust 작성자·OTA 재계산·Defender는 원인이 아니었다(11/14 00:2x 전환 전에도 홈 502).
+- **색인(장애 수정):** 범위 백업(board+core, 72초, 서버 무정지) 뒤 15:41:45 `idx_change_log_kind_subject ON change_log(kind, subject)` 생성(잠금 대기 0초, 0.051초, ANALYZE 안 함). 15:41 이전 백업으로 board를 복원하면 이 색인을 먼저 만든다(#942 이후 릴리스가 요구).
+- **1단계 `f3051419`**(#929·#931~#935), 18:08:52 KST, 8751, 보호 13표 불변, readyz 10/10. 범위 백업(Board·Worker 정지 56.6초, 백업 40.2초, 18:15:12). `tools/core_rejudge.py --dry-run` 2회가 OTA 대사 자식 프로세스 900초 제한 초과(`OtaReconcileChildError`, 906·907초)로 실패해 재판정은 보류했다(쓰기 0, decisions 0).
+- **2단계 `c36665ae`**(#930·#936~#946), 18:55:15 KST, 8752, 보호 13표 불변, readyz 10/10. #944 키 변경 스냅숏 재생성 18:55~19:04(570.6초). Board OTA 대사 1회 소요는 오늘 554~712초, 2회 900초 초과.
+- **1차 전환 미적용 발견과 되돌림:** #928 키 처리는 저장소 `tools/launch_web_ledger.py`에 있으나 Board 작업은 호스트 `D:\WebLedgerHost\bin\launch_web_ledger.py`(10/30, 키 처리 없음)를 실행해 08:11 이후에도 Board는 Python 작성자였다(Worker만 Rust 설정). 전환 뒤 자동 분류 기록 0·decisions 0으로 작성자 혼합은 없었다. 19:08 `card-flow.json`의 세 키를 제거하고(원본 백업) Worker를 재시작해 두 프로세스 모두 Python으로 맞췄다. `core.sqlite`는 유지한다(범위 백업 core 포함 계속). 재전환은 배포 도구의 호스트 런처 갱신과 대사 900초 문제 수정 뒤에 한다.
+
+| 화면 TTFB(3회) | 15:21 처음 | 색인 뒤 15:4x | 2단계 뒤 19:0x |
+| --- | --- | --- | --- |
+| `/` | 22.2·30.3·39.8초 | 21.8·19.6·21.8초 | 5.7·5.7·11.5초 |
+| 여행 탭 | 19.5·14.5·4.2초 | 6.4·1.9·6.9초 | 14.4·3.4·2.7초 |
+| `/cards/all` | 17.1·10.2·36.8초 | 26.2·15.2·16.9초 | 8.0·7.8·7.9초 |
+
+- 근거: `D:/WebLedgerHost/data/backups/`의 `perf-20261115/`(sampler·index-fix·사본 프로파일), `deploy-f3051419/`, `deploy-c36665ae/`, `cutover-20261115/rejudge/`, `cutover-20261115/card-flow.json.before-*`.
+
+## 2026-11-15 05:44·08:02 창 — `fda02183`·`ae121694` 배포, 1차 전환(P1 자동 분류 작성자 Rust)
+
+- **05:44 창(정규):** `77edf137` → `fda0218369441b0ae23b0d7f0939331e2314dc45`(#922~#926), 05:47:06 KST, 8751, 보호 13표 불변, readyz 10/10. 첫 실행은 #923 검수 근거 누락으로 시작 전 멈췄다(변경 0). 작업 우선순위 Normal(4)을 이 재시작부터 적용했다(Board·Worker 확인). 1차 전환 5단계는 Board 전용 환경 변수 장치가 없어 보류했다(전역 변수 미사용, #928로 해소).
+- **08:02 창(소유자 예외 승인):** `fda02183` → `ae121694c21eb25f2656cfe05012d4680998cb56`(#925·#927·#928), 08:04:26 KST, 8752, 보호 13표 불변, readyz 10/10. `costcore` 빌드 1.2분, 바이너리를 `D:\WebLedgerHost\bin\costcore\costcore-ae121694.exe`로 고정(sha256 `EFEAA754…8BAD`). Gateway 재시작으로 Normal 적용, 로컬 준비 응답 끊김 2.1초.
+- **1차 전환(소유자 승인 ①·②):** C3 신선 board 백업·복원 동등(78표, quick_check ok). 08:10:32 `costcore migrate`로 운영 `core.sqlite` 생성(버전 0→2, 이때부터 #906 범위 백업에 core 포함). `card-flow.json`에 `classification_writer=rust`·`costcore_bin`·`core_db` 추가(원본 백업, BOM 없음), `core_switch_config.py --check` ok 확인 뒤 Board 재시작(준비 응답 끊김 14초), Worker 재시작(거부 없음). `links_producer`는 넣지 않았다.
+- **전환 직후 대조:** ① A↔C decisions 0·불일치 0(전환 뒤 Python 기록 0). ② 신선 사본 그림자 PASS(7,336행, B↔C 0, 목록 밖 0; A↔B 4행은 반영 전 계획). ③ 전환 뒤 `card.automatic_classification` 기록 0. 카드 완료 대기가 0건이라 첫 자동 분류 apply는 아직 없다. 첫 apply를 감시해 대조 ①~③을 자동으로 돌리고, 차이 1건이면 키 제거·재시작으로 Python에 복귀하는 감시를 24시간 띄웠다(`cutover-20261115/watch.log`).
+- **확인하지 못한 것:** ④ `skipped_mismatch`는 운영에서 볼 수 없다(`app/core_writer.py`가 Rust 응답의 `result`만 돌려주고 `written`·`skipped_mismatch`를 버림). Rust와 Python은 같은 종류·요약으로 `change_log`를 쓰므로 ③은 "전환 뒤 자동 판정 행이 모두 core decisions에 있는가"로 판정한다.
+- 되돌림: `card-flow.json`의 `classification_writer`(와 `costcore_bin`·`core_db`) 제거 → Board·Worker 재시작. Rust가 쓴 행은 지우지 않는다.
+- 근거: `D:/WebLedgerHost/data/backups/`의 `deploy-fda02183/`, `deploy-ae121694/`, `cutover-20261115/`(gateway-restart·board-restart·migrate·c3·verify-baseline·watch 로그, card-flow.json.before), `task-priority-20261115/`.
+
+## 2026-11-15 창 — `77edf137` 배포, #905 인덱스 장애 수정, 전환 측정 C1·C2
+
+- **창 보호:** 01:29:46~01:47:41 mail-collect 제외(`worker.json` 일시 변경, 원본 복원 확인). 창 종료 재시작에서 이전 Worker가 아직 잠금을 쥐어 새 Worker가 `ALREADY_RUNNING`으로 거부돼 01:48~01:52 Worker가 멈췄다(재시작 스크립트에 이전 Worker 종료 대기를 추가함).
+- **배포** `060a7239` → `77edf137460f865182e17f327b6753f88353a288`(#887~#921 범위, #905 OTA 근거 중복 기록 중단 포함): 01:34 첫 시도는 `PREPARED_SUPERVISOR_NOT_STARTED`로 자동 롤백(경로 pause 전, 공개 중단 0, CPU 91~100%). 재시도 01:40:25 성공, 8752, 보호 13표 불변, 배포 뒤 5분 readyz 10/10. `costcore` release 빌드 3분 16초(빌드 폴더 `D:\cargo-target\release-77edf137`, 운영 스위치는 켜지 않음, 운영 `core.sqlite` 미생성).
+- **mail-collect 30분 제한 초과와 인덱스 장애 수정:** 실행 소요가 11/14 저녁 210~540초 → 22:08·23:11 1,080·1,291초 → 00:20·01:22(배포 전)·02:25·03:30 시간 초과(1,800초)로 늘었다. 02:25 실행은 #905 인덱스 생성 도중 종료돼 인덱스가 없었고(WAL 93→194MB), 그동안 근거 DB 읽기가 최대 65초 막혔다. 헤드 지시로 02:38~02:58 Worker를 멈추고(mail-collect 제외, Board 무관) 근거 DB 사본(backup API, quick_check ok)을 만든 뒤 두 인덱스를 만들었다: `ota_booking_evidence_fact_lookup` 27.76초, `ota_reservation_observations_lookup` 0.16초. 체크포인트 TRUNCATE는 같은 시간의 긴 읽기(측정용 평가 실행) 때문에 680초 뒤 busy였다. 원복 뒤 02:58:48 mail-collect도 03:30:55 시간 초과였다(인덱스 있음, 읽기 2.8GB·쓰기 0·CPU 53초). 02:25·03:30 실행은 측정 작업의 대량 읽기와 겹쳤다.
+- **1차 전환 측정(신선 사본 `c1c2-20261115/`, 운영 쓰기 0):** C1 판정 그림자 PASS(7,336행, B↔C 차이 0, 목록 밖 0; A↔B·C 4행은 아직 반영 전인 3820 카드 분기→여행 등). C2 PASS(평가 185사례에서 Rust·Python 결과 모두 같음, 일치 131, Python만 맞힌 사례 0).
+- **2차 전환 측정(같은 사본):** 환불 짝 PASS(486=486, 목록 밖 0). OTA 연결 FAIL(사건 7,927, B↔C 차이 1,648: `RESERVATION_ONLY` 1,646·`HOLD_EVIDENCE_CONFLICT` 2, 목록 밖). 입력 포착 10.2분, 그림자 24.1분.
+- **전환 차단 결함:** `tools/core_bridge/cli.py`의 `python_sha`가 `git rev-parse HEAD`라 운영 릴리스 폴더(Git 아님)에서 빈 값이 되어 `costcore` 다리가 `ENVELOPE_MISMATCH`로 실패한다. 측정은 같은 SHA의 Git 작업 폴더를 `--repo-root`로 써서 했다.
+- 근거: `D:/WebLedgerHost/data/backups/`의 `deploy-77edf137/`(run.log, costcore-build.log), `ota-index-20261115/`, `c1c2-20261115/measure.log`, `window-guard.log`.
+
 ## 2026-11-14 3번째 창(소유자 예외 승인) — `060a7239` 배포, 부분환불 취소 4건, 3분기 붙여넣기 complete
 
 - **배포** `edc85f72` → `060a7239a3b3f26da2507215a18a8c02f2407772`(#865~#886 범위, #886 완료 기간 자동기록 차단 포함), 13:23:07 KST, 8751, 보호 13표 불변, 배포 뒤 5분 readyz 10/10. 13:18 첫 시도는 경로 제어(`gateway_route.py`) 오류로 전환이 자동 롤백됐다(CPU 85~100%, healthz가 순간 5초 초과). 재시도에서 성공했다. #867(승인 `b5ea78d1`, head `a4802d99`), #876(조건부 승인 `2d95e312`, head `82ed7a73`, 헤드 범위 확인 병합), #872(검수 댓글 없음, 헤드 확인 병합)는 근거가 이 상태 그대로다.
