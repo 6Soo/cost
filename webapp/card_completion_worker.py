@@ -62,6 +62,7 @@ def enabled_for(board):
 def candidates(conn, ids=None):
     """Rows still to complete; with `ids`, only among those rows (the scan then skips the rest of the batch)."""
     from .card_classification_completion import missing_assignment_sql
+    from app.manual_overrides import exists_sql as manual_exists_sql
     scope = '' if ids is None else ' WHERE transaction_id IN (SELECT value FROM json_each(?))'
     # Existing rows are the durable queue, including receive() committed before
     # an exception or process exit. A reservation/payment link is never changed.
@@ -89,7 +90,7 @@ def candidates(conn, ids=None):
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows r WHERE r.row_id='card-'||t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
-        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides o WHERE o.row_id='card-'||t.transaction_id)"
+        " AND NOT " + manual_exists_sql(conn, "'card-'||t.transaction_id") +
         " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND f.original_approval_number IS NULL"
@@ -110,6 +111,7 @@ class CardCompletionWorker:
         self._stop, self._wake = threading.Event(), threading.Event()
         self._thread = None
         self._attempts = {}
+        self._booking_generation = None
         self.status = {'state': 'idle', 'passes': 0, 'recorded': 0, 'failures': 0}
 
     @property
@@ -173,6 +175,26 @@ class CardCompletionWorker:
                 return core_writer.prepared(self.board, self._sweep_once)
         return self._sweep_once()
 
+    def _rejudge_booking_periods(self):
+        """A new published OTA generation re-judges recorded lodging/flight rows whose evidence digest changed."""
+        from app import core_writer
+        from .card_flow import CardFlow
+        from . import ota_payment_review
+        from .booking_period_rejudge import rejudge
+        if core_writer.selected() == 'rust' or not ota_payment_review.enabled():
+            return  # the Rust writer owns classification columns; this step is for the Python writer
+        flow = (self.flow_factory or CardFlow)(self.board)
+        current, fresh = flow._held_ota_snapshot()
+        generation = (current or {}).get('generation')
+        if not current or not fresh or generation is None or generation == self._booking_generation:
+            return
+        flow._held_ota_snapshot = lambda: (current, fresh)
+        self._booking_generation = generation
+        try:
+            self.status['booking_period'] = rejudge(flow, current, request_id=f'booking-period-g{generation}')
+        except Exception as exc:  # card completion continues; the next generation retries
+            self.status['booking_period'] = {'error': type(exc).__name__}
+
     def _sweep_once(self):
         from .card_flow import CardFlow
         from .card_classification_completion import context
@@ -183,6 +205,7 @@ class CardCompletionWorker:
         with self.runtime_lock, self.board._lock:
             if self._stop.is_set():
                 return False
+            self._rejudge_booking_periods()
             rows = candidates(self.board.conn)
             self.status['pending'] = len(rows)
             self._attempts = {r[0]: self._attempts[r[0]] for r in rows if r[0] in self._attempts}

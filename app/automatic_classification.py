@@ -259,7 +259,8 @@ def _context(conn, selected=None):
         'SELECT d.transaction_id,d.display_tab_id FROM review_decisions d WHERE '+active_decision_sql()+' ORDER BY revision')}
     holds = {r[0] for r in conn.execute('SELECT transaction_id FROM transaction_review_holds')}
     excluded = {r[0] for r in conn.execute('SELECT transaction_id FROM transaction_company_exclusions WHERE excluded=1')}
-    overrides = {r[0] for r in conn.execute('SELECT row_id FROM board_manual_overrides')}
+    from .manual_overrides import manual_rows
+    overrides = manual_rows(conn)
     ledger = {r[0]: dict(zip(('item','description','display_tab_id','trip_id'), r[1:])) for r in conn.execute(
         'SELECT transaction_id,item,description,display_tab_id,trip_id FROM ledger_entries')}
     boards = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
