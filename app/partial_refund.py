@@ -27,8 +27,11 @@ __all__ = ["count_held_cancellations", "refund_group", "refund_links", "refund_r
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
 _READ_ANALYSIS = ContextVar('refund_read_analysis', default=None)
-# The last analysis of committed data; a commit anywhere or a local write moves its key.
+# Analyses of committed data by content digest; _STAMPS maps a cheap connection stamp to its digest.
 _COMMITTED = {}
+_STAMPS = {}
+_COMMITTED_RUST = {}
+_LAST_CHANGES = {}
 _COMMITTED_LOCK = threading.Lock()
 
 
@@ -48,21 +51,67 @@ def read_only_scope():
 def _read_analysis(conn):
     memo = _READ_ANALYSIS.get()
     # Also discard display evidence after a local write or another connection's commit.
-    key = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
+    stamp = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
     if memo is not None:
-        if key not in memo:
-            memo[key] = _analyse(conn)
-        return memo[key]
-    if conn.in_transaction:
-        # Uncommitted evidence can be rolled back without moving the key, so it is never kept.
-        return _analyse(conn)
+        if stamp not in memo:
+            memo[stamp] = _committed_analysis(conn, stamp)
+        return memo[stamp]
+    return _committed_analysis(conn, stamp)
+
+
+def _committed_analysis(conn, stamp):
+    from . import core_links
+    if core_links.selected() == 'rust':
+        # costcore keeps its own content-digest cache; this layer must not mask its error and binary checks.
+        if conn.in_transaction:
+            # Uncommitted evidence can be rolled back without moving the key, so it is never kept.
+            return _analyse(conn)
+        with _COMMITTED_LOCK:
+            if stamp in _COMMITTED_RUST:
+                return _COMMITTED_RUST[stamp]
+        result = _analyse(conn)
+        with _COMMITTED_LOCK:
+            _COMMITTED_RUST.clear()
+            _COMMITTED_RUST[stamp] = result
+        return result
+    return _python_analysis(conn, stamp)
+
+
+def _python_analysis(conn, stamp):
+    """Python derivation keyed by the content of the columns it reads: only a change to them recomputes.
+
+    A commit elsewhere (a worker finishing a job) moves the stamp but not the digest and keeps the entry.
+    A write on this connection still recomputes once. The stamp only skips re-reading an unchanged database.
+    Nothing is stored from inside an open transaction, so a rollback cannot leave rows that never existed.
+    """
+    from . import core_links
+    settled = not conn.in_transaction
     with _COMMITTED_LOCK:
-        if key in _COMMITTED:
-            return _COMMITTED[key]
+        digest = _STAMPS.get(stamp) if settled else None
+        local_write = settled and _LAST_CHANGES.get(id(conn), (conn, stamp[1]))[1] != stamp[1]
+        if settled:
+            if len(_LAST_CHANGES) >= 8 and id(conn) not in _LAST_CHANGES:
+                _LAST_CHANGES.clear()
+            _LAST_CHANGES[id(conn)] = (conn, stamp[1])
+    if digest is None:
+        digest = core_links.source_digest(conn)
+        if settled:
+            with _COMMITTED_LOCK:
+                if len(_STAMPS) >= 8:
+                    _STAMPS.clear()
+                _STAMPS[stamp] = digest
+    key = (id(conn) if not core_links._database(conn) else core_links._database(conn), digest)
+    if not local_write:
+        with _COMMITTED_LOCK:
+            if key in _COMMITTED:
+                return _COMMITTED[key]
     result = _analyse(conn)
-    with _COMMITTED_LOCK:
-        _COMMITTED.clear()
-        _COMMITTED[key] = result
+    # A commit during the derivation makes the result belong to another state: use it once, do not keep it.
+    if settled and core_links.source_digest(conn) == digest:
+        with _COMMITTED_LOCK:
+            while len(_COMMITTED) >= 4:
+                _COMMITTED.pop(next(iter(_COMMITTED)))
+            _COMMITTED[key] = result
     return result
 
 
@@ -106,6 +155,11 @@ def refund_group(conn, original_id: str) -> list:
     siblings = {tid for tid, link in _read_analysis(conn)[0].items()
                 if link['original_id'] == original_id}
     return [original_id] + sorted(siblings)
+
+
+def all_refund_links(conn) -> dict:
+    """{refund_transaction_id: link} for every linked cancellation, without naming the ids."""
+    return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items()}
 
 
 def refund_links(conn, transaction_ids) -> dict:
