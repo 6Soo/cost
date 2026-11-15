@@ -8,6 +8,7 @@ from datetime import date
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from . import site_theme, ui_icons
+from . import static_assets
 from .site_assets import SHELL_STYLE as STYLE, SHELL_SCRIPT as SCRIPT
 
 EXPLANATION_PREFIXES = (
@@ -344,6 +345,6 @@ def wrap_document(document, path, *, status=200):
         document = re.sub(r'<html\b([^>]*)>', add_lang, document, count=1, flags=re.I)
     body_match = re.search(r'<body\b[^>]*>', document, re.I)
     end = list(re.finditer(r'</body\s*>', document, re.I))[-1].start()
-    return (document[:body_match.start()] + '<style id="site-shell-style">' + STYLE + site_theme.STYLE + '</style>'
+    return (document[:body_match.start()] + static_assets.link('site_shell', 'site-shell-style')
             + '<script>' + site_theme.BOOTSTRAP + '</script><body class="site-shell-body">' + shell +
-            '<script>' + SCRIPT + '</script>' + document[end:])
+            static_assets.script('site_shell') + document[end:])

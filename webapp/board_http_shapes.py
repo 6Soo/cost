@@ -190,6 +190,7 @@ def send_bytes(handler: Any, body: bytes, content_type: str) -> None:
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Cache-Control", "public, max-age=604800")
+    handler.send_header("X-Content-Type-Options", "nosniff")
     handler.end_headers()
     handler.wfile.write(body)
 

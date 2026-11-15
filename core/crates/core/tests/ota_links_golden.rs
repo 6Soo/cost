@@ -2,7 +2,7 @@
 //! 비교 대상은 연결 칸(쌍·상태·사유·성분 구성·보류 여부·근거 관계)이다. 이벤트 원문 복사 칸은 비교하지 않는다.
 //! 보호 불변식(속성 테스트): 한 카드가 두 연결에 점유되지 않고, 기존 수동 연결은 바뀌지 않는다.
 
-use cost_core::links::ota::{Defaults, LinkKind, Matcher, bind_legacy_portal_links};
+use cost_core::links::ota::{Defaults, LinkKind, Matcher};
 use cost_core::shadow::links::overlay_event;
 use proptest::prelude::*;
 use serde_json::{Map, Value, json};
@@ -166,31 +166,6 @@ fn overlay_is_needed_for_event_fields_the_link_omits() {
         "without the overlay the new cases must differ"
     );
     assert_eq!(differs(true), 0);
-}
-
-#[test]
-fn legacy_portal_links_bind_only_a_unique_exact_event() {
-    let event = |id: &str, booking: &str| {
-        json!({"ota_event_id": id, "provider": "agoda", "booking_ref": booking, "source_digest": "d1",
-               "card_last4": "2042", "amount": "30000", "currency": "KRW"})
-    };
-    let old = json!({"verified_exact": true, "evidence_kind": "portal_payment_claim", "booking_ref": "B1",
-                     "source_digest": "d1", "card_last4": "2042", "amount": "30000", "transaction_id": "syn-t1"});
-    let bound = bind_legacy_portal_links(
-        &[event("e1", "B1"), event("e2", "B2")],
-        std::slice::from_ref(&old),
-    );
-    assert_eq!(bound.len(), 1);
-    assert_eq!(bound["e1"]["transaction_id"], "syn-t1");
-    assert_eq!(bound["e1"]["source_digests"], json!(["d1"]));
-    let twice = bind_legacy_portal_links(
-        &[event("e1", "B1"), event("e3", "B1")],
-        std::slice::from_ref(&old),
-    );
-    assert!(twice.is_empty(), "중복 후보면 고정하지 않는다");
-    let unverified = json!({"verified_exact": false, "evidence_kind": "portal_payment_claim", "booking_ref": "B1",
-                            "source_digest": "d1", "card_last4": "2042", "amount": "30000", "transaction_id": "syn-t1"});
-    assert!(bind_legacy_portal_links(&[event("e1", "B1")], &[unverified]).is_empty());
 }
 
 fn event_strategy(n: usize) -> impl Strategy<Value = Value> {

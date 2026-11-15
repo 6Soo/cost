@@ -32,7 +32,11 @@ function Read-Image($Path, $Engine) {
         $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
         try {
             $result = Await ($Engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-            return @{text=($result.Lines | ForEach-Object { $_.Text }) -join "`n"; width=$decoder.PixelWidth; height=$decoder.PixelHeight}
+            $lines = @($result.Lines | ForEach-Object {
+                $tops = @($_.Words | ForEach-Object { $_.BoundingRect.Y })
+                @{text=$_.Text; top=$(if ($tops.Count) { [Math]::Round(($tops | Measure-Object -Minimum).Minimum / [double]$decoder.PixelHeight, 4) } else { 0 })}
+            })
+            return @{text=($result.Lines | ForEach-Object { $_.Text }) -join "`n"; width=$decoder.PixelWidth; height=$decoder.PixelHeight; lines=$lines}
         } finally { $bitmap.Dispose() }
     } finally { $stream.Dispose() }
 }
@@ -72,7 +76,7 @@ try {
         @{pages=$pages} | ConvertTo-Json -Depth 5 -Compress
     } elseif ($ImagePath) {
         $result = Read-Image ([IO.Path]::GetFullPath($ImagePath)) $engine
-        @{text=$result.text; width=$result.width; height=$result.height; language=$Language} | ConvertTo-Json -Compress
+        @{text=$result.text; width=$result.width; height=$result.height; language=$Language; lines=$result.lines} | ConvertTo-Json -Depth 4 -Compress
     } else { throw 'INPUT_REQUIRED' }
 } catch {
     [Console]::Error.WriteLine('LOCAL_OCR_FAILED')

@@ -1,6 +1,6 @@
 //! OTA 이벤트 ↔ 카드 최종 연결(M:N 묶음·점유·고정 그룹). 원본: `match_ota_payment_events`와 그 단계
 //! (`_prepare_match_state`, `_allocate_repeated_groups`, `_select_singleton_payments`, `_assemble_ota_match_results`,
-//! `_pinned_link_result`, `bind_legacy_portal_links`).
+//! `_pinned_link_result`).
 //!
 //! 기존 수동·고정·옛 포털 연결과 고정 그룹의 카드는 다시 계산하지 않고 점유된 입력으로만 읽는다. 입력에서 사라진 사건의
 //! 저장 연결도 점유로 남는다. 후보·거절 사유·점유 집합 같은 중간 산출물은 Python과 같다고 약속하지 않고, 최종 연결(쌍·
@@ -1197,48 +1197,4 @@ impl Matcher<'_> {
         run.select_singletons();
         run.assemble()
     }
-}
-
-/// `bind_legacy_portal_links`: 이미 검증된 포털 연결을 예약·원본·카드·금액 근거로 고정한다. 추측한 결제일은 쓰지 않는다.
-/// 반환은 이벤트 id → 고정 연결(`existing_links`에 그대로 넣을 수 있는 모양)이다.
-pub fn bind_legacy_portal_links(events: &[Value], legacy_links: &[Value]) -> Map<String, Value> {
-    let mut bound = Map::new();
-    for old in legacy_links {
-        if !truthy(get(old, "verified_exact"))
-            || !is_str(get(old, "evidence_kind"), "portal_payment_claim")
-        {
-            continue;
-        }
-        let currency = old.get("currency").cloned().unwrap_or_else(|| json!("KRW"));
-        let found: Vec<&Value> = events
-            .iter()
-            .filter(|e| {
-                is_str(get(e, "provider"), "agoda")
-                    && get(e, "booking_ref") == get(old, "booking_ref")
-                    && get(e, "source_digest") == get(old, "source_digest")
-                    && get(e, "card_last4") == get(old, "card_last4")
-                    && pystr(e.get("amount").unwrap_or(&Value::Null))
-                        == pystr(old.get("amount").unwrap_or(&Value::Null))
-                    && e.get("currency").unwrap_or(&Value::Null) == &currency
-            })
-            .collect();
-        if let [event] = found.as_slice() {
-            let digests: BTreeSet<String> =
-                match get(old, "source_digests").filter(|v| truthy(Some(v))) {
-                    Some(Value::Array(a)) => a.iter().map(pystr).collect(),
-                    _ => BTreeSet::from([pystr(&old["source_digest"])]),
-                };
-            bound.insert(
-                text(event, "ota_event_id"),
-                json!({
-                    "transaction_id": old["transaction_id"],
-                    "status": "MATCHED_AUTO",
-                    "legacy_exact": true,
-                    "source_digest": old["source_digest"],
-                    "source_digests": digests,
-                }),
-            );
-        }
-    }
-    bound
 }

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from webapp import ledger_design, site_shell, ledger_board
+from webapp.static_assets import inline_document
 
 
 def test_standalone_pages_share_navigation_without_changing_page_scripts():
@@ -45,7 +46,7 @@ def test_browser_shell_tracks_system_theme_and_mobile_more_dialog_keyboard():
 
     original = '<!doctype html><html><head><title>Synthetic shell</title></head><body><main>내용</main></body></html>'
     with patch.object(ledger_board, 'current_role', return_value='owner'):
-        document = site_shell.wrap_document(original, '/cards')
+        document = inline_document(site_shell.wrap_document(original, '/cards'))
 
     with sync_playwright() as api:
         browser = api.chromium.launch(headless=True)

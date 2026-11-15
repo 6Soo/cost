@@ -114,6 +114,8 @@ def _build_index(data, manual):
         result.setdefault(tid, metadata)
     for tid, metadata in _airline_exact_amount_periods(data, manual).items():
         result.setdefault(tid, metadata)
+    for tid, metadata in _gotogate_exact_amount_periods(data, manual).items():
+        result.setdefault(tid, metadata)
     for tid, metadata in _airbnb_code_periods(data, manual).items():
         result.setdefault(tid, metadata)
     for tid, metadata in _agoda_recorded_card_periods(data, manual).items():
@@ -758,6 +760,76 @@ def _airline_exact_amount_periods(data, manual):
     result = {}
     for event_id, tids in matches.items():
         amount, start, end, booking_ref = held[event_id]
+        if len(tids) != 1 or len(same_amount[amount]) != 1:
+            continue
+        tid = next(iter(tids))
+        card = cards[tid]
+        if (len(claims[tid]) != 1 or tid in occupied or 'card-' + tid in manual
+                or card.get('transaction_direction') != 'purchase' or not card.get('source_hash')
+                or any(card.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason',
+                                             'ota_review_held', 'reservation_refund_blocked'))
+                or card.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
+            continue
+        result[tid] = {'booking_ref': booking_ref, 'booking_refs': [booking_ref],
+                       'service_period': start.isoformat() + '~' + end.isoformat(), 'item': '항공료',
+                       'ota_evidence': {'kind': 'reservation_period_inferred', 'payment_verified': False}}
+    return result
+
+
+def _gotogate_exact_amount_periods(data, manual):
+    """A Mytrip/Gotogate confirmation mail names its flight dates for the one gateway card that equals its total.
+
+    The mail carries no card tail and the gateway descriptor no order, so the pairing is the exact KRW
+    total, the gateway's own descriptor and the day the mail was sent (+-1 day), one-to-one on both sides.
+    Display only (reservation_period_inferred): no payment, trip or reservation relation is made.
+    """
+    from datetime import date, timedelta
+    from app.ota_matching_defaults import provider_for_merchant
+    flags = ('evidence_missing', 'evidence_changed', 'period_conflict', 'service_period_conflict')
+    held = {}
+    for event in data.get('events', []):
+        if (event.get('provider') != 'gotogate' or event.get('event_type') != 'reservation'
+                or event.get('reservation_status') != 'observed' or not event.get('booking_ref')
+                or not event.get('source_digest') or any(event.get(k) for k in flags)
+                or str(event.get('currency') or '').upper() != 'KRW'):
+            continue
+        amount = _decimal(event.get('amount_krw'))
+        period = event.get('service_period') or {}
+        try:
+            start, end = (date.fromisoformat(period[key]) for key in ('starts_on', 'ends_on'))
+            days = [date.fromisoformat(day) for day in event.get('reservation_observed_on') or ()]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if amount is None or amount <= 0 or not 0 <= (end - start).days <= 366 or len(days) != 1:
+            continue
+        held[str(event.get('ota_event_id'))] = (amount, start, end, days[0], str(event['booking_ref']))
+    if not held:
+        return {}
+    occupied = _occupied_cards(data)
+    cards = {}
+    for card in data.get('transactions', []):
+        if provider_for_merchant(card.get('merchant')) == 'gotogate':
+            cards[str(card.get('transaction_id'))] = card
+    matches, claims = defaultdict(set), defaultdict(set)
+    for event_id, (amount, _start, _end, sent, _ref) in held.items():
+        for tid, card in cards.items():
+            try:
+                bought = date.fromisoformat(str(card.get('approval_date') or card.get('transaction_date') or '')[:10])
+            except ValueError:
+                continue
+            if _decimal(card.get('amount_krw')) == amount and abs(bought - sent) <= timedelta(days=1):
+                matches[event_id].add(tid)
+                claims[tid].add(event_id)
+    # Uniqueness counts every confirmation naming that total, cancelled or re-sent on another day included.
+    same_amount = defaultdict(set)
+    for event in data.get('events', []):
+        if event.get('provider') == 'gotogate' and event.get('event_type') == 'reservation':
+            total = _decimal(event.get('amount_krw'))
+            if total is not None and total > 0:
+                same_amount[total].add(str(event.get('ota_event_id')))
+    result = {}
+    for event_id, tids in matches.items():
+        amount, start, end, _sent, booking_ref = held[event_id]
         if len(tids) != 1 or len(same_amount[amount]) != 1:
             continue
         tid = next(iter(tids))

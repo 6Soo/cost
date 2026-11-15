@@ -1,4 +1,4 @@
-"""HTTP-level proof for Muse read-only extraction and optional ticket grouping."""
+"""HTTP-level proof for read-only receipt reading and optional ticket grouping."""
 from unittest.mock import patch
 import time
 import pytest
@@ -34,8 +34,8 @@ def test_vision_is_owner_scoped_read_only_and_muse_unavailable_defaults_closed(c
     with receipt_vision_jobs._LOCK:
         receipt_vision_jobs._JOBS.clear()
         receipt_vision_jobs._BY_IMAGE.clear()
-    with patch("webapp.receipt_review.opencode_receipt_vision.enabled", return_value=True), \
-         patch("webapp.receipt_review.opencode_receipt_vision.recognize", return_value=response) as model:
+    with patch("webapp.receipt_review.receipt_vision.enabled", return_value=True), \
+         patch("webapp.receipt_review.receipt_vision.recognize", return_value=response) as model:
         status, started = case.request("/api/receipts/vision", {"image": image}, token=case.csrf())
         assert status == 202 and started["job_id"]
         data = None
