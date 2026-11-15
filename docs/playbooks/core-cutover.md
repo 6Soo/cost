@@ -138,6 +138,19 @@
 7. **차이가 1건이라도 나오면**: 즉시 `WEBLEDGER_LINKS_PRODUCER`를 지우고(또는 `python`) 재시작해 Python으로 되돌린다. 연결은 저장하지 않고 Python이 원행에서 다시 도출하므로 되돌림에 데이터 복구가 필요 없다. 이미 Rust 연결로 기록된 묶음 행은 지우지 않는다(수동 교정 우선·이력 보존). 원인을 고친 뒤 C1~C3을 다시 잰다. 되돌린 사실과 원인을 `docs/operations.md`에 적는다.
 8. 전환 뒤 매일 6단계를 돌린다(Python 연결 코드 퇴역 때까지).
 
+## 전환 전 확인 사항(2026-11-15)
+
+- **읽기 스냅숏 경합**: `BEGIN`으로 연 읽기 연결의 스냅숏이 낡은 뒤 다른 연결이 짝 입력을 커밋하면 `rust`는 `CORE_LINKS_UNCOMMITTED_ROWS`로 실패했다(Python은 영향 없음). 이제 `card_transactions.list_for_day`·`sheets_export.build_workbook`·`partial_refund.read_only_scope`(워커·화면 렌더)·`PRAGMA query_only=ON` 연결은 스냅숏이 보는 행을 stdin으로 보내 답한다. 쓰기 트랜잭션은 여전히 `uncommitted_rows()` 없이는 거부한다.
+- **비용**: 하나 대체 분기(스냅숏 행이 파일과 다를 때)는 호출마다 `transactions` 전체를 JSON으로 stdin에 보낸다(행 수에 비례). 운영 사본 크기에서의 실측은 운영 담당이 6단계 대조와 함께 잰다(구현자는 재지 않았다).
+
+- **전환 전 확인 완료 목록**(`WEBLEDGER_LINKS_PRODUCER=rust`, 브라우저 제외 전체 시험 560개 파일, 2026-11-15 `7c76adde` + 이 PR). Python 기준 대조에서 rust에서만 실패한 시험 310건(33개 파일)을 분류했다. **제품 결함은 위 읽기 스냅숏 경합 1건뿐이었고 고쳤다.** 나머지는 시험 구조 문제이며 운영 DB(전체 보드 스키마·파일 DB)에는 해당하지 않는다.
+  - 파일 DB가 없는 시험(`:memory:`, `CORE_LINKS_NEEDS_FILE_DATABASE`): `test_partial_refund`·`test_refund_inference_runtime`·`test_refund_foreign_pairs`·`test_refund_approval_padding`·`test_quarter_review_eval_*`·`test_expense_bulk_maintenance`(미리보기 메모리 사본)·`test_cleanup_query_equivalence` 등. 운영은 파일 DB라 해당 없음.
+  - 최소 스키마 시험 DB(`transactions`만 있어 `costcore links refund --db`가 보드 보조 테이블을 못 읽어 `STORE_ERROR`): `test_card_transactions`·`test_cards_all*`·`test_card_issuer_search`·`test_card_upload_reconciliation`·`test_pipeline`·`test_card_refund_destination`·`test_card_stage_metrics` 등. 운영 보드는 전체 스키마. 후속 후보: 환불 짝 경로가 `transactions`만 읽도록 좁히면 최소 스키마 시험도 통과하고 분기 비용도 줄어든다(Rust 변경이라 이 PR에서 하지 않음).
+  - Python 풀이기를 stub으로 관찰하는 OTA 시험(Rust OTA 풀이기는 stub 결제를 보지 않음): `test_core_bridge_ota_input`·`test_ota_payment_review`·`test_ota_snapshot_actions`·`test_toyoko_reconciliation` 27건. OTA 동등성은 `costcore shadow-links --ota-input`(C1)이 잰다.
+  - 부하 시간 초과 1건: `test_continuous_deployment`(PowerShell 하위 실행, Idle 우선순위). 환불 짝과 무관.
+  - Python 기준에서도 실패한 것은 기존 known 목록 또는 부하·브라우저 시험이다(Python 재실행 6건이 known 밖이었으나 같은 부하 시간 초과·브라우저 시험 성격).
+  - 시험 `test_hana_repair_cli_apply_on_verified_isolated_copy`는 외부 실행 차단을 costcore 호출만 허용하도록 좁혔다(기대값 불변).
+
 ## 실패와 복구
 
 - `PYTHON_BRIDGE_FAILED:*`·`ENVELOPE_MISMATCH`: 다리 실행 실패. 그림자는 PASS도 FAIL도 아니라 오류로 끝난다. 원인을 고쳐 다시 돌린다(전환 전이면 전환하지 않는다).

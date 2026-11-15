@@ -130,9 +130,14 @@ def _uncommitted(conn, path: str, digest: str) -> bool:
     """
     if not (conn.in_transaction and _committed_digest(path) != digest):
         return False
-    if not _UNCOMMITTED_OK.get():
+    if not (_UNCOMMITTED_OK.get() or _query_only(conn)):
         raise RuntimeError('CORE_LINKS_UNCOMMITTED_ROWS')
     return True
+
+
+def _query_only(conn) -> bool:
+    """A query_only connection holds no writes of its own: its differing rows are a read snapshot, not a rollback risk."""
+    return bool(conn.execute('PRAGMA query_only').fetchone()[0])
 
 
 def analyse(conn) -> tuple:
