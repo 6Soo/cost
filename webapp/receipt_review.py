@@ -25,9 +25,11 @@ from contextlib import contextmanager
 
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
-from app import opencode_receipt_vision
+from app import receipt_vision
 from app.google_tsv import expense_tsv
 from app import receipt_learning
+from app import receipt_trip_match as trip_match
+from app.receipt_image import sniff_image
 from . import receipt_vision_jobs, ui_icons, site_assets
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
@@ -252,60 +254,6 @@ def _save(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def sniff_image(body: bytes) -> str:
-    """The media type the bytes really are, checked structurally. Anything else is refused."""
-    if body.startswith(b"\x89PNG\r\n\x1a\n"):
-        pos, first, ended = 8, True, False
-        while pos + 8 <= len(body) and not ended:
-            length = int.from_bytes(body[pos:pos + 4], "big")
-            kind = body[pos + 4:pos + 8]
-            if first and (kind != b"IHDR" or length != 13):
-                raise ValueError("IMAGE_CORRUPT")
-            first = False
-            pos += 12 + length
-            ended = kind == b"IEND"
-        if not ended or pos != len(body):
-            raise ValueError("IMAGE_CORRUPT")
-        return "image/png"
-    if body.startswith(b"\xff\xd8\xff"):
-        # Phone cameras append data after the EOI marker, so the end of the file is not the end of the picture.
-        if _jpeg_has_eoi(body) or body.rstrip().endswith(b"\xff\xd9"):
-            return "image/jpeg"
-        raise ValueError("IMAGE_CORRUPT")
-    if body[4:8] == b"ftyp" and body[8:12] in (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1", b"avif"):
-        raise ValueError("IMAGE_HEIC")
-    raise ValueError("IMAGE_TYPE_UNSUPPORTED")
-
-
-def _jpeg_has_eoi(body: bytes) -> bool:
-    """Follows the JPEG segments to the end of the scan; data after that EOI is not inspected."""
-    pos, size, framed = 2, len(body), False
-    while pos + 1 < size:
-        if body[pos] != 0xFF:
-            return False
-        marker = body[pos + 1]
-        if marker == 0xFF:
-            pos += 1
-            continue
-        if marker == 0x01 or 0xD0 <= marker <= 0xD8:
-            pos += 2
-            continue
-        if marker == 0xD9 or pos + 4 > size:
-            return False
-        framed = framed or (0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC))
-        pos += 2 + int.from_bytes(body[pos + 2:pos + 4], "big")
-        if marker != 0xDA:
-            continue
-        if not framed:
-            return False
-        while pos + 1 < size:
-            if body[pos] == 0xFF and body[pos + 1] not in (0x00, 0xFF) and not 0xD0 <= body[pos + 1] <= 0xD7:
-                break
-            pos += 1
-        if pos + 1 < size and body[pos + 1] == 0xD9:
-            return True
-    return False
-
 
 @_serialized
 def store_image(path: Path, body: bytes) -> dict:
@@ -406,6 +354,10 @@ def _validate_draft_groups(groups, images):
         if group.get('feedback') is not None and (not isinstance(group['feedback'], str) or len(group['feedback']) > 4096):
             raise ValueError('DRAFT_INVALID')
         if 'empty' in group and type(group['empty']) is not bool:
+            raise ValueError('DRAFT_INVALID')
+        if group.get('headerText') is not None and (not isinstance(group['headerText'], str) or len(group['headerText']) > trip_match.MAX_HEADER_CHARS):
+            raise ValueError('DRAFT_INVALID')
+        if group.get('headerSource') not in (None, 'model', 'ocr'):
             raise ValueError('DRAFT_INVALID')
         if not isinstance(group.get('receipts'), list) or len(group['receipts']) > 100:
             raise ValueError('DRAFT_INVALID')
@@ -530,8 +482,8 @@ def reading_key(values: dict) -> str:
 
 def _recognizer(guidance, lesson=False):
     def run(image_path):
-        result = opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
-        # The reading is what Muse first gave; a later correction must not change which receipt it is.
+        result = receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
+        # The reading is what the model first gave; a later correction must not change which receipt it is.
         for item in result.get('receipts', []):
             item['reading'] = reading_key({'merchant': item['merchant'], 'date': item['date'], 'total': item['amount'],
                                            'currency': item['currency'], 'payment': item['payment']})
@@ -580,11 +532,11 @@ def vision_new(path: Path, *, image: str, job_id: str) -> dict:
     for key, entries in groups.items():
         unmatched_known = 0
         for box in known.get(key, []):
-            box = opencode_receipt_vision._valid_box(box)
+            box = receipt_vision._valid_box(box)
             choices = []
             if box is not None:
                 for index, item in entries:
-                    other = opencode_receipt_vision._valid_box(item.get('box'))
+                    other = receipt_vision._valid_box(item.get('box'))
                     if index not in matched and other is not None:
                         choices.append((rc._overlap(box, other), index))
             best = max(choices, default=(0, -1))
@@ -652,10 +604,20 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         if (payload.get('trip_id') or '') != draft['trip_id'] or not any(group.get('sha') == payload.get('image') for group in draft['groups']):
             raise ValueError('DRAFT_SOURCE_MISMATCH')
         _validate_draft_groups(draft_request.get('remaining_groups'), data['images'])
-    regions = _regions(payload)
     requested_trip = payload.get("trip_id") or None
+    trips = _trip_records(board)
     if requested_trip is not None and requested_trip not in _trip_ids(board):
         raise ValueError("TRIP_UNKNOWN")
+    header_value = payload.get('header_text')
+    if header_value is not None and not isinstance(header_value, (str, list)):
+        raise ValueError('INVALID_VALUE')
+    if payload.get('header_source') not in (None, 'model', 'ocr'):
+        raise ValueError('INVALID_VALUE')
+    # The trip title printed at the top is not a store: a reading that is only that line loses its merchant.
+    payload = dict(payload, regions=_without_header_merchant(payload.get('regions'), header_value, trips))
+    regions = _regions(payload)
+    # OCR top lines may be the store's own name and address: they count only with the trip's MMDD.
+    header = trip_match.match_header(header_value, trips, require_date=payload.get('header_source') != 'model')
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
@@ -695,6 +657,13 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         stored['category'] = region.category
         if requested_trip is not None:
             stored['trip_id'] = requested_trip
+            stored['trip_source'] = 'manual'
+        else:
+            found = trip_match.decide(header, candidate.date, trips)
+            if found['trip_id']:
+                stored.update(trip_id=found['trip_id'], trip_source=found['source'])
+        if header['raw']:
+            stored['trip_header_text'] = header['raw']
         _settle(stored, cards)
         if payload.get("image"):
             # Without a position, the candidate identity (photo + reading + copy number) is the source key.
@@ -725,6 +694,19 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         draft.setdefault('operations', []).append({'operation_id': operation_id, 'digest': digest, 'result': response})
     _save(path, data)
     return response
+
+
+def _without_header_merchant(raw, header_value, trips):
+    if not isinstance(raw, list) or not header_value:
+        return raw
+    kept = []
+    for region in raw:
+        if isinstance(region, dict) and trip_match.is_header_text(region.get('merchant'), header_value, trips):
+            region = {**region, 'merchant': None}
+            if all(region.get(key) in (None, '') for key in ('merchant', 'date', 'total')):
+                continue
+        kept.append(region)
+    return kept
 
 
 def _match_card(card_rows_list: list, stored: dict) -> list:
@@ -851,6 +833,11 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
             stored[key] = int(value) if key == total_field else str(value).strip()
+        if 'trip_id' in changes and changes['trip_id'] != before.get('trip_id'):
+            if stored['trip_id']:
+                stored['trip_source'] = 'manual'
+            else:
+                stored.pop('trip_source', None)
         if total_field == 'total_jpy' and 'total_original' in stored:
             stored['total_original'] = stored['total_jpy']
         others = [c for c in data["candidates"] if c["identity"] != identity]
@@ -1049,13 +1036,13 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             image_bytes(path, sha)  # Only this owner's registered images may be read.
             try:
                 result = local_receipt_ocr.recognize(_images_dir(path) / f'{sha}.bin', body.get('language', 'ja'))
-                handler._send_json(result)
+                handler._send_json({**result, 'header_text': '\n'.join(trip_match.top_lines(result.get('lines')))})
             except local_receipt_ocr.OcrError as error:
                 handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
         elif parsed.path == "/api/receipts/vision":
-            if not opencode_receipt_vision.enabled():
+            if not receipt_vision.enabled():
                 handler._send_json({"code": "VISION_DISABLED",
-                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                                    "message": "영수증 판독이 설정되지 않았습니다."}, 501)
                 return True
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -1071,9 +1058,9 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 return True
             handler._send_json(state, 202)
         elif parsed.path == "/api/receipts/vision/rescan":
-            if not opencode_receipt_vision.enabled():
+            if not receipt_vision.enabled():
                 handler._send_json({"code": "VISION_DISABLED",
-                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                                    "message": "영수증 판독이 설정되지 않았습니다."}, 501)
                 return True
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -1144,8 +1131,28 @@ def _trips(board) -> list[dict]:
     return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"]} for t in board.list_trips()]
 
 
+def _trip_records(board) -> list[dict]:
+    """Trips with their period, for matching a receipt photo's header or date to one trip."""
+    if board is None:
+        return []
+    return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"], "destination": t.get("destination") or "",
+             "starts_on": t.get("starts_on") or "", "ends_on": t.get("ends_on") or ""}
+            for t in board.list_trips() if t.get("tab_kind", "trip") == "trip"]
+
+
 def _trip_ids(board) -> set:
     return {t["id"] for t in _trips(board)}
+
+
+TRIP_SOURCES = {'header_text': '사진 상단 여행명', 'date': '영수증 날짜', 'manual': '직접 지정'}
+
+
+def _trip_source_html(candidate: dict) -> str:
+    label = TRIP_SOURCES.get(candidate.get('trip_source') or '')
+    raw = candidate.get('trip_header_text')
+    if not candidate.get('trip_id') or not label:
+        return f"<small data-trip-source>여행 미정{' · 인식한 여행명: ' + html.escape(raw) if raw else ''}</small>"
+    return f"<small data-trip-source>여행 분류: {label}{' · 인식한 여행명: ' + html.escape(raw) if raw else ''}</small>"
 
 
 def _row_html(candidate: dict, trips: list) -> str:
@@ -1160,10 +1167,12 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<td data-label='상호·날짜·여행'>{source}"
         f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
         f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
-        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미정</option>"
+        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미정 (사진 상단 여행명·날짜로 분류)</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
-        + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
+        + "</select></label>"
+        + _trip_source_html(candidate)
+        + f"<label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
         f"<label>거래일<input data-date='{identity}' aria-label='거래일' value='{html.escape(candidate['date'])}'></label></td>"
         f"<td data-label='금액·결제'><label>금액({candidate.get('currency', 'JPY')})<input data-total='{identity}' aria-label='금액({candidate.get('currency', 'JPY')})' value='{_native_total(candidate)}' inputmode='numeric'></label>"
         f"<label>결제수단<select data-payment='{identity}' aria-label='결제수단'>"
@@ -1264,7 +1273,8 @@ const receiptCard=(group,index,receipt)=>{
  const sync=()=>{Object.assign(receipt,{include:include.checked,merchant:merchant.value.trim()||null,date:date.value.trim()||null,
    amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
  for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
- card.append(top,preview,regionNote,regionFields,merchant,amount,row2,error,remove);
+ const hint=document.createElement('p');hint.className='receipt-reading-note';hint.textContent=receipt.note?'판독 메모: '+receipt.note:'';hint.hidden=!receipt.note;
+ card.append(top,preview,regionNote,regionFields,merchant,amount,row2,hint,error,remove);
  if(receiptBusy)card.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);
  return card;
 };
@@ -1294,12 +1304,13 @@ const pollJob=async(state,label)=>{const t0=Date.now();
  }
  return state};
 const jobFailure=state=>state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':
- state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'Muse 인식에 실패했습니다. 직접 입력해 주세요.';
+ '영수증 판독에 실패했습니다. 직접 입력해 주세요.';
 const completeJob=async(group,state)=>{
  if(state.status!=='done')throw new Error(jobFailure(state));
  const source=group.kind==='rescan'?(await post('/api/receipts/vision/new',{image:group.sha,job_id:state.job_id})).new:state.result.receipts;
- group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}));
- group.jobId=state.job_id;delete group.status;group.empty=group.receipts.length===0;
+ group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,note:r.note??null,reading:r.reading,ordinal:r.ordinal,include:true}));
+ group.jobId=state.job_id;if(state.result.header_text){group.headerText=state.result.header_text;group.headerSource=state.result.engine==='windows_ocr'?'ocr':'model'}
+ if(state.result.engine==='windows_ocr')say('Claude 판독이 끝나지 않아('+(state.result.fallback_reason||'')+') Windows OCR 참고값으로 대신했습니다. 값을 꼭 확인해 주세요.');delete group.status;group.empty=group.receipts.length===0;
  setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
  storePending();await flushDraft();renderPending();return group.receipts.length;
 };
@@ -1355,7 +1366,7 @@ const registerPending=async()=>{
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const remaining=pending.map(item=>item===group?{...item,receipts:item.receipts.filter(r=>r.include===false)}:item)
      .filter(item=>item.receipts.length||item.empty||item.status==='unknown');
-   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,regions,
+   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,header_text:group.headerText||undefined,header_source:group.headerText?(group.headerSource||'ocr'):undefined,regions,
      draft:{draft_id:draftId,expected_revision:draftRevision,operation_id:group.operationId,remaining_groups:remaining}});
    added+=result.added;
    if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
@@ -1503,7 +1514,7 @@ def _photo_strip(data: dict) -> str:
             "<div class='photo'>"
             f"<button type='button' data-image-sha='{sha}' data-photo-index='{index}' aria-pressed='{pressed}' "
             f"aria-label='사진 {index} 선택'><img loading='lazy' src='/api/receipts/image/{sha}' alt='사진 {index}'></button>"
-            + (f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}'{checked}> 분석</label>" if opencode_receipt_vision.enabled() else '')
+            + (f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}'{checked}> 분석</label>" if receipt_vision.enabled() else '')
             +
             f"<span class='photo-state' data-photo-state='{sha}'>{state}</span>"
             + (f"<button type='button' data-manual-image='{sha}'>내용 직접 입력</button>" if sha not in covered else '')
@@ -1564,7 +1575,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                 for i, sha in enumerate(pdf['pages'], 1)) + "</ul></li>"
         for pdf in data.get('pdfs', []) if pdf['sha256'] not in recorded_pdfs
     )
-    ai = opencode_receipt_vision.enabled()
+    ai = receipt_vision.enabled()
     script = (
         f"const csrf={json.dumps(csrf)};const aiAvailable={json.dumps(ai)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -1643,11 +1654,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "}catch(error){const uncertain=error.uploadUncertain||error.name==='AbortError'||error instanceof TypeError;if(uncertain&&body){try{const recovered=await recoverUpload(body,pdf);if(recovered){showUploaded(file,recovered,pdf,row);const preview=document.getElementById('manual-preview');preview.src='/api/receipts/image/'+encodeURIComponent(document.getElementById('image-sha').value);preview.hidden=false;continue}}catch{}}failedFiles.add(file);row.textContent='';row.className='upload-row is-fail';row.__file=file;const nameEl=document.createElement('span');nameEl.className='upload-name';nameEl.textContent=file.name;nameEl.title=file.name;const msgEl=document.createElement('span');msgEl.className='upload-msg';const longText=(uncertain?'저장 여부를 확인해 주세요: ':'실패: ')+(error.name==='AbortError'?'응답 시간이 초과됐습니다. 저장 여부를 확인한 뒤 다시 시도해 주세요.':error.message||'다시 시도해 주세요.');const shortText=uncertain?'저장 확인 필요':({IMAGE_TYPE_UNSUPPORTED:'형식 미지원',IMAGE_HEIC:'HEIC 미지원',IMAGE_CORRUPT:'손상',IMAGE_TOO_LARGE:'5MB 초과',IMAGE_SIZE_INVALID:'빈 파일'}[error.code]||'실패');msgEl.textContent=shortText;msgEl.title=longText;msgEl.setAttribute('aria-hidden','true');const fullEl=document.createElement('span');fullEl.className='upload-full';fullEl.textContent=longText;row.title=longText;const acts=document.createElement('span');acts.className='upload-actions';const retry=document.createElement('button');retry.type='button';retry.textContent='재시도';retry.dataset.uploadRecovery='1';retry.dataset.uploadRetry='1';retry.setAttribute('aria-label','다시 시도');retry.title=file.name+' 다시 시도';retry.disabled=true;retry.onclick=()=>{if(receiptBusy)return;if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}failedFiles.delete(file);row.remove();syncBulk();uploadFiles([file])};const remove=document.createElement('button');remove.type='button';remove.textContent='제거';remove.setAttribute('aria-label','실패 파일 제거');remove.title=file.name+' 제거';remove.dataset.uploadRecovery='1';remove.dataset.uploadRemove='1';remove.disabled=true;remove.onclick=()=>{if(receiptBusy)return;failedFiles.delete(file);row.remove();syncBulk()};acts.append(retry,remove);acts.prepend(msgEl);row.append(nameEl,fullEl,acts)}}}"
         "finally{restore();receiptBusy=false;results.querySelectorAll('[data-upload-recovery]').forEach(button=>button.disabled=false);syncBulk();document.dispatchEvent(new Event('receipt-workflow-change'))}};"
         "document.getElementById('img-go').onclick=()=>{if(!selectedFiles.length){document.getElementById('file-error').textContent='등록할 파일을 하나 이상 선택하세요.';document.getElementById('img-file').focus();return}if(manualHasInput()){say('직접 입력한 내용을 먼저 등록하거나 지워 주세요.');return}const files=selectedFiles;selectedFiles=[];renderSelectedFiles();uploadFiles(files)};"
-        "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
+        "let ocrHeader={sha:'',text:''};const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
         "const result=await post('/api/receipts/upload',{image:sha,language:document.getElementById('ocr-language').value});"
-        "document.getElementById('ocr-text').value=result.text;"
+        "document.getElementById('ocr-text').value=result.text;ocrHeader={sha,text:result.header_text||''};"
         "const hints=result.suggestions||{};if(hints.date&&!document.getElementById('r-date').value)document.getElementById('r-date').value=hints.date;"
         "if(hints.total_jpy&&document.getElementById('r-currency').value==='JPY'&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
         "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
@@ -1657,7 +1668,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}),null,true)};"
+        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,header_text:(ocrHeader.sha===sha?ocrHeader.text:'')||undefined,header_source:'ocr',regions:[region]}),null,true)};"
         "const editBody=b=>{const id=b.dataset.edit;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),payee:val('data-payee',id),category:val('data-category',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"
@@ -1689,7 +1700,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
            if local_receipt_ocr.enabled() else
            "<p id='receipt-ocr-disabled'>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>")
     ai_section = ("<section id='step-ai'><h2>영수증 분석 결과</h2>"
-                  + ("<p class='hint'>체크한 사진을 Muse가 한 장씩 읽습니다. 원본 사진은 무료 AI 모델로 전송되며, 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
+                  + ("<p class='hint'>체크한 사진을 Claude(구독 opus)가 한 장씩 읽습니다. 원본 사진은 Anthropic으로 전송되며, 실패하면 이 PC의 Windows OCR 결과로 대신합니다. 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
                      "<button type='button' id='vision-go'>체크한 사진 분석</button>" if ai else
                      "<p>자동 분석을 사용할 수 없습니다. 저장된 결과를 확인하거나 직접 입력해 주세요.</p>")
                   + "<p id='draft-status' role='status'></p><div id='draft-recovery'></div>"
@@ -1697,7 +1708,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                   + (_rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요") if ai else '')
                   + "</section>")
     workflow_steps = ui_components.steps([
-        {"label": "1. 여행 선택", "state": "todo", "href": "#step-trip"},
+        {"label": "1. 여행 지정(선택)", "state": "todo", "href": "#step-trip"},
         {"label": "2. 파일 등록", "state": "todo", "href": "#step-photos"},
         {"label": "3. 결과 확인·수정", "state": "todo", "href": "#step-review"},
         {"label": "4. 장부용 복사", "state": "todo", "href": "#step-copy"},
@@ -1715,9 +1726,9 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<p class='workflow-return'><a class='work-back' href='/board'>선택한 여행별 비용으로 돌아가기</a></p>"
             "<main><h1>영수증 처리</h1><p id='status' role='status' aria-live='polite'></p>"
             + workflow_steps
-             + "<section id='step-trip'><h2>1. 여행 선택</h2><div class='field'><label for='selected-trip'>여행</label>"
-             "<select id='selected-trip'><option value=''>여행 미정 (나중에 지정)</option>" + trip_options +
-             "</select><p id='trip-error' class='field-error' role='alert'></p></div></section>"
+             + "<section id='step-trip'><h2>1. 여행 지정 (선택)</h2><div class='field'><label for='selected-trip'>여행</label>"
+             "<select id='selected-trip'><option value=''>자동 분류 (사진 상단 여행명)</option>" + trip_options +
+             "</select><p class='hint'>비워 두면 사진 상단에 적힌 여행명으로 알아서 분류합니다. 여행을 고르면 그 여행이 우선합니다.</p><p id='trip-error' class='field-error' role='alert'></p></div></section>"
              "<section id='step-photos'><h2>2. 파일 등록</h2>"
              + file_drop_html
              + "<ul id='selected-files' aria-live='polite'></ul>"

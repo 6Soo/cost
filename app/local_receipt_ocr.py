@@ -43,7 +43,10 @@ def recognize(image: Path, language: str = 'ja') -> dict:
         result = json.loads(process.stdout.decode('utf-8-sig'))
         if not isinstance(result.get('text'), str) or not result['text'].strip():
             raise OcrError('OCR_TEXT_EMPTY')
-        return {**result, 'suggestions': suggestions(result['text'], language),
+        lines = [{'text': line['text'], 'top': line['top']} for line in result.get('lines') or []
+                 if isinstance(line, dict) and isinstance(line.get('text'), str)
+                 and type(line.get('top')) in (int, float)][:200]
+        return {**result, 'lines': lines, 'suggestions': suggestions(result['text'], language),
                 'requires_review': True}
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, KeyError):
         raise OcrError('OCR_FAILED') from None
