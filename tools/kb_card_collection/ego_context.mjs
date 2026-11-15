@@ -344,8 +344,14 @@ function buildCapture(space, page, selectorMap, operation, args) {
           for (const [role, expected] of [["periodEchoStart", args.startDate], ["periodEchoEnd", args.endDate]]) {
             if (result[role]?.text !== expected) throw contextRequired("query period does not match the requested ISO dates");
           }
-          const label = args.source === SOURCES.DOMESTIC ? "국내" : "해외";
-          if (!result.periodEchoSource?.text?.includes(label)) throw contextRequired("query source summary does not match domestic/overseas");
+          // This context is shared with issuer collectors, which validate their exact source echo
+          // against the verified provider profile in their own boundary.
+          const sourceLabel = args.source === SOURCES.DOMESTIC
+            ? "국내"
+            : args.source === SOURCES.OVERSEAS ? "해외" : null;
+          if (sourceLabel !== null && !result.periodEchoSource?.text?.includes(sourceLabel)) {
+            throw contextRequired("query source summary does not match domestic/overseas");
+          }
         }
         return result;
       },

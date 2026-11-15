@@ -8,7 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { SOURCE_URLS } from "../../tools/kb_card_collection/policy.mjs";
+import { SOURCE_URLS, SOURCES } from "../../tools/kb_card_collection/policy.mjs";
 import { createCapture, resetContextRuntime, setContextRuntime } from "../../tools/kb_card_collection/ego_context.mjs";
 
 const ENV_KEYS = ["KB_CARD_BROWSER_CONTEXT"];
@@ -196,6 +196,63 @@ await check("navigate: fixed source map, once per capture, unknown labels no-op"
     await capture.snapshot(["summaryResults"]);
     assert.deepEqual(page.pageCalls, [], "navigation is memoized for one round");
     resetContextRuntime();
+  });
+});
+
+await check("download source echo: issuer labels pass through; KB domestic/overseas labels stay guarded", async () => {
+  await withoutEnv(async () => {
+    try {
+      const dates = { periodEchoStart: "2026-10-02", periodEchoEnd: "2026-10-05" };
+      const pageFor = (sourceEcho) => fakePage({
+        async snapshot() {
+          this.pageCalls.push("snapshot");
+          return {
+            periodEchoSource: { present: true, text: sourceEcho },
+            periodEchoStart: { present: true, text: dates.periodEchoStart },
+            periodEchoEnd: { present: true, text: dates.periodEchoEnd },
+          };
+        },
+      });
+      const captureFor = async (source, page) => {
+        setContextRuntime({ taskSpace: async () => pagedTask(page) });
+        return createCapture({
+          space: "s", selectors: SELECTORS, operation: "download",
+          args: { source, startDate: dates.periodEchoStart, endDate: dates.periodEchoEnd },
+        });
+      };
+
+      for (const source of ["하나 기업카드 이용내역", "IBK 기업카드 이용내역"]) {
+        const capture = await captureFor(source, pageFor("기업카드 이용내역"));
+        const snapshot = await capture.snapshot(["periodEchoSource", "periodEchoStart", "periodEchoEnd"]);
+        assert.equal(snapshot.periodEchoSource.text, "기업카드 이용내역");
+        resetContextRuntime();
+      }
+
+      const domestic = await captureFor(SOURCES.DOMESTIC, pageFor("국내 매입"));
+      assert.equal((await domestic.snapshot(["periodEchoSource", "periodEchoStart", "periodEchoEnd"]))
+        .periodEchoSource.text, "국내 매입");
+      resetContextRuntime();
+
+      const overseas = await captureFor(SOURCES.OVERSEAS, pageFor("해외 매입"));
+      assert.equal((await overseas.snapshot(["periodEchoSource", "periodEchoStart", "periodEchoEnd"]))
+        .periodEchoSource.text, "해외 매입");
+      resetContextRuntime();
+
+      const wrongDomestic = await captureFor(SOURCES.DOMESTIC, pageFor("해외 매입"));
+      await assert.rejects(
+        () => wrongDomestic.snapshot(["periodEchoSource", "periodEchoStart", "periodEchoEnd"]),
+        (err) => err && err.code === "CAPTURE_REQUIRED" && /domestic\/overseas/.test(err.message),
+      );
+      resetContextRuntime();
+
+      const wrongOverseas = await captureFor(SOURCES.OVERSEAS, pageFor("국내 매입"));
+      await assert.rejects(
+        () => wrongOverseas.snapshot(["periodEchoSource", "periodEchoStart", "periodEchoEnd"]),
+        (err) => err && err.code === "CAPTURE_REQUIRED" && /domestic\/overseas/.test(err.message),
+      );
+    } finally {
+      resetContextRuntime();
+    }
   });
 });
 
