@@ -99,6 +99,7 @@ class ViewStateTests(unittest.TestCase):
             page.evaluate("new URL(location.href).searchParams.get('q')"))
 
     def test_the_filter_keeps_itself_when_the_trip_changes(self):
+        self._current_trip_b()  # 이전 여행은 전환 목록에서 빠지므로 예시 B를 현재 여행군으로
         page = self._page(1440)
         page.goto(self._url("?tab=trip-demo-a&kind=ex"))
         page.wait_for_load_state()

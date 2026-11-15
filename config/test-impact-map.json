@@ -147,8 +147,8 @@
     },
     {
       "name": "airline-mail-collection",
-      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
-      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
+      "paths": ["app/traveloka_mail.py", "app/airline_payment_mail.py", "app/airbnb_mail.py", "app/mytrip_mail.py", "tests/card_pipeline/test_mytrip_mail.py", "tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py"],
+      "tests": ["tests/card_pipeline/test_traveloka_mail.py", "tests/card_pipeline/test_airline_payment_mail.py", "tests/card_pipeline/test_airbnb_mail.py", "tests/card_pipeline/test_mytrip_mail.py", "webapp/tests/test_ledger_stay_evidence.py", "tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_ota_exact_gate.py", "tests/card_pipeline/test_partial_refund.py"]
     },
     {
       "name": "export-source-equivalence",
@@ -293,8 +293,8 @@
     },
     {
       "name": "financial-core",
-      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py"],
-      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
+      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py", "tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_change_log_index.py", "tests/test_request_recompute_cache.py", "tests/card_pipeline/test_schema_migration.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
     },
     {
       "name": "google-readonly",

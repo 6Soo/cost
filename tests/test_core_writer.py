@@ -538,3 +538,73 @@ def test_status_writes_are_serialised_so_a_stale_state_cannot_overwrite_a_newer_
         assert not done.wait(0.3)
     worker.join(5)
     assert done.is_set() and (tmp_path / core_writer.STATUS_FILE).is_file()
+
+
+def _links_board(tmp_path):
+    conn = sqlite3.connect(tmp_path / 'board.sqlite')
+    conn.execute('CREATE TABLE transactions(transaction_id, issuer, original_approval_number)')
+    conn.executemany('INSERT INTO transactions(transaction_id) VALUES (?)', [('a',), ('b',), ('c',)])
+    conn.commit()
+    return conn
+
+
+def test_apply_sends_the_preview_links_over_the_same_ids_and_starts_no_bridge(env, tmp_path):
+    from app import partial_refund
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = _links_board(tmp_path)
+    asked = []
+    link = {'original_id': 'a', 'inferred': False, 'status': 'full', 'net_krw': 0, 'refund_count': 1}
+    monkeypatch.setattr(partial_refund, 'refund_links',
+                        lambda c, ids: asked.append(list(ids)) or {'b': dict(link)})
+    seen = _fake_run(monkeypatch, json.dumps({'ok': True, 'result': {}}) + '\n')
+    calls = []
+    real = core_writer.subprocess.run
+    monkeypatch.setattr(core_writer.subprocess, 'run', lambda *a, **k: calls.append(a[0]) or real(*a, **k))
+    core_writer.apply(conn, {'digest': 'd'}, [], transaction_ids={'c', 'b'})
+    assert asked == [['b', 'c']]
+    assert seen['input']['links'] == {'b': {'original_id': 'a', 'inferred': False, 'status': 'full'}}
+    assert len(calls) == 1 and calls[0][1] == 'apply'
+    core_writer.apply(conn, {'digest': 'd'}, [])
+    assert asked[-1] == ['a', 'b', 'c']
+
+
+def test_links_are_read_at_apply_time_so_a_moved_link_reaches_the_digest_check(env, tmp_path):
+    from app import partial_refund
+    monkeypatch, _ = env
+    monkeypatch.setenv(core_writer.BIN_ENV, 'costcore')
+    monkeypatch.setenv(core_writer.CORE_DB_ENV, str(tmp_path / 'core.sqlite'))
+    conn = _links_board(tmp_path)
+    now = {'b': {'original_id': 'a', 'status': 'full'}}
+    monkeypatch.setattr(partial_refund, 'refund_links', lambda c, ids: dict(now))
+    seen = _fake_run(monkeypatch, json.dumps({'ok': False, 'error': {'code': 'CLASSIFICATION_PREVIEW_STALE'}}) + '\n')
+    now['b'] = {'original_id': 'c', 'status': 'partial', 'inferred': True}
+    with pytest.raises(ValueError, match='CLASSIFICATION_PREVIEW_STALE'):
+        core_writer.apply(conn, {'digest': 'old'}, [])
+    assert seen['input']['links']['b'] == {'original_id': 'c', 'inferred': True, 'status': 'partial'}
+
+
+def test_sweep_with_a_moved_key_leaves_the_chunk_for_the_next_pass(env, tmp_path):
+    from webapp import card_classification_completion as completion
+    from webapp import card_completion_worker as worker_module
+    applied, held = [], []
+    flow, board, key, calls = _lifted(env, tmp_path, applied, held)
+    worker = worker_module.CardCompletionWorker.__new__(worker_module.CardCompletionWorker)
+    worker.board = board
+    env[0].setattr(worker_module, 'candidates', lambda conn: [('t',)])
+    env[0].setattr(worker_module.CardCompletionWorker, '_sweep_once',
+                   lambda self: completion.complete_scope(flow, {'t'}))
+    build = core_writer._period_snapshot
+
+    def moving(path):
+        data = build(path)
+        key['value'] += 'x'  # a card arrives during every build
+        return data
+    env[0].setattr(core_writer, '_period_snapshot', moving)
+    with pytest.raises(core_writer.PeriodsStale):
+        worker.sweep_once()
+    assert applied == [] and all(depth == 0 for depth in held)  # nothing written, nothing built under the lock
+    env[0].setattr(core_writer, '_period_snapshot', build)
+    worker.sweep_once()
+    assert len(applied) == 1 and applied[0][2] == 1  # applied once, inside the lock, with matching evidence

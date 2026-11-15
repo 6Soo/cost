@@ -233,6 +233,10 @@ def main(argv=None) -> int:
                     datetime.date.fromisoformat(options['review_from'])
                     os.environ['WEBLEDGER_REVIEW_FROM'] = options['review_from']
                 apply_ota_review(options)
+        try:
+            core_switch_config.record_applied('board', flow_config.parent, checkout.name)
+        except OSError:
+            pass  # the deploy check then fails on the missing record
     except _Refused as exc:
         print(f"refused [{exc.code}]: 실행 조건을 만족하지 않아요.", file=sys.stderr)
         return 2
