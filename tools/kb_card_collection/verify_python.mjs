@@ -13,6 +13,9 @@ function pickCounts(text) {
   }
   if (typeof text.parser === "string" && SAFE_TOKEN.test(text.parser)) out.parser = text.parser;
   if (typeof text.channel === "string" && SAFE_TOKEN.test(text.channel)) out.channel = text.channel;
+  for (const key of ["issuer_matches", "channel_matches"]) {
+    if (typeof text[key] === "boolean") out[key] = text[key];
+  }
   return out;
 }
 

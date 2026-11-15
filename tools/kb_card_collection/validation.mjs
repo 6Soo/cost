@@ -19,6 +19,9 @@ function looksHtml(buf) {
 }
 
 function classifyKind(ext, head) {
+  // Login and error pages often retain the export's .csv/.xls suffix.
+  // Detect their content before trusting the filename extension.
+  if (looksHtml(head)) return { kind: "html", kindSource: "content" };
   if (ext === ".xls") return startsWith(head, OLE_SIGNATURE) ? { kind: "xls", kindSource: "content" } : { kind: "other", kindSource: "extension" };
   if (ext === ".xlsx" || ext === ".xlsm") return startsWith(head, ZIP_SIGNATURE) ? { kind: "xlsx", kindSource: "content" } : { kind: "other", kindSource: "extension" };
   if (ext === ".csv") {

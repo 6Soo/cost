@@ -1,28 +1,58 @@
 # 카드 원본 수집 — ego-browser 실행 안내
 
-## 하나·IBK 수집기 상태 (U3, 2026-11-13)
+## 하나·IBK 수집기 상태 (U3, 2026-11-16)
 
-`tools/hana_card_collection/collect.mjs`와 `tools/ibk_card_collection/collect.mjs`는 공통 경계 `tools/site_card_collection.mjs`를 사용한다. 현재 두 사이트의 조회 화면 선택자와 다운로드 동작은 `NOT_VERIFIED`라 수집 단계에서 멈춘다.
+`tools/hana_card_collection/collect.mjs`와 `tools/ibk_card_collection/collect.mjs`는 국민 수집기의 기간 정책, Ego Page 캡처, 파일 형식·SHA 검사, 기존 카드 파서 검증 경계를 재사용한다. 실행은 명시한 기간을 화면에 입력하고, 조회 후 발급사·기간 echo와 건수를 대조한 다음 다운로드 이벤트를 한 번만 처리한다. 파일은 실행 폴더 안에 새 이름으로 보존하고 덮어쓰지 않는다. `Pipeline.receive` 및 DB 입력은 이 수집기에서 실행하지 않는다.
 
-이미 저장된 합성 또는 사용자 승인 원본은 국민 수집기와 같은 `cost.kb-card-collection-manifest.v1` 계약으로 `manifest.json`과 함께 실행 폴더에 둔다. `tools/import_kb_card_download.py`는 하나의 `hana_usage` 및 IBK의 기존 `statement` 파서를 그대로 호출하고, 발급사·채널·파일 경로·SHA·바이트·화면 건수·파싱 이슈를 다시 검증한 뒤 미리보기 사본에서 기존 `Pipeline.receive`를 리허설한다. `--apply`는 그 도구의 단일 작성자·신선 백업/복원·원복 경계를 그대로 적용한다. 수집 화면 선택자를 확인하지 않은 상태에서 자동 다운로드를 수행하지 않는다.
+실제 하나·IBK 화면은 여전히 `NOT_VERIFIED`다. 현재 확인한 하나·IBK 선택자 프로파일이 없으면 수집을 시작하지 않는다. 프로파일은 운영자가 실제 화면에서 확인한 값으로 다음 비공개 경로에만 둔다. 비밀번호·인증서·OTP는 프로파일에 넣지 않는다.
+
+- `D:/WebLedgerHost/secrets/card-collection-profiles/hana.json`
+- `D:/WebLedgerHost/secrets/card-collection-profiles/ibk.json`
+
+프로파일에는 `cost.site-card-selector-profile.v1`, 발급사·정식 소스명, 실제 관측한 HTTPS `expectedOrigin`과 `usageUrl`, 조회축, 개인정보가 없는 화면의 소스 echo, `OWNER_VERIFIED`/관측일, 실제 관측한 선택자를 기록한다. 필수 역할은 `session`, `dateFloor`, `dateCeiling`, `dateStartInput`, `dateEndInput`, `searchControl`, `periodEchoSource`, `periodEchoStart`, `periodEchoEnd`, `summaryResults`, `downloadControl`이며 선택적 `exportOpenControl`은 확인 창이 있을 때만 둔다. 아래 값은 형식 설명용 자리표시자이며, 그대로 두거나 화면에서 확인하지 않은 선택자를 채워 넣으면 코드가 거부한다.
+
+```json
+{
+  "schemaVersion": "cost.site-card-selector-profile.v1",
+  "provider": "hana",
+  "source": "하나 기업카드 이용내역",
+  "expectedOrigin": "https://__OBSERVED_HOST__",
+  "usageUrl": "https://__OBSERVED_HOST__/__OBSERVED_USAGE_PATH__",
+  "queryAxis": "__OBSERVED_AXIS__",
+  "sourceEcho": "__OBSERVED_GENERIC_LABEL__",
+  "verification": { "status": "OWNER_VERIFIED", "observedAt": "YYYY-MM-DD" },
+  "selectors": {
+    "session": "__OBSERVED_SELECTOR__",
+    "dateFloor": "__OBSERVED_SELECTOR__",
+    "dateCeiling": "__OBSERVED_SELECTOR__",
+    "dateStartInput": "__OBSERVED_SELECTOR__",
+    "dateEndInput": "__OBSERVED_SELECTOR__",
+    "searchControl": "__OBSERVED_SELECTOR__",
+    "periodEchoSource": "__OBSERVED_SELECTOR__",
+    "periodEchoStart": "__OBSERVED_SELECTOR__",
+    "periodEchoEnd": "__OBSERVED_SELECTOR__",
+    "summaryResults": "__OBSERVED_SELECTOR__",
+    "downloadControl": "__OBSERVED_SELECTOR__"
+  }
+}
+```
+
+수집기는 이미 로그인된 같은 TaskSpace의 페이지에서만 작동한다. 로그인 만료는 `LOGIN_REQUIRED`로 멈추며 로그인·인증 코드·CAPTCHA를 시도하지 않는다. 조회 화면의 날짜 하한보다 `--last-use-date`가 이르면 멈추고, 실행일·화면 상한 중 이른 날짜까지만 요청한다. 화면의 소스·기간·건수 표기가 정확히 확인되지 않으면 다운로드하지 않는다.
 
 ```powershell
-# 합성 또는 보호 폴더의 실행 폴더에 대해 기존 경계로 미리보기
+# 하나: 기존 인증 TaskSpace, 읽기 전용 마지막 이용일, 새 보호 실행 폴더를 지정
+node tools/hana_card_collection/collect.mjs --profile D:/WebLedgerHost/secrets/card-collection-profiles/hana.json --space-name <기존-TaskSpace> --last-use-date YYYY-MM-DD --execution-date YYYY-MM-DD --out-dir D:/WebLedgerHost/data/backups/card-downloads/hana/<실행ID>
+
+# IBK: 위와 같은 보호 경계를 적용
+node tools/ibk_card_collection/collect.mjs --profile D:/WebLedgerHost/secrets/card-collection-profiles/ibk.json --space-name <기존-TaskSpace> --last-use-date YYYY-MM-DD --execution-date YYYY-MM-DD --out-dir D:/WebLedgerHost/data/backups/card-downloads/ibk/<실행ID>
+
+# 수집 후 기존 경계로 미리보기. 운영 DB에 반영하지 않는다.
 python tools/import_kb_card_download.py --run-dir <run-folder> --db <target-board.sqlite>
 ```
 
-합성 파이프라인 검증은 `tests/test_hana_ibk_card_import.py`, 기존 국민 동작 회귀는 `tests/test_import_kb_card_download.py`에서 확인한다.
+가져오기 도구는 기존 `hana_usage`·IBK `statement` 파서와 `Pipeline.receive`를 다시 실행해 발급사·채널·경로·SHA·바이트·화면 건수·파싱 이슈를 확인한다. 합성 E2E(`tests/site_card_collection/test_site_card_collection.mjs`)는 정상·0건·기간/echo 오류·HTML 위장·형식·SHA·건수·반복 파일·로그인 필요를 검사한다. `tests/test_hana_ibk_card_import.py`는 합성 DB에서 기존 receive 경계를 별도로 검증한다. 실제 사이트 프로파일·브라우저 세션·원본 다운로드·운영 DB 쓰기는 아직 검증하지 않았다.
 
-다음 라이브 확인을 완료한 뒤 어댑터를 활성화해야 한다.
-
-- 기업 로그인 후 세션 생존 판정과 미등록 자격 증명의 무시 동작
-- 카드 이용내역 메뉴, 날짜 조회 입력, 허용 기간 하한·상한, 실제 조회 축
-- 조회 실행 뒤 화면의 기간·발급사 echo 및 건수 요약
-- 다운로드 제어, 저장 파일 형식·열·파서 인식 건수
-- 중복 후보·취소·환불 행을 기존 `Pipeline.receive` 경계로 전달하는 미리보기 결과
-- U2의 `collection-runs/<source>.json` 계약에 로그인 필요 상태를 기록하는 동작
-
-현재 구현된 합성 경계 검증은 `tests/test_site_card_collection.py`다. 고정 합성 파일은 `tests/fixtures/hana-card-synthetic.csv`이며 실제 고객 데이터는 포함하지 않는다.
+선택한 `--previous-manifest`가 있으면 `duplicateCheck`가 저장 파일 SHA-256으로만 이전 원본과 대조한다. 인자를 주지 않으면 `NOT_CHECKED`, 읽지 못하거나 구조가 잘못됐으면 `NOT_VERIFIED`로 남긴다. 이 값은 거래 중복 판정이나 DB 대조가 아니며, 기존 가져오기 도구의 재수신 멱등 검증을 대신하지 않는다.
 
 현재 브라우저 실행 기준은 **ego-browser**다. 아래 과거 실행 기록의 도구·인증 대기는 당시 증거이며 현재 실행 명령이나 새 수집 승인으로 사용하지 않는다.
 

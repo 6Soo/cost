@@ -199,6 +199,21 @@ function buildCapture(space, page, selectorMap, operation, args) {
     }
   };
 
+  const origin = async () => {
+    capability("evaluate");
+    const value = await page.evaluate(() => location.origin);
+    if (typeof value !== "string" || value === "null") {
+      throw protocolFailure("Page origin is not available");
+    }
+    return value;
+  };
+
+  const navigate = async (url) => {
+    capability("goto");
+    await page.goto(url);
+    invalidateSnapshot();
+  };
+
   const cssRoleMap = (() => {
     const css = context.selectors.css ?? Object.fromEntries(Object.entries(context.selectors)
       .filter(([, value]) => typeof value === "string" && /^(?:loc=css:|css=)/.test(value))
@@ -306,6 +321,8 @@ function buildCapture(space, page, selectorMap, operation, args) {
   const bound = {
     space,
     pageLabel: "p1",
+    origin,
+    navigate,
     snapshot,
     fill,
     query,
@@ -318,6 +335,8 @@ function buildCapture(space, page, selectorMap, operation, args) {
     return {
       space,
       pageLabel: "p1",
+      origin,
+      navigate,
       snapshot: async (roles) => {
         await ensureSource(args.source);
         const result = await snapshot(roles);
