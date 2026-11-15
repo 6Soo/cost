@@ -381,6 +381,10 @@ def test_a_gateway_card_reads_the_flight_dates_of_the_one_confirmation_with_its_
     lambda d: d['events'][0].update(reservation_status='cancelled'),
     lambda d: d['events'][0].update(service_period=None, service_period_conflict=True),
     lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='9999-999-999')),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='9999-999-999',
+                                      reservation_status='cancelled')),
+    lambda d: d['events'].append(dict(d['events'][0], ota_event_id='dup', booking_ref='9999-999-999',
+                                      reservation_observed_on=['2026-08-19', '2026-08-30'])),
     lambda d: d['results'].append(dict(ota_event_id='other', transaction_id='t1')),
 ])
 def test_a_gateway_card_stays_unknown_when_the_pairing_is_unsafe(context, mutation):

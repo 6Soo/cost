@@ -820,9 +820,13 @@ def _gotogate_exact_amount_periods(data, manual):
             if _decimal(card.get('amount_krw')) == amount and abs(bought - sent) <= timedelta(days=1):
                 matches[event_id].add(tid)
                 claims[tid].add(event_id)
+    # Uniqueness counts every confirmation naming that total, cancelled or re-sent on another day included.
     same_amount = defaultdict(set)
-    for event_id, (amount, *_rest) in held.items():
-        same_amount[amount].add(event_id)
+    for event in data.get('events', []):
+        if event.get('provider') == 'gotogate' and event.get('event_type') == 'reservation':
+            total = _decimal(event.get('amount_krw'))
+            if total is not None and total > 0:
+                same_amount[total].add(str(event.get('ota_event_id')))
     result = {}
     for event_id, tids in matches.items():
         amount, start, end, _sent, booking_ref = held[event_id]
