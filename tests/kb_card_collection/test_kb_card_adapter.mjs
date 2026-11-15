@@ -213,9 +213,8 @@ check("CLI: help lists ego flags; missing/invalid entry config stops instead of 
   assert.equal(JSON.parse(noEntry.stderr).code, "ADAPTER_REQUIRED");
 });
 
-check("CLI with entry path: unreadable entry surfaces as stopped EGO_PROTOCOL (exit 2), nothing fabricated", () => {
-  const outDir = path.join(tmpdir(), `kb-cli-${Date.now()}`);
-  tempDirs.push(outDir);
+check("CLI with entry path: unreadable entry surfaces as stopped EGO_PROTOCOL (exit 2), nothing fabricated", async () => {
+  const outDir = await tempDir("kb-cli-");
   const miss = path.join(outDir, "missing-entry.mjs");
   const proc = spawnSync(process.execPath, [CLI, "--ego-entry", miss, "--space-name", "s", "--execution-date", "2026-10-25", "--last-use-date", "2026-10-01", "--source", "domestic", "--out-dir", outDir], { encoding: "utf8" });
   assert.equal(proc.status, 2);
