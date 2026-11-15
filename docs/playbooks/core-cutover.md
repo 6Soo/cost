@@ -28,6 +28,7 @@
 - 비용: `--rows-stdin`은 행마다 호출되는 해외 원천 대체 분기에서 호출당 원행 전체 JSON을 보낸다(Python 도출도 트랜잭션 안에서는 매번 재계산이라 같은 규모). 운영 사본에서 걸리는 시간은 아직 측정하지 않았다(운영 담당 측정).
 - C1 확인 항목: 날짜가 `YYYY-MM-DD`가 아닌 원행(`approval_date`·`posting_date`)이면 Rust가 완료 기간(2025·2026Q1) 제외를 빠뜨릴 수 있다. 사본에서 날짜 형식 밖 원행 수를 확인하고, 있으면 그림자 차이로 드러나는지 본다.
 - 시험: `python -m pytest tests/test_core_links_switch.py`(대역 바이너리). 실제 바이너리 대조는 `costcore_bin` 표식이 붙은 시험이고, `tools/run_quality_checks.py`가 표식 있는 파일이 선택되면 `cargo build --release -p costcore`(빌드 실패는 검사 실패)를 하고 `COSTCORE_TEST_BIN`을 넣어 돌린다(CI도 같은 도구). 수동 실행은 `COSTCORE_TEST_BIN=<costcore 경로>`를 주고 같은 명령.
+- 배포 빌드: costcore release 빌드는 고정 폴더(`CARGO_TARGET_DIR=D:\cargo-target\release-main` 등)를 재사용해 의존 크레이트를 캐시하고, 배포 창 밖에서 미리 빌드해 둔다. 실제 운영 스크립트 변경은 운영 담당이 한다.
 
 ## 입력(시작 조건)
 
