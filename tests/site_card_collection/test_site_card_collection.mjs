@@ -1,6 +1,7 @@
 // Synthetic Page + existing Hana/IBK fixtures + the production parser and KB
 // validation helpers. No website, credential, live browser, or database access.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -9,9 +10,17 @@ import { countCheck, download, probeSession, readScreenAllowedDates, resetSiteCo
 
 const root = await mkdtemp(path.join(tmpdir(), "hana-ibk-collection-e2e-"));
 const parserModule = path.resolve("tools/verify_site_card_file.py");
+const fixtureDir = path.join(root, "fixtures");
+const fixtureGeneration = spawnSync("python", [path.resolve("tests/card_collection_fixtures.py"), "--out-dir", fixtureDir], {
+  encoding: "utf8", windowsHide: true,
+});
+if (fixtureGeneration.error || fixtureGeneration.status !== 0) {
+  await rm(root, { recursive: true, force: true });
+  throw new Error("could not generate owned synthetic card fixtures in the test temp folder");
+}
 const sources = {
-  hana: { source: "하나 기업카드 이용내역", fixture: "tests/fixtures/hana-card-synthetic.csv", axis: "이용일" },
-  ibk: { source: "IBK 기업카드 이용내역", fixture: "tests/fixtures/ibk-card-synthetic.xlsx", axis: "이용일" },
+  hana: { source: "하나 기업카드 이용내역", fixture: path.join(fixtureDir, "hana-card-synthetic.csv"), axis: "이용일" },
+  ibk: { source: "IBK 기업카드 이용내역", fixture: path.join(fixtureDir, "ibk-card-synthetic.xlsx"), axis: "이용일" },
 };
 const requiredRoles = ["session", "dateFloor", "dateCeiling", "dateStartInput", "dateEndInput", "searchControl",
   "periodEchoSource", "periodEchoStart", "periodEchoEnd", "summaryResults", "downloadControl"];

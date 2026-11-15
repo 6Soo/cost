@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -10,6 +11,9 @@ from app import Pipeline
 from app.db import Store
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from card_collection_fixtures import fixture_bytes
+
 SPEC = importlib.util.spec_from_file_location(
     "import_card_download", ROOT / "tools" / "import_kb_card_download.py")
 tool = importlib.util.module_from_spec(SPEC)
@@ -23,7 +27,7 @@ FIXTURES = {
 
 def make_run(tmp_path, provider, *, count=1, duplicate=False):
     source, filename = FIXTURES[provider]
-    content = (ROOT / "tests" / "fixtures" / filename).read_bytes()
+    content = fixture_bytes(provider)
     run = tmp_path / f"{provider}-run"
     run.mkdir()
     target = run / filename
