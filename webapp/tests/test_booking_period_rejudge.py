@@ -209,3 +209,18 @@ def test_tool_lists_overlapping_differences_for_review_without_moving_them(setup
     report, targets, _ = tool.preview(c, tmp_path, current, tmp_path / 'private')
     assert targets == [] and report['counts']['overlap_differs'] == 1
     assert json.loads((tmp_path / 'private' / 'review-list.json').read_text(encoding='utf-8'))[0]['chosen_trip'] == second
+
+
+def test_owner_change_later_overwritten_by_a_tool_stays_manual(setup, monkeypatch):
+    board, _, row, first, second = _record(setup, monkeypatch)
+    row_id = 'card-' + row['transaction_id']
+    c = board.conn
+    c.execute("INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,created_at,"
+              "client_request_id) VALUES (?,50,?,?,'o1','exception','owner','t','o')",
+              (row_id, json.dumps({'display_tab_id': first}), json.dumps({'display_tab_id': second})))
+    c.execute("INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,change_mode,actor,created_at,"
+              "client_request_id) VALUES (?,51,'{}','{}','t1','exception','authority-review-20261016','t','t')",
+              (row_id,))
+    c.execute("INSERT INTO board_manual_overrides VALUES (?,'display_tab_id','t1')", (row_id,))
+    assert row['transaction_id'] in manual_ids(c)
+    assert board.manual_locked_fields(row_id) == {'display_tab_id'}

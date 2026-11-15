@@ -1,8 +1,9 @@
 """Which `board_manual_overrides` records are real manual corrections.
 
 A record stops counting only when the save that wrote it is recorded with a non-person actor (anything but
-`owner`, `owner-*`): batch tools and the automatic writer. Those records stay in the table (source preserved) but are
-not manual (TRIP-033). A record without a known save (pending `event_id=''`, or no revision) stays manual.
+`owner`, `owner-*`: batch tools, the automatic writer) and no person ever changed that field of the row in a later
+revision than its creation. Such records stay in the table (source preserved) but are not manual (TRIP-033).
+A record without a known save (pending `event_id=''`, or no revision) stays manual.
 The Rust core (`store/plan_input.rs`) uses the same SQL; keep them identical.
 """
 
@@ -13,9 +14,12 @@ def is_human_actor(actor) -> bool:
 
 def human_sql(alias='o'):
     """SQL condition: override row `alias` was not written by a tool or the automatic writer."""
-    return (f"NOT EXISTS(SELECT 1 FROM board_revisions hr WHERE hr.row_id={alias}.row_id"
+    return (f"(NOT EXISTS(SELECT 1 FROM board_revisions hr WHERE hr.row_id={alias}.row_id"
             f" AND hr.event_id={alias}.event_id AND {alias}.event_id!=''"
-            f" AND NOT (hr.actor='owner' OR hr.actor LIKE 'owner-%'))")
+            f" AND NOT (hr.actor='owner' OR hr.actor LIKE 'owner-%'))"
+            f" OR EXISTS(SELECT 1 FROM board_revisions hp WHERE hp.row_id={alias}.row_id AND hp.revision>1"
+            f" AND (hp.actor='owner' OR hp.actor LIKE 'owner-%')"
+            f" AND json_extract(hp.prev_json,'$.'||{alias}.field) IS NOT json_extract(hp.new_json,'$.'||{alias}.field)))")
 
 
 def _has_revisions(conn) -> bool:

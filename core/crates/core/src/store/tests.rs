@@ -743,19 +743,26 @@ fn plan_input_counts_only_overrides_written_by_a_person() {
     Connection::open(&path)
         .unwrap()
         .execute_batch(
-            "CREATE TABLE board_revisions (row_id TEXT, revision INTEGER, event_id TEXT, actor TEXT);
-             INSERT INTO board_revisions VALUES ('card-t2',2,'e1','authority-review-20261016');
-             INSERT INTO board_revisions VALUES ('card-t3',2,'e3','owner');
-             INSERT INTO board_revisions VALUES ('card-t4',2,'e4','owner-chat-20261029');
+            "CREATE TABLE board_revisions (row_id TEXT, revision INTEGER, event_id TEXT, actor TEXT,
+                 prev_json TEXT NOT NULL DEFAULT '{}', new_json TEXT NOT NULL DEFAULT '{}');
+             INSERT INTO board_revisions(row_id,revision,event_id,actor) VALUES ('card-t2',2,'e1','authority-review-20261016');
+             INSERT INTO board_revisions(row_id,revision,event_id,actor) VALUES ('card-t3',2,'e3','owner');
+             INSERT INTO board_revisions(row_id,revision,event_id,actor) VALUES ('card-t4',2,'e4','owner-chat-20261029');
              INSERT INTO board_manual_overrides VALUES ('card-t3','display_tab_id','e3');
              INSERT INTO board_manual_overrides VALUES ('card-t4','display_tab_id','e4');
              INSERT INTO board_manual_overrides VALUES ('card-t5','display_tab_id','');
-             INSERT INTO board_manual_overrides VALUES ('card-t6','display_tab_id','unknown');",
+             INSERT INTO board_manual_overrides VALUES ('card-t6','display_tab_id','unknown');
+             INSERT INTO board_revisions VALUES ('card-t7',2,'o7','owner','{\"display_tab_id\":\"a\"}','{\"display_tab_id\":\"b\"}');
+             INSERT INTO board_revisions VALUES ('card-t7',3,'e7','authority-review-20261016','{}','{}');
+             INSERT INTO board_manual_overrides VALUES ('card-t7','display_tab_id','e7');",
         )
         .unwrap();
     let input = read_plan_input(&path).unwrap();
     let found: Vec<&str> = input.overrides.iter().map(String::as_str).collect();
-    assert_eq!(found, ["card-t3", "card-t4", "card-t5", "card-t6"]);
+    assert_eq!(
+        found,
+        ["card-t3", "card-t4", "card-t5", "card-t6", "card-t7"]
+    );
 }
 
 #[test]

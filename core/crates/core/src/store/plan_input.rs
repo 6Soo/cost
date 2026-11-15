@@ -77,9 +77,10 @@ fn default_trips(conn: &Connection) -> Result<Vec<Value>, StoreError> {
     Ok(trips)
 }
 
-/// 수동 교정 SQL(`app/manual_overrides.py`와 같은 조건). 저장 이력의 작성자가 도구·자동 저장이면 기록은 보존하되 수동이 아니다.
+/// 수동 교정 SQL(`app/manual_overrides.py`와 같은 조건). 저장 이력의 작성자가 도구·자동 저장이고 사람이 그 칸을 바꾼 적이 없으면
+/// 기록은 보존하되 수동이 아니다.
 /// 저장 이력을 찾을 수 없는 기록과 `board_revisions`가 없는 옛 사본은 수동으로 본다.
-const HUMAN_OVERRIDES_SQL: &str = "SELECT o.row_id FROM board_manual_overrides o WHERE NOT EXISTS(    SELECT 1 FROM board_revisions hr WHERE hr.row_id=o.row_id AND hr.event_id=o.event_id AND o.event_id!=''     AND NOT (hr.actor='owner' OR hr.actor LIKE 'owner-%'))";
+const HUMAN_OVERRIDES_SQL: &str = "SELECT o.row_id FROM board_manual_overrides o WHERE (NOT EXISTS(    SELECT 1 FROM board_revisions hr WHERE hr.row_id=o.row_id AND hr.event_id=o.event_id AND o.event_id!=''     AND NOT (hr.actor='owner' OR hr.actor LIKE 'owner-%'))     OR EXISTS(SELECT 1 FROM board_revisions hp WHERE hp.row_id=o.row_id AND hp.revision>1     AND (hp.actor='owner' OR hp.actor LIKE 'owner-%')     AND json_extract(hp.prev_json,'$.'||o.field) IS NOT json_extract(hp.new_json,'$.'||o.field)))";
 
 fn manual_overrides_sql(conn: &Connection) -> Result<&'static str, StoreError> {
     let has_revisions: bool = conn.query_row(
