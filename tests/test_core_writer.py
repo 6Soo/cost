@@ -563,3 +563,12 @@ def test_sweep_with_a_moved_key_leaves_the_chunk_for_the_next_pass(env, tmp_path
     env[0].setattr(core_writer, '_period_snapshot', build)
     worker.sweep_once()
     assert len(applied) == 1 and applied[0][2] == 1  # applied once, inside the lock, with matching evidence
+
+
+def test_period_snapshot_shares_the_snapshot_worker_board_in_the_server(env, tmp_path):
+    from webapp import ota_payment_review
+    host, used = object(), []
+    env[0].setattr(ota_payment_review, 'host_board', lambda path: host if str(path).endswith('board.sqlite') else None)
+    env[0].setattr(ota_payment_review, 'reconcile_in_child', lambda board: used.append(board) or {'data': {'d': 1}})
+    assert core_writer._period_snapshot(tmp_path / 'board.sqlite') == {'d': 1}
+    assert used == [host]

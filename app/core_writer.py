@@ -65,8 +65,15 @@ def _period_input_key(board_path) -> str:
 
 
 def _period_snapshot(board_path) -> dict:
-    """One full OTA reconciliation in a child process (about ten minutes on live data)."""
+    """One full OTA reconciliation in a child process (about ten minutes on live data).
+
+    In the server the snapshot worker's board is used, so a run with the same input key is shared with the worker
+    instead of computed twice (`data` does not depend on the reservation authority only that board holds).
+    """
     from webapp import ota_payment_review
+    host = ota_payment_review.host_board(board_path)
+    if host is not None:
+        return ota_payment_review.reconcile_in_child(host)['data']
     with _board(board_path) as store:
         return ota_payment_review.reconcile_in_child(store)['data']
 
