@@ -187,7 +187,8 @@ def test_tool_moves_only_non_overlapping_rows_into_archived_trips_idempotently_a
         tool.apply(c, tmp_path, current, out, request_id='r0', expected_digest='0' * 64)
     result = tool.apply(c, tmp_path, current, out, request_id='r1', expected_digest=report['digest'])
     assert result['written'] == 1 and _trip(c, tid) == (second, second, second)
-    assert tool.apply(c, tmp_path, current, out, request_id='r1', expected_digest=report['digest'])['written'] == 0
+    replay = tool.apply(c, tmp_path, current, out, request_id='r1', expected_digest=report['digest'])
+    assert replay['written'] == 0 and replay['transaction_ids'] is None
     again, _, _ = tool.preview(c, tmp_path, current, out)
     assert again['counts']['non_overlap'] == 0
     index = json.loads((out / 'applied-paste' / 'paste-index.json').read_text(encoding='utf-8'))

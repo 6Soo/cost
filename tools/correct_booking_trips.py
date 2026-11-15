@@ -134,6 +134,7 @@ def write_paste_lists(conn, trips, records, out: Path):
             path = out / f'paste-{side}-{name}.tsv'
             path.write_text(result['tsv'], encoding='utf-8')
             index.append({'side': side, 'tab_id': tab, 'display_key': name, 'archived': bool(trip.get('archived')),
+                          'closed': bool(trip.get('visual_closed')),
                           'rows': result['row_count'], 'total_krw': result['total_krw'], 'held': result['held'],
                           'file': path.name})
     (out / 'paste-index.json').write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding='utf-8')
@@ -158,6 +159,7 @@ def preview(conn, host, current, out: Path):
               **{name: len(groups[name]) for name in ('manual', 'protected', 'no_target', 'not_in_trip',
                                                      'overlap_differs', 'non_overlap')},
               'to_archived': sum(r['chosen_archived'] for r in targets),
+              'to_closed': sum(bool((trips.get(r['chosen_trip']) or {}).get('visual_closed')) for r in targets),
               'protection_reasons': dict(Counter(r['protection'] for r in groups['protected']))}
     report = {'digest': plan_digest(targets), 'counts': counts,
               'targets': [_brief(r, trips) for r in targets],
@@ -193,7 +195,7 @@ def apply(conn, host, current, out: Path, *, request_id, expected_digest):
     if saved is not None:
         if saved.get('kind') != 'apply' or saved.get('digest') != expected_digest:
             raise Refused('REQUEST_ID_REUSED')
-        return dict(saved, written=0, replayed=True)
+        return dict(saved, written=0, replayed=True, transaction_ids=None)
     report, targets, trips = preview(conn, host, current, out)
     if report['digest'] != expected_digest:
         raise Refused('PREVIEW_STALE')
