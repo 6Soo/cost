@@ -51,8 +51,8 @@ class Pipeline:
     def classify_batch(self, batch_id: str, *, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
         return classify_batch(self.store, batch_id, trip_resolver=trip_resolver,review_from=review_from, transaction_ids=transaction_ids)
 
-    def get_batch(self, batch_id: str) -> BatchRead:
-        return get_batch(self.store, batch_id)
+    def get_batch(self, batch_id: str, *, transaction_ids=None) -> BatchRead:
+        return get_batch(self.store, batch_id, transaction_ids=transaction_ids)
 
     def save_decision(self, transaction_id: str, expected_revision: int, **kwargs) -> dict:
         return save_decision(self.store, transaction_id, expected_revision,
@@ -69,24 +69,27 @@ class Pipeline:
     def preview(self, batch_id: str, *, trip_validator=None,
                 tab_validator=None, review_from=None,
                 entry_metadata=None, additional_holds=None, group_original=None,
-                include_verified_full_refunds=False) -> dict:
+                include_verified_full_refunds=False, transaction_ids=None) -> dict:
         return preview(self.store, batch_id, trip_validator=trip_validator,
                        tab_validator=tab_validator,review_from=review_from,
                        entry_metadata=entry_metadata, additional_holds=additional_holds,
                        group_original=group_original,
-                       include_verified_full_refunds=include_verified_full_refunds)
+                       include_verified_full_refunds=include_verified_full_refunds,
+                       transaction_ids=transaction_ids)
 
     def commit(self, batch_id: str, preview_digest: str, request_id: str,
                *, projection=None, trip_validator=None,
                tab_validator=None,review_from=None,
                entry_metadata=None, additional_holds=None, group_original=None,
-               automatic_record=False, include_verified_full_refunds=False) -> dict:
+               automatic_record=False, include_verified_full_refunds=False,
+               transaction_ids=None) -> dict:
         return commit(self.store, batch_id, preview_digest, request_id,
                       projection=projection, trip_validator=trip_validator,
                       tab_validator=tab_validator,review_from=review_from,
                       entry_metadata=entry_metadata, additional_holds=additional_holds,
                       group_original=group_original, automatic_record=automatic_record,
-                      include_verified_full_refunds=include_verified_full_refunds)
+                      include_verified_full_refunds=include_verified_full_refunds,
+                      transaction_ids=transaction_ids)
 
     # history
     def changes(self, subject: str = "") -> list:

@@ -241,7 +241,7 @@ CARD_ALL_STYLE = """
 .card-all-page .card-workspace-secondary,.card-all-page .card-upload-result-link{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid var(--ca-border);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink);font:inherit;font-weight:650;text-decoration:none;cursor:pointer}
 .card-all-page .card-upload-form{display:grid;gap:8px;max-width:760px}
 .card-all-page .card-upload-form label{font-weight:650}
-.card-all-page .card-upload-form input[type=file]{display:block;width:100%;padding:8px;border:1px solid var(--c-border-control);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink)}
+.card-all-page .card-upload-form input[type=file]{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--c-border-control);border-radius:var(--r-md);background:var(--ca-paper);color:var(--ca-ink)}
 .card-all-page .card-upload-results{display:grid;gap:8px;margin:12px 0 0;padding:0;list-style:none}
 .card-all-page .card-upload-results[hidden]{display:none}
 .card-all-page .card-upload-result{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:8px 14px;align-items:start;padding:10px 0;border-bottom:1px solid var(--ca-border);min-width:0}

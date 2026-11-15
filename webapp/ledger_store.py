@@ -88,6 +88,7 @@ from .ledger_store_allocation_validation import (
     validate_allocation_plan,
 )
 from .ledger_store_schema import (
+    INDEX_SQL,
     SCHEMA_SQL,
     _ensure_correction_columns,
     _ensure_rule_turn_columns,
@@ -283,6 +284,7 @@ class LedgerStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA_SQL)
+        self.conn.executescript(INDEX_SQL)
         _ensure_correction_columns(self.conn)
         _ensure_rule_turn_columns(self.conn)
         _ensure_trip_tab_columns(self.conn)
