@@ -304,6 +304,74 @@ class ReceiptReviewTests(unittest.TestCase):
         _, stored = self.request('/api/receipts')
         self.assertEqual(len(stored['candidates']), 2)
 
+    def test_registering_analysis_candidate_keeps_failed_photo_after_reload(self):
+        from app import receipt_vision
+
+        jobs = []
+
+        def queue_synthetic_job(route):
+            job_id = f'{len(jobs) + 1:032x}'
+            if not jobs:
+                state = {'job_id': job_id, 'status': 'done', 'result': {'receipts': [{
+                    'box': None, 'merchant': 'SYNTHETIC-SHOP', 'date': '2027-08-03',
+                    'amount': 1200, 'currency': 'JPY', 'payment': 'cash',
+                    'category_hint': '식비', 'reading': None, 'ordinal': 0}]}}
+            else:
+                state = {'job_id': job_id, 'status': 'failed',
+                         'code': 'VISION_ALL_MODELS_UNAVAILABLE'}
+            jobs.append(state)
+            if len(jobs) == 3:
+                route.fulfill(status=501, content_type='application/json', body=json.dumps({
+                    'code': 'VISION_DISABLED', 'message': 'synthetic disabled'}))
+                return
+            if len(jobs) == 4:
+                route.fulfill(status=503, content_type='application/json', body=json.dumps({
+                    'code': 'SYNTHETIC_UNCERTAIN', 'message': 'synthetic temporary failure'}))
+                return
+            route.fulfill(status=202, content_type='application/json', body=json.dumps(state))
+
+        with patch.object(receipt_vision, 'enabled', return_value=True), sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 900})
+                page.route('**/api/receipts/vision', queue_synthetic_job)
+                page.goto(self.base + '/receipts?trip=' + self.trip)
+                page.locator('#img-file').set_input_files([
+                    {'name': 'synthetic-one.png', 'mimeType': 'image/png', 'buffer': make_png(b'\xff\x00\x00')},
+                    {'name': 'synthetic-two.png', 'mimeType': 'image/png', 'buffer': make_png(b'\x00\xff\x00')},
+                    {'name': 'synthetic-three.png', 'mimeType': 'image/png', 'buffer': make_png(b'\x00\x00\xff')},
+                    {'name': 'synthetic-four.png', 'mimeType': 'image/png', 'buffer': make_png(b'\x80\x80\x80')},
+                ])
+                page.locator('#img-go').click()
+                page.wait_for_function("document.querySelectorAll('.photo').length === 4")
+                self.assertEqual(page.locator('.photo-index').all_text_contents(),
+                                 ['사진 1', '사진 2', '사진 3', '사진 4'])
+                self.assertTrue(page.get_by_role('checkbox', name='사진 1 분석 대상으로 선택').is_checked())
+                self.assertTrue(page.get_by_role('checkbox', name='사진 2 분석 대상으로 선택').is_checked())
+                self.assertTrue(page.get_by_role('checkbox', name='사진 3 분석 대상으로 선택').is_checked())
+                self.assertTrue(page.get_by_role('checkbox', name='사진 4 분석 대상으로 선택').is_checked())
+                page.locator('#vision-go').click()
+                page.wait_for_function("document.getElementById('vision-summary').textContent.includes('후보 1건') && document.getElementById('vision-summary').textContent.includes('실패 2장') && document.getElementById('vision-summary').textContent.includes('상태 확인 필요 1장')")
+                with page.expect_response('**/api/receipts/scan') as scan:
+                    page.locator('#vision-register').click()
+                self.assertEqual(scan.value.status, 200)
+                page.wait_for_load_state('networkidle')
+                self.assertEqual(page.locator('#vision-results .result-group h4').filter(
+                    has_text='분석 실패').count(), 2)
+                page.locator('#vision-results').get_by_text('분석 상태 확인 필요').wait_for()
+
+                candidates = self.request('/api/receipts')[1]['candidates']
+                self.assertEqual([item['merchant'] for item in candidates], ['SYNTHETIC-SHOP'])
+                saved_drafts = self.request('/api/receipts/drafts', token=self.csrf())[1]['drafts']
+                remaining, = [draft['groups'] for draft in saved_drafts if draft['groups']]
+                self.assertEqual([group['status'] for group in remaining], ['failed', 'failed', 'unknown'])
+                self.assertEqual(remaining[0]['failure'],
+                                 '사용 가능한 분석 서비스를 찾지 못했습니다. 직접 입력하거나 다시 시도해 주세요.')
+                self.assertEqual(remaining[1]['failure'], '분석을 사용할 수 없습니다. 직접 입력해 주세요.')
+                self.assertNotIn('failure', remaining[2])
+            finally:
+                browser.close()
+
     def test_scan_on_an_unknown_photo_is_refused(self):
         status, body = self.request('/api/receipts/scan', {'image': 'f' * 64, 'regions': REGIONS['regions'][:1]},
                                     token=self.csrf())
