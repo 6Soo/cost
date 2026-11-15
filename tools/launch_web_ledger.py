@@ -169,6 +169,16 @@ def apply_product_features(options: dict, root: pathlib.Path) -> None:
         os.environ['WEBLEDGER_INSURANCE_REVIEW_MANIFEST'] = str(manifest)
 
 
+def apply_core_switches(options: dict, root: pathlib.Path) -> None:
+    """Writer switches come only from card-flow.json and reach only this launched process."""
+    from app import core_switch_config
+
+    try:
+        core_switch_config.apply(options, root)
+    except core_switch_config.CoreSwitchRefused as exc:
+        raise _Refused(exc.code) from None
+
+
 def require_card_schema(path: pathlib.Path) -> None:
     """Production never authorizes CardFlow's automatic schema creation.
 
@@ -201,10 +211,16 @@ def main(argv=None) -> int:
         if not checkout.is_dir():
             raise _Refused("CHECKOUT")
         flow_config = root.parent / 'config' / 'card-flow.json'
+        checkout_str = str(checkout)
+        if checkout_str not in sys.path:
+            sys.path.insert(0, checkout_str)
+        from app import core_switch_config
         apply_product_features({}, root)
+        apply_core_switches({}, root)
         if flow_config.is_file():
-            options = json.loads(flow_config.read_text(encoding='utf-8'))
+            options = core_switch_config.read_options(flow_config.parent)
             apply_product_features(options, root)
+            apply_core_switches(options, root)
             if options.get('enabled') is True:
                 os.environ['WEBLEDGER_UNIFIED_DB'] = '1'
                 os.environ['WEBLEDGER_CARD_FLOW'] = '1'

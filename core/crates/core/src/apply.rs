@@ -40,6 +40,9 @@ pub enum ApplyError {
     Sqlite(#[from] rusqlite::Error),
 }
 
+/// Rust가 쓴 `card.automatic_classification` 기록의 `detail_json.writer` 표식(Python 기록에는 없다).
+pub const WRITER_MARK: &str = "costcore";
+
 pub struct ApplyRequest<'a> {
     /// 미리보기에서 받은 digest.
     pub expected_digest: &'a str,
@@ -207,12 +210,16 @@ pub fn apply(
     }
     let summary = result.to_value()["summary"].clone();
     if written > 0 {
+        let mut logged = summary.clone();
+        if let Some(map) = logged.as_object_mut() {
+            map.insert("writer".into(), Value::String(WRITER_MARK.into()));
+        }
         insert_log(
             &tx,
             request.now,
             "card.automatic_classification",
             crate::plan::POLICY,
-            &python_json(&summary),
+            &python_json(&logged),
         )?;
     }
     tx.commit()?;

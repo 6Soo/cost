@@ -1,5 +1,15 @@
 # 운영 기록
 
+## 2026-11-15 05:44·08:02 창 — `fda02183`·`ae121694` 배포, 1차 전환(P1 자동 분류 작성자 Rust)
+
+- **05:44 창(정규):** `77edf137` → `fda0218369441b0ae23b0d7f0939331e2314dc45`(#922~#926), 05:47:06 KST, 8751, 보호 13표 불변, readyz 10/10. 첫 실행은 #923 검수 근거 누락으로 시작 전 멈췄다(변경 0). 작업 우선순위 Normal(4)을 이 재시작부터 적용했다(Board·Worker 확인). 1차 전환 5단계는 Board 전용 환경 변수 장치가 없어 보류했다(전역 변수 미사용, #928로 해소).
+- **08:02 창(소유자 예외 승인):** `fda02183` → `ae121694c21eb25f2656cfe05012d4680998cb56`(#925·#927·#928), 08:04:26 KST, 8752, 보호 13표 불변, readyz 10/10. `costcore` 빌드 1.2분, 바이너리를 `D:\WebLedgerHost\bin\costcore\costcore-ae121694.exe`로 고정(sha256 `EFEAA754…8BAD`). Gateway 재시작으로 Normal 적용, 로컬 준비 응답 끊김 2.1초.
+- **1차 전환(소유자 승인 ①·②):** C3 신선 board 백업·복원 동등(78표, quick_check ok). 08:10:32 `costcore migrate`로 운영 `core.sqlite` 생성(버전 0→2, 이때부터 #906 범위 백업에 core 포함). `card-flow.json`에 `classification_writer=rust`·`costcore_bin`·`core_db` 추가(원본 백업, BOM 없음), `core_switch_config.py --check` ok 확인 뒤 Board 재시작(준비 응답 끊김 14초), Worker 재시작(거부 없음). `links_producer`는 넣지 않았다.
+- **전환 직후 대조:** ① A↔C decisions 0·불일치 0(전환 뒤 Python 기록 0). ② 신선 사본 그림자 PASS(7,336행, B↔C 0, 목록 밖 0; A↔B 4행은 반영 전 계획). ③ 전환 뒤 `card.automatic_classification` 기록 0. 카드 완료 대기가 0건이라 첫 자동 분류 apply는 아직 없다. 첫 apply를 감시해 대조 ①~③을 자동으로 돌리고, 차이 1건이면 키 제거·재시작으로 Python에 복귀하는 감시를 24시간 띄웠다(`cutover-20261115/watch.log`).
+- **확인하지 못한 것:** ④ `skipped_mismatch`는 운영에서 볼 수 없다(`app/core_writer.py`가 Rust 응답의 `result`만 돌려주고 `written`·`skipped_mismatch`를 버림). Rust와 Python은 같은 종류·요약으로 `change_log`를 쓰므로 ③은 "전환 뒤 자동 판정 행이 모두 core decisions에 있는가"로 판정한다.
+- 되돌림: `card-flow.json`의 `classification_writer`(와 `costcore_bin`·`core_db`) 제거 → Board·Worker 재시작. Rust가 쓴 행은 지우지 않는다.
+- 근거: `D:/WebLedgerHost/data/backups/`의 `deploy-fda02183/`, `deploy-ae121694/`, `cutover-20261115/`(gateway-restart·board-restart·migrate·c3·verify-baseline·watch 로그, card-flow.json.before), `task-priority-20261115/`.
+
 ## 2026-11-15 창 — `77edf137` 배포, #905 인덱스 장애 수정, 전환 측정 C1·C2
 
 - **창 보호:** 01:29:46~01:47:41 mail-collect 제외(`worker.json` 일시 변경, 원본 복원 확인). 창 종료 재시작에서 이전 Worker가 아직 잠금을 쥐어 새 Worker가 `ALREADY_RUNNING`으로 거부돼 01:48~01:52 Worker가 멈췄다(재시작 스크립트에 이전 Worker 종료 대기를 추가함).
