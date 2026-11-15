@@ -1,4 +1,4 @@
-"""The Muse recognition queue: one worker, no duplicate calls for one image, named failures.
+"""The receipt reading queue: one worker, no duplicate calls for one image, named failures.
 
 Every image here is a synthetic placeholder; the recognizer is a local fake.
 """

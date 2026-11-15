@@ -1,4 +1,4 @@
-"""Muse recognition runs in a worker thread, never inside a request or under the store lock.
+"""Receipt reading runs in a worker thread, never inside a request or under the store lock.
 
 A request only queues a job and reads its state. The worker touches no database: it
 reads one already-verified image file and returns data for a person to review. Jobs

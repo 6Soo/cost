@@ -23,6 +23,7 @@
 | 분기 검수 | [분기 검수](quarter-review.md) | AI 검수자(Fable 5.2 high) 수행. 사용자는 결과 확인·Google 붙여넣기만 |
 | 코어 1차 전환(P1 작성자 Python→Rust) | [코어 1차 전환](core-cutover.md) | 합성 DB 검증만. 운영 전환은 소유자 승인 후 |
 | OTA 근거 기존 중복 압축 | [OTA 근거 압축](ota-evidence-compaction.md) | 도구·사본 예행까지. 운영 반영은 운영 담당이 배포 창에서 |
+| 영수증 사진 판독 | [영수증 사진 판독](receipt-reading.md) | Claude opus medium 실행기가 판독 지시 절을 주입해 수행. 합성 사진 검증, 운영 검증 전 |
 
 새 절차서는 이 폴더에 `<작업이름>.md`로 만든다. 위 두 문서는 아직 이 형식으로 다시 쓰지 않았다. 스크립트로 만들 때 형식에 맞춰 고친다.
 

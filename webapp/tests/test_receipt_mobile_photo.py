@@ -34,7 +34,7 @@ def test_receipt_upload_remains_owner_and_csrf_scoped():
 
 
 def test_disabled_vision_does_not_offer_an_unusable_analysis_checkbox(monkeypatch):
-    monkeypatch.setattr(receipt_review.opencode_receipt_vision, 'enabled', lambda: False)
+    monkeypatch.setattr(receipt_review.receipt_vision, 'enabled', lambda: False)
     html = receipt_review.render_html(
         {'images': ['a' * 64], 'candidates': [], 'holds': []}, csrf='test', trips=[])
     main = html.split('<main>', 1)[1].split('</main>', 1)[0]

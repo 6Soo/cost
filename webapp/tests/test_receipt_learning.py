@@ -1,15 +1,29 @@
 import importlib
 import json
+import struct
+import zlib
+import sys
 from unittest.mock import patch
 
 import pytest
 
-from app import opencode_receipt_vision as vision
+from app import receipt_vision as vision
 from app import receipt_learning as rl
 from webapp import receipt_review as rr
 from webapp import receipt_vision_jobs as jobs
 
-PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 32
+def _png_chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+
+
+def make_png():
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr)
+            + _png_chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00"))
+            + _png_chunk(b"IEND", b""))
+
+
+PNG = make_png()
 SHA = 'c' * 64
 TRIP = 'trip-syn'
 LESSON = '작은 승선권도 별개의 지출 증빙인지 확인할 것.'
@@ -26,10 +40,8 @@ def learning_file(tmp_path, monkeypatch):
 def muse_ready(tmp_path, monkeypatch):
     image = tmp_path / 'slip.png'
     image.write_bytes(PNG)
-    monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
-    monkeypatch.setenv('WEBLEDGER_OPENCODE_EXE', __file__)
+    monkeypatch.setenv('WEBLEDGER_CLAUDE_EXE', sys.executable)
     monkeypatch.setattr(vision, 'enabled', lambda: True)
-    vision._COOLING.clear()
     return str(image)
 
 
@@ -91,14 +103,13 @@ def test_the_next_muse_call_carries_the_lesson_and_the_photo_stays_the_source(le
     rl.remember_lesson(LESSON)
     commands = []
 
-    def runner(command, *, cwd, env):
-        commands.append(command)
+    def runner(command, *, cwd, env, timeout, input_bytes):
+        commands.append(_prompt(input_bytes))
         return _event('{"receipts":[]}')
     vision.recognize(muse_ready, runner=runner, guidance=rl.guidance(notes=rl.notes_for_prompt()))
-    prompt = commands[0][-1]
-    assert LESSON in prompt and prompt.startswith(vision.PROMPT)
+    prompt = commands[0]
+    assert LESSON in prompt and prompt.startswith(vision.playbook_prompt())
     assert 'the attached photo is the source of truth' in prompt
-    assert '--pure' in commands[0]
 
 
 def test_a_saved_lesson_can_be_deleted_and_damaged_lines_are_kept(learning_file):
@@ -122,15 +133,15 @@ def test_the_recognition_contract_gains_an_optional_lesson_only_on_reanalysis(mu
     commands = []
 
     def runner_with(payload):
-        def runner(command, *, cwd, env):
-            commands.append(command)
+        def runner(command, *, cwd, env, timeout, input_bytes):
+            commands.append(_prompt(input_bytes))
             return _event(json.dumps(payload, ensure_ascii=False))
         return runner
     plain = vision.recognize(muse_ready, runner=runner_with({'receipts': receipts}))
-    assert 'lesson' not in plain and commands[-1][-1] == vision.PROMPT
+    assert 'lesson' not in plain and commands[-1] == vision.playbook_prompt()
     lessoned = vision.recognize(muse_ready, runner=runner_with({'receipts': receipts, 'lesson': LESSON}), lesson=True)
     assert lessoned['lesson'] == LESSON and len(lessoned['receipts']) == 1
-    assert vision.LESSON_INSTRUCTION in commands[-1][-1]
+    assert vision.LESSON_INSTRUCTION in commands[-1]
     broken = vision.recognize(muse_ready, runner=runner_with({'receipts': receipts, 'lesson': ['not', 'text']}),
                               lesson=True)
     assert broken['lesson'] is None and len(broken['receipts']) == 1
@@ -247,8 +258,14 @@ def test_the_learning_routes_are_owner_routes(monkeypatch):
 
 
 def _event(text):
-    return type('Proc', (), {'returncode': 0, 'stderr': b'', 'stdout': (json.dumps({
-        'type': 'text', 'part': {'type': 'text', 'text': text}}, ensure_ascii=False) + '\n').encode('utf-8')})()
+    lines = [{'type': 'system', 'subtype': 'init', 'tools': ['StructuredOutput'], 'mcp_servers': [], 'apiKeySource': 'none'},
+             {'type': 'result', 'subtype': 'success', 'is_error': False, 'structured_output': json.loads(text)}]
+    return type('Proc', (), {'returncode': 0, 'stderr': b'',
+                             'stdout': '\n'.join(json.dumps(line, ensure_ascii=False) for line in lines).encode('utf-8')})()
+
+
+def _prompt(input_bytes):
+    return json.loads(input_bytes)['message']['content'][1]['text']
 
 
 def test_repeat_analysis_with_shifted_box_does_not_duplicate_existing_receipt(tmp_path):
