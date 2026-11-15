@@ -245,7 +245,7 @@ def test_the_learning_routes_are_owner_routes(monkeypatch):
 
 
 def _event(text):
-    lines = [{'type': 'system', 'subtype': 'init', 'tools': ['StructuredOutput'], 'mcp_servers': []},
+    lines = [{'type': 'system', 'subtype': 'init', 'tools': ['StructuredOutput'], 'mcp_servers': [], 'apiKeySource': 'none'},
              {'type': 'result', 'subtype': 'success', 'is_error': False, 'structured_output': json.loads(text)}]
     return type('Proc', (), {'returncode': 0, 'stderr': b'',
                              'stdout': '\n'.join(json.dumps(line, ensure_ascii=False) for line in lines).encode('utf-8')})()

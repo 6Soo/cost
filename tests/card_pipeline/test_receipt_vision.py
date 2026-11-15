@@ -30,8 +30,9 @@ def reading(**changes):
     return item
 
 
-def stream(output, *, tools=("StructuredOutput",), events=(), result=None):
-    lines = [{"type": "system", "subtype": "init", "tools": list(tools), "mcp_servers": []}, *events,
+def stream(output, *, tools=("StructuredOutput",), events=(), result=None, key_source="none"):
+    lines = [{"type": "system", "subtype": "init", "tools": list(tools), "mcp_servers": [], "apiKeySource": key_source},
+             *events,
              result or {"type": "result", "subtype": "success", "is_error": False, "structured_output": output}]
     return SimpleNamespace(returncode=0, stdout="\n".join(json.dumps(line, ensure_ascii=False) for line in lines).encode(),
                            stderr=b"")
@@ -224,3 +225,26 @@ def test_the_playbook_prompt_section_is_required(tmp_path):
         with pytest.raises(vision.VisionUnavailable) as error:
             vision.playbook_prompt(path)
         assert error.value.code == "VISION_PLAYBOOK_MISSING"
+
+
+@pytest.mark.parametrize("source", ["/login managed key", "ANTHROPIC_API_KEY", "apiKeyHelper", None])
+def test_a_billed_login_is_refused_and_falls_back_with_the_reason(ready, source):
+    with pytest.raises(vision.VisionUnavailable) as error:
+        vision.recognize(ready, runner=lambda *a, **k: stream(answer(), key_source=source))
+    assert error.value.code == "VISION_BILLING_PATH_REFUSED"
+    result = vision.recognize_with_fallback(ready, runner=lambda *a, **k: stream(answer(), key_source=source),
+                                            ocr=fake_ocr([]))
+    assert result["engine"] == "windows_ocr" and result["fallback_reason"] == "VISION_BILLING_PATH_REFUSED"
+
+
+def test_cloud_provider_switches_are_removed_from_the_environment(ready, monkeypatch):
+    for name in ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.setenv(name, "1")
+    seen = {}
+
+    def runner(command, *, cwd, env, timeout, input_bytes):
+        seen.update(env)
+        return stream(answer())
+    vision.recognize(ready, runner=runner)
+    assert not any(key.upper().startswith(("CLAUDE_CODE_USE_", "ANTHROPIC_")) for key in seen)
+    assert "PATH" in {key.upper() for key in seen}

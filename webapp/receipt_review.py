@@ -371,6 +371,8 @@ def _validate_draft_groups(groups, images):
             raise ValueError('DRAFT_INVALID')
         if group.get('headerText') is not None and (not isinstance(group['headerText'], str) or len(group['headerText']) > trip_match.MAX_HEADER_CHARS):
             raise ValueError('DRAFT_INVALID')
+        if group.get('headerSource') not in (None, 'model', 'ocr'):
+            raise ValueError('DRAFT_INVALID')
         if not isinstance(group.get('receipts'), list) or len(group['receipts']) > 100:
             raise ValueError('DRAFT_INVALID')
         if (not group['receipts'] and not (group.get('empty') or group.get('status') == 'unknown')) or (
@@ -623,10 +625,13 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     header_value = payload.get('header_text')
     if header_value is not None and not isinstance(header_value, (str, list)):
         raise ValueError('INVALID_VALUE')
+    if payload.get('header_source') not in (None, 'model', 'ocr'):
+        raise ValueError('INVALID_VALUE')
     # The trip title printed at the top is not a store: a reading that is only that line loses its merchant.
     payload = dict(payload, regions=_without_header_merchant(payload.get('regions'), header_value, trips))
     regions = _regions(payload)
-    header = trip_match.match_header(header_value, trips)
+    # OCR top lines may be the store's own name and address: they count only with the trip's MMDD.
+    header = trip_match.match_header(header_value, trips, require_date=payload.get('header_source') != 'model')
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
@@ -1318,7 +1323,7 @@ const completeJob=async(group,state)=>{
  if(state.status!=='done')throw new Error(jobFailure(state));
  const source=group.kind==='rescan'?(await post('/api/receipts/vision/new',{image:group.sha,job_id:state.job_id})).new:state.result.receipts;
  group.receipts=source.map(r=>({box:r.box??null,merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,note:r.note??null,reading:r.reading,ordinal:r.ordinal,include:true}));
- group.jobId=state.job_id;if(state.result.header_text)group.headerText=state.result.header_text;
+ group.jobId=state.job_id;if(state.result.header_text){group.headerText=state.result.header_text;group.headerSource=state.result.engine==='windows_ocr'?'ocr':'model'}
  if(state.result.engine==='windows_ocr')say('Claude 판독이 끝나지 않아('+(state.result.fallback_reason||'')+') Windows OCR 참고값으로 대신했습니다. 값을 꼭 확인해 주세요.');delete group.status;group.empty=group.receipts.length===0;
  setPhotoState(group.sha,group.receipts.length?'후보 '+group.receipts.length+'건':'인식된 영수증 없음');
  storePending();await flushDraft();renderPending();return group.receipts.length;
@@ -1375,7 +1380,7 @@ const registerPending=async()=>{
      ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const remaining=pending.map(item=>item===group?{...item,receipts:item.receipts.filter(r=>r.include===false)}:item)
      .filter(item=>item.receipts.length||item.empty||item.status==='unknown');
-   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,header_text:group.headerText||undefined,regions,
+   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip||undefined,header_text:group.headerText||undefined,header_source:group.headerText?(group.headerSource||'ocr'):undefined,regions,
      draft:{draft_id:draftId,expected_revision:draftRevision,operation_id:group.operationId,remaining_groups:remaining}});
    added+=result.added;
    if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
@@ -1677,7 +1682,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,header_text:(ocrHeader.sha===sha?ocrHeader.text:'')||undefined,regions:[region]}),null,true)};"
+        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,header_text:(ocrHeader.sha===sha?ocrHeader.text:'')||undefined,header_source:'ocr',regions:[region]}),null,true)};"
         "const editBody=b=>{const id=b.dataset.edit;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),payee:val('data-payee',id),category:val('data-category',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"

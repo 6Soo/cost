@@ -125,6 +125,9 @@ def parse_events(raw):
             if kind == 'system' and event.get('subtype') == 'init':
                 if set(event.get('tools') or ()) - ALLOWED_TOOLS or event.get('mcp_servers'):
                     raise VisionUnavailable('VISION_TOOL_EXECUTION_DETECTED')
+                # Only the subscription login is allowed: an API key, key helper or cloud provider bills per call.
+                if event.get('apiKeySource') != 'none':
+                    raise VisionUnavailable('VISION_BILLING_PATH_REFUSED')
                 initialised = True
             elif kind == 'assistant':
                 for part in (event.get('message') or {}).get('content') or ():
@@ -241,8 +244,9 @@ def validate_response(result, *, image_hash, model=MODEL, lesson=False):
 
 
 def _environment():
-    # Subscription login only: an API key in the environment would bill per call.
-    return {key: value for key, value in os.environ.items() if not key.upper().startswith('ANTHROPIC_')}
+    # Subscription login only: an API key or a Bedrock/Vertex/Foundry switch in the environment would bill per call.
+    return {key: value for key, value in os.environ.items()
+            if not key.upper().startswith(('ANTHROPIC_', 'CLAUDE_CODE_USE_'))}
 
 
 def recognize(image, *, runner=None, guidance=None, lesson=False, timeout=TIMEOUT_SECONDS):

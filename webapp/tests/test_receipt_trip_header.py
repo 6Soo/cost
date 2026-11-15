@@ -23,6 +23,45 @@ TRIPS = [
 ]
 
 
+PLACES = [
+    {'id': 't-osaka', 'name': '0310_오사카', 'destination': '오사카', 'starts_on': '2026-03-10', 'ends_on': '2026-03-14'},
+    {'id': 't-busan', 'name': '0910_부산', 'destination': '부산', 'starts_on': '2026-09-10', 'ends_on': '2026-09-13'},
+]
+
+
+class PlaceOnlyHeaderTests(unittest.TestCase):
+    """A header that names only a place does not override the receipt date (review of #957, R1)."""
+
+    def decide(self, header, date, **options):
+        return match.decide(match.match_header(header, PLACES, **options), date, PLACES)
+
+    def test_a_place_only_header_with_a_date_in_another_trip_stays_unassigned(self):
+        self.assertEqual(self.decide('오사카', '2026-09-12')['trip_id'], '')
+        self.assertEqual(self.decide('오사카', '2026-05-01')['trip_id'], '')  # outside every trip
+        found = self.decide('오사카', '2026-03-12')
+        self.assertEqual((found['trip_id'], found['source']), ('t-osaka', 'header_text'))
+        self.assertEqual(self.decide('오사카', None)['trip_id'], 't-osaka')
+
+    def test_the_mmdd_still_beats_the_date(self):
+        found = self.decide('0310_오사카', '2026-09-12')
+        self.assertEqual((found['trip_id'], found['source']), ('t-osaka', 'header_text'))
+
+    def test_ocr_top_lines_need_the_mmdd_too(self):
+        # Without a written trip name, the OCR top lines are the store's own address.
+        found = self.decide('부산광역시 해운대구 TEL 0625', '2026-03-11', require_date=True)
+        self.assertEqual((found['trip_id'], found['source']), ('t-osaka', 'date'))
+        self.assertNotEqual(found['trip_id'], 't-busan')
+        found = self.decide('0910 부산 출장', '2026-03-11', require_date=True)
+        self.assertEqual((found['trip_id'], found['source']), ('t-busan', 'header_text'))
+
+    def test_a_place_inside_a_longer_name_is_not_that_place(self):
+        self.assertEqual(match.match_header('히가시오사카 시청', PLACES)['ids'], [])
+        found = self.decide('히가시오사카 시청', '2026-09-12')
+        self.assertEqual((found['trip_id'], found['source']), ('t-busan', 'date'))  # never Osaka from the header
+        self.assertEqual(match.match_header('오사카시 중앙구', PLACES)['ids'], ['t-osaka'])
+        self.assertEqual(match.match_header('0310오사카', PLACES)['ids'], ['t-osaka'])
+
+
 class MatchUnitTests(unittest.TestCase):
     def ids(self, text):
         return match.match_header(text, TRIPS)['ids']
@@ -157,8 +196,9 @@ class ReceiptTripHeaderTests(unittest.TestCase):
 
     def test_ambiguous_header_falls_back_to_the_receipt_date(self):
         self.trips()
-        self.scan(self.photo(), self.region(date='2026-12-03'), header_text='도쿄')
-        self.scan(self.photo(b'\x00\xff\x00'), self.region(date='2026-12-05', total=500), header_text='도쿄')
+        self.scan(self.photo(), self.region(date='2026-12-03'), header_text='도쿄', header_source='model')
+        self.scan(self.photo(b'\x00\xff\x00'), self.region(date='2026-12-05', total=500), header_text='도쿄',
+                  header_source='model')
         by_total = {c['total_jpy']: c for c in self.candidates()}
         self.assertEqual((by_total[900]['trip_id'], by_total[900]['trip_source']), (self.tokyo1, 'date'))
         self.assertFalse(by_total[500].get('trip_id'))
@@ -199,6 +239,20 @@ class ReceiptTripHeaderTests(unittest.TestCase):
         status, body = self.request('/api/receipts/edit', {'identity': saved['identity'], 'trip_id': self.tokyo2,
                                                            'expected_version': None}, token=self.csrf())
         self.assertEqual((status, body['trip_id'], body['trip_source']), (200, self.tokyo2, 'manual'))
+
+    def test_an_ocr_header_counts_only_with_the_trip_mmdd(self):
+        self.trips()
+        self.scan(self.photo(), self.region(date='2026-12-03'), header_text='아키타 라멘 본점', header_source='ocr')
+        saved = self.candidates()[0]
+        self.assertEqual((saved['trip_id'], saved['trip_source']), (self.tokyo1, 'date'))
+        self.assertNotIn('trip_header_text', saved)
+        self.scan(self.photo(b'\x00\xff\x00'), self.region(date='2026-12-03', total=500), header_text='0625 아키타',
+                  header_source='ocr')
+        found = {c['total_jpy']: c for c in self.candidates()}[500]
+        self.assertEqual((found['trip_id'], found['trip_source']), (self.akita, 'header_text'))
+        status, body = self.scan(self.photo(b'\x01\x02\x03'), self.region(), header_text='0625 아키타',
+                                 header_source='camera')
+        self.assertEqual(status, 400)
 
     def test_unknown_named_trip_is_still_refused(self):
         self.trips()

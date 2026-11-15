@@ -59,14 +59,25 @@ def _mmdd(line: str) -> set[str]:
     return found
 
 
-def match_header(value, trips: list[dict]) -> dict:
-    """{'raw', 'ids'}: the trips whose destination is written in the header. One id means a sure match."""
+def _names_place(line: str, destination: str) -> bool:
+    """The place starts a word of the line: 오사카시 names 오사카, 히가시오사카 does not."""
+    words = [re.sub(r'^\d+', '', normalize(word)) for word in re.split(r'[\W_]+', unicodedata.normalize('NFKC', line))]
+    words = [word for word in words if word]
+    return any(''.join(words[i:]).startswith(destination) for i in range(len(words)))
+
+
+def match_header(value, trips: list[dict], *, require_date: bool = False) -> dict:
+    """{'raw', 'ids', 'exact'}: the trips whose destination is written in the header.
+
+    exact means the trip's MMDD is written too. require_date keeps only those (text read by OCR,
+    where the top lines may be the store's own name and address).
+    """
     hits: dict[str, tuple[str, bool, str]] = {}
     for line in header_lines(value):
-        text, dates = normalize(line), _mmdd(line)
+        dates = _mmdd(line)
         for trip in trips:
             prefix, destination = _parts(trip)
-            if len(destination) < 2 or destination not in text:
+            if len(destination) < 2 or not _names_place(line, destination):
                 continue
             exact = bool(prefix) and prefix in dates
             if trip['id'] not in hits or (exact and not hits[trip['id']][1]):
@@ -76,8 +87,8 @@ def match_header(value, trips: list[dict]) -> dict:
         if any(dest_a != dest_b and dest_a in dest_b for _, _, dest_b in hits.values()):
             del hits[a]
     exact_ids = [key for key, (_, exact, _) in hits.items() if exact]
-    ids = exact_ids or list(hits)
-    return {'raw': hits[ids[0]][0] if ids else '', 'ids': ids}
+    ids = exact_ids if exact_ids or require_date else list(hits)
+    return {'raw': hits[ids[0]][0] if ids else '', 'ids': ids, 'exact': bool(exact_ids)}
 
 
 def _period(trip: dict, trips: list[dict]) -> tuple[str, str]:
@@ -97,10 +108,17 @@ def _in_period(trip: dict, date: str, trips: list[dict]) -> bool:
 
 
 def decide(header: dict, date: str | None, trips: list[dict]) -> dict:
-    """{'trip_id', 'source', 'raw'}: header name first, then the receipt date. Nothing is guessed beyond them."""
+    """{'trip_id', 'source', 'raw'}: header name first, then the receipt date. Nothing is guessed beyond them.
+
+    A header with only the place name does not win over the receipt date: when the date lies
+    outside that trip, the receipt stays unassigned.
+    """
     ids, raw = header['ids'], header['raw']
     if len(ids) == 1:
-        return {'trip_id': ids[0], 'source': 'header_text', 'raw': raw}
+        trip = next(t for t in trips if t['id'] == ids[0])
+        if header.get('exact') or not date or _in_period(trip, date, trips):
+            return {'trip_id': ids[0], 'source': 'header_text', 'raw': raw}
+        return {'trip_id': '', 'source': '', 'raw': raw}
     pool = [t for t in trips if t['id'] in ids] if ids else trips
     by_date = [t['id'] for t in pool if _in_period(t, date or '', trips)]
     if len(by_date) == 1:
