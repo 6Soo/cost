@@ -1,3 +1,10 @@
+## 2026-11-16 미결 작업 진행 현황 — 통합 관리자
+
+- **영수증 UI/UX 및 배포 완료:** PR #961(`e2164607c110d4c57240fec7b5c5a68e5d74ea95`) 병합 및 운영 배포(`deploy_verified_release.ps1`) 완료. Board 포트 8751 unpaused, Gateway 8790 `readyz` 200 OK, 13개 보호 테이블 불변 검증.
+- **예약 이용기간 귀속 교정 및 원자적 원복 보호 완료:** PR #962(`a3a55c9fc2e5702334b6635a0c842e7323721878`) 병합 완료(`9c261b58ae434659e4f9dcbfdb77ff9013019634`). 품질 검사 1,445건 전체 통과(0 failed, 0 skip), 필수 브라우저 36건 통과, Rust costcore 빌드/테스트 통과.
+- **하나/IBK 카드 수집 스캐폴드 (PR #850):** `feat/hana-ibk-card-collection-20261113` 브랜치에 제공자별 source echo 검증 반영 및 최신 main 정합 완료(`34d14ad7`). 자격 증명 등록 후 실서버 수집 대기.
+- **Suite2 G3 장부 화면 UI (PR #849):** `fix/suite2-g3-ledger-20261113` 브랜치 최신 main 병합 완료(`ec1c4984`). 잔여 24건 테스트 실패 내역(구 UI 계약 기대값 불일치) 분류 보존.
+
 ## 2026-11-16 영수증 UIUX 최종 코드 검수 — c8cc3e96
 
 - 최신 승인 범위: `/receipts` UIUX R1~R11과 #957 여행 인식을 통합해 우선 배포 준비. 단일 구현자 `/root/receipt_uiux_finish_luna` **gpt-6-luna / xhigh**. 감독은 최종 화면·영향 검증·문서/PR을 맡고 컨트롤 타워 `622fd069`가 독립 검수·병합·배포를 맡는다. 공유 원본 폴더·고객 원문·운영 DB·Google 쓰기0.
