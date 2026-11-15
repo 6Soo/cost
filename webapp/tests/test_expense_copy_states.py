@@ -196,3 +196,13 @@ def test_unavailable_source_does_not_add_detail_or_user_task(copy_state, monkeyp
     monkeypatch.setattr(design, '_selected_rows', lambda tab: ([], rows, [], rows))
     monkeypatch.setattr(design, '_expense_copy_preview', lambda tab, costs: preview)
     assert design._google_match_detail(rows[0]) == ''
+
+
+def test_source_failure_guidance_names_buttons_present_in_the_same_markup(copy_state):
+    rows, preview = copy_state
+    preview.update(source_available=False, source_info={'reason': 'SOURCE_NOT_SELECTED'})
+    markup = design._trip_copy_html('trip-synthetic', rows, preview)
+    assert '장부 동기화 후 다시 확인' in markup
+    assert 'data-google-sync' in markup and '>장부 동기화</button>' in markup
+    assert 'data-copy-recheck' in markup and '>다시 확인</button>' in markup
+    assert '연결 설정' not in markup

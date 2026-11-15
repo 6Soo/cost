@@ -7,7 +7,7 @@ from webapp import google_ledger_page, ledger_design as design
     ([{'amount_krw': 100}], {'show_rows': True, 'amount': 80, 'count': 2}, '100원', '70원', '수입 1건'),
     ([], {'show_rows': True, 'amount': 80, 'count': 2}, '80원', '50원', '수입 2건'),
     ([{'amount_krw': 100}], {'show_rows': False, 'verified': False}, '100원', '70원', '수입 1건'),
-    ([], None, '—', '—', '장부 동기화 필요'),
+    ([], None, '—', '—', '장부 확인 필요'),
 ])
 def test_kpi_keeps_cost_income_priority_and_uses_google_only_as_fallback(monkeypatch, cost, google, income, balance, note):
     expenses = [{'amount_krw': 30}]
@@ -22,17 +22,11 @@ def test_kpi_keeps_cost_income_priority_and_uses_google_only_as_fallback(monkeyp
     assert note in markup
 
 
-def test_copy_guidance_points_only_to_existing_recovery_actions():
-    from webapp import expense_copy_state
+def test_guidance_without_buttons_names_no_button_and_stale_setup_screens():
+    from webapp import expense_copy_state, participant_income_page
 
     for reason in ('TRIP_MAPPING_UNAVAILABLE', 'SOURCE_NOT_SELECTED', 'SOURCE_NOT_VERIFIED', 'OTHER'):
         text = expense_copy_state.source_message(reason)
-        assert '연결 설정' not in text and '선택해 주세요' not in text
-        assert '동기화' in text
-
-
-def test_participant_index_blocker_guides_to_sync():
-    from webapp import participant_income_page
-
-    text = participant_income_page.INDEX_BLOCKERS['CHOICE_REQUIRED']
-    assert '선택해야' not in text and '동기화' in text
+        assert '동기화' not in text and '다시 확인' not in text and '연결 설정' not in text
+    for text in participant_income_page.INDEX_BLOCKERS.values():
+        assert '동기화 후' not in text and '선택해야' not in text and '선택한' not in text

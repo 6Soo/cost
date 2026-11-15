@@ -286,7 +286,7 @@ def trip_income_html(tab_id: str, *, participant_state: dict | None = None,
         trip = matches[0]
         source = trip.get('chosen_source')
         if source not in google_authority.SPREADSHEET_IDS:
-            return panel('수입 장부를 확인하지 못했습니다. 동기화 후 다시 확인하고, 같으면 Google 시트 탭을 확인해 주세요.')
+            return panel('수입 장부를 확인하지 못했습니다. 잠시 뒤 다시 열어 주세요. 같으면 Google 시트 탭을 확인해 주세요.')
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
             return panel('수입 내역을 불러오지 못했습니다.')
@@ -799,7 +799,7 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         "padding:8px 12px;margin:8px 8px 0 0;border:1px solid var(--shell-line-strong);border-radius:var(--r-md);color:var(--shell-accent)}"
         "</style></head><body><h1>수입 장부를 아직 표시할 수 없습니다.</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
-        "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
+        "<p>확인되지 않은 금액은 표시하지 않습니다. 잠시 뒤 다시 열어 주세요. 같으면 Google 시트 탭을 확인해 주세요.</p>"
         f"{ui_icons.icon('refresh-cw')}다시 확인"
         f"<a href='/board'>{ui_icons.icon('chevron-left')}여행별 비용으로 돌아가기</a>"
         "</body></html>", 503)

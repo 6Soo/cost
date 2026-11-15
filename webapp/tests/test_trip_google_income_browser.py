@@ -186,5 +186,5 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
 
         # Top summary reports mismatch and does NOT fabricate artificial balance
         sum_box = page.locator('#sum')
-        self.assertIn('장부 동기화 필요', sum_box.inner_text())
+        self.assertIn('장부 확인 필요', sum_box.inner_text())
         self.assertIn('—', sum_box.inner_text())
